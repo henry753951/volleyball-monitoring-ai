@@ -2,7 +2,7 @@
 
 ## 2026-08-07 — Phase 0, round 1
 
-Status: locally integrated and validated on `integration/phase-0-round-1`; not merged to `main` and not pushed because this delivery did not contain Git metadata or a GitHub remote.
+Status: locally integrated and validated on `integration/phase-0-round-1`; GitHub integration review is recorded in [PR #1](https://github.com/henry753951/volleyball-monitoring-ai/pull/1) against `main`.
 
 ### Source-of-truth audit
 
@@ -25,7 +25,7 @@ Status: locally integrated and validated on `integration/phase-0-round-1`; not m
 | Prisma / server / worker | `feat/phase0-media-readiness` | `H:\Repos\volleyball-monitoring-ai-worktrees\backend-media` | `a07e1ab`, `2cd54c1`, `cc37b70` |
 | Nuxt iPad PWA | `feat/phase0-web-contract-alignment` | `H:\Repos\volleyball-monitoring-ai-worktrees\web` | `27455f5` |
 
-Subagents did not merge. The main agent reviewed their diffs, reran their tests, created the commits where requested, and locally merged the reviewed branches into the integration branch. `main` remains unchanged so the integration branch can become the PR head once a remote is supplied.
+Subagents did not merge. The main agent reviewed their diffs, reran their tests, created the commits where requested, and locally merged the reviewed branches into the integration branch. A private remote was then created with the authenticated local GitHub CLI and all review branches were pushed before opening PR #1.
 
 ### Round-1 task contracts
 
@@ -76,13 +76,13 @@ The Nuxt build emits a dependency-level Node `DEP0155` deprecation warning but c
 
 ### Open blockers and limitations
 
-- No Git remote exists, although `gh auth status` is authenticated. The specification also leaves repository owner/URL open. Therefore no branch was pushed, no `gh pr create` was attempted, and nothing was merged to `main`. Supply the intended GitHub remote to complete the PR/review/merge stage.
+- Private remote: `git@github.com:henry753951/volleyball-monitoring-ai.git`. `main`, the integration branch and all three reviewed feature branches were pushed; PR #1 is the integration-to-main review record.
 - The local Bun is `1.3.6`, while the repository pins `1.3.14`. Validation passed, but release/CI should use the pinned version.
 - Docker Compose runtime, migrations, database integration tests, real media ingest/DVR packaging, browser/iPad E2E and external AI callback flows were not run.
 - The server REST media routes, durable annotation WebSocket, queue workers and end-to-end vertical product flow remain scaffolds. Green in the UI must continue to mean an immutable submission exists, not AI completion.
 
 ### Recommended next round
 
-1. Configure the GitHub remote, push the integration and feature branches, open the integration-to-main PR, and merge only after remote CI/review.
+1. Use PR #1 as the integration-to-main review and merge record, and preserve the feature branches for workstream auditability.
 2. Implement the first small end-to-end slice around match/capture setup and an authoritative server-resolved playback window, including the first migration and DB integration tests.
 3. Keep annotation submission, clip creation and external AI dispatch as subsequent vertical slices, preserving the fixed keyboard/touch semantics and immutable `RallySubmission` boundary.
