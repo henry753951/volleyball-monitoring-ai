@@ -33,7 +33,7 @@ This archive is a contract-first implementation starter, not a finished applicat
 
 ## Product invariants
 
-- Z service; Space contact; X terminalizes the existing last key point without creating a new timestamp; `<` left score; `>` right score; `?` explicit unknown; Enter immutable submission.
+- Annotation command semantics are fixed: service, contact, terminal, side score, explicit unknown and immutable submission. Z, Space, X, `<`, `>`, `?` and Enter are the defaults and may be remapped with conflict detection and Restore Defaults; terminal still marks the existing last key point without creating a new timestamp.
 - Gray mask is editable/unsubmitted. Green mask means submitted, not AI completed.
 - Server stores the full DVR. The iPad PWA lazy-loads bounded playback windows.
 - Browser playback time is observational. The backend resolves authoritative source time/PTS/frame.

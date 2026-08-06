@@ -15,22 +15,23 @@
   \usepackage[utf8]{inputenc}
   \usepackage{textcomp} % provide euro and other symbols
 \else % if luatex or xetex
-  \usepackage{unicode-math} % this also loads fontspec
+  \usepackage{fontspec}
   \defaultfontfeatures{Scale=MatchLowercase}
   \defaultfontfeatures[\rmfamily]{Ligatures=TeX,Scale=1}
 \fi
 \usepackage{lmodern}
 \ifPDFTeX\else
   % xetex/luatex font selection
-  \setmainfont[]{Noto Sans CJK TC}
-  \setmonofont[]{Noto Sans Mono CJK TC}
+  \setmainfont[]{Noto Sans TC}
+  \setmonofont[]{Consolas}
   \ifXeTeX
     \usepackage{xeCJK}
-    \setCJKmainfont[]{Noto Sans CJK TC}
+    \setCJKmainfont[]{Noto Sans TC}
+    \setCJKmonofont[]{Noto Sans TC}
           \fi
   \ifLuaTeX
     \usepackage[]{luatexja-fontspec}
-    \setmainjfont[]{Noto Sans CJK TC}
+    \setmainjfont[]{Noto Sans TC}
   \fi
 \fi
 % Use upquote if available, for straight quotes in verbatim environments
@@ -111,7 +112,7 @@
 \babelprovide[main,import]{chinese-hant}
 \ifPDFTeX
 \else
-\babelfont{rm}[]{Noto Sans CJK TC}
+\babelfont{rm}[]{Noto Sans TC}
 \fi
 % get rid of language-specific shorthands (see #6817):
 \let\LanguageShortHands\languageshorthands
@@ -245,12 +246,11 @@ table 或只完成 demo 的工作，都不能宣稱該流程已完成。
 \subsection{1.1
 標註快捷鍵與介面控制}\label{11-ux6a19ux8a3bux5febux6377ux9375ux8207ux4ecbux9762ux63a7ux5236}
 
-下列鍵盤行為與畫面按鈕是產品合約，不得由實作者自行改成其他語意。觸控按鈕與鍵盤必須呼叫同一個
-command path。
+下列 command 語意與畫面按鈕是產品合約，不得由實作者自行改成其他語意。表中鍵位是預設值，使用者可以在設定選單修改實體快捷鍵；觸控按鈕與目前鍵盤綁定必須呼叫同一個 command path。
 
 \begin{longtable}[]{@{}>{\RaggedRight\arraybackslash}p{0.11\linewidth}>{\RaggedRight\arraybackslash}p{0.19\linewidth}>{\RaggedRight\arraybackslash}p{0.31\linewidth}>{\RaggedRight\arraybackslash}p{0.33\linewidth}@{}}
 \toprule\noalign{}
-介面顯示 & 快捷鍵 & 固定語意 & 重要限制 \\
+預設介面顯示 & 預設快捷鍵 & 固定語意 & 重要限制 \\
 \midrule\noalign{}
 \endhead
 \bottomrule\noalign{}
@@ -278,6 +278,22 @@ AI，但不納入勝負統計 \\
 不可提交；\texttt{resolved} 或 \texttt{unknown} 可提交 \\
 \end{longtable}
 
+\subsubsection{快捷鍵自訂邊界}
+
+\begin{itemize}
+\tightlist
+\item
+  使用者可以修改 annotation 與播放器 command 的實體鍵位；修改鍵位不得改變 command 語意、WebSocket command kind 或 server-side validation。
+\item
+  每個可用 command 必須保留一個有效鍵位。設定選單使用集中式 command registry、快捷鍵錄製器與衝突檢查，不得由各 component 各自監聽或保存。
+\item
+  設定選單必須提供「還原所有預設快捷鍵」。還原後回到本節表格與方向鍵的預設值。
+\item
+  相同 scope 不得有重複鍵位；瀏覽器保留鍵、文字輸入焦點、Dialog/Select scope 與平台鍵盤差異必須被辨識並清楚提示。
+\item
+  Control deck、設定選單與快捷鍵說明必須以 TanStack Hotkeys \texttt{formatForDisplay} 顯示目前綁定，讓 macOS 使用符號、Windows/Linux 使用平台慣用標籤；不得自行拼接鍵帽文字。七個觸控動作不可被移除，且不受鍵盤自訂影響。
+\end{itemize}
+
 \texttt{service} 與 \texttt{contact} 只是人工 marker kind，不是 AI
 action label，也沒有人工 confidence。第一個 key point 被標成
 \texttt{service} 只代表標註流程由 Z 開始；AI 是否輸出任何 action、action
@@ -293,13 +309,13 @@ optional extension。
   文字輸入、Dialog 或 Select 開啟時，禁止攔截全域快捷鍵。
 \item
   \texttt{AWAITING\_\allowbreak{}SCORE}
-  時，\texttt{\textless{}}、\texttt{\textgreater{}}、\texttt{?}
-  代表得分選擇。
+  時，左側得分、右側得分、未知等 command 依目前綁定觸發；預設為
+  \texttt{\textless{}}、\texttt{\textgreater{}}、\texttt{?}。
 \item
-  方向鍵 \texttt{←}／\texttt{→} 永遠只代表前後一個 canonical
-  frame或播放器移動，不作為得分快捷鍵。
+  前後 canonical frame／播放器移動 command 預設綁定
+  \texttt{←}／\texttt{→}；使用者可改鍵，但該 command 不得變成得分或 annotation data mutation。
 \item
-  其他狀態下方向鍵只控制播放器，不可暗中改資料。
+  其他狀態下播放器 command 只控制播放器，不可暗中改資料。
 \item
   每次 destructive action 都必須等待 server ack；optimistic UI 可顯示
   pending，但不得把暫態當 canonical revision。
@@ -1859,9 +1875,8 @@ supersedes關係。
   多軌 timeline：完整 capture range、gap、playhead、key points、rally
   masks、score strip、processing badges。
 \item
-  底部固定 control
-  deck：\texttt{Z\ 發球}、\texttt{Space\ 擊球}、\texttt{X\ 結束}、\texttt{\textless{}\ 左側得分}、\texttt{\textgreater{}\ 右側得分}、\texttt{?\ 未知}、\texttt{Enter\ 提交}，並依
-  state啟停。
+  底部固定 control deck：發球、擊球、結束、左側得分、右側得分、未知、提交七個觸控動作，顯示目前快捷鍵（預設
+  \texttt{Z}、\texttt{Space}、\texttt{X}、\texttt{\textless{}}、\texttt{\textgreater{}}、\texttt{?}、\texttt{Enter}）並依 state啟停。
 \item
   Inspector：選取 key point時顯示 canonical
   time、frame、建立者、revision、duplicate/precision資訊。

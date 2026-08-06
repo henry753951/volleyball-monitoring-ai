@@ -45,9 +45,9 @@
 
 ## 1.1 標註快捷鍵與介面控制
 
-下列鍵盤行為與畫面按鈕是產品合約，不得由實作者自行改成其他語意。觸控按鈕與鍵盤必須呼叫同一個 command path。
+下列 command 語意與畫面按鈕是產品合約，不得由實作者自行改成其他語意。表中鍵位是預設值，使用者可以在設定選單修改實體快捷鍵；觸控按鈕與目前鍵盤綁定必須呼叫同一個 command path。
 
-| 介面顯示 | 快捷鍵 | 固定語意 | 重要限制 |
+| 預設介面顯示 | 預設快捷鍵 | 固定語意 | 重要限制 |
 |---|---:|---|---|
 | `Z 發球` | `Z` | 建立新 rally，並在目前已呈現影片 frame 建立第一個人工 `service` key point | 已有未提交 rally 時不可另開新 rally |
 | `Space 擊球` | `Space` | 在目前已呈現影片 frame 建立一般 `contact` key point | 播放器正在 seek、cursor stale 或位於 gap 時不可建立 |
@@ -57,14 +57,22 @@
 | `? 未知` | `?` | 使用者明確表示暫時無法判定得分方，設為 `unknown` | 不是 `pending`；可以提交 AI，但不納入勝負統計 |
 | `Enter 提交` | `Enter` | 將目前 draft 建立成 immutable `RallySubmission`，啟動裁切與 AI 串接 | `pending` 不可提交；`resolved` 或 `unknown` 可提交 |
 
+### 快捷鍵自訂邊界
+
+- 使用者可以修改 annotation 與播放器 command 的實體鍵位；修改鍵位不得改變 command 語意、WebSocket command kind 或 server-side validation。
+- 每個可用 command 必須保留一個有效鍵位。設定選單使用集中式 command registry、快捷鍵錄製器與衝突檢查，不得由各 component 各自監聽或保存。
+- 設定選單必須提供「還原所有預設快捷鍵」。還原後回到本節表格與方向鍵的預設值。
+- 相同 scope 不得有重複鍵位；瀏覽器保留鍵、文字輸入焦點、Dialog/Select scope 與平台鍵盤差異必須被辨識並清楚提示。
+- Control deck、設定選單與快捷鍵說明必須以 TanStack Hotkeys `formatForDisplay` 顯示目前綁定，讓 macOS 使用符號、Windows/Linux 使用平台慣用標籤；不得自行拼接鍵帽文字。七個觸控動作不可被移除，且不受鍵盤自訂影響。
+
 `service` 與 `contact` 只是人工 marker kind，不是 AI action label，也沒有人工 confidence。第一個 key point 被標成 `service` 只代表標註流程由 Z 開始；AI 是否輸出任何 action、action label 長什麼樣、是否有 confidence，均屬待 AI 團隊提供真實輸出後確認的 optional extension。
 
 ### 按鍵模式優先順序
 
 1. 文字輸入、Dialog 或 Select 開啟時，禁止攔截全域快捷鍵。
-2. `AWAITING_SCORE` 時，`<`、`>`、`?` 代表得分選擇。
-3. 方向鍵 `←`／`→` 永遠只代表前後一個 canonical frame或播放器移動，不作為得分快捷鍵。
-4. 其他狀態下方向鍵只控制播放器，不可暗中改資料。
+2. `AWAITING_SCORE` 時，左側得分、右側得分、未知等 command 依目前綁定觸發；預設為 `<`、`>`、`?`。
+3. 前後 canonical frame／播放器移動 command 預設綁定 `←`／`→`；使用者可改鍵，但該 command 不得變成得分或 annotation data mutation。
+4. 其他狀態下播放器 command 只控制播放器，不可暗中改資料。
 5. 每次 destructive action 都必須等待 server ack；optimistic UI 可顯示 pending，但不得把暫態當 canonical revision。
 
 ## 1.2 Rally Mask 與狀態呈現
@@ -890,7 +898,7 @@ Server以單一 transaction：
 - 頂部：場次、來源健康、LIVE狀態、與 live edge距離、WebSocket、協作者、來源 timecode。
 - 中央：有聲 video、回到 LIVE、播放/暫停、逐幀、倍速。
 - 多軌 timeline：完整 capture range、gap、playhead、key points、rally masks、score strip、processing badges。
-- 底部固定 control deck：`Z 發球`、`Space 擊球`、`X 結束`、`< 左側得分`、`> 右側得分`、`? 未知`、`Enter 提交`，並依 state啟停。
+- 底部固定 control deck：發球、擊球、結束、左側得分、右側得分、未知、提交七個觸控動作，顯示目前快捷鍵（預設 `Z`、`Space`、`X`、`<`、`>`、`?`、`Enter`）並依 state啟停。
 - Inspector：選取 key point時顯示 canonical time、frame、建立者、revision、duplicate/precision資訊。
 
 # 10. Annotation Realtime Schema v1.1

@@ -16,14 +16,15 @@ Date: 2026-08-07 (Asia/Taipei target release date)
   - 8 tests passed.
 - Full JSON, TOML and YAML parse pass.
 - `docs/SYSTEM_SPEC_V3_2.pdf`
-  - 41 pages, A4, searchable and openable.
+  - 42 pages after the accepted customizable-hotkey boundary update, A4, searchable and openable.
   - `pdf_preflight.py` passed basic preflight.
   - Rendered every page to PNG and visually reviewed contact sheets plus detailed pages for Annotation UI and wide audit tables.
-  - Verified searchable text contains all seven fixed controls, Traefik baseline and `court_pos` requirements.
+  - Verified searchable text contains all seven command semantics, editable bindings, Restore Defaults, `formatForDisplay`, Traefik baseline and `court_pos` requirements.
 - ZIP integrity is verified during final packaging with `unzip -t`.
 
 ## Corrected during final audit
 
+- Updated the shortcut boundary: physical keys are configurable, command semantics and touch actions remain fixed, and Restore All Defaults plus TanStack `formatForDisplay` are required.
 - Added queryable AI producer fields to `AnalysisRun`.
 - Added optional `AnalysisTrack.meanConfidence`.
 - Added optional `ContactEvent.resolvedFrameIndex`.

@@ -4,6 +4,6 @@
 
 最多同時使用三個 subagent：contracts_sdk_worker、backend_worker、luna_worker；主 Agent保留schema、架構、跨目錄修改與merge決策。本repo不實作AI模型，只完成Nuxt iPad PWA、中央GraphQL/REST/WebSocket、完整server-side DVR與裁切、PostgreSQL/Prisma、Redis、MinIO、MediaMTX、Traefik、AI接口、Fake Provider與GitHub可安裝Python SDK。
 
-不可更改：Z發球、Space擊球、X只把server-confirmed最後key point標terminal且不建立時間、<左側得分、>右側得分、?明確unknown、Enter建立immutable submission；灰mask未提交、綠mask已提交。Browser時間不是authoritative；整場DVR在server，client只lazy-load bounded window。court_pos一律由外部AI依固定球場模型產生，中央與前端不得推算或clamp。
+不可更改的是 command 語意：service、contact、terminal、左右得分、unknown、immutable submit；terminal只把server-confirmed最後key point標記且不建立時間。Z、Space、X、<、>、?、Enter是預設鍵，使用者可重新綁定，但設定必須有衝突檢查與還原所有預設快捷鍵；七個觸控動作仍固定存在。灰mask未提交、綠mask已提交。Browser時間不是authoritative；整場DVR在server，client只lazy-load bounded window。court_pos一律由外部AI依固定球場模型產生，中央與前端不得推算或clamp。
 
 從Phase 0開始，先凍結contracts和exit criteria，再委派；每個Phase只宣稱實際build/test通過的vertical slice，並更新docs/progress.md。

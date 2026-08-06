@@ -5,7 +5,7 @@ This repository implements the Nuxt iPad PWA, central GraphQL/REST/WebSocket ser
 Before work, read `docs/SYSTEM_SPEC_V3_2.md`, `docs/MAIN_AGENT_PROMPT.md`, `packages/contracts/README.md`, fixtures and nearest tests.
 
 Hard invariants:
-- Keyboard/touch semantics are fixed: Z service, Space contact, X marks the existing previous key point terminal and creates no time, < left-side score, > right-side score, ? explicit unknown, Enter immutable submit. Arrow keys are frame/player controls, not score shortcuts.
+- Annotation/touch command semantics are fixed, while physical keyboard bindings are user-configurable. Defaults are Z service, Space contact, X terminal, < left-side score, > right-side score, ? explicit unknown and Enter immutable submit; arrow keys default to frame/player controls. Remapping never changes command meaning: terminal still marks the existing previous key point and creates no time. The settings UI must provide conflict-safe recording and Restore Defaults, and the seven touch actions remain available.
 - Gray rally mask is editable/unsubmitted; green means an immutable submission exists, not that AI is complete.
 - Browser cursor values are observations; backend playback-window/sample-index resolution creates authoritative capture epoch, PTS, capture time and frame.
 - Full DVR remains server-side and the PWA lazy-loads bounded playback windows.

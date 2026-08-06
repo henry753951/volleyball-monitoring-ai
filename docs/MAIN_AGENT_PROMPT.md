@@ -22,7 +22,7 @@
 
 不可改變：
 
-- Z建立service；Space建立contact；X只把既有上一個key point標terminal且不建立時間；`<`左側得分；`>`右側得分；`?`明確unknown；Enter建立immutable submission。
+- Annotation command 語意固定：service、contact、terminal、左右得分、unknown 與 immutable submit 不可重新定義；terminal只標記既有上一個key point且不建立時間。預設鍵為 Z、Space、X、`<`、`>`、`?`、Enter，但使用者可在集中式設定選單重新綁定；必須提供衝突檢查與還原所有預設快捷鍵。
 - 介面必須同時顯示七個觸控控制；灰色mask未提交、綠色mask已提交，AI狀態另顯示。
 - Browser時間只是一個PlaybackCursor observation；authoritative PTS/frame由後端解析。
 - Server保存整場DVR；iPad只lazy-load bounded playback window，live ingest持續進行。
