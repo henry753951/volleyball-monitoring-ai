@@ -27,6 +27,7 @@ def repository_files(pattern: str):
         yield path
 
 REQUIRED = [
+    'bun.lock',
     'docs/MASTER_IMPLEMENTATION_SPEC.md',
     'docs/MAIN_AGENT_PROMPT.md',
     'packages/contracts/ai/job.schema.json',
@@ -39,6 +40,7 @@ REQUIRED = [
     'packages/db/prisma/schema.prisma',
     'sdk/pyproject.toml',
     'web/app/pages/annotate/[matchId].vue',
+    'web/tsconfig.json',
     'server/src/index.ts',
     'infra/compose.yaml',
 ]

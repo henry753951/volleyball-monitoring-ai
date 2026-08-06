@@ -14,6 +14,10 @@ SCHEMA = ROOT / "packages" / "db" / "prisma" / "schema.prisma"
 TEXT = SCHEMA.read_text(encoding="utf-8")
 
 
+def normalized(value: str) -> str:
+    return re.sub(r"\s+", " ", value).strip()
+
+
 def blocks(kind: str) -> dict[str, str]:
     # Prisma permits compact one-line enum/model blocks; match the nearest closing brace.
     pattern = re.compile(rf"(?ms)^\s*{kind}\s+(\w+)\s*\{{(.*?)\}}")
@@ -86,7 +90,7 @@ required_tokens = [
     'observationFrameIndex BigInt',
 ]
 for token in required_tokens:
-    if token not in TEXT:
+    if normalized(token) not in normalized(TEXT):
         raise AssertionError(f"missing required Prisma invariant: {token}")
 
 submission_score_values = set(re.findall(r"\b[A-Z][A-Z0-9_]*\b", enums.get("SubmissionScoreResolution", "")))
@@ -95,6 +99,17 @@ if submission_score_values != {"RESOLVED", "UNKNOWN"}:
         "SubmissionScoreResolution must contain only RESOLVED and UNKNOWN; "
         "PENDING is draft-only"
     )
+
+for durable_job_model in ("ClipJob", "AiJob"):
+    body = normalized(models[durable_job_model])
+    for token in (
+        "maxAttempts Int @default(5)",
+        "availableAt DateTime @default(now())",
+        "leasedUntil DateTime?",
+        "@@index([status, availableAt])",
+    ):
+        if normalized(token) not in body:
+            raise AssertionError(f"missing durable job invariant in {durable_job_model}: {token}")
 
 if '@@index([analysisId])' in TEXT:
     raise AssertionError('analysisId is already @unique; redundant @@index must be removed')
