@@ -1,0 +1,18 @@
+{
+  "schema_version": "1.0.0",
+  "playback_window_id": "window-001",
+  "capture_session_id": "capture-001",
+  "mode": "archive",
+  "mapping_version": 3,
+  "timeline_capture_start_us": "0",
+  "timeline_capture_end_us": "7200000000",
+  "window_capture_start_us": "2733123000",
+  "window_capture_end_us": "2943123000",
+  "presentation_origin_capture_us": "2733123000",
+  "target_player_media_time_us": "90000000",
+  "manifest_url": "/api/v1/media/playback-windows/window-001/manifest.m3u8",
+  "expires_at": "2026-08-07T05:00:00Z",
+  "live_edge_capture_time_us": "7200000000",
+  "has_more_before": true,
+  "has_more_after": true
+}

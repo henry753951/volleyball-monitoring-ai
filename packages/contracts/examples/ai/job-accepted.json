@@ -1,0 +1,7 @@
+{
+  "schema_version": "1.0.0",
+  "ai_job_id": "job-001",
+  "provider_job_id": "provider-job-001",
+  "state": "accepted",
+  "accepted_at": "2026-08-07T05:30:00Z"
+}

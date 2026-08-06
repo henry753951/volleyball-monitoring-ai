@@ -1,0 +1,42 @@
+openapi: 3.1.0
+info:
+  title: Volleyball External AI Provider API
+  version: 1.1.0
+paths:
+  /v1/capabilities:
+    get:
+      summary: Report supported contract versions and optional extensions
+      responses:
+        '200':
+          description: Provider capabilities
+          content:
+            application/json:
+              schema:
+                $ref: ../ai/capabilities.schema.json
+  /v1/jobs:
+    post:
+      summary: Accept one immutable rally job; no model parameters are remotely configured
+      parameters:
+        - in: header
+          name: Authorization
+          required: true
+          schema: { type: string }
+        - in: header
+          name: Idempotency-Key
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: ../ai/job.schema.json
+      responses:
+        '202':
+          description: Accepted idempotently
+          content:
+            application/json:
+              schema:
+                $ref: ../ai/job-accepted.schema.json
+        '409': { description: Idempotency key reused with a different payload }
+        '422': { description: Unsupported or invalid job contract }

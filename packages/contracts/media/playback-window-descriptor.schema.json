@@ -1,0 +1,98 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/OWNER/volleyball-monitoring-ai/packages/contracts/media/playback-window-descriptor/1.0.0",
+  "title": "Playback Window Descriptor 1.0.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "playback_window_id",
+    "capture_session_id",
+    "mode",
+    "mapping_version",
+    "timeline_capture_start_us",
+    "timeline_capture_end_us",
+    "window_capture_start_us",
+    "window_capture_end_us",
+    "presentation_origin_capture_us",
+    "target_player_media_time_us",
+    "manifest_url",
+    "expires_at",
+    "has_more_before",
+    "has_more_after"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "1.0.0"
+    },
+    "playback_window_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "capture_session_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "mode": {
+      "enum": [
+        "live",
+        "archive"
+      ]
+    },
+    "mapping_version": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "timeline_capture_start_us": {
+      "type": "string",
+      "pattern": "^[0-9]+$"
+    },
+    "timeline_capture_end_us": {
+      "type": "string",
+      "pattern": "^[0-9]+$"
+    },
+    "window_capture_start_us": {
+      "type": "string",
+      "pattern": "^[0-9]+$"
+    },
+    "window_capture_end_us": {
+      "type": "string",
+      "pattern": "^[0-9]+$"
+    },
+    "presentation_origin_capture_us": {
+      "type": "string",
+      "pattern": "^[0-9]+$"
+    },
+    "target_player_media_time_us": {
+      "type": "string",
+      "pattern": "^[0-9]+$"
+    },
+    "manifest_url": {
+      "type": "string",
+      "format": "uri-reference"
+    },
+    "expires_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "live_edge_capture_time_us": {
+      "oneOf": [
+        {
+          "type": "string",
+          "pattern": "^[0-9]+$"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "has_more_before": {
+      "type": "boolean"
+    },
+    "has_more_after": {
+      "type": "boolean"
+    }
+  }
+}

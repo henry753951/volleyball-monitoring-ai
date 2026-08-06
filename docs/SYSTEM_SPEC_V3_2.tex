@@ -1,0 +1,4053 @@
+% Options for packages loaded elsewhere
+\PassOptionsToPackage{unicode}{hyperref}
+\PassOptionsToPackage{hyphens}{url}
+\PassOptionsToPackage{dvipsnames,svgnames,x11names}{xcolor}
+\PassOptionsToPackage{space}{xeCJK}
+%
+\documentclass[
+  9pt,
+  a4paper,
+]{article}
+\usepackage{amsmath,amssymb}
+\usepackage{iftex}
+\ifPDFTeX
+  \usepackage[T1]{fontenc}
+  \usepackage[utf8]{inputenc}
+  \usepackage{textcomp} % provide euro and other symbols
+\else % if luatex or xetex
+  \usepackage{unicode-math} % this also loads fontspec
+  \defaultfontfeatures{Scale=MatchLowercase}
+  \defaultfontfeatures[\rmfamily]{Ligatures=TeX,Scale=1}
+\fi
+\usepackage{lmodern}
+\ifPDFTeX\else
+  % xetex/luatex font selection
+  \setmainfont[]{Noto Sans CJK TC}
+  \setmonofont[]{Noto Sans Mono CJK TC}
+  \ifXeTeX
+    \usepackage{xeCJK}
+    \setCJKmainfont[]{Noto Sans CJK TC}
+          \fi
+  \ifLuaTeX
+    \usepackage[]{luatexja-fontspec}
+    \setmainjfont[]{Noto Sans CJK TC}
+  \fi
+\fi
+% Use upquote if available, for straight quotes in verbatim environments
+\IfFileExists{upquote.sty}{\usepackage{upquote}}{}
+\IfFileExists{microtype.sty}{% use microtype if available
+  \usepackage[]{microtype}
+  \UseMicrotypeSet[protrusion]{basicmath} % disable protrusion for tt fonts
+}{}
+\makeatletter
+\@ifundefined{KOMAClassName}{% if non-KOMA class
+  \IfFileExists{parskip.sty}{%
+    \usepackage{parskip}
+  }{% else
+    \setlength{\parindent}{0pt}
+    \setlength{\parskip}{6pt plus 2pt minus 1pt}}
+}{% if KOMA class
+  \KOMAoptions{parskip=half}}
+\makeatother
+\usepackage{xcolor}
+\usepackage[margin=15mm]{geometry}
+\usepackage{color}
+\usepackage{fancyvrb}
+\newcommand{\VerbBar}{|}
+\newcommand{\VERB}{\Verb[commandchars=\\\{\}]}
+\DefineVerbatimEnvironment{Highlighting}{Verbatim}{commandchars=\\\{\}}
+% Add ',fontsize=\small' for more characters per line
+\newenvironment{Shaded}{}{}
+\newcommand{\AlertTok}[1]{\textcolor[rgb]{1.00,0.00,0.00}{\textbf{#1}}}
+\newcommand{\AnnotationTok}[1]{\textcolor[rgb]{0.38,0.63,0.69}{\textbf{\textit{#1}}}}
+\newcommand{\AttributeTok}[1]{\textcolor[rgb]{0.49,0.56,0.16}{#1}}
+\newcommand{\BaseNTok}[1]{\textcolor[rgb]{0.25,0.63,0.44}{#1}}
+\newcommand{\BuiltInTok}[1]{\textcolor[rgb]{0.00,0.50,0.00}{#1}}
+\newcommand{\CharTok}[1]{\textcolor[rgb]{0.25,0.44,0.63}{#1}}
+\newcommand{\CommentTok}[1]{\textcolor[rgb]{0.38,0.63,0.69}{\textit{#1}}}
+\newcommand{\CommentVarTok}[1]{\textcolor[rgb]{0.38,0.63,0.69}{\textbf{\textit{#1}}}}
+\newcommand{\ConstantTok}[1]{\textcolor[rgb]{0.53,0.00,0.00}{#1}}
+\newcommand{\ControlFlowTok}[1]{\textcolor[rgb]{0.00,0.44,0.13}{\textbf{#1}}}
+\newcommand{\DataTypeTok}[1]{\textcolor[rgb]{0.56,0.13,0.00}{#1}}
+\newcommand{\DecValTok}[1]{\textcolor[rgb]{0.25,0.63,0.44}{#1}}
+\newcommand{\DocumentationTok}[1]{\textcolor[rgb]{0.73,0.13,0.13}{\textit{#1}}}
+\newcommand{\ErrorTok}[1]{\textcolor[rgb]{1.00,0.00,0.00}{\textbf{#1}}}
+\newcommand{\ExtensionTok}[1]{#1}
+\newcommand{\FloatTok}[1]{\textcolor[rgb]{0.25,0.63,0.44}{#1}}
+\newcommand{\FunctionTok}[1]{\textcolor[rgb]{0.02,0.16,0.49}{#1}}
+\newcommand{\ImportTok}[1]{\textcolor[rgb]{0.00,0.50,0.00}{\textbf{#1}}}
+\newcommand{\InformationTok}[1]{\textcolor[rgb]{0.38,0.63,0.69}{\textbf{\textit{#1}}}}
+\newcommand{\KeywordTok}[1]{\textcolor[rgb]{0.00,0.44,0.13}{\textbf{#1}}}
+\newcommand{\NormalTok}[1]{#1}
+\newcommand{\OperatorTok}[1]{\textcolor[rgb]{0.40,0.40,0.40}{#1}}
+\newcommand{\OtherTok}[1]{\textcolor[rgb]{0.00,0.44,0.13}{#1}}
+\newcommand{\PreprocessorTok}[1]{\textcolor[rgb]{0.74,0.48,0.00}{#1}}
+\newcommand{\RegionMarkerTok}[1]{#1}
+\newcommand{\SpecialCharTok}[1]{\textcolor[rgb]{0.25,0.44,0.63}{#1}}
+\newcommand{\SpecialStringTok}[1]{\textcolor[rgb]{0.73,0.40,0.53}{#1}}
+\newcommand{\StringTok}[1]{\textcolor[rgb]{0.25,0.44,0.63}{#1}}
+\newcommand{\VariableTok}[1]{\textcolor[rgb]{0.10,0.09,0.49}{#1}}
+\newcommand{\VerbatimStringTok}[1]{\textcolor[rgb]{0.25,0.44,0.63}{#1}}
+\newcommand{\WarningTok}[1]{\textcolor[rgb]{0.38,0.63,0.69}{\textbf{\textit{#1}}}}
+\usepackage{longtable,booktabs,array}
+\usepackage{calc} % for calculating minipage widths
+% Correct order of tables after \paragraph or \subparagraph
+\usepackage{etoolbox}
+\makeatletter
+\patchcmd\longtable{\par}{\if@noskipsec\mbox{}\fi\par}{}{}
+\makeatother
+% Allow footnotes in longtable head/foot
+\IfFileExists{footnotehyper.sty}{\usepackage{footnotehyper}}{\usepackage{footnote}}
+\makesavenoteenv{longtable}
+\setlength{\emergencystretch}{3em} % prevent overfull lines
+\providecommand{\tightlist}{%
+  \setlength{\itemsep}{0pt}\setlength{\parskip}{0pt}}
+\setcounter{secnumdepth}{-\maxdimen} % remove section numbering
+\ifLuaTeX
+\usepackage[bidi=basic]{babel}
+\else
+\usepackage[bidi=default]{babel}
+\fi
+\babelprovide[main,import]{chinese-hant}
+\ifPDFTeX
+\else
+\babelfont{rm}[]{Noto Sans CJK TC}
+\fi
+% get rid of language-specific shorthands (see #6817):
+\let\LanguageShortHands\languageshorthands
+\def\languageshorthands#1{}
+\usepackage{fvextra}
+\fvset{breaklines=true,breakanywhere=true,fontsize=\small}
+\usepackage{microtype}
+\usepackage{booktabs,longtable,array}
+\usepackage{ragged2e}
+\usepackage{etoolbox}
+\usepackage{setspace}
+\setstretch{1.04}
+\setlength{\emergencystretch}{5em}
+\setlength{\tabcolsep}{3pt}
+\renewcommand{\arraystretch}{1.15}
+\AtBeginEnvironment{longtable}{\footnotesize}
+\sloppy
+\usepackage{enumitem}
+\setlist{nosep,leftmargin=*}
+\usepackage{titlesec}
+\titlespacing*{\section}{0pt}{1.2em}{0.5em}
+\titlespacing*{\subsection}{0pt}{1em}{0.35em}
+\usepackage{caption}
+\captionsetup{font=small}
+\ifLuaTeX
+  \usepackage{selnolig}  % disable illegal ligatures
+\fi
+\usepackage{bookmark}
+\IfFileExists{xurl.sty}{\usepackage{xurl}}{} % add URL line breaks if available
+\urlstyle{same}
+\hypersetup{
+  pdftitle={排球賽事標註、AI 串接與教練監看系統},
+  pdflang={zh-Hant},
+  colorlinks=true,
+  linkcolor={teal},
+  filecolor={Maroon},
+  citecolor={Blue},
+  urlcolor={teal},
+  pdfcreator={LaTeX via pandoc}}
+
+\title{排球賽事標註、AI 串接與教練監看系統}
+\usepackage{etoolbox}
+\makeatletter
+\providecommand{\subtitle}[1]{% add subtitle to \maketitle
+  \apptocmd{\@title}{\par {\large #1 \par}}{}{}
+}
+\makeatother
+\subtitle{實作總規格 v3.2}
+\author{}
+\date{2026-08-07}
+
+\begin{document}
+\maketitle
+
+\renewcommand*\contentsname{目錄}
+{
+\hypersetup{linkcolor=}
+\setcounter{tocdepth}{3}
+\tableofcontents
+}
+\begin{quote}
+Repository：\texttt{volleyball-monitoring-ai}\\
+主要讀者：負責統籌實作的主 PM／架構 Agent，以及最多三個受委派
+subagent。\\
+文件目的：把產品行為、跨團隊 Schema、媒體時間軸、外部 AI 串接、Nuxt
+UI、後端、容器與開發順序定成可實作的共同基線。\\
+核心邊界：\textbf{本 repository 不實作任何 AI
+模型；只實作中央系統、影音流程、前端、外部 AI 介面、Fake Provider 與可由
+GitHub 安裝的 Python SDK。}
+\end{quote}
+
+\begin{center}\rule{0.5\linewidth}{0.5pt}\end{center}
+
+\subsection{0. 主 Agent
+必須先理解的事情}\label{0-ux4e3b-agent-ux5fc5ux9808ux5148ux7406ux89e3ux7684ux4e8bux60c5}
+
+這不是單純的影片播放器、標註工具或 AI
+Dashboard，而是一條完整且必須可追溯的資料鏈：
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\NormalTok{直播訊號}
+\NormalTok{→ 伺服器完整錄製與建立 canonical timeline}
+\NormalTok{→ 多人標註端在 live／歷史回放畫面上建立人工 key point}
+\NormalTok{→ 人工確認並提交 immutable rally submission}
+\NormalTok{→ 後端依 authoritative source time 裁切影片並換算 clip{-}local time}
+\NormalTok{→ 外部 AI 透過固定 Job Schema 收件}
+\NormalTok{→ 外部 AI 透過 callback 回傳 Analysis JSON + FlatBuffers overlay}
+\NormalTok{→ 中央系統驗證、保存、正規化與聚合}
+\NormalTok{→ 教練／裁判端查看歷史、影片 overlay、2D 球路、熱點與統計}
+\end{Highlighting}
+\end{Shaded}
+
+主 Agent 的第一責任是確保這條鏈中的
+ID、時間、版本與資料語意不會斷裂。任何只完成 UI、只完成 API、只完成 DB
+table 或只完成 demo 的工作，都不能宣稱該流程已完成。
+
+主 Agent最多同時委派三個 subagent：
+
+\begin{enumerate}
+\def\labelenumi{\arabic{enumi}.}
+\tightlist
+\item
+  \textbf{Contracts／Python SDK Agent}
+\item
+  \textbf{Backend／Media／Infra Agent}
+\item
+  \textbf{Nuxt Luna Frontend Agent}
+\end{enumerate}
+
+主 Agent保留以下不可委派的最終責任：
+
+\begin{itemize}
+\tightlist
+\item
+  產品語意與 Schema 變更核准。
+\item
+  跨目錄修改與 merge 衝突。
+\item
+  時間軸與 passthrough invariant 審查。
+\item
+  端到端驗收。
+\item
+  是否接受 subagent 提出的架構調整。
+\end{itemize}
+
+\begin{center}\rule{0.5\linewidth}{0.5pt}\end{center}
+
+\section{1. 固定產品行為}\label{1-ux56faux5b9aux7522ux54c1ux884cux70ba}
+
+\subsection{1.1
+標註快捷鍵與介面控制}\label{11-ux6a19ux8a3bux5febux6377ux9375ux8207ux4ecbux9762ux63a7ux5236}
+
+下列鍵盤行為與畫面按鈕是產品合約，不得由實作者自行改成其他語意。觸控按鈕與鍵盤必須呼叫同一個
+command path。
+
+\begin{longtable}[]{@{}>{\RaggedRight\arraybackslash}p{0.11\linewidth}>{\RaggedRight\arraybackslash}p{0.19\linewidth}>{\RaggedRight\arraybackslash}p{0.31\linewidth}>{\RaggedRight\arraybackslash}p{0.33\linewidth}@{}}
+\toprule\noalign{}
+介面顯示 & 快捷鍵 & 固定語意 & 重要限制 \\
+\midrule\noalign{}
+\endhead
+\bottomrule\noalign{}
+\endlastfoot
+\texttt{Z\ 發球} & \texttt{Z} & 建立新 rally，並在目前已呈現影片 frame
+建立第一個人工 \texttt{service} key point & 已有未提交 rally
+時不可另開新 rally \\
+\texttt{Space\ 擊球} & \texttt{Space} & 在目前已呈現影片 frame 建立一般
+\texttt{contact} key point & 播放器正在 seek、cursor stale 或位於 gap
+時不可建立 \\
+\texttt{X\ 結束} & \texttt{X} & 不建立新時間點；把使用者按 X
+前所指向的既有最後 key point 標為 terminal & Command 必須帶
+\texttt{target\_\allowbreak{}key\_\allowbreak{}point\_\allowbreak{}id}；若多人協作後它已不是最後一點，回傳
+revision conflict \\
+\texttt{\textless{}\ 左側得分} & \texttt{\textless{}} & X 後將得分解析為
+\texttt{resolved/left} & 只有「等待得分」模式才代表得分；編輯 key point
+時方向鍵改為逐幀 \\
+\texttt{\textgreater{}\ 右側得分} & \texttt{\textgreater{}} & X
+後將得分解析為 \texttt{resolved/right} & 同上 \\
+\texttt{?\ 未知} & \texttt{?} & 使用者明確表示暫時無法判定得分方，設為
+\texttt{unknown} & 不是 \texttt{pending}；可以提交
+AI，但不納入勝負統計 \\
+\texttt{Enter\ 提交} & \texttt{Enter} & 將目前 draft 建立成 immutable
+\texttt{RallySubmission}，啟動裁切與 AI 串接 & \texttt{pending}
+不可提交；\texttt{resolved} 或 \texttt{unknown} 可提交 \\
+\end{longtable}
+
+\texttt{service} 與 \texttt{contact} 只是人工 marker kind，不是 AI
+action label，也沒有人工 confidence。第一個 key point 被標成
+\texttt{service} 只代表標註流程由 Z 開始；AI 是否輸出任何 action、action
+label 長什麼樣、是否有 confidence，均屬待 AI 團隊提供真實輸出後確認的
+optional extension。
+
+\subsubsection{按鍵模式優先順序}\label{ux6309ux9375ux6a21ux5f0fux512aux5148ux9806ux5e8f}
+
+\begin{enumerate}
+\def\labelenumi{\arabic{enumi}.}
+\tightlist
+\item
+  文字輸入、Dialog 或 Select 開啟時，禁止攔截全域快捷鍵。
+\item
+  \texttt{AWAITING\_\allowbreak{}SCORE}
+  時，\texttt{\textless{}}、\texttt{\textgreater{}}、\texttt{?}
+  代表得分選擇。
+\item
+  方向鍵 \texttt{←}／\texttt{→} 永遠只代表前後一個 canonical
+  frame或播放器移動，不作為得分快捷鍵。
+\item
+  其他狀態下方向鍵只控制播放器，不可暗中改資料。
+\item
+  每次 destructive action 都必須等待 server ack；optimistic UI 可顯示
+  pending，但不得把暫態當 canonical revision。
+\end{enumerate}
+
+\subsection{1.2 Rally Mask
+與狀態呈現}\label{12-rally-mask-ux8207ux72c0ux614bux5448ux73fe}
+
+\begin{itemize}
+\tightlist
+\item
+  \texttt{OPEN}、\texttt{AWAITING\_\allowbreak{}SCORE}、\texttt{READY}：灰色半透明
+  mask，表示尚未提交且仍可修正。
+\item
+  \texttt{SUBMITTED}：綠色半透明 mask，表示某個 immutable submission
+  已建立。
+\item
+  綠色不代表 AI 完成；裁切、排隊、處理中、完成、失敗以 mask 上的 status
+  badge 顯示。
+\item
+  Mask 上緣必須有文字狀態，不可只靠顏色：
+
+  \begin{itemize}
+  \tightlist
+  \item
+    \texttt{左側得分}
+  \item
+    \texttt{右側得分}
+  \item
+    \texttt{?\ 得分未知}
+  \item
+    \texttt{等待得分}
+  \end{itemize}
+\item
+  Mask 範圍永遠是 service key point 到 terminal key
+  point；pre-roll/post-roll 只屬裁切範圍，不改變 mask。
+\item
+  Key point marker 至少可辨識 \texttt{Z/service}、一般
+  \texttt{contact}、terminal、selected、possible duplicate、server
+  pending。
+\item
+  顏色、線寬與動畫屬前端衍生視覺，不保存為 canonical DB 欄位。
+\end{itemize}
+
+\subsection{1.3
+教練端不是單頁}\label{13-ux6559ux7df4ux7aefux4e0dux662fux55aeux9801}
+
+教練／裁判端採多頁資訊架構，iPad
+使用底部導覽列；頂部狀態列可返回主選單並開啟過去保存的紀錄。
+
+建議底部導覽：
+
+\begin{enumerate}
+\def\labelenumi{\arabic{enumi}.}
+\tightlist
+\item
+  \texttt{現場}
+\item
+  \texttt{球路}
+\item
+  \texttt{球員}
+\item
+  \texttt{統計}
+\item
+  \texttt{紀錄}
+\end{enumerate}
+
+頂部列至少包含：
+
+\begin{itemize}
+\tightlist
+\item
+  返回賽事／場次選單。
+\item
+  場次、局數、比分與 live 狀態。
+\item
+  當前是否位於 live edge。
+\item
+  同步／離線狀態。
+\item
+  Overlay 快捷設定。
+\item
+  進入歷史 rally、保存分析視圖與設定。
+\end{itemize}
+
+\subsection{1.4 AI 邊界}\label{14-ai-ux908aux754c}
+
+外部 AI
+團隊已有可利用的球場、球員、球、個體動作，以及可能存在的群體動作／比賽
+phase work。本 repository：
+
+\begin{itemize}
+\tightlist
+\item
+  \textbf{不實作、不重訓、不替換這些模型。}
+\item
+  不規定 detector、tracker、action model 的架構。
+\item
+  不規定時間窗、IOU threshold、融合權重、補點參數或模型內部順序。
+\item
+  只規定目標導向的方法骨架、輸入、輸出、錯誤、版本與串接方式。
+\item
+  action taxonomy、action confidence、群體 phase 的 label 與實際用途，需
+  AI 團隊提供真實輸出樣本後另行確認；baseline 不能硬編碼。
+\end{itemize}
+
+\begin{center}\rule{0.5\linewidth}{0.5pt}\end{center}
+
+\section{2.
+實作與使用角度稽核：已修正問題}\label{2-ux5be6ux4f5cux8207ux4f7fux7528ux89d2ux5ea6ux7a3dux6838ux5df2ux4feeux6b63ux554fux984c}
+
+以下為原規格若直接實作會產生的問題，以及本文件採用的修正版。
+
+\begin{longtable}[]{@{}>{\RaggedRight\arraybackslash}p{0.11\linewidth}>{\RaggedRight\arraybackslash}p{0.19\linewidth}>{\RaggedRight\arraybackslash}p{0.31\linewidth}>{\RaggedRight\arraybackslash}p{0.33\linewidth}@{}}
+\toprule\noalign{}
+嚴重度 & 問題 & 使用／實作風險 & 修正後基線 \\
+\midrule\noalign{}
+\endhead
+\bottomrule\noalign{}
+\endlastfoot
+Critical & \texttt{left/right} 被當成永久隊伍 ID &
+換邊後歷史得分、熱點與球員統計錯隊 & \texttt{court\_\allowbreak{}side} 與
+\texttt{team\_\allowbreak{}id} 分離；每 rally 綁定當下的 side assignment \\
+Critical & key point 直接信任 browser \texttt{currentTime} 或
+\texttt{currentTime\ *\ fps} & HLS、VFR、seek、延遲與轉碼後會指向錯幀 &
+Client 送 \texttt{PlaybackCursor}；後端依 playback mapping 解出
+authoritative PTS/time/frame \\
+Critical & 只提供幾分鐘回放 buffer &
+比賽後段無法返回開場；重新整理後資料消失 & 伺服器完整錄整場；前端只
+windowed lazy-load，目前 buffer 幾分鐘但完整 timeline 可 seek \\
+Critical & \texttt{court\_\allowbreak{}pos} 被限制 \texttt{{[}0,1{]}} &
+發球員、救球、出界點會被 clamp 到場內 & 球場內以 0--1
+為基準，但允許負值與大於 1；前端可裁切顯示，資料不可 clamp \\
+Critical & \texttt{multiple} 同時表示共同參與與無法分辨 &
+兩名重疊球員會被錯算成共同觸球 &
+\texttt{resolved\_\allowbreak{}single}、\texttt{resolved\_\allowbreak{}multiple}、\texttt{ambiguous}、\texttt{unresolved}
+分開；actors/candidates 分開 \\
+Critical & tracker ID 被當成跨 rally 球員 ID & 同一整場球員統計會錯綁 &
+\texttt{track\_\allowbreak{}id} 只在單 rally／analysis run 內有效；中央另建 identity
+assignment \\
+Critical & 每次編輯都複製完整 revision snapshot & 大量 DB
+寫入與多人同步成本不必要 & Draft 使用 mutable rows + operation log +
+revision；只有 Enter 建 immutable submission snapshot \\
+High & \texttt{?} 與「尚未選得分」都用 null & UI
+無法區分使用者已明確標未知 & 新增 \texttt{score\_\allowbreak{}resolution\_\allowbreak{}state}:
+\texttt{pending/resolved/unknown}；\texttt{?} 後可提交，pending
+不可提交 \\
+High & X 建立另一個 rally end timestamp &
+與使用者定義衝突，也會多一個虛假事件 & X 只標記前一個 key point 為
+terminal，X 按下時間只可做 audit，不進 event timeline \\
+High & 沒有 reopen／改 terminal 的流程 & X 誤按後只能刪整個 rally &
+Draft 提供
+\texttt{REOPEN\_\allowbreak{}RALLY}、\texttt{SET\_\allowbreak{}TERMINAL\_\allowbreak{}KEY\_\allowbreak{}POINT}；submitted
+必須建立 correction draft \\
+High & Rally 只有單一 status & annotation、clip、AI 狀態互相覆寫 &
+\texttt{annotation\_\allowbreak{}status} 與 \texttt{processing\_\allowbreak{}status} 分離 \\
+High & submitted draft 可被原地修改 & AI 結果無法知道對應哪個版本 &
+submission 永久 immutable；修正建立新 submission，舊 job/result 標
+superseded \\
+High & Score 修正必定重跑 AI & 只改勝方卻浪費推論 & 比對 submission
+content hash；只改 outcome 可重用 clip/AI geometry，重算分析聚合 \\
+High & AI Job 混入 \texttt{court\_\allowbreak{}definition}、模型 requirements、上傳
+URI & AI request 像是在遠端配置 pipeline，耦合中央儲存 &
+固定座標規格只寫一次；Job 僅含 clip、key points、outcome、callback 與
+passthrough IDs \\
+High & AI Result 的 \texttt{x\_\allowbreak{}m/y\_\allowbreak{}m/x\_\allowbreak{}norm/y\_\allowbreak{}norm} 多套命名 &
+前後端容易混用或方向錯誤 & 對外只用
+\texttt{frame\_\allowbreak{}pos}、\texttt{frame\_\allowbreak{}bbox}、\texttt{court\_\allowbreak{}pos}；公尺值由固定公式需要時衍生 \\
+High & AI actor 只有單一 \texttt{actor\_\allowbreak{}track\_\allowbreak{}id} &
+不能表達雙人攔網、共同事件或不確定候選 & \texttt{actors{[}{]}} 與
+\texttt{candidates{[}{]}}；每個 contact event 具有 association state \\
+High & Action label 被寫死 & AI 團隊尚未確認 taxonomy，會被假規格綁住 &
+action 是 optional extension，label 是 provider 提供字串，帶 taxonomy
+ID/version \\
+High & Confidence 被視為必填 & 實際模型未必輸出可校準 confidence & 所有
+confidence optional；缺少時不得前端自行補 0 或 1 \\
+High & AI input/output IDs 沒有 passthrough 規則 & callback 對不到
+submission/key point &
+\texttt{ai\_\allowbreak{}job\_\allowbreak{}id/rally\_\allowbreak{}id/submission\_\allowbreak{}id/annotation\_\allowbreak{}revision/key\_\allowbreak{}point\_\allowbreak{}id}
+必須原樣回傳 \\
+High & 一次 WebSocket 傳整段逐幀 JSON & iPad 記憶體、解析與 GC 壓力過大
+& JSON 管 metadata；FlatBuffers 管 per-frame overlay；HTTP lazy
+chunk，WS 只通知 ready/version \\
+High & Clip URL 與 callback token 共用同一 bearer & SDK 若把 callback
+token帶到物件儲存，會擴大secret暴露面 & \texttt{clip.download\_\allowbreak{}url}
+是獨立、短期簽名URL；\texttt{callback.token}只可送到中央callback，兩者不可混用且都不進browser \\
+High & callback token 真正一次性 & 網路重試會失敗 & job-scoped、TTL
+內可重試；每次 callback 有唯一 \texttt{callback\_\allowbreak{}id} 做 idempotency \\
+High & 沒有 media discontinuity/gap & 來源重連後時間軸假裝連續，key
+point 會錯段 & capture timeline 保存 discontinuity；UI 顯示 gap，不允許
+seek/mark 到缺檔區 \\
+High & GraphQL \texttt{Int} 保存 PTS／microseconds／size & GraphQL Int
+僅 32-bit；JS Number 也有精度風險 & 使用 \texttt{BigInt} scalar，wire
+一律 decimal string；DB 使用 PostgreSQL BIGINT \\
+High & MinIO credential 交給 browser & 物件儲存暴露 & 所有 S3 操作
+server-side；前端只取得受權限控制的短期 URL或同源 proxy route \\
+Medium & Client 自行選 pre/post-roll & 每個人裁切結果不一致 &
+match/system clip profile 決定；submit 只提交 revision \\
+Medium & 只保存色彩，不保存狀態 & 改版後資料無法解讀 & 保存狀態
+enum，顏色純 UI \\
+Medium & Action 不存在時仍顯示 attack 指標 & 顯示空值或誤導數字 & API
+回傳 \texttt{feature\_\allowbreak{}availability} 與
+\texttt{available\_\allowbreak{}dimensions/metrics} \\
+Medium & 統計把 rally win 當成某擊球直接得分 & 中間 attack 會被誤算 kill
+& 分離 \texttt{rally\_\allowbreak{}outcome} 與 optional
+\texttt{direct\_\allowbreak{}outcome}；baseline 只保證前者 \\
+Medium & WebSocket 斷線後只接續增量 & 錯過 revision 後狀態永久錯誤 &
+reconnect 先比較 revision；有 gap 立即 GraphQL refetch
+snapshot，再訂閱增量 \\
+Medium & 高頻操作透過 GraphQL subscription 與大型 snapshot &
+resolver/loading/serialization 不必要 & GraphQL 管結構化查詢；自訂 WS 管
+annotation command/revision/presence \\
+\end{longtable}
+
+\begin{center}\rule{0.5\linewidth}{0.5pt}\end{center}
+
+\subsection{2.1 歷史稽核：v3.0
+首次補齊的缺口}\label{21-ux6b77ux53f2ux7a3dux6838v30-ux9996ux6b21ux88dcux9f4aux7684ux7f3aux53e3}
+
+\begin{longtable}[]{@{}>{\RaggedRight\arraybackslash}p{0.18\linewidth}>{\RaggedRight\arraybackslash}p{0.34\linewidth}>{\RaggedRight\arraybackslash}p{0.42\linewidth}@{}}
+\toprule\noalign{}
+嚴重度 & 缺口 & 修正 \\
+\midrule\noalign{}
+\endhead
+\bottomrule\noalign{}
+\endlastfoot
+Critical & 原始 PTS 在來源重連後可能從零或跳變，只有 discontinuity
+number 不足以關聯 key point & 新增 \texttt{CaptureEpoch}；所有 resolved
+marker 保存
+\texttt{capture\_\allowbreak{}epoch\_\allowbreak{}id\ +\ source\_\allowbreak{}pts\ +\ capture\_\allowbreak{}time\_\allowbreak{}us}。\texttt{capture\_\allowbreak{}time\_\allowbreak{}us}
+是整個 capture session 單調座標，raw PTS 只在 epoch 內有效。 \\
+Critical & terminal key point 可能是球落地、出界或無球員歸屬，卻被
+schema 強迫一定有 actor & AI event 新增
+\texttt{no\_\allowbreak{}player}/\texttt{unresolved} 狀態，\texttt{actors{[}{]}}
+可以為空；\texttt{court\_\allowbreak{}pos} 也可為 null並帶 quality flag。 \\
+Critical & AI result 的 \texttt{court\_\allowbreak{}side} 容易被當成永久 team
+identity & AI 只輸出 \texttt{court\_\allowbreak{}side:\ left/right/unknown}；中央依
+submission 的 side-assignment snapshot解析 \texttt{team\_\allowbreak{}id}。 \\
+Critical & clip key point若引用 mutable draft ID，correction後
+callback無法追溯 & AI Job只引用 immutable
+\texttt{RallySubmissionKeyPoint.id}；另保留
+\texttt{source\_\allowbreak{}draft\_\allowbreak{}key\_\allowbreak{}point\_\allowbreak{}id} 供 audit。 \\
+High & 得分欄位只有「誰得分」，沒有可重放的比分 ledger & 新增 immutable
+\texttt{PointAward}，保存 submission、scoring team、set score
+before/after與\texttt{score\_\allowbreak{}revision\_\allowbreak{}before/after}；每set的after
+revision唯一，比分由ledger衍生。 \\
+High & 同一場次可能停止再啟動錄影；單一 capture session假設會使
+timeline斷裂 & Match可有多個 \texttt{CaptureSession}，但 baseline標註
+room指定一個 active capture；跨 capture replay由 match timeline聚合。 \\
+High & 只保存 callback token，未定義 retry/idempotency & token是
+job-scoped且有TTL，可重試；每次 callback傳
+\texttt{callback\_\allowbreak{}id}，中央以唯一索引與payload checksum去重。 \\
+High & 只定義 AI complete callback，無明確 accepted/failed行為 &
+SDK與REST合約定義 \texttt{accepted}、optional
+\texttt{progress}、\texttt{failed}、\texttt{completed}；progress不影響
+correctness，failed保存可重試分類。 \\
+High & AI event count沒有明確與 key point 對應規則 & Required
+invariant：每個 submission key point恰好一個分析 event；segment數通常為
+\texttt{max(event\_\allowbreak{}count-1,\ 0)}，只有service且terminal的service
+error合法為0段。 \\
+High & \texttt{frame\_\allowbreak{}pos}/\texttt{court\_\allowbreak{}pos} 缺失時沒有語意 & 兩者為
+nullable；\texttt{quality\_\allowbreak{}flags}與\texttt{association\_\allowbreak{}state}表達缺失，禁止以
+\texttt{(0,0)} 代表 unknown。 \\
+High & Overlay binary
+schema若把court座標量化到uint16，無法表示場外負值/大於1 &
+\texttt{frame\_\allowbreak{}pos/frame\_\allowbreak{}bbox}可uint16量化；\texttt{court\_\allowbreak{}pos}使用float32，允許場外值。 \\
+High & 沒有 API authorization boundary &
+新增角色/permission基線：administrator、operator、annotator、coach/viewer、integration
+service；MinIO與AI token永不下發瀏覽器。 \\
+High & GraphQL source與SDL可能雙向手改而漂移 & Pothos
+source唯一；SDL為產物，CI重生後必須clean，並執行breaking-change檢查。 \\
+High & GraphQL scalar BigInt若被 codegen成number仍會精度損失 & Web
+codegen將 \texttt{BigInt} 映射為 \texttt{string}；DB為BIGINT；JSON
+Schema也用decimal string。 \\
+Medium & 使用者按鍵可能在播放器seek尚未完成時建立marker & 播放器 state
+machine新增 \texttt{cursor\_\allowbreak{}status=ready/seeking/stale}；只有ready
+cursor可標記，其他狀態按鍵顯示阻擋原因。 \\
+Medium &
+多位標註者快速按同一碰撞會產生重複點，若自動去重可能誤刪真實短間隔觸球 &
+只標示 \texttt{possible\_\allowbreak{}duplicate}，不靜默合併；由人工刪除/合併。 \\
+Medium & 保存 overlay preset而沒有schema/version & Saved view保存
+\texttt{filter\_\allowbreak{}schema\_\allowbreak{}version}與\texttt{overlay\_\allowbreak{}preset\_\allowbreak{}version}；未知欄位忽略但保留原始JSON。 \\
+Medium & 歷史回放只有 media window、沒有完整 timeline cursor &
+URL/route保存
+\texttt{capture\_\allowbreak{}session\_\allowbreak{}id\ +\ capture\_\allowbreak{}time\_\allowbreak{}us}，切換window後仍回到相同canonical時間。 \\
+\end{longtable}
+
+\subsection{2.1.1 歷史稽核：v3.0
+的實作修正}\label{211-ux6b77ux53f2ux7a3dux6838v30-ux7684ux5be6ux4f5cux4feeux6b63}
+
+\begin{longtable}[]{@{}>{\RaggedRight\arraybackslash}p{0.18\linewidth}>{\RaggedRight\arraybackslash}p{0.34\linewidth}>{\RaggedRight\arraybackslash}p{0.42\linewidth}@{}}
+\toprule\noalign{}
+嚴重度 & 缺口 & 修正後基線 \\
+\midrule\noalign{}
+\endhead
+\bottomrule\noalign{}
+\endlastfoot
+Critical & GraphQL 文件使用 \texttt{BigInt}，code-first builder卻註冊
+\texttt{Int64} & 全部統一為 \texttt{BigInt}；Web
+codegen映射為\texttt{string}。 \\
+Critical & Annotation WebSocket只定義自由格式 \texttt{payload} &
+每一個Z／Space／X／score／move／delete／reopen／Enter
+command都具有strict payload schema；X必須帶target ID。 \\
+Critical & \texttt{DvrSegment.presentationStartUs}容易被誤認為player/HLS
+presentation time &
+DB改名\texttt{captureStartUs/captureEndUs}，只表示整場canonical
+timeline。 \\
+High & SDK內附的FlatBuffers schema與canonical schema欄位／版本不一致 &
+SDK
+wheel強制內含與\texttt{packages/contracts/flatbuffers/overlay.fbs}完全相同的檔案，CI
+byte-compare。 \\
+High & callback文件使用\texttt{kind}，schema/SDK使用\texttt{status} &
+Callback metadata統一使用\texttt{kind=processing/failed/completed}。 \\
+High & Score ledger沒有revision序列 &
+\texttt{MatchSet.scoreRevision}與\texttt{PointAward.scoreRevisionBefore/After}形成CAS
+ledger；after revision在set內唯一。 \\
+High & AI ContactEvent只保存key point UUID字串，沒有DB relation &
+ContactEvent外鍵指向immutable
+\texttt{RallySubmissionKeyPoint}；仍由domain
+validator確認同一submission。 \\
+High & PlaybackWindow與frame-step只存在文字範例，沒有versioned schema &
+新增request/response分離的media
+schemas，避免同一\texttt{oneOf}讓錯誤方向的payload也通過驗證。 \\
+High & Safari原生HLS未必提供segment ID & Browser cursor不要求segment
+ID；後端依window mapping與sample index解析。 \\
+Medium & Coach底部導覽漏掉統計頁 &
+固定五項：現場、球路、球員、統計、紀錄；頂部可返回場次選單與歷史。 \\
+\end{longtable}
+
+\subsection{2.1.2 v3.2
+實作／使用稽核新增修正}\label{212-v32-ux5be6ux4f5cux4f7fux7528ux7a3dux6838ux65b0ux589eux4feeux6b63}
+
+\begin{longtable}[]{@{}>{\RaggedRight\arraybackslash}p{0.18\linewidth}>{\RaggedRight\arraybackslash}p{0.34\linewidth}>{\RaggedRight\arraybackslash}p{0.42\linewidth}@{}}
+\toprule\noalign{}
+嚴重度 & 缺口 & 修正後基線 \\
+\midrule\noalign{}
+\endhead
+\bottomrule\noalign{}
+\endlastfoot
+Critical & Playback request與response放在同一個\texttt{oneOf} schema &
+拆成\texttt{playback-window-request}／\texttt{descriptor}、\texttt{playback-cursor}／\texttt{resolved-media-anchor}、\texttt{frame-step-request}／\texttt{canonical-frame-anchor}；OpenAPI每個方向只引用正確shape。 \\
+Critical & Annotation command由client傳\texttt{user\_\allowbreak{}id}並被當成可信身份
+& 使用HTTP/WebSocket upgrade完成身份驗證並綁定device
+session；command不再攜帶可偽造的\texttt{user\_\allowbreak{}id}。 \\
+Critical & CREATE\_\allowbreak{}SERVICE要求server既有rally ID，但Z本身又負責建立rally
+& 前端在Z按下時產生client UUID作\texttt{rally\_\allowbreak{}id}與idempotency
+key；server在同一transaction接受／建立draft，不另做會改變時間點的前置API。 \\
+High & ACK只有自由格式\texttt{snapshot\_\allowbreak{}patch}，前端拿不到created key
+point／submission ID &
+\texttt{command\_\allowbreak{}ack.effects}明確回傳created／terminal／deleted key
+point、submission、annotation status與score state；另廣播typed rally
+snapshot。 \\
+High & PlaybackWindow只回目前window範圍 &
+Descriptor新增整場\texttt{timeline\_\allowbreak{}capture\_\allowbreak{}start\_\allowbreak{}us/end\_\allowbreak{}us}及\texttt{has\_\allowbreak{}more\_\allowbreak{}before/after}，全場進度條不需把整場media塞進client。 \\
+High & AI Provider capabilities與202 Accepted response沒有正式schema &
+新增\texttt{capabilities.schema.json}與\texttt{job-accepted.schema.json}，Python
+SDK也提供typed models。 \\
+High & AI result只檢查數量，未保證segment連接相鄰event或A/B一致 & SDK
+validator要求event/segment index連續、segment引用相鄰key
+point、A/B等於對應contact event representative positions、terminal
+flag一致。 \\
+High & \texttt{observed}
+ball可以沒有座標，而\texttt{missing}卻可殘留座標 &
+observed/interpolated必須帶sample
+frame與\texttt{frame\_\allowbreak{}pos}；missing兩者皆不得帶。 \\
+High & Submission可保存\texttt{PENDING}，且clip
+policy只有版本沒有實際roll值 &
+Submission使用只含RESOLVED／UNKNOWN的enum，並snapshot\texttt{clip\_\allowbreak{}pre\_\allowbreak{}roll\_\allowbreak{}us}／\texttt{clip\_\allowbreak{}post\_\allowbreak{}roll\_\allowbreak{}us}及service/terminal
+IDs。 \\
+High & MediaAsset在UPLOADING狀態就強制要求checksum/size &
+\texttt{byte\_\allowbreak{}length}與\texttt{sha256}在upload完成前可null；轉READY時domain
+transaction必須補齊。 \\
+Medium & Browser OverlayChunk內嵌完整OverlaySequence & Chunk
+schema改成獨立SoA
+payload，只保留chunk範圍與陣列，不重複整段metadata。 \\
+\end{longtable}
+
+\subsection{2.2 Schema
+欄位來源標記}\label{22-schema-ux6b04ux4f4dux4f86ux6e90ux6a19ux8a18}
+
+所有跨系統欄位表必須標示以下 ownership，而不是只列型別：
+
+\begin{itemize}
+\tightlist
+\item
+  \texttt{USER\_\allowbreak{}INPUT}：由標註者或管理者明確輸入。
+\item
+  \texttt{CLIENT\_\allowbreak{}OBSERVED}：瀏覽器觀測值，例如 PlaybackCursor；不可當
+  authoritative。
+\item
+  \texttt{BACKEND\_\allowbreak{}DERIVED}：後端從mapping/assignment/ledger推導。
+\item
+  \texttt{PREPROCESS\_\allowbreak{}DERIVED}：裁切與sample mapping產生。
+\item
+  \texttt{AI\_\allowbreak{}GENERATED}：外部 AI 分析輸出。
+\item
+  \texttt{PASSTHROUGH}：上游建立，接收端必須原樣回傳/關聯。
+\item
+  \texttt{CONSTANT}：固定於版本化規格，不在每個 request重複傳送。
+\item
+  \texttt{OPTIONAL\_\allowbreak{}EXTENSION}：只有 capability聲明支援時才可用。
+\end{itemize}
+
+主 Agent在新增任何 public field前，必須先寫出 producer、consumer、source
+marker、nullability、versioning與失敗語意。
+
+\begin{center}\rule{0.5\linewidth}{0.5pt}\end{center}
+
+\section{3. 三個團隊與 Schema
+Ownership}\label{3-ux4e09ux500bux5718ux968aux8207-schema-ownership}
+
+\subsection{3.1 AI 團隊}\label{31-ai-ux5718ux968a}
+
+\subsubsection{負責}\label{ux8ca0ux8cac}
+
+\begin{itemize}
+\tightlist
+\item
+  以 SDK／HTTP 接收 AI Job。
+\item
+  使用既有 AI work 產生 tracks、contact events、participants、A/B
+  segments 與 overlay。
+\item
+  保持所有 PASSTHROUGH 欄位不變。
+\item
+  呼叫中央 callback。
+\end{itemize}
+
+\subsubsection{不負責}\label{ux4e0dux8ca0ux8cac}
+
+\begin{itemize}
+\tightlist
+\item
+  直播採集、整場錄影、時間軸或影片裁切。
+\item
+  Nuxt UI、GraphQL、PostgreSQL 或 MinIO 的中央資料模型。
+\item
+  跨 rally 球員身份。
+\item
+  中央統計公式與教練頁面。
+\end{itemize}
+
+\subsubsection{擁有 Schema}\label{ux64c1ux6709-schema}
+
+AI 團隊不單方面擁有任何 public schema。它與後端共同消費：
+
+\begin{itemize}
+\tightlist
+\item
+  \texttt{packages/contracts/ai/job.schema.json}
+\item
+  \texttt{packages/contracts/ai/result.schema.json}
+\item
+  \texttt{packages/contracts/ai/callback.schema.json}
+\item
+  \texttt{packages/contracts/flatbuffers/overlay.fbs}
+\end{itemize}
+
+Schema 由主 Agent核准；AI 團隊透過 Python SDK 使用。
+
+\subsection{3.2
+後端系統團隊}\label{32-ux5f8cux7aefux7cfbux7d71ux5718ux968a}
+
+包含中央 API、影音採集、完整 DVR、裁切、AI orchestration、callback
+ingest、MinIO、PostgreSQL、Redis 與 worker。
+
+\subsubsection{擁有}\label{ux64c1ux6709}
+
+\begin{itemize}
+\tightlist
+\item
+  Prisma schema/migrations。
+\item
+  Pothos code-first schema modules、resolver 與產生後的 SDL。
+\item
+  REST/OpenAPI。
+\item
+  WebSocket command/event protocol server 實作。
+\item
+  媒體 timeline 與 PlaybackCursor resolution。
+\item
+  Clip preprocessing 與 AI Job 建立。
+\item
+  Result 驗證、正規化、分析聚合與 artifact 管理。
+\item
+  容器與部署。
+\end{itemize}
+
+\subsubsection{必須視為 Passthrough
+的欄位}\label{ux5fc5ux9808ux8996ux70ba-passthrough-ux7684ux6b04ux4f4d}
+
+AI request 建立後，下列值在 AI result/callback 不得改寫：
+
+\begin{itemize}
+\tightlist
+\item
+  \texttt{ai\_\allowbreak{}job\_\allowbreak{}id}
+\item
+  \texttt{rally\_\allowbreak{}id}
+\item
+  \texttt{rally\_\allowbreak{}submission\_\allowbreak{}id}
+\item
+  \texttt{annotation\_\allowbreak{}revision}
+\item
+  \texttt{clip\_\allowbreak{}id}
+\item
+  每個 \texttt{key\_\allowbreak{}point\_\allowbreak{}id}
+\item
+  每個 key point 的 \texttt{sequence\_\allowbreak{}index}
+\item
+  \texttt{marker\_\allowbreak{}kind}
+\item
+  \texttt{is\_\allowbreak{}terminal}
+\end{itemize}
+
+\subsection{3.3
+前端設計團隊}\label{33-ux524dux7aefux8a2dux8a08ux5718ux968a}
+
+\subsubsection{負責}\label{ux8ca0ux8cac-1}
+
+\begin{itemize}
+\tightlist
+\item
+  Nuxt 多頁式標註端、教練端與歷史紀錄。
+\item
+  iPad landscape 互動。
+\item
+  Full-session timeline + lazy playback windows。
+\item
+  快捷鍵 state machine 與灰／綠 mask。
+\item
+  GraphQL query/mutation client。
+\item
+  Annotation WebSocket command/reconciliation。
+\item
+  Video + Canvas overlay 與 2D court。
+\item
+  Feature availability／資料品質／樣本數的正確呈現。
+\end{itemize}
+
+\subsubsection{不負責}\label{ux4e0dux8ca0ux8cac-1}
+
+\begin{itemize}
+\tightlist
+\item
+  自行換算 authoritative source PTS/frame。
+\item
+  自行從球影像座標推導 court A/B。
+\item
+  自行認定 action taxonomy。
+\item
+  直接存取 MinIO credential。
+\item
+  把 track ID 當 player ID。
+\end{itemize}
+
+\subsection{3.4 Producer／Consumer
+Matrix}\label{34-producerconsumer-matrix}
+
+\begin{longtable}[]{@{}>{\RaggedRight\arraybackslash}p{0.11\linewidth}>{\RaggedRight\arraybackslash}p{0.19\linewidth}>{\RaggedRight\arraybackslash}p{0.31\linewidth}>{\RaggedRight\arraybackslash}p{0.33\linewidth}@{}}
+\toprule\noalign{}
+Contract & Producer & Consumer & 傳輸 \\
+\midrule\noalign{}
+\endhead
+\bottomrule\noalign{}
+\endlastfoot
+Match／Set／Rally structured data & Backend & Web & GraphQL \\
+Annotation command & Web & Backend & WebSocket；GraphQL fallback \\
+Annotation ack/snapshot/conflict & Backend & Web & WebSocket \\
+Timeline availability/live edge & Backend & Web & GraphQL + WebSocket
+delta \\
+Playback window & Backend media & Web player & REST + HLS/fMP4/Range \\
+Clip job & Backend & Worker & PostgreSQL durable job \\
+AI Job & Backend AI gateway & External AI & REST JSON \\
+AI callback metadata & External AI SDK & Backend & REST
+JSON/multipart \\
+Full per-frame overlay & External AI & Backend & FlatBuffers
+multipart \\
+Overlay manifest/chunks & Backend & Web & REST JSON + FlatBuffers \\
+Analysis query & Backend & Web & GraphQL \\
+Presence/soft lock & Backend & Web & WebSocket \\
+\end{longtable}
+
+\begin{center}\rule{0.5\linewidth}{0.5pt}\end{center}
+
+\section{4. 最終 Repository
+與技術架構}\label{4-ux6700ux7d42-repository-ux8207ux6280ux8853ux67b6ux69cb}
+
+\subsection{4.1 Monorepo}\label{41-monorepo}
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\NormalTok{volleyball{-}monitoring{-}ai/}
+\NormalTok{├── AGENTS.md}
+\NormalTok{├── README.md}
+\NormalTok{├── package.json}
+\NormalTok{├── bunfig.toml}
+\NormalTok{├── .env.example}
+\NormalTok{├── .codex/}
+\NormalTok{│   ├── config.toml}
+\NormalTok{│   └── agents/}
+\NormalTok{│       ├── contracts{-}sdk{-}worker.toml}
+\NormalTok{│       ├── backend{-}worker.toml}
+\NormalTok{│       └── luna{-}worker.toml}
+\NormalTok{├── docs/}
+\NormalTok{│   ├── MASTER\_\allowbreak{}IMPLEMENTATION\_\allowbreak{}SPEC.md}
+\NormalTok{│   ├── SYSTEM\_\allowbreak{}SPEC\_\allowbreak{}V3\_\allowbreak{}2.pdf}
+\NormalTok{│   ├── MAIN\_\allowbreak{}AGENT\_\allowbreak{}PROMPT.md}
+\NormalTok{│   ├── LUNA\_\allowbreak{}WORKER\_\allowbreak{}SETUP\_\allowbreak{}PROMPT.md}
+\NormalTok{│   ├── requirements{-}matrix.md}
+\NormalTok{│   ├── progress.md}
+\NormalTok{│   ├── open{-}decisions.md}
+\NormalTok{│   └── adr/}
+\NormalTok{├── packages/}
+\NormalTok{│   ├── contracts/}
+\NormalTok{│   │   ├── annotation/}
+\NormalTok{│   │   ├── media/}
+\NormalTok{│   │   ├── ai/}
+\NormalTok{│   │   ├── openapi/}
+\NormalTok{│   │   ├── flatbuffers/}
+\NormalTok{│   │   ├── graphql/}
+\NormalTok{│   │   └── fixtures/}
+\NormalTok{│   └── db/}
+\NormalTok{│       ├── prisma/schema.prisma}
+\NormalTok{│       ├── prisma/migrations/}
+\NormalTok{│       └── src/}
+\NormalTok{├── sdk/}
+\NormalTok{│   ├── pyproject.toml}
+\NormalTok{│   ├── src/volleyball\_\allowbreak{}monitoring\_\allowbreak{}ai/}
+\NormalTok{│   ├── examples/}
+\NormalTok{│   └── tests/}
+\NormalTok{├── web/}
+\NormalTok{│   ├── app/}
+\NormalTok{│   ├── graphql/}
+\NormalTok{│   ├── tests/}
+\NormalTok{│   └── nuxt.config.ts}
+\NormalTok{├── server/}
+\NormalTok{│   ├── src/graphql/}
+\NormalTok{│   ├── src/domain/}
+\NormalTok{│   ├── src/rest/}
+\NormalTok{│   ├── src/realtime/}
+\NormalTok{│   └── tests/}
+\NormalTok{├── worker/}
+\NormalTok{│   ├── src/roles/}
+\NormalTok{│   └── tests/}
+\NormalTok{├── examples/}
+\NormalTok{│   └── fake\_\allowbreak{}ai\_\allowbreak{}provider/}
+\NormalTok{├── infra/}
+\NormalTok{│   ├── compose.yaml}
+\NormalTok{│   ├── docker/}
+\NormalTok{│   ├── mediamtx/}
+\NormalTok{│   └── k8s/}
+\NormalTok{├── scripts/}
+\NormalTok{└── .github/workflows/ci.yml}
+\end{Highlighting}
+\end{Shaded}
+
+採 top-level \texttt{server/} 與 \texttt{worker/}，避免同一文件同時出現
+\texttt{backend/api}、\texttt{backend/worker} 與另一套 root 路徑。
+
+\subsection{4.2 Web}\label{42-web}
+
+\begin{itemize}
+\tightlist
+\item
+  Nuxt 4、Vue 3、TypeScript strict。
+\item
+  UI 可以參考舊 MVP 使用的 Nuxt／Vant／Tailwind／Motion／Lucide
+  組合，但不得沿用其 domain flow、memory store 或手動事件模型。
+\item
+  Vant 4 用於 iPad/mobile interaction；Tailwind 4 建立 design
+  tokens；Motion for Vue 只用於必要狀態與球路動畫。
+\item
+  GraphQL Code Generator \texttt{client-preset} 由產生後 SDL 與前端
+  operations 建立 \texttt{TypedDocumentNode}；禁止手寫另一套 domain
+  interface。
+\item
+  Video element 上疊透明 Canvas；影片本身不逐 frame 畫入 Canvas。
+\end{itemize}
+
+\subsection{4.3 API：Fastify + Yoga + Pothos +
+Prisma}\label{43-apifastify--yoga--pothos--prisma}
+
+中央 API 採獨立 TypeScript service，不把長生命週期 WebSocket、callback
+大檔與 FFmpeg 工作塞入 Nuxt/Nitro。
+
+\begin{itemize}
+\tightlist
+\item
+  \textbf{Fastify}：HTTP server、REST routes、WebSocket
+  upgrade、lifecycle 與 health endpoints。
+\item
+  \textbf{GraphQL Yoga}：GraphQL over HTTP 執行層。
+\item
+  \textbf{Pothos}：唯一 GraphQL code-first schema
+  source；\texttt{builder.toSchema()} 產生標準 \texttt{GraphQLSchema}
+  交給 Yoga。
+\item
+  \textbf{Pothos Prisma plugin}：建立 Prisma-backed
+  object/relations，並利用 selection information 避免常見 N+1。
+\item
+  \textbf{Prisma 7 + PostgreSQL}：canonical persistence；使用
+  \texttt{prisma.config.ts}、\texttt{prisma-client} generator 與
+  PostgreSQL driver adapter。
+\item
+  \textbf{GraphQL Code Generator}：從 Pothos schema 輸出 checked-in
+  SDL，再由 client preset 產生 Nuxt typed operations。
+\item
+  \textbf{JSON Schema/Zod}：REST、WebSocket 與 callback validation。
+\item
+  \textbf{Redis}：presence、soft lock、pub/sub fan-out；不得放 durable
+  canonical state。
+\item
+  \textbf{pg-boss 或等價 PostgreSQL-backed queue}：durable media/AI
+  jobs。
+\end{itemize}
+
+\subsubsection{Code-first
+單一真實來源}\label{code-first-ux55aeux4e00ux771fux5be6ux4f86ux6e90}
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\NormalTok{server/src/graphql/**/*.ts (Pothos source)}
+\NormalTok{    → builder.toSchema()}
+\NormalTok{    → packages/contracts/graphql/schema.graphql}
+\NormalTok{    → GraphQL Inspector / CI contract diff}
+\NormalTok{    → web/codegen.ts}
+\NormalTok{    → web/app/gql/** typed documents}
+\end{Highlighting}
+\end{Shaded}
+
+規則：
+
+\begin{enumerate}
+\def\labelenumi{\arabic{enumi}.}
+\tightlist
+\item
+  不可手改 \texttt{graphql/schema.graphql}。
+\item
+  Prisma model 不等於 GraphQL public contract；只有 Pothos 明確 expose
+  的欄位會公開。
+\item
+  GraphQL resolver 必須呼叫 domain/service layer，不能繞過
+  annotation、time mapping 或 submission invariant。
+\item
+  高頻 annotation collaboration 使用專用 WebSocket command
+  protocol；GraphQL mutation只作 fallback，不強迫使用 GraphQL
+  subscription。
+\item
+  Binary、影片、FlatBuffers、AI multipart callback 不進 GraphQL。
+\end{enumerate}
+
+\subsection{4.4 Worker}\label{44-worker}
+
+同一個 worker image 可以依 command/environment 執行不同角色：
+
+\begin{itemize}
+\tightlist
+\item
+  \texttt{media-indexer}
+\item
+  \texttt{playback-packager}
+\item
+  \texttt{clip-worker}
+\item
+  \texttt{ai-dispatcher}
+\item
+  \texttt{analysis-ingest}
+\end{itemize}
+
+它們共享 \texttt{packages/db} 與 \texttt{packages/contracts}，但每個
+worker 只能 claim 自己的 job type。FFmpeg subprocess 必須有
+timeout、cancel、stderr capture、temporary directory quota 與 idempotent
+output key。
+
+\subsection{4.5 Media}\label{45-media}
+
+\begin{itemize}
+\tightlist
+\item
+  MediaMTX：接收來源、live LL-HLS/WebRTC、fMP4 recording 與基礎
+  playback。
+\item
+  FFmpeg/ffprobe：索引、archive playback window、canonical clip、preview
+  與 sample mapping。
+\item
+  MinIO：完整錄影片段、playback windows、clips、AI artifacts。
+\item
+  PostgreSQL：capture epochs、segment index、available ranges、mapping
+  version、job state。
+\item
+  標註用播放 profile 必須是可建立 deterministic media-time →
+  capture-time mapping 的單一 rendition；若未來開放 ABR，每個 rendition
+  必須各自有 mapping，不能共用 \texttt{currentTime\ ×\ FPS}。
+\end{itemize}
+
+\subsection{4.6 固定 Framework／Library
+選型}\label{46-ux56faux5b9a-frameworklibrary-ux9078ux578b}
+
+第一版 starter 固定以下基線，避免主 Agent與三個 subagent各自選一套：
+
+\begin{longtable}[]{@{}>{\RaggedRight\arraybackslash}p{0.18\linewidth}>{\RaggedRight\arraybackslash}p{0.34\linewidth}>{\RaggedRight\arraybackslash}p{0.42\linewidth}@{}}
+\toprule\noalign{}
+層 & 選型 & 用途 \\
+\midrule\noalign{}
+\endhead
+\bottomrule\noalign{}
+\endlastfoot
+Runtime／Package & Bun \texttt{1.3.14} & workspace
+install、script、server/worker runtime、Docker image \\
+Web & Nuxt 4、Vue 3、TypeScript & Annotation與Coach多頁PWA \\
+UI & Vant 4、Tailwind CSS、Motion-V、Lucide、VueUse &
+觸控元件、版面、物理動畫、icon與composable \\
+PWA & \texttt{@vite-pwa/nuxt} & standalone manifest、service
+worker、更新提示、iPad加入主畫面 \\
+GraphQL Client & URQL + GraphQL Code Generator &
+讀取結構化domain與generated type \\
+Media Client & native Safari HLS + HLS.js fallback & live/archive
+HLS、bounded client buffer \\
+API Server & Fastify 5 + GraphQL Yoga 5 & 單一HTTP
+server內同時掛GraphQL、REST與WebSocket upgrade \\
+Code-first GraphQL & Pothos + Prisma plugin & TypeScript code-first
+schema；SDL只作CI產物 \\
+Data & Prisma 7 + PostgreSQL 17 & domain、revision、media
+index、submission、job與analysis metadata \\
+Job／Realtime & pg-boss + Redis & durable worker job與WS
+fan-out／presence \\
+Object Storage & MinIO S3 & raw recording、DVR、canonical
+clip、analysis與overlay artifacts \\
+Media & MediaMTX + FFmpeg/ffprobe &
+ingest、LL-HLS、完整錄製、index、playback window與裁切 \\
+Edge & Traefik 3.7.9 & 本地Docker同源routing、WebSocket與HLS反向代理 \\
+AI Integration & Python 3.11+ SDK & 外部AI
+team驗證Job／Result、下載clip、callback與FlatBuffers \\
+\end{longtable}
+
+不採Caddy。瀏覽器使用Traefik同源路徑
+\texttt{/graphql}、\texttt{/api/v1}、\texttt{/ws}、\texttt{/hls}，避免把\texttt{localhost}編入iPad
+bundle。MinIO credentials、AI provider bearer與callback
+token不可進前端。
+
+\subsection{4.7 iPad PWA
+固定行為}\label{47-ipad-pwa-ux56faux5b9aux884cux70ba}
+
+\begin{itemize}
+\tightlist
+\item
+  PWA \texttt{display=standalone}、landscape-first、支援safe-area與Apple
+  touch icon。
+\item
+  iPad安裝與Service Worker必須使用可信任的HTTPS origin；LAN上的純HTTP
+  IP只能作一般瀏覽器預覽，不得當作PWA驗收環境。
+\item
+  \texttt{orientation=landscape}只是一個manifest偏好，UI仍要在直向時顯示「請旋轉iPad」提示，不得依賴瀏覽器一定鎖定方向。
+\item
+  頂部狀態列與底部五分頁導覽在standalone模式仍完整可用。
+\item
+  Service worker可cache app shell與已讀分析資料；GraphQL
+  mutation、annotation WebSocket、live/DVR media、callback與signed
+  artifact一律NetworkOnly。
+\item
+  Offline時可以查看已cache的歷史資料，但未獲server
+  ACK的annotation只能顯示local pending，不得冒充canonical revision。
+\item
+  PWA更新使用auto-update提示；執行中的annotation不可無提示強制reload。
+\end{itemize}
+
+\subsection{4.7.1
+本地Docker與iPad可信任HTTPS}\label{471-ux672cux5730dockerux8207ipadux53efux4fe1ux4efbhttps}
+
+本地Docker仍由Traefik統一入口。Desktop可先用HTTP檢查服務，但iPad「加入主畫面」、Service
+Worker與正式PWA驗收必須使用可信任HTTPS：
+
+\begin{enumerate}
+\def\labelenumi{\arabic{enumi}.}
+\tightlist
+\item
+  為LAN hostname或IP建立本地開發憑證；starter提供
+  \texttt{scripts/generate-local-tls.sh}，預設使用 \texttt{mkcert}。
+\item
+  將本地CA安裝到iPad，並在iOS的憑證信任設定中啟用完整信任。
+\item
+  Traefik的\texttt{web} entrypoint只做HTTP到HTTPS
+  redirect；PWA、GraphQL、REST、WebSocket與HLS全部走\texttt{websecure}同源入口。
+\item
+  憑證私鑰與本地CA不得提交Git；repository只保存產生腳本與範例設定。
+\item
+  若部署到正式DNS，改用組織既有PKI或ACME，不沿用本地CA。
+\end{enumerate}
+
+\subsection{4.8 Serialization 分工}\label{48-serialization-ux5206ux5de5}
+
+\begin{longtable}[]{@{}>{\RaggedRight\arraybackslash}p{0.18\linewidth}>{\RaggedRight\arraybackslash}p{0.34\linewidth}>{\RaggedRight\arraybackslash}p{0.42\linewidth}@{}}
+\toprule\noalign{}
+類型 & 格式 & 原因 \\
+\midrule\noalign{}
+\endhead
+\bottomrule\noalign{}
+\endlastfoot
+一般資料查詢／mutation & GraphQL JSON & 關聯查詢、code-first
+contract、Nuxt type safety \\
+Media／binary／callback & REST & range、stream、multipart 與大型 payload
+不適合 GraphQL \\
+即時 annotation command／status & WebSocket JSON & command
+ID、revision、低延遲、重連 \\
+AI event summary & JSON Schema & 可讀、易驗證、資料量有限 \\
+逐幀 tracking/ball/action & FlatBuffers & 避免巨大 JSON object、降低
+iPad parse/GC 成本 \\
+\end{longtable}
+
+\begin{center}\rule{0.5\linewidth}{0.5pt}\end{center}
+
+\section{5. 容器與
+Infrastructure}\label{5-ux5bb9ux5668ux8207-infrastructure}
+
+\subsection{5.1 Baseline Containers}\label{51-baseline-containers}
+
+\begin{longtable}[]{@{}>{\RaggedRight\arraybackslash}p{0.18\linewidth}>{\RaggedRight\arraybackslash}p{0.34\linewidth}>{\RaggedRight\arraybackslash}p{0.42\linewidth}@{}}
+\toprule\noalign{}
+Container & 責任 & 是否有 durable state \\
+\midrule\noalign{}
+\endhead
+\bottomrule\noalign{}
+\endlastfoot
+\texttt{web} & Nuxt UI/SSR/SPA & 否 \\
+\texttt{server} & GraphQL、REST、WS、auth、domain command & 否 \\
+\texttt{worker-media-indexer} / \texttt{worker-playback} /
+\texttt{worker-clip} & index、playback window、clip、FFmpeg & local
+spool 只是暫存 \\
+\texttt{worker-ai-dispatcher} / \texttt{worker-analysis-ingest} &
+submit、retry、callback ingest／normalize & 否 \\
+\texttt{mediamtx} & ingest/live/record & recording spool 暫存 \\
+\texttt{postgres} & canonical metadata、revision、job、analysis & 是 \\
+\texttt{minio} & media、clip、analysis artifact & 是 \\
+\texttt{redis} & presence、soft lock、fan-out & 否，可重建 \\
+\texttt{minio-init} & 建 buckets/lifecycle & 否 \\
+\end{longtable}
+
+Baseline 不建立 AI 推論容器。開發環境可另啟動
+\texttt{fake-ai-provider}，它只驗證 contract 與產生 fixtures。
+
+\subsection{5.2 MinIO Buckets}\label{52-minio-buckets}
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\NormalTok{raw{-}media/}
+\NormalTok{  matches/\{match\_\allowbreak{}id\}/captures/\{capture\_\allowbreak{}id\}/segments/\{discontinuity\}/\{segment\_\allowbreak{}id\}.mp4}
+
+\NormalTok{playback/}
+\NormalTok{  matches/\{match\_\allowbreak{}id\}/captures/\{capture\_\allowbreak{}id\}/windows/\{window\_\allowbreak{}id\}/...}
+
+\NormalTok{rally{-}media/}
+\NormalTok{  matches/\{match\_\allowbreak{}id\}/rallies/\{rally\_\allowbreak{}id\}/submissions/\{submission\_\allowbreak{}id\}/}
+\NormalTok{    canonical.mp4}
+\NormalTok{    preview.mp4}
+\NormalTok{    timing{-}manifest.json}
+
+\NormalTok{analysis{-}artifacts/}
+\NormalTok{  matches/\{match\_\allowbreak{}id\}/rallies/\{rally\_\allowbreak{}id\}/runs/\{analysis\_\allowbreak{}run\_\allowbreak{}id\}/}
+\NormalTok{    result.json}
+\NormalTok{    overlay{-}sequence.fb}
+\NormalTok{    overlay{-}manifest.json}
+\NormalTok{    chunks/\{index\}.fb}
+\end{Highlighting}
+\end{Shaded}
+
+物件 key 不作資料庫主鍵。DB 永遠保存 bucket、object key、checksum、byte
+size、MIME、schema version 與 lifecycle state。
+
+\subsection{5.3 Durable Job}\label{53-durable-job}
+
+\begin{itemize}
+\tightlist
+\item
+  Clip、playback package、AI submit、artifact ingest 都必須是 DB-backed
+  durable job。
+\item
+  Worker claim 使用 queue library 的 PostgreSQL
+  transaction/lease；不得只用 Redis list。
+\item
+  每個 job 必須有：
+
+  \begin{itemize}
+  \tightlist
+  \item
+    \texttt{id}
+  \item
+    \texttt{job\_\allowbreak{}type}
+  \item
+    \texttt{status}
+  \item
+    \texttt{deduplication\_\allowbreak{}key}
+  \item
+    \texttt{attempt\_\allowbreak{}count}
+  \item
+    \texttt{max\_\allowbreak{}attempts}
+  \item
+    \texttt{available\_\allowbreak{}at}
+  \item
+    \texttt{leased\_\allowbreak{}until}
+  \item
+    \texttt{last\_\allowbreak{}error\_\allowbreak{}code/message}
+  \item
+    \texttt{created\_\allowbreak{}at/updated\_\allowbreak{}at/completed\_\allowbreak{}at}
+  \end{itemize}
+\item
+  Worker crash 後 lease 到期可由另一 worker 接手。
+\end{itemize}
+
+\begin{center}\rule{0.5\linewidth}{0.5pt}\end{center}
+
+\section{6. API
+邊界：GraphQL、REST、WebSocket、FlatBuffers}\label{6-api-ux908aux754cgraphqlrestwebsocketflatbuffers}
+
+\subsection{6.1 GraphQL 適用}\label{61-graphql-ux9069ux7528}
+
+\begin{itemize}
+\tightlist
+\item
+  Match、team、player、roster、set。
+\item
+  Capture session metadata 與完整 timeline availability。
+\item
+  Rally list/detail、submission history、job status。
+\item
+  Analysis、filter、statistics、saved view。
+\item
+  管理設定與 track identity assignment。
+\item
+  Annotation snapshot/refetch 與低頻 fallback mutation。
+\end{itemize}
+
+GraphQL 不傳：
+
+\begin{itemize}
+\tightlist
+\item
+  MP4、HLS segment、FlatBuffers、callback multipart。
+\item
+  每 frame tracking array。
+\item
+  MinIO credential。
+\end{itemize}
+
+\subsection{6.2 REST 適用}\label{62-rest-ux9069ux7528}
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\NormalTok{POST /v1/media/playback{-}windows}
+\NormalTok{GET  /v1/media/playback{-}windows/\{id\}}
+\NormalTok{GET  /v1/media/playback{-}windows/\{id\}/manifest.m3u8}
+\NormalTok{GET  /v1/media/playback{-}windows/\{id\}/media.mp4}
+\NormalTok{POST /v1/media/resolve{-}cursor}
+\NormalTok{POST /v1/media/frame{-}step}
+
+\NormalTok{GET  /v1/ai/jobs/\{ai\_\allowbreak{}job\_\allowbreak{}id\}/clip}
+\NormalTok{POST /v1/ai/callback/\{ai\_\allowbreak{}job\_\allowbreak{}id\}}
+\NormalTok{GET  /v1/analysis{-}runs/\{id\}/overlay{-}manifest}
+\NormalTok{GET  /v1/analysis{-}runs/\{id\}/overlay{-}chunks/\{index\}}
+
+\NormalTok{GET  /health/live}
+\NormalTok{GET  /health/ready}
+\end{Highlighting}
+\end{Shaded}
+
+\subsection{6.3 WebSocket 適用}\label{63-websocket-ux9069ux7528}
+
+單一連線可加入 match room，訊息分為：
+
+\begin{itemize}
+\tightlist
+\item
+  \texttt{annotation.command}
+\item
+  \texttt{annotation.ack}
+\item
+  \texttt{annotation.conflict}
+\item
+  \texttt{annotation.snapshot\_\allowbreak{}changed}
+\item
+  \texttt{presence.update}
+\item
+  \texttt{soft\_\allowbreak{}lock.update}
+\item
+  \texttt{timeline.live\_\allowbreak{}edge}
+\item
+  \texttt{timeline.segment\_\allowbreak{}added}
+\item
+  \texttt{processing.status\_\allowbreak{}changed}
+\item
+  \texttt{analysis.ready}
+\end{itemize}
+
+WebSocket 不廣播完整逐幀 overlay，也不應每次小操作廣播整場大型
+snapshot。
+
+\subsection{6.4 FlatBuffers 適用}\label{64-flatbuffers-ux9069ux7528}
+
+只負責：
+
+\begin{itemize}
+\tightlist
+\item
+  每 frame 的 track observation。
+\item
+  frame bbox、foot frame position、court position。
+\item
+  ball frame position。
+\item
+  optional action dictionary index。
+\item
+  flags／optional quantized confidence。
+\end{itemize}
+
+Event、rally、team、player、filter 仍使用 JSON/GraphQL。
+
+\begin{center}\rule{0.5\linewidth}{0.5pt}\end{center}
+
+\section{7.
+統一時間與座標定義}\label{7-ux7d71ux4e00ux6642ux9593ux8207ux5ea7ux6a19ux5b9aux7fa9}
+
+\subsection{7.1
+統一時間欄位}\label{71-ux7d71ux4e00ux6642ux9593ux6b04ux4f4d}
+
+時間分成四層，欄位名稱不得互換：
+
+\begin{enumerate}
+\def\labelenumi{\arabic{enumi}.}
+\tightlist
+\item
+  \textbf{來源 epoch
+  時間}：\texttt{capture\_\allowbreak{}epoch\_\allowbreak{}id\ +\ source\_\allowbreak{}pts\ +\ source\_\allowbreak{}time\_\allowbreak{}base}。來源重連或
+  PTS 重置時建立新 epoch；raw PTS 只在 epoch 內有意義。
+\item
+  \textbf{整場 canonical 時間}：\texttt{capture\_\allowbreak{}time\_\allowbreak{}us}，從 capture
+  session 起點單調增加，資料庫使用 PostgreSQL \texttt{BIGINT}，wire
+  使用十進位字串。
+\item
+  \textbf{整場 canonical frame}：\texttt{capture\_\allowbreak{}frame\_\allowbreak{}index}，由
+  sample index 建立；瀏覽器不得以 \texttt{currentTime\ ×\ FPS} 推算。
+\item
+  \textbf{裁切片段局部時間}：\texttt{clip\_\allowbreak{}time\_\allowbreak{}us}、\texttt{clip\_\allowbreak{}pts}、\texttt{clip\_\allowbreak{}frame\_\allowbreak{}index}，均由前處理服務產生，AI
+  只使用這組局部時間。
+\end{enumerate}
+
+Browser 只送 \texttt{PlaybackCursor} 觀測值。後端依
+\texttt{playback\_\allowbreak{}window\_\allowbreak{}id\ +\ mapping\_\allowbreak{}version\ +\ player\_\allowbreak{}media\_\allowbreak{}time\_\allowbreak{}us}
+查 window mapping 與 sample index，解析為 authoritative
+anchor。\texttt{requestVideoFrameCallback().mediaTime}
+是首選，\texttt{currentTime} 只作 fallback；兩者都仍是 client
+observation，不直接寫進 key point canonical 欄位。
+
+GraphQL \texttt{Int} 只有 32-bit，不能承載 microseconds、PTS、frame
+count 或 byte size。所有 64-bit wire 欄位使用自訂 \texttt{BigInt}
+scalar並序列化為 decimal string；前端 codegen映射為
+\texttt{string}，不可映射為 JavaScript \texttt{number}。
+
+\subsection{7.2 Frame Position}\label{72-frame-position}
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\FunctionTok{\{}\DataTypeTok{"x"}\FunctionTok{:} \DecValTok{0}\ErrorTok{.}\DecValTok{42}\FunctionTok{,} \DataTypeTok{"y"}\FunctionTok{:} \DecValTok{0}\ErrorTok{.}\DecValTok{63}\FunctionTok{\}}
+\end{Highlighting}
+\end{Shaded}
+
+\begin{itemize}
+\tightlist
+\item
+  \texttt{frame\_\allowbreak{}pos} 原點是影像左上。
+\item
+  x/y 通常位於 \texttt{{[}0,1{]}}。
+\item
+  \texttt{frame\_\allowbreak{}bbox} 使用 \texttt{x1/y1/x2/y2} 正規化。
+\item
+  前端按實際 video content rect 換算，不可把 letterbox/pillarbox
+  也當影像區。
+\end{itemize}
+
+\subsection{7.3 Court Position}\label{73-court-position}
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\FunctionTok{\{}\DataTypeTok{"x"}\FunctionTok{:} \DecValTok{0}\ErrorTok{.}\DecValTok{31}\FunctionTok{,} \DataTypeTok{"y"}\FunctionTok{:} \DecValTok{0}\ErrorTok{.}\DecValTok{72}\FunctionTok{\}}
+\end{Highlighting}
+\end{Shaded}
+
+固定唯一規格：
+
+\begin{itemize}
+\tightlist
+\item
+  \texttt{x=0}：左側端線；\texttt{x=1}：右側端線，對應 18 m 長度。
+\item
+  \texttt{y=0}：canonical
+  俯視球場圖的上側邊線；\texttt{y=1}：下側邊線，對應 9 m
+  寬度。此方向不依賴攝影機畫面。
+\item
+  球場內 \texttt{{[}0,1{]}\ ×\ {[}0,1{]}}。
+\item
+  發球區、救球區、出界點允許 \texttt{\textless{}0} 或
+  \texttt{\textgreater{}1}。
+\item
+  不因換邊翻轉 canonical data；前端可依教練視角 transform。
+\item
+  公尺值需要時：\texttt{x\_\allowbreak{}m\ =\ x\ *\ 18}、\texttt{y\_\allowbreak{}m\ =\ y\ *\ 9}。
+\item
+  A/B 由 AI 已處理的 footprint proxy／terminal representative point
+  產生；中央與前端不再投影。
+\end{itemize}
+
+\begin{center}\rule{0.5\linewidth}{0.5pt}\end{center}
+
+\section{8. Full-session Live DVR 與 Lazy
+Playback}\label{8-full-session-live-dvr-ux8207-lazy-playback}
+
+\subsection{8.1 使用者體驗}\label{81-ux4f7fux7528ux8005ux9ad4ux9a57}
+
+\begin{itemize}
+\tightlist
+\item
+  標註端進入場次後預設位於 live edge，持續播放聲音與影像。
+\item
+  底部 timeline 範圍是整個 capture session，從第一段可用影像到 live
+  edge。
+\item
+  使用者可像 YouTube Live 一樣拖到任何已保存時間。
+\item
+  遠端歷史影片不一次下載整場；播放器只保留目前 window 與前後相鄰
+  window。
+\item
+  使用者停留在歷史回放時，伺服器仍持續錄 live；WebSocket 持續更新 live
+  edge。
+\item
+  按「回到現場」時切回 live rolling window。
+\item
+  若某區段缺檔，timeline 顯示 gap，不允許在 gap 建 marker。
+\end{itemize}
+
+\subsection{8.2 Server Timeline}\label{82-server-timeline}
+
+GraphQL \texttt{captureTimeline} 回傳 metadata，而不是 media bytes：
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\FunctionTok{\{}
+  \DataTypeTok{"capture\_\allowbreak{}session\_\allowbreak{}id"}\FunctionTok{:} \StringTok{"..."}\FunctionTok{,}
+  \DataTypeTok{"timeline\_\allowbreak{}version"}\FunctionTok{:} \DecValTok{87}\FunctionTok{,}
+  \DataTypeTok{"capture\_\allowbreak{}start\_\allowbreak{}time\_\allowbreak{}us"}\FunctionTok{:} \StringTok{"0"}\FunctionTok{,}
+  \DataTypeTok{"live\_\allowbreak{}edge\_\allowbreak{}capture\_\allowbreak{}time\_\allowbreak{}us"}\FunctionTok{:} \StringTok{"7132456000"}\FunctionTok{,}
+  \DataTypeTok{"available\_\allowbreak{}ranges"}\FunctionTok{:} \OtherTok{[}
+    \FunctionTok{\{}\DataTypeTok{"start\_\allowbreak{}us"}\FunctionTok{:} \StringTok{"0"}\FunctionTok{,} \DataTypeTok{"end\_\allowbreak{}us"}\FunctionTok{:} \StringTok{"2410000000"}\FunctionTok{,} \DataTypeTok{"discontinuity"}\FunctionTok{:} \DecValTok{0}\FunctionTok{\}}\OtherTok{,}
+    \FunctionTok{\{}\DataTypeTok{"start\_\allowbreak{}us"}\FunctionTok{:} \StringTok{"2416500000"}\FunctionTok{,} \DataTypeTok{"end\_\allowbreak{}us"}\FunctionTok{:} \StringTok{"7132456000"}\FunctionTok{,} \DataTypeTok{"discontinuity"}\FunctionTok{:} \DecValTok{1}\FunctionTok{\}}
+  \OtherTok{]}
+\FunctionTok{\}}
+\end{Highlighting}
+\end{Shaded}
+
+UI 可用這些 range 繪完整時間軸；不需要先下載所有 segment list。
+
+\subsection{8.3 Playback Window 與完整
+DVR}\label{83-playback-window-ux8207ux5b8cux6574-dvr}
+
+Server 保存整場，client 只取得 bounded playback window。Live manifest 與
+archive window 都映射到同一條 \texttt{capture\_\allowbreak{}time\_\allowbreak{}us}；播放器的
+\texttt{currentTime} 原點可以不同，因此每個 descriptor 必須攜帶 mapping
+origin。
+
+Request：
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\FunctionTok{\{}
+  \DataTypeTok{"capture\_\allowbreak{}session\_\allowbreak{}id"}\FunctionTok{:} \StringTok{"018f..."}\FunctionTok{,}
+  \DataTypeTok{"mode"}\FunctionTok{:} \StringTok{"archive"}\FunctionTok{,}
+  \DataTypeTok{"target\_\allowbreak{}capture\_\allowbreak{}time\_\allowbreak{}us"}\FunctionTok{:} \StringTok{"2823123000"}\FunctionTok{,}
+  \DataTypeTok{"requested\_\allowbreak{}back\_\allowbreak{}us"}\FunctionTok{:} \StringTok{"90000000"}\FunctionTok{,}
+  \DataTypeTok{"requested\_\allowbreak{}forward\_\allowbreak{}us"}\FunctionTok{:} \StringTok{"120000000"}
+\FunctionTok{\}}
+\end{Highlighting}
+\end{Shaded}
+
+Response：
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\FunctionTok{\{}
+  \DataTypeTok{"playback\_\allowbreak{}window\_\allowbreak{}id"}\FunctionTok{:} \StringTok{"0190..."}\FunctionTok{,}
+  \DataTypeTok{"capture\_\allowbreak{}session\_\allowbreak{}id"}\FunctionTok{:} \StringTok{"018f..."}\FunctionTok{,}
+  \DataTypeTok{"mode"}\FunctionTok{:} \StringTok{"archive"}\FunctionTok{,}
+  \DataTypeTok{"mapping\_\allowbreak{}version"}\FunctionTok{:} \DecValTok{3}\FunctionTok{,}
+  \DataTypeTok{"window\_\allowbreak{}capture\_\allowbreak{}start\_\allowbreak{}us"}\FunctionTok{:} \StringTok{"2733123000"}\FunctionTok{,}
+  \DataTypeTok{"window\_\allowbreak{}capture\_\allowbreak{}end\_\allowbreak{}us"}\FunctionTok{:} \StringTok{"2943123000"}\FunctionTok{,}
+  \DataTypeTok{"presentation\_\allowbreak{}origin\_\allowbreak{}capture\_\allowbreak{}us"}\FunctionTok{:} \StringTok{"2733123000"}\FunctionTok{,}
+  \DataTypeTok{"target\_\allowbreak{}player\_\allowbreak{}media\_\allowbreak{}time\_\allowbreak{}us"}\FunctionTok{:} \StringTok{"90000000"}\FunctionTok{,}
+  \DataTypeTok{"manifest\_\allowbreak{}url"}\FunctionTok{:} \StringTok{"/api/v1/media/playback{-}windows/0190.../manifest.m3u8"}\FunctionTok{,}
+  \DataTypeTok{"expires\_\allowbreak{}at"}\FunctionTok{:} \StringTok{"2026{-}08{-}07T05:00:00Z"}
+\FunctionTok{\}}
+\end{Highlighting}
+\end{Shaded}
+
+\texttt{capture\_\allowbreak{}time\_\allowbreak{}us\ =\ presentation\_\allowbreak{}origin\_\allowbreak{}capture\_\allowbreak{}us\ +\ player\_\allowbreak{}media\_\allowbreak{}time\_\allowbreak{}us}
+只是一階 mapping；後端仍須以 sample index吸附到實際 frame。HLS
+playlist可使用 program date time協助跨 rendition／窗口對齊，但
+canonical資料仍以自己的 capture/sample index為準。
+
+預設 window可設 3--5 分鐘，這只是 client loading策略，不是回放限制。接近
+window邊界時 lazy prefetch下一個 window；使用者在歷史回放時，live錄製與
+live-edge更新持續進行。
+
+\subsection{8.4 Client Buffer 策略}\label{84-client-buffer-ux7b56ux7565}
+
+\begin{itemize}
+\tightlist
+\item
+  \texttt{live}：使用 LL-HLS rolling manifest，只保存最近幾分鐘的
+  segment references。
+\item
+  \texttt{archive}：下載固定 window；接近 20--30 秒邊界時 prefetch 相鄰
+  window。
+\item
+  記憶體只保留 current/previous/next window metadata；已遠離的
+  MediaSource buffer 與 overlay chunk 必須釋放。
+\item
+  不在背景維持第二支 live video；以 WebSocket live edge
+  更新替代，避免雙倍頻寬。
+\item
+  回到 live 時再 load live manifest。
+\end{itemize}
+
+\subsection{8.5 Playback Cursor 與 key point
+對齊}\label{85-playback-cursor-ux8207-key-point-ux5c0dux9f4a}
+
+前端在鍵盤或觸控按鈕被觸發時，送「最後一個真正呈現的影片 frame」觀測：
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\FunctionTok{\{}
+  \DataTypeTok{"playback\_\allowbreak{}window\_\allowbreak{}id"}\FunctionTok{:} \StringTok{"0190..."}\FunctionTok{,}
+  \DataTypeTok{"mapping\_\allowbreak{}version"}\FunctionTok{:} \DecValTok{3}\FunctionTok{,}
+  \DataTypeTok{"player\_\allowbreak{}media\_\allowbreak{}time\_\allowbreak{}us"}\FunctionTok{:} \StringTok{"90167234"}\FunctionTok{,}
+  \DataTypeTok{"observation\_\allowbreak{}source"}\FunctionTok{:} \StringTok{"request\_\allowbreak{}video\_\allowbreak{}frame\_\allowbreak{}callback"}\FunctionTok{,}
+  \DataTypeTok{"presented\_\allowbreak{}frames"}\FunctionTok{:} \StringTok{"1842"}\FunctionTok{,}
+  \DataTypeTok{"seek\_\allowbreak{}generation"}\FunctionTok{:} \DecValTok{27}\FunctionTok{,}
+  \DataTypeTok{"cursor\_\allowbreak{}status"}\FunctionTok{:} \StringTok{"ready"}
+\FunctionTok{\}}
+\end{Highlighting}
+\end{Shaded}
+
+\begin{itemize}
+\tightlist
+\item
+  \texttt{observation\_\allowbreak{}source} 可為
+  \texttt{request\_\allowbreak{}video\_\allowbreak{}frame\_\allowbreak{}callback} 或
+  \texttt{current\_\allowbreak{}time\_\allowbreak{}fallback}。
+\item
+  Safari 原生 HLS不保證可暴露 segment ID，因此 \texttt{segment\_\allowbreak{}id}
+  不可設為 browser必填欄位。
+\item
+  \texttt{cursor\_\allowbreak{}status=seeking/stale/gap} 時，Z/Space必須被 UI阻擋。
+\item
+  \texttt{seek\_\allowbreak{}generation} 防止 seek完成前的舊 callback被誤用。
+\end{itemize}
+
+後端解析後回：
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\FunctionTok{\{}
+  \DataTypeTok{"capture\_\allowbreak{}epoch\_\allowbreak{}id"}\FunctionTok{:} \StringTok{"0190..."}\FunctionTok{,}
+  \DataTypeTok{"source\_\allowbreak{}pts"}\FunctionTok{:} \StringTok{"169387400"}\FunctionTok{,}
+  \DataTypeTok{"source\_\allowbreak{}time\_\allowbreak{}base"}\FunctionTok{:} \FunctionTok{\{}\DataTypeTok{"num"}\FunctionTok{:} \DecValTok{1}\FunctionTok{,} \DataTypeTok{"den"}\FunctionTok{:} \DecValTok{60000}\FunctionTok{\},}
+  \DataTypeTok{"capture\_\allowbreak{}time\_\allowbreak{}us"}\FunctionTok{:} \StringTok{"2823290234"}\FunctionTok{,}
+  \DataTypeTok{"capture\_\allowbreak{}frame\_\allowbreak{}index"}\FunctionTok{:} \StringTok{"169228"}\FunctionTok{,}
+  \DataTypeTok{"resolved\_\allowbreak{}player\_\allowbreak{}media\_\allowbreak{}time\_\allowbreak{}us"}\FunctionTok{:} \StringTok{"90166900"}\FunctionTok{,}
+  \DataTypeTok{"mapping\_\allowbreak{}version"}\FunctionTok{:} \DecValTok{3}\FunctionTok{,}
+  \DataTypeTok{"snap\_\allowbreak{}distance\_\allowbreak{}us"}\FunctionTok{:} \StringTok{"334"}\FunctionTok{,}
+  \DataTypeTok{"timing\_\allowbreak{}precision"}\FunctionTok{:} \StringTok{"frame\_\allowbreak{}exact"}
+\FunctionTok{\}}
+\end{Highlighting}
+\end{Shaded}
+
+這個 server resolve 結果才可寫入 KeyPoint。無法解析時必須拒絕
+command，不得退化成 client clock。
+
+\subsection{8.6 Frame Step}\label{86-frame-step}
+
+編輯 key point 時，前端送 key point ID 與方向：
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\FunctionTok{\{}\DataTypeTok{"key\_\allowbreak{}point\_\allowbreak{}id"}\FunctionTok{:}\StringTok{"..."}\FunctionTok{,}\DataTypeTok{"direction"}\FunctionTok{:}\StringTok{"next"}\FunctionTok{,}\DataTypeTok{"step\_\allowbreak{}count"}\FunctionTok{:}\DecValTok{1}\FunctionTok{\}}
+\end{Highlighting}
+\end{Shaded}
+
+後端依 sample index 回傳前／後一個 frame 的 authoritative cursor。播放器
+seek 到對應 media time；marker 更新仍走 revision command。
+
+\begin{center}\rule{0.5\linewidth}{0.5pt}\end{center}
+
+\section{9. Annotation 狀態機與完整 User
+Flow}\label{9-annotation-ux72c0ux614bux6a5fux8207ux5b8cux6574-user-flow}
+
+\subsection{9.1 狀態}\label{91-ux72c0ux614b}
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\NormalTok{OPEN}
+\NormalTok{  └─ X(target\_\allowbreak{}key\_\allowbreak{}point\_\allowbreak{}id) → AWAITING\_\allowbreak{}SCORE}
+\NormalTok{AWAITING\_\allowbreak{}SCORE}
+\NormalTok{  ├─ \textless{} left / \textgreater{} right → READY(resolved)}
+\NormalTok{  ├─ ? → READY(unknown)}
+\NormalTok{  └─ reopen → OPEN}
+\NormalTok{READY}
+\NormalTok{  ├─ 改得分 → READY}
+\NormalTok{  ├─ reopen → OPEN}
+\NormalTok{  └─ Enter → SUBMITTED}
+\NormalTok{SUBMITTED}
+\NormalTok{  └─ correction → 新 draft / 新 submission}
+\NormalTok{VOIDED}
+\end{Highlighting}
+\end{Shaded}
+
+處理狀態另存：\texttt{IDLE\ /\ CLIP\_\allowbreak{}QUEUED\ /\ CLIPPING\ /\ AI\_\allowbreak{}QUEUED\ /\ AI\_\allowbreak{}PROCESSING\ /\ INGESTING\ /\ COMPLETED\ /\ FAILED\ /\ SUPERSEDED}。
+
+\subsection{9.2 完整操作}\label{92-ux5b8cux6574ux64cdux4f5c}
+
+\subsubsection{Z - 發球}\label{z---ux767cux7403}
+
+\begin{enumerate}
+\def\labelenumi{\arabic{enumi}.}
+\tightlist
+\item
+  播放器 cursor 必須 \texttt{ready} 且不在 gap。
+\item
+  Client送單一且可重試的 \texttt{CREATE\_\allowbreak{}SERVICE\_\allowbreak{}KEY\_\allowbreak{}POINT}
+  command；\texttt{marker\_\allowbreak{}kind=service}由command語意固定。
+\item
+  Server解析 authoritative frame，建立 RallyDraft與 sequence 0 key
+  point。
+\item
+  Timeline開始顯示灰色 open mask。
+\item
+  若已有 active draft，拒絕，不自動關閉前一 rally。
+\end{enumerate}
+
+\subsubsection{Space - 擊球}\label{space---ux64caux7403}
+
+\begin{enumerate}
+\def\labelenumi{\arabic{enumi}.}
+\tightlist
+\item
+  僅 \texttt{OPEN} 可新增。
+\item
+  每次送一個 \texttt{contact} marker。
+\item
+  Server依 canonical time排序並產生 revision。
+\item
+  多人幾乎同時打同一球時保留兩點並標
+  \texttt{possible\_\allowbreak{}duplicate}，不靜默刪除。
+\end{enumerate}
+
+\subsubsection{X - 結束}\label{x---ux7d50ux675f}
+
+\begin{enumerate}
+\def\labelenumi{\arabic{enumi}.}
+\tightlist
+\item
+  Client從目前server-confirmed snapshot取得最後一個有效 key point
+  ID，凍結為
+  \texttt{target\_\allowbreak{}key\_\allowbreak{}point\_\allowbreak{}id}；一般流程不要求使用者先手動選取marker。
+\item
+  X按下時的 wall clock、player currentTime都不新增到事件序列。
+\item
+  Server驗證 target在 \texttt{base\_\allowbreak{}revision}仍是最後一個未刪除 key
+  point。
+\item
+  成功後把該點 \texttt{is\_\allowbreak{}terminal=true}，狀態進入
+  \texttt{AWAITING\_\allowbreak{}SCORE}，mask終點就是該點。
+\item
+  若另一協作者已新增點，回
+  \texttt{REVISION\_\allowbreak{}CONFLICT}；前端刷新後讓使用者再決定，不自動把新點terminal。
+\end{enumerate}
+
+\subsubsection{\texorpdfstring{\texttt{\textless{}}、\texttt{\textgreater{}}、\texttt{?}
+- 得分}{\textless、\textgreater、? - 得分}}\label{---ux5f97ux5206}
+
+\begin{itemize}
+\tightlist
+\item
+  UI必須顯示三個按鈕：\texttt{\textless{}\ 左側得分}、\texttt{\textgreater{}\ 右側得分}、\texttt{?\ 未知}。硬體鍵盤使用實際
+  \texttt{\textless{}}、\texttt{\textgreater{}}、\texttt{?}（通常為
+  Shift+逗號、Shift+句點、Shift+斜線）；方向鍵保留給逐幀。
+\item
+  \texttt{left/right} 指當下球場畫面左右側，不是永久 team identity。
+\item
+  Server依 submission的 side-assignment snapshot解析 team ID。
+\item
+  \texttt{pending} 與 \texttt{unknown}
+  不同：pending代表尚未選；unknown代表使用者已明確選 \texttt{?}。
+\end{itemize}
+
+\subsubsection{Enter - 提交}\label{enter---ux63d0ux4ea4}
+
+Server以單一 transaction：
+
+\begin{enumerate}
+\def\labelenumi{\arabic{enumi}.}
+\tightlist
+\item
+  驗證至少一個 service、恰好一個 terminal、terminal為最後有效 key
+  point。
+\item
+  驗證 score state是 \texttt{resolved} 或 \texttt{unknown}。
+\item
+  鎖定 draft revision並建立 immutable \texttt{RallySubmission}。
+\item
+  複製 immutable submission key points、side assignment、score
+  resolution、clip policy與 content hash。
+\item
+  \texttt{resolved} 才建立 \texttt{PointAward}；\texttt{unknown}
+  不改比分 ledger。
+\item
+  建立 ClipJob與Outbox event。
+\item
+  廣播 submission／processing狀態；UI mask轉綠。
+\end{enumerate}
+
+提交後不可原地修改。修正必須建立 correction draft並新建 submission，保留
+supersedes關係。
+
+\subsection{9.3 編輯與逐幀}\label{93-ux7de8ux8f2fux8207ux9010ux5e40}
+
+\begin{itemize}
+\tightlist
+\item
+  灰色 mask可新增、刪除、移動、重新指定 terminal、重開 rally、改得分。
+\item
+  方向鍵在 key point edit mode 呼叫 server frame-step API；後端依 sample
+  index取得前後 sample，再更新 marker。
+\item
+  綠色 mask唯讀；開啟修正時從 submission建立新 draft。
+\item
+  拖曳 marker時可用短暫 soft lock提示其他協作者，但 canonical
+  concurrency仍以 revision/CAS為準。
+\end{itemize}
+
+\subsection{9.4 UI 必備區域}\label{94-ui-ux5fc5ux5099ux5340ux57df}
+
+\begin{itemize}
+\tightlist
+\item
+  頂部：場次、來源健康、LIVE狀態、與 live
+  edge距離、WebSocket、協作者、來源 timecode。
+\item
+  中央：有聲 video、回到 LIVE、播放/暫停、逐幀、倍速。
+\item
+  多軌 timeline：完整 capture range、gap、playhead、key points、rally
+  masks、score strip、processing badges。
+\item
+  底部固定 control
+  deck：\texttt{Z\ 發球}、\texttt{Space\ 擊球}、\texttt{X\ 結束}、\texttt{\textless{}\ 左側得分}、\texttt{\textgreater{}\ 右側得分}、\texttt{?\ 未知}、\texttt{Enter\ 提交}，並依
+  state啟停。
+\item
+  Inspector：選取 key point時顯示 canonical
+  time、frame、建立者、revision、duplicate/precision資訊。
+\end{itemize}
+
+\section{10. Annotation Realtime Schema
+v1.1}\label{10-annotation-realtime-schema-v11}
+
+\subsubsection{10.0 協議版本}\label{100-ux5354ux8b70ux7248ux672c}
+
+Annotation Realtime Protocol 的正式版本為 \texttt{1.1.0}。這次升版反映
+command identity 改為 connection-bound、\texttt{MARK\_\allowbreak{}TERMINAL} 必須指定
+\texttt{target\_\allowbreak{}key\_\allowbreak{}point\_\allowbreak{}id}、以及 ACK/effect/snapshot message 改為
+strict typed variants。任何 \texttt{1.0.0} annotation message 都不得被
+1.1 consumer 靜默當成相同語意。
+
+WebSocket用於高頻 annotation
+command、ack、revision、presence與處理通知。GraphQL提供
+snapshot/refetch，不承擔逐次按鍵。
+
+\subsection{10.1 Client Command
+Envelope}\label{101-client-command-envelope}
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\FunctionTok{\{}
+  \DataTypeTok{"schema\_\allowbreak{}version"}\FunctionTok{:} \StringTok{"1.1.0"}\FunctionTok{,}
+  \DataTypeTok{"command\_\allowbreak{}id"}\FunctionTok{:} \StringTok{"0190..."}\FunctionTok{,}
+  \DataTypeTok{"room\_\allowbreak{}id"}\FunctionTok{:} \StringTok{"match:...:capture:..."}\FunctionTok{,}
+  \DataTypeTok{"rally\_\allowbreak{}id"}\FunctionTok{:} \StringTok{"0190..."}\FunctionTok{,}
+  \DataTypeTok{"base\_\allowbreak{}revision"}\FunctionTok{:} \StringTok{"27"}\FunctionTok{,}
+  \DataTypeTok{"kind"}\FunctionTok{:} \StringTok{"MARK\_\allowbreak{}TERMINAL"}\FunctionTok{,}
+  \DataTypeTok{"payload"}\FunctionTok{:} \FunctionTok{\{}
+    \DataTypeTok{"target\_\allowbreak{}key\_\allowbreak{}point\_\allowbreak{}id"}\FunctionTok{:} \StringTok{"0190..."}
+  \FunctionTok{\}}
+\FunctionTok{\}}
+\end{Highlighting}
+\end{Shaded}
+
+\texttt{user\_\allowbreak{}id}與\texttt{device\_\allowbreak{}session\_\allowbreak{}id}不由每一個command自報。HTTP/WebSocket
+upgrade先驗證登入身份並綁定device session；server寫入operation
+log時使用connection
+context。\texttt{CREATE\_\allowbreak{}SERVICE\_\allowbreak{}KEY\_\allowbreak{}POINT}的\texttt{rally\_\allowbreak{}id}由client在按Z當下產生UUID，讓「建立rally＋解析該frame＋建立service
+marker」保持單一idempotent
+command，不需要先呼叫另一個會造成時間漂移的API。
+
+所有 revision、time、PTS、global frame在 JSON wire使用 decimal string。
+
+\subsection{10.2 Command Kinds}\label{102-command-kinds}
+
+\begin{longtable}[]{@{}>{\RaggedRight\arraybackslash}p{0.18\linewidth}>{\RaggedRight\arraybackslash}p{0.34\linewidth}>{\RaggedRight\arraybackslash}p{0.42\linewidth}@{}}
+\toprule\noalign{}
+kind & 主要 payload & 說明 \\
+\midrule\noalign{}
+\endhead
+\bottomrule\noalign{}
+\endlastfoot
+\texttt{CREATE\_\allowbreak{}SERVICE\_\allowbreak{}KEY\_\allowbreak{}POINT} & \texttt{playback\_\allowbreak{}cursor} &
+Z；建立 rally與service marker \\
+\texttt{CREATE\_\allowbreak{}CONTACT\_\allowbreak{}KEY\_\allowbreak{}POINT} & \texttt{playback\_\allowbreak{}cursor} &
+Space \\
+\texttt{MARK\_\allowbreak{}TERMINAL} & \texttt{target\_\allowbreak{}key\_\allowbreak{}point\_\allowbreak{}id} &
+X；不帶新時間 \\
+\texttt{SET\_\allowbreak{}SCORE} & \texttt{score\_\allowbreak{}resolution},
+\texttt{scoring\_\allowbreak{}court\_\allowbreak{}side} &
+\texttt{\textless{}}／\texttt{\textgreater{}}／\texttt{?}；方向鍵不計分 \\
+\texttt{MOVE\_\allowbreak{}KEY\_\allowbreak{}POINT} & \texttt{key\_\allowbreak{}point\_\allowbreak{}id},
+\texttt{playback\_\allowbreak{}cursor} & drag/frame
+step後由server重新解析authoritative anchor \\
+\texttt{DELETE\_\allowbreak{}KEY\_\allowbreak{}POINT} & \texttt{key\_\allowbreak{}point\_\allowbreak{}id} & draft-only \\
+\texttt{SET\_\allowbreak{}TERMINAL\_\allowbreak{}KEY\_\allowbreak{}POINT} & \texttt{target\_\allowbreak{}key\_\allowbreak{}point\_\allowbreak{}id} &
+修正terminal \\
+\texttt{REOPEN\_\allowbreak{}RALLY} & none & 清除terminal、回OPEN \\
+\texttt{VOID\_\allowbreak{}RALLY} & \texttt{reason} &
+明確作廢draft，不等於刪除歷史 \\
+\texttt{SUBMIT\_\allowbreak{}RALLY} & none & Enter，建立immutable submission \\
+\end{longtable}
+
+\subsection{10.3 Ack}\label{103-ack}
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\FunctionTok{\{}
+  \DataTypeTok{"schema\_\allowbreak{}version"}\FunctionTok{:} \StringTok{"1.1.0"}\FunctionTok{,}
+  \DataTypeTok{"type"}\FunctionTok{:} \StringTok{"command\_\allowbreak{}ack"}\FunctionTok{,}
+  \DataTypeTok{"command\_\allowbreak{}id"}\FunctionTok{:} \StringTok{"0190..."}\FunctionTok{,}
+  \DataTypeTok{"room\_\allowbreak{}id"}\FunctionTok{:} \StringTok{"match:...:capture:..."}\FunctionTok{,}
+  \DataTypeTok{"rally\_\allowbreak{}id"}\FunctionTok{:} \StringTok{"0190..."}\FunctionTok{,}
+  \DataTypeTok{"operation\_\allowbreak{}kind"}\FunctionTok{:} \StringTok{"MARK\_\allowbreak{}TERMINAL"}\FunctionTok{,}
+  \DataTypeTok{"result\_\allowbreak{}revision"}\FunctionTok{:} \StringTok{"28"}\FunctionTok{,}
+  \DataTypeTok{"server\_\allowbreak{}sequence"}\FunctionTok{:} \StringTok{"1042"}\FunctionTok{,}
+  \DataTypeTok{"effects"}\FunctionTok{:} \FunctionTok{\{}
+    \DataTypeTok{"terminal\_\allowbreak{}key\_\allowbreak{}point\_\allowbreak{}id"}\FunctionTok{:} \StringTok{"0190..."}\FunctionTok{,}
+    \DataTypeTok{"annotation\_\allowbreak{}status"}\FunctionTok{:} \StringTok{"awaiting\_\allowbreak{}score"}\FunctionTok{,}
+    \DataTypeTok{"score\_\allowbreak{}resolution"}\FunctionTok{:} \StringTok{"pending"}\FunctionTok{,}
+    \DataTypeTok{"scoring\_\allowbreak{}court\_\allowbreak{}side"}\FunctionTok{:} \KeywordTok{null}
+  \FunctionTok{\},}
+  \DataTypeTok{"resolved\_\allowbreak{}anchor"}\FunctionTok{:} \KeywordTok{null}
+\FunctionTok{\}}
+\end{Highlighting}
+\end{Shaded}
+
+同一 \texttt{command\_\allowbreak{}id} 重送必須回相同結果。Server先寫 DB
+transaction/outbox，再廣播；WebSocket訊息不是唯一 durable record。
+
+\subsection{10.4 Conflict}\label{104-conflict}
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\FunctionTok{\{}
+  \DataTypeTok{"type"}\FunctionTok{:} \StringTok{"command\_\allowbreak{}rejected"}\FunctionTok{,}
+  \DataTypeTok{"command\_\allowbreak{}id"}\FunctionTok{:} \StringTok{"0190..."}\FunctionTok{,}
+  \DataTypeTok{"code"}\FunctionTok{:} \StringTok{"REVISION\_\allowbreak{}CONFLICT"}\FunctionTok{,}
+  \DataTypeTok{"expected\_\allowbreak{}revision"}\FunctionTok{:} \StringTok{"27"}\FunctionTok{,}
+  \DataTypeTok{"actual\_\allowbreak{}revision"}\FunctionTok{:} \StringTok{"28"}\FunctionTok{,}
+  \DataTypeTok{"snapshot\_\allowbreak{}refetch\_\allowbreak{}required"}\FunctionTok{:} \KeywordTok{true}
+\FunctionTok{\}}
+\end{Highlighting}
+\end{Shaded}
+
+\texttt{MARK\_\allowbreak{}TERMINAL\_\allowbreak{}TARGET\_\allowbreak{}NOT\_\allowbreak{}LAST}、\texttt{CURSOR\_\allowbreak{}STALE}、\texttt{CURSOR\_\allowbreak{}IN\_\allowbreak{}GAP}、\texttt{RALLY\_\allowbreak{}NOT\_\allowbreak{}OPEN}、\texttt{SCORE\_\allowbreak{}PENDING}等均用明確
+domain code。Reconnect時若 server
+revision大於client最後revision且delta不完整，必須 GraphQL refetch
+snapshot。
+
+\section{11. GraphQL Schema
+使用規格}\label{11-graphql-schema-ux4f7fux7528ux898fux683c}
+
+\subsection{11.0 Code-first
+產生規則}\label{110-code-first-ux7522ux751fux898fux5247}
+
+\begin{itemize}
+\tightlist
+\item
+  Pothos modules 是 source of truth；建議依 domain co-locate
+  type/query/mutation。
+\item
+  \texttt{server/src/graphql/builder.ts} 只設定
+  plugins/scalars/context，不定義 domain types。
+\item
+  \texttt{server/src/graphql/schema.ts} 只 import type modules並
+  \texttt{builder.toSchema()}。
+\item
+  Prisma generator同時產生 Prisma Client與
+  \texttt{prisma-pothos-types}。
+\item
+  \texttt{server/src/graphql/export-schema.ts} 使用
+  \texttt{printSchema(lexicographicSortSchema(schema))}輸出 SDL。
+\item
+  CI先 \texttt{prisma\ generate}，再輸出SDL、跑 GraphQL
+  Inspector，再執行 Web Codegen。
+\item
+  API內部錯誤使用穩定 error code；不要把 DB exception或 MinIO
+  secret洩漏到 GraphQL message。
+\end{itemize}
+
+GraphQL 唯一原始碼位於 \texttt{server/src/graphql/**}，由 Pothos
+code-first 建構。\texttt{packages/contracts/graphql/schema.graphql} 是
+CI 產生並提交的 contract artifact，不可手動編輯。以下是前後端共同的核心
+shape。
+
+\subsection{11.1 BigInt}\label{111-bigint}
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\KeywordTok{scalar}\NormalTok{ BigInt }\CommentTok{\# JSON wire representation is a decimal string}
+\KeywordTok{scalar}\NormalTok{ DateTime}
+\KeywordTok{scalar}\NormalTok{ JSON}
+\end{Highlighting}
+\end{Shaded}
+
+所有 PTS、microseconds、frame index、byte size使用 BigInt，不使用
+GraphQL Int。
+
+\subsection{11.2 Query}\label{112-query}
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\KeywordTok{type}\NormalTok{ Query \{}
+\NormalTok{  me: User!}
+\NormalTok{  matches(filter: MatchFilter): [Match!]!}
+\NormalTok{  match(id: }\DataTypeTok{ID}\NormalTok{!): Match}
+\NormalTok{  captureTimeline(captureSessionId: }\DataTypeTok{ID}\NormalTok{!): CaptureTimeline!}
+\NormalTok{  rallies(matchId: }\DataTypeTok{ID}\NormalTok{!, filter: RallyFilter, page: PageInput): RallyConnection!}
+\NormalTok{  rally(id: }\DataTypeTok{ID}\NormalTok{!): Rally}
+\NormalTok{  analysisView(}\KeywordTok{input}\NormalTok{: AnalysisViewInput!): AnalysisView!}
+\NormalTok{  featureAvailability(matchId: }\DataTypeTok{ID}\NormalTok{!): FeatureAvailability!}
+\NormalTok{  savedAnalysisViews(matchId: }\DataTypeTok{ID}\NormalTok{!): [SavedAnalysisView!]!}
+\NormalTok{\}}
+\end{Highlighting}
+\end{Shaded}
+
+\subsection{11.3 Mutation}\label{113-mutation}
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\KeywordTok{type}\NormalTok{ Mutation \{}
+\NormalTok{  createMatch(}\KeywordTok{input}\NormalTok{: CreateMatchInput!): Match!}
+\NormalTok{  startCapture(}\KeywordTok{input}\NormalTok{: StartCaptureInput!): CaptureSession!}
+\NormalTok{  stopCapture(captureSessionId: }\DataTypeTok{ID}\NormalTok{!): CaptureSession!}
+
+\NormalTok{  applyAnnotationCommand(}\KeywordTok{input}\NormalTok{: AnnotationCommandInput!): AnnotationCommandResult!}
+\NormalTok{  createCorrectionDraft(submissionId: }\DataTypeTok{ID}\NormalTok{!): Rally!}
+
+\NormalTok{  assignTrackIdentity(}\KeywordTok{input}\NormalTok{: AssignTrackIdentityInput!): TrackIdentityAssignment!}
+\NormalTok{  retryProcessing(}\KeywordTok{input}\NormalTok{: RetryProcessingInput!): ProcessingState!}
+\NormalTok{  saveAnalysisView(}\KeywordTok{input}\NormalTok{: SaveAnalysisViewInput!): SavedAnalysisView!}
+\NormalTok{\}}
+\end{Highlighting}
+\end{Shaded}
+
+\texttt{applyAnnotationCommand} 是 WS 不可用時的 fallback，必須走相同
+domain handler，不能有另一套語意。
+
+\subsection{11.4 Rally Snapshot
+範例}\label{114-rally-snapshot-ux7bc4ux4f8b}
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\FunctionTok{\{}
+  \DataTypeTok{"id"}\FunctionTok{:} \StringTok{"018f..."}\FunctionTok{,}
+  \DataTypeTok{"match\_\allowbreak{}id"}\FunctionTok{:} \StringTok{"..."}\FunctionTok{,}
+  \DataTypeTok{"set\_\allowbreak{}id"}\FunctionTok{:} \StringTok{"..."}\FunctionTok{,}
+  \DataTypeTok{"court\_\allowbreak{}side\_\allowbreak{}assignment"}\FunctionTok{:} \FunctionTok{\{}
+    \DataTypeTok{"left\_\allowbreak{}team\_\allowbreak{}id"}\FunctionTok{:} \StringTok{"team{-}a"}\FunctionTok{,}
+    \DataTypeTok{"right\_\allowbreak{}team\_\allowbreak{}id"}\FunctionTok{:} \StringTok{"team{-}b"}
+  \FunctionTok{\},}
+  \DataTypeTok{"annotation\_\allowbreak{}status"}\FunctionTok{:} \StringTok{"READY"}\FunctionTok{,}
+  \DataTypeTok{"processing\_\allowbreak{}status"}\FunctionTok{:} \StringTok{"NOT\_\allowbreak{}REQUESTED"}\FunctionTok{,}
+  \DataTypeTok{"revision"}\FunctionTok{:} \DecValTok{14}\FunctionTok{,}
+  \DataTypeTok{"score\_\allowbreak{}resolution\_\allowbreak{}state"}\FunctionTok{:} \StringTok{"unknown"}\FunctionTok{,}
+  \DataTypeTok{"scoring\_\allowbreak{}court\_\allowbreak{}side"}\FunctionTok{:} \KeywordTok{null}\FunctionTok{,}
+  \DataTypeTok{"scoring\_\allowbreak{}team\_\allowbreak{}id"}\FunctionTok{:} \KeywordTok{null}\FunctionTok{,}
+  \DataTypeTok{"key\_\allowbreak{}points"}\FunctionTok{:} \OtherTok{[}
+    \FunctionTok{\{}
+      \DataTypeTok{"id"}\FunctionTok{:} \StringTok{"..."}\FunctionTok{,}
+      \DataTypeTok{"sequence\_\allowbreak{}index"}\FunctionTok{:} \DecValTok{0}\FunctionTok{,}
+      \DataTypeTok{"marker\_\allowbreak{}kind"}\FunctionTok{:} \StringTok{"service"}\FunctionTok{,}
+      \DataTypeTok{"is\_\allowbreak{}terminal"}\FunctionTok{:} \KeywordTok{false}\FunctionTok{,}
+      \DataTypeTok{"capture\_\allowbreak{}time\_\allowbreak{}us"}\FunctionTok{:} \StringTok{"10000000"}\FunctionTok{,}
+      \DataTypeTok{"capture\_\allowbreak{}frame\_\allowbreak{}index"}\FunctionTok{:} \StringTok{"599"}
+    \FunctionTok{\}}
+  \OtherTok{]}\FunctionTok{,}
+  \DataTypeTok{"latest\_\allowbreak{}submission"}\FunctionTok{:} \KeywordTok{null}
+\FunctionTok{\}}
+\end{Highlighting}
+\end{Shaded}
+
+\subsection{11.5 Feature Availability}\label{115-feature-availability}
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\FunctionTok{\{}
+  \DataTypeTok{"dimensions"}\FunctionTok{:} \FunctionTok{\{}
+    \DataTypeTok{"player"}\FunctionTok{:} \KeywordTok{true}\FunctionTok{,}
+    \DataTypeTok{"team"}\FunctionTok{:} \KeywordTok{true}\FunctionTok{,}
+    \DataTypeTok{"action"}\FunctionTok{:} \KeywordTok{false}\FunctionTok{,}
+    \DataTypeTok{"court\_\allowbreak{}zone"}\FunctionTok{:} \KeywordTok{true}\FunctionTok{,}
+    \DataTypeTok{"direct\_\allowbreak{}outcome"}\FunctionTok{:} \KeywordTok{false}
+  \FunctionTok{\},}
+  \DataTypeTok{"metrics"}\FunctionTok{:} \OtherTok{[}
+    \StringTok{"rally\_\allowbreak{}count"}\OtherTok{,}
+    \StringTok{"event\_\allowbreak{}count"}\OtherTok{,}
+    \StringTok{"rally\_\allowbreak{}win\_\allowbreak{}rate"}\OtherTok{,}
+    \StringTok{"source\_\allowbreak{}heatmap"}\OtherTok{,}
+    \StringTok{"target\_\allowbreak{}heatmap"}\OtherTok{,}
+    \StringTok{"unresolved\_\allowbreak{}rate"}
+  \OtherTok{]}\FunctionTok{,}
+  \DataTypeTok{"action\_\allowbreak{}taxonomy"}\FunctionTok{:} \KeywordTok{null}
+\FunctionTok{\}}
+\end{Highlighting}
+\end{Shaded}
+
+前端不可假設 action／confidence 一定存在。
+
+\begin{center}\rule{0.5\linewidth}{0.5pt}\end{center}
+
+\section{12. PostgreSQL／Prisma
+資料模型}\label{12-postgresqlprisma-ux8cc7ux6599ux6a21ux578b}
+
+\subsection{12.1 核心分層}\label{121-ux6838ux5fc3ux5206ux5c64}
+
+\begin{itemize}
+\tightlist
+\item
+  Match／MatchSet／Team／Player／Roster／CourtSideAssignment。
+\item
+  CaptureSession／CaptureEpoch／DvrProgram／DvrSegment／MediaAsset。
+\item
+  RallyDraft（\texttt{Rally}）／mutable KeyPoint／AnnotationOperation。
+\item
+  immutable RallySubmission／RallySubmissionKeyPoint／PointAward。
+\item
+  ClipJob／ClipKeyPointMapping。
+\item
+  AiIntegration／AiJob／AiCallbackReceipt。
+\item
+  AnalysisRun／AnalysisTrack／ContactEvent／Actor／Candidate／BallPathSegment／AnalysisArtifact。
+\item
+  TrackIdentityAssignment／SavedAnalysisView／OutboxEvent。
+\end{itemize}
+
+\subsection{12.2
+必要欄位與約束}\label{122-ux5fc5ux8981ux6b04ux4f4dux8207ux7d04ux675f}
+
+\begin{itemize}
+\tightlist
+\item
+  \texttt{CaptureEpoch} 保存 \texttt{source\_\allowbreak{}time\_\allowbreak{}base}、epoch起點 raw
+  PTS、epoch對應 capture time；raw PTS允許負值；\texttt{DvrSegment}
+  必須指向 epoch。
+\item
+  Draft KeyPoint保存
+  \texttt{capture\_\allowbreak{}epoch\_\allowbreak{}id}、\texttt{source\_\allowbreak{}pts}、\texttt{capture\_\allowbreak{}time\_\allowbreak{}us}、\texttt{capture\_\allowbreak{}frame\_\allowbreak{}index}、\texttt{original\_\allowbreak{}playback\_\allowbreak{}cursor}與
+  timing precision。
+\item
+  \texttt{RallySubmission} 快照必須保存
+  \texttt{score\_\allowbreak{}resolution\_\allowbreak{}state}；unknown時 scoring side/team與score
+  before/after允許 null。
+\item
+  \texttt{PointAward} 只存在於 resolved submission，且不可由 unknown
+  submission建立；保存 score revision before/after，並對
+  \texttt{(set\_\allowbreak{}id,\ score\_\allowbreak{}revision\_\allowbreak{}after)} 建唯一約束以序列化比分
+  ledger。
+\item
+  ClipJob、AiJob、AnalysisRun都直接指向 immutable submission，不得只指
+  mutable Rally。
+\item
+  Submitted資料的 immutable語意由 service layer、transaction與可選DB
+  trigger共同保障；Prisma schema本身不足以表達所有check constraints。
+\item
+  \texttt{track\_\allowbreak{}id} 的primary key scope為
+  \texttt{(analysis\_\allowbreak{}run\_\allowbreak{}id,\ track\_\allowbreak{}id)}；\texttt{AnalysisTrack.mean\_\allowbreak{}confidence}為optional，不得缺值時補0或1。
+\item
+  \texttt{AnalysisRun}將AI
+  \texttt{producer.name}、\texttt{producer.build\_\allowbreak{}id}與optional
+  \texttt{producer.sdk\_\allowbreak{}version}保存成可查詢欄位；完整原始結果仍保存為artifact。
+\item
+  ContactEvent primary relation使用 immutable submission key point
+  ID；每個分析run每個key point恰好一筆；optional
+  \texttt{resolved\_\allowbreak{}frame\_\allowbreak{}index}保存AI實際解析事件的clip frame。
+\item
+  每筆已解析Actor保存必填
+  \texttt{observation\_\allowbreak{}frame\_\allowbreak{}index}，讓bbox、footprint與\texttt{court\_\allowbreak{}pos}的取樣frame不需由consumer猜測。
+\item
+  \texttt{RallySubmission.service\_\allowbreak{}key\_\allowbreak{}point\_\allowbreak{}id}與\texttt{terminal\_\allowbreak{}key\_\allowbreak{}point\_\allowbreak{}id}指向同一份immutable
+  submission snapshot中的key point；DB以unique FK保證單一引用，service
+  layer另驗證它們屬於該submission且terminal為序列最後一點。
+\item
+  64-bit時間、PTS、frame與byte size使用PostgreSQL BIGINT。
+\end{itemize}
+
+\subsection{12.3 JSONB
+使用限制}\label{123-jsonb-ux4f7fux7528ux9650ux5236}
+
+JSONB只適合：provider extensions、尚未固定的 action payload、原始 client
+cursor audit、saved view
+filters與非核心metadata。以下不得只放JSONB：ID關係、revision、score、time
+anchor、artifact狀態、job狀態與可索引的分析主欄位。
+
+\section{13. Clip
+與時間碼前處理合約}\label{13-clip-ux8207ux6642ux9593ux78bcux524dux8655ux7406ux5408ux7d04}
+
+\subsection{13.1 Submission → Clip Job}\label{131-submission--clip-job}
+
+普通使用者不能傳 pre/post-roll。Server依 match clip profile 建：
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\FunctionTok{\{}
+  \DataTypeTok{"clip\_\allowbreak{}job\_\allowbreak{}id"}\FunctionTok{:} \StringTok{"0190..."}\FunctionTok{,}
+  \DataTypeTok{"rally\_\allowbreak{}submission\_\allowbreak{}id"}\FunctionTok{:} \StringTok{"018f..."}\FunctionTok{,}
+  \DataTypeTok{"annotation\_\allowbreak{}revision"}\FunctionTok{:} \DecValTok{14}\FunctionTok{,}
+  \DataTypeTok{"source\_\allowbreak{}range"}\FunctionTok{:} \FunctionTok{\{}
+    \DataTypeTok{"logical\_\allowbreak{}start\_\allowbreak{}time\_\allowbreak{}us"}\FunctionTok{:} \StringTok{"2823290234"}\FunctionTok{,}
+    \DataTypeTok{"logical\_\allowbreak{}end\_\allowbreak{}time\_\allowbreak{}us"}\FunctionTok{:} \StringTok{"2838123410"}\FunctionTok{,}
+    \DataTypeTok{"requested\_\allowbreak{}start\_\allowbreak{}time\_\allowbreak{}us"}\FunctionTok{:} \StringTok{"2818290234"}\FunctionTok{,}
+    \DataTypeTok{"requested\_\allowbreak{}end\_\allowbreak{}time\_\allowbreak{}us"}\FunctionTok{:} \StringTok{"2848123410"}
+  \FunctionTok{\},}
+  \DataTypeTok{"profile\_\allowbreak{}id"}\FunctionTok{:} \StringTok{"canonical{-}rally{-}v1"}
+\FunctionTok{\}}
+\end{Highlighting}
+\end{Shaded}
+
+\subsection{13.2 Canonical Clip}\label{132-canonical-clip}
+
+\begin{itemize}
+\tightlist
+\item
+  保持音訊。
+\item
+  固定旋轉與 pixel aspect ratio。
+\item
+  Canonical FPS/profile由部署設定；若輸入 VFR，mapping manifest
+  必須從實際 output sample table建立。
+\item
+  Clip media timeline 從 0 開始。
+\item
+  每個 submission key point都要得到：
+
+  \begin{itemize}
+  \tightlist
+  \item
+    \texttt{clip\_\allowbreak{}pts}
+  \item
+    \texttt{clip\_\allowbreak{}time\_\allowbreak{}us}
+  \item
+    \texttt{clip\_\allowbreak{}frame\_\allowbreak{}index}
+  \end{itemize}
+\item
+  不使用 \texttt{source\_\allowbreak{}time\ -\ start} 再乘 FPS 的近似方式產 frame
+  index。
+\end{itemize}
+
+\subsection{13.3 Timing Manifest}\label{133-timing-manifest}
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\FunctionTok{\{}
+  \DataTypeTok{"schema\_\allowbreak{}version"}\FunctionTok{:} \StringTok{"1.0.0"}\FunctionTok{,}
+  \DataTypeTok{"clip\_\allowbreak{}id"}\FunctionTok{:} \StringTok{"..."}\FunctionTok{,}
+  \DataTypeTok{"source"}\FunctionTok{:} \FunctionTok{\{}
+    \DataTypeTok{"capture\_\allowbreak{}session\_\allowbreak{}id"}\FunctionTok{:} \StringTok{"..."}\FunctionTok{,}
+    \DataTypeTok{"requested\_\allowbreak{}start\_\allowbreak{}time\_\allowbreak{}us"}\FunctionTok{:} \StringTok{"..."}\FunctionTok{,}
+    \DataTypeTok{"actual\_\allowbreak{}start\_\allowbreak{}time\_\allowbreak{}us"}\FunctionTok{:} \StringTok{"..."}\FunctionTok{,}
+    \DataTypeTok{"actual\_\allowbreak{}end\_\allowbreak{}time\_\allowbreak{}us"}\FunctionTok{:} \StringTok{"..."}
+  \FunctionTok{\},}
+  \DataTypeTok{"video"}\FunctionTok{:} \FunctionTok{\{}
+    \DataTypeTok{"width"}\FunctionTok{:} \DecValTok{1920}\FunctionTok{,}
+    \DataTypeTok{"height"}\FunctionTok{:} \DecValTok{1080}\FunctionTok{,}
+    \DataTypeTok{"fps"}\FunctionTok{:} \FunctionTok{\{}\DataTypeTok{"num"}\FunctionTok{:} \DecValTok{60000}\FunctionTok{,} \DataTypeTok{"den"}\FunctionTok{:} \DecValTok{1001}\FunctionTok{\},}
+    \DataTypeTok{"time\_\allowbreak{}base"}\FunctionTok{:} \FunctionTok{\{}\DataTypeTok{"num"}\FunctionTok{:} \DecValTok{1}\FunctionTok{,} \DataTypeTok{"den"}\FunctionTok{:} \DecValTok{60000}\FunctionTok{\},}
+    \DataTypeTok{"total\_\allowbreak{}frames"}\FunctionTok{:} \StringTok{"1079"}\FunctionTok{,}
+    \DataTypeTok{"duration\_\allowbreak{}us"}\FunctionTok{:} \StringTok{"18001333"}\FunctionTok{,}
+    \DataTypeTok{"has\_\allowbreak{}audio"}\FunctionTok{:} \KeywordTok{true}
+  \FunctionTok{\},}
+  \DataTypeTok{"key\_\allowbreak{}points"}\FunctionTok{:} \OtherTok{[}
+    \FunctionTok{\{}
+      \DataTypeTok{"key\_\allowbreak{}point\_\allowbreak{}id"}\FunctionTok{:} \StringTok{"..."}\FunctionTok{,}
+      \DataTypeTok{"source\_\allowbreak{}pts"}\FunctionTok{:} \StringTok{"..."}\FunctionTok{,}
+      \DataTypeTok{"capture\_\allowbreak{}time\_\allowbreak{}us"}\FunctionTok{:} \StringTok{"..."}\FunctionTok{,}
+      \DataTypeTok{"capture\_\allowbreak{}frame\_\allowbreak{}index"}\FunctionTok{:} \StringTok{"..."}\FunctionTok{,}
+      \DataTypeTok{"clip\_\allowbreak{}pts"}\FunctionTok{:} \StringTok{"300300"}\FunctionTok{,}
+      \DataTypeTok{"clip\_\allowbreak{}time\_\allowbreak{}us"}\FunctionTok{:} \StringTok{"5005000"}\FunctionTok{,}
+      \DataTypeTok{"clip\_\allowbreak{}frame\_\allowbreak{}index"}\FunctionTok{:} \StringTok{"300"}
+    \FunctionTok{\}}
+  \OtherTok{]}
+\FunctionTok{\}}
+\end{Highlighting}
+\end{Shaded}
+
+\subsection{13.4 Clip Result}\label{134-clip-result}
+
+\begin{itemize}
+\tightlist
+\item
+  \texttt{canonical\_\allowbreak{}clip}：AI 分析來源。
+\item
+  \texttt{preview\_\allowbreak{}clip}：可低 bitrate，但必須有明確 mapping；若 frame
+  count/FPS相同可直接對應。
+\item
+  \texttt{timing\_\allowbreak{}manifest}。
+\item
+  SHA-256、byte size、codec metadata。
+\end{itemize}
+
+只有 clip與所有 key point mapping驗證通過後，才可建立 AI Job。
+
+\begin{center}\rule{0.5\linewidth}{0.5pt}\end{center}
+
+\section{14. 外部 AI
+串接：保留方法定義，不寫死模型細節}\label{14-ux5916ux90e8-ai-ux4e32ux63a5ux4fddux7559ux65b9ux6cd5ux5b9aux7fa9ux4e0dux5bebux6b7bux6a21ux578bux7d30ux7bc0}
+
+AI團隊已經有球員追蹤、球追蹤、球場追蹤／投影、個體動作，以及可能存在的群體動作
+work。本 repository不實作AI，只制定串接目標與結果語意。
+
+\subsection{14.1
+必要方法骨架}\label{141-ux5fc5ux8981ux65b9ux6cd5ux9aa8ux67b6}
+
+\begin{enumerate}
+\def\labelenumi{\arabic{enumi}.}
+\tightlist
+\item
+  讀取 canonical rally clip與人工 key point anchors。
+\item
+  利用既有 work 取得可用的球員 tracks、球
+  observation、frame座標、球場投影與 optional action evidence。
+\item
+  對每個輸入 key point產生恰好一筆 contact event，不跳過、不重編ID。
+\item
+  在該 key
+  point附近建立球與球員的事件歸屬：單人、多位共同參與、多位候選、無法解析，或事件本身不適用球員（例如terminal落地／出界）。
+\item
+  以actor footprint的 \texttt{court\_\allowbreak{}pos}作代表點；若
+  terminal沒有球員，AI可提供其既有方法產生的terminal representative
+  court position，或明確回傳缺失。
+\item
+  由相鄰 contact events建立 A→B path segment。
+\item
+  回傳結構化Analysis JSON與逐幀FlatBuffers overlay。
+\end{enumerate}
+
+\subsection{14.2
+不在本規格寫死的事項}\label{142-ux4e0dux5728ux672cux898fux683cux5bebux6b7bux7684ux4e8bux9805}
+
+\begin{itemize}
+\tightlist
+\item
+  模型架構、模組執行順序、時間窗大小。
+\item
+  球距離、bbox distance、IoU、pose、action的融合公式或門檻。
+\item
+  補點、插值、平滑與confidence threshold。
+\item
+  action label清單、模型原始輸出欄位、群體phase label。
+\end{itemize}
+
+\subsection{14.3
+球歸屬與多球員重疊}\label{143-ux7403ux6b78ux5c6cux8207ux591aux7403ux54e1ux91cdux758a}
+
+\begin{itemize}
+\tightlist
+\item
+  \texttt{resolved\_\allowbreak{}single}：明確一位 actor。
+\item
+  \texttt{resolved\_\allowbreak{}multiple}：AI明確判定多人共同參與，例如雙人攔網；不是因為bbox重疊就自動成立。
+\item
+  \texttt{ambiguous}：有候選但無法決定；\texttt{actors={[}{]}}、\texttt{actor\_\allowbreak{}candidates{[}{]}}有值。
+\item
+  \texttt{unresolved}：無法提供有效actor或候選。
+\item
+  \texttt{no\_\allowbreak{}player}：事件語意本身不需要球員，例如terminal球落地／出界；與模型失敗不同。
+\end{itemize}
+
+高IoU或球位於重疊框只是一種evidence。actors使用陣列以保留多人事件，但AI團隊仍需自行判定何時是共同參與、何時只是ambiguous。
+
+\subsection{14.4
+Action與群體phase待確認}\label{144-actionux8207ux7fa4ux9ad4phaseux5f85ux78baux8a8d}
+
+\begin{itemize}
+\tightlist
+\item
+  \texttt{action}為optional extension；baseline result不要求。
+\item
+  label由provider定義，並帶optional taxonomy
+  ID/version；中央與前端不能硬編碼serve/receive/set/spike等清單。
+\item
+  confidence也是optional；沒有就省略，不得假造。
+\item
+  群體動作／比賽phase目前沒有已確認產品用途，不列第一版required output。
+\item
+  AI團隊後續需回答：真實label清單、粒度、confidence語意，以及group
+  phase可支援哪個教練決策。
+\end{itemize}
+
+\section{15. AI Provider API 與 Python
+SDK}\label{15-ai-provider-api-ux8207-python-sdk}
+
+\subsection{15.1 Provider Capabilities}\label{151-provider-capabilities}
+
+\texttt{GET\ /v1/capabilities} 只聲明支援的contract版本與optional
+extension，不遠端配置模型參數。
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\FunctionTok{\{}
+  \DataTypeTok{"schema\_\allowbreak{}version"}\FunctionTok{:} \StringTok{"1.0.0"}\FunctionTok{,}
+  \DataTypeTok{"provider\_\allowbreak{}name"}\FunctionTok{:} \StringTok{"team{-}ai"}\FunctionTok{,}
+  \DataTypeTok{"provider\_\allowbreak{}build\_\allowbreak{}id"}\FunctionTok{:} \StringTok{"2026{-}08{-}07.1"}\FunctionTok{,}
+  \DataTypeTok{"supported\_\allowbreak{}job\_\allowbreak{}schema\_\allowbreak{}versions"}\FunctionTok{:} \OtherTok{[}\StringTok{"1.1.0"}\OtherTok{]}\FunctionTok{,}
+  \DataTypeTok{"supported\_\allowbreak{}result\_\allowbreak{}schema\_\allowbreak{}versions"}\FunctionTok{:} \OtherTok{[}\StringTok{"1.0.0"}\OtherTok{]}\FunctionTok{,}
+  \DataTypeTok{"supported\_\allowbreak{}overlay\_\allowbreak{}formats"}\FunctionTok{:} \OtherTok{[}\StringTok{"flatbuffers\_\allowbreak{}v1"}\OtherTok{]}\FunctionTok{,}
+  \DataTypeTok{"optional\_\allowbreak{}extensions"}\FunctionTok{:} \FunctionTok{\{}
+    \DataTypeTok{"action"}\FunctionTok{:} \KeywordTok{true}\FunctionTok{,}
+    \DataTypeTok{"group\_\allowbreak{}phase"}\FunctionTok{:} \KeywordTok{false}\FunctionTok{,}
+    \DataTypeTok{"confidence"}\FunctionTok{:} \KeywordTok{false}
+  \FunctionTok{\},}
+  \DataTypeTok{"action\_\allowbreak{}taxonomies"}\FunctionTok{:} \OtherTok{[]}
+\FunctionTok{\}}
+\end{Highlighting}
+\end{Shaded}
+
+\subsection{15.2 AI Job Request}\label{152-ai-job-request}
+
+AI Job Request 的正式版本為
+\texttt{1.1.0}；\texttt{AnalysisResult}、callback envelope、provider
+capabilities envelope 與 \texttt{JobAccepted} 仍各自維持
+\texttt{1.0.0}。Job 1.1 新增必填的
+\texttt{clip.download\_\allowbreak{}url\_\allowbreak{}expires\_\allowbreak{}at}，且明確分離 clip signed URL 與
+callback bearer token。Capabilities 必須宣告
+\texttt{supported\_\allowbreak{}job\_\allowbreak{}schema\_\allowbreak{}versions} 包含 \texttt{1.1.0} 才能接收。
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\NormalTok{POST /v1/jobs}
+\NormalTok{Authorization: Bearer \textless{}provider{-}token\textgreater{}}
+\NormalTok{Idempotency{-}Key: \textless{}ai\_\allowbreak{}job\_\allowbreak{}id\textgreater{}}
+\NormalTok{Content{-}Type: application/json}
+\end{Highlighting}
+\end{Shaded}
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\FunctionTok{\{}
+  \DataTypeTok{"schema\_\allowbreak{}version"}\FunctionTok{:} \StringTok{"1.1.0"}\FunctionTok{,}
+  \DataTypeTok{"ai\_\allowbreak{}job\_\allowbreak{}id"}\FunctionTok{:} \StringTok{"018f6d86{-}2d8c{-}7f10{-}9c1b{-}0f0c32aa6001"}\FunctionTok{,}
+  \DataTypeTok{"rally\_\allowbreak{}submission\_\allowbreak{}id"}\FunctionTok{:} \StringTok{"018f6d86{-}2d8c{-}7f10{-}9c1b{-}0f0c32aa3101"}\FunctionTok{,}
+  \DataTypeTok{"rally\_\allowbreak{}id"}\FunctionTok{:} \StringTok{"018f6d86{-}2d8c{-}7f10{-}9c1b{-}0f0c32aa3001"}\FunctionTok{,}
+  \DataTypeTok{"match\_\allowbreak{}id"}\FunctionTok{:} \StringTok{"018f6d86{-}2d8c{-}7f10{-}9c1b{-}0f0c32aa1001"}\FunctionTok{,}
+  \DataTypeTok{"annotation\_\allowbreak{}revision"}\FunctionTok{:} \StringTok{"14"}\FunctionTok{,}
+  \DataTypeTok{"clip"}\FunctionTok{:} \FunctionTok{\{}
+    \DataTypeTok{"clip\_\allowbreak{}asset\_\allowbreak{}id"}\FunctionTok{:} \StringTok{"018f6d86{-}2d8c{-}7f10{-}9c1b{-}0f0c32aa5001"}\FunctionTok{,}
+    \DataTypeTok{"download\_\allowbreak{}url"}\FunctionTok{:} \StringTok{"https://media.example/signed/canonical{-}clip.mp4?..."}\FunctionTok{,}
+    \DataTypeTok{"download\_\allowbreak{}url\_\allowbreak{}expires\_\allowbreak{}at"}\FunctionTok{:} \StringTok{"2026{-}08{-}07T06:00:00Z"}\FunctionTok{,}
+    \DataTypeTok{"sha256"}\FunctionTok{:} \StringTok{"9a31d43d2c2aeb1a1a98beec4ff8bbd649f68f16eb7345a51fd61a3b302543aa"}\FunctionTok{,}
+    \DataTypeTok{"byte\_\allowbreak{}length"}\FunctionTok{:} \StringTok{"83124491"}\FunctionTok{,}
+    \DataTypeTok{"content\_\allowbreak{}type"}\FunctionTok{:} \StringTok{"video/mp4"}\FunctionTok{,}
+    \DataTypeTok{"video"}\FunctionTok{:} \FunctionTok{\{}
+      \DataTypeTok{"width"}\FunctionTok{:} \DecValTok{1920}\FunctionTok{,}
+      \DataTypeTok{"height"}\FunctionTok{:} \DecValTok{1080}\FunctionTok{,}
+      \DataTypeTok{"fps"}\FunctionTok{:} \FunctionTok{\{}\DataTypeTok{"num"}\FunctionTok{:} \DecValTok{60000}\FunctionTok{,} \DataTypeTok{"den"}\FunctionTok{:} \DecValTok{1001}\FunctionTok{\},}
+      \DataTypeTok{"time\_\allowbreak{}base"}\FunctionTok{:} \FunctionTok{\{}\DataTypeTok{"num"}\FunctionTok{:} \DecValTok{1}\FunctionTok{,} \DataTypeTok{"den"}\FunctionTok{:} \DecValTok{60000}\FunctionTok{\},}
+      \DataTypeTok{"total\_\allowbreak{}frames"}\FunctionTok{:} \StringTok{"1079"}\FunctionTok{,}
+      \DataTypeTok{"duration\_\allowbreak{}us"}\FunctionTok{:} \StringTok{"18001333"}\FunctionTok{,}
+      \DataTypeTok{"has\_\allowbreak{}audio"}\FunctionTok{:} \KeywordTok{true}
+    \FunctionTok{\}}
+  \FunctionTok{\},}
+  \DataTypeTok{"key\_\allowbreak{}points"}\FunctionTok{:} \OtherTok{[}
+    \FunctionTok{\{}
+      \DataTypeTok{"key\_\allowbreak{}point\_\allowbreak{}id"}\FunctionTok{:} \StringTok{"...4000"}\FunctionTok{,}
+      \DataTypeTok{"sequence\_\allowbreak{}index"}\FunctionTok{:} \DecValTok{0}\FunctionTok{,}
+      \DataTypeTok{"marker\_\allowbreak{}kind"}\FunctionTok{:} \StringTok{"service"}\FunctionTok{,}
+      \DataTypeTok{"is\_\allowbreak{}terminal"}\FunctionTok{:} \KeywordTok{false}\FunctionTok{,}
+      \DataTypeTok{"clip\_\allowbreak{}pts"}\FunctionTok{:} \StringTok{"300300"}\FunctionTok{,}
+      \DataTypeTok{"clip\_\allowbreak{}time\_\allowbreak{}us"}\FunctionTok{:} \StringTok{"5005000"}\FunctionTok{,}
+      \DataTypeTok{"clip\_\allowbreak{}frame\_\allowbreak{}index"}\FunctionTok{:} \StringTok{"300"}
+    \FunctionTok{\}}\OtherTok{,}
+    \FunctionTok{\{}
+      \DataTypeTok{"key\_\allowbreak{}point\_\allowbreak{}id"}\FunctionTok{:} \StringTok{"...4010"}\FunctionTok{,}
+      \DataTypeTok{"sequence\_\allowbreak{}index"}\FunctionTok{:} \DecValTok{1}\FunctionTok{,}
+      \DataTypeTok{"marker\_\allowbreak{}kind"}\FunctionTok{:} \StringTok{"contact"}\FunctionTok{,}
+      \DataTypeTok{"is\_\allowbreak{}terminal"}\FunctionTok{:} \KeywordTok{true}\FunctionTok{,}
+      \DataTypeTok{"clip\_\allowbreak{}pts"}\FunctionTok{:} \StringTok{"480480"}\FunctionTok{,}
+      \DataTypeTok{"clip\_\allowbreak{}time\_\allowbreak{}us"}\FunctionTok{:} \StringTok{"8008000"}\FunctionTok{,}
+      \DataTypeTok{"clip\_\allowbreak{}frame\_\allowbreak{}index"}\FunctionTok{:} \StringTok{"480"}
+    \FunctionTok{\}}
+  \OtherTok{]}\FunctionTok{,}
+  \DataTypeTok{"outcome"}\FunctionTok{:} \FunctionTok{\{}
+    \DataTypeTok{"score\_\allowbreak{}resolution"}\FunctionTok{:} \StringTok{"resolved"}\FunctionTok{,}
+    \DataTypeTok{"scoring\_\allowbreak{}court\_\allowbreak{}side"}\FunctionTok{:} \StringTok{"left"}
+  \FunctionTok{\},}
+  \DataTypeTok{"callback"}\FunctionTok{:} \FunctionTok{\{}
+    \DataTypeTok{"url"}\FunctionTok{:} \StringTok{"https://central.example/api/v1/ai/callback/018f..."}\FunctionTok{,}
+    \DataTypeTok{"token"}\FunctionTok{:} \StringTok{"job{-}scoped{-}opaque{-}token"}\FunctionTok{,}
+    \DataTypeTok{"expires\_\allowbreak{}at"}\FunctionTok{:} \StringTok{"2026{-}08{-}07T06:00:00Z"}
+  \FunctionTok{\}}
+\FunctionTok{\}}
+\end{Highlighting}
+\end{Shaded}
+
+Unknown outcome：
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\FunctionTok{\{}\DataTypeTok{"score\_\allowbreak{}resolution"}\FunctionTok{:}\StringTok{"unknown"}\FunctionTok{,}\DataTypeTok{"scoring\_\allowbreak{}court\_\allowbreak{}side"}\FunctionTok{:}\KeywordTok{null}\FunctionTok{\}}
+\end{Highlighting}
+\end{Shaded}
+
+Job不包含court definition、team IDs、model
+requirements、threshold、MinIO upload
+URI或中央DB設定。球場座標規格是固定contract，不需要每個job重複傳。
+
+\texttt{clip.download\_\allowbreak{}url}必須是獨立的短期signed
+URL，SDK下載時不得夾帶\texttt{callback.token}。\texttt{callback.token}只用於對中央callback
+URL送出Bearer token；不得送往MinIO/S3、不得出現在browser或log。
+
+\subsubsection{AI欄位 ownership}\label{aiux6b04ux4f4d-ownership}
+
+\begin{longtable}[]{@{}>{\RaggedRight\arraybackslash}p{0.18\linewidth}>{\RaggedRight\arraybackslash}p{0.34\linewidth}>{\RaggedRight\arraybackslash}p{0.42\linewidth}@{}}
+\toprule\noalign{}
+欄位 & 來源 & AI端行為 \\
+\midrule\noalign{}
+\endhead
+\bottomrule\noalign{}
+\endlastfoot
+\texttt{ai\_\allowbreak{}job\_\allowbreak{}id} & CENTRAL + PASSTHROUGH &
+result/callback原樣回傳 \\
+\texttt{rally\_\allowbreak{}submission\_\allowbreak{}id} & CENTRAL + PASSTHROUGH &
+原樣回傳；AI結果的版本錨點 \\
+\texttt{rally\_\allowbreak{}id}, \texttt{match\_\allowbreak{}id} & CENTRAL + PASSTHROUGH &
+原樣回傳 \\
+\texttt{annotation\_\allowbreak{}revision} & SUBMISSION SNAPSHOT + PASSTHROUGH &
+原樣回傳 \\
+\texttt{clip\_\allowbreak{}asset\_\allowbreak{}id} & PREPROCESS + PASSTHROUGH & 原樣回傳 \\
+clip URL/checksum/video metadata & PREPROCESS &
+下載並驗證；不回寫修改 \\
+\texttt{key\_\allowbreak{}point\_\allowbreak{}id} & SUBMISSION SNAPSHOT + PASSTHROUGH &
+每個恰好出現一次 \\
+marker/sequence/terminal/clip timing & PREPROCESS + PASSTHROUGH &
+作anchor，不改寫 \\
+\texttt{outcome} & SUBMISSION SNAPSHOT &
+可使用，不需要在result重複回傳 \\
+callback URL/token & CENTRAL & token只授權中央callback
+POST；clip使用獨立signed URL；兩者皆不放result、不下發browser \\
+track/event/action/position & AI\_\allowbreak{}GENERATED & 由AI輸出 \\
+\end{longtable}
+
+\subsection{15.3 Provider Accepted}\label{153-provider-accepted}
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\FunctionTok{\{}
+  \DataTypeTok{"schema\_\allowbreak{}version"}\FunctionTok{:} \StringTok{"1.0.0"}\FunctionTok{,}
+  \DataTypeTok{"ai\_\allowbreak{}job\_\allowbreak{}id"}\FunctionTok{:} \StringTok{"..."}\FunctionTok{,}
+  \DataTypeTok{"provider\_\allowbreak{}job\_\allowbreak{}id"}\FunctionTok{:} \StringTok{"provider{-}123"}\FunctionTok{,}
+  \DataTypeTok{"state"}\FunctionTok{:} \StringTok{"accepted"}\FunctionTok{,}
+  \DataTypeTok{"accepted\_\allowbreak{}at"}\FunctionTok{:} \StringTok{"2026{-}08{-}07T05:30:00Z"}
+\FunctionTok{\}}
+\end{Highlighting}
+\end{Shaded}
+
+相同Idempotency-Key重送應回同一provider job。
+
+\subsection{15.4 Python SDK}\label{154-python-sdk}
+
+GitHub安裝：
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\ExtensionTok{pip}\NormalTok{ install }\StringTok{"volleyball{-}monitoring{-}ai{-}sdk @ git+https://github.com/\textless{}owner\textgreater{}/volleyball{-}monitoring{-}ai.git@v0.1.0\#subdirectory=sdk"}
+\end{Highlighting}
+\end{Shaded}
+
+SDK必須提供Pydantic job/result/capabilities/accepted models、JSON Schema
+validation、signed clip下載與checksum、callback client、FlatBuffers
+helper、passthrough/invariant validator、FastAPI provider adapter
+optional extra與fake
+fixtures。SDK不依賴torch/CUDA/OpenCV，也不實作AI模型。
+
+\section{16. AI Analysis Result
+Schema}\label{16-ai-analysis-result-schema}
+
+\subsection{16.1 結果範例}\label{161-ux7d50ux679cux7bc4ux4f8b}
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\FunctionTok{\{}
+  \DataTypeTok{"schema\_\allowbreak{}version"}\FunctionTok{:} \StringTok{"1.0.0"}\FunctionTok{,}
+  \DataTypeTok{"analysis\_\allowbreak{}id"}\FunctionTok{:} \StringTok{"analysis{-}0190"}\FunctionTok{,}
+  \DataTypeTok{"analysis\_\allowbreak{}version"}\FunctionTok{:} \StringTok{"provider{-}build{-}2026{-}08{-}07.1"}\FunctionTok{,}
+  \DataTypeTok{"ai\_\allowbreak{}job\_\allowbreak{}id"}\FunctionTok{:} \StringTok{"018f...6001"}\FunctionTok{,}
+  \DataTypeTok{"rally\_\allowbreak{}submission\_\allowbreak{}id"}\FunctionTok{:} \StringTok{"018f...3101"}\FunctionTok{,}
+  \DataTypeTok{"rally\_\allowbreak{}id"}\FunctionTok{:} \StringTok{"018f...3001"}\FunctionTok{,}
+  \DataTypeTok{"match\_\allowbreak{}id"}\FunctionTok{:} \StringTok{"018f...1001"}\FunctionTok{,}
+  \DataTypeTok{"annotation\_\allowbreak{}revision"}\FunctionTok{:} \StringTok{"14"}\FunctionTok{,}
+  \DataTypeTok{"clip\_\allowbreak{}asset\_\allowbreak{}id"}\FunctionTok{:} \StringTok{"018f...5001"}\FunctionTok{,}
+  \DataTypeTok{"input\_\allowbreak{}clip\_\allowbreak{}sha256"}\FunctionTok{:} \StringTok{"9a31d43d2c2aeb1a1a98beec4ff8bbd649f68f16eb7345a51fd61a3b302543aa"}\FunctionTok{,}
+  \DataTypeTok{"producer"}\FunctionTok{:} \FunctionTok{\{}\DataTypeTok{"name"}\FunctionTok{:}\StringTok{"team{-}ai"}\FunctionTok{,}\DataTypeTok{"build\_\allowbreak{}id"}\FunctionTok{:}\StringTok{"2026{-}08{-}07.1"}\FunctionTok{,}\DataTypeTok{"sdk\_\allowbreak{}version"}\FunctionTok{:}\StringTok{"0.1.0"}\FunctionTok{\},}
+  \DataTypeTok{"tracks"}\FunctionTok{:} \OtherTok{[}
+    \FunctionTok{\{}\DataTypeTok{"track\_\allowbreak{}id"}\FunctionTok{:}\DecValTok{8}\FunctionTok{,}\DataTypeTok{"court\_\allowbreak{}side"}\FunctionTok{:}\StringTok{"left"}\FunctionTok{,}\DataTypeTok{"first\_\allowbreak{}frame\_\allowbreak{}index"}\FunctionTok{:}\StringTok{"0"}\FunctionTok{,}\DataTypeTok{"last\_\allowbreak{}frame\_\allowbreak{}index"}\FunctionTok{:}\StringTok{"1078"}\FunctionTok{\}}
+  \OtherTok{]}\FunctionTok{,}
+  \DataTypeTok{"contact\_\allowbreak{}events"}\FunctionTok{:} \OtherTok{[}
+    \FunctionTok{\{}
+      \DataTypeTok{"key\_\allowbreak{}point\_\allowbreak{}id"}\FunctionTok{:}\StringTok{"...4000"}\FunctionTok{,}
+      \DataTypeTok{"sequence\_\allowbreak{}index"}\FunctionTok{:}\DecValTok{0}\FunctionTok{,}
+      \DataTypeTok{"marker\_\allowbreak{}kind"}\FunctionTok{:}\StringTok{"service"}\FunctionTok{,}
+      \DataTypeTok{"is\_\allowbreak{}terminal"}\FunctionTok{:}\KeywordTok{false}\FunctionTok{,}
+      \DataTypeTok{"anchor\_\allowbreak{}frame\_\allowbreak{}index"}\FunctionTok{:}\StringTok{"300"}\FunctionTok{,}
+      \DataTypeTok{"resolved\_\allowbreak{}frame\_\allowbreak{}index"}\FunctionTok{:}\StringTok{"301"}\FunctionTok{,}
+      \DataTypeTok{"association\_\allowbreak{}state"}\FunctionTok{:}\StringTok{"resolved\_\allowbreak{}single"}\FunctionTok{,}
+      \DataTypeTok{"actors"}\FunctionTok{:}\OtherTok{[}\FunctionTok{\{}
+        \DataTypeTok{"track\_\allowbreak{}id"}\FunctionTok{:}\DecValTok{8}\FunctionTok{,}
+        \DataTypeTok{"observation\_\allowbreak{}frame\_\allowbreak{}index"}\FunctionTok{:}\StringTok{"301"}\FunctionTok{,}
+        \DataTypeTok{"frame\_\allowbreak{}bbox"}\FunctionTok{:\{}\DataTypeTok{"x1"}\FunctionTok{:}\DecValTok{0}\ErrorTok{.}\DecValTok{12}\FunctionTok{,}\DataTypeTok{"y1"}\FunctionTok{:}\DecValTok{0}\ErrorTok{.}\DecValTok{30}\FunctionTok{,}\DataTypeTok{"x2"}\FunctionTok{:}\DecValTok{0}\ErrorTok{.}\DecValTok{21}\FunctionTok{,}\DataTypeTok{"y2"}\FunctionTok{:}\DecValTok{0}\ErrorTok{.}\DecValTok{81}\FunctionTok{\},}
+        \DataTypeTok{"frame\_\allowbreak{}foot\_\allowbreak{}pos"}\FunctionTok{:\{}\DataTypeTok{"x"}\FunctionTok{:}\DecValTok{0}\ErrorTok{.}\DecValTok{165}\FunctionTok{,}\DataTypeTok{"y"}\FunctionTok{:}\DecValTok{0}\ErrorTok{.}\DecValTok{81}\FunctionTok{\},}
+        \DataTypeTok{"court\_\allowbreak{}pos"}\FunctionTok{:\{}\DataTypeTok{"x"}\FunctionTok{:}\DecValTok{{-}0}\ErrorTok{.06}\FunctionTok{,}\DataTypeTok{"y"}\FunctionTok{:}\DecValTok{0}\ErrorTok{.}\DecValTok{24}\FunctionTok{\}}
+      \FunctionTok{\}}\OtherTok{]}\FunctionTok{,}
+      \DataTypeTok{"actor\_\allowbreak{}candidates"}\FunctionTok{:}\OtherTok{[]}\FunctionTok{,}
+      \DataTypeTok{"ball"}\FunctionTok{:\{}\DataTypeTok{"state"}\FunctionTok{:}\StringTok{"observed"}\FunctionTok{,}\DataTypeTok{"sample\_\allowbreak{}frame\_\allowbreak{}index"}\FunctionTok{:}\StringTok{"301"}\FunctionTok{,}\DataTypeTok{"frame\_\allowbreak{}pos"}\FunctionTok{:\{}\DataTypeTok{"x"}\FunctionTok{:}\DecValTok{0}\ErrorTok{.}\DecValTok{182}\FunctionTok{,}\DataTypeTok{"y"}\FunctionTok{:}\DecValTok{0}\ErrorTok{.}\DecValTok{614}\FunctionTok{\}\},}
+      \DataTypeTok{"representative\_\allowbreak{}court\_\allowbreak{}positions"}\FunctionTok{:}\OtherTok{[}
+        \FunctionTok{\{}\DataTypeTok{"track\_\allowbreak{}id"}\FunctionTok{:}\DecValTok{8}\FunctionTok{,}\DataTypeTok{"basis"}\FunctionTok{:}\StringTok{"player\_\allowbreak{}footprint\_\allowbreak{}proxy"}\FunctionTok{,}\DataTypeTok{"court\_\allowbreak{}pos"}\FunctionTok{:\{}\DataTypeTok{"x"}\FunctionTok{:}\DecValTok{{-}0}\ErrorTok{.06}\FunctionTok{,}\DataTypeTok{"y"}\FunctionTok{:}\DecValTok{0}\ErrorTok{.}\DecValTok{24}\FunctionTok{\}\}}
+      \OtherTok{]}\FunctionTok{,}
+      \DataTypeTok{"quality\_\allowbreak{}flags"}\FunctionTok{:}\OtherTok{[]}
+    \FunctionTok{\}}
+  \OtherTok{]}\FunctionTok{,}
+  \DataTypeTok{"path\_\allowbreak{}segments"}\FunctionTok{:} \OtherTok{[]}\FunctionTok{,}
+  \DataTypeTok{"summary"}\FunctionTok{:\{}\DataTypeTok{"track\_\allowbreak{}count"}\FunctionTok{:}\DecValTok{1}\FunctionTok{,}\DataTypeTok{"contact\_\allowbreak{}event\_\allowbreak{}count"}\FunctionTok{:}\DecValTok{1}\FunctionTok{,}\DataTypeTok{"path\_\allowbreak{}segment\_\allowbreak{}count"}\FunctionTok{:}\DecValTok{0}\FunctionTok{,}\DataTypeTok{"unresolved\_\allowbreak{}event\_\allowbreak{}count"}\FunctionTok{:}\DecValTok{0}\FunctionTok{\},}
+  \DataTypeTok{"extensions"}\FunctionTok{:\{\}}
+\FunctionTok{\}}
+\end{Highlighting}
+\end{Shaded}
+
+\subsection{16.2 Passthrough與1:1
+invariant}\label{162-passthroughux820711-invariant}
+
+\begin{itemize}
+\tightlist
+\item
+  \texttt{ai\_\allowbreak{}job\_\allowbreak{}id/rally\_\allowbreak{}submission\_\allowbreak{}id/rally\_\allowbreak{}id/match\_\allowbreak{}id/annotation\_\allowbreak{}revision/clip\_\allowbreak{}asset\_\allowbreak{}id}原樣回傳。
+\item
+  每個input key point恰好一個contact event。
+\item
+  \texttt{key\_\allowbreak{}point\_\allowbreak{}id/sequence\_\allowbreak{}index/marker\_\allowbreak{}kind/is\_\allowbreak{}terminal}與job完全一致。
+\item
+  N個events通常有N-1個segments；只有單一service且terminal的回合可為0段。
+\item
+  無法判斷actor仍回event，不得刪掉。
+\end{itemize}
+
+\subsection{16.3 Actor observation
+frame}\label{163-actor-observation-frame}
+
+每個已解析 actor 必須帶 \texttt{observation\_\allowbreak{}frame\_\allowbreak{}index}，表示
+\texttt{frame\_\allowbreak{}bbox}、\texttt{frame\_\allowbreak{}foot\_\allowbreak{}pos}與
+\texttt{court\_\allowbreak{}pos}取樣的clip
+frame。AI可在人工anchor附近選擇更可靠的frame，但不得讓consumer猜測這些座標來自哪一幀。
+
+AI wire result不需要生成跨系統 \texttt{segment\_\allowbreak{}id}；每段路徑以
+\texttt{sequence\_\allowbreak{}index\ +\ start\_\allowbreak{}key\_\allowbreak{}point\_\allowbreak{}id\ +\ end\_\allowbreak{}key\_\allowbreak{}point\_\allowbreak{}id}識別，中央ingest後才建立自己的DB
+ID。\texttt{producer.sdk\_\allowbreak{}version}為optional，因AI
+provider可不用SDK實作同一contract。
+
+\subsection{16.4 Association state}\label{164-association-state}
+
+\begin{longtable}[]{@{}>{\RaggedRight\arraybackslash}p{0.11\linewidth}>{\RaggedRight\arraybackslash}p{0.19\linewidth}>{\RaggedRight\arraybackslash}p{0.31\linewidth}>{\RaggedRight\arraybackslash}p{0.33\linewidth}@{}}
+\toprule\noalign{}
+state & actors & candidates & 語意 \\
+\midrule\noalign{}
+\endhead
+\bottomrule\noalign{}
+\endlastfoot
+\texttt{resolved\_\allowbreak{}single} & 1 & 0 & 明確單人 \\
+\texttt{resolved\_\allowbreak{}multiple} & \textgreater=2 & 0 & 明確共同參與 \\
+\texttt{ambiguous} & 0 & \textgreater=1 & 有候選但無法判定 \\
+\texttt{unresolved} & 0 & 0 & 模型無法解析 \\
+\texttt{no\_\allowbreak{}player} & 0 & 0 & terminal落地／出界等本來就無球員 \\
+\end{longtable}
+
+\texttt{actors{[}{]}}、\texttt{actor\_\allowbreak{}candidates{[}{]}}的association
+confidence均optional。Action可放在actor中作optional provider-defined
+extension；沒有action時省略。
+
+\subsection{16.5 座標}\label{165-ux5ea7ux6a19}
+
+\begin{itemize}
+\tightlist
+\item
+  \texttt{frame\_\allowbreak{}pos}：影像平面正規化點，x/y在0..1。
+\item
+  \texttt{frame\_\allowbreak{}bbox}：影像平面正規化框，x1\textless=x2、y1\textless=y2。
+\item
+  \texttt{frame\_\allowbreak{}foot\_\allowbreak{}pos}：影像中的球員腳底代表點。
+\item
+  \texttt{court\_\allowbreak{}pos}：AI已投影的球場座標；球場內x/y
+  0..1，但場外允許負值或\textgreater1，不可clamp。
+\item
+  固定球場定義：x=0左端線、x=1右端線（18m）；y=0畫面標準化球場上側邊線、y=1下側邊線（9m）。顯示層可翻轉，資料層不可因教練視角改寫。
+\item
+  缺值用null／省略與quality flag，不用(0,0)代表unknown。
+\end{itemize}
+
+\subsection{16.6 Path Segment}\label{166-path-segment}
+
+Segment只引用相鄰key
+point並保存起終代表點陣列；多人事件可有多個position。\texttt{render\_\allowbreak{}state=complete/partial/unavailable}說明能否畫線。Rally
+outcome由中央submission join，不在每段重複；避免AI
+result與人工得分互相矛盾。
+
+\section{17. AI Callback}\label{17-ai-callback}
+
+\subsection{17.1 Token}\label{171-token}
+
+\begin{itemize}
+\tightlist
+\item
+  Callback URL job-specific。
+\item
+  Bearer token只對該 job有效，DB只保存 hash。
+\item
+  可在 TTL內重試，不是用一次即銷毀。
+\item
+  \texttt{callback\_\allowbreak{}id} 每次 callback唯一；相同 callback
+  ID重送回相同結果。
+\end{itemize}
+
+\subsection{17.2 Progress／Failed}\label{172-progressfailed}
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\FunctionTok{\{}
+  \DataTypeTok{"callback\_\allowbreak{}id"}\FunctionTok{:} \StringTok{"0190..."}\FunctionTok{,}
+  \DataTypeTok{"kind"}\FunctionTok{:} \StringTok{"progress"}\FunctionTok{,}
+  \DataTypeTok{"schema\_\allowbreak{}version"}\FunctionTok{:} \StringTok{"1.0.0"}\FunctionTok{,}
+  \DataTypeTok{"ai\_\allowbreak{}job\_\allowbreak{}id"}\FunctionTok{:} \StringTok{"..."}\FunctionTok{,}
+  \DataTypeTok{"progress"}\FunctionTok{:} \DecValTok{0}\ErrorTok{.}\DecValTok{55}\FunctionTok{,}
+  \DataTypeTok{"phase"}\FunctionTok{:} \StringTok{"provider{-}defined optional string"}\FunctionTok{,}
+  \DataTypeTok{"message"}\FunctionTok{:} \KeywordTok{null}
+\FunctionTok{\}}
+\end{Highlighting}
+\end{Shaded}
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\FunctionTok{\{}
+  \DataTypeTok{"callback\_\allowbreak{}id"}\FunctionTok{:} \StringTok{"0190..."}\FunctionTok{,}
+  \DataTypeTok{"kind"}\FunctionTok{:} \StringTok{"failed"}\FunctionTok{,}
+  \DataTypeTok{"schema\_\allowbreak{}version"}\FunctionTok{:} \StringTok{"1.0.0"}\FunctionTok{,}
+  \DataTypeTok{"ai\_\allowbreak{}job\_\allowbreak{}id"}\FunctionTok{:} \StringTok{"..."}\FunctionTok{,}
+  \DataTypeTok{"error"}\FunctionTok{:} \FunctionTok{\{}
+    \DataTypeTok{"code"}\FunctionTok{:} \StringTok{"PROVIDER\_\allowbreak{}PROCESSING\_\allowbreak{}FAILED"}\FunctionTok{,}
+    \DataTypeTok{"message"}\FunctionTok{:} \StringTok{"..."}\FunctionTok{,}
+    \DataTypeTok{"retryable"}\FunctionTok{:} \KeywordTok{true}
+  \FunctionTok{\}}
+\FunctionTok{\}}
+\end{Highlighting}
+\end{Shaded}
+
+中央前端不能依 \texttt{phase}作狀態機，只依 kind/progress。
+
+\subsection{17.3 Completed Multipart}\label{173-completed-multipart}
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\NormalTok{POST /v1/ai/callback/\{ai\_\allowbreak{}job\_\allowbreak{}id\}}
+\NormalTok{Authorization: Bearer \textless{}callback{-}token\textgreater{}}
+\NormalTok{Content{-}Type: multipart/form{-}data}
+\end{Highlighting}
+\end{Shaded}
+
+Parts：
+
+\begin{itemize}
+\tightlist
+\item
+  \texttt{metadata}：callback envelope JSON，含 callback ID與
+  checksums。
+\item
+  \texttt{analysis}：\texttt{application/json}。
+\item
+  \texttt{overlay}：\texttt{application/vnd.volleyball.overlay+flatbuffers;version=1}。
+\end{itemize}
+
+中央以 streaming方式寫 temporary object，不將整個 overlay載入 Node
+heap。全部驗證通過後才 commit analysis run。
+
+\subsection{17.4 HTTP Semantics}\label{174-http-semantics}
+
+\begin{longtable}[]{@{}>{\RaggedRight\arraybackslash}p{0.30\linewidth}>{\RaggedRight\arraybackslash}p{0.64\linewidth}@{}}
+\toprule\noalign{}
+Status & 語意 \\
+\midrule\noalign{}
+\endhead
+\bottomrule\noalign{}
+\endlastfoot
+200 & 已處理或相同 callback id已處理 \\
+202 & 接受，artifact ingestion仍在背景進行 \\
+401/403 & token錯誤／過期 \\
+409 & callback與 job/submission版本衝突 \\
+413 & payload過大 \\
+415 & content type/FlatBuffers version不支援 \\
+422 & Schema/invariant失敗，不可重試原 payload \\
+503 & 暫時不可用，可 retry \\
+\end{longtable}
+
+\begin{center}\rule{0.5\linewidth}{0.5pt}\end{center}
+
+\section{18. FlatBuffers Overlay v1}\label{18-flatbuffers-overlay-v1}
+
+\subsection{18.1 原則}\label{181-ux539fux5247}
+
+\begin{itemize}
+\tightlist
+\item
+  AI 回傳一個 rally完整 sequence binary。
+\item
+  Central驗證後依固定 frame chunk切成 Web用 chunks。
+\item
+  採 Structure of Arrays，避免大量 nested JS object。
+\item
+  frame座標量化 U16；court座標 float32，因為可場外。
+\item
+  缺值由 flags/sentinel表示，不偽造 0。
+\end{itemize}
+
+\subsection{18.2 Chunk 內容}\label{182-chunk-ux5167ux5bb9}
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\NormalTok{start\_\allowbreak{}frame\_\allowbreak{}index}
+\NormalTok{frame\_\allowbreak{}count}
+\NormalTok{frame\_\allowbreak{}offsets[frame\_\allowbreak{}count + 1]}
+\NormalTok{track\_\allowbreak{}ids[detection\_\allowbreak{}count]}
+\NormalTok{bbox\_\allowbreak{}x1/y1/x2/y2[detection\_\allowbreak{}count]}
+\NormalTok{foot\_\allowbreak{}x/foot\_\allowbreak{}y[detection\_\allowbreak{}count]}
+\NormalTok{court\_\allowbreak{}x/court\_\allowbreak{}y[detection\_\allowbreak{}count]}
+\NormalTok{action\_\allowbreak{}label\_\allowbreak{}ids[detection\_\allowbreak{}count]}
+\NormalTok{confidence\_\allowbreak{}q[detection\_\allowbreak{}count]}
+\NormalTok{flags[detection\_\allowbreak{}count]}
+
+\NormalTok{ball\_\allowbreak{}x/ball\_\allowbreak{}y[frame\_\allowbreak{}count]}
+\NormalTok{ball\_\allowbreak{}confidence\_\allowbreak{}q[frame\_\allowbreak{}count]}
+\NormalTok{ball\_\allowbreak{}flags[frame\_\allowbreak{}count]}
+\end{Highlighting}
+\end{Shaded}
+
+Invariant：
+
+\begin{itemize}
+\tightlist
+\item
+  \texttt{frame\_\allowbreak{}offsets{[}0{]}\ =\ 0}
+\item
+  last offset = detection count。
+\item
+  所有 detection column長度相同。
+\item
+  action label id \texttt{65535}表示缺少。
+\item
+  confidence \texttt{-1}表示缺少。
+\item
+  court validity由 flag表示；x/y本身允許負值或 \textgreater1。
+\end{itemize}
+
+\subsection{18.3 Web Manifest}\label{183-web-manifest}
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\FunctionTok{\{}
+  \DataTypeTok{"schema\_\allowbreak{}version"}\FunctionTok{:}\StringTok{"1.0.0"}\FunctionTok{,}
+  \DataTypeTok{"analysis\_\allowbreak{}run\_\allowbreak{}id"}\FunctionTok{:}\StringTok{"..."}\FunctionTok{,}
+  \DataTypeTok{"overlay\_\allowbreak{}version"}\FunctionTok{:}\DecValTok{2}\FunctionTok{,}
+  \DataTypeTok{"video"}\FunctionTok{:\{}\DataTypeTok{"width"}\FunctionTok{:}\DecValTok{1920}\FunctionTok{,}\DataTypeTok{"height"}\FunctionTok{:}\DecValTok{1080}\FunctionTok{,}\DataTypeTok{"total\_\allowbreak{}frames"}\FunctionTok{:}\StringTok{"1079"}\FunctionTok{\},}
+  \DataTypeTok{"chunk\_\allowbreak{}frame\_\allowbreak{}count"}\FunctionTok{:}\DecValTok{120}\FunctionTok{,}
+  \DataTypeTok{"action\_\allowbreak{}dictionary"}\FunctionTok{:}\OtherTok{[]}\FunctionTok{,}
+  \DataTypeTok{"chunks"}\FunctionTok{:}\OtherTok{[}
+    \FunctionTok{\{}
+      \DataTypeTok{"index"}\FunctionTok{:}\DecValTok{0}\FunctionTok{,}
+      \DataTypeTok{"start\_\allowbreak{}frame"}\FunctionTok{:}\StringTok{"0"}\FunctionTok{,}
+      \DataTypeTok{"end\_\allowbreak{}frame"}\FunctionTok{:}\StringTok{"119"}\FunctionTok{,}
+      \DataTypeTok{"url"}\FunctionTok{:}\StringTok{"/v1/analysis{-}runs/.../overlay{-}chunks/0"}\FunctionTok{,}
+      \DataTypeTok{"byte\_\allowbreak{}length"}\FunctionTok{:}\StringTok{"48211"}\FunctionTok{,}
+      \DataTypeTok{"sha256"}\FunctionTok{:}\StringTok{"..."}
+    \FunctionTok{\}}
+  \OtherTok{]}
+\FunctionTok{\}}
+\end{Highlighting}
+\end{Shaded}
+
+Web只預載當前與下一 chunk；seek時取消無用 request並載目標 chunk。
+
+\begin{center}\rule{0.5\linewidth}{0.5pt}\end{center}
+
+\section{19. 教練／裁判端
+UX}\label{19-ux6559ux7df4ux88c1ux5224ux7aef-ux}
+
+\subsection{19.1 Routes}\label{191-routes}
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\NormalTok{/                         場次選單／最近紀錄}
+\NormalTok{/matches/:matchId/live    現場總覽}
+\NormalTok{/matches/:matchId/paths   球路與熱點}
+\NormalTok{/matches/:matchId/players 球員列表與個人頁}
+\NormalTok{/matches/:matchId/stats   統計與篩選}
+\NormalTok{/matches/:matchId/history Rally／保存視圖歷史}
+\NormalTok{/matches/:matchId/replay/:rallyId  單 Rally 回放}
+\NormalTok{/annotate/:matchId        標註工作台}
+\NormalTok{/settings                 系統設定（依角色）}
+\end{Highlighting}
+\end{Shaded}
+
+\subsection{19.2 現場頁}\label{192-ux73feux5834ux9801}
+
+\begin{itemize}
+\tightlist
+\item
+  場次、比分、局數、live edge與最新完成分析。
+\item
+  最新 rally建議卡；必須附資料來源與樣本數。
+\item
+  快速進入最新回放。
+\item
+  底部導覽固定但不遮住播放器/球場。
+\end{itemize}
+
+\subsection{19.3 球路頁}\label{193-ux7403ux8defux9801}
+
+篩選：
+
+\begin{itemize}
+\tightlist
+\item
+  Team。
+\item
+  Player（identity mapping存在時）。
+\item
+  Set／時間範圍。
+\item
+  Start/target court zone。
+\item
+  Rally outcome。
+\item
+  Association quality。
+\item
+  Action（feature available才顯示）。
+\end{itemize}
+
+2D court顯示 A/B、方向、熱點；點擊路徑開對應 rally/time。
+
+\subsection{19.4 回放頁}\label{194-ux56deux653eux9801}
+
+\begin{itemize}
+\tightlist
+\item
+  Video + transparent Canvas overlay。
+\item
+  2D court同步。
+\item
+  全部符合篩選路徑淡灰，當前 segment高亮。
+\item
+  Overlay modes：
+
+  \begin{itemize}
+  \tightlist
+  \item
+    Off
+  \item
+    Tracking
+  \item
+    Coach
+  \item
+    Tactical
+  \item
+    Debug（只對授權角色）
+  \end{itemize}
+\item
+  Layer toggle：bbox、track
+  ID、player、action、ball、trail、footprint、confidence。
+\item
+  Track ID在未綁 player時顯示 \texttt{Track\ 8}，不能冒充背號。
+\end{itemize}
+
+\subsection{19.5
+歷史與保存紀錄}\label{195-ux6b77ux53f2ux8207ux4fddux5b58ux7d00ux9304}
+
+\begin{itemize}
+\tightlist
+\item
+  頂部返回場次選單。
+\item
+  History可按 set、score、日期、processing state、quality篩選。
+\item
+  Saved Analysis View保存
+  filter/query設定，不保存一份過時統計快照；開啟時用當前資料重算，顯示
+  saved at/schema version。
+\end{itemize}
+
+\subsection{19.6 Offline／Reconnect}\label{196-offlinereconnect}
+
+\begin{itemize}
+\tightlist
+\item
+  WS中斷仍可看已載入影片/資料，但新增標記要顯示 pending。
+\item
+  Command先放 local outbox，帶 command ID。
+\item
+  重連後比較 server revision。
+\item
+  Mapping window過期時，尚未送出的 marker cursor必須重新
+  resolve或要求使用者確認。
+\end{itemize}
+
+\begin{center}\rule{0.5\linewidth}{0.5pt}\end{center}
+
+\section{20. 分析與統計}\label{20-ux5206ux6790ux8207ux7d71ux8a08}
+
+\subsection{20.1 Baseline
+一定可做}\label{201-baseline-ux4e00ux5b9aux53efux505a}
+
+只依人工 outcome、AI contact association與 court positions：
+
+\begin{itemize}
+\tightlist
+\item
+  Rally count。
+\item
+  Team rally win/loss（排除 unknown）。
+\item
+  Contact event count。
+\item
+  Participant event count。
+\item
+  Source/target heatmap。
+\item
+  A→B方向分布。
+\item
+  區域轉移 matrix。
+\item
+  Terminal位置分布。
+\item
+  Ambiguous/unresolved比例。
+\item
+  Samples數、資料品質與缺值率。
+\end{itemize}
+
+\subsection{20.2 Identity 後可做}\label{202-identity-ux5f8cux53efux505a}
+
+\begin{itemize}
+\tightlist
+\item
+  每球員 contact數。
+\item
+  每球員起點／目標熱點。
+\item
+  每球員 rally participation與 rally outcome split。
+\item
+  跨 rally球員路徑。
+\end{itemize}
+
+\subsection{20.3 Action taxonomy
+後才可做}\label{203-action-taxonomy-ux5f8cux624dux53efux505a}
+
+\begin{itemize}
+\tightlist
+\item
+  Attack／serve／receive等 action filter。
+\item
+  Kill/error/ace/direct outcome。
+\item
+  Hitting efficiency。
+\item
+  Setter distribution。
+\item
+  Side-out／breakpoint細分。
+\end{itemize}
+
+在 direct outcome contract未確認前，不能把「包含此事件的
+rally最後贏球」當成該事件直接得分。
+
+\subsection{20.4 API 回應}\label{204-api-ux56deux61c9}
+
+每個 metric必須附：
+
+\begin{itemize}
+\tightlist
+\item
+  \texttt{value}
+\item
+  \texttt{sample\_\allowbreak{}count}
+\item
+  \texttt{excluded\_\allowbreak{}count}
+\item
+  \texttt{unknown\_\allowbreak{}count}
+\item
+  \texttt{quality\_\allowbreak{}breakdown}
+\item
+  \texttt{feature\_\allowbreak{}dependencies}
+\end{itemize}
+
+教練卡片不能只顯示一個無樣本數百分比。
+
+\begin{center}\rule{0.5\linewidth}{0.5pt}\end{center}
+
+\section{21.
+後端／前端實作優先順序}\label{21-ux5f8cux7aefux524dux7aefux5be6ux4f5cux512aux5148ux9806ux5e8f}
+
+\subsection{Phase 0 --- Contract Freeze 與
+Scaffold}\label{phase-0--contract-freeze-ux8207-scaffold}
+
+\subsubsection{Contracts／SDK Agent}\label{contractssdk-agent}
+
+\begin{itemize}
+\tightlist
+\item
+  建 GraphQL、REST、WS、AI JSON Schema、FlatBuffers。
+\item
+  建正常、缺球、多 actor、ambiguous、terminal、場外 service fixtures。
+\item
+  SDK models與validator。
+\end{itemize}
+
+\subsubsection{Backend Agent}\label{backend-agent}
+
+\begin{itemize}
+\tightlist
+\item
+  Prisma schema、Compose、health、MinIO init、MediaMTX baseline。
+\item
+  不先實作完整功能。
+\end{itemize}
+
+\subsubsection{Luna Frontend Agent}\label{luna-frontend-agent}
+
+\begin{itemize}
+\tightlist
+\item
+  Nuxt shell、routes、bottom/top nav、design tokens。
+\item
+  Fixture-driven player/timeline/court prototype。
+\end{itemize}
+
+\subsubsection{Exit}\label{exit}
+
+\begin{itemize}
+\tightlist
+\item
+  相同 fixtures通過 TS/Python schema validation。
+\item
+  Directory ownership不衝突。
+\item
+  ADR紀錄 API boundary。
+\end{itemize}
+
+\subsection{Phase 1 --- Core
+Domain／Auth／DB}\label{phase-1--core-domainauthdb}
+
+Backend：
+
+\begin{itemize}
+\tightlist
+\item
+  Match/team/player/set/side assignment。
+\item
+  Prisma migration。
+\item
+  GraphQL Yoga endpoint。
+\item
+  開發 auth與 role guard。
+\end{itemize}
+
+Frontend：
+
+\begin{itemize}
+\tightlist
+\item
+  場次選單、history shell、route guards。
+\end{itemize}
+
+Exit：可建立場次、set、左右隊與 roster；換邊資料可查。
+
+\subsection{Phase 2 --- Media Ingest／完整
+Timeline}\label{phase-2--media-ingestux5b8cux6574-timeline}
+
+Backend／Media：
+
+\begin{itemize}
+\tightlist
+\item
+  MediaMTX ingest/record。
+\item
+  Segment index → MinIO/DB。
+\item
+  Timeline GraphQL。
+\item
+  Live rolling playback window。
+\item
+  Archive window／lazy seek。
+\item
+  PlaybackCursor resolve/frame step。
+\end{itemize}
+
+Frontend：
+
+\begin{itemize}
+\tightlist
+\item
+  Live video/audio。
+\item
+  Full timeline、live edge、gap。
+\item
+  Seek遠端 window與回到 live。
+\item
+  requestVideoFrameCallback cursor。
+\end{itemize}
+
+Exit：一小時以上
+capture可持續錄；client記憶體不隨整場線性成長；任意已保存 frame可
+resolve。
+
+\subsection{Phase 3 --- Annotation Vertical
+Slice}\label{phase-3--annotation-vertical-slice}
+
+Backend：
+
+\begin{itemize}
+\tightlist
+\item
+  WS command/revision/idempotency。
+\item
+  Draft mutable model + operation log。
+\item
+  Z/Space/X/score/?/reopen/move/delete/Enter。
+\item
+  immutable submission。
+\end{itemize}
+
+Frontend：
+
+\begin{itemize}
+\tightlist
+\item
+  剪輯式 timeline與 tracks。
+\item
+  灰／綠 mask、score strip、快捷鍵模式。
+\item
+  多人 presence/conflict/reconnect。
+\end{itemize}
+
+Exit：兩個 iPad同時標；refresh/reconnect後一致；X不建
+timestamp；unknown可提交。
+
+\subsection{Phase 4 --- Clip／Fake
+AI／SDK}\label{phase-4--clipfake-aisdk}
+
+\begin{itemize}
+\tightlist
+\item
+  Clip worker與timing manifest。
+\item
+  AI Integration/capabilities/job/callback。
+\item
+  SDK v0.1.0可 GitHub安裝。
+\item
+  Fake provider回 fixtures。
+\end{itemize}
+
+Exit：Enter後自動 clip → fake AI → callback → analysis run。
+
+\subsection{Phase 5 --- Coach
+Replay／Overlay}\label{phase-5--coach-replayoverlay}
+
+\begin{itemize}
+\tightlist
+\item
+  Overlay sequence ingest/chunk。
+\item
+  Manifest REST。
+\item
+  Canvas overlay。
+\item
+  2D court、A/B path與 history。
+\end{itemize}
+
+Exit：點路徑可跳影片；seek只載附近 chunks；action缺失不破版。
+
+\subsection{Phase 6 ---
+Identity／Analytics}\label{phase-6--identityanalytics}
+
+\begin{itemize}
+\tightlist
+\item
+  Track-player mapping。
+\item
+  Baseline metrics/filters/saved views。
+\item
+  Quality與sample count。
+\end{itemize}
+
+Exit：跨 rally player view不依賴 track ID；side switch後 team統計正確。
+
+\subsection{Phase 7 --- Hardening}\label{phase-7--hardening}
+
+\begin{itemize}
+\tightlist
+\item
+  2--3小時 ingest soak。
+\item
+  Source reconnect/discontinuity。
+\item
+  Postgres/Redis/MinIO/server/worker restart。
+\item
+  Callback duplicate/retry/bad checksum。
+\item
+  iPad memory/performance。
+\item
+  Backup、retention、metrics、audit。
+\end{itemize}
+
+\begin{center}\rule{0.5\linewidth}{0.5pt}\end{center}
+
+\section{22. 三個 Subagent
+的協作規則}\label{22-ux4e09ux500b-subagent-ux7684ux5354ux4f5cux898fux5247}
+
+\subsection{22.1 固定 Ownership}\label{221-ux56faux5b9a-ownership}
+
+\begin{longtable}[]{@{}>{\RaggedRight\arraybackslash}p{0.30\linewidth}>{\RaggedRight\arraybackslash}p{0.64\linewidth}@{}}
+\toprule\noalign{}
+Agent & 可主動修改 \\
+\midrule\noalign{}
+\endhead
+\bottomrule\noalign{}
+\endlastfoot
+A Contracts/SDK & \texttt{packages/contracts/**}, \texttt{sdk/**} \\
+B Backend/Media/Infra & \texttt{server/**}, \texttt{worker/**},
+\texttt{packages/db/**}, \texttt{infra/**} \\
+C Luna Frontend & \texttt{web/**} \\
+Main Agent & root、docs、CI、跨目錄整合與 contract批准 \\
+\end{longtable}
+
+任何 Agent若需改別人責任範圍，先回報主 Agent，不直接動手。
+
+\subsection{22.2 第一輪任務}\label{222-ux7b2cux4e00ux8f2aux4efbux52d9}
+
+\subsubsection{Agent A}\label{agent-a}
+
+\begin{quote}
+建立 v1 contract baseline與 Python SDK skeleton。只實作
+Schema、validation、fake provider adapter與 fixtures，不實作 AI
+模型。完成後回報 contract版本、生成物、測試與未定 action/phase事項。
+\end{quote}
+
+\subsubsection{Agent B}\label{agent-b}
+
+\begin{quote}
+建立 TypeScript
+server/worker、Prisma、PostgreSQL、MinIO、Redis、MediaMTX與Compose
+skeleton。GraphQL使用 Yoga，binary走REST，高頻
+annotation走自訂WS。不得自行發明與 contracts不同的欄位。
+\end{quote}
+
+\subsubsection{Agent C - Luna Frontend}\label{agent-c---luna-frontend}
+
+\begin{quote}
+建立 Nuxt 4多頁 shell、底部導覽、頂部狀態列、annotation/coach/history
+route與 fixture-driven元件。只參考舊 MVP UI libraries/framework，不沿用
+domain flow/schema/statistics。
+\end{quote}
+
+\subsection{22.3
+每次交付格式}\label{223-ux6bcfux6b21ux4ea4ux4ed8ux683cux5f0f}
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\FunctionTok{\#\# Completed}
+\SpecialStringTok{{-} }\NormalTok{...}
+
+\FunctionTok{\#\# Changed files}
+\SpecialStringTok{{-} }\NormalTok{...}
+
+\FunctionTok{\#\# Contract/schema version consumed}
+\SpecialStringTok{{-} }\NormalTok{...}
+
+\FunctionTok{\#\# Tests run}
+\SpecialStringTok{{-} }\NormalTok{command + result}
+
+\FunctionTok{\#\# Known issues / blockers}
+\SpecialStringTok{{-} }\NormalTok{...}
+
+\FunctionTok{\#\# Decisions needed from main agent}
+\SpecialStringTok{{-} }\NormalTok{...}
+\end{Highlighting}
+\end{Shaded}
+
+\subsection{22.4 Main Agent Merge Gate}\label{224-main-agent-merge-gate}
+
+\begin{itemize}
+\tightlist
+\item
+  Contract變更先於實作。
+\item
+  Fixture要同時由 TS/Python讀取。
+\item
+  Prisma migration與GraphQL field一致。
+\item
+  UI field必須由 generated type取得。
+\item
+  每一 Phase都有可執行的 end-to-end evidence。
+\item
+  不接受「已建立 component/table」作為 flow完成證據。
+\end{itemize}
+
+\begin{center}\rule{0.5\linewidth}{0.5pt}\end{center}
+
+\section{23. 主 Agent 可直接使用的
+Prompt}\label{23-ux4e3b-agent-ux53efux76f4ux63a5ux4f7fux7528ux7684-prompt}
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\NormalTok{你現在位於新 Repository \textasciigrave{}volleyball{-}monitoring{-}ai\textasciigrave{} 的 root。}
+
+\NormalTok{你的身份是主要 PM Agent、系統架構師與最終整合者。先完整閱讀：}
+\NormalTok{1. \textasciigrave{}docs/MASTER\_\allowbreak{}IMPLEMENTATION\_\allowbreak{}SPEC.md\textasciigrave{}}
+\NormalTok{2. \textasciigrave{}AGENTS.md\textasciigrave{}}
+\NormalTok{3. \textasciigrave{}packages/contracts/README.md\textasciigrave{}}
+\NormalTok{4. 現有 git status、目錄與 placeholder}
+
+\NormalTok{本專案不實作 AI 模型，只實作：}
+\NormalTok{{-} Nuxt 標註端與教練端}
+\NormalTok{{-} Fastify + GraphQL Yoga + Pothos/Prisma 的 GraphQL/REST/WebSocket 中央後端}
+\NormalTok{{-} MediaMTX + FFmpeg 完整 DVR、windowed lazy playback與 clip服務}
+\NormalTok{{-} Prisma/PostgreSQL、MinIO、Redis與durable workers}
+\NormalTok{{-} 外部 AI Job/callback contracts}
+\NormalTok{{-} 可從 GitHub subdirectory安裝的 Python SDK}
+\NormalTok{{-} Fake AI Provider與端到端fixtures}
+
+\NormalTok{最多同時派出三個 subagent，固定分工：}
+\NormalTok{A. Contracts + Python SDK}
+\NormalTok{B. Backend + Media + Infra}
+\NormalTok{C. Nuxt Frontend}
+
+\NormalTok{你必須保留架構與Schema決策權。不要讓subagent修改彼此責任目錄；跨目錄變更由你完成。}
+
+\NormalTok{執行規則：}
+\NormalTok{{-} 先稽核 scaffold是否與 MASTER spec一致，再依 Phase 0開始。}
+\NormalTok{{-} Contract{-}first；跨系統欄位只以 \textasciigrave{}packages/contracts\textasciigrave{} 為真實來源。}
+\NormalTok{{-} 不要寫死 action labels、confidence、AI模型參數或群體phase。}
+\NormalTok{{-} X只將上一個既有key point標terminal，不建立時間點。}
+\NormalTok{{-} \textasciigrave{}?\textasciigrave{} 是明確unknown，可送出；pending不可送出。}
+\NormalTok{{-} Left/right只表示court side，不是team identity。}
+\NormalTok{{-} Browser只送PlaybackCursor；authoritative PTS/frame由後端resolve。}
+\NormalTok{{-} 整場可回放，但client只lazy{-}load目前數分鐘，不下載全場。}
+\NormalTok{{-} GraphQL管structured domain data；REST管media/binary/callback；WebSocket管annotation command/revision；FlatBuffers管逐幀overlay。}
+\NormalTok{{-} Submitted revision immutable。}
+\NormalTok{{-} Tracker ID只在單rally有效。}
+\NormalTok{{-} AI系統只透過Job/Result/Callback/SDK串接。}
+
+\NormalTok{先建立/確認 baseline commit。接著提出 Phase 0 三個subagent的精確任務、路徑ownership與exit criteria，派出最多三個subagent。你自己同時負責root/docs/CI與整合測試。}
+
+\NormalTok{每個Phase結束：}
+\NormalTok{{-} 實際執行測試與build}
+\NormalTok{{-} 更新 \textasciigrave{}docs/progress.md\textasciigrave{}}
+\NormalTok{{-} 列出完成flow、未完成flow、風險與下一Phase}
+\NormalTok{{-} 建立小而清楚的commit，不製造一個巨大commit}
+
+\NormalTok{不得把placeholder、mock畫面或單一layer宣稱成已完成。完整flow至少需具備：DB/migration → domain/service → GraphQL/REST/WS → frontend → success/error/reconnect → test。}
+\end{Highlighting}
+\end{Shaded}
+
+\begin{center}\rule{0.5\linewidth}{0.5pt}\end{center}
+
+\section{24. Luna Worker 定義與建立
+Prompt}\label{24-luna-worker-ux5b9aux7fa9ux8207ux5efaux7acb-prompt}
+
+\subsection{24.1 建議 TOML}\label{241-ux5efaux8b70-toml}
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\DataTypeTok{name} \OperatorTok{=} \StringTok{"luna\_\allowbreak{}worker"}
+\DataTypeTok{description} \OperatorTok{=} \StringTok{"Execution{-}focused worker for one bounded repository task with explicit path ownership, acceptance criteria, and no authority to alter architecture or public contracts."}
+\DataTypeTok{model} \OperatorTok{=} \StringTok{"gpt{-}5.6{-}luna"}
+\DataTypeTok{model\_\allowbreak{}reasoning\_\allowbreak{}effort} \OperatorTok{=} \StringTok{"medium"}
+\DataTypeTok{sandbox\_\allowbreak{}mode} \OperatorTok{=} \StringTok{"workspace{-}write"}
+
+\DataTypeTok{developer\_\allowbreak{}instructions} \OperatorTok{=} \StringTok{"""}
+\StringTok{Work only on the exact task delegated by the parent agent and only in the explicitly assigned files or directories.}
+
+\StringTok{Before editing:}
+\StringTok{1. Read the nearest AGENTS.md files.}
+\StringTok{2. Inspect the actual current implementation; do not assume the parent prompt is still accurate.}
+\StringTok{3. Restate the task boundary, owned paths, consumed contract/schema version, and acceptance criteria internally before making changes.}
+
+\StringTok{You may perform bounded implementation, file discovery, data organization, fixture work, focused tests, documentation updates, and small fixes that are fully specified by the parent.}
+
+\StringTok{You must not:}
+\StringTok{{-} Change product goals, architecture, public contracts, database semantics, or cross{-}team APIs.}
+\StringTok{{-} Add, remove, or upgrade dependencies unless explicitly authorized.}
+\StringTok{{-} Modify files owned by another active worker.}
+\StringTok{{-} Refactor unrelated code, broaden scope, or create speculative abstractions.}
+\StringTok{{-} Spawn additional subagents.}
+\StringTok{{-} Implement AI models or invent action labels, confidence semantics, or model parameters.}
+\StringTok{{-} Hide blockers by guessing.}
+
+\StringTok{If the task requires a cross{-}cutting decision, contradicts the current contract, lacks required input, or would touch unowned paths, stop and report the exact blocker to the parent agent.}
+
+\StringTok{Use the smallest complete change. Run focused validation for changed behavior. Do not claim a test was run unless you actually ran it.}
+
+\StringTok{Return exactly these sections:}
+\StringTok{{-} Completed}
+\StringTok{{-} Changed files}
+\StringTok{{-} Contract/schema version consumed}
+\StringTok{{-} Tests run (commands and results)}
+\StringTok{{-} Known issues/blockers}
+\StringTok{{-} Decision needed from parent (or None)}
+\StringTok{"""}
+\end{Highlighting}
+\end{Shaded}
+
+\texttt{sandbox\_\allowbreak{}mode=workspace-write} 是合理的，因
+worker需要實際完成小型修改；若某個 worker只做搜尋/審查，主 Agent可在
+spawn時改用 read-only agent。
+
+\subsection{24.2 建立 Prompt}\label{242-ux5efaux7acb-prompt}
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\NormalTok{請建立個人層級 Codex 自訂 Agent：}
+
+\NormalTok{\textasciitilde{}/.codex/agents/luna{-}worker.toml}
+
+\NormalTok{先使用目前已安裝的 Codex CLI 執行 \textasciigrave{}codex {-}{-}version\textasciigrave{} 與 \textasciigrave{}codex {-}{-}help\textasciigrave{}，並查閱該版本可用的本機/官方 custom agent設定格式；不要假設舊格式仍相同。}
+
+\NormalTok{請建立以下語意的 Agent：}
+\NormalTok{{-} name = "luna\_\allowbreak{}worker"}
+\NormalTok{{-} model = "gpt{-}5.6{-}luna"}
+\NormalTok{{-} model\_\allowbreak{}reasoning\_\allowbreak{}effort = "medium"}
+\NormalTok{{-} sandbox\_\allowbreak{}mode = "workspace{-}write"}
+\NormalTok{{-} description與developer\_\allowbreak{}instructions採本 repository \textasciigrave{}docs/MASTER\_\allowbreak{}IMPLEMENTATION\_\allowbreak{}SPEC.md\textasciigrave{} 中的 Luna Worker定義；若目前版本欄位名稱不同，只做格式相容調整，不改變行為邊界。}
+
+\NormalTok{luna\_\allowbreak{}worker只負責由主Agent明確委派、邊界清楚、具備path ownership與驗收條件的執行型任務。它不得修改產品目標、架構、public schema、database語意或未授權dependency；不得擴張範圍或再派subagent。遇到跨團隊決策或缺少contract時必須停止並回報。}
+
+\NormalTok{請保留現有其他Codex設定，不覆蓋或刪除無關內容。若目錄或檔案不存在才建立。}
+
+\NormalTok{建立完成後：}
+\NormalTok{1. 顯示新增檔案完整內容。}
+\NormalTok{2. 顯示只針對該檔案的diff。}
+\NormalTok{3. 使用目前系統可用的TOML parser驗證語法。}
+\NormalTok{4. 確認 \textasciigrave{}name\textasciigrave{} 是Codex辨識自訂Agent的來源，並確認檔案位於個人Agent目錄。}
+\NormalTok{5. 在新的Codex session中以最小的read{-}only測試任務要求主Agent spawn \textasciigrave{}luna\_\allowbreak{}worker\textasciigrave{}；不要用不存在於目前版本help中的虛構CLI子命令。}
+\NormalTok{6. 回報版本、驗證命令、驗證結果與任何相容性調整。}
+\NormalTok{7. 不修改任何與此Agent無關的設定。}
+\end{Highlighting}
+\end{Shaded}
+
+\subsection{24.3 Project Config}\label{243-project-config}
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\CommentTok{\#:schema https://developers.openai.com/codex/config{-}schema.json}
+
+\KeywordTok{[agents]}
+\DataTypeTok{enabled} \OperatorTok{=} \ConstantTok{true}
+\DataTypeTok{max\_\allowbreak{}concurrent\_\allowbreak{}threads\_\allowbreak{}per\_\allowbreak{}session} \OperatorTok{=} \DecValTok{3}
+\end{Highlighting}
+\end{Shaded}
+
+\begin{center}\rule{0.5\linewidth}{0.5pt}\end{center}
+
+\section{25. 測試與 Definition of
+Done}\label{25-ux6e2cux8a66ux8207-definition-of-done}
+
+\subsection{25.1 Contract}\label{251-contract}
+
+\begin{itemize}
+\tightlist
+\item
+  JSON Schema fixtures通過 Python與TypeScript validator。
+\item
+  FlatBuffers file identifier/version不符會 fail。
+\item
+  Passthrough ID改動會 fail。
+\item
+  Action完全缺失仍通過。
+\item
+  Confidence缺失仍通過。
+\end{itemize}
+
+\subsection{25.2 Media／Time}\label{252-mediatime}
+
+\begin{itemize}
+\tightlist
+\item
+  30fps、59.94fps、VFR input。
+\item
+  一小時以上 live ingest。
+\item
+  Source reconnect/discontinuity。
+\item
+  Timeline gap顯示。
+\item
+  遠端seek建立新 playback window。
+\item
+  Client memory不隨整場時間線性成長。
+\item
+  PlaybackCursor resolve在目標呈現frame可重現。
+\item
+  Frame step前後一幀正確。
+\end{itemize}
+
+\subsection{25.3 Annotation}\label{253-annotation}
+
+\begin{itemize}
+\tightlist
+\item
+  Z/Space/X/left/right/?/Enter。
+\item
+  X不新增 timestamp。
+\item
+  只有 service的service error。
+\item
+  Unknown可提交，pending不可。
+\item
+  Reopen與change terminal。
+\item
+  Duplicate command idempotency。
+\item
+  多人revision conflict/refetch。
+\item
+  Submitted immutable/correction draft。
+\end{itemize}
+
+\subsection{25.4 Clip／AI}\label{254-clipai}
+
+\begin{itemize}
+\tightlist
+\item
+  pre/post-roll被source開始/結束截斷。
+\item
+  所有 submission key point有clip mapping。
+\item
+  AI Job從SDK model解析。
+\item
+  Clip checksum錯誤。
+\item
+  Capabilities不相容。
+\item
+  Job retry/idempotency。
+\item
+  Callback duplicate、過期token、bad schema、bad FlatBuffers、oversize。
+\item
+  1:1 key point invariant。
+\item
+  resolved multiple與ambiguous分開。
+\end{itemize}
+
+\subsection{25.5 Coach}\label{255-coach}
+
+\begin{itemize}
+\tightlist
+\item
+  Bottom nav與歷史。
+\item
+  Video overlay可切層。
+\item
+  2D path與video seek同步。
+\item
+  Track未綁player時不顯示假背號。
+\item
+  Action unavailable時filter/metric隱藏。
+\item
+  Unknown outcome排除win rate。
+\item
+  換邊後team統計正確。
+\item
+  樣本數與品質顯示。
+\end{itemize}
+
+\subsection{25.6
+第一版完成條件}\label{256-ux7b2cux4e00ux7248ux5b8cux6210ux689dux4ef6}
+
+第一版只有在以下全部成立時才完成：
+
+\begin{itemize}
+\tightlist
+\item
+  伺服器可持續錄整場且前端可任意回看已保存區間。
+\item
+  Client只windowed lazy-load，live持續錄製。
+\item
+  Key point authoritative time對齊影片呈現frame。
+\item
+  多人標註與revision恢復正確。
+\item
+  灰／綠mask與score state符合使用流程。
+\item
+  Enter建立immutable submission。
+\item
+  Clip mapping正確。
+\item
+  SDK可由GitHub安裝，Fake與真AI使用同一contract。
+\item
+  Callback/FlatBuffers可驗證、保存與重試。
+\item
+  教練端多頁、歷史、overlay、A/B與baseline分析可用。
+\item
+  所有durable state位於PostgreSQL/MinIO；API/worker重啟不遺失。
+\end{itemize}
+
+\begin{center}\rule{0.5\linewidth}{0.5pt}\end{center}
+
+\section{26. 舊 MVP
+可參考與禁止範圍}\label{26-ux820a-mvp-ux53efux53c3ux8003ux8207ux7981ux6b62ux7bc4ux570d}
+
+只允許參考：
+
+\begin{itemize}
+\tightlist
+\item
+  Nuxt 4／Vue 3／TypeScript。
+\item
+  Vant/Tailwind/Motion/Lucide等 UI library。
+\item
+  GraphQL Yoga + Pothos + Prisma + PostgreSQL + MinIO + FFmpeg
+  的工程組合。
+\item
+  Binary upload／stream不走GraphQL的分工。
+\item
+  WebSocket command ID／server revision概念。
+\item
+  Docker Compose、Kubernetes、health endpoint、虛擬化列表等工程作法。
+\end{itemize}
+
+禁止沿用：
+
+\begin{itemize}
+\tightlist
+\item
+  舊手動球員/事件/球路輸入流程。
+\item
+  舊 action enum、統計公式或比分/輪轉語意。
+\item
+  舊 DB schema與 memory store。
+\item
+  舊頁面資訊架構或 demo data。
+\item
+  任何與本文件fixed semantics衝突的實作。
+\end{itemize}
+
+\begin{center}\rule{0.5\linewidth}{0.5pt}\end{center}
+
+\section{27. 尚待人類／AI 團隊確認，但不阻塞
+Baseline}\label{27-ux5c1aux5f85ux4ebaux985eai-ux5718ux968aux78baux8a8dux4f46ux4e0dux963bux585e-baseline}
+
+\begin{enumerate}
+\def\labelenumi{\arabic{enumi}.}
+\tightlist
+\item
+  GitHub owner與正式 repository URL。
+\item
+  正式 auth/SSO。
+\item
+  第一優先直播輸入協議與 capture硬體。
+\item
+  Raw segment、playback window、clip、analysis retention。
+\item
+  Canonical clip FPS/解析度。
+\item
+  AI action taxonomy、粒度、confidence。
+\item
+  群體 phase是否有產品用途。
+\item
+  AI result人工 review UI是否第一版需要。
+\item
+  正式教練 recommendation規則。
+\item
+  賽事比分是否需完整 set勝負／暫停／換人功能；baseline至少保存 rally
+  outcome與score snapshot。
+\end{enumerate}
+
+主 Agent不得為了看起來完整而擅自填補這些未知項目。
+
+\begin{center}\rule{0.5\linewidth}{0.5pt}\end{center}
+
+\section{28.
+官方工程參考與選型依據}\label{28-ux5b98ux65b9ux5de5ux7a0bux53c3ux8003ux8207ux9078ux578bux4f9dux64da}
+
+\begin{itemize}
+\tightlist
+\item
+  Codex custom agents / subagents:
+  \url{https://developers.openai.com/codex/agent-configuration/subagents}
+\item
+  Codex config reference:
+  \url{https://developers.openai.com/codex/config-reference}
+\item
+  Nuxt 4: \url{https://nuxt.com/docs/4.x/}
+\item
+  GraphQL Yoga: \url{https://the-guild.dev/graphql/yoga-server}
+\item
+  Prisma PostgreSQL:
+  \url{https://www.prisma.io/docs/orm/overview/databases/postgresql}
+\item
+  MediaMTX: \url{https://mediamtx.org/docs/}
+\item
+  MediaMTX playback: \url{https://mediamtx.org/docs/features/playback}
+\item
+  HTMLVideoElement requestVideoFrameCallback:
+  \url{https://developer.mozilla.org/docs/Web/API/HTMLVideoElement/requestVideoFrameCallback}
+\item
+  FlatBuffers: \url{https://flatbuffers.dev/}
+\item
+  pip VCS/subdirectory:
+  \url{https://pip.pypa.io/en/stable/topics/vcs-support/}
+\end{itemize}
+
+\begin{center}\rule{0.5\linewidth}{0.5pt}\end{center}
+
+\subsection{v3.2 交付註記}\label{v32-ux4ea4ux4ed8ux8a3bux8a18}
+
+本ZIP是可供主Agent啟動Phase 0的「contract-first
+scaffold」，不是已完成產品。它包含可驗證的Schema、fixtures、Python
+SDK模型、Prisma資料模型、Nuxt PWA shell、Fastify/Yoga/Pothos
+shell、worker角色與Docker/Traefik骨架；media ingest、annotation
+persistence、clip pipeline與coach
+overlay仍須依第21章逐階段完成。不得把placeholder、echo WebSocket或route
+shell宣稱為vertical slice完成。
+
+本規格已依實作與使用流程重新稽核；starter
+repository只建立contract-first骨架與可驗證fixtures，不代表產品功能已完成。主Agent必須依Phase逐條完成vertical
+slice，不得把placeholder當成果。
+
+\section{29. 最終欄位稽核與 Team Contract
+Catalog}\label{29-ux6700ux7d42ux6b04ux4f4dux7a3dux6838ux8207-team-contract-catalog}
+
+本章是開工前的最後欄位檢查。若前文範例與本章衝突，以本章、repository中的versioned
+schema與golden fixtures為準。
+
+\subsection{29.1 三個團隊的 Schema
+交付}\label{291-ux4e09ux500bux5718ux968aux7684-schema-ux4ea4ux4ed8}
+
+\begin{longtable}[]{@{}>{\RaggedRight\arraybackslash}p{0.10\linewidth}>{\RaggedRight\arraybackslash}p{0.16\linewidth}>{\RaggedRight\arraybackslash}p{0.18\linewidth}>{\RaggedRight\arraybackslash}p{0.24\linewidth}>{\RaggedRight\arraybackslash}p{0.24\linewidth}@{}}
+\toprule\noalign{}
+Producer & Contract & Consumer & Transport & Source of truth \\
+\midrule\noalign{}
+\endhead
+\bottomrule\noalign{}
+\endlastfoot
+前端／後端 & PlaybackWindow request/descriptor & 後端／前端 & REST JSON
+& \texttt{packages/contracts/media/playback-window-request.schema.json}
++ \texttt{playback-window-descriptor.schema.json} \\
+前端 & PlaybackCursor & 後端 & WS/REST JSON &
+\texttt{packages/contracts/media/playback-cursor.schema.json} \\
+前端／後端 & Canonical FrameStep & 後端／前端 & REST JSON &
+\texttt{packages/contracts/media/frame-step-request.schema.json} +
+\texttt{canonical-frame-anchor.schema.json} \\
+後端 & ResolvedMediaAnchor & 前端/DB & WS/REST JSON &
+\texttt{packages/contracts/media/resolved-media-anchor.schema.json} \\
+前端 & AnnotationCommand & 後端 & WebSocket JSON &
+\texttt{packages/contracts/annotation/realtime.schema.json} \\
+後端 & Ack/Conflict/Snapshot & 前端 & WebSocket + GraphQL & schema +
+Pothos SDL \\
+AI & ProviderCapabilities & 後端 & REST JSON &
+\texttt{packages/contracts/ai/capabilities.schema.json} \\
+後端前處理 & AIJobRequest & AI SDK/provider & REST JSON &
+\texttt{packages/contracts/ai/job.schema.json} \\
+AI & JobAccepted & 後端 & REST JSON &
+\texttt{packages/contracts/ai/job-accepted.schema.json} \\
+AI & AnalysisResult & 後端 & callback JSON part &
+\texttt{packages/contracts/ai/result.schema.json} \\
+AI & OverlaySequence & 後端 & callback FlatBuffers part &
+\texttt{flatbuffers/overlay.fbs} \\
+後端 & OverlayManifest/Chunk & 前端 & REST JSON + FlatBuffers & manifest
+schema + \texttt{overlay-chunk.fbs} \\
+後端 & Domain query/mutation & 前端 & GraphQL & Pothos code-first
+generated SDL \\
+\end{longtable}
+
+\subsection{29.2 前端送後端的
+PlaybackCursor}\label{292-ux524dux7aefux9001ux5f8cux7aefux7684-playbackcursor}
+
+\begin{longtable}[]{@{}>{\RaggedRight\arraybackslash}p{0.10\linewidth}>{\RaggedRight\arraybackslash}p{0.16\linewidth}>{\RaggedRight\arraybackslash}p{0.18\linewidth}>{\RaggedRight\arraybackslash}p{0.24\linewidth}>{\RaggedRight\arraybackslash}p{0.24\linewidth}@{}}
+\toprule\noalign{}
+欄位 & 型別 & 必填 & Ownership & 說明 \\
+\midrule\noalign{}
+\endhead
+\bottomrule\noalign{}
+\endlastfoot
+\texttt{playback\_\allowbreak{}window\_\allowbreak{}id} & UUID/string & 是 & CLIENT\_\allowbreak{}OBSERVED +
+PASSTHROUGH & 當前播放器window \\
+\texttt{mapping\_\allowbreak{}version} & integer & 是 & BACKEND產生、client
+passthrough & 防止過期mapping \\
+\texttt{player\_\allowbreak{}media\_\allowbreak{}time\_\allowbreak{}us} & decimal string & 是 &
+CLIENT\_\allowbreak{}OBSERVED & 該window的player timeline \\
+\texttt{observation\_\allowbreak{}source} & enum & 是 & CLIENT\_\allowbreak{}OBSERVED &
+rvfc或fallback \\
+\texttt{presented\_\allowbreak{}frames} & decimal string/null & 否 & CLIENT\_\allowbreak{}OBSERVED
+& 只供audit/掉幀診斷 \\
+\texttt{seek\_\allowbreak{}generation} & integer & 是 & CLIENT\_\allowbreak{}OBSERVED &
+避免舊frame callback \\
+\texttt{cursor\_\allowbreak{}status} & enum & 是 & CLIENT\_\allowbreak{}OBSERVED &
+ready才允許標記 \\
+\end{longtable}
+
+不應從browser傳
+\texttt{source\_\allowbreak{}pts}、\texttt{capture\_\allowbreak{}time\_\allowbreak{}us}或\texttt{capture\_\allowbreak{}frame\_\allowbreak{}index}作canonical值。
+
+\subsection{29.3 後端解析後的 KeyPoint
+Anchor}\label{293-ux5f8cux7aefux89e3ux6790ux5f8cux7684-keypoint-anchor}
+
+\begin{longtable}[]{@{}>{\RaggedRight\arraybackslash}p{0.11\linewidth}>{\RaggedRight\arraybackslash}p{0.19\linewidth}>{\RaggedRight\arraybackslash}p{0.31\linewidth}>{\RaggedRight\arraybackslash}p{0.33\linewidth}@{}}
+\toprule\noalign{}
+欄位 & 型別 & Ownership & 說明 \\
+\midrule\noalign{}
+\endhead
+\bottomrule\noalign{}
+\endlastfoot
+\texttt{capture\_\allowbreak{}epoch\_\allowbreak{}id} & UUID & BACKEND\_\allowbreak{}DERIVED & raw
+PTS有效範圍 \\
+\texttt{source\_\allowbreak{}pts} & decimal string & BACKEND\_\allowbreak{}DERIVED &
+epoch內來源PTS \\
+\texttt{source\_\allowbreak{}time\_\allowbreak{}base} & rational & BACKEND\_\allowbreak{}DERIVED & PTS單位 \\
+\texttt{capture\_\allowbreak{}time\_\allowbreak{}us} & decimal string & BACKEND\_\allowbreak{}DERIVED &
+整場canonical時間 \\
+\texttt{capture\_\allowbreak{}frame\_\allowbreak{}index} & decimal string & BACKEND\_\allowbreak{}DERIVED &
+整場canonical frame \\
+\texttt{timing\_\allowbreak{}precision} & enum & BACKEND\_\allowbreak{}DERIVED &
+frame\_\allowbreak{}exact/pts\_\allowbreak{}exact/estimated \\
+\texttt{snap\_\allowbreak{}distance\_\allowbreak{}us} & decimal string/null & BACKEND\_\allowbreak{}DERIVED &
+client observation到sample距離 \\
+\texttt{original\_\allowbreak{}playback\_\allowbreak{}cursor} & JSON audit & CLIENT\_\allowbreak{}OBSERVED &
+不作canonical查詢欄位 \\
+\end{longtable}
+
+\subsection{29.4 Immutable Submission
+Snapshot}\label{294-immutable-submission-snapshot}
+
+必要：submission ID、rally ID、annotation revision、content hash、score
+resolution、nullable scoring court side/team、left/right team
+snapshot、nullable scores、service/terminal key point IDs、clip policy
+version與實際pre/post-roll快照、submitted by/at、supersedes
+ID與完整submission key points。
+
+\texttt{unknown} submission：score resolution=unknown；scoring
+side/team、score
+before/after與PointAward皆為null/不存在。\texttt{resolved}
+submission：side/team與score ledger必須完整且transaction一致。
+
+\subsection{29.5 AI
+Job／Result最小原則}\label{295-ai-jobresultux6700ux5c0fux539fux5247}
+
+\begin{itemize}
+\tightlist
+\item
+  Job只傳已裁切影片、局部key points、人工得分解析與callback。
+\item
+  Job不傳court definition、requirements、模型參數、MinIO prefix或team
+  metadata。
+\item
+  Result不重複人工得分、side assignment或team truth；中央以submission
+  join。
+\item
+  所有跨AI邊界ID在欄位表標成PASSTHROUGH。
+\item
+  AI生成欄位只包含tracks、contact events、path
+  segments、overlay與optional extensions。
+\end{itemize}
+
+\subsection{29.6
+已知待確認但不阻塞介面}\label{296-ux5df2ux77e5ux5f85ux78baux8a8dux4f46ux4e0dux963bux585eux4ecbux9762}
+
+\begin{enumerate}
+\def\labelenumi{\arabic{enumi}.}
+\tightlist
+\item
+  AI action真實taxonomy、粒度與confidence。
+\item
+  群體動作／比賽phase是否有可驗收產品用途。
+\item
+  第一個正式來源protocol與canonical recording profile。
+\item
+  pre/post-roll預設秒數。
+\item
+  production auth provider與retention policy。
+\end{enumerate}
+
+這些不得被subagent猜成既定事實。先以optional extension、設定值或ADR open
+decision保留。
+
+\section{30. v3.2
+最終交付與啟動}\label{30-v32-ux6700ux7d42ux4ea4ux4ed8ux8207ux555fux52d5}
+
+Repository ZIP內必須同時包含：
+
+\begin{itemize}
+\tightlist
+\item
+  \texttt{docs/SYSTEM\_\allowbreak{}SPEC\_\allowbreak{}V3\_\allowbreak{}2.md}
+\item
+  \texttt{docs/SYSTEM\_\allowbreak{}SPEC\_\allowbreak{}V3\_\allowbreak{}2.tex}
+\item
+  \texttt{docs/SYSTEM\_\allowbreak{}SPEC\_\allowbreak{}V3\_\allowbreak{}2.pdf}
+\item
+  \texttt{docs/MAIN\_\allowbreak{}AGENT\_\allowbreak{}PROMPT.md}
+\item
+  \texttt{CODEX\_\allowbreak{}SOL\_\allowbreak{}PROMPT.txt}
+\item
+  \texttt{.codex/agents/contracts-sdk-worker.toml}
+\item
+  \texttt{.codex/agents/backend-worker.toml}
+\item
+  \texttt{.codex/agents/luna-worker.toml}
+\item
+  完整starter目錄、contract fixtures、Python SDK、Compose與Traefik設定。
+\end{itemize}
+
+本地啟動：
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\FunctionTok{cp}\NormalTok{ .env.example .env}
+\ExtensionTok{docker}\NormalTok{ compose }\AttributeTok{{-}f}\NormalTok{ infra/compose.yaml }\AttributeTok{{-}{-}profile}\NormalTok{ app }\AttributeTok{{-}{-}profile}\NormalTok{ dev{-}ai up }\AttributeTok{{-}{-}build}
+\end{Highlighting}
+\end{Shaded}
+
+iPad以Safari開啟Docker host的LAN
+IP或DNS，確認PWA、WebSocket、GraphQL、HLS均為同源。Traefik
+\texttt{:8080} dashboard與MinIO
+\texttt{:9001}只供本地開發，不是正式公開入口。
+
+\end{document}

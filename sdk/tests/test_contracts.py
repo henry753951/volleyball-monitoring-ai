@@ -1,0 +1,43 @@
+import json
+from pathlib import Path
+
+import pytest
+
+from volleyball_monitoring_ai import AIJobRequest, AnalysisResult, ProviderCapabilities, validate_passthrough
+
+FIXTURES = Path(__file__).parents[2] / "packages" / "contracts" / "fixtures"
+
+
+@pytest.mark.parametrize("name", ["normal-rally", "unknown-outcome", "ambiguous-actors", "missing-ball"])
+def test_golden_contracts(name: str) -> None:
+    folder = FIXTURES / name
+    job = AIJobRequest.model_validate_json((folder / "job.json").read_text())
+    result = AnalysisResult.model_validate_json((folder / "result.json").read_text())
+    validate_passthrough(job, result)
+
+
+def test_court_position_is_not_clamped() -> None:
+    result = json.loads((FIXTURES / "normal-rally" / "result.json").read_text())
+    assert result["contact_events"][0]["representative_court_positions"][0]["court_pos"]["x"] < 0
+    assert result["contact_events"][-1]["representative_court_positions"][0]["court_pos"]["x"] > 1
+
+
+def test_unknown_outcome_is_explicit_and_valid() -> None:
+    job = AIJobRequest.model_validate_json((FIXTURES / "unknown-outcome" / "job.json").read_text())
+    assert job.outcome.score_resolution == "unknown"
+    assert job.outcome.scoring_court_side is None
+
+
+def test_contract_versions_are_explicit() -> None:
+    job = AIJobRequest.model_validate_json((FIXTURES / "normal-rally" / "job.json").read_text())
+    assert job.schema_version == "1.1.0"
+    capabilities_path = FIXTURES.parents[0] / "examples" / "ai" / "capabilities.json"
+    capabilities = ProviderCapabilities.model_validate_json(capabilities_path.read_text())
+    assert "1.1.0" in capabilities.supported_job_schema_versions
+
+
+def test_non_monotonic_key_points_are_rejected() -> None:
+    payload = json.loads((FIXTURES / "normal-rally" / "job.json").read_text())
+    payload["key_points"][1]["clip_frame_index"] = "1"
+    with pytest.raises(ValueError):
+        AIJobRequest.model_validate(payload)

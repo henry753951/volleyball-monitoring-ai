@@ -1,0 +1,12 @@
+{
+  "schema_version": "1.1.0",
+  "command_id": "cmd-score-001",
+  "room_id": "room-001",
+  "base_revision": "13",
+  "rally_id": "rally-001",
+  "kind": "SET_SCORE",
+  "payload": {
+    "score_resolution": "unknown",
+    "scoring_court_side": null
+  }
+}

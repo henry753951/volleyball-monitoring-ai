@@ -1,0 +1,6 @@
+# GENERATED snapshot. Source of truth is server/src/graphql/** (Pothos code-first).
+type Health { service: String! status: String! }
+type Query { health: Health! }
+scalar BigInt
+scalar DateTime
+scalar JSON

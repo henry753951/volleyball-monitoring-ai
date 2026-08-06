@@ -1,0 +1,26 @@
+include "overlay.fbs";
+namespace Volleyball.Overlay.Chunk.V1;
+
+table OverlayChunk {
+  schema_version:uint = 10000;
+  analysis_id:string;
+  overlay_version:string;
+  chunk_index:uint;
+  start_frame_index:ulong;
+  frame_count:uint;
+  frame_offsets:[uint];
+  track_ids:[ushort];
+  frame_bboxes:[Volleyball.Overlay.V1.FrameBBoxU16];
+  frame_foot_positions:[Volleyball.Overlay.V1.FramePosU16];
+  court_positions:[Volleyball.Overlay.V1.CourtPosF32];
+  player_flags:[ubyte];
+  player_confidences:[ubyte];
+  action_label_ids:[ushort];
+  action_confidences:[ubyte];
+  ball_frame_positions:[Volleyball.Overlay.V1.FramePosU16];
+  ball_flags:[ubyte];
+  ball_confidences:[ubyte];
+}
+
+root_type OverlayChunk;
+file_identifier "VOC1";

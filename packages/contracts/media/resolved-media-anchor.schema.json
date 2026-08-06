@@ -1,0 +1,108 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/OWNER/volleyball-monitoring-ai/packages/contracts/media/resolved-media-anchor/1.0.0",
+  "title": "Authoritative Resolved Media Anchor 1.0.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "playback_window_id",
+    "capture_session_id",
+    "capture_epoch_id",
+    "source_pts",
+    "source_time_base",
+    "capture_time_us",
+    "capture_frame_index",
+    "resolved_player_media_time_us",
+    "mapping_version",
+    "timing_precision"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "1.0.0"
+    },
+    "playback_window_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "capture_session_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "capture_epoch_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "dvr_segment_id": {
+      "oneOf": [
+        {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "source_pts": {
+      "type": "string",
+      "pattern": "^-?[0-9]+$"
+    },
+    "source_time_base": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "num",
+        "den"
+      ],
+      "properties": {
+        "num": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "den": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "capture_time_us": {
+      "type": "string",
+      "pattern": "^[0-9]+$"
+    },
+    "capture_frame_index": {
+      "type": "string",
+      "pattern": "^[0-9]+$"
+    },
+    "resolved_player_media_time_us": {
+      "type": "string",
+      "pattern": "^[0-9]+$"
+    },
+    "mapping_version": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "snap_distance_us": {
+      "oneOf": [
+        {
+          "type": "string",
+          "pattern": "^[0-9]+$"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "timing_precision": {
+      "enum": [
+        "frame_exact",
+        "pts_exact",
+        "estimated"
+      ]
+    }
+  }
+}

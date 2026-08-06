@@ -1,0 +1,8 @@
+{
+  "schema_version": "1.0.0",
+  "capture_session_id": "capture-001",
+  "mode": "archive",
+  "target_capture_time_us": "2823123000",
+  "requested_back_us": "90000000",
+  "requested_forward_us": "120000000"
+}

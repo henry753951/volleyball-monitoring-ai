@@ -1,0 +1,11 @@
+volleyball-monitoring-ai v3.2 contract-first starter
+
+1. Read DELIVERY_MANIFEST.md
+2. Read docs/SYSTEM_SPEC_V3_2.pdf
+3. Paste CODEX_SOL_PROMPT.txt into the Codex SOL primary agent
+4. Let the primary agent read docs/MAIN_AGENT_PROMPT.md and AGENTS.md
+5. Use at most the three project agents under .codex/agents/
+6. Review docs/VALIDATION_REPORT.md before trusting any scaffold status
+7. Treat this as a scaffold: follow the Phase exit criteria before claiming a flow complete
+
+Local iPad PWA requires trusted HTTPS. See infra/traefik/README.md.

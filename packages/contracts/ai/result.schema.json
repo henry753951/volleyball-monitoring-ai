@@ -1,0 +1,710 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/OWNER/volleyball-monitoring-ai/packages/contracts/ai/result/1.0.0",
+  "title": "Volleyball AI Analysis Result 1.0.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "analysis_id",
+    "analysis_version",
+    "ai_job_id",
+    "rally_submission_id",
+    "rally_id",
+    "match_id",
+    "annotation_revision",
+    "clip_asset_id",
+    "input_clip_sha256",
+    "producer",
+    "tracks",
+    "contact_events",
+    "path_segments",
+    "summary"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "1.0.0"
+    },
+    "analysis_id": {
+      "$ref": "#/$defs/id"
+    },
+    "analysis_version": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256
+    },
+    "ai_job_id": {
+      "$ref": "#/$defs/id"
+    },
+    "rally_submission_id": {
+      "$ref": "#/$defs/id"
+    },
+    "rally_id": {
+      "$ref": "#/$defs/id"
+    },
+    "match_id": {
+      "$ref": "#/$defs/id"
+    },
+    "annotation_revision": {
+      "$ref": "#/$defs/uint64"
+    },
+    "clip_asset_id": {
+      "$ref": "#/$defs/id"
+    },
+    "input_clip_sha256": {
+      "$ref": "#/$defs/sha256"
+    },
+    "producer": {
+      "$ref": "#/$defs/producer"
+    },
+    "tracks": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/track"
+      }
+    },
+    "contact_events": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/contactEvent"
+      }
+    },
+    "path_segments": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/pathSegment"
+      }
+    },
+    "summary": {
+      "$ref": "#/$defs/summary"
+    },
+    "extensions": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "Namespaced optional extensions. Core correctness MUST NOT depend on these fields."
+    }
+  },
+  "$defs": {
+    "id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "uint64": {
+      "type": "string",
+      "pattern": "^[0-9]+$"
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[A-Fa-f0-9]{64}$"
+    },
+    "framePos": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "x",
+        "y"
+      ],
+      "properties": {
+        "x": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "y": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        }
+      }
+    },
+    "frameBBox": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "x1",
+        "y1",
+        "x2",
+        "y2"
+      ],
+      "properties": {
+        "x1": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "y1": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "x2": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "y2": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        }
+      }
+    },
+    "courtPos": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "x",
+        "y"
+      ],
+      "properties": {
+        "x": {
+          "type": "number"
+        },
+        "y": {
+          "type": "number"
+        }
+      },
+      "description": "Court normalized coordinate. Interior is 0..1; out-of-court values are valid and MUST NOT be clamped."
+    },
+    "producer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "build_id"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "build_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "sdk_version": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Optional SDK version; providers may implement the contract without the SDK."
+        }
+      }
+    },
+    "action": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "label"
+      ],
+      "properties": {
+        "label": {
+          "type": "string",
+          "minLength": 1
+        },
+        "taxonomy_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "taxonomy_version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "confidence": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "attributes": {
+          "type": "object",
+          "additionalProperties": true
+        }
+      }
+    },
+    "track": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "track_id",
+        "court_side",
+        "first_frame_index",
+        "last_frame_index"
+      ],
+      "properties": {
+        "track_id": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 65534
+        },
+        "court_side": {
+          "enum": [
+            "left",
+            "right",
+            "unknown"
+          ]
+        },
+        "first_frame_index": {
+          "$ref": "#/$defs/uint64"
+        },
+        "last_frame_index": {
+          "$ref": "#/$defs/uint64"
+        },
+        "mean_confidence": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "metadata": {
+          "type": "object",
+          "additionalProperties": true,
+          "description": "Provider metadata only. Core consumers MUST NOT depend on unversioned keys."
+        }
+      }
+    },
+    "actor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "track_id",
+        "observation_frame_index"
+      ],
+      "properties": {
+        "track_id": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 65534
+        },
+        "observation_frame_index": {
+          "$ref": "#/$defs/uint64",
+          "description": "Clip frame used for bbox/footprint/court observation."
+        },
+        "association_confidence": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "frame_bbox": {
+          "$ref": "#/$defs/frameBBox"
+        },
+        "frame_foot_pos": {
+          "$ref": "#/$defs/framePos"
+        },
+        "court_pos": {
+          "$ref": "#/$defs/courtPos"
+        },
+        "action": {
+          "$ref": "#/$defs/action"
+        }
+      }
+    },
+    "candidate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "track_id",
+        "rank"
+      ],
+      "properties": {
+        "track_id": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 65534
+        },
+        "rank": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "confidence": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        }
+      }
+    },
+    "ball": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "state"
+      ],
+      "properties": {
+        "state": {
+          "enum": [
+            "observed",
+            "interpolated",
+            "missing"
+          ]
+        },
+        "sample_frame_index": {
+          "$ref": "#/$defs/uint64"
+        },
+        "frame_pos": {
+          "$ref": "#/$defs/framePos"
+        },
+        "confidence": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "state": {
+                "enum": [
+                  "observed",
+                  "interpolated"
+                ]
+              }
+            },
+            "required": [
+              "state"
+            ]
+          },
+          "then": {
+            "required": [
+              "sample_frame_index",
+              "frame_pos"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "state": {
+                "const": "missing"
+              }
+            },
+            "required": [
+              "state"
+            ]
+          },
+          "then": {
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "sample_frame_index"
+                  ]
+                },
+                {
+                  "required": [
+                    "frame_pos"
+                  ]
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "representativePosition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "basis",
+        "court_pos"
+      ],
+      "properties": {
+        "track_id": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 65534
+        },
+        "basis": {
+          "enum": [
+            "player_footprint_proxy",
+            "terminal_projection",
+            "provider_defined"
+          ]
+        },
+        "court_pos": {
+          "$ref": "#/$defs/courtPos"
+        },
+        "confidence": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        }
+      }
+    },
+    "contactEvent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "key_point_id",
+        "sequence_index",
+        "marker_kind",
+        "is_terminal",
+        "anchor_frame_index",
+        "association_state",
+        "actors",
+        "actor_candidates",
+        "ball",
+        "representative_court_positions",
+        "quality_flags"
+      ],
+      "properties": {
+        "key_point_id": {
+          "$ref": "#/$defs/id"
+        },
+        "sequence_index": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "marker_kind": {
+          "enum": [
+            "service",
+            "contact"
+          ]
+        },
+        "is_terminal": {
+          "type": "boolean"
+        },
+        "anchor_frame_index": {
+          "$ref": "#/$defs/uint64"
+        },
+        "resolved_frame_index": {
+          "$ref": "#/$defs/uint64"
+        },
+        "association_state": {
+          "enum": [
+            "resolved_single",
+            "resolved_multiple",
+            "ambiguous",
+            "unresolved",
+            "no_player"
+          ]
+        },
+        "actors": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/actor"
+          }
+        },
+        "actor_candidates": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/candidate"
+          }
+        },
+        "ball": {
+          "$ref": "#/$defs/ball"
+        },
+        "representative_court_positions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/representativePosition"
+          }
+        },
+        "quality_flags": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "uniqueItems": true
+        },
+        "extensions": {
+          "type": "object",
+          "additionalProperties": true
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "association_state": {
+                "const": "resolved_single"
+              }
+            },
+            "required": [
+              "association_state"
+            ]
+          },
+          "then": {
+            "properties": {
+              "actors": {
+                "minItems": 1,
+                "maxItems": 1
+              },
+              "actor_candidates": {
+                "maxItems": 0
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "association_state": {
+                "const": "resolved_multiple"
+              }
+            },
+            "required": [
+              "association_state"
+            ]
+          },
+          "then": {
+            "properties": {
+              "actors": {
+                "minItems": 2
+              },
+              "actor_candidates": {
+                "maxItems": 0
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "association_state": {
+                "const": "ambiguous"
+              }
+            },
+            "required": [
+              "association_state"
+            ]
+          },
+          "then": {
+            "properties": {
+              "actors": {
+                "maxItems": 0
+              },
+              "actor_candidates": {
+                "minItems": 1
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "association_state": {
+                "enum": [
+                  "unresolved",
+                  "no_player"
+                ]
+              }
+            },
+            "required": [
+              "association_state"
+            ]
+          },
+          "then": {
+            "properties": {
+              "actors": {
+                "maxItems": 0
+              },
+              "actor_candidates": {
+                "maxItems": 0
+              }
+            }
+          }
+        }
+      ]
+    },
+    "pathSegment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "sequence_index",
+        "start_key_point_id",
+        "end_key_point_id",
+        "start_court_positions",
+        "end_court_positions",
+        "render_state",
+        "is_terminal_segment",
+        "quality_flags"
+      ],
+      "properties": {
+        "sequence_index": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "start_key_point_id": {
+          "$ref": "#/$defs/id"
+        },
+        "end_key_point_id": {
+          "$ref": "#/$defs/id"
+        },
+        "start_frame_index": {
+          "$ref": "#/$defs/uint64"
+        },
+        "end_frame_index": {
+          "$ref": "#/$defs/uint64"
+        },
+        "start_court_positions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/representativePosition"
+          }
+        },
+        "end_court_positions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/representativePosition"
+          }
+        },
+        "render_state": {
+          "enum": [
+            "complete",
+            "partial",
+            "unavailable"
+          ]
+        },
+        "is_terminal_segment": {
+          "type": "boolean"
+        },
+        "quality_flags": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "uniqueItems": true
+        }
+      }
+    },
+    "summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "track_count",
+        "contact_event_count",
+        "path_segment_count",
+        "unresolved_event_count"
+      ],
+      "properties": {
+        "track_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "contact_event_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "path_segment_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "unresolved_event_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "multiple_event_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "warnings": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  }
+}

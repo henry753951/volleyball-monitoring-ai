@@ -1,0 +1,69 @@
+{
+  "schema_version": "1.1.0",
+  "ai_job_id": "018f6d86-2d8c-7f10-9c1b-0f0c32aa6001",
+  "rally_submission_id": "018f6d86-2d8c-7f10-9c1b-0f0c32aa3101",
+  "rally_id": "018f6d86-2d8c-7f10-9c1b-0f0c32aa3001",
+  "match_id": "018f6d86-2d8c-7f10-9c1b-0f0c32aa1001",
+  "annotation_revision": "14",
+  "clip": {
+    "clip_asset_id": "018f6d86-2d8c-7f10-9c1b-0f0c32aa5001",
+    "download_url": "https://central.example/api/v1/ai/jobs/018f6d86-2d8c-7f10-9c1b-0f0c32aa6001/clip",
+    "sha256": "9a31d43d2c2aeb1a1a98beec4ff8bbd649f68f16eb7345a51fd61a3b302543aa",
+    "byte_length": "83124491",
+    "content_type": "video/mp4",
+    "video": {
+      "width": 1920,
+      "height": 1080,
+      "fps": {
+        "num": 60000,
+        "den": 1001
+      },
+      "time_base": {
+        "num": 1,
+        "den": 60000
+      },
+      "total_frames": "1079",
+      "duration_us": "18001333",
+      "has_audio": true
+    },
+    "download_url_expires_at": "2026-08-07T06:00:00Z"
+  },
+  "key_points": [
+    {
+      "key_point_id": "018f6d86-2d8c-7f10-9c1b-0f0c32aa4000",
+      "sequence_index": 0,
+      "marker_kind": "service",
+      "is_terminal": false,
+      "clip_pts": "300300",
+      "clip_time_us": "5005000",
+      "clip_frame_index": "300"
+    },
+    {
+      "key_point_id": "018f6d86-2d8c-7f10-9c1b-0f0c32aa4001",
+      "sequence_index": 1,
+      "marker_kind": "contact",
+      "is_terminal": false,
+      "clip_pts": "420420",
+      "clip_time_us": "7007000",
+      "clip_frame_index": "420"
+    },
+    {
+      "key_point_id": "018f6d86-2d8c-7f10-9c1b-0f0c32aa4002",
+      "sequence_index": 2,
+      "marker_kind": "contact",
+      "is_terminal": true,
+      "clip_pts": "480480",
+      "clip_time_us": "8008000",
+      "clip_frame_index": "480"
+    }
+  ],
+  "outcome": {
+    "score_resolution": "resolved",
+    "scoring_court_side": "left"
+  },
+  "callback": {
+    "url": "https://central.example/api/v1/ai/callback/018f6d86-2d8c-7f10-9c1b-0f0c32aa6001",
+    "token": "example-job-capability-token-0001",
+    "expires_at": "2026-08-07T06:00:00Z"
+  }
+}

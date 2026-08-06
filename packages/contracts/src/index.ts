@@ -1,0 +1,16 @@
+export const CONTRACT_VERSIONS = {
+  mediaPlaybackWindowRequest: '1.0.0',
+  mediaPlaybackWindowDescriptor: '1.0.0',
+  mediaPlaybackCursor: '1.0.0',
+  mediaResolvedAnchor: '1.0.0',
+  mediaFrameStepRequest: '1.0.0',
+  mediaCanonicalFrameAnchor: '1.0.0',
+  annotationRealtime: '1.1.0',
+  aiCapabilities: '1.0.0',
+  aiJob: '1.1.0',
+  aiJobAccepted: '1.0.0',
+  aiResult: '1.0.0',
+  aiCallback: '1.0.0',
+  providerOverlay: 'flatbuffers_v1',
+  browserOverlayChunk: 'flatbuffers_chunk_v1',
+} as const

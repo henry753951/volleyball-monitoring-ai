@@ -1,0 +1,9 @@
+.git
+node_modules
+.nuxt
+.output
+.venv
+__pycache__
+infra/data
+media-spool
+*.log

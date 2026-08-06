@@ -1,0 +1,97 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/OWNER/volleyball-monitoring-ai/packages/contracts/media/canonical-frame-anchor/1.0.0",
+  "title": "Canonical Adjacent Frame Anchor 1.0.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "capture_session_id",
+    "playback_window_id",
+    "mapping_version",
+    "capture_epoch_id",
+    "source_pts",
+    "source_time_base",
+    "capture_time_us",
+    "capture_frame_index",
+    "player_media_time_us",
+    "timing_precision"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "1.0.0"
+    },
+    "capture_session_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "playback_window_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "mapping_version": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "capture_epoch_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "dvr_segment_id": {
+      "oneOf": [
+        {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "source_pts": {
+      "type": "string",
+      "pattern": "^-?[0-9]+$"
+    },
+    "source_time_base": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "num",
+        "den"
+      ],
+      "properties": {
+        "num": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "den": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "capture_time_us": {
+      "type": "string",
+      "pattern": "^[0-9]+$"
+    },
+    "capture_frame_index": {
+      "type": "string",
+      "pattern": "^[0-9]+$"
+    },
+    "player_media_time_us": {
+      "type": "string",
+      "pattern": "^[0-9]+$"
+    },
+    "timing_precision": {
+      "enum": [
+        "frame_exact",
+        "pts_exact",
+        "estimated"
+      ]
+    }
+  }
+}

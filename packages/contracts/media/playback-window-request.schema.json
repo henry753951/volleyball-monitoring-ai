@@ -1,0 +1,59 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/OWNER/volleyball-monitoring-ai/packages/contracts/media/playback-window-request/1.0.0",
+  "title": "Playback Window Request 1.0.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "capture_session_id",
+    "mode"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "1.0.0"
+    },
+    "capture_session_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "mode": {
+      "enum": [
+        "live",
+        "archive"
+      ]
+    },
+    "target_capture_time_us": {
+      "type": "string",
+      "pattern": "^[0-9]+$"
+    },
+    "requested_back_us": {
+      "type": "string",
+      "pattern": "^[0-9]+$"
+    },
+    "requested_forward_us": {
+      "type": "string",
+      "pattern": "^[0-9]+$"
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "mode": {
+            "const": "archive"
+          }
+        },
+        "required": [
+          "mode"
+        ]
+      },
+      "then": {
+        "required": [
+          "target_capture_time_us"
+        ]
+      }
+    }
+  ]
+}

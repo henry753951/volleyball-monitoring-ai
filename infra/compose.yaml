@@ -1,0 +1,195 @@
+name: volleyball-monitoring-ai
+
+networks:
+  edge:
+    name: volleyball-edge
+  internal:
+    name: volleyball-internal
+    internal: true
+
+services:
+  traefik:
+    image: traefik:v3.7.9
+    command: ["--configFile=/etc/traefik/traefik.yml"]
+    ports:
+      - "80:80"
+      - "443:443"
+      - "8080:8080" # local dashboard only
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./traefik/traefik.yml:/etc/traefik/traefik.yml:ro
+      - ./traefik/dynamic:/etc/traefik/dynamic:ro
+      - ./traefik/certs:/etc/traefik/certs:ro
+    networks: [edge]
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: volleyball
+      POSTGRES_PASSWORD: volleyball
+      POSTGRES_DB: volleyball
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U volleyball -d volleyball"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    volumes: [postgres-data:/var/lib/postgresql/data]
+    networks: [internal]
+    restart: unless-stopped
+
+  redis:
+    image: redis:8-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    volumes: [redis-data:/data]
+    networks: [internal]
+    restart: unless-stopped
+
+  minio:
+    image: quay.io/minio/minio:latest
+    command: server /data --console-address :9001
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ACCESS_KEY:-volleyball}
+      MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY:-volleyball-dev-secret}
+    ports:
+      - "9000:9000" # local SDK/debug access; browser app never receives credentials
+      - "9001:9001"
+    volumes: [minio-data:/data]
+    networks: [internal, edge]
+    restart: unless-stopped
+
+  minio-init:
+    image: quay.io/minio/mc:latest
+    depends_on: [minio]
+    environment:
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-volleyball}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-volleyball-dev-secret}
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - >-
+        until mc alias set local http://minio:9000 $${MINIO_ACCESS_KEY:-volleyball} $${MINIO_SECRET_KEY:-volleyball-dev-secret}; do sleep 2; done;
+        mc mb --ignore-existing local/raw-media;
+        mc mb --ignore-existing local/dvr-media;
+        mc mb --ignore-existing local/rally-media;
+        mc mb --ignore-existing local/analysis-artifacts;
+    networks: [internal]
+
+  mediamtx:
+    image: bluenviron/mediamtx:1.20.0
+    volumes:
+      - ./mediamtx/mediamtx.yml:/mediamtx.yml:ro
+      - media-spool:/recordings
+    ports:
+      - "8554:8554"       # RTSP ingest
+      - "1935:1935"       # RTMP ingest
+      - "8890:8890/udp"   # SRT ingest
+      - "9997:9997"       # local MediaMTX API/debug
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=volleyball-edge
+      - traefik.http.routers.mediamtx-hls.rule=PathPrefix(`/hls/`)
+      - traefik.http.routers.mediamtx-hls.entrypoints=websecure
+      - traefik.http.routers.mediamtx-hls.tls=true
+      - traefik.http.routers.mediamtx-hls.priority=120
+      - traefik.http.routers.mediamtx-hls.middlewares=mediamtx-hls-strip
+      - traefik.http.middlewares.mediamtx-hls-strip.stripprefix.prefixes=/hls
+      - traefik.http.services.mediamtx-hls.loadbalancer.server.port=8888
+    networks: [internal, edge]
+    restart: unless-stopped
+
+  server:
+    profiles: [app]
+    build:
+      context: ..
+      dockerfile: infra/docker/server.Dockerfile
+    env_file: ../.env
+    depends_on: [postgres, redis, minio-init, mediamtx]
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=volleyball-edge
+      - traefik.http.routers.server-graphql.rule=Path(`/graphql`) || PathPrefix(`/graphql/`)
+      - traefik.http.routers.server-graphql.entrypoints=websecure
+      - traefik.http.routers.server-graphql.tls=true
+      - traefik.http.routers.server-graphql.priority=200
+      - traefik.http.routers.server-api.rule=PathPrefix(`/api/`)
+      - traefik.http.routers.server-api.entrypoints=websecure
+      - traefik.http.routers.server-api.tls=true
+      - traefik.http.routers.server-api.priority=200
+      - traefik.http.routers.server-ws.rule=PathPrefix(`/ws/`)
+      - traefik.http.routers.server-ws.entrypoints=websecure
+      - traefik.http.routers.server-ws.tls=true
+      - traefik.http.routers.server-ws.priority=200
+      - traefik.http.services.server.loadbalancer.server.port=4000
+    networks: [internal, edge]
+    restart: unless-stopped
+
+  worker-media-indexer: &worker
+    profiles: [app]
+    build:
+      context: ..
+      dockerfile: infra/docker/worker.Dockerfile
+    env_file: ../.env
+    environment:
+      WORKER_ROLE: media-indexer
+    volumes:
+      - media-spool:/var/lib/volleyball/media-spool
+    depends_on: [postgres, redis, minio-init, mediamtx]
+    networks: [internal]
+    restart: unless-stopped
+
+  worker-playback:
+    <<: *worker
+    environment: { WORKER_ROLE: playback-packager }
+
+  worker-clip:
+    <<: *worker
+    environment: { WORKER_ROLE: clip-worker }
+
+  worker-ai-dispatcher:
+    <<: *worker
+    environment: { WORKER_ROLE: ai-dispatcher }
+
+  worker-analysis-ingest:
+    <<: *worker
+    environment: { WORKER_ROLE: analysis-ingest }
+
+  worker-outbox:
+    <<: *worker
+    environment: { WORKER_ROLE: outbox-publisher }
+
+  web:
+    profiles: [app]
+    build:
+      context: ..
+      dockerfile: infra/docker/web.Dockerfile
+    env_file: ../.env
+    depends_on: [server]
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=volleyball-edge
+      - traefik.http.routers.web.rule=PathPrefix(`/`)
+      - traefik.http.routers.web.entrypoints=websecure
+      - traefik.http.routers.web.tls=true
+      - traefik.http.routers.web.priority=1
+      - traefik.http.services.web.loadbalancer.server.port=3000
+    networks: [edge]
+    restart: unless-stopped
+
+  fake-ai-provider:
+    profiles: [dev-ai]
+    image: python:3.12-slim
+    working_dir: /repo
+    volumes: ["..:/repo"]
+    command: ["sh", "-lc", "pip install -e 'sdk[provider]' && uvicorn examples.fake_ai_provider.app:app --host 0.0.0.0 --port 8080"]
+    networks: [internal]
+
+volumes:
+  postgres-data: {}
+  redis-data: {}
+  minio-data: {}
+  media-spool: {}

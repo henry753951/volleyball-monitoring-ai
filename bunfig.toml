@@ -1,0 +1,6 @@
+[install]
+linker = "hoisted"
+exact = false
+
+[run]
+shell = "bun"

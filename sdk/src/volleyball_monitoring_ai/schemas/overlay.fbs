@@ -1,0 +1,50 @@
+namespace Volleyball.Overlay.V1;
+
+enum CourtSide : ubyte { Unknown = 0, Left = 1, Right = 2 }
+
+struct FrameBBoxU16 { x1:ushort; y1:ushort; x2:ushort; y2:ushort; }
+struct FramePosU16 { x:ushort; y:ushort; }
+struct CourtPosF32 { x:float; y:float; }
+
+table TrackMeta {
+  track_id:ushort;
+  court_side:CourtSide = Unknown;
+  first_frame:ulong;
+  last_frame:ulong;
+}
+
+table OverlaySequence {
+  schema_version:uint = 10000;
+  ai_job_id:string;
+  rally_submission_id:string;
+  rally_id:string;
+  match_id:string;
+  annotation_revision:ulong;
+  clip_asset_id:string;
+  analysis_id:string;
+  analysis_version:string;
+  video_width:uint;
+  video_height:uint;
+  fps_num:uint;
+  fps_den:uint;
+  total_frames:ulong;
+  tracks:[TrackMeta];
+  frame_offsets:[uint];
+  track_ids:[ushort];
+  frame_bboxes:[FrameBBoxU16];
+  frame_foot_positions:[FramePosU16];
+  court_positions:[CourtPosF32];
+  player_flags:[ubyte];
+  player_confidences:[ubyte];
+  action_taxonomy_id:string;
+  action_taxonomy_version:string;
+  action_labels:[string];
+  action_label_ids:[ushort];
+  action_confidences:[ubyte];
+  ball_frame_positions:[FramePosU16];
+  ball_flags:[ubyte];
+  ball_confidences:[ubyte];
+}
+
+root_type OverlaySequence;
+file_identifier "VOV1";

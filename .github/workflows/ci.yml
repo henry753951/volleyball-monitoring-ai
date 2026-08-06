@@ -1,0 +1,25 @@
+name: ci
+on: [push, pull_request]
+jobs:
+  contracts-sdk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.12'}
+      - run: pip install jsonschema '.[test]'
+        working-directory: sdk
+      - run: python scripts/validate_scaffold.py
+      - run: python scripts/validate_contracts.py
+      - run: python scripts/validate_prisma_structure.py
+      - run: pytest sdk/tests
+  typescript:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with: {bun-version: '1.3.14'}
+      - run: bun install
+      - run: bun run db:generate
+      - run: bun run typecheck
+      - run: bun run test

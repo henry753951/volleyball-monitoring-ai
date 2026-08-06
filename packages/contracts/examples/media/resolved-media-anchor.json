@@ -1,0 +1,18 @@
+{
+  "schema_version": "1.0.0",
+  "playback_window_id": "window-001",
+  "capture_session_id": "capture-001",
+  "capture_epoch_id": "epoch-001",
+  "dvr_segment_id": "segment-142",
+  "source_pts": "169387400",
+  "source_time_base": {
+    "num": 1,
+    "den": 60000
+  },
+  "capture_time_us": "2823290234",
+  "capture_frame_index": "169228",
+  "resolved_player_media_time_us": "90166900",
+  "mapping_version": 3,
+  "snap_distance_us": "334",
+  "timing_precision": "frame_exact"
+}

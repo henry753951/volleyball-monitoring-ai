@@ -1,0 +1,265 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/OWNER/volleyball-monitoring-ai/packages/contracts/ai/job/1.1.0",
+  "title": "Volleyball AI Job Request 1.1.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "ai_job_id",
+    "rally_submission_id",
+    "rally_id",
+    "match_id",
+    "annotation_revision",
+    "clip",
+    "key_points",
+    "outcome",
+    "callback"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "1.1.0"
+    },
+    "ai_job_id": {
+      "$ref": "#/$defs/id"
+    },
+    "rally_submission_id": {
+      "$ref": "#/$defs/id"
+    },
+    "rally_id": {
+      "$ref": "#/$defs/id"
+    },
+    "match_id": {
+      "$ref": "#/$defs/id"
+    },
+    "annotation_revision": {
+      "$ref": "#/$defs/uint64"
+    },
+    "clip": {
+      "$ref": "#/$defs/clip"
+    },
+    "key_points": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/keyPoint"
+      }
+    },
+    "outcome": {
+      "$ref": "#/$defs/outcome"
+    },
+    "callback": {
+      "$ref": "#/$defs/callback"
+    }
+  },
+  "$defs": {
+    "id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "uint64": {
+      "type": "string",
+      "pattern": "^[0-9]+$"
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[A-Fa-f0-9]{64}$"
+    },
+    "rational": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "num",
+        "den"
+      ],
+      "properties": {
+        "num": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "den": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "clip": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "clip_asset_id",
+        "download_url",
+        "download_url_expires_at",
+        "sha256",
+        "byte_length",
+        "content_type",
+        "video"
+      ],
+      "properties": {
+        "clip_asset_id": {
+          "$ref": "#/$defs/id"
+        },
+        "download_url": {
+          "type": "string",
+          "format": "uri",
+          "description": "Short-lived signed URL. The AI provider MUST NOT send callback.token to this URL."
+        },
+        "sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "byte_length": {
+          "$ref": "#/$defs/uint64"
+        },
+        "content_type": {
+          "const": "video/mp4"
+        },
+        "video": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "width",
+            "height",
+            "fps",
+            "time_base",
+            "total_frames",
+            "duration_us",
+            "has_audio"
+          ],
+          "properties": {
+            "width": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "height": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "fps": {
+              "$ref": "#/$defs/rational"
+            },
+            "time_base": {
+              "$ref": "#/$defs/rational"
+            },
+            "total_frames": {
+              "$ref": "#/$defs/uint64"
+            },
+            "duration_us": {
+              "$ref": "#/$defs/uint64"
+            },
+            "has_audio": {
+              "type": "boolean"
+            }
+          }
+        },
+        "download_url_expires_at": {
+          "type": "string",
+          "format": "date-time"
+        }
+      }
+    },
+    "keyPoint": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "key_point_id",
+        "sequence_index",
+        "marker_kind",
+        "is_terminal",
+        "clip_pts",
+        "clip_time_us",
+        "clip_frame_index"
+      ],
+      "properties": {
+        "key_point_id": {
+          "$ref": "#/$defs/id"
+        },
+        "sequence_index": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "marker_kind": {
+          "enum": [
+            "service",
+            "contact"
+          ]
+        },
+        "is_terminal": {
+          "type": "boolean"
+        },
+        "clip_pts": {
+          "$ref": "#/$defs/uint64"
+        },
+        "clip_time_us": {
+          "$ref": "#/$defs/uint64"
+        },
+        "clip_frame_index": {
+          "$ref": "#/$defs/uint64"
+        }
+      }
+    },
+    "outcome": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "score_resolution",
+            "scoring_court_side"
+          ],
+          "properties": {
+            "score_resolution": {
+              "const": "resolved"
+            },
+            "scoring_court_side": {
+              "enum": [
+                "left",
+                "right"
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "score_resolution",
+            "scoring_court_side"
+          ],
+          "properties": {
+            "score_resolution": {
+              "const": "unknown"
+            },
+            "scoring_court_side": {
+              "type": "null"
+            }
+          }
+        }
+      ]
+    },
+    "callback": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "url",
+        "token",
+        "expires_at"
+      ],
+      "properties": {
+        "url": {
+          "type": "string",
+          "format": "uri"
+        },
+        "token": {
+          "type": "string",
+          "minLength": 16,
+          "description": "Job-scoped callback bearer token. It authorizes callback POST only and MUST NOT be exposed to browsers or clip storage."
+        },
+        "expires_at": {
+          "type": "string",
+          "format": "date-time"
+        }
+      }
+    }
+  }
+}
