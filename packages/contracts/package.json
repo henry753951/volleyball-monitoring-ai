@@ -10,9 +10,12 @@
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc --noEmit",
     "lint": "tsc --noEmit",
-    "test": "python ../../scripts/validate_contracts.py"
+    "test": "vitest run"
   },
   "devDependencies": {
-    "typescript": "^5.9.2"
+    "typescript": "^5.9.2",
+    "ajv": "^8.17.1",
+    "ajv-formats": "^3.0.1",
+    "vitest": "^4.0.0"
   }
 }

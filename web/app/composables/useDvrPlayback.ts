@@ -1,5 +1,6 @@
 import Hls from 'hls.js'
 import type { PlaybackWindowDescriptor } from './usePlaybackCursor'
+import { captureTimeToPlayerSeconds, isCaptureTimeWithinWindow } from '../utils/playbackWindow'
 
 export function useDvrPlayback(video: Ref<HTMLVideoElement | null>) {
   const activeWindow = shallowRef<PlaybackWindowDescriptor | null>(null)
@@ -66,8 +67,7 @@ export function useDvrPlayback(video: Ref<HTMLVideoElement | null>) {
     if (
       !current
       || expiresSoon
-      || captureTimeUs < BigInt(current.window_capture_start_us)
-      || captureTimeUs > BigInt(current.window_capture_end_us)
+      || !isCaptureTimeWithinWindow(captureTimeUs, current)
     ) {
       await attach(await createWindow(captureTimeUs.toString()))
       return
@@ -75,7 +75,7 @@ export function useDvrPlayback(video: Ref<HTMLVideoElement | null>) {
 
     const element = video.value
     if (element) {
-      element.currentTime = Number(captureTimeUs - BigInt(current.presentation_origin_capture_us)) / 1_000_000
+      element.currentTime = captureTimeToPlayerSeconds(captureTimeUs, current)
     }
   }
 

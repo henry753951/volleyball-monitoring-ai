@@ -1,0 +1,28 @@
+{
+  "schema_version": "1.0.0",
+  "analysis_id": "analysis-0190-resolved-multiple",
+  "analysis_version": "provider-build-2026-08-07.1",
+  "ai_job_id": "018f6d86-2d8c-7f10-9c1b-0f0c32aa6001",
+  "rally_submission_id": "018f6d86-2d8c-7f10-9c1b-0f0c32aa3101",
+  "rally_id": "018f6d86-2d8c-7f10-9c1b-0f0c32aa3001",
+  "match_id": "018f6d86-2d8c-7f10-9c1b-0f0c32aa1001",
+  "annotation_revision": "14",
+  "clip_asset_id": "018f6d86-2d8c-7f10-9c1b-0f0c32aa5001",
+  "input_clip_sha256": "9a31d43d2c2aeb1a1a98beec4ff8bbd649f68f16eb7345a51fd61a3b302543aa",
+  "producer": {"name": "fixture-provider", "build_id": "fixture-1"},
+  "tracks": [
+    {"track_id": 8, "court_side": "left", "first_frame_index": "0", "last_frame_index": "1078"},
+    {"track_id": 3, "court_side": "right", "first_frame_index": "0", "last_frame_index": "1078"},
+    {"track_id": 4, "court_side": "right", "first_frame_index": "0", "last_frame_index": "1078"}
+  ],
+  "contact_events": [
+    {"key_point_id": "018f6d86-2d8c-7f10-9c1b-0f0c32aa4000", "sequence_index": 0, "marker_kind": "service", "is_terminal": false, "anchor_frame_index": "300", "association_state": "resolved_single", "actors": [{"track_id": 8, "observation_frame_index": "301", "court_pos": {"x": -0.06, "y": 0.24}}], "actor_candidates": [], "ball": {"state": "observed", "sample_frame_index": "301", "frame_pos": {"x": 0.11, "y": 0.47}}, "representative_court_positions": [{"track_id": 8, "basis": "player_footprint_proxy", "court_pos": {"x": -0.06, "y": 0.24}}], "quality_flags": []},
+    {"key_point_id": "018f6d86-2d8c-7f10-9c1b-0f0c32aa4001", "sequence_index": 1, "marker_kind": "contact", "is_terminal": false, "anchor_frame_index": "420", "association_state": "resolved_multiple", "actors": [{"track_id": 3, "observation_frame_index": "419", "court_pos": {"x": 0.4, "y": 0.55}}, {"track_id": 4, "observation_frame_index": "419", "court_pos": {"x": 1.12, "y": 0.51}}], "actor_candidates": [], "ball": {"state": "interpolated", "sample_frame_index": "419", "frame_pos": {"x": 0.65, "y": 0.51}}, "representative_court_positions": [{"track_id": 3, "basis": "player_footprint_proxy", "court_pos": {"x": 0.4, "y": 0.55}}, {"track_id": 4, "basis": "provider_defined", "court_pos": {"x": 1.12, "y": 0.51}}], "quality_flags": []},
+    {"key_point_id": "018f6d86-2d8c-7f10-9c1b-0f0c32aa4002", "sequence_index": 2, "marker_kind": "contact", "is_terminal": true, "anchor_frame_index": "480", "association_state": "no_player", "actors": [], "actor_candidates": [], "ball": {"state": "missing"}, "representative_court_positions": [{"track_id": null, "basis": "terminal_projection", "court_pos": {"x": 1.04, "y": 0.79}}], "quality_flags": ["ball_missing_terminal_projection_used"]}
+  ],
+  "path_segments": [
+    {"sequence_index": 0, "start_key_point_id": "018f6d86-2d8c-7f10-9c1b-0f0c32aa4000", "end_key_point_id": "018f6d86-2d8c-7f10-9c1b-0f0c32aa4001", "start_frame_index": "301", "end_frame_index": "419", "start_court_positions": [{"track_id": 8, "basis": "player_footprint_proxy", "court_pos": {"x": -0.06, "y": 0.24}}], "end_court_positions": [{"track_id": 3, "basis": "player_footprint_proxy", "court_pos": {"x": 0.4, "y": 0.55}}, {"track_id": 4, "basis": "provider_defined", "court_pos": {"x": 1.12, "y": 0.51}}], "render_state": "complete", "is_terminal_segment": false, "quality_flags": []},
+    {"sequence_index": 1, "start_key_point_id": "018f6d86-2d8c-7f10-9c1b-0f0c32aa4001", "end_key_point_id": "018f6d86-2d8c-7f10-9c1b-0f0c32aa4002", "start_frame_index": "419", "end_frame_index": "480", "start_court_positions": [{"track_id": 3, "basis": "player_footprint_proxy", "court_pos": {"x": 0.4, "y": 0.55}}, {"track_id": 4, "basis": "provider_defined", "court_pos": {"x": 1.12, "y": 0.51}}], "end_court_positions": [{"track_id": null, "basis": "terminal_projection", "court_pos": {"x": 1.04, "y": 0.79}}], "render_state": "partial", "is_terminal_segment": true, "quality_flags": ["terminal_projection"]}
+  ],
+  "summary": {"track_count": 3, "contact_event_count": 3, "path_segment_count": 2, "unresolved_event_count": 0, "multiple_event_count": 1, "warnings": []}
+}

@@ -10,7 +10,7 @@
     "graphql:schema": "bun src/graphql/export-schema.ts",
     "lint": "tsc --noEmit",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run --exclude 'dist/**'"
   },
   "dependencies": {
     "@pothos/core": "^4.13.1",

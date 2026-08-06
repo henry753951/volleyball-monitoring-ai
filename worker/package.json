@@ -9,7 +9,7 @@
     "start": "bun dist/index.js",
     "lint": "tsc --noEmit",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run --exclude 'dist/**'"
   },
   "dependencies": {
     "@volleyball-monitoring/contracts": "workspace:*",
