@@ -1,0 +1,12 @@
+{
+  "schema_version": "2.0.0",
+  "type": "command_rejected",
+  "command_id": "cmd-close-left-001",
+  "room_id": "room-001",
+  "rally_id": "rally-001",
+  "code": "CLOSE_RALLY_TARGET_NOT_LAST",
+  "message": "The target key point is no longer the server-confirmed last key point.",
+  "expected_revision": "12",
+  "actual_revision": "13",
+  "snapshot_refetch_required": true
+}

@@ -1,0 +1,13 @@
+{
+  "schema_version": "2.0.0",
+  "command_id": "cmd-close-left-001",
+  "room_id": "room-001",
+  "base_revision": "12",
+  "rally_id": "rally-001",
+  "kind": "CLOSE_RALLY",
+  "payload": {
+    "target_key_point_id": "kp-004",
+    "score_resolution": "resolved",
+    "scoring_court_side": "left"
+  }
+}
