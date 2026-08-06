@@ -27,7 +27,8 @@ const DECIMAL_INT = /^-?\d+$/
 builder.scalarType('BigInt', {
   description: 'Signed 64-bit integer serialized as a decimal string.',
   serialize(value) {
-    const text = typeof value === 'bigint' ? value.toString() : String(value)
+    const raw: unknown = value
+    const text = typeof raw === 'bigint' ? raw.toString() : String(raw)
     if (!DECIMAL_INT.test(text)) throw new TypeError('BigInt must be a decimal integer string')
     return text
   },
@@ -40,7 +41,10 @@ builder.scalarType('BigInt', {
 })
 
 builder.scalarType('DateTime', {
-  serialize: (value) => value instanceof Date ? value.toISOString() : String(value),
+  serialize: (value) => {
+    const raw: unknown = value
+    return raw instanceof Date ? raw.toISOString() : String(raw)
+  },
   parseValue(value) {
     if (typeof value !== 'string' || Number.isNaN(Date.parse(value))) throw new TypeError('Invalid DateTime')
     return value
