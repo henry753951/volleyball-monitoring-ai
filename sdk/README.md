@@ -3,7 +3,8 @@
 External AI integration package. It validates the fixed Job/Result contracts, downloads and verifies the canonical clip, checks `VOV1` overlay envelopes, and sends idempotent callbacks. It does not contain AI models.
 
 ```bash
-pip install "volleyball-monitoring-ai-sdk @ git+https://github.com/<OWNER>/volleyball-monitoring-ai.git@v0.1.0#subdirectory=sdk"
+uv sync --project sdk --frozen --extra test
+uv run --project sdk --frozen pytest
 ```
 
 ```python
