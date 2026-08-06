@@ -8,7 +8,7 @@ from volleyball_monitoring_ai import AIJobRequest, AnalysisResult, ProviderCapab
 FIXTURES = Path(__file__).parents[2] / "packages" / "contracts" / "fixtures"
 
 
-@pytest.mark.parametrize("name", ["normal-rally", "unknown-outcome", "ambiguous-actors", "missing-ball"])
+@pytest.mark.parametrize("name", ["normal-rally", "unknown-outcome", "ambiguous-actors", "missing-ball", "resolved-multiple"])
 def test_golden_contracts(name: str) -> None:
     folder = FIXTURES / name
     job = AIJobRequest.model_validate_json((folder / "job.json").read_text())
@@ -20,6 +20,15 @@ def test_court_position_is_not_clamped() -> None:
     result = json.loads((FIXTURES / "normal-rally" / "result.json").read_text())
     assert result["contact_events"][0]["representative_court_positions"][0]["court_pos"]["x"] < 0
     assert result["contact_events"][-1]["representative_court_positions"][0]["court_pos"]["x"] > 1
+
+
+def test_resolved_multiple_preserves_two_actors_without_candidates() -> None:
+    result = AnalysisResult.model_validate_json((FIXTURES / "resolved-multiple" / "result.json").read_text())
+    event = next(event for event in result.contact_events if event.association_state == "resolved_multiple")
+    assert len(event.actors) >= 2
+    assert event.actor_candidates == []
+    assert all(actor.action is None and actor.association_confidence is None for actor in event.actors)
+    assert any(actor.court_pos and actor.court_pos.x > 1 for actor in event.actors)
 
 
 def test_unknown_outcome_is_explicit_and_valid() -> None:
