@@ -56,7 +56,8 @@ bun run dev
 ## Python SDK
 
 ```bash
-python -m pip install   "volleyball-monitoring-ai-sdk @ git+https://github.com/<OWNER>/volleyball-monitoring-ai.git@v0.1.0#subdirectory=sdk"
+uv sync --project sdk --frozen --extra test
+uv run --project sdk --frozen pytest
 ```
 
 ## Fixed annotation controls
