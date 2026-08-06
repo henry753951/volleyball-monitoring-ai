@@ -1,6 +1,8 @@
 import { builder } from './builder.js'
 
-builder.objectType('Health', {
+const Health = builder.objectRef<{ status: string; service: string }>('Health')
+
+Health.implement({
   fields: (t) => ({
     status: t.exposeString('status'),
     service: t.exposeString('service'),
@@ -10,7 +12,7 @@ builder.objectType('Health', {
 builder.queryType({
   fields: (t) => ({
     health: t.field({
-      type: 'Health',
+      type: Health,
       resolve: () => ({ status: 'ok', service: 'volleyball-monitoring-server' }),
     }),
   }),

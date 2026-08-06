@@ -48,10 +48,13 @@ app.get('/ws/annotations', { websocket: true }, (socket) => {
   }))
 
   socket.on('message', (raw) => {
+    const receivedBytes = Array.isArray(raw)
+      ? raw.reduce((total, chunk) => total + chunk.byteLength, 0)
+      : raw.byteLength
     socket.send(JSON.stringify({
       schema_version: '1.1.0',
       type: 'not_implemented',
-      received_bytes: raw.byteLength,
+      received_bytes: receivedBytes,
     }))
   })
 })
