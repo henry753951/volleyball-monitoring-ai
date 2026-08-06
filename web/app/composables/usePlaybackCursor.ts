@@ -11,12 +11,17 @@ export interface PlaybackWindowDescriptor {
   capture_session_id: string
   mode: 'live' | 'archive'
   mapping_version: number
+  timeline_capture_start_us: string
+  timeline_capture_end_us: string
   window_capture_start_us: string
   window_capture_end_us: string
   presentation_origin_capture_us: string
   target_player_media_time_us: string
   manifest_url: string
   expires_at: string
+  live_edge_capture_time_us?: string | null
+  has_more_before: boolean
+  has_more_after: boolean
 }
 
 export interface PlaybackCursorInput {
@@ -73,7 +78,7 @@ export function usePlaybackCursor(
     const element = video.value
     if (!element) return
 
-    if ('requestVideoFrameCallback' in element) {
+    if (typeof element.requestVideoFrameCallback === 'function') {
       callbackId = element.requestVideoFrameCallback((_now, metadata) => {
         const frame = metadata as VideoFrameMetadataSubset
         if (cursorStatus.value !== 'gap') cursorStatus.value = element.seeking ? 'seeking' : 'ready'

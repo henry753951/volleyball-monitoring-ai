@@ -6,7 +6,7 @@ const matchId = computed(() => String(route.params.matchId))
 <template>
   <section class="space-y-4">
     <header>
-      <p class="text-sm text-stone-500">Match { matchId }</p>
+      <p class="text-sm text-stone-500">Match {{ matchId }}</p>
       <h1 class="text-2xl font-semibold">統計</h1>
       <p class="mt-1 max-w-3xl text-sm text-stone-600">依可用欄位與 feature_availability 顯示樣本數、未知數與品質，不假造 action 指標。</p>
     </header>

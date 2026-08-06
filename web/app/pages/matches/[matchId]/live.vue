@@ -6,7 +6,7 @@ const matchId = computed(() => String(route.params.matchId))
 <template>
   <section class="space-y-4">
     <header>
-      <p class="text-sm text-stone-500">Match { matchId }</p>
+      <p class="text-sm text-stone-500">Match {{ matchId }}</p>
       <h1 class="text-2xl font-semibold">現場</h1>
       <p class="mt-1 max-w-3xl text-sm text-stone-600">顯示最新完成的 Rally、目前比分、AI 處理狀態與快速回放入口。</p>
     </header>
