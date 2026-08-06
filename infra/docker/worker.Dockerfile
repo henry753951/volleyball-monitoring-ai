@@ -2,7 +2,7 @@ FROM oven/bun:1.3.14-alpine AS build
 RUN apk add --no-cache ffmpeg
 WORKDIR /app
 COPY . .
-RUN bun install --frozen-lockfile=false
+RUN bun install --frozen-lockfile
 RUN bun run db:generate
 RUN bun --cwd worker build
 

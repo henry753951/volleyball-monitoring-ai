@@ -1,7 +1,7 @@
 FROM oven/bun:1.3.14-alpine AS build
 WORKDIR /app
 COPY . .
-RUN bun install --frozen-lockfile=false
+RUN bun install --frozen-lockfile
 RUN bun --cwd web build
 
 FROM oven/bun:1.3.14-alpine
