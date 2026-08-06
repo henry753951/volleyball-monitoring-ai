@@ -51,10 +51,9 @@
 |---|---:|---|---|
 | `Z 發球` | `Z` | 建立新 rally，並在目前已呈現影片 frame 建立第一個人工 `service` key point | 已有未提交 rally 時不可另開新 rally |
 | `Space 擊球` | `Space` | 在目前已呈現影片 frame 建立一般 `contact` key point | 播放器正在 seek、cursor stale 或位於 gap 時不可建立 |
-| `X 結束` | `X` | 不建立新時間點；把使用者按 X 前所指向的既有最後 key point 標為 terminal | Command 必須帶 `target_key_point_id`；若多人協作後它已不是最後一點，回傳 revision conflict |
-| `< 左側得分` | `<` | X 後將得分解析為 `resolved/left` | 只有「等待得分」模式才代表得分；編輯 key point 時方向鍵改為逐幀 |
-| `> 右側得分` | `>` | X 後將得分解析為 `resolved/right` | 同上 |
-| `? 未知` | `?` | 使用者明確表示暫時無法判定得分方，設為 `unknown` | 不是 `pending`；可以提交 AI，但不納入勝負統計 |
+| `< 左側得分` | `<` | 以單一 `CLOSE_RALLY` atomically把目前server-confirmed最後key point標為terminal，並將rally-level outcome設為`resolved/left` | Command必須帶`target_key_point_id`；若多人協作後它已不是最後一點，回傳revision conflict；不建立新時間或得分事件 |
+| `> 右側得分` | `>` | 同樣atomically關閉rally並將rally-level outcome設為`resolved/right` | 同上；方向鍵仍只供逐幀／播放器控制 |
+| `? 未知` | `?` | 同樣atomically關閉rally並將rally-level outcome設為`unknown/null` | 不是`pending`；可以提交 AI，但不納入勝負統計；不建立新時間或得分事件 |
 | `Enter 提交` | `Enter` | 將目前 draft 建立成 immutable `RallySubmission`，啟動裁切與 AI 串接 | `pending` 不可提交；`resolved` 或 `unknown` 可提交 |
 
 ### 快捷鍵自訂邊界
@@ -63,28 +62,28 @@
 - 每個可用 command 必須保留一個有效鍵位。設定選單使用集中式 command registry、快捷鍵錄製器與衝突檢查，不得由各 component 各自監聽或保存。
 - 設定選單必須提供「還原所有預設快捷鍵」。還原後回到本節表格與方向鍵的預設值。
 - 相同 scope 不得有重複鍵位；瀏覽器保留鍵、文字輸入焦點、Dialog/Select scope 與平台鍵盤差異必須被辨識並清楚提示。
-- Control deck、設定選單與快捷鍵說明必須以 TanStack Hotkeys `formatForDisplay` 顯示目前綁定，讓 macOS 使用符號、Windows/Linux 使用平台慣用標籤；不得自行拼接鍵帽文字。七個觸控動作不可被移除，且不受鍵盤自訂影響。
+- Control deck、設定選單與快捷鍵說明必須以 TanStack Hotkeys `formatForDisplay` 顯示目前綁定，讓 macOS 使用符號、Windows/Linux 使用平台慣用標籤；不得自行拼接鍵帽文字。六個觸控動作不可被移除，且不受鍵盤自訂影響。
 
 `service` 與 `contact` 只是人工 marker kind，不是 AI action label，也沒有人工 confidence。第一個 key point 被標成 `service` 只代表標註流程由 Z 開始；AI 是否輸出任何 action、action label 長什麼樣、是否有 confidence，均屬待 AI 團隊提供真實輸出後確認的 optional extension。
 
 ### 按鍵模式優先順序
 
 1. 文字輸入、Dialog 或 Select 開啟時，禁止攔截全域快捷鍵。
-2. `AWAITING_SCORE` 時，左側得分、右側得分、未知等 command 依目前綁定觸發；預設為 `<`、`>`、`?`。
+2. `OPEN`且存在server-confirmed最後key point時，左側得分、右側得分、未知等 `CLOSE_RALLY` command依目前綁定觸發；預設為`<`、`>`、`?`。
 3. 前後 canonical frame／播放器移動 command 預設綁定 `←`／`→`；使用者可改鍵，但該 command 不得變成得分或 annotation data mutation。
 4. 其他狀態下播放器 command 只控制播放器，不可暗中改資料。
 5. 每次 destructive action 都必須等待 server ack；optimistic UI 可顯示 pending，但不得把暫態當 canonical revision。
 
 ## 1.2 Rally Mask 與狀態呈現
 
-- `OPEN`、`AWAITING_SCORE`、`READY`：灰色半透明 mask，表示尚未提交且仍可修正。
+- `OPEN`、`READY`：灰色半透明 mask，表示尚未提交且仍可修正。
 - `SUBMITTED`：綠色半透明 mask，表示某個 immutable submission 已建立。
 - 綠色不代表 AI 完成；裁切、排隊、處理中、完成、失敗以 mask 上的 status badge 顯示。
 - Mask 上緣必須有文字狀態，不可只靠顏色：
   - `左側得分`
   - `右側得分`
   - `? 得分未知`
-  - `等待得分`
+  - `回合進行中`
 - Mask 範圍永遠是 service key point 到 terminal key point；pre-roll/post-roll 只屬裁切範圍，不改變 mask。
 - Key point marker 至少可辨識 `Z/service`、一般 `contact`、terminal、selected、possible duplicate、server pending。
 - 顏色、線寬與動畫屬前端衍生視覺，不保存為 canonical DB 欄位。
@@ -136,8 +135,8 @@
 | Critical | tracker ID 被當成跨 rally 球員 ID | 同一整場球員統計會錯綁 | `track_id` 只在單 rally／analysis run 內有效；中央另建 identity assignment |
 | Critical | 每次編輯都複製完整 revision snapshot | 大量 DB 寫入與多人同步成本不必要 | Draft 使用 mutable rows + operation log + revision；只有 Enter 建 immutable submission snapshot |
 | High | `?` 與「尚未選得分」都用 null | UI 無法區分使用者已明確標未知 | 新增 `score_resolution_state`: `pending/resolved/unknown`；`?` 後可提交，pending 不可提交 |
-| High | X 建立另一個 rally end timestamp | 與使用者定義衝突，也會多一個虛假事件 | X 只標記前一個 key point 為 terminal，X 按下時間只可做 audit，不進 event timeline |
-| High | 沒有 reopen／改 terminal 的流程 | X 誤按後只能刪整個 rally | Draft 提供 `REOPEN_RALLY`、`SET_TERMINAL_KEY_POINT`；submitted 必須建立 correction draft |
+| High | 舊流程以獨立end-rally動作建立另一個timestamp | 與使用者定義衝突，也會多一個虛假事件 | `CLOSE_RALLY`只標記指定的既有最後key point為terminal並保存rally-level outcome；command不含新時間 |
+| High | 沒有 reopen／改 terminal 的流程 | 關閉rally誤按後只能刪整個rally | Draft提供`REOPEN_RALLY`；重開後以新的`CLOSE_RALLY`重新指定目前最後key point與outcome；submitted必須建立correction draft |
 | High | Rally 只有單一 status | annotation、clip、AI 狀態互相覆寫 | `annotation_status` 與 `processing_status` 分離 |
 | High | submitted draft 可被原地修改 | AI 結果無法知道對應哪個版本 | submission 永久 immutable；修正建立新 submission，舊 job/result 標 superseded |
 | High | Score 修正必定重跑 AI | 只改勝方卻浪費推論 | 比對 submission content hash；只改 outcome 可重用 clip/AI geometry，重算分析聚合 |
@@ -190,7 +189,7 @@
 | 嚴重度 | 缺口 | 修正後基線 |
 |---|---|---|
 | Critical | GraphQL 文件使用 `BigInt`，code-first builder卻註冊 `Int64` | 全部統一為 `BigInt`；Web codegen映射為`string`。 |
-| Critical | Annotation WebSocket只定義自由格式 `payload` | 每一個Z／Space／X／score／move／delete／reopen／Enter command都具有strict payload schema；X必須帶target ID。 |
+| Critical | Annotation WebSocket只定義自由格式 `payload` | 每一個Z／Space／`CLOSE_RALLY`／move／delete／reopen／Enter command都具有strict payload schema；close必須帶target ID與strict outcome。 |
 | Critical | `DvrSegment.presentationStartUs`容易被誤認為player/HLS presentation time | DB改名`captureStartUs/captureEndUs`，只表示整場canonical timeline。 |
 | High | SDK內附的FlatBuffers schema與canonical schema欄位／版本不一致 | SDK wheel強制內含與`packages/contracts/flatbuffers/overlay.fbs`完全相同的檔案，CI byte-compare。 |
 | High | callback文件使用`kind`，schema/SDK使用`status` | Callback metadata統一使用`kind=processing/failed/completed`。 |
@@ -824,14 +823,11 @@ Response：
 
 ```text
 OPEN
-  └─ X(target_key_point_id) → AWAITING_SCORE
-AWAITING_SCORE
-  ├─ < left / > right → READY(resolved)
-  ├─ ? → READY(unknown)
-  └─ reopen → OPEN
+  ├─ < CLOSE_RALLY(target, resolved/left) → READY
+  ├─ > CLOSE_RALLY(target, resolved/right) → READY
+  └─ ? CLOSE_RALLY(target, unknown/null) → READY
 READY
-  ├─ 改得分 → READY
-  ├─ reopen → OPEN
+  ├─ reopen → OPEN（清除terminal與outcome，之後重新CLOSE_RALLY）
   └─ Enter → SUBMITTED
 SUBMITTED
   └─ correction → 新 draft / 新 submission
@@ -857,20 +853,16 @@ VOIDED
 3. Server依 canonical time排序並產生 revision。
 4. 多人幾乎同時打同一球時保留兩點並標 `possible_duplicate`，不靜默刪除。
 
-### X - 結束
+### `<`、`>`、`?` - 關閉 Rally 並記錄 Outcome
 
-1. Client從目前server-confirmed snapshot取得最後一個有效 key point ID，凍結為 `target_key_point_id`；一般流程不要求使用者先手動選取marker。
-2. X按下時的 wall clock、player currentTime都不新增到事件序列。
-3. Server驗證 target在 `base_revision`仍是最後一個未刪除 key point。
-4. 成功後把該點 `is_terminal=true`，狀態進入 `AWAITING_SCORE`，mask終點就是該點。
-5. 若另一協作者已新增點，回 `REVISION_CONFLICT`；前端刷新後讓使用者再決定，不自動把新點terminal。
-
-### `<`、`>`、`?` - 得分
-
-- UI必須顯示三個按鈕：`< 左側得分`、`> 右側得分`、`? 未知`。硬體鍵盤使用實際 `<`、`>`、`?`（通常為 Shift+逗號、Shift+句點、Shift+斜線）；方向鍵保留給逐幀。
-- `left/right` 指當下球場畫面左右側，不是永久 team identity。
-- Server依 submission的 side-assignment snapshot解析 team ID。
-- `pending` 與 `unknown` 不同：pending代表尚未選；unknown代表使用者已明確選 `?`。
+1. UI顯示三個按鈕：`< 左側得分`、`> 右側得分`、`? 未知`。硬體鍵盤使用實際`<`、`>`、`?`（通常為Shift+逗號、Shift+句點、Shift+斜線）；方向鍵保留給逐幀。
+2. Client從目前server-confirmed snapshot取得最後一個有效key point ID，作為`target_key_point_id`，並送單一`CLOSE_RALLY` command。
+3. `<`傳`resolved/left`、`>`傳`resolved/right`、`?`傳`unknown/null`。Outcome只屬於rally，不是key point。
+4. Command不含playback cursor、capture time、frame或score event；terminal時間／frame就是被選定key point既有的authoritative anchor。
+5. Server在同一transaction驗證target於`base_revision`仍是最後一個未刪除key point，將它標為terminal，保存outcome並把狀態改為`READY`。
+6. 若另一協作者已新增點，回`REVISION_CONFLICT`／`CLOSE_RALLY_TARGET_NOT_LAST`；前端refetch後讓使用者再決定，不自動terminalize新點。
+7. `left/right`指當下球場左右側，不是永久team identity；Server依immutable submission的side-assignment snapshot解析team ID。
+8. `pending`與`unknown`不同：pending只允許open draft；unknown代表使用者已明確選`?`且可以提交。
 
 ### Enter - 提交
 
@@ -888,7 +880,7 @@ Server以單一 transaction：
 
 ## 9.3 編輯與逐幀
 
-- 灰色 mask可新增、刪除、移動、重新指定 terminal、重開 rally、改得分。
+- 灰色 mask可新增、刪除、移動、重開rally；要改terminal或outcome時先`REOPEN_RALLY`，再以新的`CLOSE_RALLY` atomically關閉。
 - 方向鍵在 key point edit mode 呼叫 server frame-step API；後端依 sample index取得前後 sample，再更新 marker。
 - 綠色 mask唯讀；開啟修正時從 submission建立新 draft。
 - 拖曳 marker時可用短暫 soft lock提示其他協作者，但 canonical concurrency仍以 revision/CAS為準。
@@ -898,15 +890,15 @@ Server以單一 transaction：
 - 頂部：場次、來源健康、LIVE狀態、與 live edge距離、WebSocket、協作者、來源 timecode。
 - 中央：有聲 video、回到 LIVE、播放/暫停、逐幀、倍速。
 - 多軌 timeline：完整 capture range、gap、playhead、key points、rally masks、score strip、processing badges。
-- 底部固定 control deck：發球、擊球、結束、左側得分、右側得分、未知、提交七個觸控動作，顯示目前快捷鍵（預設 `Z`、`Space`、`X`、`<`、`>`、`?`、`Enter`）並依 state啟停。
+- 底部固定 control deck：發球、擊球、左側得分、右側得分、未知、提交六個觸控動作，顯示目前快捷鍵（預設`Z`、`Space`、`<`、`>`、`?`、`Enter`）並依state啟停；不得顯示獨立結束控制。
 - Inspector：選取 key point時顯示 canonical time、frame、建立者、revision、duplicate/precision資訊。
 
-# 10. Annotation Realtime Schema v1.1
+# 10. Annotation Realtime Schema v2.0
 
 
 ### 10.0 協議版本
 
-Annotation Realtime Protocol 的正式版本為 `1.1.0`。這次升版反映 command identity 改為 connection-bound、`MARK_TERMINAL` 必須指定 `target_key_point_id`、以及 ACK/effect/snapshot message 改為 strict typed variants。任何 `1.0.0` annotation message 都不得被 1.1 consumer 靜默當成相同語意。
+Annotation Realtime Protocol 的正式版本為`2.0.0`。這是breaking change：移除v1.1的獨立terminal與後續score兩階段command，改由一個`CLOSE_RALLY` atomically terminalize目前server-confirmed最後key point並保存rally-level outcome。任何v1.x annotation message都不得被2.0 consumer靜默當成相同語意。
 
 WebSocket用於高頻 annotation command、ack、revision、presence與處理通知。GraphQL提供 snapshot/refetch，不承擔逐次按鍵。
 
@@ -914,14 +906,16 @@ WebSocket用於高頻 annotation command、ack、revision、presence與處理通
 
 ```json
 {
-  "schema_version": "1.1.0",
+  "schema_version": "2.0.0",
   "command_id": "0190...",
   "room_id": "match:...:capture:...",
   "rally_id": "0190...",
   "base_revision": "27",
-  "kind": "MARK_TERMINAL",
+  "kind": "CLOSE_RALLY",
   "payload": {
-    "target_key_point_id": "0190..."
+    "target_key_point_id": "0190...",
+    "score_resolution": "resolved",
+    "scoring_court_side": "left"
   }
 }
 ```
@@ -936,12 +930,10 @@ WebSocket用於高頻 annotation command、ack、revision、presence與處理通
 |---|---|---|
 | `CREATE_SERVICE_KEY_POINT` | `playback_cursor` | Z；建立 rally與service marker |
 | `CREATE_CONTACT_KEY_POINT` | `playback_cursor` | Space |
-| `MARK_TERMINAL` | `target_key_point_id` | X；不帶新時間 |
-| `SET_SCORE` | `score_resolution`, `scoring_court_side` | `<`／`>`／`?`；方向鍵不計分 |
+| `CLOSE_RALLY` | `target_key_point_id` + strict outcome union | `<`／`>`／`?`；atomically terminalize最後key point並保存rally-level outcome；不帶新時間／frame |
 | `MOVE_KEY_POINT` | `key_point_id`, `playback_cursor` | drag/frame step後由server重新解析authoritative anchor |
 | `DELETE_KEY_POINT` | `key_point_id` | draft-only |
-| `SET_TERMINAL_KEY_POINT` | `target_key_point_id` | 修正terminal |
-| `REOPEN_RALLY` | none | 清除terminal、回OPEN |
+| `REOPEN_RALLY` | none | 清除terminal與outcome、回OPEN；之後以新的`CLOSE_RALLY`重新關閉 |
 | `VOID_RALLY` | `reason` | 明確作廢draft，不等於刪除歷史 |
 | `SUBMIT_RALLY` | none | Enter，建立immutable submission |
 
@@ -949,25 +941,25 @@ WebSocket用於高頻 annotation command、ack、revision、presence與處理通
 
 ```json
 {
-  "schema_version": "1.1.0",
+  "schema_version": "2.0.0",
   "type": "command_ack",
   "command_id": "0190...",
   "room_id": "match:...:capture:...",
   "rally_id": "0190...",
-  "operation_kind": "MARK_TERMINAL",
+  "operation_kind": "CLOSE_RALLY",
   "result_revision": "28",
   "server_sequence": "1042",
   "effects": {
     "terminal_key_point_id": "0190...",
-    "annotation_status": "awaiting_score",
-    "score_resolution": "pending",
-    "scoring_court_side": null
+    "annotation_status": "ready",
+    "score_resolution": "resolved",
+    "scoring_court_side": "left"
   },
   "resolved_anchor": null
 }
 ```
 
-同一 `command_id` 重送必須回相同結果。Server先寫 DB transaction/outbox，再廣播；WebSocket訊息不是唯一 durable record。
+同一`command_id`重送必須回相同結果。對`CLOSE_RALLY`，effects必須同時回傳terminal key point、`ready`狀態與strict rally outcome，且`resolved_anchor`必須為null；schema不允許score time、score frame或其他新event anchor。Server先寫DB transaction/outbox，再廣播；WebSocket訊息不是唯一durable record。
 
 ## 10.4 Conflict
 
@@ -975,14 +967,14 @@ WebSocket用於高頻 annotation command、ack、revision、presence與處理通
 {
   "type": "command_rejected",
   "command_id": "0190...",
-  "code": "REVISION_CONFLICT",
+  "code": "CLOSE_RALLY_TARGET_NOT_LAST",
   "expected_revision": "27",
   "actual_revision": "28",
   "snapshot_refetch_required": true
 }
 ```
 
-`MARK_TERMINAL_TARGET_NOT_LAST`、`CURSOR_STALE`、`CURSOR_IN_GAP`、`RALLY_NOT_OPEN`、`SCORE_PENDING`等均用明確 domain code。Reconnect時若 server revision大於client最後revision且delta不完整，必須 GraphQL refetch snapshot。
+`CLOSE_RALLY_TARGET_NOT_LAST`、`REVISION_CONFLICT`、`CURSOR_STALE`、`CURSOR_IN_GAP`、`RALLY_NOT_OPEN`、`SCORE_PENDING`等均用明確domain code。Close target不再是最後key point時必須CAS失敗並要求snapshot refetch，不可自動terminalize新點。Reconnect時若server revision大於client最後revision且delta不完整，必須GraphQL refetch snapshot。
 
 # 11. GraphQL Schema 使用規格
 
@@ -1800,7 +1792,7 @@ Backend：
 
 - WS command/revision/idempotency。
 - Draft mutable model + operation log。
-- Z/Space/X/score/?/reopen/move/delete/Enter。
+- Z/Space/CLOSE_RALLY(left/right/unknown)/reopen/move/delete/Enter。
 - immutable submission。
 
 Frontend：
@@ -1809,7 +1801,7 @@ Frontend：
 - 灰／綠 mask、score strip、快捷鍵模式。
 - 多人 presence/conflict/reconnect。
 
-Exit：兩個 iPad同時標；refresh/reconnect後一致；X不建 timestamp；unknown可提交。
+Exit：兩個iPad同時標；refresh/reconnect後一致；close不建timestamp／score frame；unknown可提交。
 
 ## Phase 4 — Clip／Fake AI／SDK
 
@@ -1939,7 +1931,7 @@ C. Nuxt Frontend
 - 先稽核 scaffold是否與 MASTER spec一致，再依 Phase 0開始。
 - Contract-first；跨系統欄位只以 `packages/contracts` 為真實來源。
 - 不要寫死 action labels、confidence、AI模型參數或群體phase。
-- X只將上一個既有key point標terminal，不建立時間點。
+- `CLOSE_RALLY`只將指定的server-confirmed最後key point標terminal並保存rally-level outcome，不建立時間點或得分event。
 - `?` 是明確unknown，可送出；pending不可送出。
 - Left/right只表示court side，不是team identity。
 - Browser只送PlaybackCursor；authoritative PTS/frame由後端resolve。
@@ -2073,8 +2065,8 @@ max_concurrent_threads_per_session = 3
 
 ## 25.3 Annotation
 
-- Z/Space/X/left/right/?/Enter。
-- X不新增 timestamp。
+- Z/Space/left-close/right-close/unknown-close/Enter六個固定語意。
+- `CLOSE_RALLY`不新增timestamp、score frame或score event，terminal anchor沿用target key point。
 - 只有 service的service error。
 - Unknown可提交，pending不可。
 - Reopen與change terminal。

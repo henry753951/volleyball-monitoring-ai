@@ -1,5 +1,17 @@
 # Progress
 
+## 2026-08-07 - Annotation Realtime 2.0 close/outcome migration
+
+Status: implemented and validated on `feat/annotation-close-outcome-v2`; not merged.
+
+- Replaced the v1.1 standalone terminal and score-setting sequence with breaking Annotation Realtime `2.0.0` `CLOSE_RALLY`. The command carries the server-confirmed last key-point target plus a strict resolved-left, resolved-right or unknown outcome.
+- Close now terminalizes the target and saves the rally-level outcome atomically. It creates no playback anchor, timestamp, score frame or score event; stale targets require CAS/revision conflict and snapshot refetch.
+- Removed the unreachable `AWAITING_SCORE` annotation state from the current Prisma enum, server state helper, web state and canonical specification. `pending` remains draft-only while open; `SUBMIT_RALLY` remains a distinct post-close command.
+- Updated the PWA scaffold to six touch actions and centralized configurable defaults `Z`, `Space`, `<`, `>`, `?`, `Enter`, with conflict-safe recording and Restore Defaults.
+- Regenerated the searchable 41-page specification PDF from the updated TeX source. All pages were rendered; six contact sheets and detailed Annotation pages 5, 19, 20 and 21 were visually reviewed.
+- Validation passed: contract validator/Vitest/typecheck/build, Prisma generate/validate/typecheck, server tests/typecheck/build, web tests/typecheck/build, SDK tests, full scaffold validation and PDF searchable-text/render checks.
+- No migration was added because this semantic enum removal is required before the repository's first migration. Docker/database/browser E2E remain future vertical-slice work.
+
 ## 2026-08-07 — Phase 0, round 1
 
 Status: locally integrated and validated on `integration/phase-0-round-1`; GitHub integration review is recorded in [PR #1](https://github.com/henry753951/volleyball-monitoring-ai/pull/1) against `main`.
