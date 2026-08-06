@@ -77,5 +77,10 @@ export default defineNuxtConfig({
     client: { installPrompt: true },
     devOptions: { enabled: false },
   },
-  typescript: { strict: true, typeCheck: true },
+  typescript: {
+    strict: true,
+    // CI/local typecheck remains strict by default; production containers run a
+    // dedicated typecheck step and can disable Nuxt's duplicate Vite checker.
+    typeCheck: process.env.NUXT_TYPECHECK !== 'false',
+  },
 })
