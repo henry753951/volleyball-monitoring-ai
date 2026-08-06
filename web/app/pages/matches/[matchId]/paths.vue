@@ -6,7 +6,7 @@ const matchId = computed(() => String(route.params.matchId))
 <template>
   <section class="space-y-4">
     <header>
-      <p class="text-sm text-stone-500">Match { matchId }</p>
+      <p class="text-sm text-stone-500">Match {{ matchId }}</p>
       <h1 class="text-2xl font-semibold">球路</h1>
       <p class="mt-1 max-w-3xl text-sm text-stone-600">以 AI 回傳的 court_pos 顯示 A/B 球路、方向、熱點與篩選。中央系統不做座標投影。</p>
     </header>
