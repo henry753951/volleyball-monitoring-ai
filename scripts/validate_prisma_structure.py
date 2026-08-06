@@ -69,7 +69,6 @@ if missing:
     raise AssertionError(f"missing required models: {missing}")
 
 required_tokens = [
-    'enum SubmissionScoreResolution { RESOLVED UNKNOWN }',
     'scoreResolutionState SubmissionScoreResolution',
     'jobSchemaVersion String @default("1.1.0")',
     'sourcePts BigInt',
@@ -89,6 +88,13 @@ required_tokens = [
 for token in required_tokens:
     if token not in TEXT:
         raise AssertionError(f"missing required Prisma invariant: {token}")
+
+submission_score_values = set(re.findall(r"\b[A-Z][A-Z0-9_]*\b", enums.get("SubmissionScoreResolution", "")))
+if submission_score_values != {"RESOLVED", "UNKNOWN"}:
+    raise AssertionError(
+        "SubmissionScoreResolution must contain only RESOLVED and UNKNOWN; "
+        "PENDING is draft-only"
+    )
 
 if '@@index([analysisId])' in TEXT:
     raise AssertionError('analysisId is already @unique; redundant @@index must be removed')
