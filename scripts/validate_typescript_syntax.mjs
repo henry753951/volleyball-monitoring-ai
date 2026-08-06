@@ -1,8 +1,9 @@
 import fs from 'node:fs'
 import path from 'node:path'
-import ts from '/opt/nvm/versions/node/v22.16.0/lib/node_modules/typescript/lib/typescript.js'
+import { fileURLToPath } from 'node:url'
+import ts from 'typescript'
 
-const root = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..')
+const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const ignored = new Set(['node_modules', '.git', '.nuxt', '.output', 'dist', 'generated'])
 const files = []
 

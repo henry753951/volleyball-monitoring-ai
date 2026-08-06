@@ -6,6 +6,25 @@ import tomllib
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+IGNORED_DIRECTORIES = {
+    '.git',
+    '.nuxt',
+    '.output',
+    '.pytest_cache',
+    '.venv',
+    '__pycache__',
+    'dist',
+    'generated',
+    'node_modules',
+}
+
+
+def repository_files(pattern: str):
+    for path in ROOT.rglob(pattern):
+        relative_parts = path.relative_to(ROOT).parts
+        if any(part in IGNORED_DIRECTORIES for part in relative_parts):
+            continue
+        yield path
 
 REQUIRED = [
     'docs/MASTER_IMPLEMENTATION_SPEC.md',
@@ -28,10 +47,10 @@ for relative in REQUIRED:
     path = ROOT / relative
     assert path.exists(), f'missing required scaffold file: {relative}'
 
-for path in ROOT.rglob('*.json'):
+for path in repository_files('*.json'):
     json.loads(path.read_text(encoding='utf-8'))
 
-for path in ROOT.rglob('*.toml'):
+for path in repository_files('*.toml'):
     tomllib.loads(path.read_text(encoding='utf-8'))
 
 spec = (ROOT / 'docs/MASTER_IMPLEMENTATION_SPEC.md').read_text(encoding='utf-8')
