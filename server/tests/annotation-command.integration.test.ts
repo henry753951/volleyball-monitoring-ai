@@ -564,4 +564,20 @@ describe('durable service annotation command', () => {
       await expect(db.annotationCommandReceipt.findUnique({ where: { commandId: command.command_id } })).resolves.toMatchObject({ accepted: false })
     }
   })
+
+  it('rolls back contact domain mutation when the late operation write fails', async () => {
+    const rallyId = randomUUID(); await service.apply(serviceCommand(randomUUID(), rallyId), identity)
+    const command = contactCommand(randomUUID(), rallyId)
+    await db.annotationOperation.create({ data: { baseRevision: 99n, clientMutationId: command.command_id, deviceSessionId: ids.device, operationKind: 'LEGACY_TEST', payload: {}, payloadHash: 'legacy', rallyId, resultRevision: 99n, userId: ids.operator } })
+    await expect(service.apply(command, identity)).rejects.toMatchObject({ code: 'P2002' })
+    await expect(db.keyPoint.count({ where: { rallyId } })).resolves.toBe(1); await expect(db.rally.findUniqueOrThrow({ where: { id: rallyId } })).resolves.toMatchObject({ annotationRevision: 1n }); await expect(db.annotationCommandReceipt.findUnique({ where: { commandId: command.command_id } })).resolves.toBeNull()
+  })
+
+  it('rolls back close terminal/outcome when the late operation write fails', async () => {
+    const rallyId = randomUUID(); await service.apply(serviceCommand(randomUUID(), rallyId), identity); const point = await db.keyPoint.findFirstOrThrow({ where: { rallyId } })
+    const command = closeCommand(randomUUID(), rallyId, point.id, '1', 'unknown')
+    await db.annotationOperation.create({ data: { baseRevision: 99n, clientMutationId: command.command_id, deviceSessionId: ids.device, operationKind: 'LEGACY_TEST', payload: {}, payloadHash: 'legacy', rallyId, resultRevision: 99n, userId: ids.operator } })
+    await expect(service.apply(command, identity)).rejects.toMatchObject({ code: 'P2002' })
+    await expect(db.rally.findUniqueOrThrow({ where: { id: rallyId } })).resolves.toMatchObject({ annotationRevision: 1n, annotationStatus: 'OPEN', scoreResolutionState: 'PENDING' }); await expect(db.keyPoint.findUniqueOrThrow({ where: { id: point.id } })).resolves.toMatchObject({ isTerminal: false }); await expect(db.annotationCommandReceipt.findUnique({ where: { commandId: command.command_id } })).resolves.toBeNull()
+  })
 })
