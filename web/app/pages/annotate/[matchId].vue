@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { createMediaClient } from '~/lib/mediaClient'
+import { useAuthoritativeDvrWindow } from '~/composables/useAuthoritativeDvrWindow'
 import type { PlaybackWindowDescriptor, ResolvedMediaAnchor, CanonicalFrameAnchor } from '~/lib/mediaModel'
 import { createCoreDomainClient, createGraphQLTransport, type Match, type CaptureSession } from '~/lib/coreDomain'
 import { ANNOTATION_COMMANDS, formatBindingForDisplay, type AnnotationAction, type HotkeyCommand, type MediaAction } from '~/utils/annotationHotkeys'
@@ -23,6 +24,7 @@ const canMark = computed(() => cursorStatus.value === 'ready')
 const { bindings } = useAnnotationHotkeys()
 const annotationScope = useTemplateRef<HTMLElement>('annotationScope')
 const media = createMediaClient()
+const dvr = useAuthoritativeDvrWindow(media)
 
 const controls = computed(() => ANNOTATION_COMMANDS.map(command => ({
   ...command,
@@ -41,7 +43,7 @@ async function loadMatch() {
 async function handleCursor(cursor: PlaybackCursorInput) {
   cursorStatus.value = cursor.cursor_status
   if (cursor.cursor_status !== 'ready') return
-  try { authoritativeAnchor.value = await media.resolveCursor(cursor) }
+  try { authoritativeAnchor.value = await dvr.resolve(cursor) }
   catch (error) { mediaError.value = error instanceof Error ? error.message : '游標解析失敗' }
 }
 
@@ -85,7 +87,7 @@ async function frameStep(direction: 'previous' | 'next') {
   } catch (error) { mediaError.value = error instanceof Error ? error.message : '逐幀請求失敗' }
 }
 function dispatchHotkeyCommand(action: HotkeyCommand) { action.startsWith('frame_') ? dispatchMediaAction(action as MediaAction) : dispatchAnnotationAction(action as AnnotationAction) }
-function commandEnabled(action: HotkeyCommand) { return action.startsWith('frame_') || controls.value.some(control => control.action === action && control.enabled) }
+function commandEnabled(action: HotkeyCommand) { return action.startsWith('frame_') ? Boolean(descriptor.value && authoritativeAnchor.value && canMark.value && !dvr.busy.value) : controls.value.some(control => control.action === action && control.enabled) }
 useAnnotationHotkeyRuntime({ target: annotationScope, dispatch: dispatchHotkeyCommand, commandEnabled })
 onMounted(() => { annotationScope.value?.focus({ preventScroll: true }); void loadMatch() })
 </script>
