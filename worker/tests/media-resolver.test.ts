@@ -1,0 +1,11 @@
+import { describe, expect, it } from 'vitest';
+import { buildSampleIndex, rescalePtsToUs, type FfprobeFrame } from '../src/media/sample-index';
+import { frameStep, resolveCanonicalTime, ResolverError } from '../src/media/resolver';
+const origin = { epochId: 'epoch-1', sourcePtsOrigin: 9_000_000_000_000_000n, captureTimeOriginUs: 8_000_000_000_000_000n, captureFrameOrigin: 9_000_000_000_000_000n, timeBase: { num: 1n, den: 30n } };
+const frames: FfprobeFrame[] = [0, 1, 2, 3].map((i) => ({ media_type: 'video', pts: (origin.sourcePtsOrigin + BigInt(i)).toString(), pkt_duration: '1', key_frame: i === 0 ? 1 : 0 }));
+describe('sample index resolver', () => {
+  it('uses exact bigint rational rescaling', () => { expect(rescalePtsToUs(1n, { num: 1n, den: 30n })).toBe(33333n); expect(rescalePtsToUs(-1n, { num: 1n, den: 30n })).toBe(-33333n); expect(buildSampleIndex(frames, origin).samples[3].captureFrameIndex).toBe(9000000000000003n); });
+  it('supports VFR and deterministic earlier tie', () => { const idx = buildSampleIndex([{ media_type: 'video', pts: '0', pkt_duration: '1' }, { media_type: 'video', pts: '2', pkt_duration: '1' }, { media_type: 'video', pts: '5', pkt_duration: '1' }], { ...origin, sourcePtsOrigin: 0n, captureTimeOriginUs: 0n, captureFrameOrigin: 0n, timeBase: { num: 1n, den: 1n } }); expect(resolveCanonicalTime(idx, 's', 1_000_000n).sample.captureTimeUs).toBe('0'); });
+  it('rejects malformed or non-monotonic samples', () => { expect(() => buildSampleIndex([{ media_type: 'video', pts: '2', pkt_duration: '1' }, { media_type: 'video', pts: '1', pkt_duration: '1' }], origin)).toThrow('source PTS'); expect(() => buildSampleIndex([{ media_type: 'audio', pts: '1', pkt_duration: '1' }], origin)).toThrow('no video'); });
+  it('steps one real adjacent sample and reports boundaries', () => { const idx = buildSampleIndex(frames, origin); const start = idx.samples[0].captureFrameIndex; expect(frameStep(idx, 's', start, 'next').sample.captureFrameIndex).toBe((start + 1n).toString()); expect(() => frameStep(idx, 's', start, 'previous')).toThrowError(new ResolverError('SAMPLE_NOT_FOUND', 'no adjacent sample')); expect(() => resolveCanonicalTime(idx, 's', idx.availableStartUs - 1n)).toThrowError(new ResolverError('CAPTURE_GAP', 'target is outside ready contiguous range')); });
+});
