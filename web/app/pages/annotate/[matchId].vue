@@ -264,7 +264,7 @@ onBeforeUnmount(() => {
 
       <aside class="inspector">
         <div class="mode-switch"><button type="button" :class="{ active: inspectorTab === 'keypoints' }" @click="inspectorTab = 'keypoints'">片段 Keypoint</button><button type="button" :class="{ active: inspectorTab === 'authority' }" @click="inspectorTab = 'authority'">DVR Authority</button></div>
-        <template v-if="inspectorTab === 'authority'"><DvrAuthorityInspector :match="match" :capture="selectedCapture" :descriptor="descriptor" :anchor="authoritativeAnchor" :status="dvr.status.value" /></template>
+        <template v-if="inspectorTab === 'authority'"><LazyDvrAuthorityInspector :match="match" :capture="selectedCapture" :descriptor="descriptor" :anchor="authoritativeAnchor" :status="dvr.status.value" /></template>
         <template v-else>
           <div class="inspector-heading"><div><strong>{{ state.toLowerCase() }}</strong><span>revision {{ annotation.snapshot.value?.revision ?? '0' }}</span></div><span>{{ annotation.snapshot.value?.snapshot.score_resolution ?? 'pending' }}<template v-if="annotation.snapshot.value?.snapshot.scoring_court_side"> / {{ annotation.snapshot.value.snapshot.scoring_court_side }}</template></span></div>
           <div class="section-title"><span>目前 Rally keypoints</span><b>{{ annotation.snapshot.value?.snapshot.key_points.length ?? 0 }}</b></div>
@@ -291,8 +291,8 @@ onBeforeUnmount(() => {
 
     <p v-if="loadError || annotation.error.value" class="global-error">{{ loadError ?? annotation.error.value }} <button type="button" @click="loadError ? loadMatch() : annotation.refreshActive()">重試</button></p>
     <p v-if="annotation.pendingCount.value" class="outbox-banner" :class="{ confirm: annotation.outboxNeedsConfirmation.value }"><span>{{ annotation.outboxNeedsConfirmation.value ? '伺服器狀態已變更；請捨棄後在目前畫格重新操作。' : '操作已保存在本機，恢復連線後會以相同 command ID 送出。' }}</span><button type="button" @click="annotation.discardPending">捨棄並同步</button></p>
-    <AnnotationSettingsDialog :open="settingsOpen" @close="settingsOpen = false" />
-    <CaptureControlDialog :open="captureDialogOpen" :match-id="matchId" :captures="match?.captureSessions ?? []" @close="captureDialogOpen = false" @changed="loadMatch" />
+    <LazyAnnotationSettingsDialog v-if="settingsOpen" :open="settingsOpen" @close="settingsOpen = false" />
+    <LazyCaptureControlDialog v-if="captureDialogOpen" :open="captureDialogOpen" :match-id="matchId" :captures="match?.captureSessions ?? []" @close="captureDialogOpen = false" @changed="loadMatch" />
   </section>
 </template>
 

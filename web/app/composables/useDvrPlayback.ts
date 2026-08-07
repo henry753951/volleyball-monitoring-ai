@@ -1,4 +1,4 @@
-import Hls from 'hls.js'
+import type Hls from 'hls.js/light'
 import type { PlaybackWindowDescriptor } from './usePlaybackCursor'
 import { captureTimeToPlayerSeconds, isCaptureTimeWithinWindow } from '../utils/playbackWindow'
 import { boundedPlayerMediaSeconds } from '../utils/playerMediaTime'
@@ -30,9 +30,14 @@ export function useDvrPlayback(video: Ref<HTMLVideoElement | null>) {
           element.addEventListener('loadedmetadata', () => resolve(), { once: true })
           element.addEventListener('error', () => reject(new Error('native HLS failed to load')), { once: true })
         })
-      } else if (Hls.isSupported()) {
+      } else {
+        // Keep the desktop HLS engine out of the Coach/PWA shell and load it only
+        // when a non-native browser actually attaches a bounded DVR window.
+        const { default: HlsRuntime } = await import('hls.js/light')
+        if (currentGeneration !== generation) return
+        if (!HlsRuntime.isSupported()) throw new Error('HLS playback is not supported by this browser')
         // Full DVR stays on the server. One manifest exposes only a bounded playback window.
-        hls = new Hls({
+        hls = new HlsRuntime({
           maxBufferLength: 120,
           maxMaxBufferLength: 180,
           backBufferLength: 90,
@@ -42,13 +47,11 @@ export function useDvrPlayback(video: Ref<HTMLVideoElement | null>) {
         hls.loadSource(descriptor.manifest_url)
         hls.attachMedia(element)
         await new Promise<void>((resolve, reject) => {
-          hls!.once(Hls.Events.MANIFEST_PARSED, () => resolve())
-          hls!.on(Hls.Events.ERROR, (_event, data) => {
+          hls!.once(HlsRuntime.Events.MANIFEST_PARSED, () => resolve())
+          hls!.on(HlsRuntime.Events.ERROR, (_event, data) => {
             if (data.fatal) reject(new Error(data.details))
           })
         })
-      } else {
-        throw new Error('HLS playback is not supported by this browser')
       }
 
       if (currentGeneration !== generation) return

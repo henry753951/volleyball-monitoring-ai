@@ -3,7 +3,7 @@ a60955c8ffbec8a3999078369e0e57af39528b53f1bbbcb2593d25d2add1ea05  ./.codex/agent
 03c21ebf7720d5ac745a3db92bc355c47d4c399585f718e032612b47c1ebb2cd  ./.codex/agents/luna-worker.toml
 301580df4adbbcc2e9ff480855e7675ea4ee84c41844976ea258371cdade2b36  ./.codex/config.toml
 e5fa572d1c805f0e6efa435cc2a5491133442c54f2c50b93a1da09d80d589d7e  ./.dockerignore
-accba71a1e1ddf65ca4e2a61e5ee4a8c2975b45f520a30e5eb78ec18f5c38e69  ./.env.example
+4e7aafd836745d9439c2101273de01a643174b45ab7fbf6a621ff8402f8cc445  ./.env.example
 e9c3f3770b4892a787f1e25d819ae8fb58893cfe0df99eb7805f02fdcc00797c  ./.github/workflows/ci.yml
 39140bd06cff4ea1313167600482da0ed61c66edf41f628d92d74fc793ac547b  ./.gitignore
 88eb46eb1c40f931995c83dd4650aa044c0c9156594b79367e256d7ef133d282  ./AGENTS.md
@@ -19,7 +19,7 @@ f89eeb7275a290523037b4e662ed059ecc6c49dac6cfeb9e5470a97743eb08a2  ./docs/IMPLEME
 e6c02ed30df0282dc72794bb100e206781a59343aaa404f1723f7140321d49f0  ./docs/LUNA_WORKER_SETUP_PROMPT.md
 819eeaac360afc897d40db9e9d9dca15bec250a53963ce98a326e210eaa4bc21  ./docs/MAIN_AGENT_PROMPT.md
 de7c26443d11da676d470234b765281d7d17de5d2cd7147c68fbe22137c598d5  ./docs/MASTER_IMPLEMENTATION_SPEC.md
-67f2282c731451586491e478d8f69bbbf98c63117c2cefb98009ee18aec40b95  ./docs/OPERATIONS_RUNBOOK.md
+dc45f1ebef65f5676eac4c55db19d2408fc304608e2d20045b9759dd4c059dec  ./docs/OPERATIONS_RUNBOOK.md
 876f0b2c2c1396f0ee64f4b1d6032d4992e8159a1ae94e7b48ab87f1d5a5fbca  ./docs/REFERENCE_EDITOR_AUDIT.md
 de7c26443d11da676d470234b765281d7d17de5d2cd7147c68fbe22137c598d5  ./docs/SYSTEM_SPEC_V3_2.md
 da7a83cd776b22cdbac954f743832e009f57577ed8142bbd9739ae72ddb1627d  ./docs/SYSTEM_SPEC_V3_2.pdf
@@ -38,18 +38,19 @@ d487f0e033a6cc4d7cf6d0b058b0899f4b7a23fb0d75981e669ea84a3ee99cad  ./docs/adr/000
 13f53a66b5ac38eca9b0dfdd3f2cd688d66aa8aab33f52f5acba1ea845ce5a90  ./docs/adr/0011-saved-analysis-views.md
 8dd605c47e304131ea1f0dd08f42025d4102eae37fc95bef08058f1fea9f2c1e  ./docs/adr/0012-immutable-score-corrections.md
 de376c790b3f7624d275cd8d6882725028d5264710ede7d748ad38304fee5c6a  ./docs/open-decisions.md
-fa419820b4f5853590e2e2b14eb098483f723624394a5c96c3a01c6ee74f798e  ./docs/progress.md
+f6984c007436a196e4db31a02bd32c7b7071f52d1c3740b20e5f1aaac33e14de  ./docs/progress.md
 2cb5dbd1cbdce6971a5f498db28bc74c43560d511eb79658ad3ee95aa26aea77  ./docs/requirements-matrix.md
 e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  ./examples/__init__.py
 cff7ceef7d9b68faa2d2e401530659d7142df6504d99c884ba2abd7606d18911  ./examples/fake_ai_provider/README.md
 e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  ./examples/fake_ai_provider/__init__.py
 ab317c0dcdd21324943ac9d29b7aa00b8916f8c2b08ab708b0634b6c9aa41b19  ./examples/fake_ai_provider/app.py
-f8c615f39cd227d99c93ef76f4d026104c34ed84f70c0cf3a3683814907ee2dd  ./infra/compose.yaml
+75b0ba8102083796ce10e87867a13ebd7cf711c4792afa9b2a7b1eeac8eec21a  ./infra/compose.yaml
 93b568be788cd3bd191c84998fd88fd5118d39655cf408ef9f2fd8f96ed57813  ./infra/docker/fake-ai-provider.Dockerfile
 2305b3f1aff32fe2780e955fb5a7a034abf355d00cbba7c53171232b623efeee  ./infra/docker/mediamtx.Dockerfile
 53cbbca3d1f27abc42227fa5241fe071e2bf8ba302fa91194f802c7e7dc57c77  ./infra/docker/server.Dockerfile
 818ad0a9ef3bf445375da1e99858c7b2c1acff9f6f91402e3d2f4aaf770ef0e6  ./infra/docker/web.Dockerfile
 453b664bb7a2124442997c4acc5b2e8d9fcfdf7822530899a2542a5436044566  ./infra/docker/worker.Dockerfile
+6eaf81df886eea1eac82e44a3ffabc6930b87a8f3e9aa32b44ce48d5a0da560c  ./infra/docker/youtube-relay.Dockerfile
 0daaf7bc654d18b79797bbfea9990fa94a85cedb2eff3a502d74fa5ad7539c42  ./infra/k8s/README.md
 e02e485f7b3e51db252c8b25444912c387141f59b6f7e1fca889caa55a5be817  ./infra/mediamtx/hook_client.py
 103381ff84b3f06f8a17fe68c59de3f73ebe9c7e88487509a64c98d13398c926  ./infra/mediamtx/mediamtx.yml
@@ -57,6 +58,7 @@ e02e485f7b3e51db252c8b25444912c387141f59b6f7e1fca889caa55a5be817  ./infra/mediam
 e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  ./infra/traefik/certs/.gitkeep
 e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  ./infra/traefik/dynamic/.gitkeep
 771edc8add5f08a1249dbf4dac8d377d5adaaf525042816d426a42e2f60c5c0b  ./infra/traefik/traefik.yml
+f13a4e7f6b8c705fb47bd11fccd1a750da92d5ccb65410c7c100a438b3ecdc81  ./infra/youtube-relay/entrypoint.sh
 a45ccf5110e6057d58bed368d5f42ea0facd838c40694795598af9e2cef89fec  ./package.json
 04b683eecc6124fa3932011fcd327b60f892fa92a5753b5cfb3d99a3f7d03287  ./packages/contracts/README.md
 0e7abaf4e0d2857450ff0481e1916112bff2c1a8d8e44f2bcc1351738c7861b3  ./packages/contracts/ai/callback.schema.json
@@ -167,7 +169,7 @@ a82435e5ab180dcc5efef654ef6f7d0e3229b9825aabb8136ca5a306b9c0fbc6  ./scripts/refr
 219c3d44c793d14409e50d742ed0bc0e12d369edb11d81b3e1acba5b11f43069  ./scripts/validate_graphql_operations.mjs
 b9fa14c4c3b7943617817de8cd95f0bbd052dd91ec330a9ad22f7882980f039c  ./scripts/validate_prisma_structure.py
 eac12ac662b7744f8fd85c2ef6995d25159c9125ed35bd1ef7f247d211f9a137  ./scripts/validate_scaffold.py
-5d801341cdd0500020e523d103e2eab682d71dceb8aea2ad9b87f77d0abeb0d4  ./scripts/validate_typescript_syntax.mjs
+94f7080908f6f8975db6e71d7040382da47c27e059bd1d3196286b7a54af8ef0  ./scripts/validate_typescript_syntax.mjs
 0b54af4b4e94f408ecc0b15e11f261b4ebbec19160159195162f47bdc5f2e4d5  ./scripts/verify-e2e.sh
 d2a2998ed7aceda8da3eb810d7e60375c4b36380ee61097eb24a76364c7120c4  ./sdk/README.md
 faf78c830ad1ef8b1214a2f83ea7f57703ae082918301f59aef9f02f0753051b  ./sdk/examples/provider_app.py
@@ -280,7 +282,7 @@ bc1c455dae53d578d8ea1af629a2e582d71ca64a73073b0d8dfb032b29f1f5e6  ./web/app/comp
 a833d209d517702d6e4cb62d19132c0ff4b294ed8ddc60e901337440e1495d88  ./web/app/composables/useCoachMatchState.ts
 6b7b9b1cf46ef22c4d5d5e8e131f077b3114cd3c3ae0b386d73812faf0ec0758  ./web/app/composables/useCoreDomain.ts
 ba626e2119ffb5adbcda1dd6bbe5207db7825bb8139e1b866c7c74018198f272  ./web/app/composables/useDvrPlayback.test.ts
-27a10565c6119791f296727adc9718cf627327e8f628b9d7839f1c52dbf2902b  ./web/app/composables/useDvrPlayback.ts
+df37fe3260bcf9aeef104df53625c26d2d868e1a978469b449975089772ee18d  ./web/app/composables/useDvrPlayback.ts
 00dfc152903d56de456cab9827ca22f515dd62f23f70c2b76ac4a27b6766d555  ./web/app/composables/useOverlayChunks.ts
 d832d151a1899efd3414e029d724b78f032cd4a46eeb221e02f0632f5bd68d03  ./web/app/composables/usePlaybackCursor.ts
 3ab296cfb7591dd917975784dcffd68f883d731f1166c1e0b2c7e1e207eaa468  ./web/app/composables/usePublicEndpoints.ts
@@ -301,7 +303,7 @@ d4b1c2e4fa79f412cd9ff497c5cf7d9090f22de1e4c0e07e150664f8d74287dc  ./web/app/lib/
 cba670333ab1e0c411c488d0f3517da77337ca9c256ef9eaae31df1d6c9c3d6d  ./web/app/lib/playbackWindowCache.test.ts
 adee2ce860eff55e9be95c2feaabea259ae161fb138efc484051980767938b22  ./web/app/lib/playbackWindowCache.ts
 52fe16f81674ddd4727c93d95986be02908b5bb247fcca16e04f5c2aba4a1ccb  ./web/app/middleware/auth.global.ts
-ec095d7ef15d1fe79ee24be588d034a70028f11000d9270a14c758679c8e9f54  ./web/app/pages/annotate/[matchId].vue
+94fc7651c9badbe875d0a7dabd8c1dc212c9ebfd3c4fdca54a9a1170b1fa6970  ./web/app/pages/annotate/[matchId].vue
 d9b5b461a45f621ee67d3ca3880be7ec6e709ceafc596e23efad1013b6965304  ./web/app/pages/index.vue
 74182a667cefb8446962dbc917aaf6f5a56d1ddd9a835a72c365ca9cf44d50f4  ./web/app/pages/matches/[matchId]/history.vue
 5c84248253cac4256f3c6f67d86a6745e8e8acc6e9bf0af9b81b7e5ed19fea0f  ./web/app/pages/matches/[matchId]/live.vue
@@ -311,6 +313,7 @@ dc382c4c2b1a18559ba317965b00e9c577579e37601cefa5df2bb5d3b3bc4242  ./web/app/page
 583d156af0fa61f7d7e736fcd126e33f94fecce17c22499e3f8f0bcfbf838d12  ./web/app/pages/matches/[matchId]/stats.vue
 3c1394023169880189e949d89982f50654c6626d19a0c128c92b13f4f4349f3b  ./web/app/pages/matches/new.vue
 67cbbd0945be0266900968be20664a4d4de7c466a85509a5dbc237e72fa56218  ./web/app/pages/settings.vue
+f0233d078e63a9721e9ef342d10c86d6bb2895cccfe9b915210cfdffd59e53eb  ./web/app/types/hls-light.d.ts
 6ced79bc782404f312333df09e3a528d5ddd6136131962c6f12b575eaebe690c  ./web/app/utils/annotationHotkeys.test.ts
 72aab88a4289bab17a94a756a63870f2e19053349344c3be63c944fbccb05362  ./web/app/utils/annotationHotkeys.ts
 4a1ec75d46e574ed894b28ec51905bd995a7cd020c53a7689f0387ae76b136d6  ./web/app/utils/authBoundary.test.ts

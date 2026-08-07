@@ -1,5 +1,17 @@
 # Progress
 
+## 2026-08-08 — Real YouTube ingest, recording and DVR replay acceptance
+
+Status: a managed optional relay is implemented and is currently feeding the local Compose stack from the supplied YouTube former-livestream URL at real-time rate.
+
+- Added the `youtube-relay` Compose profile with uv-managed pinned `yt-dlp 2026.7.4` and FFmpeg. The source URL is process-scoped rather than committed; only a caller-selected MediaMTX ingest path crosses into the central system. Active broadcasts start from their live edge, while completed livestreams run under FFmpeg `-re` as a deterministic live simulation.
+- Registered capture `754f79bd-263c-4b9d-8e5c-e9866cbb5381` for `youtube/nmtbgyfa-zm`. It reached `LIVE / HEALTHY`; MediaMTX recorded H.264/AAC fMP4 segments and the media indexer produced a live `DvrProgram` with one sample index per media segment. At the persistence probe, 42 segments covered `209,944,216` microseconds and the playlist revision was 42.
+- The authoritative playback-window REST path returned HTTP 200 with a server-bounded live manifest. Headed Chromium selected the YouTube capture automatically, rendered the actual 640×360 volleyball video, loaded an archive window at `readyState=4`, advanced playback time, observed the timeline grow by `6,006,367` microseconds during an eight-second polling interval and returned to a fresh live window. Browser console evidence was 0 errors / 0 warnings.
+- Desktop HLS now lazy-loads the light runtime only when a bounded window attaches; the authority inspector and workstation-only dialogs are lazy components. The largest HLS client chunk fell from about 508 kB to 332 kB and the large-chunk warning disappeared. The rebuilt healthy Web container repeated archive playback with the light runtime at `readyState=4`, advanced from 0.5 to 1.65 seconds and again reported no console errors or warnings.
+- The direct MediaMTX `/hls` edge currently requires its `cookieCheck=1` bootstrap query when used through the path-prefix proxy; the product Annotation flow is unaffected because it consumes authorized server-generated bounded playback windows. A production CDN/proxy deployment must preserve the MediaMTX HLS session query/cookie behavior rather than exposing raw full-DVR media.
+
+The relay and Docker stack remain running for user testing. Recording rights and YouTube/platform terms remain operator responsibilities.
+
 ## 2026-08-08 — Annotation marker selection and authoritative frame fine-tune
 
 Status: draft key points can now be selected from the growing DVR timeline and adjusted one authoritative frame at a time from the Contract Lab workstation.
