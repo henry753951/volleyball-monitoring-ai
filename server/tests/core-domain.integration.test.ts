@@ -277,7 +277,8 @@ describe('Phase 1B GraphQL schema', () => {
   })
 
   it('resolves a member timeline from the newest program and coalesces ready segments', async () => {
-    const matchId = (await db.match.findFirstOrThrow()).id
+    const matchId = '20000000-0000-4000-8000-000000000010'
+    await db.match.create({ data: { id: matchId, title: 'Media Timeline Fixture', members: { create: { userId: operatorUser.id, role: 'OPERATOR' } } } })
     const sessionId = '20000000-0000-4000-8000-000000000001'
     const epochId = '20000000-0000-4000-8000-000000000002'
     const programOld = '20000000-0000-4000-8000-000000000003'
