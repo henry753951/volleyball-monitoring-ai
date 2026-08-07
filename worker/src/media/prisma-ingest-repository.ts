@@ -269,7 +269,9 @@ function validateReservationInput(input: FinalizedSegmentReservationInput) {
     input.timeBase.num <= 0n ||
     input.timeBase.den <= 0n ||
     input.timeBase.num > BigInt(INT32_MAX) ||
-    input.timeBase.den > BigInt(INT32_MAX)
+    input.timeBase.den > BigInt(INT32_MAX) ||
+    input.timeBase.num !== BigInt(input.programProfile.timeBaseNum) ||
+    input.timeBase.den !== BigInt(input.programProfile.timeBaseDen)
   ) {
     fail('INVALID_INPUT')
   }
@@ -1126,7 +1128,9 @@ export class PrismaIngestRepository {
       }
       const program = await tx.dvrProgram.update({
         data: {
-          status: 'LIVE',
+          status: segment.program.status === 'STARTING'
+            ? 'LIVE'
+            : segment.program.status,
           liveEdgeUs: segment.captureEndUs,
           durationUs: segment.captureEndUs - firstSegment.captureStartUs,
           playlistRevision: { increment: 1n },
@@ -1135,7 +1139,7 @@ export class PrismaIngestRepository {
       })
       await tx.captureSession.update({
         data: {
-          status: 'LIVE',
+          status: session.status === 'STARTING' ? 'LIVE' : session.status,
           health: 'HEALTHY',
           startedAt: session.startedAt ?? readyAt,
         },

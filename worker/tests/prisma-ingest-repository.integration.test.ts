@@ -299,8 +299,44 @@ describe('Prisma finalized media ingest repository', () => {
     expect(await forbiddenCounts()).toEqual(beforeForbidden)
   })
 
+  it('rejects a program/source time-base mismatch without creating persistence rows', async () => {
+    const { captureSessionId } = await createSession()
+    const input = reservationInput(captureSessionId, 'time-base-mismatch', {
+      timeBase: { num: 1n, den: 60_000n },
+    })
+
+    await expect(repository.reserveUploading(input)).rejects.toMatchObject({
+      code: 'INVALID_INPUT',
+    })
+    const [programs, epochs, assets, segments, session] = await Promise.all([
+      db.dvrProgram.count({ where: { captureSessionId } }),
+      db.captureEpoch.count({ where: { captureSessionId } }),
+      db.mediaAsset.count({ where: {
+        OR: input.artifacts.map((artifact) => ({
+          bucket: artifact.location.bucket,
+          objectKey: artifact.location.key,
+        })),
+      } }),
+      db.dvrSegment.count({
+        where: { program: { captureSessionId } },
+      }),
+      db.captureSession.findUniqueOrThrow({ where: { id: captureSessionId } }),
+    ])
+    expect({ programs, epochs, assets }).toEqual({
+      programs: 0,
+      epochs: 0,
+      assets: 0,
+    })
+    expect(segments).toBe(0)
+    expect(session).toMatchObject({
+      status: 'STARTING',
+      health: 'STARTING',
+      startedAt: null,
+    })
+  })
+
   it('records exact expectations idempotently and publishes all readiness exactly once', async () => {
-    const { captureSessionId } = await createSession('STOPPING')
+    const { captureSessionId } = await createSession()
     const reservation = await repository.reserveUploading(
       reservationInput(captureSessionId, 'publish-once'),
     )
@@ -367,6 +403,61 @@ describe('Prisma finalized media ingest repository', () => {
     await expect(db.dvrProgram.findUniqueOrThrow({ where: { id: program.id } })).resolves.toMatchObject({ playlistRevision: 1n })
   })
 
+  it('publishes a draining reservation without resurrecting stopping lifecycle state', async () => {
+    const { captureSessionId } = await createSession()
+    const reservation = await repository.reserveUploading(
+      reservationInput(captureSessionId, 'stopping-publish'),
+    )
+    const artifactExpectations = expectations(reservation)
+    await repository.recordArtifactExpectations({
+      reservation: reservation.reference,
+      artifacts: artifactExpectations,
+      sampleIndexDocument: serializeSampleIndex(reservation.sampleIndex),
+    })
+    await Promise.all([
+      db.captureSession.update({
+        data: { status: 'STOPPING' },
+        where: { id: captureSessionId },
+      }),
+      db.dvrProgram.update({
+        data: { status: 'STOPPING' },
+        where: { id: reservation.reference.dvrProgramId },
+      }),
+    ])
+
+    await expect(repository.publishReady({
+      reservation: reservation.reference,
+      verifiedArtifacts: artifactExpectations,
+    })).resolves.toEqual({
+      disposition: 'PUBLISHED',
+      readyAt: fixedReadyAt,
+      playlistRevision: 1n,
+    })
+    const [session, program, segment, assets] = await Promise.all([
+      db.captureSession.findUniqueOrThrow({ where: { id: captureSessionId } }),
+      db.dvrProgram.findUniqueOrThrow({ where: { id: reservation.reference.dvrProgramId } }),
+      db.dvrSegment.findUniqueOrThrow({ where: { id: reservation.reference.dvrSegmentId } }),
+      db.mediaAsset.findMany({
+        where: { id: { in: Object.values(reservation.artifacts).map((artifact) => artifact.id) } },
+      }),
+    ])
+    expect(session).toMatchObject({
+      status: 'STOPPING',
+      health: 'HEALTHY',
+      startedAt: fixedReadyAt,
+    })
+    expect(program).toMatchObject({
+      status: 'STOPPING',
+      playlistRevision: 1n,
+      liveEdgeUs: reservation.plan.segment.captureEndUs,
+      durationUs: reservation.plan.segment.durationUs,
+    })
+    expect(segment.readyAt).toEqual(fixedReadyAt)
+    expect(assets.every((asset) =>
+      asset.state === 'READY' && asset.readyAt?.getTime() === fixedReadyAt.getTime()
+    )).toBe(true)
+  })
+
   it('rolls back every readiness, program, epoch, and session write on a late database failure', async () => {
     const { captureSessionId } = await createSession()
     const reservation = await repository.reserveUploading(
@@ -412,7 +503,7 @@ describe('Prisma finalized media ingest repository', () => {
     }
   })
 
-  it('continues the exact VFR epoch, then opens and closes epochs for PTS reset, time-base change, restart, and gap', async () => {
+  it('continues the exact VFR epoch, then opens and closes epochs for PTS reset, restart, and gap', async () => {
     const { captureSessionId } = await createSession()
     const firstInput = reservationInput(captureSessionId, 'timeline-first')
     const first = await repository.reserveUploading(firstInput)
@@ -431,12 +522,11 @@ describe('Prisma finalized media ingest repository', () => {
     await prepareAndPublish(second)
 
     const reset = await repository.reserveUploading(reservationInput(captureSessionId, 'timeline-reset', {
-      samples: samples(-50n, [1n, 2n, 1n]),
+      samples: samples(first.plan.segment.sourcePtsStart - 100n, [1n, 2n, 1n]),
       sourceOrder: firstInput.sourceOrder + 2n,
-      timeBase: { num: 1n, den: 60n },
     }))
     expect(reset.createdNewEpoch).toBe(true)
-    expect(reset.plan.epoch.reasons).toContain('TIME_BASE_CHANGE')
+    expect(reset.plan.epoch.reasons).toContain('PTS_RESET')
     expect(reset.plan.segment.captureStartUs).toBe(second.plan.segment.captureEndUs)
     await prepareAndPublish(reset)
     await expect(db.captureEpoch.findUniqueOrThrow({ where: { id: first.captureEpochId } })).resolves.toMatchObject({
@@ -445,9 +535,8 @@ describe('Prisma finalized media ingest repository', () => {
     await expect(db.captureEpoch.findUniqueOrThrow({ where: { id: reset.captureEpochId } })).resolves.toMatchObject({ endedAtCaptureUs: null })
 
     const restart = await repository.reserveUploading(reservationInput(captureSessionId, 'timeline-restart-gap', {
-      samples: samples(-100n, [2n, 1n]),
+      samples: samples(reset.plan.segment.sourcePtsStart - 100n, [2n, 1n]),
       sourceOrder: firstInput.sourceOrder + 3n,
-      timeBase: { num: 1n, den: 60n },
       sourceRestart: true,
       timestampDiscontinuity: true,
       explicitGapBeforeUs: 250_000n,
