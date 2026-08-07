@@ -42,6 +42,7 @@ enum CaptureStatus {
   FINISHED
   FAILED
 }
+
 enum PlaybackWindowMode {
   LIVE
   ARCHIVE
@@ -198,7 +199,7 @@ model User {
   submittedRevisions   RallySubmission[]         @relation("SubmissionSubmittedBy")
   identityAssignments  TrackIdentityAssignment[]
   savedViews           SavedAnalysisView[]
-  playbackWindows      PlaybackWindow[] @relation("PlaybackWindowCreatedBy")
+  playbackWindows      PlaybackWindow[]          @relation("PlaybackWindowCreatedBy")
 }
 
 model MatchMember {
@@ -334,19 +335,19 @@ model CourtSideAssignment {
 }
 
 model CaptureSession {
-  id                    String         @id @default(uuid()) @db.Uuid
-  matchId               String         @db.Uuid
+  id                    String           @id @default(uuid()) @db.Uuid
+  matchId               String           @db.Uuid
   sourceKind            String
   sourceLabel           String?
   sourceConfigSecretRef String?
-  ingestPath            String         @unique
-  status                CaptureStatus  @default(STARTING)
-  health                SourceHealth   @default(STARTING)
+  ingestPath            String           @unique
+  status                CaptureStatus    @default(STARTING)
+  health                SourceHealth     @default(STARTING)
   startedAt             DateTime?
   endedAt               DateTime?
-  createdAt             DateTime       @default(now())
-  updatedAt             DateTime       @updatedAt
-  match                 Match          @relation(fields: [matchId], references: [id], onDelete: Cascade)
+  createdAt             DateTime         @default(now())
+  updatedAt             DateTime         @updatedAt
+  match                 Match            @relation(fields: [matchId], references: [id], onDelete: Cascade)
   programs              DvrProgram[]
   epochs                CaptureEpoch[]
   playbackWindows       PlaybackWindow[]
@@ -375,19 +376,19 @@ model CaptureEpoch {
 }
 
 model DvrProgram {
-  id               String         @id @default(uuid()) @db.Uuid
-  captureSessionId String         @db.Uuid
-  status           CaptureStatus  @default(STARTING)
-  playlistRevision BigInt         @default(0)
-  liveEdgeUs       BigInt         @default(0)
-  durationUs       BigInt         @default(0)
+  id               String           @id @default(uuid()) @db.Uuid
+  captureSessionId String           @db.Uuid
+  status           CaptureStatus    @default(STARTING)
+  playlistRevision BigInt           @default(0)
+  liveEdgeUs       BigInt           @default(0)
+  durationUs       BigInt           @default(0)
   fpsNum           Int
   fpsDen           Int
   timeBaseNum      Int
   timeBaseDen      Int
-  createdAt        DateTime       @default(now())
-  updatedAt        DateTime       @updatedAt
-  captureSession   CaptureSession @relation(fields: [captureSessionId], references: [id], onDelete: Cascade)
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+  captureSession   CaptureSession   @relation(fields: [captureSessionId], references: [id], onDelete: Cascade)
   segments         DvrSegment[]
   rallies          Rally[]
   playbackWindows  PlaybackWindow[]
@@ -420,29 +421,29 @@ model MediaAsset {
 }
 
 model DvrSegment {
-  id                    String       @id @default(uuid()) @db.Uuid
-  dvrProgramId          String       @db.Uuid
-  captureEpochId        String       @db.Uuid
-  sequenceNumber        BigInt
-  discontinuitySequence Int          @default(0)
-  captureStartUs        BigInt
-  captureEndUs          BigInt
-  sourcePtsStart        BigInt?
-  sourcePtsEnd          BigInt?
-  firstFrameIndex       BigInt?
-  frameCount            BigInt
-  durationUs            BigInt
-  isGap                 Boolean      @default(false)
-  initAssetId           String?      @db.Uuid
-  mediaAssetId          String?      @db.Uuid
-  sampleIndexAssetId    String?      @db.Uuid
-  createdAt             DateTime     @default(now())
-  readyAt               DateTime?
-  program               DvrProgram   @relation(fields: [dvrProgramId], references: [id], onDelete: Cascade)
-  captureEpoch          CaptureEpoch @relation(fields: [captureEpochId], references: [id], onDelete: Restrict)
-  initAsset             MediaAsset?  @relation("DvrInitAsset", fields: [initAssetId], references: [id], onDelete: Restrict)
-  mediaAsset            MediaAsset?  @relation("DvrMediaAsset", fields: [mediaAssetId], references: [id], onDelete: Restrict)
-  sampleIndexAsset      MediaAsset?  @relation("DvrSampleIndexAsset", fields: [sampleIndexAssetId], references: [id], onDelete: Restrict)
+  id                     String                  @id @default(uuid()) @db.Uuid
+  dvrProgramId           String                  @db.Uuid
+  captureEpochId         String                  @db.Uuid
+  sequenceNumber         BigInt
+  discontinuitySequence  Int                     @default(0)
+  captureStartUs         BigInt
+  captureEndUs           BigInt
+  sourcePtsStart         BigInt?
+  sourcePtsEnd           BigInt?
+  firstFrameIndex        BigInt?
+  frameCount             BigInt
+  durationUs             BigInt
+  isGap                  Boolean                 @default(false)
+  initAssetId            String?                 @db.Uuid
+  mediaAssetId           String?                 @db.Uuid
+  sampleIndexAssetId     String?                 @db.Uuid
+  createdAt              DateTime                @default(now())
+  readyAt                DateTime?
+  program                DvrProgram              @relation(fields: [dvrProgramId], references: [id], onDelete: Cascade)
+  captureEpoch           CaptureEpoch            @relation(fields: [captureEpochId], references: [id], onDelete: Restrict)
+  initAsset              MediaAsset?             @relation("DvrInitAsset", fields: [initAssetId], references: [id], onDelete: Restrict)
+  mediaAsset             MediaAsset?             @relation("DvrMediaAsset", fields: [mediaAssetId], references: [id], onDelete: Restrict)
+  sampleIndexAsset       MediaAsset?             @relation("DvrSampleIndexAsset", fields: [sampleIndexAssetId], references: [id], onDelete: Restrict)
   playbackWindowSegments PlaybackWindowSegment[]
 
   @@unique([dvrProgramId, sequenceNumber])
@@ -450,23 +451,24 @@ model DvrSegment {
 }
 
 model PlaybackWindow {
-  id                         String             @id @default(uuid()) @db.Uuid
-  captureSessionId           String             @db.Uuid
-  dvrProgramId               String             @db.Uuid
-  createdByUserId            String             @db.Uuid
-  mode                       PlaybackWindowMode
-  mappingVersion             Int                @default(1)
-  timelineVersion            BigInt
-  captureStartUs             BigInt
-  captureEndUs               BigInt
+  id                          String                  @id @default(uuid()) @db.Uuid
+  captureSessionId            String                  @db.Uuid
+  dvrProgramId                String                  @db.Uuid
+  createdByUserId             String                  @db.Uuid
+  mode                        PlaybackWindowMode
+  mappingVersion              Int                     @default(1)
+  timelineVersion             BigInt
+  captureStartUs              BigInt
+  captureEndUs                BigInt
   presentationOriginCaptureUs BigInt
-  targetPlayerMediaTimeUs    BigInt
-  expiresAt                  DateTime
-  createdAt                  DateTime             @default(now())
-  captureSession             CaptureSession      @relation(fields: [captureSessionId], references: [id], onDelete: Cascade)
-  dvrProgram                 DvrProgram          @relation(fields: [dvrProgramId], references: [id], onDelete: Restrict)
-  createdBy                  User                @relation("PlaybackWindowCreatedBy", fields: [createdByUserId], references: [id], onDelete: Restrict)
-  segments                   PlaybackWindowSegment[]
+  targetPlayerMediaTimeUs     BigInt
+  expiresAt                   DateTime
+  createdAt                   DateTime                @default(now())
+  captureSession              CaptureSession          @relation(fields: [captureSessionId], references: [id], onDelete: Cascade)
+  dvrProgram                  DvrProgram              @relation(fields: [dvrProgramId], references: [id], onDelete: Restrict)
+  createdBy                   User                    @relation("PlaybackWindowCreatedBy", fields: [createdByUserId], references: [id], onDelete: Restrict)
+  segments                    PlaybackWindowSegment[]
+
   @@index([captureSessionId, expiresAt])
   @@index([dvrProgramId, captureStartUs, captureEndUs])
 }
@@ -478,6 +480,7 @@ model PlaybackWindowSegment {
   sequenceIndex    Int
   playbackWindow   PlaybackWindow @relation(fields: [playbackWindowId], references: [id], onDelete: Cascade)
   dvrSegment       DvrSegment     @relation(fields: [dvrSegmentId], references: [id], onDelete: Restrict)
+
   @@unique([playbackWindowId, sequenceIndex])
   @@unique([playbackWindowId, dvrSegmentId])
 }
