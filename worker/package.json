@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@volleyball-monitoring/contracts": "workspace:*",
+    "@volleyball-monitoring/media": "workspace:*",
     "@volleyball-monitoring/db": "workspace:*",
     "pg-boss": "^12.0.0",
     "zod": "^4.4.3"
