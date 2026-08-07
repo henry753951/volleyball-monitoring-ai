@@ -5,12 +5,18 @@ import Fastify, { type FastifyReply, type FastifyRequest } from 'fastify'
 import { createYoga } from 'graphql-yoga'
 import Redis from 'ioredis'
 import { createGraphQLContext } from './graphql/context.js'
+import { configureAnnotationGraphQL } from './graphql/annotation-mutations.js'
 import { schema } from './graphql/schema.js'
 import { evaluateReadiness, type ReadinessProbe } from './health/readiness.js'
-import { mediaCursorRoutes } from './media/cursor-routes.js'
+import { createPrismaCursorWindowStore, mediaCursorRoutes } from './media/cursor-routes.js'
+import { resolvePlaybackCursor } from './media/cursor-resolution.js'
 import { createMinioObjectReaderFromEnv } from './media/minio-object-reader.js'
+import { createSampleIndexRepository } from './media/sample-index-repository.js'
 import { createPersistedSampleSnapResolver } from './media/sample-snap-resolver.js'
 import { mediaPlaybackRoutes } from './routes/media-playback.js'
+import { annotationWebSocketRoutes } from './realtime/annotation-ws.js'
+import { authenticateDevelopmentAnnotationRequest } from './realtime/auth.js'
+import { createAnnotationCommandService } from './services/annotation-command.js'
 
 const app = Fastify({ logger: true })
 const redisUrl = process.env.REDIS_URL
@@ -22,6 +28,17 @@ if (!mediaObjectReader) {
 const redis = redisUrl
   ? new Redis(redisUrl, { lazyConnect: true, connectTimeout: 1_000, maxRetriesPerRequest: 1 })
   : null
+
+const cursorDependencies = {
+  now: () => new Date(),
+  sampleIndexes: createSampleIndexRepository(db, mediaObjectReader),
+  store: createPrismaCursorWindowStore(db),
+}
+const annotationCommands = createAnnotationCommandService({
+  database: db,
+  resolveCursor: (cursor, identity) => resolvePlaybackCursor(cursor, identity, cursorDependencies),
+})
+configureAnnotationGraphQL(annotationCommands)
 
 redis?.on('error', (error) => app.log.warn({ error }, 'Redis readiness connection error'))
 
@@ -59,6 +76,10 @@ await app.register(mediaPlaybackRoutes({
   resolveSample: createPersistedSampleSnapResolver(db, mediaObjectReader),
 }))
 await app.register(mediaCursorRoutes({ objectReader: mediaObjectReader }))
+await app.register(annotationWebSocketRoutes({
+  authenticate: (request) => authenticateDevelopmentAnnotationRequest(request, db),
+  service: annotationCommands,
+}))
 
 const yoga = createYoga<{ req: FastifyRequest; reply: FastifyReply }>({
   schema,
@@ -82,28 +103,6 @@ app.get('/health/live', async () => ({ status: 'ok' }))
 app.get('/health/ready', async (_req, reply) => {
   const readiness = await evaluateReadiness(readinessProbes)
   return reply.status(readiness.status === 'ready' ? 200 : 503).send(readiness)
-})
-
-// High-frequency annotation traffic is intentionally not a GraphQL subscription.
-// Phase 3 replaces this echo scaffold with authenticated room join, durable command
-// handling, revision ACK/reject and Redis-backed fan-out.
-app.get('/ws/annotations', { websocket: true }, (socket) => {
-  socket.send(JSON.stringify({
-    schema_version: '1.1.0',
-    type: 'connection_ready',
-    note: 'annotation websocket scaffold only',
-  }))
-
-  socket.on('message', (raw) => {
-    const receivedBytes = Array.isArray(raw)
-      ? raw.reduce((total, chunk) => total + chunk.byteLength, 0)
-      : raw.byteLength
-    socket.send(JSON.stringify({
-      schema_version: '1.1.0',
-      type: 'not_implemented',
-      received_bytes: receivedBytes,
-    }))
-  })
 })
 
 // REST route groups are added as vertical slices:

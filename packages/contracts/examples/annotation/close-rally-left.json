@@ -1,9 +1,9 @@
 {
   "schema_version": "2.0.0",
-  "command_id": "cmd-close-left-001",
-  "room_id": "room-001",
+  "command_id": "80000000-0000-4000-8000-000000000101",
+  "room_id": "match:80000000-0000-4000-8000-000000000001:capture:80000000-0000-4000-8000-000000000002",
   "base_revision": "12",
-  "rally_id": "rally-001",
+  "rally_id": "80000000-0000-4000-8000-000000000100",
   "kind": "CLOSE_RALLY",
   "payload": {
     "target_key_point_id": "kp-004",
