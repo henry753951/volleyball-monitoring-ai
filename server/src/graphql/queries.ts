@@ -6,6 +6,7 @@ import {
 import { builder } from './builder.js'
 import { domainError, requireIdentity } from './errors.js'
 import { CaptureSessionType, HealthType, MatchType, ViewerType } from './types.js'
+import { getVisibleCaptureSession, loadCaptureTimeline } from '../services/media-timeline.js'
 
 builder.queryType({
   fields: (t) => ({
@@ -19,12 +20,12 @@ builder.queryType({
       args: { id: t.arg.id({ required: true }) },
       resolve: async (_root, args, context) => {
         const identity = requireIdentity(context)
-        const session = await db.captureSession.findFirst({ where: { id: args.id, match: { members: { some: { userId: identity.id } } } } })
+        const session = await getVisibleCaptureSession(args.id, identity.id, identity.role)
         if (!session) return null
         const program = await db.dvrProgram.findFirst({ where: { captureSessionId: session.id }, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }] })
         let timeline = null
         if (program) {
-          const segments = await db.dvrSegment.findMany({ where: { dvrProgramId: program.id, isGap: false, readyAt: { not: null }, initAsset: { state: 'READY' }, mediaAsset: { state: 'READY' }, sampleIndexAsset: { state: 'READY' } }, orderBy: [{ captureStartUs: 'asc' }, { sequenceNumber: 'asc' }] })
+        const segments = await db.dvrSegment.findMany({ where: { dvrProgramId: program.id, isGap: false, readyAt: { not: null }, initAsset: { state: 'READY', internalSchemaVersion: { not: null } }, mediaAsset: { state: 'READY', internalSchemaVersion: { not: null } }, sampleIndexAsset: { state: 'READY', internalSchemaVersion: { not: null } } }, orderBy: [{ captureStartUs: 'asc' }, { sequenceNumber: 'asc' }] })
           const ranges: { startUs: bigint; endUs: bigint; discontinuity: number }[] = []
           for (const segment of segments) { const previous = ranges[ranges.length - 1]; if (previous !== undefined && previous.discontinuity === segment.discontinuitySequence && previous.endUs >= segment.captureStartUs) previous.endUs = previous.endUs > segment.captureEndUs ? previous.endUs : segment.captureEndUs; else ranges.push({ startUs: segment.captureStartUs, endUs: segment.captureEndUs, discontinuity: segment.discontinuitySequence }) }
           if (ranges.length) timeline = { captureSessionId: session.id, timelineVersion: program.playlistRevision, captureStartTimeUs: ranges[0]!.startUs, liveEdgeCaptureTimeUs: ranges[ranges.length - 1]!.endUs, availableRanges: ranges }

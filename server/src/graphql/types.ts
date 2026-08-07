@@ -156,9 +156,11 @@ async function teamsForMatch(matchId: string): Promise<Team[]> {
 }
 
 export const MatchType = builder.objectRef<Match>('Match')
+export const CaptureSessionType = builder.objectRef<CaptureSessionView>('CaptureSession')
 MatchType.implement({
   fields: (t) => ({
     id: t.exposeID('id'),
+    captureSessions: t.field({ type: [CaptureSessionType], resolve: (match) => import('../services/media-timeline.js').then(({ listCaptureSessionsForMatch }) => listCaptureSessionsForMatch(match.id)) }),
     rosterEntries: t.field({
       type: [MatchRosterEntryType],
       resolve: (match) => db.matchRosterEntry.findMany({
@@ -192,5 +194,4 @@ export const CaptureTimelineRangeType = builder.objectRef<CaptureTimelineRange>(
 CaptureTimelineRangeType.implement({ fields: (t) => ({ startUs: t.field({ type: 'BigInt', resolve: (r) => r.startUs }), endUs: t.field({ type: 'BigInt', resolve: (r) => r.endUs }), discontinuity: t.exposeInt('discontinuity') }) })
 export const CaptureTimelineType = builder.objectRef<CaptureTimeline>('CaptureTimeline')
 CaptureTimelineType.implement({ fields: (t) => ({ captureSessionId: t.exposeID('captureSessionId'), timelineVersion: t.field({ type: 'BigInt', resolve: (r) => r.timelineVersion }), captureStartTimeUs: t.field({ type: 'BigInt', resolve: (r) => r.captureStartTimeUs }), liveEdgeCaptureTimeUs: t.field({ type: 'BigInt', nullable: true, resolve: (r) => r.liveEdgeCaptureTimeUs }), availableRanges: t.field({ type: [CaptureTimelineRangeType], resolve: (r) => r.availableRanges }) }) })
-export const CaptureSessionType = builder.objectRef<CaptureSessionView>('CaptureSession')
 CaptureSessionType.implement({ fields: (t) => ({ id: t.exposeID('id'), matchId: t.exposeID('matchId'), sourceLabel: t.exposeString('sourceLabel', { nullable: true }), status: t.field({ type: CaptureStatusType, resolve: (r) => r.status }), health: t.field({ type: SourceHealthType, resolve: (r) => r.health }), startedAt: t.field({ type: 'DateTime', nullable: true, resolve: (r) => r.startedAt }), endedAt: t.field({ type: 'DateTime', nullable: true, resolve: (r) => r.endedAt }), timeline: t.field({ type: CaptureTimelineType, nullable: true, resolve: (r) => r.timeline }) }) })
