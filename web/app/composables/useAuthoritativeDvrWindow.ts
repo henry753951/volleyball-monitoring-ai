@@ -9,6 +9,8 @@ export function frameRecovery(code: string) {
   if (code === 'SAMPLE_NOT_FOUND' || code === 'CAPTURE_GAP') return 'blocked'
   return 'error'
 }
+export function boundedPlayerSeconds(playerUs: string) { const value = BigInt(playerUs); if (value < 0n || value > 86_400_000_000n) throw new RangeError('unbounded player time'); return Number(value) / 1_000_000 }
+export function frameCommandEnabled(input: { descriptor: boolean; anchor: boolean; cursorReady: boolean; busy: boolean; recovering: boolean }) { return input.descriptor && input.anchor && input.cursorReady && !input.busy && !input.recovering }
 export function useAuthoritativeDvrWindow(client: MediaClient) {
   const current = shallowRef<PlaybackWindowDescriptor | null>(null)
   const cache = reactive<{ previous: PlaybackWindowDescriptor | null; current: PlaybackWindowDescriptor | null; next: PlaybackWindowDescriptor | null }>({ previous: null, current: null, next: null })
