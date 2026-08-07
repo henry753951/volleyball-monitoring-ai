@@ -482,14 +482,14 @@ describe('durable service annotation command', () => {
 
   it('inserts a contact in canonical middle order under the rally lock', async () => {
     const rallyId = randomUUID(); await service.apply(serviceCommand(randomUUID(), rallyId), identity)
-    const early = { ...anchor, capture_time_us: '9007199254740800', capture_frame_index: '9007199254740900' }
+    const early = { ...anchor, capture_time_us: '9007199254740994', capture_frame_index: '9007199254740995' }
     const late = { ...anchor, capture_time_us: '9007199254741100', capture_frame_index: '9007199254741101' }
     const resolver = createAnnotationCommandService({ database: db, resolveCursor: async (cursor) => cursor.player_media_time_us === '1' ? early : late })
     const first = contactCommand(randomUUID(), rallyId); first.payload.playback_cursor.player_media_time_us = '1'; await resolver.apply(first, identity)
     const second = contactCommand(randomUUID(), rallyId, '2'); second.payload.playback_cursor.player_media_time_us = '2'; await resolver.apply(second, identity)
-    const middle = { ...anchor, capture_time_us: '9007199254741000', capture_frame_index: '9007199254741000' }
+    const middle = { ...anchor, capture_time_us: '9007199254741050', capture_frame_index: '9007199254741050' }
     const middleService = createAnnotationCommandService({ database: db, resolveCursor: async () => middle }); await middleService.apply(contactCommand(randomUUID(), rallyId, '3'), identity)
-    await expect(db.keyPoint.findMany({ where: { rallyId }, orderBy: { sequenceIndex: 'asc' }, select: { markerKind: true, sequenceIndex: true, captureTimeUs: true } })).resolves.toEqual([{ markerKind: 'SERVICE', sequenceIndex: 0, captureTimeUs: 9007199254740993n }, { markerKind: 'CONTACT', sequenceIndex: 1, captureTimeUs: 9007199254740800n }, { markerKind: 'CONTACT', sequenceIndex: 2, captureTimeUs: 9007199254741000n }, { markerKind: 'CONTACT', sequenceIndex: 3, captureTimeUs: 9007199254741100n }])
+    await expect(db.keyPoint.findMany({ where: { rallyId }, orderBy: { sequenceIndex: 'asc' }, select: { markerKind: true, sequenceIndex: true, captureTimeUs: true } })).resolves.toEqual([{ markerKind: 'SERVICE', sequenceIndex: 0, captureTimeUs: 9007199254740993n }, { markerKind: 'CONTACT', sequenceIndex: 1, captureTimeUs: 9007199254740994n }, { markerKind: 'CONTACT', sequenceIndex: 2, captureTimeUs: 9007199254741050n }, { markerKind: 'CONTACT', sequenceIndex: 3, captureTimeUs: 9007199254741100n }])
   })
 
   it.each(['left', 'right', 'unknown'] as const)('closes with %s outcome without creating forbidden rows', async (outcome) => {
