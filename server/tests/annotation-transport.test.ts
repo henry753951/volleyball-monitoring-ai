@@ -59,6 +59,8 @@ function fakeService(seen: unknown[]): AnnotationCommandService {
   return {
     async apply(value, annotationIdentity) {
       seen.push({ annotationIdentity, value })
+      if (value.kind === 'CLOSE_RALLY') return { ...response, operation_kind: 'CLOSE_RALLY', resolved_anchor: null, effects: { terminal_key_point_id: keyPointId, annotation_status: 'ready', score_resolution: 'unknown', scoring_court_side: null } } as AnnotationCommandResponse
+      if (value.kind === 'CREATE_CONTACT_KEY_POINT') return { ...response, operation_kind: 'CREATE_CONTACT_KEY_POINT' } as AnnotationCommandResponse
       return response
     },
     async authorizeRoom(value) {
@@ -136,6 +138,17 @@ describe('annotation transport adapters', () => {
     const noncanonical = await noncanonicalFetch.json() as { errors: Array<{ extensions: { code: string } }> }
     expect(noncanonical.errors[0]?.extensions.code).toBe('BAD_USER_INPUT')
     expect(seen).toHaveLength(1)
+
+    for (const variant of [
+      { ...command, kind: 'CREATE_CONTACT_KEY_POINT', base_revision: '1' as const },
+      { ...command, kind: 'CLOSE_RALLY', base_revision: '1' as const, payload: { target_key_point_id: keyPointId, score_resolution: 'unknown' as const, scoring_court_side: null } },
+    ]) {
+      const r = await Promise.resolve(yoga.fetch('http://localhost/graphql', { body: JSON.stringify({ query: 'mutation Apply($command: JSON!) { applyAnnotationCommand(command: $command) }', variables: { command: variant } }), headers: { 'content-type': 'application/json' }, method: 'POST' }))
+      const body = await r.json() as { data: { applyAnnotationCommand: AnnotationCommandResponse } }
+      expect(body.data.applyAnnotationCommand.operation_kind).toBe(variant.kind)
+      if (variant.kind === 'CLOSE_RALLY') expect(body.data.applyAnnotationCommand.resolved_anchor).toBeNull()
+    }
+    expect(seen).toHaveLength(3)
   })
 
   it('authorizes the WS room before ready and sends the same committed response', async () => {
