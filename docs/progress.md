@@ -1,5 +1,12 @@
 # Progress
 
+## 2026-08-07 — Phase 3 backend checkpoint
+
+Status: Phase 3A service, Phase 3B contact/atomic close and the Phase 3C immutable-submit implementation are consolidated on `integration/phase3-annotation`. Phase 3C merged through [PR #33](https://github.com/henry753951/volleyball-monitoring-ai/pull/33) after all three CI jobs passed. This is a development checkpoint, not final product acceptance; remaining implementation now continues directly without subagents.
+
+- Enter/`SUBMIT_RALLY` now creates immutable submission/key-point snapshots, freezes side/outcome/score/clip policy, updates the resolved score ledger with one `PointAward` or preserves explicit unknown nulls, queues one canonical clip job and transitions the Rally to SUBMITTED/CLIP_QUEUED in one serializable transaction.
+- Existing server tests (158), server typecheck, checksum/scaffold gates and PR CI are green. The interrupted additional Phase 3C test expansion is intentionally not claimed; the user will lead broader manual testing while direct implementation proceeds.
+
 ## 2026-08-07 — Phase 3B contact, atomic close and snapshot
 
 Status: Space/contact, `<`/`>`/`?` atomic close/outcome, the authorized rally snapshot and both annotation transports passed main-Agent review and merged into `integration/phase3-annotation` through [PR #31](https://github.com/henry753951/volleyball-monitoring-ai/pull/31). The focused WebSocket transport tests were independently reviewed and merged into the feature branch through [PR #32](https://github.com/henry753951/volleyball-monitoring-ai/pull/32).

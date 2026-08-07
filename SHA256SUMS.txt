@@ -31,7 +31,7 @@ aa7a685a1d883a563ad793b642317d5979598639f9509f79a164ddf587931b98  ./docs/adr/000
 a765ca000317842dbf228d7b97932095335b992ff820d09d88cdebe56811455f  ./docs/adr/0005-phase-2a-media-truth.md
 dae65b5e8e3b490bea935086dfe7f7bde3958d55d911206bf15be09c129413be  ./docs/adr/0006-phase-3-durable-annotation.md
 de376c790b3f7624d275cd8d6882725028d5264710ede7d748ad38304fee5c6a  ./docs/open-decisions.md
-d84d13061992178b7c33f7b5b0ff0bf13e7dfb73c11b8d21aee014423ffb54d7  ./docs/progress.md
+7f400b2954dfae1b41318cf390da460a942bfee9486a38be24c5cc0753110d20  ./docs/progress.md
 0d3bc482dac156b1106108864ed89206274bdf81d7131e4726f2fa83255067af  ./docs/requirements-matrix.md
 e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  ./examples/__init__.py
 cff7ceef7d9b68faa2d2e401530659d7142df6504d99c884ba2abd7606d18911  ./examples/fake_ai_provider/README.md
@@ -160,8 +160,10 @@ a64ca574ae904b2592362539b39d2960bab51366d0d35b1843a244a26892c5ce  ./sdk/src/voll
 fe4c07e2586c87652f60c341475b70a7b33647bdc5b6601fa60cb069cd093f8e  ./sdk/tests/test_contracts.py
 9f6ccbd1732c9261a356dc646bf9aceb108be4e9bb63138a6ca652bf35aeb22c  ./sdk/uv.lock
 5ac642043813eecd7279b7b78961c6830c572e4eb6410ded19516e352a0793de  ./server/package.json
+cd936cf98920ad0869ea507c39f465f5c966c53a5d90dafa950648ddec3e446f  ./server/src/config/clip-policy.ts
 b85718f7c080c3d99a4d9544eb865fdad2f32100ebbe2fb5f2d13d49b799e647  ./server/src/domain/annotation-state.ts
 ad8bb87a764c67b2d144a7ff8b478c57b49b29414a2b5354d8c7c2a92c497552  ./server/src/domain/annotation/room.ts
+b975d9d00f7cf0f5b136cd3fc2cc347ffa51414431521dacb89dce1438d49d3d  ./server/src/domain/annotation/submission.ts
 b1d09717920ad3afd102f5b17e4e8c51c60bbf75c2b2a73cc0f44aded729bb0c  ./server/src/graphql/README.md
 fa19cb1261223ce2d11ae4dc89cc61a1bbd8953e5f6d7725f0962a9d9674c9f7  ./server/src/graphql/annotation-mutations.ts
 049ab1eb31a8e5a642640019e7c13c82fcbeae1aa10fd842c1b3a7b4efcd0db2  ./server/src/graphql/annotation-queries.ts
@@ -188,7 +190,7 @@ e024c78dc2a75812078615c09be3fe957317de3cbc7318cd76040a74ab2cf4e7  ./server/src/r
 dc6593e629b1729b2b00823cb32907931b6cf9e9f55d41c10f5235b23bbdcb88  ./server/src/routes/README.md
 de68ecb888d1021577a49bfa49d8816a2519469916b2ac2012c32a50a6cf603a  ./server/src/routes/media-playback.ts
 29dc8ee62da32da243cba2f0c90575ba5e1cea4c36a2d392ab96360c6c926812  ./server/src/services/README.md
-eca7bbbf551ec54e244f132e1f5e73ac506b72cfa7b7de99fc0299c1858f49dc  ./server/src/services/annotation-command.ts
+a69340dc19910774f398bcf3db74292ad731871a1d288f51334517a4257af5ba  ./server/src/services/annotation-command.ts
 bdd0fb1533da60d00c6c5f73f99829746b7f8e28042a043432483cd382320570  ./server/src/services/annotation-snapshot.ts
 8dc71ffa14f45fe80a7f034fbc4ca591f2533bd421a092892f52997781fc9b33  ./server/src/services/core-domain.ts
 cf5dd4148b435f01ef0a25839ddb8213159a8b16858161622d8bed4cadee56db  ./server/src/services/media-timeline.ts
