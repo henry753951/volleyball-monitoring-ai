@@ -1,0 +1,3 @@
+{
+  "schema_version": "1.0.0", "playback_window_id": "window-001", "capture_session_id": "capture-001", "capture_epoch_id": "epoch-002", "dvr_segment_id": null, "source_pts": "-9007199254740993", "source_time_base": {"num": 1, "den": 60000}, "capture_time_us": "9007199254741993", "capture_frame_index": "9007199254741994", "resolved_player_media_time_us": "9007199254740993", "mapping_version": 3, "snap_distance_us": null, "timing_precision": "pts_exact"
+}
