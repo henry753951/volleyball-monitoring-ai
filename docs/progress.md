@@ -1,5 +1,13 @@
 # Progress
 
+## 2026-08-08 — AI callback hardening acceptance
+
+Status: the Phase 7 callback duplicate/retry/error matrix is now exercised against an isolated migrated PostgreSQL database through the real Fastify REST route.
+
+- Added seven callback integration cases covering persisted processing progress, identical callback-ID replay, conflicting payload reuse, expired job-scoped token, checksum mismatch, invalid public metadata, invalid VOV1 FlatBuffer and the bounded analysis-part limit. Rejected callbacks create neither receipts nor AnalysisRuns; an identical retry returns the original persisted response and retains one receipt.
+- Corrected `docs/requirements-matrix.md`, which still described the already runtime-proven Clip/AI and Coach Phase 4–6 slices as scaffolded. The matrix now separates verified local product behavior from production provider, identity/TLS, retention, off-host backup and physical-iPad acceptance.
+- Focused callback acceptance passed `7/7`. Production retention durations remain an explicit human decision and no destructive lifecycle default was introduced.
+
 ## 2026-08-07 — Capture lifecycle and processing retry completion
 
 Status: the remaining `startCapture`, `stopCapture` and `retryProcessing` GraphQL mutations are implemented with operator UI and durable job semantics.

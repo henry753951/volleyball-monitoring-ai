@@ -38,8 +38,8 @@ d487f0e033a6cc4d7cf6d0b058b0899f4b7a23fb0d75981e669ea84a3ee99cad  ./docs/adr/000
 13f53a66b5ac38eca9b0dfdd3f2cd688d66aa8aab33f52f5acba1ea845ce5a90  ./docs/adr/0011-saved-analysis-views.md
 8dd605c47e304131ea1f0dd08f42025d4102eae37fc95bef08058f1fea9f2c1e  ./docs/adr/0012-immutable-score-corrections.md
 de376c790b3f7624d275cd8d6882725028d5264710ede7d748ad38304fee5c6a  ./docs/open-decisions.md
-aff9fb408bfdb9285f62d2c1784fbb503a7908b92a8f89351dfea04508764a23  ./docs/progress.md
-60a3b88ebfa781b73209a39a324aa7131a5c90a553ad024954c46aa7da10b86a  ./docs/requirements-matrix.md
+a1b88cff5660289d9475923733157ae593ab47b91fcb30c7bc16840fb1dc2d72  ./docs/progress.md
+db08c5c929be168503375aceb6d7f87c9250c348607569d80ab0cb2eb5aedcec  ./docs/requirements-matrix.md
 e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  ./examples/__init__.py
 cff7ceef7d9b68faa2d2e401530659d7142df6504d99c884ba2abd7606d18911  ./examples/fake_ai_provider/README.md
 e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  ./examples/fake_ai_provider/__init__.py
@@ -109,8 +109,11 @@ b5915c898dde12c4b6ebce31aeccaf5f1e7089ca1548149cafe1569073c6a11c  ./packages/con
 c65c8364a35975f5ebb9e229e931ab8a1295d5e670ddbcc4da2fb5b9468b4970  ./packages/contracts/graphql/operations/coach-rally-replay.graphql
 3671dc069b0b21b899eac9c9f8551d792a93a2fe0c693b5610578f1acfb4d20e  ./packages/contracts/graphql/operations/create-correction-draft.graphql
 0b83eda11270d137a0bde40b291f2a991dbd2b801b79d0804e3ac2b460244604  ./packages/contracts/graphql/operations/health.graphql
+893b33b03bd3a3d2463c8cf530bb4057ce81437b123f18b1617675a4e5a7a673  ./packages/contracts/graphql/operations/retry-processing.graphql
 81b5e821381341ff1343afd0feb9095df8284d73bbd96edc426c5b4ae26ce424  ./packages/contracts/graphql/operations/save-analysis-view.graphql
 a3b0d56fa5a08f504c4b2dc1a93b6477ba97c1e9b286921cfc3891a8c6535823  ./packages/contracts/graphql/operations/saved-analysis-views.graphql
+1854a20ad0a3eb4c14843a8f008ec15cb896f0aca2025c5c13276d49bca8de38  ./packages/contracts/graphql/operations/start-capture.graphql
+93028d83e7307b459ac117e2232c6f71e8c215f5b8e58e153ecede03dec1bfd7  ./packages/contracts/graphql/operations/stop-capture.graphql
 9140381f9d5f287854ec31fa1a621903fb6336f832d32e8033e0f19b164a3c1f  ./packages/contracts/graphql/schema.graphql
 a3c1876fbe25a1fcd666d8c4f79be157812b1fc274df67ff40fc9d8d51205df9  ./packages/contracts/media/canonical-frame-anchor.schema.json
 637f4e60f310017ac5058486c6a21d67ea231acb8595ab53cc3a1c0a99e0a087  ./packages/contracts/media/frame-step-request.schema.json
@@ -221,6 +224,7 @@ de68ecb888d1021577a49bfa49d8816a2519469916b2ac2012c32a50a6cf603a  ./server/src/r
 29dc8ee62da32da243cba2f0c90575ba5e1cea4c36a2d392ab96360c6c926812  ./server/src/services/README.md
 73b13b698965a269dcd376c77099a9d0a1f71644a64be60b56d191e263db767f  ./server/src/services/annotation-command.ts
 4dfdcfb0c292a5fd791ef7dd861545c9314c255d9d729b34780ef32475ddc27f  ./server/src/services/annotation-snapshot.ts
+408b65303d6c8b91d1d3d164847e9475bae2f49935f04a92fd93745124c6bdc8  ./server/src/services/capture-processing.ts
 e67b6aa560b483e5549386410a5292975d6578f2f7370dc0ff666d1e65527300  ./server/src/services/coach-analytics.ts
 de9b6dd94f4b1f213c81241a14c9cfb916327b061a61fb32482e837c9c36fab1  ./server/src/services/coach-dashboard.ts
 33f4677b4d7f2d0cb61f3f644979b6d64d2362542a7aa0cf72f2de45c1115da2  ./server/src/services/coach-replay.ts
@@ -233,6 +237,7 @@ e9f9f15fd8c0d601264ccd6d3ceb9a3e28287e514b7cb7c35ce37d15afc250ec  ./server/tests
 a6b2690b51a33a5ee67eef44768ff959878cf0ecd2dcee357fc2c8c6901cd560  ./server/tests/annotation-snapshot.integration.test.ts
 78672dd867783ab115202afc27bc879794b1f85ebee9e5b0c066ac69f560cb45  ./server/tests/annotation-state.test.ts
 9188ca2a5dbd3ae2e8a98db80d5f926f7fdecaab106f96c5b2fb8a5e69062966  ./server/tests/annotation-transport.test.ts
+26631b3d9abe77752dbe0f80a8c1dc1dc8b916c1bb4d8f31c2b2bfdffe9d24a2  ./server/tests/capture-processing.integration.test.ts
 b862906aa5f6882842bf3297e5dd01db36f89172f5bb76e8f35abf1f91bb1e37  ./server/tests/core-domain.integration.test.ts
 a24d73e176377bf389b5fdc14d32c7a395923b40e13127027d0aa65ed839f329  ./server/tests/media-cursor.integration.test.ts
 bcbf27bf32260c862b20119cc7d6cbb80b70e59e5f0ae1bfbec65ed63de33108  ./server/tests/media-cursor.unit.test.ts
@@ -251,6 +256,7 @@ a40588739b78f17a705c727d7e6419fb7fbb308b23d68275495603a76f4a071a  ./web/app/asse
 099a0394eea7005abe61105c7881011133b1748c717a75b48fc8961bbdcd22d3  ./web/app/components/AnnotationCommandStrip.test.ts
 acbcf5fade9c8aa17b991849c8a4471d94da436b47bb0b3d3f160cec8cf6136c  ./web/app/components/AnnotationCommandStrip.vue
 b5e625dfd8436c643c65b58bbf4885efe04f1c77b99037450b6992fa7747c470  ./web/app/components/AnnotationSettingsDialog.vue
+6c7f2d63fe830dff091ebc14589b8f25311054a692c20d1ea92d2077a6ae2e8d  ./web/app/components/CaptureControlDialog.vue
 94e0db14252df7087bd90333aa4b1e06cfe378e4dae57ebb13f1da9d61b21411  ./web/app/components/CourtPathView.vue
 060c5012acdd0185fbce2996a44c942fa06eb4a18564ff743aa9c02778c317a5  ./web/app/components/DvrAuthorityInspector.vue
 25171e18281edc44ce2f5e0c3f5c0e125d4575acbe58ac30df865c23616f22a8  ./web/app/components/DvrTimelineDock.component.test.ts
