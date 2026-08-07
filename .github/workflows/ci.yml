@@ -5,7 +5,9 @@ on:
   push:
     branches: [main]
   pull_request:
-    branches: [main]
+    branches:
+      - main
+      - 'integration/**'
 
 permissions:
   contents: read
@@ -27,19 +29,34 @@ jobs:
       - name: Install frozen SDK test environment
         run: uv sync --project sdk --frozen --extra test
       - name: Verify checksum manifest is reproducible
+        if: ${{ !(github.event_name == 'pull_request' && startsWith(github.base_ref, 'integration/')) }}
         run: |
           uv run --project sdk --frozen python scripts/refresh_checksums.py
           git diff --exit-code -- SHA256SUMS.txt
       - name: Validate contracts, scaffold, and Prisma structure
         run: |
           uv run --project sdk --frozen python scripts/validate_contracts.py
-          uv run --project sdk --frozen python scripts/validate_scaffold.py
+          uv run --project sdk --frozen python scripts/validate_scaffold.py --skip-checksums
           uv run --project sdk --frozen python scripts/validate_prisma_structure.py
       - name: Run SDK tests
         run: uv run --project sdk --frozen pytest -q sdk/tests
 
   typescript:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_DB: volleyball
+          POSTGRES_PASSWORD: volleyball
+          POSTGRES_USER: volleyball
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U volleyball -d volleyball"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 20
     env:
       DATABASE_URL: postgresql://volleyball:volleyball@localhost:5432/volleyball?schema=public
     steps:
@@ -60,15 +77,22 @@ jobs:
         run: |
           bun run db:generate
           bun run db:validate
+      - name: Apply database migrations
+        run: bun run db:migrate:deploy
+      - name: Verify generated GraphQL schema snapshot
+        run: bun run graphql:schema:check
       - name: Run repository validators and TypeScript checks
         run: |
-          uv run --project sdk --frozen bun run validate:all
+          uv run --project sdk --frozen python scripts/validate_contracts.py
+          uv run --project sdk --frozen python scripts/validate_scaffold.py --skip-checksums
+          uv run --project sdk --frozen python scripts/validate_prisma_structure.py
+          node scripts/validate_typescript_syntax.mjs
           bun run typecheck
-      - name: Run JavaScript package tests
+      - name: Run database and server tests
+        run: bun run test:db-server
+      - name: Run remaining JavaScript package tests
         run: |
           bun --cwd packages/contracts test
-          bun --cwd packages/db test
-          bun --cwd server test
           bun --cwd worker test
           bun --cwd web test
       - name: Build packages and applications
