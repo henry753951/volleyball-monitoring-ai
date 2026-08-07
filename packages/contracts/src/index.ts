@@ -6,7 +6,7 @@ export const CONTRACT_VERSIONS = {
   mediaFrameStepRequest: '1.0.0',
   mediaCanonicalFrameAnchor: '1.0.0',
   mediaApiError: '1.0.0',
-  annotationRealtime: '1.1.0',
+  annotationRealtime: '2.0.0',
   aiCapabilities: '1.0.0',
   aiJob: '1.1.0',
   aiJobAccepted: '1.0.0',
@@ -51,3 +51,5 @@ export const parseResolvedMediaAnchor = (input: unknown): ResolvedMediaAnchor =>
 export const parseFrameStepRequest = (input: unknown): FrameStepRequest => parse(input, (v) => { exact(v, ['schema_version', 'capture_session_id', 'playback_window_id', 'mapping_version', 'capture_frame_index', 'direction']); if (v.schema_version !== '1.0.0' || !['previous', 'next'].includes(String(v.direction))) throw new TypeError('invalid frame step'); idField(v, 'capture_session_id'); idField(v, 'playback_window_id'); intField(v, 'mapping_version'); uintField(v, 'capture_frame_index') })
 export const parseCanonicalFrameAnchor = (input: unknown): CanonicalFrameAnchor => parseAnchor<CanonicalFrameAnchor>(input, false)
 export const parseMediaApiError = (input: unknown): MediaApiError => parse(input, (v) => { exact(v, ['schema_version', 'code', 'message', 'request_id'], ['details']); if (v.schema_version !== '1.0.0' || !MEDIA_ERROR_CODES.includes(String(v.code) as MediaErrorCode)) throw new TypeError('invalid media error'); stringField(v, 'message', /^.{1,512}$/); idField(v, 'request_id'); optionalField(v, 'details', () => { if (v.details !== null && !isRecord(v.details)) throw new TypeError('invalid details') }) })
+
+export * from './annotation.js'

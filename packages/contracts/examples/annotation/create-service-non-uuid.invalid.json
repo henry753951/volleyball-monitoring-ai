@@ -1,0 +1,18 @@
+{
+  "schema_version": "2.0.0",
+  "command_id": "not-a-uuid",
+  "room_id": "match:81000000-0000-4000-8000-000000000002:capture:81000000-0000-4000-8000-000000000003",
+  "base_revision": "0",
+  "rally_id": "also-not-a-uuid",
+  "kind": "CREATE_SERVICE_KEY_POINT",
+  "payload": {
+    "playback_cursor": {
+      "playback_window_id": "81000000-0000-4000-8000-000000000005",
+      "mapping_version": 1,
+      "player_media_time_us": "1",
+      "observation_source": "current_time_fallback",
+      "seek_generation": 0,
+      "cursor_status": "ready"
+    }
+  }
+}

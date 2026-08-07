@@ -3,7 +3,7 @@ import addFormats from "ajv-formats";
 import { describe, expect, it } from "vitest";
 import { readFileSync, readdirSync } from "node:fs";
 import { resolve } from "node:path";
-import { parseMediaApiError, parsePlaybackCursor, parseResolvedMediaAnchor } from "../src/index";
+import { parseAnnotationCommand, parseAnnotationCommandResponse, parseAnnotationServerMessage, parseMediaApiError, parsePlaybackCursor, parseResolvedMediaAnchor } from "../src/index";
 
 const root = resolve(import.meta.dirname, "..");
 const load = (relative: string) => JSON.parse(readFileSync(resolve(root, relative), "utf8"));
@@ -123,5 +123,46 @@ describe("golden contract fixtures", () => {
       timing_precision: "frame_exact",
     };
     expect(validate(ack), "CLOSE_RALLY ACK with a new anchor").toBe(false);
+  });
+
+  it("strictly parses v2 service commands and requires service ACK identity plus anchor", () => {
+    const service = load("examples/annotation/create-service.json");
+    const ack = load("examples/annotation/create-service-ack.json");
+    expect(parseAnnotationCommand(service).kind).toBe("CREATE_SERVICE_KEY_POINT");
+    expect(parseAnnotationCommandResponse(ack).type).toBe("command_ack");
+    expect(() => parseAnnotationCommand({ ...service, unexpected: true })).toThrow();
+    expect(() => parseAnnotationCommand({ ...service, base_revision: 0 })).toThrow();
+    expect(() => parseAnnotationCommandResponse({ ...ack, resolved_anchor: null })).toThrow();
+    const missingCreated = structuredClone(ack);
+    delete missingCreated.effects.created_key_point_id;
+    expect(() => parseAnnotationCommandResponse(missingCreated)).toThrow();
+    expect(() => parseAnnotationCommand(load("examples/annotation/create-service-non-uuid.invalid.json"))).toThrow();
+  });
+
+  it("parses every v2 server-message discriminator without a record fallback", () => {
+    const uuid = (suffix: number) => `84000000-0000-4000-8000-${String(suffix).padStart(12, "0")}`;
+    const common = { schema_version: "2.0.0", room_id: `match:${uuid(1)}:capture:${uuid(2)}` };
+    const messages = [
+      {
+        ...common, type: "connection_ready", server_sequence: "0",
+        authenticated_user_id: uuid(3), device_session_id: uuid(4),
+      },
+      {
+        ...common, type: "rally_snapshot", rally_id: uuid(5), revision: "1", server_sequence: "1",
+        snapshot: {
+          annotation_status: "open", score_resolution: "pending", scoring_court_side: null,
+          processing_status: "idle", key_points: [],
+        },
+      },
+      {
+        ...common, type: "presence_snapshot",
+        members: [{ user_id: uuid(3), device_session_id: uuid(4), display_name: "Operator" }],
+      },
+      {
+        ...common, type: "rally_processing_update", rally_id: uuid(5), submission_id: uuid(6),
+        processing_status: "ai_processing", analysis_id: null, overlay_version: null, error: null,
+      },
+    ];
+    for (const message of messages) expect(parseAnnotationServerMessage(message).type).toBe(message.type);
   });
 });
