@@ -78,6 +78,7 @@ def parse_manifest(text: str) -> list[str]:
 def summarize(samples: list[dict[str, Any]], cap_mib: float, growth_mib: float) -> dict[str, Any]:
     mem = [float(item.get("memory_mib", 0)) for item in samples]
     restarts = sum(int(item.get("restarts", 0)) for item in samples)
+    health_failures = sum(int(item.get("health_failures", 0)) for item in samples)
     api_failures = sum(int(item.get("api_failures", 0)) for item in samples)
     maximum = max(mem, default=0.0)
     growth = max(mem, default=0.0) - min(mem, default=0.0)
@@ -90,10 +91,12 @@ def summarize(samples: list[dict[str, Any]], cap_mib: float, growth_mib: float) 
         failures.append("memory_growth")
     if restarts:
         failures.append("container_restart")
+    if health_failures:
+        failures.append("container_health")
     if api_failures:
         failures.append("api_failure")
     return {"samples": len(samples), "max_memory_mib": maximum, "growth_mib": growth,
-            "restarts": restarts, "api_failures": api_failures, "failures": failures,
+            "restarts": restarts, "health_failures": health_failures, "api_failures": api_failures, "failures": failures,
             "passed": not failures}
 
 
@@ -183,7 +186,7 @@ def main() -> int:
             running, restarts, unhealthy = compose_state()
             stats = parse_stats(docker("stats", "--no-stream", "--format", "table {{.Name}}\t{{.CPUPerc}}\t{{.MemUsage}}"))
             row: dict[str, Any] = {"ts": time.time(), "services_running": running, "memory_mib": sum(x["mem_mib"] for x in stats),
-                                   "cpu_pct": sum(x["cpu_pct"] for x in stats), "restarts": restarts + unhealthy, "api_failures": 0}
+                                   "cpu_pct": sum(x["cpu_pct"] for x in stats), "restarts": restarts, "health_failures": unhealthy, "api_failures": 0}
             for session in sessions:
                 if session:
                     row["api_failures"] += exercise_api(base, session, headers, context)
