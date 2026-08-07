@@ -20,5 +20,6 @@ pathDefaults:
   recordMaxPartSize: 50M
   recordSegmentDuration: 2s
   recordDeleteAfter: 0s
+  runOnRecordSegmentComplete: python3 /usr/local/bin/media-indexer-hook.py "$MTX_SEGMENT_PATH"
 paths:
   all_others:
