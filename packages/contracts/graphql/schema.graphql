@@ -1,6 +1,123 @@
-# GENERATED snapshot. Source of truth is server/src/graphql/** (Pothos code-first).
-type Health { service: String! status: String! }
-type Query { health: Health! }
+"""Signed 64-bit integer serialized as a decimal string."""
 scalar BigInt
+
+type CourtSideAssignment {
+  effectiveFromRallyOrdinal: Int!
+  effectiveToRallyOrdinal: Int
+  id: ID!
+  leftTeamId: ID!
+  rightTeamId: ID!
+}
+
+input CreateMatchSetupInput {
+  leftTeam: TeamSetupInput!
+  rightTeam: TeamSetupInput!
+  scheduledAt: DateTime
+  title: String!
+  venue: String
+}
+
 scalar DateTime
+
+type Health {
+  service: String!
+  status: String!
+}
+
 scalar JSON
+
+type Match {
+  id: ID!
+  rosterEntries: [MatchRosterEntry!]!
+  scheduledAt: DateTime
+  sets: [MatchSet!]!
+  status: MatchStatus!
+  teams: [Team!]!
+  title: String!
+  venue: String
+}
+
+type MatchRosterEntry {
+  id: ID!
+  jerseyNumber: String!
+  name: String!
+  teamId: ID!
+}
+
+type MatchSet {
+  id: ID!
+  leftScore: Int!
+  rightScore: Int!
+  setNumber: Int!
+  sideAssignments: [CourtSideAssignment!]!
+  status: SetStatus!
+}
+
+enum MatchStatus {
+  ARCHIVED
+  FINISHED
+  LIVE
+  PLANNED
+}
+
+type Mutation {
+  createMatchSetup(input: CreateMatchSetupInput!): Match!
+  swapCourtSides(input: SwapCourtSidesInput!): MatchSet!
+}
+
+type Player {
+  id: ID!
+  name: String!
+  teamId: ID!
+}
+
+type Query {
+  health: Health!
+  match(id: ID!): Match
+  matches: [Match!]!
+  viewer: Viewer!
+}
+
+input RosterInput {
+  jerseyNumber: String!
+  name: String!
+}
+
+enum SetStatus {
+  FINISHED
+  LIVE
+  PLANNED
+}
+
+input SwapCourtSidesInput {
+  effectiveFromRallyOrdinal: Int!
+  setId: ID!
+}
+
+type Team {
+  id: ID!
+  name: String!
+  players: [Player!]!
+  shortName: String!
+}
+
+input TeamSetupInput {
+  name: String!
+  roster: [RosterInput!]!
+  shortName: String!
+}
+
+enum UserRole {
+  ADMIN
+  ANNOTATOR
+  COACH
+  OPERATOR
+  VIEWER
+}
+
+type Viewer {
+  displayName: String!
+  email: String!
+  id: ID!
+  role: UserRole!
+}
