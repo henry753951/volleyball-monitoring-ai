@@ -11,20 +11,19 @@ const route = useRoute()
 const matchId = String(route.params.matchId)
 const match = ref<Match | null>(null)
 const loadError = ref<string | null>(null)
-const descriptor = ref<PlaybackWindowDescriptor | null>(null)
+const media = createMediaClient()
+const dvr = useAuthoritativeDvrWindow(media)
+const descriptor = computed(() => dvr.current.value)
 const video = ref<HTMLVideoElement | null>(null)
 const captureTarget = ref('')
-const busy = ref(false)
 const mediaError = ref<string | null>(null)
-const authoritativeAnchor = ref<ResolvedMediaAnchor | CanonicalFrameAnchor | null>(null)
+const authoritativeAnchor = computed(() => dvr.anchor.value)
 const cursorStatus = ref<'ready' | 'stale' | 'seeking' | 'gap'>('stale')
 const state = ref<'IDLE' | 'OPEN' | 'READY' | 'SUBMITTED'>('IDLE')
 const currentLastKeyPointId = ref<string | null>(null)
 const canMark = computed(() => cursorStatus.value === 'ready')
 const { bindings } = useAnnotationHotkeys()
 const annotationScope = useTemplateRef<HTMLElement>('annotationScope')
-const media = createMediaClient()
-const dvr = useAuthoritativeDvrWindow(media)
 
 const controls = computed(() => ANNOTATION_COMMANDS.map(command => ({
   ...command,
@@ -59,9 +58,9 @@ async function createWindow(target = captureTarget.value || undefined) {
   try {
     const session = selectedCapture.value
     if (!session || !target) throw new Error('目前沒有可播放的 capture range')
-    descriptor.value = await media.createPlaybackWindow({ schema_version: '1.0.0', capture_session_id: session.id, mode: target === liveTarget.value ? 'live' : 'archive', target_capture_time_us: target })
+    await dvr.create({ schema_version: '1.0.0', capture_session_id: session.id, mode: target === liveTarget.value ? 'live' : 'archive', target_capture_time_us: target })
   } catch (error) { mediaError.value = error instanceof Error ? error.message : '播放視窗建立失敗' }
-  finally { busy.value = false }
+  finally { mediaError.value = dvr.error.value instanceof Error ? dvr.error.value.message : mediaError.value }
 }
 
 function dispatchAnnotationAction(action: AnnotationAction) {
@@ -79,8 +78,8 @@ function dispatchMediaAction(action: PlayerAction) {
 async function frameStep(direction: 'previous' | 'next') {
   if (!authoritativeAnchor.value || !descriptor.value) return
   try {
-    const anchor = await media.frameStep({ schema_version: '1.0.0', capture_session_id: descriptor.value.capture_session_id, playback_window_id: descriptor.value.playback_window_id, mapping_version: descriptor.value.mapping_version, capture_frame_index: authoritativeAnchor.value.capture_frame_index, direction })
-    authoritativeAnchor.value = anchor
+    const anchor = await dvr.step(direction, target => ({ schema_version: '1.0.0', capture_session_id: descriptor.value!.capture_session_id, mode: 'archive', target_capture_time_us: target }))
+    if (!anchor) return
     const localUs = BigInt(anchor.player_media_time_us)
     if (localUs < 0n || localUs > 86_400_000_000n) throw new RangeError('frame-step returned an unbounded player time')
     if (video.value) video.value.currentTime = Number(localUs) / 1_000_000
