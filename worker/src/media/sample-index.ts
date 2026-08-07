@@ -1,4 +1,6 @@
-export type Rational = { num: bigint; den: bigint };
+export * from '@volleyball-monitoring/media/sample-index';
+/* compatibility re-export; implementation lives in packages/media */
+/*
 
 export type CaptureEpochOrigin = {
   epochId: string;
@@ -101,3 +103,4 @@ export function buildAvailabilityRanges(indexes: readonly { segmentId: string; i
   for (const { segmentId, index, discontinuity } of indexes) { const next = { segmentIds: [segmentId], startUs: index.availableStartUs, endUs: index.availableEndUs, discontinuity }; const prev = out[out.length - 1]; if (prev && prev.discontinuity === discontinuity && next.startUs <= prev.endUs) { prev.endUs = prev.endUs > next.endUs ? prev.endUs : next.endUs; prev.segmentIds.push(segmentId); } else out.push(next); }
   return out;
 }
+*/

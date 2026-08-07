@@ -1,0 +1,3 @@
+import { describe, expect, it } from 'vitest';
+import { buildSampleIndex, parseSampleIndexDocument, serializeSampleIndex } from '../src/sample-index';
+describe('sample index document', () => { it('round trips decimal strings beyond safe integer', () => { const i = buildSampleIndex([{ media_type:'video', pts:'-9007199254740993', pkt_duration:'1' }], { epochId:'e', sourcePtsOrigin:-9007199254740993n, captureTimeOriginUs:0n, captureFrameOrigin:9007199254740993n, timeBase:{num:1n,den:30n} }); const d=serializeSampleIndex(i); expect(parseSampleIndexDocument(JSON.parse(JSON.stringify(d))).samples[0]!.sourcePts).toBe('-9007199254740993'); }); it('rejects malformed versions',()=>expect(()=>parseSampleIndexDocument({schemaVersion:'0'})).toThrow()); });

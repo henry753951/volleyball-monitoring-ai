@@ -31,6 +31,9 @@ export type SampleIndex = {
   availableStartUs: bigint;
   availableEndUs: bigint;
 };
+export type SampleIndexDocument = { schemaVersion: '1.0.0'; epochId: string; timeBase: { num: string; den: string }; samples: ReturnType<typeof serializeSample>[] };
+export function serializeSampleIndex(index: SampleIndex): SampleIndexDocument { return { schemaVersion: '1.0.0', epochId: index.epochId, timeBase: { num: index.timeBase.num.toString(), den: index.timeBase.den.toString() }, samples: index.samples.map(serializeSample) }; }
+export function parseSampleIndexDocument(input: unknown): SampleIndexDocument { if (!input || typeof input !== 'object' || (input as any).schemaVersion !== '1.0.0') throw new SampleIndexError('INVALID_FRAME','invalid sample index document'); const d = input as any; if (!Array.isArray(d.samples) || typeof d.epochId !== 'string' || !d.timeBase || typeof d.timeBase.num !== 'string' || typeof d.timeBase.den !== 'string') throw new SampleIndexError('INVALID_FRAME','invalid sample index document'); return d as SampleIndexDocument; }
 export type AvailabilityRange = { segmentIds: string[]; startUs: bigint; endUs: bigint; discontinuity: number };
 export type FfprobePayload = { streams?: readonly { codec_type?: string; time_base?: string }[]; frames?: readonly FfprobeFrame[] };
 
