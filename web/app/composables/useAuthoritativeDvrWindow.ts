@@ -34,7 +34,9 @@ export function useAuthoritativeDvrWindow(client: MediaClient) {
     let attempt = 0
     while (attempt++ < 2) {
       const id = begin()
-      try { const value = await client.frameStep({ schema_version: '1.0.0', capture_session_id: current.value.capture_session_id, playback_window_id: current.value.playback_window_id, mapping_version: current.value.mapping_version, capture_frame_index: anchor.value.capture_frame_index, direction }); if (!valid(id)) return null; anchor.value = value; status.value = 'ready'; busy.value = false; return value }
+      const sourceAnchor = anchor.value
+      if (!sourceAnchor || !current.value) return null
+      try { const value = await client.frameStep({ schema_version: '1.0.0', capture_session_id: current.value.capture_session_id, playback_window_id: current.value.playback_window_id, mapping_version: current.value.mapping_version, capture_frame_index: sourceAnchor.capture_frame_index, direction }); if (!valid(id)) return null; anchor.value = value; status.value = 'ready'; busy.value = false; return value }
       catch (cause) {
         if (!valid(id)) return null
         const mediaError = cause as MediaApiError
@@ -43,8 +45,8 @@ export function useAuthoritativeDvrWindow(client: MediaClient) {
           status.value = mediaError.code === 'CAPTURE_GAP' || mediaError.code === 'SAMPLE_NOT_FOUND' ? 'gap' : 'error'; error.value = mediaError; busy.value = false; return null
         }
         status.value = 'recovering'; busy.value = false
-        const target = mediaError.details && typeof mediaError.details === 'object' && 'target_capture_time_us' in mediaError.details ? String(mediaError.details.target_capture_time_us) : anchor.value.capture_time_us
-        const priorAnchor = anchor.value
+        const target = mediaError.details && typeof mediaError.details === 'object' && 'target_capture_time_us' in mediaError.details ? String(mediaError.details.target_capture_time_us) : sourceAnchor.capture_time_us
+        const priorAnchor = sourceAnchor
         try { const refreshed = await create(inputFactory(target)); if (refreshed && priorAnchor) anchor.value = { ...priorAnchor, playback_window_id: refreshed.playback_window_id, mapping_version: refreshed.mapping_version } } catch (refreshError) { status.value = 'error'; error.value = refreshError instanceof Error ? refreshError : mediaError; busy.value = false; return null }
       }
     }
