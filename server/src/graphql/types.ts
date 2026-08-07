@@ -12,9 +12,16 @@ import type {
   Player,
   Team,
 } from '@volleyball-monitoring/db/client'
+import { CaptureStatus, SourceHealth } from '@volleyball-monitoring/db/client'
 import type { AuthenticatedUser } from './context.js'
 import { builder } from './builder.js'
 import { domainError } from './errors.js'
+import {
+  listCaptureSessionsForMatch,
+  type CaptureSessionView,
+  type CaptureTimelineRangeView,
+  type CaptureTimelineView,
+} from '../services/media-timeline.js'
 
 interface Health {
   service: string
@@ -29,6 +36,8 @@ interface Viewer extends AuthenticatedUser {
 export const UserRoleType = builder.enumType(UserRole, { name: 'UserRole' })
 export const MatchStatusType = builder.enumType(MatchStatus, { name: 'MatchStatus' })
 export const SetStatusType = builder.enumType(SetStatus, { name: 'SetStatus' })
+export const CaptureStatusType = builder.enumType(CaptureStatus, { name: 'CaptureStatus' })
+export const SourceHealthType = builder.enumType(SourceHealth, { name: 'SourceHealth' })
 
 export const HealthType = builder.objectRef<Health>('Health')
 HealthType.implement({
@@ -153,9 +162,11 @@ async function teamsForMatch(matchId: string): Promise<Team[]> {
 }
 
 export const MatchType = builder.objectRef<Match>('Match')
+export const CaptureSessionType = builder.objectRef<CaptureSessionView>('CaptureSession')
 MatchType.implement({
   fields: (t) => ({
     id: t.exposeID('id'),
+    captureSessions: t.field({ type: [CaptureSessionType], resolve: (match) => listCaptureSessionsForMatch(match.id) }),
     rosterEntries: t.field({
       type: [MatchRosterEntryType],
       resolve: (match) => db.matchRosterEntry.findMany({
@@ -179,5 +190,65 @@ MatchType.implement({
     teams: t.field({ type: [TeamType], resolve: (match) => teamsForMatch(match.id) }),
     title: t.exposeString('title'),
     venue: t.exposeString('venue', { nullable: true }),
+  }),
+})
+
+export const CaptureTimelineRangeType = builder.objectRef<CaptureTimelineRangeView>(
+  'CaptureTimelineRange',
+)
+CaptureTimelineRangeType.implement({
+  fields: (t) => ({
+    discontinuity: t.exposeInt('discontinuity'),
+    endUs: t.field({ type: 'BigInt', resolve: (range) => range.endUs }),
+    startUs: t.field({ type: 'BigInt', resolve: (range) => range.startUs }),
+  }),
+})
+
+export const CaptureTimelineType = builder.objectRef<CaptureTimelineView>('CaptureTimeline')
+CaptureTimelineType.implement({
+  fields: (t) => ({
+    availableRanges: t.field({
+      type: [CaptureTimelineRangeType],
+      resolve: (timeline) => timeline.availableRanges,
+    }),
+    captureSessionId: t.exposeID('captureSessionId'),
+    captureStartTimeUs: t.field({
+      type: 'BigInt',
+      resolve: (timeline) => timeline.captureStartTimeUs,
+    }),
+    liveEdgeCaptureTimeUs: t.field({
+      nullable: true,
+      type: 'BigInt',
+      resolve: (timeline) => timeline.liveEdgeCaptureTimeUs,
+    }),
+    timelineVersion: t.field({
+      type: 'BigInt',
+      resolve: (timeline) => timeline.timelineVersion,
+    }),
+  }),
+})
+
+CaptureSessionType.implement({
+  fields: (t) => ({
+    endedAt: t.field({
+      nullable: true,
+      type: 'DateTime',
+      resolve: (session) => session.endedAt,
+    }),
+    health: t.field({ type: SourceHealthType, resolve: (session) => session.health }),
+    id: t.exposeID('id'),
+    matchId: t.exposeID('matchId'),
+    sourceLabel: t.exposeString('sourceLabel', { nullable: true }),
+    startedAt: t.field({
+      nullable: true,
+      type: 'DateTime',
+      resolve: (session) => session.startedAt,
+    }),
+    status: t.field({ type: CaptureStatusType, resolve: (session) => session.status }),
+    timeline: t.field({
+      nullable: true,
+      type: CaptureTimelineType,
+      resolve: (session) => session.timeline,
+    }),
   }),
 })
