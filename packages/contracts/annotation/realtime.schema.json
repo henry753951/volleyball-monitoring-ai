@@ -712,6 +712,7 @@
       "additionalProperties": false,
       "required": [
         "annotation_status",
+        "side_assignment_id",
         "score_resolution",
         "scoring_court_side",
         "processing_status",
@@ -719,6 +720,7 @@
       ],
       "properties": {
         "annotation_status": { "$ref": "#/$defs/annotation_status" },
+        "side_assignment_id": { "$ref": "#/$defs/identifier" },
         "score_resolution": { "$ref": "#/$defs/score_resolution" },
         "scoring_court_side": { "$ref": "#/$defs/scoring_court_side" },
         "processing_status": {

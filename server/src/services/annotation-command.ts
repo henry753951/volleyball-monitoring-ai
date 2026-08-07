@@ -547,7 +547,7 @@ export function createAnnotationCommandService(
       if (command.kind === 'CREATE_CONTACT_KEY_POINT') {
         if (command.base_revision === '0') return storeRejection(deps.database, command, identity, hash, rejected(command, 'REVISION_CONFLICT', 'Contact command cannot start at revision zero', { actual: '1', expected: '0' }))
         let anchor: ResolvedMediaAnchor
-        try { anchor = await deps.resolveCursor(toMediaCursor(command as CreateServiceKeyPointCommand), { id: identity.userId, role: identity.role }) } catch (error) { if (!(error instanceof MediaHttpError)) throw error; return storeRejection(deps.database, command, identity, hash, mediaRejection(command, error)) }
+        try { anchor = await deps.resolveCursor(toMediaCursor(command as unknown as CreateServiceKeyPointCommand), { id: identity.userId, role: identity.role }) } catch (error) { if (!(error instanceof MediaHttpError)) throw error; return storeRejection(deps.database, command, identity, hash, mediaRejection(command, error)) }
         return acceptContact(deps.database, room, command, identity, hash, anchor)
       }
       if (command.kind === 'CLOSE_RALLY') return acceptClose(deps.database, room, command, identity, hash)

@@ -180,6 +180,7 @@ export interface AnnotationRallySnapshot {
   server_sequence: string
   snapshot: {
     annotation_status: 'open' | 'ready' | 'submitted' | 'voided'
+    side_assignment_id: string
     score_resolution: 'pending' | 'resolved' | 'unknown'
     scoring_court_side: 'left' | 'right' | null
     processing_status: AnnotationProcessingStatus
