@@ -7,7 +7,9 @@ describe('media REST client', () => {
     const fetcher = vi.fn(async (_url, init) => new Response(JSON.stringify({ schema_version: '1.0.0', capture_time_us: '9007199254740993' }), { status: 200, headers: { 'content-type': 'application/json' } }))
     const result = await createMediaClient({ fetcher }).resolveCursor({ schema_version: '1.0.0', playback_window_id: 'w', mapping_version: 1, player_media_time_us: '3', observation_source: 'current_time_fallback', presented_frames: null, seek_generation: 0, cursor_status: 'ready' })
     expect(result.capture_time_us).toBe('9007199254740993')
-    expect(fetcher.mock.calls[0][1]).toMatchObject({ credentials: 'include', method: 'POST' })
+    const firstCall = fetcher.mock.calls.at(0)
+    expect(firstCall).toBeDefined()
+    expect(firstCall![1]).toMatchObject({ credentials: 'include', method: 'POST' })
   })
   it.each(['BAD_REQUEST','UNAUTHENTICATED','FORBIDDEN','NOT_FOUND','MAPPING_STALE','MEDIA_NOT_READY','WINDOW_BOUNDARY','WINDOW_EXPIRED','CURSOR_NOT_READY','CAPTURE_GAP','SAMPLE_NOT_FOUND'] as const)('normalizes %s', async code => {
     const fetcher = vi.fn(async () => new Response(JSON.stringify({ code, message: 'x', request_id: 'r', details: { retryable: false } }), { status: 400 }))
