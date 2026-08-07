@@ -31,7 +31,7 @@ export type SampleIndex = {
   availableStartUs: bigint;
   availableEndUs: bigint;
 };
-export type AvailabilityRange = { segmentId: string; startUs: bigint; endUs: bigint; discontinuity: number };
+export type AvailabilityRange = { segmentIds: string[]; startUs: bigint; endUs: bigint; discontinuity: number };
 export type FfprobePayload = { streams?: readonly { codec_type?: string; time_base?: string }[]; frames?: readonly FfprobeFrame[] };
 
 export class SampleIndexError extends Error {
@@ -86,7 +86,9 @@ export function buildSampleIndex(
   if (samples.length === 0) throw new SampleIndexError('EMPTY_INDEX', 'no video samples');
   const first = samples[0]!;
   const last = samples[samples.length - 1]!;
-  return { version, epochId: origin.epochId, timeBase: origin.timeBase, samples, availableStartUs: first.captureTimeUs, availableEndUs: last.captureTimeUs };
+  // End is inclusive presentation end: final sample start plus its exact duration.
+  const availableEndUs = last.captureTimeUs + rescalePtsToUs(last.durationPts, origin.timeBase);
+  return { version, epochId: origin.epochId, timeBase: origin.timeBase, samples, availableStartUs: first.captureTimeUs, availableEndUs };
 }
 
 export function serializeSample(sample: IndexedSample) {
@@ -96,6 +98,6 @@ export function serializeSample(sample: IndexedSample) {
 /** Coalesce touching ranges within one discontinuity; preserve gaps/discontinuities. */
 export function buildAvailabilityRanges(indexes: readonly { segmentId: string; index: SampleIndex; discontinuity: number }[]): AvailabilityRange[] {
   const out: AvailabilityRange[] = [];
-  for (const { segmentId, index, discontinuity } of indexes) { const next = { segmentId, startUs: index.availableStartUs, endUs: index.availableEndUs, discontinuity }; const prev = out[out.length - 1]; if (prev && prev.discontinuity === discontinuity && next.startUs <= prev.endUs) prev.endUs = prev.endUs > next.endUs ? prev.endUs : next.endUs; else out.push(next); }
+  for (const { segmentId, index, discontinuity } of indexes) { const next = { segmentIds: [segmentId], startUs: index.availableStartUs, endUs: index.availableEndUs, discontinuity }; const prev = out[out.length - 1]; if (prev && prev.discontinuity === discontinuity && next.startUs <= prev.endUs) { prev.endUs = prev.endUs > next.endUs ? prev.endUs : next.endUs; prev.segmentIds.push(segmentId); } else out.push(next); }
   return out;
 }

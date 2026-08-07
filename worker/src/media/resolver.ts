@@ -30,6 +30,7 @@ export function frameStep(index: SampleIndex, segmentId: string, captureFrameInd
 }
 
 export function frameStepAcrossSegments(segments: readonly IndexedSegment[], captureFrameIndex: bigint, direction: 'previous' | 'next', windowStartUs: bigint, windowEndUs: bigint): StepResult {
+  for (let i = 1; i < segments.length; i++) if (segments[i]!.index.availableStartUs < segments[i - 1]!.index.availableStartUs) throw new ResolverError('SAMPLE_NOT_FOUND', 'segments must be ordered');
   const ordered = segments.flatMap(s => s.index.samples.map(sample => ({ sample, segmentId: s.segmentId, discontinuity: s.discontinuity ?? 0 })));
   const i = ordered.findIndex(x => x.sample.captureFrameIndex === captureFrameIndex); if (i < 0) throw new ResolverError('SAMPLE_NOT_FOUND', 'sample not found');
   const j = i + (direction === 'next' ? 1 : -1); if (j < 0 || j >= ordered.length || ordered[j]!.discontinuity !== ordered[i]!.discontinuity) throw new ResolverError('SAMPLE_NOT_FOUND', 'no adjacent sample');
