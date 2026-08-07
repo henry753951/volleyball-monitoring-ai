@@ -1,22 +1,23 @@
-import type { CanonicalFrameAnchor, FrameStepRequest, PlaybackCursorInput, PlaybackWindowDescriptor, PlaybackWindowRequest, ResolvedMediaAnchor } from './mediaModel'
-import { MEDIA_ERROR_CODES, MediaApiError } from './mediaModel'
+import { parseCanonicalFrameAnchor, parseMediaApiError, parsePlaybackWindowDescriptor, parseResolvedMediaAnchor, type CanonicalFrameAnchor, type FrameStepRequest, type PlaybackWindowDescriptor, type PlaybackWindowRequest, type ResolvedMediaAnchor } from '@volleyball-monitoring/contracts'
+import { MediaApiError, type PlaybackCursorInput } from './mediaModel'
 
 export interface MediaClientOptions { baseUrl?: string; fetcher?: typeof fetch }
 export function createMediaClient(options: MediaClientOptions = {}) {
   const baseUrl = options.baseUrl ?? '/api/v1'; const fetcher = options.fetcher ?? fetch
   async function request<T>(path: string, init: RequestInit): Promise<T> {
     const response = await fetcher(`${baseUrl}${path}`, { ...init, credentials: 'include', headers: { 'content-type': 'application/json', ...(init.headers ?? {}) } })
-    if (response.ok) return await response.json() as T
-    let body: any = null; try { body = await response.json() } catch { /* non-json */ }
-    const error = body?.code ? body : (body?.error?.code ? body.error : null)
-    const code = error && (MEDIA_ERROR_CODES as readonly string[]).includes(error.code) ? error.code : 'UNKNOWN'
-    throw new MediaApiError(code as any, error?.message ?? `Media request failed (${response.status})`, response.status, error?.details)
+    const body = await response.json().catch(() => undefined)
+    if (response.ok) return body as T
+    try { const error = parseMediaApiError(body); throw new MediaApiError(error.code, error.message, response.status, error.details) } catch (error) {
+      if (error instanceof MediaApiError) throw error
+      throw new MediaApiError('UNKNOWN', `Malformed media error envelope (${response.status})`, response.status)
+    }
   }
   return {
-    createPlaybackWindow: (input: PlaybackWindowRequest) => request<PlaybackWindowDescriptor>('/media/playback-windows', { method: 'POST', body: JSON.stringify(input) }),
-    getPlaybackWindow: (id: string) => request<PlaybackWindowDescriptor>(`/media/playback-windows/${encodeURIComponent(id)}`, { method: 'GET' }),
-    resolveCursor: (input: PlaybackCursorInput) => request<ResolvedMediaAnchor>('/media/resolve-cursor', { method: 'POST', body: JSON.stringify(input) }),
-    frameStep: (input: FrameStepRequest) => request<CanonicalFrameAnchor>('/media/frame-step', { method: 'POST', body: JSON.stringify(input) }),
+    createPlaybackWindow: async (input: PlaybackWindowRequest) => parsePlaybackWindowDescriptor(await request<unknown>('/media/playback-windows', { method: 'POST', body: JSON.stringify(input) })),
+    getPlaybackWindow: async (id: string) => parsePlaybackWindowDescriptor(await request<unknown>(`/media/playback-windows/${encodeURIComponent(id)}`, { method: 'GET' })),
+    resolveCursor: async (input: PlaybackCursorInput) => parseResolvedMediaAnchor(await request<unknown>('/media/resolve-cursor', { method: 'POST', body: JSON.stringify(input) })),
+    frameStep: async (input: FrameStepRequest) => parseCanonicalFrameAnchor(await request<unknown>('/media/frame-step', { method: 'POST', body: JSON.stringify(input) })),
   }
 }
 export type MediaClient = ReturnType<typeof createMediaClient>
