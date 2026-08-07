@@ -39,6 +39,10 @@
       "type": "string",
       "format": "uuid"
     },
+    "canonical_room_id": {
+      "type": "string",
+      "pattern": "^match:[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}:capture:[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$"
+    },
     "decimal_string": {
       "type": "string",
       "pattern": "^[0-9]+$"
@@ -130,7 +134,7 @@
       "properties": {
         "schema_version": { "const": "2.0.0" },
         "command_id": { "$ref": "#/$defs/identifier" },
-        "room_id": { "$ref": "#/$defs/identifier" },
+        "room_id": { "$ref": "#/$defs/canonical_room_id" },
         "base_revision": { "$ref": "#/$defs/decimal_string" },
         "rally_id": { "$ref": "#/$defs/identifier" },
         "kind": { "const": "CREATE_SERVICE_KEY_POINT" },
@@ -159,7 +163,7 @@
       "properties": {
         "schema_version": { "const": "2.0.0" },
         "command_id": { "$ref": "#/$defs/identifier" },
-        "room_id": { "$ref": "#/$defs/identifier" },
+        "room_id": { "$ref": "#/$defs/canonical_room_id" },
         "base_revision": { "$ref": "#/$defs/decimal_string" },
         "rally_id": { "$ref": "#/$defs/identifier" },
         "kind": { "const": "CREATE_CONTACT_KEY_POINT" },
@@ -188,7 +192,7 @@
       "properties": {
         "schema_version": { "const": "2.0.0" },
         "command_id": { "$ref": "#/$defs/identifier" },
-        "room_id": { "$ref": "#/$defs/identifier" },
+        "room_id": { "$ref": "#/$defs/canonical_room_id" },
         "base_revision": { "$ref": "#/$defs/decimal_string" },
         "rally_id": { "$ref": "#/$defs/identifier" },
         "kind": { "const": "CLOSE_RALLY" },
@@ -241,7 +245,7 @@
       "properties": {
         "schema_version": { "const": "2.0.0" },
         "command_id": { "$ref": "#/$defs/identifier" },
-        "room_id": { "$ref": "#/$defs/identifier" },
+        "room_id": { "$ref": "#/$defs/canonical_room_id" },
         "base_revision": { "$ref": "#/$defs/decimal_string" },
         "rally_id": { "$ref": "#/$defs/identifier" },
         "kind": { "const": "MOVE_KEY_POINT" },
@@ -271,7 +275,7 @@
       "properties": {
         "schema_version": { "const": "2.0.0" },
         "command_id": { "$ref": "#/$defs/identifier" },
-        "room_id": { "$ref": "#/$defs/identifier" },
+        "room_id": { "$ref": "#/$defs/canonical_room_id" },
         "base_revision": { "$ref": "#/$defs/decimal_string" },
         "rally_id": { "$ref": "#/$defs/identifier" },
         "kind": { "const": "DELETE_KEY_POINT" },
@@ -300,7 +304,7 @@
       "properties": {
         "schema_version": { "const": "2.0.0" },
         "command_id": { "$ref": "#/$defs/identifier" },
-        "room_id": { "$ref": "#/$defs/identifier" },
+        "room_id": { "$ref": "#/$defs/canonical_room_id" },
         "base_revision": { "$ref": "#/$defs/decimal_string" },
         "rally_id": { "$ref": "#/$defs/identifier" },
         "kind": { "const": "REOPEN_RALLY" },
@@ -326,7 +330,7 @@
       "properties": {
         "schema_version": { "const": "2.0.0" },
         "command_id": { "$ref": "#/$defs/identifier" },
-        "room_id": { "$ref": "#/$defs/identifier" },
+        "room_id": { "$ref": "#/$defs/canonical_room_id" },
         "base_revision": { "$ref": "#/$defs/decimal_string" },
         "rally_id": { "$ref": "#/$defs/identifier" },
         "kind": { "const": "VOID_RALLY" },
@@ -359,7 +363,7 @@
       "properties": {
         "schema_version": { "const": "2.0.0" },
         "command_id": { "$ref": "#/$defs/identifier" },
-        "room_id": { "$ref": "#/$defs/identifier" },
+        "room_id": { "$ref": "#/$defs/canonical_room_id" },
         "base_revision": { "$ref": "#/$defs/decimal_string" },
         "rally_id": { "$ref": "#/$defs/identifier" },
         "kind": { "const": "SUBMIT_RALLY" },
@@ -384,7 +388,7 @@
       "properties": {
         "schema_version": { "const": "2.0.0" },
         "type": { "const": "connection_ready" },
-        "room_id": { "$ref": "#/$defs/identifier" },
+        "room_id": { "$ref": "#/$defs/canonical_room_id" },
         "server_sequence": { "$ref": "#/$defs/decimal_string" },
         "authenticated_user_id": { "$ref": "#/$defs/identifier" },
         "device_session_id": { "$ref": "#/$defs/identifier" }
@@ -533,7 +537,7 @@
         "schema_version": { "const": "2.0.0" },
         "type": { "const": "command_ack" },
         "command_id": { "$ref": "#/$defs/identifier" },
-        "room_id": { "$ref": "#/$defs/identifier" },
+        "room_id": { "$ref": "#/$defs/canonical_room_id" },
         "rally_id": { "$ref": "#/$defs/identifier" },
         "operation_kind": {
           "enum": [
@@ -645,7 +649,7 @@
         "schema_version": { "const": "2.0.0" },
         "type": { "const": "command_rejected" },
         "command_id": { "$ref": "#/$defs/identifier" },
-        "room_id": { "$ref": "#/$defs/identifier" },
+        "room_id": { "$ref": "#/$defs/canonical_room_id" },
         "rally_id": { "$ref": "#/$defs/identifier" },
         "code": {
           "type": "string",
@@ -808,7 +812,7 @@
       "properties": {
         "schema_version": { "const": "2.0.0" },
         "type": { "const": "rally_snapshot" },
-        "room_id": { "$ref": "#/$defs/identifier" },
+        "room_id": { "$ref": "#/$defs/canonical_room_id" },
         "rally_id": { "$ref": "#/$defs/identifier" },
         "revision": { "$ref": "#/$defs/decimal_string" },
         "server_sequence": { "$ref": "#/$defs/decimal_string" },
@@ -822,7 +826,7 @@
       "properties": {
         "schema_version": { "const": "2.0.0" },
         "type": { "const": "presence_snapshot" },
-        "room_id": { "$ref": "#/$defs/identifier" },
+        "room_id": { "$ref": "#/$defs/canonical_room_id" },
         "members": {
           "type": "array",
           "items": {
@@ -858,7 +862,7 @@
       "properties": {
         "schema_version": { "const": "2.0.0" },
         "type": { "const": "rally_processing_update" },
-        "room_id": { "$ref": "#/$defs/identifier" },
+        "room_id": { "$ref": "#/$defs/canonical_room_id" },
         "rally_id": { "$ref": "#/$defs/identifier" },
         "submission_id": { "$ref": "#/$defs/identifier" },
         "processing_status": {

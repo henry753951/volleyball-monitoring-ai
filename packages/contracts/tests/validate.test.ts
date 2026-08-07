@@ -137,6 +137,7 @@ describe("golden contract fixtures", () => {
     delete missingCreated.effects.created_key_point_id;
     expect(() => parseAnnotationCommandResponse(missingCreated)).toThrow();
     expect(() => parseAnnotationCommand(load("examples/annotation/create-service-non-uuid.invalid.json"))).toThrow();
+    expect(() => parseAnnotationCommand(load("examples/annotation/create-service-noncanonical-room.invalid.json"))).toThrow();
   });
 
   it("parses every v2 server-message discriminator without a record fallback", () => {

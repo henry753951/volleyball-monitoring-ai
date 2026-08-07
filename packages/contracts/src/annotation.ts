@@ -68,26 +68,64 @@ export interface AnnotationResolvedAnchor {
   timing_precision: 'frame_exact' | 'pts_exact' | 'estimated'
 }
 
-export interface AnnotationCommandAck {
+export interface AnnotationAckEffects {
+  created_key_point_id?: string | null
+  terminal_key_point_id?: string | null
+  deleted_key_point_id?: string | null
+  submission_id?: string | null
+  annotation_status?: 'open' | 'ready' | 'submitted' | 'voided'
+  score_resolution?: 'pending' | 'resolved' | 'unknown'
+  scoring_court_side?: 'left' | 'right' | null
+}
+
+interface AnnotationCommandAckBase<K extends AnnotationCommandKind, E extends AnnotationAckEffects> {
   schema_version: '2.0.0'
   type: 'command_ack'
   command_id: string
   room_id: string
   rally_id: string
-  operation_kind: AnnotationCommandKind
+  operation_kind: K
   result_revision: string
   server_sequence: string
-  effects: {
-    created_key_point_id?: string | null
-    terminal_key_point_id?: string | null
-    deleted_key_point_id?: string | null
-    submission_id?: string | null
-    annotation_status?: 'open' | 'ready' | 'submitted' | 'voided'
-    score_resolution?: 'pending' | 'resolved' | 'unknown'
-    scoring_court_side?: 'left' | 'right' | null
-  }
-  resolved_anchor?: AnnotationResolvedAnchor | null
+  effects: E
 }
+
+export type AnnotationCreateKeyPointAck = AnnotationCommandAckBase<
+  'CREATE_SERVICE_KEY_POINT' | 'CREATE_CONTACT_KEY_POINT',
+  AnnotationAckEffects & { created_key_point_id: string }
+> & { resolved_anchor: AnnotationResolvedAnchor }
+
+export type AnnotationCloseRallyAck = AnnotationCommandAckBase<
+  'CLOSE_RALLY',
+  | AnnotationAckEffects & {
+      terminal_key_point_id: string
+      annotation_status: 'ready'
+      score_resolution: 'resolved'
+      scoring_court_side: 'left' | 'right'
+    }
+  | AnnotationAckEffects & {
+      terminal_key_point_id: string
+      annotation_status: 'ready'
+      score_resolution: 'unknown'
+      scoring_court_side: null
+    }
+> & { resolved_anchor: null }
+
+export type AnnotationSubmitRallyAck = AnnotationCommandAckBase<
+  'SUBMIT_RALLY',
+  AnnotationAckEffects & { submission_id: string; annotation_status: 'submitted' }
+> & { resolved_anchor: null }
+
+export type AnnotationOtherCommandAck = AnnotationCommandAckBase<
+  'MOVE_KEY_POINT' | 'DELETE_KEY_POINT' | 'REOPEN_RALLY' | 'VOID_RALLY',
+  AnnotationAckEffects
+> & { resolved_anchor?: AnnotationResolvedAnchor | null }
+
+export type AnnotationCommandAck =
+  | AnnotationCreateKeyPointAck
+  | AnnotationCloseRallyAck
+  | AnnotationSubmitRallyAck
+  | AnnotationOtherCommandAck
 
 export interface AnnotationCommandRejected {
   schema_version: '2.0.0'
