@@ -14,7 +14,7 @@ export async function createGraphQLContext(input: {
   req?: FastifyRequest
   reply?: FastifyReply
 }): Promise<GraphQLContext> {
-  const enabled = process.env.DEV_AUTH_ENABLED === 'true' || process.env.NODE_ENV !== 'production'
+  const enabled = process.env.DEV_AUTH_ENABLED === 'true'
   const userId = enabled ? input.request.headers.get('x-dev-user-id') ?? process.env.DEV_USER_ID : null
   const role = enabled ? input.request.headers.get('x-dev-role') ?? process.env.DEV_USER_ROLE ?? 'ADMIN' : null
   if (!userId || !role) return { ...input, user: null }
