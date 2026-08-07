@@ -20,7 +20,7 @@ export async function getCoachMatchState(
           sideAssignments: { where: { effectiveToRallyOrdinal: null }, orderBy: { effectiveFromRallyOrdinal: 'desc' }, take: 1, select: { id: true, leftTeamId: true, rightTeamId: true } },
         },
       },
-      captureSessions: { orderBy: { createdAt: 'desc' }, select: { id: true, sourceLabel: true, status: true, health: true } },
+      captureSessions: { orderBy: { createdAt: 'desc' }, select: { id: true, sourceKind: true, sourceLabel: true, status: true, health: true } },
       rallies: {
         where: { activeSubmissionId: { not: null }, voidedAt: null },
         orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
@@ -50,7 +50,7 @@ export async function getCoachMatchState(
         id: set.id, set_number: set.setNumber, status: set.status.toLowerCase(), left_score: set.leftScore, right_score: set.rightScore, score_revision: set.scoreRevision,
         side_assignment: set.sideAssignments[0] ? { id: set.sideAssignments[0].id, left_team_id: set.sideAssignments[0].leftTeamId, right_team_id: set.sideAssignments[0].rightTeamId } : null,
       })),
-      captures: match.captureSessions.map(capture => ({ id: capture.id, source_label: capture.sourceLabel, status: capture.status.toLowerCase(), health: capture.health.toLowerCase() })),
+      captures: match.captureSessions.map(capture => ({ id: capture.id, source_kind: capture.sourceKind.toLowerCase(), source_label: capture.sourceLabel, status: capture.status.toLowerCase(), health: capture.health.toLowerCase() })),
       rallies: match.rallies.flatMap(rally => rally.activeSubmission ? [{
         id: rally.id, ordinal: rally.ordinal, annotation_revision: rally.annotationRevision.toString(), processing_status: rally.processingStatus.toLowerCase(), scoring_court_side: rally.scoringCourtSide?.toLowerCase() ?? null, scoring_team_id: rally.scoringTeamId, set_id: rally.set.id, set_number: rally.set.setNumber,
         submission: {

@@ -3,7 +3,7 @@
 > Repository：`volleyball-monitoring-ai`  
 > 主要讀者：負責統籌實作的主 PM／架構 Agent，以及最多三個受委派 subagent。  
 > 文件目的：把產品行為、跨團隊 Schema、媒體時間軸、外部 AI 串接、Nuxt UI、後端、容器與開發順序定成可實作的共同基線。  
-> 核心邊界：**本 repository 不實作任何 AI 模型；只實作中央系統、影音流程、前端、外部 AI 介面、Fake Provider 與可由 GitHub 安裝的 Python SDK。**
+> 核心邊界：**本 repository 不實作任何 AI 模型；只實作中央系統、影音流程、前端、外部 AI 介面、Recorded Tracking Replay Provider 與可由 GitHub 安裝的 Python SDK。**
 
 ---
 
@@ -387,7 +387,7 @@ volleyball-monitoring-ai/
 │   ├── src/roles/
 │   └── tests/
 ├── examples/
-│   └── fake_ai_provider/
+│   └── tracking_replay_provider/
 ├── infra/
 │   ├── compose.yaml
 │   ├── docker/
@@ -536,7 +536,7 @@ server/src/graphql/**/*.ts (Pothos source)
 | `redis` | presence、soft lock、fan-out | 否，可重建 |
 | `minio-init` | 建 buckets/lifecycle | 否 |
 
-Baseline 不建立 AI 推論容器。開發環境可另啟動 `fake-ai-provider`，它只驗證 contract 與產生 fixtures。
+Baseline 不建立 AI 推論容器。開發環境可另啟動 `tracking-replay-provider`；它驗證 immutable Job 與 canonical clip，並重播已版本化的外部 tracking/analysis 輸出，不宣稱執行即時模型推論。
 
 ## 5.2 MinIO Buckets
 
@@ -1817,14 +1817,14 @@ Frontend：
 
 Exit：兩個獨立 PC browser session 同時標註；鍵盤、滑鼠與五個annotation touch controls加按鍵設定可用；refresh/reconnect後一致；close不建timestamp／score frame；unknown可提交。Coach iPad PWA 在 Phase 5 另行驗收，不作為 annotation editor 的主要裝置。
 
-## Phase 4 — Clip／Fake AI／SDK
+## Phase 4 — Clip／Recorded AI Replay／SDK
 
 - Clip worker與timing manifest。
 - AI Integration/capabilities/job/callback。
 - SDK v0.1.0可 GitHub安裝。
-- Fake provider回 fixtures。
+- Recorded replay provider 回傳已保存的 normalized analysis 與 per-frame overlay。
 
-Exit：Enter後自動 clip → fake AI → callback → analysis run。
+Exit：Enter後自動 clip → recorded AI replay → callback → analysis run。
 
 ## Phase 5 — Coach Replay／Overlay
 
@@ -1871,7 +1871,7 @@ Exit：跨 rally player view不依賴 track ID；side switch後 team統計正確
 
 ### Agent A
 
-> 建立 v1 contract baseline與 Python SDK skeleton。只實作 Schema、validation、fake provider adapter與 fixtures，不實作 AI 模型。完成後回報 contract版本、生成物、測試與未定 action/phase事項。
+> 建立 v1 contract baseline與 Python SDK skeleton。只實作 Schema、validation、recorded replay provider adapter與 fixtures，不實作 AI 模型。完成後回報 contract版本、生成物、測試與未定 action/phase事項。
 
 ### Agent B
 
@@ -1932,7 +1932,7 @@ Exit：跨 rally player view不依賴 track ID；side switch後 team統計正確
 - Prisma/PostgreSQL、MinIO、Redis與durable workers
 - 外部 AI Job/callback contracts
 - 可從 GitHub subdirectory安裝的 Python SDK
-- Fake AI Provider與端到端fixtures
+- Recorded Tracking Replay Provider與端到端fixtures
 
 最多同時派出三個 subagent，固定分工：
 A. Contracts + Python SDK
@@ -2122,7 +2122,7 @@ max_concurrent_threads_per_session = 3
 - 灰／黃／藍／綠mask與score state符合使用流程。
 - Enter建立immutable submission。
 - Clip mapping正確。
-- SDK可由GitHub安裝，Fake與真AI使用同一contract。
+- SDK可由GitHub安裝，Recorded Replay Provider與真AI使用同一contract。
 - Callback/FlatBuffers可驗證、保存與重試。
 - 教練端多頁、歷史、overlay、A/B與baseline分析可用。
 - 所有durable state位於PostgreSQL/MinIO；API/worker重啟不遺失。

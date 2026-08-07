@@ -9,17 +9,17 @@ Date: 2026-08-07 (Asia/Taipei target release date)
 - `python scripts/validate_scaffold.py`
   - Required files, annotation controls, SDK FlatBuffers synchronization and core spec invariants passed.
 - `python scripts/validate_prisma_structure.py`
-  - 38 models and 24 enums parsed; required database invariants passed.
+  - 43 models and 26 enums parsed; required database invariants passed.
 - `node scripts/validate_typescript_syntax.mjs`
-  - 47 TypeScript/Vue files passed syntax validation.
-- `uv run --project sdk --frozen --extra test pytest`
-  - 10 tests passed.
+  - 204 TypeScript/Vue files passed syntax validation.
+- `uv run --project sdk --frozen --extra test pytest sdk/tests`
+  - 14 tests passed.
 - Full JSON, TOML and YAML parse pass.
 - `SHA256SUMS.txt` uses canonical LF bytes for text and raw bytes for binary files; `bun run checksums:refresh` and scaffold validation therefore agree across Windows/Linux checkouts and archive delivery without relying on `.git` at validation time.
 - `docs/SYSTEM_SPEC_V3_2.pdf`
-  - 41 pages after the Annotation Realtime 2.0 migration, A4, searchable and openable.
+  - 42 pages after the Annotation Realtime 2.0 and recorded-replay updates, A4, searchable and openable.
   - XeLaTeX completed successfully; extracted text contains `CLOSE_RALLY`, all three strict outcomes and six controls, with old v1.1 terminal/score-flow text absent.
-  - Rendered all 41 pages to PNG and visually reviewed six whole-document contact sheets plus detailed Annotation pages 5, 19, 20 and 21.
+  - The prior full-document render remains valid; after the recorded-replay update, detailed pages 4, 15, 34–36, 39 and 42 were re-rendered and visually reviewed.
 - Verified searchable text contains all six v2.0 command semantics, editable bindings, Restore Defaults, `formatForDisplay`, Traefik baseline and `court_pos` requirements.
 - ZIP integrity is verified during final packaging with `unzip -t`.
 
@@ -42,7 +42,7 @@ Date: 2026-08-07 (Asia/Taipei target release date)
 - Web: 14 Vitest tests passed; Nuxt typecheck and production PWA build passed.
 - Hotkey ADR follow-up: exact-pinned `@tanstack/vue-hotkeys` `0.10.0`; frozen install passed. Tests cover all eight defaults and atomic reset, remap/old-key removal, recorder normalization, v2 preference migration, conflicts/reserved gestures, macOS/Windows display formatting, annotation element scope, modal precedence, input/textarea/select/contenteditable suppression, dynamic registration count and unmount cleanup.
 - Headed Playwright verified all eight formatted settings badges, successful service remap to `S`, duplicate-contact rejection without mutation, Restore All Defaults, the version 3 local-storage envelope, and matching formatted badges on the annotation deck.
-- Prisma 7.9.1 generate and validate passed; DB typecheck passed with 38 models and 24 enums after removing `AWAITING_SCORE`.
+- Prisma 7.9.1 generate and validate passed; DB typecheck passed with the current 43-model, 26-enum schema.
 - `uv run --project sdk --frozen --extra test bun run validate:all` passed.
 
 ## Integrated Phase 1A runtime validation

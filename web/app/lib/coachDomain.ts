@@ -11,7 +11,7 @@ export interface CoachSet {
   score_revision: number
   side_assignment: CoachSideAssignment | null
 }
-export interface CoachCapture { id: string; source_label: string | null; status: string; health: string }
+export interface CoachCapture { id: string; source_kind: string; source_label: string | null; status: string; health: string }
 export interface CoachRally {
   id: string
   ordinal: number

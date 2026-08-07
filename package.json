@@ -21,6 +21,7 @@
     "db:generate": "bun --cwd packages/db generate",
     "db:format": "bun --cwd packages/db format",
     "db:validate": "bun --cwd packages/db validate",
+    "demo:bootstrap": "bun scripts/bootstrap_contract_lab_demo.ts",
     "db:migrate": "bun --cwd packages/db migrate",
     "db:migrate:deploy": "bunx prisma migrate deploy --config packages/db/prisma.config.ts",
     "graphql:schema": "bun --cwd server graphql:schema",

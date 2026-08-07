@@ -102,4 +102,46 @@ describe('composition lifecycle', () => {
       'disconnect',
     ])
   })
+
+  it('preserves receiver binding for stateful lifecycle ports', async () => {
+    const calls: string[] = []
+    const queue = {
+      started: false,
+      async start() {
+        this.started = true
+        calls.push('queue.start')
+      },
+      async stop() {
+        if (!this.started) throw new Error('queue receiver was lost')
+        calls.push('queue.stop')
+      },
+    }
+    const scanner = {
+      started: false,
+      async start() {
+        this.started = true
+        calls.push('scanner.start')
+      },
+      async stop() {
+        if (!this.started) throw new Error('scanner receiver was lost')
+        calls.push('scanner.stop')
+      },
+    }
+    const lifecycle = createMediaIndexerLifecycle({
+      queue,
+      scanner,
+      disconnect: async () => { calls.push('disconnect') },
+    })
+
+    await lifecycle.start()
+    await lifecycle.stop()
+
+    expect(calls).toEqual([
+      'queue.start',
+      'scanner.start',
+      'scanner.stop',
+      'queue.stop',
+      'disconnect',
+    ])
+  })
 })

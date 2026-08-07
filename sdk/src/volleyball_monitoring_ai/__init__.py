@@ -4,7 +4,7 @@ from .models import (
     PlaybackWindowRequest, PlaybackWindowDescriptor, PlaybackCursor,
     ResolvedMediaAnchor, FrameStepRequest, CanonicalFrameAnchor, MediaApiError,
 )
-from .overlay import build_empty_overlay, overlay_schema_path, quantize_frame_coordinate, validate_overlay_bytes
+from .overlay import build_empty_overlay, build_tracking_overlay, overlay_schema_path, quantize_frame_coordinate, validate_overlay_bytes
 from .provider import create_provider_app, download_and_verify_clip
 from .validation import validate_passthrough
 
@@ -25,6 +25,7 @@ __all__ = [
     "create_provider_app",
     "download_and_verify_clip",
     "build_empty_overlay",
+    "build_tracking_overlay",
     "overlay_schema_path",
     "quantize_frame_coordinate",
     "validate_overlay_bytes",

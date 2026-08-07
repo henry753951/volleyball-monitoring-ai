@@ -1,5 +1,20 @@
 # Progress
 
+## 2026-08-08 — Contract Lab DEMO match and recorded tracking replay
+
+Status: the local product now contains one clean DEMO match backed by the supplied 30-minute Contract Lab source, one immutable submitted Rally and the saved YOLOX / Deep-EIoU / SAM / court-projection output. The active development AI integration no longer fabricates tracks or court data.
+
+- Added `bun run demo:bootstrap`. It checksum-verifies the external source and canonical 17.239675-second clip, creates the Japan U16 vs India U16 match/rosters/score/submission, packages the source into 507 HLS fMP4 fragments and imports them through the authoritative DVR artifact/sample-index repository. The source remains outside Git; generated local fragments are ignored by Git and excluded from Docker build context.
+- Replaced `examples/fake_ai_provider` with the uv-managed `contract-lab-tracking-replay` provider. It validates the exact immutable Job input and clip identity, replays recorded YOLOX detections plus Deep-EIoU/SAM tracking, emits a real VOV1 per-frame overlay and returns the saved normalized analysis. Provenance remains explicit: ball points are human frame annotations and action labels are ball-path heuristics, not claimed model output.
+- Preserved the external-AI boundary for `court_pos`: the replay writes finite float32 values without projection or clamping. Runtime GraphQL evidence retained the terminal outside-court position (`x=1.0882928636339`, `y=-0.111756841341654`). The completed run contains 14 tracks, 12 contact events, 11 paths and nine lazy overlay chunks for 1,033 frames.
+- The Coach live page now chooses media by capture kind. YouTube captures keep the embed path; local MP4 and server-ingested sources request a bounded DVR live window and use native iPad HLS or desktop `hls.js`. Headed Chromium rendered the real 1920×1080 DEMO source at `readyState=4`; Rally replay returned HTTP 206, advanced the 17-second canonical clip and loaded overlay chunks without console errors.
+- The PC workstation displays the full `00:30:00.000` server-side timeline, the immutable 12-point DEMO segment and all 14 analysis-run-local track assignments grouped by court side with Unknown as the default. The home/control surfaces show the live `JPN 0:1 IND` score; three prior runtime-smoke memberships were removed from the development viewer without deleting their underlying test records.
+- Fixed media-indexer lifecycle teardown so stateful queue/scanner methods retain their receiver binding. The regression passed 7/7 and the rebuilt worker starts cleanly. Removed 537 demo-only stale pg-boss jobs, 30 failed RTMP test fragments and the obsolete fake-provider container after the recorded replay completed.
+
+Validation passed: Contracts 12, DB 4, Media 88, Server 180, Worker 156 with 6 environment-dependent skips, Web 100 and frozen-`uv` SDK 14. All workspace typechecks and the `app` + `dev-ai` Compose configuration passed. The idempotent bootstrap returned the same match, Rally, submission and analysis-run IDs with an exact 1,800,000,000 µs DVR; headed Chromium showed one DEMO match, `JPN 0:1 IND`, a live WS ping and no console warnings/errors. XeLaTeX rebuilt the searchable 42-page PDF, and changed pages 4, 15, 34–36, 39 and 42 were visually inspected without clipping or overlap.
+
+Open boundary: this provider is a deterministic replay of genuine saved inference output, not an in-repository AI model or a claim that the original model ran during each demo request. Production still requires a live external provider endpoint and credentials.
+
 ## 2026-08-08 — Commercial Annotation and coach experience checkpoint
 
 Status: the PC Annotation workstation now follows the supplied Volleyball AI Contract Lab interaction model while retaining the central system's growing server-side DVR, bounded replay windows and authoritative media-time resolution. The coach surface has been reduced to a landscape-first, commercial iPad experience rather than a diagnostic dashboard.

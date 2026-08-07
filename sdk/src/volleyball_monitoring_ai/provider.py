@@ -7,7 +7,7 @@ from pathlib import Path
 import httpx
 
 from .callback import CallbackClient
-from .models import AIJobRequest, AnalysisBundle
+from .models import AIJobRequest, AnalysisBundle, ProviderCapabilities
 from .validation import validate_passthrough
 
 AnalyzeFn = Callable[[AIJobRequest, Path], AnalysisBundle | Awaitable[AnalysisBundle]]
@@ -30,26 +30,37 @@ async def download_and_verify_clip(job: AIJobRequest, destination: Path) -> None
         raise ValueError("clip checksum/length mismatch")
 
 
-def create_provider_app(*, analyze: AnalyzeFn):
+def create_provider_app(
+    *,
+    analyze: AnalyzeFn,
+    capabilities: ProviderCapabilities | None = None,
+):
     try:
         from fastapi import BackgroundTasks, FastAPI, Header, HTTPException
     except ImportError as exc:
         raise RuntimeError("Install the SDK with the provider extra") from exc
 
     app = FastAPI(title="Volleyball Monitoring External AI Provider")
-
-    @app.get("/v1/capabilities")
-    async def capabilities() -> dict:
-        return {
+    advertised = capabilities or ProviderCapabilities.model_validate(
+        {
             "schema_version": "1.0.0",
             "provider_name": "example-provider",
             "provider_build_id": "replace-me",
             "supported_job_schema_versions": ["1.1.0"],
             "supported_result_schema_versions": ["1.0.0"],
             "supported_overlay_formats": ["flatbuffers_v1"],
-            "optional_extensions": {"action": False, "group_phase": False, "confidence": False},
+            "optional_extensions": {
+                "action": False,
+                "group_phase": False,
+                "confidence": False,
+            },
             "action_taxonomies": [],
         }
+    )
+
+    @app.get("/v1/capabilities")
+    async def capabilities() -> dict:
+        return advertised.model_dump(mode="json")
 
     async def run_job(job: AIJobRequest) -> None:
         with tempfile.TemporaryDirectory(prefix="volleyball-ai-") as directory:

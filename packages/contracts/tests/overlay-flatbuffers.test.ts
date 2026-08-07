@@ -22,7 +22,7 @@ function sequence(): ProviderOverlaySequence {
 }
 
 describe('overlay FlatBuffers boundary', () => {
-  it('accepts the minimal empty VOV1 used by the honest fake provider', () => {
+it('accepts a minimal empty VOV1 overlay', () => {
     const bytes = new Uint8Array([12, 0, 0, 0, 86, 79, 86, 49, 4, 0, 4, 0, 4, 0, 0, 0])
     expect(parseProviderOverlaySequence(bytes)).toMatchObject({ schemaVersion: 10_000, totalFrames: 0n, frameOffsets: [0] })
   })
