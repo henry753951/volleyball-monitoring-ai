@@ -18,11 +18,12 @@ describe('media REST client', () => {
     const fetcher = vi.fn(async () => new Response(JSON.stringify({ message: 'bad' }), { status: 500 }))
     await expect(createMediaClient({ fetcher }).getPlaybackWindow('w')).rejects.toMatchObject({ code: 'UNKNOWN', status: 500 })
   })
-  it('classifies deterministic recovery without silent renewal', () => {
-    expect(classifyMediaError(new MediaApiError('WINDOW_EXPIRED', 'x', 410))).toBe('recreate_window')
-    expect(classifyMediaError(new MediaApiError('MAPPING_STALE', 'x', 409))).toBe('recreate_window')
-    expect(classifyMediaError(new MediaApiError('WINDOW_BOUNDARY', 'x', 409))).toBe('recenter_retry')
-    expect(classifyMediaError(new MediaApiError('CAPTURE_GAP', 'x', 422))).toBe('block')
-    expect(classifyMediaError(new MediaApiError('SAMPLE_NOT_FOUND', 'x', 422))).toBe('block')
+  it('classifies every media error deterministically', () => {
+    const expected = {
+      WINDOW_EXPIRED: 'recreate_window', MAPPING_STALE: 'recreate_window', WINDOW_BOUNDARY: 'recenter_retry',
+      MEDIA_NOT_READY: 'retry_later', CURSOR_NOT_READY: 'retry_later', CAPTURE_GAP: 'block', SAMPLE_NOT_FOUND: 'block',
+      BAD_REQUEST: 'fatal', UNAUTHENTICATED: 'fatal', FORBIDDEN: 'fatal', NOT_FOUND: 'fatal', UNKNOWN: 'fatal',
+    } as const
+    for (const [code, action] of Object.entries(expected)) expect(classifyMediaError(new MediaApiError(code as any, 'x', 400))).toBe(action)
   })
 })
