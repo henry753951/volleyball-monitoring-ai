@@ -1,7 +1,12 @@
+import type { AnnotationRallySnapshot } from '@volleyball-monitoring/contracts'
 import { describe, expect, it } from 'vitest'
 import { mount } from '@vue/test-utils'
 import DvrTimelineDock from './DvrTimelineDock.vue'
 const timeline = { captureSessionId: 's', captureStartTimeUs: '1000', liveEdgeCaptureTimeUs: null, timelineVersion: '1', availableRanges: [{ startUs: '1000', endUs: '2000', discontinuity: 0 }, { startUs: '3000', endUs: '4000', discontinuity: 1 }] }
+const annotation: AnnotationRallySnapshot = {
+  schema_version: '2.0.0', type: 'rally_snapshot', room_id: 'room', rally_id: 'rally', revision: '1', server_sequence: '1',
+  snapshot: { annotation_status: 'open', side_assignment_id: 'assignment', score_resolution: 'pending', scoring_court_side: null, processing_status: 'idle', key_points: [{ key_point_id: 'point-1', sequence_index: 0, marker_kind: 'service', is_terminal: false, capture_time_us: '1750', capture_frame_index: '10', timing_precision: 'frame_exact', possible_duplicate: false }] },
+}
 describe('DvrTimelineDock mounted interactions', () => {
   it('emits exact target and blocks gaps', async () => { const w = mount(DvrTimelineDock, { props: { timeline, playhead: null } }); const lane = w.find('[role="slider"]'); Object.defineProperty(lane.element, 'getBoundingClientRect', { value: () => ({ left: 0, width: 100 }) }); await lane.trigger('click', { clientX: 25 }); expect(w.emitted('seek')?.[0]).toEqual(['1750']); await lane.trigger('click', { clientX: 62 }); expect(w.emitted('seek')).toHaveLength(1) })
   it('uses Shift+wheel for zoom, plain wheel for pan, and reset restores the full view', async () => {
@@ -21,4 +26,13 @@ describe('DvrTimelineDock mounted interactions', () => {
     expect(zoom()).toContain('1.0×')
   })
   it('renders discontinuity marker', () => { const w = mount(DvrTimelineDock, { props: { timeline, playhead: null } }); expect(w.findAll('.gap-range').length).toBeGreaterThan(0) })
+  it('selects and seeks an editable key-point marker', async () => {
+    const w = mount(DvrTimelineDock, { props: { timeline, playhead: null, annotation, editable: true, selectedKeyPointId: 'point-1' } })
+    const marker = w.find('.keypoint-dot')
+    expect(marker.classes()).toContain('editable')
+    expect(marker.classes()).toContain('selected')
+    await marker.trigger('click')
+    expect(w.emitted('select')?.[0]).toEqual(['point-1'])
+    expect(w.emitted('seek')?.[0]).toEqual(['1750'])
+  })
 })

@@ -38,8 +38,8 @@ d487f0e033a6cc4d7cf6d0b058b0899f4b7a23fb0d75981e669ea84a3ee99cad  ./docs/adr/000
 13f53a66b5ac38eca9b0dfdd3f2cd688d66aa8aab33f52f5acba1ea845ce5a90  ./docs/adr/0011-saved-analysis-views.md
 8dd605c47e304131ea1f0dd08f42025d4102eae37fc95bef08058f1fea9f2c1e  ./docs/adr/0012-immutable-score-corrections.md
 de376c790b3f7624d275cd8d6882725028d5264710ede7d748ad38304fee5c6a  ./docs/open-decisions.md
-274dec4e153562e448ecc838287bdfa04a7a2aee8af4416786023f849e22eab1  ./docs/progress.md
-21d4249bd9a6157442c9588d665234ecd451cf6670998751ce84db4293a496d6  ./docs/requirements-matrix.md
+fa419820b4f5853590e2e2b14eb098483f723624394a5c96c3a01c6ee74f798e  ./docs/progress.md
+2cb5dbd1cbdce6971a5f498db28bc74c43560d511eb79658ad3ee95aa26aea77  ./docs/requirements-matrix.md
 e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  ./examples/__init__.py
 cff7ceef7d9b68faa2d2e401530659d7142df6504d99c884ba2abd7606d18911  ./examples/fake_ai_provider/README.md
 e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  ./examples/fake_ai_provider/__init__.py
@@ -221,6 +221,7 @@ dc6593e629b1729b2b00823cb32907931b6cf9e9f55d41c10f5235b23bbdcb88  ./server/src/r
 c84bc183e523337fcc937ea8afcea26476eaaa7ef0d89f8ac8b9cc8cbec45fc8  ./server/src/routes/ai-callback.ts
 a66d4fb7756c5c01c9e78b04eacf823463512a7d4cb7dafc26882bce0d0b29f4  ./server/src/routes/analysis-media.ts
 de68ecb888d1021577a49bfa49d8816a2519469916b2ac2012c32a50a6cf603a  ./server/src/routes/media-playback.ts
+5b82a2aae87e93d49f69ac2ccfc4619fd4a2be70906bda0f5196a4c680807d10  ./server/src/routes/operations.ts
 29dc8ee62da32da243cba2f0c90575ba5e1cea4c36a2d392ab96360c6c926812  ./server/src/services/README.md
 73b13b698965a269dcd376c77099a9d0a1f71644a64be60b56d191e263db767f  ./server/src/services/annotation-command.ts
 4dfdcfb0c292a5fd791ef7dd861545c9314c255d9d729b34780ef32475ddc27f  ./server/src/services/annotation-snapshot.ts
@@ -245,6 +246,7 @@ bcbf27bf32260c862b20119cc7d6cbb80b70e59e5f0ae1bfbec65ed63de33108  ./server/tests
 027946c684781e30f27811eff4d92f24569e1ea750fa9f64cfcf79a4afa18d49  ./server/tests/media-playback.integration.test.ts
 ef01b5c58e0b2235d4dd9d1b90d180e6cb7e67f673330b13e6a3282ca32a2867  ./server/tests/media-playback.unit.test.ts
 84ec104ce685d93feed5ca78276117cd9c08eb790dc9f731b702082760ca2ebb  ./server/tests/minio-object-reader.test.ts
+0678ac3c9111a76d0c58bc4e9d2950b5a9e207c2e6ffcfa038ba8e9a3fac452c  ./server/tests/operations.test.ts
 031192688f5c0aea7987cf2357db752ec326389195469c3f777f55a157763ef3  ./server/tests/readiness.test.ts
 05a83c3ec257b4476f43c5243c755ec7b7c73a6aece848aead900cc7ccf9b9b8  ./server/tests/sample-index-repository.integration.test.ts
 9d8edfd11e0d23978faf42f3ea21f3088752715351aab26f7770029be4c53614  ./server/tests/sample-snap-resolver.test.ts
@@ -260,9 +262,9 @@ b5e625dfd8436c643c65b58bbf4885efe04f1c77b99037450b6992fa7747c470  ./web/app/comp
 6c7f2d63fe830dff091ebc14589b8f25311054a692c20d1ea92d2077a6ae2e8d  ./web/app/components/CaptureControlDialog.vue
 94e0db14252df7087bd90333aa4b1e06cfe378e4dae57ebb13f1da9d61b21411  ./web/app/components/CourtPathView.vue
 060c5012acdd0185fbce2996a44c942fa06eb4a18564ff743aa9c02778c317a5  ./web/app/components/DvrAuthorityInspector.vue
-25171e18281edc44ce2f5e0c3f5c0e125d4575acbe58ac30df865c23616f22a8  ./web/app/components/DvrTimelineDock.component.test.ts
+2cce3111c042bf3faed56c0ffe18d285ab26d1e27126e4b7725de16e30ffaf0c  ./web/app/components/DvrTimelineDock.component.test.ts
 d31178929bbb0713255b5d729b93b68bd0689e9248531e95b6bad0392ec06719  ./web/app/components/DvrTimelineDock.test.ts
-6b0a3e96f26390a5b0d3af1001974328f161f46035dd71f706960d9d044193c5  ./web/app/components/DvrTimelineDock.vue
+925a6c8ff1a8851ec1826d0f8af1aa5211e7587d3c799b78f37c73579ee06581  ./web/app/components/DvrTimelineDock.vue
 d00d983f3f9a25bfcc8c5a78535632c6ead85d522369346a41a87e2a5f06314a  ./web/app/components/LandscapeGuard.vue
 ae09d2505a22c875d329a71b6860ee9991240fc1bf3785a70d702213b4c7b276  ./web/app/components/MatchSetupForm.vue
 43f4b9b4fa7a477559d5139e95cb6034636bec04a8ee0baf975081733c67965b  ./web/app/components/PwaInstallBanner.vue
@@ -299,7 +301,7 @@ d4b1c2e4fa79f412cd9ff497c5cf7d9090f22de1e4c0e07e150664f8d74287dc  ./web/app/lib/
 cba670333ab1e0c411c488d0f3517da77337ca9c256ef9eaae31df1d6c9c3d6d  ./web/app/lib/playbackWindowCache.test.ts
 adee2ce860eff55e9be95c2feaabea259ae161fb138efc484051980767938b22  ./web/app/lib/playbackWindowCache.ts
 52fe16f81674ddd4727c93d95986be02908b5bb247fcca16e04f5c2aba4a1ccb  ./web/app/middleware/auth.global.ts
-e03d78bab32c0717428160fc4ebd31206a90a0da189ed49087d333bb45712856  ./web/app/pages/annotate/[matchId].vue
+ec095d7ef15d1fe79ee24be588d034a70028f11000d9270a14c758679c8e9f54  ./web/app/pages/annotate/[matchId].vue
 d9b5b461a45f621ee67d3ca3880be7ec6e709ceafc596e23efad1013b6965304  ./web/app/pages/index.vue
 74182a667cefb8446962dbc917aaf6f5a56d1ddd9a835a72c365ca9cf44d50f4  ./web/app/pages/matches/[matchId]/history.vue
 5c84248253cac4256f3c6f67d86a6745e8e8acc6e9bf0af9b81b7e5ed19fea0f  ./web/app/pages/matches/[matchId]/live.vue

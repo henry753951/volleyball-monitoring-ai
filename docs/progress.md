@@ -1,5 +1,15 @@
 # Progress
 
+## 2026-08-08 — Annotation marker selection and authoritative frame fine-tune
+
+Status: draft key points can now be selected from the growing DVR timeline and adjusted one authoritative frame at a time from the Contract Lab workstation.
+
+- Timeline markers expose selection state and seek directly to their persisted capture time. Submitted markers remain visibly read-only; a selected marker receives a distinct focus ring without changing canonical data.
+- Added an explicit fine-tune mode for gray drafts. Left/right arrows call the existing server frame-step endpoint, seek the player to the returned canonical frame, wait for a real ready `requestVideoFrameCallback`/fallback cursor from that rendered frame, resolve it again through server media authority and only then issue `MOVE_KEY_POINT`. One pending move gates overlapping frame commands.
+- Web `95/95`, focused timeline interaction `4/4`, Nuxt typecheck and production build passed. The Web/Server images were rebuilt and remained healthy; headed Chrome selected the immutable service marker, opened the matching archive window at frame 15 and reported no console errors without mutating the submitted Rally.
+
+Open limitation: the optional cross-operator drag soft-lock hint is still not implemented; revision/CAS remains the canonical concurrency authority.
+
 ## 2026-08-08 — Internal metrics and audit export
 
 Status: the running Server now exposes payload-free aggregate operations evidence on internal-only routes.
