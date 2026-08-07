@@ -19,7 +19,6 @@ export function resolveCanonicalTime(index: SampleIndex, segmentId: string, cano
   if (!best || bestDistance === undefined) throw new ResolverError('SAMPLE_NOT_FOUND', 'no sample in ready range');
   return { kind: bestDistance === 0n ? 'frame_exact' : 'pts_exact', epochId: index.epochId, segmentId, sample: serializeAnchor(best), snapDistanceUs: bestDistance.toString() };
 }
-
 export function frameStep(index: SampleIndex, segmentId: string, captureFrameIndex: bigint, direction: 'previous' | 'next', windowStartUs = index.availableStartUs, windowEndUs = index.availableEndUs): StepResult {
   const i = index.samples.findIndex(s => s.captureFrameIndex === captureFrameIndex);
   if (i < 0) throw new ResolverError('SAMPLE_NOT_FOUND', 'sample not found');
@@ -28,4 +27,3 @@ export function frameStep(index: SampleIndex, segmentId: string, captureFrameInd
   if (target.captureTimeUs < windowStartUs || target.captureTimeUs > windowEndUs) throw new ResolverError('WINDOW_BOUNDARY', 'adjacent sample outside playback window');
   return { kind: 'frame_exact', epochId: index.epochId, segmentId, sample: serializeAnchor(target) };
 }
-
