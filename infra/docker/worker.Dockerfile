@@ -7,6 +7,7 @@ COPY server/package.json server/package.json
 COPY worker/package.json worker/package.json
 COPY packages/contracts/package.json packages/contracts/package.json
 COPY packages/db/package.json packages/db/package.json
+COPY packages/media/package.json packages/media/package.json
 RUN --mount=type=cache,target=/root/.bun/install/cache bun install --frozen-lockfile
 COPY . .
 RUN bun run db:generate

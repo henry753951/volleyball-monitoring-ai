@@ -3,6 +3,7 @@ import addFormats from "ajv-formats";
 import { describe, expect, it } from "vitest";
 import { readFileSync, readdirSync } from "node:fs";
 import { resolve } from "node:path";
+import { parseMediaApiError, parsePlaybackCursor, parseResolvedMediaAnchor } from "../src/index";
 
 const root = resolve(import.meta.dirname, "..");
 const load = (relative: string) => JSON.parse(readFileSync(resolve(root, relative), "utf8"));
@@ -16,6 +17,17 @@ function validator(schemaPath: string) {
 }
 
 describe("golden contract fixtures", () => {
+  it("guards all media error codes and rejects numeric wire values", () => {
+    const codes = ["BAD_REQUEST", "UNAUTHENTICATED", "FORBIDDEN", "NOT_FOUND", "MAPPING_STALE", "MEDIA_NOT_READY", "WINDOW_BOUNDARY", "WINDOW_EXPIRED", "CURSOR_NOT_READY", "CAPTURE_GAP", "SAMPLE_NOT_FOUND"] as const;
+    for (const code of codes) expect(parseMediaApiError({ schema_version: "1.0.0", code, message: "x", request_id: "r" }).code).toBe(code);
+    expect(() => parsePlaybackCursor({ schema_version: "1.0.0", playback_window_id: "w", mapping_version: 1, player_media_time_us: 9007199254740993, observation_source: "current_time_fallback", seek_generation: 0, cursor_status: "ready" })).toThrow();
+    const anchor = load("examples/media/resolved-media-anchor.json");
+    delete anchor.snap_distance_us;
+    expect(parseResolvedMediaAnchor(anchor).snap_distance_us).toBeUndefined();
+    expect(() => parseResolvedMediaAnchor({ ...anchor, mapping_version: 1.5 })).toThrow();
+    expect(() => parseResolvedMediaAnchor({ ...anchor, source_time_base: { num: 0, den: 1 } })).toThrow();
+    expect(() => parseResolvedMediaAnchor({ ...anchor, source_time_base: { num: 1, den: 60, extra: true } })).toThrow();
+  });
   it("validates every AI fixture against the current schemas", () => {
     const validateJob = validator("ai/job.schema.json");
     const validateResult = validator("ai/result.schema.json");
@@ -42,6 +54,12 @@ describe("golden contract fixtures", () => {
       "examples/media/playback-window-descriptor.json": "media/playback-window-descriptor.schema.json",
       "examples/media/playback-cursor.json": "media/playback-cursor.schema.json",
       "examples/media/resolved-media-anchor.json": "media/resolved-media-anchor.schema.json",
+      "examples/media/playback-window-descriptor-live.json": "media/playback-window-descriptor.schema.json",
+      "examples/media/playback-cursor-fallback.json": "media/playback-cursor.schema.json",
+      "examples/media/resolved-media-anchor-negative-pts.json": "media/resolved-media-anchor.schema.json",
+      "examples/media/frame-step-request.json": "media/frame-step-request.schema.json",
+      "examples/media/canonical-frame-anchor.json": "media/canonical-frame-anchor.schema.json",
+      "examples/media/error-classes.json": "media/media-api-error.schema.json",
       "examples/annotation/close-rally-left.json": "annotation/realtime.schema.json",
       "examples/annotation/close-rally-right.json": "annotation/realtime.schema.json",
       "examples/annotation/close-rally-unknown.json": "annotation/realtime.schema.json",

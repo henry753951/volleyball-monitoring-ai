@@ -105,4 +105,4 @@ jobs:
       - name: Materialize local environment
         run: cp .env.example .env
       - name: Validate Compose app and dev-ai profiles
-        run: docker compose -f infra/compose.yaml --profile app --profile dev-ai config --quiet
+        run: docker compose --env-file .env -f infra/compose.yaml --profile app --profile dev-ai config --quiet

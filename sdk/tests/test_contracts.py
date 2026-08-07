@@ -3,7 +3,11 @@ from pathlib import Path
 
 import pytest
 
-from volleyball_monitoring_ai import AIJobRequest, AnalysisResult, ProviderCapabilities, validate_passthrough
+from volleyball_monitoring_ai import (
+    AIJobRequest, AnalysisResult, ProviderCapabilities, validate_passthrough,
+    PlaybackWindowRequest, PlaybackWindowDescriptor, PlaybackCursor,
+    ResolvedMediaAnchor, FrameStepRequest, CanonicalFrameAnchor, MediaApiError,
+)
 
 FIXTURES = Path(__file__).parents[2] / "packages" / "contracts" / "fixtures"
 
@@ -50,3 +54,27 @@ def test_non_monotonic_key_points_are_rejected() -> None:
     payload["key_points"][1]["clip_frame_index"] = "1"
     with pytest.raises(ValueError):
         AIJobRequest.model_validate(payload)
+
+
+def test_media_fixtures_validate_and_preserve_decimal_strings() -> None:
+    media = Path(__file__).parents[2] / "packages" / "contracts" / "examples" / "media"
+    PlaybackWindowRequest.model_validate_json((media / "playback-window-request.json").read_text())
+    PlaybackWindowDescriptor.model_validate_json((media / "playback-window-descriptor-live.json").read_text())
+    cursor = PlaybackCursor.model_validate_json((media / "playback-cursor-fallback.json").read_text())
+    assert cursor.player_media_time_us == "9007199254740993"
+    ResolvedMediaAnchor.model_validate_json((media / "resolved-media-anchor-negative-pts.json").read_text())
+    FrameStepRequest.model_validate_json((media / "frame-step-request.json").read_text())
+    CanonicalFrameAnchor.model_validate_json((media / "canonical-frame-anchor.json").read_text())
+    MediaApiError.model_validate_json((media / "error-classes.json").read_text())
+
+
+def test_media_models_reject_numeric_wire_values_and_malformed_pts() -> None:
+    media = Path(__file__).parents[2] / "packages" / "contracts" / "examples" / "media"
+    payload = json.loads((media / "playback-cursor-fallback.json").read_text())
+    payload["player_media_time_us"] = 9007199254740993
+    with pytest.raises(ValueError):
+        PlaybackCursor.model_validate(payload)
+    anchor = json.loads((media / "resolved-media-anchor-negative-pts.json").read_text())
+    anchor["source_pts"] = "not-decimal"
+    with pytest.raises(ValueError):
+        ResolvedMediaAnchor.model_validate(anchor)

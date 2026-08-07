@@ -7,10 +7,18 @@ import Redis from 'ioredis'
 import { createGraphQLContext } from './graphql/context.js'
 import { schema } from './graphql/schema.js'
 import { evaluateReadiness, type ReadinessProbe } from './health/readiness.js'
+import { mediaCursorRoutes } from './media/cursor-routes.js'
+import { createMinioObjectReaderFromEnv } from './media/minio-object-reader.js'
+import { createPersistedSampleSnapResolver } from './media/sample-snap-resolver.js'
+import { mediaPlaybackRoutes } from './routes/media-playback.js'
 
 const app = Fastify({ logger: true })
 const redisUrl = process.env.REDIS_URL
 const minioEndpoint = process.env.MINIO_ENDPOINT?.replace(/\/+$/, '')
+const mediaObjectReader = createMinioObjectReaderFromEnv()
+if (!mediaObjectReader) {
+  throw new Error('MinIO reader configuration is required for media playback and cursor resolution')
+}
 const redis = redisUrl
   ? new Redis(redisUrl, { lazyConnect: true, connectTimeout: 1_000, maxRetriesPerRequest: 1 })
   : null
@@ -46,6 +54,11 @@ await app.register(cors, {
   credentials: true,
 })
 await app.register(websocket)
+await app.register(mediaPlaybackRoutes({
+  objectReader: mediaObjectReader,
+  resolveSample: createPersistedSampleSnapResolver(db, mediaObjectReader),
+}))
+await app.register(mediaCursorRoutes({ objectReader: mediaObjectReader }))
 
 const yoga = createYoga<{ req: FastifyRequest; reply: FastifyReply }>({
   schema,

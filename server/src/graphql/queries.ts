@@ -5,13 +5,26 @@ import {
 } from '../services/core-domain.js'
 import { builder } from './builder.js'
 import { domainError, requireIdentity } from './errors.js'
-import { HealthType, MatchType, ViewerType } from './types.js'
+import { CaptureSessionType, HealthType, MatchType, ViewerType } from './types.js'
+import { getVisibleCaptureSession, loadCaptureTimeline } from '../services/media-timeline.js'
 
 builder.queryType({
   fields: (t) => ({
     health: t.field({
       resolve: () => ({ service: 'volleyball-monitoring-server', status: 'ok' }),
       type: HealthType,
+    }),
+    captureSession: t.field({
+      type: CaptureSessionType,
+      nullable: true,
+      args: { id: t.arg.id({ required: true }) },
+      resolve: async (_root, args, context) => {
+        const identity = requireIdentity(context)
+        const session = await getVisibleCaptureSession(args.id, identity.id, identity.role)
+        if (!session) return null
+        const timeline = await loadCaptureTimeline(session.id)
+        return { id: session.id, matchId: session.matchId, sourceLabel: session.sourceLabel, status: session.status, health: session.health, startedAt: session.startedAt, endedAt: session.endedAt, timeline }
+      },
     }),
     match: t.field({
       args: { id: t.arg.id({ required: true }) },

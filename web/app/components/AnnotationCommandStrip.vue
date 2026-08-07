@@ -1,0 +1,10 @@
+<script setup lang="ts">
+import { ANNOTATION_COMMANDS, formatBindingForDisplay, type AnnotationAction } from '~/utils/annotationHotkeys'
+const props = defineProps<{ bindings: Record<string, string>; state: 'IDLE'|'OPEN'|'READY'|'SUBMITTED'; canMark: boolean; lastKeyPoint: boolean }>()
+const emit = defineEmits<{ action: [AnnotationAction] }>()
+function reason(action: AnnotationAction) { if (action === 'service' && (props.state !== 'IDLE' || !props.canMark)) return props.state !== 'IDLE' ? '已有開啟中的回合' : '游標尚未由伺服器確認'; if (action === 'contact' && (props.state !== 'OPEN' || !props.canMark)) return props.state !== 'OPEN' ? '尚未開啟回合' : '游標尚未由伺服器確認'; if (action.startsWith('close_') && (props.state !== 'OPEN' || !props.lastKeyPoint)) return props.state !== 'OPEN' ? '尚未開啟回合' : '沒有伺服器確認的最後 key point'; if (action === 'submit' && props.state !== 'READY') return '提交狀態尚未就緒'; return '' }
+</script>
+<template><div class="command-strip" aria-label="Annotation commands"><button v-for="command in ANNOTATION_COMMANDS" :key="command.action" type="button" :disabled="Boolean(reason(command.action))" :title="reason(command.action) || '可用'" @click="emit('action', command.action)"><strong>{{ formatBindingForDisplay(bindings[command.action] ?? '') }} {{ command.label }}</strong><small>{{ reason(command.action) || '可用' }}</small></button></div></template>
+<style scoped>
+.command-strip{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:8px;margin-top:12px}.command-strip button{min-height:60px;padding:10px;text-align:left;border:1px solid #cfc7bc;border-radius:10px;background:#fff;color:#292521}.command-strip button:focus-visible{outline:3px solid #0f766e;outline-offset:2px}.command-strip button:disabled{opacity:.55;background:#f3f0ec;cursor:not-allowed}.command-strip strong{display:block}.command-strip small{display:block;margin-top:5px;color:#766e65;font-size:11px;line-height:1.3}@media(max-width:900px){.command-strip{grid-template-columns:repeat(3,minmax(0,1fr))}}
+</style>

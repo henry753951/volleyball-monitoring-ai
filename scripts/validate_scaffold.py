@@ -71,6 +71,25 @@ for path in repository_files('*.json'):
 for path in repository_files('*.toml'):
     tomllib.loads(path.read_text(encoding='utf-8'))
 
+root_package = json.loads((ROOT / 'package.json').read_text(encoding='utf-8'))
+workspace_manifests: set[Path] = set()
+for workspace_pattern in root_package['workspaces']:
+    for workspace_path in ROOT.glob(workspace_pattern):
+        manifest = workspace_path / 'package.json'
+        if manifest.is_file():
+            workspace_manifests.add(manifest)
+assert workspace_manifests, 'no Bun workspace manifests found'
+for dockerfile in (ROOT / 'infra/docker').glob('*.Dockerfile'):
+    dockerfile_text = dockerfile.read_text(encoding='utf-8')
+    if 'bun install --frozen-lockfile' not in dockerfile_text:
+        continue
+    for manifest in sorted(workspace_manifests):
+        relative = manifest.relative_to(ROOT).as_posix()
+        expected_copy = f'COPY {relative} {relative}'
+        assert expected_copy in dockerfile_text, (
+            f'{dockerfile.relative_to(ROOT)} must copy {relative} before frozen install'
+        )
+
 assert canonicalize_checksum_bytes(Path('text.md'), b'a\r\nb') == b'a\nb'
 assert canonicalize_checksum_bytes(Path('image.png'), b'a\r\nb') == b'a\r\nb'
 

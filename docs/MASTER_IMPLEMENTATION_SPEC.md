@@ -294,8 +294,8 @@ AI request 建立後，下列值在 AI result/callback 不得改寫：
 
 ### 負責
 
-- Nuxt 多頁式標註端、教練端與歷史紀錄。
-- iPad landscape 互動。
+- PC-first Nuxt 多頁式標註編輯器、教練端與歷史紀錄；標註端以鍵盤、滑鼠與高資訊密度操作為主要驗收。
+- 只有教練／裁判顯示面板要求 installable iPad landscape PWA；標註端保留六個 touch action 的同 command-path parity，但不以 iPad PWA 作主要版面或驗收裝置。
 - Full-session timeline + lazy playback windows。
 - 快捷鍵 state machine 與灰／綠 mask。
 - GraphQL query/mutation client。
@@ -405,7 +405,7 @@ volleyball-monitoring-ai/
 
 - Nuxt 4、Vue 3、TypeScript strict。
 - UI 可以參考舊 MVP 使用的 Nuxt／Vant／Tailwind／Motion／Lucide 組合，但不得沿用其 domain flow、memory store 或手動事件模型。
-- Vant 4 用於 iPad/mobile interaction；Tailwind 4 建立 design tokens；Motion for Vue 只用於必要狀態與球路動畫。
+- Vant 4 用於教練端 iPad/mobile interaction 與必要的 touch parity；PC-first 標註器使用高資訊密度 desktop layout；Tailwind 4 建立 design tokens；Motion for Vue 只用於必要狀態與球路動畫。
 - GraphQL Code Generator `client-preset` 由產生後 SDL 與前端 operations 建立 `TypedDocumentNode`；禁止手寫另一套 domain interface。
 - Video element 上疊透明 Canvas；影片本身不逐 frame 畫入 Canvas。
 
@@ -469,9 +469,9 @@ server/src/graphql/**/*.ts (Pothos source)
 | 層 | 選型 | 用途 |
 |---|---|---|
 | Runtime／Package | Bun `1.3.14` | workspace install、script、server/worker runtime、Docker image |
-| Web | Nuxt 4、Vue 3、TypeScript | Annotation與Coach多頁PWA |
+| Web | Nuxt 4、Vue 3、TypeScript | PC-first Annotation workstation與Coach多頁PWA |
 | UI | Vant 4、Tailwind CSS、Motion-V、Lucide、VueUse | 觸控元件、版面、物理動畫、icon與composable |
-| PWA | `@vite-pwa/nuxt` | standalone manifest、service worker、更新提示、iPad加入主畫面 |
+| PWA | `@vite-pwa/nuxt` | Coach/viewer standalone manifest、service worker、更新提示、iPad加入主畫面 |
 | GraphQL Client | URQL + GraphQL Code Generator | 讀取結構化domain與generated type |
 | Media Client | native Safari HLS + HLS.js fallback | live/archive HLS、bounded client buffer |
 | API Server | Fastify 5 + GraphQL Yoga 5 | 單一HTTP server內同時掛GraphQL、REST與WebSocket upgrade |
@@ -483,9 +483,11 @@ server/src/graphql/**/*.ts (Pothos source)
 | Edge | Traefik 3.7.9 | 本地Docker同源routing、WebSocket與HLS反向代理 |
 | AI Integration | Python 3.11+ SDK | 外部AI team驗證Job／Result、下載clip、callback與FlatBuffers |
 
-不採Caddy。瀏覽器使用Traefik同源路徑 `/graphql`、`/api/v1`、`/ws`、`/hls`，避免把`localhost`編入iPad bundle。MinIO credentials、AI provider bearer與callback token不可進前端。
+不採Caddy。瀏覽器使用Traefik同源路徑 `/graphql`、`/api/v1`、`/ws`、`/hls`，避免把`localhost`編入任何 browser bundle。MinIO credentials、AI provider bearer與callback token不可進前端。
 
-## 4.7 iPad PWA 固定行為
+## 4.7 Coach／Viewer iPad PWA 固定行為
+
+本節只約束教練／裁判顯示面板。PC-first annotation editor 不得為了 iPad 單欄版面犧牲 timeline、selected-point inspector、快捷鍵與多區工作流；共用 media／command 元件仍須維持 touch parity 與可及性。
 
 - PWA `display=standalone`、landscape-first、支援safe-area與Apple touch icon。
 - iPad安裝與Service Worker必須使用可信任的HTTPS origin；LAN上的純HTTP IP只能作一般瀏覽器預覽，不得當作PWA驗收環境。
@@ -1801,7 +1803,7 @@ Frontend：
 - 灰／綠 mask、score strip、快捷鍵模式。
 - 多人 presence/conflict/reconnect。
 
-Exit：兩個iPad同時標；refresh/reconnect後一致；close不建timestamp／score frame；unknown可提交。
+Exit：兩個獨立 PC browser session 同時標註；鍵盤、滑鼠與六個同 command-path touch controls 可用；refresh/reconnect後一致；close不建timestamp／score frame；unknown可提交。Coach iPad PWA 在 Phase 5 另行驗收，不作為 annotation editor 的主要裝置。
 
 ## Phase 4 — Clip／Fake AI／SDK
 
@@ -1865,7 +1867,7 @@ Exit：跨 rally player view不依賴 track ID；side switch後 team統計正確
 
 ### Agent C - Luna Frontend
 
-> 建立 Nuxt 4多頁 shell、底部導覽、頂部狀態列、annotation/coach/history route與 fixture-driven元件。只參考舊 MVP UI libraries/framework，不沿用 domain flow/schema/statistics。
+> 建立 PC-first Nuxt 4 annotation workstation，以及 coach/history 多頁 shell、教練端底部導覽、頂部狀態列與 fixture-driven 元件。只有 coach/viewer 顯示面板以 installable iPad landscape PWA 驗收；annotation editor 保留 touch parity 但以 desktop keyboard/mouse 高資訊密度工作流為主。只參考舊 MVP UI libraries/framework，不沿用 domain flow/schema/statistics。
 
 ## 22.3 每次交付格式
 
