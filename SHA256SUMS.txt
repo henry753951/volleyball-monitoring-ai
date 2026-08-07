@@ -3,7 +3,7 @@ a60955c8ffbec8a3999078369e0e57af39528b53f1bbbcb2593d25d2add1ea05  ./.codex/agent
 082f5ec1d3d931c4fac9e84ee1d26ac4335e3667163a3bbcb5811dc8624d0911  ./.codex/agents/luna-worker.toml
 301580df4adbbcc2e9ff480855e7675ea4ee84c41844976ea258371cdade2b36  ./.codex/config.toml
 e5fa572d1c805f0e6efa435cc2a5491133442c54f2c50b93a1da09d80d589d7e  ./.dockerignore
-1fc07eae386211895b70eee428ad8699b7b05ab822e15dc1521bb1fdcec68abe  ./.env.example
+45df97619572f66b3d3a16f6a5d1d6e64fa7870c0424da997533d00329325d25  ./.env.example
 5076e47d1b7c47fb6af294750f0842140846d76e7e68994c60bed3c6aec0f238  ./.github/workflows/ci.yml
 c53bcdfaef7e71e9f2f4318b2343f97177f285395a8e1b8bc53ae00464d98dd2  ./.gitignore
 477564037d4da5a9c87d9bff00ca70498bbd380f658da13deb6548f3f0c7537d  ./AGENTS.md
@@ -33,7 +33,7 @@ e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  ./examples/__i
 cff7ceef7d9b68faa2d2e401530659d7142df6504d99c884ba2abd7606d18911  ./examples/fake_ai_provider/README.md
 e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  ./examples/fake_ai_provider/__init__.py
 2ec7025fd9a55a3254857e5b59a26dbe97425fc4ef51a5038cb9b04a16e1f2da  ./examples/fake_ai_provider/app.py
-bfe149604218fcb9a8d4ba075404c06c744d023be3de844934e773e1ea2ee32f  ./infra/compose.yaml
+f9698951ade9526ea99abad64793fea2dc7b1719ae6d1ec7c957c4835f3cd0e8  ./infra/compose.yaml
 93b568be788cd3bd191c84998fd88fd5118d39655cf408ef9f2fd8f96ed57813  ./infra/docker/fake-ai-provider.Dockerfile
 b0df11b32374368bd95a4a0a98036cd80cab4089f55825420b0798ccf3d0f811  ./infra/docker/server.Dockerfile
 b4c82d2a8d8b7b534df47e427178cbbc7aa4241f769ca7ef834aca77bb595b64  ./infra/docker/web.Dockerfile
