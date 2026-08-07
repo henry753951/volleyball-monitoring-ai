@@ -9,11 +9,11 @@ export class ResolverError extends Error { constructor(public readonly code: Res
 function serializeAnchor(s: IndexedSample) { return { sourcePts: s.sourcePts.toString(), captureTimeUs: s.captureTimeUs.toString(), captureFrameIndex: s.captureFrameIndex.toString() }; }
 
 export function resolveCanonicalTime(index: SampleIndex, segmentId: string, canonicalTimeUs: bigint, readyStartUs = index.availableStartUs, readyEndUs = index.availableEndUs): ResolveResult {
-  if (canonicalTimeUs < readyStartUs || canonicalTimeUs > readyEndUs) throw new ResolverError('CAPTURE_GAP', 'target is outside ready contiguous range');
+  if (canonicalTimeUs < readyStartUs || canonicalTimeUs >= readyEndUs) throw new ResolverError('CAPTURE_GAP', 'target is outside ready contiguous range');
   let best: IndexedSample | undefined;
   let bestDistance: bigint | undefined;
   for (const sample of index.samples) {
-    if (sample.captureTimeUs < readyStartUs || sample.captureTimeUs > readyEndUs) continue;
+    if (sample.captureTimeUs < readyStartUs || sample.captureTimeUs >= readyEndUs) continue;
     const d = sample.captureTimeUs >= canonicalTimeUs ? sample.captureTimeUs - canonicalTimeUs : canonicalTimeUs - sample.captureTimeUs;
     if (bestDistance === undefined || d < bestDistance || (d === bestDistance && sample.captureTimeUs < best!.captureTimeUs)) { best = sample; bestDistance = d; }
   }
@@ -25,7 +25,7 @@ export function frameStep(index: SampleIndex, segmentId: string, captureFrameInd
   if (i < 0) throw new ResolverError('SAMPLE_NOT_FOUND', 'sample not found');
   const target = index.samples[i + (direction === 'next' ? 1 : -1)];
   if (!target) throw new ResolverError('SAMPLE_NOT_FOUND', 'no adjacent sample');
-  if (target.captureTimeUs < windowStartUs || target.captureTimeUs > windowEndUs) throw new ResolverError('WINDOW_BOUNDARY', 'adjacent sample outside playback window');
+  if (target.captureTimeUs < windowStartUs || target.captureTimeUs >= windowEndUs) throw new ResolverError('WINDOW_BOUNDARY', 'adjacent sample outside playback window');
   return { kind: 'frame_exact', epochId: index.epochId, segmentId, sample: serializeAnchor(target) };
 }
 
@@ -43,6 +43,6 @@ export function frameStepAcrossSegments(segments: readonly IndexedSegment[], cap
   const ordered = segments.flatMap(s => s.index.samples.map(sample => ({ sample, segmentId: s.segmentId, discontinuity: s.discontinuity ?? 0 })));
   const i = ordered.findIndex(x => x.sample.captureFrameIndex === captureFrameIndex); if (i < 0) throw new ResolverError('SAMPLE_NOT_FOUND', 'sample not found');
   const j = i + (direction === 'next' ? 1 : -1); if (j < 0 || j >= ordered.length || ordered[j]!.discontinuity !== ordered[i]!.discontinuity) throw new ResolverError('SAMPLE_NOT_FOUND', 'no adjacent sample');
-  const target = ordered[j]!; if (target.sample.captureTimeUs < windowStartUs || target.sample.captureTimeUs > windowEndUs) throw new ResolverError('WINDOW_BOUNDARY', 'adjacent sample outside playback window');
+  const target = ordered[j]!; if (target.sample.captureTimeUs < windowStartUs || target.sample.captureTimeUs >= windowEndUs) throw new ResolverError('WINDOW_BOUNDARY', 'adjacent sample outside playback window');
   return { kind: 'frame_exact', epochId: target.sample ? segments.find(s => s.segmentId === target.segmentId)!.index.epochId : '', segmentId: target.segmentId, sample: serializeAnchor(target.sample) };
 }

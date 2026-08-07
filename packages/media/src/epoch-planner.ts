@@ -318,7 +318,6 @@ function buildSampleIndex(
       epoch.timeBase,
     )
   return {
-    version: '1',
     epochId: epoch.epochKey,
     timeBase: epoch.timeBase,
     samples,

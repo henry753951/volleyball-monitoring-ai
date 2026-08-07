@@ -20,7 +20,6 @@ const recording: FinalizedRecording = {
 }
 
 const sampleIndex: SampleIndex = {
-  version: '1',
   epochId: 'epoch-01',
   timeBase: { num: 1n, den: 90_000n },
   samples: [
