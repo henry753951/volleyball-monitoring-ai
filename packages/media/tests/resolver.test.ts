@@ -280,6 +280,41 @@ describe('canonical frame step', () => {
     )
   })
 
+  it('rejects a current sample before the window when stepping next inward', () => {
+    const segments = twoTouchingSegments()
+    const outsideCurrent = segments[0].index.samples[0]!
+    const insideNext = segments[0].index.samples[1]!
+
+    expectResolverCode(
+      () =>
+        frameStepAcrossSegments(
+          segments,
+          outsideCurrent.captureFrameIndex,
+          'next',
+          insideNext.captureTimeUs,
+          segments[1].index.availableEndUs,
+        ),
+      'SAMPLE_NOT_FOUND',
+    )
+  })
+
+  it('rejects a current sample at the exclusive window end when stepping previous inward', () => {
+    const segments = twoTouchingSegments()
+    const outsideCurrent = segments[1].index.samples.at(-1)!
+
+    expectResolverCode(
+      () =>
+        frameStepAcrossSegments(
+          segments,
+          outsideCurrent.captureFrameIndex,
+          'previous',
+          segments[0].index.availableStartUs,
+          outsideCurrent.captureTimeUs,
+        ),
+      'SAMPLE_NOT_FOUND',
+    )
+  })
+
   it('returns SAMPLE_NOT_FOUND at the actual beginning and end', () => {
     const segments = twoTouchingSegments()
     const first = segments[0].index.samples[0]!

@@ -312,6 +312,16 @@ export function frameStepAcrossSegments(
   if (currentIndex < 0) {
     throw new ResolverError('SAMPLE_NOT_FOUND', 'sample not found')
   }
+  const current = locations[currentIndex]!
+  if (
+    current.sample.captureTimeUs < windowStartUs ||
+    current.sample.captureTimeUs >= windowEndUs
+  ) {
+    throw new ResolverError(
+      'SAMPLE_NOT_FOUND',
+      'current sample is outside playback window',
+    )
+  }
 
   const targetIndex = currentIndex + (direction === 'next' ? 1 : -1)
   const target = locations[targetIndex]
