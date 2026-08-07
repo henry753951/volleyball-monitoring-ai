@@ -1,92 +1,140 @@
 openapi: 3.1.0
 info:
   title: Volleyball Central REST API
-  version: 1.1.0
+  version: 1.2.0
+security:
+  - sessionCookie: []
 paths:
   /api/v1/media/playback-windows:
     post:
-      summary: Create a bounded live/archive HLS window over the full saved capture timeline
+      summary: Create a bounded live/archive HLS window
       requestBody:
         required: true
         content:
           application/json:
-            schema:
-              $ref: ../media/playback-window-request.schema.json
+            schema: { $ref: '../media/playback-window-request.schema.json' }
       responses:
         '200':
-          description: Playback window descriptor and full-timeline extent
+          description: Playback window descriptor
           content:
             application/json:
-              schema:
-                $ref: ../media/playback-window-descriptor.schema.json
+              schema: { $ref: '../media/playback-window-descriptor.schema.json' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409':
+          description: Media not ready
+          content: { application/json: { schema: { $ref: '../media/media-api-error.schema.json' } } }
+        '422':
+          description: Capture gap
+          content: { application/json: { schema: { $ref: '../media/media-api-error.schema.json' } } }
+  /api/v1/media/playback-windows/{windowId}:
+    get:
+      summary: Get a bounded playback descriptor
+      parameters: [{ $ref: '#/components/parameters/WindowId' }]
+      responses:
+        '200':
+          description: Playback window descriptor
+          content: { application/json: { schema: { $ref: '../media/playback-window-descriptor.schema.json' } } }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '410': { $ref: '#/components/responses/WindowExpired' }
   /api/v1/media/playback-windows/{windowId}/manifest.m3u8:
     get:
-      summary: Serve the bounded HLS manifest; media segments are lazy-loaded by the player
-      parameters:
-        - in: path
-          name: windowId
-          required: true
-          schema: { type: string }
+      summary: Serve the bounded HLS manifest
+      parameters: [{ $ref: '#/components/parameters/WindowId' }]
       responses:
-        '200':
-          description: HLS playlist
-          content:
-            application/vnd.apple.mpegurl: {}
-  /api/v1/media/playback-cursors/resolve:
+        '200': { description: HLS playlist, content: { application/vnd.apple.mpegurl: {} } }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '410': { $ref: '#/components/responses/WindowExpired' }
+  /api/v1/media/playback-windows/{windowId}/segments/{segmentId}:
+    get:
+      summary: Serve an authorized media segment
+      parameters:
+        - { $ref: '#/components/parameters/WindowId' }
+        - { name: segmentId, in: path, required: true, schema: { type: string } }
+      responses:
+        '200': { description: fMP4 segment, content: { video/mp4: {} } }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '410': { $ref: '#/components/responses/WindowExpired' }
+  /api/v1/media/playback-windows/{windowId}/media.mp4:
+    get:
+      summary: Serve bounded progressive media
+      parameters: [{ $ref: '#/components/parameters/WindowId' }]
+      responses:
+        '200': { description: MP4 media, content: { video/mp4: {} } }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '410': { $ref: '#/components/responses/WindowExpired' }
+  /api/v1/media/resolve-cursor:
     post:
-      summary: Resolve a browser presented-frame observation to an authoritative capture sample
+      summary: Resolve a presented-frame observation to an authoritative sample
       requestBody:
         required: true
-        content:
-          application/json:
-            schema:
-              $ref: ../media/playback-cursor.schema.json
+        content: { application/json: { schema: { $ref: '../media/playback-cursor.schema.json' } } }
       responses:
-        '200':
-          description: Resolved media anchor
-          content:
-            application/json:
-              schema:
-                $ref: ../media/resolved-media-anchor.schema.json
-        '409': { description: Playback mapping is stale }
-        '422': { description: Cursor cannot be resolved to a canonical sample }
+        '200': { description: Resolved anchor, content: { application/json: { schema: { $ref: '../media/resolved-media-anchor.schema.json' } } } }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { description: Mapping stale, content: { application/json: { schema: { $ref: '../media/media-api-error.schema.json' } } } }
+        '410': { $ref: '#/components/responses/WindowExpired' }
+        '422': { description: Cursor not ready, gap or sample missing, content: { application/json: { schema: { $ref: '../media/media-api-error.schema.json' } } } }
   /api/v1/media/frame-step:
     post:
-      summary: Resolve the previous or next canonical frame for key-point editing
+      summary: Resolve exactly one adjacent canonical sample
       requestBody:
         required: true
-        content:
-          application/json:
-            schema:
-              $ref: ../media/frame-step-request.schema.json
+        content: { application/json: { schema: { $ref: '../media/frame-step-request.schema.json' } } }
       responses:
-        '200':
-          description: Canonical adjacent frame in the current playback window
-          content:
-            application/json:
-              schema:
-                $ref: ../media/canonical-frame-anchor.schema.json
-        '409': { description: Mapping/window is stale or target frame is outside the current window }
+        '200': { description: Canonical adjacent frame, content: { application/json: { schema: { $ref: '../media/canonical-frame-anchor.schema.json' } } } }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { description: Mapping stale or window boundary, content: { application/json: { schema: { $ref: '../media/media-api-error.schema.json' } } } }
+        '410': { $ref: '#/components/responses/WindowExpired' }
+        '422': { description: Adjacent sample not found, content: { application/json: { schema: { $ref: '../media/media-api-error.schema.json' } } } }
   /api/v1/ai/callback/{jobId}:
     post:
-      summary: Receive idempotent progress/failure JSON or completed multipart callback
+      summary: Receive idempotent AI callback
       parameters:
-        - in: path
-          name: jobId
-          required: true
-          schema: { type: string }
-        - in: header
-          name: Authorization
-          required: true
-          schema: { type: string }
-        - in: header
-          name: Idempotency-Key
-          required: true
-          schema: { type: string, format: uuid }
+        - { name: jobId, in: path, required: true, schema: { type: string } }
+        - { name: Authorization, in: header, required: true, schema: { type: string } }
+        - { name: Idempotency-Key, in: header, required: true, schema: { type: string, format: uuid } }
       responses:
         '200': { description: Callback already processed idempotently }
-        '202': { description: Accepted; completed artifacts may still be ingested }
+        '202': { description: Accepted }
         '409': { description: Job/submission version mismatch }
         '413': { description: Payload too large }
         '415': { description: Unsupported media/schema/FlatBuffers version }
         '422': { description: Contract or invariant validation failed }
+components:
+  securitySchemes:
+    sessionCookie:
+      type: apiKey
+      in: cookie
+      name: session
+  parameters:
+    WindowId:
+      name: windowId
+      in: path
+      required: true
+      schema: { type: string, minLength: 1 }
+  schemas:
+    MediaApiError: { $ref: '../media/media-api-error.schema.json' }
+  responses:
+    Unauthenticated:
+      description: Authentication required
+      content: { application/json: { schema: { $ref: '../media/media-api-error.schema.json' } } }
+    Forbidden:
+      description: Resource is not accessible
+      content: { application/json: { schema: { $ref: '../media/media-api-error.schema.json' } } }
+    NotFound:
+      description: Resource not found
+      content: { application/json: { schema: { $ref: '../media/media-api-error.schema.json' } } }
+    WindowExpired:
+      description: Playback window expired
+      content: { application/json: { schema: { $ref: '../media/media-api-error.schema.json' } } }

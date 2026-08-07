@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/OWNER/volleyball-monitoring-ai/packages/contracts/media/media-api-error/1.0.0",
+  "title": "Media API Error 1.0.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "code", "message", "request_id"],
+  "properties": {
+    "schema_version": {"const": "1.0.0"},
+    "code": {"enum": ["BAD_REQUEST", "UNAUTHENTICATED", "FORBIDDEN", "NOT_FOUND", "MAPPING_STALE", "MEDIA_NOT_READY", "WINDOW_BOUNDARY", "WINDOW_EXPIRED", "CURSOR_NOT_READY", "CAPTURE_GAP", "SAMPLE_NOT_FOUND"]},
+    "message": {"type": "string", "minLength": 1, "maxLength": 512},
+    "request_id": {"type": "string", "minLength": 1, "maxLength": 128},
+    "details": {"type": ["object", "null"], "additionalProperties": true}
+  }
+}

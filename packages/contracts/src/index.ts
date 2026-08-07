@@ -5,6 +5,7 @@ export const CONTRACT_VERSIONS = {
   mediaResolvedAnchor: '1.0.0',
   mediaFrameStepRequest: '1.0.0',
   mediaCanonicalFrameAnchor: '1.0.0',
+  mediaApiError: '1.0.0',
   annotationRealtime: '1.1.0',
   aiCapabilities: '1.0.0',
   aiJob: '1.1.0',
