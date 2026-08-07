@@ -16,7 +16,12 @@ import { CaptureStatus, SourceHealth } from '@volleyball-monitoring/db/client'
 import type { AuthenticatedUser } from './context.js'
 import { builder } from './builder.js'
 import { domainError } from './errors.js'
-import { listCaptureSessionsForMatch } from '../services/media-timeline.js'
+import {
+  listCaptureSessionsForMatch,
+  type CaptureSessionView,
+  type CaptureTimelineRangeView,
+  type CaptureTimelineView,
+} from '../services/media-timeline.js'
 
 interface Health {
   service: string
@@ -188,11 +193,62 @@ MatchType.implement({
   }),
 })
 
-interface CaptureTimelineRange { startUs: bigint; endUs: bigint; discontinuity: number }
-interface CaptureTimeline { captureSessionId: string; timelineVersion: bigint; captureStartTimeUs: bigint; liveEdgeCaptureTimeUs: bigint | null; availableRanges: CaptureTimelineRange[] }
-interface CaptureSessionView { id: string; matchId: string; sourceLabel: string | null; status: CaptureStatus; health: SourceHealth; startedAt: Date | null; endedAt: Date | null; timeline: CaptureTimeline | null }
-export const CaptureTimelineRangeType = builder.objectRef<CaptureTimelineRange>('CaptureTimelineRange')
-CaptureTimelineRangeType.implement({ fields: (t) => ({ startUs: t.field({ type: 'BigInt', resolve: (r) => r.startUs }), endUs: t.field({ type: 'BigInt', resolve: (r) => r.endUs }), discontinuity: t.exposeInt('discontinuity') }) })
-export const CaptureTimelineType = builder.objectRef<CaptureTimeline>('CaptureTimeline')
-CaptureTimelineType.implement({ fields: (t) => ({ captureSessionId: t.exposeID('captureSessionId'), timelineVersion: t.field({ type: 'BigInt', resolve: (r) => r.timelineVersion }), captureStartTimeUs: t.field({ type: 'BigInt', resolve: (r) => r.captureStartTimeUs }), liveEdgeCaptureTimeUs: t.field({ type: 'BigInt', nullable: true, resolve: (r) => r.liveEdgeCaptureTimeUs }), availableRanges: t.field({ type: [CaptureTimelineRangeType], resolve: (r) => r.availableRanges }) }) })
-CaptureSessionType.implement({ fields: (t) => ({ id: t.exposeID('id'), matchId: t.exposeID('matchId'), sourceLabel: t.exposeString('sourceLabel', { nullable: true }), status: t.field({ type: CaptureStatusType, resolve: (r) => r.status }), health: t.field({ type: SourceHealthType, resolve: (r) => r.health }), startedAt: t.field({ type: 'DateTime', nullable: true, resolve: (r) => r.startedAt }), endedAt: t.field({ type: 'DateTime', nullable: true, resolve: (r) => r.endedAt }), timeline: t.field({ type: CaptureTimelineType, nullable: true, resolve: (r) => r.timeline }) }) })
+export const CaptureTimelineRangeType = builder.objectRef<CaptureTimelineRangeView>(
+  'CaptureTimelineRange',
+)
+CaptureTimelineRangeType.implement({
+  fields: (t) => ({
+    discontinuity: t.exposeInt('discontinuity'),
+    endUs: t.field({ type: 'BigInt', resolve: (range) => range.endUs }),
+    startUs: t.field({ type: 'BigInt', resolve: (range) => range.startUs }),
+  }),
+})
+
+export const CaptureTimelineType = builder.objectRef<CaptureTimelineView>('CaptureTimeline')
+CaptureTimelineType.implement({
+  fields: (t) => ({
+    availableRanges: t.field({
+      type: [CaptureTimelineRangeType],
+      resolve: (timeline) => timeline.availableRanges,
+    }),
+    captureSessionId: t.exposeID('captureSessionId'),
+    captureStartTimeUs: t.field({
+      type: 'BigInt',
+      resolve: (timeline) => timeline.captureStartTimeUs,
+    }),
+    liveEdgeCaptureTimeUs: t.field({
+      nullable: true,
+      type: 'BigInt',
+      resolve: (timeline) => timeline.liveEdgeCaptureTimeUs,
+    }),
+    timelineVersion: t.field({
+      type: 'BigInt',
+      resolve: (timeline) => timeline.timelineVersion,
+    }),
+  }),
+})
+
+CaptureSessionType.implement({
+  fields: (t) => ({
+    endedAt: t.field({
+      nullable: true,
+      type: 'DateTime',
+      resolve: (session) => session.endedAt,
+    }),
+    health: t.field({ type: SourceHealthType, resolve: (session) => session.health }),
+    id: t.exposeID('id'),
+    matchId: t.exposeID('matchId'),
+    sourceLabel: t.exposeString('sourceLabel', { nullable: true }),
+    startedAt: t.field({
+      nullable: true,
+      type: 'DateTime',
+      resolve: (session) => session.startedAt,
+    }),
+    status: t.field({ type: CaptureStatusType, resolve: (session) => session.status }),
+    timeline: t.field({
+      nullable: true,
+      type: CaptureTimelineType,
+      resolve: (session) => session.timeline,
+    }),
+  }),
+})
