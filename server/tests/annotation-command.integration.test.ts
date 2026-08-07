@@ -528,4 +528,15 @@ describe('durable service annotation command', () => {
     expect(closes.filter((value) => value.type === 'command_ack')).toHaveLength(1)
     expect(closes.filter((value) => value.type === 'command_rejected')).toHaveLength(1)
   })
+
+  it('serializes a contact-vs-close race from one base revision with a durable loser', async () => {
+    const rallyId = randomUUID(); await service.apply(serviceCommand(randomUUID(), rallyId), identity)
+    const contact = contactCommand(randomUUID(), rallyId, '1')
+    const close = closeCommand(randomUUID(), rallyId, (await db.keyPoint.findFirstOrThrow({ where: { rallyId } })).id, '1', 'unknown')
+    const responses = await Promise.all([service.apply(contact, identity), service.apply(close, identity)])
+    expect(responses.filter((r) => r.type === 'command_ack')).toHaveLength(1)
+    expect(responses.filter((r) => r.type === 'command_rejected')).toHaveLength(1)
+    expect(await db.annotationCommandReceipt.count({ where: { commandId: { in: [contact.command_id, close.command_id] } } })).toBe(2)
+    expect((await db.rally.findUniqueOrThrow({ where: { id: rallyId } })).annotationRevision).toBe(2n)
+  })
 })
