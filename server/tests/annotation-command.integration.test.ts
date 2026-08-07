@@ -482,14 +482,14 @@ describe('durable service annotation command', () => {
 
   it('inserts a contact in canonical middle order under the rally lock', async () => {
     const rallyId = randomUUID(); await service.apply(serviceCommand(randomUUID(), rallyId), identity)
-    const early = { ...anchor, capture_time_us: '9007199254740994', capture_frame_index: '9007199254740995' }
-    const late = { ...anchor, capture_time_us: '9007199254741100', capture_frame_index: '9007199254741101' }
+    const early = { ...anchor, capture_time_us: '9007199254740994', capture_frame_index: '9007199254740995', resolved_player_media_time_us: '1235' }
+    const late = { ...anchor, capture_time_us: '9007199254741083', capture_frame_index: '9007199254740996', resolved_player_media_time_us: '1324' }
     const resolver = createAnnotationCommandService({ database: db, resolveCursor: async (cursor) => cursor.player_media_time_us === '1' ? early : late })
     const first = contactCommand(randomUUID(), rallyId); first.payload.playback_cursor.player_media_time_us = '1'; await resolver.apply(first, identity)
     const second = contactCommand(randomUUID(), rallyId, '2'); second.payload.playback_cursor.player_media_time_us = '2'; await resolver.apply(second, identity)
-    const middle = { ...anchor, capture_time_us: '9007199254741050', capture_frame_index: '9007199254741050' }
+    const middle = { ...anchor, capture_time_us: '9007199254741043', capture_frame_index: '9007199254740995', resolved_player_media_time_us: '1284' }
     const middleService = createAnnotationCommandService({ database: db, resolveCursor: async () => middle }); await middleService.apply(contactCommand(randomUUID(), rallyId, '3'), identity)
-    await expect(db.keyPoint.findMany({ where: { rallyId }, orderBy: { sequenceIndex: 'asc' }, select: { markerKind: true, sequenceIndex: true, captureTimeUs: true } })).resolves.toEqual([{ markerKind: 'SERVICE', sequenceIndex: 0, captureTimeUs: 9007199254740993n }, { markerKind: 'CONTACT', sequenceIndex: 1, captureTimeUs: 9007199254740994n }, { markerKind: 'CONTACT', sequenceIndex: 2, captureTimeUs: 9007199254741050n }, { markerKind: 'CONTACT', sequenceIndex: 3, captureTimeUs: 9007199254741100n }])
+    await expect(db.keyPoint.findMany({ where: { rallyId }, orderBy: { sequenceIndex: 'asc' }, select: { markerKind: true, sequenceIndex: true, captureTimeUs: true } })).resolves.toEqual([{ markerKind: 'SERVICE', sequenceIndex: 0, captureTimeUs: 9007199254740993n }, { markerKind: 'CONTACT', sequenceIndex: 1, captureTimeUs: 9007199254740994n }, { markerKind: 'CONTACT', sequenceIndex: 2, captureTimeUs: 9007199254741043n }, { markerKind: 'CONTACT', sequenceIndex: 3, captureTimeUs: 9007199254741083n }])
   })
 
   it.each(['left', 'right', 'unknown'] as const)('closes with %s outcome without creating forbidden rows', async (outcome) => {
@@ -545,6 +545,56 @@ describe('durable service annotation command', () => {
     const stale = createAnnotationCommandService({ database: db, resolveCursor: async () => { await db.matchMember.delete({ where: { matchId_userId: { matchId: ids.match, userId: ids.operator } } }); return anchor } })
     const command = contactCommand(randomUUID(), rallyId, '1')
     try { await expect(stale.apply(command, identity)).resolves.toMatchObject({ code: 'ROOM_AUTHORIZATION_STALE' }) } finally { await db.matchMember.create({ data: { matchId: ids.match, role: 'OPERATOR', userId: ids.operator } }) }
+  })
+
+  it('durably rejects close when room authorization becomes stale before its transaction', async () => {
+    const rallyId = randomUUID()
+    await service.apply(serviceCommand(randomUUID(), rallyId), identity)
+    const target = await db.keyPoint.findFirstOrThrow({ where: { rallyId } })
+    const command = closeCommand(randomUUID(), rallyId, target.id, '1', 'left')
+    const acceptedOutboxBefore = await db.outboxEvent.count({
+      where: { aggregateId: rallyId, eventType: 'annotation.command_accepted.v2' },
+    })
+    const stale = createAnnotationCommandService({
+      beforeTransaction: async (candidate) => {
+        if (candidate.kind === 'CLOSE_RALLY') {
+          await db.matchMember.delete({
+            where: { matchId_userId: { matchId: ids.match, userId: ids.operator } },
+          })
+        }
+      },
+      database: db,
+      resolveCursor: async () => anchor,
+    })
+
+    try {
+      await expect(stale.apply(command, identity)).resolves.toMatchObject({
+        code: 'ROOM_AUTHORIZATION_STALE',
+        type: 'command_rejected',
+      })
+      await expect(db.annotationCommandReceipt.findUnique({
+        where: { commandId: command.command_id },
+      })).resolves.toMatchObject({ accepted: false })
+      await expect(db.rally.findUniqueOrThrow({ where: { id: rallyId } })).resolves.toMatchObject({
+        annotationRevision: 1n,
+        annotationStatus: 'OPEN',
+        scoreResolutionState: 'PENDING',
+        scoringCourtSide: null,
+      })
+      await expect(db.keyPoint.findUniqueOrThrow({ where: { id: target.id } })).resolves.toMatchObject({
+        isTerminal: false,
+      })
+      await expect(db.annotationOperation.findUnique({
+        where: { clientMutationId: command.command_id },
+      })).resolves.toBeNull()
+      await expect(db.outboxEvent.count({
+        where: { aggregateId: rallyId, eventType: 'annotation.command_accepted.v2' },
+      })).resolves.toBe(acceptedOutboxBefore)
+    } finally {
+      await db.matchMember.create({
+        data: { matchId: ids.match, role: 'OPERATOR', userId: ids.operator },
+      })
+    }
   })
 
   it('rejects revoked devices, anchor-before-service, and foreign playback mappings durably', async () => {
