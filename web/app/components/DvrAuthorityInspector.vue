@@ -1,0 +1,6 @@
+<script setup lang="ts">
+import type { Match, CaptureSession } from '~/lib/coreDomain'
+import type { PlaybackWindowDescriptor, ResolvedMediaAnchor, CanonicalFrameAnchor } from '~/lib/mediaModel'
+defineProps<{ match: Match | null; capture: CaptureSession | null; descriptor: PlaybackWindowDescriptor | null; anchor: ResolvedMediaAnchor | CanonicalFrameAnchor | null; status: string }>()
+</script>
+<template><aside class="authority-inspector"><h2>Authority</h2><dl><dt>Match</dt><dd>{{ match?.title ?? '—' }}</dd><dt>Capture</dt><dd>{{ capture?.sourceLabel ?? capture?.id ?? 'No ready capture' }}</dd><dt>Window</dt><dd>{{ descriptor ? `${descriptor.mode} · map ${descriptor.mapping_version}` : '—' }}</dd><dt>Bounds</dt><dd>{{ descriptor ? `${descriptor.window_capture_start_us} – ${descriptor.window_capture_end_us}` : '—' }}</dd><dt>Anchor</dt><dd>{{ anchor ? `${anchor.capture_epoch_id} · frame ${anchor.capture_frame_index}` : 'Not server-confirmed' }}</dd><dt>Capture time</dt><dd>{{ anchor?.capture_time_us ?? '—' }}</dd><dt>Precision</dt><dd>{{ anchor?.timing_precision ?? '—' }}</dd><dt>Controller</dt><dd>{{ status }}</dd></dl><p class="authority-inspector__note">Annotation draft/submission data is not available in this Phase 2A workstation.</p></aside></template>

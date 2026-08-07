@@ -97,10 +97,10 @@ onMounted(() => { annotationScope.value?.focus({ preventScroll: true }); void lo
     <p v-if="loadError" class="state state--error">{{ loadError }} <button type="button" @click="loadMatch">重試</button></p>
     <div class="workstation__grid">
       <main class="stage"><VideoOverlayPlayer :descriptor="descriptor" @cursor="handleCursor" @ready="video = $event" @error="mediaError = $event.message" /><div v-if="!descriptor" class="stage__empty"><strong>{{ selectedCapture ? '選擇時間軸上的 ready range' : '此場次沒有可播放 capture' }}</strong><span v-if="selectedCapture">{{ selectedCapture.sourceLabel ?? selectedCapture.id }} · {{ timeline?.availableRanges.length }} 個可用區段</span><span v-else>錄影尚未就緒或你沒有存取權限。</span><button v-if="liveTarget" type="button" @click="createWindow(liveTarget)">返回 live</button></div><p v-if="mediaError" class="state state--error">{{ mediaError }} <button type="button" @click="createWindow(liveTarget ?? undefined)">重試</button></p></main>
-      <aside class="rail"><h2>操作狀態</h2><dl><dt>Rally</dt><dd>{{ state }}</dd><dt>狀態</dt><dd>{{ scoreLabel }}</dd><dt>Last key point</dt><dd>{{ currentLastKeyPointId ?? '—' }}</dd></dl><p class="rail__hint">只有 server-confirmed cursor ready 時可建立 marker。</p></aside>
+      <DvrAuthorityInspector :match="match" :capture="selectedCapture" :descriptor="descriptor" :anchor="authoritativeAnchor" :status="dvr.status" />
     </div>
     <section class="deck"><DvrTimelineDock :timeline="timeline" :playhead="authoritativeAnchor?.capture_time_us ?? null" @seek="createWindow" /><div class="deck__controls"><button type="button" @click="dispatchMediaAction('play_pause')">播放 / 暫停</button><button type="button" @click="dispatchMediaAction('frame_previous')">上一幀</button><button type="button" @click="dispatchMediaAction('frame_next')">下一幀</button><button type="button" @click="dispatchMediaAction('mute')">靜音</button><button type="button" @click="createWindow(liveTarget ?? undefined)" :disabled="!liveTarget">返回 live</button></div></section>
-    <div class="annotation-actions"><button v-for="control in controls" :key="control.action" type="button" :disabled="!control.enabled" @click="dispatchAnnotationAction(control.action)"><strong>{{ control.key }} {{ control.label }}</strong><small>{{ control.enabled ? '可用' : '目前不可用' }}</small></button></div>
+    <AnnotationCommandStrip :bindings="bindings" :state="state" :can-mark="canMark" :last-key-point="Boolean(currentLastKeyPointId)" @action="dispatchAnnotationAction" />
   </section>
 </template>
 
