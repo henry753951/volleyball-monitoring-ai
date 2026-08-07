@@ -1,5 +1,13 @@
 # Progress
 
+## 2026-08-08 — Internal metrics and audit export
+
+Status: the running Server now exposes payload-free aggregate operations evidence on internal-only routes.
+
+- Added Prometheus text metrics for process memory/uptime and persisted Rally, ClipJob, AiJob, CaptureSession, OutboxEvent, AI callback, MediaAsset and Annotation receipt/operation state. The companion audit summary contains counts and newest-operation time only; command/callback payloads, tokens, storage keys and user identity are excluded.
+- `/internal/metrics` and `/internal/audit/summary` are registered only on the Server service. The current Traefik rules do not route `/internal/**`; container-local requests returned HTTP 200 while `https://localhost/internal/metrics` returned HTTP 404.
+- Pure renderer/route tests passed `3/3`, Server typecheck passed, the production Server image rebuilt successfully and its readiness remained healthy. External Prometheus/Grafana deployment, alert policy and long-term audit retention remain environment-owned work.
+
 ## 2026-08-08 — AI callback hardening acceptance
 
 Status: the Phase 7 callback duplicate/retry/error matrix is now exercised against an isolated migrated PostgreSQL database through the real Fastify REST route.

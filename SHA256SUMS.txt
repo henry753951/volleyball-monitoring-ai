@@ -19,7 +19,7 @@ f89eeb7275a290523037b4e662ed059ecc6c49dac6cfeb9e5470a97743eb08a2  ./docs/IMPLEME
 e6c02ed30df0282dc72794bb100e206781a59343aaa404f1723f7140321d49f0  ./docs/LUNA_WORKER_SETUP_PROMPT.md
 819eeaac360afc897d40db9e9d9dca15bec250a53963ce98a326e210eaa4bc21  ./docs/MAIN_AGENT_PROMPT.md
 de7c26443d11da676d470234b765281d7d17de5d2cd7147c68fbe22137c598d5  ./docs/MASTER_IMPLEMENTATION_SPEC.md
-8bda6e3dd9d82d5d9140cd462d24d75db0d8c35b59f1aa945db9d1c14aaf1a14  ./docs/OPERATIONS_RUNBOOK.md
+67f2282c731451586491e478d8f69bbbf98c63117c2cefb98009ee18aec40b95  ./docs/OPERATIONS_RUNBOOK.md
 876f0b2c2c1396f0ee64f4b1d6032d4992e8159a1ae94e7b48ab87f1d5a5fbca  ./docs/REFERENCE_EDITOR_AUDIT.md
 de7c26443d11da676d470234b765281d7d17de5d2cd7147c68fbe22137c598d5  ./docs/SYSTEM_SPEC_V3_2.md
 da7a83cd776b22cdbac954f743832e009f57577ed8142bbd9739ae72ddb1627d  ./docs/SYSTEM_SPEC_V3_2.pdf
@@ -38,8 +38,8 @@ d487f0e033a6cc4d7cf6d0b058b0899f4b7a23fb0d75981e669ea84a3ee99cad  ./docs/adr/000
 13f53a66b5ac38eca9b0dfdd3f2cd688d66aa8aab33f52f5acba1ea845ce5a90  ./docs/adr/0011-saved-analysis-views.md
 8dd605c47e304131ea1f0dd08f42025d4102eae37fc95bef08058f1fea9f2c1e  ./docs/adr/0012-immutable-score-corrections.md
 de376c790b3f7624d275cd8d6882725028d5264710ede7d748ad38304fee5c6a  ./docs/open-decisions.md
-a1b88cff5660289d9475923733157ae593ab47b91fcb30c7bc16840fb1dc2d72  ./docs/progress.md
-db08c5c929be168503375aceb6d7f87c9250c348607569d80ab0cb2eb5aedcec  ./docs/requirements-matrix.md
+274dec4e153562e448ecc838287bdfa04a7a2aee8af4416786023f849e22eab1  ./docs/progress.md
+21d4249bd9a6157442c9588d665234ecd451cf6670998751ce84db4293a496d6  ./docs/requirements-matrix.md
 e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  ./examples/__init__.py
 cff7ceef7d9b68faa2d2e401530659d7142df6504d99c884ba2abd7606d18911  ./examples/fake_ai_provider/README.md
 e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  ./examples/fake_ai_provider/__init__.py
@@ -206,7 +206,7 @@ e5f7d4899bc46318e286f7dcb9e52eea60628cb55fad0160fa76c1b802b9e230  ./server/src/g
 36c2a61addc5ade0768f6f5bf73607dc05536fb5a1c073c41023f0bb393e6e3c  ./server/src/graphql/schema.ts
 b94df252510627eebaf4a1b494c20323a08e0ccf4c292531daaa36d01258228b  ./server/src/graphql/types.ts
 6b2c7115e325bd40f267f3c0c4f5ee83930a32c0ae71bb7f8a1c8fb8c33c578d  ./server/src/health/readiness.ts
-6b5fe03c20c63e5504105b67279ccc55d013e7ec540ece01977d02fcc048f9e0  ./server/src/index.ts
+b9fbf5941e15e19f27396acf09628bc373c830f57e9d5d1c436bdb7fcdf6abb2  ./server/src/index.ts
 07ab0ab9db72bbb104dea8a0b2f74e41c7bc3eb427ca145aaeabdd2d8ccdccbe  ./server/src/media/cursor-resolution.ts
 91981dc02252c90ae48919cf728c76c63d7faa98ef0e01ab93c35051d7fd8661  ./server/src/media/cursor-routes.ts
 30a2e7253e349a939f56424bceab2a5a3f777f7214a44147318a3a167305fa8c  ./server/src/media/minio-object-reader.ts
@@ -232,6 +232,7 @@ de9b6dd94f4b1f213c81241a14c9cfb916327b061a61fb32482e837c9c36fab1  ./server/src/s
 cca7f76b9ba3098f5cefbee86b577f02f5d658d9bbe95149e44805e6cb5be23f  ./server/src/services/correction-draft.ts
 cf5dd4148b435f01ef0a25839ddb8213159a8b16858161622d8bed4cadee56db  ./server/src/services/media-timeline.ts
 98c53c86fdaceeb255372c7abcdd5c2fcbdf2cf851d18d615c18ab7b6435679e  ./server/src/services/saved-analysis-views.ts
+73718fd045bae57fbbf68e756cb1d0f7154924fad761ac16e926ee78af24a8a8  ./server/tests/ai-callback.integration.test.ts
 e9f9f15fd8c0d601264ccd6d3ceb9a3e28287e514b7cb7c35ce37d15afc250ec  ./server/tests/annotation-command.integration.test.ts
 7ec724a1825264191e4b52f7e9f1b4767c2eae15848672e65f8d22ed650b8110  ./server/tests/annotation-presence.test.ts
 a6b2690b51a33a5ee67eef44768ff959878cf0ecd2dcee357fc2c8c6901cd560  ./server/tests/annotation-snapshot.integration.test.ts

@@ -13,6 +13,17 @@ docker exec volleyball-monitoring-ai-server-1 wget -qO- http://127.0.0.1:4000/he
 
 Restart stateful dependencies one at a time, waiting for `healthy` and Server readiness before continuing. A safe order is Redis, Server, workers, MinIO, PostgreSQL. Do not remove or recreate volumes during a restart drill. Afterward compare canonical row counts, an object SHA/byte length and all container restart counts to the pre-drill record.
 
+## Metrics and aggregate audit
+
+The Server exposes Prometheus metrics and a payload-free audit summary on the internal container network only:
+
+```powershell
+docker exec volleyball-monitoring-ai-server-1 bun -e "const response = await fetch('http://127.0.0.1:4000/internal/metrics'); process.stdout.write(await response.text())"
+docker exec volleyball-monitoring-ai-server-1 bun -e "const response = await fetch('http://127.0.0.1:4000/internal/audit/summary'); console.log(JSON.stringify(await response.json(), null, 2))"
+```
+
+Traefik intentionally has no `/internal/**` router. A deployment-owned Prometheus must scrape `server:4000/internal/metrics` from an authorized internal network; do not expose the route with a public `PathPrefix` rule. The audit summary contains aggregate states and timestamps only, not annotation/callback payloads, tokens, object keys or user identity. Alert thresholds and audit retention remain production decisions.
+
 ## Consistent backup boundary
 
 Use a maintenance window. Stop new capture/annotation writes and pause the six worker roles before starting a cross-store backup. A database dump and object mirror are not one atomic transaction, so record the start/end time and retain both artifacts as one backup set.

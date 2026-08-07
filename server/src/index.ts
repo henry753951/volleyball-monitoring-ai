@@ -16,6 +16,7 @@ import { createPersistedSampleSnapResolver } from './media/sample-snap-resolver.
 import { mediaPlaybackRoutes } from './routes/media-playback.js'
 import { aiCallbackRoutes } from './routes/ai-callback.js'
 import { analysisMediaRoutes } from './routes/analysis-media.js'
+import { collectOperationsSnapshot, operationsRoutes } from './routes/operations.js'
 import { createAnnotationPresenceService } from './realtime/annotation-presence.js'
 import { annotationWebSocketRoutes } from './realtime/annotation-ws.js'
 import { authenticateDevelopmentAnnotationRequest } from './realtime/auth.js'
@@ -87,6 +88,7 @@ await app.register(mediaPlaybackRoutes({
   resolveSample: createPersistedSampleSnapResolver(db, mediaObjectReader),
 }))
 await app.register(mediaCursorRoutes({ objectReader: mediaObjectReader }))
+await app.register(operationsRoutes(() => collectOperationsSnapshot(db)))
 await app.register(annotationWebSocketRoutes({
   authenticate: (request) => authenticateDevelopmentAnnotationRequest(request, db),
   ...(annotationPresence ? { presence: annotationPresence } : {}),
