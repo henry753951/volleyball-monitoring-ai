@@ -40,6 +40,7 @@ export type IngestArtifactExpectation = IngestArtifactReservation & {
 }
 
 export type DvrProgramProfile = {
+  /** Stable packaged rendition metadata; source epoch timing is carried separately. */
   fpsNum: number
   fpsDen: number
   timeBaseNum: number
@@ -53,6 +54,7 @@ export type FinalizedSegmentReservationInput = {
   newEpochId: string
   programProfile: DvrProgramProfile
   sourceOrder: bigint
+  /** Authoritative source PTS unit for this epoch; reconnects may change it. */
   timeBase: Rational
   samples: IncrementalFinalizedIndexedSegment['samples']
   sourceRestart: boolean
@@ -269,9 +271,7 @@ function validateReservationInput(input: FinalizedSegmentReservationInput) {
     input.timeBase.num <= 0n ||
     input.timeBase.den <= 0n ||
     input.timeBase.num > BigInt(INT32_MAX) ||
-    input.timeBase.den > BigInt(INT32_MAX) ||
-    input.timeBase.num !== BigInt(input.programProfile.timeBaseNum) ||
-    input.timeBase.den !== BigInt(input.programProfile.timeBaseDen)
+    input.timeBase.den > BigInt(INT32_MAX)
   ) {
     fail('INVALID_INPUT')
   }
