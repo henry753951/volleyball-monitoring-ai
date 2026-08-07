@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { capturePercentBps, pointerTarget, rulerTicks, readyAt, timelineBounds } from '~/lib/dvrTimeline'
+import { capturePercentBps, pointerTarget, rulerTicks, readyAt, timelineBounds } from '../lib/dvrTimeline'
 describe('DVR timeline bigint positioning', () => {
   const ranges = [{ startUs: '9007199254740993', endUs: '9007199254741993', discontinuity: 0 }]
   it('maps large capture values proportionally', () => { const bounds = timelineBounds(ranges)!; expect(capturePercentBps('9007199254741243', bounds)).toBe(2500) })
