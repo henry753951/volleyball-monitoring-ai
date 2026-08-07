@@ -1,39 +1,6 @@
 
-export type ObservationSource =
-  | 'request_video_frame_callback'
-  | 'current_time_fallback'
-
-export type CursorStatus = 'ready' | 'seeking' | 'stale' | 'gap'
-
-export interface PlaybackWindowDescriptor {
-  schema_version: '1.0.0'
-  playback_window_id: string
-  capture_session_id: string
-  mode: 'live' | 'archive'
-  mapping_version: number
-  timeline_capture_start_us: string
-  timeline_capture_end_us: string
-  window_capture_start_us: string
-  window_capture_end_us: string
-  presentation_origin_capture_us: string
-  target_player_media_time_us: string
-  manifest_url: string
-  expires_at: string
-  live_edge_capture_time_us?: string | null
-  has_more_before: boolean
-  has_more_after: boolean
-}
-
-export interface PlaybackCursorInput {
-  schema_version: '1.0.0'
-  playback_window_id: string
-  mapping_version: number
-  player_media_time_us: string
-  observation_source: ObservationSource
-  presented_frames: string | null
-  seek_generation: number
-  cursor_status: CursorStatus
-}
+import type { ObservationSource, CursorStatus, PlaybackWindowDescriptor, PlaybackCursorInput } from '../lib/mediaModel'
+export type { ObservationSource, CursorStatus, PlaybackWindowDescriptor, PlaybackCursorInput } from '../lib/mediaModel'
 
 interface VideoFrameMetadataSubset {
   mediaTime: number

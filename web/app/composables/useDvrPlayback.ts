@@ -49,7 +49,11 @@ export function useDvrPlayback(video: Ref<HTMLVideoElement | null>) {
       }
 
       activeWindow.value = descriptor
-      element.currentTime = Number(BigInt(descriptor.target_player_media_time_us)) / 1_000_000
+      // Convert only the bounded player-local delta; canonical decimal timestamps
+      // remain exact bigint values even when they exceed Number's safe range.
+      element.currentTime = Number(
+        BigInt(descriptor.target_player_media_time_us) - BigInt(descriptor.presentation_origin_capture_us),
+      ) / 1_000_000
     } finally {
       loading.value = false
     }

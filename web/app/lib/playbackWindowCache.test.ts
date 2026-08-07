@@ -1,0 +1,6 @@
+import { describe, expect, it, vi } from 'vitest'
+import { PlaybackWindowCache } from './playbackWindowCache'
+const d = (id: string) => ({ schema_version: '1.0.0' as const, playback_window_id: id, capture_session_id: 's', mode: 'archive' as const, mapping_version: 1, timeline_capture_start_us: '0', timeline_capture_end_us: '10', window_capture_start_us: '0', window_capture_end_us: '10', presentation_origin_capture_us: '0', target_player_media_time_us: '0', manifest_url: '/m', expires_at: new Date(Date.now() + 10000).toISOString(), has_more_before: false, has_more_after: false })
+describe('bounded window cache', () => {
+  it('keeps three named slots and cleans evicted descriptors', () => { const cleanup = vi.fn(); const cache = new PlaybackWindowCache(cleanup); cache.set('current', d('a')); cache.set('previous', d('b')); cache.set('next', d('c')); cache.set('next', d('d')); expect(cleanup).toHaveBeenCalledWith(expect.objectContaining({ playback_window_id: 'c' })); expect(Object.keys(cache.snapshot())).toHaveLength(3); cache.recenter(d('e')); expect(cleanup).toHaveBeenCalledWith(expect.objectContaining({ playback_window_id: 'a' })); expect(cache.get('current')?.playback_window_id).toBe('e'); cache.clear(); expect(cache.snapshot()).toEqual({}) })
+})
