@@ -550,7 +550,7 @@ describe('durable service annotation command', () => {
   it('rejects revoked devices, anchor-before-service, and foreign playback mappings durably', async () => {
     const rallyId = randomUUID(); await service.apply(serviceCommand(randomUUID(), rallyId), identity)
     await db.deviceSession.update({ data: { revokedAt: new Date() }, where: { id: ids.device } })
-    try { await expect(service.apply(contactCommand(randomUUID(), rallyId), identity)).resolves.toMatchObject({ code: 'UNAUTHENTICATED' }) } finally { await db.deviceSession.update({ data: { revokedAt: null }, where: { id: ids.device } }) }
+    try { await expect(service.apply(contactCommand(randomUUID(), rallyId), identity)).rejects.toThrow('Authenticated device session is not active') } finally { await db.deviceSession.update({ data: { revokedAt: null }, where: { id: ids.device } }) }
     const variants = [
       { ...anchor, capture_time_us: '1', capture_frame_index: '1' },
       { ...anchor, dvr_segment_id: randomUUID() },
