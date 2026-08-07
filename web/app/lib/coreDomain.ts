@@ -42,7 +42,11 @@ export interface Match {
   teams: Team[]
   rosterEntries: MatchRosterEntry[]
   sets: MatchSet[]
+  captureSessions: CaptureSession[]
 }
+export interface CaptureTimelineRange { startUs: string; endUs: string; discontinuity: number }
+export interface CaptureTimeline { captureSessionId: string; captureStartTimeUs: string; liveEdgeCaptureTimeUs: string | null; timelineVersion: string; availableRanges: CaptureTimelineRange[] }
+export interface CaptureSession { id: string; matchId: string; sourceLabel: string | null; status: string; health: string; startedAt: string | null; endedAt: string | null; timeline: CaptureTimeline | null }
 
 export interface RosterInput {
   name: string
@@ -99,8 +103,8 @@ export interface CoreDomainClient {
 
 export const CORE_OPERATIONS = {
   viewer: `query Viewer { viewer { id role } }`,
-  matches: `query Matches { matches { id title venue status scheduledAt teams { id name shortName } rosterEntries { id teamId name jerseyNumber } sets { id setNumber status leftScore rightScore sideAssignments { id effectiveFromRallyOrdinal effectiveToRallyOrdinal leftTeamId rightTeamId } } } }`,
-  match: `query Match($id: ID!) { match(id: $id) { id title venue status scheduledAt teams { id name shortName } rosterEntries { id teamId name jerseyNumber } sets { id setNumber status leftScore rightScore sideAssignments { id effectiveFromRallyOrdinal effectiveToRallyOrdinal leftTeamId rightTeamId } } } }`,
+  matches: `query Matches { matches { id title venue status scheduledAt teams { id name shortName } rosterEntries { id teamId name jerseyNumber } sets { id setNumber status leftScore rightScore sideAssignments { id effectiveFromRallyOrdinal effectiveToRallyOrdinal leftTeamId rightTeamId } } captureSessions { id matchId sourceLabel status health startedAt endedAt timeline { captureSessionId captureStartTimeUs liveEdgeCaptureTimeUs timelineVersion availableRanges { startUs endUs discontinuity } } } } }`,
+  match: `query Match($id: ID!) { match(id: $id) { id title venue status scheduledAt teams { id name shortName } rosterEntries { id teamId name jerseyNumber } sets { id setNumber status leftScore rightScore sideAssignments { id effectiveFromRallyOrdinal effectiveToRallyOrdinal leftTeamId rightTeamId } } captureSessions { id matchId sourceLabel status health startedAt endedAt timeline { captureSessionId captureStartTimeUs liveEdgeCaptureTimeUs timelineVersion availableRanges { startUs endUs discontinuity } } } } }`,
   createMatchSetup: `mutation CreateMatchSetup($input: CreateMatchSetupInput!) { createMatchSetup(input: $input) { id title venue status scheduledAt teams { id name shortName } rosterEntries { id teamId name jerseyNumber } sets { id setNumber status leftScore rightScore sideAssignments { id effectiveFromRallyOrdinal effectiveToRallyOrdinal leftTeamId rightTeamId } } } }`,
   swapCourtSides: `mutation SwapCourtSides($input: SwapCourtSidesInput!) { swapCourtSides(input: $input) { id setNumber status leftScore rightScore sideAssignments { id effectiveFromRallyOrdinal effectiveToRallyOrdinal leftTeamId rightTeamId } } }`,
 } as const
