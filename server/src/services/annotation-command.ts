@@ -10,7 +10,7 @@ import {
   type ResolvedMediaAnchor,
 } from '@volleyball-monitoring/contracts'
 import type { PrismaClient } from '@volleyball-monitoring/db'
-import { Prisma } from '@volleyball-monitoring/db/client'
+import { Prisma, UserRole } from '@volleyball-monitoring/db/client'
 import {
   authorizeAnnotationRoom,
   type AnnotationIdentity,
@@ -181,7 +181,9 @@ async function persistRejection(
     eventType: 'annotation.command_rejected.v2',
     payload: jsonValue(response),
   } })
-  return response
+  const stored = parseAnnotationCommandResponse(receipt.responseJson)
+  if (stored.type !== 'command_rejected') throw new TypeError('Stored rejection is invalid')
+  return stored
 }
 
 function mediaRejection(command: AnnotationCommand, error: MediaHttpError): AnnotationCommandRejected {
@@ -189,9 +191,14 @@ function mediaRejection(command: AnnotationCommand, error: MediaHttpError): Anno
 }
 
 async function selectCurrentSet(tx: Transaction, matchId: string) {
-  return await tx.matchSet.findFirst({
+  const live = await tx.matchSet.findFirst({
     orderBy: [{ setNumber: 'desc' }, { id: 'desc' }],
-    where: { matchId, status: { in: ['LIVE', 'PLANNED'] } },
+    where: { matchId, status: 'LIVE' },
+  })
+  if (live) return live
+  return tx.matchSet.findFirst({
+    orderBy: [{ setNumber: 'asc' }, { id: 'asc' }],
+    where: { matchId, status: 'PLANNED' },
   })
 }
 
@@ -209,6 +216,45 @@ async function acceptService(
     if (existing) return existing
     await rallyLock(tx, command.rally_id)
 
+    const [device, authorizedMatch] = await Promise.all([
+      tx.deviceSession.findUnique({
+        select: { revokedAt: true, userId: true },
+        where: { id: identity.deviceSessionId },
+      }),
+      tx.match.findFirst({
+        select: { id: true },
+        where: {
+          id: room.matchId,
+          captureSessions: { some: { id: room.captureSessionId } },
+          ...(identity.role === UserRole.ADMIN
+            ? {}
+            : {
+                members: {
+                  some: {
+                    role: { in: [UserRole.ADMIN, UserRole.OPERATOR, UserRole.ANNOTATOR] },
+                    userId: identity.userId,
+                  },
+                },
+              }),
+        },
+      }),
+    ])
+    if (!device) throw new TypeError('Authenticated device session no longer exists')
+    if (device.userId !== identity.userId || device.revokedAt) {
+      return persistRejection(tx, command, identity, hash, rejected(
+        command,
+        'UNAUTHENTICATED',
+        'Authenticated device session is no longer active',
+      ))
+    }
+    if (!authorizedMatch) {
+      return persistRejection(tx, command, identity, hash, rejected(
+        command,
+        'ROOM_AUTHORIZATION_STALE',
+        'Annotation room authorization changed before commit',
+      ))
+    }
+
     const conflicting = await tx.rally.findUnique({ select: { annotationRevision: true }, where: { id: command.rally_id } })
     if (conflicting) {
       const response = rejected(command, 'REVISION_CONFLICT', 'Rally already exists', {
@@ -218,29 +264,81 @@ async function acceptService(
       return persistRejection(tx, command, identity, hash, response)
     }
 
+    const segmentId = anchor.dvr_segment_id
+    const playbackWindowPromise = segmentId === null || segmentId === undefined
+      ? Promise.resolve(null)
+      : tx.playbackWindow.findFirst({
+          select: {
+            captureEndUs: true,
+            captureStartUs: true,
+            dvrProgramId: true,
+            mappingVersion: true,
+            presentationOriginCaptureUs: true,
+            segments: {
+              select: {
+                dvrSegment: {
+                  select: {
+                    captureEndUs: true,
+                    captureEpochId: true,
+                    captureStartUs: true,
+                    dvrProgramId: true,
+                    firstFrameIndex: true,
+                    frameCount: true,
+                    id: true,
+                    isGap: true,
+                    readyAt: true,
+                    sampleIndexAssetId: true,
+                  },
+                },
+              },
+              where: { dvrSegmentId: segmentId },
+            },
+          },
+          where: {
+            captureSessionId: room.captureSessionId,
+            dvrProgram: { captureSessionId: room.captureSessionId },
+            id: anchor.playback_window_id,
+          },
+        })
     const [playbackWindow, set, epoch] = await Promise.all([
-      tx.playbackWindow.findFirst({
-        select: { dvrProgramId: true, mappingVersion: true },
-        where: {
-          captureSessionId: room.captureSessionId,
-          dvrProgram: { captureSessionId: room.captureSessionId },
-          id: anchor.playback_window_id,
-        },
-      }),
+      playbackWindowPromise,
       selectCurrentSet(tx, room.matchId),
       tx.captureEpoch.findFirst({
         select: { id: true },
         where: { captureSessionId: room.captureSessionId, id: anchor.capture_epoch_id },
       }),
     ])
+    const mappedSegment = segmentId === null || segmentId === undefined
+      ? null
+      : playbackWindow?.segments[0]?.dvrSegment ?? null
+    const captureTimeUs = BigInt(anchor.capture_time_us)
+    const captureFrameIndex = BigInt(anchor.capture_frame_index)
+    const resolvedPlayerMediaTimeUs = BigInt(anchor.resolved_player_media_time_us)
+    const segmentContainsFrame = mappedSegment?.firstFrameIndex !== null
+      && mappedSegment?.firstFrameIndex !== undefined
+      && captureFrameIndex >= mappedSegment.firstFrameIndex
+      && captureFrameIndex < mappedSegment.firstFrameIndex + mappedSegment.frameCount
     if (
       !playbackWindow
       || !set
       || !epoch
+      || !mappedSegment
       || anchor.capture_session_id !== room.captureSessionId
       || playbackWindow.mappingVersion !== anchor.mapping_version
       || command.payload.playback_cursor.playback_window_id !== anchor.playback_window_id
       || command.payload.playback_cursor.mapping_version !== anchor.mapping_version
+      || mappedSegment.id !== segmentId
+      || mappedSegment.dvrProgramId !== playbackWindow.dvrProgramId
+      || mappedSegment.captureEpochId !== anchor.capture_epoch_id
+      || mappedSegment.isGap
+      || mappedSegment.readyAt === null
+      || mappedSegment.sampleIndexAssetId === null
+      || captureTimeUs < playbackWindow.captureStartUs
+      || captureTimeUs >= playbackWindow.captureEndUs
+      || captureTimeUs < mappedSegment.captureStartUs
+      || captureTimeUs >= mappedSegment.captureEndUs
+      || !segmentContainsFrame
+      || resolvedPlayerMediaTimeUs !== captureTimeUs - playbackWindow.presentationOriginCaptureUs
     ) {
       return persistRejection(tx, command, identity, hash, rejected(
         command,
@@ -250,6 +348,17 @@ async function acceptService(
     }
 
     await setAllocationLock(tx, set.id)
+    const activeDraft = await tx.rally.findFirst({
+      select: { id: true },
+      where: { annotationStatus: { in: ['OPEN', 'READY'] }, setId: set.id },
+    })
+    if (activeDraft) {
+      return persistRejection(tx, command, identity, hash, rejected(
+        command,
+        'ACTIVE_RALLY_EXISTS',
+        'The current set already has an editable rally draft',
+      ))
+    }
     const aggregate = await tx.rally.aggregate({ _max: { ordinal: true }, where: { setId: set.id } })
     const ordinal = (aggregate._max.ordinal ?? 0) + 1
     const assignment = await tx.courtSideAssignment.findFirst({
@@ -323,8 +432,9 @@ async function acceptService(
       },
       resolved_anchor: wireAnchor(anchor),
     })
-    await tx.annotationCommandReceipt.update({
+    const storedReceipt = await tx.annotationCommandReceipt.update({
       data: { responseJson: jsonValue(response) },
+      select: { responseJson: true },
       where: { serverSequence: receipt.serverSequence },
     })
     await tx.annotationOperation.create({ data: {
@@ -346,7 +456,9 @@ async function acceptService(
       eventType: 'annotation.command_accepted.v2',
       payload: jsonValue(response),
     } })
-    return response
+    const stored = parseAnnotationCommandResponse(storedReceipt.responseJson)
+    if (stored.type !== 'command_ack') throw new TypeError('Stored acknowledgement is invalid')
+    return stored
   })
 }
 

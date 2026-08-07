@@ -8,12 +8,13 @@ import Fastify from 'fastify'
 import { createYoga } from 'graphql-yoga'
 import { afterEach, describe, expect, it } from 'vitest'
 import { annotationWebSocketRoutes } from '../src/realtime/annotation-ws.js'
+import { parseAnnotationRoomId } from '../src/domain/annotation/room.js'
 import type { AnnotationCommandService } from '../src/services/annotation-command.js'
 
 const userId = '83000000-0000-4000-8000-000000000001'
 const deviceSessionId = '83000000-0000-4000-8000-000000000002'
-const matchId = '83000000-0000-4000-8000-000000000003'
-const captureId = '83000000-0000-4000-8000-000000000004'
+const matchId = '83000000-0000-4000-8000-abcdef000003'
+const captureId = '83000000-0000-4000-8000-abcdef000004'
 const rallyId = '83000000-0000-4000-8000-000000000005'
 const commandId = '83000000-0000-4000-8000-000000000006'
 const keyPointId = '83000000-0000-4000-8000-000000000007'
@@ -61,7 +62,12 @@ function fakeService(seen: unknown[]): AnnotationCommandService {
       return response
     },
     async authorizeRoom(value) {
-      return value === roomId ? { captureSessionId: captureId, matchId, roomId } : null
+      try {
+        const parsed = parseAnnotationRoomId(value)
+        return parsed.roomId === roomId ? parsed : null
+      } catch {
+        return null
+      }
     },
     async roomSequence() {
       return 10n
@@ -118,6 +124,18 @@ describe('annotation transport adapters', () => {
     const invalid = await invalidFetch.json() as { errors: Array<{ extensions: { code: string } }> }
     expect(invalid.errors[0]?.extensions.code).toBe('BAD_USER_INPUT')
     expect(seen).toHaveLength(1)
+
+    const noncanonicalFetch = await Promise.resolve(yoga.fetch('http://localhost/graphql', {
+      body: JSON.stringify({
+        query: 'mutation Apply($command: JSON!) { applyAnnotationCommand(command: $command) }',
+        variables: { command: { ...command, room_id: roomId.replace('abcdef', 'ABCDEF') } },
+      }),
+      headers: { 'content-type': 'application/json' },
+      method: 'POST',
+    }))
+    const noncanonical = await noncanonicalFetch.json() as { errors: Array<{ extensions: { code: string } }> }
+    expect(noncanonical.errors[0]?.extensions.code).toBe('BAD_USER_INPUT')
+    expect(seen).toHaveLength(1)
   })
 
   it('authorizes the WS room before ready and sends the same committed response', async () => {
@@ -154,5 +172,36 @@ describe('annotation transport adapters', () => {
     })
     expect(messages[1]).toEqual(response)
     expect(seen).toEqual([{ annotationIdentity: identity, value: command }])
+  })
+
+  it('rejects a noncanonical WS room before connection_ready', async () => {
+    const seen: unknown[] = []
+    const app = Fastify({ logger: false })
+    await app.register(websocket)
+    await app.register(annotationWebSocketRoutes({
+      authenticate: async () => identity,
+      service: fakeService(seen),
+    }))
+    await app.listen({ host: '127.0.0.1', port: 0 })
+    closeApp = () => app.close()
+    const address = app.server.address()
+    if (!address || typeof address === 'string') throw new Error('missing test listener')
+    const noncanonicalRoom = roomId.replace('abcdef', 'ABCDEF')
+    const client = new WebSocket(`ws://127.0.0.1:${address.port}/ws/annotations?room_id=${encodeURIComponent(noncanonicalRoom)}`)
+    await new Promise<void>((resolvePromise, reject) => {
+      const timeout = setTimeout(() => reject(new Error('websocket timeout')), 5_000)
+      client.addEventListener('message', () => reject(new Error('noncanonical room received a message')))
+      client.addEventListener('error', () => undefined)
+      client.addEventListener('close', (event) => {
+        clearTimeout(timeout)
+        try {
+          expect(event.code).toBe(1008)
+          resolvePromise()
+        } catch (error) {
+          reject(error)
+        }
+      })
+    })
+    expect(seen).toHaveLength(0)
   })
 })

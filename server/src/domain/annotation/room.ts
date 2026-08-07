@@ -1,7 +1,7 @@
 import { UserRole, type PrismaClient } from '@volleyball-monitoring/db/client'
 
-const UUID = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i
-const ROOM = /^match:([0-9a-f-]+):capture:([0-9a-f-]+)$/i
+const UUID = '[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}'
+const ROOM = new RegExp(`^match:(${UUID}):capture:(${UUID})$`)
 
 export interface AnnotationRoom {
   roomId: string
@@ -17,13 +17,12 @@ export interface AnnotationIdentity {
 
 export function parseAnnotationRoomId(roomId: string): AnnotationRoom {
   const match = ROOM.exec(roomId)
-  if (!match || !UUID.test(match[1]!) || !UUID.test(match[2]!)) {
+  if (!match) {
     throw new TypeError('Invalid annotation room id')
   }
-  const matchId = match[1]!.toLowerCase()
-  const captureSessionId = match[2]!.toLowerCase()
+  const matchId = match[1]!
+  const captureSessionId = match[2]!
   const canonical = `match:${matchId}:capture:${captureSessionId}`
-  if (roomId !== canonical) throw new TypeError('Annotation room id is not canonical')
   return {
     captureSessionId,
     matchId,
