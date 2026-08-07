@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { Activity, History, Users } from 'lucide-vue-next'
 const route = useRoute()
-const matchId = computed(() => String(route.params.matchId ?? 'demo'))
+const matchId = computed(() => typeof route.params.matchId === 'string' ? route.params.matchId : '')
 </script>
 
 <template>
@@ -14,7 +14,7 @@ const matchId = computed(() => String(route.params.matchId ?? 'demo'))
           <NuxtLink to="/" class="rounded-xl border border-stone-200 bg-white px-3 py-2 text-sm shadow-sm">返回場次</NuxtLink>
           <div class="min-w-0">
             <p class="truncate font-semibold">多人標註工作台</p>
-            <p class="flex items-center gap-1 truncate text-xs text-stone-500"><Activity class="size-3.5" /> Match {{ matchId }} · authoritative revision由server同步</p>
+            <p class="flex items-center gap-1 truncate text-xs text-stone-500"><Activity class="size-3.5" />{{ matchId ? `Match ${matchId} · ` : '' }}authoritative revision由server同步</p>
           </div>
         </div>
         <div class="flex items-center gap-2 text-sm">
