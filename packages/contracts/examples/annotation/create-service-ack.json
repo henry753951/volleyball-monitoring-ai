@@ -1,0 +1,30 @@
+{
+  "schema_version": "2.0.0",
+  "type": "command_ack",
+  "command_id": "81000000-0000-4000-8000-000000000001",
+  "room_id": "match:81000000-0000-4000-8000-000000000002:capture:81000000-0000-4000-8000-000000000003",
+  "rally_id": "81000000-0000-4000-8000-000000000004",
+  "operation_kind": "CREATE_SERVICE_KEY_POINT",
+  "result_revision": "1",
+  "server_sequence": "9007199254740995",
+  "effects": {
+    "created_key_point_id": "81000000-0000-4000-8000-000000000006",
+    "annotation_status": "open",
+    "score_resolution": "pending",
+    "scoring_court_side": null
+  },
+  "resolved_anchor": {
+    "playback_window_id": "81000000-0000-4000-8000-000000000005",
+    "capture_session_id": "81000000-0000-4000-8000-000000000003",
+    "capture_epoch_id": "81000000-0000-4000-8000-000000000007",
+    "dvr_segment_id": "81000000-0000-4000-8000-000000000008",
+    "source_pts": "-9007199254740993",
+    "source_time_base": { "num": 1, "den": 60000 },
+    "capture_time_us": "9007199254740993",
+    "capture_frame_index": "9007199254740994",
+    "resolved_player_media_time_us": "9007199254740993",
+    "mapping_version": 1,
+    "snap_distance_us": "0",
+    "timing_precision": "frame_exact"
+  }
+}

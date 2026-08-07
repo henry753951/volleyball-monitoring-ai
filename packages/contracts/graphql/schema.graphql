@@ -95,6 +95,7 @@ enum MatchStatus {
 }
 
 type Mutation {
+  applyAnnotationCommand(command: JSON!): JSON!
   createMatchSetup(input: CreateMatchSetupInput!): Match!
   swapCourtSides(input: SwapCourtSidesInput!): MatchSet!
 }
@@ -106,6 +107,7 @@ type Player {
 }
 
 type Query {
+  annotationRallySnapshot(rallyId: ID!, roomId: String!): JSON
   captureSession(id: ID!): CaptureSession
   health: Health!
   match(id: ID!): Match

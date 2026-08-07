@@ -3,6 +3,16 @@
   "$id": "https://github.com/OWNER/volleyball-monitoring-ai/packages/contracts/annotation/realtime/2.0.0",
   "title": "Annotation Realtime Protocol 2.0.0",
   "description": "HTTP upgrade authenticates the user and binds the device session. CLOSE_RALLY atomically terminalizes the server-confirmed last key point and records the rally-level outcome without creating a new time or score event.",
+  "allOf": [
+    {
+      "if": { "required": ["command_id"] },
+      "then": { "properties": { "command_id": { "$ref": "#/$defs/uuid" } } }
+    },
+    {
+      "if": { "required": ["rally_id"] },
+      "then": { "properties": { "rally_id": { "$ref": "#/$defs/uuid" } } }
+    }
+  ],
   "oneOf": [
     { "$ref": "#/$defs/create_service_command" },
     { "$ref": "#/$defs/create_contact_command" },
@@ -24,6 +34,14 @@
       "type": "string",
       "minLength": 1,
       "maxLength": 128
+    },
+    "uuid": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "canonical_room_id": {
+      "type": "string",
+      "pattern": "^match:[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}:capture:[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$"
     },
     "decimal_string": {
       "type": "string",
@@ -116,7 +134,7 @@
       "properties": {
         "schema_version": { "const": "2.0.0" },
         "command_id": { "$ref": "#/$defs/identifier" },
-        "room_id": { "$ref": "#/$defs/identifier" },
+        "room_id": { "$ref": "#/$defs/canonical_room_id" },
         "base_revision": { "$ref": "#/$defs/decimal_string" },
         "rally_id": { "$ref": "#/$defs/identifier" },
         "kind": { "const": "CREATE_SERVICE_KEY_POINT" },
@@ -145,7 +163,7 @@
       "properties": {
         "schema_version": { "const": "2.0.0" },
         "command_id": { "$ref": "#/$defs/identifier" },
-        "room_id": { "$ref": "#/$defs/identifier" },
+        "room_id": { "$ref": "#/$defs/canonical_room_id" },
         "base_revision": { "$ref": "#/$defs/decimal_string" },
         "rally_id": { "$ref": "#/$defs/identifier" },
         "kind": { "const": "CREATE_CONTACT_KEY_POINT" },
@@ -174,7 +192,7 @@
       "properties": {
         "schema_version": { "const": "2.0.0" },
         "command_id": { "$ref": "#/$defs/identifier" },
-        "room_id": { "$ref": "#/$defs/identifier" },
+        "room_id": { "$ref": "#/$defs/canonical_room_id" },
         "base_revision": { "$ref": "#/$defs/decimal_string" },
         "rally_id": { "$ref": "#/$defs/identifier" },
         "kind": { "const": "CLOSE_RALLY" },
@@ -227,7 +245,7 @@
       "properties": {
         "schema_version": { "const": "2.0.0" },
         "command_id": { "$ref": "#/$defs/identifier" },
-        "room_id": { "$ref": "#/$defs/identifier" },
+        "room_id": { "$ref": "#/$defs/canonical_room_id" },
         "base_revision": { "$ref": "#/$defs/decimal_string" },
         "rally_id": { "$ref": "#/$defs/identifier" },
         "kind": { "const": "MOVE_KEY_POINT" },
@@ -257,7 +275,7 @@
       "properties": {
         "schema_version": { "const": "2.0.0" },
         "command_id": { "$ref": "#/$defs/identifier" },
-        "room_id": { "$ref": "#/$defs/identifier" },
+        "room_id": { "$ref": "#/$defs/canonical_room_id" },
         "base_revision": { "$ref": "#/$defs/decimal_string" },
         "rally_id": { "$ref": "#/$defs/identifier" },
         "kind": { "const": "DELETE_KEY_POINT" },
@@ -286,7 +304,7 @@
       "properties": {
         "schema_version": { "const": "2.0.0" },
         "command_id": { "$ref": "#/$defs/identifier" },
-        "room_id": { "$ref": "#/$defs/identifier" },
+        "room_id": { "$ref": "#/$defs/canonical_room_id" },
         "base_revision": { "$ref": "#/$defs/decimal_string" },
         "rally_id": { "$ref": "#/$defs/identifier" },
         "kind": { "const": "REOPEN_RALLY" },
@@ -312,7 +330,7 @@
       "properties": {
         "schema_version": { "const": "2.0.0" },
         "command_id": { "$ref": "#/$defs/identifier" },
-        "room_id": { "$ref": "#/$defs/identifier" },
+        "room_id": { "$ref": "#/$defs/canonical_room_id" },
         "base_revision": { "$ref": "#/$defs/decimal_string" },
         "rally_id": { "$ref": "#/$defs/identifier" },
         "kind": { "const": "VOID_RALLY" },
@@ -345,7 +363,7 @@
       "properties": {
         "schema_version": { "const": "2.0.0" },
         "command_id": { "$ref": "#/$defs/identifier" },
-        "room_id": { "$ref": "#/$defs/identifier" },
+        "room_id": { "$ref": "#/$defs/canonical_room_id" },
         "base_revision": { "$ref": "#/$defs/decimal_string" },
         "rally_id": { "$ref": "#/$defs/identifier" },
         "kind": { "const": "SUBMIT_RALLY" },
@@ -370,7 +388,7 @@
       "properties": {
         "schema_version": { "const": "2.0.0" },
         "type": { "const": "connection_ready" },
-        "room_id": { "$ref": "#/$defs/identifier" },
+        "room_id": { "$ref": "#/$defs/canonical_room_id" },
         "server_sequence": { "$ref": "#/$defs/decimal_string" },
         "authenticated_user_id": { "$ref": "#/$defs/identifier" },
         "device_session_id": { "$ref": "#/$defs/identifier" }
@@ -519,7 +537,7 @@
         "schema_version": { "const": "2.0.0" },
         "type": { "const": "command_ack" },
         "command_id": { "$ref": "#/$defs/identifier" },
-        "room_id": { "$ref": "#/$defs/identifier" },
+        "room_id": { "$ref": "#/$defs/canonical_room_id" },
         "rally_id": { "$ref": "#/$defs/identifier" },
         "operation_kind": {
           "enum": [
@@ -546,6 +564,28 @@
       "allOf": [
         {
           "if": {
+            "required": ["operation_kind"],
+            "properties": {
+              "operation_kind": {
+                "enum": ["CREATE_SERVICE_KEY_POINT", "CREATE_CONTACT_KEY_POINT"]
+              }
+            }
+          },
+          "then": {
+            "required": ["resolved_anchor"],
+            "properties": {
+              "resolved_anchor": { "$ref": "#/$defs/resolved_anchor" },
+              "effects": {
+                "required": ["created_key_point_id"],
+                "properties": {
+                  "created_key_point_id": { "$ref": "#/$defs/identifier" }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
             "properties": {
               "operation_kind": { "const": "CLOSE_RALLY" }
             }
@@ -569,6 +609,27 @@
               }
             }
           }
+        },
+        {
+          "if": {
+            "required": ["operation_kind"],
+            "properties": {
+              "operation_kind": { "const": "SUBMIT_RALLY" }
+            }
+          },
+          "then": {
+            "required": ["resolved_anchor"],
+            "properties": {
+              "resolved_anchor": { "type": "null" },
+              "effects": {
+                "required": ["submission_id", "annotation_status"],
+                "properties": {
+                  "submission_id": { "$ref": "#/$defs/identifier" },
+                  "annotation_status": { "const": "submitted" }
+                }
+              }
+            }
+          }
         }
       ]
     },
@@ -588,7 +649,7 @@
         "schema_version": { "const": "2.0.0" },
         "type": { "const": "command_rejected" },
         "command_id": { "$ref": "#/$defs/identifier" },
-        "room_id": { "$ref": "#/$defs/identifier" },
+        "room_id": { "$ref": "#/$defs/canonical_room_id" },
         "rally_id": { "$ref": "#/$defs/identifier" },
         "code": {
           "type": "string",
@@ -651,6 +712,7 @@
       "additionalProperties": false,
       "required": [
         "annotation_status",
+        "side_assignment_id",
         "score_resolution",
         "scoring_court_side",
         "processing_status",
@@ -658,6 +720,7 @@
       ],
       "properties": {
         "annotation_status": { "$ref": "#/$defs/annotation_status" },
+        "side_assignment_id": { "$ref": "#/$defs/identifier" },
         "score_resolution": { "$ref": "#/$defs/score_resolution" },
         "scoring_court_side": { "$ref": "#/$defs/scoring_court_side" },
         "processing_status": {
@@ -751,7 +814,7 @@
       "properties": {
         "schema_version": { "const": "2.0.0" },
         "type": { "const": "rally_snapshot" },
-        "room_id": { "$ref": "#/$defs/identifier" },
+        "room_id": { "$ref": "#/$defs/canonical_room_id" },
         "rally_id": { "$ref": "#/$defs/identifier" },
         "revision": { "$ref": "#/$defs/decimal_string" },
         "server_sequence": { "$ref": "#/$defs/decimal_string" },
@@ -765,7 +828,7 @@
       "properties": {
         "schema_version": { "const": "2.0.0" },
         "type": { "const": "presence_snapshot" },
-        "room_id": { "$ref": "#/$defs/identifier" },
+        "room_id": { "$ref": "#/$defs/canonical_room_id" },
         "members": {
           "type": "array",
           "items": {
@@ -801,7 +864,7 @@
       "properties": {
         "schema_version": { "const": "2.0.0" },
         "type": { "const": "rally_processing_update" },
-        "room_id": { "$ref": "#/$defs/identifier" },
+        "room_id": { "$ref": "#/$defs/canonical_room_id" },
         "rally_id": { "$ref": "#/$defs/identifier" },
         "submission_id": { "$ref": "#/$defs/identifier" },
         "processing_status": {
