@@ -97,6 +97,14 @@ function serviceCommand(commandId: string, rallyId: string): CreateServiceKeyPoi
   }
 }
 
+function contactCommand(commandId: string, rallyId: string, baseRevision = '1') {
+  return { ...serviceCommand(commandId, rallyId), base_revision: baseRevision, kind: 'CREATE_CONTACT_KEY_POINT' as const }
+}
+
+function closeCommand(commandId: string, rallyId: string, targetKeyPointId: string, baseRevision: string, outcome: 'left' | 'right' | 'unknown' = 'unknown') {
+  return { ...serviceCommand(commandId, rallyId), base_revision: baseRevision, kind: 'CLOSE_RALLY' as const, payload: { target_key_point_id: targetKeyPointId, score_resolution: outcome === 'unknown' ? 'unknown' as const : 'resolved' as const, scoring_court_side: outcome === 'unknown' ? null : outcome } }
+}
+
 beforeAll(async () => {
   await maintenancePool.query(`CREATE DATABASE "${databaseName}"`)
   createdDatabase = true
@@ -443,5 +451,56 @@ describe('durable service annotation command', () => {
     await expect(db.annotationCommandReceipt.findUnique({ where: { commandId: command.command_id } })).resolves.toBeNull()
     await expect(db.rally.findUnique({ where: { id: command.rally_id } })).resolves.toBeNull()
     await expect(db.keyPoint.count({ where: { rallyId: command.rally_id } })).resolves.toBe(0)
+  })
+
+  it('creates contacts, preserves anchors, and replays accepted/rejected responses byte-for-byte', async () => {
+    const rallyId = randomUUID()
+    const serviceResponse = await service.apply(serviceCommand(randomUUID(), rallyId), identity)
+    expect(serviceResponse.type).toBe('command_ack')
+    const command = contactCommand(randomUUID(), rallyId)
+    const first = await service.apply(command, identity)
+    expect(first).toMatchObject({ type: 'command_ack', operation_kind: 'CREATE_CONTACT_KEY_POINT', result_revision: '2' })
+    expect(await service.apply(structuredClone(command), identity)).toEqual(first)
+    const mismatch = structuredClone(command); mismatch.payload.playback_cursor.player_media_time_us = '9999'
+    expect(await service.apply(mismatch, identity)).toMatchObject({ type: 'command_rejected', code: 'COMMAND_ID_REUSED' })
+    expect(await db.keyPoint.count({ where: { rallyId } })).toBe(2)
+  })
+
+  it('marks equal-frame contacts as possible duplicates and rejects stale mapping/anchor state', async () => {
+    const rallyId = randomUUID(); await service.apply(serviceCommand(randomUUID(), rallyId), identity)
+    const first = await service.apply(contactCommand(randomUUID(), rallyId), identity)
+    const second = await service.apply(contactCommand(randomUUID(), rallyId, '2'), identity)
+    expect(first.type).toBe('command_ack'); expect(second.type).toBe('command_ack')
+    await expect(db.keyPoint.findMany({ where: { rallyId }, select: { possibleDuplicate: true } })).resolves.toEqual([{ possibleDuplicate: true }, { possibleDuplicate: true }, { possibleDuplicate: true }])
+    const invalid = createAnnotationCommandService({ database: db, resolveCursor: async () => ({ ...anchor, playback_window_id: randomUUID() }) })
+    await expect(invalid.apply(contactCommand(randomUUID(), rallyId, '3'), identity)).resolves.toMatchObject({ type: 'command_rejected', code: 'ANNOTATION_NOT_READY' })
+  })
+
+  it.each(['left', 'right', 'unknown'] as const)('closes with %s outcome without creating forbidden rows', async (outcome) => {
+    const rallyId = randomUUID(); await service.apply(serviceCommand(randomUUID(), rallyId), identity)
+    const before = await db.keyPoint.findMany({ where: { rallyId }, select: { id: true, captureTimeUs: true, captureFrameIndex: true } })
+    const target = before[0]!.id
+    const response = await service.apply(closeCommand(randomUUID(), rallyId, target, '1', outcome), identity)
+    expect(response).toMatchObject({ type: 'command_ack', operation_kind: 'CLOSE_RALLY', resolved_anchor: null, effects: { annotation_status: 'ready', score_resolution: outcome === 'unknown' ? 'unknown' : 'resolved', scoring_court_side: outcome === 'unknown' ? null : outcome } })
+    const after = await db.keyPoint.findMany({ where: { rallyId }, select: { id: true, captureTimeUs: true, captureFrameIndex: true } })
+    expect(after).toEqual(before); await expect(db.rallySubmission.count({ where: { rallyId } })).resolves.toBe(0); await expect(db.pointAward.count()).resolves.toBe(0)
+    expect(JSON.stringify(await service.apply(closeCommand(randomUUID(), rallyId, target, '1', outcome), identity))).not.toBe(JSON.stringify(response))
+  })
+
+  it('rejects non-last, deleted and stale close targets with snapshot refetch', async () => {
+    const rallyId = randomUUID(); await service.apply(serviceCommand(randomUUID(), rallyId), identity); const contact = await service.apply(contactCommand(randomUUID(), rallyId), identity)
+    const servicePoint = (await db.keyPoint.findFirstOrThrow({ where: { rallyId, sequenceIndex: 0 } })).id
+    await expect(service.apply(closeCommand(randomUUID(), rallyId, servicePoint, '2'), identity)).resolves.toMatchObject({ code: 'CLOSE_RALLY_TARGET_NOT_LAST', snapshot_refetch_required: true })
+    await expect(service.apply(closeCommand(randomUUID(), rallyId, (contact as any).effects.created_key_point_id, '1'), identity)).resolves.toMatchObject({ code: 'REVISION_CONFLICT', snapshot_refetch_required: true })
+  })
+
+  it('serializes contact races and close races to one accepted mutation', async () => {
+    const rallyId = randomUUID(); await service.apply(serviceCommand(randomUUID(), rallyId), identity)
+    const contacts = await Promise.all([service.apply(contactCommand(randomUUID(), rallyId), identity), service.apply(contactCommand(randomUUID(), rallyId), identity)])
+    expect(contacts.filter((value) => value.type === 'command_ack')).toHaveLength(1)
+    const point = await db.keyPoint.findFirstOrThrow({ where: { rallyId, sequenceIndex: 1 } })
+    const closes = await Promise.all([service.apply(closeCommand(randomUUID(), rallyId, point.id, '2', 'left'), identity), service.apply(closeCommand(randomUUID(), rallyId, point.id, '2', 'right'), identity)])
+    expect(closes.filter((value) => value.type === 'command_ack')).toHaveLength(1)
+    expect(closes.filter((value) => value.type === 'command_rejected')).toHaveLength(1)
   })
 })
