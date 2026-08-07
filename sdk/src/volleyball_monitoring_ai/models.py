@@ -8,14 +8,147 @@ from pydantic import BaseModel, ConfigDict, Field, HttpUrl, field_validator, mod
 WireUInt64 = str
 
 
+class StrictModel(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+
 def _digits(value: str, name: str) -> str:
     if not value.isdigit():
         raise ValueError(f"{name} must be a non-negative decimal string")
     return value
 
 
-class StrictModel(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+class MediaRational(StrictModel):
+    num: int = Field(gt=0)
+    den: int = Field(gt=0)
+
+
+class PlaybackWindowRequest(StrictModel):
+    schema_version: Literal["1.0.0"]
+    capture_session_id: str = Field(min_length=1, max_length=128)
+    mode: Literal["live", "archive"]
+    target_capture_time_us: str | None = None
+    requested_back_us: str | None = None
+    requested_forward_us: str | None = None
+
+    @field_validator("target_capture_time_us", "requested_back_us", "requested_forward_us")
+    @classmethod
+    def validate_uint(cls, value: str | None, info: Any) -> str | None:
+        return None if value is None else _digits(value, info.field_name)
+
+    @model_validator(mode="after")
+    def archive_target(self) -> "PlaybackWindowRequest":
+        if self.mode == "archive" and self.target_capture_time_us is None:
+            raise ValueError("archive requests require target_capture_time_us")
+        return self
+
+
+class PlaybackWindowDescriptor(StrictModel):
+    schema_version: Literal["1.0.0"]
+    playback_window_id: str = Field(min_length=1, max_length=128)
+    capture_session_id: str = Field(min_length=1, max_length=128)
+    mode: Literal["live", "archive"]
+    mapping_version: int = Field(ge=1)
+    timeline_capture_start_us: str
+    timeline_capture_end_us: str
+    window_capture_start_us: str
+    window_capture_end_us: str
+    presentation_origin_capture_us: str
+    target_player_media_time_us: str
+    manifest_url: str
+    expires_at: datetime
+    live_edge_capture_time_us: str | None = None
+    has_more_before: bool
+    has_more_after: bool
+
+    @field_validator("timeline_capture_start_us", "timeline_capture_end_us", "window_capture_start_us", "window_capture_end_us", "presentation_origin_capture_us", "target_player_media_time_us", "live_edge_capture_time_us")
+    @classmethod
+    def validate_uint(cls, value: str | None, info: Any) -> str | None:
+        return None if value is None else _digits(value, info.field_name)
+
+
+class PlaybackCursor(StrictModel):
+    schema_version: Literal["1.0.0"]
+    playback_window_id: str = Field(min_length=1, max_length=128)
+    mapping_version: int = Field(ge=1)
+    player_media_time_us: str
+    observation_source: Literal["request_video_frame_callback", "current_time_fallback"]
+    presented_frames: str | None = None
+    seek_generation: int = Field(ge=0)
+    cursor_status: Literal["ready", "seeking", "stale", "gap"]
+
+    @field_validator("player_media_time_us", "presented_frames")
+    @classmethod
+    def validate_uint(cls, value: str | None, info: Any) -> str | None:
+        return None if value is None else _digits(value, info.field_name)
+
+
+class MediaAnchorBase(StrictModel):
+    playback_window_id: str = Field(min_length=1, max_length=128)
+    capture_session_id: str = Field(min_length=1, max_length=128)
+    capture_epoch_id: str = Field(min_length=1, max_length=128)
+    dvr_segment_id: str | None = None
+    source_pts: str
+    source_time_base: MediaRational
+    capture_time_us: str
+    capture_frame_index: str
+    mapping_version: int = Field(ge=1)
+    timing_precision: Literal["frame_exact", "pts_exact", "estimated"]
+
+    @field_validator("source_pts")
+    @classmethod
+    def validate_pts(cls, value: str) -> str:
+        if not value or (value[0] == "-" and not value[1:].isdigit()) or (value[0] != "-" and not value.isdigit()):
+            raise ValueError("source_pts must be a signed decimal string")
+        return value
+
+    @field_validator("capture_time_us", "capture_frame_index")
+    @classmethod
+    def validate_uint(cls, value: str, info: Any) -> str:
+        return _digits(value, info.field_name)
+
+
+class ResolvedMediaAnchor(MediaAnchorBase):
+    schema_version: Literal["1.0.0"]
+    resolved_player_media_time_us: str
+    snap_distance_us: str | None = None
+
+    @field_validator("resolved_player_media_time_us", "snap_distance_us")
+    @classmethod
+    def validate_resolved_uint(cls, value: str | None, info: Any) -> str | None:
+        return None if value is None else _digits(value, info.field_name)
+
+
+class FrameStepRequest(StrictModel):
+    schema_version: Literal["1.0.0"]
+    capture_session_id: str = Field(min_length=1, max_length=128)
+    playback_window_id: str = Field(min_length=1, max_length=128)
+    mapping_version: int = Field(ge=1)
+    capture_frame_index: str
+    direction: Literal["previous", "next"]
+
+    @field_validator("capture_frame_index")
+    @classmethod
+    def validate_frame(cls, value: str) -> str:
+        return _digits(value, "capture_frame_index")
+
+
+class CanonicalFrameAnchor(MediaAnchorBase):
+    schema_version: Literal["1.0.0"]
+    player_media_time_us: str
+
+    @field_validator("player_media_time_us")
+    @classmethod
+    def validate_player_time(cls, value: str) -> str:
+        return _digits(value, "player_media_time_us")
+
+
+class MediaApiError(StrictModel):
+    schema_version: Literal["1.0.0"]
+    code: Literal["BAD_REQUEST", "UNAUTHENTICATED", "FORBIDDEN", "NOT_FOUND", "MAPPING_STALE", "MEDIA_NOT_READY", "WINDOW_BOUNDARY", "WINDOW_EXPIRED", "CURSOR_NOT_READY", "CAPTURE_GAP", "SAMPLE_NOT_FOUND"]
+    message: str = Field(min_length=1, max_length=512)
+    request_id: str = Field(min_length=1, max_length=128)
+    details: dict[str, Any] | None = None
 
 
 class Rational(StrictModel):
