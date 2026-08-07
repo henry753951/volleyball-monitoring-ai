@@ -64,15 +64,13 @@ export type HandlerDeps = {
   ) => Promise<DvrProgramProfile>
 }
 
-function probeSamples(frames: readonly FfprobeFrame[]) {
+export function probeSamples(frames: readonly FfprobeFrame[]) {
   const videoFrames = frames.filter((frame) => frame.media_type === 'video')
   if (videoFrames.length === 0) throw new Error('Finalized media has no video samples.')
-  return videoFrames.map((frame) => {
+  const normalized = videoFrames.map((frame) => {
     if (
       frame.pts === undefined
       || !SIGNED_DECIMAL.test(frame.pts)
-      || frame.pkt_duration === undefined
-      || !POSITIVE_DECIMAL.test(frame.pkt_duration)
       || (
         frame.key_frame !== undefined
         && frame.key_frame !== 0
@@ -81,8 +79,24 @@ function probeSamples(frames: readonly FfprobeFrame[]) {
     ) throw new Error('Finalized media sample timing is invalid.')
     return {
       sourcePts: BigInt(frame.pts),
-      durationPts: BigInt(frame.pkt_duration),
       keyframe: frame.key_frame === 1,
+      packetDuration: frame.pkt_duration,
+    }
+  })
+  return normalized.map((frame, index) => {
+    const next = normalized[index + 1]
+    if (!next && (
+      frame.packetDuration === undefined
+      || !POSITIVE_DECIMAL.test(frame.packetDuration)
+    )) throw new Error('Finalized media sample timing is invalid.')
+    const durationPts = next
+      ? next.sourcePts - frame.sourcePts
+      : BigInt(frame.packetDuration!)
+    if (durationPts <= 0n) throw new Error('Finalized media sample timing is invalid.')
+    return {
+      sourcePts: frame.sourcePts,
+      durationPts,
+      keyframe: frame.keyframe,
     }
   })
 }
