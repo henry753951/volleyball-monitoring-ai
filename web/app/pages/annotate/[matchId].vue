@@ -1,8 +1,10 @@
 <script setup lang="ts">
 import {
-  actionForAnnotationKey,
   ANNOTATION_COMMANDS,
+  formatBindingForDisplay,
   type AnnotationAction,
+  type HotkeyCommand,
+  type MediaAction,
 } from '~/utils/annotationHotkeys'
 
 definePageMeta({ layout: 'annotation' })
@@ -15,6 +17,7 @@ const score = ref<ScoreResolution>('pending')
 const currentLastKeyPointId = ref<string | null>(null)
 const canMark = ref(false) // true only when PlaybackCursor.cursor_status === ready
 const { bindings } = useAnnotationHotkeys()
+const annotationScope = useTemplateRef<HTMLElement>('annotationScope')
 
 const controls = computed(() => ANNOTATION_COMMANDS.map((command) => {
   const enabled = command.action === 'service'
@@ -24,7 +27,7 @@ const controls = computed(() => ANNOTATION_COMMANDS.map((command) => {
       : command.action === 'submit'
         ? state.value === 'READY'
         : state.value === 'OPEN' && Boolean(currentLastKeyPointId.value)
-  return { ...command, key: bindings.value[command.action], enabled }
+  return { ...command, key: formatBindingForDisplay(bindings.value[command.action]), enabled }
 }))
 
 const scoreLabel = computed(() => ({
@@ -55,33 +58,55 @@ function dispatchAnnotationAction(action: AnnotationAction) {
   })
 }
 
-function actionFromKeyboard(event: KeyboardEvent): AnnotationAction | null {
-  if (event.repeat || event.isComposing) return null
-  const target = event.target as HTMLElement | null
-  if (target?.matches('input, textarea, select, [contenteditable="true"]')) return null
-
-  return actionForAnnotationKey(event, bindings.value)
+function dispatchMediaAction(action: MediaAction) {
+  // Phase 3: media commands share the app-owned registry but never create annotations.
+  console.info('media command scaffold', { action })
 }
 
-function onKeydown(event: KeyboardEvent) {
-  const action = actionFromKeyboard(event)
-  if (!action) return
-  event.preventDefault()
-  dispatchAnnotationAction(action)
+function dispatchHotkeyCommand(action: HotkeyCommand) {
+  if (action === 'frame_previous' || action === 'frame_next') dispatchMediaAction(action)
+  else dispatchAnnotationAction(action)
 }
 
-onMounted(() => window.addEventListener('keydown', onKeydown))
-onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
+function commandEnabled(action: HotkeyCommand): boolean {
+  if (action === 'frame_previous' || action === 'frame_next') return true
+  return controls.value.some((control) => control.action === action && control.enabled)
+}
 
-const shortcutHint = '< / > 使用 Shift + , / Shift + .；方向鍵只做逐幀或播放器移動。'
+useAnnotationHotkeyRuntime({
+  target: annotationScope,
+  dispatch: dispatchHotkeyCommand,
+  commandEnabled,
+})
+
+function focusAnnotationScope() {
+  annotationScope.value?.focus({ preventScroll: true })
+}
+
+onMounted(focusAnnotationScope)
+
+const serviceKey = computed(() => formatBindingForDisplay(bindings.value.service))
+const contactKey = computed(() => formatBindingForDisplay(bindings.value.contact))
+const shortcutHint = computed(() => {
+  const left = formatBindingForDisplay(bindings.value.close_left)
+  const right = formatBindingForDisplay(bindings.value.close_right)
+  const previous = formatBindingForDisplay(bindings.value.frame_previous)
+  const next = formatBindingForDisplay(bindings.value.frame_next)
+  return `${left} / ${right} 關閉 rally；${previous} / ${next} 只做逐幀或播放器移動。`
+})
 </script>
 
 <template>
-  <section class="space-y-4">
+  <section
+    ref="annotationScope"
+    class="space-y-4 outline-none"
+    tabindex="-1"
+    @pointerdown.capture="focusAnnotationScope"
+  >
     <header>
       <h1 class="text-2xl font-semibold">標註工作台</h1>
       <p class="mt-1 text-sm text-stone-600">
-        伺服器保存整場 DVR；iPad 只 lazy-load 目前數分鐘。Z / Space 只可使用後端解析成功的 presented-frame cursor。
+        伺服器保存整場 DVR；iPad 只 lazy-load 目前數分鐘。{{ serviceKey }} / {{ contactKey }} 只可使用後端解析成功的 presented-frame cursor。
       </p>
     </header>
 
@@ -112,12 +137,12 @@ const shortcutHint = '< / > 使用 Shift + , / Shift + .；方向鍵只做逐幀
             <span>{{ state === 'SUBMITTED' ? '已提交 · AI 狀態另顯示' : '尚未提交 · 可編輯' }}</span>
           </div>
           <div class="mt-10 flex items-center justify-between text-xs">
-            <span class="rounded bg-white px-2 py-1">Z / service</span>
+            <span class="rounded bg-white px-2 py-1">{{ serviceKey }} / service</span>
             <span>• contact</span><span>• contact</span>
             <span class="rounded bg-white px-2 py-1">◆ terminal</span>
           </div>
         </div>
-        <div v-else class="grid h-full place-items-center text-sm text-stone-500">等待 Z 發球</div>
+        <div v-else class="grid h-full place-items-center text-sm text-stone-500">等待 {{ serviceKey }} 發球</div>
       </div>
     </div>
 

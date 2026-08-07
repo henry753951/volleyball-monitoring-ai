@@ -11,7 +11,7 @@ Date: 2026-08-07 (Asia/Taipei target release date)
 - `python scripts/validate_prisma_structure.py`
   - 38 models and 24 enums parsed; required database invariants passed.
 - `node scripts/validate_typescript_syntax.mjs`
-  - 46 TypeScript/Vue files passed syntax validation.
+  - 47 TypeScript/Vue files passed syntax validation.
 - `uv run --project sdk --frozen --extra test pytest`
   - 10 tests passed.
 - Full JSON, TOML and YAML parse pass.
@@ -38,7 +38,8 @@ Date: 2026-08-07 (Asia/Taipei target release date)
 
 - Annotation contract: 5 Vitest tests passed, including left/right/unknown close payloads, old-command rejection, no score frame/time and close ACK anchor rules.
 - Server: 6 Vitest tests passed; typecheck and build passed.
-- Web: 6 Vitest tests passed; Nuxt typecheck and production PWA build passed.
+- Web: 14 Vitest tests passed; Nuxt typecheck and production PWA build passed.
+- Hotkey ADR follow-up: exact-pinned `@tanstack/vue-hotkeys` `0.10.0`; frozen install passed. Tests cover all eight defaults and atomic reset, remap/old-key removal, recorder normalization, v2 preference migration, conflicts/reserved gestures, macOS/Windows display formatting, annotation element scope, modal precedence, input/textarea/select/contenteditable suppression, dynamic registration count and unmount cleanup.
 - Prisma 7.9.1 generate and validate passed; DB typecheck passed with 38 models and 24 enums after removing `AWAITING_SCORE`.
 - `uv run --project sdk --frozen --extra test bun run validate:all` passed.
 
