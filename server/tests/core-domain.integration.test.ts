@@ -293,6 +293,16 @@ describe('Phase 1B GraphQL schema', () => {
       const result = await execute('{ captureSession(id: "20000000-0000-4000-8000-000000000001") { id timeline { timelineVersion captureStartTimeUs liveEdgeCaptureTimeUs availableRanges { startUs endUs } } } }', contextFor(operatorUser))
       expect(result.errors).toBeUndefined()
       expect(result.data).toEqual({ captureSession: { id: sessionId, timeline: { timelineVersion: '9007199254740993', captureStartTimeUs: '9007199254740992', liveEdgeCaptureTimeUs: '9007199254741192', availableRanges: [{ startUs: '9007199254740992', endUs: '9007199254741192' }] } } })
+      const laterSessionId = '20000000-0000-4000-8000-000000000011'
+      await db.captureSession.create({ data: { id: laterSessionId, matchId, sourceKind: 'fixture', ingestPath: `/fixture/${laterSessionId}`, createdAt: new Date('2026-08-08T00:00:00Z'), status: 'LIVE', health: 'HEALTHY' } })
+      const listed = await execute(`{ match(id: "${matchId}") { captureSessions { id } } }`, contextFor(operatorUser))
+      expect(listed.data).toEqual({ match: { captureSessions: [{ id: laterSessionId }, { id: sessionId }] } })
+      const adminResult = await execute(`{ captureSession(id: "${sessionId}") { id } }`, contextFor(adminUser))
+      expect(adminResult.data).toEqual({ captureSession: { id: sessionId } })
+      const outsiderResult = await execute(`{ captureSession(id: "${sessionId}") { id } }`, contextFor(outsiderOperator))
+      expect(outsiderResult.data).toEqual({ captureSession: null })
+      const missingResult = await execute('{ captureSession(id: "20000000-0000-4000-8000-000000000099") { id } }', contextFor(operatorUser))
+      expect(missingResult.data).toEqual({ captureSession: null })
     } finally {
       try {
         await db.dvrSegment.deleteMany({ where: { dvrProgramId: programNew } })
