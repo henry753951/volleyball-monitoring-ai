@@ -36,7 +36,7 @@ d487f0e033a6cc4d7cf6d0b058b0899f4b7a23fb0d75981e669ea84a3ee99cad  ./docs/adr/000
 5f01afe470d612508655beb50ac70662f77a475c1e3ed0799539f75d68a0915c  ./docs/adr/0010-browser-overlay-chunks.md
 13f53a66b5ac38eca9b0dfdd3f2cd688d66aa8aab33f52f5acba1ea845ce5a90  ./docs/adr/0011-saved-analysis-views.md
 de376c790b3f7624d275cd8d6882725028d5264710ede7d748ad38304fee5c6a  ./docs/open-decisions.md
-ebb7c32746e9a7e37f270647d66b3f1cff51dbfbb71cbca5d74b4bbb1f584a07  ./docs/progress.md
+13354487e58378ffa54e3916ffba73633273e9c1af1f971d16da98f09fd26a38  ./docs/progress.md
 0d3bc482dac156b1106108864ed89206274bdf81d7131e4726f2fa83255067af  ./docs/requirements-matrix.md
 e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  ./examples/__init__.py
 cff7ceef7d9b68faa2d2e401530659d7142df6504d99c884ba2abd7606d18911  ./examples/fake_ai_provider/README.md
@@ -197,7 +197,7 @@ b7686a55d63a66eb111fecfd0e7b0281929d50e72abd376986b7925ed9a36812  ./server/src/g
 36c2a61addc5ade0768f6f5bf73607dc05536fb5a1c073c41023f0bb393e6e3c  ./server/src/graphql/schema.ts
 1e4f83fa0c5b60ba42d84b5ca1161d00566a8319a7e619034857ecae167f5a3b  ./server/src/graphql/types.ts
 6b2c7115e325bd40f267f3c0c4f5ee83930a32c0ae71bb7f8a1c8fb8c33c578d  ./server/src/health/readiness.ts
-4e9ff00dc8a5dcc0c2799e41545625ac0a52e737dcf5e69ff7477d1b312862f4  ./server/src/index.ts
+6b5fe03c20c63e5504105b67279ccc55d013e7ec540ece01977d02fcc048f9e0  ./server/src/index.ts
 07ab0ab9db72bbb104dea8a0b2f74e41c7bc3eb427ca145aaeabdd2d8ccdccbe  ./server/src/media/cursor-resolution.ts
 91981dc02252c90ae48919cf728c76c63d7faa98ef0e01ab93c35051d7fd8661  ./server/src/media/cursor-routes.ts
 30a2e7253e349a939f56424bceab2a5a3f777f7214a44147318a3a167305fa8c  ./server/src/media/minio-object-reader.ts
@@ -205,7 +205,7 @@ b7686a55d63a66eb111fecfd0e7b0281929d50e72abd376986b7925ed9a36812  ./server/src/g
 45730cce028b1b283469e9ff625cc7c79d50299c76e52bb6e24763ba1dde51e7  ./server/src/media/sample-index-repository.ts
 9f8e7a379acc7bc3af438e31642cd4f0e645a5447967ea27221367696e451918  ./server/src/media/sample-snap-resolver.ts
 789f0fbe544f0c2d943e00d7b6cea6b04de2ad4a1e49de0cfc11181fd136c520  ./server/src/realtime/README.md
-e024c78dc2a75812078615c09be3fe957317de3cbc7318cd76040a74ab2cf4e7  ./server/src/realtime/annotation-ws.ts
+047f9c017626e346e82409baa99acd21831dcd988eab55ca3f761fa4bd4ae740  ./server/src/realtime/annotation-ws.ts
 8ce86b766287cabea3c75b1b8cc7b02b3132518219acc986e1e1fc32d5fa7ae7  ./server/src/realtime/auth.ts
 dc6593e629b1729b2b00823cb32907931b6cf9e9f55d41c10f5235b23bbdcb88  ./server/src/routes/README.md
 c84bc183e523337fcc937ea8afcea26476eaaa7ef0d89f8ac8b9cc8cbec45fc8  ./server/src/routes/ai-callback.ts
@@ -255,7 +255,7 @@ aae51f1df3e167914b1560f320d0aa13ddbaf2ec0849b995a473ae05e0596346  ./web/app/comp
 f3ad7e32009e1190b23d1e3d9d78e6391a3044d5373339fa86a5283ebf1dfe75  ./web/app/components/VideoOverlayPlayer.vue
 1897685b6b2cc2025f54017ba84b94096404deb4a03c5289a8841e5d83c0850b  ./web/app/composables/useAnnotationHotkeys.test.ts
 3bb2ce5679a4a52e320628a0d7ea45053c69b0e96663eb8efbda26a1cf7ac47c  ./web/app/composables/useAnnotationHotkeys.ts
-2d33ed0c3ae32abc613426a99e43ca3aef271a6a2301e740cb1ffa39e9e4cbfd  ./web/app/composables/useAnnotationRoom.ts
+406162df7c834582df214f92163f509c021c94be8baacbf9eb96a380b0665bf6  ./web/app/composables/useAnnotationRoom.ts
 8f4e62425c432eac94b128c6ab74fb79568032713d54e09a4438bd0666ffbdb0  ./web/app/composables/useAuthoritativeDvrWindow.integration.test.ts
 ce37f5454b6179fdb0db0159c86c077f04a900e64baddd58e6ebcd25736b5366  ./web/app/composables/useAuthoritativeDvrWindow.test.ts
 bc1c455dae53d578d8ea1af629a2e582d71ca64a73073b0d8dfb032b29f1f5e6  ./web/app/composables/useAuthoritativeDvrWindow.ts
@@ -268,6 +268,8 @@ d832d151a1899efd3414e029d724b78f032cd4a46eeb221e02f0632f5bd68d03  ./web/app/comp
 3ab296cfb7591dd917975784dcffd68f883d731f1166c1e0b2c7e1e207eaa468  ./web/app/composables/usePublicEndpoints.ts
 d0efd072e39bb5c7979ccf95061f62811d565883764dce352e07e2a2cb3aebf2  ./web/app/layouts/annotation.vue
 dc12232a528fcfbf035514b0ffc83cd11a6f79684477e59fe41ff61beac163fa  ./web/app/layouts/default.vue
+3f7884b57b80d40a8fbed242b44e99ac15aeb2571844e85b27521bfd2aad1769  ./web/app/lib/annotationOutbox.test.ts
+31a6e32976a1618b435d0ed27d82e5a5019156d64cb9b78d7cd6b8d45e17fc7e  ./web/app/lib/annotationOutbox.ts
 20f6976beef4605d25d31bb6c9014741d81ed3ae3d6b1c98e77003fcb59ac194  ./web/app/lib/annotationRealtimeClient.ts
 a87ad8e2773befa5328da10f921033ba182a53e14df82a7a9f44acea5e272f42  ./web/app/lib/coachDomain.ts
 fa246f09be004dd85815c59eae99a7ff48bb4123cef734ac05adb6dba5813058  ./web/app/lib/coreDomain.test.ts
@@ -281,7 +283,7 @@ d4b1c2e4fa79f412cd9ff497c5cf7d9090f22de1e4c0e07e150664f8d74287dc  ./web/app/lib/
 cba670333ab1e0c411c488d0f3517da77337ca9c256ef9eaae31df1d6c9c3d6d  ./web/app/lib/playbackWindowCache.test.ts
 adee2ce860eff55e9be95c2feaabea259ae161fb138efc484051980767938b22  ./web/app/lib/playbackWindowCache.ts
 52fe16f81674ddd4727c93d95986be02908b5bb247fcca16e04f5c2aba4a1ccb  ./web/app/middleware/auth.global.ts
-897c34804c52de132fcde43d649cfd3c1ada8e4e4bf084609fe837c508eaaaa1  ./web/app/pages/annotate/[matchId].vue
+f51138cbf31f06fd51080e42210699b5c27f79515dd6400c51534aec34595418  ./web/app/pages/annotate/[matchId].vue
 d9b5b461a45f621ee67d3ca3880be7ec6e709ceafc596e23efad1013b6965304  ./web/app/pages/index.vue
 369173a6466d04e1597eddde3c3333de09685ed248386a135c25539e933d1d1c  ./web/app/pages/matches/[matchId]/history.vue
 5c84248253cac4256f3c6f67d86a6745e8e8acc6e9bf0af9b81b7e5ed19fea0f  ./web/app/pages/matches/[matchId]/live.vue

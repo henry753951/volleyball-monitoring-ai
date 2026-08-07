@@ -3,6 +3,7 @@ import {
   parseAnnotationServerMessage,
   type AnnotationCommand,
   type AnnotationCommandResponse,
+  type AnnotationPresenceSnapshot,
   type AnnotationRallySnapshot,
 } from '@volleyball-monitoring/contracts'
 import { createAnnotationRealtimeClient, type AnnotationConnectionState, type AnnotationRealtimeClient } from '../lib/annotationRealtimeClient'
@@ -51,6 +52,7 @@ export function useAnnotationRoom() {
   const error = ref<string | null>(null)
   const roomId = ref<string | null>(null)
   const outbox = shallowRef<AnnotationOutboxEntry[]>([])
+  const presence = shallowRef<AnnotationPresenceSnapshot['members']>([])
   const transport = createGraphQLTransport('/graphql')
   let realtime: AnnotationRealtimeClient | null = null
   let refreshTimer: ReturnType<typeof setInterval> | null = null
@@ -169,6 +171,7 @@ export function useAnnotationRoom() {
     if (refreshTimer) clearInterval(refreshTimer)
     roomId.value = nextRoomId
     snapshot.value = null
+    presence.value = []
     error.value = null
     loadOutbox()
     realtime = createAnnotationRealtimeClient(nextRoomId, {
@@ -179,6 +182,7 @@ export function useAnnotationRoom() {
       onMessage: (message) => {
         if (message.type === 'connection_ready') void refreshActive().then(() => flushOutbox())
         if (message.type === 'rally_snapshot') acceptSnapshot(message)
+        if (message.type === 'presence_snapshot') presence.value = message.members
       },
     })
     realtime.connect()
@@ -305,6 +309,7 @@ export function useAnnotationRoom() {
     outboxNeedsConfirmation,
     pendingCommands: shallowReadonly(outbox),
     pendingCount,
+    presence: shallowReadonly(presence),
     discardPending,
     refreshActive,
     snapshot: shallowReadonly(snapshot),
