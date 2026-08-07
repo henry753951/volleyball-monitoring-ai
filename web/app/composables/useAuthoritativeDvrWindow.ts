@@ -3,6 +3,12 @@ import type { MediaClient } from '../lib/mediaClient'
 import { MediaApiError } from '../lib/mediaModel'
 
 export type WindowStatus = 'idle' | 'loading' | 'ready' | 'recovering' | 'gap' | 'error'
+export function frameRecovery(code: string) {
+  if (code === 'WINDOW_BOUNDARY') return 'recenter'
+  if (code === 'WINDOW_EXPIRED' || code === 'MAPPING_STALE') return 'refresh'
+  if (code === 'SAMPLE_NOT_FOUND' || code === 'CAPTURE_GAP') return 'blocked'
+  return 'error'
+}
 export function useAuthoritativeDvrWindow(client: MediaClient) {
   const current = shallowRef<PlaybackWindowDescriptor | null>(null)
   const cache = reactive<{ previous: PlaybackWindowDescriptor | null; current: PlaybackWindowDescriptor | null; next: PlaybackWindowDescriptor | null }>({ previous: null, current: null, next: null })
