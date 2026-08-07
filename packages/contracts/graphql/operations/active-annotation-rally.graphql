@@ -1,0 +1,3 @@
+query ActiveAnnotationRally($roomId: String!) {
+  activeAnnotationRallySnapshot(roomId: $roomId)
+}

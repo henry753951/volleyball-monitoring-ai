@@ -18,6 +18,7 @@ export async function submitRally(tx: Tx, room: AnnotationRoom, command: Extract
   const rally = await tx.rally.findUnique({ where: { id: command.rally_id }, include: { keyPoints: { where: { deletedAt: null }, orderBy: { sequenceIndex: 'asc' } }, sideAssignment: true } })
   if (!rally || rally.matchId !== room.matchId) return persist(tx, command, identity, hash, reject(command, 'RALLY_NOT_FOUND', 'Rally was not found'))
   if (rally.annotationStatus !== 'READY') return persist(tx, command, identity, hash, reject(command, 'ANNOTATION_NOT_READY', 'Rally must be READY before submit'))
+  if (rally.activeSubmissionId !== null) return persist(tx, command, identity, hash, reject(command, 'ANNOTATION_NOT_READY', 'Rally already has an active submission'))
   if (rally.annotationRevision.toString() !== command.base_revision) return persist(tx, command, identity, hash, reject(command, 'REVISION_CONFLICT', 'Rally revision is stale', rally.annotationRevision.toString()))
   const services = rally.keyPoints.filter(k => k.markerKind === 'SERVICE')
   const terminals = rally.keyPoints.filter(k => k.isTerminal)
@@ -26,6 +27,7 @@ export async function submitRally(tx: Tx, room: AnnotationRoom, command: Extract
   const contiguous = rally.keyPoints.every((point, index) => point.sequenceIndex === index)
   if (services.length !== 1 || terminals.length !== 1 || !service || !terminal || !contiguous || service.sequenceIndex !== 0 || terminal.sequenceIndex !== rally.keyPoints.length - 1 || terminal.captureTimeUs < service.captureTimeUs || (terminal.captureTimeUs === service.captureTimeUs && terminal.captureFrameIndex < service.captureFrameIndex)) return persist(tx, command, identity, hash, reject(command, 'ANNOTATION_NOT_READY', 'Rally key-point integrity is invalid'))
   const assignment = rally.sideAssignment
+  if (assignment.setId !== rally.setId) return persist(tx, command, identity, hash, reject(command, 'ANNOTATION_NOT_READY', 'Court-side assignment does not belong to the Rally set'))
   if (rally.scoreResolutionState === 'PENDING') return persist(tx, command, identity, hash, reject(command, 'ANNOTATION_NOT_READY', 'Pending rallies cannot be submitted'))
   if ((rally.scoreResolutionState === 'RESOLVED') !== (rally.scoringCourtSide === 'LEFT' || rally.scoringCourtSide === 'RIGHT')) return persist(tx, command, identity, hash, reject(command, 'ANNOTATION_NOT_READY', 'Score resolution and court side are inconsistent'))
   if (rally.scoreResolutionState === 'UNKNOWN' && rally.scoringCourtSide !== null) return persist(tx, command, identity, hash, reject(command, 'ANNOTATION_NOT_READY', 'Unknown rallies cannot have a scoring side'))
