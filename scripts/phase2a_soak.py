@@ -14,7 +14,18 @@ from pathlib import Path
 from typing import Any
 
 SERVICES = 14
+EXPECTED_SERVICES = {"fake-ai-provider", "mediamtx", "minio", "postgres", "redis", "server", "traefik", "web", "worker-ai-dispatcher", "worker-analysis-ingest", "worker-clip", "worker-media-indexer", "worker-outbox", "worker-playback"}
 _STOP = False
+
+def restart_delta(current: int, baseline: int) -> int:
+    return max(0, current - baseline)
+
+def validate_config(args: argparse.Namespace, session_id: str) -> None:
+    if args.duration_seconds <= 0 or args.interval_seconds <= 0 or args.memory_cap_mib <= 0 or args.growth_cap_mib <= 0:
+        raise ValueError("duration, interval, and caps must be positive")
+    import re
+    if not re.fullmatch(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}", session_id):
+        raise ValueError("capture session ID must be a UUID")
 
 
 def docker(*args: str) -> str:
@@ -129,11 +140,22 @@ def http_json(url: str, payload: dict[str, Any], headers: dict[str, str], contex
 def decimal(value: Any) -> bool:
     return isinstance(value, str) and value.isdecimal()
 
+def validate_anchor(anchor: dict[str, Any], capture: str, mapping: int) -> None:
+    if anchor.get("capture_session_id") != capture or anchor.get("mapping_version") != mapping:
+        raise ValueError("anchor identity mismatch")
+    for key in ("capture_time_us", "capture_frame_index", "resolved_player_media_time_us"):
+        if not decimal(anchor.get(key)):
+            raise ValueError("invalid anchor decimal")
+    if not isinstance(anchor.get("source_pts"), str) or not anchor["source_pts"].lstrip("-").isdigit():
+        raise ValueError("invalid source pts")
+    if "snap_distance_us" in anchor and anchor["snap_distance_us"] is not None and not decimal(anchor["snap_distance_us"]):
+        raise ValueError("invalid snap distance")
 
-def expected_error(raw: bytes, statuses: set[int], codes: set[str]) -> bool:
+
+def expected_error(status: int, raw: bytes, statuses: set[int], codes: set[str]) -> bool:
     try:
         body = json.loads(raw)
-        return body.get("error", {}).get("code") in codes or body.get("code") in codes
+        return status in statuses and (body.get("error", {}).get("code") in codes or body.get("code") in codes)
     except (ValueError, AttributeError):
         return False
 
@@ -180,6 +202,7 @@ def exercise_api(base: str, session_id: str, headers: dict[str, str], context: s
             if status != 200:
                 raise ValueError("cursor resolve failed")
             anchor = json.loads(raw)
+            validate_anchor(anchor, capture, mapping)
             for direction in (("previous", "next") if mode == "archive" else ("previous",)):
                 step = {"schema_version": "1.0.0", "capture_session_id": capture, "playback_window_id": window,
                         "mapping_version": mapping, "capture_frame_index": anchor["capture_frame_index"], "direction": direction}
@@ -189,7 +212,7 @@ def exercise_api(base: str, session_id: str, headers: dict[str, str], context: s
             edge = {"schema_version": "1.0.0", "capture_session_id": capture, "playback_window_id": window,
                     "mapping_version": mapping, "capture_frame_index": anchor["capture_frame_index"], "direction": "next"}
             edge_status, edge_raw = http_json(f"{base}/api/v1/media/frame-step", edge, headers, context)
-            if mode == "live" and (edge_status not in {409, 422} or not expected_error(edge_raw, {409, 422}, {"WINDOW_BOUNDARY", "SAMPLE_NOT_FOUND"})):
+            if mode == "live" and not expected_error(edge_status, edge_raw, {409, 422}, {"WINDOW_BOUNDARY", "SAMPLE_NOT_FOUND"}):
                 failures += 1
         except (KeyError, ValueError, json.JSONDecodeError, urllib.error.URLError):
             failures += 1
@@ -223,12 +246,17 @@ def main() -> int:
     session_id = os.getenv("PHASE2A_CAPTURE_SESSION_ID", "00000000-0000-4000-8000-00000000d003")
     if args.capture_session_id:
         session_id = args.capture_session_id
+    try:
+        validate_config(args, session_id)
+    except ValueError as error:
+        parser.error(str(error))
     context = ssl.create_default_context()
     if urllib.parse.urlparse(base).hostname == "127.0.0.1":
         context.check_hostname = False
         context.verify_mode = ssl.CERT_NONE
     samples: list[dict[str, Any]] = []
     started = time.monotonic()
+    restart_baseline: int | None = None
     with output.open("a", encoding="utf-8") as stream:
         while not _STOP and time.monotonic() - started < args.duration_seconds:
             running, restarts, unhealthy, services = compose_state()
@@ -236,11 +264,12 @@ def main() -> int:
                                        "--format", "table {{.Name}}\t{{.CPUPerc}}\t{{.MemUsage}}"))
             row: dict[str, Any] = {"ts": time.time(), "services_running": running, "memory_mib": sum(x["mem_mib"] for x in stats),
                                    "cpu_pct": sum(x["cpu_pct"] for x in stats), "restarts": restarts, "restarts_delta": 0, "health_failures": unhealthy, "api_failures": 0, "services": services}
-            if not hasattr(main, "restart_baseline"):
-                main.restart_baseline = restarts
-            row["restarts_delta"] = max(0, restarts - main.restart_baseline)
+            if restart_baseline is None:
+                restart_baseline = restarts
+            row["restarts_delta"] = restart_delta(restarts, restart_baseline)
             row["api_failures"] += exercise_api(base, session_id, headers, context)
-            if len(services) != SERVICES:
+            names = set(services)
+            if names != EXPECTED_SERVICES:
                 row["api_failures"] += 1
             samples.append(row); stream.write(json.dumps(row) + "\n"); stream.flush()
             if not _STOP:

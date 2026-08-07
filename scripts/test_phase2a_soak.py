@@ -1,8 +1,9 @@
 import signal
 import unittest
 
+import argparse
 import phase2a_soak
-from phase2a_soak import install_signal_handlers, parse_manifest, parse_memory, parse_stats, summarize
+from phase2a_soak import install_signal_handlers, parse_manifest, parse_memory, parse_stats, summarize, restart_delta, validate_config, expected_error, validate_anchor
 
 
 class SoakHelpersTest(unittest.TestCase):
@@ -35,6 +36,19 @@ class SoakHelpersTest(unittest.TestCase):
             self.assertEqual(summarize([{"memory_mib": 1}], 2, 2)["passed"], True)
         finally:
             signal.signal(signal.SIGINT, old)
+
+    def test_restart_delta_and_config(self):
+        self.assertEqual(restart_delta(3, 1), 2)
+        self.assertEqual(restart_delta(1, 3), 0)
+        args = argparse.Namespace(duration_seconds=1, interval_seconds=1, memory_cap_mib=1, growth_cap_mib=1)
+        validate_config(args, "00000000-0000-4000-8000-00000000d003")
+        with self.assertRaises(ValueError):
+            validate_config(argparse.Namespace(duration_seconds=0, interval_seconds=1, memory_cap_mib=1, growth_cap_mib=1), "bad")
+
+    def test_anchor_and_boundary_validation(self):
+        validate_anchor({"capture_session_id":"s", "mapping_version":1, "capture_time_us":"1", "capture_frame_index":"2", "resolved_player_media_time_us":"3", "source_pts":"-4"}, "s", 1)
+        self.assertTrue(expected_error(409, b'{"code":"WINDOW_BOUNDARY"}', {409}, {"WINDOW_BOUNDARY"}))
+        self.assertFalse(expected_error(200, b'{"code":"WINDOW_BOUNDARY"}', {409}, {"WINDOW_BOUNDARY"}))
 
 
 if __name__ == "__main__":
