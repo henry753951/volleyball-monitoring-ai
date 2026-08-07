@@ -6,6 +6,7 @@ import { db } from '@volleyball-monitoring/db'
 export interface MediaPlaybackDeps { now?: () => Date; maxBackUs?: bigint; maxForwardUs?: bigint; resolveSample?: (input: { targetUs: bigint; segments: { captureStartUs: bigint; captureEndUs: bigint }[] }) => Promise<{ captureUs: bigint; playerUs: bigint }>; objectReader?: (objectKey: string) => Promise<Uint8Array> }
 const error = (reply: any, status: number, code: string, message: string) => reply.code(status).send({ schema_version: '1.0.0', code, message, request_id: randomUUID() })
 const auth = (request: any) => { const id = request.headers['x-dev-user-id']; const role = request.headers['x-dev-role']; return id ? { id, role } : null }
+export const formatManifest = (windowId: string, segments: Array<{ id: string; durationUs: bigint }>) => ['#EXTM3U', '#EXT-X-VERSION:7', '#EXT-X-TARGETDURATION:10', '#EXT-X-MAP:URI="init.mp4"', ...segments.map((segment) => `#EXTINF:${Number(segment.durationUs) / 1_000_000},\n/api/v1/media/playback-windows/${windowId}/segments/${segment.id}`), '#EXT-X-ENDLIST'].join('\n')
 
 export const mediaPlaybackRoutes = (deps: MediaPlaybackDeps = {}): FastifyPluginAsync => async (app) => {
   const now = deps.now ?? (() => new Date())
@@ -27,8 +28,7 @@ export const mediaPlaybackRoutes = (deps: MediaPlaybackDeps = {}): FastifyPlugin
   app.get('/api/v1/media/playback-windows/:windowId/manifest.m3u8', async (request: any, reply) => {
     const identity = auth(request); if (!identity) return error(reply, 401, 'UNAUTHENTICATED', 'Authentication required')
     const window = await db.playbackWindow.findFirst({ where: { id: request.params.windowId, captureSession: { match: { members: { some: { userId: identity.id } } } }, segments: { some: {} } }, include: { segments: { orderBy: { sequenceIndex: 'asc' }, include: { dvrSegment: true } } } }); if (!window) return error(reply, 404, 'NOT_FOUND', 'Playback window not found'); if (window.expiresAt <= now()) return error(reply, 410, 'WINDOW_EXPIRED', 'Playback window expired')
-    const lines = ['#EXTM3U', '#EXT-X-VERSION:7', '#EXT-X-TARGETDURATION:10', '#EXT-X-MAP:URI="init.mp4"', ...window.segments.map((entry) => `#EXTINF:${Number(entry.dvrSegment.durationUs) / 1_000_000},\n/api/v1/media/playback-windows/${window.id}/segments/${entry.dvrSegmentId}`), '#EXT-X-ENDLIST']
-    return reply.type('application/vnd.apple.mpegurl').send(lines.join('\n'))
+    return reply.type('application/vnd.apple.mpegurl').send(formatManifest(window.id, window.segments.map((entry) => ({ id: entry.dvrSegmentId, durationUs: entry.dvrSegment.durationUs }))))
   })
   app.get('/api/v1/media/playback-windows/:windowId/segments/:segmentId', async (request: any, reply) => {
     const identity = auth(request); if (!identity) return error(reply, 401, 'UNAUTHENTICATED', 'Authentication required')
