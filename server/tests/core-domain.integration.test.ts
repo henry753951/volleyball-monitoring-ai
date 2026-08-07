@@ -270,13 +270,14 @@ afterAll(async () => {
 
 describe('Phase 1B GraphQL schema', () => {
   it('matches the committed generated snapshot and validates representative operations', async () => {
-    const before = await readFile(schemaSnapshotPath, 'utf8')
+    const normalizeLineEndings = (value: string) => value.replaceAll('\r\n', '\n')
+    const before = normalizeLineEndings(await readFile(schemaSnapshotPath, 'utf8'))
     await execFileAsync('bun', ['src/graphql/export-schema.ts'], {
       cwd: resolve(repositoryRoot, 'server'),
       env: { ...process.env, DATABASE_URL: isolatedDatabaseUrl.toString() },
       windowsHide: true,
     })
-    await expect(readFile(schemaSnapshotPath, 'utf8')).resolves.toBe(before)
+    await expect(readFile(schemaSnapshotPath, 'utf8').then(normalizeLineEndings)).resolves.toBe(before)
 
     for (const operation of [setupMutation, listQuery, detailQuery, swapMutation]) {
       const response = await execute(operation, contextFor(null), {

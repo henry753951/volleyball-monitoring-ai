@@ -151,7 +151,7 @@ dc6593e629b1729b2b00823cb32907931b6cf9e9f55d41c10f5235b23bbdcb88  ./server/src/r
 29dc8ee62da32da243cba2f0c90575ba5e1cea4c36a2d392ab96360c6c926812  ./server/src/services/README.md
 8dc71ffa14f45fe80a7f034fbc4ca591f2533bd421a092892f52997781fc9b33  ./server/src/services/core-domain.ts
 78672dd867783ab115202afc27bc879794b1f85ebee9e5b0c066ac69f560cb45  ./server/tests/annotation-state.test.ts
-66c212a2ee2ded97cca471e1134d3cc841145b7116c1ee26f280af3371dadde2  ./server/tests/core-domain.integration.test.ts
+3e43c37558760c9cfdf44c4dc7836f5af4d32ecdbd2054823f0671991605308a  ./server/tests/core-domain.integration.test.ts
 031192688f5c0aea7987cf2357db752ec326389195469c3f777f55a157763ef3  ./server/tests/readiness.test.ts
 b7983f31cf486e0ea1f7c29c7336d6cca8d96319ff1ce83f2f1c0a0bc0bb3d65  ./server/tsconfig.json
 31e0dc4f866210bba1c6428f30a6c105a1db8f6330c008584c5a0292456988ce  ./server/tsconfig.test.json
