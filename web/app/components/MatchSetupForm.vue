@@ -34,11 +34,11 @@ function submit() {
 </script>
 
 <template>
-  <form class="space-y-5" @submit.prevent="submit">
+  <form class="space-y-5" :aria-busy="props.pending" @submit.prevent="submit">
     <div class="grid gap-4 rounded-3xl border border-stone-200 bg-white/90 p-5 shadow-sm backdrop-blur-xl md:grid-cols-3">
-      <label class="block md:col-span-1"><span class="field-label">場次名稱</span><input v-model="title" class="field" required placeholder="例如：大專盃準決賽" /></label>
-      <label class="block"><span class="field-label">場地（選填）</span><input v-model="venue" class="field" placeholder="場館名稱" /></label>
-      <label class="block"><span class="field-label">預定時間（選填）</span><input v-model="scheduledAt" class="field" type="datetime-local" /></label>
+      <label class="block md:col-span-1"><span class="field-label">場次名稱</span><input v-model="title" class="field" required maxlength="120" autocomplete="off" placeholder="例如：大專盃準決賽" /></label>
+      <label class="block"><span class="field-label">場地（選填）</span><input v-model="venue" class="field" maxlength="160" autocomplete="off" placeholder="場館名稱" /></label>
+      <label class="block"><span class="field-label">預定時間（選填）</span><input v-model="scheduledAt" class="field" type="datetime-local" autocomplete="off" /></label>
     </div>
 
     <div class="grid gap-4 lg:grid-cols-2">
@@ -46,7 +46,7 @@ function submit() {
       <TeamSetupCard v-model="rightTeam" label="右側隊伍" @add="addRosterRow(rightTeam)" @remove="removeRosterRow(rightTeam, $event)" />
     </div>
 
-    <div v-if="validationErrors.length || props.error" class="rounded-2xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-800" role="alert">
+    <div v-if="validationErrors.length || props.error" class="rounded-2xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-800" role="alert" aria-live="polite">
       <p class="font-semibold">建立前需要處理以下問題</p>
       <ul class="mt-2 list-disc space-y-1 pl-5"><li v-for="message in validationErrors" :key="message">{{ message }}</li></ul>
       <p v-if="props.error" class="mt-2">{{ props.error.message }}</p>

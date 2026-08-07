@@ -4,8 +4,13 @@ import type { CreateMatchSetupInput } from '../../lib/coreDomain'
 const setup = useCreateMatchSetup()
 const router = useRouter()
 async function submit(input: CreateMatchSetupInput) {
-  const match = await setup.create(input)
-  await router.push(`/matches/${match.id}/live`)
+  try {
+    const match = await setup.create(input)
+    await router.push(`/matches/${match.id}/live`)
+  }
+  catch {
+    // The composable retains the stable API error for the form; inputs remain mounted.
+  }
 }
 </script>
 
