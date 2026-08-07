@@ -7,7 +7,7 @@ import {
   type FfprobeFrame,
 } from '@volleyball-monitoring/media'
 import { afterEach, describe, expect, it } from 'vitest'
-import { ingestEnvelope, type HandlerDeps } from '../src/media/ingest-handler.js'
+import { ingestEnvelope, probeSamples, type HandlerDeps } from '../src/media/ingest-handler.js'
 import { createEnvelope } from '../src/media/indexer-runtime.js'
 import type {
   FinalizedSegmentReservation,
@@ -20,6 +20,19 @@ const dvrProgramId = '10000000-0000-4000-8000-000000000002'
 const dvrSegmentId = '10000000-0000-4000-8000-000000000003'
 const sampleIndexAssetId = '10000000-0000-4000-8000-000000000004'
 const temporaryPaths: string[] = []
+
+it('derives quantized RTMP durations from adjacent PTS', () => {
+  const frames = [1890, 4860, 7920, 10890].map((pts) => ({ media_type: 'video' as const, pts: String(pts), pkt_duration: '3000', key_frame: 1 }))
+  expect(probeSamples(frames).map((sample) => sample.durationPts)).toEqual([2970n, 3060n, 2970n, 3000n])
+})
+it('rejects malformed adjacent PTS before deriving duration', () => {
+  expect(() => probeSamples([{ media_type: 'video', pts: '1890', pkt_duration: '3000' }, { media_type: 'video', pkt_duration: '3000' }])).toThrow()
+})
+it('rejects malformed final packet duration deterministically', () => {
+  expect(() => probeSamples([
+    { media_type: 'video', pts: '1890', pkt_duration: 'not-a-duration' },
+  ])).toThrow('Finalized media sample timing is invalid.')
+})
 
 afterEach(async () => {
   await Promise.all(temporaryPaths.splice(0).map((path) =>

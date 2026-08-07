@@ -161,6 +161,24 @@ describe('media indexer runtime kernel', () => {
       status: 'deadletter',
       output: { code: 'PERMANENT_FAILURE' },
     })
+    const deterministicConflict = await processMediaIngestJobs([job()], async () => {
+      const error = Object.assign(new Error('do not expose this detail'), {
+        code: 'TIMELINE_CONFLICT',
+      })
+      error.name = 'PrismaIngestRepositoryError'
+      throw error
+    })
+    expect(deterministicConflict[0]).toMatchObject({
+      status: 'deadletter',
+      output: { code: 'PERMANENT_FAILURE' },
+    })
+    await expect(processMediaIngestJobs([job()], async () => {
+      const error = Object.assign(new Error('earlier reservation is pending'), {
+        code: 'FIFO_BLOCKED',
+      })
+      error.name = 'PrismaIngestRepositoryError'
+      throw error
+    })).rejects.toThrow('earlier reservation is pending')
     await expect(processMediaIngestJobs([job()], async () => {
       throw new Error('database unavailable')
     })).rejects.toThrow('database unavailable')
