@@ -11,6 +11,8 @@ import { annotationWebSocketRoutes } from '../src/realtime/annotation-ws.js'
 import { parseAnnotationRoomId } from '../src/domain/annotation/room.js'
 import type { AnnotationCommandService } from '../src/services/annotation-command.js'
 
+type AnnotationCommandAck = Extract<AnnotationCommandResponse, { type: 'command_ack' }>
+
 const userId = '83000000-0000-4000-8000-000000000001'
 const deviceSessionId = '83000000-0000-4000-8000-000000000002'
 const matchId = '83000000-0000-4000-8000-abcdef000003'
@@ -35,6 +37,24 @@ const command = parseAnnotationCommand({
   } },
   rally_id: rallyId,
   room_id: roomId,
+})
+
+const contactCommand = parseAnnotationCommand({
+  ...command,
+  command_id: '83000000-0000-4000-8000-000000000010',
+  kind: 'CREATE_CONTACT_KEY_POINT',
+})
+
+const closeCommand = parseAnnotationCommand({
+  ...command,
+  command_id: '83000000-0000-4000-8000-000000000011',
+  kind: 'CLOSE_RALLY',
+  payload: { target_key_point_id: keyPointId, score_resolution: 'unknown', scoring_court_side: null },
+})
+
+const mismatchCommand = parseAnnotationCommand({
+  ...contactCommand,
+  room_id: `match:${matchId.slice(0, -1)}4:capture:${captureId}`,
 })
 
 const response: AnnotationCommandResponse = parseAnnotationCommandResponse({
@@ -75,6 +95,37 @@ function fakeService(seen: unknown[]): AnnotationCommandService {
       return 10n
     },
   }
+}
+
+async function openAnnotationSocket(seen: unknown[]) {
+  const app = Fastify({ logger: false })
+  await app.register(websocket)
+  await app.register(annotationWebSocketRoutes({
+    authenticate: async () => identity,
+    service: fakeService(seen),
+  }))
+  await app.listen({ host: '127.0.0.1', port: 0 })
+  closeApp = () => app.close()
+  const address = app.server.address()
+  if (!address || typeof address === 'string') throw new Error('missing test listener')
+  const client = new WebSocket(`ws://127.0.0.1:${address.port}/ws/annotations?room_id=${encodeURIComponent(roomId)}`)
+  await new Promise<void>((resolvePromise, reject) => {
+    const timeout = setTimeout(() => reject(new Error('websocket ready timeout')), 5_000)
+    client.addEventListener('error', () => reject(new Error('websocket error')))
+    client.addEventListener('message', (event) => {
+      try {
+        const ready = JSON.parse(String(event.data)) as { type?: string }
+        if (ready.type === 'connection_ready') {
+          clearTimeout(timeout)
+          resolvePromise()
+        }
+      } catch (error) {
+        clearTimeout(timeout)
+        reject(error)
+      }
+    })
+  })
+  return client
 }
 
 let closeApp: (() => Promise<void>) | null = null
@@ -144,7 +195,7 @@ describe('annotation transport adapters', () => {
       { ...command, kind: 'CLOSE_RALLY', base_revision: '1' as const, payload: { target_key_point_id: keyPointId, score_resolution: 'unknown' as const, scoring_court_side: null } },
     ]) {
       const r = await Promise.resolve(yoga.fetch('http://localhost/graphql', { body: JSON.stringify({ query: 'mutation Apply($command: JSON!) { applyAnnotationCommand(command: $command) }', variables: { command: variant } }), headers: { 'content-type': 'application/json' }, method: 'POST' }))
-      const body = await r.json() as { data: { applyAnnotationCommand: AnnotationCommandResponse } }
+      const body = await r.json() as { data: { applyAnnotationCommand: AnnotationCommandAck } }
       expect(body.data.applyAnnotationCommand.operation_kind).toBe(variant.kind)
       if (variant.kind === 'CLOSE_RALLY') expect(body.data.applyAnnotationCommand.resolved_anchor).toBeNull()
     }
@@ -185,6 +236,65 @@ describe('annotation transport adapters', () => {
     })
     expect(messages[1]).toEqual(response)
     expect(seen).toEqual([{ annotationIdentity: identity, value: command }])
+  })
+
+  it('round-trips a strict contact command after connection_ready', async () => {
+    const seen: unknown[] = []
+    const client = await openAnnotationSocket(seen)
+    const ackPromise = new Promise<AnnotationCommandAck>((resolve, reject) => {
+      const timeout = setTimeout(() => reject(new Error('websocket ack timeout')), 5_000)
+      client.addEventListener('message', (event) => {
+        const message = JSON.parse(String(event.data)) as AnnotationCommandAck
+        clearTimeout(timeout)
+        resolve(message)
+      })
+    })
+    client.send(JSON.stringify(contactCommand))
+    const ack = await ackPromise
+    expect(seen).toEqual([{ annotationIdentity: identity, value: contactCommand }])
+    expect(ack).toMatchObject({ command_id: contactCommand.command_id, operation_kind: 'CREATE_CONTACT_KEY_POINT' })
+    expect(ack.resolved_anchor).not.toBeNull()
+    client.close()
+  })
+
+  it('round-trips a strict unknown close command after connection_ready', async () => {
+    const seen: unknown[] = []
+    const client = await openAnnotationSocket(seen)
+    const ackPromise = new Promise<AnnotationCommandAck>((resolve, reject) => {
+      const timeout = setTimeout(() => reject(new Error('websocket ack timeout')), 5_000)
+      client.addEventListener('message', (event) => {
+        const message = JSON.parse(String(event.data)) as AnnotationCommandAck
+        clearTimeout(timeout)
+        resolve(message)
+      })
+    })
+    client.send(JSON.stringify(closeCommand))
+    const ack = await ackPromise
+    expect(seen).toEqual([{ annotationIdentity: identity, value: closeCommand }])
+    expect(ack).toMatchObject({ command_id: closeCommand.command_id, operation_kind: 'CLOSE_RALLY', resolved_anchor: null })
+    expect(ack.effects).toMatchObject({ score_resolution: 'unknown' })
+    client.close()
+  })
+
+  it('closes malformed JSON and room-mismatched commands without invoking the handler', async () => {
+    for (const malformed of ['not-json', JSON.stringify(mismatchCommand)]) {
+      const seen: unknown[] = []
+      const client = await openAnnotationSocket(seen)
+      const closeEvent = new Promise<CloseEvent>((resolve, reject) => {
+        const timeout = setTimeout(() => reject(new Error('websocket close timeout')), 5_000)
+        client.addEventListener('error', () => undefined)
+        client.addEventListener('close', (event) => {
+          clearTimeout(timeout)
+          resolve(event)
+        })
+      })
+      client.send(malformed)
+      const event = await closeEvent
+      expect(event.code).toBe(malformed === 'not-json' ? 1003 : 1008)
+      expect(seen).toHaveLength(0)
+      await closeApp?.()
+      closeApp = null
+    }
   })
 
   it('rejects a noncanonical WS room before connection_ready', async () => {
