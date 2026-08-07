@@ -42,12 +42,68 @@ describe("golden contract fixtures", () => {
       "examples/media/playback-window-descriptor.json": "media/playback-window-descriptor.schema.json",
       "examples/media/playback-cursor.json": "media/playback-cursor.schema.json",
       "examples/media/resolved-media-anchor.json": "media/resolved-media-anchor.schema.json",
-      "examples/annotation/mark-terminal.json": "annotation/realtime.schema.json",
-      "examples/annotation/score-unknown.json": "annotation/realtime.schema.json",
+      "examples/annotation/close-rally-left.json": "annotation/realtime.schema.json",
+      "examples/annotation/close-rally-right.json": "annotation/realtime.schema.json",
+      "examples/annotation/close-rally-unknown.json": "annotation/realtime.schema.json",
+      "examples/annotation/close-rally-ack.json": "annotation/realtime.schema.json",
+      "examples/annotation/close-rally-target-conflict.json": "annotation/realtime.schema.json",
       "examples/annotation/submit.json": "annotation/realtime.schema.json",
       "examples/ai/capabilities.json": "ai/capabilities.schema.json",
       "examples/ai/job-accepted.json": "ai/job-accepted.schema.json",
     };
     for (const [instance, schema] of Object.entries(pairs)) expect(validator(schema)(load(instance)), instance).toBe(true);
+  });
+
+  it("accepts only the atomic v2 CLOSE_RALLY outcomes", () => {
+    const validate = validator("annotation/realtime.schema.json");
+    for (const side of ["left", "right"]) {
+      const close = load(`examples/annotation/close-rally-${side}.json`);
+      expect(validate(close), side).toBe(true);
+    }
+    expect(validate(load("examples/annotation/close-rally-unknown.json")), "unknown").toBe(true);
+
+    const oldTerminal = {
+      schema_version: "1.1.0",
+      command_id: "old-terminal",
+      room_id: "room-001",
+      base_revision: "12",
+      rally_id: "rally-001",
+      kind: "MARK_TERMINAL",
+      payload: { target_key_point_id: "kp-004" },
+    };
+    expect(validate(oldTerminal), "v1.1 MARK_TERMINAL").toBe(false);
+    expect(validate({ ...oldTerminal, schema_version: "2.0.0", kind: "SET_SCORE", payload: {
+      score_resolution: "resolved",
+      scoring_court_side: "left",
+    } }), "standalone score command").toBe(false);
+  });
+
+  it("forbids close timestamps and requires ACK effects to carry the outcome", () => {
+    const validate = validator("annotation/realtime.schema.json");
+    const close = load("examples/annotation/close-rally-left.json");
+    close.payload.capture_time_us = "9000000";
+    expect(validate(close), "CLOSE_RALLY capture_time_us").toBe(false);
+    delete close.payload.capture_time_us;
+    close.payload.score_frame_index = "540";
+    expect(validate(close), "CLOSE_RALLY score frame").toBe(false);
+
+    const ack = load("examples/annotation/close-rally-ack.json");
+    expect(validate(ack), "complete CLOSE_RALLY ACK").toBe(true);
+    delete ack.effects.terminal_key_point_id;
+    expect(validate(ack), "ACK without terminalization effect").toBe(false);
+    ack.effects.terminal_key_point_id = "kp-004";
+    ack.resolved_anchor = {
+      playback_window_id: "window-1",
+      capture_session_id: "capture-1",
+      capture_epoch_id: "epoch-1",
+      source_pts: "1",
+      source_time_base: { num: 1, den: 60 },
+      capture_time_us: "1",
+      capture_frame_index: "1",
+      resolved_player_media_time_us: "1",
+      mapping_version: 1,
+      timing_precision: "frame_exact",
+    };
+    expect(validate(ack), "CLOSE_RALLY ACK with a new anchor").toBe(false);
   });
 });

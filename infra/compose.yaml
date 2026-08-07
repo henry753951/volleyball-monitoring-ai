@@ -57,8 +57,8 @@ services:
       MINIO_ROOT_USER: ${MINIO_ACCESS_KEY:-volleyball}
       MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY:-volleyball-dev-secret}
     ports:
-      - "9000:9000" # local SDK/debug access; browser app never receives credentials
-      - "9001:9001"
+      - "${MINIO_HOST_PORT:-9000}:9000" # local SDK/debug access; browser app never receives credentials
+      - "${MINIO_CONSOLE_HOST_PORT:-9001}:9001"
     volumes: [minio-data:/data]
     networks: [internal, edge]
     restart: unless-stopped
@@ -109,6 +109,11 @@ services:
       dockerfile: infra/docker/server.Dockerfile
     env_file: ../.env
     depends_on: [postgres, redis, minio-init, mediamtx]
+    healthcheck:
+      test: ["CMD", "bun", "-e", "const response = await fetch('http://localhost:4000/health/ready'); if (!response.ok) process.exit(1)"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
     labels:
       - traefik.enable=true
       - traefik.docker.network=volleyball-edge
@@ -168,7 +173,16 @@ services:
       context: ..
       dockerfile: infra/docker/web.Dockerfile
     env_file: ../.env
-    depends_on: [server]
+    environment:
+      PORT: 3000
+    depends_on:
+      server:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "bun", "-e", "const response = await fetch('http://localhost:3000/'); if (!response.ok) process.exit(1)"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
     labels:
       - traefik.enable=true
       - traefik.docker.network=volleyball-edge
@@ -182,11 +196,16 @@ services:
 
   fake-ai-provider:
     profiles: [dev-ai]
-    image: python:3.12-slim
-    working_dir: /repo
-    volumes: ["..:/repo"]
-    command: ["sh", "-lc", "pip install -e 'sdk[provider]' && uvicorn examples.fake_ai_provider.app:app --host 0.0.0.0 --port 8080"]
+    build:
+      context: ..
+      dockerfile: infra/docker/fake-ai-provider.Dockerfile
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/v1/capabilities', timeout=2)"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
     networks: [internal]
+    restart: unless-stopped
 
 volumes:
   postgres-data: {}

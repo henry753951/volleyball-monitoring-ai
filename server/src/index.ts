@@ -1,11 +1,45 @@
 import cors from '@fastify/cors'
 import websocket from '@fastify/websocket'
+import { db } from '@volleyball-monitoring/db'
 import Fastify, { type FastifyReply, type FastifyRequest } from 'fastify'
 import { createYoga } from 'graphql-yoga'
+import Redis from 'ioredis'
 import { createGraphQLContext } from './graphql/context.js'
 import { schema } from './graphql/schema.js'
+import { evaluateReadiness, type ReadinessProbe } from './health/readiness.js'
 
 const app = Fastify({ logger: true })
+const redisUrl = process.env.REDIS_URL
+const minioEndpoint = process.env.MINIO_ENDPOINT?.replace(/\/+$/, '')
+const redis = redisUrl
+  ? new Redis(redisUrl, { lazyConnect: true, connectTimeout: 1_000, maxRetriesPerRequest: 1 })
+  : null
+
+redis?.on('error', (error) => app.log.warn({ error }, 'Redis readiness connection error'))
+
+const readinessProbes: ReadinessProbe[] = [
+  {
+    name: 'postgres',
+    check: async () => {
+      await db.$queryRaw`SELECT 1`
+    },
+  },
+  {
+    name: 'redis',
+    check: async () => {
+      if (!redis) throw new Error('REDIS_URL is required')
+      if (await redis.ping() !== 'PONG') throw new Error('Redis did not return PONG')
+    },
+  },
+  {
+    name: 'minio',
+    check: async (signal) => {
+      if (!minioEndpoint) throw new Error('MINIO_ENDPOINT is required')
+      const response = await fetch(`${minioEndpoint}/minio/health/ready`, { signal })
+      if (!response.ok) throw new Error(`MinIO readiness returned ${response.status}`)
+    },
+  },
+]
 
 await app.register(cors, {
   origin: process.env.WEB_ORIGIN ?? true,
@@ -33,8 +67,8 @@ app.route({
 
 app.get('/health/live', async () => ({ status: 'ok' }))
 app.get('/health/ready', async (_req, reply) => {
-  // Phase 1 replaces this with bounded PostgreSQL/Redis/MinIO readiness checks.
-  return reply.status(503).send({ status: 'starting' })
+  const readiness = await evaluateReadiness(readinessProbes)
+  return reply.status(readiness.status === 'ready' ? 200 : 503).send(readiness)
 })
 
 // High-frequency annotation traffic is intentionally not a GraphQL subscription.
@@ -65,4 +99,8 @@ app.get('/ws/annotations', { websocket: true }, (socket) => {
 // - /api/v1/analysis/**: overlay manifest/chunks and binary artifacts
 
 const port = Number(process.env.PORT ?? 4000)
+app.addHook('onClose', async () => {
+  redis?.disconnect()
+  await db.$disconnect()
+})
 await app.listen({ port, host: '0.0.0.0' })

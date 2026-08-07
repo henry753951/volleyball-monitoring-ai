@@ -4,7 +4,7 @@
 This audit records the defects that were corrected before implementation begins.
 
 1. `?` is an explicit `unknown` decision and **may be submitted**. Only `pending` is blocked. Unknown submissions do not create a `PointAward` and are excluded from win/loss metrics until corrected.
-2. `X` never creates a timestamp. Its command carries `target_key_point_id`; the server validates that it is still the last effective key point at `base_revision` before marking it terminal.
+2. `CLOSE_RALLY` carries `target_key_point_id` plus a strict rally-level outcome. The server validates that the target is still the last effective key point at `base_revision`, then atomically terminalizes it and stores the outcome without creating a timestamp, score frame or score event.
 3. Browser frame/time is observational. A playback-window mapping plus the server sample index produces authoritative epoch, PTS, capture time and frame.
 4. Source PTS can reset or be negative. `CaptureEpoch` scopes raw PTS and keeps `capture_time_us` / `capture_frame_index` monotonic across reconnects.
 5. Live and archive manifests have independent player-time origins. Every `PlaybackWindowDescriptor` carries `presentation_origin_capture_us`; the client never treats `video.currentTime` as whole-match time.

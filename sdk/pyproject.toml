@@ -14,7 +14,7 @@ dependencies = ["pydantic>=2.10,<3", "httpx>=0.28,<1"]
 
 [project.optional-dependencies]
 provider = ["fastapi>=0.116,<1", "uvicorn>=0.35,<1"]
-test = ["pytest>=8,<10", "respx>=0.22,<1"]
+test = ["pytest>=8,<10", "respx>=0.22,<1", "jsonschema>=4.23,<5"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/volleyball_monitoring_ai"]

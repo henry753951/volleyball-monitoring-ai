@@ -10,7 +10,7 @@ fallback. It must not mutate Prisma directly. The durable command transaction ow
 - command-id idempotency;
 - base-revision compare-and-swap;
 - playback-cursor resolution before creating/moving a key point;
-- `X` validation using explicit `target_key_point_id`;
+- `CLOSE_RALLY` CAS validation using explicit `target_key_point_id` plus a strict rally-level resolved-left/resolved-right/unknown outcome, with no new time or score event;
 - immutable submission creation on Enter;
 - transaction outbox creation.
 

@@ -75,14 +75,33 @@ def main() -> None:
         'examples/media/playback-window-descriptor.json': 'media/playback-window-descriptor.schema.json',
         'examples/media/playback-cursor.json': 'media/playback-cursor.schema.json',
         'examples/media/resolved-media-anchor.json': 'media/resolved-media-anchor.schema.json',
-        'examples/annotation/mark-terminal.json': 'annotation/realtime.schema.json',
-        'examples/annotation/score-unknown.json': 'annotation/realtime.schema.json',
+        'examples/annotation/close-rally-left.json': 'annotation/realtime.schema.json',
+        'examples/annotation/close-rally-right.json': 'annotation/realtime.schema.json',
+        'examples/annotation/close-rally-unknown.json': 'annotation/realtime.schema.json',
+        'examples/annotation/close-rally-ack.json': 'annotation/realtime.schema.json',
+        'examples/annotation/close-rally-target-conflict.json': 'annotation/realtime.schema.json',
         'examples/annotation/submit.json': 'annotation/realtime.schema.json',
         'examples/ai/capabilities.json': 'ai/capabilities.schema.json',
         'examples/ai/job-accepted.json': 'ai/job-accepted.schema.json',
     }
     for instance, schema in example_pairs.items():
         validate(CONTRACTS / schema, CONTRACTS / instance)
+
+    annotation_schema = load(CONTRACTS / 'annotation' / 'realtime.schema.json')
+    annotation_validator = Draft202012Validator(annotation_schema, format_checker=FormatChecker())
+    old_terminal = {
+        'schema_version': '1.1.0',
+        'command_id': 'old-terminal',
+        'room_id': 'room-001',
+        'base_revision': '12',
+        'rally_id': 'rally-001',
+        'kind': 'MARK_TERMINAL',
+        'payload': {'target_key_point_id': 'kp-004'},
+    }
+    assert not annotation_validator.is_valid(old_terminal)
+    close_with_score_frame = load(CONTRACTS / 'examples' / 'annotation' / 'close-rally-left.json')
+    close_with_score_frame['payload']['score_frame_index'] = '540'
+    assert not annotation_validator.is_valid(close_with_score_frame)
 
     # Validate every schema itself, including boundaries without golden fixtures yet.
     for path in CONTRACTS.rglob('*.schema.json'):
