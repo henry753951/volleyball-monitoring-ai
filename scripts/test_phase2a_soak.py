@@ -3,7 +3,7 @@ import unittest
 
 import argparse
 import phase2a_soak
-from phase2a_soak import install_signal_handlers, parse_manifest, parse_memory, parse_stats, summarize, restart_delta, validate_config, expected_error, validate_anchor
+from phase2a_soak import install_signal_handlers, parse_manifest, parse_memory, parse_stats, summarize, restart_delta, validate_config, expected_error, validate_anchor, service_health_failures
 
 
 class SoakHelpersTest(unittest.TestCase):
@@ -44,6 +44,10 @@ class SoakHelpersTest(unittest.TestCase):
         validate_config(args, "00000000-0000-4000-8000-00000000d003")
         with self.assertRaises(ValueError):
             validate_config(argparse.Namespace(duration_seconds=0, interval_seconds=1, memory_cap_mib=1, growth_cap_mib=1), "bad")
+
+    def test_stopped_service_is_health_failure(self):
+        self.assertEqual(service_health_failures({"worker": {"state": "exited", "health": "none"}}), 1)
+        self.assertEqual(service_health_failures({"worker": {"state": "running", "health": "none"}}), 0)
 
     def test_anchor_and_boundary_validation(self):
         validate_anchor({"capture_session_id":"s", "mapping_version":1, "capture_time_us":"1", "capture_frame_index":"2", "resolved_player_media_time_us":"3", "source_pts":"-4"}, "s", 1)

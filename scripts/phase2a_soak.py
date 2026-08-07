@@ -20,6 +20,10 @@ _STOP = False
 def restart_delta(current: int, baseline: int) -> int:
     return max(0, current - baseline)
 
+def service_health_failures(services: dict[str, dict[str, str]]) -> int:
+    return sum(item.get("state") != "running" or item.get("health") in {"unhealthy", "unknown"}
+               for item in services.values())
+
 def validate_config(args: argparse.Namespace, session_id: str) -> None:
     if args.duration_seconds <= 0 or args.interval_seconds <= 0 or args.memory_cap_mib <= 0 or args.growth_cap_mib <= 0:
         raise ValueError("duration, interval, and caps must be positive")
@@ -50,10 +54,11 @@ def compose_state() -> tuple[int, int, int, dict[str, dict[str, str]]]:
         except (ValueError, subprocess.SubprocessError):
             restart_count, health = 0, "unknown"
         restarts += restart_count
-        unhealthy += int(health in {"unhealthy", "unknown"})
+        unhealthy += int(state != "running" or health in {"unhealthy", "unknown"})
         services[name] = {"container": container, "state": state, "health": health, "status": status, "restarts": str(restart_count)}
     # minio-init is a completed one-shot bootstrap, not a continuously running service.
     services.pop("minio-init", None)
+    unhealthy = service_health_failures(services)
     running = sum(item["state"] == "running" for item in services.values())
     return running, restarts, unhealthy, services
 
