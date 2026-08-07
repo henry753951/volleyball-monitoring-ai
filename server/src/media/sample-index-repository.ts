@@ -41,6 +41,7 @@ export class SampleIndexRepositoryError extends Error {
 
 const UUID = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i
 const JSON_CONTENT_TYPE = 'application/json'
+const MAX_INT32 = 2_147_483_647
 
 function repositoryFailure(
   code: SampleIndexRepositoryErrorCode,
@@ -96,6 +97,7 @@ async function querySegments(
           captureTimeOriginUs: true,
           endedAtCaptureUs: true,
           id: true,
+          sequenceIndex: true,
           sourcePtsOrigin: true,
           sourceTimeBaseDen: true,
           sourceTimeBaseNum: true,
@@ -183,10 +185,19 @@ function validateSegmentRow(row: SegmentRow): void {
     || row.captureEpoch.captureSessionId !== row.program.captureSessionId
     || row.captureEpoch.sourceTimeBaseNum <= 0
     || row.captureEpoch.sourceTimeBaseDen <= 0
+    || !Number.isInteger(row.captureEpoch.sequenceIndex)
+    || row.captureEpoch.sequenceIndex < 0
+    || row.captureEpoch.sequenceIndex > MAX_INT32
+    || row.captureEpoch.startedAtCaptureUs
+      !== row.captureEpoch.captureTimeOriginUs
     || row.captureStartUs < row.captureEpoch.startedAtCaptureUs
     || (
       row.captureEpoch.endedAtCaptureUs !== null
-      && row.captureEndUs > row.captureEpoch.endedAtCaptureUs
+      && (
+        row.captureEpoch.endedAtCaptureUs
+          <= row.captureEpoch.startedAtCaptureUs
+        || row.captureEndUs > row.captureEpoch.endedAtCaptureUs
+      )
     )
     || row.discontinuitySequence < 0
     || !Number.isSafeInteger(row.discontinuitySequence)
@@ -309,6 +320,12 @@ function validateOrderedMetadata(rows: readonly SegmentRow[]): void {
       repositoryFailure(
         'INVALID_SEGMENT_SET',
         'Sample index segments cross a media boundary',
+      )
+    }
+    if (row.captureEpoch.sequenceIndex !== row.discontinuitySequence) {
+      repositoryFailure(
+        'INVALID_SEGMENT_METADATA',
+        'Persisted sample index segment metadata is invalid',
       )
     }
     if (row.sampleIndexAssetId !== null) {

@@ -325,9 +325,12 @@ async function resetFixture(): Promise<void> {
       captureFrameOrigin,
       captureSessionId: ids.session,
       captureTimeOriginUs: captureOriginUs,
+      endedAtCaptureUs: null,
+      sequenceIndex: 0,
       sourcePtsOrigin,
       sourceTimeBaseDen,
       sourceTimeBaseNum,
+      startedAtCaptureUs: captureOriginUs,
     },
     where: { id: ids.epoch1 },
   })
@@ -772,6 +775,46 @@ describe('persisted sample index repository', () => {
       () => repository.loadOrderedSegments([ids.segment1]),
       'INVALID_SEGMENT_METADATA',
     )
+  })
+
+  it.each([
+    ['wrong start/origin', async (): Promise<void> => {
+      await db.captureEpoch.update({
+        data: { startedAtCaptureUs: captureOriginUs + 1n },
+        where: { id: ids.epoch1 },
+      })
+    }],
+    ['sequence/discontinuity mismatch', async (): Promise<void> => {
+      await db.dvrSegment.update({
+        data: { discontinuitySequence: 1 },
+        where: { id: ids.segment1 },
+      })
+    }],
+    ['ended before segment', async (): Promise<void> => {
+      await db.captureEpoch.update({
+        data: { endedAtCaptureUs: segment1CaptureEnd - 1n },
+        where: { id: ids.epoch1 },
+      })
+    }],
+    ['empty epoch range', async (): Promise<void> => {
+      await db.captureEpoch.update({
+        data: { endedAtCaptureUs: captureOriginUs },
+        where: { id: ids.epoch1 },
+      })
+    }],
+    ['negative epoch sequence', async (): Promise<void> => {
+      await db.captureEpoch.update({
+        data: { sequenceIndex: -1 },
+        where: { id: ids.epoch1 },
+      })
+    }],
+  ] as const)('rejects persisted epoch corruption: %s', async (_label, mutate) => {
+    await mutate()
+    await expectRepositoryError(
+      () => repository.loadOrderedSegments([ids.segment1]),
+      'INVALID_SEGMENT_METADATA',
+    )
+    expect(reads).toHaveLength(0)
   })
 
   it.each([
