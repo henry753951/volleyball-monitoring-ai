@@ -40,15 +40,24 @@ Date: 2026-08-07 (Asia/Taipei target release date)
 - Server: 6 Vitest tests passed; typecheck and build passed.
 - Web: 14 Vitest tests passed; Nuxt typecheck and production PWA build passed.
 - Hotkey ADR follow-up: exact-pinned `@tanstack/vue-hotkeys` `0.10.0`; frozen install passed. Tests cover all eight defaults and atomic reset, remap/old-key removal, recorder normalization, v2 preference migration, conflicts/reserved gestures, macOS/Windows display formatting, annotation element scope, modal precedence, input/textarea/select/contenteditable suppression, dynamic registration count and unmount cleanup.
+- Headed Playwright verified all eight formatted settings badges, successful service remap to `S`, duplicate-contact rejection without mutation, Restore All Defaults, the version 3 local-storage envelope, and matching formatted badges on the annotation deck.
 - Prisma 7.9.1 generate and validate passed; DB typecheck passed with 38 models and 24 enums after removing `AWAITING_SCORE`.
 - `uv run --project sdk --frozen --extra test bun run validate:all` passed.
 
-## Not executed here
+## Integrated Phase 1A runtime validation
+
+- The complete `app` and `dev-ai` Docker Compose profiles were built and started after main-Agent integration.
+- PostgreSQL, Redis and fake AI reported healthy; server readiness returned PostgreSQL, Redis and MinIO `ok`; server and Nuxt Docker health checks passed.
+- Nuxt and all six scaffold worker containers remained running with restart count zero. Worker processes are intentionally idle until durable pg-boss claim/lease behavior is implemented.
+- Traefik returned HTTPS 200 for the PWA and GraphQL endpoints. A headed Playwright smoke loaded the home, settings and live routes after accepting the local self-signed certificate, then closed the browser session.
+- GitHub PR #2 ran and passed the required `contracts-sdk`, `typescript` and `compose-config` checks. `main` protection requires a PR, strict success from those checks, and resolved review conversations.
+
+## Not executed yet
 
 - No migration was created because the approved enum removal must precede the first migration.
-- Docker Compose runtime, live database integration, browser/iPad E2E and media/AI vertical slices were not run for this contract migration.
+- The Phase 1B live database domain integration tests, one-hour media ingest/DVR proof, complete annotation persistence flow, external AI round trip and full iPad E2E remain future vertical-slice exit gates.
 
-The primary Agent must run the following before accepting Phase 0 or creating a migration:
+The primary Agent reruns the following integrated gate before merging each phase or creating a migration:
 
 ```bash
 bun install
