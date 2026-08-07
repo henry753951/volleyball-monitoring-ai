@@ -103,6 +103,7 @@ An expired descriptor, manifest, segment or resolve/step request returns `410`; 
 - A window never spans a gap or discontinuity. Requested bounds are clamped to the one ready `available_range` containing the target, which keeps one affine presentation origin. A target inside a gap returns `422 CAPTURE_GAP`.
 - Window creation is synchronous only over already indexed, ready fMP4 media and returns `200`. Missing readiness returns `409 MEDIA_NOT_READY`; Phase 2A does not add a `202/pending` descriptor.
 - Manifests contain only bounded, authorized window segments and same-origin URLs. They never expose MinIO credentials or internal endpoints.
+- The manifest is the only producer of HLS resource URLs. `{segmentId}` is an opaque server-issued resource token, not a database or object-store identity; internal `init-<dvr-segment-uuid>` and `media-<dvr-segment-uuid>` tokens allow the existing authenticated segment route to serve both `EXT-X-MAP` initialization bytes and media bytes after the same persisted window-membership check.
 - The PWA retains current/previous/next window metadata and bounded media buffers only.
 
 ## Cursor and frame-step semantics
