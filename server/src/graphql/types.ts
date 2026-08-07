@@ -1,6 +1,10 @@
 import { db } from '@volleyball-monitoring/db'
 import {
+  AnnotationStatus,
+  CourtSide,
   MatchStatus,
+  ProcessingStatus,
+  ScoreResolutionState,
   SetStatus,
   UserRole,
 } from '@volleyball-monitoring/db/client'
@@ -10,6 +14,7 @@ import type {
   MatchRosterEntry,
   MatchSet,
   Player,
+  Rally,
   Team,
 } from '@volleyball-monitoring/db/client'
 import { CaptureStatus, SourceHealth } from '@volleyball-monitoring/db/client'
@@ -38,6 +43,10 @@ export const MatchStatusType = builder.enumType(MatchStatus, { name: 'MatchStatu
 export const SetStatusType = builder.enumType(SetStatus, { name: 'SetStatus' })
 export const CaptureStatusType = builder.enumType(CaptureStatus, { name: 'CaptureStatus' })
 export const SourceHealthType = builder.enumType(SourceHealth, { name: 'SourceHealth' })
+export const AnnotationStatusType = builder.enumType(AnnotationStatus, { name: 'AnnotationStatus' })
+export const ProcessingStatusType = builder.enumType(ProcessingStatus, { name: 'ProcessingStatus' })
+export const ScoreResolutionStateType = builder.enumType(ScoreResolutionState, { name: 'ScoreResolutionState' })
+export const CourtSideType = builder.enumType(CourtSide, { name: 'CourtSide' })
 
 export const HealthType = builder.objectRef<Health>('Health')
 HealthType.implement({
@@ -130,6 +139,21 @@ MatchSetType.implement({
       }),
     }),
     status: t.field({ type: SetStatusType, resolve: (matchSet) => matchSet.status }),
+  }),
+})
+
+export const RallyType = builder.objectRef<Rally>('Rally')
+RallyType.implement({
+  fields: (t) => ({
+    activeSubmissionId: t.exposeID('activeSubmissionId', { nullable: true }),
+    annotationRevision: t.field({ type: 'BigInt', resolve: rally => rally.annotationRevision }),
+    annotationStatus: t.field({ type: AnnotationStatusType, resolve: rally => rally.annotationStatus }),
+    id: t.exposeID('id'),
+    matchId: t.exposeID('matchId'),
+    processingStatus: t.field({ type: ProcessingStatusType, resolve: rally => rally.processingStatus }),
+    scoreResolutionState: t.field({ type: ScoreResolutionStateType, resolve: rally => rally.scoreResolutionState }),
+    scoringCourtSide: t.field({ type: CourtSideType, nullable: true, resolve: rally => rally.scoringCourtSide }),
+    setId: t.exposeID('setId'),
   }),
 })
 

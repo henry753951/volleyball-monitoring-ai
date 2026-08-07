@@ -1,5 +1,17 @@
 # Progress
 
+## 2026-08-07 — Immutable correction and score-ledger completion
+
+Status: correction draft, immutable supersession, score correction and outcome-only geometry reuse are implemented on the Contract Lab-aligned Annotation workstation.
+
+- Added the typed `createCorrectionDraft(submissionId: ID!): Rally!` GraphQL mutation. It authorizes the current operator/device, serializes against Rally/set edits, restores immutable submission key points into gray mutable rows, keeps the prior submission authoritative until Enter, records an audit operation/outbox event and rejects competing drafts.
+- Enter now supports a correction chain. The replacement submission stores `supersedesSubmissionId`; the prior submission, ClipJobs, AiJobs and AnalysisRuns remain immutable and become `SUPERSEDED`. A no-op correction is durably rejected.
+- Added one ordered `ScoreLedgerEntry` CAS ledger across initial `POINT_AWARD` and later `CORRECTION` mutations. Winner changes use deltas such as `(-1,+1)`; resolved-to-unknown reverses the old contribution; unknown-to-resolved adds exactly one. Unknown submission score snapshot fields and PointAward remain null/absent as required.
+- Outcome-only corrections with identical key-point geometry reuse completed clip bytes, timing mappings, AI geometry, identities, paths, artifacts and FlatBuffers overlay assets under newly linked immutable job/run rows. They complete without transcoding or a provider request; if no completed reusable pipeline exists, the ordinary queued pipeline remains the fallback.
+- The Annotation page now falls back to the newest submitted Rally when no draft is open, renders its mask green and exposes `建立修正草稿`; an open correction is gray and clearly labelled. Server/Web typechecks, 30 focused correction/command integration tests, full Server `164/164` and Web `94/94` suites, nine GraphQL documents and production builds passed before this checkpoint.
+
+Open limitation: the optional short-lived key-point drag soft-lock hint is not yet implemented; revision/CAS remains the canonical concurrency authority. Production identity and retention durations remain explicit deployment decisions.
+
 ## 2026-08-07 — Phase 7 restart and restore acceptance
 
 Status: restart and local backup/restore drills passed against the running Compose stack; the reusable safety procedure is documented in `docs/OPERATIONS_RUNBOOK.md`.

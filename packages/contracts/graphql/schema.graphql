@@ -1,3 +1,10 @@
+enum AnnotationStatus {
+  OPEN
+  READY
+  SUBMITTED
+  VOIDED
+}
+
 """Signed 64-bit integer serialized as a decimal string."""
 scalar BigInt
 
@@ -32,6 +39,11 @@ type CaptureTimelineRange {
   discontinuity: Int!
   endUs: BigInt!
   startUs: BigInt!
+}
+
+enum CourtSide {
+  LEFT
+  RIGHT
 }
 
 type CourtSideAssignment {
@@ -97,6 +109,7 @@ enum MatchStatus {
 type Mutation {
   applyAnnotationCommand(command: JSON!): JSON!
   assignTrackIdentity(analysisRunId: ID!, rosterEntryId: ID!, trackId: Int!): JSON!
+  createCorrectionDraft(submissionId: ID!): Rally!
   createMatchSetup(input: CreateMatchSetupInput!): Match!
   saveAnalysisView(filters: JSON!, layout: JSON, matchId: ID!, name: String!): JSON!
   swapCourtSides(input: SwapCourtSidesInput!): MatchSet!
@@ -106,6 +119,18 @@ type Player {
   id: ID!
   name: String!
   teamId: ID!
+}
+
+enum ProcessingStatus {
+  AI_PROCESSING
+  AI_QUEUED
+  ARTIFACT_INGESTING
+  CLIPPING
+  CLIP_QUEUED
+  COMPLETED
+  FAILED
+  IDLE
+  SUPERSEDED
 }
 
 type Query {
@@ -122,9 +147,27 @@ type Query {
   viewer: Viewer!
 }
 
+type Rally {
+  activeSubmissionId: ID
+  annotationRevision: BigInt!
+  annotationStatus: AnnotationStatus!
+  id: ID!
+  matchId: ID!
+  processingStatus: ProcessingStatus!
+  scoreResolutionState: ScoreResolutionState!
+  scoringCourtSide: CourtSide
+  setId: ID!
+}
+
 input RosterInput {
   jerseyNumber: String!
   name: String!
+}
+
+enum ScoreResolutionState {
+  PENDING
+  RESOLVED
+  UNKNOWN
 }
 
 enum SetStatus {

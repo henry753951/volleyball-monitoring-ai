@@ -31,7 +31,7 @@ async function loadAnnotationSnapshot(
   })
   if (!authorized) return null
 
-  const rally = rallyId
+  let rally = rallyId
     ? await database.rally.findFirst({
         where: {
           id: rallyId,
@@ -39,6 +39,9 @@ async function loadAnnotationSnapshot(
           program: { captureSessionId: room.captureSessionId },
         },
         include: {
+          activeSubmission: {
+            include: { keyPoints: { orderBy: [{ sequenceIndex: 'asc' }, { id: 'asc' }] } },
+          },
           keyPoints: {
             where: { deletedAt: null },
             orderBy: [{ sequenceIndex: 'asc' }, { id: 'asc' }],
@@ -53,6 +56,9 @@ async function loadAnnotationSnapshot(
           program: { captureSessionId: room.captureSessionId },
         },
         include: {
+          activeSubmission: {
+            include: { keyPoints: { orderBy: [{ sequenceIndex: 'asc' }, { id: 'asc' }] } },
+          },
           keyPoints: {
             where: { deletedAt: null },
             orderBy: [{ sequenceIndex: 'asc' }, { id: 'asc' }],
@@ -60,12 +66,45 @@ async function loadAnnotationSnapshot(
         },
         orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
       })
+  if (!rally && !rallyId) {
+    rally = await database.rally.findFirst({
+      where: {
+        activeSubmissionId: { not: null },
+        annotationStatus: AnnotationStatus.SUBMITTED,
+        voidedAt: null,
+        matchId: room.matchId,
+        program: { captureSessionId: room.captureSessionId },
+      },
+      include: {
+        activeSubmission: {
+          include: { keyPoints: { orderBy: [{ sequenceIndex: 'asc' }, { id: 'asc' }] } },
+        },
+        keyPoints: {
+          where: { deletedAt: null },
+          orderBy: [{ sequenceIndex: 'asc' }, { id: 'asc' }],
+        },
+      },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+    })
+  }
   if (!rally) return null
 
   const serverSequence = await database.annotationCommandReceipt.aggregate({
     _max: { serverSequence: true },
     where: { roomId: input.roomId },
   })
+  const keyPoints = rally.annotationStatus === AnnotationStatus.SUBMITTED && rally.activeSubmission
+    ? rally.activeSubmission.keyPoints.map(point => ({
+        id: point.id,
+        sequenceIndex: point.sequenceIndex,
+        markerKind: point.markerKind,
+        isTerminal: point.isTerminal,
+        captureTimeUs: point.captureTimeUs,
+        captureFrameIndex: point.captureFrameIndex,
+        timingPrecision: point.timingPrecision,
+        possibleDuplicate: false,
+      }))
+    : rally.keyPoints
   return parseAnnotationServerMessage({
     schema_version: '2.0.0',
     type: 'rally_snapshot',
@@ -80,7 +119,7 @@ async function loadAnnotationSnapshot(
       scoring_court_side: rally.scoringCourtSide?.toLowerCase() ?? null,
       processing_status: rally.processingStatus.toLowerCase(),
       active_submission_id: rally.activeSubmissionId,
-      key_points: rally.keyPoints.map(point => ({
+      key_points: keyPoints.map(point => ({
         key_point_id: point.id,
         sequence_index: point.sequenceIndex,
         marker_kind: point.markerKind.toLowerCase(),

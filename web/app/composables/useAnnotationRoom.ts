@@ -25,6 +25,9 @@ const ACTIVE_SNAPSHOT_QUERY = `query ActiveAnnotationRally($roomId: String!) {
 const SNAPSHOT_QUERY = `query AnnotationRally($roomId: String!, $rallyId: ID!) {
   annotationRallySnapshot(roomId: $roomId, rallyId: $rallyId)
 }`
+const CREATE_CORRECTION_DRAFT = `mutation CreateCorrectionDraft($submissionId: ID!) {
+  createCorrectionDraft(submissionId: $submissionId) { id }
+}`
 
 function asSnapshot(value: unknown): AnnotationRallySnapshot | null {
   if (value === null) return null
@@ -292,6 +295,27 @@ export function useAnnotationRoom() {
     }
   }
 
+  async function createCorrection() {
+    const submissionId = snapshot.value?.snapshot.active_submission_id
+    if (!submissionId) throw new Error('目前沒有可修正的 immutable submission')
+    if (state.value !== 'SUBMITTED') throw new Error('目前已經有修正草稿')
+    busy.value = true
+    error.value = null
+    try {
+      const result = await transport.request<{
+        createCorrectionDraft: { id: string }
+      }>(CREATE_CORRECTION_DRAFT, { submissionId })
+      return await fetchSnapshot(result.createCorrectionDraft.id)
+    }
+    catch (cause) {
+      error.value = cause instanceof Error ? cause.message : '無法建立修正草稿'
+      throw cause
+    }
+    finally {
+      busy.value = false
+    }
+  }
+
   onBeforeUnmount(() => {
     realtime?.disconnect()
     realtime = null
@@ -302,6 +326,7 @@ export function useAnnotationRoom() {
     busy: readonly(busy),
     connection: readonly(connection),
     connect,
+    createCorrection,
     dispatch,
     edit,
     error: readonly(error),
