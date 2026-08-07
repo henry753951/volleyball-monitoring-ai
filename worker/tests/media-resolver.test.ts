@@ -11,5 +11,22 @@ describe('sample index resolver', () => {
   it('supports VFR and deterministic earlier tie', () => { const idx = buildSampleIndex([{ media_type: 'video', pts: '0', pkt_duration: '1' }, { media_type: 'video', pts: '2', pkt_duration: '1' }, { media_type: 'video', pts: '5', pkt_duration: '1' }], { ...origin, sourcePtsOrigin: 0n, captureTimeOriginUs: 0n, captureFrameOrigin: 0n, timeBase: { num: 1n, den: 1n } }); expect(resolveCanonicalTime(idx, 's', 1_000_000n).sample.captureTimeUs).toBe('0'); });
   it('rejects malformed or non-monotonic samples', () => { expect(() => buildSampleIndex([{ media_type: 'video', pts: '2', pkt_duration: '1' }, { media_type: 'video', pts: '1', pkt_duration: '1' }], origin)).toThrow('source PTS'); expect(() => buildSampleIndex([{ media_type: 'audio', pts: '1', pkt_duration: '1' }], origin)).toThrow('no video'); });
   it('steps one real adjacent sample and reports boundaries', () => { const idx = buildSampleIndex(frames, origin); const start = idx.samples[0].captureFrameIndex; expect(frameStep(idx, 's', start, 'next').sample.captureFrameIndex).toBe((start + 1n).toString()); expect(() => frameStep(idx, 's', start, 'previous')).toThrowError(new ResolverError('SAMPLE_NOT_FOUND', 'no adjacent sample')); expect(() => resolveCanonicalTime(idx, 's', idx.availableStartUs - 1n)).toThrowError(new ResolverError('CAPTURE_GAP', 'target is outside ready contiguous range')); });
-  it('steps across contiguous segments but not discontinuities', () => { const a = buildSampleIndex(frames.slice(0, 2), origin); const b = buildSampleIndex(frames.slice(2), { ...origin, sourcePtsOrigin: frames[2]!.pts ? BigInt(frames[2]!.pts!) : 0n, captureTimeOriginUs: a.samples[1]!.captureTimeUs, captureFrameOrigin: a.samples[1]!.captureFrameIndex + 1n }); expect(frameStepAcrossSegments([{ segmentId: 'a', index: a }, { segmentId: 'b', index: b }], a.samples[1]!.captureFrameIndex, 'next', a.availableStartUs, b.availableEndUs).segmentId).toBe('b'); expect(() => frameStepAcrossSegments([{ segmentId: 'a', index: a, discontinuity: 0 }, { segmentId: 'b', index: b, discontinuity: 1 }], a.samples[1]!.captureFrameIndex, 'next', a.availableStartUs, b.availableEndUs)).toThrow('no adjacent'); });
+  it('steps across contiguous segments but not windows or discontinuities', () => {
+    const a = buildSampleIndex(frames.slice(0, 2), origin)
+    const b = buildSampleIndex(frames.slice(2), {
+      ...origin,
+      sourcePtsOrigin: BigInt(frames[2]!.pts!),
+      captureTimeOriginUs: a.availableEndUs,
+      captureFrameOrigin: a.samples[1]!.captureFrameIndex + 1n,
+    })
+    const segments = [{ segmentId: 'a', index: a }, { segmentId: 'b', index: b }]
+    const firstB = b.samples[0]!
+    const lastA = a.samples[1]!
+
+    expect(firstB.captureTimeUs).toBeGreaterThan(lastA.captureTimeUs)
+    expect(frameStepAcrossSegments(segments, lastA.captureFrameIndex, 'next', a.availableStartUs, b.availableEndUs).segmentId).toBe('b')
+    expect(frameStepAcrossSegments(segments, firstB.captureFrameIndex, 'previous', a.availableStartUs, b.availableEndUs).segmentId).toBe('a')
+    expect(() => frameStepAcrossSegments(segments, lastA.captureFrameIndex, 'next', a.availableStartUs, firstB.captureTimeUs - 1n)).toThrow('outside playback window')
+    expect(() => frameStepAcrossSegments([{ segmentId: 'a', index: a, discontinuity: 0 }, { segmentId: 'b', index: b, discontinuity: 1 }], lastA.captureFrameIndex, 'next', a.availableStartUs, b.availableEndUs)).toThrow('no adjacent')
+  });
 });
