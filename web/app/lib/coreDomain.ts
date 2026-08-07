@@ -42,7 +42,7 @@ export interface Match {
   teams: Team[]
   rosterEntries: MatchRosterEntry[]
   sets: MatchSet[]
-  captureSessions: CaptureSession[]
+  captureSessions?: CaptureSession[]
 }
 export interface CaptureTimelineRange { startUs: string; endUs: string; discontinuity: number }
 export interface CaptureTimeline { captureSessionId: string; captureStartTimeUs: string; liveEdgeCaptureTimeUs: string | null; timelineVersion: string; availableRanges: CaptureTimelineRange[] }
