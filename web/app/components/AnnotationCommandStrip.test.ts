@@ -10,7 +10,7 @@ describe('AnnotationCommandStrip', () => {
     ['READY', 'READY', false, false, [false, false, false, false, false, true]],
   ])('%s enables exactly the fixed commands', (_name, state, canMark, lastKeyPoint, expected) => {
     const w = mount(AnnotationCommandStrip, { props: { bindings, state: state as 'IDLE'|'OPEN'|'READY'|'SUBMITTED', canMark: canMark === true, lastKeyPoint: lastKeyPoint === true } })
-    expect(w.findAll('button').map(button => !button.attributes('disabled'))).toEqual(expected)
+    expect(w.findAll('button').map(button => !(button.element as HTMLButtonElement).disabled)).toEqual(expected)
   })
   it('renders exactly six fixed actions and no X', () => { const w = mount(AnnotationCommandStrip, { props: { bindings, state: 'IDLE', canMark: false, lastKeyPoint: false } }); expect(w.findAll('button')).toHaveLength(6); expect(w.text()).not.toContain('X') })
   it('renders formatted keys and specific disabled reasons', () => { const w = mount(AnnotationCommandStrip, { props: { bindings, state: 'IDLE', canMark: false, lastKeyPoint: false } }); expect(w.text()).toContain('游標尚未由伺服器確認'); expect(w.text()).toContain('尚未開啟回合'); expect(w.text()).toContain('提交狀態尚未就緒'); const open = mount(AnnotationCommandStrip, { props: { bindings, state: 'OPEN', canMark: true, lastKeyPoint: false } }); expect(open.text()).toContain('沒有伺服器確認的最後 key point') })
