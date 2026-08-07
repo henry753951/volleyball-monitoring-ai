@@ -373,6 +373,8 @@ export type IncrementalFinalizedIndexedSegment = Pick<
 
 export type PlanNextCaptureSegmentInput = {
   currentHead: PersistedCaptureHead | null
+  /** Server-generated persistence identity for a possible new epoch. */
+  newEpochId: string
   segment: IncrementalFinalizedIndexedSegment
   sourceRestart: boolean
   timestampDiscontinuity: boolean
@@ -385,7 +387,7 @@ export type IncrementalEpochDisposition = 'REUSE_EXISTING' | 'CREATE_NEXT'
 /** The chosen affine epoch mapping for the new segment. */
 export type IncrementalPlannedCaptureEpoch = {
   disposition: IncrementalEpochDisposition
-  /** Existing database ID when reused; otherwise a transaction-local key. */
+  /** Exact existing or server-generated CaptureEpoch persistence identity. */
   epochKey: string
   epochSequence: number
   discontinuity: number
@@ -444,6 +446,19 @@ function validateIncrementalConfig(config: CaptureEpochPlannerConfig): void {
   }
 }
 
+function isSafeOpaqueIdentity(value: string): boolean {
+  return value.trim().length > 0 && !value.includes('\0')
+}
+
+function validateNewEpochId(value: string): void {
+  if (!isSafeOpaqueIdentity(value)) {
+    throw new CaptureEpochPlannerError(
+      'INVALID_CONFIG',
+      'newEpochId must be a safe non-empty opaque identity',
+    )
+  }
+}
+
 function validateInt32Sequence(value: number, field: string): void {
   if (!Number.isInteger(value) || value < 0 || value > INT32_MAX) {
     throw new CaptureEpochPlannerError(
@@ -454,7 +469,7 @@ function validateInt32Sequence(value: number, field: string): void {
 }
 
 function validatePersistedHead(head: PersistedCaptureHead): void {
-  if (!head.epochId || head.epochId.includes('\0')) {
+  if (!isSafeOpaqueIdentity(head.epochId)) {
     throw new CaptureEpochPlannerError(
       'INVALID_PERSISTED_HEAD',
       'epochId must be non-empty',
@@ -549,6 +564,7 @@ export function planNextCaptureSegment(
   input: PlanNextCaptureSegmentInput,
 ): PlanNextCaptureSegmentResult {
   validateIncrementalConfig(input.config)
+  validateNewEpochId(input.newEpochId)
   const segment = incrementalSegment(input.segment, input)
   const bounds = segmentBounds(segment)
   const head = input.currentHead
@@ -562,7 +578,7 @@ export function planNextCaptureSegment(
     }
     const epoch: IncrementalPlannedCaptureEpoch = {
       disposition: 'CREATE_NEXT',
-      epochKey: epochKey(0),
+      epochKey: input.newEpochId,
       epochSequence: 0,
       discontinuity: 0,
       timeBase: segment.timeBase,
@@ -643,7 +659,7 @@ export function planNextCaptureSegment(
   const captureFrameOrigin = head.lastCaptureFrameIndex + 1n
   const epoch: IncrementalPlannedCaptureEpoch = {
     disposition: 'CREATE_NEXT',
-    epochKey: epochKey(sequence),
+    epochKey: input.newEpochId,
     epochSequence: sequence,
     discontinuity: sequence,
     timeBase: segment.timeBase,

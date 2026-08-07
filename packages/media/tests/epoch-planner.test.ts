@@ -86,6 +86,7 @@ function planIncremental(
   value: FinalizedIndexedSegment,
   currentHead: PersistedCaptureHead | null,
   options: {
+    newEpochId?: string
     sourceRestart?: boolean
     timestampDiscontinuity?: boolean
     explicitGapBeforeUs?: bigint
@@ -94,6 +95,7 @@ function planIncremental(
 ): PlanNextCaptureSegmentResult {
   return planNextCaptureSegment({
     currentHead,
+    newEpochId: options.newEpochId ?? `new-epoch-${value.segmentIdentity}`,
     segment: value,
     sourceRestart: options.sourceRestart ?? false,
     timestampDiscontinuity: options.timestampDiscontinuity ?? false,
@@ -459,6 +461,7 @@ describe('planNextCaptureSegment', () => {
 
     expect(first.epoch).toMatchObject({
       disposition: 'CREATE_NEXT',
+      epochKey: 'new-epoch-first',
       epochSequence: 0,
       discontinuity: 0,
       sourcePtsOrigin: -3_000n,
@@ -467,11 +470,13 @@ describe('planNextCaptureSegment', () => {
       reasons: ['SESSION_START'],
     })
     expect(first.segment).toMatchObject({
+      epochKey: 'new-epoch-first',
       captureStartUs: canonicalOriginUs,
       firstFrameIndex: canonicalFrameOrigin,
       frameCount: 2n,
       isGap: false,
     })
+    expect(first.segment.sampleIndex.epochId).toBe('new-epoch-first')
     expect(first.nextCaptureFrameIndex).toBe(canonicalFrameOrigin + 2n)
     expect(() =>
       planIncremental(segment('invalid-first', 0n, 0n, [1n]), null, {
@@ -499,6 +504,7 @@ describe('planNextCaptureSegment', () => {
         [1n, 1n],
       ),
       head,
+      { newEpochId: 'unused-new-epoch-id' },
     )
 
     expect(second.epoch).toEqual({
@@ -520,6 +526,7 @@ describe('planNextCaptureSegment', () => {
       captureTimeUs: first.segment.captureEndUs,
       captureFrameIndex: canonicalFrameOrigin + 2n,
     })
+    expect(second.segment.sampleIndex.epochId).toBe('persisted-epoch-id')
   })
 
   it('opens a touching next epoch for PTS reset or overlap', () => {
@@ -536,6 +543,7 @@ describe('planNextCaptureSegment', () => {
       )
       expect(next.epoch).toMatchObject({
         disposition: 'CREATE_NEXT',
+        epochKey: `new-epoch-boundary-${firstPts}`,
         epochSequence: 1,
         discontinuity: 1,
         sourcePtsOrigin: firstPts,
@@ -544,6 +552,10 @@ describe('planNextCaptureSegment', () => {
       })
       expect(next.epoch.reasons).toContain('PTS_RESET')
       expect(next.segment.captureStartUs).toBe(head.lastCaptureEndUs)
+      expect(next.segment.epochKey).toBe(`new-epoch-boundary-${firstPts}`)
+      expect(next.segment.sampleIndex.epochId).toBe(
+        `new-epoch-boundary-${firstPts}`,
+      )
       expect(next.gap).toBeUndefined()
     }
   })
@@ -770,6 +782,24 @@ describe('planNextCaptureSegment', () => {
     }
   })
 
+  it('rejects an unsafe new epoch identity even when reuse is expected', () => {
+    const first = planIncremental(segment('first', 0n, 0n, [1n]), null)
+    const head = persistedHead(first)
+
+    for (const newEpochId of ['', '   ', 'bad\0identity']) {
+      expect(() =>
+        planIncremental(segment('next', 1n, 1n, [1n]), head, {
+          newEpochId,
+        }),
+      ).toThrowError(
+        new CaptureEpochPlannerError(
+          'INVALID_CONFIG',
+          'newEpochId must be a safe non-empty opaque identity',
+        ),
+      )
+    }
+  })
+
   it('fails safely when the next Int32 epoch cannot be represented', () => {
     const first = planIncremental(segment('first', 0n, 0n, [1n]), null)
     const exhausted: PersistedCaptureHead = {
@@ -837,8 +867,12 @@ describe('planNextCaptureSegment', () => {
 
     for (const [firstInput, secondInput] of cases) {
       const batch = planCaptureEpochs([firstInput, secondInput], config)
-      const first = planIncremental(firstInput, null)
-      const second = planIncremental(secondInput, persistedHead(first))
+      const first = planIncremental(firstInput, null, {
+        newEpochId: 'capture-epoch-0',
+      })
+      const second = planIncremental(secondInput, persistedHead(first), {
+        newEpochId: 'capture-epoch-1',
+      })
       const expected = batch.segments[1]!
 
       expect(second.epoch).toMatchObject({
