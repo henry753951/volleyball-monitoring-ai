@@ -157,6 +157,8 @@ export function createPgBossMediaRuntime(
           includeMetadata: true,
           orderByCreatedOn: true,
           heartbeatRefreshSeconds: 20,
+          pollingIntervalSeconds: 2,
+          notifyPollingIntervalSeconds: 5,
           perJobResults: true,
         } as const
         await boss.work<
