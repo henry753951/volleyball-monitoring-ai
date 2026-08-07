@@ -7,6 +7,7 @@ import Redis from 'ioredis'
 import { createGraphQLContext } from './graphql/context.js'
 import { schema } from './graphql/schema.js'
 import { evaluateReadiness, type ReadinessProbe } from './health/readiness.js'
+import { mediaPlaybackRoutes } from './routes/media-playback.js'
 
 const app = Fastify({ logger: true })
 const redisUrl = process.env.REDIS_URL
@@ -46,6 +47,7 @@ await app.register(cors, {
   credentials: true,
 })
 await app.register(websocket)
+await app.register(mediaPlaybackRoutes())
 
 const yoga = createYoga<{ req: FastifyRequest; reply: FastifyReply }>({
   schema,
