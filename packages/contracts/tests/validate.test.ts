@@ -151,7 +151,7 @@ describe("golden contract fixtures", () => {
       {
         ...common, type: "rally_snapshot", rally_id: uuid(5), revision: "1", server_sequence: "1",
         snapshot: {
-          annotation_status: "open", score_resolution: "pending", scoring_court_side: null,
+          annotation_status: "open", side_assignment_id: uuid(7), score_resolution: "pending", scoring_court_side: null,
           processing_status: "idle", key_points: [],
         },
       },
