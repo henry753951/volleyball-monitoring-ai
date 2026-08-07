@@ -29,9 +29,9 @@ da7a83cd776b22cdbac954f743832e009f57577ed8142bbd9739ae72ddb1627d  ./docs/SYSTEM_
 c47f81bffc00bddbcd77338f20e4579c51df066efd270549e781aed2ba0b499e  ./docs/adr/0003-annotation-hotkeys.md
 aa7a685a1d883a563ad793b642317d5979598639f9509f79a164ddf587931b98  ./docs/adr/0004-core-domain-graphql.md
 a765ca000317842dbf228d7b97932095335b992ff820d09d88cdebe56811455f  ./docs/adr/0005-phase-2a-media-truth.md
-7bc33b4c56d7368bf3ea59770eb604efe472e3dca8a70f1396e3885877e660d2  ./docs/adr/0006-phase-3-durable-annotation.md
+b9741bcfb9a40f29a1e400ef2704668f88815fba15fd922b0bb54c188080c8ea  ./docs/adr/0006-phase-3-durable-annotation.md
 de376c790b3f7624d275cd8d6882725028d5264710ede7d748ad38304fee5c6a  ./docs/open-decisions.md
-7f400b2954dfae1b41318cf390da460a942bfee9486a38be24c5cc0753110d20  ./docs/progress.md
+a93585111558648e3bc90ae6fe870ad4c78294a8b75cd8dae63c96771e672885  ./docs/progress.md
 0d3bc482dac156b1106108864ed89206274bdf81d7131e4726f2fa83255067af  ./docs/requirements-matrix.md
 e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  ./examples/__init__.py
 cff7ceef7d9b68faa2d2e401530659d7142df6504d99c884ba2abd7606d18911  ./examples/fake_ai_provider/README.md
@@ -96,7 +96,7 @@ a0f1fb8c401bc8f2cbcdd715513ea94b34164b91fe2334ea1730f9efbeb7c4bf  ./packages/con
 97e3e00d30f57717c12848dd8e7ac3316827370ce78e54de29ffec96f46747d4  ./packages/contracts/flatbuffers/overlay.fbs
 655c6536d9c141883bf0e403e12589b33b6c4782cf8f18730d3a1a386324acea  ./packages/contracts/graphql/operations/active-annotation-rally.graphql
 0b83eda11270d137a0bde40b291f2a991dbd2b801b79d0804e3ac2b460244604  ./packages/contracts/graphql/operations/health.graphql
-d9565ff0719d6b056580bab14869e196d393bb171527ac82970d4d3fa644c83d  ./packages/contracts/graphql/schema.graphql
+242481074753e2f666674afce36e21411cb57ed2ee0b69a287dca1ca40e53a50  ./packages/contracts/graphql/schema.graphql
 a3c1876fbe25a1fcd666d8c4f79be157812b1fc274df67ff40fc9d8d51205df9  ./packages/contracts/media/canonical-frame-anchor.schema.json
 637f4e60f310017ac5058486c6a21d67ea231acb8595ab53cc3a1c0a99e0a087  ./packages/contracts/media/frame-step-request.schema.json
 f35e52aa387160cfad2d0d6d54143076c7bffc8288d00447e445b940bd5979e2  ./packages/contracts/media/media-api-error.schema.json
@@ -175,7 +175,7 @@ f1d8f9547c0af9b492552ebde25e57e6f6e0cd39c3a939361322a651a2345cc6  ./server/src/g
 b7686a55d63a66eb111fecfd0e7b0281929d50e72abd376986b7925ed9a36812  ./server/src/graphql/inputs.ts
 4931e7ded1dccff70c637147e165a1d5c2213ad6cf1c7268467dfa8610557075  ./server/src/graphql/mutations.ts
 3107cdd418844961a170067e98ec00f09bebcf6d7a809a2e23885a63a0d80093  ./server/src/graphql/queries.ts
-e4a2dc4e3113f592c84b6148fbe5a6d4acb5647d1d19620149bcef280e6e2053  ./server/src/graphql/schema.ts
+d61504f9bc393919ec79a2604597faf19368eca39481f6905f127679cb358272  ./server/src/graphql/schema.ts
 1e4f83fa0c5b60ba42d84b5ca1161d00566a8319a7e619034857ecae167f5a3b  ./server/src/graphql/types.ts
 6b2c7115e325bd40f267f3c0c4f5ee83930a32c0ae71bb7f8a1c8fb8c33c578d  ./server/src/health/readiness.ts
 37a6a015f0c08f24db6569a8d6d51e9540484c15093b693dc6826b6d202f6ec1  ./server/src/index.ts
@@ -252,8 +252,8 @@ adee2ce860eff55e9be95c2feaabea259ae161fb138efc484051980767938b22  ./web/app/lib/
 52fe16f81674ddd4727c93d95986be02908b5bb247fcca16e04f5c2aba4a1ccb  ./web/app/middleware/auth.global.ts
 0a0dbfb729d263a503b7a0c2343c59dcc86b706be03a20bcc80769aca2ff222c  ./web/app/pages/annotate/[matchId].vue
 d9b5b461a45f621ee67d3ca3880be7ec6e709ceafc596e23efad1013b6965304  ./web/app/pages/index.vue
-bfe20523b66406f2fc5f5fcb94d5b0fe02c93f66695e7b4db2a21c23a9cf023c  ./web/app/pages/matches/[matchId]/history.vue
-90c7de4ae20f546dc23f526301c572031fe242adf797816705e9c41c6fa13541  ./web/app/pages/matches/[matchId]/live.vue
+59adf037e339c30660054c4ffe9b2b2e94faa61e5a7cbcec0d3af2be7c06d269  ./web/app/pages/matches/[matchId]/history.vue
+5c84248253cac4256f3c6f67d86a6745e8e8acc6e9bf0af9b81b7e5ed19fea0f  ./web/app/pages/matches/[matchId]/live.vue
 221213200dffed5b2970ee16ac8011896cdf082f4488f7dc0a358083fef2a836  ./web/app/pages/matches/[matchId]/paths.vue
 d3c3b871bd539e524a7dccc1631bbe1b30164ab53e31b24c0788b9cbb980843c  ./web/app/pages/matches/[matchId]/players.vue
 4614fa8e023019d3c49ba5a6d270be9466693decaaf1c04afd006a1bc09af6a6  ./web/app/pages/matches/[matchId]/replay/[rallyId].vue

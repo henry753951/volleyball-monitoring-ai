@@ -1,5 +1,17 @@
 # Progress
 
+## 2026-08-07 — Phase 3 workstation, Coach read model and Phase 2A soak exit
+
+Status: direct single-branch implementation continues on `integration/phase3-annotation` after checkpoint merge `2480dfa` reached `main`; feature work no longer waits on subagent or per-slice PR overhead.
+
+- The PC-first annotation workstation now uses the dedicated annotation WebSocket for Z, Space, `<`, `>`, `?` and Enter, polls authorized server snapshots as reconnect/collaboration fallback, gates commands on authoritative media state and renders gray mutable versus green immutable timeline masks. TanStack Hotkeys remains customizable with Restore Defaults and `formatForDisplay`; X is absent.
+- Added the additive authorization-filtered `coachMatchState` GraphQL read model and stored operation. Its versioned `1.0.0` payload contains score/side assignment, capture health and immutable submission/clip/analysis summaries only; mutable drafts, media bytes and storage identity are excluded.
+- Replaced the Coach live/history placeholders with landscape iPad-oriented real-data views: side-aware live scoreboard, capture health, latest submitted Rally processing, set filtering and immutable submission links into replay. Both views poll every two seconds and retain explicit loading/error/empty states.
+- The real two-hour Compose soak completed successfully with 214 samples, all 14 services running, zero restarts, zero health failures and zero API failures. Aggregate container memory ranged from 902.708 MiB to 1004.429 MiB, ended at 957.440 MiB and reported 101.721 MiB bounded growth; stderr was empty. Docker remains running for continued development.
+- Minimum integration gates passed: server and Nuxt typechecks, regenerated GraphQL SDL, three stored-operation validation and the UI detector. Broader manual workflow testing is intentionally delegated to the user under the accelerated development plan.
+
+Open limitations: production clip creation/serving, external AI dispatch/callback ingestion, analysis overlays/corrections and production cookie/device identity remain unfinished. These are the next direct vertical slices; the current Coach pages show only persisted truth and do not fabricate unavailable analysis.
+
 ## 2026-08-07 — Phase 3 backend checkpoint
 
 Status: Phase 3A service, Phase 3B contact/atomic close and the Phase 3C immutable-submit implementation are consolidated on `integration/phase3-annotation`. Phase 3C merged through [PR #33](https://github.com/henry753951/volleyball-monitoring-ai/pull/33) after all three CI jobs passed. This is a development checkpoint, not final product acceptance; remaining implementation now continues directly without subagents.

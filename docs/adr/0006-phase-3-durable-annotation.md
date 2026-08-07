@@ -123,6 +123,13 @@ or object-store identity. The stored GraphQL operation is the fixture and the
 PC Web client is the sole new consumer; the external Python SDK/AI wire is
 unchanged.
 
+The coach PWA also consumes the additive, authorization-filtered
+`coachMatchState(matchId: ID!): JSON` read model. Its versioned `1.0.0`
+payload contains scoreboard, capture health and immutable
+submission/processing summaries only; it returns no media bytes, storage
+identity or mutable annotation rows. The stored GraphQL operation is the
+fixture. This does not change the external AI or Python SDK contracts.
+
 ## Required evidence for the first slice
 
 - JSON Schema and TypeScript parser positive/negative fixtures, including old
