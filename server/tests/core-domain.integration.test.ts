@@ -294,8 +294,12 @@ describe('Phase 1B GraphQL schema', () => {
       expect(result.errors).toBeUndefined()
       expect(result.data).toEqual({ captureSession: { id: sessionId, timeline: { timelineVersion: '9007199254740993', captureStartTimeUs: '9007199254740992', liveEdgeCaptureTimeUs: '9007199254741192', availableRanges: [{ startUs: '9007199254740992', endUs: '9007199254741192' }] } } })
     } finally {
-      await db.match.delete({ where: { id: matchId } })
-      if (assets.length) await db.mediaAsset.deleteMany({ where: { id: { in: assets } } })
+      try {
+        await db.dvrSegment.deleteMany({ where: { dvrProgramId: programNew } })
+        await db.match.delete({ where: { id: matchId } })
+      } finally {
+        if (assets.length) await db.mediaAsset.deleteMany({ where: { id: { in: assets } } })
+      }
     }
   })
   it('matches the committed generated snapshot and validates representative operations', async () => {
