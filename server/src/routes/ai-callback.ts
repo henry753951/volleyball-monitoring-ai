@@ -7,7 +7,7 @@ import { Transform } from 'node:stream'
 import { pipeline } from 'node:stream/promises'
 import multipart from '@fastify/multipart'
 import { db } from '@volleyball-monitoring/db'
-import { ArtifactState, CallbackKind, JobStatus, MediaAssetKind, Prisma, ProcessingStatus } from '@volleyball-monitoring/db/client'
+import { ArtifactState, AssociationState, BallObservationState, CallbackKind, JobStatus, MarkerKind, MediaAssetKind, Prisma, ProcessingStatus, SegmentEndpoint, SegmentRenderState, TrackCourtSide } from '@volleyball-monitoring/db/client'
 import Ajv2020 from 'ajv/dist/2020.js'
 import type { FastifyPluginAsync, FastifyReply } from 'fastify'
 import { Client } from 'minio'
@@ -22,6 +22,7 @@ const validateCallback = ajv.compile(callbackSchema)
 const validateResult = ajv.compile(resultSchema)
 const json = (value: unknown) => JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue
 const isRecord = (value: unknown): value is Record<string, unknown> => value !== null && typeof value === 'object' && !Array.isArray(value)
+const records = (value: unknown) => Array.isArray(value) ? value.filter(isRecord) : []
 const sha256 = (value: string | Uint8Array) => createHash('sha256').update(value).digest('hex')
 
 function storage() {
@@ -83,7 +84,7 @@ function invariantError(result: Record<string, unknown>, job: Awaited<ReturnType
 }
 
 function loadJob(aiJobId: string) {
-  return db.aiJob.findUnique({ where: { id: aiJobId }, include: { submission: { include: { rally: true, keyPoints: { orderBy: { sequenceIndex: 'asc' } } } }, clipJob: { include: { clipAsset: true } } } })
+  return db.aiJob.findUnique({ where: { id: aiJobId }, include: { submission: { include: { rally: true, keyPoints: { orderBy: { sequenceIndex: 'asc' } } } }, clipJob: { include: { clipAsset: true, keyPointMappings: true } } } })
 }
 
 export const aiCallbackRoutes: FastifyPluginAsync = async (app) => {
@@ -161,7 +162,28 @@ export const aiCallbackRoutes: FastifyPluginAsync = async (app) => {
       await db.$transaction(async (tx) => {
         const rawAnalysis = await tx.mediaAsset.create({ data: { kind: MediaAssetKind.ANALYSIS_JSON, bucket: objectStore.bucket, objectKey: analysisKey, contentType: 'application/json', byteLength: BigInt(analysisBytes!.byteLength), sha256: analysisHash!, internalSchemaVersion: '1.0.0', state: ArtifactState.READY, readyAt: new Date() } })
         const rawOverlay = await tx.mediaAsset.create({ data: { kind: MediaAssetKind.OVERLAY_SEQUENCE, bucket: objectStore.bucket, objectKey: overlayKey, contentType: 'application/vnd.volleyball.overlay+flatbuffers;version=1', byteLength: BigInt(overlayInfo!.bytes), sha256: overlayInfo!.sha256, internalSchemaVersion: '1.0.0', state: ArtifactState.READY, readyAt: new Date() } })
-        await tx.analysisRun.create({ data: { aiJobId, submissionId: job.submissionId, analysisId: String(result.analysis_id), analysisVersion: String(result.analysis_version), resultSchemaVersion: '1.0.0', overlaySchemaVersion: 'flatbuffers_v1', inputClipSha256: String(result.input_clip_sha256), producerName: String(producer.name), producerBuildId: String(producer.build_id), producerSdkVersion: typeof producer.sdk_version === 'string' ? producer.sdk_version : null, status: JobStatus.COMPLETED, rawAnalysisAssetId: rawAnalysis.id, rawOverlayAssetId: rawOverlay.id, summary: json(result.summary), activatedAt: new Date() } })
+        const analysisRun = await tx.analysisRun.create({ data: { aiJobId, submissionId: job.submissionId, analysisId: String(result.analysis_id), analysisVersion: String(result.analysis_version), resultSchemaVersion: '1.0.0', overlaySchemaVersion: 'flatbuffers_v1', inputClipSha256: String(result.input_clip_sha256), producerName: String(producer.name), producerBuildId: String(producer.build_id), producerSdkVersion: typeof producer.sdk_version === 'string' ? producer.sdk_version : null, status: JobStatus.COMPLETED, rawAnalysisAssetId: rawAnalysis.id, rawOverlayAssetId: rawOverlay.id, summary: json(result.summary), activatedAt: new Date() } })
+        const tracks = records(result.tracks)
+        if (tracks.length) await tx.analysisTrack.createMany({ data: tracks.map(track => ({ analysisRunId: analysisRun.id, trackId: Number(track.track_id), courtSide: String(track.court_side).toUpperCase() as TrackCourtSide, firstFrame: BigInt(String(track.first_frame_index)), lastFrame: BigInt(String(track.last_frame_index)), meanConfidence: typeof track.mean_confidence === 'number' ? track.mean_confidence : null, metadata: track.metadata === undefined ? Prisma.JsonNull : json(track.metadata) })) })
+        const mappingByPoint = new Map(job.clipJob.keyPointMappings.map(mapping => [mapping.submissionKeyPointId, mapping]))
+        for (const event of records(result.contact_events)) {
+          const keyPointId = String(event.key_point_id)
+          const mapping = mappingByPoint.get(keyPointId)
+          const ball = isRecord(event.ball) ? event.ball : {}
+          if (!mapping) throw new Error('analysis contact event has no immutable clip mapping')
+          await tx.contactEvent.create({ data: { analysisRunId: analysisRun.id, keyPointId, sequenceIndex: Number(event.sequence_index), anchorFrameIndex: BigInt(String(event.anchor_frame_index)), resolvedFrameIndex: event.resolved_frame_index === undefined ? null : BigInt(String(event.resolved_frame_index)), anchorTimeUs: mapping.clipTimeUs, markerKind: String(event.marker_kind).toUpperCase() as MarkerKind, isTerminal: Boolean(event.is_terminal), associationState: String(event.association_state).toUpperCase() as AssociationState, ballState: String(ball.state).toUpperCase() as BallObservationState, ballFrameIndex: ball.sample_frame_index === undefined ? null : BigInt(String(ball.sample_frame_index)), ballFrameX: isRecord(ball.frame_pos) && typeof ball.frame_pos.x === 'number' ? ball.frame_pos.x : null, ballFrameY: isRecord(ball.frame_pos) && typeof ball.frame_pos.y === 'number' ? ball.frame_pos.y : null, qualityFlags: Array.isArray(event.quality_flags) ? event.quality_flags.map(String) : [] } })
+          const actors = records(event.actors)
+          if (actors.length) await tx.contactEventActor.createMany({ data: actors.map(actor => { const bbox = isRecord(actor.frame_bbox) ? actor.frame_bbox : {}; const foot = isRecord(actor.frame_foot_pos) ? actor.frame_foot_pos : {}; const court = isRecord(actor.court_pos) ? actor.court_pos : {}; return { analysisRunId: analysisRun.id, keyPointId, trackId: Number(actor.track_id), observationFrameIndex: BigInt(String(actor.observation_frame_index)), associationConfidence: typeof actor.association_confidence === 'number' ? actor.association_confidence : null, frameX1: typeof bbox.x1 === 'number' ? bbox.x1 : null, frameY1: typeof bbox.y1 === 'number' ? bbox.y1 : null, frameX2: typeof bbox.x2 === 'number' ? bbox.x2 : null, frameY2: typeof bbox.y2 === 'number' ? bbox.y2 : null, frameFootX: typeof foot.x === 'number' ? foot.x : null, frameFootY: typeof foot.y === 'number' ? foot.y : null, courtX: typeof court.x === 'number' ? court.x : null, courtY: typeof court.y === 'number' ? court.y : null, action: actor.action === undefined ? Prisma.JsonNull : json(actor.action) } }) })
+          const candidates = records(event.actor_candidates)
+          if (candidates.length) await tx.contactEventCandidate.createMany({ data: candidates.map(candidate => ({ analysisRunId: analysisRun.id, keyPointId, trackId: Number(candidate.track_id), rank: Number(candidate.rank), confidence: typeof candidate.confidence === 'number' ? candidate.confidence : null })) })
+          const positions = records(event.representative_court_positions)
+          if (positions.length) await tx.contactEventPosition.createMany({ data: positions.map((position, positionIndex) => { const court = isRecord(position.court_pos) ? position.court_pos : {}; return { analysisRunId: analysisRun.id, keyPointId, positionIndex, trackId: typeof position.track_id === 'number' ? position.track_id : null, basis: String(position.basis), courtX: Number(court.x), courtY: Number(court.y), confidence: typeof position.confidence === 'number' ? position.confidence : null } }) })
+        }
+        for (const path of records(result.path_segments)) {
+          const segment = await tx.ballPathSegment.create({ data: { analysisRunId: analysisRun.id, sequenceIndex: Number(path.sequence_index), startKeyPointId: String(path.start_key_point_id), endKeyPointId: String(path.end_key_point_id), startFrameIndex: path.start_frame_index === undefined ? null : BigInt(String(path.start_frame_index)), endFrameIndex: path.end_frame_index === undefined ? null : BigInt(String(path.end_frame_index)), renderState: String(path.render_state).toUpperCase() as SegmentRenderState, isTerminalSegment: Boolean(path.is_terminal_segment), qualityFlags: Array.isArray(path.quality_flags) ? path.quality_flags.map(String) : [] } })
+          const endpoints = [[SegmentEndpoint.START, records(path.start_court_positions)], [SegmentEndpoint.END, records(path.end_court_positions)]] as const
+          for (const [endpoint, positions] of endpoints) if (positions.length) await tx.ballPathSegmentPosition.createMany({ data: positions.map((position, positionIndex) => { const court = isRecord(position.court_pos) ? position.court_pos : {}; return { segmentId: segment.id, endpoint, positionIndex, trackId: typeof position.track_id === 'number' ? position.track_id : null, basis: String(position.basis), courtX: Number(court.x), courtY: Number(court.y), confidence: typeof position.confidence === 'number' ? position.confidence : null } }) })
+        }
         await tx.aiCallbackReceipt.create({ data: { aiJobId, callbackId: String(metadata.callback_id), kind: CallbackKind.COMPLETED, requestContentType: contentType, requestMetadata: json(metadata), payloadHash, responseStatus: 200, responseBody: json(response) } })
         await tx.aiJob.update({ where: { id: aiJobId }, data: { status: JobStatus.COMPLETED, progress: 1, stage: 'completed', lastCallbackAt: new Date(), completedAt: new Date(), leasedUntil: null } })
         await tx.rally.update({ where: { id: job.submission.rallyId }, data: { processingStatus: ProcessingStatus.COMPLETED } })

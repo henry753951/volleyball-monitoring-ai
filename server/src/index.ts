@@ -15,6 +15,7 @@ import { createSampleIndexRepository } from './media/sample-index-repository.js'
 import { createPersistedSampleSnapResolver } from './media/sample-snap-resolver.js'
 import { mediaPlaybackRoutes } from './routes/media-playback.js'
 import { aiCallbackRoutes } from './routes/ai-callback.js'
+import { analysisMediaRoutes } from './routes/analysis-media.js'
 import { annotationWebSocketRoutes } from './realtime/annotation-ws.js'
 import { authenticateDevelopmentAnnotationRequest } from './realtime/auth.js'
 import { createAnnotationCommandService } from './services/annotation-command.js'
@@ -73,6 +74,7 @@ await app.register(cors, {
 })
 await app.register(websocket)
 await app.register(aiCallbackRoutes)
+await app.register(analysisMediaRoutes)
 await app.register(mediaPlaybackRoutes({
   objectReader: mediaObjectReader,
   resolveSample: createPersistedSampleSnapResolver(db, mediaObjectReader),

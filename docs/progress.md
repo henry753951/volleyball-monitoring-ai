@@ -1,5 +1,16 @@
 # Progress
 
+## 2026-08-07 — Phase 5 Coach replay and normalized analysis
+
+Status: implemented directly on `integration/phase3-annotation` and running in the local Compose stack.
+
+- Completed callback ingestion now normalizes analysis-run-local tracks, contact events, actors/candidates, representative court positions and adjacent A/B path segments while activating the AnalysisRun. Optional action/confidence stays nullable and provider-defined; external `court_pos` is stored unchanged with no clamp/projection.
+- Added the authorization-filtered `coachRallyReplay` GraphQL read model and stored operation. GraphQL carries immutable structured replay data only; canonical MP4 bytes remain on an authorized REST stream with HTTP Range/206 support.
+- Replaced Replay and Paths placeholders with the landscape Coach UI: canonical clip playback, clip-frame tracking, event-local Canvas boxes/ball points, key-point seek controls, processing/outcome context and an SVG court path view that preserves out-of-court coordinates and missing-position empty states.
+- Rebuilt the server and Nuxt production images. A live server-container probe returned the d003 Rally, clip metadata, two normalized events and one path over GraphQL; a `bytes=0-99` clip request returned HTTP 206, `video/mp4`, `Content-Range: bytes 0-99/652197` and exactly 100 bytes. Server and Web are healthy.
+
+Open limitations: the fake provider intentionally has no court positions, so its one path renders the honest unavailable state. Per-frame FlatBuffer chunking/lazy overlay sequence playback, track-to-roster corrections, cross-Rally analytics/saved views and production identity are the remaining Phase 5/6/7 work.
+
 ## 2026-08-07 — Phase 4 canonical clip and external AI vertical slice
 
 Status: implemented directly on `integration/phase3-annotation`; the Phase 4 runtime exit has passed locally against real persisted d003 DVR media and the development fake provider.

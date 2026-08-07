@@ -30,8 +30,9 @@ c47f81bffc00bddbcd77338f20e4579c51df066efd270549e781aed2ba0b499e  ./docs/adr/000
 aa7a685a1d883a563ad793b642317d5979598639f9509f79a164ddf587931b98  ./docs/adr/0004-core-domain-graphql.md
 a765ca000317842dbf228d7b97932095335b992ff820d09d88cdebe56811455f  ./docs/adr/0005-phase-2a-media-truth.md
 b9741bcfb9a40f29a1e400ef2704668f88815fba15fd922b0bb54c188080c8ea  ./docs/adr/0006-phase-3-durable-annotation.md
+86873d5fa1a994ed64556d965aa2b1d5fe1f9ebbbb6980917e5f850104dafea7  ./docs/adr/0007-phase-4-clip-ai-runtime.md
 de376c790b3f7624d275cd8d6882725028d5264710ede7d748ad38304fee5c6a  ./docs/open-decisions.md
-6611828e87d1cad397f56f9d163f1b74ce33b4e407980bbcb78f8877e51262a8  ./docs/progress.md
+ab4c068f7bc79ffb913886de5553c4e50f3efd4eee84a9c01bba10d467f3115e  ./docs/progress.md
 0d3bc482dac156b1106108864ed89206274bdf81d7131e4726f2fa83255067af  ./docs/requirements-matrix.md
 e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  ./examples/__init__.py
 cff7ceef7d9b68faa2d2e401530659d7142df6504d99c884ba2abd7606d18911  ./examples/fake_ai_provider/README.md
@@ -97,7 +98,7 @@ a0f1fb8c401bc8f2cbcdd715513ea94b34164b91fe2334ea1730f9efbeb7c4bf  ./packages/con
 655c6536d9c141883bf0e403e12589b33b6c4782cf8f18730d3a1a386324acea  ./packages/contracts/graphql/operations/active-annotation-rally.graphql
 b5915c898dde12c4b6ebce31aeccaf5f1e7089ca1548149cafe1569073c6a11c  ./packages/contracts/graphql/operations/coach-match-state.graphql
 0b83eda11270d137a0bde40b291f2a991dbd2b801b79d0804e3ac2b460244604  ./packages/contracts/graphql/operations/health.graphql
-242481074753e2f666674afce36e21411cb57ed2ee0b69a287dca1ca40e53a50  ./packages/contracts/graphql/schema.graphql
+e78697e012a8a3dda1c96012beae2e4e99bb72f84890f7ca12ba0978d9e43d5d  ./packages/contracts/graphql/schema.graphql
 a3c1876fbe25a1fcd666d8c4f79be157812b1fc274df67ff40fc9d8d51205df9  ./packages/contracts/media/canonical-frame-anchor.schema.json
 637f4e60f310017ac5058486c6a21d67ea231acb8595ab53cc3a1c0a99e0a087  ./packages/contracts/media/frame-step-request.schema.json
 f35e52aa387160cfad2d0d6d54143076c7bffc8288d00447e445b940bd5979e2  ./packages/contracts/media/media-api-error.schema.json
@@ -177,10 +178,10 @@ f1d8f9547c0af9b492552ebde25e57e6f6e0cd39c3a939361322a651a2345cc6  ./server/src/g
 b7686a55d63a66eb111fecfd0e7b0281929d50e72abd376986b7925ed9a36812  ./server/src/graphql/inputs.ts
 4931e7ded1dccff70c637147e165a1d5c2213ad6cf1c7268467dfa8610557075  ./server/src/graphql/mutations.ts
 3107cdd418844961a170067e98ec00f09bebcf6d7a809a2e23885a63a0d80093  ./server/src/graphql/queries.ts
-d61504f9bc393919ec79a2604597faf19368eca39481f6905f127679cb358272  ./server/src/graphql/schema.ts
+effde644d92a5dabf3271295c07033d7042d29613c2f907c236045b50df93c78  ./server/src/graphql/schema.ts
 1e4f83fa0c5b60ba42d84b5ca1161d00566a8319a7e619034857ecae167f5a3b  ./server/src/graphql/types.ts
 6b2c7115e325bd40f267f3c0c4f5ee83930a32c0ae71bb7f8a1c8fb8c33c578d  ./server/src/health/readiness.ts
-4fa1f3364242436101a330228f05da33956efb997a57230453094808e197d53d  ./server/src/index.ts
+4e9ff00dc8a5dcc0c2799e41545625ac0a52e737dcf5e69ff7477d1b312862f4  ./server/src/index.ts
 07ab0ab9db72bbb104dea8a0b2f74e41c7bc3eb427ca145aaeabdd2d8ccdccbe  ./server/src/media/cursor-resolution.ts
 91981dc02252c90ae48919cf728c76c63d7faa98ef0e01ab93c35051d7fd8661  ./server/src/media/cursor-routes.ts
 30a2e7253e349a939f56424bceab2a5a3f777f7214a44147318a3a167305fa8c  ./server/src/media/minio-object-reader.ts
@@ -191,6 +192,7 @@ d61504f9bc393919ec79a2604597faf19368eca39481f6905f127679cb358272  ./server/src/g
 e024c78dc2a75812078615c09be3fe957317de3cbc7318cd76040a74ab2cf4e7  ./server/src/realtime/annotation-ws.ts
 8ce86b766287cabea3c75b1b8cc7b02b3132518219acc986e1e1fc32d5fa7ae7  ./server/src/realtime/auth.ts
 dc6593e629b1729b2b00823cb32907931b6cf9e9f55d41c10f5235b23bbdcb88  ./server/src/routes/README.md
+a15d612a07dd09fd072aa3d9a86ad58c3df6d8a5becc7c6e00ebc11c3e7bb7e9  ./server/src/routes/ai-callback.ts
 de68ecb888d1021577a49bfa49d8816a2519469916b2ac2012c32a50a6cf603a  ./server/src/routes/media-playback.ts
 29dc8ee62da32da243cba2f0c90575ba5e1cea4c36a2d392ab96360c6c926812  ./server/src/services/README.md
 a69340dc19910774f398bcf3db74292ad731871a1d288f51334517a4257af5ba  ./server/src/services/annotation-command.ts
@@ -243,7 +245,7 @@ d832d151a1899efd3414e029d724b78f032cd4a46eeb221e02f0632f5bd68d03  ./web/app/comp
 cf0a8ef7332940fb7ddbd61d91ae43d1831508c21bda6312c4f63ee6262c6f45  ./web/app/layouts/annotation.vue
 dc12232a528fcfbf035514b0ffc83cd11a6f79684477e59fe41ff61beac163fa  ./web/app/layouts/default.vue
 20f6976beef4605d25d31bb6c9014741d81ed3ae3d6b1c98e77003fcb59ac194  ./web/app/lib/annotationRealtimeClient.ts
-ae2d0e4d33210a7ad4886e942b26dd72a0558d83392e55bcb7a5353dae004548  ./web/app/lib/coachDomain.ts
+97db9112d645eaa15499607f5a6b79eb7ce194f7c6258d7e76735a6ae85f4e67  ./web/app/lib/coachDomain.ts
 fa246f09be004dd85815c59eae99a7ff48bb4123cef734ac05adb6dba5813058  ./web/app/lib/coreDomain.test.ts
 238ee0f9373449451aa1836dff1f3f6356f571efe37c0b3d93d16b47af312094  ./web/app/lib/coreDomain.ts
 1fceeb08498654f433c7aa927d18f1118e8cb9854a611cdb2bb0b047bf88cc89  ./web/app/lib/dvrTimeline.ts
@@ -259,9 +261,9 @@ adee2ce860eff55e9be95c2feaabea259ae161fb138efc484051980767938b22  ./web/app/lib/
 d9b5b461a45f621ee67d3ca3880be7ec6e709ceafc596e23efad1013b6965304  ./web/app/pages/index.vue
 59adf037e339c30660054c4ffe9b2b2e94faa61e5a7cbcec0d3af2be7c06d269  ./web/app/pages/matches/[matchId]/history.vue
 5c84248253cac4256f3c6f67d86a6745e8e8acc6e9bf0af9b81b7e5ed19fea0f  ./web/app/pages/matches/[matchId]/live.vue
-221213200dffed5b2970ee16ac8011896cdf082f4488f7dc0a358083fef2a836  ./web/app/pages/matches/[matchId]/paths.vue
+a93e5c17732a79691464207681a2dbc4f366c21fbbd944d6689b79bd3cd461b3  ./web/app/pages/matches/[matchId]/paths.vue
 d3c3b871bd539e524a7dccc1631bbe1b30164ab53e31b24c0788b9cbb980843c  ./web/app/pages/matches/[matchId]/players.vue
-4614fa8e023019d3c49ba5a6d270be9466693decaaf1c04afd006a1bc09af6a6  ./web/app/pages/matches/[matchId]/replay/[rallyId].vue
+fd6fd1e37f75863b84f12c011936a42eddbac93b9780e349f53911b921faa8bb  ./web/app/pages/matches/[matchId]/replay/[rallyId].vue
 629f53a2dd00a41817f03d496ea750e5e7a5185004dd71ebb5099ec9112fd6d9  ./web/app/pages/matches/[matchId]/stats.vue
 3c1394023169880189e949d89982f50654c6626d19a0c128c92b13f4f4349f3b  ./web/app/pages/matches/new.vue
 4049570b47d543322c60626047501562ac1b284b0cd8711fbeafecc0ea807eeb  ./web/app/pages/settings.vue
@@ -312,6 +314,9 @@ dcd6874acf82e1c28476b2530098f038f83b145d798abe139c7beb5f472a9f92  ./worker/src/r
 ec926f5a4cbc73126592e3932ee2470e1dd38eb89d9937372d956c5b4d8c40f3  ./worker/src/roles/outbox-publisher.ts
 e9925972917d744e63ef2674f3373863b30288aa2957a53a01f2947bcb902740  ./worker/src/roles/playback-packager.ts
 e539cfb95cfd2600656a22e27da0c5f2cf8ca64ca85c00bd895a2d4ff0f62334  ./worker/src/worker-role.ts
+331dd0e403cbbe137f2b94244a91970438364335e6ba486b625687b46d891fd7  ./worker/src/workflow/crypto.ts
+9bd321735d0e02f55e342d606946b86379f1292c363f3d4d967820a31f2ffb5f  ./worker/src/workflow/minio.ts
+8682bba6eb2c24bdcf12a74b54b094143044ad11b3d5e5015769c0f1abaa84b5  ./worker/src/workflow/poller.ts
 8db1208bfe4ae581ec09f95efc7c681e84c23bfe8d94a9505bbfddd347d443b0  ./worker/tests/artifacts.test.ts
 aa8f7e487f2d817c113f523ba4ddf8faceec98a37bf076c93a57c62d8b76c269  ./worker/tests/composition.test.ts
 e68dfa34df7af207a0c9aa49fafb98a5cbd9186e2deb6bbba371a64ac660f556  ./worker/tests/ffprobe.test.ts

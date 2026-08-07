@@ -111,6 +111,7 @@ type Query {
   annotationRallySnapshot(rallyId: ID!, roomId: String!): JSON
   captureSession(id: ID!): CaptureSession
   coachMatchState(matchId: ID!): JSON
+  coachRallyReplay(rallyId: ID!): JSON
   health: Health!
   match(id: ID!): Match
   matches: [Match!]!

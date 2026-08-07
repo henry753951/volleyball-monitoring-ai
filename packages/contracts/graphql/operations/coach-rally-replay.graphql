@@ -1,0 +1,3 @@
+query CoachRallyReplay($rallyId: ID!) {
+  coachRallyReplay(rallyId: $rallyId)
+}

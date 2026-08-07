@@ -6,5 +6,6 @@ import './mutations.js'
 import './annotation-mutations.js'
 import './annotation-queries.js'
 import './coach-queries.js'
+import './coach-replay-query.js'
 
 export const schema = builder.toSchema({ sortSchema: true })
