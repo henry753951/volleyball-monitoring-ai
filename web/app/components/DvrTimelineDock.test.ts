@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
+import { capturePercentBps, pointerTarget, rulerTicks, readyAt, timelineBounds } from '~/lib/dvrTimeline'
 describe('DVR timeline bigint positioning', () => {
-  it('maps large capture values proportionally without absolute Number coercion', () => { const start = 9007199254740993n; const end = start + 1000n; const target = start + 250n; expect(Number(target - start) / Number(end - start)).toBe(0.25) })
-  it('clamps gaps and zoom targets to timeline bounds', () => { expect(Math.max(0, Math.min(100, -10))).toBe(0); expect(Math.max(0, Math.min(100, 140))).toBe(100) })
+  const ranges = [{ startUs: '9007199254740993', endUs: '9007199254741993', discontinuity: 0 }]
+  it('maps large capture values proportionally', () => { const bounds = timelineBounds(ranges)!; expect(capturePercentBps('9007199254741243', bounds)).toBe(2500) })
+  it('derives ruler ticks and pointer target in ready range', () => { const bounds = timelineBounds(ranges)!; expect(rulerTicks(bounds)).toHaveLength(9); expect(pointerTarget(25, { left: 0, width: 100 }, bounds)).toBe('9007199254741243'); expect(readyAt('9007199254741243', ranges)).toBe(true) })
 })
