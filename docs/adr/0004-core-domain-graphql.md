@@ -39,6 +39,67 @@ One PostgreSQL transaction creates both teams and their players, the match and `
 
 The GraphQL graph exposes `Viewer`, `Match`, `Team`, `Player`, `MatchRosterEntry`, `MatchSet` and `CourtSideAssignment`, plus the existing Prisma enums needed by those objects. `Match` exposes its two teams, roster entries and ordered sets; a set exposes ordered side assignments. Dates use the existing `DateTime` scalar. No 64-bit values are added in this slice.
 
+The Phase 1B public shape is exact so that the code-first server, generated SDL and Nuxt consumer cannot invent different aliases or nullability:
+
+```graphql
+type Viewer {
+  id: ID!
+  role: UserRole!
+  email: String!
+  displayName: String!
+}
+
+type Team {
+  id: ID!
+  name: String!
+  shortName: String!
+  players: [Player!]!
+}
+
+type Player {
+  id: ID!
+  teamId: ID!
+  name: String!
+}
+
+type MatchRosterEntry {
+  id: ID!
+  teamId: ID!
+  name: String!
+  jerseyNumber: String!
+}
+
+type CourtSideAssignment {
+  id: ID!
+  effectiveFromRallyOrdinal: Int!
+  effectiveToRallyOrdinal: Int
+  leftTeamId: ID!
+  rightTeamId: ID!
+}
+
+type MatchSet {
+  id: ID!
+  setNumber: Int!
+  status: SetStatus!
+  leftScore: Int!
+  rightScore: Int!
+  sideAssignments: [CourtSideAssignment!]!
+}
+
+type Match {
+  id: ID!
+  title: String!
+  venue: String
+  status: MatchStatus!
+  scheduledAt: DateTime
+  teams: [Team!]!
+  rosterEntries: [MatchRosterEntry!]!
+  sets: [MatchSet!]!
+}
+```
+
+`MatchRosterEntry.name` is the match-time display-name snapshot, falling back to its linked player name only for legacy/null snapshot rows. The public input types are named `CreateMatchSetupInput`, `TeamSetupInput`, `RosterInput` and `SwapCourtSidesInput`. `health`, authenticated list/detail queries and both mutations retain the non-null return types stated above; only `match(id:)`, optional scalar fields and the assignment end ordinal are nullable.
+
 ### Authorization baseline
 
 - Read queries require an authenticated identity.

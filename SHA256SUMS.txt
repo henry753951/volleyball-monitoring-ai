@@ -25,7 +25,7 @@ f89eeb7275a290523037b4e662ed059ecc6c49dac6cfeb9e5470a97743eb08a2  ./docs/IMPLEME
 0cdf5fb26c99fa4433795d8ab1b7d7acab38ac4b6d302ae460cb2cc4660f7111  ./docs/adr/0001-api-boundaries.md
 53235a96acacc2b59b51328bd0e337789a95bb6596e25688da994a63c968256d  ./docs/adr/0002-media-time-authority.md
 c47f81bffc00bddbcd77338f20e4579c51df066efd270549e781aed2ba0b499e  ./docs/adr/0003-annotation-hotkeys.md
-5cce46e37e9bdbcbb11d9a1b59a0d99f134174acd025a8c7ec5ed92b5710c634  ./docs/adr/0004-core-domain-graphql.md
+aa7a685a1d883a563ad793b642317d5979598639f9509f79a164ddf587931b98  ./docs/adr/0004-core-domain-graphql.md
 de376c790b3f7624d275cd8d6882725028d5264710ede7d748ad38304fee5c6a  ./docs/open-decisions.md
 bbf442bc7da5ed5d7bb2c5fe2f2a3354078999190b7e749c6ad4c4c412790a8c  ./docs/progress.md
 2d33e2de7c557d91cd56b16a67a22d7f61cf30a37892e7bbe974943d2d8af94f  ./docs/requirements-matrix.md
