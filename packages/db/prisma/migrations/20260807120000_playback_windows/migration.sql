@@ -8,6 +8,7 @@ CREATE TABLE "PlaybackWindow" (
   "targetPlayerMediaTimeUs" BIGINT NOT NULL, "expiresAt" TIMESTAMP(3) NOT NULL, "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
   CONSTRAINT "PlaybackWindow_pkey" PRIMARY KEY ("id"), CONSTRAINT "PlaybackWindow_capture_range_check" CHECK ("captureEndUs" > "captureStartUs"),
   CONSTRAINT "PlaybackWindow_origin_check" CHECK ("presentationOriginCaptureUs" >= "captureStartUs" AND "presentationOriginCaptureUs" <= "captureEndUs"),
+  CONSTRAINT "PlaybackWindow_target_within_mapping_check" CHECK ("targetPlayerMediaTimeUs" <= "captureEndUs" - "presentationOriginCaptureUs"),
   CONSTRAINT "PlaybackWindow_target_check" CHECK ("targetPlayerMediaTimeUs" >= 0), CONSTRAINT "PlaybackWindow_mapping_check" CHECK ("mappingVersion" > 0)
 );
 CREATE TABLE "PlaybackWindowSegment" (
