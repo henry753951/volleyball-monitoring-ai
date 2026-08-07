@@ -499,7 +499,7 @@ describe('durable service annotation command', () => {
     const closeCommandValue = closeCommand(randomUUID(), rallyId, target, '1', outcome)
     const response = await service.apply(closeCommandValue, identity)
     expect(response).toMatchObject({ type: 'command_ack', operation_kind: 'CLOSE_RALLY', resolved_anchor: null, effects: { annotation_status: 'ready', score_resolution: outcome === 'unknown' ? 'unknown' : 'resolved', scoring_court_side: outcome === 'unknown' ? null : outcome } })
-    const after = await db.keyPoint.findMany({ where: { rallyId }, select: { id: true, captureTimeUs: true, captureFrameIndex: true } })
+    const after = await db.keyPoint.findMany({ where: { rallyId }, select: { id: true, captureTimeUs: true, captureFrameIndex: true, sourcePts: true, captureEpochId: true, timingPrecision: true, isTerminal: true } })
     expect(after).toEqual(before); await expect(db.rallySubmission.count({ where: { rallyId } })).resolves.toBe(0); await expect(db.pointAward.count()).resolves.toBe(0)
     await expect(db.clipJob.count()).resolves.toBe(0); await expect(db.aiJob.count()).resolves.toBe(0); await expect(db.analysisRun.count()).resolves.toBe(0)
     const replay = await service.apply(structuredClone(closeCommandValue), identity)
