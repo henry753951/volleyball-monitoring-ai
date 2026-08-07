@@ -5,7 +5,8 @@ const emit = defineEmits<{ seek: [target: string] }>()
 const bounds = computed(() => {
   const ranges = props.timeline?.availableRanges ?? []
   if (!ranges.length) return null
-  return { start: BigInt(ranges[0].startUs), end: BigInt(ranges[ranges.length - 1].endUs) }
+  const first = ranges[0]; const last = ranges[ranges.length - 1]; if (!first || !last) return null
+  return { start: BigInt(first.startUs), end: BigInt(last.endUs) }
 })
 function position(time: string) { if (!bounds.value) return 0; const span = bounds.value.end - bounds.value.start; if (span <= 0n) return 0; const ratio = Number(BigInt(time) - bounds.value.start) / Number(span); return Math.max(0, Math.min(100, ratio * 100)) }
 </script>
