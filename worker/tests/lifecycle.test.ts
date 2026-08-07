@@ -31,4 +31,38 @@ describe('runWorkerLifecycle', () => {
 
     expect(logs).toHaveLength(0)
   })
+
+  it('awaits media-indexer cleanup and surfaces cleanup failures', async () => {
+    const controller = new AbortController()
+    let releaseCleanup: (() => void) | undefined
+    const cleanup = new Promise<void>((resolve) => {
+      releaseCleanup = resolve
+    })
+    const running = runWorkerLifecycle({
+      role: 'media-indexer',
+      signal: controller.signal,
+      log: () => undefined,
+      start: async () => undefined,
+      stop: () => cleanup,
+    })
+
+    controller.abort()
+    let settled = false
+    void running.then(() => { settled = true })
+    await Promise.resolve()
+    expect(settled).toBe(false)
+    releaseCleanup!()
+    await running
+
+    const failedController = new AbortController()
+    const failed = runWorkerLifecycle({
+      role: 'media-indexer',
+      signal: failedController.signal,
+      log: () => undefined,
+      start: async () => undefined,
+      stop: async () => { throw new Error('cleanup failed') },
+    })
+    failedController.abort()
+    await expect(failed).rejects.toThrow('cleanup failed')
+  })
 })

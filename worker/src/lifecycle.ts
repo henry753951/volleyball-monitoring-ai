@@ -5,6 +5,8 @@ export interface WorkerLifecycleOptions {
   signal: AbortSignal
   log?: (message: string) => void
   idleIntervalMs?: number
+  start?: () => Promise<void>
+  stop?: () => Promise<void>
 }
 
 /** Keep a configured worker alive until its host requests shutdown. */
@@ -13,16 +15,24 @@ export async function runWorkerLifecycle({
   signal,
   log = console.log,
   idleIntervalMs = 60_000,
+  start,
+  stop: stopRuntime,
 }: WorkerLifecycleOptions): Promise<void> {
   if (signal.aborted) return
-  log(`worker ready role=${role}; scaffold is idle until pg-boss claim/lease is implemented`)
+  if (role === 'media-indexer' && start) await start()
+  log(`worker ready role=${role}${role === 'media-indexer' ? '; authoritative spool reconciler active' : '; scaffold role'}`)
 
-  await new Promise<void>((resolve) => {
+  await new Promise<void>((resolve, reject) => {
     const timer = setInterval(() => undefined, idleIntervalMs)
+    let stopping = false
     const stop = () => {
+      if (stopping) return
+      stopping = true
       clearInterval(timer)
       signal.removeEventListener('abort', stop)
-      resolve()
+      if (role === 'media-indexer' && stopRuntime) {
+        void stopRuntime().then(resolve, reject)
+      } else resolve()
     }
     signal.addEventListener('abort', stop, { once: true })
     if (signal.aborted) stop()
