@@ -31,7 +31,7 @@ aa7a685a1d883a563ad793b642317d5979598639f9509f79a164ddf587931b98  ./docs/adr/000
 a765ca000317842dbf228d7b97932095335b992ff820d09d88cdebe56811455f  ./docs/adr/0005-phase-2a-media-truth.md
 dae65b5e8e3b490bea935086dfe7f7bde3958d55d911206bf15be09c129413be  ./docs/adr/0006-phase-3-durable-annotation.md
 de376c790b3f7624d275cd8d6882725028d5264710ede7d748ad38304fee5c6a  ./docs/open-decisions.md
-070380aea2e29489f7ccd493327e9283f272424443e615de8fd6f07051f78a7e  ./docs/progress.md
+95710f7d475d0fb5e8ba2d4f7fbb7d635bcb0c7f940c7d2e9fceeb9aa7b3ecfa  ./docs/progress.md
 0d3bc482dac156b1106108864ed89206274bdf81d7131e4726f2fa83255067af  ./docs/requirements-matrix.md
 e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  ./examples/__init__.py
 cff7ceef7d9b68faa2d2e401530659d7142df6504d99c884ba2abd7606d18911  ./examples/fake_ai_provider/README.md
@@ -68,6 +68,7 @@ b4224ecb34750bcfc55eaef64a9e8fa7e4c488e18232a1d3ea3a5869b3b90e36  ./packages/con
 a063e0d35646e1f228bd01dcc918c46bbf2ee2a3dbfafe4f187f689b7d4a373d  ./packages/contracts/examples/annotation/close-rally-unknown.json
 94ea44052505053c3f4a28677ad0b7b337e33fba750945ef8e434fc638848f6d  ./packages/contracts/examples/annotation/create-service-ack.json
 04553c6cbf459152e290e09d9f72bc50bb8bbe04d4769708d42448de681011d6  ./packages/contracts/examples/annotation/create-service-non-uuid.invalid.json
+ce065102a82d20bffc8797f32bcc18063fd286fb7c3a919235f6aa53f67395f5  ./packages/contracts/examples/annotation/create-service-noncanonical-room.invalid.json
 5495870f3b2a2a11299d2bb10c1a42926da3dcce4f08d4824913aea655f5c8a1  ./packages/contracts/examples/annotation/create-service.json
 b2b7826e34b34536bfe3e174b63475d6d014cc3449f581a1ebbde5374437d881  ./packages/contracts/examples/annotation/submit.json
 03f82ce94beb7fb3e714d31d7c3736ec8e557f2e94b3b2854897159d65537ae5  ./packages/contracts/examples/media/canonical-frame-anchor.json
