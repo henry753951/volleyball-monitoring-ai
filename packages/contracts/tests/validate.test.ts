@@ -26,6 +26,7 @@ describe("golden contract fixtures", () => {
     expect(parseResolvedMediaAnchor(anchor).snap_distance_us).toBeUndefined();
     expect(() => parseResolvedMediaAnchor({ ...anchor, mapping_version: 1.5 })).toThrow();
     expect(() => parseResolvedMediaAnchor({ ...anchor, source_time_base: { num: 0, den: 1 } })).toThrow();
+    expect(() => parseResolvedMediaAnchor({ ...anchor, source_time_base: { num: 1, den: 60, extra: true } })).toThrow();
   });
   it("validates every AI fixture against the current schemas", () => {
     const validateJob = validator("ai/job.schema.json");
