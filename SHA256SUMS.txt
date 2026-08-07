@@ -5,7 +5,7 @@ a60955c8ffbec8a3999078369e0e57af39528b53f1bbbcb2593d25d2add1ea05  ./.codex/agent
 e5fa572d1c805f0e6efa435cc2a5491133442c54f2c50b93a1da09d80d589d7e  ./.dockerignore
 accba71a1e1ddf65ca4e2a61e5ee4a8c2975b45f520a30e5eb78ec18f5c38e69  ./.env.example
 e9c3f3770b4892a787f1e25d819ae8fb58893cfe0df99eb7805f02fdcc00797c  ./.github/workflows/ci.yml
-15b045adbc2d827346b96f33343b2bb1c9b55d07d1e807f61091a38cd8131db0  ./.gitignore
+39140bd06cff4ea1313167600482da0ed61c66edf41f628d92d74fc793ac547b  ./.gitignore
 88eb46eb1c40f931995c83dd4650aa044c0c9156594b79367e256d7ef133d282  ./AGENTS.md
 4139aee66163afad51f2a88254d3e3fa5eb3aca152763d2ebd2de5c4d9d36ce0  ./CODEX_SOL_PROMPT.txt
 15d2e4907e4616f6c920100d2af1095097fdf77510306b83f5d41badd595006e  ./DELIVERY_MANIFEST.md
@@ -36,7 +36,7 @@ d487f0e033a6cc4d7cf6d0b058b0899f4b7a23fb0d75981e669ea84a3ee99cad  ./docs/adr/000
 5f01afe470d612508655beb50ac70662f77a475c1e3ed0799539f75d68a0915c  ./docs/adr/0010-browser-overlay-chunks.md
 13f53a66b5ac38eca9b0dfdd3f2cd688d66aa8aab33f52f5acba1ea845ce5a90  ./docs/adr/0011-saved-analysis-views.md
 de376c790b3f7624d275cd8d6882725028d5264710ede7d748ad38304fee5c6a  ./docs/open-decisions.md
-13354487e58378ffa54e3916ffba73633273e9c1af1f971d16da98f09fd26a38  ./docs/progress.md
+c823b185dff80fdeff8c57f68787085fa2d8485053378fb692daffdc614e2f46  ./docs/progress.md
 0d3bc482dac156b1106108864ed89206274bdf81d7131e4726f2fa83255067af  ./docs/requirements-matrix.md
 e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  ./examples/__init__.py
 cff7ceef7d9b68faa2d2e401530659d7142df6504d99c884ba2abd7606d18911  ./examples/fake_ai_provider/README.md
@@ -205,6 +205,7 @@ b7686a55d63a66eb111fecfd0e7b0281929d50e72abd376986b7925ed9a36812  ./server/src/g
 45730cce028b1b283469e9ff625cc7c79d50299c76e52bb6e24763ba1dde51e7  ./server/src/media/sample-index-repository.ts
 9f8e7a379acc7bc3af438e31642cd4f0e645a5447967ea27221367696e451918  ./server/src/media/sample-snap-resolver.ts
 789f0fbe544f0c2d943e00d7b6cea6b04de2ad4a1e49de0cfc11181fd136c520  ./server/src/realtime/README.md
+38900c14de0d45af1480476f5dea7767e6a7cedecf2395d28e02c60af78d8490  ./server/src/realtime/annotation-presence.ts
 047f9c017626e346e82409baa99acd21831dcd988eab55ca3f761fa4bd4ae740  ./server/src/realtime/annotation-ws.ts
 8ce86b766287cabea3c75b1b8cc7b02b3132518219acc986e1e1fc32d5fa7ae7  ./server/src/realtime/auth.ts
 dc6593e629b1729b2b00823cb32907931b6cf9e9f55d41c10f5235b23bbdcb88  ./server/src/routes/README.md
@@ -221,6 +222,7 @@ de9b6dd94f4b1f213c81241a14c9cfb916327b061a61fb32482e837c9c36fab1  ./server/src/s
 cf5dd4148b435f01ef0a25839ddb8213159a8b16858161622d8bed4cadee56db  ./server/src/services/media-timeline.ts
 98c53c86fdaceeb255372c7abcdd5c2fcbdf2cf851d18d615c18ab7b6435679e  ./server/src/services/saved-analysis-views.ts
 613914d7a4539d599a182980d80275a0533d437a64599fe6475f40870a244434  ./server/tests/annotation-command.integration.test.ts
+7ec724a1825264191e4b52f7e9f1b4767c2eae15848672e65f8d22ed650b8110  ./server/tests/annotation-presence.test.ts
 a6b2690b51a33a5ee67eef44768ff959878cf0ecd2dcee357fc2c8c6901cd560  ./server/tests/annotation-snapshot.integration.test.ts
 78672dd867783ab115202afc27bc879794b1f85ebee9e5b0c066ac69f560cb45  ./server/tests/annotation-state.test.ts
 9188ca2a5dbd3ae2e8a98db80d5f926f7fdecaab106f96c5b2fb8a5e69062966  ./server/tests/annotation-transport.test.ts

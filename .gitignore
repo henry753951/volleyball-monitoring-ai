@@ -7,6 +7,7 @@ node_modules/
 .playwright-cli/
 dist/
 coverage/
+backups/
 *.log
 __pycache__/
 .pytest_cache/

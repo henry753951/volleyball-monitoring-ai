@@ -1,5 +1,16 @@
 # Progress
 
+## 2026-08-07 — Phase 7 restart and restore acceptance
+
+Status: restart and local backup/restore drills passed against the running Compose stack; the reusable safety procedure is documented in `docs/OPERATIONS_RUNBOOK.md`.
+
+- Recorded pre-drill canonical counts and one persisted overlay chunk identity, then restarted Redis, Server, all six workers, MinIO and PostgreSQL in dependency-safe order. Server returned PostgreSQL/Redis/MinIO `ready` after every stateful restart; all application containers finished running/healthy with zero unexpected automatic restarts.
+- Post-drill canonical counts remained exactly 2 Rallies, 1 RallySubmission, 2 AnalysisRuns, 19 MediaAssets and 1 OverlayChunk. AnalysisRun `985daee2-714d-4e2a-9514-0ebf58db1f51` retained its 816-byte chunk and SHA-256 `349858af4b6939a2e676dd2e4676f6c3289f2bad823797e867bba9830159f04b`; authorized manifest and chunk requests both returned HTTP 200.
+- Created a 308,217-byte PostgreSQL custom-format dump, verified its TOC and SHA-256, restored it to the isolated `vmai_restore_smoke` database and reproduced all five canonical counts before dropping only that temporary database.
+- Mirrored `raw-media`, `dvr-media`, `rally-media` and `analysis-artifacts` into an isolated Docker backup volume and restored them under a temporary MinIO bucket. Source/backup/restore object counts matched at 0/12/2/5; the temporary bucket and volume were removed afterward.
+
+Open limitations: approved retention durations remain a human deployment decision, so no destructive lifecycle default is enabled. Production-grade scheduled/off-host backup automation, metrics export and audit dashboard remain hardening work; this checkpoint proves the underlying restart and restore paths rather than claiming those external operations are scheduled.
+
 ## 2026-08-07 — Contract Lab workstation and Saved Analysis View checkpoint
 
 Status: implemented directly on `integration/phase3-annotation`, rebuilt into the local Compose runtime and ready for user-led workflow testing.
