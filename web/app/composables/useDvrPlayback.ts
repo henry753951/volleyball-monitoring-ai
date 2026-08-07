@@ -1,6 +1,7 @@
 import Hls from 'hls.js'
 import type { PlaybackWindowDescriptor } from './usePlaybackCursor'
 import { captureTimeToPlayerSeconds, isCaptureTimeWithinWindow } from '../utils/playbackWindow'
+import { boundedPlayerMediaSeconds } from '../utils/playerMediaTime'
 
 export function useDvrPlayback(video: Ref<HTMLVideoElement | null>) {
   const activeWindow = shallowRef<PlaybackWindowDescriptor | null>(null)
@@ -49,11 +50,9 @@ export function useDvrPlayback(video: Ref<HTMLVideoElement | null>) {
       }
 
       activeWindow.value = descriptor
-      // Convert only the bounded player-local delta; canonical decimal timestamps
-      // remain exact bigint values even when they exceed Number's safe range.
-      element.currentTime = Number(
-        BigInt(descriptor.target_player_media_time_us) - BigInt(descriptor.presentation_origin_capture_us),
-      ) / 1_000_000
+      // target_player_media_time_us is already player-local. Only this bounded
+      // value may cross into Number seconds; presentation origin is canonical.
+      element.currentTime = boundedPlayerMediaSeconds(descriptor.target_player_media_time_us)
     } finally {
       loading.value = false
     }

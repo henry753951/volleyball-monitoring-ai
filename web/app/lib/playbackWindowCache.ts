@@ -10,11 +10,14 @@ export class PlaybackWindowCache {
     return descriptor
   }
   recenter(descriptor: PlaybackWindowDescriptor) {
-    if (this.slots.current) this.cleanup(this.slots.current)
-    for (const slot of ['previous', 'next'] as const) { if (this.slots[slot]) this.cleanup(this.slots[slot]!) }
+    const retainedId = descriptor.playback_window_id
+    const cleaned = new Set<string>()
+    for (const value of Object.values(this.slots)) {
+      if (value && value.playback_window_id !== retainedId && !cleaned.has(value.playback_window_id)) { this.cleanup(value); cleaned.add(value.playback_window_id) }
+    }
     this.slots = { current: descriptor }; return descriptor
   }
   evict(slot: WindowSlot) { const old = this.slots[slot]; if (old) this.cleanup(old); delete this.slots[slot] }
-  clear() { for (const value of Object.values(this.slots)) if (value) this.cleanup(value); this.slots = {} }
+  clear() { const cleaned = new Set<string>(); for (const value of Object.values(this.slots)) if (value && !cleaned.has(value.playback_window_id)) { this.cleanup(value); cleaned.add(value.playback_window_id) }; this.slots = {} }
   snapshot() { return { ...this.slots } }
 }
