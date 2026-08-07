@@ -7,6 +7,7 @@ import Redis from 'ioredis'
 import { createGraphQLContext } from './graphql/context.js'
 import { schema } from './graphql/schema.js'
 import { evaluateReadiness, type ReadinessProbe } from './health/readiness.js'
+import { mediaCursorRoutes } from './media/cursor-routes.js'
 import { createMinioObjectReaderFromEnv } from './media/minio-object-reader.js'
 import { mediaPlaybackRoutes } from './routes/media-playback.js'
 
@@ -50,6 +51,11 @@ await app.register(cors, {
 })
 await app.register(websocket)
 await app.register(mediaPlaybackRoutes({
+  ...(mediaObjectReader === undefined
+    ? {}
+    : { objectReader: mediaObjectReader }),
+}))
+await app.register(mediaCursorRoutes({
   ...(mediaObjectReader === undefined
     ? {}
     : { objectReader: mediaObjectReader }),
