@@ -20,6 +20,7 @@ export function useAuthoritativeDvrWindow(client: MediaClient) {
   const anchor = shallowRef<ResolvedMediaAnchor | CanonicalFrameAnchor | null>(null)
   const status = ref<WindowStatus>('idle'); const error = shallowRef<MediaApiError | Error | null>(null); const busy = ref(false)
   let generation = 0
+  let resolveGeneration = 0
   const begin = () => { const id = ++generation; busy.value = true; status.value = 'loading'; error.value = null; return id }
   const valid = (id: number) => id === generation
   async function create(input: Parameters<MediaClient['createPlaybackWindow']>[0]) {
@@ -28,7 +29,24 @@ export function useAuthoritativeDvrWindow(client: MediaClient) {
     catch (cause) { if (!valid(id)) return null; current.value = previous; status.value = 'error'; error.value = cause instanceof Error ? cause : new Error('Window request failed'); throw cause }
     finally { if (valid(id)) busy.value = false }
   }
-  async function resolve(cursor: PlaybackCursorInput) { const id = begin(); try { const value = await client.resolveCursor(cursor); if (!valid(id)) return null; anchor.value = value; busy.value = false; status.value = 'ready'; return value } catch (cause) { if (!valid(id)) return null; busy.value = false; status.value = 'error'; error.value = cause instanceof Error ? cause : new Error('Cursor resolution failed'); return null } }
+  async function resolve(cursor: PlaybackCursorInput) {
+    const operationGeneration = generation
+    const id = ++resolveGeneration
+    try {
+      const value = await client.resolveCursor(cursor)
+      if (operationGeneration !== generation || id !== resolveGeneration) return null
+      anchor.value = value
+      status.value = 'ready'
+      error.value = null
+      return value
+    }
+    catch (cause) {
+      if (operationGeneration !== generation || id !== resolveGeneration) return null
+      status.value = 'error'
+      error.value = cause instanceof Error ? cause : new Error('Cursor resolution failed')
+      return null
+    }
+  }
   async function step(direction: 'previous' | 'next', inputFactory: (target: string) => Parameters<MediaClient['createPlaybackWindow']>[0]) {
     if (!current.value || !anchor.value) return null
     let attempt = 0

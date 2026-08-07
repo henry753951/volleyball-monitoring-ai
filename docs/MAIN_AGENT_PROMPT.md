@@ -22,8 +22,8 @@
 
 不可改變：
 
-- Annotation command語意固定：Z建立service、Space建立contact；`<`、`>`、`?`各自以單一`CLOSE_RALLY` atomically將server-confirmed最後key point標為terminal並保存rally-level resolved/left、resolved/right、unknown/null outcome，不建立新時間／score frame／score event；Enter建立immutable submission。預設鍵為Z、Space、`<`、`>`、`?`、Enter，但使用者可在集中式設定選單重新綁定；必須提供衝突檢查與還原所有預設快捷鍵。
-- 介面必須同時顯示六個觸控控制且沒有獨立結束控制；灰色mask未提交、綠色mask已提交，AI狀態另顯示。
+- Annotation command語意固定：Z建立service、X建立contact、Space切換播放／暫停；`<`、`>`、`?`各自以單一`CLOSE_RALLY` atomically將server-confirmed最後key point標為terminal並保存rally-level resolved/left、resolved/right、unknown/null outcome，不建立新時間／score frame／score event；Enter建立immutable submission。使用者可在集中式設定選單重新綁定；必須提供衝突檢查與還原所有預設快捷鍵。
+- 底部精簡控制固定顯示Z、X、`<`、`>`、`?`與按鍵設定，沒有獨立結束或可見提交按鈕；mask依序以灰色draft、黃色processing、藍色AI完成、綠色球員指派完成表示。
 - Browser時間只是一個PlaybackCursor observation；authoritative PTS/frame由後端解析。
 - Server保存整場DVR；所有browser surface只lazy-load bounded playback window，live ingest持續進行。Annotation editor以PC鍵盤／滑鼠高資訊密度工作流驗收；只有coach/viewer顯示面板要求installable iPad PWA。
 - `court_pos`由外部AI依固定canonical court model轉換；中央與前端不得投影或clamp。

@@ -123,8 +123,14 @@ const swapMutation = /* GraphQL */ `
   }
 `
 
-const savedViewsQuery = /* GraphQL */ `query SavedAnalysisViews($matchId: ID!) { savedAnalysisViews(matchId: $matchId) }`
-const saveViewMutation = /* GraphQL */ `mutation SaveAnalysisView($matchId: ID!, $name: String!, $filters: JSON!, $layout: JSON) { saveAnalysisView(matchId: $matchId, name: $name, filters: $filters, layout: $layout) }`
+const updateRosterMutation = /* GraphQL */ `
+  mutation UpdateMatchRoster($input: UpdateMatchRosterInput!) {
+    updateMatchRoster(input: $input) {
+      id
+      rosterEntries { id teamId name jerseyNumber }
+    }
+  }
+`
 
 const validSetup = {
   leftTeam: {
@@ -332,12 +338,14 @@ describe('Phase 1B GraphQL schema', () => {
     })
     await expect(readFile(schemaSnapshotPath, 'utf8').then(normalizeLineEndings)).resolves.toBe(before)
 
-    for (const operation of [setupMutation, listQuery, detailQuery, swapMutation]) {
+    for (const operation of [setupMutation, listQuery, detailQuery, swapMutation, updateRosterMutation]) {
       const response = await execute(operation, contextFor(null), {
         id: '10000000-0000-4000-8000-000000000099',
         input: operation === setupMutation
           ? validSetup
-          : { effectiveFromRallyOrdinal: 2, setId: '10000000-0000-4000-8000-000000000099' },
+          : operation === updateRosterMutation
+            ? { matchId: '10000000-0000-4000-8000-000000000099', roster: [], teamId: '10000000-0000-4000-8000-000000000098' }
+            : { effectiveFromRallyOrdinal: 2, setId: '10000000-0000-4000-8000-000000000099' },
       })
       expect(response.errors?.[0]?.extensions.code).not.toBe('GRAPHQL_VALIDATION_FAILED')
     }
@@ -429,6 +437,7 @@ describe('match setup, visibility, and court-side history', () => {
   let setId: string
   let leftTeamId: string
   let rightTeamId: string
+  let leftRosterIds: string[]
 
   it('creates the complete normalized graph and creator OPERATOR membership atomically', async () => {
     const result = await execute(
@@ -461,6 +470,7 @@ describe('match setup, visibility, and court-side history', () => {
       'Jamie Wu',
       'Riley Huang',
     ])
+    leftRosterIds = rosterEntries.filter(entry => entry.teamId === leftTeamId).map(entry => String(entry.id))
 
     const sets = arrayField(match, 'sets') as Array<Record<string, unknown>>
     expect(sets).toHaveLength(1)
@@ -607,22 +617,26 @@ describe('match setup, visibility, and court-side history', () => {
     })).resolves.toEqual(before)
   })
 
-  it('saves versioned filter/query settings per user and never accepts metric snapshots', async () => {
-    const variables = { matchId, name: '第 1 局品質', filters: { set_numbers: [1], score_resolution: ['resolved'], association_quality: ['ambiguous', 'unresolved'] }, layout: { route: 'history', overlay_mode: 'coach', visible_layers: ['bbox', 'ball'] } }
-    const saved = await execute(saveViewMutation, contextFor(operatorUser), variables)
-    expect(saved.errors).toBeUndefined()
-    expect(saved.data?.saveAnalysisView).toMatchObject({ schema_version: '1.0.0', view: { name: variables.name, filter_schema_version: '1.0.0', overlay_preset_version: '1.0.0', filters: variables.filters, layout: variables.layout } })
-    const updated = await execute(saveViewMutation, contextFor(operatorUser), { ...variables, filters: { set_numbers: [1], score_resolution: ['unknown'] } })
-    expect(updated.errors).toBeUndefined()
-    await expect(db.savedAnalysisView.count({ where: { matchId, userId: operatorUser.id } })).resolves.toBe(1)
-    const listed = await execute(savedViewsQuery, contextFor(operatorUser), { matchId })
-    expect(listed.data?.savedAnalysisViews).toMatchObject({ schema_version: '1.0.0', views: [{ name: variables.name, filters: { set_numbers: [1], score_resolution: ['unknown'] } }] })
-    expect((listed.data?.savedAnalysisViews as any).views[0].saved_at).toMatch(/^\d{4}-/)
-    const outsider = await execute(savedViewsQuery, contextFor(outsiderOperator), { matchId })
-    expect(outsider.data?.savedAnalysisViews).toBeNull()
-    const coach = await execute(savedViewsQuery, contextFor(coachUser), { matchId })
-    expect(coach.data?.savedAnalysisViews).toEqual({ schema_version: '1.0.0', views: [] })
-    const snapshot = await execute(saveViewMutation, contextFor(operatorUser), { ...variables, name: 'forbidden snapshot', filters: { rally_count: 99 } })
-    expect(errorCode(snapshot)).toBe('BAD_USER_INPUT')
+  it('edits one team roster while preserving existing entry IDs for identity history', async () => {
+    const result = await execute(updateRosterMutation, contextFor(operatorUser), {
+      input: {
+        matchId,
+        teamId: leftTeamId,
+        roster: [
+          { id: leftRosterIds[0], jerseyNumber: '12', name: 'Avery Chen' },
+          { id: leftRosterIds[1], jerseyNumber: '01', name: 'Morgan Lin' },
+          { jerseyNumber: '25', name: 'Kai Tsai' },
+        ],
+      },
+    })
+    expect(result.errors).toBeUndefined()
+    const match = objectField(result.data, 'updateMatchRoster')
+    const roster = arrayField(match, 'rosterEntries') as Array<Record<string, unknown>>
+    expect(roster.filter(entry => entry.teamId === leftTeamId)).toEqual([
+      expect.objectContaining({ id: leftRosterIds[0], jerseyNumber: '12', name: 'Avery Chen' }),
+      expect.objectContaining({ id: leftRosterIds[1], jerseyNumber: '01', name: 'Morgan Lin' }),
+      expect.objectContaining({ jerseyNumber: '25', name: 'Kai Tsai' }),
+    ])
   })
+
 })

@@ -1,6 +1,7 @@
 import {
   createMatchSetup,
   swapCourtSides,
+  updateMatchRoster,
 } from '../services/core-domain.js'
 import { db } from '@volleyball-monitoring/db'
 import {
@@ -16,6 +17,7 @@ import {
   RetryProcessingInputType,
   StartCaptureInputType,
   SwapCourtSidesInputType,
+  UpdateMatchRosterInputType,
 } from './inputs.js'
 import { CaptureSessionType, MatchSetType, MatchType, ProcessingStateType } from './types.js'
 
@@ -68,6 +70,11 @@ builder.mutationType({
       args: { input: t.arg({ required: true, type: SwapCourtSidesInputType }) },
       resolve: (_root, args, context) => swapCourtSides(requireIdentity(context), args.input),
       type: MatchSetType,
+    }),
+    updateMatchRoster: t.field({
+      args: { input: t.arg({ required: true, type: UpdateMatchRosterInputType }) },
+      resolve: (_root, args, context) => updateMatchRoster(requireIdentity(context), args.input),
+      type: MatchType,
     }),
   }),
 })

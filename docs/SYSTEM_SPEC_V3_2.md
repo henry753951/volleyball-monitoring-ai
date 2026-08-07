@@ -50,7 +50,8 @@
 | 預設介面顯示 | 預設快捷鍵 | 固定語意 | 重要限制 |
 |---|---:|---|---|
 | `Z 發球` | `Z` | 建立新 rally，並在目前已呈現影片 frame 建立第一個人工 `service` key point | 已有未提交 rally 時不可另開新 rally |
-| `Space 擊球` | `Space` | 在目前已呈現影片 frame 建立一般 `contact` key point | 播放器正在 seek、cursor stale 或位於 gap 時不可建立 |
+| `X 擊球` | `X` | 在目前已呈現影片 frame 建立一般 `contact` key point | 播放器正在 seek、cursor stale 或位於 gap 時不可建立 |
+| 播放／暫停 | `Space` | 切換目前影片播放狀態 | 只控制播放器，不建立 key point |
 | `< 左側得分` | `<` | 以單一 `CLOSE_RALLY` atomically把目前server-confirmed最後key point標為terminal，並將rally-level outcome設為`resolved/left` | Command必須帶`target_key_point_id`；若多人協作後它已不是最後一點，回傳revision conflict；不建立新時間或得分事件 |
 | `> 右側得分` | `>` | 同樣atomically關閉rally並將rally-level outcome設為`resolved/right` | 同上；方向鍵仍只供逐幀／播放器控制 |
 | `? 未知` | `?` | 同樣atomically關閉rally並將rally-level outcome設為`unknown/null` | 不是`pending`；可以提交 AI，但不納入勝負統計；不建立新時間或得分事件 |
@@ -62,7 +63,7 @@
 - 每個可用 command 必須保留一個有效鍵位。設定選單使用集中式 command registry、快捷鍵錄製器與衝突檢查，不得由各 component 各自監聽或保存。
 - 設定選單必須提供「還原所有預設快捷鍵」。還原後回到本節表格與方向鍵的預設值。
 - 相同 scope 不得有重複鍵位；瀏覽器保留鍵、文字輸入焦點、Dialog/Select scope 與平台鍵盤差異必須被辨識並清楚提示。
-- Control deck、設定選單與快捷鍵說明必須以 TanStack Hotkeys `formatForDisplay` 顯示目前綁定，讓 macOS 使用符號、Windows/Linux 使用平台慣用標籤；不得自行拼接鍵帽文字。六個觸控動作不可被移除，且不受鍵盤自訂影響。
+- Control deck、設定選單與快捷鍵說明必須以 TanStack Hotkeys `formatForDisplay` 顯示目前綁定，讓 macOS 使用符號、Windows/Linux 使用平台慣用標籤；不得自行拼接鍵帽文字。底部固定顯示Z、X、`<`、`>`、`?`與按鍵設定；Enter保留為鍵盤command，不顯示大型提交按鈕。
 
 `service` 與 `contact` 只是人工 marker kind，不是 AI action label，也沒有人工 confidence。第一個 key point 被標成 `service` 只代表標註流程由 Z 開始；AI 是否輸出任何 action、action label 長什麼樣、是否有 confidence，均屬待 AI 團隊提供真實輸出後確認的 optional extension。
 
@@ -77,8 +78,8 @@
 ## 1.2 Rally Mask 與狀態呈現
 
 - `OPEN`、`READY`：灰色半透明 mask，表示尚未提交且仍可修正。
-- `SUBMITTED`：綠色半透明 mask，表示某個 immutable submission 已建立。
-- 綠色不代表 AI 完成；裁切、排隊、處理中、完成、失敗以 mask 上的 status badge 顯示。
+- `SUBMITTED`且AI尚未完成：黃色半透明 mask，表示 immutable submission 已建立並正在裁切／排隊／處理。
+- AI完成：藍色半透明 mask；球員指派完成：綠色半透明 mask。失敗使用明確錯誤badge，不得偽裝成完成色。
 - Mask 上緣必須有文字狀態，不可只靠顏色：
   - `左側得分`
   - `右側得分`
@@ -90,24 +91,21 @@
 
 ## 1.3 教練端不是單頁
 
-教練／裁判端採多頁資訊架構，iPad 使用底部導覽列；頂部狀態列可返回主選單並開啟過去保存的紀錄。
+教練／裁判端採多頁資訊架構，iPad 使用精簡底部導覽；頂部工具列提供首頁、場次比分、live 與連線狀態。
 
 建議底部導覽：
 
 1. `現場`
-2. `球路`
+2. `回合`
 3. `球員`
-4. `統計`
-5. `紀錄`
 
 頂部列至少包含：
 
-- 返回賽事／場次選單。
+- 首頁按鈕。
 - 場次、局數、比分與 live 狀態。
-- 當前是否位於 live edge。
-- 同步／離線狀態。
-- Overlay 快捷設定。
-- 進入歷史 rally、保存分析視圖與設定。
+- 精簡的 WebSocket ping／離線狀態。
+- 新回合完成通知與直接轉跳。
+- 回放頁使用 drawer 管理顯示圖層，不提供保存分析視圖或 Annotation 設定。
 
 ## 1.4 AI 邊界
 
@@ -189,7 +187,7 @@
 | 嚴重度 | 缺口 | 修正後基線 |
 |---|---|---|
 | Critical | GraphQL 文件使用 `BigInt`，code-first builder卻註冊 `Int64` | 全部統一為 `BigInt`；Web codegen映射為`string`。 |
-| Critical | Annotation WebSocket只定義自由格式 `payload` | 每一個Z／Space／`CLOSE_RALLY`／move／delete／reopen／Enter command都具有strict payload schema；close必須帶target ID與strict outcome。 |
+| Critical | Annotation WebSocket只定義自由格式 `payload` | 每一個Z／X／`CLOSE_RALLY`／move／delete／reopen／Enter command都具有strict payload schema；close必須帶target ID與strict outcome；Space僅在本地控制播放器。 |
 | Critical | `DvrSegment.presentationStartUs`容易被誤認為player/HLS presentation time | DB改名`captureStartUs/captureEndUs`，只表示整場canonical timeline。 |
 | High | SDK內附的FlatBuffers schema與canonical schema欄位／版本不一致 | SDK wheel強制內含與`packages/contracts/flatbuffers/overlay.fbs`完全相同的檔案，CI byte-compare。 |
 | High | callback文件使用`kind`，schema/SDK使用`status` | Callback metadata統一使用`kind=processing/failed/completed`。 |
@@ -297,7 +295,7 @@ AI request 建立後，下列值在 AI result/callback 不得改寫：
 - PC-first Nuxt 多頁式標註編輯器、教練端與歷史紀錄；標註端以鍵盤、滑鼠與高資訊密度操作為主要驗收。
 - 只有教練／裁判顯示面板要求 installable iPad landscape PWA；標註端保留六個 touch action 的同 command-path parity，但不以 iPad PWA 作主要版面或驗收裝置。
 - Full-session timeline + lazy playback windows。
-- 快捷鍵 state machine 與灰／綠 mask。
+- 快捷鍵 state machine 與灰／黃／藍／綠 mask。
 - GraphQL query/mutation client。
 - Annotation WebSocket command/reconciliation。
 - Video + Canvas overlay 與 2D court。
@@ -789,7 +787,7 @@ Response：
 
 - `observation_source` 可為 `request_video_frame_callback` 或 `current_time_fallback`。
 - Safari 原生 HLS不保證可暴露 segment ID，因此 `segment_id` 不可設為 browser必填欄位。
-- `cursor_status=seeking/stale/gap` 時，Z/Space必須被 UI阻擋。
+- `cursor_status=seeking/stale/gap` 時，Z/X必須被 UI阻擋；Space仍只切換播放器。
 - `seek_generation` 防止 seek完成前的舊 callback被誤用。
 
 後端解析後回：
@@ -851,7 +849,7 @@ VOIDED
 4. Timeline開始顯示灰色 open mask。
 5. 若已有 active draft，拒絕，不自動關閉前一 rally。
 
-### Space - 擊球
+### X - 擊球
 
 1. 僅 `OPEN` 可新增。
 2. 每次送一個 `contact` marker。
@@ -879,7 +877,7 @@ Server以單一 transaction：
 4. 複製 immutable submission key points、side assignment、score resolution、clip policy與 content hash。
 5. `resolved` 才建立 `PointAward`；`unknown` 不改比分 ledger。
 6. 建立 ClipJob與Outbox event。
-7. 廣播 submission／processing狀態；UI mask轉綠。
+7. 廣播 submission／processing狀態；UI mask轉黃。
 
 提交後不可原地修改。修正必須建立 correction draft並新建 submission，保留 supersedes關係。
 
@@ -887,7 +885,7 @@ Server以單一 transaction：
 
 - 灰色 mask可新增、刪除、移動、重開rally；要改terminal或outcome時先`REOPEN_RALLY`，再以新的`CLOSE_RALLY` atomically關閉。
 - 方向鍵在 key point edit mode 呼叫 server frame-step API；後端依 sample index取得前後 sample，再更新 marker。
-- 綠色 mask唯讀；開啟修正時從 submission建立新 draft。
+- 黃色processing、藍色AI完成與綠色球員指派完成mask皆唯讀；開啟修正時從 submission建立新灰色draft。
 - 拖曳 marker時可用短暫 soft lock提示其他協作者，但 canonical concurrency仍以 revision/CAS為準。
 
 ## 9.4 UI 必備區域
@@ -895,7 +893,7 @@ Server以單一 transaction：
 - 頂部：場次、來源健康、LIVE狀態、與 live edge距離、WebSocket、協作者、來源 timecode。
 - 中央：有聲 video、回到 LIVE、播放/暫停、逐幀、倍速。
 - 多軌 timeline：完整 capture range、gap、playhead、key points、rally masks、score strip、processing badges。
-- 底部固定 control deck：發球、擊球、左側得分、右側得分、未知、提交六個觸控動作，顯示目前快捷鍵（預設`Z`、`Space`、`<`、`>`、`?`、`Enter`）並依state啟停；不得顯示獨立結束控制。
+- 底部固定精簡 control deck：`Z`發球、`X`擊球、`<`左側得分、`>`右側得分、`?`未知與按鍵設定；不得顯示獨立結束或大型提交控制。`Enter`提交與`Space`播放／暫停仍由集中式鍵盤registry提供。
 - Inspector：選取 key point時顯示 canonical time、frame、建立者、revision、duplicate/precision資訊。
 
 # 10. Annotation Realtime Schema v2.1
@@ -947,7 +945,7 @@ WebSocket用於高頻 annotation command、ack、revision、presence與處理通
 | kind | 主要 payload | 說明 |
 |---|---|---|
 | `CREATE_SERVICE_KEY_POINT` | `playback_cursor` | Z；建立 rally與service marker |
-| `CREATE_CONTACT_KEY_POINT` | `playback_cursor` | Space |
+| `CREATE_CONTACT_KEY_POINT` | `playback_cursor` | X |
 | `CLOSE_RALLY` | `target_key_point_id` + strict outcome union | `<`／`>`／`?`；atomically terminalize最後key point並保存rally-level outcome；不帶新時間／frame |
 | `MOVE_KEY_POINT` | `key_point_id`, `playback_cursor` | drag/frame step後由server重新解析authoritative anchor |
 | `DELETE_KEY_POINT` | `key_point_id` | draft-only |
@@ -1031,7 +1029,6 @@ type Query {
   rally(id: ID!): Rally
   analysisView(input: AnalysisViewInput!): AnalysisView!
   featureAvailability(matchId: ID!): FeatureAvailability!
-  savedAnalysisViews(matchId: ID!): [SavedAnalysisView!]!
 }
 ```
 
@@ -1048,7 +1045,6 @@ type Mutation {
 
   assignTrackIdentity(input: AssignTrackIdentityInput!): TrackIdentityAssignment!
   retryProcessing(input: RetryProcessingInput!): ProcessingState!
-  saveAnalysisView(input: SaveAnalysisViewInput!): SavedAnalysisView!
 }
 ```
 
@@ -1123,7 +1119,7 @@ type Mutation {
 - ClipJob／ClipKeyPointMapping。
 - AiIntegration／AiJob／AiCallbackReceipt。
 - AnalysisRun／AnalysisTrack／ContactEvent／Actor／Candidate／BallPathSegment／AnalysisArtifact。
-- TrackIdentityAssignment／SavedAnalysisView／OutboxEvent。
+- TrackIdentityAssignment／OutboxEvent。
 
 ## 12.2 必要欄位與約束
 
@@ -1810,16 +1806,16 @@ Backend：
 
 - WS command/revision/idempotency。
 - Draft mutable model + operation log。
-- Z/Space/CLOSE_RALLY(left/right/unknown)/reopen/move/delete/Enter。
+- Z/X/CLOSE_RALLY(left/right/unknown)/reopen/move/delete/Enter；Space只控制播放／暫停。
 - immutable submission。
 
 Frontend：
 
 - 剪輯式 timeline與 tracks。
-- 灰／綠 mask、score strip、快捷鍵模式。
+- 灰色draft／黃色processing／藍色AI完成／綠色球員指派完成mask、score strip、快捷鍵模式。
 - 多人 presence/conflict/reconnect。
 
-Exit：兩個獨立 PC browser session 同時標註；鍵盤、滑鼠與六個同 command-path touch controls 可用；refresh/reconnect後一致；close不建timestamp／score frame；unknown可提交。Coach iPad PWA 在 Phase 5 另行驗收，不作為 annotation editor 的主要裝置。
+Exit：兩個獨立 PC browser session 同時標註；鍵盤、滑鼠與五個annotation touch controls加按鍵設定可用；refresh/reconnect後一致；close不建timestamp／score frame；unknown可提交。Coach iPad PWA 在 Phase 5 另行驗收，不作為 annotation editor 的主要裝置。
 
 ## Phase 4 — Clip／Fake AI／SDK
 
@@ -2083,7 +2079,7 @@ max_concurrent_threads_per_session = 3
 
 ## 25.3 Annotation
 
-- Z/Space/left-close/right-close/unknown-close/Enter六個固定語意。
+- Z/X/left-close/right-close/unknown-close/Enter固定標註語意；Space固定為播放／暫停。
 - `CLOSE_RALLY`不新增timestamp、score frame或score event，terminal anchor沿用target key point。
 - 只有 service的service error。
 - Unknown可提交，pending不可。
@@ -2123,7 +2119,7 @@ max_concurrent_threads_per_session = 3
 - Client只windowed lazy-load，live持續錄製。
 - Key point authoritative time對齊影片呈現frame。
 - 多人標註與revision恢復正確。
-- 灰／綠mask與score state符合使用流程。
+- 灰／黃／藍／綠mask與score state符合使用流程。
 - Enter建立immutable submission。
 - Clip mapping正確。
 - SDK可由GitHub安裝，Fake與真AI使用同一contract。

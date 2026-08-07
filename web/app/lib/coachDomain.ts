@@ -27,8 +27,9 @@ export interface CoachRally {
     score_resolution: string
     scoring_court_side: string | null
     scoring_team_id: string | null
-    clip: { id: string; status: string } | null
-    analysis: { id: string; status: string; version: string; summary: unknown } | null
+    contact_count: number
+    clip: { id: string; status: string; start_capture_time_us: string; end_capture_time_us: string; duration_us: string } | null
+    analysis: { id: string; status: string; version: string; summary: unknown; identity_mapping_completed: boolean } | null
   }
 }
 export interface CoachMatchState {
@@ -64,11 +65,9 @@ export interface CoachMatchAnalytics {
   metrics: Record<string, CoachMetric>
   teams: Array<CoachTeam & { wins: number; losses: number; unknown: number; sample_count: number }>
   players: Array<{ roster_entry_id: string; team_id: string; jersey_number: string; name: string; contact_count: number; sample_count: number }>
+  tracks: Array<{ analysis_run_id: string; track_id: number; rally_id: string; set_number: number; rally_ordinal: number; court_side: string; roster_entry_id: string | null; identity_mapping_completed: boolean }>
   unassigned_tracks: Array<{ analysis_run_id: string; track_id: number; rally_id: string; set_number: number; rally_ordinal: number }>
 }
-export interface SavedAnalysisView { id: string; match_id: string; name: string; filter_schema_version: string; overlay_preset_version: string; filters: Record<string, unknown>; layout: { route?: 'history' | 'paths' | 'players' | 'stats'; overlay_mode?: string; visible_layers?: string[] } | null; saved_at: string; created_at: string }
-export interface SavedAnalysisViews { schema_version: '1.0.0'; views: SavedAnalysisView[] }
-
 const COACH_MATCH_STATE = `query CoachMatchState($matchId: ID!) { coachMatchState(matchId: $matchId) }`
 
 export function createCoachDomainClient(transport: GraphQLTransport) {
@@ -88,13 +87,11 @@ export function createCoachDomainClient(transport: GraphQLTransport) {
     async assignTrackIdentity(input: { analysisRunId: string; trackId: number; rosterEntryId: string }) {
       return transport.request<{ assignTrackIdentity: { schema_version: '1.0.0' } }>('mutation AssignTrackIdentity($analysisRunId: ID!, $trackId: Int!, $rosterEntryId: ID!) { assignTrackIdentity(analysisRunId: $analysisRunId, trackId: $trackId, rosterEntryId: $rosterEntryId) }', input)
     },
-    async savedAnalysisViews(matchId: string) {
-      const result = await transport.request<{ savedAnalysisViews: SavedAnalysisViews | null }>('query SavedAnalysisViews($matchId: ID!) { savedAnalysisViews(matchId: $matchId) }', { matchId })
-      return result.savedAnalysisViews
+    async clearTrackIdentity(input: { analysisRunId: string; trackId: number }) {
+      return transport.request<{ clearTrackIdentity: { schema_version: '1.0.0' } }>('mutation ClearTrackIdentity($analysisRunId: ID!, $trackId: Int!) { clearTrackIdentity(analysisRunId: $analysisRunId, trackId: $trackId) }', input)
     },
-    async saveAnalysisView(input: { matchId: string; name: string; filters: Record<string, unknown>; layout?: Record<string, unknown> | null }) {
-      const result = await transport.request<{ saveAnalysisView: { schema_version: '1.0.0'; view: SavedAnalysisView } }>('mutation SaveAnalysisView($matchId: ID!, $name: String!, $filters: JSON!, $layout: JSON) { saveAnalysisView(matchId: $matchId, name: $name, filters: $filters, layout: $layout) }', input)
-      return result.saveAnalysisView.view
+    async setTrackIdentityMappingComplete(input: { analysisRunId: string; completed: boolean }) {
+      return transport.request<{ setTrackIdentityMappingComplete: { schema_version: '1.0.0'; completed: boolean } }>('mutation SetTrackIdentityMappingComplete($analysisRunId: ID!, $completed: Boolean!) { setTrackIdentityMappingComplete(analysisRunId: $analysisRunId, completed: $completed) }', input)
     },
   }
 }

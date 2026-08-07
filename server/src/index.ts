@@ -19,6 +19,7 @@ import { analysisMediaRoutes } from './routes/analysis-media.js'
 import { collectOperationsSnapshot, operationsRoutes } from './routes/operations.js'
 import { createAnnotationPresenceService } from './realtime/annotation-presence.js'
 import { annotationWebSocketRoutes } from './realtime/annotation-ws.js'
+import { coachWebSocketRoutes } from './realtime/coach-ws.js'
 import { authenticateDevelopmentAnnotationRequest } from './realtime/auth.js'
 import { createAnnotationCommandService } from './services/annotation-command.js'
 
@@ -93,6 +94,9 @@ await app.register(annotationWebSocketRoutes({
   authenticate: (request) => authenticateDevelopmentAnnotationRequest(request, db),
   ...(annotationPresence ? { presence: annotationPresence } : {}),
   service: annotationCommands,
+}))
+await app.register(coachWebSocketRoutes({
+  authenticate: (request) => authenticateDevelopmentAnnotationRequest(request, db),
 }))
 
 const yoga = createYoga<{ req: FastifyRequest; reply: FastifyReply }>({

@@ -35,6 +35,16 @@ export interface SwapCourtSidesInput {
   setId: string
 }
 
+export interface RosterEditInput extends RosterSetupInput {
+  id?: string | null | undefined
+}
+
+export interface UpdateMatchRosterInput {
+  matchId: string
+  roster: readonly RosterEditInput[]
+  teamId: string
+}
+
 interface NormalizedRosterSetup {
   jerseyNumber: string
   name: string
@@ -230,6 +240,81 @@ function operatorSetWhere(actor: AuthenticatedUser, setId: string): Prisma.Match
       },
     },
   }
+}
+
+export async function updateMatchRoster(
+  actor: AuthenticatedUser,
+  input: UpdateMatchRosterInput,
+): Promise<Match> {
+  requireSetupRole(actor)
+  const matchId = requireUuid(input.matchId, 'matchId')
+  const teamId = requireUuid(input.teamId, 'teamId')
+  const normalized = normalizeTeam({ name: 'roster', shortName: 'roster', roster: input.roster }, 'roster').roster
+
+  return db.$transaction(async (tx) => {
+    await tx.$queryRaw<Array<{ locked: string }>>`
+      SELECT pg_advisory_xact_lock(hashtextextended(${`match-roster:${matchId}:${teamId}`}, 0))::text AS locked
+    `
+    const match = await tx.match.findFirst({
+      where: {
+        id: matchId,
+        matchTeams: { some: { teamId } },
+        ...(actor.role === UserRole.ADMIN
+          ? {}
+          : { members: { some: { role: UserRole.OPERATOR, userId: actor.id } } }),
+      },
+    })
+    if (!match) domainError('Match team not found', 'NOT_FOUND')
+
+    const existing = await tx.matchRosterEntry.findMany({ where: { matchId, teamId } })
+    const byId = new Map(existing.map(entry => [entry.id, entry]))
+    const requestedIds = new Set<string>()
+    for (const [index, row] of input.roster.entries()) {
+      if (!row.id) continue
+      const id = requireUuid(row.id, `roster[${index}].id`)
+      if (!byId.has(id)) domainError('Roster entry does not belong to this match team', 'BAD_USER_INPUT')
+      if (requestedIds.has(id)) domainError('Roster contains duplicate entry IDs', 'BAD_USER_INPUT')
+      requestedIds.add(id)
+    }
+
+    // The database enforces jersey uniqueness only for active rows. Temporarily
+    // deactivate the current team so jersey swaps stay atomic while historical
+    // roster snapshots and identity assignments retain their original values.
+    for (const entry of existing) {
+      await tx.matchRosterEntry.update({
+        data: { active: false },
+        where: { id: entry.id },
+      })
+    }
+
+    for (const [index, row] of normalized.entries()) {
+      const requested = input.roster[index]
+      const existingEntry = requested?.id ? byId.get(requested.id) : undefined
+      if (existingEntry) {
+        await tx.matchRosterEntry.update({
+          data: { active: true, displayNameSnapshot: row.name, jerseyNumber: row.jerseyNumber },
+          where: { id: existingEntry.id },
+        })
+        if (existingEntry.playerId) {
+          await tx.player.update({ data: { name: row.name }, where: { id: existingEntry.playerId } })
+        }
+        continue
+      }
+
+      const player = await tx.player.create({ data: { name: row.name, teamId } })
+      await tx.matchRosterEntry.create({
+        data: {
+          active: true,
+          displayNameSnapshot: row.name,
+          jerseyNumber: row.jerseyNumber,
+          matchId,
+          playerId: player.id,
+          teamId,
+        },
+      })
+    }
+    return match
+  })
 }
 
 export async function swapCourtSides(

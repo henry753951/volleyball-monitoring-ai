@@ -1,3 +1,13 @@
+import { existsSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
+
+// The repository keeps local Compose and Nuxt development settings together at
+// the root. Nuxt otherwise only discovers web/.env when launched with --cwd.
+if (process.env.NODE_ENV !== 'production' && typeof process.loadEnvFile === 'function') {
+  const repositoryEnv = fileURLToPath(new URL('../.env', import.meta.url))
+  if (existsSync(repositoryEnv)) process.loadEnvFile(repositoryEnv)
+}
+
 export default defineNuxtConfig({
   compatibilityDate: '2026-08-01',
   devtools: { enabled: true },
@@ -26,6 +36,8 @@ export default defineNuxtConfig({
       // because an iPad reaches the host by LAN IP or DNS name.
       graphqlPath: process.env.NUXT_PUBLIC_GRAPHQL_PATH ?? '/graphql',
       annotationWsPath: process.env.NUXT_PUBLIC_ANNOTATION_WS_PATH ?? '/ws/annotations',
+      coachWsPath: process.env.NUXT_PUBLIC_COACH_WS_PATH ?? '/ws/coach',
+      coachEmbedUrl: process.env.NUXT_PUBLIC_COACH_EMBED_URL ?? '',
       restBasePath: process.env.NUXT_PUBLIC_REST_BASE_PATH ?? '/api/v1',
       liveHlsBasePath: process.env.NUXT_PUBLIC_LIVE_HLS_BASE_PATH ?? '/hls',
     },
@@ -33,6 +45,13 @@ export default defineNuxtConfig({
   routeRules: {
     '/annotate/**': { ssr: false },
     '/matches/**': { ssr: false },
+  },
+  nitro: {
+    devProxy: {
+      '/graphql': { target: 'https://localhost/graphql', changeOrigin: true, secure: false },
+      '/api': { target: 'https://localhost/api', changeOrigin: true, secure: false },
+      '/hls': { target: 'https://localhost/hls', changeOrigin: true, secure: false },
+    },
   },
   pwa: {
     registerType: 'autoUpdate',

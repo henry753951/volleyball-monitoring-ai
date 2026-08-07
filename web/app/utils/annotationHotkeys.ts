@@ -16,7 +16,7 @@ export type AnnotationAction =
   | 'close_unknown'
   | 'submit'
 
-export type MediaAction = 'frame_previous' | 'frame_next'
+export type MediaAction = 'play_pause' | 'frame_previous' | 'frame_next'
 export type HotkeyCommand = AnnotationAction | MediaAction
 export type HotkeyCommandGroup = 'annotation' | 'media'
 export type HotkeyBindings = Record<HotkeyCommand, string>
@@ -29,30 +29,31 @@ export interface HotkeyCommandDefinition {
 }
 
 export const ANNOTATION_COMMANDS = [
-  { action: 'service', group: 'annotation', label: '發球', description: '建立 Rally，並在伺服器確認的畫格標記 service' },
-  { action: 'contact', group: 'annotation', label: '擊球', description: '在伺服器確認的畫格新增 contact key point' },
+  { action: 'service', group: 'annotation', label: '發球', description: '開始新的回合並記錄發球時刻' },
+  { action: 'contact', group: 'annotation', label: '擊球', description: '記錄目前畫面的擊球時刻' },
   {
     action: 'close_left',
     group: 'annotation',
     label: '左側得分',
-    description: '將最後一個 key point 設為 terminal，並以左側得分結束 Rally',
+    description: '以最後一個擊球點結束回合並記錄左側得分',
   },
   {
     action: 'close_right',
     group: 'annotation',
     label: '右側得分',
-    description: '將最後一個 key point 設為 terminal，並以右側得分結束 Rally',
+    description: '以最後一個擊球點結束回合並記錄右側得分',
   },
   {
     action: 'close_unknown',
     group: 'annotation',
     label: '未知',
-    description: '將最後一個 key point 設為 terminal，並以結果未知結束 Rally',
+    description: '以最後一個擊球點結束回合，結果保留為未知',
   },
-  { action: 'submit', group: 'annotation', label: '提交', description: '建立不可變的 Rally submission' },
+  { action: 'submit', group: 'annotation', label: '送出', description: '送出目前回合進行分析' },
 ] as const satisfies ReadonlyArray<HotkeyCommandDefinition>
 
 export const MEDIA_COMMANDS = [
+  { action: 'play_pause', group: 'media', label: '播放／暫停', description: '切換目前影片的播放狀態' },
   { action: 'frame_previous', group: 'media', label: '上一幀', description: '由伺服器解析並移到上一個權威畫格' },
   { action: 'frame_next', group: 'media', label: '下一幀', description: '由伺服器解析並移到下一個權威畫格' },
 ] as const satisfies ReadonlyArray<HotkeyCommandDefinition>
@@ -62,17 +63,18 @@ export const HOTKEY_COMMANDS: ReadonlyArray<HotkeyCommandDefinition> = [
   ...MEDIA_COMMANDS,
 ]
 
-export const HOTKEY_PREFERENCES_VERSION = 3 as const
-export const HOTKEY_PREFERENCES_STORAGE_KEY = 'volleyball-monitoring-ai:hotkeys:3'
+export const HOTKEY_PREFERENCES_VERSION = 4 as const
+export const HOTKEY_PREFERENCES_STORAGE_KEY = 'volleyball-monitoring-ai:hotkeys:4'
 export const LEGACY_ANNOTATION_HOTKEYS_STORAGE_KEY = 'volleyball-monitoring-ai:annotation-hotkeys:2'
 
 export const DEFAULT_HOTKEY_BINDINGS: Readonly<HotkeyBindings> = Object.freeze({
   service: 'Z',
-  contact: 'Space',
+  contact: 'X',
   close_left: '<',
   close_right: '>',
   close_unknown: '?',
   submit: 'Enter',
+  play_pause: 'Space',
   frame_previous: 'ArrowLeft',
   frame_next: 'ArrowRight',
 })
@@ -244,6 +246,21 @@ function migrateLegacyBindings(value: unknown): HotkeyBindings | null {
   return normalizeBindingRecord(value, ANNOTATION_COMMANDS)
 }
 
+function migrateVersionThree(value: unknown): HotkeyBindings | null {
+  if (!isRecord(value)) return null
+  const source = isRecord(value.bindings) ? value.bindings : value
+  const bindings = restoreDefaultHotkeys()
+  for (const command of HOTKEY_COMMANDS) {
+    if (command.action === 'play_pause') continue
+    const raw = source[command.action]
+    if (typeof raw !== 'string') return null
+    const normalized = normalizeRecordedHotkey(raw)
+    if (!normalized || isBrowserReservedHotkey(normalized)) return null
+    bindings[command.action] = command.action === 'contact' && normalized === 'Space' ? 'X' : normalized
+  }
+  return normalizeBindingRecord(bindings, HOTKEY_COMMANDS)
+}
+
 export function parseStoredHotkeyPreferences(serialized: string): StoredHotkeyPreferences | null {
   let parsed: unknown
   try {
@@ -256,6 +273,11 @@ export function parseStoredHotkeyPreferences(serialized: string): StoredHotkeyPr
   if (!isRecord(parsed)) return null
   if (parsed.version === HOTKEY_PREFERENCES_VERSION) {
     const bindings = normalizeCompleteBindings(parsed.bindings)
+    return bindings ? { version: HOTKEY_PREFERENCES_VERSION, bindings } : null
+  }
+
+  if (parsed.version === 3) {
+    const bindings = migrateVersionThree(parsed)
     return bindings ? { version: HOTKEY_PREFERENCES_VERSION, bindings } : null
   }
 

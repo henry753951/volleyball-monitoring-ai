@@ -206,7 +206,7 @@ MatchType.implement({
       type: [MatchRosterEntryType],
       resolve: (match) => db.matchRosterEntry.findMany({
         orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
-        where: { matchId: match.id },
+        where: { active: true, matchId: match.id },
       }),
     }),
     scheduledAt: t.field({

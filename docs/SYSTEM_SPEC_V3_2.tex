@@ -258,9 +258,10 @@ table 或只完成 demo 的工作，都不能宣稱該流程已完成。
 \texttt{Z\ 發球} & \texttt{Z} & 建立新 rally，並在目前已呈現影片 frame
 建立第一個人工 \texttt{service} key point & 已有未提交 rally
 時不可另開新 rally \\
-\texttt{Space\ 擊球} & \texttt{Space} & 在目前已呈現影片 frame 建立一般
+\texttt{X\ 擊球} & \texttt{X} & 在目前已呈現影片 frame 建立一般
 \texttt{contact} key point & 播放器正在 seek、cursor stale 或位於 gap
 時不可建立 \\
+播放／暫停 & \texttt{Space} & 切換目前影片播放狀態 & 只控制播放器，不建立 key point \\
 \texttt{\textless{}\ 左側得分} & \texttt{\textless{}} &
 以單一 \texttt{CLOSE\_\allowbreak{}RALLY} atomically把目前server-confirmed最後key
 point標為terminal，並將rally-level outcome設為\texttt{resolved/left} &
@@ -289,7 +290,7 @@ Command必須帶\texttt{target\_\allowbreak{}key\_\allowbreak{}point\_\allowbrea
 \item
   相同 scope 不得有重複鍵位；瀏覽器保留鍵、文字輸入焦點、Dialog/Select scope 與平台鍵盤差異必須被辨識並清楚提示。
 \item
-  Control deck、設定選單與快捷鍵說明必須以 TanStack Hotkeys \texttt{formatForDisplay} 顯示目前綁定，讓 macOS 使用符號、Windows/Linux 使用平台慣用標籤；不得自行拼接鍵帽文字。六個觸控動作不可被移除，且不受鍵盤自訂影響。
+  Control deck、設定選單與快捷鍵說明必須以 TanStack Hotkeys \texttt{formatForDisplay} 顯示目前綁定，讓 macOS 使用符號、Windows/Linux 使用平台慣用標籤；不得自行拼接鍵帽文字。底部固定顯示Z、X、\texttt{\textless{}}、\texttt{\textgreater{}}、\texttt{?}與按鍵設定；Enter保留為鍵盤command，不顯示大型提交按鈕。
 \end{itemize}
 
 \texttt{service} 與 \texttt{contact} 只是人工 marker kind，不是 AI
@@ -328,11 +329,10 @@ optional extension。
   \texttt{OPEN}、\texttt{READY}：灰色半透明
   mask，表示尚未提交且仍可修正。
 \item
-  \texttt{SUBMITTED}：綠色半透明 mask，表示某個 immutable submission
-  已建立。
+  \texttt{SUBMITTED}且AI尚未完成：黃色半透明 mask，表示 immutable submission
+  已建立並正在裁切／排隊／處理。
 \item
-  綠色不代表 AI 完成；裁切、排隊、處理中、完成、失敗以 mask 上的 status
-  badge 顯示。
+  AI完成：藍色半透明 mask；球員指派完成：綠色半透明 mask。失敗使用明確錯誤badge，不得偽裝成完成色。
 \item
   Mask 上緣必須有文字狀態，不可只靠顏色：
 
@@ -362,7 +362,7 @@ optional extension。
 教練端不是單頁}\label{13-ux6559ux7df4ux7aefux4e0dux662fux55aeux9801}
 
 教練／裁判端採多頁資訊架構，iPad
-使用底部導覽列；頂部狀態列可返回主選單並開啟過去保存的紀錄。
+使用精簡底部導覽；頂部工具列提供首頁、場次比分、live 與連線狀態。
 
 建議底部導覽：
 
@@ -372,13 +372,9 @@ optional extension。
 \item
   \texttt{現場}
 \item
-  \texttt{球路}
+  \texttt{回合}
 \item
   \texttt{球員}
-\item
-  \texttt{統計}
-\item
-  \texttt{紀錄}
 \end{enumerate}
 
 頂部列至少包含：
@@ -386,17 +382,15 @@ optional extension。
 \begin{itemize}
 \tightlist
 \item
-  返回賽事／場次選單。
+  首頁按鈕。
 \item
   場次、局數、比分與 live 狀態。
 \item
-  當前是否位於 live edge。
+  精簡的 WebSocket ping／離線狀態。
 \item
-  同步／離線狀態。
+  新回合完成通知與直接轉跳。
 \item
-  Overlay 快捷設定。
-\item
-  進入歷史 rally、保存分析視圖與設定。
+  回放頁使用 drawer 管理顯示圖層，不提供保存分析視圖或 Annotation 設定。
 \end{itemize}
 
 \subsection{1.4 AI 邊界}\label{14-ai-ux908aux754c}
@@ -615,8 +609,8 @@ Critical & GraphQL 文件使用 \texttt{BigInt}，code-first builder卻註冊
 \texttt{Int64} & 全部統一為 \texttt{BigInt}；Web
 codegen映射為\texttt{string}。 \\
 Critical & Annotation WebSocket只定義自由格式 \texttt{payload} &
-每一個Z／Space／\texttt{CLOSE\_\allowbreak{}RALLY}／move／delete／reopen／Enter
-command都具有strict payload schema；close必須帶target ID與strict outcome。 \\
+每一個Z／X／\texttt{CLOSE\_\allowbreak{}RALLY}／move／delete／reopen／Enter
+command都具有strict payload schema；close必須帶target ID與strict outcome；Space僅在本地控制播放器。 \\
 Critical & \texttt{DvrSegment.presentationStartUs}容易被誤認為player/HLS
 presentation time &
 DB改名\texttt{captureStartUs/captureEndUs}，只表示整場canonical
@@ -839,11 +833,11 @@ AI request 建立後，下列值在 AI result/callback 不得改寫：
 \item
   PC-first Nuxt 多頁式標註編輯器、教練端與歷史紀錄；標註端以鍵盤、滑鼠與高資訊密度操作為主要驗收。
 \item
-  只有教練／裁判顯示面板要求 installable iPad landscape PWA；標註端保留六個 touch action 的同 command-path parity，但不以 iPad PWA 作主要版面或驗收裝置。
+  只有教練／裁判顯示面板要求 installable iPad landscape PWA；標註端保留五個 annotation touch action 與按鍵設定，但不以 iPad PWA 作主要版面或驗收裝置。
 \item
   Full-session timeline + lazy playback windows。
 \item
-  快捷鍵 state machine 與灰／綠 mask。
+  快捷鍵 state machine 與灰／黃／藍／綠 mask。
 \item
   GraphQL query/mutation client。
 \item
@@ -1690,7 +1684,7 @@ live-edge更新持續進行。
   Safari 原生 HLS不保證可暴露 segment ID，因此 \texttt{segment\_\allowbreak{}id}
   不可設為 browser必填欄位。
 \item
-  \texttt{cursor\_\allowbreak{}status=seeking/stale/gap} 時，Z/Space必須被 UI阻擋。
+  \texttt{cursor\_\allowbreak{}status=seeking/stale/gap} 時，Z/X必須被 UI阻擋；Space仍只切換播放器。
 \item
   \texttt{seek\_\allowbreak{}generation} 防止 seek完成前的舊 callback被誤用。
 \end{itemize}
@@ -1774,7 +1768,7 @@ Flow}\label{9-annotation-ux72c0ux614bux6a5fux8207ux5b8cux6574-user-flow}
   若已有 active draft，拒絕，不自動關閉前一 rally。
 \end{enumerate}
 
-\subsubsection{Space - 擊球}\label{space---ux64caux7403}
+\subsubsection{X - 擊球}\label{x---ux64caux7403}
 
 \begin{enumerate}
 \def\labelenumi{\arabic{enumi}.}
@@ -1842,7 +1836,7 @@ Server以單一 transaction：
 \item
   建立 ClipJob與Outbox event。
 \item
-  廣播 submission／processing狀態；UI mask轉綠。
+  廣播 submission／processing狀態；UI mask轉黃。
 \end{enumerate}
 
 提交後不可原地修改。修正必須建立 correction draft並新建 submission，保留
@@ -1859,7 +1853,7 @@ supersedes關係。
   方向鍵在 key point edit mode 呼叫 server frame-step API；後端依 sample
   index取得前後 sample，再更新 marker。
 \item
-  綠色 mask唯讀；開啟修正時從 submission建立新 draft。
+  黃色processing、藍色AI完成與綠色球員指派完成mask皆唯讀；開啟修正時從 submission建立新灰色draft。
 \item
   拖曳 marker時可用短暫 soft lock提示其他協作者，但 canonical
   concurrency仍以 revision/CAS為準。
@@ -1878,8 +1872,7 @@ supersedes關係。
   多軌 timeline：完整 capture range、gap、playhead、key points、rally
   masks、score strip、processing badges。
 \item
-  底部固定 control deck：發球、擊球、左側得分、右側得分、未知、提交六個觸控動作，顯示目前快捷鍵（預設
-  \texttt{Z}、\texttt{Space}、\texttt{\textless{}}、\texttt{\textgreater{}}、\texttt{?}、\texttt{Enter}）並依state啟停；不得顯示獨立結束控制。
+  底部固定精簡 control deck：\texttt{Z}發球、\texttt{X}擊球、\texttt{\textless{}}左側得分、\texttt{\textgreater{}}右側得分、\texttt{?}未知與按鍵設定；不得顯示獨立結束或大型提交控制。\texttt{Enter}提交與\texttt{Space}播放／暫停仍由集中式鍵盤registry提供。
 \item
   Inspector：選取 key point時顯示 canonical
   time、frame、建立者、revision、duplicate/precision資訊。
@@ -1964,7 +1957,7 @@ kind & 主要 payload & 說明 \\
 \texttt{CREATE\_\allowbreak{}SERVICE\_\allowbreak{}KEY\_\allowbreak{}POINT} & \texttt{playback\_\allowbreak{}cursor} &
 Z；建立 rally與service marker \\
 \texttt{CREATE\_\allowbreak{}CONTACT\_\allowbreak{}KEY\_\allowbreak{}POINT} & \texttt{playback\_\allowbreak{}cursor} &
-Space \\
+X \\
 \texttt{CLOSE\_\allowbreak{}RALLY} &
 \texttt{target\_\allowbreak{}key\_\allowbreak{}point\_\allowbreak{}id} + strict outcome union &
 \texttt{\textless{}}／\texttt{\textgreater{}}／\texttt{?}；atomically terminalize最後key point並保存rally-level outcome；不帶新時間／frame \\
@@ -2089,7 +2082,6 @@ GraphQL Int。
 \NormalTok{  rally(id: }\DataTypeTok{ID}\NormalTok{!): Rally}
 \NormalTok{  analysisView(}\KeywordTok{input}\NormalTok{: AnalysisViewInput!): AnalysisView!}
 \NormalTok{  featureAvailability(matchId: }\DataTypeTok{ID}\NormalTok{!): FeatureAvailability!}
-\NormalTok{  savedAnalysisViews(matchId: }\DataTypeTok{ID}\NormalTok{!): [SavedAnalysisView!]!}
 \NormalTok{\}}
 \end{Highlighting}
 \end{Shaded}
@@ -2108,7 +2100,6 @@ GraphQL Int。
 
 \NormalTok{  assignTrackIdentity(}\KeywordTok{input}\NormalTok{: AssignTrackIdentityInput!): TrackIdentityAssignment!}
 \NormalTok{  retryProcessing(}\KeywordTok{input}\NormalTok{: RetryProcessingInput!): ProcessingState!}
-\NormalTok{  saveAnalysisView(}\KeywordTok{input}\NormalTok{: SaveAnalysisViewInput!): SavedAnalysisView!}
 \NormalTok{\}}
 \end{Highlighting}
 \end{Shaded}
@@ -2201,7 +2192,7 @@ domain handler，不能有另一套語意。
 \item
   AnalysisRun／AnalysisTrack／ContactEvent／Actor／Candidate／BallPathSegment／AnalysisArtifact。
 \item
-  TrackIdentityAssignment／SavedAnalysisView／OutboxEvent。
+  TrackIdentityAssignment／OutboxEvent。
 \end{itemize}
 
 \subsection{12.2
@@ -3293,7 +3284,7 @@ Backend：
 \item
   Draft mutable model + operation log。
 \item
-  Z/Space/CLOSE\_RALLY(left/right/unknown)/reopen/move/delete/Enter。
+  Z/X/CLOSE\_RALLY(left/right/unknown)/reopen/move/delete/Enter；Space只控制播放／暫停。
 \item
   immutable submission。
 \end{itemize}
@@ -3305,12 +3296,12 @@ Frontend：
 \item
   剪輯式 timeline與 tracks。
 \item
-  灰／綠 mask、score strip、快捷鍵模式。
+  灰色draft／黃色processing／藍色AI完成／綠色球員指派完成mask、score strip、快捷鍵模式。
 \item
   多人 presence/conflict/reconnect。
 \end{itemize}
 
-Exit：兩個獨立 PC browser session 同時標註；鍵盤、滑鼠與六個同 command-path touch controls 可用；refresh/reconnect後一致；close不建timestamp／score
+Exit：兩個獨立 PC browser session 同時標註；鍵盤、滑鼠與五個annotation touch controls加按鍵設定可用；refresh/reconnect後一致；close不建timestamp／score
 frame；unknown可提交。Coach iPad PWA 在 Phase 5 另行驗收，不作為 annotation editor 的主要裝置。
 
 \subsection{Phase 4 --- Clip／Fake
@@ -3673,7 +3664,7 @@ Done}\label{25-ux6e2cux8a66ux8207-definition-of-done}
 \begin{itemize}
 \tightlist
 \item
-  Z/Space/left-close/right-close/unknown-close/Enter六個固定語意。
+  Z/X/left-close/right-close/unknown-close/Enter固定標註語意；Space固定為播放／暫停。
 \item
   \texttt{CLOSE\_\allowbreak{}RALLY}不新增timestamp、score frame或score event，terminal anchor沿用target key point。
 \item
@@ -3752,7 +3743,7 @@ Done}\label{25-ux6e2cux8a66ux8207-definition-of-done}
 \item
   多人標註與revision恢復正確。
 \item
-  灰／綠mask與score state符合使用流程。
+  灰／黃／藍／綠mask與score state符合使用流程。
 \item
   Enter建立immutable submission。
 \item

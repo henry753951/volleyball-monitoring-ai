@@ -1,3 +1,0 @@
-mutation SaveAnalysisView($matchId: ID!, $name: String!, $filters: JSON!, $layout: JSON) {
-  saveAnalysisView(matchId: $matchId, name: $name, filters: $filters, layout: $layout)
-}

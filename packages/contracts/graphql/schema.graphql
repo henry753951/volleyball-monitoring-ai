@@ -109,13 +109,15 @@ enum MatchStatus {
 type Mutation {
   applyAnnotationCommand(command: JSON!): JSON!
   assignTrackIdentity(analysisRunId: ID!, rosterEntryId: ID!, trackId: Int!): JSON!
+  clearTrackIdentity(analysisRunId: ID!, trackId: Int!): JSON!
   createCorrectionDraft(submissionId: ID!): Rally!
   createMatchSetup(input: CreateMatchSetupInput!): Match!
   retryProcessing(input: RetryProcessingInput!): ProcessingState!
-  saveAnalysisView(filters: JSON!, layout: JSON, matchId: ID!, name: String!): JSON!
+  setTrackIdentityMappingComplete(analysisRunId: ID!, completed: Boolean!): JSON!
   startCapture(input: StartCaptureInput!): CaptureSession!
   stopCapture(captureSessionId: ID!): CaptureSession!
   swapCourtSides(input: SwapCourtSidesInput!): MatchSet!
+  updateMatchRoster(input: UpdateMatchRosterInput!): Match!
 }
 
 type Player {
@@ -153,7 +155,6 @@ type Query {
   health: Health!
   match(id: ID!): Match
   matches: [Match!]!
-  savedAnalysisViews(matchId: ID!): JSON
   viewer: Viewer!
 }
 
@@ -171,6 +172,12 @@ type Rally {
 
 input RetryProcessingInput {
   rallyId: ID!
+}
+
+input RosterEditInput {
+  id: ID
+  jerseyNumber: String!
+  name: String!
 }
 
 input RosterInput {
@@ -221,6 +228,12 @@ input TeamSetupInput {
   name: String!
   roster: [RosterInput!]!
   shortName: String!
+}
+
+input UpdateMatchRosterInput {
+  matchId: ID!
+  roster: [RosterEditInput!]!
+  teamId: ID!
 }
 
 enum UserRole {

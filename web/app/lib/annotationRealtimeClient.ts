@@ -25,6 +25,7 @@ export interface AnnotationRealtimeClient {
 export function createAnnotationRealtimeClient(
   roomId: string,
   handlers: AnnotationRealtimeHandlers = {},
+  endpoint?: string,
 ): AnnotationRealtimeClient {
   let socket: WebSocket | null = null
   let stopped = false
@@ -80,8 +81,9 @@ export function createAnnotationRealtimeClient(
     connectionReady = false
     setState(reconnectAttempt ? 'reconnecting' : 'connecting')
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-    const url = `${protocol}//${window.location.host}/ws/annotations?room_id=${encodeURIComponent(roomId)}`
-    socket = new WebSocket(url)
+    const url = new URL(endpoint ?? `${protocol}//${window.location.host}/ws/annotations`)
+    url.searchParams.set('room_id', roomId)
+    socket = new WebSocket(url.toString())
     socket.addEventListener('message', (event) => {
       try {
         const message = parseAnnotationServerMessage(JSON.parse(String(event.data)))

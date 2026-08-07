@@ -1,5 +1,6 @@
 
 import type { ObservationSource, CursorStatus, PlaybackWindowDescriptor, PlaybackCursorInput } from '../lib/mediaModel'
+import { isPlayerMediaTimeWithinWindow } from '../utils/playbackWindow'
 export type { ObservationSource, CursorStatus, PlaybackWindowDescriptor, PlaybackCursorInput } from '../lib/mediaModel'
 
 interface VideoFrameMetadataSubset {
@@ -18,6 +19,7 @@ export function usePlaybackCursor(
   let fallbackTimer: ReturnType<typeof setInterval> | null = null
   let lastObservationAt = 0
   let staleTimer: ReturnType<typeof setInterval> | null = null
+  let forcedGap = false
 
   const publish = (
     mediaTimeSeconds: number,
@@ -29,6 +31,11 @@ export function usePlaybackCursor(
 
     lastObservationAt = performance.now()
     const playerMediaTimeUs = BigInt(Math.round(mediaTimeSeconds * 1_000_000))
+    cursorStatus.value = forcedGap || !isPlayerMediaTimeWithinWindow(playerMediaTimeUs, current)
+      ? 'gap'
+      : video.value?.seeking
+        ? 'seeking'
+        : 'ready'
     cursor.value = {
       schema_version: '1.0.0',
       playback_window_id: current.playback_window_id,
@@ -48,7 +55,6 @@ export function usePlaybackCursor(
     if (typeof element.requestVideoFrameCallback === 'function') {
       callbackId = element.requestVideoFrameCallback((_now, metadata) => {
         const frame = metadata as VideoFrameMetadataSubset
-        if (cursorStatus.value !== 'gap') cursorStatus.value = element.seeking ? 'seeking' : 'ready'
         publish(frame.mediaTime, 'request_video_frame_callback', frame.presentedFrames)
         scheduleVideoFrameCallback()
       })
@@ -56,17 +62,18 @@ export function usePlaybackCursor(
     }
 
     fallbackTimer = setInterval(() => {
-      if (cursorStatus.value !== 'gap') cursorStatus.value = element.seeking ? 'seeking' : 'ready'
       publish(element.currentTime, 'current_time_fallback', undefined)
     }, 100)
   }
 
   const markGap = (isGap: boolean) => {
+    forcedGap = isGap
     cursorStatus.value = isGap ? 'gap' : 'stale'
   }
 
 
   watch(descriptor, () => {
+    forcedGap = false
     seekGeneration.value += 1
     cursorStatus.value = 'stale'
     cursor.value = null

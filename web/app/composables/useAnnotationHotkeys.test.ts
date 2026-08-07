@@ -172,7 +172,7 @@ describe('annotation TanStack runtime adapter', () => {
     app.mount(root)
     await nextTick()
     const scope = root.children[0] as FakeElement
-    expect(getHotkeyManager().getRegistrationCount()).toBe(8)
+    expect(getHotkeyManager().getRegistrationCount()).toBe(9)
 
     expect(keydown(scope, 'z', 'KeyZ').defaultPrevented).toBe(true)
     expect(calls).toEqual(['service'])
@@ -180,7 +180,7 @@ describe('annotation TanStack runtime adapter', () => {
 
     bindings.value = { ...bindings.value, service: 'S' }
     await nextTick()
-    expect(getHotkeyManager().getRegistrationCount()).toBe(8)
+    expect(getHotkeyManager().getRegistrationCount()).toBe(9)
     keydown(scope, 'z', 'KeyZ')
     keydown(scope, 's', 'KeyS')
     expect(calls).toEqual(['service', 'service'])

@@ -58,6 +58,7 @@ export function useAnnotationRoom() {
   const outbox = shallowRef<AnnotationOutboxEntry[]>([])
   const presence = shallowRef<AnnotationPresenceSnapshot['members']>([])
   const transport = createGraphQLTransport('/graphql')
+  const { annotationWsUrl } = usePublicEndpoints()
   let realtime: AnnotationRealtimeClient | null = null
   let refreshTimer: ReturnType<typeof setInterval> | null = null
   let flushPromise: Promise<void> | null = null
@@ -202,7 +203,7 @@ export function useAnnotationRoom() {
         if (message.type === 'rally_snapshot') acceptSnapshot(message)
         if (message.type === 'presence_snapshot') presence.value = message.members
       },
-    })
+    }, annotationWsUrl.value)
     realtime.connect()
     void refreshActive()
     refreshTimer = setInterval(() => { void refreshActive() }, 2_000)
@@ -310,10 +311,10 @@ export function useAnnotationRoom() {
     }
   }
 
-  async function createCorrection() {
-    const submissionId = snapshot.value?.snapshot.active_submission_id
-    if (!submissionId) throw new Error('目前沒有可修正的 immutable submission')
-    if (state.value !== 'SUBMITTED') throw new Error('目前已經有修正草稿')
+  async function createCorrection(targetSubmissionId?: string) {
+    const submissionId = targetSubmissionId ?? snapshot.value?.snapshot.active_submission_id
+    if (!submissionId) throw new Error('目前沒有可修正的已送出片段')
+    if (state.value === 'OPEN' || state.value === 'READY') throw new Error('請先完成目前的標記片段')
     busy.value = true
     error.value = null
     try {
