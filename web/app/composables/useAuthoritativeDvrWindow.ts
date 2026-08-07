@@ -44,7 +44,8 @@ export function useAuthoritativeDvrWindow(client: MediaClient) {
         }
         status.value = 'recovering'; busy.value = false
         const target = mediaError.details && typeof mediaError.details === 'object' && 'target_capture_time_us' in mediaError.details ? String(mediaError.details.target_capture_time_us) : anchor.value.capture_time_us
-        try { await create(inputFactory(target)) } catch (refreshError) { status.value = 'error'; error.value = refreshError instanceof Error ? refreshError : mediaError; busy.value = false; return null }
+        const priorAnchor = anchor.value
+        try { const refreshed = await create(inputFactory(target)); if (refreshed && priorAnchor) anchor.value = { ...priorAnchor, playback_window_id: refreshed.playback_window_id, mapping_version: refreshed.mapping_version } } catch (refreshError) { status.value = 'error'; error.value = refreshError instanceof Error ? refreshError : mediaError; busy.value = false; return null }
       }
     }
     return null
