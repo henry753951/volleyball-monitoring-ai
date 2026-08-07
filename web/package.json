@@ -30,6 +30,8 @@
   "devDependencies": {
     "@nuxtjs/tailwindcss": "^6.14.0",
     "@vue/test-utils": "^2.4.6",
+    "@vitejs/plugin-vue": "^6.0.1",
+    "jsdom": "^26.1.0",
     "typescript": "^5.9.3",
     "vue-tsc": "^3.3.9",
     "vitest": "^4.1.10",
