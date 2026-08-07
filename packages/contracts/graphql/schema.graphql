@@ -1,3 +1,10 @@
+enum AnnotationStatus {
+  OPEN
+  READY
+  SUBMITTED
+  VOIDED
+}
+
 """Signed 64-bit integer serialized as a decimal string."""
 scalar BigInt
 
@@ -32,6 +39,11 @@ type CaptureTimelineRange {
   discontinuity: Int!
   endUs: BigInt!
   startUs: BigInt!
+}
+
+enum CourtSide {
+  LEFT
+  RIGHT
 }
 
 type CourtSideAssignment {
@@ -96,7 +108,13 @@ enum MatchStatus {
 
 type Mutation {
   applyAnnotationCommand(command: JSON!): JSON!
+  assignTrackIdentity(analysisRunId: ID!, rosterEntryId: ID!, trackId: Int!): JSON!
+  createCorrectionDraft(submissionId: ID!): Rally!
   createMatchSetup(input: CreateMatchSetupInput!): Match!
+  retryProcessing(input: RetryProcessingInput!): ProcessingState!
+  saveAnalysisView(filters: JSON!, layout: JSON, matchId: ID!, name: String!): JSON!
+  startCapture(input: StartCaptureInput!): CaptureSession!
+  stopCapture(captureSessionId: ID!): CaptureSession!
   swapCourtSides(input: SwapCourtSidesInput!): MatchSet!
 }
 
@@ -106,18 +124,64 @@ type Player {
   teamId: ID!
 }
 
+type ProcessingState {
+  rallyId: ID!
+  retriedStage: String!
+  status: ProcessingStatus!
+  submissionId: ID!
+}
+
+enum ProcessingStatus {
+  AI_PROCESSING
+  AI_QUEUED
+  ARTIFACT_INGESTING
+  CLIPPING
+  CLIP_QUEUED
+  COMPLETED
+  FAILED
+  IDLE
+  SUPERSEDED
+}
+
 type Query {
+  activeAnnotationRallySnapshot(roomId: String!): JSON
   annotationRallySnapshot(rallyId: ID!, roomId: String!): JSON
   captureSession(id: ID!): CaptureSession
+  coachMatchAnalytics(matchId: ID!): JSON
+  coachMatchState(matchId: ID!): JSON
+  coachRallyReplay(rallyId: ID!): JSON
   health: Health!
   match(id: ID!): Match
   matches: [Match!]!
+  savedAnalysisViews(matchId: ID!): JSON
   viewer: Viewer!
+}
+
+type Rally {
+  activeSubmissionId: ID
+  annotationRevision: BigInt!
+  annotationStatus: AnnotationStatus!
+  id: ID!
+  matchId: ID!
+  processingStatus: ProcessingStatus!
+  scoreResolutionState: ScoreResolutionState!
+  scoringCourtSide: CourtSide
+  setId: ID!
+}
+
+input RetryProcessingInput {
+  rallyId: ID!
 }
 
 input RosterInput {
   jerseyNumber: String!
   name: String!
+}
+
+enum ScoreResolutionState {
+  PENDING
+  RESOLVED
+  UNKNOWN
 }
 
 enum SetStatus {
@@ -131,6 +195,14 @@ enum SourceHealth {
   HEALTHY
   OFFLINE
   STARTING
+}
+
+input StartCaptureInput {
+  ingestPath: String!
+  matchId: ID!
+  sourceConfigSecretRef: String
+  sourceKind: String!
+  sourceLabel: String
 }
 
 input SwapCourtSidesInput {

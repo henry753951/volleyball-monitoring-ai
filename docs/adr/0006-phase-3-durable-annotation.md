@@ -111,6 +111,25 @@ All other 2.0.0 command kinds remain parseable but return a stable, durable
 unsupported-command rejection until their next reviewed vertical slice. This
 does not claim the Space/close/submit workflow is complete.
 
+## PC workstation reconnect query
+
+The Phase 3 workstation adds the nullable, authorization-filtered GraphQL
+query `activeAnnotationRallySnapshot(roomId: String!): JSON`. This is an
+additive field on the existing code-first GraphQL API, so no breaking contract
+version is introduced. It returns only the same strict Annotation Realtime
+2.0.0 `rally_snapshot` shape already consumed by the WebSocket client, selects
+only OPEN/READY rallies for the exact match/capture room and exposes no media
+or object-store identity. The stored GraphQL operation is the fixture and the
+PC Web client is the sole new consumer; the external Python SDK/AI wire is
+unchanged.
+
+The coach PWA also consumes the additive, authorization-filtered
+`coachMatchState(matchId: ID!): JSON` read model. Its versioned `1.0.0`
+payload contains scoreboard, capture health and immutable
+submission/processing summaries only; it returns no media bytes, storage
+identity or mutable annotation rows. The stored GraphQL operation is the
+fixture. This does not change the external AI or Python SDK contracts.
+
 ## Required evidence for the first slice
 
 - JSON Schema and TypeScript parser positive/negative fixtures, including old
@@ -123,4 +142,3 @@ does not claim the Space/close/submit workflow is complete.
 - WebSocket sender and GraphQL fallback return the same committed response;
 - generated GraphQL SDL, Prisma migration, repository validators, full package
   tests, typechecks and builds pass before integration.
-

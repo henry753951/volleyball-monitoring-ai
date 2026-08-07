@@ -29,32 +29,32 @@ export interface HotkeyCommandDefinition {
 }
 
 export const ANNOTATION_COMMANDS = [
-  { action: 'service', group: 'annotation', label: '發球' },
-  { action: 'contact', group: 'annotation', label: '擊球' },
+  { action: 'service', group: 'annotation', label: '發球', description: '建立 Rally，並在伺服器確認的畫格標記 service' },
+  { action: 'contact', group: 'annotation', label: '擊球', description: '在伺服器確認的畫格新增 contact key point' },
   {
     action: 'close_left',
     group: 'annotation',
     label: '左側得分',
-    description: 'CLOSE_RALLY：terminalize最後key point並保存rally outcome',
+    description: '將最後一個 key point 設為 terminal，並以左側得分結束 Rally',
   },
   {
     action: 'close_right',
     group: 'annotation',
     label: '右側得分',
-    description: 'CLOSE_RALLY：terminalize最後key point並保存rally outcome',
+    description: '將最後一個 key point 設為 terminal，並以右側得分結束 Rally',
   },
   {
     action: 'close_unknown',
     group: 'annotation',
     label: '未知',
-    description: 'CLOSE_RALLY：terminalize最後key point並保存rally outcome',
+    description: '將最後一個 key point 設為 terminal，並以結果未知結束 Rally',
   },
-  { action: 'submit', group: 'annotation', label: '提交' },
+  { action: 'submit', group: 'annotation', label: '提交', description: '建立不可變的 Rally submission' },
 ] as const satisfies ReadonlyArray<HotkeyCommandDefinition>
 
 export const MEDIA_COMMANDS = [
-  { action: 'frame_previous', group: 'media', label: '上一幀' },
-  { action: 'frame_next', group: 'media', label: '下一幀' },
+  { action: 'frame_previous', group: 'media', label: '上一幀', description: '由伺服器解析並移到上一個權威畫格' },
+  { action: 'frame_next', group: 'media', label: '下一幀', description: '由伺服器解析並移到下一個權威畫格' },
 ] as const satisfies ReadonlyArray<HotkeyCommandDefinition>
 
 export const HOTKEY_COMMANDS: ReadonlyArray<HotkeyCommandDefinition> = [

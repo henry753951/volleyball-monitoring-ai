@@ -1,0 +1,11 @@
+mutation StartCapture($input: StartCaptureInput!) {
+  startCapture(input: $input) {
+    id
+    matchId
+    sourceLabel
+    status
+    health
+    startedAt
+    endedAt
+  }
+}

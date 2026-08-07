@@ -19,8 +19,8 @@ export async function runWorkerLifecycle({
   stop: stopRuntime,
 }: WorkerLifecycleOptions): Promise<void> {
   if (signal.aborted) return
-  if (role === 'media-indexer' && start) await start()
-  log(`worker ready role=${role}${role === 'media-indexer' ? '; authoritative spool reconciler active' : '; scaffold role'}`)
+  if (start) await start()
+  log(`worker ready role=${role}${start ? '; durable runtime active' : '; scaffold role'}`)
 
   await new Promise<void>((resolve, reject) => {
     const timer = setInterval(() => undefined, idleIntervalMs)
@@ -30,7 +30,7 @@ export async function runWorkerLifecycle({
       stopping = true
       clearInterval(timer)
       signal.removeEventListener('abort', stop)
-      if (role === 'media-indexer' && stopRuntime) {
+      if (stopRuntime) {
         void stopRuntime().then(resolve, reject)
       } else resolve()
     }

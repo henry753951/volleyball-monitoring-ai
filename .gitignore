@@ -4,8 +4,10 @@
 node_modules/
 .nuxt/
 .output/
+.playwright-cli/
 dist/
 coverage/
+backups/
 *.log
 __pycache__/
 .pytest_cache/

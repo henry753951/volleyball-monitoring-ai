@@ -130,6 +130,22 @@ async function setAllocationLock(tx: Transaction, setId: string): Promise<void> 
   await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`annotation-set:${setId}`}, 0))::text AS lock`
 }
 
+async function nextTombstoneSequence(tx: Transaction, rallyId: string): Promise<number> {
+  const aggregate = await tx.keyPoint.aggregate({ _min: { sequenceIndex: true }, where: { rallyId } })
+  return Math.min(-1, (aggregate._min.sequenceIndex ?? 0) - 1)
+}
+
+async function rewriteActiveSequence(tx: Transaction, rallyId: string, ordered: Array<{ id: string }>): Promise<void> {
+  const aggregate = await tx.keyPoint.aggregate({ _min: { sequenceIndex: true }, where: { rallyId } })
+  const temporaryBase = Math.min(-1, (aggregate._min.sequenceIndex ?? 0) - ordered.length - 1)
+  for (const [index, point] of ordered.entries()) {
+    await tx.keyPoint.update({ where: { id: point.id }, data: { sequenceIndex: temporaryBase - index } })
+  }
+  for (const [sequenceIndex, point] of ordered.entries()) {
+    await tx.keyPoint.update({ where: { id: point.id }, data: { sequenceIndex } })
+  }
+}
+
 async function replay(
   database: PrismaClient | Transaction,
   command: AnnotationCommand,
@@ -466,6 +482,7 @@ async function acceptService(
 
 type ContactCommand = Extract<AnnotationCommand, { kind: 'CREATE_CONTACT_KEY_POINT' }>
 type CloseCommand = Extract<AnnotationCommand, { kind: 'CLOSE_RALLY' }>
+type EditCommand = Extract<AnnotationCommand, { kind: 'MOVE_KEY_POINT' | 'DELETE_KEY_POINT' | 'REOPEN_RALLY' | 'VOID_RALLY' }>
 
 async function acceptContact(database: PrismaClient, room: AnnotationRoom, command: ContactCommand, identity: AnnotationIdentity, hash: string, anchor: ResolvedMediaAnchor): Promise<AnnotationCommandResponse> {
   return serializable(database, async (tx) => {
@@ -541,6 +558,63 @@ async function acceptClose(database: PrismaClient, room: AnnotationRoom, command
   })
 }
 
+async function acceptDraftEdit(database: PrismaClient, room: AnnotationRoom, command: EditCommand, identity: AnnotationIdentity, hash: string, anchor?: ResolvedMediaAnchor): Promise<AnnotationCommandResponse> {
+  return serializable(database, async (tx) => {
+    await commandLock(tx, command.command_id); const existing = await replay(tx, command, hash); if (existing) return existing; await rallyLock(tx, command.rally_id)
+    const rally = await tx.rally.findUnique({ where: { id: command.rally_id }, include: { keyPoints: { where: { deletedAt: null }, orderBy: { sequenceIndex: 'asc' } } } })
+    const device = await tx.deviceSession.findUnique({ select: { revokedAt: true, userId: true }, where: { id: identity.deviceSessionId } })
+    if (!device || device.userId !== identity.userId || device.revokedAt) return persistRejection(tx, command, identity, hash, rejected(command, 'UNAUTHENTICATED', 'Authenticated device session is no longer active'))
+    const authorizedMatch = await tx.match.findFirst({ select: { id: true }, where: { id: room.matchId, captureSessions: { some: { id: room.captureSessionId } }, ...(identity.role === UserRole.ADMIN ? {} : { members: { some: { userId: identity.userId, role: { in: [UserRole.ADMIN, UserRole.OPERATOR, UserRole.ANNOTATOR] } } } }) } })
+    if (!authorizedMatch || !rally || rally.matchId !== room.matchId) return persistRejection(tx, command, identity, hash, rejected(command, 'ROOM_AUTHORIZATION_STALE', 'Rally authorization changed before commit'))
+    await setAllocationLock(tx, rally.setId)
+    if (rally.annotationRevision.toString() !== command.base_revision) return persistRejection(tx, command, identity, hash, rejected(command, 'REVISION_CONFLICT', 'Rally revision is stale', { actual: rally.annotationRevision.toString(), expected: command.base_revision }))
+    if (rally.annotationStatus === 'SUBMITTED' || rally.annotationStatus === 'VOIDED') return persistRejection(tx, command, identity, hash, rejected(command, 'IMMUTABLE_SUBMISSION', 'Submitted or voided Rally cannot be edited in place'))
+    const revision = rally.annotationRevision + 1n
+    let effects: Record<string, unknown> = {}
+    if (command.kind === 'REOPEN_RALLY') {
+      if (rally.annotationStatus !== 'READY') return persistRejection(tx, command, identity, hash, rejected(command, 'RALLY_NOT_READY', 'Only a READY Rally can be reopened'))
+      await tx.keyPoint.updateMany({ where: { rallyId: rally.id, deletedAt: null, isTerminal: true }, data: { isTerminal: false, updatedByUserId: identity.userId } })
+      await tx.rally.update({ where: { id: rally.id }, data: { annotationRevision: revision, annotationStatus: 'OPEN', scoreResolutionState: 'PENDING', scoringCourtSide: null, scoringTeamId: null } })
+      effects = { annotation_status: 'open', score_resolution: 'pending', scoring_court_side: null }
+    } else if (command.kind === 'VOID_RALLY') {
+      await tx.rally.update({ where: { id: rally.id }, data: { annotationRevision: revision, annotationStatus: 'VOIDED', voidedAt: new Date() } })
+      effects = { annotation_status: 'voided' }
+    } else if (command.kind === 'DELETE_KEY_POINT') {
+      if (rally.annotationStatus !== 'OPEN') return persistRejection(tx, command, identity, hash, rejected(command, 'RALLY_NOT_OPEN', 'Reopen the Rally before deleting a key point'))
+      const target = rally.keyPoints.find(point => point.id === command.payload.key_point_id)
+      if (!target || target.markerKind === 'SERVICE') return persistRejection(tx, command, identity, hash, rejected(command, 'KEY_POINT_NOT_EDITABLE', 'The service anchor cannot be deleted'))
+      await tx.keyPoint.update({ where: { id: target.id }, data: { deletedAt: new Date(), sequenceIndex: await nextTombstoneSequence(tx, rally.id), updatedByUserId: identity.userId } })
+      const active = rally.keyPoints.filter(point => point.id !== target.id)
+      await rewriteActiveSequence(tx, rally.id, active)
+      const remaining = active.filter(point => point.markerKind === 'CONTACT')
+      for (const point of remaining) await tx.keyPoint.update({ where: { id: point.id }, data: { possibleDuplicate: remaining.filter(other => other.captureFrameIndex === point.captureFrameIndex).length > 1 } })
+      await tx.rally.update({ where: { id: rally.id }, data: { annotationRevision: revision } })
+      effects = { annotation_status: 'open', deleted_key_point_id: target.id, score_resolution: 'pending', scoring_court_side: null }
+    } else {
+      if (rally.annotationStatus !== 'OPEN' || !anchor) return persistRejection(tx, command, identity, hash, rejected(command, 'RALLY_NOT_OPEN', 'Reopen the Rally before moving a key point'))
+      const target = rally.keyPoints.find(point => point.id === command.payload.key_point_id)
+      if (!target) return persistRejection(tx, command, identity, hash, rejected(command, 'KEY_POINT_NOT_FOUND', 'Key point was not found'))
+      const mapping = anchor.dvr_segment_id ? await tx.playbackWindow.findFirst({ where: { id: anchor.playback_window_id, captureSessionId: room.captureSessionId, mappingVersion: anchor.mapping_version, dvrProgramId: rally.dvrProgramId, segments: { some: { dvrSegment: { id: anchor.dvr_segment_id, captureEpochId: anchor.capture_epoch_id, dvrProgramId: rally.dvrProgramId, isGap: false, readyAt: { not: null }, sampleIndexAssetId: { not: null } } } } }, select: { captureStartUs: true, captureEndUs: true, presentationOriginCaptureUs: true } }) : null
+      const resolvedTime = BigInt(anchor.capture_time_us); const resolvedFrame = BigInt(anchor.capture_frame_index); const playerTime = BigInt(anchor.resolved_player_media_time_us)
+      if (!mapping || resolvedTime < mapping.captureStartUs || resolvedTime >= mapping.captureEndUs || playerTime !== resolvedTime - mapping.presentationOriginCaptureUs || anchor.playback_window_id !== command.payload.playback_cursor.playback_window_id || anchor.mapping_version !== command.payload.playback_cursor.mapping_version) return persistRejection(tx, command, identity, hash, rejected(command, 'ANNOTATION_NOT_READY', 'Resolved playback state is no longer valid'))
+      const service = rally.keyPoints.find(point => point.markerKind === 'SERVICE')
+      if ((target.markerKind === 'CONTACT' && service && resolvedTime < service.captureTimeUs) || (target.markerKind === 'SERVICE' && rally.keyPoints.some(point => point.markerKind === 'CONTACT' && resolvedTime > point.captureTimeUs))) return persistRejection(tx, command, identity, hash, rejected(command, 'ANNOTATION_NOT_READY', 'Moved point would violate service-first ordering'))
+      await tx.keyPoint.update({ where: { id: target.id }, data: { captureEpochId: anchor.capture_epoch_id, captureFrameIndex: resolvedFrame, captureTimeUs: resolvedTime, sourcePts: BigInt(anchor.source_pts), timingPrecision: anchor.timing_precision.toUpperCase() as 'FRAME_EXACT' | 'PTS_EXACT' | 'ESTIMATED', snapDistanceUs: anchor.snap_distance_us == null ? null : BigInt(anchor.snap_distance_us), originalPlaybackCursor: jsonValue(command.payload.playback_cursor), updatedByUserId: identity.userId } })
+      const ordered = rally.keyPoints.map(point => point.id === target.id ? { ...point, captureTimeUs: resolvedTime, captureFrameIndex: resolvedFrame } : point).sort((left, right) => left.markerKind === 'SERVICE' ? -1 : right.markerKind === 'SERVICE' ? 1 : left.captureTimeUs < right.captureTimeUs ? -1 : left.captureTimeUs > right.captureTimeUs ? 1 : left.captureFrameIndex < right.captureFrameIndex ? -1 : 1)
+      await rewriteActiveSequence(tx, rally.id, ordered)
+      for (const point of ordered) await tx.keyPoint.update({ where: { id: point.id }, data: { possibleDuplicate: point.markerKind === 'CONTACT' && ordered.filter(other => other.markerKind === 'CONTACT' && other.captureFrameIndex === point.captureFrameIndex).length > 1 } })
+      await tx.rally.update({ where: { id: rally.id }, data: { annotationRevision: revision } })
+      effects = { annotation_status: 'open', score_resolution: 'pending', scoring_court_side: null }
+    }
+    const receipt = await tx.annotationCommandReceipt.create({ data: { accepted: true, commandId: command.command_id, deviceSessionId: identity.deviceSessionId, rallyId: command.rally_id, requestHash: hash, requestJson: jsonValue(command), responseJson: {}, roomId: command.room_id, userId: identity.userId } })
+    const response = parseAnnotationCommandResponse({ schema_version: '2.0.0', type: 'command_ack', command_id: command.command_id, room_id: command.room_id, rally_id: command.rally_id, operation_kind: command.kind, result_revision: revision.toString(), server_sequence: receipt.serverSequence.toString(), effects, resolved_anchor: anchor ? wireAnchor(anchor) : null })
+    await tx.annotationCommandReceipt.update({ data: { responseJson: jsonValue(response) }, where: { serverSequence: receipt.serverSequence } })
+    await tx.annotationOperation.create({ data: { baseRevision: rally.annotationRevision, clientMutationId: command.command_id, deviceSessionId: identity.deviceSessionId, operationKind: command.kind, payload: jsonValue(command.payload), payloadHash: hash, rallyId: command.rally_id, receiptServerSequence: receipt.serverSequence, resultRevision: revision, userId: identity.userId } })
+    await tx.outboxEvent.create({ data: { aggregateId: command.rally_id, aggregateType: 'Rally', dedupeKey: `annotation-accepted:${receipt.serverSequence}`, eventType: 'annotation.command_accepted.v2', payload: jsonValue(response) } })
+    return response
+  })
+}
+
 export function createAnnotationCommandService(
   deps: AnnotationCommandServiceDependencies,
 ): AnnotationCommandService {
@@ -585,6 +659,12 @@ export function createAnnotationCommandService(
         return acceptContact(deps.database, room, command, identity, hash, anchor)
       }
       if (command.kind === 'CLOSE_RALLY') return acceptClose(deps.database, room, command, identity, hash)
+      if (command.kind === 'MOVE_KEY_POINT') {
+        let anchor: ResolvedMediaAnchor
+        try { anchor = await deps.resolveCursor(toMediaCursor(command as unknown as CreateServiceKeyPointCommand), { id: identity.userId, role: identity.role }) } catch (error) { if (!(error instanceof MediaHttpError)) throw error; return storeRejection(deps.database, command, identity, hash, mediaRejection(command, error)) }
+        return acceptDraftEdit(deps.database, room, command, identity, hash, anchor)
+      }
+      if (command.kind === 'DELETE_KEY_POINT' || command.kind === 'REOPEN_RALLY' || command.kind === 'VOID_RALLY') return acceptDraftEdit(deps.database, room, command, identity, hash)
       if (command.kind !== 'CREATE_SERVICE_KEY_POINT') return storeRejection(deps.database, command, identity, hash, rejected(command, 'UNSUPPORTED_COMMAND', 'Command is not durable in this server slice'))
       if (command.base_revision !== '0') {
         return storeRejection(deps.database, command, identity, hash, rejected(command, 'REVISION_CONFLICT', 'Service command must start at revision zero', {

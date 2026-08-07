@@ -1,6 +1,8 @@
 import {
   parseAnnotationCommand,
   parseAnnotationCommandResponse,
+  parseAnnotationServerMessage,
+  parseAnnotationSoftLockIntent,
   type AnnotationCommandResponse,
 } from '@volleyball-monitoring/contracts'
 import websocket from '@fastify/websocket'
@@ -9,6 +11,7 @@ import { createYoga } from 'graphql-yoga'
 import { afterEach, describe, expect, it } from 'vitest'
 import { annotationWebSocketRoutes } from '../src/realtime/annotation-ws.js'
 import { parseAnnotationRoomId } from '../src/domain/annotation/room.js'
+import type { AnnotationPresenceService } from '../src/realtime/annotation-presence.js'
 import type { AnnotationCommandService } from '../src/services/annotation-command.js'
 
 type AnnotationCommandAck = Extract<AnnotationCommandResponse, { type: 'command_ack' }>
@@ -94,6 +97,26 @@ function fakeService(seen: unknown[]): AnnotationCommandService {
     async roomSequence() {
       return 10n
     },
+  }
+}
+
+function fakePresence(onEditing: (keyPointId: string | null) => void): AnnotationPresenceService {
+  const member = { user_id: userId, device_session_id: deviceSessionId, display_name: 'Operator', editing_key_point_id: null as string | null }
+  return {
+    async join() { return member },
+    async touch() {},
+    async setEditing(_roomId, current, keyPointId) {
+      onEditing(keyPointId)
+      return { ...current, editing_key_point_id: keyPointId }
+    },
+    async leave() {},
+    async snapshot() {
+      const message = parseAnnotationServerMessage({ schema_version: '2.0.0', type: 'presence_snapshot', room_id: roomId, members: [member] })
+      if (message.type !== 'presence_snapshot') throw new TypeError('presence fixture mismatch')
+      return message
+    },
+    async subscribe() { return () => undefined },
+    close() {},
   }
 }
 
@@ -273,6 +296,41 @@ describe('annotation transport adapters', () => {
     expect(seen).toEqual([{ annotationIdentity: identity, value: closeCommand }])
     expect(ack).toMatchObject({ command_id: closeCommand.command_id, operation_kind: 'CLOSE_RALLY', resolved_anchor: null })
     expect(ack.effects).toMatchObject({ score_resolution: 'unknown' })
+    client.close()
+  })
+
+  it('accepts an authenticated v2.1 soft-lock intent without invoking the durable command handler', async () => {
+    const seen: unknown[] = []
+    let resolveEditing: ((value: string | null) => void) | null = null
+    const editing = new Promise<string | null>((resolve) => { resolveEditing = resolve })
+    const app = Fastify({ logger: false })
+    await app.register(websocket)
+    await app.register(annotationWebSocketRoutes({
+      authenticate: async () => identity,
+      presence: fakePresence(value => resolveEditing?.(value)),
+      service: fakeService(seen),
+    }))
+    await app.listen({ host: '127.0.0.1', port: 0 })
+    closeApp = () => app.close()
+    const address = app.server.address()
+    if (!address || typeof address === 'string') throw new Error('missing test listener')
+    const client = new WebSocket(`ws://127.0.0.1:${address.port}/ws/annotations?room_id=${encodeURIComponent(roomId)}`)
+    await new Promise<void>((resolve, reject) => {
+      const timeout = setTimeout(() => reject(new Error('websocket ready timeout')), 5_000)
+      client.addEventListener('error', () => reject(new Error('websocket error')))
+      client.addEventListener('message', (event) => {
+        const message = JSON.parse(String(event.data)) as { type?: string }
+        if (message.type !== 'connection_ready') return
+        clearTimeout(timeout)
+        resolve()
+      })
+    })
+    const intent = parseAnnotationSoftLockIntent({
+      schema_version: '2.1.0', type: 'soft_lock_intent', room_id: roomId, editing_key_point_id: keyPointId,
+    })
+    client.send(JSON.stringify(intent))
+    expect(await editing).toBe(keyPointId)
+    expect(seen).toHaveLength(0)
     client.close()
   })
 

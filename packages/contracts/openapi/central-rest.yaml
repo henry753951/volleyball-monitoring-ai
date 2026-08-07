@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Volleyball Central REST API
-  version: 1.2.0
+  version: 1.3.0
 security:
   - sessionCookie: []
 paths:
@@ -122,6 +122,28 @@ paths:
         '413': { description: Payload too large }
         '415': { description: Unsupported media/schema/FlatBuffers version }
         '422': { description: Contract or invariant validation failed }
+  /api/v1/analysis-runs/{analysisRunId}/overlay-manifest:
+    get:
+      summary: Get the authorized lazy browser overlay manifest
+      parameters: [{ $ref: '#/components/parameters/AnalysisRunId' }]
+      responses:
+        '200':
+          description: Versioned overlay manifest with bounded chunk URLs
+          content: { application/json: { schema: { $ref: '../ai/overlay-manifest.schema.json' } } }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /api/v1/analysis-runs/{analysisRunId}/overlay-chunks/{chunkIndex}:
+    get:
+      summary: Get one authorized FlatBuffers browser overlay chunk
+      parameters:
+        - { $ref: '#/components/parameters/AnalysisRunId' }
+        - { name: chunkIndex, in: path, required: true, schema: { type: integer, minimum: 0 } }
+      responses:
+        '200': { description: VOC1 overlay chunk, content: { application/vnd.volleyball.overlay-chunk+flatbuffers;version=1: {} } }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
 components:
   securitySchemes:
     sessionCookie:
@@ -137,6 +159,11 @@ components:
       in: path
       required: true
       schema: { type: string, minLength: 1 }
+    AnalysisRunId:
+      name: analysisRunId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
   schemas:
     MediaApiError: { $ref: '../media/media-api-error.schema.json' }
   responses:

@@ -1,0 +1,3 @@
+query CoachMatchState($matchId: ID!) {
+  coachMatchState(matchId: $matchId)
+}

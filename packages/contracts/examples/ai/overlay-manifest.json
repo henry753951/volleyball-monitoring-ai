@@ -1,0 +1,31 @@
+{
+  "schema_version": "1.0.0",
+  "analysis_id": "analysis-001",
+  "overlay_version": "1",
+  "video": {
+    "width": 1920,
+    "height": 1080,
+    "fps": { "num": 60000, "den": 1001 },
+    "total_frames": "240"
+  },
+  "chunk_frame_count": 120,
+  "chunks": [
+    {
+      "chunk_index": 0,
+      "start_frame_index": "0",
+      "frame_count": 120,
+      "url": "/api/v1/analysis-runs/84000000-0000-4000-8000-000000000001/overlay-chunks/0",
+      "byte_length": "48211",
+      "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    {
+      "chunk_index": 1,
+      "start_frame_index": "120",
+      "frame_count": 120,
+      "url": "/api/v1/analysis-runs/84000000-0000-4000-8000-000000000001/overlay-chunks/1",
+      "byte_length": "47500",
+      "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    }
+  ],
+  "action_taxonomy": null
+}

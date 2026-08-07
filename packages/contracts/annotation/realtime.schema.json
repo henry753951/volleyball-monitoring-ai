@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/OWNER/volleyball-monitoring-ai/packages/contracts/annotation/realtime/2.0.0",
-  "title": "Annotation Realtime Protocol 2.0.0",
-  "description": "HTTP upgrade authenticates the user and binds the device session. CLOSE_RALLY atomically terminalizes the server-confirmed last key point and records the rally-level outcome without creating a new time or score event.",
+  "$id": "https://github.com/OWNER/volleyball-monitoring-ai/packages/contracts/annotation/realtime/2.1.0",
+  "title": "Annotation Realtime Protocol 2.1.0",
+  "description": "2.1.0 adds a non-canonical soft-lock intent while retaining every 2.0.0 annotation command and server message. HTTP upgrade authenticates the user and binds the device session. CLOSE_RALLY atomically terminalizes the server-confirmed last key point and records the rally-level outcome without creating a new time or score event.",
   "allOf": [
     {
       "if": { "required": ["command_id"] },
@@ -22,6 +22,7 @@
     { "$ref": "#/$defs/reopen_rally_command" },
     { "$ref": "#/$defs/void_rally_command" },
     { "$ref": "#/$defs/submit_rally_command" },
+    { "$ref": "#/$defs/soft_lock_intent" },
     { "$ref": "#/$defs/connection_ready" },
     { "$ref": "#/$defs/command_ack" },
     { "$ref": "#/$defs/command_rejected" },
@@ -371,6 +372,22 @@
           "type": "object",
           "additionalProperties": false,
           "maxProperties": 0
+        }
+      }
+    },
+    "soft_lock_intent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "type", "room_id", "editing_key_point_id"],
+      "properties": {
+        "schema_version": { "const": "2.1.0" },
+        "type": { "const": "soft_lock_intent" },
+        "room_id": { "$ref": "#/$defs/canonical_room_id" },
+        "editing_key_point_id": {
+          "oneOf": [
+            { "$ref": "#/$defs/identifier" },
+            { "type": "null" }
+          ]
         }
       }
     },

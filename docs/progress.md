@@ -1,5 +1,175 @@
 # Progress
 
+## 2026-08-08 — Advisory marker soft locks and authoritative drag completion
+
+Status: the remaining optional cross-operator marker-edit hint is implemented, contract-versioned and runtime-verified without weakening revision/CAS authority.
+
+- Advanced only the Annotation Realtime registry to additive `2.1.0` for strict client `soft_lock_intent` messages. Canonical Rally commands, acknowledgements and revisions remain `2.0.0`; the intent carries no command ID, Rally revision or media anchor and never enters PostgreSQL, operation receipts or immutable history. ADR 0013 records this main-Agent boundary.
+- Added Redis-only advisory edit state with an independent 12-second TTL, five-second client refresh, explicit `null` release, disconnect cleanup and server expiry publication. Presence identity is always taken from the authenticated connection; clients cannot choose the displayed user/device identity.
+- Timeline draft markers now support pointer drag. A drop first opens a bounded archive window, waits for a real rendered browser cursor, asks the server to resolve that observation and only then sends the unchanged `MOVE_KEY_POINT` command. A failed/stale media resolution leaves the marker unchanged. Remote locks add a visible name/halo hint but never disable the marker or block a competing move; revision/CAS remains canonical.
+- Two independent headed Chromium device sessions exercised the running Docker stack against the growing YouTube DVR. The second operator saw `Dev Operator 正在調整（不阻擋）` on the service marker while the marker remained enabled. Releasing the first operator's drag cleared the hint and moved the authoritative marker from frame 42107 to frame 50468 while the Rally revision advanced from 1 to 2. The temporary draft was closed through normal `VOID_RALLY`, both browsers reported zero console errors/warnings and both sessions were closed.
+- The supplied YouTube relay remained running throughout the Server/Web rebuild and browser acceptance. Its server-side DVR timeline grew from 551 to 572 READY ranges during this smoke, demonstrating that drag/fine-tune operates on a buffer that continues to extend rather than a fixed uploaded file.
+- Validation passed: contracts 12, DB 4, media 88, Server 180, Worker 147 with 6 environment skips, Web 97 and frozen-`uv` SDK 13 tests; all workspace typechecks and production builds passed. Server and Web production images rebuilt and returned healthy. The searchable A4 specification PDF was regenerated to 42 pages; all pages were rendered as a contact sheet and the changed realtime pages 20–23 were visually inspected without layout defects.
+
+Open limitations are deployment acceptance rather than missing repository semantics: production identity/TLS, physical-iPad long-session acceptance, real AI-provider court/action data, scheduled off-host backup, approved retention durations, external metrics/alerts and audit-retention/dashboard policy remain environment- or operator-owned decisions. Real multi-operator production acceptance remains required beyond this local two-device proof.
+
+## 2026-08-08 — Real YouTube ingest, recording and DVR replay acceptance
+
+Status: a managed optional relay is implemented and is currently feeding the local Compose stack from the supplied YouTube former-livestream URL at real-time rate.
+
+- Added the `youtube-relay` Compose profile with uv-managed pinned `yt-dlp 2026.7.4` and FFmpeg. The source URL is process-scoped rather than committed; only a caller-selected MediaMTX ingest path crosses into the central system. Active broadcasts start from their live edge, while completed livestreams run under FFmpeg `-re` as a deterministic live simulation.
+- Registered capture `754f79bd-263c-4b9d-8e5c-e9866cbb5381` for `youtube/nmtbgyfa-zm`. It reached `LIVE / HEALTHY`; MediaMTX recorded H.264/AAC fMP4 segments and the media indexer produced a live `DvrProgram` with one sample index per media segment. At the persistence probe, 42 segments covered `209,944,216` microseconds and the playlist revision was 42.
+- The authoritative playback-window REST path returned HTTP 200 with a server-bounded live manifest. Headed Chromium selected the YouTube capture automatically, rendered the actual 640×360 volleyball video, loaded an archive window at `readyState=4`, advanced playback time, observed the timeline grow by `6,006,367` microseconds during an eight-second polling interval and returned to a fresh live window. Browser console evidence was 0 errors / 0 warnings.
+- Desktop HLS now lazy-loads the light runtime only when a bounded window attaches; the authority inspector and workstation-only dialogs are lazy components. The largest HLS client chunk fell from about 508 kB to 332 kB and the large-chunk warning disappeared. The rebuilt healthy Web container repeated archive playback with the light runtime at `readyState=4`, advanced from 0.5 to 1.65 seconds and again reported no console errors or warnings.
+- The direct MediaMTX `/hls` edge currently requires its `cookieCheck=1` bootstrap query when used through the path-prefix proxy; the product Annotation flow is unaffected because it consumes authorized server-generated bounded playback windows. A production CDN/proxy deployment must preserve the MediaMTX HLS session query/cookie behavior rather than exposing raw full-DVR media.
+
+The relay and Docker stack remain running for user testing. Recording rights and YouTube/platform terms remain operator responsibilities.
+
+## 2026-08-08 — Annotation marker selection and authoritative frame fine-tune
+
+Status: draft key points can now be selected from the growing DVR timeline and adjusted one authoritative frame at a time from the Contract Lab workstation.
+
+- Timeline markers expose selection state and seek directly to their persisted capture time. Submitted markers remain visibly read-only; a selected marker receives a distinct focus ring without changing canonical data.
+- Added an explicit fine-tune mode for gray drafts. Left/right arrows call the existing server frame-step endpoint, seek the player to the returned canonical frame, wait for a real ready `requestVideoFrameCallback`/fallback cursor from that rendered frame, resolve it again through server media authority and only then issue `MOVE_KEY_POINT`. One pending move gates overlapping frame commands.
+- Web `95/95`, focused timeline interaction `4/4`, Nuxt typecheck and production build passed. The Web/Server images were rebuilt and remained healthy; headed Chrome selected the immutable service marker, opened the matching archive window at frame 15 and reported no console errors without mutating the submitted Rally.
+
+Open limitation: the optional cross-operator drag soft-lock hint is still not implemented; revision/CAS remains the canonical concurrency authority.
+
+## 2026-08-08 — Internal metrics and audit export
+
+Status: the running Server now exposes payload-free aggregate operations evidence on internal-only routes.
+
+- Added Prometheus text metrics for process memory/uptime and persisted Rally, ClipJob, AiJob, CaptureSession, OutboxEvent, AI callback, MediaAsset and Annotation receipt/operation state. The companion audit summary contains counts and newest-operation time only; command/callback payloads, tokens, storage keys and user identity are excluded.
+- `/internal/metrics` and `/internal/audit/summary` are registered only on the Server service. The current Traefik rules do not route `/internal/**`; container-local requests returned HTTP 200 while `https://localhost/internal/metrics` returned HTTP 404.
+- Pure renderer/route tests passed `3/3`, Server typecheck passed, the production Server image rebuilt successfully and its readiness remained healthy. External Prometheus/Grafana deployment, alert policy and long-term audit retention remain environment-owned work.
+
+## 2026-08-08 — AI callback hardening acceptance
+
+Status: the Phase 7 callback duplicate/retry/error matrix is now exercised against an isolated migrated PostgreSQL database through the real Fastify REST route.
+
+- Added seven callback integration cases covering persisted processing progress, identical callback-ID replay, conflicting payload reuse, expired job-scoped token, checksum mismatch, invalid public metadata, invalid VOV1 FlatBuffer and the bounded analysis-part limit. Rejected callbacks create neither receipts nor AnalysisRuns; an identical retry returns the original persisted response and retains one receipt.
+- Corrected `docs/requirements-matrix.md`, which still described the already runtime-proven Clip/AI and Coach Phase 4–6 slices as scaffolded. The matrix now separates verified local product behavior from production provider, identity/TLS, retention, off-host backup and physical-iPad acceptance.
+- Focused callback acceptance passed `7/7`. Production retention durations remain an explicit human decision and no destructive lifecycle default was introduced.
+
+## 2026-08-07 — Capture lifecycle and processing retry completion
+
+Status: the remaining `startCapture`, `stopCapture` and `retryProcessing` GraphQL mutations are implemented with operator UI and durable job semantics.
+
+- Added typed GraphQL inputs/results and stored operations for all three mutations. Start validates a safe MediaMTX ingest path, stores only an opaque secret reference, authorizes ADMIN/OPERATOR membership, moves a planned match live and emits a durable start-request outbox event. Stop terminally closes the capture/program/active epochs at the persisted live edge so later MediaMTX files are no longer resolved into that session.
+- Added the Annotation top-bar stream-source dialog. Operators can see active capture health, register RTMP/SRT/RTSP/external ingest paths, copy the derived publisher target and stop a session without putting Annotation preferences into the Coach/PWA settings page.
+- Added deterministic retry routing for the active immutable submission. A terminal ClipJob is reset in place with cleared lease/error/output state; a failed AI attempt is retained as `SUPERSEDED` and a fresh job receives a new callback scope and clean request without expired signed URLs or callback data. Rally processing state and outbox audit events change in the same serializable transaction.
+- Failed History rows expose retry only to ADMIN/OPERATOR viewers. Four isolated PostgreSQL lifecycle/retry tests, full Server `168/168`, Web `94/94`, Server/Web typechecks and twelve stored GraphQL operations passed.
+
+Boundary: `startCapture` registers the central ingest session and publisher target; it does not embed camera credentials or control a vendor camera. The external publisher/secret manager remains deployment-owned.
+
+## 2026-08-07 — Immutable correction and score-ledger completion
+
+Status: correction draft, immutable supersession, score correction and outcome-only geometry reuse are implemented on the Contract Lab-aligned Annotation workstation.
+
+- Added the typed `createCorrectionDraft(submissionId: ID!): Rally!` GraphQL mutation. It authorizes the current operator/device, serializes against Rally/set edits, restores immutable submission key points into gray mutable rows, keeps the prior submission authoritative until Enter, records an audit operation/outbox event and rejects competing drafts.
+- Enter now supports a correction chain. The replacement submission stores `supersedesSubmissionId`; the prior submission, ClipJobs, AiJobs and AnalysisRuns remain immutable and become `SUPERSEDED`. A no-op correction is durably rejected.
+- Added one ordered `ScoreLedgerEntry` CAS ledger across initial `POINT_AWARD` and later `CORRECTION` mutations. Winner changes use deltas such as `(-1,+1)`; resolved-to-unknown reverses the old contribution; unknown-to-resolved adds exactly one. Unknown submission score snapshot fields and PointAward remain null/absent as required.
+- Outcome-only corrections with identical key-point geometry reuse completed clip bytes, timing mappings, AI geometry, identities, paths, artifacts and FlatBuffers overlay assets under newly linked immutable job/run rows. They complete without transcoding or a provider request; if no completed reusable pipeline exists, the ordinary queued pipeline remains the fallback.
+- The Annotation page now falls back to the newest submitted Rally when no draft is open, renders its mask green and exposes `建立修正草稿`; an open correction is gray and clearly labelled. Server/Web typechecks, 30 focused correction/command integration tests, full Server `164/164` and Web `94/94` suites, nine GraphQL documents and production builds passed before this checkpoint.
+
+Open limitation: the optional short-lived key-point drag soft-lock hint is not yet implemented; revision/CAS remains the canonical concurrency authority. Production identity and retention durations remain explicit deployment decisions.
+
+## 2026-08-07 — Phase 7 restart and restore acceptance
+
+Status: restart and local backup/restore drills passed against the running Compose stack; the reusable safety procedure is documented in `docs/OPERATIONS_RUNBOOK.md`.
+
+- Recorded pre-drill canonical counts and one persisted overlay chunk identity, then restarted Redis, Server, all six workers, MinIO and PostgreSQL in dependency-safe order. Server returned PostgreSQL/Redis/MinIO `ready` after every stateful restart; all application containers finished running/healthy with zero unexpected automatic restarts.
+- Post-drill canonical counts remained exactly 2 Rallies, 1 RallySubmission, 2 AnalysisRuns, 19 MediaAssets and 1 OverlayChunk. AnalysisRun `985daee2-714d-4e2a-9514-0ebf58db1f51` retained its 816-byte chunk and SHA-256 `349858af4b6939a2e676dd2e4676f6c3289f2bad823797e867bba9830159f04b`; authorized manifest and chunk requests both returned HTTP 200.
+- Created a 308,217-byte PostgreSQL custom-format dump, verified its TOC and SHA-256, restored it to the isolated `vmai_restore_smoke` database and reproduced all five canonical counts before dropping only that temporary database.
+- Mirrored `raw-media`, `dvr-media`, `rally-media` and `analysis-artifacts` into an isolated Docker backup volume and restored them under a temporary MinIO bucket. Source/backup/restore object counts matched at 0/12/2/5; the temporary bucket and volume were removed afterward.
+
+Open limitations: approved retention durations remain a human deployment decision, so no destructive lifecycle default is enabled. Production-grade scheduled/off-host backup automation, metrics export and audit dashboard remain hardening work; this checkpoint proves the underlying restart and restore paths rather than claiming those external operations are scheduled.
+
+## 2026-08-07 — Contract Lab workstation and Saved Analysis View checkpoint
+
+Status: implemented directly on `integration/phase3-annotation`, rebuilt into the local Compose runtime and ready for user-led workflow testing.
+
+- Tightened the PC-only Annotation workstation to the Volleyball AI Contract Lab interaction model while preserving central-system boundaries. The route now auto-opens the newest live server DVR window, refreshes the capture timeline every 2.5 seconds so its buffer grows in place, hides native video controls, and keeps playback in the bottom transport. Plain wheel/pointer drag pans, Shift+wheel zooms, ready-range clicks create bounded playback windows and frame arrows still call authoritative server stepping.
+- Kept the fixed Z/Space/`<`/`>`/`?`/Enter semantics and Rally-level outcome model. The upper-right gear owns all TanStack Hotkeys rebinding, `formatForDisplay` keycaps and Restore All Defaults; the Coach/iPad PWA settings page contains only PWA/display/connectivity settings and no Annotation configuration.
+- Added a versioned local Annotation outbox. One disconnected command is persisted with its original command ID and authoritative cursor, shown as pending, and replayed only after reconnect snapshot/revision comparison; a mismatch or server-requested refetch becomes `needs_confirmation` and requires discard/re-entry at the current frame. The one-pending-command gate avoids pretending that server-generated key-point IDs and revisions can be predicted offline.
+- Added Redis-backed room presence with 30-second device TTL, 10-second heartbeat and pub/sub fan-out. Authorized WebSocket join/leave now emits the existing strict `presence_snapshot`; the workstation header shows the current online-device count and names without putting presence in durable canonical tables.
+- Added strict, per-user Saved Analysis Views through additive GraphQL fields and stored operations. Versioned filter/layout documents can retain navigation, filters and overlay presentation only; metrics, aggregate samples and artifacts are rejected. Saving the same `(user, match, name)` updates one configuration, while membership/admin authorization and per-user listing prevent cross-user leakage.
+- Validation passed: Server/Web typecheck, eight stored GraphQL operations, 13 core-domain integration tests, 23 focused timeline/hotkey tests, production Nuxt build and the UI detector. Local Web/Server are healthy; a headed 2048×1217 smoke auto-created a live window, played the bounded HLS sample and displayed four ready ranges plus frame 191. Annotation WebSocket interaction is not claimed in that browser run because the repo's generated local certificate is not trusted and `mkcert` is not installed on this host.
+- A later two-tab headed runtime accepted the local certificate for the session and verified real Redis presence fan-out: both independent device sessions showed two online members, then the remaining tab returned to one after its peer disconnected. The outbox smoke queued one offline service command with a stable ID and persisted payload; its test Rally was subsequently voided through the normal GraphQL annotation command path.
+
+Open limitations: correction-draft/score-ledger semantics, key-point soft locks and Phase 7 restart/backup/retention acceptance remain. Production identity provider and retention durations remain explicit deployment decisions and are not invented here.
+
+## 2026-08-07 — Phase 5 windowed FlatBuffers overlay completion
+
+Status: implemented directly on `integration/phase3-annotation`, migrated and runtime-verified in the local Compose stack.
+
+- Added the official FlatBuffers runtimes to the TypeScript contracts and uv-managed Python SDK. Central callback ingest now parses the full VOV1 table, validates passthrough/video metadata and every SoA column, then creates fixed VOC1 chunks; the fake provider emits a real no-detection VOV1 with missing data represented by flags rather than fabricated observations.
+- Added durable `OverlayManifest`/`OverlayChunk` metadata and immutable MinIO chunk assets. Central REST 1.3.0 serves an authorization-filtered manifest and chunk bytes without exposing storage identity.
+- Replay now verifies chunk length/SHA-256/schema, keeps only the current and next chunk, cancels stale seek requests, and offers Off/Tracking/Coach/Tactical/Debug modes plus bbox, track ID, action, ball, trail, footprint and confidence layers. Action remains disabled when no taxonomy exists; contact-event JSON remains a fallback for historical runs.
+- Runtime proof: a fresh fake-provider AiJob completed in one attempt and produced AnalysisRun `985daee2-714d-4e2a-9514-0ebf58db1f51`, a 60-frame manifest and one 816-byte VOC1 chunk. The authorized manifest and chunk endpoints both returned HTTP 200; the chunk content type and byte count matched persisted metadata, and the replay route returned HTTP 200.
+- Validation passed: 11 contract tests, 4 DB tests, Prisma validation/generation/structural check (43 models, 25 enums), Server/Web typecheck and 13 frozen-uv SDK tests.
+
+Open limitations: saved Analysis Views, correction-draft UI, local annotation outbox/presence polish and Phase 7 restart/backup/retention acceptance remain.
+
+## 2026-08-07 — Contract Lab-aligned Annotation editor checkpoint
+
+Status: implemented directly on `integration/phase3-annotation`; this is the accelerated single-branch checkpoint requested by the user.
+
+- Rebuilt the PC Annotation route as a dark, full-screen Contract Lab-style editor with a top sync/media bar, full-height video stage, Rally/keypoint inspector, persistent transport controls, a two-lane DVR timeline and the fixed six-command strip. The implementation keeps server-side buffer/streaming truth: ready ranges and the live edge grow with the capture timeline, bounded seek creates a server playback window, and frame arrows use authoritative server stepping.
+- Moved all Annotation and player shortcut customization into the workstation's upper-right gear dialog. TanStack Hotkeys still owns rebinding/recording; displayed keycaps use `formatForDisplay`, conflicts and reserved gestures fail without mutation, and Restore All Defaults remains available. The Coach/iPad PWA `/settings` page now contains no Annotation preferences.
+- Added server support for draft-only MOVE/DELETE/REOPEN/VOID commands while preserving immutable SUBMITTED Rally behavior. MOVE re-resolves the browser observation through server media authority; DELETE keeps SERVICE undeletable and moves soft-deleted rows to tombstone sequence indexes; REOPEN clears terminal/outcome state; VOID closes only an unsubmitted draft.
+- Fixed the discovered soft-delete unique-index collision by transactionally parking tombstones below active sequence space and using a two-phase active resequence. No score frame/event is introduced, and `<`, `>`, `?` still terminalize the existing last server-confirmed key point.
+- Validation passed: Web and Server typecheck, 18 focused Hotkeys/command-strip tests, 29 Annotation command/snapshot integration tests and the UI detector. Docker remains running; broader visual and end-to-end acceptance is delegated to the user per the accelerated plan.
+
+Open limitations: exact production video appearance depends on the real streamed capture and user viewport. Production SSO/provider selection, saved Analysis View editing, per-frame overlay chunk playback and deployment backup/retention drills remain outside this checkpoint.
+
+## 2026-08-07 — Phase 6 identity and evidence-bearing analytics
+
+Status: implemented directly on `integration/phase3-annotation`, rebuilt into the local server/Web containers and runtime-probed.
+
+- Added same-match manual `(analysis_run_id, track_id) → roster_entry` correction with ADMIN/OPERATOR/COACH authorization. The AnalysisTrack is unchanged and remains run-local; unbound tracks stay visibly labeled as Track IDs.
+- Added the versioned `coachMatchAnalytics` read model with baseline Rally/outcome, contact/participant, court-position, path-quality, identity-coverage and provider-action availability metrics. Every metric carries samples, excluded/unknown counts, quality breakdown and feature dependencies.
+- Replaced Players/Stats placeholders with real roster evidence, unassigned-track mapping controls, feature availability and a full evidence table. Action metrics are explicitly unavailable rather than fabricated when the provider omits action.
+- Server/Web typecheck, six stored GraphQL operations, production Nuxt build and the UI detector passed. A live GraphQL probe over the d003 smoke returned one unknown-outcome Rally, two contact events with unresolved/no-player quality, one unavailable path, zero identity/action/court-position availability and the exact sample/exclusion envelopes expected from the fake provider.
+
+Open limitations: production SSO/auth provider selection is intentionally not invented by this repository and remains fail-closed outside development. Saved Analysis View editing, real-provider action/court data, per-frame FlatBuffer chunks and restart/backup/retention drills remain deployment hardening work.
+
+## 2026-08-07 — Phase 5 Coach replay and normalized analysis
+
+Status: implemented directly on `integration/phase3-annotation` and running in the local Compose stack.
+
+- Completed callback ingestion now normalizes analysis-run-local tracks, contact events, actors/candidates, representative court positions and adjacent A/B path segments while activating the AnalysisRun. Optional action/confidence stays nullable and provider-defined; external `court_pos` is stored unchanged with no clamp/projection.
+- Added the authorization-filtered `coachRallyReplay` GraphQL read model and stored operation. GraphQL carries immutable structured replay data only; canonical MP4 bytes remain on an authorized REST stream with HTTP Range/206 support.
+- Replaced Replay and Paths placeholders with the landscape Coach UI: canonical clip playback, clip-frame tracking, event-local Canvas boxes/ball points, key-point seek controls, processing/outcome context and an SVG court path view that preserves out-of-court coordinates and missing-position empty states.
+- Rebuilt the server and Nuxt production images. A live server-container probe returned the d003 Rally, clip metadata, two normalized events and one path over GraphQL; a `bytes=0-99` clip request returned HTTP 206, `video/mp4`, `Content-Range: bytes 0-99/652197` and exactly 100 bytes. Server and Web are healthy.
+
+Open limitations: the fake provider intentionally has no court positions, so its one path renders the honest unavailable state. Per-frame FlatBuffer chunking/lazy overlay sequence playback, track-to-roster corrections, cross-Rally analytics/saved views and production identity are the remaining Phase 5/6/7 work.
+
+## 2026-08-07 — Phase 4 canonical clip and external AI vertical slice
+
+Status: implemented directly on `integration/phase3-annotation`; the Phase 4 runtime exit has passed locally against real persisted d003 DVR media and the development fake provider.
+
+- Replaced the clip-worker and AI-dispatcher TODOs with cancellable durable PostgreSQL polling runtimes. Claims use `FOR UPDATE SKIP LOCKED`, bounded leases, attempt limits and sanitized retry state; immutable submission IDs remain the sole processing anchor.
+- The clip worker verifies MinIO source metadata/bytes, clamps pre/post roll to the service anchor's contiguous DVR discontinuity, transcodes a canonical H.264/AAC MP4, probes authoritative video metadata, stores a timing manifest and persists submission-key-point-to-clip PTS/time/frame mappings.
+- The dispatcher verifies provider capabilities, creates an independent short-lived MinIO download URL, derives a job-scoped callback token whose plaintext is not persisted, sends Job `1.1.0` with an idempotency key and records only a redacted request audit copy plus the exact request hash.
+- Added authenticated REST JSON/multipart callback ingest with schema, passthrough, checksum, size and `VOV1` validation; completed results create raw analysis/overlay assets, one idempotent receipt and one activated AnalysisRun before moving the Rally to COMPLETED.
+- Repaired the SDK provider adapter's deferred-annotation/FastAPI `BackgroundTasks` injection bug. The fake provider now returns deterministic contract-valid unresolved/no-player output for every immutable key point and does not fabricate AI tracks, action/confidence or `court_pos`.
+- Real runtime evidence: the d003 smoke ClipJob completed in one attempt with actual capture bounds `0..2000333` µs; its AiJob was accepted and completed in one attempt; the server returned callback HTTP 200 and persisted one COMPLETED AnalysisRun plus one COMPLETED callback receipt. Server/fake-provider health remained green and both workers remained running.
+
+Open limitations: detailed AnalysisTrack/ContactEvent/Path normalization, overlay chunk/manifest serving, authenticated Coach replay media and Canvas/court views remain Phase 5. Production secret-manager resolution and production cookie/device identity remain Phase 7 hardening.
+
+## 2026-08-07 — Phase 3 workstation, Coach read model and Phase 2A soak exit
+
+Status: direct single-branch implementation continues on `integration/phase3-annotation` after checkpoint merge `2480dfa` reached `main`; feature work no longer waits on subagent or per-slice PR overhead.
+
+- The PC-first annotation workstation now uses the dedicated annotation WebSocket for Z, Space, `<`, `>`, `?` and Enter, polls authorized server snapshots as reconnect/collaboration fallback, gates commands on authoritative media state and renders gray mutable versus green immutable timeline masks. TanStack Hotkeys remains customizable with Restore Defaults and `formatForDisplay`; X is absent.
+- Added the additive authorization-filtered `coachMatchState` GraphQL read model and stored operation. Its versioned `1.0.0` payload contains score/side assignment, capture health and immutable submission/clip/analysis summaries only; mutable drafts, media bytes and storage identity are excluded.
+- Replaced the Coach live/history placeholders with landscape iPad-oriented real-data views: side-aware live scoreboard, capture health, latest submitted Rally processing, set filtering and immutable submission links into replay. Both views poll every two seconds and retain explicit loading/error/empty states.
+- The real two-hour Compose soak completed successfully with 214 samples, all 14 services running, zero restarts, zero health failures and zero API failures. Aggregate container memory ranged from 902.708 MiB to 1004.429 MiB, ended at 957.440 MiB and reported 101.721 MiB bounded growth; stderr was empty. Docker remains running for continued development.
+- Minimum integration gates passed: server and Nuxt typechecks, regenerated GraphQL SDL, three stored-operation validation and the UI detector. Broader manual workflow testing is intentionally delegated to the user under the accelerated development plan.
+
+Open limitations: production clip creation/serving, external AI dispatch/callback ingestion, analysis overlays/corrections and production cookie/device identity remain unfinished. These are the next direct vertical slices; the current Coach pages show only persisted truth and do not fabricate unavailable analysis.
+
 ## 2026-08-07 — Phase 3 backend checkpoint
 
 Status: Phase 3A service, Phase 3B contact/atomic close and the Phase 3C immutable-submit implementation are consolidated on `integration/phase3-annotation`. Phase 3C merged through [PR #33](https://github.com/henry753951/volleyball-monitoring-ai/pull/33) after all three CI jobs passed. This is a development checkpoint, not final product acceptance; remaining implementation now continues directly without subagents.

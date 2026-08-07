@@ -1,0 +1,13 @@
+mutation CreateCorrectionDraft($submissionId: ID!) {
+  createCorrectionDraft(submissionId: $submissionId) {
+    id
+    matchId
+    setId
+    annotationRevision
+    annotationStatus
+    processingStatus
+    scoreResolutionState
+    scoringCourtSide
+    activeSubmissionId
+  }
+}

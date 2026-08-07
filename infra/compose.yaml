@@ -219,6 +219,21 @@ services:
     networks: [internal]
     restart: unless-stopped
 
+  youtube-relay:
+    profiles: [youtube-relay]
+    init: true
+    build:
+      context: ..
+      dockerfile: infra/docker/youtube-relay.Dockerfile
+    environment:
+      YOUTUBE_SOURCE_URL: ${YOUTUBE_SOURCE_URL:-}
+      YOUTUBE_FORMAT: ${YOUTUBE_FORMAT:-best[ext=mp4][height<=720][acodec!=none][vcodec!=none]/best[height<=720]}
+      MEDIA_INGEST_URL: rtmp://mediamtx:1935/${YOUTUBE_INGEST_PATH:-youtube/live}
+    depends_on: [mediamtx]
+    networks: [internal, development]
+    restart: unless-stopped
+    stop_grace_period: 10s
+
 volumes:
   postgres-data: {}
   redis-data: {}

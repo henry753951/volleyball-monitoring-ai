@@ -5,6 +5,7 @@ import type {
   SwapCourtSidesInput,
   TeamSetupInput,
 } from '../services/core-domain.js'
+import type { StartCaptureInput } from '../services/capture-processing.js'
 
 export const RosterInputType = builder.inputRef<RosterSetupInput>('RosterInput')
 RosterInputType.implement({
@@ -40,4 +41,24 @@ SwapCourtSidesInputType.implement({
     effectiveFromRallyOrdinal: t.int({ required: true }),
     setId: t.id({ required: true }),
   }),
+})
+
+export const StartCaptureInputType = builder.inputRef<StartCaptureInput>('StartCaptureInput')
+StartCaptureInputType.implement({
+  fields: (t) => ({
+    ingestPath: t.string({ required: true }),
+    matchId: t.id({ required: true }),
+    sourceConfigSecretRef: t.string(),
+    sourceKind: t.string({ required: true }),
+    sourceLabel: t.string(),
+  }),
+})
+
+export interface RetryProcessingInput {
+  rallyId: string
+}
+
+export const RetryProcessingInputType = builder.inputRef<RetryProcessingInput>('RetryProcessingInput')
+RetryProcessingInputType.implement({
+  fields: (t) => ({ rallyId: t.id({ required: true }) }),
 })

@@ -1,15 +1,18 @@
 import {
   parseAnnotationCommand,
   parseAnnotationServerMessage,
+  parseAnnotationSoftLockIntent,
 } from '@volleyball-monitoring/contracts'
 import type { FastifyPluginAsync, FastifyRequest } from 'fastify'
 import type {
   AnnotationCommandService,
   AnnotationIdentity,
 } from '../services/annotation-command.js'
+import type { AnnotationPresenceService } from './annotation-presence.js'
 
 export interface AnnotationWebSocketDependencies {
   authenticate: (request: FastifyRequest) => Promise<AnnotationIdentity | null>
+  presence?: AnnotationPresenceService
   service: AnnotationCommandService
 }
 
@@ -52,18 +55,72 @@ export const annotationWebSocketRoutes = (
         })
         socket.send(JSON.stringify(ready))
 
+        let heartbeat: ReturnType<typeof setInterval> | null = null
+        let unsubscribePresence: (() => void) | null = null
+        let presenceMember: Awaited<ReturnType<AnnotationPresenceService['join']>> | null = null
+        let presenceCleaned = false
+        const sendPresence = async () => {
+          if (!deps.presence || socket.readyState !== 1) return
+          socket.send(JSON.stringify(await deps.presence.snapshot(room.roomId)))
+        }
+        const cleanupPresence = async () => {
+          if (presenceCleaned) return
+          presenceCleaned = true
+          if (heartbeat) clearInterval(heartbeat)
+          unsubscribePresence?.()
+          if (deps.presence && presenceMember) await deps.presence.leave(room.roomId, presenceMember.device_session_id).catch(() => undefined)
+        }
+        socket.on('close', () => { void cleanupPresence() })
+        if (deps.presence) {
+          try {
+            presenceMember = await deps.presence.join(room.roomId, identity)
+            unsubscribePresence = await deps.presence.subscribe(room.roomId, () => { void sendPresence().catch(() => undefined) })
+            await sendPresence()
+            heartbeat = setInterval(() => {
+              if (deps.presence && presenceMember) void deps.presence.touch(room.roomId, presenceMember).catch(() => socket.close(1011, 'presence heartbeat failed'))
+            }, 10_000)
+          }
+          catch {
+            await cleanupPresence()
+            socket.close(1011, 'presence unavailable')
+            return
+          }
+        }
+
         socket.on('message', (raw) => {
           void (async () => {
-            let command
+            let payload: unknown
             try {
-              command = parseAnnotationCommand(raw.toString())
+              payload = JSON.parse(raw.toString())
             } catch {
-              try {
-                command = parseAnnotationCommand(JSON.parse(raw.toString()))
-              } catch {
-                socket.close(1003, 'invalid annotation command')
+              socket.close(1003, 'invalid annotation message')
+              return
+            }
+            try {
+              const intent = parseAnnotationSoftLockIntent(payload)
+              if (intent.room_id !== room.roomId) {
+                socket.close(1008, 'soft-lock room mismatch')
                 return
               }
+              if (!deps.presence || !presenceMember) {
+                socket.close(1011, 'soft-lock presence unavailable')
+                return
+              }
+              try {
+                presenceMember = await deps.presence.setEditing(room.roomId, presenceMember, intent.editing_key_point_id)
+                return
+              } catch {
+                socket.close(1011, 'soft-lock update failed')
+                return
+              }
+            }
+            catch { /* not a soft-lock intent; continue with the durable command parser */ }
+            let command
+            try {
+              command = parseAnnotationCommand(payload)
+            } catch {
+              socket.close(1003, 'invalid annotation command')
+              return
             }
             if (command.room_id !== room.roomId) {
               socket.close(1008, 'command room mismatch')

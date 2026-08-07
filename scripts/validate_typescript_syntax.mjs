@@ -30,6 +30,15 @@ for (const file of files) {
   }
 
   for (const source of sources) {
+    if (file.endsWith('.d.ts')) {
+      const declaration = ts.createSourceFile(file, source, ts.ScriptTarget.ES2022, true, ts.ScriptKind.TS)
+      for (const diagnostic of declaration.parseDiagnostics) {
+        if (diagnostic.category !== ts.DiagnosticCategory.Error) continue
+        failures.push(`${path.relative(root, file)}: ${ts.flattenDiagnosticMessageText(diagnostic.messageText, '\n')}`)
+      }
+      continue
+    }
+
     const output = ts.transpileModule(source, {
       compilerOptions: {
         target: ts.ScriptTarget.ES2022,

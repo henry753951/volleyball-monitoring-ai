@@ -6,7 +6,7 @@ export const CONTRACT_VERSIONS = {
   mediaFrameStepRequest: '1.0.0',
   mediaCanonicalFrameAnchor: '1.0.0',
   mediaApiError: '1.0.0',
-  annotationRealtime: '2.0.0',
+  annotationRealtime: '2.1.0',
   aiCapabilities: '1.0.0',
   aiJob: '1.1.0',
   aiJobAccepted: '1.0.0',
@@ -53,3 +53,4 @@ export const parseCanonicalFrameAnchor = (input: unknown): CanonicalFrameAnchor 
 export const parseMediaApiError = (input: unknown): MediaApiError => parse(input, (v) => { exact(v, ['schema_version', 'code', 'message', 'request_id'], ['details']); if (v.schema_version !== '1.0.0' || !MEDIA_ERROR_CODES.includes(String(v.code) as MediaErrorCode)) throw new TypeError('invalid media error'); stringField(v, 'message', /^.{1,512}$/); idField(v, 'request_id'); optionalField(v, 'details', () => { if (v.details !== null && !isRecord(v.details)) throw new TypeError('invalid details') }) })
 
 export * from './annotation.js'
+export * from './overlay-flatbuffers.js'

@@ -1,0 +1,8 @@
+mutation RetryProcessing($input: RetryProcessingInput!) {
+  retryProcessing(input: $input) {
+    rallyId
+    submissionId
+    status
+    retriedStage
+  }
+}

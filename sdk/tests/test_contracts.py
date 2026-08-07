@@ -7,6 +7,7 @@ from volleyball_monitoring_ai import (
     AIJobRequest, AnalysisResult, ProviderCapabilities, validate_passthrough,
     PlaybackWindowRequest, PlaybackWindowDescriptor, PlaybackCursor,
     ResolvedMediaAnchor, FrameStepRequest, CanonicalFrameAnchor, MediaApiError,
+    build_empty_overlay,
 )
 
 FIXTURES = Path(__file__).parents[2] / "packages" / "contracts" / "fixtures"
@@ -47,6 +48,13 @@ def test_contract_versions_are_explicit() -> None:
     capabilities_path = FIXTURES.parents[0] / "examples" / "ai" / "capabilities.json"
     capabilities = ProviderCapabilities.model_validate_json(capabilities_path.read_text())
     assert "1.1.0" in capabilities.supported_job_schema_versions
+
+
+def test_empty_provider_overlay_uses_real_vov1_table() -> None:
+    job = AIJobRequest.model_validate_json((FIXTURES / "normal-rally" / "job.json").read_text())
+    overlay = build_empty_overlay(job, analysis_id="fixture-analysis", analysis_version="fixture-v1")
+    assert overlay[4:8] == b"VOV1"
+    assert len(overlay) > int(job.clip.video.total_frames) * 6
 
 
 def test_non_monotonic_key_points_are_rejected() -> None:

@@ -14,6 +14,10 @@ import { createMinioObjectReaderFromEnv } from './media/minio-object-reader.js'
 import { createSampleIndexRepository } from './media/sample-index-repository.js'
 import { createPersistedSampleSnapResolver } from './media/sample-snap-resolver.js'
 import { mediaPlaybackRoutes } from './routes/media-playback.js'
+import { aiCallbackRoutes } from './routes/ai-callback.js'
+import { analysisMediaRoutes } from './routes/analysis-media.js'
+import { collectOperationsSnapshot, operationsRoutes } from './routes/operations.js'
+import { createAnnotationPresenceService } from './realtime/annotation-presence.js'
 import { annotationWebSocketRoutes } from './realtime/annotation-ws.js'
 import { authenticateDevelopmentAnnotationRequest } from './realtime/auth.js'
 import { createAnnotationCommandService } from './services/annotation-command.js'
@@ -27,6 +31,12 @@ if (!mediaObjectReader) {
 }
 const redis = redisUrl
   ? new Redis(redisUrl, { lazyConnect: true, connectTimeout: 1_000, maxRetriesPerRequest: 1 })
+  : null
+const annotationPresence = redis
+  ? createAnnotationPresenceService({
+      redis,
+      displayName: async userId => (await db.user.findUnique({ where: { id: userId }, select: { displayName: true } }))?.displayName ?? null,
+    })
   : null
 
 const cursorDependencies = {
@@ -71,13 +81,17 @@ await app.register(cors, {
   credentials: true,
 })
 await app.register(websocket)
+await app.register(aiCallbackRoutes)
+await app.register(analysisMediaRoutes)
 await app.register(mediaPlaybackRoutes({
   objectReader: mediaObjectReader,
   resolveSample: createPersistedSampleSnapResolver(db, mediaObjectReader),
 }))
 await app.register(mediaCursorRoutes({ objectReader: mediaObjectReader }))
+await app.register(operationsRoutes(() => collectOperationsSnapshot(db)))
 await app.register(annotationWebSocketRoutes({
   authenticate: (request) => authenticateDevelopmentAnnotationRequest(request, db),
+  ...(annotationPresence ? { presence: annotationPresence } : {}),
   service: annotationCommands,
 }))
 
@@ -112,6 +126,7 @@ app.get('/health/ready', async (_req, reply) => {
 
 const port = Number(process.env.PORT ?? 4000)
 app.addHook('onClose', async () => {
+  annotationPresence?.close()
   redis?.disconnect()
   await db.$disconnect()
 })

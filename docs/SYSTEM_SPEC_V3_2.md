@@ -895,14 +895,27 @@ Server以單一 transaction：
 - 底部固定 control deck：發球、擊球、左側得分、右側得分、未知、提交六個觸控動作，顯示目前快捷鍵（預設`Z`、`Space`、`<`、`>`、`?`、`Enter`）並依state啟停；不得顯示獨立結束控制。
 - Inspector：選取 key point時顯示 canonical time、frame、建立者、revision、duplicate/precision資訊。
 
-# 10. Annotation Realtime Schema v2.0
+# 10. Annotation Realtime Schema v2.1
 
 
 ### 10.0 協議版本
 
-Annotation Realtime Protocol 的正式版本為`2.0.0`。這是breaking change：移除v1.1的獨立terminal與後續score兩階段command，改由一個`CLOSE_RALLY` atomically terminalize目前server-confirmed最後key point並保存rally-level outcome。任何v1.x annotation message都不得被2.0 consumer靜默當成相同語意。
+Annotation Realtime Protocol 的正式registry版本為`2.1.0`。Canonical Rally command／ACK仍使用`2.0.0`：這是先前移除v1.1獨立terminal與後續score兩階段command的breaking boundary，改由一個`CLOSE_RALLY` atomically terminalize目前server-confirmed最後key point並保存rally-level outcome。任何v1.x annotation message都不得被2.x consumer靜默當成相同語意。
+
+`2.1.0`只新增ephemeral `soft_lock_intent`。它沒有`command_id`、`rally_id`、revision或authoritative media anchor，不進PostgreSQL、不建立operation/receipt，也不得阻擋另一位operator送出MOVE；Redis短TTL提示失效、client release或disconnect後即清除，canonical concurrency仍完全由Rally revision/CAS決定。
 
 WebSocket用於高頻 annotation command、ack、revision、presence與處理通知。GraphQL提供 snapshot/refetch，不承擔逐次按鍵。
+
+```json
+{
+  "schema_version": "2.1.0",
+  "type": "soft_lock_intent",
+  "room_id": "match:...:capture:...",
+  "editing_key_point_id": "0190..."
+}
+```
+
+`editing_key_point_id: null`表示主動釋放。Server只採用已驗證connection的user/device identity，並透過既有`presence_snapshot.members[].editing_key_point_id`廣播提示；client不得自報display name或其他member identity。
 
 ## 10.1 Client Command Envelope
 

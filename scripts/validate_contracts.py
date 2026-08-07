@@ -81,6 +81,7 @@ def main() -> None:
         'examples/annotation/close-rally-ack.json': 'annotation/realtime.schema.json',
         'examples/annotation/close-rally-target-conflict.json': 'annotation/realtime.schema.json',
         'examples/annotation/submit.json': 'annotation/realtime.schema.json',
+        'examples/annotation/soft-lock-intent.json': 'annotation/realtime.schema.json',
         'examples/ai/capabilities.json': 'ai/capabilities.schema.json',
         'examples/ai/job-accepted.json': 'ai/job-accepted.schema.json',
     }

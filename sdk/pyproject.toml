@@ -10,7 +10,11 @@ readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "MIT" }
 authors = [{ name = "volleyball-monitoring-ai contributors" }]
-dependencies = ["pydantic>=2.10,<3", "httpx>=0.28,<1"]
+dependencies = [
+    "pydantic>=2.10,<3",
+    "httpx>=0.28,<1",
+    "flatbuffers>=25.9.23,<26",
+]
 
 [project.optional-dependencies]
 provider = ["fastapi>=0.116,<1", "uvicorn>=0.35,<1"]
