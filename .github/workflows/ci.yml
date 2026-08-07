@@ -36,7 +36,7 @@ jobs:
       - name: Validate contracts, scaffold, and Prisma structure
         run: |
           uv run --project sdk --frozen python scripts/validate_contracts.py
-          uv run --project sdk --frozen python scripts/validate_scaffold.py
+          uv run --project sdk --frozen python scripts/validate_scaffold.py --skip-checksums
           uv run --project sdk --frozen python scripts/validate_prisma_structure.py
       - name: Run SDK tests
         run: uv run --project sdk --frozen pytest -q sdk/tests

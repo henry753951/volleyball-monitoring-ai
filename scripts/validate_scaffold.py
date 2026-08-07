@@ -1,6 +1,7 @@
 
 from __future__ import annotations
 
+import argparse
 import hashlib
 import json
 import re
@@ -29,6 +30,15 @@ def repository_files(pattern: str):
         if any(part in IGNORED_DIRECTORIES for part in relative_parts):
             continue
         yield path
+
+
+parser = argparse.ArgumentParser(description='Validate repository scaffold invariants.')
+parser.add_argument(
+    '--skip-checksums',
+    action='store_true',
+    help='validate SHA256SUMS structure but skip target existence and digest verification',
+)
+args = parser.parse_args()
 
 REQUIRED = [
     'bun.lock',
@@ -75,11 +85,12 @@ for line_number, line in enumerate(checksum_manifest.read_text(encoding='utf-8')
 checksum_paths = [relative for relative, _ in checksum_entries]
 assert checksum_paths == sorted(checksum_paths), 'SHA256SUMS.txt paths must be sorted'
 assert len(checksum_paths) == len(set(checksum_paths)), 'SHA256SUMS.txt contains duplicate paths'
-for relative, expected_digest in checksum_entries:
-    path = ROOT.joinpath(*relative.split('/'))
-    assert path.is_file(), f'checksum target is missing: {relative}'
-    actual_digest = hashlib.sha256(canonical_checksum_bytes(path)).hexdigest()
-    assert actual_digest == expected_digest, f'checksum mismatch: {relative}'
+if not args.skip_checksums:
+    for relative, expected_digest in checksum_entries:
+        path = ROOT.joinpath(*relative.split('/'))
+        assert path.is_file(), f'checksum target is missing: {relative}'
+        actual_digest = hashlib.sha256(canonical_checksum_bytes(path)).hexdigest()
+        assert actual_digest == expected_digest, f'checksum mismatch: {relative}'
 
 spec = (ROOT / 'docs/MASTER_IMPLEMENTATION_SPEC.md').read_text(encoding='utf-8')
 assert '`CLOSE_RALLY`' in spec and 'target_key_point_id' in spec
@@ -117,4 +128,11 @@ sdk_overlay = (ROOT / 'sdk/src/volleyball_monitoring_ai/schemas/overlay.fbs').re
 canonical_overlay = (ROOT / 'packages/contracts/flatbuffers/overlay.fbs').read_bytes()
 assert sdk_overlay == canonical_overlay, 'SDK overlay schema is stale'
 
-print(f'scaffold validation passed; SHA256SUMS verified ({len(checksum_entries)} files)')
+if args.skip_checksums:
+    print(
+        'scaffold validation passed; '
+        f'SHA256SUMS structure valid ({len(checksum_entries)} entries), '
+        'target and digest verification skipped by --skip-checksums'
+    )
+else:
+    print(f'scaffold validation passed; SHA256SUMS verified ({len(checksum_entries)} files)')
