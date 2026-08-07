@@ -41,6 +41,8 @@ def compose_state() -> tuple[int, int, int, dict[str, dict[str, str]]]:
         restarts += restart_count
         unhealthy += int(health in {"unhealthy", "unknown"})
         services[name] = {"container": container, "state": state, "health": health, "status": status, "restarts": str(restart_count)}
+    # minio-init is a completed one-shot bootstrap, not a continuously running service.
+    services.pop("minio-init", None)
     running = sum(item["state"] == "running" for item in services.values())
     return running, restarts, unhealthy, services
 
