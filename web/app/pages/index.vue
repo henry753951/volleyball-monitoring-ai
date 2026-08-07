@@ -22,7 +22,28 @@ onMounted(async () => {
     <template v-else>
       <div class="flex items-center justify-between gap-3"><h2 class="text-xl font-semibold">可用場次</h2><NuxtLink to="/matches/new" class="button-primary">新增場次</NuxtLink></div>
       <div v-if="!matchState.matches.value.length" class="rounded-3xl border border-dashed border-stone-300 bg-white/70 p-10 text-center"><p class="font-semibold">目前沒有場次</p><p class="mt-1 text-sm text-stone-600">建立第一場比賽，填入左右隊伍與 roster。</p><NuxtLink to="/matches/new" class="button-primary mt-5 inline-flex">開始建立</NuxtLink></div>
-      <div v-else class="grid gap-4 lg:grid-cols-2"> <NuxtLink v-for="match in matchState.matches.value" :key="match.id" :to="`/matches/${match.id}/live`" class="rounded-3xl border border-stone-200 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"><div class="flex items-start justify-between gap-3"><div><p class="text-xs text-stone-500">{{ match.status }}</p><h3 class="mt-1 text-xl font-semibold">{{ match.title }}</h3><p class="mt-1 text-sm text-stone-600">{{ match.venue || '未設定場地' }}</p></div><span class="rounded-full bg-teal-50 px-3 py-1 text-xs font-semibold text-teal-800">{{ match.teams.length }} 隊</span></div><p class="mt-4 text-sm text-stone-500">{{ match.rosterEntries.length }} 位 roster · {{ match.sets.length }} 局</p></NuxtLink></div>
+      <div v-else class="grid gap-4 lg:grid-cols-2">
+        <NuxtLink
+          v-for="match in matchState.matches.value"
+          :key="match.id"
+          :to="`/matches/${match.id}/live`"
+          class="rounded-3xl border border-stone-200 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
+        >
+          <div class="flex items-start justify-between gap-3">
+            <div>
+              <p class="text-xs text-stone-500">{{ match.status }}</p>
+              <h3 class="mt-1 text-xl font-semibold">{{ match.title }}</h3>
+              <p class="mt-1 text-sm text-stone-600">{{ match.venue || '未設定場地' }}</p>
+            </div>
+            <span class="rounded-full bg-teal-50 px-3 py-1 text-xs font-semibold text-teal-800">
+              {{ match.teams.length }} 隊
+            </span>
+          </div>
+          <p class="mt-4 text-sm text-stone-500">
+            {{ match.rosterEntries.length }} 位 roster · {{ match.sets.length }} 局
+          </p>
+        </NuxtLink>
+      </div>
     </template>
   </section>
 </template>
