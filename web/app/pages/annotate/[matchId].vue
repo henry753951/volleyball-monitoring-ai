@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ArrowLeft, History, Settings } from 'lucide-vue-next'
+import { ArrowLeft, History, RadioTower, Settings } from 'lucide-vue-next'
 import { createMediaClient } from '~/lib/mediaClient'
 import { useAuthoritativeDvrWindow, seekVideoToCanonicalFrame, authoritativeControlsEnabled } from '~/composables/useAuthoritativeDvrWindow'
 import { createCoreDomainClient, createGraphQLTransport, type Match, type CaptureSession } from '~/lib/coreDomain'
@@ -32,6 +32,7 @@ const commandReady = computed(() => !annotation.busy.value && annotation.pending
 const { bindings } = useAnnotationHotkeys()
 const annotationScope = useTemplateRef<HTMLElement>('annotationScope')
 const settingsOpen = ref(false)
+const captureDialogOpen = ref(false)
 const inspectorTab = ref<'keypoints' | 'authority'>('keypoints')
 let matchRefreshTimer: ReturnType<typeof setInterval> | null = null
 let matchRefreshInFlight = false
@@ -221,7 +222,7 @@ onBeforeUnmount(() => {
     <header class="app-bar">
       <div class="brand-block"><h1>Volleyball Monitoring AI</h1><p>Server DVR · Keypoint Editor · Immutable Submission</p></div>
       <div class="session-status"><i class="status-dot" :class="{ busy: annotation.busy.value || annotation.pendingCount.value > 0 || annotation.connection.value !== 'ready', error: annotation.error.value || annotation.outboxNeedsConfirmation.value }" /><span>{{ syncLabel }}</span><span v-if="annotation.presence.value.length" class="presence-count" :title="annotation.presence.value.map(member => member.display_name).join('、')">{{ annotation.presence.value.length }} 人在線</span></div>
-      <div class="app-actions"><span class="media-name">{{ match?.title ?? matchId }} · {{ selectedCapture?.sourceLabel ?? selectedCapture?.id ?? '等待 capture' }}</span><NuxtLink to="/" aria-label="返回場次"><ArrowLeft :size="17" /></NuxtLink><NuxtLink :to="`/matches/${matchId}/history`" aria-label="查看紀錄"><History :size="17" /></NuxtLink><button type="button" aria-label="Annotation 設定" title="Annotation 設定" @click="settingsOpen = true"><Settings :size="18" /></button></div>
+      <div class="app-actions"><span class="media-name">{{ match?.title ?? matchId }} · {{ selectedCapture?.sourceLabel ?? selectedCapture?.id ?? '等待 capture' }}</span><NuxtLink to="/" aria-label="返回場次"><ArrowLeft :size="17" /></NuxtLink><NuxtLink :to="`/matches/${matchId}/history`" aria-label="查看紀錄"><History :size="17" /></NuxtLink><button type="button" aria-label="串流來源" title="串流來源" @click="captureDialogOpen = true"><RadioTower :size="18" /></button><button type="button" aria-label="Annotation 設定" title="Annotation 設定" @click="settingsOpen = true"><Settings :size="18" /></button></div>
     </header>
 
     <div class="editor-body">
@@ -265,6 +266,7 @@ onBeforeUnmount(() => {
     <p v-if="loadError || annotation.error.value" class="global-error">{{ loadError ?? annotation.error.value }} <button type="button" @click="loadError ? loadMatch() : annotation.refreshActive()">重試</button></p>
     <p v-if="annotation.pendingCount.value" class="outbox-banner" :class="{ confirm: annotation.outboxNeedsConfirmation.value }"><span>{{ annotation.outboxNeedsConfirmation.value ? '伺服器狀態已變更；請捨棄後在目前畫格重新操作。' : '操作已保存在本機，恢復連線後會以相同 command ID 送出。' }}</span><button type="button" @click="annotation.discardPending">捨棄並同步</button></p>
     <AnnotationSettingsDialog :open="settingsOpen" @close="settingsOpen = false" />
+    <CaptureControlDialog :open="captureDialogOpen" :match-id="matchId" :captures="match?.captureSessions ?? []" @close="captureDialogOpen = false" @changed="loadMatch" />
   </section>
 </template>
 

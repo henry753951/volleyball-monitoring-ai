@@ -1,5 +1,16 @@
 # Progress
 
+## 2026-08-07 — Capture lifecycle and processing retry completion
+
+Status: the remaining `startCapture`, `stopCapture` and `retryProcessing` GraphQL mutations are implemented with operator UI and durable job semantics.
+
+- Added typed GraphQL inputs/results and stored operations for all three mutations. Start validates a safe MediaMTX ingest path, stores only an opaque secret reference, authorizes ADMIN/OPERATOR membership, moves a planned match live and emits a durable start-request outbox event. Stop terminally closes the capture/program/active epochs at the persisted live edge so later MediaMTX files are no longer resolved into that session.
+- Added the Annotation top-bar stream-source dialog. Operators can see active capture health, register RTMP/SRT/RTSP/external ingest paths, copy the derived publisher target and stop a session without putting Annotation preferences into the Coach/PWA settings page.
+- Added deterministic retry routing for the active immutable submission. A terminal ClipJob is reset in place with cleared lease/error/output state; a failed AI attempt is retained as `SUPERSEDED` and a fresh job receives a new callback scope and clean request without expired signed URLs or callback data. Rally processing state and outbox audit events change in the same serializable transaction.
+- Failed History rows expose retry only to ADMIN/OPERATOR viewers. Four isolated PostgreSQL lifecycle/retry tests, full Server `168/168`, Web `94/94`, Server/Web typechecks and twelve stored GraphQL operations passed.
+
+Boundary: `startCapture` registers the central ingest session and publisher target; it does not embed camera credentials or control a vendor camera. The external publisher/secret manager remains deployment-owned.
+
 ## 2026-08-07 — Immutable correction and score-ledger completion
 
 Status: correction draft, immutable supersession, score correction and outcome-only geometry reuse are implemented on the Contract Lab-aligned Annotation workstation.

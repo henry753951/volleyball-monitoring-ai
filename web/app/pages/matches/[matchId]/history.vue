@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { Bookmark, ChevronRight, CircleAlert, Clock3, RefreshCw, Save } from 'lucide-vue-next'
 import { createCoachDomainClient, type SavedAnalysisView } from '~/lib/coachDomain'
-import { createGraphQLTransport } from '~/lib/coreDomain'
+import { createCoreDomainClient, createGraphQLTransport, type Viewer } from '~/lib/coreDomain'
 
 const route = useRoute()
 const matchId = computed(() => String(route.params.matchId))
@@ -11,10 +11,15 @@ const selectedSet = ref<number | 'all'>('all')
 const rallies = computed(() => (match.value?.rallies ?? []).filter(rally => selectedSet.value === 'all' || rally.set_number === selectedSet.value))
 const teamById = computed(() => new Map((match.value?.teams ?? []).map(team => [team.id, team])))
 const domain = createCoachDomainClient(createGraphQLTransport('/graphql'))
+const core = createCoreDomainClient(createGraphQLTransport('/graphql'))
 const savedViews = shallowRef<SavedAnalysisView[]>([])
+const viewer = shallowRef<Viewer | null>(null)
 const viewName = ref('')
 const savedPending = ref(false)
 const savedError = ref<string | null>(null)
+const retryingRallyId = ref<string | null>(null)
+const retryError = ref<string | null>(null)
+const canRetry = computed(() => ['ADMIN', 'OPERATOR'].includes(viewer.value?.role ?? ''))
 
 function outcomeLabel(rally: (typeof rallies.value)[number]) {
   if (rally.submission.score_resolution === 'unknown') return '結果未知'
@@ -45,7 +50,14 @@ async function openSavedView(view: SavedAnalysisView) {
   selectedSet.value = sets.length === 1 ? sets[0]! : 'all'
   if (view.layout?.route && view.layout.route !== 'history') await navigateTo(`/matches/${matchId.value}/${view.layout.route}`)
 }
-onMounted(loadSavedViews)
+async function retryRally(rallyId: string) {
+  if (!canRetry.value || retryingRallyId.value) return
+  retryingRallyId.value = rallyId; retryError.value = null
+  try { await core.retryProcessing(rallyId); await coach.refresh() }
+  catch (cause) { retryError.value = cause instanceof Error ? cause.message : '無法重新排程處理' }
+  finally { retryingRallyId.value = null }
+}
+onMounted(async () => { await Promise.all([loadSavedViews(), core.viewer().then(value => { viewer.value = value })]) })
 </script>
 
 <template>
@@ -74,14 +86,18 @@ onMounted(loadSavedViews)
 
     <div v-if="coach.pending.value" class="space-y-2" aria-busy="true"><div v-for="index in 4" :key="index" class="h-24 animate-pulse rounded-2xl bg-stone-200" /></div>
     <div v-else-if="coach.error.value && !match" class="rounded-2xl bg-rose-50 p-6 text-rose-900" role="alert"><p class="flex items-center gap-2 font-semibold"><CircleAlert class="size-5" />無法載入 Rally 紀錄</p><p class="mt-2 text-sm">{{ coach.error.value.message }}</p></div>
+    <p v-if="retryError" class="rounded-xl bg-rose-50 p-3 text-sm text-rose-900" role="alert">{{ retryError }}</p>
     <div v-else-if="!rallies.length" class="rounded-2xl bg-white p-8 text-center shadow-sm"><p class="font-semibold">目前沒有已提交 Rally</p><p class="mt-1 text-sm text-stone-500">標註員按 Enter 建立 immutable submission 後，紀錄會自動出現在這裡。</p></div>
     <ol v-else class="overflow-hidden rounded-2xl bg-white shadow-sm">
       <li v-for="rally in rallies" :key="rally.id" class="border-b border-stone-100 last:border-0">
-        <NuxtLink :to="`/matches/${matchId}/replay/${rally.id}`" class="grid min-h-24 grid-cols-[auto_1fr_auto] items-center gap-4 px-5 py-4 transition-colors hover:bg-stone-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-teal-700">
+        <div class="flex items-center gap-2 pr-4">
+        <NuxtLink :to="`/matches/${matchId}/replay/${rally.id}`" class="grid min-h-24 min-w-0 flex-1 grid-cols-[auto_1fr_auto] items-center gap-4 px-5 py-4 transition-colors hover:bg-stone-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-teal-700">
           <div class="grid size-14 place-items-center rounded-xl bg-stone-950 text-center text-white"><span class="text-[10px] text-white/60">SET {{ rally.set_number }}</span><strong class="text-lg leading-none">#{{ rally.ordinal }}</strong></div>
           <div class="min-w-0"><p class="truncate font-semibold">{{ outcomeLabel(rally) }}</p><p class="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-stone-500"><span class="inline-flex items-center gap-1"><Clock3 class="size-3.5" />{{ submittedAt(rally.submission.submitted_at) }}</span><span>{{ processLabel(rally.processing_status) }}</span><span v-if="rally.submission.analysis">AI {{ rally.submission.analysis.version }} · {{ rally.submission.analysis.status }}</span></p></div>
           <ChevronRight class="size-5 text-stone-400" aria-hidden="true" />
         </NuxtLink>
+        <button v-if="canRetry && rally.processing_status === 'failed'" type="button" class="button-secondary inline-flex shrink-0 items-center gap-2" :disabled="Boolean(retryingRallyId)" @click="retryRally(rally.id)"><RefreshCw class="size-4" :class="{ 'animate-spin': retryingRallyId === rally.id }" />{{ retryingRallyId === rally.id ? '排程中' : '重試處理' }}</button>
+        </div>
       </li>
     </ol>
   </section>

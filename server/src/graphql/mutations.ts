@@ -2,13 +2,37 @@ import {
   createMatchSetup,
   swapCourtSides,
 } from '../services/core-domain.js'
+import { db } from '@volleyball-monitoring/db'
+import {
+  OperationalMutationError,
+  retryProcessing,
+  startCapture,
+  stopCapture,
+} from '../services/capture-processing.js'
 import { builder } from './builder.js'
-import { requireIdentity } from './errors.js'
+import { domainError, requireIdentity } from './errors.js'
 import {
   CreateMatchSetupInputType,
+  RetryProcessingInputType,
+  StartCaptureInputType,
   SwapCourtSidesInputType,
 } from './inputs.js'
-import { MatchSetType, MatchType } from './types.js'
+import { CaptureSessionType, MatchSetType, MatchType, ProcessingStateType } from './types.js'
+
+async function operational<T>(work: () => Promise<T>): Promise<T> {
+  try {
+    return await work()
+  }
+  catch (error) {
+    if (!(error instanceof OperationalMutationError)) throw error
+    const code = error.code === 'NOT_FOUND'
+      ? 'NOT_FOUND'
+      : error.code === 'FORBIDDEN'
+        ? 'FORBIDDEN'
+        : 'BAD_USER_INPUT'
+    return domainError(error.message, code)
+  }
+}
 
 builder.mutationType({
   fields: (t) => ({
@@ -16,6 +40,29 @@ builder.mutationType({
       args: { input: t.arg({ required: true, type: CreateMatchSetupInputType }) },
       resolve: (_root, args, context) => createMatchSetup(requireIdentity(context), args.input),
       type: MatchType,
+    }),
+    retryProcessing: t.field({
+      args: { input: t.arg({ required: true, type: RetryProcessingInputType }) },
+      resolve: (_root, args, context) => {
+        const identity = requireIdentity(context)
+        return operational(() => retryProcessing(
+          db,
+          identity,
+          args.input.rallyId,
+          process.env.AI_CALLBACK_TOKEN_SECRET ?? '',
+        ))
+      },
+      type: ProcessingStateType,
+    }),
+    startCapture: t.field({
+      args: { input: t.arg({ required: true, type: StartCaptureInputType }) },
+      resolve: (_root, args, context) => operational(() => startCapture(db, requireIdentity(context), args.input)),
+      type: CaptureSessionType,
+    }),
+    stopCapture: t.field({
+      args: { captureSessionId: t.arg.id({ required: true }) },
+      resolve: (_root, args, context) => operational(() => stopCapture(db, requireIdentity(context), args.captureSessionId)),
+      type: CaptureSessionType,
     }),
     swapCourtSides: t.field({
       args: { input: t.arg({ required: true, type: SwapCourtSidesInputType }) },

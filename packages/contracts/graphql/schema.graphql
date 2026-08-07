@@ -111,7 +111,10 @@ type Mutation {
   assignTrackIdentity(analysisRunId: ID!, rosterEntryId: ID!, trackId: Int!): JSON!
   createCorrectionDraft(submissionId: ID!): Rally!
   createMatchSetup(input: CreateMatchSetupInput!): Match!
+  retryProcessing(input: RetryProcessingInput!): ProcessingState!
   saveAnalysisView(filters: JSON!, layout: JSON, matchId: ID!, name: String!): JSON!
+  startCapture(input: StartCaptureInput!): CaptureSession!
+  stopCapture(captureSessionId: ID!): CaptureSession!
   swapCourtSides(input: SwapCourtSidesInput!): MatchSet!
 }
 
@@ -119,6 +122,13 @@ type Player {
   id: ID!
   name: String!
   teamId: ID!
+}
+
+type ProcessingState {
+  rallyId: ID!
+  retriedStage: String!
+  status: ProcessingStatus!
+  submissionId: ID!
 }
 
 enum ProcessingStatus {
@@ -159,6 +169,10 @@ type Rally {
   setId: ID!
 }
 
+input RetryProcessingInput {
+  rallyId: ID!
+}
+
 input RosterInput {
   jerseyNumber: String!
   name: String!
@@ -181,6 +195,14 @@ enum SourceHealth {
   HEALTHY
   OFFLINE
   STARTING
+}
+
+input StartCaptureInput {
+  ingestPath: String!
+  matchId: ID!
+  sourceConfigSecretRef: String
+  sourceKind: String!
+  sourceLabel: String
 }
 
 input SwapCourtSidesInput {

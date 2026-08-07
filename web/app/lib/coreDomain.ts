@@ -47,6 +47,8 @@ export interface Match {
 export interface CaptureTimelineRange { startUs: string; endUs: string; discontinuity: number }
 export interface CaptureTimeline { captureSessionId: string; captureStartTimeUs: string; liveEdgeCaptureTimeUs: string | null; timelineVersion: string; availableRanges: CaptureTimelineRange[] }
 export interface CaptureSession { id: string; matchId: string; sourceLabel: string | null; status: string; health: string; startedAt: string | null; endedAt: string | null; timeline: CaptureTimeline | null }
+export interface StartCaptureInput { matchId: string; ingestPath: string; sourceKind: string; sourceLabel?: string; sourceConfigSecretRef?: string }
+export interface ProcessingState { rallyId: string; submissionId: string; status: string; retriedStage: 'clip' | 'ai' }
 
 export interface RosterInput {
   name: string
@@ -99,6 +101,9 @@ export interface CoreDomainClient {
   match(id: string): Promise<Match | null>
   createMatchSetup(input: CreateMatchSetupInput): Promise<Match>
   swapCourtSides(input: SwapCourtSidesInput): Promise<MatchSet>
+  startCapture(input: StartCaptureInput): Promise<CaptureSession>
+  stopCapture(captureSessionId: string): Promise<CaptureSession>
+  retryProcessing(rallyId: string): Promise<ProcessingState>
 }
 
 export const CORE_OPERATIONS = {
@@ -107,6 +112,9 @@ export const CORE_OPERATIONS = {
   match: `query Match($id: ID!) { match(id: $id) { id title venue status scheduledAt teams { id name shortName } rosterEntries { id teamId name jerseyNumber } sets { id setNumber status leftScore rightScore sideAssignments { id effectiveFromRallyOrdinal effectiveToRallyOrdinal leftTeamId rightTeamId } } captureSessions { id matchId sourceLabel status health startedAt endedAt timeline { captureSessionId captureStartTimeUs liveEdgeCaptureTimeUs timelineVersion availableRanges { startUs endUs discontinuity } } } } }`,
   createMatchSetup: `mutation CreateMatchSetup($input: CreateMatchSetupInput!) { createMatchSetup(input: $input) { id title venue status scheduledAt teams { id name shortName } rosterEntries { id teamId name jerseyNumber } sets { id setNumber status leftScore rightScore sideAssignments { id effectiveFromRallyOrdinal effectiveToRallyOrdinal leftTeamId rightTeamId } } } }`,
   swapCourtSides: `mutation SwapCourtSides($input: SwapCourtSidesInput!) { swapCourtSides(input: $input) { id setNumber status leftScore rightScore sideAssignments { id effectiveFromRallyOrdinal effectiveToRallyOrdinal leftTeamId rightTeamId } } }`,
+  startCapture: `mutation StartCapture($input: StartCaptureInput!) { startCapture(input: $input) { id matchId sourceLabel status health startedAt endedAt timeline { captureSessionId captureStartTimeUs liveEdgeCaptureTimeUs timelineVersion availableRanges { startUs endUs discontinuity } } } }`,
+  stopCapture: `mutation StopCapture($captureSessionId: ID!) { stopCapture(captureSessionId: $captureSessionId) { id matchId sourceLabel status health startedAt endedAt timeline { captureSessionId captureStartTimeUs liveEdgeCaptureTimeUs timelineVersion availableRanges { startUs endUs discontinuity } } }`,
+  retryProcessing: `mutation RetryProcessing($input: RetryProcessingInput!) { retryProcessing(input: $input) { rallyId submissionId status retriedStage } }`,
 } as const
 
 export function createGraphQLTransport(
@@ -151,6 +159,18 @@ export function createCoreDomainClient(transport: GraphQLTransport): CoreDomainC
     async swapCourtSides(input) {
       const result = await transport.request<{ swapCourtSides: MatchSet }>(CORE_OPERATIONS.swapCourtSides, { input })
       return result.swapCourtSides
+    },
+    async startCapture(input) {
+      const result = await transport.request<{ startCapture: CaptureSession }>(CORE_OPERATIONS.startCapture, { input })
+      return result.startCapture
+    },
+    async stopCapture(captureSessionId) {
+      const result = await transport.request<{ stopCapture: CaptureSession }>(CORE_OPERATIONS.stopCapture, { captureSessionId })
+      return result.stopCapture
+    },
+    async retryProcessing(rallyId) {
+      const result = await transport.request<{ retryProcessing: ProcessingState }>(CORE_OPERATIONS.retryProcessing, { input: { rallyId } })
+      return result.retryProcessing
     },
   }
 }

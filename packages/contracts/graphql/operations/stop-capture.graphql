@@ -1,0 +1,11 @@
+mutation StopCapture($captureSessionId: ID!) {
+  stopCapture(captureSessionId: $captureSessionId) {
+    id
+    matchId
+    sourceLabel
+    status
+    health
+    startedAt
+    endedAt
+  }
+}

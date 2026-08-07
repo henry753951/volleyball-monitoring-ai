@@ -27,6 +27,7 @@ import {
   type CaptureTimelineRangeView,
   type CaptureTimelineView,
 } from '../services/media-timeline.js'
+import type { ProcessingStateView } from '../services/capture-processing.js'
 
 interface Health {
   service: string
@@ -154,6 +155,16 @@ RallyType.implement({
     scoreResolutionState: t.field({ type: ScoreResolutionStateType, resolve: rally => rally.scoreResolutionState }),
     scoringCourtSide: t.field({ type: CourtSideType, nullable: true, resolve: rally => rally.scoringCourtSide }),
     setId: t.exposeID('setId'),
+  }),
+})
+
+export const ProcessingStateType = builder.objectRef<ProcessingStateView>('ProcessingState')
+ProcessingStateType.implement({
+  fields: (t) => ({
+    rallyId: t.exposeID('rallyId'),
+    retriedStage: t.exposeString('retriedStage'),
+    status: t.field({ type: ProcessingStatusType, resolve: state => state.status }),
+    submissionId: t.exposeID('submissionId'),
   }),
 })
 
