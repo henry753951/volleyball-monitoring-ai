@@ -1,5 +1,6 @@
 import { runWorkerLifecycle } from './lifecycle.js'
 import { validateWorkerRole } from './worker-role.js'
+import { createMediaIndexerComposition } from './composition.js'
 
 const role = process.env.WORKER_ROLE ?? 'media-indexer'
 const validatedRole = validateWorkerRole(role)
@@ -9,7 +10,12 @@ process.once('SIGINT', stop)
 process.once('SIGTERM', stop)
 
 try {
-  await runWorkerLifecycle({ role: validatedRole, signal: controller.signal })
+  if (validatedRole !== 'media-indexer') {
+    await runWorkerLifecycle({ role: validatedRole, signal: controller.signal })
+  } else {
+    const composition = await createMediaIndexerComposition()
+    await runWorkerLifecycle({ role: validatedRole, signal: controller.signal, start: composition.start, stop: composition.stop })
+  }
 } finally {
   process.off('SIGINT', stop)
   process.off('SIGTERM', stop)

@@ -84,7 +84,12 @@ services:
     networks: [internal]
 
   mediamtx:
-    image: bluenviron/mediamtx:1.20.0
+    build:
+      context: ..
+      dockerfile: infra/docker/mediamtx.Dockerfile
+    environment:
+      MEDIA_INDEXER_HOOK_URL: http://worker-media-indexer:4100/internal/media-indexer/recording-complete
+      MEDIA_INDEXER_HOOK_TOKEN: ${MEDIA_INDEXER_HOOK_TOKEN:?MEDIA_INDEXER_HOOK_TOKEN is required}
     volumes:
       - ./mediamtx/mediamtx.yml:/mediamtx.yml:ro
       - media-spool:/recordings
@@ -145,8 +150,11 @@ services:
     env_file: ../.env
     environment:
       WORKER_ROLE: media-indexer
+      MEDIA_INDEXER_HOOK_TOKEN: ${MEDIA_INDEXER_HOOK_TOKEN:?MEDIA_INDEXER_HOOK_TOKEN is required}
+      MEDIA_INDEXER_HOOK_BIND: 0.0.0.0
+      MEDIA_INDEXER_HOOK_PORT: 4100
     volumes:
-      - media-spool:/var/lib/volleyball/media-spool
+      - media-spool:/var/lib/volleyball/media-spool:ro
     depends_on: [postgres, redis, minio-init, mediamtx]
     networks: [internal]
     restart: unless-stopped
