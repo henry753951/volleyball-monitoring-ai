@@ -15,6 +15,8 @@ const media = createMediaClient()
 const dvr = useAuthoritativeDvrWindow(media)
 const descriptor = computed(() => dvr.current.value)
 const video = ref<HTMLVideoElement | null>(null)
+const playing = ref(false)
+const muted = ref(false)
 const captureTarget = ref('')
 const mediaError = ref<string | null>(null)
 const authoritativeAnchor = computed(() => dvr.anchor.value)
@@ -31,6 +33,8 @@ const { bindings } = useAnnotationHotkeys()
 const annotationScope = useTemplateRef<HTMLElement>('annotationScope')
 const settingsOpen = ref(false)
 const inspectorTab = ref<'keypoints' | 'authority'>('keypoints')
+let matchRefreshTimer: ReturnType<typeof setInterval> | null = null
+let matchRefreshInFlight = false
 
 const controls = computed(() => ANNOTATION_COMMANDS.map(command => ({
   ...command,
@@ -49,6 +53,7 @@ const selectedCapture = computed<CaptureSession | null>(() => {
   return sessions.slice().sort((a, b) => (Date.parse(b.startedAt ?? '') - Date.parse(a.startedAt ?? '')) || a.id.localeCompare(b.id))[0] ?? null
 })
 const timeline = computed(() => selectedCapture.value?.timeline ?? null)
+const selectedCaptureId = computed(() => selectedCapture.value?.id ?? null)
 const liveTarget = computed(() => timeline.value?.liveEdgeCaptureTimeUs ?? timeline.value?.availableRanges.at(-1)?.endUs ?? null)
 const syncLabel = computed(() => annotation.busy.value ? '同步標註…' : annotation.error.value ? '同步異常' : commandReady.value ? '標註已更新' : '正在連線')
 const displayTimecode = computed(() => formatTimecode(observedCursor.value?.player_media_time_us))
@@ -62,12 +67,22 @@ function formatTimecode(value?: string | null) {
   return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}.${String(ms).padStart(3, '0')}`
 }
 
-async function loadMatch() {
+async function loadMatch(options: { silent?: boolean } = {}) {
+  if (matchRefreshInFlight) return
+  matchRefreshInFlight = true
   try {
-    match.value = await createCoreDomainClient(createGraphQLTransport('/graphql')).match(matchId)
-    if (!match.value) loadError.value = '找不到此場次，請返回賽事列表。'
+    const nextMatch = await createCoreDomainClient(createGraphQLTransport('/graphql')).match(matchId)
+    if (!nextMatch) {
+      if (!options.silent) loadError.value = '找不到此場次，請返回賽事列表。'
+      return
+    }
+    match.value = nextMatch
+    loadError.value = null
   }
-  catch (error) { loadError.value = error instanceof Error ? error.message : '場次資料載入失敗' }
+  catch (error) {
+    if (!options.silent) loadError.value = error instanceof Error ? error.message : '場次資料載入失敗'
+  }
+  finally { matchRefreshInFlight = false }
 }
 
 async function handleCursor(cursor: PlaybackCursorInput) {
@@ -115,10 +130,32 @@ function voidRally() {
 }
 
 type PlayerAction = MediaAction | 'play_pause' | 'mute'
+function updatePlaybackState() {
+  playing.value = Boolean(video.value && !video.value.paused)
+  muted.value = Boolean(video.value?.muted)
+}
+function detachVideoState(element: HTMLVideoElement | null) {
+  element?.removeEventListener('play', updatePlaybackState)
+  element?.removeEventListener('pause', updatePlaybackState)
+  element?.removeEventListener('volumechange', updatePlaybackState)
+}
+function handleVideoReady(element: HTMLVideoElement) {
+  if (video.value !== element) {
+    detachVideoState(video.value)
+    video.value = element
+    element.addEventListener('play', updatePlaybackState)
+    element.addEventListener('pause', updatePlaybackState)
+    element.addEventListener('volumechange', updatePlaybackState)
+  }
+  updatePlaybackState()
+}
 function dispatchMediaAction(action: PlayerAction) {
   const element = video.value
   if (!element) return
-  if (action === 'play_pause') void (element.paused ? element.play() : element.pause())
+  if (action === 'play_pause') {
+    if (element.paused) void element.play().catch((error) => { mediaError.value = error instanceof Error ? error.message : '播放器無法開始播放' })
+    else element.pause()
+  }
   if (action === 'mute') element.muted = !element.muted
   if (action === 'frame_previous' || action === 'frame_next') void frameStep(action === 'frame_next' ? 'next' : 'previous')
 }
@@ -139,11 +176,25 @@ function dispatchHotkeyCommand(action: HotkeyCommand) { action.startsWith('frame
 function commandEnabled(action: HotkeyCommand) { return action.startsWith('frame_') ? Boolean(descriptor.value && authoritativeAnchor.value && canMark.value && !dvr.busy.value) : controls.value.some(control => control.action === action && control.enabled) }
 useAnnotationHotkeyRuntime({ target: annotationScope, dispatch: dispatchHotkeyCommand, commandEnabled })
 
-watch(selectedCapture, (capture) => {
-  if (capture) annotation.connect(`match:${matchId.toLowerCase()}:capture:${capture.id.toLowerCase()}`)
+watch(selectedCaptureId, (captureId) => {
+  if (captureId) annotation.connect(`match:${matchId.toLowerCase()}:capture:${captureId.toLowerCase()}`)
+}, { immediate: true })
+watch([selectedCaptureId, liveTarget], ([captureId, target]) => {
+  if (!captureId || !target || dvr.busy.value || descriptor.value?.capture_session_id === captureId) return
+  void createWindow(target)
 }, { immediate: true })
 watch(() => annotation.snapshot.value?.rally_id, () => { selectedKeyPointId.value = annotation.lastKeyPoint.value?.key_point_id ?? null })
-onMounted(() => { annotationScope.value?.focus({ preventScroll: true }); void loadMatch() })
+onMounted(() => {
+  annotationScope.value?.focus({ preventScroll: true })
+  void loadMatch()
+  matchRefreshTimer = setInterval(() => {
+    if (document.visibilityState === 'visible') void loadMatch({ silent: true })
+  }, 2_500)
+})
+onBeforeUnmount(() => {
+  if (matchRefreshTimer) clearInterval(matchRefreshTimer)
+  detachVideoState(video.value)
+})
 </script>
 
 <template>
@@ -157,7 +208,7 @@ onMounted(() => { annotationScope.value?.focus({ preventScroll: true }); void lo
     <div class="editor-body">
       <main class="viewer-panel">
         <div class="video-stage">
-          <VideoOverlayPlayer :descriptor="descriptor" @cursor="handleCursor" @ready="video = $event" @error="mediaError = $event.message" />
+          <VideoOverlayPlayer :descriptor="descriptor" :controls="false" toggle-on-click @cursor="handleCursor" @ready="handleVideoReady" @toggle="dispatchMediaAction('play_pause')" @error="mediaError = $event.message" />
           <div v-if="annotation.snapshot.value" class="stage-mask" :class="annotation.snapshot.value.snapshot.active_submission_id ? 'submitted' : 'draft'" />
           <div class="viewer-badges"><span v-if="descriptor">{{ descriptor.mode.toUpperCase() }}</span><span>frame {{ authoritativeAnchor?.capture_frame_index ?? '—' }}</span></div>
           <div v-if="!descriptor" class="stage-empty"><strong>{{ selectedCapture ? '選擇時間軸上的 ready range' : '此場次沒有可播放 capture' }}</strong><span>{{ selectedCapture ? `${timeline?.availableRanges.length ?? 0} 個可用串流區段` : '錄影尚未就緒或你沒有存取權限。' }}</span><button v-if="liveTarget" type="button" @click="createWindow(liveTarget)">返回 live</button></div>
@@ -185,7 +236,7 @@ onMounted(() => { annotationScope.value?.focus({ preventScroll: true }); void lo
     </div>
 
     <footer class="timeline-footer">
-      <div class="transport-bar"><button type="button" class="transport-button" @click="dispatchMediaAction('play_pause')">▶</button><button type="button" class="transport-button" @click="dispatchMediaAction('frame_previous')">←</button><button type="button" class="transport-button" @click="dispatchMediaAction('frame_next')">→</button><code class="timecode">{{ displayTimecode }}</code><span class="transport-help">Space 接觸點 · Shift + 滾輪縮放 · ← / → 逐幀微調</span><button type="button" @click="dispatchMediaAction('mute')">靜音</button><button type="button" :disabled="!liveTarget" @click="createWindow(liveTarget ?? undefined)">返回 LIVE</button></div>
+      <div class="transport-bar"><button type="button" class="transport-button" :aria-label="playing ? '暫停' : '播放'" :disabled="!descriptor" @click="dispatchMediaAction('play_pause')">{{ playing ? 'Ⅱ' : '▶' }}</button><button type="button" class="transport-button" aria-label="前一幀" :disabled="!authoritativeAnchor || dvr.busy.value" @click="dispatchMediaAction('frame_previous')">←</button><button type="button" class="transport-button" aria-label="後一幀" :disabled="!authoritativeAnchor || dvr.busy.value" @click="dispatchMediaAction('frame_next')">→</button><code class="timecode">{{ displayTimecode }}</code><span class="transport-help">Space 接觸點 · 滾輪平移 · Shift + 滾輪縮放 · ← / → 逐幀微調</span><button type="button" :disabled="!descriptor" @click="dispatchMediaAction('mute')">{{ muted ? '開啟聲音' : '靜音' }}</button><button type="button" :disabled="!liveTarget" @click="createWindow(liveTarget ?? undefined)">返回 LIVE</button><span class="mode-indicator">KEYPOINT MODE</span></div>
       <DvrTimelineDock :timeline="timeline" :playhead="authoritativeAnchor?.capture_time_us ?? null" :annotation="annotation.snapshot.value" @seek="createWindow" />
       <AnnotationCommandStrip :bindings="bindings" :state="state" :can-mark="canMark" :last-key-point="Boolean(currentLastKeyPointId)" :command-ready="commandReady" @action="dispatchAnnotationAction" />
     </footer>
@@ -196,5 +247,5 @@ onMounted(() => { annotationScope.value?.focus({ preventScroll: true }); void lo
 </template>
 
 <style scoped>
-:global(html),:global(body),:global(#__nuxt){width:100%;height:100%;margin:0;overflow:hidden}:global(body){background:#0b0d0f}.editor-shell{--surface-0:#0b0d0f;--surface-1:#121519;--line:#30363d;--line-strong:#4a535d;--muted:#98a2ad;--green:#49d88a;--amber:#f5b84b;--blue:#62a9ff;--red:#ff6b72;width:100vw;height:100dvh;display:grid;grid-template-rows:54px minmax(0,1fr) 238px;overflow:hidden;background:var(--surface-0);color:#edf1f4;font-family:"Segoe UI Variable Text",Aptos,"Segoe UI",sans-serif}.editor-shell button,.editor-shell a{min-height:34px;padding:7px 11px;border:1px solid var(--line-strong);border-radius:6px;background:#20252b;color:inherit;cursor:pointer;text-decoration:none}.editor-shell button:not(:disabled):hover,.editor-shell a:hover{border-color:#6b7681;background:#282e35}.editor-shell button:disabled{opacity:.35;cursor:not-allowed}.app-bar{min-width:0;display:grid;grid-template-columns:minmax(280px,auto) minmax(220px,1fr) minmax(300px,auto);align-items:center;gap:18px;padding:0 16px;border-bottom:1px solid var(--line);background:#101317}.brand-block{min-width:0}.brand-block h1{margin:0;font-size:.98rem;font-weight:720}.brand-block p{margin:2px 0 0;color:var(--muted);font-size:.69rem}.session-status{min-width:0;display:flex;justify-content:center;align-items:center;gap:8px;color:#c4ccd4;font-size:.78rem}.status-dot{width:7px;height:7px;border-radius:50%;background:var(--green)}.status-dot.busy{background:var(--amber)}.status-dot.error{background:var(--red)}.app-actions{min-width:0;display:flex;justify-content:flex-end;align-items:center;gap:7px}.app-actions>a,.app-actions>button{width:34px;padding:0;display:grid;place-items:center}.media-name{max-width:340px;overflow:hidden;color:var(--muted);font-size:.73rem;text-overflow:ellipsis;white-space:nowrap}.editor-body{min-height:0;display:grid;grid-template-columns:minmax(0,1fr) clamp(288px,24vw,350px);overflow:hidden}.viewer-panel{min-width:0;min-height:0;display:grid;place-items:center;padding:10px;overflow:hidden;background:#050607}.video-stage{position:relative;width:100%;height:100%;display:grid;place-items:center;overflow:hidden;background:#000;box-shadow:0 12px 38px #0006}.video-stage :deep(>div){width:100%;height:100%;border-radius:0}.video-stage :deep(video){width:100%;height:100%;object-fit:contain}.stage-mask{position:absolute;inset:0;pointer-events:none}.stage-mask.draft{background:#9ba4ae1a}.stage-mask.submitted{background:#2dcd7b14}.viewer-badges{position:absolute;top:8px;right:8px;display:flex;gap:5px;pointer-events:none}.viewer-badges span{padding:3px 6px;border:1px solid #ffffff2b;border-radius:4px;background:#050709c2;color:#d9e0e6;font:600 .66rem "Cascadia Mono",Consolas,monospace}.stage-empty{position:absolute;inset:0;display:grid;place-content:center;justify-items:center;gap:9px;color:#edf1f4;text-align:center}.stage-empty span{color:var(--muted);font-size:.75rem}.stage-error,.global-error{position:absolute;z-index:8;padding:9px;border:1px solid #8e4146;border-radius:5px;background:#351a1cee;color:#ffb7bb;font-size:.72rem}.stage-error{left:12px;bottom:12px}.global-error{left:12px;top:64px}.inspector{min-height:0;padding:12px;overflow-y:auto;border-left:1px solid var(--line);background:var(--surface-1);font-size:.77rem;scrollbar-width:none}.mode-switch{display:grid;grid-template-columns:1fr 1fr;margin-bottom:12px;border:1px solid var(--line);border-radius:7px;overflow:hidden}.mode-switch button{min-height:34px;border:0;border-radius:0;background:transparent;color:var(--muted)}.mode-switch button+button{border-left:1px solid var(--line)}.mode-switch button.active{background:#273039;color:#fff}.inspector-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;padding-bottom:10px;border-bottom:1px solid var(--line)}.inspector-heading div{display:grid;gap:2px}.inspector-heading strong{font-size:.88rem}.inspector-heading span{color:var(--muted);font-size:.69rem}.section-title{display:flex;align-items:center;justify-content:space-between;margin:14px 0 6px;color:#cdd4db;font-size:.7rem}.section-title b{min-width:22px;padding:2px 5px;border-radius:10px;background:#292f36;text-align:center}.keypoint-list{max-height:170px;margin:0;padding:0;overflow:auto;list-style:none}.keypoint-list li{min-height:34px;display:grid;grid-template-columns:24px 1fr auto;align-items:center;gap:6px;padding:4px 6px;border-bottom:1px solid #262c32;cursor:pointer}.keypoint-list li:hover,.keypoint-list li.selected{background:#20262c}.keypoint-list code{color:var(--muted);font-size:.66rem}.point-kind{display:grid;width:20px;height:20px;place-items:center;border-radius:50%;color:#0b0d0f;font-size:.62rem;font-weight:800;background:var(--amber)}.point-kind.contact{background:var(--blue)}.keypoint-list em{color:var(--green);font-style:normal}.empty-row{display:block;margin:0;padding:9px 5px;color:var(--muted);font-size:.7rem;overflow-wrap:anywhere}.stack-actions{display:grid;gap:6px;margin-top:8px}.stack-actions button{min-height:31px;font-size:.7rem}.stack-actions .danger{color:#ff9ca1}.timeline-footer{min-height:0;display:grid;grid-template-rows:43px minmax(0,1fr) 54px;border-top:1px solid var(--line);background:#111419}.transport-bar{min-width:0;display:flex;align-items:center;gap:6px;padding:5px 12px;border-bottom:1px solid #292f35}.transport-button{width:34px;min-height:31px!important;padding:0!important}.timecode{min-width:96px;margin-left:4px;color:#fff;font:700 .78rem "Cascadia Mono",Consolas,monospace}.transport-help{min-width:0;overflow:hidden;color:var(--muted);font-size:.68rem;text-overflow:ellipsis;white-space:nowrap;margin-right:auto}@media(max-width:1050px){.app-bar{grid-template-columns:240px 1fr 230px}.media-name{display:none}.editor-body{grid-template-columns:minmax(0,1fr) 288px}}@media(max-height:760px){.editor-shell{grid-template-rows:48px minmax(0,1fr) 210px}.brand-block p{display:none}.timeline-footer{grid-template-rows:39px minmax(0,1fr) 50px}.inspector{padding:9px}.keypoint-list{max-height:110px}}@media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+:global(html),:global(body),:global(#__nuxt){width:100%;height:100%;margin:0;overflow:hidden}:global(body){background:#0b0d0f}.editor-shell{--surface-0:#0b0d0f;--surface-1:#121519;--line:#30363d;--line-strong:#4a535d;--muted:#98a2ad;--green:#49d88a;--amber:#f5b84b;--blue:#62a9ff;--red:#ff6b72;width:100vw;height:100dvh;display:grid;grid-template-rows:54px minmax(0,1fr) 238px;overflow:hidden;background:var(--surface-0);color:#edf1f4;font-family:"Segoe UI Variable Text",Aptos,"Segoe UI",sans-serif}.editor-shell button,.editor-shell a{min-height:34px;padding:7px 11px;border:1px solid var(--line-strong);border-radius:6px;background:#20252b;color:inherit;cursor:pointer;text-decoration:none}.editor-shell button:not(:disabled):hover,.editor-shell a:hover{border-color:#6b7681;background:#282e35}.editor-shell button:focus-visible,.editor-shell a:focus-visible{outline:2px solid var(--blue);outline-offset:2px}.editor-shell button:disabled{opacity:.35;cursor:not-allowed}.app-bar{min-width:0;display:grid;grid-template-columns:minmax(280px,auto) minmax(220px,1fr) minmax(300px,auto);align-items:center;gap:18px;padding:0 16px;border-bottom:1px solid var(--line);background:#101317}.brand-block{min-width:0}.brand-block h1{margin:0;font-size:.98rem;font-weight:720}.brand-block p{margin:2px 0 0;color:var(--muted);font-size:.69rem}.session-status{min-width:0;display:flex;justify-content:center;align-items:center;gap:8px;color:#c4ccd4;font-size:.78rem}.status-dot{width:7px;height:7px;border-radius:50%;background:var(--green)}.status-dot.busy{background:var(--amber)}.status-dot.error{background:var(--red)}.app-actions{min-width:0;display:flex;justify-content:flex-end;align-items:center;gap:7px}.app-actions>a,.app-actions>button{width:34px;padding:0;display:grid;place-items:center}.media-name{max-width:340px;overflow:hidden;color:var(--muted);font-size:.73rem;text-overflow:ellipsis;white-space:nowrap}.editor-body{min-height:0;display:grid;grid-template-columns:minmax(0,1fr) clamp(288px,24vw,350px);overflow:hidden}.viewer-panel{min-width:0;min-height:0;display:grid;place-items:center;padding:10px;overflow:hidden;background:#050607}.video-stage{position:relative;width:100%;height:100%;display:grid;place-items:center;overflow:hidden;background:#000;box-shadow:0 12px 38px #0006}.video-stage :deep(>div){width:100%;height:100%;border-radius:0}.video-stage :deep(video){width:100%;height:100%;object-fit:contain;cursor:pointer}.stage-mask{position:absolute;inset:0;pointer-events:none}.stage-mask.draft{background:#9ba4ae1a}.stage-mask.submitted{background:#2dcd7b14}.viewer-badges{position:absolute;top:8px;right:8px;display:flex;gap:5px;pointer-events:none}.viewer-badges span{padding:3px 6px;border:1px solid #ffffff2b;border-radius:4px;background:#050709c2;color:#d9e0e6;font:600 .66rem "Cascadia Mono",Consolas,monospace}.stage-empty{position:absolute;inset:0;display:grid;place-content:center;justify-items:center;gap:9px;color:#edf1f4;text-align:center}.stage-empty span{color:var(--muted);font-size:.75rem}.stage-error,.global-error{position:absolute;z-index:8;padding:9px;border:1px solid #8e4146;border-radius:5px;background:#351a1cee;color:#ffb7bb;font-size:.72rem}.stage-error{left:12px;bottom:12px}.global-error{left:12px;top:64px}.inspector{min-height:0;padding:12px;overflow-y:auto;border-left:1px solid var(--line);background:var(--surface-1);font-size:.77rem;scrollbar-width:none}.mode-switch{display:grid;grid-template-columns:1fr 1fr;margin-bottom:12px;border:1px solid var(--line);border-radius:7px;overflow:hidden}.mode-switch button{min-height:34px;border:0;border-radius:0;background:transparent;color:var(--muted)}.mode-switch button+button{border-left:1px solid var(--line)}.mode-switch button.active{background:#273039;color:#fff}.inspector-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;padding-bottom:10px;border-bottom:1px solid var(--line)}.inspector-heading div{display:grid;gap:2px}.inspector-heading strong{font-size:.88rem}.inspector-heading span{color:var(--muted);font-size:.69rem}.section-title{display:flex;align-items:center;justify-content:space-between;margin:14px 0 6px;color:#cdd4db;font-size:.7rem}.section-title b{min-width:22px;padding:2px 5px;border-radius:10px;background:#292f36;text-align:center}.keypoint-list{max-height:170px;margin:0;padding:0;overflow:auto;list-style:none}.keypoint-list li{min-height:34px;display:grid;grid-template-columns:24px 1fr auto;align-items:center;gap:6px;padding:4px 6px;border-bottom:1px solid #262c32;cursor:pointer}.keypoint-list li:hover,.keypoint-list li.selected{background:#20262c}.keypoint-list code{color:var(--muted);font-size:.66rem}.point-kind{display:grid;width:20px;height:20px;place-items:center;border-radius:50%;color:#0b0d0f;font-size:.62rem;font-weight:800;background:var(--amber)}.point-kind.contact{background:var(--blue)}.keypoint-list em{color:var(--green);font-style:normal}.empty-row{display:block;margin:0;padding:9px 5px;color:var(--muted);font-size:.7rem;overflow-wrap:anywhere}.stack-actions{display:grid;gap:6px;margin-top:8px}.stack-actions button{min-height:31px;font-size:.7rem}.stack-actions .danger{color:#ff9ca1}.timeline-footer{min-height:0;display:grid;grid-template-rows:43px minmax(0,1fr) 54px;border-top:1px solid var(--line);background:#111419}.transport-bar{min-width:0;display:flex;align-items:center;gap:6px;padding:5px 12px;border-bottom:1px solid #292f35}.transport-button{width:34px;min-height:31px!important;padding:0!important}.timecode{min-width:96px;margin-left:4px;color:#fff;font:700 .78rem "Cascadia Mono",Consolas,monospace}.transport-help{min-width:0;overflow:hidden;color:var(--muted);font-size:.68rem;text-overflow:ellipsis;white-space:nowrap;margin-right:auto}.mode-indicator{flex:none;padding:4px 7px;border:1px solid #43515e;border-radius:4px;color:#9fc7eb;font:700 .63rem "Cascadia Mono",Consolas,monospace}@media(max-width:1050px){.app-bar{grid-template-columns:240px 1fr 230px}.media-name{display:none}.editor-body{grid-template-columns:minmax(0,1fr) 288px}.mode-indicator{display:none}}@media(max-height:760px){.editor-shell{grid-template-rows:48px minmax(0,1fr) 210px}.brand-block p{display:none}.timeline-footer{grid-template-rows:39px minmax(0,1fr) 50px}.inspector{padding:9px}.keypoint-list{max-height:110px}}@media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
 </style>

@@ -12,7 +12,7 @@
 
     <div class="rounded-2xl border border-stone-200 bg-white p-5 shadow-sm">
       <h2 class="font-semibold">連線狀態</h2>
-      <p class="mt-2 text-sm text-stone-600">比分、路徑與分析資料由中央伺服器同步。Annotation 快捷鍵已移至 PC 工作站右上角齒輪。</p>
+      <p class="mt-2 text-sm text-stone-600">比分、路徑與分析資料由中央伺服器同步；網路中斷時會顯示離線狀態，恢復連線後自動更新。</p>
     </div>
 
     <p class="text-sm text-stone-600">僅授權角色可操作 integration、retention 與 system profile。</p>

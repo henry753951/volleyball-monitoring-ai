@@ -66,6 +66,8 @@ export interface CoachMatchAnalytics {
   players: Array<{ roster_entry_id: string; team_id: string; jersey_number: string; name: string; contact_count: number; sample_count: number }>
   unassigned_tracks: Array<{ analysis_run_id: string; track_id: number; rally_id: string; set_number: number; rally_ordinal: number }>
 }
+export interface SavedAnalysisView { id: string; match_id: string; name: string; filter_schema_version: string; overlay_preset_version: string; filters: Record<string, unknown>; layout: { route?: 'history' | 'paths' | 'players' | 'stats'; overlay_mode?: string; visible_layers?: string[] } | null; saved_at: string; created_at: string }
+export interface SavedAnalysisViews { schema_version: '1.0.0'; views: SavedAnalysisView[] }
 
 const COACH_MATCH_STATE = `query CoachMatchState($matchId: ID!) { coachMatchState(matchId: $matchId) }`
 
@@ -85,6 +87,14 @@ export function createCoachDomainClient(transport: GraphQLTransport) {
     },
     async assignTrackIdentity(input: { analysisRunId: string; trackId: number; rosterEntryId: string }) {
       return transport.request<{ assignTrackIdentity: { schema_version: '1.0.0' } }>('mutation AssignTrackIdentity($analysisRunId: ID!, $trackId: Int!, $rosterEntryId: ID!) { assignTrackIdentity(analysisRunId: $analysisRunId, trackId: $trackId, rosterEntryId: $rosterEntryId) }', input)
+    },
+    async savedAnalysisViews(matchId: string) {
+      const result = await transport.request<{ savedAnalysisViews: SavedAnalysisViews | null }>('query SavedAnalysisViews($matchId: ID!) { savedAnalysisViews(matchId: $matchId) }', { matchId })
+      return result.savedAnalysisViews
+    },
+    async saveAnalysisView(input: { matchId: string; name: string; filters: Record<string, unknown>; layout?: Record<string, unknown> | null }) {
+      const result = await transport.request<{ saveAnalysisView: { schema_version: '1.0.0'; view: SavedAnalysisView } }>('mutation SaveAnalysisView($matchId: ID!, $name: String!, $filters: JSON!, $layout: JSON) { saveAnalysisView(matchId: $matchId, name: $name, filters: $filters, layout: $layout) }', input)
+      return result.saveAnalysisView.view
     },
   }
 }

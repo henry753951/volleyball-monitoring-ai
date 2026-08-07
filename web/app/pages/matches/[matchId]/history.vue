@@ -1,5 +1,7 @@
 <script setup lang="ts">
-import { ChevronRight, CircleAlert, Clock3, RefreshCw } from 'lucide-vue-next'
+import { Bookmark, ChevronRight, CircleAlert, Clock3, RefreshCw, Save } from 'lucide-vue-next'
+import { createCoachDomainClient, type SavedAnalysisView } from '~/lib/coachDomain'
+import { createGraphQLTransport } from '~/lib/coreDomain'
 
 const route = useRoute()
 const matchId = computed(() => String(route.params.matchId))
@@ -8,6 +10,11 @@ const match = computed(() => coach.data.value?.match ?? null)
 const selectedSet = ref<number | 'all'>('all')
 const rallies = computed(() => (match.value?.rallies ?? []).filter(rally => selectedSet.value === 'all' || rally.set_number === selectedSet.value))
 const teamById = computed(() => new Map((match.value?.teams ?? []).map(team => [team.id, team])))
+const domain = createCoachDomainClient(createGraphQLTransport('/graphql'))
+const savedViews = shallowRef<SavedAnalysisView[]>([])
+const viewName = ref('')
+const savedPending = ref(false)
+const savedError = ref<string | null>(null)
 
 function outcomeLabel(rally: (typeof rallies.value)[number]) {
   if (rally.submission.score_resolution === 'unknown') return '結果未知'
@@ -17,6 +24,28 @@ function processLabel(value: string) {
   return ({ idle: '等待處理', clip_queued: '片段排程', clipping: '建立片段', ai_queued: 'AI 排程', ai_processing: 'AI 分析', artifact_ingesting: '匯入結果', completed: '完成', failed: '失敗', superseded: '已取代' }[value] ?? value)
 }
 const submittedAt = (value: string) => new Intl.DateTimeFormat('zh-TW', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' }).format(new Date(value))
+async function loadSavedViews() {
+  try { savedViews.value = (await domain.savedAnalysisViews(matchId.value))?.views ?? [] }
+  catch (cause) { savedError.value = cause instanceof Error ? cause.message : '無法載入保存視圖' }
+}
+async function saveCurrentView() {
+  const name = viewName.value.trim()
+  if (!name || savedPending.value) return
+  savedPending.value = true; savedError.value = null
+  try {
+    await domain.saveAnalysisView({ matchId: matchId.value, name, filters: selectedSet.value === 'all' ? {} : { set_numbers: [selectedSet.value] }, layout: { route: 'history' } })
+    viewName.value = ''
+    await loadSavedViews()
+  }
+  catch (cause) { savedError.value = cause instanceof Error ? cause.message : '保存視圖失敗' }
+  finally { savedPending.value = false }
+}
+async function openSavedView(view: SavedAnalysisView) {
+  const sets = Array.isArray(view.filters.set_numbers) ? view.filters.set_numbers.filter(value => Number.isInteger(value)) as number[] : []
+  selectedSet.value = sets.length === 1 ? sets[0]! : 'all'
+  if (view.layout?.route && view.layout.route !== 'history') await navigateTo(`/matches/${matchId.value}/${view.layout.route}`)
+}
+onMounted(loadSavedViews)
 </script>
 
 <template>
@@ -32,6 +61,16 @@ const submittedAt = (value: string) => new Intl.DateTimeFormat('zh-TW', { month:
         <button class="button-secondary inline-flex items-center gap-2" :disabled="coach.refreshing.value" @click="coach.refresh"><RefreshCw class="size-4" :class="{ 'animate-spin': coach.refreshing.value }" />同步</button>
       </div>
     </header>
+
+    <section class="rounded-2xl bg-white p-5 shadow-sm" aria-labelledby="saved-views-heading">
+      <div class="flex flex-wrap items-start justify-between gap-3">
+        <div><h2 id="saved-views-heading" class="flex items-center gap-2 font-semibold"><Bookmark class="size-4 text-teal-700" />保存分析視圖</h2><p class="mt-1 text-sm text-stone-500">只保存篩選與版面；每次開啟都用目前資料重算。</p></div>
+        <form class="flex gap-2" @submit.prevent="saveCurrentView"><label class="sr-only" for="saved-view-name">視圖名稱</label><input id="saved-view-name" v-model="viewName" maxlength="80" class="field min-w-44" placeholder="例如：第 1 局" /><button type="submit" class="button-secondary inline-flex items-center gap-2" :disabled="!viewName.trim() || savedPending"><Save class="size-4" />保存目前篩選</button></form>
+      </div>
+      <p v-if="savedError" class="mt-3 rounded-xl bg-rose-50 p-3 text-sm text-rose-900" role="alert">{{ savedError }}</p>
+      <div v-if="savedViews.length" class="mt-4 flex gap-2 overflow-x-auto pb-1"><button v-for="view in savedViews" :key="view.id" type="button" class="min-w-48 rounded-xl border border-stone-200 p-3 text-left hover:bg-stone-50" @click="openSavedView(view)"><strong class="block text-sm">{{ view.name }}</strong><span class="mt-1 block text-xs text-stone-500">saved {{ submittedAt(view.saved_at) }} · schema {{ view.filter_schema_version }}</span></button></div>
+      <p v-else class="mt-4 text-sm text-stone-500">尚未保存視圖。</p>
+    </section>
 
     <div v-if="coach.pending.value" class="space-y-2" aria-busy="true"><div v-for="index in 4" :key="index" class="h-24 animate-pulse rounded-2xl bg-stone-200" /></div>
     <div v-else-if="coach.error.value && !match" class="rounded-2xl bg-rose-50 p-6 text-rose-900" role="alert"><p class="flex items-center gap-2 font-semibold"><CircleAlert class="size-5" />無法載入 Rally 紀錄</p><p class="mt-2 text-sm">{{ coach.error.value.message }}</p></div>

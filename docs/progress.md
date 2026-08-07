@@ -1,5 +1,16 @@
 # Progress
 
+## 2026-08-07 — Contract Lab workstation and Saved Analysis View checkpoint
+
+Status: implemented directly on `integration/phase3-annotation`, rebuilt into the local Compose runtime and ready for user-led workflow testing.
+
+- Tightened the PC-only Annotation workstation to the Volleyball AI Contract Lab interaction model while preserving central-system boundaries. The route now auto-opens the newest live server DVR window, refreshes the capture timeline every 2.5 seconds so its buffer grows in place, hides native video controls, and keeps playback in the bottom transport. Plain wheel/pointer drag pans, Shift+wheel zooms, ready-range clicks create bounded playback windows and frame arrows still call authoritative server stepping.
+- Kept the fixed Z/Space/`<`/`>`/`?`/Enter semantics and Rally-level outcome model. The upper-right gear owns all TanStack Hotkeys rebinding, `formatForDisplay` keycaps and Restore All Defaults; the Coach/iPad PWA settings page contains only PWA/display/connectivity settings and no Annotation configuration.
+- Added strict, per-user Saved Analysis Views through additive GraphQL fields and stored operations. Versioned filter/layout documents can retain navigation, filters and overlay presentation only; metrics, aggregate samples and artifacts are rejected. Saving the same `(user, match, name)` updates one configuration, while membership/admin authorization and per-user listing prevent cross-user leakage.
+- Validation passed: Server/Web typecheck, eight stored GraphQL operations, 13 core-domain integration tests, 23 focused timeline/hotkey tests, production Nuxt build and the UI detector. Local Web/Server are healthy; a headed 2048×1217 smoke auto-created a live window, played the bounded HLS sample and displayed four ready ranges plus frame 191. Annotation WebSocket interaction is not claimed in that browser run because the repo's generated local certificate is not trusted and `mkcert` is not installed on this host.
+
+Open limitations: correction-draft creation, durable browser outbox/presence recovery and Phase 7 restart/backup/retention acceptance remain. Production identity provider and retention durations remain explicit deployment decisions and are not invented here.
+
 ## 2026-08-07 — Phase 5 windowed FlatBuffers overlay completion
 
 Status: implemented directly on `integration/phase3-annotation`, migrated and runtime-verified in the local Compose stack.

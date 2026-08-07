@@ -123,6 +123,9 @@ const swapMutation = /* GraphQL */ `
   }
 `
 
+const savedViewsQuery = /* GraphQL */ `query SavedAnalysisViews($matchId: ID!) { savedAnalysisViews(matchId: $matchId) }`
+const saveViewMutation = /* GraphQL */ `mutation SaveAnalysisView($matchId: ID!, $name: String!, $filters: JSON!, $layout: JSON) { saveAnalysisView(matchId: $matchId, name: $name, filters: $filters, layout: $layout) }`
+
 const validSetup = {
   leftTeam: {
     name: '  North   Stars ',
@@ -602,5 +605,24 @@ describe('match setup, visibility, and court-side history', () => {
       orderBy: { effectiveFromRallyOrdinal: 'asc' },
       where: { setId },
     })).resolves.toEqual(before)
+  })
+
+  it('saves versioned filter/query settings per user and never accepts metric snapshots', async () => {
+    const variables = { matchId, name: '第 1 局品質', filters: { set_numbers: [1], score_resolution: ['resolved'], association_quality: ['ambiguous', 'unresolved'] }, layout: { route: 'history', overlay_mode: 'coach', visible_layers: ['bbox', 'ball'] } }
+    const saved = await execute(saveViewMutation, contextFor(operatorUser), variables)
+    expect(saved.errors).toBeUndefined()
+    expect(saved.data?.saveAnalysisView).toMatchObject({ schema_version: '1.0.0', view: { name: variables.name, filter_schema_version: '1.0.0', overlay_preset_version: '1.0.0', filters: variables.filters, layout: variables.layout } })
+    const updated = await execute(saveViewMutation, contextFor(operatorUser), { ...variables, filters: { set_numbers: [1], score_resolution: ['unknown'] } })
+    expect(updated.errors).toBeUndefined()
+    await expect(db.savedAnalysisView.count({ where: { matchId, userId: operatorUser.id } })).resolves.toBe(1)
+    const listed = await execute(savedViewsQuery, contextFor(operatorUser), { matchId })
+    expect(listed.data?.savedAnalysisViews).toMatchObject({ schema_version: '1.0.0', views: [{ name: variables.name, filters: { set_numbers: [1], score_resolution: ['unknown'] } }] })
+    expect((listed.data?.savedAnalysisViews as any).views[0].saved_at).toMatch(/^\d{4}-/)
+    const outsider = await execute(savedViewsQuery, contextFor(outsiderOperator), { matchId })
+    expect(outsider.data?.savedAnalysisViews).toBeNull()
+    const coach = await execute(savedViewsQuery, contextFor(coachUser), { matchId })
+    expect(coach.data?.savedAnalysisViews).toEqual({ schema_version: '1.0.0', views: [] })
+    const snapshot = await execute(saveViewMutation, contextFor(operatorUser), { ...variables, name: 'forbidden snapshot', filters: { rally_count: 99 } })
+    expect(errorCode(snapshot)).toBe('BAD_USER_INPUT')
   })
 })

@@ -4,6 +4,7 @@
 node_modules/
 .nuxt/
 .output/
+.playwright-cli/
 dist/
 coverage/
 *.log

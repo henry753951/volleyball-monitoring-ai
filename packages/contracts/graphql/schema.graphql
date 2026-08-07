@@ -98,6 +98,7 @@ type Mutation {
   applyAnnotationCommand(command: JSON!): JSON!
   assignTrackIdentity(analysisRunId: ID!, rosterEntryId: ID!, trackId: Int!): JSON!
   createMatchSetup(input: CreateMatchSetupInput!): Match!
+  saveAnalysisView(filters: JSON!, layout: JSON, matchId: ID!, name: String!): JSON!
   swapCourtSides(input: SwapCourtSidesInput!): MatchSet!
 }
 
@@ -117,6 +118,7 @@ type Query {
   health: Health!
   match(id: ID!): Match
   matches: [Match!]!
+  savedAnalysisViews(matchId: ID!): JSON
   viewer: Viewer!
 }
 

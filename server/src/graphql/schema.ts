@@ -8,5 +8,6 @@ import './annotation-queries.js'
 import './coach-queries.js'
 import './coach-replay-query.js'
 import './coach-analytics.js'
+import './coach-saved-views.js'
 
 export const schema = builder.toSchema({ sortSchema: true })
