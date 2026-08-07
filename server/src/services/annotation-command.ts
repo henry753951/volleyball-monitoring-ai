@@ -481,7 +481,8 @@ async function acceptContact(database: PrismaClient, room: AnnotationRoom, comma
     const allPoints = await tx.keyPoint.findMany({ where: { rallyId: command.rally_id, deletedAt: null }, orderBy: [{ captureTimeUs: 'asc' }, { captureFrameIndex: 'asc' }, { sequenceIndex: 'asc' }] })
     const captureTime = BigInt(anchor.capture_time_us)
     const captureFrame = BigInt(anchor.capture_frame_index)
-    const insertion = Math.max(1, allPoints.findIndex((point) => point.sequenceIndex > 0 && (point.captureTimeUs > captureTime || (point.captureTimeUs === captureTime && point.captureFrameIndex > captureFrame))) + 1 || allPoints.length)
+    const foundIndex = allPoints.findIndex((point) => point.sequenceIndex > 0 && (point.captureTimeUs > captureTime || (point.captureTimeUs === captureTime && point.captureFrameIndex > captureFrame)))
+    const insertion = foundIndex >= 0 ? Math.max(1, foundIndex) : allPoints.length
     for (const point of allPoints.filter((point) => point.sequenceIndex >= insertion).sort((a, b) => b.sequenceIndex - a.sequenceIndex)) await tx.keyPoint.update({ data: { sequenceIndex: { increment: 1 } }, where: { id: point.id } })
     const equals = allPoints.filter((point) => point.markerKind === 'CONTACT' && point.captureFrameIndex === captureFrame)
     const possibleDuplicate = equals.length > 0
