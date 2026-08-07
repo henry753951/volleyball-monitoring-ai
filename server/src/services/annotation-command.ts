@@ -483,6 +483,8 @@ async function acceptContact(database: PrismaClient, room: AnnotationRoom, comma
     const epoch = await tx.captureEpoch.findFirst({ where: { id: anchor.capture_epoch_id, captureSessionId: room.captureSessionId } })
     if (anchor.capture_session_id !== room.captureSessionId || !mapping || !epoch || anchor.playback_window_id !== command.payload.playback_cursor.playback_window_id || anchor.mapping_version !== command.payload.playback_cursor.mapping_version) return persistRejection(tx, command, identity, hash, rejected(command, 'ANNOTATION_NOT_READY', 'Resolved playback state is no longer valid'))
     const allPoints = await tx.keyPoint.findMany({ where: { rallyId: command.rally_id, deletedAt: null }, orderBy: [{ captureTimeUs: 'asc' }, { captureFrameIndex: 'asc' }, { sequenceIndex: 'asc' }] })
+    const servicePoint = allPoints.find((point) => point.markerKind === 'SERVICE')
+    if (servicePoint && (BigInt(anchor.capture_time_us) < servicePoint.captureTimeUs || BigInt(anchor.capture_frame_index) < servicePoint.captureFrameIndex)) return persistRejection(tx, command, identity, hash, rejected(command, 'ANNOTATION_NOT_READY', 'Contact anchor precedes service'))
     const captureTime = BigInt(anchor.capture_time_us)
     const captureFrame = BigInt(anchor.capture_frame_index)
     const foundIndex = allPoints.findIndex((point) => point.sequenceIndex > 0 && (point.captureTimeUs > captureTime || (point.captureTimeUs === captureTime && point.captureFrameIndex > captureFrame)))
