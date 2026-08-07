@@ -1,8 +1,26 @@
 # Progress
 
+## 2026-08-07 — Phase 1B core-domain vertical slice
+
+Status: integrated on `integration/phase-1b-core-domain` through main-Agent-reviewed [PR #7](https://github.com/henry753951/volleyball-monitoring-ai/pull/7), [PR #5](https://github.com/henry753951/volleyball-monitoring-ai/pull/5) and [PR #6](https://github.com/henry753951/volleyball-monitoring-ai/pull/6). Integration-to-main review remains [PR #4](https://github.com/henry753951/volleyball-monitoring-ai/pull/4) until the final checksum/docs gate is green.
+
+- Added the repository's first Prisma migration from the approved 38-model/24-enum schema. Fresh-database `migrate deploy` passed twice, and the deterministic development seed passed twice without increasing its graph: one user, one match, two teams, two players, two roster entries and one initial side assignment.
+- Added explicit local development identity resolution. It is enabled only by `DEV_AUTH_ENABLED=true`, validates UUID and role, upserts the user server-side and is forcibly disabled in production. The local Compose example uses the deterministic seeded `OPERATOR`; no browser database or service credentials are exposed.
+- Added strict, modular Pothos code-first `Viewer`, `Match`, `Team`, `Player`, `MatchRosterEntry`, `MatchSet` and `CourtSideAssignment` objects with the exact ADR 0004 names/nullability. Authenticated match reads are membership-filtered and inaccessible details do not disclose existence.
+- Added the transactional `createMatchSetup` write for the match, both teams and players, roster snapshots, set 1, ordinal-1 court assignment and creator `OPERATOR` membership. Normalized duplicate/empty input is rejected before the transaction and rollback counts are covered by a live PostgreSQL test.
+- Added transaction-scoped PostgreSQL advisory locking for `swapCourtSides`. Concurrent same-ordinal requests produce exactly one success and one `BAD_USER_INPUT`; history remains ordered and non-overlapping, with the prior assignment ending at the new ordinal minus one.
+- Added 10 live PostgreSQL integration cases within the 19-test server suite. Every run creates and drops a unique temporary database; the final audit found no temporary database or generated test user left behind. Strict source/test TypeScript and schema-export reproducibility pass without `ts-nocheck`, `ts-ignore` or `any` shortcuts.
+- CI now runs for feature PRs targeting `integration/**`, starts PostgreSQL 17, deploys migrations, checks generated SDL and stored operations, runs DB/server tests and preserves the stable `contracts-sdk`, `typescript` and `compose-config` job names. Checksum reproducibility remains mandatory for main-targeted PRs/pushes and is intentionally main-Agent-owned for integration feature PRs.
+- Replaced Nuxt demo IDs with a real same-origin GraphQL adapter, authenticated route boundary, match list/detail and a landscape match setup form. Loading, empty, auth-unavailable, API error, not-found, retained-input, pending and duplicate-submit states are covered; successful setup navigates to the returned UUID.
+- PR #5 passed all three CI jobs (`typescript` included migration, schema, 19 server tests and builds); PR #6 passed all three again with the final Web consumer. Main-Agent local gates passed Prisma validate/typecheck/build, server 19 tests/typecheck/build, Web 21 tests/typecheck/build and SDL export/diff.
+- Rebuilt the local Bun 1.3.14 server and Nuxt images. PostgreSQL/Redis/MinIO readiness stayed `ok`; server and Web are healthy. Through Traefik HTTPS, the main Agent read the seeded identity/match, created a real two-team/four-player match, swapped sides at ordinal 3 and read the resulting `1..2` plus `3..open` history.
+- Headed Chrome then exercised the real UI: duplicate team name/short-name validation retained every field, corrected input created another match and navigated to its real UUID live route, and the home list showed the created record. A review-found empty `/matches//history` header link was removed outside match context. The browser was closed and generated Playwright artifacts were deleted; the only console error was the expected local self-signed TLS warning.
+
+Open limitations: media ingest/full DVR, authoritative playback-window/sample-index services, durable annotation WebSocket persistence/immutable submissions, clip/AI processing and coach overlays remain future Phase 2–5 slices. The six workers still run an honest idle lifecycle and do not yet claim pg-boss processing semantics.
+
 ## 2026-08-07 — Phase 1A CI and local runtime baseline
 
-Status: integrated and validated on `integration/phase-1-round-1`; [PR #2](https://github.com/henry753951/volleyball-monitoring-ai/pull/2) remains draft until the post-merge gate is green.
+Status: integrated and validated on `integration/phase-1-round-1`; [PR #2](https://github.com/henry753951/volleyball-monitoring-ai/pull/2) passed its post-merge gate and was merged to `main`.
 
 - Added stable GitHub Actions jobs `contracts-sdk`, `typescript` and `compose-config`. All three passed on PR #2, and `main` branch protection now requires a PR, strict success from all three checks, resolved review conversations, and disallows force-push/deletion.
 - Adopted a frozen `uv` project workflow for the Python SDK, validators and fake AI provider image. `sdk/uv.lock` is committed and the provider has no runtime package installation.

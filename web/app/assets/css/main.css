@@ -14,6 +14,16 @@ body { margin: 0; overscroll-behavior-y: none; }
 button, a { touch-action: manipulation; }
 video { background: #000; }
 
+.field-label { display: block; margin-bottom: .35rem; font-size: .75rem; font-weight: 600; color: #57534e; }
+.field { width: 100%; min-height: 2.75rem; border: 1px solid #d6d3d1; border-radius: .85rem; background: rgba(255,255,255,.9); padding: .65rem .8rem; color: #1c1917; outline: none; }
+.field:focus { border-color: #0f766e; box-shadow: 0 0 0 3px rgba(13,148,136,.16); }
+.button-primary, .button-secondary, .icon-button { min-height: 2.75rem; border-radius: .85rem; padding: .65rem 1rem; font-weight: 600; transition: transform 100ms ease-out, opacity 100ms ease-out; }
+.button-primary { background: #0f766e; color: white; }
+.button-secondary { border: 1px solid #d6d3d1; background: rgba(255,255,255,.9); color: #44403c; }
+.icon-button { border: 1px solid #e7e5e4; padding-inline: .75rem; font-size: 1.25rem; line-height: 1; }
+.button-primary:active, .button-secondary:active, .icon-button:active { transform: scale(.97); }
+.button-primary:disabled, .icon-button:disabled { cursor: not-allowed; opacity: .5; }
+
 @media (display-mode: standalone) {
   body { user-select: none; }
   input, textarea, [contenteditable="true"] { user-select: text; }

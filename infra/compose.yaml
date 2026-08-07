@@ -3,6 +3,8 @@ name: volleyball-monitoring-ai
 networks:
   edge:
     name: volleyball-edge
+  development:
+    name: volleyball-development
   internal:
     name: volleyball-internal
     internal: true
@@ -29,13 +31,15 @@ services:
       POSTGRES_USER: volleyball
       POSTGRES_PASSWORD: volleyball
       POSTGRES_DB: volleyball
+    ports:
+      - "127.0.0.1:${POSTGRES_HOST_PORT:-5433}:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U volleyball -d volleyball"]
       interval: 5s
       timeout: 3s
       retries: 20
     volumes: [postgres-data:/var/lib/postgresql/data]
-    networks: [internal]
+    networks: [internal, development]
     restart: unless-stopped
 
   redis:

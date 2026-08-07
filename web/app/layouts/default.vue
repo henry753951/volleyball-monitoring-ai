@@ -2,14 +2,15 @@
 import { Activity, ChartNoAxesColumn, History, Map, Radio, Settings, Users } from 'lucide-vue-next'
 
 const route = useRoute()
-const matchId = computed(() => String(route.params.matchId ?? 'demo'))
+const matchId = computed(() => typeof route.params.matchId === 'string' ? route.params.matchId : '')
+const hasMatchContext = computed(() => Boolean(matchId.value) && matchId.value !== 'new')
 const nav = computed(() => [
   { to: `/matches/${matchId.value}/live`, label: '現場', icon: Radio },
   { to: `/matches/${matchId.value}/paths`, label: '球路', icon: Map },
   { to: `/matches/${matchId.value}/players`, label: '球員', icon: Users },
   { to: `/matches/${matchId.value}/stats`, label: '統計', icon: ChartNoAxesColumn },
   { to: `/matches/${matchId.value}/history`, label: '紀錄', icon: History },
-])
+].filter(() => hasMatchContext.value))
 </script>
 
 <template>
@@ -23,12 +24,12 @@ const nav = computed(() => [
           <div class="min-w-0">
             <p class="truncate font-semibold">Volleyball Monitoring</p>
             <p class="flex items-center gap-1 truncate text-xs text-stone-500">
-              <Activity class="size-3.5" /> Match {{ matchId }} · 狀態由 API / WebSocket 同步
+              <Activity class="size-3.5" />{{ matchId ? `Match ${matchId} · ` : '' }}狀態由 API / WebSocket 同步
             </p>
           </div>
         </div>
         <div class="flex items-center gap-2">
-          <NuxtLink :to="`/matches/${matchId}/history`" class="rounded-xl px-3 py-2 text-sm text-stone-600">過去紀錄</NuxtLink>
+          <NuxtLink v-if="hasMatchContext" :to="`/matches/${matchId}/history`" class="rounded-xl px-3 py-2 text-sm text-stone-600">過去紀錄</NuxtLink>
           <NuxtLink to="/settings" aria-label="設定" class="rounded-xl border border-stone-200 p-2.5"><Settings class="size-4" /></NuxtLink>
         </div>
       </div>
