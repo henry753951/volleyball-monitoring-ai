@@ -58,7 +58,7 @@ f20f1143c3e14e7f0a69932f7aca9ee804af3da87279c3a3a6d71cb6dbf36842  ./packages/con
 021a5eb56f0232d6c2cd71102a332e735cab8dd2f07dc4928cb01c23a6f61966  ./packages/contracts/ai/job.schema.json
 af74ad955839bedf824962938281841c1239f51fd3e13ca1e325cb2656c83a68  ./packages/contracts/ai/overlay-manifest.schema.json
 0545d99e5cdef5ef772aca088aeecb9d62b030a4fc8046118efaa65c84207119  ./packages/contracts/ai/result.schema.json
-591205bd67ef99a518faa86c91ce98dca67d5458eebcb32bdfee3a6a68d6ee95  ./packages/contracts/annotation/realtime.schema.json
+befa2d6c5090f379ca5a61a7db5081912eff08f51778ed07b1d256a056ac6cde  ./packages/contracts/annotation/realtime.schema.json
 21e2d2f8624576513931c7079f2a38f740e8dba90c16998b3b41bc97d78aa73e  ./packages/contracts/examples/ai/capabilities.json
 b4224ecb34750bcfc55eaef64a9e8fa7e4c488e18232a1d3ea3a5869b3b90e36  ./packages/contracts/examples/ai/job-accepted.json
 2e08da43c8fc7f06f343e1c64d6acb1318c202fe1a69837a944449ca6da58ea6  ./packages/contracts/examples/annotation/close-rally-ack.json
@@ -66,6 +66,7 @@ b4224ecb34750bcfc55eaef64a9e8fa7e4c488e18232a1d3ea3a5869b3b90e36  ./packages/con
 2058a4168ddc529708ebb87f9b4a826682f0e7e4cd9d8c616599b7aab95a14f4  ./packages/contracts/examples/annotation/close-rally-right.json
 3ce71957db87fffc95b3f2c6594a34599d590376e082dac025d4b411d9c47972  ./packages/contracts/examples/annotation/close-rally-target-conflict.json
 a063e0d35646e1f228bd01dcc918c46bbf2ee2a3dbfafe4f187f689b7d4a373d  ./packages/contracts/examples/annotation/close-rally-unknown.json
+d649c457df9c961eb97710ff129c9321b41a773d20b7a2751a8f56161553546e  ./packages/contracts/examples/annotation/create-contact.json
 94ea44052505053c3f4a28677ad0b7b337e33fba750945ef8e434fc638848f6d  ./packages/contracts/examples/annotation/create-service-ack.json
 04553c6cbf459152e290e09d9f72bc50bb8bbe04d4769708d42448de681011d6  ./packages/contracts/examples/annotation/create-service-non-uuid.invalid.json
 ce065102a82d20bffc8797f32bcc18063fd286fb7c3a919235f6aa53f67395f5  ./packages/contracts/examples/annotation/create-service-noncanonical-room.invalid.json
@@ -94,7 +95,7 @@ aa9858f965c0bcb91c0c6539938f228fc7b8149e3d4aa1585e7fb9dde6f38387  ./packages/con
 a0f1fb8c401bc8f2cbcdd715513ea94b34164b91fe2334ea1730f9efbeb7c4bf  ./packages/contracts/flatbuffers/overlay-chunk.fbs
 97e3e00d30f57717c12848dd8e7ac3316827370ce78e54de29ffec96f46747d4  ./packages/contracts/flatbuffers/overlay.fbs
 0b83eda11270d137a0bde40b291f2a991dbd2b801b79d0804e3ac2b460244604  ./packages/contracts/graphql/operations/health.graphql
-067283403edbe399aaedfce743a117875d9a307178f4a5366590d2452ab78044  ./packages/contracts/graphql/schema.graphql
+21368f5fdc51437ad303f224e9d78c2a691326ba9a29a913a30d131d9d5b9812  ./packages/contracts/graphql/schema.graphql
 a3c1876fbe25a1fcd666d8c4f79be157812b1fc274df67ff40fc9d8d51205df9  ./packages/contracts/media/canonical-frame-anchor.schema.json
 637f4e60f310017ac5058486c6a21d67ea231acb8595ab53cc3a1c0a99e0a087  ./packages/contracts/media/frame-step-request.schema.json
 f35e52aa387160cfad2d0d6d54143076c7bffc8288d00447e445b940bd5979e2  ./packages/contracts/media/media-api-error.schema.json
@@ -105,9 +106,9 @@ f35e52aa387160cfad2d0d6d54143076c7bffc8288d00447e445b940bd5979e2  ./packages/con
 8d6a380ce7758b03b32a399f2d1bd2e8c7fabe02390e86d66159be5192eac643  ./packages/contracts/openapi/ai-provider.yaml
 bc6eb6850fd0f0bf859149ef9b1a676c92bff9ac705a46dd0e23921c2384a0fa  ./packages/contracts/openapi/central-rest.yaml
 15d4c067cc2c377dc15222e75b3ead28c253ee6ff203fb45d8cb15cfe94738a6  ./packages/contracts/package.json
-20f2e3eace9a22636091653e8529f46ce0523afed29b4fe855329d85e5daeca7  ./packages/contracts/src/annotation.ts
+3ff03a10d1d42b9c61e2aa6c65ee94cb171f5ab7b5a9aba0af52995e3a6f2b96  ./packages/contracts/src/annotation.ts
 1b3238562302233155d2024d17847ff786b229cf5b146319df511eada9c41237  ./packages/contracts/src/index.ts
-0837d41f30176910d61a9b5b3156ec02c15fd5357f51cadce583589f36a530f3  ./packages/contracts/tests/validate.test.ts
+8de02aafedbf05da30b9ef2bdda7afb1a7495eaf8b94454fabe1e54f8c45c67a  ./packages/contracts/tests/validate.test.ts
 5a36f1bdeb6fb570710b2599eff55453bcf288de28e192935655d8860a562204  ./packages/contracts/tsconfig.json
 82aa7085cee562da19fb6906c18572620365c4d819f2fec3b73bdb49642a27ca  ./packages/db/README.md
 afd5f6a3b6f54b47fc16e00c7853fd4cbb9afb7695ea8bece4af55a4930f61f3  ./packages/db/package.json
@@ -163,6 +164,7 @@ b85718f7c080c3d99a4d9544eb865fdad2f32100ebbe2fb5f2d13d49b799e647  ./server/src/d
 ad8bb87a764c67b2d144a7ff8b478c57b49b29414a2b5354d8c7c2a92c497552  ./server/src/domain/annotation/room.ts
 b1d09717920ad3afd102f5b17e4e8c51c60bbf75c2b2a73cc0f44aded729bb0c  ./server/src/graphql/README.md
 fa19cb1261223ce2d11ae4dc89cc61a1bbd8953e5f6d7725f0962a9d9674c9f7  ./server/src/graphql/annotation-mutations.ts
+049ab1eb31a8e5a642640019e7c13c82fcbeae1aa10fd842c1b3a7b4efcd0db2  ./server/src/graphql/annotation-queries.ts
 ea3b27a8ccf181f185d408fedb5bdc22ec00cf32c97e5cf1a2ce49a4c25299bc  ./server/src/graphql/builder.ts
 f693656e4430e25ab8297a2cd6b5d5644860264a5b9d9bec07479c59b04b45ac  ./server/src/graphql/context.ts
 0da54e7dc3f21d9abdac8d17a53a8c1ede3b2603e994d2b946d43438a0894ba9  ./server/src/graphql/errors.ts
@@ -170,7 +172,7 @@ f1d8f9547c0af9b492552ebde25e57e6f6e0cd39c3a939361322a651a2345cc6  ./server/src/g
 b7686a55d63a66eb111fecfd0e7b0281929d50e72abd376986b7925ed9a36812  ./server/src/graphql/inputs.ts
 4931e7ded1dccff70c637147e165a1d5c2213ad6cf1c7268467dfa8610557075  ./server/src/graphql/mutations.ts
 3107cdd418844961a170067e98ec00f09bebcf6d7a809a2e23885a63a0d80093  ./server/src/graphql/queries.ts
-29ef767c6b5fb3d2bdd9940d1e20176b597a7022abdaed5336015e5c984888f4  ./server/src/graphql/schema.ts
+e4a2dc4e3113f592c84b6148fbe5a6d4acb5647d1d19620149bcef280e6e2053  ./server/src/graphql/schema.ts
 1e4f83fa0c5b60ba42d84b5ca1161d00566a8319a7e619034857ecae167f5a3b  ./server/src/graphql/types.ts
 6b2c7115e325bd40f267f3c0c4f5ee83930a32c0ae71bb7f8a1c8fb8c33c578d  ./server/src/health/readiness.ts
 37a6a015f0c08f24db6569a8d6d51e9540484c15093b693dc6826b6d202f6ec1  ./server/src/index.ts
@@ -186,10 +188,12 @@ e024c78dc2a75812078615c09be3fe957317de3cbc7318cd76040a74ab2cf4e7  ./server/src/r
 dc6593e629b1729b2b00823cb32907931b6cf9e9f55d41c10f5235b23bbdcb88  ./server/src/routes/README.md
 de68ecb888d1021577a49bfa49d8816a2519469916b2ac2012c32a50a6cf603a  ./server/src/routes/media-playback.ts
 29dc8ee62da32da243cba2f0c90575ba5e1cea4c36a2d392ab96360c6c926812  ./server/src/services/README.md
-0a354b02034f1e661eb7c2083d17a3649b82c5c925ea67a41452da937d4f3927  ./server/src/services/annotation-command.ts
+2cad2bae9116c58c8dd87b8101d18cb0a0c127a778b059f55d816987e011d0f7  ./server/src/services/annotation-command.ts
+bdd0fb1533da60d00c6c5f73f99829746b7f8e28042a043432483cd382320570  ./server/src/services/annotation-snapshot.ts
 8dc71ffa14f45fe80a7f034fbc4ca591f2533bd421a092892f52997781fc9b33  ./server/src/services/core-domain.ts
 cf5dd4148b435f01ef0a25839ddb8213159a8b16858161622d8bed4cadee56db  ./server/src/services/media-timeline.ts
-9de2c0a15d9c85b276b17853925eade7a67d8a614bb175f9b94c8cc32b040210  ./server/tests/annotation-command.integration.test.ts
+b545a661337c55e0386f77e3c1972f736bf11b2442cdfa3b2ca0adb81dcd21cc  ./server/tests/annotation-command.integration.test.ts
+a6b2690b51a33a5ee67eef44768ff959878cf0ecd2dcee357fc2c8c6901cd560  ./server/tests/annotation-snapshot.integration.test.ts
 78672dd867783ab115202afc27bc879794b1f85ebee9e5b0c066ac69f560cb45  ./server/tests/annotation-state.test.ts
 da974abd8d1e2c96a31e7b8d65714141caef38b4b8b8814f81719c816124da37  ./server/tests/annotation-transport.test.ts
 692df16cd2f4c7541b9385a9fca73ccbfb23143220dd8e40fd08fb2fe4efa6b3  ./server/tests/core-domain.integration.test.ts
