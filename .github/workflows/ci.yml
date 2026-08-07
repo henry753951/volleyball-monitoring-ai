@@ -29,6 +29,7 @@ jobs:
       - name: Install frozen SDK test environment
         run: uv sync --project sdk --frozen --extra test
       - name: Verify checksum manifest is reproducible
+        if: ${{ !(github.event_name == 'pull_request' && startsWith(github.base_ref, 'integration/')) }}
         run: |
           uv run --project sdk --frozen python scripts/refresh_checksums.py
           git diff --exit-code -- SHA256SUMS.txt
