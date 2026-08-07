@@ -1,8 +1,8 @@
-import { describe, expect, it } from 'bun:test'
+import { describe, expect, it } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 
-const root = resolve(import.meta.dir, '..')
+const root = resolve(import.meta.dirname, '..')
 const schema = readFileSync(resolve(root, 'prisma/schema.prisma'), 'utf8')
 const migration = readFileSync(resolve(root, 'prisma/migrations/20260807120000_playback_windows/migration.sql'), 'utf8')
 

@@ -33,6 +33,7 @@
         "prisma-pothos-types": "^1.0.0",
         "tsx": "^4.20.5",
         "typescript": "^5.9.2",
+        "vitest": "^4.1.10",
       },
     },
     "server": {
