@@ -15,6 +15,9 @@ const app = Fastify({ logger: true })
 const redisUrl = process.env.REDIS_URL
 const minioEndpoint = process.env.MINIO_ENDPOINT?.replace(/\/+$/, '')
 const mediaObjectReader = createMinioObjectReaderFromEnv()
+if (!mediaObjectReader) {
+  throw new Error('MinIO reader configuration is required for media playback and cursor resolution')
+}
 const redis = redisUrl
   ? new Redis(redisUrl, { lazyConnect: true, connectTimeout: 1_000, maxRetriesPerRequest: 1 })
   : null
@@ -50,16 +53,8 @@ await app.register(cors, {
   credentials: true,
 })
 await app.register(websocket)
-await app.register(mediaPlaybackRoutes({
-  ...(mediaObjectReader === undefined
-    ? {}
-    : { objectReader: mediaObjectReader }),
-}))
-await app.register(mediaCursorRoutes({
-  ...(mediaObjectReader === undefined
-    ? {}
-    : { objectReader: mediaObjectReader }),
-}))
+await app.register(mediaPlaybackRoutes({ objectReader: mediaObjectReader }))
+await app.register(mediaCursorRoutes({ objectReader: mediaObjectReader }))
 
 const yoga = createYoga<{ req: FastifyRequest; reply: FastifyReply }>({
   schema,
