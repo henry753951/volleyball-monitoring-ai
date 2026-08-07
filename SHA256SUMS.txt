@@ -32,8 +32,9 @@ a765ca000317842dbf228d7b97932095335b992ff820d09d88cdebe56811455f  ./docs/adr/000
 b9741bcfb9a40f29a1e400ef2704668f88815fba15fd922b0bb54c188080c8ea  ./docs/adr/0006-phase-3-durable-annotation.md
 86873d5fa1a994ed64556d965aa2b1d5fe1f9ebbbb6980917e5f850104dafea7  ./docs/adr/0007-phase-4-clip-ai-runtime.md
 46d070895c9f04389c62516a02a6f9fff6a1767a59fbf6cf443f87f066f29ac3  ./docs/adr/0008-phase-5-coach-replay.md
+d487f0e033a6cc4d7cf6d0b058b0899f4b7a23fb0d75981e669ea84a3ee99cad  ./docs/adr/0009-phase-6-identity-analytics.md
 de376c790b3f7624d275cd8d6882725028d5264710ede7d748ad38304fee5c6a  ./docs/open-decisions.md
-227f6f0a1ae0a7631ef566fc9ac468e8c81cb7283e2ee41f8f7bf948754bf939  ./docs/progress.md
+5184f45cb0d406efe398a6b563200c9a76a52916e4b32cb65eb17a3ed822ce5e  ./docs/progress.md
 0d3bc482dac156b1106108864ed89206274bdf81d7131e4726f2fa83255067af  ./docs/requirements-matrix.md
 e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  ./examples/__init__.py
 cff7ceef7d9b68faa2d2e401530659d7142df6504d99c884ba2abd7606d18911  ./examples/fake_ai_provider/README.md
@@ -97,6 +98,8 @@ aa9858f965c0bcb91c0c6539938f228fc7b8149e3d4aa1585e7fb9dde6f38387  ./packages/con
 a0f1fb8c401bc8f2cbcdd715513ea94b34164b91fe2334ea1730f9efbeb7c4bf  ./packages/contracts/flatbuffers/overlay-chunk.fbs
 97e3e00d30f57717c12848dd8e7ac3316827370ce78e54de29ffec96f46747d4  ./packages/contracts/flatbuffers/overlay.fbs
 655c6536d9c141883bf0e403e12589b33b6c4782cf8f18730d3a1a386324acea  ./packages/contracts/graphql/operations/active-annotation-rally.graphql
+0e3b3ca0f63647cce98c4253b9e78ad60ce38d39d70be2d0bc14a624e97d74fd  ./packages/contracts/graphql/operations/assign-track-identity.graphql
+a6d6a04fdee22d820c0fef10e298395f3700be57914a27e843cd01f5e9c0ad9f  ./packages/contracts/graphql/operations/coach-match-analytics.graphql
 b5915c898dde12c4b6ebce31aeccaf5f1e7089ca1548149cafe1569073c6a11c  ./packages/contracts/graphql/operations/coach-match-state.graphql
 c65c8364a35975f5ebb9e229e931ab8a1295d5e670ddbcc4da2fb5b9468b4970  ./packages/contracts/graphql/operations/coach-rally-replay.graphql
 0b83eda11270d137a0bde40b291f2a991dbd2b801b79d0804e3ac2b460244604  ./packages/contracts/graphql/operations/health.graphql
@@ -173,6 +176,7 @@ b1d09717920ad3afd102f5b17e4e8c51c60bbf75c2b2a73cc0f44aded729bb0c  ./server/src/g
 fa19cb1261223ce2d11ae4dc89cc61a1bbd8953e5f6d7725f0962a9d9674c9f7  ./server/src/graphql/annotation-mutations.ts
 30272c10d8548d65ba5dbeb89d8e65b1f97100e13ea92d7213ec8c1ca2a34ab7  ./server/src/graphql/annotation-queries.ts
 ea3b27a8ccf181f185d408fedb5bdc22ec00cf32c97e5cf1a2ce49a4c25299bc  ./server/src/graphql/builder.ts
+6a856d5bfc28df74aa30d825ab29ef2623d32091eba03608038c9991fc93a0a9  ./server/src/graphql/coach-analytics.ts
 f67e185663f80ddc4a3099f4479b104b99222ee427898a156308980de606c30e  ./server/src/graphql/coach-queries.ts
 953cdd620d0863cd0d35f4bb15c58544e563f328b0ad456c2829899647290abd  ./server/src/graphql/coach-replay-query.ts
 f693656e4430e25ab8297a2cd6b5d5644860264a5b9d9bec07479c59b04b45ac  ./server/src/graphql/context.ts
@@ -199,13 +203,14 @@ a15d612a07dd09fd072aa3d9a86ad58c3df6d8a5becc7c6e00ebc11c3e7bb7e9  ./server/src/r
 e252a5b88ada2247dafbca3fee68d6d8ae81f4bdcbf6fc474d283301b3c072e3  ./server/src/routes/analysis-media.ts
 de68ecb888d1021577a49bfa49d8816a2519469916b2ac2012c32a50a6cf603a  ./server/src/routes/media-playback.ts
 29dc8ee62da32da243cba2f0c90575ba5e1cea4c36a2d392ab96360c6c926812  ./server/src/services/README.md
-a69340dc19910774f398bcf3db74292ad731871a1d288f51334517a4257af5ba  ./server/src/services/annotation-command.ts
+73b13b698965a269dcd376c77099a9d0a1f71644a64be60b56d191e263db767f  ./server/src/services/annotation-command.ts
 cc349126736597be17a109d8a5c01975387650f07d28053684e63bb28772e30c  ./server/src/services/annotation-snapshot.ts
+e67b6aa560b483e5549386410a5292975d6578f2f7370dc0ff666d1e65527300  ./server/src/services/coach-analytics.ts
 de9b6dd94f4b1f213c81241a14c9cfb916327b061a61fb32482e837c9c36fab1  ./server/src/services/coach-dashboard.ts
 33f4677b4d7f2d0cb61f3f644979b6d64d2362542a7aa0cf72f2de45c1115da2  ./server/src/services/coach-replay.ts
 8dc71ffa14f45fe80a7f034fbc4ca591f2533bd421a092892f52997781fc9b33  ./server/src/services/core-domain.ts
 cf5dd4148b435f01ef0a25839ddb8213159a8b16858161622d8bed4cadee56db  ./server/src/services/media-timeline.ts
-65a3cd2b0d500c66eba4ea4f60d61e9abb5db56bc806c135ebd8a38ed645884b  ./server/tests/annotation-command.integration.test.ts
+613914d7a4539d599a182980d80275a0533d437a64599fe6475f40870a244434  ./server/tests/annotation-command.integration.test.ts
 a6b2690b51a33a5ee67eef44768ff959878cf0ecd2dcee357fc2c8c6901cd560  ./server/tests/annotation-snapshot.integration.test.ts
 78672dd867783ab115202afc27bc879794b1f85ebee9e5b0c066ac69f560cb45  ./server/tests/annotation-state.test.ts
 9188ca2a5dbd3ae2e8a98db80d5f926f7fdecaab106f96c5b2fb8a5e69062966  ./server/tests/annotation-transport.test.ts
@@ -225,12 +230,12 @@ a05f97317a9806acc90ae68efbd0afba7189f5c5081f240cf316486b8fb206ad  ./web/README.m
 a72849cd3e81fe22bd5a9ed9a8196154141e7e5483b96732b266479c595ff2c6  ./web/app/app.vue
 a40588739b78f17a705c727d7e6419fb7fbb308b23d68275495603a76f4a071a  ./web/app/assets/css/main.css
 099a0394eea7005abe61105c7881011133b1748c717a75b48fc8961bbdcd22d3  ./web/app/components/AnnotationCommandStrip.test.ts
-f6aa58c9131964bd7b89788e513cd99983ac360f2b91b94f2efdc00881a6dfb4  ./web/app/components/AnnotationCommandStrip.vue
+239ac4cbc867a2b69a9041c606837f208fc9af67b03d799564c1b89285146196  ./web/app/components/AnnotationCommandStrip.vue
 94e0db14252df7087bd90333aa4b1e06cfe378e4dae57ebb13f1da9d61b21411  ./web/app/components/CourtPathView.vue
 060c5012acdd0185fbce2996a44c942fa06eb4a18564ff743aa9c02778c317a5  ./web/app/components/DvrAuthorityInspector.vue
 d2caf516418dd1c245b82ed559cb0a27a6115d57e102bcf35efbb78f2617095f  ./web/app/components/DvrTimelineDock.component.test.ts
 d31178929bbb0713255b5d729b93b68bd0689e9248531e95b6bad0392ec06719  ./web/app/components/DvrTimelineDock.test.ts
-5a73574613ecb54203d54767aa5178742eb26a37459c39556b85fe04e850a0e8  ./web/app/components/DvrTimelineDock.vue
+6caeef442433284932116d1665455867eb30c784107c45f417fe5b1c68c598ac  ./web/app/components/DvrTimelineDock.vue
 d00d983f3f9a25bfcc8c5a78535632c6ead85d522369346a41a87e2a5f06314a  ./web/app/components/LandscapeGuard.vue
 ae09d2505a22c875d329a71b6860ee9991240fc1bf3785a70d702213b4c7b276  ./web/app/components/MatchSetupForm.vue
 43f4b9b4fa7a477559d5139e95cb6034636bec04a8ee0baf975081733c67965b  ./web/app/components/PwaInstallBanner.vue
@@ -239,7 +244,7 @@ aae51f1df3e167914b1560f320d0aa13ddbaf2ec0849b995a473ae05e0596346  ./web/app/comp
 da91b872704ee01ce472373e05ddb50baf9a4576f57e0080afcd775b334de9c4  ./web/app/components/VideoOverlayPlayer.vue
 1897685b6b2cc2025f54017ba84b94096404deb4a03c5289a8841e5d83c0850b  ./web/app/composables/useAnnotationHotkeys.test.ts
 3bb2ce5679a4a52e320628a0d7ea45053c69b0e96663eb8efbda26a1cf7ac47c  ./web/app/composables/useAnnotationHotkeys.ts
-aef1710278831f0c3e5a71ae15f9ebd704bbf50f4cf28465fa285629075aaad9  ./web/app/composables/useAnnotationRoom.ts
+23346d65262fdd5e03f6fb07640522b2dcb6e43589b76ec1b80144d3b0eac840  ./web/app/composables/useAnnotationRoom.ts
 8f4e62425c432eac94b128c6ab74fb79568032713d54e09a4438bd0666ffbdb0  ./web/app/composables/useAuthoritativeDvrWindow.integration.test.ts
 ce37f5454b6179fdb0db0159c86c077f04a900e64baddd58e6ebcd25736b5366  ./web/app/composables/useAuthoritativeDvrWindow.test.ts
 bc1c455dae53d578d8ea1af629a2e582d71ca64a73073b0d8dfb032b29f1f5e6  ./web/app/composables/useAuthoritativeDvrWindow.ts
@@ -249,7 +254,7 @@ ba626e2119ffb5adbcda1dd6bbe5207db7825bb8139e1b866c7c74018198f272  ./web/app/comp
 27a10565c6119791f296727adc9718cf627327e8f628b9d7839f1c52dbf2902b  ./web/app/composables/useDvrPlayback.ts
 d832d151a1899efd3414e029d724b78f032cd4a46eeb221e02f0632f5bd68d03  ./web/app/composables/usePlaybackCursor.ts
 3ab296cfb7591dd917975784dcffd68f883d731f1166c1e0b2c7e1e207eaa468  ./web/app/composables/usePublicEndpoints.ts
-cf0a8ef7332940fb7ddbd61d91ae43d1831508c21bda6312c4f63ee6262c6f45  ./web/app/layouts/annotation.vue
+d0efd072e39bb5c7979ccf95061f62811d565883764dce352e07e2a2cb3aebf2  ./web/app/layouts/annotation.vue
 dc12232a528fcfbf035514b0ffc83cd11a6f79684477e59fe41ff61beac163fa  ./web/app/layouts/default.vue
 20f6976beef4605d25d31bb6c9014741d81ed3ae3d6b1c98e77003fcb59ac194  ./web/app/lib/annotationRealtimeClient.ts
 0f980749a0c3ac30e5b05d33700359bde452b185d6145840af9a869327cbac2e  ./web/app/lib/coachDomain.ts
@@ -264,7 +269,7 @@ d4b1c2e4fa79f412cd9ff497c5cf7d9090f22de1e4c0e07e150664f8d74287dc  ./web/app/lib/
 cba670333ab1e0c411c488d0f3517da77337ca9c256ef9eaae31df1d6c9c3d6d  ./web/app/lib/playbackWindowCache.test.ts
 adee2ce860eff55e9be95c2feaabea259ae161fb138efc484051980767938b22  ./web/app/lib/playbackWindowCache.ts
 52fe16f81674ddd4727c93d95986be02908b5bb247fcca16e04f5c2aba4a1ccb  ./web/app/middleware/auth.global.ts
-0a0dbfb729d263a503b7a0c2343c59dcc86b706be03a20bcc80769aca2ff222c  ./web/app/pages/annotate/[matchId].vue
+d268569306256ce285e48a321208baef9bd7880c58017e51a6aa5937589aa092  ./web/app/pages/annotate/[matchId].vue
 d9b5b461a45f621ee67d3ca3880be7ec6e709ceafc596e23efad1013b6965304  ./web/app/pages/index.vue
 59adf037e339c30660054c4ffe9b2b2e94faa61e5a7cbcec0d3af2be7c06d269  ./web/app/pages/matches/[matchId]/history.vue
 5c84248253cac4256f3c6f67d86a6745e8e8acc6e9bf0af9b81b7e5ed19fea0f  ./web/app/pages/matches/[matchId]/live.vue
@@ -273,7 +278,7 @@ a93e5c17732a79691464207681a2dbc4f366c21fbbd944d6689b79bd3cd461b3  ./web/app/page
 fd6fd1e37f75863b84f12c011936a42eddbac93b9780e349f53911b921faa8bb  ./web/app/pages/matches/[matchId]/replay/[rallyId].vue
 583d156af0fa61f7d7e736fcd126e33f94fecce17c22499e3f8f0bcfbf838d12  ./web/app/pages/matches/[matchId]/stats.vue
 3c1394023169880189e949d89982f50654c6626d19a0c128c92b13f4f4349f3b  ./web/app/pages/matches/new.vue
-4049570b47d543322c60626047501562ac1b284b0cd8711fbeafecc0ea807eeb  ./web/app/pages/settings.vue
+927115c79e979d49929791eeeee561de5b2d5fa67e628f0a8bc34ed9047b11eb  ./web/app/pages/settings.vue
 6ced79bc782404f312333df09e3a528d5ddd6136131962c6f12b575eaebe690c  ./web/app/utils/annotationHotkeys.test.ts
 8ec255cd993cb6efe57d376d46430790d7c05b13b743b12a8949aaa867a2ca9d  ./web/app/utils/annotationHotkeys.ts
 4a1ec75d46e574ed894b28ec51905bd995a7cd020c53a7689f0387ae76b136d6  ./web/app/utils/authBoundary.test.ts

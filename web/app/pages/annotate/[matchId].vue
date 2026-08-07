@@ -1,7 +1,7 @@
 <script setup lang="ts">
+import { ArrowLeft, History, Settings } from 'lucide-vue-next'
 import { createMediaClient } from '~/lib/mediaClient'
 import { useAuthoritativeDvrWindow, seekVideoToCanonicalFrame, authoritativeControlsEnabled } from '~/composables/useAuthoritativeDvrWindow'
-import type { PlaybackWindowDescriptor, ResolvedMediaAnchor } from '~/lib/mediaModel'
 import { createCoreDomainClient, createGraphQLTransport, type Match, type CaptureSession } from '~/lib/coreDomain'
 import { ANNOTATION_COMMANDS, formatBindingForDisplay, type AnnotationAction, type HotkeyCommand, type MediaAction } from '~/utils/annotationHotkeys'
 import type { PlaybackCursorInput } from '~/lib/mediaModel'
@@ -23,16 +23,20 @@ const cursorStatus = ref<'ready' | 'stale' | 'seeking' | 'gap'>('stale')
 const annotation = useAnnotationRoom()
 const state = annotation.state
 const currentLastKeyPointId = computed(() => annotation.lastKeyPoint.value?.key_point_id ?? null)
+const selectedKeyPointId = ref<string | null>(null)
+const selectedKeyPoint = computed(() => annotation.snapshot.value?.snapshot.key_points.find(point => point.key_point_id === selectedKeyPointId.value) ?? null)
 const canMark = computed(() => authoritativeControlsEnabled({ cursorReady: cursorStatus.value === 'ready', status: dvr.status.value, busy: dvr.busy.value, descriptor: descriptor.value, anchor: authoritativeAnchor.value }))
 const commandReady = computed(() => annotation.connection.value === 'ready' && !annotation.busy.value)
 const { bindings } = useAnnotationHotkeys()
 const annotationScope = useTemplateRef<HTMLElement>('annotationScope')
+const settingsOpen = ref(false)
+const inspectorTab = ref<'keypoints' | 'authority'>('keypoints')
 
 const controls = computed(() => ANNOTATION_COMMANDS.map(command => ({
   ...command,
   key: formatBindingForDisplay(bindings.value[command.action]),
   enabled: commandReady.value && (command.action === 'service'
-    ? ['IDLE', 'SUBMITTED'].includes(state.value) && canMark.value
+    ? ['IDLE', 'SUBMITTED', 'VOIDED'].includes(state.value) && canMark.value
     : command.action === 'contact'
       ? state.value === 'OPEN' && canMark.value
       : command.action === 'submit'
@@ -40,14 +44,30 @@ const controls = computed(() => ANNOTATION_COMMANDS.map(command => ({
         : state.value === 'OPEN' && Boolean(currentLastKeyPointId.value)),
 })))
 
+const selectedCapture = computed<CaptureSession | null>(() => {
+  const sessions = (match.value?.captureSessions ?? []).filter(session => session.timeline?.availableRanges.length)
+  return sessions.slice().sort((a, b) => (Date.parse(b.startedAt ?? '') - Date.parse(a.startedAt ?? '')) || a.id.localeCompare(b.id))[0] ?? null
+})
+const timeline = computed(() => selectedCapture.value?.timeline ?? null)
+const liveTarget = computed(() => timeline.value?.liveEdgeCaptureTimeUs ?? timeline.value?.availableRanges.at(-1)?.endUs ?? null)
+const syncLabel = computed(() => annotation.busy.value ? '同步標註…' : annotation.error.value ? '同步異常' : commandReady.value ? '標註已更新' : '正在連線')
+const displayTimecode = computed(() => formatTimecode(observedCursor.value?.player_media_time_us))
+
+function formatTimecode(value?: string | null) {
+  if (!value) return '00:00.000'
+  const milliseconds = Number(BigInt(value) / 1_000n)
+  const minutes = Math.floor(milliseconds / 60_000)
+  const seconds = Math.floor((milliseconds % 60_000) / 1_000)
+  const ms = milliseconds % 1_000
+  return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}.${String(ms).padStart(3, '0')}`
+}
+
 async function loadMatch() {
   try {
     match.value = await createCoreDomainClient(createGraphQLTransport('/graphql')).match(matchId)
     if (!match.value) loadError.value = '找不到此場次，請返回賽事列表。'
   }
-  catch (error) {
-    loadError.value = error instanceof Error ? error.message : '場次資料載入失敗'
-  }
+  catch (error) { loadError.value = error instanceof Error ? error.message : '場次資料載入失敗' }
 }
 
 async function handleCursor(cursor: PlaybackCursorInput) {
@@ -57,13 +77,6 @@ async function handleCursor(cursor: PlaybackCursorInput) {
   try { await dvr.resolve(cursor) }
   catch (error) { mediaError.value = error instanceof Error ? error.message : '游標解析失敗' }
 }
-
-const selectedCapture = computed<CaptureSession | null>(() => {
-  const sessions = (match.value?.captureSessions ?? []).filter(session => session.timeline?.availableRanges.length)
-  return sessions.slice().sort((a, b) => (Date.parse(b.startedAt ?? '') - Date.parse(a.startedAt ?? '')) || a.id.localeCompare(b.id))[0] ?? null
-})
-const timeline = computed(() => selectedCapture.value?.timeline ?? null)
-const liveTarget = computed(() => timeline.value?.liveEdgeCaptureTimeUs ?? timeline.value?.availableRanges.at(-1)?.endUs ?? null)
 
 async function createWindow(target = captureTarget.value || undefined) {
   mediaError.value = null
@@ -80,6 +93,25 @@ function dispatchAnnotationAction(action: AnnotationAction) {
   const control = controls.value.find(item => item.action === action)
   if (!control?.enabled) return
   void annotation.dispatch(action, observedCursor.value).catch(() => undefined)
+}
+
+function editKeyPoint(kind: 'MOVE_KEY_POINT' | 'DELETE_KEY_POINT') {
+  if (!selectedKeyPointId.value || state.value !== 'OPEN' || !commandReady.value) return
+  if (kind === 'MOVE_KEY_POINT' && !canMark.value) return
+  void annotation.edit(kind, { keyPointId: selectedKeyPointId.value, cursor: observedCursor.value }).then(() => {
+    if (kind === 'DELETE_KEY_POINT') selectedKeyPointId.value = annotation.lastKeyPoint.value?.key_point_id ?? null
+  }).catch(() => undefined)
+}
+
+function reopenRally() {
+  if (state.value !== 'READY' || !commandReady.value) return
+  void annotation.edit('REOPEN_RALLY').catch(() => undefined)
+}
+
+function voidRally() {
+  if (!['OPEN', 'READY'].includes(state.value) || !commandReady.value) return
+  if (!window.confirm('確定作廢此未提交 Rally？此操作不可在原 Rally 上復原。')) return
+  void annotation.edit('VOID_RALLY', { reason: 'operator_voided_from_workstation' }).catch(() => undefined)
 }
 
 type PlayerAction = MediaAction | 'play_pause' | 'mute'
@@ -110,23 +142,59 @@ useAnnotationHotkeyRuntime({ target: annotationScope, dispatch: dispatchHotkeyCo
 watch(selectedCapture, (capture) => {
   if (capture) annotation.connect(`match:${matchId.toLowerCase()}:capture:${capture.id.toLowerCase()}`)
 }, { immediate: true })
+watch(() => annotation.snapshot.value?.rally_id, () => { selectedKeyPointId.value = annotation.lastKeyPoint.value?.key_point_id ?? null })
 onMounted(() => { annotationScope.value?.focus({ preventScroll: true }); void loadMatch() })
 </script>
 
 <template>
-  <section ref="annotationScope" tabindex="-1" class="workstation" @pointerdown.capture="annotationScope?.focus({ preventScroll: true })">
-    <header class="workstation__header"><div><p class="eyebrow">ANNOTATION / DVR</p><h1>{{ match?.title ?? '標註工作台' }}</h1><p>整場 DVR 由伺服器保存；命令與 revision 以伺服器 ACK / snapshot 為準。</p></div><div class="status-row"><span class="status-chip" :class="canMark ? 'status-chip--ready' : ''">Cursor {{ cursorStatus }}</span><span class="status-chip" :class="commandReady ? 'status-chip--ready' : ''">WS {{ annotation.connection.value }}</span><span class="status-chip">{{ state }}</span></div></header>
-    <p v-if="loadError" class="state state--error">{{ loadError }} <button type="button" @click="loadMatch">重試</button></p>
-    <div class="workstation__grid">
-      <main class="stage"><VideoOverlayPlayer :descriptor="descriptor" @cursor="handleCursor" @ready="video = $event" @error="mediaError = $event.message" /><div v-if="!descriptor" class="stage__empty"><strong>{{ selectedCapture ? '選擇時間軸上的 ready range' : '此場次沒有可播放 capture' }}</strong><span v-if="selectedCapture">{{ selectedCapture.sourceLabel ?? selectedCapture.id }} · {{ timeline?.availableRanges.length }} 個可用區段</span><span v-else>錄影尚未就緒或你沒有存取權限。</span><button v-if="liveTarget" type="button" @click="createWindow(liveTarget)">返回 live</button></div><p v-if="mediaError" class="state state--error">{{ mediaError }} <button type="button" @click="createWindow(liveTarget ?? undefined)">重試</button></p></main>
-      <div class="inspector-stack"><DvrAuthorityInspector :match="match" :capture="selectedCapture" :descriptor="descriptor" :anchor="authoritativeAnchor" :status="dvr.status.value" /><aside class="annotation-inspector"><h2>Server Rally</h2><p v-if="!annotation.snapshot.value">沒有 OPEN / READY Rally</p><template v-else><dl><dt>Rally</dt><dd>{{ annotation.snapshot.value.rally_id }}</dd><dt>Revision</dt><dd>{{ annotation.snapshot.value.revision }}</dd><dt>Outcome</dt><dd>{{ annotation.snapshot.value.snapshot.score_resolution }} {{ annotation.snapshot.value.snapshot.scoring_court_side ?? '' }}</dd><dt>Processing</dt><dd>{{ annotation.snapshot.value.snapshot.processing_status }}</dd></dl><ol><li v-for="point in annotation.snapshot.value.snapshot.key_points" :key="point.key_point_id"><strong>{{ point.sequence_index }} · {{ point.marker_kind }}</strong><span>frame {{ point.capture_frame_index }} · {{ point.timing_precision }}</span></li></ol></template></aside></div>
+  <section ref="annotationScope" tabindex="-1" class="editor-shell" @pointerdown.capture="annotationScope?.focus({ preventScroll: true })">
+    <header class="app-bar">
+      <div class="brand-block"><h1>Volleyball Monitoring AI</h1><p>Server DVR · Keypoint Editor · Immutable Submission</p></div>
+      <div class="session-status"><i class="status-dot" :class="{ busy: annotation.busy.value || !commandReady, error: annotation.error.value }" /><span>{{ syncLabel }}</span></div>
+      <div class="app-actions"><span class="media-name">{{ match?.title ?? matchId }} · {{ selectedCapture?.sourceLabel ?? selectedCapture?.id ?? '等待 capture' }}</span><NuxtLink to="/" aria-label="返回場次"><ArrowLeft :size="17" /></NuxtLink><NuxtLink :to="`/matches/${matchId}/history`" aria-label="查看紀錄"><History :size="17" /></NuxtLink><button type="button" aria-label="Annotation 設定" title="Annotation 設定" @click="settingsOpen = true"><Settings :size="18" /></button></div>
+    </header>
+
+    <div class="editor-body">
+      <main class="viewer-panel">
+        <div class="video-stage">
+          <VideoOverlayPlayer :descriptor="descriptor" @cursor="handleCursor" @ready="video = $event" @error="mediaError = $event.message" />
+          <div v-if="annotation.snapshot.value" class="stage-mask" :class="annotation.snapshot.value.snapshot.active_submission_id ? 'submitted' : 'draft'" />
+          <div class="viewer-badges"><span v-if="descriptor">{{ descriptor.mode.toUpperCase() }}</span><span>frame {{ authoritativeAnchor?.capture_frame_index ?? '—' }}</span></div>
+          <div v-if="!descriptor" class="stage-empty"><strong>{{ selectedCapture ? '選擇時間軸上的 ready range' : '此場次沒有可播放 capture' }}</strong><span>{{ selectedCapture ? `${timeline?.availableRanges.length ?? 0} 個可用串流區段` : '錄影尚未就緒或你沒有存取權限。' }}</span><button v-if="liveTarget" type="button" @click="createWindow(liveTarget)">返回 live</button></div>
+          <p v-if="mediaError" class="stage-error">{{ mediaError }} <button type="button" @click="createWindow(liveTarget ?? undefined)">重試</button></p>
+        </div>
+      </main>
+
+      <aside class="inspector">
+        <div class="mode-switch"><button type="button" :class="{ active: inspectorTab === 'keypoints' }" @click="inspectorTab = 'keypoints'">片段 Keypoint</button><button type="button" :class="{ active: inspectorTab === 'authority' }" @click="inspectorTab = 'authority'">DVR Authority</button></div>
+        <template v-if="inspectorTab === 'authority'"><DvrAuthorityInspector :match="match" :capture="selectedCapture" :descriptor="descriptor" :anchor="authoritativeAnchor" :status="dvr.status.value" /></template>
+        <template v-else>
+          <div class="inspector-heading"><div><strong>{{ state.toLowerCase() }}</strong><span>revision {{ annotation.snapshot.value?.revision ?? '0' }}</span></div><span>{{ annotation.snapshot.value?.snapshot.score_resolution ?? 'pending' }}<template v-if="annotation.snapshot.value?.snapshot.scoring_court_side"> / {{ annotation.snapshot.value.snapshot.scoring_court_side }}</template></span></div>
+          <div class="section-title"><span>目前 Rally keypoints</span><b>{{ annotation.snapshot.value?.snapshot.key_points.length ?? 0 }}</b></div>
+          <p v-if="!annotation.snapshot.value" class="empty-row">尚未建立 Rally；按 Z 標記 service。</p>
+          <ul v-else class="keypoint-list">
+            <li v-for="point in annotation.snapshot.value.snapshot.key_points" :key="point.key_point_id" :class="{ selected: selectedKeyPointId === point.key_point_id }" @click="selectedKeyPointId = point.key_point_id">
+              <i class="point-kind" :class="{ contact: point.marker_kind === 'contact' }">{{ point.marker_kind === 'service' ? 'Z' : '•' }}</i><span>{{ point.marker_kind }}<em v-if="point.is_terminal"> · terminal</em></span><code>{{ formatTimecode(point.capture_time_us) }}</code>
+            </li>
+          </ul>
+          <div class="stack-actions"><button type="button" :disabled="state !== 'OPEN' || !selectedKeyPoint || !canMark || !commandReady" @click="editKeyPoint('MOVE_KEY_POINT')">將所選點移到目前畫格</button><button type="button" :disabled="state !== 'OPEN' || !selectedKeyPoint || selectedKeyPoint.marker_kind === 'service' || !commandReady" @click="editKeyPoint('DELETE_KEY_POINT')">刪除所選 contact</button><button type="button" :disabled="state !== 'READY' || !commandReady" @click="reopenRally">重新開啟 Rally</button><button type="button" class="danger" :disabled="!['OPEN', 'READY'].includes(state) || !commandReady" @click="voidRally">作廢未提交 Rally</button></div>
+          <div class="section-title"><span>不可變提交</span><b>{{ annotation.snapshot.value?.snapshot.active_submission_id ? 1 : 0 }}</b></div>
+          <p class="empty-row">{{ annotation.snapshot.value?.snapshot.active_submission_id ? annotation.snapshot.value.snapshot.active_submission_id : '尚無 immutable submission' }}</p>
+        </template>
+      </aside>
     </div>
-    <p v-if="annotation.error.value" class="state state--error">{{ annotation.error.value }} <button type="button" @click="annotation.refreshActive">重新同步</button></p>
-    <section class="deck"><DvrTimelineDock :timeline="timeline" :playhead="authoritativeAnchor?.capture_time_us ?? null" :annotation="annotation.snapshot.value" @seek="createWindow" /><div class="deck__controls"><button type="button" @click="dispatchMediaAction('play_pause')">播放 / 暫停</button><button type="button" @click="dispatchMediaAction('frame_previous')">上一幀</button><button type="button" @click="dispatchMediaAction('frame_next')">下一幀</button><button type="button" @click="dispatchMediaAction('mute')">靜音</button><button type="button" @click="createWindow(liveTarget ?? undefined)" :disabled="!liveTarget">返回 live</button></div></section>
-    <AnnotationCommandStrip :bindings="bindings" :state="state" :can-mark="canMark" :last-key-point="Boolean(currentLastKeyPointId)" :command-ready="commandReady" @action="dispatchAnnotationAction" />
+
+    <footer class="timeline-footer">
+      <div class="transport-bar"><button type="button" class="transport-button" @click="dispatchMediaAction('play_pause')">▶</button><button type="button" class="transport-button" @click="dispatchMediaAction('frame_previous')">←</button><button type="button" class="transport-button" @click="dispatchMediaAction('frame_next')">→</button><code class="timecode">{{ displayTimecode }}</code><span class="transport-help">Space 接觸點 · Shift + 滾輪縮放 · ← / → 逐幀微調</span><button type="button" @click="dispatchMediaAction('mute')">靜音</button><button type="button" :disabled="!liveTarget" @click="createWindow(liveTarget ?? undefined)">返回 LIVE</button></div>
+      <DvrTimelineDock :timeline="timeline" :playhead="authoritativeAnchor?.capture_time_us ?? null" :annotation="annotation.snapshot.value" @seek="createWindow" />
+      <AnnotationCommandStrip :bindings="bindings" :state="state" :can-mark="canMark" :last-key-point="Boolean(currentLastKeyPointId)" :command-ready="commandReady" @action="dispatchAnnotationAction" />
+    </footer>
+
+    <p v-if="loadError || annotation.error.value" class="global-error">{{ loadError ?? annotation.error.value }} <button type="button" @click="loadError ? loadMatch() : annotation.refreshActive()">重試</button></p>
+    <AnnotationSettingsDialog :open="settingsOpen" @close="settingsOpen = false" />
   </section>
 </template>
 
 <style scoped>
-.workstation{color:#292521;max-width:1500px;margin:auto;padding:24px}.workstation__header{display:flex;justify-content:space-between;gap:20px;border-bottom:1px solid #d8d0c5;padding-bottom:18px}.workstation h1{font-size:28px;margin:4px 0}.workstation p{color:#665f57}.status-row{display:flex;gap:7px;align-items:flex-start;flex-wrap:wrap;justify-content:flex-end}.status-chip{border:1px solid #bdb5ab;border-radius:999px;padding:8px 12px;height:max-content}.status-chip--ready{border-color:#0f766e;color:#0f766e}.workstation__grid{display:grid;grid-template-columns:minmax(0,1fr) 300px;gap:16px;margin-top:18px}.stage{position:relative;background:#171514;border-radius:14px;min-height:420px;padding:8px}.stage__empty{position:absolute;inset:0;display:grid;place-content:center;gap:8px;text-align:center;color:#eee}.stage__empty form{display:flex;gap:8px}.stage__empty input{padding:10px;border-radius:8px;border:1px solid #81776b}.stage button,.deck button{border:1px solid #bdb5ab;border-radius:8px;padding:9px 12px;background:#faf9f7}.inspector-stack{display:grid;gap:12px;align-content:start}.annotation-inspector{border:1px solid #d8d0c5;border-radius:12px;background:#fff;padding:14px;min-width:0}.annotation-inspector h2{font-size:14px;margin:0 0 10px}.annotation-inspector dl{display:grid;grid-template-columns:72px minmax(0,1fr);gap:5px;font-size:11px}.annotation-inspector dt{color:#766e65}.annotation-inspector dd{margin:0;overflow-wrap:anywhere}.annotation-inspector ol{padding-left:22px;max-height:220px;overflow:auto}.annotation-inspector li{padding:5px 0}.annotation-inspector li span{display:block;color:#766e65;font-size:10px}.deck{border:1px solid #d8d0c5;border-radius:14px;background:#fff;padding:18px;margin-top:16px}.deck__controls{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px}.state{padding:10px;border-radius:8px}.state--error{background:#fdf0ed;color:#9b2c20}.state--error button{margin-left:8px;text-decoration:underline}@media(max-width:900px){.workstation__grid{grid-template-columns:1fr}}@media(prefers-reduced-motion:reduce){*{scroll-behavior:auto!important;transition:none!important}}
+:global(html),:global(body),:global(#__nuxt){width:100%;height:100%;margin:0;overflow:hidden}:global(body){background:#0b0d0f}.editor-shell{--surface-0:#0b0d0f;--surface-1:#121519;--line:#30363d;--line-strong:#4a535d;--muted:#98a2ad;--green:#49d88a;--amber:#f5b84b;--blue:#62a9ff;--red:#ff6b72;width:100vw;height:100dvh;display:grid;grid-template-rows:54px minmax(0,1fr) 238px;overflow:hidden;background:var(--surface-0);color:#edf1f4;font-family:"Segoe UI Variable Text",Aptos,"Segoe UI",sans-serif}.editor-shell button,.editor-shell a{min-height:34px;padding:7px 11px;border:1px solid var(--line-strong);border-radius:6px;background:#20252b;color:inherit;cursor:pointer;text-decoration:none}.editor-shell button:not(:disabled):hover,.editor-shell a:hover{border-color:#6b7681;background:#282e35}.editor-shell button:disabled{opacity:.35;cursor:not-allowed}.app-bar{min-width:0;display:grid;grid-template-columns:minmax(280px,auto) minmax(220px,1fr) minmax(300px,auto);align-items:center;gap:18px;padding:0 16px;border-bottom:1px solid var(--line);background:#101317}.brand-block{min-width:0}.brand-block h1{margin:0;font-size:.98rem;font-weight:720}.brand-block p{margin:2px 0 0;color:var(--muted);font-size:.69rem}.session-status{min-width:0;display:flex;justify-content:center;align-items:center;gap:8px;color:#c4ccd4;font-size:.78rem}.status-dot{width:7px;height:7px;border-radius:50%;background:var(--green)}.status-dot.busy{background:var(--amber)}.status-dot.error{background:var(--red)}.app-actions{min-width:0;display:flex;justify-content:flex-end;align-items:center;gap:7px}.app-actions>a,.app-actions>button{width:34px;padding:0;display:grid;place-items:center}.media-name{max-width:340px;overflow:hidden;color:var(--muted);font-size:.73rem;text-overflow:ellipsis;white-space:nowrap}.editor-body{min-height:0;display:grid;grid-template-columns:minmax(0,1fr) clamp(288px,24vw,350px);overflow:hidden}.viewer-panel{min-width:0;min-height:0;display:grid;place-items:center;padding:10px;overflow:hidden;background:#050607}.video-stage{position:relative;width:100%;height:100%;display:grid;place-items:center;overflow:hidden;background:#000;box-shadow:0 12px 38px #0006}.video-stage :deep(>div){width:100%;height:100%;border-radius:0}.video-stage :deep(video){width:100%;height:100%;object-fit:contain}.stage-mask{position:absolute;inset:0;pointer-events:none}.stage-mask.draft{background:#9ba4ae1a}.stage-mask.submitted{background:#2dcd7b14}.viewer-badges{position:absolute;top:8px;right:8px;display:flex;gap:5px;pointer-events:none}.viewer-badges span{padding:3px 6px;border:1px solid #ffffff2b;border-radius:4px;background:#050709c2;color:#d9e0e6;font:600 .66rem "Cascadia Mono",Consolas,monospace}.stage-empty{position:absolute;inset:0;display:grid;place-content:center;justify-items:center;gap:9px;color:#edf1f4;text-align:center}.stage-empty span{color:var(--muted);font-size:.75rem}.stage-error,.global-error{position:absolute;z-index:8;padding:9px;border:1px solid #8e4146;border-radius:5px;background:#351a1cee;color:#ffb7bb;font-size:.72rem}.stage-error{left:12px;bottom:12px}.global-error{left:12px;top:64px}.inspector{min-height:0;padding:12px;overflow-y:auto;border-left:1px solid var(--line);background:var(--surface-1);font-size:.77rem;scrollbar-width:none}.mode-switch{display:grid;grid-template-columns:1fr 1fr;margin-bottom:12px;border:1px solid var(--line);border-radius:7px;overflow:hidden}.mode-switch button{min-height:34px;border:0;border-radius:0;background:transparent;color:var(--muted)}.mode-switch button+button{border-left:1px solid var(--line)}.mode-switch button.active{background:#273039;color:#fff}.inspector-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;padding-bottom:10px;border-bottom:1px solid var(--line)}.inspector-heading div{display:grid;gap:2px}.inspector-heading strong{font-size:.88rem}.inspector-heading span{color:var(--muted);font-size:.69rem}.section-title{display:flex;align-items:center;justify-content:space-between;margin:14px 0 6px;color:#cdd4db;font-size:.7rem}.section-title b{min-width:22px;padding:2px 5px;border-radius:10px;background:#292f36;text-align:center}.keypoint-list{max-height:170px;margin:0;padding:0;overflow:auto;list-style:none}.keypoint-list li{min-height:34px;display:grid;grid-template-columns:24px 1fr auto;align-items:center;gap:6px;padding:4px 6px;border-bottom:1px solid #262c32;cursor:pointer}.keypoint-list li:hover,.keypoint-list li.selected{background:#20262c}.keypoint-list code{color:var(--muted);font-size:.66rem}.point-kind{display:grid;width:20px;height:20px;place-items:center;border-radius:50%;color:#0b0d0f;font-size:.62rem;font-weight:800;background:var(--amber)}.point-kind.contact{background:var(--blue)}.keypoint-list em{color:var(--green);font-style:normal}.empty-row{display:block;margin:0;padding:9px 5px;color:var(--muted);font-size:.7rem;overflow-wrap:anywhere}.stack-actions{display:grid;gap:6px;margin-top:8px}.stack-actions button{min-height:31px;font-size:.7rem}.stack-actions .danger{color:#ff9ca1}.timeline-footer{min-height:0;display:grid;grid-template-rows:43px minmax(0,1fr) 54px;border-top:1px solid var(--line);background:#111419}.transport-bar{min-width:0;display:flex;align-items:center;gap:6px;padding:5px 12px;border-bottom:1px solid #292f35}.transport-button{width:34px;min-height:31px!important;padding:0!important}.timecode{min-width:96px;margin-left:4px;color:#fff;font:700 .78rem "Cascadia Mono",Consolas,monospace}.transport-help{min-width:0;overflow:hidden;color:var(--muted);font-size:.68rem;text-overflow:ellipsis;white-space:nowrap;margin-right:auto}@media(max-width:1050px){.app-bar{grid-template-columns:240px 1fr 230px}.media-name{display:none}.editor-body{grid-template-columns:minmax(0,1fr) 288px}}@media(max-height:760px){.editor-shell{grid-template-rows:48px minmax(0,1fr) 210px}.brand-block p{display:none}.timeline-footer{grid-template-rows:39px minmax(0,1fr) 50px}.inspector{padding:9px}.keypoint-list{max-height:110px}}@media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
 </style>

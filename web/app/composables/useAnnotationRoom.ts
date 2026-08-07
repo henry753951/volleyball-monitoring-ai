@@ -46,9 +46,9 @@ export function useAnnotationRoom() {
   let realtime: AnnotationRealtimeClient | null = null
   let refreshTimer: ReturnType<typeof setInterval> | null = null
 
-  const state = computed<'IDLE' | 'OPEN' | 'READY' | 'SUBMITTED'>(() => {
+  const state = computed<'IDLE' | 'OPEN' | 'READY' | 'SUBMITTED' | 'VOIDED'>(() => {
     const status = snapshot.value?.snapshot.annotation_status
-    return status ? status.toUpperCase() as 'OPEN' | 'READY' | 'SUBMITTED' : 'IDLE'
+    return status ? status.toUpperCase() as 'OPEN' | 'READY' | 'SUBMITTED' | 'VOIDED' : 'IDLE'
   })
   const lastKeyPoint = computed(() => snapshot.value?.snapshot.key_points.at(-1) ?? null)
 
@@ -153,23 +153,64 @@ export function useAnnotationRoom() {
     })
   }
 
-  async function dispatch(action: AnnotationAction, cursor: PlaybackCursorInput | null) {
+  function buildEditCommand(
+    kind: 'MOVE_KEY_POINT' | 'DELETE_KEY_POINT' | 'REOPEN_RALLY' | 'VOID_RALLY',
+    options: { keyPointId?: string; cursor?: PlaybackCursorInput | null; reason?: string } = {},
+  ): AnnotationCommand {
+    if (!roomId.value || !snapshot.value) throw new Error('目前沒有可編輯的 Rally')
+    const base = {
+      schema_version: '2.0.0',
+      command_id: crypto.randomUUID(),
+      room_id: roomId.value,
+      base_revision: snapshot.value.revision,
+      rally_id: snapshot.value.rally_id,
+    } as const
+    if (kind === 'REOPEN_RALLY') return parseAnnotationCommand({ ...base, kind, payload: {} })
+    if (kind === 'VOID_RALLY') return parseAnnotationCommand({ ...base, kind, payload: { reason: options.reason?.trim() || 'operator_voided' } })
+    if (!options.keyPointId) throw new Error('請先選擇 key point')
+    if (kind === 'DELETE_KEY_POINT') return parseAnnotationCommand({ ...base, kind, payload: { key_point_id: options.keyPointId } })
+    if (!options.cursor || options.cursor.cursor_status !== 'ready') throw new Error('伺服器尚未取得可解析的播放游標')
+    return parseAnnotationCommand({ ...base, kind, payload: { key_point_id: options.keyPointId, playback_cursor: annotationCursor(options.cursor) } })
+  }
+
+  async function sendCommand(command: AnnotationCommand) {
     if (!realtime?.ready()) throw new Error('Annotation WebSocket 尚未連線')
+    const response: AnnotationCommandResponse = await realtime.send(command)
+    if (response.type === 'command_rejected') {
+      error.value = response.message ?? '標註命令被拒絕'
+      if (response.snapshot_refetch_required && snapshot.value) await fetchSnapshot(snapshot.value.rally_id)
+      return response
+    }
+    await fetchSnapshot(response.rally_id)
+    return response
+  }
+
+  async function dispatch(action: AnnotationAction, cursor: PlaybackCursorInput | null) {
     busy.value = true
     error.value = null
     try {
-      const command = buildCommand(action, cursor)
-      const response: AnnotationCommandResponse = await realtime.send(command)
-      if (response.type === 'command_rejected') {
-        error.value = response.message ?? '標註命令被拒絕'
-        if (response.snapshot_refetch_required && snapshot.value) await fetchSnapshot(snapshot.value.rally_id)
-        return response
-      }
-      await fetchSnapshot(response.rally_id)
-      return response
+      return await sendCommand(buildCommand(action, cursor))
     }
     catch (cause) {
       error.value = cause instanceof Error ? cause.message : '標註命令失敗'
+      throw cause
+    }
+    finally {
+      busy.value = false
+    }
+  }
+
+  async function edit(
+    kind: 'MOVE_KEY_POINT' | 'DELETE_KEY_POINT' | 'REOPEN_RALLY' | 'VOID_RALLY',
+    options: { keyPointId?: string; cursor?: PlaybackCursorInput | null; reason?: string } = {},
+  ) {
+    busy.value = true
+    error.value = null
+    try {
+      return await sendCommand(buildEditCommand(kind, options))
+    }
+    catch (cause) {
+      error.value = cause instanceof Error ? cause.message : '標註編輯失敗'
       throw cause
     }
     finally {
@@ -188,6 +229,7 @@ export function useAnnotationRoom() {
     connection: readonly(connection),
     connect,
     dispatch,
+    edit,
     error: readonly(error),
     lastKeyPoint,
     refreshActive,

@@ -1,5 +1,17 @@
 # Progress
 
+## 2026-08-07 — Contract Lab-aligned Annotation editor checkpoint
+
+Status: implemented directly on `integration/phase3-annotation`; this is the accelerated single-branch checkpoint requested by the user.
+
+- Rebuilt the PC Annotation route as a dark, full-screen Contract Lab-style editor with a top sync/media bar, full-height video stage, Rally/keypoint inspector, persistent transport controls, a two-lane DVR timeline and the fixed six-command strip. The implementation keeps server-side buffer/streaming truth: ready ranges and the live edge grow with the capture timeline, bounded seek creates a server playback window, and frame arrows use authoritative server stepping.
+- Moved all Annotation and player shortcut customization into the workstation's upper-right gear dialog. TanStack Hotkeys still owns rebinding/recording; displayed keycaps use `formatForDisplay`, conflicts and reserved gestures fail without mutation, and Restore All Defaults remains available. The Coach/iPad PWA `/settings` page now contains no Annotation preferences.
+- Added server support for draft-only MOVE/DELETE/REOPEN/VOID commands while preserving immutable SUBMITTED Rally behavior. MOVE re-resolves the browser observation through server media authority; DELETE keeps SERVICE undeletable and moves soft-deleted rows to tombstone sequence indexes; REOPEN clears terminal/outcome state; VOID closes only an unsubmitted draft.
+- Fixed the discovered soft-delete unique-index collision by transactionally parking tombstones below active sequence space and using a two-phase active resequence. No score frame/event is introduced, and `<`, `>`, `?` still terminalize the existing last server-confirmed key point.
+- Validation passed: Web and Server typecheck, 18 focused Hotkeys/command-strip tests, 29 Annotation command/snapshot integration tests and the UI detector. Docker remains running; broader visual and end-to-end acceptance is delegated to the user per the accelerated plan.
+
+Open limitations: exact production video appearance depends on the real streamed capture and user viewport. Production SSO/provider selection, saved Analysis View editing, per-frame overlay chunk playback and deployment backup/retention drills remain outside this checkpoint.
+
 ## 2026-08-07 — Phase 6 identity and evidence-bearing analytics
 
 Status: implemented directly on `integration/phase3-annotation`, rebuilt into the local server/Web containers and runtime-probed.

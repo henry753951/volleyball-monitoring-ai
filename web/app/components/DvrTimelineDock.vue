@@ -3,48 +3,53 @@ import type { AnnotationRallySnapshot } from '@volleyball-monitoring/contracts'
 import type { CaptureTimeline } from '~/lib/coreDomain'
 import { timelineBounds, capturePercentBps, rulerTicks, pointerTarget, readyAt, gapRanges } from '~/lib/dvrTimeline'
 
-const props = defineProps<{
-  timeline: CaptureTimeline | null
-  playhead: string | null
-  annotation?: AnnotationRallySnapshot | null
-}>()
+const props = defineProps<{ timeline: CaptureTimeline | null; playhead: string | null; annotation?: AnnotationRallySnapshot | null }>()
 const emit = defineEmits<{ seek: [target: string] }>()
-const bounds = computed(() => timelineBounds(props.timeline?.availableRanges ?? []))
-const ticks = computed(() => rulerTicks(bounds.value))
+const fullBounds = computed(() => timelineBounds(props.timeline?.availableRanges ?? []))
+const zoom = ref(1)
+const pan = ref(1)
+const viewBounds = computed(() => {
+  const bounds = fullBounds.value
+  if (!bounds) return null
+  const start = BigInt(bounds.startUs)
+  const end = BigInt(bounds.endUs)
+  const span = end - start
+  if (span <= 1n || zoom.value <= 1) return bounds
+  const visibleSpan = span / BigInt(Math.max(1, Math.round(zoom.value * 100))) * 100n
+  const availablePan = span - visibleSpan
+  const viewStart = start + availablePan * BigInt(Math.round(pan.value * 1_000)) / 1_000n
+  return { startUs: viewStart.toString(), endUs: (viewStart + visibleSpan).toString() }
+})
+const ticks = computed(() => rulerTicks(viewBounds.value))
 const gaps = computed(() => gapRanges(props.timeline?.availableRanges ?? []))
 const annotationPoints = computed(() => props.annotation?.snapshot.key_points ?? [])
 const maskStart = computed(() => annotationPoints.value[0]?.capture_time_us ?? null)
 const maskEnd = computed(() => annotationPoints.value.at(-1)?.capture_time_us ?? null)
-const zoom = ref(1)
-const pan = ref(0)
+const isVisible = (time: string) => Boolean(viewBounds.value && BigInt(time) >= BigInt(viewBounds.value.startUs) && BigInt(time) <= BigInt(viewBounds.value.endUs))
+const position = (time: string) => viewBounds.value ? capturePercentBps(time, viewBounds.value) / 100 : 0
 
-function resetView() { zoom.value = 1; pan.value = 0 }
-function wheel(event: WheelEvent) { if (event.shiftKey) pan.value = Math.max(-50, Math.min(50, pan.value + event.deltaY / 20)); else zoom.value = Math.max(1, Math.min(8, zoom.value + (event.deltaY < 0 ? 0.25 : -0.25))) }
-function position(time: string) { return bounds.value ? capturePercentBps(time, bounds.value) / 100 : 0 }
-function seek(event: MouseEvent) { if (!bounds.value || !props.timeline) return; const target = pointerTarget(event.clientX, (event.currentTarget as HTMLElement).getBoundingClientRect(), bounds.value); if (readyAt(target, props.timeline.availableRanges)) emit('seek', target) }
+function resetView() { zoom.value = 1; pan.value = 1 }
+function wheel(event: WheelEvent) {
+  if (event.shiftKey) pan.value = Math.max(0, Math.min(1, pan.value + event.deltaY / 1_000))
+  else zoom.value = Math.max(1, Math.min(64, zoom.value * (event.deltaY < 0 ? 1.18 : .85)))
+}
+function seek(event: MouseEvent) {
+  if (!viewBounds.value || !props.timeline) return
+  const target = pointerTarget(event.clientX, (event.currentTarget as HTMLElement).getBoundingClientRect(), viewBounds.value)
+  if (readyAt(target, props.timeline.availableRanges)) emit('seek', target)
+}
 </script>
 
 <template>
-  <section class="timeline-dock" aria-label="DVR timeline" @wheel.prevent="wheel">
-    <div class="timeline-dock__ruler"><span>Capture timeline</span><span v-if="timeline">{{ timeline.availableRanges.length }} ready ranges</span></div>
-    <div class="timeline-dock__ruler-ticks"><span v-for="tick in ticks" :key="tick.value" :style="{ left: `${tick.percentBps / 100}%` }" :title="tick.value">{{ tick.label }}</span></div>
-    <div class="timeline-dock__lane" role="slider" tabindex="0" @click="seek"><div v-for="range in timeline?.availableRanges ?? []" :key="`${range.startUs}-${range.endUs}`" class="timeline-dock__range" :style="{ left: `${position(range.startUs)}%`, width: `${Math.max(1, position(range.endUs) - position(range.startUs))}%` }" /></div>
-    <div class="timeline-dock__gap-lane" aria-label="Gaps and discontinuities"><div v-for="gap in gaps" :key="`${gap.startUs}-${gap.endUs}`" class="timeline-dock__gap" :style="{ left: `${position(gap.startUs)}%`, width: `${Math.max(1, position(gap.endUs) - position(gap.startUs))}%` }" /></div>
-    <div class="timeline-dock__annotation-lane" aria-label="Server annotation lane">
-      <span v-if="!annotation">No active server Rally</span>
-      <template v-else>
-        <div v-if="maskStart && maskEnd" class="timeline-dock__rally-mask" :class="annotation.snapshot.active_submission_id ? 'timeline-dock__rally-mask--submitted' : 'timeline-dock__rally-mask--draft'" :style="{ left: `${position(maskStart)}%`, width: `${Math.max(.35, position(maskEnd) - position(maskStart))}%` }" />
-        <i v-for="point in annotationPoints" :key="point.key_point_id" class="timeline-dock__key-point" :class="{ 'timeline-dock__key-point--terminal': point.is_terminal }" :style="{ left: `${position(point.capture_time_us)}%` }" :title="`${point.marker_kind} · frame ${point.capture_frame_index}`" />
-        <span class="timeline-dock__annotation-label">Rally {{ annotation.snapshot.annotation_status }} · rev {{ annotation.revision }}</span>
-      </template>
-    </div>
-    <span class="timeline-dock__viewport" aria-live="polite">{{ zoom.toFixed(2) }}x · pan {{ pan.toFixed(0) }}</span><button type="button" class="timeline-dock__reset" @click="resetView">Reset view</button>
-    <div v-if="playhead" class="timeline-dock__playhead" :style="{ left: `${position(playhead)}%` }" aria-label="Authoritative playhead" />
-    <div v-if="!timeline" class="timeline-dock__empty">No capture timeline available</div>
-    <div class="timeline-dock__legend"><span><i class="ready" /> ready range</span><span><i class="gap" /> gap / discontinuity</span><span><i class="draft" /> editable draft</span><span><i class="submitted" /> immutable submission</span></div>
+  <section class="timeline-surface" aria-label="Server DVR timeline" @wheel.prevent="wheel">
+    <div class="ruler-row"><span v-for="tick in ticks" :key="tick.value" class="ruler-tick" :style="{ left: `${tick.percentBps / 100}%` }" :title="tick.value">{{ tick.label }}<i /></span></div>
+    <div class="lane-row mask-lane"><span class="lane-label">MASK</span><div class="lane-content" @click="seek"><i v-for="range in timeline?.availableRanges ?? []" :key="`${range.startUs}-${range.endUs}`" class="ready-range" :style="{ left: `${position(range.startUs)}%`, width: `${Math.max(0, position(range.endUs) - position(range.startUs))}%` }" /><i v-for="gap in gaps" :key="`${gap.startUs}-${gap.endUs}`" class="gap-range" :style="{ left: `${position(gap.startUs)}%`, width: `${Math.max(0, position(gap.endUs) - position(gap.startUs))}%` }" /><button v-if="maskStart && maskEnd" type="button" class="timeline-mask" :class="annotation?.snapshot.active_submission_id ? 'submitted' : 'draft'" :style="{ left: `${position(maskStart)}%`, width: `${Math.max(.35, position(maskEnd) - position(maskStart))}%` }">{{ annotation?.snapshot.active_submission_id ? 'SUBMITTED' : 'DRAFT' }}</button></div></div>
+    <div class="lane-row keypoint-lane"><span class="lane-label">KEYPOINTS</span><div class="lane-content" @click="seek"><button v-for="point in annotationPoints" v-show="isVisible(point.capture_time_us)" :key="point.key_point_id" type="button" class="keypoint-dot" :class="{ service: point.marker_kind === 'service', terminal: point.is_terminal, locked: annotation?.snapshot.active_submission_id }" :style="{ left: `${position(point.capture_time_us)}%` }" :title="`${point.marker_kind} · frame ${point.capture_frame_index}`" /></div></div>
+    <div v-if="playhead && isVisible(playhead)" class="playhead" :style="{ left: `calc(78px + (100% - 78px) * ${position(playhead) / 100})` }"><span /></div>
+    <div class="timeline-meta"><span>{{ timeline?.availableRanges.length ?? 0 }} READY RANGES · STREAM BUFFER</span><button type="button" class="zoom-readout" @click="resetView">{{ zoom.toFixed(1) }}× · RESET</button></div>
   </section>
 </template>
 
 <style scoped>
-.timeline-dock{position:relative;border:1px solid #d8d0c5;border-radius:12px;background:#fff;padding:12px;min-height:130px}.timeline-dock__ruler,.timeline-dock__legend{display:flex;justify-content:space-between;font-size:12px;color:#766e65}.timeline-dock__ruler-ticks{position:relative;height:18px}.timeline-dock__ruler-ticks span{position:absolute;font-size:10px;transform:translateX(-50%)}.timeline-dock__lane,.timeline-dock__gap-lane{position:relative;height:16px;margin-top:3px;background:#f0ede8}.timeline-dock__range,.timeline-dock__gap{position:absolute;inset-block:2px;background:#6f9e98;border-radius:4px;cursor:pointer}.timeline-dock__gap{background:#c9c2b8}.timeline-dock__annotation-lane{position:relative;height:24px;margin-top:5px;background:#f7f5f2;font-size:11px;color:#766e65;overflow:hidden}.timeline-dock__rally-mask{position:absolute;top:4px;height:16px;border-radius:4px;opacity:.72}.timeline-dock__rally-mask--draft,.draft{background:#9ca3af}.timeline-dock__rally-mask--submitted,.submitted{background:#16835d}.timeline-dock__key-point{position:absolute;top:6px;width:3px;height:12px;background:#1f2937;z-index:2}.timeline-dock__key-point--terminal{background:#b42318;width:4px}.timeline-dock__annotation-label{position:absolute;right:6px;top:5px;z-index:3;background:#f7f5f2cc;padding-inline:3px}.timeline-dock__playhead{position:absolute;top:34px;height:72px;width:2px;background:#b42318}.timeline-dock__empty{padding:18px 0;color:#766e65}.timeline-dock__legend{margin-top:8px;gap:12px;justify-content:flex-start}.timeline-dock__legend i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:4px}.ready{background:#6f9e98}.gap{background:#c9c2b8}
+.timeline-surface{position:relative;min-height:0;margin:0 12px;overflow:hidden;background:#0c0f12;cursor:ew-resize;touch-action:none;user-select:none;color:#edf1f4}.ruler-row{position:absolute;inset:0 0 auto 78px;height:26px;border-bottom:1px solid #353b42}.ruler-tick{position:absolute;top:4px;transform:translateX(-50%);color:#7f8993;font:.58rem "Cascadia Mono",Consolas,monospace;white-space:nowrap}.ruler-tick:first-child{transform:none}.ruler-tick:last-child{transform:translateX(-100%)}.ruler-tick i{position:absolute;left:50%;top:15px;width:1px;height:7px;background:#56616b}.lane-row{position:absolute;left:0;right:0;height:36px;border-bottom:1px solid #292f35}.mask-lane{top:26px}.keypoint-lane{top:62px;border-bottom:0}.lane-label{position:absolute;inset:0 auto 0 0;width:78px;display:grid;place-items:center start;padding-left:8px;border-right:1px solid #30363d;color:#717b84;font:700 .59rem "Cascadia Mono",Consolas,monospace;pointer-events:none}.lane-content{position:absolute;inset:0 0 0 78px;overflow:hidden}.ready-range,.gap-range{position:absolute;top:0;bottom:0;background:#49d88a0a;pointer-events:none}.gap-range{background:#ff6b721c}.timeline-mask{position:absolute;top:5px;height:25px;min-height:0;padding:0 5px;overflow:hidden;border:1px solid #69737c;border-radius:3px;background:#838e9854;color:#e5eaee;font:700 .6rem "Cascadia Mono",Consolas,monospace;text-align:left;white-space:nowrap}.timeline-mask.submitted{border-color:#338b60;background:#29915c57;color:#b8f2d2}.timeline-mask.draft{pointer-events:none}.keypoint-dot{position:absolute;top:11px;width:13px;height:13px;min-height:0;padding:0;transform:translateX(-50%);border:2px solid #f4f7fa;border-radius:50%;background:#62a9ff}.keypoint-dot.service{background:#f5b84b}.keypoint-dot.terminal{border-radius:2px;transform:translateX(-50%) rotate(45deg)}.keypoint-dot.locked{opacity:.62}.playhead{position:absolute;z-index:5;top:0;bottom:0;width:1px;background:#ff6b72;pointer-events:none}.playhead span{position:absolute;left:50%;top:0;width:9px;height:9px;transform:translateX(-50%);background:#ff6b72;clip-path:polygon(0 0,100% 0,50% 100%)}.timeline-meta{position:absolute;right:4px;bottom:2px;z-index:7;display:flex;align-items:center;gap:7px;color:#717b84;font:.56rem "Cascadia Mono",Consolas,monospace}.zoom-readout{min-height:22px;padding:2px 5px;border:1px solid #43515e;border-radius:4px;background:#171c21;color:#9fc7eb;font:700 .58rem "Cascadia Mono",Consolas,monospace;cursor:pointer}
 </style>
