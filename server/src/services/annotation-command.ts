@@ -74,7 +74,7 @@ function rejected(
           expected_revision: revision.expected,
         }
       : {}),
-    snapshot_refetch_required: code === 'REVISION_CONFLICT',
+    snapshot_refetch_required: code === 'REVISION_CONFLICT' || code === 'CLOSE_RALLY_TARGET_NOT_LAST',
   }
 }
 
@@ -475,15 +475,23 @@ async function acceptContact(database: PrismaClient, room: AnnotationRoom, comma
     const device = await tx.deviceSession.findUnique({ select: { revokedAt: true, userId: true }, where: { id: identity.deviceSessionId } })
     if (!device || device.userId !== identity.userId || device.revokedAt) return persistRejection(tx, command, identity, hash, rejected(command, 'UNAUTHENTICATED', 'Authenticated device session is no longer active'))
     if (!rally || rally.matchId !== room.matchId || rally.annotationStatus !== 'OPEN') return persistRejection(tx, command, identity, hash, rejected(command, 'RALLY_NOT_OPEN', 'Rally is not an open draft'))
+    await setAllocationLock(tx, rally.setId)
     if (command.base_revision !== rally.annotationRevision.toString()) return persistRejection(tx, command, identity, hash, rejected(command, 'REVISION_CONFLICT', 'Rally revision is stale', { actual: rally.annotationRevision.toString(), expected: command.base_revision }))
     if (anchor.capture_session_id !== room.captureSessionId || anchor.playback_window_id !== command.payload.playback_cursor.playback_window_id || anchor.mapping_version !== command.payload.playback_cursor.mapping_version) return persistRejection(tx, command, identity, hash, rejected(command, 'ANNOTATION_NOT_READY', 'Resolved playback state is no longer valid'))
-    const prior = rally.keyPoints[0]
-    const possibleDuplicate = !!prior && prior.captureFrameIndex === BigInt(anchor.capture_frame_index)
+    const allPoints = await tx.keyPoint.findMany({ where: { rallyId: command.rally_id, deletedAt: null }, orderBy: [{ captureTimeUs: 'asc' }, { captureFrameIndex: 'asc' }, { sequenceIndex: 'asc' }] })
+    const captureTime = BigInt(anchor.capture_time_us)
+    const captureFrame = BigInt(anchor.capture_frame_index)
+    const insertion = Math.max(1, allPoints.findIndex((point) => point.sequenceIndex > 0 && (point.captureTimeUs > captureTime || (point.captureTimeUs === captureTime && point.captureFrameIndex > captureFrame))) + 1 || allPoints.length)
+    for (const point of allPoints.filter((point) => point.sequenceIndex >= insertion).sort((a, b) => b.sequenceIndex - a.sequenceIndex)) await tx.keyPoint.update({ data: { sequenceIndex: { increment: 1 } }, where: { id: point.id } })
+    const equals = allPoints.filter((point) => point.captureFrameIndex === captureFrame)
+    const possibleDuplicate = equals.length > 0
+    for (const point of equals) if (!point.possibleDuplicate) await tx.keyPoint.update({ data: { possibleDuplicate: true }, where: { id: point.id } })
     const keyPointId = randomUUID()
-    const sequenceIndex = (await tx.keyPoint.aggregate({ _max: { sequenceIndex: true }, where: { rallyId: command.rally_id } }))._max.sequenceIndex! + 1
+    const sequenceIndex = insertion
     await tx.keyPoint.create({ data: { captureEpochId: anchor.capture_epoch_id, captureFrameIndex: BigInt(anchor.capture_frame_index), captureTimeUs: BigInt(anchor.capture_time_us), createdByUserId: identity.userId, deviceSessionId: identity.deviceSessionId, id: keyPointId, markerKind: 'CONTACT', originalPlaybackCursor: jsonValue(command.payload.playback_cursor), rallyId: command.rally_id, sequenceIndex, snapDistanceUs: anchor.snap_distance_us == null ? null : BigInt(anchor.snap_distance_us), sourcePts: BigInt(anchor.source_pts), timingPrecision: anchor.timing_precision.toUpperCase() as 'FRAME_EXACT' | 'PTS_EXACT' | 'ESTIMATED', updatedByUserId: identity.userId, possibleDuplicate } })
     const revision = rally.annotationRevision + 1n
-    await tx.rally.update({ data: { annotationRevision: revision }, where: { id: rally.id } })
+    const cas = await tx.rally.updateMany({ data: { annotationRevision: revision }, where: { id: rally.id, annotationRevision: rally.annotationRevision, annotationStatus: 'OPEN' } })
+    if (cas.count !== 1) return persistRejection(tx, command, identity, hash, rejected(command, 'REVISION_CONFLICT', 'Rally revision is stale', { actual: rally.annotationRevision.toString(), expected: command.base_revision }))
     const receipt = await tx.annotationCommandReceipt.create({ data: { accepted: true, commandId: command.command_id, deviceSessionId: identity.deviceSessionId, rallyId: command.rally_id, requestHash: hash, requestJson: jsonValue(command), responseJson: {}, roomId: command.room_id, userId: identity.userId } })
     const response = parseAnnotationCommandResponse({ schema_version: '2.0.0', type: 'command_ack', command_id: command.command_id, room_id: command.room_id, rally_id: command.rally_id, operation_kind: command.kind, result_revision: revision.toString(), server_sequence: receipt.serverSequence.toString(), effects: { annotation_status: 'open', created_key_point_id: keyPointId, score_resolution: 'pending', scoring_court_side: null }, resolved_anchor: wireAnchor(anchor) })
     await tx.annotationCommandReceipt.update({ data: { responseJson: jsonValue(response) }, where: { serverSequence: receipt.serverSequence } })
@@ -500,6 +508,7 @@ async function acceptClose(database: PrismaClient, room: AnnotationRoom, command
     const device = await tx.deviceSession.findUnique({ select: { revokedAt: true, userId: true }, where: { id: identity.deviceSessionId } })
     if (!device || device.userId !== identity.userId || device.revokedAt) return persistRejection(tx, command, identity, hash, rejected(command, 'UNAUTHENTICATED', 'Authenticated device session is no longer active'))
     if (!rally || rally.matchId !== room.matchId) return persistRejection(tx, command, identity, hash, rejected(command, 'RALLY_NOT_FOUND', 'Rally was not found'))
+    await setAllocationLock(tx, rally.setId)
     if (rally.annotationStatus !== 'OPEN') return persistRejection(tx, command, identity, hash, rejected(command, 'RALLY_ALREADY_READY', 'Rally is already closed'))
     if (rally.annotationRevision.toString() !== command.base_revision) return persistRejection(tx, command, identity, hash, rejected(command, 'REVISION_CONFLICT', 'Rally revision is stale', { actual: rally.annotationRevision.toString(), expected: command.base_revision }))
     const target = rally.keyPoints[0]
@@ -507,7 +516,8 @@ async function acceptClose(database: PrismaClient, room: AnnotationRoom, command
     const revision = rally.annotationRevision + 1n
     const resolution = command.payload.score_resolution === 'resolved' ? 'RESOLVED' : 'UNKNOWN'
     await tx.keyPoint.update({ data: { isTerminal: true, updatedByUserId: identity.userId }, where: { id: target.id } })
-    await tx.rally.update({ data: { annotationRevision: revision, annotationStatus: 'READY', scoreResolutionState: resolution, scoringCourtSide: command.payload.scoring_court_side === null ? null : command.payload.scoring_court_side.toUpperCase() as 'LEFT' | 'RIGHT' }, where: { id: rally.id } })
+    const cas = await tx.rally.updateMany({ data: { annotationRevision: revision, annotationStatus: 'READY', scoreResolutionState: resolution, scoringCourtSide: command.payload.scoring_court_side === null ? null : command.payload.scoring_court_side.toUpperCase() as 'LEFT' | 'RIGHT' }, where: { id: rally.id, annotationRevision: rally.annotationRevision, annotationStatus: 'OPEN' } })
+    if (cas.count !== 1) return persistRejection(tx, command, identity, hash, rejected(command, 'REVISION_CONFLICT', 'Rally revision is stale', { actual: rally.annotationRevision.toString(), expected: command.base_revision }))
     const receipt = await tx.annotationCommandReceipt.create({ data: { accepted: true, commandId: command.command_id, deviceSessionId: identity.deviceSessionId, rallyId: command.rally_id, requestHash: hash, requestJson: jsonValue(command), responseJson: {}, roomId: command.room_id, userId: identity.userId } })
     const response = parseAnnotationCommandResponse({ schema_version: '2.0.0', type: 'command_ack', command_id: command.command_id, room_id: command.room_id, rally_id: command.rally_id, operation_kind: command.kind, result_revision: revision.toString(), server_sequence: receipt.serverSequence.toString(), effects: { annotation_status: 'ready', terminal_key_point_id: target.id, score_resolution: command.payload.score_resolution, scoring_court_side: command.payload.scoring_court_side }, resolved_anchor: null })
     await tx.annotationCommandReceipt.update({ data: { responseJson: jsonValue(response) }, where: { serverSequence: receipt.serverSequence } })
