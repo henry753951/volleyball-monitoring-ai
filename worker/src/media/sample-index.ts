@@ -42,7 +42,7 @@ function parseInt64(value: string | undefined, field: string): bigint {
   if (value === undefined || !/^-?\d+$/.test(value)) throw new SampleIndexError('INVALID_FRAME', `invalid ${field}`);
   return BigInt(value);
 }
-export function parseTimeBase(value: string | undefined): Rational { if (!value || !/^\d+\/\d+$/.test(value)) throw new SampleIndexError('INVALID_TIME_BASE', 'invalid time base'); const [n, d] = value.split('/').map(BigInt); if (n <= 0n || d <= 0n) throw new SampleIndexError('INVALID_TIME_BASE', 'time base must be positive'); return { num: n, den: d }; }
+export function parseTimeBase(value: string | undefined): Rational { if (!value || !/^\d+\/\d+$/.test(value)) throw new SampleIndexError('INVALID_TIME_BASE', 'invalid time base'); const parts = value.split('/'); const nText = parts[0]; const dText = parts[1]; if (nText === undefined || dText === undefined) throw new SampleIndexError('INVALID_TIME_BASE', 'invalid time base'); const n = BigInt(nText); const d = BigInt(dText); if (n <= 0n || d <= 0n) throw new SampleIndexError('INVALID_TIME_BASE', 'time base must be positive'); return { num: n, den: d }; }
 export function parseFfprobePayload(payload: FfprobePayload): { frames: FfprobeFrame[]; timeBase: Rational } {
   const streams = (payload.streams ?? []).filter(s => s.codec_type === 'video'); if (streams.length !== 1) throw new SampleIndexError('INVALID_FRAME', 'expected exactly one video stream');
   const timeBase = parseTimeBase(streams[0]!.time_base); const frames = [...(payload.frames ?? [])]; if (!frames.length) throw new SampleIndexError('EMPTY_INDEX', 'no frames');
