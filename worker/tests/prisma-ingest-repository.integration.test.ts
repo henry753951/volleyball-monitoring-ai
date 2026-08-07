@@ -299,10 +299,52 @@ describe('Prisma finalized media ingest repository', () => {
     expect(await forbiddenCounts()).toEqual(beforeForbidden)
   })
 
-  it('rejects a program/source time-base mismatch without creating persistence rows', async () => {
+  it('keeps the packaged program profile stable when a source epoch changes time base', async () => {
     const { captureSessionId } = await createSession()
-    const input = reservationInput(captureSessionId, 'time-base-mismatch', {
-      timeBase: { num: 1n, den: 60_000n },
+    const firstInput = reservationInput(captureSessionId, 'time-base-first')
+    const first = await repository.reserveUploading(firstInput)
+    await prepareAndPublish(first)
+
+    const changed = await repository.reserveUploading(reservationInput(
+      captureSessionId,
+      'time-base-change',
+      {
+        sourceOrder: firstInput.sourceOrder + 1n,
+        samples: samples(first.plan.segment.sourcePtsEndExclusive),
+        timeBase: { num: 1n, den: 60_000n },
+      },
+    ))
+
+    expect(changed.createdNewEpoch).toBe(true)
+    expect(changed.plan.epoch.reasons).toContain('TIME_BASE_CHANGE')
+    expect(changed.captureEpochId).not.toBe(first.captureEpochId)
+    expect(changed.plan.segment.captureStartUs).toBe(first.plan.segment.captureEndUs)
+    await prepareAndPublish(changed)
+
+    const [program, firstEpoch, changedEpoch] = await Promise.all([
+      db.dvrProgram.findUniqueOrThrow({ where: { id: first.reference.dvrProgramId } }),
+      db.captureEpoch.findUniqueOrThrow({ where: { id: first.captureEpochId } }),
+      db.captureEpoch.findUniqueOrThrow({ where: { id: changed.captureEpochId } }),
+    ])
+    expect(program).toMatchObject({
+      fpsNum: profile.fpsNum,
+      fpsDen: profile.fpsDen,
+      timeBaseNum: profile.timeBaseNum,
+      timeBaseDen: profile.timeBaseDen,
+      playlistRevision: 2n,
+    })
+    expect(firstEpoch.endedAtCaptureUs).toBe(changed.plan.segment.captureStartUs)
+    expect(changedEpoch).toMatchObject({
+      sourceTimeBaseNum: 1,
+      sourceTimeBaseDen: 60_000,
+      endedAtCaptureUs: null,
+    })
+  })
+
+  it('rejects an invalid source time base without creating persistence rows', async () => {
+    const { captureSessionId } = await createSession()
+    const input = reservationInput(captureSessionId, 'invalid-time-base', {
+      timeBase: { num: 0n, den: 60_000n },
     })
 
     await expect(repository.reserveUploading(input)).rejects.toMatchObject({
