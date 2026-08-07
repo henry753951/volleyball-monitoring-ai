@@ -42,7 +42,7 @@ async function loadMatch() {
 async function handleCursor(cursor: PlaybackCursorInput) {
   cursorStatus.value = cursor.cursor_status
   if (cursor.cursor_status !== 'ready') return
-  try { authoritativeAnchor.value = await dvr.resolve(cursor) }
+  try { await dvr.resolve(cursor) }
   catch (error) { mediaError.value = error instanceof Error ? error.message : '游標解析失敗' }
 }
 
@@ -54,7 +54,7 @@ const timeline = computed(() => selectedCapture.value?.timeline ?? null)
 const liveTarget = computed(() => timeline.value?.liveEdgeCaptureTimeUs ?? timeline.value?.availableRanges.at(-1)?.endUs ?? null)
 
 async function createWindow(target = captureTarget.value || undefined) {
-  busy.value = true; mediaError.value = null
+  mediaError.value = null
   try {
     const session = selectedCapture.value
     if (!session || !target) throw new Error('目前沒有可播放的 capture range')
