@@ -1,5 +1,16 @@
 # Progress
 
+## 2026-08-07 — Phase 6 identity and evidence-bearing analytics
+
+Status: implemented directly on `integration/phase3-annotation`, rebuilt into the local server/Web containers and runtime-probed.
+
+- Added same-match manual `(analysis_run_id, track_id) → roster_entry` correction with ADMIN/OPERATOR/COACH authorization. The AnalysisTrack is unchanged and remains run-local; unbound tracks stay visibly labeled as Track IDs.
+- Added the versioned `coachMatchAnalytics` read model with baseline Rally/outcome, contact/participant, court-position, path-quality, identity-coverage and provider-action availability metrics. Every metric carries samples, excluded/unknown counts, quality breakdown and feature dependencies.
+- Replaced Players/Stats placeholders with real roster evidence, unassigned-track mapping controls, feature availability and a full evidence table. Action metrics are explicitly unavailable rather than fabricated when the provider omits action.
+- Server/Web typecheck, six stored GraphQL operations, production Nuxt build and the UI detector passed. A live GraphQL probe over the d003 smoke returned one unknown-outcome Rally, two contact events with unresolved/no-player quality, one unavailable path, zero identity/action/court-position availability and the exact sample/exclusion envelopes expected from the fake provider.
+
+Open limitations: production SSO/auth provider selection is intentionally not invented by this repository and remains fail-closed outside development. Saved Analysis View editing, real-provider action/court data, per-frame FlatBuffer chunks and restart/backup/retention drills remain deployment hardening work.
+
 ## 2026-08-07 — Phase 5 Coach replay and normalized analysis
 
 Status: implemented directly on `integration/phase3-annotation` and running in the local Compose stack.

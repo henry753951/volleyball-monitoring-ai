@@ -56,6 +56,17 @@ export interface CoachRallyReplay {
   analysis: { id: string; analysis_id: string; version: string; producer: { name: string; build_id: string }; summary: unknown; tracks: Array<{ track_id: number; court_side: string; first_frame_index: string; last_frame_index: string; mean_confidence: number | null }>; contact_events: ReplayContactEvent[]; paths: ReplayPath[] } | null
 }
 
+export interface CoachMetric { value: number; sample_count: number; excluded_count: number; unknown_count: number; quality_breakdown: Record<string, number>; feature_dependencies: string[] }
+export interface CoachMatchAnalytics {
+  schema_version: '1.0.0'
+  match: { id: string; title: string }
+  feature_availability: { identity: boolean; action: boolean; court_positions: boolean }
+  metrics: Record<string, CoachMetric>
+  teams: Array<CoachTeam & { wins: number; losses: number; unknown: number; sample_count: number }>
+  players: Array<{ roster_entry_id: string; team_id: string; jersey_number: string; name: string; contact_count: number; sample_count: number }>
+  unassigned_tracks: Array<{ analysis_run_id: string; track_id: number; rally_id: string; set_number: number; rally_ordinal: number }>
+}
+
 const COACH_MATCH_STATE = `query CoachMatchState($matchId: ID!) { coachMatchState(matchId: $matchId) }`
 
 export function createCoachDomainClient(transport: GraphQLTransport) {
@@ -67,6 +78,13 @@ export function createCoachDomainClient(transport: GraphQLTransport) {
     async rallyReplay(rallyId: string) {
       const result = await transport.request<{ coachRallyReplay: CoachRallyReplay | null }>('query CoachRallyReplay($rallyId: ID!) { coachRallyReplay(rallyId: $rallyId) }', { rallyId })
       return result.coachRallyReplay
+    },
+    async analytics(matchId: string) {
+      const result = await transport.request<{ coachMatchAnalytics: CoachMatchAnalytics | null }>('query CoachMatchAnalytics($matchId: ID!) { coachMatchAnalytics(matchId: $matchId) }', { matchId })
+      return result.coachMatchAnalytics
+    },
+    async assignTrackIdentity(input: { analysisRunId: string; trackId: number; rosterEntryId: string }) {
+      return transport.request<{ assignTrackIdentity: { schema_version: '1.0.0' } }>('mutation AssignTrackIdentity($analysisRunId: ID!, $trackId: Int!, $rosterEntryId: ID!) { assignTrackIdentity(analysisRunId: $analysisRunId, trackId: $trackId, rosterEntryId: $rosterEntryId) }', input)
     },
   }
 }
