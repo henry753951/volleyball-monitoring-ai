@@ -38,9 +38,15 @@ export function createSampleSnapResolver(loader: SampleSnapLoader) {
     }
     const first = segments[0]!
     const last = segments.at(-1)!
+    if (targetUs < first.captureStartUs || targetUs > last.captureEndUs) {
+      throw new Error('sample target is outside selected range')
+    }
+    const resolverTargetUs = targetUs === last.captureEndUs
+      ? targetUs - 1n
+      : targetUs
     const resolved = resolveCanonicalTimeAcrossSegments(
       indexes,
-      targetUs,
+      resolverTargetUs,
       first.captureStartUs,
       last.captureEndUs,
     )

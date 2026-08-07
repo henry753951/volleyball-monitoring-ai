@@ -117,7 +117,28 @@ describe('sample snap resolver', () => {
     }])(input)).rejects.toThrow('order mismatch')
   })
 
-  it('rejects a target at the half-open selected end', async () => {
+  it('snaps a live-edge target to the last sample in the half-open range', async () => {
+    const resolver = createSampleSnapResolver(async () => [{
+      segmentId: 'a',
+      discontinuity: 0,
+      index: {
+        epochId: 'e',
+        timeBase: { num: 1n, den: 1n },
+        samples: [
+          sample(0n, 0n, 0n),
+          sample(10n, 10n, 1n),
+        ],
+        availableStartUs: 0n,
+        availableEndUs: 20n,
+      },
+    }])
+    await expect(resolver({
+      targetUs: 20n,
+      segments: [{ id: 'a', captureStartUs: 0n, captureEndUs: 20n }],
+    })).resolves.toEqual({ captureUs: 10n, playerUs: 10n })
+  })
+
+  it('rejects a target beyond the selected end', async () => {
     const resolver = createSampleSnapResolver(async () => [{
       segmentId: 'a',
       discontinuity: 0,
@@ -130,8 +151,8 @@ describe('sample snap resolver', () => {
       },
     }])
     await expect(resolver({
-      targetUs: 10n,
+      targetUs: 11n,
       segments: [{ id: 'a', captureStartUs: 0n, captureEndUs: 10n }],
-    })).rejects.toThrow('outside ready contiguous range')
+    })).rejects.toThrow('outside selected range')
   })
 })
