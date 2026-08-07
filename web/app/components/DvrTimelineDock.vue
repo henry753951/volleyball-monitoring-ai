@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { computed, ref } from 'vue'
 import type { CaptureTimeline } from '~/lib/coreDomain'
 import { timelineBounds, capturePercentBps, rulerTicks, pointerTarget, readyAt, gapRanges } from '~/lib/dvrTimeline'
 const props = defineProps<{ timeline: CaptureTimeline | null; playhead: string | null }>()
