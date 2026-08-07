@@ -18,6 +18,7 @@ import {
 } from '../domain/annotation/room.js'
 import type { CursorMediaIdentity } from '../media/cursor-resolution.js'
 import { MediaHttpError } from '../media/playback-domain.js'
+import { submitRally } from '../domain/annotation/submission.js'
 
 const SERIALIZABLE_RETRIES = 3
 
@@ -568,6 +569,15 @@ export function createAnnotationCommandService(
       const prior = await replay(deps.database, command, hash)
       if (prior) return prior
       await deps.beforeTransaction?.(command)
+      if (command.kind === 'SUBMIT_RALLY') {
+        return serializable(deps.database, async (tx) => {
+          await commandLock(tx, command.command_id)
+          const existing = await replay(tx, command, hash)
+          if (existing) return existing
+          await rallyLock(tx, command.rally_id)
+          return submitRally(tx, room, command, identity, hash)
+        })
+      }
       if (command.kind === 'CREATE_CONTACT_KEY_POINT') {
         if (command.base_revision === '0') return storeRejection(deps.database, command, identity, hash, rejected(command, 'REVISION_CONFLICT', 'Contact command cannot start at revision zero', { actual: '1', expected: '0' }))
         let anchor: ResolvedMediaAnchor
