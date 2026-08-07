@@ -1,5 +1,18 @@
 # Progress
 
+## 2026-08-07 — Phase 4 canonical clip and external AI vertical slice
+
+Status: implemented directly on `integration/phase3-annotation`; the Phase 4 runtime exit has passed locally against real persisted d003 DVR media and the development fake provider.
+
+- Replaced the clip-worker and AI-dispatcher TODOs with cancellable durable PostgreSQL polling runtimes. Claims use `FOR UPDATE SKIP LOCKED`, bounded leases, attempt limits and sanitized retry state; immutable submission IDs remain the sole processing anchor.
+- The clip worker verifies MinIO source metadata/bytes, clamps pre/post roll to the service anchor's contiguous DVR discontinuity, transcodes a canonical H.264/AAC MP4, probes authoritative video metadata, stores a timing manifest and persists submission-key-point-to-clip PTS/time/frame mappings.
+- The dispatcher verifies provider capabilities, creates an independent short-lived MinIO download URL, derives a job-scoped callback token whose plaintext is not persisted, sends Job `1.1.0` with an idempotency key and records only a redacted request audit copy plus the exact request hash.
+- Added authenticated REST JSON/multipart callback ingest with schema, passthrough, checksum, size and `VOV1` validation; completed results create raw analysis/overlay assets, one idempotent receipt and one activated AnalysisRun before moving the Rally to COMPLETED.
+- Repaired the SDK provider adapter's deferred-annotation/FastAPI `BackgroundTasks` injection bug. The fake provider now returns deterministic contract-valid unresolved/no-player output for every immutable key point and does not fabricate AI tracks, action/confidence or `court_pos`.
+- Real runtime evidence: the d003 smoke ClipJob completed in one attempt with actual capture bounds `0..2000333` µs; its AiJob was accepted and completed in one attempt; the server returned callback HTTP 200 and persisted one COMPLETED AnalysisRun plus one COMPLETED callback receipt. Server/fake-provider health remained green and both workers remained running.
+
+Open limitations: detailed AnalysisTrack/ContactEvent/Path normalization, overlay chunk/manifest serving, authenticated Coach replay media and Canvas/court views remain Phase 5. Production secret-manager resolution and production cookie/device identity remain Phase 7 hardening.
+
 ## 2026-08-07 — Phase 3 workstation, Coach read model and Phase 2A soak exit
 
 Status: direct single-branch implementation continues on `integration/phase3-annotation` after checkpoint merge `2480dfa` reached `main`; feature work no longer waits on subagent or per-slice PR overhead.

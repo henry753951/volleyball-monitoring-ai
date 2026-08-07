@@ -14,6 +14,7 @@ import { createMinioObjectReaderFromEnv } from './media/minio-object-reader.js'
 import { createSampleIndexRepository } from './media/sample-index-repository.js'
 import { createPersistedSampleSnapResolver } from './media/sample-snap-resolver.js'
 import { mediaPlaybackRoutes } from './routes/media-playback.js'
+import { aiCallbackRoutes } from './routes/ai-callback.js'
 import { annotationWebSocketRoutes } from './realtime/annotation-ws.js'
 import { authenticateDevelopmentAnnotationRequest } from './realtime/auth.js'
 import { createAnnotationCommandService } from './services/annotation-command.js'
@@ -71,6 +72,7 @@ await app.register(cors, {
   credentials: true,
 })
 await app.register(websocket)
+await app.register(aiCallbackRoutes)
 await app.register(mediaPlaybackRoutes({
   objectReader: mediaObjectReader,
   resolveSample: createPersistedSampleSnapResolver(db, mediaObjectReader),

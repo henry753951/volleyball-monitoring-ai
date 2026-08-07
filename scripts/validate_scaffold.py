@@ -120,13 +120,14 @@ assert 'full-session' in spec.lower() or '完整 DVR' in spec
 assert (ROOT / 'docs/SYSTEM_SPEC_V3_2.md').read_bytes() == (ROOT / 'docs/MASTER_IMPLEMENTATION_SPEC.md').read_bytes()
 
 annotation_page = (ROOT / 'web/app/pages/annotate/[matchId].vue').read_text(encoding='utf-8')
+annotation_room = (ROOT / 'web/app/composables/useAnnotationRoom.ts').read_text(encoding='utf-8')
 hotkey_registry = (ROOT / 'web/app/utils/annotationHotkeys.ts').read_text(encoding='utf-8')
 for action in ['service', 'contact', 'close_left', 'close_right', 'close_unknown', 'submit']:
     assert action in hotkey_registry, f'annotation registry missing: {action}'
 for binding in ["service: 'Z'", "contact: 'Space'", "close_left: '<'", "close_right: '>'", "close_unknown: '?'", "submit: 'Enter'"]:
     assert binding in hotkey_registry, f'annotation default missing: {binding}'
 assert "'terminal'" not in annotation_page
-assert 'CLOSE_RALLY' in annotation_page
+assert 'CLOSE_RALLY' in annotation_room
 
 active_annotation_sources = [
     ROOT / 'AGENTS.md',
@@ -136,6 +137,7 @@ active_annotation_sources = [
     ROOT / 'packages/contracts/README.md',
     ROOT / 'server/src/realtime/README.md',
     ROOT / 'web/app/pages/annotate/[matchId].vue',
+    ROOT / 'web/app/composables/useAnnotationRoom.ts',
     ROOT / 'web/app/utils/annotationHotkeys.ts',
 ]
 for path in active_annotation_sources:

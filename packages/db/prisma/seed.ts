@@ -3,7 +3,7 @@ import { PrismaClient } from '../generated/client/client.js'
 
 const connectionString = process.env.DATABASE_URL ?? 'postgresql://volleyball:volleyball@127.0.0.1:5433/volleyball?schema=public'
 const db = new PrismaClient({ adapter: new PrismaPg({ connectionString }) })
-const ids = { user: '00000000-0000-4000-8000-000000000001', match: '00000000-0000-4000-8000-000000000010', leftTeam: '00000000-0000-4000-8000-000000000011', rightTeam: '00000000-0000-4000-8000-000000000012', leftPlayer: '00000000-0000-4000-8000-000000000021', rightPlayer: '00000000-0000-4000-8000-000000000022', set: '00000000-0000-4000-8000-000000000030', assignment: '00000000-0000-4000-8000-000000000031', leftRoster: '00000000-0000-4000-8000-000000000041', rightRoster: '00000000-0000-4000-8000-000000000042' }
+const ids = { user: '00000000-0000-4000-8000-000000000001', match: '00000000-0000-4000-8000-000000000010', leftTeam: '00000000-0000-4000-8000-000000000011', rightTeam: '00000000-0000-4000-8000-000000000012', leftPlayer: '00000000-0000-4000-8000-000000000021', rightPlayer: '00000000-0000-4000-8000-000000000022', set: '00000000-0000-4000-8000-000000000030', assignment: '00000000-0000-4000-8000-000000000031', leftRoster: '00000000-0000-4000-8000-000000000041', rightRoster: '00000000-0000-4000-8000-000000000042', aiIntegration: '00000000-0000-4000-8000-000000000050' }
 
 await db.$transaction(async (tx) => {
   await tx.user.upsert({ where: { email: 'dev.operator@volleyball.local' }, update: { displayName: 'Dev Operator' }, create: { id: ids.user, email: 'dev.operator@volleyball.local', displayName: 'Dev Operator' } })
@@ -19,6 +19,7 @@ await db.$transaction(async (tx) => {
   await tx.courtSideAssignment.upsert({ where: { id: ids.assignment }, update: {}, create: { id: ids.assignment, setId: ids.set, effectiveFromRallyOrdinal: 1, leftTeamId: ids.leftTeam, rightTeamId: ids.rightTeam } })
   await tx.matchRosterEntry.upsert({ where: { id: ids.leftRoster }, update: {}, create: { id: ids.leftRoster, matchId: ids.match, teamId: ids.leftTeam, playerId: ids.leftPlayer, jerseyNumber: '1', displayNameSnapshot: 'Left Player' } })
   await tx.matchRosterEntry.upsert({ where: { id: ids.rightRoster }, update: {}, create: { id: ids.rightRoster, matchId: ids.match, teamId: ids.rightTeam, playerId: ids.rightPlayer, jerseyNumber: '1', displayNameSnapshot: 'Right Player' } })
+  await tx.aiIntegration.upsert({ where: { name: 'development-fake-ai' }, update: { capabilitiesUrl: process.env.AI_PROVIDER_CAPABILITIES_URL ?? 'http://fake-ai-provider:8080/v1/capabilities', submitUrl: process.env.AI_PROVIDER_SUBMIT_URL ?? 'http://fake-ai-provider:8080/v1/jobs', enabled: true }, create: { id: ids.aiIntegration, name: 'development-fake-ai', capabilitiesUrl: process.env.AI_PROVIDER_CAPABILITIES_URL ?? 'http://fake-ai-provider:8080/v1/capabilities', submitUrl: process.env.AI_PROVIDER_SUBMIT_URL ?? 'http://fake-ai-provider:8080/v1/jobs', authSecretRef: 'env:AI_PROVIDER_BEARER_TOKEN', enabled: true, jobSchemaVersion: '1.1.0', resultSchemaVersion: '1.0.0', overlayFormat: 'flatbuffers_v1' } })
 })
 await db.$disconnect()
 console.log('Development seed applied')
