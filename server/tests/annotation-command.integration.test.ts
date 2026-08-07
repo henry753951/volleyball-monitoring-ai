@@ -2,7 +2,7 @@ import { execFile } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { resolve } from 'node:path'
 import { promisify } from 'node:util'
-import { parseAnnotationCommand, type CreateServiceKeyPointCommand, type ResolvedMediaAnchor } from '@volleyball-monitoring/contracts'
+import { parseAnnotationCommand, parseAnnotationCommandResponse, type AnnotationCommand, type CreateServiceKeyPointCommand, type ResolvedMediaAnchor } from '@volleyball-monitoring/contracts'
 import type { db as DatabaseClient } from '@volleyball-monitoring/db'
 import { UserRole } from '@volleyball-monitoring/db/client'
 import { Pool } from 'pg'
@@ -102,7 +102,9 @@ function contactCommand(commandId: string, rallyId: string, baseRevision = '1') 
 }
 
 function closeCommand(commandId: string, rallyId: string, targetKeyPointId: string, baseRevision: string, outcome: 'left' | 'right' | 'unknown' = 'unknown') {
-  return { ...serviceCommand(commandId, rallyId), base_revision: baseRevision, kind: 'CLOSE_RALLY' as const, payload: { target_key_point_id: targetKeyPointId, score_resolution: outcome === 'unknown' ? 'unknown' as const : 'resolved' as const, scoring_court_side: outcome === 'unknown' ? null : outcome } }
+  return (outcome === 'unknown'
+    ? { ...serviceCommand(commandId, rallyId), base_revision: baseRevision, kind: 'CLOSE_RALLY' as const, payload: { target_key_point_id: targetKeyPointId, score_resolution: 'unknown' as const, scoring_court_side: null } }
+    : { ...serviceCommand(commandId, rallyId), base_revision: baseRevision, kind: 'CLOSE_RALLY' as const, payload: { target_key_point_id: targetKeyPointId, score_resolution: 'resolved' as const, scoring_court_side: outcome } }) as AnnotationCommand
 }
 
 beforeAll(async () => {
@@ -460,7 +462,9 @@ describe('durable service annotation command', () => {
     const command = contactCommand(randomUUID(), rallyId)
     const first = await service.apply(command, identity)
     expect(first).toMatchObject({ type: 'command_ack', operation_kind: 'CREATE_CONTACT_KEY_POINT', result_revision: '2' })
-    expect(await service.apply(structuredClone(command), identity)).toEqual(first)
+    const replay = await service.apply(structuredClone(command), identity)
+    const stored = await db.annotationCommandReceipt.findUniqueOrThrow({ where: { commandId: command.command_id } })
+    expect(JSON.stringify(replay)).toBe(JSON.stringify(parseAnnotationCommandResponse(stored.responseJson)))
     const mismatch = structuredClone(command); mismatch.payload.playback_cursor.player_media_time_us = '9999'
     expect(await service.apply(mismatch, identity)).toMatchObject({ type: 'command_rejected', code: 'COMMAND_ID_REUSED' })
     expect(await db.keyPoint.count({ where: { rallyId } })).toBe(2)
@@ -471,7 +475,7 @@ describe('durable service annotation command', () => {
     const first = await service.apply(contactCommand(randomUUID(), rallyId), identity)
     const second = await service.apply(contactCommand(randomUUID(), rallyId, '2'), identity)
     expect(first.type).toBe('command_ack'); expect(second.type).toBe('command_ack')
-    await expect(db.keyPoint.findMany({ where: { rallyId }, select: { possibleDuplicate: true } })).resolves.toEqual([{ possibleDuplicate: true }, { possibleDuplicate: true }, { possibleDuplicate: true }])
+    await expect(db.keyPoint.findMany({ where: { rallyId }, orderBy: { sequenceIndex: 'asc' }, select: { markerKind: true, possibleDuplicate: true } })).resolves.toEqual([{ markerKind: 'SERVICE', possibleDuplicate: false }, { markerKind: 'CONTACT', possibleDuplicate: true }, { markerKind: 'CONTACT', possibleDuplicate: true }])
     const invalid = createAnnotationCommandService({ database: db, resolveCursor: async () => ({ ...anchor, playback_window_id: randomUUID() }) })
     await expect(invalid.apply(contactCommand(randomUUID(), rallyId, '3'), identity)).resolves.toMatchObject({ type: 'command_rejected', code: 'ANNOTATION_NOT_READY' })
   })
@@ -480,11 +484,13 @@ describe('durable service annotation command', () => {
     const rallyId = randomUUID(); await service.apply(serviceCommand(randomUUID(), rallyId), identity)
     const before = await db.keyPoint.findMany({ where: { rallyId }, select: { id: true, captureTimeUs: true, captureFrameIndex: true } })
     const target = before[0]!.id
-    const response = await service.apply(closeCommand(randomUUID(), rallyId, target, '1', outcome), identity)
+    const closeCommandValue = closeCommand(randomUUID(), rallyId, target, '1', outcome)
+    const response = await service.apply(closeCommandValue, identity)
     expect(response).toMatchObject({ type: 'command_ack', operation_kind: 'CLOSE_RALLY', resolved_anchor: null, effects: { annotation_status: 'ready', score_resolution: outcome === 'unknown' ? 'unknown' : 'resolved', scoring_court_side: outcome === 'unknown' ? null : outcome } })
     const after = await db.keyPoint.findMany({ where: { rallyId }, select: { id: true, captureTimeUs: true, captureFrameIndex: true } })
     expect(after).toEqual(before); await expect(db.rallySubmission.count({ where: { rallyId } })).resolves.toBe(0); await expect(db.pointAward.count()).resolves.toBe(0)
-    expect(JSON.stringify(await service.apply(closeCommand(randomUUID(), rallyId, target, '1', outcome), identity))).not.toBe(JSON.stringify(response))
+    const replay = await service.apply(structuredClone(closeCommandValue), identity)
+    expect(JSON.stringify(replay)).toBe(JSON.stringify(parseAnnotationCommandResponse((await db.annotationCommandReceipt.findUniqueOrThrow({ where: { commandId: closeCommandValue.command_id } })).responseJson)))
   })
 
   it('rejects non-last, deleted and stale close targets with snapshot refetch', async () => {
