@@ -1,6 +1,7 @@
 import type { PlaybackCursorInput, PlaybackWindowDescriptor, ResolvedMediaAnchor, CanonicalFrameAnchor } from '../lib/mediaModel'
 import type { MediaClient } from '../lib/mediaClient'
 import { MediaApiError } from '../lib/mediaModel'
+import { shallowRef, reactive, ref, readonly, onBeforeUnmount } from 'vue'
 
 export type WindowStatus = 'idle' | 'loading' | 'ready' | 'recovering' | 'gap' | 'error'
 export function frameRecovery(code: string) {
@@ -25,7 +26,7 @@ export function useAuthoritativeDvrWindow(client: MediaClient) {
     catch (cause) { if (!valid(id)) return null; current.value = previous; status.value = 'error'; error.value = cause instanceof Error ? cause : new Error('Window request failed'); throw cause }
     finally { if (valid(id)) busy.value = false }
   }
-  async function resolve(cursor: PlaybackCursorInput) { const id = begin(); try { const value = await client.resolveCursor(cursor); if (valid(id)) anchor.value = value; return value } finally { if (valid(id)) { busy.value = false; status.value = 'ready' } } }
+  async function resolve(cursor: PlaybackCursorInput) { const id = begin(); try { const value = await client.resolveCursor(cursor); if (valid(id)) anchor.value = value; if (valid(id)) { busy.value = false; status.value = 'ready' } return value } catch (cause) { if (valid(id)) { busy.value = false; status.value = 'error'; error.value = cause instanceof Error ? cause : new Error('Cursor resolution failed') } throw cause } }
   async function step(direction: 'previous' | 'next', inputFactory: (target: string) => Parameters<MediaClient['createPlaybackWindow']>[0]) {
     if (!current.value || !anchor.value) return null
     let attempt = 0
