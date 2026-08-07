@@ -78,7 +78,7 @@ function dispatchMediaAction(action: PlayerAction) {
 async function frameStep(direction: 'previous' | 'next') {
   if (!authoritativeAnchor.value || !descriptor.value) return
   try {
-    const anchor = await dvr.step(direction, target => ({ schema_version: '1.0.0', capture_session_id: descriptor.value!.capture_session_id, mode: 'archive', target_capture_time_us: target }))
+    const anchor = await dvr.step(direction, target => ({ schema_version: '1.0.0', capture_session_id: descriptor.value!.capture_session_id, mode: descriptor.value!.mode, target_capture_time_us: target }))
     if (!anchor) return
     const localUs = BigInt(anchor.player_media_time_us)
     if (localUs < 0n || localUs > 86_400_000_000n) throw new RangeError('frame-step returned an unbounded player time')
