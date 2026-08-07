@@ -16,6 +16,7 @@ import { CaptureStatus, SourceHealth } from '@volleyball-monitoring/db/client'
 import type { AuthenticatedUser } from './context.js'
 import { builder } from './builder.js'
 import { domainError } from './errors.js'
+import { listCaptureSessionsForMatch } from '../services/media-timeline.js'
 
 interface Health {
   service: string
@@ -160,7 +161,7 @@ export const CaptureSessionType = builder.objectRef<CaptureSessionView>('Capture
 MatchType.implement({
   fields: (t) => ({
     id: t.exposeID('id'),
-    captureSessions: t.field({ type: [CaptureSessionType], resolve: (match) => import('../services/media-timeline.js').then(({ listCaptureSessionsForMatch }) => listCaptureSessionsForMatch(match.id)) }),
+    captureSessions: t.field({ type: [CaptureSessionType], resolve: (match) => listCaptureSessionsForMatch(match.id) }),
     rosterEntries: t.field({
       type: [MatchRosterEntryType],
       resolve: (match) => db.matchRosterEntry.findMany({

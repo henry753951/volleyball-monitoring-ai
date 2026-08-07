@@ -22,14 +22,7 @@ builder.queryType({
         const identity = requireIdentity(context)
         const session = await getVisibleCaptureSession(args.id, identity.id, identity.role)
         if (!session) return null
-        const program = await db.dvrProgram.findFirst({ where: { captureSessionId: session.id }, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }] })
-        let timeline = null
-        if (program) {
-        const segments = await db.dvrSegment.findMany({ where: { dvrProgramId: program.id, isGap: false, readyAt: { not: null }, initAsset: { state: 'READY', internalSchemaVersion: { not: null } }, mediaAsset: { state: 'READY', internalSchemaVersion: { not: null } }, sampleIndexAsset: { state: 'READY', internalSchemaVersion: { not: null } } }, orderBy: [{ captureStartUs: 'asc' }, { sequenceNumber: 'asc' }] })
-          const ranges: { startUs: bigint; endUs: bigint; discontinuity: number }[] = []
-          for (const segment of segments) { const previous = ranges[ranges.length - 1]; if (previous !== undefined && previous.discontinuity === segment.discontinuitySequence && previous.endUs >= segment.captureStartUs) previous.endUs = previous.endUs > segment.captureEndUs ? previous.endUs : segment.captureEndUs; else ranges.push({ startUs: segment.captureStartUs, endUs: segment.captureEndUs, discontinuity: segment.discontinuitySequence }) }
-          if (ranges.length) timeline = { captureSessionId: session.id, timelineVersion: program.playlistRevision, captureStartTimeUs: ranges[0]!.startUs, liveEdgeCaptureTimeUs: ranges[ranges.length - 1]!.endUs, availableRanges: ranges }
-        }
+        const timeline = await loadCaptureTimeline(session.id)
         return { id: session.id, matchId: session.matchId, sourceLabel: session.sourceLabel, status: session.status, health: session.health, startedAt: session.startedAt, endedAt: session.endedAt, timeline }
       },
     }),

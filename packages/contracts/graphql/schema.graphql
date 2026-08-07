@@ -1,6 +1,39 @@
 """Signed 64-bit integer serialized as a decimal string."""
 scalar BigInt
 
+type CaptureSession {
+  endedAt: DateTime
+  health: SourceHealth!
+  id: ID!
+  matchId: ID!
+  sourceLabel: String
+  startedAt: DateTime
+  status: CaptureStatus!
+  timeline: CaptureTimeline
+}
+
+enum CaptureStatus {
+  FAILED
+  FINISHED
+  LIVE
+  STARTING
+  STOPPING
+}
+
+type CaptureTimeline {
+  availableRanges: [CaptureTimelineRange!]!
+  captureSessionId: ID!
+  captureStartTimeUs: BigInt!
+  liveEdgeCaptureTimeUs: BigInt
+  timelineVersion: BigInt!
+}
+
+type CaptureTimelineRange {
+  discontinuity: Int!
+  endUs: BigInt!
+  startUs: BigInt!
+}
+
 type CourtSideAssignment {
   effectiveFromRallyOrdinal: Int!
   effectiveToRallyOrdinal: Int
@@ -27,6 +60,7 @@ type Health {
 scalar JSON
 
 type Match {
+  captureSessions: [CaptureSession!]!
   id: ID!
   rosterEntries: [MatchRosterEntry!]!
   scheduledAt: DateTime
@@ -72,6 +106,7 @@ type Player {
 }
 
 type Query {
+  captureSession(id: ID!): CaptureSession
   health: Health!
   match(id: ID!): Match
   matches: [Match!]!
@@ -87,6 +122,13 @@ enum SetStatus {
   FINISHED
   LIVE
   PLANNED
+}
+
+enum SourceHealth {
+  DEGRADED
+  HEALTHY
+  OFFLINE
+  STARTING
 }
 
 input SwapCourtSidesInput {
