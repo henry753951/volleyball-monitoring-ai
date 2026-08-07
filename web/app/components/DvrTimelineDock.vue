@@ -20,7 +20,7 @@ function seek(event: MouseEvent) { if (!bounds.value || !props.timeline) return;
     <div class="timeline-dock__lane" role="slider" tabindex="0" @click="seek"><div v-for="range in timeline?.availableRanges ?? []" :key="`${range.startUs}-${range.endUs}`" class="timeline-dock__range" :style="{ left: `${position(range.startUs)}%`, width: `${Math.max(1, position(range.endUs) - position(range.startUs))}%` }" /></div>
     <div class="timeline-dock__gap-lane" aria-label="Gaps and discontinuities"><div v-for="gap in gaps" :key="`${gap.startUs}-${gap.endUs}`" class="timeline-dock__gap" :style="{ left: `${position(gap.startUs)}%`, width: `${Math.max(1, position(gap.endUs) - position(gap.startUs))}%` }" /></div>
     <div class="timeline-dock__annotation-lane">Annotation lane · no server draft/submission data</div>
-    <button type="button" class="timeline-dock__reset" @click="resetView">Reset view</button>
+    <span class="timeline-dock__viewport" aria-live="polite">{{ zoom.toFixed(2) }}x · pan {{ pan.toFixed(0) }}</span><button type="button" class="timeline-dock__reset" @click="resetView">Reset view</button>
     <div v-if="playhead" class="timeline-dock__playhead" :style="{ left: `${position(playhead)}%` }" aria-label="Authoritative playhead" />
     <div v-if="!timeline" class="timeline-dock__empty">No capture timeline available</div>
     <div class="timeline-dock__legend"><span><i class="ready" /> ready range</span><span><i class="gap" /> gap / discontinuity</span><span>Annotation lane reserved for Phase 3</span></div>
