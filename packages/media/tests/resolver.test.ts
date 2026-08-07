@@ -87,12 +87,19 @@ function oneSampleIndex(options: {
   )
 }
 
-function expectResolverCode(action: () => unknown, code: ResolverError['code']) {
+function expectResolverCode(
+  action: () => unknown,
+  code: ResolverError['code'],
+  message?: string,
+) {
   try {
     action()
   } catch (error) {
     expect(error).toBeInstanceOf(ResolverError)
     expect((error as ResolverError).code).toBe(code)
+    if (message !== undefined) {
+      expect((error as ResolverError).message).toBe(message)
+    }
     return
   }
   throw new Error(`expected ResolverError ${code}`)
@@ -344,9 +351,13 @@ describe('canonical frame step', () => {
     )
   })
 
-  it.each(['gap', 'discontinuity', 'epoch'] as const)(
+  it.each([
+    ['gap', 'no adjacent sample across canonical gap'],
+    ['discontinuity', 'no adjacent sample across discontinuity'],
+    ['epoch', 'no adjacent sample across capture epoch'],
+  ] as const)(
     'returns SAMPLE_NOT_FOUND instead of crossing a %s boundary',
-    (boundary) => {
+    (boundary, message) => {
       const segments = twoTouchingSegments()
       const current = segments[0].index.samples.at(-1)!
       if (boundary === 'gap') {
@@ -381,6 +392,7 @@ describe('canonical frame step', () => {
             segments[1].index.availableEndUs,
           ),
         'SAMPLE_NOT_FOUND',
+        message,
       )
     },
   )

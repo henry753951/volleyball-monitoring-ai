@@ -126,13 +126,17 @@ function validateSegments(
     if (currentDiscontinuity !== discontinuity) {
       boundaryFailure(
         unavailableBoundaryCode,
-        'indexed segments cross a discontinuity',
+        unavailableBoundaryCode === 'SAMPLE_NOT_FOUND'
+          ? 'no adjacent sample across discontinuity'
+          : 'indexed segments cross a discontinuity',
       )
     }
     if (segment.index.epochId !== first.index.epochId) {
       boundaryFailure(
         unavailableBoundaryCode,
-        'indexed segments cross a capture epoch',
+        unavailableBoundaryCode === 'SAMPLE_NOT_FOUND'
+          ? 'no adjacent sample across capture epoch'
+          : 'indexed segments cross a capture epoch',
       )
     }
     if (
@@ -153,7 +157,9 @@ function validateSegments(
       ) {
         boundaryFailure(
           unavailableBoundaryCode,
-          'indexed segments contain a canonical gap',
+          unavailableBoundaryCode === 'SAMPLE_NOT_FOUND'
+            ? 'no adjacent sample across canonical gap'
+            : 'indexed segments contain a canonical gap',
         )
       }
     }
