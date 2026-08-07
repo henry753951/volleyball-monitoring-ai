@@ -7,11 +7,13 @@ import Redis from 'ioredis'
 import { createGraphQLContext } from './graphql/context.js'
 import { schema } from './graphql/schema.js'
 import { evaluateReadiness, type ReadinessProbe } from './health/readiness.js'
+import { createMinioObjectReaderFromEnv } from './media/minio-object-reader.js'
 import { mediaPlaybackRoutes } from './routes/media-playback.js'
 
 const app = Fastify({ logger: true })
 const redisUrl = process.env.REDIS_URL
 const minioEndpoint = process.env.MINIO_ENDPOINT?.replace(/\/+$/, '')
+const mediaObjectReader = createMinioObjectReaderFromEnv()
 const redis = redisUrl
   ? new Redis(redisUrl, { lazyConnect: true, connectTimeout: 1_000, maxRetriesPerRequest: 1 })
   : null
@@ -47,7 +49,11 @@ await app.register(cors, {
   credentials: true,
 })
 await app.register(websocket)
-await app.register(mediaPlaybackRoutes())
+await app.register(mediaPlaybackRoutes({
+  ...(mediaObjectReader === undefined
+    ? {}
+    : { objectReader: mediaObjectReader }),
+}))
 
 const yoga = createYoga<{ req: FastifyRequest; reply: FastifyReply }>({
   schema,

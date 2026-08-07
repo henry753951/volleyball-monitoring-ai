@@ -1,4 +1,4 @@
-import { createHash, randomUUID } from 'node:crypto'
+import { randomUUID } from 'node:crypto'
 import {
   parsePlaybackWindowRequest,
   type PlaybackWindowRequest,
@@ -23,6 +23,8 @@ import {
   validSha256,
   type PlaybackSegmentCandidate,
   type PlaybackWindowLimits,
+  type MediaAssetKind,
+  type MediaObjectReader,
   type SampleSnapResult,
 } from '../media/playback-domain.js'
 
@@ -42,11 +44,6 @@ export interface MediaIdentity {
   role: UserRole
 }
 
-export interface MediaObjectLocation {
-  bucket: string
-  key: string
-}
-
 export interface MediaPlaybackDeps {
   now?: () => Date
   windowTtlMs?: number
@@ -60,10 +57,13 @@ export interface MediaPlaybackDeps {
       id: string
       captureStartUs: bigint
       captureEndUs: bigint
-      sampleIndexLocation: MediaObjectLocation
+      sampleIndexLocation: {
+        bucket: string
+        key: string
+      }
     }[]
   }) => Promise<SampleSnapResult>
-  objectReader?: (location: MediaObjectLocation) => Promise<Uint8Array>
+  objectReader?: MediaObjectReader
 }
 
 interface WindowParams {
@@ -160,18 +160,22 @@ interface MediaAssetMetadata {
   readyAt: Date | null
 }
 
-type ReadyMediaAssetMetadata = MediaAssetMetadata & {
+type ReadyMediaAssetMetadata<Kind extends MediaAssetKind> = Omit<
+  MediaAssetMetadata,
+  'byteLength' | 'internalSchemaVersion' | 'kind' | 'readyAt' | 'sha256'
+> & {
   byteLength: bigint
   sha256: string
   internalSchemaVersion: typeof MEDIA_INTERNAL_SCHEMA_VERSION
+  kind: Kind
   readyAt: Date
 }
 
-function assetMetadataReady(
+function assetMetadataReady<Kind extends MediaAssetKind>(
   asset: MediaAssetMetadata | null,
   expectedContentType: string,
-  expectedKind: 'DVR_INIT' | 'DVR_SEGMENT' | 'SAMPLE_INDEX',
-): asset is ReadyMediaAssetMetadata {
+  expectedKind: Kind,
+): asset is ReadyMediaAssetMetadata<Kind> {
   return asset !== null
     && asset.state === 'READY'
     && asset.readyAt !== null
@@ -588,24 +592,21 @@ export const mediaPlaybackRoutes = (
         if (!deps.objectReader) {
           throw new MediaHttpError(409, 'MEDIA_NOT_READY', 'Media object reader unavailable')
         }
-        let bytes: Buffer
+        let bytes: Uint8Array
         try {
-          bytes = Buffer.from(await deps.objectReader({
+          bytes = await deps.objectReader({
             bucket: asset.bucket,
+            expectedByteLength: asset.byteLength,
+            expectedContentType: asset.contentType,
+            expectedInternalSchemaVersion: asset.internalSchemaVersion,
+            expectedKind: asset.kind,
+            expectedSha256: asset.sha256,
             key: asset.objectKey,
-          }))
+          })
         } catch {
           throw new MediaHttpError(409, 'MEDIA_NOT_READY', 'Media object is unavailable')
         }
-        if (
-          asset.byteLength === null
-          || BigInt(bytes.byteLength) !== asset.byteLength
-          || !validSha256(asset.sha256)
-          || createHash('sha256').update(bytes).digest('hex') !== asset.sha256.toLowerCase()
-        ) {
-          throw new MediaHttpError(409, 'MEDIA_NOT_READY', 'Media object verification failed')
-        }
-        return reply.type('video/mp4').send(bytes)
+        return reply.type(asset.contentType).send(Buffer.from(bytes))
       } catch (error) {
         return sendMediaError(request, reply, error)
       }

@@ -50,6 +50,22 @@ export interface SampleSnapResult {
   playerUs: bigint
 }
 
+export type MediaAssetKind = 'DVR_INIT' | 'DVR_SEGMENT' | 'SAMPLE_INDEX'
+
+export interface MediaObjectReadRequest {
+  bucket: string
+  key: string
+  expectedByteLength: bigint
+  expectedSha256: string
+  expectedContentType: string
+  expectedInternalSchemaVersion: string
+  expectedKind: MediaAssetKind
+}
+
+export type MediaObjectReader = (
+  request: MediaObjectReadRequest,
+) => Promise<Uint8Array>
+
 export type PlaybackResourceKind = 'init' | 'media'
 
 export interface PlaybackManifestSegment {
