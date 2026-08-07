@@ -1,0 +1,17 @@
+{
+  "schema_version": "2.0.0",
+  "type": "command_ack",
+  "command_id": "cmd-close-left-001",
+  "room_id": "room-001",
+  "rally_id": "rally-001",
+  "operation_kind": "CLOSE_RALLY",
+  "result_revision": "13",
+  "server_sequence": "1042",
+  "effects": {
+    "terminal_key_point_id": "kp-004",
+    "annotation_status": "ready",
+    "score_resolution": "resolved",
+    "scoring_court_side": "left"
+  },
+  "resolved_anchor": null
+}

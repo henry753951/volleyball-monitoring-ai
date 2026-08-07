@@ -11,15 +11,15 @@ Date: 2026-08-07 (Asia/Taipei target release date)
 - `python scripts/validate_prisma_structure.py`
   - 38 models and 24 enums parsed; required database invariants passed.
 - `node scripts/validate_typescript_syntax.mjs`
-  - 38 TypeScript/Vue files passed syntax validation.
-- `python -m pytest -q sdk/tests`
-  - 8 tests passed.
+  - 47 TypeScript/Vue files passed syntax validation.
+- `uv run --project sdk --frozen --extra test pytest`
+  - 10 tests passed.
 - Full JSON, TOML and YAML parse pass.
 - `docs/SYSTEM_SPEC_V3_2.pdf`
-  - 42 pages after the accepted customizable-hotkey boundary update, A4, searchable and openable.
-  - `pdf_preflight.py` passed basic preflight.
-  - Rendered every page to PNG and visually reviewed contact sheets plus detailed pages for Annotation UI and wide audit tables.
-  - Verified searchable text contains all seven command semantics, editable bindings, Restore Defaults, `formatForDisplay`, Traefik baseline and `court_pos` requirements.
+  - 41 pages after the Annotation Realtime 2.0 migration, A4, searchable and openable.
+  - XeLaTeX completed successfully; extracted text contains `CLOSE_RALLY`, all three strict outcomes and six controls, with old v1.1 terminal/score-flow text absent.
+  - Rendered all 41 pages to PNG and visually reviewed six whole-document contact sheets plus detailed Annotation pages 5, 19, 20 and 21.
+- Verified searchable text contains all six v2.0 command semantics, editable bindings, Restore Defaults, `formatForDisplay`, Traefik baseline and `court_pos` requirements.
 - ZIP integrity is verified during final packaging with `unzip -t`.
 
 ## Corrected during final audit
@@ -34,10 +34,19 @@ Date: 2026-08-07 (Asia/Taipei target release date)
 - Corrected the stale token-boundary statement: clip signed URL and callback bearer token are separate capabilities.
 - Regenerated the LaTeX/PDF with wrapped long tables, CJK fonts and no duplicate heading numbering.
 
+## Current v2.0 migration validation
+
+- Annotation contract: 5 Vitest tests passed, including left/right/unknown close payloads, old-command rejection, no score frame/time and close ACK anchor rules.
+- Server: 6 Vitest tests passed; typecheck and build passed.
+- Web: 14 Vitest tests passed; Nuxt typecheck and production PWA build passed.
+- Hotkey ADR follow-up: exact-pinned `@tanstack/vue-hotkeys` `0.10.0`; frozen install passed. Tests cover all eight defaults and atomic reset, remap/old-key removal, recorder normalization, v2 preference migration, conflicts/reserved gestures, macOS/Windows display formatting, annotation element scope, modal precedence, input/textarea/select/contenteditable suppression, dynamic registration count and unmount cleanup.
+- Prisma 7.9.1 generate and validate passed; DB typecheck passed with 38 models and 24 enums after removing `AWAITING_SCORE`.
+- `uv run --project sdk --frozen --extra test bun run validate:all` passed.
+
 ## Not executed here
 
-- `bun install`, Bun build/typecheck, Prisma CLI generation/validation/migration, and Docker Compose runtime E2E were not executed because Bun and Docker are unavailable in this artifact environment.
-- An attempted `npx prisma@7.9.1 validate` could not retrieve Prisma from the environment's package registry. This is not presented as a successful Prisma CLI validation.
+- No migration was created because the approved enum removal must precede the first migration.
+- Docker Compose runtime, live database integration, browser/iPad E2E and media/AI vertical slices were not run for this contract migration.
 
 The primary Agent must run the following before accepting Phase 0 or creating a migration:
 

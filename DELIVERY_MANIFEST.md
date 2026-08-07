@@ -33,7 +33,7 @@ This archive is a contract-first implementation starter, not a finished applicat
 
 ## Product invariants
 
-- Annotation command semantics are fixed: service, contact, terminal, side score, explicit unknown and immutable submission. Z, Space, X, `<`, `>`, `?` and Enter are the defaults and may be remapped with conflict detection and Restore Defaults; terminal still marks the existing last key point without creating a new timestamp.
+- Annotation command semantics are fixed: Z creates service, Space creates contact, and `<`/`>`/`?` each send one `CLOSE_RALLY` that terminalizes the server-confirmed last key point and stores the rally-level resolved-left/resolved-right/unknown outcome without a new timestamp or score event; Enter creates the immutable submission. Z, Space, `<`, `>`, `?` and Enter are the remappable defaults with conflict detection and Restore Defaults. Six touch actions remain, with no standalone end-rally control.
 - Gray mask is editable/unsubmitted. Green mask means submitted, not AI completed.
 - Server stores the full DVR. The iPad PWA lazy-loads bounded playback windows.
 - Browser playback time is observational. The backend resolves authoritative source time/PTS/frame.

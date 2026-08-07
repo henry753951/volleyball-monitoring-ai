@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { canMarkTerminal, canSubmit, maskTone } from '../src/domain/annotation-state.js'
+import { canCloseRally, canSubmit, maskTone } from '../src/domain/annotation-state.js'
 
 describe('annotation state baseline', () => {
   it('submits resolved or explicit unknown, but not pending', () => {
@@ -13,8 +13,25 @@ describe('annotation state baseline', () => {
     expect(maskTone('SUBMITTED')).toBe('green')
   })
 
-  it('X targets the existing last key point instead of creating a timestamp', () => {
-    expect(canMarkTerminal({ state: 'OPEN', targetKeyPointId: 'kp-2', currentLastKeyPointId: 'kp-2' })).toBe(true)
-    expect(canMarkTerminal({ state: 'OPEN', targetKeyPointId: 'kp-1', currentLastKeyPointId: 'kp-2' })).toBe(false)
+  it.each([
+    { scoreResolution: 'RESOLVED' as const, scoringCourtSide: 'LEFT' as const },
+    { scoreResolution: 'RESOLVED' as const, scoringCourtSide: 'RIGHT' as const },
+    { scoreResolution: 'UNKNOWN' as const, scoringCourtSide: null },
+  ])('atomically closes on the current last key point with outcome $scoreResolution/$scoringCourtSide', (outcome) => {
+    expect(canCloseRally({
+      state: 'OPEN',
+      targetKeyPointId: 'kp-2',
+      currentLastKeyPointId: 'kp-2',
+      outcome,
+    })).toBe(true)
+  })
+
+  it('rejects a stale target so the client must refetch after a revision conflict', () => {
+    expect(canCloseRally({
+      state: 'OPEN',
+      targetKeyPointId: 'kp-1',
+      currentLastKeyPointId: 'kp-2',
+      outcome: { scoreResolution: 'RESOLVED', scoringCourtSide: 'LEFT' },
+    })).toBe(false)
   })
 })

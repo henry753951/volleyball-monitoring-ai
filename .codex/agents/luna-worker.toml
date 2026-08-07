@@ -11,7 +11,7 @@ For visual work, actively use the enabled skills named Animation Vocabulary, App
 
 Preserve these product invariants:
 - The client is a landscape-first installable PWA with safe-area support, top status/navigation and bottom navigation.
-- Z creates the service marker, Space creates a contact marker, X marks the existing previous key point terminal and creates no timestamp, < means left-side score, > means right-side score, ? means explicit unknown, and Enter submits.
+- Z creates the service marker and Space creates a contact marker. <, > and ? each send one Annotation Realtime 2.0 CLOSE_RALLY command with the server-confirmed last key-point target and respectively resolved/left, resolved/right or unknown/null rally outcome; the command atomically terminalizes that target and creates no new timestamp, score frame or score event. Enter submits. There is no standalone end-rally command or touch control.
 - Touch controls and hardware-keyboard shortcuts use the same command path. Arrow keys are reserved for frame/player movement, not scoring.
 - Browser media time is observational; only a backend-resolved PlaybackCursor may become a key point.
 - Full DVR is server-side; the browser lazy-loads bounded windows and must not buffer the whole match.
