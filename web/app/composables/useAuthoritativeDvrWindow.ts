@@ -1,7 +1,7 @@
 import type { PlaybackCursorInput, PlaybackWindowDescriptor, ResolvedMediaAnchor, CanonicalFrameAnchor } from '../lib/mediaModel'
 import type { MediaClient } from '../lib/mediaClient'
 import { MediaApiError } from '../lib/mediaModel'
-import { shallowRef, reactive, ref, readonly, onBeforeUnmount } from 'vue'
+import { shallowRef, reactive, ref, readonly, onScopeDispose } from 'vue'
 
 export type WindowStatus = 'idle' | 'loading' | 'ready' | 'recovering' | 'gap' | 'error'
 export function frameRecovery(code: string) {
@@ -26,13 +26,13 @@ export function useAuthoritativeDvrWindow(client: MediaClient) {
     catch (cause) { if (!valid(id)) return null; current.value = previous; status.value = 'error'; error.value = cause instanceof Error ? cause : new Error('Window request failed'); throw cause }
     finally { if (valid(id)) busy.value = false }
   }
-  async function resolve(cursor: PlaybackCursorInput) { const id = begin(); try { const value = await client.resolveCursor(cursor); if (valid(id)) anchor.value = value; if (valid(id)) { busy.value = false; status.value = 'ready' } return value } catch (cause) { if (valid(id)) { busy.value = false; status.value = 'error'; error.value = cause instanceof Error ? cause : new Error('Cursor resolution failed') } throw cause } }
+  async function resolve(cursor: PlaybackCursorInput) { const id = begin(); try { const value = await client.resolveCursor(cursor); if (!valid(id)) return null; anchor.value = value; busy.value = false; status.value = 'ready'; return value } catch (cause) { if (!valid(id)) return null; busy.value = false; status.value = 'error'; error.value = cause instanceof Error ? cause : new Error('Cursor resolution failed'); return null } }
   async function step(direction: 'previous' | 'next', inputFactory: (target: string) => Parameters<MediaClient['createPlaybackWindow']>[0]) {
     if (!current.value || !anchor.value) return null
     let attempt = 0
     while (attempt++ < 2) {
       const id = begin()
-      try { const value = await client.frameStep({ schema_version: '1.0.0', capture_session_id: current.value.capture_session_id, playback_window_id: current.value.playback_window_id, mapping_version: current.value.mapping_version, capture_frame_index: anchor.value.capture_frame_index, direction }); if (valid(id)) anchor.value = value; status.value = 'ready'; busy.value = false; return value }
+      try { const value = await client.frameStep({ schema_version: '1.0.0', capture_session_id: current.value.capture_session_id, playback_window_id: current.value.playback_window_id, mapping_version: current.value.mapping_version, capture_frame_index: anchor.value.capture_frame_index, direction }); if (!valid(id)) return null; anchor.value = value; status.value = 'ready'; busy.value = false; return value }
       catch (cause) {
         if (!valid(id)) return null
         const mediaError = cause as MediaApiError
@@ -41,11 +41,11 @@ export function useAuthoritativeDvrWindow(client: MediaClient) {
         }
         status.value = 'recovering'; busy.value = false
         const target = mediaError.details && typeof mediaError.details === 'object' && 'target_capture_time_us' in mediaError.details ? String(mediaError.details.target_capture_time_us) : anchor.value.capture_time_us
-        await create(inputFactory(target))
+        try { await create(inputFactory(target)) } catch { status.value = 'error'; error.value = new Error('Window recovery failed'); busy.value = false; return null }
       }
     }
     return null
   }
-  onBeforeUnmount(() => abort?.abort())
+  onScopeDispose(() => abort?.abort())
   return { current, cache, anchor, status: readonly(status), error: readonly(error), busy: readonly(busy), create, resolve, step }
 }
