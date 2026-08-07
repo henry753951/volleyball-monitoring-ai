@@ -3,7 +3,7 @@ import addFormats from "ajv-formats";
 import { describe, expect, it } from "vitest";
 import { readFileSync, readdirSync } from "node:fs";
 import { resolve } from "node:path";
-import { parseAnnotationCommand, parseAnnotationCommandResponse, parseAnnotationServerMessage, parseMediaApiError, parsePlaybackCursor, parseResolvedMediaAnchor } from "../src/index";
+import { parseAnnotationCommand, parseAnnotationCommandResponse, parseAnnotationRealtimeMessage, parseAnnotationServerMessage, parseAnnotationSoftLockIntent, parseMediaApiError, parsePlaybackCursor, parseResolvedMediaAnchor } from "../src/index";
 
 const root = resolve(import.meta.dirname, "..");
 const load = (relative: string) => JSON.parse(readFileSync(resolve(root, relative), "utf8"));
@@ -166,5 +166,15 @@ describe("golden contract fixtures", () => {
       },
     ];
     for (const message of messages) expect(parseAnnotationServerMessage(message).type).toBe(message.type);
+  });
+
+  it("accepts the additive v2.1 soft-lock intent without weakening v2 commands", () => {
+    const intent = load("examples/annotation/soft-lock-intent.json");
+    expect(parseAnnotationSoftLockIntent(intent)).toEqual(intent);
+    expect(parseAnnotationRealtimeMessage(intent)).toEqual(intent);
+    expect(() => parseAnnotationCommand(intent)).toThrow();
+    expect(() => parseAnnotationSoftLockIntent({ ...intent, editing_key_point_id: "" })).toThrow();
+    expect(() => parseAnnotationSoftLockIntent({ ...intent, unexpected: true })).toThrow();
+    expect(() => parseAnnotationSoftLockIntent({ ...intent, room_id: String(intent.room_id).replace("8400", "ABCD") })).toThrow();
   });
 });

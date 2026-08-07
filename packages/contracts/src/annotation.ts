@@ -201,6 +201,13 @@ export interface AnnotationPresenceSnapshot {
   }>
 }
 
+export interface AnnotationSoftLockIntent {
+  schema_version: '2.1.0'
+  type: 'soft_lock_intent'
+  room_id: string
+  editing_key_point_id: string | null
+}
+
 export interface AnnotationRallyProcessingUpdate {
   schema_version: '2.0.0'
   type: 'rally_processing_update'
@@ -220,7 +227,8 @@ export type AnnotationServerMessage =
   | AnnotationRallySnapshot
   | AnnotationPresenceSnapshot
   | AnnotationRallyProcessingUpdate
-export type AnnotationRealtimeMessage = AnnotationCommand | AnnotationServerMessage
+export type AnnotationClientMessage = AnnotationCommand | AnnotationSoftLockIntent
+export type AnnotationRealtimeMessage = AnnotationClientMessage | AnnotationServerMessage
 
 const ajv = new Ajv2020({ allErrors: true, strict: false })
 addFormats(ajv)
@@ -252,6 +260,12 @@ export function parseAnnotationCommand(input: unknown): AnnotationCommand {
     throw new TypeError('annotation message is not a command')
   }
   return value as unknown as AnnotationCommand
+}
+
+export function parseAnnotationSoftLockIntent(input: unknown): AnnotationSoftLockIntent {
+  const value = assertRealtime(input)
+  if (value.type !== 'soft_lock_intent') throw new TypeError('annotation message is not a soft-lock intent')
+  return value as unknown as AnnotationSoftLockIntent
 }
 
 export function parseAnnotationServerMessage(input: unknown): AnnotationServerMessage {

@@ -1870,19 +1870,41 @@ supersedes關係。
 \end{itemize}
 
 \section{10. Annotation Realtime Schema
-v2.0}\label{10-annotation-realtime-schema-v20}
+v2.1}\label{10-annotation-realtime-schema-v21}
 
 \subsubsection{10.0 協議版本}\label{100-ux5354ux8b70ux7248ux672c}
 
-Annotation Realtime Protocol 的正式版本為\texttt{2.0.0}。這是breaking
-change：移除v1.1的獨立terminal與後續score兩階段command，改由一個
+Annotation Realtime Protocol 的正式registry版本為\texttt{2.1.0}。Canonical
+Rally command／ACK仍使用\texttt{2.0.0}：這是先前移除v1.1獨立terminal與後續score兩階段command的breaking
+boundary，改由一個
 \texttt{CLOSE\_\allowbreak{}RALLY} atomically terminalize目前server-confirmed最後key
-point並保存rally-level outcome。任何v1.x annotation message都不得被2.0
+point並保存rally-level outcome。任何v1.x annotation message都不得被2.x
 consumer靜默當成相同語意。
+
+\texttt{2.1.0}只新增ephemeral
+\texttt{soft\_\allowbreak{}lock\_\allowbreak{}intent}。它沒有\texttt{command\_\allowbreak{}id}、\texttt{rally\_\allowbreak{}id}、revision或authoritative
+media anchor，不進PostgreSQL、不建立operation/receipt，也不得阻擋另一位operator送出MOVE；Redis短TTL提示失效、client
+release或disconnect後即清除，canonical concurrency仍完全由Rally revision/CAS決定。
 
 WebSocket用於高頻 annotation
 command、ack、revision、presence與處理通知。GraphQL提供
 snapshot/refetch，不承擔逐次按鍵。
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\FunctionTok{\{}
+  \DataTypeTok{"schema\_\allowbreak{}version"}\FunctionTok{:} \StringTok{"2.1.0"}\FunctionTok{,}
+  \DataTypeTok{"type"}\FunctionTok{:} \StringTok{"soft\_\allowbreak{}lock\_\allowbreak{}intent"}\FunctionTok{,}
+  \DataTypeTok{"room\_\allowbreak{}id"}\FunctionTok{:} \StringTok{"match:...:capture:..."}\FunctionTok{,}
+  \DataTypeTok{"editing\_\allowbreak{}key\_\allowbreak{}point\_\allowbreak{}id"}\FunctionTok{:} \StringTok{"0190..."}
+\FunctionTok{\}}
+\end{Highlighting}
+\end{Shaded}
+
+\texttt{editing\_\allowbreak{}key\_\allowbreak{}point\_\allowbreak{}id:
+null}表示主動釋放。Server只採用已驗證connection的user/device identity，並透過既有
+\texttt{presence\_\allowbreak{}snapshot.members{[}{]}.editing\_\allowbreak{}key\_\allowbreak{}point\_\allowbreak{}id}廣播提示；client不得自報display
+name或其他member identity。
 
 \subsection{10.1 Client Command
 Envelope}\label{101-client-command-envelope}

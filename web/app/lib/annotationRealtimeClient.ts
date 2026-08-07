@@ -1,5 +1,6 @@
 import {
   parseAnnotationServerMessage,
+  parseAnnotationSoftLockIntent,
   type AnnotationCommand,
   type AnnotationCommandResponse,
   type AnnotationServerMessage,
@@ -17,6 +18,7 @@ export interface AnnotationRealtimeClient {
   connect(): void
   disconnect(): void
   send(command: AnnotationCommand): Promise<AnnotationCommandResponse>
+  setEditingKeyPoint(keyPointId: string | null): boolean
   ready(): boolean
 }
 
@@ -28,16 +30,38 @@ export function createAnnotationRealtimeClient(
   let stopped = false
   let reconnectAttempt = 0
   let reconnectTimer: ReturnType<typeof setTimeout> | null = null
+  let softLockTimer: ReturnType<typeof setInterval> | null = null
   let connectionReady = false
+  let editingKeyPointId: string | null = null
+  let currentState: AnnotationConnectionState = 'closed'
   const pending = new Map<string, {
     resolve: (response: AnnotationCommandResponse) => void
     reject: (error: Error) => void
   }>()
 
-  const setState = (state: AnnotationConnectionState) => handlers.onState?.(state)
+  const setState = (state: AnnotationConnectionState) => {
+    if (state === currentState) return
+    currentState = state
+    handlers.onState?.(state)
+  }
   const rejectPending = (error: Error) => {
     for (const request of pending.values()) request.reject(error)
     pending.clear()
+  }
+  const clearSoftLockTimer = () => {
+    if (softLockTimer) clearInterval(softLockTimer)
+    softLockTimer = null
+  }
+  const sendSoftLock = (keyPointId = editingKeyPointId) => {
+    if (!connectionReady || socket?.readyState !== WebSocket.OPEN) return false
+    const intent = parseAnnotationSoftLockIntent({
+      schema_version: '2.1.0',
+      type: 'soft_lock_intent',
+      room_id: roomId,
+      editing_key_point_id: keyPointId,
+    })
+    socket.send(JSON.stringify(intent))
+    return true
   }
 
   function scheduleReconnect() {
@@ -65,6 +89,9 @@ export function createAnnotationRealtimeClient(
           connectionReady = true
           reconnectAttempt = 0
           setState('ready')
+          clearSoftLockTimer()
+          sendSoftLock()
+          softLockTimer = setInterval(() => { sendSoftLock() }, 5_000)
         }
         if (message.type === 'command_ack' || message.type === 'command_rejected') {
           pending.get(message.command_id)?.resolve(message)
@@ -81,6 +108,7 @@ export function createAnnotationRealtimeClient(
     })
     socket.addEventListener('close', () => {
       connectionReady = false
+      clearSoftLockTimer()
       rejectPending(new Error('Annotation connection closed before acknowledgement'))
       if (socket) socket = null
       if (!stopped) scheduleReconnect()
@@ -95,7 +123,9 @@ export function createAnnotationRealtimeClient(
     },
     disconnect() {
       stopped = true
+      sendSoftLock(null)
       connectionReady = false
+      clearSoftLockTimer()
       if (reconnectTimer) clearTimeout(reconnectTimer)
       reconnectTimer = null
       rejectPending(new Error('Annotation client disconnected'))
@@ -104,6 +134,10 @@ export function createAnnotationRealtimeClient(
       setState('closed')
     },
     ready: () => connectionReady && socket?.readyState === WebSocket.OPEN,
+    setEditingKeyPoint(keyPointId) {
+      editingKeyPointId = keyPointId
+      return sendSoftLock()
+    },
     send(command) {
       if (!connectionReady || socket?.readyState !== WebSocket.OPEN) {
         return Promise.reject(new Error('Annotation connection is not ready'))

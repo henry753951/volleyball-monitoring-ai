@@ -113,7 +113,9 @@ if not args.skip_checksums:
 
 spec = (ROOT / 'docs/MASTER_IMPLEMENTATION_SPEC.md').read_text(encoding='utf-8')
 assert '`CLOSE_RALLY`' in spec and 'target_key_point_id' in spec
-assert 'Annotation Realtime Schema v2.0' in spec
+assert 'Annotation Realtime Schema v2.1' in spec
+assert '正式registry版本為`2.1.0`' in spec and 'Canonical Rally command／ACK仍使用`2.0.0`' in spec
+assert '`soft_lock_intent`' in spec and 'revision/CAS' in spec
 assert '`? 未知`' in spec and '可以提交 AI' in spec
 assert 'GraphQL Yoga' in spec and 'Pothos' in spec and 'Prisma' in spec
 assert 'full-session' in spec.lower() or '完整 DVR' in spec

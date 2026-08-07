@@ -54,6 +54,7 @@ export function useAnnotationRoom() {
   const busy = ref(false)
   const error = ref<string | null>(null)
   const roomId = ref<string | null>(null)
+  const selfDeviceSessionId = ref<string | null>(null)
   const outbox = shallowRef<AnnotationOutboxEntry[]>([])
   const presence = shallowRef<AnnotationPresenceSnapshot['members']>([])
   const transport = createGraphQLTransport('/graphql')
@@ -68,6 +69,16 @@ export function useAnnotationRoom() {
   const lastKeyPoint = computed(() => snapshot.value?.snapshot.key_points.at(-1) ?? null)
   const pendingCount = computed(() => outbox.value.length)
   const outboxNeedsConfirmation = computed(() => outbox.value.some(entry => entry.status === 'needs_confirmation'))
+  const remoteEditorsByKeyPoint = computed<Record<string, string[]>>(() => {
+    const editors: Record<string, string[]> = {}
+    for (const member of presence.value) {
+      if (!member.editing_key_point_id || member.device_session_id === selfDeviceSessionId.value) continue
+      const names = editors[member.editing_key_point_id] ?? []
+      if (!names.includes(member.display_name)) names.push(member.display_name)
+      editors[member.editing_key_point_id] = names
+    }
+    return editors
+  })
 
   function storage() { return typeof window === 'undefined' ? null : window.localStorage }
   function replaceOutbox(entries: AnnotationOutboxEntry[]) {
@@ -175,6 +186,7 @@ export function useAnnotationRoom() {
     roomId.value = nextRoomId
     snapshot.value = null
     presence.value = []
+    selfDeviceSessionId.value = null
     error.value = null
     loadOutbox()
     realtime = createAnnotationRealtimeClient(nextRoomId, {
@@ -183,7 +195,10 @@ export function useAnnotationRoom() {
         if (!['Annotation WebSocket unavailable', 'Annotation connection closed before acknowledgement'].includes(cause.message)) error.value = cause.message
       },
       onMessage: (message) => {
-        if (message.type === 'connection_ready') void refreshActive().then(() => flushOutbox())
+        if (message.type === 'connection_ready') {
+          selfDeviceSessionId.value = message.device_session_id
+          void refreshActive().then(() => flushOutbox())
+        }
         if (message.type === 'rally_snapshot') acceptSnapshot(message)
         if (message.type === 'presence_snapshot') presence.value = message.members
       },
@@ -316,6 +331,10 @@ export function useAnnotationRoom() {
     }
   }
 
+  function setEditingKeyPoint(keyPointId: string | null) {
+    realtime?.setEditingKeyPoint(keyPointId)
+  }
+
   onBeforeUnmount(() => {
     realtime?.disconnect()
     realtime = null
@@ -335,6 +354,8 @@ export function useAnnotationRoom() {
     pendingCommands: shallowReadonly(outbox),
     pendingCount,
     presence: shallowReadonly(presence),
+    remoteEditorsByKeyPoint,
+    setEditingKeyPoint,
     discardPending,
     refreshActive,
     snapshot: shallowReadonly(snapshot),

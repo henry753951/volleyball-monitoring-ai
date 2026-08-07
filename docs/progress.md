@@ -1,5 +1,18 @@
 # Progress
 
+## 2026-08-08 — Advisory marker soft locks and authoritative drag completion
+
+Status: the remaining optional cross-operator marker-edit hint is implemented, contract-versioned and runtime-verified without weakening revision/CAS authority.
+
+- Advanced only the Annotation Realtime registry to additive `2.1.0` for strict client `soft_lock_intent` messages. Canonical Rally commands, acknowledgements and revisions remain `2.0.0`; the intent carries no command ID, Rally revision or media anchor and never enters PostgreSQL, operation receipts or immutable history. ADR 0013 records this main-Agent boundary.
+- Added Redis-only advisory edit state with an independent 12-second TTL, five-second client refresh, explicit `null` release, disconnect cleanup and server expiry publication. Presence identity is always taken from the authenticated connection; clients cannot choose the displayed user/device identity.
+- Timeline draft markers now support pointer drag. A drop first opens a bounded archive window, waits for a real rendered browser cursor, asks the server to resolve that observation and only then sends the unchanged `MOVE_KEY_POINT` command. A failed/stale media resolution leaves the marker unchanged. Remote locks add a visible name/halo hint but never disable the marker or block a competing move; revision/CAS remains canonical.
+- Two independent headed Chromium device sessions exercised the running Docker stack against the growing YouTube DVR. The second operator saw `Dev Operator 正在調整（不阻擋）` on the service marker while the marker remained enabled. Releasing the first operator's drag cleared the hint and moved the authoritative marker from frame 42107 to frame 50468 while the Rally revision advanced from 1 to 2. The temporary draft was closed through normal `VOID_RALLY`, both browsers reported zero console errors/warnings and both sessions were closed.
+- The supplied YouTube relay remained running throughout the Server/Web rebuild and browser acceptance. Its server-side DVR timeline grew from 551 to 572 READY ranges during this smoke, demonstrating that drag/fine-tune operates on a buffer that continues to extend rather than a fixed uploaded file.
+- Validation passed: contracts 12, DB 4, media 88, Server 180, Worker 147 with 6 environment skips, Web 97 and frozen-`uv` SDK 13 tests; all workspace typechecks and production builds passed. Server and Web production images rebuilt and returned healthy. The searchable A4 specification PDF was regenerated to 42 pages; all pages were rendered as a contact sheet and the changed realtime pages 20–23 were visually inspected without layout defects.
+
+Open limitations are deployment acceptance rather than missing repository semantics: production identity/TLS, physical-iPad long-session acceptance, real AI-provider court/action data, scheduled off-host backup, approved retention durations, external metrics/alerts and audit-retention/dashboard policy remain environment- or operator-owned decisions. Real multi-operator production acceptance remains required beyond this local two-device proof.
+
 ## 2026-08-08 — Real YouTube ingest, recording and DVR replay acceptance
 
 Status: a managed optional relay is implemented and is currently feeding the local Compose stack from the supplied YouTube former-livestream URL at real-time rate.
