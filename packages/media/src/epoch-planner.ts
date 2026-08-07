@@ -115,9 +115,11 @@ export type CaptureEpochPlan = {
 export type CaptureEpochPlannerErrorCode =
   | 'INVALID_CONFIG'
   | 'INVALID_SEGMENT'
+  | 'INVALID_PERSISTED_HEAD'
   | 'ORDER_CONFLICT'
   | 'DUPLICATE_CONFLICT'
   | 'GAP_CONFLICT'
+  | 'INT32_EXHAUSTED'
 
 export class CaptureEpochPlannerError extends Error {
   constructor(
@@ -334,6 +336,409 @@ function nextEpochSequence(current: number): number {
     )
   }
   return current + 1
+}
+
+/**
+ * The only timeline state an incremental reservation transaction needs from
+ * the current epoch and the last ready segment. `epochId` is an opaque
+ * persistence identity, not a source-lifetime observation.
+ */
+export type PersistedCaptureHead = {
+  epochId: string
+  epochSequence: number
+  discontinuity: number
+  timeBase: Rational
+  sourcePtsOrigin: bigint
+  captureTimeOriginUs: bigint
+  captureFrameOrigin: bigint
+  lastSourcePtsEndExclusive: bigint
+  lastCaptureEndUs: bigint
+  /** Adapter derives this as firstFrameIndex + frameCount - 1. */
+  lastCaptureFrameIndex: bigint
+}
+
+/**
+ * Real ffprobe sample data for one new finalized segment. Lifecycle signals
+ * are intentionally supplied separately to avoid treating unpersisted source
+ * identity or wall-clock observations as durable continuity evidence.
+ */
+export type IncrementalFinalizedIndexedSegment = Pick<
+  FinalizedIndexedSegment,
+  | 'segmentIdentity'
+  | 'sourceIdentity'
+  | 'sourceOrder'
+  | 'timeBase'
+  | 'samples'
+>
+
+export type PlanNextCaptureSegmentInput = {
+  currentHead: PersistedCaptureHead | null
+  /** Server-generated persistence identity for a possible new epoch. */
+  newEpochId: string
+  segment: IncrementalFinalizedIndexedSegment
+  sourceRestart: boolean
+  timestampDiscontinuity: boolean
+  explicitGapBeforeUs?: bigint
+  config: CaptureEpochPlannerConfig
+}
+
+export type IncrementalEpochDisposition = 'REUSE_EXISTING' | 'CREATE_NEXT'
+
+/** The chosen affine epoch mapping for the new segment. */
+export type IncrementalPlannedCaptureEpoch = {
+  disposition: IncrementalEpochDisposition
+  /** Exact existing or server-generated CaptureEpoch persistence identity. */
+  epochKey: string
+  epochSequence: number
+  discontinuity: number
+  timeBase: Rational
+  sourcePtsOrigin: bigint
+  captureTimeOriginUs: bigint
+  captureFrameOrigin: bigint
+  reasons: readonly DiscontinuityReason[]
+}
+
+/** Fields derived for a non-gap DvrSegment plus its authoritative index. */
+export type IncrementalPlannedCaptureSegment = {
+  segmentIdentity: string
+  sourceOrder: bigint
+  epochKey: string
+  epochSequence: number
+  discontinuitySequence: number
+  sourcePtsStart: bigint
+  sourcePtsEndExclusive: bigint
+  captureStartUs: bigint
+  captureEndUs: bigint
+  firstFrameIndex: bigint
+  frameCount: bigint
+  durationUs: bigint
+  isGap: false
+  sampleIndex: SampleIndex
+}
+
+export type IncrementalCaptureGapRange = {
+  startUs: bigint
+  endUs: bigint
+  discontinuity: number
+  reasons: readonly DiscontinuityReason[]
+}
+
+export type PlanNextCaptureSegmentResult = {
+  epoch: IncrementalPlannedCaptureEpoch
+  segment: IncrementalPlannedCaptureSegment
+  gap?: IncrementalCaptureGapRange
+  liveEdgeCaptureTimeUs: bigint
+  nextCaptureFrameIndex: bigint
+}
+
+const INT32_MAX = 2_147_483_647
+
+function validateIncrementalConfig(config: CaptureEpochPlannerConfig): void {
+  if (
+    config.canonicalSessionOriginUs < 0n ||
+    config.canonicalFrameOrigin < 0n ||
+    config.timestampToleranceUs < 0n
+  ) {
+    throw new CaptureEpochPlannerError(
+      'INVALID_CONFIG',
+      'canonical origins and timestamp tolerance must be non-negative',
+    )
+  }
+}
+
+function isSafeOpaqueIdentity(value: string): boolean {
+  return value.trim().length > 0 && !value.includes('\0')
+}
+
+function validateNewEpochId(value: string): void {
+  if (!isSafeOpaqueIdentity(value)) {
+    throw new CaptureEpochPlannerError(
+      'INVALID_CONFIG',
+      'newEpochId must be a safe non-empty opaque identity',
+    )
+  }
+}
+
+function validateInt32Sequence(value: number, field: string): void {
+  if (!Number.isInteger(value) || value < 0 || value > INT32_MAX) {
+    throw new CaptureEpochPlannerError(
+      'INVALID_PERSISTED_HEAD',
+      `${field} must be a non-negative Int32`,
+    )
+  }
+}
+
+function validatePersistedHead(head: PersistedCaptureHead): void {
+  if (!isSafeOpaqueIdentity(head.epochId)) {
+    throw new CaptureEpochPlannerError(
+      'INVALID_PERSISTED_HEAD',
+      'epochId must be non-empty',
+    )
+  }
+  validateInt32Sequence(head.epochSequence, 'epochSequence')
+  validateInt32Sequence(head.discontinuity, 'discontinuity')
+  if (head.epochSequence !== head.discontinuity) {
+    throw new CaptureEpochPlannerError(
+      'INVALID_PERSISTED_HEAD',
+      'epoch sequence and discontinuity must be coherent',
+    )
+  }
+  if (head.timeBase.num <= 0n || head.timeBase.den <= 0n) {
+    throw new CaptureEpochPlannerError(
+      'INVALID_PERSISTED_HEAD',
+      'persisted time base must be positive',
+    )
+  }
+  if (
+    head.captureTimeOriginUs < 0n ||
+    head.captureFrameOrigin < 0n ||
+    head.lastCaptureFrameIndex < 0n
+  ) {
+    throw new CaptureEpochPlannerError(
+      'INVALID_PERSISTED_HEAD',
+      'persisted canonical values must be non-negative',
+    )
+  }
+  if (
+    head.lastSourcePtsEndExclusive <= head.sourcePtsOrigin ||
+    head.lastCaptureEndUs <= head.captureTimeOriginUs ||
+    head.lastCaptureFrameIndex < head.captureFrameOrigin
+  ) {
+    throw new CaptureEpochPlannerError(
+      'INVALID_PERSISTED_HEAD',
+      'persisted head must describe a non-empty epoch range',
+    )
+  }
+  const expectedCaptureEndUs =
+    head.captureTimeOriginUs +
+    rescalePtsToUs(
+      head.lastSourcePtsEndExclusive - head.sourcePtsOrigin,
+      head.timeBase,
+    )
+  if (head.lastCaptureEndUs !== expectedCaptureEndUs) {
+    throw new CaptureEpochPlannerError(
+      'INVALID_PERSISTED_HEAD',
+      'last segment end is incompatible with the epoch affine origin',
+    )
+  }
+}
+
+function nextIncrementalSequence(head: PersistedCaptureHead): number {
+  if (
+    head.epochSequence === INT32_MAX ||
+    head.discontinuity === INT32_MAX
+  ) {
+    throw new CaptureEpochPlannerError(
+      'INT32_EXHAUSTED',
+      'capture epoch/discontinuity Int32 sequence exhausted',
+    )
+  }
+  return head.epochSequence + 1
+}
+
+function incrementalSegment(
+  segment: IncrementalFinalizedIndexedSegment,
+  input: Pick<
+    PlanNextCaptureSegmentInput,
+    'sourceRestart' | 'timestampDiscontinuity' | 'explicitGapBeforeUs'
+  >,
+): FinalizedIndexedSegment {
+  return {
+    ...segment,
+    sourceRestart: input.sourceRestart,
+    timestampDiscontinuity: input.timestampDiscontinuity,
+    ...(input.explicitGapBeforeUs === undefined
+      ? {}
+      : { explicitGapBeforeUs: input.explicitGapBeforeUs }),
+  }
+}
+
+/**
+ * Plans exactly one finalized segment from serializable persisted state.
+ *
+ * The database does not persist source identity or an independent source
+ * timestamp. Therefore this function never infers a source identity change;
+ * only the explicit `sourceRestart` lifecycle signal can represent one.
+ */
+export function planNextCaptureSegment(
+  input: PlanNextCaptureSegmentInput,
+): PlanNextCaptureSegmentResult {
+  validateIncrementalConfig(input.config)
+  validateNewEpochId(input.newEpochId)
+  const segment = incrementalSegment(input.segment, input)
+  const bounds = segmentBounds(segment)
+  const head = input.currentHead
+
+  if (head === null) {
+    if (input.explicitGapBeforeUs !== undefined) {
+      throw new CaptureEpochPlannerError(
+        'INVALID_SEGMENT',
+        'first segment cannot declare a preceding gap',
+      )
+    }
+    const epoch: IncrementalPlannedCaptureEpoch = {
+      disposition: 'CREATE_NEXT',
+      epochKey: input.newEpochId,
+      epochSequence: 0,
+      discontinuity: 0,
+      timeBase: segment.timeBase,
+      sourcePtsOrigin: bounds.firstPts,
+      captureTimeOriginUs: input.config.canonicalSessionOriginUs,
+      captureFrameOrigin: input.config.canonicalFrameOrigin,
+      reasons: ['SESSION_START'],
+    }
+    return buildIncrementalResult(segment, bounds, epoch)
+  }
+
+  validatePersistedHead(head)
+  const reasons: DiscontinuityReason[] = []
+  const gapCandidates: bigint[] = []
+  const timeBaseMatches = sameTimeBase(head.timeBase, segment.timeBase)
+
+  if (input.sourceRestart) addReason(reasons, 'SOURCE_RESTART')
+  if (input.timestampDiscontinuity) {
+    addReason(reasons, 'TIMESTAMP_DISCONTINUITY')
+  }
+  if (!timeBaseMatches) addReason(reasons, 'TIME_BASE_CHANGE')
+
+  if (timeBaseMatches) {
+    const ptsDelta = bounds.firstPts - head.lastSourcePtsEndExclusive
+    if (ptsDelta < 0n) {
+      addReason(reasons, 'PTS_RESET')
+    } else if (ptsDelta > 0n) {
+      addReason(reasons, 'TIMESTAMP_DISCONTINUITY')
+      const ptsGapUs = rescalePtsToUs(ptsDelta, segment.timeBase)
+      if (ptsGapUs <= 0n) {
+        throw new CaptureEpochPlannerError(
+          'INVALID_SEGMENT',
+          'positive PTS hole collapses at microsecond precision',
+        )
+      }
+      gapCandidates.push(ptsGapUs)
+    }
+  }
+
+  if (input.explicitGapBeforeUs !== undefined) {
+    addReason(reasons, 'EXPLICIT_GAP')
+    gapCandidates.push(input.explicitGapBeforeUs)
+  }
+
+  if (reasons.length === 0) {
+    const epoch: IncrementalPlannedCaptureEpoch = {
+      disposition: 'REUSE_EXISTING',
+      epochKey: head.epochId,
+      epochSequence: head.epochSequence,
+      discontinuity: head.discontinuity,
+      timeBase: head.timeBase,
+      sourcePtsOrigin: head.sourcePtsOrigin,
+      captureTimeOriginUs: head.captureTimeOriginUs,
+      captureFrameOrigin: head.captureFrameOrigin,
+      reasons,
+    }
+    const result = buildIncrementalResult(
+      segment,
+      bounds,
+      epoch,
+      head.lastCaptureFrameIndex + 1n,
+    )
+    if (result.segment.captureStartUs !== head.lastCaptureEndUs) {
+      throw new CaptureEpochPlannerError(
+        'INVALID_PERSISTED_HEAD',
+        'continued segment does not touch the persisted capture end',
+      )
+    }
+    return result
+  }
+
+  const sequence = nextIncrementalSequence(head)
+  const gapUs = reconcileGapCandidates(
+    gapCandidates,
+    input.config.timestampToleranceUs,
+  )
+  const captureTimeOriginUs = head.lastCaptureEndUs + gapUs
+  const captureFrameOrigin = head.lastCaptureFrameIndex + 1n
+  const epoch: IncrementalPlannedCaptureEpoch = {
+    disposition: 'CREATE_NEXT',
+    epochKey: input.newEpochId,
+    epochSequence: sequence,
+    discontinuity: sequence,
+    timeBase: segment.timeBase,
+    sourcePtsOrigin: bounds.firstPts,
+    captureTimeOriginUs,
+    captureFrameOrigin,
+    reasons,
+  }
+  const result = buildIncrementalResult(
+    segment,
+    bounds,
+    epoch,
+    captureFrameOrigin,
+  )
+  if (result.segment.captureStartUs < head.lastCaptureEndUs) {
+    throw new CaptureEpochPlannerError(
+      'ORDER_CONFLICT',
+      'new epoch must not overlap the persisted capture end',
+    )
+  }
+  if (gapUs === 0n) return result
+  return {
+    ...result,
+    gap: {
+      startUs: head.lastCaptureEndUs,
+      endUs: captureTimeOriginUs,
+      discontinuity: sequence,
+      reasons,
+    },
+  }
+}
+
+function buildIncrementalResult(
+  segment: FinalizedIndexedSegment,
+  bounds: SegmentBounds,
+  epoch: IncrementalPlannedCaptureEpoch,
+  firstFrameIndex = epoch.captureFrameOrigin,
+): PlanNextCaptureSegmentResult {
+  const sampleIndex = buildSampleIndex(
+    segment,
+    bounds,
+    {
+      epochKey: epoch.epochKey,
+      epochSequence: epoch.epochSequence,
+      discontinuity: epoch.discontinuity,
+      sourceIdentity: segment.sourceIdentity,
+      timeBase: epoch.timeBase,
+      sourcePtsOrigin: epoch.sourcePtsOrigin,
+      captureTimeOriginUs: epoch.captureTimeOriginUs,
+      captureFrameOrigin: epoch.captureFrameOrigin,
+      reasons: epoch.reasons,
+    },
+    firstFrameIndex,
+  )
+  const captureStartUs = sampleIndex.availableStartUs
+  const captureEndUs = sampleIndex.availableEndUs
+  const nextCaptureFrameIndex =
+    sampleIndex.samples.at(-1)!.captureFrameIndex + 1n
+  return {
+    epoch,
+    segment: {
+      segmentIdentity: segment.segmentIdentity,
+      sourceOrder: segment.sourceOrder,
+      epochKey: epoch.epochKey,
+      epochSequence: epoch.epochSequence,
+      discontinuitySequence: epoch.discontinuity,
+      sourcePtsStart: bounds.firstPts,
+      sourcePtsEndExclusive: bounds.endPtsExclusive,
+      captureStartUs,
+      captureEndUs,
+      firstFrameIndex,
+      frameCount: BigInt(segment.samples.length),
+      durationUs: captureEndUs - captureStartUs,
+      isGap: false,
+      sampleIndex,
+    },
+    liveEdgeCaptureTimeUs: captureEndUs,
+    nextCaptureFrameIndex,
+  }
 }
 
 /**
