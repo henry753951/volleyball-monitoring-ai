@@ -9,7 +9,7 @@ describe('AnnotationCommandStrip', () => {
     ['OPEN+lastPoint', 'OPEN', true, true, [false, true, true, true, true, false]],
     ['READY', 'READY', false, false, [false, false, false, false, false, true]],
   ])('%s enables exactly the fixed commands', (_name, state, canMark, lastKeyPoint, expected) => {
-    const w = mount(AnnotationCommandStrip, { props: { bindings, state: state as 'IDLE'|'OPEN'|'READY'|'SUBMITTED', canMark, lastKeyPoint } })
+    const w = mount(AnnotationCommandStrip, { props: { bindings, state: state as 'IDLE'|'OPEN'|'READY'|'SUBMITTED', canMark: canMark === true, lastKeyPoint: lastKeyPoint === true } })
     expect(w.findAll('button').map(button => !button.attributes('disabled'))).toEqual(expected)
   })
   it('renders exactly six fixed actions and no X', () => { const w = mount(AnnotationCommandStrip, { props: { bindings, state: 'IDLE', canMark: false, lastKeyPoint: false } }); expect(w.findAll('button')).toHaveLength(6); expect(w.text()).not.toContain('X') })
