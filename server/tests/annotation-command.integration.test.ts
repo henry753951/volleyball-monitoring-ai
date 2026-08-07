@@ -539,4 +539,11 @@ describe('durable service annotation command', () => {
     expect(await db.annotationCommandReceipt.count({ where: { commandId: { in: [contact.command_id, close.command_id] } } })).toBe(2)
     expect((await db.rally.findUniqueOrThrow({ where: { id: rallyId } })).annotationRevision).toBe(2n)
   })
+
+  it('durably rejects contact after membership is revoked during cursor resolution', async () => {
+    const rallyId = randomUUID(); await service.apply(serviceCommand(randomUUID(), rallyId), identity)
+    const stale = createAnnotationCommandService({ database: db, resolveCursor: async () => { await db.matchMember.delete({ where: { matchId_userId: { matchId: ids.match, userId: ids.operator } } }); return anchor } })
+    const command = contactCommand(randomUUID(), rallyId, '1')
+    try { await expect(stale.apply(command, identity)).resolves.toMatchObject({ code: 'ROOM_AUTHORIZATION_STALE' }) } finally { await db.matchMember.create({ data: { matchId: ids.match, role: 'OPERATOR', userId: ids.operator } }) }
+  })
 })
