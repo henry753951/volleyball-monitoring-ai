@@ -79,7 +79,9 @@ async function frameStep(direction: 'previous' | 'next') {
   try {
     const anchor = await media.frameStep({ schema_version: '1.0.0', capture_session_id: descriptor.value.capture_session_id, playback_window_id: descriptor.value.playback_window_id, mapping_version: descriptor.value.mapping_version, capture_frame_index: authoritativeAnchor.value.capture_frame_index, direction })
     authoritativeAnchor.value = anchor
-    if (video.value) video.value.currentTime = Number(BigInt(anchor.player_media_time_us) - BigInt(descriptor.value.presentation_origin_capture_us)) / 1_000_000
+    const localUs = BigInt(anchor.player_media_time_us)
+    if (localUs < 0n || localUs > 86_400_000_000n) throw new RangeError('frame-step returned an unbounded player time')
+    if (video.value) video.value.currentTime = Number(localUs) / 1_000_000
   } catch (error) { mediaError.value = error instanceof Error ? error.message : '逐幀請求失敗' }
 }
 function dispatchHotkeyCommand(action: HotkeyCommand) { action.startsWith('frame_') ? dispatchMediaAction(action as MediaAction) : dispatchAnnotationAction(action as AnnotationAction) }

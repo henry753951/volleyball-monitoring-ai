@@ -7,11 +7,13 @@ export function useDvrPlayback(video: Ref<HTMLVideoElement | null>) {
   const activeWindow = shallowRef<PlaybackWindowDescriptor | null>(null)
   const loading = ref(false)
   let hls: Hls | null = null
+  let generation = 0
 
   const attach = async (descriptor: PlaybackWindowDescriptor) => {
     const element = video.value
     if (!element) throw new Error('video element is not mounted')
 
+    const currentGeneration = ++generation
     loading.value = true
     try {
       hls?.destroy()
@@ -49,6 +51,7 @@ export function useDvrPlayback(video: Ref<HTMLVideoElement | null>) {
         throw new Error('HLS playback is not supported by this browser')
       }
 
+      if (currentGeneration !== generation) return
       activeWindow.value = descriptor
       // target_player_media_time_us is already player-local. Only this bounded
       // value may cross into Number seconds; presentation origin is canonical.
@@ -56,6 +59,14 @@ export function useDvrPlayback(video: Ref<HTMLVideoElement | null>) {
     } finally {
       loading.value = false
     }
+  }
+
+  const detach = () => {
+    generation += 1
+    hls?.destroy(); hls = null
+    const element = video.value
+    if (element) { element.removeAttribute('src'); element.load() }
+    activeWindow.value = null
   }
 
   const seekCaptureTime = async (
@@ -82,7 +93,7 @@ export function useDvrPlayback(video: Ref<HTMLVideoElement | null>) {
     }
   }
 
-  onBeforeUnmount(() => hls?.destroy())
+  onBeforeUnmount(detach)
 
-  return { activeWindow, loading, attach, seekCaptureTime }
+  return { activeWindow, loading, attach, detach, seekCaptureTime }
 }

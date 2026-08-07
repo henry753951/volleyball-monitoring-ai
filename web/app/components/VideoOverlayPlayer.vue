@@ -16,8 +16,8 @@ watch(cursor, (value) => {
   if (value) emit('cursor', value)
 })
 
-watch(() => props.descriptor, async (descriptor) => {
-  if (!descriptor) return
+const attachDescriptor = async (descriptor: PlaybackWindowDescriptor | null) => {
+  if (!descriptor) { playback.detach(); return }
   const element = video.value
   if (!element) return
   try {
@@ -26,7 +26,8 @@ watch(() => props.descriptor, async (descriptor) => {
   } catch (error) {
     emit('error', error instanceof Error ? error : new Error('Media manifest failed to load'))
   }
-}, { immediate: true })
+}
+watch([() => props.descriptor, video], ([descriptor]) => { void attachDescriptor(descriptor ?? null) }, { immediate: true })
 
 // Canvas drawing must map the actual video content rectangle, including letterboxing.
 // It consumes lazy-loaded FlatBuffers chunks; it never draws the video pixels itself.
