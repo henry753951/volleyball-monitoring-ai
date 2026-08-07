@@ -53,10 +53,21 @@ Date: 2026-08-07 (Asia/Taipei target release date)
 - Traefik returned HTTPS 200 for the PWA and GraphQL endpoints. A headed Playwright smoke loaded the home, settings and live routes after accepting the local self-signed certificate, then closed the browser session.
 - GitHub PR #2 ran and passed the required `contracts-sdk`, `typescript` and `compose-config` checks. `main` protection requires a PR, strict success from those checks, and resolved review conversations.
 
+## Integrated Phase 1B core-domain validation
+
+- The first 38-model Prisma migration deployed to fresh PostgreSQL databases and the persistent local development database. A second deploy reported no pending migrations.
+- The deterministic seed was executed twice on both an isolated review database and the local development database. It retained one seeded user, one match, two teams, two players, two roster entries and one initial side assignment.
+- The strict Pothos SDL matches ADR 0004 and exports reproducibly. It exposes authenticated viewer/list/detail queries, atomic setup, advisory-locked side swap and the required object/enums without nullable drift.
+- Server validation passed: 3 Vitest files and 19 tests, including 10 live PostgreSQL integration cases, plus source/test typecheck and build. Temporary databases are created and dropped per run; no test database/user remained after audit.
+- Web validation passed: 7 Vitest files and 21 tests, Nuxt typecheck and production PWA build. Tests cover adapter errors, auth routing, setup normalization/retention helpers and match loading/error/not-found state.
+- Feature PR #5 passed `contracts-sdk`, `typescript` and `compose-config`; its TypeScript job applied PostgreSQL 17 migrations, verified the generated SDL, ran repository validators, DB/server tests, remaining tests and all builds. Feature PR #6 passed the same three jobs against the final Web consumer.
+- Local Docker images were rebuilt with Bun 1.3.14. Server readiness returned PostgreSQL, Redis and MinIO `ok`; server and Web health checks passed through the rebuilt containers.
+- Same-origin HTTPS GraphQL E2E read the deterministic `OPERATOR`, listed the seeded match, created a complete real match, swapped sides at ordinal 3 and read the expected ordered assignment history.
+- Headed Chrome exercised home → setup validation → corrected submit → real UUID live route → home. It verified retained form input and the newly created match. The browser session and generated artifacts were removed. The sole console error was the known self-signed local TLS certificate warning.
+
 ## Not executed yet
 
-- No migration was created because the approved enum removal must precede the first migration.
-- The Phase 1B live database domain integration tests, one-hour media ingest/DVR proof, complete annotation persistence flow, external AI round trip and full iPad E2E remain future vertical-slice exit gates.
+- The two-hour media ingest/full-DVR proof, complete annotation persistence/immutable submission flow, external AI round trip, coach overlay flow and final physical-iPad acceptance remain future vertical-slice exit gates.
 
 The primary Agent reruns the following integrated gate before merging each phase or creating a migration:
 
