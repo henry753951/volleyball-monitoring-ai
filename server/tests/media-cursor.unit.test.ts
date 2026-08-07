@@ -427,6 +427,25 @@ describe('canonical frame-step HTTP', () => {
     expect(loadedSegmentIds).toEqual([[ids.segment2]])
   })
 
+  it('does not use an unready out-of-window segment for boundary detection', async () => {
+    visibleWindow = {
+      ...fullWindow(),
+      captureEndUs: firstIndex.availableEndUs,
+      segments: [firstMapping],
+    }
+    adjacent = { ...secondMapping, ready: false }
+    const response = await app.inject({
+      headers: testHeaders(),
+      method: 'POST',
+      payload: stepBody(firstIndex.samples.at(-1)!.captureFrameIndex, 'next'),
+      url: '/api/v1/media/frame-step',
+    })
+
+    expect(response.statusCode).toBe(422)
+    expect(response.json().code).toBe('SAMPLE_NOT_FOUND')
+    expect(loadedSegmentIds).toEqual([[ids.segment1]])
+  })
+
   it('rejects foreign sessions and malformed frame-step bodies', async () => {
     const foreign = await app.inject({
       headers: testHeaders(),

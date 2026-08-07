@@ -382,6 +382,7 @@ function adjacentMappingIsUsable(
     || adjacent.captureEpochId !== current.captureEpochId
     || adjacent.discontinuity !== current.discontinuity
     || adjacent.isGap
+    || !adjacent.ready
     || adjacent.firstFrameIndex === null
   ) return false
 
