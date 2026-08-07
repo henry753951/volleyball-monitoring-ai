@@ -1,4 +1,6 @@
 import { createHash } from 'node:crypto';
+import { realpath, stat } from 'node:fs/promises';
+import { relative, resolve, extname } from 'node:path';
 import type { SampleIndex } from './sample-index';
 
 export type FinalizedRecording = { captureSessionId: string; path: string; size: bigint; contentType: string; finalized: boolean; sha256: string };
@@ -14,3 +16,4 @@ export async function ingestFinalizedSegment(recording: FinalizedRecording, port
   try { const objects = await ports.buildObjects(recording); for (const object of objects) await ports.store.putUploading(object); for (const object of objects) await ports.store.verifyReady(object.key, { sha256: object.sha256, byteLength: object.byteLength, contentType: object.contentType, schemaVersion: '1.0.0' }); await ports.repository.publishReady({ idempotencyKey: idempotencyKey(recording), objectKeys: objects.map(o => o.key), sampleIndex }); return 'published'; } catch { return 'retry'; }
 }
 export function sha256(bytes: Uint8Array): string { return createHash('sha256').update(bytes).digest('hex'); }
+export async function parseFinalizedRecording(spoolRoot: string, candidate: string): Promise<string> { const root = await realpath(spoolRoot); const full = await realpath(resolve(spoolRoot, candidate)); const rel = relative(root, full); if (!rel || rel.startsWith('..') || rel.includes(':')) throw new Error('path traversal'); const s = await stat(full); if (!s.isFile() || s.size <= 0) throw new Error('empty or non-file recording'); if (!['.mp4','.m4s','.fmp4'].includes(extname(full).toLowerCase())) throw new Error('unknown recording extension'); return rel.replaceAll('\\','/'); }
