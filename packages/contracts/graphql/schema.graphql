@@ -2,16 +2,16 @@
 scalar BigInt
 
 type CourtSideAssignment {
-  effectiveFromRallyOrdinal: Int
+  effectiveFromRallyOrdinal: Int!
   effectiveToRallyOrdinal: Int
-  id: ID
-  leftTeam: Team
-  rightTeam: Team
+  id: ID!
+  leftTeamId: ID!
+  rightTeamId: ID!
 }
 
 input CreateMatchSetupInput {
-  leftTeam: TeamInput!
-  rightTeam: TeamInput!
+  leftTeam: TeamSetupInput!
+  rightTeam: TeamSetupInput!
   scheduledAt: DateTime
   title: String!
   venue: String
@@ -20,54 +20,73 @@ input CreateMatchSetupInput {
 scalar DateTime
 
 type Health {
-  service: String
-  status: String
+  service: String!
+  status: String!
 }
 
 scalar JSON
 
 type Match {
-  id: ID
-  roster: [MatchRosterEntry!]
-  sets: [MatchSet!]
-  teams: [Team!]
-  title: String
+  id: ID!
+  rosterEntries: [MatchRosterEntry!]!
+  scheduledAt: DateTime
+  sets: [MatchSet!]!
+  status: MatchStatus!
+  teams: [Team!]!
+  title: String!
   venue: String
 }
 
 type MatchRosterEntry {
-  displayNameSnapshot: String
-  id: ID
-  jerseyNumber: String
-  player: Player
+  id: ID!
+  jerseyNumber: String!
+  name: String!
+  teamId: ID!
 }
 
 type MatchSet {
-  assignments: [CourtSideAssignment!]
-  id: ID
-  setNumber: Int
+  id: ID!
+  leftScore: Int!
+  rightScore: Int!
+  setNumber: Int!
+  sideAssignments: [CourtSideAssignment!]!
+  status: SetStatus!
+}
+
+enum MatchStatus {
+  ARCHIVED
+  FINISHED
+  LIVE
+  PLANNED
 }
 
 type Mutation {
-  createMatchSetup(input: CreateMatchSetupInput!): Match
-  swapCourtSides(input: SwapCourtSidesInput!): MatchSet
+  createMatchSetup(input: CreateMatchSetupInput!): Match!
+  swapCourtSides(input: SwapCourtSidesInput!): MatchSet!
 }
 
 type Player {
-  id: ID
-  name: String
+  id: ID!
+  name: String!
+  teamId: ID!
 }
 
 type Query {
-  health: Health
+  health: Health!
   match(id: ID!): Match
-  matches: [Match!]
-  viewer: Viewer
+  matches: [Match!]!
+  viewer: Viewer!
 }
 
 input RosterInput {
   jerseyNumber: String!
   name: String!
+}
+
+enum SetStatus {
+  FINISHED
+  LIVE
+  PLANNED
 }
 
 input SwapCourtSidesInput {
@@ -76,20 +95,29 @@ input SwapCourtSidesInput {
 }
 
 type Team {
-  id: ID
-  name: String
-  players: [Player!]
-  shortName: String
+  id: ID!
+  name: String!
+  players: [Player!]!
+  shortName: String!
 }
 
-input TeamInput {
+input TeamSetupInput {
   name: String!
   roster: [RosterInput!]!
   shortName: String!
 }
 
+enum UserRole {
+  ADMIN
+  ANNOTATOR
+  COACH
+  OPERATOR
+  VIEWER
+}
+
 type Viewer {
-  displayName: String
-  email: String
-  id: ID
+  displayName: String!
+  email: String!
+  id: ID!
+  role: UserRole!
 }
