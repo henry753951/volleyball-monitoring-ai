@@ -13,6 +13,7 @@ class SoakHelpersTest(unittest.TestCase):
 
     def test_manifest_strips_quotes_and_whitespace(self):
         self.assertEqual(parse_manifest('#EXTM3U\n #EXTINF:2,\n  "init.mp4" \n media.mp4\n'), ["init.mp4", "media.mp4"])
+        self.assertEqual(parse_manifest('#EXT-X-MAP:URI="init.mp4"\n#EXTINF:2,\nmedia.mp4\n'), ["init.mp4", "media.mp4"])
 
     def test_thresholds_restarts_and_api_failures(self):
         result = summarize([{"memory_mib": 100, "restarts": 1, "api_failures": 2}], 200, 20)
