@@ -331,11 +331,12 @@ describe('durable service annotation command', () => {
   })
 
   it('parses but durably rejects non-Z v2 commands and stale service revisions', async () => {
-    const contact = parseAnnotationCommand({
+    const unsupported = parseAnnotationCommand({
       ...serviceCommand(randomUUID(), randomUUID()),
-      kind: 'CREATE_CONTACT_KEY_POINT',
+      kind: 'MOVE_KEY_POINT',
+      payload: { key_point_id: randomUUID(), playback_cursor: serviceCommand(randomUUID(), randomUUID()).payload.playback_cursor },
     })
-    await expect(service.apply(contact, identity)).resolves.toMatchObject({ code: 'UNSUPPORTED_COMMAND' })
+    await expect(service.apply(unsupported, identity)).resolves.toMatchObject({ code: 'UNSUPPORTED_COMMAND' })
     const stale = serviceCommand(randomUUID(), randomUUID())
     stale.base_revision = '3'
     const firstStale = await service.apply(stale, identity)
@@ -344,7 +345,7 @@ describe('durable service annotation command', () => {
     })
     const retriedStale = await service.apply(structuredClone(stale), identity)
     expect(JSON.stringify(retriedStale)).toBe(JSON.stringify(firstStale))
-    for (const command of [contact, stale]) {
+    for (const command of [unsupported, stale]) {
       await expect(db.annotationCommandReceipt.findUnique({ where: { commandId: command.command_id } })).resolves.toMatchObject({ accepted: false })
       await expect(db.rally.findUnique({ where: { id: command.rally_id } })).resolves.toBeNull()
     }
