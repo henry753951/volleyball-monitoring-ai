@@ -6,6 +6,14 @@ import {
   type AnnotationRallySnapshot,
 } from '@volleyball-monitoring/contracts'
 import { createAnnotationRealtimeClient, type AnnotationConnectionState, type AnnotationRealtimeClient } from '../lib/annotationRealtimeClient'
+import {
+  enqueueAnnotationCommand,
+  readAnnotationOutbox,
+  requireAnnotationOutboxConfirmation,
+  resolveAnnotationOutboxEntry,
+  writeAnnotationOutbox,
+  type AnnotationOutboxEntry,
+} from '../lib/annotationOutbox'
 import { createGraphQLTransport } from '../lib/coreDomain'
 import type { PlaybackCursorInput } from '../lib/mediaModel'
 import type { AnnotationAction } from '../utils/annotationHotkeys'
@@ -42,15 +50,37 @@ export function useAnnotationRoom() {
   const busy = ref(false)
   const error = ref<string | null>(null)
   const roomId = ref<string | null>(null)
+  const outbox = shallowRef<AnnotationOutboxEntry[]>([])
   const transport = createGraphQLTransport('/graphql')
   let realtime: AnnotationRealtimeClient | null = null
   let refreshTimer: ReturnType<typeof setInterval> | null = null
+  let flushPromise: Promise<void> | null = null
 
   const state = computed<'IDLE' | 'OPEN' | 'READY' | 'SUBMITTED' | 'VOIDED'>(() => {
     const status = snapshot.value?.snapshot.annotation_status
     return status ? status.toUpperCase() as 'OPEN' | 'READY' | 'SUBMITTED' | 'VOIDED' : 'IDLE'
   })
   const lastKeyPoint = computed(() => snapshot.value?.snapshot.key_points.at(-1) ?? null)
+  const pendingCount = computed(() => outbox.value.length)
+  const outboxNeedsConfirmation = computed(() => outbox.value.some(entry => entry.status === 'needs_confirmation'))
+
+  function storage() { return typeof window === 'undefined' ? null : window.localStorage }
+  function replaceOutbox(entries: AnnotationOutboxEntry[]) {
+    outbox.value = entries
+    const target = storage()
+    if (!target || !roomId.value) return
+    try { writeAnnotationOutbox(target, roomId.value, entries) }
+    catch { error.value = '無法保存本機待送出標註；請保持此頁開啟' }
+  }
+  function loadOutbox() {
+    const target = storage()
+    outbox.value = target && roomId.value ? readAnnotationOutbox(target, roomId.value) : []
+  }
+  function discardPending() {
+    replaceOutbox([])
+    error.value = null
+    void refreshActive()
+  }
 
   function acceptSnapshot(next: AnnotationRallySnapshot | null) {
     if (!next) return
@@ -85,8 +115,52 @@ export function useAnnotationRoom() {
       else if (snapshot.value && state.value !== 'SUBMITTED') await fetchSnapshot(snapshot.value.rally_id)
     }
     catch (cause) {
+      if (typeof navigator !== 'undefined' && !navigator.onLine) {
+        error.value = null
+        return
+      }
       error.value = cause instanceof Error ? cause.message : '無法同步標註狀態'
     }
+  }
+
+  function commandMatchesCurrentRevision(command: AnnotationCommand) {
+    const current = snapshot.value
+    if (command.kind === 'CREATE_SERVICE_KEY_POINT') return !current || ['SUBMITTED', 'VOIDED'].includes(state.value)
+    return Boolean(current && current.rally_id === command.rally_id && current.revision === command.base_revision)
+  }
+
+  function markForConfirmation(entry: AnnotationOutboxEntry, reason: string) {
+    replaceOutbox(requireAnnotationOutboxConfirmation(outbox.value, entry.command.command_id, reason))
+  }
+
+  function flushOutbox() {
+    if (flushPromise) return flushPromise
+    flushPromise = (async () => {
+      for (const queued of [...outbox.value]) {
+        if (!realtime?.ready() || queued.status === 'needs_confirmation') return
+        if (!commandMatchesCurrentRevision(queued.command)) {
+          markForConfirmation(queued, '伺服器 revision 已變更；請捨棄後在目前畫格重新操作')
+          return
+        }
+        let response: AnnotationCommandResponse
+        try { response = await realtime.send(queued.command) }
+        catch { return }
+        if (response.type === 'command_rejected') {
+          if (response.snapshot_refetch_required) {
+            if (snapshot.value) await fetchSnapshot(snapshot.value.rally_id).catch(() => null)
+            markForConfirmation(queued, response.message ?? '伺服器狀態已變更；請確認後重新操作')
+            return
+          }
+          replaceOutbox(resolveAnnotationOutboxEntry(outbox.value, queued.command.command_id))
+          error.value = response.message ?? '標註命令被拒絕'
+          return
+        }
+        replaceOutbox(resolveAnnotationOutboxEntry(outbox.value, queued.command.command_id))
+        error.value = null
+        await fetchSnapshot(response.rally_id).catch(() => refreshActive())
+      }
+    })().finally(() => { flushPromise = null })
+    return flushPromise
   }
 
   function connect(nextRoomId: string) {
@@ -96,11 +170,14 @@ export function useAnnotationRoom() {
     roomId.value = nextRoomId
     snapshot.value = null
     error.value = null
+    loadOutbox()
     realtime = createAnnotationRealtimeClient(nextRoomId, {
       onState: value => { connection.value = value },
-      onError: cause => { error.value = cause.message },
+      onError: (cause) => {
+        if (!['Annotation WebSocket unavailable', 'Annotation connection closed before acknowledgement'].includes(cause.message)) error.value = cause.message
+      },
       onMessage: (message) => {
-        if (message.type === 'connection_ready') void refreshActive()
+        if (message.type === 'connection_ready') void refreshActive().then(() => flushOutbox())
         if (message.type === 'rally_snapshot') acceptSnapshot(message)
       },
     })
@@ -174,15 +251,8 @@ export function useAnnotationRoom() {
   }
 
   async function sendCommand(command: AnnotationCommand) {
-    if (!realtime?.ready()) throw new Error('Annotation WebSocket 尚未連線')
-    const response: AnnotationCommandResponse = await realtime.send(command)
-    if (response.type === 'command_rejected') {
-      error.value = response.message ?? '標註命令被拒絕'
-      if (response.snapshot_refetch_required && snapshot.value) await fetchSnapshot(snapshot.value.rally_id)
-      return response
-    }
-    await fetchSnapshot(response.rally_id)
-    return response
+    replaceOutbox(enqueueAnnotationCommand(outbox.value, command))
+    if (realtime?.ready()) await flushOutbox()
   }
 
   async function dispatch(action: AnnotationAction, cursor: PlaybackCursorInput | null) {
@@ -232,6 +302,10 @@ export function useAnnotationRoom() {
     edit,
     error: readonly(error),
     lastKeyPoint,
+    outboxNeedsConfirmation,
+    pendingCommands: shallowReadonly(outbox),
+    pendingCount,
+    discardPending,
     refreshActive,
     snapshot: shallowReadonly(snapshot),
     state,
