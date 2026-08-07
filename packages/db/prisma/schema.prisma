@@ -417,6 +417,7 @@ model MediaAsset {
   analysisRawJson        AnalysisRun[]      @relation("AnalysisRawJson")
   analysisRawOverlay     AnalysisRun[]      @relation("AnalysisRawOverlay")
   analysisArtifacts      AnalysisArtifact[]
+  overlayChunks          OverlayChunk[]
 
   @@unique([bucket, objectKey])
   @@index([kind, state, createdAt])
@@ -836,6 +837,7 @@ model AnalysisRun {
   contactEvents        ContactEvent[]
   segments             BallPathSegment[]
   artifacts            AnalysisArtifact[]
+  overlayManifest      OverlayManifest?
 }
 
 model AnalysisArtifact {
@@ -848,6 +850,38 @@ model AnalysisArtifact {
   asset         MediaAsset     @relation(fields: [assetId], references: [id], onDelete: Restrict)
 
   @@unique([analysisRunId, kind, assetId])
+}
+
+model OverlayManifest {
+  analysisRunId   String         @id @db.Uuid
+  schemaVersion   String
+  overlayVersion  String
+  videoWidth      Int
+  videoHeight     Int
+  fpsNum          Int
+  fpsDen          Int
+  totalFrames     BigInt
+  chunkFrameCount Int
+  actionTaxonomy  Json?
+  createdAt       DateTime       @default(now())
+  analysisRun     AnalysisRun    @relation(fields: [analysisRunId], references: [id], onDelete: Cascade)
+  chunks          OverlayChunk[]
+}
+
+model OverlayChunk {
+  analysisRunId   String          @db.Uuid
+  chunkIndex      Int
+  startFrameIndex BigInt
+  frameCount      Int
+  assetId         String          @unique @db.Uuid
+  byteLength      BigInt
+  sha256          String
+  createdAt       DateTime        @default(now())
+  manifest        OverlayManifest @relation(fields: [analysisRunId], references: [analysisRunId], onDelete: Cascade)
+  asset           MediaAsset      @relation(fields: [assetId], references: [id], onDelete: Restrict)
+
+  @@id([analysisRunId, chunkIndex])
+  @@index([analysisRunId, startFrameIndex])
 }
 
 model AnalysisTrack {

@@ -1,9 +1,8 @@
 from __future__ import annotations
 
-import struct
 from uuid import NAMESPACE_URL, uuid5
 
-from volleyball_monitoring_ai import AnalysisBundle, AIJobRequest, AnalysisResult, create_provider_app
+from volleyball_monitoring_ai import AnalysisBundle, AIJobRequest, AnalysisResult, build_empty_overlay, create_provider_app
 
 
 def analyze(job: AIJobRequest, _clip) -> AnalysisBundle:
@@ -69,7 +68,7 @@ def analyze(job: AIJobRequest, _clip) -> AnalysisBundle:
             "extensions": {},
         }
     )
-    overlay = struct.pack("<I4sHHI", 12, b"VOV1", 4, 4, 4)
+    overlay = build_empty_overlay(job, analysis_id=analysis_id, analysis_version="fake-provider-v1")
     return AnalysisBundle(result=result, overlay_bytes=overlay)
 
 

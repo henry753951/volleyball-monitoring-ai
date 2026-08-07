@@ -1,5 +1,17 @@
 # Progress
 
+## 2026-08-07 — Phase 5 windowed FlatBuffers overlay completion
+
+Status: implemented directly on `integration/phase3-annotation`, migrated and runtime-verified in the local Compose stack.
+
+- Added the official FlatBuffers runtimes to the TypeScript contracts and uv-managed Python SDK. Central callback ingest now parses the full VOV1 table, validates passthrough/video metadata and every SoA column, then creates fixed VOC1 chunks; the fake provider emits a real no-detection VOV1 with missing data represented by flags rather than fabricated observations.
+- Added durable `OverlayManifest`/`OverlayChunk` metadata and immutable MinIO chunk assets. Central REST 1.3.0 serves an authorization-filtered manifest and chunk bytes without exposing storage identity.
+- Replay now verifies chunk length/SHA-256/schema, keeps only the current and next chunk, cancels stale seek requests, and offers Off/Tracking/Coach/Tactical/Debug modes plus bbox, track ID, action, ball, trail, footprint and confidence layers. Action remains disabled when no taxonomy exists; contact-event JSON remains a fallback for historical runs.
+- Runtime proof: a fresh fake-provider AiJob completed in one attempt and produced AnalysisRun `985daee2-714d-4e2a-9514-0ebf58db1f51`, a 60-frame manifest and one 816-byte VOC1 chunk. The authorized manifest and chunk endpoints both returned HTTP 200; the chunk content type and byte count matched persisted metadata, and the replay route returned HTTP 200.
+- Validation passed: 11 contract tests, 4 DB tests, Prisma validation/generation/structural check (43 models, 25 enums), Server/Web typecheck and 13 frozen-uv SDK tests.
+
+Open limitations: saved Analysis Views, correction-draft UI, local annotation outbox/presence polish and Phase 7 restart/backup/retention acceptance remain.
+
 ## 2026-08-07 — Contract Lab-aligned Annotation editor checkpoint
 
 Status: implemented directly on `integration/phase3-annotation`; this is the accelerated single-branch checkpoint requested by the user.

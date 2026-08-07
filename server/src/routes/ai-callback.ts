@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Transform } from 'node:stream'
 import { pipeline } from 'node:stream/promises'
+import { chunkProviderOverlay, encodeBrowserOverlayChunk, parseProviderOverlaySequence, type ProviderOverlaySequence } from '@volleyball-monitoring/contracts'
 import multipart from '@fastify/multipart'
 import { db } from '@volleyball-monitoring/db'
 import { ArtifactState, AssociationState, BallObservationState, CallbackKind, JobStatus, MarkerKind, MediaAssetKind, Prisma, ProcessingStatus, SegmentEndpoint, SegmentRenderState, TrackCourtSide } from '@volleyball-monitoring/db/client'
@@ -83,6 +84,30 @@ function invariantError(result: Record<string, unknown>, job: Awaited<ReturnType
   return null
 }
 
+function overlayInvariantError(overlay: ProviderOverlaySequence, result: Record<string, unknown>, job: NonNullable<Awaited<ReturnType<typeof loadJob>>>) {
+  const expected = {
+    aiJobId: job.id,
+    rallySubmissionId: job.submissionId,
+    rallyId: job.submission.rallyId,
+    matchId: job.submission.rally.matchId,
+    annotationRevision: job.submission.annotationRevision.toString(),
+    clipAssetId: job.clipJob.clipAssetId ?? '',
+    analysisId: String(result.analysis_id),
+    analysisVersion: String(result.analysis_version),
+  }
+  for (const [key, value] of Object.entries(expected)) {
+    const actual = key === 'annotationRevision' ? overlay.annotationRevision.toString() : overlay[key as keyof ProviderOverlaySequence]
+    if (actual !== value) return `overlay ${key} passthrough mismatch`
+  }
+  const payload = isRecord(job.requestPayload) ? job.requestPayload : null
+  const clip = payload && isRecord(payload.clip) ? payload.clip : null
+  const video = clip && isRecord(clip.video) ? clip.video : null
+  const fps = video && isRecord(video.fps) ? video.fps : null
+  if (!video || !fps) return 'AI request video metadata is unavailable'
+  if (overlay.videoWidth !== video.width || overlay.videoHeight !== video.height || overlay.fpsNum !== fps.num || overlay.fpsDen !== fps.den || overlay.totalFrames.toString() !== video.total_frames) return 'overlay video metadata mismatch'
+  return null
+}
+
 function loadJob(aiJobId: string) {
   return db.aiJob.findUnique({ where: { id: aiJobId }, include: { submission: { include: { rally: true, keyPoints: { orderBy: { sequenceIndex: 'asc' } } } }, clipJob: { include: { clipAsset: true, keyPointMappings: true } } } })
 }
@@ -146,23 +171,46 @@ export const aiCallbackRoutes: FastifyPluginAsync = async (app) => {
       }
 
       if (!analysisBytes || !overlayPath || !overlayInfo || analysisHash !== String(metadata.analysis_sha256).toLowerCase() || overlayInfo.sha256 !== String(metadata.overlay_sha256).toLowerCase() || analysisBytes.byteLength !== Number(metadata.analysis_bytes) || overlayInfo.bytes !== Number(metadata.overlay_bytes)) return reject(reply, 422, 'CHECKSUM_MISMATCH', 'Completed callback artifact checksum or length mismatch')
-      if (overlayInfo.bytes < 16 || (await readFile(overlayPath)).subarray(4, 8).toString('ascii') !== 'VOV1') return reject(reply, 415, 'INVALID_OVERLAY', 'Overlay is not a VOV1 FlatBuffer')
+      const overlayBytes = await readFile(overlayPath)
+      if (overlayInfo.bytes < 16 || overlayBytes.subarray(4, 8).toString('ascii') !== 'VOV1') return reject(reply, 415, 'INVALID_OVERLAY', 'Overlay is not a VOV1 FlatBuffer')
       const result = JSON.parse(analysisBytes.toString('utf8')) as unknown
       if (!validateResult(result) || !isRecord(result)) return reject(reply, 422, 'INVALID_ANALYSIS', 'Analysis result failed schema validation')
       const invariant = invariantError(result, job)
       if (invariant) return reject(reply, 409, 'PASSTHROUGH_MISMATCH', invariant)
+      let overlaySequence: ProviderOverlaySequence
+      try { overlaySequence = parseProviderOverlaySequence(overlayBytes) }
+      catch { return reject(reply, 415, 'INVALID_OVERLAY', 'Overlay FlatBuffer failed schema or column validation') }
+      const overlayInvariant = overlayInvariantError(overlaySequence, result, job)
+      if (overlayInvariant) return reject(reply, 409, 'PASSTHROUGH_MISMATCH', overlayInvariant)
+      const overlayChunkFrameCount = Number(process.env.OVERLAY_CHUNK_FRAME_COUNT ?? 120)
+      if (!Number.isSafeInteger(overlayChunkFrameCount) || overlayChunkFrameCount < 1 || overlayChunkFrameCount > 3_600) return reject(reply, 503, 'OVERLAY_CONFIGURATION_INVALID', 'Overlay chunk configuration is invalid')
+      const browserChunks = chunkProviderOverlay(overlaySequence, overlayChunkFrameCount).map((chunk) => {
+        const bytes = Buffer.from(encodeBrowserOverlayChunk(chunk))
+        return { chunk, bytes, sha256: sha256(bytes) }
+      })
 
       const objectStore = storage()
       const analysisKey = `analysis/${job.submissionId}/${aiJobId}/${metadata.callback_id}.json`
       const overlayKey = `analysis/${job.submissionId}/${aiJobId}/${metadata.callback_id}.fb`
       await objectStore.client.putObject(objectStore.bucket, analysisKey, analysisBytes, analysisBytes.byteLength, { 'Content-Type': 'application/json', 'x-amz-meta-sha256': analysisHash, 'x-amz-meta-byte-length': String(analysisBytes.byteLength), 'x-amz-meta-artifact-kind': 'analysis-json' })
       await objectStore.client.fPutObject(objectStore.bucket, overlayKey, overlayPath, { 'Content-Type': 'application/vnd.volleyball.overlay+flatbuffers;version=1', 'x-amz-meta-sha256': overlayInfo.sha256, 'x-amz-meta-byte-length': String(overlayInfo.bytes), 'x-amz-meta-artifact-kind': 'overlay-sequence' })
+      for (const item of browserChunks) {
+        const chunkKey = `analysis/${job.submissionId}/${aiJobId}/${metadata.callback_id}/chunks/${item.chunk.chunkIndex}.fb`
+        await objectStore.client.putObject(objectStore.bucket, chunkKey, item.bytes, item.bytes.byteLength, { 'Content-Type': 'application/vnd.volleyball.overlay-chunk+flatbuffers;version=1', 'x-amz-meta-sha256': item.sha256, 'x-amz-meta-byte-length': String(item.bytes.byteLength), 'x-amz-meta-artifact-kind': 'overlay-chunk' })
+      }
       const producer = isRecord(result.producer) ? result.producer : {}
       const response = { schema_version: '1.0.0', accepted: true, callback_id: metadata.callback_id, analysis_id: result.analysis_id }
       await db.$transaction(async (tx) => {
         const rawAnalysis = await tx.mediaAsset.create({ data: { kind: MediaAssetKind.ANALYSIS_JSON, bucket: objectStore.bucket, objectKey: analysisKey, contentType: 'application/json', byteLength: BigInt(analysisBytes!.byteLength), sha256: analysisHash!, internalSchemaVersion: '1.0.0', state: ArtifactState.READY, readyAt: new Date() } })
         const rawOverlay = await tx.mediaAsset.create({ data: { kind: MediaAssetKind.OVERLAY_SEQUENCE, bucket: objectStore.bucket, objectKey: overlayKey, contentType: 'application/vnd.volleyball.overlay+flatbuffers;version=1', byteLength: BigInt(overlayInfo!.bytes), sha256: overlayInfo!.sha256, internalSchemaVersion: '1.0.0', state: ArtifactState.READY, readyAt: new Date() } })
         const analysisRun = await tx.analysisRun.create({ data: { aiJobId, submissionId: job.submissionId, analysisId: String(result.analysis_id), analysisVersion: String(result.analysis_version), resultSchemaVersion: '1.0.0', overlaySchemaVersion: 'flatbuffers_v1', inputClipSha256: String(result.input_clip_sha256), producerName: String(producer.name), producerBuildId: String(producer.build_id), producerSdkVersion: typeof producer.sdk_version === 'string' ? producer.sdk_version : null, status: JobStatus.COMPLETED, rawAnalysisAssetId: rawAnalysis.id, rawOverlayAssetId: rawOverlay.id, summary: json(result.summary), activatedAt: new Date() } })
+        await tx.overlayManifest.create({ data: { analysisRunId: analysisRun.id, schemaVersion: '1.0.0', overlayVersion: '1', videoWidth: overlaySequence.videoWidth, videoHeight: overlaySequence.videoHeight, fpsNum: overlaySequence.fpsNum, fpsDen: overlaySequence.fpsDen, totalFrames: overlaySequence.totalFrames, chunkFrameCount: overlayChunkFrameCount, actionTaxonomy: overlaySequence.actionTaxonomyId ? json({ id: overlaySequence.actionTaxonomyId, version: overlaySequence.actionTaxonomyVersion, labels: overlaySequence.actionLabels }) : Prisma.JsonNull } })
+        for (const item of browserChunks) {
+          const chunkKey = `analysis/${job.submissionId}/${aiJobId}/${metadata.callback_id}/chunks/${item.chunk.chunkIndex}.fb`
+          const asset = await tx.mediaAsset.create({ data: { kind: MediaAssetKind.OVERLAY_CHUNK, bucket: objectStore.bucket, objectKey: chunkKey, contentType: 'application/vnd.volleyball.overlay-chunk+flatbuffers;version=1', byteLength: BigInt(item.bytes.byteLength), sha256: item.sha256, internalSchemaVersion: '1.0.0', state: ArtifactState.READY, readyAt: new Date() } })
+          await tx.overlayChunk.create({ data: { analysisRunId: analysisRun.id, chunkIndex: item.chunk.chunkIndex, startFrameIndex: item.chunk.startFrameIndex, frameCount: item.chunk.frameCount, assetId: asset.id, byteLength: BigInt(item.bytes.byteLength), sha256: item.sha256 } })
+          await tx.analysisArtifact.create({ data: { analysisRunId: analysisRun.id, kind: MediaAssetKind.OVERLAY_CHUNK, assetId: asset.id } })
+        }
         const tracks = records(result.tracks)
         if (tracks.length) await tx.analysisTrack.createMany({ data: tracks.map(track => ({ analysisRunId: analysisRun.id, trackId: Number(track.track_id), courtSide: String(track.court_side).toUpperCase() as TrackCourtSide, firstFrame: BigInt(String(track.first_frame_index)), lastFrame: BigInt(String(track.last_frame_index)), meanConfidence: typeof track.mean_confidence === 'number' ? track.mean_confidence : null, metadata: track.metadata === undefined ? Prisma.JsonNull : json(track.metadata) })) })
         const mappingByPoint = new Map(job.clipJob.keyPointMappings.map(mapping => [mapping.submissionKeyPointId, mapping]))

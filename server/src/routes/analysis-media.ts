@@ -28,4 +28,38 @@ export const analysisMediaRoutes: FastifyPluginAsync = async (app) => {
     reply.header('Content-Length', String(total))
     return reply.send(await storage.getObject(asset.bucket, asset.objectKey))
   })
+
+  app.get<{ Params: { analysisRunId: string } }>('/api/v1/analysis-runs/:analysisRunId/overlay-manifest', async (request, reply) => {
+    if (!UUID.test(request.params.analysisRunId)) return reply.status(404).send({ code: 'NOT_FOUND' })
+    const identity = await authenticateDevelopmentAnnotationRequest(request, db)
+    if (!identity) return reply.status(401).send({ code: 'UNAUTHENTICATED' })
+    const manifest = await db.overlayManifest.findFirst({
+      where: { analysisRunId: request.params.analysisRunId, analysisRun: { status: JobStatus.COMPLETED, submission: { rally: { voidedAt: null, ...(identity.role === UserRole.ADMIN ? {} : { match: { members: { some: { userId: identity.userId } } } }) } } } },
+      include: { chunks: { where: { asset: { state: ArtifactState.READY, deletedAt: null } }, include: { asset: { select: { contentType: true } } }, orderBy: { chunkIndex: 'asc' } } },
+    })
+    if (!manifest) return reply.status(404).send({ code: 'NOT_FOUND' })
+    return reply.header('Cache-Control', 'private, no-store').send({
+      schema_version: manifest.schemaVersion,
+      analysis_id: (await db.analysisRun.findUniqueOrThrow({ where: { id: manifest.analysisRunId }, select: { analysisId: true } })).analysisId,
+      overlay_version: manifest.overlayVersion,
+      video: { width: manifest.videoWidth, height: manifest.videoHeight, fps: { num: manifest.fpsNum, den: manifest.fpsDen }, total_frames: manifest.totalFrames.toString() },
+      chunk_frame_count: manifest.chunkFrameCount,
+      chunks: manifest.chunks.map(chunk => ({ chunk_index: chunk.chunkIndex, start_frame_index: chunk.startFrameIndex.toString(), frame_count: chunk.frameCount, url: `/api/v1/analysis-runs/${manifest.analysisRunId}/overlay-chunks/${chunk.chunkIndex}`, byte_length: chunk.byteLength.toString(), sha256: chunk.sha256 })),
+      action_taxonomy: manifest.actionTaxonomy,
+    })
+  })
+
+  app.get<{ Params: { analysisRunId: string; chunkIndex: string } }>('/api/v1/analysis-runs/:analysisRunId/overlay-chunks/:chunkIndex', async (request, reply) => {
+    if (!UUID.test(request.params.analysisRunId) || !/^(0|[1-9][0-9]*)$/.test(request.params.chunkIndex)) return reply.status(404).send({ code: 'NOT_FOUND' })
+    const chunkIndex = Number(request.params.chunkIndex)
+    if (!Number.isSafeInteger(chunkIndex)) return reply.status(404).send({ code: 'NOT_FOUND' })
+    const identity = await authenticateDevelopmentAnnotationRequest(request, db)
+    if (!identity) return reply.status(401).send({ code: 'UNAUTHENTICATED' })
+    const chunk = await db.overlayChunk.findFirst({
+      where: { analysisRunId: request.params.analysisRunId, chunkIndex, manifest: { analysisRun: { status: JobStatus.COMPLETED, submission: { rally: { voidedAt: null, ...(identity.role === UserRole.ADMIN ? {} : { match: { members: { some: { userId: identity.userId } } } }) } } } }, asset: { state: ArtifactState.READY, deletedAt: null } },
+      include: { asset: { select: { bucket: true, objectKey: true, contentType: true } } },
+    })
+    if (!chunk) return reply.status(404).send({ code: 'NOT_FOUND' })
+    return reply.header('Cache-Control', 'private, max-age=300').header('Content-Length', chunk.byteLength.toString()).header('ETag', `"${chunk.sha256}"`).type(chunk.asset.contentType).send(await storage.getObject(chunk.asset.bucket, chunk.asset.objectKey))
+  })
 }

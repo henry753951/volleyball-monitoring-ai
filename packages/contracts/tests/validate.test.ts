@@ -68,6 +68,7 @@ describe("golden contract fixtures", () => {
       "examples/annotation/submit.json": "annotation/realtime.schema.json",
       "examples/ai/capabilities.json": "ai/capabilities.schema.json",
       "examples/ai/job-accepted.json": "ai/job-accepted.schema.json",
+      "examples/ai/overlay-manifest.json": "ai/overlay-manifest.schema.json",
     };
     for (const [instance, schema] of Object.entries(pairs)) expect(validator(schema)(load(instance)), instance).toBe(true);
   });

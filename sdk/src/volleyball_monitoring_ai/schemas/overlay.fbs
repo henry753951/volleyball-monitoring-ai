@@ -34,15 +34,22 @@ table OverlaySequence {
   frame_bboxes:[FrameBBoxU16];
   frame_foot_positions:[FramePosU16];
   court_positions:[CourtPosF32];
+  // player_flags: bit 0 frame_bbox valid, bit 1 frame_foot_position valid,
+  // bit 2 court_position valid. Unknown bits must be ignored by v1 consumers.
   player_flags:[ubyte];
+  // Quantized 0..254; 255 is the wire sentinel for missing confidence (-1 semantic).
   player_confidences:[ubyte];
   action_taxonomy_id:string;
   action_taxonomy_version:string;
   action_labels:[string];
+  // 65535 means action is missing.
   action_label_ids:[ushort];
+  // Quantized 0..254; 255 means missing.
   action_confidences:[ubyte];
   ball_frame_positions:[FramePosU16];
+  // ball_flags bit 0 means frame position is valid.
   ball_flags:[ubyte];
+  // Quantized 0..254; 255 means missing.
   ball_confidences:[ubyte];
 }
 

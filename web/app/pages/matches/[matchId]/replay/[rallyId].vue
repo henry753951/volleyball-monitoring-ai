@@ -13,6 +13,13 @@ const video = useTemplateRef<HTMLVideoElement>('video')
 const currentFrame = ref(0)
 const videoWidth = ref(0)
 const videoHeight = ref(0)
+const overlayMode = ref<'off' | 'tracking' | 'coach' | 'tactical' | 'debug'>('coach')
+const overlayLayers = reactive({ bbox: true, trackId: true, action: false, ball: true, trail: false, footprint: false, confidence: false })
+const overlay = useOverlayChunks(computed(() => replay.value?.analysis?.id ?? null), currentFrame)
+const overlayModes = ['off', 'tracking', 'coach', 'tactical', 'debug'] as const
+const overlayLayerOptions = [
+  ['bbox', 'BBox'], ['trackId', 'Track ID'], ['action', 'Action'], ['ball', 'Ball'], ['trail', 'Trail'], ['footprint', 'Footprint'], ['confidence', 'Confidence'],
+] as const
 
 onMounted(async () => {
   try { replay.value = await createCoachDomainClient(createGraphQLTransport('/graphql')).rallyReplay(rallyId.value) }
@@ -46,6 +53,18 @@ function eventLabel(event: ReplayContactEvent) {
   if (event.is_terminal) return 'Terminal'
   return event.marker_kind === 'service' ? 'Service' : `Contact ${event.sequence_index}`
 }
+function selectOverlayMode(mode: typeof overlayModes[number]) {
+  overlayMode.value = mode
+  Object.assign(overlayLayers, mode === 'off'
+    ? { bbox: false, trackId: false, action: false, ball: false, trail: false, footprint: false, confidence: false }
+    : mode === 'tracking'
+      ? { bbox: true, trackId: true, action: false, ball: true, trail: false, footprint: false, confidence: false }
+      : mode === 'tactical'
+        ? { bbox: false, trackId: false, action: false, ball: true, trail: true, footprint: true, confidence: false }
+        : mode === 'debug'
+          ? { bbox: true, trackId: true, action: true, ball: true, trail: true, footprint: true, confidence: true }
+          : { bbox: true, trackId: true, action: true, ball: true, trail: false, footprint: false, confidence: false })
+}
 </script>
 
 <template>
@@ -63,7 +82,7 @@ function eventLabel(event: ReplayContactEvent) {
         <section class="overflow-hidden rounded-2xl bg-stone-950 shadow-lg shadow-stone-950/15">
           <div v-if="replay.clip" class="relative aspect-video">
             <video ref="video" :src="replay.clip.url" controls playsinline preload="metadata" class="size-full object-contain" @loadedmetadata="updateVideoState" @timeupdate="updateVideoState" @seeked="updateVideoState" />
-            <ReplayOverlayCanvas v-if="replay.analysis" :events="replay.analysis.contact_events" :frame="currentFrame" :video-width="videoWidth" :video-height="videoHeight" />
+            <ReplayOverlayCanvas v-if="replay.analysis && overlayMode !== 'off'" :events="replay.analysis.contact_events" :frame="currentFrame" :video-width="videoWidth" :video-height="videoHeight" :chunk="overlay.currentChunk.value" :action-labels="overlay.actionLabels.value" :mode="overlayMode" :layers="overlayLayers" />
           </div>
           <div v-else class="grid aspect-video place-items-center px-6 text-center text-white/70">Canonical clip 尚未完成。</div>
           <div class="flex flex-wrap items-center justify-between gap-2 border-t border-white/10 px-4 py-3 text-sm text-white/70"><span>Frame {{ currentFrame }}</span><span>{{ replay.clip ? `${replay.clip.fps.num}/${replay.clip.fps.den} fps` : '等待 clip' }}</span></div>
@@ -71,7 +90,7 @@ function eventLabel(event: ReplayContactEvent) {
 
         <aside class="space-y-4">
           <section class="rounded-2xl bg-white p-5 shadow-sm"><h2 class="flex items-center gap-2 font-semibold"><Gauge class="size-5" />Rally outcome</h2><p class="mt-4 text-xl font-semibold">{{ replay.rally.outcome.scoring_team?.name || (replay.rally.outcome.score_resolution === 'unknown' ? '結果未知' : replay.rally.outcome.scoring_court_side) }}</p><p class="mt-1 text-sm text-stone-500">{{ replay.rally.left_team.shortName }} vs {{ replay.rally.right_team.shortName }}</p></section>
-          <section class="rounded-2xl bg-white p-5 shadow-sm"><h2 class="flex items-center gap-2 font-semibold"><Cpu class="size-5" />Analysis</h2><template v-if="replay.analysis"><p class="mt-4 font-semibold">{{ replay.analysis.version }}</p><p class="mt-1 text-sm text-stone-500">{{ replay.analysis.producer.name }} · {{ replay.analysis.producer.build_id }}</p><div class="mt-4 grid grid-cols-3 gap-2 text-center"><div class="rounded-xl bg-stone-100 p-2"><strong>{{ replay.analysis.tracks.length }}</strong><span class="block text-xs text-stone-500">tracks</span></div><div class="rounded-xl bg-stone-100 p-2"><strong>{{ replay.analysis.contact_events.length }}</strong><span class="block text-xs text-stone-500">events</span></div><div class="rounded-xl bg-stone-100 p-2"><strong>{{ replay.analysis.paths.length }}</strong><span class="block text-xs text-stone-500">paths</span></div></div></template><p v-else class="mt-4 text-sm text-stone-500">分析尚未完成；green submission 不等於 AI 完成。</p></section>
+          <section class="rounded-2xl bg-white p-5 shadow-sm"><h2 class="flex items-center gap-2 font-semibold"><Cpu class="size-5" />Analysis</h2><template v-if="replay.analysis"><p class="mt-4 font-semibold">{{ replay.analysis.version }}</p><p class="mt-1 text-sm text-stone-500">{{ replay.analysis.producer.name }} · {{ replay.analysis.producer.build_id }}</p><div class="mt-4 grid grid-cols-3 gap-2 text-center"><div class="rounded-xl bg-stone-100 p-2"><strong>{{ replay.analysis.tracks.length }}</strong><span class="block text-xs text-stone-500">tracks</span></div><div class="rounded-xl bg-stone-100 p-2"><strong>{{ replay.analysis.contact_events.length }}</strong><span class="block text-xs text-stone-500">events</span></div><div class="rounded-xl bg-stone-100 p-2"><strong>{{ replay.analysis.paths.length }}</strong><span class="block text-xs text-stone-500">paths</span></div></div><div class="mt-4 border-t border-stone-200 pt-4"><div class="flex items-center justify-between gap-2"><h3 class="text-sm font-semibold">Overlay</h3><span class="text-xs text-stone-500">{{ overlay.currentChunk.value ? 'VOC1 chunk loaded' : overlay.pending.value ? 'loading…' : 'event fallback' }}</span></div><div class="mt-2 flex flex-wrap gap-1"><button v-for="mode in overlayModes" :key="mode" type="button" class="rounded-lg border px-2 py-1 text-xs capitalize" :class="overlayMode === mode ? 'border-teal-600 bg-teal-50 text-teal-900' : 'border-stone-200'" @click="selectOverlayMode(mode)">{{ mode }}</button></div><div class="mt-2 flex flex-wrap gap-1"><button v-for="option in overlayLayerOptions" :key="option[0]" type="button" class="rounded-lg border px-2 py-1 text-xs" :class="overlayLayers[option[0]] ? 'border-stone-500 bg-stone-100' : 'border-stone-200 text-stone-400'" :disabled="overlayMode === 'off' || (option[0] === 'action' && !overlay.actionLabels.value.length)" @click="overlayLayers[option[0]] = !overlayLayers[option[0]]">{{ option[1] }}</button></div><p v-if="overlay.error.value" class="mt-2 text-xs text-amber-700">Chunk unavailable: {{ overlay.error.value.message }}. Contact-event overlay remains available.</p></div></template><p v-else class="mt-4 text-sm text-stone-500">分析尚未完成；green submission 不等於 AI 完成。</p></section>
         </aside>
       </div>
 
