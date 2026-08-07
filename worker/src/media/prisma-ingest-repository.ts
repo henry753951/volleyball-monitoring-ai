@@ -657,7 +657,7 @@ function sha256(bytes: Uint8Array): string {
   return createHash('sha256').update(bytes).digest('hex')
 }
 
-class PrismaFinalizedMediaIngestRepository {
+export class PrismaIngestRepository {
   readonly #client: PrismaClient
   readonly #plannerConfig: CaptureEpochPlannerConfig
   readonly #maxTransactionAttempts: number
@@ -1154,9 +1154,5 @@ export function createPrismaIngestRepository(
   client: PrismaClient,
   options: PrismaIngestRepositoryOptions = {},
 ) {
-  return new PrismaFinalizedMediaIngestRepository(client, options)
+  return new PrismaIngestRepository(client, options)
 }
-
-export type PrismaIngestRepository = ReturnType<
-  typeof createPrismaIngestRepository
->
