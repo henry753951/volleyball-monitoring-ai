@@ -9,6 +9,7 @@ import { schema } from './graphql/schema.js'
 import { evaluateReadiness, type ReadinessProbe } from './health/readiness.js'
 import { mediaCursorRoutes } from './media/cursor-routes.js'
 import { createMinioObjectReaderFromEnv } from './media/minio-object-reader.js'
+import { createPersistedSampleSnapResolver } from './media/sample-snap-resolver.js'
 import { mediaPlaybackRoutes } from './routes/media-playback.js'
 
 const app = Fastify({ logger: true })
@@ -53,7 +54,7 @@ await app.register(cors, {
   credentials: true,
 })
 await app.register(websocket)
-await app.register(mediaPlaybackRoutes({ objectReader: mediaObjectReader }))
+await app.register(mediaPlaybackRoutes({ objectReader: mediaObjectReader, resolveSample: createPersistedSampleSnapResolver(db, mediaObjectReader) }))
 await app.register(mediaCursorRoutes({ objectReader: mediaObjectReader }))
 
 const yoga = createYoga<{ req: FastifyRequest; reply: FastifyReply }>({
