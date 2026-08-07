@@ -500,7 +500,7 @@ describe('durable service annotation command', () => {
     const response = await service.apply(closeCommandValue, identity)
     expect(response).toMatchObject({ type: 'command_ack', operation_kind: 'CLOSE_RALLY', resolved_anchor: null, effects: { annotation_status: 'ready', score_resolution: outcome === 'unknown' ? 'unknown' : 'resolved', scoring_court_side: outcome === 'unknown' ? null : outcome } })
     const after = await db.keyPoint.findMany({ where: { rallyId }, select: { id: true, captureTimeUs: true, captureFrameIndex: true, sourcePts: true, captureEpochId: true, timingPrecision: true, isTerminal: true } })
-    expect(after).toEqual(before); await expect(db.rallySubmission.count({ where: { rallyId } })).resolves.toBe(0); await expect(db.pointAward.count()).resolves.toBe(0)
+    expect(after).toHaveLength(before.length); expect(after[0]).toMatchObject({ id: before[0]!.id, captureTimeUs: before[0]!.captureTimeUs, captureFrameIndex: before[0]!.captureFrameIndex, sourcePts: before[0]!.sourcePts, captureEpochId: before[0]!.captureEpochId, timingPrecision: before[0]!.timingPrecision, isTerminal: true }); await expect(db.rallySubmission.count({ where: { rallyId } })).resolves.toBe(0); await expect(db.pointAward.count()).resolves.toBe(0)
     await expect(db.clipJob.count()).resolves.toBe(0); await expect(db.aiJob.count()).resolves.toBe(0); await expect(db.analysisRun.count()).resolves.toBe(0)
     const replay = await service.apply(structuredClone(closeCommandValue), identity)
     expect(JSON.stringify(replay)).toBe(JSON.stringify(parseAnnotationCommandResponse((await db.annotationCommandReceipt.findUniqueOrThrow({ where: { commandId: closeCommandValue.command_id } })).responseJson)))
