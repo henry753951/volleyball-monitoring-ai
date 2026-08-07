@@ -14,9 +14,9 @@ import {
 import type { db as databaseClient } from '@volleyball-monitoring/db'
 import type {
   MediaIdentity,
-  MediaObjectLocation,
   MediaPlaybackDeps,
 } from '../src/routes/media-playback.js'
+import type { MediaObjectReadRequest } from '../src/media/playback-domain.js'
 
 const execFileAsync = promisify(execFile)
 const repositoryRoot = resolve(process.cwd(), '..')
@@ -60,7 +60,7 @@ const ids = {
 const baseUs = 9_007_199_254_740_992n
 const now = new Date('2026-08-07T04:00:00.000Z')
 const objectBytes = new Map<string, Uint8Array>()
-const reads: MediaObjectLocation[] = []
+const reads: MediaObjectReadRequest[] = []
 const identities: Record<string, MediaIdentity> = {
   admin: { id: ids.admin, role: 'ADMIN' },
   operator: { id: ids.operator, role: 'OPERATOR' },
@@ -71,7 +71,7 @@ let db: typeof databaseClient
 let app: FastifyInstance
 let createdDatabase = false
 
-function objectMapKey(location: MediaObjectLocation): string {
+function objectMapKey(location: { bucket: string; key: string }): string {
   return `${location.bucket}/${location.key}`
 }
 
@@ -344,10 +344,16 @@ beforeAll(async () => {
       maxForwardUs: 2_000_000n,
     },
     now: () => now,
-    objectReader: async (location) => {
-      reads.push(location)
-      const bytes = objectBytes.get(objectMapKey(location))
+    objectReader: async (request) => {
+      reads.push(request)
+      const bytes = objectBytes.get(objectMapKey(request))
       if (!bytes) throw new Error('missing test object')
+      if (
+        BigInt(bytes.byteLength) !== request.expectedByteLength
+        || sha256(bytes) !== request.expectedSha256
+      ) {
+        throw new Error('corrupt test object')
+      }
       return bytes
     },
     resolveSample: async ({ segments, targetUs }) => ({
@@ -468,8 +474,24 @@ describe('Phase 2A playback-window HTTP', () => {
     expect(media.statusCode).toBe(200)
     expect(media.rawPayload).toEqual(Buffer.from('media-two'))
     expect(reads).toEqual([
-      { bucket: 'dvr-media', key: 'fixture/init.mp4' },
-      { bucket: 'dvr-media', key: 'fixture/two.m4s' },
+      {
+        bucket: 'dvr-media',
+        expectedByteLength: 10n,
+        expectedContentType: 'video/mp4',
+        expectedInternalSchemaVersion: '1.0.0',
+        expectedKind: 'DVR_INIT',
+        expectedSha256: sha256(Buffer.from('init-bytes')),
+        key: 'fixture/init.mp4',
+      },
+      {
+        bucket: 'dvr-media',
+        expectedByteLength: 9n,
+        expectedContentType: 'video/mp4',
+        expectedInternalSchemaVersion: '1.0.0',
+        expectedKind: 'DVR_SEGMENT',
+        expectedSha256: sha256(Buffer.from('media-two')),
+        key: 'fixture/two.m4s',
+      },
     ])
   })
 
