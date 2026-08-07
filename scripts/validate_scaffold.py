@@ -7,6 +7,8 @@ import re
 import tomllib
 from pathlib import Path
 
+from checksum_utils import canonical_checksum_bytes, canonicalize_checksum_bytes
+
 ROOT = Path(__file__).resolve().parents[1]
 IGNORED_DIRECTORIES = {
     '.git',
@@ -40,6 +42,8 @@ REQUIRED = [
     'packages/contracts/media/resolved-media-anchor.schema.json',
     'packages/contracts/annotation/realtime.schema.json',
     'packages/db/prisma/schema.prisma',
+    'scripts/checksum_utils.py',
+    'scripts/refresh_checksums.py',
     'sdk/pyproject.toml',
     'web/app/pages/annotate/[matchId].vue',
     'web/tsconfig.json',
@@ -57,6 +61,9 @@ for path in repository_files('*.json'):
 for path in repository_files('*.toml'):
     tomllib.loads(path.read_text(encoding='utf-8'))
 
+assert canonicalize_checksum_bytes(Path('text.md'), b'a\r\nb') == b'a\nb'
+assert canonicalize_checksum_bytes(Path('image.png'), b'a\r\nb') == b'a\r\nb'
+
 checksum_manifest = ROOT / 'SHA256SUMS.txt'
 checksum_entries: list[tuple[str, str]] = []
 for line_number, line in enumerate(checksum_manifest.read_text(encoding='utf-8').splitlines(), start=1):
@@ -71,7 +78,7 @@ assert len(checksum_paths) == len(set(checksum_paths)), 'SHA256SUMS.txt contains
 for relative, expected_digest in checksum_entries:
     path = ROOT.joinpath(*relative.split('/'))
     assert path.is_file(), f'checksum target is missing: {relative}'
-    actual_digest = hashlib.sha256(path.read_bytes()).hexdigest()
+    actual_digest = hashlib.sha256(canonical_checksum_bytes(path)).hexdigest()
     assert actual_digest == expected_digest, f'checksum mismatch: {relative}'
 
 spec = (ROOT / 'docs/MASTER_IMPLEMENTATION_SPEC.md').read_text(encoding='utf-8')

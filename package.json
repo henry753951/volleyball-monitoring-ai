@@ -27,6 +27,7 @@
     "validate:contracts": "python scripts/validate_contracts.py",
     "validate:scaffold": "python scripts/validate_scaffold.py",
     "validate:prisma-structure": "python scripts/validate_prisma_structure.py",
+    "checksums:refresh": "python scripts/refresh_checksums.py",
     "validate:all": "python scripts/validate_contracts.py && python scripts/validate_scaffold.py && python scripts/validate_prisma_structure.py && node scripts/validate_typescript_syntax.mjs",
     "compose:up": "docker compose -f infra/compose.yaml --profile app up --build",
     "compose:down": "docker compose -f infra/compose.yaml --profile app down"

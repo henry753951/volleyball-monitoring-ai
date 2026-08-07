@@ -15,6 +15,7 @@ Date: 2026-08-07 (Asia/Taipei target release date)
 - `uv run --project sdk --frozen --extra test pytest`
   - 10 tests passed.
 - Full JSON, TOML and YAML parse pass.
+- `SHA256SUMS.txt` uses canonical LF bytes for text and raw bytes for binary files; `bun run checksums:refresh` and scaffold validation therefore agree across Windows/Linux checkouts and archive delivery without relying on `.git` at validation time.
 - `docs/SYSTEM_SPEC_V3_2.pdf`
   - 41 pages after the Annotation Realtime 2.0 migration, A4, searchable and openable.
   - XeLaTeX completed successfully; extracted text contains `CLOSE_RALLY`, all three strict outcomes and six controls, with old v1.1 terminal/score-flow text absent.
