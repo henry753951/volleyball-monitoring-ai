@@ -275,6 +275,22 @@ describe('Phase 1B GraphQL schema', () => {
     expect(printed).toContain('captureSession(id: ID!)')
     for (const forbidden of ['DvrSegment', 'sampleIndex', 'objectKey', 'mediaBytes']) expect(printed).not.toContain(forbidden)
   })
+
+  it('resolves a member timeline from the newest program and coalesces ready segments', async () => {
+    const matchId = (await db.match.findFirstOrThrow()).id
+    const sessionId = '20000000-0000-4000-8000-000000000001'
+    const epochId = '20000000-0000-4000-8000-000000000002'
+    const programOld = '20000000-0000-4000-8000-000000000003'
+    const programNew = '20000000-0000-4000-8000-000000000004'
+    await db.captureSession.create({ data: { id: sessionId, matchId, sourceKind: 'fixture', ingestPath: `/fixture/${sessionId}`, status: 'LIVE', health: 'HEALTHY' } })
+    await db.captureEpoch.create({ data: { id: epochId, captureSessionId: sessionId, sequenceIndex: 0, sourceTimeBaseNum: 1, sourceTimeBaseDen: 60000, sourcePtsOrigin: 0n, captureTimeOriginUs: 9007199254740992n, captureFrameOrigin: 0n, startedAtCaptureUs: 9007199254740992n } })
+    for (const [id, revision] of [[programOld, 1n], [programNew, 9007199254740993n]] as const) await db.dvrProgram.create({ data: { id, captureSessionId: sessionId, status: 'LIVE', playlistRevision: revision, liveEdgeUs: 0n, durationUs: 0n, fpsNum: 30, fpsDen: 1, timeBaseNum: 1, timeBaseDen: 60000 } })
+    const assets = [] as string[]
+    for (let i = 0; i < 6; i++) { const id = `20000000-0000-4000-8000-${String(10 + i).padStart(12, '0')}`; assets.push(id); await db.mediaAsset.create({ data: { id, kind: i % 3 === 0 ? 'DVR_INIT' : i % 3 === 1 ? 'DVR_SEGMENT' : 'SAMPLE_INDEX', bucket: 'fixture', objectKey: id, contentType: 'video/mp4', state: 'READY', readyAt: new Date(), internalSchemaVersion: '1.0.0' } }) }
+    for (let i = 0; i < 2; i++) await db.dvrSegment.create({ data: { id: `20000000-0000-4000-8000-${String(20 + i).padStart(12, '0')}`, dvrProgramId: programNew, captureEpochId: epochId, sequenceNumber: BigInt(i), discontinuitySequence: 0, captureStartUs: 9007199254740992n + BigInt(i * 100), captureEndUs: 9007199254741092n + BigInt(i * 100), frameCount: 3n, durationUs: 100n, readyAt: new Date(), initAssetId: assets[i * 3]!, mediaAssetId: assets[i * 3 + 1]!, sampleIndexAssetId: assets[i * 3 + 2]! } })
+    const result = await execute('{ captureSession(id: "20000000-0000-4000-8000-000000000001") { id timeline { timelineVersion captureStartTimeUs liveEdgeCaptureTimeUs availableRanges { startUs endUs } } } }', contextFor(operatorUser))
+    expect(result.errors).toBeUndefined(); expect(result.data).toEqual({ captureSession: { id: sessionId, timeline: { timelineVersion: '9007199254740993', captureStartTimeUs: '9007199254740992', liveEdgeCaptureTimeUs: '9007199254741292', availableRanges: [{ startUs: '9007199254740992', endUs: '9007199254741292' }] } } })
+  })
   it('matches the committed generated snapshot and validates representative operations', async () => {
     const normalizeLineEndings = (value: string) => value.replaceAll('\r\n', '\n')
     const before = normalizeLineEndings(await readFile(schemaSnapshotPath, 'utf8'))
