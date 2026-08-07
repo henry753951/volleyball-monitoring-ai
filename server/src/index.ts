@@ -54,7 +54,10 @@ await app.register(cors, {
   credentials: true,
 })
 await app.register(websocket)
-await app.register(mediaPlaybackRoutes({ objectReader: mediaObjectReader, resolveSample: createPersistedSampleSnapResolver(db, mediaObjectReader) }))
+await app.register(mediaPlaybackRoutes({
+  objectReader: mediaObjectReader,
+  resolveSample: createPersistedSampleSnapResolver(db, mediaObjectReader),
+}))
 await app.register(mediaCursorRoutes({ objectReader: mediaObjectReader }))
 
 const yoga = createYoga<{ req: FastifyRequest; reply: FastifyReply }>({

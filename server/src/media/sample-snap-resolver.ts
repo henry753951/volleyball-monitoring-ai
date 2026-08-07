@@ -23,13 +23,19 @@ export type SampleSnapLoader = (
 
 export function createSampleSnapResolver(loader: SampleSnapLoader) {
   return async ({ targetUs, segments }: SampleSnapInput) => {
-    if (segments.length === 0) throw new Error('sample resolver requires segments')
+    if (segments.length === 0) {
+      throw new Error('sample resolver requires segments')
+    }
     const ids = segments.map((segment) => segment.id)
     const indexes = await loader(ids)
-    if (indexes.length !== ids.length) throw new Error('sample index segment count mismatch')
-    indexes.forEach((index, position) => {
-      if (index.segmentId !== ids[position]) throw new Error('sample index segment order mismatch')
-    })
+    if (indexes.length !== ids.length) {
+      throw new Error('sample index segment count mismatch')
+    }
+    for (const [position, index] of indexes.entries()) {
+      if (index.segmentId !== ids[position]) {
+        throw new Error('sample index segment order mismatch')
+      }
+    }
     const first = segments[0]!
     const last = segments.at(-1)!
     const resolved = resolveCanonicalTimeAcrossSegments(
