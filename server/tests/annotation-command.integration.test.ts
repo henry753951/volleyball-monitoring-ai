@@ -546,4 +546,22 @@ describe('durable service annotation command', () => {
     const command = contactCommand(randomUUID(), rallyId, '1')
     try { await expect(stale.apply(command, identity)).resolves.toMatchObject({ code: 'ROOM_AUTHORIZATION_STALE' }) } finally { await db.matchMember.create({ data: { matchId: ids.match, role: 'OPERATOR', userId: ids.operator } }) }
   })
+
+  it('rejects revoked devices, anchor-before-service, and foreign playback mappings durably', async () => {
+    const rallyId = randomUUID(); await service.apply(serviceCommand(randomUUID(), rallyId), identity)
+    await db.deviceSession.update({ data: { revokedAt: new Date() }, where: { id: ids.device } })
+    try { await expect(service.apply(contactCommand(randomUUID(), rallyId), identity)).resolves.toMatchObject({ code: 'UNAUTHENTICATED' }) } finally { await db.deviceSession.update({ data: { revokedAt: null }, where: { id: ids.device } }) }
+    const variants = [
+      { ...anchor, capture_time_us: '1', capture_frame_index: '1' },
+      { ...anchor, dvr_segment_id: randomUUID() },
+      { ...anchor, dvr_segment_id: ids.foreignProgramSegment },
+      { ...anchor, capture_epoch_id: ids.foreignEpoch, dvr_segment_id: ids.foreignEpochSegment },
+    ]
+    for (const variant of variants) {
+      const invalid = createAnnotationCommandService({ database: db, resolveCursor: async () => variant })
+      const command = contactCommand(randomUUID(), rallyId)
+      await expect(invalid.apply(command, identity)).resolves.toMatchObject({ code: 'ANNOTATION_NOT_READY' })
+      await expect(db.annotationCommandReceipt.findUnique({ where: { commandId: command.command_id } })).resolves.toMatchObject({ accepted: false })
+    }
+  })
 })
