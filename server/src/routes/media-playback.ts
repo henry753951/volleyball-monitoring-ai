@@ -155,6 +155,7 @@ interface MediaAssetMetadata {
   sha256: string | null
   contentType: string
   internalSchemaVersion: string | null
+  kind: string
   state: string
   readyAt: Date | null
 }
@@ -169,6 +170,7 @@ type ReadyMediaAssetMetadata = MediaAssetMetadata & {
 function assetMetadataReady(
   asset: MediaAssetMetadata | null,
   expectedContentType: string,
+  expectedKind: 'DVR_INIT' | 'DVR_SEGMENT' | 'SAMPLE_INDEX',
 ): asset is ReadyMediaAssetMetadata {
   return asset !== null
     && asset.state === 'READY'
@@ -180,6 +182,7 @@ function assetMetadataReady(
     && asset.byteLength > 0n
     && validSha256(asset.sha256)
     && asset.contentType === expectedContentType
+    && asset.kind === expectedKind
 }
 
 async function loadProgramSegments(dvrProgramId: string) {
@@ -202,9 +205,9 @@ type ProgramSegmentRow = Awaited<ReturnType<typeof loadProgramSegments>>[number]
 
 function programSegmentReady(segment: ProgramSegmentRow): boolean {
   return segment.readyAt !== null
-    && assetMetadataReady(segment.initAsset, 'video/mp4')
-    && assetMetadataReady(segment.mediaAsset, 'video/mp4')
-    && assetMetadataReady(segment.sampleIndexAsset, 'application/json')
+    && assetMetadataReady(segment.initAsset, 'video/mp4', 'DVR_INIT')
+    && assetMetadataReady(segment.mediaAsset, 'video/mp4', 'DVR_SEGMENT')
+    && assetMetadataReady(segment.sampleIndexAsset, 'application/json', 'SAMPLE_INDEX')
 }
 
 function toCandidate(segment: ProgramSegmentRow): PlaybackSegmentCandidate {
@@ -325,8 +328,8 @@ function manifestEntries(window: VisibleWindowWithSegments) {
       segment.isGap
       || segment.readyAt === null
       || segment.durationUs !== segment.captureEndUs - segment.captureStartUs
-      || !assetMetadataReady(segment.initAsset, 'video/mp4')
-      || !assetMetadataReady(segment.mediaAsset, 'video/mp4')
+      || !assetMetadataReady(segment.initAsset, 'video/mp4', 'DVR_INIT')
+      || !assetMetadataReady(segment.mediaAsset, 'video/mp4', 'DVR_SEGMENT')
       || segment.initAssetId === null
     ) {
       throw new MediaHttpError(409, 'MEDIA_NOT_READY', 'Playback media is not ready')
@@ -499,7 +502,11 @@ function selectedAsset(
   const asset = resource.kind === 'init'
     ? mapping.dvrSegment.initAsset
     : mapping.dvrSegment.mediaAsset
-  if (!assetMetadataReady(asset, 'video/mp4')) {
+  if (!assetMetadataReady(
+    asset,
+    'video/mp4',
+    resource.kind === 'init' ? 'DVR_INIT' : 'DVR_SEGMENT',
+  )) {
     throw new MediaHttpError(409, 'MEDIA_NOT_READY', 'Media resource is not ready')
   }
   return asset
