@@ -188,14 +188,14 @@ e024c78dc2a75812078615c09be3fe957317de3cbc7318cd76040a74ab2cf4e7  ./server/src/r
 dc6593e629b1729b2b00823cb32907931b6cf9e9f55d41c10f5235b23bbdcb88  ./server/src/routes/README.md
 de68ecb888d1021577a49bfa49d8816a2519469916b2ac2012c32a50a6cf603a  ./server/src/routes/media-playback.ts
 29dc8ee62da32da243cba2f0c90575ba5e1cea4c36a2d392ab96360c6c926812  ./server/src/services/README.md
-2cad2bae9116c58c8dd87b8101d18cb0a0c127a778b059f55d816987e011d0f7  ./server/src/services/annotation-command.ts
+eca7bbbf551ec54e244f132e1f5e73ac506b72cfa7b7de99fc0299c1858f49dc  ./server/src/services/annotation-command.ts
 bdd0fb1533da60d00c6c5f73f99829746b7f8e28042a043432483cd382320570  ./server/src/services/annotation-snapshot.ts
 8dc71ffa14f45fe80a7f034fbc4ca591f2533bd421a092892f52997781fc9b33  ./server/src/services/core-domain.ts
 cf5dd4148b435f01ef0a25839ddb8213159a8b16858161622d8bed4cadee56db  ./server/src/services/media-timeline.ts
-b545a661337c55e0386f77e3c1972f736bf11b2442cdfa3b2ca0adb81dcd21cc  ./server/tests/annotation-command.integration.test.ts
+65a3cd2b0d500c66eba4ea4f60d61e9abb5db56bc806c135ebd8a38ed645884b  ./server/tests/annotation-command.integration.test.ts
 a6b2690b51a33a5ee67eef44768ff959878cf0ecd2dcee357fc2c8c6901cd560  ./server/tests/annotation-snapshot.integration.test.ts
 78672dd867783ab115202afc27bc879794b1f85ebee9e5b0c066ac69f560cb45  ./server/tests/annotation-state.test.ts
-da974abd8d1e2c96a31e7b8d65714141caef38b4b8b8814f81719c816124da37  ./server/tests/annotation-transport.test.ts
+9188ca2a5dbd3ae2e8a98db80d5f926f7fdecaab106f96c5b2fb8a5e69062966  ./server/tests/annotation-transport.test.ts
 692df16cd2f4c7541b9385a9fca73ccbfb23143220dd8e40fd08fb2fe4efa6b3  ./server/tests/core-domain.integration.test.ts
 a24d73e176377bf389b5fdc14d32c7a395923b40e13127027d0aa65ed839f329  ./server/tests/media-cursor.integration.test.ts
 bcbf27bf32260c862b20119cc7d6cbb80b70e59e5f0ae1bfbec65ed63de33108  ./server/tests/media-cursor.unit.test.ts
