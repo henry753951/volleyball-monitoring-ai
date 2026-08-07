@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { createMediaClient } from './mediaClient'
-import { classifyMediaError, MediaApiError } from './mediaModel'
+import { classifyMediaError, MediaApiError, type MediaErrorClassification, type MediaErrorCode } from './mediaModel'
 
 describe('media REST client', () => {
   it('uses same-origin credentials and preserves decimal strings', async () => {
@@ -25,11 +25,11 @@ describe('media REST client', () => {
     await expect(createMediaClient({ fetcher }).getPlaybackWindow('w')).rejects.toBeInstanceOf(TypeError)
   })
   it('classifies every media error deterministically', () => {
-    const expected = {
-      WINDOW_EXPIRED: 'recreate_window', MAPPING_STALE: 'recreate_window', WINDOW_BOUNDARY: 'recenter_retry',
-      MEDIA_NOT_READY: 'retry_later', CURSOR_NOT_READY: 'retry_later', CAPTURE_GAP: 'block', SAMPLE_NOT_FOUND: 'block',
-      BAD_REQUEST: 'fatal', UNAUTHENTICATED: 'fatal', FORBIDDEN: 'fatal', NOT_FOUND: 'fatal', UNKNOWN: 'fatal',
-    } as const
-    for (const [code, action] of Object.entries(expected)) expect(classifyMediaError(new MediaApiError(code as any, 'x', 400))).toBe(action)
+    const expected: ReadonlyArray<readonly [MediaErrorCode | 'UNKNOWN', MediaErrorClassification]> = [
+      ['WINDOW_EXPIRED', 'recreate_window'], ['MAPPING_STALE', 'recreate_window'], ['WINDOW_BOUNDARY', 'recenter_retry'],
+      ['MEDIA_NOT_READY', 'retry_later'], ['CURSOR_NOT_READY', 'retry_later'], ['CAPTURE_GAP', 'block'], ['SAMPLE_NOT_FOUND', 'block'],
+      ['BAD_REQUEST', 'fatal'], ['UNAUTHENTICATED', 'fatal'], ['FORBIDDEN', 'fatal'], ['NOT_FOUND', 'fatal'], ['UNKNOWN', 'fatal'],
+    ]
+    for (const [code, action] of expected) expect(classifyMediaError(new MediaApiError(code, 'x', 400))).toBe(action)
   })
 })

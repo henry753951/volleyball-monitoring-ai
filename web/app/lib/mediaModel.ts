@@ -12,7 +12,7 @@ import {
 
 export { MEDIA_ERROR_CODES }
 export type { CanonicalFrameAnchor, FrameStepRequest, MediaErrorCode, MediaTimingPrecision, PlaybackCursor, PlaybackWindowDescriptor, PlaybackWindowRequest, ResolvedMediaAnchor }
-export type MediaMode = 'live' | 'archive'
+export type MediaMode = PlaybackWindowRequest['mode']
 export type ObservationSource = PlaybackCursor['observation_source']
 export type CursorStatus = PlaybackCursor['cursor_status']
 export type TimingPrecision = MediaTimingPrecision
