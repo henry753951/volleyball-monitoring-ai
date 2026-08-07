@@ -29,8 +29,8 @@ c47f81bffc00bddbcd77338f20e4579c51df066efd270549e781aed2ba0b499e  ./docs/adr/000
 aa7a685a1d883a563ad793b642317d5979598639f9509f79a164ddf587931b98  ./docs/adr/0004-core-domain-graphql.md
 a765ca000317842dbf228d7b97932095335b992ff820d09d88cdebe56811455f  ./docs/adr/0005-phase-2a-media-truth.md
 de376c790b3f7624d275cd8d6882725028d5264710ede7d748ad38304fee5c6a  ./docs/open-decisions.md
-6f9c9a4e4f4dad11f85b9efd8629e56a858c7fa4f2ec01e580c2d4dad2a860f9  ./docs/progress.md
-37e3c7aca54b01ebc846f707eb15eb453afcf803600c140145fbd2164e266fc3  ./docs/requirements-matrix.md
+fe3db83e48ebfd314457b66a523aaa07ca33b2991ecdb2846fbe254d033aae60  ./docs/progress.md
+2a21a2dc60cabf9c2506b0279d73c3d678c03f92510283bc2ef4ccca93fc84b6  ./docs/requirements-matrix.md
 e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  ./examples/__init__.py
 cff7ceef7d9b68faa2d2e401530659d7142df6504d99c884ba2abd7606d18911  ./examples/fake_ai_provider/README.md
 e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  ./examples/fake_ai_provider/__init__.py
@@ -245,6 +245,7 @@ b770a1a8751fbd0874c93253cf2000eb56844b02b3aa02e6c93b6e7ae1756a18  ./web/public/i
 c14f5c4caae7cf65c0725ab6dc095c59b85c1048009f05c723a761f58d6c04a0  ./worker/src/media/fmp4-artifact-source.ts
 d440f787973b1ad5f6b2457550b5087a31c51eb02b8f0936e9ab5cedf6839399  ./worker/src/media/ingest.ts
 3651f7e0c46b5b678de450f2366bed07af7bc27be81670e9c1c8001d99f044a0  ./worker/src/media/minio-object-store.ts
+5a3752a099a01e6b42c4273845ebc4c26ebc03fd4cf27424d2f581612f55fd79  ./worker/src/media/prisma-ingest-repository.ts
 e6f2b68127f706b48f7d89f4dcc5e40d38b71c91eb7ca3698d274775f187a16b  ./worker/src/media/resolver.ts
 8f0a7c3f8c163da69d5c7be0980cadfedbc6515477416fe2f0a4cc7e8f3c4f3d  ./worker/src/media/sample-index.ts
 5bbac516f77bd700e553799adcd5e607cef1e628f1fa4d5323bc8b1c7c2c1ebc  ./worker/src/roles/ai-dispatcher.ts
@@ -263,5 +264,6 @@ bfa399d43b02598604923086bb2902d9e983e2fcc549522ebb2fa5db9cc53ef0  ./worker/tests
 ca250d9fb32d7f269da7cd0d184e71e4777f07ada3f8df430370dd03cc5dc4f7  ./worker/tests/lifecycle.test.ts
 21f9bcf3c0550db20031e82b06829d7c6d8d6981e9a4de7fa81e675c74712f4c  ./worker/tests/media-resolver.test.ts
 c59ad74e93b0bf867e0022bf10f40df03c7b1dfcfd077b59308d45a99431566d  ./worker/tests/minio-object-store.test.ts
+179393af1053faeb238bea74df83cbd512fcfd2f6c8d8cbb22758937ddd697fc  ./worker/tests/prisma-ingest-repository.integration.test.ts
 0f20d6d4c39bf5566ad3f102b824518aac888734b12a08cea515dc6d1356bef9  ./worker/tests/worker-role.test.ts
 49efec4f3606ab482dba734f8a8269eae2812dd459b0713865cc8493499e1372  ./worker/tsconfig.json
