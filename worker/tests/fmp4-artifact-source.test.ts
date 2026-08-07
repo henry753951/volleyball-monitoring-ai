@@ -27,7 +27,7 @@ function box(
   return result
 }
 
-const ftyp = box('ftyp', Buffer.from('isom\0\0\0\1', 'binary'))
+const ftyp = box('ftyp', Buffer.from('isom\x00\x00\x00\x01', 'binary'))
 const moov = box('moov', Uint8Array.of(2, 3, 4))
 const moof = box('moof', Uint8Array.of(5, 6))
 const mdat = box('mdat', Uint8Array.of(7, 8, 9, 10))
@@ -163,7 +163,7 @@ describe('FinalizedFileArtifactSource', () => {
   it('validates and preserves a 64-bit extended-size box', async () => {
     const extendedFtyp = box(
       'ftyp',
-      Buffer.from('iso6\0\0\0\1', 'binary'),
+      Buffer.from('iso6\x00\x00\x00\x01', 'binary'),
       true,
     )
     const bytes = Buffer.concat([extendedFtyp, moov, moof, mdat])
