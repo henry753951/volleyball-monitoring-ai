@@ -158,6 +158,15 @@ def exercise_api(base: str, session_id: str, headers: dict[str, str], context: s
     return failures
 
 
+def install_signal_handlers() -> None:
+    def stop(_signum: int, _frame: Any) -> None:
+        global _STOP
+        _STOP = True
+    signal.signal(signal.SIGINT, stop)
+    if hasattr(signal, "SIGTERM"):
+        signal.signal(signal.SIGTERM, stop)
+
+
 def main() -> int:
     global _STOP
     parser = argparse.ArgumentParser()
@@ -167,12 +176,7 @@ def main() -> int:
     parser.add_argument("--growth-cap-mib", type=float, default=256)
     parser.add_argument("--output", default=os.path.join(os.environ.get("TEMP", "."), "phase2a-soak.jsonl"))
     args = parser.parse_args()
-    def stop(_signum: int, _frame: Any) -> None:
-        global _STOP
-        _STOP = True
-    signal.signal(signal.SIGINT, stop)
-    if hasattr(signal, "SIGTERM"):
-        signal.signal(signal.SIGTERM, stop)
+    install_signal_handlers()
     output = Path(args.output)
     output.parent.mkdir(parents=True, exist_ok=True)
     base = os.getenv("PHASE2A_API_BASE", "https://127.0.0.1")

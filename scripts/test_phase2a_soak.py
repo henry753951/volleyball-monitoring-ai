@@ -1,8 +1,8 @@
-import json
 import signal
 import unittest
 
-from phase2a_soak import parse_manifest, parse_memory, parse_stats, summarize
+import phase2a_soak
+from phase2a_soak import install_signal_handlers, parse_manifest, parse_memory, parse_stats, summarize
 
 
 class SoakHelpersTest(unittest.TestCase):
@@ -23,6 +23,17 @@ class SoakHelpersTest(unittest.TestCase):
 
     def test_empty_summary_fails(self):
         self.assertFalse(summarize([], 1, 1)["passed"])
+
+    def test_signal_handler_sets_stop_and_exit_summary(self):
+        phase2a_soak._STOP = False
+        old = signal.getsignal(signal.SIGINT)
+        try:
+            install_signal_handlers()
+            signal.getsignal(signal.SIGINT)(signal.SIGINT, None)
+            self.assertTrue(phase2a_soak._STOP)
+            self.assertEqual(summarize([{"memory_mib": 1}], 2, 2)["passed"], True)
+        finally:
+            signal.signal(signal.SIGINT, old)
 
 
 if __name__ == "__main__":
