@@ -2,7 +2,7 @@ import { execFile } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { resolve } from 'node:path'
 import { promisify } from 'node:util'
-import { parseAnnotationCommand, type CreateServiceKeyPointCommand, type ResolvedMediaAnchor } from '@volleyball-monitoring/contracts'
+import { parseAnnotationCommand, parseAnnotationCommandResponse, type AnnotationCommand, type CreateServiceKeyPointCommand, type ResolvedMediaAnchor } from '@volleyball-monitoring/contracts'
 import type { db as DatabaseClient } from '@volleyball-monitoring/db'
 import { UserRole } from '@volleyball-monitoring/db/client'
 import { Pool } from 'pg'
@@ -95,6 +95,16 @@ function serviceCommand(commandId: string, rallyId: string): CreateServiceKeyPoi
     rally_id: rallyId,
     room_id: roomId,
   }
+}
+
+function contactCommand(commandId: string, rallyId: string, baseRevision = '1') {
+  return { ...serviceCommand(commandId, rallyId), base_revision: baseRevision, kind: 'CREATE_CONTACT_KEY_POINT' as const }
+}
+
+function closeCommand(commandId: string, rallyId: string, targetKeyPointId: string, baseRevision: string, outcome: 'left' | 'right' | 'unknown' = 'unknown') {
+  return (outcome === 'unknown'
+    ? { ...serviceCommand(commandId, rallyId), base_revision: baseRevision, kind: 'CLOSE_RALLY' as const, payload: { target_key_point_id: targetKeyPointId, score_resolution: 'unknown' as const, scoring_court_side: null } }
+    : { ...serviceCommand(commandId, rallyId), base_revision: baseRevision, kind: 'CLOSE_RALLY' as const, payload: { target_key_point_id: targetKeyPointId, score_resolution: 'resolved' as const, scoring_court_side: outcome } }) as AnnotationCommand
 }
 
 beforeAll(async () => {
@@ -331,11 +341,12 @@ describe('durable service annotation command', () => {
   })
 
   it('parses but durably rejects non-Z v2 commands and stale service revisions', async () => {
-    const contact = parseAnnotationCommand({
+    const unsupported = parseAnnotationCommand({
       ...serviceCommand(randomUUID(), randomUUID()),
-      kind: 'CREATE_CONTACT_KEY_POINT',
+      kind: 'MOVE_KEY_POINT',
+      payload: { key_point_id: randomUUID(), playback_cursor: serviceCommand(randomUUID(), randomUUID()).payload.playback_cursor },
     })
-    await expect(service.apply(contact, identity)).resolves.toMatchObject({ code: 'UNSUPPORTED_COMMAND' })
+    await expect(service.apply(unsupported, identity)).resolves.toMatchObject({ code: 'UNSUPPORTED_COMMAND' })
     const stale = serviceCommand(randomUUID(), randomUUID())
     stale.base_revision = '3'
     const firstStale = await service.apply(stale, identity)
@@ -344,7 +355,7 @@ describe('durable service annotation command', () => {
     })
     const retriedStale = await service.apply(structuredClone(stale), identity)
     expect(JSON.stringify(retriedStale)).toBe(JSON.stringify(firstStale))
-    for (const command of [contact, stale]) {
+    for (const command of [unsupported, stale]) {
       await expect(db.annotationCommandReceipt.findUnique({ where: { commandId: command.command_id } })).resolves.toMatchObject({ accepted: false })
       await expect(db.rally.findUnique({ where: { id: command.rally_id } })).resolves.toBeNull()
     }
@@ -442,5 +453,181 @@ describe('durable service annotation command', () => {
     await expect(db.annotationCommandReceipt.findUnique({ where: { commandId: command.command_id } })).resolves.toBeNull()
     await expect(db.rally.findUnique({ where: { id: command.rally_id } })).resolves.toBeNull()
     await expect(db.keyPoint.count({ where: { rallyId: command.rally_id } })).resolves.toBe(0)
+  })
+
+  it('creates contacts, preserves anchors, and replays accepted/rejected responses byte-for-byte', async () => {
+    const rallyId = randomUUID()
+    const serviceResponse = await service.apply(serviceCommand(randomUUID(), rallyId), identity)
+    expect(serviceResponse.type).toBe('command_ack')
+    const command = contactCommand(randomUUID(), rallyId)
+    const first = await service.apply(command, identity)
+    expect(first).toMatchObject({ type: 'command_ack', operation_kind: 'CREATE_CONTACT_KEY_POINT', result_revision: '2' })
+    const replay = await service.apply(structuredClone(command), identity)
+    const stored = await db.annotationCommandReceipt.findUniqueOrThrow({ where: { commandId: command.command_id } })
+    expect(JSON.stringify(replay)).toBe(JSON.stringify(parseAnnotationCommandResponse(stored.responseJson)))
+    const mismatch = structuredClone(command); mismatch.payload.playback_cursor.player_media_time_us = '9999'
+    expect(await service.apply(mismatch, identity)).toMatchObject({ type: 'command_rejected', code: 'COMMAND_ID_REUSED' })
+    expect(await db.keyPoint.count({ where: { rallyId } })).toBe(2)
+  })
+
+  it('marks equal-frame contacts as possible duplicates and rejects stale mapping/anchor state', async () => {
+    const rallyId = randomUUID(); await service.apply(serviceCommand(randomUUID(), rallyId), identity)
+    const first = await service.apply(contactCommand(randomUUID(), rallyId), identity)
+    const second = await service.apply(contactCommand(randomUUID(), rallyId, '2'), identity)
+    expect(first.type).toBe('command_ack'); expect(second.type).toBe('command_ack')
+    await expect(db.keyPoint.findMany({ where: { rallyId }, orderBy: { sequenceIndex: 'asc' }, select: { markerKind: true, possibleDuplicate: true } })).resolves.toEqual([{ markerKind: 'SERVICE', possibleDuplicate: false }, { markerKind: 'CONTACT', possibleDuplicate: true }, { markerKind: 'CONTACT', possibleDuplicate: true }])
+    const invalid = createAnnotationCommandService({ database: db, resolveCursor: async () => ({ ...anchor, playback_window_id: randomUUID() }) })
+    await expect(invalid.apply(contactCommand(randomUUID(), rallyId, '3'), identity)).resolves.toMatchObject({ type: 'command_rejected', code: 'ANNOTATION_NOT_READY' })
+  })
+
+  it('inserts a contact in canonical middle order under the rally lock', async () => {
+    const rallyId = randomUUID(); await service.apply(serviceCommand(randomUUID(), rallyId), identity)
+    const early = { ...anchor, capture_time_us: '9007199254740994', capture_frame_index: '9007199254740995', resolved_player_media_time_us: '1235' }
+    const late = { ...anchor, capture_time_us: '9007199254741083', capture_frame_index: '9007199254740996', resolved_player_media_time_us: '1324' }
+    const resolver = createAnnotationCommandService({ database: db, resolveCursor: async (cursor) => cursor.player_media_time_us === '1' ? early : late })
+    const first = contactCommand(randomUUID(), rallyId); first.payload.playback_cursor.player_media_time_us = '1'; await resolver.apply(first, identity)
+    const second = contactCommand(randomUUID(), rallyId, '2'); second.payload.playback_cursor.player_media_time_us = '2'; await resolver.apply(second, identity)
+    const middle = { ...anchor, capture_time_us: '9007199254741043', capture_frame_index: '9007199254740995', resolved_player_media_time_us: '1284' }
+    const middleService = createAnnotationCommandService({ database: db, resolveCursor: async () => middle }); await middleService.apply(contactCommand(randomUUID(), rallyId, '3'), identity)
+    await expect(db.keyPoint.findMany({ where: { rallyId }, orderBy: { sequenceIndex: 'asc' }, select: { markerKind: true, sequenceIndex: true, captureTimeUs: true } })).resolves.toEqual([{ markerKind: 'SERVICE', sequenceIndex: 0, captureTimeUs: 9007199254740993n }, { markerKind: 'CONTACT', sequenceIndex: 1, captureTimeUs: 9007199254740994n }, { markerKind: 'CONTACT', sequenceIndex: 2, captureTimeUs: 9007199254741043n }, { markerKind: 'CONTACT', sequenceIndex: 3, captureTimeUs: 9007199254741083n }])
+  })
+
+  it.each(['left', 'right', 'unknown'] as const)('closes with %s outcome without creating forbidden rows', async (outcome) => {
+    const rallyId = randomUUID(); await service.apply(serviceCommand(randomUUID(), rallyId), identity)
+    const before = await db.keyPoint.findMany({ where: { rallyId }, select: { id: true, captureTimeUs: true, captureFrameIndex: true, sourcePts: true, captureEpochId: true, timingPrecision: true, isTerminal: true } })
+    const target = before[0]!.id
+    const closeCommandValue = closeCommand(randomUUID(), rallyId, target, '1', outcome)
+    const response = await service.apply(closeCommandValue, identity)
+    expect(response).toMatchObject({ type: 'command_ack', operation_kind: 'CLOSE_RALLY', resolved_anchor: null, effects: { annotation_status: 'ready', score_resolution: outcome === 'unknown' ? 'unknown' : 'resolved', scoring_court_side: outcome === 'unknown' ? null : outcome } })
+    const after = await db.keyPoint.findMany({ where: { rallyId }, select: { id: true, captureTimeUs: true, captureFrameIndex: true, sourcePts: true, captureEpochId: true, timingPrecision: true, isTerminal: true } })
+    expect(after).toHaveLength(before.length); expect(after[0]).toMatchObject({ id: before[0]!.id, captureTimeUs: before[0]!.captureTimeUs, captureFrameIndex: before[0]!.captureFrameIndex, sourcePts: before[0]!.sourcePts, captureEpochId: before[0]!.captureEpochId, timingPrecision: before[0]!.timingPrecision, isTerminal: true }); await expect(db.rallySubmission.count({ where: { rallyId } })).resolves.toBe(0); await expect(db.pointAward.count()).resolves.toBe(0)
+    await expect(db.clipJob.count()).resolves.toBe(0); await expect(db.aiJob.count()).resolves.toBe(0); await expect(db.analysisRun.count()).resolves.toBe(0)
+    const replay = await service.apply(structuredClone(closeCommandValue), identity)
+    expect(JSON.stringify(replay)).toBe(JSON.stringify(parseAnnotationCommandResponse((await db.annotationCommandReceipt.findUniqueOrThrow({ where: { commandId: closeCommandValue.command_id } })).responseJson)))
+  })
+
+  it('rejects non-last, deleted and stale close targets with snapshot refetch', async () => {
+    const rallyId = randomUUID(); await service.apply(serviceCommand(randomUUID(), rallyId), identity); const contact = await service.apply(contactCommand(randomUUID(), rallyId), identity)
+    const servicePoint = (await db.keyPoint.findFirstOrThrow({ where: { rallyId, sequenceIndex: 0 } })).id
+    await expect(service.apply(closeCommand(randomUUID(), rallyId, servicePoint, '2'), identity)).resolves.toMatchObject({ code: 'CLOSE_RALLY_TARGET_NOT_LAST', snapshot_refetch_required: true })
+    await expect(service.apply(closeCommand(randomUUID(), rallyId, (contact as any).effects.created_key_point_id, '1'), identity)).resolves.toMatchObject({ code: 'REVISION_CONFLICT', snapshot_refetch_required: true })
+  })
+
+  it('rejects a deleted close target without changing the rally', async () => {
+    const rallyId = randomUUID(); await service.apply(serviceCommand(randomUUID(), rallyId), identity)
+    const point = await db.keyPoint.findFirstOrThrow({ where: { rallyId } }); await db.keyPoint.update({ data: { deletedAt: new Date() }, where: { id: point.id } })
+    await expect(service.apply(closeCommand(randomUUID(), rallyId, point.id, '1'), identity)).resolves.toMatchObject({ type: 'command_rejected', code: 'CLOSE_RALLY_TARGET_NOT_LAST', snapshot_refetch_required: true })
+  })
+
+  it('serializes contact races and close races to one accepted mutation', async () => {
+    const rallyId = randomUUID(); await service.apply(serviceCommand(randomUUID(), rallyId), identity)
+    const contacts = await Promise.all([service.apply(contactCommand(randomUUID(), rallyId), identity), service.apply(contactCommand(randomUUID(), rallyId), identity)])
+    expect(contacts.filter((value) => value.type === 'command_ack')).toHaveLength(1)
+    const point = await db.keyPoint.findFirstOrThrow({ where: { rallyId, sequenceIndex: 1 } })
+    const closes = await Promise.all([service.apply(closeCommand(randomUUID(), rallyId, point.id, '2', 'left'), identity), service.apply(closeCommand(randomUUID(), rallyId, point.id, '2', 'right'), identity)])
+    expect(closes.filter((value) => value.type === 'command_ack')).toHaveLength(1)
+    expect(closes.filter((value) => value.type === 'command_rejected')).toHaveLength(1)
+  })
+
+  it('serializes a contact-vs-close race from one base revision with a durable loser', async () => {
+    const rallyId = randomUUID(); await service.apply(serviceCommand(randomUUID(), rallyId), identity)
+    const contact = contactCommand(randomUUID(), rallyId, '1')
+    const close = closeCommand(randomUUID(), rallyId, (await db.keyPoint.findFirstOrThrow({ where: { rallyId } })).id, '1', 'unknown')
+    const responses = await Promise.all([service.apply(contact, identity), service.apply(close, identity)])
+    expect(responses.filter((r) => r.type === 'command_ack')).toHaveLength(1)
+    expect(responses.filter((r) => r.type === 'command_rejected')).toHaveLength(1)
+    expect(await db.annotationCommandReceipt.count({ where: { commandId: { in: [contact.command_id, close.command_id] } } })).toBe(2)
+    expect((await db.rally.findUniqueOrThrow({ where: { id: rallyId } })).annotationRevision).toBe(2n)
+  })
+
+  it('durably rejects contact after membership is revoked during cursor resolution', async () => {
+    const rallyId = randomUUID(); await service.apply(serviceCommand(randomUUID(), rallyId), identity)
+    const stale = createAnnotationCommandService({ database: db, resolveCursor: async () => { await db.matchMember.delete({ where: { matchId_userId: { matchId: ids.match, userId: ids.operator } } }); return anchor } })
+    const command = contactCommand(randomUUID(), rallyId, '1')
+    try { await expect(stale.apply(command, identity)).resolves.toMatchObject({ code: 'ROOM_AUTHORIZATION_STALE' }) } finally { await db.matchMember.create({ data: { matchId: ids.match, role: 'OPERATOR', userId: ids.operator } }) }
+  })
+
+  it('durably rejects close when room authorization becomes stale before its transaction', async () => {
+    const rallyId = randomUUID()
+    await service.apply(serviceCommand(randomUUID(), rallyId), identity)
+    const target = await db.keyPoint.findFirstOrThrow({ where: { rallyId } })
+    const command = closeCommand(randomUUID(), rallyId, target.id, '1', 'left')
+    const acceptedOutboxBefore = await db.outboxEvent.count({
+      where: { aggregateId: rallyId, eventType: 'annotation.command_accepted.v2' },
+    })
+    const stale = createAnnotationCommandService({
+      beforeTransaction: async (candidate) => {
+        if (candidate.kind === 'CLOSE_RALLY') {
+          await db.matchMember.delete({
+            where: { matchId_userId: { matchId: ids.match, userId: ids.operator } },
+          })
+        }
+      },
+      database: db,
+      resolveCursor: async () => anchor,
+    })
+
+    try {
+      await expect(stale.apply(command, identity)).resolves.toMatchObject({
+        code: 'ROOM_AUTHORIZATION_STALE',
+        type: 'command_rejected',
+      })
+      await expect(db.annotationCommandReceipt.findUnique({
+        where: { commandId: command.command_id },
+      })).resolves.toMatchObject({ accepted: false })
+      await expect(db.rally.findUniqueOrThrow({ where: { id: rallyId } })).resolves.toMatchObject({
+        annotationRevision: 1n,
+        annotationStatus: 'OPEN',
+        scoreResolutionState: 'PENDING',
+        scoringCourtSide: null,
+      })
+      await expect(db.keyPoint.findUniqueOrThrow({ where: { id: target.id } })).resolves.toMatchObject({
+        isTerminal: false,
+      })
+      await expect(db.annotationOperation.findUnique({
+        where: { clientMutationId: command.command_id },
+      })).resolves.toBeNull()
+      await expect(db.outboxEvent.count({
+        where: { aggregateId: rallyId, eventType: 'annotation.command_accepted.v2' },
+      })).resolves.toBe(acceptedOutboxBefore)
+    } finally {
+      await db.matchMember.create({
+        data: { matchId: ids.match, role: 'OPERATOR', userId: ids.operator },
+      })
+    }
+  })
+
+  it('rejects revoked devices, anchor-before-service, and foreign playback mappings durably', async () => {
+    const rallyId = randomUUID(); await service.apply(serviceCommand(randomUUID(), rallyId), identity)
+    await db.deviceSession.update({ data: { revokedAt: new Date() }, where: { id: ids.device } })
+    try { await expect(service.apply(contactCommand(randomUUID(), rallyId), identity)).rejects.toThrow('Authenticated device session is not active') } finally { await db.deviceSession.update({ data: { revokedAt: null }, where: { id: ids.device } }) }
+    const variants = [
+      { ...anchor, capture_time_us: '1', capture_frame_index: '1' },
+      { ...anchor, dvr_segment_id: randomUUID() },
+      { ...anchor, dvr_segment_id: ids.foreignProgramSegment },
+      { ...anchor, capture_epoch_id: ids.foreignEpoch, dvr_segment_id: ids.foreignEpochSegment },
+    ]
+    for (const variant of variants) {
+      const invalid = createAnnotationCommandService({ database: db, resolveCursor: async () => variant })
+      const command = contactCommand(randomUUID(), rallyId)
+      await expect(invalid.apply(command, identity)).resolves.toMatchObject({ code: 'ANNOTATION_NOT_READY' })
+      await expect(db.annotationCommandReceipt.findUnique({ where: { commandId: command.command_id } })).resolves.toMatchObject({ accepted: false })
+    }
+  })
+
+  it('rolls back contact domain mutation when the late operation write fails', async () => {
+    const rallyId = randomUUID(); await service.apply(serviceCommand(randomUUID(), rallyId), identity)
+    const command = contactCommand(randomUUID(), rallyId)
+    await db.annotationOperation.create({ data: { baseRevision: 99n, clientMutationId: command.command_id, deviceSessionId: ids.device, operationKind: 'LEGACY_TEST', payload: {}, payloadHash: 'legacy', rallyId, resultRevision: 99n, userId: ids.operator } })
+    await expect(service.apply(command, identity)).rejects.toMatchObject({ code: 'P2002' })
+    await expect(db.keyPoint.count({ where: { rallyId } })).resolves.toBe(1); await expect(db.rally.findUniqueOrThrow({ where: { id: rallyId } })).resolves.toMatchObject({ annotationRevision: 1n }); await expect(db.annotationCommandReceipt.findUnique({ where: { commandId: command.command_id } })).resolves.toBeNull()
+  })
+
+  it('rolls back close terminal/outcome when the late operation write fails', async () => {
+    const rallyId = randomUUID(); await service.apply(serviceCommand(randomUUID(), rallyId), identity); const point = await db.keyPoint.findFirstOrThrow({ where: { rallyId } })
+    const command = closeCommand(randomUUID(), rallyId, point.id, '1', 'unknown')
+    await db.annotationOperation.create({ data: { baseRevision: 99n, clientMutationId: command.command_id, deviceSessionId: ids.device, operationKind: 'LEGACY_TEST', payload: {}, payloadHash: 'legacy', rallyId, resultRevision: 99n, userId: ids.operator } })
+    await expect(service.apply(command, identity)).rejects.toMatchObject({ code: 'P2002' })
+    await expect(db.rally.findUniqueOrThrow({ where: { id: rallyId } })).resolves.toMatchObject({ annotationRevision: 1n, annotationStatus: 'OPEN', scoreResolutionState: 'PENDING' }); await expect(db.keyPoint.findUniqueOrThrow({ where: { id: point.id } })).resolves.toMatchObject({ isTerminal: false }); await expect(db.annotationCommandReceipt.findUnique({ where: { commandId: command.command_id } })).resolves.toBeNull()
   })
 })
