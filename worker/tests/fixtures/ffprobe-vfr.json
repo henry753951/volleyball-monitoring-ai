@@ -1,0 +1,8 @@
+{
+  "streams": [{ "codec_type": "video", "time_base": "1/90000", "r_frame_rate": "60000/1001" }],
+  "frames": [
+    { "media_type": "video", "pts": "9000000000000000", "pkt_duration": "1501", "key_frame": 1 },
+    { "media_type": "video", "pts": "9000000000001501", "pkt_duration": "1502", "key_frame": 0 },
+    { "media_type": "video", "pts": "9000000000003003", "pkt_duration": "1501", "key_frame": 0 }
+  ]
+}
