@@ -1,4 +1,5 @@
 import type { IndexedSample, SampleIndex } from './sample-index';
+export type IndexedSegment = { segmentId: string; index: SampleIndex; discontinuity?: number };
 
 export type ResolveResult = { kind: 'frame_exact' | 'pts_exact'; epochId: string; segmentId: string; sample: ReturnType<typeof serializeAnchor>; snapDistanceUs: string };
 export type StepResult = { kind: 'frame_exact'; epochId: string; segmentId: string; sample: ReturnType<typeof serializeAnchor> };
@@ -26,4 +27,12 @@ export function frameStep(index: SampleIndex, segmentId: string, captureFrameInd
   if (!target) throw new ResolverError('SAMPLE_NOT_FOUND', 'no adjacent sample');
   if (target.captureTimeUs < windowStartUs || target.captureTimeUs > windowEndUs) throw new ResolverError('WINDOW_BOUNDARY', 'adjacent sample outside playback window');
   return { kind: 'frame_exact', epochId: index.epochId, segmentId, sample: serializeAnchor(target) };
+}
+
+export function frameStepAcrossSegments(segments: readonly IndexedSegment[], captureFrameIndex: bigint, direction: 'previous' | 'next', windowStartUs: bigint, windowEndUs: bigint): StepResult {
+  const ordered = segments.flatMap(s => s.index.samples.map(sample => ({ sample, segmentId: s.segmentId, discontinuity: s.discontinuity ?? 0 })));
+  const i = ordered.findIndex(x => x.sample.captureFrameIndex === captureFrameIndex); if (i < 0) throw new ResolverError('SAMPLE_NOT_FOUND', 'sample not found');
+  const j = i + (direction === 'next' ? 1 : -1); if (j < 0 || j >= ordered.length || ordered[j]!.discontinuity !== ordered[i]!.discontinuity) throw new ResolverError('SAMPLE_NOT_FOUND', 'no adjacent sample');
+  const target = ordered[j]!; if (target.sample.captureTimeUs < windowStartUs || target.sample.captureTimeUs > windowEndUs) throw new ResolverError('WINDOW_BOUNDARY', 'adjacent sample outside playback window');
+  return { kind: 'frame_exact', epochId: target.sample ? segments.find(s => s.segmentId === target.segmentId)!.index.epochId : '', segmentId: target.segmentId, sample: serializeAnchor(target.sample) };
 }

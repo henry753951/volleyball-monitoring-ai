@@ -32,6 +32,7 @@ export type SampleIndex = {
   availableEndUs: bigint;
 };
 export type AvailabilityRange = { segmentId: string; startUs: bigint; endUs: bigint; discontinuity: number };
+export type FfprobePayload = { streams?: readonly { codec_type?: string; time_base?: string }[]; frames?: readonly FfprobeFrame[] };
 
 export class SampleIndexError extends Error {
   constructor(public readonly code: 'INVALID_TIME_BASE' | 'INVALID_FRAME' | 'NON_MONOTONIC' | 'EMPTY_INDEX', message: string) { super(message); this.name = 'SampleIndexError'; }
@@ -40,6 +41,12 @@ export class SampleIndexError extends Error {
 function parseInt64(value: string | undefined, field: string): bigint {
   if (value === undefined || !/^-?\d+$/.test(value)) throw new SampleIndexError('INVALID_FRAME', `invalid ${field}`);
   return BigInt(value);
+}
+export function parseTimeBase(value: string | undefined): Rational { if (!value || !/^\d+\/\d+$/.test(value)) throw new SampleIndexError('INVALID_TIME_BASE', 'invalid time base'); const [n, d] = value.split('/').map(BigInt); if (n <= 0n || d <= 0n) throw new SampleIndexError('INVALID_TIME_BASE', 'time base must be positive'); return { num: n, den: d }; }
+export function parseFfprobePayload(payload: FfprobePayload): { frames: FfprobeFrame[]; timeBase: Rational } {
+  const streams = (payload.streams ?? []).filter(s => s.codec_type === 'video'); if (streams.length !== 1) throw new SampleIndexError('INVALID_FRAME', 'expected exactly one video stream');
+  const timeBase = parseTimeBase(streams[0]!.time_base); const frames = [...(payload.frames ?? [])]; if (!frames.length) throw new SampleIndexError('EMPTY_INDEX', 'no frames');
+  return { frames, timeBase };
 }
 
 function roundNearestAway(numerator: bigint, denominator: bigint): bigint {
@@ -86,7 +93,9 @@ export function serializeSample(sample: IndexedSample) {
   return { sourcePts: sample.sourcePts.toString(), durationPts: sample.durationPts.toString(), captureTimeUs: sample.captureTimeUs.toString(), captureFrameIndex: sample.captureFrameIndex.toString(), keyframe: sample.keyframe };
 }
 
-/** Preserve segment boundaries and gaps; ranges are never coalesced. */
+/** Coalesce touching ranges within one discontinuity; preserve gaps/discontinuities. */
 export function buildAvailabilityRanges(indexes: readonly { segmentId: string; index: SampleIndex; discontinuity: number }[]): AvailabilityRange[] {
-  return indexes.map(({ segmentId, index, discontinuity }) => ({ segmentId, startUs: index.availableStartUs, endUs: index.availableEndUs, discontinuity }));
+  const out: AvailabilityRange[] = [];
+  for (const { segmentId, index, discontinuity } of indexes) { const next = { segmentId, startUs: index.availableStartUs, endUs: index.availableEndUs, discontinuity }; const prev = out[out.length - 1]; if (prev && prev.discontinuity === discontinuity && next.startUs <= prev.endUs) prev.endUs = prev.endUs > next.endUs ? prev.endUs : next.endUs; else out.push(next); }
+  return out;
 }
