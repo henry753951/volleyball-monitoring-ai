@@ -54,14 +54,14 @@ function requireJobId(id: string | null): string {
   return id
 }
 
-function envelope(captureSessionId: string, sourceOrder = '1') {
+function envelope(captureSessionId: string, sourceOrder = '1', epochCandidateId = captureSessionId) {
   return {
     schemaVersion: '1.0.0' as const,
     jobType: MEDIA_INGEST_QUEUE as const,
     captureSessionId,
     candidate: 'cam/2026-01-01_00-00-00-000001.m4s',
     sourceOrder,
-    epochCandidateId: captureSessionId,
+    epochCandidateId,
     sourceRestart: false,
     timestampDiscontinuity: false,
     explicitGapBeforeUs: null,
@@ -81,9 +81,9 @@ integration('pg-boss media runtime integration', () => {
       expect(queue?.policy).toBe(mediaIngestQueueOptions.policy)
       expect(queue?.partition).toBe(true)
 
-      const id = requireJobId(await runtime.send(
-        envelope('00000000-0000-4000-8000-000000000001'),
-      ))
+      const item = envelope('00000000-0000-4000-8000-000000000001')
+      const id = requireJobId(await runtime.send(item))
+      expect(await runtime.send(item)).toBeNull()
       const completed = await eventually(async () => {
         const job = await runtime.boss.getJobById(MEDIA_INGEST_QUEUE, id)
         return job?.state === 'completed' ? job : null
@@ -91,6 +91,7 @@ integration('pg-boss media runtime integration', () => {
 
       expect(completed.state).toBe('completed')
       expect(seen).toEqual(['00000000-0000-4000-8000-000000000001'])
+      expect(await runtime.send(item)).toBeNull()
     }
     finally {
       await runtime.stop()
@@ -136,8 +137,8 @@ integration('pg-boss media runtime integration', () => {
 
     try {
       const first = requireJobId(await runtime.send(envelope(captureA, '1')))
-      const second = requireJobId(await runtime.send(envelope(captureA, '2')))
-      const independent = requireJobId(await runtime.send(envelope(captureB, '1')))
+      const second = requireJobId(await runtime.send(envelope(captureA, '2', '00000000-0000-4000-8000-0000000000a2')))
+      const independent = requireJobId(await runtime.send(envelope(captureB, '1', '00000000-0000-4000-8000-0000000000b1')))
       expect(new Set([first, second, independent]).size).toBe(3)
 
       await wait(400)
@@ -216,7 +217,7 @@ integration('pg-boss media runtime integration', () => {
       await wait(400)
       expect(runtimeBDeliveries).toBe(0)
 
-      const secondId = requireJobId(await runtimeB.send(envelope(captureSessionId, '2')))
+      const secondId = requireJobId(await runtimeB.send(envelope(captureSessionId, '2', '00000000-0000-4000-8000-0000000000c2')))
       await eventually(async () => {
         const job = await runtimeB.boss.getJobById(MEDIA_INGEST_QUEUE, secondId)
         return job?.state === 'completed' ? job : null

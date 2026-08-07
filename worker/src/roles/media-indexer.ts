@@ -48,6 +48,18 @@ export const mediaIngestQueueOptions = Object.freeze({
 
 export type PermanentMediaIngestCode = 'INVALID_JOB' | 'PERMANENT_FAILURE'
 
+const DETERMINISTIC_REPOSITORY_CODES = new Set([
+  'INVALID_INPUT',
+  'SESSION_NOT_FOUND',
+  'SESSION_TERMINAL',
+  'PROGRAM_CONFLICT',
+  'RESERVATION_CONFLICT',
+  'TIMELINE_CONFLICT',
+  'ARTIFACT_CONFLICT',
+  'EXPECTATIONS_REQUIRED',
+  'REVISION_EXHAUSTED',
+])
+
 export class PermanentMediaIngestError extends Error {
   readonly permanent = true
 
@@ -78,6 +90,14 @@ function permanentCode(error: unknown): PermanentMediaIngestCode | null {
     error instanceof Error
     && 'permanent' in error
     && (error as { permanent?: unknown }).permanent === true
+  ) return 'PERMANENT_FAILURE'
+  if (
+    error instanceof Error
+    && error.name === 'PrismaIngestRepositoryError'
+    && 'code' in error
+    && DETERMINISTIC_REPOSITORY_CODES.has(
+      String((error as { code?: unknown }).code),
+    )
   ) return 'PERMANENT_FAILURE'
   return null
 }
@@ -182,6 +202,7 @@ export function createPgBossMediaRuntime(
       const envelope = MediaIngestEnvelope.parse(envelopeValue)
       return boss.send(MEDIA_INGEST_QUEUE, envelope, {
         singletonKey: envelope.captureSessionId,
+        id: envelope.epochCandidateId,
       })
     },
   }
