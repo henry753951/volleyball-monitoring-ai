@@ -17,7 +17,7 @@
     "build": "bun --cwd packages/contracts build && bun --cwd packages/db build && bun --cwd server build && bun --cwd worker build && bun --cwd web build",
     "lint": "bun --cwd packages/contracts lint && bun --cwd packages/db lint && bun --cwd server lint && bun --cwd worker lint && bun --cwd web lint",
     "typecheck": "bun --cwd packages/contracts typecheck && bun --cwd packages/db typecheck && bun --cwd server typecheck && bun --cwd worker typecheck && bun --cwd web typecheck",
-    "test": "bun --cwd packages/contracts test && bun --cwd packages/db test && bun --cwd server test && bun --cwd worker test && bun --cwd web test && python -m pytest sdk/tests",
+    "test": "bun --cwd packages/contracts test && bun --cwd packages/db test && bun --cwd server test && bun --cwd worker test && bun --cwd web test && uv run --project sdk --frozen --extra test pytest sdk/tests",
     "db:generate": "bun --cwd packages/db generate",
     "db:format": "bun --cwd packages/db format",
     "db:validate": "bun --cwd packages/db validate",
