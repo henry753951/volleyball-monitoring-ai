@@ -297,7 +297,7 @@ describe('Phase 1B GraphQL schema', () => {
       { id: '20000000-0000-4000-8000-000000000024', dvrProgramId: programNew, captureEpochId: epochId, sequenceNumber: 4n, discontinuitySequence: 0, captureStartUs: 9007199254741392n, captureEndUs: 9007199254741492n, frameCount: 3n, durationUs: 100n, readyAt: new Date(), isGap: true, initAssetId: assets[6]!, mediaAssetId: assets[7]!, sampleIndexAssetId: assets[8]! },
       { id: '20000000-0000-4000-8000-000000000025', dvrProgramId: programNew, captureEpochId: epochId, sequenceNumber: 5n, discontinuitySequence: 1, captureStartUs: 9007199254741492n, captureEndUs: 9007199254741592n, frameCount: 3n, durationUs: 100n, readyAt: new Date(), initAssetId: assets[6]!, mediaAssetId: assets[7]!, sampleIndexAssetId: assets[8]! },
     ] })
-      const result = await execute('{ captureSession(id: "20000000-0000-4000-8000-000000000001") { id timeline { timelineVersion captureStartTimeUs liveEdgeCaptureTimeUs availableRanges { startUs endUs } } } }', contextFor(operatorUser))
+      const result = await execute('{ captureSession(id: "20000000-0000-4000-8000-000000000001") { id timeline { timelineVersion captureStartTimeUs liveEdgeCaptureTimeUs availableRanges { startUs endUs discontinuity } } } }', contextFor(operatorUser))
       expect(result.errors).toBeUndefined()
       expect(result.data).toEqual({ captureSession: { id: sessionId, timeline: { timelineVersion: '9007199254740993', captureStartTimeUs: '9007199254740992', liveEdgeCaptureTimeUs: '9007199254741592', availableRanges: [{ startUs: '9007199254740992', endUs: '9007199254741192', discontinuity: 0 }, { startUs: '9007199254741492', endUs: '9007199254741592', discontinuity: 1 }] } } })
       const laterSessionId = '20000000-0000-4000-8000-000000000011'
