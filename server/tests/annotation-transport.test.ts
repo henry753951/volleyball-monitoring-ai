@@ -59,9 +59,9 @@ function fakeService(seen: unknown[]): AnnotationCommandService {
   return {
     async apply(value, annotationIdentity) {
       seen.push({ annotationIdentity, value })
-      if (value.kind === 'CLOSE_RALLY') return { ...response, operation_kind: 'CLOSE_RALLY', resolved_anchor: null, effects: { terminal_key_point_id: keyPointId, annotation_status: 'ready', score_resolution: 'unknown', scoring_court_side: null } } as AnnotationCommandResponse
-      if (value.kind === 'CREATE_CONTACT_KEY_POINT') return { ...response, operation_kind: 'CREATE_CONTACT_KEY_POINT' } as AnnotationCommandResponse
-      return response
+      if (value.kind === 'CLOSE_RALLY') return parseAnnotationCommandResponse({ ...response, command_id: value.command_id, operation_kind: 'CLOSE_RALLY', resolved_anchor: null, effects: { terminal_key_point_id: keyPointId, annotation_status: 'ready', score_resolution: 'unknown', scoring_court_side: null } })
+      if (value.kind === 'CREATE_CONTACT_KEY_POINT') return parseAnnotationCommandResponse({ ...response, command_id: value.command_id, operation_kind: 'CREATE_CONTACT_KEY_POINT' })
+      return parseAnnotationCommandResponse({ ...response, command_id: value.command_id })
     },
     async authorizeRoom(value) {
       try {
