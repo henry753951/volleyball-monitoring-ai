@@ -3,6 +3,7 @@ import addFormats from "ajv-formats";
 import { describe, expect, it } from "vitest";
 import { readFileSync, readdirSync } from "node:fs";
 import { resolve } from "node:path";
+import { parseMediaApiError, parsePlaybackCursor } from "../src/index";
 
 const root = resolve(import.meta.dirname, "..");
 const load = (relative: string) => JSON.parse(readFileSync(resolve(root, relative), "utf8"));
@@ -16,6 +17,11 @@ function validator(schemaPath: string) {
 }
 
 describe("golden contract fixtures", () => {
+  it("guards all media error codes and rejects numeric wire values", () => {
+    const codes = ["BAD_REQUEST", "UNAUTHENTICATED", "FORBIDDEN", "NOT_FOUND", "MAPPING_STALE", "MEDIA_NOT_READY", "WINDOW_BOUNDARY", "WINDOW_EXPIRED", "CURSOR_NOT_READY", "CAPTURE_GAP", "SAMPLE_NOT_FOUND"] as const;
+    for (const code of codes) expect(parseMediaApiError({ schema_version: "1.0.0", code, message: "x", request_id: "r" }).code).toBe(code);
+    expect(() => parsePlaybackCursor({ schema_version: "1.0.0", playback_window_id: "w", mapping_version: 1, player_media_time_us: 9007199254740993, observation_source: "current_time_fallback", seek_generation: 0, cursor_status: "ready" })).toThrow();
+  });
   it("validates every AI fixture against the current schemas", () => {
     const validateJob = validator("ai/job.schema.json");
     const validateResult = validator("ai/result.schema.json");

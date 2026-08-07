@@ -8,6 +8,8 @@ paths:
   /api/v1/media/playback-windows:
     post:
       summary: Create a bounded live/archive HLS window
+      security:
+        - sessionCookie: []
       requestBody:
         required: true
         content:
@@ -19,6 +21,7 @@ paths:
           content:
             application/json:
               schema: { $ref: '../media/playback-window-descriptor.schema.json' }
+        '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthenticated' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '409':
@@ -74,11 +77,14 @@ paths:
   /api/v1/media/resolve-cursor:
     post:
       summary: Resolve a presented-frame observation to an authoritative sample
+      security:
+        - sessionCookie: []
       requestBody:
         required: true
         content: { application/json: { schema: { $ref: '../media/playback-cursor.schema.json' } } }
       responses:
         '200': { description: Resolved anchor, content: { application/json: { schema: { $ref: '../media/resolved-media-anchor.schema.json' } } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthenticated' }
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { description: Mapping stale, content: { application/json: { schema: { $ref: '../media/media-api-error.schema.json' } } } }
@@ -87,11 +93,14 @@ paths:
   /api/v1/media/frame-step:
     post:
       summary: Resolve exactly one adjacent canonical sample
+      security:
+        - sessionCookie: []
       requestBody:
         required: true
         content: { application/json: { schema: { $ref: '../media/frame-step-request.schema.json' } } }
       responses:
         '200': { description: Canonical adjacent frame, content: { application/json: { schema: { $ref: '../media/canonical-frame-anchor.schema.json' } } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthenticated' }
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { description: Mapping stale or window boundary, content: { application/json: { schema: { $ref: '../media/media-api-error.schema.json' } } } }
@@ -100,6 +109,8 @@ paths:
   /api/v1/ai/callback/{jobId}:
     post:
       summary: Receive idempotent AI callback
+      security:
+        - aiCallbackBearer: []
       parameters:
         - { name: jobId, in: path, required: true, schema: { type: string } }
         - { name: Authorization, in: header, required: true, schema: { type: string } }
@@ -117,6 +128,9 @@ components:
       type: apiKey
       in: cookie
       name: session
+    aiCallbackBearer:
+      type: http
+      scheme: bearer
   parameters:
     WindowId:
       name: windowId
@@ -126,6 +140,9 @@ components:
   schemas:
     MediaApiError: { $ref: '../media/media-api-error.schema.json' }
   responses:
+    BadRequest:
+      description: Malformed media request
+      content: { application/json: { schema: { $ref: '../media/media-api-error.schema.json' } } }
     Unauthenticated:
       description: Authentication required
       content: { application/json: { schema: { $ref: '../media/media-api-error.schema.json' } } }
