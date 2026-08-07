@@ -17,6 +17,7 @@
     "@pothos/plugin-prisma": "^4.14.3",
     "@volleyball-monitoring/contracts": "workspace:*",
     "@volleyball-monitoring/db": "workspace:*",
+    "@volleyball-monitoring/media": "workspace:*",
     "ajv": "^8.17.1",
     "graphql": "^16.11.0",
     "graphql-yoga": "^5.21.2",
