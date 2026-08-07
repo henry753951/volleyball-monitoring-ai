@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import { promisify } from 'node:util'
+import { printSchema } from 'graphql'
 import type { GraphQLSchema } from 'graphql'
 import { createYoga } from 'graphql-yoga'
 import { Pool } from 'pg'
@@ -269,6 +270,12 @@ afterAll(async () => {
 }, 120_000)
 
 describe('Phase 1B GraphQL schema', () => {
+  it('exposes capture timeline metadata only', () => {
+    const printed = printSchema(schema)
+    expect(printed).toContain('captureSessions')
+    expect(printed).toContain('captureSession(id: ID!)')
+    for (const forbidden of ['DvrSegment', 'sampleIndex', 'objectKey', 'mediaBytes']) expect(printed).not.toContain(forbidden)
+  })
   it('matches the committed generated snapshot and validates representative operations', async () => {
     const normalizeLineEndings = (value: string) => value.replaceAll('\r\n', '\n')
     const before = normalizeLineEndings(await readFile(schemaSnapshotPath, 'utf8'))
