@@ -462,6 +462,61 @@ async function acceptService(
   })
 }
 
+type ContactCommand = Extract<AnnotationCommand, { kind: 'CREATE_CONTACT_KEY_POINT' }>
+type CloseCommand = Extract<AnnotationCommand, { kind: 'CLOSE_RALLY' }>
+
+async function acceptContact(database: PrismaClient, room: AnnotationRoom, command: ContactCommand, identity: AnnotationIdentity, hash: string, anchor: ResolvedMediaAnchor): Promise<AnnotationCommandResponse> {
+  return serializable(database, async (tx) => {
+    await commandLock(tx, command.command_id)
+    const existing = await replay(tx, command, hash)
+    if (existing) return existing
+    await rallyLock(tx, command.rally_id)
+    const rally = await tx.rally.findUnique({ where: { id: command.rally_id }, include: { keyPoints: { where: { deletedAt: null }, orderBy: { sequenceIndex: 'desc' }, take: 1 } } })
+    const device = await tx.deviceSession.findUnique({ select: { revokedAt: true, userId: true }, where: { id: identity.deviceSessionId } })
+    if (!device || device.userId !== identity.userId || device.revokedAt) return persistRejection(tx, command, identity, hash, rejected(command, 'UNAUTHENTICATED', 'Authenticated device session is no longer active'))
+    if (!rally || rally.matchId !== room.matchId || rally.annotationStatus !== 'OPEN') return persistRejection(tx, command, identity, hash, rejected(command, 'RALLY_NOT_OPEN', 'Rally is not an open draft'))
+    if (command.base_revision !== rally.annotationRevision.toString()) return persistRejection(tx, command, identity, hash, rejected(command, 'REVISION_CONFLICT', 'Rally revision is stale', { actual: rally.annotationRevision.toString(), expected: command.base_revision }))
+    if (anchor.capture_session_id !== room.captureSessionId || anchor.playback_window_id !== command.payload.playback_cursor.playback_window_id || anchor.mapping_version !== command.payload.playback_cursor.mapping_version) return persistRejection(tx, command, identity, hash, rejected(command, 'ANNOTATION_NOT_READY', 'Resolved playback state is no longer valid'))
+    const prior = rally.keyPoints[0]
+    const possibleDuplicate = !!prior && prior.captureFrameIndex === BigInt(anchor.capture_frame_index)
+    const keyPointId = randomUUID()
+    const sequenceIndex = (await tx.keyPoint.aggregate({ _max: { sequenceIndex: true }, where: { rallyId: command.rally_id } }))._max.sequenceIndex! + 1
+    await tx.keyPoint.create({ data: { captureEpochId: anchor.capture_epoch_id, captureFrameIndex: BigInt(anchor.capture_frame_index), captureTimeUs: BigInt(anchor.capture_time_us), createdByUserId: identity.userId, deviceSessionId: identity.deviceSessionId, id: keyPointId, markerKind: 'CONTACT', originalPlaybackCursor: jsonValue(command.payload.playback_cursor), rallyId: command.rally_id, sequenceIndex, snapDistanceUs: anchor.snap_distance_us == null ? null : BigInt(anchor.snap_distance_us), sourcePts: BigInt(anchor.source_pts), timingPrecision: anchor.timing_precision.toUpperCase() as 'FRAME_EXACT' | 'PTS_EXACT' | 'ESTIMATED', updatedByUserId: identity.userId, possibleDuplicate } })
+    const revision = rally.annotationRevision + 1n
+    await tx.rally.update({ data: { annotationRevision: revision }, where: { id: rally.id } })
+    const receipt = await tx.annotationCommandReceipt.create({ data: { accepted: true, commandId: command.command_id, deviceSessionId: identity.deviceSessionId, rallyId: command.rally_id, requestHash: hash, requestJson: jsonValue(command), responseJson: {}, roomId: command.room_id, userId: identity.userId } })
+    const response = parseAnnotationCommandResponse({ schema_version: '2.0.0', type: 'command_ack', command_id: command.command_id, room_id: command.room_id, rally_id: command.rally_id, operation_kind: command.kind, result_revision: revision.toString(), server_sequence: receipt.serverSequence.toString(), effects: { annotation_status: 'open', created_key_point_id: keyPointId, score_resolution: 'pending', scoring_court_side: null }, resolved_anchor: wireAnchor(anchor) })
+    await tx.annotationCommandReceipt.update({ data: { responseJson: jsonValue(response) }, where: { serverSequence: receipt.serverSequence } })
+    await tx.annotationOperation.create({ data: { baseRevision: rally.annotationRevision, clientMutationId: command.command_id, deviceSessionId: identity.deviceSessionId, operationKind: command.kind, payload: jsonValue(command.payload), payloadHash: hash, rallyId: command.rally_id, receiptServerSequence: receipt.serverSequence, resultRevision: revision, userId: identity.userId } })
+    await tx.outboxEvent.create({ data: { aggregateId: command.rally_id, aggregateType: 'Rally', dedupeKey: `annotation-accepted:${receipt.serverSequence}`, eventType: 'annotation.command_accepted.v2', payload: jsonValue(response) } })
+    return response
+  })
+}
+
+async function acceptClose(database: PrismaClient, room: AnnotationRoom, command: CloseCommand, identity: AnnotationIdentity, hash: string): Promise<AnnotationCommandResponse> {
+  return serializable(database, async (tx) => {
+    await commandLock(tx, command.command_id); const existing = await replay(tx, command, hash); if (existing) return existing; await rallyLock(tx, command.rally_id)
+    const rally = await tx.rally.findUnique({ where: { id: command.rally_id }, include: { keyPoints: { where: { deletedAt: null }, orderBy: { sequenceIndex: 'desc' }, take: 1 } } })
+    const device = await tx.deviceSession.findUnique({ select: { revokedAt: true, userId: true }, where: { id: identity.deviceSessionId } })
+    if (!device || device.userId !== identity.userId || device.revokedAt) return persistRejection(tx, command, identity, hash, rejected(command, 'UNAUTHENTICATED', 'Authenticated device session is no longer active'))
+    if (!rally || rally.matchId !== room.matchId) return persistRejection(tx, command, identity, hash, rejected(command, 'RALLY_NOT_FOUND', 'Rally was not found'))
+    if (rally.annotationStatus !== 'OPEN') return persistRejection(tx, command, identity, hash, rejected(command, 'RALLY_ALREADY_READY', 'Rally is already closed'))
+    if (rally.annotationRevision.toString() !== command.base_revision) return persistRejection(tx, command, identity, hash, rejected(command, 'REVISION_CONFLICT', 'Rally revision is stale', { actual: rally.annotationRevision.toString(), expected: command.base_revision }))
+    const target = rally.keyPoints[0]
+    if (!target || target.id !== command.payload.target_key_point_id) return persistRejection(tx, command, identity, hash, rejected(command, 'CLOSE_RALLY_TARGET_NOT_LAST', 'Close target is not the last key point'))
+    const revision = rally.annotationRevision + 1n
+    const resolution = command.payload.score_resolution === 'resolved' ? 'RESOLVED' : 'UNKNOWN'
+    await tx.keyPoint.update({ data: { isTerminal: true, updatedByUserId: identity.userId }, where: { id: target.id } })
+    await tx.rally.update({ data: { annotationRevision: revision, annotationStatus: 'READY', scoreResolutionState: resolution, scoringCourtSide: command.payload.scoring_court_side === null ? null : command.payload.scoring_court_side.toUpperCase() as 'LEFT' | 'RIGHT' }, where: { id: rally.id } })
+    const receipt = await tx.annotationCommandReceipt.create({ data: { accepted: true, commandId: command.command_id, deviceSessionId: identity.deviceSessionId, rallyId: command.rally_id, requestHash: hash, requestJson: jsonValue(command), responseJson: {}, roomId: command.room_id, userId: identity.userId } })
+    const response = parseAnnotationCommandResponse({ schema_version: '2.0.0', type: 'command_ack', command_id: command.command_id, room_id: command.room_id, rally_id: command.rally_id, operation_kind: command.kind, result_revision: revision.toString(), server_sequence: receipt.serverSequence.toString(), effects: { annotation_status: 'ready', terminal_key_point_id: target.id, score_resolution: command.payload.score_resolution, scoring_court_side: command.payload.scoring_court_side }, resolved_anchor: null })
+    await tx.annotationCommandReceipt.update({ data: { responseJson: jsonValue(response) }, where: { serverSequence: receipt.serverSequence } })
+    await tx.annotationOperation.create({ data: { baseRevision: rally.annotationRevision, clientMutationId: command.command_id, deviceSessionId: identity.deviceSessionId, operationKind: command.kind, payload: jsonValue(command.payload), payloadHash: hash, rallyId: command.rally_id, receiptServerSequence: receipt.serverSequence, resultRevision: revision, userId: identity.userId } })
+    await tx.outboxEvent.create({ data: { aggregateId: command.rally_id, aggregateType: 'Rally', dedupeKey: `annotation-accepted:${receipt.serverSequence}`, eventType: 'annotation.command_accepted.v2', payload: jsonValue(response) } })
+    return response
+  })
+}
+
 export function createAnnotationCommandService(
   deps: AnnotationCommandServiceDependencies,
 ): AnnotationCommandService {
@@ -489,9 +544,14 @@ export function createAnnotationCommandService(
       }
       const prior = await replay(deps.database, command, hash)
       if (prior) return prior
-      if (command.kind !== 'CREATE_SERVICE_KEY_POINT') {
-        return storeRejection(deps.database, command, identity, hash, rejected(command, 'UNSUPPORTED_COMMAND', 'Command is not durable in this server slice'))
+      if (command.kind === 'CREATE_CONTACT_KEY_POINT') {
+        if (command.base_revision === '0') return storeRejection(deps.database, command, identity, hash, rejected(command, 'REVISION_CONFLICT', 'Contact command cannot start at revision zero', { actual: '1', expected: '0' }))
+        let anchor: ResolvedMediaAnchor
+        try { anchor = await deps.resolveCursor(toMediaCursor(command as CreateServiceKeyPointCommand), { id: identity.userId, role: identity.role }) } catch (error) { if (!(error instanceof MediaHttpError)) throw error; return storeRejection(deps.database, command, identity, hash, mediaRejection(command, error)) }
+        return acceptContact(deps.database, room, command, identity, hash, anchor)
       }
+      if (command.kind === 'CLOSE_RALLY') return acceptClose(deps.database, room, command, identity, hash)
+      if (command.kind !== 'CREATE_SERVICE_KEY_POINT') return storeRejection(deps.database, command, identity, hash, rejected(command, 'UNSUPPORTED_COMMAND', 'Command is not durable in this server slice'))
       if (command.base_revision !== '0') {
         return storeRejection(deps.database, command, identity, hash, rejected(command, 'REVISION_CONFLICT', 'Service command must start at revision zero', {
           actual: '0', expected: command.base_revision,
