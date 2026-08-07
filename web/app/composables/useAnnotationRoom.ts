@@ -1,0 +1,197 @@
+import {
+  parseAnnotationCommand,
+  parseAnnotationServerMessage,
+  type AnnotationCommand,
+  type AnnotationCommandResponse,
+  type AnnotationRallySnapshot,
+} from '@volleyball-monitoring/contracts'
+import { createAnnotationRealtimeClient, type AnnotationConnectionState, type AnnotationRealtimeClient } from '../lib/annotationRealtimeClient'
+import { createGraphQLTransport } from '../lib/coreDomain'
+import type { PlaybackCursorInput } from '../lib/mediaModel'
+import type { AnnotationAction } from '../utils/annotationHotkeys'
+
+const ACTIVE_SNAPSHOT_QUERY = `query ActiveAnnotationRally($roomId: String!) {
+  activeAnnotationRallySnapshot(roomId: $roomId)
+}`
+const SNAPSHOT_QUERY = `query AnnotationRally($roomId: String!, $rallyId: ID!) {
+  annotationRallySnapshot(roomId: $roomId, rallyId: $rallyId)
+}`
+
+function asSnapshot(value: unknown): AnnotationRallySnapshot | null {
+  if (value === null) return null
+  const parsed = parseAnnotationServerMessage(value)
+  if (parsed.type !== 'rally_snapshot') throw new TypeError('Expected rally snapshot')
+  return parsed
+}
+
+function annotationCursor(cursor: PlaybackCursorInput) {
+  return {
+    playback_window_id: cursor.playback_window_id,
+    mapping_version: cursor.mapping_version,
+    player_media_time_us: cursor.player_media_time_us,
+    observation_source: cursor.observation_source,
+    presented_frames: cursor.presented_frames ?? null,
+    seek_generation: cursor.seek_generation,
+    cursor_status: cursor.cursor_status,
+  }
+}
+
+export function useAnnotationRoom() {
+  const snapshot = shallowRef<AnnotationRallySnapshot | null>(null)
+  const connection = ref<AnnotationConnectionState>('closed')
+  const busy = ref(false)
+  const error = ref<string | null>(null)
+  const roomId = ref<string | null>(null)
+  const transport = createGraphQLTransport('/graphql')
+  let realtime: AnnotationRealtimeClient | null = null
+  let refreshTimer: ReturnType<typeof setInterval> | null = null
+
+  const state = computed<'IDLE' | 'OPEN' | 'READY' | 'SUBMITTED'>(() => {
+    const status = snapshot.value?.snapshot.annotation_status
+    return status ? status.toUpperCase() as 'OPEN' | 'READY' | 'SUBMITTED' : 'IDLE'
+  })
+  const lastKeyPoint = computed(() => snapshot.value?.snapshot.key_points.at(-1) ?? null)
+
+  function acceptSnapshot(next: AnnotationRallySnapshot | null) {
+    if (!next) return
+    const current = snapshot.value
+    if (
+      current
+      && current.rally_id === next.rally_id
+      && BigInt(next.server_sequence) < BigInt(current.server_sequence)
+    ) return
+    snapshot.value = next
+  }
+
+  async function fetchSnapshot(rallyId: string) {
+    if (!roomId.value) return null
+    const result = await transport.request<{ annotationRallySnapshot: unknown }>(SNAPSHOT_QUERY, {
+      roomId: roomId.value,
+      rallyId,
+    })
+    const next = asSnapshot(result.annotationRallySnapshot)
+    acceptSnapshot(next)
+    return next
+  }
+
+  async function refreshActive() {
+    if (!roomId.value) return
+    try {
+      const result = await transport.request<{ activeAnnotationRallySnapshot: unknown }>(ACTIVE_SNAPSHOT_QUERY, {
+        roomId: roomId.value,
+      })
+      const active = asSnapshot(result.activeAnnotationRallySnapshot)
+      if (active) acceptSnapshot(active)
+      else if (snapshot.value && state.value !== 'SUBMITTED') await fetchSnapshot(snapshot.value.rally_id)
+    }
+    catch (cause) {
+      error.value = cause instanceof Error ? cause.message : '無法同步標註狀態'
+    }
+  }
+
+  function connect(nextRoomId: string) {
+    if (roomId.value === nextRoomId && realtime) return
+    realtime?.disconnect()
+    if (refreshTimer) clearInterval(refreshTimer)
+    roomId.value = nextRoomId
+    snapshot.value = null
+    error.value = null
+    realtime = createAnnotationRealtimeClient(nextRoomId, {
+      onState: value => { connection.value = value },
+      onError: cause => { error.value = cause.message },
+      onMessage: (message) => {
+        if (message.type === 'connection_ready') void refreshActive()
+        if (message.type === 'rally_snapshot') acceptSnapshot(message)
+      },
+    })
+    realtime.connect()
+    void refreshActive()
+    refreshTimer = setInterval(() => { void refreshActive() }, 2_000)
+  }
+
+  function buildCommand(action: AnnotationAction, cursor: PlaybackCursorInput | null): AnnotationCommand {
+    if (!roomId.value) throw new Error('Annotation room is not selected')
+    const current = snapshot.value
+    if (action === 'service') {
+      if (!cursor || cursor.cursor_status !== 'ready') throw new Error('伺服器尚未取得可解析的播放游標')
+      return parseAnnotationCommand({
+        schema_version: '2.0.0',
+        command_id: crypto.randomUUID(),
+        room_id: roomId.value,
+        base_revision: '0',
+        rally_id: crypto.randomUUID(),
+        kind: 'CREATE_SERVICE_KEY_POINT',
+        payload: { playback_cursor: annotationCursor(cursor) },
+      })
+    }
+    if (!current) throw new Error('目前沒有可操作的 Rally')
+    const base = {
+      schema_version: '2.0.0',
+      command_id: crypto.randomUUID(),
+      room_id: roomId.value,
+      base_revision: current.revision,
+      rally_id: current.rally_id,
+    } as const
+    if (action === 'contact') {
+      if (!cursor || cursor.cursor_status !== 'ready') throw new Error('伺服器尚未取得可解析的播放游標')
+      return parseAnnotationCommand({ ...base, kind: 'CREATE_CONTACT_KEY_POINT', payload: { playback_cursor: annotationCursor(cursor) } })
+    }
+    if (action === 'submit') return parseAnnotationCommand({ ...base, kind: 'SUBMIT_RALLY', payload: {} })
+    const target = lastKeyPoint.value
+    if (!target) throw new Error('沒有伺服器確認的最後 key point')
+    if (action === 'close_unknown') {
+      return parseAnnotationCommand({ ...base, kind: 'CLOSE_RALLY', payload: { target_key_point_id: target.key_point_id, score_resolution: 'unknown', scoring_court_side: null } })
+    }
+    return parseAnnotationCommand({
+      ...base,
+      kind: 'CLOSE_RALLY',
+      payload: {
+        target_key_point_id: target.key_point_id,
+        score_resolution: 'resolved',
+        scoring_court_side: action === 'close_left' ? 'left' : 'right',
+      },
+    })
+  }
+
+  async function dispatch(action: AnnotationAction, cursor: PlaybackCursorInput | null) {
+    if (!realtime?.ready()) throw new Error('Annotation WebSocket 尚未連線')
+    busy.value = true
+    error.value = null
+    try {
+      const command = buildCommand(action, cursor)
+      const response: AnnotationCommandResponse = await realtime.send(command)
+      if (response.type === 'command_rejected') {
+        error.value = response.message ?? '標註命令被拒絕'
+        if (response.snapshot_refetch_required && snapshot.value) await fetchSnapshot(snapshot.value.rally_id)
+        return response
+      }
+      await fetchSnapshot(response.rally_id)
+      return response
+    }
+    catch (cause) {
+      error.value = cause instanceof Error ? cause.message : '標註命令失敗'
+      throw cause
+    }
+    finally {
+      busy.value = false
+    }
+  }
+
+  onBeforeUnmount(() => {
+    realtime?.disconnect()
+    realtime = null
+    if (refreshTimer) clearInterval(refreshTimer)
+  })
+
+  return {
+    busy: readonly(busy),
+    connection: readonly(connection),
+    connect,
+    dispatch,
+    error: readonly(error),
+    lastKeyPoint,
+    refreshActive,
+    snapshot: shallowReadonly(snapshot),
+    state,
+  }
+}
