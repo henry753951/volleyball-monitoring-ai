@@ -1082,12 +1082,27 @@ Prisma}\label{43-apifastify--yoga--pothos--prisma}
   \texttt{ai-dispatcher}
 \item
   \texttt{analysis-ingest}
+\item
+  \texttt{outbox-publisher}
 \end{itemize}
 
 它們共享 \texttt{packages/db} 與 \texttt{packages/contracts}，但每個
 worker 只能 claim 自己的 job type。FFmpeg subprocess 必須有
 timeout、cancel、stderr capture、temporary directory quota 與 idempotent
 output key。
+
+目前 deterministic DVR profile 已是可直接組成 bounded HLS 的 immutable
+fMP4。Server 在已授權 request 內建立 manifest/mapping；
+\texttt{playback-packager} 非同步清除已過期的 ephemeral
+\texttt{PlaybackWindow}，不複製完整 DVR、也不為每次 seek 重轉碼。AI
+completed callback 必須在公開 REST boundary 完成
+schema/checksum/passthrough/idempotent receipt 與 normalized transaction
+後才 ACK；\texttt{analysis-ingest} 只負責 restart 後 active immutable
+submission 的 terminal projection convergence，不得重啟
+\texttt{SUPERSEDED} run 或重算/改寫 provider \texttt{court\_pos}。
+\texttt{outbox-publisher} 以 PostgreSQL CAS claim
+\texttt{OutboxEvent}，用 event ID/dedupe key idempotently 寫入 durable
+pg-boss queue，成功後才標記 \texttt{PUBLISHED}。
 
 \subsection{4.5 Media}\label{45-media}
 
@@ -1243,10 +1258,11 @@ Container & 責任 & 是否有 durable state \\
 \texttt{web} & Nuxt UI/SSR/SPA & 否 \\
 \texttt{server} & GraphQL、REST、WS、auth、domain command & 否 \\
 \texttt{worker-media-indexer} / \texttt{worker-playback} /
-\texttt{worker-clip} & index、playback window、clip、FFmpeg & local
+\texttt{worker-clip} & index、bounded playback-window lifecycle、clip、FFmpeg & local
 spool 只是暫存 \\
-\texttt{worker-ai-dispatcher} / \texttt{worker-analysis-ingest} &
-submit、retry、callback ingest／normalize & 否 \\
+\texttt{worker-ai-dispatcher} / \texttt{worker-analysis-ingest} /
+\texttt{worker-outbox-publisher} &
+submit／retry、callback terminal convergence、durable domain-event publish & 否 \\
 \texttt{mediamtx} & ingest/live/record & recording spool 暫存 \\
 \texttt{postgres} & canonical metadata、revision、job、analysis & 是 \\
 \texttt{minio} & media、clip、analysis artifact & 是 \\

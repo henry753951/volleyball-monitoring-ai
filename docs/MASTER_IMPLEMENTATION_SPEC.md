@@ -451,8 +451,11 @@ server/src/graphql/**/*.ts (Pothos source)
 - `clip-worker`
 - `ai-dispatcher`
 - `analysis-ingest`
+- `outbox-publisher`
 
 它們共享 `packages/db` 與 `packages/contracts`，但每個 worker 只能 claim 自己的 job type。FFmpeg subprocess 必須有 timeout、cancel、stderr capture、temporary directory quota 與 idempotent output key。
+
+目前 deterministic DVR profile 已是可直接組成 bounded HLS 的 immutable fMP4。Server 在已授權 request 內建立 manifest/mapping；`playback-packager` 非同步清除已過期的 ephemeral `PlaybackWindow`，不複製完整 DVR、也不為每次 seek 重轉碼。AI completed callback 必須在公開 REST boundary 完成 schema/checksum/passthrough/idempotent receipt 與 normalized transaction 後才 ACK；`analysis-ingest` 只負責 restart 後 active immutable submission 的 terminal projection convergence，不得重啟 `SUPERSEDED` run 或重算/改寫 provider `court_pos`。`outbox-publisher` 以 PostgreSQL CAS claim `OutboxEvent`，用 event ID/dedupe key idempotently 寫入 durable pg-boss queue，成功後才標記 `PUBLISHED`。
 
 ## 4.5 Media
 
@@ -527,8 +530,8 @@ server/src/graphql/**/*.ts (Pothos source)
 |---|---|---|
 | `web` | Nuxt UI/SSR/SPA | 否 |
 | `server` | GraphQL、REST、WS、auth、domain command | 否 |
-| `worker-media-indexer` / `worker-playback` / `worker-clip` | index、playback window、clip、FFmpeg | local spool 只是暫存 |
-| `worker-ai-dispatcher` / `worker-analysis-ingest` | submit、retry、callback ingest／normalize | 否 |
+| `worker-media-indexer` / `worker-playback` / `worker-clip` | index、bounded playback-window lifecycle、clip、FFmpeg | local spool 只是暫存 |
+| `worker-ai-dispatcher` / `worker-analysis-ingest` / `worker-outbox-publisher` | submit／retry、callback terminal convergence、durable domain-event publish | 否 |
 | `mediamtx` | ingest/live/record | recording spool 暫存 |
 | `postgres` | canonical metadata、revision、job、analysis | 是 |
 | `minio` | media、clip、analysis artifact | 是 |

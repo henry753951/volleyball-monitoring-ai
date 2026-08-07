@@ -1,5 +1,18 @@
 # Progress
 
+## 2026-08-08 — Complete durable worker runtime ownership
+
+Status: every configured `WORKER_ROLE` now has a concrete start/stop composition; no production role falls through to the idle scaffold lifecycle.
+
+- Implemented the PostgreSQL transactional Outbox publisher. It CAS-claims one eligible row, writes an idempotent `domain-events-v1` pg-boss job using the OutboxEvent UUID/dedupe key, marks `PUBLISHED` only after durable acceptance, treats an already-existing job ID as successful crash replay, and uses bounded exponential retry with a ten-attempt `FAILED` terminal state. Persisted failures contain only a secret-free error class.
+- Implemented playback-window lifecycle cleanup. The deterministic DVR profile already consists of immutable indexed fMP4, so authorized Server requests compose bounded manifests without duplicating or transcoding the full DVR. `worker-playback` deletes only explicitly expired ephemeral `PlaybackWindow` rows in bounded batches; it never removes DVR segments or media assets.
+- Implemented analysis terminal convergence. The public REST callback remains the single schema/checksum/passthrough/FlatBuffer/idempotent-receipt and normalized-data transaction. `worker-analysis-ingest` repairs only AiJob/Rally terminal projections for a COMPLETED AnalysisRun whose immutable submission is still active; it cannot reactivate `SUPERSEDED` work or rewrite provider results/`court_pos`. ADR 0014 records this ownership decision.
+- Added an exhaustive worker entrypoint and scaffold validator assertions for all six roles. Focused lifecycle tests passed `8/8`; the full Worker suite passed `155` with 6 environment-dependent skips, plus typecheck and production build.
+- Docker runtime evidence started all three formerly idle roles with `durable runtime active`. Before restart, PostgreSQL held 6 PENDING OutboxEvents and 528 expired PlaybackWindows. After convergence it held 6 PUBLISHED events, zero expired/total windows, and pg-boss held exactly 6 `domain-events-v1` jobs in durable `created` state. The YouTube relay, MediaMTX, indexer, Server and Web were not restarted.
+- Updated the canonical Markdown/TeX/PDF specification and requirements matrix. Both Markdown specs remain byte-identical; XeLaTeX produced a searchable 42-page A4 PDF, and changed architecture pages 12–14 were visually inspected without clipping or layout defects.
+
+Open limitations remain deployment acceptance: downstream consumers may subscribe to the durable domain-event queue as deployment integrations are added; production identity/TLS, off-host backup schedule, retention approvals, external observability and physical-iPad acceptance remain environment-owned.
+
 ## 2026-08-08 — Advisory marker soft locks and authoritative drag completion
 
 Status: the remaining optional cross-operator marker-edit hint is implemented, contract-versioned and runtime-verified without weakening revision/CAS authority.

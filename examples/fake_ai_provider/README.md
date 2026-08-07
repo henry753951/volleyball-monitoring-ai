@@ -11,4 +11,6 @@ uv sync --project sdk --frozen --extra provider --extra test
 uv run --project sdk --frozen uvicorn examples.fake_ai_provider.app:app --host 0.0.0.0 --port 8080
 ```
 
-The placeholder analyzer must be replaced by a fixture-backed response before end-to-end tests.
+The analyzer returns deterministic contract-valid no-model evidence for every immutable key point:
+non-terminal events are `unresolved`, terminal events are `no_player`, positions/actions/confidence are
+not fabricated, and the VOV1 overlay is a real empty FlatBuffer. It is an integration fixture, not an AI model.

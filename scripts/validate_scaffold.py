@@ -126,6 +126,13 @@ annotation_room = (ROOT / 'web/app/composables/useAnnotationRoom.ts').read_text(
 hotkey_registry = (ROOT / 'web/app/utils/annotationHotkeys.ts').read_text(encoding='utf-8')
 for action in ['service', 'contact', 'close_left', 'close_right', 'close_unknown', 'submit']:
     assert action in hotkey_registry, f'annotation registry missing: {action}'
+
+worker_index = (ROOT / 'worker/src/index.ts').read_text(encoding='utf-8')
+for role in ['media-indexer', 'playback-packager', 'clip-worker', 'ai-dispatcher', 'analysis-ingest', 'outbox-publisher']:
+    assert role in worker_index, f'worker entrypoint missing runtime role: {role}'
+for role_file in ['playback-packager.ts', 'analysis-ingest.ts', 'outbox-publisher.ts']:
+    source = (ROOT / 'worker/src/roles' / role_file).read_text(encoding='utf-8')
+    assert 'TODO' not in source and 'createPollingLifecycle' in source, f'worker role remains a scaffold: {role_file}'
 for binding in ["service: 'Z'", "contact: 'Space'", "close_left: '<'", "close_right: '>'", "close_unknown: '?'", "submit: 'Enter'"]:
     assert binding in hotkey_registry, f'annotation default missing: {binding}'
 assert "'terminal'" not in annotation_page
