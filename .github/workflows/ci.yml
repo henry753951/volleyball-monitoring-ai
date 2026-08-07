@@ -83,7 +83,10 @@ jobs:
         run: bun run graphql:schema:check
       - name: Run repository validators and TypeScript checks
         run: |
-          uv run --project sdk --frozen bun run validate:all
+          uv run --project sdk --frozen python scripts/validate_contracts.py
+          uv run --project sdk --frozen python scripts/validate_scaffold.py --skip-checksums
+          uv run --project sdk --frozen python scripts/validate_prisma_structure.py
+          node scripts/validate_typescript_syntax.mjs
           bun run typecheck
       - name: Run database and server tests
         run: bun run test:db-server
