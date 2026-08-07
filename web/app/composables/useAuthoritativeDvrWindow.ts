@@ -1,7 +1,8 @@
 import type { PlaybackCursorInput, PlaybackWindowDescriptor, ResolvedMediaAnchor, CanonicalFrameAnchor } from '../lib/mediaModel'
 import type { MediaClient } from '../lib/mediaClient'
 import { MediaApiError } from '../lib/mediaModel'
-import { shallowRef, reactive, ref, readonly, onScopeDispose } from 'vue'
+import { shallowRef, ref, readonly } from 'vue'
+import { classifyMediaError } from '../lib/mediaModel'
 
 export type WindowStatus = 'idle' | 'loading' | 'ready' | 'recovering' | 'gap' | 'error'
 export function frameRecovery(code: string) {
@@ -12,17 +13,18 @@ export function frameRecovery(code: string) {
 }
 export function boundedPlayerSeconds(playerUs: string) { const value = BigInt(playerUs); if (value < 0n || value > 86_400_000_000n) throw new RangeError('unbounded player time'); return Number(value) / 1_000_000 }
 export function frameCommandEnabled(input: { descriptor: boolean; anchor: boolean; cursorReady: boolean; busy: boolean; recovering: boolean }) { return input.descriptor && input.anchor && input.cursorReady && !input.busy && !input.recovering }
+export const authoritativeControlsEnabled = (input: { cursorReady: boolean; status: WindowStatus; busy: boolean; descriptor: PlaybackWindowDescriptor | null; anchor: { playback_window_id: string; mapping_version: number } | null }) => Boolean(input.cursorReady && input.status === 'ready' && !input.busy && input.descriptor && input.anchor && input.anchor.playback_window_id === input.descriptor.playback_window_id && input.anchor.mapping_version === input.descriptor.mapping_version)
+export function seekVideoToCanonicalFrame(video: HTMLVideoElement, anchor: { player_media_time_us: string }) { const seconds = boundedPlayerSeconds(anchor.player_media_time_us); video.currentTime = seconds; return seconds }
 export function useAuthoritativeDvrWindow(client: MediaClient) {
   const current = shallowRef<PlaybackWindowDescriptor | null>(null)
-  const cache = reactive<{ previous: PlaybackWindowDescriptor | null; current: PlaybackWindowDescriptor | null; next: PlaybackWindowDescriptor | null }>({ previous: null, current: null, next: null })
   const anchor = shallowRef<ResolvedMediaAnchor | CanonicalFrameAnchor | null>(null)
   const status = ref<WindowStatus>('idle'); const error = shallowRef<MediaApiError | Error | null>(null); const busy = ref(false)
-  let generation = 0; let abort: AbortController | null = null
-  const begin = () => { abort?.abort(); abort = new AbortController(); const id = ++generation; busy.value = true; status.value = 'loading'; error.value = null; return id }
+  let generation = 0
+  const begin = () => { const id = ++generation; busy.value = true; status.value = 'loading'; error.value = null; return id }
   const valid = (id: number) => id === generation
-  async function create(input: Parameters<MediaClient['createPlaybackWindow']>[0], slot: keyof typeof cache = 'current') {
+  async function create(input: Parameters<MediaClient['createPlaybackWindow']>[0]) {
     const id = begin(); const previous = current.value
-    try { const descriptor = await client.createPlaybackWindow(input); if (!valid(id)) return null; cache[slot] = descriptor; current.value = descriptor; status.value = 'ready'; return descriptor }
+    try { const descriptor = await client.createPlaybackWindow(input); if (!valid(id)) return null; current.value = descriptor; anchor.value = null; status.value = 'ready'; return descriptor }
     catch (cause) { if (!valid(id)) return null; current.value = previous; status.value = 'error'; error.value = cause instanceof Error ? cause : new Error('Window request failed'); throw cause }
     finally { if (valid(id)) busy.value = false }
   }
@@ -36,16 +38,16 @@ export function useAuthoritativeDvrWindow(client: MediaClient) {
       catch (cause) {
         if (!valid(id)) return null
         const mediaError = cause as MediaApiError
-        if (attempt >= 2 || !['WINDOW_BOUNDARY', 'WINDOW_EXPIRED', 'MAPPING_STALE'].includes(mediaError.code)) {
+        const classification = classifyMediaError(mediaError)
+        if (attempt >= 2 || classification !== 'recenter_retry' && classification !== 'recreate_window') {
           status.value = mediaError.code === 'CAPTURE_GAP' || mediaError.code === 'SAMPLE_NOT_FOUND' ? 'gap' : 'error'; error.value = mediaError; busy.value = false; return null
         }
         status.value = 'recovering'; busy.value = false
         const target = mediaError.details && typeof mediaError.details === 'object' && 'target_capture_time_us' in mediaError.details ? String(mediaError.details.target_capture_time_us) : anchor.value.capture_time_us
-        try { await create(inputFactory(target)) } catch { status.value = 'error'; error.value = new Error('Window recovery failed'); busy.value = false; return null }
+        try { await create(inputFactory(target)) } catch (refreshError) { status.value = 'error'; error.value = refreshError instanceof Error ? refreshError : mediaError; busy.value = false; return null }
       }
     }
     return null
   }
-  onScopeDispose(() => abort?.abort())
-  return { current, cache, anchor, status: readonly(status), error: readonly(error), busy: readonly(busy), create, resolve, step }
+  return { current, anchor, status: readonly(status), error: readonly(error), busy: readonly(busy), create, resolve, step }
 }

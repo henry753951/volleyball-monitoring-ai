@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { createMediaClient } from '~/lib/mediaClient'
-import { useAuthoritativeDvrWindow } from '~/composables/useAuthoritativeDvrWindow'
+import { useAuthoritativeDvrWindow, seekVideoToCanonicalFrame, authoritativeControlsEnabled } from '~/composables/useAuthoritativeDvrWindow'
 import type { PlaybackWindowDescriptor, ResolvedMediaAnchor, CanonicalFrameAnchor } from '~/lib/mediaModel'
 import { createCoreDomainClient, createGraphQLTransport, type Match, type CaptureSession } from '~/lib/coreDomain'
 import { ANNOTATION_COMMANDS, formatBindingForDisplay, type AnnotationAction, type HotkeyCommand, type MediaAction } from '~/utils/annotationHotkeys'
@@ -21,7 +21,7 @@ const authoritativeAnchor = computed(() => dvr.anchor.value)
 const cursorStatus = ref<'ready' | 'stale' | 'seeking' | 'gap'>('stale')
 const state = ref<'IDLE' | 'OPEN' | 'READY' | 'SUBMITTED'>('IDLE')
 const currentLastKeyPointId = ref<string | null>(null)
-const canMark = computed(() => cursorStatus.value === 'ready')
+const canMark = computed(() => authoritativeControlsEnabled({ cursorReady: cursorStatus.value === 'ready', status: dvr.status.value, busy: dvr.busy.value, descriptor: descriptor.value, anchor: authoritativeAnchor.value }))
 const { bindings } = useAnnotationHotkeys()
 const annotationScope = useTemplateRef<HTMLElement>('annotationScope')
 
@@ -82,7 +82,7 @@ async function frameStep(direction: 'previous' | 'next') {
     if (!anchor) return
     const localUs = BigInt(anchor.player_media_time_us)
     if (localUs < 0n || localUs > 86_400_000_000n) throw new RangeError('frame-step returned an unbounded player time')
-    if (video.value) video.value.currentTime = Number(localUs) / 1_000_000
+    if (video.value) seekVideoToCanonicalFrame(video.value, anchor)
   } catch (error) { mediaError.value = error instanceof Error ? error.message : '逐幀請求失敗' }
 }
 function dispatchHotkeyCommand(action: HotkeyCommand) { action.startsWith('frame_') ? dispatchMediaAction(action as MediaAction) : dispatchAnnotationAction(action as AnnotationAction) }
