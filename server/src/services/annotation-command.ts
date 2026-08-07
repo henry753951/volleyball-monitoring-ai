@@ -474,6 +474,8 @@ async function acceptContact(database: PrismaClient, room: AnnotationRoom, comma
     const rally = await tx.rally.findUnique({ where: { id: command.rally_id }, include: { keyPoints: { where: { deletedAt: null }, orderBy: { sequenceIndex: 'desc' }, take: 1 } } })
     const device = await tx.deviceSession.findUnique({ select: { revokedAt: true, userId: true }, where: { id: identity.deviceSessionId } })
     if (!device || device.userId !== identity.userId || device.revokedAt) return persistRejection(tx, command, identity, hash, rejected(command, 'UNAUTHENTICATED', 'Authenticated device session is no longer active'))
+    const authorizedMatch = await tx.match.findFirst({ select: { id: true }, where: { id: room.matchId, captureSessions: { some: { id: room.captureSessionId } }, ...(identity.role === UserRole.ADMIN ? {} : { members: { some: { userId: identity.userId, role: { in: [UserRole.ADMIN, UserRole.OPERATOR, UserRole.ANNOTATOR] } } } }) } })
+    if (!authorizedMatch) return persistRejection(tx, command, identity, hash, rejected(command, 'ROOM_AUTHORIZATION_STALE', 'Annotation room authorization changed before commit'))
     if (!rally || rally.matchId !== room.matchId || rally.annotationStatus !== 'OPEN') return persistRejection(tx, command, identity, hash, rejected(command, 'RALLY_NOT_OPEN', 'Rally is not an open draft'))
     await setAllocationLock(tx, rally.setId)
     if (command.base_revision !== rally.annotationRevision.toString()) return persistRejection(tx, command, identity, hash, rejected(command, 'REVISION_CONFLICT', 'Rally revision is stale', { actual: rally.annotationRevision.toString(), expected: command.base_revision }))
