@@ -2,14 +2,14 @@
 import { Activity, ChartNoAxesColumn, History, Map, Radio, Settings, Users } from 'lucide-vue-next'
 
 const route = useRoute()
-const matchId = computed(() => String(route.params.matchId ?? 'demo'))
+const matchId = computed(() => typeof route.params.matchId === 'string' ? route.params.matchId : '')
 const nav = computed(() => [
   { to: `/matches/${matchId.value}/live`, label: '現場', icon: Radio },
   { to: `/matches/${matchId.value}/paths`, label: '球路', icon: Map },
   { to: `/matches/${matchId.value}/players`, label: '球員', icon: Users },
   { to: `/matches/${matchId.value}/stats`, label: '統計', icon: ChartNoAxesColumn },
   { to: `/matches/${matchId.value}/history`, label: '紀錄', icon: History },
-])
+].filter(() => Boolean(matchId.value) && matchId.value !== 'new'))
 </script>
 
 <template>
@@ -23,7 +23,7 @@ const nav = computed(() => [
           <div class="min-w-0">
             <p class="truncate font-semibold">Volleyball Monitoring</p>
             <p class="flex items-center gap-1 truncate text-xs text-stone-500">
-              <Activity class="size-3.5" /> Match {{ matchId }} · 狀態由 API / WebSocket 同步
+              <Activity class="size-3.5" />{{ matchId ? `Match ${matchId} · ` : '' }}狀態由 API / WebSocket 同步
             </p>
           </div>
         </div>
