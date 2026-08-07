@@ -316,7 +316,7 @@ function manifestEntries(window: VisibleWindowWithSegments) {
   }
   let discontinuity: number | null = null
   let previousEndUs: bigint | null = null
-  return mappings.map((mapping, index) => {
+  const entries = mappings.map((mapping, index) => {
     if (mapping.sequenceIndex !== index) {
       throw new MediaHttpError(409, 'MEDIA_NOT_READY', 'Playback mapping order is invalid')
     }
@@ -324,6 +324,7 @@ function manifestEntries(window: VisibleWindowWithSegments) {
     if (
       segment.isGap
       || segment.readyAt === null
+      || segment.durationUs !== segment.captureEndUs - segment.captureStartUs
       || !assetMetadataReady(segment.initAsset, 'video/mp4')
       || !assetMetadataReady(segment.mediaAsset, 'video/mp4')
       || segment.initAssetId === null
@@ -344,6 +345,15 @@ function manifestEntries(window: VisibleWindowWithSegments) {
       initAssetId: segment.initAssetId,
     }
   })
+  const first = mappings[0]!.dvrSegment
+  const last = mappings.at(-1)!.dvrSegment
+  if (
+    first.captureStartUs !== window.captureStartUs
+    || last.captureEndUs !== window.captureEndUs
+  ) {
+    throw new MediaHttpError(409, 'MEDIA_NOT_READY', 'Playback mapping bounds are invalid')
+  }
+  return entries
 }
 
 async function descriptorForWindow(window: VisibleWindow) {
@@ -482,6 +492,9 @@ function selectedAsset(
     entry.dvrSegmentId.toLowerCase() === resource.dvrSegmentId)
   if (!mapping) {
     throw new MediaHttpError(404, 'NOT_FOUND', 'Media resource not found')
+  }
+  if (mapping.dvrSegment.isGap || mapping.dvrSegment.readyAt === null) {
+    throw new MediaHttpError(409, 'MEDIA_NOT_READY', 'Media resource is not ready')
   }
   const asset = resource.kind === 'init'
     ? mapping.dvrSegment.initAsset
