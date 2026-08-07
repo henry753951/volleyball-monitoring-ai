@@ -1,0 +1,400 @@
+import { createHash, randomUUID } from 'node:crypto'
+import {
+  parseAnnotationCommandResponse,
+  type AnnotationCommand,
+  type AnnotationCommandRejected,
+  type AnnotationCommandResponse,
+  type AnnotationResolvedAnchor,
+  type CreateServiceKeyPointCommand,
+  type PlaybackCursor,
+  type ResolvedMediaAnchor,
+} from '@volleyball-monitoring/contracts'
+import type { PrismaClient } from '@volleyball-monitoring/db'
+import { Prisma } from '@volleyball-monitoring/db/client'
+import {
+  authorizeAnnotationRoom,
+  type AnnotationIdentity,
+  type AnnotationRoom,
+} from '../domain/annotation/room.js'
+import type { CursorMediaIdentity } from '../media/cursor-resolution.js'
+import { MediaHttpError } from '../media/playback-domain.js'
+
+const SERIALIZABLE_RETRIES = 3
+
+export interface AnnotationCommandServiceDependencies {
+  database: PrismaClient
+  resolveCursor: (
+    cursor: PlaybackCursor,
+    identity: CursorMediaIdentity,
+  ) => Promise<ResolvedMediaAnchor>
+}
+
+export interface AnnotationCommandService {
+  apply(command: AnnotationCommand, identity: AnnotationIdentity): Promise<AnnotationCommandResponse>
+  authorizeRoom(roomId: string, identity: AnnotationIdentity): Promise<AnnotationRoom | null>
+  roomSequence(roomId: string): Promise<bigint>
+}
+
+type Transaction = Prisma.TransactionClient
+
+function jsonValue(value: unknown): Prisma.InputJsonValue {
+  return JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue
+}
+
+function canonicalJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`
+  if (value !== null && typeof value === 'object') {
+    const record = value as Record<string, unknown>
+    return `{${Object.keys(record).sort().map((key) => `${JSON.stringify(key)}:${canonicalJson(record[key])}`).join(',')}}`
+  }
+  return JSON.stringify(value)
+}
+
+function requestHash(command: AnnotationCommand): string {
+  return createHash('sha256').update(canonicalJson(command)).digest('hex')
+}
+
+function rejected(
+  command: AnnotationCommand,
+  code: string,
+  message: string,
+  revision?: { expected: string | null; actual: string | null },
+): AnnotationCommandRejected {
+  return {
+    schema_version: '2.0.0',
+    type: 'command_rejected',
+    command_id: command.command_id,
+    room_id: command.room_id,
+    rally_id: command.rally_id,
+    code,
+    message,
+    ...(revision
+      ? {
+          actual_revision: revision.actual,
+          expected_revision: revision.expected,
+        }
+      : {}),
+    snapshot_refetch_required: code === 'REVISION_CONFLICT',
+  }
+}
+
+function wireAnchor(anchor: ResolvedMediaAnchor): AnnotationResolvedAnchor {
+  return {
+    playback_window_id: anchor.playback_window_id,
+    capture_session_id: anchor.capture_session_id,
+    capture_epoch_id: anchor.capture_epoch_id,
+    ...(anchor.dvr_segment_id === undefined ? {} : { dvr_segment_id: anchor.dvr_segment_id }),
+    source_pts: anchor.source_pts,
+    source_time_base: anchor.source_time_base,
+    capture_time_us: anchor.capture_time_us,
+    capture_frame_index: anchor.capture_frame_index,
+    resolved_player_media_time_us: anchor.resolved_player_media_time_us,
+    mapping_version: anchor.mapping_version,
+    ...(anchor.snap_distance_us === undefined ? {} : { snap_distance_us: anchor.snap_distance_us }),
+    timing_precision: anchor.timing_precision,
+  }
+}
+
+function toMediaCursor(command: CreateServiceKeyPointCommand): PlaybackCursor {
+  return { schema_version: '1.0.0', ...command.payload.playback_cursor }
+}
+
+function isRetryable(error: unknown): boolean {
+  return error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2034'
+}
+
+async function serializable<T>(database: PrismaClient, work: (tx: Transaction) => Promise<T>): Promise<T> {
+  let failure: unknown
+  for (let attempt = 0; attempt < SERIALIZABLE_RETRIES; attempt += 1) {
+    try {
+      return await database.$transaction(work, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable })
+    } catch (error) {
+      failure = error
+      if (!isRetryable(error)) throw error
+    }
+  }
+  throw failure
+}
+
+async function commandLock(tx: Transaction, commandId: string): Promise<void> {
+  await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`annotation-command:${commandId}`}, 0))::text AS lock`
+}
+
+async function rallyLock(tx: Transaction, rallyId: string): Promise<void> {
+  await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`annotation-rally:${rallyId}`}, 0))::text AS lock`
+}
+
+async function setAllocationLock(tx: Transaction, setId: string): Promise<void> {
+  await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`annotation-set:${setId}`}, 0))::text AS lock`
+}
+
+async function replay(
+  database: PrismaClient | Transaction,
+  command: AnnotationCommand,
+  hash: string,
+): Promise<AnnotationCommandResponse | null> {
+  const receipt = await database.annotationCommandReceipt.findUnique({ where: { commandId: command.command_id } })
+  if (!receipt) return null
+  if (receipt.requestHash !== hash) {
+    return rejected(command, 'COMMAND_ID_REUSED', 'Command id was already used for a different request')
+  }
+  return parseAnnotationCommandResponse(receipt.responseJson)
+}
+
+async function storeRejection(
+  database: PrismaClient,
+  command: AnnotationCommand,
+  identity: AnnotationIdentity,
+  hash: string,
+  response: AnnotationCommandRejected,
+): Promise<AnnotationCommandResponse> {
+  return serializable(database, async (tx) => {
+    await commandLock(tx, command.command_id)
+    const existing = await replay(tx, command, hash)
+    if (existing) return existing
+    return persistRejection(tx, command, identity, hash, response)
+  })
+}
+
+async function persistRejection(
+  tx: Transaction,
+  command: AnnotationCommand,
+  identity: AnnotationIdentity,
+  hash: string,
+  response: AnnotationCommandRejected,
+): Promise<AnnotationCommandRejected> {
+  const receipt = await tx.annotationCommandReceipt.create({ data: {
+    accepted: false,
+    commandId: command.command_id,
+    deviceSessionId: identity.deviceSessionId,
+    rallyId: command.rally_id,
+    requestHash: hash,
+    requestJson: jsonValue(command),
+    responseJson: jsonValue(response),
+    roomId: command.room_id,
+    userId: identity.userId,
+  } })
+  await tx.outboxEvent.create({ data: {
+    aggregateId: command.rally_id,
+    aggregateType: 'AnnotationCommandReceipt',
+    dedupeKey: `annotation-rejected:${receipt.serverSequence}`,
+    eventType: 'annotation.command_rejected.v2',
+    payload: jsonValue(response),
+  } })
+  return response
+}
+
+function mediaRejection(command: AnnotationCommand, error: MediaHttpError): AnnotationCommandRejected {
+  return rejected(command, error.code, error.message)
+}
+
+async function selectCurrentSet(tx: Transaction, matchId: string) {
+  return await tx.matchSet.findFirst({
+    orderBy: [{ setNumber: 'desc' }, { id: 'desc' }],
+    where: { matchId, status: { in: ['LIVE', 'PLANNED'] } },
+  })
+}
+
+async function acceptService(
+  database: PrismaClient,
+  room: AnnotationRoom,
+  command: CreateServiceKeyPointCommand,
+  identity: AnnotationIdentity,
+  hash: string,
+  anchor: ResolvedMediaAnchor,
+): Promise<AnnotationCommandResponse> {
+  return serializable(database, async (tx) => {
+    await commandLock(tx, command.command_id)
+    const existing = await replay(tx, command, hash)
+    if (existing) return existing
+    await rallyLock(tx, command.rally_id)
+
+    const conflicting = await tx.rally.findUnique({ select: { annotationRevision: true }, where: { id: command.rally_id } })
+    if (conflicting) {
+      const response = rejected(command, 'REVISION_CONFLICT', 'Rally already exists', {
+        actual: conflicting.annotationRevision.toString(),
+        expected: '0',
+      })
+      return persistRejection(tx, command, identity, hash, response)
+    }
+
+    const [playbackWindow, set, epoch] = await Promise.all([
+      tx.playbackWindow.findFirst({
+        select: { dvrProgramId: true, mappingVersion: true },
+        where: {
+          captureSessionId: room.captureSessionId,
+          dvrProgram: { captureSessionId: room.captureSessionId },
+          id: anchor.playback_window_id,
+        },
+      }),
+      selectCurrentSet(tx, room.matchId),
+      tx.captureEpoch.findFirst({
+        select: { id: true },
+        where: { captureSessionId: room.captureSessionId, id: anchor.capture_epoch_id },
+      }),
+    ])
+    if (
+      !playbackWindow
+      || !set
+      || !epoch
+      || anchor.capture_session_id !== room.captureSessionId
+      || playbackWindow.mappingVersion !== anchor.mapping_version
+      || command.payload.playback_cursor.playback_window_id !== anchor.playback_window_id
+      || command.payload.playback_cursor.mapping_version !== anchor.mapping_version
+    ) {
+      return persistRejection(tx, command, identity, hash, rejected(
+        command,
+        'ANNOTATION_NOT_READY',
+        'Resolved playback state is no longer valid',
+      ))
+    }
+
+    await setAllocationLock(tx, set.id)
+    const aggregate = await tx.rally.aggregate({ _max: { ordinal: true }, where: { setId: set.id } })
+    const ordinal = (aggregate._max.ordinal ?? 0) + 1
+    const assignment = await tx.courtSideAssignment.findFirst({
+      orderBy: { effectiveFromRallyOrdinal: 'desc' },
+      where: {
+        effectiveFromRallyOrdinal: { lte: ordinal },
+        OR: [{ effectiveToRallyOrdinal: null }, { effectiveToRallyOrdinal: { gte: ordinal } }],
+        setId: set.id,
+      },
+    })
+    if (!assignment) {
+      return persistRejection(tx, command, identity, hash, rejected(
+        command,
+        'ANNOTATION_NOT_READY',
+        'Court-side assignment is not ready',
+      ))
+    }
+
+    const keyPointId = randomUUID()
+    await tx.rally.create({ data: {
+      annotationRevision: 1n,
+      dvrProgramId: playbackWindow.dvrProgramId,
+      id: command.rally_id,
+      matchId: room.matchId,
+      ordinal,
+      setId: set.id,
+      sideAssignmentId: assignment.id,
+    } })
+    await tx.keyPoint.create({ data: {
+      captureEpochId: anchor.capture_epoch_id,
+      captureFrameIndex: BigInt(anchor.capture_frame_index),
+      captureTimeUs: BigInt(anchor.capture_time_us),
+      createdByUserId: identity.userId,
+      deviceSessionId: identity.deviceSessionId,
+      id: keyPointId,
+      markerKind: 'SERVICE',
+      originalPlaybackCursor: jsonValue(command.payload.playback_cursor),
+      rallyId: command.rally_id,
+      sequenceIndex: 0,
+      snapDistanceUs: anchor.snap_distance_us == null ? null : BigInt(anchor.snap_distance_us),
+      sourcePts: BigInt(anchor.source_pts),
+      timingPrecision: anchor.timing_precision.toUpperCase() as 'FRAME_EXACT' | 'PTS_EXACT' | 'ESTIMATED',
+      updatedByUserId: identity.userId,
+    } })
+
+    const receipt = await tx.annotationCommandReceipt.create({ data: {
+      accepted: true,
+      commandId: command.command_id,
+      deviceSessionId: identity.deviceSessionId,
+      rallyId: command.rally_id,
+      requestHash: hash,
+      requestJson: jsonValue(command),
+      responseJson: {},
+      roomId: command.room_id,
+      userId: identity.userId,
+    } })
+    const response = parseAnnotationCommandResponse({
+      schema_version: '2.0.0',
+      type: 'command_ack',
+      command_id: command.command_id,
+      room_id: command.room_id,
+      rally_id: command.rally_id,
+      operation_kind: command.kind,
+      result_revision: '1',
+      server_sequence: receipt.serverSequence.toString(),
+      effects: {
+        annotation_status: 'open',
+        created_key_point_id: keyPointId,
+        score_resolution: 'pending',
+        scoring_court_side: null,
+      },
+      resolved_anchor: wireAnchor(anchor),
+    })
+    await tx.annotationCommandReceipt.update({
+      data: { responseJson: jsonValue(response) },
+      where: { serverSequence: receipt.serverSequence },
+    })
+    await tx.annotationOperation.create({ data: {
+      baseRevision: 0n,
+      clientMutationId: command.command_id,
+      deviceSessionId: identity.deviceSessionId,
+      operationKind: command.kind,
+      payload: jsonValue(command.payload),
+      payloadHash: hash,
+      rallyId: command.rally_id,
+      receiptServerSequence: receipt.serverSequence,
+      resultRevision: 1n,
+      userId: identity.userId,
+    } })
+    await tx.outboxEvent.create({ data: {
+      aggregateId: command.rally_id,
+      aggregateType: 'Rally',
+      dedupeKey: `annotation-accepted:${receipt.serverSequence}`,
+      eventType: 'annotation.command_accepted.v2',
+      payload: jsonValue(response),
+    } })
+    return response
+  })
+}
+
+export function createAnnotationCommandService(
+  deps: AnnotationCommandServiceDependencies,
+): AnnotationCommandService {
+  return {
+    authorizeRoom: (roomId, identity) => authorizeAnnotationRoom(deps.database, roomId, identity),
+    async roomSequence(roomId) {
+      const aggregate = await deps.database.annotationCommandReceipt.aggregate({
+        _max: { serverSequence: true },
+        where: { roomId },
+      })
+      return aggregate._max.serverSequence ?? 0n
+    },
+    async apply(command, identity) {
+      const hash = requestHash(command)
+      const device = await deps.database.deviceSession.findFirst({
+        select: { id: true },
+        where: { id: identity.deviceSessionId, revokedAt: null, userId: identity.userId },
+      })
+      if (!device) {
+        throw new TypeError('Authenticated device session is not active')
+      }
+      const room = await authorizeAnnotationRoom(deps.database, command.room_id, identity)
+      if (!room) {
+        return storeRejection(deps.database, command, identity, hash, rejected(command, 'ROOM_NOT_FOUND', 'Annotation room not found'))
+      }
+      const prior = await replay(deps.database, command, hash)
+      if (prior) return prior
+      if (command.kind !== 'CREATE_SERVICE_KEY_POINT') {
+        return storeRejection(deps.database, command, identity, hash, rejected(command, 'UNSUPPORTED_COMMAND', 'Command is not durable in this server slice'))
+      }
+      if (command.base_revision !== '0') {
+        return storeRejection(deps.database, command, identity, hash, rejected(command, 'REVISION_CONFLICT', 'Service command must start at revision zero', {
+          actual: '0', expected: command.base_revision,
+        }))
+      }
+      let anchor: ResolvedMediaAnchor
+      try {
+        anchor = await deps.resolveCursor(toMediaCursor(command), { id: identity.userId, role: identity.role })
+      } catch (error) {
+        if (!(error instanceof MediaHttpError)) throw error
+        return storeRejection(deps.database, command, identity, hash, mediaRejection(command, error))
+      }
+      return acceptService(deps.database, room, command, identity, hash, anchor)
+    },
+  }
+}
+
+export { type AnnotationIdentity }

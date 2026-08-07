@@ -2,6 +2,7 @@ import { db } from '@volleyball-monitoring/db'
 import { UserRole } from '@volleyball-monitoring/db/client'
 import type { FastifyReply, FastifyRequest } from 'fastify'
 import { GraphQLError } from 'graphql'
+import { ensureDevelopmentDeviceSession } from '../realtime/auth.js'
 
 const UUID = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i
 const USER_ROLES = new Set<UserRole>(Object.values(UserRole))
@@ -16,6 +17,7 @@ export interface GraphQLContext {
   req?: FastifyRequest
   reply?: FastifyReply
   user: AuthenticatedUser | null
+  deviceSessionId?: string | null
 }
 
 function unauthenticated(message: string): never {
@@ -38,13 +40,13 @@ export async function createGraphQLContext(input: {
     && process.env.NODE_ENV !== 'production'
 
   if (!developmentAuthEnabled) {
-    return { ...input, user: null }
+    return { ...input, deviceSessionId: null, user: null }
   }
 
   const userId = input.request.headers.get('x-dev-user-id') ?? process.env.DEV_USER_ID
   const roleValue = input.request.headers.get('x-dev-role') ?? process.env.DEV_USER_ROLE
   if (!userId && !roleValue) {
-    return { ...input, user: null }
+    return { ...input, deviceSessionId: null, user: null }
   }
   if (!userId || !UUID.test(userId)) {
     unauthenticated('Invalid development identity')
@@ -67,6 +69,11 @@ export async function createGraphQLContext(input: {
 
   return {
     ...input,
+    deviceSessionId: await ensureDevelopmentDeviceSession(db, {
+      deviceSessionId: input.request.headers.get('x-dev-device-session-id'),
+      userAgent: input.request.headers.get('user-agent'),
+      userId,
+    }),
     user: { id: userId, role },
   }
 }
