@@ -14,23 +14,27 @@ describe('bufferedSecondsAhead', () => {
     expect(bufferedSecondsAhead({
       buffered: ranges([[0, 8], [10, 24]]),
       currentTime: 18,
-      duration: Number.POSITIVE_INFINITY,
     })).toBe(6)
   })
 
-  it('falls back to finite media duration before the first buffered range arrives', () => {
+  it('does not mistake finite media duration for buffered data', () => {
     expect(bufferedSecondsAhead({
       buffered: ranges([]),
       currentTime: 12,
-      duration: 20,
-    })).toBe(8)
+    })).toBe(0)
   })
 
   it('requests continuation when no playable range is available', () => {
     expect(bufferedSecondsAhead({
       buffered: ranges([[20, 30]]),
       currentTime: 4,
-      duration: Number.POSITIVE_INFINITY,
+    })).toBe(0)
+  })
+
+  it('requests continuation when the cursor is inside an MSE hole', () => {
+    expect(bufferedSecondsAhead({
+      buffered: ranges([[0, 8], [10, 24]]),
+      currentTime: 9,
     })).toBe(0)
   })
 })
