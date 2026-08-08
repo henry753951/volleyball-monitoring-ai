@@ -25,6 +25,7 @@ import type {
 
 const ids = {
   epoch: '51000000-0000-4000-8000-000000000001',
+  epoch2: '51000000-0000-4000-8000-000000000011',
   match: '51000000-0000-4000-8000-000000000002',
   operator: '51000000-0000-4000-8000-000000000003',
   outsider: '51000000-0000-4000-8000-000000000004',
@@ -68,10 +69,16 @@ const firstIndex = buildSampleIndex(
 )
 const secondIndex = buildSampleIndex(
   [
-    sampleFrame(sourcePtsOrigin + 2n * sampleDurationPts),
-    sampleFrame(sourcePtsOrigin + 3n * sampleDurationPts),
+    sampleFrame(0n, true),
+    sampleFrame(sampleDurationPts),
   ],
-  { ...epochOrigin, captureFrameOrigin: captureFrameOrigin + 2n },
+  {
+    ...epochOrigin,
+    captureFrameOrigin: captureFrameOrigin + 2n,
+    captureTimeOriginUs: firstIndex.availableEndUs,
+    epochId: ids.epoch2,
+    sourcePtsOrigin: 0n,
+  },
 )
 const indexedSegments: readonly IndexedSegment[] = [
   { discontinuity: 0, index: firstIndex, segmentId: ids.segment1 },
@@ -85,7 +92,7 @@ function mapping(
 ): CursorWindowSegment {
   return {
     captureEndUs: indexed.index.availableEndUs,
-    captureEpochId: ids.epoch,
+    captureEpochId: indexed.index.epochId,
     captureStartUs: indexed.index.availableStartUs,
     discontinuity: 0,
     dvrProgramId: ids.program,
@@ -389,6 +396,8 @@ describe('canonical frame-step HTTP', () => {
     expect(response.statusCode).toBe(200)
     const anchor = parseCanonicalFrameAnchor(response.json())
     expect(anchor.dvr_segment_id).toBe(ids.segment2)
+    expect(anchor.capture_epoch_id).toBe(ids.epoch2)
+    expect(anchor.source_pts).toBe('0')
     expect(anchor.capture_frame_index).toBe(expected.captureFrameIndex.toString())
     expect(anchor.player_media_time_us).toBe(
       (expected.captureTimeUs - captureOriginUs).toString(),

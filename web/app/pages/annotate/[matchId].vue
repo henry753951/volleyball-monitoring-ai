@@ -98,6 +98,7 @@ let cursorResolveInFlight = false
 let pendingCursorResolve: PlaybackCursorInput | null = null
 let lastCursorResolveAt = 0
 let lastResolvedCursorKey = ''
+let lastAutomaticCursorResolveKey = ''
 let matchRefreshInFlight = false
 let windowRecoveryInFlight = false
 let playbackContinuationInFlight = false
@@ -342,12 +343,15 @@ function handleCursor(cursor: PlaybackCursorInput) {
   }
   const key = `${cursor.playback_window_id}:${cursor.mapping_version}:${cursor.seek_generation}:${cursor.player_media_time_us}`
   if (key === lastResolvedCursorKey) return
+  const automaticKey = `${cursor.playback_window_id}:${cursor.mapping_version}:${cursor.seek_generation}`
+  if (!pendingTimelineMove.value && automaticKey === lastAutomaticCursorResolveKey) return
   const anchorNeedsRefresh = authoritativeAnchor.value?.playback_window_id !== cursor.playback_window_id
     || authoritativeAnchor.value.mapping_version !== cursor.mapping_version
   const shouldResolve = anchorNeedsRefresh
     || cursor.seek_generation !== previousSeekGeneration
     || Boolean(pendingTimelineMove.value)
   if (!shouldResolve) return
+  if (!pendingTimelineMove.value) lastAutomaticCursorResolveKey = automaticKey
   pendingCursorResolve = cursor
   scheduleCursorResolve(true)
 }

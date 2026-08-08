@@ -102,7 +102,7 @@ export function createClipWorker(database: PrismaClient) {
       const firstPoint = job.submission.keyPoints[0]
       const anchorSegment = firstPoint ? candidates.find(segment => firstPoint.captureTimeUs >= segment.captureStartUs && firstPoint.captureTimeUs < segment.captureEndUs) : null
       const segments = anchorSegment ? candidates.filter(segment => segment.discontinuitySequence === anchorSegment.discontinuitySequence) : []
-      if (!segments.length || !segments[0]?.initAsset || segments.some(segment => !segment.mediaAsset || !segment.sampleIndexAsset)) throw new Error('requested DVR range is not ready')
+      if (!segments.length || segments.some(segment => !segment.initAsset || !segment.mediaAsset || !segment.sampleIndexAsset)) throw new Error('requested DVR range is not ready')
       for (let index = 1; index < segments.length; index += 1) {
         if (segments[index]!.discontinuitySequence !== segments[0]!.discontinuitySequence || segments[index]!.captureStartUs > segments[index - 1]!.captureEndUs) throw new Error('canonical clip cannot cross a gap or discontinuity')
       }
@@ -139,12 +139,22 @@ export function createClipWorker(database: PrismaClient) {
       const actualStart = selection.actualStartCaptureUs
       const actualEnd = selection.actualEndCaptureUs
 
-      const sourcePath = join(directory, 'source.mp4')
-      await appendVerifiedObject(storage.client, segments[0]!.initAsset!, sourcePath)
-      for (const segment of segments) await appendVerifiedObject(storage.client, segment.mediaAsset!, sourcePath)
+      const sourceListPath = join(directory, 'source.concat.txt')
+      const sourceSegmentPaths: string[] = []
+      for (const [index, segment] of segments.entries()) {
+        const sourceSegmentPath = join(directory, `source-${index.toString().padStart(4, '0')}.mp4`)
+        await appendVerifiedObject(storage.client, segment.initAsset!, sourceSegmentPath)
+        await appendVerifiedObject(storage.client, segment.mediaAsset!, sourceSegmentPath)
+        sourceSegmentPaths.push(sourceSegmentPath)
+      }
+      await writeFile(
+        sourceListPath,
+        `${sourceSegmentPaths.map(filePath => `file '${filePath}'`).join('\n')}\n`,
+        'utf8',
+      )
       await ensureActive()
       const outputPath = join(directory, 'canonical.mp4')
-      await runCommand('ffmpeg', buildCanonicalClipFfmpegArgs(sourcePath, outputPath, selection), jobSignal)
+      await runCommand('ffmpeg', buildCanonicalClipFfmpegArgs(sourceListPath, outputPath, selection, 'concat'), jobSignal)
       const probe = await probeCanonicalClip(outputPath, { fpsNum: program.fpsNum, fpsDen: program.fpsDen }, jobSignal)
       const video = parseCanonicalClipProbe(probe.payload, selection.sourceSamples.length, probe.fallback)
       const mappings = job.submission.keyPoints.map(point => {
@@ -167,7 +177,7 @@ export function createClipWorker(database: PrismaClient) {
       const clipUpload = await uploadFile(storage.client, storage.rallyBucket, clipKey, outputPath, 'video/mp4', { 'x-amz-meta-artifact-kind': 'canonical-clip' })
       const aiKeyPoints = mappings.map(mapping => ({ key_point_id: mapping.submissionKeyPointId, sequence_index: mapping.sequenceIndex, marker_kind: mapping.markerKind, is_terminal: mapping.isTerminal, clip_pts: mapping.clipPts.toString(), clip_time_us: mapping.clipTimeUs.toString(), clip_frame_index: mapping.clipFrameIndex.toString() }))
       const frameMap = selection.sourceSamples.map((sample, ordinal) => ({
-        capture_epoch_id: selection.captureEpochId,
+        capture_epoch_id: sample.captureEpochId,
         source_pts: sample.sourcePts.toString(),
         source_duration_pts: sample.durationPts.toString(),
         capture_time_us: sample.captureTimeUs.toString(),
