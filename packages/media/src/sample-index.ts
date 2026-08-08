@@ -64,6 +64,8 @@ export type FfprobePayload = {
   streams?: readonly {
     codec_type?: string
     time_base?: string
+    start_pts?: string
+    duration_ts?: string
   }[]
   frames?: readonly FfprobeFrame[]
 }
@@ -464,6 +466,7 @@ export function parseTimeBase(value: string | undefined): Rational {
 export function parseFfprobePayload(payload: FfprobePayload): {
   frames: FfprobeFrame[]
   timeBase: Rational
+  streamEndPtsExclusive?: bigint
 } {
   const streams = (payload.streams ?? []).filter(
     (stream) => stream.codec_type === 'video',
@@ -475,11 +478,19 @@ export function parseFfprobePayload(payload: FfprobePayload): {
     )
   }
   const timeBase = parseTimeBase(streams[0]!.time_base)
+  const stream = streams[0]!
+  let streamEndPtsExclusive: bigint | undefined
+  if (stream.start_pts !== undefined || stream.duration_ts !== undefined) {
+    const startPts = parseFfprobeInteger(stream.start_pts, 'stream.start_pts')
+    const durationPts = parseFfprobeInteger(stream.duration_ts, 'stream.duration_ts')
+    if (durationPts <= 0n) throw new SampleIndexError('INVALID_FRAME', 'stream.duration_ts must be positive')
+    streamEndPtsExclusive = startPts + durationPts
+  }
   const frames = [...(payload.frames ?? [])]
   if (frames.length === 0) {
     throw new SampleIndexError('EMPTY_INDEX', 'no frames')
   }
-  return { frames, timeBase }
+  return { frames, timeBase, ...(streamEndPtsExclusive === undefined ? {} : { streamEndPtsExclusive }) }
 }
 
 function roundNearestAway(numerator: bigint, denominator: bigint): bigint {
@@ -669,23 +680,22 @@ export function buildAvailabilityRanges(
             'a canonical gap requires a new discontinuity',
           )
         }
-        if (
-          entry.index.epochId !== previous.index.epochId ||
-          !sameTimeBase(entry.index.timeBase, previous.index.timeBase)
-        ) {
-          throw new SampleIndexError(
-            'INVALID_RANGE',
-            'one discontinuity cannot span capture epochs',
-          )
-        }
-        if (
-          nextFirst.sourcePts !==
-          previousLast.sourcePts + previousLast.durationPts
-        ) {
-          throw new SampleIndexError(
-            'INVALID_RANGE',
-            'same-epoch segment source timing must be contiguous',
-          )
+        if (entry.index.epochId === previous.index.epochId) {
+          if (!sameTimeBase(entry.index.timeBase, previous.index.timeBase)) {
+            throw new SampleIndexError(
+              'INVALID_RANGE',
+              'one capture epoch must keep a stable time base',
+            )
+          }
+          if (
+            nextFirst.sourcePts !==
+            previousLast.sourcePts + previousLast.durationPts
+          ) {
+            throw new SampleIndexError(
+              'INVALID_RANGE',
+              'same-epoch segment source timing must be contiguous',
+            )
+          }
         }
       } else if (entry.index.epochId === previous.index.epochId) {
         throw new SampleIndexError(

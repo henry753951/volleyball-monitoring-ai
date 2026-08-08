@@ -18,6 +18,7 @@ import {
   processMediaIngestJobs,
   scanSpool,
   sourceOrderFromCandidate,
+  sourceOrderFromRestartMarker,
 } from '../src/roles/media-indexer.js'
 
 const session = '00000000-0000-4000-8000-000000000001'
@@ -80,6 +81,10 @@ describe('media indexer runtime kernel', () => {
     expect(() => sourceOrderFromCandidate(
       'court-a/2026-02-31_06-30-01-123456.mp4',
     )).toThrow()
+    expect(sourceOrderFromRestartMarker(
+      'court-a/.source-restart-2026-08-07_06-30-01-500000.marker',
+    )).toBe('1786084201500000')
+    expect(() => sourceOrderFromRestartMarker('court-a/restart.marker')).toThrow()
   })
 
   it('rescans canonical files, resolves their ingest directory and sorts them', async () => {
@@ -94,6 +99,10 @@ describe('media indexer runtime kernel', () => {
       join(root, 'court-a', '2026-08-07_06-30-01-123456.mp4'),
       Buffer.from('earlier'),
     )
+    await writeFile(
+      join(root, 'court-a', '.source-restart-2026-08-07_06-30-01-500000.marker'),
+      Buffer.from('{"event":"source_offline"}'),
+    )
     await writeFile(join(root, 'court-a', 'ignored.mp4'), Buffer.from('ignored'))
     const resolved: string[] = []
 
@@ -107,6 +116,7 @@ describe('media indexer runtime kernel', () => {
       'court-a/2026-08-07_06-30-01-123456.mp4',
       'court-a/2026-08-07_06-30-02-000001.mp4',
     ])
+    expect(scanned.map(item => item.sourceRestart)).toEqual([false, true])
     expect(BigInt(scanned[0]!.sourceOrder)).toBeLessThan(
       BigInt(scanned[1]!.sourceOrder),
     )
@@ -238,6 +248,7 @@ describe('media indexer runtime kernel', () => {
     await expect(request({ authorization: 'Bearer wrong' })).resolves.toMatchObject({ statusCode: 401 })
     await expect(request({ contentLength: '20000' })).resolves.toMatchObject({ statusCode: 413 })
     await expect(request({ body: Buffer.alloc(16_385) })).resolves.toMatchObject({ statusCode: 413 })
-    await expect(request({})).resolves.toMatchObject({ statusCode: 202 })
+    await expect(request({ body: Buffer.from('{"event":"recording_complete","path":"court-a/final.mp4"}') })).resolves.toMatchObject({ statusCode: 202 })
+    await expect(request({ body: Buffer.from('{}') })).resolves.toMatchObject({ statusCode: 400 })
   })
 })

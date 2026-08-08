@@ -33,6 +33,20 @@ it('rejects malformed final packet duration deterministically', () => {
     { media_type: 'video', pts: '1890', pkt_duration: 'not-a-duration' },
   ])).toThrow('Finalized media sample timing is invalid.')
 })
+it('derives a missing finalized fMP4 tail duration from the video stream end', () => {
+  expect(probeSamples([
+    { media_type: 'video', pts: '0', key_frame: 1 },
+    { media_type: 'video', pts: '1500', key_frame: 0 },
+  ], 3003n)).toEqual([
+    { sourcePts: 0n, durationPts: 1500n, keyframe: true },
+    { sourcePts: 1500n, durationPts: 1503n, keyframe: false },
+  ])
+})
+it('fails closed when packet duration conflicts with the video stream end', () => {
+  expect(() => probeSamples([
+    { media_type: 'video', pts: '0', pkt_duration: '1000', key_frame: 1 },
+  ], 1001n)).toThrow('Finalized media sample timing is invalid.')
+})
 
 afterEach(async () => {
   await Promise.all(temporaryPaths.splice(0).map((path) =>

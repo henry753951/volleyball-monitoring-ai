@@ -31,6 +31,13 @@ const mediaObjectReader = createMinioObjectReaderFromEnv()
 if (!mediaObjectReader) {
   throw new Error('MinIO reader configuration is required for media playback and cursor resolution')
 }
+const timingManifestReader = createMinioObjectReaderFromEnv(
+  process.env,
+  'MINIO_RALLY_BUCKET',
+)
+if (!timingManifestReader) {
+  throw new Error('MinIO rally artifact reader configuration is required for exact analysis coverage')
+}
 const redis = redisUrl
   ? new Redis(redisUrl, { lazyConnect: true, connectTimeout: 1_000, maxRetriesPerRequest: 1 })
   : null
@@ -124,7 +131,12 @@ const yoga = createYoga<{ req: FastifyRequest; reply: FastifyReply }>({
     warn: (...args) => args.forEach((arg) => app.log.warn(arg)),
     error: (...args) => args.forEach((arg) => app.log.error(arg)),
   },
-  context: async ({ request, req, reply }) => createGraphQLContext({ request, req, reply }),
+  context: async ({ request, req, reply }) => createGraphQLContext({
+    request,
+    req,
+    reply,
+    timingManifestReader,
+  }),
 })
 
 app.route({

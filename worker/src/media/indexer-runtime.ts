@@ -1,6 +1,6 @@
 import { createHash, timingSafeEqual } from 'node:crypto'
 import { readdir, realpath, stat } from 'node:fs/promises'
-import { extname, relative, resolve, sep } from 'node:path'
+import { dirname, extname, relative, resolve, sep } from 'node:path'
 import { z } from 'zod'
 
 export const MEDIA_INGEST_QUEUE = 'media.ingest.finalized.v1' as const
@@ -10,6 +10,13 @@ const SUPPORTED_EXTENSIONS = new Set(['.mp4', '.m4s', '.fmp4'])
 const CANONICAL_UNSIGNED_DECIMAL = /^(?:0|[1-9][0-9]*)$/
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
 const MEDIAMTX_TIMESTAMP = /(?:^|\/)(\d{4})-(\d{2})-(\d{2})_(\d{2})-(\d{2})-(\d{2})-(\d{6})(?:\.[^.]+)$/
+const SOURCE_RESTART_MARKER = /(?:^|\/)\.source-restart-(\d{4})-(\d{2})-(\d{2})_(\d{2})-(\d{2})-(\d{2})-(\d{6})\.marker$/
+
+export const MediaIndexerHookEvent = z.discriminatedUnion('event', [
+  z.object({ event: z.literal('recording_complete'), path: z.string().min(1).max(4096) }).strict(),
+  z.object({ event: z.literal('source_online'), ingest_path: z.string().min(1).max(4096) }).strict(),
+  z.object({ event: z.literal('source_offline'), ingest_path: z.string().min(1).max(4096) }).strict(),
+])
 
 export const MediaIngestEnvelope = z.object({
   schemaVersion: z.literal('1.0.0'),
@@ -62,11 +69,8 @@ export function epochCandidateId(
   )
 }
 
-export function sourceOrderFromCandidate(candidateValue: string): string {
-  const candidate = canonicalCandidate(candidateValue)
-  const match = MEDIAMTX_TIMESTAMP.exec(candidate)
-  if (!match) throw new Error('invalid MediaMTX segment timestamp')
-
+function sourceOrderFromTimestampMatch(match: RegExpExecArray | null): string {
+  if (!match) throw new Error('invalid MediaMTX timestamp')
   const [year, month, day, hour, minute, second] = match
     .slice(1, 7)
     .map(Number) as [number, number, number, number, number, number]
@@ -98,6 +102,19 @@ export function sourceOrderFromCandidate(candidateValue: string): string {
   return (BigInt(timestampMs) * 1_000n + BigInt(micros)).toString()
 }
 
+export function sourceOrderFromCandidate(candidateValue: string): string {
+  const candidate = canonicalCandidate(candidateValue)
+  return sourceOrderFromTimestampMatch(MEDIAMTX_TIMESTAMP.exec(candidate))
+}
+
+export function sourceOrderFromRestartMarker(markerValue: string): string {
+  const marker = markerValue.replaceAll('\\', '/')
+  if (!marker || marker.startsWith('/') || marker.split('/').some(part => !part || part === '.' || part === '..')) {
+    throw new Error('invalid source restart marker')
+  }
+  return sourceOrderFromTimestampMatch(SOURCE_RESTART_MARKER.exec(marker))
+}
+
 export function createEnvelope(
   input: Omit<MediaIngestEnvelope, 'epochCandidateId' | 'candidate'> & {
     candidate: string
@@ -117,21 +134,36 @@ export async function scanSpool(
 ): Promise<MediaIngestEnvelope[]> {
   const trustedRoot = await realpath(root)
   const files: string[] = []
+  const markers: string[] = []
 
   async function visit(directory: string): Promise<void> {
     const entries = await readdir(directory, { withFileTypes: true })
     for (const entry of entries) {
       const path = resolve(directory, entry.name)
       if (entry.isDirectory()) await visit(path)
-      else if (
-        entry.isFile()
-        && SUPPORTED_EXTENSIONS.has(extname(entry.name).toLowerCase())
-      ) files.push(path)
+      else if (entry.isFile()) {
+        if (SUPPORTED_EXTENSIONS.has(extname(entry.name).toLowerCase())) files.push(path)
+        else if (SOURCE_RESTART_MARKER.test(entry.name)) markers.push(path)
+      }
     }
   }
 
   await visit(trustedRoot)
-  const result: MediaIngestEnvelope[] = []
+  const restartOrders = new Map<string, bigint[]>()
+  for (const path of markers) {
+    const canonicalPath = await realpath(path)
+    const relativePath = relative(trustedRoot, canonicalPath)
+    if (!relativePath || relativePath === '..' || relativePath.startsWith(`..${sep}`)) continue
+    const marker = relativePath.replaceAll(sep, '/')
+    let order: bigint
+    try { order = BigInt(sourceOrderFromRestartMarker(marker)) } catch { continue }
+    const ingestPath = dirname(marker).replaceAll('\\', '/')
+    const orders = restartOrders.get(ingestPath) ?? []
+    orders.push(order)
+    restartOrders.set(ingestPath, orders)
+  }
+
+  const discovered: Array<{ ingestPath: string; envelope: MediaIngestEnvelope }> = []
   for (const path of files) {
     const canonicalPath = await realpath(path)
     const relativePath = relative(trustedRoot, canonicalPath)
@@ -155,7 +187,7 @@ export async function scanSpool(
     }
     const captureSessionId = await resolveCapture(candidate.slice(0, separator))
     if (!captureSessionId || !UUID.test(captureSessionId)) continue
-    result.push(createEnvelope({
+    discovered.push({ ingestPath: candidate.slice(0, separator), envelope: createEnvelope({
       schemaVersion: '1.0.0',
       jobType: MEDIA_INGEST_QUEUE,
       captureSessionId,
@@ -164,10 +196,30 @@ export async function scanSpool(
       sourceRestart: false,
       timestampDiscontinuity: false,
       explicitGapBeforeUs: null,
-    }))
+    }) })
   }
 
-  return result.sort((left, right) => {
+  discovered.sort((left, right) => {
+    const captureOrder = left.envelope.captureSessionId.localeCompare(right.envelope.captureSessionId)
+    if (captureOrder !== 0) return captureOrder
+    const leftOrder = BigInt(left.envelope.sourceOrder)
+    const rightOrder = BigInt(right.envelope.sourceOrder)
+    if (leftOrder !== rightOrder) return leftOrder < rightOrder ? -1 : 1
+    return left.envelope.candidate.localeCompare(right.envelope.candidate)
+  })
+
+  const restartCandidates = new Set<string>()
+  for (const [ingestPath, orders] of restartOrders) {
+    const candidates = discovered.filter(item => item.ingestPath === ingestPath)
+    for (const markerOrder of orders) {
+      const first = candidates.find(item => BigInt(item.envelope.sourceOrder) > markerOrder)
+      if (first) restartCandidates.add(first.envelope.candidate)
+    }
+  }
+
+  return discovered.map(({ envelope }) => restartCandidates.has(envelope.candidate)
+    ? { ...envelope, sourceRestart: true }
+    : envelope).sort((left, right) => {
     const captureOrder = left.captureSessionId.localeCompare(right.captureSessionId)
     if (captureOrder !== 0) return captureOrder
     const leftOrder = BigInt(left.sourceOrder)

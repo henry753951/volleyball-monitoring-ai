@@ -112,10 +112,36 @@ describe('MinIO object reader configuration', () => {
       code: 'INVALID_CONFIG',
       message: 'MinIO reader configuration is incomplete',
     }))
+    expect(createMinioObjectReaderFromEnv({
+      MINIO_ENDPOINT: 'http://127.0.0.1:9000',
+      MINIO_ACCESS_KEY: accessKey,
+      MINIO_SECRET_KEY: secretKey,
+      MINIO_RALLY_BUCKET: 'rally-media',
+    }, 'MINIO_RALLY_BUCKET')).toBeTypeOf('function')
   })
 })
 
 describe('MinIO verified object reads', () => {
+  it('accepts checksum-bound timing manifest assets only at schema 1.1.0', async () => {
+    const expected = Buffer.from('{"schema_version":"1.1.0"}')
+    const getObject = vi.fn(async () => Readable.from([expected]))
+    const { reader } = createReader({ getObject }, { bucket: 'rally-media' })
+    await expect(reader(requestFor(expected, {
+      bucket: 'rally-media',
+      expectedContentType: 'application/json',
+      expectedInternalSchemaVersion: '1.1.0',
+      expectedKind: 'TIMING_MANIFEST',
+      key: 'clips/submission/clip.timing.json',
+    }))).resolves.toEqual(expected)
+    await expect(reader(requestFor(expected, {
+      bucket: 'rally-media',
+      expectedContentType: 'application/json',
+      expectedInternalSchemaVersion: '1.0.0',
+      expectedKind: 'TIMING_MANIFEST',
+      key: 'clips/submission/clip.timing.json',
+    }))).rejects.toMatchObject({ code: 'INVALID_REQUEST' })
+  })
+
   it('returns exact bytes only after length and checksum verification', async () => {
     const expected = Buffer.from('verified media bytes')
     const getObject = vi.fn(async () => Readable.from([

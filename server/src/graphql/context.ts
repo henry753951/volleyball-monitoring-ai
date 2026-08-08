@@ -3,6 +3,7 @@ import { UserRole } from '@volleyball-monitoring/db/client'
 import type { FastifyReply, FastifyRequest } from 'fastify'
 import { GraphQLError } from 'graphql'
 import { ensureDevelopmentDeviceSession } from '../realtime/auth.js'
+import type { MediaObjectReader } from '../media/playback-domain.js'
 
 const UUID = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i
 const USER_ROLES = new Set<UserRole>(Object.values(UserRole))
@@ -18,6 +19,7 @@ export interface GraphQLContext {
   reply?: FastifyReply
   user: AuthenticatedUser | null
   deviceSessionId?: string | null
+  timingManifestReader?: MediaObjectReader
 }
 
 function unauthenticated(message: string): never {
@@ -35,6 +37,7 @@ export async function createGraphQLContext(input: {
   request: Request
   req?: FastifyRequest
   reply?: FastifyReply
+  timingManifestReader?: MediaObjectReader
 }): Promise<GraphQLContext> {
   const developmentAuthEnabled = process.env.DEV_AUTH_ENABLED === 'true'
     && process.env.NODE_ENV !== 'production'

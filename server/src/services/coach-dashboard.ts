@@ -1,9 +1,19 @@
 import type { PrismaClient } from '@volleyball-monitoring/db'
 import { AnnotationStatus, UserRole } from '@volleyball-monitoring/db/client'
+import {
+  readClipTimingCoverage,
+  type CaptureCoverage,
+} from '../media/clip-timing-coverage.js'
+import type { MediaObjectReader } from '../media/playback-domain.js'
+
+interface CoachDashboardDependencies {
+  timingManifestReader?: MediaObjectReader
+}
 
 export async function getCoachMatchState(
   database: PrismaClient,
   input: { matchId: string; userId: string; role: UserRole },
+  dependencies: CoachDashboardDependencies = {},
 ) {
   const match = await database.match.findFirst({
     where: {
@@ -35,7 +45,28 @@ export async function getCoachMatchState(
                 orderBy: { sequenceIndex: 'asc' },
                 select: { id: true, sequenceIndex: true, markerKind: true, isTerminal: true, captureTimeUs: true, captureFrameIndex: true },
               },
-              clipJobs: { orderBy: { createdAt: 'desc' }, take: 1, select: { id: true, status: true, actualStartCaptureUs: true, actualEndCaptureUs: true, requestedStartCaptureUs: true, requestedEndCaptureUs: true } },
+              clipJobs: {
+                orderBy: { createdAt: 'desc' },
+                take: 1,
+                select: {
+                  id: true,
+                  status: true,
+                  actualStartCaptureUs: true,
+                  actualEndCaptureUs: true,
+                  requestedStartCaptureUs: true,
+                  requestedEndCaptureUs: true,
+                  timingManifest: {
+                    select: {
+                      bucket: true,
+                      objectKey: true,
+                      contentType: true,
+                      byteLength: true,
+                      sha256: true,
+                      internalSchemaVersion: true,
+                    },
+                  },
+                },
+              },
               analysisRuns: {
                 orderBy: { createdAt: 'desc' },
                 take: 1,
@@ -77,6 +108,48 @@ export async function getCoachMatchState(
       },
     },
   })
+  const coverageByAnalysisId = new Map<string, CaptureCoverage | null>()
+  const coverageTasks = match.rallies.flatMap((rally) => {
+    const submission = rally.activeSubmission
+    const analysis = submission?.analysisRuns[0]
+    const clip = submission?.clipJobs[0]
+    if (!analysis) return []
+    const firstFrame = analysis.tracks.reduce<bigint | null>(
+      (value, track) => value === null || track.firstFrame < value
+        ? track.firstFrame
+        : value,
+      null,
+    )
+    const lastFrame = analysis.tracks.reduce<bigint | null>(
+      (value, track) => value === null || track.lastFrame > value
+        ? track.lastFrame
+        : value,
+      null,
+    )
+    return [async () => {
+      if (!clip?.timingManifest || !dependencies.timingManifestReader) {
+        coverageByAnalysisId.set(analysis.id, null)
+        return
+      }
+      try {
+        coverageByAnalysisId.set(
+          analysis.id,
+          await readClipTimingCoverage(
+            dependencies.timingManifestReader,
+            clip.timingManifest,
+            clip.id,
+            firstFrame,
+            lastFrame,
+          ),
+        )
+      } catch {
+        coverageByAnalysisId.set(analysis.id, null)
+      }
+    }]
+  })
+  for (let offset = 0; offset < coverageTasks.length; offset += 8) {
+    await Promise.all(coverageTasks.slice(offset, offset + 8).map(task => task()))
+  }
   return {
     schema_version: '1.0.0',
     match: {
@@ -127,20 +200,7 @@ export async function getCoachMatchState(
           } : null,
           analysis: rally.activeSubmission.analysisRuns[0] ? (() => {
             const analysis = rally.activeSubmission.analysisRuns[0]
-            const clip = rally.activeSubmission.clipJobs[0]
-            const clipStart = clip ? (clip.actualStartCaptureUs ?? clip.requestedStartCaptureUs) : null
-            const clipEnd = clip ? (clip.actualEndCaptureUs ?? clip.requestedEndCaptureUs) : null
-            const firstFrame = analysis.tracks.reduce<bigint | null>((value, track) => value === null || track.firstFrame < value ? track.firstFrame : value, null)
-            const lastFrame = analysis.tracks.reduce<bigint | null>((value, track) => value === null || track.lastFrame > value ? track.lastFrame : value, null)
-            const fpsNum = BigInt(analysis.overlayManifest?.fpsNum ?? 0)
-            const fpsDen = BigInt(analysis.overlayManifest?.fpsDen ?? 1)
-            const frameToCapture = (frame: bigint | null) => frame === null || clipStart === null || fpsNum <= 0n
-              ? null
-              : clipStart + frame * 1_000_000n * fpsDen / fpsNum
-            const rawCoverageStart = frameToCapture(firstFrame)
-            const rawCoverageEnd = frameToCapture(lastFrame === null ? null : lastFrame + 1n)
-            const coverageStart = rawCoverageStart === null ? clipStart : clipStart !== null && rawCoverageStart < clipStart ? clipStart : rawCoverageStart
-            const coverageEnd = rawCoverageEnd === null ? clipEnd : clipEnd !== null && rawCoverageEnd > clipEnd ? clipEnd : rawCoverageEnd
+            const coverage = coverageByAnalysisId.get(analysis.id) ?? null
             const byteLength = [
               analysis.rawAnalysisAsset?.byteLength,
               analysis.rawOverlayAsset?.byteLength,
@@ -159,8 +219,8 @@ export async function getCoachMatchState(
               version: analysis.analysisVersion,
               summary: analysis.summary,
               identity_mapping_completed: Boolean(analysis.identityMappingCompletedAt),
-              coverage_start_capture_time_us: coverageStart?.toString() ?? null,
-              coverage_end_capture_time_us: coverageEnd?.toString() ?? null,
+              coverage_start_capture_time_us: coverage?.startUs.toString() ?? null,
+              coverage_end_capture_time_us: coverage?.endUs.toString() ?? null,
               byte_length: byteLength.toString(),
               track_count: analysis._count.tracks,
               ball_path_count: analysis._count.segments,

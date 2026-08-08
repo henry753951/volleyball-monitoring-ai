@@ -207,7 +207,7 @@ describe('planCaptureEpochs', () => {
     })
   })
 
-  it('opens a touching discontinuity when PTS resets without known downtime', () => {
+  it('opens a touching epoch without a playback discontinuity for a recorder-local PTS reset', () => {
     const first = segment('before-reset', 0n, 100n, [1n, 1n, 1n])
     const reset = segment('after-reset', 1n, 0n, [1n, 1n])
 
@@ -215,13 +215,13 @@ describe('planCaptureEpochs', () => {
 
     expect(plan.epochs).toHaveLength(2)
     expect(plan.epochs[1]!.reasons).toContain('PTS_RESET')
-    expect(plan.segments[1]!.discontinuity).toBe(1)
+    expect(plan.segments[1]!.discontinuity).toBe(0)
     expect(plan.segments[1]!.sampleIndex.samples[0]!.sourcePts).toBe(0n)
     expect(plan.segments[1]!.captureStartUs).toBe(
       plan.segments[0]!.captureEndUs,
     )
     expect(plan.gaps).toHaveLength(0)
-    expect(plan.availableRanges).toHaveLength(2)
+    expect(plan.availableRanges).toHaveLength(1)
   })
 
   it('turns a forward PTS timestamp jump into a real unavailable range', () => {
@@ -404,7 +404,7 @@ describe('planCaptureEpochs', () => {
         samples[index - 1]!.captureFrameIndex + 1n,
       )
     }
-    expect(plan.epochs.map((epoch) => epoch.discontinuity)).toEqual([0, 1, 2, 3])
+    expect(plan.epochs.map((epoch) => epoch.discontinuity)).toEqual([0, 0, 1, 2])
     expect(plan.liveEdgeCaptureTimeUs).toBeGreaterThan(canonicalOriginUs)
   })
 
@@ -529,7 +529,7 @@ describe('planNextCaptureSegment', () => {
     expect(second.segment.sampleIndex.epochId).toBe('persisted-epoch-id')
   })
 
-  it('opens a touching next epoch for PTS reset or overlap', () => {
+  it('opens a touching next epoch without splitting playback for PTS reset or overlap', () => {
     const first = planIncremental(
       segment('first', 0n, 100n, [10n, 10n]),
       null,
@@ -545,7 +545,7 @@ describe('planNextCaptureSegment', () => {
         disposition: 'CREATE_NEXT',
         epochKey: `new-epoch-boundary-${firstPts}`,
         epochSequence: 1,
-        discontinuity: 1,
+        discontinuity: 0,
         sourcePtsOrigin: firstPts,
         captureTimeOriginUs: head.lastCaptureEndUs,
         captureFrameOrigin: head.lastCaptureFrameIndex + 1n,
@@ -676,6 +676,7 @@ describe('planNextCaptureSegment', () => {
       { sourceRestart: true },
     )
     expect(restarted.epoch.reasons).toEqual(['SOURCE_RESTART'])
+    expect(restarted.epoch.discontinuity).toBe(1)
     expect(restarted.segment.captureStartUs).toBe(head.lastCaptureEndUs)
 
     const discontinuous = planIncremental(
@@ -759,7 +760,7 @@ describe('planNextCaptureSegment', () => {
     const malformed: PersistedCaptureHead[] = [
       { ...valid, epochId: '' },
       { ...valid, epochSequence: -1 },
-      { ...valid, discontinuity: 1 },
+      { ...valid, discontinuity: valid.epochSequence + 1 },
       { ...valid, timeBase: { num: 0n, den: 30n } },
       { ...valid, captureFrameOrigin: -1n },
       { ...valid, lastCaptureFrameIndex: valid.captureFrameOrigin - 1n },
@@ -813,7 +814,7 @@ describe('planNextCaptureSegment', () => {
     ).toThrowError(
       new CaptureEpochPlannerError(
         'INT32_EXHAUSTED',
-        'capture epoch/discontinuity Int32 sequence exhausted',
+        'capture epoch Int32 sequence exhausted',
       ),
     )
   })

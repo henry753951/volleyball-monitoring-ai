@@ -489,7 +489,7 @@ describe('availability range validation', () => {
     ).toThrow()
   })
 
-  it('fails on skipped discontinuities and epoch misuse', () => {
+  it('allows touching recorder epochs within one playback discontinuity and rejects epoch misuse', () => {
     const first = oneSampleIndex('epoch-0', 0n, 0n, 0n)
     const touchingSameEpoch = oneSampleIndex('epoch-0', 1n, 1_000_000n, 1n)
     const touchingNewEpoch = oneSampleIndex('epoch-1', 0n, 1_000_000n, 1n)
@@ -500,12 +500,19 @@ describe('availability range validation', () => {
         { segmentId: 'skipped', index: touchingNewEpoch, discontinuity: 2 },
       ]),
     ).toThrow('skipped')
-    expect(() =>
+    expect(
       buildAvailabilityRanges([
         { segmentId: 'first', index: first, discontinuity: 0 },
-        { segmentId: 'wrong-epoch', index: touchingNewEpoch, discontinuity: 0 },
+        { segmentId: 'recorder-reset', index: touchingNewEpoch, discontinuity: 0 },
       ]),
-    ).toThrow('cannot span capture epochs')
+    ).toEqual([
+      {
+        segmentIds: ['first', 'recorder-reset'],
+        startUs: 0n,
+        endUs: 2_000_000n,
+        discontinuity: 0,
+      },
+    ])
     expect(() =>
       buildAvailabilityRanges([
         { segmentId: 'first', index: first, discontinuity: 0 },
