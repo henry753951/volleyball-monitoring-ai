@@ -1,0 +1,97 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/OWNER/volleyball-monitoring-ai/packages/contracts/ai/provider-realtime/1.0.0",
+  "title": "AI Provider Realtime Protocol 1.0.0",
+  "oneOf": [
+    { "$ref": "#/$defs/providerHello" },
+    { "$ref": "#/$defs/jobAccepted" },
+    { "$ref": "#/$defs/jobRejected" },
+    { "$ref": "#/$defs/heartbeat" },
+    { "$ref": "#/$defs/progress" },
+    { "$ref": "#/$defs/abortAck" },
+    { "$ref": "#/$defs/jobFailed" },
+    { "$ref": "#/$defs/resumeRequest" },
+    { "$ref": "#/$defs/connectionReady" },
+    { "$ref": "#/$defs/jobOffer" },
+    { "$ref": "#/$defs/leaseRenewed" },
+    { "$ref": "#/$defs/abortJob" },
+    { "$ref": "#/$defs/resumeJob" },
+    { "$ref": "#/$defs/discardJob" },
+    { "$ref": "#/$defs/jobCommitted" },
+    { "$ref": "#/$defs/protocolError" }
+  ],
+  "$defs": {
+    "base": { "type": "object", "required": ["schema_version", "type"], "properties": { "schema_version": { "const": "1.0.0" }, "type": { "type": "string" } } },
+    "id": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "date": { "type": "string", "format": "date-time" },
+    "activeJob": { "type": "object", "additionalProperties": false, "required": ["ai_job_id", "delivery_id"], "properties": { "ai_job_id": { "$ref": "#/$defs/id" }, "delivery_id": { "$ref": "#/$defs/id" }, "progress": { "type": "number", "minimum": 0, "maximum": 1 } } },
+    "providerHello": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "type", "instance_id", "sdk_version", "provider_build_id", "max_concurrency", "capabilities", "active_jobs"],
+      "properties": {
+        "schema_version": { "const": "1.0.0" },
+        "type": { "const": "provider_hello" },
+        "instance_id": { "$ref": "#/$defs/id" },
+        "sdk_version": { "$ref": "#/$defs/id" },
+        "provider_build_id": { "$ref": "#/$defs/id" },
+        "max_concurrency": { "type": "integer", "minimum": 1, "maximum": 64 },
+        "capabilities": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["schema_version", "provider_name", "provider_build_id", "supported_job_schema_versions", "supported_result_schema_versions", "supported_overlay_formats", "optional_extensions", "action_taxonomies"],
+          "properties": {
+            "schema_version": { "const": "1.0.0" },
+            "provider_name": { "$ref": "#/$defs/id" },
+            "provider_build_id": { "$ref": "#/$defs/id" },
+            "supported_job_schema_versions": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/id" } },
+            "supported_result_schema_versions": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/id" } },
+            "supported_overlay_formats": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/id" } },
+            "optional_extensions": { "type": "object", "additionalProperties": { "type": "boolean" } },
+            "action_taxonomies": { "type": "array", "items": { "type": "object" } },
+            "limits": { "type": "object" }
+          }
+        },
+        "active_jobs": { "type": "array", "items": { "$ref": "#/$defs/activeJob" } }
+      }
+    },
+    "jobAccepted": { "type": "object", "additionalProperties": false, "required": ["schema_version", "type", "ai_job_id", "delivery_id", "accepted_at"], "properties": { "schema_version": { "const": "1.0.0" }, "type": { "const": "job_accepted" }, "ai_job_id": { "$ref": "#/$defs/id" }, "delivery_id": { "$ref": "#/$defs/id" }, "accepted_at": { "$ref": "#/$defs/date" } } },
+    "failure": { "type": "object", "additionalProperties": false, "required": ["schema_version", "type", "ai_job_id", "delivery_id", "code", "message", "retryable"], "properties": { "schema_version": { "const": "1.0.0" }, "type": { "enum": ["job_rejected", "job_failed"] }, "ai_job_id": { "$ref": "#/$defs/id" }, "delivery_id": { "$ref": "#/$defs/id" }, "code": { "$ref": "#/$defs/id" }, "message": { "type": "string", "minLength": 1, "maxLength": 1000 }, "retryable": { "type": "boolean" } } },
+    "jobRejected": { "allOf": [{ "$ref": "#/$defs/failure" }, { "properties": { "type": { "const": "job_rejected" } } }] },
+    "jobFailed": { "allOf": [{ "$ref": "#/$defs/failure" }, { "properties": { "type": { "const": "job_failed" } } }] },
+    "activeEnvelope": { "type": "object", "additionalProperties": false, "required": ["schema_version", "type", "instance_id", "active_jobs"], "properties": { "schema_version": { "const": "1.0.0" }, "type": { "enum": ["heartbeat", "resume_request"] }, "instance_id": { "$ref": "#/$defs/id" }, "active_jobs": { "type": "array", "items": { "$ref": "#/$defs/activeJob" } } } },
+    "heartbeat": { "allOf": [{ "$ref": "#/$defs/activeEnvelope" }, { "properties": { "type": { "const": "heartbeat" } } }] },
+    "resumeRequest": { "allOf": [{ "$ref": "#/$defs/activeEnvelope" }, { "properties": { "type": { "const": "resume_request" } } }] },
+    "progress": { "type": "object", "additionalProperties": false, "required": ["schema_version", "type", "ai_job_id", "delivery_id", "progress"], "properties": { "schema_version": { "const": "1.0.0" }, "type": { "const": "progress" }, "ai_job_id": { "$ref": "#/$defs/id" }, "delivery_id": { "$ref": "#/$defs/id" }, "progress": { "type": "number", "minimum": 0, "maximum": 1 }, "stage": { "type": ["string", "null"] } } },
+    "abortAck": { "type": "object", "additionalProperties": false, "required": ["schema_version", "type", "ai_job_id", "delivery_id", "acknowledged_at"], "properties": { "schema_version": { "const": "1.0.0" }, "type": { "const": "abort_ack" }, "ai_job_id": { "$ref": "#/$defs/id" }, "delivery_id": { "$ref": "#/$defs/id" }, "acknowledged_at": { "$ref": "#/$defs/date" } } },
+    "connectionReady": { "type": "object", "additionalProperties": false, "required": ["schema_version", "type", "connection_id", "server_time", "heartbeat_interval_seconds", "lease_seconds"], "properties": { "schema_version": { "const": "1.0.0" }, "type": { "const": "connection_ready" }, "connection_id": { "$ref": "#/$defs/id" }, "server_time": { "$ref": "#/$defs/date" }, "heartbeat_interval_seconds": { "type": "integer", "minimum": 1 }, "lease_seconds": { "type": "integer", "minimum": 5 } } },
+    "jobOffer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "type", "ai_job_id", "delivery_id", "lease_expires_at", "job"],
+      "properties": {
+        "schema_version": { "const": "1.0.0" },
+        "type": { "const": "job_offer" },
+        "ai_job_id": { "$ref": "#/$defs/id" },
+        "delivery_id": { "$ref": "#/$defs/id" },
+        "lease_expires_at": { "$ref": "#/$defs/date" },
+        "job": {
+          "type": "object",
+          "required": ["schema_version", "ai_job_id"],
+          "properties": {
+            "schema_version": { "const": "1.1.0" },
+            "ai_job_id": { "$ref": "#/$defs/id" }
+          }
+        }
+      }
+    },
+    "lease": { "type": "object", "additionalProperties": false, "required": ["schema_version", "type", "ai_job_id", "delivery_id", "lease_expires_at"], "properties": { "schema_version": { "const": "1.0.0" }, "type": { "enum": ["lease_renewed", "resume_job"] }, "ai_job_id": { "$ref": "#/$defs/id" }, "delivery_id": { "$ref": "#/$defs/id" }, "lease_expires_at": { "$ref": "#/$defs/date" } } },
+    "leaseRenewed": { "allOf": [{ "$ref": "#/$defs/lease" }, { "properties": { "type": { "const": "lease_renewed" } } }] },
+    "resumeJob": { "allOf": [{ "$ref": "#/$defs/lease" }, { "properties": { "type": { "const": "resume_job" } } }] },
+    "control": { "type": "object", "additionalProperties": false, "required": ["schema_version", "type", "ai_job_id", "delivery_id", "reason"], "properties": { "schema_version": { "const": "1.0.0" }, "type": { "enum": ["abort_job", "discard_job"] }, "ai_job_id": { "$ref": "#/$defs/id" }, "delivery_id": { "$ref": "#/$defs/id" }, "reason": { "type": "string", "minLength": 1 } } },
+    "abortJob": { "allOf": [{ "$ref": "#/$defs/control" }, { "properties": { "type": { "const": "abort_job" } } }] },
+    "discardJob": { "allOf": [{ "$ref": "#/$defs/control" }, { "properties": { "type": { "const": "discard_job" } } }] },
+    "jobCommitted": { "type": "object", "additionalProperties": false, "required": ["schema_version", "type", "ai_job_id", "delivery_id", "committed_at"], "properties": { "schema_version": { "const": "1.0.0" }, "type": { "const": "job_committed" }, "ai_job_id": { "$ref": "#/$defs/id" }, "delivery_id": { "$ref": "#/$defs/id" }, "committed_at": { "$ref": "#/$defs/date" } } },
+    "protocolError": { "type": "object", "additionalProperties": false, "required": ["schema_version", "type", "code", "message", "retryable"], "properties": { "schema_version": { "const": "1.0.0" }, "type": { "const": "protocol_error" }, "code": { "$ref": "#/$defs/id" }, "message": { "type": "string", "minLength": 1 }, "retryable": { "type": "boolean" } } }
+  }
+}

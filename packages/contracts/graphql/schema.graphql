@@ -122,6 +122,7 @@ type Mutation {
   clearTrackIdentity(analysisRunId: ID!, trackId: Int!): JSON!
   createCorrectionDraft(submissionId: ID!): Rally!
   createMatchSetup(input: CreateMatchSetupInput!): Match!
+  deleteProcessingRally(rallyId: ID!): Rally!
   retryProcessing(input: RetryProcessingInput!): ProcessingState!
   setTrackIdentityMappingComplete(analysisRunId: ID!, completed: Boolean!): JSON!
   startCapture(input: StartCaptureInput!): CaptureSession!
@@ -149,6 +150,7 @@ enum ProcessingStatus {
   AI_PROCESSING
   AI_QUEUED
   ARTIFACT_INGESTING
+  CANCELLED
   CLIPPING
   CLIP_QUEUED
   COMPLETED

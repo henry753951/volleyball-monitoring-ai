@@ -25,7 +25,36 @@ export interface OperationsSnapshot {
     outboxEvents: MetricGroup[]
     rallies: MetricGroup[]
   }
+  aiWorkers: AiWorkerSnapshot[]
+  aiWork: AiWorkSnapshot[]
   streams: StreamSnapshot[]
+}
+
+export interface AiWorkerSnapshot {
+  id: string
+  instanceKey: string
+  providerBuildId: string
+  sdkVersion: string
+  maxConcurrency: number
+  activeJobs: number
+  utilization: number
+  connectedAt: string
+  lastSeenAt: string
+  disconnectedAt: string | null
+  status: 'online' | 'stale' | 'offline'
+}
+
+export interface AiWorkSnapshot {
+  id: string
+  matchId: string
+  matchTitle: string
+  rallyId: string
+  status: string
+  progress: number | null
+  stage: string | null
+  workerInstanceKey: string | null
+  createdAt: string
+  updatedAt: string
 }
 
 export interface StreamSnapshot {
@@ -74,7 +103,7 @@ export async function collectOperationsSnapshot(
   database: typeof DatabaseClient,
   identity?: OperationsIdentity,
 ): Promise<OperationsSnapshot> {
-  const [rallies, clipJobs, aiJobs, captures, outboxEvents, callbacks, mediaAssets, annotationReceipts, annotationOperations, captureSessions] = await Promise.all([
+  const [rallies, clipJobs, aiJobs, captures, outboxEvents, callbacks, mediaAssets, annotationReceipts, annotationOperations, captureSessions, providerInstances, recentAiWork, activeAiJobs] = await Promise.all([
     database.rally.groupBy({ by: ['annotationStatus', 'processingStatus'], _count: { _all: true } }),
     database.clipJob.groupBy({ by: ['status'], _count: { _all: true } }),
     database.aiJob.groupBy({ by: ['status'], _count: { _all: true } }),
@@ -122,6 +151,42 @@ export async function collectOperationsSnapshot(
       },
       take: 24,
     }),
+    database.aiProviderInstance.findMany({
+      orderBy: [{ disconnectedAt: 'asc' }, { lastSeenAt: 'desc' }],
+      take: 32,
+    }),
+    database.aiJob.findMany({
+      orderBy: { updatedAt: 'desc' },
+      take: 32,
+      select: {
+        id: true,
+        status: true,
+        progress: true,
+        stage: true,
+        createdAt: true,
+        updatedAt: true,
+        providerInstance: { select: { instanceKey: true } },
+        submission: {
+          select: {
+            rally: {
+              select: {
+                id: true,
+                match: { select: { id: true, title: true } },
+              },
+            },
+          },
+        },
+      },
+    }),
+    database.aiJob.groupBy({
+      by: ['providerInstanceId'],
+      where: {
+        providerInstanceId: { not: null },
+        deliveryId: { not: null },
+        status: { in: ['QUEUED', 'RUNNING'] },
+      },
+      _count: { _all: true },
+    }),
   ])
   const programIds = captureSessions.flatMap(capture => capture.programs.map(program => program.id))
   const [segmentTotals, readySegments, gapSegments] = programIds.length === 0
@@ -147,6 +212,8 @@ export async function collectOperationsSnapshot(
   const totalsByProgram = new Map(segmentTotals.map(item => [item.dvrProgramId, item]))
   const readyByProgram = new Map(readySegments.map(item => [item.dvrProgramId, item._count._all]))
   const gapsByProgram = new Map(gapSegments.map(item => [item.dvrProgramId, item._count._all]))
+  const activeJobsByWorker = new Map(activeAiJobs.map(item => [item.providerInstanceId, item._count._all]))
+  const workerStaleBefore = Date.now() - 30_000
   const memory = process.memoryUsage()
   return {
     generatedAt: new Date().toISOString(),
@@ -169,6 +236,39 @@ export async function collectOperationsSnapshot(
         total: annotationOperations._count._all,
       },
     },
+    aiWorkers: providerInstances.map((instance) => {
+      const activeJobs = activeJobsByWorker.get(instance.id) ?? 0
+      const status = instance.disconnectedAt
+        ? 'offline' as const
+        : instance.lastSeenAt.getTime() < workerStaleBefore
+          ? 'stale' as const
+          : 'online' as const
+      return {
+        id: instance.id,
+        instanceKey: instance.instanceKey,
+        providerBuildId: instance.providerBuildId,
+        sdkVersion: instance.sdkVersion,
+        maxConcurrency: instance.maxConcurrency,
+        activeJobs,
+        utilization: instance.maxConcurrency > 0 ? activeJobs / instance.maxConcurrency : 0,
+        connectedAt: instance.connectedAt.toISOString(),
+        lastSeenAt: instance.lastSeenAt.toISOString(),
+        disconnectedAt: instance.disconnectedAt?.toISOString() ?? null,
+        status,
+      }
+    }),
+    aiWork: recentAiWork.map(job => ({
+      id: job.id,
+      matchId: job.submission.rally.match.id,
+      matchTitle: job.submission.rally.match.title,
+      rallyId: job.submission.rally.id,
+      status: job.status,
+      progress: job.progress,
+      stage: job.stage,
+      workerInstanceKey: job.providerInstance?.instanceKey ?? null,
+      createdAt: job.createdAt.toISOString(),
+      updatedAt: job.updatedAt.toISOString(),
+    })),
     streams: captureSessions.map((capture) => {
       const program = capture.programs[0]
       const totals = program ? totalsByProgram.get(program.id) : undefined
@@ -234,6 +334,15 @@ export function renderPrometheusMetrics(snapshot: OperationsSnapshot) {
   groupedMetric(lines, 'vmai_ai_callback_receipts_total', 'Accepted AI callback receipts grouped by kind.', snapshot.database.aiCallbacks)
   groupedMetric(lines, 'vmai_media_assets_total', 'Media assets grouped by immutable kind and lifecycle state.', snapshot.database.mediaAssets)
   groupedMetric(lines, 'vmai_annotation_command_receipts_total', 'Annotation command receipts grouped by acceptance.', snapshot.database.annotationReceipts)
+  lines.push('# HELP vmai_ai_provider_worker_online AI provider worker liveness (1 online, 0 otherwise).', '# TYPE vmai_ai_provider_worker_online gauge')
+  lines.push('# HELP vmai_ai_provider_worker_active_jobs Active deliveries owned by an AI provider worker.', '# TYPE vmai_ai_provider_worker_active_jobs gauge')
+  lines.push('# HELP vmai_ai_provider_worker_capacity Configured maximum concurrency for an AI provider worker.', '# TYPE vmai_ai_provider_worker_capacity gauge')
+  for (const worker of snapshot.aiWorkers) {
+    const labels = { instance: worker.instanceKey, build: worker.providerBuildId }
+    lines.push(metricLine('vmai_ai_provider_worker_online', worker.status === 'online' ? 1 : 0, labels))
+    lines.push(metricLine('vmai_ai_provider_worker_active_jobs', worker.activeJobs, labels))
+    lines.push(metricLine('vmai_ai_provider_worker_capacity', worker.maxConcurrency, labels))
+  }
   lines.push('# HELP vmai_annotation_operations_total Durable annotation audit operations.', '# TYPE vmai_annotation_operations_total gauge', metricLine('vmai_annotation_operations_total', snapshot.database.annotationOperations.total))
   if (snapshot.database.annotationOperations.lastAt) {
     lines.push('# HELP vmai_annotation_operation_last_timestamp_seconds Unix timestamp of the newest durable annotation operation.', '# TYPE vmai_annotation_operation_last_timestamp_seconds gauge', metricLine('vmai_annotation_operation_last_timestamp_seconds', Date.parse(snapshot.database.annotationOperations.lastAt) / 1000))

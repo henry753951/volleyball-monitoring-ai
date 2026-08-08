@@ -4,8 +4,8 @@ build-backend = "hatchling.build"
 
 [project]
 name = "volleyball-monitoring-ai-sdk"
-version = "0.1.0"
-description = "Contracts and callback helpers for external volleyball AI providers."
+version = "0.2.0"
+description = "Outbound WebSocket worker SDK and wire contracts for external volleyball AI providers."
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "MIT" }
@@ -14,22 +14,25 @@ dependencies = [
     "pydantic>=2.10,<3",
     "httpx>=0.28,<1",
     "flatbuffers>=25.9.23,<26",
+    "websockets>=14,<17",
 ]
 
 [project.optional-dependencies]
 provider = ["fastapi>=0.116,<1", "uvicorn>=0.35,<1"]
-test = ["pytest>=8,<10", "respx>=0.22,<1", "jsonschema>=4.23,<5"]
+test = ["pytest>=8,<10", "pytest-asyncio>=0.25,<2", "respx>=0.22,<1", "jsonschema>=4.23,<5"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/volleyball_monitoring_ai"]
 
 [tool.hatch.build.targets.wheel.force-include]
 "../packages/contracts/flatbuffers/overlay.fbs" = "volleyball_monitoring_ai/schemas/overlay.fbs"
+"../packages/contracts/fixtures/normal-rally/result.json" = "volleyball_monitoring_ai/fixtures/normal-rally-result.json"
 
 [tool.pytest.ini_options]
 addopts = "-q"
 testpaths = ["tests"]
 pythonpath = ["src"]
+asyncio_mode = "auto"
 
 [tool.ruff]
 target-version = "py311"

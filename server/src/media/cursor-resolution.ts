@@ -144,19 +144,15 @@ function assertWindowMapping(
     }
     ids.add(segment.id.toLowerCase())
 
-    if (previous) {
-      const sameDiscontinuity = segment.discontinuity === previous.discontinuity
-      const nextDiscontinuity = segment.discontinuity === previous.discontinuity + 1
-      if (
-        segment.sequenceNumber <= previous.sequenceNumber
-        || segment.captureStartUs !== previous.captureEndUs
-        || (!sameDiscontinuity && !nextDiscontinuity)
-        || (nextDiscontinuity && segment.captureEpochId === previous.captureEpochId)
-        || segment.firstFrameIndex
-          !== previous.firstFrameIndex! + previous.frameCount
-      ) {
-        mediaUnavailable('Playback window segment order is invalid')
-      }
+    if (previous && (
+      segment.sequenceNumber <= previous.sequenceNumber
+      || segment.captureStartUs !== previous.captureEndUs
+      || segment.firstFrameIndex
+        !== previous.firstFrameIndex! + previous.frameCount
+    )) {
+      // Epoch-local source PTS may reset between adjacent OME fragments. The
+      // canonical capture clock and frame index are the cross-epoch authority.
+      mediaUnavailable('Playback window segment order is invalid')
     }
     previous = segment
   }
@@ -412,7 +408,6 @@ function adjacentMappingIsUsable(
 ): boolean {
   if (
     adjacent.dvrProgramId !== current.dvrProgramId
-    || adjacent.discontinuity !== current.discontinuity
     || adjacent.isGap
     || !adjacent.ready
     || adjacent.firstFrameIndex === null

@@ -20,6 +20,20 @@ const snapshot: OperationsSnapshot = {
     outboxEvents: [{ count: 4, labels: { status: 'PENDING' } }],
     rallies: [{ count: 1, labels: { annotation_status: 'SUBMITTED', processing_status: 'COMPLETED' } }],
   },
+  aiWorkers: [{
+    id: 'worker-1',
+    instanceKey: 'analysis-1',
+    providerBuildId: 'analysis/0.1.0',
+    sdkVersion: '0.2.0',
+    maxConcurrency: 2,
+    activeJobs: 1,
+    utilization: 0.5,
+    connectedAt: '2026-08-07T23:58:00.000Z',
+    lastSeenAt: '2026-08-08T00:00:00.000Z',
+    disconnectedAt: null,
+    status: 'online',
+  }],
+  aiWork: [],
   streams: [{
     captureSessionId: 'capture-1',
     matchId: 'match-1',
@@ -55,6 +69,7 @@ describe('operations routes', () => {
     expect(metrics).toContain('vmai_rallies_total{annotation_status="SUBMITTED",processing_status="COMPLETED"} 1')
     expect(metrics).toContain('vmai_annotation_command_receipts_total{accepted="false"} 1')
     expect(metrics).toContain('vmai_annotation_operations_total 7')
+    expect(metrics).toContain('vmai_ai_provider_worker_active_jobs{build="analysis/0.1.0",instance="analysis-1"} 1')
     expect(metrics).not.toContain('requestJson')
     expect(metrics.endsWith('\n')).toBe(true)
   })

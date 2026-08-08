@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import type { AnnotationRallyProcessingUpdate } from '@volleyball-monitoring/contracts'
 import { ChevronLeft, ChevronRight, Crosshair, Pause, Play, RotateCcw, SkipBack, SkipForward, StepBack, StepForward, Trash2, Volume2, VolumeX, XCircle } from 'lucide-vue-next'
 
 defineProps<{
@@ -14,6 +15,7 @@ defineProps<{
   contextHits: number
   contextDuration: string
   contextState: string
+  processing?: AnnotationRallyProcessingUpdate | null
   correctionActive: boolean
   submittedSelected: boolean
   navigable: boolean
@@ -50,7 +52,7 @@ defineEmits<{
     <UiTooltip :content="`下一幀；按住連續移動，Shift 一次 5 幀 · ${shortcuts.nextFrame}`"><button type="button" class="transport-button" aria-label="後一幀" :disabled="!frameReady || frameMovePending" @click="$emit('frameNext')"><ChevronRight :size="18" stroke-width="2.2" /></button></UiTooltip>
     <div class="transport-media-group"><code class="timecode">{{ timecode }}</code><button v-if="liveAvailable" type="button" class="live-badge" :class="{ active: liveActive }" @click="$emit('live')">LIVE</button><span v-else-if="terminalLabel" class="terminal-badge">{{ terminalLabel }}</span></div>
     <i class="transport-separator" />
-    <div class="transport-context"><div><strong>{{ contextTitle }}</strong><small>{{ contextHits }} 次擊球 · {{ contextDuration }}</small></div><span>{{ contextState }}</span></div>
+    <div class="transport-context"><div><strong>{{ contextTitle }}</strong><small>{{ contextHits }} 次擊球 · {{ contextDuration }}</small></div><AnnotationProcessingBadge :label="contextState" :processing="processing" /></div>
     <i class="transport-separator context-separator" />
     <UiTooltip v-if="correctionActive" content="放棄這次修改並恢復原送出版本"><button type="button" class="tool-button" :disabled="!editReady" aria-label="取消修正" @click="$emit('cancelCorrection')"><XCircle :size="14" />取消修正</button></UiTooltip>
     <UiTooltip v-if="submittedSelected" content="以 immutable submission 建立修正版"><button type="button" class="tool-button" :disabled="!editReady" aria-label="建立修正版" @click="$emit('startCorrection')"><RotateCcw :size="14" />建立修正版</button></UiTooltip>
