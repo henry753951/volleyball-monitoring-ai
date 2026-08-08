@@ -60,12 +60,20 @@ export interface OperationsDashboardSnapshot {
   operations: OperationsSnapshot
 }
 
-export type OperationsCollector = () => Promise<OperationsSnapshot>
-export type OperationsAuthorizer = (request: FastifyRequest) => Promise<{ role: string } | null>
+export interface OperationsIdentity {
+  role: string
+  userId: string
+}
+
+export type OperationsCollector = (identity?: OperationsIdentity) => Promise<OperationsSnapshot>
+export type OperationsAuthorizer = (request: FastifyRequest) => Promise<OperationsIdentity | null>
 
 const group = (count: number, labels: Record<string, string>): MetricGroup => ({ count, labels })
 
-export async function collectOperationsSnapshot(database: typeof DatabaseClient): Promise<OperationsSnapshot> {
+export async function collectOperationsSnapshot(
+  database: typeof DatabaseClient,
+  identity?: OperationsIdentity,
+): Promise<OperationsSnapshot> {
   const [rallies, clipJobs, aiJobs, captures, outboxEvents, callbacks, mediaAssets, annotationReceipts, annotationOperations, captureSessions] = await Promise.all([
     database.rally.groupBy({ by: ['annotationStatus', 'processingStatus'], _count: { _all: true } }),
     database.clipJob.groupBy({ by: ['status'], _count: { _all: true } }),
@@ -78,6 +86,13 @@ export async function collectOperationsSnapshot(database: typeof DatabaseClient)
     database.annotationOperation.aggregate({ _count: { _all: true }, _max: { createdAt: true } }),
     database.captureSession.findMany({
       orderBy: { updatedAt: 'desc' },
+      ...(identity && identity.role !== 'ADMIN'
+        ? { where: {
+            match: {
+              members: { some: { userId: identity.userId } },
+            },
+          } }
+        : {}),
       select: {
         id: true,
         matchId: true,
@@ -247,7 +262,7 @@ export function operationsRoutes(
     })
     app.get('/api/v1/operations/summary', async (request, reply) => {
       if (!options.authenticate || !options.collectReadiness) return reply.status(404).send({ error: 'Not found' })
-      let identity: { role: string } | null = null
+      let identity: OperationsIdentity | null = null
       try {
         identity = await options.authenticate(request)
       }
@@ -258,7 +273,7 @@ export function operationsRoutes(
       if (identity.role !== 'ADMIN' && identity.role !== 'OPERATOR') {
         return reply.status(403).send({ error: 'Operations access required' })
       }
-      const [operations, readiness] = await Promise.all([collect(), options.collectReadiness()])
+      const [operations, readiness] = await Promise.all([collect(identity), options.collectReadiness()])
       const payload: OperationsDashboardSnapshot = { operations, readiness }
       return reply.header('cache-control', 'no-store').send(payload)
     })
