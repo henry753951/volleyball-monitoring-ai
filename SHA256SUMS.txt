@@ -274,7 +274,10 @@ c1b4db6f9a460d5102e65eddbd4de8d17fec9996a0ee6b85a221843b7b80af2b  ./web/app/app.
 d84f300c3f98fb321ac5391ace606877bc4dbfe862491ae75024ee0e5a04c4d4  ./web/app/components/AnnotationCommandStrip.vue
 d0d00e989ec4c979411067914938e24980cab84518a1b2fe197d79d911cd4392  ./web/app/components/AnnotationConnectionDialog.vue
 2c32b5e2c7b11b95c870daaea041f2090d0192748648ed059e98685173d71bdd  ./web/app/components/AnnotationIdentityPanel.vue
+2c7da8e23fa629696b59fa6133ea24665bd8db8ec817e8c1f20765e4df34e9b6  ./web/app/components/AnnotationMatchInspector.vue
 d5451750b5301aa1392a343155f17d9d02ebaff26a20befef3030ceccb52cc04  ./web/app/components/AnnotationSettingsDialog.vue
+2a73d840b10d81f6cccc371d01f7dee942f1bf0a126844a1981b09e7c524e1fb  ./web/app/components/AnnotationTransportBar.vue
+cdb33e974fce4d6d738b8a264f0cfec93f8e3b8a27a9bf2eff9bb170182513ce  ./web/app/components/AnnotationWorkstationHeader.vue
 0e08338d0a967059e52a629cabfaaa3eda7d589709aec84ff250a077d48b6ea4  ./web/app/components/CaptureControlDialog.vue
 d33f5ac97b700f858463573d66a9462a1b6723e00e2ebd8083a31491e6ad7465  ./web/app/components/ConfirmActionDialog.vue
 d0f18f99e57264608e79cff99e2d1a4106c329270fabb0ee79577de870493f27  ./web/app/components/CourtPathView.vue
@@ -303,6 +306,7 @@ d2d28dcdfe317b012ef40ffcb53305955c2cec97e352a72414f9caae81a53434  ./web/app/comp
 78d473bed3926c0ad2222a7acc004b08a58724f270b46dc0382676f2af4705e1  ./web/app/composables/useAnnotationHotkeys.test.ts
 a677edc5f1f171cf081ecab7a9556fdb9e62f3f10c5cc5645f9525af57acabd7  ./web/app/composables/useAnnotationHotkeys.ts
 0eacff7acac75d092919bf13290fe7941b5a142122ea43c7067ea00c04289789  ./web/app/composables/useAnnotationRoom.ts
+7017cad61b77b9572588572190dcc3393baadcbba25905ed05e2f67505dd37ea  ./web/app/composables/useAnnotationWorkstationModel.ts
 8f4e62425c432eac94b128c6ab74fb79568032713d54e09a4438bd0666ffbdb0  ./web/app/composables/useAuthoritativeDvrWindow.integration.test.ts
 ce37f5454b6179fdb0db0159c86c077f04a900e64baddd58e6ebcd25736b5366  ./web/app/composables/useAuthoritativeDvrWindow.test.ts
 437179346fd1cd3216556564d17296947fdc9a47686435d403461f4f535ba417  ./web/app/composables/useAuthoritativeDvrWindow.ts
@@ -320,6 +324,8 @@ d0efd072e39bb5c7979ccf95061f62811d565883764dce352e07e2a2cb3aebf2  ./web/app/layo
 8a4eb1dea175f304b2432a4a29c18f4976d2ecf5528e5a88f2d85f03a0066aff  ./web/app/layouts/coach.vue
 681ca2461f6f59954e9e0a75bcfb744bb8499004fdf8fe9bbbe5c64e57accc76  ./web/app/layouts/control.vue
 ee074a247cf2a8293e9f2e73e957add8a2fc2a56303239d249918feb02e3c982  ./web/app/layouts/default.vue
+453611ad06bb91ad3235bfd0991d8b9707cf0bec68b34d0cffbf348d4fd3f731  ./web/app/lib/annotationCommandQueue.test.ts
+b6502767b92fec05ea16a0b5792724db30bb322c8b339025d4d6c427a200828e  ./web/app/lib/annotationCommandQueue.ts
 3f7884b57b80d40a8fbed242b44e99ac15aeb2571844e85b27521bfd2aad1769  ./web/app/lib/annotationOutbox.test.ts
 01b1c32108b0be0e59d29c1b91d55413836224c3de3b4a13727b9206b8559388  ./web/app/lib/annotationOutbox.ts
 ab02204724240b7c478704628bc95ff4cfd4f1a9641027e50084b89ee063b5a4  ./web/app/lib/annotationRealtimeClient.test.ts
