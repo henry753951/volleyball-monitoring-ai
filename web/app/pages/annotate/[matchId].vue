@@ -882,7 +882,7 @@ onBeforeUnmount(() => {
       <UiResizablePanel id="annotation-video" :default-size="78" :min-size="55">
       <main class="viewer-panel">
         <div class="video-stage">
-          <VideoOverlayPlayer ref="overlayPlayer" :descriptor="descriptor" :controls="false" toggle-on-click :analysis-run-id="activeOverlayAnalysisRunId" :overlay-capture-time-us="visualPlayhead" :overlay-clip-start-capture-time-us="activeOverlayClipStart" @cursor="handleCursor" @ready="handleVideoReady" @toggle="dispatchMediaAction('play_pause')" @error="mediaError = $event.message" />
+          <VideoOverlayPlayer ref="overlayPlayer" :descriptor="descriptor" :controls="false" toggle-on-click :analysis-run-id="activeOverlayAnalysisRunId" :overlay-capture-time-us="visualPlayhead" :overlay-clip-start-capture-time-us="activeOverlayClipStart" @cursor="handleCursor" @ready="handleVideoReady" @buffer-activity="maintainPlaybackWindow" @toggle="dispatchMediaAction('play_pause')" @error="mediaError = $event.message" />
           <div v-if="displayAnnotation" class="stage-mask" :class="displayAnnotation.snapshot.annotation_status === 'submitted' ? 'submitted' : 'draft'" />
           <div class="viewer-frame-index" aria-label="目前畫格索引">
             <span>FRAME IDX</span>

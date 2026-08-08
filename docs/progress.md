@@ -1,8 +1,19 @@
 # Progress
 
+## 2026-08-09 — Predictive rolling-HLS buffer continuation
+
+Status: implemented and locally validated on `codex/ome-player-buffer-tuning`; GitHub integration is pending.
+
+- Fixed the buffer-health calculation to use only the browser's actual `TimeRanges`. A finite media duration is no longer treated as downloaded data, so an empty range or MSE hole triggers playback-window continuation before starvation.
+- Archive attachment now disables automatic fragment loading and calls `hls.startLoad()` with the descriptor's bounded player-local target. This bypasses live-edge synchronization for rolling archive manifests while preserving LL-HLS behavior for actual live mode.
+- hls.js buffer, fragment and playlist events now feed the existing continuation controller. A same-window extension refreshes the manifest without replacing the video source or recreating the MediaSource Blob.
+- Kept OME's 2-second continuity recording interval and 2-second LL-HLS segments. A longer recording split reduced file churn but would delay finalized server-side DVR visibility, so it was rejected after the player-side root cause was proven.
+
+Validation: Web `141/141`, Nuxt typecheck and production build passed; OME XML and Compose config parsed successfully. Headed Chromium opened the DEMO archive at canonical `17:09.166` with player-local `183.95 s`, proving the rolling manifest no longer forced the live edge. A forced near-window-edge run retained the same `blob:` URL, extended HTTP 200 before exhaustion, grew the buffered tail from `365.38 s` to `540.39 s`, and played 15 seconds without `stalled`, `ended`, source replacement or pipeline reset.
+
 ## 2026-08-09 — OvenMediaEngine and stable MSE playback
 
-Status: implementation and local validation complete on `codex/match-media-source-onboarding`; GitHub CI/integration is pending.
+Status: merged to `main` through [PR #41](https://github.com/henry753951/volleyball-monitoring-ai/pull/41) at `8c2866c` after GitHub CI passed.
 
 - Promoted OvenMediaEngine to the sole live ingest, LL-HLS and recording adapter; removed the MediaMTX image, configuration and hook runtime. OME configuration uses short LL-HLS chunks/segments, disk DVR and finalized recording files observed by a durable watcher.
 - Added YouTube video/live and local MP4 onboarding directly to the two-step New Match flow. Server routes create match-scoped capture sessions and delegate YouTube extraction/relay to the uv-managed gateway without exposing signed upstream URLs to the browser.
@@ -15,8 +26,6 @@ Status: implementation and local validation complete on `codex/match-media-sourc
 
 - OME 0.20.5 passed the isolated 1920×1080 60 fps ingest, LL-HLS and recording smoke. The reconnect/sample-index suite retained monotonic canonical capture time across a real restart, and both supplied YouTube sources exposed FHD60-compatible video formats when probed (the URLs were ended `was_live` sources at validation time, so no claim of a currently active broadcast is made).
 - Local gates passed: contracts 12, focused server 10, focused worker 14, focused Web 38, frozen-`uv` Python SDK 16, all workspace typechecks, 457-file scaffold/checksum validation, Prisma structure (43 models/26 enums), 245-file TypeScript/Vue syntax validation and the final UI detector with zero findings. The 42-page PDF was rebuilt with XeLaTeX and page 18 was visually inspected.
-
-Pending before this checkpoint is complete: GitHub CI, main-Agent PR review and integration.
 
 ## 2026-08-08 — Live DVR reconnect authority and YouTube FHD60 gate
 

@@ -11,7 +11,11 @@ export function requiresPlaybackPipelineReplacement(
   return current?.playback_window_id !== next.playback_window_id
 }
 
-export function useDvrPlayback(video: Ref<HTMLVideoElement | null>) {
+interface DvrPlaybackOptions {
+  onBufferActivity?: () => void
+}
+
+export function useDvrPlayback(video: Ref<HTMLVideoElement | null>, options: DvrPlaybackOptions = {}) {
   const activeWindow = shallowRef<PlaybackWindowDescriptor | null>(null)
   const loading = ref(false)
   const { profile } = useMediaPlaybackPreferences()
@@ -38,18 +42,26 @@ export function useDvrPlayback(video: Ref<HTMLVideoElement | null>) {
       const { default: HlsRuntime } = await import('hls.js/light')
       if (currentGeneration !== generation) return
       if (HlsRuntime.isSupported()) {
+        const startPosition = boundedPlayerMediaSeconds(descriptor.target_player_media_time_us)
         // hls.js owns playlist reload, retry, eviction and fragment scheduling.
         // attachMedia creates the long-lived MediaSource/ManagedMediaSource blob.
         hls = new HlsRuntime({
+          autoStartLoad: false,
           maxBufferSize: profile.value.maxBufferBytes,
           maxBufferLength: profile.value.forwardBufferSeconds,
           maxMaxBufferLength: profile.value.forwardBufferSeconds,
           backBufferLength: profile.value.backBufferSeconds,
           liveBackBufferLength: profile.value.backBufferSeconds,
           liveDurationInfinity: true,
-          lowLatencyMode: true,
+          // The bounded server archive is a rolling playlist, but it is not an
+          // LL-HLS live edge. Applying live sync there overrides exact seeks.
+          lowLatencyMode: descriptor.mode === 'live',
           enableWorker: true,
         })
+        const notifyBufferActivity = () => options.onBufferActivity?.()
+        hls.on(HlsRuntime.Events.BUFFER_APPENDED, notifyBufferActivity)
+        hls.on(HlsRuntime.Events.FRAG_BUFFERED, notifyBufferActivity)
+        hls.on(HlsRuntime.Events.LEVEL_UPDATED, notifyBufferActivity)
         hls.attachMedia(element)
         hls.loadSource(descriptor.manifest_url)
         await new Promise<void>((resolve, reject) => {
@@ -58,6 +70,17 @@ export function useDvrPlayback(video: Ref<HTMLVideoElement | null>) {
             if (data.fatal) reject(new Error(data.details))
           })
         })
+        if (currentGeneration !== generation) return
+        const firstFragment = new Promise<void>((resolve, reject) => {
+          hls!.once(HlsRuntime.Events.FRAG_BUFFERED, () => resolve())
+          hls!.on(HlsRuntime.Events.ERROR, (_event, data) => {
+            if (data.fatal) reject(new Error(data.details))
+          })
+        })
+        // Explicit startLoad is required because the server intentionally keeps
+        // rolling archive manifests open until the canonical source ends.
+        hls.startLoad(startPosition)
+        await firstFragment
       }
       else if (element.canPlayType('application/vnd.apple.mpegurl')) {
         element.src = descriptor.manifest_url

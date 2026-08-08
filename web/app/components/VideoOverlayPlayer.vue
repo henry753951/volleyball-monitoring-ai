@@ -28,6 +28,7 @@ const props = withDefaults(defineProps<{
 const emit = defineEmits<{
   cursor: [value: PlaybackCursorInput]
   ready: [HTMLVideoElement]
+  bufferActivity: []
   error: [Error]
   toggle: []
 }>()
@@ -36,7 +37,7 @@ const video = ref<HTMLVideoElement | null>(null)
 const retainedPreview = ref<string | null>(null)
 const descriptorRef = computed(() => props.descriptor ?? null)
 const { cursor } = usePlaybackCursor(video, descriptorRef)
-const playback = useDvrPlayback(video)
+const playback = useDvrPlayback(video, { onBufferActivity: () => emit('bufferActivity') })
 const resolvedOverlayFrame = ref(props.overlayFrame)
 const overlay = useOverlayChunks(() => props.analysisRunId ?? null, resolvedOverlayFrame)
 watch([overlay.manifest, () => props.overlayFrame, () => props.overlayCaptureTimeUs, () => props.overlayClipStartCaptureTimeUs], ([manifest]) => {

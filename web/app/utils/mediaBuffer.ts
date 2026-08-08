@@ -1,4 +1,4 @@
-export type BufferedMediaElement = Pick<HTMLMediaElement, 'buffered' | 'currentTime' | 'duration'>
+export type BufferedMediaElement = Pick<HTMLMediaElement, 'buffered' | 'currentTime'>
 
 export function bufferedSecondsAhead(element: BufferedMediaElement) {
   for (let index = 0; index < element.buffered.length; index += 1) {
@@ -8,7 +8,8 @@ export function bufferedSecondsAhead(element: BufferedMediaElement) {
       return Math.max(0, end - element.currentTime)
     }
   }
-  return Number.isFinite(element.duration)
-    ? Math.max(0, element.duration - element.currentTime)
-    : 0
+  // `duration` describes the presentation timeline, not bytes currently held by
+  // MSE. Returning duration here suppresses prefetch while the cursor is in an
+  // unbuffered hole (or before the first fragment has arrived).
+  return 0
 }
