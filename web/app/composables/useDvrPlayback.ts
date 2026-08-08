@@ -52,7 +52,9 @@ export function useDvrPlayback(video: Ref<HTMLVideoElement | null>, options: Dvr
           maxMaxBufferLength: profile.value.forwardBufferSeconds,
           backBufferLength: profile.value.backBufferSeconds,
           liveBackBufferLength: profile.value.backBufferSeconds,
-          liveDurationInfinity: true,
+          // Archive uses the finite rolling playlist duration. Only a true live
+          // source should expose Infinity to native media controls.
+          liveDurationInfinity: descriptor.mode === 'live',
           // The bounded server archive is a rolling playlist, but it is not an
           // LL-HLS live edge. Applying live sync there overrides exact seeks.
           lowLatencyMode: descriptor.mode === 'live',

@@ -43,7 +43,7 @@ f85bd5f90ebdcbff703cd13e79daa7f7507f6b8c2d9fbad2c49f2106b75624f6  ./docs/adr/001
 0b77db3bafce251b53bd5842475080ad3e3fb2b44e6a8d9d98a27aa4dc1ba3f0  ./docs/adr/0016-media-ingest-live-dvr-and-frame-exact-clips.md
 00e4ff76109d15cf7bbb1f54cf5124681e8fb7ef833ef618d05d9500aa58eb7f  ./docs/adr/0017-ome-and-stable-mse-playback.md
 de376c790b3f7624d275cd8d6882725028d5264710ede7d748ad38304fee5c6a  ./docs/open-decisions.md
-7b8b1e3895b7c23d34450248202d38f688c480cde32e23a721a5312038202f3e  ./docs/progress.md
+5c75c85880de8b997a2b2ca84de040b2c94bd02706a84450716ebd9cccf6ad06  ./docs/progress.md
 aa5494b32c071ea634767c3858b1f3063aa2331777c50ec41b56cbc7a25c6d4b  ./docs/requirements-matrix.md
 e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  ./examples/__init__.py
 6b1706b8d04e20d43f4e14ca60cff11ac2c338bf94cbd33ffd199f9f6bc50a99  ./examples/tracking_replay_provider/README.md
@@ -296,9 +296,9 @@ d5451750b5301aa1392a343155f17d9d02ebaff26a20befef3030ceccb52cc04  ./web/app/comp
 d33f5ac97b700f858463573d66a9462a1b6723e00e2ebd8083a31491e6ad7465  ./web/app/components/ConfirmActionDialog.vue
 d0f18f99e57264608e79cff99e2d1a4106c329270fabb0ee79577de870493f27  ./web/app/components/CourtPathView.vue
 060c5012acdd0185fbce2996a44c942fa06eb4a18564ff743aa9c02778c317a5  ./web/app/components/DvrAuthorityInspector.vue
-c866627861c774dc04a28aec8448e14d074ee0f27a4279c2ffe3b5c25bc5123e  ./web/app/components/DvrTimelineDock.component.test.ts
+eae834bb2c86a3f19a923f9f7fcc6f2823bb839c119aa9d7f229c9a2fe940d55  ./web/app/components/DvrTimelineDock.component.test.ts
 d31178929bbb0713255b5d729b93b68bd0689e9248531e95b6bad0392ec06719  ./web/app/components/DvrTimelineDock.test.ts
-f9014b2808aa825f88ae4b7668f4752ef6cecf8c152fc1cc979970df9cf9ec02  ./web/app/components/DvrTimelineDock.vue
+08d0cedb2f1e63665f12ad4264f1f9a6555e747fa000b3300a72682f9e9195da  ./web/app/components/DvrTimelineDock.vue
 d00d983f3f9a25bfcc8c5a78535632c6ead85d522369346a41a87e2a5f06314a  ./web/app/components/LandscapeGuard.vue
 ff65f66c3ea8bbe3e4f9533e63e620f49296d2dc52c32d2ac8f27c4318499a86  ./web/app/components/MatchSetupForm.vue
 5395bc1337be0cfde8a43487e4cf089d5412cfa9efaff24e631c33bceb0c3ceb  ./web/app/components/MediaSourcePicker.vue
@@ -306,7 +306,7 @@ ff65f66c3ea8bbe3e4f9533e63e620f49296d2dc52c32d2ac8f27c4318499a86  ./web/app/comp
 f9016d1ef1692f2ce8beac56c89fd6a708b2cebd9dbb04990cb12c7ccb8fb6bc  ./web/app/components/ReplayOverlayCanvas.vue
 cb7f000e0b333fc93f3f52c97f6bf607932dc1723395bc43c2bde2cae4197d1c  ./web/app/components/RosterEditorDialog.vue
 1ea0f5302d864cba27a1fa3d9c1479ca37803ceec653617d53920b86efa878ea  ./web/app/components/TeamSetupCard.vue
-5ad75505070b9d72f760650808c05ab377d24a1042bc434b6ff82714923f359d  ./web/app/components/VideoOverlayPlayer.vue
+9a098c6860717d83dc044538bd39086614da31ca3e06a9c955eee45dbe68ca63  ./web/app/components/VideoOverlayPlayer.vue
 4286a12b4e1640b27779890d2d7886ee47535c2118b8c1a1f3eded52208bd5f4  ./web/app/components/WsPingBadge.vue
 0a307ea2fc96847dfa9af301d423ceac18e94a0313b020d28da19b0112262009  ./web/app/components/ui/AnimatedModal.vue
 52c5972b89dc13836803c98a5724cb130a90732189e74c7956ce71c413b43ae5  ./web/app/components/ui/Button.vue
@@ -329,7 +329,7 @@ ce37f5454b6179fdb0db0159c86c077f04a900e64baddd58e6ebcd25736b5366  ./web/app/comp
 7a638fcfc9edd5fef50a6ec43a160d0fd7628bf750d78c48bb3302f2367e72ea  ./web/app/composables/useCoachSocket.ts
 6b7b9b1cf46ef22c4d5d5e8e131f077b3114cd3c3ae0b386d73812faf0ec0758  ./web/app/composables/useCoreDomain.ts
 92cfc2539bbc59a321631d7e4eb50df670cc78dc1c87e95081a228004c8e44fe  ./web/app/composables/useDvrPlayback.test.ts
-baa131aad777f2906004ee71349286cc69de4900d58455ba8f5b5345461d48ab  ./web/app/composables/useDvrPlayback.ts
+8a4ab0f5a65d1ece9a5432b3118d1649b0c7c94537193b2a53892b93e8f49693  ./web/app/composables/useDvrPlayback.ts
 473b833c5b306950f2d83af3899ef5be4e319d25f45346876b80b09d0a2a082d  ./web/app/composables/useMediaPlaybackPreferences.ts
 aa39c63e0df9048c8804da342f8852cea1bae298df4b5baef7896173f4d6042f  ./web/app/composables/useOperationsMonitor.ts
 00dfc152903d56de456cab9827ca22f515dd62f23f70c2b76ac4a27b6766d555  ./web/app/composables/useOverlayChunks.ts
@@ -362,7 +362,7 @@ e66eea442bedf2abbd180742be6bd3613a420e3bb1e1fd98c893475e5113314b  ./web/app/lib/
 cba670333ab1e0c411c488d0f3517da77337ca9c256ef9eaae31df1d6c9c3d6d  ./web/app/lib/playbackWindowCache.test.ts
 adee2ce860eff55e9be95c2feaabea259ae161fb138efc484051980767938b22  ./web/app/lib/playbackWindowCache.ts
 52fe16f81674ddd4727c93d95986be02908b5bb247fcca16e04f5c2aba4a1ccb  ./web/app/middleware/auth.global.ts
-5d046592ca69906547949fcd17ed0a8cc4a2fc73f588a9a95d68fabe9cd18e7d  ./web/app/pages/annotate/[matchId].vue
+d5f9e3b9da6a27fec69e38316da96db701619f6f1f7b39ee2ea86a8cd73a240f  ./web/app/pages/annotate/[matchId].vue
 5f10cac19782a81582045cfc8399b8805a682887a9834d8a2ff471793d367c7f  ./web/app/pages/control/index.vue
 3cc1461e7975d0e8c6875dc155353512e9901a19d4930a8a854c73872a536951  ./web/app/pages/index.vue
 f3bf511c8e2d7748a3d05b0009e008808e14c8959976090362d6198e54d11651  ./web/app/pages/matches/[matchId]/history.vue
@@ -385,8 +385,8 @@ c81b2357e6c7d27f6d0836c737d8790225ff02215260c2f91066335274fbc912  ./web/app/util
 46e867e0654ead58c295f09645166dc14b5fd17ce04c57d0fdc7614a96a5cdb9  ./web/app/utils/matchSetup.ts
 34b6db8edff4e74ce05afe415f0ba252ca939bbef776a3fc3c878f58aa658ea3  ./web/app/utils/matchViewState.test.ts
 8dd7efc6bc0c84d1b77e9201c3d7abdd0c850b2bb9e2f57af10fd451da44d3f3  ./web/app/utils/matchViewState.ts
-e6d594bfac968bb69f647ed5c869a88b9b2c0fb960e0b4fbcbbb470893d5b380  ./web/app/utils/mediaBuffer.test.ts
-bdb958710d3933bc88c20779f5679ff750dea6d5b504bd68b0af4d4361127ccb  ./web/app/utils/mediaBuffer.ts
+19c78f9a861eeeb275b2bf316f24eb06239d48fdf17910e72f3e81f6ea8fc0a8  ./web/app/utils/mediaBuffer.test.ts
+c9021dcdf8fde45217dd769cb5e6788943e230ba4d8ee084f8756475215f2382  ./web/app/utils/mediaBuffer.ts
 e2719d5085373c69c528b535a42c4b7b102f09657b6b947f2ad5485038344bb0  ./web/app/utils/mediaPlaybackPreferences.test.ts
 49d0e1a17387440ac2319d8658ea90e92263c800095e9d931b8a6a9946518310  ./web/app/utils/mediaPlaybackPreferences.ts
 b0a1c7aeeaf5b7f3d49c61490e392cb45f98a8f106db0f35bbd7e404d25912b2  ./web/app/utils/playbackWindow.test.ts
