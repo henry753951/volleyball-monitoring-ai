@@ -85,6 +85,36 @@ class SourceManagerLifecycleTest(unittest.TestCase):
             2,
         )
 
+    def test_local_import_key_is_resolved_beneath_shared_root(self) -> None:
+        capture_id = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'
+        media_path = self.manager.import_root / capture_id / 'source.mp4'
+        media_path.parent.mkdir(parents=True)
+        media_path.write_bytes(b'mp4')
+
+        with patch('threading.Thread.start'):
+            self.manager.start({
+                'capture_session_id': capture_id,
+                'import_path': f'{capture_id}/source.mp4',
+                'ingest_path': 'match/local',
+                'source_kind': 'local_mp4',
+            })
+
+        self.assertEqual(
+            self.manager.sources[capture_id].config['import_path'],
+            str(media_path.resolve()),
+        )
+
+    def test_local_import_key_cannot_escape_shared_root(self) -> None:
+        outside = self.manager.import_root.parent / 'outside.mp4'
+        outside.write_bytes(b'mp4')
+        with self.assertRaisesRegex(ValueError, 'invalid import path'):
+            self.manager.start({
+                'capture_session_id': 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
+                'import_path': '../outside.mp4',
+                'ingest_path': 'match/local',
+                'source_kind': 'local_mp4',
+            })
+
 
 if __name__ == '__main__':
     unittest.main()

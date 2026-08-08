@@ -115,7 +115,12 @@ class SourceManager:
         if source_kind == 'youtube':
             config['source_url'] = safe_youtube_url(str(raw.get('source_url', '')))
         else:
-            import_path = Path(str(raw.get('import_path', ''))).resolve()
+            requested_import_path = Path(str(raw.get('import_path', '')))
+            import_path = (
+                requested_import_path.resolve()
+                if requested_import_path.is_absolute()
+                else (self.import_root / requested_import_path).resolve()
+            )
             completion_pending = 'completion_expected_segments' in config
             if (
                 import_path.suffix.lower() != '.mp4'
@@ -362,6 +367,11 @@ class SourceManager:
         args.extend([
             *video_codec, '-c:a', 'aac', '-f', 'segment', '-segment_time', '2',
             '-reset_timestamps', '1', '-segment_format', 'mp4',
+            # Emit independently playable fragmented MP4 files. The indexer
+            # can split these into init/media artifacts directly instead of
+            # launching a second ffmpeg remux for every DVR segment.
+            '-segment_format_options',
+            'movflags=+frag_keyframe+empty_moov+default_base_moof',
             str(segment_root / 'segment-%09d.mp4'),
         ])
         process = subprocess.Popen(args)

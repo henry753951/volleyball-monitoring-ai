@@ -203,10 +203,13 @@ export function mediaSourceRoutes(dependencies: MediaSourceRouteDependencies): F
         })
         const captureDirectory = join(importRoot, capture.id)
         const importPath = join(captureDirectory, 'source.mp4')
+        // The gateway sees the same volume through its own mount point. Send a
+        // root-relative key instead of leaking this container's absolute path.
+        const importKey = `${capture.id}/source.mp4`
         await mkdir(captureDirectory, { recursive: true })
         await rename(stagingFile, importPath)
         try {
-          await dependencies.gateway.start({ captureSessionId: capture.id, importPath, ingestPath: path, sourceKind: 'local_mp4' })
+          await dependencies.gateway.start({ captureSessionId: capture.id, importPath: importKey, ingestPath: path, sourceKind: 'local_mp4' })
         }
         catch (error) {
           await failCapture(dependencies.database, capture.id, error instanceof Error ? error.message : 'MEDIA_SOURCE_START_FAILED').catch(() => undefined)

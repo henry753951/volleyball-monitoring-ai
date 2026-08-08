@@ -2,6 +2,9 @@ import Fastify from 'fastify'
 import multipart from '@fastify/multipart'
 import type { PrismaClient } from '@volleyball-monitoring/db'
 import { UserRole } from '@volleyball-monitoring/db/client'
+import { mkdtemp, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import { mediaSourceRoutes } from '../src/routes/media-sources.js'
 import type {
@@ -168,5 +171,45 @@ describe('match media source routes', () => {
       expect(createCapture).not.toHaveBeenCalled()
     }
     finally { await app.close() }
+  })
+
+  it('passes a shared-root-relative import key to the local media gateway', async () => {
+    const importRoot = await mkdtemp(join(tmpdir(), 'vollyai-media-upload-'))
+    const gateway = { start: vi.fn(async () => undefined), stop: vi.fn(async () => undefined) }
+    const createCapture = vi.fn(async (_db, _identity, input) => capture(input))
+    const app = Fastify({ logger: false })
+    await app.register(multipart)
+    await app.register(mediaSourceRoutes({
+      authenticate: async () => ({ userId: 'operator-1', deviceSessionId: 'test-session', role: UserRole.OPERATOR }),
+      database: {} as PrismaClient,
+      gateway,
+      importRoot,
+      startCapture: createCapture as unknown as typeof startCapture,
+    }))
+    const boundary = '----vollyai-local-upload-boundary'
+    const payload = [
+      `--${boundary}\r\nContent-Disposition: form-data; name="match_id"\r\n\r\n${matchId}\r\n`,
+      `--${boundary}\r\nContent-Disposition: form-data; name="source_label"\r\n\r\nLocal QA\r\n`,
+      `--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="source.mp4"\r\nContent-Type: video/mp4\r\n\r\nvideo-bytes\r\n`,
+      `--${boundary}--\r\n`,
+    ].join('')
+    try {
+      const response = await app.inject({
+        headers: { 'content-type': `multipart/form-data; boundary=${boundary}` },
+        method: 'POST',
+        payload: Buffer.from(payload),
+        url: '/api/v1/media-sources/upload',
+      })
+      expect(response.statusCode).toBe(202)
+      expect(gateway.start).toHaveBeenCalledWith(expect.objectContaining({
+        captureSessionId: captureId,
+        importPath: `${captureId}/source.mp4`,
+        sourceKind: 'local_mp4',
+      }))
+    }
+    finally {
+      await app.close()
+      await rm(importRoot, { force: true, recursive: true })
+    }
   })
 })
