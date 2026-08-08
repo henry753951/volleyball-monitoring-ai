@@ -41,6 +41,7 @@ const ids = {
   match: '30000000-0000-4000-8000-000000000010',
   session: '30000000-0000-4000-8000-000000000011',
   epoch: '30000000-0000-4000-8000-000000000012',
+  epoch2: '30000000-0000-4000-8000-000000000014',
   program: '30000000-0000-4000-8000-000000000013',
   segment1: '30000000-0000-4000-8000-000000000021',
   segment2: '30000000-0000-4000-8000-000000000022',
@@ -149,6 +150,19 @@ async function seedMediaFixture() {
       startedAtCaptureUs: baseUs,
     },
   })
+  await db.captureEpoch.create({
+    data: {
+      captureFrameOrigin: 30n,
+      captureSessionId: ids.session,
+      captureTimeOriginUs: baseUs + 1_000_000n,
+      id: ids.epoch2,
+      sequenceIndex: 1,
+      sourcePtsOrigin: 0n,
+      sourceTimeBaseDen: 30,
+      sourceTimeBaseNum: 1,
+      startedAtCaptureUs: baseUs + 1_000_000n,
+    },
+  })
   await db.dvrProgram.create({
     data: {
       captureSessionId: ids.session,
@@ -235,7 +249,7 @@ async function seedMediaFixture() {
       },
       {
         captureEndUs: baseUs + 2_000_000n,
-        captureEpochId: ids.epoch,
+        captureEpochId: ids.epoch2,
         captureStartUs: baseUs + 1_000_000n,
         discontinuitySequence: 0,
         durationUs: 1_000_000n,
@@ -473,6 +487,24 @@ describe('Phase 2A playback-window HTTP', () => {
     })
     expect(await db.playbackWindowSegment.count({ where: { playbackWindowId: original.playback_window_id } })).toBe(2)
 
+    const repeated = await app.inject({
+      headers: authHeaders('operator'),
+      method: 'POST',
+      payload: {
+        schema_version: '1.0.0',
+        target_capture_time_us: (baseUs + 500_000n).toString(),
+        requested_forward_us: '1500000',
+      },
+      url: `/api/v1/media/playback-windows/${original.playback_window_id}/extend`,
+    })
+    expect(repeated.statusCode).toBe(200)
+    expect(repeated.json()).toMatchObject({
+      playback_window_id: original.playback_window_id,
+      mapping_version: original.mapping_version + 1,
+      window_capture_end_us: (baseUs + 2_000_000n).toString(),
+    })
+    expect(await db.playbackWindowSegment.count({ where: { playbackWindowId: original.playback_window_id } })).toBe(2)
+
     const manifest = await app.inject({
       headers: authHeaders('operator'),
       method: 'GET',
@@ -480,6 +512,8 @@ describe('Phase 2A playback-window HTTP', () => {
     })
     expect(manifest.body).toContain(`/segments/media-${ids.segment1}`)
     expect(manifest.body).toContain(`/segments/media-${ids.segment2}`)
+    expect(manifest.body).toContain('#EXT-X-DISCONTINUITY-SEQUENCE:0')
+    expect(manifest.body).toContain('#EXT-X-DISCONTINUITY')
     expect(manifest.body).not.toContain('#EXT-X-ENDLIST')
   })
 

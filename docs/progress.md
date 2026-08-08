@@ -647,6 +647,22 @@ The Nuxt build emits a dependency-level Node `DEP0155` deprecation warning but c
   typechecks, Docker builds for server, clip worker and HTTP dispatcher, and the real container E2E
   above. The complete monorepo gate before these focused fixes passed contracts 13, DB 4, media 88,
   server 201, worker 165 (6 skipped), web 142, SDK 20, plus root typecheck/test.
-- Playback-window continuation still has a separately known `/extend` 409 path in the existing HLS
-  player. The clip/PTS/callback path above is exact and complete, but uninterrupted long-running
-  browser continuation must not yet be described as finished.
+- Playback-window continuation no longer polls from transient MSE buffer ranges. It measures canonical
+  headroom from the playback-window capture bounds, treats duplicate extension prefetches as idempotent,
+  and applies bounded retry backoff for transient live-edge availability.
+
+# 2026-08-09 — OME epoch-aware HLS continuation
+
+- Fixed the actual long-playback stall at OME recorder PTS resets. Every capture-epoch boundary now
+  becomes an HLS discontinuity, and rolling playlists publish the matching
+  `EXT-X-DISCONTINUITY-SEQUENCE`; canonical capture time and stored DVR availability semantics remain
+  unchanged.
+- A headed Chromium run loaded the production blob-backed hls.js player at 200 seconds and played
+  continuously through the former 208-second boundary to 224 seconds. `readyState` remained 4, the
+  blob URL stayed stable, and the buffered end advanced from 384.984 to 405.001 seconds without a
+  source swap, `/extend` request or HTTP 409.
+- The real generated manifest contained its rolling discontinuity sequence and 108 capture-epoch
+  discontinuity markers. A fresh browser session reported zero console errors and rendered the dark
+  annotation shell rather than the coach PWA shell.
+- The complete post-fix gate passed: contracts 13, DB 4, media 88, server 201, worker 165 with six
+  skipped, web 140 and Python SDK 20 tests, plus the full monorepo typecheck.
