@@ -10,10 +10,12 @@ const isRecord = (value: unknown): value is Record<string, unknown> => value !==
 async function claimAiJob(database: PrismaClient) {
   return database.$transaction(async (tx) => {
     const rows = await tx.$queryRaw<Array<{ id: string }>>`
-      SELECT id FROM "AiJob"
-      WHERE ((status = 'QUEUED' AND "availableAt" <= NOW()) OR (status = 'RUNNING' AND "leasedUntil" < NOW() AND "acceptedAt" IS NULL))
-        AND "attemptCount" < "maxAttempts"
-      ORDER BY "availableAt", "createdAt", id
+      SELECT job.id FROM "AiJob" job
+      INNER JOIN "AiIntegration" integration ON integration.id = job."integrationId"
+      WHERE integration."transportMode" = 'HTTP_PUSH'
+        AND ((job.status = 'QUEUED' AND job."availableAt" <= NOW()) OR (job.status = 'RUNNING' AND job."leasedUntil" < NOW() AND job."acceptedAt" IS NULL))
+        AND job."attemptCount" < job."maxAttempts"
+      ORDER BY job."availableAt", job."createdAt", job.id
       FOR UPDATE SKIP LOCKED LIMIT 1
     `
     const id = rows[0]?.id
@@ -44,7 +46,7 @@ export function createAiDispatcher(database: PrismaClient) {
     try {
       if (!providerToken) throw new Error('AI_PROVIDER_BEARER_TOKEN is required')
       const job = await database.aiJob.findUniqueOrThrow({ where: { id: claimed.id }, include: { integration: true, submission: { include: { rally: true } }, clipJob: { include: { clipAsset: true } } } })
-      if (!job.integration.enabled || !job.clipJob.clipAsset?.sha256 || job.clipJob.clipAsset.byteLength === null) throw new Error('AI integration or canonical clip is not ready')
+      if (!job.integration.enabled || job.integration.transportMode !== 'HTTP_PUSH' || !job.integration.submitUrl || !job.clipJob.clipAsset?.sha256 || job.clipJob.clipAsset.byteLength === null) throw new Error('HTTP AI integration or canonical clip is not ready')
       const capabilitiesUrl = job.integration.capabilitiesUrl ?? new URL('/v1/capabilities', job.integration.submitUrl).toString()
       const capabilitiesResponse = await fetch(capabilitiesUrl, { signal, headers: { Authorization: `Bearer ${providerToken}` } })
       if (!capabilitiesResponse.ok) throw new Error(`AI capabilities returned ${capabilitiesResponse.status}`)

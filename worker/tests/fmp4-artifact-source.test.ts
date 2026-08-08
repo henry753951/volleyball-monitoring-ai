@@ -160,6 +160,29 @@ describe('FinalizedFileArtifactSource', () => {
     )
   })
 
+  it('remuxes an OME-style progressive MP4 before splitting artifacts', async () => {
+    const free = box('free', Uint8Array.of(11, 12))
+    const progressive = Buffer.concat([ftyp, free, mdat, moov])
+    const fragmented = {
+      initBytes: Buffer.concat([ftyp, moov]),
+      mediaBytes: Buffer.concat([moof, mdat]),
+    }
+    const fileSystem = new MemoryFileSystem(progressive)
+    const calls: string[] = []
+    const source = new FinalizedFileArtifactSource(
+      defaultConfig,
+      fileSystem,
+      async (path) => {
+        calls.push(path)
+        return fragmented
+      },
+    )
+
+    await expect(source.read(recording(progressive))).resolves.toEqual(fragmented)
+    expect(calls).toEqual(['H:\\trusted-spool\\segment.mp4'])
+    expect(fileSystem.handle.closed).toBe(true)
+  })
+
   it('validates and preserves a 64-bit extended-size box', async () => {
     const extendedFtyp = box(
       'ftyp',

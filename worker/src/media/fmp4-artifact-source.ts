@@ -1,5 +1,13 @@
-import { open as openFile, stat as statFile } from 'node:fs/promises'
+import { spawn } from 'node:child_process'
+import {
+  mkdtemp,
+  open as openFile,
+  rm,
+  stat as statFile,
+} from 'node:fs/promises'
 import type { FileHandle } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { assertFinalizedRecording, type FinalizedRecording } from './finalized-recording'
 import type { ArtifactSource, ArtifactSourceBytes } from './ingest'
 
@@ -12,6 +20,12 @@ export type Fmp4ArtifactSourceErrorCode =
   | 'OUTPUT_TOO_LARGE'
   | 'INVALID_BOX'
   | 'INVALID_LAYOUT'
+
+export type ProgressiveMp4Remuxer = (
+  path: string,
+  config: Fmp4ArtifactSourceConfig,
+  signal?: AbortSignal,
+) => Promise<ArtifactSourceBytes>
 
 export class Fmp4ArtifactSourceError extends Error {
   constructor(
@@ -413,6 +427,12 @@ async function splitFragmentedMp4(
         }
         mediaStarted = true
         target = mediaChunks
+      } else if (box.type === 'mdat' && seenFtyp && !seenMoov) {
+        throw new Fmp4ArtifactSourceError(
+          'INVALID_LAYOUT',
+          'progressive MP4 requires remuxing before fragmented ingest',
+          { cause: { progressiveMp4: true } },
+        )
       } else {
         throw new Fmp4ArtifactSourceError(
           'INVALID_LAYOUT',
@@ -499,6 +519,122 @@ async function splitFragmentedMp4(
   }
 }
 
+function isProgressiveMp4(error: unknown): error is Fmp4ArtifactSourceError {
+  return error instanceof Fmp4ArtifactSourceError
+    && error.code === 'INVALID_LAYOUT'
+    && typeof error.cause === 'object'
+    && error.cause !== null
+    && 'progressiveMp4' in error.cause
+}
+
+async function runFfmpegRemux(
+  inputPath: string,
+  outputPath: string,
+  timeoutMs: number,
+  signal?: AbortSignal,
+): Promise<void> {
+  await new Promise<void>((resolve, reject) => {
+    let settled = false
+    const child = spawn('ffmpeg', [
+      '-nostdin',
+      '-hide_banner',
+      '-loglevel', 'error',
+      '-i', inputPath,
+      '-map', '0:v:0',
+      '-map', '0:a:0?',
+      '-c', 'copy',
+      '-movflags', '+frag_keyframe+empty_moov+default_base_moof',
+      '-f', 'mp4',
+      '-y', outputPath,
+    ], {
+      stdio: ['ignore', 'ignore', 'pipe'],
+      windowsHide: true,
+    })
+
+    const cleanup = () => {
+      clearTimeout(timer)
+      signal?.removeEventListener('abort', onAbort)
+    }
+    const fail = (error: Fmp4ArtifactSourceError) => {
+      if (settled) return
+      settled = true
+      cleanup()
+      child.kill('SIGKILL')
+      reject(error)
+    }
+    const onAbort = () => fail(
+      new Fmp4ArtifactSourceError('ABORTED', 'artifact remux aborted'),
+    )
+    const timer = setTimeout(() => fail(
+      new Fmp4ArtifactSourceError('TIMEOUT', 'artifact remux timed out'),
+    ), timeoutMs)
+
+    signal?.addEventListener('abort', onAbort, { once: true })
+    child.stderr.resume()
+    if (signal?.aborted) onAbort()
+    child.once('error', error => fail(new Fmp4ArtifactSourceError(
+      'INVALID_LAYOUT',
+      'failed to start progressive MP4 remux',
+      { cause: error },
+    )))
+    child.once('close', (code) => {
+      if (settled) return
+      settled = true
+      cleanup()
+      if (code === 0) {
+        resolve()
+        return
+      }
+      reject(new Fmp4ArtifactSourceError(
+        'INVALID_LAYOUT',
+        'progressive MP4 remux failed',
+      ))
+    })
+  })
+}
+
+const defaultProgressiveMp4Remuxer: ProgressiveMp4Remuxer = async (
+  path,
+  configValue,
+  signal,
+) => {
+  const config = validateConfig(configValue)
+  const directory = await mkdtemp(join(tmpdir(), 'volleyball-fmp4-'))
+  const outputPath = join(directory, 'fragmented.mp4')
+  let handle: ArtifactFileHandle | undefined
+  const guard = new ReadGuard(config.readTimeoutMs, signal)
+  try {
+    await runFfmpegRemux(path, outputPath, config.readTimeoutMs, signal)
+    const outputStat = await guard.run(statFile(outputPath, { bigint: true }))
+    if (!outputStat.isFile() || outputStat.size <= 0n) {
+      throw new Fmp4ArtifactSourceError(
+        'INVALID_LAYOUT',
+        'progressive MP4 remux produced no output',
+      )
+    }
+    if (outputStat.size > config.maxInputBytes || outputStat.size > MAX_SAFE_BYTES) {
+      throw new Fmp4ArtifactSourceError(
+        'OUTPUT_TOO_LARGE',
+        'progressive MP4 remux exceeds its configured bound',
+      )
+    }
+    handle = wrapNodeFileHandle(await guard.run(openFile(outputPath, 'r')))
+    const outputs = await splitFragmentedMp4(
+      handle,
+      Number(outputStat.size),
+      config,
+      guard,
+    )
+    await guard.run(handle.close())
+    handle = undefined
+    return outputs
+  } finally {
+    guard.dispose()
+    if (handle) await handle.close().catch(() => undefined)
+    await rm(directory, { force: true, recursive: true }).catch(() => undefined)
+  }
+}
+
 function assertStableStat(
   stat: ArtifactFileStat,
   recording: FinalizedRecording,
@@ -521,6 +657,7 @@ export class FinalizedFileArtifactSource implements ArtifactSource {
   constructor(
     config: Fmp4ArtifactSourceConfig,
     private readonly fileSystem: ArtifactFileSystem = nodeFileSystem,
+    private readonly progressiveMp4Remuxer: ProgressiveMp4Remuxer = defaultProgressiveMp4Remuxer,
   ) {
     this.config = validateConfig(config)
   }
@@ -546,14 +683,34 @@ export class FinalizedFileArtifactSource implements ArtifactSource {
       )
       assertStableStat(before, expectedRecording)
       handle = await guard.run(this.fileSystem.open(expectedRecording.trustedPath))
-      const outputs = await splitFragmentedMp4(
-        handle,
-        Number(before.size),
-        this.config,
-        guard,
-      )
-      await guard.run(handle.close())
-      handle = undefined
+      let outputs: ArtifactSourceBytes
+      try {
+        outputs = await splitFragmentedMp4(
+          handle,
+          Number(before.size),
+          this.config,
+          guard,
+        )
+      } catch (error) {
+        if (!isProgressiveMp4(error)) throw error
+        await guard.run(handle.close())
+        handle = undefined
+        outputs = await this.progressiveMp4Remuxer(
+          expectedRecording.trustedPath,
+          {
+            maxInputBytes: this.config.maxInputBytes,
+            maxInitBytes: this.config.maxInitBytes,
+            maxMediaBytes: this.config.maxMediaBytes,
+            readTimeoutMs: this.config.readTimeoutMs,
+            readChunkBytes: this.config.readChunkBytes,
+          },
+          options.signal,
+        )
+      }
+      if (handle) {
+        await guard.run(handle.close())
+        handle = undefined
+      }
       const after = await guard.run(
         this.fileSystem.stat(expectedRecording.trustedPath),
       )

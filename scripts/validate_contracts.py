@@ -84,6 +84,9 @@ def main() -> None:
         'examples/annotation/soft-lock-intent.json': 'annotation/realtime.schema.json',
         'examples/ai/capabilities.json': 'ai/capabilities.schema.json',
         'examples/ai/job-accepted.json': 'ai/job-accepted.schema.json',
+        'examples/ai/provider-hello.json': 'ai/provider-realtime.schema.json',
+        'examples/ai/job-offer.json': 'ai/provider-realtime.schema.json',
+        'examples/ai/abort-job.json': 'ai/provider-realtime.schema.json',
     }
     for instance, schema in example_pairs.items():
         validate(CONTRACTS / schema, CONTRACTS / instance)

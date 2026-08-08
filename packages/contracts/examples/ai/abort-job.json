@@ -1,0 +1,7 @@
+{
+  "schema_version": "1.0.0",
+  "type": "abort_job",
+  "ai_job_id": "018f6d86-2d8c-7f10-9c1b-0f0c32aa6001",
+  "delivery_id": "delivery-1",
+  "reason": "operator_deleted_processing_rally"
+}

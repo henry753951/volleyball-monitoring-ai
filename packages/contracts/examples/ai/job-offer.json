@@ -1,0 +1,11 @@
+{
+  "schema_version": "1.0.0",
+  "type": "job_offer",
+  "ai_job_id": "018f6d86-2d8c-7f10-9c1b-0f0c32aa6001",
+  "delivery_id": "delivery-1",
+  "lease_expires_at": "2026-08-08T12:00:00Z",
+  "job": {
+    "schema_version": "1.1.0",
+    "ai_job_id": "018f6d86-2d8c-7f10-9c1b-0f0c32aa6001"
+  }
+}

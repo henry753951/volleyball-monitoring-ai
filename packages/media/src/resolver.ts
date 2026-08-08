@@ -96,7 +96,7 @@ function validateSegments(
 
   const segmentIds = new Set<string>()
   const locations: IndexedLocation[] = []
-  const sourcePts = new Set<bigint>()
+  const sourcePts = new Set<string>()
   const captureTimes = new Set<bigint>()
   const captureFrames = new Set<bigint>()
   const first = segments[0]!
@@ -108,6 +108,7 @@ function validateSegments(
 
   let previousSegment: IndexedSegment | undefined
   let previousSample: IndexedSample | undefined
+  let previousSampleEpochId: string | undefined
 
   for (const segment of segments) {
     if (!segment.segmentId.trim()) {
@@ -129,14 +130,6 @@ function validateSegments(
         unavailableBoundaryCode === 'SAMPLE_NOT_FOUND'
           ? 'no adjacent sample across discontinuity'
           : 'indexed segments cross a discontinuity',
-      )
-    }
-    if (segment.index.epochId !== first.index.epochId) {
-      boundaryFailure(
-        unavailableBoundaryCode,
-        unavailableBoundaryCode === 'SAMPLE_NOT_FOUND'
-          ? 'no adjacent sample across capture epoch'
-          : 'indexed segments cross a capture epoch',
       )
     }
     if (
@@ -165,14 +158,15 @@ function validateSegments(
     }
 
     for (const sample of segment.index.samples) {
+      const sourcePtsIdentity = `${segment.index.epochId}:${sample.sourcePts}`
       if (
-        sourcePts.has(sample.sourcePts) ||
+        sourcePts.has(sourcePtsIdentity) ||
         captureTimes.has(sample.captureTimeUs) ||
         captureFrames.has(sample.captureFrameIndex)
       ) {
         invalidSegmentSet('indexed segments contain a duplicate sample')
       }
-      sourcePts.add(sample.sourcePts)
+      sourcePts.add(sourcePtsIdentity)
       captureTimes.add(sample.captureTimeUs)
       captureFrames.add(sample.captureFrameIndex)
 
@@ -185,7 +179,11 @@ function validateSegments(
         if (sample.captureTimeUs <= previousSample.captureTimeUs) {
           invalidSegmentSet('sample capture times must strictly increase')
         }
-        if (sample.sourcePts !== previousSample.sourcePts + previousSample.durationPts) {
+        if (
+          segment.index.epochId === previousSampleEpochId
+          && sample.sourcePts
+            !== previousSample.sourcePts + previousSample.durationPts
+        ) {
           invalidSegmentSet(
             'sample source timing must be contiguous within one epoch',
           )
@@ -198,6 +196,7 @@ function validateSegments(
         sample,
       })
       previousSample = sample
+      previousSampleEpochId = segment.index.epochId
     }
     previousSegment = segment
   }
@@ -228,8 +227,9 @@ export function resolveCanonicalTime(
 }
 
 /**
- * Resolve globally across one bounded, contiguous epoch. A persisted sample is
- * exact frame identity even when the browser observation needs a nonzero snap.
+ * Resolve globally across one bounded, contiguous playback span. Capture epoch
+ * transitions are valid inside a span when canonical time and frames remain
+ * contiguous; source PTS identity remains scoped to its capture epoch.
  */
 export function resolveCanonicalTimeAcrossSegments(
   segments: readonly IndexedSegment[],

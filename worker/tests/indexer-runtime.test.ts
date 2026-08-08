@@ -184,6 +184,24 @@ describe('media indexer runtime kernel', () => {
       status: 'deadletter',
       output: { code: 'PERMANENT_FAILURE' },
     })
+    const invalidArtifact = await processMediaIngestJobs([job()], async () => {
+      const error = Object.assign(new Error('unsupported initialization box'), {
+        code: 'INVALID_LAYOUT',
+      })
+      error.name = 'Fmp4ArtifactSourceError'
+      throw error
+    })
+    expect(invalidArtifact[0]).toMatchObject({
+      status: 'deadletter',
+      output: { code: 'PERMANENT_FAILURE' },
+    })
+    const deterministicProbe = await processMediaIngestJobs([job()], async () => {
+      throw Object.assign(new Error('no video samples'), { permanent: true })
+    })
+    expect(deterministicProbe[0]).toMatchObject({
+      status: 'deadletter',
+      output: { code: 'PERMANENT_FAILURE' },
+    })
     await expect(processMediaIngestJobs([job()], async () => {
       const error = Object.assign(new Error('earlier reservation is pending'), {
         code: 'FIFO_BLOCKED',

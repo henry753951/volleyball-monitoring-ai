@@ -32,6 +32,33 @@ export interface StreamSnapshot {
   } | null
 }
 
+export interface AiWorkerSnapshot {
+  id: string
+  instanceKey: string
+  providerBuildId: string
+  sdkVersion: string
+  maxConcurrency: number
+  activeJobs: number
+  utilization: number
+  connectedAt: string
+  lastSeenAt: string
+  disconnectedAt: string | null
+  status: 'online' | 'stale' | 'offline'
+}
+
+export interface AiWorkSnapshot {
+  id: string
+  matchId: string
+  matchTitle: string
+  rallyId: string
+  status: string
+  progress: number | null
+  stage: string | null
+  workerInstanceKey: string | null
+  createdAt: string
+  updatedAt: string
+}
+
 export interface OperationsDashboardSnapshot {
   readiness: {
     status: 'ready' | 'unavailable'
@@ -55,6 +82,8 @@ export interface OperationsDashboardSnapshot {
       outboxEvents: MetricGroup[]
       rallies: MetricGroup[]
     }
+    aiWorkers: AiWorkerSnapshot[]
+    aiWork: AiWorkSnapshot[]
     streams: StreamSnapshot[]
   }
 }

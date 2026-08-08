@@ -3,7 +3,7 @@ import addFormats from "ajv-formats";
 import { describe, expect, it } from "vitest";
 import { readFileSync, readdirSync } from "node:fs";
 import { resolve } from "node:path";
-import { parseAnnotationCommand, parseAnnotationCommandResponse, parseAnnotationRealtimeMessage, parseAnnotationServerMessage, parseAnnotationSoftLockIntent, parseMediaApiError, parsePlaybackCursor, parseResolvedMediaAnchor } from "../src/index";
+import { parseAIProviderClientMessage, parseAIProviderServerMessage, parseAnnotationCommand, parseAnnotationCommandResponse, parseAnnotationRealtimeMessage, parseAnnotationServerMessage, parseAnnotationSoftLockIntent, parseMediaApiError, parsePlaybackCursor, parseResolvedMediaAnchor } from "../src/index";
 
 const root = resolve(import.meta.dirname, "..");
 const load = (relative: string) => JSON.parse(readFileSync(resolve(root, relative), "utf8"));
@@ -70,8 +70,19 @@ describe("golden contract fixtures", () => {
       "examples/ai/capabilities.json": "ai/capabilities.schema.json",
       "examples/ai/job-accepted.json": "ai/job-accepted.schema.json",
       "examples/ai/overlay-manifest.json": "ai/overlay-manifest.schema.json",
+      "examples/ai/provider-hello.json": "ai/provider-realtime.schema.json",
+      "examples/ai/job-offer.json": "ai/provider-realtime.schema.json",
+      "examples/ai/abort-job.json": "ai/provider-realtime.schema.json",
     };
     for (const [instance, schema] of Object.entries(pairs)) expect(validator(schema)(load(instance)), instance).toBe(true);
+  });
+
+  it("strictly parses provider realtime control messages", () => {
+    expect(parseAIProviderClientMessage(load("examples/ai/provider-hello.json")).type).toBe("provider_hello");
+    expect(parseAIProviderServerMessage(load("examples/ai/job-offer.json")).type).toBe("job_offer");
+    expect(parseAIProviderServerMessage(load("examples/ai/abort-job.json")).type).toBe("abort_job");
+    expect(() => parseAIProviderClientMessage({ ...load("examples/ai/provider-hello.json"), token: "leak" })).toThrow();
+    expect(() => parseAIProviderServerMessage({ ...load("examples/ai/job-offer.json"), job: { schema_version: "1.0.0" } })).toThrow();
   });
 
   it("accepts only the atomic v2 CLOSE_RALLY outcomes", () => {

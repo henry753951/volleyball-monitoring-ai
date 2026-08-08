@@ -61,6 +61,30 @@ function twoTouchingSegments(): [IndexedSegment, IndexedSegment] {
   ]
 }
 
+function twoTouchingSegmentsAcrossEpochReset(): [
+  IndexedSegment,
+  IndexedSegment,
+] {
+  const [first] = twoTouchingSegments()
+  const second = buildSampleIndex(
+    [
+      { media_type: 'video', pts: '0', pkt_duration: '1001' },
+      { media_type: 'video', pts: '1001', pkt_duration: '1001' },
+    ],
+    {
+      captureFrameOrigin: first.index.samples.at(-1)!.captureFrameIndex + 1n,
+      captureTimeOriginUs: first.index.availableEndUs,
+      epochId: 'epoch-1',
+      sourcePtsOrigin: 0n,
+      timeBase,
+    },
+  )
+  return [
+    first,
+    { segmentId: 'second', index: second, discontinuity: 7 },
+  ]
+}
+
 function oneSampleIndex(options: {
   epochId?: string
   sourcePts: bigint
@@ -269,6 +293,29 @@ describe('canonical frame step', () => {
     })
   })
 
+  it('steps across a zero-gap capture epoch transition after source PTS resets', () => {
+    const segments = twoTouchingSegmentsAcrossEpochReset()
+    const current = segments[0].index.samples.at(-1)!
+    const expected = segments[1].index.samples[0]!
+
+    expect(
+      frameStepAcrossSegments(
+        segments,
+        current.captureFrameIndex,
+        'next',
+        segments[0].index.availableStartUs,
+        segments[1].index.availableEndUs,
+      ),
+    ).toMatchObject({
+      epochId: 'epoch-1',
+      segmentId: 'second',
+      sample: {
+        captureFrameIndex: expected.captureFrameIndex.toString(),
+        sourcePts: '0',
+      },
+    })
+  })
+
   it('returns WINDOW_BOUNDARY when the valid adjacent sample is outside the window', () => {
     const segments = twoTouchingSegments()
     const current = segments[0].index.samples.at(-1)!
@@ -354,7 +401,6 @@ describe('canonical frame step', () => {
   it.each([
     ['gap', 'no adjacent sample across canonical gap'],
     ['discontinuity', 'no adjacent sample across discontinuity'],
-    ['epoch', 'no adjacent sample across capture epoch'],
   ] as const)(
     'returns SAMPLE_NOT_FOUND instead of crossing a %s boundary',
     (boundary, message) => {
@@ -370,16 +416,8 @@ describe('canonical frame step', () => {
             captureFrameIndex: current.captureFrameIndex + 1n,
           }),
         }
-      } else if (boundary === 'discontinuity') {
-        segments[1] = { ...segments[1], discontinuity: 8 }
       } else {
-        segments[1] = {
-          ...segments[1],
-          index: {
-            ...segments[1].index,
-            epochId: 'epoch-1',
-          },
-        }
+        segments[1] = { ...segments[1], discontinuity: 8 }
       }
 
       expectResolverCode(
@@ -482,31 +520,40 @@ describe('cross-segment validation', () => {
     },
   )
 
-  it.each(['discontinuity', 'epoch'] as const)(
-    'rejects a resolver set that crosses a %s boundary',
-    (boundary) => {
-      const segments = twoTouchingSegments()
-      if (boundary === 'discontinuity') {
-        segments[1] = { ...segments[1], discontinuity: 8 }
-      } else {
-        segments[1] = {
-          ...segments[1],
-          index: { ...segments[1].index, epochId: 'epoch-1' },
-        }
-      }
+  it('rejects a resolver set that crosses a discontinuity boundary', () => {
+    const segments = twoTouchingSegments()
+    segments[1] = { ...segments[1], discontinuity: 8 }
 
-      expectResolverCode(
-        () =>
-          resolveCanonicalTimeAcrossSegments(
-            segments,
-            segments[0].index.availableStartUs,
-            segments[0].index.availableStartUs,
-            segments[1].index.availableEndUs,
-          ),
-        'INVALID_SEGMENT_SET',
-      )
-    },
-  )
+    expectResolverCode(
+      () =>
+        resolveCanonicalTimeAcrossSegments(
+          segments,
+          segments[0].index.availableStartUs,
+          segments[0].index.availableStartUs,
+          segments[1].index.availableEndUs,
+        ),
+      'INVALID_SEGMENT_SET',
+    )
+  })
+
+  it('resolves across a zero-gap capture epoch transition with reset source PTS', () => {
+    const segments = twoTouchingSegmentsAcrossEpochReset()
+    const target = segments[1].index.samples[0]!
+
+    expect(
+      resolveCanonicalTimeAcrossSegments(
+        segments,
+        target.captureTimeUs,
+        segments[0].index.availableStartUs,
+        segments[1].index.availableEndUs,
+      ),
+    ).toMatchObject({
+      epochId: 'epoch-1',
+      segmentId: 'second',
+      sample: { sourcePts: '0' },
+      snapDistanceUs: '0',
+    })
+  })
 
   it('rejects frame discontinuity, time-base mismatch, and duplicate samples', () => {
     const [first, second] = twoTouchingSegments()

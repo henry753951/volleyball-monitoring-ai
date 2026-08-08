@@ -69,6 +69,25 @@ export function createClipWorker(database: PrismaClient) {
     const claimed = await claimClipJob(database)
     if (!claimed) return false
     const directory = await mkdtemp(join(tmpdir(), 'volleyball-clip-'))
+    const cancellation = new AbortController()
+    let checkingCancellation = false
+    const cancellationMonitor = setInterval(() => {
+      if (checkingCancellation || cancellation.signal.aborted) return
+      checkingCancellation = true
+      void database.clipJob.findUnique({ where: { id: claimed.id }, select: { status: true } })
+        .then(current => {
+          if (!current || current.status === JobStatus.CANCELLED || current.status === JobStatus.SUPERSEDED) cancellation.abort('processing clip cancelled')
+        })
+        .finally(() => { checkingCancellation = false })
+    }, 500)
+    const jobSignal = AbortSignal.any([signal, cancellation.signal])
+    const ensureActive = async () => {
+      const current = await database.clipJob.findUnique({ where: { id: claimed.id }, select: { status: true } })
+      if (!current || current.status !== JobStatus.RUNNING) {
+        cancellation.abort('processing clip cancelled')
+        throw new Error('PROCESSING_CANCELLED')
+      }
+    }
     try {
       const job = await database.clipJob.findUniqueOrThrow({
         where: { id: claimed.id },
@@ -83,7 +102,7 @@ export function createClipWorker(database: PrismaClient) {
       const firstPoint = job.submission.keyPoints[0]
       const anchorSegment = firstPoint ? candidates.find(segment => firstPoint.captureTimeUs >= segment.captureStartUs && firstPoint.captureTimeUs < segment.captureEndUs) : null
       const segments = anchorSegment ? candidates.filter(segment => segment.discontinuitySequence === anchorSegment.discontinuitySequence) : []
-      if (!segments.length || !segments[0]?.initAsset || segments.some(segment => !segment.mediaAsset || !segment.sampleIndexAsset)) throw new Error('requested DVR range is not ready')
+      if (!segments.length || segments.some(segment => !segment.initAsset || !segment.mediaAsset || !segment.sampleIndexAsset)) throw new Error('requested DVR range is not ready')
       for (let index = 1; index < segments.length; index += 1) {
         if (segments[index]!.discontinuitySequence !== segments[0]!.discontinuitySequence || segments[index]!.captureStartUs > segments[index - 1]!.captureEndUs) throw new Error('canonical clip cannot cross a gap or discontinuity')
       }
@@ -120,12 +139,23 @@ export function createClipWorker(database: PrismaClient) {
       const actualStart = selection.actualStartCaptureUs
       const actualEnd = selection.actualEndCaptureUs
 
-      const sourcePath = join(directory, 'source.mp4')
-      await appendVerifiedObject(storage.client, segments[0]!.initAsset!, sourcePath)
-      for (const segment of segments) await appendVerifiedObject(storage.client, segment.mediaAsset!, sourcePath)
+      const sourceListPath = join(directory, 'source.concat.txt')
+      const sourceSegmentPaths: string[] = []
+      for (const [index, segment] of segments.entries()) {
+        const sourceSegmentPath = join(directory, `source-${index.toString().padStart(4, '0')}.mp4`)
+        await appendVerifiedObject(storage.client, segment.initAsset!, sourceSegmentPath)
+        await appendVerifiedObject(storage.client, segment.mediaAsset!, sourceSegmentPath)
+        sourceSegmentPaths.push(sourceSegmentPath)
+      }
+      await writeFile(
+        sourceListPath,
+        `${sourceSegmentPaths.map(filePath => `file '${filePath}'`).join('\n')}\n`,
+        'utf8',
+      )
+      await ensureActive()
       const outputPath = join(directory, 'canonical.mp4')
-      await runCommand('ffmpeg', buildCanonicalClipFfmpegArgs(sourcePath, outputPath, selection), signal)
-      const probe = await probeCanonicalClip(outputPath, { fpsNum: program.fpsNum, fpsDen: program.fpsDen }, signal)
+      await runCommand('ffmpeg', buildCanonicalClipFfmpegArgs(sourceListPath, outputPath, selection, 'concat'), jobSignal)
+      const probe = await probeCanonicalClip(outputPath, { fpsNum: program.fpsNum, fpsDen: program.fpsDen }, jobSignal)
       const video = parseCanonicalClipProbe(probe.payload, selection.sourceSamples.length, probe.fallback)
       const mappings = job.submission.keyPoints.map(point => {
         const ordinal = selection.keyPointOrdinals.get(point.id)
@@ -143,10 +173,11 @@ export function createClipWorker(database: PrismaClient) {
         }
       })
       const clipKey = `clips/${job.submissionId}/${job.id}.mp4`
+      await ensureActive()
       const clipUpload = await uploadFile(storage.client, storage.rallyBucket, clipKey, outputPath, 'video/mp4', { 'x-amz-meta-artifact-kind': 'canonical-clip' })
       const aiKeyPoints = mappings.map(mapping => ({ key_point_id: mapping.submissionKeyPointId, sequence_index: mapping.sequenceIndex, marker_kind: mapping.markerKind, is_terminal: mapping.isTerminal, clip_pts: mapping.clipPts.toString(), clip_time_us: mapping.clipTimeUs.toString(), clip_frame_index: mapping.clipFrameIndex.toString() }))
       const frameMap = selection.sourceSamples.map((sample, ordinal) => ({
-        capture_epoch_id: selection.captureEpochId,
+        capture_epoch_id: sample.captureEpochId,
         source_pts: sample.sourcePts.toString(),
         source_duration_pts: sample.durationPts.toString(),
         capture_time_us: sample.captureTimeUs.toString(),
@@ -163,6 +194,9 @@ export function createClipWorker(database: PrismaClient) {
       const manifestUpload = await uploadFile(storage.client, storage.rallyBucket, manifestKey, manifestPath, 'application/json', { 'x-amz-meta-artifact-kind': 'timing-manifest', 'x-amz-meta-internal-schema-version': '1.1.0' })
 
       await database.$transaction(async (tx) => {
+        await tx.$queryRaw`SELECT id FROM "ClipJob" WHERE id = ${job.id}::uuid FOR UPDATE`
+        const current = await tx.clipJob.findUnique({ where: { id: job.id }, select: { status: true } })
+        if (!current || current.status !== JobStatus.RUNNING) throw new Error('PROCESSING_CANCELLED')
         const clipAsset = await tx.mediaAsset.create({ data: { kind: MediaAssetKind.CANONICAL_CLIP, bucket: storage.rallyBucket, objectKey: clipKey, contentType: 'video/mp4', byteLength: clipUpload.byteLength, sha256: clipUpload.sha256, internalSchemaVersion: '1.0.0', state: 'READY', readyAt: new Date() } })
         const timingAsset = await tx.mediaAsset.create({ data: { kind: MediaAssetKind.TIMING_MANIFEST, bucket: storage.rallyBucket, objectKey: manifestKey, contentType: 'application/json', byteLength: manifestUpload.byteLength, sha256: manifestUpload.sha256, internalSchemaVersion: '1.1.0', state: 'READY', readyAt: new Date() } })
         await tx.clipKeyPointMapping.createMany({ data: mappings.map(mapping => ({ clipJobId: job.id, submissionKeyPointId: mapping.submissionKeyPointId, clipPts: mapping.clipPts, clipTimeUs: mapping.clipTimeUs, clipFrameIndex: mapping.clipFrameIndex })) })
@@ -182,10 +216,11 @@ export function createClipWorker(database: PrismaClient) {
       return true
     }
     catch (error) {
-      await failClipJob(database, claimed.id, error)
+      if (!cancellation.signal.aborted && !(error instanceof Error && error.message === 'PROCESSING_CANCELLED')) await failClipJob(database, claimed.id, error)
       return true
     }
     finally {
+      clearInterval(cancellationMonitor)
       await rm(directory, { recursive: true, force: true })
     }
   }

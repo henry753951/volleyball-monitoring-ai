@@ -27,6 +27,10 @@ export interface ClipKeyPointAnchor {
   captureFrameIndex: bigint
 }
 
+export interface SelectedClipSourceSample extends IndexedSample {
+  captureEpochId: string
+}
+
 export interface SelectedClipRange {
   captureEpochId: string
   sourceTimeBase: Rational
@@ -36,7 +40,7 @@ export interface SelectedClipRange {
   sourceEndFrameExclusive: bigint
   sourceStartOffsetUs: bigint
   durationUs: bigint
-  sourceSamples: readonly IndexedSample[]
+  sourceSamples: readonly SelectedClipSourceSample[]
   keyPointOrdinals: ReadonlyMap<string, number>
 }
 
@@ -107,16 +111,16 @@ export function selectCanonicalClipRange(
     throw new Error('requested canonical clip range is invalid')
   }
 
-  const allSamples: IndexedSample[] = []
+  const allSamples: SelectedClipSourceSample[] = []
   const epochId = segments[0]!.captureEpochId
   const timeBase = segments[0]!.index.timeBase
-  let previous: IndexedSample | undefined
+  let previous: SelectedClipSourceSample | undefined
   let previousEndCaptureUs: bigint | undefined
 
   for (const segment of segments) {
     validateSegmentMetadata(segment)
-    if (segment.captureEpochId !== epochId || !sameTimeBase(segment.index.timeBase, timeBase)) {
-      throw new Error('canonical clip cannot cross a capture epoch or time-base change')
+    if (!sameTimeBase(segment.index.timeBase, timeBase)) {
+      throw new Error('canonical clip cannot cross a time-base change')
     }
     if (previousEndCaptureUs !== undefined && segment.captureStartUs !== previousEndCaptureUs) {
       throw new Error('canonical clip cannot cross a gap')
@@ -124,15 +128,17 @@ export function selectCanonicalClipRange(
     for (const sample of segment.index.samples) {
       if (previous) {
         if (
-          sample.sourcePts !== previous.sourcePts + previous.durationPts
+          (segment.captureEpochId === previous.captureEpochId
+            && sample.sourcePts !== previous.sourcePts + previous.durationPts)
           || sample.captureFrameIndex !== previous.captureFrameIndex + 1n
           || sample.captureTimeUs !== sampleEndCaptureUs(previous, timeBase)
         ) {
           throw new Error('canonical sample sequence is not contiguous')
         }
       }
-      allSamples.push(sample)
-      previous = sample
+      const selectedSample = { ...sample, captureEpochId: segment.captureEpochId }
+      allSamples.push(selectedSample)
+      previous = selectedSample
     }
     previousEndCaptureUs = segment.captureEndUs
   }
@@ -152,7 +158,7 @@ export function selectCanonicalClipRange(
   const keyPointOrdinals = new Map<string, number>()
   for (const point of keyPoints) {
     const ordinal = sourceSamples.findIndex(sample =>
-      point.captureEpochId === epochId
+      point.captureEpochId === sample.captureEpochId
       && point.sourcePts === sample.sourcePts
       && point.captureTimeUs === sample.captureTimeUs
       && point.captureFrameIndex === sample.captureFrameIndex,
@@ -179,6 +185,7 @@ export function buildCanonicalClipFfmpegArgs(
   sourcePath: string,
   outputPath: string,
   selection: Pick<SelectedClipRange, 'sourceStartFrame' | 'sourceEndFrameExclusive' | 'sourceStartOffsetUs' | 'durationUs'>,
+  sourceKind: 'file' | 'concat' = 'file',
 ): string[] {
   const seconds = (value: bigint) => {
     if (value < 0n || value > 3_600_000_000n) throw new Error('clip timing is outside the bounded profile')
@@ -187,6 +194,7 @@ export function buildCanonicalClipFfmpegArgs(
   return [
     '-y',
     '-v', 'error',
+    ...(sourceKind === 'concat' ? ['-f', 'concat', '-safe', '0'] : []),
     '-i', sourcePath,
     '-map', '0:v:0',
     '-map', '0:a?',
@@ -197,7 +205,6 @@ export function buildCanonicalClipFfmpegArgs(
     '-pix_fmt', 'yuv420p',
     '-fps_mode', 'passthrough',
     '-c:a', 'aac',
-    '-shortest',
     '-movflags', '+faststart',
     outputPath,
   ]
@@ -223,7 +230,10 @@ export function parseCanonicalClipProbe(
   if (videoStreams.length !== 1 || !videoStreams[0]!.width || !videoStreams[0]!.height) {
     throw new Error('canonical clip must contain exactly one valid video stream')
   }
-  const parsed = parseFfprobePayload(payload)
+  const parsed = parseFfprobePayload({
+    ...payload,
+    frames: (payload.frames ?? []).filter(frame => frame.media_type === 'video'),
+  })
   if (parsed.frames.length !== expectedFrameCount) {
     throw new Error(`canonical clip frame count mismatch: expected ${expectedFrameCount}, received ${parsed.frames.length}`)
   }

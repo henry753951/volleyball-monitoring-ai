@@ -69,19 +69,26 @@ const cursorFollow = ref(false)
 const captureDialogOpen = ref(false)
 const connectionDialogOpen = ref(false)
 const rosterDialogOpen = ref(false)
-const confirmAction = ref<'void' | 'correction' | 'next-left' | 'next-right' | null>(null)
-const confirmTitle = computed(() => confirmAction.value === 'void' ? '刪除未送出片段' : confirmAction.value === 'correction' ? '建立修正版' : '開啟新一局')
+const confirmAction = ref<'void' | 'processing-delete' | 'correction' | 'next-left' | 'next-right' | null>(null)
+const confirmTitle = computed(() => confirmAction.value === 'void' ? '刪除未送出片段' : confirmAction.value === 'processing-delete' ? '刪除處理中片段' : confirmAction.value === 'correction' ? '建立修正版' : '開啟新一局')
 const confirmMessage = computed(() => confirmAction.value === 'void'
   ? '這個未送出片段會立即刪除，已送出的資料不受影響。'
+  : confirmAction.value === 'processing-delete'
+    ? '中央處理與 AI 工作會立即取消；已送出版本保留於稽核紀錄，若已計分則以更正紀錄回復比分。'
   : confirmAction.value === 'correction'
     ? '送出修正版並完成 AI 處理後，教練端會更新為新版本。'
     : `${confirmAction.value === 'next-left' ? leftTeam.value?.name ?? '左隊' : rightTeam.value?.name ?? '右隊'}取得本局，比分歸零並開始下一局。`)
-const confirmLabel = computed(() => confirmAction.value === 'void' ? '刪除片段' : confirmAction.value === 'correction' ? '建立修正版' : '確認並開始')
+const confirmLabel = computed(() => ['void', 'processing-delete'].includes(confirmAction.value ?? '') ? '刪除片段' : confirmAction.value === 'correction' ? '建立修正版' : '確認並開始')
 const correctionSubmissionId = ref<string | null>(null)
+const processingRallyId = ref<string | null>(null)
 const inspectorTab = ref<'match' | 'mapping'>('match')
 const pinnedRallyId = ref<string | null>(null)
 const cursorRallyId = ref<string | null>(null)
 const selectedRallyId = computed(() => resolveSegmentSelection(pinnedRallyId.value, cursorRallyId.value))
+const activeProcessing = computed(() => {
+  const rallyId = selectedRallyId.value ?? displayAnnotation.value?.rally_id
+  return rallyId ? annotation.processing.value[rallyId] ?? null : null
+})
 let timelineRefreshTimer: ReturnType<typeof setInterval> | null = null
 let timelineMoveTimeout: ReturnType<typeof setTimeout> | null = null
 let cursorResolveTimer: ReturnType<typeof setTimeout> | null = null
@@ -91,6 +98,7 @@ let cursorResolveInFlight = false
 let pendingCursorResolve: PlaybackCursorInput | null = null
 let lastCursorResolveAt = 0
 let lastResolvedCursorKey = ''
+let lastAutomaticCursorResolveKey = ''
 let matchRefreshInFlight = false
 let windowRecoveryInFlight = false
 let playbackContinuationInFlight = false
@@ -116,6 +124,10 @@ const selectedCapture = computed<CaptureSession | null>(() => {
 const timeline = computed(() => selectedCapture.value?.timeline ?? null)
 const workstation = useAnnotationWorkstationModel({ coachData: coach.data, match, timeline, displayAnnotation, confirmedAnnotation: annotation.snapshot, state, selectedRallyId, selectedKeyPoint, selectedTimelineItem, cursorRallyId })
 const { submittedRallies, annotationDrafts, visibleSubmittedRallies, selectedSubmittedRally, selectedRally, mappingAvailable, selectedAnalysisRunId, currentSet, leftTeamId, rightTeamId, leftSetWins, rightSetWins, leftTeam, rightTeam, clipPreRollUs, clipPostRollUs, clipPreRollSeconds, clipPostRollSeconds, rallyDisplayDuration, timelineSegments, currentMaskRange, selectableSegmentRanges, selectedCurrentMask, currentMaskStatus, currentMaskLabel, currentMaskOutcome, activeOverlayAnalysisRunId, activeOverlayClipStart, selectedEditableDraft, correctionActive, selectedDeletablePoint, activeContextTitle, activeContextHits, activeContextDuration, activeContextState, displayRallyOrdinal } = workstation
+const selectedProcessingRally = computed(() => {
+  const rally = selectedSubmittedRally.value
+  return rally && ['CLIP_QUEUED', 'CLIPPING', 'AI_QUEUED', 'AI_PROCESSING', 'ARTIFACT_INGESTING'].includes(rally.processing_status.toUpperCase()) ? rally : null
+})
 const selectedHistoricalSegmentId = computed(() => selectedCurrentMask.value ? null : selectedRallyId.value)
 const selectedCaptureId = computed(() => selectedCapture.value?.id ?? null)
 const selectedCaptureSourceKind = computed(() => coach.data.value?.match.captures.find(capture => capture.id === selectedCaptureId.value)?.source_kind ?? null)
@@ -331,12 +343,15 @@ function handleCursor(cursor: PlaybackCursorInput) {
   }
   const key = `${cursor.playback_window_id}:${cursor.mapping_version}:${cursor.seek_generation}:${cursor.player_media_time_us}`
   if (key === lastResolvedCursorKey) return
+  const automaticKey = `${cursor.playback_window_id}:${cursor.mapping_version}:${cursor.seek_generation}`
+  if (!pendingTimelineMove.value && automaticKey === lastAutomaticCursorResolveKey) return
   const anchorNeedsRefresh = authoritativeAnchor.value?.playback_window_id !== cursor.playback_window_id
     || authoritativeAnchor.value.mapping_version !== cursor.mapping_version
   const shouldResolve = anchorNeedsRefresh
     || cursor.seek_generation !== previousSeekGeneration
     || Boolean(pendingTimelineMove.value)
   if (!shouldResolve) return
+  if (!pendingTimelineMove.value) lastAutomaticCursorResolveKey = automaticKey
   pendingCursorResolve = cursor
   scheduleCursorResolve(true)
 }
@@ -589,6 +604,10 @@ function voidRally() {
 function deleteSelection() {
   if (selectedDeletablePoint.value) editKeyPoint('DELETE_KEY_POINT')
   else if (selectedEditableDraft.value) voidRally()
+  else if (selectedProcessingRally.value) {
+    processingRallyId.value = selectedProcessingRally.value.id
+    confirmAction.value = 'processing-delete'
+  }
 }
 
 function startCorrection() {
@@ -617,15 +636,28 @@ function requestNextSet(side: 'left' | 'right') {
 function closeConfirmAction() {
   confirmAction.value = null
   correctionSubmissionId.value = null
+  processingRallyId.value = null
 }
 
 function confirmPendingAction() {
   const action = confirmAction.value
   const submissionId = correctionSubmissionId.value
+  const targetProcessingRallyId = processingRallyId.value
   confirmAction.value = null
   correctionSubmissionId.value = null
+  processingRallyId.value = null
   if (action === 'void') {
     void annotation.edit('VOID_RALLY', { reason: 'operator_voided_from_workstation' }).then(() => toast.success('未送出片段已刪除')).catch(() => undefined)
+    return
+  }
+  if (action === 'processing-delete' && targetProcessingRallyId) {
+    void annotation.deleteProcessingRally(targetProcessingRallyId).then(async () => {
+      pinnedRallyId.value = null
+      selectedTimelineItem.value = null
+      selectedKeyPointId.value = null
+      await Promise.all([loadMatch({ silent: true }), coach.refresh()])
+      toast.success('處理中片段已刪除，AI 工作已取消')
+    }).catch(() => undefined)
     return
   }
   if (action === 'next-left' || action === 'next-right') {
@@ -841,6 +873,9 @@ watch(() => annotation.error.value, (value) => {
 watch(() => annotation.outboxNeedsConfirmation.value, (value) => {
   if (value) toast.warning('場次狀態已更新，請重新操作', { action: { label: '重新同步', onClick: annotation.discardPending } })
 })
+watch(() => activeProcessing.value?.updated_at, () => {
+  if (activeProcessing.value?.processing_status === 'completed') void coach.refresh()
+})
 watch(() => dvr.error.value, (error) => {
   if (!error || windowRecoveryInFlight) return
   const code = 'code' in error && typeof error.code === 'string' ? error.code : ''
@@ -941,6 +976,7 @@ onBeforeUnmount(() => {
         :context-hits="activeContextHits"
         :context-duration="formatDuration(activeContextDuration)"
         :context-state="activeContextState"
+        :processing="activeProcessing"
         :correction-active="correctionActive"
         :submitted-selected="Boolean(selectedSubmittedRally)"
         :navigable="navigableKeyPoints.length > 0"
@@ -948,7 +984,7 @@ onBeforeUnmount(() => {
         :editable="state === 'OPEN'"
         :edit-ready="editReady"
         :cursor-follow="cursorFollow"
-        :delete-enabled="Boolean(selectedDeletablePoint || selectedEditableDraft)"
+        :delete-enabled="Boolean(selectedDeletablePoint || selectedEditableDraft || selectedProcessingRally)"
         :muted="muted"
         :shortcuts="{ play: formatBindingForDisplay(bindings.play_pause), previousFrame: formatBindingForDisplay(bindings.frame_previous), nextFrame: formatBindingForDisplay(bindings.frame_next), previousPoint: formatBindingForDisplay(bindings.key_point_previous), nextPoint: formatBindingForDisplay(bindings.key_point_next) }"
         @play-pause="dispatchMediaAction('play_pause')"
@@ -973,7 +1009,7 @@ onBeforeUnmount(() => {
     <LazyCaptureControlDialog :open="captureDialogOpen" :match-id="matchId" :captures="match?.captureSessions ?? []" @close="captureDialogOpen = false" @changed="loadMatch" />
     <LazyAnnotationConnectionDialog :open="connectionDialogOpen" :connection="annotation.connection.value" :capture="selectedCapture" :descriptor="descriptor" :pending="annotation.pendingCount.value" :editors="annotation.presence.value.length" @close="connectionDialogOpen = false" />
     <LazyRosterEditorDialog v-if="match" :open="rosterDialogOpen" :match="match" @close="rosterDialogOpen = false" @changed="loadMatch" />
-    <LazyConfirmActionDialog :open="Boolean(confirmAction)" :title="confirmTitle" :message="confirmMessage" :confirm-label="confirmLabel" :danger="confirmAction === 'void'" @close="closeConfirmAction" @confirm="confirmPendingAction" />
+    <LazyConfirmActionDialog :open="Boolean(confirmAction)" :title="confirmTitle" :message="confirmMessage" :confirm-label="confirmLabel" :danger="confirmAction === 'void' || confirmAction === 'processing-delete'" @close="closeConfirmAction" @confirm="confirmPendingAction" />
   </section>
 </template>
 

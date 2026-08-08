@@ -72,7 +72,7 @@ export function usePlaybackCursor(
   }
 
 
-  watch(descriptor, () => {
+  watch(() => descriptor.value?.playback_window_id ?? null, () => {
     forcedGap = false
     seekGeneration.value += 1
     cursorStatus.value = 'stale'

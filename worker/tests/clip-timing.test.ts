@@ -70,6 +70,57 @@ describe('canonical clip timing', () => {
     }])).toThrow('has no exact source sample')
   })
 
+  it('preserves exact anchors across a contiguous OME epoch PTS reset', () => {
+    const first = segment([16_000n, 16_000n])
+    const reset = segment([16_000n, 16_000n])
+    const second: ClipSourceSegment = {
+      ...reset,
+      id: 'segment-2',
+      captureEpochId: 'epoch-2',
+      captureStartUs: first.captureEndUs,
+      captureEndUs: first.captureEndUs + reset.captureEndUs,
+      firstFrameIndex: first.frameCount,
+      index: {
+        ...reset.index,
+        epochId: 'epoch-2',
+        availableStartUs: first.captureEndUs,
+        availableEndUs: first.captureEndUs + reset.captureEndUs,
+        samples: reset.index.samples.map(sample => ({
+          ...sample,
+          captureTimeUs: sample.captureTimeUs + first.captureEndUs,
+          captureFrameIndex: sample.captureFrameIndex + first.frameCount,
+        })),
+      },
+    }
+    const point = second.index.samples[0]!
+    const selected = selectCanonicalClipRange(
+      [first, second],
+      0n,
+      second.captureEndUs,
+      [{
+        id: 'reset-point',
+        captureEpochId: second.captureEpochId,
+        sourcePts: point.sourcePts,
+        captureTimeUs: point.captureTimeUs,
+        captureFrameIndex: point.captureFrameIndex,
+      }],
+    )
+
+    expect(selected.sourceSamples.map(sample => sample.captureEpochId)).toEqual([
+      'epoch-1',
+      'epoch-1',
+      'epoch-2',
+      'epoch-2',
+    ])
+    expect(selected.sourceSamples.map(sample => sample.sourcePts)).toEqual([
+      0n,
+      16_000n,
+      0n,
+      16_000n,
+    ])
+    expect(selected.keyPointOrdinals.get('reset-point')).toBe(2)
+  })
+
   it('builds a frame-ordinal transcode without CFR coercion or time seeking', () => {
     const args = buildCanonicalClipFfmpegArgs('source.mp4', 'clip.mp4', {
       sourceStartFrame: 3n,
@@ -81,7 +132,16 @@ describe('canonical clip timing', () => {
     expect(args).toContain('passthrough')
     expect(args).not.toContain('-r')
     expect(args).not.toContain('-ss')
+    expect(args).not.toContain('-shortest')
     expect(args).toContain('atrim=start=0.100000:duration=0.200000,asetpts=PTS-STARTPTS')
+
+    const concatArgs = buildCanonicalClipFfmpegArgs('source.concat.txt', 'clip.mp4', {
+      sourceStartFrame: 3n,
+      sourceEndFrameExclusive: 9n,
+      sourceStartOffsetUs: 100_000n,
+      durationUs: 200_000n,
+    }, 'concat')
+    expect(concatArgs).toEqual(expect.arrayContaining(['-f', 'concat', '-safe', '0']))
   })
 
   it('uses actual output PTS and rejects dropped or duplicated output frames', () => {
@@ -92,6 +152,7 @@ describe('canonical clip timing', () => {
       ],
       frames: [
         { media_type: 'video', pts: '0', pkt_duration: '3003', key_frame: 1 },
+        { media_type: 'audio', pts: '0', pkt_duration: '1024', key_frame: 1 },
         { media_type: 'video', pts: '3003', pkt_duration: '3600', key_frame: 0 },
         { media_type: 'video', pts: '6603', pkt_duration: '2400', key_frame: 0 },
       ],

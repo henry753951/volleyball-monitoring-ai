@@ -16,13 +16,15 @@ import { createSampleIndexRepository } from './media/sample-index-repository.js'
 import { createPersistedSampleSnapResolver } from './media/sample-snap-resolver.js'
 import { createMediaSourceGatewayFromEnv, type MediaSourceGateway } from './media/media-source-gateway.js'
 import { mediaPlaybackRoutes } from './routes/media-playback.js'
-import { aiCallbackRoutes } from './routes/ai-callback.js'
+import { aiCallbackRoutesWithDependencies } from './routes/ai-callback.js'
 import { analysisMediaRoutes } from './routes/analysis-media.js'
 import { collectOperationsSnapshot, operationsRoutes } from './routes/operations.js'
 import { mediaSourceRoutes } from './routes/media-sources.js'
 import { createAnnotationPresenceService } from './realtime/annotation-presence.js'
+import { createAiProgressService } from './realtime/ai-progress.js'
 import { annotationWebSocketRoutes } from './realtime/annotation-ws.js'
 import { coachWebSocketRoutes } from './realtime/coach-ws.js'
+import { aiProviderWebSocketRoutes } from './realtime/ai-provider-ws.js'
 import { authenticateDevelopmentAnnotationRequest } from './realtime/auth.js'
 import { createAnnotationCommandService } from './services/annotation-command.js'
 import { getAnnotationSnapshot } from './services/annotation-snapshot.js'
@@ -57,6 +59,7 @@ const annotationPresence = redis
       displayName: async userId => (await db.user.findUnique({ where: { id: userId }, select: { displayName: true } }))?.displayName ?? null,
     })
   : null
+const aiProgress = redis ? createAiProgressService(redis) : null
 
 const cursorDependencies = {
   now: () => new Date(),
@@ -120,7 +123,8 @@ await app.register(multipart, {
   },
 })
 await app.register(websocket)
-await app.register(aiCallbackRoutes)
+await app.register(aiCallbackRoutesWithDependencies({ ...(aiProgress ? { progress: aiProgress } : {}) }))
+await app.register(aiProviderWebSocketRoutes({ database: db, ...(aiProgress ? { progress: aiProgress } : {}) }))
 await app.register(analysisMediaRoutes)
 await app.register(mediaPlaybackRoutes({
   objectReader: mediaObjectReader,
@@ -146,6 +150,7 @@ await app.register(operationsRoutes(
 await app.register(annotationWebSocketRoutes({
   authenticate: (request) => authenticateDevelopmentAnnotationRequest(request, db),
   ...(annotationPresence ? { presence: annotationPresence } : {}),
+  ...(aiProgress ? { progress: aiProgress } : {}),
   service: annotationCommands,
   snapshot: async (roomId, rallyId, identity) => {
     const value = await getAnnotationSnapshot(db, {
@@ -198,6 +203,7 @@ app.get('/health/ready', async (_req, reply) => {
 const port = Number(process.env.PORT ?? 4000)
 app.addHook('onClose', async () => {
   annotationPresence?.close()
+  aiProgress?.close()
   redis?.disconnect()
   await db.$disconnect()
 })

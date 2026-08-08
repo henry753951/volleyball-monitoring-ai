@@ -65,9 +65,15 @@ export type HandlerDeps = {
   ) => Promise<DvrProgramProfile>
 }
 
+function deterministicProbeError(message: string): Error & { permanent: true } {
+  return Object.assign(new Error(message), { permanent: true as const })
+}
+
 export function probeSamples(frames: readonly FfprobeFrame[], streamEndPtsExclusive?: bigint) {
   const videoFrames = frames.filter((frame) => frame.media_type === 'video')
-  if (videoFrames.length === 0) throw new Error('Finalized media has no video samples.')
+  if (videoFrames.length === 0) {
+    throw deterministicProbeError('Finalized media has no video samples.')
+  }
   const normalized = videoFrames.map((frame) => {
     if (
       frame.pts === undefined
@@ -77,7 +83,9 @@ export function probeSamples(frames: readonly FfprobeFrame[], streamEndPtsExclus
         && frame.key_frame !== 0
         && frame.key_frame !== 1
       )
-    ) throw new Error('Finalized media sample timing is invalid.')
+    ) {
+      throw deterministicProbeError('Finalized media sample timing is invalid.')
+    }
     return {
       sourcePts: BigInt(frame.pts),
       keyframe: frame.key_frame === 1,
@@ -92,9 +100,11 @@ export function probeSamples(frames: readonly FfprobeFrame[], streamEndPtsExclus
     const durationPts = next
       ? next.sourcePts - frame.sourcePts
       : packetDuration ?? (streamEndPtsExclusive === undefined ? 0n : streamEndPtsExclusive - frame.sourcePts)
-    if (durationPts <= 0n) throw new Error('Finalized media sample timing is invalid.')
+    if (durationPts <= 0n) {
+      throw deterministicProbeError('Finalized media sample timing is invalid.')
+    }
     if (!next && packetDuration !== null && streamEndPtsExclusive !== undefined && frame.sourcePts + packetDuration !== streamEndPtsExclusive) {
-      throw new Error('Finalized media sample timing is invalid.')
+      throw deterministicProbeError('Finalized media sample timing is invalid.')
     }
     return {
       sourcePts: frame.sourcePts,
