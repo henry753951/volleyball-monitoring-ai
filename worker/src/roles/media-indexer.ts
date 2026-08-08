@@ -280,8 +280,13 @@ export function createPgBossMediaRuntime(
           includeMetadata: true,
           orderByCreatedOn: true,
           heartbeatRefreshSeconds: 20,
-          pollingIntervalSeconds: 2,
-          notifyPollingIntervalSeconds: 5,
+          // A strict-FIFO key only exposes its next segment after the current
+          // job commits. LISTEN/NOTIFY does not reliably wake that transition,
+          // so multi-second polling turns into a fixed delay per segment.
+          // Keep the fallback sub-second while retaining one worker per
+          // capture; this improves long VOD drain without reordering media.
+          pollingIntervalSeconds: 0.5,
+          notifyPollingIntervalSeconds: 1,
           perJobResults: true,
         } as const
         await boss.work<
