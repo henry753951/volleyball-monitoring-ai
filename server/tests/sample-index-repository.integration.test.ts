@@ -320,20 +320,36 @@ async function resetFixture(): Promise<void> {
   objectBytes.set(`${bucket}/${keys.asset1}`, baselineBytes.asset1)
   objectBytes.set(`${bucket}/${keys.asset2}`, baselineBytes.asset2)
   reads.length = 0
-  await db.captureEpoch.update({
-    data: {
-      captureFrameOrigin,
-      captureSessionId: ids.session,
-      captureTimeOriginUs: captureOriginUs,
-      endedAtCaptureUs: null,
-      sequenceIndex: 0,
-      sourcePtsOrigin,
-      sourceTimeBaseDen,
-      sourceTimeBaseNum,
-      startedAtCaptureUs: captureOriginUs,
-    },
-    where: { id: ids.epoch1 },
-  })
+  await Promise.all([
+    db.captureEpoch.update({
+      data: {
+        captureFrameOrigin,
+        captureSessionId: ids.session,
+        captureTimeOriginUs: captureOriginUs,
+        endedAtCaptureUs: null,
+        sequenceIndex: 0,
+        sourcePtsOrigin,
+        sourceTimeBaseDen,
+        sourceTimeBaseNum,
+        startedAtCaptureUs: captureOriginUs,
+      },
+      where: { id: ids.epoch1 },
+    }),
+    db.captureEpoch.update({
+      data: {
+        captureFrameOrigin: captureFrameOrigin + 2n,
+        captureSessionId: ids.session,
+        captureTimeOriginUs: segment2CaptureStart,
+        endedAtCaptureUs: null,
+        sequenceIndex: 1,
+        sourcePtsOrigin: segment2SourceStart,
+        sourceTimeBaseDen,
+        sourceTimeBaseNum,
+        startedAtCaptureUs: segment2CaptureStart,
+      },
+      where: { id: ids.epoch2 },
+    }),
+  ])
   await Promise.all([
     db.mediaAsset.update({
       data: {
@@ -784,12 +800,6 @@ describe('persisted sample index repository', () => {
         where: { id: ids.epoch1 },
       })
     }],
-    ['sequence/discontinuity mismatch', async (): Promise<void> => {
-      await db.dvrSegment.update({
-        data: { discontinuitySequence: 1 },
-        where: { id: ids.segment1 },
-      })
-    }],
     ['ended before segment', async (): Promise<void> => {
       await db.captureEpoch.update({
         data: { endedAtCaptureUs: segment1CaptureEnd - 1n },
@@ -835,12 +845,6 @@ describe('persisted sample index repository', () => {
         where: { id: ids.segment2 },
       })
     }, [ids.segment1, ids.segment2]],
-    ['epoch', async (): Promise<void> => {
-      await db.dvrSegment.update({
-        data: { captureEpochId: ids.epoch2 },
-        where: { id: ids.segment2 },
-      })
-    }, [ids.segment1, ids.segment2]],
     ['frame continuity', async (): Promise<void> => {
       const bytes = sampleIndexBytes({
         firstFrameIndex: captureFrameOrigin + 3n,
@@ -858,6 +862,63 @@ describe('persisted sample index repository', () => {
     await expectRepositoryError(
       () => repository.loadOrderedSegments(order),
       'INVALID_SEGMENT_SET',
+    )
+  })
+
+  it('loads a zero-gap capture epoch transition with reset source PTS', async () => {
+    const resetSourcePtsOrigin = 0n
+    const resetSourcePtsEnd = 2n * sampleDurationPts
+    const resetCaptureEnd = segment2CaptureStart + rescalePtsToUs(
+      resetSourcePtsEnd,
+      timeBase,
+    )
+    const epoch2Origin: EpochDocumentOrigin = {
+      captureFrameOrigin: captureFrameOrigin + 2n,
+      captureTimeOriginUs: segment2CaptureStart,
+      epochId: ids.epoch2,
+      sourcePtsOrigin: resetSourcePtsOrigin,
+      timeBase,
+    }
+    const bytes = sampleIndexBytes({
+      firstFrameIndex: captureFrameOrigin + 2n,
+      firstSourcePts: resetSourcePtsOrigin,
+      origin: epoch2Origin,
+    })
+
+    await db.captureEpoch.update({
+      data: {
+        captureFrameOrigin: epoch2Origin.captureFrameOrigin,
+        captureTimeOriginUs: epoch2Origin.captureTimeOriginUs,
+        sequenceIndex: 1,
+        sourcePtsOrigin: resetSourcePtsOrigin,
+        startedAtCaptureUs: segment2CaptureStart,
+      },
+      where: { id: ids.epoch2 },
+    })
+    await setAssetBytes(ids.asset2, keys.asset2, bytes)
+    await db.dvrSegment.update({
+      data: {
+        captureEndUs: resetCaptureEnd,
+        captureEpochId: ids.epoch2,
+        durationUs: resetCaptureEnd - segment2CaptureStart,
+        sourcePtsEnd: resetSourcePtsEnd,
+        sourcePtsStart: resetSourcePtsOrigin,
+      },
+      where: { id: ids.segment2 },
+    })
+
+    const segments = await repository.loadOrderedSegments([
+      ids.segment1,
+      ids.segment2,
+    ])
+
+    expect(segments.map((segment) => segment.index.epochId)).toEqual([
+      ids.epoch1,
+      ids.epoch2,
+    ])
+    expect(segments[1]!.index.samples[0]!.sourcePts).toBe(0n)
+    expect(segments[1]!.index.availableStartUs).toBe(
+      segments[0]!.index.availableEndUs,
     )
   })
 

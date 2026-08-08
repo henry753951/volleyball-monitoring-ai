@@ -62,6 +62,14 @@ const DETERMINISTIC_REPOSITORY_CODES = new Set([
   'REVISION_EXHAUSTED',
 ])
 
+const DETERMINISTIC_ARTIFACT_CODES = new Set([
+  'INVALID_CONFIG',
+  'INPUT_TOO_LARGE',
+  'OUTPUT_TOO_LARGE',
+  'INVALID_BOX',
+  'INVALID_LAYOUT',
+])
+
 export class PermanentMediaIngestError extends Error {
   readonly permanent = true
 
@@ -92,6 +100,14 @@ function permanentCode(error: unknown): PermanentMediaIngestCode | null {
     error instanceof Error
     && 'permanent' in error
     && (error as { permanent?: unknown }).permanent === true
+  ) return 'PERMANENT_FAILURE'
+  if (
+    error instanceof Error
+    && error.name === 'Fmp4ArtifactSourceError'
+    && 'code' in error
+    && DETERMINISTIC_ARTIFACT_CODES.has(
+      String((error as { code?: unknown }).code),
+    )
   ) return 'PERMANENT_FAILURE'
   if (
     error instanceof Error

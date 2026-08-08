@@ -314,18 +314,11 @@ function validateOrderedMetadata(rows: readonly SegmentRow[]): void {
     validateSegmentRow(row)
     if (
       row.dvrProgramId !== first.dvrProgramId
-      || row.captureEpochId !== first.captureEpochId
       || row.discontinuitySequence !== first.discontinuitySequence
     ) {
       repositoryFailure(
         'INVALID_SEGMENT_SET',
         'Sample index segments cross a media boundary',
-      )
-    }
-    if (row.captureEpoch.sequenceIndex !== row.discontinuitySequence) {
-      repositoryFailure(
-        'INVALID_SEGMENT_METADATA',
-        'Persisted sample index segment metadata is invalid',
       )
     }
     if (row.sampleIndexAssetId !== null) {
@@ -342,6 +335,13 @@ function validateOrderedMetadata(rows: readonly SegmentRow[]): void {
       && (
         row.sequenceNumber <= previous.sequenceNumber
         || row.captureStartUs !== previous.captureEndUs
+        || (
+          row.captureEpochId === previous.captureEpochId
+            ? row.captureEpoch.sequenceIndex
+              !== previous.captureEpoch.sequenceIndex
+            : row.captureEpoch.sequenceIndex
+              !== previous.captureEpoch.sequenceIndex + 1
+        )
       )
     ) {
       repositoryFailure(
