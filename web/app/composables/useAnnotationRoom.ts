@@ -38,6 +38,9 @@ const CREATE_CORRECTION_DRAFT = `mutation CreateCorrectionDraft($submissionId: I
 const CANCEL_CORRECTION_DRAFT = `mutation CancelCorrectionDraft($rallyId: ID!) {
   cancelCorrectionDraft(rallyId: $rallyId) { id }
 }`
+const DELETE_PROCESSING_RALLY = `mutation DeleteProcessingRally($rallyId: ID!) {
+  deleteProcessingRally(rallyId: $rallyId) { id processingStatus voidedAt }
+}`
 
 function asSnapshot(value: unknown): AnnotationRallySnapshot | null {
   if (value === null) return null
@@ -373,6 +376,26 @@ export function useAnnotationRoom() {
     }
   }
 
+  async function deleteProcessingRally(rallyId: string) {
+    busy.value = true
+    error.value = null
+    try {
+      const result = await transport.request<{
+        deleteProcessingRally: { id: string; processingStatus: string; voidedAt: string | null }
+      }>(DELETE_PROCESSING_RALLY, { rallyId })
+      if (snapshot.value?.rally_id === rallyId) snapshot.value = null
+      await refreshActive()
+      return result.deleteProcessingRally
+    }
+    catch (cause) {
+      error.value = cause instanceof Error ? cause.message : '無法刪除處理中片段'
+      throw cause
+    }
+    finally {
+      busy.value = false
+    }
+  }
+
   function setEditingKeyPoint(keyPointId: string | null) {
     realtime?.setEditingKeyPoint(keyPointId)
   }
@@ -389,6 +412,7 @@ export function useAnnotationRoom() {
     connect,
     cancelCorrection,
     createCorrection,
+    deleteProcessingRally,
     dispatch,
     edit,
     error: readonly(error),

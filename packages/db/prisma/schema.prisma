@@ -104,7 +104,13 @@ enum ProcessingStatus {
   ARTIFACT_INGESTING
   COMPLETED
   FAILED
+  CANCELLED
   SUPERSEDED
+}
+
+enum AiTransportMode {
+  HTTP_PUSH
+  WS_AGENT
 }
 
 enum SubmissionStatus {
@@ -768,18 +774,40 @@ model ClipKeyPointMapping {
 }
 
 model AiIntegration {
-  id                  String   @id @default(uuid()) @db.Uuid
-  name                String   @unique
+  id                  String               @id @default(uuid()) @db.Uuid
+  name                String               @unique
   capabilitiesUrl     String?
-  submitUrl           String
+  submitUrl           String?
   authSecretRef       String
-  enabled             Boolean  @default(true)
-  jobSchemaVersion    String   @default("1.1.0")
-  resultSchemaVersion String   @default("1.0.0")
-  overlayFormat       String   @default("flatbuffers_v1")
-  createdAt           DateTime @default(now())
-  updatedAt           DateTime @updatedAt
+  enabled             Boolean              @default(true)
+  transportMode       AiTransportMode      @default(HTTP_PUSH)
+  jobSchemaVersion    String               @default("1.1.0")
+  resultSchemaVersion String               @default("1.0.0")
+  overlayFormat       String               @default("flatbuffers_v1")
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
   jobs                AiJob[]
+  providerInstances   AiProviderInstance[]
+}
+
+model AiProviderInstance {
+  id              String        @id @default(uuid()) @db.Uuid
+  integrationId   String        @db.Uuid
+  instanceKey     String
+  sdkVersion      String
+  providerBuildId String
+  capabilities    Json
+  maxConcurrency  Int
+  lastSeenAt      DateTime
+  connectedAt     DateTime      @default(now())
+  disconnectedAt  DateTime?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+  integration     AiIntegration @relation(fields: [integrationId], references: [id], onDelete: Cascade)
+  jobs            AiJob[]
+
+  @@unique([integrationId, instanceKey])
+  @@index([integrationId, lastSeenAt])
 }
 
 model AiJob {
@@ -794,6 +822,10 @@ model AiJob {
   jobSchemaVersion       String
   callbackTokenHash      String
   callbackTokenExpiresAt DateTime
+  providerInstanceId     String?             @db.Uuid
+  deliveryId             String?             @db.Uuid
+  cancelRequestedAt      DateTime?
+  cancelAcknowledgedAt   DateTime?
   attemptCount           Int                 @default(0)
   maxAttempts            Int                 @default(5)
   availableAt            DateTime            @default(now())
@@ -810,12 +842,14 @@ model AiJob {
   createdAt              DateTime            @default(now())
   updatedAt              DateTime            @updatedAt
   integration            AiIntegration       @relation(fields: [integrationId], references: [id], onDelete: Restrict)
+  providerInstance       AiProviderInstance? @relation(fields: [providerInstanceId], references: [id], onDelete: SetNull)
   submission             RallySubmission     @relation(fields: [submissionId], references: [id], onDelete: Restrict)
   clipJob                ClipJob             @relation(fields: [clipJobId], references: [id], onDelete: Restrict)
   callbackReceipts       AiCallbackReceipt[]
   analysisRun            AnalysisRun?
 
   @@index([status, availableAt])
+  @@index([providerInstanceId, status])
 }
 
 model AiCallbackReceipt {

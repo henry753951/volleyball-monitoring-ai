@@ -1,23 +1,43 @@
 # volleyball-monitoring-ai-sdk
 
-External AI integration package. It validates the fixed Job/Result contracts, downloads and verifies the canonical clip, checks `VOV1` overlay envelopes, and sends idempotent callbacks. It does not contain AI models.
+External AI worker SDK. The AI computer makes one outbound WebSocket connection to the central
+server and therefore does **not** need to host a public API server. The WebSocket is only the
+control plane (job offers, leases, progress, resume and abort). Canonical MP4 download and result
+callback remain bounded HTTPS transfers; media and full overlays never travel through WebSocket.
 
 ```bash
-uv sync --project sdk --frozen --extra test
-uv run --project sdk --frozen pytest
+uv add "volleyball-monitoring-ai-sdk @ git+https://github.com/henry753951/volleyball-monitoring-ai.git@<COMMIT_SHA>#subdirectory=sdk"
 ```
 
-```python
-from volleyball_monitoring_ai import AIJobRequest, CallbackClient, validate_passthrough
+Copy `sdk/examples/fixture_worker.py` into the AI project, then run:
 
-job = AIJobRequest.model_validate_json(request_body)
-result = run_existing_ai_work(job)
-validate_passthrough(job, result)
-await CallbackClient(job).completed(result, overlay_bytes)
+```powershell
+$env:VOLLEYBALL_AI_WS_URL = "wss://central.example.com/api/v1/ai/providers/ws"
+$env:VOLLEYBALL_AI_TOKEN = "replace-with-provider-token"
+uv run python fixture_worker.py
 ```
 
-The human `marker_kind=service` is only the Z-key time anchor; it is not an action-model label and has no confidence. Action labels, confidence and group phase are optional provider extensions until the AI team supplies a real taxonomy and use case.
+The example performs the complete lifecycle:
 
-## Token boundary
+1. waits for a server `job_offer`;
+2. downloads the signed canonical MP4 to `<workspace>/<ai_job_id>/canonical.mp4` through a
+   checksum-verified `.part` file;
+3. runs an abort-aware placeholder loop where the AI team connects its decoder and models;
+4. adapts the bundled golden analysis data into typed `AnalysisResult` / `AnalysisBundle` objects;
+5. sends the result and `VOV1` overlay to the job's authenticated callback URL.
 
-`clip.download_url` is a short-lived signed URL and is fetched without the callback bearer token. `callback.token` is used only in `Authorization: Bearer ...` when POSTing progress/failure/completed callbacks to the central system.
+`abort_job` cancels an active download or handler and removes an incomplete `.part` file. On a
+network interruption, the client reconnects with exponential backoff and advertises active jobs so
+the server can answer with resume, abort or discard.
+
+## Existing HTTP provider adapter
+
+`create_provider_app` remains available under the optional `provider` extra for compatibility. New
+AI deployments should use `AIWorkerClient`; they do not need FastAPI or an inbound port.
+
+## Contract boundary
+
+The SDK validates Job `1.1.0`, Analysis Result `1.0.0`, Provider Realtime `1.0.0` and callback
+`1.0.0`. Human `marker_kind=service` is only the Z-key time anchor. Action labels, confidence and
+group phase remain optional AI-owned extensions. The signed `clip.download_url` never receives the
+callback bearer token.

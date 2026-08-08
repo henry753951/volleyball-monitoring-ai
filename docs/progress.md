@@ -575,3 +575,27 @@ The Nuxt build emits a dependency-level Node `DEP0155` deprecation warning but c
 1. Use PR #1 as the integration-to-main review and merge record, and preserve the feature branches for workstream auditability.
 2. Implement the first small end-to-end slice around match/capture setup and an authoritative server-resolved playback window, including the first migration and DB integration tests.
 3. Keep annotation submission, clip creation and external AI dispatch as subsequent vertical slices, preserving the fixed keyboard/touch semantics and immutable `RallySubmission` boundary.
+# 2026-08-08 — Outbound AI SDK / WSS control plane / processing abort
+
+- Added versioned AI Provider Realtime `1.0.0` TypeScript types, strict parsers, JSON Schema and
+  hello/job/abort examples. Job `1.1.0`, Analysis Result `1.0.0` and Callback `1.0.0` remain
+  compatible; video and full overlay data remain outside WSS.
+- Upgraded the uv-managed Python SDK to `0.2.0` with `AIWorkerClient`, typed `WorkerConfig`,
+  `JobContext`, cooperative `CancellationToken`, checksum-verified `.part` clip download,
+  reconnect/resume, heartbeat/progress and server abort handling. FastAPI remains an optional legacy
+  adapter and is not required by the new worker.
+- Added an object-oriented `fixture_worker.py` example. It waits for a real server job, downloads the
+  canonical MP4, runs an abort-aware placeholder frame loop, adapts bundled golden analysis data and
+  sends a real multipart callback. The placeholder loop is explicitly not an AI model.
+- Added `AiTransportMode`, persisted provider instances/delivery/lease/cancellation metadata and the
+  `/api/v1/ai/providers/ws` gateway. HTTP-push dispatch now only claims `HTTP_PUSH` integrations.
+- Added `deleteProcessingRally`: it is available only before completion, creates an immutable
+  cancellation submission, records any score reversal as a correction ledger entry, soft-voids the
+  rally, cancels jobs and emits durable abort outbox events. The annotation selection toolbar exposes
+  the action for gray/yellow processing states with confirmation.
+- Clip finalization, callback completion and cancellation now lock/recheck job state so cancellation
+  cannot be overwritten by a late worker result. The clip worker monitors DB cancellation and aborts
+  ffmpeg promptly.
+- Validation completed so far: Provider Realtime contract validation and 13 contracts tests; Prisma
+  format/generate/validate; DB/server/worker/web typechecks; 20 Python SDK tests; GraphQL SDL export
+  and 13 operation checks; processing-cancellation PostgreSQL integration test.

@@ -23,6 +23,7 @@ import { mediaSourceRoutes } from './routes/media-sources.js'
 import { createAnnotationPresenceService } from './realtime/annotation-presence.js'
 import { annotationWebSocketRoutes } from './realtime/annotation-ws.js'
 import { coachWebSocketRoutes } from './realtime/coach-ws.js'
+import { aiProviderWebSocketRoutes } from './realtime/ai-provider-ws.js'
 import { authenticateDevelopmentAnnotationRequest } from './realtime/auth.js'
 import { createAnnotationCommandService } from './services/annotation-command.js'
 import { getAnnotationSnapshot } from './services/annotation-snapshot.js'
@@ -121,6 +122,7 @@ await app.register(multipart, {
 })
 await app.register(websocket)
 await app.register(aiCallbackRoutes)
+await app.register(aiProviderWebSocketRoutes({ database: db }))
 await app.register(analysisMediaRoutes)
 await app.register(mediaPlaybackRoutes({
   objectReader: mediaObjectReader,
