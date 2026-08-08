@@ -9,6 +9,7 @@ import type { PrismaClient } from '@volleyball-monitoring/db'
 import { JobStatus, Prisma, ProcessingStatus } from '@volleyball-monitoring/db/client'
 import type { FastifyPluginAsync } from 'fastify'
 import { Client } from 'minio'
+import type { RawData } from 'ws'
 import type { AiProgressService } from './ai-progress.js'
 
 const leaseMs = 60_000
@@ -118,6 +119,13 @@ export const aiProviderWebSocketRoutes = (
     '/api/v1/ai/providers/ws',
     { websocket: true },
     (socket, request) => {
+      const pendingMessages: RawData[] = []
+      let handleMessage: ((raw: RawData) => void) | null = null
+      socket.on('message', raw => {
+        if (handleMessage) handleMessage(raw)
+        else if (pendingMessages.length < 16) pendingMessages.push(raw)
+        else socket.close(1008, 'too many messages before provider authentication')
+      })
       void (async () => {
         const integrationId = request.query.integration_id
         if (!integrationId) {
@@ -255,8 +263,9 @@ export const aiProviderWebSocketRoutes = (
           clearInterval(interval)
           if (instanceId) void database.aiProviderInstance.update({ where: { id: instanceId }, data: { disconnectedAt: new Date() } }).catch(() => undefined)
         })
-        socket.on('message', raw => {
-          void (async () => {
+        let messageQueue = Promise.resolve()
+        handleMessage = raw => {
+          messageQueue = messageQueue.then(async () => {
             let message
             try { message = parseAIProviderClientMessage(JSON.parse(raw.toString())) }
             catch {
@@ -390,8 +399,9 @@ export const aiProviderWebSocketRoutes = (
                 terminal ? 'failed' : 'retry_queued',
               )
             }
-          })().catch(error => request.log.error({ error }, 'AI provider message handling failed'))
-        })
+          }).catch(error => request.log.error({ error }, 'AI provider message handling failed'))
+        }
+        for (const raw of pendingMessages.splice(0)) handleMessage(raw)
 
         async function resumeOrStop(active: AIProviderActiveJob) {
           if (!instanceId) return
