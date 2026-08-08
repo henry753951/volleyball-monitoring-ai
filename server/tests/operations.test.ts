@@ -20,6 +20,32 @@ const snapshot: OperationsSnapshot = {
     outboxEvents: [{ count: 4, labels: { status: 'PENDING' } }],
     rallies: [{ count: 1, labels: { annotation_status: 'SUBMITTED', processing_status: 'COMPLETED' } }],
   },
+  streams: [{
+    captureSessionId: 'capture-1',
+    matchId: 'match-1',
+    matchTitle: 'JPN vs IND',
+    sourceKind: 'FILE',
+    sourceLabel: 'Demo archive',
+    status: 'LIVE',
+    health: 'HEALTHY',
+    startedAt: '2026-08-07T23:30:00.000Z',
+    updatedAt: '2026-08-08T00:00:00.000Z',
+    epochCount: 1,
+    program: {
+      id: 'program-1',
+      status: 'LIVE',
+      playlistRevision: '507',
+      liveEdgeUs: '1800000000',
+      durationUs: '1800000000',
+      fps: { numerator: 60, denominator: 1 },
+      timeBase: { numerator: 1, denominator: 60000 },
+      segmentCount: 507,
+      readySegmentCount: 507,
+      gapSegmentCount: 0,
+      frameCount: '108000',
+      indexedDurationUs: '1800000000',
+    },
+  }],
 }
 
 describe('operations routes', () => {
@@ -52,6 +78,36 @@ describe('operations routes', () => {
     expect(response.headers['cache-control']).toBe('no-store')
     expect(response.json()).toEqual(snapshot)
     expect(response.body).not.toContain('requestJson')
+    await app.close()
+  })
+
+  it('serves an authenticated operations dashboard snapshot to operators', async () => {
+    const app = Fastify()
+    await app.register(operationsRoutes(async () => snapshot, {
+      authenticate: async () => ({ role: 'OPERATOR' }),
+      collectReadiness: async () => ({
+        status: 'ready',
+        checks: { minio: 'ok', postgres: 'ok', redis: 'ok' },
+      }),
+    }))
+    const response = await app.inject({ method: 'GET', url: '/api/v1/operations/summary' })
+    expect(response.statusCode).toBe(200)
+    expect(response.headers['cache-control']).toBe('no-store')
+    expect(response.json()).toEqual({
+      operations: snapshot,
+      readiness: { status: 'ready', checks: { minio: 'ok', postgres: 'ok', redis: 'ok' } },
+    })
+    await app.close()
+  })
+
+  it('rejects dashboard access for non-operations roles', async () => {
+    const app = Fastify()
+    await app.register(operationsRoutes(async () => snapshot, {
+      authenticate: async () => ({ role: 'COACH' }),
+      collectReadiness: async () => ({ status: 'ready', checks: {} }),
+    }))
+    const response = await app.inject({ method: 'GET', url: '/api/v1/operations/summary' })
+    expect(response.statusCode).toBe(403)
     await app.close()
   })
 })

@@ -1,5 +1,18 @@
 # Progress
 
+## 2026-08-08 — Professional operations console and live subsystem telemetry
+
+Status: the desktop control console now shares the Annotation workstation's neutral graphite visual language and exposes real operational telemetry for the application, persistence, object storage, media/DVR pipeline and external AI workflow.
+
+- Replaced the single match table shell with a compact left navigation rail and five focused workspaces: operations overview, match management, system status, media/stream inspection and AI jobs. Match creation, roster editing, source management and Annotation launch remain available in the match workspace.
+- Removed deep-blue dashboard surfaces in favor of near-black and neutral graphite structure. Color is limited to semantic green, amber, red and AI-ready blue states; the responsive rail collapses cleanly on narrower desktop windows.
+- Added the role-restricted `GET /api/v1/operations/summary` REST endpoint for ADMIN/OPERATOR users. It combines PostgreSQL, Redis and MinIO readiness with aggregate Rally, clip, AI, callback, outbox, media-asset and annotation-command metrics without returning command payloads or media data.
+- Added bounded per-capture telemetry for the 24 most recently updated inputs: source/status/health, latest DVR program, playlist revision, live edge, FPS, timebase, epoch count, total/ready/gap segments, indexed frame count and duration. All BIGINT values remain decimal strings on the wire.
+- Added a same-origin monitor client with no-store server semantics, explicit access errors, automatic 10-second refresh and manual refresh. The UI displays loading, disconnected, degraded and empty states without illustrative values.
+- Headed Chromium verified all five workspaces, responsive navigation at 1024 px, the match-creation dialog, live data from four capture sessions and zero console errors. The live snapshot reported PostgreSQL/Redis/MinIO ready, 7,865 media assets and DVR programs at 507/507, 2,088/2,088 and 4/4 ready segments.
+
+Validation passed: Server typecheck and `184/184` tests, Nuxt typecheck, focused operations client `2/2` tests, Impeccable detector with zero findings, live API response and headed Chromium QA. The unrelated in-progress Annotation timeline test remains outside this checkpoint. Docker BuildKit did not emit progress and timed out during the image rebuild; for live QA only, the same locally built server `dist` was copied into the existing healthy server container and restarted successfully.
+
 ## 2026-08-08 — Actual correction submission, AI callback and 12-player identity consolidation
 
 Status: the 30-minute Contract Lab DEMO completed a new operator-driven immutable correction through the real Annotation UI, clip worker, external-provider job endpoint, callback ingest and Coach replay surfaces. The provider remains an explicit deterministic replay of supplied inference data, not an in-repository AI model.

@@ -44,6 +44,7 @@ export default defineNuxtConfig({
   },
   routeRules: {
     '/annotate/**': { ssr: false },
+    '/control/**': { ssr: false },
     '/matches/**': { ssr: false },
   },
   nitro: {

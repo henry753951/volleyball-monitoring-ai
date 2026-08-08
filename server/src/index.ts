@@ -89,7 +89,13 @@ await app.register(mediaPlaybackRoutes({
   resolveSample: createPersistedSampleSnapResolver(db, mediaObjectReader),
 }))
 await app.register(mediaCursorRoutes({ objectReader: mediaObjectReader }))
-await app.register(operationsRoutes(() => collectOperationsSnapshot(db)))
+await app.register(operationsRoutes(
+  () => collectOperationsSnapshot(db),
+  {
+    authenticate: request => authenticateDevelopmentAnnotationRequest(request, db),
+    collectReadiness: () => evaluateReadiness(readinessProbes),
+  },
+))
 await app.register(annotationWebSocketRoutes({
   authenticate: (request) => authenticateDevelopmentAnnotationRequest(request, db),
   ...(annotationPresence ? { presence: annotationPresence } : {}),
