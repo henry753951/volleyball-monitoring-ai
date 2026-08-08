@@ -1,5 +1,19 @@
 # Progress
 
+## 2026-08-08 — Live DVR reconnect authority and YouTube FHD60 gate
+
+Status: implemented and locally validated on `codex/media-live-dvr-fhd60`; GitHub integration is pending.
+
+- Added durable MediaMTX source-online/offline hook events. Offline writes a spool restart marker before best-effort worker notification, while periodic reconciliation remains the source of truth. The hook endpoint now parses a strict bounded event body instead of treating every request as an untyped scan hint.
+- Fixed real MediaMTX fMP4 indexing when the final video frame omits `pkt_duration`: adjacent PTS remains authoritative for every non-tail sample, and the tail uses only the exact video-stream `start_pts + duration_ts`; conflicting evidence fails closed.
+- Decoupled capture epochs from playback discontinuities. Recorder-local PTS resets retain their real PTS in a new epoch without splitting bounded playback; source restart, time-base/timestamp discontinuity and real gaps still increment the discontinuity. Availability ranges may span exactly touching epochs only when the discontinuity is unchanged.
+- Upgraded the uv-managed YouTube relay to strict FHD60 H.264/AAC selection, separate VOD video/audio URL support, real-time pacing and host-independent LF normalization. It no longer silently selects 720p or exposes signed media URLs to the browser.
+- Removed the final coach-side `frame × fps` approximation. Analysis coverage now reads the checksum-bound immutable timing-manifest `frame_map` from the rally bucket and maps first/last AI frames to exact capture times, including VFR clips.
+
+Validation: Media `88/88`, focused Worker `34/34`, Server typecheck and focused timing/MinIO `30/30`. A real two-session MediaMTX reconnect spool produced four fMP4 segments and 478 contiguous canonical frames: recorder files stayed at discontinuity 0, reconnect changed it once to 1. The supplied YouTube VOD produced 1920×1080 H.264 at `60000/1001` with AAC; the supplied live source produced 1920×1080 H.264 at `60/1` with AAC. A second two-session live ingest produced 20 real fMP4 segments and 2,269 contiguous frames, with the persisted restart boundary at segment 10 and no capture-time/frame regression.
+
+Remaining production acceptance outside this checkpoint: a long-duration bounded-memory soak, fault injection against real worker/PostgreSQL/MinIO services and product-level persisted `MediaSource` orchestration for direct upload/YouTube-VOD imports.
+
 ## 2026-08-08 — Media source isolation and frame-exact clip timing
 
 Status: implemented and locally validated on `codex/timeline-pts-alignment`; continuous Live DVR and the new source adapters remain the next media slice.

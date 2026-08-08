@@ -10,7 +10,7 @@ import {
 } from '../src/media/ffprobe'
 
 const validProbe = JSON.stringify({
-  streams: [{ codec_type: 'video', time_base: '1/30' }],
+  streams: [{ codec_type: 'video', time_base: '1/30', start_pts: '9007199254740993', duration_ts: '1' }],
   frames: [
     { media_type: 'video', pts: '9007199254740993', pkt_duration: '1' },
   ],
@@ -268,6 +268,7 @@ describe('runFfprobe', () => {
     })
 
     expect(result.frames).toHaveLength(1)
+    expect(result.streamEndPtsExclusive).toBe(9_007_199_254_740_994n)
     expect(invocation).toEqual({
       executable: 'custom-ffprobe',
       args: [
@@ -276,7 +277,7 @@ describe('runFfprobe', () => {
         '-print_format',
         'json',
         '-show_entries',
-        'stream=codec_type,time_base:frame=media_type,pts,pkt_duration,key_frame',
+        'stream=codec_type,time_base,start_pts,duration_ts:frame=media_type,pts,pkt_duration,key_frame',
         filePath,
       ],
       options: {

@@ -29,7 +29,7 @@ async function runProcess(
   return { code, stderr }
 }
 
-function runHook(path: string, env: NodeJS.ProcessEnv) {
+function runHook(args: string[], env: NodeJS.ProcessEnv) {
   return runProcess(UV, [
     'run',
     '--project',
@@ -37,7 +37,7 @@ function runHook(path: string, env: NodeJS.ProcessEnv) {
     '--frozen',
     'python',
     HOOK_PATH,
-    path,
+    ...args,
   ], env)
 }
 
@@ -68,13 +68,19 @@ describe('MediaMTX completion hook', () => {
     const dockerfile = await readFile(new URL('../../infra/docker/mediamtx.Dockerfile', import.meta.url), 'utf8')
     const hook = await readFile(new URL('../../infra/mediamtx/hook_client.py', import.meta.url), 'utf8')
     const mediamtx = await readFile(new URL('../../infra/mediamtx/mediamtx.yml', import.meta.url), 'utf8')
+    const relay = await readFile(new URL('../../infra/youtube-relay/entrypoint.sh', import.meta.url), 'utf8')
     expect(compose).toContain('dockerfile: infra/docker/mediamtx.Dockerfile')
     expect(compose).toContain('media-spool:/var/lib/volleyball/media-spool:ro')
     expect(compose).toContain('${MEDIA_INDEXER_HOOK_TOKEN:?MEDIA_INDEXER_HOOK_TOKEN is required}')
     expect(compose).not.toContain('4100:4100')
-    expect(mediamtx).toContain('runOnRecordSegmentComplete: python3 /usr/local/bin/media-indexer-hook.py "$MTX_SEGMENT_PATH"')
+    expect(mediamtx).toContain('runOnRecordSegmentComplete: python3 /usr/local/bin/media-indexer-hook.py recording_complete "$MTX_SEGMENT_PATH"')
+    expect(mediamtx).toContain('runOnOffline: python3 /usr/local/bin/media-indexer-hook.py source_offline "$MTX_PATH"')
     expect(dockerfile).toContain('COPY --chmod=0555')
     expect(hook).not.toContain('eval(')
+    expect(relay).toContain('--get-url')
+    expect(relay).toContain('bestvideo[height=1080][fps>=59][fps<=61]')
+    expect(relay).toContain('-re -i')
+    expect(relay).not.toContain('--output -')
   })
 
   it('posts hostile path data without shell evaluation', async () => {
@@ -95,14 +101,14 @@ describe('MediaMTX completion hook', () => {
     const path = `folder name/quote"; & $() 雪.m4s; echo pwned > ${sentinel}`
 
     try {
-      const result = await runHook(path, {
+      const result = await runHook(['recording_complete', path], {
         ...process.env,
         MEDIA_INDEXER_HOOK_URL: `http://127.0.0.1:${port}/internal/media-indexer/recording-complete`,
         MEDIA_INDEXER_HOOK_TOKEN: TOKEN,
       })
       expect(result, result.stderr).toMatchObject({ code: 0 })
       expect(requests).toHaveLength(1)
-      expect(JSON.parse(requests[0]!.body)).toEqual({ path })
+      expect(JSON.parse(requests[0]!.body)).toEqual({ event: 'recording_complete', path })
       expect(requests[0]!.headers.authorization).toBe(`Bearer ${TOKEN}`)
       expect(requests[0]!.headers['content-type']).toBe('application/json')
       await expect(access(sentinel)).rejects.toThrow()
@@ -123,7 +129,7 @@ describe('MediaMTX completion hook', () => {
     })
     const port = await listen(server)
     try {
-      const result = await runHook(path, {
+      const result = await runHook(['recording_complete', path], {
         ...process.env,
         MEDIA_INDEXER_HOOK_URL: `http://127.0.0.1:${port}/internal/media-indexer/recording-complete`,
         MEDIA_INDEXER_HOOK_TOKEN: TOKEN,
@@ -157,12 +163,39 @@ describe('MediaMTX completion hook', () => {
     })
     const port = await listen(server)
     try {
-      const result = await runHook('recordings/cam/final.m4s', {
+      const result = await runHook(['recording_complete', 'recordings/cam/final.m4s'], {
         ...process.env,
         MEDIA_INDEXER_HOOK_URL: `http://127.0.0.1:${port}/internal/media-indexer/recording-complete`,
         MEDIA_INDEXER_HOOK_TOKEN: TOKEN,
       })
       expect(result.code).toBe(1)
+    } finally {
+      await close(server)
+    }
+  })
+
+  it('persists a source restart marker before notifying the indexer', async () => {
+    const requests: string[] = []
+    const server = createServer((request, response) => {
+      let body = ''
+      request.on('data', chunk => { body += String(chunk) })
+      request.on('end', () => { requests.push(body); response.statusCode = 202; response.end() })
+    })
+    const port = await listen(server)
+    const root = await mkdtemp(join(tmpdir(), 'volleyball-restart-marker-'))
+    temporaryDirectories.push(root)
+    try {
+      const result = await runHook(['source_offline', 'match-a/main'], {
+        ...process.env,
+        MEDIA_RECORDING_ROOT: root,
+        MEDIA_INDEXER_HOOK_URL: `http://127.0.0.1:${port}/internal/media-indexer/recording-complete`,
+        MEDIA_INDEXER_HOOK_TOKEN: TOKEN,
+      })
+      expect(result, result.stderr).toMatchObject({ code: 0 })
+      expect(JSON.parse(requests[0]!)).toEqual({ event: 'source_offline', ingest_path: 'match-a/main' })
+      const files = await import('node:fs/promises').then(fs => fs.readdir(join(root, 'match-a', 'main')))
+      expect(files).toHaveLength(1)
+      expect(files[0]).toMatch(/^\.source-restart-\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}-\d{6}\.marker$/)
     } finally {
       await close(server)
     }

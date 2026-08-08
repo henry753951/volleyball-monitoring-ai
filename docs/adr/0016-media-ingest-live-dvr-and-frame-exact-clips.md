@@ -34,6 +34,14 @@ Stopping or deleting a match source ends its capture lifecycle; operations
 queries are authorization- and match-scoped so historical test fixtures cannot
 appear as another match's active input.
 
+MediaMTX recorder files may restart their container-local PTS at every file
+boundary. Each reset opens a new `CaptureEpoch` so source PTS remains truthful,
+but a PTS reset by itself does not create a playback discontinuity. Only an
+observed source restart, explicit timestamp/time-base discontinuity or real gap
+increments the playback discontinuity. Source lifecycle hooks persist an
+offline marker in the recorder spool before best-effort worker notification, so
+periodic reconciliation remains sufficient after worker or network failure.
+
 ### Streaming layer
 
 Keep MediaMTX as the current live ingest/recording implementation. It already
@@ -88,6 +96,8 @@ The internal timing manifest is version `1.1.0` and records both immutable
 source identity and actual clip identity. Public AI Job `1.1.0` remains
 compatible: `key_point_id` identifies the immutable submission anchor and the
 job carries its verified clip mapping. No second timing contract is introduced.
+Coach analysis coverage reads this verified frame map; it does not convert an
+AI frame range with average FPS.
 
 ### Processing and hardware acceleration
 

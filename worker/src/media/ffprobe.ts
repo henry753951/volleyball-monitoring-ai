@@ -175,7 +175,7 @@ export async function runFfprobe(
     '-print_format',
     'json',
     '-show_entries',
-    'stream=codec_type,time_base:frame=media_type,pts,pkt_duration,key_frame',
+    'stream=codec_type,time_base,start_pts,duration_ts:frame=media_type,pts,pkt_duration,key_frame',
     filePath,
   ]
   const runnerOptions: {

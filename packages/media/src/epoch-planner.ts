@@ -328,14 +328,24 @@ function buildSampleIndex(
   }
 }
 
-function nextEpochSequence(current: number): number {
+function nextInt32Sequence(
+  current: number,
+  field: 'capture epoch' | 'discontinuity',
+): number {
   if (current === 2_147_483_647) {
     throw new CaptureEpochPlannerError(
-      'INVALID_CONFIG',
-      'discontinuity sequence exhausted',
+      'INT32_EXHAUSTED',
+      `${field} Int32 sequence exhausted`,
     )
   }
   return current + 1
+}
+
+function opensPlaybackDiscontinuity(
+  reasons: readonly DiscontinuityReason[],
+  gapUs: bigint,
+): boolean {
+  return gapUs > 0n || reasons.some((reason) => reason !== 'PTS_RESET')
 }
 
 /**
@@ -477,10 +487,10 @@ function validatePersistedHead(head: PersistedCaptureHead): void {
   }
   validateInt32Sequence(head.epochSequence, 'epochSequence')
   validateInt32Sequence(head.discontinuity, 'discontinuity')
-  if (head.epochSequence !== head.discontinuity) {
+  if (head.discontinuity > head.epochSequence) {
     throw new CaptureEpochPlannerError(
       'INVALID_PERSISTED_HEAD',
-      'epoch sequence and discontinuity must be coherent',
+      'discontinuity cannot exceed the capture epoch sequence',
     )
   }
   if (head.timeBase.num <= 0n || head.timeBase.den <= 0n) {
@@ -521,19 +531,6 @@ function validatePersistedHead(head: PersistedCaptureHead): void {
       'last segment end is incompatible with the epoch affine origin',
     )
   }
-}
-
-function nextIncrementalSequence(head: PersistedCaptureHead): number {
-  if (
-    head.epochSequence === INT32_MAX ||
-    head.discontinuity === INT32_MAX
-  ) {
-    throw new CaptureEpochPlannerError(
-      'INT32_EXHAUSTED',
-      'capture epoch/discontinuity Int32 sequence exhausted',
-    )
-  }
-  return head.epochSequence + 1
 }
 
 function incrementalSegment(
@@ -650,18 +647,21 @@ export function planNextCaptureSegment(
     return result
   }
 
-  const sequence = nextIncrementalSequence(head)
   const gapUs = reconcileGapCandidates(
     gapCandidates,
     input.config.timestampToleranceUs,
   )
+  const sequence = nextInt32Sequence(head.epochSequence, 'capture epoch')
+  const discontinuity = opensPlaybackDiscontinuity(reasons, gapUs)
+    ? nextInt32Sequence(head.discontinuity, 'discontinuity')
+    : head.discontinuity
   const captureTimeOriginUs = head.lastCaptureEndUs + gapUs
   const captureFrameOrigin = head.lastCaptureFrameIndex + 1n
   const epoch: IncrementalPlannedCaptureEpoch = {
     disposition: 'CREATE_NEXT',
     epochKey: input.newEpochId,
     epochSequence: sequence,
-    discontinuity: sequence,
+    discontinuity,
     timeBase: segment.timeBase,
     sourcePtsOrigin: bounds.firstPts,
     captureTimeOriginUs,
@@ -686,7 +686,7 @@ export function planNextCaptureSegment(
     gap: {
       startUs: head.lastCaptureEndUs,
       endUs: captureTimeOriginUs,
-      discontinuity: sequence,
+      discontinuity,
       reasons,
     },
   }
@@ -896,16 +896,22 @@ export function planCaptureEpochs(
       if (reasons.length === 0) {
         epoch = previousEpoch
       } else {
-        const sequence = nextEpochSequence(previousEpoch.epochSequence)
         const gapUs = reconcileGapCandidates(
           gapCandidates,
           config.timestampToleranceUs,
         )
+        const sequence = nextInt32Sequence(
+          previousEpoch.epochSequence,
+          'capture epoch',
+        )
+        const discontinuity = opensPlaybackDiscontinuity(reasons, gapUs)
+          ? nextInt32Sequence(previousEpoch.discontinuity, 'discontinuity')
+          : previousEpoch.discontinuity
         const captureOriginUs = previousPlan.captureEndUs + gapUs
         epoch = {
           epochKey: epochKey(sequence),
           epochSequence: sequence,
-          discontinuity: sequence,
+          discontinuity,
           sourceIdentity: segment.sourceIdentity,
           timeBase: segment.timeBase,
           sourcePtsOrigin: bounds.firstPts,
@@ -920,7 +926,7 @@ export function planCaptureEpochs(
             endUs: captureOriginUs,
             beforeSegmentIdentity: previousPlan.segmentIdentity,
             afterSegmentIdentity: segment.segmentIdentity,
-            discontinuity: sequence,
+            discontinuity,
             reasons,
           })
         }

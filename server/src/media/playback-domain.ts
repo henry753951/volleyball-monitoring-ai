@@ -50,7 +50,11 @@ export interface SampleSnapResult {
   playerUs: bigint
 }
 
-export type MediaAssetKind = 'DVR_INIT' | 'DVR_SEGMENT' | 'SAMPLE_INDEX'
+export type MediaAssetKind =
+  | 'DVR_INIT'
+  | 'DVR_SEGMENT'
+  | 'SAMPLE_INDEX'
+  | 'TIMING_MANIFEST'
 
 export interface MediaObjectReadRequest {
   bucket: string

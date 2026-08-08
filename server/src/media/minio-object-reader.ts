@@ -63,6 +63,13 @@ const EXPECTED_CONTENT_TYPES: Readonly<Record<MediaAssetKind, string>> = {
   DVR_INIT: 'video/mp4',
   DVR_SEGMENT: 'video/mp4',
   SAMPLE_INDEX: 'application/json',
+  TIMING_MANIFEST: 'application/json',
+}
+const EXPECTED_SCHEMA_VERSIONS: Readonly<Record<MediaAssetKind, string>> = {
+  DVR_INIT: '1.0.0',
+  DVR_SEGMENT: '1.0.0',
+  SAMPLE_INDEX: '1.0.0',
+  TIMING_MANIFEST: '1.1.0',
 }
 
 const defaultClientFactory: MinioObjectClientFactory = (options) => {
@@ -200,7 +207,8 @@ function validateRequest(
     || request.expectedByteLength > BigInt(maxObjectBytes)
     || request.expectedByteLength > BigInt(Number.MAX_SAFE_INTEGER)
     || !SHA256.test(request.expectedSha256)
-    || request.expectedInternalSchemaVersion !== '1.0.0'
+    || EXPECTED_SCHEMA_VERSIONS[request.expectedKind]
+      !== request.expectedInternalSchemaVersion
     || EXPECTED_CONTENT_TYPES[request.expectedKind] !== request.expectedContentType
   ) {
     throw new MinioObjectReaderError(
@@ -383,12 +391,13 @@ function optionalPositiveInteger(value: string | undefined): number | undefined 
 
 export function createMinioObjectReaderFromEnv(
   environment: NodeJS.ProcessEnv = process.env,
+  bucketVariable: 'MINIO_DVR_BUCKET' | 'MINIO_RALLY_BUCKET' = 'MINIO_DVR_BUCKET',
 ): MediaObjectReader | undefined {
   const required = [
     environment.MINIO_ENDPOINT,
     environment.MINIO_ACCESS_KEY,
     environment.MINIO_SECRET_KEY,
-    environment.MINIO_DVR_BUCKET,
+    environment[bucketVariable],
   ]
   if (required.every((value) => value === undefined)) return undefined
   if (required.some((value) => value === undefined)) {
@@ -402,7 +411,7 @@ export function createMinioObjectReaderFromEnv(
   )
   return createMinioObjectReader({
     accessKey: environment.MINIO_ACCESS_KEY ?? '',
-    bucket: environment.MINIO_DVR_BUCKET ?? '',
+    bucket: environment[bucketVariable] ?? '',
     endpoint: environment.MINIO_ENDPOINT ?? '',
     ...(maxObjectBytes === undefined ? {} : { maxObjectBytes }),
     ...(operationTimeoutMs === undefined ? {} : { operationTimeoutMs }),

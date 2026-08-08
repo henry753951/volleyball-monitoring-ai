@@ -35,6 +35,7 @@ const POSITIVE_DECIMAL = /^[1-9][0-9]*$/
 export type ProbeResult = {
   frames: FfprobeFrame[]
   timeBase: Rational
+  streamEndPtsExclusive?: bigint
 }
 
 export type IngestArtifactSource = {
@@ -64,7 +65,7 @@ export type HandlerDeps = {
   ) => Promise<DvrProgramProfile>
 }
 
-export function probeSamples(frames: readonly FfprobeFrame[]) {
+export function probeSamples(frames: readonly FfprobeFrame[], streamEndPtsExclusive?: bigint) {
   const videoFrames = frames.filter((frame) => frame.media_type === 'video')
   if (videoFrames.length === 0) throw new Error('Finalized media has no video samples.')
   const normalized = videoFrames.map((frame) => {
@@ -85,14 +86,16 @@ export function probeSamples(frames: readonly FfprobeFrame[]) {
   })
   return normalized.map((frame, index) => {
     const next = normalized[index + 1]
-    if (!next && (
-      frame.packetDuration === undefined
-      || !POSITIVE_DECIMAL.test(frame.packetDuration)
-    )) throw new Error('Finalized media sample timing is invalid.')
+    const packetDuration = frame.packetDuration !== undefined && POSITIVE_DECIMAL.test(frame.packetDuration)
+      ? BigInt(frame.packetDuration)
+      : null
     const durationPts = next
       ? next.sourcePts - frame.sourcePts
-      : BigInt(frame.packetDuration!)
+      : packetDuration ?? (streamEndPtsExclusive === undefined ? 0n : streamEndPtsExclusive - frame.sourcePts)
     if (durationPts <= 0n) throw new Error('Finalized media sample timing is invalid.')
+    if (!next && packetDuration !== null && streamEndPtsExclusive !== undefined && frame.sourcePts + packetDuration !== streamEndPtsExclusive) {
+      throw new Error('Finalized media sample timing is invalid.')
+    }
     return {
       sourcePts: frame.sourcePts,
       durationPts,
@@ -157,7 +160,7 @@ export async function ingestEnvelope(
     recording.trustedPath,
     signal ? { signal } : {},
   )
-  const samples = probeSamples(probeResult.frames)
+  const samples = probeSamples(probeResult.frames, probeResult.streamEndPtsExclusive)
   const source = await deps.source.read(
     recording,
     signal ? { signal } : {},

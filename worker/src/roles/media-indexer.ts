@@ -8,6 +8,7 @@ import {
 import {
   MEDIA_INDEXER_HOOK_PATH,
   MEDIA_INGEST_QUEUE,
+  MediaIndexerHookEvent,
   MediaIngestEnvelope,
   constantTimeToken,
   enqueueUnique,
@@ -26,6 +27,7 @@ export {
   epochCandidateId,
   scanSpool,
   sourceOrderFromCandidate,
+  sourceOrderFromRestartMarker,
 } from '../media/indexer-runtime.js'
 
 const RETENTION_SECONDS = 1_209_600
@@ -311,25 +313,36 @@ export class MediaIndexerRuntime {
       return
     }
 
-    const accepted = await new Promise<boolean>((resolve) => {
+    const body = await new Promise<Buffer | null>((resolve) => {
       let bytes = 0
       let settled = false
-      const settle = (value: boolean) => {
+      const chunks: Buffer[] = []
+      const settle = (value: Buffer | null) => {
         if (settled) return
         settled = true
         resolve(value)
       }
       request.on('data', (chunk) => {
-        bytes += Buffer.byteLength(chunk)
-        if (bytes > 16_384) settle(false)
+        const value = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)
+        bytes += value.byteLength
+        if (bytes > 16_384) settle(null)
+        else chunks.push(value)
       })
-      request.once('end', () => settle(bytes <= 16_384))
-      request.once('aborted', () => settle(false))
-      request.once('error', () => settle(false))
+      request.once('end', () => settle(bytes <= 16_384 ? Buffer.concat(chunks) : null))
+      request.once('aborted', () => settle(null))
+      request.once('error', () => settle(null))
     })
-    if (!accepted) {
+    if (!body) {
       response.statusCode = 413
       response.end('payload too large')
+      return
+    }
+
+    try {
+      MediaIndexerHookEvent.parse(JSON.parse(body.toString('utf8')))
+    } catch {
+      response.statusCode = 400
+      response.end('invalid hook event')
       return
     }
 

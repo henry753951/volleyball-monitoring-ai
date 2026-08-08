@@ -233,7 +233,8 @@ services:
       dockerfile: infra/docker/youtube-relay.Dockerfile
     environment:
       YOUTUBE_SOURCE_URL: ${YOUTUBE_SOURCE_URL:-}
-      YOUTUBE_FORMAT: ${YOUTUBE_FORMAT:-best[ext=mp4][height<=720][acodec!=none][vcodec!=none]/best[height<=720]}
+      YOUTUBE_FORMAT: ${YOUTUBE_FORMAT:-best[protocol*=m3u8][height=1080][fps>=59][fps<=61][vcodec^=avc][acodec!=none]/bestvideo[height=1080][fps>=59][fps<=61][vcodec^=avc]+bestaudio[acodec^=mp4a]}
+      YOUTUBE_EXTRACTOR_ARGS: ${YOUTUBE_EXTRACTOR_ARGS:-youtube:player_client=android_vr}
       MEDIA_INGEST_URL: rtmp://mediamtx:1935/${YOUTUBE_INGEST_PATH:-youtube/live}
     depends_on: [mediamtx]
     networks: [internal, development]
