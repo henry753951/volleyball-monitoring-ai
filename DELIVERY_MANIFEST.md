@@ -1,6 +1,6 @@
 # volleyball-monitoring-ai v3.2 delivery manifest
 
-This archive is a contract-first implementation starter, not a finished application and not an AI-model repository.
+This repository is a contract-first monitoring application with working local vertical slices. It is not an AI-model repository.
 
 ## Start here
 
@@ -29,13 +29,13 @@ This archive is a contract-first implementation starter, not a finished applicat
 - GitHub-installable Python SDK: `sdk/`
 - Media/job worker scaffold: `worker/`
 - Local Docker Compose, Traefik, MediaMTX and MinIO baseline: `infra/`
-- Fake AI provider for integration development: `examples/fake_ai_provider/`
+- Recorded Contract Lab tracking provider for deterministic integration development: `examples/tracking_replay_provider/`
 
 ## Product invariants
 
-- Annotation command semantics are fixed: Z creates service, Space creates contact, and `<`/`>`/`?` each send one `CLOSE_RALLY` that terminalizes the server-confirmed last key point and stores the rally-level resolved-left/resolved-right/unknown outcome without a new timestamp or score event; Enter creates the immutable submission. Z, Space, `<`, `>`, `?` and Enter are the remappable defaults with conflict detection and Restore Defaults. Six touch actions remain, with no standalone end-rally control.
+- Annotation command semantics are fixed: Z creates service, X creates contact, Space toggles playback, and `<`/`>`/`?` each send one `CLOSE_RALLY` that terminalizes the server-confirmed last key point and stores the rally-level resolved-left/resolved-right/unknown outcome without a new timestamp or score event; Enter creates the immutable submission. Z, X, Space, `<`, `>`, `?` and Enter are the remappable keyboard defaults with conflict detection and Restore Defaults. The compact touch strip exposes Z, X, `<`, `>`, `?` and shortcut settings, with no standalone end-rally control.
 - Gray mask is editable/unsubmitted. Green mask means submitted, not AI completed.
 - Server stores the full DVR. The iPad PWA lazy-loads bounded playback windows.
 - Browser playback time is observational. The backend resolves authoritative source time/PTS/frame.
 - External AI owns all court projection and normalization. Central/frontend consume `court_pos` without projecting or clamping it.
-- This repository implements only AI interfaces and the Python SDK, not AI models.
+- This repository implements AI interfaces, the Python SDK and a provenance-labelled replay of saved external inference output, not AI models.

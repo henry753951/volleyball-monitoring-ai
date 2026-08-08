@@ -131,6 +131,7 @@ MatchSetType.implement({
     id: t.exposeID('id'),
     leftScore: t.exposeInt('leftScore'),
     rightScore: t.exposeInt('rightScore'),
+    winningTeamId: t.exposeID('winningTeamId', { nullable: true }),
     setNumber: t.exposeInt('setNumber'),
     sideAssignments: t.field({
       type: [CourtSideAssignmentType],
@@ -201,12 +202,14 @@ export const CaptureSessionType = builder.objectRef<CaptureSessionView>('Capture
 MatchType.implement({
   fields: (t) => ({
     id: t.exposeID('id'),
+    clipPostRollUs: t.field({ type: 'BigInt', resolve: match => match.clipPostRollUs }),
+    clipPreRollUs: t.field({ type: 'BigInt', resolve: match => match.clipPreRollUs }),
     captureSessions: t.field({ type: [CaptureSessionType], resolve: (match) => listCaptureSessionsForMatch(match.id) }),
     rosterEntries: t.field({
       type: [MatchRosterEntryType],
       resolve: (match) => db.matchRosterEntry.findMany({
         orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
-        where: { matchId: match.id },
+        where: { active: true, matchId: match.id },
       }),
     }),
     scheduledAt: t.field({

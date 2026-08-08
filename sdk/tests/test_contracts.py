@@ -7,7 +7,7 @@ from volleyball_monitoring_ai import (
     AIJobRequest, AnalysisResult, ProviderCapabilities, validate_passthrough,
     PlaybackWindowRequest, PlaybackWindowDescriptor, PlaybackCursor,
     ResolvedMediaAnchor, FrameStepRequest, CanonicalFrameAnchor, MediaApiError,
-    build_empty_overlay,
+    build_empty_overlay, build_tracking_overlay,
 )
 
 FIXTURES = Path(__file__).parents[2] / "packages" / "contracts" / "fixtures"
@@ -55,6 +55,34 @@ def test_empty_provider_overlay_uses_real_vov1_table() -> None:
     overlay = build_empty_overlay(job, analysis_id="fixture-analysis", analysis_version="fixture-v1")
     assert overlay[4:8] == b"VOV1"
     assert len(overlay) > int(job.clip.video.total_frames) * 6
+
+
+def test_tracking_overlay_preserves_unclamped_court_positions() -> None:
+    job = AIJobRequest.model_validate_json((FIXTURES / "normal-rally" / "job.json").read_text())
+    overlay = build_tracking_overlay(
+        job,
+        analysis_id="tracking-analysis",
+        analysis_version="tracking-replay-v1",
+        frame_records=[{
+            "frame_index": 0,
+            "players": [
+                {
+                    "track_id": 7,
+                    "frame_bbox": {"x1": 0.1, "y1": 0.2, "x2": 0.3, "y2": 0.4},
+                    "frame_foot_pos": {"x": 0.2, "y": 0.4},
+                    "court_pos": {"x": 1.25, "y": -0.15},
+                },
+                {
+                    "track_id": 8,
+                    "frame_bbox": {"x1": 0.5, "y1": 0.2, "x2": 0.7, "y2": 0.4},
+                    "frame_foot_pos": {"x": 0.6, "y": 0.4},
+                    "court_pos": None,
+                },
+            ],
+        }],
+        ball_positions={0: {"x": 0.5, "y": 0.5}},
+    )
+    assert overlay[4:8] == b"VOV1"
 
 
 def test_non_monotonic_key_points_are_rejected() -> None:

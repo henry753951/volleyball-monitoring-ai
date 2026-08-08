@@ -1,3 +1,0 @@
-query SavedAnalysisViews($matchId: ID!) {
-  savedAnalysisViews(matchId: $matchId)
-}

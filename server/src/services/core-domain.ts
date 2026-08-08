@@ -35,6 +35,27 @@ export interface SwapCourtSidesInput {
   setId: string
 }
 
+export interface RosterEditInput extends RosterSetupInput {
+  id?: string | null | undefined
+}
+
+export interface UpdateMatchRosterInput {
+  matchId: string
+  roster: readonly RosterEditInput[]
+  teamId: string
+}
+
+export interface UpdateMatchClipPolicyInput {
+  matchId: string
+  preRollSeconds: number
+  postRollSeconds: number
+}
+
+export interface StartNextSetInput {
+  matchId: string
+  winningTeamId: string
+}
+
 interface NormalizedRosterSetup {
   jerseyNumber: string
   name: string
@@ -230,6 +251,162 @@ function operatorSetWhere(actor: AuthenticatedUser, setId: string): Prisma.Match
       },
     },
   }
+}
+
+function clipSecondsToUs(value: number, field: string): bigint {
+  if (!Number.isInteger(value) || value < 0 || value > 30) {
+    domainError(`${field} must be an integer between 0 and 30`, 'BAD_USER_INPUT')
+  }
+  return BigInt(value) * 1_000_000n
+}
+
+export async function updateMatchClipPolicy(
+  actor: AuthenticatedUser,
+  input: UpdateMatchClipPolicyInput,
+): Promise<Match> {
+  requireSetupRole(actor)
+  const matchId = requireUuid(input.matchId, 'matchId')
+  const clipPreRollUs = clipSecondsToUs(input.preRollSeconds, 'preRollSeconds')
+  const clipPostRollUs = clipSecondsToUs(input.postRollSeconds, 'postRollSeconds')
+  const updated = await db.match.updateMany({
+    data: { clipPreRollUs, clipPostRollUs },
+    where: {
+      id: matchId,
+      ...(actor.role === UserRole.ADMIN
+        ? {}
+        : { members: { some: { role: UserRole.OPERATOR, userId: actor.id } } }),
+    },
+  })
+  if (updated.count !== 1) domainError('Match not found', 'NOT_FOUND')
+  return db.match.findUniqueOrThrow({ where: { id: matchId } })
+}
+
+export async function startNextSet(
+  actor: AuthenticatedUser,
+  input: StartNextSetInput,
+): Promise<MatchSet> {
+  requireSetupRole(actor)
+  const matchId = requireUuid(input.matchId, 'matchId')
+  const winningTeamId = requireUuid(input.winningTeamId, 'winningTeamId')
+  return db.$transaction(async (tx) => {
+    await tx.$queryRaw<Array<{ locked: string }>>`
+      SELECT pg_advisory_xact_lock(hashtextextended(${`match-set:${matchId}`}, 0))::text AS locked
+    `
+    const match = await tx.match.findFirst({
+      where: {
+        id: matchId,
+        matchTeams: { some: { teamId: winningTeamId } },
+        ...(actor.role === UserRole.ADMIN
+          ? {}
+          : { members: { some: { role: UserRole.OPERATOR, userId: actor.id } } }),
+      },
+    })
+    if (!match) domainError('Match team not found', 'NOT_FOUND')
+    const current = await tx.matchSet.findFirst({
+      orderBy: [{ setNumber: 'desc' }, { id: 'desc' }],
+      where: { matchId, status: { in: ['LIVE', 'PLANNED'] } },
+      include: { sideAssignments: { orderBy: { effectiveFromRallyOrdinal: 'desc' }, take: 1 } },
+    })
+    if (!current) domainError('Current set not found', 'NOT_FOUND')
+    const openDraft = await tx.rally.findFirst({
+      select: { id: true },
+      where: { setId: current.id, voidedAt: null, annotationStatus: { in: ['OPEN', 'READY'] } },
+    })
+    if (openDraft) domainError('Finish or discard the editable segment before starting a new set', 'BAD_USER_INPUT')
+    const assignment = current.sideAssignments[0]
+    if (!assignment) domainError('Current set has no court-side assignment', 'INTERNAL_SERVER_ERROR')
+    await tx.matchSet.update({
+      data: { endedAt: new Date(), status: 'FINISHED', winningTeamId },
+      where: { id: current.id },
+    })
+    const next = await tx.matchSet.create({
+      data: { matchId, setNumber: current.setNumber + 1, status: 'LIVE', startedAt: new Date() },
+    })
+    await tx.courtSideAssignment.create({
+      data: {
+        effectiveFromRallyOrdinal: 1,
+        leftTeamId: assignment.leftTeamId,
+        rightTeamId: assignment.rightTeamId,
+        setId: next.id,
+      },
+    })
+    return next
+  })
+}
+
+export async function updateMatchRoster(
+  actor: AuthenticatedUser,
+  input: UpdateMatchRosterInput,
+): Promise<Match> {
+  requireSetupRole(actor)
+  const matchId = requireUuid(input.matchId, 'matchId')
+  const teamId = requireUuid(input.teamId, 'teamId')
+  const normalized = normalizeTeam({ name: 'roster', shortName: 'roster', roster: input.roster }, 'roster').roster
+
+  return db.$transaction(async (tx) => {
+    await tx.$queryRaw<Array<{ locked: string }>>`
+      SELECT pg_advisory_xact_lock(hashtextextended(${`match-roster:${matchId}:${teamId}`}, 0))::text AS locked
+    `
+    const match = await tx.match.findFirst({
+      where: {
+        id: matchId,
+        matchTeams: { some: { teamId } },
+        ...(actor.role === UserRole.ADMIN
+          ? {}
+          : { members: { some: { role: UserRole.OPERATOR, userId: actor.id } } }),
+      },
+    })
+    if (!match) domainError('Match team not found', 'NOT_FOUND')
+
+    const existing = await tx.matchRosterEntry.findMany({ where: { matchId, teamId } })
+    const byId = new Map(existing.map(entry => [entry.id, entry]))
+    const requestedIds = new Set<string>()
+    for (const [index, row] of input.roster.entries()) {
+      if (!row.id) continue
+      const id = requireUuid(row.id, `roster[${index}].id`)
+      if (!byId.has(id)) domainError('Roster entry does not belong to this match team', 'BAD_USER_INPUT')
+      if (requestedIds.has(id)) domainError('Roster contains duplicate entry IDs', 'BAD_USER_INPUT')
+      requestedIds.add(id)
+    }
+
+    // The database enforces jersey uniqueness only for active rows. Temporarily
+    // deactivate the current team so jersey swaps stay atomic while historical
+    // roster snapshots and identity assignments retain their original values.
+    for (const entry of existing) {
+      await tx.matchRosterEntry.update({
+        data: { active: false },
+        where: { id: entry.id },
+      })
+    }
+
+    for (const [index, row] of normalized.entries()) {
+      const requested = input.roster[index]
+      const existingEntry = requested?.id ? byId.get(requested.id) : undefined
+      if (existingEntry) {
+        await tx.matchRosterEntry.update({
+          data: { active: true, displayNameSnapshot: row.name, jerseyNumber: row.jerseyNumber },
+          where: { id: existingEntry.id },
+        })
+        if (existingEntry.playerId) {
+          await tx.player.update({ data: { name: row.name }, where: { id: existingEntry.playerId } })
+        }
+        continue
+      }
+
+      const player = await tx.player.create({ data: { name: row.name, teamId } })
+      await tx.matchRosterEntry.create({
+        data: {
+          active: true,
+          displayNameSnapshot: row.name,
+          jerseyNumber: row.jerseyNumber,
+          matchId,
+          playerId: player.id,
+          teamId,
+        },
+      })
+    }
+    return match
+  })
 }
 
 export async function swapCourtSides(

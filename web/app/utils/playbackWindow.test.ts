@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { captureTimeToPlayerSeconds, isCaptureTimeWithinWindow } from './playbackWindow'
+import { captureTimeToPlayerSeconds, isCaptureTimeWithinWindow, isPlayerMediaTimeWithinWindow } from './playbackWindow'
 
 const descriptor = {
   window_capture_start_us: '9007199254740000',
@@ -21,5 +21,11 @@ describe('bounded playback window helpers', () => {
 
   it('keeps large canonical values exact while converting only the local delta', () => {
     expect(captureTimeToPlayerSeconds('9007199254742100', descriptor)).toBe(0.002)
+  })
+
+  it('rejects player observations after the bounded window without converting canonical values to Number', () => {
+    expect(isPlayerMediaTimeWithinWindow('4900', descriptor)).toBe(true)
+    expect(isPlayerMediaTimeWithinWindow('4901', descriptor)).toBe(false)
+    expect(isPlayerMediaTimeWithinWindow('-1', descriptor)).toBe(false)
   })
 })

@@ -28,6 +28,9 @@ const SNAPSHOT_QUERY = `query AnnotationRally($roomId: String!, $rallyId: ID!) {
 const CREATE_CORRECTION_DRAFT = `mutation CreateCorrectionDraft($submissionId: ID!) {
   createCorrectionDraft(submissionId: $submissionId) { id }
 }`
+const CANCEL_CORRECTION_DRAFT = `mutation CancelCorrectionDraft($rallyId: ID!) {
+  cancelCorrectionDraft(rallyId: $rallyId) { id }
+}`
 
 function asSnapshot(value: unknown): AnnotationRallySnapshot | null {
   if (value === null) return null
@@ -58,6 +61,7 @@ export function useAnnotationRoom() {
   const outbox = shallowRef<AnnotationOutboxEntry[]>([])
   const presence = shallowRef<AnnotationPresenceSnapshot['members']>([])
   const transport = createGraphQLTransport('/graphql')
+  const { annotationWsUrl } = usePublicEndpoints()
   let realtime: AnnotationRealtimeClient | null = null
   let refreshTimer: ReturnType<typeof setInterval> | null = null
   let flushPromise: Promise<void> | null = null
@@ -141,7 +145,7 @@ export function useAnnotationRoom() {
 
   function commandMatchesCurrentRevision(command: AnnotationCommand) {
     const current = snapshot.value
-    if (command.kind === 'CREATE_SERVICE_KEY_POINT') return !current || ['SUBMITTED', 'VOIDED'].includes(state.value)
+    if (command.kind === 'CREATE_SERVICE_KEY_POINT') return !current || ['READY', 'SUBMITTED', 'VOIDED'].includes(state.value)
     return Boolean(current && current.rally_id === command.rally_id && current.revision === command.base_revision)
   }
 
@@ -201,8 +205,9 @@ export function useAnnotationRoom() {
         }
         if (message.type === 'rally_snapshot') acceptSnapshot(message)
         if (message.type === 'presence_snapshot') presence.value = message.members
+        if (message.type === 'command_ack') void refreshActive()
       },
-    })
+    }, annotationWsUrl.value)
     realtime.connect()
     void refreshActive()
     refreshTimer = setInterval(() => { void refreshActive() }, 2_000)
@@ -310,10 +315,10 @@ export function useAnnotationRoom() {
     }
   }
 
-  async function createCorrection() {
-    const submissionId = snapshot.value?.snapshot.active_submission_id
-    if (!submissionId) throw new Error('目前沒有可修正的 immutable submission')
-    if (state.value !== 'SUBMITTED') throw new Error('目前已經有修正草稿')
+  async function createCorrection(targetSubmissionId?: string) {
+    const submissionId = targetSubmissionId ?? snapshot.value?.snapshot.active_submission_id
+    if (!submissionId) throw new Error('目前沒有可修正的已送出片段')
+    if (!targetSubmissionId && (state.value === 'OPEN' || state.value === 'READY')) throw new Error('請先完成目前的標記片段')
     busy.value = true
     error.value = null
     try {
@@ -324,6 +329,26 @@ export function useAnnotationRoom() {
     }
     catch (cause) {
       error.value = cause instanceof Error ? cause.message : '無法建立修正草稿'
+      throw cause
+    }
+    finally {
+      busy.value = false
+    }
+  }
+
+  async function cancelCorrection() {
+    const rallyId = snapshot.value?.rally_id
+    if (!rallyId || !snapshot.value?.snapshot.active_submission_id || !['OPEN', 'READY'].includes(state.value)) {
+      throw new Error('目前沒有可取消的修正版')
+    }
+    busy.value = true
+    error.value = null
+    try {
+      await transport.request<{ cancelCorrectionDraft: { id: string } }>(CANCEL_CORRECTION_DRAFT, { rallyId })
+      return await fetchSnapshot(rallyId)
+    }
+    catch (cause) {
+      error.value = cause instanceof Error ? cause.message : '無法取消修正版'
       throw cause
     }
     finally {
@@ -345,6 +370,7 @@ export function useAnnotationRoom() {
     busy: readonly(busy),
     connection: readonly(connection),
     connect,
+    cancelCorrection,
     createCorrection,
     dispatch,
     edit,
@@ -355,6 +381,7 @@ export function useAnnotationRoom() {
     pendingCount,
     presence: shallowReadonly(presence),
     remoteEditorsByKeyPoint,
+    selectRally: fetchSnapshot,
     setEditingKeyPoint,
     discardPending,
     refreshActive,

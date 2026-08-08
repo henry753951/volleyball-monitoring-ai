@@ -39,9 +39,9 @@ ADRs continue to win whenever the projects differ.
 
 ## Adapt
 
-- Render the six annotation actions from the shared command registry. Use Z for
-  service, Space for contact, `<`, `>` and `?` for atomic close/outcome, and
-  Enter for immutable submission.
+- Render the compact bottom deck from the shared command registry. Use Z for
+  service, X for contact, `<`, `>` and `?` for atomic close/outcome, and keep
+  Enter submission plus Space playback/pause available through the keyboard registry.
 - Replace browser-time marking with the existing bounded playback-window,
   cursor-observation and authoritative server resolution flow.
 - Replace local draft/session persistence with room snapshots, committed ACKs,
@@ -54,7 +54,7 @@ ADRs continue to win whenever the projects differ.
 
 ## Reject
 
-- Space as playback, X as contact or any X/standalone rally-end workflow.
+- Any X/standalone rally-end workflow; X is contact only and Space is playback/pause only.
 - A new score timestamp, score event or score frame. Rally score is an outcome
   stored while terminalizing the current server-confirmed last key point.
 - Client `currentTime * fps`, requestVideoFrameCallback output or a locally

@@ -26,20 +26,25 @@ describe('annotation hotkey registry', () => {
       'submit',
     ])
     expect(MEDIA_COMMANDS.map(({ action }) => action)).toEqual([
+      'play_pause',
       'frame_previous',
       'frame_next',
+      'key_point_previous',
+      'key_point_next',
     ])
     expect(DEFAULT_HOTKEY_BINDINGS).toEqual({
       service: 'Z',
-      contact: 'Space',
+      contact: 'X',
       close_left: '<',
       close_right: '>',
       close_unknown: '?',
       submit: 'Enter',
+      play_pause: 'Space',
       frame_previous: 'ArrowLeft',
       frame_next: 'ArrowRight',
+      key_point_previous: 'A',
+      key_point_next: 'D',
     })
-    expect(Object.values(DEFAULT_HOTKEY_BINDINGS)).not.toContain('X')
   })
 
   it('remaps one command and disables the previous physical binding', () => {
@@ -52,7 +57,7 @@ describe('annotation hotkey registry', () => {
     expect(commandForBinding('Z', rebound.bindings)).toBeNull()
   })
 
-  it('restores all eight defaults atomically, including media arrows', () => {
+  it('restores all eleven defaults atomically, including playback and key-point navigation', () => {
     const edited = { ...restoreDefaultHotkeys(), service: 'S', frame_previous: 'J' }
     expect(edited).not.toEqual(DEFAULT_HOTKEY_BINDINGS)
     expect(restoreDefaultHotkeys()).toEqual(DEFAULT_HOTKEY_BINDINGS)
@@ -80,7 +85,7 @@ describe('annotation hotkey registry', () => {
     expect(rebindHotkey(defaults, 'service', 'Space')).toMatchObject({
       ok: false,
       reason: 'conflict',
-      conflictWith: 'contact',
+      conflictWith: 'play_pause',
       bindings: defaults,
     })
     expect(rebindHotkey(defaults, 'service', 'Control+L')).toMatchObject({
@@ -98,7 +103,7 @@ describe('annotation hotkey registry', () => {
 })
 
 describe('hotkey preference persistence', () => {
-  it('round-trips the versioned v3 envelope', () => {
+  it('round-trips the versioned v4 envelope', () => {
     const bindings = { ...restoreDefaultHotkeys(), service: 'S' }
     expect(parseStoredHotkeyPreferences(serializeHotkeyPreferences(bindings))).toEqual({
       version: HOTKEY_PREFERENCES_VERSION,
@@ -119,16 +124,30 @@ describe('hotkey preference persistence', () => {
       version: HOTKEY_PREFERENCES_VERSION,
       bindings: {
         ...legacy,
+        play_pause: 'Space',
         frame_previous: 'ArrowLeft',
         frame_next: 'ArrowRight',
+        key_point_previous: 'PageUp',
+        key_point_next: 'PageDown',
       },
     })
     expect(parseStoredHotkeyPreferences(JSON.stringify({ version: 2, bindings: legacy })))
       .toEqual(parseStoredHotkeyPreferences(JSON.stringify(legacy)))
   })
 
+  it('migrates v3 Space-as-contact preferences to X contact and Space playback', () => {
+    const previous = {
+      version: 3,
+      bindings: {
+        service: 'Z', contact: 'Space', close_left: '<', close_right: '>', close_unknown: '?', submit: 'Enter',
+        frame_previous: 'ArrowLeft', frame_next: 'ArrowRight',
+      },
+    }
+    expect(parseStoredHotkeyPreferences(JSON.stringify(previous))?.bindings).toEqual(DEFAULT_HOTKEY_BINDINGS)
+  })
+
   it('accepts swapped bindings and rejects corrupt, duplicate or reserved stored records', () => {
-    const swapped = { ...restoreDefaultHotkeys(), service: 'Space', contact: 'Z' }
+    const swapped = { ...restoreDefaultHotkeys(), service: 'X', contact: 'Z' }
     expect(parseStoredHotkeyPreferences(serializeHotkeyPreferences(swapped))?.bindings).toEqual(swapped)
 
     const duplicate = { ...restoreDefaultHotkeys(), service: 'Space' }

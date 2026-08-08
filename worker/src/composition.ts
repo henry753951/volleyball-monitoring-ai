@@ -43,8 +43,8 @@ export function createMediaIndexerLifecycle(ports: MediaIndexerLifecyclePorts) {
       } catch (startError) {
         state = 'stopped'
         const cleanupErrors = await runCleanup([
-          ...(queueStarted ? [ports.queue.stop] : []),
-          ports.disconnect,
+          ...(queueStarted ? [() => ports.queue.stop()] : []),
+          () => ports.disconnect(),
         ])
         queueStarted = false
         if (cleanupErrors.length > 0) {
@@ -62,9 +62,9 @@ export function createMediaIndexerLifecycle(ports: MediaIndexerLifecyclePorts) {
       const scannerStarted = state === 'started'
       state = 'stopped'
       const cleanupErrors = await runCleanup([
-        ...(scannerStarted ? [ports.scanner.stop] : []),
-        ...(queueStarted ? [ports.queue.stop] : []),
-        ports.disconnect,
+        ...(scannerStarted ? [() => ports.scanner.stop()] : []),
+        ...(queueStarted ? [() => ports.queue.stop()] : []),
+        () => ports.disconnect(),
       ])
       queueStarted = false
       if (cleanupErrors.length > 0) {

@@ -117,6 +117,8 @@ services:
       context: ..
       dockerfile: infra/docker/server.Dockerfile
     env_file: ../.env
+    ports:
+      - "${SERVER_DEV_BIND:-0.0.0.0}:${SERVER_DEV_PORT:-4000}:4000"
     depends_on: [postgres, redis, minio-init, mediamtx]
     healthcheck:
       test: ["CMD", "bun", "-e", "const response = await fetch('http://localhost:4000/health/ready'); if (!response.ok) process.exit(1)"]
@@ -206,11 +208,15 @@ services:
     networks: [edge]
     restart: unless-stopped
 
-  fake-ai-provider:
+  tracking-replay-provider:
     profiles: [dev-ai]
     build:
       context: ..
-      dockerfile: infra/docker/fake-ai-provider.Dockerfile
+      dockerfile: infra/docker/tracking-replay-provider.Dockerfile
+    environment:
+      CONTRACT_LAB_HANDOFF_ROOT: /data/contract-lab-handoff
+    volumes:
+      - ${CONTRACT_LAB_HANDOFF_PATH:-../../volleyball-ai-contract-lab/ai-team-handoff}:/data/contract-lab-handoff:ro
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/v1/capabilities', timeout=2)"]
       interval: 5s

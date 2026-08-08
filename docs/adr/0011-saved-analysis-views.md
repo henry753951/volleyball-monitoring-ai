@@ -1,6 +1,6 @@
 # ADR 0011: Versioned per-user Saved Analysis Views
 
-Status: Accepted — 2026-08-07
+Status: Superseded by ADR 0015 — 2026-08-08
 
 Saved Analysis Views persist only a named, per-user configuration for an authorized match. The additive GraphQL contract exposes `savedAnalysisViews(matchId)` and `saveAnalysisView(matchId, name, filters, layout)` as versioned JSON read models, with matching stored operation fixtures and a Nuxt consumer. This does not change the REST, media, AI callback or Python SDK boundaries; the Python SDK remains limited to the external AI/media wire contracts and is not a Coach GraphQL consumer.
 

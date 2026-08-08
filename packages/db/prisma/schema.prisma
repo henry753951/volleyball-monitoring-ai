@@ -191,21 +191,21 @@ enum OutboxStatus {
 }
 
 model User {
-  id                   String                     @id @default(uuid()) @db.Uuid
-  email                String                     @unique
-  displayName          String
-  createdAt            DateTime                   @default(now())
-  updatedAt            DateTime                   @updatedAt
-  memberships          MatchMember[]
-  deviceSessions       DeviceSession[]
-  createdKeyPoints     KeyPoint[]                 @relation("KeyPointCreatedBy")
-  updatedKeyPoints     KeyPoint[]                 @relation("KeyPointUpdatedBy")
-  annotationOperations AnnotationOperation[]
-  annotationReceipts   AnnotationCommandReceipt[]
-  submittedRevisions   RallySubmission[]          @relation("SubmissionSubmittedBy")
-  identityAssignments  TrackIdentityAssignment[]
-  savedViews           SavedAnalysisView[]
-  playbackWindows      PlaybackWindow[]           @relation("PlaybackWindowCreatedBy")
+  id                        String                     @id @default(uuid()) @db.Uuid
+  email                     String                     @unique
+  displayName               String
+  createdAt                 DateTime                   @default(now())
+  updatedAt                 DateTime                   @updatedAt
+  memberships               MatchMember[]
+  deviceSessions            DeviceSession[]
+  createdKeyPoints          KeyPoint[]                 @relation("KeyPointCreatedBy")
+  updatedKeyPoints          KeyPoint[]                 @relation("KeyPointUpdatedBy")
+  annotationOperations      AnnotationOperation[]
+  annotationReceipts        AnnotationCommandReceipt[]
+  submittedRevisions        RallySubmission[]          @relation("SubmissionSubmittedBy")
+  identityAssignments       TrackIdentityAssignment[]
+  completedIdentityMappings AnalysisRun[]              @relation("IdentityMappingCompletedBy")
+  playbackWindows           PlaybackWindow[]           @relation("PlaybackWindowCreatedBy")
 }
 
 model MatchMember {
@@ -233,20 +233,21 @@ model DeviceSession {
 }
 
 model Match {
-  id              String              @id @default(uuid()) @db.Uuid
+  id              String             @id @default(uuid()) @db.Uuid
   title           String
   venue           String?
-  status          MatchStatus         @default(PLANNED)
+  status          MatchStatus        @default(PLANNED)
+  clipPreRollUs   BigInt             @default(3000000)
+  clipPostRollUs  BigInt             @default(3000000)
   scheduledAt     DateTime?
-  createdAt       DateTime            @default(now())
-  updatedAt       DateTime            @updatedAt
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
   members         MatchMember[]
   matchTeams      MatchTeam[]
   sets            MatchSet[]
   rosterEntries   MatchRosterEntry[]
   captureSessions CaptureSession[]
   rallies         Rally[]
-  savedViews      SavedAnalysisView[]
 }
 
 model Team {
@@ -265,6 +266,7 @@ model Team {
   submissionRightTeams RallySubmission[]     @relation("SubmissionRightTeam")
   submissionWinners    RallySubmission[]     @relation("SubmissionScoringTeam")
   pointAwards          PointAward[]
+  wonSets              MatchSet[]            @relation("SetWinningTeam")
 }
 
 model MatchTeam {
@@ -301,7 +303,7 @@ model MatchRosterEntry {
   player              Player?                   @relation(fields: [playerId], references: [id], onDelete: SetNull)
   identityAssignments TrackIdentityAssignment[]
 
-  @@unique([matchId, teamId, jerseyNumber])
+  @@index([matchId, teamId, jerseyNumber])
 }
 
 model MatchSet {
@@ -312,17 +314,20 @@ model MatchSet {
   leftScore       Int                   @default(0)
   rightScore      Int                   @default(0)
   scoreRevision   Int                   @default(0)
+  winningTeamId   String?               @db.Uuid
   startedAt       DateTime?
   endedAt         DateTime?
   createdAt       DateTime              @default(now())
   updatedAt       DateTime              @updatedAt
   match           Match                 @relation(fields: [matchId], references: [id], onDelete: Cascade)
+  winningTeam     Team?                 @relation("SetWinningTeam", fields: [winningTeamId], references: [id], onDelete: Restrict)
   sideAssignments CourtSideAssignment[]
   rallies         Rally[]
   pointAwards     PointAward[]
   scoreLedger     ScoreLedgerEntry[]
 
   @@unique([matchId, setNumber])
+  @@index([matchId, winningTeamId])
 }
 
 model CourtSideAssignment {
@@ -845,33 +850,36 @@ model OutboxEvent {
 }
 
 model AnalysisRun {
-  id                   String             @id @default(uuid()) @db.Uuid
-  aiJobId              String             @unique @db.Uuid
-  submissionId         String             @db.Uuid
-  analysisId           String             @unique
-  analysisVersion      String
-  resultSchemaVersion  String
-  overlaySchemaVersion String
-  inputClipSha256      String
-  producerName         String
-  producerBuildId      String
-  producerSdkVersion   String?
-  status               JobStatus          @default(RUNNING)
-  rawAnalysisAssetId   String?            @db.Uuid
-  rawOverlayAssetId    String?            @db.Uuid
-  summary              Json?
-  createdAt            DateTime           @default(now())
-  activatedAt          DateTime?
-  supersededAt         DateTime?
-  aiJob                AiJob              @relation(fields: [aiJobId], references: [id], onDelete: Restrict)
-  submission           RallySubmission    @relation(fields: [submissionId], references: [id], onDelete: Restrict)
-  rawAnalysisAsset     MediaAsset?        @relation("AnalysisRawJson", fields: [rawAnalysisAssetId], references: [id], onDelete: Restrict)
-  rawOverlayAsset      MediaAsset?        @relation("AnalysisRawOverlay", fields: [rawOverlayAssetId], references: [id], onDelete: Restrict)
-  tracks               AnalysisTrack[]
-  contactEvents        ContactEvent[]
-  segments             BallPathSegment[]
-  artifacts            AnalysisArtifact[]
-  overlayManifest      OverlayManifest?
+  id                               String             @id @default(uuid()) @db.Uuid
+  aiJobId                          String             @unique @db.Uuid
+  submissionId                     String             @db.Uuid
+  analysisId                       String             @unique
+  analysisVersion                  String
+  resultSchemaVersion              String
+  overlaySchemaVersion             String
+  inputClipSha256                  String
+  producerName                     String
+  producerBuildId                  String
+  producerSdkVersion               String?
+  status                           JobStatus          @default(RUNNING)
+  rawAnalysisAssetId               String?            @db.Uuid
+  rawOverlayAssetId                String?            @db.Uuid
+  summary                          Json?
+  createdAt                        DateTime           @default(now())
+  activatedAt                      DateTime?
+  supersededAt                     DateTime?
+  identityMappingCompletedAt       DateTime?
+  identityMappingCompletedByUserId String?            @db.Uuid
+  aiJob                            AiJob              @relation(fields: [aiJobId], references: [id], onDelete: Restrict)
+  submission                       RallySubmission    @relation(fields: [submissionId], references: [id], onDelete: Restrict)
+  rawAnalysisAsset                 MediaAsset?        @relation("AnalysisRawJson", fields: [rawAnalysisAssetId], references: [id], onDelete: Restrict)
+  rawOverlayAsset                  MediaAsset?        @relation("AnalysisRawOverlay", fields: [rawOverlayAssetId], references: [id], onDelete: Restrict)
+  tracks                           AnalysisTrack[]
+  contactEvents                    ContactEvent[]
+  segments                         BallPathSegment[]
+  artifacts                        AnalysisArtifact[]
+  overlayManifest                  OverlayManifest?
+  identityMappingCompletedBy       User?              @relation("IdentityMappingCompletedBy", fields: [identityMappingCompletedByUserId], references: [id], onDelete: SetNull)
 }
 
 model AnalysisArtifact {
@@ -1054,21 +1062,4 @@ model TrackIdentityAssignment {
   assignedBy       User?            @relation(fields: [assignedByUserId], references: [id], onDelete: SetNull)
 
   @@unique([analysisRunId, trackId])
-}
-
-model SavedAnalysisView {
-  id                   String   @id @default(uuid()) @db.Uuid
-  userId               String   @db.Uuid
-  matchId              String   @db.Uuid
-  name                 String
-  filterSchemaVersion  String
-  overlayPresetVersion String
-  filters              Json
-  layout               Json?
-  createdAt            DateTime @default(now())
-  updatedAt            DateTime @updatedAt
-  user                 User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  match                Match    @relation(fields: [matchId], references: [id], onDelete: Cascade)
-
-  @@unique([userId, matchId, name])
 }

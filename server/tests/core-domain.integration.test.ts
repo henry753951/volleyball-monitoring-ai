@@ -123,8 +123,26 @@ const swapMutation = /* GraphQL */ `
   }
 `
 
-const savedViewsQuery = /* GraphQL */ `query SavedAnalysisViews($matchId: ID!) { savedAnalysisViews(matchId: $matchId) }`
-const saveViewMutation = /* GraphQL */ `mutation SaveAnalysisView($matchId: ID!, $name: String!, $filters: JSON!, $layout: JSON) { saveAnalysisView(matchId: $matchId, name: $name, filters: $filters, layout: $layout) }`
+const updateRosterMutation = /* GraphQL */ `
+  mutation UpdateMatchRoster($input: UpdateMatchRosterInput!) {
+    updateMatchRoster(input: $input) {
+      id
+      rosterEntries { id teamId name jerseyNumber }
+    }
+  }
+`
+
+const updateClipPolicyMutation = /* GraphQL */ `
+  mutation UpdateMatchClipPolicy($input: UpdateMatchClipPolicyInput!) {
+    updateMatchClipPolicy(input: $input) { id clipPreRollUs clipPostRollUs }
+  }
+`
+
+const startNextSetMutation = /* GraphQL */ `
+  mutation StartNextSet($input: StartNextSetInput!) {
+    startNextSet(input: $input) { id setNumber status winningTeamId leftScore rightScore }
+  }
+`
 
 const validSetup = {
   leftTeam: {
@@ -288,7 +306,7 @@ describe('Phase 1B GraphQL schema', () => {
     const programNew = '20000000-0000-4000-8000-000000000004'
     const assets = [] as string[]
     try {
-      await db.captureSession.create({ data: { id: sessionId, matchId, sourceKind: 'fixture', ingestPath: `/fixture/${sessionId}`, status: 'LIVE', health: 'HEALTHY' } })
+      await db.captureSession.create({ data: { id: sessionId, matchId, sourceKind: 'fixture', ingestPath: `/fixture/${sessionId}`, createdAt: new Date('2026-08-07T00:00:00Z'), status: 'LIVE', health: 'HEALTHY' } })
     await db.captureEpoch.create({ data: { id: epochId, captureSessionId: sessionId, sequenceIndex: 0, sourceTimeBaseNum: 1, sourceTimeBaseDen: 60000, sourcePtsOrigin: 0n, captureTimeOriginUs: 9007199254740992n, captureFrameOrigin: 0n, startedAtCaptureUs: 9007199254740992n } })
     for (const [id, revision] of [[programOld, 1n], [programNew, 9007199254740993n]] as const) await db.dvrProgram.create({ data: { id, captureSessionId: sessionId, status: 'LIVE', playlistRevision: revision, liveEdgeUs: 0n, durationUs: 0n, fpsNum: 30, fpsDen: 1, timeBaseNum: 1, timeBaseDen: 60000 } })
     for (let i = 0; i < 6; i++) { const id = `20000000-0000-4000-8000-${String(10 + i).padStart(12, '0')}`; assets.push(id); await db.mediaAsset.create({ data: { id, kind: i % 3 === 0 ? 'DVR_INIT' : i % 3 === 1 ? 'DVR_SEGMENT' : 'SAMPLE_INDEX', bucket: 'fixture', objectKey: id, contentType: 'video/mp4', state: 'READY', readyAt: new Date(), internalSchemaVersion: '1.0.0' } }) }
@@ -332,12 +350,14 @@ describe('Phase 1B GraphQL schema', () => {
     })
     await expect(readFile(schemaSnapshotPath, 'utf8').then(normalizeLineEndings)).resolves.toBe(before)
 
-    for (const operation of [setupMutation, listQuery, detailQuery, swapMutation]) {
+    for (const operation of [setupMutation, listQuery, detailQuery, swapMutation, updateRosterMutation]) {
       const response = await execute(operation, contextFor(null), {
         id: '10000000-0000-4000-8000-000000000099',
         input: operation === setupMutation
           ? validSetup
-          : { effectiveFromRallyOrdinal: 2, setId: '10000000-0000-4000-8000-000000000099' },
+          : operation === updateRosterMutation
+            ? { matchId: '10000000-0000-4000-8000-000000000099', roster: [], teamId: '10000000-0000-4000-8000-000000000098' }
+            : { effectiveFromRallyOrdinal: 2, setId: '10000000-0000-4000-8000-000000000099' },
       })
       expect(response.errors?.[0]?.extensions.code).not.toBe('GRAPHQL_VALIDATION_FAILED')
     }
@@ -429,6 +449,7 @@ describe('match setup, visibility, and court-side history', () => {
   let setId: string
   let leftTeamId: string
   let rightTeamId: string
+  let leftRosterIds: string[]
 
   it('creates the complete normalized graph and creator OPERATOR membership atomically', async () => {
     const result = await execute(
@@ -461,6 +482,7 @@ describe('match setup, visibility, and court-side history', () => {
       'Jamie Wu',
       'Riley Huang',
     ])
+    leftRosterIds = rosterEntries.filter(entry => entry.teamId === leftTeamId).map(entry => String(entry.id))
 
     const sets = arrayField(match, 'sets') as Array<Record<string, unknown>>
     expect(sets).toHaveLength(1)
@@ -607,22 +629,54 @@ describe('match setup, visibility, and court-side history', () => {
     })).resolves.toEqual(before)
   })
 
-  it('saves versioned filter/query settings per user and never accepts metric snapshots', async () => {
-    const variables = { matchId, name: '第 1 局品質', filters: { set_numbers: [1], score_resolution: ['resolved'], association_quality: ['ambiguous', 'unresolved'] }, layout: { route: 'history', overlay_mode: 'coach', visible_layers: ['bbox', 'ball'] } }
-    const saved = await execute(saveViewMutation, contextFor(operatorUser), variables)
-    expect(saved.errors).toBeUndefined()
-    expect(saved.data?.saveAnalysisView).toMatchObject({ schema_version: '1.0.0', view: { name: variables.name, filter_schema_version: '1.0.0', overlay_preset_version: '1.0.0', filters: variables.filters, layout: variables.layout } })
-    const updated = await execute(saveViewMutation, contextFor(operatorUser), { ...variables, filters: { set_numbers: [1], score_resolution: ['unknown'] } })
-    expect(updated.errors).toBeUndefined()
-    await expect(db.savedAnalysisView.count({ where: { matchId, userId: operatorUser.id } })).resolves.toBe(1)
-    const listed = await execute(savedViewsQuery, contextFor(operatorUser), { matchId })
-    expect(listed.data?.savedAnalysisViews).toMatchObject({ schema_version: '1.0.0', views: [{ name: variables.name, filters: { set_numbers: [1], score_resolution: ['unknown'] } }] })
-    expect((listed.data?.savedAnalysisViews as any).views[0].saved_at).toMatch(/^\d{4}-/)
-    const outsider = await execute(savedViewsQuery, contextFor(outsiderOperator), { matchId })
-    expect(outsider.data?.savedAnalysisViews).toBeNull()
-    const coach = await execute(savedViewsQuery, contextFor(coachUser), { matchId })
-    expect(coach.data?.savedAnalysisViews).toEqual({ schema_version: '1.0.0', views: [] })
-    const snapshot = await execute(saveViewMutation, contextFor(operatorUser), { ...variables, name: 'forbidden snapshot', filters: { rally_count: 99 } })
-    expect(errorCode(snapshot)).toBe('BAD_USER_INPUT')
+  it('edits one team roster while preserving existing entry IDs for identity history', async () => {
+    const result = await execute(updateRosterMutation, contextFor(operatorUser), {
+      input: {
+        matchId,
+        teamId: leftTeamId,
+        roster: [
+          { id: leftRosterIds[0], jerseyNumber: '12', name: 'Avery Chen' },
+          { id: leftRosterIds[1], jerseyNumber: '01', name: 'Morgan Lin' },
+          { jerseyNumber: '25', name: 'Kai Tsai' },
+        ],
+      },
+    })
+    expect(result.errors).toBeUndefined()
+    const match = objectField(result.data, 'updateMatchRoster')
+    const roster = arrayField(match, 'rosterEntries') as Array<Record<string, unknown>>
+    expect(roster.filter(entry => entry.teamId === leftTeamId)).toEqual([
+      expect.objectContaining({ id: leftRosterIds[0], jerseyNumber: '12', name: 'Avery Chen' }),
+      expect.objectContaining({ id: leftRosterIds[1], jerseyNumber: '01', name: 'Morgan Lin' }),
+      expect.objectContaining({ jerseyNumber: '25', name: 'Kai Tsai' }),
+    ])
   })
+
+  it('updates dynamic draft padding and starts a zero-score next set with an explicit winner', async () => {
+    const policy = await execute(updateClipPolicyMutation, contextFor(operatorUser), {
+      input: { matchId, preRollSeconds: 2, postRollSeconds: 4 },
+    })
+    expect(policy.errors).toBeUndefined()
+    expect(policy.data?.updateMatchClipPolicy).toMatchObject({
+      clipPostRollUs: '4000000',
+      clipPreRollUs: '2000000',
+      id: matchId,
+    })
+
+    const next = await execute(startNextSetMutation, contextFor(operatorUser), {
+      input: { matchId, winningTeamId: leftTeamId },
+    })
+    expect(next.errors).toBeUndefined()
+    expect(next.data?.startNextSet).toMatchObject({
+      leftScore: 0,
+      rightScore: 0,
+      setNumber: 2,
+      status: 'LIVE',
+      winningTeamId: null,
+    })
+    await expect(db.matchSet.findUniqueOrThrow({ where: { id: setId } })).resolves.toMatchObject({
+      status: 'FINISHED',
+      winningTeamId: leftTeamId,
+    })
+  })
+
 })

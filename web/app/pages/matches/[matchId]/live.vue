@@ -1,86 +1,106 @@
 <script setup lang="ts">
-import { Activity, CircleAlert, Radio, RefreshCw, Trophy } from 'lucide-vue-next'
+import type { PlaybackWindowDescriptor } from '@volleyball-monitoring/contracts'
+import { ExternalLink, Radio, RotateCcw, X } from 'lucide-vue-next'
+import { createMediaClient } from '~/lib/mediaClient'
+import { youtubeEmbedUrl } from '~/utils/youtubeEmbed'
 
 const route = useRoute()
+const config = useRuntimeConfig()
 const matchId = computed(() => String(route.params.matchId))
 const coach = useCoachMatchState(matchId)
 const match = computed(() => coach.data.value?.match ?? null)
-const activeSet = computed(() => match.value?.sets.find(set => set.status === 'live') ?? match.value?.sets.at(-1) ?? null)
+const activeSet = computed(() => match.value?.sets.find(set => set.status.toLowerCase() === 'live') ?? match.value?.sets.at(-1) ?? null)
 const latestRally = computed(() => match.value?.rallies[0] ?? null)
-const currentCapture = computed(() => match.value?.captures[0] ?? null)
 const teamById = computed(() => new Map((match.value?.teams ?? []).map(team => [team.id, team])))
-const leftTeam = computed(() => teamById.value.get(activeSet.value?.side_assignment?.left_team_id ?? '') ?? null)
-const rightTeam = computed(() => teamById.value.get(activeSet.value?.side_assignment?.right_team_id ?? '') ?? null)
-const scoringTeam = computed(() => teamById.value.get(latestRally.value?.submission.scoring_team_id ?? '') ?? null)
-const captureHealthy = computed(() => currentCapture.value?.health === 'healthy' && currentCapture.value.status === 'live')
+const leftTeam = computed(() => teamById.value.get(activeSet.value?.side_assignment?.left_team_id ?? '') ?? match.value?.teams[0] ?? null)
+const rightTeam = computed(() => teamById.value.get(activeSet.value?.side_assignment?.right_team_id ?? '') ?? match.value?.teams[1] ?? null)
+const activeCapture = computed(() => match.value?.captures.find(capture => capture.status === 'live' && capture.health === 'healthy') ?? match.value?.captures[0] ?? null)
+const publicSourceUrl = computed(() => String(config.public.coachEmbedUrl || ''))
+const embedUrl = computed(() => youtubeEmbedUrl(publicSourceUrl.value))
+const shouldEmbed = computed(() => activeCapture.value?.source_kind === 'youtube' && Boolean(embedUrl.value))
+const dvrDescriptor = shallowRef<PlaybackWindowDescriptor | null>(null)
+const dvrError = shallowRef<Error | null>(null)
+const announcedRally = shallowRef<typeof latestRally.value>(null)
+let initialRallyId: string | null = null
 
-const statusLabel = (value?: string | null) => ({
-  idle: '等待處理', clip_queued: '片段排程中', clipping: '建立片段中', ai_queued: 'AI 排程中', ai_processing: 'AI 分析中', artifact_ingesting: '匯入結果中', completed: '分析完成', failed: '處理失敗', superseded: '已取代',
-}[value ?? ''] ?? value ?? '尚無資料')
+watch(() => activeCapture.value?.id ?? null, async (captureId) => {
+  dvrDescriptor.value = null
+  dvrError.value = null
+  if (!captureId || shouldEmbed.value) return
+  try {
+    dvrDescriptor.value = await createMediaClient().createPlaybackWindow({
+      schema_version: '1.0.0',
+      capture_session_id: captureId,
+      mode: 'live',
+      requested_back_us: '90000000',
+    })
+  }
+  catch (cause) {
+    dvrError.value = cause instanceof Error ? cause : new Error('無法載入直播')
+  }
+}, { immediate: true })
+
+watch(() => latestRally.value?.id ?? null, (id, previous) => {
+  if (!id) return
+  if (initialRallyId === null) { initialRallyId = id; return }
+  if (previous && id !== previous) announcedRally.value = latestRally.value
+})
+
+function scoreLabel() {
+  const set = activeSet.value
+  return `${leftTeam.value?.shortName || leftTeam.value?.name || '左隊'} ${set?.left_score ?? 0} 比 ${set?.right_score ?? 0} ${rightTeam.value?.shortName || rightTeam.value?.name || '右隊'}`
+}
+
+function handleDvrError(error: Error) {
+  dvrError.value = error
+}
 </script>
 
 <template>
-  <section class="space-y-4" aria-live="polite">
-    <header class="flex flex-wrap items-end justify-between gap-3">
-      <div>
-        <p class="text-sm text-stone-500">教練現場面板</p>
-        <h1 class="text-2xl font-semibold tracking-tight">{{ match?.title || '現場賽況' }}</h1>
-      </div>
-      <div class="flex items-center gap-2 text-sm">
-        <span class="inline-flex min-h-11 items-center gap-2 rounded-xl bg-white px-3 text-stone-600 shadow-sm">
-          <Radio class="size-4" :class="captureHealthy ? 'text-emerald-600' : 'text-amber-600'" />
-          {{ currentCapture ? `${currentCapture.source_label || '直播來源'} · ${currentCapture.health}` : '尚無直播來源' }}
-        </span>
-        <button class="button-secondary inline-flex items-center gap-2" :disabled="coach.refreshing.value" @click="coach.refresh">
-          <RefreshCw class="size-4" :class="{ 'animate-spin': coach.refreshing.value }" />同步
-        </button>
-      </div>
-    </header>
-
-    <div v-if="coach.pending.value" class="min-h-60 animate-pulse rounded-2xl bg-stone-200" aria-busy="true" />
-    <div v-else-if="coach.error.value && !match" class="rounded-2xl bg-rose-50 p-6 text-rose-900" role="alert">
-      <p class="flex items-center gap-2 font-semibold"><CircleAlert class="size-5" />無法載入現場賽況</p>
-      <p class="mt-2 text-sm">{{ coach.error.value.message }}</p>
-      <button class="button-secondary mt-4" @click="coach.refresh">再試一次</button>
-    </div>
-    <div v-else-if="!match" class="rounded-2xl bg-amber-50 p-6 text-amber-950">找不到場次，或你沒有查看權限。</div>
+  <section class="live-board" :aria-label="scoreLabel()">
+    <div v-if="coach.pending.value" class="live-board__loading" aria-busy="true" />
+    <div v-else-if="coach.error.value && !match" class="live-board__state" role="alert"><strong>無法載入場次</strong><span>{{ coach.error.value.message }}</span><button type="button" @click="coach.refresh">重試</button></div>
+    <div v-else-if="!match" class="live-board__state">找不到場次。</div>
     <template v-else>
-      <article class="overflow-hidden rounded-2xl bg-stone-950 text-white shadow-lg shadow-stone-950/15">
-        <div class="grid min-h-[18rem] grid-cols-[1fr_auto_1fr] items-center gap-4 p-6 sm:p-8">
-          <div class="min-w-0 text-center">
-            <p class="truncate text-lg text-white/70">{{ leftTeam?.shortName || leftTeam?.name || '左側' }}</p>
-            <p class="mt-2 text-[clamp(5rem,13vw,9rem)] font-semibold leading-none tracking-[-0.04em]">{{ activeSet?.left_score ?? 0 }}</p>
-          </div>
-          <div class="flex min-w-24 flex-col items-center gap-3 text-center">
-            <Trophy class="size-7 text-amber-300" />
-            <div><p class="text-xs text-white/50">SET</p><p class="text-4xl font-semibold">{{ activeSet?.set_number ?? '—' }}</p></div>
-            <span class="rounded-full bg-white/10 px-3 py-1 text-xs text-white/70">revision {{ activeSet?.score_revision ?? 0 }}</span>
-          </div>
-          <div class="min-w-0 text-center">
-            <p class="truncate text-lg text-white/70">{{ rightTeam?.shortName || rightTeam?.name || '右側' }}</p>
-            <p class="mt-2 text-[clamp(5rem,13vw,9rem)] font-semibold leading-none tracking-[-0.04em]">{{ activeSet?.right_score ?? 0 }}</p>
-          </div>
-        </div>
-      </article>
+      <div class="score-ribbon">
+        <div class="score-ribbon__team"><span>{{ leftTeam?.name || '左隊' }}</span><b>{{ activeSet?.left_score ?? 0 }}</b></div>
+        <div class="score-ribbon__set"><span>第 {{ activeSet?.set_number ?? 1 }} 局</span><i><Radio :size="12" />LIVE</i></div>
+        <div class="score-ribbon__team score-ribbon__team--right"><b>{{ activeSet?.right_score ?? 0 }}</b><span>{{ rightTeam?.name || '右隊' }}</span></div>
+      </div>
 
-      <div class="grid gap-4 md:grid-cols-[1.35fr_.65fr]">
-        <section class="rounded-2xl bg-white p-5 shadow-sm" aria-labelledby="latest-rally-heading">
-          <div class="flex items-center justify-between gap-3">
-            <div><h2 id="latest-rally-heading" class="font-semibold">最新 Rally</h2><p class="text-sm text-stone-500">只顯示 immutable submission 的正式結果</p></div>
-            <span v-if="latestRally" class="rounded-full bg-teal-50 px-3 py-1 text-sm font-semibold text-teal-800">Set {{ latestRally.set_number }} · #{{ latestRally.ordinal }}</span>
-          </div>
-          <div v-if="latestRally" class="mt-5 flex flex-wrap items-center justify-between gap-4">
-            <div><p class="text-sm text-stone-500">Rally outcome</p><p class="mt-1 text-xl font-semibold">{{ scoringTeam?.name || (latestRally.submission.score_resolution === 'unknown' ? '結果未知' : latestRally.submission.scoring_court_side || '未計分') }}</p></div>
-            <div class="text-right"><p class="text-sm text-stone-500">處理狀態</p><p class="mt-1 font-semibold" :class="latestRally.processing_status === 'failed' ? 'text-rose-700' : 'text-stone-900'">{{ statusLabel(latestRally.processing_status) }}</p></div>
-          </div>
-          <p v-else class="mt-5 text-sm text-stone-500">尚無已提交 Rally。</p>
-        </section>
-        <section class="rounded-2xl bg-white p-5 shadow-sm" aria-labelledby="capture-heading">
-          <h2 id="capture-heading" class="flex items-center gap-2 font-semibold"><Activity class="size-5" />影音來源</h2>
-          <p class="mt-4 text-lg font-semibold">{{ currentCapture?.source_label || '尚未啟動' }}</p>
-          <p class="mt-1 text-sm" :class="captureHealthy ? 'text-emerald-700' : 'text-amber-700'">{{ currentCapture ? `${currentCapture.status} · ${currentCapture.health}` : '等待 server-side DVR' }}</p>
-        </section>
+      <div class="live-stage">
+        <div class="live-video">
+          <iframe v-if="shouldEmbed" :src="embedUrl ?? undefined" :title="`${match.title} 直播`" allow="autoplay; encrypted-media; picture-in-picture; fullscreen" />
+          <VideoOverlayPlayer v-else-if="dvrDescriptor" class="live-video__dvr" :descriptor="dvrDescriptor" @error="handleDvrError" />
+          <div v-else class="live-video__empty"><Radio :size="28" /><strong>{{ dvrError ? '直播載入失敗' : '直播尚未連結' }}</strong></div>
+          <a v-if="shouldEmbed && publicSourceUrl" class="live-video__source" :href="publicSourceUrl" target="_blank" rel="noopener">影音來源<ExternalLink :size="12" /></a>
+        </div>
+
+        <aside class="live-feed" aria-label="最近回合">
+          <div class="live-feed__header"><strong>最近回合</strong><NuxtLink :to="`/matches/${matchId}/rallies`">全部</NuxtLink></div>
+          <ol>
+            <li v-for="rally in match.rallies.slice(0, 6)" :key="rally.id">
+              <NuxtLink :to="`/matches/${matchId}/replay/${rally.id}`">
+                <span><b>{{ rally.ordinal }}</b><small>第 {{ rally.set_number }} 局</small></span>
+                <strong>{{ teamById.get(rally.submission.scoring_team_id ?? '')?.shortName || (rally.submission.score_resolution === 'unknown' ? '結果待確認' : '—') }}</strong>
+                <i :class="`state-${rally.processing_status}`" />
+              </NuxtLink>
+            </li>
+          </ol>
+          <p v-if="!match.rallies.length">尚無回合</p>
+        </aside>
       </div>
     </template>
+
+    <div v-if="announcedRally" class="rally-toast" role="status">
+      <RotateCcw :size="18" />
+      <div><strong>新回合已完成</strong><span>第 {{ announcedRally.set_number }} 局 · #{{ announcedRally.ordinal }}</span></div>
+      <NuxtLink :to="`/matches/${matchId}/replay/${announcedRally.id}`">查看</NuxtLink>
+      <button type="button" aria-label="關閉通知" @click="announcedRally = null"><X :size="16" /></button>
+    </div>
   </section>
 </template>
+
+<style scoped>
+.live-board{display:grid;gap:12px}.score-ribbon{min-height:112px;display:grid;grid-template-columns:1fr 100px 1fr;align-items:center;overflow:hidden;border-radius:18px;background:#11151b;color:#fff;box-shadow:0 16px 36px #1118271f}.score-ribbon__team{min-width:0;display:flex;align-items:center;justify-content:flex-end;gap:20px;padding:12px 24px}.score-ribbon__team--right{justify-content:flex-start}.score-ribbon__team span{overflow:hidden;color:#d6d9df;font-size:clamp(.9rem,1.7vw,1.25rem);font-weight:650;text-overflow:ellipsis;white-space:nowrap}.score-ribbon__team b{font-size:clamp(3.5rem,8vw,6.5rem);line-height:.85;letter-spacing:-.045em;font-variant-numeric:tabular-nums}.score-ribbon__set{display:grid;justify-items:center;gap:8px}.score-ribbon__set>span{color:#aeb4bd;font-size:.78rem;font-weight:700}.score-ribbon__set i{display:inline-flex;align-items:center;gap:4px;color:#61d89a;font-size:.64rem;font-style:normal;font-weight:800}.live-stage{min-height:min(66dvh,760px);display:grid;grid-template-columns:minmax(0,1fr) clamp(230px,24vw,330px);gap:12px}.live-video{position:relative;min-width:0;overflow:hidden;border-radius:18px;background:#050608;box-shadow:0 18px 44px #0f172a24}.live-video iframe{width:100%;height:100%;border:0}.live-video__dvr{width:100%;height:100%;border-radius:0}.live-video__dvr :deep(video){width:100%;height:100%;object-fit:contain}.live-video__empty{height:100%;display:grid;place-content:center;justify-items:center;gap:10px;color:#aab0b8}.live-video__source{position:absolute;right:10px;bottom:10px;display:inline-flex;min-height:28px;align-items:center;gap:5px;padding:0 9px;border-radius:8px;background:#080a0dc7;color:#d9dde2;font-size:.67rem;text-decoration:none;backdrop-filter:blur(12px)}.live-feed{min-height:0;overflow:hidden;border-radius:18px;background:#fff;box-shadow:0 12px 34px #1822300d}.live-feed__header{height:48px;display:flex;align-items:center;justify-content:space-between;padding:0 14px;border-bottom:1px solid #e8ebef}.live-feed__header strong{font-size:.86rem}.live-feed__header a{color:#0a66d8;font-size:.72rem;font-weight:700;text-decoration:none}.live-feed ol{margin:0;padding:0;list-style:none}.live-feed li+li{border-top:1px solid #edf0f2}.live-feed li a{min-height:62px;display:grid;grid-template-columns:72px 1fr 8px;align-items:center;gap:9px;padding:7px 14px;color:inherit;text-decoration:none}.live-feed li a:active{background:#f2f6fb}.live-feed li span{display:flex;align-items:baseline;gap:7px}.live-feed li b{font-size:1.12rem;font-variant-numeric:tabular-nums}.live-feed li small{color:#828995;font-size:.62rem}.live-feed li strong{overflow:hidden;font-size:.76rem;text-align:right;text-overflow:ellipsis;white-space:nowrap}.live-feed li i{width:7px;height:7px;border-radius:50%;background:#2b74d6}.live-feed li i[class*="processing"],.live-feed li i[class*="queued"],.live-feed li i[class*="clipping"]{background:#e0a126}.live-feed li i[class*="failed"]{background:#d13b46}.live-feed>p{padding:20px;color:#858c96;font-size:.76rem;text-align:center}.live-board__loading{min-height:70dvh;border-radius:18px;background:linear-gradient(100deg,#eef1f4 20%,#e2e6ea 40%,#eef1f4 60%);background-size:200% 100%;animation:shimmer 1.2s linear infinite}.live-board__state{min-height:240px;display:grid;place-content:center;justify-items:center;gap:8px;border-radius:18px;background:#fff}.live-board__state span{color:#747b86;font-size:.78rem}.live-board__state button{min-height:38px;padding:0 14px;border:0;border-radius:10px;background:#e8edf4;font-weight:700}.rally-toast{position:fixed;right:max(18px,env(safe-area-inset-right));bottom:calc(82px + env(safe-area-inset-bottom));z-index:50;min-width:290px;display:grid;grid-template-columns:auto 1fr auto auto;align-items:center;gap:10px;padding:11px 12px;border-radius:14px;background:rgba(26,30,37,.94);color:#fff;box-shadow:0 16px 42px #11182745;backdrop-filter:blur(18px)}.rally-toast div{display:grid;gap:1px}.rally-toast strong{font-size:.78rem}.rally-toast span{color:#b7bec8;font-size:.67rem}.rally-toast a{color:#79b6ff;font-size:.74rem;font-weight:750;text-decoration:none}.rally-toast button{width:30px;height:30px;display:grid;place-items:center;border:0;border-radius:8px;background:transparent;color:#bec5ce}@keyframes shimmer{to{background-position:-200% 0}}@media(max-width:820px){.score-ribbon{min-height:92px;grid-template-columns:1fr 76px 1fr}.score-ribbon__team{gap:12px;padding:10px 14px}.live-stage{min-height:0;grid-template-columns:1fr}.live-video{aspect-ratio:16/9}.live-feed{max-height:250px}}@media(prefers-reduced-motion:reduce){.live-board__loading{animation:none}}
+</style>
