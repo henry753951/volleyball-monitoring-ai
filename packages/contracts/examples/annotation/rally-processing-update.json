@@ -1,0 +1,17 @@
+{
+  "schema_version": "2.0.0",
+  "type": "rally_processing_update",
+  "room_id": "match:00000000-0000-4000-8000-000000000010:capture:00000000-0000-4000-8000-000000000110",
+  "rally_id": "00000000-0000-4000-8000-000000000210",
+  "submission_id": "00000000-0000-4000-8000-000000000310",
+  "processing_status": "ai_processing",
+  "ai_job_id": "00000000-0000-4000-8000-000000000410",
+  "worker_instance_key": "analysis-gpu-01",
+  "provider_build_id": "volleyball-analysis-engine/0.1.0",
+  "progress": 0.62,
+  "stage": "hit_association",
+  "updated_at": "2026-08-09T12:00:00.000Z",
+  "analysis_id": null,
+  "overlay_version": null,
+  "error": null
+}

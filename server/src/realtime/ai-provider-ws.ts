@@ -9,6 +9,7 @@ import type { PrismaClient } from '@volleyball-monitoring/db'
 import { JobStatus, Prisma, ProcessingStatus } from '@volleyball-monitoring/db/client'
 import type { FastifyPluginAsync } from 'fastify'
 import { Client } from 'minio'
+import type { AiProgressService } from './ai-progress.js'
 
 const leaseMs = 60_000
 const callbackLifetimeMs = 30 * 60_000
@@ -63,6 +64,46 @@ export interface AiProviderWebSocketDependencies {
   database: PrismaClient
   presign?: (bucket: string, objectKey: string, expiresSeconds: number) => Promise<string>
   callbackBaseUrl?: string
+  progress?: AiProgressService
+}
+
+interface ProviderInstanceLoadRow {
+  id: string
+}
+
+/**
+ * Selects one globally least-loaded, recently-seen provider instance.
+ *
+ * Every connected socket asks the database for the same deterministic winner
+ * before claiming a job. This avoids the old per-socket race where the fastest
+ * reconnecting worker could fill every one of its slots while idle workers
+ * remained unused.
+ */
+export async function findLeastBusyProviderInstanceId(
+  database: PrismaClient,
+  integrationId: string,
+): Promise<string | null> {
+  const rows = await database.$queryRaw<ProviderInstanceLoadRow[]>`
+    SELECT instance.id
+    FROM "AiProviderInstance" instance
+    LEFT JOIN "AiJob" job
+      ON job."providerInstanceId" = instance.id
+      AND job.status IN ('QUEUED', 'RUNNING')
+      AND job."deliveryId" IS NOT NULL
+    WHERE instance."integrationId" = ${integrationId}::uuid
+      AND instance."disconnectedAt" IS NULL
+      AND instance."lastSeenAt" >= NOW() - INTERVAL '30 seconds'
+      AND instance."maxConcurrency" > 0
+    GROUP BY instance.id, instance."maxConcurrency", instance."connectedAt"
+    HAVING COUNT(job.id) < instance."maxConcurrency"
+    ORDER BY
+      COUNT(job.id)::numeric / instance."maxConcurrency" ASC,
+      COUNT(job.id) ASC,
+      instance."connectedAt" ASC,
+      instance.id ASC
+    LIMIT 1
+  `
+  return rows[0]?.id ?? null
 }
 
 export const aiProviderWebSocketRoutes = (
@@ -95,6 +136,7 @@ export const aiProviderWebSocketRoutes = (
 
         let instanceId: string | null = null
         let instanceKey: string | null = null
+        let providerBuildId: string | null = null
         let maxConcurrency = 0
         let ticking = false
         const abortSent = new Set<string>()
@@ -127,6 +169,8 @@ export const aiProviderWebSocketRoutes = (
 
             const activeDeliveries = assigned.filter(job => job.status === JobStatus.QUEUED || job.status === JobStatus.RUNNING).length
             for (let slot = activeDeliveries; slot < maxConcurrency; slot += 1) {
+              const leastBusyInstanceId = await findLeastBusyProviderInstanceId(database, integration.id)
+              if (leastBusyInstanceId !== instanceId) break
               const deliveryId = randomUUID()
               const callbackToken = randomBytes(32).toString('base64url')
               const callbackExpiresAt = new Date(Date.now() + callbackLifetimeMs)
@@ -160,7 +204,21 @@ export const aiProviderWebSocketRoutes = (
                     errorCode: null,
                     errorMessage: null,
                   },
-                  include: { clipJob: { include: { clipAsset: true } } },
+                  include: {
+                    clipJob: { include: { clipAsset: true } },
+                    submission: {
+                      select: {
+                        id: true,
+                        rally: {
+                          select: {
+                            id: true,
+                            matchId: true,
+                            program: { select: { captureSessionId: true } },
+                          },
+                        },
+                      },
+                    },
+                  },
                 })
               })
               if (!job) break
@@ -183,6 +241,7 @@ export const aiProviderWebSocketRoutes = (
                   expires_at: callbackExpiresAt.toISOString(),
                 },
               }
+              await publishProgress(job, 'ai_queued', job.progress ?? 0, 'assigned')
               send({ schema_version: '1.0.0', type: 'job_offer', ai_job_id: job.id, delivery_id: deliveryId, lease_expires_at: leaseExpiresAt.toISOString(), job: payload })
             }
           }
@@ -216,6 +275,7 @@ export const aiProviderWebSocketRoutes = (
                 return
               }
               instanceKey = message.instance_id
+              providerBuildId = message.provider_build_id
               maxConcurrency = message.max_concurrency
               const instance = await database.aiProviderInstance.upsert({
                 where: { integrationId_instanceKey: { integrationId: integration.id, instanceKey } },
@@ -241,7 +301,25 @@ export const aiProviderWebSocketRoutes = (
               for (const active of message.active_jobs) await resumeOrStop(active)
               return
             }
-            const owned = await database.aiJob.findFirst({ where: { id: message.ai_job_id, providerInstanceId: instanceId, deliveryId: message.delivery_id }, select: { id: true, status: true, submission: { select: { rallyId: true } } } })
+            const owned = await database.aiJob.findFirst({
+              where: { id: message.ai_job_id, providerInstanceId: instanceId, deliveryId: message.delivery_id },
+              select: {
+                id: true,
+                status: true,
+                submission: {
+                  select: {
+                    id: true,
+                    rally: {
+                      select: {
+                        id: true,
+                        matchId: true,
+                        program: { select: { captureSessionId: true } },
+                      },
+                    },
+                  },
+                },
+              },
+            })
             if (!owned) {
               send({ schema_version: '1.0.0', type: 'discard_job', ai_job_id: message.ai_job_id, delivery_id: message.delivery_id, reason: 'delivery is no longer owned by this worker instance' })
               return
@@ -270,12 +348,13 @@ export const aiProviderWebSocketRoutes = (
                 })
                 if (updated.count !== 1) return false
                 await tx.rally.updateMany({
-                  where: { id: owned.submission.rallyId, voidedAt: null, processingStatus: { in: [ProcessingStatus.AI_QUEUED, ProcessingStatus.AI_PROCESSING] } },
+                  where: { id: owned.submission.rally.id, voidedAt: null, processingStatus: { in: [ProcessingStatus.AI_QUEUED, ProcessingStatus.AI_PROCESSING] } },
                   data: { processingStatus: ProcessingStatus.AI_PROCESSING },
                 })
                 return true
               })
               if (!accepted) await resumeOrStop({ ai_job_id: message.ai_job_id, delivery_id: message.delivery_id })
+              else await publishProgress(owned, 'ai_processing', 0, 'accepted')
             }
             else if (message.type === 'progress') {
               const updated = await database.aiJob.updateMany({
@@ -283,6 +362,7 @@ export const aiProviderWebSocketRoutes = (
                 data: { progress: message.progress, stage: message.stage ?? null, leasedUntil: new Date(Date.now() + leaseMs) },
               })
               if (updated.count !== 1) await resumeOrStop({ ai_job_id: message.ai_job_id, delivery_id: message.delivery_id, progress: message.progress })
+              else await publishProgress(owned, 'ai_processing', message.progress, message.stage ?? null)
             }
             else if (message.type === 'abort_ack') {
               await database.aiJob.update({ where: { id: owned.id }, data: { cancelAcknowledgedAt: new Date(message.acknowledged_at), leasedUntil: null } })
@@ -297,12 +377,18 @@ export const aiProviderWebSocketRoutes = (
                 })
                 if (updated.count !== 1) return false
                 await tx.rally.updateMany({
-                  where: { id: owned.submission.rallyId, voidedAt: null, processingStatus: { in: [ProcessingStatus.AI_QUEUED, ProcessingStatus.AI_PROCESSING] } },
+                  where: { id: owned.submission.rally.id, voidedAt: null, processingStatus: { in: [ProcessingStatus.AI_QUEUED, ProcessingStatus.AI_PROCESSING] } },
                   data: { processingStatus: terminal ? ProcessingStatus.FAILED : ProcessingStatus.AI_QUEUED },
                 })
                 return true
               })
               if (!changed) await resumeOrStop({ ai_job_id: message.ai_job_id, delivery_id: message.delivery_id })
+              else await publishProgress(
+                owned,
+                terminal ? 'failed' : 'ai_queued',
+                null,
+                terminal ? 'failed' : 'retry_queued',
+              )
             }
           })().catch(error => request.log.error({ error }, 'AI provider message handling failed'))
         })
@@ -325,6 +411,40 @@ export const aiProviderWebSocketRoutes = (
           const leaseExpiresAt = new Date(Date.now() + leaseMs)
           await database.aiJob.update({ where: { id: active.ai_job_id }, data: { leasedUntil: leaseExpiresAt, ...(active.progress === undefined ? {} : { progress: active.progress }) } })
           send({ schema_version: '1.0.0', type: 'resume_job', ai_job_id: active.ai_job_id, delivery_id: active.delivery_id, lease_expires_at: leaseExpiresAt.toISOString() })
+        }
+
+        async function publishProgress(
+          job: {
+            id: string
+            submission: {
+              id: string
+              rally: { id: string; matchId: string; program: { captureSessionId: string } }
+            }
+          },
+          processingStatus: 'ai_queued' | 'ai_processing' | 'failed',
+          progress: number | null,
+          stage: string | null,
+        ) {
+          if (!dependencies.progress) return
+          try {
+            await dependencies.progress.publish({
+              schema_version: '2.0.0',
+              type: 'rally_processing_update',
+              room_id: `match:${job.submission.rally.matchId}:capture:${job.submission.rally.program.captureSessionId}`,
+              rally_id: job.submission.rally.id,
+              submission_id: job.submission.id,
+              processing_status: processingStatus,
+              ai_job_id: job.id,
+              worker_instance_key: instanceKey,
+              provider_build_id: providerBuildId,
+              progress,
+              stage,
+              updated_at: new Date().toISOString(),
+            })
+          }
+          catch (error) {
+            request.log.warn({ error, aiJobId: job.id }, 'AI progress publication failed')
+          }
         }
       })().catch(error => {
         request.log.error({ error }, 'AI provider WebSocket setup failed')

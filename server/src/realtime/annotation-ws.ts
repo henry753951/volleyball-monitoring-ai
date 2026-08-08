@@ -12,10 +12,12 @@ import type {
   AnnotationIdentity,
 } from '../services/annotation-command.js'
 import type { AnnotationPresenceService } from './annotation-presence.js'
+import type { AiProgressService } from './ai-progress.js'
 
 export interface AnnotationWebSocketDependencies {
   authenticate: (request: FastifyRequest) => Promise<AnnotationIdentity | null>
   presence?: AnnotationPresenceService
+  progress?: AiProgressService
   service: AnnotationCommandService
   snapshot?: (roomId: string, rallyId: string, identity: AnnotationIdentity) => Promise<AnnotationRallySnapshot | null>
 }
@@ -70,6 +72,7 @@ export const annotationWebSocketRoutes = (
 
         let heartbeat: ReturnType<typeof setInterval> | null = null
         let unsubscribePresence: (() => void) | null = null
+        let unsubscribeProgress: (() => void) | null = null
         let presenceMember: Awaited<ReturnType<AnnotationPresenceService['join']>> | null = null
         let presenceCleaned = false
         const sendPresence = async () => {
@@ -81,6 +84,7 @@ export const annotationWebSocketRoutes = (
           presenceCleaned = true
           if (heartbeat) clearInterval(heartbeat)
           unsubscribePresence?.()
+          unsubscribeProgress?.()
           if (deps.presence && presenceMember) await deps.presence.leave(room.roomId, presenceMember.device_session_id).catch(() => undefined)
         }
         socket.on('close', () => { void cleanupPresence() })
@@ -96,6 +100,18 @@ export const annotationWebSocketRoutes = (
           catch {
             await cleanupPresence()
             socket.close(1011, 'presence unavailable')
+            return
+          }
+        }
+        if (deps.progress) {
+          try {
+            unsubscribeProgress = await deps.progress.subscribe(room.roomId, (message) => {
+              if (socket.readyState === 1) socket.send(JSON.stringify(message))
+            })
+          }
+          catch {
+            await cleanupPresence()
+            socket.close(1011, 'AI progress stream unavailable')
             return
           }
         }

@@ -11,6 +11,7 @@ import { ArtifactState, AssociationState, BallObservationState, CallbackKind, Jo
 import Ajv2020 from 'ajv/dist/2020.js'
 import type { FastifyPluginAsync, FastifyReply } from 'fastify'
 import { Client } from 'minio'
+import type { AiProgressService } from '../realtime/ai-progress.js'
 
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 const ajv = new Ajv2020({ allErrors: true, strict: false })
@@ -108,10 +109,16 @@ function overlayInvariantError(overlay: ProviderOverlaySequence, result: Record<
 }
 
 function loadJob(aiJobId: string) {
-  return db.aiJob.findUnique({ where: { id: aiJobId }, include: { submission: { include: { rally: true, keyPoints: { orderBy: { sequenceIndex: 'asc' } } } }, clipJob: { include: { clipAsset: true, keyPointMappings: true } } } })
+  return db.aiJob.findUnique({ where: { id: aiJobId }, include: { submission: { include: { rally: { include: { program: true } }, keyPoints: { orderBy: { sequenceIndex: 'asc' } } } }, clipJob: { include: { clipAsset: true, keyPointMappings: true } } } })
 }
 
-export const aiCallbackRoutes: FastifyPluginAsync = async (app) => {
+export interface AiCallbackRouteDependencies {
+  progress?: AiProgressService
+}
+
+export const aiCallbackRoutesWithDependencies = (
+  dependencies: AiCallbackRouteDependencies = {},
+): FastifyPluginAsync => async (app) => {
   app.post<{ Params: { aiJobId: string } }>('/api/v1/ai/callback/:aiJobId', async (request, reply) => {
     const aiJobId = request.params.aiJobId
     if (!uuid.test(aiJobId)) return reject(reply, 404, 'NOT_FOUND', 'AI job not found')
@@ -160,6 +167,10 @@ export const aiCallbackRoutes: FastifyPluginAsync = async (app) => {
           db.aiJob.update({ where: { id: aiJobId }, data: { status: JobStatus.RUNNING, progress: typeof metadata.progress === 'number' ? metadata.progress : null, stage: typeof metadata.stage === 'string' ? metadata.stage : null, lastCallbackAt: new Date() } }),
           db.rally.update({ where: { id: job.submission.rallyId }, data: { processingStatus: ProcessingStatus.AI_PROCESSING } }),
         ])
+        await publishCallbackProgress(job, 'ai_processing', {
+          progress: typeof metadata.progress === 'number' ? metadata.progress : null,
+          stage: typeof metadata.stage === 'string' ? metadata.stage : null,
+        })
         return reply.send(response)
       }
       if (kind === 'failed') {
@@ -170,6 +181,11 @@ export const aiCallbackRoutes: FastifyPluginAsync = async (app) => {
           db.aiJob.update({ where: { id: aiJobId }, data: { status: JobStatus.FAILED, errorCode: String(failure.code ?? 'PROVIDER_FAILED').slice(0, 128), errorMessage: String(failure.message ?? 'provider failed').slice(0, 500), lastCallbackAt: new Date(), completedAt: new Date() } }),
           db.rally.update({ where: { id: job.submission.rallyId }, data: { processingStatus: ProcessingStatus.FAILED } }),
         ])
+        await publishCallbackProgress(job, 'failed', {
+          progress: job.progress,
+          stage: 'failed',
+          error: failure,
+        })
         return reply.send(response)
       }
 
@@ -242,6 +258,12 @@ export const aiCallbackRoutes: FastifyPluginAsync = async (app) => {
         await tx.aiJob.update({ where: { id: aiJobId }, data: { status: JobStatus.COMPLETED, progress: 1, stage: 'completed', lastCallbackAt: new Date(), completedAt: new Date(), leasedUntil: null } })
         await tx.rally.update({ where: { id: job.submission.rallyId }, data: { processingStatus: ProcessingStatus.COMPLETED } })
       })
+      await publishCallbackProgress(job, 'completed', {
+        progress: 1,
+        stage: 'completed',
+        analysisId: String(result.analysis_id),
+        overlayVersion: '1',
+      })
       return reply.send(response)
     }
     catch (error) {
@@ -254,4 +276,48 @@ export const aiCallbackRoutes: FastifyPluginAsync = async (app) => {
       await rm(directory, { recursive: true, force: true })
     }
   })
+
+  async function publishCallbackProgress(
+    job: NonNullable<Awaited<ReturnType<typeof loadJob>>>,
+    processingStatus: 'ai_processing' | 'completed' | 'failed',
+    details: {
+      progress: number | null
+      stage: string | null
+      analysisId?: string
+      overlayVersion?: string
+      error?: Record<string, unknown>
+    },
+  ) {
+    if (!dependencies.progress) return
+    try {
+      const provider = job.providerInstanceId
+        ? await db.aiProviderInstance.findUnique({
+            where: { id: job.providerInstanceId },
+            select: { instanceKey: true, providerBuildId: true },
+          })
+        : null
+      await dependencies.progress.publish({
+        schema_version: '2.0.0',
+        type: 'rally_processing_update',
+        room_id: `match:${job.submission.rally.matchId}:capture:${job.submission.rally.program.captureSessionId}`,
+        rally_id: job.submission.rally.id,
+        submission_id: job.submission.id,
+        processing_status: processingStatus,
+        ai_job_id: job.id,
+        worker_instance_key: provider?.instanceKey ?? null,
+        provider_build_id: provider?.providerBuildId ?? null,
+        progress: details.progress,
+        stage: details.stage,
+        updated_at: new Date().toISOString(),
+        analysis_id: details.analysisId ?? null,
+        overlay_version: details.overlayVersion ?? null,
+        error: details.error ?? null,
+      })
+    }
+    catch (error) {
+      app.log.warn({ error, aiJobId: job.id }, 'AI callback progress publication failed')
+    }
+  }
 }
+
+export const aiCallbackRoutes = aiCallbackRoutesWithDependencies()

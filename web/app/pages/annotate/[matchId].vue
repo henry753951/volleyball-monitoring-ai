@@ -85,6 +85,10 @@ const inspectorTab = ref<'match' | 'mapping'>('match')
 const pinnedRallyId = ref<string | null>(null)
 const cursorRallyId = ref<string | null>(null)
 const selectedRallyId = computed(() => resolveSegmentSelection(pinnedRallyId.value, cursorRallyId.value))
+const activeProcessing = computed(() => {
+  const rallyId = selectedRallyId.value ?? displayAnnotation.value?.rally_id
+  return rallyId ? annotation.processing.value[rallyId] ?? null : null
+})
 let timelineRefreshTimer: ReturnType<typeof setInterval> | null = null
 let timelineMoveTimeout: ReturnType<typeof setTimeout> | null = null
 let cursorResolveTimer: ReturnType<typeof setTimeout> | null = null
@@ -865,6 +869,9 @@ watch(() => annotation.error.value, (value) => {
 watch(() => annotation.outboxNeedsConfirmation.value, (value) => {
   if (value) toast.warning('場次狀態已更新，請重新操作', { action: { label: '重新同步', onClick: annotation.discardPending } })
 })
+watch(() => activeProcessing.value?.updated_at, () => {
+  if (activeProcessing.value?.processing_status === 'completed') void coach.refresh()
+})
 watch(() => dvr.error.value, (error) => {
   if (!error || windowRecoveryInFlight) return
   const code = 'code' in error && typeof error.code === 'string' ? error.code : ''
@@ -965,6 +972,7 @@ onBeforeUnmount(() => {
         :context-hits="activeContextHits"
         :context-duration="formatDuration(activeContextDuration)"
         :context-state="activeContextState"
+        :processing="activeProcessing"
         :correction-active="correctionActive"
         :submitted-selected="Boolean(selectedSubmittedRally)"
         :navigable="navigableKeyPoints.length > 0"

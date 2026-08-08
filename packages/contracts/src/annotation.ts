@@ -215,6 +215,12 @@ export interface AnnotationRallyProcessingUpdate {
   rally_id: string
   submission_id: string
   processing_status: AnnotationProcessingStatus
+  ai_job_id?: string | null
+  worker_instance_key?: string | null
+  provider_build_id?: string | null
+  progress?: number | null
+  stage?: string | null
+  updated_at?: string | null
   analysis_id?: string | null
   overlay_version?: string | null
   error?: Record<string, unknown> | null

@@ -4,6 +4,7 @@ import {
   type AnnotationCommand,
   type AnnotationCommandResponse,
   type AnnotationPresenceSnapshot,
+  type AnnotationRallyProcessingUpdate,
   type AnnotationRallySnapshot,
 } from '@volleyball-monitoring/contracts'
 import { createAnnotationRealtimeClient, type AnnotationConnectionState, type AnnotationRealtimeClient } from '../lib/annotationRealtimeClient'
@@ -71,6 +72,7 @@ export function useAnnotationRoom() {
   const selfDeviceSessionId = ref<string | null>(null)
   const outbox = shallowRef<AnnotationOutboxEntry[]>([])
   const presence = shallowRef<AnnotationPresenceSnapshot['members']>([])
+  const processing = shallowRef<Record<string, AnnotationRallyProcessingUpdate>>({})
   const transport = createGraphQLTransport('/graphql')
   const { annotationWsUrl } = usePublicEndpoints()
   let realtime: AnnotationRealtimeClient | null = null
@@ -213,6 +215,7 @@ export function useAnnotationRoom() {
     roomId.value = nextRoomId
     snapshot.value = null
     presence.value = []
+    processing.value = {}
     selfDeviceSessionId.value = null
     error.value = null
     loadOutbox()
@@ -229,6 +232,18 @@ export function useAnnotationRoom() {
         }
         if (message.type === 'rally_snapshot') acceptSnapshot(message)
         if (message.type === 'presence_snapshot') presence.value = message.members
+        if (message.type === 'rally_processing_update') {
+          processing.value = { ...processing.value, [message.rally_id]: message }
+          if (snapshot.value?.rally_id === message.rally_id) {
+            snapshot.value = {
+              ...snapshot.value,
+              snapshot: {
+                ...snapshot.value.snapshot,
+                processing_status: message.processing_status,
+              },
+            }
+          }
+        }
       },
     }, annotationWsUrl.value)
     realtime.connect()
@@ -421,6 +436,7 @@ export function useAnnotationRoom() {
     pendingCommands: shallowReadonly(outbox),
     pendingCount,
     presence: shallowReadonly(presence),
+    processing: shallowReadonly(processing),
     remoteEditorsByKeyPoint,
     selectRally: fetchSnapshot,
     setEditingKeyPoint,
