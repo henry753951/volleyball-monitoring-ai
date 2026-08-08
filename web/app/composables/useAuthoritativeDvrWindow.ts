@@ -29,6 +29,16 @@ export function useAuthoritativeDvrWindow(client: MediaClient) {
     catch (cause) { if (!valid(id)) return null; current.value = previous; status.value = 'error'; error.value = cause instanceof Error ? cause : new Error('Window request failed'); throw cause }
     finally { if (valid(id)) busy.value = false }
   }
+  function activate(descriptor: PlaybackWindowDescriptor) {
+    generation += 1
+    resolveGeneration += 1
+    current.value = descriptor
+    anchor.value = null
+    status.value = 'ready'
+    error.value = null
+    busy.value = false
+    return descriptor
+  }
   async function resolve(cursor: PlaybackCursorInput) {
     const operationGeneration = generation
     const id = ++resolveGeneration
@@ -70,5 +80,5 @@ export function useAuthoritativeDvrWindow(client: MediaClient) {
     }
     return null
   }
-  return { current, anchor, status: readonly(status), error: readonly(error), busy: readonly(busy), create, resolve, step }
+  return { current, anchor, status: readonly(status), error: readonly(error), busy: readonly(busy), activate, create, resolve, step }
 }

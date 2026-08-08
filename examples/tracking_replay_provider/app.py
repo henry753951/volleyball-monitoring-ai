@@ -16,7 +16,13 @@ from volleyball_monitoring_ai import (
     create_provider_app,
 )
 
-ANALYSIS_VERSION = "contract-lab-tracking-replay-v2"
+from .identity import (
+    consolidate_tracking_identities,
+    consolidated_track_rows,
+    rewrite_analysis_track_ids,
+)
+
+ANALYSIS_VERSION = "contract-lab-tracking-replay-v3"
 PROVIDER_BUILD = "yolox-deep-eiou-sam-court-v1"
 FRAME_INDEX_FIELDS = {
     "anchor_frame_index",
@@ -128,12 +134,17 @@ def analyze(job: AIJobRequest, _clip: Path) -> AnalysisBundle:
     reference_job = load_json(root / "input" / "ai-job.json")
     frame_shift, key_point_ids = validate_reference_job(job, reference_job)
 
+    with (root / "tracking-data" / "tracks-sam-deep-eiou.jsonl").open(encoding="utf-8") as handle:
+        frame_records = [json.loads(line) for line in handle if line.strip()]
+    consolidation = consolidate_tracking_identities(frame_records)
+
     raw_result = rewrite_reference_geometry(
         deepcopy(load_json(root / "expected-output" / "analysis-result.mock.json")),
         frame_shift=frame_shift,
         key_point_ids=key_point_ids,
         total_frames=int(job.clip.video.total_frames),
     )
+    raw_result = rewrite_analysis_track_ids(raw_result, consolidation.raw_to_canonical)
     analysis_id = str(uuid5(NAMESPACE_URL, f"contract-lab-tracking-replay:{job.ai_job_id}"))
     raw_result.update(
         {
@@ -165,6 +176,19 @@ def analyze(job: AIJobRequest, _clip: Path) -> AnalysisBundle:
                 "anchor_frame_index": str(point.clip_frame_index),
             }
         )
+    shifted_records = []
+    for record in consolidation.frame_records:
+        shifted_index = int(record["frame_index"]) + frame_shift
+        if 0 <= shifted_index < int(job.clip.video.total_frames):
+            shifted = deepcopy(record)
+            shifted["frame_index"] = shifted_index
+            shifted_records.append(shifted)
+    raw_result["tracks"] = consolidated_track_rows(
+        shifted_records,
+        consolidation,
+        raw_result.get("tracks", []),
+    )
+    raw_result.setdefault("summary", {})["track_count"] = len(raw_result["tracks"])
     raw_result["extensions"] = {
         "synthetic": False,
         "recorded_inference_replay": True,
@@ -173,18 +197,19 @@ def analyze(job: AIJobRequest, _clip: Path) -> AnalysisBundle:
         "ball_source": "human_frame_annotation",
         "action_source": "ball_path_heuristic_no_model",
         "court_pos_units": "canonical_normalized_18m_x_9m",
+        "identity_consolidation": {
+            "method": "deterministic_court_side_continuity_v1",
+            "learned_reid": False,
+            "raw_track_count": len(consolidation.raw_to_canonical),
+            "canonical_track_count": len(raw_result["tracks"]),
+            "raw_to_canonical": {
+                str(key): value for key, value in sorted(consolidation.raw_to_canonical.items())
+            },
+            "duplicate_observations_suppressed": consolidation.duplicate_observations_suppressed,
+        },
     }
     result = AnalysisResult.model_validate(rewrite_heuristic_labels(raw_result))
 
-    with (root / "tracking-data" / "tracks-sam-deep-eiou.jsonl").open(encoding="utf-8") as handle:
-        frame_records = [json.loads(line) for line in handle if line.strip()]
-    shifted_records = []
-    for record in frame_records:
-        shifted_index = int(record["frame_index"]) + frame_shift
-        if 0 <= shifted_index < int(job.clip.video.total_frames):
-            shifted = deepcopy(record)
-            shifted["frame_index"] = shifted_index
-            shifted_records.append(shifted)
     ball_document = load_json(root / "input" / "ball-annotations.manual.json")
     ball_positions = {
         int(point["clip_frame_index"]) + frame_shift: point["frame_pos"]

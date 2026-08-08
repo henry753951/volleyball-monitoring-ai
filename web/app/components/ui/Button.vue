@@ -49,7 +49,6 @@ const props = withDefaults(defineProps<{
 }
 .ui-button:hover:not(:disabled) { background: #e4e4e7; }
 .ui-button:active:not(:disabled) { transform: scale(.98); }
-.ui-button:focus-visible { outline: 2px solid #fafafa; outline-offset: 2px; }
 .ui-button:disabled { opacity: .42; cursor: not-allowed; }
 .ui-button--secondary { background: #27272a; color: #fafafa; }
 .ui-button--secondary:hover:not(:disabled) { background: #3f3f46; }

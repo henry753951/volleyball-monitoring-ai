@@ -82,11 +82,13 @@ const attachDescriptor = async (descriptor: PlaybackWindowDescriptor | null) => 
   if (!descriptor) { playback.detach(); retainedPreview.value = null; return }
   const element = video.value
   if (!element) return
+  const shouldResume = !element.paused && !element.ended
   retainedPreview.value = capturePresentedFrame(element)
   try {
     await playback.attach(descriptor)
     if (generation !== sourceGeneration) return
     emit('ready', element)
+    if (shouldResume) await element.play().catch(() => undefined)
     await waitForPresentedFrame(element)
     if (generation === sourceGeneration) retainedPreview.value = null
   } catch (error) {
@@ -110,7 +112,10 @@ function seekCaptureTimeIfBuffered(targetCaptureTimeUs: string) {
 function previewCaptureTimeIfBuffered(targetCaptureTimeUs: string) {
   return seekCaptureTimeIfBuffered(targetCaptureTimeUs)
 }
-defineExpose({ seekCaptureTimeIfBuffered, previewCaptureTimeIfBuffered })
+function prewarmDescriptor(descriptor: PlaybackWindowDescriptor) {
+  return playback.prewarm(descriptor)
+}
+defineExpose({ seekCaptureTimeIfBuffered, previewCaptureTimeIfBuffered, prewarmDescriptor })
 
 // Canvas drawing must map the actual video content rectangle, including letterboxing.
 // It consumes lazy-loaded FlatBuffers chunks; it never draws the video pixels itself.
@@ -118,7 +123,7 @@ defineExpose({ seekCaptureTimeIfBuffered, previewCaptureTimeIfBuffered })
 
 <template>
   <div class="relative size-full overflow-hidden rounded-xl bg-black">
-    <video ref="video" class="block size-full object-contain" playsinline preload="metadata" :controls="controls" @click="handleVideoClick" />
+    <video ref="video" class="block size-full object-contain" playsinline preload="auto" :controls="controls" @click="handleVideoClick" />
     <img v-if="retainedPreview" :src="retainedPreview" alt="" aria-hidden="true" class="pointer-events-none absolute inset-0 z-20 size-full object-contain" />
     <ReplayOverlayCanvas
       v-if="analysisRunId && resolvedOverlayFrame >= 0 && overlay.manifest.value"

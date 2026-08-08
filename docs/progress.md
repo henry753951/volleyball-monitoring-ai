@@ -1,5 +1,18 @@
 # Progress
 
+## 2026-08-08 — Actual correction submission, AI callback and 12-player identity consolidation
+
+Status: the 30-minute Contract Lab DEMO completed a new operator-driven immutable correction through the real Annotation UI, clip worker, external-provider job endpoint, callback ingest and Coach replay surfaces. The provider remains an explicit deterministic replay of supplied inference data, not an in-repository AI model.
+
+- Created a correction from active submission `67c7d8f8-ddf0-4ca7-bdb7-38edc60d6a5c`, automatically reopened it for editing, moved the eleventh contact from authoritative frame `62378` to `62379`, closed it with the original right-side outcome and submitted it with Enter. New immutable submission `51cb306b-4374-40f7-ac8c-fbfd38ef945f` superseded the prior submission without mutating its snapshot.
+- The clip worker produced the real `21.207342 s` clip (`1024163257..1045370599` capture microseconds). The dispatcher sent `POST /v1/jobs` and received `202 Accepted`; provider job `55e51cea-c441-45ba-9c4c-b1d5df4035c3` completed its callback, producing active analysis run `60d363c6-51b4-4962-bec1-e600dca475f3` with version `contract-lab-tracking-replay-v3`.
+- Added deterministic court-side/trajectory-continuity identity consolidation for the supplied 14 raw tracker IDs. Six long-lived slots per court side become the canonical analysis identities; short same-side fragments 13 and 14 map to canonical track 4, and 26 same-frame duplicate observations are suppressed. This is deliberately not learned ReID. The normalized run contains exactly 12 analysis tracks: six LEFT and six RIGHT.
+- Kept roster identity ownership separate from AI tracking. The completed run has zero `TrackIdentityAssignment` rows and a null `identityMappingCompletedAt`; the Annotation assignment panel renders all 12 tracks as Unknown, while Coach replay already shows 12 tracked players, 12 contacts and 11 ball-path segments.
+- Corrected the current-mask color cascade so an analyzed current segment is visibly blue and only a completed player mapping turns it green. Headed Chromium verified the `timeline-mask current analyzed` class with a blue `rgba(36, 111, 165, 0.45)` fill and blue border.
+- Creating a correction now enters OPEN edit mode immediately after the transactional READY clone, allowing point adjustment before the operator explicitly closes and submits the replacement.
+
+Validation passed: frozen-`uv` SDK `16/16`, scoped Ruff, Nuxt typecheck, Web `105/105`, `git diff --check`, replay-provider Docker build and health check. Headed Chromium captured the blue analyzed mask, the 6+6 Unknown assignment table and Coach replay backed by the new active analysis. The local operator UI remains available at `http://localhost:3100`.
+
 ## 2026-08-08 — Annotation timeline interaction and desktop UI refinement
 
 Status: the PC Annotation workstation, correction replay and desktop/coach surfaces have completed the current commercial-UI and data-integrity checkpoint without changing the authoritative server-side DVR, immutable-submission or Annotation command contracts.
