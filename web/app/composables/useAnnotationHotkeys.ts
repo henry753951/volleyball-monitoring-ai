@@ -97,13 +97,16 @@ export function createAnnotationHotkeyDefinitions(
     const definition = (hotkey: ReturnType<typeof toRuntimeHotkey>): UseHotkeyDefinition => ({
       hotkey,
       callback: (event) => {
-        if ((event.repeat && !repeatable) || event.isComposing || scopeBlocked()) return
+        if ((event.repeat && !repeatable) || event.isComposing || scopeBlocked() || !runtimeEnabled() || !commandEnabled(command.action)) return
         event.preventDefault()
         event.stopPropagation()
         dispatch(command.action, event)
       },
       options: {
-        enabled: () => runtimeEnabled() && commandEnabled(command.action),
+        // Keep the registration active while a command is temporarily disabled.
+        // TanStack must still observe keyup or requireReset can swallow the next
+        // valid press after a network/state transition.
+        enabled: runtimeEnabled,
         requireReset: !repeatable,
         meta: { name: command.label, description: command.group },
       },
@@ -131,7 +134,10 @@ export function useAnnotationHotkeyRuntime(options: AnnotationHotkeyRuntimeOptio
 
   useHotkeys(definitions, {
     target: options.target,
-    conflictBehavior: 'error',
+    // This is the sole runtime registration boundary. Replacing a stale
+    // registration makes Nuxt HMR and route remounts atomic instead of leaving
+    // a dead handler that swallows the first key press.
+    conflictBehavior: 'replace',
     ignoreInputs: true,
     // The callback applies these only after modal-scope precedence is checked.
     preventDefault: false,

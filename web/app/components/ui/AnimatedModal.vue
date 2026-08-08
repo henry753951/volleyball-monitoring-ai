@@ -18,7 +18,8 @@ const props = withDefaults(defineProps<{
   width?: 'compact' | 'default' | 'wide'
   height?: 'auto' | 'medium' | 'tall'
   closeLabel?: string
-}>(), { width: 'default', height: 'auto', closeLabel: '關閉' })
+  headerLayout?: 'default' | 'navigation'
+}>(), { width: 'default', height: 'auto', closeLabel: '關閉', headerLayout: 'default' })
 const emit = defineEmits<{ close: [] }>()
 
 function handleOpenChange(open: boolean) {
@@ -30,18 +31,26 @@ function handleOpenChange(open: boolean) {
   <DialogRoot :open="open" @update:open="handleOpenChange">
     <DialogPortal>
       <DialogOverlay class="animated-modal__backdrop" />
-      <DialogContent class="animated-modal" :class="[`animated-modal--${width}`, `animated-modal--height-${height}`]">
-          <header class="animated-modal__header">
-            <div>
+      <DialogContent
+        class="animated-modal"
+        :class="[`animated-modal--${width}`, `animated-modal--height-${height}`]"
+      >
+        <header class="animated-modal__header" :class="`animated-modal__header--${headerLayout}`">
+          <div class="animated-modal__header-main">
+            <div v-if="$slots['header-leading']" class="animated-modal__header-leading">
+              <slot name="header-leading" />
+            </div>
+            <div class="animated-modal__header-copy">
               <DialogTitle class="animated-modal__title">{{ title }}</DialogTitle>
               <DialogDescription v-if="description" class="animated-modal__description">{{ description }}</DialogDescription>
             </div>
-            <DialogClose as-child>
-              <UiButton variant="ghost" size="icon-sm" :aria-label="closeLabel"><X :size="17" /></UiButton>
-            </DialogClose>
-          </header>
-          <div class="animated-modal__content"><slot /></div>
-          <footer v-if="$slots.footer" class="animated-modal__footer"><slot name="footer" /></footer>
+          </div>
+          <DialogClose as-child>
+            <UiButton variant="ghost" size="icon-sm" :aria-label="closeLabel"><X :size="17" /></UiButton>
+          </DialogClose>
+        </header>
+        <div class="animated-modal__content"><slot /></div>
+        <footer v-if="$slots.footer" class="animated-modal__footer"><slot name="footer" /></footer>
       </DialogContent>
     </DialogPortal>
   </DialogRoot>
@@ -59,7 +68,15 @@ function handleOpenChange(open: boolean) {
 .animated-modal--height-medium { height: min(68dvh, 620px); }
 .animated-modal--height-tall { height: min(86dvh, 860px); }
 .animated-modal__header { min-height: 54px; display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 10px 12px 10px 18px; border-bottom: 1px solid #27272a; background: #09090b; }
-.animated-modal__header > div { display: grid; gap: 3px; }
+.animated-modal__header-main { min-width: 0; display: flex; align-items: center; gap: 8px; }
+.animated-modal__header-leading { flex: none; }
+.animated-modal__header-leading:empty { display: none; }
+.animated-modal__header-copy { min-width: 0; display: grid; gap: 3px; }
+.animated-modal__header--navigation { grid-template-columns: 34px minmax(0, 1fr) 34px; gap: 10px; }
+.animated-modal__header--navigation .animated-modal__header-main { display: contents; }
+.animated-modal__header--navigation .animated-modal__header-leading { grid-column: 1; display: grid; place-items: center; }
+.animated-modal__header--navigation .animated-modal__header-copy { grid-column: 2; text-align: center; }
+.animated-modal__header--navigation > :last-child { grid-column: 3; }
 .animated-modal__title { margin: 0; font-size: .8rem; font-weight: 700; letter-spacing: -.01em; }
 .animated-modal__description { margin: 0; color: #a1a1aa; font-size: .63rem; }
 .animated-modal__content { min-height: 0; overflow: hidden; background: #09090b; }

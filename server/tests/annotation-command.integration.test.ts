@@ -555,6 +555,40 @@ describe('durable service annotation command', () => {
     await expect(db.rally.findUniqueOrThrow({ where: { id: rallyId } })).resolves.toMatchObject({ annotationStatus: 'VOIDED', annotationRevision: 8n, voidedAt: expect.any(Date) })
   })
 
+  it('rejects a key-point move whose padded clip would overlap another Rally', async () => {
+    const rallyId = randomUUID()
+    await service.apply(serviceCommand(randomUUID(), rallyId), identity)
+    const contact = await service.apply(contactCommand(randomUUID(), rallyId), identity)
+    const keyPointId = contact.type === 'command_ack' ? contact.effects.created_key_point_id : null
+    expect(keyPointId).toBeTruthy()
+    const existing = await db.rally.findUniqueOrThrow({ where: { id: rallyId } })
+    const otherRallyId = randomUUID()
+    await db.rally.create({ data: {
+      id: otherRallyId,
+      matchId: existing.matchId,
+      setId: existing.setId,
+      ordinal: existing.ordinal + 100,
+      sideAssignmentId: existing.sideAssignmentId,
+      dvrProgramId: existing.dvrProgramId,
+      annotationStatus: 'SUBMITTED',
+      annotationRevision: 1n,
+    } })
+    const otherTime = BigInt(anchor.capture_time_us) + 5_000_000n
+    await db.keyPoint.create({ data: {
+      id: randomUUID(), rallyId: otherRallyId, sequenceIndex: 0, markerKind: 'SERVICE',
+      captureEpochId: ids.epoch, captureFrameIndex: BigInt(anchor.capture_frame_index) + 300n,
+      captureTimeUs: otherTime, sourcePts: BigInt(anchor.source_pts) + 300n,
+      timingPrecision: 'FRAME_EXACT', originalPlaybackCursor: {},
+      createdByUserId: ids.operator, updatedByUserId: ids.operator, deviceSessionId: ids.device,
+    } })
+    const move = parseAnnotationCommand({
+      ...serviceCommand(randomUUID(), rallyId), base_revision: '2', kind: 'MOVE_KEY_POINT',
+      payload: { key_point_id: keyPointId, playback_cursor: serviceCommand(randomUUID(), rallyId).payload.playback_cursor },
+    })
+    await expect(service.apply(move, identity)).resolves.toMatchObject({ type: 'command_rejected', code: 'ANNOTATION_NOT_READY', message: 'Moving the key point would overlap another Rally clip' })
+    await expect(db.rally.findUniqueOrThrow({ where: { id: rallyId } })).resolves.toMatchObject({ annotationRevision: 2n })
+  })
+
   it('marks equal-frame contacts as possible duplicates and rejects stale mapping/anchor state', async () => {
     const rallyId = randomUUID(); await service.apply(serviceCommand(randomUUID(), rallyId), identity)
     const first = await service.apply(contactCommand(randomUUID(), rallyId), identity)

@@ -101,15 +101,44 @@ const displayPlayhead = computed(() => playheadDrag.value?.targetCaptureTimeUs ?
 const isVisible = (time: string) => Boolean(viewBounds.value && BigInt(time) >= BigInt(viewBounds.value.startUs) && BigInt(time) <= BigInt(viewBounds.value.endUs))
 const position = (time: string) => viewBounds.value ? capturePercentBps(time, viewBounds.value) / 100 : 0
 const remoteEditors = (keyPointId: string) => props.softLocks?.[keyPointId] ?? []
+const isPendingPoint = (keyPointId: string) => keyPointId.startsWith('pending:')
 const pointPosition = (keyPointId: string, captureTimeUs: string) => position(pointDrag.value?.keyPointId === keyPointId ? pointDrag.value.targetCaptureTimeUs : captureTimeUs)
-const segmentVisible = (segment: { startCaptureTimeUs: string; endCaptureTimeUs: string }) => Boolean(viewBounds.value && BigInt(segment.endCaptureTimeUs) >= BigInt(viewBounds.value.startUs) && BigInt(segment.startCaptureTimeUs) <= BigInt(viewBounds.value.endUs))
-const segmentLeft = (segment: { startCaptureTimeUs: string }) => viewBounds.value ? position(BigInt(segment.startCaptureTimeUs) < BigInt(viewBounds.value.startUs) ? viewBounds.value.startUs : segment.startCaptureTimeUs) : 0
-const segmentWidth = (segment: { startCaptureTimeUs: string; endCaptureTimeUs: string }) => {
-  if (!viewBounds.value) return 0
-  const start = BigInt(segment.startCaptureTimeUs) < BigInt(viewBounds.value.startUs) ? viewBounds.value.startUs : segment.startCaptureTimeUs
-  const end = BigInt(segment.endCaptureTimeUs) > BigInt(viewBounds.value.endUs) ? viewBounds.value.endUs : segment.endCaptureTimeUs
-  return Math.max(.35, position(end) - position(start))
+type SegmentRange = { startCaptureTimeUs: string; endCaptureTimeUs: string }
+const clippedSegmentRange = (segment: SegmentRange) => {
+  const view = viewBounds.value
+  if (!view) return null
+  const start = BigInt(segment.startCaptureTimeUs) > BigInt(view.startUs) ? segment.startCaptureTimeUs : view.startUs
+  const end = BigInt(segment.endCaptureTimeUs) < BigInt(view.endUs) ? segment.endCaptureTimeUs : view.endUs
+  return BigInt(end) > BigInt(start) ? { startCaptureTimeUs: start, endCaptureTimeUs: end } : null
 }
+const segmentVisibleWidth = (segment: SegmentRange) => {
+  const clipped = clippedSegmentRange(segment)
+  return clipped ? Math.max(0, position(clipped.endCaptureTimeUs) - position(clipped.startCaptureTimeUs)) : 0
+}
+const segmentVisible = (segment: SegmentRange) => segmentVisibleWidth(segment) > 0
+const segmentLeft = (segment: SegmentRange) => {
+  const clipped = clippedSegmentRange(segment)
+  return clipped ? position(clipped.startCaptureTimeUs) : 0
+}
+const segmentWidth = (segment: SegmentRange) => Math.max(.35, segmentVisibleWidth(segment))
+const segmentDensityClass = (segment: SegmentRange) => {
+  const width = segmentVisibleWidth(segment)
+  return width < 5 ? 'density-micro' : width < 12 ? 'density-compact' : ''
+}
+const analysisRange = (segment: SegmentRange & { analysis?: { startCaptureTimeUs: string; endCaptureTimeUs: string } | null }): SegmentRange => ({
+  startCaptureTimeUs: segment.analysis?.startCaptureTimeUs ?? segment.startCaptureTimeUs,
+  endCaptureTimeUs: segment.analysis?.endCaptureTimeUs ?? segment.endCaptureTimeUs,
+})
+const currentMaskGeometry = computed(() => {
+  if (!maskStart.value || !maskEnd.value) return null
+  const range = { startCaptureTimeUs: maskStart.value, endCaptureTimeUs: maskEnd.value }
+  return {
+    visible: segmentVisible(range),
+    left: segmentLeft(range),
+    width: segmentWidth(range),
+    density: segmentDensityClass(range),
+  }
+})
 const segmentStatusLabel = (status: 'draft' | 'processing' | 'analyzed' | 'mapped') => status === 'draft' ? '未送出' : status === 'mapped' ? '球員已確認' : status === 'analyzed' ? '分析完成' : '分析中'
 // A live/correction draft is the active representation of its time range.
 // Suppress historical revisions rather than painting multiple masks together.
@@ -118,6 +147,9 @@ const displaySegments = computed(() => selectNonOverlappingRanges(
   maskStart.value && maskEnd.value ? { startCaptureTimeUs: maskStart.value, endCaptureTimeUs: maskEnd.value } : null,
   props.selectedSegmentId,
 ))
+const displayAnalysisSegments = computed(() => displaySegments.value.flatMap(segment => segment.analysis
+  ? [{ segment, range: analysisRange(segment) }]
+  : []))
 // Rally clips are guaranteed to be non-overlapping. Keep one generous visual lane
 // so the mask label remains readable instead of creating artificial parallel lanes.
 const maskTop = () => 8
@@ -366,13 +398,13 @@ onBeforeUnmount(() => {
     <div class="lane-row clip-lane">
       <span class="lane-label">片段</span>
       <div class="lane-content" @click="emit('clearSelection')">
-        <button v-for="segment in displaySegments" v-show="segmentVisible(segment)" :key="segment.id" data-timeline-interactive type="button" class="timeline-mask historical" :class="[segment.status, { selected: selectedSegmentId === segment.id }]" :style="{ left: `${segmentLeft(segment)}%`, top: `${maskTop()}px`, width: `${segmentWidth(segment)}%` }" :aria-label="`${segment.label} · ${segmentStatusLabel(segment.status)}`" @click.stop="emit('selectSegment', segment.id, segment.startCaptureTimeUs)" @dblclick.stop="focusHistoricalSegment(segment)"><span>{{ segment.label }}</span><small>{{ segment.outcomeLabel || segment.stateLabel || segmentStatusLabel(segment.status) }}</small><b v-if="segment.status === 'analyzed'">待指派</b></button>
-        <button v-if="maskStart && maskEnd" data-timeline-interactive type="button" class="timeline-mask current" :class="[currentMaskTone, { selected: maskSelected }]" :style="{ left: `${position(maskStart)}%`, top: `${maskTop()}px`, width: `${Math.max(.35, position(maskEnd) - position(maskStart))}%` }" @click.stop="emit('selectMask')" @dblclick.stop="focusCurrentMask"><span>{{ currentMaskLabel }}</span><small>{{ currentMaskOutcome || (annotation?.snapshot.active_submission_id ? '修正版' : '未送出') }}</small></button>
-        <div v-for="segment in displaySegments" v-show="segment.analysis && segmentVisible(segment)" :key="`${segment.id}:analysis`" class="analysis-rail" :style="{ left: `${segmentLeft({ startCaptureTimeUs: segment.analysis?.startCaptureTimeUs ?? segment.startCaptureTimeUs })}%`, width: `${segmentWidth({ startCaptureTimeUs: segment.analysis?.startCaptureTimeUs ?? segment.startCaptureTimeUs, endCaptureTimeUs: segment.analysis?.endCaptureTimeUs ?? segment.endCaptureTimeUs })}%` }"><Bot :size="11" /><span>{{ formatBytes(segment.analysis?.byteLength ?? '0') }}</span><UserRound v-if="segment.analysis?.capabilities.includes('player_tracking')" :size="11" /><CircleDotDashed v-if="segment.analysis?.capabilities.includes('ball_tracking')" :size="11" /><Activity v-if="segment.analysis?.capabilities.includes('contact_association')" :size="11" /></div>
-        <button v-for="point in annotationPoints" v-show="isVisible(point.capture_time_us)" :key="point.key_point_id" data-timeline-interactive type="button" class="keypoint-dot" :class="{ service: point.marker_kind === 'service', terminal: point.is_terminal, locked: immutable || !editable, editable: editable && !immutable, selected: selectedKeyPointId === point.key_point_id, 'soft-locked': remoteEditors(point.key_point_id).length, 'point-dragging': pointDrag?.keyPointId === point.key_point_id }" :style="{ left: `${pointPosition(point.key_point_id, point.capture_time_us)}%`, top: `${pointTop()}px` }" :aria-label="`${point.marker_kind} marker at frame ${point.capture_frame_index}${remoteEditors(point.key_point_id).length ? `; ${remoteEditors(point.key_point_id).join('、')} 正在調整` : ''}`" :aria-pressed="selectedKeyPointId === point.key_point_id" :title="`${point.marker_kind} · frame ${point.capture_frame_index}${editable && !immutable ? ' · 拖曳移動' : ''}${remoteEditors(point.key_point_id).length ? ` · ${remoteEditors(point.key_point_id).join('、')} 正在調整（提示，不阻擋）` : ''}`" @pointerdown.stop="beginPointDrag($event, point.key_point_id, point.capture_time_us)" @pointermove.stop="movePointDrag" @pointerup.stop="endPointDrag" @pointercancel.stop="cancelPointDrag" @click.stop="clickPoint(point.key_point_id, point.capture_time_us)" />
+        <button v-for="segment in displaySegments" v-show="segmentVisible(segment)" :key="segment.id" data-timeline-interactive type="button" class="timeline-mask historical" :class="[segment.status, segmentDensityClass(segment), { selected: selectedSegmentId === segment.id }]" :style="{ left: `${segmentLeft(segment)}%`, top: `${maskTop()}px`, width: `${segmentWidth(segment)}%` }" :aria-label="`${segment.label} · ${segmentStatusLabel(segment.status)}`" @click.stop="emit('selectSegment', segment.id, segment.startCaptureTimeUs)" @dblclick.stop="focusHistoricalSegment(segment)"><span>{{ segment.label }}</span><small>{{ segment.outcomeLabel || segment.stateLabel || segmentStatusLabel(segment.status) }}</small><b v-if="segment.status === 'analyzed'">待指派</b></button>
+        <button v-if="currentMaskGeometry" v-show="currentMaskGeometry.visible" data-timeline-interactive type="button" class="timeline-mask current" :class="[currentMaskTone, currentMaskGeometry.density, { selected: maskSelected }]" :style="{ left: `${currentMaskGeometry.left}%`, top: `${maskTop()}px`, width: `${currentMaskGeometry.width}%` }" @click.stop="emit('selectMask')" @dblclick.stop="focusCurrentMask"><span>{{ currentMaskLabel }}</span><small>{{ currentMaskOutcome || (annotation?.snapshot.active_submission_id ? '修正版' : '未送出') }}</small></button>
+        <div v-for="item in displayAnalysisSegments" v-show="segmentVisible(item.range)" :key="`${item.segment.id}:analysis`" class="analysis-rail" :class="segmentDensityClass(item.range)" :style="{ left: `${segmentLeft(item.range)}%`, width: `${segmentWidth(item.range)}%` }"><Bot :size="11" /><span>{{ formatBytes(item.segment.analysis?.byteLength ?? '0') }}</span><UserRound v-if="item.segment.analysis?.capabilities.includes('player_tracking')" :size="11" /><CircleDotDashed v-if="item.segment.analysis?.capabilities.includes('ball_tracking')" :size="11" /><Activity v-if="item.segment.analysis?.capabilities.includes('contact_association')" :size="11" /></div>
+        <button v-for="point in annotationPoints" v-show="isVisible(point.capture_time_us)" :key="point.key_point_id" data-timeline-interactive type="button" class="keypoint-dot" :class="[{ service: point.marker_kind === 'service', terminal: point.is_terminal, pending: isPendingPoint(point.key_point_id), locked: immutable || !editable || isPendingPoint(point.key_point_id), editable: editable && !immutable && !isPendingPoint(point.key_point_id), selected: selectedKeyPointId === point.key_point_id, 'soft-locked': remoteEditors(point.key_point_id).length, 'point-dragging': pointDrag?.keyPointId === point.key_point_id }, currentMaskGeometry?.density]" :style="{ left: `${pointPosition(point.key_point_id, point.capture_time_us)}%`, top: `${pointTop()}px` }" :aria-label="`${point.marker_kind} marker at frame ${point.capture_frame_index}${isPendingPoint(point.key_point_id) ? '; syncing' : ''}${remoteEditors(point.key_point_id).length ? `; ${remoteEditors(point.key_point_id).join('、')} 正在調整` : ''}`" :aria-pressed="selectedKeyPointId === point.key_point_id" :title="isPendingPoint(point.key_point_id) ? `${point.marker_kind} · 本機已標記，等待伺服器確認` : `${point.marker_kind} · frame ${point.capture_frame_index}${editable && !immutable ? ' · 拖曳移動' : ''}${remoteEditors(point.key_point_id).length ? ` · ${remoteEditors(point.key_point_id).join('、')} 正在調整（提示，不阻擋）` : ''}`" @pointerdown.stop="beginPointDrag($event, point.key_point_id, point.capture_time_us)" @pointermove.stop="movePointDrag" @pointerup.stop="endPointDrag" @pointercancel.stop="cancelPointDrag" @click.stop="clickPoint(point.key_point_id, point.capture_time_us)" />
       </div>
     </div>
-    <template v-for="segment in displaySegments" :key="`${segment.id}:points`"><button v-for="point in segment.points ?? []" v-show="isVisible(point.captureTimeUs)" :key="point.id" data-timeline-interactive type="button" class="keypoint-dot historical-point locked" :class="{ service: point.markerKind === 'service', terminal: point.isTerminal }" :style="{ left: `calc(78px + (100% - 78px) * ${position(point.captureTimeUs) / 100})`, top: `${34 + pointTop()}px` }" :aria-label="`${segment.label} · ${point.markerKind}`" @click.stop="selectHistoricalPoint(segment.id, point.captureTimeUs)" /></template>
+    <template v-for="segment in displaySegments" :key="`${segment.id}:points`"><button v-for="point in segment.points ?? []" v-show="isVisible(point.captureTimeUs)" :key="point.id" data-timeline-interactive type="button" class="keypoint-dot historical-point locked" :class="[{ service: point.markerKind === 'service', terminal: point.isTerminal }, segmentDensityClass(segment)]" :style="{ left: `calc(78px + (100% - 78px) * ${position(point.captureTimeUs) / 100})`, top: `${34 + pointTop()}px` }" :aria-label="`${segment.label} · ${point.markerKind}`" @click.stop="selectHistoricalPoint(segment.id, point.captureTimeUs)" /></template>
     <div v-if="displayPlayhead && isVisible(displayPlayhead)" class="playhead" :class="{ dragging: playheadDrag }" :style="{ left: `calc(78px + (100% - 78px) * ${position(displayPlayhead) / 100})` }"><button data-timeline-interactive type="button" class="playhead-handle" role="slider" aria-label="播放游標" :aria-valuemin="viewBounds?.startUs" :aria-valuemax="viewBounds?.endUs" :aria-valuenow="displayPlayhead" @pointerdown.stop="beginPlayheadDrag" @pointermove.stop="movePlayheadDrag" @pointerup.stop="endPlayheadDrag" @pointercancel.stop="cancelPlayheadDrag"><span /><i /></button><output v-if="playheadDrag">{{ playheadDragLabel() }}</output></div>
     <div v-if="liveEdge && isVisible(liveEdge)" class="live-edge" :style="{ left: `calc(78px + (100% - 78px) * ${position(liveEdge) / 100})` }"><span>LIVE</span></div>
     <button v-if="targetZoom > 1" data-timeline-interactive type="button" class="zoom-readout" title="重設縮放" @click="resetView">{{ targetZoom.toFixed(1) }}×</button>
@@ -384,9 +416,17 @@ onBeforeUnmount(() => {
 .timeline-mask.current.processing{border-color:#aa7c22;background:#8c651c73;color:#ffe3a1}
 .timeline-mask.current.analyzed{border-color:#327fb8;background:#246fa573;color:#c0e3fc}
 .timeline-mask.current.mapped{border-color:#318a5e;background:#24744873;color:#bdf1d2}
+.keypoint-dot.pending{border-style:dashed;opacity:.82}
 </style>
 <style scoped>
 .playhead output{position:absolute;left:50%;bottom:calc(100% + 5px);padding:4px 7px;transform:translateX(-50%);border:1px solid #3f3f46;border-radius:6px;background:#09090b;color:#fafafa;font:700 .6rem "Cascadia Mono",Consolas,monospace;white-space:nowrap}
 .historical-point{top:auto}
 .ruler-row,.buffer-status{cursor:pointer}.buffer-status{height:7px}.timeline-mask{height:84px;padding:8px 10px 44px}.timeline-mask span,.timeline-mask small{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.timeline-mask small{margin-top:3px;color:currentColor;font-size:.58rem;font-weight:600;opacity:.72}.timeline-mask b{position:absolute;right:7px;top:7px;padding:2px 5px;border:1px solid currentColor;border-radius:999px;font-size:.52rem;opacity:.84}.analysis-rail{position:absolute;z-index:3;top:99px;height:20px;display:flex;align-items:center;gap:5px;min-width:44px;padding:0 6px;overflow:hidden;border:1px solid #444b52;border-radius:4px;background:#15191d;color:#aeb8c2;font:650 .54rem "Cascadia Mono",Consolas,monospace;white-space:nowrap;pointer-events:none}.playhead{pointer-events:none}.playhead::before{display:block;pointer-events:none}.playhead-handle{position:absolute;top:0;left:50%;width:20px;height:34px;min-height:0;padding:0;transform:translateX(-50%);border:0;background:transparent;pointer-events:auto;cursor:col-resize;touch-action:none}.playhead-handle>*{pointer-events:none}.playhead-handle i{position:absolute;inset:0 auto auto 50%;width:2px;height:34px;transform:translateX(-50%);background:#ff6b72}.playhead-handle span{top:0}.playhead.dragging .playhead-handle{cursor:grabbing}
+.timeline-mask span,.timeline-mask small,.timeline-mask b,.keypoint-dot,.analysis-rail{transition:opacity 140ms cubic-bezier(.2,.8,.2,1)}
+.timeline-mask.density-compact small,.timeline-mask.density-compact b{opacity:0;pointer-events:none}
+.timeline-mask.density-micro span,.timeline-mask.density-micro small,.timeline-mask.density-micro b{opacity:0;pointer-events:none}
+.analysis-rail.density-compact svg:not(:first-child){display:none}
+.analysis-rail.density-micro{visibility:hidden;opacity:0}
+.keypoint-dot.density-compact:not(.service):not(.terminal):not(.selected){opacity:.22}
+.keypoint-dot.density-micro:not(.service):not(.terminal):not(.selected){opacity:0;pointer-events:none}
 </style>

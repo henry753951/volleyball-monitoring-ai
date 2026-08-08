@@ -14,6 +14,20 @@ export function segmentAtCaptureTime<T extends { id: string; startCaptureTimeUs:
 export function resolveSegmentSelection(pinnedSegmentId: string | null | undefined, cursorSegmentId: string | null | undefined) {
   return pinnedSegmentId ?? cursorSegmentId ?? null
 }
+export function paddedClipRange(captureTimesUs: readonly string[], preRollUs: bigint, postRollUs: bigint) {
+  if (!captureTimesUs.length) return null
+  const ordered = captureTimesUs.map(BigInt).sort((left, right) => left < right ? -1 : left > right ? 1 : 0)
+  const requestedStart = ordered[0]! - preRollUs
+  return {
+    startCaptureTimeUs: (requestedStart < 0n ? 0n : requestedStart).toString(),
+    endCaptureTimeUs: (ordered.at(-1)! + postRollUs).toString(),
+  }
+}
+export function clipRangeOverlaps<T extends { id: string; startCaptureTimeUs: string; endCaptureTimeUs: string }>(range: { startCaptureTimeUs: string; endCaptureTimeUs: string }, candidates: readonly T[], excludedId?: string | null) {
+  const start = BigInt(range.startCaptureTimeUs)
+  const end = BigInt(range.endCaptureTimeUs)
+  return candidates.some(candidate => candidate.id !== excludedId && start < BigInt(candidate.endCaptureTimeUs) && end > BigInt(candidate.startCaptureTimeUs))
+}
 export function selectNonOverlappingRanges<T extends { id: string; startCaptureTimeUs: string; endCaptureTimeUs: string }>(ranges: readonly T[], activeRange?: { startCaptureTimeUs: string; endCaptureTimeUs: string } | null, preferredId?: string | null) {
   const activeStart = activeRange ? BigInt(activeRange.startCaptureTimeUs) : null
   const activeEnd = activeRange ? BigInt(activeRange.endCaptureTimeUs) : null

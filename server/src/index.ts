@@ -22,6 +22,7 @@ import { annotationWebSocketRoutes } from './realtime/annotation-ws.js'
 import { coachWebSocketRoutes } from './realtime/coach-ws.js'
 import { authenticateDevelopmentAnnotationRequest } from './realtime/auth.js'
 import { createAnnotationCommandService } from './services/annotation-command.js'
+import { getAnnotationSnapshot } from './services/annotation-snapshot.js'
 
 const app = Fastify({ logger: true })
 const redisUrl = process.env.REDIS_URL
@@ -100,6 +101,15 @@ await app.register(annotationWebSocketRoutes({
   authenticate: (request) => authenticateDevelopmentAnnotationRequest(request, db),
   ...(annotationPresence ? { presence: annotationPresence } : {}),
   service: annotationCommands,
+  snapshot: async (roomId, rallyId, identity) => {
+    const value = await getAnnotationSnapshot(db, {
+      roomId,
+      rallyId,
+      userId: identity.userId,
+      role: identity.role,
+    })
+    return value?.type === 'rally_snapshot' ? value : null
+  },
 }))
 await app.register(coachWebSocketRoutes({
   authenticate: (request) => authenticateDevelopmentAnnotationRequest(request, db),

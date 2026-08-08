@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ArrowLeft, ChevronRight, Database, Keyboard, RotateCcw, Scissors } from 'lucide-vue-next'
+import { ChevronLeft, ChevronRight, Database, Keyboard, RotateCcw, Scissors } from 'lucide-vue-next'
 import UiButton from '~/components/ui/Button.vue'
 import {
   ANNOTATION_COMMANDS,
@@ -15,9 +15,7 @@ import {
 } from '~/utils/mediaPlaybackPreferences'
 
 type SettingsPage = 'root' | 'media' | 'clip' | 'hotkeys'
-type TransitionDocument = Document & {
-  startViewTransition?: (update: () => void) => { finished: Promise<void> }
-}
+type PageDirection = 'forward' | 'back'
 
 const props = withDefaults(defineProps<{
   open: boolean
@@ -36,6 +34,7 @@ const recordingError = ref<string | null>(null)
 const clipPreRollSeconds = ref(props.clipPreRollSeconds)
 const clipPostRollSeconds = ref(props.clipPostRollSeconds)
 const clipValidationError = ref<string | null>(null)
+const pageDirection = ref<PageDirection>('forward')
 const commandGroups: ReadonlyArray<{ label: string; commands: ReadonlyArray<HotkeyCommandDefinition> }> = [
   { label: '標記', commands: ANNOTATION_COMMANDS },
   { label: '播放', commands: MEDIA_COMMANDS },
@@ -49,7 +48,7 @@ const modalDescription = computed(() => page.value === 'root'
     : page.value === 'clip'
       ? '套用到本場尚未送出的標記與後續修正版'
       : '點選按鍵後直接輸入新的組合')
-const modalHeight = computed<'auto' | 'tall'>(() => page.value === 'hotkeys' ? 'tall' : 'auto')
+const modalHeight = computed<'medium' | 'tall'>(() => page.value === 'hotkeys' ? 'tall' : 'medium')
 
 const recorder = useAnnotationHotkeyRecorder(() => ({
   ignoreInputs: true,
@@ -87,11 +86,9 @@ function beginRecording(action: HotkeyCommand) {
 function changePage(next: SettingsPage) {
   if (recorder.isRecording.value) recorder.cancelRecording()
   recording.value = null
-  const update = () => { page.value = next }
-  const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
-  const transitionDocument = document as TransitionDocument
-  if (!reducedMotion && transitionDocument.startViewTransition) transitionDocument.startViewTransition(update)
-  else update()
+  if (next === page.value) return
+  pageDirection.value = next === 'root' ? 'back' : 'forward'
+  page.value = next
 }
 
 function restoreAllDefaults() {
@@ -119,84 +116,88 @@ function close() {
 </script>
 
 <template>
-  <UiAnimatedModal :open="open" :title="modalTitle" :description="modalDescription" :height="modalHeight" @close="close">
-    <div class="settings-page" :data-page="page">
-      <div v-if="page === 'root'" class="settings-menu">
-        <UiButton variant="ghost" class="settings-menu__item" @click="changePage('media')">
-          <span class="settings-menu__icon"><Database :size="18" /></span>
-          <span><strong>媒體播放設定</strong><small>瀏覽器緩衝與回放保留範圍</small></span>
-          <ChevronRight :size="17" />
-        </UiButton>
-        <UiButton variant="ghost" class="settings-menu__item" @click="changePage('clip')">
-          <span class="settings-menu__icon"><Scissors :size="18" /></span>
-          <span><strong>片段範圍</strong><small>發球前與結束後的延展秒數</small></span>
-          <ChevronRight :size="17" />
-        </UiButton>
-        <UiButton variant="ghost" class="settings-menu__item" @click="changePage('hotkeys')">
-          <span class="settings-menu__icon"><Keyboard :size="18" /></span>
-          <span><strong>按鍵設定</strong><small>標記與播放快捷鍵</small></span>
-          <ChevronRight :size="17" />
-        </UiButton>
-      </div>
+  <UiAnimatedModal :open="open" :title="modalTitle" :description="modalDescription" :height="modalHeight" header-layout="navigation" @close="close">
+    <template #header-leading>
+      <UiButton v-if="page !== 'root'" variant="ghost" size="icon-sm" class="settings-header-back" aria-label="返回所有設定" @click="changePage('root')"><ChevronLeft :size="19" stroke-width="2.2" /></UiButton>
+    </template>
+    <div class="settings-page-viewport">
+      <Transition :name="`settings-${pageDirection}`">
+        <div :key="page" class="settings-page" :data-page="page">
+          <UiScrollArea class="settings-page__scroll">
+            <div v-if="page === 'root'" class="settings-menu">
+              <UiButton variant="ghost" class="settings-menu__item" @click="changePage('media')">
+                <span class="settings-menu__icon"><Database :size="18" /></span>
+                <span><strong>媒體播放設定</strong><small>瀏覽器緩衝與回放保留範圍</small></span>
+                <ChevronRight :size="17" />
+              </UiButton>
+              <UiButton variant="ghost" class="settings-menu__item" @click="changePage('clip')">
+                <span class="settings-menu__icon"><Scissors :size="18" /></span>
+                <span><strong>片段範圍</strong><small>發球前與結束後的延展秒數</small></span>
+                <ChevronRight :size="17" />
+              </UiButton>
+              <UiButton variant="ghost" class="settings-menu__item" @click="changePage('hotkeys')">
+                <span class="settings-menu__icon"><Keyboard :size="18" /></span>
+                <span><strong>按鍵設定</strong><small>標記與播放快捷鍵</small></span>
+                <ChevronRight :size="17" />
+              </UiButton>
+            </div>
 
-      <div v-else-if="page === 'media'" class="settings-child">
-        <UiButton variant="ghost" size="sm" class="settings-back" @click="changePage('root')"><ArrowLeft :size="15" />所有設定</UiButton>
-        <section class="buffer-settings">
-          <div class="buffer-settings__heading"><strong>瀏覽器快取大小</strong><small>較大的緩衝可減少長時間播放與回放切換時的等待。</small></div>
-          <div class="buffer-presets" role="radiogroup" aria-label="瀏覽器快取大小">
-            <UiButton
-              v-for="([value, profile]) in mediaPresets"
-              :key="value"
-              variant="ghost"
-              class="buffer-preset"
-              :class="{ selected: bufferPreset === value }"
-              role="radio"
-              :aria-checked="bufferPreset === value"
-              @click="setBufferPreset(value)"
-            >
-              <span><strong>{{ profile.label }}</strong><small>{{ profile.description }}</small></span>
-              <i aria-hidden="true" />
-            </UiButton>
-          </div>
-        </section>
-      </div>
-
-      <div v-else-if="page === 'clip'" class="settings-child">
-        <UiButton variant="ghost" size="sm" class="settings-back" @click="changePage('root')"><ArrowLeft :size="15" />所有設定</UiButton>
-        <section class="clip-settings">
-          <div class="clip-setting-row">
-            <label for="clip-pre-roll"><strong>發球前</strong><small>草稿片段向前保留</small></label>
-            <span><input id="clip-pre-roll" v-model.number="clipPreRollSeconds" type="number" min="0" max="30" step="1"><i>秒</i></span>
-          </div>
-          <div class="clip-setting-row">
-            <label for="clip-post-roll"><strong>結束後</strong><small>終止擊球點後保留</small></label>
-            <span><input id="clip-post-roll" v-model.number="clipPostRollSeconds" type="number" min="0" max="30" step="1"><i>秒</i></span>
-          </div>
-          <p>已送出的片段保留送出當下的範圍；建立並送出修正版時才套用目前設定。</p>
-          <p v-if="clipValidationError || clipPolicyError" class="annotation-settings__error" role="alert">{{ clipValidationError || clipPolicyError }}</p>
-          <UiButton :disabled="clipPolicySaving" @click="saveClipPolicy">{{ clipPolicySaving ? '儲存中…' : '套用到本場' }}</UiButton>
-        </section>
-      </div>
-
-      <div v-else class="settings-child settings-child--hotkeys">
-        <UiButton variant="ghost" size="sm" class="settings-back" @click="changePage('root')"><ArrowLeft :size="15" />所有設定</UiButton>
-        <UiScrollArea class="annotation-settings__scroll">
-          <div class="annotation-settings__body">
-            <section v-for="group in commandGroups" :key="group.label">
-              <h3>{{ group.label }}</h3>
-              <ul>
-                <li v-for="command in group.commands" :key="command.action">
-                  <div><strong>{{ command.label }}</strong><small>{{ command.description }}</small></div>
-                  <UiButton variant="secondary" size="sm" :class="{ recording: recording === command.action }" @click="beginRecording(command.action)">
-                    <span v-if="recording === command.action">請按新按鍵…</span><UiKbd v-else>{{ formatBindingForDisplay(bindings[command.action]) }}</UiKbd>
+            <div v-else-if="page === 'media'" class="settings-child">
+              <section class="buffer-settings">
+                <div class="buffer-settings__heading"><strong>瀏覽器快取大小</strong><small>較大的緩衝可減少長時間播放與回放切換時的等待。</small></div>
+                <div class="buffer-presets" role="radiogroup" aria-label="瀏覽器快取大小">
+                  <UiButton
+                    v-for="([value, profile]) in mediaPresets"
+                    :key="value"
+                    variant="ghost"
+                    class="buffer-preset"
+                    :class="{ selected: bufferPreset === value }"
+                    role="radio"
+                    :aria-checked="bufferPreset === value"
+                    @click="setBufferPreset(value)"
+                  >
+                    <span><strong>{{ profile.label }}</strong><small>{{ profile.description }}</small></span>
+                    <i aria-hidden="true" />
                   </UiButton>
-                </li>
-              </ul>
-            </section>
-            <p v-if="recordingError" class="annotation-settings__error" role="alert">{{ recordingError }}</p>
-          </div>
-        </UiScrollArea>
-      </div>
+                </div>
+              </section>
+            </div>
+
+            <div v-else-if="page === 'clip'" class="settings-child">
+              <section class="clip-settings">
+                <div class="clip-setting-row">
+                  <label for="clip-pre-roll"><strong>發球前</strong><small>草稿片段向前保留</small></label>
+                  <span><input id="clip-pre-roll" v-model.number="clipPreRollSeconds" type="number" min="0" max="30" step="1"><i>秒</i></span>
+                </div>
+                <div class="clip-setting-row">
+                  <label for="clip-post-roll"><strong>結束後</strong><small>終止擊球點後保留</small></label>
+                  <span><input id="clip-post-roll" v-model.number="clipPostRollSeconds" type="number" min="0" max="30" step="1"><i>秒</i></span>
+                </div>
+                <p>已送出的片段保留送出當下的範圍；建立並送出修正版時才套用目前設定。</p>
+                <p v-if="clipValidationError || clipPolicyError" class="annotation-settings__error" role="alert">{{ clipValidationError || clipPolicyError }}</p>
+                <UiButton :disabled="clipPolicySaving" @click="saveClipPolicy">{{ clipPolicySaving ? '儲存中…' : '套用到本場' }}</UiButton>
+              </section>
+            </div>
+
+            <div v-else class="settings-child settings-child--hotkeys">
+              <div class="annotation-settings__body">
+                <section v-for="group in commandGroups" :key="group.label">
+                  <h3>{{ group.label }}</h3>
+                  <ul>
+                    <li v-for="command in group.commands" :key="command.action">
+                      <div><strong>{{ command.label }}</strong><small>{{ command.description }}</small></div>
+                      <UiButton variant="secondary" size="sm" :class="{ recording: recording === command.action }" @click="beginRecording(command.action)">
+                        <span v-if="recording === command.action">請按新按鍵…</span><UiKbd v-else>{{ formatBindingForDisplay(bindings[command.action]) }}</UiKbd>
+                      </UiButton>
+                    </li>
+                  </ul>
+                </section>
+                <p v-if="recordingError" class="annotation-settings__error" role="alert">{{ recordingError }}</p>
+              </div>
+            </div>
+          </UiScrollArea>
+        </div>
+      </Transition>
     </div>
     <template #footer>
       <UiButton v-if="page === 'hotkeys'" variant="ghost" @click="restoreAllDefaults"><RotateCcw :size="15" />還原預設值</UiButton>
@@ -206,16 +207,13 @@ function close() {
 </template>
 
 <style scoped>
-.settings-page{min-height:0;overflow:hidden;background:#09090b;view-transition-name:annotation-settings-page}.settings-menu{display:grid;gap:6px;padding:12px}.settings-menu__item{width:100%;min-height:64px;justify-content:flex-start;padding:10px 12px;text-align:left}.settings-menu__item>span:nth-child(2){display:grid;flex:1;gap:3px}.settings-menu__item strong,.buffer-preset strong{font-size:.74rem}.settings-menu__item small,.buffer-preset small,.buffer-settings__heading small{color:#a1a1aa;font-size:.63rem;font-weight:500}.settings-menu__icon{display:grid;width:34px;height:34px;place-items:center;border-radius:8px;background:#18181b;color:#d4d4d8}.settings-child{min-height:0;padding:10px 12px 14px}.settings-child--hotkeys{height:100%;display:grid;grid-template-rows:auto minmax(0,1fr);padding-bottom:0}.settings-back{margin-bottom:6px;padding-inline:8px}.buffer-settings{display:grid;gap:10px;padding:4px}.buffer-settings__heading{display:grid;gap:4px;padding:4px 2px}.buffer-presets{display:grid;gap:4px}.buffer-preset{width:100%;min-height:54px;justify-content:space-between;padding:8px 10px;text-align:left}.buffer-preset>span{display:grid;gap:3px}.buffer-preset i{width:14px;height:14px;border:1px solid #52525b;border-radius:999px}.buffer-preset.selected{background:#27272a;color:#fafafa}.buffer-preset.selected i{border:4px solid #fafafa}.annotation-settings__scroll{min-height:0;height:100%}.annotation-settings__body{padding:4px 6px 18px}.annotation-settings__body section+section{margin-top:18px}.annotation-settings__body h3{margin:0 0 6px;color:#d4d4d8;font-size:.67rem}.annotation-settings__body ul{margin:0;padding:0;list-style:none}.annotation-settings__body li{display:flex;align-items:center;justify-content:space-between;gap:18px;padding:9px 0;border-bottom:1px solid #27272a}.annotation-settings__body li div{display:grid;gap:2px}.annotation-settings__body li strong{font-size:.72rem}.annotation-settings__body li small{color:#a1a1aa;font-size:.62rem}.annotation-settings__body li :deep(button){min-width:118px;font:700 .66rem "Cascadia Mono",Consolas,monospace}.annotation-settings__body li :deep(button.recording){box-shadow:0 0 0 2px #fafafa;background:#3f3f46}.annotation-settings__error{padding:8px;border-radius:7px;background:#2b1114;color:#fca5a5;font-size:.68rem}
+.settings-page-viewport{position:relative;height:100%;min-height:0;overflow:hidden;background:#09090b;isolation:isolate}.settings-page{width:100%;height:100%;min-height:0;background:#09090b}.settings-page__scroll{height:100%;min-height:0}.settings-header-back{color:#a1a1aa}.settings-header-back:hover{background:#27272a;color:#fafafa}.settings-menu{display:grid;gap:6px;padding:12px 18px 18px 12px}.settings-menu__item{width:100%;min-height:64px;justify-content:flex-start;padding:10px 12px;text-align:left}.settings-menu__item>span:nth-child(2){display:grid;flex:1;gap:3px}.settings-menu__item strong,.buffer-preset strong{font-size:.74rem}.settings-menu__item small,.buffer-preset small,.buffer-settings__heading small{color:#a1a1aa;font-size:.63rem;font-weight:500}.settings-menu__icon{display:grid;width:34px;height:34px;place-items:center;border-radius:8px;background:#18181b;color:#d4d4d8}.settings-child{min-height:0;padding:12px 18px 18px 12px}.settings-child--hotkeys{display:block}.buffer-settings{display:grid;gap:10px;padding:4px}.buffer-settings__heading{display:grid;gap:4px;padding:4px 2px}.buffer-presets{display:grid;gap:4px}.buffer-preset{width:100%;min-height:54px;justify-content:space-between;padding:8px 10px;text-align:left}.buffer-preset>span{display:grid;gap:3px}.buffer-preset i{width:14px;height:14px;border:1px solid #52525b;border-radius:999px}.buffer-preset.selected{background:#27272a;color:#fafafa}.buffer-preset.selected i{border:4px solid #fafafa}.annotation-settings__body{padding:4px 6px 18px}.annotation-settings__body section+section{margin-top:18px}.annotation-settings__body h3{margin:0 0 6px;color:#d4d4d8;font-size:.67rem}.annotation-settings__body ul{margin:0;padding:0;list-style:none}.annotation-settings__body li{display:flex;align-items:center;justify-content:space-between;gap:18px;padding:9px 0;border-bottom:1px solid #27272a}.annotation-settings__body li div{display:grid;gap:2px}.annotation-settings__body li strong{font-size:.72rem}.annotation-settings__body li small{color:#a1a1aa;font-size:.62rem}.annotation-settings__body li :deep(button){min-width:118px;font:700 .66rem "Cascadia Mono",Consolas,monospace}.annotation-settings__body li :deep(button.recording){box-shadow:0 0 0 2px #fafafa;background:#3f3f46}.annotation-settings__error{padding:8px;border-radius:7px;background:#2b1114;color:#fca5a5;font-size:.68rem}.settings-forward-enter-active,.settings-forward-leave-active,.settings-back-enter-active,.settings-back-leave-active{transition:transform 280ms cubic-bezier(.16,1,.3,1);will-change:transform}.settings-forward-leave-active,.settings-back-leave-active{position:absolute;inset:0;z-index:1;pointer-events:none}.settings-forward-enter-active,.settings-back-enter-active{position:relative;z-index:2}.settings-forward-enter-from{transform:translateX(44px)}.settings-forward-leave-to{transform:translateX(-28px)}.settings-back-enter-from{transform:translateX(-44px)}.settings-back-leave-to{transform:translateX(28px)}
 </style>
 
 <style scoped>
 .clip-settings{display:grid;gap:8px;padding:4px}.clip-setting-row{display:flex;align-items:center;justify-content:space-between;gap:24px;padding:12px 2px;border-bottom:1px solid #27272a}.clip-setting-row label{display:grid;gap:3px}.clip-setting-row strong{font-size:.74rem}.clip-setting-row small,.clip-settings>p{color:#a1a1aa;font-size:.63rem}.clip-setting-row>span{display:flex;align-items:center;gap:7px}.clip-setting-row input{width:72px;height:34px;border:1px solid #3f3f46;border-radius:7px;background:#111113;color:#fafafa;font:700 .74rem "Cascadia Mono",Consolas,monospace;text-align:center}.clip-setting-row i{color:#a1a1aa;font-size:.66rem;font-style:normal}.clip-settings>p{margin:4px 0 2px;line-height:1.55}
 </style>
 
-<style>
-::view-transition-old(annotation-settings-page){animation:settings-page-out 120ms cubic-bezier(.4,0,1,1) both}
-::view-transition-new(annotation-settings-page){animation:settings-page-in 180ms cubic-bezier(.16,1,.3,1) both}
-@keyframes settings-page-out{to{opacity:0;transform:translateX(-8px)}}
-@keyframes settings-page-in{from{opacity:0;transform:translateX(10px)}}
+<style scoped>
+@media(prefers-reduced-motion:reduce){.settings-forward-enter-active,.settings-forward-leave-active,.settings-back-enter-active,.settings-back-leave-active{transition-duration:120ms;transition-property:opacity}.settings-forward-enter-from,.settings-forward-leave-to,.settings-back-enter-from,.settings-back-leave-to{opacity:0;transform:none}}
 </style>

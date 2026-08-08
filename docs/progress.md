@@ -1,5 +1,18 @@
 # Progress
 
+## 2026-08-08 — Local-first annotation input and event-driven collaboration
+
+Status: implemented and validated on `codex/annotation-optimistic-input`; integration review is in progress.
+
+- Split the Annotation workstation into dedicated header, match-inspector and transport components plus a read-only workstation view-model composable. The route now owns orchestration and media/annotation side effects instead of rendering every workspace surface inline, and unused route helpers were removed with `vue-tsc --noUnusedLocals` evidence.
+- Added a persisted optimistic command queue. Z, X, left/right/unknown close and Enter project immediately from the client observation while commands remain serialized over the dedicated Annotation WebSocket. Rapid contacts no longer wait for the preceding network round trip, and each queued command rebases onto the latest confirmed revision before transmission.
+- Preserved the authority boundary: projected points are marked estimated, while each ACK replaces them with the server-resolved capture epoch, PTS, capture time and frame. CLOSE still targets the server-confirmed final key point at send time and produces no standalone score event.
+- Removed fixed `ActiveAnnotationRally` GraphQL polling and duplicate ACK-triggered refetches. The query now runs only for initial connection, reconnection or explicit recovery; after a durable command, the origin receives its ACK and the server broadcasts the committed `rally_snapshot` revision to every socket in the room. Annotation no longer polls the full coach read model, and live DVR growth refreshes only the lightweight selected capture timeline instead of refetching the full match.
+- Fixed the submitted-to-new-service projection gap so Z creates the next local Rally immediately instead of waiting for a snapshot request. Hotkeys remain registered while temporarily unavailable so TanStack observes keyup and the first newly valid press is not swallowed.
+- Key-point pointer drag now retains its client target while authoritative cursor resolution and MOVE run in the background. Invalid padded ranges are rejected before the visual move, and the server transaction independently rejects any MOVE that would overlap another mutable or immutable Rally clip without advancing the revision.
+
+Validation passed: full workspace typecheck and production build; Contracts `12/12`, DB `4/4`, Media `88/88`, Server `187/187`, Worker `156/156` with 6 environment-gated skips, Web `121/121` and frozen-uv SDK `16/16`. Focused final checks passed 24 Web and 41 Annotation transport/command tests. Headed Chromium confirmed a fresh runtime with zero console errors, first-press Space playback toggling, one initial `ActiveAnnotationRally` recovery query and only lightweight capture-timeline refreshes afterward.
+
 ## 2026-08-08 — Match clip policy, correction rollback and timeline command synchronization
 
 Status: implemented and locally integrated on `integration/phase3-annotation`. The Annotation workstation now uses a match-owned dynamic clip policy with a three-second default while preserving every immutable submission's original range.
