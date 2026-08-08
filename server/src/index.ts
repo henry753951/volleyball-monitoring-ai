@@ -1,4 +1,5 @@
 import cors from '@fastify/cors'
+import multipart from '@fastify/multipart'
 import websocket from '@fastify/websocket'
 import { db } from '@volleyball-monitoring/db'
 import Fastify, { type FastifyReply, type FastifyRequest } from 'fastify'
@@ -13,10 +14,12 @@ import { resolvePlaybackCursor } from './media/cursor-resolution.js'
 import { createMinioObjectReaderFromEnv } from './media/minio-object-reader.js'
 import { createSampleIndexRepository } from './media/sample-index-repository.js'
 import { createPersistedSampleSnapResolver } from './media/sample-snap-resolver.js'
+import { createMediaSourceGatewayFromEnv, type MediaSourceGateway } from './media/media-source-gateway.js'
 import { mediaPlaybackRoutes } from './routes/media-playback.js'
 import { aiCallbackRoutes } from './routes/ai-callback.js'
 import { analysisMediaRoutes } from './routes/analysis-media.js'
 import { collectOperationsSnapshot, operationsRoutes } from './routes/operations.js'
+import { mediaSourceRoutes } from './routes/media-sources.js'
 import { createAnnotationPresenceService } from './realtime/annotation-presence.js'
 import { annotationWebSocketRoutes } from './realtime/annotation-ws.js'
 import { coachWebSocketRoutes } from './realtime/coach-ws.js'
@@ -27,7 +30,14 @@ import { getAnnotationSnapshot } from './services/annotation-snapshot.js'
 const app = Fastify({ logger: true })
 const redisUrl = process.env.REDIS_URL
 const minioEndpoint = process.env.MINIO_ENDPOINT?.replace(/\/+$/, '')
+const omeApiEndpoint = process.env.OME_API_URL?.replace(/\/+$/, '')
+const omeApiToken = process.env.OME_API_ACCESS_TOKEN?.trim()
 const mediaObjectReader = createMinioObjectReaderFromEnv()
+const configuredMediaSourceGateway = createMediaSourceGatewayFromEnv()
+const mediaSourceGateway: MediaSourceGateway = configuredMediaSourceGateway ?? {
+  async start() { throw new Error('Media source gateway is not configured') },
+  async stop() { throw new Error('Media source gateway is not configured') },
+}
 if (!mediaObjectReader) {
   throw new Error('MinIO reader configuration is required for media playback and cursor resolution')
 }
@@ -83,11 +93,31 @@ const readinessProbes: ReadinessProbe[] = [
       if (!response.ok) throw new Error(`MinIO readiness returned ${response.status}`)
     },
   },
+  {
+    name: 'ovenmediaengine',
+    check: async (signal) => {
+      if (!omeApiEndpoint || !omeApiToken) throw new Error('OME_API_URL and OME_API_ACCESS_TOKEN are required')
+      const authorization = Buffer.from(omeApiToken).toString('base64')
+      const response = await fetch(`${omeApiEndpoint}/v1/vhosts/default/apps/app/streams`, {
+        headers: { authorization: `Basic ${authorization}` },
+        signal,
+      })
+      if (!response.ok) throw new Error(`OvenMediaEngine readiness returned ${response.status}`)
+    },
+  },
 ]
 
 await app.register(cors, {
   origin: process.env.WEB_ORIGIN ?? true,
   credentials: true,
+})
+await app.register(multipart, {
+  limits: {
+    files: 2,
+    fields: 4,
+    parts: 6,
+    fileSize: Number(process.env.MEDIA_UPLOAD_MAX_BYTES ?? 21_474_836_480),
+  },
 })
 await app.register(websocket)
 await app.register(aiCallbackRoutes)
@@ -97,6 +127,15 @@ await app.register(mediaPlaybackRoutes({
   resolveSample: createPersistedSampleSnapResolver(db, mediaObjectReader),
 }))
 await app.register(mediaCursorRoutes({ objectReader: mediaObjectReader }))
+await app.register(mediaSourceRoutes({
+  authenticate: request => authenticateDevelopmentAnnotationRequest(request, db),
+  ...(process.env.MEDIA_SOURCE_GATEWAY_TOKEN
+    ? { callbackToken: process.env.MEDIA_SOURCE_GATEWAY_TOKEN }
+    : {}),
+  database: db,
+  gateway: mediaSourceGateway,
+  importRoot: process.env.MEDIA_IMPORT_ROOT ?? '/var/lib/volleyball/media-imports',
+}))
 await app.register(operationsRoutes(
   identity => collectOperationsSnapshot(db, identity),
   {

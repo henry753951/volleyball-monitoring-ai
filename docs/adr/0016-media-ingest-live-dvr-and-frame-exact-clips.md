@@ -1,11 +1,11 @@
 # ADR 0016: Media ingest, continuous Live DVR and frame-exact clips
 
-Status: Accepted — 2026-08-08
+Status: Superseded by ADR 0017 — 2026-08-09
 
 ## Context
 
 The system already has a server-owned canonical timeline (`CaptureEpoch`, strict
-sample indexes, DVR segments and bounded `PlaybackWindow`s), MediaMTX recording,
+sample indexes, DVR segments and bounded `PlaybackWindow`s), live recording,
 HLS.js playback and immutable submission anchors. Replacing the streaming layer
 must not replace or weaken that time authority.
 
@@ -34,7 +34,7 @@ Stopping or deleting a match source ends its capture lifecycle; operations
 queries are authorization- and match-scoped so historical test fixtures cannot
 appear as another match's active input.
 
-MediaMTX recorder files may restart their container-local PTS at every file
+Recorder files may restart their container-local PTS at every file
 boundary. Each reset opens a new `CaptureEpoch` so source PTS remains truthful,
 but a PTS reset by itself does not create a playback discontinuity. Only an
 observed source restart, explicit timestamp/time-base discontinuity or real gap
@@ -42,16 +42,11 @@ increments the playback discontinuity. Source lifecycle hooks persist an
 offline marker in the recorder spool before best-effort worker notification, so
 periodic reconciliation remains sufficient after worker or network failure.
 
-### Streaming layer
+### Streaming layer (historical decision)
 
-Keep MediaMTX as the current live ingest/recording implementation. It already
-produces the fMP4 recordings consumed by the canonical indexer, so replacing it
-before a compatibility test would create risk without removing the canonical
-index requirement.
-
-OME is an approved prototype candidate for the live adapter because LL-HLS Live
-Rewind can provide a continuously reloaded playlist, disk-backed DVR and live
-edge behavior. It is not a canonical frame authority. Promotion requires:
+This ADR originally retained MediaMTX while OME was evaluated. ADR 0017 records
+the completed promotion decision and is authoritative for the runtime adapter.
+The promotion criteria were:
 
 1. equivalent source lifecycle and reconnect/discontinuity signals;
 2. retained actual sample PTS and stable access to recorded media;
@@ -110,7 +105,7 @@ must pass the same output-frame verification.
 
 ## Consequences
 
-- OME is not introduced as a speculative second media stack.
+- OME must not be introduced as a speculative second media stack.
 - Local files and YouTube VOD avoid an unnecessary decode/stream/record loop.
 - Continuous Live DVR can be improved independently of immutable annotation and
   clip/AI timing.

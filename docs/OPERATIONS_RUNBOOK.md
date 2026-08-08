@@ -15,13 +15,13 @@ Restart stateful dependencies one at a time, waiting for `healthy` and Server re
 
 ## YouTube Live relay and real-time replay simulation
 
-The optional `youtube-relay` profile resolves a YouTube URL with an uv-managed, pinned `yt-dlp`, reads it at media rate with FFmpeg and publishes H.264/AAC to an already registered MediaMTX ingest path. MediaMTX remains the recorder: completed fMP4 segments enter the ordinary media-indexer path, server DVR timeline and bounded playback-window API. The browser never receives the YouTube signed source URL.
+The optional `youtube-relay` profile resolves a YouTube URL with an uv-managed, pinned `yt-dlp`, reads it at media rate with FFmpeg and publishes H.264/AAC to an already registered OvenMediaEngine stream. OME remains the live/LL-HLS/recording adapter: finalized MP4 recordings enter the ordinary media-indexer path, server DVR timeline and bounded playback-window API. The browser never receives the YouTube signed source URL.
 
-Register the capture first from Annotation's upper-right stream-source dialog. Use source kind `rtmp` and an ingest path that exactly matches `YOUTUBE_INGEST_PATH`, for example `youtube/live`. Then start only the optional relay profile without storing the source URL in `.env`:
+Normally create the source in the New Match flow. For a manual drill, register a capture first and use an OME-safe stream name that exactly matches `YOUTUBE_INGEST_PATH`, for example `youtube-live`. Then start only the optional relay profile without storing the source URL in `.env`:
 
 ```powershell
 $env:YOUTUBE_SOURCE_URL = 'https://www.youtube.com/live/VIDEO_ID'
-$env:YOUTUBE_INGEST_PATH = 'youtube/live'
+$env:YOUTUBE_INGEST_PATH = 'youtube-live'
 try {
   docker compose --env-file .env -f infra/compose.yaml --profile youtube-relay up -d --build youtube-relay
 } finally {
@@ -33,7 +33,7 @@ docker logs -f volleyball-monitoring-ai-youtube-relay-1
 
 For an active broadcast, the relay starts at the current live edge. For a completed former livestream, FFmpeg `-re` replays the recording at real-time speed, which exercises the same ingest, growing server buffer, recording and DVR paths. The default is intentionally strict: 1920×1080 H.264 at 59–61 fps plus AAC. It accepts either one combined HLS URL or separate video/audio URLs and stream-copies both into RTMP; it fails closed rather than silently dropping to 720p or 30 fps. Override `YOUTUBE_FORMAT` only as an explicit operator decision. If the finite source ends or the container restarts, `restart: unless-stopped` starts that source again from its beginning.
 
-To stop cleanly, stop the publisher first, wait for the last MediaMTX segment hook, and then close the matching capture from the stream-source dialog:
+To stop cleanly, stop the publisher first, wait for OME to finalize the last recording, and then close the matching capture from the stream-source dialog:
 
 ```powershell
 docker compose --env-file .env -f infra/compose.yaml --profile youtube-relay stop youtube-relay
@@ -41,10 +41,10 @@ docker compose --env-file .env -f infra/compose.yaml --profile youtube-relay sto
 
 Only ingest or record streams when the operator has the required rights and the action complies with the source platform's terms. This development relay does not bypass access controls, DRM or geographic restrictions.
 
-MediaMTX lifecycle hooks persist a restart marker before notifying the indexer. A recorder-file PTS reset opens a new `CaptureEpoch` but stays in the current playback discontinuity; only an observed source restart, time-base/timestamp discontinuity or real gap increments the playback discontinuity. Verify a captured spool with actual ffprobe sample tables:
+The OME recording watcher persists a restart marker before notifying the indexer. A recorder-file PTS reset opens a new `CaptureEpoch` but stays in the current playback discontinuity; only an observed source restart, time-base/timestamp discontinuity or real gap increments the playback discontinuity. Verify a captured spool with actual ffprobe sample tables:
 
 ```powershell
-bun run media:reconnect-smoke -- C:\path\to\recording-spool youtube/live
+bun run media:reconnect-smoke -- C:\path\to\recording-spool youtube-live
 ```
 
 The command must report contiguous canonical frame indices, monotonic capture time, unchanged discontinuity across ordinary recorder files and exactly one increment at the persisted reconnect marker. It never derives sample identity from average FPS or recording filenames.

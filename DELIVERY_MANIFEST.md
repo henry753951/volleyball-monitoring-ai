@@ -28,7 +28,7 @@ This repository is a contract-first monitoring application with working local ve
 - REST/WebSocket/AI/FlatBuffers contracts: `packages/contracts/`
 - GitHub-installable Python SDK: `sdk/`
 - Media/job worker scaffold: `worker/`
-- Local Docker Compose, Traefik, MediaMTX and MinIO baseline: `infra/`
+- Local Docker Compose, Traefik, OvenMediaEngine and MinIO baseline: `infra/`
 - Recorded Contract Lab tracking provider for deterministic integration development: `examples/tracking_replay_provider/`
 
 ## Product invariants

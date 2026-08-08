@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   MediaHttpError,
+  assertRollingPlaybackSelection,
   buildPlaybackDescriptor,
   buildReadyPlaybackRuns,
   formatManifest,
@@ -50,11 +51,11 @@ const limits = {
 }
 
 describe('playback window selection', () => {
-  it('selects a bounded contiguous run without crossing a discontinuity', () => {
+  it('crosses capture epochs inside one window but still stops at real gaps', () => {
     const candidates = [
       segment(ids.first, 0n, 1_000_000n),
       segment(ids.second, 1_000_000n, 2_000_000n),
-      segment(ids.third, 2_000_000n, 3_000_000n),
+      segment(ids.third, 2_000_000n, 3_000_000n, { discontinuity: 1 }),
       segment(ids.gap, 3_000_000n, 5_000_000n, {
         discontinuity: 1,
         isGap: true,
@@ -69,16 +70,17 @@ describe('playback window selection', () => {
       liveEdgeUs: 6_000_000n,
       mode: 'archive',
       requestedBackUs: 10_000_000n,
-      requestedForwardUs: 500_000n,
+      requestedForwardUs: 1_500_000n,
       requestedTargetUs: 1_500_000n,
     })
 
     expect(selection.segments.map((value) => value.id)).toEqual([
       ids.first,
       ids.second,
+      ids.third,
     ])
     expect(selection.windowStartUs).toBe(0n)
-    expect(selection.windowEndUs).toBe(2_000_000n)
+    expect(selection.windowEndUs).toBe(3_000_000n)
     expect(selection.timelineStartUs).toBe(0n)
     expect(selection.timelineEndUs).toBe(6_000_000n)
     expect(selection.selectedRun.discontinuity).toBe(0)
@@ -149,17 +151,39 @@ describe('playback window selection', () => {
 })
 
 describe('playback manifest and wire views', () => {
+  it('accepts an append-only rolling selection and rejects rewritten overlap', () => {
+    const current = [
+      segment(ids.first, 0n, 1_000_000n),
+      segment(ids.second, 1_000_000n, 2_000_000n),
+    ]
+    expect(() => assertRollingPlaybackSelection(current, [
+      current[1]!,
+      segment(ids.third, 2_000_000n, 3_000_000n),
+    ])).not.toThrow()
+    expect(() => assertRollingPlaybackSelection(current, [
+      segment(ids.third, 1_000_000n, 2_000_000n),
+      segment(ids.later, 2_000_000n, 3_000_000n),
+    ])).toThrowError(expect.objectContaining({ code: 'MAPPING_STALE' }))
+    expect(() => assertRollingPlaybackSelection(current, [
+      segment(ids.third, 2_000_000n, 3_000_000n),
+    ])).toThrowError(expect.objectContaining({ code: 'MAPPING_STALE' }))
+  })
+
   it('emits deterministic authorized init/media tokens and exact durations', () => {
     const manifest = formatManifest(ids.window, [
-      { durationUs: 1_001_001n, id: ids.first, initAssetId: ids.initA },
-      { durationUs: 16_683n, id: ids.second, initAssetId: ids.initA },
-      { durationUs: 2_000_000n, id: ids.third, initAssetId: ids.initB },
-    ])
+      { discontinuity: 0, durationUs: 1_001_001n, id: ids.first, initAssetId: ids.initA, sequenceNumber: 41n },
+      { discontinuity: 0, durationUs: 16_683n, id: ids.second, initAssetId: ids.initA, sequenceNumber: 42n },
+      { discontinuity: 1, durationUs: 2_000_000n, id: ids.third, initAssetId: ids.initB, sequenceNumber: 43n },
+    ], { endList: false })
 
     expect(manifest).toContain('#EXT-X-TARGETDURATION:2')
+    expect(manifest).toContain('#EXT-X-MEDIA-SEQUENCE:41')
+    expect(manifest).not.toContain('#EXT-X-PLAYLIST-TYPE:VOD')
+    expect(manifest).not.toContain('#EXT-X-ENDLIST')
     expect(manifest).toContain('#EXTINF:1.001001,')
     expect(manifest).toContain('#EXTINF:0.016683,')
     expect(manifest.match(/#EXT-X-MAP/g)).toHaveLength(2)
+    expect(manifest.match(/#EXT-X-DISCONTINUITY/g)).toHaveLength(1)
     expect(manifest).toContain(`/segments/init-${ids.first}`)
     expect(manifest).toContain(`/segments/media-${ids.second}`)
     expect(manifest).not.toMatch(/objectKey|minio|https?:\/\//i)

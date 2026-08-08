@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<RecordInfo>
+  <Record>
+    <Enable>true</Enable>
+    <StreamName>*</StreamName>
+    <FilePath>/${Stream}/${StartTime:YYYYMMDDhhmmss}_${Sequence}.mp4</FilePath>
+    <InfoPath>/${Stream}/recording.xml</InfoPath>
+    <SegmentInterval>2000</SegmentInterval>
+    <SegmentRule>continuity</SegmentRule>
+  </Record>
+</RecordInfo>

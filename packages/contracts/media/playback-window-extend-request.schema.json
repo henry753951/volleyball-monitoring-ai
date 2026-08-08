@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/OWNER/volleyball-monitoring-ai/packages/contracts/media/playback-window-extend-request/1.0.0",
+  "title": "Playback Window Extend Request 1.0.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "target_capture_time_us"],
+  "properties": {
+    "schema_version": { "const": "1.0.0" },
+    "target_capture_time_us": { "type": "string", "pattern": "^[0-9]+$" },
+    "requested_forward_us": { "type": "string", "pattern": "^[0-9]+$" }
+  }
+}

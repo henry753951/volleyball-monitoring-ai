@@ -69,7 +69,7 @@ describe('media indexer runtime kernel', () => {
     })).toThrow()
   })
 
-  it('parses only real MediaMTX timestamps into chronological source order', () => {
+  it('parses canonical recorder timestamps into chronological source order', () => {
     const first = sourceOrderFromCandidate(
       'court-a/2026-08-07_06-30-01-123456.mp4',
     )
@@ -77,6 +77,8 @@ describe('media indexer runtime kernel', () => {
       'court-a/2026-08-07_06-30-02-000001.mp4',
     )
     expect(BigInt(first)).toBeLessThan(BigInt(second))
+    expect(sourceOrderFromCandidate('court-a/2026-08-07_06-30-02_12.mp4')).toBe('1786084202000012')
+    expect(sourceOrderFromCandidate('court-a/20260807063002_12.mp4')).toBe('1786084202000012')
     expect(() => sourceOrderFromCandidate('court-a/segment-1.mp4')).toThrow()
     expect(() => sourceOrderFromCandidate(
       'court-a/2026-02-31_06-30-01-123456.mp4',

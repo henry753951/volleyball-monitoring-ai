@@ -7,7 +7,7 @@ set -eu
 format="${YOUTUBE_FORMAT:-best[protocol*=m3u8][height=1080][fps>=59][fps<=61][vcodec^=avc][acodec!=none]/bestvideo[height=1080][fps>=59][fps<=61][vcodec^=avc]+bestaudio[acodec^=mp4a]}"
 extractor_args="${YOUTUBE_EXTRACTOR_ARGS:-youtube:player_client=android_vr}"
 
-echo "youtube-relay: resolving source and publishing to configured MediaMTX ingest path"
+echo "youtube-relay: resolving source and publishing to configured OvenMediaEngine ingest path"
 stream_urls="$(yt-dlp \
   --no-playlist \
   --no-progress \

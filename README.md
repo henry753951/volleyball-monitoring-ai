@@ -20,7 +20,7 @@
 - `@vite-pwa/nuxt` landscape-first iPad PWA
 - Fastify + GraphQL Yoga + Pothos code-first + Prisma/PostgreSQL
 - REST for media/callback/binary; dedicated WebSocket for annotation; FlatBuffers for per-frame overlay
-- MediaMTX + FFmpeg/ffprobe for ingest, full-session DVR, playback windows and clip processing
+- OvenMediaEngine + FFmpeg/ffprobe for ingest, LL-HLS, full-session DVR, playback windows and clip processing
 - PostgreSQL 17, Redis 8, MinIO S3, Traefik 3.7.9
 - Python SDK installable from this GitHub repository
 

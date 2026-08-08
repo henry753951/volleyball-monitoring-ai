@@ -43,6 +43,17 @@ class PlaybackWindowRequest(StrictModel):
         return self
 
 
+class PlaybackWindowExtendRequest(StrictModel):
+    schema_version: Literal["1.0.0"]
+    target_capture_time_us: str
+    requested_forward_us: str | None = None
+
+    @field_validator("target_capture_time_us", "requested_forward_us")
+    @classmethod
+    def validate_uint(cls, value: str | None, info: Any) -> str | None:
+        return None if value is None else _digits(value, info.field_name)
+
+
 class PlaybackWindowDescriptor(StrictModel):
     schema_version: Literal["1.0.0"]
     playback_window_id: str = Field(min_length=1, max_length=128)

@@ -48,7 +48,7 @@ function normalizedCapturePath(value: string): string {
   const path = value.trim()
   const parts = path.split('/')
   if (!CAPTURE_PATH.test(path) || parts.some(part => !part || part === '.' || part === '..')) {
-    throw new OperationalMutationError('BAD_USER_INPUT', 'ingestPath must be a safe MediaMTX path')
+    throw new OperationalMutationError('BAD_USER_INPUT', 'ingestPath must be a safe media stream path')
   }
   return path
 }
@@ -109,6 +109,31 @@ export async function startCapture(
       },
     })
     return { ...capture, timeline: null }
+  }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable })
+}
+
+export async function failCaptureStartup(
+  database: PrismaClient,
+  captureSessionId: string,
+  reason: string,
+) {
+  const errorCode = createHash('sha256').update(reason).digest('hex').slice(0, 16)
+  return database.$transaction(async tx => {
+    await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`capture-session:${captureSessionId}`}, 0))::text AS lock`
+    const capture = await tx.captureSession.findUnique({ where: { id: captureSessionId } })
+    if (!capture || !['STARTING', 'LIVE'].includes(capture.status)) return capture
+    const failed = await tx.captureSession.update({
+      data: { endedAt: new Date(), health: 'OFFLINE', status: 'FAILED' },
+      where: { id: capture.id },
+    })
+    await tx.outboxEvent.create({ data: {
+      aggregateId: failed.id,
+      aggregateType: 'CaptureSession',
+      dedupeKey: `capture-start-failed:${failed.id}`,
+      eventType: 'capture.start_failed.v1',
+      payload: json({ capture_session_id: failed.id, error_code: errorCode }),
+    } })
+    return failed
   }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable })
 }
 

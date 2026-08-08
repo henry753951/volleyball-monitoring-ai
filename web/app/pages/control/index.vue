@@ -23,7 +23,9 @@ import {
   Workflow,
   XCircle,
 } from 'lucide-vue-next'
-import type { CreateMatchSetupInput, Match } from '~/lib/coreDomain'
+import type { Match } from '~/lib/coreDomain'
+import type { CreateMatchWithMediaInput } from '~/lib/mediaSourceClient'
+import { createMediaSourceClient } from '~/lib/mediaSourceClient'
 import { visibleStreamsForMatches, type MetricGroup, type StreamSnapshot } from '~/lib/operationsMonitor'
 
 definePageMeta({ layout: 'control' })
@@ -38,8 +40,11 @@ type MatchListItem = (typeof matchesState.matches.value)[number]
 const setup = useCreateMatchSetup()
 const core = useCoreDomain()
 const monitor = useOperationsMonitor()
+const mediaSources = createMediaSourceClient()
 const search = ref('')
 const createOpen = ref(false)
+const createError = shallowRef<Error | null>(null)
+const createdMatchId = ref<string | null>(null)
 const sourceMatch = shallowRef<Match | null>(null)
 const rosterMatch = shallowRef<Match | null>(null)
 const sourceDialogOpen = ref(false)
@@ -144,7 +149,7 @@ const systemRows = computed(() => [
   { name: 'PostgreSQL', detail: `${all(database.value?.rallies)} 個回合 · ${database.value?.annotationOperations.total ?? 0} 次標註操作`, value: readiness('postgres') === 'ok' ? '正常' : '異常', tone: readiness('postgres') === 'ok' ? 'good' : 'danger', icon: Database },
   { name: 'Redis / 即時同步', detail: `${all(database.value?.outboxEvents)} 筆事件 · ${sum(database.value?.outboxEvents, { status: 'PENDING' })} 筆待送`, value: readiness('redis') === 'ok' ? '正常' : '異常', tone: readiness('redis') === 'ok' ? 'good' : 'danger', icon: Wifi },
   { name: 'S3 物件儲存', detail: `${all(database.value?.mediaAssets)} 個媒體資產 · ${sum(database.value?.mediaAssets, { state: 'READY' })} 個可用`, value: readiness('minio') === 'ok' ? '正常' : '異常', tone: readiness('minio') === 'ok' ? 'good' : 'danger', icon: HardDrive },
-  { name: '媒體程序', detail: `${liveStreams.value} 路運行 · ${unhealthyStreams.value} 路需處理`, value: unhealthyStreams.value ? '需要處理' : liveStreams.value ? '運行中' : '待命', tone: unhealthyStreams.value ? 'danger' : liveStreams.value ? 'good' : 'neutral', icon: RadioTower },
+  { name: 'OvenMediaEngine', detail: `${liveStreams.value} 路運行 · ${unhealthyStreams.value} 路需處理`, value: readiness('ovenmediaengine') === 'ok' ? (liveStreams.value ? '串流中' : '待命') : '異常', tone: readiness('ovenmediaengine') === 'ok' ? (unhealthyStreams.value ? 'warning' : 'good') : 'danger', icon: RadioTower },
 ] as Array<{ name: string; detail: string; value: string; tone: Tone; icon: typeof Server }>)
 
 async function openSource(matchId: string) {
@@ -159,13 +164,21 @@ function closeRoster() {
   rosterDialogOpen.value = false
   if (route.query.match) void router.replace({ path: '/control', query: view.value === 'overview' ? {} : { view: view.value } })
 }
-async function submit(input: CreateMatchSetupInput) {
+function closeCreate() {
+  createOpen.value = false
+  createError.value = null
+  createdMatchId.value = null
+}
+async function submit(input: CreateMatchWithMediaInput) {
   try {
-    await setup.create(input)
-    createOpen.value = false
+    if (!createdMatchId.value) createdMatchId.value = (await setup.create(input.match)).id
+    await mediaSources.create(createdMatchId.value, input.media)
+    closeCreate()
     await matchesState.refresh()
   }
-  catch { /* Stable error stays in MatchSetupForm. */ }
+  catch (error) {
+    createError.value = error instanceof Error ? error : new Error('場次建立失敗')
+  }
 }
 onMounted(async () => {
   await matchesState.refresh()
@@ -350,8 +363,8 @@ onMounted(async () => {
       </section>
     </div>
 
-    <UiAnimatedModal :open="createOpen" title="新增場次" description="建立場次、隊伍與初始球員名單" width="wide" @close="createOpen = false">
-      <UiScrollArea class="create-scroll"><div class="create-content"><MatchSetupForm :pending="setup.pending.value" :error="setup.error.value" compact @submit="submit" @cancel="createOpen = false" /></div></UiScrollArea>
+    <UiAnimatedModal :open="createOpen" title="新增場次" description="設定隊伍、名單與影音來源" width="wide" @close="closeCreate">
+      <UiScrollArea class="create-scroll"><div class="create-content"><MatchSetupForm :pending="setup.pending.value" :error="createError ?? setup.error.value" compact @submit="submit" @cancel="closeCreate" /></div></UiScrollArea>
     </UiAnimatedModal>
     <LazyCaptureControlDialog v-if="sourceMatch" :open="sourceDialogOpen" :match-id="sourceMatch.id" :captures="sourceMatch.captureSessions ?? []" @close="sourceDialogOpen = false" @changed="matchesState.refresh" />
     <LazyRosterEditorDialog v-if="rosterMatch" :open="rosterDialogOpen" :match="rosterMatch" @close="closeRoster" @changed="matchesState.refresh" />

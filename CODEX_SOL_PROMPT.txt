@@ -2,7 +2,7 @@
 
 先完整閱讀 docs/SYSTEM_SPEC_V3_2.pdf、docs/SYSTEM_SPEC_V3_2.md、docs/MAIN_AGENT_PROMPT.md、AGENTS.md、packages/contracts/README.md 與 fixtures，再稽核 scaffold；不要看到目錄就直接大量實作。固定行為以 PDF 第1、8-10、13-18、21-22、29章為準。
 
-最多同時使用三個 subagent：contracts_sdk_worker、backend_worker、luna_worker；主 Agent保留schema、架構、跨目錄修改與merge決策。本repo不實作AI模型，只完成PC-first Nuxt標註工作站、coach/viewer landscape-first iPad PWA、中央GraphQL/REST/WebSocket、完整server-side DVR與裁切、PostgreSQL/Prisma、Redis、MinIO、MediaMTX、Traefik、AI接口、Recorded Tracking Replay Provider與GitHub可安裝Python SDK。Annotation editor以desktop鍵盤／滑鼠與高資訊密度工作流為主，保留六個touch action parity；只有coach/viewer顯示面板要求installable iPad PWA。
+最多同時使用三個 subagent：contracts_sdk_worker、backend_worker、luna_worker；主 Agent保留schema、架構、跨目錄修改與merge決策。本repo不實作AI模型，只完成PC-first Nuxt標註工作站、coach/viewer landscape-first iPad PWA、中央GraphQL/REST/WebSocket、完整server-side DVR與裁切、PostgreSQL/Prisma、Redis、MinIO、OvenMediaEngine、Traefik、AI接口、Recorded Tracking Replay Provider與GitHub可安裝Python SDK。Annotation editor以desktop鍵盤／滑鼠與高資訊密度工作流為主，保留六個touch action parity；只有coach/viewer顯示面板要求installable iPad PWA。
 
 不可更改的是 command 語意：Z建立service、X建立contact、Space切換播放／暫停；<、>、?分別以單一CLOSE_RALLY atomically把server-confirmed最後key point標為terminal並保存rally-level resolved/left、resolved/right、unknown/null outcome，不建立新時間或score event；Enter建立immutable submission。實體鍵位可重新綁定，但設定必須有衝突檢查與還原所有預設快捷鍵；底部固定Z、X、<、>、?與按鍵設定六個精簡按鈕，沒有獨立結束或可見提交按鈕。mask狀態為灰色draft、黃色processing、藍色AI完成、綠色球員指派完成。Browser時間不是authoritative；整場DVR在server，client只lazy-load bounded window。court_pos一律由外部AI依固定球場模型產生，中央與前端不得推算或clamp。
 

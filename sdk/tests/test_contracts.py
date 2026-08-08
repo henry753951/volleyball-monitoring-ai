@@ -5,7 +5,7 @@ import pytest
 
 from volleyball_monitoring_ai import (
     AIJobRequest, AnalysisResult, ProviderCapabilities, validate_passthrough,
-    PlaybackWindowRequest, PlaybackWindowDescriptor, PlaybackCursor,
+    PlaybackWindowRequest, PlaybackWindowExtendRequest, PlaybackWindowDescriptor, PlaybackCursor,
     ResolvedMediaAnchor, FrameStepRequest, CanonicalFrameAnchor, MediaApiError,
     build_empty_overlay, build_tracking_overlay,
 )
@@ -95,6 +95,7 @@ def test_non_monotonic_key_points_are_rejected() -> None:
 def test_media_fixtures_validate_and_preserve_decimal_strings() -> None:
     media = Path(__file__).parents[2] / "packages" / "contracts" / "examples" / "media"
     PlaybackWindowRequest.model_validate_json((media / "playback-window-request.json").read_text())
+    PlaybackWindowExtendRequest.model_validate_json((media / "playback-window-extend-request.json").read_text())
     PlaybackWindowDescriptor.model_validate_json((media / "playback-window-descriptor-live.json").read_text())
     cursor = PlaybackCursor.model_validate_json((media / "playback-cursor-fallback.json").read_text())
     assert cursor.player_media_time_us == "9007199254740993"

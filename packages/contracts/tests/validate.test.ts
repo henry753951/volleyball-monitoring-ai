@@ -51,6 +51,7 @@ describe("golden contract fixtures", () => {
   it("validates existing media, annotation, and AI examples including formats", () => {
     const pairs: Record<string, string> = {
       "examples/media/playback-window-request.json": "media/playback-window-request.schema.json",
+      "examples/media/playback-window-extend-request.json": "media/playback-window-extend-request.schema.json",
       "examples/media/playback-window-descriptor.json": "media/playback-window-descriptor.schema.json",
       "examples/media/playback-cursor.json": "media/playback-cursor.schema.json",
       "examples/media/resolved-media-anchor.json": "media/resolved-media-anchor.schema.json",

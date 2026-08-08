@@ -58,4 +58,28 @@ describe('annotation realtime soft-lock client', () => {
     expect(parseAnnotationSoftLockIntent(JSON.parse(socket.sent[3]!)).editing_key_point_id).toBeNull()
     expect(states).toEqual(['connecting', 'ready', 'closed'])
   })
+
+  it('reports WebSocket round-trip latency from the keepalive response', () => {
+    const latency: Array<number | null> = []
+    const client = createAnnotationRealtimeClient(roomId, { onLatency: value => latency.push(value) })
+    client.connect()
+    const socket = FakeWebSocket.instances[0]!
+
+    socket.receive({
+      schema_version: '2.0.0', type: 'connection_ready', room_id: roomId, server_sequence: '0',
+      authenticated_user_id: 'user-1', device_session_id: 'device-1',
+    })
+    vi.advanceTimersByTime(37)
+    socket.receive({
+      schema_version: '2.0.0', type: 'presence_snapshot', room_id: roomId,
+      members: [{
+        device_session_id: 'device-1', user_id: 'user-1', display_name: 'Operator',
+        editing_key_point_id: null,
+      }],
+    })
+
+    expect(latency).toEqual([null, 37])
+    client.disconnect()
+    expect(latency.at(-1)).toBeNull()
+  })
 })

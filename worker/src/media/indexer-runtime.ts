@@ -9,7 +9,8 @@ export const MEDIA_INDEXER_HOOK_PATH = '/internal/media-indexer/recording-comple
 const SUPPORTED_EXTENSIONS = new Set(['.mp4', '.m4s', '.fmp4'])
 const CANONICAL_UNSIGNED_DECIMAL = /^(?:0|[1-9][0-9]*)$/
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
-const MEDIAMTX_TIMESTAMP = /(?:^|\/)(\d{4})-(\d{2})-(\d{2})_(\d{2})-(\d{2})-(\d{2})-(\d{6})(?:\.[^.]+)$/
+const RECORDING_TIMESTAMP = /(?:^|\/)(\d{4})-(\d{2})-(\d{2})_(\d{2})-(\d{2})-(\d{2})(?:-(\d{6})|_(\d+))(?:\.[^.]+)$/
+const OME_RECORDING_TIMESTAMP = /(?:^|\/)(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})_(\d+)(?:\.[^.]+)$/
 const SOURCE_RESTART_MARKER = /(?:^|\/)\.source-restart-(\d{4})-(\d{2})-(\d{2})_(\d{2})-(\d{2})-(\d{2})-(\d{6})\.marker$/
 
 export const MediaIndexerHookEvent = z.discriminatedUnion('event', [
@@ -70,11 +71,11 @@ export function epochCandidateId(
 }
 
 function sourceOrderFromTimestampMatch(match: RegExpExecArray | null): string {
-  if (!match) throw new Error('invalid MediaMTX timestamp')
+  if (!match) throw new Error('invalid recording timestamp')
   const [year, month, day, hour, minute, second] = match
     .slice(1, 7)
     .map(Number) as [number, number, number, number, number, number]
-  const micros = Number(match[7]!)
+  const micros = match[7] === undefined ? Number(match[8]!) : Number(match[7])
   if (
     year < 1970
     || month < 1
@@ -84,8 +85,10 @@ function sourceOrderFromTimestampMatch(match: RegExpExecArray | null): string {
     || hour > 23
     || minute > 59
     || second > 59
+    || micros < 0
+    || micros > 999_999
   ) {
-    throw new Error('invalid MediaMTX segment timestamp')
+    throw new Error('invalid recorder segment timestamp')
   }
   const timestampMs = Date.UTC(year, month - 1, day, hour, minute, second)
   const date = new Date(timestampMs)
@@ -97,14 +100,14 @@ function sourceOrderFromTimestampMatch(match: RegExpExecArray | null): string {
     || date.getUTCMinutes() !== minute
     || date.getUTCSeconds() !== second
   ) {
-    throw new Error('invalid MediaMTX segment timestamp')
+    throw new Error('invalid recorder segment timestamp')
   }
   return (BigInt(timestampMs) * 1_000n + BigInt(micros)).toString()
 }
 
 export function sourceOrderFromCandidate(candidateValue: string): string {
   const candidate = canonicalCandidate(candidateValue)
-  return sourceOrderFromTimestampMatch(MEDIAMTX_TIMESTAMP.exec(candidate))
+  return sourceOrderFromTimestampMatch(RECORDING_TIMESTAMP.exec(candidate) ?? OME_RECORDING_TIMESTAMP.exec(candidate))
 }
 
 export function sourceOrderFromRestartMarker(markerValue: string): string {

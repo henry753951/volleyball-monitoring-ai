@@ -11,6 +11,7 @@ export type AnnotationConnectionState = 'connecting' | 'ready' | 'reconnecting' 
 interface AnnotationRealtimeHandlers {
   onMessage?: (message: AnnotationServerMessage) => void
   onState?: (state: AnnotationConnectionState) => void
+  onLatency?: (latencyMs: number | null) => void
   onError?: (error: Error) => void
 }
 
@@ -34,6 +35,7 @@ export function createAnnotationRealtimeClient(
   let softLockTimer: ReturnType<typeof setInterval> | null = null
   let connectionReady = false
   let editingKeyPointId: string | null = null
+  let heartbeatStartedAt: number | null = null
   let currentState: AnnotationConnectionState = 'closed'
   const pending = new Map<string, {
     resolve: (response: AnnotationCommandResponse) => void
@@ -43,6 +45,10 @@ export function createAnnotationRealtimeClient(
   const setState = (state: AnnotationConnectionState) => {
     if (state === currentState) return
     currentState = state
+    if (state !== 'ready') {
+      heartbeatStartedAt = null
+      handlers.onLatency?.(null)
+    }
     handlers.onState?.(state)
   }
   const rejectPending = (error: Error) => {
@@ -61,6 +67,7 @@ export function createAnnotationRealtimeClient(
       room_id: roomId,
       editing_key_point_id: keyPointId,
     })
+    heartbeatStartedAt = performance.now()
     socket.send(JSON.stringify(intent))
     return true
   }
@@ -94,6 +101,10 @@ export function createAnnotationRealtimeClient(
           clearSoftLockTimer()
           sendSoftLock()
           softLockTimer = setInterval(() => { sendSoftLock() }, 5_000)
+        }
+        if (message.type === 'presence_snapshot' && heartbeatStartedAt !== null) {
+          handlers.onLatency?.(Math.max(0, Math.round(performance.now() - heartbeatStartedAt)))
+          heartbeatStartedAt = null
         }
         if (message.type === 'command_ack' || message.type === 'command_rejected') {
           pending.get(message.command_id)?.resolve(message)

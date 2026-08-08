@@ -6,9 +6,10 @@ RUN apk add --no-cache ca-certificates ffmpeg \
   && uv tool install "yt-dlp==${YT_DLP_VERSION}"
 
 COPY --chmod=0555 infra/youtube-relay/entrypoint.sh /usr/local/bin/youtube-relay
+COPY --chmod=0555 infra/youtube-relay/gateway.py /usr/local/bin/media-source-gateway
 
 # Windows worktrees can check shell scripts out with CRLF. Normalize inside the
 # image so the Linux shebang remains executable regardless of host Git config.
-RUN sed -i 's/\r$//' /usr/local/bin/youtube-relay
+RUN sed -i 's/\r$//' /usr/local/bin/youtube-relay /usr/local/bin/media-source-gateway
 
-ENTRYPOINT ["/usr/local/bin/youtube-relay"]
+ENTRYPOINT ["/usr/local/bin/media-source-gateway"]

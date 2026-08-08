@@ -3,6 +3,7 @@ import { createHash, randomUUID } from 'node:crypto'
 import { resolve } from 'node:path'
 import { promisify } from 'node:util'
 import type { db as DatabaseClient } from '@volleyball-monitoring/db'
+import multipart from '@fastify/multipart'
 import Fastify, { type FastifyInstance } from 'fastify'
 import { Pool } from 'pg'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
@@ -102,6 +103,9 @@ beforeAll(async () => {
   db = (await import('@volleyball-monitoring/db')).db
   const { aiCallbackRoutes } = await import('../src/routes/ai-callback.js')
   app = Fastify()
+  await app.register(multipart, {
+    limits: { fields: 4, files: 2, fileSize: 512 * 1024 * 1024, parts: 6 },
+  })
   await app.register(aiCallbackRoutes)
   await app.ready()
 

@@ -11,6 +11,13 @@ describe('media REST client', () => {
     expect(firstCall).toBeDefined()
     expect(firstCall![1]).toMatchObject({ credentials: 'include', method: 'POST' })
   })
+  it('extends a window through its stable manifest identity', async () => {
+    const payload = { schema_version: '1.0.0', playback_window_id: 'w', capture_session_id: 's', mode: 'archive', mapping_version: 2, timeline_capture_start_us: '0', timeline_capture_end_us: '20000000', window_capture_start_us: '0', window_capture_end_us: '20000000', presentation_origin_capture_us: '0', target_player_media_time_us: '8000000', manifest_url: '/api/v1/media/playback-windows/w/manifest.m3u8', expires_at: '2026-08-07T00:00:00Z', has_more_before: false, has_more_after: true }
+    const fetcher = vi.fn<typeof fetch>(async () => new Response(JSON.stringify(payload), { status: 200 }))
+    const result = await createMediaClient({ fetcher }).extendPlaybackWindow('w', { schema_version: '1.0.0', target_capture_time_us: '8000000', requested_forward_us: '12000000' })
+    expect(result.mapping_version).toBe(2)
+    expect(fetcher.mock.calls[0]?.[0]).toBe('/api/v1/media/playback-windows/w/extend')
+  })
   it.each(['BAD_REQUEST','UNAUTHENTICATED','FORBIDDEN','NOT_FOUND','MAPPING_STALE','MEDIA_NOT_READY','WINDOW_BOUNDARY','WINDOW_EXPIRED','CURSOR_NOT_READY','CAPTURE_GAP','SAMPLE_NOT_FOUND'] as const)('normalizes %s', async code => {
     const fetcher = vi.fn(async () => new Response(JSON.stringify({ schema_version: '1.0.0', code, message: 'x', request_id: 'r', details: { retryable: false } }), { status: 400 }))
     await expect(createMediaClient({ fetcher }).getPlaybackWindow('w')).rejects.toMatchObject({ code, status: 400 })

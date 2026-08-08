@@ -1,5 +1,23 @@
 # Progress
 
+## 2026-08-09 — OvenMediaEngine and stable MSE playback
+
+Status: implementation and local validation complete on `codex/match-media-source-onboarding`; GitHub CI/integration is pending.
+
+- Promoted OvenMediaEngine to the sole live ingest, LL-HLS and recording adapter; removed the MediaMTX image, configuration and hook runtime. OME configuration uses short LL-HLS chunks/segments, disk DVR and finalized recording files observed by a durable watcher.
+- Added YouTube video/live and local MP4 onboarding directly to the two-step New Match flow. Server routes create match-scoped capture sessions and delegate YouTube extraction/relay to the uv-managed gateway without exposing signed upstream URLs to the browser.
+- Added additive `PlaybackWindowExtendRequest 1.0.0` JSON Schema, fixture, TypeScript parser and Python SDK model. The server advances a continuous rolling segment selection under advisory lock: an already-buffered prefix may leave the active window while the overlapping suffix remains identical and a new tail is appended. Window ID, manifest URL and presentation origin remain stable.
+- Removed archive source swapping at buffer boundaries. hls.js stays attached to one video element and owns MSE Blob creation, manifest reload, prefetch/retry and browser-buffer eviction; a same-window mapping revision cannot destroy the pipeline or clear `src`.
+- Added regression coverage for stable client attachment, REST extension and the database-backed rolling manifest. ADR 0017 records the adapter and player lifecycle decision while preserving canonical sample-index/PTS authority.
+
+- Applied the rolling-origin database migration and verified the real 30-minute DEMO archive in headed Chromium. One window extended with HTTP 200 to mapping version 2 while `captureStartUs` advanced, `presentationOriginCaptureUs` stayed fixed, the same MSE Blob URL remained attached, playback advanced continuously from 372.12 s to 382.12 s with `readyState=4`, and the buffered tail grew to 565.40 s.
+- Recovered and integrated today's uncommitted Annotation UI/WebSocket refinements from the original user worktree without modifying it. The local Nuxt dev server now places the compact WS badge in the upper-right toolbar and continuously shows heartbeat round-trip latency (`WS 正常 12 ms` in the headed check).
+
+- OME 0.20.5 passed the isolated 1920×1080 60 fps ingest, LL-HLS and recording smoke. The reconnect/sample-index suite retained monotonic canonical capture time across a real restart, and both supplied YouTube sources exposed FHD60-compatible video formats when probed (the URLs were ended `was_live` sources at validation time, so no claim of a currently active broadcast is made).
+- Local gates passed: contracts 12, focused server 10, focused worker 14, focused Web 38, frozen-`uv` Python SDK 16, all workspace typechecks, 457-file scaffold/checksum validation, Prisma structure (43 models/26 enums), 245-file TypeScript/Vue syntax validation and the final UI detector with zero findings. The 42-page PDF was rebuilt with XeLaTeX and page 18 was visually inspected.
+
+Pending before this checkpoint is complete: GitHub CI, main-Agent PR review and integration.
+
 ## 2026-08-08 — Live DVR reconnect authority and YouTube FHD60 gate
 
 Status: implemented and locally validated on `codex/media-live-dvr-fhd60`; GitHub integration is pending.

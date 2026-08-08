@@ -6,7 +6,7 @@ invent fields outside these versioned files.
 
 ## Boundaries
 
-- `media/playback-window-request.schema.json` / `playback-window-descriptor.schema.json`: bounded live/archive HLS window request and response.
+- `media/playback-window-request.schema.json` / `playback-window-extend-request.schema.json` / `playback-window-descriptor.schema.json`: create and append to one bounded live/archive HLS window without changing its manifest identity.
 - `media/playback-cursor.schema.json` / `resolved-media-anchor.schema.json`: client observation and authoritative server result.
 - `media/frame-step-request.schema.json` / `canonical-frame-anchor.schema.json`: previous/next canonical sample.
 - `annotation/realtime.schema.json`: breaking v2.0 Z/Space/CLOSE_RALLY/edit/Enter commands and strict ACK/reject/snapshot messages. CLOSE_RALLY carries the target last key point plus a resolved-left/resolved-right/unknown rally outcome and no new timestamp.
