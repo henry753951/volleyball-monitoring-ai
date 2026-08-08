@@ -28,8 +28,14 @@ describe('DvrTimelineDock mounted interactions', () => {
   })
   it('renders discontinuity marker', () => { const w = mount(DvrTimelineDock, { props: { timeline, playhead: null } }); expect(w.findAll('.gap-range').length).toBeGreaterThan(0) })
   it('distinguishes the browser-buffered window from server-available ranges', () => {
-    const w = mount(DvrTimelineDock, { props: { timeline, playhead: '1750', bufferedWindow: { startCaptureTimeUs: '1400', endCaptureTimeUs: '1900' } } })
-    expect(w.find('.playback-ready').exists()).toBe(true)
+    const w = mount(DvrTimelineDock, { props: {
+      timeline,
+      playhead: '1750',
+      bufferedWindow: { startCaptureTimeUs: '1400', endCaptureTimeUs: '1900' },
+      bufferedRanges: [{ startCaptureTimeUs: '1600', endCaptureTimeUs: '1800' }],
+    } })
+    expect(w.find('.playback-window').exists()).toBe(true)
+    expect(w.findAll('.playback-ready')).toHaveLength(1)
     expect(w.findAll('.ready-range')).toHaveLength(2)
   })
   it('fully hides a processing mask once its range no longer intersects the viewport', () => {

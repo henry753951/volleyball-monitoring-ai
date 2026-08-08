@@ -9,7 +9,7 @@ import type { PlaybackCursorInput } from '~/lib/mediaModel'
 import type { CoachRally } from '~/lib/coachDomain'
 import { clipRangeOverlaps, formatTimelinePosition, paddedClipRange, resolveSegmentSelection, segmentAtCaptureTime } from '~/lib/dvrTimeline'
 import { isLiveCaptureSource } from '~/lib/mediaTimeline'
-import { bufferedSecondsAhead } from '~/utils/mediaBuffer'
+import { bufferedSecondsAhead, type CanonicalMediaRange } from '~/utils/mediaBuffer'
 
 definePageMeta({ layout: 'annotation' })
 const route = useRoute()
@@ -28,6 +28,7 @@ const overlayPlayer = ref<{
 } | null>(null)
 const playing = ref(false)
 const muted = ref(false)
+const playerBufferedRanges = shallowRef<CanonicalMediaRange[]>([])
 const captureTarget = ref('')
 const mediaError = ref<string | null>(null)
 const authoritativeAnchor = computed(() => dvr.anchor.value)
@@ -710,6 +711,9 @@ function handleVideoReady(element: HTMLVideoElement) {
   }
   updatePlaybackState()
 }
+function handleBufferState(value: { buffered: CanonicalMediaRange[] }) {
+  playerBufferedRanges.value = value.buffered
+}
 function dispatchMediaAction(action: PlayerAction, frameCount = 1) {
   const element = video.value
   if (!element) return
@@ -882,7 +886,7 @@ onBeforeUnmount(() => {
       <UiResizablePanel id="annotation-video" :default-size="78" :min-size="55">
       <main class="viewer-panel">
         <div class="video-stage">
-          <VideoOverlayPlayer ref="overlayPlayer" :descriptor="descriptor" :controls="false" toggle-on-click :analysis-run-id="activeOverlayAnalysisRunId" :overlay-capture-time-us="visualPlayhead" :overlay-clip-start-capture-time-us="activeOverlayClipStart" @cursor="handleCursor" @ready="handleVideoReady" @buffer-activity="maintainPlaybackWindow" @toggle="dispatchMediaAction('play_pause')" @error="mediaError = $event.message" />
+          <VideoOverlayPlayer ref="overlayPlayer" :descriptor="descriptor" :controls="false" toggle-on-click :analysis-run-id="activeOverlayAnalysisRunId" :overlay-capture-time-us="visualPlayhead" :overlay-clip-start-capture-time-us="activeOverlayClipStart" @cursor="handleCursor" @ready="handleVideoReady" @buffer-activity="maintainPlaybackWindow" @buffer-state="handleBufferState" @toggle="dispatchMediaAction('play_pause')" @error="mediaError = $event.message" />
           <div v-if="displayAnnotation" class="stage-mask" :class="displayAnnotation.snapshot.annotation_status === 'submitted' ? 'submitted' : 'draft'" />
           <div class="viewer-frame-index" aria-label="目前畫格索引">
             <span>FRAME IDX</span>
@@ -961,7 +965,7 @@ onBeforeUnmount(() => {
         @delete-selection="deleteSelection"
         @toggle-mute="dispatchMediaAction('mute')"
       />
-      <DvrTimelineDock :timeline="timeline" :playhead="visualPlayhead" :live-source="liveCapture" :buffered-window="descriptor ? { startCaptureTimeUs: descriptor.window_capture_start_us, endCaptureTimeUs: descriptor.window_capture_end_us } : null" :annotation="displayAnnotation" :editable="state === 'OPEN' && editReady && !pendingTimelineMove" :selected-key-point-id="selectedKeyPointId" :mask-selected="selectedCurrentMask" :mask-range="currentMaskRange" :current-mask-status="currentMaskStatus" :current-mask-label="currentMaskLabel" :current-mask-outcome="currentMaskOutcome" :cursor-follow="cursorFollow" :segments="timelineSegments" :selected-segment-id="selectedHistoricalSegmentId" :soft-locks="annotation.remoteEditorsByKeyPoint.value" @preview="previewTimelineSeek" @seek="seekTimeline" @clear-selection="clearTimelineSelection" @select="selectTimelineKeyPoint" @select-mask="selectTimelineMask" @select-segment="selectHistoricalSegment" @edit-start="beginTimelineKeyPointEdit" @edit-cancel="cancelTimelineKeyPointEdit" @move="moveTimelineKeyPoint" />
+      <DvrTimelineDock :timeline="timeline" :playhead="visualPlayhead" :live-source="liveCapture" :buffered-window="descriptor ? { startCaptureTimeUs: descriptor.window_capture_start_us, endCaptureTimeUs: descriptor.window_capture_end_us } : null" :buffered-ranges="playerBufferedRanges" :annotation="displayAnnotation" :editable="state === 'OPEN' && editReady && !pendingTimelineMove" :selected-key-point-id="selectedKeyPointId" :mask-selected="selectedCurrentMask" :mask-range="currentMaskRange" :current-mask-status="currentMaskStatus" :current-mask-label="currentMaskLabel" :current-mask-outcome="currentMaskOutcome" :cursor-follow="cursorFollow" :segments="timelineSegments" :selected-segment-id="selectedHistoricalSegmentId" :soft-locks="annotation.remoteEditorsByKeyPoint.value" @preview="previewTimelineSeek" @seek="seekTimeline" @clear-selection="clearTimelineSelection" @select="selectTimelineKeyPoint" @select-mask="selectTimelineMask" @select-segment="selectHistoricalSegment" @edit-start="beginTimelineKeyPointEdit" @edit-cancel="cancelTimelineKeyPointEdit" @move="moveTimelineKeyPoint" />
       <AnnotationCommandStrip :bindings="bindings" :state="state" :can-mark="canMark" :last-key-point="Boolean(annotation.lastKeyPoint.value)" :command-ready="commandReady" :pending-command="annotation.pendingCount.value > 0" :availability="commandAvailabilityMap" @action="dispatchAnnotationAction" @settings="openSettings('hotkeys')" />
     </footer>
 

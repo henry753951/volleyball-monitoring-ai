@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { bufferedSecondsAhead } from './mediaBuffer'
+import { bufferedSecondsAhead, mediaTimeRangesToCaptureRanges } from './mediaBuffer'
 
 function ranges(values: Array<[number, number]>): TimeRanges {
   return {
@@ -36,5 +36,14 @@ describe('bufferedSecondsAhead', () => {
       buffered: ranges([[0, 8], [10, 24]]),
       currentTime: 9,
     })).toBe(0)
+  })
+})
+
+describe('mediaTimeRangesToCaptureRanges', () => {
+  it('maps bounded player-local ranges onto the canonical capture timeline', () => {
+    expect(mediaTimeRangesToCaptureRanges(ranges([[1.25, 3.5], [8, 9.125]]), '9007199254740993')).toEqual([
+      { startCaptureTimeUs: '9007199255990993', endCaptureTimeUs: '9007199258240993' },
+      { startCaptureTimeUs: '9007199262740993', endCaptureTimeUs: '9007199263865993' },
+    ])
   })
 })

@@ -1,5 +1,16 @@
 # Progress
 
+## 2026-08-09 — Canonical DVR timeline and real browser-buffer rail
+
+Status: implemented and locally validated on `codex/hls-canonical-buffer-rail`; GitHub integration is pending.
+
+- Confirmed from hls.js and MSE semantics that native video controls can only represent the attached MediaSource duration and seekable ranges. A bounded rolling playlist therefore cannot truthfully expose the full server-side DVR duration through the native progress bar.
+- Archive playback now keeps a finite rolling duration while only actual live sources use `liveDurationInfinity`. The production Annotation workstation continues to use its canonical capture-time timeline rather than exposing the misleading native control bar.
+- Split the timeline's media readiness into three truthful layers: server DVR availability, the selected bounded playback window and the browser's actual `video.buffered` ranges. Only bytes appended to MSE render as bright green.
+- Added BigInt-safe conversion from player-local `TimeRanges` to canonical capture microseconds. Buffer events, native progress and duration changes update the rail without resolving browser time as authoritative media identity.
+
+Validation: Web `142/142`, Nuxt typecheck and production build passed. Headed Chromium reported a finite bounded duration of `486.22 s` for the 30-minute archive, while the canonical ruler remained `00:00–30:00`. Initial MSE buffer `182.08–365.38 s` rendered at `57.07%–67.25%`; seeking to canonical 15:00 retained the same MediaSource Blob and expanded the actual buffer to `54.16–365.38 s`, rendering at `49.96%–67.25%`, with zero console errors.
+
 ## 2026-08-09 — Predictive rolling-HLS buffer continuation
 
 Status: implemented and locally validated on `codex/ome-player-buffer-tuning`; GitHub integration is pending.
