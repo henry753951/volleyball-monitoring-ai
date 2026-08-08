@@ -222,6 +222,37 @@ describe('annotation TanStack runtime adapter', () => {
     expect(calls).toHaveLength(2)
   })
 
+  it('does not lose the first press after a command becomes enabled', async () => {
+    const enabled = ref(false)
+    const calls: HotkeyCommand[] = []
+    const renderer = createFakeRenderer(document)
+    const root = new FakeElement('root', document)
+    const app = renderer.createApp(defineComponent({
+      setup() {
+        const scope = ref<HTMLElement | null>(null)
+        useHotkeys(
+          () => createAnnotationHotkeyDefinitions(
+            restoreDefaultHotkeys(),
+            command => calls.push(command),
+            () => enabled.value,
+          ),
+          { target: scope, conflictBehavior: 'error', ignoreInputs: true, preventDefault: false, requireReset: false, stopPropagation: false },
+        )
+        return () => h('section', { ref: scope })
+      },
+    }))
+    app.mount(root)
+    await nextTick()
+    const scope = root.children[0] as FakeElement
+    keydown(scope, 'x', 'KeyX')
+    keyup(scope, 'x', 'KeyX')
+    enabled.value = true
+    await nextTick()
+    expect(keydown(scope, 'x', 'KeyX').defaultPrevented).toBe(true)
+    expect(calls).toEqual(['contact'])
+    app.unmount()
+  })
+
   it('records and normalizes a shifted product key, then removes its listener on unmount', async () => {
     const recorded: string[] = []
     let startRecording: (() => void) | undefined

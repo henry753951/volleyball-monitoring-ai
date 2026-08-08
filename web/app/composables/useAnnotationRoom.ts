@@ -10,11 +10,18 @@ import { createAnnotationRealtimeClient, type AnnotationConnectionState, type An
 import {
   enqueueAnnotationCommand,
   readAnnotationOutbox,
+  replaceAnnotationOutboxCommand,
   requireAnnotationOutboxConfirmation,
   resolveAnnotationOutboxEntry,
   writeAnnotationOutbox,
   type AnnotationOutboxEntry,
 } from '../lib/annotationOutbox'
+import {
+  applyAnnotationAckLocally,
+  projectAnnotationSnapshot,
+  rebaseQueuedAnnotationCommand,
+  type AnnotationClientObservation,
+} from '../lib/annotationCommandQueue'
 import { createGraphQLTransport } from '../lib/coreDomain'
 import type { PlaybackCursorInput } from '../lib/mediaModel'
 import type { AnnotationAction } from '../utils/annotationHotkeys'
@@ -63,7 +70,6 @@ export function useAnnotationRoom() {
   const transport = createGraphQLTransport('/graphql')
   const { annotationWsUrl } = usePublicEndpoints()
   let realtime: AnnotationRealtimeClient | null = null
-  let refreshTimer: ReturnType<typeof setInterval> | null = null
   let flushPromise: Promise<void> | null = null
 
   const state = computed<'IDLE' | 'OPEN' | 'READY' | 'SUBMITTED' | 'VOIDED'>(() => {
@@ -72,6 +78,11 @@ export function useAnnotationRoom() {
   })
   const lastKeyPoint = computed(() => snapshot.value?.snapshot.key_points.at(-1) ?? null)
   const pendingCount = computed(() => outbox.value.length)
+  const viewSnapshot = computed(() => projectAnnotationSnapshot(snapshot.value, roomId.value, outbox.value))
+  const viewState = computed<'IDLE' | 'OPEN' | 'READY' | 'SUBMITTED' | 'VOIDED'>(() => {
+    const status = viewSnapshot.value?.snapshot.annotation_status
+    return status ? status.toUpperCase() as 'OPEN' | 'READY' | 'SUBMITTED' | 'VOIDED' : 'IDLE'
+  })
   const outboxNeedsConfirmation = computed(() => outbox.value.some(entry => entry.status === 'needs_confirmation'))
   const remoteEditorsByKeyPoint = computed<Record<string, string[]>>(() => {
     const editors: Record<string, string[]> = {}
@@ -143,12 +154,6 @@ export function useAnnotationRoom() {
     }
   }
 
-  function commandMatchesCurrentRevision(command: AnnotationCommand) {
-    const current = snapshot.value
-    if (command.kind === 'CREATE_SERVICE_KEY_POINT') return !current || ['READY', 'SUBMITTED', 'VOIDED'].includes(state.value)
-    return Boolean(current && current.rally_id === command.rally_id && current.revision === command.base_revision)
-  }
-
   function markForConfirmation(entry: AnnotationOutboxEntry, reason: string) {
     replaceOutbox(requireAnnotationOutboxConfirmation(outbox.value, entry.command.command_id, reason))
   }
@@ -156,16 +161,31 @@ export function useAnnotationRoom() {
   function flushOutbox() {
     if (flushPromise) return flushPromise
     flushPromise = (async () => {
-      for (const queued of [...outbox.value]) {
+      while (outbox.value.length) {
+        const queued = outbox.value[0]!
         if (!realtime?.ready() || queued.status === 'needs_confirmation') return
-        if (!commandMatchesCurrentRevision(queued.command)) {
-          markForConfirmation(queued, '伺服器 revision 已變更；請捨棄後在目前畫格重新操作')
+        const rebased = rebaseQueuedAnnotationCommand(queued.command, snapshot.value)
+        if (!rebased) {
+          markForConfirmation(queued, '伺服器片段狀態已變更；請捨棄後在目前畫格重新操作')
           return
         }
+        if (rebased.base_revision !== queued.command.base_revision || JSON.stringify(rebased.payload) !== JSON.stringify(queued.command.payload)) {
+          replaceOutbox(replaceAnnotationOutboxCommand(outbox.value, queued.command.command_id, rebased))
+        }
         let response: AnnotationCommandResponse
-        try { response = await realtime.send(queued.command) }
+        try { response = await realtime.send(rebased) }
         catch { return }
         if (response.type === 'command_rejected') {
+          if (response.code === 'REVISION_CONFLICT' && (queued.retry_count ?? 0) < 2 && ['CREATE_CONTACT_KEY_POINT', 'CLOSE_RALLY', 'SUBMIT_RALLY'].includes(rebased.kind)) {
+            if (snapshot.value) await fetchSnapshot(snapshot.value.rally_id).catch(() => null)
+            const retry = rebaseQueuedAnnotationCommand({ ...rebased, command_id: crypto.randomUUID() } as AnnotationCommand, snapshot.value)
+            if (retry) {
+              replaceOutbox(outbox.value.map(entry => entry.command.command_id === queued.command.command_id
+                ? { ...entry, command: retry, retry_count: (entry.retry_count ?? 0) + 1 }
+                : entry))
+              continue
+            }
+          }
           if (response.snapshot_refetch_required) {
             if (snapshot.value) await fetchSnapshot(snapshot.value.rally_id).catch(() => null)
             markForConfirmation(queued, response.message ?? '伺服器狀態已變更；請確認後重新操作')
@@ -177,7 +197,7 @@ export function useAnnotationRoom() {
         }
         replaceOutbox(resolveAnnotationOutboxEntry(outbox.value, queued.command.command_id))
         error.value = null
-        await fetchSnapshot(response.rally_id).catch(() => refreshActive())
+        snapshot.value = applyAnnotationAckLocally(snapshot.value, rebased, response)
       }
     })().finally(() => { flushPromise = null })
     return flushPromise
@@ -186,7 +206,6 @@ export function useAnnotationRoom() {
   function connect(nextRoomId: string) {
     if (roomId.value === nextRoomId && realtime) return
     realtime?.disconnect()
-    if (refreshTimer) clearInterval(refreshTimer)
     roomId.value = nextRoomId
     snapshot.value = null
     presence.value = []
@@ -205,12 +224,9 @@ export function useAnnotationRoom() {
         }
         if (message.type === 'rally_snapshot') acceptSnapshot(message)
         if (message.type === 'presence_snapshot') presence.value = message.members
-        if (message.type === 'command_ack') void refreshActive()
       },
     }, annotationWsUrl.value)
     realtime.connect()
-    void refreshActive()
-    refreshTimer = setInterval(() => { void refreshActive() }, 2_000)
   }
 
   function buildCommand(action: AnnotationAction, cursor: PlaybackCursorInput | null): AnnotationCommand {
@@ -228,29 +244,32 @@ export function useAnnotationRoom() {
         payload: { playback_cursor: annotationCursor(cursor) },
       })
     }
-    if (!current) throw new Error('目前沒有可操作的 Rally')
+    const pendingService = outbox.value.find(entry => entry.status === 'pending' && entry.command.kind === 'CREATE_SERVICE_KEY_POINT')?.command
+    const rallyId = current?.rally_id ?? pendingService?.rally_id
+    if (!rallyId) throw new Error('目前沒有可操作的 Rally')
     const base = {
       schema_version: '2.0.0',
       command_id: crypto.randomUUID(),
       room_id: roomId.value,
-      base_revision: current.revision,
-      rally_id: current.rally_id,
+      base_revision: current?.revision ?? '0',
+      rally_id: rallyId,
     } as const
     if (action === 'contact') {
       if (!cursor || cursor.cursor_status !== 'ready') throw new Error('伺服器尚未取得可解析的播放游標')
       return parseAnnotationCommand({ ...base, kind: 'CREATE_CONTACT_KEY_POINT', payload: { playback_cursor: annotationCursor(cursor) } })
     }
     if (action === 'submit') return parseAnnotationCommand({ ...base, kind: 'SUBMIT_RALLY', payload: {} })
-    const target = lastKeyPoint.value
-    if (!target) throw new Error('沒有伺服器確認的最後 key point')
+    const target = lastKeyPoint.value?.key_point_id
+      ?? [...outbox.value].reverse().find(entry => ['CREATE_SERVICE_KEY_POINT', 'CREATE_CONTACT_KEY_POINT'].includes(entry.command.kind))?.command.command_id
+    if (!target) throw new Error('沒有可排程的最後 key point')
     if (action === 'close_unknown') {
-      return parseAnnotationCommand({ ...base, kind: 'CLOSE_RALLY', payload: { target_key_point_id: target.key_point_id, score_resolution: 'unknown', scoring_court_side: null } })
+      return parseAnnotationCommand({ ...base, kind: 'CLOSE_RALLY', payload: { target_key_point_id: target, score_resolution: 'unknown', scoring_court_side: null } })
     }
     return parseAnnotationCommand({
       ...base,
       kind: 'CLOSE_RALLY',
       payload: {
-        target_key_point_id: target.key_point_id,
+        target_key_point_id: target,
         score_resolution: 'resolved',
         scoring_court_side: action === 'close_left' ? 'left' : 'right',
       },
@@ -277,23 +296,19 @@ export function useAnnotationRoom() {
     return parseAnnotationCommand({ ...base, kind, payload: { key_point_id: options.keyPointId, playback_cursor: annotationCursor(options.cursor) } })
   }
 
-  async function sendCommand(command: AnnotationCommand) {
-    replaceOutbox(enqueueAnnotationCommand(outbox.value, command))
-    if (realtime?.ready()) await flushOutbox()
+  function sendCommand(command: AnnotationCommand, observation?: AnnotationClientObservation) {
+    replaceOutbox(enqueueAnnotationCommand(outbox.value, command, new Date(), { ...(observation ? { observation } : {}) }))
+    return realtime?.ready() ? flushOutbox() : Promise.resolve()
   }
 
-  async function dispatch(action: AnnotationAction, cursor: PlaybackCursorInput | null) {
-    busy.value = true
+  function dispatch(action: AnnotationAction, cursor: PlaybackCursorInput | null, observation?: AnnotationClientObservation) {
     error.value = null
     try {
-      return await sendCommand(buildCommand(action, cursor))
+      void sendCommand(buildCommand(action, cursor), observation)
     }
     catch (cause) {
       error.value = cause instanceof Error ? cause.message : '標註命令失敗'
       throw cause
-    }
-    finally {
-      busy.value = false
     }
   }
 
@@ -363,7 +378,6 @@ export function useAnnotationRoom() {
   onBeforeUnmount(() => {
     realtime?.disconnect()
     realtime = null
-    if (refreshTimer) clearInterval(refreshTimer)
   })
 
   return {
@@ -387,5 +401,7 @@ export function useAnnotationRoom() {
     refreshActive,
     snapshot: shallowReadonly(snapshot),
     state,
+    viewSnapshot,
+    viewState,
   }
 }

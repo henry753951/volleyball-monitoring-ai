@@ -32,6 +32,39 @@ describe('DvrTimelineDock mounted interactions', () => {
     expect(w.find('.playback-ready').exists()).toBe(true)
     expect(w.findAll('.ready-range')).toHaveLength(2)
   })
+  it('fully hides a processing mask once its range no longer intersects the viewport', () => {
+    const submittedAnnotation: AnnotationRallySnapshot = {
+      ...annotation,
+      snapshot: {
+        ...annotation.snapshot,
+        annotation_status: 'submitted',
+        key_points: [
+          { ...annotation.snapshot.key_points[0]!, capture_time_us: '400' },
+          { ...annotation.snapshot.key_points[0]!, key_point_id: 'point-2', sequence_index: 1, marker_kind: 'contact', capture_time_us: '900' },
+        ],
+      },
+    }
+    const w = mount(DvrTimelineDock, { props: { timeline, playhead: null, annotation: submittedAnnotation, maskRange: { startCaptureTimeUs: '0', endCaptureTimeUs: '1000' }, currentMaskStatus: 'processing' } })
+    const mask = w.find('.timeline-mask.current')
+    expect(mask.exists()).toBe(true)
+    expect(mask.isVisible()).toBe(false)
+  })
+  it('switches narrow segments and their secondary visuals to the micro-density presentation', () => {
+    const narrowSegment = {
+      id: 'narrow', label: '第 1 局 · 回合 3', startCaptureTimeUs: '1200', endCaptureTimeUs: '1300', status: 'analyzed' as const,
+      points: [
+        { id: 'service', markerKind: 'service', isTerminal: false, captureTimeUs: '1210' },
+        { id: 'contact', markerKind: 'contact', isTerminal: false, captureTimeUs: '1250' },
+        { id: 'terminal', markerKind: 'contact', isTerminal: true, captureTimeUs: '1290' },
+      ],
+      analysis: { startCaptureTimeUs: '1200', endCaptureTimeUs: '1300', byteLength: '1000000', trackCount: 12, ballPathCount: 1, contactCount: 3, capabilities: ['player_tracking', 'ball_tracking'] },
+    }
+    const w = mount(DvrTimelineDock, { props: { timeline, playhead: null, segments: [narrowSegment] } })
+    expect(w.find('.timeline-mask.historical').classes()).toContain('density-micro')
+    expect(w.find('.analysis-rail').classes()).toContain('density-micro')
+    expect(w.findAll('.historical-point')).toHaveLength(3)
+    expect(w.findAll('.historical-point').every(point => point.classes().includes('density-micro'))).toBe(true)
+  })
   it('drags the playhead once and keeps the optimistic target until cursor sync catches up', async () => {
     const w = mount(DvrTimelineDock, { props: { timeline, playhead: '1750' } })
     const playhead = w.find('.playhead-handle')

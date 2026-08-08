@@ -77,6 +77,31 @@ const response: AnnotationCommandResponse = parseAnnotationCommandResponse({
   room_id: roomId,
   server_sequence: '11',
 })
+const rallySnapshot = parseAnnotationServerMessage({
+  schema_version: '2.0.0',
+  type: 'rally_snapshot',
+  room_id: roomId,
+  rally_id: rallyId,
+  revision: '1',
+  server_sequence: '11',
+  snapshot: {
+    annotation_status: 'open',
+    side_assignment_id: '83000000-0000-4000-8000-000000000012',
+    score_resolution: 'pending',
+    scoring_court_side: null,
+    processing_status: 'idle',
+    key_points: [{
+      key_point_id: keyPointId,
+      sequence_index: 0,
+      marker_kind: 'service',
+      is_terminal: false,
+      capture_time_us: '1',
+      capture_frame_index: '1',
+      timing_precision: 'frame_exact',
+      possible_duplicate: false,
+    }],
+  },
+})
 
 function fakeService(seen: unknown[]): AnnotationCommandService {
   return {
@@ -232,6 +257,7 @@ describe('annotation transport adapters', () => {
     await app.register(annotationWebSocketRoutes({
       authenticate: async () => identity,
       service: fakeService(seen),
+      snapshot: async () => rallySnapshot.type === 'rally_snapshot' ? rallySnapshot : null,
     }))
     await app.listen({ host: '127.0.0.1', port: 0 })
     closeApp = () => app.close()
@@ -246,7 +272,7 @@ describe('annotation transport adapters', () => {
       client.addEventListener('message', (event) => {
         messages.push(JSON.parse(String(event.data)))
         if (messages.length === 1) client.send(JSON.stringify(command))
-        if (messages.length === 2) {
+        if (messages.length === 3) {
           clearTimeout(timeout)
           resolvePromise()
         }
@@ -258,6 +284,7 @@ describe('annotation transport adapters', () => {
       authenticated_user_id: userId, device_session_id: deviceSessionId,
     })
     expect(messages[1]).toEqual(response)
+    expect(messages[2]).toEqual(rallySnapshot)
     expect(seen).toEqual([{ annotationIdentity: identity, value: command }])
   })
 

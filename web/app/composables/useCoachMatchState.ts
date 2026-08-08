@@ -1,7 +1,10 @@
 import { createGraphQLTransport } from '~/lib/coreDomain'
 import { createCoachDomainClient, type CoachMatchState } from '~/lib/coachDomain'
 
-export function useCoachMatchState(matchId: MaybeRefOrGetter<string>) {
+export function useCoachMatchState(
+  matchId: MaybeRefOrGetter<string>,
+  options: { refreshIntervalMs?: number } = {},
+) {
   const data = shallowRef<CoachMatchState | null>(null)
   const pending = ref(true)
   const refreshing = ref(false)
@@ -28,7 +31,8 @@ export function useCoachMatchState(matchId: MaybeRefOrGetter<string>) {
 
   onMounted(() => {
     void refresh()
-    interval = setInterval(() => void refresh(), 2_000)
+    const refreshIntervalMs = options.refreshIntervalMs ?? 2_000
+    if (refreshIntervalMs > 0) interval = setInterval(() => void refresh(), refreshIntervalMs)
   })
   onUnmounted(() => { if (interval) clearInterval(interval) })
 

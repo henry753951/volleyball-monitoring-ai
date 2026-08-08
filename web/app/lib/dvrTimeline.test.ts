@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { resolveSegmentSelection, rulerTicks, segmentAtCaptureTime, selectNonOverlappingRanges } from './dvrTimeline'
+import { clipRangeOverlaps, paddedClipRange, resolveSegmentSelection, rulerTicks, segmentAtCaptureTime, selectNonOverlappingRanges } from './dvrTimeline'
 
 describe('DVR timeline viewport', () => {
   it('keeps ruler labels relative to the full timeline origin while panning', () => {
@@ -27,5 +27,12 @@ describe('DVR timeline viewport', () => {
     expect(resolveSegmentSelection(null, 'rally-1')).toBe('rally-1')
     expect(resolveSegmentSelection('rally-2', 'rally-1')).toBe('rally-2')
     expect(resolveSegmentSelection(null, null)).toBeNull()
+  })
+
+  it('rejects a moved key point when its padded clip would overlap another segment', () => {
+    const range = paddedClipRange(['10000000', '16000000'], 3_000_000n, 3_000_000n)
+    expect(range).toEqual({ startCaptureTimeUs: '7000000', endCaptureTimeUs: '19000000' })
+    expect(clipRangeOverlaps(range!, [{ id: 'other', startCaptureTimeUs: '18500000', endCaptureTimeUs: '22000000' }], 'current')).toBe(true)
+    expect(clipRangeOverlaps(range!, [{ id: 'current', startCaptureTimeUs: '18500000', endCaptureTimeUs: '22000000' }], 'current')).toBe(false)
   })
 })

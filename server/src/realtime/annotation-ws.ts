@@ -5,6 +5,9 @@ import {
 } from '@volleyball-monitoring/contracts'
 import type { FastifyPluginAsync, FastifyRequest } from 'fastify'
 import type {
+  AnnotationRallySnapshot,
+} from '@volleyball-monitoring/contracts'
+import type {
   AnnotationCommandService,
   AnnotationIdentity,
 } from '../services/annotation-command.js'
@@ -14,6 +17,7 @@ export interface AnnotationWebSocketDependencies {
   authenticate: (request: FastifyRequest) => Promise<AnnotationIdentity | null>
   presence?: AnnotationPresenceService
   service: AnnotationCommandService
+  snapshot?: (roomId: string, rallyId: string, identity: AnnotationIdentity) => Promise<AnnotationRallySnapshot | null>
 }
 
 export const annotationWebSocketRoutes = (
@@ -139,8 +143,15 @@ export const annotationWebSocketRoutes = (
               const response = await deps.service.apply(command, identity)
               const payload = JSON.stringify(response)
               if (response.type === 'command_ack') {
-                for (const peer of roomSockets.get(room.roomId) ?? []) {
-                  if (peer.readyState === 1) peer.send(payload)
+                // The originator needs the command-specific ACK. Peers only need
+                // the committed room snapshot, which avoids redundant messages.
+                socket.send(payload)
+                const snapshot = await deps.snapshot?.(room.roomId, response.rally_id, identity)
+                if (snapshot) {
+                  const snapshotPayload = JSON.stringify(snapshot)
+                  for (const peer of roomSockets.get(room.roomId) ?? []) {
+                    if (peer.readyState === 1) peer.send(snapshotPayload)
+                  }
                 }
               }
               else socket.send(payload)
