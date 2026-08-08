@@ -368,7 +368,7 @@ async function acceptService(
     await setAllocationLock(tx, set.id)
     const activeDraft = await tx.rally.findFirst({
       select: { id: true },
-      where: { annotationStatus: { in: ['OPEN', 'READY'] }, setId: set.id },
+      where: { annotationStatus: 'OPEN', setId: set.id, voidedAt: null },
     })
     if (activeDraft) {
       return persistRejection(tx, command, identity, hash, rejected(
@@ -573,6 +573,11 @@ async function acceptDraftEdit(database: PrismaClient, room: AnnotationRoom, com
     let effects: Record<string, unknown> = {}
     if (command.kind === 'REOPEN_RALLY') {
       if (rally.annotationStatus !== 'READY') return persistRejection(tx, command, identity, hash, rejected(command, 'RALLY_NOT_READY', 'Only a READY Rally can be reopened'))
+      const competing = await tx.rally.findFirst({
+        where: { id: { not: rally.id }, setId: rally.setId, annotationStatus: 'OPEN', voidedAt: null },
+        select: { id: true },
+      })
+      if (competing) return persistRejection(tx, command, identity, hash, rejected(command, 'ACTIVE_RALLY_EXISTS', 'Close or void the open Rally before reopening another draft'))
       await tx.keyPoint.updateMany({ where: { rallyId: rally.id, deletedAt: null, isTerminal: true }, data: { isTerminal: false, updatedByUserId: identity.userId } })
       await tx.rally.update({ where: { id: rally.id }, data: { annotationRevision: revision, annotationStatus: 'OPEN', scoreResolutionState: 'PENDING', scoringCourtSide: null, scoringTeamId: null } })
       effects = { annotation_status: 'open', score_resolution: 'pending', scoring_court_side: null }

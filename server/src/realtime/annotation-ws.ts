@@ -19,6 +19,7 @@ export interface AnnotationWebSocketDependencies {
 export const annotationWebSocketRoutes = (
   deps: AnnotationWebSocketDependencies,
 ): FastifyPluginAsync => async (app) => {
+  const roomSockets = new Map<string, Set<{ readyState: number; send: (payload: string) => void }>>()
   app.get<{ Querystring: { room_id?: string } }>(
     '/ws/annotations',
     { websocket: true },
@@ -45,6 +46,14 @@ export const annotationWebSocketRoutes = (
           socket.close(1008, 'annotation room not found')
           return
         }
+        const peers = roomSockets.get(room.roomId) ?? new Set()
+        peers.add(socket)
+        roomSockets.set(room.roomId, peers)
+        const leaveRoom = () => {
+          peers.delete(socket)
+          if (!peers.size) roomSockets.delete(room.roomId)
+        }
+        socket.on('close', leaveRoom)
         const ready = parseAnnotationServerMessage({
           schema_version: '2.0.0',
           type: 'connection_ready',
@@ -127,7 +136,14 @@ export const annotationWebSocketRoutes = (
               return
             }
             try {
-              socket.send(JSON.stringify(await deps.service.apply(command, identity)))
+              const response = await deps.service.apply(command, identity)
+              const payload = JSON.stringify(response)
+              if (response.type === 'command_ack') {
+                for (const peer of roomSockets.get(room.roomId) ?? []) {
+                  if (peer.readyState === 1) peer.send(payload)
+                }
+              }
+              else socket.send(payload)
             } catch {
               socket.close(1011, 'annotation command failed')
             }

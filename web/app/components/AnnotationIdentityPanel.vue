@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Check, LoaderCircle, RotateCcw, UserRoundCheck } from 'lucide-vue-next'
+import { LoaderCircle, RotateCcw, UserRoundCheck } from 'lucide-vue-next'
 import { createCoachDomainClient, type CoachMatchAnalytics, type CoachTeam } from '~/lib/coachDomain'
 import { createGraphQLTransport } from '~/lib/coreDomain'
 
@@ -27,6 +27,12 @@ const groups = computed(() => [
 function playersFor(teamId: string | null) {
   return analytics.value?.players.filter(player => !teamId || player.team_id === teamId) ?? []
 }
+function playerOptions(teamId: string | null) {
+  return [
+    { value: '', label: '未知' },
+    ...playersFor(teamId).map(player => ({ value: player.roster_entry_id, label: `#${player.jersey_number} ${player.name}` })),
+  ]
+}
 
 async function refresh() {
   if (!props.analysisRunId) { analytics.value = null; return }
@@ -37,9 +43,8 @@ async function refresh() {
   finally { pending.value = false }
 }
 
-async function assign(trackId: number, event: Event) {
+async function assign(trackId: number, rosterEntryId: string) {
   if (!props.analysisRunId) return
-  const rosterEntryId = (event.target as HTMLSelectElement).value
   savingTrack.value = trackId
   error.value = null
   try {
@@ -78,12 +83,8 @@ watch(() => props.analysisRunId, refresh, { immediate: true })
         <label v-for="track in group.tracks" :key="track.track_id">
           <code>Track {{ track.track_id }}</code>
           <span class="identity-select">
-            <select :value="track.roster_entry_id ?? ''" :disabled="savingTrack === track.track_id" @change="assign(track.track_id, $event)">
-              <option value="">未知</option>
-              <option v-for="player in playersFor(group.teamId)" :key="player.roster_entry_id" :value="player.roster_entry_id">#{{ player.jersey_number }} {{ player.name }}</option>
-            </select>
+            <UiPlayerCombobox :model-value="track.roster_entry_id ?? ''" :options="playerOptions(group.teamId)" :disabled="savingTrack === track.track_id" placeholder="未知" @update:model-value="assign(track.track_id, $event)" />
             <LoaderCircle v-if="savingTrack === track.track_id" class="spin" :size="14" />
-            <Check v-else-if="track.roster_entry_id" :size="14" />
           </span>
         </label>
       </section>
@@ -98,5 +99,5 @@ watch(() => props.analysisRunId, refresh, { immediate: true })
 </template>
 
 <style scoped>
-.identity-panel{display:grid;gap:14px}.identity-panel section{display:grid;gap:2px}.identity-panel section header{height:31px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid #2c3238;color:#d9dfe5;font-size:.7rem;font-weight:700}.identity-panel section header b{min-width:20px;padding:2px 5px;border-radius:999px;background:#293039;color:#aeb8c2;font-size:.61rem;text-align:center}.identity-panel section>p,.identity-empty{min-height:56px;display:flex;align-items:center;justify-content:center;gap:7px;color:#7f8994;font-size:.68rem}.identity-panel label{min-height:42px;display:grid;grid-template-columns:78px minmax(0,1fr);align-items:center;gap:8px;border-bottom:1px solid #23292f}.identity-panel code{color:#aab3bd;font-size:.64rem}.identity-select{position:relative;display:flex;align-items:center}.identity-select select{width:100%;height:30px;padding:0 29px 0 9px;border:1px solid #404951;border-radius:6px;outline:0;background:#191e23;color:#eef2f5;font-size:.68rem}.identity-select select:focus{border-color:#62a9ff;box-shadow:0 0 0 2px #62a9ff35}.identity-select svg{position:absolute;right:8px;color:#52c88a}.identity-complete{min-height:36px!important;display:flex;align-items:center;justify-content:center;gap:7px;border-color:#397253!important;background:#183527!important;color:#a9ebc8!important;font-size:.7rem}.identity-complete.completed{border-color:#59636d!important;background:#20252b!important;color:#d5dbe1!important}.identity-error{margin:0;padding:8px;border:1px solid #7f3e43;border-radius:6px;background:#321a1d;color:#ffb4b9;font-size:.67rem}.spin{animation:spin .8s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}@media(prefers-reduced-motion:reduce){.spin{animation:none}}
+.identity-panel{display:grid;gap:14px}.identity-panel section{display:grid;gap:2px}.identity-panel section header{height:31px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid #2c3238;color:#d9dfe5;font-size:.7rem;font-weight:700}.identity-panel section header b{min-width:20px;padding:2px 5px;border-radius:999px;background:#293039;color:#aeb8c2;font-size:.61rem;text-align:center}.identity-panel section>p,.identity-empty{min-height:56px;display:flex;align-items:center;justify-content:center;gap:7px;color:#7f8994;font-size:.68rem}.identity-panel label{min-height:42px;display:grid;grid-template-columns:78px minmax(0,1fr);align-items:center;gap:8px;border-bottom:1px solid #23292f}.identity-panel code{color:#aab3bd;font-size:.64rem}.identity-select{position:relative;display:flex;align-items:center}.identity-select>.spin{position:absolute;right:9px;z-index:2;color:#52c88a;pointer-events:none}.identity-complete{min-height:36px!important;display:flex;align-items:center;justify-content:center;gap:7px;border-color:#397253!important;background:#183527!important;color:#a9ebc8!important;font-size:.7rem}.identity-complete.completed{border-color:#59636d!important;background:#20252b!important;color:#d5dbe1!important}.identity-error{margin:0;padding:8px;border:1px solid #7f3e43;border-radius:6px;background:#321a1d;color:#ffb4b9;font-size:.67rem}.spin{animation:spin .8s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}@media(prefers-reduced-motion:reduce){.spin{animation:none}}
 </style>

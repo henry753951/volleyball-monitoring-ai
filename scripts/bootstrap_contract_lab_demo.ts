@@ -125,8 +125,8 @@ async function upsertScaffold(db: PrismaClient) {
     }
     await tx.captureSession.upsert({
       where: { id: ids.capture },
-      update: { sourceKind: 'LOCAL_MP4', sourceLabel: 'Contract Lab · 30:00 full match video' },
-      create: { id: ids.capture, matchId: ids.match, sourceKind: 'LOCAL_MP4', sourceLabel: 'Contract Lab · 30:00 full match video', ingestPath },
+      update: { sourceKind: 'LOCAL_MP4', sourceLabel: 'DEMO 影片' },
+      create: { id: ids.capture, matchId: ids.match, sourceKind: 'LOCAL_MP4', sourceLabel: 'DEMO 影片', ingestPath },
     })
     const legacy = await tx.aiIntegration.findUnique({ where: { name: 'development-fake-ai' } })
     const recordedReplay = await tx.aiIntegration.findUnique({ where: { name: 'contract-lab-tracking-replay' } })

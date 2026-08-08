@@ -142,7 +142,7 @@ export function useAnnotationRoom() {
 
   function commandMatchesCurrentRevision(command: AnnotationCommand) {
     const current = snapshot.value
-    if (command.kind === 'CREATE_SERVICE_KEY_POINT') return !current || ['SUBMITTED', 'VOIDED'].includes(state.value)
+    if (command.kind === 'CREATE_SERVICE_KEY_POINT') return !current || ['READY', 'SUBMITTED', 'VOIDED'].includes(state.value)
     return Boolean(current && current.rally_id === command.rally_id && current.revision === command.base_revision)
   }
 
@@ -202,6 +202,7 @@ export function useAnnotationRoom() {
         }
         if (message.type === 'rally_snapshot') acceptSnapshot(message)
         if (message.type === 'presence_snapshot') presence.value = message.members
+        if (message.type === 'command_ack') void refreshActive()
       },
     }, annotationWsUrl.value)
     realtime.connect()
@@ -314,7 +315,7 @@ export function useAnnotationRoom() {
   async function createCorrection(targetSubmissionId?: string) {
     const submissionId = targetSubmissionId ?? snapshot.value?.snapshot.active_submission_id
     if (!submissionId) throw new Error('目前沒有可修正的已送出片段')
-    if (state.value === 'OPEN' || state.value === 'READY') throw new Error('請先完成目前的標記片段')
+    if (!targetSubmissionId && (state.value === 'OPEN' || state.value === 'READY')) throw new Error('請先完成目前的標記片段')
     busy.value = true
     error.value = null
     try {
@@ -356,6 +357,7 @@ export function useAnnotationRoom() {
     pendingCount,
     presence: shallowReadonly(presence),
     remoteEditorsByKeyPoint,
+    selectRally: fetchSnapshot,
     setEditingKeyPoint,
     discardPending,
     refreshActive,

@@ -18,7 +18,7 @@ import {
   type HotkeyCommand,
 } from '../utils/annotationHotkeys'
 
-export type HotkeyCommandDispatcher = (command: HotkeyCommand) => void
+export type HotkeyCommandDispatcher = (command: HotkeyCommand, event: KeyboardEvent) => void
 
 export function useAnnotationHotkeyRecorder(
   options: MaybeRefOrGetter<HotkeyRecorderOptions>,
@@ -27,8 +27,8 @@ export function useAnnotationHotkeyRecorder(
 }
 
 export function useAnnotationHotkeys() {
-  const bindings = useState<HotkeyBindings>('annotation-hotkeys-v3', restoreDefaultHotkeys)
-  const initialized = useState('annotation-hotkeys-v3-initialized', () => false)
+  const bindings = useState<HotkeyBindings>('annotation-hotkeys-v5', restoreDefaultHotkeys)
+  const initialized = useState('annotation-hotkeys-v5-initialized', () => false)
 
   onMounted(() => {
     if (initialized.value) return
@@ -92,19 +92,27 @@ export function createAnnotationHotkeyDefinitions(
   scopeBlocked: () => boolean = isModalHotkeyScopeActive,
   runtimeEnabled: () => boolean = () => true,
 ): Array<UseHotkeyDefinition> {
-  return HOTKEY_COMMANDS.map((command) => ({
-    hotkey: toRuntimeHotkey(bindings[command.action]),
-    callback: (event) => {
-      if (event.repeat || event.isComposing || scopeBlocked()) return
-      event.preventDefault()
-      event.stopPropagation()
-      dispatch(command.action)
-    },
-    options: {
-      enabled: () => runtimeEnabled() && commandEnabled(command.action),
-      meta: { name: command.label, description: command.group },
-    },
-  }))
+  return HOTKEY_COMMANDS.flatMap((command) => {
+    const repeatable = command.action === 'frame_previous' || command.action === 'frame_next'
+    const definition = (hotkey: ReturnType<typeof toRuntimeHotkey>): UseHotkeyDefinition => ({
+      hotkey,
+      callback: (event) => {
+        if ((event.repeat && !repeatable) || event.isComposing || scopeBlocked()) return
+        event.preventDefault()
+        event.stopPropagation()
+        dispatch(command.action, event)
+      },
+      options: {
+        enabled: () => runtimeEnabled() && commandEnabled(command.action),
+        requireReset: !repeatable,
+        meta: { name: command.label, description: command.group },
+      },
+    })
+    const runtime = toRuntimeHotkey(bindings[command.action])
+    if (!repeatable) return [definition(runtime)]
+    const shifted = typeof runtime === 'string' ? { key: runtime, shift: true } : { ...runtime, shift: true }
+    return [definition(runtime), definition(shifted)]
+  })
 }
 
 /**
@@ -127,7 +135,7 @@ export function useAnnotationHotkeyRuntime(options: AnnotationHotkeyRuntimeOptio
     ignoreInputs: true,
     // The callback applies these only after modal-scope precedence is checked.
     preventDefault: false,
-    requireReset: true,
+    requireReset: false,
     stopPropagation: false,
   })
 }

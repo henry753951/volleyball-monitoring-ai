@@ -16,7 +16,7 @@ export type AnnotationAction =
   | 'close_unknown'
   | 'submit'
 
-export type MediaAction = 'play_pause' | 'frame_previous' | 'frame_next'
+export type MediaAction = 'play_pause' | 'frame_previous' | 'frame_next' | 'key_point_previous' | 'key_point_next'
 export type HotkeyCommand = AnnotationAction | MediaAction
 export type HotkeyCommandGroup = 'annotation' | 'media'
 export type HotkeyBindings = Record<HotkeyCommand, string>
@@ -56,6 +56,8 @@ export const MEDIA_COMMANDS = [
   { action: 'play_pause', group: 'media', label: '播放／暫停', description: '切換目前影片的播放狀態' },
   { action: 'frame_previous', group: 'media', label: '上一幀', description: '由伺服器解析並移到上一個權威畫格' },
   { action: 'frame_next', group: 'media', label: '下一幀', description: '由伺服器解析並移到下一個權威畫格' },
+  { action: 'key_point_previous', group: 'media', label: '上一個擊球點', description: '跨片段移到時間軸上的上一個擊球點' },
+  { action: 'key_point_next', group: 'media', label: '下一個擊球點', description: '跨片段移到時間軸上的下一個擊球點' },
 ] as const satisfies ReadonlyArray<HotkeyCommandDefinition>
 
 export const HOTKEY_COMMANDS: ReadonlyArray<HotkeyCommandDefinition> = [
@@ -63,8 +65,8 @@ export const HOTKEY_COMMANDS: ReadonlyArray<HotkeyCommandDefinition> = [
   ...MEDIA_COMMANDS,
 ]
 
-export const HOTKEY_PREFERENCES_VERSION = 4 as const
-export const HOTKEY_PREFERENCES_STORAGE_KEY = 'volleyball-monitoring-ai:hotkeys:4'
+export const HOTKEY_PREFERENCES_VERSION = 5 as const
+export const HOTKEY_PREFERENCES_STORAGE_KEY = 'volleyball-monitoring-ai:hotkeys:5'
 export const LEGACY_ANNOTATION_HOTKEYS_STORAGE_KEY = 'volleyball-monitoring-ai:annotation-hotkeys:2'
 
 export const DEFAULT_HOTKEY_BINDINGS: Readonly<HotkeyBindings> = Object.freeze({
@@ -77,6 +79,8 @@ export const DEFAULT_HOTKEY_BINDINGS: Readonly<HotkeyBindings> = Object.freeze({
   play_pause: 'Space',
   frame_previous: 'ArrowLeft',
   frame_next: 'ArrowRight',
+  key_point_previous: 'A',
+  key_point_next: 'D',
 })
 
 const SHIFTED_PRODUCT_KEYS = new Set(['<', '>', '?'])
@@ -225,8 +229,8 @@ function normalizeBindingRecord(
     bindings[command.action] = normalized
   }
 
-  for (const [index, command] of HOTKEY_COMMANDS.entries()) {
-    for (const other of HOTKEY_COMMANDS.slice(index + 1)) {
+  for (const [index, command] of commands.entries()) {
+    for (const other of commands.slice(index + 1)) {
       if (bindingMatchesOnEitherPlatform(bindings[command.action], bindings[other.action])) {
         return null
       }
@@ -241,9 +245,25 @@ function normalizeCompleteBindings(value: unknown): HotkeyBindings | null {
   return normalizeBindingRecord(value, HOTKEY_COMMANDS)
 }
 
+function assignMigrationNavigationDefaults(bindings: HotkeyBindings) {
+  const candidates: Record<'key_point_previous' | 'key_point_next', string[]> = {
+    key_point_previous: ['A', 'PageUp', 'J'],
+    key_point_next: ['D', 'PageDown', 'K'],
+  }
+  for (const action of ['key_point_previous', 'key_point_next'] as const) {
+    const candidate = candidates[action].find(binding => HOTKEY_COMMANDS.every(command =>
+      command.action === action || !bindingMatchesOnEitherPlatform(bindings[command.action], binding)))
+    if (!candidate) return false
+    bindings[action] = candidate
+  }
+  return true
+}
+
 function migrateLegacyBindings(value: unknown): HotkeyBindings | null {
   if (!isRecord(value)) return null
-  return normalizeBindingRecord(value, ANNOTATION_COMMANDS)
+  const bindings = normalizeBindingRecord(value, ANNOTATION_COMMANDS)
+  if (!bindings || !assignMigrationNavigationDefaults(bindings)) return null
+  return normalizeBindingRecord(bindings, HOTKEY_COMMANDS)
 }
 
 function migrateVersionThree(value: unknown): HotkeyBindings | null {
@@ -251,13 +271,30 @@ function migrateVersionThree(value: unknown): HotkeyBindings | null {
   const source = isRecord(value.bindings) ? value.bindings : value
   const bindings = restoreDefaultHotkeys()
   for (const command of HOTKEY_COMMANDS) {
-    if (command.action === 'play_pause') continue
+    if (command.action === 'play_pause' || command.action === 'key_point_previous' || command.action === 'key_point_next') continue
     const raw = source[command.action]
     if (typeof raw !== 'string') return null
     const normalized = normalizeRecordedHotkey(raw)
     if (!normalized || isBrowserReservedHotkey(normalized)) return null
     bindings[command.action] = command.action === 'contact' && normalized === 'Space' ? 'X' : normalized
   }
+  if (!assignMigrationNavigationDefaults(bindings)) return null
+  return normalizeBindingRecord(bindings, HOTKEY_COMMANDS)
+}
+
+function migrateVersionFour(value: unknown): HotkeyBindings | null {
+  if (!isRecord(value)) return null
+  const source = isRecord(value.bindings) ? value.bindings : value
+  const bindings = restoreDefaultHotkeys()
+  for (const command of HOTKEY_COMMANDS) {
+    if (command.action === 'key_point_previous' || command.action === 'key_point_next') continue
+    const raw = source[command.action]
+    if (typeof raw !== 'string') return null
+    const normalized = normalizeRecordedHotkey(raw)
+    if (!normalized || isBrowserReservedHotkey(normalized)) return null
+    bindings[command.action] = normalized
+  }
+  if (!assignMigrationNavigationDefaults(bindings)) return null
   return normalizeBindingRecord(bindings, HOTKEY_COMMANDS)
 }
 
@@ -278,6 +315,11 @@ export function parseStoredHotkeyPreferences(serialized: string): StoredHotkeyPr
 
   if (parsed.version === 3) {
     const bindings = migrateVersionThree(parsed)
+    return bindings ? { version: HOTKEY_PREFERENCES_VERSION, bindings } : null
+  }
+
+  if (parsed.version === 4) {
+    const bindings = migrateVersionFour(parsed)
     return bindings ? { version: HOTKEY_PREFERENCES_VERSION, bindings } : null
   }
 

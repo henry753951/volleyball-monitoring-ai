@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ChevronLeft, ChevronRight, CircleDot, Crosshair, Home, Pause, Play, RadioTower, RotateCcw, Settings, Trash2, UsersRound, Volume2, VolumeX, Wifi } from 'lucide-vue-next'
+import { ChevronLeft, ChevronRight, CircleDot, Home, Pause, Play, RadioTower, RotateCcw, Settings, SkipBack, SkipForward, Trash2, UsersRound, Volume2, VolumeX, Wifi } from 'lucide-vue-next'
 import { toast } from 'vue-sonner'
 import { createMediaClient } from '~/lib/mediaClient'
 import { useAuthoritativeDvrWindow, seekVideoToCanonicalFrame, authoritativeControlsEnabled } from '~/composables/useAuthoritativeDvrWindow'
@@ -17,7 +17,7 @@ const media = createMediaClient()
 const dvr = useAuthoritativeDvrWindow(media)
 const descriptor = computed(() => dvr.current.value)
 const video = ref<HTMLVideoElement | null>(null)
-const overlayPlayer = ref<{ seekCaptureTimeIfBuffered: (targetCaptureTimeUs: string) => boolean } | null>(null)
+const overlayPlayer = ref<{ seekCaptureTimeIfBuffered: (targetCaptureTimeUs: string) => boolean; previewCaptureTimeIfBuffered: (targetCaptureTimeUs: string) => boolean } | null>(null)
 const playing = ref(false)
 const muted = ref(false)
 const captureTarget = ref('')
@@ -32,9 +32,9 @@ const currentLastKeyPointId = computed(() => annotation.lastKeyPoint.value?.key_
 const selectedKeyPointId = ref<string | null>(null)
 const selectedTimelineItem = ref<'mask' | 'point' | 'segment' | null>(null)
 const selectedKeyPoint = computed(() => annotation.snapshot.value?.snapshot.key_points.find(point => point.key_point_id === selectedKeyPointId.value) ?? null)
-const fineTuneMode = ref(false)
-const pendingFrameMove = shallowRef<{ keyPointId: string; targetFrameIndex: string } | null>(null)
 const pendingTimelineMove = shallowRef<{ keyPointId: string; playbackWindowId: string | null } | null>(null)
+const frameQueueRunning = ref(false)
+const seekPreviewActive = ref(false)
 const canMark = computed(() => authoritativeControlsEnabled({ cursorReady: cursorStatus.value === 'ready', status: dvr.status.value, busy: dvr.busy.value, descriptor: descriptor.value, anchor: authoritativeAnchor.value }))
 const commandReady = computed(() => !annotation.busy.value && annotation.pendingCount.value === 0 && !pendingTimelineMove.value)
 const { bindings } = useAnnotationHotkeys()
@@ -49,18 +49,27 @@ const selectedRallyId = ref<string | null>(null)
 let matchRefreshTimer: ReturnType<typeof setInterval> | null = null
 let timelineMoveTimeout: ReturnType<typeof setTimeout> | null = null
 let cursorResolveTimer: ReturnType<typeof setTimeout> | null = null
+let seekPreviewTimer: ReturnType<typeof setTimeout> | null = null
+let seekPreviewTarget: string | null = null
 let cursorResolveInFlight = false
 let pendingCursorResolve: PlaybackCursorInput | null = null
 let lastCursorResolveAt = 0
 let lastResolvedCursorKey = ''
 let matchRefreshInFlight = false
 let windowRecoveryInFlight = false
+let playbackContinuationInFlight = false
+let playbackHasStarted = false
+let continuationWindowId: string | null = null
+let continuationRequestedAt = 0
+let windowCreatePromise: ReturnType<typeof dvr.create> | null = null
+let windowCreateTarget: string | undefined
+let queuedFrameDelta = 0
 
 const controls = computed(() => ANNOTATION_COMMANDS.map(command => ({
   ...command,
   key: formatBindingForDisplay(bindings.value[command.action]),
   enabled: commandReady.value && (command.action === 'service'
-    ? ['IDLE', 'SUBMITTED', 'VOIDED'].includes(state.value) && canMark.value
+    ? ['IDLE', 'READY', 'SUBMITTED', 'VOIDED'].includes(state.value) && canMark.value
     : command.action === 'contact'
       ? state.value === 'OPEN' && canMark.value
       : command.action === 'submit'
@@ -73,30 +82,55 @@ const selectedCapture = computed<CaptureSession | null>(() => {
   return sessions.slice().sort((a, b) => (Date.parse(b.startedAt ?? '') - Date.parse(a.startedAt ?? '')) || a.id.localeCompare(b.id))[0] ?? null
 })
 const submittedRallies = computed(() => coach.data.value?.match.rallies ?? [])
+const annotationDrafts = computed(() => coach.data.value?.match.drafts ?? [])
+const draftRallyIds = computed(() => new Set(annotationDrafts.value.map(draft => draft.id)))
+const visibleSubmittedRallies = computed(() => submittedRallies.value.filter(rally => !draftRallyIds.value.has(rally.id)))
+const visibleRallyCount = computed(() => new Set([...submittedRallies.value.map(rally => rally.id), ...annotationDrafts.value.map(draft => draft.id)]).size)
 const completedRallies = computed(() => submittedRallies.value.filter(rally => rally.submission.analysis?.status === 'completed'))
 const selectedSubmittedRally = computed(() => submittedRallies.value.find(rally => rally.id === selectedRallyId.value) ?? null)
 const selectedRally = computed(() => completedRallies.value.find(rally => rally.id === selectedRallyId.value) ?? completedRallies.value[0] ?? null)
 const selectedAnalysisRunId = computed(() => selectedRally.value?.submission.analysis?.id ?? null)
-const timelineSegments = computed(() => submittedRallies.value.flatMap((rally) => {
-  const clip = rally.submission.clip
-  if (!clip || rally.id === annotation.snapshot.value?.rally_id) return []
-  const analysis = rally.submission.analysis
-  return [{
-    id: rally.id,
-    label: `第 ${rally.set_number} 局 · 回合 ${rally.ordinal}`,
-    startCaptureTimeUs: clip.start_capture_time_us,
-    endCaptureTimeUs: clip.end_capture_time_us,
-    status: analysis?.status === 'completed'
-      ? analysis.identity_mapping_completed ? 'mapped' as const : 'analyzed' as const
-      : 'processing' as const,
-  }]
-}))
+const timelineSegments = computed(() => {
+  const currentRallyId = annotation.snapshot.value?.rally_id
+  const submitted = submittedRallies.value.flatMap((rally) => {
+    const points = rally.submission.key_points
+    const range = clipRangeForRally(rally)
+    if (!range || rally.id === currentRallyId || draftRallyIds.value.has(rally.id)) return []
+    const analysis = rally.submission.analysis
+    return [{
+      id: rally.id,
+      label: `第 ${rally.set_number} 局 · 回合 ${rally.ordinal}`,
+      startCaptureTimeUs: range.startCaptureTimeUs,
+      endCaptureTimeUs: range.endCaptureTimeUs,
+      points: points.map(point => ({ id: point.id, markerKind: point.marker_kind, isTerminal: point.is_terminal, captureTimeUs: point.capture_time_us })),
+      status: analysis?.status === 'completed' ? analysis.identity_mapping_completed ? 'mapped' as const : 'analyzed' as const : 'processing' as const,
+    }]
+  })
+  const drafts = annotationDrafts.value.flatMap((draft) => {
+    const range = clipRangeForPoints(draft.key_points)
+    if (draft.id === currentRallyId || !range) return []
+    return [{
+      id: draft.id,
+      label: `第 ${draft.set_number} 局 · 回合 ${draft.ordinal}`,
+      startCaptureTimeUs: range.startCaptureTimeUs,
+      endCaptureTimeUs: range.endCaptureTimeUs,
+      points: draft.key_points.map(point => ({ id: point.id, markerKind: point.marker_kind, isTerminal: point.is_terminal, captureTimeUs: point.capture_time_us })),
+      status: 'draft' as const,
+    }]
+  })
+  return [...submitted, ...drafts]
+})
 const currentSet = computed(() => coach.data.value?.match.sets.find(set => set.status === 'live') ?? coach.data.value?.match.sets.at(-1) ?? null)
 const leftTeamId = computed(() => currentSet.value?.side_assignment?.left_team_id ?? coach.data.value?.match.teams[0]?.id ?? null)
 const rightTeamId = computed(() => currentSet.value?.side_assignment?.right_team_id ?? coach.data.value?.match.teams[1]?.id ?? null)
 const leftTeam = computed(() => coach.data.value?.match.teams.find(team => team.id === leftTeamId.value) ?? coach.data.value?.match.teams[0] ?? null)
 const rightTeam = computed(() => coach.data.value?.match.teams.find(team => team.id === rightTeamId.value) ?? coach.data.value?.match.teams[1] ?? null)
 const timeline = computed(() => selectedCapture.value?.timeline ?? null)
+const currentMaskRange = computed(() => {
+  const snapshot = annotation.snapshot.value
+  const points = snapshot?.snapshot.key_points ?? []
+  return currentAnnotationRally.value ? clipRangeForRally(currentAnnotationRally.value) : snapshot ? clipRangeForPoints(points) : null
+})
 const selectedCaptureId = computed(() => selectedCapture.value?.id ?? null)
 const liveTarget = computed(() => timeline.value?.liveEdgeCaptureTimeUs ?? timeline.value?.availableRanges.at(-1)?.endUs ?? null)
 const visualPlayhead = computed(() => {
@@ -111,26 +145,65 @@ const visualPlayhead = computed(() => {
 const cursorRally = computed(() => {
   const cursor = visualPlayhead.value
   if (!cursor) return null
-  return submittedRallies.value.find((rally) => {
-    const clip = rally.submission.clip
-    return Boolean(clip && BigInt(cursor) >= BigInt(clip.start_capture_time_us) && BigInt(cursor) <= BigInt(clip.end_capture_time_us))
-  }) ?? null
+  const containsCursor = (rally: CoachRally) => {
+    const range = clipRangeForRally(rally)
+    return Boolean(range && BigInt(cursor) >= BigInt(range.startCaptureTimeUs) && BigInt(cursor) <= BigInt(range.endCaptureTimeUs))
+  }
+  return selectedSubmittedRally.value && containsCursor(selectedSubmittedRally.value)
+    ? selectedSubmittedRally.value
+    : submittedRallies.value.find(containsCursor) ?? null
+})
+const currentAnnotationRally = computed(() => submittedRallies.value.find(rally => rally.id === annotation.snapshot.value?.rally_id) ?? null)
+const currentMaskStatus = computed<'processing' | 'analyzed' | 'mapped'>(() => {
+  const analysis = currentAnnotationRally.value?.submission.analysis
+  return analysis?.status === 'completed' ? analysis.identity_mapping_completed ? 'mapped' : 'analyzed' : 'processing'
+})
+const activeOverlayRally = computed(() => cursorRally.value?.submission.analysis?.status === 'completed' ? cursorRally.value : null)
+const activeOverlayAnalysisRunId = computed(() => activeOverlayRally.value?.submission.analysis?.id ?? null)
+const activeOverlayClipStart = computed(() => activeOverlayRally.value?.submission.clip?.start_capture_time_us ?? null)
+const navigableKeyPoints = computed(() => {
+  const currentRallyId = annotation.snapshot.value?.rally_id ?? null
+  const submitted = submittedRallies.value.flatMap(rally => rally.id === currentRallyId ? [] : rally.submission.key_points.map(point => ({
+    id: point.id,
+    captureTimeUs: point.capture_time_us,
+    rallyId: rally.id,
+    editable: false,
+  })))
+  const drafts = annotationDrafts.value.flatMap(draft => draft.id === currentRallyId ? [] : draft.key_points.map(point => ({
+    id: point.id,
+    captureTimeUs: point.capture_time_us,
+    rallyId: draft.id,
+    editable: draft.annotation_status === 'open',
+  })))
+  const current = (annotation.snapshot.value?.snapshot.key_points ?? []).map(point => ({
+    id: point.key_point_id,
+    captureTimeUs: point.capture_time_us,
+    rallyId: currentRallyId,
+    editable: state.value === 'OPEN',
+  }))
+  return [...submitted, ...drafts, ...current].sort((left, right) => {
+    const difference = BigInt(left.captureTimeUs) - BigInt(right.captureTimeUs)
+    return difference < 0n ? -1 : difference > 0n ? 1 : left.id.localeCompare(right.id)
+  })
 })
 const activeContextRally = computed(() => selectedTimelineItem.value === 'segment' ? selectedSubmittedRally.value : cursorRally.value)
+const currentAnnotationDraft = computed(() => annotationDrafts.value.find(draft => draft.id === annotation.snapshot.value?.rally_id) ?? null)
 const activeContextIsDraft = computed(() => selectedTimelineItem.value === 'point' || selectedTimelineItem.value === 'mask' || (!activeContextRally.value && ['OPEN', 'READY'].includes(state.value)))
 const activeContextTitle = computed(() => activeContextIsDraft.value
-  ? `目前標記 · 回合 ${submittedRallies.value.length + 1}`
+  ? `目前標記 · 回合 ${currentAnnotationDraft.value?.ordinal ?? '—'}`
   : activeContextRally.value
     ? `第 ${activeContextRally.value.set_number} 局 · 回合 ${activeContextRally.value.ordinal}`
     : '游標未落在片段內')
-const activeContextHits = computed(() => activeContextIsDraft.value ? annotation.snapshot.value?.snapshot.key_points.length ?? 0 : activeContextRally.value?.submission.contact_count ?? 0)
-const activeContextDuration = computed(() => activeContextRally.value?.submission.clip?.duration_us ?? null)
+const activeContextHits = computed(() => activeContextIsDraft.value ? annotation.snapshot.value?.snapshot.key_points.filter(point => point.marker_kind === 'contact').length ?? 0 : activeContextRally.value?.submission.contact_count ?? 0)
+const activeContextDuration = computed(() => activeContextIsDraft.value
+  ? clipDurationForPoints(annotation.snapshot.value?.snapshot.key_points ?? [])
+  : activeContextRally.value ? rallyDisplayDuration(activeContextRally.value) : null)
 const activeContextState = computed(() => activeContextIsDraft.value
   ? state.value === 'READY' ? '待送出' : '標記中'
   : activeContextRally.value?.submission.analysis?.status === 'completed'
     ? activeContextRally.value.submission.analysis.identity_mapping_completed ? '已指派' : '分析完成'
     : activeContextRally.value ? '處理中' : '—')
-const displayRallyOrdinal = computed(() => activeContextRally.value?.ordinal ?? submittedRallies.value.length + 1)
+const displayRallyOrdinal = computed(() => activeContextRally.value?.ordinal ?? currentAnnotationDraft.value?.ordinal ?? '—')
 const syncLabel = computed(() => annotation.error.value || annotation.outboxNeedsConfirmation.value
   ? 'WS 需注意'
   : annotation.pendingCount.value || annotation.busy.value
@@ -138,6 +211,32 @@ const syncLabel = computed(() => annotation.error.value || annotation.outboxNeed
     : annotation.connection.value === 'ready' ? 'WS 正常' : 'WS 離線')
 const displayTimecode = computed(() => formatTimecode(observedCursor.value?.player_media_time_us))
 const remoteEditorsFor = (keyPointId: string) => annotation.remoteEditorsByKeyPoint.value[keyPointId] ?? []
+
+const CLIP_PADDING_US = 5_000_000n
+function clipRangeForPoints(points: ReadonlyArray<{ capture_time_us: string }>) {
+  if (!points.length) return null
+  const requestedStart = BigInt(points[0]!.capture_time_us) - CLIP_PADDING_US
+  const requestedEnd = BigInt(points.at(-1)!.capture_time_us) + CLIP_PADDING_US
+  const timelineStart = timeline.value?.availableRanges[0]?.startUs
+  const timelineEnd = timeline.value?.availableRanges.at(-1)?.endUs
+  const start = requestedStart < 0n ? 0n : timelineStart && requestedStart < BigInt(timelineStart) ? BigInt(timelineStart) : requestedStart
+  const end = timelineEnd && requestedEnd > BigInt(timelineEnd) ? BigInt(timelineEnd) : requestedEnd
+  return { startCaptureTimeUs: start.toString(), endCaptureTimeUs: end.toString() }
+}
+function clipDurationForPoints(points: ReadonlyArray<{ capture_time_us: string }>) {
+  const range = clipRangeForPoints(points)
+  return range ? (BigInt(range.endCaptureTimeUs) - BigInt(range.startCaptureTimeUs)).toString() : null
+}
+function clipRangeForRally(rally: CoachRally) {
+  const clip = rally.submission.clip
+  return clip
+    ? { startCaptureTimeUs: clip.start_capture_time_us, endCaptureTimeUs: clip.end_capture_time_us }
+    : clipRangeForPoints(rally.submission.key_points)
+}
+function rallyDisplayDuration(rally: CoachRally) {
+  const range = clipRangeForRally(rally)
+  return range ? (BigInt(range.endCaptureTimeUs) - BigInt(range.startCaptureTimeUs)).toString() : null
+}
 
 function formatTimecode(value?: string | null) {
   if (!value) return '00:00.000'
@@ -194,11 +293,6 @@ async function resolveLatestCursor() {
       finally { releaseEditingIntent() }
       return
     }
-    const pending = pendingFrameMove.value
-    if (!resolved || !pending || resolved.capture_frame_index !== pending.targetFrameIndex) return
-    pendingFrameMove.value = null
-    if (!fineTuneMode.value || state.value !== 'OPEN' || selectedKeyPointId.value !== pending.keyPointId || !commandReady.value) return
-    await annotation.edit('MOVE_KEY_POINT', { keyPointId: pending.keyPointId, cursor })
   }
   catch (error) { mediaError.value = error instanceof Error ? error.message : '游標解析失敗' }
   finally {
@@ -209,7 +303,8 @@ async function resolveLatestCursor() {
 
 function scheduleCursorResolve(force = false) {
   if (!pendingCursorResolve || cursorResolveInFlight || cursorResolveTimer) return
-  const interval = force || pendingTimelineMove.value || pendingFrameMove.value ? 0 : 1_000
+  if (!force && !pendingTimelineMove.value) return
+  const interval = 0
   const delay = Math.max(0, interval - (performance.now() - lastCursorResolveAt))
   cursorResolveTimer = setTimeout(resolveLatestCursor, delay)
 }
@@ -218,32 +313,69 @@ function handleCursor(cursor: PlaybackCursorInput) {
   const previousSeekGeneration = observedCursor.value?.seek_generation
   observedCursor.value = cursor
   cursorStatus.value = cursor.cursor_status
+  if (seekPreviewActive.value) return
   if (cursor.cursor_status !== 'ready') {
     pendingCursorResolve = null
     return
   }
   const key = `${cursor.playback_window_id}:${cursor.mapping_version}:${cursor.seek_generation}:${cursor.player_media_time_us}`
   if (key === lastResolvedCursorKey) return
+  const anchorNeedsRefresh = authoritativeAnchor.value?.playback_window_id !== cursor.playback_window_id
+    || authoritativeAnchor.value.mapping_version !== cursor.mapping_version
+  const shouldResolve = anchorNeedsRefresh
+    || cursor.seek_generation !== previousSeekGeneration
+    || Boolean(pendingTimelineMove.value)
+  if (!shouldResolve) return
   pendingCursorResolve = cursor
-  scheduleCursorResolve(cursor.seek_generation !== previousSeekGeneration || Boolean(pendingTimelineMove.value) || Boolean(pendingFrameMove.value))
+  scheduleCursorResolve(true)
 }
 
 async function createWindow(target = captureTarget.value || undefined) {
+  if (windowCreatePromise && target === windowCreateTarget) return windowCreatePromise
   mediaError.value = null
-  try {
-    const session = selectedCapture.value
-    if (!session || !target) throw new Error('目前沒有可播放的 capture range')
-    captureTarget.value = target
-    return await dvr.create({ schema_version: '1.0.0', capture_session_id: session.id, mode: target === liveTarget.value ? 'live' : 'archive', target_capture_time_us: target })
+  const request = (async () => {
+    try {
+      const session = selectedCapture.value
+      if (!session || !target) throw new Error('目前沒有可播放的 capture range')
+      captureTarget.value = target
+      return await dvr.create({ schema_version: '1.0.0', capture_session_id: session.id, mode: target === liveTarget.value ? 'live' : 'archive', target_capture_time_us: target })
+    }
+    catch (error) { mediaError.value = error instanceof Error ? error.message : '播放視窗建立失敗'; return null }
+    finally { mediaError.value = dvr.error.value instanceof Error ? dvr.error.value.message : mediaError.value }
+  })()
+  windowCreatePromise = request
+  windowCreateTarget = target
+  try { return await request }
+  finally {
+    if (windowCreatePromise === request) {
+      windowCreatePromise = null
+      windowCreateTarget = undefined
+    }
   }
-  catch (error) { mediaError.value = error instanceof Error ? error.message : '播放視窗建立失敗'; return null }
-  finally { mediaError.value = dvr.error.value instanceof Error ? dvr.error.value.message : mediaError.value }
 }
 
 async function seekTimeline(targetCaptureTimeUs: string) {
+  seekPreviewActive.value = false
+  seekPreviewTarget = null
+  if (seekPreviewTimer) clearTimeout(seekPreviewTimer)
+  seekPreviewTimer = null
   captureTarget.value = targetCaptureTimeUs
   if (overlayPlayer.value?.seekCaptureTimeIfBuffered(targetCaptureTimeUs)) return
   await createWindow(targetCaptureTimeUs)
+}
+
+function previewTimelineSeek(targetCaptureTimeUs: string | null) {
+  seekPreviewActive.value = Boolean(targetCaptureTimeUs)
+  seekPreviewTarget = targetCaptureTimeUs
+  if (seekPreviewTimer) clearTimeout(seekPreviewTimer)
+  seekPreviewTimer = null
+  if (!targetCaptureTimeUs || overlayPlayer.value?.previewCaptureTimeIfBuffered(targetCaptureTimeUs)) return
+  seekPreviewTimer = setTimeout(() => {
+    seekPreviewTimer = null
+    const target = seekPreviewTarget
+    if (!target || !seekPreviewActive.value) return
+    void createWindow(target)
+  }, 140)
 }
 
 function dispatchAnnotationAction(action: AnnotationAction) {
@@ -271,11 +403,20 @@ function selectTimelineMask() {
   selectedKeyPointId.value = null
 }
 
-function selectHistoricalSegment(segmentId: string, targetCaptureTimeUs: string) {
+async function selectHistoricalSegment(segmentId: string, targetCaptureTimeUs: string) {
+  const draft = annotationDrafts.value.find(candidate => candidate.id === segmentId)
+  if (draft) {
+    await annotation.selectRally(draft.id)
+    selectedRallyId.value = draft.id
+    selectedTimelineItem.value = 'mask'
+    selectedKeyPointId.value = null
+    await seekTimeline(targetCaptureTimeUs)
+    return
+  }
   selectedRallyId.value = segmentId
   selectedTimelineItem.value = 'segment'
   selectedKeyPointId.value = null
-  void seekTimeline(targetCaptureTimeUs)
+  await seekTimeline(targetCaptureTimeUs)
 }
 
 function selectRally(rally: CoachRally) {
@@ -291,7 +432,7 @@ function openMapping() {
 }
 
 function releaseEditingIntent() {
-  annotation.setEditingKeyPoint(state.value === 'OPEN' && fineTuneMode.value ? selectedKeyPointId.value : null)
+  annotation.setEditingKeyPoint(null)
 }
 
 function beginTimelineKeyPointEdit(keyPointId: string) {
@@ -350,13 +491,6 @@ async function moveTimelineKeyPoint(keyPointId: string, targetCaptureTimeUs: str
   }
 }
 
-function toggleFineTuneMode() {
-  if (state.value !== 'OPEN' || !selectedKeyPoint.value || !commandReady.value) return
-  pendingFrameMove.value = null
-  fineTuneMode.value = !fineTuneMode.value
-  releaseEditingIntent()
-}
-
 function reopenRally() {
   if (state.value !== 'READY' || !commandReady.value) return
   void annotation.edit('REOPEN_RALLY').catch(() => undefined)
@@ -373,10 +507,11 @@ function deleteSelection() {
 }
 
 function startCorrection() {
-  const submissionId = selectedTimelineItem.value === 'segment'
+  const historicalSegmentSelected = selectedTimelineItem.value === 'segment'
+  const submissionId = historicalSegmentSelected
     ? selectedSubmittedRally.value?.submission.id
     : annotation.snapshot.value?.snapshot.active_submission_id
-  if (!submissionId || ['OPEN', 'READY'].includes(state.value) || !commandReady.value) return
+  if (!submissionId || (!historicalSegmentSelected && ['OPEN', 'READY'].includes(state.value)) || !commandReady.value) return
   confirmAction.value = 'correction'
 }
 
@@ -402,12 +537,40 @@ function confirmPendingAction() {
 type PlayerAction = MediaAction | 'mute'
 function updatePlaybackState() {
   playing.value = Boolean(video.value && !video.value.paused)
+  if (playing.value) playbackHasStarted = true
   muted.value = Boolean(video.value?.muted)
 }
 function detachVideoState(element: HTMLVideoElement | null) {
   element?.removeEventListener('play', updatePlaybackState)
   element?.removeEventListener('pause', updatePlaybackState)
   element?.removeEventListener('volumechange', updatePlaybackState)
+  element?.removeEventListener('timeupdate', maintainPlaybackWindow)
+  element?.removeEventListener('ended', maintainPlaybackWindow)
+}
+function maintainPlaybackWindow() {
+  const element = video.value
+  const window = descriptor.value
+  if (!element || !window || seekPreviewActive.value || playbackContinuationInFlight || !playbackHasStarted) return
+  if (element.paused && !element.ended) return
+  if (element.readyState < HTMLMediaElement.HAVE_CURRENT_DATA || !Number.isFinite(element.duration) || element.duration <= 0) return
+  if (!element.ended && element.duration - element.currentTime > 2.5) return
+  if (continuationWindowId === window.playback_window_id || performance.now() - continuationRequestedAt < 750) return
+
+  const windowEnd = BigInt(window.window_capture_end_us)
+  const timelineEnd = liveTarget.value ? BigInt(liveTarget.value) : null
+  if (!timelineEnd || windowEnd >= timelineEnd) return
+  const target = window.mode === 'live'
+    ? timelineEnd.toString()
+    : (windowEnd - 500_000n).toString()
+  if (!target) return
+  const resume = !element.paused || element.ended
+  continuationWindowId = window.playback_window_id
+  continuationRequestedAt = performance.now()
+  playbackContinuationInFlight = true
+  void createWindow(target).then((created) => {
+    if (created && resume && video.value) void video.value.play().catch(() => undefined)
+    if (!created) continuationWindowId = null
+  }).finally(() => { playbackContinuationInFlight = false })
 }
 function handleVideoReady(element: HTMLVideoElement) {
   if (video.value !== element) {
@@ -416,10 +579,12 @@ function handleVideoReady(element: HTMLVideoElement) {
     element.addEventListener('play', updatePlaybackState)
     element.addEventListener('pause', updatePlaybackState)
     element.addEventListener('volumechange', updatePlaybackState)
+    element.addEventListener('timeupdate', maintainPlaybackWindow)
+    element.addEventListener('ended', maintainPlaybackWindow)
   }
   updatePlaybackState()
 }
-function dispatchMediaAction(action: PlayerAction) {
+function dispatchMediaAction(action: PlayerAction, frameCount = 1) {
   const element = video.value
   if (!element) return
   if (action === 'play_pause') {
@@ -427,34 +592,73 @@ function dispatchMediaAction(action: PlayerAction) {
     else element.pause()
   }
   if (action === 'mute') element.muted = !element.muted
-  if (action === 'frame_previous' || action === 'frame_next') void frameStep(action === 'frame_next' ? 'next' : 'previous')
+  if (action === 'frame_previous' || action === 'frame_next') queueFrameStep(action === 'frame_next' ? 'next' : 'previous', frameCount)
+  if (action === 'key_point_previous' || action === 'key_point_next') navigateKeyPoint(action === 'key_point_next' ? 'next' : 'previous')
 }
 
-async function frameStep(direction: 'previous' | 'next') {
-  if (!descriptor.value || pendingFrameMove.value) return
+function queueFrameStep(direction: 'previous' | 'next', count = 1) {
+  queuedFrameDelta = Math.max(-60, Math.min(60, queuedFrameDelta + (direction === 'next' ? count : -count)))
+  if (!frameQueueRunning.value) void drainFrameQueue()
+}
+
+async function drainFrameQueue() {
+  if (!descriptor.value || frameQueueRunning.value) return
+  frameQueueRunning.value = true
   try {
     if (observedCursor.value?.cursor_status === 'ready') {
       const resolved = await dvr.resolve(observedCursor.value)
       if (resolved) lastResolvedCursorKey = `${observedCursor.value.playback_window_id}:${observedCursor.value.mapping_version}:${observedCursor.value.seek_generation}:${observedCursor.value.player_media_time_us}`
     }
-    if (!authoritativeAnchor.value) return
-    const anchor = await dvr.step(direction, target => ({ schema_version: '1.0.0', capture_session_id: descriptor.value!.capture_session_id, mode: descriptor.value!.mode, target_capture_time_us: target }))
-    if (!anchor) return
-    const localUs = BigInt(anchor.player_media_time_us)
-    if (localUs < 0n || localUs > 86_400_000_000n) throw new RangeError('frame-step returned an unbounded player time')
-    if (fineTuneMode.value && state.value === 'OPEN' && selectedKeyPointId.value && commandReady.value) {
-      pendingFrameMove.value = { keyPointId: selectedKeyPointId.value, targetFrameIndex: anchor.capture_frame_index }
+    while (queuedFrameDelta !== 0 && descriptor.value && authoritativeAnchor.value) {
+      const direction = queuedFrameDelta > 0 ? 'next' : 'previous'
+      queuedFrameDelta += direction === 'next' ? -1 : 1
+      const anchor = await dvr.step(direction, target => ({ schema_version: '1.0.0', capture_session_id: descriptor.value!.capture_session_id, mode: descriptor.value!.mode, target_capture_time_us: target }))
+      if (!anchor) { queuedFrameDelta = 0; break }
+      const localUs = BigInt(anchor.player_media_time_us)
+      if (localUs < 0n || localUs > 86_400_000_000n) throw new RangeError('frame-step returned an unbounded player time')
+      if (video.value) seekVideoToCanonicalFrame(video.value, anchor)
     }
-    if (video.value) seekVideoToCanonicalFrame(video.value, anchor)
   }
-  catch (error) { mediaError.value = error instanceof Error ? error.message : '逐幀請求失敗' }
+  catch (error) { queuedFrameDelta = 0; mediaError.value = error instanceof Error ? error.message : '逐幀請求失敗' }
+  finally { frameQueueRunning.value = false }
 }
 
-function dispatchHotkeyCommand(action: HotkeyCommand) { action === 'play_pause' || action.startsWith('frame_') ? dispatchMediaAction(action as MediaAction) : dispatchAnnotationAction(action as AnnotationAction) }
+function navigateKeyPoint(direction: 'previous' | 'next') {
+  const points = navigableKeyPoints.value
+  if (!points.length) return
+  const selectedIndex = selectedKeyPointId.value ? points.findIndex(point => point.id === selectedKeyPointId.value) : -1
+  const reference = selectedKeyPoint.value?.capture_time_us ?? visualPlayhead.value
+  const target = selectedIndex >= 0
+    ? points[selectedIndex + (direction === 'next' ? 1 : -1)]
+    : direction === 'next'
+      ? points.find(point => !reference || BigInt(point.captureTimeUs) > BigInt(reference))
+      : points.findLast(point => !reference || BigInt(point.captureTimeUs) < BigInt(reference))
+  if (!target) { toast.info(direction === 'next' ? '已到最後一個擊球點' : '已到第一個擊球點'); return }
+  if (target.rallyId === annotation.snapshot.value?.rally_id) {
+    selectedKeyPointId.value = target.id
+    selectedTimelineItem.value = 'point'
+  }
+  else if (target.rallyId && annotationDrafts.value.some(draft => draft.id === target.rallyId)) {
+    void selectHistoricalSegment(target.rallyId, target.captureTimeUs)
+    return
+  }
+  else {
+    selectedRallyId.value = target.rallyId
+    selectedTimelineItem.value = 'segment'
+    selectedKeyPointId.value = null
+  }
+  void seekTimeline(target.captureTimeUs)
+}
+
+function dispatchHotkeyCommand(action: HotkeyCommand, event: KeyboardEvent) {
+  if (action === 'play_pause' || action.startsWith('frame_') || action.startsWith('key_point_')) dispatchMediaAction(action as MediaAction, event.shiftKey ? 5 : 1)
+  else dispatchAnnotationAction(action as AnnotationAction)
+}
 function commandEnabled(action: HotkeyCommand) {
   if (action === 'play_pause') return Boolean(descriptor.value)
+  if (action.startsWith('key_point_')) return navigableKeyPoints.value.length > 0
   return action.startsWith('frame_')
-    ? Boolean(descriptor.value && authoritativeAnchor.value && canMark.value && !dvr.busy.value && !pendingFrameMove.value)
+    ? Boolean(descriptor.value && authoritativeAnchor.value && cursorStatus.value === 'ready')
     : controls.value.some(control => control.action === action && control.enabled)
 }
 useAnnotationHotkeyRuntime({ target: annotationScope, dispatch: dispatchHotkeyCommand, commandEnabled })
@@ -466,6 +670,9 @@ watch([selectedCaptureId, liveTarget], ([captureId, target]) => {
   if (!captureId || !target || dvr.busy.value || descriptor.value?.capture_session_id === captureId) return
   void createWindow(target)
 }, { immediate: true })
+watch(liveTarget, () => {
+  if (video.value?.ended) maintainPlaybackWindow()
+})
 watch(() => annotation.snapshot.value?.rally_id, () => {
   selectedKeyPointId.value = annotation.lastKeyPoint.value?.key_point_id ?? null
   selectedTimelineItem.value = selectedKeyPointId.value ? 'point' : null
@@ -473,9 +680,8 @@ watch(() => annotation.snapshot.value?.rally_id, () => {
 watch(completedRallies, (rallies) => {
   if (!selectedRallyId.value || !rallies.some(rally => rally.id === selectedRallyId.value)) selectedRallyId.value = rallies[0]?.id ?? null
 }, { immediate: true })
-watch([state, selectedKeyPointId], ([nextState]) => {
-  pendingFrameMove.value = null
-  if (nextState !== 'OPEN') fineTuneMode.value = false
+watch([state, selectedKeyPointId], () => {
+  queuedFrameDelta = 0
   releaseEditingIntent()
 })
 watch(loadError, (value) => { if (value) toast.error(value, { action: { label: '重試', onClick: () => void loadMatch() } }) })
@@ -508,6 +714,7 @@ onBeforeUnmount(() => {
   if (matchRefreshTimer) clearInterval(matchRefreshTimer)
   if (timelineMoveTimeout) clearTimeout(timelineMoveTimeout)
   if (cursorResolveTimer) clearTimeout(cursorResolveTimer)
+  if (seekPreviewTimer) clearTimeout(seekPreviewTimer)
   annotation.setEditingKeyPoint(null)
   detachVideoState(video.value)
 })
@@ -524,21 +731,23 @@ onBeforeUnmount(() => {
       </nav>
       <div class="session-status"><i class="status-dot" :class="{ busy: annotation.busy.value || annotation.pendingCount.value > 0 || annotation.connection.value !== 'ready', error: annotation.error.value || annotation.outboxNeedsConfirmation.value }" /><span>{{ syncLabel }}</span></div>
       <div class="app-actions">
-        <span class="media-name">{{ selectedCapture?.sourceLabel ?? '等待媒體' }}</span>
         <button type="button" aria-label="按鍵設定" title="按鍵設定" @click="settingsOpen = true"><Settings :size="16" /></button>
       </div>
     </header>
 
-    <div class="editor-body">
+    <UiResizablePanelGroup id="annotation-workspace" class="editor-body">
+      <UiResizablePanel id="annotation-video" :default-size="78" :min-size="55">
       <main class="viewer-panel">
         <div class="video-stage">
-          <VideoOverlayPlayer ref="overlayPlayer" :descriptor="descriptor" :controls="false" toggle-on-click @cursor="handleCursor" @ready="handleVideoReady" @toggle="dispatchMediaAction('play_pause')" @error="mediaError = $event.message" />
+          <VideoOverlayPlayer ref="overlayPlayer" :descriptor="descriptor" :controls="false" toggle-on-click :analysis-run-id="activeOverlayAnalysisRunId" :overlay-capture-time-us="visualPlayhead" :overlay-clip-start-capture-time-us="activeOverlayClipStart" @cursor="handleCursor" @ready="handleVideoReady" @toggle="dispatchMediaAction('play_pause')" @error="mediaError = $event.message" />
           <div v-if="annotation.snapshot.value" class="stage-mask" :class="annotation.snapshot.value.snapshot.annotation_status === 'submitted' ? 'submitted' : 'draft'" />
           <div class="viewer-badges"><span v-if="descriptor">{{ descriptor.mode.toUpperCase() }}</span><span>{{ authoritativeAnchor?.capture_frame_index ?? '—' }}</span></div>
           <div v-if="!descriptor" class="stage-empty"><strong>{{ selectedCapture ? '媒體緩衝中' : '尚未加入媒體' }}</strong><button v-if="liveTarget" type="button" @click="createWindow(liveTarget)">LIVE</button></div>
         </div>
       </main>
-
+      </UiResizablePanel>
+      <UiResizableHandle id="annotation-inspector-handle" />
+      <UiResizablePanel id="annotation-inspector" :default-size="22" :min-size="18" :max-size="45">
       <aside class="inspector">
         <div class="mode-switch"><button type="button" :class="{ active: inspectorTab === 'match' }" @click="inspectorTab = 'match'">場次資訊</button><button type="button" :class="{ active: inspectorTab === 'mapping' }" @click="openMapping">球員指派</button></div>
         <div v-if="inspectorTab === 'match'" class="match-inspector">
@@ -548,9 +757,11 @@ onBeforeUnmount(() => {
             <span>{{ leftTeam?.shortName || leftTeam?.name || '左隊' }}</span><b>{{ currentSet?.left_score ?? 0 }}</b><i>:</i><b>{{ currentSet?.right_score ?? 0 }}</b><span>{{ rightTeam?.shortName || rightTeam?.name || '右隊' }}</span>
             </div>
           </div>
-          <div class="segment-list-title"><span>已送出片段</span><b>{{ submittedRallies.length }}</b></div>
-          <UiScrollArea class="segment-scroll"><div class="segment-list"><button v-for="rally in submittedRallies" :key="rally.id" type="button" class="segment-row" :class="{ active: selectedRallyId === rally.id }" @click="selectRally(rally)">
-            <div><span>第 {{ rally.set_number }} 局 · 回合 {{ rally.ordinal }}</span><small>{{ formatDuration(rally.submission.clip?.duration_us) }} · {{ rally.submission.contact_count }} 次擊球</small></div><i :class="{ processing: rally.submission.analysis?.status !== 'completed', mapped: rally.submission.analysis?.identity_mapping_completed }" />
+          <div class="segment-list-title"><span>片段</span><b>{{ visibleRallyCount }}</b></div>
+          <UiScrollArea class="segment-scroll"><div class="segment-list"><button v-for="draft in annotationDrafts" :key="draft.id" type="button" class="segment-row" :class="{ active: annotation.snapshot.value?.rally_id === draft.id }" @click="selectHistoricalSegment(draft.id, draft.key_points[0]?.capture_time_us ?? visualPlayhead ?? '0')">
+            <div><span>第 {{ draft.set_number }} 局 · 回合 {{ draft.ordinal }}</span><small>{{ draft.annotation_status === 'ready' ? '待送出' : '標記中' }} · {{ draft.key_points.filter(point => point.marker_kind === 'contact').length }} 次擊球</small></div><i class="draft" />
+          </button><button v-for="rally in visibleSubmittedRallies" :key="rally.id" type="button" class="segment-row" :class="{ active: selectedRallyId === rally.id }" @click="selectRally(rally)">
+            <div><span>第 {{ rally.set_number }} 局 · 回合 {{ rally.ordinal }}</span><small>{{ formatDuration(rallyDisplayDuration(rally)) }} · {{ rally.submission.contact_count }} 次擊球</small></div><i :class="{ processing: rally.submission.analysis?.status !== 'completed', mapped: rally.submission.analysis?.identity_mapping_completed }" />
           </button></div></UiScrollArea>
         </div>
         <div v-else class="mapping-inspector">
@@ -558,35 +769,37 @@ onBeforeUnmount(() => {
           <AnnotationIdentityPanel :match-id="matchId" :analysis-run-id="selectedAnalysisRunId" :left-team-id="leftTeamId" :right-team-id="rightTeamId" :teams="coach.data.value?.match.teams ?? []" :mapping-completed="Boolean(selectedRally?.submission.analysis?.identity_mapping_completed)" @changed="coach.refresh" />
         </div>
       </aside>
-    </div>
+      </UiResizablePanel>
+    </UiResizablePanelGroup>
 
     <footer class="timeline-footer">
       <div class="transport-bar">
-        <button type="button" class="transport-button" :aria-label="playing ? '暫停' : '播放'" :disabled="!descriptor" @click="dispatchMediaAction('play_pause')"><Pause v-if="playing" :size="16" fill="currentColor" /><Play v-else :size="16" fill="currentColor" /></button>
-        <button type="button" class="transport-button" aria-label="前一幀" :disabled="!authoritativeAnchor || dvr.busy.value || Boolean(pendingFrameMove) || Boolean(pendingTimelineMove)" @click="dispatchMediaAction('frame_previous')"><ChevronLeft :size="18" stroke-width="2.2" /></button>
-        <button type="button" class="transport-button" aria-label="後一幀" :disabled="!authoritativeAnchor || dvr.busy.value || Boolean(pendingFrameMove) || Boolean(pendingTimelineMove)" @click="dispatchMediaAction('frame_next')"><ChevronRight :size="18" stroke-width="2.2" /></button>
+        <UiTooltip :content="playing ? '暫停' : '播放'"><button type="button" class="transport-button" :aria-label="playing ? '暫停' : '播放'" :disabled="!descriptor" @click="dispatchMediaAction('play_pause')"><Pause v-if="playing" :size="16" fill="currentColor" /><Play v-else :size="16" fill="currentColor" /></button></UiTooltip>
+        <UiTooltip content="上一幀；按住連續移動，Shift 一次 5 幀"><button type="button" class="transport-button" aria-label="前一幀" :disabled="!authoritativeAnchor || Boolean(pendingTimelineMove)" @click="dispatchMediaAction('frame_previous')"><ChevronLeft :size="18" stroke-width="2.2" /></button></UiTooltip>
+        <UiTooltip content="下一幀；按住連續移動，Shift 一次 5 幀"><button type="button" class="transport-button" aria-label="後一幀" :disabled="!authoritativeAnchor || Boolean(pendingTimelineMove)" @click="dispatchMediaAction('frame_next')"><ChevronRight :size="18" stroke-width="2.2" /></button></UiTooltip>
         <code class="timecode">{{ displayTimecode }}</code>
         <button type="button" class="live-badge" :class="{ active: descriptor?.mode === 'live' }" :disabled="!liveTarget" @click="createWindow(liveTarget ?? undefined)">LIVE</button>
         <i class="transport-separator" />
-        <button type="button" class="tool-button" :class="{ active: fineTuneMode }" :disabled="state !== 'OPEN' || !selectedKeyPoint || !commandReady" title="逐幀移動所選點" @click="toggleFineTuneMode"><Crosshair :size="14" />微調</button>
-        <button type="button" class="tool-button" :disabled="state !== 'OPEN' || !selectedKeyPoint || !canMark || !commandReady" title="移到目前畫格" @click="editKeyPoint('MOVE_KEY_POINT')"><CircleDot :size="14" />移到游標</button>
-        <button type="button" class="tool-button danger" :disabled="!selectedTimelineItem || selectedTimelineItem === 'segment' || !['OPEN', 'READY'].includes(state) || !commandReady" title="Delete" @click="deleteSelection"><Trash2 :size="14" />刪除所選</button>
+        <UiTooltip v-if="(selectedTimelineItem === 'segment' && selectedSubmittedRally) || (state === 'SUBMITTED' && annotation.snapshot.value?.snapshot.active_submission_id)" content="以 immutable submission 建立修正版"><button type="button" class="tool-button" :disabled="!commandReady" aria-label="建立修正版" @click="startCorrection"><RotateCcw :size="14" />建立修正版</button></UiTooltip>
+        <UiTooltip content="上一個擊球點，可跨片段"><button type="button" class="tool-button icon-tool" :disabled="!navigableKeyPoints.length" aria-label="上一個擊球點" @click="dispatchMediaAction('key_point_previous')"><SkipBack :size="14" /><UiKbd>{{ formatBindingForDisplay(bindings.key_point_previous) }}</UiKbd></button></UiTooltip>
+        <UiTooltip content="下一個擊球點，可跨片段"><button type="button" class="tool-button icon-tool" :disabled="!navigableKeyPoints.length" aria-label="下一個擊球點" @click="dispatchMediaAction('key_point_next')"><SkipForward :size="14" /><UiKbd>{{ formatBindingForDisplay(bindings.key_point_next) }}</UiKbd></button></UiTooltip>
+        <UiTooltip content="將所選擊球點對齊目前游標"><button type="button" class="tool-button" :disabled="state !== 'OPEN' || !selectedKeyPoint || !canMark || !commandReady" aria-label="對齊游標" @click="editKeyPoint('MOVE_KEY_POINT')"><CircleDot :size="14" />對齊游標</button></UiTooltip>
+        <UiTooltip content="刪除目前選取"><button type="button" class="tool-button danger" :disabled="!selectedTimelineItem || selectedTimelineItem === 'segment' || !['OPEN', 'READY'].includes(state) || !commandReady" aria-label="刪除所選" @click="deleteSelection"><Trash2 :size="14" />刪除所選</button></UiTooltip>
         <div class="transport-context">
           <div><strong>{{ activeContextTitle }}</strong><small>{{ activeContextHits }} 次擊球 · {{ formatDuration(activeContextDuration) }}</small></div>
           <span>{{ activeContextState }}</span>
-          <button v-if="(selectedTimelineItem === 'segment' && selectedSubmittedRally) || (state === 'SUBMITTED' && annotation.snapshot.value?.snapshot.active_submission_id)" type="button" class="context-edit" :disabled="!commandReady" title="建立修正版" @click="startCorrection"><RotateCcw :size="13" /></button>
         </div>
-        <button type="button" class="transport-button" :aria-label="muted ? '開啟聲音' : '靜音'" :disabled="!descriptor" @click="dispatchMediaAction('mute')"><VolumeX v-if="muted" :size="16" /><Volume2 v-else :size="16" /></button>
+        <UiTooltip :content="muted ? '開啟聲音' : '靜音'"><button type="button" class="transport-button" :aria-label="muted ? '開啟聲音' : '靜音'" :disabled="!descriptor" @click="dispatchMediaAction('mute')"><VolumeX v-if="muted" :size="16" /><Volume2 v-else :size="16" /></button></UiTooltip>
       </div>
-      <DvrTimelineDock :timeline="timeline" :playhead="visualPlayhead" :buffered-window="descriptor ? { startCaptureTimeUs: descriptor.window_capture_start_us, endCaptureTimeUs: descriptor.window_capture_end_us } : null" :annotation="annotation.snapshot.value" :editable="state === 'OPEN' && !pendingTimelineMove" :selected-key-point-id="selectedKeyPointId" :mask-selected="selectedTimelineItem === 'mask'" :segments="timelineSegments" :selected-segment-id="selectedTimelineItem === 'segment' ? selectedRallyId : null" :soft-locks="annotation.remoteEditorsByKeyPoint.value" @seek="seekTimeline" @select="selectTimelineKeyPoint" @select-mask="selectTimelineMask" @select-segment="selectHistoricalSegment" @edit-start="beginTimelineKeyPointEdit" @edit-cancel="cancelTimelineKeyPointEdit" @move="moveTimelineKeyPoint" />
+      <DvrTimelineDock :timeline="timeline" :playhead="visualPlayhead" :buffered-window="descriptor ? { startCaptureTimeUs: descriptor.window_capture_start_us, endCaptureTimeUs: descriptor.window_capture_end_us } : null" :annotation="annotation.snapshot.value" :editable="state === 'OPEN' && !pendingTimelineMove" :selected-key-point-id="selectedKeyPointId" :mask-selected="selectedTimelineItem === 'mask'" :mask-range="currentMaskRange" :current-mask-status="currentMaskStatus" :segments="timelineSegments" :selected-segment-id="selectedTimelineItem === 'segment' ? selectedRallyId : null" :soft-locks="annotation.remoteEditorsByKeyPoint.value" @preview="previewTimelineSeek" @seek="seekTimeline" @select="selectTimelineKeyPoint" @select-mask="selectTimelineMask" @select-segment="selectHistoricalSegment" @edit-start="beginTimelineKeyPointEdit" @edit-cancel="cancelTimelineKeyPointEdit" @move="moveTimelineKeyPoint" />
       <AnnotationCommandStrip :bindings="bindings" :state="state" :can-mark="canMark" :last-key-point="Boolean(currentLastKeyPointId)" :command-ready="commandReady" :pending-command="annotation.pendingCount.value > 0" @action="dispatchAnnotationAction" @settings="settingsOpen = true" />
     </footer>
 
-    <LazyAnnotationSettingsDialog v-if="settingsOpen" :open="settingsOpen" @close="settingsOpen = false" />
-    <LazyCaptureControlDialog v-if="captureDialogOpen" :open="captureDialogOpen" :match-id="matchId" :captures="match?.captureSessions ?? []" @close="captureDialogOpen = false" @changed="loadMatch" />
-    <LazyAnnotationConnectionDialog v-if="connectionDialogOpen" :open="connectionDialogOpen" :connection="annotation.connection.value" :capture="selectedCapture" :descriptor="descriptor" :pending="annotation.pendingCount.value" :editors="annotation.presence.value.length" @close="connectionDialogOpen = false" />
-    <LazyRosterEditorDialog v-if="rosterDialogOpen && match" :open="rosterDialogOpen" :match="match" @close="rosterDialogOpen = false" @changed="loadMatch" />
-    <LazyConfirmActionDialog v-if="confirmAction" :open="Boolean(confirmAction)" :title="confirmAction === 'void' ? '刪除未送出片段' : '建立修正版'" :message="confirmAction === 'void' ? '這個未送出片段會立即刪除，已送出的資料不受影響。' : '送出修正版並完成 AI 處理後，教練端會更新為新版本。'" :confirm-label="confirmAction === 'void' ? '刪除片段' : '建立修正版'" :danger="confirmAction === 'void'" @close="confirmAction = null" @confirm="confirmPendingAction" />
+    <LazyAnnotationSettingsDialog :open="settingsOpen" @close="settingsOpen = false" />
+    <LazyCaptureControlDialog :open="captureDialogOpen" :match-id="matchId" :captures="match?.captureSessions ?? []" @close="captureDialogOpen = false" @changed="loadMatch" />
+    <LazyAnnotationConnectionDialog :open="connectionDialogOpen" :connection="annotation.connection.value" :capture="selectedCapture" :descriptor="descriptor" :pending="annotation.pendingCount.value" :editors="annotation.presence.value.length" @close="connectionDialogOpen = false" />
+    <LazyRosterEditorDialog v-if="match" :open="rosterDialogOpen" :match="match" @close="rosterDialogOpen = false" @changed="loadMatch" />
+    <LazyConfirmActionDialog :open="Boolean(confirmAction)" :title="confirmAction === 'void' ? '刪除未送出片段' : '建立修正版'" :message="confirmAction === 'void' ? '這個未送出片段會立即刪除，已送出的資料不受影響。' : '送出修正版並完成 AI 處理後，教練端會更新為新版本。'" :confirm-label="confirmAction === 'void' ? '刪除片段' : '建立修正版'" :danger="confirmAction === 'void'" @close="confirmAction = null" @confirm="confirmPendingAction" />
   </section>
 </template>
 
@@ -598,9 +811,32 @@ onBeforeUnmount(() => {
 </style>
 
 <style scoped>
+:global(body){background:#09090b}
+.editor-shell{--surface-0:#09090b;--surface-1:#111113;--line:#27272a;--line-strong:#3f3f46;--muted:#a1a1aa;background:#09090b;color:#f4f4f5}
+.editor-shell button,.editor-shell a{border-color:transparent;background:#18181b}
+.editor-shell button:not(:disabled):hover,.editor-shell a:hover{border-color:transparent;background:#27272a}
+.editor-shell button:focus-visible,.editor-shell a:focus-visible{outline-color:#fafafa}
+.editor-shell .app-bar{background:#09090b}
+.editor-shell .window-title svg{color:#d4d4d8}
+.editor-shell .mode-switch{border-color:#27272a;background:#111113}
+.editor-shell .mode-switch button+button{border-left-color:#27272a}
+.editor-shell .mode-switch button.active{background:#27272a;color:#fafafa}
+.editor-shell .segment-row.active{background:#27272a!important}
+.editor-shell .transport-button{border-color:transparent!important;background:#18181b!important}
+.editor-shell .live-badge{border-color:transparent!important;background:#27272a!important;color:#a1a1aa!important}
+.editor-shell .live-badge.active{border-color:transparent!important;background:#163c27!important;color:#86efac!important}
+.editor-shell .tool-button:hover:not(:disabled),.editor-shell .tool-button.active{background:#27272a!important}
+.editor-shell .transport-context>span{background:#27272a;color:#d4d4d8}
+</style>
+
+<style scoped>
 .window-title{gap:6px}.window-home{width:29px!important;min-height:29px!important;display:grid!important;place-items:center;padding:0!important;border-color:transparent!important;border-radius:8px!important;background:transparent!important;color:#aeb8c2!important}.window-home:hover{background:#232a31!important;color:#fff!important}.window-title>strong{margin-left:2px}.app-actions{min-width:32px}.inspector{display:flex;flex-direction:column;overflow:hidden}.mode-switch{flex:none}.match-inspector,.mapping-inspector{min-height:0;flex:1}.match-inspector{display:grid;grid-template-rows:auto 35px minmax(0,1fr)}.mapping-inspector{overflow:auto}.score-summary{padding-top:5px;border-bottom:1px solid var(--line)}.rally-counter{display:block;color:#7f8993;font-size:.6rem;font-weight:750;letter-spacing:.04em;text-align:center}.score-summary .score-board{border-bottom:0}.segment-scroll{min-height:0;height:100%}.segment-list{padding-right:5px}.segment-row{min-height:49px!important}.segment-row>div{min-width:0;display:grid;gap:3px;text-align:left}.segment-row small{color:#77838e;font-size:.58rem;font-weight:500}.transport-context{min-width:220px;max-width:520px;display:grid;grid-template-columns:minmax(0,1fr) auto auto;align-items:center;gap:10px;margin-left:auto;padding:0 8px;border-left:1px solid #2e353c}.transport-context>div{min-width:0;display:grid;gap:1px}.transport-context strong,.transport-context small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.transport-context strong{font-size:.65rem}.transport-context small{color:#7f8a95;font-size:.56rem}.transport-context>span{padding:3px 7px;border-radius:999px;background:#26303a;color:#a9c9e2;font-size:.56rem;font-weight:750}.context-edit{width:28px!important;min-height:28px!important;display:grid!important;place-items:center;padding:0!important;border-color:transparent!important;background:transparent!important}.transport-button svg{filter:drop-shadow(0 1px 0 #000)}@media(max-width:1180px){.transport-context{max-width:300px}.transport-context small{display:none}}@media(max-width:980px){.transport-context{display:none}}
 </style>
 
 <style scoped>
 .editor-shell{grid-template-rows:44px minmax(0,1fr) 230px}.app-bar{grid-template-columns:auto minmax(280px,1fr) auto minmax(220px,auto);gap:12px;padding:0 10px;background:#0e1114}.window-title{min-width:0;display:flex;align-items:center;gap:7px}.window-title svg{color:#62a9ff}.window-title strong{max-width:260px;overflow:hidden;font-size:.75rem;text-overflow:ellipsis;white-space:nowrap}.window-menu{display:flex;align-items:center;gap:2px}.window-menu button,.window-menu a{width:auto!important;min-height:27px!important;display:flex!important;align-items:center;gap:5px;padding:0 8px!important;border-color:transparent!important;background:transparent!important;color:#9da6af;font-size:.65rem}.window-menu button:hover,.window-menu a:hover{background:#20262c!important;color:#eef2f5}.session-status{justify-content:flex-start;font-size:.68rem}.app-actions>a,.app-actions>button{width:30px!important;min-height:30px!important;border-color:transparent!important;border-radius:7px!important;background:transparent!important}.media-name{max-width:220px;font-size:.65rem}.editor-body{grid-template-columns:minmax(0,1fr) clamp(280px,22vw,330px)}.viewer-panel{padding:0;background:#030405}.video-stage{box-shadow:none}.viewer-badges span{border-radius:6px;font-size:.59rem}.inspector{padding:10px}.mode-switch{margin-bottom:10px;border-radius:8px}.mode-switch button{min-height:32px;font-size:.68rem}.score-board{min-height:62px;display:grid;grid-template-columns:minmax(0,1fr) auto auto auto minmax(0,1fr);align-items:center;gap:7px;padding:0 8px;border-bottom:1px solid var(--line);font-variant-numeric:tabular-nums}.score-board span{overflow:hidden;color:#aab2bb;font-size:.68rem;font-weight:650;text-overflow:ellipsis;white-space:nowrap}.score-board span:last-child{text-align:right}.score-board b{font-size:1.55rem}.score-board i{color:#69737d;font-style:normal}.current-segment{min-height:52px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid #282e34}.current-segment>div{display:grid;gap:2px}.current-segment span{color:#8d97a1;font-size:.62rem}.current-segment strong{font-size:.72rem}.segment-state{padding:3px 7px;border-radius:999px;background:#353c44!important;color:#c3c9d0!important;font-weight:700}.segment-state.open{background:#32373d!important}.segment-state.ready{background:#5b4519!important;color:#ffd987!important}.segment-state.submitted{background:#173f5f!important;color:#a9d7ff!important}.segment-stats{display:grid;grid-template-columns:repeat(3,1fr);margin:0;border-bottom:1px solid #282e34}.segment-stats div{min-height:53px;display:grid;place-content:center;justify-items:center;gap:2px}.segment-stats div+div{border-left:1px solid #282e34}.segment-stats dt{color:#7e8892;font-size:.6rem}.segment-stats dd{margin:0;font-size:.8rem;font-weight:700}.correction-button{min-height:34px!important;display:flex;align-items:center;justify-content:center;gap:7px;margin-top:10px}.segment-list-title{height:35px;display:flex;align-items:center;justify-content:space-between;color:#aab2bb;font-size:.65rem;font-weight:700}.segment-list-title b{min-width:20px;padding:2px 5px;border-radius:999px;background:#293039;font-size:.6rem;text-align:center}.segment-row{width:100%;min-height:37px!important;display:flex;align-items:center;justify-content:space-between!important;padding:0 9px!important;border:0!important;border-bottom:1px solid #242a30!important;border-radius:0!important;background:transparent!important;font-size:.66rem}.segment-row.active{background:#202830!important}.segment-row i{width:8px;height:8px;border-radius:50%;background:#4295d8}.segment-row i.processing{background:#d5a331}.segment-row i.mapped{background:#36b878}.segment-picker{display:grid;grid-template-columns:42px 1fr;align-items:center;gap:6px;margin-bottom:10px}.segment-picker span{color:#87919b;font-size:.64rem}.segment-picker select{height:31px;padding:0 8px;border:1px solid #404951;border-radius:6px;outline:0;background:#191e23;color:#eef2f5;font-size:.67rem}.timeline-footer{grid-template-rows:42px minmax(0,1fr) 53px}.transport-bar{gap:4px;padding:4px 10px}.transport-button{display:grid;place-items:center;border-radius:7px!important}.timecode{min-width:82px;margin-left:3px;font-size:.7rem}.live-badge{min-height:22px!important;padding:2px 7px!important;border:1px solid #59636d!important;border-radius:999px!important;background:#22272d!important;color:#a9b1ba!important;font-size:.56rem!important;font-weight:800}.live-badge.active{border-color:#287a50!important;background:#173c29!important;color:#73dda2!important}.transport-separator{width:1px;height:23px;margin:0 3px;background:#30363d}.tool-button{min-height:30px!important;display:flex;align-items:center;gap:5px;padding:0 8px!important;border-color:transparent!important;background:transparent!important;color:#aab3bc!important;font-size:.63rem}.tool-button:hover:not(:disabled),.tool-button.active{background:#252c33!important;color:#fff!important}.tool-button.danger{color:#dba1a5!important}.transport-spacer{flex:1}.global-error,.outbox-banner{top:52px}.presence-count{display:grid;min-width:18px;height:18px;place-items:center;border-radius:999px}.stage-empty span{display:none}@media(max-width:1050px){.app-bar{grid-template-columns:auto 1fr auto}.window-menu{display:none}.editor-body{grid-template-columns:minmax(0,1fr) 280px}.media-name{display:none}}@media(max-height:760px){.editor-shell{grid-template-rows:42px minmax(0,1fr) 204px}.timeline-footer{grid-template-rows:39px minmax(0,1fr) 49px}.tool-button span{display:none}}@media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+<style scoped>
+.editor-shell{grid-template-rows:44px minmax(0,1fr) 260px}.editor-body{display:flex!important;grid-template-columns:none!important}.viewer-panel,.inspector{width:100%;height:100%}.viewer-badges{top:10px;right:10px;z-index:6;align-items:center}.viewer-badges span{min-height:22px;display:inline-flex;align-items:center;padding:3px 7px;line-height:1}.transport-context{grid-template-columns:minmax(0,1fr) auto}.icon-tool :deep(kbd){height:18px;min-width:18px;font-size:.56rem}
+.segment-row i.draft{background:#71717a}
 </style>

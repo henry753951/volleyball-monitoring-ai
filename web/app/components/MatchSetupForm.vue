@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import type { CreateMatchSetupInput, RosterInput } from '../lib/coreDomain'
 import { validateMatchSetup } from '../utils/matchSetup'
+import UiButton from '~/components/ui/Button.vue'
 
 const props = withDefaults(defineProps<{ pending: boolean; error: Error | null; compact?: boolean }>(), { compact: false })
 const emit = defineEmits<{ submit: [input: CreateMatchSetupInput]; cancel: [] }>()
@@ -53,12 +54,12 @@ function submit() {
     </div>
 
     <div class="match-actions">
-      <button type="button" class="button-secondary" @click="emit('cancel')">取消</button>
-      <button class="button-primary" type="submit" :disabled="props.pending">{{ props.pending ? '建立中…' : '建立場次' }}</button>
+      <UiButton variant="ghost" @click="emit('cancel')">取消</UiButton>
+      <UiButton type="submit" :disabled="props.pending">{{ props.pending ? '建立中…' : '建立場次' }}</UiButton>
     </div>
   </form>
 </template>
 
 <style scoped>
-.match-setup{display:grid;gap:14px;padding:14px;overflow:auto}.match-fields{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;padding:14px;border-radius:14px;background:#fff}.team-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}.match-errors{padding:12px;border-radius:11px;background:#fff0f1;color:#9f2730;font-size:.72rem}.match-actions{display:flex;justify-content:flex-end;gap:8px}.match-actions button{min-height:38px;border-radius:10px}.compact{max-height:calc(100dvh - 78px)}@media(max-width:760px){.match-fields,.team-grid{grid-template-columns:1fr}}
+.match-setup{display:grid;gap:14px;padding:14px;overflow:auto;color:#fafafa}.match-fields{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;padding:14px;border-radius:10px;background:#111113}.match-fields :deep(.field){border:1px solid #27272a;background:#18181b;color:#fafafa}.match-fields :deep(.field:focus){border-color:#71717a;box-shadow:0 0 0 2px #fafafa24}.team-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}.match-errors{padding:12px;border-radius:9px;background:#2b1114;color:#fca5a5;font-size:.72rem}.match-actions{display:flex;justify-content:flex-end;gap:8px}.compact{max-height:calc(100dvh - 78px)}@media(max-width:760px){.match-fields,.team-grid{grid-template-columns:1fr}}
 </style>

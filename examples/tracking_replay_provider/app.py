@@ -16,10 +16,18 @@ from volleyball_monitoring_ai import (
     create_provider_app,
 )
 
-ANALYSIS_VERSION = "contract-lab-tracking-replay-v1"
+ANALYSIS_VERSION = "contract-lab-tracking-replay-v2"
 PROVIDER_BUILD = "yolox-deep-eiou-sam-court-v1"
-EXPECTED_CLIP_SHA256 = "c1b643c6bcdb0e2bc4a03e349826e2da2463f7267b4e3856977a6bc55617207c"
-EXPECTED_CLIP_BYTES = 6_100_084
+FRAME_INDEX_FIELDS = {
+    "anchor_frame_index",
+    "end_frame_index",
+    "first_frame_index",
+    "last_frame_index",
+    "observation_frame_index",
+    "resolved_frame_index",
+    "sample_frame_index",
+    "start_frame_index",
+}
 
 
 def handoff_root() -> Path:
@@ -41,37 +49,91 @@ def rewrite_heuristic_labels(value: Any) -> Any:
     return value
 
 
-def validate_reference_job(job: AIJobRequest, reference: dict[str, Any]) -> None:
+def validate_reference_job(job: AIJobRequest, reference: dict[str, Any]) -> tuple[int, dict[str, str]]:
     expected_points = reference.get("key_points", [])
-    actual_signature = [
-        (point.key_point_id, point.sequence_index, point.marker_kind, point.is_terminal, point.clip_frame_index)
+    actual_shape = [
+        (point.sequence_index, point.marker_kind, point.is_terminal)
         for point in job.key_points
     ]
-    expected_signature = [
-        (
-            point["key_point_id"],
-            point["sequence_index"],
-            point["marker_kind"],
-            point["is_terminal"],
-            point["clip_frame_index"],
-        )
+    expected_shape = [
+        (point["sequence_index"], point["marker_kind"], point["is_terminal"])
         for point in expected_points
     ]
+    expected_first = int(expected_points[0]["clip_frame_index"]) if expected_points else 0
+    actual_first = int(job.key_points[0].clip_frame_index) if job.key_points else 0
+    frame_shift = actual_first - expected_first
+    aligned = all(
+        abs(
+            (int(actual.clip_frame_index) - actual_first)
+            - (int(expected["clip_frame_index"]) - expected_first)
+        ) <= 2
+        for actual, expected in zip(job.key_points, expected_points, strict=True)
+    ) if len(job.key_points) == len(expected_points) else False
     if (
-        job.clip.sha256.lower() != EXPECTED_CLIP_SHA256
-        or int(job.clip.byte_length) != EXPECTED_CLIP_BYTES
-        or int(job.clip.video.total_frames) != 1_033
-        or actual_signature != expected_signature
+        job.rally_id != reference.get("rally_id")
+        or job.clip.video.width != 1920
+        or job.clip.video.height != 1080
+        or int(job.clip.video.fps.num) != 60
+        or int(job.clip.video.fps.den) != 1
+        or actual_shape != expected_shape
+        or not aligned
     ):
-        raise ValueError("tracking replay only supports the Contract Lab reference clip and immutable key points")
+        raise ValueError(
+            "tracking replay only supports the Contract Lab reference rally geometry"
+        )
+    return frame_shift, {
+        expected["key_point_id"]: actual.key_point_id
+        for actual, expected in zip(job.key_points, expected_points, strict=True)
+    }
+
+
+def rewrite_reference_geometry(
+    value: Any,
+    *,
+    frame_shift: int,
+    key_point_ids: dict[str, str],
+    total_frames: int,
+) -> Any:
+    if isinstance(value, list):
+        return [
+            rewrite_reference_geometry(
+                item,
+                frame_shift=frame_shift,
+                key_point_ids=key_point_ids,
+                total_frames=total_frames,
+            )
+            for item in value
+        ]
+    if not isinstance(value, dict):
+        return value
+    rewritten: dict[str, Any] = {}
+    for key, item in value.items():
+        if key in FRAME_INDEX_FIELDS and item is not None:
+            shifted = max(0, min(total_frames - 1, int(item) + frame_shift))
+            rewritten[key] = str(shifted)
+        elif key.endswith("key_point_id") and isinstance(item, str):
+            rewritten[key] = key_point_ids.get(item, item)
+        else:
+            rewritten[key] = rewrite_reference_geometry(
+                item,
+                frame_shift=frame_shift,
+                key_point_ids=key_point_ids,
+                total_frames=total_frames,
+            )
+    return rewritten
 
 
 def analyze(job: AIJobRequest, _clip: Path) -> AnalysisBundle:
     root = handoff_root()
     reference_job = load_json(root / "input" / "ai-job.json")
-    validate_reference_job(job, reference_job)
+    frame_shift, key_point_ids = validate_reference_job(job, reference_job)
 
-    raw_result = deepcopy(load_json(root / "expected-output" / "analysis-result.mock.json"))
+    raw_result = rewrite_reference_geometry(
+        deepcopy(load_json(root / "expected-output" / "analysis-result.mock.json")),
+        frame_shift=frame_shift,
+        key_point_ids=key_point_ids,
+        total_frames=int(job.clip.video.total_frames),
+    )
     analysis_id = str(uuid5(NAMESPACE_URL, f"contract-lab-tracking-replay:{job.ai_job_id}"))
     raw_result.update(
         {
@@ -91,6 +153,18 @@ def analyze(job: AIJobRequest, _clip: Path) -> AnalysisBundle:
             },
         }
     )
+    for event, point in zip(raw_result.get("contact_events", []), job.key_points, strict=True):
+        # The immutable annotation anchor is authoritative. Recorded inference geometry is
+        # shifted with the source clip, while contact anchors follow the submitted points.
+        event.update(
+            {
+                "key_point_id": point.key_point_id,
+                "sequence_index": point.sequence_index,
+                "marker_kind": point.marker_kind,
+                "is_terminal": point.is_terminal,
+                "anchor_frame_index": str(point.clip_frame_index),
+            }
+        )
     raw_result["extensions"] = {
         "synthetic": False,
         "recorded_inference_replay": True,
@@ -104,16 +178,24 @@ def analyze(job: AIJobRequest, _clip: Path) -> AnalysisBundle:
 
     with (root / "tracking-data" / "tracks-sam-deep-eiou.jsonl").open(encoding="utf-8") as handle:
         frame_records = [json.loads(line) for line in handle if line.strip()]
+    shifted_records = []
+    for record in frame_records:
+        shifted_index = int(record["frame_index"]) + frame_shift
+        if 0 <= shifted_index < int(job.clip.video.total_frames):
+            shifted = deepcopy(record)
+            shifted["frame_index"] = shifted_index
+            shifted_records.append(shifted)
     ball_document = load_json(root / "input" / "ball-annotations.manual.json")
     ball_positions = {
-        int(point["clip_frame_index"]): point["frame_pos"]
+        int(point["clip_frame_index"]) + frame_shift: point["frame_pos"]
         for point in ball_document["points"]
+        if 0 <= int(point["clip_frame_index"]) + frame_shift < int(job.clip.video.total_frames)
     }
     overlay = build_tracking_overlay(
         job,
         analysis_id=analysis_id,
         analysis_version=ANALYSIS_VERSION,
-        frame_records=frame_records,
+        frame_records=shifted_records,
         ball_positions=ball_positions,
     )
     return AnalysisBundle(result=result, overlay_bytes=overlay)

@@ -13,6 +13,8 @@ const search = ref('')
 const createOpen = ref(false)
 const sourceMatch = shallowRef<Match | null>(null)
 const rosterMatch = shallowRef<Match | null>(null)
+const sourceDialogOpen = ref(false)
+const rosterDialogOpen = ref(false)
 const filteredMatches = computed(() => {
   const value = search.value.trim().toLocaleLowerCase()
   if (!value) return matchesState.matches.value
@@ -22,12 +24,14 @@ const filteredMatches = computed(() => {
 function currentSet(match: MatchListItem) { return match.sets.find(set => set.status.toLowerCase() === 'live') ?? match.sets.at(-1) }
 async function openSource(matchId: string) {
   sourceMatch.value = await core.match(matchId)
+  sourceDialogOpen.value = true
 }
 async function openRoster(matchId: string) {
   rosterMatch.value = await core.match(matchId)
+  rosterDialogOpen.value = true
 }
 function closeRoster() {
-  rosterMatch.value = null
+  rosterDialogOpen.value = false
   if (route.query.match) void router.replace({ path: '/control' })
 }
 async function submit(input: CreateMatchSetupInput) {
@@ -77,8 +81,8 @@ onMounted(async () => {
       </UiScrollArea>
     </UiAnimatedModal>
 
-    <LazyCaptureControlDialog v-if="sourceMatch" :open="Boolean(sourceMatch)" :match-id="sourceMatch.id" :captures="sourceMatch.captureSessions ?? []" @close="sourceMatch = null" @changed="matchesState.refresh" />
-    <LazyRosterEditorDialog v-if="rosterMatch" :open="Boolean(rosterMatch)" :match="rosterMatch" @close="closeRoster" @changed="matchesState.refresh" />
+    <LazyCaptureControlDialog v-if="sourceMatch" :open="sourceDialogOpen" :match-id="sourceMatch.id" :captures="sourceMatch.captureSessions ?? []" @close="sourceDialogOpen = false" @changed="matchesState.refresh" />
+    <LazyRosterEditorDialog v-if="rosterMatch" :open="rosterDialogOpen" :match="rosterMatch" @close="closeRoster" @changed="matchesState.refresh" />
   </section>
 </template>
 

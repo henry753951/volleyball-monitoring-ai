@@ -85,7 +85,7 @@
   - `右側得分`
   - `? 得分未知`
   - `回合進行中`
-- Mask 範圍永遠是 service key point 到 terminal key point；pre-roll/post-roll 只屬裁切範圍，不改變 mask。
+- Mask 代表完整 clip：預設從 service key point 前 5 秒到 terminal key point 後 5 秒，並在 source 邊界或 DVR gap 依 server clip policy 截短。Key point 本身仍只保存實際 service/contact/terminal 時間，mask 的 padding 不建立事件或得分 frame。
 - Key point marker 至少可辨識 `Z/service`、一般 `contact`、terminal、selected、possible duplicate、server pending。
 - 顏色、線寬與動畫屬前端衍生視覺，不保存為 canonical DB 欄位。
 

@@ -1,5 +1,5 @@
 import type { PrismaClient } from '@volleyball-monitoring/db'
-import { UserRole } from '@volleyball-monitoring/db/client'
+import { AnnotationStatus, UserRole } from '@volleyball-monitoring/db/client'
 
 export async function getCoachMatchState(
   database: PrismaClient,
@@ -31,7 +31,10 @@ export async function getCoachMatchState(
           activeSubmission: {
             select: {
               id: true, submittedAt: true, scoreResolutionState: true, scoringCourtSide: true, scoringTeamId: true,
-              keyPoints: { where: { markerKind: 'CONTACT' }, select: { id: true } },
+              keyPoints: {
+                orderBy: { sequenceIndex: 'asc' },
+                select: { id: true, sequenceIndex: true, markerKind: true, isTerminal: true, captureTimeUs: true, captureFrameIndex: true },
+              },
               clipJobs: { orderBy: { createdAt: 'desc' }, take: 1, select: { id: true, status: true, actualStartCaptureUs: true, actualEndCaptureUs: true, requestedStartCaptureUs: true, requestedEndCaptureUs: true } },
               analysisRuns: { orderBy: { createdAt: 'desc' }, take: 1, select: { id: true, status: true, analysisVersion: true, summary: true, identityMappingCompletedAt: true } },
             },
@@ -41,6 +44,27 @@ export async function getCoachMatchState(
     },
   })
   if (!match) return null
+  const drafts = await database.rally.findMany({
+    where: {
+      matchId: match.id,
+      voidedAt: null,
+      annotationStatus: { in: [AnnotationStatus.OPEN, AnnotationStatus.READY] },
+    },
+    orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+    select: {
+      id: true,
+      ordinal: true,
+      annotationRevision: true,
+      annotationStatus: true,
+      activeSubmissionId: true,
+      set: { select: { id: true, setNumber: true } },
+      keyPoints: {
+        where: { deletedAt: null },
+        orderBy: { sequenceIndex: 'asc' },
+        select: { id: true, sequenceIndex: true, markerKind: true, isTerminal: true, captureTimeUs: true, captureFrameIndex: true },
+      },
+    },
+  })
   return {
     schema_version: '1.0.0',
     match: {
@@ -51,11 +75,36 @@ export async function getCoachMatchState(
         side_assignment: set.sideAssignments[0] ? { id: set.sideAssignments[0].id, left_team_id: set.sideAssignments[0].leftTeamId, right_team_id: set.sideAssignments[0].rightTeamId } : null,
       })),
       captures: match.captureSessions.map(capture => ({ id: capture.id, source_kind: capture.sourceKind.toLowerCase(), source_label: capture.sourceLabel, status: capture.status.toLowerCase(), health: capture.health.toLowerCase() })),
+      drafts: drafts.map(draft => ({
+        id: draft.id,
+        ordinal: draft.ordinal,
+        annotation_revision: draft.annotationRevision.toString(),
+        annotation_status: draft.annotationStatus.toLowerCase(),
+        active_submission_id: draft.activeSubmissionId,
+        set_id: draft.set.id,
+        set_number: draft.set.setNumber,
+        key_points: draft.keyPoints.map(point => ({
+          id: point.id,
+          sequence_index: point.sequenceIndex,
+          marker_kind: point.markerKind.toLowerCase(),
+          is_terminal: point.isTerminal,
+          capture_time_us: point.captureTimeUs.toString(),
+          capture_frame_index: point.captureFrameIndex.toString(),
+        })),
+      })),
       rallies: match.rallies.flatMap(rally => rally.activeSubmission ? [{
         id: rally.id, ordinal: rally.ordinal, annotation_revision: rally.annotationRevision.toString(), processing_status: rally.processingStatus.toLowerCase(), scoring_court_side: rally.scoringCourtSide?.toLowerCase() ?? null, scoring_team_id: rally.scoringTeamId, set_id: rally.set.id, set_number: rally.set.setNumber,
         submission: {
           id: rally.activeSubmission.id, submitted_at: rally.activeSubmission.submittedAt.toISOString(), score_resolution: rally.activeSubmission.scoreResolutionState.toLowerCase(), scoring_court_side: rally.activeSubmission.scoringCourtSide?.toLowerCase() ?? null, scoring_team_id: rally.activeSubmission.scoringTeamId,
-          contact_count: rally.activeSubmission.keyPoints.length,
+          contact_count: rally.activeSubmission.keyPoints.filter(point => point.markerKind === 'CONTACT').length,
+          key_points: rally.activeSubmission.keyPoints.map(point => ({
+            id: point.id,
+            sequence_index: point.sequenceIndex,
+            marker_kind: point.markerKind.toLowerCase(),
+            is_terminal: point.isTerminal,
+            capture_time_us: point.captureTimeUs.toString(),
+            capture_frame_index: point.captureFrameIndex.toString(),
+          })),
           clip: rally.activeSubmission.clipJobs[0] ? {
             id: rally.activeSubmission.clipJobs[0].id,
             status: rally.activeSubmission.clipJobs[0].status.toLowerCase(),

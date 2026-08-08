@@ -29,6 +29,8 @@ describe('annotation hotkey registry', () => {
       'play_pause',
       'frame_previous',
       'frame_next',
+      'key_point_previous',
+      'key_point_next',
     ])
     expect(DEFAULT_HOTKEY_BINDINGS).toEqual({
       service: 'Z',
@@ -40,6 +42,8 @@ describe('annotation hotkey registry', () => {
       play_pause: 'Space',
       frame_previous: 'ArrowLeft',
       frame_next: 'ArrowRight',
+      key_point_previous: 'A',
+      key_point_next: 'D',
     })
   })
 
@@ -53,7 +57,7 @@ describe('annotation hotkey registry', () => {
     expect(commandForBinding('Z', rebound.bindings)).toBeNull()
   })
 
-  it('restores all nine defaults atomically, including playback and media arrows', () => {
+  it('restores all eleven defaults atomically, including playback and key-point navigation', () => {
     const edited = { ...restoreDefaultHotkeys(), service: 'S', frame_previous: 'J' }
     expect(edited).not.toEqual(DEFAULT_HOTKEY_BINDINGS)
     expect(restoreDefaultHotkeys()).toEqual(DEFAULT_HOTKEY_BINDINGS)
@@ -123,6 +127,8 @@ describe('hotkey preference persistence', () => {
         play_pause: 'Space',
         frame_previous: 'ArrowLeft',
         frame_next: 'ArrowRight',
+        key_point_previous: 'PageUp',
+        key_point_next: 'PageDown',
       },
     })
     expect(parseStoredHotkeyPreferences(JSON.stringify({ version: 2, bindings: legacy })))

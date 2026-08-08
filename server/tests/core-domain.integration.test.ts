@@ -294,7 +294,7 @@ describe('Phase 1B GraphQL schema', () => {
     const programNew = '20000000-0000-4000-8000-000000000004'
     const assets = [] as string[]
     try {
-      await db.captureSession.create({ data: { id: sessionId, matchId, sourceKind: 'fixture', ingestPath: `/fixture/${sessionId}`, status: 'LIVE', health: 'HEALTHY' } })
+      await db.captureSession.create({ data: { id: sessionId, matchId, sourceKind: 'fixture', ingestPath: `/fixture/${sessionId}`, createdAt: new Date('2026-08-07T00:00:00Z'), status: 'LIVE', health: 'HEALTHY' } })
     await db.captureEpoch.create({ data: { id: epochId, captureSessionId: sessionId, sequenceIndex: 0, sourceTimeBaseNum: 1, sourceTimeBaseDen: 60000, sourcePtsOrigin: 0n, captureTimeOriginUs: 9007199254740992n, captureFrameOrigin: 0n, startedAtCaptureUs: 9007199254740992n } })
     for (const [id, revision] of [[programOld, 1n], [programNew, 9007199254740993n]] as const) await db.dvrProgram.create({ data: { id, captureSessionId: sessionId, status: 'LIVE', playlistRevision: revision, liveEdgeUs: 0n, durationUs: 0n, fpsNum: 30, fpsDen: 1, timeBaseNum: 1, timeBaseDen: 60000 } })
     for (let i = 0; i < 6; i++) { const id = `20000000-0000-4000-8000-${String(10 + i).padStart(12, '0')}`; assets.push(id); await db.mediaAsset.create({ data: { id, kind: i % 3 === 0 ? 'DVR_INIT' : i % 3 === 1 ? 'DVR_SEGMENT' : 'SAMPLE_INDEX', bucket: 'fixture', objectKey: id, contentType: 'video/mp4', state: 'READY', readyAt: new Date(), internalSchemaVersion: '1.0.0' } }) }

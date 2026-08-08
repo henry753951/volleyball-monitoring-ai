@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { RotateCcw } from 'lucide-vue-next'
+import UiButton from '~/components/ui/Button.vue'
 import {
   ANNOTATION_COMMANDS,
   formatBindingForDisplay,
@@ -67,19 +68,19 @@ function close() {
           <ul>
             <li v-for="command in group.commands" :key="command.action">
               <div><strong>{{ command.label }}</strong><small>{{ command.description }}</small></div>
-              <button type="button" :class="{ recording: recording === command.action }" @click="beginRecording(command.action)">
-                {{ recording === command.action ? '請按新按鍵…' : formatBindingForDisplay(bindings[command.action]) }}
-              </button>
+              <UiButton variant="secondary" size="sm" :class="{ recording: recording === command.action }" @click="beginRecording(command.action)">
+                <span v-if="recording === command.action">請按新按鍵…</span><UiKbd v-else>{{ formatBindingForDisplay(bindings[command.action]) }}</UiKbd>
+              </UiButton>
             </li>
           </ul>
         </section>
         <p v-if="recordingError" class="annotation-settings__error" role="alert">{{ recordingError }}</p>
       </div>
     </UiScrollArea>
-    <template #footer><button type="button" @click="restoreAllDefaults"><RotateCcw :size="15" />還原預設值</button><button type="button" class="primary" @click="close">完成</button></template>
+    <template #footer><UiButton variant="ghost" @click="restoreAllDefaults"><RotateCcw :size="15" />還原預設值</UiButton><UiButton @click="close">完成</UiButton></template>
   </UiAnimatedModal>
 </template>
 
 <style scoped>
-.annotation-settings__scroll{height:min(620px,calc(86dvh - 104px))}.annotation-settings__body{padding:12px 16px 18px}.annotation-settings__body section+section{margin-top:14px}.annotation-settings__body h3{margin:0 0 5px;color:#cdd4db;font-size:.67rem}.annotation-settings__body ul{margin:0;padding:0;border-top:1px solid #30363d;list-style:none}.annotation-settings__body li{display:flex;align-items:center;justify-content:space-between;gap:18px;padding:8px 0;border-bottom:1px solid #262c32}.annotation-settings__body li div{display:grid;gap:2px}.annotation-settings__body li strong{font-size:.72rem}.annotation-settings__body li small{color:#8f99a3;font-size:.62rem}.annotation-settings__body button,:deep(.animated-modal__footer button){min-height:32px;display:inline-flex;align-items:center;gap:6px;padding:6px 10px;border:1px solid #4a535d;border-radius:8px;background:#20252b;color:#edf1f4;cursor:pointer}.annotation-settings__body li button{min-width:118px;justify-content:center;font:700 .66rem "Cascadia Mono",Consolas,monospace}.annotation-settings__body li button.recording{border-color:#62a9ff;background:#192b3b}.annotation-settings__error{padding:8px;border:1px solid #8e4146;border-radius:7px;background:#351a1c;color:#ffb7bb;font-size:.68rem}:deep(.animated-modal__footer .primary){border-color:#299c64;background:#17643f}
+.annotation-settings__scroll{height:min(620px,calc(86dvh - 108px))}.annotation-settings__body{padding:12px 18px 18px;background:#09090b}.annotation-settings__body section+section{margin-top:18px}.annotation-settings__body h3{margin:0 0 6px;color:#d4d4d8;font-size:.67rem}.annotation-settings__body ul{margin:0;padding:0;list-style:none}.annotation-settings__body li{display:flex;align-items:center;justify-content:space-between;gap:18px;padding:9px 0;border-bottom:1px solid #27272a}.annotation-settings__body li div{display:grid;gap:2px}.annotation-settings__body li strong{font-size:.72rem}.annotation-settings__body li small{color:#a1a1aa;font-size:.62rem}.annotation-settings__body li :deep(button){min-width:118px;font:700 .66rem "Cascadia Mono",Consolas,monospace}.annotation-settings__body li :deep(button.recording){box-shadow:0 0 0 2px #fafafa;background:#3f3f46}.annotation-settings__error{padding:8px;border-radius:7px;background:#2b1114;color:#fca5a5;font-size:.68rem}
 </style>

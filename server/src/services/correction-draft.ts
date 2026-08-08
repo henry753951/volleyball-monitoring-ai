@@ -98,19 +98,6 @@ export async function createCorrectionDraft(
           throw new CorrectionDraftError('INVALID_SUBMISSION_STATE', 'Only the active immutable submission can open a correction draft')
         }
 
-        const competing = await tx.rally.findFirst({
-          where: {
-            id: { not: rally.id },
-            setId: rally.setId,
-            voidedAt: null,
-            annotationStatus: { in: ['OPEN', 'READY'] },
-          },
-          select: { id: true },
-        })
-        if (competing) {
-          throw new CorrectionDraftError('ACTIVE_RALLY_EXISTS', 'Finish or void the current draft before correcting a submitted Rally')
-        }
-
         const revision = rally.annotationRevision + 1n
         const now = new Date()
         const snapshotIds = new Set(submission.keyPoints.map(point => point.sourceDraftKeyPointId))

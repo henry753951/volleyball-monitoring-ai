@@ -27,5 +27,5 @@ const label = (value: string) => value.toLowerCase() === 'ready' || value.toLowe
 </template>
 
 <style scoped>
-.connection-grid{display:grid;gap:1px;padding:12px;background:#252c33}.connection-grid article{min-height:64px;display:grid;grid-template-columns:28px 1fr auto;align-items:center;gap:8px;padding:10px 12px;background:#151a20}.connection-grid article>svg{color:#71808d}.connection-grid article>div{display:grid;gap:2px}.connection-grid span,.connection-grid small{color:#85919c;font-size:.62rem}.connection-grid strong{font-size:.73rem}.connection-grid i{width:8px;height:8px;border-radius:50%;background:#d3a13a}.connection-grid i.ready{background:#38c47d}
+.connection-grid{display:grid;padding:10px 16px 14px;background:#09090b}.connection-grid article{min-height:64px;display:grid;grid-template-columns:28px 1fr auto;align-items:center;gap:8px;padding:10px 2px;border-bottom:1px solid #27272a}.connection-grid article:last-child{border-bottom:0}.connection-grid article>svg{color:#71717a}.connection-grid article>div{display:grid;gap:2px}.connection-grid span,.connection-grid small{color:#a1a1aa;font-size:.62rem}.connection-grid strong{font-size:.73rem}.connection-grid i{width:8px;height:8px;border-radius:50%;background:#d4a72c}.connection-grid i.ready{background:#22c55e}
 </style>

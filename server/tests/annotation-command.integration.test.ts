@@ -316,6 +316,30 @@ describe('durable service annotation command', () => {
     await expect(db.annotationCommandReceipt.findUnique({ where: { commandId: second.command_id } })).resolves.toMatchObject({ accepted: false })
   })
 
+  it('keeps a closed unsubmitted rally while starting the next rally', async () => {
+    const readyRallyId = randomUUID()
+    const nextRallyId = randomUUID()
+    await expect(service.apply(serviceCommand(randomUUID(), readyRallyId), identity)).resolves.toMatchObject({ type: 'command_ack' })
+    const contact = await service.apply(contactCommand(randomUUID(), readyRallyId), identity)
+    const terminalId = contact.type === 'command_ack' ? contact.effects.created_key_point_id : null
+    expect(terminalId).toBeTruthy()
+    await expect(service.apply(closeCommand(randomUUID(), readyRallyId, terminalId!, '2'), identity)).resolves.toMatchObject({
+      type: 'command_ack', effects: { annotation_status: 'ready' },
+    })
+
+    await expect(service.apply(serviceCommand(randomUUID(), nextRallyId), identity)).resolves.toMatchObject({
+      type: 'command_ack', effects: { annotation_status: 'open' },
+    })
+    await expect(db.rally.findMany({
+      where: { id: { in: [readyRallyId, nextRallyId] } },
+      orderBy: { ordinal: 'asc' },
+      select: { id: true, annotationStatus: true },
+    })).resolves.toEqual([
+      { id: readyRallyId, annotationStatus: 'READY' },
+      { id: nextRallyId, annotationStatus: 'OPEN' },
+    ])
+  })
+
   it('allows only one active draft when different rally ids race for the same set', async () => {
     const commands = [
       serviceCommand(randomUUID(), randomUUID()),
@@ -669,6 +693,42 @@ describe('durable service annotation command', () => {
     await db.annotationOperation.create({ data: { baseRevision: 99n, clientMutationId: command.command_id, deviceSessionId: ids.device, operationKind: 'LEGACY_TEST', payload: {}, payloadHash: 'legacy', rallyId, resultRevision: 99n, userId: ids.operator } })
     await expect(service.apply(command, identity)).rejects.toMatchObject({ code: 'P2002' })
     await expect(db.rally.findUniqueOrThrow({ where: { id: rallyId } })).resolves.toMatchObject({ annotationRevision: 1n, annotationStatus: 'OPEN', scoreResolutionState: 'PENDING' }); await expect(db.keyPoint.findUniqueOrThrow({ where: { id: point.id } })).resolves.toMatchObject({ isTerminal: false }); await expect(db.annotationCommandReceipt.findUnique({ where: { commandId: command.command_id } })).resolves.toBeNull()
+  })
+
+  it('keeps a correction READY beside the current OPEN rally and blocks a second open editor', async () => {
+    const submittedRallyId = randomUUID()
+    await service.apply(serviceCommand(randomUUID(), submittedRallyId), identity)
+    const submittedPoint = await db.keyPoint.findFirstOrThrow({ where: { rallyId: submittedRallyId } })
+    await service.apply(closeCommand(randomUUID(), submittedRallyId, submittedPoint.id, '1', 'unknown'), identity)
+    const submitted = await service.apply(submitCommand(randomUUID(), submittedRallyId, '2'), identity)
+    const submissionId = submitted.type === 'command_ack' ? submitted.effects.submission_id : null
+    expect(submissionId).toBeTruthy()
+
+    const openRallyId = randomUUID()
+    await expect(service.apply(serviceCommand(randomUUID(), openRallyId), identity)).resolves.toMatchObject({
+      type: 'command_ack', effects: { annotation_status: 'open' },
+    })
+    await expect(createCorrectionDraft(db, submissionId!, identity)).resolves.toMatchObject({
+      annotation_status: 'ready', revision: '4', supersedes_submission_id: submissionId,
+    })
+
+    const reopen = parseAnnotationCommand({
+      ...serviceCommand(randomUUID(), submittedRallyId),
+      base_revision: '4',
+      kind: 'REOPEN_RALLY',
+      payload: {},
+    })
+    await expect(service.apply(reopen, identity)).resolves.toMatchObject({
+      type: 'command_rejected', code: 'ACTIVE_RALLY_EXISTS',
+    })
+    await expect(db.rally.findMany({
+      where: { id: { in: [submittedRallyId, openRallyId] } },
+      orderBy: { ordinal: 'asc' },
+      select: { id: true, annotationStatus: true },
+    })).resolves.toEqual([
+      { id: submittedRallyId, annotationStatus: 'READY' },
+      { id: openRallyId, annotationStatus: 'OPEN' },
+    ])
   })
 
   it('opens a correction draft and applies winner/unknown changes through one CAS score ledger', async () => {
