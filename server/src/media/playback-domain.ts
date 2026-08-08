@@ -458,6 +458,7 @@ export function formatManifest(
     '#EXT-X-VERSION:7',
     `#EXT-X-TARGETDURATION:${targetDuration > 0n ? targetDuration : 1n}`,
     `#EXT-X-MEDIA-SEQUENCE:${segments[0]!.sequenceNumber}`,
+    `#EXT-X-DISCONTINUITY-SEQUENCE:${segments[0]!.discontinuity}`,
   ]
   let previousInitAssetId: string | null = null
   let previousDiscontinuity: number | null = null

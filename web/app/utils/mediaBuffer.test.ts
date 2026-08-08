@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { bufferedSecondsAhead, mediaTimeRangesToCaptureRanges } from './mediaBuffer'
+import { mediaTimeRangesToCaptureRanges, playbackWindowSecondsAhead } from './mediaBuffer'
 
 function ranges(values: Array<[number, number]>): TimeRanges {
   return {
@@ -9,32 +9,25 @@ function ranges(values: Array<[number, number]>): TimeRanges {
   }
 }
 
-describe('bufferedSecondsAhead', () => {
-  it('uses the active MSE range when a live playlist has infinite duration', () => {
-    expect(bufferedSecondsAhead({
-      buffered: ranges([[0, 8], [10, 24]]),
-      currentTime: 18,
-    })).toBe(6)
+describe('playbackWindowSecondsAhead', () => {
+  it('uses canonical window bounds instead of transient MSE buffer ranges', () => {
+    expect(playbackWindowSecondsAhead({
+      currentTimeSeconds: 18,
+      presentationOriginCaptureUs: '9007199254740993',
+      windowCaptureEndUs: '9007199300740993',
+    })).toBe(28)
   })
 
-  it('does not mistake finite media duration for buffered data', () => {
-    expect(bufferedSecondsAhead({
-      buffered: ranges([]),
-      currentTime: 12,
+  it('returns zero at and beyond the bounded playback window', () => {
+    expect(playbackWindowSecondsAhead({
+      currentTimeSeconds: 46,
+      presentationOriginCaptureUs: '9007199254740993',
+      windowCaptureEndUs: '9007199300740993',
     })).toBe(0)
-  })
-
-  it('requests continuation when no playable range is available', () => {
-    expect(bufferedSecondsAhead({
-      buffered: ranges([[20, 30]]),
-      currentTime: 4,
-    })).toBe(0)
-  })
-
-  it('requests continuation when the cursor is inside an MSE hole', () => {
-    expect(bufferedSecondsAhead({
-      buffered: ranges([[0, 8], [10, 24]]),
-      currentTime: 9,
+    expect(playbackWindowSecondsAhead({
+      currentTimeSeconds: 47,
+      presentationOriginCaptureUs: '9007199254740993',
+      windowCaptureEndUs: '9007199300740993',
     })).toBe(0)
   })
 })

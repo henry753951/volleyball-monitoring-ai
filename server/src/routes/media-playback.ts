@@ -276,7 +276,7 @@ async function visibleWindowWithSegments(id: string, identity: MediaIdentity) {
       segments: {
         include: {
           dvrSegment: {
-            include: { initAsset: true, mediaAsset: true },
+            include: { captureEpoch: true, initAsset: true, mediaAsset: true },
           },
         },
         orderBy: { sequenceIndex: 'asc' },
@@ -348,7 +348,12 @@ function manifestEntries(window: VisibleWindowWithSegments) {
     previousEndUs = segment.captureEndUs
     return {
       durationUs: segment.durationUs,
-      discontinuity: segment.discontinuitySequence,
+      // Recorder-local PTS resets open a capture epoch even when canonical
+      // capture time remains touching. HLS still needs a discontinuity at that
+      // epoch boundary so hls.js can remap the new fragment tfdt onto the
+      // continuous presentation timeline instead of repeatedly overwriting the
+      // previous SourceBuffer range.
+      discontinuity: segment.captureEpoch.sequenceIndex,
       id: segment.id,
       initAssetId: segment.initAssetId,
       sequenceNumber: segment.sequenceNumber,
@@ -520,6 +525,19 @@ async function extendPlaybackWindow(
     ...(requestedForwardUs === undefined ? {} : { requestedForwardUs }),
     requestedTargetUs: targetUs,
   })
+  const selectionIsCurrent = current.segments.length === selection.segments.length
+    && current.segments.every((entry, index) => {
+      const selected = selection.segments[index]
+      return selected !== undefined
+        && entry.dvrSegment.id === selected.id
+        && entry.dvrSegment.captureStartUs === selected.captureStartUs
+        && entry.dvrSegment.captureEndUs === selected.captureEndUs
+    })
+  // Extension is an idempotent prefetch hint. A browser can legitimately ask
+  // again while hls.js is still appending the manifest it already received.
+  // Returning the stable mapping avoids turning that harmless race into a 409
+  // retry storm while preserving the append-only assertion for real changes.
+  if (selectionIsCurrent) return descriptorForWindow(current)
   assertRollingPlaybackSelection(
     current.segments.map(entry => ({
       id: entry.dvrSegment.id,

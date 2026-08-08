@@ -5,11 +5,11 @@ import { useAuthoritativeDvrWindow, seekVideoToCanonicalFrame, authoritativeCont
 import { createCoreDomainClient, createGraphQLTransport, type Match, type CaptureSession } from '~/lib/coreDomain'
 import { ANNOTATION_COMMANDS, formatBindingForDisplay, type AnnotationAction, type HotkeyCommand, type MediaAction } from '~/utils/annotationHotkeys'
 import { draftCommandAvailability } from '~/utils/annotationCommandAvailability'
-import type { PlaybackCursorInput } from '~/lib/mediaModel'
+import { MediaApiError, type PlaybackCursorInput } from '~/lib/mediaModel'
 import type { CoachRally } from '~/lib/coachDomain'
 import { clipRangeOverlaps, formatTimelinePosition, paddedClipRange, resolveSegmentSelection, segmentAtCaptureTime } from '~/lib/dvrTimeline'
 import { isLiveCaptureSource } from '~/lib/mediaTimeline'
-import { bufferedSecondsAhead, type CanonicalMediaRange } from '~/utils/mediaBuffer'
+import { playbackWindowSecondsAhead, type CanonicalMediaRange } from '~/utils/mediaBuffer'
 
 definePageMeta({ layout: 'annotation' })
 const route = useRoute()
@@ -105,6 +105,8 @@ let playbackContinuationInFlight = false
 let playbackHasStarted = false
 let continuationWindowId: string | null = null
 let continuationRequestedAt = 0
+let continuationRetryAfter = 0
+let continuationStateKey = ''
 let windowCreatePromise: ReturnType<typeof dvr.create> | null = null
 let windowCreateTarget: string | undefined
 let windowCreateMode: 'live' | 'archive' | undefined
@@ -703,8 +705,18 @@ function maintainPlaybackWindow() {
   const window = descriptor.value
   if (!element || !window || seekPreviewActive.value || playbackContinuationInFlight || !playbackHasStarted) return
   if (element.paused && !element.ended) return
-  if (!element.ended && bufferedSecondsAhead(element) > mediaBufferProfile.value.refreshLeadSeconds) return
-  if (continuationWindowId === window.playback_window_id || performance.now() - continuationRequestedAt < 750) return
+  const stateKey = `${window.playback_window_id}:${window.mapping_version}:${window.window_capture_end_us}`
+  if (continuationStateKey !== stateKey) {
+    continuationStateKey = stateKey
+    continuationRetryAfter = 0
+  }
+  const now = performance.now()
+  if (continuationWindowId === window.playback_window_id || now < continuationRetryAfter || now - continuationRequestedAt < 750) return
+  if (!element.ended && playbackWindowSecondsAhead({
+    currentTimeSeconds: element.currentTime,
+    presentationOriginCaptureUs: window.presentation_origin_capture_us,
+    windowCaptureEndUs: window.window_capture_end_us,
+  }) > mediaBufferProfile.value.refreshLeadSeconds) return
 
   const windowEnd = BigInt(window.window_capture_end_us)
   const timelineEnd = timelineEndTarget.value ? BigInt(timelineEndTarget.value) : BigInt(window.timeline_capture_end_us)
@@ -722,10 +734,15 @@ function maintainPlaybackWindow() {
   }).then(async (created) => {
     if (descriptor.value?.playback_window_id !== sourceWindowId) return
     if (BigInt(created.window_capture_end_us) <= windowEnd) {
+      continuationRetryAfter = performance.now() + (liveCapture.value ? 2_000 : 10_000)
       return
     }
     dvr.refresh(created)
   }).catch((error) => {
+    if (error instanceof MediaApiError && (error.code === 'MEDIA_NOT_READY' || error.code === 'MAPPING_STALE')) {
+      continuationRetryAfter = performance.now() + (liveCapture.value ? 2_000 : 10_000)
+      return
+    }
     mediaError.value = error instanceof Error ? error.message : '背景載入播放視窗失敗'
   }).finally(() => { continuationWindowId = null; playbackContinuationInFlight = false })
 }

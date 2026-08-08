@@ -1,5 +1,3 @@
-export type BufferedMediaElement = Pick<HTMLMediaElement, 'buffered' | 'currentTime'>
-
 export interface CanonicalMediaRange {
   startCaptureTimeUs: string
   endCaptureTimeUs: string
@@ -13,16 +11,17 @@ export function mediaTimeRangesToCaptureRanges(ranges: TimeRanges, presentationO
   })).filter(range => BigInt(range.endCaptureTimeUs) > BigInt(range.startCaptureTimeUs))
 }
 
-export function bufferedSecondsAhead(element: BufferedMediaElement) {
-  for (let index = 0; index < element.buffered.length; index += 1) {
-    const start = element.buffered.start(index)
-    const end = element.buffered.end(index)
-    if (element.currentTime >= start - 0.05 && element.currentTime <= end + 0.05) {
-      return Math.max(0, end - element.currentTime)
-    }
-  }
-  // `duration` describes the presentation timeline, not bytes currently held by
-  // MSE. Returning duration here suppresses prefetch while the cursor is in an
-  // unbuffered hole (or before the first fragment has arrived).
-  return 0
+export function playbackWindowSecondsAhead(input: {
+  currentTimeSeconds: number
+  presentationOriginCaptureUs: string
+  windowCaptureEndUs: string
+}) {
+  if (!Number.isFinite(input.currentTimeSeconds) || input.currentTimeSeconds < 0) return 0
+  const observedCaptureUs = BigInt(input.presentationOriginCaptureUs)
+    + BigInt(Math.round(input.currentTimeSeconds * 1_000_000))
+  const aheadUs = BigInt(input.windowCaptureEndUs) - observedCaptureUs
+  if (aheadUs <= 0n) return 0
+  const wholeSeconds = aheadUs / 1_000_000n
+  const remainderUs = aheadUs % 1_000_000n
+  return Number(wholeSeconds) + Number(remainderUs) / 1_000_000
 }
