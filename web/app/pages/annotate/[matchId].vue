@@ -21,7 +21,7 @@ const video = ref<HTMLVideoElement | null>(null)
 const overlayPlayer = ref<{
   seekCaptureTimeIfBuffered: (targetCaptureTimeUs: string) => boolean
   previewCaptureTimeIfBuffered: (targetCaptureTimeUs: string) => boolean
-  prewarmDescriptor: (descriptor: NonNullable<typeof descriptor.value>) => Promise<void>
+  prewarmDescriptor: (nextDescriptor: NonNullable<typeof descriptor.value>) => Promise<void>
 } | null>(null)
 const playing = ref(false)
 const muted = ref(false)
@@ -45,6 +45,7 @@ const commandReady = computed(() => !annotation.busy.value && annotation.pending
 const { bindings } = useAnnotationHotkeys()
 const annotationScope = useTemplateRef<HTMLElement>('annotationScope')
 const settingsOpen = ref(false)
+const settingsInitialPage = ref<'root' | 'media' | 'hotkeys'>('root')
 const captureDialogOpen = ref(false)
 const connectionDialogOpen = ref(false)
 const rosterDialogOpen = ref(false)
@@ -217,6 +218,11 @@ const syncLabel = computed(() => annotation.error.value || annotation.outboxNeed
     : annotation.connection.value === 'ready' ? 'WS 正常' : 'WS 離線')
 const displayTimecode = computed(() => formatTimecode(observedCursor.value?.player_media_time_us))
 const remoteEditorsFor = (keyPointId: string) => annotation.remoteEditorsByKeyPoint.value[keyPointId] ?? []
+
+function openSettings(page: 'root' | 'media' | 'hotkeys' = 'root') {
+  settingsInitialPage.value = page
+  settingsOpen.value = true
+}
 
 const CLIP_PADDING_US = 5_000_000n
 function clipRangeForPoints(points: ReadonlyArray<{ capture_time_us: string }>) {
@@ -766,7 +772,7 @@ onBeforeUnmount(() => {
       </nav>
       <div class="session-status"><i class="status-dot" :class="{ busy: annotation.busy.value || annotation.pendingCount.value > 0 || annotation.connection.value !== 'ready', error: annotation.error.value || annotation.outboxNeedsConfirmation.value }" /><span>{{ syncLabel }}</span></div>
       <div class="app-actions">
-        <button type="button" aria-label="按鍵設定" title="按鍵設定" @click="settingsOpen = true"><Settings :size="16" /></button>
+        <button type="button" aria-label="設定" title="設定" @click="openSettings('root')"><Settings :size="16" /></button>
       </div>
     </header>
 
@@ -827,10 +833,10 @@ onBeforeUnmount(() => {
         <UiTooltip :content="muted ? '開啟聲音' : '靜音'"><button type="button" class="transport-button" :aria-label="muted ? '開啟聲音' : '靜音'" :disabled="!descriptor" @click="dispatchMediaAction('mute')"><VolumeX v-if="muted" :size="16" /><Volume2 v-else :size="16" /></button></UiTooltip>
       </div>
       <DvrTimelineDock :timeline="timeline" :playhead="visualPlayhead" :buffered-window="descriptor ? { startCaptureTimeUs: descriptor.window_capture_start_us, endCaptureTimeUs: descriptor.window_capture_end_us } : null" :annotation="annotation.snapshot.value" :editable="state === 'OPEN' && !pendingTimelineMove" :selected-key-point-id="selectedKeyPointId" :mask-selected="selectedTimelineItem === 'mask'" :mask-range="currentMaskRange" :current-mask-status="currentMaskStatus" :segments="timelineSegments" :selected-segment-id="selectedTimelineItem === 'segment' ? selectedRallyId : null" :soft-locks="annotation.remoteEditorsByKeyPoint.value" @preview="previewTimelineSeek" @seek="seekTimeline" @select="selectTimelineKeyPoint" @select-mask="selectTimelineMask" @select-segment="selectHistoricalSegment" @edit-start="beginTimelineKeyPointEdit" @edit-cancel="cancelTimelineKeyPointEdit" @move="moveTimelineKeyPoint" />
-      <AnnotationCommandStrip :bindings="bindings" :state="state" :can-mark="canMark" :last-key-point="Boolean(currentLastKeyPointId)" :command-ready="commandReady" :pending-command="annotation.pendingCount.value > 0" @action="dispatchAnnotationAction" @settings="settingsOpen = true" />
+      <AnnotationCommandStrip :bindings="bindings" :state="state" :can-mark="canMark" :last-key-point="Boolean(currentLastKeyPointId)" :command-ready="commandReady" :pending-command="annotation.pendingCount.value > 0" @action="dispatchAnnotationAction" @settings="openSettings('hotkeys')" />
     </footer>
 
-    <LazyAnnotationSettingsDialog :open="settingsOpen" @close="settingsOpen = false" />
+    <LazyAnnotationSettingsDialog :open="settingsOpen" :initial-page="settingsInitialPage" @close="settingsOpen = false" />
     <LazyCaptureControlDialog :open="captureDialogOpen" :match-id="matchId" :captures="match?.captureSessions ?? []" @close="captureDialogOpen = false" @changed="loadMatch" />
     <LazyAnnotationConnectionDialog :open="connectionDialogOpen" :connection="annotation.connection.value" :capture="selectedCapture" :descriptor="descriptor" :pending="annotation.pendingCount.value" :editors="annotation.presence.value.length" @close="connectionDialogOpen = false" />
     <LazyRosterEditorDialog v-if="match" :open="rosterDialogOpen" :match="match" @close="rosterDialogOpen = false" @changed="loadMatch" />
