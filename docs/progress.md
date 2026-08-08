@@ -599,3 +599,54 @@ The Nuxt build emits a dependency-level Node `DEP0155` deprecation warning but c
 - Validation completed so far: Provider Realtime contract validation and 13 contracts tests; Prisma
   format/generate/validate; DB/server/worker/web typechecks; 20 Python SDK tests; GraphQL SDL export
   and 13 operation checks; processing-cancellation PostgreSQL integration test.
+
+# 2026-08-09 — OME clip continuity / outbound analysis engine E2E
+
+- Added deterministic least-loaded assignment for outbound WebSocket AI workers, persisted worker,
+  delivery, stage and progress data, annotation-room processing updates, and control-console worker/job
+  observability. The annotation processing badge uses `motion-v` and reports the assigned worker,
+  build, progress and pipeline stage while the job is active.
+- Created the private uv-managed reference worker repository
+  [`volleyball-analysis-engine`](https://github.com/henry753951/volleyball-analysis-engine). Its Docker
+  worker uses the current Python SDK `0.2.0`, Ruff and strict Pyright, reads the Contract Lab handoff,
+  projects detections into the canonical court, normalizes tracks into six players per court side,
+  associates immutable key points with hitters, and emits analysis JSON plus FlatBuffers overlay
+  artifacts. Ball/action/ReID inputs remain fixture-backed as explicitly allowed for this phase.
+- Fixed the OME fragment boundary path without weakening canonical timing checks. Adjacent capture
+  epochs may reset source PTS when capture time/frame remain exactly contiguous and the time base is
+  unchanged. Clip construction now opens every `init + fragment` as an independent concat-demuxer
+  entry, filters ffprobe to video frames, and never lets a shorter optional audio stream truncate the
+  authoritative video frame map.
+- Reduced automatic cursor-resolution retries to one request per playback-window/mapping/seek context.
+  Authoritative resolution now crosses contiguous OME epoch resets while browser observations remain
+  non-authoritative.
+- Explicit Nuxt layout routing now keeps `/annotate/**` in the dark PC editor shell, `/control/**` in
+  the desktop control shell, and only coach routes in the light PWA shell.
+
+### Real end-to-end evidence
+
+- Submitted immutable rally `502ddc84-8b31-4621-9579-f8f279184293` from match
+  `51278d81-5ec7-4a74-a399-ba4f53ca8758` against the recorded OME YouTube source.
+- Canonical clip job `49c9aa9a-c641-41eb-9f1d-aace9f14a9a4` completed on its first final retry with
+  exactly 398 selected and probed video frames. Service/contact anchors map from capture frames
+  `20066`/`20104` to clip frames `180`/`218`; the ingested AI contact anchors are the same `180`/`218`.
+- Two SDK workers were simultaneously online at capacity one. Least-load assignment selected
+  `analysis-worker-01`; AI job `f1dd89e7-9b59-44e8-b1c7-b3e1c02b8ebc` completed through the real
+  multipart callback in one attempt.
+- Analysis run `e8de313c-ddfc-4efe-9561-2110b6b8a035` is active/completed with 398 overlay frames,
+  four overlay chunks, 12 tracks split LEFT 6 / RIGHT 6, two key-point contact records, one ball path
+  and four persisted artifacts. Identity mapping is intentionally incomplete, so the annotation mask
+  is AI-complete blue rather than mapping-complete green.
+- Headed Playwright verified the editor shell contains no coach shell, displays `WS 正常` at 3–4 ms,
+  shows the rally as `分析完成`, and the control AI view reports both live workers plus the completed
+  match job and assigned worker.
+
+### Validation and remaining limitation
+
+- Passed focused server media-cursor tests (10), worker clip-timing tests (5), server/worker/web
+  typechecks, Docker builds for server, clip worker and HTTP dispatcher, and the real container E2E
+  above. The complete monorepo gate before these focused fixes passed contracts 13, DB 4, media 88,
+  server 201, worker 165 (6 skipped), web 142, SDK 20, plus root typecheck/test.
+- Playback-window continuation still has a separately known `/extend` 409 path in the existing HLS
+  player. The clip/PTS/callback path above is exact and complete, but uninterrupted long-running
+  browser continuation must not yet be described as finished.
