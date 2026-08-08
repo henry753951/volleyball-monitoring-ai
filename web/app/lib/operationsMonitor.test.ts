@@ -1,7 +1,25 @@
 import { describe, expect, it, vi } from 'vitest'
-import { fetchOperationsSnapshot } from './operationsMonitor'
+import { fetchOperationsSnapshot, visibleStreamsForMatches, type StreamSnapshot } from './operationsMonitor'
 
 describe('operations monitor client', () => {
+  it('keeps dashboard media sources scoped to visible matches', () => {
+    const stream = (matchId: string): StreamSnapshot => ({
+      captureSessionId: `capture-${matchId}`,
+      matchId,
+      matchTitle: matchId,
+      sourceKind: 'RTMP',
+      sourceLabel: null,
+      status: 'LIVE',
+      health: 'HEALTHY',
+      startedAt: null,
+      updatedAt: '2026-08-08T00:00:00.000Z',
+      epochCount: 0,
+      program: null,
+    })
+    expect(visibleStreamsForMatches([stream('visible'), stream('smoke-fixture')], new Set(['visible'])))
+      .toEqual([stream('visible')])
+  })
+
   it('loads the same-origin operations summary without caching credentials elsewhere', async () => {
     const payload = {
       readiness: { status: 'ready', checks: { postgres: 'ok' } },

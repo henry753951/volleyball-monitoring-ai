@@ -2,6 +2,9 @@
 
 Status: Accepted — 2026-08-07
 
+The clip timing portion is refined by ADR 0016. Actual sample tables and probed
+output-frame PTS are authoritative; average-FPS mapping is forbidden.
+
 ## Decision
 
 `ClipJob` and `AiJob` are durable PostgreSQL state machines. The dedicated workers claim one eligible row with `FOR UPDATE SKIP LOCKED`, attach a bounded lease and retry without creating duplicate immutable outputs. They do not treat an in-memory queue as source of truth.

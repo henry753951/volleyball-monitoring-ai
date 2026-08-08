@@ -24,7 +24,7 @@ import {
   XCircle,
 } from 'lucide-vue-next'
 import type { CreateMatchSetupInput, Match } from '~/lib/coreDomain'
-import type { MetricGroup, StreamSnapshot } from '~/lib/operationsMonitor'
+import { visibleStreamsForMatches, type MetricGroup, type StreamSnapshot } from '~/lib/operationsMonitor'
 
 definePageMeta({ layout: 'control' })
 
@@ -62,7 +62,11 @@ const filteredMatches = computed(() => {
   return matchesState.matches.value.filter(match => [match.title, match.venue, ...match.teams.flatMap(team => [team.name, team.shortName])].some(item => item?.toLocaleLowerCase().includes(value)))
 })
 const database = computed(() => monitor.snapshot.value?.operations.database)
-const streams = computed(() => monitor.snapshot.value?.operations.streams ?? [])
+const visibleMatchIds = computed(() => new Set(matchesState.matches.value.map(match => match.id)))
+const streams = computed(() => visibleStreamsForMatches(
+  monitor.snapshot.value?.operations.streams ?? [],
+  visibleMatchIds.value,
+))
 const generatedAt = computed(() => monitor.snapshot.value?.operations.generatedAt ?? null)
 
 function sum(groups: readonly MetricGroup[] | undefined, labels: Record<string, string | string[]> = {}) {

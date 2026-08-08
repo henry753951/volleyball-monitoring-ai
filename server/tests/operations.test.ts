@@ -83,8 +83,12 @@ describe('operations routes', () => {
 
   it('serves an authenticated operations dashboard snapshot to operators', async () => {
     const app = Fastify()
-    await app.register(operationsRoutes(async () => snapshot, {
-      authenticate: async () => ({ role: 'OPERATOR' }),
+    let collectedFor: { role: string; userId: string } | undefined
+    await app.register(operationsRoutes(async identity => {
+      collectedFor = identity
+      return snapshot
+    }, {
+      authenticate: async () => ({ role: 'OPERATOR', userId: 'operator-1' }),
       collectReadiness: async () => ({
         status: 'ready',
         checks: { minio: 'ok', postgres: 'ok', redis: 'ok' },
@@ -97,13 +101,14 @@ describe('operations routes', () => {
       operations: snapshot,
       readiness: { status: 'ready', checks: { minio: 'ok', postgres: 'ok', redis: 'ok' } },
     })
+    expect(collectedFor).toEqual({ role: 'OPERATOR', userId: 'operator-1' })
     await app.close()
   })
 
   it('rejects dashboard access for non-operations roles', async () => {
     const app = Fastify()
     await app.register(operationsRoutes(async () => snapshot, {
-      authenticate: async () => ({ role: 'COACH' }),
+      authenticate: async () => ({ role: 'COACH', userId: 'coach-1' }),
       collectReadiness: async () => ({ status: 'ready', checks: {} }),
     }))
     const response = await app.inject({ method: 'GET', url: '/api/v1/operations/summary' })

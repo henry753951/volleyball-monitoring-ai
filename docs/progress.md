@@ -1,5 +1,19 @@
 # Progress
 
+## 2026-08-08 — Media source isolation and frame-exact clip timing
+
+Status: implemented and locally validated on `codex/timeline-pts-alignment`; continuous Live DVR and the new source adapters remain the next media slice.
+
+- Fixed the control console's stale-source leak. The authenticated Operations API now scopes capture sessions to matches visible to the requesting non-admin operator, while the Nuxt monitor independently intersects streams with the current GraphQL match list. Historical `Phase 2A DVR Smoke` sessions no longer appear beside the DEMO match.
+- Replaced the clip worker's CFR/FPS approximation with strict sample-index authority. The worker verifies every sample-index object and segment metadata, rejects epoch/time-base/gap discontinuities, snaps requested boundaries to actual source samples and identifies immutable key points by epoch, source PTS, capture time and canonical frame together.
+- FFmpeg now selects exact source frame ordinals and uses passthrough frame timing; `-r`, time-times-FPS mapping and frame-count fallback were removed. ffprobe reads every produced frame, and a missing, duplicated or non-monotonic output frame fails the job instead of creating an approximate AI mapping.
+- Advanced the internal timing manifest to `1.1.0`. It contains source time base, a complete source-sample-to-output-frame table and both source/clip identity for every immutable key point. Public AI Job `1.1.0` remains compatible because its key-point ID still joins to the immutable source anchor while its clip values come from the verified output frame.
+- Accepted ADR 0016. MediaMTX remains the current live recording adapter; OME is a compatibility-gated candidate for continuous LL-HLS Live Rewind, not a replacement for `CaptureEpoch`/sample-index authority. Local upload and YouTube VOD will use direct import/index, while YouTube Live may use yt-dlp/FFmpeg only as the extractor/relay into the live adapter.
+
+Validation: worker typecheck and full suite passed (`160` passed, `6` environment-gated skips); server typecheck and full suite passed (`187/187`); focused Web operations tests passed (`3/3`); a real FFmpeg no-audio trim produced exactly six selected frames without CFR coercion. Headed Chromium at `http://localhost:3100/control?view=media` showed exactly one DEMO source (`507/507`, zero gaps), no smoke fixtures and zero console errors; GraphQL and Operations returned HTTP 200. Impeccable detection returned no findings.
+
+Open media work: implement the persisted `MediaSource` adapter/job lifecycle before exposing functional YouTube URL and local-upload controls; make live playback one long-lived playlist/player attachment; prefetch archive windows before boundaries; add deterministic reconnect/PTS-reset/time-base-change media fixtures; capability-probe hardware acceleration; replace the remaining coach AI-coverage FPS approximation with the timing manifest's actual frame map.
+
 ## 2026-08-08 — Local-first annotation input and event-driven collaboration
 
 Status: implemented and validated on `codex/annotation-optimistic-input`; integration review is in progress.

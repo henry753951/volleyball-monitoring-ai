@@ -59,6 +59,13 @@ export interface OperationsDashboardSnapshot {
   }
 }
 
+export function visibleStreamsForMatches(
+  streams: readonly StreamSnapshot[],
+  matchIds: ReadonlySet<string>,
+): StreamSnapshot[] {
+  return streams.filter(stream => matchIds.has(stream.matchId))
+}
+
 export async function fetchOperationsSnapshot(
   basePath: string,
   fetchImpl: typeof fetch = fetch,

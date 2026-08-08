@@ -32,6 +32,28 @@ export async function appendVerifiedObject(
   if (bytes !== asset.byteLength || digest.digest('hex') !== asset.sha256) throw new Error('source media asset verification failed')
 }
 
+export async function readVerifiedObject(
+  client: Client,
+  asset: { bucket: string; objectKey: string; byteLength: bigint | null; sha256: string | null },
+  maxBytes = 64n * 1024n * 1024n,
+): Promise<Buffer> {
+  if (asset.byteLength === null || asset.sha256 === null) throw new Error('source media asset metadata is incomplete')
+  if (asset.byteLength < 0n || asset.byteLength > maxBytes) throw new Error('source media asset exceeds the bounded read limit')
+  const source = await client.getObject(asset.bucket, asset.objectKey)
+  const digest = createHash('sha256')
+  const chunks: Buffer[] = []
+  let bytes = 0n
+  for await (const value of source) {
+    const chunk = Buffer.from(value as Uint8Array)
+    bytes += BigInt(chunk.byteLength)
+    if (bytes > maxBytes || bytes > asset.byteLength) throw new Error('source media asset exceeds its verified length')
+    digest.update(chunk)
+    chunks.push(chunk)
+  }
+  if (bytes !== asset.byteLength || digest.digest('hex') !== asset.sha256) throw new Error('source media asset verification failed')
+  return Buffer.concat(chunks)
+}
+
 export async function uploadFile(
   client: Client,
   bucket: string,

@@ -91,7 +91,7 @@ await app.register(mediaPlaybackRoutes({
 }))
 await app.register(mediaCursorRoutes({ objectReader: mediaObjectReader }))
 await app.register(operationsRoutes(
-  () => collectOperationsSnapshot(db),
+  identity => collectOperationsSnapshot(db, identity),
   {
     authenticate: request => authenticateDevelopmentAnnotationRequest(request, db),
     collectReadiness: () => evaluateReadiness(readinessProbes),
