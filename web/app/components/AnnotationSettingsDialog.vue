@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { RotateCcw, X } from 'lucide-vue-next'
+import { RotateCcw } from 'lucide-vue-next'
 import {
   ANNOTATION_COMMANDS,
   formatBindingForDisplay,
@@ -11,7 +11,6 @@ import {
 
 const props = defineProps<{ open: boolean }>()
 const emit = defineEmits<{ close: [] }>()
-const dialog = useTemplateRef<HTMLDialogElement>('dialog')
 const { bindings, rebind, restoreDefaults } = useAnnotationHotkeys()
 const recording = ref<HotkeyCommand | null>(null)
 const recordingError = ref<string | null>(null)
@@ -57,41 +56,30 @@ function close() {
   emit('close')
 }
 
-watch(() => props.open, (open) => {
-  const element = dialog.value
-  if (!element) return
-  if (open && !element.open) element.showModal()
-  if (!open && element.open) element.close()
-}, { flush: 'post', immediate: true })
-onMounted(() => {
-  if (props.open && dialog.value && !dialog.value.open) dialog.value.showModal()
-})
 </script>
 
 <template>
-  <dialog ref="dialog" class="annotation-settings" aria-labelledby="annotation-settings-title" @cancel.prevent="close" @click.self="close">
-    <header>
-      <div><h2 id="annotation-settings-title">按鍵設定</h2></div>
-      <button type="button" aria-label="關閉設定" @click="close"><X :size="18" /></button>
-    </header>
-    <div class="annotation-settings__body">
-      <section v-for="group in commandGroups" :key="group.label">
-        <h3>{{ group.label }}</h3>
-        <ul>
-          <li v-for="command in group.commands" :key="command.action">
-            <div><strong>{{ command.label }}</strong><small>{{ command.description }}</small></div>
-            <button type="button" :class="{ recording: recording === command.action }" @click="beginRecording(command.action)">
-              {{ recording === command.action ? '請按新按鍵…' : formatBindingForDisplay(bindings[command.action]) }}
-            </button>
-          </li>
-        </ul>
-      </section>
-      <p v-if="recordingError" class="annotation-settings__error" role="alert">{{ recordingError }}</p>
-    </div>
-    <footer><button type="button" @click="restoreAllDefaults"><RotateCcw :size="15" />還原預設值</button><button type="button" class="primary" @click="close">完成</button></footer>
-  </dialog>
+  <UiAnimatedModal :open="open" title="按鍵設定" description="點選按鍵後直接輸入新的組合" @close="close">
+    <UiScrollArea class="annotation-settings__scroll">
+      <div class="annotation-settings__body">
+        <section v-for="group in commandGroups" :key="group.label">
+          <h3>{{ group.label }}</h3>
+          <ul>
+            <li v-for="command in group.commands" :key="command.action">
+              <div><strong>{{ command.label }}</strong><small>{{ command.description }}</small></div>
+              <button type="button" :class="{ recording: recording === command.action }" @click="beginRecording(command.action)">
+                {{ recording === command.action ? '請按新按鍵…' : formatBindingForDisplay(bindings[command.action]) }}
+              </button>
+            </li>
+          </ul>
+        </section>
+        <p v-if="recordingError" class="annotation-settings__error" role="alert">{{ recordingError }}</p>
+      </div>
+    </UiScrollArea>
+    <template #footer><button type="button" @click="restoreAllDefaults"><RotateCcw :size="15" />還原預設值</button><button type="button" class="primary" @click="close">完成</button></template>
+  </UiAnimatedModal>
 </template>
 
 <style scoped>
-.annotation-settings{width:min(620px,calc(100vw - 40px));max-height:calc(100dvh - 40px);padding:0;overflow:hidden;border:1px solid #4a535d;border-radius:12px;background:#121519;color:#edf1f4;box-shadow:0 24px 80px #000c}.annotation-settings::backdrop{background:#050607b8;backdrop-filter:blur(6px)}header,footer{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:11px 14px;border-bottom:1px solid #30363d;background:#101317}header h2{margin:0;font-size:.86rem}header button{width:32px;padding:0}button{min-height:32px;padding:6px 10px;border:1px solid #4a535d;border-radius:7px;background:#20252b;color:inherit;cursor:pointer}button:hover{border-color:#6b7681;background:#282e35}.annotation-settings__body{max-height:calc(100dvh - 150px);padding:12px 14px;overflow:auto}.annotation-settings section+section{margin-top:14px}.annotation-settings h3{margin:0 0 5px;color:#cdd4db;font-size:.67rem}.annotation-settings ul{margin:0;padding:0;border-top:1px solid #30363d;list-style:none}.annotation-settings li{display:flex;align-items:center;justify-content:space-between;gap:18px;padding:7px 0;border-bottom:1px solid #262c32}.annotation-settings li div{display:grid;gap:2px}.annotation-settings li strong{font-size:.72rem}.annotation-settings li small{color:#8f99a3;font-size:.62rem}.annotation-settings li button{min-width:118px;font:700 .66rem "Cascadia Mono",Consolas,monospace}.annotation-settings li button.recording{border-color:#62a9ff;background:#192b3b}.annotation-settings__error{padding:8px;border:1px solid #8e4146;border-radius:6px;background:#351a1c;color:#ffb7bb;font-size:.68rem}footer{border-top:1px solid #30363d;border-bottom:0}footer button{display:flex;align-items:center;gap:6px}.primary{border-color:#299c64;background:#17643f}
+.annotation-settings__scroll{height:min(620px,calc(86dvh - 104px))}.annotation-settings__body{padding:12px 16px 18px}.annotation-settings__body section+section{margin-top:14px}.annotation-settings__body h3{margin:0 0 5px;color:#cdd4db;font-size:.67rem}.annotation-settings__body ul{margin:0;padding:0;border-top:1px solid #30363d;list-style:none}.annotation-settings__body li{display:flex;align-items:center;justify-content:space-between;gap:18px;padding:8px 0;border-bottom:1px solid #262c32}.annotation-settings__body li div{display:grid;gap:2px}.annotation-settings__body li strong{font-size:.72rem}.annotation-settings__body li small{color:#8f99a3;font-size:.62rem}.annotation-settings__body button,:deep(.animated-modal__footer button){min-height:32px;display:inline-flex;align-items:center;gap:6px;padding:6px 10px;border:1px solid #4a535d;border-radius:8px;background:#20252b;color:#edf1f4;cursor:pointer}.annotation-settings__body li button{min-width:118px;justify-content:center;font:700 .66rem "Cascadia Mono",Consolas,monospace}.annotation-settings__body li button.recording{border-color:#62a9ff;background:#192b3b}.annotation-settings__error{padding:8px;border:1px solid #8e4146;border-radius:7px;background:#351a1c;color:#ffb7bb;font-size:.68rem}:deep(.animated-modal__footer .primary){border-color:#299c64;background:#17643f}
 </style>

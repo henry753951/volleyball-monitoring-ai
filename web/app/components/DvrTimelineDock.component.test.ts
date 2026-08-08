@@ -25,6 +25,48 @@ describe('DvrTimelineDock mounted interactions', () => {
     expect(w.find('.zoom-readout').exists()).toBe(false)
   })
   it('renders discontinuity marker', () => { const w = mount(DvrTimelineDock, { props: { timeline, playhead: null } }); expect(w.findAll('.gap-range').length).toBeGreaterThan(0) })
+  it('distinguishes the browser-buffered window from server-available ranges', () => {
+    const w = mount(DvrTimelineDock, { props: { timeline, playhead: '1750', bufferedWindow: { startCaptureTimeUs: '1400', endCaptureTimeUs: '1900' } } })
+    expect(w.find('.playback-ready').exists()).toBe(true)
+    expect(w.findAll('.ready-range')).toHaveLength(2)
+  })
+  it('drags the playhead once and keeps the optimistic target until cursor sync catches up', async () => {
+    const w = mount(DvrTimelineDock, { props: { timeline, playhead: '1750' } })
+    const playhead = w.find('.playhead')
+    const lane = w.find('.lane-content')
+    Object.defineProperty(lane.element, 'getBoundingClientRect', { value: () => ({ left: 0, width: 100 }) })
+    Object.defineProperty(playhead.element, 'setPointerCapture', { value: () => undefined })
+    Object.defineProperty(playhead.element, 'hasPointerCapture', { value: () => false })
+    await playhead.trigger('pointerdown', { pointerId: 4, clientX: 25 })
+    await playhead.trigger('pointermove', { pointerId: 4, clientX: 75 })
+    expect(w.emitted('seek')).toBeUndefined()
+    await playhead.trigger('pointerup', { pointerId: 4, clientX: 75 })
+    expect(w.emitted('seek')?.[0]).toEqual(['3250'])
+    expect(w.find('[role="slider"]').attributes('aria-valuenow')).toBe('3250')
+    await w.setProps({ playhead: '1750' })
+    expect(w.find('[role="slider"]').attributes('aria-valuenow')).toBe('3250')
+    await w.setProps({ playhead: '3250' })
+    expect(w.find('[role="slider"]').attributes('aria-valuenow')).toBe('3250')
+  })
+  it('renders key points inside the single segment lane and double-click focuses its mask', async () => {
+    const rangedAnnotation: AnnotationRallySnapshot = {
+      ...annotation,
+      snapshot: {
+        ...annotation.snapshot,
+        key_points: [
+          annotation.snapshot.key_points[0]!,
+          { ...annotation.snapshot.key_points[0]!, key_point_id: 'point-2', sequence_index: 1, marker_kind: 'contact', capture_time_us: '3250', capture_frame_index: '20' },
+        ],
+      },
+    }
+    const w = mount(DvrTimelineDock, { props: { timeline, playhead: null, annotation: rangedAnnotation, editable: true } })
+    expect(w.findAll('.lane-row')).toHaveLength(1)
+    expect(w.find('.clip-lane').findAll('.keypoint-dot')).toHaveLength(2)
+    await w.find('.timeline-mask.current').trigger('dblclick')
+    expect(w.emitted('selectMask')).toBeTruthy()
+    expect(w.emitted('seek')?.at(-1)).toEqual(['1750'])
+    expect(w.find('.zoom-readout').exists()).toBe(true)
+  })
   it('selects and seeks an editable key-point marker', async () => {
     const w = mount(DvrTimelineDock, { props: { timeline, playhead: null, annotation, editable: true, selectedKeyPointId: 'point-1', softLocks: { 'point-1': ['Remote Operator'] } } })
     const marker = w.find('.keypoint-dot')

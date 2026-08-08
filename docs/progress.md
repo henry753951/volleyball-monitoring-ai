@@ -1,5 +1,17 @@
 # Progress
 
+## 2026-08-08 — Annotation timeline interaction and desktop UI refinement
+
+Status: the PC Annotation workstation and desktop control surface have completed the current commercial-UI refinement checkpoint without changing the authoritative server-side DVR or Annotation command boundaries.
+
+- Replaced per-presented-frame cursor resolution with frame-rate local playback projection, immediate server resolution for seek/edit/frame operations and a one-second authoritative correction cadence while playing. Cursor requests are deduplicated and serialized; Annotation commands still carry the observed browser cursor for authoritative server resolution.
+- Reused an already-buffered bounded playback window for same-window seeks so normal scrubbing does not detach/reload HLS. A new server playback window is created only when the requested time is outside the active bounded window.
+- Removed pointer-drag timeline panning. Plain wheel scrolls the visible time range, Shift+wheel changes scale and both use short motion interpolation. The playback cursor has a larger drag target and retains its optimistic release position until browser playback catches up, preventing the old-position bounce.
+- Combined segment masks and key points into one track so the segment visually contains its points. Double-clicking a segment selects it, fits the timeline scale to its range and seeks to its beginning; masks, points and the cursor remain independently selectable.
+- Added reusable dark Animated Modal, Scroll Area, confirmation and connection components, global Sonner notifications, same-page roster/source editing, a compact connection inspector and a desktop-dark control workspace. The Annotation inspector now centers the Rally count above the score and lets the submitted-segment list fill its remaining height.
+
+Validation passed: the focused timeline component suite passed 8/8, Nuxt typecheck passed, the earlier full Web suite passed 102 tests and the production Web build completed. The local Nuxt server remains available at `http://localhost:3100` for operator testing.
+
 ## 2026-08-08 — Contract Lab DEMO match and recorded tracking replay
 
 Status: the local product now contains one clean DEMO match backed by the supplied 30-minute Contract Lab source, one immutable submitted Rally and the saved YOLOX / Deep-EIoU / SAM / court-projection output. The active development AI integration no longer fabricates tracks or court data.

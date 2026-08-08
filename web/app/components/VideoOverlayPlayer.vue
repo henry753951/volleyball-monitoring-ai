@@ -2,6 +2,7 @@
 <script setup lang="ts">
 import type { PlaybackWindowDescriptor, PlaybackCursorInput } from '../composables/usePlaybackCursor'
 import { useDvrPlayback } from '../composables/useDvrPlayback'
+import { captureTimeToPlayerSeconds, isCaptureTimeWithinWindow } from '../utils/playbackWindow'
 
 const props = withDefaults(defineProps<{
   descriptor?: PlaybackWindowDescriptor | null
@@ -44,6 +45,15 @@ watch([() => props.descriptor, video], ([descriptor]) => { void attachDescriptor
 function handleVideoClick() {
   if (props.toggleOnClick) emit('toggle')
 }
+function seekCaptureTimeIfBuffered(targetCaptureTimeUs: string) {
+  const descriptor = playback.activeWindow.value
+  const element = video.value
+  const target = BigInt(targetCaptureTimeUs)
+  if (!descriptor || !element || Date.parse(descriptor.expires_at) <= Date.now() + 30_000 || !isCaptureTimeWithinWindow(target, descriptor)) return false
+  element.currentTime = captureTimeToPlayerSeconds(target, descriptor)
+  return true
+}
+defineExpose({ seekCaptureTimeIfBuffered })
 
 // Canvas drawing must map the actual video content rectangle, including letterboxing.
 // It consumes lazy-loaded FlatBuffers chunks; it never draws the video pixels itself.

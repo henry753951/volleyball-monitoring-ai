@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { CircleDot, Crosshair, Home, Pause, Play, RadioTower, RotateCcw, Settings, Trash2, UsersRound, Volume2, VolumeX, Wifi } from 'lucide-vue-next'
+import { ChevronLeft, ChevronRight, CircleDot, Crosshair, Home, Pause, Play, RadioTower, RotateCcw, Settings, Trash2, UsersRound, Volume2, VolumeX, Wifi } from 'lucide-vue-next'
+import { toast } from 'vue-sonner'
 import { createMediaClient } from '~/lib/mediaClient'
 import { useAuthoritativeDvrWindow, seekVideoToCanonicalFrame, authoritativeControlsEnabled } from '~/composables/useAuthoritativeDvrWindow'
 import { createCoreDomainClient, createGraphQLTransport, type Match, type CaptureSession } from '~/lib/coreDomain'
@@ -16,6 +17,7 @@ const media = createMediaClient()
 const dvr = useAuthoritativeDvrWindow(media)
 const descriptor = computed(() => dvr.current.value)
 const video = ref<HTMLVideoElement | null>(null)
+const overlayPlayer = ref<{ seekCaptureTimeIfBuffered: (targetCaptureTimeUs: string) => boolean } | null>(null)
 const playing = ref(false)
 const muted = ref(false)
 const captureTarget = ref('')
@@ -39,6 +41,9 @@ const { bindings } = useAnnotationHotkeys()
 const annotationScope = useTemplateRef<HTMLElement>('annotationScope')
 const settingsOpen = ref(false)
 const captureDialogOpen = ref(false)
+const connectionDialogOpen = ref(false)
+const rosterDialogOpen = ref(false)
+const confirmAction = ref<'void' | 'correction' | null>(null)
 const inspectorTab = ref<'match' | 'mapping'>('match')
 const selectedRallyId = ref<string | null>(null)
 let matchRefreshTimer: ReturnType<typeof setInterval> | null = null
@@ -46,7 +51,10 @@ let timelineMoveTimeout: ReturnType<typeof setTimeout> | null = null
 let cursorResolveTimer: ReturnType<typeof setTimeout> | null = null
 let cursorResolveInFlight = false
 let pendingCursorResolve: PlaybackCursorInput | null = null
+let lastCursorResolveAt = 0
+let lastResolvedCursorKey = ''
 let matchRefreshInFlight = false
+let windowRecoveryInFlight = false
 
 const controls = computed(() => ANNOTATION_COMMANDS.map(command => ({
   ...command,
@@ -91,17 +99,43 @@ const rightTeam = computed(() => coach.data.value?.match.teams.find(team => team
 const timeline = computed(() => selectedCapture.value?.timeline ?? null)
 const selectedCaptureId = computed(() => selectedCapture.value?.id ?? null)
 const liveTarget = computed(() => timeline.value?.liveEdgeCaptureTimeUs ?? timeline.value?.availableRanges.at(-1)?.endUs ?? null)
-const syncLabel = computed(() => annotation.outboxNeedsConfirmation.value
-  ? '待送出操作需要確認'
-  : annotation.pendingCount.value
-    ? `${annotation.pendingCount.value} 個標註待送出`
-    : annotation.busy.value
-      ? '同步標註…'
-      : annotation.error.value
-        ? '同步異常'
-        : annotation.connection.value === 'ready'
-          ? '標註已更新'
-          : '離線 · 可保留一個待送出操作')
+const visualPlayhead = computed(() => {
+  const cursor = observedCursor.value
+  const window = descriptor.value
+  if (!cursor || !window || cursor.playback_window_id !== window.playback_window_id || cursor.mapping_version !== window.mapping_version) return authoritativeAnchor.value?.capture_time_us ?? null
+  const projected = BigInt(window.presentation_origin_capture_us) + BigInt(cursor.player_media_time_us)
+  const start = BigInt(window.window_capture_start_us)
+  const end = BigInt(window.window_capture_end_us)
+  return (projected < start ? start : projected > end ? end : projected).toString()
+})
+const cursorRally = computed(() => {
+  const cursor = visualPlayhead.value
+  if (!cursor) return null
+  return submittedRallies.value.find((rally) => {
+    const clip = rally.submission.clip
+    return Boolean(clip && BigInt(cursor) >= BigInt(clip.start_capture_time_us) && BigInt(cursor) <= BigInt(clip.end_capture_time_us))
+  }) ?? null
+})
+const activeContextRally = computed(() => selectedTimelineItem.value === 'segment' ? selectedSubmittedRally.value : cursorRally.value)
+const activeContextIsDraft = computed(() => selectedTimelineItem.value === 'point' || selectedTimelineItem.value === 'mask' || (!activeContextRally.value && ['OPEN', 'READY'].includes(state.value)))
+const activeContextTitle = computed(() => activeContextIsDraft.value
+  ? `目前標記 · 回合 ${submittedRallies.value.length + 1}`
+  : activeContextRally.value
+    ? `第 ${activeContextRally.value.set_number} 局 · 回合 ${activeContextRally.value.ordinal}`
+    : '游標未落在片段內')
+const activeContextHits = computed(() => activeContextIsDraft.value ? annotation.snapshot.value?.snapshot.key_points.length ?? 0 : activeContextRally.value?.submission.contact_count ?? 0)
+const activeContextDuration = computed(() => activeContextRally.value?.submission.clip?.duration_us ?? null)
+const activeContextState = computed(() => activeContextIsDraft.value
+  ? state.value === 'READY' ? '待送出' : '標記中'
+  : activeContextRally.value?.submission.analysis?.status === 'completed'
+    ? activeContextRally.value.submission.analysis.identity_mapping_completed ? '已指派' : '分析完成'
+    : activeContextRally.value ? '處理中' : '—')
+const displayRallyOrdinal = computed(() => activeContextRally.value?.ordinal ?? submittedRallies.value.length + 1)
+const syncLabel = computed(() => annotation.error.value || annotation.outboxNeedsConfirmation.value
+  ? 'WS 需注意'
+  : annotation.pendingCount.value || annotation.busy.value
+    ? 'WS 同步中'
+    : annotation.connection.value === 'ready' ? 'WS 正常' : 'WS 離線')
 const displayTimecode = computed(() => formatTimecode(observedCursor.value?.player_media_time_us))
 const remoteEditorsFor = (keyPointId: string) => annotation.remoteEditorsByKeyPoint.value[keyPointId] ?? []
 
@@ -112,6 +146,11 @@ function formatTimecode(value?: string | null) {
   const seconds = Math.floor((milliseconds % 60_000) / 1_000)
   const ms = milliseconds % 1_000
   return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}.${String(ms).padStart(3, '0')}`
+}
+function formatDuration(value?: string | null) {
+  if (!value) return '—'
+  const seconds = Number(BigInt(value)) / 1_000_000
+  return `${seconds.toFixed(seconds >= 10 ? 1 : 2)} 秒`
 }
 
 async function loadMatch(options: { silent?: boolean } = {}) {
@@ -138,8 +177,10 @@ async function resolveLatestCursor() {
   const cursor = pendingCursorResolve
   pendingCursorResolve = null
   cursorResolveInFlight = true
+  lastCursorResolveAt = performance.now()
   try {
     const resolved = await dvr.resolve(cursor)
+    if (resolved) lastResolvedCursorKey = `${cursor.playback_window_id}:${cursor.mapping_version}:${cursor.seek_generation}:${cursor.player_media_time_us}`
     const timelineMove = pendingTimelineMove.value
     if (resolved && timelineMove && timelineMove.playbackWindowId === cursor.playback_window_id) {
       pendingTimelineMove.value = null
@@ -162,19 +203,29 @@ async function resolveLatestCursor() {
   catch (error) { mediaError.value = error instanceof Error ? error.message : '游標解析失敗' }
   finally {
     cursorResolveInFlight = false
-    if (pendingCursorResolve && !cursorResolveTimer) cursorResolveTimer = setTimeout(resolveLatestCursor, 50)
+    scheduleCursorResolve()
   }
 }
 
+function scheduleCursorResolve(force = false) {
+  if (!pendingCursorResolve || cursorResolveInFlight || cursorResolveTimer) return
+  const interval = force || pendingTimelineMove.value || pendingFrameMove.value ? 0 : 1_000
+  const delay = Math.max(0, interval - (performance.now() - lastCursorResolveAt))
+  cursorResolveTimer = setTimeout(resolveLatestCursor, delay)
+}
+
 function handleCursor(cursor: PlaybackCursorInput) {
+  const previousSeekGeneration = observedCursor.value?.seek_generation
   observedCursor.value = cursor
   cursorStatus.value = cursor.cursor_status
   if (cursor.cursor_status !== 'ready') {
     pendingCursorResolve = null
     return
   }
+  const key = `${cursor.playback_window_id}:${cursor.mapping_version}:${cursor.seek_generation}:${cursor.player_media_time_us}`
+  if (key === lastResolvedCursorKey) return
   pendingCursorResolve = cursor
-  if (!cursorResolveInFlight && !cursorResolveTimer) cursorResolveTimer = setTimeout(resolveLatestCursor, 50)
+  scheduleCursorResolve(cursor.seek_generation !== previousSeekGeneration || Boolean(pendingTimelineMove.value) || Boolean(pendingFrameMove.value))
 }
 
 async function createWindow(target = captureTarget.value || undefined) {
@@ -182,10 +233,17 @@ async function createWindow(target = captureTarget.value || undefined) {
   try {
     const session = selectedCapture.value
     if (!session || !target) throw new Error('目前沒有可播放的 capture range')
-    await dvr.create({ schema_version: '1.0.0', capture_session_id: session.id, mode: target === liveTarget.value ? 'live' : 'archive', target_capture_time_us: target })
+    captureTarget.value = target
+    return await dvr.create({ schema_version: '1.0.0', capture_session_id: session.id, mode: target === liveTarget.value ? 'live' : 'archive', target_capture_time_us: target })
   }
-  catch (error) { mediaError.value = error instanceof Error ? error.message : '播放視窗建立失敗' }
+  catch (error) { mediaError.value = error instanceof Error ? error.message : '播放視窗建立失敗'; return null }
   finally { mediaError.value = dvr.error.value instanceof Error ? dvr.error.value.message : mediaError.value }
+}
+
+async function seekTimeline(targetCaptureTimeUs: string) {
+  captureTarget.value = targetCaptureTimeUs
+  if (overlayPlayer.value?.seekCaptureTimeIfBuffered(targetCaptureTimeUs)) return
+  await createWindow(targetCaptureTimeUs)
 }
 
 function dispatchAnnotationAction(action: AnnotationAction) {
@@ -217,14 +275,14 @@ function selectHistoricalSegment(segmentId: string, targetCaptureTimeUs: string)
   selectedRallyId.value = segmentId
   selectedTimelineItem.value = 'segment'
   selectedKeyPointId.value = null
-  void createWindow(targetCaptureTimeUs)
+  void seekTimeline(targetCaptureTimeUs)
 }
 
 function selectRally(rally: CoachRally) {
   selectedRallyId.value = rally.id
   selectedTimelineItem.value = 'segment'
   selectedKeyPointId.value = null
-  if (rally.submission.clip) void createWindow(rally.submission.clip.start_capture_time_us)
+  if (rally.submission.clip) void seekTimeline(rally.submission.clip.start_capture_time_us)
 }
 
 function openMapping() {
@@ -256,6 +314,17 @@ async function moveTimelineKeyPoint(keyPointId: string, targetCaptureTimeUs: str
   annotation.setEditingKeyPoint(keyPointId)
   pendingTimelineMove.value = { keyPointId, playbackWindowId: null }
   try {
+    if (descriptor.value && overlayPlayer.value?.seekCaptureTimeIfBuffered(targetCaptureTimeUs)) {
+      pendingTimelineMove.value = { keyPointId, playbackWindowId: descriptor.value.playback_window_id }
+      timelineMoveTimeout = setTimeout(() => {
+        if (pendingTimelineMove.value?.keyPointId !== keyPointId) return
+        pendingTimelineMove.value = null
+        timelineMoveTimeout = null
+        toast.error('無法解析拖曳位置，擊球點未變更')
+        releaseEditingIntent()
+      }, 8_000)
+      return
+    }
     const created = await dvr.create({
       schema_version: '1.0.0',
       capture_session_id: selectedCapture.value.id,
@@ -268,7 +337,7 @@ async function moveTimelineKeyPoint(keyPointId: string, targetCaptureTimeUs: str
       if (pendingTimelineMove.value?.keyPointId !== keyPointId) return
       pendingTimelineMove.value = null
       timelineMoveTimeout = null
-      mediaError.value = '拖曳目標尚未產生可解析的瀏覽器畫格；marker 未變更'
+      toast.error('無法解析拖曳位置，擊球點未變更')
       releaseEditingIntent()
     }, 8_000)
   }
@@ -276,7 +345,7 @@ async function moveTimelineKeyPoint(keyPointId: string, targetCaptureTimeUs: str
     pendingTimelineMove.value = null
     if (timelineMoveTimeout) clearTimeout(timelineMoveTimeout)
     timelineMoveTimeout = null
-    mediaError.value = error instanceof Error ? error.message : '拖曳 marker 失敗'
+    toast.error(error instanceof Error ? error.message : '拖曳擊球點失敗')
     releaseEditingIntent()
   }
 }
@@ -295,8 +364,7 @@ function reopenRally() {
 
 function voidRally() {
   if (!['OPEN', 'READY'].includes(state.value) || !commandReady.value) return
-  if (!window.confirm('確定刪除此未送出的片段？')) return
-  void annotation.edit('VOID_RALLY', { reason: 'operator_voided_from_workstation' }).catch(() => undefined)
+  confirmAction.value = 'void'
 }
 
 function deleteSelection() {
@@ -309,11 +377,25 @@ function startCorrection() {
     ? selectedSubmittedRally.value?.submission.id
     : annotation.snapshot.value?.snapshot.active_submission_id
   if (!submissionId || ['OPEN', 'READY'].includes(state.value) || !commandReady.value) return
-  if (!window.confirm('建立此片段的新修正版？按 Enter 送出後會取代目前版本。')) return
+  confirmAction.value = 'correction'
+}
+
+function confirmPendingAction() {
+  const action = confirmAction.value
+  confirmAction.value = null
+  if (action === 'void') {
+    void annotation.edit('VOID_RALLY', { reason: 'operator_voided_from_workstation' }).then(() => toast.success('未送出片段已刪除')).catch(() => undefined)
+    return
+  }
+  const submissionId = selectedTimelineItem.value === 'segment'
+    ? selectedSubmittedRally.value?.submission.id
+    : annotation.snapshot.value?.snapshot.active_submission_id
+  if (!submissionId) return
   void annotation.createCorrection(submissionId).then(() => {
     selectedRallyId.value = annotation.snapshot.value?.rally_id ?? null
     selectedTimelineItem.value = null
     selectedKeyPointId.value = annotation.lastKeyPoint.value?.key_point_id ?? null
+    toast.success('修正版已建立')
   }).catch(() => undefined)
 }
 
@@ -349,8 +431,13 @@ function dispatchMediaAction(action: PlayerAction) {
 }
 
 async function frameStep(direction: 'previous' | 'next') {
-  if (!authoritativeAnchor.value || !descriptor.value || pendingFrameMove.value) return
+  if (!descriptor.value || pendingFrameMove.value) return
   try {
+    if (observedCursor.value?.cursor_status === 'ready') {
+      const resolved = await dvr.resolve(observedCursor.value)
+      if (resolved) lastResolvedCursorKey = `${observedCursor.value.playback_window_id}:${observedCursor.value.mapping_version}:${observedCursor.value.seek_generation}:${observedCursor.value.player_media_time_us}`
+    }
+    if (!authoritativeAnchor.value) return
     const anchor = await dvr.step(direction, target => ({ schema_version: '1.0.0', capture_session_id: descriptor.value!.capture_session_id, mode: descriptor.value!.mode, target_capture_time_us: target }))
     if (!anchor) return
     const localUs = BigInt(anchor.player_media_time_us)
@@ -391,6 +478,25 @@ watch([state, selectedKeyPointId], ([nextState]) => {
   if (nextState !== 'OPEN') fineTuneMode.value = false
   releaseEditingIntent()
 })
+watch(loadError, (value) => { if (value) toast.error(value, { action: { label: '重試', onClick: () => void loadMatch() } }) })
+watch(mediaError, (value) => { if (value) toast.error(value) })
+watch(() => annotation.error.value, (value) => {
+  if (value) toast.error(value, { action: { label: '重新同步', onClick: () => void annotation.refreshActive() } })
+})
+watch(() => annotation.outboxNeedsConfirmation.value, (value) => {
+  if (value) toast.warning('場次狀態已更新，請重新操作', { action: { label: '重新同步', onClick: annotation.discardPending } })
+})
+watch(() => dvr.error.value, (error) => {
+  if (!error || windowRecoveryInFlight) return
+  const code = 'code' in error && typeof error.code === 'string' ? error.code : ''
+  if (!['PLAYBACK_WINDOW_NOT_FOUND', 'WINDOW_EXPIRED', 'MAPPING_STALE'].includes(code)) return
+  const target = authoritativeAnchor.value?.capture_time_us ?? captureTarget.value ?? liveTarget.value
+  if (!target) return
+  windowRecoveryInFlight = true
+  void createWindow(target).then((created) => {
+    if (created) toast.info('播放視窗已自動重新連線')
+  }).finally(() => { windowRecoveryInFlight = false })
+})
 onMounted(() => {
   annotationScope.value?.focus({ preventScroll: true })
   void loadMatch()
@@ -410,16 +516,15 @@ onBeforeUnmount(() => {
 <template>
   <section ref="annotationScope" tabindex="-1" class="editor-shell" @keydown.delete.prevent="deleteSelection" @pointerdown.capture="annotationScope?.focus({ preventScroll: true })">
     <header class="app-bar">
-      <div class="window-title"><CircleDot :size="14" /><strong>{{ match?.title ?? matchId }}</strong></div>
+      <div class="window-title"><NuxtLink to="/control" class="window-home" aria-label="返回控制台" title="返回控制台"><Home :size="15" /></NuxtLink><strong>{{ match?.title ?? matchId }}</strong></div>
       <nav class="window-menu" aria-label="場次工具">
         <button type="button" @click="captureDialogOpen = true"><RadioTower :size="13" />媒體資訊</button>
-        <button type="button" :title="`${annotation.connection.value} · ${selectedCapture?.health ?? 'unknown'}`"><Wifi :size="13" />連線資訊</button>
-        <NuxtLink :to="`/control?match=${matchId}`" target="_blank"><UsersRound :size="13" />球員編輯</NuxtLink>
+        <button type="button" :title="`${annotation.connection.value} · ${selectedCapture?.health ?? 'unknown'}`" @click="connectionDialogOpen = true"><Wifi :size="13" />連線資訊</button>
+        <button type="button" @click="rosterDialogOpen = true"><UsersRound :size="13" />球員編輯</button>
       </nav>
-      <div class="session-status"><i class="status-dot" :class="{ busy: annotation.busy.value || annotation.pendingCount.value > 0 || annotation.connection.value !== 'ready', error: annotation.error.value || annotation.outboxNeedsConfirmation.value }" /><span>{{ syncLabel }}</span><span v-if="annotation.presence.value.length" class="presence-count">{{ annotation.presence.value.length }}</span></div>
+      <div class="session-status"><i class="status-dot" :class="{ busy: annotation.busy.value || annotation.pendingCount.value > 0 || annotation.connection.value !== 'ready', error: annotation.error.value || annotation.outboxNeedsConfirmation.value }" /><span>{{ syncLabel }}</span></div>
       <div class="app-actions">
         <span class="media-name">{{ selectedCapture?.sourceLabel ?? '等待媒體' }}</span>
-        <NuxtLink to="/" aria-label="首頁" title="首頁"><Home :size="16" /></NuxtLink>
         <button type="button" aria-label="按鍵設定" title="按鍵設定" @click="settingsOpen = true"><Settings :size="16" /></button>
       </div>
     </header>
@@ -427,60 +532,61 @@ onBeforeUnmount(() => {
     <div class="editor-body">
       <main class="viewer-panel">
         <div class="video-stage">
-          <VideoOverlayPlayer :descriptor="descriptor" :controls="false" toggle-on-click @cursor="handleCursor" @ready="handleVideoReady" @toggle="dispatchMediaAction('play_pause')" @error="mediaError = $event.message" />
+          <VideoOverlayPlayer ref="overlayPlayer" :descriptor="descriptor" :controls="false" toggle-on-click @cursor="handleCursor" @ready="handleVideoReady" @toggle="dispatchMediaAction('play_pause')" @error="mediaError = $event.message" />
           <div v-if="annotation.snapshot.value" class="stage-mask" :class="annotation.snapshot.value.snapshot.annotation_status === 'submitted' ? 'submitted' : 'draft'" />
           <div class="viewer-badges"><span v-if="descriptor">{{ descriptor.mode.toUpperCase() }}</span><span>{{ authoritativeAnchor?.capture_frame_index ?? '—' }}</span></div>
           <div v-if="!descriptor" class="stage-empty"><strong>{{ selectedCapture ? '媒體緩衝中' : '尚未加入媒體' }}</strong><button v-if="liveTarget" type="button" @click="createWindow(liveTarget)">LIVE</button></div>
-          <p v-if="mediaError" class="stage-error">{{ mediaError }} <button type="button" @click="createWindow(liveTarget ?? undefined)">重試</button></p>
         </div>
       </main>
 
       <aside class="inspector">
         <div class="mode-switch"><button type="button" :class="{ active: inspectorTab === 'match' }" @click="inspectorTab = 'match'">場次資訊</button><button type="button" :class="{ active: inspectorTab === 'mapping' }" @click="openMapping">球員指派</button></div>
-        <template v-if="inspectorTab === 'match'">
-          <div class="score-board">
+        <div v-if="inspectorTab === 'match'" class="match-inspector">
+          <div class="score-summary">
+            <span class="rally-counter">回合 {{ displayRallyOrdinal }}</span>
+            <div class="score-board">
             <span>{{ leftTeam?.shortName || leftTeam?.name || '左隊' }}</span><b>{{ currentSet?.left_score ?? 0 }}</b><i>:</i><b>{{ currentSet?.right_score ?? 0 }}</b><span>{{ rightTeam?.shortName || rightTeam?.name || '右隊' }}</span>
+            </div>
           </div>
-          <div class="current-segment">
-            <div><span>目前片段</span><strong>{{ annotation.snapshot.value ? `#${annotation.snapshot.value.rally_id.slice(0, 6)}` : '—' }}</strong></div>
-            <span class="segment-state" :class="state.toLowerCase()">{{ state === 'OPEN' ? '標記中' : state === 'READY' ? '待送出' : state === 'SUBMITTED' ? '已送出' : '待命' }}</span>
-          </div>
-          <dl class="segment-stats"><div><dt>擊球點</dt><dd>{{ annotation.snapshot.value?.snapshot.key_points.length ?? 0 }}</dd></div><div><dt>第幾局</dt><dd>{{ currentSet?.set_number ?? '—' }}</dd></div><div><dt>線上</dt><dd>{{ annotation.presence.value.length }}</dd></div></dl>
-          <button v-if="(selectedTimelineItem === 'segment' && selectedSubmittedRally) || (state === 'SUBMITTED' && annotation.snapshot.value?.snapshot.active_submission_id)" type="button" class="correction-button" :disabled="!commandReady" @click="startCorrection"><RotateCcw :size="14" />編輯此片段</button>
           <div class="segment-list-title"><span>已送出片段</span><b>{{ submittedRallies.length }}</b></div>
-          <button v-for="rally in submittedRallies" :key="rally.id" type="button" class="segment-row" :class="{ active: selectedRallyId === rally.id }" @click="selectRally(rally)">
-            <span>第 {{ rally.set_number }} 局 · 回合 {{ rally.ordinal }}</span><i :class="{ processing: rally.submission.analysis?.status !== 'completed', mapped: rally.submission.analysis?.identity_mapping_completed }" />
-          </button>
-        </template>
-        <template v-else>
+          <UiScrollArea class="segment-scroll"><div class="segment-list"><button v-for="rally in submittedRallies" :key="rally.id" type="button" class="segment-row" :class="{ active: selectedRallyId === rally.id }" @click="selectRally(rally)">
+            <div><span>第 {{ rally.set_number }} 局 · 回合 {{ rally.ordinal }}</span><small>{{ formatDuration(rally.submission.clip?.duration_us) }} · {{ rally.submission.contact_count }} 次擊球</small></div><i :class="{ processing: rally.submission.analysis?.status !== 'completed', mapped: rally.submission.analysis?.identity_mapping_completed }" />
+          </button></div></UiScrollArea>
+        </div>
+        <div v-else class="mapping-inspector">
           <label class="segment-picker"><span>片段</span><select v-model="selectedRallyId"><option v-for="rally in completedRallies" :key="rally.id" :value="rally.id">第 {{ rally.set_number }} 局 · 回合 {{ rally.ordinal }}</option></select></label>
           <AnnotationIdentityPanel :match-id="matchId" :analysis-run-id="selectedAnalysisRunId" :left-team-id="leftTeamId" :right-team-id="rightTeamId" :teams="coach.data.value?.match.teams ?? []" :mapping-completed="Boolean(selectedRally?.submission.analysis?.identity_mapping_completed)" @changed="coach.refresh" />
-        </template>
+        </div>
       </aside>
     </div>
 
     <footer class="timeline-footer">
       <div class="transport-bar">
         <button type="button" class="transport-button" :aria-label="playing ? '暫停' : '播放'" :disabled="!descriptor" @click="dispatchMediaAction('play_pause')"><Pause v-if="playing" :size="16" fill="currentColor" /><Play v-else :size="16" fill="currentColor" /></button>
-        <button type="button" class="transport-button" aria-label="前一幀" :disabled="!authoritativeAnchor || dvr.busy.value || Boolean(pendingFrameMove) || Boolean(pendingTimelineMove)" @click="dispatchMediaAction('frame_previous')">←</button>
-        <button type="button" class="transport-button" aria-label="後一幀" :disabled="!authoritativeAnchor || dvr.busy.value || Boolean(pendingFrameMove) || Boolean(pendingTimelineMove)" @click="dispatchMediaAction('frame_next')">→</button>
+        <button type="button" class="transport-button" aria-label="前一幀" :disabled="!authoritativeAnchor || dvr.busy.value || Boolean(pendingFrameMove) || Boolean(pendingTimelineMove)" @click="dispatchMediaAction('frame_previous')"><ChevronLeft :size="18" stroke-width="2.2" /></button>
+        <button type="button" class="transport-button" aria-label="後一幀" :disabled="!authoritativeAnchor || dvr.busy.value || Boolean(pendingFrameMove) || Boolean(pendingTimelineMove)" @click="dispatchMediaAction('frame_next')"><ChevronRight :size="18" stroke-width="2.2" /></button>
         <code class="timecode">{{ displayTimecode }}</code>
         <button type="button" class="live-badge" :class="{ active: descriptor?.mode === 'live' }" :disabled="!liveTarget" @click="createWindow(liveTarget ?? undefined)">LIVE</button>
         <i class="transport-separator" />
         <button type="button" class="tool-button" :class="{ active: fineTuneMode }" :disabled="state !== 'OPEN' || !selectedKeyPoint || !commandReady" title="逐幀移動所選點" @click="toggleFineTuneMode"><Crosshair :size="14" />微調</button>
         <button type="button" class="tool-button" :disabled="state !== 'OPEN' || !selectedKeyPoint || !canMark || !commandReady" title="移到目前畫格" @click="editKeyPoint('MOVE_KEY_POINT')"><CircleDot :size="14" />移到游標</button>
         <button type="button" class="tool-button danger" :disabled="!selectedTimelineItem || selectedTimelineItem === 'segment' || !['OPEN', 'READY'].includes(state) || !commandReady" title="Delete" @click="deleteSelection"><Trash2 :size="14" />刪除所選</button>
-        <div class="transport-spacer" />
+        <div class="transport-context">
+          <div><strong>{{ activeContextTitle }}</strong><small>{{ activeContextHits }} 次擊球 · {{ formatDuration(activeContextDuration) }}</small></div>
+          <span>{{ activeContextState }}</span>
+          <button v-if="(selectedTimelineItem === 'segment' && selectedSubmittedRally) || (state === 'SUBMITTED' && annotation.snapshot.value?.snapshot.active_submission_id)" type="button" class="context-edit" :disabled="!commandReady" title="建立修正版" @click="startCorrection"><RotateCcw :size="13" /></button>
+        </div>
         <button type="button" class="transport-button" :aria-label="muted ? '開啟聲音' : '靜音'" :disabled="!descriptor" @click="dispatchMediaAction('mute')"><VolumeX v-if="muted" :size="16" /><Volume2 v-else :size="16" /></button>
       </div>
-      <DvrTimelineDock :timeline="timeline" :playhead="authoritativeAnchor?.capture_time_us ?? null" :annotation="annotation.snapshot.value" :editable="state === 'OPEN' && !pendingTimelineMove" :selected-key-point-id="selectedKeyPointId" :mask-selected="selectedTimelineItem === 'mask'" :segments="timelineSegments" :selected-segment-id="selectedTimelineItem === 'segment' ? selectedRallyId : null" :soft-locks="annotation.remoteEditorsByKeyPoint.value" @seek="createWindow" @select="selectTimelineKeyPoint" @select-mask="selectTimelineMask" @select-segment="selectHistoricalSegment" @edit-start="beginTimelineKeyPointEdit" @edit-cancel="cancelTimelineKeyPointEdit" @move="moveTimelineKeyPoint" />
+      <DvrTimelineDock :timeline="timeline" :playhead="visualPlayhead" :buffered-window="descriptor ? { startCaptureTimeUs: descriptor.window_capture_start_us, endCaptureTimeUs: descriptor.window_capture_end_us } : null" :annotation="annotation.snapshot.value" :editable="state === 'OPEN' && !pendingTimelineMove" :selected-key-point-id="selectedKeyPointId" :mask-selected="selectedTimelineItem === 'mask'" :segments="timelineSegments" :selected-segment-id="selectedTimelineItem === 'segment' ? selectedRallyId : null" :soft-locks="annotation.remoteEditorsByKeyPoint.value" @seek="seekTimeline" @select="selectTimelineKeyPoint" @select-mask="selectTimelineMask" @select-segment="selectHistoricalSegment" @edit-start="beginTimelineKeyPointEdit" @edit-cancel="cancelTimelineKeyPointEdit" @move="moveTimelineKeyPoint" />
       <AnnotationCommandStrip :bindings="bindings" :state="state" :can-mark="canMark" :last-key-point="Boolean(currentLastKeyPointId)" :command-ready="commandReady" :pending-command="annotation.pendingCount.value > 0" @action="dispatchAnnotationAction" @settings="settingsOpen = true" />
     </footer>
 
-    <p v-if="loadError || annotation.error.value" class="global-error">{{ loadError ?? annotation.error.value }} <button type="button" @click="loadError ? loadMatch() : annotation.refreshActive()">重試</button></p>
-    <p v-if="annotation.pendingCount.value" class="outbox-banner" :class="{ confirm: annotation.outboxNeedsConfirmation.value }"><span>{{ annotation.outboxNeedsConfirmation.value ? '狀態已更新，請重新操作。' : '等待同步' }}</span><button type="button" @click="annotation.discardPending">重新同步</button></p>
     <LazyAnnotationSettingsDialog v-if="settingsOpen" :open="settingsOpen" @close="settingsOpen = false" />
     <LazyCaptureControlDialog v-if="captureDialogOpen" :open="captureDialogOpen" :match-id="matchId" :captures="match?.captureSessions ?? []" @close="captureDialogOpen = false" @changed="loadMatch" />
+    <LazyAnnotationConnectionDialog v-if="connectionDialogOpen" :open="connectionDialogOpen" :connection="annotation.connection.value" :capture="selectedCapture" :descriptor="descriptor" :pending="annotation.pendingCount.value" :editors="annotation.presence.value.length" @close="connectionDialogOpen = false" />
+    <LazyRosterEditorDialog v-if="rosterDialogOpen && match" :open="rosterDialogOpen" :match="match" @close="rosterDialogOpen = false" @changed="loadMatch" />
+    <LazyConfirmActionDialog v-if="confirmAction" :open="Boolean(confirmAction)" :title="confirmAction === 'void' ? '刪除未送出片段' : '建立修正版'" :message="confirmAction === 'void' ? '這個未送出片段會立即刪除，已送出的資料不受影響。' : '送出修正版並完成 AI 處理後，教練端會更新為新版本。'" :confirm-label="confirmAction === 'void' ? '刪除片段' : '建立修正版'" :danger="confirmAction === 'void'" @close="confirmAction = null" @confirm="confirmPendingAction" />
   </section>
 </template>
 
@@ -489,6 +595,10 @@ onBeforeUnmount(() => {
 .presence-count{padding:2px 6px;border:1px solid #34404a;border-radius:4px;color:#9fc7eb;font-size:.65rem}
 .correction-button{width:100%;border-color:#8c6d2e!important;background:#302711!important;color:#ffe0a0!important}.correction-note{margin:4px 0 0;padding:8px;border:1px solid #64512d;border-radius:5px;background:#2a2314;color:#f0ce88;font-size:.68rem;line-height:1.45}
 .keypoint-list li.remote-editing{box-shadow:inset 2px 0 #cf77e6;background:#241b2a}.keypoint-list small{color:#e3a9f2;font-size:.62rem}
+</style>
+
+<style scoped>
+.window-title{gap:6px}.window-home{width:29px!important;min-height:29px!important;display:grid!important;place-items:center;padding:0!important;border-color:transparent!important;border-radius:8px!important;background:transparent!important;color:#aeb8c2!important}.window-home:hover{background:#232a31!important;color:#fff!important}.window-title>strong{margin-left:2px}.app-actions{min-width:32px}.inspector{display:flex;flex-direction:column;overflow:hidden}.mode-switch{flex:none}.match-inspector,.mapping-inspector{min-height:0;flex:1}.match-inspector{display:grid;grid-template-rows:auto 35px minmax(0,1fr)}.mapping-inspector{overflow:auto}.score-summary{padding-top:5px;border-bottom:1px solid var(--line)}.rally-counter{display:block;color:#7f8993;font-size:.6rem;font-weight:750;letter-spacing:.04em;text-align:center}.score-summary .score-board{border-bottom:0}.segment-scroll{min-height:0;height:100%}.segment-list{padding-right:5px}.segment-row{min-height:49px!important}.segment-row>div{min-width:0;display:grid;gap:3px;text-align:left}.segment-row small{color:#77838e;font-size:.58rem;font-weight:500}.transport-context{min-width:220px;max-width:520px;display:grid;grid-template-columns:minmax(0,1fr) auto auto;align-items:center;gap:10px;margin-left:auto;padding:0 8px;border-left:1px solid #2e353c}.transport-context>div{min-width:0;display:grid;gap:1px}.transport-context strong,.transport-context small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.transport-context strong{font-size:.65rem}.transport-context small{color:#7f8a95;font-size:.56rem}.transport-context>span{padding:3px 7px;border-radius:999px;background:#26303a;color:#a9c9e2;font-size:.56rem;font-weight:750}.context-edit{width:28px!important;min-height:28px!important;display:grid!important;place-items:center;padding:0!important;border-color:transparent!important;background:transparent!important}.transport-button svg{filter:drop-shadow(0 1px 0 #000)}@media(max-width:1180px){.transport-context{max-width:300px}.transport-context small{display:none}}@media(max-width:980px){.transport-context{display:none}}
 </style>
 
 <style scoped>
