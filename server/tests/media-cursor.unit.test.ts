@@ -25,6 +25,7 @@ import type {
 
 const ids = {
   epoch: '51000000-0000-4000-8000-000000000001',
+  epoch2: '51000000-0000-4000-8000-000000000011',
   match: '51000000-0000-4000-8000-000000000002',
   operator: '51000000-0000-4000-8000-000000000003',
   outsider: '51000000-0000-4000-8000-000000000004',
@@ -85,7 +86,7 @@ function mapping(
 ): CursorWindowSegment {
   return {
     captureEndUs: indexed.index.availableEndUs,
-    captureEpochId: ids.epoch,
+    captureEpochId: indexed.index.epochId,
     captureStartUs: indexed.index.availableStartUs,
     discontinuity: 0,
     dvrProgramId: ids.program,
@@ -156,6 +157,7 @@ let adjacent: CursorWindowSegment | null
 let storeFailure: Error | null
 let indexFailure: Error | null
 let loadedSegmentIds: string[][]
+let availableIndexes: readonly IndexedSegment[]
 
 beforeEach(async () => {
   visibleWindow = fullWindow()
@@ -163,6 +165,7 @@ beforeEach(async () => {
   storeFailure = null
   indexFailure = null
   loadedSegmentIds = []
+  availableIndexes = indexedSegments
   const store: CursorWindowStore = {
     async loadAdjacentSegment() {
       return adjacent
@@ -183,7 +186,7 @@ beforeEach(async () => {
         loadedSegmentIds.push([...segmentIds])
         if (indexFailure) throw indexFailure
         return segmentIds.map((id) =>
-          indexedSegments.find((segment) => segment.segmentId === id)!)
+          availableIndexes.find((segment) => segment.segmentId === id)!)
       },
     },
     store,
@@ -347,6 +350,59 @@ describe('authoritative cursor resolution', () => {
     expect(anchor.snap_distance_us).toBe('8350')
     expect(anchor.source_time_base).toEqual({ den: 60_000, num: 1 })
     expect(loadedSegmentIds).toEqual([[ids.segment1, ids.segment2]])
+  })
+
+  it('resolves across recorder PTS-reset epochs without treating them as a playback discontinuity', async () => {
+    const resetIndex = buildSampleIndex(
+      [sampleFrame(0n, true), sampleFrame(sampleDurationPts)],
+      {
+        captureFrameOrigin: captureFrameOrigin + 2n,
+        captureTimeOriginUs: firstIndex.availableEndUs,
+        epochId: ids.epoch2,
+        sourcePtsOrigin: 0n,
+        timeBase,
+      },
+    )
+    availableIndexes = [
+      indexedSegments[0]!,
+      { discontinuity: 0, index: resetIndex, segmentId: ids.segment2 },
+    ]
+    const resetMapping = mapping(ids.segment2, availableIndexes[1]!, 1)
+    visibleWindow = {
+      ...fullWindow(),
+      captureEndUs: resetIndex.availableEndUs,
+      segments: [firstMapping, resetMapping],
+    }
+
+    const response = await app.inject({
+      headers: testHeaders(),
+      method: 'POST',
+      payload: cursorBody(resetIndex.samples[0]!.captureTimeUs - captureOriginUs),
+      url: '/api/v1/media/resolve-cursor',
+    })
+
+    expect(response.statusCode).toBe(200)
+    const anchor = parseResolvedMediaAnchor(response.json())
+    expect(anchor.capture_epoch_id).toBe(ids.epoch2)
+    expect(anchor.source_pts).toBe('0')
+    expect(loadedSegmentIds).toEqual([[ids.segment1, ids.segment2]])
+  })
+
+  it('scopes cursor resolution to the target discontinuity inside one HLS window', async () => {
+    const discontinuous = { ...secondMapping, captureEpochId: ids.epoch2, discontinuity: 1 }
+    const discontinuousIndex = { ...indexedSegments[1]!, discontinuity: 1 }
+    availableIndexes = [indexedSegments[0]!, discontinuousIndex]
+    visibleWindow = { ...fullWindow(), segments: [firstMapping, discontinuous] }
+
+    const response = await app.inject({
+      headers: testHeaders(),
+      method: 'POST',
+      payload: cursorBody(firstIndex.samples[0]!.captureTimeUs - captureOriginUs),
+      url: '/api/v1/media/resolve-cursor',
+    })
+
+    expect(response.statusCode).toBe(200)
+    expect(loadedSegmentIds).toEqual([[ids.segment1]])
   })
 })
 

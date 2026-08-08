@@ -3,12 +3,13 @@ import type { AnnotationRallySnapshot } from '@volleyball-monitoring/contracts'
 import { Activity, Bot, CircleDotDashed, UserRound } from 'lucide-vue-next'
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import type { CaptureTimeline } from '~/lib/coreDomain'
+import type { CapturePlaybackMode } from '~/lib/mediaTimeline'
 import { timelineBounds, capturePercentBps, rulerTicks, pointerTarget, readyAt, gapRanges, selectNonOverlappingRanges } from '~/lib/dvrTimeline'
 
 const props = defineProps<{
   timeline: CaptureTimeline | null
   playhead: string | null
-  liveSource?: boolean
+  playbackMode?: CapturePlaybackMode | null
   annotation?: AnnotationRallySnapshot | null
   editable?: boolean
   selectedKeyPointId?: string | null
@@ -54,7 +55,24 @@ const emit = defineEmits<{
   selectSegment: [segmentId: string, targetCaptureTimeUs: string]
   clearSelection: []
 }>()
-const fullBounds = computed(() => timelineBounds(props.timeline?.availableRanges ?? []))
+const readyBounds = computed(() => timelineBounds(props.timeline?.availableRanges ?? []))
+const fullBounds = computed(() => {
+  const timeline = props.timeline
+  const ready = readyBounds.value
+  if (!timeline || !ready) return ready
+  const start = BigInt(timeline.captureStartTimeUs) < BigInt(ready.startUs)
+    ? timeline.captureStartTimeUs
+    : ready.startUs
+  const candidateEnds = [
+    ready.endUs,
+    timeline.ingestFrontierCaptureTimeUs,
+    timeline.sourceEndCaptureTimeUs,
+  ].filter((value): value is string => Boolean(value))
+  const end = candidateEnds.reduce((latest, value) =>
+    BigInt(value) > BigInt(latest) ? value : latest,
+  ready.endUs)
+  return { startUs: start, endUs: end }
+})
 const timelineOriginUs = computed(() => props.timeline?.captureStartTimeUs ?? fullBounds.value?.startUs ?? null)
 const zoom = ref(1)
 const pan = ref(1)
@@ -88,7 +106,15 @@ const viewBounds = computed(() => {
   return { startUs: viewStart.toString(), endUs: (viewStart + visibleSpan).toString() }
 })
 const ticks = computed(() => rulerTicks(viewBounds.value, timelineOriginUs.value ?? undefined))
-const gaps = computed(() => gapRanges(props.timeline?.availableRanges ?? []))
+const gaps = computed(() => {
+  const values = [
+    ...gapRanges(props.timeline?.availableRanges ?? []),
+    ...(props.timeline?.gapRanges ?? []),
+  ]
+  return values.filter((range, index) => values.findIndex(candidate =>
+    candidate.startUs === range.startUs && candidate.endUs === range.endUs,
+  ) === index)
+})
 const annotationPoints = computed(() => props.annotation?.snapshot.key_points ?? [])
 const immutable = computed(() => props.annotation?.snapshot.annotation_status === 'submitted')
 const currentMaskTone = computed(() => immutable.value ? props.currentMaskStatus ?? 'processing' : 'draft')
@@ -99,7 +125,15 @@ const currentMaskLabel = computed(() => {
 })
 const maskStart = computed(() => props.maskRange?.startCaptureTimeUs ?? annotationPoints.value[0]?.capture_time_us ?? null)
 const maskEnd = computed(() => props.maskRange?.endCaptureTimeUs ?? annotationPoints.value.at(-1)?.capture_time_us ?? null)
-const liveEdge = computed(() => props.liveSource ? props.timeline?.liveEdgeCaptureTimeUs ?? props.timeline?.availableRanges.at(-1)?.endUs ?? null : null)
+const liveEdge = computed(() => props.playbackMode === 'active_live'
+  ? props.timeline?.liveEdgeCaptureTimeUs ?? props.timeline?.availableRanges.at(-1)?.endUs ?? null
+  : null)
+const terminalEdge = computed(() => ['complete_vod', 'ended_live', 'failed'].includes(props.playbackMode ?? '')
+  ? props.timeline?.sourceEndCaptureTimeUs ?? props.timeline?.availableRanges.at(-1)?.endUs ?? null
+  : null)
+const progressiveEdge = computed(() => ['progressive_vod', 'stopping'].includes(props.playbackMode ?? '')
+  ? props.timeline?.ingestFrontierCaptureTimeUs ?? props.timeline?.availableRanges.at(-1)?.endUs ?? null
+  : null)
 const displayPlayhead = computed(() => playheadDrag.value?.targetCaptureTimeUs ?? optimisticPlayhead.value ?? props.playhead ?? stablePlayhead.value)
 const isVisible = (time: string) => Boolean(viewBounds.value && BigInt(time) >= BigInt(viewBounds.value.startUs) && BigInt(time) <= BigInt(viewBounds.value.endUs))
 const position = (time: string) => viewBounds.value ? capturePercentBps(time, viewBounds.value) / 100 : 0
@@ -128,6 +162,38 @@ const segmentDensityClass = (segment: SegmentRange) => {
   const width = segmentVisibleWidth(segment)
   return width < 5 ? 'density-micro' : width < 12 ? 'density-compact' : ''
 }
+const readyRails = computed(() => (props.timeline?.availableRanges ?? []).map(range => ({
+  id: `${range.startUs}-${range.endUs}`,
+  startCaptureTimeUs: range.startUs,
+  endCaptureTimeUs: range.endUs,
+})).filter(segmentVisible))
+const gapRails = computed(() => gaps.value.map(range => ({
+  id: `${range.startUs}-${range.endUs}`,
+  startCaptureTimeUs: range.startUs,
+  endCaptureTimeUs: range.endUs,
+})).filter(segmentVisible))
+const bufferedRails = computed(() => (props.bufferedRanges ?? []).map(range => ({
+  id: `${range.startCaptureTimeUs}-${range.endCaptureTimeUs}`,
+  ...range,
+})).filter(segmentVisible))
+const playbackWindowRail = computed(() => props.bufferedWindow && segmentVisible(props.bufferedWindow)
+  ? props.bufferedWindow
+  : null)
+const serverPendingRail = computed<SegmentRange | null>(() => {
+  const readyEnd = props.timeline?.availableRanges.at(-1)?.endUs
+  const frontier = props.timeline?.ingestFrontierCaptureTimeUs
+  if (!readyEnd || !frontier || BigInt(frontier) <= BigInt(readyEnd)) return null
+  return { startCaptureTimeUs: readyEnd, endCaptureTimeUs: frontier }
+})
+const unavailableSourceRail = computed<SegmentRange | null>(() => {
+  const timeline = props.timeline
+  if (!timeline?.sourceEndCaptureTimeUs || timeline.availabilityComplete) return null
+  const start = timeline.ingestFrontierCaptureTimeUs
+    ?? timeline.availableRanges.at(-1)?.endUs
+    ?? timeline.captureStartTimeUs
+  if (BigInt(timeline.sourceEndCaptureTimeUs) <= BigInt(start)) return null
+  return { startCaptureTimeUs: start, endCaptureTimeUs: timeline.sourceEndCaptureTimeUs }
+})
 const analysisRange = (segment: SegmentRange & { analysis?: { startCaptureTimeUs: string; endCaptureTimeUs: string } | null }): SegmentRange => ({
   startCaptureTimeUs: segment.analysis?.startCaptureTimeUs ?? segment.startCaptureTimeUs,
   endCaptureTimeUs: segment.analysis?.endCaptureTimeUs ?? segment.endCaptureTimeUs,
@@ -397,8 +463,15 @@ onBeforeUnmount(() => {
 
 <template>
   <section class="timeline-surface" aria-label="影音時間軸" @wheel.prevent="wheel">
-    <div class="ruler-row" title="點擊跳轉" @click="seek"><span v-for="(tick, index) in ticks" :key="`${tick.value}-${index}`" class="ruler-tick" :style="{ left: `${tick.percentBps / 100}%` }" :title="tick.value" @click.stop="requestSeek(tick.value)">{{ tick.label }}<i /></span></div>
-    <div class="buffer-status" role="slider" aria-label="影片定位" :aria-valuemin="viewBounds?.startUs ?? '0'" :aria-valuemax="viewBounds?.endUs ?? '0'" :aria-valuenow="displayPlayhead ?? viewBounds?.startUs ?? '0'" @click="seek"><i v-for="range in timeline?.availableRanges ?? []" :key="`${range.startUs}-${range.endUs}`" class="ready-range" :style="{ left: `${position(range.startUs)}%`, width: `${Math.max(0, position(range.endUs) - position(range.startUs))}%` }" title="伺服器 DVR 可用" /><i v-if="bufferedWindow" class="playback-window" :style="{ left: `${position(bufferedWindow.startCaptureTimeUs)}%`, width: `${Math.max(.2, position(bufferedWindow.endCaptureTimeUs) - position(bufferedWindow.startCaptureTimeUs))}%` }" title="目前播放視窗" /><i v-for="range in bufferedRanges ?? []" :key="`buffered-${range.startCaptureTimeUs}-${range.endCaptureTimeUs}`" class="playback-ready" :style="{ left: `${position(range.startCaptureTimeUs)}%`, width: `${Math.max(.2, position(range.endCaptureTimeUs) - position(range.startCaptureTimeUs))}%` }" title="瀏覽器已載入" /><i v-for="gap in gaps" :key="`${gap.startUs}-${gap.endUs}`" class="gap-range" :style="{ left: `${position(gap.startUs)}%`, width: `${Math.max(0, position(gap.endUs) - position(gap.startUs))}%` }" /></div>
+    <div class="ruler-row"><span v-for="(tick, index) in ticks" :key="`${tick.value}-${index}`" class="ruler-tick" :style="{ left: `${tick.percentBps / 100}%` }" :title="tick.value">{{ tick.label }}<i /></span></div>
+    <div class="buffer-status" role="slider" aria-label="影片定位" :aria-valuemin="viewBounds?.startUs ?? '0'" :aria-valuemax="viewBounds?.endUs ?? '0'" :aria-valuenow="displayPlayhead ?? viewBounds?.startUs ?? '0'" @click="seek">
+      <i v-if="unavailableSourceRail" v-show="segmentVisible(unavailableSourceRail)" class="source-unavailable" :style="{ left: `${segmentLeft(unavailableSourceRail)}%`, width: `${segmentWidth(unavailableSourceRail)}%` }" title="來源尚未下載" />
+      <i v-if="serverPendingRail" v-show="segmentVisible(serverPendingRail)" class="server-pending" :style="{ left: `${segmentLeft(serverPendingRail)}%`, width: `${segmentWidth(serverPendingRail)}%` }" title="伺服器正在建立索引" />
+      <i v-for="range in readyRails" :key="range.id" class="ready-range" :style="{ left: `${segmentLeft(range)}%`, width: `${segmentWidth(range)}%` }" title="伺服器可用" />
+      <i v-if="playbackWindowRail" class="playback-window" :style="{ left: `${segmentLeft(playbackWindowRail)}%`, width: `${segmentWidth(playbackWindowRail)}%` }" title="目前播放視窗" />
+      <i v-for="range in bufferedRails" :key="`buffered-${range.id}`" class="playback-ready" :style="{ left: `${segmentLeft(range)}%`, width: `${segmentWidth(range)}%` }" title="瀏覽器已載入" />
+      <i v-for="gap in gapRails" :key="gap.id" class="gap-range" :style="{ left: `${segmentLeft(gap)}%`, width: `${segmentWidth(gap)}%` }" title="媒體中斷" />
+    </div>
     <div class="lane-row clip-lane">
       <span class="lane-label">片段</span>
       <div class="lane-content" @click="emit('clearSelection')">
@@ -409,14 +482,16 @@ onBeforeUnmount(() => {
       </div>
     </div>
     <template v-for="segment in displaySegments" :key="`${segment.id}:points`"><button v-for="point in segment.points ?? []" v-show="isVisible(point.captureTimeUs)" :key="point.id" data-timeline-interactive type="button" class="keypoint-dot historical-point locked" :class="[{ service: point.markerKind === 'service', terminal: point.isTerminal }, segmentDensityClass(segment)]" :style="{ left: `calc(78px + (100% - 78px) * ${position(point.captureTimeUs) / 100})`, top: `${34 + pointTop()}px` }" :aria-label="`${segment.label} · ${point.markerKind}`" @click.stop="selectHistoricalPoint(segment.id, point.captureTimeUs)" /></template>
-    <div v-if="displayPlayhead && isVisible(displayPlayhead)" class="playhead" :class="{ dragging: playheadDrag }" :style="{ left: `calc(78px + (100% - 78px) * ${position(displayPlayhead) / 100})` }"><button data-timeline-interactive type="button" class="playhead-handle" role="slider" aria-label="播放游標" :aria-valuemin="viewBounds?.startUs" :aria-valuemax="viewBounds?.endUs" :aria-valuenow="displayPlayhead" @pointerdown.stop="beginPlayheadDrag" @pointermove.stop="movePlayheadDrag" @pointerup.stop="endPlayheadDrag" @pointercancel.stop="cancelPlayheadDrag"><span /><i /></button><output v-if="playheadDrag">{{ playheadDragLabel() }}</output></div>
+    <div v-if="displayPlayhead && isVisible(displayPlayhead)" class="playhead" :class="{ dragging: playheadDrag }" :style="{ left: `calc(78px + (100% - 78px) * ${position(displayPlayhead) / 100})` }"><button data-timeline-interactive type="button" class="playhead-handle" aria-label="拖曳播放游標" @pointerdown.stop="beginPlayheadDrag" @pointermove.stop="movePlayheadDrag" @pointerup.stop="endPlayheadDrag" @pointercancel.stop="cancelPlayheadDrag"><span /><i /></button><output v-if="playheadDrag">{{ playheadDragLabel() }}</output></div>
     <div v-if="liveEdge && isVisible(liveEdge)" class="live-edge" :style="{ left: `calc(78px + (100% - 78px) * ${position(liveEdge) / 100})` }"><span>LIVE</span></div>
+    <div v-else-if="terminalEdge && isVisible(terminalEdge)" class="source-edge terminal" :style="{ left: `calc(78px + (100% - 78px) * ${position(terminalEdge) / 100})` }"><span>END</span></div>
+    <div v-else-if="progressiveEdge && isVisible(progressiveEdge)" class="source-edge progressive" :style="{ left: `calc(78px + (100% - 78px) * ${position(progressiveEdge) / 100})` }"><span>載入中</span></div>
     <button v-if="targetZoom > 1" data-timeline-interactive type="button" class="zoom-readout" title="重設縮放" @click="resetView">{{ targetZoom.toFixed(1) }}×</button>
   </section>
 </template>
 
 <style scoped>
-.timeline-surface{position:relative;min-height:0;margin:0 12px;overflow:hidden;background:#0c0f12;touch-action:pan-y;user-select:none;color:#edf1f4}.ruler-row{position:absolute;inset:0 0 auto 78px;height:26px;border-bottom:1px solid #353b42}.ruler-tick{position:absolute;top:4px;transform:translateX(-50%);color:#7f8993;font:.58rem "Cascadia Mono",Consolas,monospace;white-space:nowrap}.ruler-tick:first-child{transform:none}.ruler-tick:last-child{transform:translateX(-100%)}.ruler-tick i{position:absolute;left:50%;top:15px;width:1px;height:7px;background:#56616b}.buffer-status{position:absolute;z-index:2;left:78px;right:0;top:27px;height:4px;overflow:hidden;background:#594516}.buffer-status .ready-range,.buffer-status .playback-window,.buffer-status .playback-ready,.buffer-status .gap-range{position:absolute;inset-block:0}.buffer-status .ready-range{background:#24483a}.buffer-status .playback-window{z-index:1;border-block:1px solid #8ba5b8;background:#61758666}.buffer-status .playback-ready{z-index:2;background:#45d58b;box-shadow:0 0 8px #45d58b}.buffer-status .gap-range{z-index:3;background:#d9a62f}.lane-row{position:absolute;left:0;right:0;border-bottom:1px solid #292f35}.clip-lane{top:34px;bottom:0}.lane-label{position:absolute;inset:0 auto 0 0;width:78px;display:grid;place-items:center start;padding-left:8px;border-right:1px solid #30363d;color:#717b84;font:700 .66rem "Segoe UI Variable Text","Segoe UI",sans-serif;pointer-events:none}.lane-content{position:absolute;inset:0 0 0 78px;overflow:hidden;cursor:default}.timeline-mask{position:absolute;top:8px;height:72px;min-height:0;padding:8px 12px 38px;overflow:hidden;border:1px solid #69737c;border-radius:8px;background:#838e9854;color:#e5eaee;font:700 .72rem/1.25 "Segoe UI Variable Text","Segoe UI",sans-serif;text-align:left;white-space:nowrap}.timeline-mask.draft{pointer-events:auto}.timeline-mask.processing{border-color:#aa7c22;background:#8c651c73;color:#ffe3a1}.timeline-mask.analyzed{border-color:#327fb8;background:#246fa573;color:#c0e3fc}.timeline-mask.mapped{border-color:#318a5e;background:#24744873;color:#bdf1d2}.timeline-mask.historical{z-index:1}.timeline-mask.current{z-index:2;background:#69737c38}.timeline-mask.selected{z-index:3;box-shadow:0 0 0 2px #dceeff,0 0 12px #62a9ff80}.keypoint-dot{position:absolute;z-index:4;top:56px;width:15px;height:15px;min-height:0;padding:0;transform:translate(-50%,-50%);border:2px solid #f4f7fa;border-radius:50%;background:#62a9ff}.keypoint-dot.service{background:#f5b84b}.keypoint-dot.terminal{border-radius:2px;transform:translate(-50%,-50%) rotate(45deg)}.keypoint-dot.editable{cursor:grab}.keypoint-dot.point-dragging{z-index:6;cursor:grabbing}.keypoint-dot.selected{z-index:5;box-shadow:0 0 0 3px #62a9ff55,0 0 12px #62a9ff}.keypoint-dot.soft-locked{z-index:5;border-color:#f3c2ff;box-shadow:0 0 0 4px #cf77e64d,0 0 14px #cf77e6}.keypoint-dot.locked{opacity:.62}.playhead{position:absolute;z-index:8;top:0;bottom:0;width:24px;margin-left:-12px;pointer-events:auto;cursor:col-resize;touch-action:none}.playhead::before{position:absolute;top:0;bottom:0;left:50%;width:2px;transform:translateX(-50%);background:#ff6b72;content:""}.playhead span{position:absolute;left:50%;top:0;width:13px;height:13px;transform:translateX(-50%);background:#ff6b72;clip-path:polygon(0 0,100% 0,50% 100%);filter:drop-shadow(0 1px 3px #000)}.playhead.dragging{cursor:grabbing}.live-edge{position:absolute;z-index:4;top:0;bottom:0;width:1px;background:#49d88a80;pointer-events:none}.live-edge span{display:none}.zoom-readout{position:absolute;right:4px;bottom:2px;z-index:9;min-height:20px;padding:2px 5px;border:1px solid #43515e;border-radius:4px;background:#171c21;color:#9fc7eb;font:700 .56rem "Cascadia Mono",Consolas,monospace;cursor:pointer}.timeline-surface button:focus,.timeline-surface [role="slider"]:focus{outline:none}
+.timeline-surface{position:relative;min-height:0;margin:0 12px;overflow:hidden;background:#0c0f12;touch-action:pan-y;user-select:none;color:#edf1f4}.ruler-row{position:absolute;inset:0 0 auto 78px;height:26px;border-bottom:1px solid #353b42}.ruler-tick{position:absolute;top:4px;transform:translateX(-50%);color:#7f8993;font:.58rem "Cascadia Mono",Consolas,monospace;white-space:nowrap}.ruler-tick:first-child{transform:none}.ruler-tick:last-child{transform:translateX(-100%)}.ruler-tick i{position:absolute;left:50%;top:15px;width:1px;height:7px;background:#56616b}.buffer-status{position:absolute;z-index:2;left:78px;right:0;top:27px;height:4px;overflow:hidden;background:#191c20}.buffer-status .ready-range,.buffer-status .playback-window,.buffer-status .playback-ready,.buffer-status .gap-range,.buffer-status .server-pending,.buffer-status .source-unavailable{position:absolute;inset-block:0}.buffer-status .source-unavailable{z-index:0;background:repeating-linear-gradient(135deg,#191c20 0 4px,#23272c 4px 7px)}.buffer-status .server-pending{z-index:1;background:#9a7228}.buffer-status .ready-range{z-index:2;background:#59636d}.buffer-status .playback-ready{z-index:3;background:#d1dbe3}.buffer-status .playback-window{z-index:4;border:1px solid #72a7d0;background:transparent}.buffer-status .gap-range{z-index:5;background:repeating-linear-gradient(135deg,#292d32 0 3px,#111316 3px 6px)}.lane-row{position:absolute;left:0;right:0;border-bottom:1px solid #292f35}.clip-lane{top:34px;bottom:0}.lane-label{position:absolute;inset:0 auto 0 0;width:78px;display:grid;place-items:center start;padding-left:8px;border-right:1px solid #30363d;color:#717b84;font:700 .66rem "Segoe UI Variable Text","Segoe UI",sans-serif;pointer-events:none}.lane-content{position:absolute;inset:0 0 0 78px;overflow:hidden;cursor:default}.timeline-mask{position:absolute;top:8px;height:72px;min-height:0;padding:8px 12px 38px;overflow:hidden;border:1px solid #69737c;border-radius:8px;background:#838e9854;color:#e5eaee;font:700 .72rem/1.25 "Segoe UI Variable Text","Segoe UI",sans-serif;text-align:left;white-space:nowrap}.timeline-mask.draft{pointer-events:auto}.timeline-mask.processing{border-color:#aa7c22;background:#8c651c73;color:#ffe3a1}.timeline-mask.analyzed{border-color:#327fb8;background:#246fa573;color:#c0e3fc}.timeline-mask.mapped{border-color:#318a5e;background:#24744873;color:#bdf1d2}.timeline-mask.historical{z-index:1}.timeline-mask.current{z-index:2;background:#69737c38}.timeline-mask.selected{z-index:3;box-shadow:0 0 0 2px #dceeff,0 0 12px #62a9ff80}.keypoint-dot{position:absolute;z-index:4;top:56px;width:15px;height:15px;min-height:0;padding:0;transform:translate(-50%,-50%);border:2px solid #f4f7fa;border-radius:50%;background:#62a9ff}.keypoint-dot.service{background:#f5b84b}.keypoint-dot.terminal{border-radius:2px;transform:translate(-50%,-50%) rotate(45deg)}.keypoint-dot.editable{cursor:grab}.keypoint-dot.point-dragging{z-index:6;cursor:grabbing}.keypoint-dot.selected{z-index:5;box-shadow:0 0 0 3px #62a9ff55,0 0 12px #62a9ff}.keypoint-dot.soft-locked{z-index:5;border-color:#f3c2ff;box-shadow:0 0 0 4px #cf77e64d,0 0 14px #cf77e6}.keypoint-dot.locked{opacity:.62}.playhead{position:absolute;z-index:8;top:0;bottom:0;width:24px;margin-left:-12px;pointer-events:auto;cursor:col-resize;touch-action:none}.playhead::before{position:absolute;top:0;bottom:0;left:50%;width:2px;transform:translateX(-50%);background:#ff6b72;content:""}.playhead span{position:absolute;left:50%;top:0;width:13px;height:13px;transform:translateX(-50%);background:#ff6b72;clip-path:polygon(0 0,100% 0,50% 100%);filter:drop-shadow(0 1px 3px #000)}.playhead.dragging{cursor:grabbing}.live-edge,.source-edge{position:absolute;z-index:7;top:0;bottom:0;width:1px;pointer-events:none}.live-edge{background:#6d947d}.source-edge{background:#71717a}.source-edge.progressive{background:#a47c35}.live-edge span,.source-edge span{position:absolute;top:2px;right:4px;padding:2px 4px;border-radius:4px;background:#181a1e;color:#c9d0d6;font:800 .5rem "Cascadia Mono",Consolas,monospace;white-space:nowrap}.source-edge.progressive span{color:#d7b873}.zoom-readout{position:absolute;right:4px;bottom:2px;z-index:9;min-height:20px;padding:2px 5px;border:1px solid #43515e;border-radius:4px;background:#171c21;color:#9fc7eb;font:700 .56rem "Cascadia Mono",Consolas,monospace;cursor:pointer}.timeline-surface button:focus,.timeline-surface [role="slider"]:focus{outline:none}
 .timeline-mask.current.processing{border-color:#aa7c22;background:#8c651c73;color:#ffe3a1}
 .timeline-mask.current.analyzed{border-color:#327fb8;background:#246fa573;color:#c0e3fc}
 .timeline-mask.current.mapped{border-color:#318a5e;background:#24744873;color:#bdf1d2}
@@ -425,7 +500,7 @@ onBeforeUnmount(() => {
 <style scoped>
 .playhead output{position:absolute;left:50%;bottom:calc(100% + 5px);padding:4px 7px;transform:translateX(-50%);border:1px solid #3f3f46;border-radius:6px;background:#09090b;color:#fafafa;font:700 .6rem "Cascadia Mono",Consolas,monospace;white-space:nowrap}
 .historical-point{top:auto}
-.ruler-row,.buffer-status{cursor:pointer}.buffer-status{height:7px}.timeline-mask{height:84px;padding:8px 10px 44px}.timeline-mask span,.timeline-mask small{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.timeline-mask small{margin-top:3px;color:currentColor;font-size:.58rem;font-weight:600;opacity:.72}.timeline-mask b{position:absolute;right:7px;top:7px;padding:2px 5px;border:1px solid currentColor;border-radius:999px;font-size:.52rem;opacity:.84}.analysis-rail{position:absolute;z-index:3;top:99px;height:20px;display:flex;align-items:center;gap:5px;min-width:44px;padding:0 6px;overflow:hidden;border:1px solid #444b52;border-radius:4px;background:#15191d;color:#aeb8c2;font:650 .54rem "Cascadia Mono",Consolas,monospace;white-space:nowrap;pointer-events:none}.playhead{pointer-events:none}.playhead::before{display:block;pointer-events:none}.playhead-handle{position:absolute;top:0;left:50%;width:20px;height:34px;min-height:0;padding:0;transform:translateX(-50%);border:0;background:transparent;pointer-events:auto;cursor:col-resize;touch-action:none}.playhead-handle>*{pointer-events:none}.playhead-handle i{position:absolute;inset:0 auto auto 50%;width:2px;height:34px;transform:translateX(-50%);background:#ff6b72}.playhead-handle span{top:0}.playhead.dragging .playhead-handle{cursor:grabbing}
+.ruler-row{cursor:default}.buffer-status{height:7px;cursor:pointer}.timeline-mask{height:84px;padding:8px 10px 44px}.timeline-mask span,.timeline-mask small{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.timeline-mask small{margin-top:3px;color:currentColor;font-size:.58rem;font-weight:600;opacity:.72}.timeline-mask b{position:absolute;right:7px;top:7px;padding:2px 5px;border:1px solid currentColor;border-radius:999px;font-size:.52rem;opacity:.84}.analysis-rail{position:absolute;z-index:3;top:99px;height:20px;display:flex;align-items:center;gap:5px;min-width:44px;padding:0 6px;overflow:hidden;border:1px solid #444b52;border-radius:4px;background:#15191d;color:#aeb8c2;font:650 .54rem "Cascadia Mono",Consolas,monospace;white-space:nowrap;pointer-events:none}.playhead{pointer-events:none}.playhead::before{display:block;pointer-events:none}.playhead-handle{position:absolute;top:0;left:50%;width:20px;height:34px;min-height:0;padding:0;transform:translateX(-50%);border:0;background:transparent;pointer-events:auto;cursor:col-resize;touch-action:none}.playhead-handle>*{pointer-events:none}.playhead-handle i{position:absolute;inset:0 auto auto 50%;width:2px;height:34px;transform:translateX(-50%);background:#ff6b72}.playhead-handle span{top:0}.playhead.dragging .playhead-handle{cursor:grabbing}
 .timeline-mask span,.timeline-mask small,.timeline-mask b,.keypoint-dot,.analysis-rail{transition:opacity 140ms cubic-bezier(.2,.8,.2,1)}
 .timeline-mask.density-compact small,.timeline-mask.density-compact b{opacity:0;pointer-events:none}
 .timeline-mask.density-micro span,.timeline-mask.density-micro small,.timeline-mask.density-micro b{opacity:0;pointer-events:none}

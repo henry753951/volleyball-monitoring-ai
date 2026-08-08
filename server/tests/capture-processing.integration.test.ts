@@ -8,9 +8,11 @@ import { Pool } from 'pg'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import {
   OperationalMutationError,
+  requestCaptureCompletion,
   retryProcessing,
   startCapture,
   stopCapture,
+  updateCaptureSourceMetadata,
 } from '../src/services/capture-processing.js'
 
 const execFileAsync = promisify(execFile)
@@ -114,6 +116,83 @@ describe('capture lifecycle and processing retry', () => {
   it('rejects unsafe paths and non-operator identities', async () => {
     await expect(startCapture(db, operator, { matchId: ids.match, ingestPath: '../escape', sourceKind: 'rtmp' })).rejects.toMatchObject({ code: 'BAD_USER_INPUT' })
     await expect(startCapture(db, { id: ids.operator, role: UserRole.COACH }, { matchId: ids.match, ingestPath: 'court/coach', sourceKind: 'rtmp' })).rejects.toBeInstanceOf(OperationalMutationError)
+  })
+
+  it('allows only one active media source per match', async () => {
+    const capture = await startCapture(db, operator, {
+      ingestPath: `single-source-${randomUUID()}`,
+      matchId: ids.match,
+      sourceKind: 'rtmp',
+    })
+    await expect(startCapture(db, operator, {
+      ingestPath: `second-source-${randomUUID()}`,
+      matchId: ids.match,
+      sourceKind: 'rtmp',
+    })).rejects.toMatchObject({
+      code: 'BAD_USER_INPUT',
+      message: 'Match already has an active media source',
+    })
+    await stopCapture(db, operator, capture.id)
+  })
+
+  it('persists source classification and finalizes an empty sealed import idempotently', async () => {
+    const capture = await startCapture(db, operator, {
+      ingestPath: `local-${randomUUID()}`,
+      matchId: ids.match,
+      sourceKind: 'local_mp4',
+    })
+    await updateCaptureSourceMetadata(db, capture.id, {
+      sourceDurationUs: 9_055_000_000n,
+      sourceKind: 'youtube_vod',
+    })
+    const finished = await requestCaptureCompletion(db, capture.id, {
+      expectedSegments: 0,
+      sourceDurationUs: 9_055_000_000n,
+      sourceKind: 'youtube_live',
+    })
+    expect(finished).toMatchObject({
+      sourceDurationUs: 9_055_000_000n,
+      sourceKind: 'youtube_live',
+      status: 'FINISHED',
+    })
+    await expect(requestCaptureCompletion(db, capture.id, {
+      expectedSegments: 0,
+      sourceDurationUs: 9_055_000_000n,
+      sourceKind: 'youtube_live',
+    })).resolves.toMatchObject({ status: 'FINISHED' })
+    await expect(db.outboxEvent.count({
+      where: { dedupeKey: `capture-source-completed:${capture.id}` },
+    })).resolves.toBe(1)
+  })
+
+  it('keeps a sealed capture draining until its expected segment is READY', async () => {
+    const capture = await startCapture(db, operator, {
+      ingestPath: `youtube-${randomUUID()}`,
+      matchId: ids.match,
+      sourceKind: 'youtube',
+    })
+    await db.dvrProgram.create({
+      data: {
+        captureSessionId: capture.id,
+        fpsDen: 1,
+        fpsNum: 60,
+        status: 'LIVE',
+        timeBaseDen: 60_000,
+        timeBaseNum: 1,
+      },
+    })
+    const draining = await requestCaptureCompletion(db, capture.id, {
+      expectedSegments: 1,
+      sourceDurationUs: 2_000_000n,
+      sourceKind: 'youtube_vod',
+    })
+    expect(draining).toMatchObject({
+      completionExpectedSegments: 1,
+      status: 'STOPPING',
+    })
+    await expect(db.dvrProgram.findFirstOrThrow({
+      where: { captureSessionId: capture.id },
+    })).resolves.toMatchObject({ status: 'STOPPING' })
   })
 
   it('resets a terminal failed clip job without creating a second job', async () => {

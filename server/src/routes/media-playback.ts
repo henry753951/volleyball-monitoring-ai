@@ -520,7 +520,7 @@ async function extendPlaybackWindow(
     ...(requestedForwardUs === undefined ? {} : { requestedForwardUs }),
     requestedTargetUs: targetUs,
   })
-  assertRollingPlaybackSelection(
+  const appended = assertRollingPlaybackSelection(
     current.segments.map(entry => ({
       id: entry.dvrSegment.id,
       captureStartUs: entry.dvrSegment.captureStartUs,
@@ -528,6 +528,22 @@ async function extendPlaybackWindow(
     })),
     selection.segments,
   )
+  if (!appended) {
+    return buildPlaybackDescriptor({
+      captureEndUs: current.captureEndUs,
+      captureSessionId: current.captureSessionId,
+      captureStartUs: current.captureStartUs,
+      expiresAt: current.expiresAt,
+      id: current.id,
+      liveEdgeUs: current.dvrProgram.liveEdgeUs,
+      mappingVersion: current.mappingVersion,
+      mode: current.mode,
+      presentationOriginCaptureUs: current.presentationOriginCaptureUs,
+      targetPlayerMediaTimeUs: current.targetPlayerMediaTimeUs,
+      timelineEndUs: selection.timelineEndUs,
+      timelineStartUs: selection.timelineStartUs,
+    })
+  }
   const targetPlayerMediaTimeUs = targetUs - current.presentationOriginCaptureUs
   if (targetPlayerMediaTimeUs < 0n || targetUs >= selection.windowEndUs) {
     throw new MediaHttpError(409, 'MEDIA_NOT_READY', 'Playback continuation target is invalid')

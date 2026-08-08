@@ -8,7 +8,8 @@ import { draftCommandAvailability } from '~/utils/annotationCommandAvailability'
 import type { PlaybackCursorInput } from '~/lib/mediaModel'
 import type { CoachRally } from '~/lib/coachDomain'
 import { clipRangeOverlaps, formatTimelinePosition, paddedClipRange, resolveSegmentSelection, segmentAtCaptureTime } from '~/lib/dvrTimeline'
-import { isLiveCaptureSource } from '~/lib/mediaTimeline'
+import { capturePlaybackMode } from '~/lib/mediaTimeline'
+import { decidePlaybackContinuation } from '~/lib/playbackContinuation'
 import { bufferedSecondsAhead, type CanonicalMediaRange } from '~/utils/mediaBuffer'
 
 definePageMeta({ layout: 'annotation' })
@@ -23,6 +24,7 @@ const descriptor = computed(() => dvr.current.value)
 const { profile: mediaBufferProfile } = useMediaPlaybackPreferences()
 const video = ref<HTMLVideoElement | null>(null)
 const overlayPlayer = ref<{
+  recoverPlayback: () => boolean
   seekCaptureTimeIfBuffered: (targetCaptureTimeUs: string) => boolean
   previewCaptureTimeIfBuffered: (targetCaptureTimeUs: string) => boolean
 } | null>(null)
@@ -97,6 +99,8 @@ let playbackContinuationInFlight = false
 let playbackHasStarted = false
 let continuationWindowId: string | null = null
 let continuationRequestedAt = 0
+let continuationRetryDelayMs = 500
+let continuationRetryTimer: ReturnType<typeof setTimeout> | null = null
 let windowCreatePromise: ReturnType<typeof dvr.create> | null = null
 let windowCreateTarget: string | undefined
 let windowCreateMode: 'live' | 'archive' | undefined
@@ -110,16 +114,25 @@ const controls = computed(() => ANNOTATION_COMMANDS.map(command => ({
 const commandAvailabilityMap = computed(() => Object.fromEntries(controls.value.map(control => [control.action, { enabled: control.enabled, reason: control.reason }])))
 
 const selectedCapture = computed<CaptureSession | null>(() => {
-  const sessions = (match.value?.captureSessions ?? []).filter(session => session.timeline?.availableRanges.length)
-  return sessions.slice().sort((a, b) => (Date.parse(b.startedAt ?? '') - Date.parse(a.startedAt ?? '')) || a.id.localeCompare(b.id))[0] ?? null
+  const sessions = (match.value?.captureSessions ?? []).slice().sort((a, b) =>
+    (Date.parse(b.startedAt ?? '') - Date.parse(a.startedAt ?? '')) || a.id.localeCompare(b.id),
+  )
+  return sessions.find(session => ['STARTING', 'LIVE', 'STOPPING'].includes(session.status.toUpperCase()))
+    ?? sessions.find(session => session.timeline?.availableRanges.length)
+    ?? sessions[0]
+    ?? null
 })
 const timeline = computed(() => selectedCapture.value?.timeline ?? null)
 const workstation = useAnnotationWorkstationModel({ coachData: coach.data, match, timeline, displayAnnotation, confirmedAnnotation: annotation.snapshot, state, selectedRallyId, selectedKeyPoint, selectedTimelineItem, cursorRallyId })
 const { submittedRallies, annotationDrafts, visibleSubmittedRallies, selectedSubmittedRally, selectedRally, mappingAvailable, selectedAnalysisRunId, currentSet, leftTeamId, rightTeamId, leftSetWins, rightSetWins, leftTeam, rightTeam, clipPreRollUs, clipPostRollUs, clipPreRollSeconds, clipPostRollSeconds, rallyDisplayDuration, timelineSegments, currentMaskRange, selectableSegmentRanges, selectedCurrentMask, currentMaskStatus, currentMaskLabel, currentMaskOutcome, activeOverlayAnalysisRunId, activeOverlayClipStart, selectedEditableDraft, correctionActive, selectedDeletablePoint, activeContextTitle, activeContextHits, activeContextDuration, activeContextState, displayRallyOrdinal } = workstation
 const selectedHistoricalSegmentId = computed(() => selectedCurrentMask.value ? null : selectedRallyId.value)
 const selectedCaptureId = computed(() => selectedCapture.value?.id ?? null)
-const selectedCaptureSourceKind = computed(() => coach.data.value?.match.captures.find(capture => capture.id === selectedCaptureId.value)?.source_kind ?? null)
-const liveCapture = computed(() => isLiveCaptureSource(selectedCaptureSourceKind.value))
+const playbackMode = computed(() => capturePlaybackMode({
+  endedAt: selectedCapture.value?.endedAt,
+  sourceKind: selectedCapture.value?.sourceKind,
+  status: selectedCapture.value?.status,
+}))
+const liveCapture = computed(() => playbackMode.value === 'active_live')
 const timelineEndTarget = computed(() => timeline.value?.liveEdgeCaptureTimeUs ?? timeline.value?.availableRanges.at(-1)?.endUs ?? null)
 const liveTarget = computed(() => liveCapture.value ? timelineEndTarget.value : null)
 const visualPlayhead = computed(() => {
@@ -162,11 +175,7 @@ const defaultPlaybackTarget = computed(() => {
   const earliestKeyPoint = navigableKeyPoints.value[0]?.captureTimeUs
   if (earliestKeyPoint) return earliestKeyPoint
 
-  const lastRange = timeline.value?.availableRanges.at(-1)
-  if (!lastRange) return null
-  const start = BigInt(lastRange.startUs)
-  const end = BigInt(lastRange.endUs)
-  return end > start ? (end - 1n).toString() : lastRange.startUs
+  return timeline.value?.availableRanges[0]?.startUs ?? null
 })
 const syncLabel = computed(() => annotation.error.value || annotation.outboxNeedsConfirmation.value
   ? 'WS 需注意'
@@ -174,6 +183,13 @@ const syncLabel = computed(() => annotation.error.value || annotation.outboxNeed
     ? 'WS 同步中'
     : annotation.connection.value === 'ready' ? 'WS 正常' : 'WS 離線')
 const displayTimecode = computed(() => formatTimelinePosition(visualPlayhead.value, timeline.value?.captureStartTimeUs))
+const mediaEmptyLabel = computed(() => {
+  if (!selectedCapture.value) return '尚未加入媒體'
+  if (playbackMode.value === 'failed') return '影音來源無法使用'
+  if (playbackMode.value === 'starting') return '正在連接影音來源'
+  if (playbackMode.value === 'progressive_vod') return '影片載入中'
+  return '媒體緩衝中'
+})
 function openSettings(page: 'root' | 'media' | 'clip' | 'hotkeys' = 'root') {
   settingsInitialPage.value = page
   settingsOpen.value = true
@@ -666,21 +682,57 @@ function detachVideoState(element: HTMLVideoElement | null) {
   element?.removeEventListener('waiting', maintainPlaybackWindow)
   element?.removeEventListener('ended', maintainPlaybackWindow)
 }
+function schedulePlaybackContinuation(delayMs = continuationRetryDelayMs) {
+  if (continuationRetryTimer || !playbackHasStarted) return
+  continuationRetryTimer = setTimeout(() => {
+    continuationRetryTimer = null
+    maintainPlaybackWindow()
+  }, delayMs)
+}
+function retryableContinuationError(error: unknown) {
+  const code = error && typeof error === 'object' && 'code' in error
+    ? String(error.code)
+    : ''
+  return [
+    'MEDIA_NOT_READY',
+    'PLAYBACK_CONTINUATION_NO_PROGRESS',
+    'PLAYBACK_WINDOW_NOT_FOUND',
+    'WINDOW_EXPIRED',
+  ].includes(code)
+}
 function maintainPlaybackWindow() {
   const element = video.value
   const window = descriptor.value
   if (!element || !window || seekPreviewActive.value || playbackContinuationInFlight || !playbackHasStarted) return
-  if (element.paused && !element.ended) return
-  if (!element.ended && bufferedSecondsAhead(element) > mediaBufferProfile.value.refreshLeadSeconds) return
-  if (continuationWindowId === window.playback_window_id || performance.now() - continuationRequestedAt < 750) return
-
-  const windowEnd = BigInt(window.window_capture_end_us)
-  const timelineEnd = timelineEndTarget.value ? BigInt(timelineEndTarget.value) : BigInt(window.timeline_capture_end_us)
-  if (windowEnd >= timelineEnd) return
   const observedCapture = BigInt(window.presentation_origin_capture_us) + BigInt(Math.max(0, Math.round(element.currentTime * 1_000_000)))
+  const windowEnd = BigInt(window.window_capture_end_us)
   const target = (observedCapture > windowEnd ? windowEnd : observedCapture).toString()
-  const sourceWindowId = window.playback_window_id
+  const decision = decidePlaybackContinuation({
+    availabilityComplete: Boolean(timeline.value?.availabilityComplete)
+      || ['complete_vod', 'ended_live', 'failed'].includes(playbackMode.value),
+    browserBufferedSeconds: bufferedSecondsAhead(element),
+    currentCaptureTimeUs: target,
+    ended: element.ended,
+    paused: element.paused,
+    playbackHasStarted,
+    refreshLeadSeconds: mediaBufferProfile.value.refreshLeadSeconds,
+    seekPreviewActive: seekPreviewActive.value,
+    windowEndCaptureTimeUs: window.window_capture_end_us,
+  })
+  if (decision === 'idle' || decision === 'terminal') return
+  if (performance.now() - continuationRequestedAt < 500) {
+    schedulePlaybackContinuation(500)
+    return
+  }
   continuationRequestedAt = performance.now()
+  if (decision === 'recover-buffer') {
+    overlayPlayer.value?.recoverPlayback()
+    schedulePlaybackContinuation(650)
+    return
+  }
+  if (continuationWindowId === window.playback_window_id) return
+
+  const sourceWindowId = window.playback_window_id
   playbackContinuationInFlight = true
   continuationWindowId = sourceWindowId
   void media.extendPlaybackWindow(sourceWindowId, {
@@ -689,13 +741,39 @@ function maintainPlaybackWindow() {
     requested_forward_us: mediaBufferProfile.value.requestedForwardUs,
   }).then(async (created) => {
     if (descriptor.value?.playback_window_id !== sourceWindowId) return
-    if (BigInt(created.window_capture_end_us) <= windowEnd) {
+    if (
+      created.mapping_version !== window.mapping_version
+      || created.window_capture_end_us !== window.window_capture_end_us
+      || created.window_capture_start_us !== window.window_capture_start_us
+    ) {
+      continuationRetryDelayMs = 500
+      dvr.refresh(created)
+    }
+    else {
+      continuationRetryDelayMs = Math.min(4_000, Math.round(continuationRetryDelayMs * 1.6))
+    }
+  }).catch((error) => {
+    const code = error && typeof error === 'object' && 'code' in error ? String(error.code) : ''
+    if (['PLAYBACK_WINDOW_NOT_FOUND', 'WINDOW_EXPIRED'].includes(code)) {
+      dvr.clear()
+      void createWindow(target, liveCapture.value ? 'live' : 'archive')
       return
     }
-    dvr.refresh(created)
-  }).catch((error) => {
-    mediaError.value = error instanceof Error ? error.message : '背景載入播放視窗失敗'
-  }).finally(() => { continuationWindowId = null; playbackContinuationInFlight = false })
+    if (!retryableContinuationError(error)) {
+      mediaError.value = error instanceof Error ? error.message : '背景載入播放視窗失敗'
+    }
+    continuationRetryDelayMs = Math.min(4_000, Math.round(continuationRetryDelayMs * 1.6))
+  }).finally(() => {
+    continuationWindowId = null
+    playbackContinuationInFlight = false
+    if (
+      !timeline.value?.availabilityComplete
+      && !['complete_vod', 'ended_live', 'failed'].includes(playbackMode.value)
+      && playbackHasStarted
+    ) {
+      schedulePlaybackContinuation()
+    }
+  })
 }
 function handleVideoReady(element: HTMLVideoElement) {
   if (video.value !== element) {
@@ -711,8 +789,17 @@ function handleVideoReady(element: HTMLVideoElement) {
   }
   updatePlaybackState()
 }
-function handleBufferState(value: { buffered: CanonicalMediaRange[] }) {
-  playerBufferedRanges.value = value.buffered
+function handleBufferState(value: {
+  buffered: CanonicalMediaRange[]
+  mappingVersion: number | null
+  playbackWindowId: string | null
+}) {
+  const window = descriptor.value
+  playerBufferedRanges.value = window
+    && value.playbackWindowId === window.playback_window_id
+    && value.mappingVersion === window.mapping_version
+    ? value.buffered
+    : []
 }
 function dispatchMediaAction(action: PlayerAction, frameCount = 1) {
   const element = video.value
@@ -793,16 +880,22 @@ function commandEnabled(action: HotkeyCommand) {
 }
 useAnnotationHotkeyRuntime({ target: hotkeyTarget, dispatch: dispatchHotkeyCommand, commandEnabled })
 
-watch(selectedCaptureId, (captureId) => {
+watch(selectedCaptureId, (captureId, previousCaptureId) => {
+  if (captureId !== previousCaptureId) {
+    playbackHasStarted = false
+    continuationRetryDelayMs = 500
+    playerBufferedRanges.value = []
+    if (continuationRetryTimer) clearTimeout(continuationRetryTimer)
+    continuationRetryTimer = null
+    if (descriptor.value && descriptor.value.capture_session_id !== captureId) dvr.clear()
+  }
   if (captureId) annotation.connect(`match:${matchId.toLowerCase()}:capture:${captureId.toLowerCase()}`)
 }, { immediate: true })
-watch([selectedCaptureId, defaultPlaybackTarget, selectedCaptureSourceKind], ([captureId, target, sourceKind]) => {
-  if (!captureId || !target || !sourceKind || dvr.busy.value || descriptor.value?.capture_session_id === captureId) return
-  void createWindow(target, isLiveCaptureSource(sourceKind) ? 'live' : 'archive')
+watch([selectedCaptureId, defaultPlaybackTarget, playbackMode], ([captureId, target, mode]) => {
+  if (!captureId || !target || dvr.busy.value || descriptor.value?.capture_session_id === captureId) return
+  void createWindow(target, mode === 'active_live' ? 'live' : 'archive')
 }, { immediate: true })
-watch(timelineEndTarget, () => {
-  if (video.value?.ended) maintainPlaybackWindow()
-})
+watch([timelineEndTarget, () => timeline.value?.timelineVersion, playbackMode], maintainPlaybackWindow)
 watch(() => displayAnnotation.value?.rally_id, () => {
   pinnedRallyId.value = null
   selectedKeyPointId.value = null
@@ -862,6 +955,7 @@ onBeforeUnmount(() => {
   if (timelineMoveTimeout) clearTimeout(timelineMoveTimeout)
   if (cursorResolveTimer) clearTimeout(cursorResolveTimer)
   if (seekPreviewTimer) clearTimeout(seekPreviewTimer)
+  if (continuationRetryTimer) clearTimeout(continuationRetryTimer)
   annotation.setEditingKeyPoint(null)
   detachVideoState(video.value)
 })
@@ -892,7 +986,7 @@ onBeforeUnmount(() => {
             <span>FRAME IDX</span>
             <code>{{ authoritativeAnchor?.capture_frame_index ?? '—' }}</code>
           </div>
-          <div v-if="!descriptor" class="stage-empty"><strong>{{ selectedCapture ? '媒體緩衝中' : '尚未加入媒體' }}</strong><button v-if="defaultPlaybackTarget" type="button" @click="createWindow(defaultPlaybackTarget, liveCapture ? 'live' : 'archive')">{{ liveCapture ? 'LIVE' : '開啟影片' }}</button></div>
+          <div v-if="!descriptor" class="stage-empty"><strong>{{ mediaEmptyLabel }}</strong><button v-if="defaultPlaybackTarget" type="button" @click="createWindow(defaultPlaybackTarget, liveCapture ? 'live' : 'archive')">{{ liveCapture ? 'LIVE' : '開啟影片' }}</button></div>
         </div>
       </main>
       </UiResizablePanel>
@@ -935,8 +1029,9 @@ onBeforeUnmount(() => {
         :frame-ready="Boolean(authoritativeAnchor)"
         :frame-move-pending="Boolean(pendingTimelineMove)"
         :timecode="displayTimecode"
-        :live-active="liveCapture && descriptor?.mode === 'live'"
+        :live-active="playbackMode === 'active_live' && descriptor?.mode === 'live'"
         :live-available="Boolean(liveTarget)"
+        :terminal-label="playbackMode === 'ended_live' ? 'END' : null"
         :context-title="activeContextTitle"
         :context-hits="activeContextHits"
         :context-duration="formatDuration(activeContextDuration)"
@@ -965,7 +1060,7 @@ onBeforeUnmount(() => {
         @delete-selection="deleteSelection"
         @toggle-mute="dispatchMediaAction('mute')"
       />
-      <DvrTimelineDock :timeline="timeline" :playhead="visualPlayhead" :live-source="liveCapture" :buffered-window="descriptor ? { startCaptureTimeUs: descriptor.window_capture_start_us, endCaptureTimeUs: descriptor.window_capture_end_us } : null" :buffered-ranges="playerBufferedRanges" :annotation="displayAnnotation" :editable="state === 'OPEN' && editReady && !pendingTimelineMove" :selected-key-point-id="selectedKeyPointId" :mask-selected="selectedCurrentMask" :mask-range="currentMaskRange" :current-mask-status="currentMaskStatus" :current-mask-label="currentMaskLabel" :current-mask-outcome="currentMaskOutcome" :cursor-follow="cursorFollow" :segments="timelineSegments" :selected-segment-id="selectedHistoricalSegmentId" :soft-locks="annotation.remoteEditorsByKeyPoint.value" @preview="previewTimelineSeek" @seek="seekTimeline" @clear-selection="clearTimelineSelection" @select="selectTimelineKeyPoint" @select-mask="selectTimelineMask" @select-segment="selectHistoricalSegment" @edit-start="beginTimelineKeyPointEdit" @edit-cancel="cancelTimelineKeyPointEdit" @move="moveTimelineKeyPoint" />
+      <DvrTimelineDock :timeline="timeline" :playhead="visualPlayhead" :playback-mode="playbackMode" :buffered-window="descriptor ? { startCaptureTimeUs: descriptor.window_capture_start_us, endCaptureTimeUs: descriptor.window_capture_end_us } : null" :buffered-ranges="playerBufferedRanges" :annotation="displayAnnotation" :editable="state === 'OPEN' && editReady && !pendingTimelineMove" :selected-key-point-id="selectedKeyPointId" :mask-selected="selectedCurrentMask" :mask-range="currentMaskRange" :current-mask-status="currentMaskStatus" :current-mask-label="currentMaskLabel" :current-mask-outcome="currentMaskOutcome" :cursor-follow="cursorFollow" :segments="timelineSegments" :selected-segment-id="selectedHistoricalSegmentId" :soft-locks="annotation.remoteEditorsByKeyPoint.value" @preview="previewTimelineSeek" @seek="seekTimeline" @clear-selection="clearTimelineSelection" @select="selectTimelineKeyPoint" @select-mask="selectTimelineMask" @select-segment="selectHistoricalSegment" @edit-start="beginTimelineKeyPointEdit" @edit-cancel="cancelTimelineKeyPointEdit" @move="moveTimelineKeyPoint" />
       <AnnotationCommandStrip :bindings="bindings" :state="state" :can-mark="canMark" :last-key-point="Boolean(annotation.lastKeyPoint.value)" :command-ready="commandReady" :pending-command="annotation.pendingCount.value > 0" :availability="commandAvailabilityMap" @action="dispatchAnnotationAction" @settings="openSettings('hotkeys')" />
     </footer>
 

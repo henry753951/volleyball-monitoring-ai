@@ -453,6 +453,23 @@ describe('Phase 2A playback-window HTTP', () => {
     const original = created.json()
     expect(await db.playbackWindowSegment.count({ where: { playbackWindowId: original.playback_window_id } })).toBe(1)
 
+    const unchanged = await app.inject({
+      headers: authHeaders('operator'),
+      method: 'POST',
+      payload: {
+        schema_version: '1.0.0',
+        target_capture_time_us: (baseUs + 500_000n).toString(),
+        requested_forward_us: '0',
+      },
+      url: `/api/v1/media/playback-windows/${original.playback_window_id}/extend`,
+    })
+    expect(unchanged.statusCode).toBe(200)
+    expect(unchanged.json()).toMatchObject({
+      playback_window_id: original.playback_window_id,
+      mapping_version: original.mapping_version,
+      window_capture_end_us: original.window_capture_end_us,
+    })
+
     const extended = await app.inject({
       headers: authHeaders('operator'),
       method: 'POST',

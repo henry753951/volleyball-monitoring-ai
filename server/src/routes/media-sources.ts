@@ -8,7 +8,12 @@ import { UserRole } from '@volleyball-monitoring/db/client'
 import type { FastifyPluginAsync, FastifyRequest } from 'fastify'
 import { z } from 'zod'
 import type { AnnotationIdentity } from '../services/annotation-command.js'
-import { failCaptureStartup, startCapture } from '../services/capture-processing.js'
+import {
+  failCaptureStartup,
+  requestCaptureCompletion,
+  startCapture,
+  updateCaptureSourceMetadata,
+} from '../services/capture-processing.js'
 import type { MediaSourceGateway } from '../media/media-source-gateway.js'
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
@@ -18,11 +23,28 @@ const YoutubeRequest = z.object({
   source_label: z.string().trim().min(1).max(120).optional(),
   source_url: z.string().trim().url().max(2_048),
 }).strict()
-const SourceStatusRequest = z.object({
-  capture_session_id: z.string().regex(UUID),
-  error_code: z.string().min(1).max(120),
-  status: z.literal('failed'),
-}).strict()
+const SOURCE_DURATION = z.string().regex(/^[1-9][0-9]{0,18}$/).nullable()
+const SOURCE_KINDS = z.enum(['local_mp4', 'youtube_live', 'youtube_vod'])
+const SourceStatusRequest = z.discriminatedUnion('status', [
+  z.object({
+    capture_session_id: z.string().regex(UUID),
+    error_code: z.string().min(1).max(120),
+    status: z.literal('failed'),
+  }).strict(),
+  z.object({
+    capture_session_id: z.string().regex(UUID),
+    source_duration_us: SOURCE_DURATION,
+    source_kind: SOURCE_KINDS,
+    status: z.literal('classified'),
+  }).strict(),
+  z.object({
+    capture_session_id: z.string().regex(UUID),
+    expected_segment_count: z.number().int().nonnegative().max(10_000_000),
+    source_duration_us: SOURCE_DURATION,
+    source_kind: SOURCE_KINDS,
+    status: z.literal('completed'),
+  }).strict(),
+])
 
 type MediaSourceRouteDependencies = {
   authenticate(request: FastifyRequest): Promise<AnnotationIdentity | null>
@@ -32,6 +54,8 @@ type MediaSourceRouteDependencies = {
   callbackToken?: string
   startCapture?: typeof startCapture
   failCaptureStartup?: typeof failCaptureStartup
+  requestCaptureCompletion?: typeof requestCaptureCompletion
+  updateCaptureSourceMetadata?: typeof updateCaptureSourceMetadata
 }
 
 function operator(identity: AnnotationIdentity | null) {
@@ -70,6 +94,8 @@ export function mediaSourceRoutes(dependencies: MediaSourceRouteDependencies): F
   const importRoot = resolve(dependencies.importRoot)
   const createCapture = dependencies.startCapture ?? startCapture
   const failCapture = dependencies.failCaptureStartup ?? failCaptureStartup
+  const completeCapture = dependencies.requestCaptureCompletion ?? requestCaptureCompletion
+  const updateSourceMetadata = dependencies.updateCaptureSourceMetadata ?? updateCaptureSourceMetadata
   const callbackToken = dependencies.callbackToken?.trim() ?? ''
   const validCallbackToken = (authorization: string | undefined) => {
     if (callbackToken.length < 32 || !authorization?.startsWith('Bearer ')) return false
@@ -82,7 +108,26 @@ export function mediaSourceRoutes(dependencies: MediaSourceRouteDependencies): F
       if (!validCallbackToken(request.headers.authorization)) return reply.status(401).send({ code: 'UNAUTHENTICATED' })
       const parsed = SourceStatusRequest.safeParse(request.body)
       if (!parsed.success) return reply.status(400).send({ code: 'BAD_USER_INPUT' })
-      await failCapture(dependencies.database, parsed.data.capture_session_id, parsed.data.error_code)
+      if (parsed.data.status === 'failed') {
+        await failCapture(dependencies.database, parsed.data.capture_session_id, parsed.data.error_code)
+      }
+      else if (parsed.data.status === 'classified') {
+        await updateSourceMetadata(dependencies.database, parsed.data.capture_session_id, {
+          sourceDurationUs: parsed.data.source_duration_us === null
+            ? null
+            : BigInt(parsed.data.source_duration_us),
+          sourceKind: parsed.data.source_kind,
+        })
+      }
+      else {
+        await completeCapture(dependencies.database, parsed.data.capture_session_id, {
+          expectedSegments: parsed.data.expected_segment_count,
+          sourceDurationUs: parsed.data.source_duration_us === null
+            ? null
+            : BigInt(parsed.data.source_duration_us),
+          sourceKind: parsed.data.source_kind,
+        })
+      }
       return reply.status(204).send()
     })
 

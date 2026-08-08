@@ -72,8 +72,8 @@ builder.mutationType({
       args: { captureSessionId: t.arg.id({ required: true }) },
       resolve: async (_root, args, context) => {
         const stopped = await operational(() => stopCapture(db, requireIdentity(context), args.captureSessionId))
-        if (mediaSourceGateway && ['youtube', 'local_mp4'].includes(stopped.sourceKind)) {
-          await mediaSourceGateway.stop(stopped.id).catch(() => undefined)
+        if (mediaSourceGateway && ['youtube', 'youtube_live', 'youtube_vod', 'local_mp4'].includes(stopped.sourceKind)) {
+          await mediaSourceGateway.stop(stopped.id)
         }
         return stopped
       },

@@ -51,6 +51,30 @@ const limits = {
 }
 
 describe('playback window selection', () => {
+  it('keeps an explicit live continuation target instead of jumping to a newer edge', () => {
+    const candidates = [
+      segment(ids.first, 0n, 1_000_000n),
+      segment(ids.second, 1_000_000n, 2_000_000n),
+      segment(ids.third, 2_000_000n, 3_000_000n),
+      segment(ids.later, 3_000_000n, 4_000_000n),
+    ]
+    const selection = selectPlaybackWindow({
+      candidates,
+      limits,
+      liveEdgeUs: 4_000_000n,
+      mode: 'live',
+      requestedBackUs: 500_000n,
+      requestedForwardUs: 1_500_000n,
+      requestedTargetUs: 1_500_000n,
+    })
+
+    expect(selection.targetUs).toBe(1_500_000n)
+    expect(selection.segments.map(value => value.id)).toEqual([
+      ids.second,
+      ids.third,
+    ])
+  })
+
   it('crosses capture epochs inside one window but still stops at real gaps', () => {
     const candidates = [
       segment(ids.first, 0n, 1_000_000n),
@@ -160,6 +184,8 @@ describe('playback manifest and wire views', () => {
       current[1]!,
       segment(ids.third, 2_000_000n, 3_000_000n),
     ])).not.toThrow()
+    expect(assertRollingPlaybackSelection(current, current)).toBe(false)
+    expect(assertRollingPlaybackSelection(current, [current[1]!])).toBe(false)
     expect(() => assertRollingPlaybackSelection(current, [
       segment(ids.third, 1_000_000n, 2_000_000n),
       segment(ids.later, 2_000_000n, 3_000_000n),
@@ -178,12 +204,13 @@ describe('playback manifest and wire views', () => {
 
     expect(manifest).toContain('#EXT-X-TARGETDURATION:2')
     expect(manifest).toContain('#EXT-X-MEDIA-SEQUENCE:41')
+    expect(manifest).toContain('#EXT-X-DISCONTINUITY-SEQUENCE:0')
     expect(manifest).not.toContain('#EXT-X-PLAYLIST-TYPE:VOD')
     expect(manifest).not.toContain('#EXT-X-ENDLIST')
     expect(manifest).toContain('#EXTINF:1.001001,')
     expect(manifest).toContain('#EXTINF:0.016683,')
     expect(manifest.match(/#EXT-X-MAP/g)).toHaveLength(2)
-    expect(manifest.match(/#EXT-X-DISCONTINUITY/g)).toHaveLength(1)
+    expect(manifest.match(/^#EXT-X-DISCONTINUITY$/gm)).toHaveLength(1)
     expect(manifest).toContain(`/segments/init-${ids.first}`)
     expect(manifest).toContain(`/segments/media-${ids.second}`)
     expect(manifest).not.toMatch(/objectKey|minio|https?:\/\//i)
@@ -191,6 +218,29 @@ describe('playback manifest and wire views', () => {
       dvrSegmentId: ids.second,
       kind: 'media',
     })
+  })
+
+  it('preserves the absolute discontinuity sequence after a rolling prefix is dropped', () => {
+    const manifest = formatManifest(ids.window, [
+      { discontinuity: 4, durationUs: 1_000_000n, id: ids.second, initAssetId: ids.initA, sequenceNumber: 42n },
+      { discontinuity: 5, durationUs: 1_000_000n, id: ids.third, initAssetId: ids.initB, sequenceNumber: 43n },
+    ], { endList: false })
+
+    expect(manifest).toContain('#EXT-X-DISCONTINUITY-SEQUENCE:4')
+    expect(manifest.match(/#EXT-X-DISCONTINUITY\n/g)).toHaveLength(1)
+    expect(() => formatManifest(ids.window, [
+      { discontinuity: 4, durationUs: 1_000_000n, id: ids.second, initAssetId: ids.initA, sequenceNumber: 42n },
+      { discontinuity: 6, durationUs: 1_000_000n, id: ids.third, initAssetId: ids.initB, sequenceNumber: 43n },
+    ], { endList: false })).toThrow('discontinuity sequence')
+  })
+
+  it('seals a completed finite source playlist with ENDLIST', () => {
+    const manifest = formatManifest(ids.window, [
+      { discontinuity: 0, durationUs: 1_000_000n, id: ids.first, initAssetId: ids.initA, sequenceNumber: 0n },
+    ], { endList: true })
+
+    expect(manifest).toContain('#EXT-X-PLAYLIST-TYPE:VOD')
+    expect(manifest).toContain('#EXT-X-ENDLIST')
   })
 
   it('serializes bigint descriptor fields as decimal strings', () => {

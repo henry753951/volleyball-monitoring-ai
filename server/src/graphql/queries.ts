@@ -23,7 +23,18 @@ builder.queryType({
         const session = await getVisibleCaptureSession(args.id, identity.id, identity.role)
         if (!session) return null
         const timeline = await loadCaptureTimeline(session.id)
-        return { id: session.id, matchId: session.matchId, sourceLabel: session.sourceLabel, status: session.status, health: session.health, startedAt: session.startedAt, endedAt: session.endedAt, timeline }
+        return {
+          endedAt: session.endedAt,
+          health: session.health,
+          id: session.id,
+          matchId: session.matchId,
+          sourceDurationUs: session.sourceDurationUs,
+          sourceKind: session.sourceKind,
+          sourceLabel: session.sourceLabel,
+          startedAt: session.startedAt,
+          status: session.status,
+          timeline,
+        }
       },
     }),
     match: t.field({

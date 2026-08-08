@@ -30,7 +30,13 @@ const emit = defineEmits<{
   cursor: [value: PlaybackCursorInput]
   ready: [HTMLVideoElement]
   bufferActivity: []
-  bufferState: [value: { buffered: CanonicalMediaRange[], seekable: CanonicalMediaRange[] }]
+  bufferState: [value: {
+    buffered: CanonicalMediaRange[]
+    mappingVersion: number | null
+    playbackWindowId: string | null
+    presentationOriginCaptureUs: string | null
+    seekable: CanonicalMediaRange[]
+  }]
   error: [Error]
   toggle: []
 }>()
@@ -43,11 +49,20 @@ function publishBufferState() {
   const element = video.value
   const descriptor = descriptorRef.value
   if (!element || !descriptor) {
-    emit('bufferState', { buffered: [], seekable: [] })
+    emit('bufferState', {
+      buffered: [],
+      mappingVersion: null,
+      playbackWindowId: null,
+      presentationOriginCaptureUs: null,
+      seekable: [],
+    })
     return
   }
   emit('bufferState', {
     buffered: mediaTimeRangesToCaptureRanges(element.buffered, descriptor.presentation_origin_capture_us),
+    mappingVersion: descriptor.mapping_version,
+    playbackWindowId: descriptor.playback_window_id,
+    presentationOriginCaptureUs: descriptor.presentation_origin_capture_us,
     seekable: mediaTimeRangesToCaptureRanges(element.seekable, descriptor.presentation_origin_capture_us),
   })
 }
@@ -56,6 +71,7 @@ const playback = useDvrPlayback(video, {
     publishBufferState()
     emit('bufferActivity')
   },
+  onError: error => emit('error', error),
 })
 const resolvedOverlayFrame = ref(props.overlayFrame)
 const overlay = useOverlayChunks(() => props.analysisRunId ?? null, resolvedOverlayFrame)
@@ -72,6 +88,7 @@ watch(cursor, (value) => {
 watch(overlay.error, (value) => { if (value) emit('error', value) })
 
 let sourceGeneration = 0
+let previewGeneration = 0
 function capturePresentedFrame(element: HTMLVideoElement) {
   if (element.readyState < HTMLMediaElement.HAVE_CURRENT_DATA || !element.videoWidth || !element.videoHeight) return null
   try {
@@ -99,12 +116,22 @@ async function waitForPresentedFrame(element: HTMLVideoElement) {
 }
 const attachDescriptor = async (descriptor: PlaybackWindowDescriptor | null) => {
   const generation = ++sourceGeneration
+  previewGeneration += 1
   if (!descriptor) { playback.detach(); retainedPreview.value = null; publishBufferState(); return }
   const element = video.value
   if (!element) return
   const shouldResume = !element.paused && !element.ended
   const replacingPipeline = playback.activeWindow.value?.playback_window_id !== descriptor.playback_window_id
-  if (replacingPipeline) retainedPreview.value = capturePresentedFrame(element)
+  if (replacingPipeline) {
+    retainedPreview.value = capturePresentedFrame(element)
+    emit('bufferState', {
+      buffered: [],
+      mappingVersion: descriptor.mapping_version,
+      playbackWindowId: descriptor.playback_window_id,
+      presentationOriginCaptureUs: descriptor.presentation_origin_capture_us,
+      seekable: [],
+    })
+  }
   try {
     await playback.attach(descriptor)
     if (generation !== sourceGeneration) return
@@ -128,13 +155,21 @@ function seekCaptureTimeIfBuffered(targetCaptureTimeUs: string) {
   const element = video.value
   const target = BigInt(targetCaptureTimeUs)
   if (!descriptor || !element || Date.parse(descriptor.expires_at) <= Date.now() + 30_000 || !isCaptureTimeWithinWindow(target, descriptor)) return false
+  const generation = ++previewGeneration
+  retainedPreview.value = capturePresentedFrame(element)
   element.currentTime = captureTimeToPlayerSeconds(target, descriptor)
+  void waitForPresentedFrame(element).then(() => {
+    if (generation === previewGeneration) retainedPreview.value = null
+  })
   return true
 }
 function previewCaptureTimeIfBuffered(targetCaptureTimeUs: string) {
   return seekCaptureTimeIfBuffered(targetCaptureTimeUs)
 }
-defineExpose({ seekCaptureTimeIfBuffered, previewCaptureTimeIfBuffered })
+function recoverPlayback() {
+  return playback.recover()
+}
+defineExpose({ recoverPlayback, seekCaptureTimeIfBuffered, previewCaptureTimeIfBuffered })
 
 // Canvas drawing must map the actual video content rectangle, including letterboxing.
 // It consumes lazy-loaded FlatBuffers chunks; it never draws the video pixels itself.
@@ -142,7 +177,7 @@ defineExpose({ seekCaptureTimeIfBuffered, previewCaptureTimeIfBuffered })
 
 <template>
   <div class="relative size-full overflow-hidden rounded-xl bg-black">
-    <video ref="video" class="block size-full object-contain" playsinline preload="auto" :controls="controls" @progress="publishBufferState" @durationchange="publishBufferState" @emptied="publishBufferState" @click="handleVideoClick" />
+    <video ref="video" class="block size-full object-contain" playsinline preload="auto" :controls="controls" @progress="publishBufferState" @loadeddata="publishBufferState" @durationchange="publishBufferState" @emptied="publishBufferState" @click="handleVideoClick" />
     <img v-if="retainedPreview" :src="retainedPreview" alt="" aria-hidden="true" class="pointer-events-none absolute inset-0 z-20 size-full object-contain" />
     <ReplayOverlayCanvas
       v-if="analysisRunId && resolvedOverlayFrame >= 0 && overlay.manifest.value"

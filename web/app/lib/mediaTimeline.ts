@@ -1,7 +1,7 @@
 import type { CaptureTimelineRange } from './mediaModel'
 
 export function findAvailableRange(timeUs: bigint | string, ranges: readonly CaptureTimelineRange[]) {
-  const t = BigInt(timeUs); return ranges.find(r => t >= BigInt(r.startUs) && t <= BigInt(r.endUs)) ?? null
+  const t = BigInt(timeUs); return ranges.find(r => t >= BigInt(r.startUs) && t < BigInt(r.endUs)) ?? null
 }
 export function isCaptureGap(timeUs: bigint | string, ranges: readonly CaptureTimelineRange[]): boolean {
   return ranges.length > 0 && !findAvailableRange(timeUs, ranges)
@@ -20,4 +20,29 @@ export function isLiveCaptureSource(sourceKind?: string | null): boolean {
   if (!sourceKind) return false
   const normalized = sourceKind.trim().toLowerCase().replaceAll('-', '_')
   return LIVE_CAPTURE_SOURCE_KINDS.has(normalized) || normalized.endsWith('_live')
+}
+
+export type CapturePlaybackMode =
+  | 'active_live'
+  | 'complete_vod'
+  | 'ended_live'
+  | 'failed'
+  | 'progressive_vod'
+  | 'starting'
+  | 'stopping'
+
+export function capturePlaybackMode(input: {
+  endedAt?: string | null
+  sourceKind?: string | null
+  status?: string | null
+}): CapturePlaybackMode {
+  const status = input.status?.trim().toUpperCase() ?? 'STARTING'
+  const liveSource = isLiveCaptureSource(input.sourceKind)
+  if (status === 'FAILED') return 'failed'
+  if (status === 'STOPPING') return 'stopping'
+  if (status === 'FINISHED' || input.endedAt) {
+    return liveSource ? 'ended_live' : 'complete_vod'
+  }
+  if (status === 'STARTING') return 'starting'
+  return liveSource ? 'active_live' : 'progressive_vod'
 }

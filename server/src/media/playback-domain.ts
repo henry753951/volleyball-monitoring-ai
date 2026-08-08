@@ -94,7 +94,7 @@ export interface RollingPlaybackSegment {
 export function assertRollingPlaybackSelection(
   current: readonly RollingPlaybackSegment[],
   next: readonly RollingPlaybackSegment[],
-): void {
+): boolean {
   if (current.length === 0 || next.length === 0) {
     throw new MediaHttpError(409, 'MEDIA_NOT_READY', 'Playback continuation has no media')
   }
@@ -122,8 +122,9 @@ export function assertRollingPlaybackSelection(
   }
 
   if (next.length <= overlapLength) {
-    throw new MediaHttpError(409, 'MEDIA_NOT_READY', 'Playback continuation did not append media')
+    return false
   }
+  return true
 }
 
 const UUID = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i
@@ -253,14 +254,9 @@ function targetUnavailableError(
 function runForTarget(
   runs: readonly ReadyPlaybackRun[],
   targetUs: bigint,
-  mode: MediaMode,
 ): ReadyPlaybackRun | null {
   const exact = runs.find((run) => run.startUs <= targetUs && targetUs < run.endUs)
   if (exact) return exact
-  if (mode === 'live') {
-    const last = runs.at(-1)
-    if (last && targetUs === last.endUs) return last
-  }
   return null
 }
 
@@ -326,7 +322,7 @@ export function selectPlaybackWindow(input: {
   }
   const timelineStartUs = runs[0]!.startUs
   const timelineEndUs = runs.at(-1)!.endUs
-  const targetUs = mode === 'live'
+  const targetUs = mode === 'live' && input.requestedTargetUs === null
     ? (liveEdgeUs >= timelineStartUs && liveEdgeUs <= timelineEndUs
         ? liveEdgeUs
         : timelineEndUs)
@@ -336,7 +332,18 @@ export function selectPlaybackWindow(input: {
   }
   requireNonNegative(targetUs, 'target_capture_time_us')
 
-  const targetRun = runForTarget(runs, targetUs, mode)
+  let targetRun = runForTarget(runs, targetUs)
+  const targetHasKnownMediaState = candidates.some(candidate => (
+    candidate.captureStartUs <= targetUs && targetUs < candidate.captureEndUs
+  ))
+  // The terminal edge is an exclusive boundary rather than a real sample.
+  // Snap it through the final ready run only when no explicit gap/not-ready
+  // segment begins at that same capture time.
+  if (
+    !targetRun
+    && !targetHasKnownMediaState
+    && targetUs === timelineEndUs
+  ) targetRun = runs.at(-1) ?? null
   if (!targetRun) throw targetUnavailableError(candidates, targetUs)
   // A capture epoch/codec-init boundary is represented inside one HLS playlist
   // with EXT-X-DISCONTINUITY. Only an actual capture gap splits a playable span.
@@ -457,11 +464,24 @@ export function formatManifest(
     '#EXTM3U',
     '#EXT-X-VERSION:7',
     `#EXT-X-TARGETDURATION:${targetDuration > 0n ? targetDuration : 1n}`,
+    ...(options.endList ? ['#EXT-X-PLAYLIST-TYPE:VOD'] : []),
     `#EXT-X-MEDIA-SEQUENCE:${segments[0]!.sequenceNumber}`,
+    `#EXT-X-DISCONTINUITY-SEQUENCE:${segments[0]!.discontinuity}`,
   ]
   let previousInitAssetId: string | null = null
   let previousDiscontinuity: number | null = null
   for (const segment of segments) {
+    if (
+      !Number.isSafeInteger(segment.discontinuity)
+      || segment.discontinuity < 0
+      || (
+        previousDiscontinuity !== null
+        && segment.discontinuity !== previousDiscontinuity
+        && segment.discontinuity !== previousDiscontinuity + 1
+      )
+    ) {
+      throw new MediaHttpError(409, 'MEDIA_NOT_READY', 'Playback discontinuity sequence is invalid')
+    }
     if (!UUID.test(segment.initAssetId)) {
       throw new MediaHttpError(409, 'MEDIA_NOT_READY', 'Initialization media is unavailable')
     }

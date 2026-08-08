@@ -144,15 +144,19 @@ function assertWindowMapping(
     }
     ids.add(segment.id.toLowerCase())
 
-    if (previous && (
-      segment.sequenceNumber <= previous.sequenceNumber
-      || segment.captureStartUs !== previous.captureEndUs
-      || segment.captureEpochId !== previous.captureEpochId
-      || segment.discontinuity !== previous.discontinuity
-      || segment.firstFrameIndex
-        !== previous.firstFrameIndex! + previous.frameCount
-    )) {
-      mediaUnavailable('Playback window segment order is invalid')
+    if (previous) {
+      const sameDiscontinuity = segment.discontinuity === previous.discontinuity
+      const nextDiscontinuity = segment.discontinuity === previous.discontinuity + 1
+      if (
+        segment.sequenceNumber <= previous.sequenceNumber
+        || segment.captureStartUs !== previous.captureEndUs
+        || (!sameDiscontinuity && !nextDiscontinuity)
+        || (nextDiscontinuity && segment.captureEpochId === previous.captureEpochId)
+        || segment.firstFrameIndex
+          !== previous.firstFrameIndex! + previous.frameCount
+      ) {
+        mediaUnavailable('Playback window segment order is invalid')
+      }
     }
     previous = segment
   }
@@ -164,6 +168,25 @@ function assertWindowMapping(
     mediaUnavailable('Playback window bounds are invalid')
   }
   return window.segments
+}
+
+function mappingsForTarget(
+  mappings: readonly CursorWindowSegment[],
+  targetUs: bigint,
+): readonly CursorWindowSegment[] {
+  const targetIndex = mappings.findIndex(mapping => (
+    mapping.captureStartUs <= targetUs && targetUs < mapping.captureEndUs
+  ))
+  if (targetIndex < 0) return []
+  const discontinuity = mappings[targetIndex]!.discontinuity
+  let first = targetIndex
+  let last = targetIndex
+  while (first > 0 && mappings[first - 1]!.discontinuity === discontinuity) first -= 1
+  while (
+    last + 1 < mappings.length
+    && mappings[last + 1]!.discontinuity === discontinuity
+  ) last += 1
+  return mappings.slice(first, last + 1)
 }
 
 async function loadWindow(
@@ -326,14 +349,24 @@ export async function resolvePlaybackCursor(
     throw new MediaHttpError(422, 'CAPTURE_GAP', 'Cursor is outside available media')
   }
 
-  const indexed = await loadIndexes(deps.sampleIndexes, window.segments)
+  const mappings = mappingsForTarget(window.segments, targetUs)
+  if (mappings.length === 0) {
+    throw new MediaHttpError(422, 'CAPTURE_GAP', 'Cursor is outside available media')
+  }
+  const indexed = await loadIndexes(deps.sampleIndexes, mappings)
+  const resolverStartUs = window.captureStartUs > mappings[0]!.captureStartUs
+    ? window.captureStartUs
+    : mappings[0]!.captureStartUs
+  const resolverEndUs = window.captureEndUs < mappings.at(-1)!.captureEndUs
+    ? window.captureEndUs
+    : mappings.at(-1)!.captureEndUs
   let resolution: ReturnType<typeof resolveCanonicalTimeAcrossSegments>
   try {
     resolution = resolveCanonicalTimeAcrossSegments(
       indexed,
       targetUs,
-      window.captureStartUs,
-      window.captureEndUs,
+      resolverStartUs,
+      resolverEndUs,
     )
   } catch (error) {
     resolverFailure(error)
@@ -379,7 +412,6 @@ function adjacentMappingIsUsable(
 ): boolean {
   if (
     adjacent.dvrProgramId !== current.dvrProgramId
-    || adjacent.captureEpochId !== current.captureEpochId
     || adjacent.discontinuity !== current.discontinuity
     || adjacent.isGap
     || !adjacent.ready

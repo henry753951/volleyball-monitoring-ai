@@ -1,94 +1,166 @@
 <script setup lang="ts">
-import { Square } from 'lucide-vue-next'
+import { CircleAlert, LoaderCircle, Square } from 'lucide-vue-next'
 import { toast } from 'vue-sonner'
 import UiButton from '~/components/ui/Button.vue'
-import { createCoreDomainClient, createGraphQLTransport, type CaptureSession } from '~/lib/coreDomain'
+import type { CaptureSession } from '~/lib/coreDomain'
+import { createCoreDomainClient, createGraphQLTransport } from '~/lib/coreDomain'
+import { createMediaSourceClient, type MatchMediaSourceDraft } from '~/lib/mediaSourceClient'
 
 const props = defineProps<{ open: boolean; matchId: string; captures: CaptureSession[] }>()
 const emit = defineEmits<{ close: []; changed: [] }>()
+
 const domain = createCoreDomainClient(createGraphQLTransport('/graphql'))
-const sourceKind = ref('rtmp')
-const sourceLabel = ref('')
-const ingestPath = ref('')
-const secretRef = ref('')
+const mediaSources = createMediaSourceClient()
+const source = ref<MatchMediaSourceDraft>({ kind: 'youtube', label: '', url: '' })
 const pending = ref(false)
 const stoppingId = ref<string | null>(null)
 const captureToStop = shallowRef<CaptureSession | null>(null)
 const error = ref<string | null>(null)
+
 const activeCaptures = computed(() => props.captures.filter(capture => ['STARTING', 'LIVE', 'STOPPING'].includes(capture.status.toUpperCase())))
+const captureToStopName = computed(() => captureToStop.value ? sourceName(captureToStop.value) : '目前來源')
+const canSubmit = computed(() => {
+  if (pending.value || activeCaptures.value.length > 0) return false
+  if (source.value.kind === 'youtube') return Boolean(source.value.url.trim())
+  if (source.value.kind === 'local_mp4') return Boolean(source.value.file?.name)
+  return false
+})
+
 function statusLabel(status: string) {
   if (status.toUpperCase() === 'LIVE') return '已連線'
   if (status.toUpperCase() === 'STARTING') return '連線中'
   if (status.toUpperCase() === 'STOPPING') return '停止中'
   return '已停止'
 }
+
 function healthLabel(health: string) {
   if (health.toUpperCase() === 'HEALTHY') return '訊號正常'
   if (health.toUpperCase() === 'DEGRADED') return '訊號不穩'
   if (health.toUpperCase() === 'STARTING') return '偵測中'
   return '無訊號'
 }
-const publishHint = computed(() => {
-  const path = ingestPath.value.trim() || '<ingest-path>'
-  const host = typeof window === 'undefined' ? 'server' : window.location.hostname
-  if (sourceKind.value === 'srt') return `srt://${host}:8890?streamid=publish:${path}`
-  if (sourceKind.value === 'rtsp') return `rtsp://${host}:8554/${path}`
-  return `rtmp://${host}:1935/${path}`
-})
 
-watch(() => props.open, (open) => {
+function sourceName(capture: CaptureSession) {
+  return capture.sourceLabel?.trim() || '影音來源'
+}
+
+function resetSource() {
+  source.value = { kind: 'youtube', label: '', url: '' }
+}
+
+function validateSource() {
+  if (source.value.kind === 'youtube') {
+    try {
+      const url = new URL(source.value.url.trim())
+      if (!['youtube.com', 'www.youtube.com', 'youtu.be', 'm.youtube.com'].includes(url.hostname.toLowerCase())) throw new Error()
+    }
+    catch {
+      return '請輸入有效的 YouTube 影片或直播網址。'
+    }
+  }
+  if (source.value.kind === 'local_mp4' && !source.value.file.name) return '請選擇要上傳的 MP4 檔案。'
+  return null
+}
+
+watch(() => props.open, open => {
   if (!open) return
   error.value = null
-  if (!ingestPath.value) ingestPath.value = `match-${props.matchId.slice(0, 8)}/main`
+  resetSource()
 })
 
 async function start() {
-  if (pending.value) return
+  if (!canSubmit.value) return
+  const validationError = validateSource()
+  if (validationError) {
+    error.value = validationError
+    return
+  }
   pending.value = true
   error.value = null
   try {
-    await domain.startCapture({
-      matchId: props.matchId,
-      ingestPath: ingestPath.value,
-      sourceKind: sourceKind.value,
-      ...(sourceLabel.value.trim() ? { sourceLabel: sourceLabel.value.trim() } : {}),
-      ...(secretRef.value.trim() ? { sourceConfigSecretRef: secretRef.value.trim() } : {}),
-    })
+    await mediaSources.create(props.matchId, source.value)
     emit('changed')
-    toast.success('影音來源已啟用')
+    toast.success('影音來源已加入')
+    resetSource()
   }
-  catch (cause) { error.value = cause instanceof Error ? cause.message : '無法啟用影音來源'; toast.error(error.value) }
-  finally { pending.value = false }
+  catch (cause) {
+    error.value = cause instanceof Error ? cause.message : '無法加入影音來源'
+    toast.error(error.value)
+  }
+  finally {
+    pending.value = false
+  }
 }
 
-async function stop(capture: CaptureSession) {
-  if (stoppingId.value) return
-  captureToStop.value = capture
+function stop(capture: CaptureSession) {
+  if (!stoppingId.value) captureToStop.value = capture
 }
+
 async function confirmStop() {
   const capture = captureToStop.value
   captureToStop.value = null
   if (!capture || stoppingId.value) return
   stoppingId.value = capture.id
   error.value = null
-  try { await domain.stopCapture(capture.id); emit('changed'); toast.success('影音來源已停止') }
-  catch (cause) { error.value = cause instanceof Error ? cause.message : '無法停止影音來源'; toast.error(error.value) }
-  finally { stoppingId.value = null }
+  try {
+    await domain.stopCapture(capture.id)
+    emit('changed')
+    toast.success('影音來源已停止')
+  }
+  catch (cause) {
+    error.value = cause instanceof Error ? cause.message : '無法停止影音來源'
+    toast.error(error.value)
+  }
+  finally {
+    stoppingId.value = null
+  }
 }
 </script>
 
 <template>
-  <UiAnimatedModal :open="open" title="影音來源" description="管理此場次的直播輸入" @close="emit('close')">
+  <UiAnimatedModal :open="open" title="影音來源" description="管理此場次的影片、直播與本機檔案" width="wide" height="tall" @close="emit('close')">
     <UiScrollArea class="capture-scroll">
-      <section class="capture-dialog">
-        <div class="capture-list"><div class="capture-title"><span>使用中</span><b>{{ activeCaptures.length }}</b></div><p v-if="!activeCaptures.length" class="empty">目前沒有直播來源</p><article v-for="capture in activeCaptures" :key="capture.id"><div><strong>{{ capture.sourceLabel || '直播來源' }}</strong><span><i :class="{ healthy: capture.health.toUpperCase() === 'HEALTHY' }" />{{ statusLabel(capture.status) }} · {{ healthLabel(capture.health) }}</span></div><UiButton variant="ghost" size="sm" :disabled="Boolean(stoppingId)" @click="stop(capture)"><Square :size="12" />{{ stoppingId === capture.id ? '停止中…' : '停止' }}</UiButton></article></div>
-        <form @submit.prevent="start"><div class="capture-title"><span>新增直播來源</span></div><label>串流協定<select v-model="sourceKind"><option value="rtmp">RTMP</option><option value="srt">SRT</option><option value="rtsp">RTSP</option></select></label><label>來源名稱<input v-model="sourceLabel" maxlength="120" placeholder="主場攝影機" /></label><label class="wide">串流路徑<input v-model="ingestPath" maxlength="191" required placeholder="court/main" /></label><p class="publish-hint"><span>推流位址</span><code>{{ publishHint }}</code></p><details class="advanced"><summary>進階設定</summary><label>憑證參照<input v-model="secretRef" maxlength="200" placeholder="secret://capture/main" /></label></details><p v-if="error" class="error" role="alert">{{ error }}</p><UiButton class="start" type="submit" :disabled="pending || !ingestPath.trim()">{{ pending ? '啟用中…' : '啟用來源' }}</UiButton></form>
-      </section>
+      <div class="capture-dialog">
+        <section class="source-list" aria-labelledby="active-sources-title">
+          <div class="section-heading">
+            <div><span class="eyebrow">目前連線</span><h2 id="active-sources-title">使用中的影音來源</h2></div>
+            <span class="count">{{ activeCaptures.length }}</span>
+          </div>
+          <p v-if="!activeCaptures.length" class="empty">目前沒有進行中的影音來源。</p>
+          <article v-for="capture in activeCaptures" :key="capture.id" class="source-row">
+            <div class="source-copy">
+              <div class="source-name"><span class="status-dot" :class="{ healthy: capture.health.toUpperCase() === 'HEALTHY' }" />{{ sourceName(capture) }}</div>
+              <span class="source-status">{{ statusLabel(capture.status) }} <span aria-hidden="true">·</span> {{ healthLabel(capture.health) }}</span>
+            </div>
+            <UiButton variant="ghost" size="sm" :disabled="Boolean(stoppingId) || capture.status.toUpperCase() === 'STOPPING'" @click="stop(capture)">
+              <LoaderCircle v-if="stoppingId === capture.id" class="spin" :size="13" />
+              <Square v-else :size="12" />
+              {{ stoppingId === capture.id ? '停止中…' : '停止' }}
+            </UiButton>
+          </article>
+        </section>
+
+        <section v-if="!activeCaptures.length" class="add-source" aria-labelledby="add-source-title">
+          <div class="section-heading"><div><span class="eyebrow">新增來源</span><h2 id="add-source-title">連接影音</h2></div></div>
+          <p class="section-description">貼上 YouTube 影片或直播網址，或上傳 MP4。</p>
+          <MediaSourcePicker v-model="source" />
+          <div v-if="error" class="error" role="alert" aria-live="polite"><CircleAlert :size="15" /><span>{{ error }}</span></div>
+        </section>
+        <p v-else class="replace-note">停止目前來源後即可更換影片或直播。</p>
+      </div>
     </UiScrollArea>
+    <template #footer>
+      <UiButton variant="ghost" :disabled="pending" @click="emit('close')">關閉</UiButton>
+      <UiButton v-if="!activeCaptures.length" :disabled="!canSubmit" @click="start">
+        <LoaderCircle v-if="pending" class="spin" :size="14" />
+        {{ pending ? '加入中…' : '加入影音來源' }}
+      </UiButton>
+    </template>
   </UiAnimatedModal>
-  <ConfirmActionDialog :open="Boolean(captureToStop)" title="停止影音來源" :message="`停止「${captureToStop?.sourceLabel || '目前來源'}」的擷取？`" confirm-label="停止來源" danger @close="captureToStop = null" @confirm="confirmStop" />
+  <ConfirmActionDialog :open="Boolean(captureToStop)" title="停止影音來源" :message="`停止「${captureToStopName}」的擷取？`" confirm-label="停止來源" danger @close="captureToStop = null" @confirm="confirmStop" />
 </template>
 
 <style scoped>
-.capture-scroll{height:min(650px,calc(86dvh - 54px))}.capture-dialog{min-height:0;background:#09090b;color:#fafafa}.capture-dialog input,.capture-dialog select{min-height:36px;border:1px solid #27272a;border-radius:8px;background:#18181b;color:inherit}.capture-list,form{padding:14px}.capture-list{border-bottom:1px solid #27272a}.capture-title{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;color:#d4d4d8;font-size:.69rem;font-weight:750}.capture-title b{min-width:22px;padding:2px 7px;border-radius:999px;background:#27272a;color:#d4d4d8;text-align:center}.capture-list article{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:9px 0;border-top:1px solid #27272a}.capture-list article div{display:grid;gap:3px}.capture-list article span,.empty{color:#a1a1aa;font-size:.66rem}.capture-list article span{display:flex;align-items:center;gap:5px}.capture-list article i{width:6px;height:6px;border-radius:50%;background:#d4a72c}.capture-list article i.healthy{background:#22c55e}.capture-list article :deep(button){color:#fca5a5}form{display:grid;grid-template-columns:1fr 1fr;gap:10px}form .capture-title,form .wide,form .publish-hint,form .advanced,form .error,form .start{grid-column:1/-1}label{display:grid;gap:5px;color:#a1a1aa;font-size:.66rem;font-weight:650}input,select{width:100%;padding:7px 9px;outline:0}input:focus,select:focus{border-color:#71717a;box-shadow:0 0 0 2px #fafafa24}.publish-hint{display:grid;gap:4px;margin:0;padding:9px;border-radius:8px;background:#18181b;color:#a1a1aa;font-size:.63rem}.publish-hint code{overflow-wrap:anywhere;color:#e4e4e7}.advanced{color:#a1a1aa;font-size:.66rem}.advanced summary{cursor:pointer;font-weight:700}.advanced label{margin-top:8px}.error{margin:0;padding:8px;border-radius:8px;background:#2b1114;color:#fca5a5;font-size:.67rem}.start{width:100%}@media(max-width:620px){form{grid-template-columns:1fr}}
+.capture-scroll{height:100%;min-height:0}.capture-dialog{display:grid;gap:0;min-height:100%;background:#09090b;color:#fafafa}.source-list,.add-source{padding:22px 24px}.source-list{border-bottom:1px solid #27272a}.section-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:14px;margin-bottom:15px}.section-heading h2{margin:4px 0 0;font-size:.9rem;font-weight:720;letter-spacing:-.015em}.eyebrow{color:#8d959d;font-size:.59rem;font-weight:780;letter-spacing:.13em;text-transform:uppercase}.count{min-width:24px;padding:4px 8px;border-radius:999px;background:#27272a;color:#d4d4d8;font-size:.65rem;font-variant-numeric:tabular-nums;text-align:center}.empty{margin:0;color:#8d959d;font-size:.7rem}.source-row{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:13px 0;border-top:1px solid #202124}.source-copy{display:grid;gap:5px;min-width:0}.source-name{display:flex;align-items:center;gap:8px;font-size:.78rem;font-weight:680}.status-dot{width:7px;height:7px;flex:none;border-radius:50%;background:#d6a33b}.status-dot.healthy{background:#63bd8a}.source-status{color:#8d959d;font-size:.65rem}.source-row :deep(button){color:#e6a4a8}.add-source{display:grid;gap:7px}.section-description{margin:0 0 9px;max-width:68ch;color:#8d959d;font-size:.68rem;line-height:1.55}.add-source :deep(.source-tabs){grid-template-columns:repeat(2,minmax(0,1fr))}.add-source :deep(.source-tabs button:nth-child(3)){display:none}.add-source :deep(.source-fields){margin-top:1px}.error{display:flex;align-items:flex-start;gap:8px;margin-top:5px;padding:10px 11px;border:1px solid #6f3038;border-radius:9px;background:#2b1114;color:#f0b1b5;font-size:.68rem;line-height:1.4}.spin{animation:spin .8s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}@media(max-width:620px){.source-list,.add-source{padding:17px}.source-row{align-items:flex-start;flex-direction:column}.source-row :deep(button){align-self:flex-end}}@media(prefers-reduced-motion:reduce){.spin{animation:none}}
+.replace-note{margin:0;padding:22px 24px;color:#8d959d;font-size:.7rem}
 </style>

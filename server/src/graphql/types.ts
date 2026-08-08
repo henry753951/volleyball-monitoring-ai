@@ -249,15 +249,30 @@ CaptureTimelineType.implement({
       type: [CaptureTimelineRangeType],
       resolve: (timeline) => timeline.availableRanges,
     }),
+    availabilityComplete: t.exposeBoolean('availabilityComplete'),
     captureSessionId: t.exposeID('captureSessionId'),
     captureStartTimeUs: t.field({
       type: 'BigInt',
       resolve: (timeline) => timeline.captureStartTimeUs,
     }),
+    gapRanges: t.field({
+      type: [CaptureTimelineRangeType],
+      resolve: (timeline) => timeline.gapRanges,
+    }),
+    ingestFrontierCaptureTimeUs: t.field({
+      nullable: true,
+      type: 'BigInt',
+      resolve: (timeline) => timeline.ingestFrontierCaptureTimeUs,
+    }),
     liveEdgeCaptureTimeUs: t.field({
       nullable: true,
       type: 'BigInt',
       resolve: (timeline) => timeline.liveEdgeCaptureTimeUs,
+    }),
+    sourceEndCaptureTimeUs: t.field({
+      nullable: true,
+      type: 'BigInt',
+      resolve: (timeline) => timeline.sourceEndCaptureTimeUs,
     }),
     timelineVersion: t.field({
       type: 'BigInt',
@@ -277,6 +292,12 @@ CaptureSessionType.implement({
     id: t.exposeID('id'),
     matchId: t.exposeID('matchId'),
     sourceLabel: t.exposeString('sourceLabel', { nullable: true }),
+    sourceDurationUs: t.field({
+      nullable: true,
+      type: 'BigInt',
+      resolve: (session) => session.sourceDurationUs,
+    }),
+    sourceKind: t.exposeString('sourceKind'),
     startedAt: t.field({
       nullable: true,
       type: 'DateTime',

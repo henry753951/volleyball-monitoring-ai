@@ -353,11 +353,14 @@ model CaptureSession {
   sourceKind            String
   sourceLabel           String?
   sourceConfigSecretRef String?
+  sourceDurationUs      BigInt?
   ingestPath            String           @unique
   status                CaptureStatus    @default(STARTING)
   health                SourceHealth     @default(STARTING)
   startedAt             DateTime?
   endedAt               DateTime?
+  completionExpectedSegments Int?
+  completionRequestedAt DateTime?
   createdAt             DateTime         @default(now())
   updatedAt             DateTime         @updatedAt
   match                 Match            @relation(fields: [matchId], references: [id], onDelete: Cascade)

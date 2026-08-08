@@ -13,6 +13,8 @@ type CaptureSession {
   health: SourceHealth!
   id: ID!
   matchId: ID!
+  sourceDurationUs: BigInt
+  sourceKind: String!
   sourceLabel: String
   startedAt: DateTime
   status: CaptureStatus!
@@ -28,10 +30,14 @@ enum CaptureStatus {
 }
 
 type CaptureTimeline {
+  availabilityComplete: Boolean!
   availableRanges: [CaptureTimelineRange!]!
   captureSessionId: ID!
   captureStartTimeUs: BigInt!
+  gapRanges: [CaptureTimelineRange!]!
+  ingestFrontierCaptureTimeUs: BigInt
   liveEdgeCaptureTimeUs: BigInt
+  sourceEndCaptureTimeUs: BigInt
   timelineVersion: BigInt!
 }
 

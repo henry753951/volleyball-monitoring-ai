@@ -19,7 +19,7 @@ export type TimingPrecision = MediaTimingPrecision
 export type PlaybackCursorInput = PlaybackCursor
 
 export interface CaptureTimelineRange { startUs: string; endUs: string; discontinuity: number }
-export interface CaptureTimeline { captureSessionId: string; timelineVersion: string; captureStartTimeUs: string; liveEdgeCaptureTimeUs?: string | null; availableRanges: CaptureTimelineRange[] }
+export interface CaptureTimeline { captureSessionId: string; timelineVersion: string; captureStartTimeUs: string; liveEdgeCaptureTimeUs?: string | null; availableRanges: CaptureTimelineRange[]; availabilityComplete: boolean; gapRanges: CaptureTimelineRange[]; ingestFrontierCaptureTimeUs: string | null; sourceEndCaptureTimeUs: string | null }
 
 export type MediaErrorClassification = 'recreate_window' | 'recenter_retry' | 'retry_later' | 'block' | 'fatal'
 export class MediaApiError extends Error {

@@ -13,6 +13,7 @@ import time
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
+from decimal import Decimal, InvalidOperation
 from datetime import datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -84,7 +85,7 @@ class SourceManager:
         for path in self.state_root.glob('*.json'):
             try:
                 config = json.loads(path.read_text(encoding='utf-8'))
-                if config.get('source_kind') == 'youtube':
+                if config.get('source_kind') in ('youtube', 'local_mp4'):
                     self.start(config, persist=False)
             except (OSError, ValueError, TypeError, json.JSONDecodeError):
                 path.unlink(missing_ok=True)
@@ -95,12 +96,32 @@ class SourceManager:
         ingest_path = safe_ingest_path(str(raw.get('ingest_path', '')))
         if not UUID.fullmatch(capture_id) or source_kind not in ('youtube', 'local_mp4'):
             raise ValueError('invalid source request')
-        config = {'capture_session_id': capture_id, 'source_kind': source_kind, 'ingest_path': ingest_path}
+        config = {
+            'capture_session_id': capture_id,
+            'source_kind': source_kind,
+            'ingest_path': ingest_path,
+            'segment_base': str(raw.get('segment_base') or datetime.now(timezone.utc).isoformat()),
+        }
+        for key in (
+            'completion_expected_segments',
+            'completion_source_duration_us',
+            'completion_source_kind',
+            'resolved_source_duration_us',
+            'resolved_source_kind',
+        ):
+            value = raw.get(key)
+            if value is not None:
+                config[key] = str(value)
         if source_kind == 'youtube':
             config['source_url'] = safe_youtube_url(str(raw.get('source_url', '')))
         else:
             import_path = Path(str(raw.get('import_path', ''))).resolve()
-            if import_path.suffix.lower() != '.mp4' or not import_path.is_relative_to(self.import_root) or not import_path.is_file():
+            completion_pending = 'completion_expected_segments' in config
+            if (
+                import_path.suffix.lower() != '.mp4'
+                or not import_path.is_relative_to(self.import_root)
+                or not completion_pending and not import_path.is_file()
+            ):
                 raise ValueError('invalid import path')
             config['import_path'] = str(import_path)
         with self.lock:
@@ -119,7 +140,6 @@ class SourceManager:
             raise ValueError('invalid capture id')
         with self.lock:
             source = self.sources.pop(capture_id, None)
-            (self.state_root / f'{capture_id}.json').unlink(missing_ok=True)
         if not source:
             return
         source.stop.set()
@@ -131,17 +151,39 @@ class SourceManager:
             except subprocess.TimeoutExpired:
                 process.kill()
         source.thread.join(timeout=10)
+        source_kind = source.config.get('resolved_source_kind') or (
+            'local_mp4' if source.config['source_kind'] == 'local_mp4' else 'youtube_live'
+        )
+        duration_value = source.config.get('resolved_source_duration_us')
+        duration_us = int(duration_value) if duration_value else None
+        count = self._wait_for_recording_quiescence(source, allow_stopped=True, allow_empty=True)
+        self._queue_completion(source, source_kind, duration_us, count)
+        self._deliver_completion(source)
 
     def _run(self, source: ManagedSource) -> None:
         capture_id = source.config['capture_session_id']
         try:
+            if 'completion_expected_segments' in source.config:
+                self._deliver_completion(source)
+                return
             if source.config['source_kind'] == 'youtube':
                 self._run_youtube(source)
             else:
-                self._segment_file(source, Path(source.config['import_path']))
-                (self.state_root / f'{capture_id}.json').unlink(missing_ok=True)
+                media_path = Path(source.config['import_path'])
+                duration_us = self._probe_duration_us(source, media_path)
+                self._record_classification(source, 'local_mp4', duration_us)
+                self._notify_classified(capture_id, 'local_mp4', duration_us)
+                count = self._segment_file(source, media_path)
+                if source.stop.is_set():
+                    return
+                self._queue_completion(source, 'local_mp4', duration_us, count)
+                self._deliver_completion(source)
         except Exception as error:  # worker boundary: report a stable error, never the source URL
-            if not source.stop.is_set():
+            if 'completion_expected_segments' in source.config:
+                # Keep the durable completion receipt for restore/retry. Media
+                # must not be re-segmented or relabeled failed after it exists.
+                pass
+            elif not source.stop.is_set():
                 self._notify_failure(capture_id, type(error).__name__)
                 (self.state_root / f'{capture_id}.json').unlink(missing_ok=True)
         finally:
@@ -163,40 +205,90 @@ class SourceManager:
 
     def _run_youtube(self, source: ManagedSource) -> None:
         url = source.config['source_url']
+        metadata = self._probe_youtube(source, url)
+        duration_us = self._metadata_duration_us(metadata)
+        live = self._metadata_is_live(metadata)
+        was_live = metadata.get('live_status') == 'was_live'
+        source_kind = 'youtube_live' if live else 'youtube_vod'
+        capture_id = source.config['capture_session_id']
+        self._record_classification(source, source_kind, duration_us)
+        self._notify_classified(capture_id, source_kind, duration_us)
+        if live:
+            final_metadata = self._relay_live(source, url)
+            if final_metadata is None:
+                return
+            final_duration_us = self._metadata_duration_us(final_metadata) or duration_us
+            count = self._wait_for_recording_quiescence(source)
+            self._queue_completion(source, 'youtube_live', final_duration_us, count)
+            self._deliver_completion(source)
+            return
+
+        stream_urls = self._resolve_youtube_urls(source, url)
+        count = self._segment_inputs(
+            source,
+            stream_urls,
+            str(metadata.get('vcodec') or ''),
+        )
+        if source.stop.is_set():
+            return
+        self._queue_completion(
+            source,
+            'youtube_live' if was_live else 'youtube_vod',
+            duration_us,
+            count,
+        )
+        self._deliver_completion(source)
+
+    def _probe_youtube(self, source: ManagedSource, url: str) -> dict[str, object]:
         probe = self._command(source, [
             'yt-dlp', '--no-playlist', '--no-progress', '--no-warnings', '--skip-download',
             '--extractor-args', self.extractor_args, '--format', self.format, '--dump-single-json', url,
         ], capture=True)
         metadata = json.loads((probe.stdout or b'{}').decode())
-        live = bool(metadata.get('is_live')) or metadata.get('live_status') in ('is_live', 'is_upcoming')
-        if live:
-            self._relay_live(source, url)
-            return
+        if not isinstance(metadata, dict):
+            raise RuntimeError('YouTube metadata is invalid')
+        return metadata
 
-        capture_id = source.config['capture_session_id']
-        workspace = self.work_root / capture_id
-        shutil.rmtree(workspace, ignore_errors=True)
-        workspace.mkdir(parents=True)
-        self._command(source, [
+    @staticmethod
+    def _metadata_is_live(metadata: dict[str, object]) -> bool:
+        return bool(metadata.get('is_live')) or metadata.get('live_status') in ('is_live', 'is_upcoming')
+
+    @staticmethod
+    def _metadata_duration_us(metadata: dict[str, object]) -> int | None:
+        value = metadata.get('duration')
+        if value is None:
+            return None
+        try:
+            duration_us = int(Decimal(str(value)) * Decimal(1_000_000))
+        except (InvalidOperation, ValueError, TypeError):
+            return None
+        return duration_us if duration_us > 0 else None
+
+    def _resolve_youtube_urls(self, source: ManagedSource, url: str) -> list[str]:
+        resolved = self._command(source, [
             'yt-dlp', '--no-playlist', '--no-progress', '--no-warnings',
-            '--extractor-args', self.extractor_args, '--format', self.format,
-            '--merge-output-format', 'mp4', '--output', str(workspace / 'source.%(ext)s'), url,
-        ])
-        candidates = sorted(workspace.glob('source.*'))
-        if not candidates:
-            raise RuntimeError('YouTube download did not produce a media file')
-        self._segment_file(source, candidates[0])
-        (self.state_root / f'{capture_id}.json').unlink(missing_ok=True)
+            '--extractor-args', self.extractor_args, '--format', self.format, '--get-url', url,
+        ], capture=True)
+        stream_urls = [line for line in (resolved.stdout or b'').decode().splitlines() if line]
+        if len(stream_urls) not in (1, 2):
+            raise RuntimeError('expected one combined stream or separate video and audio streams')
+        return stream_urls
 
-    def _relay_live(self, source: ManagedSource, url: str) -> None:
+    def _relay_live(self, source: ManagedSource, url: str) -> dict[str, object] | None:
         while not source.stop.is_set():
-            resolved = self._command(source, [
-                'yt-dlp', '--no-playlist', '--no-progress', '--no-warnings',
-                '--extractor-args', self.extractor_args, '--format', self.format, '--get-url', url,
-            ], capture=True)
-            stream_urls = [line for line in (resolved.stdout or b'').decode().splitlines() if line]
-            if len(stream_urls) not in (1, 2):
-                raise RuntimeError('expected one combined stream or separate video and audio streams')
+            try:
+                stream_urls = self._resolve_youtube_urls(source, url)
+            except RuntimeError:
+                if source.stop.is_set():
+                    return None
+                try:
+                    metadata = self._probe_youtube(source, url)
+                    if not self._metadata_is_live(metadata):
+                        return metadata
+                except RuntimeError:
+                    pass
+                time.sleep(3)
+                continue
             args = ['ffmpeg', '-nostdin', '-hide_banner', '-loglevel', 'warning']
             for stream_url in stream_urls:
                 args.extend(['-re', '-i', stream_url])
@@ -210,59 +302,247 @@ class SourceManager:
             return_code = process.wait()
             source.process = None
             if source.stop.is_set():
-                return
-            if return_code == 0:
-                time.sleep(1)
-            else:
-                time.sleep(3)
+                return None
+            try:
+                metadata = self._probe_youtube(source, url)
+                if not self._metadata_is_live(metadata):
+                    return metadata
+            except RuntimeError:
+                pass
+            time.sleep(1 if return_code == 0 else 3)
+        return None
 
-    def _segment_file(self, source: ManagedSource, media_path: Path) -> None:
+    def _probe_duration_us(self, source: ManagedSource, media_path: Path) -> int | None:
+        probe = self._command(source, [
+            'ffprobe', '-v', 'error', '-show_entries', 'format=duration',
+            '-of', 'default=noprint_wrappers=1:nokey=1', str(media_path),
+        ], capture=True)
+        try:
+            duration_us = int(Decimal((probe.stdout or b'0').decode().strip()) * Decimal(1_000_000))
+        except (InvalidOperation, ValueError):
+            return None
+        return duration_us if duration_us > 0 else None
+
+    def _segment_file(self, source: ManagedSource, media_path: Path) -> int:
         capture_id = source.config['capture_session_id']
-        workspace = self.work_root / capture_id
-        segment_root = workspace / 'segments'
-        shutil.rmtree(segment_root, ignore_errors=True)
-        segment_root.mkdir(parents=True)
         probe = self._command(source, [
             'ffprobe', '-v', 'error', '-select_streams', 'v:0',
             '-show_entries', 'stream=codec_name', '-of', 'json', str(media_path),
         ], capture=True)
         streams = json.loads((probe.stdout or b'{}').decode()).get('streams', [])
         codec = streams[0].get('codec_name') if streams else None
-        video_codec = ['-c:v', 'copy'] if codec == 'h264' else ['-c:v', 'libx264', '-preset', 'veryfast', '-pix_fmt', 'yuv420p']
-        self._command(source, [
-            'ffmpeg', '-nostdin', '-hide_banner', '-loglevel', 'warning', '-i', str(media_path),
-            '-map', '0:v:0', '-map', '0:a:0?', *video_codec, '-c:a', 'aac',
-            '-f', 'segment', '-segment_time', '2', '-reset_timestamps', '1',
-            '-segment_format', 'mp4', str(segment_root / 'segment-%09d.mp4'),
-        ])
-        segments = sorted(segment_root.glob('segment-*.mp4'))
-        if not segments:
-            raise RuntimeError('media segmentation did not produce output')
+        return self._segment_inputs(source, [str(media_path)], str(codec or ''))
+
+    def _segment_inputs(self, source: ManagedSource, inputs: list[str], codec: str) -> int:
+        capture_id = source.config['capture_session_id']
+        workspace = self.work_root / capture_id
+        segment_root = workspace / 'segments'
+        shutil.rmtree(segment_root, ignore_errors=True)
+        segment_root.mkdir(parents=True)
         destination = self.recording_root.joinpath(*source.config['ingest_path'].split('/'))
         destination.mkdir(parents=True, exist_ok=True)
-        base = datetime.now(timezone.utc)
-        for index, segment in enumerate(segments):
-            if source.stop.is_set():
+        try:
+            base = datetime.fromisoformat(source.config['segment_base'])
+            if base.tzinfo is None:
+                base = base.replace(tzinfo=timezone.utc)
+            else:
+                base = base.astimezone(timezone.utc)
+        except (KeyError, ValueError):
+            base = datetime.now(timezone.utc)
+            source.config['segment_base'] = base.isoformat()
+            self._persist(source)
+        normalized_codec = codec.lower()
+        video_codec = ['-c:v', 'copy'] if normalized_codec == 'h264' or normalized_codec.startswith('avc') else [
+            '-c:v', 'libx264', '-preset', 'veryfast', '-pix_fmt', 'yuv420p',
+        ]
+        args = ['ffmpeg', '-nostdin', '-hide_banner', '-loglevel', 'warning']
+        for value in inputs:
+            args.extend(['-i', value])
+        args.extend(['-map', '0:v:0', '-map', '0:a:0?' if len(inputs) == 1 else '1:a:0'])
+        args.extend([
+            *video_codec, '-c:a', 'aac', '-f', 'segment', '-segment_time', '2',
+            '-reset_timestamps', '1', '-segment_format', 'mp4',
+            str(segment_root / 'segment-%09d.mp4'),
+        ])
+        process = subprocess.Popen(args)
+        source.process = process
+        # Deterministic names plus an existing prefix make a gateway restart
+        # resumable. Only files produced by this deterministic segment base
+        # count toward that prefix: a capture may still contain legacy OME
+        # recordings, and counting every MP4 would suppress new media until
+        # ffmpeg happened to recreate the entire legacy file count.
+        published = self._published_segment_prefix(destination, base)
+
+        def publish(segment: Path, index: int) -> None:
+            name = self._segment_filename(base, index)
+            target = destination / name
+            if target.is_file() and target.stat().st_size > 0:
                 return
-            timestamp = base + timedelta(seconds=index * 2)
-            name = f"{timestamp.strftime('%Y-%m-%d_%H-%M-%S')}-{timestamp.microsecond:06d}.mp4"
             temporary = destination / f'.{name}.part'
             shutil.copyfile(segment, temporary)
-            temporary.replace(destination / name)
+            temporary.replace(target)
+
+        while True:
+            return_code = process.poll()
+            segments = sorted(segment_root.glob('segment-*.mp4'))
+            publishable = len(segments) if return_code is not None else max(0, len(segments) - 1)
+            while published < publishable:
+                publish(segments[published], published)
+                published += 1
+            if return_code is not None:
+                break
+            if source.stop.is_set():
+                process.terminate()
+            time.sleep(0.1)
+        source.process = None
+        if source.stop.is_set():
+            return published
+        if return_code != 0:
+            raise RuntimeError(f'media segmentation failed ({return_code})')
+        if published == 0:
+            raise RuntimeError('media segmentation did not produce output')
         shutil.rmtree(workspace, ignore_errors=True)
-        if media_path.is_relative_to(self.import_root):
-            shutil.rmtree(media_path.parent, ignore_errors=True)
+        return published
+
+    @staticmethod
+    def _segment_filename(base: datetime, index: int) -> str:
+        timestamp = base + timedelta(seconds=index * 2)
+        return f"{timestamp.strftime('%Y-%m-%d_%H-%M-%S')}-{timestamp.microsecond:06d}.mp4"
+
+    @classmethod
+    def _published_segment_prefix(cls, destination: Path, base: datetime) -> int:
+        index = 0
+        while True:
+            path = destination / cls._segment_filename(base, index)
+            try:
+                if not path.is_file() or path.stat().st_size <= 0:
+                    return index
+            except OSError:
+                return index
+            index += 1
+
+    def _wait_for_recording_quiescence(
+        self,
+        source: ManagedSource,
+        allow_stopped: bool = False,
+        allow_empty: bool = False,
+    ) -> int:
+        destination = self.recording_root.joinpath(*source.config['ingest_path'].split('/'))
+        previous: tuple[tuple[str, int], ...] | None = None
+        stable_polls = 0
+        deadline = time.monotonic() + 30
+        while (allow_stopped or not source.stop.is_set()) and time.monotonic() < deadline:
+            current = tuple(
+                (path.name, path.stat().st_size)
+                for path in sorted(destination.glob('*.mp4'))
+                if path.is_file() and path.stat().st_size > 0
+            )
+            stable_polls = stable_polls + 1 if (current or allow_empty) and current == previous else 0
+            if stable_polls >= 3:
+                return len(current)
+            previous = current
+            time.sleep(1)
+        if source.stop.is_set() and not allow_stopped:
+            return 0
+        raise RuntimeError('live recording did not finalize')
+
+    def _persist(self, source: ManagedSource) -> None:
+        atomic_json(
+            self.state_root / f"{source.config['capture_session_id']}.json",
+            source.config,
+        )
+
+    def _record_classification(
+        self,
+        source: ManagedSource,
+        source_kind: str,
+        duration_us: int | None,
+    ) -> None:
+        source.config['resolved_source_kind'] = source_kind
+        if duration_us is not None:
+            source.config['resolved_source_duration_us'] = str(duration_us)
+        self._persist(source)
+
+    def _queue_completion(
+        self,
+        source: ManagedSource,
+        source_kind: str,
+        duration_us: int | None,
+        expected_segment_count: int,
+    ) -> None:
+        source.config['completion_expected_segments'] = str(expected_segment_count)
+        source.config['completion_source_kind'] = source_kind
+        source.config['completion_source_duration_us'] = str(duration_us) if duration_us is not None else ''
+        self._persist(source)
+
+    def _deliver_completion(self, source: ManagedSource) -> None:
+        capture_id = source.config['capture_session_id']
+        duration_value = source.config.get('completion_source_duration_us', '')
+        self._notify_completed(
+            capture_id,
+            source.config['completion_source_kind'],
+            int(duration_value) if duration_value else None,
+            int(source.config['completion_expected_segments']),
+        )
+        if source.config['source_kind'] == 'local_mp4':
+            media_path = Path(source.config['import_path'])
+            if media_path.is_relative_to(self.import_root):
+                shutil.rmtree(media_path.parent, ignore_errors=True)
+        (self.state_root / f'{capture_id}.json').unlink(missing_ok=True)
+
+    def _notify_classified(self, capture_id: str, source_kind: str, duration_us: int | None) -> None:
+        try:
+            self._notify_status({
+                'capture_session_id': capture_id,
+                'source_duration_us': str(duration_us) if duration_us is not None else None,
+                'source_kind': source_kind,
+                'status': 'classified',
+            })
+        except RuntimeError:
+            # Completion carries the same metadata and is durably retried.
+            pass
+
+    def _notify_completed(
+        self,
+        capture_id: str,
+        source_kind: str,
+        duration_us: int | None,
+        expected_segment_count: int,
+    ) -> None:
+        self._notify_status({
+            'capture_session_id': capture_id,
+            'expected_segment_count': expected_segment_count,
+            'source_duration_us': str(duration_us) if duration_us is not None else None,
+            'source_kind': source_kind,
+            'status': 'completed',
+        })
+
+    def _notify_status(self, payload: dict[str, object]) -> None:
+        if not self.callback_url or len(self.callback_token) < 32:
+            raise RuntimeError('media source callback is unavailable')
+        body = json.dumps(payload, separators=(',', ':')).encode()
+        for attempt in range(8):
+            request = urllib.request.Request(self.callback_url, data=body, method='POST', headers={
+                'Authorization': f'Bearer {self.callback_token}', 'Content-Type': 'application/json',
+            })
+            try:
+                urllib.request.urlopen(request, timeout=5).close()
+                return
+            except (OSError, TimeoutError, urllib.error.HTTPError, urllib.error.URLError):
+                if attempt < 7:
+                    time.sleep(min(8, 2 ** attempt))
+        raise RuntimeError('media source callback failed')
 
     def _notify_failure(self, capture_id: str, error_code: str) -> None:
         if not self.callback_url or len(self.callback_token) < 32:
             return
-        body = json.dumps({'capture_session_id': capture_id, 'error_code': error_code, 'status': 'failed'}, separators=(',', ':')).encode()
-        request = urllib.request.Request(self.callback_url, data=body, method='POST', headers={
-            'Authorization': f'Bearer {self.callback_token}', 'Content-Type': 'application/json',
-        })
         try:
-            urllib.request.urlopen(request, timeout=5).close()
-        except (OSError, TimeoutError, urllib.error.HTTPError, urllib.error.URLError):
+            self._notify_status({
+                'capture_session_id': capture_id,
+                'error_code': error_code,
+                'status': 'failed',
+            })
+        except RuntimeError:
             pass
 
 
@@ -320,6 +600,8 @@ class Handler(BaseHTTPRequestHandler):
             self._json(200, {'status': 'stopped'})
         except ValueError as error:
             self._json(400, {'code': 'BAD_USER_INPUT', 'message': str(error)})
+        except RuntimeError:
+            self._json(503, {'code': 'SOURCE_COMPLETION_PENDING'})
 
 
 def main() -> None:

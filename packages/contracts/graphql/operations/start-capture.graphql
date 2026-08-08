@@ -2,7 +2,9 @@ mutation StartCapture($input: StartCaptureInput!) {
   startCapture(input: $input) {
     id
     matchId
+    sourceKind
     sourceLabel
+    sourceDurationUs
     status
     health
     startedAt
