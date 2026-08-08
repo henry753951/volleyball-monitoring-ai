@@ -15,14 +15,14 @@ export default defineNuxtConfig({
   css: ['~/assets/css/main.css', 'vant/lib/index.css'],
   app: {
     head: {
-      title: 'Volleyball Monitoring',
+      title: 'VollyAI',
       htmlAttrs: { lang: 'zh-Hant' },
       meta: [
         { name: 'viewport', content: 'width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no' },
         { name: 'theme-color', content: '#fafaf9' },
         { name: 'apple-mobile-web-app-capable', content: 'yes' },
         { name: 'apple-mobile-web-app-status-bar-style', content: 'default' },
-        { name: 'apple-mobile-web-app-title', content: 'Volley Monitor' },
+        { name: 'apple-mobile-web-app-title', content: 'VollyAI' },
         { name: 'format-detection', content: 'telephone=no' },
       ],
       link: [
@@ -58,8 +58,8 @@ export default defineNuxtConfig({
     strategies: 'generateSW',
     manifest: {
       id: '/',
-      name: 'Volleyball Monitoring',
-      short_name: 'Volley Monitor',
+      name: 'VollyAI',
+      short_name: 'VollyAI',
       description: '排球賽事即時標註、完整 DVR 回放與教練分析',
       lang: 'zh-Hant',
       start_url: '/',
