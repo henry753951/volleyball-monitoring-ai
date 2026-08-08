@@ -30,6 +30,7 @@ export interface MatchSet {
   status: string
   leftScore: number
   rightScore: number
+  winningTeamId: string | null
   sideAssignments: CourtSideAssignment[]
 }
 
@@ -39,6 +40,8 @@ export interface Match {
   venue: string | null
   status: string
   scheduledAt: string | null
+  clipPreRollUs: string
+  clipPostRollUs: string
   teams: Team[]
   rosterEntries: MatchRosterEntry[]
   sets: MatchSet[]
@@ -84,6 +87,17 @@ export interface SwapCourtSidesInput {
   effectiveFromRallyOrdinal: number
 }
 
+export interface UpdateMatchClipPolicyInput {
+  matchId: string
+  preRollSeconds: number
+  postRollSeconds: number
+}
+
+export interface StartNextSetInput {
+  matchId: string
+  winningTeamId: string
+}
+
 export interface GraphQLErrorLike {
   message: string
   extensions?: { code?: string }
@@ -115,18 +129,22 @@ export interface CoreDomainClient {
   startCapture(input: StartCaptureInput): Promise<CaptureSession>
   stopCapture(captureSessionId: string): Promise<CaptureSession>
   retryProcessing(rallyId: string): Promise<ProcessingState>
+  updateMatchClipPolicy(input: UpdateMatchClipPolicyInput): Promise<Match>
+  startNextSet(input: StartNextSetInput): Promise<MatchSet>
 }
 
 export const CORE_OPERATIONS = {
   viewer: `query Viewer { viewer { id role } }`,
-  matches: `query Matches { matches { id title venue status scheduledAt teams { id name shortName } rosterEntries { id teamId name jerseyNumber } sets { id setNumber status leftScore rightScore sideAssignments { id effectiveFromRallyOrdinal effectiveToRallyOrdinal leftTeamId rightTeamId } } } }`,
-  match: `query Match($id: ID!) { match(id: $id) { id title venue status scheduledAt teams { id name shortName } rosterEntries { id teamId name jerseyNumber } sets { id setNumber status leftScore rightScore sideAssignments { id effectiveFromRallyOrdinal effectiveToRallyOrdinal leftTeamId rightTeamId } } captureSessions { id matchId sourceLabel status health startedAt endedAt timeline { captureSessionId captureStartTimeUs liveEdgeCaptureTimeUs timelineVersion availableRanges { startUs endUs discontinuity } } } } }`,
-  createMatchSetup: `mutation CreateMatchSetup($input: CreateMatchSetupInput!) { createMatchSetup(input: $input) { id title venue status scheduledAt teams { id name shortName } rosterEntries { id teamId name jerseyNumber } sets { id setNumber status leftScore rightScore sideAssignments { id effectiveFromRallyOrdinal effectiveToRallyOrdinal leftTeamId rightTeamId } } } }`,
-  updateMatchRoster: `mutation UpdateMatchRoster($input: UpdateMatchRosterInput!) { updateMatchRoster(input: $input) { id title venue status scheduledAt teams { id name shortName } rosterEntries { id teamId name jerseyNumber } sets { id setNumber status leftScore rightScore sideAssignments { id effectiveFromRallyOrdinal effectiveToRallyOrdinal leftTeamId rightTeamId } } } }`,
-  swapCourtSides: `mutation SwapCourtSides($input: SwapCourtSidesInput!) { swapCourtSides(input: $input) { id setNumber status leftScore rightScore sideAssignments { id effectiveFromRallyOrdinal effectiveToRallyOrdinal leftTeamId rightTeamId } } }`,
+  matches: `query Matches { matches { id title venue status scheduledAt clipPreRollUs clipPostRollUs teams { id name shortName } rosterEntries { id teamId name jerseyNumber } sets { id setNumber status leftScore rightScore winningTeamId sideAssignments { id effectiveFromRallyOrdinal effectiveToRallyOrdinal leftTeamId rightTeamId } } } }`,
+  match: `query Match($id: ID!) { match(id: $id) { id title venue status scheduledAt clipPreRollUs clipPostRollUs teams { id name shortName } rosterEntries { id teamId name jerseyNumber } sets { id setNumber status leftScore rightScore winningTeamId sideAssignments { id effectiveFromRallyOrdinal effectiveToRallyOrdinal leftTeamId rightTeamId } } captureSessions { id matchId sourceLabel status health startedAt endedAt timeline { captureSessionId captureStartTimeUs liveEdgeCaptureTimeUs timelineVersion availableRanges { startUs endUs discontinuity } } } } }`,
+  createMatchSetup: `mutation CreateMatchSetup($input: CreateMatchSetupInput!) { createMatchSetup(input: $input) { id title venue status scheduledAt clipPreRollUs clipPostRollUs teams { id name shortName } rosterEntries { id teamId name jerseyNumber } sets { id setNumber status leftScore rightScore winningTeamId sideAssignments { id effectiveFromRallyOrdinal effectiveToRallyOrdinal leftTeamId rightTeamId } } } }`,
+  updateMatchRoster: `mutation UpdateMatchRoster($input: UpdateMatchRosterInput!) { updateMatchRoster(input: $input) { id title venue status scheduledAt clipPreRollUs clipPostRollUs teams { id name shortName } rosterEntries { id teamId name jerseyNumber } sets { id setNumber status leftScore rightScore winningTeamId sideAssignments { id effectiveFromRallyOrdinal effectiveToRallyOrdinal leftTeamId rightTeamId } } } }`,
+  swapCourtSides: `mutation SwapCourtSides($input: SwapCourtSidesInput!) { swapCourtSides(input: $input) { id setNumber status leftScore rightScore winningTeamId sideAssignments { id effectiveFromRallyOrdinal effectiveToRallyOrdinal leftTeamId rightTeamId } } }`,
   startCapture: `mutation StartCapture($input: StartCaptureInput!) { startCapture(input: $input) { id matchId sourceLabel status health startedAt endedAt timeline { captureSessionId captureStartTimeUs liveEdgeCaptureTimeUs timelineVersion availableRanges { startUs endUs discontinuity } } } }`,
   stopCapture: `mutation StopCapture($captureSessionId: ID!) { stopCapture(captureSessionId: $captureSessionId) { id matchId sourceLabel status health startedAt endedAt timeline { captureSessionId captureStartTimeUs liveEdgeCaptureTimeUs timelineVersion availableRanges { startUs endUs discontinuity } } }`,
   retryProcessing: `mutation RetryProcessing($input: RetryProcessingInput!) { retryProcessing(input: $input) { rallyId submissionId status retriedStage } }`,
+  updateMatchClipPolicy: `mutation UpdateMatchClipPolicy($input: UpdateMatchClipPolicyInput!) { updateMatchClipPolicy(input: $input) { id title venue status scheduledAt clipPreRollUs clipPostRollUs teams { id name shortName } rosterEntries { id teamId name jerseyNumber } sets { id setNumber status leftScore rightScore winningTeamId sideAssignments { id effectiveFromRallyOrdinal effectiveToRallyOrdinal leftTeamId rightTeamId } } } }`,
+  startNextSet: `mutation StartNextSet($input: StartNextSetInput!) { startNextSet(input: $input) { id setNumber status leftScore rightScore winningTeamId sideAssignments { id effectiveFromRallyOrdinal effectiveToRallyOrdinal leftTeamId rightTeamId } } }`,
 } as const
 
 export function createGraphQLTransport(
@@ -187,6 +205,14 @@ export function createCoreDomainClient(transport: GraphQLTransport): CoreDomainC
     async retryProcessing(rallyId) {
       const result = await transport.request<{ retryProcessing: ProcessingState }>(CORE_OPERATIONS.retryProcessing, { input: { rallyId } })
       return result.retryProcessing
+    },
+    async updateMatchClipPolicy(input) {
+      const result = await transport.request<{ updateMatchClipPolicy: Match }>(CORE_OPERATIONS.updateMatchClipPolicy, { input })
+      return result.updateMatchClipPolicy
+    },
+    async startNextSet(input) {
+      const result = await transport.request<{ startNextSet: MatchSet }>(CORE_OPERATIONS.startNextSet, { input })
+      return result.startNextSet
     },
   }
 }

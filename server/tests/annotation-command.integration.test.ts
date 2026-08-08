@@ -12,7 +12,7 @@ import {
   createAnnotationCommandService,
   type AnnotationCommandService,
 } from '../src/services/annotation-command.js'
-import { createCorrectionDraft } from '../src/services/correction-draft.js'
+import { cancelCorrectionDraft, createCorrectionDraft } from '../src/services/correction-draft.js'
 
 const execFileAsync = promisify(execFile)
 const repositoryRoot = resolve(process.cwd(), '..')
@@ -233,10 +233,20 @@ beforeAll(async () => {
 
 afterEach(async () => {
   if (db) {
-    await db.rally.updateMany({
-      data: { annotationStatus: 'VOIDED', voidedAt: new Date() },
-      where: { annotationStatus: { in: ['OPEN', 'READY'] }, setId: ids.set },
-    })
+    await Promise.all([
+      db.rally.updateMany({
+        data: { annotationStatus: 'VOIDED', voidedAt: new Date() },
+        where: { setId: ids.set, voidedAt: null },
+      }),
+      db.playbackWindow.update({
+        data: { captureEndUs: BigInt(anchor.capture_time_us) + 1_000n },
+        where: { id: ids.window },
+      }),
+      db.dvrSegment.update({
+        data: { captureEndUs: BigInt(anchor.capture_time_us) + 100n, frameCount: 5n },
+        where: { id: ids.segment },
+      }),
+    ])
   }
 })
 
@@ -327,7 +337,18 @@ describe('durable service annotation command', () => {
       type: 'command_ack', effects: { annotation_status: 'ready' },
     })
 
-    await expect(service.apply(serviceCommand(randomUUID(), nextRallyId), identity)).resolves.toMatchObject({
+    const laterAnchor = {
+      ...anchor,
+      capture_frame_index: (BigInt(anchor.capture_frame_index) + 300n).toString(),
+      capture_time_us: (BigInt(anchor.capture_time_us) + 10_000_000n).toString(),
+      resolved_player_media_time_us: (BigInt(anchor.resolved_player_media_time_us) + 10_000_000n).toString(),
+    }
+    await Promise.all([
+      db.playbackWindow.update({ data: { captureEndUs: BigInt(laterAnchor.capture_time_us) + 1n }, where: { id: ids.window } }),
+      db.dvrSegment.update({ data: { captureEndUs: BigInt(laterAnchor.capture_time_us) + 1n, frameCount: 303n }, where: { id: ids.segment } }),
+    ])
+    const laterService = createAnnotationCommandService({ database: db, resolveCursor: async () => laterAnchor })
+    await expect(laterService.apply(serviceCommand(randomUUID(), nextRallyId), identity)).resolves.toMatchObject({
       type: 'command_ack', effects: { annotation_status: 'open' },
     })
     await expect(db.rally.findMany({
@@ -705,7 +726,18 @@ describe('durable service annotation command', () => {
     expect(submissionId).toBeTruthy()
 
     const openRallyId = randomUUID()
-    await expect(service.apply(serviceCommand(randomUUID(), openRallyId), identity)).resolves.toMatchObject({
+    const laterAnchor = {
+      ...anchor,
+      capture_frame_index: (BigInt(anchor.capture_frame_index) + 300n).toString(),
+      capture_time_us: (BigInt(anchor.capture_time_us) + 10_000_000n).toString(),
+      resolved_player_media_time_us: (BigInt(anchor.resolved_player_media_time_us) + 10_000_000n).toString(),
+    }
+    await Promise.all([
+      db.playbackWindow.update({ data: { captureEndUs: BigInt(laterAnchor.capture_time_us) + 1n }, where: { id: ids.window } }),
+      db.dvrSegment.update({ data: { captureEndUs: BigInt(laterAnchor.capture_time_us) + 1n, frameCount: 303n }, where: { id: ids.segment } }),
+    ])
+    const laterService = createAnnotationCommandService({ database: db, resolveCursor: async () => laterAnchor })
+    await expect(laterService.apply(serviceCommand(randomUUID(), openRallyId), identity)).resolves.toMatchObject({
       type: 'command_ack', effects: { annotation_status: 'open' },
     })
     await expect(createCorrectionDraft(db, submissionId!, identity)).resolves.toMatchObject({
@@ -781,6 +813,34 @@ describe('durable service annotation command', () => {
     await expect(db.scoreLedgerEntry.findUnique({ where: { submissionId: thirdSubmissionId! } })).resolves.toMatchObject({
       kind: 'CORRECTION', leftDelta: 0, rightDelta: -1, scoreRevisionBefore: 2, scoreRevisionAfter: 3,
     })
+  })
+
+  it('cancels a correction and restores the active immutable submission', async () => {
+    const rallyId = randomUUID()
+    await service.apply(serviceCommand(randomUUID(), rallyId), identity)
+    const servicePoint = await db.keyPoint.findFirstOrThrow({ where: { rallyId } })
+    await service.apply(closeCommand(randomUUID(), rallyId, servicePoint.id, '1', 'left'), identity)
+    const submitted = await service.apply(submitCommand(randomUUID(), rallyId, '2'), identity)
+    const submissionId = submitted.type === 'command_ack' ? submitted.effects.submission_id : null
+    expect(submissionId).toBeTruthy()
+
+    await createCorrectionDraft(db, submissionId!, identity)
+    await service.apply(closeCommand(randomUUID(), rallyId, servicePoint.id, '4', 'right'), identity)
+    await expect(cancelCorrectionDraft(db, rallyId, identity)).resolves.toMatchObject({
+      active_submission_id: submissionId,
+      annotation_status: 'submitted',
+      rally_id: rallyId,
+      revision: '6',
+    })
+    await expect(db.rally.findUniqueOrThrow({ where: { id: rallyId } })).resolves.toMatchObject({
+      activeSubmissionId: submissionId,
+      annotationStatus: 'SUBMITTED',
+      scoringCourtSide: 'LEFT',
+      scoreResolutionState: 'RESOLVED',
+    })
+    await expect(db.keyPoint.findMany({ where: { rallyId, deletedAt: null } })).resolves.toMatchObject([
+      { id: servicePoint.id, isTerminal: true, markerKind: 'SERVICE' },
+    ])
   })
 
   it('reuses completed clip, AI geometry and overlay assets for an outcome-only correction', async () => {

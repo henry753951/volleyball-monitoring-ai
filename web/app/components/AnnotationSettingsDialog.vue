@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ArrowLeft, ChevronRight, Database, Keyboard, RotateCcw } from 'lucide-vue-next'
+import { ArrowLeft, ChevronRight, Database, Keyboard, RotateCcw, Scissors } from 'lucide-vue-next'
 import UiButton from '~/components/ui/Button.vue'
 import {
   ANNOTATION_COMMANDS,
@@ -14,7 +14,7 @@ import {
   type MediaBufferPreset,
 } from '~/utils/mediaPlaybackPreferences'
 
-type SettingsPage = 'root' | 'media' | 'hotkeys'
+type SettingsPage = 'root' | 'media' | 'clip' | 'hotkeys'
 type TransitionDocument = Document & {
   startViewTransition?: (update: () => void) => { finished: Promise<void> }
 }
@@ -22,24 +22,33 @@ type TransitionDocument = Document & {
 const props = withDefaults(defineProps<{
   open: boolean
   initialPage?: SettingsPage
-}>(), { initialPage: 'root' })
-const emit = defineEmits<{ close: [] }>()
+  clipPreRollSeconds?: number
+  clipPostRollSeconds?: number
+  clipPolicySaving?: boolean
+  clipPolicyError?: string | null
+}>(), { initialPage: 'root', clipPreRollSeconds: 3, clipPostRollSeconds: 3, clipPolicySaving: false, clipPolicyError: null })
+const emit = defineEmits<{ close: []; updateClipPolicy: [preRollSeconds: number, postRollSeconds: number] }>()
 const { bindings, rebind, restoreDefaults } = useAnnotationHotkeys()
 const { bufferPreset, setBufferPreset } = useMediaPlaybackPreferences()
 const page = ref<SettingsPage>(props.initialPage)
 const recording = ref<HotkeyCommand | null>(null)
 const recordingError = ref<string | null>(null)
+const clipPreRollSeconds = ref(props.clipPreRollSeconds)
+const clipPostRollSeconds = ref(props.clipPostRollSeconds)
+const clipValidationError = ref<string | null>(null)
 const commandGroups: ReadonlyArray<{ label: string; commands: ReadonlyArray<HotkeyCommandDefinition> }> = [
   { label: '標記', commands: ANNOTATION_COMMANDS },
   { label: '播放', commands: MEDIA_COMMANDS },
 ]
 const mediaPresets = Object.entries(MEDIA_BUFFER_PROFILES) as Array<[MediaBufferPreset, typeof MEDIA_BUFFER_PROFILES[MediaBufferPreset]]>
-const modalTitle = computed(() => page.value === 'root' ? '設定' : page.value === 'media' ? '媒體播放設定' : '按鍵設定')
+const modalTitle = computed(() => page.value === 'root' ? '設定' : page.value === 'media' ? '媒體播放設定' : page.value === 'clip' ? '片段範圍' : '按鍵設定')
 const modalDescription = computed(() => page.value === 'root'
   ? '調整此瀏覽器的標註工作站偏好'
   : page.value === 'media'
     ? '控制播放時保留的影音緩衝'
-    : '點選按鍵後直接輸入新的組合')
+    : page.value === 'clip'
+      ? '套用到本場尚未送出的標記與後續修正版'
+      : '點選按鍵後直接輸入新的組合')
 const modalHeight = computed<'auto' | 'tall'>(() => page.value === 'hotkeys' ? 'tall' : 'auto')
 
 const recorder = useAnnotationHotkeyRecorder(() => ({
@@ -62,6 +71,10 @@ const recorder = useAnnotationHotkeyRecorder(() => ({
 
 watch(() => [props.open, props.initialPage] as const, ([open, initialPage], previous) => {
   if (open && (!previous?.[0] || initialPage !== previous[1])) page.value = initialPage
+}, { immediate: true })
+watch(() => [props.clipPreRollSeconds, props.clipPostRollSeconds] as const, ([before, after]) => {
+  clipPreRollSeconds.value = before
+  clipPostRollSeconds.value = after
 }, { immediate: true })
 
 function beginRecording(action: HotkeyCommand) {
@@ -88,6 +101,17 @@ function restoreAllDefaults() {
   restoreDefaults()
 }
 
+function saveClipPolicy() {
+  const before = Number(clipPreRollSeconds.value)
+  const after = Number(clipPostRollSeconds.value)
+  if (!Number.isInteger(before) || !Number.isInteger(after) || before < 0 || after < 0 || before > 30 || after > 30) {
+    clipValidationError.value = '前後延展必須是 0–30 秒的整數。'
+    return
+  }
+  clipValidationError.value = null
+  emit('updateClipPolicy', before, after)
+}
+
 function close() {
   if (recorder.isRecording.value) recorder.cancelRecording()
   emit('close')
@@ -101,6 +125,11 @@ function close() {
         <UiButton variant="ghost" class="settings-menu__item" @click="changePage('media')">
           <span class="settings-menu__icon"><Database :size="18" /></span>
           <span><strong>媒體播放設定</strong><small>瀏覽器緩衝與回放保留範圍</small></span>
+          <ChevronRight :size="17" />
+        </UiButton>
+        <UiButton variant="ghost" class="settings-menu__item" @click="changePage('clip')">
+          <span class="settings-menu__icon"><Scissors :size="18" /></span>
+          <span><strong>片段範圍</strong><small>發球前與結束後的延展秒數</small></span>
           <ChevronRight :size="17" />
         </UiButton>
         <UiButton variant="ghost" class="settings-menu__item" @click="changePage('hotkeys')">
@@ -129,6 +158,23 @@ function close() {
               <i aria-hidden="true" />
             </UiButton>
           </div>
+        </section>
+      </div>
+
+      <div v-else-if="page === 'clip'" class="settings-child">
+        <UiButton variant="ghost" size="sm" class="settings-back" @click="changePage('root')"><ArrowLeft :size="15" />所有設定</UiButton>
+        <section class="clip-settings">
+          <div class="clip-setting-row">
+            <label for="clip-pre-roll"><strong>發球前</strong><small>草稿片段向前保留</small></label>
+            <span><input id="clip-pre-roll" v-model.number="clipPreRollSeconds" type="number" min="0" max="30" step="1"><i>秒</i></span>
+          </div>
+          <div class="clip-setting-row">
+            <label for="clip-post-roll"><strong>結束後</strong><small>終止擊球點後保留</small></label>
+            <span><input id="clip-post-roll" v-model.number="clipPostRollSeconds" type="number" min="0" max="30" step="1"><i>秒</i></span>
+          </div>
+          <p>已送出的片段保留送出當下的範圍；建立並送出修正版時才套用目前設定。</p>
+          <p v-if="clipValidationError || clipPolicyError" class="annotation-settings__error" role="alert">{{ clipValidationError || clipPolicyError }}</p>
+          <UiButton :disabled="clipPolicySaving" @click="saveClipPolicy">{{ clipPolicySaving ? '儲存中…' : '套用到本場' }}</UiButton>
         </section>
       </div>
 
@@ -161,6 +207,10 @@ function close() {
 
 <style scoped>
 .settings-page{min-height:0;overflow:hidden;background:#09090b;view-transition-name:annotation-settings-page}.settings-menu{display:grid;gap:6px;padding:12px}.settings-menu__item{width:100%;min-height:64px;justify-content:flex-start;padding:10px 12px;text-align:left}.settings-menu__item>span:nth-child(2){display:grid;flex:1;gap:3px}.settings-menu__item strong,.buffer-preset strong{font-size:.74rem}.settings-menu__item small,.buffer-preset small,.buffer-settings__heading small{color:#a1a1aa;font-size:.63rem;font-weight:500}.settings-menu__icon{display:grid;width:34px;height:34px;place-items:center;border-radius:8px;background:#18181b;color:#d4d4d8}.settings-child{min-height:0;padding:10px 12px 14px}.settings-child--hotkeys{height:100%;display:grid;grid-template-rows:auto minmax(0,1fr);padding-bottom:0}.settings-back{margin-bottom:6px;padding-inline:8px}.buffer-settings{display:grid;gap:10px;padding:4px}.buffer-settings__heading{display:grid;gap:4px;padding:4px 2px}.buffer-presets{display:grid;gap:4px}.buffer-preset{width:100%;min-height:54px;justify-content:space-between;padding:8px 10px;text-align:left}.buffer-preset>span{display:grid;gap:3px}.buffer-preset i{width:14px;height:14px;border:1px solid #52525b;border-radius:999px}.buffer-preset.selected{background:#27272a;color:#fafafa}.buffer-preset.selected i{border:4px solid #fafafa}.annotation-settings__scroll{min-height:0;height:100%}.annotation-settings__body{padding:4px 6px 18px}.annotation-settings__body section+section{margin-top:18px}.annotation-settings__body h3{margin:0 0 6px;color:#d4d4d8;font-size:.67rem}.annotation-settings__body ul{margin:0;padding:0;list-style:none}.annotation-settings__body li{display:flex;align-items:center;justify-content:space-between;gap:18px;padding:9px 0;border-bottom:1px solid #27272a}.annotation-settings__body li div{display:grid;gap:2px}.annotation-settings__body li strong{font-size:.72rem}.annotation-settings__body li small{color:#a1a1aa;font-size:.62rem}.annotation-settings__body li :deep(button){min-width:118px;font:700 .66rem "Cascadia Mono",Consolas,monospace}.annotation-settings__body li :deep(button.recording){box-shadow:0 0 0 2px #fafafa;background:#3f3f46}.annotation-settings__error{padding:8px;border-radius:7px;background:#2b1114;color:#fca5a5;font-size:.68rem}
+</style>
+
+<style scoped>
+.clip-settings{display:grid;gap:8px;padding:4px}.clip-setting-row{display:flex;align-items:center;justify-content:space-between;gap:24px;padding:12px 2px;border-bottom:1px solid #27272a}.clip-setting-row label{display:grid;gap:3px}.clip-setting-row strong{font-size:.74rem}.clip-setting-row small,.clip-settings>p{color:#a1a1aa;font-size:.63rem}.clip-setting-row>span{display:flex;align-items:center;gap:7px}.clip-setting-row input{width:72px;height:34px;border:1px solid #3f3f46;border-radius:7px;background:#111113;color:#fafafa;font:700 .74rem "Cascadia Mono",Consolas,monospace;text-align:center}.clip-setting-row i{color:#a1a1aa;font-size:.66rem;font-style:normal}.clip-settings>p{margin:4px 0 2px;line-height:1.55}
 </style>
 
 <style>

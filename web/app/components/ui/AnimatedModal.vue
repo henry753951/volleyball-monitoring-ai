@@ -51,7 +51,7 @@ function handleOpenChange(open: boolean) {
 .animated-modal__backdrop { position: fixed; inset: 0; z-index: 1000; background: rgb(0 0 0 / 72%); }
 .animated-modal__backdrop[data-state="open"] { animation: modal-overlay-in 160ms ease-out both; }
 .animated-modal__backdrop[data-state="closed"] { animation: modal-overlay-out 130ms ease-in both; }
-.animated-modal { position: fixed; top: 50%; left: 50%; z-index: 1001; width: min(720px, calc(100vw - 32px)); max-height: min(86dvh, 860px); display: grid; grid-template-rows: auto minmax(0, 1fr) auto; overflow: hidden; border: 1px solid #27272a; border-radius: 12px; outline: 0; background: #09090b; color: #fafafa; box-shadow: 0 24px 80px rgb(0 0 0 / 70%); transform: translate(-50%, -50%); transition: height 220ms cubic-bezier(.16, 1, .3, 1); }
+.animated-modal { position: fixed; top: 50%; left: 50%; z-index: 1001; width: min(720px, calc(100vw - 32px)); max-height: min(86dvh, 860px); display: grid; grid-template-rows: auto minmax(0, 1fr) auto; overflow: hidden; border: 1px solid #27272a; border-radius: 12px; outline: 0; background: #09090b; color: #fafafa; box-shadow: 0 24px 80px rgb(0 0 0 / 70%); transform: translate(-50%, -50%); }
 .animated-modal[data-state="open"] { animation: modal-content-in 190ms cubic-bezier(.16, 1, .3, 1) both; }
 .animated-modal[data-state="closed"] { animation: modal-content-out 140ms cubic-bezier(.4, 0, 1, 1) both; }
 .animated-modal--compact { width: min(520px, calc(100vw - 32px)); }

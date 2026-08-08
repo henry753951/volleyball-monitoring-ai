@@ -1,0 +1,7 @@
+mutation UpdateMatchClipPolicy($input: UpdateMatchClipPolicyInput!) {
+  updateMatchClipPolicy(input: $input) {
+    id
+    clipPreRollUs
+    clipPostRollUs
+  }
+}

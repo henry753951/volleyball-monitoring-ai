@@ -8,7 +8,8 @@ const annotation: AnnotationRallySnapshot = {
   snapshot: { annotation_status: 'open', side_assignment_id: 'assignment', score_resolution: 'pending', scoring_court_side: null, processing_status: 'idle', key_points: [{ key_point_id: 'point-1', sequence_index: 0, marker_kind: 'service', is_terminal: false, capture_time_us: '1750', capture_frame_index: '10', timing_precision: 'frame_exact', possible_duplicate: false }] },
 }
 describe('DvrTimelineDock mounted interactions', () => {
-  it('emits exact target and blocks gaps', async () => { const w = mount(DvrTimelineDock, { props: { timeline, playhead: null } }); const lane = w.find('[role="slider"]'); Object.defineProperty(lane.element, 'getBoundingClientRect', { value: () => ({ left: 0, width: 100 }) }); await lane.trigger('click', { clientX: 25 }); expect(w.emitted('seek')?.[0]).toEqual(['1750']); await lane.trigger('click', { clientX: 62 }); expect(w.emitted('seek')).toHaveLength(1) })
+  it('clears selection, emits exact target, and blocks gaps', async () => { const w = mount(DvrTimelineDock, { props: { timeline, playhead: null } }); const lane = w.find('[role="slider"]'); Object.defineProperty(lane.element, 'getBoundingClientRect', { value: () => ({ left: 0, width: 100 }) }); await lane.trigger('click', { clientX: 25 }); expect(w.emitted('clearSelection')).toHaveLength(1); expect(w.emitted('seek')?.[0]).toEqual(['1750']); await lane.trigger('click', { clientX: 62 }); expect(w.emitted('clearSelection')).toHaveLength(2); expect(w.emitted('seek')).toHaveLength(1) })
+  it('clears a pinned segment from empty lane space', async () => { const w = mount(DvrTimelineDock, { props: { timeline, playhead: null } }); const lane = w.find('.lane-content'); Object.defineProperty(lane.element, 'getBoundingClientRect', { value: () => ({ left: 0, width: 100 }) }); await lane.trigger('click', { clientX: 25 }); expect(w.emitted('clearSelection')).toHaveLength(1) })
   it('uses Shift+wheel for zoom, plain wheel for pan, and reset restores the full view', async () => {
     const w = mount(DvrTimelineDock, { props: { timeline, playhead: null } })
     const dock = w.find('.timeline-surface')
@@ -18,7 +19,7 @@ describe('DvrTimelineDock mounted interactions', () => {
     await w.vm.$nextTick()
     expect(Number.parseFloat(w.find('.zoom-readout').text())).toBeGreaterThan(10)
     const beforePan = firstTick()
-    dock.element.dispatchEvent(new WheelEvent('wheel', { deltaY: -500 }))
+    dock.element.dispatchEvent(new WheelEvent('wheel', { deltaY: 500 }))
     await w.vm.$nextTick()
     expect(firstTick()).not.toBe(beforePan)
     await w.find('.zoom-readout').trigger('click')
@@ -32,7 +33,7 @@ describe('DvrTimelineDock mounted interactions', () => {
   })
   it('drags the playhead once and keeps the optimistic target until cursor sync catches up', async () => {
     const w = mount(DvrTimelineDock, { props: { timeline, playhead: '1750' } })
-    const playhead = w.find('.playhead')
+    const playhead = w.find('.playhead-handle')
     const lane = w.find('.lane-content')
     Object.defineProperty(lane.element, 'getBoundingClientRect', { value: () => ({ left: 0, width: 100 }) })
     Object.defineProperty(playhead.element, 'setPointerCapture', { value: () => undefined })
@@ -68,7 +69,7 @@ describe('DvrTimelineDock mounted interactions', () => {
     expect(w.find('.zoom-readout').exists()).toBe(true)
   })
   it('selects and seeks an editable key-point marker', async () => {
-    const w = mount(DvrTimelineDock, { props: { timeline, playhead: null, annotation, editable: true, selectedKeyPointId: 'point-1', softLocks: { 'point-1': ['Remote Operator'] } } })
+    const w = mount(DvrTimelineDock, { props: { timeline, playhead: null, annotation, editable: true, cursorFollow: true, selectedKeyPointId: 'point-1', softLocks: { 'point-1': ['Remote Operator'] } } })
     const marker = w.find('.keypoint-dot')
     expect(marker.classes()).toContain('editable')
     expect(marker.classes()).toContain('selected')

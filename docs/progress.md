@@ -1,5 +1,22 @@
 # Progress
 
+## 2026-08-08 — Match clip policy, correction rollback and timeline command synchronization
+
+Status: implemented and locally integrated on `integration/phase3-annotation`. The Annotation workstation now uses a match-owned dynamic clip policy with a three-second default while preserving every immutable submission's original range.
+
+- Added `Match.clipPreRollUs` and `Match.clipPostRollUs` as PostgreSQL BIGINT values with `3,000,000 µs` defaults. The setting accepts 0–30 whole seconds, is available only to ADMIN/OPERATOR roles, and updates the live draft/correction mask immediately. Existing submissions, clip jobs and completed analysis retain their immutable range; a later correction snapshots the then-current policy only when submitted.
+- Added a dedicated Annotation settings page for the two clip extensions. The UI states the immutable boundary, reports success/failure through Sonner and reads the persisted match values through GraphQL rather than browser storage.
+- Added server-authoritative service overlap rejection. Z is unavailable while any OPEN draft exists or when the proposed padded interval intersects another non-void segment. READY unsubmitted segments may coexist with a later OPEN segment only when their padded intervals do not overlap. X remains service-first and bounded by the editable mask; outcome commands can replace the terminal outcome on OPEN or READY drafts without creating a timestamp or score event.
+- Added transactional correction cancellation. It restores the active immutable submission's exact key-point snapshot and rally-level score outcome, tombstones correction-only points, returns the Rally to SUBMITTED and records an audit operation plus outbox event without creating a new submission.
+- Added explicit set winners and a transactional start-next-set mutation. The current set is finished with the selected team, the next set starts LIVE at 0:0 with copied court-side assignment, and OPEN/READY unsent drafts block the transition so point computation cannot cross an unresolved set boundary.
+- Restricted ordinary timeline seek to the buffer/ruler strip. Mask clicks only select, the playhead drag surface is limited to its triangle/red line, and child pointer events no longer leave dragging stuck. Cursor-follow is now an explicit toggle; when enabled, current and historical key-point selection seeks to that key point. Editable points support pointer drag plus one-frame toolbar nudges.
+- Added persistent mask labels for set, rally, outcome and processing/mapping state. Completed analysis receives a separate coverage rail carrying byte size, counts and extensible capability icons for player tracking, ball tracking, contact association and overlays.
+- Moved selected-segment context immediately beside the timecode, added set-win controls to the score panel, and synchronized the six monochrome Annotation actions with the same eligibility reasons used by the server.
+
+Local runtime evidence: migration `20260808130000_match_clip_policy_and_set_winner` applied to the running PostgreSQL container; the rebuilt server container returned healthy and GraphQL reported the DEMO match at `3,000,000 / 3,000,000 µs`. Headed Chromium changed the pre-roll from 3 to 4 seconds through the settings UI, observed the success toast, restored 3 seconds, verified buffer-strip seeking, mask-only selection and a completed playhead drag with no console errors.
+
+Validation passed: workspace typecheck, production build, GraphQL SDL export plus all 13 stored operations, Prisma validation, `git diff --check`, contracts `12/12`, DB `4/4`, media `88/88`, server `186/186`, worker `156/156` with 6 environment-gated skips, Web `111/111` and frozen-uv SDK `16/16`.
+
 ## 2026-08-08 — Professional operations console and live subsystem telemetry
 
 Status: the desktop control console now shares the Annotation workstation's neutral graphite visual language and exposes real operational telemetry for the application, persistence, object storage, media/DVR pipeline and external AI workflow.

@@ -132,6 +132,18 @@ const updateRosterMutation = /* GraphQL */ `
   }
 `
 
+const updateClipPolicyMutation = /* GraphQL */ `
+  mutation UpdateMatchClipPolicy($input: UpdateMatchClipPolicyInput!) {
+    updateMatchClipPolicy(input: $input) { id clipPreRollUs clipPostRollUs }
+  }
+`
+
+const startNextSetMutation = /* GraphQL */ `
+  mutation StartNextSet($input: StartNextSetInput!) {
+    startNextSet(input: $input) { id setNumber status winningTeamId leftScore rightScore }
+  }
+`
+
 const validSetup = {
   leftTeam: {
     name: '  North   Stars ',
@@ -637,6 +649,34 @@ describe('match setup, visibility, and court-side history', () => {
       expect.objectContaining({ id: leftRosterIds[1], jerseyNumber: '01', name: 'Morgan Lin' }),
       expect.objectContaining({ jerseyNumber: '25', name: 'Kai Tsai' }),
     ])
+  })
+
+  it('updates dynamic draft padding and starts a zero-score next set with an explicit winner', async () => {
+    const policy = await execute(updateClipPolicyMutation, contextFor(operatorUser), {
+      input: { matchId, preRollSeconds: 2, postRollSeconds: 4 },
+    })
+    expect(policy.errors).toBeUndefined()
+    expect(policy.data?.updateMatchClipPolicy).toMatchObject({
+      clipPostRollUs: '4000000',
+      clipPreRollUs: '2000000',
+      id: matchId,
+    })
+
+    const next = await execute(startNextSetMutation, contextFor(operatorUser), {
+      input: { matchId, winningTeamId: leftTeamId },
+    })
+    expect(next.errors).toBeUndefined()
+    expect(next.data?.startNextSet).toMatchObject({
+      leftScore: 0,
+      rightScore: 0,
+      setNumber: 2,
+      status: 'LIVE',
+      winningTeamId: null,
+    })
+    await expect(db.matchSet.findUniqueOrThrow({ where: { id: setId } })).resolves.toMatchObject({
+      status: 'FINISHED',
+      winningTeamId: leftTeamId,
+    })
   })
 
 })

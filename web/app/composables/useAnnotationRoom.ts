@@ -28,6 +28,9 @@ const SNAPSHOT_QUERY = `query AnnotationRally($roomId: String!, $rallyId: ID!) {
 const CREATE_CORRECTION_DRAFT = `mutation CreateCorrectionDraft($submissionId: ID!) {
   createCorrectionDraft(submissionId: $submissionId) { id }
 }`
+const CANCEL_CORRECTION_DRAFT = `mutation CancelCorrectionDraft($rallyId: ID!) {
+  cancelCorrectionDraft(rallyId: $rallyId) { id }
+}`
 
 function asSnapshot(value: unknown): AnnotationRallySnapshot | null {
   if (value === null) return null
@@ -333,6 +336,26 @@ export function useAnnotationRoom() {
     }
   }
 
+  async function cancelCorrection() {
+    const rallyId = snapshot.value?.rally_id
+    if (!rallyId || !snapshot.value?.snapshot.active_submission_id || !['OPEN', 'READY'].includes(state.value)) {
+      throw new Error('目前沒有可取消的修正版')
+    }
+    busy.value = true
+    error.value = null
+    try {
+      await transport.request<{ cancelCorrectionDraft: { id: string } }>(CANCEL_CORRECTION_DRAFT, { rallyId })
+      return await fetchSnapshot(rallyId)
+    }
+    catch (cause) {
+      error.value = cause instanceof Error ? cause.message : '無法取消修正版'
+      throw cause
+    }
+    finally {
+      busy.value = false
+    }
+  }
+
   function setEditingKeyPoint(keyPointId: string | null) {
     realtime?.setEditingKeyPoint(keyPointId)
   }
@@ -347,6 +370,7 @@ export function useAnnotationRoom() {
     busy: readonly(busy),
     connection: readonly(connection),
     connect,
+    cancelCorrection,
     createCorrection,
     dispatch,
     edit,

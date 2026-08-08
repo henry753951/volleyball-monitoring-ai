@@ -2,7 +2,7 @@ import { parseAnnotationCommand, parseAnnotationCommandResponse } from '@volleyb
 import { db } from '@volleyball-monitoring/db'
 import { GraphQLError } from 'graphql'
 import type { AnnotationCommandService } from '../services/annotation-command.js'
-import { CorrectionDraftError, createCorrectionDraft } from '../services/correction-draft.js'
+import { cancelCorrectionDraft, CorrectionDraftError, createCorrectionDraft } from '../services/correction-draft.js'
 import { builder } from './builder.js'
 import { RallyType } from './types.js'
 
@@ -44,6 +44,35 @@ builder.mutationField('createCorrectionDraft', (t) => t.field({
     }
     try {
       const result = await createCorrectionDraft(db, args.submissionId, {
+        deviceSessionId: context.deviceSessionId,
+        role: context.user.role,
+        userId: context.user.id,
+      })
+      return db.rally.findUniqueOrThrow({ where: { id: result.rally_id } })
+    }
+    catch (error) {
+      if (!(error instanceof CorrectionDraftError)) throw error
+      const code = error.code === 'NOT_FOUND'
+        ? 'NOT_FOUND'
+        : error.code === 'FORBIDDEN'
+          ? 'FORBIDDEN'
+          : error.code === 'UNAUTHENTICATED'
+            ? 'UNAUTHENTICATED'
+            : 'BAD_USER_INPUT'
+      throw new GraphQLError(error.message, { extensions: { code, domainCode: error.code } })
+    }
+  },
+  type: RallyType,
+}))
+
+builder.mutationField('cancelCorrectionDraft', (t) => t.field({
+  args: { rallyId: t.arg.id({ required: true }) },
+  resolve: async (_root, args, context) => {
+    if (!context.user || !context.deviceSessionId) {
+      throw new GraphQLError('Authentication required', { extensions: { code: 'UNAUTHENTICATED' } })
+    }
+    try {
+      const result = await cancelCorrectionDraft(db, args.rallyId, {
         deviceSessionId: context.deviceSessionId,
         role: context.user.role,
         userId: context.user.id,

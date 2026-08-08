@@ -2,6 +2,8 @@ import {
   createMatchSetup,
   swapCourtSides,
   updateMatchRoster,
+  updateMatchClipPolicy,
+  startNextSet,
 } from '../services/core-domain.js'
 import { db } from '@volleyball-monitoring/db'
 import {
@@ -18,6 +20,8 @@ import {
   StartCaptureInputType,
   SwapCourtSidesInputType,
   UpdateMatchRosterInputType,
+  UpdateMatchClipPolicyInputType,
+  StartNextSetInputType,
 } from './inputs.js'
 import { CaptureSessionType, MatchSetType, MatchType, ProcessingStateType } from './types.js'
 
@@ -75,6 +79,16 @@ builder.mutationType({
       args: { input: t.arg({ required: true, type: UpdateMatchRosterInputType }) },
       resolve: (_root, args, context) => updateMatchRoster(requireIdentity(context), args.input),
       type: MatchType,
+    }),
+    updateMatchClipPolicy: t.field({
+      args: { input: t.arg({ required: true, type: UpdateMatchClipPolicyInputType }) },
+      resolve: (_root, args, context) => updateMatchClipPolicy(requireIdentity(context), args.input),
+      type: MatchType,
+    }),
+    startNextSet: t.field({
+      args: { input: t.arg({ required: true, type: StartNextSetInputType }) },
+      resolve: (_root, args, context) => startNextSet(requireIdentity(context), args.input),
+      type: MatchSetType,
     }),
   }),
 })

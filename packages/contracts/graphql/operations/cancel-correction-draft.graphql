@@ -1,0 +1,8 @@
+mutation CancelCorrectionDraft($rallyId: ID!) {
+  cancelCorrectionDraft(rallyId: $rallyId) {
+    id
+    annotationRevision
+    annotationStatus
+    activeSubmissionId
+  }
+}

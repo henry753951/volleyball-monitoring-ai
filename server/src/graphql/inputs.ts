@@ -6,6 +6,8 @@ import type {
   SwapCourtSidesInput,
   TeamSetupInput,
   UpdateMatchRosterInput,
+  UpdateMatchClipPolicyInput,
+  StartNextSetInput,
 } from '../services/core-domain.js'
 import type { StartCaptureInput } from '../services/capture-processing.js'
 
@@ -60,6 +62,23 @@ UpdateMatchRosterInputType.implement({
     matchId: t.id({ required: true }),
     roster: t.field({ required: true, type: [RosterEditInputType] }),
     teamId: t.id({ required: true }),
+  }),
+})
+
+export const UpdateMatchClipPolicyInputType = builder.inputRef<UpdateMatchClipPolicyInput>('UpdateMatchClipPolicyInput')
+UpdateMatchClipPolicyInputType.implement({
+  fields: (t) => ({
+    matchId: t.id({ required: true }),
+    postRollSeconds: t.int({ required: true }),
+    preRollSeconds: t.int({ required: true }),
+  }),
+})
+
+export const StartNextSetInputType = builder.inputRef<StartNextSetInput>('StartNextSetInput')
+StartNextSetInputType.implement({
+  fields: (t) => ({
+    matchId: t.id({ required: true }),
+    winningTeamId: t.id({ required: true }),
   }),
 })
 

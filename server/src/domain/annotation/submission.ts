@@ -11,8 +11,6 @@ import { reuseCompletedSubmissionGeometry } from './submission-geometry-reuse.js
 import {
   CLIP_CANONICALIZATION_PROFILE,
   CLIP_POLICY_VERSION,
-  CLIP_POST_ROLL_US,
-  CLIP_PRE_ROLL_US,
 } from '../../config/clip-policy.js'
 
 type Tx = Prisma.TransactionClient
@@ -58,7 +56,7 @@ export async function submitRally(
     return persist(tx, command, identity, hash, reject(command, 'UNAUTHENTICATED', 'Authenticated device session is no longer active'))
   }
   const member = await tx.match.findFirst({
-    select: { id: true },
+    select: { clipPostRollUs: true, clipPreRollUs: true, id: true },
     where: {
       id: room.matchId,
       captureSessions: { some: { id: room.captureSessionId } },
@@ -68,6 +66,8 @@ export async function submitRally(
     },
   })
   if (!member) return persist(tx, command, identity, hash, reject(command, 'ROOM_AUTHORIZATION_STALE', 'Annotation room authorization changed before commit'))
+  const clipPreRollUs = member.clipPreRollUs
+  const clipPostRollUs = member.clipPostRollUs
 
   const rally = await tx.rally.findUnique({
     where: { id: command.rally_id },
@@ -158,8 +158,8 @@ export async function submitRally(
   }))
   const geometryUnchanged = superseded !== null
     && superseded.clipPolicyVersion === CLIP_POLICY_VERSION
-    && superseded.clipPreRollUs === CLIP_PRE_ROLL_US
-    && superseded.clipPostRollUs === CLIP_POST_ROLL_US
+    && superseded.clipPreRollUs === clipPreRollUs
+    && superseded.clipPostRollUs === clipPostRollUs
     && superseded.keyPoints.length === rally.keyPoints.length
     && superseded.keyPoints.every((point, index) => {
       const draft = rally.keyPoints[index]
@@ -182,8 +182,8 @@ export async function submitRally(
     return persist(tx, command, identity, hash, reject(command, 'ANNOTATION_NOT_READY', 'Correction draft has no immutable content changes'))
   }
 
-  const requestedStart = service.captureTimeUs - CLIP_PRE_ROLL_US < 0n ? 0n : service.captureTimeUs - CLIP_PRE_ROLL_US
-  const requestedEnd = terminal.captureTimeUs + CLIP_POST_ROLL_US
+  const requestedStart = service.captureTimeUs - clipPreRollUs < 0n ? 0n : service.captureTimeUs - clipPreRollUs
+  const requestedEnd = terminal.captureTimeUs + clipPostRollUs
   const scoreSnapshot = resolution === 'RESOLVED'
     ? {
         before: { left: set.leftScore, right: set.rightScore, revision: set.scoreRevision },
@@ -199,8 +199,8 @@ export async function submitRally(
     clip: {
       policy_version: CLIP_POLICY_VERSION,
       canonicalization_profile: CLIP_CANONICALIZATION_PROFILE,
-      pre_us: CLIP_PRE_ROLL_US.toString(),
-      post_us: CLIP_POST_ROLL_US.toString(),
+      pre_us: clipPreRollUs.toString(),
+      post_us: clipPostRollUs.toString(),
       requested_start_us: requestedStart.toString(),
       requested_end_us: requestedEnd.toString(),
     },
@@ -226,8 +226,8 @@ export async function submitRally(
       scoreRevisionBefore: scoreSnapshot.before?.revision ?? null,
       scoreRevisionAfter: scoreSnapshot.after?.revision ?? null,
       clipPolicyVersion: CLIP_POLICY_VERSION,
-      clipPreRollUs: CLIP_PRE_ROLL_US,
-      clipPostRollUs: CLIP_POST_ROLL_US,
+      clipPreRollUs,
+      clipPostRollUs,
       serviceKeyPointId: null,
       terminalKeyPointId: null,
       submittedByUserId: identity.userId,

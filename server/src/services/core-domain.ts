@@ -45,6 +45,17 @@ export interface UpdateMatchRosterInput {
   teamId: string
 }
 
+export interface UpdateMatchClipPolicyInput {
+  matchId: string
+  preRollSeconds: number
+  postRollSeconds: number
+}
+
+export interface StartNextSetInput {
+  matchId: string
+  winningTeamId: string
+}
+
 interface NormalizedRosterSetup {
   jerseyNumber: string
   name: string
@@ -240,6 +251,87 @@ function operatorSetWhere(actor: AuthenticatedUser, setId: string): Prisma.Match
       },
     },
   }
+}
+
+function clipSecondsToUs(value: number, field: string): bigint {
+  if (!Number.isInteger(value) || value < 0 || value > 30) {
+    domainError(`${field} must be an integer between 0 and 30`, 'BAD_USER_INPUT')
+  }
+  return BigInt(value) * 1_000_000n
+}
+
+export async function updateMatchClipPolicy(
+  actor: AuthenticatedUser,
+  input: UpdateMatchClipPolicyInput,
+): Promise<Match> {
+  requireSetupRole(actor)
+  const matchId = requireUuid(input.matchId, 'matchId')
+  const clipPreRollUs = clipSecondsToUs(input.preRollSeconds, 'preRollSeconds')
+  const clipPostRollUs = clipSecondsToUs(input.postRollSeconds, 'postRollSeconds')
+  const updated = await db.match.updateMany({
+    data: { clipPreRollUs, clipPostRollUs },
+    where: {
+      id: matchId,
+      ...(actor.role === UserRole.ADMIN
+        ? {}
+        : { members: { some: { role: UserRole.OPERATOR, userId: actor.id } } }),
+    },
+  })
+  if (updated.count !== 1) domainError('Match not found', 'NOT_FOUND')
+  return db.match.findUniqueOrThrow({ where: { id: matchId } })
+}
+
+export async function startNextSet(
+  actor: AuthenticatedUser,
+  input: StartNextSetInput,
+): Promise<MatchSet> {
+  requireSetupRole(actor)
+  const matchId = requireUuid(input.matchId, 'matchId')
+  const winningTeamId = requireUuid(input.winningTeamId, 'winningTeamId')
+  return db.$transaction(async (tx) => {
+    await tx.$queryRaw<Array<{ locked: string }>>`
+      SELECT pg_advisory_xact_lock(hashtextextended(${`match-set:${matchId}`}, 0))::text AS locked
+    `
+    const match = await tx.match.findFirst({
+      where: {
+        id: matchId,
+        matchTeams: { some: { teamId: winningTeamId } },
+        ...(actor.role === UserRole.ADMIN
+          ? {}
+          : { members: { some: { role: UserRole.OPERATOR, userId: actor.id } } }),
+      },
+    })
+    if (!match) domainError('Match team not found', 'NOT_FOUND')
+    const current = await tx.matchSet.findFirst({
+      orderBy: [{ setNumber: 'desc' }, { id: 'desc' }],
+      where: { matchId, status: { in: ['LIVE', 'PLANNED'] } },
+      include: { sideAssignments: { orderBy: { effectiveFromRallyOrdinal: 'desc' }, take: 1 } },
+    })
+    if (!current) domainError('Current set not found', 'NOT_FOUND')
+    const openDraft = await tx.rally.findFirst({
+      select: { id: true },
+      where: { setId: current.id, voidedAt: null, annotationStatus: { in: ['OPEN', 'READY'] } },
+    })
+    if (openDraft) domainError('Finish or discard the editable segment before starting a new set', 'BAD_USER_INPUT')
+    const assignment = current.sideAssignments[0]
+    if (!assignment) domainError('Current set has no court-side assignment', 'INTERNAL_SERVER_ERROR')
+    await tx.matchSet.update({
+      data: { endedAt: new Date(), status: 'FINISHED', winningTeamId },
+      where: { id: current.id },
+    })
+    const next = await tx.matchSet.create({
+      data: { matchId, setNumber: current.setNumber + 1, status: 'LIVE', startedAt: new Date() },
+    })
+    await tx.courtSideAssignment.create({
+      data: {
+        effectiveFromRallyOrdinal: 1,
+        leftTeamId: assignment.leftTeamId,
+        rightTeamId: assignment.rightTeamId,
+        setId: next.id,
+      },
+    })
+    return next
+  })
 }
 
 export async function updateMatchRoster(

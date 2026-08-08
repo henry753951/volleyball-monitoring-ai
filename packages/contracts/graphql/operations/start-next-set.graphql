@@ -1,0 +1,10 @@
+mutation StartNextSet($input: StartNextSetInput!) {
+  startNextSet(input: $input) {
+    id
+    setNumber
+    status
+    winningTeamId
+    leftScore
+    rightScore
+  }
+}

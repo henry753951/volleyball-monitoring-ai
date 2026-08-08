@@ -9,6 +9,7 @@ export interface CoachSet {
   left_score: number
   right_score: number
   score_revision: number
+  winning_team_id: string | null
   side_assignment: CoachSideAssignment | null
 }
 export interface CoachCapture { id: string; source_kind: string; source_label: string | null; status: string; health: string }
@@ -47,7 +48,20 @@ export interface CoachRally {
       capture_frame_index: string
     }>
     clip: { id: string; status: string; start_capture_time_us: string; end_capture_time_us: string; duration_us: string } | null
-    analysis: { id: string; status: string; version: string; summary: unknown; identity_mapping_completed: boolean } | null
+    analysis: {
+      id: string
+      status: string
+      version: string
+      summary: unknown
+      identity_mapping_completed: boolean
+      coverage_start_capture_time_us: string | null
+      coverage_end_capture_time_us: string | null
+      byte_length: string
+      track_count: number
+      ball_path_count: number
+      contact_count: number
+      capabilities: string[]
+    } | null
   }
 }
 export interface CoachMatchState {
@@ -56,6 +70,8 @@ export interface CoachMatchState {
     id: string
     title: string
     status: string
+    clip_pre_roll_us: string
+    clip_post_roll_us: string
     teams: CoachTeam[]
     sets: CoachSet[]
     captures: CoachCapture[]
