@@ -47,7 +47,7 @@ defineEmits<{
     <UiTooltip :content="`${playing ? '暫停' : '播放'} · ${shortcuts.play}`"><button type="button" class="transport-button" :aria-label="playing ? '暫停' : '播放'" :disabled="!playerReady" @click="$emit('playPause')"><Pause v-if="playing" :size="16" fill="currentColor" /><Play v-else :size="16" fill="currentColor" /></button></UiTooltip>
     <UiTooltip :content="`上一幀；按住連續移動，Shift 一次 5 幀 · ${shortcuts.previousFrame}`"><button type="button" class="transport-button" aria-label="前一幀" :disabled="!frameReady || frameMovePending" @click="$emit('framePrevious')"><ChevronLeft :size="18" stroke-width="2.2" /></button></UiTooltip>
     <UiTooltip :content="`下一幀；按住連續移動，Shift 一次 5 幀 · ${shortcuts.nextFrame}`"><button type="button" class="transport-button" aria-label="後一幀" :disabled="!frameReady || frameMovePending" @click="$emit('frameNext')"><ChevronRight :size="18" stroke-width="2.2" /></button></UiTooltip>
-    <div class="transport-media-group"><code class="timecode">{{ timecode }}</code><button type="button" class="live-badge" :class="{ active: liveActive }" :disabled="!liveAvailable" @click="$emit('live')">LIVE</button></div>
+    <div class="transport-media-group"><code class="timecode">{{ timecode }}</code><button v-if="liveAvailable" type="button" class="live-badge" :class="{ active: liveActive }" @click="$emit('live')">LIVE</button></div>
     <i class="transport-separator" />
     <div class="transport-context"><div><strong>{{ contextTitle }}</strong><small>{{ contextHits }} 次擊球 · {{ contextDuration }}</small></div><span>{{ contextState }}</span></div>
     <i class="transport-separator context-separator" />

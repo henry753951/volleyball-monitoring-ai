@@ -102,6 +102,32 @@ describe('DvrTimelineDock mounted interactions', () => {
     expect(w.emitted('seek')?.at(-1)).toEqual(['1750'])
     expect(w.find('.zoom-readout').exists()).toBe(true)
   })
+  it('double-clicks a distant historical segment without snapping back to the old playhead', async () => {
+    const distantTimeline = {
+      captureSessionId: 's',
+      captureStartTimeUs: '0',
+      liveEdgeCaptureTimeUs: null,
+      timelineVersion: '1',
+      availableRanges: [{ startUs: '0', endUs: '40000000', discontinuity: 0 }],
+    }
+    const segment = {
+      id: 'historical',
+      label: '第 1 局 · 回合 2',
+      startCaptureTimeUs: '30000000',
+      endCaptureTimeUs: '40000000',
+      status: 'analyzed' as const,
+    }
+    const w = mount(DvrTimelineDock, { props: { timeline: distantTimeline, playhead: '1000000', segments: [segment] } })
+    await w.find('.timeline-mask.historical').trigger('dblclick')
+    expect(w.emitted('seek')?.at(-1)).toEqual(['30000000'])
+    expect(w.find('[role="slider"]').attributes('aria-valuenow')).toBe('30000000')
+    expect(w.find('.zoom-readout').exists()).toBe(true)
+
+    await w.setProps({ playhead: '2000000' })
+    expect(w.find('[role="slider"]').attributes('aria-valuenow')).toBe('30000000')
+    await w.setProps({ playhead: '30000000' })
+    expect(w.find('[role="slider"]').attributes('aria-valuenow')).toBe('30000000')
+  })
   it('selects and seeks an editable key-point marker', async () => {
     const w = mount(DvrTimelineDock, { props: { timeline, playhead: null, annotation, editable: true, cursorFollow: true, selectedKeyPointId: 'point-1', softLocks: { 'point-1': ['Remote Operator'] } } })
     const marker = w.find('.keypoint-dot')

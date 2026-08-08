@@ -13,3 +13,11 @@ export function availableBounds(ranges: readonly CaptureTimelineRange[]) {
   if (!ranges.length) return null
   return { startUs: ranges.reduce((a, r) => BigInt(a.startUs) < BigInt(r.startUs) ? a : r).startUs, endUs: ranges.reduce((a, r) => BigInt(a.endUs) > BigInt(r.endUs) ? a : r).endUs }
 }
+
+const LIVE_CAPTURE_SOURCE_KINDS = new Set(['live', 'rtmp', 'rtsp', 'srt', 'webrtc', 'whip', 'youtube_live', 'hls_live'])
+
+export function isLiveCaptureSource(sourceKind?: string | null): boolean {
+  if (!sourceKind) return false
+  const normalized = sourceKind.trim().toLowerCase().replaceAll('-', '_')
+  return LIVE_CAPTURE_SOURCE_KINDS.has(normalized) || normalized.endsWith('_live')
+}

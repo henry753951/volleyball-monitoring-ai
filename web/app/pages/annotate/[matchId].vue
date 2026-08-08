@@ -4,9 +4,12 @@ import { createMediaClient } from '~/lib/mediaClient'
 import { useAuthoritativeDvrWindow, seekVideoToCanonicalFrame, authoritativeControlsEnabled } from '~/composables/useAuthoritativeDvrWindow'
 import { createCoreDomainClient, createGraphQLTransport, type Match, type CaptureSession } from '~/lib/coreDomain'
 import { ANNOTATION_COMMANDS, formatBindingForDisplay, type AnnotationAction, type HotkeyCommand, type MediaAction } from '~/utils/annotationHotkeys'
+import { draftCommandAvailability } from '~/utils/annotationCommandAvailability'
 import type { PlaybackCursorInput } from '~/lib/mediaModel'
 import type { CoachRally } from '~/lib/coachDomain'
-import { clipRangeOverlaps, paddedClipRange, resolveSegmentSelection, segmentAtCaptureTime } from '~/lib/dvrTimeline'
+import { clipRangeOverlaps, formatTimelinePosition, paddedClipRange, resolveSegmentSelection, segmentAtCaptureTime } from '~/lib/dvrTimeline'
+import { isLiveCaptureSource } from '~/lib/mediaTimeline'
+import { bufferedSecondsAhead } from '~/utils/mediaBuffer'
 
 definePageMeta({ layout: 'annotation' })
 const route = useRoute()
@@ -22,7 +25,6 @@ const video = ref<HTMLVideoElement | null>(null)
 const overlayPlayer = ref<{
   seekCaptureTimeIfBuffered: (targetCaptureTimeUs: string) => boolean
   previewCaptureTimeIfBuffered: (targetCaptureTimeUs: string) => boolean
-  prewarmDescriptor: (nextDescriptor: NonNullable<typeof descriptor.value>) => Promise<void>
 } | null>(null)
 const playing = ref(false)
 const muted = ref(false)
@@ -115,7 +117,10 @@ const workstation = useAnnotationWorkstationModel({ coachData: coach.data, match
 const { submittedRallies, annotationDrafts, visibleSubmittedRallies, selectedSubmittedRally, selectedRally, mappingAvailable, selectedAnalysisRunId, currentSet, leftTeamId, rightTeamId, leftSetWins, rightSetWins, leftTeam, rightTeam, clipPreRollUs, clipPostRollUs, clipPreRollSeconds, clipPostRollSeconds, rallyDisplayDuration, timelineSegments, currentMaskRange, selectableSegmentRanges, selectedCurrentMask, currentMaskStatus, currentMaskLabel, currentMaskOutcome, activeOverlayAnalysisRunId, activeOverlayClipStart, selectedEditableDraft, correctionActive, selectedDeletablePoint, activeContextTitle, activeContextHits, activeContextDuration, activeContextState, displayRallyOrdinal } = workstation
 const selectedHistoricalSegmentId = computed(() => selectedCurrentMask.value ? null : selectedRallyId.value)
 const selectedCaptureId = computed(() => selectedCapture.value?.id ?? null)
-const liveTarget = computed(() => timeline.value?.liveEdgeCaptureTimeUs ?? timeline.value?.availableRanges.at(-1)?.endUs ?? null)
+const selectedCaptureSourceKind = computed(() => coach.data.value?.match.captures.find(capture => capture.id === selectedCaptureId.value)?.source_kind ?? null)
+const liveCapture = computed(() => isLiveCaptureSource(selectedCaptureSourceKind.value))
+const timelineEndTarget = computed(() => timeline.value?.liveEdgeCaptureTimeUs ?? timeline.value?.availableRanges.at(-1)?.endUs ?? null)
+const liveTarget = computed(() => liveCapture.value ? timelineEndTarget.value : null)
 const visualPlayhead = computed(() => {
   const cursor = observedCursor.value
   const window = descriptor.value
@@ -150,12 +155,24 @@ const navigableKeyPoints = computed(() => {
     return difference < 0n ? -1 : difference > 0n ? 1 : left.id.localeCompare(right.id)
   })
 })
+const defaultPlaybackTarget = computed(() => {
+  if (liveCapture.value) return timelineEndTarget.value
+
+  const earliestKeyPoint = navigableKeyPoints.value[0]?.captureTimeUs
+  if (earliestKeyPoint) return earliestKeyPoint
+
+  const lastRange = timeline.value?.availableRanges.at(-1)
+  if (!lastRange) return null
+  const start = BigInt(lastRange.startUs)
+  const end = BigInt(lastRange.endUs)
+  return end > start ? (end - 1n).toString() : lastRange.startUs
+})
 const syncLabel = computed(() => annotation.error.value || annotation.outboxNeedsConfirmation.value
   ? 'WS 需注意'
   : annotation.pendingCount.value || annotation.busy.value
     ? 'WS 同步中'
     : annotation.connection.value === 'ready' ? 'WS 正常' : 'WS 離線')
-const displayTimecode = computed(() => formatTimecode(observedCursor.value?.player_media_time_us))
+const displayTimecode = computed(() => formatTimelinePosition(visualPlayhead.value, timeline.value?.captureStartTimeUs))
 function openSettings(page: 'root' | 'media' | 'clip' | 'hotkeys' = 'root') {
   settingsInitialPage.value = page
   settingsOpen.value = true
@@ -187,41 +204,27 @@ function commandAvailability(action: AnnotationAction) {
   if (action === 'submit') return state.value === 'READY'
     ? { enabled: true, reason: '' }
     : { enabled: false, reason: '片段尚未完成' }
-  const cursor = visualPlayhead.value
-  if (!cursor || !canMark.value) return { enabled: false, reason: '播放游標尚未確認' }
-  const cursorValue = BigInt(cursor)
-  const currentRange = currentMaskRange.value
-  const insideCurrent = Boolean(currentRange
-    && cursorValue >= BigInt(currentRange.startCaptureTimeUs)
-    && cursorValue <= BigInt(currentRange.endCaptureTimeUs))
   if (action === 'service') {
+    const cursor = visualPlayhead.value
+    if (!cursor || !canMark.value) return { enabled: false, reason: '播放游標尚未確認' }
+    const cursorValue = BigInt(cursor)
     if (state.value === 'OPEN') return { enabled: false, reason: '目前仍有正在編輯的片段' }
     const start = cursorValue > clipPreRollUs.value ? cursorValue - clipPreRollUs.value : 0n
     const end = cursorValue + clipPostRollUs.value
     const overlap = selectableSegmentRanges.value.some(range => start < BigInt(range.endCaptureTimeUs) && end > BigInt(range.startCaptureTimeUs))
     return overlap ? { enabled: false, reason: '片段延展範圍會與既有片段重疊' } : { enabled: true, reason: '' }
   }
-  if (!['OPEN', 'READY'].includes(state.value)) return { enabled: false, reason: '請先開始或開啟可編輯片段' }
-  if (!insideCurrent) return { enabled: false, reason: '游標不在可編輯片段內' }
-  if (action === 'contact') {
-    if (state.value !== 'OPEN') return { enabled: false, reason: '已完成片段不可新增擊球點' }
-    const service = displayAnnotation.value?.snapshot.key_points.find(point => point.marker_kind === 'service')
-    if (!service || cursorValue < BigInt(service.capture_time_us)) return { enabled: false, reason: '擊球點必須位於發球之後' }
-    return { enabled: true, reason: '' }
-  }
-  return currentLastKeyPointId.value
-    ? { enabled: true, reason: '' }
-    : { enabled: false, reason: '沒有可設為終止點的擊球點' }
+  const service = displayAnnotation.value?.snapshot.key_points.find(point => point.marker_kind === 'service')
+  return draftCommandAvailability({
+    action,
+    state: state.value,
+    canMark: canMark.value,
+    cursorCaptureTimeUs: visualPlayhead.value,
+    serviceCaptureTimeUs: service?.capture_time_us ?? null,
+    confirmedLastKeyPointId: annotation.lastKeyPoint.value?.key_point_id ?? null,
+  })
 }
 
-function formatTimecode(value?: string | null) {
-  if (!value) return '00:00.000'
-  const milliseconds = Number(BigInt(value) / 1_000n)
-  const minutes = Math.floor(milliseconds / 60_000)
-  const seconds = Math.floor((milliseconds % 60_000) / 1_000)
-  const ms = milliseconds % 1_000
-  return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}.${String(ms).padStart(3, '0')}`
-}
 function formatDuration(value?: string | null) {
   if (!value) return '—'
   const seconds = Number(BigInt(value)) / 1_000_000
@@ -651,12 +654,15 @@ function updatePlaybackState() {
   playing.value = Boolean(video.value && !video.value.paused)
   if (playing.value) playbackHasStarted = true
   muted.value = Boolean(video.value?.muted)
+  if (playing.value) maintainPlaybackWindow()
 }
 function detachVideoState(element: HTMLVideoElement | null) {
   element?.removeEventListener('play', updatePlaybackState)
   element?.removeEventListener('pause', updatePlaybackState)
   element?.removeEventListener('volumechange', updatePlaybackState)
   element?.removeEventListener('timeupdate', maintainPlaybackWindow)
+  element?.removeEventListener('progress', maintainPlaybackWindow)
+  element?.removeEventListener('waiting', maintainPlaybackWindow)
   element?.removeEventListener('ended', maintainPlaybackWindow)
 }
 function maintainPlaybackWindow() {
@@ -664,40 +670,31 @@ function maintainPlaybackWindow() {
   const window = descriptor.value
   if (!element || !window || seekPreviewActive.value || playbackContinuationInFlight || !playbackHasStarted) return
   if (element.paused && !element.ended) return
-  if (element.readyState < HTMLMediaElement.HAVE_CURRENT_DATA || !Number.isFinite(element.duration) || element.duration <= 0) return
-  if (!element.ended && element.duration - element.currentTime > mediaBufferProfile.value.refreshLeadSeconds) return
+  if (!element.ended && bufferedSecondsAhead(element) > mediaBufferProfile.value.refreshLeadSeconds) return
   if (continuationWindowId === window.playback_window_id || performance.now() - continuationRequestedAt < 750) return
 
   const windowEnd = BigInt(window.window_capture_end_us)
-  const timelineEnd = liveTarget.value ? BigInt(liveTarget.value) : null
-  if (!timelineEnd || windowEnd >= timelineEnd) return
+  const timelineEnd = timelineEndTarget.value ? BigInt(timelineEndTarget.value) : BigInt(window.timeline_capture_end_us)
+  if (windowEnd >= timelineEnd) return
   const observedCapture = BigInt(window.presentation_origin_capture_us) + BigInt(Math.max(0, Math.round(element.currentTime * 1_000_000)))
   const target = (observedCapture > windowEnd ? windowEnd : observedCapture).toString()
   const sourceWindowId = window.playback_window_id
   continuationRequestedAt = performance.now()
   playbackContinuationInFlight = true
-  const session = selectedCapture.value
-  if (!session) { playbackContinuationInFlight = false; return }
-  void media.createPlaybackWindow({
+  continuationWindowId = sourceWindowId
+  void media.extendPlaybackWindow(sourceWindowId, {
     schema_version: '1.0.0',
-    capture_session_id: session.id,
-    mode: window.mode,
     target_capture_time_us: target,
-    requested_back_us: mediaBufferProfile.value.requestedBackUs,
     requested_forward_us: mediaBufferProfile.value.requestedForwardUs,
   }).then(async (created) => {
-    await overlayPlayer.value?.prewarmDescriptor(created)
     if (descriptor.value?.playback_window_id !== sourceWindowId) return
     if (BigInt(created.window_capture_end_us) <= windowEnd) {
-      continuationWindowId = null
       return
     }
-    continuationWindowId = sourceWindowId
-    dvr.activate(created)
+    dvr.refresh(created)
   }).catch((error) => {
-    continuationWindowId = null
     mediaError.value = error instanceof Error ? error.message : '背景載入播放視窗失敗'
-  }).finally(() => { playbackContinuationInFlight = false })
+  }).finally(() => { continuationWindowId = null; playbackContinuationInFlight = false })
 }
 function handleVideoReady(element: HTMLVideoElement) {
   if (video.value !== element) {
@@ -707,6 +704,8 @@ function handleVideoReady(element: HTMLVideoElement) {
     element.addEventListener('pause', updatePlaybackState)
     element.addEventListener('volumechange', updatePlaybackState)
     element.addEventListener('timeupdate', maintainPlaybackWindow)
+    element.addEventListener('progress', maintainPlaybackWindow)
+    element.addEventListener('waiting', maintainPlaybackWindow)
     element.addEventListener('ended', maintainPlaybackWindow)
   }
   updatePlaybackState()
@@ -793,11 +792,11 @@ useAnnotationHotkeyRuntime({ target: hotkeyTarget, dispatch: dispatchHotkeyComma
 watch(selectedCaptureId, (captureId) => {
   if (captureId) annotation.connect(`match:${matchId.toLowerCase()}:capture:${captureId.toLowerCase()}`)
 }, { immediate: true })
-watch([selectedCaptureId, liveTarget], ([captureId, target]) => {
-  if (!captureId || !target || dvr.busy.value || descriptor.value?.capture_session_id === captureId) return
-  void createWindow(target)
+watch([selectedCaptureId, defaultPlaybackTarget, selectedCaptureSourceKind], ([captureId, target, sourceKind]) => {
+  if (!captureId || !target || !sourceKind || dvr.busy.value || descriptor.value?.capture_session_id === captureId) return
+  void createWindow(target, isLiveCaptureSource(sourceKind) ? 'live' : 'archive')
 }, { immediate: true })
-watch(liveTarget, () => {
+watch(timelineEndTarget, () => {
   if (video.value?.ended) maintainPlaybackWindow()
 })
 watch(() => displayAnnotation.value?.rally_id, () => {
@@ -842,7 +841,7 @@ watch(() => dvr.error.value, (error) => {
   if (!error || windowRecoveryInFlight) return
   const code = 'code' in error && typeof error.code === 'string' ? error.code : ''
   if (!['PLAYBACK_WINDOW_NOT_FOUND', 'WINDOW_EXPIRED', 'MAPPING_STALE'].includes(code)) return
-  const target = authoritativeAnchor.value?.capture_time_us ?? captureTarget.value ?? liveTarget.value
+  const target = authoritativeAnchor.value?.capture_time_us ?? captureTarget.value ?? timelineEndTarget.value
   if (!target) return
   windowRecoveryInFlight = true
   void createWindow(target).then((created) => {
@@ -869,9 +868,10 @@ onBeforeUnmount(() => {
     <AnnotationWorkstationHeader
       :title="match?.title ?? matchId"
       :sync-label="syncLabel"
+      :latency-ms="annotation.latencyMs.value"
       :busy="annotation.busy.value || annotation.pendingCount.value > 0 || annotation.connection.value !== 'ready'"
       :error="Boolean(annotation.error.value || annotation.outboxNeedsConfirmation.value)"
-      :connection-title="`${annotation.connection.value} · ${selectedCapture?.health ?? 'unknown'}`"
+      :connection-title="`${annotation.connection.value} · ${annotation.latencyMs.value ?? '—'} ms · ${selectedCapture?.health ?? 'unknown'}`"
       @media="captureDialogOpen = true"
       @connection="connectionDialogOpen = true"
       @roster="rosterDialogOpen = true"
@@ -888,7 +888,7 @@ onBeforeUnmount(() => {
             <span>FRAME IDX</span>
             <code>{{ authoritativeAnchor?.capture_frame_index ?? '—' }}</code>
           </div>
-          <div v-if="!descriptor" class="stage-empty"><strong>{{ selectedCapture ? '媒體緩衝中' : '尚未加入媒體' }}</strong><button v-if="liveTarget" type="button" @click="createWindow(liveTarget)">LIVE</button></div>
+          <div v-if="!descriptor" class="stage-empty"><strong>{{ selectedCapture ? '媒體緩衝中' : '尚未加入媒體' }}</strong><button v-if="defaultPlaybackTarget" type="button" @click="createWindow(defaultPlaybackTarget, liveCapture ? 'live' : 'archive')">{{ liveCapture ? 'LIVE' : '開啟影片' }}</button></div>
         </div>
       </main>
       </UiResizablePanel>
@@ -931,7 +931,7 @@ onBeforeUnmount(() => {
         :frame-ready="Boolean(authoritativeAnchor)"
         :frame-move-pending="Boolean(pendingTimelineMove)"
         :timecode="displayTimecode"
-        :live-active="descriptor?.mode === 'live'"
+        :live-active="liveCapture && descriptor?.mode === 'live'"
         :live-available="Boolean(liveTarget)"
         :context-title="activeContextTitle"
         :context-hits="activeContextHits"
@@ -950,7 +950,7 @@ onBeforeUnmount(() => {
         @play-pause="dispatchMediaAction('play_pause')"
         @frame-previous="dispatchMediaAction('frame_previous')"
         @frame-next="dispatchMediaAction('frame_next')"
-        @live="createWindow(liveTarget ?? undefined)"
+        @live="liveTarget && createWindow(liveTarget, 'live')"
         @cancel-correction="cancelCorrection"
         @start-correction="startCorrection"
         @key-point-previous="dispatchMediaAction('key_point_previous')"
@@ -961,8 +961,8 @@ onBeforeUnmount(() => {
         @delete-selection="deleteSelection"
         @toggle-mute="dispatchMediaAction('mute')"
       />
-      <DvrTimelineDock :timeline="timeline" :playhead="visualPlayhead" :buffered-window="descriptor ? { startCaptureTimeUs: descriptor.window_capture_start_us, endCaptureTimeUs: descriptor.window_capture_end_us } : null" :annotation="displayAnnotation" :editable="state === 'OPEN' && editReady && !pendingTimelineMove" :selected-key-point-id="selectedKeyPointId" :mask-selected="selectedCurrentMask" :mask-range="currentMaskRange" :current-mask-status="currentMaskStatus" :current-mask-label="currentMaskLabel" :current-mask-outcome="currentMaskOutcome" :cursor-follow="cursorFollow" :segments="timelineSegments" :selected-segment-id="selectedHistoricalSegmentId" :soft-locks="annotation.remoteEditorsByKeyPoint.value" @preview="previewTimelineSeek" @seek="seekTimeline" @clear-selection="clearTimelineSelection" @select="selectTimelineKeyPoint" @select-mask="selectTimelineMask" @select-segment="selectHistoricalSegment" @edit-start="beginTimelineKeyPointEdit" @edit-cancel="cancelTimelineKeyPointEdit" @move="moveTimelineKeyPoint" />
-      <AnnotationCommandStrip :bindings="bindings" :state="state" :can-mark="canMark" :last-key-point="Boolean(currentLastKeyPointId)" :command-ready="commandReady" :pending-command="annotation.pendingCount.value > 0" :availability="commandAvailabilityMap" @action="dispatchAnnotationAction" @settings="openSettings('hotkeys')" />
+      <DvrTimelineDock :timeline="timeline" :playhead="visualPlayhead" :live-source="liveCapture" :buffered-window="descriptor ? { startCaptureTimeUs: descriptor.window_capture_start_us, endCaptureTimeUs: descriptor.window_capture_end_us } : null" :annotation="displayAnnotation" :editable="state === 'OPEN' && editReady && !pendingTimelineMove" :selected-key-point-id="selectedKeyPointId" :mask-selected="selectedCurrentMask" :mask-range="currentMaskRange" :current-mask-status="currentMaskStatus" :current-mask-label="currentMaskLabel" :current-mask-outcome="currentMaskOutcome" :cursor-follow="cursorFollow" :segments="timelineSegments" :selected-segment-id="selectedHistoricalSegmentId" :soft-locks="annotation.remoteEditorsByKeyPoint.value" @preview="previewTimelineSeek" @seek="seekTimeline" @clear-selection="clearTimelineSelection" @select="selectTimelineKeyPoint" @select-mask="selectTimelineMask" @select-segment="selectHistoricalSegment" @edit-start="beginTimelineKeyPointEdit" @edit-cancel="cancelTimelineKeyPointEdit" @move="moveTimelineKeyPoint" />
+      <AnnotationCommandStrip :bindings="bindings" :state="state" :can-mark="canMark" :last-key-point="Boolean(annotation.lastKeyPoint.value)" :command-ready="commandReady" :pending-command="annotation.pendingCount.value > 0" :availability="commandAvailabilityMap" @action="dispatchAnnotationAction" @settings="openSettings('hotkeys')" />
     </footer>
 
     <LazyAnnotationSettingsDialog :open="settingsOpen" :initial-page="settingsInitialPage" :clip-pre-roll-seconds="clipPreRollSeconds" :clip-post-roll-seconds="clipPostRollSeconds" :clip-policy-saving="clipPolicySaving" :clip-policy-error="clipPolicyError" @update-clip-policy="updateClipPolicy" @close="settingsOpen = false" />
@@ -1004,7 +1004,7 @@ onBeforeUnmount(() => {
 
 .editor-shell{grid-template-rows:44px minmax(0,1fr) 230px}.app-bar{grid-template-columns:auto minmax(280px,1fr) auto minmax(220px,auto);gap:12px;padding:0 10px;background:#0e1114}.window-title{min-width:0;display:flex;align-items:center;gap:7px}.window-title svg{color:#62a9ff}.window-title strong{max-width:260px;overflow:hidden;font-size:.75rem;text-overflow:ellipsis;white-space:nowrap}.window-menu{display:flex;align-items:center;gap:2px}.window-menu button,.window-menu a{width:auto!important;min-height:27px!important;display:flex!important;align-items:center;gap:5px;padding:0 8px!important;border-color:transparent!important;background:transparent!important;color:#9da6af;font-size:.65rem}.window-menu button:hover,.window-menu a:hover{background:#20262c!important;color:#eef2f5}.session-status{justify-content:flex-start;font-size:.68rem}.app-actions>a,.app-actions>button{width:30px!important;min-height:30px!important;border-color:transparent!important;border-radius:7px!important;background:transparent!important}.media-name{max-width:220px;font-size:.65rem}.editor-body{grid-template-columns:minmax(0,1fr) clamp(280px,22vw,330px)}.viewer-panel{padding:0;background:#030405}.video-stage{box-shadow:none}.viewer-badges span{border-radius:6px;font-size:.59rem}.inspector{padding:10px}.mode-switch{margin-bottom:10px;border-radius:8px}.mode-switch button{min-height:32px;font-size:.68rem}.score-board{min-height:62px;display:grid;grid-template-columns:minmax(0,1fr) auto auto auto minmax(0,1fr);align-items:center;gap:7px;padding:0 8px;border-bottom:1px solid var(--line);font-variant-numeric:tabular-nums}.score-board span{overflow:hidden;color:#aab2bb;font-size:.68rem;font-weight:650;text-overflow:ellipsis;white-space:nowrap}.score-board span:last-child{text-align:right}.score-board b{font-size:1.55rem}.score-board i{color:#69737d;font-style:normal}.current-segment{min-height:52px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid #282e34}.current-segment>div{display:grid;gap:2px}.current-segment span{color:#8d97a1;font-size:.62rem}.current-segment strong{font-size:.72rem}.segment-state{padding:3px 7px;border-radius:999px;background:#353c44!important;color:#c3c9d0!important;font-weight:700}.segment-state.open{background:#32373d!important}.segment-state.ready{background:#5b4519!important;color:#ffd987!important}.segment-state.submitted{background:#173f5f!important;color:#a9d7ff!important}.segment-stats{display:grid;grid-template-columns:repeat(3,1fr);margin:0;border-bottom:1px solid #282e34}.segment-stats div{min-height:53px;display:grid;place-content:center;justify-items:center;gap:2px}.segment-stats div+div{border-left:1px solid #282e34}.segment-stats dt{color:#7e8892;font-size:.6rem}.segment-stats dd{margin:0;font-size:.8rem;font-weight:700}.correction-button{min-height:34px!important;display:flex;align-items:center;justify-content:center;gap:7px;margin-top:10px}.segment-list-title{height:35px;display:flex;align-items:center;justify-content:space-between;color:#aab2bb;font-size:.65rem;font-weight:700}.segment-list-title b{min-width:20px;padding:2px 5px;border-radius:999px;background:#293039;font-size:.6rem;text-align:center}.segment-row{width:100%;min-height:37px!important;display:flex;align-items:center;justify-content:space-between!important;padding:0 9px!important;border:0!important;border-bottom:1px solid #242a30!important;border-radius:0!important;background:transparent!important;font-size:.66rem}.segment-row.active{background:#202830!important}.segment-row i{width:8px;height:8px;border-radius:50%;background:#4295d8}.segment-row i.processing{background:#d5a331}.segment-row i.mapped{background:#36b878}.segment-picker{display:grid;grid-template-columns:42px 1fr;align-items:center;gap:6px;margin-bottom:10px}.segment-picker span{color:#87919b;font-size:.64rem}.segment-picker select{height:31px;padding:0 8px;border:1px solid #404951;border-radius:6px;outline:0;background:#191e23;color:#eef2f5;font-size:.67rem}.timeline-footer{grid-template-rows:42px minmax(0,1fr) 53px}.transport-bar{gap:4px;padding:4px 10px}.transport-button{display:grid;place-items:center;border-radius:7px!important}.timecode{min-width:82px;margin-left:3px;font-size:.7rem}.live-badge{min-height:22px!important;padding:2px 7px!important;border:1px solid #59636d!important;border-radius:999px!important;background:#22272d!important;color:#a9b1ba!important;font-size:.56rem!important;font-weight:800}.live-badge.active{border-color:#287a50!important;background:#173c29!important;color:#73dda2!important}.transport-separator{width:1px;height:23px;margin:0 3px;background:#30363d}.tool-button{min-height:30px!important;display:flex;align-items:center;gap:5px;padding:0 8px!important;border-color:transparent!important;background:transparent!important;color:#aab3bc!important;font-size:.63rem}.tool-button:hover:not(:disabled),.tool-button.active{background:#252c33!important;color:#fff!important}.tool-button.danger{color:#dba1a5!important}.transport-spacer{flex:1}.global-error,.outbox-banner{top:52px}.presence-count{display:grid;min-width:18px;height:18px;place-items:center;border-radius:999px}.stage-empty span{display:none}@media(max-width:1050px){.app-bar{grid-template-columns:auto 1fr auto}.window-menu{display:none}.editor-body{grid-template-columns:minmax(0,1fr) 280px}.media-name{display:none}}@media(max-height:760px){.editor-shell{grid-template-rows:42px minmax(0,1fr) 204px}.timeline-footer{grid-template-rows:39px minmax(0,1fr) 49px}.tool-button span{display:none}}@media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
 
-.editor-shell{grid-template-rows:44px minmax(0,1fr) 260px}.editor-body{display:flex!important;grid-template-columns:none!important}.viewer-panel,.inspector{width:100%;height:100%}.viewer-badges{top:10px;right:10px;z-index:6;align-items:center}.viewer-badges span{min-height:22px;display:inline-flex;align-items:center;padding:3px 7px;line-height:1}.transport-context{grid-template-columns:minmax(0,1fr) auto}
+.app-bar{grid-template-columns:auto minmax(280px,1fr) auto}.editor-shell{grid-template-rows:44px minmax(0,1fr) 260px}.editor-body{display:flex!important;grid-template-columns:none!important}.viewer-panel,.inspector{width:100%;height:100%}.viewer-badges{top:10px;right:10px;z-index:6;align-items:center}.viewer-badges span{min-height:22px;display:inline-flex;align-items:center;padding:3px 7px;line-height:1}.transport-context{grid-template-columns:minmax(0,1fr) auto}
 .segment-row i.draft{background:#71717a}
 
 .viewer-frame-index{position:absolute;top:10px;left:10px;z-index:6;display:flex;width:max-content!important;height:auto!important;align-items:baseline;gap:8px;pointer-events:none;padding:5px 8px;border:1px solid #ffffff2b;border-radius:5px;background:#050709c2;color:#d9e0e6}

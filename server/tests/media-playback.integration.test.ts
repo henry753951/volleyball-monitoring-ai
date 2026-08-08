@@ -438,6 +438,51 @@ describe('Phase 2A playback-window HTTP', () => {
     ])).toEqual(forbiddenBefore)
   })
 
+  it('extends one stable manifest without replacing the playback window', async () => {
+    const created = await app.inject({
+      headers: authHeaders('operator'),
+      method: 'POST',
+      payload: {
+        ...createRequestBody(baseUs + 500_000n),
+        requested_back_us: '0',
+        requested_forward_us: '0',
+      },
+      url: '/api/v1/media/playback-windows',
+    })
+    expect(created.statusCode).toBe(200)
+    const original = created.json()
+    expect(await db.playbackWindowSegment.count({ where: { playbackWindowId: original.playback_window_id } })).toBe(1)
+
+    const extended = await app.inject({
+      headers: authHeaders('operator'),
+      method: 'POST',
+      payload: {
+        schema_version: '1.0.0',
+        target_capture_time_us: (baseUs + 500_000n).toString(),
+        requested_forward_us: '1500000',
+      },
+      url: `/api/v1/media/playback-windows/${original.playback_window_id}/extend`,
+    })
+    expect(extended.statusCode).toBe(200)
+    expect(extended.json()).toMatchObject({
+      playback_window_id: original.playback_window_id,
+      manifest_url: original.manifest_url,
+      mapping_version: original.mapping_version + 1,
+      presentation_origin_capture_us: original.presentation_origin_capture_us,
+      window_capture_end_us: (baseUs + 2_000_000n).toString(),
+    })
+    expect(await db.playbackWindowSegment.count({ where: { playbackWindowId: original.playback_window_id } })).toBe(2)
+
+    const manifest = await app.inject({
+      headers: authHeaders('operator'),
+      method: 'GET',
+      url: original.manifest_url,
+    })
+    expect(manifest.body).toContain(`/segments/media-${ids.segment1}`)
+    expect(manifest.body).toContain(`/segments/media-${ids.segment2}`)
+    expect(manifest.body).not.toContain('#EXT-X-ENDLIST')
+  })
+
   it('serves a bounded manifest and verified init/media bytes through opaque tokens', async () => {
     const created = await app.inject({
       headers: authHeaders('operator'),

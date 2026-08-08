@@ -148,7 +148,7 @@ function run(command: string, args: string[], cwd?: string) {
   })
 }
 
-function mediaMtxTimestamp(index: number) {
+function recorderTimestamp(index: number) {
   const date = new Date(Date.UTC(2026, 0, 1, 0, 0, 0) + index * 2_000)
   const year = date.getUTCFullYear()
   const month = String(date.getUTCMonth() + 1).padStart(2, '0')
@@ -185,7 +185,7 @@ async function prepareOfflineDvr(sourcePath: string) {
   const init = await readFile(resolve(building, 'init.mp4'))
   for (const [index, name] of segments.entries()) {
     const media = await readFile(resolve(building, name))
-    await writeFile(resolve(output, mediaMtxTimestamp(index)), Buffer.concat([init, media]))
+    await writeFile(resolve(output, recorderTimestamp(index)), Buffer.concat([init, media]))
   }
   await rm(building, { recursive: true, force: true })
   await writeFile(manifestPath, `${JSON.stringify({ schemaVersion: 2, sourceSha256, segmentCount: segments.length })}\n`)

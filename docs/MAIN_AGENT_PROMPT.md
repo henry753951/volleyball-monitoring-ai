@@ -10,7 +10,7 @@
 4. `packages/contracts/README.md`與fixtures。
 5. `README.md`、`docs/progress.md`、`docs/open-decisions.md`。
 
-本repo不實作AI模型。只實作PC-first Nuxt標註工作站、coach/viewer landscape-first iPad PWA、Fastify + GraphQL Yoga + Pothos/Prisma中央系統、REST/WebSocket、MediaMTX/FFmpeg完整DVR與裁切、PostgreSQL/Redis/MinIO/Traefik、AI contracts/Recorded Tracking Replay Provider及GitHub可安裝Python SDK。
+本repo不實作AI模型。只實作PC-first Nuxt標註工作站、coach/viewer landscape-first iPad PWA、Fastify + GraphQL Yoga + Pothos/Prisma中央系統、REST/WebSocket、OvenMediaEngine/FFmpeg完整DVR與裁切、PostgreSQL/Redis/MinIO/Traefik、AI contracts/Recorded Tracking Replay Provider及GitHub可安裝Python SDK。
 
 最多同時派三個subagent，固定ownership：
 

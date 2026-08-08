@@ -8,6 +8,7 @@ import { timelineBounds, capturePercentBps, rulerTicks, pointerTarget, readyAt, 
 const props = defineProps<{
   timeline: CaptureTimeline | null
   playhead: string | null
+  liveSource?: boolean
   annotation?: AnnotationRallySnapshot | null
   editable?: boolean
   selectedKeyPointId?: string | null
@@ -53,6 +54,7 @@ const emit = defineEmits<{
   clearSelection: []
 }>()
 const fullBounds = computed(() => timelineBounds(props.timeline?.availableRanges ?? []))
+const timelineOriginUs = computed(() => props.timeline?.captureStartTimeUs ?? fullBounds.value?.startUs ?? null)
 const zoom = ref(1)
 const pan = ref(1)
 const targetZoom = ref(1)
@@ -84,7 +86,7 @@ const viewBounds = computed(() => {
   const viewStart = start + availablePan * BigInt(Math.round(pan.value * 1_000_000)) / 1_000_000n
   return { startUs: viewStart.toString(), endUs: (viewStart + visibleSpan).toString() }
 })
-const ticks = computed(() => rulerTicks(viewBounds.value, fullBounds.value?.startUs))
+const ticks = computed(() => rulerTicks(viewBounds.value, timelineOriginUs.value ?? undefined))
 const gaps = computed(() => gapRanges(props.timeline?.availableRanges ?? []))
 const annotationPoints = computed(() => props.annotation?.snapshot.key_points ?? [])
 const immutable = computed(() => props.annotation?.snapshot.annotation_status === 'submitted')
@@ -96,7 +98,7 @@ const currentMaskLabel = computed(() => {
 })
 const maskStart = computed(() => props.maskRange?.startCaptureTimeUs ?? annotationPoints.value[0]?.capture_time_us ?? null)
 const maskEnd = computed(() => props.maskRange?.endCaptureTimeUs ?? annotationPoints.value.at(-1)?.capture_time_us ?? null)
-const liveEdge = computed(() => props.timeline?.liveEdgeCaptureTimeUs ?? props.timeline?.availableRanges.at(-1)?.endUs ?? null)
+const liveEdge = computed(() => props.liveSource ? props.timeline?.liveEdgeCaptureTimeUs ?? props.timeline?.availableRanges.at(-1)?.endUs ?? null : null)
 const displayPlayhead = computed(() => playheadDrag.value?.targetCaptureTimeUs ?? optimisticPlayhead.value ?? props.playhead ?? stablePlayhead.value)
 const isVisible = (time: string) => Boolean(viewBounds.value && BigInt(time) >= BigInt(viewBounds.value.startUs) && BigInt(time) <= BigInt(viewBounds.value.endUs))
 const position = (time: string) => viewBounds.value ? capturePercentBps(time, viewBounds.value) / 100 : 0
@@ -161,7 +163,7 @@ watch(() => props.playhead, (value) => {
   if (optimisticPlayhead.value && absDiff(value, optimisticPlayhead.value) <= 100_000n) clearOptimisticPlayhead()
   const bounds = fullBounds.value
   const view = viewBounds.value
-  if (!bounds || !view || targetZoom.value <= 1 || Date.now() < manualViewUntil || playheadDrag.value) return
+  if (!bounds || !view || targetZoom.value <= 1 || Date.now() < manualViewUntil || optimisticPlayhead.value || playheadDrag.value) return
   const target = BigInt(value)
   if (target >= BigInt(view.startUs) && target <= BigInt(view.endUs)) return
   const fullStart = BigInt(bounds.startUs)
@@ -284,9 +286,9 @@ function cancelPlayheadDrag(event: PointerEvent) {
 }
 function playheadDragLabel() {
   const target = playheadDrag.value?.targetCaptureTimeUs
-  const bounds = fullBounds.value
-  if (!target || !bounds) return ''
-  const milliseconds = Number((BigInt(target) - BigInt(bounds.startUs)) / 1_000n)
+  const origin = timelineOriginUs.value
+  if (!target || !origin) return ''
+  const milliseconds = Number((BigInt(target) - BigInt(origin)) / 1_000n)
   const minutes = Math.max(0, Math.floor(milliseconds / 60_000))
   const seconds = Math.max(0, Math.floor(milliseconds % 60_000 / 1_000))
   const ms = Math.max(0, milliseconds % 1_000)
@@ -309,6 +311,7 @@ function selectHistoricalPoint(segmentId: string, captureTimeUs: string) {
 function focusRange(startCaptureTimeUs: string, endCaptureTimeUs: string, seekTarget: string | null = startCaptureTimeUs) {
   const bounds = fullBounds.value
   if (!bounds) return
+  manualViewUntil = Date.now() + 3_000
   const fullStart = BigInt(bounds.startUs)
   const fullEnd = BigInt(bounds.endUs)
   const rangeStart = BigInt(startCaptureTimeUs)
@@ -328,7 +331,7 @@ function focusRange(startCaptureTimeUs: string, endCaptureTimeUs: string, seekTa
   if (seekTarget) requestSeek(seekTarget)
 }
 function focusHistoricalSegment(segment: { id: string; startCaptureTimeUs: string; endCaptureTimeUs: string }) {
-  focusRange(segment.startCaptureTimeUs, segment.endCaptureTimeUs, null)
+  focusRange(segment.startCaptureTimeUs, segment.endCaptureTimeUs)
 }
 function focusCurrentMask() {
   if (!maskStart.value || !maskEnd.value) return
@@ -393,7 +396,7 @@ onBeforeUnmount(() => {
 
 <template>
   <section class="timeline-surface" aria-label="影音時間軸" @wheel.prevent="wheel">
-    <div class="ruler-row" title="點擊跳轉" @click="seek"><span v-for="(tick, index) in ticks" :key="`${tick.value}-${index}`" class="ruler-tick" :style="{ left: `${tick.percentBps / 100}%` }" :title="tick.value">{{ tick.label }}<i /></span></div>
+    <div class="ruler-row" title="點擊跳轉" @click="seek"><span v-for="(tick, index) in ticks" :key="`${tick.value}-${index}`" class="ruler-tick" :style="{ left: `${tick.percentBps / 100}%` }" :title="tick.value" @click.stop="requestSeek(tick.value)">{{ tick.label }}<i /></span></div>
     <div class="buffer-status" role="slider" aria-label="影片定位" :aria-valuemin="viewBounds?.startUs ?? '0'" :aria-valuemax="viewBounds?.endUs ?? '0'" :aria-valuenow="displayPlayhead ?? viewBounds?.startUs ?? '0'" @click="seek"><i v-for="range in timeline?.availableRanges ?? []" :key="`${range.startUs}-${range.endUs}`" class="ready-range" :style="{ left: `${position(range.startUs)}%`, width: `${Math.max(0, position(range.endUs) - position(range.startUs))}%` }" /><i v-if="bufferedWindow" class="playback-ready" :style="{ left: `${position(bufferedWindow.startCaptureTimeUs)}%`, width: `${Math.max(.2, position(bufferedWindow.endCaptureTimeUs) - position(bufferedWindow.startCaptureTimeUs))}%` }" /><i v-for="gap in gaps" :key="`${gap.startUs}-${gap.endUs}`" class="gap-range" :style="{ left: `${position(gap.startUs)}%`, width: `${Math.max(0, position(gap.endUs) - position(gap.startUs))}%` }" /></div>
     <div class="lane-row clip-lane">
       <span class="lane-label">片段</span>

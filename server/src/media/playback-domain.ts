@@ -75,7 +75,55 @@ export type PlaybackResourceKind = 'init' | 'media'
 export interface PlaybackManifestSegment {
   id: string
   durationUs: bigint
+  discontinuity: number
   initAssetId: string
+  sequenceNumber: bigint
+}
+
+export interface RollingPlaybackSegment {
+  id: string
+  captureStartUs: bigint
+  captureEndUs: bigint
+}
+
+/**
+ * A rolling HLS playlist may discard an already-buffered prefix while keeping
+ * the same playback-window URL. The overlapping suffix must remain byte-for-
+ * byte mapped to the same DVR segments and the replacement must append media.
+ */
+export function assertRollingPlaybackSelection(
+  current: readonly RollingPlaybackSegment[],
+  next: readonly RollingPlaybackSegment[],
+): void {
+  if (current.length === 0 || next.length === 0) {
+    throw new MediaHttpError(409, 'MEDIA_NOT_READY', 'Playback continuation has no media')
+  }
+
+  const firstNext = next[0]!
+  const overlapStart = current.findIndex(segment => (
+    segment.captureStartUs === firstNext.captureStartUs
+    && segment.captureEndUs === firstNext.captureEndUs
+  ))
+  if (overlapStart < 0) {
+    throw new MediaHttpError(409, 'MAPPING_STALE', 'Playback continuation lost its rolling overlap')
+  }
+
+  const overlapLength = Math.min(current.length - overlapStart, next.length)
+  for (let index = 0; index < overlapLength; index += 1) {
+    const previous = current[overlapStart + index]!
+    const replacement = next[index]!
+    if (
+      previous.id !== replacement.id
+      || previous.captureStartUs !== replacement.captureStartUs
+      || previous.captureEndUs !== replacement.captureEndUs
+    ) {
+      throw new MediaHttpError(409, 'MAPPING_STALE', 'Playback continuation changed existing media')
+    }
+  }
+
+  if (next.length <= overlapLength) {
+    throw new MediaHttpError(409, 'MEDIA_NOT_READY', 'Playback continuation did not append media')
+  }
 }
 
 const UUID = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i
@@ -216,6 +264,24 @@ function runForTarget(
   return null
 }
 
+function contiguousSpanForRun(
+  runs: readonly ReadyPlaybackRun[],
+  selectedRun: ReadyPlaybackRun,
+): ReadyPlaybackRun {
+  const selectedIndex = runs.indexOf(selectedRun)
+  let first = selectedIndex
+  let last = selectedIndex
+  while (first > 0 && runs[first - 1]!.endUs === runs[first]!.startUs) first -= 1
+  while (last + 1 < runs.length && runs[last]!.endUs === runs[last + 1]!.startUs) last += 1
+  const span = runs.slice(first, last + 1)
+  return {
+    discontinuity: selectedRun.discontinuity,
+    startUs: span[0]!.startUs,
+    endUs: span.at(-1)!.endUs,
+    segments: span.flatMap(run => run.segments),
+  }
+}
+
 function segmentsForBounds(
   run: ReadyPlaybackRun,
   targetUs: bigint,
@@ -270,8 +336,11 @@ export function selectPlaybackWindow(input: {
   }
   requireNonNegative(targetUs, 'target_capture_time_us')
 
-  const selectedRun = runForTarget(runs, targetUs, mode)
-  if (!selectedRun) throw targetUnavailableError(candidates, targetUs)
+  const targetRun = runForTarget(runs, targetUs, mode)
+  if (!targetRun) throw targetUnavailableError(candidates, targetUs)
+  // A capture epoch/codec-init boundary is represented inside one HLS playlist
+  // with EXT-X-DISCONTINUITY. Only an actual capture gap splits a playable span.
+  const selectedRun = contiguousSpanForRun(runs, targetRun)
 
   const backUs = requestedDuration(
     requestedBackUs,
@@ -373,6 +442,7 @@ function formatDurationUs(durationUs: bigint): string {
 export function formatManifest(
   windowId: string,
   segments: readonly PlaybackManifestSegment[],
+  options: { endList: boolean },
 ): string {
   if (!UUID.test(windowId) || segments.length === 0) {
     throw new MediaHttpError(409, 'MEDIA_NOT_READY', 'Playback manifest is unavailable')
@@ -387,13 +457,19 @@ export function formatManifest(
     '#EXTM3U',
     '#EXT-X-VERSION:7',
     `#EXT-X-TARGETDURATION:${targetDuration > 0n ? targetDuration : 1n}`,
-    '#EXT-X-MEDIA-SEQUENCE:0',
-    '#EXT-X-PLAYLIST-TYPE:VOD',
+    `#EXT-X-MEDIA-SEQUENCE:${segments[0]!.sequenceNumber}`,
   ]
   let previousInitAssetId: string | null = null
+  let previousDiscontinuity: number | null = null
   for (const segment of segments) {
     if (!UUID.test(segment.initAssetId)) {
       throw new MediaHttpError(409, 'MEDIA_NOT_READY', 'Initialization media is unavailable')
+    }
+    if (
+      previousDiscontinuity !== null
+      && segment.discontinuity !== previousDiscontinuity
+    ) {
+      lines.push('#EXT-X-DISCONTINUITY')
     }
     if (segment.initAssetId !== previousInitAssetId) {
       lines.push(
@@ -405,8 +481,9 @@ export function formatManifest(
       `#EXTINF:${formatDurationUs(segment.durationUs)},`,
       `${base}/${playbackResourceToken('media', segment.id)}`,
     )
+    previousDiscontinuity = segment.discontinuity
   }
-  lines.push('#EXT-X-ENDLIST')
+  if (options.endList) lines.push('#EXT-X-ENDLIST')
   return `${lines.join('\n')}\n`
 }
 

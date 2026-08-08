@@ -960,7 +960,7 @@ Presence/soft lock & Backend & Web & WebSocket \\
 \NormalTok{├── infra/}
 \NormalTok{│   ├── compose.yaml}
 \NormalTok{│   ├── docker/}
-\NormalTok{│   ├── mediamtx/}
+\NormalTok{│   ├── ome/}
 \NormalTok{│   └── k8s/}
 \NormalTok{├── scripts/}
 \NormalTok{└── .github/workflows/ci.yml}
@@ -1105,7 +1105,7 @@ pg-boss queue，成功後才標記 \texttt{PUBLISHED}。
 \begin{itemize}
 \tightlist
 \item
-  MediaMTX：接收來源、live LL-HLS/WebRTC、fMP4 recording 與基礎
+  OvenMediaEngine：接收來源、live LL-HLS/WebRTC、fMP4 recording 與基礎
   playback。
 \item
   FFmpeg/ffprobe：索引、archive playback window、canonical clip、preview
@@ -1154,7 +1154,7 @@ Job／Realtime & pg-boss + Redis & durable worker job與WS
 fan-out／presence \\
 Object Storage & MinIO S3 & raw recording、DVR、canonical
 clip、analysis與overlay artifacts \\
-Media & MediaMTX + FFmpeg/ffprobe &
+Media & OvenMediaEngine + FFmpeg/ffprobe &
 ingest、LL-HLS、完整錄製、index、playback window與裁切 \\
 Edge & Traefik 3.7.9 & 本地Docker同源routing、WebSocket與HLS反向代理 \\
 AI Integration & Python 3.11+ SDK & 外部AI
@@ -1259,7 +1259,7 @@ spool 只是暫存 \\
 \texttt{worker-ai-dispatcher} / \texttt{worker-analysis-ingest} /
 \texttt{worker-outbox-publisher} &
 submit／retry、callback terminal convergence、durable domain-event publish & 否 \\
-\texttt{mediamtx} & ingest/live/record & recording spool 暫存 \\
+\texttt{ovenmediaengine} & ingest/live/record & recording spool 與 DVR 暫存 \\
 \texttt{postgres} & canonical metadata、revision、job、analysis & 是 \\
 \texttt{minio} & media、clip、analysis artifact & 是 \\
 \texttt{redis} & presence、soft lock、fan-out & 否，可重建 \\
@@ -1634,8 +1634,14 @@ playlist可使用 program date time協助跨 rendition／窗口對齊，但
 canonical資料仍以自己的 capture/sample index為準。
 
 預設 window可設 3--5 分鐘，這只是 client loading策略，不是回放限制。接近
-window邊界時 lazy prefetch下一個 window；使用者在歷史回放時，live錄製與
-live-edge更新持續進行。
+window邊界時，server 可在同一個 playback window
+內丟棄瀏覽器已緩衝的舊 prefix 並附加連續的新 tail；重疊 suffix
+必須完全相同。此時
+\texttt{window\_\allowbreak{}capture\_\allowbreak{}start\_\allowbreak{}us}
+可以向前推進，但
+\texttt{presentation\_\allowbreak{}origin\_\allowbreak{}capture\_\allowbreak{}us}、window
+ID、manifest URL 與 browser media-time mapping
+必須固定。使用者在歷史回放時，live錄製與 live-edge更新持續進行。
 
 \subsection{8.4 Client Buffer 策略}\label{84-client-buffer-ux7b56ux7565}
 
@@ -1645,11 +1651,17 @@ live-edge更新持續進行。
   \texttt{live}：使用 LL-HLS rolling manifest，只保存最近幾分鐘的
   segment references。
 \item
-  \texttt{archive}：下載固定 window；接近 20--30 秒邊界時 prefetch 相鄰
-  window。
+  \texttt{archive}：同一個 bounded playback window 使用固定 manifest
+  URL；依實際 MSE buffered edge 提前滑動 ready segment
+  selection、丟棄已緩衝 prefix、append 新 tail 並提升 mapping
+  revision，不得切換 \texttt{<video src>}。
 \item
-  記憶體只保留 current/previous/next window metadata；已遠離的
-  MediaSource buffer 與 overlay chunk 必須釋放。
+  capture epoch／init map 改變由同一 manifest 的
+  \texttt{EXT-X-DISCONTINUITY} 表達；只有真正 capture gap 才中止連續範圍並禁止播放／標記。
+\item
+  hls.js 持有唯一長存 MediaSource Blob 並負責 playlist reload、segment
+  prefetch/retry 與 buffer eviction；已遠離的 MediaSource buffer 與 overlay
+  chunk 必須釋放。
 \item
   不在背景維持第二支 live video；以 WebSocket live edge
   更新替代，避免雙倍頻寬。
@@ -3181,7 +3193,7 @@ Scaffold}\label{phase-0--contract-freeze-ux8207-scaffold}
 \begin{itemize}
 \tightlist
 \item
-  Prisma schema、Compose、health、MinIO init、MediaMTX baseline。
+  Prisma schema、Compose、health、MinIO init、OvenMediaEngine baseline。
 \item
   不先實作完整功能。
 \end{itemize}
@@ -3243,7 +3255,7 @@ Backend／Media：
 \begin{itemize}
 \tightlist
 \item
-  MediaMTX ingest/record。
+  OvenMediaEngine ingest/record。
 \item
   Segment index → MinIO/DB。
 \item
@@ -3410,7 +3422,7 @@ Schema、validation、recorded replay provider adapter與 fixtures，不實作 A
 
 \begin{quote}
 建立 TypeScript
-server/worker、Prisma、PostgreSQL、MinIO、Redis、MediaMTX與Compose
+server/worker、Prisma、PostgreSQL、MinIO、Redis、OvenMediaEngine與Compose
 skeleton。GraphQL使用 Yoga，binary走REST，高頻
 annotation走自訂WS。不得自行發明與 contracts不同的欄位。
 \end{quote}
@@ -3482,7 +3494,7 @@ Prompt}\label{23-ux4e3b-agent-ux53efux76f4ux63a5ux4f7fux7528ux7684-prompt}
 \NormalTok{本專案不實作 AI 模型，只實作：}
 \NormalTok{{-} Nuxt 標註端與教練端}
 \NormalTok{{-} Fastify + GraphQL Yoga + Pothos/Prisma 的 GraphQL/REST/WebSocket 中央後端}
-\NormalTok{{-} MediaMTX + FFmpeg 完整 DVR、windowed lazy playback與 clip服務}
+\NormalTok{{-} OvenMediaEngine + FFmpeg 完整 DVR、windowed lazy playback與 clip服務}
 \NormalTok{{-} Prisma/PostgreSQL、MinIO、Redis與durable workers}
 \NormalTok{{-} 外部 AI Job/callback contracts}
 \NormalTok{{-} 可從 GitHub subdirectory安裝的 Python SDK}
@@ -3854,9 +3866,9 @@ Baseline}\label{27-ux5c1aux5f85ux4ebaux985eai-ux5718ux968aux78baux8a8dux4f46ux4e
   Prisma PostgreSQL:
   \url{https://www.prisma.io/docs/orm/overview/databases/postgresql}
 \item
-  MediaMTX: \url{https://mediamtx.org/docs/}
+  OvenMediaEngine: \url{https://github.com/OvenMediaLabs/OvenMediaEngine}
 \item
-  MediaMTX playback: \url{https://mediamtx.org/docs/features/playback}
+  OvenMediaEngine LL-HLS: \url{https://docs.ovenmediaengine.com/0.17.2/streaming/low-latency-hls}
 \item
   HTMLVideoElement requestVideoFrameCallback:
   \url{https://developer.mozilla.org/docs/Web/API/HTMLVideoElement/requestVideoFrameCallback}

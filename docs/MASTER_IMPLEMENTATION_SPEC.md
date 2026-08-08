@@ -391,7 +391,7 @@ volleyball-monitoring-ai/
 ├── infra/
 │   ├── compose.yaml
 │   ├── docker/
-│   ├── mediamtx/
+│   ├── ome/
 │   └── k8s/
 ├── scripts/
 └── .github/workflows/ci.yml
@@ -457,7 +457,7 @@ server/src/graphql/**/*.ts (Pothos source)
 
 ## 4.5 Media
 
-- MediaMTX：接收來源、live LL-HLS/WebRTC、fMP4 recording 與基礎 playback。
+- OvenMediaEngine：接收來源、live LL-HLS/WebRTC、fMP4 recording 與基礎 playback。
 - FFmpeg/ffprobe：索引、archive playback window、canonical clip、preview 與 sample mapping。
 - MinIO：完整錄影片段、playback windows、clips、AI artifacts。
 - PostgreSQL：capture epochs、segment index、available ranges、mapping version、job state。
@@ -480,7 +480,7 @@ server/src/graphql/**/*.ts (Pothos source)
 | Data | Prisma 7 + PostgreSQL 17 | domain、revision、media index、submission、job與analysis metadata |
 | Job／Realtime | pg-boss + Redis | durable worker job與WS fan-out／presence |
 | Object Storage | MinIO S3 | raw recording、DVR、canonical clip、analysis與overlay artifacts |
-| Media | MediaMTX + FFmpeg/ffprobe | ingest、LL-HLS、完整錄製、index、playback window與裁切 |
+| Media | OvenMediaEngine + FFmpeg/ffprobe | ingest、LL-HLS、完整錄製、index、playback window與裁切 |
 | Edge | Traefik 3.7.9 | 本地Docker同源routing、WebSocket與HLS反向代理 |
 | AI Integration | Python 3.11+ SDK | 外部AI team驗證Job／Result、下載clip、callback與FlatBuffers |
 
@@ -530,7 +530,7 @@ server/src/graphql/**/*.ts (Pothos source)
 | `server` | GraphQL、REST、WS、auth、domain command | 否 |
 | `worker-media-indexer` / `worker-playback` / `worker-clip` | index、bounded playback-window lifecycle、clip、FFmpeg | local spool 只是暫存 |
 | `worker-ai-dispatcher` / `worker-analysis-ingest` / `worker-outbox-publisher` | submit／retry、callback terminal convergence、durable domain-event publish | 否 |
-| `mediamtx` | ingest/live/record | recording spool 暫存 |
+| `ovenmediaengine` | ingest/live/record | recording spool 與 DVR 暫存 |
 | `postgres` | canonical metadata、revision、job、analysis | 是 |
 | `minio` | media、clip、analysis artifact | 是 |
 | `redis` | presence、soft lock、fan-out | 否，可重建 |
@@ -759,13 +759,14 @@ Response：
 
 `capture_time_us = presentation_origin_capture_us + player_media_time_us` 只是一階 mapping；後端仍須以 sample index吸附到實際 frame。HLS playlist可使用 program date time協助跨 rendition／窗口對齊，但 canonical資料仍以自己的 capture/sample index為準。
 
-預設 window可設 3–5 分鐘，這只是 client loading策略，不是回放限制。接近 window邊界時 lazy prefetch下一個 window；使用者在歷史回放時，live錄製與 live-edge更新持續進行。
+預設 window可設 3–5 分鐘，這只是 client loading策略，不是回放限制。接近 window邊界時，server 可在同一個 playback window 內丟棄瀏覽器已緩衝的舊 prefix 並附加連續的新 tail；重疊 suffix 必須完全相同。此時 `window_capture_start_us` 可以向前推進，但 `presentation_origin_capture_us`、window ID、manifest URL 與 browser media-time mapping 必須固定。使用者在歷史回放時，live錄製與 live-edge更新持續進行。
 
 ## 8.4 Client Buffer 策略
 
 - `live`：使用 LL-HLS rolling manifest，只保存最近幾分鐘的 segment references。
-- `archive`：下載固定 window；接近 20–30 秒邊界時 prefetch 相鄰 window。
-- 記憶體只保留 current/previous/next window metadata；已遠離的 MediaSource buffer 與 overlay chunk 必須釋放。
+- `archive`：同一個 bounded playback window 使用固定 manifest URL；依實際 MSE buffered edge 提前滑動 ready segment selection、丟棄已緩衝 prefix、append 新 tail 並提升 mapping revision，不得切換 `<video src>`。
+- capture epoch／init map 改變由同一 manifest 的 `EXT-X-DISCONTINUITY` 表達；只有真正 capture gap 才中止連續範圍並禁止播放／標記。
+- hls.js 持有唯一長存 MediaSource Blob 並負責 playlist reload、segment prefetch/retry與 buffer eviction；已遠離的 MediaSource buffer 與 overlay chunk 必須釋放。
 - 不在背景維持第二支 live video；以 WebSocket live edge 更新替代，避免雙倍頻寬。
 - 回到 live 時再 load live manifest。
 
@@ -1751,7 +1752,7 @@ Web只預載當前與下一 chunk；seek時取消無用 request並載目標 chun
 
 ### Backend Agent
 
-- Prisma schema、Compose、health、MinIO init、MediaMTX baseline。
+- Prisma schema、Compose、health、MinIO init、OvenMediaEngine baseline。
 - 不先實作完整功能。
 
 ### Luna Frontend Agent
@@ -1784,7 +1785,7 @@ Exit：可建立場次、set、左右隊與 roster；換邊資料可查。
 
 Backend／Media：
 
-- MediaMTX ingest/record。
+- OvenMediaEngine ingest/record。
 - Segment index → MinIO/DB。
 - Timeline GraphQL。
 - Live rolling playback window。
@@ -1875,7 +1876,7 @@ Exit：跨 rally player view不依賴 track ID；side switch後 team統計正確
 
 ### Agent B
 
-> 建立 TypeScript server/worker、Prisma、PostgreSQL、MinIO、Redis、MediaMTX與Compose skeleton。GraphQL使用 Yoga，binary走REST，高頻 annotation走自訂WS。不得自行發明與 contracts不同的欄位。
+> 建立 TypeScript server/worker、Prisma、PostgreSQL、MinIO、Redis、OvenMediaEngine與Compose skeleton。GraphQL使用 Yoga，binary走REST，高頻 annotation走自訂WS。不得自行發明與 contracts不同的欄位。
 
 ### Agent C - Luna Frontend
 
@@ -1928,7 +1929,7 @@ Exit：跨 rally player view不依賴 track ID；side switch後 team統計正確
 本專案不實作 AI 模型，只實作：
 - Nuxt 標註端與教練端
 - Fastify + GraphQL Yoga + Pothos/Prisma 的 GraphQL/REST/WebSocket 中央後端
-- MediaMTX + FFmpeg 完整 DVR、windowed lazy playback與 clip服務
+- OvenMediaEngine + FFmpeg 完整 DVR、windowed lazy playback與 clip服務
 - Prisma/PostgreSQL、MinIO、Redis與durable workers
 - 外部 AI Job/callback contracts
 - 可從 GitHub subdirectory安裝的 Python SDK
@@ -2174,8 +2175,8 @@ max_concurrent_threads_per_session = 3
 - Nuxt 4: https://nuxt.com/docs/4.x/
 - GraphQL Yoga: https://the-guild.dev/graphql/yoga-server
 - Prisma PostgreSQL: https://www.prisma.io/docs/orm/overview/databases/postgresql
-- MediaMTX: https://mediamtx.org/docs/
-- MediaMTX playback: https://mediamtx.org/docs/features/playback
+- OvenMediaEngine: https://github.com/OvenMediaLabs/OvenMediaEngine
+- OvenMediaEngine LL-HLS: https://docs.ovenmediaengine.com/0.17.2/streaming/low-latency-hls
 - HTMLVideoElement requestVideoFrameCallback: https://developer.mozilla.org/docs/Web/API/HTMLVideoElement/requestVideoFrameCallback
 - FlatBuffers: https://flatbuffers.dev/
 - pip VCS/subdirectory: https://pip.pypa.io/en/stable/topics/vcs-support/

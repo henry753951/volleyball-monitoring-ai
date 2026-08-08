@@ -6,7 +6,6 @@ import { join } from 'node:path'
 import { Transform } from 'node:stream'
 import { pipeline } from 'node:stream/promises'
 import { chunkProviderOverlay, encodeBrowserOverlayChunk, parseProviderOverlaySequence, type ProviderOverlaySequence } from '@volleyball-monitoring/contracts'
-import multipart from '@fastify/multipart'
 import { db } from '@volleyball-monitoring/db'
 import { ArtifactState, AssociationState, BallObservationState, CallbackKind, JobStatus, MarkerKind, MediaAssetKind, Prisma, ProcessingStatus, SegmentEndpoint, SegmentRenderState, TrackCourtSide } from '@volleyball-monitoring/db/client'
 import Ajv2020 from 'ajv/dist/2020.js'
@@ -113,7 +112,6 @@ function loadJob(aiJobId: string) {
 }
 
 export const aiCallbackRoutes: FastifyPluginAsync = async (app) => {
-  await app.register(multipart, { limits: { fields: 4, files: 2, fileSize: 512 * 1024 * 1024, parts: 6 } })
   app.post<{ Params: { aiJobId: string } }>('/api/v1/ai/callback/:aiJobId', async (request, reply) => {
     const aiJobId = request.params.aiJobId
     if (!uuid.test(aiJobId)) return reject(reply, 404, 'NOT_FOUND', 'AI job not found')
@@ -129,7 +127,9 @@ export const aiCallbackRoutes: FastifyPluginAsync = async (app) => {
       let overlayInfo: { bytes: number; sha256: string } | null = null
       const contentType = request.headers['content-type'] ?? ''
       if (request.isMultipart()) {
-        for await (const part of request.parts()) {
+        for await (const part of request.parts({
+          limits: { fields: 4, files: 2, fileSize: 512 * 1024 * 1024, parts: 6 },
+        })) {
           if (part.type === 'field' && part.fieldname === 'metadata') metadata = typeof part.value === 'string' ? JSON.parse(part.value) : part.value
           else if (part.type === 'file' && part.fieldname === 'analysis') analysisBytes = await readBounded(part.file, 10 * 1024 * 1024)
           else if (part.type === 'file' && part.fieldname === 'overlay') { overlayPath = join(directory, 'overlay.fb'); overlayInfo = await writeBounded(part.file, overlayPath, 512 * 1024 * 1024) }

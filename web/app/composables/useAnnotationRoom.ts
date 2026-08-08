@@ -61,6 +61,7 @@ function annotationCursor(cursor: PlaybackCursorInput) {
 export function useAnnotationRoom() {
   const snapshot = shallowRef<AnnotationRallySnapshot | null>(null)
   const connection = ref<AnnotationConnectionState>('closed')
+  const latencyMs = ref<number | null>(null)
   const busy = ref(false)
   const error = ref<string | null>(null)
   const roomId = ref<string | null>(null)
@@ -214,6 +215,7 @@ export function useAnnotationRoom() {
     loadOutbox()
     realtime = createAnnotationRealtimeClient(nextRoomId, {
       onState: value => { connection.value = value },
+      onLatency: value => { latencyMs.value = value },
       onError: (cause) => {
         if (!['Annotation WebSocket unavailable', 'Annotation connection closed before acknowledgement'].includes(cause.message)) error.value = cause.message
       },
@@ -383,6 +385,7 @@ export function useAnnotationRoom() {
   return {
     busy: readonly(busy),
     connection: readonly(connection),
+    latencyMs: readonly(latencyMs),
     connect,
     cancelCorrection,
     createCorrection,

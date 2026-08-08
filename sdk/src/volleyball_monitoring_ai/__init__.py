@@ -1,7 +1,7 @@
 from .callback import CallbackClient
 from .models import (
     AIJobRequest, AnalysisBundle, AnalysisResult, JobAccepted, ProviderCapabilities,
-    PlaybackWindowRequest, PlaybackWindowDescriptor, PlaybackCursor,
+    PlaybackWindowRequest, PlaybackWindowExtendRequest, PlaybackWindowDescriptor, PlaybackCursor,
     ResolvedMediaAnchor, FrameStepRequest, CanonicalFrameAnchor, MediaApiError,
 )
 from .overlay import build_empty_overlay, build_tracking_overlay, overlay_schema_path, quantize_frame_coordinate, validate_overlay_bytes
@@ -13,6 +13,7 @@ __all__ = [
     "JobAccepted",
     "ProviderCapabilities",
     "PlaybackWindowRequest",
+    "PlaybackWindowExtendRequest",
     "PlaybackWindowDescriptor",
     "PlaybackCursor",
     "ResolvedMediaAnchor",

@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
 
 const REPOSITORY_ROOT = fileURLToPath(new URL('../..', import.meta.url))
-const HOOK_PATH = 'infra/mediamtx/hook_client.py'
+const HOOK_PATH = 'infra/ome/indexer_hook.py'
 const UV = process.env.TEST_UV_EXECUTABLE ?? 'uv'
 const TOKEN = 'phase2a-hook-test-token-change-me-now'
 const temporaryDirectories: string[] = []
@@ -62,24 +62,22 @@ afterEach(async () => {
   })))
 })
 
-describe('MediaMTX completion hook', () => {
+describe('OME recording completion hook', () => {
   it('uses the fixed private hook and read-only spool wiring', async () => {
     const compose = await readFile(new URL('../../infra/compose.yaml', import.meta.url), 'utf8')
-    const dockerfile = await readFile(new URL('../../infra/docker/mediamtx.Dockerfile', import.meta.url), 'utf8')
-    const hook = await readFile(new URL('../../infra/mediamtx/hook_client.py', import.meta.url), 'utf8')
-    const mediamtx = await readFile(new URL('../../infra/mediamtx/mediamtx.yml', import.meta.url), 'utf8')
-    const relay = await readFile(new URL('../../infra/youtube-relay/entrypoint.sh', import.meta.url), 'utf8')
-    expect(compose).toContain('dockerfile: infra/docker/mediamtx.Dockerfile')
+    const hook = await readFile(new URL('../../infra/ome/indexer_hook.py', import.meta.url), 'utf8')
+    const ome = await readFile(new URL('../../infra/ome/Server.xml', import.meta.url), 'utf8')
+    const relay = await readFile(new URL('../../infra/youtube-relay/gateway.py', import.meta.url), 'utf8')
+    expect(compose).toContain('ovenmedialabs/ovenmediaengine:v0.20.5')
     expect(compose).toContain('media-spool:/var/lib/volleyball/media-spool:ro')
     expect(compose).toContain('${MEDIA_INDEXER_HOOK_TOKEN:?MEDIA_INDEXER_HOOK_TOKEN is required}')
     expect(compose).not.toContain('4100:4100')
-    expect(mediamtx).toContain('runOnRecordSegmentComplete: python3 /usr/local/bin/media-indexer-hook.py recording_complete "$MTX_SEGMENT_PATH"')
-    expect(mediamtx).toContain('runOnOffline: python3 /usr/local/bin/media-indexer-hook.py source_offline "$MTX_PATH"')
-    expect(dockerfile).toContain('COPY --chmod=0555')
+    expect(ome).toContain('<LLHLS>')
+    expect(ome).toContain('<FILE>')
+    expect(ome).toContain('<DVR>')
     expect(hook).not.toContain('eval(')
     expect(relay).toContain('--get-url')
-    expect(relay).toContain('bestvideo[height=1080][fps>=59][fps<=61]')
-    expect(relay).toContain('-re -i')
+    expect(relay).toContain("'-re', '-i'")
     expect(relay).not.toContain('--output -')
   })
 

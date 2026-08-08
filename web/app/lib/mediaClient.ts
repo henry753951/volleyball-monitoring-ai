@@ -1,4 +1,4 @@
-import { parseCanonicalFrameAnchor, parseMediaApiError, parsePlaybackWindowDescriptor, parseResolvedMediaAnchor, type CanonicalFrameAnchor, type FrameStepRequest, type PlaybackWindowDescriptor, type PlaybackWindowRequest, type ResolvedMediaAnchor } from '@volleyball-monitoring/contracts'
+import { parseCanonicalFrameAnchor, parseMediaApiError, parsePlaybackWindowDescriptor, parseResolvedMediaAnchor, type CanonicalFrameAnchor, type FrameStepRequest, type PlaybackWindowDescriptor, type PlaybackWindowExtendRequest, type PlaybackWindowRequest, type ResolvedMediaAnchor } from '@volleyball-monitoring/contracts'
 import { MediaApiError, type PlaybackCursorInput } from './mediaModel'
 
 export interface MediaClientOptions { baseUrl?: string; fetcher?: typeof fetch }
@@ -15,6 +15,7 @@ export function createMediaClient(options: MediaClientOptions = {}) {
   }
   return {
     createPlaybackWindow: async (input: PlaybackWindowRequest) => parsePlaybackWindowDescriptor(await request<unknown>('/media/playback-windows', { method: 'POST', body: JSON.stringify(input) })),
+    extendPlaybackWindow: async (id: string, input: PlaybackWindowExtendRequest) => parsePlaybackWindowDescriptor(await request<unknown>(`/media/playback-windows/${encodeURIComponent(id)}/extend`, { method: 'POST', body: JSON.stringify(input) })),
     getPlaybackWindow: async (id: string) => parsePlaybackWindowDescriptor(await request<unknown>(`/media/playback-windows/${encodeURIComponent(id)}`, { method: 'GET' })),
     resolveCursor: async (input: PlaybackCursorInput) => parseResolvedMediaAnchor(await request<unknown>('/media/resolve-cursor', { method: 'POST', body: JSON.stringify(input) })),
     frameStep: async (input: FrameStepRequest) => parseCanonicalFrameAnchor(await request<unknown>('/media/frame-step', { method: 'POST', body: JSON.stringify(input) })),

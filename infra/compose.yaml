@@ -83,32 +83,56 @@ services:
         mc mb --ignore-existing local/analysis-artifacts;
     networks: [internal]
 
-  mediamtx:
-    build:
-      context: ..
-      dockerfile: infra/docker/mediamtx.Dockerfile
+  ovenmediaengine:
+    image: ovenmedialabs/ovenmediaengine:v0.20.5
     environment:
-      MEDIA_INDEXER_HOOK_URL: http://worker-media-indexer:4100/internal/media-indexer/recording-complete
-      MEDIA_INDEXER_HOOK_TOKEN: ${MEDIA_INDEXER_HOOK_TOKEN:?MEDIA_INDEXER_HOOK_TOKEN is required}
+      OME_API_ACCESS_TOKEN: ${OME_API_ACCESS_TOKEN:?OME_API_ACCESS_TOKEN is required}
+      OME_DVR_MAX_DURATION: ${OME_DVR_MAX_DURATION:-21600}
+      OME_HOST_IP: ${OME_HOST_IP:-127.0.0.1}
     volumes:
-      - ./mediamtx/mediamtx.yml:/mediamtx.yml:ro
+      - ./ome:/opt/ovenmediaengine/bin/origin_conf:ro
       - media-spool:/recordings
+      - ome-dvr:/var/lib/ovenmediaengine/dvr
+      - ome-logs:/var/log/ovenmediaengine
     ports:
-      - "8554:8554"       # RTSP ingest
-      - "1935:1935"       # RTMP ingest
-      - "8890:8890/udp"   # SRT ingest
-      - "9997:9997"       # local MediaMTX API/debug
+      - "1935:1935"
+      - "9999:9999/udp"
+      - "127.0.0.1:${OME_API_HOST_PORT:-8081}:8081"
+    healthcheck:
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/8081"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
     labels:
       - traefik.enable=true
       - traefik.docker.network=volleyball-edge
-      - traefik.http.routers.mediamtx-hls.rule=PathPrefix(`/hls/`)
-      - traefik.http.routers.mediamtx-hls.entrypoints=websecure
-      - traefik.http.routers.mediamtx-hls.tls=true
-      - traefik.http.routers.mediamtx-hls.priority=120
-      - traefik.http.routers.mediamtx-hls.middlewares=mediamtx-hls-strip
-      - traefik.http.middlewares.mediamtx-hls-strip.stripprefix.prefixes=/hls
-      - traefik.http.services.mediamtx-hls.loadbalancer.server.port=8888
+      - traefik.http.routers.ome-llhls.rule=PathPrefix(`/ome/`)
+      - traefik.http.routers.ome-llhls.entrypoints=websecure
+      - traefik.http.routers.ome-llhls.tls=true
+      - traefik.http.routers.ome-llhls.priority=120
+      - traefik.http.routers.ome-llhls.middlewares=ome-llhls-strip
+      - traefik.http.middlewares.ome-llhls-strip.stripprefix.prefixes=/ome
+      - traefik.http.services.ome-llhls.loadbalancer.server.port=3333
     networks: [internal, edge]
+    restart: unless-stopped
+
+  ome-recording-watcher:
+    profiles: [app]
+    image: python:3.12-alpine
+    command: ["python", "/app/recording_watcher.py"]
+    environment:
+      MEDIA_INDEXER_HOOK_TOKEN: ${MEDIA_INDEXER_HOOK_TOKEN:?MEDIA_INDEXER_HOOK_TOKEN is required}
+      MEDIA_INDEXER_HOOK_URL: http://worker-media-indexer:4100/internal/media-indexer/recording-complete
+      MEDIA_RECORDING_ROOT: /recordings
+      OME_API_ACCESS_TOKEN: ${OME_API_ACCESS_TOKEN:?OME_API_ACCESS_TOKEN is required}
+      OME_API_URL: http://ovenmediaengine:8081
+      OME_WATCHER_STATE_PATH: /state/watcher.json
+    volumes:
+      - ./ome/recording_watcher.py:/app/recording_watcher.py:ro
+      - media-spool:/recordings:ro
+      - ome-watcher-state:/state
+    depends_on: [ovenmediaengine, worker-media-indexer]
+    networks: [internal]
     restart: unless-stopped
 
   server:
@@ -119,7 +143,15 @@ services:
     env_file: ../.env
     ports:
       - "${SERVER_DEV_BIND:-0.0.0.0}:${SERVER_DEV_PORT:-4000}:4000"
-    depends_on: [postgres, redis, minio-init, mediamtx]
+    environment:
+      MEDIA_IMPORT_ROOT: /var/lib/volleyball/media-imports
+      MEDIA_SOURCE_GATEWAY_TOKEN: ${MEDIA_SOURCE_GATEWAY_TOKEN:?MEDIA_SOURCE_GATEWAY_TOKEN is required}
+      MEDIA_SOURCE_GATEWAY_URL: http://youtube-relay:8090
+      OME_API_ACCESS_TOKEN: ${OME_API_ACCESS_TOKEN:?OME_API_ACCESS_TOKEN is required}
+      OME_API_URL: http://ovenmediaengine:8081
+    volumes:
+      - media-imports:/var/lib/volleyball/media-imports
+    depends_on: [postgres, redis, minio-init, ovenmediaengine, youtube-relay]
     healthcheck:
       test: ["CMD", "bun", "-e", "const response = await fetch('http://localhost:4000/health/ready'); if (!response.ok) process.exit(1)"]
       interval: 5s
@@ -157,7 +189,7 @@ services:
       MEDIA_INDEXER_HOOK_PORT: 4100
     volumes:
       - media-spool:/var/lib/volleyball/media-spool:ro
-    depends_on: [postgres, redis, minio-init, mediamtx]
+    depends_on: [postgres, redis, minio-init, ovenmediaengine]
     networks: [internal]
     restart: unless-stopped
 
@@ -226,17 +258,28 @@ services:
     restart: unless-stopped
 
   youtube-relay:
-    profiles: [youtube-relay]
+    profiles: [app]
     init: true
     build:
       context: ..
       dockerfile: infra/docker/youtube-relay.Dockerfile
     environment:
-      YOUTUBE_SOURCE_URL: ${YOUTUBE_SOURCE_URL:-}
+      MEDIA_IMPORT_ROOT: /imports
+      MEDIA_INGEST_BASE_URL: rtmp://ovenmediaengine:1935/app
+      MEDIA_RECORDING_ROOT: /recordings
+      MEDIA_SOURCE_CALLBACK_TOKEN: ${MEDIA_SOURCE_GATEWAY_TOKEN:?MEDIA_SOURCE_GATEWAY_TOKEN is required}
+      MEDIA_SOURCE_CALLBACK_URL: http://server:4000/internal/media-sources/status
+      MEDIA_SOURCE_GATEWAY_TOKEN: ${MEDIA_SOURCE_GATEWAY_TOKEN:?MEDIA_SOURCE_GATEWAY_TOKEN is required}
+      MEDIA_SOURCE_STATE_ROOT: /state
+      MEDIA_SOURCE_WORK_ROOT: /work
       YOUTUBE_FORMAT: ${YOUTUBE_FORMAT:-best[protocol*=m3u8][height=1080][fps>=59][fps<=61][vcodec^=avc][acodec!=none]/bestvideo[height=1080][fps>=59][fps<=61][vcodec^=avc]+bestaudio[acodec^=mp4a]}
       YOUTUBE_EXTRACTOR_ARGS: ${YOUTUBE_EXTRACTOR_ARGS:-youtube:player_client=android_vr}
-      MEDIA_INGEST_URL: rtmp://mediamtx:1935/${YOUTUBE_INGEST_PATH:-youtube/live}
-    depends_on: [mediamtx]
+    volumes:
+      - media-imports:/imports
+      - media-source-state:/state
+      - media-source-work:/work
+      - media-spool:/recordings
+    depends_on: [ovenmediaengine]
     networks: [internal, development]
     restart: unless-stopped
     stop_grace_period: 10s
@@ -246,3 +289,9 @@ volumes:
   redis-data: {}
   minio-data: {}
   media-spool: {}
+  media-imports: {}
+  media-source-state: {}
+  media-source-work: {}
+  ome-dvr: {}
+  ome-logs: {}
+  ome-watcher-state: {}

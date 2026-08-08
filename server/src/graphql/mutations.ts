@@ -24,6 +24,9 @@ import {
   StartNextSetInputType,
 } from './inputs.js'
 import { CaptureSessionType, MatchSetType, MatchType, ProcessingStateType } from './types.js'
+import { createMediaSourceGatewayFromEnv } from '../media/media-source-gateway.js'
+
+const mediaSourceGateway = createMediaSourceGatewayFromEnv()
 
 async function operational<T>(work: () => Promise<T>): Promise<T> {
   try {
@@ -67,7 +70,13 @@ builder.mutationType({
     }),
     stopCapture: t.field({
       args: { captureSessionId: t.arg.id({ required: true }) },
-      resolve: (_root, args, context) => operational(() => stopCapture(db, requireIdentity(context), args.captureSessionId)),
+      resolve: async (_root, args, context) => {
+        const stopped = await operational(() => stopCapture(db, requireIdentity(context), args.captureSessionId))
+        if (mediaSourceGateway && ['youtube', 'local_mp4'].includes(stopped.sourceKind)) {
+          await mediaSourceGateway.stop(stopped.id).catch(() => undefined)
+        }
+        return stopped
+      },
       type: CaptureSessionType,
     }),
     swapCourtSides: t.field({

@@ -96,7 +96,7 @@ afterAll(async () => {
 }, 120_000)
 
 describe('capture lifecycle and processing retry', () => {
-  it('starts and terminally stops an authorized MediaMTX ingest path', async () => {
+  it('starts and terminally stops an authorized OME ingest path', async () => {
     const capture = await startCapture(db, operator, {
       matchId: ids.match, ingestPath: 'court/main', sourceKind: 'rtmp', sourceLabel: 'Main court', sourceConfigSecretRef: 'secret://capture/main',
     })

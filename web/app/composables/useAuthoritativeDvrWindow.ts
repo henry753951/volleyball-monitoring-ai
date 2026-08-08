@@ -39,6 +39,17 @@ export function useAuthoritativeDvrWindow(client: MediaClient) {
     busy.value = false
     return descriptor
   }
+  function refresh(descriptor: PlaybackWindowDescriptor) {
+    const previous = current.value
+    if (!previous || previous.playback_window_id !== descriptor.playback_window_id) return activate(descriptor)
+    current.value = descriptor
+    if (anchor.value?.playback_window_id === descriptor.playback_window_id) {
+      anchor.value = { ...anchor.value, mapping_version: descriptor.mapping_version }
+    }
+    status.value = 'ready'
+    error.value = null
+    return descriptor
+  }
   async function resolve(cursor: PlaybackCursorInput) {
     const operationGeneration = generation
     const id = ++resolveGeneration
@@ -80,5 +91,5 @@ export function useAuthoritativeDvrWindow(client: MediaClient) {
     }
     return null
   }
-  return { current, anchor, status: readonly(status), error: readonly(error), busy: readonly(busy), activate, create, resolve, step }
+  return { current, anchor, status: readonly(status), error: readonly(error), busy: readonly(busy), activate, create, refresh, resolve, step }
 }

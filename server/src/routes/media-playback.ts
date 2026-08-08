@@ -1,6 +1,8 @@
 import { randomUUID } from 'node:crypto'
 import {
+  parsePlaybackWindowExtendRequest,
   parsePlaybackWindowRequest,
+  type PlaybackWindowExtendRequest,
   type PlaybackWindowRequest,
 } from '@volleyball-monitoring/contracts'
 import { db } from '@volleyball-monitoring/db'
@@ -13,6 +15,7 @@ import type {
 import {
   MEDIA_INTERNAL_SCHEMA_VERSION,
   MediaHttpError,
+  assertRollingPlaybackSelection,
   buildPlaybackDescriptor,
   buildReadyPlaybackRuns,
   formatManifest,
@@ -321,7 +324,6 @@ function manifestEntries(window: VisibleWindowWithSegments) {
   if (mappings.length === 0) {
     throw new MediaHttpError(409, 'MEDIA_NOT_READY', 'Playback window has no media')
   }
-  let discontinuity: number | null = null
   let previousEndUs: bigint | null = null
   const entries = mappings.map((mapping, index) => {
     if (mapping.sequenceIndex !== index) {
@@ -338,18 +340,18 @@ function manifestEntries(window: VisibleWindowWithSegments) {
     ) {
       throw new MediaHttpError(409, 'MEDIA_NOT_READY', 'Playback media is not ready')
     }
-    if (discontinuity === null) discontinuity = segment.discontinuitySequence
     if (
-      segment.discontinuitySequence !== discontinuity
-      || (previousEndUs !== null && previousEndUs !== segment.captureStartUs)
+      previousEndUs !== null && previousEndUs !== segment.captureStartUs
     ) {
-      throw new MediaHttpError(409, 'MEDIA_NOT_READY', 'Playback mapping crosses a discontinuity')
+      throw new MediaHttpError(409, 'MEDIA_NOT_READY', 'Playback mapping crosses a capture gap')
     }
     previousEndUs = segment.captureEndUs
     return {
       durationUs: segment.durationUs,
+      discontinuity: segment.discontinuitySequence,
       id: segment.id,
       initAssetId: segment.initAssetId,
+      sequenceNumber: segment.sequenceNumber,
     }
   })
   const first = mappings[0]!.dvrSegment
@@ -490,6 +492,94 @@ async function createPlaybackWindow(
   })
 }
 
+async function extendPlaybackWindow(
+  windowId: string,
+  request: PlaybackWindowExtendRequest,
+  identity: MediaIdentity,
+  deps: MediaPlaybackDeps,
+) {
+  const current = await visibleWindowWithSegments(windowId, identity)
+  if (!current) throw new MediaHttpError(404, 'NOT_FOUND', 'Playback window not found')
+  assertWindowActive(current, (deps.now ?? (() => new Date()))())
+  if (current.segments.length === 0) {
+    throw new MediaHttpError(409, 'MEDIA_NOT_READY', 'Playback window has no media')
+  }
+
+  const targetUs = BigInt(request.target_capture_time_us)
+  if (targetUs < current.captureStartUs || targetUs > current.captureEndUs) {
+    throw new MediaHttpError(409, 'WINDOW_BOUNDARY', 'Continuation target is outside the current playback window')
+  }
+  const rows = await loadProgramSegments(current.dvrProgramId)
+  const requestedForwardUs = parseWireUint(request.requested_forward_us)
+  const selection = selectPlaybackWindow({
+    candidates: rows.map(toCandidate),
+    limits: resolvedLimits(deps.limits),
+    liveEdgeUs: current.dvrProgram.liveEdgeUs,
+    mode: current.mode === 'LIVE' ? 'live' : 'archive',
+    requestedBackUs: targetUs - current.captureStartUs,
+    ...(requestedForwardUs === undefined ? {} : { requestedForwardUs }),
+    requestedTargetUs: targetUs,
+  })
+  assertRollingPlaybackSelection(
+    current.segments.map(entry => ({
+      id: entry.dvrSegment.id,
+      captureStartUs: entry.dvrSegment.captureStartUs,
+      captureEndUs: entry.dvrSegment.captureEndUs,
+    })),
+    selection.segments,
+  )
+  const targetPlayerMediaTimeUs = targetUs - current.presentationOriginCaptureUs
+  if (targetPlayerMediaTimeUs < 0n || targetUs >= selection.windowEndUs) {
+    throw new MediaHttpError(409, 'MEDIA_NOT_READY', 'Playback continuation target is invalid')
+  }
+
+  const mappingVersion = current.mappingVersion + 1
+  try {
+    await db.$transaction(async transaction => {
+      await transaction.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`playback-window:${windowId}`}, 0))::text AS lock`
+      const latest = await transaction.playbackWindow.findUnique({ where: { id: windowId } })
+      if (!latest || latest.mappingVersion !== current.mappingVersion) {
+        throw new MediaHttpError(409, 'MAPPING_STALE', 'Playback window was extended concurrently')
+      }
+      await transaction.playbackWindowSegment.deleteMany({ where: { playbackWindowId: windowId } })
+      await transaction.playbackWindow.update({
+        data: {
+          captureStartUs: selection.windowStartUs,
+          captureEndUs: selection.windowEndUs,
+          mappingVersion,
+          targetPlayerMediaTimeUs,
+          timelineVersion: current.dvrProgram.playlistRevision,
+          segments: {
+            create: selection.segments.map((segment, sequenceIndex) => ({
+              dvrSegmentId: segment.id,
+              sequenceIndex,
+            })),
+          },
+        },
+        where: { id: windowId },
+      })
+    })
+  }
+  catch (error) {
+    if (error instanceof MediaHttpError) throw error
+    throw new MediaHttpError(409, 'MEDIA_NOT_READY', 'Playback continuation could not be persisted')
+  }
+  return buildPlaybackDescriptor({
+    captureEndUs: selection.windowEndUs,
+    captureSessionId: current.captureSessionId,
+    captureStartUs: selection.windowStartUs,
+    expiresAt: current.expiresAt,
+    id: current.id,
+    liveEdgeUs: current.dvrProgram.liveEdgeUs,
+    mappingVersion,
+    mode: current.mode,
+    presentationOriginCaptureUs: current.presentationOriginCaptureUs,
+    targetPlayerMediaTimeUs,
+    timelineEndUs: selection.timelineEndUs,
+    timelineStartUs: selection.timelineStartUs,
+  })
+}
+
 function selectedAsset(
   window: VisibleWindowWithSegments,
   token: string,
@@ -557,6 +647,23 @@ export const mediaPlaybackRoutes = (
     },
   )
 
+  app.post<{ Body: unknown; Params: WindowParams }>(
+    '/api/v1/media/playback-windows/:windowId/extend',
+    async (request, reply) => {
+      try {
+        const identity = await authenticate(request, deps.authenticate)
+        const id = parseUuid(request.params.windowId, 'Playback window')
+        let body: PlaybackWindowExtendRequest
+        try { body = parsePlaybackWindowExtendRequest(request.body) }
+        catch { throw new MediaHttpError(400, 'BAD_REQUEST', 'Invalid playback window extend request') }
+        return reply.send(await extendPlaybackWindow(id, body, identity, deps))
+      }
+      catch (error) {
+        return sendMediaError(request, reply, error)
+      }
+    },
+  )
+
   app.get<{ Params: WindowParams }>(
     '/api/v1/media/playback-windows/:windowId/manifest.m3u8',
     async (request, reply) => {
@@ -568,9 +675,13 @@ export const mediaPlaybackRoutes = (
           throw new MediaHttpError(404, 'NOT_FOUND', 'Playback window not found')
         }
         assertWindowActive(window, now())
+        const bounds = timelineBounds((await loadProgramSegments(window.dvrProgramId)).map(toCandidate))
+        const terminal = window.dvrProgram.status === 'FINISHED' && window.captureEndUs >= bounds.endUs
         return reply
           .type('application/vnd.apple.mpegurl')
-          .send(formatManifest(window.id, manifestEntries(window)))
+          .header('cache-control', 'no-store, must-revalidate')
+          .header('x-playback-mapping-version', String(window.mappingVersion))
+          .send(formatManifest(window.id, manifestEntries(window), { endList: terminal }))
       } catch (error) {
         return sendMediaError(request, reply, error)
       }

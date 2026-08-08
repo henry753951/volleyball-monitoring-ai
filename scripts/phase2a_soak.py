@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any
 
 SERVICES = 14
-EXPECTED_SERVICES = {"tracking-replay-provider", "mediamtx", "minio", "postgres", "redis", "server", "traefik", "web", "worker-ai-dispatcher", "worker-analysis-ingest", "worker-clip", "worker-media-indexer", "worker-outbox", "worker-playback"}
+EXPECTED_SERVICES = {"tracking-replay-provider", "ovenmediaengine", "minio", "postgres", "redis", "server", "traefik", "web", "worker-ai-dispatcher", "worker-analysis-ingest", "worker-clip", "worker-media-indexer", "worker-outbox", "worker-playback"}
 _STOP = False
 
 def restart_delta(current: int, baseline: int) -> int:

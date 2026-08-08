@@ -83,14 +83,15 @@ const attachDescriptor = async (descriptor: PlaybackWindowDescriptor | null) => 
   const element = video.value
   if (!element) return
   const shouldResume = !element.paused && !element.ended
-  retainedPreview.value = capturePresentedFrame(element)
+  const replacingPipeline = playback.activeWindow.value?.playback_window_id !== descriptor.playback_window_id
+  if (replacingPipeline) retainedPreview.value = capturePresentedFrame(element)
   try {
     await playback.attach(descriptor)
     if (generation !== sourceGeneration) return
     emit('ready', element)
     if (shouldResume) await element.play().catch(() => undefined)
-    await waitForPresentedFrame(element)
-    if (generation === sourceGeneration) retainedPreview.value = null
+    if (replacingPipeline) await waitForPresentedFrame(element)
+    if (generation === sourceGeneration && replacingPipeline) retainedPreview.value = null
   } catch (error) {
     if (generation !== sourceGeneration) return
     emit('error', error instanceof Error ? error : new Error('Media manifest failed to load'))
@@ -112,10 +113,7 @@ function seekCaptureTimeIfBuffered(targetCaptureTimeUs: string) {
 function previewCaptureTimeIfBuffered(targetCaptureTimeUs: string) {
   return seekCaptureTimeIfBuffered(targetCaptureTimeUs)
 }
-function prewarmDescriptor(descriptor: PlaybackWindowDescriptor) {
-  return playback.prewarm(descriptor)
-}
-defineExpose({ seekCaptureTimeIfBuffered, previewCaptureTimeIfBuffered, prewarmDescriptor })
+defineExpose({ seekCaptureTimeIfBuffered, previewCaptureTimeIfBuffered })
 
 // Canvas drawing must map the actual video content rectangle, including letterboxing.
 // It consumes lazy-loaded FlatBuffers chunks; it never draws the video pixels itself.
