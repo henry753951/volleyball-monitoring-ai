@@ -120,6 +120,9 @@ export const aiCallbackRoutes: FastifyPluginAsync = async (app) => {
     const job = await loadJob(aiJobId)
     const token = bearerToken(request.headers.authorization)
     if (!job || job.callbackTokenExpiresAt <= new Date() || !authenticated(token, job.callbackTokenHash)) return reject(reply, 401, 'UNAUTHENTICATED', 'Callback token is invalid or expired')
+    if (job.status === JobStatus.CANCELLED || job.status === JobStatus.SUPERSEDED || job.submission.rally.voidedAt) {
+      return reject(reply, 409, 'JOB_NOT_ACTIVE', 'AI job was cancelled or superseded')
+    }
 
     const directory = await mkdtemp(join(tmpdir(), 'volleyball-callback-'))
     try {
@@ -201,6 +204,9 @@ export const aiCallbackRoutes: FastifyPluginAsync = async (app) => {
       const producer = isRecord(result.producer) ? result.producer : {}
       const response = { schema_version: '1.0.0', accepted: true, callback_id: metadata.callback_id, analysis_id: result.analysis_id }
       await db.$transaction(async (tx) => {
+        await tx.$queryRaw`SELECT id FROM "AiJob" WHERE id = ${aiJobId}::uuid FOR UPDATE`
+        const current = await tx.aiJob.findUnique({ where: { id: aiJobId }, select: { status: true, submission: { select: { rally: { select: { voidedAt: true } } } } } })
+        if (!current || current.status === JobStatus.CANCELLED || current.status === JobStatus.SUPERSEDED || current.submission.rally.voidedAt) throw new Error('AI_JOB_NOT_ACTIVE')
         const rawAnalysis = await tx.mediaAsset.create({ data: { kind: MediaAssetKind.ANALYSIS_JSON, bucket: objectStore.bucket, objectKey: analysisKey, contentType: 'application/json', byteLength: BigInt(analysisBytes!.byteLength), sha256: analysisHash!, internalSchemaVersion: '1.0.0', state: ArtifactState.READY, readyAt: new Date() } })
         const rawOverlay = await tx.mediaAsset.create({ data: { kind: MediaAssetKind.OVERLAY_SEQUENCE, bucket: objectStore.bucket, objectKey: overlayKey, contentType: 'application/vnd.volleyball.overlay+flatbuffers;version=1', byteLength: BigInt(overlayInfo!.bytes), sha256: overlayInfo!.sha256, internalSchemaVersion: '1.0.0', state: ArtifactState.READY, readyAt: new Date() } })
         const analysisRun = await tx.analysisRun.create({ data: { aiJobId, submissionId: job.submissionId, analysisId: String(result.analysis_id), analysisVersion: String(result.analysis_version), resultSchemaVersion: '1.0.0', overlaySchemaVersion: 'flatbuffers_v1', inputClipSha256: String(result.input_clip_sha256), producerName: String(producer.name), producerBuildId: String(producer.build_id), producerSdkVersion: typeof producer.sdk_version === 'string' ? producer.sdk_version : null, status: JobStatus.COMPLETED, rawAnalysisAssetId: rawAnalysis.id, rawOverlayAssetId: rawOverlay.id, summary: json(result.summary), activatedAt: new Date() } })
@@ -240,6 +246,7 @@ export const aiCallbackRoutes: FastifyPluginAsync = async (app) => {
     }
     catch (error) {
       if (error instanceof Error && error.message === 'PAYLOAD_TOO_LARGE') return reject(reply, 413, 'PAYLOAD_TOO_LARGE', 'Callback payload exceeds the configured limit')
+      if (error instanceof Error && error.message === 'AI_JOB_NOT_ACTIVE') return reject(reply, 409, 'JOB_NOT_ACTIVE', 'AI job was cancelled or superseded')
       request.log.error({ error }, 'AI callback ingest failed')
       return reject(reply, 503, 'CALLBACK_INGEST_FAILED', 'Callback could not be ingested')
     }

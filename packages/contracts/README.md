@@ -13,6 +13,7 @@ invent fields outside these versioned files.
 - `ai/capabilities.schema.json`, `job.schema.json`, `job-accepted.schema.json`: provider handshake and immutable job submission.
 - `ai/result.schema.json`: external AI provider to central result JSON.
 - `ai/callback.schema.json`: progress/failure/completed callback metadata.
+- `ai/provider-realtime.schema.json`: outbound AI worker control plane for hello, job offer, lease/resume, progress and abort. Media and full overlays are forbidden on this channel.
 - `ai/overlay-manifest.schema.json`: central-to-web lazy overlay manifest.
 - `flatbuffers/*.fbs`: per-frame AI/coach overlay binary.
 - `openapi/*.yaml`: REST route documentation.
@@ -34,3 +35,10 @@ AI action labels or confidence semantics are not a reason to hard-code an enum.
 ## Authentication rule
 
 The HTTP/WebSocket connection authenticates the user; annotation commands do not carry a trusted `user_id`. `clip.download_url` is independently signed. `callback.token` is sent only to the central callback URL and never to object storage or browsers.
+
+## AI provider transport
+
+Personal-computer providers should use Provider Realtime `1.0.0`: the SDK opens an outbound WSS
+connection and waits for central job control. The existing Job `1.1.0`, Result `1.0.0` and Callback
+`1.0.0` payloads remain unchanged. WSS is control-plane only; the canonical MP4 uses its signed URL
+and completed analysis/overlay use the authenticated callback.

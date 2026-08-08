@@ -1,0 +1,19 @@
+{
+  "schema_version": "1.0.0",
+  "type": "provider_hello",
+  "instance_id": "demo-ai-pc",
+  "sdk_version": "0.2.0",
+  "provider_build_id": "fake-inference-v1",
+  "max_concurrency": 1,
+  "capabilities": {
+    "schema_version": "1.0.0",
+    "provider_name": "example-worker",
+    "provider_build_id": "fake-inference-v1",
+    "supported_job_schema_versions": ["1.1.0"],
+    "supported_result_schema_versions": ["1.0.0"],
+    "supported_overlay_formats": ["flatbuffers_v1"],
+    "optional_extensions": { "action": false, "group_phase": false, "confidence": false },
+    "action_taxonomies": []
+  },
+  "active_jobs": []
+}

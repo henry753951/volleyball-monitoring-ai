@@ -66,15 +66,18 @@ const cursorFollow = ref(false)
 const captureDialogOpen = ref(false)
 const connectionDialogOpen = ref(false)
 const rosterDialogOpen = ref(false)
-const confirmAction = ref<'void' | 'correction' | 'next-left' | 'next-right' | null>(null)
-const confirmTitle = computed(() => confirmAction.value === 'void' ? '刪除未送出片段' : confirmAction.value === 'correction' ? '建立修正版' : '開啟新一局')
+const confirmAction = ref<'void' | 'processing-delete' | 'correction' | 'next-left' | 'next-right' | null>(null)
+const confirmTitle = computed(() => confirmAction.value === 'void' ? '刪除未送出片段' : confirmAction.value === 'processing-delete' ? '刪除處理中片段' : confirmAction.value === 'correction' ? '建立修正版' : '開啟新一局')
 const confirmMessage = computed(() => confirmAction.value === 'void'
   ? '這個未送出片段會立即刪除，已送出的資料不受影響。'
+  : confirmAction.value === 'processing-delete'
+    ? '中央處理與 AI 工作會立即取消；已送出版本保留於稽核紀錄，若已計分則以更正紀錄回復比分。'
   : confirmAction.value === 'correction'
     ? '送出修正版並完成 AI 處理後，教練端會更新為新版本。'
     : `${confirmAction.value === 'next-left' ? leftTeam.value?.name ?? '左隊' : rightTeam.value?.name ?? '右隊'}取得本局，比分歸零並開始下一局。`)
-const confirmLabel = computed(() => confirmAction.value === 'void' ? '刪除片段' : confirmAction.value === 'correction' ? '建立修正版' : '確認並開始')
+const confirmLabel = computed(() => ['void', 'processing-delete'].includes(confirmAction.value ?? '') ? '刪除片段' : confirmAction.value === 'correction' ? '建立修正版' : '確認並開始')
 const correctionSubmissionId = ref<string | null>(null)
+const processingRallyId = ref<string | null>(null)
 const inspectorTab = ref<'match' | 'mapping'>('match')
 const pinnedRallyId = ref<string | null>(null)
 const cursorRallyId = ref<string | null>(null)
@@ -113,6 +116,10 @@ const selectedCapture = computed<CaptureSession | null>(() => {
 const timeline = computed(() => selectedCapture.value?.timeline ?? null)
 const workstation = useAnnotationWorkstationModel({ coachData: coach.data, match, timeline, displayAnnotation, confirmedAnnotation: annotation.snapshot, state, selectedRallyId, selectedKeyPoint, selectedTimelineItem, cursorRallyId })
 const { submittedRallies, annotationDrafts, visibleSubmittedRallies, selectedSubmittedRally, selectedRally, mappingAvailable, selectedAnalysisRunId, currentSet, leftTeamId, rightTeamId, leftSetWins, rightSetWins, leftTeam, rightTeam, clipPreRollUs, clipPostRollUs, clipPreRollSeconds, clipPostRollSeconds, rallyDisplayDuration, timelineSegments, currentMaskRange, selectableSegmentRanges, selectedCurrentMask, currentMaskStatus, currentMaskLabel, currentMaskOutcome, activeOverlayAnalysisRunId, activeOverlayClipStart, selectedEditableDraft, correctionActive, selectedDeletablePoint, activeContextTitle, activeContextHits, activeContextDuration, activeContextState, displayRallyOrdinal } = workstation
+const selectedProcessingRally = computed(() => {
+  const rally = selectedSubmittedRally.value
+  return rally && ['CLIP_QUEUED', 'CLIPPING', 'AI_QUEUED', 'AI_PROCESSING', 'ARTIFACT_INGESTING'].includes(rally.processing_status.toUpperCase()) ? rally : null
+})
 const selectedHistoricalSegmentId = computed(() => selectedCurrentMask.value ? null : selectedRallyId.value)
 const selectedCaptureId = computed(() => selectedCapture.value?.id ?? null)
 const liveTarget = computed(() => timeline.value?.liveEdgeCaptureTimeUs ?? timeline.value?.availableRanges.at(-1)?.endUs ?? null)
@@ -585,6 +592,10 @@ function voidRally() {
 function deleteSelection() {
   if (selectedDeletablePoint.value) editKeyPoint('DELETE_KEY_POINT')
   else if (selectedEditableDraft.value) voidRally()
+  else if (selectedProcessingRally.value) {
+    processingRallyId.value = selectedProcessingRally.value.id
+    confirmAction.value = 'processing-delete'
+  }
 }
 
 function startCorrection() {
@@ -613,15 +624,28 @@ function requestNextSet(side: 'left' | 'right') {
 function closeConfirmAction() {
   confirmAction.value = null
   correctionSubmissionId.value = null
+  processingRallyId.value = null
 }
 
 function confirmPendingAction() {
   const action = confirmAction.value
   const submissionId = correctionSubmissionId.value
+  const targetProcessingRallyId = processingRallyId.value
   confirmAction.value = null
   correctionSubmissionId.value = null
+  processingRallyId.value = null
   if (action === 'void') {
     void annotation.edit('VOID_RALLY', { reason: 'operator_voided_from_workstation' }).then(() => toast.success('未送出片段已刪除')).catch(() => undefined)
+    return
+  }
+  if (action === 'processing-delete' && targetProcessingRallyId) {
+    void annotation.deleteProcessingRally(targetProcessingRallyId).then(async () => {
+      pinnedRallyId.value = null
+      selectedTimelineItem.value = null
+      selectedKeyPointId.value = null
+      await Promise.all([loadMatch({ silent: true }), coach.refresh()])
+      toast.success('處理中片段已刪除，AI 工作已取消')
+    }).catch(() => undefined)
     return
   }
   if (action === 'next-left' || action === 'next-right') {
@@ -944,7 +968,7 @@ onBeforeUnmount(() => {
         :editable="state === 'OPEN'"
         :edit-ready="editReady"
         :cursor-follow="cursorFollow"
-        :delete-enabled="Boolean(selectedDeletablePoint || selectedEditableDraft)"
+        :delete-enabled="Boolean(selectedDeletablePoint || selectedEditableDraft || selectedProcessingRally)"
         :muted="muted"
         :shortcuts="{ play: formatBindingForDisplay(bindings.play_pause), previousFrame: formatBindingForDisplay(bindings.frame_previous), nextFrame: formatBindingForDisplay(bindings.frame_next), previousPoint: formatBindingForDisplay(bindings.key_point_previous), nextPoint: formatBindingForDisplay(bindings.key_point_next) }"
         @play-pause="dispatchMediaAction('play_pause')"
@@ -969,7 +993,7 @@ onBeforeUnmount(() => {
     <LazyCaptureControlDialog :open="captureDialogOpen" :match-id="matchId" :captures="match?.captureSessions ?? []" @close="captureDialogOpen = false" @changed="loadMatch" />
     <LazyAnnotationConnectionDialog :open="connectionDialogOpen" :connection="annotation.connection.value" :capture="selectedCapture" :descriptor="descriptor" :pending="annotation.pendingCount.value" :editors="annotation.presence.value.length" @close="connectionDialogOpen = false" />
     <LazyRosterEditorDialog v-if="match" :open="rosterDialogOpen" :match="match" @close="rosterDialogOpen = false" @changed="loadMatch" />
-    <LazyConfirmActionDialog :open="Boolean(confirmAction)" :title="confirmTitle" :message="confirmMessage" :confirm-label="confirmLabel" :danger="confirmAction === 'void'" @close="closeConfirmAction" @confirm="confirmPendingAction" />
+    <LazyConfirmActionDialog :open="Boolean(confirmAction)" :title="confirmTitle" :message="confirmMessage" :confirm-label="confirmLabel" :danger="confirmAction === 'void' || confirmAction === 'processing-delete'" @close="closeConfirmAction" @confirm="confirmPendingAction" />
   </section>
 </template>
 
