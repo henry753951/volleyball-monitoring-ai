@@ -160,8 +160,9 @@ export async function quarantinePermanentMediaFailures(
     if (result.status !== 'deadletter') return result
     const job = jobsById.get(result.id)
     if (!job) throw new Error('Permanent media ingest result has no matching job.')
+    const parsed = MediaIngestEnvelope.safeParse(job.data)
     await sendDeadLetter(job.id, {
-      ...job.data,
+      ...(parsed.success ? parsed.data : {}),
       permanentFailure: result.output ?? { code: 'PERMANENT_FAILURE' },
       sourceJobId: job.id,
       sourceQueue: MEDIA_INGEST_QUEUE,
@@ -299,7 +300,7 @@ export function createPgBossMediaRuntime(
           async (jobs) => quarantinePermanentMediaFailures(
             jobs,
             await processMediaIngestJobs(jobs, processJob),
-            (id, data) => boss.send(deadLetter, data, { id }),
+            (id, data) => boss.send(deadLetter, data, { singletonKey: id }),
           ),
         )
       } catch (error) {

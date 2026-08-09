@@ -46,6 +46,30 @@ describe('media ingest failure quarantine', () => {
       sourceQueue: MEDIA_INGEST_QUEUE,
     })])
   })
+
+  it('does not copy malformed source data into the quarantine record', async () => {
+    const quarantined: Record<string, unknown>[] = []
+    await quarantinePermanentMediaFailures(
+      [{ id: '10000000-0000-4000-8000-000000000099', data: {
+        candidate: '/private/camera/path',
+        token: 'do-not-leak-this-token',
+      } as unknown as MediaIngestEnvelope }],
+      [{
+        id: '10000000-0000-4000-8000-000000000099',
+        status: 'deadletter',
+        output: { code: 'INVALID_JOB' },
+      }],
+      async (_id, data) => { quarantined.push(data) },
+    )
+
+    expect(quarantined).toEqual([{
+      permanentFailure: { code: 'INVALID_JOB' },
+      sourceJobId: '10000000-0000-4000-8000-000000000099',
+      sourceQueue: MEDIA_INGEST_QUEUE,
+    }])
+    expect(JSON.stringify(quarantined)).not.toContain('private')
+    expect(JSON.stringify(quarantined)).not.toContain('do-not-leak')
+  })
 })
 
 describe('media ingest capture groups', () => {
