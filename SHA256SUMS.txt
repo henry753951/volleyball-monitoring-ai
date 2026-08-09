@@ -45,7 +45,7 @@ de1c6f5f306bdafd9bb0096364a40165d41d59e1b7afd60efa8d0ea42d505afc  ./docs/adr/001
 00e4ff76109d15cf7bbb1f54cf5124681e8fb7ef833ef618d05d9500aa58eb7f  ./docs/adr/0017-ome-and-stable-mse-playback.md
 0dad051458563057152511b50053873e0350ced084b0a9320c66df7b4772ca23  ./docs/adr/0018-realtime-ai-work-progress.md
 de376c790b3f7624d275cd8d6882725028d5264710ede7d748ad38304fee5c6a  ./docs/open-decisions.md
-eb4c71c8de300a12548e081fa0439282456d938f3c605cc12830a85c174e8bbc  ./docs/progress.md
+5160115c3fd484dfb81cfca469e7d5d4bd40503b4cb4dc533a8b8ec552f84ef3  ./docs/progress.md
 aa5494b32c071ea634767c3858b1f3063aa2331777c50ec41b56cbc7a25c6d4b  ./docs/requirements-matrix.md
 e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  ./examples/__init__.py
 6b1706b8d04e20d43f4e14ca60cff11ac2c338bf94cbd33ffd199f9f6bc50a99  ./examples/tracking_replay_provider/README.md
@@ -316,9 +316,9 @@ d5451750b5301aa1392a343155f17d9d02ebaff26a20befef3030ceccb52cc04  ./web/app/comp
 d33f5ac97b700f858463573d66a9462a1b6723e00e2ebd8083a31491e6ad7465  ./web/app/components/ConfirmActionDialog.vue
 d0f18f99e57264608e79cff99e2d1a4106c329270fabb0ee79577de870493f27  ./web/app/components/CourtPathView.vue
 060c5012acdd0185fbce2996a44c942fa06eb4a18564ff743aa9c02778c317a5  ./web/app/components/DvrAuthorityInspector.vue
-eae834bb2c86a3f19a923f9f7fcc6f2823bb839c119aa9d7f229c9a2fe940d55  ./web/app/components/DvrTimelineDock.component.test.ts
+f5cbd8f29d58437dd4393e7d9491ee43c1eaa991ff64da55193f0b336df62d25  ./web/app/components/DvrTimelineDock.component.test.ts
 d31178929bbb0713255b5d729b93b68bd0689e9248531e95b6bad0392ec06719  ./web/app/components/DvrTimelineDock.test.ts
-08d0cedb2f1e63665f12ad4264f1f9a6555e747fa000b3300a72682f9e9195da  ./web/app/components/DvrTimelineDock.vue
+97b01574d1b6457a32473c7552a67d329acdf51728a386f48666ce20388055df  ./web/app/components/DvrTimelineDock.vue
 d00d983f3f9a25bfcc8c5a78535632c6ead85d522369346a41a87e2a5f06314a  ./web/app/components/LandscapeGuard.vue
 ff65f66c3ea8bbe3e4f9533e63e620f49296d2dc52c32d2ac8f27c4318499a86  ./web/app/components/MatchSetupForm.vue
 5395bc1337be0cfde8a43487e4cf089d5412cfa9efaff24e631c33bceb0c3ceb  ./web/app/components/MediaSourcePicker.vue
@@ -341,7 +341,7 @@ d2d28dcdfe317b012ef40ffcb53305955c2cec97e352a72414f9caae81a53434  ./web/app/comp
 78d473bed3926c0ad2222a7acc004b08a58724f270b46dc0382676f2af4705e1  ./web/app/composables/useAnnotationHotkeys.test.ts
 a677edc5f1f171cf081ecab7a9556fdb9e62f3f10c5cc5645f9525af57acabd7  ./web/app/composables/useAnnotationHotkeys.ts
 1c243ced0fe323412008184c9750a93cce2bca0d51759e6b7bcd3335c03022c2  ./web/app/composables/useAnnotationRoom.ts
-7017cad61b77b9572588572190dcc3393baadcbba25905ed05e2f67505dd37ea  ./web/app/composables/useAnnotationWorkstationModel.ts
+2b4c55c4910aa0f77a57e85a2b21dc13e1e8d66e2cee3e866ac93c6e5fabba21  ./web/app/composables/useAnnotationWorkstationModel.ts
 8f4e62425c432eac94b128c6ab74fb79568032713d54e09a4438bd0666ffbdb0  ./web/app/composables/useAuthoritativeDvrWindow.integration.test.ts
 ce37f5454b6179fdb0db0159c86c077f04a900e64baddd58e6ebcd25736b5366  ./web/app/composables/useAuthoritativeDvrWindow.test.ts
 8d1f425f04ac68983f14c027005cba39f082954f8a75310d31b3f5ab7570e431  ./web/app/composables/useAuthoritativeDvrWindow.ts
@@ -382,7 +382,7 @@ e66eea442bedf2abbd180742be6bd3613a420e3bb1e1fd98c893475e5113314b  ./web/app/lib/
 cba670333ab1e0c411c488d0f3517da77337ca9c256ef9eaae31df1d6c9c3d6d  ./web/app/lib/playbackWindowCache.test.ts
 adee2ce860eff55e9be95c2feaabea259ae161fb138efc484051980767938b22  ./web/app/lib/playbackWindowCache.ts
 52fe16f81674ddd4727c93d95986be02908b5bb247fcca16e04f5c2aba4a1ccb  ./web/app/middleware/auth.global.ts
-e0ecc7dfba5c143eea391084c7c505fea943856b92e88e50d91127785c7dce23  ./web/app/pages/annotate/[matchId].vue
+498d8b876f03a4df4ae29bf895f4907f48de0fa321a1f1e7a788c102509a4d6c  ./web/app/pages/annotate/[matchId].vue
 feac74161995c772f814c4a83b63e436d75b839c24c7607f4dd142ee13c8e0ec  ./web/app/pages/control/index.vue
 3cc1461e7975d0e8c6875dc155353512e9901a19d4930a8a854c73872a536951  ./web/app/pages/index.vue
 f3bf511c8e2d7748a3d05b0009e008808e14c8959976090362d6198e54d11651  ./web/app/pages/matches/[matchId]/history.vue

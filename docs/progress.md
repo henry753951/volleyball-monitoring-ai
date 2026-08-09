@@ -666,3 +666,15 @@ The Nuxt build emits a dependency-level Node `DEP0155` deprecation warning but c
   annotation shell rather than the coach PWA shell.
 - The complete post-fix gate passed: contracts 13, DB 4, media 88, server 201, worker 165 with six
   skipped, web 140 and Python SDK 20 tests, plus the full monorepo typecheck.
+
+# 2026-08-09 — Linked analysis-result timeline selection
+
+- Analysis coverage rails are now real toggle buttons. Selecting one pins and selects its parent rally;
+  selecting it again, clicking the parent clip, choosing a key point or clicking timeline whitespace
+  clears the analysis sub-selection and restores the existing cursor-driven clip context.
+- A compact analysis marker remains visible and clickable at the full-match scale instead of being
+  hidden by the micro-density presentation. Expanded views continue to show result size and available
+  tracking capabilities.
+- The selection reducer covers empty-cursor, different-rally, same-rally and toggle-off cases. All 145
+  web tests and Nuxt typecheck passed; headed Chromium verified pressed state, linked parent selection,
+  toggle-off, parent-only selection and whitespace dismissal with zero console errors.

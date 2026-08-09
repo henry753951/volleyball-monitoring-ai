@@ -68,8 +68,29 @@ describe('DvrTimelineDock mounted interactions', () => {
     const w = mount(DvrTimelineDock, { props: { timeline, playhead: null, segments: [narrowSegment] } })
     expect(w.find('.timeline-mask.historical').classes()).toContain('density-micro')
     expect(w.find('.analysis-rail').classes()).toContain('density-micro')
+    expect(w.find('.analysis-rail').element.tagName).toBe('BUTTON')
     expect(w.findAll('.historical-point')).toHaveLength(3)
     expect(w.findAll('.historical-point').every(point => point.classes().includes('density-micro'))).toBe(true)
+  })
+  it('exposes the analysis result as a toggle button linked to its parent segment', async () => {
+    const analyzedSegment = {
+      id: 'analyzed', label: '第 1 局 · 回合 4', startCaptureTimeUs: '1200', endCaptureTimeUs: '1800', status: 'analyzed' as const,
+      analysis: { startCaptureTimeUs: '1250', endCaptureTimeUs: '1750', byteLength: '2400000', trackCount: 12, ballPathCount: 1, contactCount: 3, capabilities: ['player_tracking', 'ball_tracking'] },
+    }
+    const w = mount(DvrTimelineDock, { props: { timeline, playhead: null, segments: [analyzedSegment], selectedSegmentId: 'analyzed', selectedAnalysisSegmentId: 'analyzed' } })
+    const result = w.get('button.analysis-rail')
+    expect(result.attributes('aria-pressed')).toBe('true')
+    expect(result.attributes('aria-label')).toContain('第 1 局 · 回合 4 · 分析結果')
+    expect(result.classes()).toContain('selected')
+
+    await result.trigger('click')
+    expect(w.emitted('selectAnalysis')?.[0]).toEqual(['analyzed'])
+    expect(w.emitted('selectSegment')).toBeUndefined()
+
+    await w.setProps({ selectedAnalysisSegmentId: null })
+    expect(result.attributes('aria-pressed')).toBe('false')
+    await w.get('.lane-content').trigger('click')
+    expect(w.emitted('clearSelection')).toHaveLength(1)
   })
   it('drags the playhead once and keeps the optimistic target until cursor sync catches up', async () => {
     const w = mount(DvrTimelineDock, { props: { timeline, playhead: '1750' } })
