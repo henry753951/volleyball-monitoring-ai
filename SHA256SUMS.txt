@@ -55,6 +55,7 @@ de376c790b3f7624d275cd8d6882725028d5264710ede7d748ad38304fee5c6a  ./docs/open-de
 aa5494b32c071ea634767c3858b1f3063aa2331777c50ec41b56cbc7a25c6d4b  ./docs/requirements-matrix.md
 7d92d0eccdd10bb261204bc2386e750b0e933fbf626df79163688e3b46d2ad68  ./docs/runtime-topology-inventory.md
 e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  ./examples/__init__.py
+9dc0ba1ce97347e0b4f0138b34a2d34090d07fa68a67480c2b72ef8e7d90ebad  ./infra/compose.host-dev.yaml
 1d816c20a380f8f25e1641d93b7622be49dde805456e7d5a602beed3821355a8  ./infra/compose.yaml
 53cbbca3d1f27abc42227fa5241fe071e2bf8ba302fa91194f802c7e7dc57c77  ./infra/docker/server.Dockerfile
 818ad0a9ef3bf445375da1e99858c7b2c1acff9f6f91402e3d2f4aaf770ef0e6  ./infra/docker/web.Dockerfile
@@ -197,6 +198,9 @@ fb6d6d5a005f215e00b2c73454a891240453ac31ab377f5f6dd2d8571214ecf4  ./packages/med
 360827b7fbf457ae278be8e4c62f5910ef57aaed596ea5a3f7975a531d186db4  ./scripts/README.md
 644dc0baafc2cd43d189af8c8c803ba0620813176120174a6520ee58071f5ba5  ./scripts/bootstrap_contract_lab_demo.ts
 eadacc46b2da18bd76a2b72673fafae08ae3f43735b1a2388fa451e3d8f72cc7  ./scripts/checksum_utils.py
+7ae4a1efd6a7fc0e7c1d21b6c8f130db3d273e20224716dae70d8eb243430526  ./scripts/dev_host.test.ts
+c66499120d71afd7ea43f478b91bc21729edc47d40713f6787dcfa227134063a  ./scripts/dev_host.ts
+ca42295e074d4ea4cee10ff5519ad401d0d361885361d122715ce0c302a066c0  ./scripts/dev_infra.ts
 1d8f4a617cdd17fca50d0ba9e52276cc6c648381c0983a718c2d9aa071703748  ./scripts/generate-contracts.sh
 026de67232d979efdd27c1b6126f5ca10cd09d88979f64749dbd38306140f1cc  ./scripts/generate-local-tls.sh
 a184a6f34ef7655c1d4e3e6807bf94365d2d9a8d62fe82f7fdc9ec2be6becc9c  ./scripts/phase2a_soak.py
@@ -484,6 +488,7 @@ e6f2b68127f706b48f7d89f4dcc5e40d38b71c91eb7ca3698d274775f187a16b  ./worker/src/m
 a83910b9fc90b6cebfdb8442891855aa23437128d303d33997382f16f119ead3  ./worker/src/roles/media-indexer.ts
 ead1b4f44f242fa35912993cdf96c666b7901d20bbfd0850f9873e7d391cfa59  ./worker/src/roles/outbox-publisher.ts
 69fb80fdf0c3ce7c48c3439a3e6cc5ab91f00a00347a257d2a0943cc49225823  ./worker/src/roles/playback-packager.ts
+a18e78d8172e7d4b3ffaaf5fb636c6aca341417e3ebfd7f9baac64c496d2c9af  ./worker/src/runtime-health.ts
 de266554a4b9dd75f699e61401f1c4db810f63da0a9ef60643c8b4ff4bb63c3d  ./worker/src/worker-role.ts
 63d812379fe58d8f28386995ed71ec16345d5b1289420e47fa00036b1801ac6c  ./worker/src/workflow-composition.ts
 331dd0e403cbbe137f2b94244a91970438364335e6ba486b625687b46d891fd7  ./worker/src/workflow/crypto.ts
@@ -509,6 +514,7 @@ ae1cfe2d3ed2cd479f70eea2ddb1fe19619e5758caab08dea305183c1068da3a  ./worker/tests
 88af59376639851e53615650b97c6c217e6a5295fac6a995eab6a5e7d687ca95  ./worker/tests/playback-packager.test.ts
 ecc383203ab1d25716b16df3cf43397763b7d3c1e6f72cd66b32f710ee26553a  ./worker/tests/prisma-ingest-repository.integration.test.ts
 1ff2bfb6d2fed095b16b95e563c4beef13891a307e1376ed343e137915f4258e  ./worker/tests/resolvers.test.ts
+17d706ad7805027bfc4dfc7eed1d68726fa9f328ab62d217a72f6a77f42cd4d0  ./worker/tests/runtime-health.test.ts
 8598779c54b66d3758aadccb142e854b49dc1176ccba6211a0df2b555d0c3e42  ./worker/tests/source-process.test.ts
 a6576b496cd75f5ebda32f4592ee1e951eac5f066f611db53be0ff1fe67e6343  ./worker/tests/worker-role.test.ts
 8dec466308bc77a9c561462206386437ef115aae75fd352f5b0ed3c56ccdfc4e  ./worker/tests/workflow-composition.test.ts
