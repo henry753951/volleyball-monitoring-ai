@@ -166,6 +166,32 @@ function assertWindowMapping(
   return window.segments
 }
 
+function mappingsForTarget(
+  mappings: readonly CursorWindowSegment[],
+  targetUs: bigint,
+): readonly CursorWindowSegment[] {
+  const targetIndex = mappings.findIndex(mapping => (
+    mapping.captureStartUs <= targetUs && targetUs < mapping.captureEndUs
+  ))
+  if (targetIndex < 0) return []
+  const target = mappings[targetIndex]!
+  let first = targetIndex
+  let last = targetIndex
+  const previous = mappings[targetIndex - 1]
+  if (
+    previous
+    && previous.discontinuity === target.discontinuity
+    && previous.captureEndUs === target.captureStartUs
+  ) first -= 1
+  const next = mappings[targetIndex + 1]
+  if (
+    next
+    && next.discontinuity === target.discontinuity
+    && next.captureStartUs === target.captureEndUs
+  ) last += 1
+  return mappings.slice(first, last + 1)
+}
+
 async function loadWindow(
   id: string,
   identity: CursorMediaIdentity,
@@ -320,20 +346,37 @@ export async function resolvePlaybackCursor(
   const window = await loadWindow(windowId, identity, deps)
   assertMappingVersion(window.mappingVersion, cursor.mapping_version)
 
-  const targetUs = window.presentationOriginCaptureUs
+  const observedTargetUs = window.presentationOriginCaptureUs
     + BigInt(cursor.player_media_time_us)
-  if (targetUs < window.captureStartUs || targetUs >= window.captureEndUs) {
+  if (observedTargetUs < window.captureStartUs || observedTargetUs > window.captureEndUs) {
     throw new MediaHttpError(422, 'CAPTURE_GAP', 'Cursor is outside available media')
   }
+  // HTMLMediaElement may report currentTime === duration on the final frame.
+  // Canonical availability stays half-open; resolve that terminal observation
+  // against the last indexed instant instead of manufacturing an out-of-range
+  // cursor error at normal playback completion.
+  const targetUs = observedTargetUs === window.captureEndUs
+    ? window.captureEndUs - 1n
+    : observedTargetUs
 
-  const indexed = await loadIndexes(deps.sampleIndexes, window.segments)
+  const mappings = mappingsForTarget(window.segments, targetUs)
+  if (mappings.length === 0) {
+    throw new MediaHttpError(422, 'CAPTURE_GAP', 'Cursor is outside available media')
+  }
+  const indexed = await loadIndexes(deps.sampleIndexes, mappings)
+  const resolverStartUs = window.captureStartUs > mappings[0]!.captureStartUs
+    ? window.captureStartUs
+    : mappings[0]!.captureStartUs
+  const resolverEndUs = window.captureEndUs < mappings.at(-1)!.captureEndUs
+    ? window.captureEndUs
+    : mappings.at(-1)!.captureEndUs
   let resolution: ReturnType<typeof resolveCanonicalTimeAcrossSegments>
   try {
     resolution = resolveCanonicalTimeAcrossSegments(
       indexed,
       targetUs,
-      window.captureStartUs,
-      window.captureEndUs,
+      resolverStartUs,
+      resolverEndUs,
     )
   } catch (error) {
     resolverFailure(error)

@@ -678,3 +678,39 @@ The Nuxt build emits a dependency-level Node `DEP0155` deprecation warning but c
 - The selection reducer covers empty-cursor, different-rally, same-rally and toggle-off cases. All 145
   web tests and Nuxt typecheck passed; headed Chromium verified pressed state, linked parent selection,
   toggle-off, parent-only selection and whitespace dismissal with zero console errors.
+
+# 2026-08-09 — Unified ingest and continuous DVR playback lifecycle
+
+- Active live, ended live, progressively indexed YouTube VOD and complete local MP4 now share one
+  canonical availability model while preserving distinct product states. Only active live exposes
+  `LIVE`; a drained terminal source exposes `END`, and its final manifest emits `EXT-X-ENDLIST`.
+- The browser keeps one long-lived hls.js/MSE blob attachment. Server-ready ranges, the authorized
+  playback window, actual `HTMLMediaElement.buffered` ranges, indexing work and not-yet-downloaded
+  source media are rendered as separate timeline layers; the ruler remains inert and only the thin
+  availability rail performs click-to-seek.
+- YouTube relay inputs now reuse yt-dlp's selected signed URLs and HTTP request headers, segment to
+  independently playable fragmented MP4 with explicit PTS resets, re-probe active live sources after
+  reconnects, and withhold an unsealed tail when an operator stops capture.
+- Playback manifests use capture-epoch sequence as the absolute HLS transport discontinuity, cursor
+  and frame snapping load only the target fragment plus touching neighbours, and an exact terminal
+  observation snaps to the final indexed sample without changing half-open canonical ranges.
+- Rolling extension is idempotent when no new READY media exists and renews the playback-window lease
+  while the workstation is idle or paused. Browser buffer starvation inside an already-authorized
+  window triggers hls.js recovery instead of a redundant server extension.
+- The existing-match media dialog now exposes only a YouTube video/live URL or a local MP4 upload.
+  A clean Chromium reload created exactly one playback window, showed `END`, rendered the four media
+  availability layers, and reported zero console errors or warnings.
+- Real runtime validation played one blob through the progressive 300-second window boundary while
+  duration expanded from about 300 to 588 seconds, resolved the complete DEMO archive at its exact
+  terminal frame, renewed an idle descriptor beyond its original TTL, and verified a FINISHED 291
+  segment capture emits `EXT-X-ENDLIST`.
+- Reconnect smoke used two generated 60 fps MP4 segments separated by a persisted restart marker. It
+  produced epoch/discontinuity sequence `0 -> 1`, continuous capture time `0 -> 2,000,000 us` and
+  continuous canonical frames `0 -> 119`; the temporary fixture was removed after verification.
+- Permanent media-index failures now quarantine only a validated ingest envelope plus bounded failure
+  metadata, never malformed source paths or tokens. The source pg-boss job completes and the manual
+  dead-letter audit is correlated by `sourceJobId` without reusing the source job ID.
+- The post-merge monorepo gate passed: contracts 13, DB 4, media 88, server 214, worker 175, web 154
+  and Python SDK 20 tests; root typecheck, production build, 486-file checksum/scaffold validation,
+  44-model/27-enum Prisma structure validation and 258-file TypeScript/Vue syntax validation also
+  passed. The only build output is dependency-level deprecation/plugin-timing warnings.

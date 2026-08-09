@@ -8,6 +8,8 @@ if (process.env.NODE_ENV !== 'production' && typeof process.loadEnvFile === 'fun
   if (existsSync(repositoryEnv)) process.loadEnvFile(repositoryEnv)
 }
 
+const developmentBackendOrigin = process.env.NUXT_DEV_BACKEND_ORIGIN ?? 'https://localhost'
+
 export default defineNuxtConfig({
   compatibilityDate: '2026-08-01',
   devtools: { enabled: true },
@@ -49,9 +51,25 @@ export default defineNuxtConfig({
   },
   nitro: {
     devProxy: {
-      '/graphql': { target: 'https://localhost/graphql', changeOrigin: true, secure: false },
-      '/api': { target: 'https://localhost/api', changeOrigin: true, secure: false },
-      '/hls': { target: 'https://localhost/hls', changeOrigin: true, secure: false },
+      '/graphql': { target: `${developmentBackendOrigin}/graphql`, changeOrigin: true, secure: false },
+      '/api': { target: `${developmentBackendOrigin}/api`, changeOrigin: true, secure: false },
+      '/hls': { target: `${developmentBackendOrigin}/hls`, changeOrigin: true, secure: false },
+      '/ome': { target: `${developmentBackendOrigin}/ome`, changeOrigin: true, secure: false },
+    },
+  },
+  vite: {
+    server: {
+      proxy: {
+        // Nitro's HTTP dev proxy does not own WebSocket upgrades. Keep the
+        // browser on the Nuxt origin while Vite forwards annotation/coach WS
+        // connections to the same Traefik endpoint used in deployment.
+        '/ws': {
+          target: developmentBackendOrigin,
+          changeOrigin: true,
+          secure: false,
+          ws: true,
+        },
+      },
     },
   },
   pwa: {

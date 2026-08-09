@@ -1075,7 +1075,12 @@ export class PrismaIngestRepository {
         return fail('TIMELINE_CONFLICT')
       }
       const session = await tx.captureSession.findUnique({
-        select: { startedAt: true, status: true },
+        select: {
+          completionExpectedSegments: true,
+          sourceDurationUs: true,
+          startedAt: true,
+          status: true,
+        },
         where: { id: input.reservation.captureSessionId },
       })
       if (!session) return fail('SESSION_NOT_FOUND')
@@ -1145,6 +1150,62 @@ export class PrismaIngestRepository {
         },
         where: { id: input.reservation.captureSessionId },
       })
+      if (
+        session.status === 'STOPPING'
+        && session.completionExpectedSegments !== null
+      ) {
+        const [readySegments, pendingSegments] = await Promise.all([
+          tx.dvrSegment.count({
+            where: {
+              dvrProgramId: segment.dvrProgramId,
+              isGap: false,
+              readyAt: { not: null },
+            },
+          }),
+          tx.dvrSegment.count({
+            where: { dvrProgramId: segment.dvrProgramId, readyAt: null },
+          }),
+        ])
+        if (
+          readySegments >= session.completionExpectedSegments
+          && pendingSegments === 0
+        ) {
+          const endedAt = this.#now()
+          await tx.dvrProgram.update({
+            data: { status: 'FINISHED' },
+            where: { id: segment.dvrProgramId },
+          })
+          await tx.captureEpoch.updateMany({
+            data: { endedAtCaptureUs: segment.captureEndUs },
+            where: {
+              captureSessionId: input.reservation.captureSessionId,
+              endedAtCaptureUs: null,
+            },
+          })
+          await tx.captureSession.update({
+            data: {
+              endedAt,
+              health: 'OFFLINE',
+              sourceDurationUs: session.sourceDurationUs ?? program.durationUs,
+              status: 'FINISHED',
+            },
+            where: { id: input.reservation.captureSessionId },
+          })
+          await tx.outboxEvent.create({
+            data: {
+              aggregateId: input.reservation.captureSessionId,
+              aggregateType: 'CaptureSession',
+              dedupeKey: `capture-source-completed:${input.reservation.captureSessionId}`,
+              eventType: 'capture.source_completed.v1',
+              payload: {
+                capture_session_id: input.reservation.captureSessionId,
+                ended_at: endedAt.toISOString(),
+                final_capture_time_us: segment.captureEndUs.toString(),
+              },
+            },
+          })
+        }
+      }
       return {
         disposition: 'PUBLISHED',
         readyAt,

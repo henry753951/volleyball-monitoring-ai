@@ -2,7 +2,9 @@ mutation StopCapture($captureSessionId: ID!) {
   stopCapture(captureSessionId: $captureSessionId) {
     id
     matchId
+    sourceKind
     sourceLabel
+    sourceDurationUs
     status
     health
     startedAt

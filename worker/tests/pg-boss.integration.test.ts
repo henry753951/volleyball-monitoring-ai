@@ -110,11 +110,17 @@ integration('pg-boss media runtime integration', () => {
       ))
       const deadLetter = await eventually(async () => {
         const jobs = await runtime.boss.findJobs(mediaIngestQueueOptions.deadLetter)
-        return jobs.find(job => job.sourceId === sourceId)
+        return jobs.find(job => (
+          job.data as { sourceJobId?: string }
+        ).sourceJobId === sourceId)
       })
 
-      expect(deadLetter.output).toEqual({ code: 'PERMANENT_FAILURE' })
-      expect(deadLetter.sourceName).toBe(MEDIA_INGEST_QUEUE)
+      expect((deadLetter.data as { permanentFailure?: unknown }).permanentFailure)
+        .toEqual({ code: 'PERMANENT_FAILURE' })
+      expect((deadLetter.data as { sourceQueue?: string }).sourceQueue)
+        .toBe(MEDIA_INGEST_QUEUE)
+      expect((await runtime.boss.getJobById(MEDIA_INGEST_QUEUE, sourceId))?.state)
+        .toBe('completed')
     }
     finally {
       await runtime.stop()
@@ -245,14 +251,16 @@ integration('pg-boss media runtime integration', () => {
       ))
       const deadLetter = await eventually(async () => {
         const jobs = await runtime.boss.findJobs(mediaIngestQueueOptions.deadLetter)
-        return jobs.find(job => job.sourceId === sourceId)
+        return jobs.find(job => (
+          job.data as { sourceJobId?: string }
+        ).sourceJobId === sourceId)
       })
 
       expect(handlerDeliveries).toBe(0)
-      expect(deadLetter.output).toEqual({ code: 'INVALID_JOB' })
-      expect(deadLetter.sourceRetryCount).toBe(0)
-      expect(JSON.stringify(deadLetter.output)).not.toContain('private')
-      expect(JSON.stringify(deadLetter.output)).not.toContain('do-not-leak')
+      expect((deadLetter.data as { permanentFailure?: unknown }).permanentFailure)
+        .toEqual({ code: 'INVALID_JOB' })
+      expect(JSON.stringify(deadLetter.data)).not.toContain('private')
+      expect(JSON.stringify(deadLetter.data)).not.toContain('do-not-leak')
     }
     finally {
       await runtime.stop()

@@ -12,7 +12,7 @@ uv add "volleyball-monitoring-ai-sdk @ git+https://github.com/henry753951/volley
 Copy `sdk/examples/fixture_worker.py` into the AI project, then run:
 
 ```powershell
-$env:VOLLEYBALL_AI_WS_URL = "wss://central.example.com/api/v1/ai/providers/ws"
+$env:VOLLEYBALL_AI_WS_URL = "wss://central.example.com/api/v1/ai/providers/ws?integration_id=<integration-uuid>"
 $env:VOLLEYBALL_AI_TOKEN = "replace-with-provider-token"
 uv run python fixture_worker.py
 ```

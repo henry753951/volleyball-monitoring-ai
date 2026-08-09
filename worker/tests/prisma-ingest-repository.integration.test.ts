@@ -500,6 +500,65 @@ describe('Prisma finalized media ingest repository', () => {
     )).toBe(true)
   })
 
+  it('finalizes a sealed capture when the final expected segment becomes ready', async () => {
+    const { captureSessionId } = await createSession()
+    const reservation = await repository.reserveUploading(
+      reservationInput(captureSessionId, 'sealed-final-segment'),
+    )
+    const artifactExpectations = expectations(reservation)
+    await repository.recordArtifactExpectations({
+      reservation: reservation.reference,
+      artifacts: artifactExpectations,
+      sampleIndexDocument: serializeSampleIndex(reservation.sampleIndex),
+    })
+    await Promise.all([
+      db.captureSession.update({
+        data: {
+          completionExpectedSegments: 1,
+          completionRequestedAt: fixedReadyAt,
+          sourceDurationUs: reservation.plan.segment.captureEndUs,
+          status: 'STOPPING',
+        },
+        where: { id: captureSessionId },
+      }),
+      db.dvrProgram.update({
+        data: { status: 'STOPPING' },
+        where: { id: reservation.reference.dvrProgramId },
+      }),
+    ])
+
+    await expect(repository.publishReady({
+      reservation: reservation.reference,
+      verifiedArtifacts: artifactExpectations,
+    })).resolves.toMatchObject({ disposition: 'PUBLISHED' })
+
+    const [session, program, epoch, completionEvents] = await Promise.all([
+      db.captureSession.findUniqueOrThrow({ where: { id: captureSessionId } }),
+      db.dvrProgram.findUniqueOrThrow({ where: { id: reservation.reference.dvrProgramId } }),
+      db.captureEpoch.findUniqueOrThrow({ where: { id: reservation.captureEpochId } }),
+      db.outboxEvent.findMany({
+        where: {
+          aggregateId: captureSessionId,
+          eventType: 'capture.source_completed.v1',
+        },
+      }),
+    ])
+    expect(session).toMatchObject({
+      status: 'FINISHED',
+      health: 'OFFLINE',
+      endedAt: fixedReadyAt,
+      sourceDurationUs: reservation.plan.segment.captureEndUs,
+    })
+    expect(program).toMatchObject({
+      status: 'FINISHED',
+      liveEdgeUs: reservation.plan.segment.captureEndUs,
+      durationUs: reservation.plan.segment.durationUs,
+      playlistRevision: 1n,
+    })
+    expect(epoch.endedAtCaptureUs).toBe(reservation.plan.segment.captureEndUs)
+    expect(completionEvents).toHaveLength(1)
+  })
+
   it('rolls back every readiness, program, epoch, and session write on a late database failure', async () => {
     const { captureSessionId } = await createSession()
     const reservation = await repository.reserveUploading(

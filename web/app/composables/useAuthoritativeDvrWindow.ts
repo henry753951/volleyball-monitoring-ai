@@ -42,13 +42,26 @@ export function useAuthoritativeDvrWindow(client: MediaClient) {
   function refresh(descriptor: PlaybackWindowDescriptor) {
     const previous = current.value
     if (!previous || previous.playback_window_id !== descriptor.playback_window_id) return activate(descriptor)
+    generation += 1
+    resolveGeneration += 1
     current.value = descriptor
-    if (anchor.value?.playback_window_id === descriptor.playback_window_id) {
-      anchor.value = { ...anchor.value, mapping_version: descriptor.mapping_version }
-    }
+    // A rolling mapping revision can evict the sample backing the old anchor.
+    // Never relabel that anchor as if the server had resolved it under the new
+    // mapping; the next presented cursor will establish fresh authority.
+    if (anchor.value?.mapping_version !== descriptor.mapping_version) anchor.value = null
     status.value = 'ready'
     error.value = null
+    busy.value = false
     return descriptor
+  }
+  function clear() {
+    generation += 1
+    resolveGeneration += 1
+    current.value = null
+    anchor.value = null
+    status.value = 'idle'
+    error.value = null
+    busy.value = false
   }
   async function resolve(cursor: PlaybackCursorInput) {
     const operationGeneration = generation
@@ -91,5 +104,5 @@ export function useAuthoritativeDvrWindow(client: MediaClient) {
     }
     return null
   }
-  return { current, anchor, status: readonly(status), error: readonly(error), busy: readonly(busy), activate, create, refresh, resolve, step }
+  return { current, anchor, status: readonly(status), error: readonly(error), busy: readonly(busy), activate, clear, create, refresh, resolve, step }
 }

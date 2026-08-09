@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { DialogDescription } from 'reka-ui'
 import UiButton from '~/components/ui/Button.vue'
 
 defineProps<{ open: boolean; title: string; message: string; confirmLabel: string; danger?: boolean }>()
@@ -7,7 +8,7 @@ defineEmits<{ close: []; confirm: [] }>()
 
 <template>
   <UiAnimatedModal :open="open" :title="title" width="compact" @close="$emit('close')">
-    <p class="confirm-message">{{ message }}</p>
+    <DialogDescription class="confirm-message">{{ message }}</DialogDescription>
     <template #footer><UiButton variant="ghost" @click="$emit('close')">取消</UiButton><UiButton :variant="danger ? 'destructive' : 'default'" @click="$emit('confirm')">{{ confirmLabel }}</UiButton></template>
   </UiAnimatedModal>
 </template>

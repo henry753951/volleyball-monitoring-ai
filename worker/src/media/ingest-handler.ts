@@ -224,10 +224,12 @@ export async function ingestEnvelope(
     artifacts: expected,
     sampleIndexDocument: authoritative.sampleIndex,
   })
-  for (const artifact of authoritative.artifacts) {
-    await deps.store.upload(artifact)
-  }
-  for (const artifact of expected) await deps.store.verify(artifact)
+  // All object keys are immutable and independent once the reservation is
+  // committed. Upload and verify them concurrently so a segment does not pay
+  // six serial object-store round trips. Publication remains the single
+  // atomic visibility boundary after every artifact has been verified.
+  await Promise.all(authoritative.artifacts.map(artifact => deps.store.upload(artifact)))
+  await Promise.all(expected.map(artifact => deps.store.verify(artifact)))
   await deps.repository.publishReady({
     reservation: reservation.reference,
     verifiedArtifacts: expected,

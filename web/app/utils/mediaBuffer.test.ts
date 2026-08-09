@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { mediaTimeRangesToCaptureRanges, playbackWindowSecondsAhead } from './mediaBuffer'
+import { bufferedSecondsAhead, mediaTimeRangesToCaptureRanges, playbackWindowSecondsAhead } from './mediaBuffer'
 
 function ranges(values: Array<[number, number]>): TimeRanges {
   return {
@@ -8,6 +8,23 @@ function ranges(values: Array<[number, number]>): TimeRanges {
     end: index => values[index]?.[1] ?? 0,
   }
 }
+
+describe('bufferedSecondsAhead', () => {
+  it('uses the active MSE range instead of presentation duration', () => {
+    expect(bufferedSecondsAhead({
+      buffered: ranges([[0, 8], [10, 24]]),
+      currentTime: 18,
+    })).toBe(6)
+  })
+
+  it('returns zero before data arrives or while the cursor is in a hole', () => {
+    expect(bufferedSecondsAhead({ buffered: ranges([]), currentTime: 12 })).toBe(0)
+    expect(bufferedSecondsAhead({
+      buffered: ranges([[0, 8], [10, 24]]),
+      currentTime: 9,
+    })).toBe(0)
+  })
+})
 
 describe('playbackWindowSecondsAhead', () => {
   it('uses canonical window bounds instead of transient MSE buffer ranges', () => {

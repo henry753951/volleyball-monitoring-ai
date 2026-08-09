@@ -13,6 +13,13 @@ export function requiresPlaybackPipelineReplacement(
 
 interface DvrPlaybackOptions {
   onBufferActivity?: () => void
+  onError?: (error: Error) => void
+}
+
+const ATTACH_TIMEOUT_MS = 12_000
+
+function timeoutError(stage: string) {
+  return new Error(`HLS ${stage} timed out`)
 }
 
 export function useDvrPlayback(video: Ref<HTMLVideoElement | null>, options: DvrPlaybackOptions = {}) {
@@ -28,11 +35,15 @@ export function useDvrPlayback(video: Ref<HTMLVideoElement | null>, options: Dvr
 
     if (!requiresPlaybackPipelineReplacement(activeWindow.value, descriptor)) {
       activeWindow.value = descriptor
+      // The manifest URL is stable for a rolling window. Keep the same blob /
+      // MediaSource and merely wake hls.js so it can observe the new revision.
+      hls?.startLoad(Math.max(0, element.currentTime))
       return
     }
 
     const currentGeneration = ++generation
     loading.value = true
+    activeWindow.value = null
     try {
       hls?.destroy()
       hls = null
@@ -45,7 +56,7 @@ export function useDvrPlayback(video: Ref<HTMLVideoElement | null>, options: Dvr
         const startPosition = boundedPlayerMediaSeconds(descriptor.target_player_media_time_us)
         // hls.js owns playlist reload, retry, eviction and fragment scheduling.
         // attachMedia creates the long-lived MediaSource/ManagedMediaSource blob.
-        hls = new HlsRuntime({
+        const nextHls = new HlsRuntime({
           autoStartLoad: false,
           maxBufferSize: profile.value.maxBufferBytes,
           maxBufferLength: profile.value.forwardBufferSeconds,
@@ -60,35 +71,83 @@ export function useDvrPlayback(video: Ref<HTMLVideoElement | null>, options: Dvr
           lowLatencyMode: descriptor.mode === 'live',
           enableWorker: true,
         })
-        const notifyBufferActivity = () => options.onBufferActivity?.()
-        hls.on(HlsRuntime.Events.BUFFER_APPENDED, notifyBufferActivity)
-        hls.on(HlsRuntime.Events.FRAG_BUFFERED, notifyBufferActivity)
-        hls.on(HlsRuntime.Events.LEVEL_UPDATED, notifyBufferActivity)
-        hls.attachMedia(element)
-        hls.loadSource(descriptor.manifest_url)
+        hls = nextHls
+        let fatalRecoveries = 0
+        const notifyBufferActivity = () => {
+          fatalRecoveries = 0
+          options.onBufferActivity?.()
+        }
+        const handleRuntimeError = (_event: unknown, data: { details: string; fatal: boolean; type: string }) => {
+          if (currentGeneration !== generation || !data.fatal) return
+          if (fatalRecoveries < 2 && data.type === HlsRuntime.ErrorTypes.NETWORK_ERROR) {
+            fatalRecoveries += 1
+            nextHls.startLoad(Math.max(0, element.currentTime))
+            return
+          }
+          if (fatalRecoveries < 2 && data.type === HlsRuntime.ErrorTypes.MEDIA_ERROR) {
+            fatalRecoveries += 1
+            nextHls.recoverMediaError()
+            return
+          }
+          options.onError?.(new Error(data.details || 'HLS playback failed'))
+        }
+        nextHls.on(HlsRuntime.Events.BUFFER_APPENDED, notifyBufferActivity)
+        nextHls.on(HlsRuntime.Events.BUFFER_FLUSHED, notifyBufferActivity)
+        nextHls.on(HlsRuntime.Events.FRAG_BUFFERED, notifyBufferActivity)
+        nextHls.on(HlsRuntime.Events.LEVEL_UPDATED, notifyBufferActivity)
+        nextHls.on(HlsRuntime.Events.ERROR, handleRuntimeError)
+        nextHls.attachMedia(element)
+        nextHls.loadSource(descriptor.manifest_url)
         await new Promise<void>((resolve, reject) => {
-          hls!.once(HlsRuntime.Events.MANIFEST_PARSED, () => resolve())
-          hls!.on(HlsRuntime.Events.ERROR, (_event, data) => {
-            if (data.fatal) reject(new Error(data.details))
-          })
+          const timer = setTimeout(() => finish(timeoutError('manifest load')), ATTACH_TIMEOUT_MS)
+          const onReady = () => finish()
+          const onError = (_event: unknown, data: { details: string; fatal: boolean }) => {
+            if (data.fatal) finish(new Error(data.details || 'HLS manifest failed'))
+          }
+          const finish = (error?: Error) => {
+            clearTimeout(timer)
+            nextHls.off(HlsRuntime.Events.MANIFEST_PARSED, onReady)
+            nextHls.off(HlsRuntime.Events.ERROR, onError)
+            error ? reject(error) : resolve()
+          }
+          nextHls.on(HlsRuntime.Events.MANIFEST_PARSED, onReady)
+          nextHls.on(HlsRuntime.Events.ERROR, onError)
         })
         if (currentGeneration !== generation) return
         const firstFragment = new Promise<void>((resolve, reject) => {
-          hls!.once(HlsRuntime.Events.FRAG_BUFFERED, () => resolve())
-          hls!.on(HlsRuntime.Events.ERROR, (_event, data) => {
-            if (data.fatal) reject(new Error(data.details))
-          })
+          const timer = setTimeout(() => finish(timeoutError('first fragment')), ATTACH_TIMEOUT_MS)
+          const onReady = () => finish()
+          const onError = (_event: unknown, data: { details: string; fatal: boolean }) => {
+            if (data.fatal) finish(new Error(data.details || 'HLS fragment failed'))
+          }
+          const finish = (error?: Error) => {
+            clearTimeout(timer)
+            nextHls.off(HlsRuntime.Events.FRAG_BUFFERED, onReady)
+            nextHls.off(HlsRuntime.Events.ERROR, onError)
+            error ? reject(error) : resolve()
+          }
+          nextHls.on(HlsRuntime.Events.FRAG_BUFFERED, onReady)
+          nextHls.on(HlsRuntime.Events.ERROR, onError)
         })
         // Explicit startLoad is required because the server intentionally keeps
         // rolling archive manifests open until the canonical source ends.
-        hls.startLoad(startPosition)
+        nextHls.startLoad(startPosition)
         await firstFragment
       }
       else if (element.canPlayType('application/vnd.apple.mpegurl')) {
         element.src = descriptor.manifest_url
         await new Promise<void>((resolve, reject) => {
-          element.addEventListener('loadedmetadata', () => resolve(), { once: true })
-          element.addEventListener('error', () => reject(new Error('native HLS failed to load')), { once: true })
+          const timer = setTimeout(() => finish(timeoutError('native manifest load')), ATTACH_TIMEOUT_MS)
+          const onReady = () => finish()
+          const onError = () => finish(new Error('native HLS failed to load'))
+          const finish = (error?: Error) => {
+            clearTimeout(timer)
+            element.removeEventListener('loadedmetadata', onReady)
+            element.removeEventListener('error', onError)
+            error ? reject(error) : resolve()
+          }
+          element.addEventListener('loadedmetadata', onReady)
+          element.addEventListener('error', onError)
         })
       }
       else throw new Error('HLS playback is not supported by this browser')
@@ -98,9 +157,23 @@ export function useDvrPlayback(video: Ref<HTMLVideoElement | null>, options: Dvr
       // target_player_media_time_us is already player-local. Only this bounded
       // value may cross into Number seconds; presentation origin is canonical.
       element.currentTime = boundedPlayerMediaSeconds(descriptor.target_player_media_time_us)
+    } catch (error) {
+      if (currentGeneration === generation) {
+        hls?.destroy()
+        hls = null
+        activeWindow.value = null
+      }
+      throw error
     } finally {
-      loading.value = false
+      if (currentGeneration === generation) loading.value = false
     }
+  }
+
+  const recover = () => {
+    const element = video.value
+    if (!element || !activeWindow.value || !hls) return false
+    hls.startLoad(Math.max(0, element.currentTime))
+    return true
   }
 
   const detach = () => {
@@ -137,5 +210,5 @@ export function useDvrPlayback(video: Ref<HTMLVideoElement | null>, options: Dvr
 
   onBeforeUnmount(detach)
 
-  return { activeWindow, loading, attach, detach, seekCaptureTime }
+  return { activeWindow, loading, attach, detach, recover, seekCaptureTime }
 }

@@ -163,6 +163,7 @@ let adjacent: CursorWindowSegment | null
 let storeFailure: Error | null
 let indexFailure: Error | null
 let loadedSegmentIds: string[][]
+let availableIndexes: readonly IndexedSegment[]
 
 beforeEach(async () => {
   visibleWindow = fullWindow()
@@ -170,6 +171,7 @@ beforeEach(async () => {
   storeFailure = null
   indexFailure = null
   loadedSegmentIds = []
+  availableIndexes = indexedSegments
   const store: CursorWindowStore = {
     async loadAdjacentSegment() {
       return adjacent
@@ -190,7 +192,7 @@ beforeEach(async () => {
         loadedSegmentIds.push([...segmentIds])
         if (indexFailure) throw indexFailure
         return segmentIds.map((id) =>
-          indexedSegments.find((segment) => segment.segmentId === id)!)
+          availableIndexes.find((segment) => segment.segmentId === id)!)
       },
     },
     store,
@@ -277,10 +279,20 @@ describe('media cursor HTTP authorization and validation', () => {
     expect(expired.json().code).toBe('WINDOW_EXPIRED')
 
     visibleWindow = fullWindow()
-    const outside = await app.inject({
+    const terminal = await app.inject({
       headers: testHeaders(),
       method: 'POST',
       payload: cursorBody(visibleWindow.captureEndUs - visibleWindow.captureStartUs),
+      url: '/api/v1/media/resolve-cursor',
+    })
+    expect(terminal.statusCode).toBe(200)
+    expect(parseResolvedMediaAnchor(terminal.json()).capture_frame_index)
+      .toBe(secondIndex.samples.at(-1)!.captureFrameIndex.toString())
+
+    const outside = await app.inject({
+      headers: testHeaders(),
+      method: 'POST',
+      payload: cursorBody(visibleWindow.captureEndUs - visibleWindow.captureStartUs + 1n),
       url: '/api/v1/media/resolve-cursor',
     })
     expect(outside.statusCode).toBe(422)
@@ -354,6 +366,59 @@ describe('authoritative cursor resolution', () => {
     expect(anchor.snap_distance_us).toBe('8350')
     expect(anchor.source_time_base).toEqual({ den: 60_000, num: 1 })
     expect(loadedSegmentIds).toEqual([[ids.segment1, ids.segment2]])
+  })
+
+  it('resolves across recorder PTS-reset epochs without treating them as a playback discontinuity', async () => {
+    const resetIndex = buildSampleIndex(
+      [sampleFrame(0n, true), sampleFrame(sampleDurationPts)],
+      {
+        captureFrameOrigin: captureFrameOrigin + 2n,
+        captureTimeOriginUs: firstIndex.availableEndUs,
+        epochId: ids.epoch2,
+        sourcePtsOrigin: 0n,
+        timeBase,
+      },
+    )
+    availableIndexes = [
+      indexedSegments[0]!,
+      { discontinuity: 0, index: resetIndex, segmentId: ids.segment2 },
+    ]
+    const resetMapping = mapping(ids.segment2, availableIndexes[1]!, 1)
+    visibleWindow = {
+      ...fullWindow(),
+      captureEndUs: resetIndex.availableEndUs,
+      segments: [firstMapping, resetMapping],
+    }
+
+    const response = await app.inject({
+      headers: testHeaders(),
+      method: 'POST',
+      payload: cursorBody(resetIndex.samples[0]!.captureTimeUs - captureOriginUs),
+      url: '/api/v1/media/resolve-cursor',
+    })
+
+    expect(response.statusCode).toBe(200)
+    const anchor = parseResolvedMediaAnchor(response.json())
+    expect(anchor.capture_epoch_id).toBe(ids.epoch2)
+    expect(anchor.source_pts).toBe('0')
+    expect(loadedSegmentIds).toEqual([[ids.segment1, ids.segment2]])
+  })
+
+  it('scopes cursor resolution to the target discontinuity inside one HLS window', async () => {
+    const discontinuous = { ...secondMapping, captureEpochId: ids.epoch2, discontinuity: 1 }
+    const discontinuousIndex = { ...indexedSegments[1]!, discontinuity: 1 }
+    availableIndexes = [indexedSegments[0]!, discontinuousIndex]
+    visibleWindow = { ...fullWindow(), segments: [firstMapping, discontinuous] }
+
+    const response = await app.inject({
+      headers: testHeaders(),
+      method: 'POST',
+      payload: cursorBody(firstIndex.samples[0]!.captureTimeUs - captureOriginUs),
+      url: '/api/v1/media/resolve-cursor',
+    })
+
+    expect(response.statusCode).toBe(200)
+    expect(loadedSegmentIds).toEqual([[ids.segment1]])
   })
 })
 

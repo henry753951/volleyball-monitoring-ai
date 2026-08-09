@@ -15,12 +15,18 @@ export interface CaptureTimelineView {
   captureStartTimeUs: bigint
   liveEdgeCaptureTimeUs: bigint | null
   availableRanges: CaptureTimelineRangeView[]
+  availabilityComplete: boolean
+  gapRanges: CaptureTimelineRangeView[]
+  ingestFrontierCaptureTimeUs: bigint | null
+  sourceEndCaptureTimeUs: bigint | null
 }
 
 export interface CaptureSessionView {
   id: string
   matchId: string
   sourceLabel: string | null
+  sourceKind: string
+  sourceDurationUs: bigint | null
   status: CaptureSessionRow['status']
   health: CaptureSessionRow['health']
   startedAt: Date | null
@@ -45,16 +51,14 @@ export async function loadCaptureTimelines(
   }
 
   const programIds = [...newestProgramBySession.values()].map((program) => program.id)
+  const sessions = await db.captureSession.findMany({
+    where: { id: { in: sessionIds } },
+  })
+  const sessionById = new Map(sessions.map(session => [session.id, session]))
   const segments = await db.dvrSegment.findMany({
+    include: { initAsset: true, mediaAsset: true, sampleIndexAsset: true },
     orderBy: [{ captureStartUs: 'asc' }, { sequenceNumber: 'asc' }],
-    where: {
-      dvrProgramId: { in: programIds },
-      initAsset: { internalSchemaVersion: { not: null }, state: 'READY' },
-      isGap: false,
-      mediaAsset: { internalSchemaVersion: { not: null }, state: 'READY' },
-      readyAt: { not: null },
-      sampleIndexAsset: { internalSchemaVersion: { not: null }, state: 'READY' },
-    },
+    where: { dvrProgramId: { in: programIds } },
   })
   const segmentsByProgram = new Map<string, typeof segments>()
   for (const segment of segments) {
@@ -66,7 +70,25 @@ export async function loadCaptureTimelines(
   const timelines = new Map<string, CaptureTimelineView>()
   for (const [sessionId, program] of newestProgramBySession) {
     const availableRanges: CaptureTimelineRangeView[] = []
-    for (const segment of segmentsByProgram.get(program.id) ?? []) {
+    const gapRanges: CaptureTimelineRangeView[] = []
+    const programSegments = segmentsByProgram.get(program.id) ?? []
+    for (const segment of programSegments) {
+      if (segment.isGap) {
+        gapRanges.push({
+          discontinuity: segment.discontinuitySequence,
+          endUs: segment.captureEndUs,
+          startUs: segment.captureStartUs,
+        })
+        continue
+      }
+      const ready = segment.readyAt !== null
+        && segment.initAsset?.state === 'READY'
+        && segment.initAsset.internalSchemaVersion !== null
+        && segment.mediaAsset?.state === 'READY'
+        && segment.mediaAsset.internalSchemaVersion !== null
+        && segment.sampleIndexAsset?.state === 'READY'
+        && segment.sampleIndexAsset.internalSchemaVersion !== null
+      if (!ready) continue
       const previous = availableRanges.at(-1)
       if (
         previous
@@ -86,11 +108,31 @@ export async function loadCaptureTimelines(
     }
 
     if (availableRanges.length > 0) {
+      const session = sessionById.get(sessionId)
+      const captureStartTimeUs = availableRanges[0]!.startUs
+      const lastReadyEndUs = availableRanges.at(-1)!.endUs
+      const ingestFrontierCaptureTimeUs = programSegments.reduce<bigint | null>(
+        (frontier, segment) => frontier === null || segment.captureEndUs > frontier
+          ? segment.captureEndUs
+          : frontier,
+        null,
+      )
+      const sourceEndCaptureTimeUs = session?.status === 'FAILED'
+        ? lastReadyEndUs
+        : session?.sourceDurationUs
+        ? captureStartTimeUs + session.sourceDurationUs
+        : session?.status === 'FINISHED'
+          ? lastReadyEndUs
+          : null
       timelines.set(sessionId, {
         availableRanges,
+        availabilityComplete: session?.status === 'FINISHED' || session?.status === 'FAILED',
         captureSessionId: sessionId,
-        captureStartTimeUs: availableRanges[0]!.startUs,
-        liveEdgeCaptureTimeUs: availableRanges.at(-1)!.endUs,
+        captureStartTimeUs,
+        gapRanges,
+        ingestFrontierCaptureTimeUs,
+        liveEdgeCaptureTimeUs: lastReadyEndUs,
+        sourceEndCaptureTimeUs,
         timelineVersion: program.playlistRevision,
       })
     }
@@ -112,6 +154,8 @@ export async function listCaptureSessionsForMatch(
     id: session.id,
     matchId: session.matchId,
     sourceLabel: session.sourceLabel,
+    sourceDurationUs: session.sourceDurationUs,
+    sourceKind: session.sourceKind,
     startedAt: session.startedAt,
     status: session.status,
     timeline: timelines.get(session.id) ?? null,

@@ -76,8 +76,10 @@ describe('OME recording completion hook', () => {
     expect(ome).toContain('<FILE>')
     expect(ome).toContain('<DVR>')
     expect(hook).not.toContain('eval(')
-    expect(relay).toContain('--get-url')
-    expect(relay).toContain("'-re', '-i'")
+    expect(relay).toContain('--dump-single-json')
+    expect(relay).toContain("candidate.get('http_headers')")
+    expect(relay).toContain('self._ffmpeg_input_args(media_input, realtime=True)')
+    expect(relay).not.toContain('--get-url')
     expect(relay).not.toContain('--output -')
   })
 

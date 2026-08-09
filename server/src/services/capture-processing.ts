@@ -5,6 +5,8 @@ import { Prisma, UserRole } from '@volleyball-monitoring/db/client'
 const OPERATOR_ROLES = new Set<UserRole>([UserRole.ADMIN, UserRole.OPERATOR])
 const CAPTURE_PATH = /^[A-Za-z0-9][A-Za-z0-9._/-]{0,190}$/
 const SOURCE_KIND = /^[a-z][a-z0-9_-]{1,31}$/
+const MEDIA_INGEST_LOCK_DOMAIN = 'volleyball-media-ingest-v1'
+const SERIALIZABLE_TRANSACTION_ATTEMPTS = 3
 
 export class OperationalMutationError extends Error {
   constructor(
@@ -53,6 +55,198 @@ function normalizedCapturePath(value: string): string {
   return path
 }
 
+function transactionWriteConflict(error: unknown): boolean {
+  return typeof error === 'object'
+    && error !== null
+    && 'code' in error
+    && error.code === 'P2034'
+}
+
+async function serializableTransaction<T>(
+  database: PrismaClient,
+  operation: (tx: Prisma.TransactionClient) => Promise<T>,
+): Promise<T> {
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      return await database.$transaction(operation, {
+        isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+      })
+    }
+    catch (error) {
+      if (
+        !transactionWriteConflict(error)
+        || attempt >= SERIALIZABLE_TRANSACTION_ATTEMPTS
+      ) throw error
+      // PostgreSQL can abort a serializable snapshot after the per-match
+      // advisory lock wakes up. Retry the whole operation so it observes the
+      // capture committed by the winner and returns the domain-level duplicate
+      // result instead of leaking Prisma P2034 to the UI.
+      await new Promise(resolve => setTimeout(resolve, attempt * 10))
+    }
+  }
+}
+
+async function mediaLifecycleLock(
+  tx: Prisma.TransactionClient,
+  captureSessionId: string,
+): Promise<void> {
+  await tx.$queryRaw`
+    SELECT pg_advisory_xact_lock(
+      hashtextextended(
+        CAST(${MEDIA_INGEST_LOCK_DOMAIN} AS text) || ':' || CAST(${captureSessionId} AS text),
+        0
+      )
+    )::text AS lock
+  `
+}
+
+async function finalizeCaptureIfDrainedInTransaction(
+  tx: Prisma.TransactionClient,
+  captureSessionId: string,
+) {
+  const capture = await tx.captureSession.findUnique({
+    include: { programs: { orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], take: 1 } },
+    where: { id: captureSessionId },
+  })
+  if (
+    !capture
+    || capture.status !== 'STOPPING'
+    || capture.completionExpectedSegments === null
+  ) return capture
+
+  const program = capture.programs[0] ?? null
+  if (capture.completionExpectedSegments > 0 && !program) return capture
+  if (program) {
+    const [readySegments, pendingSegments] = await Promise.all([
+      tx.dvrSegment.count({
+        where: { dvrProgramId: program.id, isGap: false, readyAt: { not: null } },
+      }),
+      tx.dvrSegment.count({ where: { dvrProgramId: program.id, readyAt: null } }),
+    ])
+    if (
+      readySegments < capture.completionExpectedSegments
+      || pendingSegments > 0
+    ) return capture
+  }
+
+  const endedAt = new Date()
+  const endCaptureUs = program?.liveEdgeUs ?? null
+  if (program) {
+    await tx.dvrProgram.update({
+      data: { status: 'FINISHED' },
+      where: { id: program.id },
+    })
+  }
+  if (endCaptureUs !== null) {
+    await tx.captureEpoch.updateMany({
+      data: { endedAtCaptureUs: endCaptureUs },
+      where: { captureSessionId, endedAtCaptureUs: null },
+    })
+  }
+  const finished = await tx.captureSession.update({
+    data: {
+      endedAt,
+      health: 'OFFLINE',
+      sourceDurationUs: capture.sourceDurationUs ?? program?.durationUs ?? null,
+      status: 'FINISHED',
+    },
+    where: { id: captureSessionId },
+  })
+  await tx.outboxEvent.create({
+    data: {
+      aggregateId: finished.id,
+      aggregateType: 'CaptureSession',
+      dedupeKey: `capture-source-completed:${finished.id}`,
+      eventType: 'capture.source_completed.v1',
+      payload: json({
+        capture_session_id: finished.id,
+        ended_at: endedAt.toISOString(),
+        final_capture_time_us: endCaptureUs?.toString() ?? null,
+      }),
+    },
+  })
+  return finished
+}
+
+export async function updateCaptureSourceMetadata(
+  database: PrismaClient,
+  captureSessionId: string,
+  input: { sourceKind: string; sourceDurationUs: bigint | null },
+) {
+  const sourceKind = input.sourceKind.trim().toLowerCase()
+  if (!SOURCE_KIND.test(sourceKind) || input.sourceDurationUs !== null && input.sourceDurationUs <= 0n) {
+    throw new OperationalMutationError('BAD_USER_INPUT', 'Capture source metadata is invalid')
+  }
+  return serializableTransaction(database, async tx => {
+    await mediaLifecycleLock(tx, captureSessionId)
+    const capture = await tx.captureSession.findUnique({ where: { id: captureSessionId } })
+    if (!capture) throw new OperationalMutationError('NOT_FOUND', 'Capture session was not found')
+    return tx.captureSession.update({
+      data: {
+        sourceKind,
+        ...(input.sourceDurationUs === null ? {} : { sourceDurationUs: input.sourceDurationUs }),
+      },
+      where: { id: captureSessionId },
+    })
+  })
+}
+
+export async function requestCaptureCompletion(
+  database: PrismaClient,
+  captureSessionId: string,
+  input: {
+    expectedSegments: number
+    sourceKind: string
+    sourceDurationUs: bigint | null
+  },
+) {
+  if (!Number.isSafeInteger(input.expectedSegments) || input.expectedSegments < 0) {
+    throw new OperationalMutationError('BAD_USER_INPUT', 'Capture completion watermark is invalid')
+  }
+  const sourceKind = input.sourceKind.trim().toLowerCase()
+  if (!SOURCE_KIND.test(sourceKind) || input.sourceDurationUs !== null && input.sourceDurationUs <= 0n) {
+    throw new OperationalMutationError('BAD_USER_INPUT', 'Capture completion metadata is invalid')
+  }
+  return serializableTransaction(database, async tx => {
+    await mediaLifecycleLock(tx, captureSessionId)
+    const capture = await tx.captureSession.findUnique({ where: { id: captureSessionId } })
+    if (!capture) throw new OperationalMutationError('NOT_FOUND', 'Capture session was not found')
+    if (['FAILED', 'FINISHED'].includes(capture.status)) return capture
+    if (
+      capture.completionExpectedSegments !== null
+      && capture.completionExpectedSegments !== input.expectedSegments
+    ) {
+      throw new OperationalMutationError('BAD_USER_INPUT', 'Capture completion watermark changed')
+    }
+    await tx.captureSession.update({
+      data: {
+        completionExpectedSegments: input.expectedSegments,
+        completionRequestedAt: capture.completionRequestedAt ?? new Date(),
+        health: 'HEALTHY',
+        sourceKind,
+        ...(input.sourceDurationUs === null ? {} : { sourceDurationUs: input.sourceDurationUs }),
+        status: 'STOPPING',
+      },
+      where: { id: captureSessionId },
+    })
+    await tx.dvrProgram.updateMany({
+      data: { status: 'STOPPING' },
+      where: { captureSessionId, status: { in: ['STARTING', 'LIVE'] } },
+    })
+    return finalizeCaptureIfDrainedInTransaction(tx, captureSessionId)
+  })
+}
+
+export async function finalizeCaptureIfDrained(
+  database: PrismaClient,
+  captureSessionId: string,
+) {
+  return database.$transaction(async tx => {
+    await mediaLifecycleLock(tx, captureSessionId)
+    return finalizeCaptureIfDrainedInTransaction(tx, captureSessionId)
+  }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable })
+}
+
 export async function startCapture(
   database: PrismaClient,
   identity: { id: string; role: UserRole },
@@ -69,7 +263,8 @@ export async function startCapture(
     throw new OperationalMutationError('BAD_USER_INPUT', 'sourceConfigSecretRef must be an opaque secret reference')
   }
 
-  return database.$transaction(async tx => {
+  return serializableTransaction(database, async tx => {
+    await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`capture-match:${input.matchId}`}, 0))::text AS lock`
     await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`capture-path:${ingestPath}`}, 0))::text AS lock`
     const match = await tx.match.findFirst({
       where: {
@@ -81,10 +276,13 @@ export async function startCapture(
     })
     if (!match) throw new OperationalMutationError('NOT_FOUND', 'Match was not found or is not writable')
     const duplicate = await tx.captureSession.findFirst({
-      where: { ingestPath, status: { in: ['STARTING', 'LIVE', 'STOPPING'] } },
+      where: {
+        OR: [{ ingestPath }, { matchId: match.id }],
+        status: { in: ['STARTING', 'LIVE', 'STOPPING'] },
+      },
       select: { id: true },
     })
-    if (duplicate) throw new OperationalMutationError('BAD_USER_INPUT', 'ingestPath already belongs to an active capture')
+    if (duplicate) throw new OperationalMutationError('BAD_USER_INPUT', 'Match already has an active media source')
 
     const capture = await tx.captureSession.create({
       data: {
@@ -109,7 +307,7 @@ export async function startCapture(
       },
     })
     return { ...capture, timeline: null }
-  }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable })
+  })
 }
 
 export async function failCaptureStartup(
@@ -119,11 +317,26 @@ export async function failCaptureStartup(
 ) {
   const errorCode = createHash('sha256').update(reason).digest('hex').slice(0, 16)
   return database.$transaction(async tx => {
-    await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`capture-session:${captureSessionId}`}, 0))::text AS lock`
+    await mediaLifecycleLock(tx, captureSessionId)
     const capture = await tx.captureSession.findUnique({ where: { id: captureSessionId } })
     if (!capture || !['STARTING', 'LIVE'].includes(capture.status)) return capture
+    const endedAt = new Date()
+    const program = await tx.dvrProgram.findFirst({
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      where: { captureSessionId: capture.id },
+    })
+    await tx.dvrProgram.updateMany({
+      data: { status: 'FINISHED' },
+      where: { captureSessionId: capture.id, status: { in: ['STARTING', 'LIVE', 'STOPPING'] } },
+    })
+    if (program) {
+      await tx.captureEpoch.updateMany({
+        data: { endedAtCaptureUs: program.liveEdgeUs },
+        where: { captureSessionId: capture.id, endedAtCaptureUs: null },
+      })
+    }
     const failed = await tx.captureSession.update({
-      data: { endedAt: new Date(), health: 'OFFLINE', status: 'FAILED' },
+      data: { endedAt, health: 'OFFLINE', status: 'FAILED' },
       where: { id: capture.id },
     })
     await tx.outboxEvent.create({ data: {
@@ -144,7 +357,7 @@ export async function stopCapture(
 ) {
   assertOperator(identity)
   return database.$transaction(async tx => {
-    await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`capture-session:${captureSessionId}`}, 0))::text AS lock`
+    await mediaLifecycleLock(tx, captureSessionId)
     const capture = await tx.captureSession.findFirst({
       where: {
         id: captureSessionId,
@@ -155,8 +368,36 @@ export async function stopCapture(
       },
     })
     if (!capture) throw new OperationalMutationError('NOT_FOUND', 'Capture session was not found')
-    if (!['STARTING', 'LIVE', 'STOPPING'].includes(capture.status)) {
-      throw new OperationalMutationError('BAD_USER_INPUT', 'Capture session is already terminal')
+    if (['FAILED', 'FINISHED'].includes(capture.status)) {
+      return { ...capture, timeline: null }
+    }
+    if (capture.completionExpectedSegments !== null) {
+      const finalized = await finalizeCaptureIfDrainedInTransaction(tx, capture.id) ?? capture
+      return { ...finalized, timeline: null }
+    }
+    const managedSource = ['local_mp4', 'youtube', 'youtube_live', 'youtube_vod'].includes(capture.sourceKind)
+    if (managedSource) {
+      if (capture.status !== 'STOPPING') {
+        const stopping = await tx.captureSession.update({
+          data: { status: 'STOPPING' },
+          where: { id: capture.id },
+        })
+        await tx.dvrProgram.updateMany({
+          data: { status: 'STOPPING' },
+          where: { captureSessionId: capture.id, status: { in: ['STARTING', 'LIVE'] } },
+        })
+        await tx.outboxEvent.create({
+          data: {
+            aggregateId: stopping.id,
+            aggregateType: 'CaptureSession',
+            dedupeKey: `capture-stop-requested:${stopping.id}`,
+            eventType: 'capture.stop_requested.v1',
+            payload: json({ capture_session_id: stopping.id }),
+          },
+        })
+        return { ...stopping, timeline: null }
+      }
+      return { ...capture, timeline: null }
     }
     const endedAt = new Date()
     const endCaptureUs = capture.programs[0]?.liveEdgeUs ?? null

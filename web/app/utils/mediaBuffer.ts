@@ -1,3 +1,5 @@
+export type BufferedMediaElement = Pick<HTMLMediaElement, 'buffered' | 'currentTime'>
+
 export interface CanonicalMediaRange {
   startCaptureTimeUs: string
   endCaptureTimeUs: string
@@ -9,6 +11,19 @@ export function mediaTimeRangesToCaptureRanges(ranges: TimeRanges, presentationO
     startCaptureTimeUs: (origin + BigInt(Math.round(ranges.start(index) * 1_000_000))).toString(),
     endCaptureTimeUs: (origin + BigInt(Math.round(ranges.end(index) * 1_000_000))).toString(),
   })).filter(range => BigInt(range.endCaptureTimeUs) > BigInt(range.startCaptureTimeUs))
+}
+
+export function bufferedSecondsAhead(element: BufferedMediaElement) {
+  for (let index = 0; index < element.buffered.length; index += 1) {
+    const start = element.buffered.start(index)
+    const end = element.buffered.end(index)
+    if (element.currentTime >= start - 0.05 && element.currentTime <= end + 0.05) {
+      return Math.max(0, end - element.currentTime)
+    }
+  }
+  // Presentation duration describes the descriptor, not bytes already held by
+  // MSE. A cursor in an unbuffered hole must stay visible as buffer starvation.
+  return 0
 }
 
 export function playbackWindowSecondsAhead(input: {

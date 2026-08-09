@@ -15,6 +15,8 @@ import type { AiProgressService } from './ai-progress.js'
 const leaseMs = 60_000
 const callbackLifetimeMs = 30 * 60_000
 const tickMs = 1_000
+const heartbeatIntervalSeconds = 10
+const heartbeatTimeoutMs = heartbeatIntervalSeconds * 3 * 1_000
 const isRecord = (value: unknown): value is Record<string, unknown> => value !== null && typeof value === 'object' && !Array.isArray(value)
 const sha256 = (value: string) => createHash('sha256').update(value).digest('hex')
 const json = (value: unknown) => JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue
@@ -147,6 +149,7 @@ export const aiProviderWebSocketRoutes = (
         let providerBuildId: string | null = null
         let maxConcurrency = 0
         let ticking = false
+        let lastHeartbeatAt = Date.now()
         const abortSent = new Set<string>()
         const committedSent = new Set<string>()
         const send = (message: AIProviderServerMessage) => {
@@ -155,10 +158,13 @@ export const aiProviderWebSocketRoutes = (
 
         const reconcile = async () => {
           if (!instanceId || ticking || socket.readyState !== 1) return
+          if (Date.now() - lastHeartbeatAt > heartbeatTimeoutMs) {
+            socket.close(1011, 'provider heartbeat timeout')
+            return
+          }
           ticking = true
           try {
             const now = new Date()
-            await database.aiProviderInstance.update({ where: { id: instanceId }, data: { lastSeenAt: now, disconnectedAt: null } })
             const assigned = await database.aiJob.findMany({
               where: { providerInstanceId: instanceId, deliveryId: { not: null }, status: { in: [JobStatus.QUEUED, JobStatus.RUNNING, JobStatus.CANCELLED, JobStatus.COMPLETED] } },
               select: { id: true, deliveryId: true, status: true, cancelRequestedAt: true, completedAt: true },
@@ -292,7 +298,8 @@ export const aiProviderWebSocketRoutes = (
                 create: { integrationId: integration.id, instanceKey, sdkVersion: message.sdk_version, providerBuildId: message.provider_build_id, capabilities: json(message.capabilities), maxConcurrency, lastSeenAt: new Date() },
               })
               instanceId = instance.id
-              send({ schema_version: '1.0.0', type: 'connection_ready', connection_id: randomUUID(), server_time: new Date().toISOString(), heartbeat_interval_seconds: 10, lease_seconds: leaseMs / 1_000 })
+              lastHeartbeatAt = Date.now()
+              send({ schema_version: '1.0.0', type: 'connection_ready', connection_id: randomUUID(), server_time: new Date().toISOString(), heartbeat_interval_seconds: heartbeatIntervalSeconds, lease_seconds: leaseMs / 1_000 })
               for (const active of message.active_jobs) await resumeOrStop(active)
               await reconcile()
               return
@@ -306,6 +313,7 @@ export const aiProviderWebSocketRoutes = (
                 socket.close(1008, 'instance_id mismatch')
                 return
               }
+              lastHeartbeatAt = Date.now()
               await database.aiProviderInstance.update({ where: { id: instanceId }, data: { lastSeenAt: new Date() } })
               for (const active of message.active_jobs) await resumeOrStop(active)
               return

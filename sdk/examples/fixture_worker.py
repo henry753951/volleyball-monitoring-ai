@@ -1,7 +1,7 @@
 """Runnable outbound AI worker using bundled example analysis data.
 
 Required environment variables:
-  VOLLEYBALL_AI_WS_URL=wss://central.example.com/api/v1/ai/providers/ws
+  VOLLEYBALL_AI_WS_URL=wss://central.example.com/api/v1/ai/providers/ws?integration_id=<integration-uuid>
   VOLLEYBALL_AI_TOKEN=replace-with-provider-token
 
 Optional:

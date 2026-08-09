@@ -41,7 +41,7 @@ const ids = {
   match: '30000000-0000-4000-8000-000000000010',
   session: '30000000-0000-4000-8000-000000000011',
   epoch: '30000000-0000-4000-8000-000000000012',
-  epoch2: '30000000-0000-4000-8000-000000000014',
+  resetEpoch: '30000000-0000-4000-8000-000000000014',
   program: '30000000-0000-4000-8000-000000000013',
   segment1: '30000000-0000-4000-8000-000000000021',
   segment2: '30000000-0000-4000-8000-000000000022',
@@ -142,6 +142,7 @@ async function seedMediaFixture() {
       captureFrameOrigin: 0n,
       captureSessionId: ids.session,
       captureTimeOriginUs: baseUs,
+      endedAtCaptureUs: baseUs + 1_000_000n,
       id: ids.epoch,
       sequenceIndex: 0,
       sourcePtsOrigin: 0n,
@@ -155,7 +156,8 @@ async function seedMediaFixture() {
       captureFrameOrigin: 30n,
       captureSessionId: ids.session,
       captureTimeOriginUs: baseUs + 1_000_000n,
-      id: ids.epoch2,
+      discontinuityReason: 'PTS_RESET',
+      id: ids.resetEpoch,
       sequenceIndex: 1,
       sourcePtsOrigin: 0n,
       sourceTimeBaseDen: 30,
@@ -249,7 +251,7 @@ async function seedMediaFixture() {
       },
       {
         captureEndUs: baseUs + 2_000_000n,
-        captureEpochId: ids.epoch2,
+        captureEpochId: ids.resetEpoch,
         captureStartUs: baseUs + 1_000_000n,
         discontinuitySequence: 0,
         durationUs: 1_000_000n,
@@ -467,6 +469,32 @@ describe('Phase 2A playback-window HTTP', () => {
     const original = created.json()
     expect(await db.playbackWindowSegment.count({ where: { playbackWindowId: original.playback_window_id } })).toBe(1)
 
+    await db.playbackWindow.update({
+      data: { expiresAt: new Date(now.getTime() + 30_000) },
+      where: { id: original.playback_window_id },
+    })
+
+    const unchanged = await app.inject({
+      headers: authHeaders('operator'),
+      method: 'POST',
+      payload: {
+        schema_version: '1.0.0',
+        target_capture_time_us: (baseUs + 500_000n).toString(),
+        requested_forward_us: '0',
+      },
+      url: `/api/v1/media/playback-windows/${original.playback_window_id}/extend`,
+    })
+    expect(unchanged.statusCode).toBe(200)
+    expect(unchanged.json()).toMatchObject({
+      playback_window_id: original.playback_window_id,
+      mapping_version: original.mapping_version,
+      window_capture_end_us: original.window_capture_end_us,
+    })
+    expect(unchanged.json().expires_at).toBe(new Date(now.getTime() + 300_000).toISOString())
+    expect((await db.playbackWindow.findUniqueOrThrow({
+      where: { id: original.playback_window_id },
+    })).expiresAt).toEqual(new Date(now.getTime() + 300_000))
+
     const extended = await app.inject({
       headers: authHeaders('operator'),
       method: 'POST',
@@ -513,7 +541,7 @@ describe('Phase 2A playback-window HTTP', () => {
     expect(manifest.body).toContain(`/segments/media-${ids.segment1}`)
     expect(manifest.body).toContain(`/segments/media-${ids.segment2}`)
     expect(manifest.body).toContain('#EXT-X-DISCONTINUITY-SEQUENCE:0')
-    expect(manifest.body).toContain('#EXT-X-DISCONTINUITY')
+    expect(manifest.body.match(/^#EXT-X-DISCONTINUITY$/gm)).toHaveLength(1)
     expect(manifest.body).not.toContain('#EXT-X-ENDLIST')
   })
 

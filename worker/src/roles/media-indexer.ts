@@ -32,6 +32,7 @@ export {
 
 const RETENTION_SECONDS = 1_209_600
 const DELETE_AFTER_SECONDS = 604_800
+const LOCAL_INGEST_CONCURRENCY = 4
 
 export const mediaIngestQueueOptions = Object.freeze({
   policy: 'key_strict_fifo' as const,
@@ -142,6 +143,84 @@ export async function processMediaIngestJobs(
   }
 }
 
+type PermanentMediaIngestResult = JobResult<{
+  code?: PermanentMediaIngestCode
+}>
+
+export async function quarantinePermanentMediaFailures(
+  jobs: Pick<JobWithMetadata<MediaIngestEnvelope>, 'id' | 'data'>[],
+  results: PermanentMediaIngestResult[],
+  sendDeadLetter: (
+    id: string,
+    data: Record<string, unknown>,
+  ) => Promise<unknown>,
+): Promise<PermanentMediaIngestResult[]> {
+  const jobsById = new Map(jobs.map(job => [job.id, job]))
+  return Promise.all(results.map(async (result) => {
+    if (result.status !== 'deadletter') return result
+    const job = jobsById.get(result.id)
+    if (!job) throw new Error('Permanent media ingest result has no matching job.')
+    const parsed = MediaIngestEnvelope.safeParse(job.data)
+    await sendDeadLetter(job.id, {
+      ...(parsed.success ? parsed.data : {}),
+      permanentFailure: result.output ?? { code: 'PERMANENT_FAILURE' },
+      sourceJobId: job.id,
+      sourceQueue: MEDIA_INGEST_QUEUE,
+    })
+    // key_strict_fifo intentionally blocks a key while its source job is in
+    // failed state. The quarantined copy is the durable audit record, while
+    // completing the source job lets independent captures and later valid
+    // segments continue instead of creating a global head-of-line stall.
+    return { ...result, status: 'completed' as const }
+  }))
+}
+
+async function releaseQuarantinedFailures(
+  boss: PgBoss,
+  deadLetter: string,
+): Promise<void> {
+  const blockedKeys = await boss.getBlockedKeys(MEDIA_INGEST_QUEUE)
+  for (const key of blockedKeys) {
+    const jobs = await boss.findJobs<MediaIngestEnvelope>(MEDIA_INGEST_QUEUE, { key })
+    for (const job of jobs) {
+      if (job.state !== 'failed') continue
+      const quarantined = await boss.findJobs(deadLetter, { data: job.data })
+      if (quarantined.length > 0) {
+        // pg-boss cannot cancel a terminal failed job. Its quarantined copy
+        // is already durable, so removing only the source sentinel releases
+        // the strict-FIFO key without losing the failure audit.
+        await boss.deleteJob(MEDIA_INGEST_QUEUE, job.id)
+      }
+    }
+  }
+}
+
+type IngestGroupBoss = Pick<PgBoss, 'findJobs' | 'update'>
+
+export async function assignQueuedIngestGroups(
+  boss: IngestGroupBoss,
+): Promise<number> {
+  const queued = await boss.findJobs<MediaIngestEnvelope>(MEDIA_INGEST_QUEUE, {
+    queued: true,
+  })
+  const keys = new Set(
+    queued
+      .filter(job => job.singletonKey && job.groupId !== job.singletonKey)
+      .map(job => job.singletonKey as string),
+  )
+
+  let updated = 0
+  for (const key of keys) {
+    const result = await boss.update(MEDIA_INGEST_QUEUE, undefined, {
+      singletonKey: key,
+      match: 'all',
+      group: { id: key },
+    })
+    updated += result.updated
+  }
+  return updated
+}
+
 function queueMatches(persisted: QueueResult): boolean {
   return persisted.policy === mediaIngestQueueOptions.policy
     && persisted.partition === mediaIngestQueueOptions.partition
@@ -189,14 +268,26 @@ export function createPgBossMediaRuntime(
         if (!persisted || !queueMatches(persisted)) {
           throw new Error('Media ingest queue configuration conflicts with runtime policy.')
         }
+        await releaseQuarantinedFailures(boss, deadLetter)
+        await assignQueuedIngestGroups(boss)
 
         const workOptions = {
           batchSize: 1,
+          // key_strict_fifo serializes each capture key in PostgreSQL. Multiple
+          // local workers may therefore drain independent captures in parallel
+          // without reordering segments within a capture.
+          localConcurrency: LOCAL_INGEST_CONCURRENCY,
+          groupConcurrency: 1,
           includeMetadata: true,
           orderByCreatedOn: true,
           heartbeatRefreshSeconds: 20,
-          pollingIntervalSeconds: 2,
-          notifyPollingIntervalSeconds: 5,
+          // A strict-FIFO key only exposes its next segment after the current
+          // job commits. LISTEN/NOTIFY does not reliably wake that transition,
+          // so multi-second polling turns into a fixed delay per segment.
+          // Keep the fallback sub-second while retaining one worker per
+          // capture; this improves long VOD drain without reordering media.
+          pollingIntervalSeconds: 0.5,
+          notifyPollingIntervalSeconds: 1,
           perJobResults: true,
         } as const
         await boss.work<
@@ -206,7 +297,11 @@ export function createPgBossMediaRuntime(
         >(
           MEDIA_INGEST_QUEUE,
           workOptions,
-          (jobs) => processMediaIngestJobs(jobs, processJob),
+          async (jobs) => quarantinePermanentMediaFailures(
+            jobs,
+            await processMediaIngestJobs(jobs, processJob),
+            (id, data) => boss.send(deadLetter, data, { singletonKey: id }),
+          ),
         )
       } catch (error) {
         await boss.stop({ graceful: true }).catch(() => undefined)
@@ -220,6 +315,7 @@ export function createPgBossMediaRuntime(
       const envelope = MediaIngestEnvelope.parse(envelopeValue)
       return boss.send(MEDIA_INGEST_QUEUE, envelope, {
         singletonKey: envelope.captureSessionId,
+        group: { id: envelope.captureSessionId },
         id: envelope.epochCandidateId,
       })
     },
