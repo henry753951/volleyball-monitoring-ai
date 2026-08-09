@@ -14,7 +14,6 @@ import { resolvePlaybackCursor } from './media/cursor-resolution.js'
 import { createMinioObjectReaderFromEnv } from './media/minio-object-reader.js'
 import { createSampleIndexRepository } from './media/sample-index-repository.js'
 import { createPersistedSampleSnapResolver } from './media/sample-snap-resolver.js'
-import { createMediaSourceGatewayFromEnv, type MediaSourceGateway } from './media/media-source-gateway.js'
 import { mediaPlaybackRoutes } from './routes/media-playback.js'
 import { aiCallbackRoutesWithDependencies } from './routes/ai-callback.js'
 import { analysisMediaRoutes } from './routes/analysis-media.js'
@@ -37,11 +36,6 @@ const minioEndpoint = process.env.MINIO_ENDPOINT?.replace(/\/+$/, '')
 const omeApiEndpoint = process.env.OME_API_URL?.replace(/\/+$/, '')
 const omeApiToken = process.env.OME_API_ACCESS_TOKEN?.trim()
 const mediaObjectReader = createMinioObjectReaderFromEnv()
-const configuredMediaSourceGateway = createMediaSourceGatewayFromEnv()
-const mediaSourceGateway: MediaSourceGateway = configuredMediaSourceGateway ?? {
-  async start() { throw new Error('Media source gateway is not configured') },
-  async stop() { throw new Error('Media source gateway is not configured') },
-}
 if (!mediaObjectReader) {
   throw new Error('MinIO reader configuration is required for media playback and cursor resolution')
 }
@@ -136,11 +130,7 @@ await app.register(mediaPlaybackRoutes({
 await app.register(mediaCursorRoutes({ objectReader: mediaObjectReader }))
 await app.register(mediaSourceRoutes({
   authenticate: request => authenticateDevelopmentAnnotationRequest(request, db),
-  ...(process.env.MEDIA_SOURCE_GATEWAY_TOKEN
-    ? { callbackToken: process.env.MEDIA_SOURCE_GATEWAY_TOKEN }
-    : {}),
   database: db,
-  gateway: mediaSourceGateway,
   importRoot: process.env.MEDIA_IMPORT_ROOT ?? '/var/lib/volleyball/media-imports',
 }))
 await app.register(operationsRoutes(

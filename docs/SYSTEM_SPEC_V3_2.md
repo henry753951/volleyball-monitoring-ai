@@ -528,15 +528,15 @@ server/src/graphql/**/*.ts (Pothos source)
 |---|---|---|
 | `web` | Nuxt UI/SSR/SPA | 否 |
 | `server` | GraphQL、REST、WS、auth、domain command | 否 |
-| `worker-media-indexer` / `worker-playback` / `worker-clip` | index、bounded playback-window lifecycle、clip、FFmpeg | local spool 只是暫存 |
-| `worker-ai-dispatcher` / `worker-analysis-ingest` / `worker-outbox-publisher` | submit／retry、callback terminal convergence、durable domain-event publish | 否 |
+| `worker-media` | YouTube／MP4 source、OME monitor、DVR index、sample index、FFmpeg | local spool 只是暫存；工作狀態在 PostgreSQL |
+| `worker-workflow` | clip、playback cleanup、analysis convergence、outbox publish | 否 |
 | `ovenmediaengine` | ingest/live/record | recording spool 與 DVR 暫存 |
 | `postgres` | canonical metadata、revision、job、analysis | 是 |
 | `minio` | media、clip、analysis artifact | 是 |
 | `redis` | presence、soft lock、fan-out | 否，可重建 |
-| `minio-init` | 建 buckets/lifecycle | 否 |
+| `traefik` | HTTPS／WSS／same-origin routing | 否 |
 
-Baseline 不建立 AI 推論容器。開發環境可另啟動 `tracking-replay-provider`；它驗證 immutable Job 與 canonical clip，並重播已版本化的外部 tracking/analysis 輸出，不宣稱執行即時模型推論。
+Baseline 不建立 AI 推論容器。外部 GPU AI Worker 透過 outbound WebSocket 主動連入 Server，由中央端以 least-busy 規則分配 immutable Job；AI Worker 不屬於中央系統固定容器。
 
 ## 5.2 MinIO Buckets
 

@@ -5,7 +5,7 @@ import { UserRole } from '@volleyball-monitoring/db/client'
 import type { AuthenticatedUser } from '../graphql/context.js'
 import { domainError } from '../graphql/errors.js'
 import type { MediaObjectLocation, MediaObjectRemover } from '../media/media-object-remover.js'
-import type { MediaSourceGateway } from '../media/media-source-gateway.js'
+import { requestMediaSourceStop } from '../media/media-source-work.js'
 import { requireUuid } from './core-domain.js'
 
 export interface MatchDeleteReceipt {
@@ -18,7 +18,7 @@ export interface MatchDeleteReceipt {
 export interface MatchCleanupDependencies {
   database: PrismaClient
   importRoot: string
-  mediaSourceGateway?: MediaSourceGateway
+  stopMediaSource?: typeof requestMediaSourceStop
   objectRemover?: MediaObjectRemover
   recordingRoot: string
   removePath?: (path: string) => Promise<void>
@@ -31,6 +31,29 @@ function safeChild(root: string, child: string): string | null {
   const target = isAbsolute(child) ? resolve(child) : resolve(base, child)
   const relation = relative(base, target)
   return relation && !relation.startsWith('..') && !isAbsolute(relation) ? target : null
+}
+
+async function waitForMediaSourcesStopped(
+  database: PrismaClient,
+  captureSessionIds: string[],
+  timeoutMs = 15_000,
+): Promise<void> {
+  if (captureSessionIds.length === 0) return
+  const deadline = Date.now() + timeoutMs
+  while (true) {
+    const active = await database.mediaSourceWork.count({
+      where: {
+        captureSessionId: { in: captureSessionIds },
+        OR: [
+          { status: { in: ['RUNNING', 'DRAINING'] } },
+          { attempts: { gt: 0 }, status: 'STOP_REQUESTED' },
+        ],
+      },
+    })
+    if (active === 0) return
+    if (Date.now() >= deadline) throw new Error('Media source shutdown did not settle before match deletion')
+    await new Promise(resolvePromise => setTimeout(resolvePromise, 100))
+  }
 }
 
 export async function deleteMatchWithMedia(
@@ -70,12 +93,15 @@ export async function deleteMatchWithMedia(
     ] },
   }) as CleanupAsset[]
 
-  if (dependencies.mediaSourceGateway) {
-    await Promise.all(match.captureSessions
-      .filter(capture => !['FAILED', 'FINISHED'].includes(capture.status))
-      .filter(capture => ['local_mp4', 'youtube', 'youtube_live', 'youtube_vod'].includes(capture.sourceKind))
-      .map(capture => dependencies.mediaSourceGateway!.stop(capture.id).catch(() => undefined)))
-  }
+  const sourceCaptures = match.captureSessions
+    .filter(capture => !['FAILED', 'FINISHED'].includes(capture.status))
+    .filter(capture => ['local_mp4', 'youtube', 'youtube_live', 'youtube_vod'].includes(capture.sourceKind))
+  const stopMediaSource = dependencies.stopMediaSource ?? requestMediaSourceStop
+  await Promise.all(sourceCaptures.map(capture => stopMediaSource(database, capture.id)))
+  await waitForMediaSourcesStopped(
+    database,
+    sourceCaptures.map(capture => capture.id),
+  )
 
   const captureIds = match.captureSessions.map(capture => capture.id)
   const teamIds = match.matchTeams.map(item => item.teamId)

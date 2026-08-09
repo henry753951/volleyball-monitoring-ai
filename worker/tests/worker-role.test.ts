@@ -3,7 +3,7 @@ import { validateWorkerRole } from '../src/worker-role.js'
 
 describe('validateWorkerRole', () => {
   it.each([
-    'media-indexer',
+    'media',
     'workflow',
     'ai-dispatcher',
   ])('accepts %s', (role) => {

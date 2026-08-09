@@ -2,7 +2,7 @@ import { createWriteStream } from 'node:fs'
 import { mkdir, rename, rm } from 'node:fs/promises'
 import { basename, extname, join, resolve } from 'node:path'
 import { pipeline } from 'node:stream/promises'
-import { createHash, randomUUID, timingSafeEqual } from 'node:crypto'
+import { randomUUID } from 'node:crypto'
 import type { PrismaClient } from '@volleyball-monitoring/db'
 import { UserRole } from '@volleyball-monitoring/db/client'
 import type { FastifyPluginAsync, FastifyRequest } from 'fastify'
@@ -10,11 +10,9 @@ import { z } from 'zod'
 import type { AnnotationIdentity } from '../services/annotation-command.js'
 import {
   failCaptureStartup,
-  requestCaptureCompletion,
   startCapture,
-  updateCaptureSourceMetadata,
 } from '../services/capture-processing.js'
-import type { MediaSourceGateway } from '../media/media-source-gateway.js'
+import { scheduleMediaSourceWork, type MediaSourceWorkRequest } from '../media/media-source-work.js'
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 const YOUTUBE_HOSTS = new Set(['youtube.com', 'www.youtube.com', 'm.youtube.com', 'youtu.be', 'www.youtu.be'])
@@ -23,39 +21,13 @@ const YoutubeRequest = z.object({
   source_label: z.string().trim().min(1).max(120).optional(),
   source_url: z.string().trim().url().max(2_048),
 }).strict()
-const SOURCE_DURATION = z.string().regex(/^[1-9][0-9]{0,18}$/).nullable()
-const SOURCE_KINDS = z.enum(['local_mp4', 'youtube_live', 'youtube_vod'])
-const SourceStatusRequest = z.discriminatedUnion('status', [
-  z.object({
-    capture_session_id: z.string().regex(UUID),
-    error_code: z.string().min(1).max(120),
-    status: z.literal('failed'),
-  }).strict(),
-  z.object({
-    capture_session_id: z.string().regex(UUID),
-    source_duration_us: SOURCE_DURATION,
-    source_kind: SOURCE_KINDS,
-    status: z.literal('classified'),
-  }).strict(),
-  z.object({
-    capture_session_id: z.string().regex(UUID),
-    expected_segment_count: z.number().int().nonnegative().max(10_000_000),
-    source_duration_us: SOURCE_DURATION,
-    source_kind: SOURCE_KINDS,
-    status: z.literal('completed'),
-  }).strict(),
-])
-
 type MediaSourceRouteDependencies = {
   authenticate(request: FastifyRequest): Promise<AnnotationIdentity | null>
   database: PrismaClient
-  gateway: MediaSourceGateway
   importRoot: string
-  callbackToken?: string
+  scheduleWork?: (database: PrismaClient, request: MediaSourceWorkRequest) => Promise<unknown>
   startCapture?: typeof startCapture
   failCaptureStartup?: typeof failCaptureStartup
-  requestCaptureCompletion?: typeof requestCaptureCompletion
-  updateCaptureSourceMetadata?: typeof updateCaptureSourceMetadata
 }
 
 function operator(identity: AnnotationIdentity | null) {
@@ -94,43 +66,8 @@ export function mediaSourceRoutes(dependencies: MediaSourceRouteDependencies): F
   const importRoot = resolve(dependencies.importRoot)
   const createCapture = dependencies.startCapture ?? startCapture
   const failCapture = dependencies.failCaptureStartup ?? failCaptureStartup
-  const completeCapture = dependencies.requestCaptureCompletion ?? requestCaptureCompletion
-  const updateSourceMetadata = dependencies.updateCaptureSourceMetadata ?? updateCaptureSourceMetadata
-  const callbackToken = dependencies.callbackToken?.trim() ?? ''
-  const validCallbackToken = (authorization: string | undefined) => {
-    if (callbackToken.length < 32 || !authorization?.startsWith('Bearer ')) return false
-    const expected = createHash('sha256').update(callbackToken).digest()
-    const actual = createHash('sha256').update(authorization.slice(7)).digest()
-    return timingSafeEqual(expected, actual)
-  }
+  const scheduleWork = dependencies.scheduleWork ?? scheduleMediaSourceWork
   return async (app) => {
-    app.post('/internal/media-sources/status', async (request, reply) => {
-      if (!validCallbackToken(request.headers.authorization)) return reply.status(401).send({ code: 'UNAUTHENTICATED' })
-      const parsed = SourceStatusRequest.safeParse(request.body)
-      if (!parsed.success) return reply.status(400).send({ code: 'BAD_USER_INPUT' })
-      if (parsed.data.status === 'failed') {
-        await failCapture(dependencies.database, parsed.data.capture_session_id, parsed.data.error_code)
-      }
-      else if (parsed.data.status === 'classified') {
-        await updateSourceMetadata(dependencies.database, parsed.data.capture_session_id, {
-          sourceDurationUs: parsed.data.source_duration_us === null
-            ? null
-            : BigInt(parsed.data.source_duration_us),
-          sourceKind: parsed.data.source_kind,
-        })
-      }
-      else {
-        await completeCapture(dependencies.database, parsed.data.capture_session_id, {
-          expectedSegments: parsed.data.expected_segment_count,
-          sourceDurationUs: parsed.data.source_duration_us === null
-            ? null
-            : BigInt(parsed.data.source_duration_us),
-          sourceKind: parsed.data.source_kind,
-        })
-      }
-      return reply.status(204).send()
-    })
-
     app.post('/api/v1/media-sources/youtube', async (request, reply) => {
       const identity = operator(await dependencies.authenticate(request))
       if (!identity) return reply.status(401).send({ code: 'UNAUTHENTICATED' })
@@ -149,7 +86,11 @@ export function mediaSourceRoutes(dependencies: MediaSourceRouteDependencies): F
         sourceLabel: parsed.data.source_label ?? 'YouTube',
       })
       try {
-        await dependencies.gateway.start({ captureSessionId: capture.id, ingestPath: path, sourceKind: 'youtube', sourceUrl })
+        await scheduleWork(dependencies.database, {
+          captureSessionId: capture.id,
+          sourceKind: 'youtube',
+          sourceUrl,
+        })
       }
       catch (error) {
         await failCapture(dependencies.database, capture.id, error instanceof Error ? error.message : 'MEDIA_SOURCE_START_FAILED').catch(() => undefined)
@@ -209,7 +150,11 @@ export function mediaSourceRoutes(dependencies: MediaSourceRouteDependencies): F
         await mkdir(captureDirectory, { recursive: true })
         await rename(stagingFile, importPath)
         try {
-          await dependencies.gateway.start({ captureSessionId: capture.id, importPath: importKey, ingestPath: path, sourceKind: 'local_mp4' })
+          await scheduleWork(dependencies.database, {
+            captureSessionId: capture.id,
+            importKey,
+            sourceKind: 'local_mp4',
+          })
         }
         catch (error) {
           await failCapture(dependencies.database, capture.id, error instanceof Error ? error.message : 'MEDIA_SOURCE_START_FAILED').catch(() => undefined)

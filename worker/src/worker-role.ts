@@ -1,5 +1,5 @@
 export const workerRoles = [
-  'media-indexer',
+  'media',
   'workflow',
   'ai-dispatcher',
 ] as const

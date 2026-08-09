@@ -55,6 +55,15 @@ enum SourceHealth {
   OFFLINE
 }
 
+enum MediaSourceWorkStatus {
+  REQUESTED
+  RUNNING
+  DRAINING
+  STOP_REQUESTED
+  COMPLETED
+  FAILED
+}
+
 enum CourtSide {
   LEFT
   RIGHT
@@ -354,25 +363,52 @@ model CourtSideAssignment {
 }
 
 model CaptureSession {
-  id                    String           @id @default(uuid()) @db.Uuid
-  matchId               String           @db.Uuid
-  sourceKind            String
-  sourceLabel           String?
-  sourceConfigSecretRef String?
-  sourceDurationUs      BigInt?
-  ingestPath            String           @unique
-  status                CaptureStatus    @default(STARTING)
-  health                SourceHealth     @default(STARTING)
-  startedAt             DateTime?
-  endedAt               DateTime?
+  id                         String           @id @default(uuid()) @db.Uuid
+  matchId                    String           @db.Uuid
+  sourceKind                 String
+  sourceLabel                String?
+  sourceConfigSecretRef      String?
+  sourceDurationUs           BigInt?
+  ingestPath                 String           @unique
+  status                     CaptureStatus    @default(STARTING)
+  health                     SourceHealth     @default(STARTING)
+  sourceOnline               Boolean          @default(false)
+  sourceObservedAt           DateTime?
+  startedAt                  DateTime?
+  endedAt                    DateTime?
   completionExpectedSegments Int?
-  completionRequestedAt DateTime?
-  createdAt             DateTime         @default(now())
-  updatedAt             DateTime         @updatedAt
-  match                 Match            @relation(fields: [matchId], references: [id], onDelete: Cascade)
-  programs              DvrProgram[]
-  epochs                CaptureEpoch[]
-  playbackWindows       PlaybackWindow[]
+  completionRequestedAt      DateTime?
+  createdAt                  DateTime         @default(now())
+  updatedAt                  DateTime         @updatedAt
+  match                      Match            @relation(fields: [matchId], references: [id], onDelete: Cascade)
+  programs                   DvrProgram[]
+  epochs                     CaptureEpoch[]
+  playbackWindows            PlaybackWindow[]
+  sourceWork                 MediaSourceWork?
+}
+
+model MediaSourceWork {
+  id                  String                @id @default(uuid()) @db.Uuid
+  captureSessionId    String                @unique @db.Uuid
+  sourceKind          String
+  sourceUrl           String?
+  importKey           String?
+  status              MediaSourceWorkStatus @default(REQUESTED)
+  attempts            Int                   @default(0)
+  availableAt         DateTime              @default(now())
+  leaseOwner          String?
+  leaseExpiresAt      DateTime?
+  lastHeartbeatAt     DateTime?
+  lastErrorCode       String?
+  segmentBaseAt       DateTime              @default(now())
+  resumeSegmentIndex  Int                   @default(0)
+  resumeCaptureTimeUs BigInt                @default(0)
+  createdAt           DateTime              @default(now())
+  updatedAt           DateTime              @updatedAt
+  captureSession      CaptureSession        @relation(fields: [captureSessionId], references: [id], onDelete: Cascade)
+
+  @@index([status, availableAt])
+  @@index([leaseExpiresAt])
 }
 
 model CaptureEpoch {
@@ -887,10 +923,10 @@ model OutboxEvent {
 }
 
 model AnalysisRun {
-  id                               String             @id @default(uuid()) @db.Uuid
-  aiJobId                          String             @unique @db.Uuid
-  submissionId                     String             @db.Uuid
-  analysisId                       String             @unique
+  id                               String                       @id @default(uuid()) @db.Uuid
+  aiJobId                          String                       @unique @db.Uuid
+  submissionId                     String                       @db.Uuid
+  analysisId                       String                       @unique
   analysisVersion                  String
   resultSchemaVersion              String
   overlaySchemaVersion             String
@@ -898,26 +934,26 @@ model AnalysisRun {
   producerName                     String
   producerBuildId                  String
   producerSdkVersion               String?
-  status                           JobStatus          @default(RUNNING)
-  rawAnalysisAssetId               String?            @db.Uuid
-  rawOverlayAssetId                String?            @db.Uuid
+  status                           JobStatus                    @default(RUNNING)
+  rawAnalysisAssetId               String?                      @db.Uuid
+  rawOverlayAssetId                String?                      @db.Uuid
   summary                          Json?
-  createdAt                        DateTime           @default(now())
+  createdAt                        DateTime                     @default(now())
   activatedAt                      DateTime?
   supersededAt                     DateTime?
   identityMappingCompletedAt       DateTime?
-  identityMappingCompletedByUserId String?            @db.Uuid
-  reviewRevision                   BigInt             @default(0)
-  aiJob                            AiJob              @relation(fields: [aiJobId], references: [id], onDelete: Restrict)
-  submission                       RallySubmission    @relation(fields: [submissionId], references: [id], onDelete: Restrict)
-  rawAnalysisAsset                 MediaAsset?        @relation("AnalysisRawJson", fields: [rawAnalysisAssetId], references: [id], onDelete: Restrict)
-  rawOverlayAsset                  MediaAsset?        @relation("AnalysisRawOverlay", fields: [rawOverlayAssetId], references: [id], onDelete: Restrict)
+  identityMappingCompletedByUserId String?                      @db.Uuid
+  reviewRevision                   BigInt                       @default(0)
+  aiJob                            AiJob                        @relation(fields: [aiJobId], references: [id], onDelete: Restrict)
+  submission                       RallySubmission              @relation(fields: [submissionId], references: [id], onDelete: Restrict)
+  rawAnalysisAsset                 MediaAsset?                  @relation("AnalysisRawJson", fields: [rawAnalysisAssetId], references: [id], onDelete: Restrict)
+  rawOverlayAsset                  MediaAsset?                  @relation("AnalysisRawOverlay", fields: [rawOverlayAssetId], references: [id], onDelete: Restrict)
   tracks                           AnalysisTrack[]
   contactEvents                    ContactEvent[]
   segments                         BallPathSegment[]
   artifacts                        AnalysisArtifact[]
   overlayManifest                  OverlayManifest?
-  identityMappingCompletedBy       User?              @relation("IdentityMappingCompletedBy", fields: [identityMappingCompletedByUserId], references: [id], onDelete: SetNull)
+  identityMappingCompletedBy       User?                        @relation("IdentityMappingCompletedBy", fields: [identityMappingCompletedByUserId], references: [id], onDelete: SetNull)
   ballCorrections                  AnalysisBallCorrection[]
   actionCorrections                AnalysisActionCorrection[]
   reviewPatchReceipts              AnalysisReviewPatchReceipt[]

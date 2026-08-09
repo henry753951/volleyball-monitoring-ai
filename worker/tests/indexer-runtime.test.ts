@@ -1,17 +1,13 @@
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
-import type { IncomingMessage } from 'node:http'
+import { mkdir, mkdtemp, rm, utimes, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { PassThrough } from 'node:stream'
 import type { JobWithMetadata } from 'pg-boss'
 import { afterEach, describe, expect, it } from 'vitest'
 import { mediaIndexerConfig } from '../src/media/runtime-config.js'
 import {
-  MEDIA_INDEXER_HOOK_PATH,
   MediaIndexerRuntime,
   PermanentMediaIngestError,
   canonicalCandidate,
-  constantTimeToken,
   createEnvelope,
   epochCandidateId,
   mediaIngestQueueOptions,
@@ -124,31 +120,36 @@ describe('media indexer runtime kernel', () => {
     )
   })
 
-  it('uses a constant-size token comparison and strict runtime environment', () => {
-    expect(constantTimeToken('secret', 'secret')).toBe(true)
-    expect(constantTimeToken('secret', 'other')).toBe(false)
-    expect(constantTimeToken('short', 'a-much-longer-secret')).toBe(false)
+  it('validates the composed media worker environment', () => {
     expect(mediaIndexerConfig({
       DATABASE_URL: 'postgresql://postgres:postgres@postgres:5432/volleyball',
+      MEDIA_IMPORT_ROOT: '/imports',
+      MEDIA_INGEST_BASE_URL: 'rtmp://ovenmediaengine:1935/app',
       MEDIA_SPOOL_DIR: '/var/lib/volleyball/media-spool',
+      MEDIA_SOURCE_WORK_ROOT: '/work',
       MINIO_ENDPOINT: 'http://minio:9000',
       MINIO_ACCESS_KEY: 'volleyball',
       MINIO_SECRET_KEY: 'volleyball-dev-secret',
       MINIO_DVR_BUCKET: 'dvr-media',
-      MEDIA_INDEXER_HOOK_TOKEN: '0123456789abcdef',
+      OME_API_ACCESS_TOKEN: '0123456789abcdef0123456789abcdef',
+      OME_API_URL: 'http://ovenmediaengine:8081',
     })).toMatchObject({
-      MEDIA_INDEXER_HOOK_BIND: '0.0.0.0',
-      MEDIA_INDEXER_HOOK_PORT: 4_100,
-      MEDIA_INDEXER_SCAN_INTERVAL_MS: 10_000,
+      MEDIA_INDEXER_SCAN_INTERVAL_MS: 1_000,
+      MEDIA_SOURCE_CONCURRENCY: 2,
+      MEDIA_SOURCE_POLL_INTERVAL_MS: 250,
     })
     expect(() => mediaIndexerConfig({
       DATABASE_URL: 'not-a-url',
+      MEDIA_IMPORT_ROOT: '/imports',
+      MEDIA_INGEST_BASE_URL: 'rtmp://ovenmediaengine:1935/app',
       MEDIA_SPOOL_DIR: '/tmp',
+      MEDIA_SOURCE_WORK_ROOT: '/work',
       MINIO_ENDPOINT: 'http://minio:9000',
       MINIO_ACCESS_KEY: 'x',
       MINIO_SECRET_KEY: 'x',
       MINIO_DVR_BUCKET: 'dvr-media',
-      MEDIA_INDEXER_HOOK_TOKEN: '0123456789abcdef',
+      OME_API_ACCESS_TOKEN: '0123456789abcdef0123456789abcdef',
+      OME_API_URL: 'http://ovenmediaengine:8081',
     })).toThrow()
   })
 
@@ -221,54 +222,23 @@ describe('media indexer runtime kernel', () => {
     })
   })
 
-  it('enforces hook path, method, type, auth and chunked size bounds', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'volleyball-hook-'))
+  it('only queues finalized files after their size and mtime are stable', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'volleyball-stable-recording-'))
     temporaryPaths.push(root)
+    await mkdir(join(root, 'court-a'))
+    const path = join(root, 'court-a', '2026-08-07_06-30-01-123456.mp4')
+    await writeFile(path, Buffer.from('sealed'))
+    const old = new Date(Date.now() - 2_000)
+    await utimes(path, old, old)
+    const sent: unknown[] = []
     const runtime = new MediaIndexerRuntime({
       spoolRoot: root,
-      queue: { send: async () => 'job-id' },
-      resolveCapture: async () => null,
-      hookToken: '0123456789abcdef',
+      queue: { send: async (_name, value) => { sent.push(value); return 'job-id' } },
+      resolveCapture: async () => session,
     })
-
-    async function request(input: {
-      method?: string
-      path?: string
-      contentType?: string
-      authorization?: string
-      body?: Uint8Array
-      contentLength?: string
-    }) {
-      const stream = new PassThrough()
-      const incoming = Object.assign(stream, {
-        method: input.method ?? 'POST',
-        url: input.path ?? MEDIA_INDEXER_HOOK_PATH,
-        headers: {
-          authorization: input.authorization ?? 'Bearer 0123456789abcdef',
-          'content-type': input.contentType ?? 'application/json',
-          ...(input.contentLength === undefined
-            ? {}
-            : { 'content-length': input.contentLength }),
-        },
-      }) as unknown as IncomingMessage
-      const response = {
-        statusCode: 0,
-        body: '',
-        end(body = '') { this.body = body },
-      }
-      const handled = runtime.handleHook(incoming, response)
-      stream.end(input.body ?? Buffer.from('{}'))
-      await handled
-      return response
-    }
-
-    await expect(request({ path: '/wrong' })).resolves.toMatchObject({ statusCode: 404 })
-    await expect(request({ method: 'GET' })).resolves.toMatchObject({ statusCode: 405 })
-    await expect(request({ contentType: 'text/plain' })).resolves.toMatchObject({ statusCode: 415 })
-    await expect(request({ authorization: 'Bearer wrong' })).resolves.toMatchObject({ statusCode: 401 })
-    await expect(request({ contentLength: '20000' })).resolves.toMatchObject({ statusCode: 413 })
-    await expect(request({ body: Buffer.alloc(16_385) })).resolves.toMatchObject({ statusCode: 413 })
-    await expect(request({ body: Buffer.from('{"event":"recording_complete","path":"court-a/final.mp4"}') })).resolves.toMatchObject({ statusCode: 202 })
-    await expect(request({ body: Buffer.from('{}') })).resolves.toMatchObject({ statusCode: 400 })
+    await runtime.scan()
+    expect(sent).toHaveLength(0)
+    await runtime.scan()
+    expect(sent).toHaveLength(1)
   })
 })

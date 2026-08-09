@@ -5,6 +5,9 @@ import { FinalizedFileArtifactSource } from './media/fmp4-artifact-source.js'
 import { PrismaIngestRepository } from './media/prisma-ingest-repository.js'
 import { ingestEnvelope } from './media/ingest-handler.js'
 import { resolveCaptureSession, resolveProgramProfile } from './media/resolvers.js'
+import { createMediaSourceProcess } from './media/source-process.js'
+import { MediaSourceRuntime } from './media/source-runtime.js'
+import { OmeMonitorRuntime } from './media/ome-monitor.js'
 
 export interface MediaIndexerLifecyclePorts {
   queue: { start(): Promise<void>; stop(): Promise<void> }
@@ -74,15 +77,64 @@ export function createMediaIndexerLifecycle(ports: MediaIndexerLifecyclePorts) {
   }
 }
 
-export async function createMediaIndexerComposition() {
+export async function createMediaComposition() {
   const config = mediaIndexerConfig()
   const { db } = await import('@volleyball-monitoring/db')
   const repository = new PrismaIngestRepository(db)
   const endpoint = new URL(config.MINIO_ENDPOINT)
   const store = createMinioMediaObjectStore({ endpointUrl: config.MINIO_ENDPOINT, useTls: endpoint.protocol === 'https:', accessKey: config.MINIO_ACCESS_KEY, secretKey: config.MINIO_SECRET_KEY, bucket: config.MINIO_DVR_BUCKET, operationTimeoutMs: 30_000 })
-  const source = new FinalizedFileArtifactSource({ maxInputBytes: 8_000_000_000n, maxInitBytes: 64_000_000n, maxMediaBytes: 8_000_000_000n, readTimeoutMs: 30_000 })
-  const processJob = async (envelope: import('./media/indexer-runtime.js').MediaIngestEnvelope, signal: AbortSignal) => ingestEnvelope(envelope, { spoolRoot: config.MEDIA_SPOOL_DIR, bucket: config.MINIO_DVR_BUCKET, repository, store, source, profile: async (captureSessionId, observed) => resolveProgramProfile(db, captureSessionId, observed) }, signal)
+  const artifactSource = new FinalizedFileArtifactSource({ maxInputBytes: 8_000_000_000n, maxInitBytes: 64_000_000n, maxMediaBytes: 8_000_000_000n, readTimeoutMs: 30_000 })
+  const processJob = async (envelope: import('./media/indexer-runtime.js').MediaIngestEnvelope, signal: AbortSignal) => ingestEnvelope(envelope, { spoolRoot: config.MEDIA_SPOOL_DIR, bucket: config.MINIO_DVR_BUCKET, repository, store, source: artifactSource, profile: async (captureSessionId, observed) => resolveProgramProfile(db, captureSessionId, observed) }, signal)
   const queue = createPgBossMediaRuntime(config.DATABASE_URL, processJob)
-  const scanner = new MediaIndexerRuntime({ spoolRoot: config.MEDIA_SPOOL_DIR, queue: { send: (_name, payload) => queue.send(payload) }, resolveCapture: (path) => resolveCaptureSession(db, path), intervalMs: config.MEDIA_INDEXER_SCAN_INTERVAL_MS, hookPort: config.MEDIA_INDEXER_HOOK_PORT, hookBind: config.MEDIA_INDEXER_HOOK_BIND, hookToken: config.MEDIA_INDEXER_HOOK_TOKEN })
-  return createMediaIndexerLifecycle({ queue, scanner, disconnect: () => db.$disconnect() })
+  const scanner = new MediaIndexerRuntime({ spoolRoot: config.MEDIA_SPOOL_DIR, queue: { send: (_name, payload) => queue.send(payload) }, resolveCapture: (path) => resolveCaptureSession(db, path), intervalMs: config.MEDIA_INDEXER_SCAN_INTERVAL_MS })
+  const indexer = createMediaIndexerLifecycle({ queue, scanner, disconnect: async () => undefined })
+  const sources = new MediaSourceRuntime({
+    concurrency: config.MEDIA_SOURCE_CONCURRENCY,
+    database: db,
+    pollIntervalMs: config.MEDIA_SOURCE_POLL_INTERVAL_MS,
+    recordingRoot: config.MEDIA_SPOOL_DIR,
+    run: createMediaSourceProcess({
+      importRoot: config.MEDIA_IMPORT_ROOT,
+      ingestBaseUrl: config.MEDIA_INGEST_BASE_URL,
+      recordingRoot: config.MEDIA_SPOOL_DIR,
+      workRoot: config.MEDIA_SOURCE_WORK_ROOT,
+      youtubeExtractorArgs: config.YOUTUBE_EXTRACTOR_ARGS,
+      youtubeFormat: config.YOUTUBE_FORMAT,
+      ytDlpCommand: config.YT_DLP_COMMAND,
+    }),
+  })
+  const ome = new OmeMonitorRuntime({
+    apiToken: config.OME_API_ACCESS_TOKEN,
+    apiUrl: config.OME_API_URL,
+    database: db,
+    recordingRoot: config.MEDIA_SPOOL_DIR,
+  })
+  let started = false
+  return {
+    get snapshot() {
+      return { mediaSources: sources.snapshot, ome: ome.snapshot }
+    },
+    async start() {
+      if (started) throw new Error('media composition already started')
+      try {
+        await indexer.start()
+        await sources.start()
+        await ome.start()
+        started = true
+      }
+      catch (error) {
+        await Promise.allSettled([ome.stop(), sources.stop(), indexer.stop()])
+        await db.$disconnect()
+        throw error
+      }
+    },
+    async stop() {
+      if (!started) return
+      started = false
+      const results = await Promise.allSettled([ome.stop(), sources.stop(), indexer.stop()])
+      await db.$disconnect()
+      const errors = results.filter(result => result.status === 'rejected').map(result => result.reason)
+      if (errors.length) throw new AggregateError(errors, 'media composition cleanup failed')
+    },
+  }
 }

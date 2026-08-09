@@ -128,7 +128,7 @@ for action in ['service', 'contact', 'close_left', 'close_right', 'close_unknown
     assert action in hotkey_registry, f'annotation registry missing: {action}'
 
 worker_index = (ROOT / 'worker/src/index.ts').read_text(encoding='utf-8')
-for role in ['media-indexer', 'workflow', 'ai-dispatcher']:
+for role in ['media', 'workflow', 'ai-dispatcher']:
     assert role in worker_index, f'worker entrypoint missing runtime role: {role}'
 workflow_composition = (ROOT / 'worker/src/workflow-composition.ts').read_text(encoding='utf-8')
 for factory in ['createClipWorker', 'createPlaybackPackagerWorker', 'createAnalysisIngestWorker', 'createOutboxPublisherWorker']:

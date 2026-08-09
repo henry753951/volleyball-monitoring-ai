@@ -26,11 +26,10 @@ import {
   UpdateMatchInputType,
 } from './inputs.js'
 import { CaptureSessionType, MatchDeleteReceiptType, MatchSetType, MatchType, ProcessingStateType } from './types.js'
-import { createMediaSourceGatewayFromEnv } from '../media/media-source-gateway.js'
+import { requestMediaSourceStop } from '../media/media-source-work.js'
 import { createMediaObjectRemoverFromEnv } from '../media/media-object-remover.js'
 import { deleteMatchWithMedia } from '../services/match-administration.js'
 
-const mediaSourceGateway = createMediaSourceGatewayFromEnv()
 const mediaObjectRemover = createMediaObjectRemoverFromEnv()
 
 async function operational<T>(work: () => Promise<T>): Promise<T> {
@@ -60,7 +59,6 @@ builder.mutationType({
       resolve: (_root, args, context) => deleteMatchWithMedia(requireIdentity(context), args.matchId, {
         database: db,
         importRoot: process.env.MEDIA_IMPORT_ROOT ?? '/var/lib/volleyball/media-imports',
-        ...(mediaSourceGateway ? { mediaSourceGateway } : {}),
         ...(mediaObjectRemover ? { objectRemover: mediaObjectRemover } : {}),
         recordingRoot: process.env.MEDIA_RECORDING_ROOT ?? '/var/lib/volleyball/media-recordings',
       }),
@@ -88,8 +86,8 @@ builder.mutationType({
       args: { captureSessionId: t.arg.id({ required: true }) },
       resolve: async (_root, args, context) => {
         const stopped = await operational(() => stopCapture(db, requireIdentity(context), args.captureSessionId))
-        if (mediaSourceGateway && ['youtube', 'youtube_live', 'youtube_vod', 'local_mp4'].includes(stopped.sourceKind)) {
-          await mediaSourceGateway.stop(stopped.id)
+        if (['youtube', 'youtube_live', 'youtube_vod', 'local_mp4'].includes(stopped.sourceKind)) {
+          await requestMediaSourceStop(db, stopped.id)
         }
         return stopped
       },

@@ -1,23 +1,15 @@
-import { createHash, timingSafeEqual } from 'node:crypto'
+import { createHash } from 'node:crypto'
 import { readdir, realpath, stat } from 'node:fs/promises'
 import { dirname, extname, relative, resolve, sep } from 'node:path'
 import { z } from 'zod'
 
 export const MEDIA_INGEST_QUEUE = 'media.ingest.finalized.v1' as const
-export const MEDIA_INDEXER_HOOK_PATH = '/internal/media-indexer/recording-complete' as const
-
 const SUPPORTED_EXTENSIONS = new Set(['.mp4', '.m4s', '.fmp4'])
 const CANONICAL_UNSIGNED_DECIMAL = /^(?:0|[1-9][0-9]*)$/
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
 const RECORDING_TIMESTAMP = /(?:^|\/)(\d{4})-(\d{2})-(\d{2})_(\d{2})-(\d{2})-(\d{2})(?:-(\d{6})|_(\d+))(?:\.[^.]+)$/
 const OME_RECORDING_TIMESTAMP = /(?:^|\/)(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})_(\d+)(?:\.[^.]+)$/
 const SOURCE_RESTART_MARKER = /(?:^|\/)\.source-restart-(\d{4})-(\d{2})-(\d{2})_(\d{2})-(\d{2})-(\d{2})-(\d{6})\.marker$/
-
-export const MediaIndexerHookEvent = z.discriminatedUnion('event', [
-  z.object({ event: z.literal('recording_complete'), path: z.string().min(1).max(4096) }).strict(),
-  z.object({ event: z.literal('source_online'), ingest_path: z.string().min(1).max(4096) }).strict(),
-  z.object({ event: z.literal('source_offline'), ingest_path: z.string().min(1).max(4096) }).strict(),
-])
 
 export const MediaIngestEnvelope = z.object({
   schemaVersion: z.literal('1.0.0'),
@@ -230,12 +222,6 @@ export async function scanSpool(
     if (leftOrder !== rightOrder) return leftOrder < rightOrder ? -1 : 1
     return left.candidate.localeCompare(right.candidate)
   })
-}
-
-export function constantTimeToken(expected: string, actual: string): boolean {
-  const expectedDigest = createHash('sha256').update(expected).digest()
-  const actualDigest = createHash('sha256').update(actual).digest()
-  return timingSafeEqual(expectedDigest, actualDigest)
 }
 
 export type IngestQueue = {

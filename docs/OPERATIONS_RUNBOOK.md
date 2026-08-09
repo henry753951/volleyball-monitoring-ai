@@ -13,35 +13,30 @@ docker exec volleyball-monitoring-ai-server-1 wget -qO- http://127.0.0.1:4000/he
 
 Restart stateful dependencies one at a time, waiting for `healthy` and Server readiness before continuing. A safe order is Redis, Server, workers, MinIO, PostgreSQL. Do not remove or recreate volumes during a restart drill. Afterward compare canonical row counts, an object SHA/byte length and all container restart counts to the pre-drill record.
 
-## YouTube Live relay and real-time replay simulation
+## YouTube and uploaded MP4 sources
 
-The optional `youtube-relay` profile resolves a YouTube URL with an uv-managed, pinned `yt-dlp`, reads it at media rate with FFmpeg and publishes H.264/AAC to an already registered OvenMediaEngine stream. OME remains the live/LL-HLS/recording adapter: finalized MP4 recordings enter the ordinary media-indexer path, server DVR timeline and bounded playback-window API. The browser never receives the YouTube signed source URL.
+Create YouTube VOD, YouTube Live and uploaded MP4 sources from the New Match flow. Server persists a `MediaSourceWork` request and returns immediately; `worker-media` claims it with a PostgreSQL lease. It uses the uv-managed, pinned `yt-dlp` plus FFmpeg, classifies YouTube VOD versus Live, and writes lifecycle state directly to PostgreSQL. There is no internal media gateway or callback HTTP hop, and the browser never receives a signed YouTube media URL.
 
-Normally create the source in the New Match flow. For a manual drill, register a capture first and use an OME-safe stream name that exactly matches `YOUTUBE_INGEST_PATH`, for example `youtube-live`. Then start only the optional relay profile without storing the source URL in `.env`:
+For active broadcasts, `worker-media` publishes the selected FHD 60 fps H.264/AAC inputs to OvenMediaEngine. OME remains the live/LL-HLS/recording adapter. Uploaded MP4 and YouTube VOD are converted into resumable two-second fragmented-MP4 recordings directly in the same spool. The embedded recording monitor waits for stable size/mtime observations before indexing; PostgreSQL job identities and ingest reservations provide restart idempotency.
 
-```powershell
-$env:YOUTUBE_SOURCE_URL = 'https://www.youtube.com/live/VIDEO_ID'
-$env:YOUTUBE_INGEST_PATH = 'youtube-live'
-try {
-  docker compose --env-file .env -f infra/compose.yaml --profile youtube-relay up -d --build youtube-relay
-} finally {
-  Remove-Item Env:YOUTUBE_SOURCE_URL -ErrorAction SilentlyContinue
-  Remove-Item Env:YOUTUBE_INGEST_PATH -ErrorAction SilentlyContinue
-}
-docker logs -f volleyball-monitoring-ai-youtube-relay-1
-```
-
-For an active broadcast, the relay starts at the current live edge. For a completed former livestream, FFmpeg `-re` replays the recording at real-time speed, which exercises the same ingest, growing server buffer, recording and DVR paths. The default is intentionally strict: 1920×1080 H.264 at 59–61 fps plus AAC. It accepts either one combined HLS URL or separate video/audio URLs and stream-copies both into RTMP; it fails closed rather than silently dropping to 720p or 30 fps. Override `YOUTUBE_FORMAT` only as an explicit operator decision. If the finite source ends or the container restarts, `restart: unless-stopped` starts that source again from its beginning.
-
-To stop cleanly, stop the publisher first, wait for OME to finalize the last recording, and then close the matching capture from the stream-source dialog:
+Run the host process during normal development:
 
 ```powershell
-docker compose --env-file .env -f infra/compose.yaml --profile youtube-relay stop youtube-relay
+$env:WORKER_ROLE = 'media'
+bun --cwd worker dev
 ```
+
+In the full profile, inspect the composed worker instead:
+
+```powershell
+docker logs -f volleyball-monitoring-ai-worker-media-1
+```
+
+The default format is intentionally strict: 1920×1080 H.264 at 59–61 fps plus AAC. It accepts one combined input or separate video/audio inputs and fails closed rather than silently dropping to 720p or 30 fps. Override `YOUTUBE_FORMAT` only as an explicit operator decision. Stop a source through the control UI so `STOP_REQUESTED`, recorder quiescence and the immutable completion watermark are committed in order.
 
 Only ingest or record streams when the operator has the required rights and the action complies with the source platform's terms. This development relay does not bypass access controls, DRM or geographic restrictions.
 
-The OME recording watcher persists a restart marker before notifying the indexer. A recorder-file PTS reset opens a new `CaptureEpoch` but stays in the current playback discontinuity; only an observed source restart, time-base/timestamp discontinuity or real gap increments the playback discontinuity. Verify a captured spool with actual ffprobe sample tables:
+The OME monitor inside `worker-media` persists source online/offline state in PostgreSQL and writes a restart marker before the next recording is indexed. A recorder-file PTS reset opens a new `CaptureEpoch` but stays in the current playback discontinuity; only an observed source restart, time-base/timestamp discontinuity or real gap increments the playback discontinuity. Verify a captured spool with actual ffprobe sample tables:
 
 ```powershell
 bun run media:reconnect-smoke -- C:\path\to\recording-spool youtube-live
@@ -62,7 +57,7 @@ Traefik intentionally has no `/internal/**` router. A deployment-owned Prometheu
 
 ## Consistent backup boundary
 
-Use a maintenance window. Stop new capture/annotation writes and pause the six worker roles before starting a cross-store backup. A database dump and object mirror are not one atomic transaction, so record the start/end time and retain both artifacts as one backup set.
+Use a maintenance window. Stop new capture/annotation writes and pause `worker-media` and `worker-workflow` before starting a cross-store backup. A database dump and object mirror are not one atomic transaction, so record the start/end time and retain both artifacts as one backup set.
 
 ### PostgreSQL
 

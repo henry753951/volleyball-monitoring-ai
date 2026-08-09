@@ -1,42 +1,40 @@
-# Runtime topology inventory before simplification
+# Runtime topology migration inventory
 
 Snapshot date: 2026-08-09
-Source: `infra/compose.yaml` rendered with `.env.example` and all profiles enabled.
+Authority: ADR 0024 and `infra/compose.yaml`.
 
-This is the Phase 1 removal ledger for ADR 0024. It records names and configuration surfaces, not
-secret values.
+This ledger tracks the simplification from the Phase 1 baseline to the current branch. Retired
+service names remain only in the superseded ADR/history and migrations.
 
 ## Current Compose services
 
-| Service | Profile | Image/build | Published ports | Persistent/bind mounts | Disposition |
-|---|---|---|---|---|---|
-| `postgres` | base | `postgres:17-alpine` | `5433:5432` | `postgres-data` | keep |
-| `redis` | base | `redis:8-alpine` | none | `redis-data` | keep |
-| `minio` | base | `quay.io/minio/minio` | `9000`, `9001` | `minio-data` | keep |
-| `minio-init` | base, one-shot | `quay.io/minio/mc` | none | none | replace with host bootstrap |
-| `ovenmediaengine` | base | `ovenmedialabs/ovenmediaengine:v0.20.5` | `1935/tcp`, `9999/udp`, `8081/tcp` | OME config, `media-spool`, `ome-dvr`, `ome-logs` | keep |
-| `traefik` | base | `traefik:v3.7.9` | `80`, `443`, `8080` | Docker socket, Traefik config/certs | keep; optional in daily dev |
-| `server` | `app` | `infra/docker/server.Dockerfile` | `4000` | `media-imports`, `media-spool` | keep |
-| `web` | `app` | `infra/docker/web.Dockerfile` | routed | none | keep |
-| `worker-media-indexer` | `app` | `infra/docker/worker.Dockerfile` | none | `media-spool` | fold into `worker-media` |
-| `ome-recording-watcher` | `app` | `python:3.12-alpine` | none | watcher script, `media-spool`, `ome-watcher-state` | fold into `worker-media` |
-| `youtube-relay` | `app` | `infra/docker/youtube-relay.Dockerfile` | none | imports/state/work/recordings | fold into `worker-media` |
-| `worker-clip` | `app` | `infra/docker/worker.Dockerfile` | none | `media-spool` | fold into `worker-workflow` |
-| `worker-playback` | `app` | `infra/docker/worker.Dockerfile` | none | `media-spool` | fold into `worker-workflow` |
-| `worker-analysis-ingest` | `app` | `infra/docker/worker.Dockerfile` | none | `media-spool` | fold into `worker-workflow` |
-| `worker-outbox` | `app` | `infra/docker/worker.Dockerfile` | none | `media-spool` | fold into `worker-workflow` |
-| `worker-ai-dispatcher` | `app` | `infra/docker/worker.Dockerfile` | none | `media-spool` | remove after WS-only cutover |
-| `tracking-replay-provider` | `dev-ai` | `infra/docker/tracking-replay-provider.Dockerfile` | none | external Contract Lab handoff | remove after external-engine E2E |
+| Service | Profile | Persistent state | Disposition |
+|---|---|---|---|
+| `postgres` | base | `postgres-data` | keep |
+| `redis` | base | `redis-data` | keep |
+| `minio` | base | `minio-data` | keep |
+| `minio-init` | base, one-shot | none | Phase 5: replace with host bootstrap |
+| `ovenmediaengine` | base | `media-spool`, OME data/logs | keep |
+| `traefik` | base | certificates/config | keep; optional in daily development |
+| `server` | `app` | shared imports/spool | keep |
+| `web` | `app` | none | keep |
+| `worker-media` | `app` | shared imports/spool; PostgreSQL jobs | keep |
+| `worker-workflow` | `app` | PostgreSQL/MinIO | keep |
+| `worker-ai-dispatcher` | `app` | PostgreSQL | Phase 4: remove after WS-only cutover |
+| `tracking-replay-provider` | `dev-ai` | external fixture mount | Phase 4: remove |
 
-Current count is seventeen services: eleven in the base/`app` deployment plus six additional app
-workers/adapters and the optional replay profile. The target is nine fixed central containers.
+The Phase 2 and Phase 3 worker consolidation is complete in source and Compose. The central
+`app` profile still has eleven long-running services because the old AI dispatcher remains and
+the one-shot MinIO bootstrap is still present. Phase 4 and Phase 5 reduce that to the fixed target
+of nine central containers.
 
 ## Current named volumes
 
-Keep: `postgres-data`, `redis-data`, `minio-data`, `media-imports`, `media-spool`, `ome-dvr`,
-`ome-logs`.
+Keep: `postgres-data`, `redis-data`, `minio-data`, `media-imports`, `media-spool`,
+`ome-dvr`, `ome-logs`.
 
-Remove after migration: `media-source-state`, `media-source-work`, `ome-watcher-state`.
+Media source desired state, leases, retries, reconnect observations and completion watermarks now
+live in PostgreSQL. There is no dedicated relay/watcher state volume.
 
 ## Current Dockerfiles
 
@@ -44,9 +42,8 @@ Remove after migration: `media-source-state`, `media-source-work`, `ome-watcher-
 |---|---|
 | `infra/docker/server.Dockerfile` | keep |
 | `infra/docker/web.Dockerfile` | keep |
-| `infra/docker/worker.Dockerfile` | keep; produce the two composed worker services |
-| `infra/docker/youtube-relay.Dockerfile` | remove after media-worker parity |
-| `infra/docker/tracking-replay-provider.Dockerfile` | remove after external-engine E2E |
+| `infra/docker/worker.Dockerfile` | keep; builds both composed workers and installs uv-managed `yt-dlp` |
+| `infra/docker/tracking-replay-provider.Dockerfile` | Phase 4: remove |
 
 ## Environment-variable ownership
 
@@ -54,73 +51,35 @@ Remove after migration: `media-source-state`, `media-source-work`, `ome-watcher-
 
 - PostgreSQL/Redis: `DATABASE_URL`, `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD`,
   `POSTGRES_HOST_PORT`, `REDIS_URL`.
-- Object storage: `MINIO_ENDPOINT`, `MINIO_ACCESS_KEY`, `MINIO_SECRET_KEY`, `MINIO_RAW_BUCKET`,
-  `MINIO_DVR_BUCKET`, `MINIO_RALLY_BUCKET`, `MINIO_ANALYSIS_BUCKET`, `MINIO_HOST_PORT`,
-  `MINIO_CONSOLE_HOST_PORT`.
+- Object storage: `MINIO_ENDPOINT`, `MINIO_ACCESS_KEY`, `MINIO_SECRET_KEY`,
+  `MINIO_RAW_BUCKET`, `MINIO_DVR_BUCKET`, `MINIO_RALLY_BUCKET`,
+  `MINIO_ANALYSIS_BUCKET`.
 - OME: `OME_API_URL`, `OME_API_ACCESS_TOKEN`, `OME_HOST_IP`, `OME_DVR_MAX_DURATION`.
-- Server/Web: `PORT`, `SERVER_DEV_BIND`, `SERVER_DEV_PORT`, `WEB_ORIGIN`, `NODE_ENV`,
+- Media worker: `MEDIA_SPOOL_DIR`, `MEDIA_IMPORT_ROOT`, `MEDIA_SOURCE_WORK_ROOT`,
+  `MEDIA_INGEST_BASE_URL`, `MEDIA_INDEXER_SCAN_INTERVAL_MS`,
+  `MEDIA_SOURCE_CONCURRENCY`, `MEDIA_SOURCE_POLL_INTERVAL_MS`, `YOUTUBE_FORMAT`,
+  `YOUTUBE_EXTRACTOR_ARGS`, `YT_DLP_COMMAND`.
+- Server/Web: `PORT`, `SERVER_DEV_BIND`, `SERVER_DEV_PORT`, `WEB_ORIGIN`,
   `DEV_AUTH_ENABLED`, `DEV_USER_ID`, `DEV_USER_DISPLAY_NAME`, `DEV_USER_ROLE`,
-  `NUXT_PUBLIC_GRAPHQL_PATH`, `NUXT_PUBLIC_REST_BASE_PATH`, `NUXT_PUBLIC_ANNOTATION_WS_PATH`,
-  `NUXT_PUBLIC_COACH_WS_PATH`, `NUXT_PUBLIC_LIVE_HLS_BASE_PATH`,
-  `NUXT_PUBLIC_COACH_EMBED_URL`.
-- DVR/clip: `DVR_SEGMENT_DURATION_SECONDS`, `DVR_PLAYBACK_WINDOW_BACK_SECONDS`,
-  `DVR_PLAYBACK_WINDOW_FORWARD_SECONDS`, `DVR_CLIENT_BACK_BUFFER_SECONDS`,
-  `DVR_CLIENT_MAX_BUFFER_SECONDS`, `CLIP_PRE_ROLL_SECONDS`, `CLIP_POST_ROLL_SECONDS`,
-  `MEDIA_SPOOL_DIR`, `MEDIA_RECORDING_ROOT`, `MEDIA_IMPORT_ROOT`, `MEDIA_UPLOAD_MAX_BYTES`.
-- External AI kept after migration: `AI_CALLBACK_TOKEN_SECRET`, `AI_PROVIDER_BEARER_TOKEN`,
-  `CALLBACK_PUBLIC_BASE_URL`.
-- Development fixture paths: `CONTRACT_LAB_ROOT`, `CONTRACT_LAB_HANDOFF_PATH`,
-  `CONTRACT_LAB_DVR_SPOOL_PATH`.
+  and the documented `NUXT_PUBLIC_*` URLs.
+- DVR/clip: playback-window, client-buffer and clip-roll settings remain unchanged.
 
-### Variables to replace or remove
+### Variables still scheduled for removal
 
-- Internal indexer hook: `MEDIA_INDEXER_HOOK_BIND`, `MEDIA_INDEXER_HOOK_PORT`,
-  `MEDIA_INDEXER_HOOK_TOKEN`, `MEDIA_INDEXER_HOOK_URL`, `MEDIA_INDEXER_SCAN_INTERVAL_MS`.
-- OME watcher state: `OME_WATCHER_STATE_PATH`.
-- Media gateway/relay: `MEDIA_SOURCE_GATEWAY_URL`, `MEDIA_SOURCE_GATEWAY_TOKEN`,
-  `MEDIA_SOURCE_CALLBACK_URL`, `MEDIA_SOURCE_CALLBACK_TOKEN`, `MEDIA_SOURCE_STATE_ROOT`,
-  `MEDIA_SOURCE_WORK_ROOT`, `MEDIA_INGEST_BASE_URL`, `YOUTUBE_EXTRACTOR_ARGS`, `YOUTUBE_FORMAT`,
-  `YOUTUBE_VOD_MAX_STALL_ATTEMPTS`.
-- HTTP AI adapter: `AI_PROVIDER_CAPABILITIES_URL`, `AI_PROVIDER_SUBMIT_URL`.
-- Per-container role selection: `WORKER_ROLE`; replacement processes have explicit composed
-  entrypoints instead of one environment-selected legacy role.
-
-YouTube extractor/format/stall policy remains a media-worker setting even though the old
-gateway-prefixed variables and process boundary are removed. The Phase 3 implementation will give
-those retained settings worker-owned names rather than silently dropping them.
-
-### New variables
-
-- `OBJECT_STORAGE_BOOTSTRAP_MODE=ensure|validate`.
-- Per-module concurrency, poll/backoff and FFmpeg limits under the two composed worker namespaces.
-  Exact names are introduced with their implementation and documented in `.env.example`.
+- Phase 4 HTTP AI adapter: `AI_PROVIDER_CAPABILITIES_URL`, `AI_PROVIDER_SUBMIT_URL`,
+  `AI_PROVIDER_BEARER_TOKEN`.
+- Phase 5 storage bootstrap introduces `OBJECT_STORAGE_BOOTSTRAP_MODE=ensure|validate`.
 
 ## Database transport audit
 
-The live development database contained one integration at this snapshot:
+The development database had one enabled `WS_AGENT` integration, no HTTP integration and no
+queued/running legacy delivery jobs at the Phase 1 snapshot. The external engine also completed a
+real persisted job and callback. Phase 4 still performs the enum/column migration and fixture/SDK
+cleanup before the old dispatcher is deleted.
 
-| Integration | Transport | Enabled | HTTP URLs | Active queued/running jobs |
-|---|---|---:|---|---:|
-| `volleyball-analysis-engine` | `WS_AGENT` | yes | both null | 0 |
+## Preserved verification evidence
 
-No `HTTP_PUSH` integration row existed. This allows the Phase 4 enum/column migration after the
-external engine passes the end-to-end gate; it is not permission to remove historical evidence
-before that gate.
-
-## Preserved baseline evidence
-
-- Media package: 88 tests passed.
-- Focused Server media/sample-index/PTS paths: 38 tests passed.
-- Focused Worker clip/indexer/resolver paths: 16 tests passed.
-- PR #54 full CI passed GraphQL schema generation, Prisma migration, repository validators,
-  TypeScript, DB/Server tests, all remaining package tests and production builds.
-- DEMO browser acceptance retained canonical DVR playback, one completed analysis rail, analysis
-  review access, green browser-buffer ranges, ruler seeking and exact server reconciliation after
-  optimistic 60 fps frame stepping.
-
-The external `volleyball-analysis-engine` WS receive/callback gate passed against persisted job
-`f1dd89e7-9b59-44e8-b1c7-b3e1c02b8ebc`: `analysis-worker-01` accepted the delivery in one attempt,
-central storage recorded one callback receipt, and AnalysisRun
-`e8de313c-ddfc-4efe-9561-2110b6b8a035` completed with 12 tracks, two contacts, one ball path, four
-artifacts and an overlay manifest. The linked Rally remains identity-unmapped, so its correct product
-state is AI-complete blue rather than mapping-complete green.
+- Phase 1: media 88 tests; focused Server media/sample/PTS 38; focused Worker paths 16.
+- Phase 2: Worker 169 passed, 6 skipped; build/typecheck and a real PostgreSQL lifecycle smoke.
+- Phase 3: Server 221 passed; Worker 162 passed, 6 skipped; local FFmpeg MP4 segmentation smoke;
+  PostgreSQL lease/CAS and zero-segment drain smoke; Compose renders one `worker-media`.

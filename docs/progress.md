@@ -61,7 +61,7 @@ at `d3861cc` after full GitHub CI passed.
 
 ## 2026-08-09 — Resumable long-form YouTube VOD capture
 
-Status: implemented and locally validated on `codex/youtube-relay-resume`; GitHub integration is pending.
+Status: implemented and locally validated on the historical source-resume branch; GitHub integration is pending.
 
 - Replaced prefix suppression with a durable capture checkpoint: ffmpeg seeks to the next unpublished capture time and continues deterministic segment numbering instead of reading the source from zero.
 - Added signed-URL refresh and progress-aware retry for multi-hour YouTube VOD/completed-live media. A retry budget resets whenever a new DVR segment is atomically published.
@@ -283,7 +283,7 @@ Open limitations are deployment acceptance rather than missing repository semant
 
 Status: a managed optional relay is implemented and is currently feeding the local Compose stack from the supplied YouTube former-livestream URL at real-time rate.
 
-- Added the `youtube-relay` Compose profile with uv-managed pinned `yt-dlp 2026.7.4` and FFmpeg. The source URL is process-scoped rather than committed; only a caller-selected MediaMTX ingest path crosses into the central system. Active broadcasts start from their live edge, while completed livestreams run under FFmpeg `-re` as a deterministic live simulation.
+- Added the historical dedicated YouTube source adapter with uv-managed pinned `yt-dlp 2026.7.4` and FFmpeg. The source URL was process-scoped rather than committed; only a caller-selected ingest path crossed into the central system. Active broadcasts started from their live edge, while completed livestreams ran under FFmpeg `-re` as a deterministic live simulation. This adapter is now superseded by `worker-media`.
 - Registered capture `754f79bd-263c-4b9d-8e5c-e9866cbb5381` for `youtube/nmtbgyfa-zm`. It reached `LIVE / HEALTHY`; MediaMTX recorded H.264/AAC fMP4 segments and the media indexer produced a live `DvrProgram` with one sample index per media segment. At the persistence probe, 42 segments covered `209,944,216` microseconds and the playlist revision was 42.
 - The authoritative playback-window REST path returned HTTP 200 with a server-bounded live manifest. Headed Chromium selected the YouTube capture automatically, rendered the actual 640×360 volleyball video, loaded an archive window at `readyState=4`, advanced playback time, observed the timeline grow by `6,006,367` microseconds during an eight-second polling interval and returned to a fresh live window. Browser console evidence was 0 errors / 0 warnings.
 - Desktop HLS now lazy-loads the light runtime only when a bounded window attaches; the authority inspector and workstation-only dialogs are lazy components. The largest HLS client chunk fell from about 508 kB to 332 kB and the large-chunk warning disappeared. The rebuilt healthy Web container repeated archive playback with the light runtime at `readyState=4`, advanced from 0.5 to 1.65 seconds and again reported no console errors or warnings.
@@ -780,9 +780,9 @@ The Nuxt build emits a dependency-level Node `DEP0155` deprecation warning but c
   `LIVE`; a drained terminal source exposes `END`, and its final manifest emits `EXT-X-ENDLIST`.
 - The browser keeps one long-lived hls.js/MSE blob attachment. Server-ready ranges, the authorized
   playback window, actual `HTMLMediaElement.buffered` ranges, indexing work and not-yet-downloaded
-  source media are rendered as separate timeline layers; the ruler remains inert and only the thin
-  availability rail performs click-to-seek.
-- YouTube relay inputs now reuse yt-dlp's selected signed URLs and HTTP request headers, segment to
+  source media are rendered as separate timeline layers; both the upper ruler and thin availability
+  rail perform immediate pointer-to-seek against the same authoritative capture-time mapping.
+- YouTube source inputs now reuse yt-dlp's selected signed URLs and HTTP request headers, segment to
   independently playable fragmented MP4 with explicit PTS resets, re-probe active live sources after
   reconnects, and withhold an unsealed tail when an operator stops capture.
 - Playback manifests use capture-epoch sequence as the absolute HLS transport discontinuity, cursor
@@ -846,3 +846,38 @@ The Nuxt build emits a dependency-level Node `DEP0155` deprecation warning but c
   key-point anchors preserved with exact PTS/time/frame values, and valid JSON, VOV1 plus a 1,033-frame
   H.264/AAC overlay. The run produced 1,033 track rows, 504 ball rows, 35 court rows and 11,994
   per-track action rows; its offline manifest records no network use.
+
+# 2026-08-09 — Phase 3 composed media worker
+
+- Replaced the synchronous Server-to-relay control hop with durable PostgreSQL `MediaSourceWork`.
+  Source requests return after a DB write; `worker-media` claims work using `FOR UPDATE SKIP LOCKED`,
+  renewable leases, bounded retries and a distinct `DRAINING` state so restart recovery never
+  re-downloads or re-segments media that is only waiting for the ingest queue to drain.
+- Merged YouTube probing/download/live relay, uploaded MP4 segmentation, OME stream observation and
+  finalized-recording indexing into one Bun composition. The worker image installs pinned
+  `yt-dlp 2026.7.4` with uv and keeps FFmpeg/ffprobe local to the worker boundary.
+- Removed the internal recording-complete HTTP hook, callback token, gateway URL, watcher state file
+  and the three dedicated adapter services. Reconnect state is stored on `CaptureSession`; source
+  work, resume index and completion watermark are stored in PostgreSQL; ingest IDs remain DB-idempotent.
+- The scanner now requires stable size/mtime observations before enqueueing a recorder file, so OME's
+  current tail is never treated as finalized. Live reconnects persist a marker before the next media
+  epoch, preserving the existing sample-index/reconnect semantics.
+- Match deletion first persists stop requests and waits for previously claimed source work to settle;
+  it no longer removes DB rows or local media while a source process or drain loop may still write.
+- Applied migration `20260809190000_media_source_work` to the local development database. A real DB
+  smoke proved single-owner claim/CAS and `REQUESTED -> RUNNING -> DRAINING -> COMPLETED`, with the
+  capture reaching `FINISHED`; a generated 4.1-second 60 fps MP4 was segmented by the new process into
+  resumable two-second fMP4 recordings.
+- Validation at this checkpoint: Server 221 tests passed; Worker 162 passed and 6 skipped; Server and
+  Worker typecheck passed; Prisma schema validation passed; Compose renders `worker-media` and
+  `worker-workflow` without the retired relay/watcher/indexer services. Docker image/runtime smoke is
+  partially complete: BuildKit compiled the worker, installed pinned yt-dlp/FFmpeg and produced the
+  339 MB local image manifest; Docker Desktop runtime launch remains queued behind its layer unpack.
+
+# 2026-08-09 — Annotation buffer rail clarity
+
+- Browser-resident `HTMLMediaElement.buffered` coverage remains bright green. Server-available DVR
+  coverage is now a darker neutral green-gray, so it cannot be mistaken for browser buffer state.
+- The upper time ruler and buffer rail seek on primary-pointer down for immediate feedback while using
+  the same gap-safe target calculation. Headed Chromium verified `07:29.424 -> 22:30.000`; the focused
+  component suite (15 tests), Nuxt typecheck and Impeccable detector passed.
