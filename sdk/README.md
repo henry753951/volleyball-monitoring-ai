@@ -41,3 +41,27 @@ The SDK validates Job `1.1.0`, Analysis Result `1.0.0`, Provider Realtime `1.0.0
 `1.0.0`. Human `marker_kind=service` is only the Z-key time anchor. Action labels, confidence and
 group phase remain optional AI-owned extensions. The signed `clip.download_url` never receives the
 callback bearer token.
+
+## Offline development mode
+
+`OfflineRunner` executes an analyzer without constructing a WebSocket, downloader or callback
+client. It validates the same `AIJobRequest`, optionally replaces `key_points` from a standalone
+JSON file, verifies the local clip byte length and SHA-256, and writes `analysis-result.json`,
+`overlay.vov1` and `offline-run.json` atomically.
+
+```python
+from pathlib import Path
+
+from volleyball_monitoring_ai import OfflineRunner
+
+result = await OfflineRunner().run(
+    job_path=Path("ai-job.json"),
+    key_points_path=Path("keypoints.json"),  # optional
+    clip_path=Path("clip.mp4"),
+    output_dir=Path("outputs/local-run"),
+    analyzer=analyze,
+)
+```
+
+The job keeps its immutable IDs and authoritative clip-local frame/time/PTS anchors. Offline mode
+does not fetch `clip.download_url` and does not call the job callback.
