@@ -41,6 +41,7 @@ export default defineNuxtConfig({
       analysisReviewWsPath: process.env.NUXT_PUBLIC_ANALYSIS_REVIEW_WS_PATH ?? '/ws/analysis-reviews',
       coachWsPath: process.env.NUXT_PUBLIC_COACH_WS_PATH ?? '/ws/coach',
       coachEmbedUrl: process.env.NUXT_PUBLIC_COACH_EMBED_URL ?? '',
+      devBackendOrigin: developmentBackendOrigin,
       restBasePath: process.env.NUXT_PUBLIC_REST_BASE_PATH ?? '/api/v1',
       liveHlsBasePath: process.env.NUXT_PUBLIC_LIVE_HLS_BASE_PATH ?? '/hls',
     },

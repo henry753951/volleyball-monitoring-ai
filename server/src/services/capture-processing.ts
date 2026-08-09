@@ -456,7 +456,6 @@ export async function retryProcessing(
   rallyId: string,
   callbackSecret: string,
 ): Promise<ProcessingStateView> {
-  assertOperator(identity)
   return database.$transaction(async tx => {
     await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`processing-retry:${rallyId}`}, 0))::text AS lock`
     const rally = await tx.rally.findFirst({
@@ -464,7 +463,7 @@ export async function retryProcessing(
         id: rallyId,
         processingStatus: 'FAILED',
         activeSubmissionId: { not: null },
-        ...(identity.role === UserRole.ADMIN ? {} : { match: { members: { some: { userId: identity.id, role: { in: [UserRole.ADMIN, UserRole.OPERATOR] } } } } }),
+        ...(identity.role === UserRole.ADMIN ? {} : { match: { members: { some: { userId: identity.id } } } }),
       },
       include: {
         activeSubmission: {
