@@ -52,6 +52,7 @@ ec6ef8f1eff886d877e2f8e740321ee090271748c7382834584c31feb1721d99  ./docs/adr/002
 dca90ff8350211685a9c089477659633e29636661452e9487aaef40e46f43772  ./docs/adr/0024-simplified-worker-deployment-and-ws-only-ai.md
 d9a7158c16f027ba6035bc44d04efd24c5fedb2cd443b089ec4fd04e0467d26f  ./docs/adr/0025-rally-lifecycle-and-display-placement.md
 c99db15abfe0bc1a6a85cdb90c143abcd84412b997dceb2f5eac8a3b82abb02a  ./docs/adr/0026-token-routed-ai-worker-endpoint.md
+d239973c2da6468329b9855e02a744cea443e47e5f5b9abfc1f7e4d535d8895b  ./docs/adr/0027-single-analysis-engine-domain.md
 de376c790b3f7624d275cd8d6882725028d5264710ede7d748ad38304fee5c6a  ./docs/open-decisions.md
 0c1bd45654642f9232272bb29de72f0f628019463c6fabe7e14cb57abf21f2e1  ./docs/progress.md
 aa5494b32c071ea634767c3858b1f3063aa2331777c50ec41b56cbc7a25c6d4b  ./docs/requirements-matrix.md
@@ -183,6 +184,7 @@ ef6d651d4fbb397b566c56f0728dbf6a4ac9234cbf8cc17605d3a2c784fdabeb  ./packages/db/
 21cfcc6eafd1553b0c24af6be9e77a6a83b4c94be176edbc812e87e7ab9a5328  ./packages/db/prisma/migrations/20260809190000_media_source_work/migration.sql
 6203df3da3f5cd35777db1a7d386f5817646b6996ff9d9fedcfedb9cae3cfbf9  ./packages/db/prisma/migrations/20260809210000_rally_display_placement/migration.sql
 9e04e5e9c930fa51a4dc5d98cf80377082662f0879a5589179fbcf2c4cffb3aa  ./packages/db/prisma/migrations/20260809230000_ai_worker_access_and_latency/migration.sql
+3de4f780cc96d40175e31d64edf424a7fd024d377a5b3e10abdaeef194148b4d  ./packages/db/prisma/migrations/20260809234000_single_ai_engine/migration.sql
 99836963713b4f5b269ad49af0ed3d7b0b2e336115c2f92dc9ac683d139d0900  ./packages/db/prisma/migrations/migration_lock.toml
 10e56c48db184c9c1e503a622f84f08ae96590f5c3a2b10eb99cf6f8befd47bd  ./packages/db/prisma/schema.prisma
 78e73cf4d8515dd4774e362b9f317ed2e569827c9db9d6cc1961a7c0a801e69e  ./packages/db/prisma/seed.ts
