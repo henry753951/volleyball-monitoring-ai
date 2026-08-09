@@ -281,7 +281,7 @@ cd54df3e8f5e13172ad98e2132ef306d265ebeabd9aff9a26499674417d1ce25  ./server/src/r
 dc6593e629b1729b2b00823cb32907931b6cf9e9f55d41c10f5235b23bbdcb88  ./server/src/routes/README.md
 183d996e0fbf8306015cfe2fc6adc47fdbe39ae09634a3ad216dfa2b7c16e088  ./server/src/routes/ai-callback.ts
 a66d4fb7756c5c01c9e78b04eacf823463512a7d4cb7dafc26882bce0d0b29f4  ./server/src/routes/analysis-media.ts
-553923dcaf5e3399203b9f3a54284602705079ca91c9e2201b8ec6b0b649f88e  ./server/src/routes/analysis-review.ts
+ac5a9699e7d75eb75942f3030d7bfd4fb32f130a485fb98fe70bc4ced4314dee  ./server/src/routes/analysis-review.ts
 de29025147f181aec44ae214a244808707395a7c238b167163087cebd4fda429  ./server/src/routes/media-playback.ts
 413be4bf45017026dd5446261bd1d8498b5e00d6e684c480c087482853f57198  ./server/src/routes/media-sources.ts
 934ac030de8e3daee1d8dcb4c9fbfae0a2808797b8a8dc079e5a3c3bbc5f9a86  ./server/src/routes/operations.ts
@@ -346,9 +346,9 @@ d5451750b5301aa1392a343155f17d9d02ebaff26a20befef3030ceccb52cc04  ./web/app/comp
 d05d83ea514b68325d3fe8eef82f54477162cddfc913e74e3a94ddae397056a9  ./web/app/components/ConfirmActionDialog.vue
 d0f18f99e57264608e79cff99e2d1a4106c329270fabb0ee79577de870493f27  ./web/app/components/CourtPathView.vue
 060c5012acdd0185fbce2996a44c942fa06eb4a18564ff743aa9c02778c317a5  ./web/app/components/DvrAuthorityInspector.vue
-4ef4fb8891b6800b27b37a2be988d4b3d02ea2e13d0569f60cc030552b367bd1  ./web/app/components/DvrTimelineDock.component.test.ts
+a9bc6df6e39fc7eaae3b89cf18b66416cf005a22d9894b6bed8445bd3b2797f4  ./web/app/components/DvrTimelineDock.component.test.ts
 d31178929bbb0713255b5d729b93b68bd0689e9248531e95b6bad0392ec06719  ./web/app/components/DvrTimelineDock.test.ts
-c3dd9be85f028d829353d30adc28c24b9879fbdd752fdfa662aff62f61d760c7  ./web/app/components/DvrTimelineDock.vue
+0a9dd3345da640fabcafdbb07274952fd32c157fb562143a2e509198278b936b  ./web/app/components/DvrTimelineDock.vue
 d00d983f3f9a25bfcc8c5a78535632c6ead85d522369346a41a87e2a5f06314a  ./web/app/components/LandscapeGuard.vue
 ff65f66c3ea8bbe3e4f9533e63e620f49296d2dc52c32d2ac8f27c4318499a86  ./web/app/components/MatchSetupForm.vue
 5395bc1337be0cfde8a43487e4cf089d5412cfa9efaff24e631c33bceb0c3ceb  ./web/app/components/MediaSourcePicker.vue
@@ -371,7 +371,7 @@ d2d28dcdfe317b012ef40ffcb53305955c2cec97e352a72414f9caae81a53434  ./web/app/comp
 8e74e02dec21346bbd6fde676d2d8b253de1b1fced67b00b8811bd2610bb5aa8  ./web/app/components/ui/ResizablePanelGroup.vue
 96f6febb7abee51a2139a0a5716635b5ffaa10d3a800d00043f236ed22e33603  ./web/app/components/ui/ScrollArea.vue
 8157dea5eed8d6868fb16cd3c7af819a1ad4cc130a1dadbade72048faee4574e  ./web/app/components/ui/Tooltip.vue
-d30b470144f9a28fcaa16641aa09a3fb1fbde8a059f0f99df3a0b1b258898299  ./web/app/composables/useAnalysisReview.ts
+2ca3c4d2d1c08557318ee7634ec7e5eaffe4030c138f137b7c472302fbc98968  ./web/app/composables/useAnalysisReview.ts
 78d473bed3926c0ad2222a7acc004b08a58724f270b46dc0382676f2af4705e1  ./web/app/composables/useAnnotationHotkeys.test.ts
 a677edc5f1f171cf081ecab7a9556fdb9e62f3f10c5cc5645f9525af57acabd7  ./web/app/composables/useAnnotationHotkeys.ts
 1c243ced0fe323412008184c9750a93cce2bca0d51759e6b7bcd3335c03022c2  ./web/app/composables/useAnnotationRoom.ts
@@ -388,7 +388,7 @@ ca6194e7f3704b049dcbc7e14c493764c468a42aac009fdc6bf074b8d0320ff1  ./web/app/comp
 aa39c63e0df9048c8804da342f8852cea1bae298df4b5baef7896173f4d6042f  ./web/app/composables/useOperationsMonitor.ts
 00dfc152903d56de456cab9827ca22f515dd62f23f70c2b76ac4a27b6766d555  ./web/app/composables/useOverlayChunks.ts
 d4f922fda70732ccf418a138500c66edbe5e9fff930894328fa36078e570fd0d  ./web/app/composables/usePlaybackCursor.ts
-a112c9676a7d4f4ac66c6a61f04a0bbc5d55ff25ca04dbfce76ecbb272bc3d7b  ./web/app/composables/usePublicEndpoints.ts
+a9bdb31b11137f64103933f40ee104fa8991adcf6d4b8077e52e42841b257402  ./web/app/composables/usePublicEndpoints.ts
 d0efd072e39bb5c7979ccf95061f62811d565883764dce352e07e2a2cb3aebf2  ./web/app/layouts/annotation.vue
 8a4eb1dea175f304b2432a4a29c18f4976d2ecf5528e5a88f2d85f03a0066aff  ./web/app/layouts/coach.vue
 5865e595765862a5b377f7777a5a955c7c918d38fc6df777efc6f510698276f1  ./web/app/layouts/control.vue
@@ -418,7 +418,7 @@ ea2e5a8a0d7e2a81ef17e9afe1b2e7a6326c3099fc03539a7ee7ac346c6abf8a  ./web/app/lib/
 cba670333ab1e0c411c488d0f3517da77337ca9c256ef9eaae31df1d6c9c3d6d  ./web/app/lib/playbackWindowCache.test.ts
 adee2ce860eff55e9be95c2feaabea259ae161fb138efc484051980767938b22  ./web/app/lib/playbackWindowCache.ts
 52fe16f81674ddd4727c93d95986be02908b5bb247fcca16e04f5c2aba4a1ccb  ./web/app/middleware/auth.global.ts
-b9fd45b697ec24e2691dc7b09b92301b8d728829988db2d5ee54b22f25e4fa2c  ./web/app/pages/annotate/[matchId].vue
+0f373d12667de7b12c0506adb1c2a39fe28b106d2e1081276053a402ea663cf4  ./web/app/pages/annotate/[matchId].vue
 162df7baae93fa7976196924d1af3ee2ab13965fc15222babd85ea0723621303  ./web/app/pages/control/index.vue
 3cc1461e7975d0e8c6875dc155353512e9901a19d4930a8a854c73872a536951  ./web/app/pages/index.vue
 f3bf511c8e2d7748a3d05b0009e008808e14c8959976090362d6198e54d11651  ./web/app/pages/matches/[matchId]/history.vue
@@ -453,7 +453,7 @@ b0a1c7aeeaf5b7f3d49c61490e392cb45f98a8f106db0f35bbd7e404d25912b2  ./web/app/util
 8f30de51fa8ac210e39037ac72fdc22ec25542d707ff6cab85b12f6c93048e1a  ./web/codegen.ts
 473afc31d9e54a60a0f1b294d44401d0e62e18c7d73940352b40bd5e353faa0d  ./web/graphql/README.md
 8ceefc506f6d608291c924cc1d4d48e5d2743996ce7c14f68f16a2ea083df720  ./web/graphql/health.graphql
-a5e0cba0186cc722da6a11b62ae1dd34717096b7b441454a4bdb10d167e3434f  ./web/nuxt.config.ts
+058e93522b7c4ae6be01f20d4372e922a4b44330c81e319c2f1731f671314cb6  ./web/nuxt.config.ts
 cacc9db226e1dcd4b2ca1fce811c8241f48e511bd8d1296bd5222e44d0672379  ./web/package.json
 7bc2feec35658553dd2f74ad65155017648b9d465f417f52712cb504aff1bf59  ./web/public/icons/apple-touch-icon.png
 2399c0f8bc6d3c0aa47c91a56f81b6844208fd3a125196f5ff0d2f340d2987f2  ./web/public/icons/pwa-192.png
