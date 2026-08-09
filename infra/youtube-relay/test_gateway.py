@@ -114,6 +114,33 @@ class SourceManagerLifecycleTest(unittest.TestCase):
             2,
         )
 
+    def test_vod_coverage_requires_the_declared_tail(self) -> None:
+        self.assertFalse(self.manager._vod_coverage_complete(186, 20_882_000_000))
+        self.assertFalse(self.manager._vod_coverage_complete(4, 9_000_000))
+        self.assertTrue(self.manager._vod_coverage_complete(5, 9_000_000))
+
+    def test_youtube_vod_refreshes_expired_url_and_keeps_progress(self) -> None:
+        source = self.source()
+        metadata = {
+            'url': 'https://video.example.test/old',
+            'vcodec': 'avc1.64002a',
+        }
+        refreshed = {
+            'url': 'https://video.example.test/fresh',
+            'vcodec': 'avc1.64002a',
+        }
+
+        with patch.object(self.manager, '_resume_segment_index', side_effect=[2, 2]), \
+                patch.object(self.manager, '_probe_youtube', return_value=refreshed) as probe, \
+                patch.object(self.manager, '_segment_inputs', side_effect=[RuntimeError('expired'), 5]) as segment, \
+                patch.object(source.stop, 'wait', return_value=False) as wait:
+            count = self.manager._segment_youtube_vod(source, source.config['source_url'], metadata, 9_000_000)
+
+        self.assertEqual(count, 5)
+        self.assertEqual(segment.call_count, 2)
+        probe.assert_called_once_with(source, source.config['source_url'])
+        wait.assert_called_once()
+
     def test_local_import_key_is_resolved_beneath_shared_root(self) -> None:
         capture_id = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'
         media_path = self.manager.import_root / capture_id / 'source.mp4'
@@ -170,6 +197,38 @@ class SourceManagerLifecycleTest(unittest.TestCase):
             '1',
         )
         self.assertIn('movflags=+frag_keyframe+empty_moov+default_base_moof', arguments)
+
+    def test_segment_muxer_seeks_and_numbers_from_durable_checkpoint(self) -> None:
+        source = self.source()
+        capture_id = source.config['capture_session_id']
+
+        class CompletedProcess:
+            returncode = 0
+
+            @staticmethod
+            def poll() -> int:
+                return 0
+
+        def popen(_arguments: list[str]) -> CompletedProcess:
+            segment_root = self.manager.work_root / capture_id / 'segments'
+            (segment_root / 'segment-000000003.mp4').write_bytes(b'continued')
+            return CompletedProcess()
+
+        with patch.object(self.manager, '_published_segment_prefix', return_value=3), \
+                patch('subprocess.Popen', side_effect=popen) as process:
+            self.assertEqual(
+                self.manager._segment_inputs(source, [MediaInput('https://video.example.test/stream', {})], 'h264'),
+                4,
+            )
+
+        arguments = process.call_args.args[0]
+        self.assertEqual(arguments[arguments.index('-ss') + 1], '6.000000')
+        self.assertEqual(arguments[arguments.index('-segment_start_number') + 1], '3')
+        destination = self.manager.recording_root / 'match' / 'main'
+        expected = self.manager._segment_filename(datetime(2026, 8, 9, tzinfo=timezone.utc), 3)
+        self.assertEqual((destination / expected).read_bytes(), b'continued')
+        self.assertEqual(source.config['resume_segment_index'], '4')
+        self.assertEqual(source.config['resume_capture_time_us'], '8000000')
 
     def test_stopped_segment_muxer_withholds_unsealed_tail(self) -> None:
         source = self.source()

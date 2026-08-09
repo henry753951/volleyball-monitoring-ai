@@ -1,5 +1,16 @@
 # Progress
 
+## 2026-08-09 — Resumable long-form YouTube VOD capture
+
+Status: implemented and locally validated on `codex/youtube-relay-resume`; GitHub integration is pending.
+
+- Replaced prefix suppression with a durable capture checkpoint: ffmpeg seeks to the next unpublished capture time and continues deterministic segment numbering instead of reading the source from zero.
+- Added signed-URL refresh and progress-aware retry for multi-hour YouTube VOD/completed-live media. A retry budget resets whenever a new DVR segment is atomically published.
+- A finite source can no longer emit completion/`END` when committed segment coverage is shorter than its declared duration. Existing local MP4 segmentation uses the same restart-safe checkpoint path.
+- Added ADR 0021 and a configurable consecutive no-progress limit (`YOUTUBE_VOD_MAX_STALL_ATTEMPTS`, default 20).
+
+Validation: relay unit tests 12/12; real ffmpeg checkpoint smoke resumed a 12-second 60fps H.264/AAC fixture from 4 seconds and produced a contiguous six-segment tail. The 5:48:02 completed-live test source resolved as 1920x1080 60fps AVC/AAC, and its signed video/audio URLs successfully decoded from a 00:06:12 seek checkpoint. Rebuilt relay container passed readiness.
+
 ## 2026-08-09 — Match administration and storage-aware operations console
 
 Status: implemented and locally validated on `codex/control-console`; GitHub integration is pending.
