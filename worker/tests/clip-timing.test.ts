@@ -121,6 +121,48 @@ describe('canonical clip timing', () => {
     expect(selected.keyPointOrdinals.get('reset-point')).toBe(2)
   })
 
+  it('preserves exact cumulative PTS timing at 60000/1001 without per-frame rounding drift', () => {
+    const samples = [
+      { sourcePts: 1_001n, durationPts: 1_001n, captureTimeUs: 0n, captureFrameIndex: 0n, keyframe: true },
+      { sourcePts: 2_002n, durationPts: 1_001n, captureTimeUs: 16_683n, captureFrameIndex: 1n, keyframe: false },
+      { sourcePts: 3_003n, durationPts: 1_001n, captureTimeUs: 33_367n, captureFrameIndex: 2n, keyframe: false },
+    ]
+    const source: ClipSourceSegment = {
+      id: 'segment-60fps',
+      captureEpochId: 'epoch-60fps',
+      captureStartUs: 0n,
+      captureEndUs: 50_050n,
+      sourcePtsStart: 1_001n,
+      sourcePtsEnd: 4_004n,
+      firstFrameIndex: 0n,
+      frameCount: 3n,
+      index: {
+        epochId: 'epoch-60fps',
+        timeBase: { num: 1n, den: 60_000n },
+        samples,
+        availableStartUs: 0n,
+        availableEndUs: 50_050n,
+      },
+    }
+
+    const selected = selectCanonicalClipRange([source], 0n, 50_000n, [])
+
+    expect(selected.sourceSamples).toHaveLength(3)
+  })
+
+  it('still rejects a real timestamp discontinuity', () => {
+    const source = segment([16_000n, 16_000n, 16_000n])
+    const samples = [...source.index.samples]
+    samples[2] = { ...samples[2]!, captureTimeUs: samples[2]!.captureTimeUs + 2n }
+    const discontinuous: ClipSourceSegment = {
+      ...source,
+      index: { ...source.index, samples },
+    }
+
+    expect(() => selectCanonicalClipRange([discontinuous], 0n, 48_000n, []))
+      .toThrow('canonical sample capture time does not match source PTS')
+  })
+
   it('builds a frame-ordinal transcode without CFR coercion or time seeking', () => {
     const args = buildCanonicalClipFfmpegArgs('source.mp4', 'clip.mp4', {
       sourceStartFrame: 3n,

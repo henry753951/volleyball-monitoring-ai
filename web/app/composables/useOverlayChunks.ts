@@ -1,5 +1,6 @@
 import { parseBrowserOverlayChunk, type BrowserOverlayChunk } from '@volleyball-monitoring/contracts'
-import type { MaybeRefOrGetter } from 'vue'
+import { computed, onBeforeUnmount, readonly, ref, shallowRef, toValue, watch, type MaybeRefOrGetter } from 'vue'
+import type { OverlayFrameTiming } from '../utils/overlayFrameTimeline'
 
 interface OverlayManifestChunk {
   chunk_index: number
@@ -15,6 +16,7 @@ export interface OverlayManifest {
   analysis_id: string
   overlay_version: string
   video: { width: number; height: number; fps: { num: number; den: number }; total_frames: string }
+  frame_timing: OverlayFrameTiming | null
   chunk_frame_count: number
   chunks: OverlayManifestChunk[]
   action_taxonomy: { id?: string; version?: string; labels?: string[] } | null
@@ -32,6 +34,12 @@ function parseManifest(value: unknown): OverlayManifest {
     const chunk = item as Record<string, unknown>
     if (!Number.isSafeInteger(chunk.chunk_index) || Number(chunk.chunk_index) < 0 || typeof chunk.start_frame_index !== 'string' || !/^\d+$/.test(chunk.start_frame_index) || !Number.isSafeInteger(chunk.frame_count) || Number(chunk.frame_count) < 1 || typeof chunk.url !== 'string' || typeof chunk.byte_length !== 'string' || !/^\d+$/.test(chunk.byte_length) || typeof chunk.sha256 !== 'string' || !/^[a-f0-9]{64}$/i.test(chunk.sha256)) throw new TypeError('Overlay manifest chunk failed schema validation')
   }
+  if (input.frame_timing != null) {
+    const timing = input.frame_timing as Record<string, unknown>
+    const totalFrames = Number(BigInt(String(video.total_frames)))
+    const validTimes = (value: unknown) => Array.isArray(value) && value.length === totalFrames && value.every(item => typeof item === 'string' && /^\d+$/.test(item))
+    if (!timing || typeof timing !== 'object' || !validTimes(timing.capture_time_us) || !validTimes(timing.clip_time_us) || typeof timing.capture_end_time_us !== 'string' || !/^\d+$/.test(timing.capture_end_time_us) || typeof timing.clip_end_time_us !== 'string' || !/^\d+$/.test(timing.clip_end_time_us)) throw new TypeError('Overlay frame timing failed schema validation')
+  }
   return value as OverlayManifest
 }
 
@@ -40,7 +48,11 @@ async function sha256(bytes: Uint8Array) {
   return Array.from(new Uint8Array(digest), value => value.toString(16).padStart(2, '0')).join('')
 }
 
-export function useOverlayChunks(analysisRunId: MaybeRefOrGetter<string | null>, frame: MaybeRefOrGetter<number>) {
+export function useOverlayChunks(
+  analysisRunId: MaybeRefOrGetter<string | null>,
+  frame: MaybeRefOrGetter<number>,
+  enabled: MaybeRefOrGetter<boolean> = true,
+) {
   const manifest = shallowRef<OverlayManifest | null>(null)
   const chunks = shallowRef(new Map<number, BrowserOverlayChunk>())
   const pending = ref(false)
@@ -56,14 +68,15 @@ export function useOverlayChunks(analysisRunId: MaybeRefOrGetter<string | null>,
     controllers.clear()
   }
 
-  watch(() => toValue(analysisRunId), async (id) => {
+  watch([() => toValue(analysisRunId), () => toValue(enabled)], async ([id, isEnabled]) => {
     generation += 1
     const currentGeneration = generation
     abortAll()
     manifest.value = null
     chunks.value = new Map()
     error.value = null
-    if (!id) return
+    pending.value = false
+    if (!id || !isEnabled) return
     pending.value = true
     const controller = new AbortController()
     manifestController = controller
@@ -100,8 +113,8 @@ export function useOverlayChunks(analysisRunId: MaybeRefOrGetter<string | null>,
     finally { controllers.delete(meta.chunk_index) }
   }
 
-  watch([manifest, () => toValue(frame)], ([currentManifest, currentFrame]) => {
-    if (!currentManifest || !Number.isSafeInteger(currentFrame) || currentFrame < 0) return
+  watch([manifest, () => toValue(frame), () => toValue(enabled)], ([currentManifest, currentFrame, isEnabled]) => {
+    if (!isEnabled || !currentManifest || !Number.isSafeInteger(currentFrame) || currentFrame < 0) return
     const targetIndex = Math.floor(currentFrame / currentManifest.chunk_frame_count)
     const wanted = new Set([targetIndex, targetIndex + 1])
     for (const [index, controller] of controllers) if (!wanted.has(index)) { controller.abort(); controllers.delete(index) }
