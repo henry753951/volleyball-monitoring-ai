@@ -970,3 +970,15 @@ The Nuxt build emits a dependency-level Node `DEP0155` deprecation warning but c
 - Reworked control surfaces to use tonal grouping and spacing instead of nested outlined cards. Match
   cards and the annotation inspector now show each team's set wins directly beneath that team, while
   the current-set point score remains centered.
+
+# 2026-08-09 — DVR operations detail and service-grid polish
+
+- Fixed the odd final service entry in the two-column systems topology so it spans the full row and
+  no longer leaves a broken vertical divider.
+- Added a match-scoped DVR monitoring dialog without introducing another API. It presents the current
+  authoritative operations snapshot per input: source health, indexed segments, gaps, storage,
+  source FPS, indexed duration, capture epochs, playlist revision, time base and last update.
+- Added an explicit processing-rate estimate (indexed media duration divided by elapsed processing
+  time) so operators can compare source progress without presenting it as encoder CPU throughput.
+- Nuxt typecheck and all 152 Web tests pass. Headed Chromium verified the systems grid and the DVR
+  dialog against the running local services with no browser console errors.

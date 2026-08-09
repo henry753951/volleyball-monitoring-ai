@@ -26,6 +26,7 @@ const emit = defineEmits<{
   roster: []
   edit: []
   delete: []
+  monitor: []
 }>()
 
 const currentSet = computed(() => props.match.sets.find(set => set.status.toLowerCase() === 'live') ?? props.match.sets.at(-1))
@@ -107,7 +108,7 @@ function formatBytes(value: string | undefined) {
       <section class="runtime-rail media-rail">
         <div class="rail-heading">
           <span><Film :size="15" />媒體與 DVR</span>
-          <strong :class="{ danger: media?.failedCaptureCount }">{{ media?.activeCaptureCount ?? 0 }} 運行中</strong>
+          <div class="rail-heading-actions"><strong :class="{ danger: media?.failedCaptureCount }">{{ media?.activeCaptureCount ?? 0 }} 運行中</strong><button type="button" @click="emit('monitor')">詳細監控<ChevronRight :size="13" /></button></div>
         </div>
         <div v-if="streams.length" class="source-chips">
           <span v-for="stream in streams" :key="stream.captureSessionId" :class="stream.status.toLowerCase()"><i />{{ sourceLabel(stream.sourceKind) }}<small>{{ statusLabel(stream.status) }}</small></span>
@@ -151,4 +152,5 @@ function formatBytes(value: string | undefined) {
 @media(max-width:620px){.match-workspace__header{align-items:center}.annotate-action{width:34px;padding:0}.annotate-action{font-size:0}.scoreboard{gap:8px}.runtime-rail{padding-inline:14px}}
 .match-workspace{border:0;box-shadow:0 16px 36px #0000002e}.annotate-action,.match-menu summary,.source-chips>span,.job-summary>span{border:0}.scoreboard{border-block:0}.runtime-rail+section,.match-workspace footer{border-color:#202226}.rail-empty{border:0;background:#0d0e10}.match-menu>div{border-color:#292b30}
 .scoreboard{min-height:104px;grid-template-columns:minmax(110px,1fr) auto minmax(110px,1fr);gap:22px;padding:14px 22px;background:#0d0e10}.scoreboard>.score-team{display:grid;align-content:center;gap:3px}.scoreboard>.score-team.left{text-align:right}.scoreboard>.score-team.right{text-align:left}.scoreboard>.score-team strong{font-size:.7rem}.scoreboard>.score-team span{color:#73767c;font-size:.52rem}.team-set-score{width:24px;height:18px;display:grid;place-items:center;margin-top:3px;padding:0;border-radius:5px;background:#202227;color:#c7c9cd!important;font-size:.51rem!important;font-weight:700;font-variant-numeric:tabular-nums}.score-team.left .team-set-score{justify-self:end}.score-team.right .team-set-score{justify-self:start}.point-score{display:grid!important;place-items:center;align-content:center;gap:5px;text-align:center!important}.point-score>div{display:flex;align-items:center;gap:10px}.point-score b{font-size:1.55rem;font-variant-numeric:tabular-nums}.point-score i{color:#55585e;font-style:normal}.point-score small{color:#70737a;font-size:.5rem}
+.rail-heading-actions{display:flex;align-items:center;gap:10px}.rail-heading-actions>strong{color:#8b8e94;font-size:.54rem}.rail-heading-actions>strong.danger{color:#e28a87}.rail-heading-actions button{display:flex;align-items:center;gap:3px;border:0;background:transparent;color:#9ea2a8;font-size:.52rem}.rail-heading-actions button:hover{color:#fff}
 </style>
