@@ -2,6 +2,7 @@ import type { AnnotationKeyPoint, AnnotationRallySnapshot } from '@volleyball-mo
 import type { ComputedRef, Ref, ShallowRef } from 'vue'
 import type { CoachMatchState, CoachRally } from '~/lib/coachDomain'
 import type { CaptureTimeline, Match } from '~/lib/coreDomain'
+import type { TimelineSelectionItem } from '~/utils/timelineSelection'
 
 type WorkstationState = 'IDLE' | 'OPEN' | 'READY' | 'SUBMITTED' | 'VOIDED'
 
@@ -14,7 +15,7 @@ interface Options {
   state: ComputedRef<WorkstationState>
   selectedRallyId: ComputedRef<string | null>
   selectedKeyPoint: ComputedRef<AnnotationKeyPoint | null>
-  selectedTimelineItem: Ref<'mask' | 'point' | 'segment' | null>
+  selectedTimelineItem: Ref<TimelineSelectionItem>
   cursorRallyId: Ref<string | null>
 }
 
