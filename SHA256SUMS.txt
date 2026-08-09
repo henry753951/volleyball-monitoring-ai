@@ -412,6 +412,8 @@ e2719d5085373c69c528b535a42c4b7b102f09657b6b947f2ad5485038344bb0  ./web/app/util
 b0a1c7aeeaf5b7f3d49c61490e392cb45f98a8f106db0f35bbd7e404d25912b2  ./web/app/utils/playbackWindow.test.ts
 52e04e218d426a607ce2b35e6ce286299b0b1e396c2cfa5413644f07b183c677  ./web/app/utils/playbackWindow.ts
 2c412e3b31b835638c2626fd1bd9c7a2bd29e7e38b35dee5f6a7c37811e9db35  ./web/app/utils/playerMediaTime.ts
+d888e9068ecf96f3179bfecf58a24cd4e02c18d9d14e2bf2c2860790cf1402fb  ./web/app/utils/timelineSelection.test.ts
+558b28339c840370acfe826c017eae401a908eef76011c6ffab2282f8e3db446  ./web/app/utils/timelineSelection.ts
 4d7e163460b4cdaa0c80de4675187a0ac7a973d90db4a55f19353a870ca60d79  ./web/app/utils/youtubeEmbed.ts
 8f30de51fa8ac210e39037ac72fdc22ec25542d707ff6cab85b12f6c93048e1a  ./web/codegen.ts
 473afc31d9e54a60a0f1b294d44401d0e62e18c7d73940352b40bd5e353faa0d  ./web/graphql/README.md
