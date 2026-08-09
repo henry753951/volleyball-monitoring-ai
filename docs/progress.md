@@ -924,3 +924,23 @@ The Nuxt build emits a dependency-level Node `DEP0155` deprecation warning but c
 - Fresh worker images built successfully; both Compose healthchecks became healthy and returned all
   media/workflow component heartbeats. The worker containers were then removed without deleting
   volumes, leaving the optional Traefik plus four infrastructure containers.
+
+# 2026-08-09 — Rally lifecycle administration and score history
+
+- Added an all-state rally purge operation. Draft, queued, processing and completed rallies share the
+  same confirmation flow; active AI work emits an abort request before dependent clip, analysis,
+  submission and annotation rows are transactionally removed. Unreferenced clip and analysis objects
+  are removed from S3-compatible storage after commit.
+- Added mutable `displaySetNumber` and `displayOrdinal` placement metadata. Immutable submission
+  content, key-point PTS and AI artifacts are never rewritten when an operator corrects a list label.
+  New service markers allocate the next visible rally ordinal in the current set.
+- Coach state now projects running per-rally scores in display order. The annotation inspector groups
+  rows by set, shows a set score divider, winner badge and score after each rally, and edits placement
+  through the compact shared modal.
+- Extended the existing coach WebSocket with lightweight match-state invalidations. Coach and
+  annotation surfaces debounce these signals and refetch the compact authoritative state instead of
+  polling after every lifecycle mutation.
+- Applied migration `20260809210000_rally_display_placement` locally. Server and Nuxt typechecks pass;
+  the focused isolated-PostgreSQL lifecycle suite passes both immutable-placement and abort/purge/media
+  cleanup cases; headed Chromium verified the grouped list, winner badge, dialog and all-state delete
+  affordance on the host development app.

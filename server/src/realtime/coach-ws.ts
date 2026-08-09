@@ -6,6 +6,33 @@ interface CoachSocketIdentity {
 
 interface CoachWebSocketDependencies {
   authenticate(request: FastifyRequest): Promise<CoachSocketIdentity | null>
+  events?: CoachMatchEventHub
+}
+
+export interface CoachMatchInvalidation {
+  type: 'match_state_invalidated'
+  match_id: string
+  reason: 'rally_deleted' | 'rally_placement_updated'
+  server_time_ms: number
+}
+
+export class CoachMatchEventHub {
+  private readonly listeners = new Set<(event: CoachMatchInvalidation) => void>()
+
+  publish(matchId: string, reason: CoachMatchInvalidation['reason']): void {
+    const event: CoachMatchInvalidation = {
+      match_id: matchId,
+      reason,
+      server_time_ms: Date.now(),
+      type: 'match_state_invalidated',
+    }
+    for (const listener of this.listeners) listener(event)
+  }
+
+  subscribe(listener: (event: CoachMatchInvalidation) => void): () => void {
+    this.listeners.add(listener)
+    return () => this.listeners.delete(listener)
+  }
 }
 
 interface PingMessage {
@@ -31,6 +58,10 @@ export const coachWebSocketRoutes = (
       if (!identity) { socket.close(1008, 'authentication required'); return }
 
       socket.send(JSON.stringify({ type: 'ready', server_time_ms: Date.now() }))
+      const unsubscribe = deps.events?.subscribe((event) => {
+        if (socket.readyState === 1) socket.send(JSON.stringify(event))
+      })
+      socket.on('close', () => unsubscribe?.())
       socket.on('message', (raw) => {
         let value: unknown
         try { value = JSON.parse(raw.toString()) }

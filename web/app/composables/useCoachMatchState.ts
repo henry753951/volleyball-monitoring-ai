@@ -11,6 +11,7 @@ export function useCoachMatchState(
   const error = shallowRef<Error | null>(null)
   const lastUpdatedAt = ref<Date | null>(null)
   let interval: ReturnType<typeof setInterval> | undefined
+  let invalidationTimer: ReturnType<typeof setTimeout> | undefined
 
   async function refresh() {
     if (refreshing.value) return
@@ -29,12 +30,24 @@ export function useCoachMatchState(
     }
   }
 
+  function handleInvalidation(event: Event) {
+    const detail = (event as CustomEvent<{ match_id?: string }>).detail
+    if (detail?.match_id !== toValue(matchId)) return
+    if (invalidationTimer) clearTimeout(invalidationTimer)
+    invalidationTimer = setTimeout(() => void refresh(), 40)
+  }
+
   onMounted(() => {
     void refresh()
     const refreshIntervalMs = options.refreshIntervalMs ?? 2_000
     if (refreshIntervalMs > 0) interval = setInterval(() => void refresh(), refreshIntervalMs)
+    window.addEventListener('vollyai:match-state-invalidated', handleInvalidation)
   })
-  onUnmounted(() => { if (interval) clearInterval(interval) })
+  onUnmounted(() => {
+    if (interval) clearInterval(interval)
+    if (invalidationTimer) clearTimeout(invalidationTimer)
+    window.removeEventListener('vollyai:match-state-invalidated', handleInvalidation)
+  })
 
   return { data, pending, refreshing, error, lastUpdatedAt, refresh }
 }

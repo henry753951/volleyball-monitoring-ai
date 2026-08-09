@@ -1,5 +1,10 @@
 <script setup lang="ts">
+import { Check, Pencil, Trophy } from 'lucide-vue-next'
 import type { CoachDraft, CoachRally, CoachTeam } from '~/lib/coachDomain'
+
+type SegmentListItem =
+  | { kind: 'draft'; id: string; setNumber: number; ordinal: number; draft: CoachDraft }
+  | { kind: 'rally'; id: string; setNumber: number; ordinal: number; rally: CoachRally }
 
 const props = defineProps<{
   tab: 'match' | 'mapping' | 'analysis'
@@ -25,6 +30,8 @@ const props = defineProps<{
   canStartNextSet: boolean
   formatRallyDuration: (rally: CoachRally) => string
   currentFrame: number
+  setNumbers: number[]
+  placementSaving?: boolean
   focusedTrackId?: number | null
   mappingRefreshToken?: number
 }>()
@@ -35,8 +42,41 @@ const emit = defineEmits<{
   selectRally: [rally: CoachRally]
   nextSet: [side: 'left' | 'right']
   mappingChanged: []
+  updatePlacement: [input: { rallyId: string; setNumber: number; ordinal: number }]
 }>()
 const total = computed(() => new Set([...props.drafts.map(item => item.id), ...props.rallies.map(item => item.id)]).size)
+const placementOpen = ref(false)
+const placementRallyId = ref<string | null>(null)
+const placementSetNumber = ref(1)
+const placementOrdinal = ref(1)
+const groups = computed(() => {
+  const items: SegmentListItem[] = [
+    ...props.drafts.map(draft => ({ draft, id: draft.id, kind: 'draft' as const, ordinal: draft.display_ordinal, setNumber: draft.display_set_number })),
+    ...props.rallies.map(rally => ({ id: rally.id, kind: 'rally' as const, ordinal: rally.display_ordinal, rally, setNumber: rally.display_set_number })),
+  ].sort((left, right) => left.setNumber - right.setNumber || left.ordinal - right.ordinal || left.id.localeCompare(right.id))
+  const grouped = new Map<number, SegmentListItem[]>()
+  for (const item of items) grouped.set(item.setNumber, [...(grouped.get(item.setNumber) ?? []), item])
+  return [...grouped.entries()].map(([number, setItems]) => {
+    const completed = [...setItems].reverse().find((item): item is Extract<SegmentListItem, { kind: 'rally' }> => item.kind === 'rally')
+    return { items: setItems, leftScore: completed?.rally.left_score_after ?? 0, number, rightScore: completed?.rally.right_score_after ?? 0 }
+  })
+})
+
+function openPlacement(item: SegmentListItem) {
+  placementRallyId.value = item.id
+  placementSetNumber.value = item.setNumber
+  placementOrdinal.value = item.ordinal
+  placementOpen.value = true
+}
+function savePlacement() {
+  if (!placementRallyId.value || props.placementSaving) return
+  emit('updatePlacement', { ordinal: placementOrdinal.value, rallyId: placementRallyId.value, setNumber: placementSetNumber.value })
+}
+function selectItem(item: SegmentListItem) {
+  if (item.kind === 'draft') emit('selectDraft', item.id, item.draft.key_points[0]?.capture_time_us ?? '0')
+  else emit('selectRally', item.rally)
+}
+defineExpose({ closePlacement: () => { placementOpen.value = false } })
 </script>
 
 <template>
@@ -54,12 +94,26 @@ const total = computed(() => new Set([...props.drafts.map(item => item.id), ...p
       </div>
       <div class="segment-list-title"><span>片段</span><b>{{ total }}</b></div>
       <UiScrollArea class="segment-scroll"><div class="segment-list">
-        <button v-for="draft in drafts" :key="draft.id" type="button" class="segment-row" :class="{ active: selectedRallyId === draft.id }" @click="emit('selectDraft', draft.id, draft.key_points[0]?.capture_time_us ?? '0')"><div><span>第 {{ draft.set_number }} 局 · 回合 {{ draft.ordinal }}</span><small>{{ draft.annotation_status === 'ready' ? '待送出' : '標記中' }} · {{ draft.key_points.filter(point => point.marker_kind === 'contact').length }} 次擊球</small></div><i class="draft" /></button>
-        <button v-for="rally in rallies" :key="rally.id" type="button" class="segment-row" :class="{ active: selectedRallyId === rally.id }" @click="emit('selectRally', rally)"><div><span>第 {{ rally.set_number }} 局 · 回合 {{ rally.ordinal }}</span><small>{{ formatRallyDuration(rally) }} · {{ rally.submission.contact_count }} 次擊球</small></div><i :class="{ processing: rally.submission.analysis?.status !== 'completed', mapped: rally.submission.analysis?.identity_mapping_completed }" /></button>
+        <section v-for="group in groups" :key="group.number" class="set-group">
+          <header class="set-divider"><span>第 {{ group.number }} 局</span><b>{{ group.leftScore }} : {{ group.rightScore }}</b></header>
+          <div v-for="item in group.items" :key="item.id" class="segment-row" :class="{ active: selectedRallyId === item.id }">
+            <button type="button" class="segment-main" @click="selectItem(item)">
+              <div><span>回合 {{ item.ordinal }}</span><small v-if="item.kind === 'draft'">{{ item.draft.annotation_status === 'ready' ? '待送出' : '標記中' }} · {{ item.draft.key_points.filter(point => point.marker_kind === 'contact').length }} 次擊球</small><small v-else>{{ formatRallyDuration(item.rally) }} · {{ item.rally.submission.contact_count }} 次擊球</small></div>
+              <span v-if="item.kind === 'rally'" class="score-at-rally">{{ item.rally.left_score_after }} : {{ item.rally.right_score_after }}</span>
+              <span v-if="item.kind === 'rally' && item.rally.winner_side" class="winner-badge"><Trophy :size="11" />{{ item.rally.winner_side === 'left' ? leftTeam?.shortName ?? '左隊' : rightTeam?.shortName ?? '右隊' }}</span>
+              <i :class="item.kind === 'draft' ? 'draft' : { processing: item.rally.submission.analysis?.status !== 'completed', mapped: item.rally.submission.analysis?.identity_mapping_completed }" />
+            </button>
+            <UiTooltip content="編輯局與回合"><UiButton variant="ghost" size="icon-sm" class="placement-edit" aria-label="編輯局與回合" @click="openPlacement(item)"><Pencil :size="13" /></UiButton></UiTooltip>
+          </div>
+        </section>
       </div></UiScrollArea>
     </div>
     <div v-else-if="tab === 'mapping'" class="mapping-inspector"><UiScrollArea class="mapping-scroll"><div class="mapping-scroll-content"><AnnotationIdentityPanel :match-id="matchId" :analysis-run-id="analysisRunId" :left-team-id="leftTeamId" :right-team-id="rightTeamId" :teams="teams" :mapping-completed="mappingCompleted" :current-frame="currentFrame" :focused-track-id="focusedTrackId" :refresh-token="mappingRefreshToken" @changed="emit('mappingChanged')" /></div></UiScrollArea></div>
     <div v-else class="analysis-inspector"><UiScrollArea class="mapping-scroll"><div class="mapping-scroll-content"><slot name="analysis" /></div></UiScrollArea></div>
+    <UiAnimatedModal :open="placementOpen" title="調整片段位置" description="只變更清單中的局與回合，不改動送出內容、PTS 或分析結果。" width="compact" @close="placementOpen = false">
+      <form class="placement-form" @submit.prevent="savePlacement"><label><span>局數</span><select v-model.number="placementSetNumber"><option v-for="number in setNumbers" :key="number" :value="number">第 {{ number }} 局</option></select></label><label><span>回合</span><input v-model.number="placementOrdinal" type="number" min="1" max="999"></label></form>
+      <template #footer><UiButton variant="ghost" @click="placementOpen = false">取消</UiButton><UiButton :disabled="placementSaving" @click="savePlacement"><Check :size="14" />{{ placementSaving ? '儲存中' : '儲存' }}</UiButton></template>
+    </UiAnimatedModal>
   </aside>
 </template>
 
@@ -68,4 +122,5 @@ const total = computed(() => new Set([...props.drafts.map(item => item.id), ...p
 </style>
 <style scoped>
 .mode-switch{grid-template-columns:repeat(3,1fr)}.mode-switch button{font-size:.65rem}.match-inspector,.mapping-inspector,.analysis-inspector{min-height:0;flex:1}.mapping-inspector,.analysis-inspector{overflow:hidden}
+.set-divider{height:29px;display:flex;align-items:center;justify-content:space-between;padding:0 8px;border-bottom:1px solid #30363d;background:#171a1e;color:#b9c0c7;font-size:.61rem}.set-divider b{color:#f1f3f5;font-variant-numeric:tabular-nums}.segment-row{min-height:52px;display:grid;grid-template-columns:minmax(0,1fr) 30px;padding:0}.segment-main{min-width:0;min-height:51px;display:grid;grid-template-columns:minmax(0,1fr) auto auto 8px;align-items:center;gap:7px;padding:0 4px 0 8px;border:0;background:transparent;text-align:left}.segment-main>div{min-width:0;display:grid;gap:3px}.segment-row small{color:#929ba4}.score-at-rally{color:#c0c7ce;font-size:.6rem;font-variant-numeric:tabular-nums}.winner-badge{display:inline-flex;align-items:center;gap:3px;padding:3px 5px;border-radius:5px;background:#2b2f34;color:#f1f3f5;font-size:.55rem;font-weight:700}.placement-edit{opacity:0;color:#aab2bb!important}.segment-row:hover .placement-edit,.segment-row.active .placement-edit,.placement-edit:focus-visible{opacity:1}.placement-form{display:grid;grid-template-columns:1fr 1fr;gap:12px;padding:18px}.placement-form label{display:grid;gap:6px;color:#a8b0b8;font-size:.64rem}.placement-form input,.placement-form select{height:36px;padding:0 10px;border:1px solid #3a4148;border-radius:7px;outline:0;background:#171a1e;color:#f4f4f5;font-size:.72rem}.placement-form input:focus,.placement-form select:focus{border-color:#8b949e;box-shadow:0 0 0 2px rgb(139 148 158 / 18%)}
 </style>

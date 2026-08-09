@@ -396,8 +396,18 @@ async function acceptService(
         'The configured clip padding would overlap an existing segment',
       ))
     }
-    const aggregate = await tx.rally.aggregate({ _max: { ordinal: true }, where: { setId: set.id } })
+    const [aggregate, existingPlacements] = await Promise.all([
+      tx.rally.aggregate({ _max: { ordinal: true }, where: { setId: set.id } }),
+      tx.rally.findMany({
+        select: { displayOrdinal: true },
+        where: { displaySetNumber: set.setNumber, matchId: room.matchId, voidedAt: null },
+      }),
+    ])
     const ordinal = (aggregate._max.ordinal ?? 0) + 1
+    const displayOrdinal = existingPlacements.reduce(
+      (maximum, rally) => Math.max(maximum, rally.displayOrdinal),
+      0,
+    ) + 1
     const assignment = await tx.courtSideAssignment.findFirst({
       orderBy: { effectiveFromRallyOrdinal: 'desc' },
       where: {
@@ -421,6 +431,8 @@ async function acceptService(
       id: command.rally_id,
       matchId: room.matchId,
       ordinal,
+      displayOrdinal,
+      displaySetNumber: set.setNumber,
       setId: set.id,
       sideAssignmentId: assignment.id,
     } })

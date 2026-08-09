@@ -551,6 +551,8 @@ model Rally {
   dvrProgramId         String                @db.Uuid
   sideAssignmentId     String                @db.Uuid
   ordinal              Int
+  displaySetNumber     Int                   @default(1)
+  displayOrdinal       Int                   @default(1)
   annotationRevision   BigInt                @default(0)
   annotationStatus     AnnotationStatus      @default(OPEN)
   processingStatus     ProcessingStatus      @default(IDLE)
@@ -576,6 +578,7 @@ model Rally {
   submissions          RallySubmission[]     @relation("RallySubmissions")
 
   @@unique([setId, ordinal])
+  @@index([matchId, displaySetNumber, displayOrdinal])
 }
 
 model KeyPoint {

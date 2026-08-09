@@ -16,6 +16,8 @@ export interface CoachCapture { id: string; source_kind: string; source_label: s
 export interface CoachDraft {
   id: string
   ordinal: number
+  display_ordinal: number
+  display_set_number: number
   annotation_revision: string
   annotation_status: 'open' | 'ready'
   active_submission_id: string | null
@@ -26,12 +28,17 @@ export interface CoachDraft {
 export interface CoachRally {
   id: string
   ordinal: number
+  display_ordinal: number
+  display_set_number: number
   annotation_revision: string
   processing_status: string
   scoring_court_side: string | null
   scoring_team_id: string | null
   set_id: string
   set_number: number
+  left_score_after: number
+  right_score_after: number
+  winner_side: 'left' | 'right' | null
   submission: {
     id: string
     submitted_at: string
@@ -111,6 +118,20 @@ export function createCoachDomainClient(transport: GraphQLTransport) {
     async matchState(matchId: string) {
       const result = await transport.request<{ coachMatchState: CoachMatchState | null }>(COACH_MATCH_STATE, { matchId })
       return result.coachMatchState
+    },
+    async deleteRally(rallyId: string) {
+      const result = await transport.request<{ deleteRally: { rallyId: string; matchId: string; abortedJobCount: number; removedAssetCount: number; removedBytes: string; cleanupWarnings: string[] } }>(
+        'mutation DeleteRally($rallyId: ID!) { deleteRally(rallyId: $rallyId) { rallyId matchId abortedJobCount removedAssetCount removedBytes cleanupWarnings } }',
+        { rallyId },
+      )
+      return result.deleteRally
+    },
+    async updateRallyPlacement(input: { rallyId: string; setNumber: number; ordinal: number }) {
+      const result = await transport.request<{ updateRallyPlacement: { rallyId: string; matchId: string; displaySetNumber: number; displayOrdinal: number } }>(
+        'mutation UpdateRallyPlacement($input: UpdateRallyPlacementInput!) { updateRallyPlacement(input: $input) { rallyId matchId displaySetNumber displayOrdinal } }',
+        { input },
+      )
+      return result.updateRallyPlacement
     },
     async rallyReplay(rallyId: string) {
       const result = await transport.request<{ coachRallyReplay: CoachRallyReplay | null }>('query CoachRallyReplay($rallyId: ID!) { coachRallyReplay(rallyId: $rallyId) }', { rallyId })

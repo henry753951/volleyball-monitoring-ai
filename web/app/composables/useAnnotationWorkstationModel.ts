@@ -74,7 +74,7 @@ export function useAnnotationWorkstationModel(options: Options) {
       const analysis = rally.submission.analysis
       return [{
         id: rally.id,
-        label: `第 ${rally.set_number} 局 · 回合 ${rally.ordinal}`,
+        label: `第 ${rally.display_set_number} 局 · 回合 ${rally.display_ordinal}`,
         stateLabel: analysis?.status === 'completed' ? analysis.identity_mapping_completed ? '球員已確認' : '待指派球員' : '分析中',
         outcomeLabel: rally.submission.score_resolution === 'unknown' ? '結果未知' : `${options.coachData.value?.match.teams.find(team => team.id === rally.submission.scoring_team_id)?.shortName ?? '得分隊'} 得分`,
         startCaptureTimeUs: range.startCaptureTimeUs,
@@ -91,7 +91,7 @@ export function useAnnotationWorkstationModel(options: Options) {
     const drafts = annotationDrafts.value.flatMap((draft) => {
       const range = clipRangeForPoints(draft.key_points)
       if (!range || draft.id === currentRallyId) return []
-      return [{ id: draft.id, label: `第 ${draft.set_number} 局 · 回合 ${draft.ordinal}`, stateLabel: draft.active_submission_id ? '修正版' : draft.annotation_status === 'ready' ? '待送出' : '標記中', outcomeLabel: draft.key_points.some(point => point.is_terminal) ? '已標記終止點' : null, startCaptureTimeUs: range.startCaptureTimeUs, endCaptureTimeUs: range.endCaptureTimeUs, points: draft.key_points.map(point => ({ id: point.id, markerKind: point.marker_kind, isTerminal: point.is_terminal, captureTimeUs: point.capture_time_us })), status: 'draft' as const }]
+      return [{ id: draft.id, label: `第 ${draft.display_set_number} 局 · 回合 ${draft.display_ordinal}`, stateLabel: draft.active_submission_id ? '修正版' : draft.annotation_status === 'ready' ? '待送出' : '標記中', outcomeLabel: draft.key_points.some(point => point.is_terminal) ? '已標記終止點' : null, startCaptureTimeUs: range.startCaptureTimeUs, endCaptureTimeUs: range.endCaptureTimeUs, points: draft.key_points.map(point => ({ id: point.id, markerKind: point.marker_kind, isTerminal: point.is_terminal, captureTimeUs: point.capture_time_us })), status: 'draft' as const }]
     })
     return [...submitted, ...drafts]
   })
@@ -111,7 +111,7 @@ export function useAnnotationWorkstationModel(options: Options) {
     return analysis?.status === 'completed' ? analysis.identity_mapping_completed ? 'mapped' : 'analyzed' : 'processing'
   })
   const currentAnnotationDraft = computed(() => annotationDrafts.value.find(draft => draft.id === options.displayAnnotation.value?.rally_id) ?? null)
-  const currentMaskLabel = computed(() => currentAnnotationDraft.value ? `第 ${currentAnnotationDraft.value.set_number} 局 · 回合 ${currentAnnotationDraft.value.ordinal}` : currentAnnotationRally.value ? `第 ${currentAnnotationRally.value.set_number} 局 · 回合 ${currentAnnotationRally.value.ordinal}` : null)
+  const currentMaskLabel = computed(() => currentAnnotationDraft.value ? `第 ${currentAnnotationDraft.value.display_set_number} 局 · 回合 ${currentAnnotationDraft.value.display_ordinal}` : currentAnnotationRally.value ? `第 ${currentAnnotationRally.value.display_set_number} 局 · 回合 ${currentAnnotationRally.value.display_ordinal}` : null)
   const currentMaskOutcome = computed(() => {
     const snapshot = options.displayAnnotation.value?.snapshot
     if (!snapshot || snapshot.score_resolution === 'pending') return null
@@ -128,14 +128,15 @@ export function useAnnotationWorkstationModel(options: Options) {
   const selectedEditableDraft = computed(() => Boolean(activeContextDraft.value && activeContextDraft.value.id === options.displayAnnotation.value?.rally_id && ['OPEN', 'READY'].includes(options.state.value)))
   const correctionActive = computed(() => Boolean(selectedEditableDraft.value && options.confirmedAnnotation.value?.snapshot.active_submission_id))
   const selectedDeletablePoint = computed(() => options.selectedTimelineItem.value === 'point' && options.selectedKeyPoint.value?.marker_kind !== 'service')
-  const activeContextTitle = computed(() => activeContextDraft.value ? `第 ${activeContextDraft.value.set_number} 局 · 回合 ${activeContextDraft.value.ordinal}` : activeContextRally.value ? `第 ${activeContextRally.value.set_number} 局 · 回合 ${activeContextRally.value.ordinal}` : '游標未落在片段內')
+  const activeContextTitle = computed(() => activeContextDraft.value ? `第 ${activeContextDraft.value.display_set_number} 局 · 回合 ${activeContextDraft.value.display_ordinal}` : activeContextRally.value ? `第 ${activeContextRally.value.display_set_number} 局 · 回合 ${activeContextRally.value.display_ordinal}` : '游標未落在片段內')
   const activeContextHits = computed(() => activeContextDraft.value?.key_points.filter(point => point.marker_kind === 'contact').length ?? activeContextRally.value?.submission.contact_count ?? 0)
   const activeContextDuration = computed(() => {
     const range = activeContextDraft.value ? clipRangeForPoints(activeContextDraft.value.key_points) : activeContextRally.value ? clipRangeForRally(activeContextRally.value) : null
     return range ? (BigInt(range.endCaptureTimeUs) - BigInt(range.startCaptureTimeUs)).toString() : null
   })
   const activeContextState = computed(() => activeContextDraft.value ? activeContextDraft.value.annotation_status === 'ready' ? '待送出' : '標記中' : activeContextRally.value?.submission.analysis?.status === 'completed' ? activeContextRally.value.submission.analysis.identity_mapping_completed ? '已指派' : '分析完成' : activeContextRally.value ? '處理中' : '—')
-  const displayRallyOrdinal = computed(() => activeContextRally.value?.ordinal ?? activeContextDraft.value?.ordinal ?? '—')
+  const displayRallyOrdinal = computed(() => activeContextRally.value?.display_ordinal ?? activeContextDraft.value?.display_ordinal ?? '—')
+  const displaySetNumber = computed(() => activeContextRally.value?.display_set_number ?? activeContextDraft.value?.display_set_number ?? currentSet.value?.set_number ?? 1)
 
-  return { submittedRallies, annotationDrafts, visibleSubmittedRallies, selectedSubmittedRally, selectedRally, mappingAvailable, selectedAnalysisRunId, currentSet, leftTeamId, rightTeamId, leftSetWins, rightSetWins, leftTeam, rightTeam, clipPreRollUs, clipPostRollUs, clipPreRollSeconds, clipPostRollSeconds, clipRangeForPoints, clipRangeForRally, rallyDisplayDuration, timelineSegments, currentMaskRange, selectableSegmentRanges, selectedCurrentMask, currentAnnotationRally, currentMaskStatus, currentMaskLabel, currentMaskOutcome, activeOverlayAnalysisRunId, activeOverlayClipStart, currentAnnotationDraft, selectedEditableDraft, correctionActive, selectedDeletablePoint, activeContextTitle, activeContextHits, activeContextDuration, activeContextState, displayRallyOrdinal }
+  return { submittedRallies, annotationDrafts, visibleSubmittedRallies, selectedSubmittedRally, selectedRally, mappingAvailable, selectedAnalysisRunId, currentSet, leftTeamId, rightTeamId, leftSetWins, rightSetWins, leftTeam, rightTeam, clipPreRollUs, clipPostRollUs, clipPreRollSeconds, clipPostRollSeconds, clipRangeForPoints, clipRangeForRally, rallyDisplayDuration, timelineSegments, currentMaskRange, selectableSegmentRanges, selectedCurrentMask, currentAnnotationRally, currentMaskStatus, currentMaskLabel, currentMaskOutcome, activeOverlayAnalysisRunId, activeOverlayClipStart, currentAnnotationDraft, selectedEditableDraft, correctionActive, selectedDeletablePoint, activeContextTitle, activeContextHits, activeContextDuration, activeContextState, displayRallyOrdinal, displaySetNumber }
 }
