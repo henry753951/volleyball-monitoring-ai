@@ -689,6 +689,19 @@ The Nuxt build emits a dependency-level Node `DEP0155` deprecation warning but c
 - The complete post-fix gate passed: contracts 13, DB 4, media 88, server 201, worker 165 with six
   skipped, web 140 and Python SDK 20 tests, plus the full monorepo typecheck.
 
+# 2026-08-09 — Stale AI worker cleanup
+
+- Added an authenticated operator control to remove AI provider instances only after they are
+  disconnected or have missed the 30-second heartbeat threshold and own no queued/running jobs.
+- The backend repeats the liveness and active-job checks in the atomic delete condition, so a worker
+  that reconnects or receives work while the confirmation dialog is open is rejected with a conflict.
+- The control console exposes the destructive action only for inactive workers, disables it while
+  work remains, confirms the selected instance and refreshes the fleet immediately after deletion.
+  Completed analysis data remains intact; the remote worker may register again on its next connection.
+- ADR 0022 records the authorization, atomic liveness/job recheck, versioned receipt and history-retention boundary; GraphQL and AI SDK contracts are unchanged.
+- This is an additive internal operations-control route and does not change AI Provider Realtime,
+  Job, Result, Callback, GraphQL or database schemas.
+
 # 2026-08-09 — Linked analysis-result timeline selection
 
 - Analysis coverage rails are now real toggle buttons. Selecting one pins and selects its parent rally;

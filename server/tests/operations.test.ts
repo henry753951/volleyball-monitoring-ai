@@ -1,6 +1,7 @@
 import Fastify from 'fastify'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import {
+  deleteInactiveAiWorker,
   operationsRoutes,
   renderPrometheusMetrics,
   type OperationsSnapshot,
@@ -32,6 +33,7 @@ const snapshot: OperationsSnapshot = {
     lastSeenAt: '2026-08-08T00:00:00.000Z',
     disconnectedAt: null,
     status: 'online',
+    canDelete: false,
   }],
   aiWork: [],
   hostStorage: {
@@ -148,5 +150,62 @@ describe('operations routes', () => {
     const response = await app.inject({ method: 'GET', url: '/api/v1/operations/summary' })
     expect(response.statusCode).toBe(403)
     await app.close()
+  })
+
+  it('deletes an inactive worker through the authenticated control route', async () => {
+    const app = Fastify()
+    const deleteAiWorker = vi.fn(async () => ({
+      deleted: true as const,
+      id: '30000000-0000-4000-8000-000000000001',
+      instanceKey: 'analysis-worker-01',
+    }))
+    await app.register(operationsRoutes(async () => snapshot, {
+      authenticate: async () => ({ role: 'OPERATOR', userId: 'operator-1' }),
+      collectReadiness: async () => ({ status: 'ready', checks: {} }),
+      deleteAiWorker,
+    }))
+    const response = await app.inject({
+      method: 'DELETE',
+      url: '/api/v1/operations/ai-workers/30000000-0000-4000-8000-000000000001',
+    })
+    expect(response.statusCode).toBe(200)
+    expect(response.json()).toEqual({
+      schema_version: '1.0.0',
+      deleted_worker: {
+        id: '30000000-0000-4000-8000-000000000001',
+        instance_key: 'analysis-worker-01',
+      },
+    })
+    expect(deleteAiWorker).toHaveBeenCalledWith(
+      '30000000-0000-4000-8000-000000000001',
+      { role: 'OPERATOR', userId: 'operator-1' },
+    )
+    await app.close()
+  })
+
+  it('atomically refuses online or busy worker records', async () => {
+    const stale = new Date('2026-08-08T00:00:00.000Z')
+    const now = new Date('2026-08-08T00:01:00.000Z')
+    const findUnique = vi.fn()
+      .mockResolvedValueOnce({ disconnectedAt: null, instanceKey: 'online', lastSeenAt: now })
+      .mockResolvedValueOnce({ disconnectedAt: null, instanceKey: 'busy', lastSeenAt: stale })
+      .mockResolvedValueOnce({ disconnectedAt: null, lastSeenAt: stale })
+    const deleteMany = vi.fn().mockResolvedValue({ count: 0 })
+    const database = { aiProviderInstance: { deleteMany, findUnique } } as unknown as Parameters<typeof deleteInactiveAiWorker>[0]
+
+    await expect(deleteInactiveAiWorker(database, 'worker-online', now)).resolves.toEqual({
+      deleted: false,
+      reason: 'online',
+    })
+    await expect(deleteInactiveAiWorker(database, 'worker-busy', now)).resolves.toEqual({
+      deleted: false,
+      reason: 'active_jobs',
+    })
+    expect(deleteMany).toHaveBeenCalledOnce()
+    expect(deleteMany).toHaveBeenCalledWith({
+      where: expect.objectContaining({
+        jobs: { none: { status: { in: ['QUEUED', 'RUNNING'] } } },
+      }),
+    })
   })
 })

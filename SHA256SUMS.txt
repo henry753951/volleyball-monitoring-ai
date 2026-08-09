@@ -47,8 +47,9 @@ de1c6f5f306bdafd9bb0096364a40165d41d59e1b7afd60efa8d0ea42d505afc  ./docs/adr/001
 4748e8fee1644f3760705aab357ed76e6d8ec0b0bc06a03698dd323971f40fcd  ./docs/adr/0019-unified-source-lifecycle-and-timeline-state.md
 ec6ef8f1eff886d877e2f8e740321ee090271748c7382834584c31feb1721d99  ./docs/adr/0020-match-administration-and-media-cleanup.md
 2f618154824ef643d43f344373723c3e5e1ba51744342e7826fda245650b507a  ./docs/adr/0021-resumable-vod-capture.md
+1660290def1de71e5a846147d809ffe9833c8871ec751046a2ac68c9fb7dee42  ./docs/adr/0022-stale-ai-worker-retirement.md
 de376c790b3f7624d275cd8d6882725028d5264710ede7d748ad38304fee5c6a  ./docs/open-decisions.md
-6a8df67be850c43c13b05e662d8aadefa49290aeeba14b01640d89a3fdaa13bf  ./docs/progress.md
+f6af5ddc72e3c9b467d95a339330c37d41ee8f1ab513502c5fd68ea5de771bfa  ./docs/progress.md
 aa5494b32c071ea634767c3858b1f3063aa2331777c50ec41b56cbc7a25c6d4b  ./docs/requirements-matrix.md
 e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  ./examples/__init__.py
 6b1706b8d04e20d43f4e14ca60cff11ac2c338bf94cbd33ffd199f9f6bc50a99  ./examples/tracking_replay_provider/README.md
@@ -248,7 +249,7 @@ c509e26da6a91a2ff130ab45a9e1664b7707539b201bed344c3dd9e9cd5ce71d  ./server/src/g
 daf55fad91c822857be170cd3d76c6a9170e2ae6df3e9524f6640818f43f310f  ./server/src/graphql/schema.ts
 064cde26e8179b5eade9bb05400bdff06d716e24fe5e4a288180b6c24ef8c12c  ./server/src/graphql/types.ts
 6b2c7115e325bd40f267f3c0c4f5ee83930a32c0ae71bb7f8a1c8fb8c33c578d  ./server/src/health/readiness.ts
-80866838030cb77a6cdb010e3800abb3b6c4b21265e6667e79499327198d5728  ./server/src/index.ts
+edcfae980a68c84d08858dc67ffd05ad9732aef26d35aef7e8f5630df5e90757  ./server/src/index.ts
 4135bbec0689a643e598a4421b8f50d457876c1d746c936a26beb127d6d554dc  ./server/src/media/clip-timing-coverage.ts
 a75d66c2038a5c29bcc6994718e70fd0a43fc2b0fdd3e72a107886dc63ab4a29  ./server/src/media/cursor-resolution.ts
 91981dc02252c90ae48919cf728c76c63d7faa98ef0e01ab93c35051d7fd8661  ./server/src/media/cursor-routes.ts
@@ -271,7 +272,7 @@ dc6593e629b1729b2b00823cb32907931b6cf9e9f55d41c10f5235b23bbdcb88  ./server/src/r
 a66d4fb7756c5c01c9e78b04eacf823463512a7d4cb7dafc26882bce0d0b29f4  ./server/src/routes/analysis-media.ts
 de29025147f181aec44ae214a244808707395a7c238b167163087cebd4fda429  ./server/src/routes/media-playback.ts
 413be4bf45017026dd5446261bd1d8498b5e00d6e684c480c087482853f57198  ./server/src/routes/media-sources.ts
-2f488e61d85733918c44974551fa885aaed2871963437fc133d8c49b89aa681f  ./server/src/routes/operations.ts
+934ac030de8e3daee1d8dcb4c9fbfae0a2808797b8a8dc079e5a3c3bbc5f9a86  ./server/src/routes/operations.ts
 29dc8ee62da32da243cba2f0c90575ba5e1cea4c36a2d392ab96360c6c926812  ./server/src/services/README.md
 5fdcfc49304271a0679b0f6f2a2aff5579d6417fc5aeee4a0426422a032f039b  ./server/src/services/annotation-command.ts
 4dfdcfb0c292a5fd791ef7dd861545c9314c255d9d729b34780ef32475ddc27f  ./server/src/services/annotation-snapshot.ts
@@ -303,7 +304,7 @@ e734bbb912f20f02bf36b5d3908fd43c1dfe44838294424d56e68b7a6a388164  ./server/tests
 e2b11a3053d26802dd1eca70ca45bba86bd6d3dc6682c3a44ce4e04ebb97774d  ./server/tests/media-playback.unit.test.ts
 a5af93d077b4ac683885c2ecf29e69805d60ddcd24c53fd42c748b88f576d8f7  ./server/tests/media-sources.unit.test.ts
 58ec2e5eae3567d636a612b9bde0a9488c13e219fbd73117e0de923d2a291895  ./server/tests/minio-object-reader.test.ts
-81906936969c87287b2ff1c0125545ad448328315e9c9bf82246bd2f4f437a33  ./server/tests/operations.test.ts
+46a58712c8577d34d9d20291395a172c28dab429eeec800a477da68a8b81bd41  ./server/tests/operations.test.ts
 46f67dd077c324c85587b84aeea8e0b78a41c9f8f186aac3625250b97a8d5c85  ./server/tests/processing-rally-cancellation.integration.test.ts
 031192688f5c0aea7987cf2357db752ec326389195469c3f777f55a157763ef3  ./server/tests/readiness.test.ts
 3e748ad65bf22c4f4c058ddf1d46c009645031e871314599a1ea83e6ccbb9304  ./server/tests/sample-index-repository.integration.test.ts
@@ -341,6 +342,7 @@ cb7f000e0b333fc93f3f52c97f6bf607932dc1723395bc43c2bde2cae4197d1c  ./web/app/comp
 1ea0f5302d864cba27a1fa3d9c1479ca37803ceec653617d53920b86efa878ea  ./web/app/components/TeamSetupCard.vue
 6622188f83572c70f0cc52d15bba96a4820f45f75ce5fb17278f973845a7eba3  ./web/app/components/VideoOverlayPlayer.vue
 4286a12b4e1640b27779890d2d7886ee47535c2118b8c1a1f3eded52208bd5f4  ./web/app/components/WsPingBadge.vue
+8a92834e183a6c89ff3441f73e6274a186248fc4dea6c4915c008e2bcedb8bfc  ./web/app/components/control/AiWorkerDeleteDialog.vue
 5ef7ed4b9a4a26a027390013501df7c3211a9c9567e290e7eb6711169cdc54a6  ./web/app/components/control/MatchDeleteDialog.vue
 0cc79bc3fb980f333259707d6977c84abf437e0994507a1409634df880e3b706  ./web/app/components/control/MatchEditorDialog.vue
 0a307ea2fc96847dfa9af301d423ceac18e94a0313b020d28da19b0112262009  ./web/app/components/ui/AnimatedModal.vue
@@ -392,15 +394,15 @@ d8d53b375f8ae2aea28ee3c0720fffc30af450a6ebc6e5f1f414689352c9915c  ./web/app/lib/
 d1b04708728885977903eab107f60c16ba2cc611a6dffdef70e21995dc83ae0e  ./web/app/lib/mediaSourceClient.ts
 33819689eb8533a39b5da3063860ba69921181b64ca64d71399eda3be94d4069  ./web/app/lib/mediaTimeline.test.ts
 39ed96f1d945960be792b30da888a2db315e49bed71a618ddc6479c61324e8e8  ./web/app/lib/mediaTimeline.ts
-e66eea442bedf2abbd180742be6bd3613a420e3bb1e1fd98c893475e5113314b  ./web/app/lib/operationsMonitor.test.ts
-17d69f13b98236177103f5dd04e1fbdac54f057f8646dbb923cd53e63dd9252a  ./web/app/lib/operationsMonitor.ts
+0f611cc5064263d48341d4ebda4d45f43454f1d65899cfa95119bbb743ebf6c6  ./web/app/lib/operationsMonitor.test.ts
+cf57afadb86cff03af504c199e9962caf2630045b37282fa579fe7916ee0fe53  ./web/app/lib/operationsMonitor.ts
 ea2e5a8a0d7e2a81ef17e9afe1b2e7a6326c3099fc03539a7ee7ac346c6abf8a  ./web/app/lib/playbackContinuation.test.ts
 510308eefdbfb3a9f4f05acf973252b869c21f513eef07ba70625bf803ac0e4a  ./web/app/lib/playbackContinuation.ts
 cba670333ab1e0c411c488d0f3517da77337ca9c256ef9eaae31df1d6c9c3d6d  ./web/app/lib/playbackWindowCache.test.ts
 adee2ce860eff55e9be95c2feaabea259ae161fb138efc484051980767938b22  ./web/app/lib/playbackWindowCache.ts
 52fe16f81674ddd4727c93d95986be02908b5bb247fcca16e04f5c2aba4a1ccb  ./web/app/middleware/auth.global.ts
 350c2a0c247655530817fef9e8ea8d78e7fd51a0176abb963fe0c42539a2a058  ./web/app/pages/annotate/[matchId].vue
-74a8ad68dce0a4e2b46736583cb7388a1ade929079d98afbe16173953cac7939  ./web/app/pages/control/index.vue
+162df7baae93fa7976196924d1af3ee2ab13965fc15222babd85ea0723621303  ./web/app/pages/control/index.vue
 3cc1461e7975d0e8c6875dc155353512e9901a19d4930a8a854c73872a536951  ./web/app/pages/index.vue
 f3bf511c8e2d7748a3d05b0009e008808e14c8959976090362d6198e54d11651  ./web/app/pages/matches/[matchId]/history.vue
 8ee617158e4243ca761d21ca9a68ef4f5b6b4f0605337e13879459300f7f837f  ./web/app/pages/matches/[matchId]/live.vue

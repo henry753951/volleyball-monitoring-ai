@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { fetchOperationsSnapshot, visibleStreamsForMatches, type StreamSnapshot } from './operationsMonitor'
+import { deleteAiWorker, fetchOperationsSnapshot, visibleStreamsForMatches, type StreamSnapshot } from './operationsMonitor'
 
 describe('operations monitor client', () => {
   it('keeps dashboard media sources scoped to visible matches', () => {
@@ -39,5 +39,30 @@ describe('operations monitor client', () => {
   it('surfaces access control failures clearly', async () => {
     const fetchImpl = vi.fn(async () => new Response(null, { status: 403 })) as unknown as typeof fetch
     await expect(fetchOperationsSnapshot('/api/v1', fetchImpl)).rejects.toThrow('目前帳號沒有系統監控權限')
+  })
+
+  it('deletes an inactive worker through the same-origin control route', async () => {
+    const payload = {
+      schema_version: '1.0.0',
+      deleted_worker: { id: 'worker-1', instance_key: 'analysis-worker-01' },
+    }
+    const fetchImpl = vi.fn(async () => new Response(JSON.stringify(payload), {
+      headers: { 'content-type': 'application/json' },
+      status: 200,
+    })) as unknown as typeof fetch
+    await expect(deleteAiWorker('/api/v1/', 'worker-1', fetchImpl)).resolves.toEqual(payload)
+    expect(fetchImpl).toHaveBeenCalledWith('/api/v1/operations/ai-workers/worker-1', {
+      credentials: 'include',
+      headers: { accept: 'application/json' },
+      method: 'DELETE',
+    })
+  })
+
+  it('explains when a stale worker recovered before deletion', async () => {
+    const fetchImpl = vi.fn(async () => new Response(JSON.stringify({ code: 'AI_WORKER_ONLINE' }), {
+      headers: { 'content-type': 'application/json' },
+      status: 409,
+    })) as unknown as typeof fetch
+    await expect(deleteAiWorker('/api/v1', 'worker-1', fetchImpl)).rejects.toThrow('Worker 已恢復連線，無法刪除')
   })
 })

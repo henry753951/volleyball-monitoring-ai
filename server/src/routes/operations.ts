@@ -57,6 +57,7 @@ export interface AiWorkerSnapshot {
   lastSeenAt: string
   disconnectedAt: string | null
   status: 'online' | 'stale' | 'offline'
+  canDelete: boolean
 }
 
 export interface AiWorkSnapshot {
@@ -111,8 +112,54 @@ export interface OperationsIdentity {
 
 export type OperationsCollector = (identity?: OperationsIdentity) => Promise<OperationsSnapshot>
 export type OperationsAuthorizer = (request: FastifyRequest) => Promise<OperationsIdentity | null>
+export type AiWorkerDeleteResult =
+  | { deleted: true; id: string; instanceKey: string }
+  | { deleted: false; reason: 'active_jobs' | 'not_found' | 'online' }
+export type AiWorkerDeleter = (workerId: string, identity: OperationsIdentity) => Promise<AiWorkerDeleteResult>
 
 const group = (count: number, labels: Record<string, string>): MetricGroup => ({ count, labels })
+const AI_WORKER_STALE_MS = 30_000
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+
+export async function deleteInactiveAiWorker(
+  database: typeof DatabaseClient,
+  workerId: string,
+  now = new Date(),
+): Promise<AiWorkerDeleteResult> {
+  const staleBefore = new Date(now.getTime() - AI_WORKER_STALE_MS)
+  const candidate = await database.aiProviderInstance.findUnique({
+    where: { id: workerId },
+    select: { disconnectedAt: true, instanceKey: true, lastSeenAt: true },
+  })
+  if (!candidate) return { deleted: false, reason: 'not_found' }
+  if (!candidate.disconnectedAt && candidate.lastSeenAt >= staleBefore) {
+    return { deleted: false, reason: 'online' }
+  }
+
+  const deleted = await database.aiProviderInstance.deleteMany({
+    where: {
+      id: workerId,
+      OR: [
+        { disconnectedAt: { not: null } },
+        { lastSeenAt: { lt: staleBefore } },
+      ],
+      jobs: { none: { status: { in: ['QUEUED', 'RUNNING'] } } },
+    },
+  })
+  if (deleted.count === 1) {
+    return { deleted: true, id: workerId, instanceKey: candidate.instanceKey }
+  }
+
+  const current = await database.aiProviderInstance.findUnique({
+    where: { id: workerId },
+    select: { disconnectedAt: true, lastSeenAt: true },
+  })
+  if (!current) return { deleted: false, reason: 'not_found' }
+  if (!current.disconnectedAt && current.lastSeenAt >= staleBefore) {
+    return { deleted: false, reason: 'online' }
+  }
+  return { deleted: false, reason: 'active_jobs' }
+}
 
 export async function collectOperationsSnapshot(
   database: typeof DatabaseClient,
@@ -267,7 +314,7 @@ export async function collectOperationsSnapshot(
     current.indexedDurationUs = (BigInt(current.indexedDurationUs) + (totals?._sum.durationUs ?? 0n)).toString()
     matchMedia.set(capture.matchId, current)
   }
-  const workerStaleBefore = Date.now() - 30_000
+  const workerStaleBefore = Date.now() - AI_WORKER_STALE_MS
   const memory = process.memoryUsage()
   return {
     generatedAt: new Date().toISOString(),
@@ -309,6 +356,7 @@ export async function collectOperationsSnapshot(
         lastSeenAt: instance.lastSeenAt.toISOString(),
         disconnectedAt: instance.disconnectedAt?.toISOString() ?? null,
         status,
+        canDelete: status !== 'online' && activeJobs === 0,
       }
     }),
     aiWork: recentAiWork.map(job => ({
@@ -416,6 +464,7 @@ export function operationsRoutes(
   options: {
     authenticate?: OperationsAuthorizer
     collectReadiness?: () => Promise<ReadinessResult>
+    deleteAiWorker?: AiWorkerDeleter
   } = {},
 ): FastifyPluginAsync {
   return async (app) => {
@@ -446,6 +495,38 @@ export function operationsRoutes(
       const [operations, readiness] = await Promise.all([collect(identity), options.collectReadiness()])
       const payload: OperationsDashboardSnapshot = { operations, readiness }
       return reply.header('cache-control', 'no-store').send(payload)
+    })
+    app.delete<{ Params: { workerId: string } }>('/api/v1/operations/ai-workers/:workerId', async (request, reply) => {
+      if (!options.authenticate || !options.deleteAiWorker) return reply.status(404).send({ error: 'Not found' })
+      let identity: OperationsIdentity | null = null
+      try {
+        identity = await options.authenticate(request)
+      }
+      catch {
+        return reply.status(401).send({ error: 'Authentication required' })
+      }
+      if (!identity) return reply.status(401).send({ error: 'Authentication required' })
+      if (identity.role !== 'ADMIN' && identity.role !== 'OPERATOR') {
+        return reply.status(403).send({ error: 'Operations access required' })
+      }
+      if (!UUID_PATTERN.test(request.params.workerId)) {
+        return reply.status(400).send({ code: 'INVALID_AI_WORKER_ID', error: 'Invalid AI worker id' })
+      }
+
+      const result = await options.deleteAiWorker(request.params.workerId, identity)
+      if (!result.deleted) {
+        if (result.reason === 'not_found') {
+          return reply.status(404).send({ code: 'AI_WORKER_NOT_FOUND', error: 'AI worker not found' })
+        }
+        if (result.reason === 'online') {
+          return reply.status(409).send({ code: 'AI_WORKER_ONLINE', error: 'AI worker is online' })
+        }
+        return reply.status(409).send({ code: 'AI_WORKER_HAS_ACTIVE_JOBS', error: 'AI worker still owns active jobs' })
+      }
+      return reply.header('cache-control', 'no-store').send({
+        schema_version: '1.0.0',
+        deleted_worker: { id: result.id, instance_key: result.instanceKey },
+      })
     })
   }
 }
