@@ -4,12 +4,19 @@ This runbook covers the Docker Compose deployment in this repository. Run comman
 
 ## Health and restart
 
-The normal stack uses both profiles:
+The full central stack uses the `app` profile. Provision or validate object-storage buckets before
+starting application containers:
 
 ```powershell
+$env:OBJECT_STORAGE_BOOTSTRAP_MODE = 'validate' # production; use ensure only for local development
+bun run storage:bootstrap
 docker compose --env-file .env -f infra/compose.yaml --profile app ps
 docker exec volleyball-monitoring-ai-server-1 wget -qO- http://127.0.0.1:4000/health/ready
 ```
+
+Daily host development uses `bun run dev:infra`; it starts only PostgreSQL, Redis, MinIO and OME,
+then runs the idempotent bucket bootstrap in `ensure` mode. `bun run dev:https` additionally starts
+Traefik. No bucket-provisioning container remains in Compose.
 
 Restart stateful dependencies one at a time, waiting for `healthy` and Server readiness before continuing. A safe order is Redis, Server, workers, MinIO, PostgreSQL. Do not remove or recreate volumes during a restart drill. Afterward compare canonical row counts, an object SHA/byte length and all container restart counts to the pre-drill record.
 

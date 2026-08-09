@@ -955,8 +955,6 @@ Presence/soft lock & Backend & Web & WebSocket \\
 \NormalTok{├── worker/}
 \NormalTok{│   ├── src/roles/}
 \NormalTok{│   └── tests/}
-\NormalTok{├── examples/}
-\NormalTok{│   └── fake\_\allowbreak{}ai\_\allowbreak{}provider/}
 \NormalTok{├── infra/}
 \NormalTok{│   ├── compose.yaml}
 \NormalTok{│   ├── docker/}
@@ -1086,6 +1084,12 @@ directory quota 與 idempotent output key。
 Server；Server 直接以 least-busy 規則分配 durable AI job。中央 worker
 image 不包含 AI dispatcher，也不執行假 provider。現有 GraphQL、REST、Annotation
 WebSocket 與 AI Worker WebSocket 介面保持不變。
+
+日常開發以 \texttt{bun run dev:infra} 只啟動 PostgreSQL、Redis、MinIO 與
+OvenMediaEngine；\texttt{bun run storage:bootstrap} 在本機 \texttt{ensure}
+模式只建立缺少的 bucket，在正式 \texttt{validate} 模式只驗證且不得要求 create-bucket
+權限。Compose 不保留一次性 MinIO init container。\texttt{bun run dev:https}
+才額外啟動 Traefik。
 
 目前 deterministic DVR profile 已是可直接組成 bounded HLS 的 immutable
 fMP4。Server 在已授權 request 內建立 manifest/mapping；

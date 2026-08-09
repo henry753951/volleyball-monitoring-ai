@@ -54,6 +54,8 @@ REQUIRED = [
     'packages/db/prisma/schema.prisma',
     'scripts/checksum_utils.py',
     'scripts/refresh_checksums.py',
+    'scripts/storage_bootstrap.ts',
+    'scripts/storage_bootstrap.test.ts',
     'sdk/pyproject.toml',
     'web/app/pages/annotate/[matchId].vue',
     'web/tsconfig.json',
@@ -72,6 +74,8 @@ for path in repository_files('*.toml'):
     tomllib.loads(path.read_text(encoding='utf-8'))
 
 root_package = json.loads((ROOT / 'package.json').read_text(encoding='utf-8'))
+for script in ('storage:bootstrap', 'dev:infra', 'dev:https', 'dev:worker-media', 'dev:worker-workflow'):
+    assert script in root_package['scripts'], f'missing root runtime script: {script}'
 workspace_manifests: set[Path] = set()
 for workspace_pattern in root_package['workspaces']:
     for workspace_path in ROOT.glob(workspace_pattern):
@@ -141,6 +145,23 @@ for binding in ["service: 'Z'", "contact: 'X'", "play_pause: 'Space'", "close_le
 for forbidden_terminal_flow in ["kind: 'terminal'", "type: 'terminal'", "kind === 'terminal'"]:
     assert forbidden_terminal_flow not in annotation_page, 'standalone terminal key-point flow returned'
 assert 'CLOSE_RALLY' in annotation_room
+
+compose_source = (ROOT / 'infra/compose.yaml').read_text(encoding='utf-8')
+compose_services = compose_source.split('\nservices:\n', 1)[1].split('\nvolumes:\n', 1)[0]
+service_names = set(re.findall(r'^  ([a-z0-9-]+):(?:\s.*)?$', compose_services, flags=re.MULTILINE))
+expected_services = {
+    'traefik',
+    'postgres',
+    'redis',
+    'minio',
+    'ovenmediaengine',
+    'server',
+    'web',
+    'worker-media',
+    'worker-workflow',
+}
+assert service_names == expected_services, f'Compose service allowlist mismatch: {sorted(service_names)}'
+assert 'OBJECT_STORAGE_BOOTSTRAP_MODE' in (ROOT / '.env.example').read_text(encoding='utf-8')
 
 active_annotation_sources = [
     ROOT / 'AGENTS.md',

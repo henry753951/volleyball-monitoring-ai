@@ -13,7 +13,6 @@ service names remain only in the superseded ADR/history and migrations.
 | `postgres` | base | `postgres-data` | keep |
 | `redis` | base | `redis-data` | keep |
 | `minio` | base | `minio-data` | keep |
-| `minio-init` | base, one-shot | none | Phase 5: replace with host bootstrap |
 | `ovenmediaengine` | base | `media-spool`, OME data/logs | keep |
 | `traefik` | base | certificates/config | keep; optional in daily development |
 | `server` | `app` | shared imports/spool | keep |
@@ -21,9 +20,9 @@ service names remain only in the superseded ADR/history and migrations.
 | `worker-media` | `app` | shared imports/spool; PostgreSQL jobs | keep |
 | `worker-workflow` | `app` | PostgreSQL/MinIO | keep |
 
-The Phase 2 through Phase 4 runtime consolidation is complete in source and Compose. The central
-`app` profile now has the fixed target of nine long-running services; the one-shot MinIO bootstrap
-remains visible until Phase 5 replaces it with the host command.
+The Phase 2 through Phase 5 runtime consolidation is complete in source and Compose. The central
+`app` profile contains exactly the fixed target of nine services. Bucket provisioning is a host
+command and does not create a stopped one-shot container in Docker Desktop.
 
 ## Current named volumes
 
@@ -49,7 +48,8 @@ live in PostgreSQL. There is no dedicated relay/watcher state volume.
   `POSTGRES_HOST_PORT`, `REDIS_URL`.
 - Object storage: `MINIO_ENDPOINT`, `MINIO_ACCESS_KEY`, `MINIO_SECRET_KEY`,
   `MINIO_RAW_BUCKET`, `MINIO_DVR_BUCKET`, `MINIO_RALLY_BUCKET`,
-  `MINIO_ANALYSIS_BUCKET`.
+  `MINIO_ANALYSIS_BUCKET`, `MINIO_BOOTSTRAP_ENDPOINT`,
+  `OBJECT_STORAGE_BOOTSTRAP_MODE`, `OBJECT_STORAGE_BOOTSTRAP_TIMEOUT_MS`.
 - OME: `OME_API_URL`, `OME_API_ACCESS_TOKEN`, `OME_HOST_IP`, `OME_DVR_MAX_DURATION`.
 - Media worker: `MEDIA_SPOOL_DIR`, `MEDIA_IMPORT_ROOT`, `MEDIA_SOURCE_WORK_ROOT`,
   `MEDIA_INGEST_BASE_URL`, `MEDIA_INDEXER_SCAN_INTERVAL_MS`,
@@ -60,9 +60,12 @@ live in PostgreSQL. There is no dedicated relay/watcher state volume.
   and the documented `NUXT_PUBLIC_*` URLs.
 - DVR/clip: playback-window, client-buffer and clip-roll settings remain unchanged.
 
-### Remaining migration variable
+### Storage bootstrap
 
-- Phase 5 storage bootstrap introduces `OBJECT_STORAGE_BOOTSTRAP_MODE=ensure|validate`.
+- `bun run storage:bootstrap` is idempotent. `ensure` creates only missing local-development buckets;
+  `validate` performs read-only production verification and fails when any required bucket is absent.
+- `bun run dev:infra` starts only PostgreSQL, Redis, MinIO and OME, then performs `ensure`.
+- `bun run dev:https` adds Traefik without moving Server, Nuxt or workers back into containers.
 
 ## Database transport audit
 
@@ -79,3 +82,5 @@ remain in Prisma for now so this runtime-only cleanup does not force an unrelate
 - Phase 3: Server 221 passed; Worker 162 passed, 6 skipped; local FFmpeg MP4 segmentation smoke;
   PostgreSQL lease/CAS and zero-segment drain smoke; Compose renders one `worker-media`; the 339 MB
   worker image starts Bun 1.3.14, yt-dlp 2026.07.04 and FFmpeg 6.1.2.
+- Phase 5: Compose renders exactly nine services; host `ensure` and read-only `validate` both passed
+  against the running MinIO, and the bootstrap unit suite passed 4 cases.

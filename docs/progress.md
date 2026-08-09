@@ -895,3 +895,14 @@ The Nuxt build emits a dependency-level Node `DEP0155` deprecation warning but c
 - Validation passed: complete repository typecheck; contracts 14, DB 4, media 88, server 221,
   worker 161 with 6 environment-gated skips, Web 152 and Python SDK 20 tests; scaffold/checksum,
   Prisma schema and Compose config. The retired runtime literal scan has zero active-code/config hits.
+
+# 2026-08-09 — Phase 5 host object-storage bootstrap
+
+- Removed the one-shot MinIO bucket-provisioning service and its `mc` image from Compose. The full
+  central profile now renders exactly nine services with health-gated application dependencies.
+- Added `bun run storage:bootstrap`: local `ensure` creates only missing buckets and is idempotent;
+  production `validate` performs no creation and fails closed when a required bucket is missing.
+- Added `dev:infra` for PostgreSQL, Redis, MinIO and OME only, plus optional `dev:https` for Traefik.
+  Host development starts both composed worker roles as separate Bun processes.
+- Unit tests passed 4 bootstrap cases; real `ensure` and `validate` smokes passed against the running
+  MinIO at the host-published endpoint.

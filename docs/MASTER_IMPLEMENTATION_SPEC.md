@@ -386,7 +386,6 @@ volleyball-monitoring-ai/
 ├── worker/
 │   ├── src/roles/
 │   └── tests/
-├── examples/
 ├── infra/
 │   ├── compose.yaml
 │   ├── docker/
@@ -449,6 +448,8 @@ server/src/graphql/**/*.ts (Pothos source)
 每個 composition 內仍以獨立 loop、concurrency、metrics、backoff 與 graceful shutdown 隔離責任。它們共享 `packages/db` 與 `packages/contracts`，但每個 loop 只能 claim 自己的 job type。FFmpeg subprocess 必須有 timeout、cancel、stderr capture、temporary directory quota 與 idempotent output key。
 
 外部 GPU AI Worker 透過 `/api/v1/ai/providers/ws` 主動連入 Server；Server 直接以 least-busy 規則分配 durable AI job。中央 worker image 不包含 AI dispatcher，也不執行假 provider。現有 GraphQL、REST、Annotation WebSocket 與 AI Worker WebSocket 介面保持不變。
+
+日常開發以 `bun run dev:infra` 只啟動 PostgreSQL、Redis、MinIO 與 OvenMediaEngine；`bun run storage:bootstrap` 在本機 `ensure` 模式只建立缺少的 bucket，在正式 `validate` 模式只驗證且不得要求 create-bucket 權限。Compose 不保留一次性 MinIO init container。`bun run dev:https` 才額外啟動 Traefik。
 
 目前 deterministic DVR profile 已是可直接組成 bounded HLS 的 immutable fMP4。Server 在已授權 request 內建立 manifest/mapping；`playback-packager` 非同步清除已過期的 ephemeral `PlaybackWindow`，不複製完整 DVR、也不為每次 seek 重轉碼。AI completed callback 必須在公開 REST boundary 完成 schema/checksum/passthrough/idempotent receipt 與 normalized transaction 後才 ACK；`analysis-ingest` 只負責 restart 後 active immutable submission 的 terminal projection convergence，不得重啟 `SUPERSEDED` run 或重算/改寫 provider `court_pos`。`outbox-publisher` 以 PostgreSQL CAS claim `OutboxEvent`，用 event ID/dedupe key idempotently 寫入 durable pg-boss queue，成功後才標記 `PUBLISHED`。
 

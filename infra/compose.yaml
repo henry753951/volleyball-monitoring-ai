@@ -64,24 +64,14 @@ services:
       - "${MINIO_HOST_PORT:-9000}:9000" # local SDK/debug access; browser app never receives credentials
       - "${MINIO_CONSOLE_HOST_PORT:-9001}:9001"
     volumes: [minio-data:/data]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://127.0.0.1:9000/minio/health/live"]
+      interval: 5s
+      timeout: 3s
+      start_period: 120s
+      retries: 60
     networks: [internal, edge]
     restart: unless-stopped
-
-  minio-init:
-    image: quay.io/minio/mc:latest
-    depends_on: [minio]
-    environment:
-      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-volleyball}
-      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-volleyball-dev-secret}
-    entrypoint: ["/bin/sh", "-c"]
-    command:
-      - >-
-        until mc alias set local http://minio:9000 $${MINIO_ACCESS_KEY:-volleyball} $${MINIO_SECRET_KEY:-volleyball-dev-secret}; do sleep 2; done;
-        mc mb --ignore-existing local/raw-media;
-        mc mb --ignore-existing local/dvr-media;
-        mc mb --ignore-existing local/rally-media;
-        mc mb --ignore-existing local/analysis-artifacts;
-    networks: [internal]
 
   ovenmediaengine:
     image: ovenmedialabs/ovenmediaengine:v0.20.5
@@ -132,7 +122,11 @@ services:
     volumes:
       - media-imports:/var/lib/volleyball/media-imports
       - media-spool:/recordings
-    depends_on: [postgres, redis, minio-init, ovenmediaengine]
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+      minio: { condition: service_healthy }
+      ovenmediaengine: { condition: service_healthy }
     healthcheck:
       test: ["CMD", "bun", "-e", "const response = await fetch('http://localhost:4000/health/ready'); if (!response.ok) process.exit(1)"]
       interval: 5s
@@ -176,7 +170,11 @@ services:
     volumes:
       - media-imports:/var/lib/volleyball/media-imports
       - media-spool:/var/lib/volleyball/media-spool
-    depends_on: [postgres, redis, minio-init, ovenmediaengine]
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+      minio: { condition: service_healthy }
+      ovenmediaengine: { condition: service_healthy }
     networks: [internal]
     restart: unless-stopped
 

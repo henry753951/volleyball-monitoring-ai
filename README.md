@@ -26,12 +26,12 @@
 
 The specification is available as PDF, Markdown and LaTeX under `docs/SYSTEM_SPEC_V3_2.*`.
 
-## Local Docker
+## Full local stack
 
 ```bash
 cp .env.example .env
 ./scripts/generate-local-tls.sh volleyball.lan <DOCKER_HOST_LAN_IP>
-docker compose -f infra/compose.yaml --profile app up --build
+bun run compose:up
 ```
 
 - PWA/Web: `https://<trusted-lan-host>/`
@@ -49,9 +49,14 @@ On iPad, use a LAN hostname/IP covered by a trusted certificate, then use「加�
 ```bash
 bun install
 bun run db:generate
+bun run dev:infra
 bun run validate:all
 bun run dev
 ```
+
+`dev:infra` starts only PostgreSQL, Redis, MinIO and OvenMediaEngine, waits for object storage and
+idempotently creates the four development buckets on the host. Use `bun run dev:https` only when
+Traefik HTTPS/WSS/PWA routing is required. The AI engine remains an external `uv run` process.
 
 ## Python SDK
 
