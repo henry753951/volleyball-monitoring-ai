@@ -5,7 +5,6 @@ const ACTIVE_JOB_STATUSES = ['QUEUED', 'RUNNING'] as const
 const NAME_PATTERN = /^[\p{L}\p{N}][\p{L}\p{N}._ -]{1,62}[\p{L}\p{N}]$/u
 
 export interface AiIntegrationAccessSnapshot {
-  id: string
   name: string
   enabled: boolean
   authMode: 'managed' | 'environment' | 'legacy'
@@ -19,7 +18,6 @@ export interface AiIntegrationAccessSnapshot {
 
 export interface AiWorkerTokenSnapshot {
   id: string
-  integrationId: string
   name: string
   tokenPrefix: string
   enabled: boolean
@@ -185,14 +183,12 @@ export async function listAiIntegrationAccess(
       : integration.authSecretRef.startsWith('env:') ? 'environment' : 'legacy',
     createdAt: integration.createdAt.toISOString(),
     enabled: integration.enabled,
-    id: integration.id,
     name: integration.name,
     onlineWorkerCount: integration.providerInstances.length,
     tokens: integration.accessTokens.map(token => ({
       createdAt: token.createdAt.toISOString(),
       enabled: token.enabled,
       id: token.id,
-      integrationId: token.integrationId,
       lastUsedAt: token.lastUsedAt?.toISOString() ?? null,
       name: token.name,
       tokenPrefix: token.tokenPrefix,
@@ -205,27 +201,26 @@ export async function listAiIntegrationAccess(
 
 export async function createAiWorkerToken(
   database: typeof DatabaseClient,
-  integrationId: string,
   rawName: string,
 ) {
   const name = normalizeName(rawName)
   const token = freshToken()
   const integration = await database.aiIntegration.findFirst({
-    select: { id: true, name: true },
-    where: { enabled: true, id: integrationId, transportMode: 'WS_AGENT' },
+    select: { id: true },
+    where: { enabled: true, name: 'volleyball-analysis-engine', transportMode: 'WS_AGENT' },
   })
   if (!integration) throw new AiWorkerAccessError('NOT_FOUND', 'volleyball-analysis-engine 尚未啟用')
   try {
     const accessToken = await database.aiIntegrationAccessToken.create({
       data: {
-        integrationId,
+        integrationId: integration.id,
         name,
         tokenHash: sha256(token),
         tokenPrefix: token.slice(0, 12),
       },
       select: { id: true, name: true, tokenPrefix: true },
     })
-    return { accessToken, integration, token }
+    return { accessToken, token }
   }
   catch (error) {
     if (typeof error === 'object' && error && 'code' in error && error.code === 'P2002') {

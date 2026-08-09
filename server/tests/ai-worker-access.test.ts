@@ -52,7 +52,7 @@ describe('AI worker access tokens', () => {
   })
 
   it('creates another credential for volleyball-analysis-engine', async () => {
-    const findFirst = vi.fn(async () => ({ id: integration.id, name: 'Primary pool' }))
+    const findFirst = vi.fn(async () => ({ id: integration.id }))
     const create = vi.fn(async ({ data }: { data: { integrationId: string; name: string; tokenHash: string; tokenPrefix: string } }) => ({
       id: '40000000-0000-4000-8000-000000000001',
       name: data.name,
@@ -63,8 +63,11 @@ describe('AI worker access tokens', () => {
       aiIntegrationAccessToken: { create },
     } as unknown as Parameters<typeof createAiWorkerToken>[0]
 
-    const result = await createAiWorkerToken(database, integration.id, 'GPU 工作站 A')
-    expect(result.integration.id).toBe(integration.id)
+    const result = await createAiWorkerToken(database, 'GPU 工作站 A')
+    expect(findFirst).toHaveBeenCalledWith({
+      select: { id: true },
+      where: { enabled: true, name: 'volleyball-analysis-engine', transportMode: 'WS_AGENT' },
+    })
     expect(result.token).toMatch(/^vmai_[A-Za-z0-9_-]{40,}$/)
     const persisted = create.mock.calls[0]![0].data
     expect(persisted.integrationId).toBe(integration.id)

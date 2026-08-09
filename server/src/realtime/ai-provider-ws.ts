@@ -109,7 +109,7 @@ export const aiProviderWebSocketRoutes = (
   const transportPingIntervalMs = dependencies.transportPingIntervalMs ?? heartbeatIntervalSeconds * 1_000
   const transportPingTimeoutMs = Math.max(transportPingIntervalMs * 3, 1_000)
 
-  app.get<{ Querystring: { integration_id?: string } }>(
+  app.get(
     '/api/v1/ai/providers/ws',
     { websocket: true },
     (socket, request) => {
@@ -127,12 +127,6 @@ export const aiProviderWebSocketRoutes = (
         )
         if (!integration) {
           socket.close(1008, 'authentication required')
-          return
-        }
-        // Older SDKs may still send the query parameter. Keep them working,
-        // while rejecting a credential/query mismatch instead of misrouting it.
-        if (request.query.integration_id && request.query.integration_id !== integration.id) {
-          socket.close(1008, 'credential does not match requested integration')
           return
         }
 

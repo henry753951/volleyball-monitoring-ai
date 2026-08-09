@@ -11,8 +11,8 @@ central system must also stop already-dispatched work when an annotator deletes 
 
 ## Decision
 
-- Add **AI Provider Realtime 1.0.0** as an outbound WebSocket control plane at
-  `/api/v1/ai/providers/ws?integration_id=...`.
+- Add **AI Provider Realtime 1.0.0** as an outbound WebSocket control plane. The endpoint was later
+  fixed at `/api/v1/ai/providers/ws` by ADR 0026; the original integration query input is superseded.
 - Keep media and full results off WebSocket. A job contains a short-lived signed HTTPS clip URL;
   completion continues to use the bounded multipart callback 1.0 endpoint.
 - Persist provider instances, delivery IDs, leases and cancellation acknowledgement. A reconnecting

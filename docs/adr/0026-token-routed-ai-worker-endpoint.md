@@ -19,18 +19,20 @@ do not manage separate Worker Pools.
   server. The plaintext token is never stored; lookup uses its SHA-256 hash and records `lastUsedAt`.
 - Environment credentials remain a compatibility path for the canonical
   `volleyball-analysis-engine` integration.
-- The old optional `integration_id` query remains accepted temporarily when it matches the
-  token-resolved integration. A mismatch is rejected. New SDK documentation and the engine consumer
-  do not send the query parameter.
+- No public request accepts or returns an integration UUID. The Worker WebSocket uses only the fixed
+  endpoint and bearer Token; the control API creates credentials for the single canonical
+  `volleyball-analysis-engine` integration from `{ name }` alone.
 - Least-busy scheduling across connected instances is unchanged. The persistence relation remains an
   internal scheduling boundary and is not exposed as a Pool concept in the control interface.
 
 ## Contract boundary
 
-This is a backward-compatible Provider Realtime 1.0.0 transport clarification. Message schemas,
-job payloads, callbacks and SDK types do not change, so no schema-version bump is required.
+This deliberately removes the short-lived legacy query compatibility. Provider Realtime message
+schemas, job payloads, callbacks and SDK types do not change, so no schema-version bump is required.
+Old clients that construct the integration query are not a supported migration target.
 
 ## Consequences
 
 Operators copy one stable endpoint and one Token. Rotating a Token preserves the same service and job
-queue, while existing Workers can migrate without a flag day.
+queue. The internal persistence foreign key remains private because it is still required for Token,
+Worker-instance and durable-job ownership plus least-busy scheduling.

@@ -41,7 +41,7 @@ b4d1d67082c55a1f308fc44188882dc338932f851fc30405aab599494cfc9297  ./docs/adr/001
 e32979becbeea76cc85fe3916d1c18986d7e1ba31b152f29d20521407bb92e35  ./docs/adr/0014-worker-runtime-ownership.md
 f85bd5f90ebdcbff703cd13e79daa7f7507f6b8c2d9fbad2c49f2106b75624f6  ./docs/adr/0015-remove-saved-analysis-views.md
 0b77db3bafce251b53bd5842475080ad3e3fb2b44e6a8d9d98a27aa4dc1ba3f0  ./docs/adr/0016-media-ingest-live-dvr-and-frame-exact-clips.md
-de1c6f5f306bdafd9bb0096364a40165d41d59e1b7afd60efa8d0ea42d505afc  ./docs/adr/0016-outbound-ai-provider-agent.md
+0619f90fa71eac78d6e138cb4c32c489a7a445a9f9f8527c610ae0446e8ec4a0  ./docs/adr/0016-outbound-ai-provider-agent.md
 00e4ff76109d15cf7bbb1f54cf5124681e8fb7ef833ef618d05d9500aa58eb7f  ./docs/adr/0017-ome-and-stable-mse-playback.md
 0dad051458563057152511b50053873e0350ced084b0a9320c66df7b4772ca23  ./docs/adr/0018-realtime-ai-work-progress.md
 4748e8fee1644f3760705aab357ed76e6d8ec0b0bc06a03698dd323971f40fcd  ./docs/adr/0019-unified-source-lifecycle-and-timeline-state.md
@@ -51,9 +51,9 @@ ec6ef8f1eff886d877e2f8e740321ee090271748c7382834584c31feb1721d99  ./docs/adr/002
 328e027c65ee2ac38f6e60c94ac37d31a56b36b0a12b345274808f76f9b6dbd5  ./docs/adr/0023-frame-analysis-review-and-delta-sync.md
 dca90ff8350211685a9c089477659633e29636661452e9487aaef40e46f43772  ./docs/adr/0024-simplified-worker-deployment-and-ws-only-ai.md
 d9a7158c16f027ba6035bc44d04efd24c5fedb2cd443b089ec4fd04e0467d26f  ./docs/adr/0025-rally-lifecycle-and-display-placement.md
-15b9c5d980696f694c8928e4be16c01e2da6989c6ae81343375a1f490f5c5a50  ./docs/adr/0026-token-routed-ai-worker-endpoint.md
+bbdd3eea92ab02a72116946ae5ea5e85a7af606c9d68c2aaf7ac5e30122b8f29  ./docs/adr/0026-token-routed-ai-worker-endpoint.md
 de376c790b3f7624d275cd8d6882725028d5264710ede7d748ad38304fee5c6a  ./docs/open-decisions.md
-ba422af4731f2e3401860545f9106f0a49a6753ab18234856cfe5f89ab3272ba  ./docs/progress.md
+ad4af1edf5862962422050b066c2327c9088135fba609d2bf33d4bbb5ddd14b0  ./docs/progress.md
 aa5494b32c071ea634767c3858b1f3063aa2331777c50ec41b56cbc7a25c6d4b  ./docs/requirements-matrix.md
 7d92d0eccdd10bb261204bc2386e750b0e933fbf626df79163688e3b46d2ad68  ./docs/runtime-topology-inventory.md
 e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  ./examples/__init__.py
@@ -220,7 +220,7 @@ b9fa14c4c3b7943617817de8cd95f0bbd052dd91ec330a9ad22f7882980f039c  ./scripts/vali
 0b54af4b4e94f408ecc0b15e11f261b4ebbec19160159195162f47bdc5f2e4d5  ./scripts/verify-e2e.sh
 9cef7fa6533c2a44e339a65f58eaebf64dae3ddfe3304e36a3ca4a9c73a275b6  ./scripts/verify_media_reconnect.ts
 bac469359b50cdcbf39db5bddd0082d0408726cab8002003cae6f302e96187a3  ./sdk/README.md
-edcb243d150644804cb74f3d669642569a0e0ba7ee5d2d77db692973c2aa663a  ./sdk/examples/fixture_worker.py
+e8faed958eb23934e952ee1d2a9fe0f9c46c63520532cba6f1f36aa9869937cd  ./sdk/examples/fixture_worker.py
 faf78c830ad1ef8b1214a2f83ea7f57703ae082918301f59aef9f02f0753051b  ./sdk/examples/provider_app.py
 a046a62ef4669d309c6cd9206c3740dd0bf7df5d9520a11a45c0633307e8575d  ./sdk/pyproject.toml
 8d1d2735ec900fd0746d07b2066a2122224749b2f3898aa368bf497ea623fe27  ./sdk/src/volleyball_monitoring_ai/__init__.py
@@ -262,7 +262,7 @@ c509e26da6a91a2ff130ab45a9e1664b7707539b201bed344c3dd9e9cd5ce71d  ./server/src/g
 daf55fad91c822857be170cd3d76c6a9170e2ae6df3e9524f6640818f43f310f  ./server/src/graphql/schema.ts
 a3914906d71f0d72b5ce572cf0781f94a5794d0b83a04c8ff74da940125123c5  ./server/src/graphql/types.ts
 6b2c7115e325bd40f267f3c0c4f5ee83930a32c0ae71bb7f8a1c8fb8c33c578d  ./server/src/health/readiness.ts
-cedaf3504958905e972efb06618fbdbdcd5bb215350d78f0aa97d9a49c39963e  ./server/src/index.ts
+b8d393387f7ddb26eefaedc781e7ecadc681476b7fbed5116f555b0e6cb5ab24  ./server/src/index.ts
 4135bbec0689a643e598a4421b8f50d457876c1d746c936a26beb127d6d554dc  ./server/src/media/clip-timing-coverage.ts
 a75d66c2038a5c29bcc6994718e70fd0a43fc2b0fdd3e72a107886dc63ab4a29  ./server/src/media/cursor-resolution.ts
 91981dc02252c90ae48919cf728c76c63d7faa98ef0e01ab93c35051d7fd8661  ./server/src/media/cursor-routes.ts
@@ -275,7 +275,7 @@ d13d44ad5fe80362b50b01cc66e7b2db4007e002e5e0c5eb1fdb1fc29f1e719d  ./server/src/m
 d5209c5f3a033e28ac977a1bbc07d653ffe1358b7475c2afeee0d13132504684  ./server/src/operations/host-storage.ts
 789f0fbe544f0c2d943e00d7b6cea6b04de2ad4a1e49de0cfc11181fd136c520  ./server/src/realtime/README.md
 cd54df3e8f5e13172ad98e2132ef306d265ebeabd9aff9a26499674417d1ce25  ./server/src/realtime/ai-progress.ts
-bfe4e73920a8e2f9e564df1fb7d19cc8d9c284fb94cc698b9a5e55d1369dc00e  ./server/src/realtime/ai-provider-ws.ts
+5f980f94f635405a27fafa685808c6eb54655a9008723b1925b8b39652b83b05  ./server/src/realtime/ai-provider-ws.ts
 53f9acfbbcf866935dec49dbcf1eec3b6aa43adee79b9311579bdb5ce4411f31  ./server/src/realtime/annotation-presence.ts
 9014f0b5f7e8fe41793c13f188d6af98374dfd90510a1aa3360afae60422167d  ./server/src/realtime/annotation-ws.ts
 8ce86b766287cabea3c75b1b8cc7b02b3132518219acc986e1e1fc32d5fa7ae7  ./server/src/realtime/auth.ts
@@ -286,9 +286,9 @@ a66d4fb7756c5c01c9e78b04eacf823463512a7d4cb7dafc26882bce0d0b29f4  ./server/src/r
 ac5a9699e7d75eb75942f3030d7bfd4fb32f130a485fb98fe70bc4ced4314dee  ./server/src/routes/analysis-review.ts
 de29025147f181aec44ae214a244808707395a7c238b167163087cebd4fda429  ./server/src/routes/media-playback.ts
 171d603e040eeacaf97a13689ce990f05a44953a0a9aa535ab45e1f933f28cdd  ./server/src/routes/media-sources.ts
-01ac8a1467ca8c13cf7769eb0f1063313dab92456b4e7c6fba65e87008d8b8ca  ./server/src/routes/operations.ts
+fbfb619aeed3ba67336fec339ca72f5f8bd739ae200e61e126cbd53e86bc4482  ./server/src/routes/operations.ts
 29dc8ee62da32da243cba2f0c90575ba5e1cea4c36a2d392ab96360c6c926812  ./server/src/services/README.md
-beaa3d63bc3b2c5f9c9807e9ef43a079ba7eaccc64a7f97e2149f308daa22437  ./server/src/services/ai-worker-access.ts
+4403c0a9613e5e8b9da8b658b775b62e42df26a85de1d83f2d513ac5b562d975  ./server/src/services/ai-worker-access.ts
 adf95f2a4b4ae44762a5085325ffeaa441a5869eda3195122493dbe7bb517480  ./server/src/services/analysis-review.ts
 5f7a2059bec7be3b732d8b4b51fc8552e230b1b64e66dff313b8a1fb79367af0  ./server/src/services/annotation-command.ts
 4dfdcfb0c292a5fd791ef7dd861545c9314c255d9d729b34780ef32475ddc27f  ./server/src/services/annotation-snapshot.ts
@@ -305,7 +305,7 @@ f37bc9c1ed3c52ebf0659f8a9f21bc877fd09ab0724593cc0c7f0011618b422f  ./server/src/s
 0640ff9e62fa9ec4a52ff4e8c63462470ef11f71d21951fe4272bb0f4ca4c969  ./server/tests/ai-callback.integration.test.ts
 e95ef072fbf65a43e51ac802716d3d8ccffbee94f9888f95d36e63ddf03d4896  ./server/tests/ai-progress.test.ts
 03a4ad9032f4eab9c0f3ea6dc88c75cabd008423da24d87fd6fadd379788263c  ./server/tests/ai-provider-ws.test.ts
-0416b7787c08e1a20cb8ee944de5723f9b6d1a045f5b482dcaa146b6385ea93a  ./server/tests/ai-worker-access.test.ts
+61b4e578f8adf17b38b4573d59d5dccaf67e0333d92c56e31c0f65d7398179c9  ./server/tests/ai-worker-access.test.ts
 972cdb02ea5acaec6b6786183cec0956c9a4101a6e63c37936ef8f2699ae2e53  ./server/tests/analysis-review.test.ts
 0c9920b5f6877ccee89b538052085adeb24f14f8f6ca90a7495ec0597b52b46f  ./server/tests/annotation-command.integration.test.ts
 470cf4c03203911f7e1c9408f3066d06c02b1afb1752cb4234349a24a6d0bef3  ./server/tests/annotation-presence.test.ts
@@ -323,7 +323,7 @@ e734bbb912f20f02bf36b5d3908fd43c1dfe44838294424d56e68b7a6a388164  ./server/tests
 e2b11a3053d26802dd1eca70ca45bba86bd6d3dc6682c3a44ce4e04ebb97774d  ./server/tests/media-playback.unit.test.ts
 5e0cad7a3221de101513994c8b796a0fa458f8cdd9a0da297d2fc0a7de0f56dc  ./server/tests/media-sources.unit.test.ts
 58ec2e5eae3567d636a612b9bde0a9488c13e219fbd73117e0de923d2a291895  ./server/tests/minio-object-reader.test.ts
-a10b96cdfd7c88f30adce9263e403c51a6df69ff6e8594a812de317c39a78a20  ./server/tests/operations.test.ts
+88e017fe1005f9fc06896f87b6e4018ff74aae96639cf81ac75d4180296a1260  ./server/tests/operations.test.ts
 46f67dd077c324c85587b84aeea8e0b78a41c9f8f186aac3625250b97a8d5c85  ./server/tests/processing-rally-cancellation.integration.test.ts
 b76090db9f9ca9b2751d2cbf343eb7f7315c3fe0886746ef72814df0bb0dc3ba  ./server/tests/rally-administration.integration.test.ts
 031192688f5c0aea7987cf2357db752ec326389195469c3f777f55a157763ef3  ./server/tests/readiness.test.ts
@@ -421,14 +421,14 @@ d1b04708728885977903eab107f60c16ba2cc611a6dffdef70e21995dc83ae0e  ./web/app/lib/
 33819689eb8533a39b5da3063860ba69921181b64ca64d71399eda3be94d4069  ./web/app/lib/mediaTimeline.test.ts
 39ed96f1d945960be792b30da888a2db315e49bed71a618ddc6479c61324e8e8  ./web/app/lib/mediaTimeline.ts
 0f611cc5064263d48341d4ebda4d45f43454f1d65899cfa95119bbb743ebf6c6  ./web/app/lib/operationsMonitor.test.ts
-fabd71bcf781ba5218488174404e571135c01ec4f471579bb487dc99b110f48d  ./web/app/lib/operationsMonitor.ts
+dbcacce69427045b2d83a8d5f3485d6f834a0d89efdd9ae3ad6b459a9bf62658  ./web/app/lib/operationsMonitor.ts
 ea2e5a8a0d7e2a81ef17e9afe1b2e7a6326c3099fc03539a7ee7ac346c6abf8a  ./web/app/lib/playbackContinuation.test.ts
 510308eefdbfb3a9f4f05acf973252b869c21f513eef07ba70625bf803ac0e4a  ./web/app/lib/playbackContinuation.ts
 cba670333ab1e0c411c488d0f3517da77337ca9c256ef9eaae31df1d6c9c3d6d  ./web/app/lib/playbackWindowCache.test.ts
 adee2ce860eff55e9be95c2feaabea259ae161fb138efc484051980767938b22  ./web/app/lib/playbackWindowCache.ts
 52fe16f81674ddd4727c93d95986be02908b5bb247fcca16e04f5c2aba4a1ccb  ./web/app/middleware/auth.global.ts
 5eda49345c70333111f45fa0ffae91a458b48225e6fb726344c9767c1dc4d770  ./web/app/pages/annotate/[matchId].vue
-daec128dadb10bf7c629bb10020a26e96ed1bf7fdd10ab07f8d6a05daaebdddb  ./web/app/pages/control/index.vue
+541be2805d3c0510dded49cdd4a01fee2d5ec03f87e4f1b9833650727cbc0899  ./web/app/pages/control/index.vue
 3cc1461e7975d0e8c6875dc155353512e9901a19d4930a8a854c73872a536951  ./web/app/pages/index.vue
 f3bf511c8e2d7748a3d05b0009e008808e14c8959976090362d6198e54d11651  ./web/app/pages/matches/[matchId]/history.vue
 8ee617158e4243ca761d21ca9a68ef4f5b6b4f0605337e13879459300f7f837f  ./web/app/pages/matches/[matchId]/live.vue

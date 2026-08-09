@@ -985,3 +985,15 @@ The Nuxt build emits a dependency-level Node `DEP0155` deprecation warning but c
 - Nuxt typecheck and all 152 Web tests pass. Headed Chromium verified the systems grid and the DVR
   dialog against the running local services, including the closed-state exit interval, with no
   browser console errors.
+
+# 2026-08-09 — Remove public AI integration identifiers
+
+- Removed the legacy AI Worker WebSocket integration query. The fixed endpoint now authenticates and
+  resolves routing exclusively from the Bearer Token.
+- Removed integration UUIDs from Worker Token creation requests, responses and control snapshots.
+  Token creation now targets the single enabled canonical `volleyball-analysis-engine` service.
+- Kept the database `integrationId` relation private because it remains the ownership and scheduling
+  boundary for credentials, Worker instances and durable AI jobs.
+- Updated the bundled Python example and ADRs; old SDK URL compatibility is intentionally unsupported.
+- Repository typecheck, all 228 Server tests, all 152 Web tests and all 20 Python SDK tests pass.
+  Headed Chromium confirmed the fixed WS endpoint and name-only Token dialog with no console errors.
