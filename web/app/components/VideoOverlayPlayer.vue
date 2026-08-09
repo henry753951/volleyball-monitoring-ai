@@ -4,7 +4,9 @@ import type { PlaybackWindowDescriptor, PlaybackCursorInput } from '../composabl
 import { useDvrPlayback } from '../composables/useDvrPlayback'
 import { captureTimeToPlayerSeconds, isCaptureTimeWithinWindow } from '../utils/playbackWindow'
 import { mediaTimeRangesToCaptureRanges, type CanonicalMediaRange } from '../utils/mediaBuffer'
-import ReplayOverlayCanvas, { type ReplayOverlayLayers, type ReplayOverlayMode } from './ReplayOverlayCanvas.vue'
+import { resolveFrameFromRate, resolveFrameFromTimeline } from '../utils/overlayFrameTimeline'
+import type { ReplayContactEvent } from '../lib/coachDomain'
+import type { OverlayBallOverride, OverlayFrameBBox, OverlayTrackMetadata, VolleyballOverlayLayers, VolleyballOverlayMode } from '../utils/volleyballOverlayRenderer'
 
 const props = withDefaults(defineProps<{
   descriptor?: PlaybackWindowDescriptor | null
@@ -14,13 +16,21 @@ const props = withDefaults(defineProps<{
   overlayFrame?: number
   overlayCaptureTimeUs?: string | null
   overlayClipStartCaptureTimeUs?: string | null
-  overlayMode?: ReplayOverlayMode
-  overlayLayers?: ReplayOverlayLayers
+  overlayMode?: VolleyballOverlayMode
+  overlayLayers?: VolleyballOverlayLayers
   overlayInteractive?: boolean
   ballRelabel?: boolean
-  ballCorrection?: { x: number; y: number } | null
+  bboxRelabel?: boolean
+  selectedTrackId?: number | null
+  ballCorrection?: OverlayBallOverride | null
+  ballCorrections?: Record<number, OverlayBallOverride>
   actionCorrections?: Record<number, string>
+  playerBboxCorrections?: Record<number, Record<number, OverlayFrameBBox>>
+  contactActorCorrections?: Record<string, number | null>
   identityLabels?: Record<number, string>
+  overlayEvents?: ReplayContactEvent[]
+  overlayTracks?: OverlayTrackMetadata[]
+  overlayTeamLabels?: { left: string; right: string }
 }>(), {
   controls: true,
   toggleOnClick: false,
@@ -29,12 +39,20 @@ const props = withDefaults(defineProps<{
   overlayCaptureTimeUs: null,
   overlayClipStartCaptureTimeUs: null,
   overlayMode: 'tracking',
-  overlayLayers: () => ({ bbox: true, trackId: true, action: false, ball: true, trail: true, footprint: false, confidence: false }),
+  overlayLayers: () => ({ bbox: true, trackId: true, action: true, ball: true, trail: true, footprint: true, confidence: false, court: true, nextHit: true }),
   overlayInteractive: false,
   ballRelabel: false,
+  bboxRelabel: false,
+  selectedTrackId: null,
   ballCorrection: null,
+  ballCorrections: () => ({}),
   actionCorrections: () => ({}),
+  playerBboxCorrections: () => ({}),
+  contactActorCorrections: () => ({}),
   identityLabels: () => ({}),
+  overlayEvents: () => [],
+  overlayTracks: () => [],
+  overlayTeamLabels: undefined,
 })
 const emit = defineEmits<{
   cursor: [value: PlaybackCursorInput]
@@ -50,8 +68,10 @@ const emit = defineEmits<{
   error: [Error]
   toggle: []
   ballPosition: [position: { x: number; y: number }]
+  playerBbox: [selection: { trackId: number; frameBBox: OverlayFrameBBox }]
   trackSelect: [selection: { trackId: number; clientX: number; clientY: number; action: string | null }]
   overlayFrame: [frame: number]
+  overlayVideo: [value: { width: number; height: number } | null]
 }>()
 
 const video = ref<HTMLVideoElement | null>(null)
@@ -87,14 +107,20 @@ const playback = useDvrPlayback(video, {
   onError: error => emit('error', error),
 })
 const resolvedOverlayFrame = ref(props.overlayFrame)
-const overlay = useOverlayChunks(() => props.analysisRunId ?? null, resolvedOverlayFrame)
+const overlay = useOverlayChunks(() => props.analysisRunId ?? null, resolvedOverlayFrame, () => props.overlayMode !== 'off')
 watch([overlay.manifest, () => props.overlayFrame, () => props.overlayCaptureTimeUs, () => props.overlayClipStartCaptureTimeUs], ([manifest]) => {
   if (props.overlayFrame >= 0) { resolvedOverlayFrame.value = props.overlayFrame; return }
-  if (!manifest || !props.overlayCaptureTimeUs || !props.overlayClipStartCaptureTimeUs) { resolvedOverlayFrame.value = -1; return }
+  if (!manifest || !props.overlayCaptureTimeUs) { resolvedOverlayFrame.value = -1; return }
+  if (manifest.frame_timing) {
+    resolvedOverlayFrame.value = resolveFrameFromTimeline(props.overlayCaptureTimeUs, manifest.frame_timing.capture_time_us, manifest.frame_timing.capture_end_time_us)
+    return
+  }
+  if (!props.overlayClipStartCaptureTimeUs) { resolvedOverlayFrame.value = -1; return }
   const delta = BigInt(props.overlayCaptureTimeUs) - BigInt(props.overlayClipStartCaptureTimeUs)
-  resolvedOverlayFrame.value = delta < 0n ? -1 : Number(delta * BigInt(manifest.video.fps.num) / (1_000_000n * BigInt(manifest.video.fps.den)))
+  resolvedOverlayFrame.value = resolveFrameFromRate(delta.toString(), manifest.video.fps, manifest.video.total_frames)
 }, { immediate: true })
 watch(resolvedOverlayFrame, frame => emit('overlayFrame', frame), { immediate: true })
+watch(overlay.manifest, manifest => emit('overlayVideo', manifest ? { width: manifest.video.width, height: manifest.video.height } : null), { immediate: true })
 
 watch(cursor, (value) => {
   if (value) emit('cursor', value)
@@ -180,10 +206,22 @@ function seekCaptureTimeIfBuffered(targetCaptureTimeUs: string) {
 function previewCaptureTimeIfBuffered(targetCaptureTimeUs: string) {
   return seekCaptureTimeIfBuffered(targetCaptureTimeUs)
 }
+function overlayFrameCaptureTime(frame: number) {
+  const manifest = overlay.manifest.value
+  if (!manifest || frame < 0) return null
+  const timed = manifest.frame_timing?.capture_time_us[frame]
+  if (timed) return timed
+  if (!props.overlayClipStartCaptureTimeUs) return null
+  return (BigInt(props.overlayClipStartCaptureTimeUs) + BigInt(frame) * 1_000_000n * BigInt(manifest.video.fps.den) / BigInt(manifest.video.fps.num)).toString()
+}
+function seekOverlayFrameIfBuffered(frame: number) {
+  const captureTime = overlayFrameCaptureTime(frame)
+  return captureTime ? seekCaptureTimeIfBuffered(captureTime) : false
+}
 function recoverPlayback() {
   return playback.recover()
 }
-defineExpose({ recoverPlayback, seekCaptureTimeIfBuffered, previewCaptureTimeIfBuffered })
+defineExpose({ overlayFrameCaptureTime, previewCaptureTimeIfBuffered, recoverPlayback, seekCaptureTimeIfBuffered, seekOverlayFrameIfBuffered })
 
 // Canvas drawing must map the actual video content rectangle, including letterboxing.
 // It consumes lazy-loaded FlatBuffers chunks; it never draws the video pixels itself.
@@ -193,9 +231,9 @@ defineExpose({ recoverPlayback, seekCaptureTimeIfBuffered, previewCaptureTimeIfB
   <div class="relative size-full overflow-hidden rounded-xl bg-black">
     <video ref="video" class="block size-full object-contain" playsinline preload="auto" :controls="controls" @progress="publishBufferState" @loadeddata="publishBufferState" @durationchange="publishBufferState" @emptied="publishBufferState" @click="handleVideoClick" />
     <img v-if="retainedPreview" :src="retainedPreview" alt="" aria-hidden="true" class="pointer-events-none absolute inset-0 z-20 size-full object-contain" />
-    <ReplayOverlayCanvas
+    <VolleyballOverlayCanvas
       v-if="analysisRunId && resolvedOverlayFrame >= 0 && overlay.manifest.value"
-      :events="[]"
+      :events="overlayEvents"
       :frame="resolvedOverlayFrame"
       :video-width="overlay.manifest.value.video.width"
       :video-height="overlay.manifest.value.video.height"
@@ -205,10 +243,18 @@ defineExpose({ recoverPlayback, seekCaptureTimeIfBuffered, previewCaptureTimeIfB
       :layers="overlayLayers"
       :interactive="overlayInteractive"
       :ball-relabel="ballRelabel"
+      :bbox-relabel="bboxRelabel"
+      :selected-track-id="selectedTrackId"
       :ball-correction="ballCorrection"
+      :ball-corrections="ballCorrections"
       :action-corrections="actionCorrections"
+      :player-bbox-corrections="playerBboxCorrections"
+      :contact-actor-corrections="contactActorCorrections"
       :identity-labels="identityLabels"
+      :tracks="overlayTracks"
+      :team-labels="overlayTeamLabels"
       @ball-position="emit('ballPosition', $event)"
+      @player-bbox="emit('playerBbox', $event)"
       @track-select="emit('trackSelect', $event)"
     />
   </div>

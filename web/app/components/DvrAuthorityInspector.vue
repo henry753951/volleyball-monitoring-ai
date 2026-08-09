@@ -1,9 +1,0 @@
-<script setup lang="ts">
-import type { Match, CaptureSession } from '~/lib/coreDomain'
-import type { PlaybackWindowDescriptor, ResolvedMediaAnchor, CanonicalFrameAnchor } from '~/lib/mediaModel'
-defineProps<{ match: Match | null; capture: CaptureSession | null; descriptor: PlaybackWindowDescriptor | null; anchor: ResolvedMediaAnchor | CanonicalFrameAnchor | null; status: string }>()
-</script>
-<template><aside class="authority-inspector"><h2>Authority</h2><dl><dt>Match</dt><dd>{{ match?.title ?? '—' }}</dd><dt>Capture</dt><dd>{{ capture?.sourceLabel ?? capture?.id ?? 'No ready capture' }}</dd><dt>Window</dt><dd>{{ descriptor ? `${descriptor.mode} · map ${descriptor.mapping_version}` : '—' }}</dd><dt>Bounds</dt><dd>{{ descriptor ? `${descriptor.window_capture_start_us} – ${descriptor.window_capture_end_us}` : '—' }}</dd><dt>Anchor</dt><dd>{{ anchor ? `${anchor.capture_epoch_id} · frame ${anchor.capture_frame_index}` : 'Not server-confirmed' }}</dd><dt>Capture time</dt><dd>{{ anchor?.capture_time_us ?? '—' }}</dd><dt>Precision</dt><dd>{{ anchor?.timing_precision ?? '—' }}</dd><dt>Controller</dt><dd>{{ status }}</dd></dl><p class="authority-inspector__note">Annotation draft/submission data is not available in this Phase 2A workstation.</p></aside></template>
-<style scoped>
-.authority-inspector{height:100%;border:1px solid #d8d0c5;border-radius:14px;background:#fff;padding:18px}.authority-inspector h2{font-size:16px;margin:0 0 14px;color:#292521}.authority-inspector dl{display:grid;grid-template-columns:minmax(80px,auto) minmax(0,1fr);gap:10px;font-size:13px}.authority-inspector dt{color:#766e65}.authority-inspector dd{margin:0;overflow-wrap:anywhere;word-break:break-word}.authority-inspector__note{margin-top:18px;padding-top:12px;border-top:1px solid #e5dfd7;color:#766e65;font-size:12px;line-height:1.45}
-</style>
