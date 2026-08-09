@@ -28,6 +28,17 @@ export interface AiWorkerTokenSnapshot {
   updatedAt: string
 }
 
+export interface AiWorkerIntegration {
+  id: string
+  name: string
+  authSecretRef: string
+  enabled: boolean
+  transportMode: string
+  jobSchemaVersion: string
+  resultSchemaVersion: string
+  overlayFormat: string
+}
+
 export class AiWorkerAccessError extends Error {
   constructor(public readonly code: 'INVALID_NAME' | 'NOT_FOUND' | 'NAME_CONFLICT', message: string) {
     super(message)
@@ -76,6 +87,72 @@ export async function authenticateAiIntegrationToken(
     where: { id: token.id },
   })
   return true
+}
+
+/**
+ * Resolves the single external analysis service from its credential.
+ *
+ * The token is the routing identity, so workers connect to one stable URL and
+ * never need to know the internal AiIntegration primary key. Managed tokens
+ * are globally unique. Environment credentials remain a compatibility path;
+ * an ambiguous shared secret is accepted only for the canonical engine row.
+ */
+export async function resolveAiIntegrationForToken(
+  database: typeof DatabaseClient,
+  presentedToken: string | undefined,
+): Promise<AiWorkerIntegration | null> {
+  if (!presentedToken) return null
+
+  const token = await database.aiIntegrationAccessToken.findFirst({
+    select: {
+      id: true,
+      integration: {
+        select: {
+          authSecretRef: true,
+          enabled: true,
+          id: true,
+          jobSchemaVersion: true,
+          name: true,
+          overlayFormat: true,
+          resultSchemaVersion: true,
+          transportMode: true,
+        },
+      },
+    },
+    where: {
+      enabled: true,
+      tokenHash: sha256(presentedToken),
+      integration: { enabled: true, transportMode: 'WS_AGENT' },
+    },
+  })
+  if (token) {
+    await database.aiIntegrationAccessToken.update({
+      data: { lastUsedAt: new Date() },
+      where: { id: token.id },
+    })
+    return token.integration
+  }
+
+  const integrations = await database.aiIntegration.findMany({
+    orderBy: { updatedAt: 'desc' },
+    where: { enabled: true, transportMode: 'WS_AGENT' },
+    select: {
+      authSecretRef: true,
+      enabled: true,
+      id: true,
+      jobSchemaVersion: true,
+      name: true,
+      overlayFormat: true,
+      resultSchemaVersion: true,
+      transportMode: true,
+    },
+  })
+  const matches = integrations.filter(integration => {
+    const configured = environmentToken(integration.authSecretRef)
+    return configured !== undefined && equal(sha256(presentedToken), sha256(configured))
+  })
+  if (matches.length === 1) return matches[0] ?? null
+  return matches.find(integration => integration.name === 'volleyball-analysis-engine') ?? null
 }
 
 export async function listAiIntegrationAccess(
@@ -137,7 +214,7 @@ export async function createAiWorkerToken(
     select: { id: true, name: true },
     where: { enabled: true, id: integrationId, transportMode: 'WS_AGENT' },
   })
-  if (!integration) throw new AiWorkerAccessError('NOT_FOUND', 'AI Worker Pool 不存在')
+  if (!integration) throw new AiWorkerAccessError('NOT_FOUND', 'volleyball-analysis-engine 尚未啟用')
   try {
     const accessToken = await database.aiIntegrationAccessToken.create({
       data: {
@@ -152,7 +229,7 @@ export async function createAiWorkerToken(
   }
   catch (error) {
     if (typeof error === 'object' && error && 'code' in error && error.code === 'P2002') {
-      throw new AiWorkerAccessError('NAME_CONFLICT', '此 Worker Pool 已有相同名稱的 Token')
+      throw new AiWorkerAccessError('NAME_CONFLICT', '已有相同名稱的 Worker Token')
     }
     throw error
   }

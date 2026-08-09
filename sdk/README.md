@@ -12,7 +12,7 @@ uv add "volleyball-monitoring-ai-sdk @ git+https://github.com/henry753951/volley
 Copy `sdk/examples/fixture_worker.py` into the AI project, then run:
 
 ```powershell
-$env:VOLLEYBALL_AI_WS_URL = "wss://central.example.com/api/v1/ai/providers/ws?integration_id=<integration-uuid>"
+$env:VOLLEYBALL_AI_WS_URL = "wss://central.example.com/api/v1/ai/providers/ws"
 $env:VOLLEYBALL_AI_TOKEN = "replace-with-provider-token"
 uv run python fixture_worker.py
 ```
@@ -29,6 +29,9 @@ The example performs the complete lifecycle:
 `abort_job` cancels an active download or handler and removes an incomplete `.part` file. On a
 network interruption, the client reconnects with exponential backoff and advertises active jobs so
 the server can answer with resume, abort or discard.
+
+The endpoint is fixed. The bearer token identifies `volleyball-analysis-engine` and its credentials;
+workers never need an internal integration UUID.
 
 ## Existing HTTP provider adapter
 

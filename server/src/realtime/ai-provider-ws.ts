@@ -11,7 +11,7 @@ import type { FastifyPluginAsync } from 'fastify'
 import { Client } from 'minio'
 import type { RawData } from 'ws'
 import type { AiProgressService } from './ai-progress.js'
-import { authenticateAiIntegrationToken } from '../services/ai-worker-access.js'
+import { resolveAiIntegrationForToken } from '../services/ai-worker-access.js'
 
 const leaseMs = 60_000
 const callbackLifetimeMs = 30 * 60_000
@@ -121,18 +121,18 @@ export const aiProviderWebSocketRoutes = (
         else socket.close(1008, 'too many messages before provider authentication')
       })
       void (async () => {
-        const integrationId = request.query.integration_id
-        if (!integrationId) {
-          socket.close(1008, 'integration_id is required')
-          return
-        }
-        const integration = await database.aiIntegration.findUnique({ where: { id: integrationId } })
-        if (!integration || !integration.enabled || integration.transportMode !== 'WS_AGENT') {
-          socket.close(1008, 'WebSocket AI integration not found')
-          return
-        }
-        if (!await authenticateAiIntegrationToken(database, integration, bearer(request.headers.authorization) ?? undefined)) {
+        const integration = await resolveAiIntegrationForToken(
+          database,
+          bearer(request.headers.authorization) ?? undefined,
+        )
+        if (!integration) {
           socket.close(1008, 'authentication required')
+          return
+        }
+        // Older SDKs may still send the query parameter. Keep them working,
+        // while rejecting a credential/query mismatch instead of misrouting it.
+        if (request.query.integration_id && request.query.integration_id !== integration.id) {
+          socket.close(1008, 'credential does not match requested integration')
           return
         }
 

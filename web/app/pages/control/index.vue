@@ -3,11 +3,9 @@ import {
   Activity,
   AlertTriangle,
   Braces,
-  Check,
   CircleDot,
   Clock3,
   Copy,
-  Cpu,
   Database,
   HardDrive,
   KeyRound,
@@ -18,7 +16,6 @@ import {
   Search,
   Server,
   ShieldCheck,
-  Trash2,
   Wifi,
 } from 'lucide-vue-next'
 import { toast } from 'vue-sonner'
@@ -32,7 +29,6 @@ import {
   rotateAiWorkerToken,
   setAiWorkerTokenEnabled,
   visibleStreamsForMatches,
-  type AiIntegrationAccessSnapshot,
   type AiWorkerSnapshot,
   type AiWorkerTokenSnapshot,
   type MetricGroup,
@@ -90,7 +86,7 @@ const viewMeta: Record<ControlView, { title: string; detail: string }> = {
   overview: { title: '運行總覽', detail: '場次工作區與核心服務' },
   matches: { title: '場次工作區', detail: '每場賽事的媒體、DVR 與 AI 處理狀態' },
   systems: { title: '系統狀態', detail: '服務相依性、同步與主機資源' },
-  workers: { title: 'AI Workers', detail: 'Worker Pool、連線憑證、負載與延遲' },
+  workers: { title: 'AI Workers', detail: 'volleyball-analysis-engine 連線、憑證、負載與延遲' },
 }
 
 const filteredMatches = computed(() => {
@@ -102,6 +98,7 @@ const filteredMatches = computed(() => {
 const database = computed(() => monitor.snapshot.value?.operations.database)
 const aiWorkers = computed(() => monitor.snapshot.value?.operations.aiWorkers ?? [])
 const aiIntegrations = computed(() => monitor.snapshot.value?.operations.aiIntegrations ?? [])
+const aiWorkerTokens = computed(() => aiIntegrations.value.flatMap(integration => integration.tokens))
 const aiWork = computed(() => monitor.snapshot.value?.operations.aiWork ?? [])
 const visibleMatchIds = computed(() => new Set(matchesState.matches.value.map(match => match.id)))
 const streams = computed(() => visibleStreamsForMatches(monitor.snapshot.value?.operations.streams ?? [], visibleMatchIds.value))
@@ -140,13 +137,6 @@ function formatSeconds(value: number) {
 function formatTime(value: string | null) {
   if (!value) return '尚未同步'
   return new Intl.DateTimeFormat('zh-TW', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false }).format(new Date(value))
-}
-function relativeTime(value: string | null) {
-  if (!value) return '尚未回應'
-  const seconds = Math.max(0, Math.round((Date.now() - Date.parse(value)) / 1_000))
-  if (seconds < 2) return '剛剛'
-  if (seconds < 60) return `${seconds} 秒前`
-  return `${Math.floor(seconds / 60)} 分前`
 }
 function readiness(name: string) { return monitor.snapshot.value?.readiness.checks[name] ?? null }
 
@@ -214,16 +204,16 @@ async function submit(input: CreateMatchWithMediaInput) {
   catch (error) { createError.value = error instanceof Error ? error : new Error('場次建立失敗') }
 }
 
-function openTokenCreate(integration?: DeepReadonly<AiIntegrationAccessSnapshot>) {
+function openTokenCreate() {
   rotatingToken.value = null
   tokenName.value = ''
-  tokenIntegrationId.value = integration?.id ?? aiIntegrations.value[0]?.id ?? ''
+  tokenIntegrationId.value = aiIntegrations.value[0]?.id ?? ''
   tokenError.value = ''
   revealedToken.value = ''
   tokenDialogOpen.value = true
 }
 async function createToken() {
-  if (!tokenIntegrationId.value) { tokenError.value = '目前沒有可用的 AI Worker Pool'; return }
+  if (!tokenIntegrationId.value) { tokenError.value = 'volleyball-analysis-engine 尚未啟用'; return }
   tokenPending.value = true
   tokenError.value = ''
   try {
@@ -251,10 +241,11 @@ async function toggleToken(token: DeepReadonly<AiWorkerTokenSnapshot>) {
   catch (error) { toast.error(error instanceof Error ? error.message : 'Token 更新失敗') }
 }
 async function copy(value: string) { await navigator.clipboard.writeText(value); toast.success('已複製到剪貼簿') }
-function websocketEndpoint(integrationId: string) {
-  if (!import.meta.client) return `/api/v1/ai/providers/ws?integration_id=${integrationId}`
+function websocketEndpoint() {
+  if (!import.meta.client) return '/api/v1/ai/providers/ws'
   const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:'
-  return `${protocol}//${location.hostname}:4000/api/v1/ai/providers/ws?integration_id=${integrationId}`
+  const authority = location.protocol === 'https:' ? location.host : `${location.hostname}:4000`
+  return `${protocol}//${authority}/api/v1/ai/providers/ws`
 }
 
 onMounted(async () => {
@@ -296,37 +287,17 @@ onMounted(async () => {
     </div>
 
     <div v-else class="view-panel workers-view">
-      <section class="worker-command"><div><span><ShieldCheck :size="17" /></span><div><strong>AI Worker Access</strong><small>Token 只在建立或輪替時顯示一次</small></div></div><button type="button" @click="openTokenCreate()"><KeyRound :size="15" />建立 Token</button></section>
-
-      <section class="workspace-section pools-section">
-        <div class="section-title compact"><div><h2>Worker Pools</h2><p>同一 Pool 內依負載選擇最閒 Worker</p></div><span>{{ aiIntegrations.length }} pools</span></div>
-        <div v-if="!aiIntegrations.length" class="empty-state"><Cpu :size="22" /><strong>尚未設定 WS Agent Pool</strong><span>請先建立或啟用 WS_AGENT integration</span></div>
-        <div v-else class="pool-grid">
-          <article v-for="integration in aiIntegrations" :key="integration.id">
-            <header><div><span class="pool-mark"><Cpu :size="15" /></span><div><strong>{{ integration.name }}</strong><small>{{ integration.onlineWorkerCount }} / {{ integration.workerCount }} Worker 在線 · {{ integration.activeJobCount }} 執行中</small></div></div><button type="button" @click="openTokenCreate(integration)"><Plus :size="14" />Token</button></header>
-            <div class="endpoint"><span>WS Endpoint</span><code>{{ websocketEndpoint(integration.id) }}</code><button type="button" aria-label="複製 WebSocket endpoint" @click="copy(websocketEndpoint(integration.id))"><Copy :size="14" /></button></div>
-            <div class="token-grid">
-              <div v-for="token in integration.tokens" :key="token.id" :class="{ disabled: !token.enabled }"><span><KeyRound :size="14" /></span><div><strong>{{ token.name }}</strong><small>{{ token.tokenPrefix }}… · {{ token.lastUsedAt ? `使用於 ${relativeTime(token.lastUsedAt)}` : '尚未使用' }}</small></div><button type="button" :title="token.enabled ? '停用 Token' : '啟用 Token'" @click="toggleToken(token)"><Check v-if="token.enabled" :size="14" /><CircleDot v-else :size="14" /></button><button type="button" title="輪替 Token" @click="rotateToken(token)"><RotateCw :size="14" /></button></div>
-              <button v-if="!integration.tokens.length" type="button" class="token-empty" @click="openTokenCreate(integration)"><Plus :size="14" />建立第一個存取 Token</button>
-            </div>
-          </article>
-        </div>
-      </section>
-
-      <section class="workspace-section fleet-section">
-        <div class="section-title compact"><div><h2>Worker Fleet</h2><p>10 秒 transport ping/pong 與應用層 heartbeat</p></div><span :class="aiWorkers.some(worker => worker.status === 'online') ? 'online' : 'offline'"><i />{{ aiWorkers.filter(worker => worker.status === 'online').length }} 在線</span></div>
-        <div v-if="!aiWorkers.length" class="empty-state"><Cpu :size="22" /><strong>尚無 Worker 連線</strong><span>使用上方 Endpoint 與 Token 啟動外部 Worker</span></div>
-        <div v-else class="fleet-grid">
-          <article v-for="worker in aiWorkers" :key="worker.id">
-            <span class="worker-avatar"><Cpu :size="17" /></span>
-            <div class="worker-name"><strong>{{ worker.instanceKey }}</strong><small>{{ worker.providerBuildId }} · SDK {{ worker.sdkVersion }}</small></div>
-            <div class="worker-load"><span><i :style="{ width: `${Math.min(100, worker.utilization * 100)}%` }" /></span><small>{{ worker.activeJobs }} / {{ worker.maxConcurrency }} 工作槽</small></div>
-            <div class="worker-latency"><strong>{{ worker.latencyMs === null ? '—' : `${worker.latencyMs} ms` }}</strong><small>RTT · pong {{ relativeTime(worker.lastPongAt) }}</small></div>
-            <span class="worker-state" :class="worker.status"><i />{{ worker.status === 'online' ? `心跳 ${relativeTime(worker.lastSeenAt)}` : worker.status === 'stale' ? '心跳逾時' : '離線' }}</span>
-            <button v-if="worker.status !== 'online'" type="button" class="delete-worker" :disabled="!worker.canDelete" @click="openWorkerDelete(worker)"><Trash2 :size="14" /></button>
-          </article>
-        </div>
-      </section>
+      <ControlAiWorkerConsole
+        :active-jobs="aiIntegrations.reduce((total, integration) => total + integration.activeJobCount, 0)"
+        :endpoint="websocketEndpoint()"
+        :tokens="aiWorkerTokens"
+        :workers="aiWorkers"
+        @copy="copy"
+        @create-token="openTokenCreate"
+        @delete-worker="openWorkerDelete"
+        @rotate-token="rotateToken"
+        @toggle-token="toggleToken"
+      />
     </div>
 
     <UiAnimatedModal :open="createOpen" title="新增場次" description="設定隊伍、名單與影音來源" width="wide" @close="closeCreate"><UiScrollArea class="create-scroll"><div class="create-content"><MatchSetupForm :pending="setup.pending.value" :error="createError ?? setup.error.value" compact @submit="submit" @cancel="closeCreate" /></div></UiScrollArea></UiAnimatedModal>
@@ -336,11 +307,11 @@ onMounted(async () => {
     <ControlMatchDeleteDialog :open="deleteOpen" :match="deleteTarget" :media="deleteTarget ? matchMediaById.get(deleteTarget.id) ?? null : null" :pending="deletePending" :error="deleteError" @close="deleteOpen = false" @confirm="confirmDelete" />
     <ControlAiWorkerDeleteDialog :open="Boolean(workerDeleteTarget)" :worker="workerDeleteTarget" :pending="workerDeletePending" :error="workerDeleteError" @close="workerDeleteTarget = null" @confirm="confirmWorkerDelete" />
 
-    <UiAnimatedModal :open="tokenDialogOpen" :title="rotatingToken ? '輪替 Worker Token' : '建立 Worker Token'" :description="revealedToken ? '請立即複製；關閉後無法再次查看。' : 'Token 會加入既有 Worker Pool，不會建立獨立工作佇列。'" @close="tokenDialogOpen = false">
+    <UiAnimatedModal :open="tokenDialogOpen" :title="rotatingToken ? '輪替 Worker Token' : '建立 Worker Token'" :description="revealedToken ? '請立即複製；關閉後無法再次查看。' : '供 volleyball-analysis-engine 連入中央系統。'" @close="tokenDialogOpen = false">
       <div class="token-dialog">
         <template v-if="revealedToken"><label>新的存取 Token</label><div class="revealed-token"><code>{{ revealedToken }}</code><button type="button" @click="copy(revealedToken)"><Copy :size="15" />複製</button></div><p><ShieldCheck :size="14" />伺服器只保存 SHA-256 hash。</p><button type="button" class="dialog-primary" @click="tokenDialogOpen = false">完成</button></template>
         <template v-else-if="rotatingToken"><div class="rotating"><RotateCw :size="20" :class="{ spinning: tokenPending }" /><strong>{{ tokenPending ? '正在產生新 Token…' : tokenError || '準備輪替' }}</strong><small>舊 Token 會立即失效</small></div></template>
-        <template v-else><label for="worker-pool">Worker Pool</label><select id="worker-pool" v-model="tokenIntegrationId"><option v-for="integration in aiIntegrations" :key="integration.id" :value="integration.id">{{ integration.name }}</option></select><label for="token-name">Token 名稱</label><input id="token-name" v-model="tokenName" placeholder="例如：GPU 工作站 A" maxlength="64" @keyup.enter="createToken"><p v-if="tokenError" class="dialog-error">{{ tokenError }}</p><button type="button" class="dialog-primary" :disabled="tokenPending || !tokenName.trim() || !tokenIntegrationId" @click="createToken"><KeyRound :size="15" />{{ tokenPending ? '建立中…' : '建立 Token' }}</button></template>
+        <template v-else><label for="token-name">Token 名稱</label><input id="token-name" v-model="tokenName" placeholder="例如：GPU 工作站 A" maxlength="64" @keyup.enter="createToken"><p v-if="tokenError" class="dialog-error">{{ tokenError }}</p><button type="button" class="dialog-primary" :disabled="tokenPending || !tokenName.trim() || !tokenIntegrationId" @click="createToken"><KeyRound :size="15" />{{ tokenPending ? '建立中…' : '建立 Token' }}</button></template>
       </div>
     </UiAnimatedModal>
   </section>
@@ -352,4 +323,5 @@ onMounted(async () => {
 @media(max-width:1100px){.match-grid,.pool-grid{grid-template-columns:1fr}.ops-command{grid-template-columns:1fr}.ops-health{border-right:0;border-bottom:1px solid #2b2d31}.fleet-grid article{grid-template-columns:34px 1fr 140px 100px 110px 30px}}
 @media(max-width:760px){.view-panel{padding:14px}.page-header{padding-inline:14px}.ops-command dl{grid-template-columns:repeat(2,1fr)}.storage-strip{grid-template-columns:auto 1fr}.storage-strip>span,.storage-strip>b{grid-column:2}.system-grid{grid-template-columns:1fr}.system-grid article:nth-child(n){border-left:0;border-top:1px solid #27292d}.system-grid article:first-child{border-top:0}.runtime dl{grid-template-columns:repeat(2,1fr)}.fleet-grid article{grid-template-columns:34px 1fr auto}.worker-load,.worker-latency{grid-column:2}.worker-state{grid-column:3;grid-row:1}.delete-worker{grid-column:3}.pool-grid{padding:8px}.control-actions label{width:100%}.control-actions{flex-wrap:wrap}}
 @media(prefers-reduced-motion:reduce){.spinning,.match-loading{animation:none}}
+.page-header{border-bottom-color:#1b1d20}.ops-command,.workspace-section,.worker-command{border-color:transparent}.ops-health,.ops-command dl>div,.section-title.compact,.system-grid article,.runtime dl>div{border-color:#202226}.storage-strip{border-color:transparent;background:#101114}.control-actions label{border-color:#292c31}.empty-state{border:0;background:#0f1012}
 </style>

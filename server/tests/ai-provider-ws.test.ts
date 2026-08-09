@@ -47,19 +47,24 @@ describe('AI provider websocket startup', () => {
     const authGate = new Promise<void>(resolve => { releaseIntegration = resolve })
     const updateProviderInstance = vi.fn(async () => ({ id: instanceId }))
     const database = {
-      aiIntegration: {
-        findUnique: async () => {
+      aiIntegrationAccessToken: {
+        findFirst: async () => {
           await authGate
           return {
-            id: integrationId,
-            enabled: true,
-            transportMode: 'WS_AGENT',
-            authSecretRef: 'env:AI_PROVIDER_WS_TOKEN',
-            jobSchemaVersion: '1.1.0',
-            resultSchemaVersion: '1.0.0',
-            overlayFormat: 'flatbuffers_v1',
+            id: '00000000-0000-4000-8000-000000000903',
+            integration: {
+              id: integrationId,
+              name: 'volleyball-analysis-engine',
+              enabled: true,
+              transportMode: 'WS_AGENT',
+              authSecretRef: 'env:AI_PROVIDER_WS_TOKEN',
+              jobSchemaVersion: '1.1.0',
+              resultSchemaVersion: '1.0.0',
+              overlayFormat: 'flatbuffers_v1',
+            },
           }
         },
+        update: async () => ({}),
       },
       aiProviderInstance: {
         upsert: async () => ({ id: instanceId }),
@@ -71,7 +76,6 @@ describe('AI provider websocket startup', () => {
       $queryRaw: async () => [],
     } as unknown as PrismaClient
 
-    process.env.AI_PROVIDER_WS_TOKEN = token
     const app = Fastify({ logger: false })
     await app.register(websocket)
     await app.register(aiProviderWebSocketRoutes({
@@ -85,7 +89,7 @@ describe('AI provider websocket startup', () => {
     if (!address || typeof address === 'string') throw new Error('missing test listener')
 
     const client = new WebSocket(
-      `ws://127.0.0.1:${address.port}/api/v1/ai/providers/ws?integration_id=${integrationId}`,
+      `ws://127.0.0.1:${address.port}/api/v1/ai/providers/ws`,
       { headers: { authorization: `Bearer ${token}` } },
     )
     await new Promise<void>((resolve, reject) => {
