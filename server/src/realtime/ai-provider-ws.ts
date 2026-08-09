@@ -31,7 +31,11 @@ function bearer(header: string | undefined) {
 }
 
 function createMinioSigner() {
-  const endpoint = new URL(process.env.MINIO_ENDPOINT ?? 'http://minio:9000')
+  const endpoint = new URL(
+    process.env.MINIO_PUBLIC_ENDPOINT
+      ?? process.env.MINIO_ENDPOINT
+      ?? 'http://minio:9000',
+  )
   const accessKey = process.env.MINIO_ACCESS_KEY
   const secretKey = process.env.MINIO_SECRET_KEY
   if (!accessKey || !secretKey) throw new Error('MinIO credentials are required for AI job delivery')

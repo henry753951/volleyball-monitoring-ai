@@ -3,7 +3,7 @@ a60955c8ffbec8a3999078369e0e57af39528b53f1bbbcb2593d25d2add1ea05  ./.codex/agent
 03c21ebf7720d5ac745a3db92bc355c47d4c399585f718e032612b47c1ebb2cd  ./.codex/agents/luna-worker.toml
 301580df4adbbcc2e9ff480855e7675ea4ee84c41844976ea258371cdade2b36  ./.codex/config.toml
 e7a6df94ed9f318be53b29c5b7da58c0b45f6446357bed618b7de96fc2bdd156  ./.dockerignore
-21c1374da3bf2ba0ba319fcaf82c769c1b14700fd37bca6c6a65a06b288c6717  ./.env.example
+1bb7f037bb7ccad2b0b20883f240e7b34b9e08bc3104a147f41de5c88380870e  ./.env.example
 1a78b016cc3ed8b7492c1282a5dcc43412332d77b857ae2971212ebe51e9f2a2  ./.github/workflows/ci.yml
 2b5b7754fa1892b2c3e1c6e3873064bb7727122cb7938d03254f5c75ec96e6c3  ./.gitignore
 a632b384ee8a2d5138062fec7422dbc4f6f616827ca0fedb1489ce850bd98365  ./AGENTS.md
@@ -63,7 +63,7 @@ e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  ./examples/__i
 53cbbca3d1f27abc42227fa5241fe071e2bf8ba302fa91194f802c7e7dc57c77  ./infra/docker/server.Dockerfile
 818ad0a9ef3bf445375da1e99858c7b2c1acff9f6f91402e3d2f4aaf770ef0e6  ./infra/docker/web.Dockerfile
 4d78dbd30801c4181c34a369e25d9fc1acf9a8d15eeb670aa326a636b533fc05  ./infra/docker/worker.Dockerfile
-0daaf7bc654d18b79797bbfea9990fa94a85cedb2eff3a502d74fa5ad7539c42  ./infra/k8s/README.md
+4fe8e62a7d6dad42c145d4ad9fa7d28f09a25abd521ed2a14036a883f5405a14  ./infra/k8s/README.md
 e7436805e695fe58489ee89300dea10c93a32340aab125e6c5533d6d4907a8e6  ./infra/ome/Logger.xml
 beacab3d8c35cecf4eba50c8d05027491627eaa01e9f3ac9cb21d3fc4579070e  ./infra/ome/Server.xml
 72e2cdcfcac0c54e855120829e202391d64de3c74170011950b10b6d7775694e  ./infra/ome/record_map.xml
@@ -277,7 +277,7 @@ d13d44ad5fe80362b50b01cc66e7b2db4007e002e5e0c5eb1fdb1fc29f1e719d  ./server/src/m
 d5209c5f3a033e28ac977a1bbc07d653ffe1358b7475c2afeee0d13132504684  ./server/src/operations/host-storage.ts
 789f0fbe544f0c2d943e00d7b6cea6b04de2ad4a1e49de0cfc11181fd136c520  ./server/src/realtime/README.md
 cd54df3e8f5e13172ad98e2132ef306d265ebeabd9aff9a26499674417d1ce25  ./server/src/realtime/ai-progress.ts
-59f5b76c03f9856ae51f28b2f9809e96489c4814691e622b237ac09c3de8438f  ./server/src/realtime/ai-provider-ws.ts
+1128ae200989a684efe62cba94e98f3133394ce3bfc22ee7fe431d825155da3c  ./server/src/realtime/ai-provider-ws.ts
 53f9acfbbcf866935dec49dbcf1eec3b6aa43adee79b9311579bdb5ce4411f31  ./server/src/realtime/annotation-presence.ts
 9014f0b5f7e8fe41793c13f188d6af98374dfd90510a1aa3360afae60422167d  ./server/src/realtime/annotation-ws.ts
 8ce86b766287cabea3c75b1b8cc7b02b3132518219acc986e1e1fc32d5fa7ae7  ./server/src/realtime/auth.ts
