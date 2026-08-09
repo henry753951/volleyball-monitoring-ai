@@ -146,6 +146,7 @@ export async function reuseCompletedSubmissionGeometry(
     },
     reuse: {
       kind: 'immutable_geometry',
+      source_analysis_id: sourceAnalysis.analysisId,
       source_ai_job_id: sourceAi.id,
       source_analysis_run_id: sourceAnalysis.id,
     },

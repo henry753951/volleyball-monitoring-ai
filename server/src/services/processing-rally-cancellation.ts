@@ -49,7 +49,7 @@ export async function cancelProcessingRally(
     const rally = await tx.rally.findUnique({
       where: { id: rallyId },
       include: {
-        activeSubmission: { include: { keyPoints: { orderBy: [{ sequenceIndex: 'asc' }, { id: 'asc' }] }, aiJobs: true, clipJobs: true, scoreLedgerEntry: true, supersedes: true } },
+        activeSubmission: { include: { keyPoints: { orderBy: [{ sequenceIndex: 'asc' }, { id: 'asc' }] }, aiJobs: true, clipJobs: true, scoreLedgerEntries: { orderBy: { scoreRevisionAfter: 'desc' }, take: 1 }, supersedes: true } },
         set: { select: { id: true, leftScore: true, rightScore: true, scoreRevision: true } },
       },
     })
@@ -74,8 +74,9 @@ export async function cancelProcessingRally(
       throw new ProcessingCancellationError('INVALID_PROCESSING_STATE', 'Correction source cannot be restored safely')
     }
     const restored = source.supersedes
-    const leftDelta = -(source.scoreLedgerEntry?.leftDelta ?? 0)
-    const rightDelta = -(source.scoreLedgerEntry?.rightDelta ?? 0)
+    const sourceLedger = source.scoreLedgerEntries[0]
+    const leftDelta = -(sourceLedger?.leftDelta ?? 0)
+    const rightDelta = -(sourceLedger?.rightDelta ?? 0)
     const scoreChanged = leftDelta !== 0 || rightDelta !== 0
     const scoreAfter = {
       left: rally.set.leftScore + leftDelta,

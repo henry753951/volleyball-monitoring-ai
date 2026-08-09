@@ -77,7 +77,8 @@ export async function submitRally(
     },
   })
   if (!rally || rally.matchId !== room.matchId) return persist(tx, command, identity, hash, reject(command, 'RALLY_NOT_FOUND', 'Rally was not found'))
-  if (rally.annotationStatus !== 'READY') return persist(tx, command, identity, hash, reject(command, 'ANNOTATION_NOT_READY', 'Rally must be READY before submit'))
+  const correctionIsEditable = rally.annotationStatus === 'OPEN' && rally.activeSubmissionId !== null
+  if (rally.annotationStatus !== 'READY' && !correctionIsEditable) return persist(tx, command, identity, hash, reject(command, 'ANNOTATION_NOT_READY', 'Rally must be READY before submit'))
   if (rally.annotationRevision.toString() !== command.base_revision) return persist(tx, command, identity, hash, reject(command, 'REVISION_CONFLICT', 'Rally revision is stale', rally.annotationRevision.toString()))
 
   const superseded = rally.activeSubmissionId
@@ -174,14 +175,6 @@ export async function submitRally(
         && point.captureFrameIndex === draft.captureFrameIndex
         && point.timingPrecision === draft.timingPrecision
     })
-  const outcomeUnchanged = superseded !== null
-    && superseded.scoreResolutionState === resolution
-    && superseded.scoringCourtSide === side
-    && superseded.scoringTeamId === scoringTeamId
-  if (superseded && geometryUnchanged && outcomeUnchanged) {
-    return persist(tx, command, identity, hash, reject(command, 'ANNOTATION_NOT_READY', 'Correction draft has no immutable content changes'))
-  }
-
   const requestedStart = service.captureTimeUs - clipPreRollUs < 0n ? 0n : service.captureTimeUs - clipPreRollUs
   const requestedEnd = terminal.captureTimeUs + clipPostRollUs
   const scoreSnapshot = resolution === 'RESOLVED'
@@ -320,18 +313,29 @@ export async function submitRally(
 
   if (superseded) {
     await tx.rallySubmission.update({ where: { id: superseded.id }, data: { status: 'SUPERSEDED' } })
-    await Promise.all([
-      tx.clipJob.updateMany({ where: { submissionId: superseded.id }, data: { status: 'SUPERSEDED', leasedUntil: null } }),
-      tx.aiJob.updateMany({ where: { submissionId: superseded.id }, data: { status: 'SUPERSEDED', leasedUntil: null } }),
-      tx.analysisRun.updateMany({ where: { submissionId: superseded.id }, data: { status: 'SUPERSEDED' } }),
-    ])
+    if (geometryReused) {
+      await Promise.all([
+        tx.clipJob.updateMany({ where: { submissionId: superseded.id }, data: { status: 'SUPERSEDED', leasedUntil: null } }),
+        tx.aiJob.updateMany({ where: { submissionId: superseded.id }, data: { status: 'SUPERSEDED', leasedUntil: null } }),
+        tx.analysisRun.updateMany({ where: { submissionId: superseded.id }, data: { status: 'SUPERSEDED' } }),
+      ])
+    }
+    else {
+      // Keep the last completed clip/analysis readable while the correction is
+      // processing. Only unfinished source work is retired immediately; the
+      // completed result is superseded atomically by the successful callback.
+      await Promise.all([
+        tx.clipJob.updateMany({ where: { submissionId: superseded.id, status: { not: 'COMPLETED' } }, data: { status: 'SUPERSEDED', leasedUntil: null } }),
+        tx.aiJob.updateMany({ where: { submissionId: superseded.id, status: { not: 'COMPLETED' } }, data: { status: 'SUPERSEDED', leasedUntil: null } }),
+      ])
+    }
   }
 
   const revision = rally.annotationRevision + 1n
   const rallyCas = await tx.rally.updateMany({
     where: {
       id: rally.id,
-      annotationStatus: 'READY',
+      annotationStatus: superseded ? { in: ['OPEN', 'READY'] } : 'READY',
       annotationRevision: rally.annotationRevision,
       activeSubmissionId: superseded?.id ?? null,
     },

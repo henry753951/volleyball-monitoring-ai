@@ -256,6 +256,13 @@ export const aiCallbackRoutesWithDependencies = (
         }
         await tx.aiCallbackReceipt.create({ data: { aiJobId, callbackId: String(metadata.callback_id), kind: CallbackKind.COMPLETED, requestContentType: contentType, requestMetadata: json(metadata), payloadHash, responseStatus: 200, responseBody: json(response) } })
         await tx.aiJob.update({ where: { id: aiJobId }, data: { status: JobStatus.COMPLETED, progress: 1, stage: 'completed', lastCallbackAt: new Date(), completedAt: new Date(), leasedUntil: null } })
+        if (job.submission.supersedesSubmissionId) {
+          await Promise.all([
+            tx.clipJob.updateMany({ where: { submissionId: job.submission.supersedesSubmissionId }, data: { status: JobStatus.SUPERSEDED, leasedUntil: null } }),
+            tx.aiJob.updateMany({ where: { submissionId: job.submission.supersedesSubmissionId }, data: { status: JobStatus.SUPERSEDED, leasedUntil: null } }),
+            tx.analysisRun.updateMany({ where: { submissionId: job.submission.supersedesSubmissionId }, data: { status: JobStatus.SUPERSEDED } }),
+          ])
+        }
         await tx.rally.update({ where: { id: job.submission.rallyId }, data: { processingStatus: ProcessingStatus.COMPLETED } })
       })
       await publishCallbackProgress(job, 'completed', {
