@@ -276,6 +276,7 @@ services:
       MEDIA_SOURCE_WORK_ROOT: /work
       YOUTUBE_FORMAT: ${YOUTUBE_FORMAT:-best[protocol*=m3u8][height=1080][fps>=59][fps<=61][vcodec^=avc][acodec!=none]/bestvideo[height=1080][fps>=59][fps<=61][vcodec^=avc]+bestaudio[acodec^=mp4a]}
       YOUTUBE_EXTRACTOR_ARGS: ${YOUTUBE_EXTRACTOR_ARGS:-youtube:player_client=android_vr}
+      YOUTUBE_VOD_MAX_STALL_ATTEMPTS: ${YOUTUBE_VOD_MAX_STALL_ATTEMPTS:-20}
     volumes:
       - media-imports:/imports
       - media-source-state:/state

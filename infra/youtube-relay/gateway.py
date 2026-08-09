@@ -23,6 +23,7 @@ UUID = re.compile(r'^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-
 INGEST_PATH = re.compile(r'^[A-Za-z0-9][A-Za-z0-9._/-]{0,190}$')
 YOUTUBE_HOSTS = {'youtube.com', 'www.youtube.com', 'm.youtube.com', 'youtu.be', 'www.youtu.be'}
 MAX_BODY_BYTES = 16_384
+SEGMENT_DURATION_US = 2_000_000
 
 
 def required_env(name: str, minimum: int = 1) -> str:
@@ -82,6 +83,7 @@ class SourceManager:
         self.extractor_args = os.environ.get('YOUTUBE_EXTRACTOR_ARGS', 'youtube:player_client=android_vr')
         self.callback_url = os.environ.get('MEDIA_SOURCE_CALLBACK_URL', '').strip()
         self.callback_token = os.environ.get('MEDIA_SOURCE_CALLBACK_TOKEN', '').strip()
+        self.vod_max_stall_attempts = max(1, int(os.environ.get('YOUTUBE_VOD_MAX_STALL_ATTEMPTS', '20')))
         self.lock = threading.RLock()
         self.sources: dict[str, ManagedSource] = {}
         for directory in (self.recording_root, self.import_root, self.state_root, self.work_root):
@@ -234,12 +236,7 @@ class SourceManager:
             self._deliver_completion(source)
             return
 
-        media_inputs = self._youtube_inputs(metadata)
-        count = self._segment_inputs(
-            source,
-            media_inputs,
-            str(metadata.get('vcodec') or ''),
-        )
+        count = self._segment_youtube_vod(source, url, metadata, duration_us)
         if source.stop.is_set():
             return
         self._queue_completion(
@@ -249,6 +246,49 @@ class SourceManager:
             count,
         )
         self._deliver_completion(source)
+
+    def _segment_youtube_vod(
+        self,
+        source: ManagedSource,
+        url: str,
+        initial_metadata: dict[str, object],
+        duration_us: int | None,
+    ) -> int:
+        metadata: dict[str, object] | None = initial_metadata
+        last_progress = self._resume_segment_index(source)
+        stalled_attempts = 0
+        while not source.stop.is_set():
+            try:
+                metadata = metadata or self._probe_youtube(source, url)
+                count = self._segment_inputs(
+                    source,
+                    self._youtube_inputs(metadata),
+                    str(metadata.get('vcodec') or ''),
+                )
+                if self._vod_coverage_complete(count, duration_us):
+                    return count
+                error = RuntimeError('YouTube VOD ended before the declared duration')
+            except RuntimeError as current_error:
+                error = current_error
+
+            if source.stop.is_set():
+                return self._resume_segment_index(source)
+            current_progress = self._resume_segment_index(source)
+            if current_progress > last_progress:
+                stalled_attempts = 0
+            else:
+                stalled_attempts += 1
+            last_progress = current_progress
+            if stalled_attempts >= self.vod_max_stall_attempts:
+                raise error
+
+            # Direct YouTube media URLs are signed and can expire during a
+            # multi-hour ingest. Resolve a fresh URL, then seek to the durable
+            # segment checkpoint instead of replaying the already captured
+            # prefix. Event.wait makes the retry delay immediately stoppable.
+            metadata = None
+            source.stop.wait(min(30, 2 ** min(stalled_attempts, 4)))
+        return self._resume_segment_index(source)
 
     def _probe_youtube(self, source: ManagedSource, url: str) -> dict[str, object]:
         probe = self._command(source, [
@@ -298,9 +338,15 @@ class SourceManager:
         return media_inputs
 
     @staticmethod
-    def _ffmpeg_input_args(media_input: str | MediaInput, realtime: bool = False) -> list[str]:
+    def _ffmpeg_input_args(
+        media_input: str | MediaInput,
+        realtime: bool = False,
+        seek_us: int = 0,
+    ) -> list[str]:
         resolved = media_input if isinstance(media_input, MediaInput) else MediaInput(media_input, {})
         args: list[str] = []
+        if seek_us > 0:
+            args.extend(['-ss', f'{seek_us / 1_000_000:.6f}'])
         if resolved.headers:
             # YouTube's signed googlevideo URLs are tied to the HTTP request
             # profile returned by yt-dlp. ffmpeg's default Lavf user agent can
@@ -391,23 +437,17 @@ class SourceManager:
         segment_root.mkdir(parents=True)
         destination = self.recording_root.joinpath(*source.config['ingest_path'].split('/'))
         destination.mkdir(parents=True, exist_ok=True)
-        try:
-            base = datetime.fromisoformat(source.config['segment_base'])
-            if base.tzinfo is None:
-                base = base.replace(tzinfo=timezone.utc)
-            else:
-                base = base.astimezone(timezone.utc)
-        except (KeyError, ValueError):
-            base = datetime.now(timezone.utc)
-            source.config['segment_base'] = base.isoformat()
-            self._persist(source)
+        base = self._segment_base(source)
+        published = self._published_segment_prefix(destination, base)
+        self._record_resume_checkpoint(source, published)
+        seek_us = published * SEGMENT_DURATION_US
         normalized_codec = codec.lower()
         video_codec = ['-c:v', 'copy'] if normalized_codec == 'h264' or normalized_codec.startswith('avc') else [
             '-c:v', 'libx264', '-preset', 'veryfast', '-pix_fmt', 'yuv420p',
         ]
         args = ['ffmpeg', '-nostdin', '-hide_banner', '-loglevel', 'warning']
         for value in inputs:
-            args.extend(self._ffmpeg_input_args(value))
+            args.extend(self._ffmpeg_input_args(value, seek_us=seek_us))
         args.extend(['-map', '0:v:0', '-map', '0:a:0?' if len(inputs) == 1 else '1:a:0'])
         args.extend([
             *video_codec, '-c:a', 'aac', '-f', 'segment', '-segment_time', '2',
@@ -421,6 +461,7 @@ class SourceManager:
             # launching a second ffmpeg remux for every DVR segment.
             '-segment_format_options',
             'movflags=+frag_keyframe+empty_moov+default_base_moof',
+            '-segment_start_number', str(published),
             str(segment_root / 'segment-%09d.mp4'),
         ])
         process = subprocess.Popen(args)
@@ -430,8 +471,6 @@ class SourceManager:
         # count toward that prefix: a capture may still contain legacy OME
         # recordings, and counting every MP4 would suppress new media until
         # ffmpeg happened to recreate the entire legacy file count.
-        published = self._published_segment_prefix(destination, base)
-
         def publish(segment: Path, index: int) -> None:
             name = self._segment_filename(base, index)
             target = destination / name
@@ -441,6 +480,10 @@ class SourceManager:
             shutil.copyfile(segment, temporary)
             temporary.replace(target)
 
+        def segment_index(path: Path) -> int | None:
+            match = re.fullmatch(r'segment-(\d{9})\.mp4', path.name)
+            return int(match.group(1)) if match else None
+
         while True:
             return_code = process.poll()
             segments = sorted(segment_root.glob('segment-*.mp4'))
@@ -448,10 +491,16 @@ class SourceManager:
             # successfully. A user stop terminates ffmpeg and can leave that
             # final path present but without a complete moov/moof layout. Keep
             # it withheld from both the spool and completion watermark.
-            publishable = len(segments) if return_code == 0 else max(0, len(segments) - 1)
-            while published < publishable:
-                publish(segments[published], published)
+            publishable = segments if return_code == 0 else segments[:-1]
+            for segment in publishable:
+                index = segment_index(segment)
+                if index is None or index < published:
+                    continue
+                if index > published:
+                    break
+                publish(segment, index)
                 published += 1
+                self._record_resume_checkpoint(source, published)
             if return_code is not None:
                 break
             if source.stop.is_set():
@@ -462,11 +511,45 @@ class SourceManager:
             shutil.rmtree(workspace, ignore_errors=True)
             return published
         if return_code != 0:
+            shutil.rmtree(workspace, ignore_errors=True)
             raise RuntimeError(f'media segmentation failed ({return_code})')
         if published == 0:
             raise RuntimeError('media segmentation did not produce output')
         shutil.rmtree(workspace, ignore_errors=True)
         return published
+
+    def _segment_base(self, source: ManagedSource) -> datetime:
+        try:
+            base = datetime.fromisoformat(source.config['segment_base'])
+            base = base.replace(tzinfo=timezone.utc) if base.tzinfo is None else base.astimezone(timezone.utc)
+        except (KeyError, ValueError):
+            base = datetime.now(timezone.utc)
+            source.config['segment_base'] = base.isoformat()
+            self._persist(source)
+        return base
+
+    def _resume_segment_index(self, source: ManagedSource) -> int:
+        destination = self.recording_root.joinpath(*source.config['ingest_path'].split('/'))
+        return self._published_segment_prefix(destination, self._segment_base(source))
+
+    def _record_resume_checkpoint(self, source: ManagedSource, segment_index: int) -> None:
+        segment_value = str(segment_index)
+        capture_time_value = str(segment_index * SEGMENT_DURATION_US)
+        if (
+            source.config.get('resume_segment_index') == segment_value
+            and source.config.get('resume_capture_time_us') == capture_time_value
+        ):
+            return
+        source.config['resume_segment_index'] = segment_value
+        source.config['resume_capture_time_us'] = capture_time_value
+        self._persist(source)
+
+    @staticmethod
+    def _vod_coverage_complete(segment_count: int, duration_us: int | None) -> bool:
+        if duration_us is None:
+            return segment_count > 0
+        expected_segments = (duration_us + SEGMENT_DURATION_US - 1) // SEGMENT_DURATION_US
+        return segment_count >= expected_segments
 
     @staticmethod
     def _segment_filename(base: datetime, index: int) -> str:

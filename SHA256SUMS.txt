@@ -3,7 +3,7 @@ a60955c8ffbec8a3999078369e0e57af39528b53f1bbbcb2593d25d2add1ea05  ./.codex/agent
 03c21ebf7720d5ac745a3db92bc355c47d4c399585f718e032612b47c1ebb2cd  ./.codex/agents/luna-worker.toml
 301580df4adbbcc2e9ff480855e7675ea4ee84c41844976ea258371cdade2b36  ./.codex/config.toml
 56c1df518dfd0fcb073764b126117ff29341f5430867ff4c13e31aacacc8c49f  ./.dockerignore
-506d0762e75762e74aa94a9353fe235226e62817eb5244aea5bbdfa4cca22e33  ./.env.example
+a8994d0346c09ebf8fe1db75233a02f301db7900971019536babd2973d7034a6  ./.env.example
 e9c3f3770b4892a787f1e25d819ae8fb58893cfe0df99eb7805f02fdcc00797c  ./.github/workflows/ci.yml
 2b5b7754fa1892b2c3e1c6e3873064bb7727122cb7938d03254f5c75ec96e6c3  ./.gitignore
 a632b384ee8a2d5138062fec7422dbc4f6f616827ca0fedb1489ce850bd98365  ./AGENTS.md
@@ -46,14 +46,15 @@ de1c6f5f306bdafd9bb0096364a40165d41d59e1b7afd60efa8d0ea42d505afc  ./docs/adr/001
 0dad051458563057152511b50053873e0350ced084b0a9320c66df7b4772ca23  ./docs/adr/0018-realtime-ai-work-progress.md
 4748e8fee1644f3760705aab357ed76e6d8ec0b0bc06a03698dd323971f40fcd  ./docs/adr/0019-unified-source-lifecycle-and-timeline-state.md
 ec6ef8f1eff886d877e2f8e740321ee090271748c7382834584c31feb1721d99  ./docs/adr/0020-match-administration-and-media-cleanup.md
+2f618154824ef643d43f344373723c3e5e1ba51744342e7826fda245650b507a  ./docs/adr/0021-resumable-vod-capture.md
 de376c790b3f7624d275cd8d6882725028d5264710ede7d748ad38304fee5c6a  ./docs/open-decisions.md
-4be4ccb208e7216179a55a8c6bc6e95303db3918d38a73f3a8d61586fb43c40d  ./docs/progress.md
+6a8df67be850c43c13b05e662d8aadefa49290aeeba14b01640d89a3fdaa13bf  ./docs/progress.md
 aa5494b32c071ea634767c3858b1f3063aa2331777c50ec41b56cbc7a25c6d4b  ./docs/requirements-matrix.md
 e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  ./examples/__init__.py
 6b1706b8d04e20d43f4e14ca60cff11ac2c338bf94cbd33ffd199f9f6bc50a99  ./examples/tracking_replay_provider/README.md
 99687c78f63b4a39f1764b0bd91b7ce25f565161e7424d328ecb92c5a15cca07  ./examples/tracking_replay_provider/app.py
 011b6a4f5238400d941cc7346d376136108436863e1e271ca303b4b84bc6d11c  ./examples/tracking_replay_provider/identity.py
-dac6f72a56de00f0468042984fcdda6fb8c553b1b2728df2317eee4a6cdd1fe3  ./infra/compose.yaml
+de09b8962fe6ece3c9d290f21593fc7b33cc4aac536c30c1921882d54f74a427  ./infra/compose.yaml
 53cbbca3d1f27abc42227fa5241fe071e2bf8ba302fa91194f802c7e7dc57c77  ./infra/docker/server.Dockerfile
 3207427e6e9d893a806cefc260e083fe6f16dbd63480a403a325a361b464759b  ./infra/docker/tracking-replay-provider.Dockerfile
 818ad0a9ef3bf445375da1e99858c7b2c1acff9f6f91402e3d2f4aaf770ef0e6  ./infra/docker/web.Dockerfile
@@ -70,8 +71,8 @@ e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  ./infra/traefi
 e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  ./infra/traefik/dynamic/.gitkeep
 771edc8add5f08a1249dbf4dac8d377d5adaaf525042816d426a42e2f60c5c0b  ./infra/traefik/traefik.yml
 45e136069add91e6835aee0912e6fea7cc55b8d22536cb0e0524d340de6420ef  ./infra/youtube-relay/entrypoint.sh
-1246cc0a5875d2ad1e1dccbb6318a6df6cd9f471035feac00636462389daaa5f  ./infra/youtube-relay/gateway.py
-0ccb4e2c5bbe975c5a8385b05a9333d10b78a583b0fe7eb5b3478a2701d0d332  ./infra/youtube-relay/test_gateway.py
+75bbb2c9df3a52dccc6d2d7a2245c444f67c4773649ad7af08952c938c898427  ./infra/youtube-relay/gateway.py
+789721a9a080df2bb0fe5810046ffd479dd7901be2a779872ade1f4afd967a1f  ./infra/youtube-relay/test_gateway.py
 792b3505835d7cecf6a70ec9417560144773908c26f256af72cf6d70a6e5fe6a  ./package.json
 4bb9f503158cef0c1f88e66d1e5aec0d22dac66c78c26d46fbb72ae471f079c5  ./packages/contracts/README.md
 0e7abaf4e0d2857450ff0481e1916112bff2c1a8d8e44f2bcc1351738c7861b3  ./packages/contracts/ai/callback.schema.json
