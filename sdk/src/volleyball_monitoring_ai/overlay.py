@@ -88,6 +88,15 @@ def _bbox(value: Any) -> tuple[float, float, float, float]:
     return result  # type: ignore[return-value]
 
 
+def _confidence(value: Any, *, name: str) -> int:
+    if value is None:
+        return 255
+    number = _number(value, name=name)
+    if not 0.0 <= number <= 1.0:
+        raise ValueError(f"{name} must be within [0,1]")
+    return round(number * 254)
+
+
 def build_tracking_overlay(
     job: "AIJobRequest",
     *,
@@ -95,6 +104,9 @@ def build_tracking_overlay(
     analysis_version: str,
     frame_records: Iterable[Mapping[str, Any]],
     ball_positions: Mapping[int, Mapping[str, Any]],
+    court_keypoints: Mapping[int, Iterable[Mapping[str, Any]]] | None = None,
+    action_taxonomy_id: str = "",
+    action_taxonomy_version: str = "",
 ) -> bytes:
     """Build VOV1 from recorded provider observations.
 
@@ -120,6 +132,8 @@ def build_tracking_overlay(
     player_confidences: list[int] = []
     action_label_ids: list[int] = []
     action_confidences: list[int] = []
+    action_labels: list[str] = []
+    action_label_lookup: dict[str, int] = {}
     for players in per_frame:
         for player in players:
             track_id = int(player.get("track_id", -1))
@@ -134,9 +148,26 @@ def build_tracking_overlay(
             frame_foot_positions.append(tuple(quantize_frame_coordinate(value) for value in raw_foot))
             court_positions.append(raw_court)
             player_flags.append(0b011 if court_value is None else 0b111)
-            player_confidences.append(255)
-            action_label_ids.append(65_535)
-            action_confidences.append(255)
+            player_confidences.append(_confidence(player.get("confidence"), name="player.confidence"))
+            action_label = player.get("action_label")
+            if action_label is None:
+                action_label_ids.append(65_535)
+                action_confidences.append(255)
+            else:
+                if not isinstance(action_label, str) or not action_label.strip():
+                    raise ValueError("player.action_label must be a non-empty string")
+                normalized_action = action_label.strip()
+                action_id = action_label_lookup.get(normalized_action)
+                if action_id is None:
+                    action_id = len(action_labels)
+                    if action_id >= 65_535:
+                        raise ValueError("too many overlay action labels")
+                    action_label_lookup[normalized_action] = action_id
+                    action_labels.append(normalized_action)
+                action_label_ids.append(action_id)
+                action_confidences.append(
+                    _confidence(player.get("action_confidence"), name="player.action_confidence")
+                )
         frame_offsets.append(len(track_ids))
 
     ball_frame_positions: list[tuple[int, int]] = []
@@ -151,7 +182,33 @@ def build_tracking_overlay(
             x, y = _position(ball, name="ball.frame_pos")
             ball_frame_positions.append((quantize_frame_coordinate(x), quantize_frame_coordinate(y)))
             ball_flags.append(1)
-        ball_confidences.append(255)
+        ball_confidences.append(_confidence(ball.get("confidence") if ball else None, name="ball.confidence"))
+
+    court_keypoint_frame_offsets = [0]
+    court_keypoint_ids: list[int] = []
+    court_keypoint_positions: list[tuple[int, int]] = []
+    court_keypoint_confidences: list[int] = []
+    source_court_keypoints = court_keypoints or {}
+    for frame_index in range(total_frames):
+        keypoints = sorted(
+            source_court_keypoints.get(frame_index, ()),
+            key=lambda item: int(item.get("keypoint_id", item.get("index", -1))),
+        )
+        for keypoint in keypoints:
+            keypoint_id = int(keypoint.get("keypoint_id", keypoint.get("index", -1)))
+            if keypoint_id < 0 or keypoint_id >= 65_535:
+                raise ValueError("court keypoint id is outside the VOV1 ushort range")
+            x, y = _position(keypoint.get("frame_pos"), name="court_keypoint.frame_pos")
+            if not 0.0 <= x <= 1.0 or not 0.0 <= y <= 1.0:
+                continue
+            court_keypoint_ids.append(keypoint_id)
+            court_keypoint_positions.append(
+                (quantize_frame_coordinate(x), quantize_frame_coordinate(y))
+            )
+            court_keypoint_confidences.append(
+                _confidence(keypoint.get("confidence"), name="court_keypoint.confidence")
+            )
+        court_keypoint_frame_offsets.append(len(court_keypoint_ids))
 
     builder = flatbuffers.Builder(max(1024, len(track_ids) * 36 + total_frames * 12))
     strings = {
@@ -162,10 +219,11 @@ def build_tracking_overlay(
         "clip_asset_id": builder.CreateString(job.clip.clip_asset_id),
         "analysis_id": builder.CreateString(analysis_id),
         "analysis_version": builder.CreateString(analysis_version),
-        "taxonomy_id": builder.CreateString("volleyball-ai-contract-lab.ball-path-heuristic"),
-        "taxonomy_version": builder.CreateString("1"),
+        "taxonomy_id": builder.CreateString(action_taxonomy_id),
+        "taxonomy_version": builder.CreateString(action_taxonomy_version),
     }
     empty_u32 = _scalar_vector(builder, [], 4)
+    action_label_strings = [builder.CreateString(label) for label in action_labels]
     offsets_vector = _scalar_vector(builder, frame_offsets, 4)
     track_vector = _scalar_vector(builder, track_ids, 2)
     bbox_vector = _frame_bbox_vector(builder, frame_bboxes)
@@ -178,8 +236,16 @@ def build_tracking_overlay(
     ball_position_vector = _frame_position_vector(builder, ball_frame_positions)
     ball_flags_vector = _scalar_vector(builder, ball_flags, 1)
     ball_confidence_vector = _scalar_vector(builder, ball_confidences, 1)
+    court_keypoint_offsets_vector = _scalar_vector(builder, court_keypoint_frame_offsets, 4)
+    court_keypoint_ids_vector = _scalar_vector(builder, court_keypoint_ids, 2)
+    court_keypoint_positions_vector = _frame_position_vector(builder, court_keypoint_positions)
+    court_keypoint_confidences_vector = _scalar_vector(builder, court_keypoint_confidences, 1)
+    builder.StartVector(4, len(action_label_strings), 4)
+    for label in reversed(action_label_strings):
+        builder.PrependUOffsetTRelative(label)
+    action_labels_vector = builder.EndVector()
 
-    builder.StartObject(30)
+    builder.StartObject(34)
     builder.PrependUint32Slot(0, 10_000, 10_000)
     builder.PrependUOffsetTRelativeSlot(1, strings["ai_job_id"], 0)
     builder.PrependUOffsetTRelativeSlot(2, strings["submission_id"], 0)
@@ -204,12 +270,16 @@ def build_tracking_overlay(
     builder.PrependUOffsetTRelativeSlot(21, player_confidence_vector, 0)
     builder.PrependUOffsetTRelativeSlot(22, strings["taxonomy_id"], 0)
     builder.PrependUOffsetTRelativeSlot(23, strings["taxonomy_version"], 0)
-    builder.PrependUOffsetTRelativeSlot(24, empty_u32, 0)
+    builder.PrependUOffsetTRelativeSlot(24, action_labels_vector, 0)
     builder.PrependUOffsetTRelativeSlot(25, action_ids_vector, 0)
     builder.PrependUOffsetTRelativeSlot(26, action_confidence_vector, 0)
     builder.PrependUOffsetTRelativeSlot(27, ball_position_vector, 0)
     builder.PrependUOffsetTRelativeSlot(28, ball_flags_vector, 0)
     builder.PrependUOffsetTRelativeSlot(29, ball_confidence_vector, 0)
+    builder.PrependUOffsetTRelativeSlot(30, court_keypoint_offsets_vector, 0)
+    builder.PrependUOffsetTRelativeSlot(31, court_keypoint_ids_vector, 0)
+    builder.PrependUOffsetTRelativeSlot(32, court_keypoint_positions_vector, 0)
+    builder.PrependUOffsetTRelativeSlot(33, court_keypoint_confidences_vector, 0)
     root = builder.EndObject()
     builder.Finish(root, file_identifier=FILE_IDENTIFIER)
     result = bytes(builder.Output())
@@ -237,6 +307,7 @@ def build_empty_overlay(job: "AIJobRequest", *, analysis_id: str, analysis_versi
         "empty": builder.CreateString(""),
     }
     frame_offsets = _scalar_vector(builder, [0] * (total_frames + 1), 4)
+    court_keypoint_frame_offsets = _scalar_vector(builder, [0] * (total_frames + 1), 4)
     empty_u8 = _scalar_vector(builder, [], 1)
     empty_u16 = _scalar_vector(builder, [], 2)
     empty_u32 = _scalar_vector(builder, [], 4)
@@ -247,7 +318,7 @@ def build_empty_overlay(job: "AIJobRequest", *, analysis_id: str, analysis_versi
     ball_flags = _scalar_vector(builder, [0] * total_frames, 1)
     ball_confidences = _scalar_vector(builder, [0] * total_frames, 1)
 
-    builder.StartObject(30)
+    builder.StartObject(34)
     builder.PrependUint32Slot(0, 10_000, 10_000)
     builder.PrependUOffsetTRelativeSlot(1, strings["ai_job_id"], 0)
     builder.PrependUOffsetTRelativeSlot(2, strings["submission_id"], 0)
@@ -278,6 +349,10 @@ def build_empty_overlay(job: "AIJobRequest", *, analysis_id: str, analysis_versi
     builder.PrependUOffsetTRelativeSlot(27, ball_positions, 0)
     builder.PrependUOffsetTRelativeSlot(28, ball_flags, 0)
     builder.PrependUOffsetTRelativeSlot(29, ball_confidences, 0)
+    builder.PrependUOffsetTRelativeSlot(30, court_keypoint_frame_offsets, 0)
+    builder.PrependUOffsetTRelativeSlot(31, empty_u16, 0)
+    builder.PrependUOffsetTRelativeSlot(32, empty_frame_pos, 0)
+    builder.PrependUOffsetTRelativeSlot(33, empty_u8, 0)
     root = builder.EndObject()
     builder.Finish(root, file_identifier=FILE_IDENTIFIER)
     result = bytes(builder.Output())

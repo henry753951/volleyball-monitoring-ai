@@ -18,6 +18,8 @@ function sequence(): ProviderOverlaySequence {
     courtPositions: [{ x: -0.2, y: 1.3 }, { x: 0.4, y: 0.5 }],
     playerFlags: [1, 0], playerConfidences: [200, 255], actionTaxonomyId: '', actionTaxonomyVersion: '', actionLabels: [], actionLabelIds: [65_535, 65_535], actionConfidences: [255, 255],
     ballFramePositions: [{ x: 10, y: 20 }, { x: 0, y: 0 }, { x: 30, y: 40 }], ballFlags: [1, 0, 1], ballConfidences: [220, 0, 210],
+    courtKeypointFrameOffsets: [0, 2, 2, 3], courtKeypointIds: [0, 11, 35],
+    courtKeypointPositions: [{ x: 100, y: 200 }, { x: 300, y: 400 }, { x: 500, y: 600 }], courtKeypointConfidences: [230, 210, 190],
   }
 }
 
@@ -30,10 +32,10 @@ it('accepts a minimal empty VOV1 overlay', () => {
   it('splits by frame and round-trips strict VOC1 columns without clamping court coordinates', () => {
     const chunks = chunkProviderOverlay(sequence(), 2)
     expect(chunks).toHaveLength(2)
-    expect(chunks[0]).toMatchObject({ chunkIndex: 0, startFrameIndex: 0n, frameCount: 2, frameOffsets: [0, 1, 1], trackIds: [7], courtPositions: [{ x: -0.2, y: 1.3 }] })
-    expect(chunks[1]).toMatchObject({ chunkIndex: 1, startFrameIndex: 2n, frameCount: 1, frameOffsets: [0, 1], trackIds: [9] })
+    expect(chunks[0]).toMatchObject({ chunkIndex: 0, startFrameIndex: 0n, frameCount: 2, frameOffsets: [0, 1, 1], trackIds: [7], courtPositions: [{ x: -0.2, y: 1.3 }], courtKeypointFrameOffsets: [0, 2, 2], courtKeypointIds: [0, 11] })
+    expect(chunks[1]).toMatchObject({ chunkIndex: 1, startFrameIndex: 2n, frameCount: 1, frameOffsets: [0, 1], trackIds: [9], courtKeypointFrameOffsets: [0, 1], courtKeypointIds: [35] })
     const decoded = parseBrowserOverlayChunk(encodeBrowserOverlayChunk(chunks[0]!))
-    expect(decoded).toMatchObject({ analysisId: 'analysis', overlayVersion: '1', chunkIndex: 0, startFrameIndex: 0n, frameCount: 2, frameOffsets: [0, 1, 1], trackIds: [7] })
+    expect(decoded).toMatchObject({ analysisId: 'analysis', overlayVersion: '1', chunkIndex: 0, startFrameIndex: 0n, frameCount: 2, frameOffsets: [0, 1, 1], trackIds: [7], courtKeypointFrameOffsets: [0, 2, 2], courtKeypointIds: [0, 11] })
     expect(decoded.courtPositions[0]!.x).toBeCloseTo(-0.2)
     expect(decoded.courtPositions[0]!.y).toBeCloseTo(1.3)
   })
