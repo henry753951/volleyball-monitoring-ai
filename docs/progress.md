@@ -960,3 +960,13 @@ The Nuxt build emits a dependency-level Node `DEP0155` deprecation warning but c
   11 focused server tests and all 152 Web tests pass; Prisma validation and Impeccable detection pass.
   Headed Chromium verified match grouping, removed legacy navigation, Worker Pool presentation and
   the one-time token creation dialog on the host development app.
+
+# 2026-08-09 — Token-routed analysis engine access and control UI refinement
+
+- Made `/api/v1/ai/providers/ws` the fixed external Worker endpoint. The bearer Token now resolves
+  the internal integration; the legacy query parameter remains temporary, mismatch-safe compatibility.
+- Removed Worker Pool terminology and selection from the product. The control surface now presents
+  one `volleyball-analysis-engine`, one Token entry point, connected instances, capacity and RTT.
+- Reworked control surfaces to use tonal grouping and spacing instead of nested outlined cards. Match
+  cards and the annotation inspector now show each team's set wins directly beneath that team, while
+  the current-set point score remains centered.
