@@ -764,3 +764,26 @@ The Nuxt build emits a dependency-level Node `DEP0155` deprecation warning but c
   a quick identity popover. The assignment list shows every track and reserves only players mapped to
   tracks active on the current frame, so an inactive pre-ReID track does not block reassignment.
 - ADR 0023 records the immutable-result overlay, sparse correction and synchronization boundary.
+
+# 2026-08-09 — External analysis SDK offline mode and real inference engine
+
+- Python SDK `0.3.0` adds `OfflineRunner`: it accepts the same validated `AIJobRequest` used by an
+  online worker, optionally replaces only the human key-point list, verifies the local canonical
+  clip hash and byte length, and atomically writes `analysis-result.json`, `overlay.vov1` and a
+  `network_used: false` run manifest without creating HTTP, WebSocket, download or callback clients.
+- The sibling `volleyball-analysis-engine` remains an independent `uv` repository and uses the SDK
+  through the sibling path. Online and offline modes now share one real-inference pipeline; no
+  Contract Lab tracking, ball, court or action JSON is consumed as model output.
+- The engine integrates the supplied 5-frame RT-DETRv4/X3D checkpoint with strict state-dict loading,
+  OSNet appearance embeddings, harmonic-mean EIoU tracking, the order-fixed YOLO court-pose model,
+  RANSAC projection, same-side 2D-court re-entry identity consolidation, hit association and typed
+  AnalysisResult/VOV1 generation. Video-space bbox/ball values are bounded while AI-owned
+  `court_pos` remains intentionally unclamped.
+- Local PowerShell and shell launchers cover first-time `uv` setup, strict model diagnostics, an
+  outbound central worker and fully offline clip analysis. Docker Compose remains optional for the
+  online worker and its missing `.env` file is non-fatal.
+- The supplied 1920x1080 60 fps clip ran through the GPU pipeline end to end: 1,033 decoded and
+  canonical frames, 30 raw source track IDs consolidated to 12 court-side identities, 12/12 human
+  key-point anchors preserved with exact PTS/time/frame values, and valid JSON, VOV1 plus a 1,033-frame
+  H.264/AAC overlay. The run produced 1,033 track rows, 504 ball rows, 35 court rows and 11,994
+  per-track action rows; its offline manifest records no network use.
