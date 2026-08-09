@@ -1,5 +1,40 @@
 # Progress
 
+## 2026-08-09 — Runtime simplification Phase 1 baseline
+
+Status: in progress on `codex/runtime-simplification`; architecture decision and removal inventory
+are complete, while the external AI worker E2E remains the final destructive-cleanup gate.
+
+- Accepted ADR 0024: daily development uses four Docker infrastructure services plus optional
+  Traefik, full central deployment targets nine containers, and related loops compose into
+  `worker-media` and `worker-workflow` without losing per-loop health or failure isolation.
+- Declared external AI WS-only. Provider Realtime `1.0.0`, Job `1.1.0`, Result `1.0.0` and Callback
+  `1.0.0` stay wire-compatible; the provider registry/configuration becomes WS-only `2.0.0` and the
+  pre-1.0 Python SDK advances to `0.4.0` when its hosted HTTP provider helper is removed.
+- Inventoried all seventeen current Compose services, volumes, Dockerfiles and environment-variable
+  ownership in `docs/runtime-topology-inventory.md`. The development database has one enabled
+  `WS_AGENT` integration, zero `HTTP_PUSH` integrations and zero active AI jobs.
+- Preserved media/PTS/clip baselines: Media 88, focused Server 38 and focused Worker 16 tests passed.
+  The external analysis engine receive/callback run is still required before replay/dispatcher/schema
+  deletion.
+
+## 2026-08-09 — Immediate buffered frame control and timeline seeking
+
+Status: merged to `main` through [PR #54](https://github.com/henry753951/volleyball-monitoring-ai/pull/54)
+at `d3861cc` after full GitHub CI passed.
+
+- Restored actual browser-buffer ranges to green and made the upper canonical ruler seek with the
+  same BigInt-safe mapping as the buffer rail.
+- Frame controls now project immediately from the browser buffer, accept rapid repeated arrows,
+  calibrate against exact sample-index deltas and reconcile to the server anchor without bouncing
+  through the old cursor position.
+- Analysis review WebSocket traffic now uses the dedicated `/ws/analysis-reviews/:analysisRunId`
+  endpoint, so local Nuxt development connects directly to Server instead of depending on a failed
+  dev proxy.
+- Headed Chromium confirmed one and three rapid frame steps at 60 fps, ruler seeking, the DEMO
+  analysis rail/panel and zero console errors. Full CI passed contracts/SDK, Compose, Prisma,
+  GraphQL, TypeScript, all tests and production builds.
+
 ## 2026-08-09 — Resumable long-form YouTube VOD capture
 
 Status: implemented and locally validated on `codex/youtube-relay-resume`; GitHub integration is pending.

@@ -49,9 +49,11 @@ ec6ef8f1eff886d877e2f8e740321ee090271748c7382834584c31feb1721d99  ./docs/adr/002
 2f618154824ef643d43f344373723c3e5e1ba51744342e7826fda245650b507a  ./docs/adr/0021-resumable-vod-capture.md
 1660290def1de71e5a846147d809ffe9833c8871ec751046a2ac68c9fb7dee42  ./docs/adr/0022-stale-ai-worker-retirement.md
 328e027c65ee2ac38f6e60c94ac37d31a56b36b0a12b345274808f76f9b6dbd5  ./docs/adr/0023-frame-analysis-review-and-delta-sync.md
+dca90ff8350211685a9c089477659633e29636661452e9487aaef40e46f43772  ./docs/adr/0024-simplified-worker-deployment-and-ws-only-ai.md
 de376c790b3f7624d275cd8d6882725028d5264710ede7d748ad38304fee5c6a  ./docs/open-decisions.md
-366c350ec7055e5f1874e77be713ba0a18222498ba8d8f1f0a15ab6de5253844  ./docs/progress.md
+e8c90a0235d008b87046f99763704991e5d586ab4307fb1a88f30ace18f96a09  ./docs/progress.md
 aa5494b32c071ea634767c3858b1f3063aa2331777c50ec41b56cbc7a25c6d4b  ./docs/requirements-matrix.md
+39a9470404c883dab100c9af9d60d6baa9216f7dc8cef21e57d6f933aee3b241  ./docs/runtime-topology-inventory.md
 e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  ./examples/__init__.py
 6b1706b8d04e20d43f4e14ca60cff11ac2c338bf94cbd33ffd199f9f6bc50a99  ./examples/tracking_replay_provider/README.md
 99687c78f63b4a39f1764b0bd91b7ce25f565161e7424d328ecb92c5a15cca07  ./examples/tracking_replay_provider/app.py
