@@ -45,6 +45,7 @@ de1c6f5f306bdafd9bb0096364a40165d41d59e1b7afd60efa8d0ea42d505afc  ./docs/adr/001
 00e4ff76109d15cf7bbb1f54cf5124681e8fb7ef833ef618d05d9500aa58eb7f  ./docs/adr/0017-ome-and-stable-mse-playback.md
 0dad051458563057152511b50053873e0350ced084b0a9320c66df7b4772ca23  ./docs/adr/0018-realtime-ai-work-progress.md
 4748e8fee1644f3760705aab357ed76e6d8ec0b0bc06a03698dd323971f40fcd  ./docs/adr/0019-unified-source-lifecycle-and-timeline-state.md
+ec6ef8f1eff886d877e2f8e740321ee090271748c7382834584c31feb1721d99  ./docs/adr/0020-match-administration-and-media-cleanup.md
 de376c790b3f7624d275cd8d6882725028d5264710ede7d748ad38304fee5c6a  ./docs/open-decisions.md
 4be4ccb208e7216179a55a8c6bc6e95303db3918d38a73f3a8d61586fb43c40d  ./docs/progress.md
 aa5494b32c071ea634767c3858b1f3063aa2331777c50ec41b56cbc7a25c6d4b  ./docs/requirements-matrix.md
@@ -130,12 +131,14 @@ a6d6a04fdee22d820c0fef10e298395f3700be57914a27e843cd01f5e9c0ad9f  ./packages/con
 b5915c898dde12c4b6ebce31aeccaf5f1e7089ca1548149cafe1569073c6a11c  ./packages/contracts/graphql/operations/coach-match-state.graphql
 c65c8364a35975f5ebb9e229e931ab8a1295d5e670ddbcc4da2fb5b9468b4970  ./packages/contracts/graphql/operations/coach-rally-replay.graphql
 3671dc069b0b21b899eac9c9f8551d792a93a2fe0c693b5610578f1acfb4d20e  ./packages/contracts/graphql/operations/create-correction-draft.graphql
+2b6b40e1355e10bd0ee0a5e9ab7d83d69dc337278b82e9ede614ea1caaa94743  ./packages/contracts/graphql/operations/delete-match.graphql
 0b83eda11270d137a0bde40b291f2a991dbd2b801b79d0804e3ac2b460244604  ./packages/contracts/graphql/operations/health.graphql
 893b33b03bd3a3d2463c8cf530bb4057ce81437b123f18b1617675a4e5a7a673  ./packages/contracts/graphql/operations/retry-processing.graphql
 9462325eef7f1f6e839ebdc456881738b844e6075a9682ec8ffd518369d2d7d2  ./packages/contracts/graphql/operations/start-capture.graphql
 03991a59ffbd1535a6786c9e4833c5d490af1227430ea3ce3528259b4437c53d  ./packages/contracts/graphql/operations/start-next-set.graphql
 f0bc667e45925aaefc6f108f357b77eedfbe3ff3f1ac702d39872dbb904e0283  ./packages/contracts/graphql/operations/stop-capture.graphql
 b2cd35474789cc011b5c6b12a8bec5b995e8b65b0e62a17dfc8a516a87c12294  ./packages/contracts/graphql/operations/update-match-clip-policy.graphql
+f197462d46a85cd246e4fbb5b714204a508ef457f214ab25212f47ff23ef9fef  ./packages/contracts/graphql/operations/update-match.graphql
 cce19d478c02fa5ab72c6b233f4aee0fae53185ef1939d129773f6093695b9ef  ./packages/contracts/graphql/schema.graphql
 a3c1876fbe25a1fcd666d8c4f79be157812b1fc274df67ff40fc9d8d51205df9  ./packages/contracts/media/canonical-frame-anchor.schema.json
 637f4e60f310017ac5058486c6a21d67ea231acb8595ab53cc3a1c0a99e0a087  ./packages/contracts/media/frame-step-request.schema.json
@@ -248,11 +251,13 @@ daf55fad91c822857be170cd3d76c6a9170e2ae6df3e9524f6640818f43f310f  ./server/src/g
 4135bbec0689a643e598a4421b8f50d457876c1d746c936a26beb127d6d554dc  ./server/src/media/clip-timing-coverage.ts
 a75d66c2038a5c29bcc6994718e70fd0a43fc2b0fdd3e72a107886dc63ab4a29  ./server/src/media/cursor-resolution.ts
 91981dc02252c90ae48919cf728c76c63d7faa98ef0e01ab93c35051d7fd8661  ./server/src/media/cursor-routes.ts
+3519dbe68bd29ab7bbaacb37127ec96e69e257eedebe43ec45cbabded34a3e97  ./server/src/media/media-object-remover.ts
 98d52b9cc3920720ca8c205f7fed8083077873230356792f09c82c0f3808da2f  ./server/src/media/media-source-gateway.ts
 65f779d23298f3f2014db8ea007d6a4d05d1d54fd69825c3f77d77056c71f9d9  ./server/src/media/minio-object-reader.ts
 5207cd0eb19a912a0c4db589a3dce3ad199b81884e39f84fda352d43dbcab5e6  ./server/src/media/playback-domain.ts
 705542a0de5dc586ef0ff3fba32224322a9253bcf78c21e0909e25f9cd6cc5cc  ./server/src/media/sample-index-repository.ts
 d13d44ad5fe80362b50b01cc66e7b2db4007e002e5e0c5eb1fdb1fc29f1e719d  ./server/src/media/sample-snap-resolver.ts
+d5209c5f3a033e28ac977a1bbc07d653ffe1358b7475c2afeee0d13132504684  ./server/src/operations/host-storage.ts
 789f0fbe544f0c2d943e00d7b6cea6b04de2ad4a1e49de0cfc11181fd136c520  ./server/src/realtime/README.md
 cd54df3e8f5e13172ad98e2132ef306d265ebeabd9aff9a26499674417d1ce25  ./server/src/realtime/ai-progress.ts
 7261830bf27a90f0edcac0ce14165e4f25a83bb1c3a97a26f9daf8a558d0a2b5  ./server/src/realtime/ai-provider-ws.ts
@@ -275,6 +280,7 @@ de29025147f181aec44ae214a244808707395a7c238b167163087cebd4fda429  ./server/src/r
 b01ac5102043af6bfd4b70b17cda269db4aaa77dc82d285d06e4c7ac85671d1e  ./server/src/services/coach-replay.ts
 db236ab8a8cd441d7e39d0b98c1e72e7c9dfac09ab7f98f5b1fede59921bce79  ./server/src/services/core-domain.ts
 f37bc9c1ed3c52ebf0659f8a9f21bc877fd09ab0724593cc0c7f0011618b422f  ./server/src/services/correction-draft.ts
+96bca56bf57e79e262f49bb95af79a2bfbebf355401ec3639a0d1bd9a2d2bb20  ./server/src/services/match-administration.ts
 3cfc6003cd4a60302dc311dbc45d900d2882b5c42df91e2aa2a3df5c5214374e  ./server/src/services/media-timeline.ts
 26387385173505f1286bbf957a4df01887f746eb97c0fe93cf82b07f0e858411  ./server/src/services/processing-rally-cancellation.ts
 0640ff9e62fa9ec4a52ff4e8c63462470ef11f71d21951fe4272bb0f4ca4c969  ./server/tests/ai-callback.integration.test.ts
@@ -288,6 +294,8 @@ e78b3d282fc84eaeea81fa758411bd4eac7e4816f98e4e357e96a41fad85ef11  ./server/tests
 bffa5e6ec917f20d4492a9e414ca4c59279c45487d8fdbcfaf505ef7861840f4  ./server/tests/capture-processing.integration.test.ts
 a3bc5f222c0e4c7931a332e457bdce0db916b4d669a4ec3e762658c862c82b48  ./server/tests/clip-timing-coverage.test.ts
 a83a40e10ddf6b975d728c48c81a98b13271751f7811f1c7a1523133accf6a0a  ./server/tests/core-domain.integration.test.ts
+b739b410b1ca5e1fdaa55c87f1134cfa7dbf033e8a970b36aef8f93f7b9e3fae  ./server/tests/host-storage.test.ts
+ea3c0c4c5dbe78386393aeed08aaa807222cabb296f6f5b196a3df712d2ff478  ./server/tests/match-administration.test.ts
 a24d73e176377bf389b5fdc14d32c7a395923b40e13127027d0aa65ed839f329  ./server/tests/media-cursor.integration.test.ts
 6d823e04ffda4ba5f7a833727effaa05b3c7c12a1e23a9eb0c82ba9679f5c287  ./server/tests/media-cursor.unit.test.ts
 e734bbb912f20f02bf36b5d3908fd43c1dfe44838294424d56e68b7a6a388164  ./server/tests/media-playback.integration.test.ts
@@ -332,6 +340,8 @@ cb7f000e0b333fc93f3f52c97f6bf607932dc1723395bc43c2bde2cae4197d1c  ./web/app/comp
 1ea0f5302d864cba27a1fa3d9c1479ca37803ceec653617d53920b86efa878ea  ./web/app/components/TeamSetupCard.vue
 6622188f83572c70f0cc52d15bba96a4820f45f75ce5fb17278f973845a7eba3  ./web/app/components/VideoOverlayPlayer.vue
 4286a12b4e1640b27779890d2d7886ee47535c2118b8c1a1f3eded52208bd5f4  ./web/app/components/WsPingBadge.vue
+5ef7ed4b9a4a26a027390013501df7c3211a9c9567e290e7eb6711169cdc54a6  ./web/app/components/control/MatchDeleteDialog.vue
+0cc79bc3fb980f333259707d6977c84abf437e0994507a1409634df880e3b706  ./web/app/components/control/MatchEditorDialog.vue
 0a307ea2fc96847dfa9af301d423ceac18e94a0313b020d28da19b0112262009  ./web/app/components/ui/AnimatedModal.vue
 52c5972b89dc13836803c98a5724cb130a90732189e74c7956ce71c413b43ae5  ./web/app/components/ui/Button.vue
 60f8aacd06e2887f9e04aca1541ba2923e94013cd8a00dbae895585f0461028d  ./web/app/components/ui/Kbd.vue
