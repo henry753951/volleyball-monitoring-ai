@@ -38,15 +38,12 @@ const snapshot: OperationsSnapshot = {
     status: 'online',
     canDelete: false,
   }],
-  aiIntegrations: [{
-    name: 'Primary analysis pool',
-    enabled: true,
+  aiWorkerAccess: {
+    name: 'volleyball-analysis-engine',
     authMode: 'managed',
     workerCount: 1,
     onlineWorkerCount: 1,
     activeJobCount: 1,
-    createdAt: '2026-08-07T00:00:00.000Z',
-    updatedAt: '2026-08-08T00:00:00.000Z',
     tokens: [{
       id: '40000000-0000-4000-8000-000000000001',
       name: 'GPU A',
@@ -56,7 +53,7 @@ const snapshot: OperationsSnapshot = {
       createdAt: '2026-08-07T00:00:00.000Z',
       updatedAt: '2026-08-08T00:00:00.000Z',
     }],
-  }],
+  },
   aiWork: [],
   hostStorage: {
     available: true,

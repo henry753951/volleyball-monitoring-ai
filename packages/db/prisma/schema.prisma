@@ -117,11 +117,6 @@ enum ProcessingStatus {
   SUPERSEDED
 }
 
-enum AiTransportMode {
-  HTTP_PUSH
-  WS_AGENT
-}
-
 enum SubmissionStatus {
   ACTIVE
   SUPERSEDED
@@ -815,73 +810,48 @@ model ClipKeyPointMapping {
   @@unique([clipJobId, clipFrameIndex])
 }
 
-model AiIntegration {
-  id                  String               @id @default(uuid()) @db.Uuid
-  name                String               @unique
-  capabilitiesUrl     String?
-  submitUrl           String?
-  authSecretRef       String
-  enabled             Boolean              @default(true)
-  transportMode       AiTransportMode      @default(HTTP_PUSH)
-  jobSchemaVersion    String               @default("1.1.0")
-  resultSchemaVersion String               @default("1.0.0")
-  overlayFormat       String               @default("flatbuffers_v1")
-  createdAt           DateTime             @default(now())
-  updatedAt           DateTime             @updatedAt
-  jobs                AiJob[]
-  providerInstances   AiProviderInstance[]
-  accessTokens        AiIntegrationAccessToken[]
-}
+model AiWorkerAccessToken {
+  id          String    @id @default(uuid()) @db.Uuid
+  name        String    @unique
+  tokenHash   String    @unique
+  tokenPrefix String
+  enabled     Boolean   @default(true)
+  lastUsedAt  DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
 
-model AiIntegrationAccessToken {
-  id            String        @id @default(uuid()) @db.Uuid
-  integrationId String        @db.Uuid
-  name          String
-  tokenHash     String        @unique
-  tokenPrefix   String
-  enabled       Boolean       @default(true)
-  lastUsedAt    DateTime?
-  createdAt     DateTime      @default(now())
-  updatedAt     DateTime      @updatedAt
-  integration   AiIntegration @relation(fields: [integrationId], references: [id], onDelete: Cascade)
-
-  @@unique([integrationId, name])
-  @@index([integrationId, enabled])
+  @@index([enabled])
 }
 
 model AiProviderInstance {
-  id              String        @id @default(uuid()) @db.Uuid
-  integrationId   String        @db.Uuid
-  instanceKey     String
+  id              String    @id @default(uuid()) @db.Uuid
+  instanceKey     String    @unique
   sdkVersion      String
   providerBuildId String
   capabilities    Json
   maxConcurrency  Int
   lastSeenAt      DateTime
-  connectedAt     DateTime      @default(now())
+  connectedAt     DateTime  @default(now())
   disconnectedAt  DateTime?
   latencyMs       Int?
   lastPingAt      DateTime?
   lastPongAt      DateTime?
-  createdAt       DateTime      @default(now())
-  updatedAt       DateTime      @updatedAt
-  integration     AiIntegration @relation(fields: [integrationId], references: [id], onDelete: Cascade)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
   jobs            AiJob[]
 
-  @@unique([integrationId, instanceKey])
-  @@index([integrationId, lastSeenAt])
+  @@index([lastSeenAt])
 }
 
 model AiJob {
   id                     String              @id @default(uuid()) @db.Uuid
-  integrationId          String              @db.Uuid
   submissionId           String              @db.Uuid
   clipJobId              String              @db.Uuid
   status                 JobStatus           @default(QUEUED)
   idempotencyKey         String              @unique
   requestPayload         Json
   requestPayloadHash     String
-  jobSchemaVersion       String
+  jobSchemaVersion       String              @default("1.1.0")
   callbackTokenHash      String
   callbackTokenExpiresAt DateTime
   providerInstanceId     String?             @db.Uuid
@@ -903,7 +873,6 @@ model AiJob {
   lastCallbackAt         DateTime?
   createdAt              DateTime            @default(now())
   updatedAt              DateTime            @updatedAt
-  integration            AiIntegration       @relation(fields: [integrationId], references: [id], onDelete: Restrict)
   providerInstance       AiProviderInstance? @relation(fields: [providerInstanceId], references: [id], onDelete: SetNull)
   submission             RallySubmission     @relation(fields: [submissionId], references: [id], onDelete: Restrict)
   clipJob                ClipJob             @relation(fields: [clipJobId], references: [id], onDelete: Restrict)

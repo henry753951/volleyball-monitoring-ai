@@ -4,15 +4,12 @@ import type { db as DatabaseClient } from '@volleyball-monitoring/db'
 const ACTIVE_JOB_STATUSES = ['QUEUED', 'RUNNING'] as const
 const NAME_PATTERN = /^[\p{L}\p{N}][\p{L}\p{N}._ -]{1,62}[\p{L}\p{N}]$/u
 
-export interface AiIntegrationAccessSnapshot {
-  name: string
-  enabled: boolean
-  authMode: 'managed' | 'environment' | 'legacy'
+export interface AiWorkerAccessSnapshot {
+  name: 'volleyball-analysis-engine'
+  authMode: 'managed' | 'environment' | 'unconfigured'
   workerCount: number
   onlineWorkerCount: number
   activeJobCount: number
-  createdAt: string
-  updatedAt: string
   tokens: AiWorkerTokenSnapshot[]
 }
 
@@ -24,17 +21,6 @@ export interface AiWorkerTokenSnapshot {
   lastUsedAt: string | null
   createdAt: string
   updatedAt: string
-}
-
-export interface AiWorkerIntegration {
-  id: string
-  name: string
-  authSecretRef: string
-  enabled: boolean
-  transportMode: string
-  jobSchemaVersion: string
-  resultSchemaVersion: string
-  overlayFormat: string
 }
 
 export class AiWorkerAccessError extends Error {
@@ -50,9 +36,8 @@ const equal = (left: string, right: string) => {
   return leftBytes.length === rightBytes.length && timingSafeEqual(leftBytes, rightBytes)
 }
 
-function environmentToken(authSecretRef: string): string | undefined {
-  const referenced = authSecretRef.startsWith('env:') ? process.env[authSecretRef.slice(4)] : undefined
-  return process.env.AI_PROVIDER_WS_TOKEN ?? referenced
+function environmentToken(): string | undefined {
+  return process.env.AI_PROVIDER_WS_TOKEN
 }
 
 function normalizeName(value: string): string {
@@ -65,127 +50,44 @@ function freshToken() {
   return `vmai_${randomBytes(32).toString('base64url')}`
 }
 
-export async function authenticateAiIntegrationToken(
+export async function authenticateAiWorkerToken(
   database: typeof DatabaseClient,
-  integration: { id: string; authSecretRef: string },
   presentedToken: string | undefined,
 ): Promise<boolean> {
   if (!presentedToken) return false
-  const configured = environmentToken(integration.authSecretRef)
+  const configured = environmentToken()
   if (configured && equal(sha256(presentedToken), sha256(configured))) return true
 
   const tokenHash = sha256(presentedToken)
-  const token = await database.aiIntegrationAccessToken.findFirst({
+  const token = await database.aiWorkerAccessToken.findFirst({
     select: { id: true },
-    where: { enabled: true, integrationId: integration.id, tokenHash },
+    where: { enabled: true, tokenHash },
   })
   if (!token) return false
-  await database.aiIntegrationAccessToken.update({
+  await database.aiWorkerAccessToken.update({
     data: { lastUsedAt: new Date() },
     where: { id: token.id },
   })
   return true
 }
 
-/**
- * Resolves the single external analysis service from its credential.
- *
- * The token is the routing identity, so workers connect to one stable URL and
- * never need to know the internal AiIntegration primary key. Managed tokens
- * are globally unique. Environment credentials remain a compatibility path;
- * an ambiguous shared secret is accepted only for the canonical engine row.
- */
-export async function resolveAiIntegrationForToken(
-  database: typeof DatabaseClient,
-  presentedToken: string | undefined,
-): Promise<AiWorkerIntegration | null> {
-  if (!presentedToken) return null
-
-  const token = await database.aiIntegrationAccessToken.findFirst({
-    select: {
-      id: true,
-      integration: {
-        select: {
-          authSecretRef: true,
-          enabled: true,
-          id: true,
-          jobSchemaVersion: true,
-          name: true,
-          overlayFormat: true,
-          resultSchemaVersion: true,
-          transportMode: true,
-        },
-      },
-    },
-    where: {
-      enabled: true,
-      tokenHash: sha256(presentedToken),
-      integration: { enabled: true, transportMode: 'WS_AGENT' },
-    },
-  })
-  if (token) {
-    await database.aiIntegrationAccessToken.update({
-      data: { lastUsedAt: new Date() },
-      where: { id: token.id },
-    })
-    return token.integration
-  }
-
-  const integrations = await database.aiIntegration.findMany({
-    orderBy: { updatedAt: 'desc' },
-    where: { enabled: true, transportMode: 'WS_AGENT' },
-    select: {
-      authSecretRef: true,
-      enabled: true,
-      id: true,
-      jobSchemaVersion: true,
-      name: true,
-      overlayFormat: true,
-      resultSchemaVersion: true,
-      transportMode: true,
-    },
-  })
-  const matches = integrations.filter(integration => {
-    const configured = environmentToken(integration.authSecretRef)
-    return configured !== undefined && equal(sha256(presentedToken), sha256(configured))
-  })
-  if (matches.length === 1) return matches[0] ?? null
-  return matches.find(integration => integration.name === 'volleyball-analysis-engine') ?? null
-}
-
-export async function listAiIntegrationAccess(
+export async function getAiWorkerAccess(
   database: typeof DatabaseClient,
   now = new Date(),
-): Promise<AiIntegrationAccessSnapshot[]> {
+): Promise<AiWorkerAccessSnapshot> {
   const onlineAfter = new Date(now.getTime() - 30_000)
-  const integrations = await database.aiIntegration.findMany({
-    orderBy: [{ enabled: 'desc' }, { updatedAt: 'desc' }],
-    where: { transportMode: 'WS_AGENT' },
-    select: {
-      accessTokens: { orderBy: [{ enabled: 'desc' }, { createdAt: 'desc' }] },
-      authSecretRef: true, createdAt: true, enabled: true, id: true, name: true, updatedAt: true,
-      _count: {
-        select: {
-          jobs: { where: { status: { in: [...ACTIVE_JOB_STATUSES] } } },
-          providerInstances: true,
-        },
-      },
-      providerInstances: {
-        select: { id: true },
-        where: { disconnectedAt: null, lastSeenAt: { gte: onlineAfter } },
-      },
-    },
-  })
-  return integrations.map(integration => ({
-    activeJobCount: integration._count.jobs,
-    authMode: integration.accessTokens.length > 0
-      ? 'managed'
-      : integration.authSecretRef.startsWith('env:') ? 'environment' : 'legacy',
-    createdAt: integration.createdAt.toISOString(),
-    enabled: integration.enabled,
-    name: integration.name,
-    onlineWorkerCount: integration.providerInstances.length,
-    tokens: integration.accessTokens.map(token => ({
+  const [tokens, workerCount, onlineWorkerCount, activeJobCount] = await Promise.all([
+    database.aiWorkerAccessToken.findMany({ orderBy: [{ enabled: 'desc' }, { createdAt: 'desc' }] }),
+    database.aiProviderInstance.count(),
+    database.aiProviderInstance.count({ where: { disconnectedAt: null, lastSeenAt: { gte: onlineAfter } } }),
+    database.aiJob.count({ where: { status: { in: [...ACTIVE_JOB_STATUSES] } } }),
+  ])
+  return {
+    activeJobCount,
+    authMode: tokens.length > 0 ? 'managed' : environmentToken() ? 'environment' : 'unconfigured',
+    name: 'volleyball-analysis-engine',
+    onlineWorkerCount,
+    tokens: tokens.map(token => ({
       createdAt: token.createdAt.toISOString(),
       enabled: token.enabled,
       id: token.id,
@@ -194,9 +96,8 @@ export async function listAiIntegrationAccess(
       tokenPrefix: token.tokenPrefix,
       updatedAt: token.updatedAt.toISOString(),
     })),
-    updatedAt: integration.updatedAt.toISOString(),
-    workerCount: integration._count.providerInstances,
-  }))
+    workerCount,
+  }
 }
 
 export async function createAiWorkerToken(
@@ -205,15 +106,9 @@ export async function createAiWorkerToken(
 ) {
   const name = normalizeName(rawName)
   const token = freshToken()
-  const integration = await database.aiIntegration.findFirst({
-    select: { id: true },
-    where: { enabled: true, name: 'volleyball-analysis-engine', transportMode: 'WS_AGENT' },
-  })
-  if (!integration) throw new AiWorkerAccessError('NOT_FOUND', 'volleyball-analysis-engine 尚未啟用')
   try {
-    const accessToken = await database.aiIntegrationAccessToken.create({
+    const accessToken = await database.aiWorkerAccessToken.create({
       data: {
-        integrationId: integration.id,
         name,
         tokenHash: sha256(token),
         tokenPrefix: token.slice(0, 12),
@@ -232,7 +127,7 @@ export async function createAiWorkerToken(
 
 export async function rotateAiWorkerToken(database: typeof DatabaseClient, tokenId: string) {
   const token = freshToken()
-  const updated = await database.aiIntegrationAccessToken.updateMany({
+  const updated = await database.aiWorkerAccessToken.updateMany({
     data: { enabled: true, lastUsedAt: null, tokenHash: sha256(token), tokenPrefix: token.slice(0, 12) },
     where: { id: tokenId },
   })
@@ -245,7 +140,7 @@ export async function setAiWorkerTokenEnabled(
   tokenId: string,
   enabled: boolean,
 ) {
-  const updated = await database.aiIntegrationAccessToken.updateMany({ data: { enabled }, where: { id: tokenId } })
+  const updated = await database.aiWorkerAccessToken.updateMany({ data: { enabled }, where: { id: tokenId } })
   if (updated.count !== 1) throw new AiWorkerAccessError('NOT_FOUND', 'Worker Token 不存在')
   return { enabled, tokenId }
 }

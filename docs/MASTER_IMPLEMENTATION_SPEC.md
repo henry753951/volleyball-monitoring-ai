@@ -1118,7 +1118,7 @@ type Mutation {
 - RallyDraft（`Rally`）／mutable KeyPoint／AnnotationOperation。
 - immutable RallySubmission／RallySubmissionKeyPoint／PointAward。
 - ClipJob／ClipKeyPointMapping。
-- AiIntegration／AiJob／AiCallbackReceipt。
+- AiWorkerAccessToken／AiProviderInstance／AiJob／AiCallbackReceipt；中央系統只維護單一 `volleyball-analysis-engine` 作業佇列，不以 integration／pool 分區。
 - AnalysisRun／AnalysisTrack／ContactEvent／Actor／Candidate／BallPathSegment／AnalysisArtifact。
 - TrackIdentityAssignment／OutboxEvent。
 

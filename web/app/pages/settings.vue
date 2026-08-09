@@ -15,6 +15,6 @@
       <p class="mt-2 text-sm text-stone-600">比分、路徑與分析資料由中央伺服器同步；網路中斷時會顯示離線狀態，恢復連線後自動更新。</p>
     </div>
 
-    <p class="text-sm text-stone-600">僅授權角色可操作 integration、retention 與 system profile。</p>
+    <p class="text-sm text-stone-600">僅授權角色可管理 AI Worker、資料保留與系統設定。</p>
   </section>
 </template>

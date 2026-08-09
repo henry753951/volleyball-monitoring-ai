@@ -30,7 +30,6 @@ const ids = {
   capture: '95000000-0000-4000-8000-000000000003',
   clipAsset: '95000000-0000-4000-8000-000000000004',
   clipJob: '95000000-0000-4000-8000-000000000005',
-  integration: '95000000-0000-4000-8000-000000000006',
   left: '95000000-0000-4000-8000-000000000007',
   match: '95000000-0000-4000-8000-000000000008',
   operator: '95000000-0000-4000-8000-000000000009',
@@ -141,9 +140,8 @@ beforeAll(async () => {
     id: ids.clipJob, submissionId: ids.submission, status: 'COMPLETED', idempotencyKey: 'callback-clip', canonicalizationProfileVersion: 'canonical-v1',
     requestedStartCaptureUs: 0n, requestedEndCaptureUs: 1_000_000n, actualStartCaptureUs: 0n, actualEndCaptureUs: 1_000_000n, clipAssetId: ids.clipAsset,
   } })
-  await db.aiIntegration.create({ data: { id: ids.integration, name: 'callback-fixture', submitUrl: 'http://provider.invalid/jobs', authSecretRef: 'secret://provider/callback' } })
   await db.aiJob.create({ data: {
-    id: ids.aiJob, integrationId: ids.integration, submissionId: ids.submission, clipJobId: ids.clipJob, status: 'QUEUED', idempotencyKey: 'callback-ai',
+    id: ids.aiJob, submissionId: ids.submission, clipJobId: ids.clipJob, status: 'QUEUED', idempotencyKey: 'callback-ai',
     requestPayload: {}, requestPayloadHash: 'b'.repeat(64), jobSchemaVersion: '1.1.0', callbackTokenHash,
     callbackTokenExpiresAt: new Date(Date.now() + 60 * 60 * 1000),
   } })

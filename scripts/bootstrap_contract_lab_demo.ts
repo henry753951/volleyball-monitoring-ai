@@ -26,7 +26,6 @@ const ids = {
   rightRoster: '00000000-0000-4000-8000-000000000042',
   set: '00000000-0000-4000-8000-000000000030',
   assignment: '00000000-0000-4000-8000-000000000031',
-  integration: '00000000-0000-4000-8000-000000000050',
   capture: '00000000-0000-4000-8000-000000000060',
   rally: '421ef85d-688a-4d58-8682-1dd8e8aa7faa',
   submission: 'ae4c3d05-e9de-4529-84b0-e2c41af27b4b',
@@ -127,12 +126,6 @@ async function upsertScaffold(db: PrismaClient) {
       where: { id: ids.capture },
       update: { sourceKind: 'LOCAL_MP4', sourceLabel: 'DEMO 影片' },
       create: { id: ids.capture, matchId: ids.match, sourceKind: 'LOCAL_MP4', sourceLabel: 'DEMO 影片', ingestPath },
-    })
-    await tx.aiIntegration.updateMany({ where: { id: { not: ids.integration }, transportMode: 'HTTP_PUSH' }, data: { enabled: false } })
-    await tx.aiIntegration.upsert({
-      where: { id: ids.integration },
-      update: { name: 'volleyball-analysis-engine', transportMode: 'WS_AGENT', enabled: true, capabilitiesUrl: null, submitUrl: null, authSecretRef: 'env:AI_PROVIDER_WS_TOKEN' },
-      create: { id: ids.integration, name: 'volleyball-analysis-engine', transportMode: 'WS_AGENT', capabilitiesUrl: null, submitUrl: null, authSecretRef: 'env:AI_PROVIDER_WS_TOKEN', enabled: true, jobSchemaVersion: '1.1.0', resultSchemaVersion: '1.0.0', overlayFormat: 'flatbuffers_v1' },
     })
   })
 }
@@ -331,8 +324,8 @@ async function createRallyBundle(db: PrismaClient, client: Client, timeline: Awa
     const existingRun = await tx.analysisRun.findUnique({ where: { aiJobId: ids.aiJob } })
     await tx.aiJob.upsert({
       where: { id: ids.aiJob },
-      update: existingRun ? {} : { integrationId: ids.integration, status: 'QUEUED', requestPayload: basePayload, requestPayloadHash: sha256(stableJson(basePayload)), callbackTokenHash: sha256(callbackToken), callbackTokenExpiresAt: new Date(Date.now() + 86_400_000), availableAt: new Date(), leasedUntil: null, errorCode: null, errorMessage: null },
-      create: { id: ids.aiJob, integrationId: ids.integration, submissionId: ids.submission, clipJobId: ids.clipJob, status: 'QUEUED', idempotencyKey: `volleyball-analysis-engine:${ids.submission}`, requestPayload: basePayload, requestPayloadHash: sha256(stableJson(basePayload)), jobSchemaVersion: '1.1.0', callbackTokenHash: sha256(callbackToken), callbackTokenExpiresAt: new Date(Date.now() + 86_400_000) },
+      update: existingRun ? {} : { status: 'QUEUED', requestPayload: basePayload, requestPayloadHash: sha256(stableJson(basePayload)), callbackTokenHash: sha256(callbackToken), callbackTokenExpiresAt: new Date(Date.now() + 86_400_000), availableAt: new Date(), leasedUntil: null, errorCode: null, errorMessage: null },
+      create: { id: ids.aiJob, submissionId: ids.submission, clipJobId: ids.clipJob, status: 'QUEUED', idempotencyKey: `volleyball-analysis-engine:${ids.submission}`, requestPayload: basePayload, requestPayloadHash: sha256(stableJson(basePayload)), jobSchemaVersion: '1.1.0', callbackTokenHash: sha256(callbackToken), callbackTokenExpiresAt: new Date(Date.now() + 86_400_000) },
     })
     if (existingRun) await tx.rally.update({ where: { id: ids.rally }, data: { processingStatus: 'COMPLETED' } })
   })

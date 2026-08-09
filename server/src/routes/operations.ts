@@ -2,7 +2,7 @@ import type { db as DatabaseClient } from '@volleyball-monitoring/db'
 import type { FastifyPluginAsync, FastifyRequest } from 'fastify'
 import type { ReadinessResult } from '../health/readiness.js'
 import type { HostStorageProbe, HostStorageSnapshot } from '../operations/host-storage.js'
-import { AiWorkerAccessError, listAiIntegrationAccess, type AiIntegrationAccessSnapshot } from '../services/ai-worker-access.js'
+import { AiWorkerAccessError, getAiWorkerAccess, type AiWorkerAccessSnapshot } from '../services/ai-worker-access.js'
 
 export interface MetricGroup {
   count: number
@@ -28,7 +28,7 @@ export interface OperationsSnapshot {
     rallies: MetricGroup[]
   }
   aiWorkers: AiWorkerSnapshot[]
-  aiIntegrations: AiIntegrationAccessSnapshot[]
+  aiWorkerAccess: AiWorkerAccessSnapshot
   aiWork: AiWorkSnapshot[]
   hostStorage: HostStorageSnapshot
   matchMedia: MatchMediaSnapshot[]
@@ -174,7 +174,7 @@ export async function collectOperationsSnapshot(
   identity?: OperationsIdentity,
   hostStorageProbe?: HostStorageProbe,
 ): Promise<OperationsSnapshot> {
-  const [rallies, clipJobs, aiJobs, captures, outboxEvents, callbacks, mediaAssets, annotationReceipts, annotationOperations, captureSessions, providerInstances, recentAiWork, activeAiJobs, aiIntegrations] = await Promise.all([
+  const [rallies, clipJobs, aiJobs, captures, outboxEvents, callbacks, mediaAssets, annotationReceipts, annotationOperations, captureSessions, providerInstances, recentAiWork, activeAiJobs, aiWorkerAccess] = await Promise.all([
     database.rally.groupBy({ by: ['annotationStatus', 'processingStatus'], _count: { _all: true } }),
     database.clipJob.groupBy({ by: ['status'], _count: { _all: true } }),
     database.aiJob.groupBy({ by: ['status'], _count: { _all: true } }),
@@ -257,7 +257,7 @@ export async function collectOperationsSnapshot(
       },
       _count: { _all: true },
     }),
-    listAiIntegrationAccess(database),
+    getAiWorkerAccess(database),
   ])
   const programIds = captureSessions.flatMap(capture => capture.programs.map(program => program.id))
   const [segmentTotals, readySegments, gapSegments] = programIds.length === 0
@@ -371,7 +371,7 @@ export async function collectOperationsSnapshot(
         canDelete: status !== 'online' && activeJobs === 0,
       }
     }),
-    aiIntegrations,
+    aiWorkerAccess,
     aiWork: recentAiWork.map(job => ({
       id: job.id,
       matchId: job.submission.rally.match.id,

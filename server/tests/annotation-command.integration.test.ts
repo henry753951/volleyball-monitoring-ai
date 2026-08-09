@@ -900,9 +900,8 @@ describe('durable service annotation command', () => {
       clipAssetId, timingManifestAssetId: timingAssetId, completedAt: new Date(),
     } })
     await db.clipKeyPointMapping.create({ data: { clipJobId: sourceClip.id, submissionKeyPointId: sourcePoint.id, clipPts: 0n, clipTimeUs: 1n, clipFrameIndex: 0n } })
-    const integration = await db.aiIntegration.create({ data: { name: `reuse-${rallyId}`, submitUrl: 'http://reuse.invalid/v1/jobs', authSecretRef: 'reuse-test' } })
     const sourceAi = await db.aiJob.create({ data: {
-      integrationId: integration.id, submissionId: sourceSubmission.id, clipJobId: sourceClip.id, status: 'COMPLETED',
+      submissionId: sourceSubmission.id, clipJobId: sourceClip.id, status: 'COMPLETED',
       idempotencyKey: `reuse-source:${rallyId}`, requestPayload: { ai_job_id: 'source', rally_submission_id: sourceSubmission.id, annotation_revision: sourceSubmission.annotationRevision.toString(), key_points: [{ key_point_id: sourcePoint.id }], outcome: { score_resolution: 'unknown', scoring_court_side: null } },
       requestPayloadHash: 'd'.repeat(64), jobSchemaVersion: '1.1.0', callbackTokenHash: 'e'.repeat(64), callbackTokenExpiresAt: new Date(), completedAt: new Date(),
     } })

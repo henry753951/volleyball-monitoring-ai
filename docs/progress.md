@@ -997,3 +997,22 @@ The Nuxt build emits a dependency-level Node `DEP0155` deprecation warning but c
 - Updated the bundled Python example and ADRs; old SDK URL compatibility is intentionally unsupported.
 - Repository typecheck, all 228 Server tests, all 152 Web tests and all 20 Python SDK tests pass.
   Headed Chromium confirmed the fixed WS endpoint and name-only Token dialog with no console errors.
+
+# 2026-08-09 — Remove the AI integration persistence domain
+
+- Superseded the temporary private-integration compromise in ADR 0026. The product has exactly one
+  `volleyball-analysis-engine`, so Worker Tokens, connected instances and durable AI jobs now share
+  one global scheduling domain with no integration UUID or Worker Pool abstraction.
+- Replaced `AiIntegrationAccessToken` with `AiWorkerAccessToken`, made Token names and Worker instance
+  keys globally unique, removed all three integration foreign keys, and dropped `AiIntegration` plus
+  its transport enum through migration `20260809234000_single_ai_engine`.
+- Kept the fixed `/api/v1/ai/providers/ws` endpoint, bearer authentication, least-busy scheduling,
+  Provider Realtime messages, immutable job payloads and callbacks unchanged. The control snapshot
+  now exposes one `aiWorkerAccess` object rather than a list of integrations.
+- The local preflight found one obsolete configuration row, zero Worker Tokens, zero Worker
+  instances, zero AI jobs and no global-name conflicts. The migration applied successfully; a
+  postflight query confirms the old table and every `integrationId` column are absent.
+- Validation passed: full repository typecheck and production build; contracts 14, DB 4, media 88,
+  Server 229, Worker 163 with 6 environment-gated skips, Web 152 and Python SDK 20 tests; Prisma,
+  scaffold/checksum and source literal scans. The regenerated 42-page specification PDF was rendered
+  at the changed data-model page and visually verified.
