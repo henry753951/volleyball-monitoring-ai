@@ -1,6 +1,18 @@
 import { mount } from '@vue/test-utils'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import AnnotationTransportBar from './AnnotationTransportBar.vue'
+
+vi.mock('motion-v', async () => {
+  const { defineComponent, h } = await import('vue')
+  const passthrough = (name: string) => defineComponent({
+    name,
+    inheritAttrs: true,
+    setup(_, { attrs, slots }) {
+      return () => h('div', attrs, slots.default?.())
+    },
+  })
+  return { AnimatePresence: passthrough('AnimatePresence'), Motion: passthrough('Motion') }
+})
 
 const baseProps = {
   playing: false,
@@ -16,37 +28,76 @@ const baseProps = {
   contextState: '分析完成',
   correctionActive: false,
   submittedSelected: true,
+  clipSelected: false,
+  draftSelected: false,
+  submitEnabled: false,
   navigable: true,
   selectedPoint: true,
   editable: true,
   editReady: true,
-  deleteEnabled: true,
+  pointDeleteEnabled: true,
   muted: false,
   timelineScale: 0.1,
   shortcuts: {
     play: 'Space',
     previousFrame: 'ArrowLeft',
     nextFrame: 'ArrowRight',
-    previousPoint: 'A',
-    nextPoint: 'D',
+    previousPoint: 'Shift+ArrowLeft',
+    nextPoint: 'Shift+ArrowRight',
   },
 }
 
 describe('AnnotationTransportBar', () => {
-  it('keeps correction cancellation available when ordinary editing is blocked', async () => {
-    const wrapper = mount(AnnotationTransportBar, {
-      props: { ...baseProps, correctionActive: true, editReady: false },
-    })
+  it('reveals clip actions only after a clip is selected', async () => {
+    const wrapper = mount(AnnotationTransportBar, { props: baseProps })
+
+    expect(wrapper.find('[aria-label="片段工具"]').exists()).toBe(false)
+    expect(wrapper.find('[aria-label="刪除所選片段"]').exists()).toBe(false)
+
+    await wrapper.setProps({ clipSelected: true })
+
+    expect(wrapper.find('[aria-label="片段工具"]').exists()).toBe(true)
+    await wrapper.find('[aria-label="刪除所選片段"]').trigger('click')
+    expect(wrapper.emitted('deleteClip')).toHaveLength(1)
+  })
+
+  it('keeps key-point deletion separate from clip deletion', async () => {
+    const wrapper = mount(AnnotationTransportBar, { props: baseProps })
+
+    await wrapper.find('[aria-label="刪除所選擊球點"]').trigger('click')
+
+    expect(wrapper.emitted('deletePoint')).toHaveLength(1)
+    expect(wrapper.emitted('deleteClip')).toBeUndefined()
+  })
+
+  it('keeps correction cancellation available for the selected correction when editing is blocked', async () => {
+    const wrapper = mount(AnnotationTransportBar, { props: { ...baseProps, clipSelected: true, correctionActive: true, editReady: false } })
     const cancel = wrapper.get('[aria-label="取消修正片段"]')
     expect(cancel.attributes('disabled')).toBeUndefined()
     await cancel.trigger('click')
     expect(wrapper.emitted('cancelCorrection')).toHaveLength(1)
   })
 
+  it('hides correction actions when its clip is not selected', () => {
+    const wrapper = mount(AnnotationTransportBar, { props: { ...baseProps, correctionActive: true } })
+    expect(wrapper.find('[aria-label="片段工具"]').exists()).toBe(false)
+    expect(wrapper.find('[aria-label="取消修正片段"]').exists()).toBe(false)
+  })
+
+  it('provides a physical submit action for every selected draft', async () => {
+    const wrapper = mount(AnnotationTransportBar, { props: { ...baseProps, clipSelected: true, draftSelected: true, submitEnabled: true, submittedSelected: false } })
+    await wrapper.get('[aria-label="送出片段"]').trigger('click')
+    expect(wrapper.emitted('submit')).toHaveLength(1)
+  })
+
+  it('uses correction-draft language without implementation terminology', () => {
+    const wrapper = mount(AnnotationTransportBar, { props: { ...baseProps, clipSelected: true } })
+    expect(wrapper.get('[aria-label="建立修正版草稿"]').text()).toContain('建立修正版草稿')
+    expect(wrapper.text()).not.toContain('immutable')
+  })
+
   it('shows a stable timeline scale beside mute and resets it on click', async () => {
-    const wrapper = mount(AnnotationTransportBar, {
-      props: { ...baseProps, timelineScale: 0.01 },
-    })
+    const wrapper = mount(AnnotationTransportBar, { props: { ...baseProps, timelineScale: 0.01 } })
     const scale = wrapper.get('[aria-label^="時間軸倍率"]')
     expect(scale.text()).toBe('0.01×')
     await scale.trigger('click')

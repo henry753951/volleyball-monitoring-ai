@@ -368,7 +368,7 @@ async function acceptService(
     await setAllocationLock(tx, set.id)
     const activeDraft = await tx.rally.findFirst({
       select: { id: true },
-      where: { annotationStatus: 'OPEN', matchId: room.matchId, voidedAt: null },
+      where: { activeSubmissionId: null, annotationStatus: 'OPEN', matchId: room.matchId, voidedAt: null },
     })
     if (activeDraft) {
       return persistRejection(tx, command, identity, hash, rejected(
@@ -649,15 +649,27 @@ async function acceptDraftEdit(database: PrismaClient, room: AnnotationRoom, com
     const revision = rally.annotationRevision + 1n
     let effects: Record<string, unknown> = {}
     if (command.kind === 'REOPEN_RALLY') {
-      if (rally.annotationStatus !== 'READY') return persistRejection(tx, command, identity, hash, rejected(command, 'RALLY_NOT_READY', 'Only a READY Rally can be reopened'))
-      const competing = await tx.rally.findFirst({
-        where: { id: { not: rally.id }, matchId: rally.matchId, annotationStatus: 'OPEN', voidedAt: null },
-        select: { id: true },
+      const isCorrection = rally.activeSubmissionId !== null
+      if (rally.annotationStatus !== 'READY' && !(isCorrection && rally.annotationStatus === 'OPEN')) return persistRejection(tx, command, identity, hash, rejected(command, 'RALLY_NOT_READY', 'Only a READY Rally or an open correction draft can be reopened'))
+      if (!isCorrection) {
+        const competing = await tx.rally.findFirst({
+          where: { activeSubmissionId: null, id: { not: rally.id }, matchId: rally.matchId, annotationStatus: 'OPEN', voidedAt: null },
+          select: { id: true },
+        })
+        if (competing) return persistRejection(tx, command, identity, hash, rejected(command, 'ACTIVE_RALLY_EXISTS', 'Close or void the open Rally before reopening another draft'))
+      }
+      if (!isCorrection) {
+        await tx.keyPoint.updateMany({ where: { rallyId: rally.id, deletedAt: null, isTerminal: true }, data: { isTerminal: false, updatedByUserId: identity.userId } })
+      }
+      await tx.rally.update({
+        where: { id: rally.id },
+        data: isCorrection
+          ? { annotationRevision: revision, annotationStatus: 'OPEN' }
+          : { annotationRevision: revision, annotationStatus: 'OPEN', scoreResolutionState: 'PENDING', scoringCourtSide: null, scoringTeamId: null },
       })
-      if (competing) return persistRejection(tx, command, identity, hash, rejected(command, 'ACTIVE_RALLY_EXISTS', 'Close or void the open Rally before reopening another draft'))
-      await tx.keyPoint.updateMany({ where: { rallyId: rally.id, deletedAt: null, isTerminal: true }, data: { isTerminal: false, updatedByUserId: identity.userId } })
-      await tx.rally.update({ where: { id: rally.id }, data: { annotationRevision: revision, annotationStatus: 'OPEN', scoreResolutionState: 'PENDING', scoringCourtSide: null, scoringTeamId: null } })
-      effects = { annotation_status: 'open', score_resolution: 'pending', scoring_court_side: null }
+      effects = isCorrection
+        ? { annotation_status: 'open', score_resolution: rally.scoreResolutionState.toLowerCase(), scoring_court_side: rally.scoringCourtSide?.toLowerCase() ?? null }
+        : { annotation_status: 'open', score_resolution: 'pending', scoring_court_side: null }
     } else if (command.kind === 'VOID_RALLY') {
       await tx.rally.update({ where: { id: rally.id }, data: { annotationRevision: revision, annotationStatus: 'VOIDED', voidedAt: new Date() } })
       effects = { annotation_status: 'voided' }
@@ -671,7 +683,12 @@ async function acceptDraftEdit(database: PrismaClient, room: AnnotationRoom, com
       const remaining = active.filter(point => point.markerKind === 'CONTACT')
       for (const point of remaining) await tx.keyPoint.update({ where: { id: point.id }, data: { possibleDuplicate: remaining.filter(other => other.captureFrameIndex === point.captureFrameIndex).length > 1 } })
       await tx.rally.update({ where: { id: rally.id }, data: { annotationRevision: revision } })
-      effects = { annotation_status: 'open', deleted_key_point_id: target.id, score_resolution: 'pending', scoring_court_side: null }
+      effects = {
+        annotation_status: 'open',
+        deleted_key_point_id: target.id,
+        score_resolution: rally.activeSubmissionId ? rally.scoreResolutionState.toLowerCase() : 'pending',
+        scoring_court_side: rally.activeSubmissionId ? rally.scoringCourtSide?.toLowerCase() ?? null : null,
+      }
     } else {
       if (rally.annotationStatus !== 'OPEN' || !anchor) return persistRejection(tx, command, identity, hash, rejected(command, 'RALLY_NOT_OPEN', 'Reopen the Rally before moving a key point'))
       const target = rally.keyPoints.find(point => point.id === command.payload.key_point_id)
@@ -695,7 +712,11 @@ async function acceptDraftEdit(database: PrismaClient, room: AnnotationRoom, com
       await rewriteActiveSequence(tx, rally.id, ordered)
       for (const point of ordered) await tx.keyPoint.update({ where: { id: point.id }, data: { possibleDuplicate: point.markerKind === 'CONTACT' && ordered.filter(other => other.markerKind === 'CONTACT' && other.captureFrameIndex === point.captureFrameIndex).length > 1 } })
       await tx.rally.update({ where: { id: rally.id }, data: { annotationRevision: revision } })
-      effects = { annotation_status: 'open', score_resolution: 'pending', scoring_court_side: null }
+      effects = {
+        annotation_status: 'open',
+        score_resolution: rally.activeSubmissionId ? rally.scoreResolutionState.toLowerCase() : 'pending',
+        scoring_court_side: rally.activeSubmissionId ? rally.scoringCourtSide?.toLowerCase() ?? null : null,
+      }
     }
     const receipt = await tx.annotationCommandReceipt.create({ data: { accepted: true, commandId: command.command_id, deviceSessionId: identity.deviceSessionId, rallyId: command.rally_id, requestHash: hash, requestJson: jsonValue(command), responseJson: {}, roomId: command.room_id, userId: identity.userId } })
     const response = parseAnnotationCommandResponse({ schema_version: '2.0.0', type: 'command_ack', command_id: command.command_id, room_id: command.room_id, rally_id: command.rally_id, operation_kind: command.kind, result_revision: revision.toString(), server_sequence: receipt.serverSequence.toString(), effects, resolved_anchor: anchor ? wireAnchor(anchor) : null })

@@ -46,7 +46,7 @@ const modalDescription = computed(() => page.value === 'root'
   : page.value === 'media'
     ? '控制播放時保留的影音緩衝'
     : page.value === 'clip'
-      ? '套用到本場尚未送出的標記與後續修正版'
+    ? '套用到本場尚未送出的標記與後續修正版草稿'
       : '點選按鍵後直接輸入新的組合')
 const modalHeight = computed<'medium' | 'tall'>(() => page.value === 'hotkeys' ? 'tall' : 'medium')
 
@@ -173,7 +173,7 @@ function close() {
                   <label for="clip-post-roll"><strong>結束後</strong><small>終止擊球點後保留</small></label>
                   <span><input id="clip-post-roll" v-model.number="clipPostRollSeconds" type="number" min="0" max="30" step="1"><i>秒</i></span>
                 </div>
-                <p>已送出的片段保留送出當下的範圍；建立並送出修正版時才套用目前設定。</p>
+            <p>已送出的片段保留送出當下的範圍；建立並送出修正版草稿時才套用目前設定。</p>
                 <p v-if="clipValidationError || clipPolicyError" class="annotation-settings__error" role="alert">{{ clipValidationError || clipPolicyError }}</p>
                 <UiButton :disabled="clipPolicySaving" @click="saveClipPolicy">{{ clipPolicySaving ? '儲存中…' : '套用到本場' }}</UiButton>
               </section>

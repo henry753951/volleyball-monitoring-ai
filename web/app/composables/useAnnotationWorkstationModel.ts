@@ -37,9 +37,10 @@ export function useAnnotationWorkstationModel(options: Options) {
   const completedRallies = computed(() => submittedRallies.value.filter(rally => rally.submission.analysis?.status === 'completed'))
   const selectedDraftRally = computed(() => annotationDrafts.value.find(rally => rally.id === options.selectedRallyId.value) ?? null)
   const selectedSubmittedRally = computed(() => selectedDraftRally.value ? null : submittedRallies.value.find(rally => rally.id === options.selectedRallyId.value) ?? null)
-  const selectedRally = computed(() => selectedDraftRally.value ? null : completedRallies.value.find(rally => rally.id === options.selectedRallyId.value) ?? null)
-  const mappingAvailable = computed(() => Boolean(selectedRally.value?.submission.analysis?.id))
-  const selectedAnalysisRunId = computed(() => selectedRally.value?.submission.analysis?.id ?? null)
+  const selectedAnalysisRally = computed(() => completedRallies.value.find(rally => rally.id === options.selectedRallyId.value) ?? null)
+  const selectedRally = computed(() => selectedDraftRally.value ? null : selectedAnalysisRally.value)
+  const mappingAvailable = computed(() => Boolean(selectedAnalysisRally.value?.submission.analysis?.id))
+  const selectedAnalysisRunId = computed(() => selectedAnalysisRally.value?.submission.analysis?.id ?? null)
   const currentSet = computed(() => options.coachData.value?.match.sets.find(set => set.status === 'live') ?? options.coachData.value?.match.sets.at(-1) ?? null)
   const leftTeamId = computed(() => currentSet.value?.side_assignment?.left_team_id ?? options.coachData.value?.match.teams[0]?.id ?? null)
   const rightTeamId = computed(() => currentSet.value?.side_assignment?.right_team_id ?? options.coachData.value?.match.teams[1]?.id ?? null)
@@ -80,10 +81,9 @@ export function useAnnotationWorkstationModel(options: Options) {
     const currentRallyId = options.displayAnnotation.value?.rally_id
     const submitted = submittedRallies.value.flatMap((rally) => {
       const range = clipRangeForRally(rally)
-      // Keep the current immutable submission in the data set so its AI result
-      // rail remains available. DvrTimelineDock suppresses only the duplicate
-      // segment mask; an active correction draft still suppresses stale results.
-      if (!range || draftRallyIds.value.has(rally.id)) return []
+      // The editable draft owns the mask, while the last completed analysis stays
+      // available as an independent result rail until its replacement completes.
+      if (!range) return []
       const analysis = rally.submission.analysis
       const failed = rally.processing_status === 'failed'
       return [{
