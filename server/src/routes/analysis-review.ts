@@ -1,4 +1,4 @@
-import { parseAnalysisReviewPatch, type AnalysisReviewRevisionEvent } from '@volleyball-monitoring/contracts'
+import { ANALYSIS_REVIEW_SCHEMA_VERSION, parseAnalysisReviewPatch, type AnalysisReviewRevisionEvent } from '@volleyball-monitoring/contracts'
 import { db } from '@volleyball-monitoring/db'
 import type { FastifyPluginAsync } from 'fastify'
 import { authenticateDevelopmentAnnotationRequest } from '../realtime/auth.js'
@@ -9,7 +9,7 @@ type ReviewSocket = { readyState: number; send: (payload: string) => void }
 const sockets = new Map<string, Set<ReviewSocket>>()
 
 function broadcast(analysisRunId: string, revision: string) {
-  const message: AnalysisReviewRevisionEvent = { schema_version: '1.0.0', type: 'analysis_review_revision', analysis_run_id: analysisRunId, revision }
+  const message: AnalysisReviewRevisionEvent = { schema_version: ANALYSIS_REVIEW_SCHEMA_VERSION, type: 'analysis_review_revision', analysis_run_id: analysisRunId, revision }
   const payload = JSON.stringify(message)
   for (const socket of sockets.get(analysisRunId) ?? []) if (socket.readyState === 1) socket.send(payload)
 }

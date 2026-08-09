@@ -1,9 +1,11 @@
 {
-  "schema_version": "1.0.0",
+  "schema_version": "1.1.0",
   "client_patch_id": "85000000-0000-4000-8000-000000000001",
   "base_revision": "7",
   "operations": [
     { "op": "set_ball_position", "frame_index": "31520", "frame_pos": { "x": 936.25, "y": 412.5 } },
-    { "op": "set_action", "frame_index": "31520", "track_id": 5, "action": "Spiking" }
+    { "op": "set_action", "frame_index": "31520", "track_id": 5, "action": "Spiking" },
+    { "op": "set_player_bbox", "frame_index": "31520", "track_id": 5, "frame_bbox": { "x1": 800, "y1": 180, "x2": 1050, "y2": 720 } },
+    { "op": "set_contact_actor", "key_point_id": "85000000-0000-4000-8000-000000000003", "track_id": 5 }
   ]
 }
