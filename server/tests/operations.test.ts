@@ -34,6 +34,24 @@ const snapshot: OperationsSnapshot = {
     status: 'online',
   }],
   aiWork: [],
+  hostStorage: {
+    available: true,
+    freeBytes: '3000',
+    path: '/var/lib/volleyball/media-recordings',
+    totalBytes: '5000',
+    usedBytes: '2000',
+  },
+  matchMedia: [{
+    activeCaptureCount: 1,
+    captureCount: 1,
+    failedCaptureCount: 0,
+    gapSegmentCount: 0,
+    indexedDurationUs: '1800000000',
+    matchId: 'match-1',
+    readySegmentCount: 507,
+    segmentCount: 507,
+    storedBytes: '2048',
+  }],
   streams: [{
     captureSessionId: 'capture-1',
     matchId: 'match-1',
@@ -66,6 +84,7 @@ describe('operations routes', () => {
   it('renders bounded aggregate Prometheus metrics without payload data', () => {
     const metrics = renderPrometheusMetrics(snapshot)
     expect(metrics).toContain('vmai_process_resident_memory_bytes 1024')
+    expect(metrics).toContain('vmai_host_storage_free_bytes 3000')
     expect(metrics).toContain('vmai_rallies_total{annotation_status="SUBMITTED",processing_status="COMPLETED"} 1')
     expect(metrics).toContain('vmai_annotation_command_receipts_total{accepted="false"} 1')
     expect(metrics).toContain('vmai_annotation_operations_total 7')

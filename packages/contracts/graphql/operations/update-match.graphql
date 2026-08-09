@@ -1,0 +1,9 @@
+mutation UpdateMatch($input: UpdateMatchInput!) {
+  updateMatch(input: $input) {
+    id
+    title
+    venue
+    status
+    scheduledAt
+  }
+}

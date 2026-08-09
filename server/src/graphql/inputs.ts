@@ -8,8 +8,10 @@ import type {
   UpdateMatchRosterInput,
   UpdateMatchClipPolicyInput,
   StartNextSetInput,
+  UpdateMatchInput,
 } from '../services/core-domain.js'
 import type { StartCaptureInput } from '../services/capture-processing.js'
+import { MatchStatusType } from './types.js'
 
 export const RosterInputType = builder.inputRef<RosterSetupInput>('RosterInput')
 RosterInputType.implement({
@@ -44,6 +46,17 @@ SwapCourtSidesInputType.implement({
   fields: (t) => ({
     effectiveFromRallyOrdinal: t.int({ required: true }),
     setId: t.id({ required: true }),
+  }),
+})
+
+export const UpdateMatchInputType = builder.inputRef<UpdateMatchInput>('UpdateMatchInput')
+UpdateMatchInputType.implement({
+  fields: (t) => ({
+    matchId: t.id({ required: true }),
+    scheduledAt: t.field({ type: 'DateTime' }),
+    status: t.field({ required: true, type: MatchStatusType }),
+    title: t.string({ required: true }),
+    venue: t.string(),
   }),
 })
 

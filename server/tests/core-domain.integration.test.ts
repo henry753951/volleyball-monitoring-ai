@@ -144,6 +144,18 @@ const startNextSetMutation = /* GraphQL */ `
   }
 `
 
+const updateMatchMutation = /* GraphQL */ `
+  mutation UpdateMatch($input: UpdateMatchInput!) {
+    updateMatch(input: $input) { id title venue status scheduledAt }
+  }
+`
+
+const deleteMatchMutation = /* GraphQL */ `
+  mutation DeleteMatch($matchId: ID!) {
+    deleteMatch(matchId: $matchId) { matchId removedAssetCount removedBytes cleanupWarnings }
+  }
+`
+
 const validSetup = {
   leftTeam: {
     name: '  North   Stars ',
@@ -459,6 +471,25 @@ describe('development identity resolution', () => {
 })
 
 describe('match setup, visibility, and court-side history', () => {
+  it('updates and deletes an owned match with a cleanup receipt', async () => {
+    const created = await execute(setupMutation, contextFor(operatorUser), { input: { ...validSetup, title: 'CRUD target' } })
+    const matchId = objectField(created.data, 'createMatchSetup').id as string
+    const updated = await execute(updateMatchMutation, contextFor(operatorUser), { input: {
+      matchId,
+      scheduledAt: '2026-08-09T02:30:00.000Z',
+      status: 'LIVE',
+      title: 'Updated match',
+      venue: 'Court B',
+    } })
+    expect(objectField(updated.data, 'updateMatch')).toMatchObject({ id: matchId, status: 'LIVE', title: 'Updated match', venue: 'Court B' })
+
+    const hidden = await execute(deleteMatchMutation, contextFor(outsiderOperator), { matchId })
+    expect(errorCode(hidden)).toBe('NOT_FOUND')
+    const deleted = await execute(deleteMatchMutation, contextFor(operatorUser), { matchId })
+    expect(objectField(deleted.data, 'deleteMatch')).toEqual({ cleanupWarnings: [], matchId, removedAssetCount: 0, removedBytes: '0' })
+    expect(await db.match.findUnique({ where: { id: matchId } })).toBeNull()
+  })
+
   let matchId: string
   let setId: string
   let leftTeamId: string

@@ -13,16 +13,20 @@ import {
   ListFilter,
   MemoryStick,
   Plus,
+  Pencil,
   RadioTower,
   RefreshCw,
   Search,
   Server,
   SquarePen,
+  Trash2,
   UsersRound,
   Wifi,
   Workflow,
   XCircle,
 } from 'lucide-vue-next'
+import { toast } from 'vue-sonner'
+import type { DeepReadonly } from 'vue'
 import type { Match } from '~/lib/coreDomain'
 import type { CreateMatchWithMediaInput } from '~/lib/mediaSourceClient'
 import { createMediaSourceClient } from '~/lib/mediaSourceClient'
@@ -49,6 +53,14 @@ const sourceMatch = shallowRef<Match | null>(null)
 const rosterMatch = shallowRef<Match | null>(null)
 const sourceDialogOpen = ref(false)
 const rosterDialogOpen = ref(false)
+const editMatch = shallowRef<DeepReadonly<Match> | null>(null)
+const deleteTarget = shallowRef<DeepReadonly<Match> | null>(null)
+const editOpen = ref(false)
+const deleteOpen = ref(false)
+const editPending = ref(false)
+const deletePending = ref(false)
+const editError = shallowRef<Error | null>(null)
+const deleteError = shallowRef<Error | null>(null)
 
 const view = computed<ControlView>(() => {
   const requested = typeof route.query.view === 'string' ? route.query.view : 'overview'
@@ -75,6 +87,13 @@ const streams = computed(() => visibleStreamsForMatches(
   visibleMatchIds.value,
 ))
 const generatedAt = computed(() => monitor.snapshot.value?.operations.generatedAt ?? null)
+const hostStorage = computed(() => monitor.snapshot.value?.operations.hostStorage ?? null)
+const matchMediaById = computed(() => new Map((monitor.snapshot.value?.operations.matchMedia ?? []).map(item => [item.matchId, item])))
+const totalMediaBytes = computed(() => (monitor.snapshot.value?.operations.matchMedia ?? []).reduce((total, item) => total + BigInt(item.storedBytes), 0n))
+const hostUsedPercent = computed(() => {
+  const total = BigInt(hostStorage.value?.totalBytes ?? '0')
+  return total > 0n ? Number(BigInt(hostStorage.value?.usedBytes ?? '0') * 10_000n / total) / 100 : 0
+})
 
 function sum(groups: readonly MetricGroup[] | undefined, labels: Record<string, string | string[]> = {}) {
   if (!groups) return 0
@@ -111,11 +130,12 @@ function displaySourceLabel(stream: StreamSnapshot) {
   if (/docker smoke camera/i.test(label)) return `RTMP 輸入${/2$/.test(label) ? ' 02' : ' 01'}`
   return label
 }
-function formatBytes(value: number) {
-  if (!Number.isFinite(value) || value <= 0) return '0 B'
-  const units = ['B', 'KB', 'MB', 'GB']
-  const index = Math.min(Math.floor(Math.log(value) / Math.log(1024)), units.length - 1)
-  return `${(value / 1024 ** index).toFixed(index > 1 ? 1 : 0)} ${units[index]}`
+function formatBytes(value: number | string | bigint) {
+  const amount = Number(value)
+  if (!Number.isFinite(amount) || amount <= 0) return '0 B'
+  const units = ['B', 'KB', 'MB', 'GB', 'TB']
+  const index = Math.min(Math.floor(Math.log(amount) / Math.log(1024)), units.length - 1)
+  return `${(amount / 1024 ** index).toFixed(index > 1 ? 1 : 0)} ${units[index]}`
 }
 function formatSeconds(value: number) {
   if (!Number.isFinite(value)) return '—'
@@ -175,6 +195,42 @@ async function openRoster(matchId: string) {
   rosterMatch.value = await core.match(matchId)
   rosterDialogOpen.value = true
 }
+function openEdit(match: DeepReadonly<Match>) {
+  editMatch.value = match
+  editError.value = null
+  editOpen.value = true
+}
+function openDelete(match: DeepReadonly<Match>) {
+  deleteTarget.value = match
+  deleteError.value = null
+  deleteOpen.value = true
+}
+async function saveMatch(input: Parameters<typeof core.updateMatch>[0]) {
+  editPending.value = true
+  editError.value = null
+  try {
+    await core.updateMatch(input)
+    editOpen.value = false
+    await matchesState.refresh()
+    toast.success('場次資料已更新')
+  }
+  catch (error) { editError.value = error instanceof Error ? error : new Error('場次更新失敗') }
+  finally { editPending.value = false }
+}
+async function confirmDelete() {
+  if (!deleteTarget.value) return
+  deletePending.value = true
+  deleteError.value = null
+  try {
+    const receipt = await core.deleteMatch(deleteTarget.value.id)
+    deleteOpen.value = false
+    await Promise.all([matchesState.refresh(), monitor.refresh()])
+    if (receipt.cleanupWarnings.length) toast.warning(`場次已刪除，${receipt.cleanupWarnings.length} 項媒體清理需檢查`)
+    else toast.success(`場次與 ${formatBytes(receipt.removedBytes)} 媒體已清理`)
+  }
+  catch (error) { deleteError.value = error instanceof Error ? error : new Error('場次刪除失敗') }
+  finally { deletePending.value = false }
+}
 function closeRoster() {
   rosterDialogOpen.value = false
   if (route.query.match) void router.replace({ path: '/control', query: view.value === 'overview' ? {} : { view: view.value } })
@@ -224,24 +280,15 @@ onMounted(async () => {
     </div>
 
     <div v-if="view === 'overview'" class="view-panel overview-view">
-      <div class="status-strip">
-        <div>
-          <span>系統</span><strong>{{ monitor.snapshot.value?.readiness.status === 'ready' ? '正常運行' : '服務降級' }}</strong>
-          <small :class="monitor.snapshot.value?.readiness.status === 'ready' ? 'good' : 'danger'"><i />{{ monitor.snapshot.value?.readiness.status === 'ready' ? '全部相依服務就緒' : '有相依服務異常' }}</small>
-        </div>
-        <div>
-          <span>即時輸入</span><strong>{{ liveStreams }} <em>/ {{ streams.length }}</em></strong>
-          <small :class="unhealthyStreams ? 'danger' : 'good'"><i />{{ unhealthyStreams ? `${unhealthyStreams} 路需要處理` : '來源健康' }}</small>
-        </div>
-        <div>
-          <span>AI 工作負載</span><strong>{{ aiActive }}</strong>
-          <small :class="aiFailed ? 'danger' : 'neutral'"><i />{{ aiFailed ? `${aiFailed} 件失敗` : '沒有失敗作業' }}</small>
-        </div>
-        <div>
-          <span>S3 媒體資產</span><strong>{{ sum(database?.mediaAssets, { state: 'READY' }) }}</strong>
-          <small :class="readiness('minio') === 'ok' ? 'good' : 'danger'"><i />{{ readiness('minio') === 'ok' ? '物件儲存正常' : '物件儲存異常' }}</small>
-        </div>
-      </div>
+      <section class="ops-command" aria-label="運行狀態">
+        <div class="ops-command__health"><span :class="monitor.snapshot.value?.readiness.status === 'ready' ? 'signal-good' : 'signal-danger'" /><div><strong>{{ monitor.snapshot.value?.readiness.status === 'ready' ? '所有核心服務正常' : '服務降級' }}</strong><small>{{ monitor.snapshot.value?.readiness.status === 'ready' ? 'PostgreSQL、Redis、S3、OME 已就緒' : '請查看系統狀態' }}</small></div></div>
+        <dl><div><dt>運行中輸入</dt><dd>{{ liveStreams }}<small>/ {{ streams.length }}</small></dd></div><div><dt>異常來源</dt><dd :class="{ danger: unhealthyStreams }">{{ unhealthyStreams }}</dd></div><div><dt>處理中作業</dt><dd>{{ aiActive }}</dd></div><div><dt>媒體用量</dt><dd>{{ formatBytes(totalMediaBytes) }}</dd></div></dl>
+      </section>
+
+      <section class="host-storage" :class="{ unavailable: !hostStorage?.available }">
+        <div class="host-storage__label"><HardDrive :size="17" /><div><strong>HOST 儲存空間</strong><small>{{ hostStorage?.available ? hostStorage.path : '無法讀取媒體磁碟' }}</small></div></div>
+        <div class="host-storage__capacity"><span><i :style="{ width: `${Math.min(100, hostUsedPercent)}%` }" /></span><div><strong>{{ hostStorage?.available ? `${formatBytes(hostStorage.freeBytes)} 可用` : '狀態未知' }}</strong><small v-if="hostStorage?.available">已使用 {{ hostUsedPercent.toFixed(1) }}% · 總計 {{ formatBytes(hostStorage.totalBytes) }}</small></div></div>
+      </section>
 
       <div class="overview-grid">
         <section class="workspace-section stream-overview">
@@ -282,17 +329,19 @@ onMounted(async () => {
         <button type="button" class="primary-action" @click="createOpen = true"><Plus :size="16" />新增場次</button>
       </div>
       <div class="match-table">
-        <div class="match-table__head"><span>場次</span><span>隊伍</span><span>比分</span><span>狀態</span><span /></div>
+        <div class="match-table__head"><span>場次</span><span>對戰</span><span>媒體採集</span><span>容量</span><span>操作</span></div>
         <div v-if="matchesState.pending.value" class="table-loading" />
         <div v-else-if="!filteredMatches.length" class="empty-state"><ListFilter :size="21" /><span>沒有符合的場次</span></div>
         <article v-for="match in filteredMatches" :key="match.id">
-          <div><NuxtLink :to="`/annotate/${match.id}`"><strong>{{ match.title }}</strong></NuxtLink><span>{{ match.venue || '未設定場地' }}</span></div>
-          <div class="match-table__teams"><span>{{ match.teams[0]?.shortName || match.teams[0]?.name }}</span><i>vs</i><span>{{ match.teams[1]?.shortName || match.teams[1]?.name }}</span></div>
-          <div class="match-table__score"><b>{{ currentSet(match)?.leftScore ?? 0 }}</b><i>:</i><b>{{ currentSet(match)?.rightScore ?? 0 }}</b></div>
-          <span class="state-tag" :class="match.status.toLowerCase() === 'live' ? 'good' : 'neutral'"><i />{{ match.status.toLowerCase() === 'live' ? '進行中' : match.status.toLowerCase() === 'finished' ? '已結束' : '待開始' }}</span>
+          <div class="match-title"><NuxtLink :to="`/annotate/${match.id}`"><strong>{{ match.title }}</strong></NuxtLink><span><i :class="match.status.toLowerCase() === 'live' ? 'good' : ''" />{{ match.status.toLowerCase() === 'live' ? '進行中' : match.status.toLowerCase() === 'finished' ? '已結束' : '待開始' }} · {{ match.venue || '未設定場地' }}</span></div>
+          <div class="match-table__versus"><div class="match-table__teams"><span>{{ match.teams[0]?.shortName || match.teams[0]?.name }}</span><i>vs</i><span>{{ match.teams[1]?.shortName || match.teams[1]?.name }}</span></div><div class="match-table__score"><b>{{ currentSet(match)?.leftScore ?? 0 }}</b><i>:</i><b>{{ currentSet(match)?.rightScore ?? 0 }}</b></div></div>
+          <div class="match-media"><strong>{{ matchMediaById.get(match.id)?.activeCaptureCount ?? 0 }} 運行中 · {{ matchMediaById.get(match.id)?.captureCount ?? 0 }} 來源</strong><span>{{ matchMediaById.get(match.id)?.readySegmentCount ?? 0 }} / {{ matchMediaById.get(match.id)?.segmentCount ?? 0 }} segments · {{ formatMicroseconds(matchMediaById.get(match.id)?.indexedDurationUs) }}</span></div>
+          <div class="match-storage"><strong>{{ formatBytes(matchMediaById.get(match.id)?.storedBytes ?? '0') }}</strong><span v-if="matchMediaById.get(match.id)?.gapSegmentCount" class="danger">{{ matchMediaById.get(match.id)?.gapSegmentCount }} gaps</span><span v-else>媒體與分析資產</span></div>
           <div class="match-table__buttons">
             <button type="button" title="影音來源" aria-label="影音來源" @click="openSource(match.id)"><RadioTower :size="16" /></button>
             <button type="button" title="球員名單" aria-label="球員名單" @click="openRoster(match.id)"><UsersRound :size="16" /></button>
+            <button type="button" title="編輯場次" aria-label="編輯場次" @click="openEdit(match)"><Pencil :size="15" /></button>
+            <button type="button" class="danger-button" title="刪除場次與媒體" aria-label="刪除場次與媒體" @click="openDelete(match)"><Trash2 :size="15" /></button>
             <NuxtLink :to="`/annotate/${match.id}`" title="開啟標記工作站"><SquarePen :size="16" /><span>標記</span></NuxtLink>
           </div>
         </article>
@@ -407,6 +456,8 @@ onMounted(async () => {
     </UiAnimatedModal>
     <LazyCaptureControlDialog v-if="sourceMatch" :open="sourceDialogOpen" :match-id="sourceMatch.id" :captures="sourceMatch.captureSessions ?? []" @close="sourceDialogOpen = false" @changed="matchesState.refresh" />
     <LazyRosterEditorDialog v-if="rosterMatch" :open="rosterDialogOpen" :match="rosterMatch" @close="closeRoster" @changed="matchesState.refresh" />
+    <ControlMatchEditorDialog :open="editOpen" :match="editMatch" :pending="editPending" :error="editError" @close="editOpen = false" @save="saveMatch" />
+    <ControlMatchDeleteDialog :open="deleteOpen" :match="deleteTarget" :media="deleteTarget ? matchMediaById.get(deleteTarget.id) ?? null : null" :pending="deletePending" :error="deleteError" @close="deleteOpen = false" @confirm="confirmDelete" />
   </section>
 </template>
 
@@ -416,4 +467,7 @@ onMounted(async () => {
 @media(max-width:760px){.page-header{padding-inline:16px}.page-header p{display:none}.view-panel{padding:16px}.monitor-error{margin-inline:16px}.status-strip,.media-summary,.ai-summary,.ai-grid{grid-template-columns:1fr}.status-strip>div,.status-strip>div:nth-child(n),.media-summary>div,.ai-summary>div{border-left:0;border-top:1px solid #292d32}.status-strip>div:first-child,.media-summary>div:first-child,.ai-summary>div:first-child{border-top:0}.compact-stream-list article{grid-template-columns:34px 1fr auto}.stream-progress{grid-column:2/-1}.service-line,.runtime-metrics,.callback-line{grid-template-columns:1fr}.service-line>div,.runtime-metrics>div,.callback-line>div,.service-line>div:nth-child(n),.runtime-metrics>div:nth-child(n),.callback-line>div:nth-child(n){border-left:0;border-top:1px solid #24282d}.service-line>div:first-child,.runtime-metrics>div:first-child,.callback-line>div:first-child{border-top:0}.media-table article{grid-template-columns:1fr 1fr}.media-table article>div:nth-child(n){grid-row:auto;grid-column:auto}.control-actions label{width:100%}.primary-action span{display:none}}
 .worker-fleet,.ai-work-section{margin-top:18px;overflow:hidden}.worker-grid article,.ai-work-list article{min-height:64px;display:grid;align-items:center;gap:12px;padding:0 16px;border-top:1px solid #24282d}.worker-grid article{grid-template-columns:34px minmax(180px,1fr) minmax(160px,.8fr) auto}.ai-work-list article{grid-template-columns:minmax(190px,1.2fr) minmax(130px,.7fr) minmax(160px,.8fr) auto}.worker-grid article:first-child,.ai-work-list article:first-child{border-top:0}.worker-icon{width:31px;height:31px;display:grid;place-items:center;border-radius:8px;background:#1c2025;color:#c5cad0}.worker-identity,.ai-work-list article>div:first-child{min-width:0;display:grid;gap:3px}.worker-identity strong,.ai-work-list strong{overflow:hidden;font-size:.68rem;text-overflow:ellipsis;white-space:nowrap}.worker-identity small,.ai-work-list small{color:#747b82;font-size:.56rem}.worker-load,.job-progress{display:grid;gap:5px}.worker-load>span,.job-progress>span{height:3px;overflow:hidden;border-radius:2px;background:#282d32}.worker-load i,.job-progress i{width:100%;height:100%;display:block;transform:scaleX(0);transform-origin:left center;background:#64c997;transition:transform 220ms cubic-bezier(.16,1,.3,1)}.ai-work-list>article>span:nth-child(2){color:#b2b7bd;font-size:.63rem}.work-shift-enter-active,.work-shift-leave-active,.work-shift-move{transition:opacity 180ms ease,transform 220ms cubic-bezier(.16,1,.3,1)}.work-shift-enter-from,.work-shift-leave-to{opacity:0;transform:translateY(4px)}
 @media(prefers-reduced-motion:reduce){.view-panel,.spinning,.table-loading{animation:none}.work-shift-enter-active,.work-shift-leave-active,.work-shift-move,.worker-load i,.job-progress i{transition:none}}
+.control-page{min-height:100%;background:#0a0b0d}.page-header{position:sticky;top:0;z-index:20;height:58px;padding-inline:24px;background:#0d0e10eF;backdrop-filter:blur(12px)}.page-header h1{font-size:.84rem}.page-header p{color:#8a8d93}.view-panel{width:min(100%,1600px);margin-inline:auto;padding:20px 24px 36px;animation:none}.workspace-section,.match-table,.status-strip,.media-summary,.ai-summary{border-color:#292b30;border-radius:10px;background:#101114;box-shadow:none}.ops-command{min-height:70px;display:grid;grid-template-columns:minmax(300px,1fr) minmax(480px,1.1fr);align-items:stretch;overflow:hidden;border:1px solid #2d2f34;border-radius:10px;background:#111216}.ops-command__health{display:flex;align-items:center;gap:12px;padding:13px 16px;border-right:1px solid #2d2f34}.ops-command__health>span{width:9px;height:9px;flex:none;border-radius:50%}.signal-good{background:#45bd83}.signal-danger{background:#e46966}.ops-command__health>div{display:grid;gap:3px}.ops-command__health strong{font-size:.72rem}.ops-command__health small{color:#85888f;font-size:.58rem}.ops-command dl{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));margin:0}.ops-command dl>div{display:grid;align-content:center;gap:5px;padding:0 14px;border-left:1px solid #27292e}.ops-command dl>div:first-child{border-left:0}.ops-command dt{color:#81848b;font-size:.56rem}.ops-command dd{display:flex;align-items:baseline;gap:4px;margin:0;font-size:.92rem;font-weight:720;font-variant-numeric:tabular-nums}.ops-command dd small{color:#71747a;font-size:.58rem}.host-storage{min-height:60px;display:grid;grid-template-columns:minmax(250px,.7fr) minmax(420px,1.3fr);align-items:center;gap:22px;margin:10px 0 16px;padding:9px 14px;border:1px solid #292b30;border-radius:9px;background:#0f1012}.host-storage.unavailable{border-color:#513335}.host-storage__label{display:flex;align-items:center;gap:10px;min-width:0;color:#b6b8bd}.host-storage__label>div,.host-storage__capacity>div{min-width:0;display:grid;gap:3px}.host-storage__label strong,.host-storage__capacity strong{font-size:.65rem}.host-storage__label small,.host-storage__capacity small{overflow:hidden;color:#777a81;font-size:.55rem;text-overflow:ellipsis;white-space:nowrap}.host-storage__capacity{display:grid;grid-template-columns:minmax(140px,1fr) auto;align-items:center;gap:12px}.host-storage__capacity>span{height:6px;overflow:hidden;border-radius:3px;background:#2b2d32}.host-storage__capacity>span i{display:block;height:100%;background:#a8aaaf}.host-storage__capacity>div{text-align:right}.match-table{overflow-x:auto;scrollbar-color:#3f4147 #111216;scrollbar-width:thin}.match-table__head,.match-table article{min-width:1060px;grid-template-columns:minmax(220px,1.2fr) minmax(190px,.8fr) minmax(220px,1fr) minmax(120px,.55fr) 238px}.match-table__head{position:sticky;top:0;z-index:2}.match-table article{min-height:76px}.match-title{min-width:0;display:grid;gap:5px}.match-title>a{color:inherit;text-decoration:none}.match-title strong{display:block;overflow:hidden;font-size:.72rem;text-overflow:ellipsis;white-space:nowrap}.match-title>span{display:flex;align-items:center;gap:6px;color:#85888f;font-size:.57rem}.match-title>span i{width:6px;height:6px;border-radius:50%;background:#70737a}.match-title>span i.good{background:#45bd83}.match-table__versus{display:grid;grid-template-columns:1fr auto;align-items:center;gap:12px}.match-table__teams{min-width:0}.match-table__score b{font-size:.92rem}.match-media,.match-storage{display:grid;gap:4px}.match-media strong,.match-storage strong{font-size:.64rem}.match-media span,.match-storage span{color:#7c7f86;font-size:.55rem;font-variant-numeric:tabular-nums}.match-table__buttons{gap:5px}.match-table__buttons button,.match-table__buttons a{min-height:32px;border-radius:7px;background:#15161a}.match-table__buttons .danger-button{color:#c98b89}.match-table__buttons .danger-button:hover{border-color:#70403f;background:#291617;color:#ffc9c7}.control-actions{position:sticky;top:58px;z-index:15;padding:8px 0;background:#0a0b0df2;backdrop-filter:blur(10px)}.create-scroll{height:min(720px,calc(86dvh - 54px))}.create-content{min-height:0;padding:8px}.table-loading{background:#121317;animation:none}
+@media(max-width:1120px){.ops-command{grid-template-columns:1fr}.ops-command__health{border-right:0;border-bottom:1px solid #2d2f34}.host-storage{grid-template-columns:1fr}.match-table article,.match-table__head{grid-template-columns:minmax(220px,1.2fr) minmax(190px,.8fr) minmax(220px,1fr) minmax(120px,.55fr) 238px}.match-table article{padding-block:0}.match-table__teams,.match-table__score,.match-table__buttons{grid-column:auto}.match-table__buttons{justify-content:flex-end}}
+@media(max-width:760px){.page-header{padding-inline:14px}.view-panel{padding:14px}.ops-command dl{grid-template-columns:repeat(2,1fr)}.ops-command dl>div:nth-child(3){border-top:1px solid #27292e}.ops-command dl>div:nth-child(3){border-left:0}.ops-command dl>div:nth-child(4){border-top:1px solid #27292e}.host-storage__capacity{grid-template-columns:1fr}.host-storage__capacity>div{text-align:left}.control-actions{top:58px}}
 </style>

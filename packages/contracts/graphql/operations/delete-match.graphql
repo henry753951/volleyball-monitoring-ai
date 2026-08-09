@@ -1,0 +1,8 @@
+mutation DeleteMatch($matchId: ID!) {
+  deleteMatch(matchId: $matchId) {
+    matchId
+    removedAssetCount
+    removedBytes
+    cleanupWarnings
+  }
+}

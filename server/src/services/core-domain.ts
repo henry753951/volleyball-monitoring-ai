@@ -1,5 +1,5 @@
 import { db } from '@volleyball-monitoring/db'
-import { UserRole } from '@volleyball-monitoring/db/client'
+import { MatchStatus, UserRole } from '@volleyball-monitoring/db/client'
 import type {
   Match,
   MatchSet,
@@ -49,6 +49,14 @@ export interface UpdateMatchClipPolicyInput {
   matchId: string
   preRollSeconds: number
   postRollSeconds: number
+}
+
+export interface UpdateMatchInput {
+  matchId: string
+  scheduledAt?: Date | null | undefined
+  status: MatchStatus
+  title: string
+  venue?: string | null | undefined
 }
 
 export interface StartNextSetInput {
@@ -251,6 +259,24 @@ function operatorSetWhere(actor: AuthenticatedUser, setId: string): Prisma.Match
       },
     },
   }
+}
+
+export async function updateMatch(actor: AuthenticatedUser, input: UpdateMatchInput): Promise<Match> {
+  requireSetupRole(actor)
+  const matchId = requireUuid(input.matchId, 'matchId')
+  const title = requireText(input.title, 'title')
+  const venue = input.venue == null ? null : normalizeText(input.venue) || null
+  const scheduledAt = input.scheduledAt ?? null
+  if (scheduledAt && Number.isNaN(scheduledAt.getTime())) domainError('scheduledAt must be a valid DateTime', 'BAD_USER_INPUT')
+  const existing = await db.match.findFirst({
+    select: { id: true },
+    where: {
+      id: matchId,
+      ...(actor.role === UserRole.ADMIN ? {} : { members: { some: { userId: actor.id, role: { in: [UserRole.ADMIN, UserRole.OPERATOR] } } } }),
+    },
+  })
+  if (!existing) domainError('Match was not found', 'NOT_FOUND')
+  return db.match.update({ data: { scheduledAt, status: input.status, title, venue }, where: { id: matchId } })
 }
 
 function clipSecondsToUs(value: number, field: string): bigint {

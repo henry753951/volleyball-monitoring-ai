@@ -145,12 +145,14 @@ services:
       - "${SERVER_DEV_BIND:-0.0.0.0}:${SERVER_DEV_PORT:-4000}:4000"
     environment:
       MEDIA_IMPORT_ROOT: /var/lib/volleyball/media-imports
+      MEDIA_RECORDING_ROOT: /recordings
       MEDIA_SOURCE_GATEWAY_TOKEN: ${MEDIA_SOURCE_GATEWAY_TOKEN:?MEDIA_SOURCE_GATEWAY_TOKEN is required}
       MEDIA_SOURCE_GATEWAY_URL: http://youtube-relay:8090
       OME_API_ACCESS_TOKEN: ${OME_API_ACCESS_TOKEN:?OME_API_ACCESS_TOKEN is required}
       OME_API_URL: http://ovenmediaengine:8081
     volumes:
       - media-imports:/var/lib/volleyball/media-imports
+      - media-spool:/recordings
     depends_on: [postgres, redis, minio-init, ovenmediaengine, youtube-relay]
     healthcheck:
       test: ["CMD", "bun", "-e", "const response = await fetch('http://localhost:4000/health/ready'); if (!response.ok) process.exit(1)"]

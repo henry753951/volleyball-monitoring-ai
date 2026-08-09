@@ -19,6 +19,7 @@ import { mediaPlaybackRoutes } from './routes/media-playback.js'
 import { aiCallbackRoutesWithDependencies } from './routes/ai-callback.js'
 import { analysisMediaRoutes } from './routes/analysis-media.js'
 import { collectOperationsSnapshot, operationsRoutes } from './routes/operations.js'
+import { createHostStorageProbe } from './operations/host-storage.js'
 import { mediaSourceRoutes } from './routes/media-sources.js'
 import { createAnnotationPresenceService } from './realtime/annotation-presence.js'
 import { createAiProgressService } from './realtime/ai-progress.js'
@@ -141,7 +142,7 @@ await app.register(mediaSourceRoutes({
   importRoot: process.env.MEDIA_IMPORT_ROOT ?? '/var/lib/volleyball/media-imports',
 }))
 await app.register(operationsRoutes(
-  identity => collectOperationsSnapshot(db, identity),
+  identity => collectOperationsSnapshot(db, identity, createHostStorageProbe(process.env.MEDIA_RECORDING_ROOT ?? '/var/lib/volleyball/media-recordings')),
   {
     authenticate: request => authenticateDevelopmentAnnotationRequest(request, db),
     collectReadiness: () => evaluateReadiness(readinessProbes),

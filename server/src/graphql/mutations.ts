@@ -4,6 +4,7 @@ import {
   updateMatchRoster,
   updateMatchClipPolicy,
   startNextSet,
+  updateMatch,
 } from '../services/core-domain.js'
 import { db } from '@volleyball-monitoring/db'
 import {
@@ -22,11 +23,15 @@ import {
   UpdateMatchRosterInputType,
   UpdateMatchClipPolicyInputType,
   StartNextSetInputType,
+  UpdateMatchInputType,
 } from './inputs.js'
-import { CaptureSessionType, MatchSetType, MatchType, ProcessingStateType } from './types.js'
+import { CaptureSessionType, MatchDeleteReceiptType, MatchSetType, MatchType, ProcessingStateType } from './types.js'
 import { createMediaSourceGatewayFromEnv } from '../media/media-source-gateway.js'
+import { createMediaObjectRemoverFromEnv } from '../media/media-object-remover.js'
+import { deleteMatchWithMedia } from '../services/match-administration.js'
 
 const mediaSourceGateway = createMediaSourceGatewayFromEnv()
+const mediaObjectRemover = createMediaObjectRemoverFromEnv()
 
 async function operational<T>(work: () => Promise<T>): Promise<T> {
   try {
@@ -49,6 +54,17 @@ builder.mutationType({
       args: { input: t.arg({ required: true, type: CreateMatchSetupInputType }) },
       resolve: (_root, args, context) => createMatchSetup(requireIdentity(context), args.input),
       type: MatchType,
+    }),
+    deleteMatch: t.field({
+      args: { matchId: t.arg.id({ required: true }) },
+      resolve: (_root, args, context) => deleteMatchWithMedia(requireIdentity(context), args.matchId, {
+        database: db,
+        importRoot: process.env.MEDIA_IMPORT_ROOT ?? '/var/lib/volleyball/media-imports',
+        ...(mediaSourceGateway ? { mediaSourceGateway } : {}),
+        ...(mediaObjectRemover ? { objectRemover: mediaObjectRemover } : {}),
+        recordingRoot: process.env.MEDIA_RECORDING_ROOT ?? '/var/lib/volleyball/media-recordings',
+      }),
+      type: MatchDeleteReceiptType,
     }),
     retryProcessing: t.field({
       args: { input: t.arg({ required: true, type: RetryProcessingInputType }) },
@@ -87,6 +103,11 @@ builder.mutationType({
     updateMatchRoster: t.field({
       args: { input: t.arg({ required: true, type: UpdateMatchRosterInputType }) },
       resolve: (_root, args, context) => updateMatchRoster(requireIdentity(context), args.input),
+      type: MatchType,
+    }),
+    updateMatch: t.field({
+      args: { input: t.arg({ required: true, type: UpdateMatchInputType }) },
+      resolve: (_root, args, context) => updateMatch(requireIdentity(context), args.input),
       type: MatchType,
     }),
     updateMatchClipPolicy: t.field({
