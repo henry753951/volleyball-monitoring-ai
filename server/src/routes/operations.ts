@@ -121,7 +121,7 @@ export type AiWorkerDeleteResult =
   | { deleted: true; id: string; instanceKey: string }
   | { deleted: false; reason: 'active_jobs' | 'not_found' | 'online' }
 export type AiWorkerDeleter = (workerId: string, identity: OperationsIdentity) => Promise<AiWorkerDeleteResult>
-export type AiWorkerTokenCreator = (integrationId: string, name: string, identity: OperationsIdentity) => Promise<{ accessToken: { id: string; name: string; tokenPrefix: string }; integration: { id: string; name: string }; token: string }>
+export type AiWorkerTokenCreator = (name: string, identity: OperationsIdentity) => Promise<{ accessToken: { id: string; name: string; tokenPrefix: string }; token: string }>
 export type AiWorkerTokenRotator = (tokenId: string, identity: OperationsIdentity) => Promise<{ tokenId: string; token: string }>
 export type AiWorkerTokenStateUpdater = (tokenId: string, enabled: boolean, identity: OperationsIdentity) => Promise<{ tokenId: string; enabled: boolean }>
 
@@ -544,17 +544,15 @@ export function operationsRoutes(
         deleted_worker: { id: result.id, instance_key: result.instanceKey },
       })
     })
-    app.post<{ Body: { integration_id?: string; name?: string } }>('/api/v1/operations/ai-worker-tokens', async (request, reply) => {
+    app.post<{ Body: { name?: string } }>('/api/v1/operations/ai-worker-tokens', async (request, reply) => {
       if (!options.authenticate || !options.createAiWorkerToken) return reply.status(404).send({ error: 'Not found' })
       const identity = await options.authenticate(request).catch(() => null)
       if (!identity) return reply.status(401).send({ error: 'Authentication required' })
       if (identity.role !== 'ADMIN') return reply.status(403).send({ error: 'Administrator access required' })
-      if (!UUID_PATTERN.test(request.body?.integration_id ?? '')) return reply.status(400).send({ code: 'INVALID_AI_INTEGRATION_ID', error: 'Invalid AI integration id' })
       try {
-        const result = await options.createAiWorkerToken(request.body!.integration_id!, request.body?.name ?? '', identity)
+        const result = await options.createAiWorkerToken(request.body?.name ?? '', identity)
         return reply.status(201).header('cache-control', 'no-store').send({
           schema_version: '1.0.0',
-          integration: result.integration,
           access_token: result.accessToken,
           token: result.token,
         })

@@ -39,7 +39,6 @@ const snapshot: OperationsSnapshot = {
     canDelete: false,
   }],
   aiIntegrations: [{
-    id: '20000000-0000-4000-8000-000000000001',
     name: 'Primary analysis pool',
     enabled: true,
     authMode: 'managed',
@@ -50,7 +49,6 @@ const snapshot: OperationsSnapshot = {
     updatedAt: '2026-08-08T00:00:00.000Z',
     tokens: [{
       id: '40000000-0000-4000-8000-000000000001',
-      integrationId: '20000000-0000-4000-8000-000000000001',
       name: 'GPU A',
       tokenPrefix: 'vmai_example',
       enabled: true,
@@ -211,7 +209,6 @@ describe('operations routes', () => {
     const app = Fastify()
     const createAiWorkerToken = vi.fn(async () => ({
       accessToken: { id: '40000000-0000-4000-8000-000000000001', name: 'GPU A', tokenPrefix: 'vmai_example' },
-      integration: { id: '20000000-0000-4000-8000-000000000001', name: 'Primary analysis pool' },
       token: 'vmai_secret',
     }))
     const rotateAiWorkerToken = vi.fn(async () => ({ tokenId: '40000000-0000-4000-8000-000000000001', token: 'vmai_rotated' }))
@@ -227,11 +224,12 @@ describe('operations routes', () => {
     const created = await app.inject({
       method: 'POST',
       url: '/api/v1/operations/ai-worker-tokens',
-      payload: { integration_id: '20000000-0000-4000-8000-000000000001', name: 'GPU A' },
+      payload: { name: 'GPU A' },
     })
     expect(created.statusCode).toBe(201)
-    expect(created.json()).toMatchObject({ token: 'vmai_secret', integration: { name: 'Primary analysis pool' } })
-    expect(createAiWorkerToken).toHaveBeenCalledWith('20000000-0000-4000-8000-000000000001', 'GPU A', { role: 'ADMIN', userId: 'admin-1' })
+    expect(created.json()).toMatchObject({ token: 'vmai_secret' })
+    expect(created.json()).not.toHaveProperty('integration')
+    expect(createAiWorkerToken).toHaveBeenCalledWith('GPU A', { role: 'ADMIN', userId: 'admin-1' })
 
     const rotated = await app.inject({ method: 'POST', url: '/api/v1/operations/ai-worker-tokens/40000000-0000-4000-8000-000000000001/rotate' })
     expect(rotated.statusCode).toBe(200)

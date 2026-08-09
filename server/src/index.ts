@@ -140,7 +140,7 @@ await app.register(operationsRoutes(
   {
     authenticate: request => authenticateDevelopmentAnnotationRequest(request, db),
     collectReadiness: () => evaluateReadiness(readinessProbes),
-    createAiWorkerToken: (integrationId, name) => createAiWorkerToken(db, integrationId, name),
+    createAiWorkerToken: name => createAiWorkerToken(db, name),
     deleteAiWorker: workerId => deleteInactiveAiWorker(db, workerId),
     rotateAiWorkerToken: tokenId => rotateAiWorkerToken(db, tokenId),
     updateAiWorkerTokenState: (tokenId, enabled) => setAiWorkerTokenEnabled(db, tokenId, enabled),

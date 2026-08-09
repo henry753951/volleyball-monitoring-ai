@@ -51,7 +51,6 @@ export interface AiWorkerSnapshot {
 }
 
 export interface AiIntegrationAccessSnapshot {
-  id: string
   name: string
   enabled: boolean
   authMode: 'managed' | 'environment' | 'legacy'
@@ -65,7 +64,6 @@ export interface AiIntegrationAccessSnapshot {
 
 export interface AiWorkerTokenSnapshot {
   id: string
-  integrationId: string
   name: string
   tokenPrefix: string
   enabled: boolean
@@ -163,9 +161,9 @@ async function operationsWrite<T>(
   return await response.json() as T
 }
 
-export function createAiWorkerToken(basePath: string, integrationId: string, name: string, fetchImpl: typeof fetch = fetch) {
-  return operationsWrite<{ schema_version: '1.0.0'; integration: { id: string; name: string }; access_token: { id: string; name: string; tokenPrefix: string }; token: string }>(
-    basePath, '/operations/ai-worker-tokens', { body: JSON.stringify({ integration_id: integrationId, name }), method: 'POST' }, fetchImpl,
+export function createAiWorkerToken(basePath: string, name: string, fetchImpl: typeof fetch = fetch) {
+  return operationsWrite<{ schema_version: '1.0.0'; access_token: { id: string; name: string; tokenPrefix: string }; token: string }>(
+    basePath, '/operations/ai-worker-tokens', { body: JSON.stringify({ name }), method: 'POST' }, fetchImpl,
   )
 }
 

@@ -72,7 +72,6 @@ const mediaMonitorMatch = shallowRef<DeepReadonly<Match> | null>(null)
 
 const tokenDialogOpen = ref(false)
 const tokenName = ref('')
-const tokenIntegrationId = ref('')
 const tokenPending = ref(false)
 const tokenError = ref('')
 const revealedToken = ref('')
@@ -210,17 +209,15 @@ async function submit(input: CreateMatchWithMediaInput) {
 function openTokenCreate() {
   rotatingToken.value = null
   tokenName.value = ''
-  tokenIntegrationId.value = aiIntegrations.value[0]?.id ?? ''
   tokenError.value = ''
   revealedToken.value = ''
   tokenDialogOpen.value = true
 }
 async function createToken() {
-  if (!tokenIntegrationId.value) { tokenError.value = 'volleyball-analysis-engine 尚未啟用'; return }
   tokenPending.value = true
   tokenError.value = ''
   try {
-    const result = await createAiWorkerToken(runtimeConfig.public.restBasePath, tokenIntegrationId.value, tokenName.value)
+    const result = await createAiWorkerToken(runtimeConfig.public.restBasePath, tokenName.value)
     revealedToken.value = result.token
     await monitor.refresh()
   }
@@ -230,7 +227,6 @@ async function createToken() {
 async function rotateToken(token: DeepReadonly<AiWorkerTokenSnapshot>) {
   rotatingToken.value = token
   tokenName.value = token.name
-  tokenIntegrationId.value = token.integrationId
   tokenError.value = ''
   revealedToken.value = ''
   tokenDialogOpen.value = true
@@ -315,7 +311,7 @@ onMounted(async () => {
       <div class="token-dialog">
         <template v-if="revealedToken"><label>新的存取 Token</label><div class="revealed-token"><code>{{ revealedToken }}</code><button type="button" @click="copy(revealedToken)"><Copy :size="15" />複製</button></div><p><ShieldCheck :size="14" />伺服器只保存 SHA-256 hash。</p><button type="button" class="dialog-primary" @click="tokenDialogOpen = false">完成</button></template>
         <template v-else-if="rotatingToken"><div class="rotating"><RotateCw :size="20" :class="{ spinning: tokenPending }" /><strong>{{ tokenPending ? '正在產生新 Token…' : tokenError || '準備輪替' }}</strong><small>舊 Token 會立即失效</small></div></template>
-        <template v-else><label for="token-name">Token 名稱</label><input id="token-name" v-model="tokenName" placeholder="例如：GPU 工作站 A" maxlength="64" @keyup.enter="createToken"><p v-if="tokenError" class="dialog-error">{{ tokenError }}</p><button type="button" class="dialog-primary" :disabled="tokenPending || !tokenName.trim() || !tokenIntegrationId" @click="createToken"><KeyRound :size="15" />{{ tokenPending ? '建立中…' : '建立 Token' }}</button></template>
+        <template v-else><label for="token-name">Token 名稱</label><input id="token-name" v-model="tokenName" placeholder="例如：GPU 工作站 A" maxlength="64" @keyup.enter="createToken"><p v-if="tokenError" class="dialog-error">{{ tokenError }}</p><button type="button" class="dialog-primary" :disabled="tokenPending || !tokenName.trim()" @click="createToken"><KeyRound :size="15" />{{ tokenPending ? '建立中…' : '建立 Token' }}</button></template>
       </div>
     </UiAnimatedModal>
   </section>
