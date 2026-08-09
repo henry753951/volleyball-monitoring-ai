@@ -16,7 +16,7 @@ import { createSampleIndexRepository } from './media/sample-index-repository.js'
 import { createPersistedSampleSnapResolver } from './media/sample-snap-resolver.js'
 import { mediaPlaybackRoutes } from './routes/media-playback.js'
 import { aiCallbackRoutesWithDependencies } from './routes/ai-callback.js'
-import { analysisMediaRoutes } from './routes/analysis-media.js'
+import { analysisMediaRoutesWithDependencies } from './routes/analysis-media.js'
 import { analysisReviewRoutes } from './routes/analysis-review.js'
 import { collectOperationsSnapshot, deleteInactiveAiWorker, operationsRoutes } from './routes/operations.js'
 import { createHostStorageProbe } from './operations/host-storage.js'
@@ -29,7 +29,7 @@ import { aiProviderWebSocketRoutes } from './realtime/ai-provider-ws.js'
 import { authenticateDevelopmentAnnotationRequest } from './realtime/auth.js'
 import { createAnnotationCommandService } from './services/annotation-command.js'
 import { getAnnotationSnapshot } from './services/annotation-snapshot.js'
-import { createAiWorkerToken, rotateAiWorkerToken, setAiWorkerTokenEnabled } from './services/ai-worker-access.js'
+import { createAiWorkerToken, deleteAiWorkerToken, rotateAiWorkerToken, setAiWorkerTokenEnabled } from './services/ai-worker-access.js'
 
 const app = Fastify({ logger: true })
 const redisUrl = process.env.REDIS_URL
@@ -123,7 +123,7 @@ await app.register(multipart, {
 await app.register(websocket)
 await app.register(aiCallbackRoutesWithDependencies({ ...(aiProgress ? { progress: aiProgress } : {}) }))
 await app.register(aiProviderWebSocketRoutes({ database: db, ...(aiProgress ? { progress: aiProgress } : {}) }))
-await app.register(analysisMediaRoutes)
+await app.register(analysisMediaRoutesWithDependencies({ timingManifestReader }))
 await app.register(analysisReviewRoutes)
 await app.register(mediaPlaybackRoutes({
   objectReader: mediaObjectReader,
@@ -141,6 +141,7 @@ await app.register(operationsRoutes(
     authenticate: request => authenticateDevelopmentAnnotationRequest(request, db),
     collectReadiness: () => evaluateReadiness(readinessProbes),
     createAiWorkerToken: name => createAiWorkerToken(db, name),
+    deleteAiWorkerToken: tokenId => deleteAiWorkerToken(db, tokenId),
     deleteAiWorker: workerId => deleteInactiveAiWorker(db, workerId),
     rotateAiWorkerToken: tokenId => rotateAiWorkerToken(db, tokenId),
     updateAiWorkerTokenState: (tokenId, enabled) => setAiWorkerTokenEnabled(db, tokenId, enabled),

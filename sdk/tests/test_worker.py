@@ -77,6 +77,7 @@ async def test_worker_accepts_job_and_obeys_abort(tmp_path: Path) -> None:
         hello = json.loads(await websocket.recv())
         observed.append(hello)
         assert hello["type"] == "provider_hello"
+        assert hello["sdk_version"] == "0.3.0"
         await websocket.send(
             json.dumps(
                 {
@@ -146,6 +147,48 @@ async def test_worker_accepts_job_and_obeys_abort(tmp_path: Path) -> None:
         "job_accepted",
         "abort_ack",
     ]
+
+
+@pytest.mark.asyncio
+async def test_worker_exits_when_authorization_is_revoked(tmp_path: Path) -> None:
+    capabilities = ProviderCapabilities.model_validate_json(CAPABILITIES.read_text())
+    connection_count = 0
+
+    async def ws_handler(websocket) -> None:
+        nonlocal connection_count
+        connection_count += 1
+        hello = json.loads(await websocket.recv())
+        assert hello["type"] == "provider_hello"
+        await websocket.send(
+            json.dumps(
+                {
+                    "schema_version": "1.0.0",
+                    "type": "protocol_error",
+                    "code": "AUTHORIZATION_REVOKED",
+                    "message": "worker token was deleted",
+                    "retryable": False,
+                }
+            )
+        )
+
+    async def handler(_context) -> None:
+        raise AssertionError("revoked worker must not receive work")
+
+    async with serve(ws_handler, "127.0.0.1", 0) as server:
+        port = server.sockets[0].getsockname()[1]
+        client = AIWorkerClient(
+            WorkerConfig(
+                server_ws_url=f"ws://127.0.0.1:{port}",
+                token="revoked-token",
+                workspace=tmp_path,
+                provider_build_id="fixture-provider-v1",
+                capabilities=capabilities,
+                instance_id="revoked-instance",
+            )
+        )
+        await asyncio.wait_for(client.run_forever(handler), timeout=2)
+
+    assert connection_count == 1
 
 
 def test_fixture_result_builder_adapts_golden_data_to_incoming_job() -> None:

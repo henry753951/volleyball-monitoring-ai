@@ -36,11 +36,15 @@ from .realtime import (
 )
 
 LOGGER = logging.getLogger(__name__)
-SDK_VERSION = "0.2.0"
+SDK_VERSION = "0.3.0"
 
 
 class JobAbortedError(asyncio.CancelledError):
     """Raised at cooperative checkpoints after the central server aborts a job."""
+
+
+class WorkerAuthorizationRevokedError(RuntimeError):
+    """Raised when the central server permanently revokes this worker credential."""
 
 
 class CancellationToken:
@@ -261,6 +265,10 @@ class AIWorkerClient:
                         self._socket = None
             except asyncio.CancelledError:
                 raise
+            except WorkerAuthorizationRevokedError as exc:
+                LOGGER.error("AI worker stopped by central server: %s", exc)
+                await self.stop()
+                return
             except Exception as exc:  # reconnect is the durable worker's normal failure mode
                 if self._stop.is_set():
                     break
@@ -319,7 +327,9 @@ class AIWorkerClient:
             return
         if isinstance(message, ProtocolErrorMessage):
             if not message.retryable:
-                raise RuntimeError(f"server rejected worker protocol: {message.code}: {message.message}")
+                raise WorkerAuthorizationRevokedError(
+                    f"server rejected worker protocol: {message.code}: {message.message}"
+                )
 
     async def _accept_offer(self, offer: JobOfferMessage, handler: JobHandler) -> None:
         if offer.ai_job_id in self._active:
