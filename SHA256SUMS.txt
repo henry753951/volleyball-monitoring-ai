@@ -53,7 +53,7 @@ dca90ff8350211685a9c089477659633e29636661452e9487aaef40e46f43772  ./docs/adr/002
 d9a7158c16f027ba6035bc44d04efd24c5fedb2cd443b089ec4fd04e0467d26f  ./docs/adr/0025-rally-lifecycle-and-display-placement.md
 15b9c5d980696f694c8928e4be16c01e2da6989c6ae81343375a1f490f5c5a50  ./docs/adr/0026-token-routed-ai-worker-endpoint.md
 de376c790b3f7624d275cd8d6882725028d5264710ede7d748ad38304fee5c6a  ./docs/open-decisions.md
-9b7865191fa264d30ad92385fa098337b2f63bdd7c3256bc9bfb414337737f39  ./docs/progress.md
+ba422af4731f2e3401860545f9106f0a49a6753ab18234856cfe5f89ab3272ba  ./docs/progress.md
 aa5494b32c071ea634767c3858b1f3063aa2331777c50ec41b56cbc7a25c6d4b  ./docs/requirements-matrix.md
 7d92d0eccdd10bb261204bc2386e750b0e933fbf626df79163688e3b46d2ad68  ./docs/runtime-topology-inventory.md
 e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  ./examples/__init__.py
@@ -428,7 +428,7 @@ cba670333ab1e0c411c488d0f3517da77337ca9c256ef9eaae31df1d6c9c3d6d  ./web/app/lib/
 adee2ce860eff55e9be95c2feaabea259ae161fb138efc484051980767938b22  ./web/app/lib/playbackWindowCache.ts
 52fe16f81674ddd4727c93d95986be02908b5bb247fcca16e04f5c2aba4a1ccb  ./web/app/middleware/auth.global.ts
 5eda49345c70333111f45fa0ffae91a458b48225e6fb726344c9767c1dc4d770  ./web/app/pages/annotate/[matchId].vue
-380a0d851ebf29206318c1bbb3230daeda568b97f6f542ccda355bc7cd3f3f8c  ./web/app/pages/control/index.vue
+daec128dadb10bf7c629bb10020a26e96ed1bf7fdd10ab07f8d6a05daaebdddb  ./web/app/pages/control/index.vue
 3cc1461e7975d0e8c6875dc155353512e9901a19d4930a8a854c73872a536951  ./web/app/pages/index.vue
 f3bf511c8e2d7748a3d05b0009e008808e14c8959976090362d6198e54d11651  ./web/app/pages/matches/[matchId]/history.vue
 8ee617158e4243ca761d21ca9a68ef4f5b6b4f0605337e13879459300f7f837f  ./web/app/pages/matches/[matchId]/live.vue

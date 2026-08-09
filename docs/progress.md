@@ -980,5 +980,8 @@ The Nuxt build emits a dependency-level Node `DEP0155` deprecation warning but c
   source FPS, indexed duration, capture epochs, playlist revision, time base and last update.
 - Added an explicit processing-rate estimate (indexed media duration divided by elapsed processing
   time) so operators can compare source progress without presenting it as encoder CPU throughput.
+- Kept the DVR dialog mounted while its controlled `open` state closes so the shared dialog component
+  can finish its backdrop and content exit animations before the portal is removed.
 - Nuxt typecheck and all 152 Web tests pass. Headed Chromium verified the systems grid and the DVR
-  dialog against the running local services with no browser console errors.
+  dialog against the running local services, including the closed-state exit interval, with no
+  browser console errors.

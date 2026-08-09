@@ -309,7 +309,7 @@ onMounted(async () => {
     <ControlMatchEditorDialog :open="editOpen" :match="editMatch" :pending="editPending" :error="editError" @close="editOpen = false" @save="saveMatch" />
     <ControlMatchDeleteDialog :open="deleteOpen" :match="deleteTarget" :media="deleteTarget ? matchMediaById.get(deleteTarget.id) ?? null : null" :pending="deletePending" :error="deleteError" @close="deleteOpen = false" @confirm="confirmDelete" />
     <ControlAiWorkerDeleteDialog :open="Boolean(workerDeleteTarget)" :worker="workerDeleteTarget" :pending="workerDeletePending" :error="workerDeleteError" @close="workerDeleteTarget = null" @confirm="confirmWorkerDelete" />
-    <MediaDvrMonitorDialog v-if="mediaMonitorMatch" :open="Boolean(mediaMonitorMatch)" :match-title="mediaMonitorMatch.title" :media="matchMediaById.get(mediaMonitorMatch.id) ?? null" :streams="streamsByMatch.get(mediaMonitorMatch.id) ?? []" @close="mediaMonitorMatch = null" />
+    <MediaDvrMonitorDialog :open="Boolean(mediaMonitorMatch)" :match-title="mediaMonitorMatch?.title ?? ''" :media="mediaMonitorMatch ? matchMediaById.get(mediaMonitorMatch.id) ?? null : null" :streams="mediaMonitorMatch ? streamsByMatch.get(mediaMonitorMatch.id) ?? [] : []" @close="mediaMonitorMatch = null" />
 
     <UiAnimatedModal :open="tokenDialogOpen" :title="rotatingToken ? '輪替 Worker Token' : '建立 Worker Token'" :description="revealedToken ? '請立即複製；關閉後無法再次查看。' : '供 volleyball-analysis-engine 連入中央系統。'" @close="tokenDialogOpen = false">
       <div class="token-dialog">
