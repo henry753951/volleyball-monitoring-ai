@@ -5,7 +5,6 @@ describe('validateWorkerRole', () => {
   it.each([
     'media',
     'workflow',
-    'ai-dispatcher',
   ])('accepts %s', (role) => {
     expect(validateWorkerRole(role)).toBe(role)
   })

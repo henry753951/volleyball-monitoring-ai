@@ -3,7 +3,7 @@
 > Repository：`volleyball-monitoring-ai`  
 > 主要讀者：負責統籌實作的主 PM／架構 Agent，以及最多三個受委派 subagent。  
 > 文件目的：把產品行為、跨團隊 Schema、媒體時間軸、外部 AI 串接、Nuxt UI、後端、容器與開發順序定成可實作的共同基線。  
-> 核心邊界：**本 repository 不實作任何 AI 模型；只實作中央系統、影音流程、前端、外部 AI 介面、Recorded Tracking Replay Provider 與可由 GitHub 安裝的 Python SDK。**
+> 核心邊界：**本 repository 不實作任何 AI 模型；只實作中央系統、影音流程、前端、外部 AI 介面與可由 GitHub 安裝的 Python SDK。外部 AI Worker 由獨立 repository 透過既有 WebSocket contract 連入。**
 
 ---
 
@@ -387,7 +387,6 @@ volleyball-monitoring-ai/
 │   ├── src/roles/
 │   └── tests/
 ├── examples/
-│   └── tracking_replay_provider/
 ├── infra/
 │   ├── compose.yaml
 │   ├── docker/
@@ -442,16 +441,14 @@ server/src/graphql/**/*.ts (Pothos source)
 
 ## 4.4 Worker
 
-同一個 worker image 可以依 command/environment 執行不同角色：
+中央系統使用同一個 worker image 啟動兩個 composition：
 
-- `media-indexer`
-- `playback-packager`
-- `clip-worker`
-- `ai-dispatcher`
-- `analysis-ingest`
-- `outbox-publisher`
+- `worker-media`：YouTube／MP4 source、OME monitor、DVR index、sample index 與 FFmpeg。
+- `worker-workflow`：clip、playback cleanup、analysis convergence 與 outbox publish。
 
-它們共享 `packages/db` 與 `packages/contracts`，但每個 worker 只能 claim 自己的 job type。FFmpeg subprocess 必須有 timeout、cancel、stderr capture、temporary directory quota 與 idempotent output key。
+每個 composition 內仍以獨立 loop、concurrency、metrics、backoff 與 graceful shutdown 隔離責任。它們共享 `packages/db` 與 `packages/contracts`，但每個 loop 只能 claim 自己的 job type。FFmpeg subprocess 必須有 timeout、cancel、stderr capture、temporary directory quota 與 idempotent output key。
+
+外部 GPU AI Worker 透過 `/api/v1/ai/providers/ws` 主動連入 Server；Server 直接以 least-busy 規則分配 durable AI job。中央 worker image 不包含 AI dispatcher，也不執行假 provider。現有 GraphQL、REST、Annotation WebSocket 與 AI Worker WebSocket 介面保持不變。
 
 目前 deterministic DVR profile 已是可直接組成 bounded HLS 的 immutable fMP4。Server 在已授權 request 內建立 manifest/mapping；`playback-packager` 非同步清除已過期的 ephemeral `PlaybackWindow`，不複製完整 DVR、也不為每次 seek 重轉碼。AI completed callback 必須在公開 REST boundary 完成 schema/checksum/passthrough/idempotent receipt 與 normalized transaction 後才 ACK；`analysis-ingest` 只負責 restart 後 active immutable submission 的 terminal projection convergence，不得重啟 `SUPERSEDED` run 或重算/改寫 provider `court_pos`。`outbox-publisher` 以 PostgreSQL CAS claim `OutboxEvent`，用 event ID/dedupe key idempotently 寫入 durable pg-boss queue，成功後才標記 `PUBLISHED`。
 
@@ -1818,14 +1815,14 @@ Frontend：
 
 Exit：兩個獨立 PC browser session 同時標註；鍵盤、滑鼠與五個annotation touch controls加按鍵設定可用；refresh/reconnect後一致；close不建timestamp／score frame；unknown可提交。Coach iPad PWA 在 Phase 5 另行驗收，不作為 annotation editor 的主要裝置。
 
-## Phase 4 — Clip／Recorded AI Replay／SDK
+## Phase 4 — Clip／External AI Worker／SDK
 
 - Clip worker與timing manifest。
 - AI Integration/capabilities/job/callback。
 - SDK v0.1.0可 GitHub安裝。
-- Recorded replay provider 回傳已保存的 normalized analysis 與 per-frame overlay。
+- 外部 WS AI Worker 回傳 normalized analysis 與 per-frame overlay。
 
-Exit：Enter後自動 clip → recorded AI replay → callback → analysis run。
+Exit：Enter後自動 clip → WS AI job → callback → analysis run。
 
 ## Phase 5 — Coach Replay／Overlay
 
@@ -1872,7 +1869,7 @@ Exit：跨 rally player view不依賴 track ID；side switch後 team統計正確
 
 ### Agent A
 
-> 建立 v1 contract baseline與 Python SDK skeleton。只實作 Schema、validation、recorded replay provider adapter與 fixtures，不實作 AI 模型。完成後回報 contract版本、生成物、測試與未定 action/phase事項。
+> 建立 v1 contract baseline與 Python SDK skeleton。只實作 Schema、validation、外部 WS worker adapter與 fixtures，不實作 AI 模型。完成後回報 contract版本、生成物、測試與未定 action/phase事項。
 
 ### Agent B
 
@@ -1933,7 +1930,7 @@ Exit：跨 rally player view不依賴 track ID；side switch後 team統計正確
 - Prisma/PostgreSQL、MinIO、Redis與durable workers
 - 外部 AI Job/callback contracts
 - 可從 GitHub subdirectory安裝的 Python SDK
-- Recorded Tracking Replay Provider與端到端fixtures
+- 外部 WS AI Worker integration fixtures
 
 最多同時派出三個 subagent，固定分工：
 A. Contracts + Python SDK
@@ -2123,7 +2120,7 @@ max_concurrent_threads_per_session = 3
 - 灰／黃／藍／綠mask與score state符合使用流程。
 - Enter建立immutable submission。
 - Clip mapping正確。
-- SDK可由GitHub安裝，Recorded Replay Provider與真AI使用同一contract。
+- SDK可由GitHub安裝，外部 AI Worker 使用同一個 WS job/callback contract。
 - Callback/FlatBuffers可驗證、保存與重試。
 - 教練端多頁、歷史、overlay、A/B與baseline分析可用。
 - 所有durable state位於PostgreSQL/MinIO；API/worker重啟不遺失。
@@ -2284,7 +2281,7 @@ Repository ZIP內必須同時包含：
 
 ```bash
 cp .env.example .env
-docker compose -f infra/compose.yaml --profile app --profile dev-ai up --build
+docker compose -f infra/compose.yaml --profile app up --build
 ```
 
 iPad以Safari開啟Docker host的LAN IP或DNS，確認PWA、WebSocket、GraphQL、HLS均為同源。Traefik `:8080` dashboard與MinIO `:9001`只供本地開發，不是正式公開入口。

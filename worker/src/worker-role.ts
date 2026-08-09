@@ -1,7 +1,6 @@
 export const workerRoles = [
   'media',
   'workflow',
-  'ai-dispatcher',
 ] as const
 
 export type WorkerRole = (typeof workerRoles)[number]

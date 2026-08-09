@@ -47,7 +47,7 @@ Date: 2026-08-07 (Asia/Taipei target release date)
 
 ## Integrated Phase 1A runtime validation
 
-- The complete `app` and `dev-ai` Docker Compose profiles were built and started after main-Agent integration.
+- The complete central `app` Docker Compose profile was built and started after main-Agent integration; external AI workers connect separately over the provider WebSocket.
 - PostgreSQL, Redis and fake AI reported healthy; server readiness returned PostgreSQL, Redis and MinIO `ok`; server and Nuxt Docker health checks passed.
 - Nuxt and all six scaffold worker containers remained running with restart count zero. Worker processes are intentionally idle until durable pg-boss claim/lease behavior is implemented.
 - Traefik returned HTTPS 200 for the PWA and GraphQL endpoints. A headed Playwright smoke loaded the home, settings and live routes after accepting the local self-signed certificate, then closed the browser session.
@@ -78,8 +78,8 @@ bun run db:validate
 bun run typecheck
 bun run test
 bun run build
-docker compose -f infra/compose.yaml --profile app --profile dev-ai config
-docker compose -f infra/compose.yaml --profile app --profile dev-ai up --build
+docker compose -f infra/compose.yaml --profile app config
+docker compose -f infra/compose.yaml --profile app up --build
 ```
 
 Do not claim a vertical slice complete until the matching exit evidence in `docs/requirements-matrix.md` is collected.

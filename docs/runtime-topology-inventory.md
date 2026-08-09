@@ -20,13 +20,10 @@ service names remain only in the superseded ADR/history and migrations.
 | `web` | `app` | none | keep |
 | `worker-media` | `app` | shared imports/spool; PostgreSQL jobs | keep |
 | `worker-workflow` | `app` | PostgreSQL/MinIO | keep |
-| `worker-ai-dispatcher` | `app` | PostgreSQL | Phase 4: remove after WS-only cutover |
-| `tracking-replay-provider` | `dev-ai` | external fixture mount | Phase 4: remove |
 
-The Phase 2 and Phase 3 worker consolidation is complete in source and Compose. The central
-`app` profile still has eleven long-running services because the old AI dispatcher remains and
-the one-shot MinIO bootstrap is still present. Phase 4 and Phase 5 reduce that to the fixed target
-of nine central containers.
+The Phase 2 through Phase 4 runtime consolidation is complete in source and Compose. The central
+`app` profile now has the fixed target of nine long-running services; the one-shot MinIO bootstrap
+remains visible until Phase 5 replaces it with the host command.
 
 ## Current named volumes
 
@@ -43,7 +40,6 @@ live in PostgreSQL. There is no dedicated relay/watcher state volume.
 | `infra/docker/server.Dockerfile` | keep |
 | `infra/docker/web.Dockerfile` | keep |
 | `infra/docker/worker.Dockerfile` | keep; builds both composed workers and installs uv-managed `yt-dlp` |
-| `infra/docker/tracking-replay-provider.Dockerfile` | Phase 4: remove |
 
 ## Environment-variable ownership
 
@@ -64,22 +60,22 @@ live in PostgreSQL. There is no dedicated relay/watcher state volume.
   and the documented `NUXT_PUBLIC_*` URLs.
 - DVR/clip: playback-window, client-buffer and clip-roll settings remain unchanged.
 
-### Variables still scheduled for removal
+### Remaining migration variable
 
-- Phase 4 HTTP AI adapter: `AI_PROVIDER_CAPABILITIES_URL`, `AI_PROVIDER_SUBMIT_URL`,
-  `AI_PROVIDER_BEARER_TOKEN`.
 - Phase 5 storage bootstrap introduces `OBJECT_STORAGE_BOOTSTRAP_MODE=ensure|validate`.
 
 ## Database transport audit
 
-The development database had one enabled `WS_AGENT` integration, no HTTP integration and no
-queued/running legacy delivery jobs at the Phase 1 snapshot. The external engine also completed a
-real persisted job and callback. Phase 4 still performs the enum/column migration and fixture/SDK
-cleanup before the old dispatcher is deleted.
+The development database has one enabled `WS_AGENT` integration, no HTTP integration and no
+queued/running legacy delivery jobs. The external engine also completed a real persisted job and
+callback. Phase 4 removed the central dispatcher and replay runtime without changing the working
+Nuxt, GraphQL, REST, Annotation WebSocket or AI Worker WebSocket interfaces. Compatibility columns
+remain in Prisma for now so this runtime-only cleanup does not force an unrelated public migration.
 
 ## Preserved verification evidence
 
 - Phase 1: media 88 tests; focused Server media/sample/PTS 38; focused Worker paths 16.
 - Phase 2: Worker 169 passed, 6 skipped; build/typecheck and a real PostgreSQL lifecycle smoke.
 - Phase 3: Server 221 passed; Worker 162 passed, 6 skipped; local FFmpeg MP4 segmentation smoke;
-  PostgreSQL lease/CAS and zero-segment drain smoke; Compose renders one `worker-media`.
+  PostgreSQL lease/CAS and zero-segment drain smoke; Compose renders one `worker-media`; the 339 MB
+  worker image starts Bun 1.3.14, yt-dlp 2026.07.04 and FFmpeg 6.1.2.

@@ -31,7 +31,7 @@ The specification is available as PDF, Markdown and LaTeX under `docs/SYSTEM_SPE
 ```bash
 cp .env.example .env
 ./scripts/generate-local-tls.sh volleyball.lan <DOCKER_HOST_LAN_IP>
-docker compose -f infra/compose.yaml --profile app --profile dev-ai up --build
+docker compose -f infra/compose.yaml --profile app up --build
 ```
 
 - PWA/Web: `https://<trusted-lan-host>/`

@@ -7,7 +7,7 @@ This runbook covers the Docker Compose deployment in this repository. Run comman
 The normal stack uses both profiles:
 
 ```powershell
-docker compose --env-file .env -f infra/compose.yaml --profile app --profile dev-ai ps
+docker compose --env-file .env -f infra/compose.yaml --profile app ps
 docker exec volleyball-monitoring-ai-server-1 wget -qO- http://127.0.0.1:4000/health/ready
 ```
 
