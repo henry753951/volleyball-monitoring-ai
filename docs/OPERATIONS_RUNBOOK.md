@@ -16,7 +16,14 @@ docker exec volleyball-monitoring-ai-server-1 wget -qO- http://127.0.0.1:4000/he
 
 Daily host development uses `bun run dev:infra`; it starts only PostgreSQL, Redis, MinIO and OME,
 then runs the idempotent bucket bootstrap in `ensure` mode. `bun run dev:https` additionally starts
-Traefik. No bucket-provisioning container remains in Compose.
+Traefik and routes the existing same-origin paths to host ports 4000/3100. Start the application with
+`bun run dev`; the supervisor maps only infrastructure DNS names to loopback endpoints and shuts all
+four host children down together. No bucket-provisioning container remains in Compose.
+
+`worker-media` and `worker-workflow` expose internal readiness documents on ports 4101 and 4102.
+Each document reports component heartbeat, last success/error, active work, failures and known
+backlog. A failed media indexer or clip loop is `unhealthy`; a failed maintenance loop such as
+playback cleanup is `degraded` and does not restart otherwise healthy siblings.
 
 Restart stateful dependencies one at a time, waiting for `healthy` and Server readiness before continuing. A safe order is Redis, Server, workers, MinIO, PostgreSQL. Do not remove or recreate volumes during a restart drill. Afterward compare canonical row counts, an object SHA/byte length and all container restart counts to the pre-drill record.
 
@@ -29,8 +36,10 @@ For active broadcasts, `worker-media` publishes the selected FHD 60 fps H.264/AA
 Run the host process during normal development:
 
 ```powershell
-$env:WORKER_ROLE = 'media'
-bun --cwd worker dev
+bun run dev:infra
+bun run dev
+Invoke-RestMethod http://127.0.0.1:4101/health/ready
+Invoke-RestMethod http://127.0.0.1:4102/health/ready
 ```
 
 In the full profile, inspect the composed worker instead:

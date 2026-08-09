@@ -53,6 +53,11 @@ export class MediaSourceRuntime {
   #timer: ReturnType<typeof setInterval> | undefined
   #tickPromise: Promise<void> | undefined
   #stopping = false
+  #lastHeartbeatAt: string | null = null
+  #lastSuccessAt: string | null = null
+  #lastErrorAt: string | null = null
+  #lastErrorName: string | null = null
+  #failedCount = 0
 
   constructor(private readonly options: MediaSourceRuntimeOptions) {
     this.#owner = options.owner ?? `${hostname()}:${process.pid}`
@@ -61,6 +66,11 @@ export class MediaSourceRuntime {
   get snapshot() {
     return {
       active: this.#active.size,
+      failedCount: this.#failedCount,
+      lastErrorAt: this.#lastErrorAt,
+      lastErrorName: this.#lastErrorName,
+      lastHeartbeatAt: this.#lastHeartbeatAt,
+      lastSuccessAt: this.#lastSuccessAt,
       owner: this.#owner,
       runningCaptureIds: [...this.#active.values()].map(value => value.work.captureSessionId),
     }
@@ -77,7 +87,16 @@ export class MediaSourceRuntime {
   async tick(): Promise<void> {
     if (this.#stopping) return
     if (this.#tickPromise) return this.#tickPromise
-    this.#tickPromise = this.#tick().finally(() => { this.#tickPromise = undefined })
+    this.#lastHeartbeatAt = new Date().toISOString()
+    this.#tickPromise = this.#tick()
+      .then(() => { this.#lastSuccessAt = new Date().toISOString() })
+      .catch((error) => {
+        this.#failedCount += 1
+        this.#lastErrorAt = new Date().toISOString()
+        this.#lastErrorName = errorCode(error)
+        throw error
+      })
+      .finally(() => { this.#tickPromise = undefined })
     return this.#tickPromise
   }
 

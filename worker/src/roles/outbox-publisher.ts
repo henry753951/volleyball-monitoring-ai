@@ -155,5 +155,6 @@ export function createOutboxPublisherWorker(
       await publisher.stop()
       if (options.disconnectOnStop !== false) await database.$disconnect()
     },
+    runtimeSnapshot: () => polling.runtimeSnapshot!(),
   }
 }

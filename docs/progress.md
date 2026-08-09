@@ -906,3 +906,21 @@ The Nuxt build emits a dependency-level Node `DEP0155` deprecation warning but c
   Host development starts both composed worker roles as separate Bun processes.
 - Unit tests passed 4 bootstrap cases; real `ensure` and `validate` smokes passed against the running
   MinIO at the host-published endpoint.
+
+# 2026-08-09 — Phase 6 host development runtime and worker health
+
+- `dev:infra` now removes only application/Traefik containers without deleting volumes, then starts
+  exactly PostgreSQL, Redis, MinIO and OME. Redis is published on configurable loopback port 16379;
+  media imports and the recording spool use the same host bind paths in host and full-profile modes.
+- `bun run dev` supervises Server, Nuxt, `worker-media` and `worker-workflow` as host processes. It
+  maps infrastructure endpoints to loopback but preserves all browser-facing and AI interfaces.
+  `dev:https` adds a fifth Traefik container whose host-dev labels route the unchanged paths to ports
+  4000 and 3100.
+- Both merged workers now expose component-aware internal health. Critical media-index/clip failure
+  is unhealthy; a maintenance-loop failure is degraded. Heartbeat, last success/error, active work,
+  failure count and known backlog are visible without adding a Nuxt API migration.
+- Real smoke reached ready Server, Nuxt, media worker and workflow worker on isolated host ports,
+  stopped all four cleanly, and left only the four project infrastructure containers running.
+- Fresh worker images built successfully; both Compose healthchecks became healthy and returned all
+  media/workflow component heartbeats. The worker containers were then removed without deleting
+  volumes, leaving the optional Traefik plus four infrastructure containers.

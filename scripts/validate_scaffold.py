@@ -56,11 +56,16 @@ REQUIRED = [
     'scripts/refresh_checksums.py',
     'scripts/storage_bootstrap.ts',
     'scripts/storage_bootstrap.test.ts',
+    'scripts/dev_host.ts',
+    'scripts/dev_host.test.ts',
+    'scripts/dev_infra.ts',
     'sdk/pyproject.toml',
     'web/app/pages/annotate/[matchId].vue',
     'web/tsconfig.json',
     'server/src/index.ts',
     'infra/compose.yaml',
+    'infra/compose.host-dev.yaml',
+    'worker/src/runtime-health.ts',
 ]
 
 for relative in REQUIRED:
@@ -74,7 +79,7 @@ for path in repository_files('*.toml'):
     tomllib.loads(path.read_text(encoding='utf-8'))
 
 root_package = json.loads((ROOT / 'package.json').read_text(encoding='utf-8'))
-for script in ('storage:bootstrap', 'dev:infra', 'dev:https', 'dev:worker-media', 'dev:worker-workflow'):
+for script in ('dev', 'storage:bootstrap', 'dev:infra', 'dev:https', 'dev:worker-media', 'dev:worker-workflow'):
     assert script in root_package['scripts'], f'missing root runtime script: {script}'
 workspace_manifests: set[Path] = set()
 for workspace_pattern in root_package['workspaces']:
@@ -161,7 +166,21 @@ expected_services = {
     'worker-workflow',
 }
 assert service_names == expected_services, f'Compose service allowlist mismatch: {sorted(service_names)}'
-assert 'OBJECT_STORAGE_BOOTSTRAP_MODE' in (ROOT / '.env.example').read_text(encoding='utf-8')
+environment_example = (ROOT / '.env.example').read_text(encoding='utf-8')
+for variable in (
+    'OBJECT_STORAGE_BOOTSTRAP_MODE',
+    'REDIS_HOST_PORT',
+    'MEDIA_SPOOL_HOST_PATH',
+    'MEDIA_IMPORT_HOST_PATH',
+    'WORKER_MEDIA_HEALTH_PORT',
+    'WORKER_WORKFLOW_HEALTH_PORT',
+):
+    assert variable in environment_example, f'missing host runtime environment variable: {variable}'
+for required_runtime_literal in ('WORKER_HEALTH_PORT', 'health/ready', 'MEDIA_SPOOL_HOST_PATH'):
+    assert required_runtime_literal in compose_source, f'Compose missing runtime health/bind contract: {required_runtime_literal}'
+host_override = (ROOT / 'infra/compose.host-dev.yaml').read_text(encoding='utf-8')
+for route in ('Path(`/graphql`)', 'PathPrefix(`/api/`)', 'PathPrefix(`/ws/`)'):
+    assert route in host_override, f'host-dev Traefik override missing unchanged route: {route}'
 
 active_annotation_sources = [
     ROOT / 'AGENTS.md',

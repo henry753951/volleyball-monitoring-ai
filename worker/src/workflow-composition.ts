@@ -4,6 +4,7 @@ import { createAnalysisIngestWorker } from './roles/analysis-ingest.js'
 import { createClipWorker } from './roles/clip-worker.js'
 import { createOutboxPublisherWorker, createPgBossOutboxPublisher } from './roles/outbox-publisher.js'
 import { createPlaybackPackagerWorker } from './roles/playback-packager.js'
+import type { WorkerComponentHealth } from './runtime-health.js'
 
 export const workflowModuleNames = [
   'clip',
@@ -29,6 +30,7 @@ export type NamedWorkflowLifecycle = {
 
 export type WorkflowComposition = PollingLifecycle & {
   snapshot(): WorkflowModuleHealth[]
+  healthSnapshot(): WorkerComponentHealth[]
   recordError(name: WorkflowModuleName, error: unknown): void
 }
 
@@ -118,6 +120,32 @@ export function composeWorkflowLifecycles(
     },
     snapshot() {
       return modules.map(module => ({ ...health.get(module.name)! }))
+    },
+    healthSnapshot() {
+      return modules.map((module) => {
+        const state = health.get(module.name)!
+        const polling = module.lifecycle.runtimeSnapshot?.()
+        const stopped = ['idle', 'stopping', 'stopped', 'failed'].includes(state.state)
+        const lastErrorAt = polling?.lastErrorAt ?? state.lastErrorAt
+        const lastErrorName = polling?.lastErrorName ?? state.lastErrorName
+        const status = stopped
+          ? 'unhealthy' as const
+          : lastErrorAt && (!polling?.lastSuccessAt || lastErrorAt > polling.lastSuccessAt)
+            ? 'degraded' as const
+            : 'healthy' as const
+        return {
+          name: module.name,
+          critical: module.name === 'clip',
+          status,
+          activeWork: polling?.active ? 1 : 0,
+          failedJobs: polling?.failedCount ?? (lastErrorAt ? 1 : 0),
+          backlog: null,
+          lastHeartbeatAt: polling?.lastHeartbeatAt ?? null,
+          lastSuccessAt: polling?.lastSuccessAt ?? null,
+          lastErrorAt,
+          lastErrorName,
+        }
+      })
     },
     recordError(name, error) {
       const state = health.get(name)

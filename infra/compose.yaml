@@ -45,13 +45,15 @@ services:
   redis:
     image: redis:8-alpine
     command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "127.0.0.1:${REDIS_HOST_PORT:-16379}:6379"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
       timeout: 3s
       retries: 20
     volumes: [redis-data:/data]
-    networks: [internal]
+    networks: [internal, development]
     restart: unless-stopped
 
   minio:
@@ -81,7 +83,7 @@ services:
       OME_HOST_IP: ${OME_HOST_IP:-127.0.0.1}
     volumes:
       - ./ome:/opt/ovenmediaengine/bin/origin_conf:ro
-      - media-spool:/recordings
+      - ${MEDIA_SPOOL_HOST_PATH:-../.data/runtime/media-spool}:/recordings
       - ome-dvr:/var/lib/ovenmediaengine/dvr
       - ome-logs:/var/log/ovenmediaengine
     ports:
@@ -120,8 +122,8 @@ services:
       OME_API_ACCESS_TOKEN: ${OME_API_ACCESS_TOKEN:?OME_API_ACCESS_TOKEN is required}
       OME_API_URL: http://ovenmediaengine:8081
     volumes:
-      - media-imports:/var/lib/volleyball/media-imports
-      - media-spool:/recordings
+      - ${MEDIA_IMPORT_HOST_PATH:-../.data/runtime/media-imports}:/var/lib/volleyball/media-imports
+      - ${MEDIA_SPOOL_HOST_PATH:-../.data/runtime/media-spool}:/recordings
     depends_on:
       postgres: { condition: service_healthy }
       redis: { condition: service_healthy }
@@ -159,6 +161,7 @@ services:
     env_file: ../.env
     environment:
       WORKER_ROLE: media
+      WORKER_HEALTH_PORT: 4101
       MEDIA_IMPORT_ROOT: /var/lib/volleyball/media-imports
       MEDIA_INGEST_BASE_URL: rtmp://ovenmediaengine:1935/app
       MEDIA_SPOOL_DIR: /var/lib/volleyball/media-spool
@@ -168,8 +171,8 @@ services:
       YOUTUBE_FORMAT: ${YOUTUBE_FORMAT:-best[protocol*=m3u8][height=1080][fps>=59][fps<=61][vcodec^=avc][acodec!=none]/bestvideo[height=1080][fps>=59][fps<=61][vcodec^=avc]+bestaudio[acodec^=mp4a]}
       YOUTUBE_EXTRACTOR_ARGS: ${YOUTUBE_EXTRACTOR_ARGS:-youtube:player_client=android_vr}
     volumes:
-      - media-imports:/var/lib/volleyball/media-imports
-      - media-spool:/var/lib/volleyball/media-spool
+      - ${MEDIA_IMPORT_HOST_PATH:-../.data/runtime/media-imports}:/var/lib/volleyball/media-imports
+      - ${MEDIA_SPOOL_HOST_PATH:-../.data/runtime/media-spool}:/var/lib/volleyball/media-spool
     depends_on:
       postgres: { condition: service_healthy }
       redis: { condition: service_healthy }
@@ -177,10 +180,17 @@ services:
       ovenmediaengine: { condition: service_healthy }
     networks: [internal]
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "bun", "-e", "const response = await fetch('http://127.0.0.1:' + process.env.WORKER_HEALTH_PORT + '/health/ready'); if (!response.ok) process.exit(1)"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
 
   worker-workflow:
     <<: *worker
-    environment: { WORKER_ROLE: workflow }
+    environment:
+      WORKER_ROLE: workflow
+      WORKER_HEALTH_PORT: 4102
     volumes: []
 
   web:
@@ -214,7 +224,5 @@ volumes:
   postgres-data: {}
   redis-data: {}
   minio-data: {}
-  media-spool: {}
-  media-imports: {}
   ome-dvr: {}
   ome-logs: {}

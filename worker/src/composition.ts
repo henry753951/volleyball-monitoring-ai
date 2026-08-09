@@ -8,6 +8,7 @@ import { resolveCaptureSession, resolveProgramProfile } from './media/resolvers.
 import { createMediaSourceProcess } from './media/source-process.js'
 import { MediaSourceRuntime } from './media/source-runtime.js'
 import { OmeMonitorRuntime } from './media/ome-monitor.js'
+import type { WorkerComponentHealth } from './runtime-health.js'
 
 export interface MediaIndexerLifecyclePorts {
   queue: { start(): Promise<void>; stop(): Promise<void> }
@@ -112,7 +113,36 @@ export async function createMediaComposition() {
   let started = false
   return {
     get snapshot() {
-      return { mediaSources: sources.snapshot, ome: ome.snapshot }
+      return { indexer: scanner.snapshot, mediaSources: sources.snapshot, ome: ome.snapshot }
+    },
+    healthSnapshot(): WorkerComponentHealth[] {
+      const source = sources.snapshot
+      const indexerSnapshot = scanner.snapshot
+      const omeSnapshot = ome.snapshot
+      return [
+        {
+          name: 'source-scheduler', critical: true,
+          status: started && (!source.lastErrorAt || (source.lastSuccessAt && source.lastSuccessAt >= source.lastErrorAt)) ? 'healthy' : started ? 'degraded' : 'unhealthy',
+          activeWork: source.active, failedJobs: source.failedCount, backlog: null,
+          lastHeartbeatAt: source.lastHeartbeatAt, lastSuccessAt: source.lastSuccessAt,
+          lastErrorAt: source.lastErrorAt, lastErrorName: source.lastErrorName,
+        },
+        {
+          name: 'media-indexer', critical: true,
+          status: indexerSnapshot.running && (!indexerSnapshot.lastErrorAt || (indexerSnapshot.lastSuccessAt && indexerSnapshot.lastSuccessAt >= indexerSnapshot.lastErrorAt)) ? 'healthy' : indexerSnapshot.running ? 'degraded' : 'unhealthy',
+          activeWork: 0, failedJobs: indexerSnapshot.failedCount, backlog: indexerSnapshot.candidates,
+          lastHeartbeatAt: indexerSnapshot.lastHeartbeatAt, lastSuccessAt: indexerSnapshot.lastSuccessAt,
+          lastErrorAt: indexerSnapshot.lastErrorAt, lastErrorName: indexerSnapshot.lastErrorName,
+        },
+        {
+          name: 'ome-monitor', critical: false,
+          status: started ? omeSnapshot.status : 'unhealthy',
+          activeWork: 0, failedJobs: omeSnapshot.lastError ? 1 : 0, backlog: null,
+          lastHeartbeatAt: omeSnapshot.lastSuccessAt, lastSuccessAt: omeSnapshot.lastSuccessAt,
+          lastErrorAt: omeSnapshot.lastErrorAt,
+          lastErrorName: omeSnapshot.lastError,
+        },
+      ]
     },
     async start() {
       if (started) throw new Error('media composition already started')

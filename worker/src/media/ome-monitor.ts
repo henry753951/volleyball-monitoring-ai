@@ -13,6 +13,7 @@ type OmeMonitorOptions = {
 
 export class OmeMonitorRuntime {
   #lastError: string | null = null
+  #lastErrorAt: Date | null = null
   #lastSuccessAt: Date | null = null
   #timer: ReturnType<typeof setInterval> | undefined
   #pollPromise: Promise<void> | undefined
@@ -23,6 +24,7 @@ export class OmeMonitorRuntime {
   get snapshot() {
     return {
       lastError: this.#lastError,
+      lastErrorAt: this.#lastErrorAt?.toISOString() ?? null,
       lastSuccessAt: this.#lastSuccessAt?.toISOString() ?? null,
       status: this.#lastError ? 'degraded' as const : 'healthy' as const,
     }
@@ -79,10 +81,12 @@ export class OmeMonitorRuntime {
         }
       }
       this.#lastError = null
+      this.#lastErrorAt = null
       this.#lastSuccessAt = observedAt
     }
     catch (error) {
       this.#lastError = error instanceof Error ? error.message.slice(0, 120) : 'OME_MONITOR_FAILED'
+      this.#lastErrorAt = new Date()
       this.options.log?.(`ome monitor degraded: ${this.#lastError}`)
       throw error
     }

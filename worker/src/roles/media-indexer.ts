@@ -331,12 +331,30 @@ export class MediaIndexerRuntime {
   #scanPromise: Promise<void> | undefined
   #observations = new Map<string, { mtimeMs: number; size: number; stable: number }>()
   #stopped = false
+  #failedCount = 0
+  #lastErrorAt: string | null = null
+  #lastErrorName: string | null = null
+  #lastHeartbeatAt: string | null = null
+  #lastSuccessAt: string | null = null
 
   constructor(private readonly options: MediaIndexerOptions) {}
+
+  get snapshot() {
+    return {
+      candidates: this.#observations.size,
+      failedCount: this.#failedCount,
+      lastErrorAt: this.#lastErrorAt,
+      lastErrorName: this.#lastErrorName,
+      lastHeartbeatAt: this.#lastHeartbeatAt,
+      lastSuccessAt: this.#lastSuccessAt,
+      running: !this.#stopped,
+    }
+  }
 
   async scan(): Promise<void> {
     if (this.#stopped) return
     if (this.#scanPromise) return this.#scanPromise
+    this.#lastHeartbeatAt = new Date().toISOString()
     this.#scanPromise = scanSpool(
       this.options.spoolRoot,
       this.options.resolveCapture,
@@ -358,6 +376,12 @@ export class MediaIndexerRuntime {
         if (!present.has(candidate)) this.#observations.delete(candidate)
       }
       this.options.log?.(`media-indexer scan enqueued=${enqueued}`)
+      this.#lastSuccessAt = new Date().toISOString()
+    }).catch((error) => {
+      this.#failedCount += 1
+      this.#lastErrorAt = new Date().toISOString()
+      this.#lastErrorName = error instanceof Error ? error.name : 'UnknownError'
+      throw error
     }).finally(() => {
       this.#scanPromise = undefined
     })

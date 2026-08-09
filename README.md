@@ -55,8 +55,11 @@ bun run dev
 ```
 
 `dev:infra` starts only PostgreSQL, Redis, MinIO and OvenMediaEngine, waits for object storage and
-idempotently creates the four development buckets on the host. Use `bun run dev:https` only when
-Traefik HTTPS/WSS/PWA routing is required. The AI engine remains an external `uv run` process.
+idempotently creates the four development buckets on the host. `bun run dev` starts Server, Nuxt,
+`worker-media` and `worker-workflow` as supervised host processes; its environment mapping changes
+only container DNS names into loopback endpoints and leaves `/graphql`, `/api`, `/ws` and `/ome`
+unchanged. Use `bun run dev:https` only when Traefik HTTPS/WSS/PWA routing is required. The AI engine
+remains an external `uv run` process.
 
 ## Python SDK
 
