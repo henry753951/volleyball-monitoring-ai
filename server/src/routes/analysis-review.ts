@@ -39,7 +39,7 @@ export const analysisReviewRoutes: FastifyPluginAsync = async (app) => {
     }
   })
 
-  app.get<{ Params: { analysisRunId: string } }>('/api/v1/analysis-runs/:analysisRunId/review/ws', { websocket: true }, (socket, request) => {
+  app.get<{ Params: { analysisRunId: string } }>('/ws/analysis-reviews/:analysisRunId', { websocket: true }, (socket, request) => {
     void (async () => {
       const analysisRunId = request.params.analysisRunId
       if (!UUID.test(analysisRunId)) return socket.close(1008, 'invalid analysis run')

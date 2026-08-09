@@ -38,6 +38,7 @@ export default defineNuxtConfig({
       // because an iPad reaches the host by LAN IP or DNS name.
       graphqlPath: process.env.NUXT_PUBLIC_GRAPHQL_PATH ?? '/graphql',
       annotationWsPath: process.env.NUXT_PUBLIC_ANNOTATION_WS_PATH ?? '/ws/annotations',
+      analysisReviewWsPath: process.env.NUXT_PUBLIC_ANALYSIS_REVIEW_WS_PATH ?? '/ws/analysis-reviews',
       coachWsPath: process.env.NUXT_PUBLIC_COACH_WS_PATH ?? '/ws/coach',
       coachEmbedUrl: process.env.NUXT_PUBLIC_COACH_EMBED_URL ?? '',
       restBasePath: process.env.NUXT_PUBLIC_REST_BASE_PATH ?? '/api/v1',
@@ -55,21 +56,6 @@ export default defineNuxtConfig({
       '/api': { target: `${developmentBackendOrigin}/api`, changeOrigin: true, secure: false },
       '/hls': { target: `${developmentBackendOrigin}/hls`, changeOrigin: true, secure: false },
       '/ome': { target: `${developmentBackendOrigin}/ome`, changeOrigin: true, secure: false },
-    },
-  },
-  vite: {
-    server: {
-      proxy: {
-        // Nitro's HTTP dev proxy does not own WebSocket upgrades. Keep the
-        // browser on the Nuxt origin while Vite forwards annotation/coach WS
-        // connections to the same Traefik endpoint used in deployment.
-        '/ws': {
-          target: developmentBackendOrigin,
-          changeOrigin: true,
-          secure: false,
-          ws: true,
-        },
-      },
     },
   },
   pwa: {
@@ -97,6 +83,10 @@ export default defineNuxtConfig({
       navigateFallback: '/',
       globPatterns: ['**/*.{js,css,html,ico,png,svg,webmanifest}'],
       runtimeCaching: [
+        {
+          urlPattern: ({ url }: { url: URL }) => url.pathname.startsWith('/api/v1/analysis-runs/') && url.pathname.endsWith('/review'),
+          handler: 'NetworkOnly',
+        },
         {
           urlPattern: ({ url }: { url: URL }) => url.pathname.startsWith('/graphql'),
           handler: 'NetworkOnly',
