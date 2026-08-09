@@ -32,8 +32,32 @@ const snapshot: OperationsSnapshot = {
     connectedAt: '2026-08-07T23:58:00.000Z',
     lastSeenAt: '2026-08-08T00:00:00.000Z',
     disconnectedAt: null,
+    latencyMs: 7,
+    lastPingAt: '2026-08-07T23:59:59.993Z',
+    lastPongAt: '2026-08-08T00:00:00.000Z',
     status: 'online',
     canDelete: false,
+  }],
+  aiIntegrations: [{
+    id: '20000000-0000-4000-8000-000000000001',
+    name: 'Primary analysis pool',
+    enabled: true,
+    authMode: 'managed',
+    workerCount: 1,
+    onlineWorkerCount: 1,
+    activeJobCount: 1,
+    createdAt: '2026-08-07T00:00:00.000Z',
+    updatedAt: '2026-08-08T00:00:00.000Z',
+    tokens: [{
+      id: '40000000-0000-4000-8000-000000000001',
+      integrationId: '20000000-0000-4000-8000-000000000001',
+      name: 'GPU A',
+      tokenPrefix: 'vmai_example',
+      enabled: true,
+      lastUsedAt: '2026-08-08T00:00:00.000Z',
+      createdAt: '2026-08-07T00:00:00.000Z',
+      updatedAt: '2026-08-08T00:00:00.000Z',
+    }],
   }],
   aiWork: [],
   hostStorage: {
@@ -180,6 +204,42 @@ describe('operations routes', () => {
       '30000000-0000-4000-8000-000000000001',
       { role: 'OPERATOR', userId: 'operator-1' },
     )
+    await app.close()
+  })
+
+  it('creates, rotates, and disables worker tokens without creating a new job pool', async () => {
+    const app = Fastify()
+    const createAiWorkerToken = vi.fn(async () => ({
+      accessToken: { id: '40000000-0000-4000-8000-000000000001', name: 'GPU A', tokenPrefix: 'vmai_example' },
+      integration: { id: '20000000-0000-4000-8000-000000000001', name: 'Primary analysis pool' },
+      token: 'vmai_secret',
+    }))
+    const rotateAiWorkerToken = vi.fn(async () => ({ tokenId: '40000000-0000-4000-8000-000000000001', token: 'vmai_rotated' }))
+    const updateAiWorkerTokenState = vi.fn(async () => ({ tokenId: '40000000-0000-4000-8000-000000000001', enabled: false }))
+    await app.register(operationsRoutes(async () => snapshot, {
+      authenticate: async () => ({ role: 'ADMIN', userId: 'admin-1' }),
+      collectReadiness: async () => ({ status: 'ready', checks: {} }),
+      createAiWorkerToken,
+      rotateAiWorkerToken,
+      updateAiWorkerTokenState,
+    }))
+
+    const created = await app.inject({
+      method: 'POST',
+      url: '/api/v1/operations/ai-worker-tokens',
+      payload: { integration_id: '20000000-0000-4000-8000-000000000001', name: 'GPU A' },
+    })
+    expect(created.statusCode).toBe(201)
+    expect(created.json()).toMatchObject({ token: 'vmai_secret', integration: { name: 'Primary analysis pool' } })
+    expect(createAiWorkerToken).toHaveBeenCalledWith('20000000-0000-4000-8000-000000000001', 'GPU A', { role: 'ADMIN', userId: 'admin-1' })
+
+    const rotated = await app.inject({ method: 'POST', url: '/api/v1/operations/ai-worker-tokens/40000000-0000-4000-8000-000000000001/rotate' })
+    expect(rotated.statusCode).toBe(200)
+    expect(rotated.json()).toMatchObject({ token_id: '40000000-0000-4000-8000-000000000001', token: 'vmai_rotated' })
+
+    const disabled = await app.inject({ method: 'PATCH', url: '/api/v1/operations/ai-worker-tokens/40000000-0000-4000-8000-000000000001', payload: { enabled: false } })
+    expect(disabled.statusCode).toBe(200)
+    expect(updateAiWorkerTokenState).toHaveBeenCalledWith('40000000-0000-4000-8000-000000000001', false, { role: 'ADMIN', userId: 'admin-1' })
     await app.close()
   })
 

@@ -3,11 +3,10 @@ import {
   Activity,
   CalendarDays,
   ChevronRight,
-  Cpu,
   ExternalLink,
   Gauge,
   Home,
-  RadioTower,
+  KeyRound,
 } from 'lucide-vue-next'
 
 const route = useRoute()
@@ -15,10 +14,14 @@ const views = [
   { id: 'overview', label: '運行總覽', icon: Gauge },
   { id: 'matches', label: '場次管理', icon: CalendarDays },
   { id: 'systems', label: '系統狀態', icon: Activity },
-  { id: 'media', label: '媒體與串流', icon: RadioTower },
-  { id: 'ai', label: 'AI 作業', icon: Cpu },
+  { id: 'workers', label: 'AI Workers', icon: KeyRound },
 ] as const
-const activeView = computed(() => typeof route.query.view === 'string' ? route.query.view : 'overview')
+const activeView = computed(() => {
+  const requested = typeof route.query.view === 'string' ? route.query.view : 'overview'
+  if (requested === 'media') return 'matches'
+  if (requested === 'ai') return 'workers'
+  return requested
+})
 </script>
 
 <template>
