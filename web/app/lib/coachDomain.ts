@@ -1,3 +1,4 @@
+import type { AnnotationRallyProcessingUpdate } from '@volleyball-monitoring/contracts'
 import type { GraphQLTransport } from './coreDomain'
 
 export interface CoachTeam { id: string; name: string; shortName: string }
@@ -41,6 +42,7 @@ export interface CoachRally {
   winner_side: 'left' | 'right' | null
   submission: {
     id: string
+    supersedes_submission_id: string | null
     submitted_at: string
     score_resolution: string
     scoring_court_side: string | null
@@ -55,6 +57,7 @@ export interface CoachRally {
       capture_frame_index: string
     }>
     clip: { id: string; status: string; start_capture_time_us: string; end_capture_time_us: string; duration_us: string } | null
+    processing: AnnotationRallyProcessingUpdate
     analysis: {
       id: string
       status: string

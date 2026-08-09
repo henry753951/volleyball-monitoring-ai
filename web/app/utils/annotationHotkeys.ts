@@ -83,7 +83,11 @@ export const DEFAULT_HOTKEY_BINDINGS: Readonly<HotkeyBindings> = Object.freeze({
   key_point_next: 'D',
 })
 
-const SHIFTED_PRODUCT_KEYS = new Set(['<', '>', '?'])
+const PRODUCT_PUNCTUATION_BASE_KEYS = {
+  '<': ',',
+  '>': '.',
+  '?': '/',
+} as const
 
 const BROWSER_RESERVED_HOTKEYS = [
   'Mod+L',
@@ -136,12 +140,21 @@ export function normalizeRecordedHotkey(
   return validation.valid && hasNonModifierKey(productBinding) ? productBinding : null
 }
 
-/** Expand product-character defaults into registrations that match real keydown modifiers. */
+/** Resolve product punctuation labels to their unshifted physical keys. */
 export function toRuntimeHotkey(binding: string): RegisterableHotkey {
-  if (SHIFTED_PRODUCT_KEYS.has(binding)) {
-    return { key: binding, shift: true }
-  }
+  const baseKey = PRODUCT_PUNCTUATION_BASE_KEYS[binding as keyof typeof PRODUCT_PUNCTUATION_BASE_KEYS]
+  if (baseKey) return baseKey as Hotkey
   return binding as Hotkey
+}
+
+/**
+ * Product punctuation works from the base key without Shift. Keep the shifted
+ * character as a backwards-compatible alias for operators who already use it.
+ */
+export function runtimeHotkeysForBinding(binding: string): ReadonlyArray<RegisterableHotkey> {
+  const runtime = toRuntimeHotkey(binding)
+  if (!(binding in PRODUCT_PUNCTUATION_BASE_KEYS)) return [runtime]
+  return [runtime, { key: binding, shift: true }]
 }
 
 export function formatBindingForDisplay(

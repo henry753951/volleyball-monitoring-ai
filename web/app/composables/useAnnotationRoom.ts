@@ -316,9 +316,20 @@ export function useAnnotationRoom() {
     return parseAnnotationCommand({ ...base, kind, payload: { key_point_id: options.keyPointId, playback_cursor: annotationCursor(options.cursor) } })
   }
 
+  async function flushQueuedCommand(commandId: string) {
+    await flushOutbox()
+    // A command can be enqueued while an existing flush is leaving its loop but
+    // before flushPromise is cleared. In that narrow window the first await
+    // resolves without having seen the new entry, so give this command one
+    // fresh pass instead of leaving it stranded until another WS event occurs.
+    if (realtime?.ready() && outbox.value.some(entry => entry.command.command_id === commandId && entry.status === 'pending')) {
+      await flushOutbox()
+    }
+  }
+
   function sendCommand(command: AnnotationCommand, observation?: AnnotationClientObservation) {
     replaceOutbox(enqueueAnnotationCommand(outbox.value, command, new Date(), { ...(observation ? { observation } : {}) }))
-    return realtime?.ready() ? flushOutbox() : Promise.resolve()
+    return realtime?.ready() ? flushQueuedCommand(command.command_id) : Promise.resolve()
   }
 
   function dispatch(action: AnnotationAction, cursor: PlaybackCursorInput | null, observation?: AnnotationClientObservation) {
@@ -371,19 +382,32 @@ export function useAnnotationRoom() {
     }
   }
 
-  async function cancelCorrection() {
-    const rallyId = snapshot.value?.rally_id
-    if (!rallyId || !snapshot.value?.snapshot.active_submission_id || !['OPEN', 'READY'].includes(state.value)) {
-      throw new Error('目前沒有可取消的修正版')
+  async function cancelCorrection(targetRallyId?: string) {
+    const rallyId = targetRallyId ?? snapshot.value?.rally_id
+    const failedSubmittedCorrection = state.value === 'SUBMITTED'
+      && snapshot.value?.snapshot.processing_status === 'failed'
+    const currentSnapshotCanCancel = Boolean(
+      snapshot.value?.snapshot.active_submission_id
+      && (['OPEN', 'READY'].includes(state.value) || failedSubmittedCorrection),
+    )
+    if (!rallyId || (!targetRallyId && !currentSnapshotCanCancel)) {
+      throw new Error('目前沒有可取消的修正版草稿')
     }
+    // Cancellation is also the recovery path when a correction edit is stuck
+    // locally. Discard this Rally's queued commands before deleting the draft
+    // so a delayed REOPEN/MOVE cannot revive or mutate it afterward.
+    replaceOutbox(outbox.value.filter(entry => entry.command.rally_id !== rallyId))
     busy.value = true
     error.value = null
     try {
-      await transport.request<{ cancelCorrectionDraft: { id: string } }>(CANCEL_CORRECTION_DRAFT, { rallyId })
-      return await fetchSnapshot(rallyId)
+      const result = await transport.request<{ cancelCorrectionDraft: { id: string } }>(CANCEL_CORRECTION_DRAFT, { rallyId })
+      const restored = await fetchSnapshot(rallyId)
+      if (restored) return restored
+      await refreshActive()
+      return result.cancelCorrectionDraft
     }
     catch (cause) {
-      error.value = cause instanceof Error ? cause.message : '無法取消修正版'
+      error.value = cause instanceof Error ? cause.message : '無法取消修正版草稿'
       throw cause
     }
     finally {

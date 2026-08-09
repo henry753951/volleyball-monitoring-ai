@@ -11,6 +11,7 @@ import {
   parseStoredHotkeyPreferences,
   rebindHotkey,
   restoreDefaultHotkeys,
+  runtimeHotkeysForBinding,
   serializeHotkeyPreferences,
   toRuntimeHotkey,
 } from './annotationHotkeys'
@@ -70,7 +71,9 @@ describe('annotation hotkey registry', () => {
     expect(normalizeRecordedHotkey('shift+?', 'windows')).toBe('?')
     expect(normalizeRecordedHotkey('ctrl+shift+s', 'windows')).toBe('Mod+Shift+S')
     expect(normalizeRecordedHotkey('Shift')).toBeNull()
-    expect(toRuntimeHotkey('<')).toEqual({ key: '<', shift: true })
+    expect(toRuntimeHotkey('<')).toBe(',')
+    expect(runtimeHotkeysForBinding('<')).toEqual([',', { key: '<', shift: true }])
+    expect(commandForBinding(',', restoreDefaultHotkeys())).toBe('close_left')
   })
 
   it('uses TanStack platform display formatting for every adapter badge', () => {
