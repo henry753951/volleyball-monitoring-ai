@@ -181,6 +181,7 @@ ef6d651d4fbb397b566c56f0728dbf6a4ac9234cbf8cc17605d3a2c784fdabeb  ./packages/db/
 935a74a19aafbece044daf8a604a87356f1f4aebcf1df2bbdb9bc3ecbb91cab4  ./packages/db/prisma/migrations/20260809130000_analysis_review_corrections/migration.sql
 21cfcc6eafd1553b0c24af6be9e77a6a83b4c94be176edbc812e87e7ab9a5328  ./packages/db/prisma/migrations/20260809190000_media_source_work/migration.sql
 6203df3da3f5cd35777db1a7d386f5817646b6996ff9d9fedcfedb9cae3cfbf9  ./packages/db/prisma/migrations/20260809210000_rally_display_placement/migration.sql
+9e04e5e9c930fa51a4dc5d98cf80377082662f0879a5589179fbcf2c4cffb3aa  ./packages/db/prisma/migrations/20260809230000_ai_worker_access_and_latency/migration.sql
 99836963713b4f5b269ad49af0ed3d7b0b2e336115c2f92dc9ac683d139d0900  ./packages/db/prisma/migrations/migration_lock.toml
 2379447e12b6de1b1e7378a299411e3e48be3ed62264344e35025d1d3ad5e7df  ./packages/db/prisma/schema.prisma
 89fc51cc933a096a077657972dce58281f2011cf843aea1df13059e3b31afd40  ./packages/db/prisma/seed.ts
@@ -286,6 +287,7 @@ de29025147f181aec44ae214a244808707395a7c238b167163087cebd4fda429  ./server/src/r
 171d603e040eeacaf97a13689ce990f05a44953a0a9aa535ab45e1f933f28cdd  ./server/src/routes/media-sources.ts
 01ac8a1467ca8c13cf7769eb0f1063313dab92456b4e7c6fba65e87008d8b8ca  ./server/src/routes/operations.ts
 29dc8ee62da32da243cba2f0c90575ba5e1cea4c36a2d392ab96360c6c926812  ./server/src/services/README.md
+8cda138f66db3b646845c1fbca84c1bd4f69922bcff13aa9ea545e066b6edf4e  ./server/src/services/ai-worker-access.ts
 adf95f2a4b4ae44762a5085325ffeaa441a5869eda3195122493dbe7bb517480  ./server/src/services/analysis-review.ts
 5f7a2059bec7be3b732d8b4b51fc8552e230b1b64e66dff313b8a1fb79367af0  ./server/src/services/annotation-command.ts
 4dfdcfb0c292a5fd791ef7dd861545c9314c255d9d729b34780ef32475ddc27f  ./server/src/services/annotation-snapshot.ts
@@ -302,6 +304,7 @@ f37bc9c1ed3c52ebf0659f8a9f21bc877fd09ab0724593cc0c7f0011618b422f  ./server/src/s
 0640ff9e62fa9ec4a52ff4e8c63462470ef11f71d21951fe4272bb0f4ca4c969  ./server/tests/ai-callback.integration.test.ts
 e95ef072fbf65a43e51ac802716d3d8ccffbee94f9888f95d36e63ddf03d4896  ./server/tests/ai-progress.test.ts
 5b5e14411ac1935b53322492aa485e0cd4636e68d8cd6097135e9ccf2e07b209  ./server/tests/ai-provider-ws.test.ts
+40dab9de3dcf23e67249a78a1793f7c849ab64abda9e547443d3d19e2e189535  ./server/tests/ai-worker-access.test.ts
 972cdb02ea5acaec6b6786183cec0956c9a4101a6e63c37936ef8f2699ae2e53  ./server/tests/analysis-review.test.ts
 0c9920b5f6877ccee89b538052085adeb24f14f8f6ca90a7495ec0597b52b46f  ./server/tests/annotation-command.integration.test.ts
 470cf4c03203911f7e1c9408f3066d06c02b1afb1752cb4234349a24a6d0bef3  ./server/tests/annotation-presence.test.ts
@@ -363,6 +366,7 @@ df45089e68213a84283f460077da7625607c409fe628f033f813c2a491fdd9fd  ./web/app/comp
 8a92834e183a6c89ff3441f73e6274a186248fc4dea6c4915c008e2bcedb8bfc  ./web/app/components/control/AiWorkerDeleteDialog.vue
 5ef7ed4b9a4a26a027390013501df7c3211a9c9567e290e7eb6711169cdc54a6  ./web/app/components/control/MatchDeleteDialog.vue
 0cc79bc3fb980f333259707d6977c84abf437e0994507a1409634df880e3b706  ./web/app/components/control/MatchEditorDialog.vue
+e10a75bb5ff90c95845829485f153469998a549bb314f53696ccbe16d7800b9c  ./web/app/components/control/MatchWorkspaceCard.vue
 0a307ea2fc96847dfa9af301d423ceac18e94a0313b020d28da19b0112262009  ./web/app/components/ui/AnimatedModal.vue
 52c5972b89dc13836803c98a5724cb130a90732189e74c7956ce71c413b43ae5  ./web/app/components/ui/Button.vue
 60f8aacd06e2887f9e04aca1541ba2923e94013cd8a00dbae895585f0461028d  ./web/app/components/ui/Kbd.vue
