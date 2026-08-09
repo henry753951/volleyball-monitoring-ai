@@ -81,8 +81,8 @@ export function useAnnotationWorkstationModel(options: Options) {
         endCaptureTimeUs: range.endCaptureTimeUs,
         points: rally.submission.key_points.map(point => ({ id: point.id, markerKind: point.marker_kind, isTerminal: point.is_terminal, captureTimeUs: point.capture_time_us })),
         status: analysis?.status === 'completed' ? analysis.identity_mapping_completed ? 'mapped' as const : 'analyzed' as const : 'processing' as const,
-        analysis: analysis?.status === 'completed' && analysis.coverage_start_capture_time_us && analysis.coverage_end_capture_time_us ? {
-          startCaptureTimeUs: analysis.coverage_start_capture_time_us, endCaptureTimeUs: analysis.coverage_end_capture_time_us,
+        analysis: analysis?.status === 'completed' ? {
+          startCaptureTimeUs: analysis.coverage_start_capture_time_us ?? range.startCaptureTimeUs, endCaptureTimeUs: analysis.coverage_end_capture_time_us ?? range.endCaptureTimeUs,
           byteLength: analysis.byte_length, trackCount: analysis.track_count, ballPathCount: analysis.ball_path_count,
           contactCount: analysis.contact_count, capabilities: analysis.capabilities,
         } : null,

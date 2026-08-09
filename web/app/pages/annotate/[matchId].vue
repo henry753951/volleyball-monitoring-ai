@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { toast } from 'vue-sonner'
+import type { AnalysisReviewAction } from '@volleyball-monitoring/contracts'
 import { createMediaClient } from '~/lib/mediaClient'
 import { useAuthoritativeDvrWindow, seekVideoToCanonicalFrame, authoritativeControlsEnabled } from '~/composables/useAuthoritativeDvrWindow'
 import { createCoreDomainClient, createGraphQLTransport, type Match, type CaptureSession } from '~/lib/coreDomain'
@@ -11,7 +12,7 @@ import { clipRangeOverlaps, formatTimelinePosition, paddedClipRange, resolveSegm
 import { capturePlaybackMode } from '~/lib/mediaTimeline'
 import { decidePlaybackContinuation } from '~/lib/playbackContinuation'
 import { bufferedSecondsAhead, type CanonicalMediaRange } from '~/utils/mediaBuffer'
-import { toggleAnalysisResultSelection, type TimelineSelectionItem } from '~/utils/timelineSelection'
+import type { TimelineSelectionItem } from '~/utils/timelineSelection'
 
 definePageMeta({ layout: 'annotation' })
 const route = useRoute()
@@ -54,7 +55,6 @@ const state = annotation.viewState
 const currentLastKeyPointId = computed(() => displayAnnotation.value?.snapshot.key_points.at(-1)?.key_point_id ?? null)
 const selectedKeyPointId = ref<string | null>(null)
 const selectedTimelineItem = ref<TimelineSelectionItem>(null)
-const selectedAnalysisSegmentId = ref<string | null>(null)
 const selectedKeyPoint = computed(() => annotation.snapshot.value?.snapshot.key_points.find(point => point.key_point_id === selectedKeyPointId.value) ?? null)
 const pendingTimelineMove = shallowRef<{ keyPointId: string; playbackWindowId: string | null } | null>(null)
 const frameQueueRunning = ref(false)
@@ -64,6 +64,7 @@ const commandReady = computed(() => !annotation.outboxNeedsConfirmation.value)
 const editReady = computed(() => commandReady.value && !annotation.busy.value && !pendingTimelineMove.value && annotation.pendingCount.value === 0)
 const { bindings } = useAnnotationHotkeys()
 const annotationScope = useTemplateRef<HTMLElement>('annotationScope')
+const videoStage = useTemplateRef<HTMLElement>('videoStage')
 const hotkeyTarget = computed(() => import.meta.client ? document.body : annotationScope.value)
 const settingsOpen = ref(false)
 const settingsInitialPage = ref<'root' | 'media' | 'clip' | 'hotkeys'>('root')
@@ -85,9 +86,15 @@ const confirmMessage = computed(() => confirmAction.value === 'void'
 const confirmLabel = computed(() => ['void', 'processing-delete'].includes(confirmAction.value ?? '') ? '刪除片段' : confirmAction.value === 'correction' ? '建立修正版' : '確認並開始')
 const correctionSubmissionId = ref<string | null>(null)
 const processingRallyId = ref<string | null>(null)
-const inspectorTab = ref<'match' | 'mapping'>('match')
+const inspectorTab = ref<'match' | 'mapping' | 'analysis'>('match')
 const pinnedRallyId = ref<string | null>(null)
 const cursorRallyId = ref<string | null>(null)
+const currentOverlayFrame = ref(-1)
+const ballRelabelEnabled = ref(false)
+const selectedOverlayTrackId = ref<number | null>(null)
+const selectedOverlayTrackAction = ref<string | null>(null)
+const trackPopover = reactive({ open: false, trackId: null as number | null, x: 0, y: 0 })
+const mappingRefreshToken = ref(0)
 const selectedRallyId = computed(() => resolveSegmentSelection(pinnedRallyId.value, cursorRallyId.value))
 const activeProcessing = computed(() => {
   const rallyId = selectedRallyId.value ?? displayAnnotation.value?.rally_id
@@ -135,6 +142,16 @@ const selectedCapture = computed<CaptureSession | null>(() => {
 const timeline = computed(() => selectedCapture.value?.timeline ?? null)
 const workstation = useAnnotationWorkstationModel({ coachData: coach.data, match, timeline, displayAnnotation, confirmedAnnotation: annotation.snapshot, state, selectedRallyId, selectedKeyPoint, selectedTimelineItem, cursorRallyId })
 const { submittedRallies, annotationDrafts, visibleSubmittedRallies, selectedSubmittedRally, selectedRally, mappingAvailable, selectedAnalysisRunId, currentSet, leftTeamId, rightTeamId, leftSetWins, rightSetWins, leftTeam, rightTeam, clipPreRollUs, clipPostRollUs, clipPreRollSeconds, clipPostRollSeconds, rallyDisplayDuration, timelineSegments, currentMaskRange, selectableSegmentRanges, selectedCurrentMask, currentMaskStatus, currentMaskLabel, currentMaskOutcome, activeOverlayAnalysisRunId, activeOverlayClipStart, selectedEditableDraft, correctionActive, selectedDeletablePoint, activeContextTitle, activeContextHits, activeContextDuration, activeContextState, displayRallyOrdinal } = workstation
+const analysisReview = useAnalysisReview(selectedAnalysisRunId)
+const analysisOverlayActive = computed(() => Boolean(selectedAnalysisRunId.value && selectedAnalysisRunId.value === activeOverlayAnalysisRunId.value && currentOverlayFrame.value >= 0))
+const currentBallCorrection = computed(() => analysisReview.ballCorrections.value.get(String(currentOverlayFrame.value)) ?? null)
+const currentActionCorrections = computed<Record<number, string>>(() => {
+  const values: Record<number, string> = {}
+  const prefix = `${currentOverlayFrame.value}:`
+  for (const [key, action] of analysisReview.actionCorrections.value) if (key.startsWith(prefix)) values[Number(key.slice(prefix.length))] = action
+  return values
+})
+const selectedOverlayAction = computed(() => selectedOverlayTrackId.value === null ? null : currentActionCorrections.value[selectedOverlayTrackId.value] ?? selectedOverlayTrackAction.value)
 const selectedProcessingRally = computed(() => {
   const rally = selectedSubmittedRally.value
   return rally && ['CLIP_QUEUED', 'CLIPPING', 'AI_QUEUED', 'AI_PROCESSING', 'ARTIFACT_INGESTING'].includes(rally.processing_status.toUpperCase()) ? rally : null
@@ -455,27 +472,23 @@ function editKeyPoint(kind: 'MOVE_KEY_POINT' | 'DELETE_KEY_POINT') {
 
 function selectTimelineKeyPoint(keyPointId: string) {
   pinnedRallyId.value = null
-  selectedAnalysisSegmentId.value = null
   selectedKeyPointId.value = keyPointId
   selectedTimelineItem.value = 'point'
 }
 
 function selectTimelineMask() {
   pinnedRallyId.value = displayAnnotation.value?.rally_id ?? null
-  selectedAnalysisSegmentId.value = null
   selectedTimelineItem.value = 'mask'
   selectedKeyPointId.value = null
 }
 
 function clearTimelineSelection() {
   pinnedRallyId.value = null
-  selectedAnalysisSegmentId.value = null
   selectedTimelineItem.value = cursorRallyId.value ? 'segment' : null
   selectedKeyPointId.value = null
 }
 
 async function selectHistoricalSegment(segmentId: string, _targetCaptureTimeUs: string) {
-  selectedAnalysisSegmentId.value = null
   const draft = annotationDrafts.value.find(candidate => candidate.id === segmentId)
   if (draft) {
     await annotation.selectRally(draft.id)
@@ -490,20 +503,14 @@ async function selectHistoricalSegment(segmentId: string, _targetCaptureTimeUs: 
 }
 
 function selectTimelineAnalysis(segmentId: string) {
-  const next = toggleAnalysisResultSelection({
-    currentAnalysisSegmentId: selectedAnalysisSegmentId.value,
-    targetSegmentId: segmentId,
-    cursorRallyId: cursorRallyId.value,
-  })
-  pinnedRallyId.value = next.pinnedRallyId
-  selectedAnalysisSegmentId.value = next.selectedAnalysisSegmentId
-  selectedTimelineItem.value = next.selectedTimelineItem
+  pinnedRallyId.value = segmentId
+  selectedTimelineItem.value = 'segment'
   selectedKeyPointId.value = null
+  inspectorTab.value = 'analysis'
 }
 
 function selectRally(rally: CoachRally) {
   pinnedRallyId.value = rally.id
-  selectedAnalysisSegmentId.value = null
   selectedTimelineItem.value = 'segment'
   selectedKeyPointId.value = null
   if (rally.submission.clip) void seekTimeline(rally.submission.clip.start_capture_time_us)
@@ -909,7 +916,6 @@ function navigateKeyPoint(direction: 'previous' | 'next') {
       : points.findLast(point => !reference || BigInt(point.captureTimeUs) < BigInt(reference))
   if (!target) { toast.info(direction === 'next' ? '已到最後一個擊球點' : '已到第一個擊球點'); return }
   if (target.rallyId === displayAnnotation.value?.rally_id) {
-    selectedAnalysisSegmentId.value = null
     selectedKeyPointId.value = target.id
     selectedTimelineItem.value = 'point'
   }
@@ -919,11 +925,50 @@ function navigateKeyPoint(direction: 'previous' | 'next') {
   }
   else {
     pinnedRallyId.value = target.rallyId
-    selectedAnalysisSegmentId.value = null
     selectedTimelineItem.value = 'segment'
     selectedKeyPointId.value = null
   }
   void seekTimeline(target.captureTimeUs)
+}
+
+function handleOverlayFrame(frame: number) {
+  currentOverlayFrame.value = frame
+}
+
+function handleBallPosition(position: { x: number; y: number }) {
+  if (!analysisOverlayActive.value || !ballRelabelEnabled.value) return
+  analysisReview.setBallPosition(currentOverlayFrame.value, position)
+}
+
+function handleOverlayTrack(selection: { trackId: number; clientX: number; clientY: number; action: string | null }) {
+  if (!analysisOverlayActive.value || ballRelabelEnabled.value) return
+  selectedOverlayTrackId.value = selection.trackId
+  selectedOverlayTrackAction.value = selection.action
+  if (inspectorTab.value === 'analysis') return
+  inspectorTab.value = 'mapping'
+  const stage = videoStage.value
+  const rect = stage?.getBoundingClientRect()
+  trackPopover.open = true
+  trackPopover.trackId = selection.trackId
+  trackPopover.x = rect ? Math.max(120, Math.min(rect.width - 120, selection.clientX - rect.left)) : 180
+  trackPopover.y = rect ? Math.max(20, Math.min(rect.height - 250, selection.clientY - rect.top)) : 80
+}
+
+function toggleBallRelabel() {
+  ballRelabelEnabled.value = !ballRelabelEnabled.value
+  if (ballRelabelEnabled.value) trackPopover.open = false
+}
+
+function setAnalysisAction(action: AnalysisReviewAction) {
+  if (!analysisOverlayActive.value || selectedOverlayTrackId.value === null) return
+  selectedOverlayTrackAction.value = action
+  analysisReview.setAction(currentOverlayFrame.value, selectedOverlayTrackId.value, action)
+}
+
+function handleMappingChanged() {
+  trackPopover.open = false
+  mappingRefreshToken.value += 1
+  void coach.refresh()
 }
 
 function dispatchHotkeyCommand(action: HotkeyCommand, event: KeyboardEvent) {
@@ -957,7 +1002,6 @@ watch([selectedCaptureId, defaultPlaybackTarget, playbackMode], ([captureId, tar
 watch([timelineEndTarget, () => timeline.value?.timelineVersion, playbackMode], maintainPlaybackWindow)
 watch(() => displayAnnotation.value?.rally_id, () => {
   pinnedRallyId.value = null
-  selectedAnalysisSegmentId.value = null
   selectedKeyPointId.value = null
   selectedTimelineItem.value = null
 }, { flush: 'sync' })
@@ -972,7 +1016,6 @@ watch([visualPlayhead, selectableSegmentRanges], ([cursor, segments]) => {
 }, { immediate: true })
 watch(cursorRallyId, (rallyId) => {
   if (pinnedRallyId.value) return
-  selectedAnalysisSegmentId.value = null
   selectedTimelineItem.value = rallyId ? 'segment' : null
   selectedKeyPointId.value = null
 }, { immediate: true })
@@ -980,11 +1023,17 @@ watch([submittedRallies, annotationDrafts], ([submitted, drafts]) => {
   if (!pinnedRallyId.value) return
   if ([...submitted, ...drafts].some(rally => rally.id === pinnedRallyId.value)) return
   pinnedRallyId.value = null
-  selectedAnalysisSegmentId.value = null
   selectedTimelineItem.value = cursorRallyId.value ? 'segment' : null
 })
 watch(mappingAvailable, (available) => {
-  if (!available && inspectorTab.value === 'mapping') inspectorTab.value = 'match'
+  if (!available && (inspectorTab.value === 'mapping' || inspectorTab.value === 'analysis')) inspectorTab.value = 'match'
+})
+watch(selectedAnalysisRunId, () => {
+  currentOverlayFrame.value = -1
+  ballRelabelEnabled.value = false
+  selectedOverlayTrackId.value = null
+  selectedOverlayTrackAction.value = null
+  trackPopover.open = false
 })
 watch([state, selectedKeyPointId], () => {
   queuedFrameDelta = 0
@@ -1049,14 +1098,14 @@ onBeforeUnmount(() => {
     <UiResizablePanelGroup id="annotation-workspace" class="editor-body">
       <UiResizablePanel id="annotation-video" :default-size="78" :min-size="55">
       <main class="viewer-panel">
-        <div class="video-stage">
-          <VideoOverlayPlayer ref="overlayPlayer" :descriptor="descriptor" :controls="false" toggle-on-click :analysis-run-id="activeOverlayAnalysisRunId" :overlay-capture-time-us="visualPlayhead" :overlay-clip-start-capture-time-us="activeOverlayClipStart" @cursor="handleCursor" @ready="handleVideoReady" @buffer-activity="maintainPlaybackWindow" @buffer-state="handleBufferState" @toggle="dispatchMediaAction('play_pause')" @error="mediaError = $event.message" />
-          <div v-if="displayAnnotation" class="stage-mask" :class="displayAnnotation.snapshot.annotation_status === 'submitted' ? 'submitted' : 'draft'" />
+        <div ref="videoStage" class="video-stage">
+          <VideoOverlayPlayer ref="overlayPlayer" :descriptor="descriptor" :controls="false" :toggle-on-click="!analysisOverlayActive || (inspectorTab !== 'mapping' && inspectorTab !== 'analysis')" :analysis-run-id="activeOverlayAnalysisRunId" :overlay-capture-time-us="visualPlayhead" :overlay-clip-start-capture-time-us="activeOverlayClipStart" :overlay-interactive="analysisOverlayActive && (inspectorTab === 'mapping' || inspectorTab === 'analysis')" :ball-relabel="inspectorTab === 'analysis' && ballRelabelEnabled" :ball-correction="analysisOverlayActive ? currentBallCorrection : null" :action-corrections="analysisOverlayActive ? currentActionCorrections : {}" :overlay-layers="{ bbox: true, trackId: true, action: true, ball: true, trail: true, footprint: false, confidence: false }" @cursor="handleCursor" @ready="handleVideoReady" @buffer-activity="maintainPlaybackWindow" @buffer-state="handleBufferState" @overlay-frame="handleOverlayFrame" @ball-position="handleBallPosition" @track-select="handleOverlayTrack" @toggle="dispatchMediaAction('play_pause')" @error="mediaError = $event.message" />
           <div class="viewer-frame-index" aria-label="目前畫格索引">
             <span>FRAME IDX</span>
             <code>{{ authoritativeAnchor?.capture_frame_index ?? '—' }}</code>
           </div>
           <div v-if="!descriptor" class="stage-empty"><strong>{{ mediaEmptyLabel }}</strong><button v-if="defaultPlaybackTarget" type="button" @click="createWindow(defaultPlaybackTarget, liveCapture ? 'live' : 'archive')">{{ liveCapture ? 'LIVE' : '開啟影片' }}</button></div>
+          <AnnotationTrackAssignmentPopover :open="trackPopover.open" :match-id="matchId" :analysis-run-id="selectedAnalysisRunId" :track-id="trackPopover.trackId" :current-frame="currentOverlayFrame" :left-team-id="leftTeamId" :right-team-id="rightTeamId" :x="trackPopover.x" :y="trackPopover.y" @close="trackPopover.open = false" @changed="handleMappingChanged" />
         </div>
       </main>
       </UiResizablePanel>
@@ -1065,6 +1114,7 @@ onBeforeUnmount(() => {
       <AnnotationMatchInspector
         v-model:tab="inspectorTab"
         :mapping-available="mappingAvailable"
+        :analysis-available="mappingAvailable"
         :match-id="matchId"
         :left-team="leftTeam"
         :right-team="rightTeam"
@@ -1081,14 +1131,21 @@ onBeforeUnmount(() => {
         :selected-rally-id="selectedRallyId"
         :analysis-run-id="selectedAnalysisRunId"
         :mapping-completed="Boolean(selectedRally?.submission.analysis?.identity_mapping_completed)"
+        :current-frame="currentOverlayFrame"
+        :focused-track-id="selectedOverlayTrackId"
+        :mapping-refresh-token="mappingRefreshToken"
         :teams="coach.data.value?.match.teams ?? []"
         :can-start-next-set="state !== 'OPEN' && editReady"
         :format-rally-duration="rally => formatDuration(rallyDisplayDuration(rally))"
         @select-draft="selectHistoricalSegment"
         @select-rally="selectRally"
         @next-set="requestNextSet"
-        @mapping-changed="coach.refresh"
-      />
+        @mapping-changed="handleMappingChanged"
+      >
+        <template #analysis>
+          <AnnotationAnalysisPanel :analysis-run-id="selectedAnalysisRunId" :frame-index="analysisOverlayActive ? currentOverlayFrame : -1" :ball-relabel="ballRelabelEnabled" :ball-position="currentBallCorrection" :selected-track-id="selectedOverlayTrackId" :selected-track-action="selectedOverlayAction" :revision="analysisReview.revision.value" :saving="analysisReview.pending.value" :connection="analysisReview.connection.value" @toggle-ball-relabel="toggleBallRelabel" @set-action="setAnalysisAction" />
+        </template>
+      </AnnotationMatchInspector>
       </UiResizablePanel>
     </UiResizablePanelGroup>
 
@@ -1131,7 +1188,7 @@ onBeforeUnmount(() => {
         @delete-selection="deleteSelection"
         @toggle-mute="dispatchMediaAction('mute')"
       />
-      <DvrTimelineDock :timeline="timeline" :playhead="visualPlayhead" :playback-mode="playbackMode" :buffered-window="descriptor ? { startCaptureTimeUs: descriptor.window_capture_start_us, endCaptureTimeUs: descriptor.window_capture_end_us } : null" :buffered-ranges="playerBufferedRanges" :annotation="displayAnnotation" :editable="state === 'OPEN' && editReady && !pendingTimelineMove" :selected-key-point-id="selectedKeyPointId" :mask-selected="selectedCurrentMask" :mask-range="currentMaskRange" :current-mask-status="currentMaskStatus" :current-mask-label="currentMaskLabel" :current-mask-outcome="currentMaskOutcome" :cursor-follow="cursorFollow" :segments="timelineSegments" :selected-segment-id="selectedHistoricalSegmentId" :selected-analysis-segment-id="selectedAnalysisSegmentId" :soft-locks="annotation.remoteEditorsByKeyPoint.value" @preview="previewTimelineSeek" @seek="seekTimeline" @clear-selection="clearTimelineSelection" @select="selectTimelineKeyPoint" @select-mask="selectTimelineMask" @select-segment="selectHistoricalSegment" @select-analysis="selectTimelineAnalysis" @edit-start="beginTimelineKeyPointEdit" @edit-cancel="cancelTimelineKeyPointEdit" @move="moveTimelineKeyPoint" />
+      <DvrTimelineDock :timeline="timeline" :playhead="visualPlayhead" :playback-mode="playbackMode" :buffered-window="descriptor ? { startCaptureTimeUs: descriptor.window_capture_start_us, endCaptureTimeUs: descriptor.window_capture_end_us } : null" :buffered-ranges="playerBufferedRanges" :annotation="displayAnnotation" :editable="state === 'OPEN' && editReady && !pendingTimelineMove" :selected-key-point-id="selectedKeyPointId" :mask-selected="selectedCurrentMask" :mask-range="currentMaskRange" :current-mask-status="currentMaskStatus" :current-mask-label="currentMaskLabel" :current-mask-outcome="currentMaskOutcome" :cursor-follow="cursorFollow" :segments="timelineSegments" :selected-segment-id="selectedHistoricalSegmentId" :soft-locks="annotation.remoteEditorsByKeyPoint.value" @preview="previewTimelineSeek" @seek="seekTimeline" @clear-selection="clearTimelineSelection" @select="selectTimelineKeyPoint" @select-mask="selectTimelineMask" @select-segment="selectHistoricalSegment" @select-analysis="selectTimelineAnalysis" @edit-start="beginTimelineKeyPointEdit" @edit-cancel="cancelTimelineKeyPointEdit" @move="moveTimelineKeyPoint" />
       <AnnotationCommandStrip :bindings="bindings" :state="state" :can-mark="canMark" :last-key-point="Boolean(annotation.lastKeyPoint.value)" :command-ready="commandReady" :pending-command="annotation.pendingCount.value > 0" :availability="commandAvailabilityMap" @action="dispatchAnnotationAction" @settings="openSettings('hotkeys')" />
     </footer>
 

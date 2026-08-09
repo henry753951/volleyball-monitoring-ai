@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://volleyball-monitoring.local/contracts/analysis/review-revision-event.schema.json",
+  "title": "Analysis Review Revision Event",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "type", "analysis_run_id", "revision"],
+  "properties": {
+    "schema_version": { "const": "1.0.0" },
+    "type": { "const": "analysis_review_revision" },
+    "analysis_run_id": { "type": "string", "format": "uuid" },
+    "revision": { "type": "string", "pattern": "^(0|[1-9][0-9]*)$" }
+  }
+}

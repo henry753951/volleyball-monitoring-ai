@@ -18,6 +18,7 @@ import { createMediaSourceGatewayFromEnv, type MediaSourceGateway } from './medi
 import { mediaPlaybackRoutes } from './routes/media-playback.js'
 import { aiCallbackRoutesWithDependencies } from './routes/ai-callback.js'
 import { analysisMediaRoutes } from './routes/analysis-media.js'
+import { analysisReviewRoutes } from './routes/analysis-review.js'
 import { collectOperationsSnapshot, deleteInactiveAiWorker, operationsRoutes } from './routes/operations.js'
 import { createHostStorageProbe } from './operations/host-storage.js'
 import { mediaSourceRoutes } from './routes/media-sources.js'
@@ -127,6 +128,7 @@ await app.register(websocket)
 await app.register(aiCallbackRoutesWithDependencies({ ...(aiProgress ? { progress: aiProgress } : {}) }))
 await app.register(aiProviderWebSocketRoutes({ database: db, ...(aiProgress ? { progress: aiProgress } : {}) }))
 await app.register(analysisMediaRoutes)
+await app.register(analysisReviewRoutes)
 await app.register(mediaPlaybackRoutes({
   objectReader: mediaObjectReader,
   resolveSample: createPersistedSampleSnapResolver(db, mediaObjectReader),

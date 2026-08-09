@@ -749,3 +749,18 @@ The Nuxt build emits a dependency-level Node `DEP0155` deprecation warning but c
   and Python SDK 20 tests; root typecheck, production build, 486-file checksum/scaffold validation,
   44-model/27-enum Prisma structure validation and 258-file TypeScript/Vue syntax validation also
   passed. The only build output is dependency-level deprecation/plugin-timing warnings.
+# 2026-08-09 — Unified clip selection and frame analysis review
+
+- Removed the video-stage status tint. Draft, submitted, processing, AI-complete and mapped states
+  remain visible only on the canonical timeline clip mask.
+- A completed analysis now renders its result rail even when the AI callback omitted optional coverage;
+  the immutable clip range is the fallback, fixing the first DEMO clip.
+- Analysis rails no longer maintain a second selection state. Clicking a rail selects its parent clip
+  and opens the new Analysis Result inspector; normal clip selection and cursor behavior remain intact.
+- The inspector supports optimistic per-frame ball-coordinate and action corrections. Corrections are
+  batched by entity, persisted with idempotent patch IDs and synchronized as revision invalidations plus
+  incremental deltas instead of full-overlay broadcasts.
+- BBox interaction is contextual: Analysis Result edits the frame action, while Player Assignment opens
+  a quick identity popover. The assignment list shows every track and reserves only players mapped to
+  tracks active on the current frame, so an inactive pre-ReID track does not block reassignment.
+- ADR 0023 records the immutable-result overlay, sparse correction and synchronization boundary.
