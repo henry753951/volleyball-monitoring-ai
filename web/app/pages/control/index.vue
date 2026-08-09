@@ -30,7 +30,7 @@ import type { DeepReadonly } from 'vue'
 import type { Match } from '~/lib/coreDomain'
 import type { CreateMatchWithMediaInput } from '~/lib/mediaSourceClient'
 import { createMediaSourceClient } from '~/lib/mediaSourceClient'
-import { visibleStreamsForMatches, type MetricGroup, type StreamSnapshot } from '~/lib/operationsMonitor'
+import { deleteAiWorker, visibleStreamsForMatches, type AiWorkerSnapshot, type MetricGroup, type StreamSnapshot } from '~/lib/operationsMonitor'
 
 definePageMeta({ layout: 'control' })
 
@@ -61,6 +61,10 @@ const editPending = ref(false)
 const deletePending = ref(false)
 const editError = shallowRef<Error | null>(null)
 const deleteError = shallowRef<Error | null>(null)
+const workerDeleteTarget = shallowRef<AiWorkerSnapshot | null>(null)
+const workerDeletePending = ref(false)
+const workerDeleteError = shallowRef<Error | null>(null)
+const runtimeConfig = useRuntimeConfig()
 
 const view = computed<ControlView>(() => {
   const requested = typeof route.query.view === 'string' ? route.query.view : 'overview'
@@ -230,6 +234,27 @@ async function confirmDelete() {
   }
   catch (error) { deleteError.value = error instanceof Error ? error : new Error('場次刪除失敗') }
   finally { deletePending.value = false }
+}
+function openWorkerDelete(worker: AiWorkerSnapshot) {
+  if (!worker.canDelete) return
+  workerDeleteTarget.value = worker
+  workerDeleteError.value = null
+}
+async function confirmWorkerDelete() {
+  if (!workerDeleteTarget.value) return
+  workerDeletePending.value = true
+  workerDeleteError.value = null
+  try {
+    const receipt = await deleteAiWorker(runtimeConfig.public.restBasePath, workerDeleteTarget.value.id)
+    workerDeleteTarget.value = null
+    await monitor.refresh()
+    toast.success(`已移除 ${receipt.deleted_worker.instance_key}`)
+  }
+  catch (error) {
+    workerDeleteError.value = error instanceof Error ? error : new Error('AI Worker 刪除失敗')
+    await monitor.refresh()
+  }
+  finally { workerDeletePending.value = false }
 }
 function closeRoster() {
   rosterDialogOpen.value = false
@@ -408,7 +433,10 @@ onMounted(async () => {
             <span class="worker-icon"><Cpu :size="16" /></span>
             <div class="worker-identity"><strong>{{ worker.instanceKey }}</strong><small>{{ worker.providerBuildId }} · SDK {{ worker.sdkVersion }}</small></div>
             <div class="worker-load"><span><i :style="{ transform: `scaleX(${Math.min(1, worker.utilization)})` }" /></span><small>{{ worker.activeJobs }} / {{ worker.maxConcurrency }} 工作槽</small></div>
-            <span class="state-tag" :class="worker.status === 'online' ? 'good' : worker.status === 'stale' ? 'warning' : 'danger'"><i />{{ worker.status === 'online' ? relativeHeartbeat(worker.lastSeenAt) : worker.status === 'stale' ? '心跳逾時' : '離線' }}</span>
+            <div class="worker-actions">
+              <span class="state-tag" :class="worker.status === 'online' ? 'good' : worker.status === 'stale' ? 'warning' : 'danger'"><i />{{ worker.status === 'online' ? relativeHeartbeat(worker.lastSeenAt) : worker.status === 'stale' ? '心跳逾時' : '離線' }}</span>
+              <button v-if="worker.status !== 'online'" type="button" class="worker-delete" :disabled="!worker.canDelete" :title="worker.canDelete ? '移除逾時 Worker' : 'Worker 仍持有進行中的工作'" :aria-label="`移除 ${worker.instanceKey}`" @click="openWorkerDelete(worker)"><Trash2 :size="14" /></button>
+            </div>
           </article>
         </TransitionGroup>
       </section>
@@ -458,6 +486,7 @@ onMounted(async () => {
     <LazyRosterEditorDialog v-if="rosterMatch" :open="rosterDialogOpen" :match="rosterMatch" @close="closeRoster" @changed="matchesState.refresh" />
     <ControlMatchEditorDialog :open="editOpen" :match="editMatch" :pending="editPending" :error="editError" @close="editOpen = false" @save="saveMatch" />
     <ControlMatchDeleteDialog :open="deleteOpen" :match="deleteTarget" :media="deleteTarget ? matchMediaById.get(deleteTarget.id) ?? null : null" :pending="deletePending" :error="deleteError" @close="deleteOpen = false" @confirm="confirmDelete" />
+    <ControlAiWorkerDeleteDialog :open="Boolean(workerDeleteTarget)" :worker="workerDeleteTarget" :pending="workerDeletePending" :error="workerDeleteError" @close="workerDeleteTarget = null" @confirm="confirmWorkerDelete" />
   </section>
 </template>
 
@@ -467,6 +496,7 @@ onMounted(async () => {
 @media(max-width:760px){.page-header{padding-inline:16px}.page-header p{display:none}.view-panel{padding:16px}.monitor-error{margin-inline:16px}.status-strip,.media-summary,.ai-summary,.ai-grid{grid-template-columns:1fr}.status-strip>div,.status-strip>div:nth-child(n),.media-summary>div,.ai-summary>div{border-left:0;border-top:1px solid #292d32}.status-strip>div:first-child,.media-summary>div:first-child,.ai-summary>div:first-child{border-top:0}.compact-stream-list article{grid-template-columns:34px 1fr auto}.stream-progress{grid-column:2/-1}.service-line,.runtime-metrics,.callback-line{grid-template-columns:1fr}.service-line>div,.runtime-metrics>div,.callback-line>div,.service-line>div:nth-child(n),.runtime-metrics>div:nth-child(n),.callback-line>div:nth-child(n){border-left:0;border-top:1px solid #24282d}.service-line>div:first-child,.runtime-metrics>div:first-child,.callback-line>div:first-child{border-top:0}.media-table article{grid-template-columns:1fr 1fr}.media-table article>div:nth-child(n){grid-row:auto;grid-column:auto}.control-actions label{width:100%}.primary-action span{display:none}}
 .worker-fleet,.ai-work-section{margin-top:18px;overflow:hidden}.worker-grid article,.ai-work-list article{min-height:64px;display:grid;align-items:center;gap:12px;padding:0 16px;border-top:1px solid #24282d}.worker-grid article{grid-template-columns:34px minmax(180px,1fr) minmax(160px,.8fr) auto}.ai-work-list article{grid-template-columns:minmax(190px,1.2fr) minmax(130px,.7fr) minmax(160px,.8fr) auto}.worker-grid article:first-child,.ai-work-list article:first-child{border-top:0}.worker-icon{width:31px;height:31px;display:grid;place-items:center;border-radius:8px;background:#1c2025;color:#c5cad0}.worker-identity,.ai-work-list article>div:first-child{min-width:0;display:grid;gap:3px}.worker-identity strong,.ai-work-list strong{overflow:hidden;font-size:.68rem;text-overflow:ellipsis;white-space:nowrap}.worker-identity small,.ai-work-list small{color:#747b82;font-size:.56rem}.worker-load,.job-progress{display:grid;gap:5px}.worker-load>span,.job-progress>span{height:3px;overflow:hidden;border-radius:2px;background:#282d32}.worker-load i,.job-progress i{width:100%;height:100%;display:block;transform:scaleX(0);transform-origin:left center;background:#64c997;transition:transform 220ms cubic-bezier(.16,1,.3,1)}.ai-work-list>article>span:nth-child(2){color:#b2b7bd;font-size:.63rem}.work-shift-enter-active,.work-shift-leave-active,.work-shift-move{transition:opacity 180ms ease,transform 220ms cubic-bezier(.16,1,.3,1)}.work-shift-enter-from,.work-shift-leave-to{opacity:0;transform:translateY(4px)}
 @media(prefers-reduced-motion:reduce){.view-panel,.spinning,.table-loading{animation:none}.work-shift-enter-active,.work-shift-leave-active,.work-shift-move,.worker-load i,.job-progress i{transition:none}}
+.worker-actions{display:flex;align-items:center;justify-content:flex-end;gap:10px}.worker-delete{width:30px;height:30px;display:grid;place-items:center;border:1px solid #3b3031;border-radius:7px;background:#181416;color:#c78886;transition:border-color 120ms ease,background-color 120ms ease,color 120ms ease}.worker-delete:hover:not(:disabled){border-color:#70403f;background:#291617;color:#ffc9c7}.worker-delete:disabled{cursor:not-allowed;opacity:.35}
 .control-page{min-height:100%;background:#0a0b0d}.page-header{position:sticky;top:0;z-index:20;height:58px;padding-inline:24px;background:#0d0e10eF;backdrop-filter:blur(12px)}.page-header h1{font-size:.84rem}.page-header p{color:#8a8d93}.view-panel{width:min(100%,1600px);margin-inline:auto;padding:20px 24px 36px;animation:none}.workspace-section,.match-table,.status-strip,.media-summary,.ai-summary{border-color:#292b30;border-radius:10px;background:#101114;box-shadow:none}.ops-command{min-height:70px;display:grid;grid-template-columns:minmax(300px,1fr) minmax(480px,1.1fr);align-items:stretch;overflow:hidden;border:1px solid #2d2f34;border-radius:10px;background:#111216}.ops-command__health{display:flex;align-items:center;gap:12px;padding:13px 16px;border-right:1px solid #2d2f34}.ops-command__health>span{width:9px;height:9px;flex:none;border-radius:50%}.signal-good{background:#45bd83}.signal-danger{background:#e46966}.ops-command__health>div{display:grid;gap:3px}.ops-command__health strong{font-size:.72rem}.ops-command__health small{color:#85888f;font-size:.58rem}.ops-command dl{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));margin:0}.ops-command dl>div{display:grid;align-content:center;gap:5px;padding:0 14px;border-left:1px solid #27292e}.ops-command dl>div:first-child{border-left:0}.ops-command dt{color:#81848b;font-size:.56rem}.ops-command dd{display:flex;align-items:baseline;gap:4px;margin:0;font-size:.92rem;font-weight:720;font-variant-numeric:tabular-nums}.ops-command dd small{color:#71747a;font-size:.58rem}.host-storage{min-height:60px;display:grid;grid-template-columns:minmax(250px,.7fr) minmax(420px,1.3fr);align-items:center;gap:22px;margin:10px 0 16px;padding:9px 14px;border:1px solid #292b30;border-radius:9px;background:#0f1012}.host-storage.unavailable{border-color:#513335}.host-storage__label{display:flex;align-items:center;gap:10px;min-width:0;color:#b6b8bd}.host-storage__label>div,.host-storage__capacity>div{min-width:0;display:grid;gap:3px}.host-storage__label strong,.host-storage__capacity strong{font-size:.65rem}.host-storage__label small,.host-storage__capacity small{overflow:hidden;color:#777a81;font-size:.55rem;text-overflow:ellipsis;white-space:nowrap}.host-storage__capacity{display:grid;grid-template-columns:minmax(140px,1fr) auto;align-items:center;gap:12px}.host-storage__capacity>span{height:6px;overflow:hidden;border-radius:3px;background:#2b2d32}.host-storage__capacity>span i{display:block;height:100%;background:#a8aaaf}.host-storage__capacity>div{text-align:right}.match-table{overflow-x:auto;scrollbar-color:#3f4147 #111216;scrollbar-width:thin}.match-table__head,.match-table article{min-width:1060px;grid-template-columns:minmax(220px,1.2fr) minmax(190px,.8fr) minmax(220px,1fr) minmax(120px,.55fr) 238px}.match-table__head{position:sticky;top:0;z-index:2}.match-table article{min-height:76px}.match-title{min-width:0;display:grid;gap:5px}.match-title>a{color:inherit;text-decoration:none}.match-title strong{display:block;overflow:hidden;font-size:.72rem;text-overflow:ellipsis;white-space:nowrap}.match-title>span{display:flex;align-items:center;gap:6px;color:#85888f;font-size:.57rem}.match-title>span i{width:6px;height:6px;border-radius:50%;background:#70737a}.match-title>span i.good{background:#45bd83}.match-table__versus{display:grid;grid-template-columns:1fr auto;align-items:center;gap:12px}.match-table__teams{min-width:0}.match-table__score b{font-size:.92rem}.match-media,.match-storage{display:grid;gap:4px}.match-media strong,.match-storage strong{font-size:.64rem}.match-media span,.match-storage span{color:#7c7f86;font-size:.55rem;font-variant-numeric:tabular-nums}.match-table__buttons{gap:5px}.match-table__buttons button,.match-table__buttons a{min-height:32px;border-radius:7px;background:#15161a}.match-table__buttons .danger-button{color:#c98b89}.match-table__buttons .danger-button:hover{border-color:#70403f;background:#291617;color:#ffc9c7}.control-actions{position:sticky;top:58px;z-index:15;padding:8px 0;background:#0a0b0df2;backdrop-filter:blur(10px)}.create-scroll{height:min(720px,calc(86dvh - 54px))}.create-content{min-height:0;padding:8px}.table-loading{background:#121317;animation:none}
 @media(max-width:1120px){.ops-command{grid-template-columns:1fr}.ops-command__health{border-right:0;border-bottom:1px solid #2d2f34}.host-storage{grid-template-columns:1fr}.match-table article,.match-table__head{grid-template-columns:minmax(220px,1.2fr) minmax(190px,.8fr) minmax(220px,1fr) minmax(120px,.55fr) 238px}.match-table article{padding-block:0}.match-table__teams,.match-table__score,.match-table__buttons{grid-column:auto}.match-table__buttons{justify-content:flex-end}}
 @media(max-width:760px){.page-header{padding-inline:14px}.view-panel{padding:14px}.ops-command dl{grid-template-columns:repeat(2,1fr)}.ops-command dl>div:nth-child(3){border-top:1px solid #27292e}.ops-command dl>div:nth-child(3){border-left:0}.ops-command dl>div:nth-child(4){border-top:1px solid #27292e}.host-storage__capacity{grid-template-columns:1fr}.host-storage__capacity>div{text-align:left}.control-actions{top:58px}}

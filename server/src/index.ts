@@ -18,7 +18,7 @@ import { createMediaSourceGatewayFromEnv, type MediaSourceGateway } from './medi
 import { mediaPlaybackRoutes } from './routes/media-playback.js'
 import { aiCallbackRoutesWithDependencies } from './routes/ai-callback.js'
 import { analysisMediaRoutes } from './routes/analysis-media.js'
-import { collectOperationsSnapshot, operationsRoutes } from './routes/operations.js'
+import { collectOperationsSnapshot, deleteInactiveAiWorker, operationsRoutes } from './routes/operations.js'
 import { createHostStorageProbe } from './operations/host-storage.js'
 import { mediaSourceRoutes } from './routes/media-sources.js'
 import { createAnnotationPresenceService } from './realtime/annotation-presence.js'
@@ -146,6 +146,7 @@ await app.register(operationsRoutes(
   {
     authenticate: request => authenticateDevelopmentAnnotationRequest(request, db),
     collectReadiness: () => evaluateReadiness(readinessProbes),
+    deleteAiWorker: workerId => deleteInactiveAiWorker(db, workerId),
   },
 ))
 await app.register(annotationWebSocketRoutes({

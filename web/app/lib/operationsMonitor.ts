@@ -44,6 +44,12 @@ export interface AiWorkerSnapshot {
   lastSeenAt: string
   disconnectedAt: string | null
   status: 'online' | 'stale' | 'offline'
+  canDelete: boolean
+}
+
+export interface DeleteAiWorkerReceipt {
+  schema_version: '1.0.0'
+  deleted_worker: { id: string; instance_key: string }
 }
 
 export interface AiWorkSnapshot {
@@ -130,4 +136,25 @@ export async function fetchOperationsSnapshot(
     throw new Error(`監控資料讀取失敗（${response.status}）`)
   }
   return await response.json() as OperationsDashboardSnapshot
+}
+
+export async function deleteAiWorker(
+  basePath: string,
+  workerId: string,
+  fetchImpl: typeof fetch = fetch,
+): Promise<DeleteAiWorkerReceipt> {
+  const response = await fetchImpl(`${basePath.replace(/\/$/, '')}/operations/ai-workers/${encodeURIComponent(workerId)}`, {
+    credentials: 'include',
+    headers: { accept: 'application/json' },
+    method: 'DELETE',
+  })
+  if (!response.ok) {
+    const payload = await response.json().catch(() => null) as { code?: string } | null
+    if (payload?.code === 'AI_WORKER_ONLINE') throw new Error('Worker 已恢復連線，無法刪除')
+    if (payload?.code === 'AI_WORKER_HAS_ACTIVE_JOBS') throw new Error('Worker 仍持有進行中的工作，無法刪除')
+    if (payload?.code === 'AI_WORKER_NOT_FOUND') throw new Error('Worker 紀錄已不存在')
+    if (response.status === 401 || response.status === 403) throw new Error('目前帳號沒有移除 AI Worker 的權限')
+    throw new Error(`AI Worker 刪除失敗（${response.status}）`)
+  }
+  return await response.json() as DeleteAiWorkerReceipt
 }
