@@ -11,6 +11,7 @@ import { clipRangeOverlaps, formatTimelinePosition, paddedClipRange, resolveSegm
 import { capturePlaybackMode } from '~/lib/mediaTimeline'
 import { decidePlaybackContinuation } from '~/lib/playbackContinuation'
 import { bufferedSecondsAhead, type CanonicalMediaRange } from '~/utils/mediaBuffer'
+import { toggleAnalysisResultSelection, type TimelineSelectionItem } from '~/utils/timelineSelection'
 
 definePageMeta({ layout: 'annotation' })
 const route = useRoute()
@@ -52,7 +53,8 @@ const displayAnnotation = computed(() => {
 const state = annotation.viewState
 const currentLastKeyPointId = computed(() => displayAnnotation.value?.snapshot.key_points.at(-1)?.key_point_id ?? null)
 const selectedKeyPointId = ref<string | null>(null)
-const selectedTimelineItem = ref<'mask' | 'point' | 'segment' | null>(null)
+const selectedTimelineItem = ref<TimelineSelectionItem>(null)
+const selectedAnalysisSegmentId = ref<string | null>(null)
 const selectedKeyPoint = computed(() => annotation.snapshot.value?.snapshot.key_points.find(point => point.key_point_id === selectedKeyPointId.value) ?? null)
 const pendingTimelineMove = shallowRef<{ keyPointId: string; playbackWindowId: string | null } | null>(null)
 const frameQueueRunning = ref(false)
@@ -453,23 +455,27 @@ function editKeyPoint(kind: 'MOVE_KEY_POINT' | 'DELETE_KEY_POINT') {
 
 function selectTimelineKeyPoint(keyPointId: string) {
   pinnedRallyId.value = null
+  selectedAnalysisSegmentId.value = null
   selectedKeyPointId.value = keyPointId
   selectedTimelineItem.value = 'point'
 }
 
 function selectTimelineMask() {
   pinnedRallyId.value = displayAnnotation.value?.rally_id ?? null
+  selectedAnalysisSegmentId.value = null
   selectedTimelineItem.value = 'mask'
   selectedKeyPointId.value = null
 }
 
 function clearTimelineSelection() {
   pinnedRallyId.value = null
-  selectedTimelineItem.value = null
+  selectedAnalysisSegmentId.value = null
+  selectedTimelineItem.value = cursorRallyId.value ? 'segment' : null
   selectedKeyPointId.value = null
 }
 
 async function selectHistoricalSegment(segmentId: string, _targetCaptureTimeUs: string) {
+  selectedAnalysisSegmentId.value = null
   const draft = annotationDrafts.value.find(candidate => candidate.id === segmentId)
   if (draft) {
     await annotation.selectRally(draft.id)
@@ -483,8 +489,21 @@ async function selectHistoricalSegment(segmentId: string, _targetCaptureTimeUs: 
   selectedKeyPointId.value = null
 }
 
+function selectTimelineAnalysis(segmentId: string) {
+  const next = toggleAnalysisResultSelection({
+    currentAnalysisSegmentId: selectedAnalysisSegmentId.value,
+    targetSegmentId: segmentId,
+    cursorRallyId: cursorRallyId.value,
+  })
+  pinnedRallyId.value = next.pinnedRallyId
+  selectedAnalysisSegmentId.value = next.selectedAnalysisSegmentId
+  selectedTimelineItem.value = next.selectedTimelineItem
+  selectedKeyPointId.value = null
+}
+
 function selectRally(rally: CoachRally) {
   pinnedRallyId.value = rally.id
+  selectedAnalysisSegmentId.value = null
   selectedTimelineItem.value = 'segment'
   selectedKeyPointId.value = null
   if (rally.submission.clip) void seekTimeline(rally.submission.clip.start_capture_time_us)
@@ -730,6 +749,7 @@ function retryableContinuationError(error: unknown) {
     'PLAYBACK_CONTINUATION_NO_PROGRESS',
     'PLAYBACK_WINDOW_NOT_FOUND',
     'WINDOW_EXPIRED',
+    'MAPPING_STALE',
   ].includes(code)
 }
 function maintainPlaybackWindow() {
@@ -741,8 +761,8 @@ function maintainPlaybackWindow() {
   const observedCapture = BigInt(window.presentation_origin_capture_us) + BigInt(Math.max(0, Math.round(element.currentTime * 1_000_000)))
   const windowEnd = BigInt(window.window_capture_end_us)
   const target = (observedCapture > windowEnd ? windowEnd : observedCapture).toString()
-  const decision = !playbackHasStarted && leaseRenewalDue
-    ? 'extend-server-window'
+  const decision = leaseRenewalDue
+    ? 'extend-window'
     : decidePlaybackContinuation({
       availabilityComplete: Boolean(timeline.value?.availabilityComplete)
         || ['complete_vod', 'ended_live', 'failed'].includes(playbackMode.value),
@@ -889,6 +909,7 @@ function navigateKeyPoint(direction: 'previous' | 'next') {
       : points.findLast(point => !reference || BigInt(point.captureTimeUs) < BigInt(reference))
   if (!target) { toast.info(direction === 'next' ? '已到最後一個擊球點' : '已到第一個擊球點'); return }
   if (target.rallyId === displayAnnotation.value?.rally_id) {
+    selectedAnalysisSegmentId.value = null
     selectedKeyPointId.value = target.id
     selectedTimelineItem.value = 'point'
   }
@@ -898,6 +919,7 @@ function navigateKeyPoint(direction: 'previous' | 'next') {
   }
   else {
     pinnedRallyId.value = target.rallyId
+    selectedAnalysisSegmentId.value = null
     selectedTimelineItem.value = 'segment'
     selectedKeyPointId.value = null
   }
@@ -935,6 +957,7 @@ watch([selectedCaptureId, defaultPlaybackTarget, playbackMode], ([captureId, tar
 watch([timelineEndTarget, () => timeline.value?.timelineVersion, playbackMode], maintainPlaybackWindow)
 watch(() => displayAnnotation.value?.rally_id, () => {
   pinnedRallyId.value = null
+  selectedAnalysisSegmentId.value = null
   selectedKeyPointId.value = null
   selectedTimelineItem.value = null
 }, { flush: 'sync' })
@@ -949,12 +972,16 @@ watch([visualPlayhead, selectableSegmentRanges], ([cursor, segments]) => {
 }, { immediate: true })
 watch(cursorRallyId, (rallyId) => {
   if (pinnedRallyId.value) return
+  selectedAnalysisSegmentId.value = null
   selectedTimelineItem.value = rallyId ? 'segment' : null
   selectedKeyPointId.value = null
 }, { immediate: true })
 watch([submittedRallies, annotationDrafts], ([submitted, drafts]) => {
   if (!pinnedRallyId.value) return
-  if (![...submitted, ...drafts].some(rally => rally.id === pinnedRallyId.value)) pinnedRallyId.value = null
+  if ([...submitted, ...drafts].some(rally => rally.id === pinnedRallyId.value)) return
+  pinnedRallyId.value = null
+  selectedAnalysisSegmentId.value = null
+  selectedTimelineItem.value = cursorRallyId.value ? 'segment' : null
 })
 watch(mappingAvailable, (available) => {
   if (!available && inspectorTab.value === 'mapping') inspectorTab.value = 'match'
@@ -1104,7 +1131,7 @@ onBeforeUnmount(() => {
         @delete-selection="deleteSelection"
         @toggle-mute="dispatchMediaAction('mute')"
       />
-      <DvrTimelineDock :timeline="timeline" :playhead="visualPlayhead" :playback-mode="playbackMode" :buffered-window="descriptor ? { startCaptureTimeUs: descriptor.window_capture_start_us, endCaptureTimeUs: descriptor.window_capture_end_us } : null" :buffered-ranges="playerBufferedRanges" :annotation="displayAnnotation" :editable="state === 'OPEN' && editReady && !pendingTimelineMove" :selected-key-point-id="selectedKeyPointId" :mask-selected="selectedCurrentMask" :mask-range="currentMaskRange" :current-mask-status="currentMaskStatus" :current-mask-label="currentMaskLabel" :current-mask-outcome="currentMaskOutcome" :cursor-follow="cursorFollow" :segments="timelineSegments" :selected-segment-id="selectedHistoricalSegmentId" :soft-locks="annotation.remoteEditorsByKeyPoint.value" @preview="previewTimelineSeek" @seek="seekTimeline" @clear-selection="clearTimelineSelection" @select="selectTimelineKeyPoint" @select-mask="selectTimelineMask" @select-segment="selectHistoricalSegment" @edit-start="beginTimelineKeyPointEdit" @edit-cancel="cancelTimelineKeyPointEdit" @move="moveTimelineKeyPoint" />
+      <DvrTimelineDock :timeline="timeline" :playhead="visualPlayhead" :playback-mode="playbackMode" :buffered-window="descriptor ? { startCaptureTimeUs: descriptor.window_capture_start_us, endCaptureTimeUs: descriptor.window_capture_end_us } : null" :buffered-ranges="playerBufferedRanges" :annotation="displayAnnotation" :editable="state === 'OPEN' && editReady && !pendingTimelineMove" :selected-key-point-id="selectedKeyPointId" :mask-selected="selectedCurrentMask" :mask-range="currentMaskRange" :current-mask-status="currentMaskStatus" :current-mask-label="currentMaskLabel" :current-mask-outcome="currentMaskOutcome" :cursor-follow="cursorFollow" :segments="timelineSegments" :selected-segment-id="selectedHistoricalSegmentId" :selected-analysis-segment-id="selectedAnalysisSegmentId" :soft-locks="annotation.remoteEditorsByKeyPoint.value" @preview="previewTimelineSeek" @seek="seekTimeline" @clear-selection="clearTimelineSelection" @select="selectTimelineKeyPoint" @select-mask="selectTimelineMask" @select-segment="selectHistoricalSegment" @select-analysis="selectTimelineAnalysis" @edit-start="beginTimelineKeyPointEdit" @edit-cancel="cancelTimelineKeyPointEdit" @move="moveTimelineKeyPoint" />
       <AnnotationCommandStrip :bindings="bindings" :state="state" :can-mark="canMark" :last-key-point="Boolean(annotation.lastKeyPoint.value)" :command-ready="commandReady" :pending-command="annotation.pendingCount.value > 0" :availability="commandAvailabilityMap" @action="dispatchAnnotationAction" @settings="openSettings('hotkeys')" />
     </footer>
 

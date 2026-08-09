@@ -21,8 +21,22 @@ export function bufferedSecondsAhead(element: BufferedMediaElement) {
       return Math.max(0, end - element.currentTime)
     }
   }
-  // `duration` describes the presentation timeline, not bytes currently held by
-  // MSE. Returning duration here suppresses prefetch while the cursor is in an
-  // unbuffered hole (or before the first fragment has arrived).
+  // Presentation duration describes the descriptor, not bytes already held by
+  // MSE. A cursor in an unbuffered hole must stay visible as buffer starvation.
   return 0
+}
+
+export function playbackWindowSecondsAhead(input: {
+  currentTimeSeconds: number
+  presentationOriginCaptureUs: string
+  windowCaptureEndUs: string
+}) {
+  if (!Number.isFinite(input.currentTimeSeconds) || input.currentTimeSeconds < 0) return 0
+  const observedCaptureUs = BigInt(input.presentationOriginCaptureUs)
+    + BigInt(Math.round(input.currentTimeSeconds * 1_000_000))
+  const aheadUs = BigInt(input.windowCaptureEndUs) - observedCaptureUs
+  if (aheadUs <= 0n) return 0
+  const wholeSeconds = aheadUs / 1_000_000n
+  const remainderUs = aheadUs % 1_000_000n
+  return Number(wholeSeconds) + Number(remainderUs) / 1_000_000
 }
