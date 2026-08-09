@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://volleyball-monitoring.local/contracts/analysis/review-patch.schema.json",
+  "title": "Analysis Review Patch",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "client_patch_id", "base_revision", "operations"],
+  "properties": {
+    "schema_version": { "const": "1.0.0" },
+    "client_patch_id": { "type": "string", "format": "uuid" },
+    "base_revision": { "type": "string", "pattern": "^(0|[1-9][0-9]*)$" },
+    "operations": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 32,
+      "items": {
+        "oneOf": [
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["op", "frame_index", "frame_pos"],
+            "properties": {
+              "op": { "const": "set_ball_position" },
+              "frame_index": { "type": "string", "pattern": "^(0|[1-9][0-9]*)$" },
+              "frame_pos": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["x", "y"],
+                "properties": {
+                  "x": { "type": "number", "minimum": 0 },
+                  "y": { "type": "number", "minimum": 0 }
+                }
+              }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["op", "frame_index", "track_id", "action"],
+            "properties": {
+              "op": { "const": "set_action" },
+              "frame_index": { "type": "string", "pattern": "^(0|[1-9][0-9]*)$" },
+              "track_id": { "type": "integer", "minimum": 0 },
+              "action": {
+                "enum": ["Waiting", "Setting", "Digging", "Falling", "Spiking", "Blocking", "Jumping", "Moving", "Standing"]
+              }
+            }
+          }
+        ]
+      }
+    }
+  }
+}

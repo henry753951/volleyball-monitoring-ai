@@ -10,7 +10,11 @@ import type { ReplayContactEvent } from '~/lib/coachDomain'
 
 export type ReplayOverlayMode = 'off' | 'tracking' | 'coach' | 'tactical' | 'debug'
 export interface ReplayOverlayLayers { bbox: boolean; trackId: boolean; action: boolean; ball: boolean; trail: boolean; footprint: boolean; confidence: boolean }
-const props = defineProps<{ events: ReplayContactEvent[]; frame: number; videoWidth: number; videoHeight: number; chunk?: BrowserOverlayChunk | null; actionLabels?: string[]; mode?: ReplayOverlayMode; layers?: ReplayOverlayLayers }>()
+const props = defineProps<{ events: ReplayContactEvent[]; frame: number; videoWidth: number; videoHeight: number; chunk?: BrowserOverlayChunk | null; actionLabels?: string[]; mode?: ReplayOverlayMode; layers?: ReplayOverlayLayers; interactive?: boolean; ballRelabel?: boolean; ballCorrection?: { x: number; y: number } | null; actionCorrections?: Record<number, string>; identityLabels?: Record<number, string> }>()
+const emit = defineEmits<{
+  ballPosition: [position: { x: number; y: number }]
+  trackSelect: [selection: { trackId: number; clientX: number; clientY: number; action: string | null }]
+}>()
 const canvas = useTemplateRef<HTMLCanvasElement>('canvas')
 let observer: ResizeObserver | null = null
 
@@ -26,6 +30,10 @@ function contentRect(rect: DOMRect) {
 function point(position: { x: number; y: number }, content: { x: number; y: number; width: number; height: number }, quantized = false) {
   const divisor = quantized ? 65_535 : 1
   return { x: content.x + position.x / divisor * content.width, y: content.y + position.y / divisor * content.height }
+}
+
+function framePoint(position: { x: number; y: number }, content: ReturnType<typeof contentRect>) {
+  return { x: content.x + position.x / props.videoWidth * content.width, y: content.y + position.y / props.videoHeight * content.height }
 }
 
 function drawChunk(context: CanvasRenderingContext2D, content: ReturnType<typeof contentRect>) {
@@ -48,9 +56,12 @@ function drawChunk(context: CanvasRenderingContext2D, content: ReturnType<typeof
       context.fillRect(topLeft.x, topLeft.y, bottomRight.x - topLeft.x, bottomRight.y - topLeft.y)
       context.strokeRect(topLeft.x, topLeft.y, bottomRight.x - topLeft.x, bottomRight.y - topLeft.y)
       const labels: string[] = []
-      if (layers.trackId) labels.push(`Track ${chunk.trackIds[index]}`)
+      const trackId = chunk.trackIds[index]!
+      if (layers.trackId) labels.push(props.identityLabels?.[trackId] ? `${props.identityLabels[trackId]} · T${trackId}` : `Track ${trackId}`)
       const actionId = chunk.actionLabelIds[index] ?? OVERLAY_MISSING_ACTION_LABEL
-      if (layers.action && actionId !== OVERLAY_MISSING_ACTION_LABEL) labels.push(props.actionLabels?.[actionId] ?? `Action ${actionId}`)
+      const correctedAction = props.actionCorrections?.[trackId]
+      if (layers.action && correctedAction) labels.push(correctedAction)
+      else if (layers.action && actionId !== OVERLAY_MISSING_ACTION_LABEL) labels.push(props.actionLabels?.[actionId] ?? `Action ${actionId}`)
       const confidence = chunk.playerConfidences[index] ?? OVERLAY_MISSING_CONFIDENCE
       if (layers.confidence && confidence !== OVERLAY_MISSING_CONFIDENCE) labels.push(`${Math.round(confidence / 254 * 100)}%`)
       if (labels.length) { context.fillStyle = '#fff'; context.fillText(labels.join(' · '), topLeft.x + 4, Math.max(14, topLeft.y - 5)) }
@@ -74,11 +85,47 @@ function drawChunk(context: CanvasRenderingContext2D, content: ReturnType<typeof
     }
     if (started) { context.strokeStyle = '#fbbf2499'; context.lineWidth = 3; context.stroke() }
   }
-  if (layers.ball && ((chunk.ballFlags[localFrame] ?? 0) & OVERLAY_BALL_FLAG.framePosition)) {
+  if (layers.ball && props.ballCorrection) {
+    const mapped = framePoint(props.ballCorrection, content)
+    context.beginPath(); context.arc(mapped.x, mapped.y, 8, 0, Math.PI * 2); context.fillStyle = '#fbbf24'; context.fill(); context.strokeStyle = '#fff'; context.lineWidth = 2; context.stroke()
+  }
+  else if (layers.ball && ((chunk.ballFlags[localFrame] ?? 0) & OVERLAY_BALL_FLAG.framePosition)) {
     const ball = chunk.ballFramePositions[localFrame]
     if (ball) { const mapped = point(ball, content, true); context.beginPath(); context.arc(mapped.x, mapped.y, 7, 0, Math.PI * 2); context.fillStyle = '#fbbf24'; context.fill(); context.strokeStyle = '#78350f'; context.stroke() }
   }
   return true
+}
+
+function handleClick(event: MouseEvent) {
+  if (!props.interactive) return
+  const element = canvas.value
+  if (!element) return
+  const rect = element.getBoundingClientRect()
+  const content = contentRect(rect)
+  const x = event.clientX - rect.left
+  const y = event.clientY - rect.top
+  if (x < content.x || x > content.x + content.width || y < content.y || y > content.y + content.height) return
+  if (props.ballRelabel) {
+    emit('ballPosition', { x: (x - content.x) / content.width * props.videoWidth, y: (y - content.y) / content.height * props.videoHeight })
+    return
+  }
+  const chunk = props.chunk
+  if (!chunk) return
+  const localFrame = props.frame - Number(chunk.startFrameIndex)
+  if (localFrame < 0 || localFrame >= chunk.frameCount) return
+  const start = chunk.frameOffsets[localFrame]!
+  const end = chunk.frameOffsets[localFrame + 1]!
+  for (let index = end - 1; index >= start; index -= 1) {
+    const bbox = chunk.frameBboxes[index]
+    if (!bbox || !((chunk.playerFlags[index] ?? 0) & OVERLAY_PLAYER_FLAG.frameBBox)) continue
+    const topLeft = point({ x: bbox.x1, y: bbox.y1 }, content, true)
+    const bottomRight = point({ x: bbox.x2, y: bbox.y2 }, content, true)
+    if (x < topLeft.x || x > bottomRight.x || y < topLeft.y || y > bottomRight.y) continue
+    const trackId = chunk.trackIds[index]!
+    const actionId = chunk.actionLabelIds[index] ?? OVERLAY_MISSING_ACTION_LABEL
+    emit('trackSelect', { trackId, clientX: event.clientX, clientY: event.clientY, action: props.actionCorrections?.[trackId] ?? (actionId === OVERLAY_MISSING_ACTION_LABEL ? null : props.actionLabels?.[actionId] ?? null) })
+    return
+  }
 }
 
 function drawEventFallback(context: CanvasRenderingContext2D, content: ReturnType<typeof contentRect>) {
@@ -115,9 +162,9 @@ function draw() {
   if (!drawChunk(context, content)) drawEventFallback(context, content)
 }
 
-watch(() => [props.events, props.frame, props.videoWidth, props.videoHeight, props.chunk, props.mode, props.layers, props.actionLabels], draw, { deep: true })
+watch(() => [props.events, props.frame, props.videoWidth, props.videoHeight, props.chunk, props.mode, props.layers, props.actionLabels, props.ballCorrection, props.actionCorrections, props.identityLabels], draw, { deep: true })
 onMounted(() => { observer = new ResizeObserver(draw); if (canvas.value) observer.observe(canvas.value); draw() })
 onUnmounted(() => observer?.disconnect())
 </script>
 
-<template><canvas ref="canvas" class="pointer-events-none absolute inset-0 size-full" aria-hidden="true" /></template>
+<template><canvas ref="canvas" class="absolute inset-0 size-full" :class="interactive ? ballRelabel ? 'pointer-events-auto cursor-crosshair' : 'pointer-events-auto cursor-pointer' : 'pointer-events-none'" :aria-label="interactive ? ballRelabel ? '點擊影片修改此幀球座標' : '點擊球員框選取追蹤球員' : undefined" :aria-hidden="interactive ? undefined : true" @click="handleClick" /></template>

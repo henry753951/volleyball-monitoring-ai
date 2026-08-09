@@ -16,6 +16,11 @@ const props = withDefaults(defineProps<{
   overlayClipStartCaptureTimeUs?: string | null
   overlayMode?: ReplayOverlayMode
   overlayLayers?: ReplayOverlayLayers
+  overlayInteractive?: boolean
+  ballRelabel?: boolean
+  ballCorrection?: { x: number; y: number } | null
+  actionCorrections?: Record<number, string>
+  identityLabels?: Record<number, string>
 }>(), {
   controls: true,
   toggleOnClick: false,
@@ -25,6 +30,11 @@ const props = withDefaults(defineProps<{
   overlayClipStartCaptureTimeUs: null,
   overlayMode: 'tracking',
   overlayLayers: () => ({ bbox: true, trackId: true, action: false, ball: true, trail: true, footprint: false, confidence: false }),
+  overlayInteractive: false,
+  ballRelabel: false,
+  ballCorrection: null,
+  actionCorrections: () => ({}),
+  identityLabels: () => ({}),
 })
 const emit = defineEmits<{
   cursor: [value: PlaybackCursorInput]
@@ -39,6 +49,9 @@ const emit = defineEmits<{
   }]
   error: [Error]
   toggle: []
+  ballPosition: [position: { x: number; y: number }]
+  trackSelect: [selection: { trackId: number; clientX: number; clientY: number; action: string | null }]
+  overlayFrame: [frame: number]
 }>()
 
 const video = ref<HTMLVideoElement | null>(null)
@@ -81,6 +94,7 @@ watch([overlay.manifest, () => props.overlayFrame, () => props.overlayCaptureTim
   const delta = BigInt(props.overlayCaptureTimeUs) - BigInt(props.overlayClipStartCaptureTimeUs)
   resolvedOverlayFrame.value = delta < 0n ? -1 : Number(delta * BigInt(manifest.video.fps.num) / (1_000_000n * BigInt(manifest.video.fps.den)))
 }, { immediate: true })
+watch(resolvedOverlayFrame, frame => emit('overlayFrame', frame), { immediate: true })
 
 watch(cursor, (value) => {
   if (value) emit('cursor', value)
@@ -189,6 +203,13 @@ defineExpose({ recoverPlayback, seekCaptureTimeIfBuffered, previewCaptureTimeIfB
       :action-labels="overlay.actionLabels.value"
       :mode="overlayMode"
       :layers="overlayLayers"
+      :interactive="overlayInteractive"
+      :ball-relabel="ballRelabel"
+      :ball-correction="ballCorrection"
+      :action-corrections="actionCorrections"
+      :identity-labels="identityLabels"
+      @ball-position="emit('ballPosition', $event)"
+      @track-select="emit('trackSelect', $event)"
     />
   </div>
 </template>

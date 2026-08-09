@@ -11,7 +11,7 @@ export async function getCoachMatchAnalytics(database: PrismaClient, input: { ma
       id: true, title: true,
       matchTeams: { select: { team: { select: { id: true, name: true, shortName: true } } } },
       rosterEntries: { where: { active: true }, orderBy: [{ teamId: 'asc' }, { jerseyNumber: 'asc' }], select: { id: true, teamId: true, jerseyNumber: true, displayNameSnapshot: true, player: { select: { name: true } } } },
-      rallies: { where: { activeSubmissionId: { not: null }, voidedAt: null }, select: { id: true, ordinal: true, set: { select: { setNumber: true } }, activeSubmission: { select: { id: true, scoreResolutionState: true, scoringTeamId: true, analysisRuns: { where: { status: JobStatus.COMPLETED }, orderBy: { activatedAt: 'desc' }, take: 1, select: { id: true, analysisVersion: true, identityMappingCompletedAt: true, tracks: { select: { trackId: true, courtSide: true, identityAssignments: { select: { rosterEntryId: true, source: true } } } }, contactEvents: { select: { associationState: true, qualityFlags: true, representativePositions: { select: { courtX: true, courtY: true } }, actors: { select: { trackId: true, action: true, courtX: true, courtY: true } } } }, segments: { select: { renderState: true } } } } } } } },
+      rallies: { where: { activeSubmissionId: { not: null }, voidedAt: null }, select: { id: true, ordinal: true, set: { select: { setNumber: true } }, activeSubmission: { select: { id: true, scoreResolutionState: true, scoringTeamId: true, analysisRuns: { where: { status: JobStatus.COMPLETED }, orderBy: { activatedAt: 'desc' }, take: 1, select: { id: true, analysisVersion: true, identityMappingCompletedAt: true, tracks: { select: { trackId: true, courtSide: true, firstFrame: true, lastFrame: true, identityAssignments: { select: { rosterEntryId: true, source: true } } } }, contactEvents: { select: { associationState: true, qualityFlags: true, representativePositions: { select: { courtX: true, courtY: true } }, actors: { select: { trackId: true, action: true, courtX: true, courtY: true } } } }, segments: { select: { renderState: true } } } } } } } },
     },
   })
   if (!match) return null
@@ -57,6 +57,8 @@ export async function getCoachMatchAnalytics(database: PrismaClient, input: { ma
       rally_ordinal: entry.rally.ordinal,
       track_id: track.trackId,
       court_side: track.courtSide.toLowerCase(),
+      first_frame_index: track.firstFrame.toString(),
+      last_frame_index: track.lastFrame.toString(),
       roster_entry_id: track.identityAssignments[0]?.rosterEntryId ?? null,
       identity_mapping_completed: Boolean(entry.run.identityMappingCompletedAt),
     }))),

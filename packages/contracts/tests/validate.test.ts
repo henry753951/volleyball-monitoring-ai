@@ -3,7 +3,7 @@ import addFormats from "ajv-formats";
 import { describe, expect, it } from "vitest";
 import { readFileSync, readdirSync } from "node:fs";
 import { resolve } from "node:path";
-import { parseAIProviderClientMessage, parseAIProviderServerMessage, parseAnnotationCommand, parseAnnotationCommandResponse, parseAnnotationRealtimeMessage, parseAnnotationServerMessage, parseAnnotationSoftLockIntent, parseMediaApiError, parsePlaybackCursor, parseResolvedMediaAnchor } from "../src/index";
+import { parseAIProviderClientMessage, parseAIProviderServerMessage, parseAnalysisReviewPatch, parseAnnotationCommand, parseAnnotationCommandResponse, parseAnnotationRealtimeMessage, parseAnnotationServerMessage, parseAnnotationSoftLockIntent, parseMediaApiError, parsePlaybackCursor, parseResolvedMediaAnchor } from "../src/index";
 
 const root = resolve(import.meta.dirname, "..");
 const load = (relative: string) => JSON.parse(readFileSync(resolve(root, relative), "utf8"));
@@ -73,8 +73,19 @@ describe("golden contract fixtures", () => {
       "examples/ai/provider-hello.json": "ai/provider-realtime.schema.json",
       "examples/ai/job-offer.json": "ai/provider-realtime.schema.json",
       "examples/ai/abort-job.json": "ai/provider-realtime.schema.json",
+      "examples/analysis/review-patch.json": "analysis/review-patch.schema.json",
+      "examples/analysis/review-state.json": "analysis/review-state.schema.json",
+      "examples/analysis/review-revision-event.json": "analysis/review-revision-event.schema.json",
     };
     for (const [instance, schema] of Object.entries(pairs)) expect(validator(schema)(load(instance)), instance).toBe(true);
+  });
+
+  it("strictly parses compact analysis review patches", () => {
+    const patch = load("examples/analysis/review-patch.json");
+    expect(parseAnalysisReviewPatch(patch)).toEqual(patch);
+    expect(() => parseAnalysisReviewPatch({ ...patch, client_patch_id: "not-a-uuid" })).toThrow();
+    expect(() => parseAnalysisReviewPatch({ ...patch, operations: [{ ...patch.operations[1], action: "Serving" }] })).toThrow();
+    expect(() => parseAnalysisReviewPatch({ ...patch, operations: [] })).toThrow();
   });
 
   it("strictly parses provider realtime control messages", () => {

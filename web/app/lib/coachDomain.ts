@@ -101,7 +101,7 @@ export interface CoachMatchAnalytics {
   metrics: Record<string, CoachMetric>
   teams: Array<CoachTeam & { wins: number; losses: number; unknown: number; sample_count: number }>
   players: Array<{ roster_entry_id: string; team_id: string; jersey_number: string; name: string; contact_count: number; sample_count: number }>
-  tracks: Array<{ analysis_run_id: string; track_id: number; rally_id: string; set_number: number; rally_ordinal: number; court_side: string; roster_entry_id: string | null; identity_mapping_completed: boolean }>
+  tracks: Array<{ analysis_run_id: string; track_id: number; rally_id: string; set_number: number; rally_ordinal: number; court_side: string; first_frame_index: string; last_frame_index: string; roster_entry_id: string | null; identity_mapping_completed: boolean }>
   unassigned_tracks: Array<{ analysis_run_id: string; track_id: number; rally_id: string; set_number: number; rally_ordinal: number }>
 }
 const COACH_MATCH_STATE = `query CoachMatchState($matchId: ID!) { coachMatchState(matchId: $matchId) }`

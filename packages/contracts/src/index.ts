@@ -16,6 +16,7 @@ export const CONTRACT_VERSIONS = {
   aiProviderRealtime: '1.0.0',
   providerOverlay: 'flatbuffers_v1',
   browserOverlayChunk: 'flatbuffers_chunk_v1',
+  analysisReview: '1.0.0',
 } as const
 
 export type MediaMode = 'live' | 'archive'
@@ -59,3 +60,4 @@ export const parseMediaApiError = (input: unknown): MediaApiError => parse(input
 export * from './annotation.js'
 export * from './ai-provider-realtime.js'
 export * from './overlay-flatbuffers.js'
+export * from './analysis-review.js'
