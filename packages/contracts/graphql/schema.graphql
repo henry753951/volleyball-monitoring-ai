@@ -91,6 +91,13 @@ type Match {
   venue: String
 }
 
+type MatchDeleteReceipt {
+  cleanupWarnings: [String!]!
+  matchId: ID!
+  removedAssetCount: Int!
+  removedBytes: String!
+}
+
 type MatchRosterEntry {
   id: ID!
   jerseyNumber: String!
@@ -122,6 +129,7 @@ type Mutation {
   clearTrackIdentity(analysisRunId: ID!, trackId: Int!): JSON!
   createCorrectionDraft(submissionId: ID!): Rally!
   createMatchSetup(input: CreateMatchSetupInput!): Match!
+  deleteMatch(matchId: ID!): MatchDeleteReceipt!
   deleteProcessingRally(rallyId: ID!): Rally!
   retryProcessing(input: RetryProcessingInput!): ProcessingState!
   setTrackIdentityMappingComplete(analysisRunId: ID!, completed: Boolean!): JSON!
@@ -129,6 +137,7 @@ type Mutation {
   startNextSet(input: StartNextSetInput!): MatchSet!
   stopCapture(captureSessionId: ID!): CaptureSession!
   swapCourtSides(input: SwapCourtSidesInput!): MatchSet!
+  updateMatch(input: UpdateMatchInput!): Match!
   updateMatchClipPolicy(input: UpdateMatchClipPolicyInput!): Match!
   updateMatchRoster(input: UpdateMatchRosterInput!): Match!
 }
@@ -253,6 +262,14 @@ input UpdateMatchClipPolicyInput {
   matchId: ID!
   postRollSeconds: Int!
   preRollSeconds: Int!
+}
+
+input UpdateMatchInput {
+  matchId: ID!
+  scheduledAt: DateTime
+  status: MatchStatus!
+  title: String!
+  venue: String
 }
 
 input UpdateMatchRosterInput {

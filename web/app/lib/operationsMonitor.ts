@@ -59,6 +59,26 @@ export interface AiWorkSnapshot {
   updatedAt: string
 }
 
+export interface MatchMediaSnapshot {
+  matchId: string
+  captureCount: number
+  activeCaptureCount: number
+  failedCaptureCount: number
+  segmentCount: number
+  readySegmentCount: number
+  gapSegmentCount: number
+  indexedDurationUs: string
+  storedBytes: string
+}
+
+export interface HostStorageSnapshot {
+  available: boolean
+  freeBytes: string
+  path: string
+  totalBytes: string
+  usedBytes: string
+}
+
 export interface OperationsDashboardSnapshot {
   readiness: {
     status: 'ready' | 'unavailable'
@@ -84,6 +104,8 @@ export interface OperationsDashboardSnapshot {
     }
     aiWorkers: AiWorkerSnapshot[]
     aiWork: AiWorkSnapshot[]
+    hostStorage: HostStorageSnapshot
+    matchMedia: MatchMediaSnapshot[]
     streams: StreamSnapshot[]
   }
 }

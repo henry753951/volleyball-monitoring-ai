@@ -82,6 +82,21 @@ export interface CreateMatchSetupInput {
   rightTeam: TeamSetupInput
 }
 
+export interface UpdateMatchInput {
+  matchId: string
+  scheduledAt?: string | null
+  status: string
+  title: string
+  venue?: string | null
+}
+
+export interface MatchDeleteReceipt {
+  matchId: string
+  removedAssetCount: number
+  removedBytes: string
+  cleanupWarnings: string[]
+}
+
 export interface SwapCourtSidesInput {
   setId: string
   effectiveFromRallyOrdinal: number
@@ -125,6 +140,8 @@ export interface CoreDomainClient {
   match(id: string): Promise<Match | null>
   captureSession(id: string): Promise<CaptureSession | null>
   createMatchSetup(input: CreateMatchSetupInput): Promise<Match>
+  deleteMatch(matchId: string): Promise<MatchDeleteReceipt>
+  updateMatch(input: UpdateMatchInput): Promise<Match>
   updateMatchRoster(input: UpdateMatchRosterInput): Promise<Match>
   swapCourtSides(input: SwapCourtSidesInput): Promise<MatchSet>
   startCapture(input: StartCaptureInput): Promise<CaptureSession>
@@ -140,6 +157,8 @@ export const CORE_OPERATIONS = {
   match: `query Match($id: ID!) { match(id: $id) { id title venue status scheduledAt clipPreRollUs clipPostRollUs teams { id name shortName } rosterEntries { id teamId name jerseyNumber } sets { id setNumber status leftScore rightScore winningTeamId sideAssignments { id effectiveFromRallyOrdinal effectiveToRallyOrdinal leftTeamId rightTeamId } } captureSessions { id matchId sourceKind sourceLabel sourceDurationUs status health startedAt endedAt timeline { captureSessionId captureStartTimeUs liveEdgeCaptureTimeUs timelineVersion availabilityComplete ingestFrontierCaptureTimeUs sourceEndCaptureTimeUs availableRanges { startUs endUs discontinuity } gapRanges { startUs endUs discontinuity } } } } }`,
   captureSession: `query CaptureSession($id: ID!) { captureSession(id: $id) { id matchId sourceKind sourceLabel sourceDurationUs status health startedAt endedAt timeline { captureSessionId captureStartTimeUs liveEdgeCaptureTimeUs timelineVersion availabilityComplete ingestFrontierCaptureTimeUs sourceEndCaptureTimeUs availableRanges { startUs endUs discontinuity } gapRanges { startUs endUs discontinuity } } } }`,
   createMatchSetup: `mutation CreateMatchSetup($input: CreateMatchSetupInput!) { createMatchSetup(input: $input) { id title venue status scheduledAt clipPreRollUs clipPostRollUs teams { id name shortName } rosterEntries { id teamId name jerseyNumber } sets { id setNumber status leftScore rightScore winningTeamId sideAssignments { id effectiveFromRallyOrdinal effectiveToRallyOrdinal leftTeamId rightTeamId } } } }`,
+  deleteMatch: `mutation DeleteMatch($matchId: ID!) { deleteMatch(matchId: $matchId) { matchId removedAssetCount removedBytes cleanupWarnings } }`,
+  updateMatch: `mutation UpdateMatch($input: UpdateMatchInput!) { updateMatch(input: $input) { id title venue status scheduledAt clipPreRollUs clipPostRollUs teams { id name shortName } rosterEntries { id teamId name jerseyNumber } sets { id setNumber status leftScore rightScore winningTeamId sideAssignments { id effectiveFromRallyOrdinal effectiveToRallyOrdinal leftTeamId rightTeamId } } } }`,
   updateMatchRoster: `mutation UpdateMatchRoster($input: UpdateMatchRosterInput!) { updateMatchRoster(input: $input) { id title venue status scheduledAt clipPreRollUs clipPostRollUs teams { id name shortName } rosterEntries { id teamId name jerseyNumber } sets { id setNumber status leftScore rightScore winningTeamId sideAssignments { id effectiveFromRallyOrdinal effectiveToRallyOrdinal leftTeamId rightTeamId } } } }`,
   swapCourtSides: `mutation SwapCourtSides($input: SwapCourtSidesInput!) { swapCourtSides(input: $input) { id setNumber status leftScore rightScore winningTeamId sideAssignments { id effectiveFromRallyOrdinal effectiveToRallyOrdinal leftTeamId rightTeamId } } }`,
   startCapture: `mutation StartCapture($input: StartCaptureInput!) { startCapture(input: $input) { id matchId sourceKind sourceLabel sourceDurationUs status health startedAt endedAt timeline { captureSessionId captureStartTimeUs liveEdgeCaptureTimeUs timelineVersion availabilityComplete ingestFrontierCaptureTimeUs sourceEndCaptureTimeUs availableRanges { startUs endUs discontinuity } gapRanges { startUs endUs discontinuity } } } }`,
@@ -191,6 +210,14 @@ export function createCoreDomainClient(transport: GraphQLTransport): CoreDomainC
     async createMatchSetup(input) {
       const result = await transport.request<{ createMatchSetup: Match }>(CORE_OPERATIONS.createMatchSetup, { input })
       return result.createMatchSetup
+    },
+    async deleteMatch(matchId) {
+      const result = await transport.request<{ deleteMatch: MatchDeleteReceipt }>(CORE_OPERATIONS.deleteMatch, { matchId })
+      return result.deleteMatch
+    },
+    async updateMatch(input) {
+      const result = await transport.request<{ updateMatch: Match }>(CORE_OPERATIONS.updateMatch, { input })
+      return result.updateMatch
     },
     async updateMatchRoster(input) {
       const result = await transport.request<{ updateMatchRoster: Match }>(CORE_OPERATIONS.updateMatchRoster, { input })

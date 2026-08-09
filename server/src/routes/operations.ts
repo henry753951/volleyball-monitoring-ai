@@ -1,6 +1,7 @@
 import type { db as DatabaseClient } from '@volleyball-monitoring/db'
 import type { FastifyPluginAsync, FastifyRequest } from 'fastify'
 import type { ReadinessResult } from '../health/readiness.js'
+import type { HostStorageProbe, HostStorageSnapshot } from '../operations/host-storage.js'
 
 export interface MetricGroup {
   count: number
@@ -27,7 +28,21 @@ export interface OperationsSnapshot {
   }
   aiWorkers: AiWorkerSnapshot[]
   aiWork: AiWorkSnapshot[]
+  hostStorage: HostStorageSnapshot
+  matchMedia: MatchMediaSnapshot[]
   streams: StreamSnapshot[]
+}
+
+export interface MatchMediaSnapshot {
+  matchId: string
+  captureCount: number
+  activeCaptureCount: number
+  failedCaptureCount: number
+  segmentCount: number
+  readySegmentCount: number
+  gapSegmentCount: number
+  indexedDurationUs: string
+  storedBytes: string
 }
 
 export interface AiWorkerSnapshot {
@@ -102,6 +117,7 @@ const group = (count: number, labels: Record<string, string>): MetricGroup => ({
 export async function collectOperationsSnapshot(
   database: typeof DatabaseClient,
   identity?: OperationsIdentity,
+  hostStorageProbe?: HostStorageProbe,
 ): Promise<OperationsSnapshot> {
   const [rallies, clipJobs, aiJobs, captures, outboxEvents, callbacks, mediaAssets, annotationReceipts, annotationOperations, captureSessions, providerInstances, recentAiWork, activeAiJobs] = await Promise.all([
     database.rally.groupBy({ by: ['annotationStatus', 'processingStatus'], _count: { _all: true } }),
@@ -149,7 +165,6 @@ export async function collectOperationsSnapshot(
           },
         },
       },
-      take: 24,
     }),
     database.aiProviderInstance.findMany({
       orderBy: [{ disconnectedAt: 'asc' }, { lastSeenAt: 'desc' }],
@@ -209,10 +224,49 @@ export async function collectOperationsSnapshot(
           _count: { _all: true },
         }),
       ])
+  const [mediaByteRows, hostStorage] = await Promise.all([
+    database.$queryRaw<Array<{ matchId: string; storedBytes: bigint }>>`
+      WITH asset_match AS (
+        SELECT DISTINCT cs."matchId", ds."initAssetId" AS "assetId" FROM "DvrSegment" ds JOIN "DvrProgram" dp ON dp.id = ds."dvrProgramId" JOIN "CaptureSession" cs ON cs.id = dp."captureSessionId"
+        UNION SELECT DISTINCT cs."matchId", ds."mediaAssetId" FROM "DvrSegment" ds JOIN "DvrProgram" dp ON dp.id = ds."dvrProgramId" JOIN "CaptureSession" cs ON cs.id = dp."captureSessionId"
+        UNION SELECT DISTINCT cs."matchId", ds."sampleIndexAssetId" FROM "DvrSegment" ds JOIN "DvrProgram" dp ON dp.id = ds."dvrProgramId" JOIN "CaptureSession" cs ON cs.id = dp."captureSessionId"
+        UNION SELECT DISTINCT r."matchId", cj."clipAssetId" FROM "ClipJob" cj JOIN "RallySubmission" rs ON rs.id = cj."submissionId" JOIN "Rally" r ON r.id = rs."rallyId"
+        UNION SELECT DISTINCT r."matchId", cj."timingManifestAssetId" FROM "ClipJob" cj JOIN "RallySubmission" rs ON rs.id = cj."submissionId" JOIN "Rally" r ON r.id = rs."rallyId"
+        UNION SELECT DISTINCT r."matchId", ar."rawAnalysisAssetId" FROM "AnalysisRun" ar JOIN "RallySubmission" rs ON rs.id = ar."submissionId" JOIN "Rally" r ON r.id = rs."rallyId"
+        UNION SELECT DISTINCT r."matchId", ar."rawOverlayAssetId" FROM "AnalysisRun" ar JOIN "RallySubmission" rs ON rs.id = ar."submissionId" JOIN "Rally" r ON r.id = rs."rallyId"
+        UNION SELECT DISTINCT r."matchId", aa."assetId" FROM "AnalysisArtifact" aa JOIN "AnalysisRun" ar ON ar.id = aa."analysisRunId" JOIN "RallySubmission" rs ON rs.id = ar."submissionId" JOIN "Rally" r ON r.id = rs."rallyId"
+        UNION SELECT DISTINCT r."matchId", oc."assetId" FROM "OverlayChunk" oc JOIN "AnalysisRun" ar ON ar.id = oc."analysisRunId" JOIN "RallySubmission" rs ON rs.id = ar."submissionId" JOIN "Rally" r ON r.id = rs."rallyId"
+      )
+      SELECT am."matchId", COALESCE(SUM(ma."byteLength"), 0)::bigint AS "storedBytes"
+      FROM asset_match am JOIN "MediaAsset" ma ON ma.id = am."assetId"
+      WHERE am."assetId" IS NOT NULL GROUP BY am."matchId"
+    `,
+    hostStorageProbe?.() ?? Promise.resolve({ available: false, freeBytes: '0', path: '', totalBytes: '0', usedBytes: '0' }),
+  ])
   const totalsByProgram = new Map(segmentTotals.map(item => [item.dvrProgramId, item]))
   const readyByProgram = new Map(readySegments.map(item => [item.dvrProgramId, item._count._all]))
   const gapsByProgram = new Map(gapSegments.map(item => [item.dvrProgramId, item._count._all]))
   const activeJobsByWorker = new Map(activeAiJobs.map(item => [item.providerInstanceId, item._count._all]))
+  const visibleMatchIds = new Set(captureSessions.map(capture => capture.matchId))
+  const bytesByMatch = new Map(mediaByteRows.filter(row => visibleMatchIds.has(row.matchId)).map(row => [row.matchId, row.storedBytes]))
+  const matchMedia = new Map<string, MatchMediaSnapshot>()
+  for (const capture of captureSessions) {
+    const program = capture.programs[0]
+    const totals = program ? totalsByProgram.get(program.id) : undefined
+    const current = matchMedia.get(capture.matchId) ?? {
+      activeCaptureCount: 0, captureCount: 0, failedCaptureCount: 0, gapSegmentCount: 0,
+      indexedDurationUs: '0', matchId: capture.matchId, readySegmentCount: 0, segmentCount: 0,
+      storedBytes: (bytesByMatch.get(capture.matchId) ?? 0n).toString(),
+    }
+    current.captureCount += 1
+    if (['STARTING', 'LIVE', 'STOPPING'].includes(capture.status)) current.activeCaptureCount += 1
+    if (capture.status === 'FAILED') current.failedCaptureCount += 1
+    current.segmentCount += totals?._count._all ?? 0
+    current.readySegmentCount += program ? readyByProgram.get(program.id) ?? 0 : 0
+    current.gapSegmentCount += program ? gapsByProgram.get(program.id) ?? 0 : 0
+    current.indexedDurationUs = (BigInt(current.indexedDurationUs) + (totals?._sum.durationUs ?? 0n)).toString()
+    matchMedia.set(capture.matchId, current)
+  }
   const workerStaleBefore = Date.now() - 30_000
   const memory = process.memoryUsage()
   return {
@@ -269,6 +323,8 @@ export async function collectOperationsSnapshot(
       createdAt: job.createdAt.toISOString(),
       updatedAt: job.updatedAt.toISOString(),
     })),
+    hostStorage,
+    matchMedia: [...matchMedia.values()],
     streams: captureSessions.map((capture) => {
       const program = capture.programs[0]
       const totals = program ? totalsByProgram.get(program.id) : undefined
@@ -326,6 +382,11 @@ export function renderPrometheusMetrics(snapshot: OperationsSnapshot) {
   lines.push('# HELP vmai_process_resident_memory_bytes Resident process memory in bytes.', '# TYPE vmai_process_resident_memory_bytes gauge', metricLine('vmai_process_resident_memory_bytes', snapshot.process.residentBytes))
   lines.push('# HELP vmai_process_heap_used_bytes JavaScript heap used in bytes.', '# TYPE vmai_process_heap_used_bytes gauge', metricLine('vmai_process_heap_used_bytes', snapshot.process.heapUsedBytes))
   lines.push('# HELP vmai_process_uptime_seconds Server process uptime in seconds.', '# TYPE vmai_process_uptime_seconds gauge', metricLine('vmai_process_uptime_seconds', snapshot.process.uptimeSeconds))
+  if (snapshot.hostStorage.available) {
+    lines.push('# HELP vmai_host_storage_free_bytes Available bytes on the configured media volume.', '# TYPE vmai_host_storage_free_bytes gauge', metricLine('vmai_host_storage_free_bytes', Number(snapshot.hostStorage.freeBytes)))
+    lines.push('# HELP vmai_host_storage_used_bytes Used bytes on the configured media volume.', '# TYPE vmai_host_storage_used_bytes gauge', metricLine('vmai_host_storage_used_bytes', Number(snapshot.hostStorage.usedBytes)))
+    lines.push('# HELP vmai_host_storage_total_bytes Total bytes on the configured media volume.', '# TYPE vmai_host_storage_total_bytes gauge', metricLine('vmai_host_storage_total_bytes', Number(snapshot.hostStorage.totalBytes)))
+  }
   groupedMetric(lines, 'vmai_rallies_total', 'Persisted rallies grouped by annotation and processing state.', snapshot.database.rallies)
   groupedMetric(lines, 'vmai_clip_jobs_total', 'Clip jobs grouped by durable status.', snapshot.database.clipJobs)
   groupedMetric(lines, 'vmai_ai_jobs_total', 'AI jobs grouped by durable status.', snapshot.database.aiJobs)

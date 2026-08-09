@@ -1,5 +1,16 @@
 # Progress
 
+## 2026-08-09 — Match administration and storage-aware operations console
+
+Status: implemented and locally validated on `codex/control-console`; GitHub integration is pending.
+
+- Added authorized match editing and explicit typed-confirmation deletion to the desktop control console. Deletion removes match-owned domain rows transactionally, stops managed sources, and returns a cleanup receipt instead of hiding post-commit media failures.
+- Protected shared media assets by checking which asset rows actually disappeared before removing objects from MinIO. Local cleanup is restricted to descendants of the configured import and recording roots.
+- Added host capacity and per-match capture, segment, gap, indexed-duration and stored-byte telemetry to the authenticated operations snapshot. The server now mounts the shared recording volume so the reported capacity and cleanup target describe the actual DVR store.
+- Exported the additive GraphQL mutations and stored operation documents. ADR 0020 records the contract, authorization, cleanup and 64-bit wire decisions; AI wire schemas and the Python SDK are unchanged.
+
+Validation: Server `219/219`, Web `154/154`, Contracts `13/13`, DB `4/4`, workspace typecheck and Nuxt production build passed. GraphQL SDL export, all 15 stored operations, canonical checksums and Compose configuration also passed; GitHub CI is the final merge gate.
+
 ## 2026-08-09 — Canonical DVR timeline and real browser-buffer rail
 
 Status: implemented and locally validated on `codex/hls-canonical-buffer-rail`; GitHub integration is pending.

@@ -28,6 +28,7 @@ import {
   type CaptureTimelineView,
 } from '../services/media-timeline.js'
 import type { ProcessingStateView } from '../services/capture-processing.js'
+import type { MatchDeleteReceipt } from '../services/match-administration.js'
 
 interface Health {
   service: string
@@ -64,6 +65,16 @@ ViewerType.implement({
     email: t.exposeString('email'),
     id: t.exposeID('id'),
     role: t.field({ type: UserRoleType, resolve: (viewer) => viewer.role }),
+  }),
+})
+
+export const MatchDeleteReceiptType = builder.objectRef<MatchDeleteReceipt>('MatchDeleteReceipt')
+MatchDeleteReceiptType.implement({
+  fields: (t) => ({
+    cleanupWarnings: t.exposeStringList('cleanupWarnings'),
+    matchId: t.exposeID('matchId'),
+    removedAssetCount: t.exposeInt('removedAssetCount'),
+    removedBytes: t.exposeString('removedBytes'),
   }),
 })
 
