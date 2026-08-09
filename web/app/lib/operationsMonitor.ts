@@ -87,6 +87,12 @@ export interface AiWorkSnapshot {
   updatedAt: string
 }
 
+const ACTIVE_AI_WORK_STATUSES = new Set(['QUEUED', 'RUNNING'])
+
+export function activeAiWorkForDashboard(items: readonly AiWorkSnapshot[]) {
+  return items.filter(item => ACTIVE_AI_WORK_STATUSES.has(item.status.toUpperCase()))
+}
+
 export interface MatchMediaSnapshot {
   matchId: string
   captureCount: number
@@ -152,7 +158,8 @@ async function operationsWrite<T>(
   })
   if (!response.ok) {
     const payload = await response.json().catch(() => null) as { error?: string } | null
-    if (response.status === 401 || response.status === 403) throw new Error('只有管理員可以管理 Worker Token')
+    if (response.status === 401) throw new Error('無法確認操作身分，請重新整理後再試')
+    if (response.status === 403) throw new Error('目前無法管理 Worker Token')
     throw new Error(payload?.error || `AI Worker 設定更新失敗（${response.status}）`)
   }
   return await response.json() as T
@@ -173,6 +180,12 @@ export function rotateAiWorkerToken(basePath: string, tokenId: string, fetchImpl
 export function setAiWorkerTokenEnabled(basePath: string, tokenId: string, enabled: boolean, fetchImpl: typeof fetch = fetch) {
   return operationsWrite<{ schema_version: '1.0.0'; token_id: string; enabled: boolean }>(
     basePath, `/operations/ai-worker-tokens/${encodeURIComponent(tokenId)}`, { body: JSON.stringify({ enabled }), method: 'PATCH' }, fetchImpl,
+  )
+}
+
+export function deleteAiWorkerToken(basePath: string, tokenId: string, fetchImpl: typeof fetch = fetch) {
+  return operationsWrite<{ schema_version: '1.0.0'; deleted_token: { id: string } }>(
+    basePath, `/operations/ai-worker-tokens/${encodeURIComponent(tokenId)}`, { method: 'DELETE' }, fetchImpl,
   )
 }
 

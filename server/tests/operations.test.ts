@@ -202,7 +202,7 @@ describe('operations routes', () => {
     await app.close()
   })
 
-  it('creates, rotates, and disables worker tokens without creating a new job pool', async () => {
+  it('lets an authenticated operator create, rotate, disable, and delete worker tokens', async () => {
     const app = Fastify()
     const createAiWorkerToken = vi.fn(async () => ({
       accessToken: { id: '40000000-0000-4000-8000-000000000001', name: 'GPU A', tokenPrefix: 'vmai_example' },
@@ -210,10 +210,12 @@ describe('operations routes', () => {
     }))
     const rotateAiWorkerToken = vi.fn(async () => ({ tokenId: '40000000-0000-4000-8000-000000000001', token: 'vmai_rotated' }))
     const updateAiWorkerTokenState = vi.fn(async () => ({ tokenId: '40000000-0000-4000-8000-000000000001', enabled: false }))
+    const deleteAiWorkerToken = vi.fn(async () => ({ tokenId: '40000000-0000-4000-8000-000000000001' }))
     await app.register(operationsRoutes(async () => snapshot, {
-      authenticate: async () => ({ role: 'ADMIN', userId: 'admin-1' }),
+      authenticate: async () => ({ role: 'OPERATOR', userId: 'operator-1' }),
       collectReadiness: async () => ({ status: 'ready', checks: {} }),
       createAiWorkerToken,
+      deleteAiWorkerToken,
       rotateAiWorkerToken,
       updateAiWorkerTokenState,
     }))
@@ -226,7 +228,7 @@ describe('operations routes', () => {
     expect(created.statusCode).toBe(201)
     expect(created.json()).toMatchObject({ token: 'vmai_secret' })
     expect(created.json()).not.toHaveProperty('integration')
-    expect(createAiWorkerToken).toHaveBeenCalledWith('GPU A', { role: 'ADMIN', userId: 'admin-1' })
+    expect(createAiWorkerToken).toHaveBeenCalledWith('GPU A', { role: 'OPERATOR', userId: 'operator-1' })
 
     const rotated = await app.inject({ method: 'POST', url: '/api/v1/operations/ai-worker-tokens/40000000-0000-4000-8000-000000000001/rotate' })
     expect(rotated.statusCode).toBe(200)
@@ -234,7 +236,15 @@ describe('operations routes', () => {
 
     const disabled = await app.inject({ method: 'PATCH', url: '/api/v1/operations/ai-worker-tokens/40000000-0000-4000-8000-000000000001', payload: { enabled: false } })
     expect(disabled.statusCode).toBe(200)
-    expect(updateAiWorkerTokenState).toHaveBeenCalledWith('40000000-0000-4000-8000-000000000001', false, { role: 'ADMIN', userId: 'admin-1' })
+    expect(updateAiWorkerTokenState).toHaveBeenCalledWith('40000000-0000-4000-8000-000000000001', false, { role: 'OPERATOR', userId: 'operator-1' })
+
+    const deleted = await app.inject({ method: 'DELETE', url: '/api/v1/operations/ai-worker-tokens/40000000-0000-4000-8000-000000000001' })
+    expect(deleted.statusCode).toBe(200)
+    expect(deleted.json()).toEqual({
+      schema_version: '1.0.0',
+      deleted_token: { id: '40000000-0000-4000-8000-000000000001' },
+    })
+    expect(deleteAiWorkerToken).toHaveBeenCalledWith('40000000-0000-4000-8000-000000000001', { role: 'OPERATOR', userId: 'operator-1' })
     await app.close()
   })
 

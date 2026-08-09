@@ -59,16 +59,11 @@ export async function authenticateAiWorkerToken(
   if (configured && equal(sha256(presentedToken), sha256(configured))) return true
 
   const tokenHash = sha256(presentedToken)
-  const token = await database.aiWorkerAccessToken.findFirst({
-    select: { id: true },
+  const updated = await database.aiWorkerAccessToken.updateMany({
+    data: { lastUsedAt: new Date() },
     where: { enabled: true, tokenHash },
   })
-  if (!token) return false
-  await database.aiWorkerAccessToken.update({
-    data: { lastUsedAt: new Date() },
-    where: { id: token.id },
-  })
-  return true
+  return updated.count === 1
 }
 
 export async function getAiWorkerAccess(
@@ -143,4 +138,10 @@ export async function setAiWorkerTokenEnabled(
   const updated = await database.aiWorkerAccessToken.updateMany({ data: { enabled }, where: { id: tokenId } })
   if (updated.count !== 1) throw new AiWorkerAccessError('NOT_FOUND', 'Worker Token 不存在')
   return { enabled, tokenId }
+}
+
+export async function deleteAiWorkerToken(database: typeof DatabaseClient, tokenId: string) {
+  const deleted = await database.aiWorkerAccessToken.deleteMany({ where: { id: tokenId } })
+  if (deleted.count !== 1) throw new AiWorkerAccessError('NOT_FOUND', 'Worker Token 不存在')
+  return { tokenId }
 }
