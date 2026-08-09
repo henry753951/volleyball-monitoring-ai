@@ -3,12 +3,8 @@ import { validateWorkerRole } from '../src/worker-role.js'
 
 describe('validateWorkerRole', () => {
   it.each([
-    'media-indexer',
-    'playback-packager',
-    'clip-worker',
-    'ai-dispatcher',
-    'analysis-ingest',
-    'outbox-publisher',
+    'media',
+    'workflow',
   ])('accepts %s', (role) => {
     expect(validateWorkerRole(role)).toBe(role)
   })

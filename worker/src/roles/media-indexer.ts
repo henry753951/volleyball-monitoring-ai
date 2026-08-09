@@ -1,4 +1,5 @@
-import { createServer, type IncomingMessage, type Server } from 'node:http'
+import { stat } from 'node:fs/promises'
+import { join } from 'node:path'
 import {
   PgBoss,
   type JobResult,
@@ -6,22 +7,17 @@ import {
   type QueueResult,
 } from 'pg-boss'
 import {
-  MEDIA_INDEXER_HOOK_PATH,
   MEDIA_INGEST_QUEUE,
-  MediaIndexerHookEvent,
   MediaIngestEnvelope,
-  constantTimeToken,
   enqueueUnique,
   scanSpool,
   type IngestQueue,
 } from '../media/indexer-runtime.js'
 
 export {
-  MEDIA_INDEXER_HOOK_PATH,
   MEDIA_INGEST_QUEUE,
   MediaIngestEnvelope,
   canonicalCandidate,
-  constantTimeToken,
   createEnvelope,
   enqueueUnique,
   epochCandidateId,
@@ -327,35 +323,65 @@ export type MediaIndexerOptions = {
   queue: IngestQueue
   resolveCapture: (ingestPath: string) => Promise<string | null>
   intervalMs?: number
-  hookPort?: number
-  hookBind?: string
-  hookToken?: string
-  hookPath?: string
   log?: (message: string) => void
-}
-
-type HookResponse = {
-  statusCode: number
-  end(body?: string): void
 }
 
 export class MediaIndexerRuntime {
   #timer: ReturnType<typeof setInterval> | undefined
   #scanPromise: Promise<void> | undefined
-  #server: Server | undefined
+  #observations = new Map<string, { mtimeMs: number; size: number; stable: number }>()
   #stopped = false
+  #failedCount = 0
+  #lastErrorAt: string | null = null
+  #lastErrorName: string | null = null
+  #lastHeartbeatAt: string | null = null
+  #lastSuccessAt: string | null = null
 
   constructor(private readonly options: MediaIndexerOptions) {}
+
+  get snapshot() {
+    return {
+      candidates: this.#observations.size,
+      failedCount: this.#failedCount,
+      lastErrorAt: this.#lastErrorAt,
+      lastErrorName: this.#lastErrorName,
+      lastHeartbeatAt: this.#lastHeartbeatAt,
+      lastSuccessAt: this.#lastSuccessAt,
+      running: !this.#stopped,
+    }
+  }
 
   async scan(): Promise<void> {
     if (this.#stopped) return
     if (this.#scanPromise) return this.#scanPromise
+    this.#lastHeartbeatAt = new Date().toISOString()
     this.#scanPromise = scanSpool(
       this.options.spoolRoot,
       this.options.resolveCapture,
     ).then(async (items) => {
-      for (const item of items) await enqueueUnique(this.options.queue, item)
-      this.options.log?.(`media-indexer scan enqueued=${items.length}`)
+      const present = new Set(items.map(item => item.candidate))
+      let enqueued = 0
+      for (const item of items) {
+        const metadata = await stat(join(this.options.spoolRoot, item.candidate))
+        const prior = this.#observations.get(item.candidate)
+        const stable = prior && prior.size === metadata.size && prior.mtimeMs === metadata.mtimeMs
+          ? prior.stable + 1
+          : 0
+        this.#observations.set(item.candidate, { mtimeMs: metadata.mtimeMs, size: metadata.size, stable })
+        if (stable < 1 || Date.now() - metadata.mtimeMs < 500) continue
+        await enqueueUnique(this.options.queue, item)
+        enqueued += 1
+      }
+      for (const candidate of this.#observations.keys()) {
+        if (!present.has(candidate)) this.#observations.delete(candidate)
+      }
+      this.options.log?.(`media-indexer scan enqueued=${enqueued}`)
+      this.#lastSuccessAt = new Date().toISOString()
+    }).catch((error) => {
+      this.#failedCount += 1
+      this.#lastErrorAt = new Date().toISOString()
+      this.#lastErrorName = error instanceof Error ? error.name : 'UnknownError'
+      throw error
     }).finally(() => {
       this.#scanPromise = undefined
     })
@@ -369,110 +395,14 @@ export class MediaIndexerRuntime {
       void this.scan().catch(() => {
         this.options.log?.('media-indexer periodic scan failed')
       })
-    }, this.options.intervalMs ?? 10_000)
-
-    if (this.options.hookPort && this.options.hookToken) {
-      this.#server = createServer((request, response) => {
-        void this.handleHook(request, response).catch(() => {
-          if (!response.headersSent) {
-            response.statusCode = 500
-            response.end('request failed')
-          }
-        })
-      })
-      await new Promise<void>((resolve, reject) => {
-        this.#server!.once('error', reject)
-        this.#server!.listen(
-          this.options.hookPort,
-          this.options.hookBind ?? '127.0.0.1',
-          resolve,
-        )
-      })
-    }
-  }
-
-  async handleHook(request: IncomingMessage, response: HookResponse): Promise<void> {
-    if (request.url !== (this.options.hookPath ?? MEDIA_INDEXER_HOOK_PATH)) {
-      response.statusCode = 404
-      response.end('not found')
-      return
-    }
-    if (request.method !== 'POST') {
-      response.statusCode = 405
-      response.end('method not allowed')
-      return
-    }
-    if (request.headers['content-type']?.split(';', 1)[0] !== 'application/json') {
-      response.statusCode = 415
-      response.end('unsupported media type')
-      return
-    }
-    const authorization = request.headers.authorization
-    const token = typeof authorization === 'string'
-      && authorization.startsWith('Bearer ')
-      ? authorization.slice(7)
-      : ''
-    if (!constantTimeToken(this.options.hookToken ?? '', token)) {
-      response.statusCode = 401
-      response.end('unauthorized')
-      return
-    }
-
-    const declaredLength = Number(request.headers['content-length'] ?? 0)
-    if (!Number.isSafeInteger(declaredLength) || declaredLength > 16_384) {
-      response.statusCode = 413
-      response.end('payload too large')
-      return
-    }
-
-    const body = await new Promise<Buffer | null>((resolve) => {
-      let bytes = 0
-      let settled = false
-      const chunks: Buffer[] = []
-      const settle = (value: Buffer | null) => {
-        if (settled) return
-        settled = true
-        resolve(value)
-      }
-      request.on('data', (chunk) => {
-        const value = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)
-        bytes += value.byteLength
-        if (bytes > 16_384) settle(null)
-        else chunks.push(value)
-      })
-      request.once('end', () => settle(bytes <= 16_384 ? Buffer.concat(chunks) : null))
-      request.once('aborted', () => settle(null))
-      request.once('error', () => settle(null))
-    })
-    if (!body) {
-      response.statusCode = 413
-      response.end('payload too large')
-      return
-    }
-
-    try {
-      MediaIndexerHookEvent.parse(JSON.parse(body.toString('utf8')))
-    } catch {
-      response.statusCode = 400
-      response.end('invalid hook event')
-      return
-    }
-
-    response.statusCode = 202
-    response.end('accepted')
-    void this.scan().catch(() => {
-      this.options.log?.('media-indexer hook scan failed')
-    })
+    }, this.options.intervalMs ?? 1_000)
   }
 
   async stop(): Promise<void> {
     this.#stopped = true
     if (this.#timer) clearInterval(this.#timer)
     if (this.#scanPromise) await this.#scanPromise
-    if (this.#server) {
-      await new Promise<void>((resolve) => this.#server!.close(() => resolve()))
-    }
     this.#timer = undefined
-    this.#server = undefined
+    this.#observations.clear()
   }
 }

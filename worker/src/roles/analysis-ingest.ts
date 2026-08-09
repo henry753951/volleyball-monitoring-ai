@@ -12,7 +12,11 @@ const SCAN_BATCH_SIZE = 100
  */
 export function createAnalysisIngestWorker(
   database: PrismaClient,
-  options: { idleMs?: number } = {},
+  options: {
+    idleMs?: number
+    disconnectOnStop?: boolean
+    onError?: (error: unknown) => void
+  } = {},
 ): PollingLifecycle {
   async function processNext(): Promise<boolean> {
     const candidates = await database.analysisRun.findMany({
@@ -59,7 +63,10 @@ export function createAnalysisIngestWorker(
 
   return createPollingLifecycle(processNext, {
     ...(options.idleMs === undefined ? {} : { idleMs: options.idleMs }),
-    onError: error => console.error('analysis-ingest loop error', error instanceof Error ? error.name : 'UnknownError'),
-    disconnect: () => database.$disconnect(),
+    onError: (error) => {
+      console.error('analysis-ingest loop error', error instanceof Error ? error.name : 'UnknownError')
+      options.onError?.(error)
+    },
+    ...(options.disconnectOnStop === false ? {} : { disconnect: () => database.$disconnect() }),
   })
 }

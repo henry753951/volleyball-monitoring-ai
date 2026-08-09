@@ -45,13 +45,15 @@ services:
   redis:
     image: redis:8-alpine
     command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "127.0.0.1:${REDIS_HOST_PORT:-16379}:6379"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
       timeout: 3s
       retries: 20
     volumes: [redis-data:/data]
-    networks: [internal]
+    networks: [internal, development]
     restart: unless-stopped
 
   minio:
@@ -64,24 +66,14 @@ services:
       - "${MINIO_HOST_PORT:-9000}:9000" # local SDK/debug access; browser app never receives credentials
       - "${MINIO_CONSOLE_HOST_PORT:-9001}:9001"
     volumes: [minio-data:/data]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://127.0.0.1:9000/minio/health/live"]
+      interval: 5s
+      timeout: 3s
+      start_period: 120s
+      retries: 60
     networks: [internal, edge]
     restart: unless-stopped
-
-  minio-init:
-    image: quay.io/minio/mc:latest
-    depends_on: [minio]
-    environment:
-      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-volleyball}
-      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-volleyball-dev-secret}
-    entrypoint: ["/bin/sh", "-c"]
-    command:
-      - >-
-        until mc alias set local http://minio:9000 $${MINIO_ACCESS_KEY:-volleyball} $${MINIO_SECRET_KEY:-volleyball-dev-secret}; do sleep 2; done;
-        mc mb --ignore-existing local/raw-media;
-        mc mb --ignore-existing local/dvr-media;
-        mc mb --ignore-existing local/rally-media;
-        mc mb --ignore-existing local/analysis-artifacts;
-    networks: [internal]
 
   ovenmediaengine:
     image: ovenmedialabs/ovenmediaengine:v0.20.5
@@ -91,7 +83,7 @@ services:
       OME_HOST_IP: ${OME_HOST_IP:-127.0.0.1}
     volumes:
       - ./ome:/opt/ovenmediaengine/bin/origin_conf:ro
-      - media-spool:/recordings
+      - ${MEDIA_SPOOL_HOST_PATH:-../.data/runtime/media-spool}:/recordings
       - ome-dvr:/var/lib/ovenmediaengine/dvr
       - ome-logs:/var/log/ovenmediaengine
     ports:
@@ -116,25 +108,6 @@ services:
     networks: [internal, edge]
     restart: unless-stopped
 
-  ome-recording-watcher:
-    profiles: [app]
-    image: python:3.12-alpine
-    command: ["python", "/app/recording_watcher.py"]
-    environment:
-      MEDIA_INDEXER_HOOK_TOKEN: ${MEDIA_INDEXER_HOOK_TOKEN:?MEDIA_INDEXER_HOOK_TOKEN is required}
-      MEDIA_INDEXER_HOOK_URL: http://worker-media-indexer:4100/internal/media-indexer/recording-complete
-      MEDIA_RECORDING_ROOT: /recordings
-      OME_API_ACCESS_TOKEN: ${OME_API_ACCESS_TOKEN:?OME_API_ACCESS_TOKEN is required}
-      OME_API_URL: http://ovenmediaengine:8081
-      OME_WATCHER_STATE_PATH: /state/watcher.json
-    volumes:
-      - ./ome/recording_watcher.py:/app/recording_watcher.py:ro
-      - media-spool:/recordings:ro
-      - ome-watcher-state:/state
-    depends_on: [ovenmediaengine, worker-media-indexer]
-    networks: [internal]
-    restart: unless-stopped
-
   server:
     profiles: [app]
     build:
@@ -146,14 +119,16 @@ services:
     environment:
       MEDIA_IMPORT_ROOT: /var/lib/volleyball/media-imports
       MEDIA_RECORDING_ROOT: /recordings
-      MEDIA_SOURCE_GATEWAY_TOKEN: ${MEDIA_SOURCE_GATEWAY_TOKEN:?MEDIA_SOURCE_GATEWAY_TOKEN is required}
-      MEDIA_SOURCE_GATEWAY_URL: http://youtube-relay:8090
       OME_API_ACCESS_TOKEN: ${OME_API_ACCESS_TOKEN:?OME_API_ACCESS_TOKEN is required}
       OME_API_URL: http://ovenmediaengine:8081
     volumes:
-      - media-imports:/var/lib/volleyball/media-imports
-      - media-spool:/recordings
-    depends_on: [postgres, redis, minio-init, ovenmediaengine, youtube-relay]
+      - ${MEDIA_IMPORT_HOST_PATH:-../.data/runtime/media-imports}:/var/lib/volleyball/media-imports
+      - ${MEDIA_SPOOL_HOST_PATH:-../.data/runtime/media-spool}:/recordings
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+      minio: { condition: service_healthy }
+      ovenmediaengine: { condition: service_healthy }
     healthcheck:
       test: ["CMD", "bun", "-e", "const response = await fetch('http://localhost:4000/health/ready'); if (!response.ok) process.exit(1)"]
       interval: 5s
@@ -178,42 +153,45 @@ services:
     networks: [internal, edge]
     restart: unless-stopped
 
-  worker-media-indexer: &worker
+  worker-media: &worker
     profiles: [app]
     build:
       context: ..
       dockerfile: infra/docker/worker.Dockerfile
     env_file: ../.env
     environment:
-      WORKER_ROLE: media-indexer
-      MEDIA_INDEXER_HOOK_TOKEN: ${MEDIA_INDEXER_HOOK_TOKEN:?MEDIA_INDEXER_HOOK_TOKEN is required}
-      MEDIA_INDEXER_HOOK_BIND: 0.0.0.0
-      MEDIA_INDEXER_HOOK_PORT: 4100
+      WORKER_ROLE: media
+      WORKER_HEALTH_PORT: 4101
+      MEDIA_IMPORT_ROOT: /var/lib/volleyball/media-imports
+      MEDIA_INGEST_BASE_URL: rtmp://ovenmediaengine:1935/app
+      MEDIA_SPOOL_DIR: /var/lib/volleyball/media-spool
+      MEDIA_SOURCE_WORK_ROOT: /var/lib/volleyball/media-imports/.work
+      OME_API_ACCESS_TOKEN: ${OME_API_ACCESS_TOKEN:?OME_API_ACCESS_TOKEN is required}
+      OME_API_URL: http://ovenmediaengine:8081
+      YOUTUBE_FORMAT: ${YOUTUBE_FORMAT:-best[protocol*=m3u8][height=1080][fps>=59][fps<=61][vcodec^=avc][acodec!=none]/bestvideo[height=1080][fps>=59][fps<=61][vcodec^=avc]+bestaudio[acodec^=mp4a]}
+      YOUTUBE_EXTRACTOR_ARGS: ${YOUTUBE_EXTRACTOR_ARGS:-youtube:player_client=android_vr}
     volumes:
-      - media-spool:/var/lib/volleyball/media-spool:ro
-    depends_on: [postgres, redis, minio-init, ovenmediaengine]
+      - ${MEDIA_IMPORT_HOST_PATH:-../.data/runtime/media-imports}:/var/lib/volleyball/media-imports
+      - ${MEDIA_SPOOL_HOST_PATH:-../.data/runtime/media-spool}:/var/lib/volleyball/media-spool
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+      minio: { condition: service_healthy }
+      ovenmediaengine: { condition: service_healthy }
     networks: [internal]
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "bun", "-e", "const response = await fetch('http://127.0.0.1:' + process.env.WORKER_HEALTH_PORT + '/health/ready'); if (!response.ok) process.exit(1)"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
 
-  worker-playback:
+  worker-workflow:
     <<: *worker
-    environment: { WORKER_ROLE: playback-packager }
-
-  worker-clip:
-    <<: *worker
-    environment: { WORKER_ROLE: clip-worker }
-
-  worker-ai-dispatcher:
-    <<: *worker
-    environment: { WORKER_ROLE: ai-dispatcher }
-
-  worker-analysis-ingest:
-    <<: *worker
-    environment: { WORKER_ROLE: analysis-ingest }
-
-  worker-outbox:
-    <<: *worker
-    environment: { WORKER_ROLE: outbox-publisher }
+    environment:
+      WORKER_ROLE: workflow
+      WORKER_HEALTH_PORT: 4102
+    volumes: []
 
   web:
     profiles: [app]
@@ -242,59 +220,9 @@ services:
     networks: [edge]
     restart: unless-stopped
 
-  tracking-replay-provider:
-    profiles: [dev-ai]
-    build:
-      context: ..
-      dockerfile: infra/docker/tracking-replay-provider.Dockerfile
-    environment:
-      CONTRACT_LAB_HANDOFF_ROOT: /data/contract-lab-handoff
-    volumes:
-      - ${CONTRACT_LAB_HANDOFF_PATH:-../../volleyball-ai-contract-lab/ai-team-handoff}:/data/contract-lab-handoff:ro
-    healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/v1/capabilities', timeout=2)"]
-      interval: 5s
-      timeout: 3s
-      retries: 20
-    networks: [internal]
-    restart: unless-stopped
-
-  youtube-relay:
-    profiles: [app]
-    init: true
-    build:
-      context: ..
-      dockerfile: infra/docker/youtube-relay.Dockerfile
-    environment:
-      MEDIA_IMPORT_ROOT: /imports
-      MEDIA_INGEST_BASE_URL: rtmp://ovenmediaengine:1935/app
-      MEDIA_RECORDING_ROOT: /recordings
-      MEDIA_SOURCE_CALLBACK_TOKEN: ${MEDIA_SOURCE_GATEWAY_TOKEN:?MEDIA_SOURCE_GATEWAY_TOKEN is required}
-      MEDIA_SOURCE_CALLBACK_URL: http://server:4000/internal/media-sources/status
-      MEDIA_SOURCE_GATEWAY_TOKEN: ${MEDIA_SOURCE_GATEWAY_TOKEN:?MEDIA_SOURCE_GATEWAY_TOKEN is required}
-      MEDIA_SOURCE_STATE_ROOT: /state
-      MEDIA_SOURCE_WORK_ROOT: /work
-      YOUTUBE_FORMAT: ${YOUTUBE_FORMAT:-best[protocol*=m3u8][height=1080][fps>=59][fps<=61][vcodec^=avc][acodec!=none]/bestvideo[height=1080][fps>=59][fps<=61][vcodec^=avc]+bestaudio[acodec^=mp4a]}
-      YOUTUBE_EXTRACTOR_ARGS: ${YOUTUBE_EXTRACTOR_ARGS:-youtube:player_client=android_vr}
-      YOUTUBE_VOD_MAX_STALL_ATTEMPTS: ${YOUTUBE_VOD_MAX_STALL_ATTEMPTS:-20}
-    volumes:
-      - media-imports:/imports
-      - media-source-state:/state
-      - media-source-work:/work
-      - media-spool:/recordings
-    depends_on: [ovenmediaengine]
-    networks: [internal, development]
-    restart: unless-stopped
-    stop_grace_period: 10s
-
 volumes:
   postgres-data: {}
   redis-data: {}
   minio-data: {}
-  media-spool: {}
-  media-imports: {}
-  media-source-state: {}
-  media-source-work: {}
   ome-dvr: {}
   ome-logs: {}
-  ome-watcher-state: {}

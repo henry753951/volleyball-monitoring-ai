@@ -128,14 +128,11 @@ async function upsertScaffold(db: PrismaClient) {
       update: { sourceKind: 'LOCAL_MP4', sourceLabel: 'DEMO 影片' },
       create: { id: ids.capture, matchId: ids.match, sourceKind: 'LOCAL_MP4', sourceLabel: 'DEMO 影片', ingestPath },
     })
-    const legacy = await tx.aiIntegration.findUnique({ where: { name: 'development-fake-ai' } })
-    const recordedReplay = await tx.aiIntegration.findUnique({ where: { name: 'contract-lab-tracking-replay' } })
-    if (legacy && !recordedReplay) await tx.aiIntegration.update({ where: { id: legacy.id }, data: { name: 'contract-lab-tracking-replay' } })
-    if (legacy && recordedReplay) await tx.aiIntegration.update({ where: { id: legacy.id }, data: { enabled: false } })
+    await tx.aiIntegration.updateMany({ where: { id: { not: ids.integration }, transportMode: 'HTTP_PUSH' }, data: { enabled: false } })
     await tx.aiIntegration.upsert({
-      where: { name: 'contract-lab-tracking-replay' },
-      update: { enabled: true, capabilitiesUrl: 'http://tracking-replay-provider:8080/v1/capabilities', submitUrl: 'http://tracking-replay-provider:8080/v1/jobs' },
-      create: { id: ids.integration, name: 'contract-lab-tracking-replay', capabilitiesUrl: 'http://tracking-replay-provider:8080/v1/capabilities', submitUrl: 'http://tracking-replay-provider:8080/v1/jobs', authSecretRef: 'env:AI_PROVIDER_BEARER_TOKEN', enabled: true, jobSchemaVersion: '1.1.0', resultSchemaVersion: '1.0.0', overlayFormat: 'flatbuffers_v1' },
+      where: { id: ids.integration },
+      update: { name: 'volleyball-analysis-engine', transportMode: 'WS_AGENT', enabled: true, capabilitiesUrl: null, submitUrl: null, authSecretRef: 'env:AI_PROVIDER_WS_TOKEN' },
+      create: { id: ids.integration, name: 'volleyball-analysis-engine', transportMode: 'WS_AGENT', capabilitiesUrl: null, submitUrl: null, authSecretRef: 'env:AI_PROVIDER_WS_TOKEN', enabled: true, jobSchemaVersion: '1.1.0', resultSchemaVersion: '1.0.0', overlayFormat: 'flatbuffers_v1' },
     })
   })
 }
@@ -335,7 +332,7 @@ async function createRallyBundle(db: PrismaClient, client: Client, timeline: Awa
     await tx.aiJob.upsert({
       where: { id: ids.aiJob },
       update: existingRun ? {} : { integrationId: ids.integration, status: 'QUEUED', requestPayload: basePayload, requestPayloadHash: sha256(stableJson(basePayload)), callbackTokenHash: sha256(callbackToken), callbackTokenExpiresAt: new Date(Date.now() + 86_400_000), availableAt: new Date(), leasedUntil: null, errorCode: null, errorMessage: null },
-      create: { id: ids.aiJob, integrationId: ids.integration, submissionId: ids.submission, clipJobId: ids.clipJob, status: 'QUEUED', idempotencyKey: `contract-lab-tracking-replay:${ids.submission}`, requestPayload: basePayload, requestPayloadHash: sha256(stableJson(basePayload)), jobSchemaVersion: '1.1.0', callbackTokenHash: sha256(callbackToken), callbackTokenExpiresAt: new Date(Date.now() + 86_400_000) },
+      create: { id: ids.aiJob, integrationId: ids.integration, submissionId: ids.submission, clipJobId: ids.clipJob, status: 'QUEUED', idempotencyKey: `volleyball-analysis-engine:${ids.submission}`, requestPayload: basePayload, requestPayloadHash: sha256(stableJson(basePayload)), jobSchemaVersion: '1.1.0', callbackTokenHash: sha256(callbackToken), callbackTokenExpiresAt: new Date(Date.now() + 86_400_000) },
     })
     if (existingRun) await tx.rally.update({ where: { id: ids.rally }, data: { processingStatus: 'COMPLETED' } })
   })
@@ -379,7 +376,7 @@ async function main() {
     await createRallyBundle(db, minio, timeline, root)
     const analysis = await waitForAi(db)
     const full = await waitForFullDvr(db)
-    console.log(JSON.stringify({ matchId: ids.match, rallyId: ids.rally, submissionId: ids.submission, analysisRunId: analysis.id, dvrDurationUs: full.durationUs.toString(), provider: 'contract-lab-tracking-replay' }, null, 2))
+    console.log(JSON.stringify({ matchId: ids.match, rallyId: ids.rally, submissionId: ids.submission, analysisRunId: analysis.id, dvrDurationUs: full.durationUs.toString(), provider: 'volleyball-analysis-engine' }, null, 2))
   } finally {
     await db.$disconnect()
   }

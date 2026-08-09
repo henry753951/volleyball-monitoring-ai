@@ -10,14 +10,18 @@
     "packages/*"
   ],
   "scripts": {
-    "dev": "bun run --parallel dev:server dev:web dev:worker",
+    "dev": "bun scripts/dev_host.ts",
     "dev:web": "bun --cwd web dev",
     "dev:server": "bun --cwd server dev",
-    "dev:worker": "bun --cwd worker dev",
+    "dev:worker": "bun run --parallel dev:worker-media dev:worker-workflow",
+    "dev:worker-media": "bun --cwd worker dev:media",
+    "dev:worker-workflow": "bun --cwd worker dev:workflow",
     "build": "bun --cwd packages/contracts build && bun --cwd packages/db build && bun --cwd packages/media build && bun --cwd server build && bun --cwd worker build && bun --cwd web build",
     "lint": "bun --cwd packages/contracts lint && bun --cwd packages/db lint && bun --cwd packages/media lint && bun --cwd server lint && bun --cwd worker lint && bun --cwd web lint",
     "typecheck": "bun --cwd packages/contracts typecheck && bun --cwd packages/db typecheck && bun --cwd packages/media typecheck && bun --cwd server typecheck && bun --cwd worker typecheck && bun --cwd web typecheck",
-    "test": "bun --cwd packages/contracts test && bun --cwd packages/db test && bun --cwd packages/media test && bun --cwd server test && bun --cwd worker test && bun --cwd web test && uv run --project sdk --frozen --extra test pytest sdk/tests",
+    "test": "bun run test:storage-bootstrap && bun run test:dev-host && bun --cwd packages/contracts test && bun --cwd packages/db test && bun --cwd packages/media test && bun --cwd server test && bun --cwd worker test && bun --cwd web test && uv run --project sdk --frozen --extra test pytest sdk/tests",
+    "test:storage-bootstrap": "bun test scripts/storage_bootstrap.test.ts",
+    "test:dev-host": "bun test scripts/dev_host.test.ts",
     "db:generate": "bun --cwd packages/db generate",
     "db:format": "bun --cwd packages/db format",
     "db:validate": "bun --cwd packages/db validate",
@@ -33,12 +37,16 @@
     "validate:scaffold": "python scripts/validate_scaffold.py",
     "validate:prisma-structure": "python scripts/validate_prisma_structure.py",
     "checksums:refresh": "python scripts/refresh_checksums.py",
+    "storage:bootstrap": "bun scripts/storage_bootstrap.ts",
+    "dev:infra": "bun scripts/dev_infra.ts",
+    "dev:https": "bun scripts/dev_infra.ts --https",
     "validate:all": "python scripts/validate_contracts.py && python scripts/validate_scaffold.py && python scripts/validate_prisma_structure.py && node scripts/validate_typescript_syntax.mjs",
     "media:reconnect-smoke": "bun scripts/verify_media_reconnect.ts",
-    "compose:up": "docker compose -f infra/compose.yaml --profile app up --build",
-    "compose:down": "docker compose -f infra/compose.yaml --profile app down"
+    "compose:up": "bun run dev:infra && docker compose --env-file .env -f infra/compose.yaml --profile app up --build",
+    "compose:down": "docker compose --env-file .env -f infra/compose.yaml --profile app down"
   },
   "devDependencies": {
+    "minio": "8.0.7",
     "typescript": "^5.9.0"
   }
 }

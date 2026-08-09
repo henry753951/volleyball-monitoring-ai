@@ -61,7 +61,14 @@ async function failClipJob(database: PrismaClient, jobId: string, error: unknown
   ])
 }
 
-export function createClipWorker(database: PrismaClient) {
+export function createClipWorker(
+  database: PrismaClient,
+  options: {
+    idleMs?: number
+    disconnectOnStop?: boolean
+    onError?: (error: unknown) => void
+  } = {},
+) {
   const storage = createWorkflowMinio()
   const callbackSecret = process.env.AI_CALLBACK_TOKEN_SECRET ?? ''
 
@@ -225,5 +232,12 @@ export function createClipWorker(database: PrismaClient) {
     }
   }
 
-  return createPollingLifecycle(processNext, { onError: error => console.error('clip-worker loop error', error), disconnect: () => database.$disconnect() })
+  return createPollingLifecycle(processNext, {
+    ...(options.idleMs === undefined ? {} : { idleMs: options.idleMs }),
+    onError: (error) => {
+      console.error('clip-worker loop error', error)
+      options.onError?.(error)
+    },
+    ...(options.disconnectOnStop === false ? {} : { disconnect: () => database.$disconnect() }),
+  })
 }

@@ -5,6 +5,7 @@
     "": {
       "name": "volleyball-monitoring-ai",
       "devDependencies": {
+        "minio": "8.0.7",
         "typescript": "^5.9.0",
       },
     },

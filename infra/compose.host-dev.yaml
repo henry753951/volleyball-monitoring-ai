@@ -1,0 +1,29 @@
+services:
+  traefik:
+    extra_hosts:
+      - host.docker.internal:host-gateway
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=volleyball-edge
+      - traefik.http.routers.host-server-graphql.rule=Path(`/graphql`) || PathPrefix(`/graphql/`)
+      - traefik.http.routers.host-server-graphql.entrypoints=websecure
+      - traefik.http.routers.host-server-graphql.tls=true
+      - traefik.http.routers.host-server-graphql.priority=300
+      - traefik.http.routers.host-server-graphql.service=host-server
+      - traefik.http.routers.host-server-api.rule=PathPrefix(`/api/`)
+      - traefik.http.routers.host-server-api.entrypoints=websecure
+      - traefik.http.routers.host-server-api.tls=true
+      - traefik.http.routers.host-server-api.priority=300
+      - traefik.http.routers.host-server-api.service=host-server
+      - traefik.http.routers.host-server-ws.rule=PathPrefix(`/ws/`)
+      - traefik.http.routers.host-server-ws.entrypoints=websecure
+      - traefik.http.routers.host-server-ws.tls=true
+      - traefik.http.routers.host-server-ws.priority=300
+      - traefik.http.routers.host-server-ws.service=host-server
+      - traefik.http.services.host-server.loadbalancer.server.url=http://host.docker.internal:${SERVER_DEV_PORT:-4000}
+      - traefik.http.routers.host-web.rule=PathPrefix(`/`)
+      - traefik.http.routers.host-web.entrypoints=websecure
+      - traefik.http.routers.host-web.tls=true
+      - traefik.http.routers.host-web.priority=10
+      - traefik.http.routers.host-web.service=host-web
+      - traefik.http.services.host-web.loadbalancer.server.url=http://host.docker.internal:${WEB_DEV_PORT:-3100}

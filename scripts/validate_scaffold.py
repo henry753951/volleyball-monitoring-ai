@@ -54,11 +54,18 @@ REQUIRED = [
     'packages/db/prisma/schema.prisma',
     'scripts/checksum_utils.py',
     'scripts/refresh_checksums.py',
+    'scripts/storage_bootstrap.ts',
+    'scripts/storage_bootstrap.test.ts',
+    'scripts/dev_host.ts',
+    'scripts/dev_host.test.ts',
+    'scripts/dev_infra.ts',
     'sdk/pyproject.toml',
     'web/app/pages/annotate/[matchId].vue',
     'web/tsconfig.json',
     'server/src/index.ts',
     'infra/compose.yaml',
+    'infra/compose.host-dev.yaml',
+    'worker/src/runtime-health.ts',
 ]
 
 for relative in REQUIRED:
@@ -72,6 +79,8 @@ for path in repository_files('*.toml'):
     tomllib.loads(path.read_text(encoding='utf-8'))
 
 root_package = json.loads((ROOT / 'package.json').read_text(encoding='utf-8'))
+for script in ('dev', 'storage:bootstrap', 'dev:infra', 'dev:https', 'dev:worker-media', 'dev:worker-workflow'):
+    assert script in root_package['scripts'], f'missing root runtime script: {script}'
 workspace_manifests: set[Path] = set()
 for workspace_pattern in root_package['workspaces']:
     for workspace_path in ROOT.glob(workspace_pattern):
@@ -128,8 +137,11 @@ for action in ['service', 'contact', 'close_left', 'close_right', 'close_unknown
     assert action in hotkey_registry, f'annotation registry missing: {action}'
 
 worker_index = (ROOT / 'worker/src/index.ts').read_text(encoding='utf-8')
-for role in ['media-indexer', 'playback-packager', 'clip-worker', 'ai-dispatcher', 'analysis-ingest', 'outbox-publisher']:
+for role in ['media', 'workflow']:
     assert role in worker_index, f'worker entrypoint missing runtime role: {role}'
+workflow_composition = (ROOT / 'worker/src/workflow-composition.ts').read_text(encoding='utf-8')
+for factory in ['createClipWorker', 'createPlaybackPackagerWorker', 'createAnalysisIngestWorker', 'createOutboxPublisherWorker']:
+    assert factory in workflow_composition, f'workflow composition missing module: {factory}'
 for role_file in ['playback-packager.ts', 'analysis-ingest.ts', 'outbox-publisher.ts']:
     source = (ROOT / 'worker/src/roles' / role_file).read_text(encoding='utf-8')
     assert 'TODO' not in source and 'createPollingLifecycle' in source, f'worker role remains a scaffold: {role_file}'
@@ -138,6 +150,37 @@ for binding in ["service: 'Z'", "contact: 'X'", "play_pause: 'Space'", "close_le
 for forbidden_terminal_flow in ["kind: 'terminal'", "type: 'terminal'", "kind === 'terminal'"]:
     assert forbidden_terminal_flow not in annotation_page, 'standalone terminal key-point flow returned'
 assert 'CLOSE_RALLY' in annotation_room
+
+compose_source = (ROOT / 'infra/compose.yaml').read_text(encoding='utf-8')
+compose_services = compose_source.split('\nservices:\n', 1)[1].split('\nvolumes:\n', 1)[0]
+service_names = set(re.findall(r'^  ([a-z0-9-]+):(?:\s.*)?$', compose_services, flags=re.MULTILINE))
+expected_services = {
+    'traefik',
+    'postgres',
+    'redis',
+    'minio',
+    'ovenmediaengine',
+    'server',
+    'web',
+    'worker-media',
+    'worker-workflow',
+}
+assert service_names == expected_services, f'Compose service allowlist mismatch: {sorted(service_names)}'
+environment_example = (ROOT / '.env.example').read_text(encoding='utf-8')
+for variable in (
+    'OBJECT_STORAGE_BOOTSTRAP_MODE',
+    'REDIS_HOST_PORT',
+    'MEDIA_SPOOL_HOST_PATH',
+    'MEDIA_IMPORT_HOST_PATH',
+    'WORKER_MEDIA_HEALTH_PORT',
+    'WORKER_WORKFLOW_HEALTH_PORT',
+):
+    assert variable in environment_example, f'missing host runtime environment variable: {variable}'
+for required_runtime_literal in ('WORKER_HEALTH_PORT', 'health/ready', 'MEDIA_SPOOL_HOST_PATH'):
+    assert required_runtime_literal in compose_source, f'Compose missing runtime health/bind contract: {required_runtime_literal}'
+host_override = (ROOT / 'infra/compose.host-dev.yaml').read_text(encoding='utf-8')
+for route in ('Path(`/graphql`)', 'PathPrefix(`/api/`)', 'PathPrefix(`/ws/`)'):
+    assert route in host_override, f'host-dev Traefik override missing unchanged route: {route}'
 
 active_annotation_sources = [
     ROOT / 'AGENTS.md',

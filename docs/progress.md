@@ -1,8 +1,67 @@
 # Progress
 
+## 2026-08-09 — Composed workflow worker
+
+Status: implemented and locally validated on `codex/runtime-simplification`; container image smoke
+is pending because the local Docker BuildKit remained at `0/0` steps while the host runtime passed.
+
+- Replaced the four Compose services `worker-clip`, `worker-playback`,
+  `worker-analysis-ingest` and `worker-outbox` with one `worker-workflow` service.
+- The Bun process composes clip production, playback cleanup, analysis convergence and outbox
+  publication as independent polling lifecycles. Each retains its own error handler and runtime
+  status; a loop failure does not share an AbortController with its siblings.
+- All four modules share one Prisma client, disable per-module disconnect and close the database only
+  after every loop has stopped. Startup failure rolls back only modules that started; shutdown still
+  stops healthy siblings and reports an aggregate error after cleanup.
+- Worker role selection now exposes `workflow` instead of four container-only role names. The
+  underlying modules remain independently tested and configurable.
+
+Validation: Worker typecheck and build passed; full Worker suite passed 169 tests with six
+environment-gated skips. A real host runtime connected to PostgreSQL/pg-boss, reported all four
+modules `running`, then stopped all four cleanly with no recorded loop errors. Compose config renders
+one `worker-workflow` service and none of the four retired service names.
+
+## 2026-08-09 — Runtime simplification Phase 1 baseline
+
+Status: completed on `codex/runtime-simplification`; architecture, database and external-worker
+gates passed before destructive cleanup.
+
+- Accepted ADR 0024: daily development uses four Docker infrastructure services plus optional
+  Traefik, full central deployment targets nine containers, and related loops compose into
+  `worker-media` and `worker-workflow` without losing per-loop health or failure isolation.
+- Declared external AI WS-only. Provider Realtime `1.0.0`, Job `1.1.0`, Result `1.0.0` and Callback
+  `1.0.0` stay wire-compatible; the provider registry/configuration becomes WS-only `2.0.0` and the
+  pre-1.0 Python SDK advances to `0.4.0` when its hosted HTTP provider helper is removed.
+- Inventoried all seventeen current Compose services, volumes, Dockerfiles and environment-variable
+  ownership in `docs/runtime-topology-inventory.md`. The development database has one enabled
+  `WS_AGENT` integration, zero `HTTP_PUSH` integrations and zero active AI jobs.
+- Preserved media/PTS/clip baselines: Media 88, focused Server 38 and focused Worker 16 tests passed.
+- Verified the persisted external-engine E2E: `analysis-worker-01` accepted one delivery in one
+  attempt, returned one callback receipt and completed an AnalysisRun with 12 tracks, two contacts,
+  one ball path, four artifacts and an overlay manifest. The linked Rally is AI-complete and remains
+  intentionally identity-unmapped. Two engine instances continue to heartbeat with a concurrency
+  limit of one each.
+
+## 2026-08-09 — Immediate buffered frame control and timeline seeking
+
+Status: merged to `main` through [PR #54](https://github.com/henry753951/volleyball-monitoring-ai/pull/54)
+at `d3861cc` after full GitHub CI passed.
+
+- Restored actual browser-buffer ranges to green and made the upper canonical ruler seek with the
+  same BigInt-safe mapping as the buffer rail.
+- Frame controls now project immediately from the browser buffer, accept rapid repeated arrows,
+  calibrate against exact sample-index deltas and reconcile to the server anchor without bouncing
+  through the old cursor position.
+- Analysis review WebSocket traffic now uses the dedicated `/ws/analysis-reviews/:analysisRunId`
+  endpoint, so local Nuxt development connects directly to Server instead of depending on a failed
+  dev proxy.
+- Headed Chromium confirmed one and three rapid frame steps at 60 fps, ruler seeking, the DEMO
+  analysis rail/panel and zero console errors. Full CI passed contracts/SDK, Compose, Prisma,
+  GraphQL, TypeScript, all tests and production builds.
+
 ## 2026-08-09 — Resumable long-form YouTube VOD capture
 
-Status: implemented and locally validated on `codex/youtube-relay-resume`; GitHub integration is pending.
+Status: implemented and locally validated on the historical source-resume branch; GitHub integration is pending.
 
 - Replaced prefix suppression with a durable capture checkpoint: ffmpeg seeks to the next unpublished capture time and continues deterministic segment numbering instead of reading the source from zero.
 - Added signed-URL refresh and progress-aware retry for multi-hour YouTube VOD/completed-live media. A retry budget resets whenever a new DVR segment is atomically published.
@@ -48,7 +107,7 @@ Validation: Web `141/141`, Nuxt typecheck and production build passed; OME XML a
 
 Status: merged to `main` through [PR #41](https://github.com/henry753951/volleyball-monitoring-ai/pull/41) at `8c2866c` after GitHub CI passed.
 
-- Promoted OvenMediaEngine to the sole live ingest, LL-HLS and recording adapter; removed the MediaMTX image, configuration and hook runtime. OME configuration uses short LL-HLS chunks/segments, disk DVR and finalized recording files observed by a durable watcher.
+- Promoted OvenMediaEngine to the sole live ingest, LL-HLS and recording adapter; removed the prior media-server image, configuration and hook runtime. OME configuration uses short LL-HLS chunks/segments, disk DVR and finalized recording files observed by a durable watcher.
 - Added YouTube video/live and local MP4 onboarding directly to the two-step New Match flow. Server routes create match-scoped capture sessions and delegate YouTube extraction/relay to the uv-managed gateway without exposing signed upstream URLs to the browser.
 - Added additive `PlaybackWindowExtendRequest 1.0.0` JSON Schema, fixture, TypeScript parser and Python SDK model. The server advances a continuous rolling segment selection under advisory lock: an already-buffered prefix may leave the active window while the overlapping suffix remains identical and a new tail is appended. Window ID, manifest URL and presentation origin remain stable.
 - Removed archive source swapping at buffer boundaries. hls.js stays attached to one video element and owns MSE Blob creation, manifest reload, prefetch/retry and browser-buffer eviction; a same-window mapping revision cannot destroy the pipeline or clear `src`.
@@ -64,13 +123,13 @@ Status: merged to `main` through [PR #41](https://github.com/henry753951/volleyb
 
 Status: implemented and locally validated on `codex/media-live-dvr-fhd60`; GitHub integration is pending.
 
-- Added durable MediaMTX source-online/offline hook events. Offline writes a spool restart marker before best-effort worker notification, while periodic reconciliation remains the source of truth. The hook endpoint now parses a strict bounded event body instead of treating every request as an untyped scan hint.
-- Fixed real MediaMTX fMP4 indexing when the final video frame omits `pkt_duration`: adjacent PTS remains authoritative for every non-tail sample, and the tail uses only the exact video-stream `start_pts + duration_ts`; conflicting evidence fails closed.
+- Added durable source-online/offline hook events for the superseded media adapter. Offline writes a spool restart marker before best-effort worker notification, while periodic reconciliation remains the source of truth. The hook endpoint now parses a strict bounded event body instead of treating every request as an untyped scan hint.
+- Fixed real fMP4 indexing from the superseded adapter when the final video frame omits `pkt_duration`: adjacent PTS remains authoritative for every non-tail sample, and the tail uses only the exact video-stream `start_pts + duration_ts`; conflicting evidence fails closed.
 - Decoupled capture epochs from playback discontinuities. Recorder-local PTS resets retain their real PTS in a new epoch without splitting bounded playback; source restart, time-base/timestamp discontinuity and real gaps still increment the discontinuity. Availability ranges may span exactly touching epochs only when the discontinuity is unchanged.
 - Upgraded the uv-managed YouTube relay to strict FHD60 H.264/AAC selection, separate VOD video/audio URL support, real-time pacing and host-independent LF normalization. It no longer silently selects 720p or exposes signed media URLs to the browser.
 - Removed the final coach-side `frame × fps` approximation. Analysis coverage now reads the checksum-bound immutable timing-manifest `frame_map` from the rally bucket and maps first/last AI frames to exact capture times, including VFR clips.
 
-Validation: Media `88/88`, focused Worker `34/34`, Server typecheck and focused timing/MinIO `30/30`. A real two-session MediaMTX reconnect spool produced four fMP4 segments and 478 contiguous canonical frames: recorder files stayed at discontinuity 0, reconnect changed it once to 1. The supplied YouTube VOD produced 1920×1080 H.264 at `60000/1001` with AAC; the supplied live source produced 1920×1080 H.264 at `60/1` with AAC. A second two-session live ingest produced 20 real fMP4 segments and 2,269 contiguous frames, with the persisted restart boundary at segment 10 and no capture-time/frame regression.
+Validation: Media `88/88`, focused Worker `34/34`, Server typecheck and focused timing/MinIO `30/30`. A real two-session legacy-adapter reconnect spool produced four fMP4 segments and 478 contiguous canonical frames: recorder files stayed at discontinuity 0, reconnect changed it once to 1. The supplied YouTube VOD produced 1920×1080 H.264 at `60000/1001` with AAC; the supplied live source produced 1920×1080 H.264 at `60/1` with AAC. A second two-session live ingest produced 20 real fMP4 segments and 2,269 contiguous frames, with the persisted restart boundary at segment 10 and no capture-time/frame regression.
 
 Remaining production acceptance outside this checkpoint: a long-duration bounded-memory soak, fault injection against real worker/PostgreSQL/MinIO services and product-level persisted `MediaSource` orchestration for direct upload/YouTube-VOD imports.
 
@@ -82,7 +141,7 @@ Status: implemented and locally validated on `codex/timeline-pts-alignment`; con
 - Replaced the clip worker's CFR/FPS approximation with strict sample-index authority. The worker verifies every sample-index object and segment metadata, rejects epoch/time-base/gap discontinuities, snaps requested boundaries to actual source samples and identifies immutable key points by epoch, source PTS, capture time and canonical frame together.
 - FFmpeg now selects exact source frame ordinals and uses passthrough frame timing; `-r`, time-times-FPS mapping and frame-count fallback were removed. ffprobe reads every produced frame, and a missing, duplicated or non-monotonic output frame fails the job instead of creating an approximate AI mapping.
 - Advanced the internal timing manifest to `1.1.0`. It contains source time base, a complete source-sample-to-output-frame table and both source/clip identity for every immutable key point. Public AI Job `1.1.0` remains compatible because its key-point ID still joins to the immutable source anchor while its clip values come from the verified output frame.
-- Accepted ADR 0016. MediaMTX remains the current live recording adapter; OME is a compatibility-gated candidate for continuous LL-HLS Live Rewind, not a replacement for `CaptureEpoch`/sample-index authority. Local upload and YouTube VOD will use direct import/index, while YouTube Live may use yt-dlp/FFmpeg only as the extractor/relay into the live adapter.
+- Accepted ADR 0016. At that checkpoint the previous live recording adapter remained active; OME was a compatibility-gated candidate for continuous LL-HLS Live Rewind, not a replacement for `CaptureEpoch`/sample-index authority. Local upload and YouTube VOD used direct import/index, while YouTube Live used yt-dlp/FFmpeg only as the extractor/relay into the live adapter.
 
 Validation: worker typecheck and full suite passed (`160` passed, `6` environment-gated skips); server typecheck and full suite passed (`187/187`); focused Web operations tests passed (`3/3`); a real FFmpeg no-audio trim produced exactly six selected frames without CFR coercion. Headed Chromium at `http://localhost:3100/control?view=media` showed exactly one DEMO source (`507/507`, zero gaps), no smoke fixtures and zero console errors; GraphQL and Operations returned HTTP 200. Impeccable detection returned no findings.
 
@@ -136,7 +195,7 @@ Validation passed: Server typecheck and `184/184` tests, Nuxt typecheck, focused
 Status: the 30-minute Contract Lab DEMO completed a new operator-driven immutable correction through the real Annotation UI, clip worker, external-provider job endpoint, callback ingest and Coach replay surfaces. The provider remains an explicit deterministic replay of supplied inference data, not an in-repository AI model.
 
 - Created a correction from active submission `67c7d8f8-ddf0-4ca7-bdb7-38edc60d6a5c`, automatically reopened it for editing, moved the eleventh contact from authoritative frame `62378` to `62379`, closed it with the original right-side outcome and submitted it with Enter. New immutable submission `51cb306b-4374-40f7-ac8c-fbfd38ef945f` superseded the prior submission without mutating its snapshot.
-- The clip worker produced the real `21.207342 s` clip (`1024163257..1045370599` capture microseconds). The dispatcher sent `POST /v1/jobs` and received `202 Accepted`; provider job `55e51cea-c441-45ba-9c4c-b1d5df4035c3` completed its callback, producing active analysis run `60d363c6-51b4-4962-bec1-e600dca475f3` with version `contract-lab-tracking-replay-v3`.
+- The clip worker produced the real `21.207342 s` clip (`1024163257..1045370599` capture microseconds). The superseded HTTP provider path returned `202 Accepted`; provider job `55e51cea-c441-45ba-9c4c-b1d5df4035c3` completed its callback, producing active analysis run `60d363c6-51b4-4962-bec1-e600dca475f3` with its recorded legacy analysis version.
 - Added deterministic court-side/trajectory-continuity identity consolidation for the supplied 14 raw tracker IDs. Six long-lived slots per court side become the canonical analysis identities; short same-side fragments 13 and 14 map to canonical track 4, and 26 same-frame duplicate observations are suppressed. This is deliberately not learned ReID. The normalized run contains exactly 12 analysis tracks: six LEFT and six RIGHT.
 - Kept roster identity ownership separate from AI tracking. The completed run has zero `TrackIdentityAssignment` rows and a null `identityMappingCompletedAt`; the Annotation assignment panel renders all 12 tracks as Unknown, while Coach replay already shows 12 tracked players, 12 contacts and 11 ball-path segments.
 - Corrected the current-mask color cascade so an analyzed current segment is visibly blue and only a completed player mapping turns it green. Headed Chromium verified the `timeline-mask current analyzed` class with a blue `rgba(36, 111, 165, 0.45)` fill and blue border.
@@ -166,13 +225,13 @@ Validation passed: Web `103/103`, Server `182/182`, uv-managed Python `22/22`, s
 Status: the local product now contains one clean DEMO match backed by the supplied 30-minute Contract Lab source, one immutable submitted Rally and the saved YOLOX / Deep-EIoU / SAM / court-projection output. The active development AI integration no longer fabricates tracks or court data.
 
 - Added `bun run demo:bootstrap`. It checksum-verifies the external source and canonical 17.239675-second clip, creates the Japan U16 vs India U16 match/rosters/score/submission, packages the source into 507 HLS fMP4 fragments and imports them through the authoritative DVR artifact/sample-index repository. The source remains outside Git; generated local fragments are ignored by Git and excluded from Docker build context.
-- Replaced `examples/fake_ai_provider` with the uv-managed `contract-lab-tracking-replay` provider. It validates the exact immutable Job input and clip identity, replays recorded YOLOX detections plus Deep-EIoU/SAM tracking, emits a real VOV1 per-frame overlay and returns the saved normalized analysis. Provenance remains explicit: ball points are human frame annotations and action labels are ball-path heuristics, not claimed model output.
+- Replaced the earliest fake provider with a temporary uv-managed replay provider. It validated the exact immutable Job input and clip identity, replayed recorded YOLOX detections plus Deep-EIoU/SAM tracking, emitted a VOV1 per-frame overlay and returned saved normalized analysis. That temporary central-repo provider is now superseded by the external WS-connected analysis engine; provenance remains explicit in historical results.
 - Preserved the external-AI boundary for `court_pos`: the replay writes finite float32 values without projection or clamping. Runtime GraphQL evidence retained the terminal outside-court position (`x=1.0882928636339`, `y=-0.111756841341654`). The completed run contains 14 tracks, 12 contact events, 11 paths and nine lazy overlay chunks for 1,033 frames.
 - The Coach live page now chooses media by capture kind. YouTube captures keep the embed path; local MP4 and server-ingested sources request a bounded DVR live window and use native iPad HLS or desktop `hls.js`. Headed Chromium rendered the real 1920×1080 DEMO source at `readyState=4`; Rally replay returned HTTP 206, advanced the 17-second canonical clip and loaded overlay chunks without console errors.
 - The PC workstation displays the full `00:30:00.000` server-side timeline, the immutable 12-point DEMO segment and all 14 analysis-run-local track assignments grouped by court side with Unknown as the default. The home/control surfaces show the live `JPN 0:1 IND` score; three prior runtime-smoke memberships were removed from the development viewer without deleting their underlying test records.
 - Fixed media-indexer lifecycle teardown so stateful queue/scanner methods retain their receiver binding. The regression passed 7/7 and the rebuilt worker starts cleanly. Removed 537 demo-only stale pg-boss jobs, 30 failed RTMP test fragments and the obsolete fake-provider container after the recorded replay completed.
 
-Validation passed: Contracts 12, DB 4, Media 88, Server 180, Worker 156 with 6 environment-dependent skips, Web 100 and frozen-`uv` SDK 14. All workspace typechecks and the `app` + `dev-ai` Compose configuration passed. The idempotent bootstrap returned the same match, Rally, submission and analysis-run IDs with an exact 1,800,000,000 µs DVR; headed Chromium showed one DEMO match, `JPN 0:1 IND`, a live WS ping and no console warnings/errors. XeLaTeX rebuilt the searchable 42-page PDF, and changed pages 4, 15, 34–36, 39 and 42 were visually inspected without clipping or overlap.
+Validation passed: Contracts 12, DB 4, Media 88, Server 180, Worker 156 with 6 environment-dependent skips, Web 100 and frozen-`uv` SDK 14. All workspace typechecks and the then-current central plus fixture Compose configuration passed. The idempotent bootstrap returned the same match, Rally, submission and analysis-run IDs with an exact 1,800,000,000 µs DVR; headed Chromium showed one DEMO match, `JPN 0:1 IND`, a live WS ping and no console warnings/errors. XeLaTeX rebuilt the searchable 42-page PDF, and changed pages 4, 15, 34–36, 39 and 42 were visually inspected without clipping or overlap.
 
 Open boundary: this provider is a deterministic replay of genuine saved inference output, not an in-repository AI model or a claim that the original model ran during each demo request. Production still requires a live external provider endpoint and credentials.
 
@@ -202,7 +261,7 @@ Status: every configured `WORKER_ROLE` now has a concrete start/stop composition
 - Implemented playback-window lifecycle cleanup. The deterministic DVR profile already consists of immutable indexed fMP4, so authorized Server requests compose bounded manifests without duplicating or transcoding the full DVR. `worker-playback` deletes only explicitly expired ephemeral `PlaybackWindow` rows in bounded batches; it never removes DVR segments or media assets.
 - Implemented analysis terminal convergence. The public REST callback remains the single schema/checksum/passthrough/FlatBuffer/idempotent-receipt and normalized-data transaction. `worker-analysis-ingest` repairs only AiJob/Rally terminal projections for a COMPLETED AnalysisRun whose immutable submission is still active; it cannot reactivate `SUPERSEDED` work or rewrite provider results/`court_pos`. ADR 0014 records this ownership decision.
 - Added an exhaustive worker entrypoint and scaffold validator assertions for all six roles. Focused lifecycle tests passed `8/8`; the full Worker suite passed `155` with 6 environment-dependent skips, plus typecheck and production build.
-- Docker runtime evidence started all three formerly idle roles with `durable runtime active`. Before restart, PostgreSQL held 6 PENDING OutboxEvents and 528 expired PlaybackWindows. After convergence it held 6 PUBLISHED events, zero expired/total windows, and pg-boss held exactly 6 `domain-events-v1` jobs in durable `created` state. The YouTube relay, MediaMTX, indexer, Server and Web were not restarted.
+- Docker runtime evidence started all three formerly idle roles with `durable runtime active`. Before restart, PostgreSQL held 6 PENDING OutboxEvents and 528 expired PlaybackWindows. After convergence it held 6 PUBLISHED events, zero expired/total windows, and pg-boss held exactly 6 `domain-events-v1` jobs in durable `created` state. The then-current source adapter, media server, indexer, Server and Web were not restarted.
 - Updated the canonical Markdown/TeX/PDF specification and requirements matrix. Both Markdown specs remain byte-identical; XeLaTeX produced a searchable 42-page A4 PDF, and changed architecture pages 12–14 were visually inspected without clipping or layout defects.
 
 Open limitations remain deployment acceptance: downstream consumers may subscribe to the durable domain-event queue as deployment integrations are added; production identity/TLS, off-host backup schedule, retention approvals, external observability and physical-iPad acceptance remain environment-owned.
@@ -224,11 +283,11 @@ Open limitations are deployment acceptance rather than missing repository semant
 
 Status: a managed optional relay is implemented and is currently feeding the local Compose stack from the supplied YouTube former-livestream URL at real-time rate.
 
-- Added the `youtube-relay` Compose profile with uv-managed pinned `yt-dlp 2026.7.4` and FFmpeg. The source URL is process-scoped rather than committed; only a caller-selected MediaMTX ingest path crosses into the central system. Active broadcasts start from their live edge, while completed livestreams run under FFmpeg `-re` as a deterministic live simulation.
-- Registered capture `754f79bd-263c-4b9d-8e5c-e9866cbb5381` for `youtube/nmtbgyfa-zm`. It reached `LIVE / HEALTHY`; MediaMTX recorded H.264/AAC fMP4 segments and the media indexer produced a live `DvrProgram` with one sample index per media segment. At the persistence probe, 42 segments covered `209,944,216` microseconds and the playlist revision was 42.
+- Added the historical dedicated YouTube source adapter with uv-managed pinned `yt-dlp 2026.7.4` and FFmpeg. The source URL was process-scoped rather than committed; only a caller-selected ingest path crossed into the central system. Active broadcasts started from their live edge, while completed livestreams ran under FFmpeg `-re` as a deterministic live simulation. This adapter is now superseded by `worker-media`.
+- Registered capture `754f79bd-263c-4b9d-8e5c-e9866cbb5381` for `youtube/nmtbgyfa-zm`. It reached `LIVE / HEALTHY`; the superseded media adapter recorded H.264/AAC fMP4 segments and the media indexer produced a live `DvrProgram` with one sample index per media segment. At the persistence probe, 42 segments covered `209,944,216` microseconds and the playlist revision was 42.
 - The authoritative playback-window REST path returned HTTP 200 with a server-bounded live manifest. Headed Chromium selected the YouTube capture automatically, rendered the actual 640×360 volleyball video, loaded an archive window at `readyState=4`, advanced playback time, observed the timeline grow by `6,006,367` microseconds during an eight-second polling interval and returned to a fresh live window. Browser console evidence was 0 errors / 0 warnings.
 - Desktop HLS now lazy-loads the light runtime only when a bounded window attaches; the authority inspector and workstation-only dialogs are lazy components. The largest HLS client chunk fell from about 508 kB to 332 kB and the large-chunk warning disappeared. The rebuilt healthy Web container repeated archive playback with the light runtime at `readyState=4`, advanced from 0.5 to 1.65 seconds and again reported no console errors or warnings.
-- The direct MediaMTX `/hls` edge currently requires its `cookieCheck=1` bootstrap query when used through the path-prefix proxy; the product Annotation flow is unaffected because it consumes authorized server-generated bounded playback windows. A production CDN/proxy deployment must preserve the MediaMTX HLS session query/cookie behavior rather than exposing raw full-DVR media.
+- The superseded adapter's direct HLS edge required a session bootstrap query through the path-prefix proxy; the product Annotation flow was unaffected because it consumed authorized server-generated bounded playback windows. This constraint no longer applies to the current OME topology.
 
 The relay and Docker stack remain running for user testing. Recording rights and YouTube/platform terms remain operator responsibilities.
 
@@ -262,7 +321,7 @@ Status: the Phase 7 callback duplicate/retry/error matrix is now exercised again
 
 Status: the remaining `startCapture`, `stopCapture` and `retryProcessing` GraphQL mutations are implemented with operator UI and durable job semantics.
 
-- Added typed GraphQL inputs/results and stored operations for all three mutations. Start validates a safe MediaMTX ingest path, stores only an opaque secret reference, authorizes ADMIN/OPERATOR membership, moves a planned match live and emits a durable start-request outbox event. Stop terminally closes the capture/program/active epochs at the persisted live edge so later MediaMTX files are no longer resolved into that session.
+- Added typed GraphQL inputs/results and stored operations for all three mutations. Start validates a safe ingest path, stores only an opaque secret reference, authorizes ADMIN/OPERATOR membership, moves a planned match live and emits a durable start-request outbox event. Stop terminally closes the capture/program/active epochs at the persisted live edge so later recorder files are no longer resolved into that session.
 - Added the Annotation top-bar stream-source dialog. Operators can see active capture health, register RTMP/SRT/RTSP/external ingest paths, copy the derived publisher target and stop a session without putting Annotation preferences into the Coach/PWA settings page.
 - Added deterministic retry routing for the active immutable submission. A terminal ClipJob is reset in place with cleared lease/error/output state; a failed AI attempt is retained as `SUPERSEDED` and a fresh job receives a new callback scope and clean request without expired signed URLs or callback data. Rally processing state and outbox audit events change in the same serializable transaction.
 - Failed History rows expose retry only to ADMIN/OPERATOR viewers. Four isolated PostgreSQL lifecycle/retry tests, full Server `168/168`, Web `94/94`, Server/Web typechecks and twelve stored GraphQL operations passed.
@@ -423,7 +482,7 @@ Status: persistence/timeline [PR #12](https://github.com/henry753951/volleyball-
 - Added typed persisted playback-window create/get, bounded HLS manifest and authorized init/media resource routes through [PR #14](https://github.com/henry753951/volleyball-monitoring-ai/pull/14). Requested bounds are clamped to one contiguous discontinuity, the injected sample resolver creates the presentation origin, all wire time remains decimal-string bigint, expiry is 410, and same-origin opaque resource tokens reveal no bucket/object key.
 - Live HTTP integration creates and drops an isolated PostgreSQL database and covers member/admin/outsider/anonymous access, bigint descriptor fields, manifest plus verified init/media bytes, gap/not-ready/missing/expired resources, corrupted object data, transaction rollback and zero forbidden Annotation/Submission/Clip/AI writes. Server now passes 34 tests.
 - Full integrated gates passed after rebasing onto the persistence migration and again in feature CI: contracts 6, DB 2, media 55, server 34, worker 108, Web 43 and frozen-`uv` SDK 12 tests, plus all workspace typechecks, lint and production builds.
-- Applied `20260807120000_playback_windows` to the local Docker PostgreSQL database and rebuilt the integration server/Web images. MinIO runs on the repo-configured `9100/9101`, server/Web are healthy, and a Traefik HTTPS GraphQL probe returned `health=ok`; PostgreSQL, Redis, MediaMTX, fake AI and all six workers remained running.
+- Applied `20260807120000_playback_windows` to the local Docker PostgreSQL database and rebuilt the integration server/Web images. MinIO runs on the repo-configured `9100/9101`, server/Web are healthy, and a Traefik HTTPS GraphQL probe returned `health=ok`; PostgreSQL, Redis, the former media/AI fixtures and all split workers remained running.
 - Repaired every Bun Docker image's frozen-install layer to copy all workspace manifests, and made the scaffold validator derive that requirement from the root workspace list. Actual server, Web and worker images rebuilt successfully; [PR #8](https://github.com/henry753951/volleyball-monitoring-ai/pull/8) returned to three green required checks.
 - Added the concrete finalized-file and MinIO artifact adapters through main-Agent-reviewed [PR #15](https://github.com/henry753951/volleyball-monitoring-ai/pull/15). The fMP4 reader is bounded, cancellable and strict about 32/64-bit box layout and source mutation; the official MinIO client performs conditional immutable writes, exact metadata verification, idempotent retries and secret-safe failures without exposing object identities to clients.
 - Main-Agent runtime review generated a real fragmented MP4 with ffmpeg and split it into non-empty init/media artifacts, then exercised upload, verification and idempotent retry against the running local MinIO bucket. Both isolated smoke artifacts were removed, the worktree was clean, and the final PR #15 CI passed all three required checks after its TypeScript fixture syntax repair.
@@ -435,9 +494,9 @@ Status: persistence/timeline [PR #12](https://github.com/henry753951/volleyball-
 - Added authenticated resolve-cursor/frame-step HTTP composition through [PR #21](https://github.com/henry753951/volleyball-monitoring-ai/pull/21). Strict `unknown` request parsing, match membership, mapping version/expiry, half-open window bounds and persisted ordered indexes precede every authoritative anchor; frame step loads only the current mapping plus at most one ready exact neighbor and distinguishes `WINDOW_BOUNDARY` from `SAMPLE_NOT_FOUND`.
 - Corrected the program/epoch time-base boundary through [PR #22](https://github.com/henry753951/volleyball-monitoring-ai/pull/22). `DvrProgram.timeBase*` remains stable packaged-rendition metadata, while `CaptureEpoch.sourceTimeBase*` remains the authoritative raw-PTS unit and may open a `TIME_BASE_CHANGE` epoch after reconnect without fabricating or renumbering samples.
 - Added the production-bound media-indexer runtime kernel through [PR #23](https://github.com/henry753951/volleyball-monitoring-ai/pull/23). It validates strict private hook jobs, reconciles the recording spool deterministically, preserves per-capture FIFO/singleton semantics in pg-boss, classifies sanitized retry/dead-letter outcomes, resolves stable program profiles, and composes the reviewed ffprobe, ingest, immutable artifact and publish boundaries without making the hook the source of truth.
-- Added the production media-indexer composition and MediaMTX completion hook through [PR #24](https://github.com/henry753951/volleyball-monitoring-ai/pull/24). The worker now starts the real pg-boss consumer, periodic spool reconciliation and bounded hook server with explicit cleanup; the custom MediaMTX image sends authenticated UTF-8-bounded completion notifications while reconciliation remains the source of truth. A real isolated PostgreSQL pg-boss test covered retry/dead-letter behavior.
+- Added the production media-indexer composition and the former adapter completion hook through [PR #24](https://github.com/henry753951/volleyball-monitoring-ai/pull/24). The worker started the real pg-boss consumer, periodic spool reconciliation and bounded hook server with explicit cleanup; the custom legacy image sent authenticated UTF-8-bounded completion notifications while reconciliation remained the source of truth. A real isolated PostgreSQL pg-boss test covered retry/dead-letter behavior.
 - A real eight-second 1280×720 H.264/AAC RTMP stream exposed millisecond-quantized RTMP PTS and duplicate scan/hook jobs. [PR #25](https://github.com/henry753951/volleyball-monitoring-ai/pull/25) derives each non-final sample duration from the next PTS, preserves a validated positive final duration, assigns deterministic job IDs and classifies deterministic repository failures as permanent. The repeated hook scan left exactly four completed jobs with zero retries and no duplicates.
-- The successful d003 ingest produced one DVR program, four authoritative epochs/segments, four READY init assets, four READY media assets and four READY sample indexes. MinIO contained exactly 12 non-empty immutable objects. All four jobs completed without retry; capture time/frame remained monotonic across the independent MediaMTX recording segments.
+- The successful d003 ingest produced one DVR program, four authoritative epochs/segments, four READY init assets, four READY media assets and four READY sample indexes. MinIO contained exactly 12 non-empty immutable objects. All four jobs completed without retry; capture time/frame remained monotonic across the independent recorder segments.
 - Added the PC-first authoritative DVR workstation through [PR #26](https://github.com/henry753951/volleyball-monitoring-ai/pull/26). The desktop three-region layout uses bounded server windows, a BigInt-safe ready/gap/discontinuity timeline, 1×–8× zoom, bounded pan, reset, stale-response generation guards, descriptor-preserving frame step and an authority inspector. The later product revision finalized Z service, X contact, Space playback, `<`/`>`/`?` close and Enter submit; displayed bindings use the TanStack `formatForDisplay` wrapper. Mounted command-gate tests cover IDLE, stale OPEN, OPEN with a server-confirmed last point and READY submission state.
 - Main-Agent review and live runtime testing found that production playback-window creation lacked the separate persisted sample resolver even though its MinIO reader was present. [PR #27](https://github.com/henry753951/volleyball-monitoring-ai/pull/27) now loads ordered READY sample indexes through the existing repository, uses the shared exact-BigInt nearest-sample resolver, preserves earlier-on-tie behavior, maps an exact live-edge target to the latest half-open sample and rejects out-of-range/mismatched loader results.
 - The PR #27 candidate passed a complete d003 read-path smoke: live/archive window, descriptor and bounded HLS manifest returned HTTP 200; init/media resources returned `video/mp4` with 1,217 and 1,916,379 bytes; resolve-cursor returned exact source PTS 93,420, capture time 5,499,999 µs and frame 165; previous/next returned frames 164/166; stepping beyond the live edge failed closed with HTTP 422 `SAMPLE_NOT_FOUND`. All 14 Compose services remained running, and the merged Web and server images were rebuilt locally.
@@ -459,7 +518,7 @@ Status: integrated on `integration/phase-2a-media-truth` through main-Agent-revi
 - Added the pure worker sample-index/resolver kernel with exact bigint rational rescaling, half-away-from-zero rounding, strict ffprobe-shaped parsing, deterministic earlier tie-breaking, presentation-end availability ranges and one-sample stepping across normal segment boundaries without crossing playback windows or discontinuities. Worker tests passed 17 cases plus typecheck/build.
 - Added the canonical PWA media adapter, bigint-safe timeline/gap helpers, bounded current/previous/next window cache, reference-aware cleanup and explicit error recovery states. `WINDOW_EXPIRED`/`MAPPING_STALE` recreate around the last authoritative position, `WINDOW_BOUNDARY` recenters and retries, gaps never fall back across missing media, and malformed envelopes are fatal. Luna executed the frontend package gate: 43 tests, Nuxt typecheck and production build passed.
 - The PWA now consumes `@volleyball-monitoring/contracts` directly and validates every successful media response at runtime. `target_player_media_time_us` remains bounded player-local time; canonical capture values never pass through JavaScript `Number`.
-- Local Compose stayed operational throughout the round: PostgreSQL, Redis, server, web and fake AI remained healthy; MinIO, MediaMTX, Traefik and all six worker containers remained up. The workers are still honest scaffolds until the persisted ingest adapters below land.
+- Local Compose stayed operational throughout the round: PostgreSQL, Redis, server, web and the former AI fixture remained healthy; MinIO, the previous media server, Traefik and all split worker containers remained up. The workers were still honest scaffolds until the persisted ingest adapters below landed.
 
 Open limitations: this round verifies contracts and pure authority/client kernels only. Playback-window migration/GraphQL timeline, production pg-boss/ffprobe/MinIO ingest adapters, authenticated REST media serving, real PWA player/timeline integration, discontinuity Docker smoke and the two-hour bounded-memory soak remain active Phase 2A-2/2A-3 work. No Rally, KeyPoint, AnnotationOperation, RallySubmission, ClipJob or AiJob path was added.
 
@@ -490,7 +549,7 @@ Status: integrated and validated on `integration/phase-1-round-1`; [PR #2](https
 - Repaired and cached the Bun workspace layers in the server, worker and Nuxt Dockerfiles. Nuxt container builds disable only the duplicate Vite checker after a dedicated strict typecheck; normal local/CI typecheck remains enabled.
 - Added bounded PostgreSQL, Redis and MinIO readiness probes. The server and web containers expose Docker health checks, Nuxt listens on the Traefik-declared port 3000, and web waits for a healthy server.
 - Added a cancellable scaffold worker lifecycle with SIGINT/SIGTERM cleanup so every configured worker remains alive without pretending pg-boss job semantics are implemented.
-- Started the full `app` and `dev-ai` Compose profiles locally. PostgreSQL, Redis, MinIO, MediaMTX, Traefik, fake AI, server, web and all six worker containers are running; server/web are healthy and every app/worker restart count was zero after rebuild.
+- Started the former full central and fixture Compose topology locally. PostgreSQL, Redis, MinIO, the legacy media server, Traefik, a fixture AI runtime, server, web and the former split worker containers were healthy with zero app/worker restarts after rebuild. This topology is superseded by the OME, two-worker and external-AI layout.
 - Runtime probes passed: server readiness returned PostgreSQL/Redis/MinIO `ok`, container-internal Nuxt returned HTTP 200, and Traefik returned HTTPS 200 for `/` and `/graphql`. A headed Playwright smoke loaded the home, settings and live routes after accepting the local self-signed certificate; the browser session was then closed.
 - Integrated the Annotation Realtime 2.0 insertion through reviewed [PR #3](https://github.com/henry753951/volleyball-monitoring-ai/pull/3). The feature agent did not self-merge.
 - Local CI-equivalent validation passed before the Annotation insertion: Prisma generate/validate, all repository validators, workspace typecheck, 31 JavaScript/Python tests and the production build. The complete post-insertion gate is rerun below before PR #2 is marked ready.
@@ -610,7 +669,8 @@ The Nuxt build emits a dependency-level Node `DEP0155` deprecation warning but c
   canonical MP4, runs an abort-aware placeholder frame loop, adapts bundled golden analysis data and
   sends a real multipart callback. The placeholder loop is explicitly not an AI model.
 - Added `AiTransportMode`, persisted provider instances/delivery/lease/cancellation metadata and the
-  `/api/v1/ai/providers/ws` gateway. HTTP-push dispatch now only claims `HTTP_PUSH` integrations.
+  `/api/v1/ai/providers/ws` gateway. At that checkpoint the superseded HTTP dispatcher claimed only
+  its matching integrations; Phase 4 later removed that runtime while retaining database compatibility.
 - Added `deleteProcessingRally`: it is available only before completion, creates an immutable
   cancellation submission, records any score reversal as a correction ledger entry, soft-voids the
   rally, cancels jobs and emits durable abort outbox events. The annotation selection toolbar exposes
@@ -721,9 +781,9 @@ The Nuxt build emits a dependency-level Node `DEP0155` deprecation warning but c
   `LIVE`; a drained terminal source exposes `END`, and its final manifest emits `EXT-X-ENDLIST`.
 - The browser keeps one long-lived hls.js/MSE blob attachment. Server-ready ranges, the authorized
   playback window, actual `HTMLMediaElement.buffered` ranges, indexing work and not-yet-downloaded
-  source media are rendered as separate timeline layers; the ruler remains inert and only the thin
-  availability rail performs click-to-seek.
-- YouTube relay inputs now reuse yt-dlp's selected signed URLs and HTTP request headers, segment to
+  source media are rendered as separate timeline layers; both the upper ruler and thin availability
+  rail perform immediate pointer-to-seek against the same authoritative capture-time mapping.
+- YouTube source inputs now reuse yt-dlp's selected signed URLs and HTTP request headers, segment to
   independently playable fragmented MP4 with explicit PTS resets, re-probe active live sources after
   reconnects, and withhold an unsealed tail when an operator stops capture.
 - Playback manifests use capture-epoch sequence as the absolute HLS transport discontinuity, cursor
@@ -787,3 +847,80 @@ The Nuxt build emits a dependency-level Node `DEP0155` deprecation warning but c
   key-point anchors preserved with exact PTS/time/frame values, and valid JSON, VOV1 plus a 1,033-frame
   H.264/AAC overlay. The run produced 1,033 track rows, 504 ball rows, 35 court rows and 11,994
   per-track action rows; its offline manifest records no network use.
+
+# 2026-08-09 — Phase 3 composed media worker
+
+- Replaced the synchronous Server-to-relay control hop with durable PostgreSQL `MediaSourceWork`.
+  Source requests return after a DB write; `worker-media` claims work using `FOR UPDATE SKIP LOCKED`,
+  renewable leases, bounded retries and a distinct `DRAINING` state so restart recovery never
+  re-downloads or re-segments media that is only waiting for the ingest queue to drain.
+- Merged YouTube probing/download/live relay, uploaded MP4 segmentation, OME stream observation and
+  finalized-recording indexing into one Bun composition. The worker image installs pinned
+  `yt-dlp 2026.7.4` with uv and keeps FFmpeg/ffprobe local to the worker boundary.
+- Removed the internal recording-complete HTTP hook, callback token, gateway URL, watcher state file
+  and the three dedicated adapter services. Reconnect state is stored on `CaptureSession`; source
+  work, resume index and completion watermark are stored in PostgreSQL; ingest IDs remain DB-idempotent.
+- The scanner now requires stable size/mtime observations before enqueueing a recorder file, so OME's
+  current tail is never treated as finalized. Live reconnects persist a marker before the next media
+  epoch, preserving the existing sample-index/reconnect semantics.
+- Match deletion first persists stop requests and waits for previously claimed source work to settle;
+  it no longer removes DB rows or local media while a source process or drain loop may still write.
+- Applied migration `20260809190000_media_source_work` to the local development database. A real DB
+  smoke proved single-owner claim/CAS and `REQUESTED -> RUNNING -> DRAINING -> COMPLETED`, with the
+  capture reaching `FINISHED`; a generated 4.1-second 60 fps MP4 was segmented by the new process into
+  resumable two-second fMP4 recordings.
+- Validation at this checkpoint: Server 221 tests passed; Worker 162 passed and 6 skipped; Server and
+  Worker typecheck passed; Prisma schema validation passed; Compose renders `worker-media` and
+  `worker-workflow` without the retired relay/watcher/indexer services. BuildKit produced the 339 MB
+  worker image; runtime smoke confirmed Bun 1.3.14, yt-dlp 2026.07.04 and FFmpeg 6.1.2.
+
+# 2026-08-09 — Annotation buffer rail clarity
+
+- Browser-resident `HTMLMediaElement.buffered` coverage remains bright green. Server-available DVR
+  coverage is now a darker neutral green-gray, so it cannot be mistaken for browser buffer state.
+- The upper time ruler and buffer rail seek on primary-pointer down for immediate feedback while using
+  the same gap-safe target calculation. Headed Chromium verified `07:29.424 -> 22:30.000`; the focused
+  component suite (15 tests), Nuxt typecheck and Impeccable detector passed.
+
+# 2026-08-09 — Phase 4 AI runtime cleanup
+
+- Removed the central HTTP AI polling worker and recorded-result fixture provider from Compose,
+  Dockerfiles, worker roles, examples, CI profile validation and environment configuration.
+- Development seed/bootstrap now provision the existing `volleyball-analysis-engine` integration as
+  `WS_AGENT`; external GPU workers continue to connect through `/api/v1/ai/providers/ws`, and the
+  current Nuxt, GraphQL, REST, Annotation WebSocket and AI Worker WebSocket interfaces are unchanged.
+- The central `app` profile now contains exactly nine long-running services. Prisma compatibility
+  columns remain intentionally untouched so this infra-only cleanup does not force a public API or
+  frontend migration.
+- Validation passed: complete repository typecheck; contracts 14, DB 4, media 88, server 221,
+  worker 161 with 6 environment-gated skips, Web 152 and Python SDK 20 tests; scaffold/checksum,
+  Prisma schema and Compose config. The retired runtime literal scan has zero active-code/config hits.
+
+# 2026-08-09 — Phase 5 host object-storage bootstrap
+
+- Removed the one-shot MinIO bucket-provisioning service and its `mc` image from Compose. The full
+  central profile now renders exactly nine services with health-gated application dependencies.
+- Added `bun run storage:bootstrap`: local `ensure` creates only missing buckets and is idempotent;
+  production `validate` performs no creation and fails closed when a required bucket is missing.
+- Added `dev:infra` for PostgreSQL, Redis, MinIO and OME only, plus optional `dev:https` for Traefik.
+  Host development starts both composed worker roles as separate Bun processes.
+- Unit tests passed 4 bootstrap cases; real `ensure` and `validate` smokes passed against the running
+  MinIO at the host-published endpoint.
+
+# 2026-08-09 — Phase 6 host development runtime and worker health
+
+- `dev:infra` now removes only application/Traefik containers without deleting volumes, then starts
+  exactly PostgreSQL, Redis, MinIO and OME. Redis is published on configurable loopback port 16379;
+  media imports and the recording spool use the same host bind paths in host and full-profile modes.
+- `bun run dev` supervises Server, Nuxt, `worker-media` and `worker-workflow` as host processes. It
+  maps infrastructure endpoints to loopback but preserves all browser-facing and AI interfaces.
+  `dev:https` adds a fifth Traefik container whose host-dev labels route the unchanged paths to ports
+  4000 and 3100.
+- Both merged workers now expose component-aware internal health. Critical media-index/clip failure
+  is unhealthy; a maintenance-loop failure is degraded. Heartbeat, last success/error, active work,
+  failure count and known backlog are visible without adding a Nuxt API migration.
+- Real smoke reached ready Server, Nuxt, media worker and workflow worker on isolated host ports,
+  stopped all four cleanly, and left only the four project infrastructure containers running.
+- Fresh worker images built successfully; both Compose healthchecks became healthy and returned all
+  media/workflow component heartbeats. The worker containers were then removed without deleting
+  volumes, leaving the optional Traefik plus four infrastructure containers.

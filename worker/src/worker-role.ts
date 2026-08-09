@@ -1,10 +1,6 @@
 export const workerRoles = [
-  'media-indexer',
-  'playback-packager',
-  'clip-worker',
-  'ai-dispatcher',
-  'analysis-ingest',
-  'outbox-publisher',
+  'media',
+  'workflow',
 ] as const
 
 export type WorkerRole = (typeof workerRoles)[number]

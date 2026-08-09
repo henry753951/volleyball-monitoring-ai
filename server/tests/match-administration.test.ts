@@ -42,6 +42,7 @@ describe('match administration', () => {
         rosterEntries: [],
       }) },
       mediaAsset: { findMany: mediaAssetFindMany },
+      mediaSourceWork: { count: vi.fn().mockResolvedValue(0) },
     } as unknown as PrismaClient
     const stop = vi.fn().mockResolvedValue(undefined)
     const objectRemover = vi.fn().mockResolvedValue(undefined)
@@ -50,13 +51,20 @@ describe('match administration', () => {
     const result = await deleteMatchWithMedia(operator, matchId, {
       database,
       importRoot: '/imports',
-      mediaSourceGateway: { start: vi.fn(), stop },
+      stopMediaSource: stop,
       objectRemover,
       recordingRoot: '/recordings',
       removePath,
     })
 
-    expect(stop).toHaveBeenCalledWith(captureId)
+    expect(stop).toHaveBeenCalledWith(database, captureId)
+    expect(database.mediaSourceWork.count).toHaveBeenCalledWith({ where: {
+      captureSessionId: { in: [captureId] },
+      OR: [
+        { status: { in: ['RUNNING', 'DRAINING'] } },
+        { attempts: { gt: 0 }, status: 'STOP_REQUESTED' },
+      ],
+    } })
     expect(tx.match.delete).toHaveBeenCalledWith({ where: { id: matchId } })
     expect(objectRemover).toHaveBeenCalledTimes(1)
     expect(objectRemover).toHaveBeenCalledWith(expect.objectContaining({ id: uniqueAsset.id }))

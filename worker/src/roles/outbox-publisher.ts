@@ -56,7 +56,12 @@ const sanitizedFailure = (error: unknown) => `OUTBOX_PUBLISH_FAILED:${error inst
 export function createOutboxPublisherWorker(
   database: PrismaClient,
   publisher: DurableOutboxPublisher,
-  options: { now?: () => Date; idleMs?: number } = {},
+  options: {
+    now?: () => Date
+    idleMs?: number
+    disconnectOnStop?: boolean
+    onError?: (error: unknown) => void
+  } = {},
 ): PollingLifecycle {
   const now = options.now ?? (() => new Date())
 
@@ -131,7 +136,10 @@ export function createOutboxPublisherWorker(
 
   const polling = createPollingLifecycle(processNext, {
     ...(options.idleMs === undefined ? {} : { idleMs: options.idleMs }),
-    onError: error => console.error('outbox-publisher loop error', error instanceof Error ? error.name : 'UnknownError'),
+    onError: (error) => {
+      console.error('outbox-publisher loop error', error instanceof Error ? error.name : 'UnknownError')
+      options.onError?.(error)
+    },
   })
   return {
     async start() {
@@ -145,7 +153,8 @@ export function createOutboxPublisherWorker(
     async stop() {
       await polling.stop()
       await publisher.stop()
-      await database.$disconnect()
+      if (options.disconnectOnStop !== false) await database.$disconnect()
     },
+    runtimeSnapshot: () => polling.runtimeSnapshot!(),
   }
 }
