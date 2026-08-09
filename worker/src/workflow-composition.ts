@@ -1,0 +1,169 @@
+import type { PrismaClient } from '@volleyball-monitoring/db'
+import type { PollingLifecycle } from './workflow/poller.js'
+import { createAnalysisIngestWorker } from './roles/analysis-ingest.js'
+import { createClipWorker } from './roles/clip-worker.js'
+import { createOutboxPublisherWorker, createPgBossOutboxPublisher } from './roles/outbox-publisher.js'
+import { createPlaybackPackagerWorker } from './roles/playback-packager.js'
+
+export const workflowModuleNames = [
+  'clip',
+  'playback-cleanup',
+  'analysis-convergence',
+  'outbox',
+] as const
+
+export type WorkflowModuleName = (typeof workflowModuleNames)[number]
+export type WorkflowModuleState = 'idle' | 'starting' | 'running' | 'stopping' | 'stopped' | 'failed'
+
+export type WorkflowModuleHealth = {
+  name: WorkflowModuleName
+  state: WorkflowModuleState
+  lastErrorAt: string | null
+  lastErrorName: string | null
+}
+
+export type NamedWorkflowLifecycle = {
+  name: WorkflowModuleName
+  lifecycle: PollingLifecycle
+}
+
+export type WorkflowComposition = PollingLifecycle & {
+  snapshot(): WorkflowModuleHealth[]
+  recordError(name: WorkflowModuleName, error: unknown): void
+}
+
+const errorName = (error: unknown) => error instanceof Error ? error.name : 'UnknownError'
+
+export function composeWorkflowLifecycles(
+  modules: NamedWorkflowLifecycle[],
+  disconnect: () => Promise<void>,
+): WorkflowComposition {
+  const names = new Set(modules.map(module => module.name))
+  if (names.size !== modules.length) throw new TypeError('workflow module names must be unique')
+
+  const health = new Map<WorkflowModuleName, WorkflowModuleHealth>(modules.map(module => [
+    module.name,
+    { name: module.name, state: 'idle', lastErrorAt: null, lastErrorName: null },
+  ]))
+  const started: NamedWorkflowLifecycle[] = []
+  let disconnected = false
+
+  const disconnectOnce = async () => {
+    if (disconnected) return
+    disconnected = true
+    await disconnect()
+  }
+
+  const stopModules = async (targets: NamedWorkflowLifecycle[]) => {
+    const results = await Promise.allSettled([...targets].reverse().map(async (module) => {
+      health.get(module.name)!.state = 'stopping'
+      try {
+        await module.lifecycle.stop()
+        health.get(module.name)!.state = 'stopped'
+      }
+      catch (error) {
+        const state = health.get(module.name)!
+        state.state = 'failed'
+        state.lastErrorAt = new Date().toISOString()
+        state.lastErrorName = errorName(error)
+        throw error
+      }
+    }))
+    return results.filter((result): result is PromiseRejectedResult => result.status === 'rejected')
+  }
+
+  return {
+    async start() {
+      try {
+        for (const module of modules) {
+          health.get(module.name)!.state = 'starting'
+          await module.lifecycle.start()
+          health.get(module.name)!.state = 'running'
+          started.push(module)
+        }
+      }
+      catch (error) {
+        const starting = modules[started.length]
+        if (starting) {
+          const state = health.get(starting.name)!
+          state.state = 'failed'
+          state.lastErrorAt = new Date().toISOString()
+          state.lastErrorName = errorName(error)
+        }
+        const cleanupFailures = await stopModules(started)
+        await disconnectOnce()
+        if (cleanupFailures.length) {
+          throw new AggregateError(
+            [error, ...cleanupFailures.map(failure => failure.reason)],
+            'workflow startup and cleanup failed',
+          )
+        }
+        throw error
+      }
+    },
+    async stop() {
+      const failures = await stopModules(started)
+      try {
+        await disconnectOnce()
+      }
+      catch (error) {
+        failures.push({ status: 'rejected', reason: error })
+      }
+      if (failures.length) {
+        throw new AggregateError(
+          failures.map(failure => failure.reason),
+          'workflow shutdown failed',
+        )
+      }
+    },
+    snapshot() {
+      return modules.map(module => ({ ...health.get(module.name)! }))
+    },
+    recordError(name, error) {
+      const state = health.get(name)
+      if (!state) return
+      state.lastErrorAt = new Date().toISOString()
+      state.lastErrorName = errorName(error)
+    },
+  }
+}
+
+export function createWorkflowComposition(
+  database: PrismaClient,
+  connectionString: string,
+): WorkflowComposition {
+  let composition: WorkflowComposition | undefined
+  const report = (name: WorkflowModuleName) => (error: unknown) => composition?.recordError(name, error)
+  const sharedOptions = { disconnectOnStop: false }
+
+  composition = composeWorkflowLifecycles([
+    {
+      name: 'clip',
+      lifecycle: createClipWorker(database, { ...sharedOptions, onError: report('clip') }),
+    },
+    {
+      name: 'playback-cleanup',
+      lifecycle: createPlaybackPackagerWorker(database, {
+        ...sharedOptions,
+        onError: report('playback-cleanup'),
+      }),
+    },
+    {
+      name: 'analysis-convergence',
+      lifecycle: createAnalysisIngestWorker(database, {
+        ...sharedOptions,
+        onError: report('analysis-convergence'),
+      }),
+    },
+    {
+      name: 'outbox',
+      lifecycle: createOutboxPublisherWorker(
+        database,
+        createPgBossOutboxPublisher(connectionString),
+        { ...sharedOptions, onError: report('outbox') },
+      ),
+    },
+  ], () => database.$disconnect())
+
+  return composition
+}

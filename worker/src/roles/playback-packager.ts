@@ -10,7 +10,13 @@ const DEFAULT_BATCH_SIZE = 100
  */
 export function createPlaybackPackagerWorker(
   database: PrismaClient,
-  options: { now?: () => Date; batchSize?: number; idleMs?: number } = {},
+  options: {
+    now?: () => Date
+    batchSize?: number
+    idleMs?: number
+    disconnectOnStop?: boolean
+    onError?: (error: unknown) => void
+  } = {},
 ): PollingLifecycle {
   const now = options.now ?? (() => new Date())
   const batchSize = options.batchSize ?? DEFAULT_BATCH_SIZE
@@ -30,7 +36,10 @@ export function createPlaybackPackagerWorker(
 
   return createPollingLifecycle(processNext, {
     ...(options.idleMs === undefined ? {} : { idleMs: options.idleMs }),
-    onError: error => console.error('playback-packager loop error', error instanceof Error ? error.name : 'UnknownError'),
-    disconnect: () => database.$disconnect(),
+    onError: (error) => {
+      console.error('playback-packager loop error', error instanceof Error ? error.name : 'UnknownError')
+      options.onError?.(error)
+    },
+    ...(options.disconnectOnStop === false ? {} : { disconnect: () => database.$disconnect() }),
   })
 }

@@ -195,25 +195,13 @@ services:
     networks: [internal]
     restart: unless-stopped
 
-  worker-playback:
+  worker-workflow:
     <<: *worker
-    environment: { WORKER_ROLE: playback-packager }
-
-  worker-clip:
-    <<: *worker
-    environment: { WORKER_ROLE: clip-worker }
+    environment: { WORKER_ROLE: workflow }
 
   worker-ai-dispatcher:
     <<: *worker
     environment: { WORKER_ROLE: ai-dispatcher }
-
-  worker-analysis-ingest:
-    <<: *worker
-    environment: { WORKER_ROLE: analysis-ingest }
-
-  worker-outbox:
-    <<: *worker
-    environment: { WORKER_ROLE: outbox-publisher }
 
   web:
     profiles: [app]

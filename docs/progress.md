@@ -1,9 +1,30 @@
 # Progress
 
+## 2026-08-09 — Composed workflow worker
+
+Status: implemented and locally validated on `codex/runtime-simplification`; container image smoke
+is pending because the local Docker BuildKit remained at `0/0` steps while the host runtime passed.
+
+- Replaced the four Compose services `worker-clip`, `worker-playback`,
+  `worker-analysis-ingest` and `worker-outbox` with one `worker-workflow` service.
+- The Bun process composes clip production, playback cleanup, analysis convergence and outbox
+  publication as independent polling lifecycles. Each retains its own error handler and runtime
+  status; a loop failure does not share an AbortController with its siblings.
+- All four modules share one Prisma client, disable per-module disconnect and close the database only
+  after every loop has stopped. Startup failure rolls back only modules that started; shutdown still
+  stops healthy siblings and reports an aggregate error after cleanup.
+- Worker role selection now exposes `workflow` instead of four container-only role names. The
+  underlying modules remain independently tested and configurable.
+
+Validation: Worker typecheck and build passed; full Worker suite passed 169 tests with six
+environment-gated skips. A real host runtime connected to PostgreSQL/pg-boss, reported all four
+modules `running`, then stopped all four cleanly with no recorded loop errors. Compose config renders
+one `worker-workflow` service and none of the four retired service names.
+
 ## 2026-08-09 — Runtime simplification Phase 1 baseline
 
-Status: in progress on `codex/runtime-simplification`; architecture decision and removal inventory
-are complete, while the external AI worker E2E remains the final destructive-cleanup gate.
+Status: completed on `codex/runtime-simplification`; architecture, database and external-worker
+gates passed before destructive cleanup.
 
 - Accepted ADR 0024: daily development uses four Docker infrastructure services plus optional
   Traefik, full central deployment targets nine containers, and related loops compose into
@@ -15,8 +36,11 @@ are complete, while the external AI worker E2E remains the final destructive-cle
   ownership in `docs/runtime-topology-inventory.md`. The development database has one enabled
   `WS_AGENT` integration, zero `HTTP_PUSH` integrations and zero active AI jobs.
 - Preserved media/PTS/clip baselines: Media 88, focused Server 38 and focused Worker 16 tests passed.
-  The external analysis engine receive/callback run is still required before replay/dispatcher/schema
-  deletion.
+- Verified the persisted external-engine E2E: `analysis-worker-01` accepted one delivery in one
+  attempt, returned one callback receipt and completed an AnalysisRun with 12 tracks, two contacts,
+  one ball path, four artifacts and an overlay manifest. The linked Rally is AI-complete and remains
+  intentionally identity-unmapped. Two engine instances continue to heartbeat with a concurrency
+  limit of one each.
 
 ## 2026-08-09 — Immediate buffered frame control and timeline seeking
 

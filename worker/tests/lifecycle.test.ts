@@ -6,13 +6,13 @@ describe('runWorkerLifecycle', () => {
     const controller = new AbortController()
     const logs: string[] = []
     const running = runWorkerLifecycle({
-      role: 'clip-worker',
+      role: 'workflow',
       signal: controller.signal,
       log: (message) => logs.push(message),
     })
 
     expect(logs).toHaveLength(1)
-    expect(logs[0]).toContain('role=clip-worker')
+    expect(logs[0]).toContain('role=workflow')
 
     controller.abort()
     await running

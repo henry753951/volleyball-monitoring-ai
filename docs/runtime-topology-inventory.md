@@ -118,5 +118,9 @@ before that gate.
   review access, green browser-buffer ranges, ruler seeking and exact server reconciliation after
   optimistic 60 fps frame stepping.
 
-The external `volleyball-analysis-engine` WS receive/callback E2E remains the final Phase 1 gate
-before destructive AI cleanup.
+The external `volleyball-analysis-engine` WS receive/callback gate passed against persisted job
+`f1dd89e7-9b59-44e8-b1c7-b3e1c02b8ebc`: `analysis-worker-01` accepted the delivery in one attempt,
+central storage recorded one callback receipt, and AnalysisRun
+`e8de313c-ddfc-4efe-9561-2110b6b8a035` completed with 12 tracks, two contacts, one ball path, four
+artifacts and an overlay manifest. The linked Rally remains identity-unmapped, so its correct product
+state is AI-complete blue rather than mapping-complete green.
