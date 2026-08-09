@@ -26,6 +26,15 @@ const teamId = computed(() => track.value?.court_side === 'right' ? props.rightT
 const activeTrackIds = computed(() => new Set(runTracks.value.filter(item => props.currentFrame >= Number(item.first_frame_index) && props.currentFrame <= Number(item.last_frame_index)).map(item => item.track_id)))
 const unavailableRosterIds = computed(() => new Set(runTracks.value.filter(item => item.track_id !== props.trackId && activeTrackIds.value.has(item.track_id) && item.roster_entry_id).map(item => item.roster_entry_id)))
 const players = computed(() => analytics.value?.players.filter(player => player.team_id === teamId.value && !unavailableRosterIds.value.has(player.roster_entry_id)) ?? [])
+const team = computed(() => analytics.value?.teams.find(item => item.id === teamId.value) ?? null)
+const previousTrackByRoster = computed(() => {
+  const result = new Map<string, number>()
+  const candidates = runTracks.value
+    .filter(item => item.track_id !== props.trackId && !activeTrackIds.value.has(item.track_id) && item.roster_entry_id)
+    .sort((left, right) => Number(right.last_frame_index) - Number(left.last_frame_index))
+  for (const item of candidates) if (!result.has(item.roster_entry_id!)) result.set(item.roster_entry_id!, item.track_id)
+  return result
+})
 
 async function refresh() {
   if (!props.open || !props.analysisRunId || props.trackId === null) return
@@ -53,13 +62,13 @@ watch(() => [props.open, props.analysisRunId, props.trackId], refresh, { immedia
 </script>
 
 <template>
-  <div v-if="open && trackId !== null" class="track-popover" :style="{ left: `${x}px`, top: `${y}px` }" role="dialog" aria-label="快速指派球員" @click.stop>
-    <header><span><UserRoundCog :size="15" />Track {{ trackId }}</span><button type="button" aria-label="關閉" @click="emit('close')"><X :size="14" /></button></header>
+  <div v-if="open && trackId !== null" class="track-popover" :class="track?.court_side" :style="{ left: `${x}px`, top: `${y}px` }" role="dialog" aria-label="快速指派球員" @click.stop>
+    <header><span><UserRoundCog :size="15" /><b>{{ team?.shortName || team?.name || '隊伍' }}</b> · T{{ String(trackId).padStart(2, '0') }}</span><button type="button" aria-label="關閉" @click="emit('close')"><X :size="14" /></button></header>
     <div v-if="pending && !analytics" class="loading"><LoaderCircle class="spin" :size="16" />載入中</div>
     <template v-else>
       <button type="button" class="player-option" :class="{ selected: !track?.roster_entry_id }" :disabled="pending" @click="assign('')"><span>未知球員</span><Check v-if="!track?.roster_entry_id" :size="13" /></button>
       <UiScrollArea class="player-scroll"><div>
-        <button v-for="player in players" :key="player.roster_entry_id" type="button" class="player-option" :class="{ selected: track?.roster_entry_id === player.roster_entry_id }" :disabled="pending" @click="assign(player.roster_entry_id)"><span><b>#{{ player.jersey_number }}</b>{{ player.name }}</span><Check v-if="track?.roster_entry_id === player.roster_entry_id" :size="13" /></button>
+        <button v-for="player in players" :key="player.roster_entry_id" type="button" class="player-option" :class="{ selected: track?.roster_entry_id === player.roster_entry_id }" :disabled="pending" @click="assign(player.roster_entry_id)"><span><b>#{{ player.jersey_number }}</b><span class="player-name">{{ player.name }}<small v-if="previousTrackByRoster.has(player.roster_entry_id)">接續 T{{ String(previousTrackByRoster.get(player.roster_entry_id)).padStart(2, '0') }}</small><small v-else>目前未追蹤</small></span></span><Check v-if="track?.roster_entry_id === player.roster_entry_id" :size="13" /></button>
       </div></UiScrollArea>
       <p v-if="!players.length" class="empty">目前沒有可指派的場下球員</p>
       <p v-if="error" class="error">{{ error }}</p>
@@ -68,5 +77,5 @@ watch(() => [props.open, props.analysisRunId, props.trackId], refresh, { immedia
 </template>
 
 <style scoped>
-.track-popover{position:absolute;z-index:30;width:228px;max-height:300px;display:grid;grid-template-rows:auto auto minmax(0,1fr) auto;overflow:hidden;transform:translate(-50%,10px);border:1px solid #3c444c;border-radius:9px;background:#15191df5;color:#edf1f4;box-shadow:0 16px 36px #000a;backdrop-filter:blur(12px)}.track-popover header{height:34px;display:flex;align-items:center;justify-content:space-between;padding:0 7px 0 10px;border-bottom:1px solid #2b3238}.track-popover header span{display:flex;align-items:center;gap:6px;font-size:.65rem;font-weight:750}.track-popover header button{width:25px;min-height:25px!important;display:grid;place-items:center;padding:0!important;border:0!important;background:transparent!important}.player-scroll{max-height:210px}.player-option{width:100%;min-height:34px!important;display:flex;align-items:center;justify-content:space-between;padding:0 10px!important;border:0!important;border-bottom:1px solid #252b31!important;border-radius:0!important;background:transparent!important;color:#bac2ca!important;font-size:.61rem}.player-option:hover,.player-option.selected{background:#232b32!important;color:#fff!important}.player-option span{display:flex;align-items:center;gap:7px}.player-option b{min-width:26px;color:#9fc7eb}.loading,.empty{min-height:56px;display:flex;align-items:center;justify-content:center;gap:7px;margin:0;color:#7f8994;font-size:.61rem}.error{margin:6px;padding:6px;border-radius:5px;background:#391d20;color:#ffb4b9;font-size:.58rem}.spin{animation:spin .8s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}@media(prefers-reduced-motion:reduce){.spin{animation:none}}
+.track-popover{--team:#91a0b2;position:absolute;z-index:30;width:252px;max-height:340px;display:grid;grid-template-rows:auto auto minmax(0,1fr) auto;overflow:hidden;transform:translate(-50%,10px);border:1px solid color-mix(in srgb,var(--team) 28%,#303840);border-radius:10px;background:#11161be8;color:#edf1f4;box-shadow:0 18px 42px #000b;backdrop-filter:blur(16px) saturate(135%)}.track-popover.left{--team:#22d3ee}.track-popover.right{--team:#fb7185}.track-popover header{height:38px;display:flex;align-items:center;justify-content:space-between;padding:0 7px 0 11px;border-bottom:1px solid #ffffff14;box-shadow:inset 3px 0 var(--team)}.track-popover header span{display:flex;align-items:center;gap:6px;font-size:.65rem;font-weight:700}.track-popover header b{color:var(--team);font-weight:850}.track-popover header button{width:27px;min-height:27px!important;display:grid;place-items:center;padding:0!important;border:0!important;background:transparent!important}.player-scroll{max-height:240px}.player-option{width:100%;min-height:42px!important;display:flex;align-items:center;justify-content:space-between;padding:0 10px!important;border:0!important;border-bottom:1px solid #ffffff0c!important;border-radius:0!important;background:transparent!important;color:#bac2ca!important;font-size:.62rem}.player-option:hover,.player-option.selected{background:color-mix(in srgb,var(--team) 9%,#1b2228)!important;color:#fff!important}.player-option>span{display:flex;align-items:center;gap:8px;text-align:left}.player-option b{min-width:28px;color:var(--team)}.player-name{display:grid!important;gap:1px!important}.player-name small{color:#737f8b;font-size:.52rem;font-weight:500}.loading,.empty{min-height:56px;display:flex;align-items:center;justify-content:center;gap:7px;margin:0;color:#7f8994;font-size:.61rem}.error{margin:6px;padding:6px;border-radius:5px;background:#391d20;color:#ffb4b9;font-size:.58rem}.spin{animation:spin .8s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}@media(prefers-reduced-motion:reduce){.spin{animation:none}}
 </style>

@@ -52,4 +52,79 @@ describe('annotation optimistic command queue', () => {
       snapshot: { annotation_status: 'open', key_points: [{ key_point_id: 'canonical-service', capture_time_us: '999' }] },
     })
   })
+
+  it('enters correction edit mode from the REOPEN_RALLY ACK', () => {
+    const correction = structuredClone(snapshot)
+    correction.revision = '8'
+    correction.snapshot.annotation_status = 'ready'
+    correction.snapshot.active_submission_id = '00000000-0000-4000-8000-000000000020'
+    correction.snapshot.score_resolution = 'resolved'
+    correction.snapshot.scoring_court_side = 'left'
+    correction.snapshot.key_points[0]!.is_terminal = true
+    const command: AnnotationCommand = {
+      schema_version: '2.0.0',
+      command_id: '00000000-0000-4000-8000-000000000021',
+      room_id: room,
+      base_revision: '8',
+      rally_id: rally,
+      kind: 'REOPEN_RALLY',
+      payload: {},
+    }
+    const ack = {
+      schema_version: '2.0.0',
+      type: 'command_ack',
+      command_id: command.command_id,
+      room_id: room,
+      rally_id: rally,
+      operation_kind: command.kind,
+      result_revision: '9',
+      server_sequence: '9',
+      effects: {
+        annotation_status: 'open',
+        score_resolution: 'resolved',
+        scoring_court_side: 'left',
+      },
+      resolved_anchor: null,
+    } as AnnotationCommandAck
+
+    expect(applyAnnotationAckLocally(correction, command, ack)).toMatchObject({
+      revision: '9',
+      snapshot: {
+        annotation_status: 'open',
+        active_submission_id: correction.snapshot.active_submission_id,
+        score_resolution: 'resolved',
+        scoring_court_side: 'left',
+        key_points: [{ is_terminal: true }],
+      },
+    })
+  })
+
+  it('applies a MOVE_KEY_POINT ACK to the visible marker without waiting for a snapshot refetch', () => {
+    const correction = structuredClone(snapshot)
+    correction.revision = '9'
+    correction.snapshot.active_submission_id = '00000000-0000-4000-8000-000000000020'
+    correction.snapshot.key_points.push({
+      key_point_id: 'contact', sequence_index: 1, marker_kind: 'contact', is_terminal: false,
+      capture_time_us: '2000', capture_frame_index: '20', timing_precision: 'frame_exact', possible_duplicate: false,
+    })
+    const command: AnnotationCommand = {
+      schema_version: '2.0.0', command_id: '00000000-0000-4000-8000-000000000022', room_id: room,
+      base_revision: '9', rally_id: rally, kind: 'MOVE_KEY_POINT',
+      payload: { key_point_id: 'contact', playback_cursor: cursor },
+    }
+    const ack = {
+      schema_version: '2.0.0', type: 'command_ack', command_id: command.command_id, room_id: room,
+      rally_id: rally, operation_kind: command.kind, result_revision: '10', server_sequence: '10',
+      effects: { annotation_status: 'open' },
+      resolved_anchor: {
+        playback_window_id: 'window', capture_session_id: 'capture', capture_epoch_id: 'epoch', dvr_segment_id: 'segment',
+        source_pts: '42', source_time_base: { num: 1, den: 60 }, capture_time_us: '2033', capture_frame_index: '21',
+        resolved_player_media_time_us: '100', mapping_version: 1, snap_distance_us: '1', timing_precision: 'frame_exact',
+      },
+    } as AnnotationCommandAck
+
+    expect(applyAnnotationAckLocally(correction, command, ack)?.snapshot.key_points[1]).toMatchObject({
+      key_point_id: 'contact', capture_time_us: '2033', capture_frame_index: '21', sequence_index: 1,
+    })
+  })
 })
