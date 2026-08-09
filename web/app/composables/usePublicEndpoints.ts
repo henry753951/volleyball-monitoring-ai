@@ -17,6 +17,7 @@ export function usePublicEndpoints() {
   }
 
   return {
+    analysisReviewWsUrl: (analysisRunId: string) => toWebSocketUrl(`${config.public.analysisReviewWsPath.replace(/\/$/, '')}/${encodeURIComponent(analysisRunId)}`),
     graphqlUrl: computed(() => toHttpUrl(config.public.graphqlPath)),
     annotationWsUrl: computed(() => toWebSocketUrl(config.public.annotationWsPath)),
     coachWsUrl: computed(() => toWebSocketUrl(config.public.coachWsPath)),

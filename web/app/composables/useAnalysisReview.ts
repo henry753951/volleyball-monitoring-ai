@@ -6,6 +6,7 @@ const operationKey = (operation: AnalysisReviewOperation) => operation.op === 's
   : `action:${operation.frame_index}:${operation.track_id}`
 
 export function useAnalysisReview(analysisRunId: MaybeRefOrGetter<string | null>) {
+  const { analysisReviewWsUrl } = usePublicEndpoints()
   const revision = ref('0')
   const ballCorrections = shallowRef(new Map<string, { x: number; y: number }>())
   const actionCorrections = shallowRef(new Map<string, AnalysisReviewAction>())
@@ -46,8 +47,7 @@ export function useAnalysisReview(analysisRunId: MaybeRefOrGetter<string | null>
     if (!id || !import.meta.client) return
     socket?.close()
     connection.value = 'connecting'
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-    socket = new WebSocket(`${protocol}//${window.location.host}/api/v1/analysis-runs/${encodeURIComponent(id)}/review/ws`)
+    socket = new WebSocket(analysisReviewWsUrl(id))
     socket.addEventListener('open', () => { if (currentGeneration === generation) connection.value = 'ready' })
     socket.addEventListener('message', (event) => {
       if (currentGeneration !== generation) return

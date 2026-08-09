@@ -122,6 +122,8 @@ let windowCreatePromise: ReturnType<typeof dvr.create> | null = null
 let windowCreateTarget: string | undefined
 let windowCreateMode: 'live' | 'archive' | undefined
 let queuedFrameDelta = 0
+let framePreviewTargetSeconds: number | null = null
+let estimatedFrameSeconds = 1 / 60
 
 const controls = computed(() => ANNOTATION_COMMANDS.map(command => ({
   ...command,
@@ -371,7 +373,10 @@ function handleCursor(cursor: PlaybackCursorInput) {
   const previousSeekGeneration = observedCursor.value?.seek_generation
   observedCursor.value = cursor
   cursorStatus.value = cursor.cursor_status
-  if (seekPreviewActive.value) return
+  // Frame stepping owns the player position until its authoritative queue has
+  // drained. Browser seek callbacks are observations of the optimistic preview,
+  // not new commands that should race the canonical sample-index resolver.
+  if (seekPreviewActive.value || frameQueueRunning.value) return
   if (cursor.cursor_status !== 'ready') {
     pendingCursorResolve = null
     return
@@ -878,30 +883,57 @@ function dispatchMediaAction(action: PlayerAction, frameCount = 1) {
 }
 
 function queueFrameStep(direction: 'previous' | 'next', count = 1) {
-  queuedFrameDelta = Math.max(-60, Math.min(60, queuedFrameDelta + (direction === 'next' ? count : -count)))
+  const delta = direction === 'next' ? count : -count
+  queuedFrameDelta = Math.max(-60, Math.min(60, queuedFrameDelta + delta))
+  previewFrameStep(delta)
   if (!frameQueueRunning.value) void drainFrameQueue()
+}
+
+function previewFrameStep(delta: number) {
+  const element = video.value
+  const window = descriptor.value
+  if (!element || !window) return
+  if (!element.paused) element.pause()
+  const windowDuration = Number(BigInt(window.window_capture_end_us) - BigInt(window.presentation_origin_capture_us)) / 1_000_000
+  const mediaEnd = Number.isFinite(element.duration) ? Math.min(element.duration, windowDuration) : windowDuration
+  const base = framePreviewTargetSeconds ?? element.currentTime
+  framePreviewTargetSeconds = Math.max(0, Math.min(mediaEnd, base + delta * estimatedFrameSeconds))
+  element.currentTime = framePreviewTargetSeconds
 }
 
 async function drainFrameQueue() {
   if (!descriptor.value || frameQueueRunning.value) return
   frameQueueRunning.value = true
+  let finalStepAnchor: Awaited<ReturnType<typeof dvr.step>> = null
   try {
     if (observedCursor.value?.cursor_status === 'ready') {
-      const resolved = await dvr.resolve(observedCursor.value)
-      if (resolved) lastResolvedCursorKey = `${observedCursor.value.playback_window_id}:${observedCursor.value.mapping_version}:${observedCursor.value.seek_generation}:${observedCursor.value.player_media_time_us}`
+      const observedKey = `${observedCursor.value.playback_window_id}:${observedCursor.value.mapping_version}:${observedCursor.value.seek_generation}:${observedCursor.value.player_media_time_us}`
+      if (observedKey !== lastResolvedCursorKey) {
+        const resolved = await dvr.resolve(observedCursor.value)
+        if (resolved) lastResolvedCursorKey = observedKey
+      }
     }
     while (queuedFrameDelta !== 0 && descriptor.value && authoritativeAnchor.value) {
       const direction = queuedFrameDelta > 0 ? 'next' : 'previous'
       queuedFrameDelta += direction === 'next' ? -1 : 1
+      const previousCaptureUs = BigInt(authoritativeAnchor.value.capture_time_us)
       const anchor = await dvr.step(direction, target => ({ schema_version: '1.0.0', capture_session_id: descriptor.value!.capture_session_id, mode: descriptor.value!.mode, target_capture_time_us: target }))
       if (!anchor) { queuedFrameDelta = 0; break }
+      finalStepAnchor = anchor
       const localUs = BigInt(anchor.player_media_time_us)
       if (localUs < 0n || localUs > 86_400_000_000n) throw new RangeError('frame-step returned an unbounded player time')
-      if (video.value) seekVideoToCanonicalFrame(video.value, anchor)
+      const anchorCaptureUs = BigInt(anchor.capture_time_us)
+      const measuredFrameUs = anchorCaptureUs >= previousCaptureUs ? anchorCaptureUs - previousCaptureUs : previousCaptureUs - anchorCaptureUs
+      if (measuredFrameUs > 0n && measuredFrameUs <= 200_000n) estimatedFrameSeconds = Number(measuredFrameUs) / 1_000_000
     }
+    if (video.value && finalStepAnchor) seekVideoToCanonicalFrame(video.value, finalStepAnchor)
   }
   catch (error) { queuedFrameDelta = 0; mediaError.value = error instanceof Error ? error.message : '逐幀請求失敗' }
-  finally { frameQueueRunning.value = false }
+  finally {
+    framePreviewTargetSeconds = null
+    frameQueueRunning.value = false
+    if (queuedFrameDelta !== 0) queueMicrotask(() => void drainFrameQueue())
+  }
 }
 
 function navigateKeyPoint(direction: 'previous' | 'next') {
@@ -979,7 +1011,7 @@ function commandEnabled(action: HotkeyCommand) {
   if (action === 'play_pause') return Boolean(descriptor.value)
   if (action.startsWith('key_point_')) return navigableKeyPoints.value.length > 0
   return action.startsWith('frame_')
-    ? Boolean(descriptor.value && authoritativeAnchor.value && cursorStatus.value === 'ready')
+    ? Boolean(descriptor.value && authoritativeAnchor.value && (cursorStatus.value === 'ready' || frameQueueRunning.value))
     : controls.value.some(control => control.action === action && control.enabled)
 }
 useAnnotationHotkeyRuntime({ target: hotkeyTarget, dispatch: dispatchHotkeyCommand, commandEnabled })
