@@ -735,22 +735,26 @@ function retryableContinuationError(error: unknown) {
 function maintainPlaybackWindow() {
   const element = video.value
   const window = descriptor.value
-  if (!element || !window || seekPreviewActive.value || playbackContinuationInFlight || !playbackHasStarted) return
+  if (!element || !window || seekPreviewActive.value || playbackContinuationInFlight) return
+  const leaseRenewalDue = Date.parse(window.expires_at) <= Date.now() + 60_000
+  if (!playbackHasStarted && !leaseRenewalDue) return
   const observedCapture = BigInt(window.presentation_origin_capture_us) + BigInt(Math.max(0, Math.round(element.currentTime * 1_000_000)))
   const windowEnd = BigInt(window.window_capture_end_us)
   const target = (observedCapture > windowEnd ? windowEnd : observedCapture).toString()
-  const decision = decidePlaybackContinuation({
-    availabilityComplete: Boolean(timeline.value?.availabilityComplete)
-      || ['complete_vod', 'ended_live', 'failed'].includes(playbackMode.value),
-    browserBufferedSeconds: bufferedSecondsAhead(element),
-    currentCaptureTimeUs: target,
-    ended: element.ended,
-    paused: element.paused,
-    playbackHasStarted,
-    refreshLeadSeconds: mediaBufferProfile.value.refreshLeadSeconds,
-    seekPreviewActive: seekPreviewActive.value,
-    windowEndCaptureTimeUs: window.window_capture_end_us,
-  })
+  const decision = !playbackHasStarted && leaseRenewalDue
+    ? 'extend-server-window'
+    : decidePlaybackContinuation({
+      availabilityComplete: Boolean(timeline.value?.availabilityComplete)
+        || ['complete_vod', 'ended_live', 'failed'].includes(playbackMode.value),
+      browserBufferedSeconds: bufferedSecondsAhead(element),
+      currentCaptureTimeUs: target,
+      ended: element.ended,
+      paused: element.paused,
+      playbackHasStarted,
+      refreshLeadSeconds: mediaBufferProfile.value.refreshLeadSeconds,
+      seekPreviewActive: seekPreviewActive.value,
+      windowEndCaptureTimeUs: window.window_capture_end_us,
+    })
   if (decision === 'idle' || decision === 'terminal') return
   if (performance.now() - continuationRequestedAt < 500) {
     schedulePlaybackContinuation(500)
@@ -777,6 +781,7 @@ function maintainPlaybackWindow() {
       created.mapping_version !== window.mapping_version
       || created.window_capture_end_us !== window.window_capture_end_us
       || created.window_capture_start_us !== window.window_capture_start_us
+      || created.expires_at !== window.expires_at
     ) {
       continuationRetryDelayMs = 500
       dvr.refresh(created)
@@ -983,7 +988,10 @@ watch(() => dvr.error.value, (error) => {
 onMounted(() => {
   annotationScope.value?.focus({ preventScroll: true })
   void loadMatch()
-  timelineRefreshTimer = setInterval(() => { void refreshSelectedCapture() }, 2_500)
+  timelineRefreshTimer = setInterval(() => {
+    void refreshSelectedCapture()
+    maintainPlaybackWindow()
+  }, 2_500)
 })
 onBeforeUnmount(() => {
   if (timelineRefreshTimer) clearInterval(timelineRefreshTimer)

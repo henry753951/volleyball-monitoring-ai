@@ -62,6 +62,12 @@ class ManagedSource:
     process: subprocess.Popen[bytes] | None = None
 
 
+@dataclass(frozen=True)
+class MediaInput:
+    url: str
+    headers: dict[str, str]
+
+
 class SourceManager:
     def __init__(self) -> None:
         self.recording_root = Path(required_env('MEDIA_RECORDING_ROOT')).resolve()
@@ -219,7 +225,7 @@ class SourceManager:
         self._record_classification(source, source_kind, duration_us)
         self._notify_classified(capture_id, source_kind, duration_us)
         if live:
-            final_metadata = self._relay_live(source, url)
+            final_metadata = self._relay_live(source, url, metadata)
             if final_metadata is None:
                 return
             final_duration_us = self._metadata_duration_us(final_metadata) or duration_us
@@ -228,10 +234,10 @@ class SourceManager:
             self._deliver_completion(source)
             return
 
-        stream_urls = self._resolve_youtube_urls(source, url)
+        media_inputs = self._youtube_inputs(metadata)
         count = self._segment_inputs(
             source,
-            stream_urls,
+            media_inputs,
             str(metadata.get('vcodec') or ''),
         )
         if source.stop.is_set():
@@ -269,20 +275,59 @@ class SourceManager:
             return None
         return duration_us if duration_us > 0 else None
 
-    def _resolve_youtube_urls(self, source: ManagedSource, url: str) -> list[str]:
-        resolved = self._command(source, [
-            'yt-dlp', '--no-playlist', '--no-progress', '--no-warnings',
-            '--extractor-args', self.extractor_args, '--format', self.format, '--get-url', url,
-        ], capture=True)
-        stream_urls = [line for line in (resolved.stdout or b'').decode().splitlines() if line]
-        if len(stream_urls) not in (1, 2):
+    @staticmethod
+    def _youtube_inputs(metadata: dict[str, object]) -> list[MediaInput]:
+        selected = metadata.get('requested_formats')
+        candidates = selected if isinstance(selected, list) and selected else [metadata]
+        media_inputs: list[MediaInput] = []
+        for candidate in candidates:
+            if not isinstance(candidate, dict):
+                continue
+            url = candidate.get('url')
+            if not isinstance(url, str) or urlparse(url).scheme not in ('http', 'https'):
+                continue
+            raw_headers = candidate.get('http_headers')
+            headers = {
+                str(name): str(value)
+                for name, value in raw_headers.items()
+                if isinstance(name, str) and isinstance(value, str) and name and value
+            } if isinstance(raw_headers, dict) else {}
+            media_inputs.append(MediaInput(url=url, headers=headers))
+        if len(media_inputs) not in (1, 2):
             raise RuntimeError('expected one combined stream or separate video and audio streams')
-        return stream_urls
+        return media_inputs
 
-    def _relay_live(self, source: ManagedSource, url: str) -> dict[str, object] | None:
+    @staticmethod
+    def _ffmpeg_input_args(media_input: str | MediaInput, realtime: bool = False) -> list[str]:
+        resolved = media_input if isinstance(media_input, MediaInput) else MediaInput(media_input, {})
+        args: list[str] = []
+        if resolved.headers:
+            # YouTube's signed googlevideo URLs are tied to the HTTP request
+            # profile returned by yt-dlp. ffmpeg's default Lavf user agent can
+            # otherwise receive a 403 even while the signed URL is fresh.
+            serialized_headers = ''.join(
+                f'{name}: {value}\r\n'
+                for name, value in resolved.headers.items()
+            )
+            args.extend(['-headers', serialized_headers])
+        if realtime:
+            args.append('-re')
+        args.extend(['-i', resolved.url])
+        return args
+
+    def _relay_live(
+        self,
+        source: ManagedSource,
+        url: str,
+        initial_metadata: dict[str, object] | None = None,
+    ) -> dict[str, object] | None:
+        metadata = initial_metadata
         while not source.stop.is_set():
             try:
-                stream_urls = self._resolve_youtube_urls(source, url)
+                metadata = metadata or self._probe_youtube(source, url)
+                if not self._metadata_is_live(metadata):
+                    return metadata
+                media_inputs = self._youtube_inputs(metadata)
             except RuntimeError:
                 if source.stop.is_set():
                     return None
@@ -295,9 +340,9 @@ class SourceManager:
                 time.sleep(3)
                 continue
             args = ['ffmpeg', '-nostdin', '-hide_banner', '-loglevel', 'warning']
-            for stream_url in stream_urls:
-                args.extend(['-re', '-i', stream_url])
-            if len(stream_urls) == 1:
+            for media_input in media_inputs:
+                args.extend(self._ffmpeg_input_args(media_input, realtime=True))
+            if len(media_inputs) == 1:
                 args.extend(['-map', '0:v:0', '-map', '0:a:0?'])
             else:
                 args.extend(['-map', '0:v:0', '-map', '1:a:0'])
@@ -313,7 +358,7 @@ class SourceManager:
                 if not self._metadata_is_live(metadata):
                     return metadata
             except RuntimeError:
-                pass
+                metadata = None
             time.sleep(1 if return_code == 0 else 3)
         return None
 
@@ -336,9 +381,9 @@ class SourceManager:
         ], capture=True)
         streams = json.loads((probe.stdout or b'{}').decode()).get('streams', [])
         codec = streams[0].get('codec_name') if streams else None
-        return self._segment_inputs(source, [str(media_path)], str(codec or ''))
+        return self._segment_inputs(source, [MediaInput(str(media_path), {})], str(codec or ''))
 
-    def _segment_inputs(self, source: ManagedSource, inputs: list[str], codec: str) -> int:
+    def _segment_inputs(self, source: ManagedSource, inputs: list[str | MediaInput], codec: str) -> int:
         capture_id = source.config['capture_session_id']
         workspace = self.work_root / capture_id
         segment_root = workspace / 'segments'
@@ -362,10 +407,14 @@ class SourceManager:
         ]
         args = ['ffmpeg', '-nostdin', '-hide_banner', '-loglevel', 'warning']
         for value in inputs:
-            args.extend(['-i', value])
+            args.extend(self._ffmpeg_input_args(value))
         args.extend(['-map', '0:v:0', '-map', '0:a:0?' if len(inputs) == 1 else '1:a:0'])
         args.extend([
             *video_codec, '-c:a', 'aac', '-f', 'segment', '-segment_time', '2',
+            # Each independently playable recording starts its own source PTS
+            # epoch. The canonical planner joins those epochs in capture time;
+            # the playback manifest emits a transport discontinuity at each
+            # epoch boundary so MSE never overlaps the reset decode timestamps.
             '-reset_timestamps', '1', '-segment_format', 'mp4',
             # Emit independently playable fragmented MP4 files. The indexer
             # can split these into init/media artifacts directly instead of
@@ -395,7 +444,11 @@ class SourceManager:
         while True:
             return_code = process.poll()
             segments = sorted(segment_root.glob('segment-*.mp4'))
-            publishable = len(segments) if return_code is not None else max(0, len(segments) - 1)
+            # The segment muxer only seals the current tail when ffmpeg exits
+            # successfully. A user stop terminates ffmpeg and can leave that
+            # final path present but without a complete moov/moof layout. Keep
+            # it withheld from both the spool and completion watermark.
+            publishable = len(segments) if return_code == 0 else max(0, len(segments) - 1)
             while published < publishable:
                 publish(segments[published], published)
                 published += 1
@@ -406,6 +459,7 @@ class SourceManager:
             time.sleep(0.1)
         source.process = None
         if source.stop.is_set():
+            shutil.rmtree(workspace, ignore_errors=True)
             return published
         if return_code != 0:
             raise RuntimeError(f'media segmentation failed ({return_code})')

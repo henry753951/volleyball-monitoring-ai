@@ -119,20 +119,30 @@ describe('capture lifecycle and processing retry', () => {
   })
 
   it('allows only one active media source per match', async () => {
-    const capture = await startCapture(db, operator, {
-      ingestPath: `single-source-${randomUUID()}`,
-      matchId: ids.match,
-      sourceKind: 'rtmp',
-    })
-    await expect(startCapture(db, operator, {
-      ingestPath: `second-source-${randomUUID()}`,
-      matchId: ids.match,
-      sourceKind: 'rtmp',
-    })).rejects.toMatchObject({
+    const attempts = await Promise.allSettled([
+      startCapture(db, operator, {
+        ingestPath: `single-source-${randomUUID()}`,
+        matchId: ids.match,
+        sourceKind: 'rtmp',
+      }),
+      startCapture(db, operator, {
+        ingestPath: `second-source-${randomUUID()}`,
+        matchId: ids.match,
+        sourceKind: 'rtmp',
+      }),
+    ])
+    const fulfilled = attempts.find(result => result.status === 'fulfilled')
+    const rejected = attempts.find(result => result.status === 'rejected')
+    expect(fulfilled?.status).toBe('fulfilled')
+    expect(rejected?.status).toBe('rejected')
+    if (fulfilled?.status !== 'fulfilled' || rejected?.status !== 'rejected') {
+      throw new Error('Expected exactly one concurrent capture start to succeed')
+    }
+    expect(rejected.reason).toMatchObject({
       code: 'BAD_USER_INPUT',
       message: 'Match already has an active media source',
     })
-    await stopCapture(db, operator, capture.id)
+    await stopCapture(db, operator, fulfilled.value.id)
   })
 
   it('persists source classification and finalizes an empty sealed import idempotently', async () => {

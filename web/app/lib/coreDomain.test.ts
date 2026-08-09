@@ -1,7 +1,14 @@
 import { describe, expect, it, vi } from 'vitest'
-import { createCoreDomainClient, createGraphQLTransport, GraphQLRequestError } from './coreDomain'
+import { parse } from 'graphql'
+import { CORE_OPERATIONS, createCoreDomainClient, createGraphQLTransport, GraphQLRequestError } from './coreDomain'
 
 describe('core domain adapter', () => {
+  it('keeps every hand-authored operation syntactically valid', () => {
+    for (const operation of Object.values(CORE_OPERATIONS)) {
+      expect(() => parse(operation)).not.toThrow()
+    }
+  })
+
   it('accepts list/setup match shapes without captureSessions while detail may include them', async () => {
     const fetchImpl = vi.fn(async () => new Response(JSON.stringify({ data: { matches: [{ id: 'm', title: 'M', venue: null, status: 'LIVE', scheduledAt: null, teams: [], rosterEntries: [], sets: [] }] } }), { status: 200 }))
     const result = await createCoreDomainClient(createGraphQLTransport('/graphql', fetchImpl as typeof fetch)).matches()

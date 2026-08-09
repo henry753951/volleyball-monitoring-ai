@@ -279,10 +279,20 @@ describe('media cursor HTTP authorization and validation', () => {
     expect(expired.json().code).toBe('WINDOW_EXPIRED')
 
     visibleWindow = fullWindow()
-    const outside = await app.inject({
+    const terminal = await app.inject({
       headers: testHeaders(),
       method: 'POST',
       payload: cursorBody(visibleWindow.captureEndUs - visibleWindow.captureStartUs),
+      url: '/api/v1/media/resolve-cursor',
+    })
+    expect(terminal.statusCode).toBe(200)
+    expect(parseResolvedMediaAnchor(terminal.json()).capture_frame_index)
+      .toBe(secondIndex.samples.at(-1)!.captureFrameIndex.toString())
+
+    const outside = await app.inject({
+      headers: testHeaders(),
+      method: 'POST',
+      payload: cursorBody(visibleWindow.captureEndUs - visibleWindow.captureStartUs + 1n),
       url: '/api/v1/media/resolve-cursor',
     })
     expect(outside.statusCode).toBe(422)

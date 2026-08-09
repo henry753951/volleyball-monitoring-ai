@@ -60,6 +60,7 @@ export interface MediaPlaybackDeps {
       id: string
       captureStartUs: bigint
       captureEndUs: bigint
+      discontinuity: number
       sampleIndexLocation: {
         bucket: string
         key: string
@@ -149,6 +150,14 @@ function parseWireUint(value: string | undefined): bigint | undefined {
 
 function resolvedLimits(overrides: Partial<PlaybackWindowLimits> | undefined) {
   return { ...DEFAULT_LIMITS, ...overrides }
+}
+
+function playbackWindowTtlMs(deps: MediaPlaybackDeps): number {
+  const ttlMs = deps.windowTtlMs ?? 300_000
+  if (!Number.isSafeInteger(ttlMs) || ttlMs <= 0) {
+    throw new MediaHttpError(500, 'MEDIA_NOT_READY', 'Playback window TTL is invalid')
+  }
+  return ttlMs
 }
 
 interface MediaAssetMetadata {
@@ -276,7 +285,11 @@ async function visibleWindowWithSegments(id: string, identity: MediaIdentity) {
       segments: {
         include: {
           dvrSegment: {
-            include: { initAsset: true, mediaAsset: true },
+            include: {
+              captureEpoch: { select: { sequenceIndex: true } },
+              initAsset: true,
+              mediaAsset: true,
+            },
           },
         },
         orderBy: { sequenceIndex: 'asc' },
@@ -348,7 +361,15 @@ function manifestEntries(window: VisibleWindowWithSegments) {
     previousEndUs = segment.captureEndUs
     return {
       durationUs: segment.durationUs,
-      discontinuity: segment.discontinuitySequence,
+      // Canonical capture continuity deliberately permits a pure PTS reset
+      // without opening a gap. MSE/HLS does not: fMP4 decode timestamps from a
+      // new capture epoch need an EXT-X-DISCONTINUITY so hls.js assigns the
+      // fragment to the next presentation range instead of overlapping the
+      // preceding media. Epoch sequence is absolute, which also keeps
+      // EXT-X-DISCONTINUITY-SEQUENCE stable when a rolling window drops its
+      // prefix. Do not reuse the domain discontinuity counter here; that value
+      // describes canonical clip/gap boundaries rather than transport PTS.
+      discontinuity: segment.captureEpoch.sequenceIndex,
       id: segment.id,
       initAssetId: segment.initAssetId,
       sequenceNumber: segment.sequenceNumber,
@@ -430,6 +451,7 @@ async function createPlaybackWindow(
         return {
           captureEndUs: segment.captureEndUs,
           captureStartUs: segment.captureStartUs,
+          discontinuity: segment.discontinuity,
           id: segment.id,
           sampleIndexLocation: {
             bucket: row.sampleIndexAsset.bucket,
@@ -444,11 +466,9 @@ async function createPlaybackWindow(
     throw new MediaHttpError(409, 'MEDIA_NOT_READY', 'Sample index resolution failed')
   }
   const presentationOriginCaptureUs = presentationOriginForSnap(selection, snap)
-  const ttlMs = deps.windowTtlMs ?? 300_000
-  if (!Number.isSafeInteger(ttlMs) || ttlMs <= 0) {
-    throw new MediaHttpError(500, 'MEDIA_NOT_READY', 'Playback window TTL is invalid')
-  }
-  const expiresAt = new Date((deps.now ?? (() => new Date()))().getTime() + ttlMs)
+  const expiresAt = new Date(
+    (deps.now ?? (() => new Date()))().getTime() + playbackWindowTtlMs(deps),
+  )
   const id = randomUUID()
   try {
     await db.$transaction((transaction) => transaction.playbackWindow.create({
@@ -500,7 +520,13 @@ async function extendPlaybackWindow(
 ) {
   const current = await visibleWindowWithSegments(windowId, identity)
   if (!current) throw new MediaHttpError(404, 'NOT_FOUND', 'Playback window not found')
-  assertWindowActive(current, (deps.now ?? (() => new Date()))())
+  const requestNow = (deps.now ?? (() => new Date()))()
+  assertWindowActive(current, requestNow)
+  const ttlMs = playbackWindowTtlMs(deps)
+  const renewalLeadMs = Math.min(60_000, Math.max(1_000, Math.floor(ttlMs / 2)))
+  const expiresAt = current.expiresAt.getTime() <= requestNow.getTime() + renewalLeadMs
+    ? new Date(requestNow.getTime() + ttlMs)
+    : current.expiresAt
   if (current.segments.length === 0) {
     throw new MediaHttpError(409, 'MEDIA_NOT_READY', 'Playback window has no media')
   }
@@ -529,11 +555,20 @@ async function extendPlaybackWindow(
     selection.segments,
   )
   if (!appended) {
+    if (expiresAt.getTime() !== current.expiresAt.getTime()) {
+      const renewed = await db.playbackWindow.updateMany({
+        data: { expiresAt },
+        where: { id: windowId, mappingVersion: current.mappingVersion },
+      })
+      if (renewed.count !== 1) {
+        throw new MediaHttpError(409, 'MAPPING_STALE', 'Playback window changed while renewing its lease')
+      }
+    }
     return buildPlaybackDescriptor({
       captureEndUs: current.captureEndUs,
       captureSessionId: current.captureSessionId,
       captureStartUs: current.captureStartUs,
-      expiresAt: current.expiresAt,
+      expiresAt,
       id: current.id,
       liveEdgeUs: current.dvrProgram.liveEdgeUs,
       mappingVersion: current.mappingVersion,
@@ -563,6 +598,7 @@ async function extendPlaybackWindow(
           captureStartUs: selection.windowStartUs,
           captureEndUs: selection.windowEndUs,
           mappingVersion,
+          expiresAt,
           targetPlayerMediaTimeUs,
           timelineVersion: current.dvrProgram.playlistRevision,
           segments: {
@@ -584,7 +620,7 @@ async function extendPlaybackWindow(
     captureEndUs: selection.windowEndUs,
     captureSessionId: current.captureSessionId,
     captureStartUs: selection.windowStartUs,
-    expiresAt: current.expiresAt,
+    expiresAt,
     id: current.id,
     liveEdgeUs: current.dvrProgram.liveEdgeUs,
     mappingVersion,

@@ -6,6 +6,7 @@ const OPERATOR_ROLES = new Set<UserRole>([UserRole.ADMIN, UserRole.OPERATOR])
 const CAPTURE_PATH = /^[A-Za-z0-9][A-Za-z0-9._/-]{0,190}$/
 const SOURCE_KIND = /^[a-z][a-z0-9_-]{1,31}$/
 const MEDIA_INGEST_LOCK_DOMAIN = 'volleyball-media-ingest-v1'
+const SERIALIZABLE_TRANSACTION_ATTEMPTS = 3
 
 export class OperationalMutationError extends Error {
   constructor(
@@ -52,6 +53,37 @@ function normalizedCapturePath(value: string): string {
     throw new OperationalMutationError('BAD_USER_INPUT', 'ingestPath must be a safe media stream path')
   }
   return path
+}
+
+function transactionWriteConflict(error: unknown): boolean {
+  return typeof error === 'object'
+    && error !== null
+    && 'code' in error
+    && error.code === 'P2034'
+}
+
+async function serializableTransaction<T>(
+  database: PrismaClient,
+  operation: (tx: Prisma.TransactionClient) => Promise<T>,
+): Promise<T> {
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      return await database.$transaction(operation, {
+        isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+      })
+    }
+    catch (error) {
+      if (
+        !transactionWriteConflict(error)
+        || attempt >= SERIALIZABLE_TRANSACTION_ATTEMPTS
+      ) throw error
+      // PostgreSQL can abort a serializable snapshot after the per-match
+      // advisory lock wakes up. Retry the whole operation so it observes the
+      // capture committed by the winner and returns the domain-level duplicate
+      // result instead of leaking Prisma P2034 to the UI.
+      await new Promise(resolve => setTimeout(resolve, attempt * 10))
+    }
+  }
 }
 
 async function mediaLifecycleLock(
@@ -145,7 +177,7 @@ export async function updateCaptureSourceMetadata(
   if (!SOURCE_KIND.test(sourceKind) || input.sourceDurationUs !== null && input.sourceDurationUs <= 0n) {
     throw new OperationalMutationError('BAD_USER_INPUT', 'Capture source metadata is invalid')
   }
-  return database.$transaction(async tx => {
+  return serializableTransaction(database, async tx => {
     await mediaLifecycleLock(tx, captureSessionId)
     const capture = await tx.captureSession.findUnique({ where: { id: captureSessionId } })
     if (!capture) throw new OperationalMutationError('NOT_FOUND', 'Capture session was not found')
@@ -156,7 +188,7 @@ export async function updateCaptureSourceMetadata(
       },
       where: { id: captureSessionId },
     })
-  }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable })
+  })
 }
 
 export async function requestCaptureCompletion(
@@ -175,7 +207,7 @@ export async function requestCaptureCompletion(
   if (!SOURCE_KIND.test(sourceKind) || input.sourceDurationUs !== null && input.sourceDurationUs <= 0n) {
     throw new OperationalMutationError('BAD_USER_INPUT', 'Capture completion metadata is invalid')
   }
-  return database.$transaction(async tx => {
+  return serializableTransaction(database, async tx => {
     await mediaLifecycleLock(tx, captureSessionId)
     const capture = await tx.captureSession.findUnique({ where: { id: captureSessionId } })
     if (!capture) throw new OperationalMutationError('NOT_FOUND', 'Capture session was not found')
@@ -202,7 +234,7 @@ export async function requestCaptureCompletion(
       where: { captureSessionId, status: { in: ['STARTING', 'LIVE'] } },
     })
     return finalizeCaptureIfDrainedInTransaction(tx, captureSessionId)
-  }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable })
+  })
 }
 
 export async function finalizeCaptureIfDrained(
@@ -231,7 +263,7 @@ export async function startCapture(
     throw new OperationalMutationError('BAD_USER_INPUT', 'sourceConfigSecretRef must be an opaque secret reference')
   }
 
-  return database.$transaction(async tx => {
+  return serializableTransaction(database, async tx => {
     await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`capture-match:${input.matchId}`}, 0))::text AS lock`
     await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`capture-path:${ingestPath}`}, 0))::text AS lock`
     const match = await tx.match.findFirst({
@@ -275,7 +307,7 @@ export async function startCapture(
       },
     })
     return { ...capture, timeline: null }
-  }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable })
+  })
 }
 
 export async function failCaptureStartup(

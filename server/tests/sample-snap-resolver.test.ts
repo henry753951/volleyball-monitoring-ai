@@ -48,8 +48,8 @@ describe('sample snap resolver', () => {
     await expect(resolver({
       targetUs: BASE_US + 10n,
       segments: [
-        { id: 'a', captureStartUs: BASE_US, captureEndUs: BASE_US + 10n },
-        { id: 'b', captureStartUs: BASE_US + 10n, captureEndUs: BASE_US + 20n },
+        { id: 'a', captureStartUs: BASE_US, captureEndUs: BASE_US + 10n, discontinuity: 0 },
+        { id: 'b', captureStartUs: BASE_US + 10n, captureEndUs: BASE_US + 20n, discontinuity: 0 },
       ],
     })).resolves.toEqual({ captureUs: BASE_US + 10n, playerUs: 10n })
     expect(ids).toEqual(['a', 'b'])
@@ -77,6 +77,7 @@ describe('sample snap resolver', () => {
         id: 'a',
         captureStartUs: BASE_US,
         captureEndUs: BASE_US + 20n,
+        discontinuity: 0,
       }],
     })).resolves.toEqual({ captureUs: BASE_US, playerUs: 0n })
   })
@@ -93,14 +94,14 @@ describe('sample snap resolver', () => {
     })
     await expect(resolver({
       targetUs: 1n,
-      segments: [{ id: 'a', captureStartUs: 0n, captureEndUs: 2n }],
+      segments: [{ id: 'a', captureStartUs: 0n, captureEndUs: 2n, discontinuity: 0 }],
     })).rejects.toThrow('corrupt index')
   })
 
   it('rejects loader count and order mismatches', async () => {
     const input = {
       targetUs: 1n,
-      segments: [{ id: 'a', captureStartUs: 0n, captureEndUs: 2n }],
+      segments: [{ id: 'a', captureStartUs: 0n, captureEndUs: 2n, discontinuity: 0 }],
     }
     await expect(createSampleSnapResolver(async () => [])(input))
       .rejects.toThrow('count mismatch')
@@ -134,7 +135,7 @@ describe('sample snap resolver', () => {
     }])
     await expect(resolver({
       targetUs: 20n,
-      segments: [{ id: 'a', captureStartUs: 0n, captureEndUs: 20n }],
+      segments: [{ id: 'a', captureStartUs: 0n, captureEndUs: 20n, discontinuity: 0 }],
     })).resolves.toEqual({ captureUs: 10n, playerUs: 10n })
   })
 
@@ -152,7 +153,38 @@ describe('sample snap resolver', () => {
     }])
     await expect(resolver({
       targetUs: 11n,
-      segments: [{ id: 'a', captureStartUs: 0n, captureEndUs: 10n }],
+      segments: [{ id: 'a', captureStartUs: 0n, captureEndUs: 10n, discontinuity: 0 }],
     })).rejects.toThrow('outside selected range')
+  })
+
+  it('loads a bounded target neighborhood for highly fragmented windows', async () => {
+    const segments = Array.from({ length: 160 }, (_, index) => ({
+      id: `segment-${index}`,
+      captureStartUs: BigInt(index * 10),
+      captureEndUs: BigInt((index + 1) * 10),
+      discontinuity: 0,
+    }))
+    const requested: string[] = []
+    const resolver = createSampleSnapResolver(async (ids) => {
+      requested.push(...ids)
+      return ids.map((id) => {
+        const index = Number(id.slice('segment-'.length))
+        return {
+          segmentId: id,
+          discontinuity: 0,
+          index: {
+            epochId: 'e',
+            timeBase: { num: 1n, den: 1n },
+            samples: [sample(BigInt(index * 10), BigInt(index * 10), BigInt(index))],
+            availableStartUs: BigInt(index * 10),
+            availableEndUs: BigInt((index + 1) * 10),
+          },
+        }
+      })
+    })
+
+    await expect(resolver({ targetUs: 805n, segments }))
+      .resolves.toEqual({ captureUs: 800n, playerUs: 800n })
+    expect(requested).toEqual(['segment-79', 'segment-80', 'segment-81'])
   })
 })

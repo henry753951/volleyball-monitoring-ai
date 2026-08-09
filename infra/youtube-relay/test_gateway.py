@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import patch
 
-from gateway import ManagedSource, SourceManager
+from gateway import ManagedSource, MediaInput, SourceManager
 
 
 class SourceManagerLifecycleTest(unittest.TestCase):
@@ -67,6 +67,35 @@ class SourceManagerLifecycleTest(unittest.TestCase):
         self.assertTrue(self.manager._metadata_is_live({'live_status': 'is_live'}))
         self.assertFalse(self.manager._metadata_is_live({'live_status': 'was_live'}))
 
+    def test_youtube_selected_format_headers_are_forwarded_to_ffmpeg(self) -> None:
+        inputs = self.manager._youtube_inputs({
+            'requested_formats': [
+                {
+                    'url': 'https://video.example.test/stream',
+                    'http_headers': {
+                        'User-Agent': 'yt-dlp-browser-profile',
+                        'Accept-Language': 'en-US',
+                    },
+                },
+                {
+                    'url': 'https://audio.example.test/stream',
+                    'http_headers': {'User-Agent': 'yt-dlp-browser-profile'},
+                },
+            ],
+        })
+
+        self.assertEqual(len(inputs), 2)
+        arguments = self.manager._ffmpeg_input_args(inputs[0], realtime=True)
+        self.assertEqual(arguments[-2:], ['-i', 'https://video.example.test/stream'])
+        self.assertIn('-re', arguments)
+        serialized = arguments[arguments.index('-headers') + 1]
+        self.assertIn('User-Agent: yt-dlp-browser-profile\r\n', serialized)
+        self.assertIn('Accept-Language: en-US\r\n', serialized)
+
+    def test_youtube_metadata_without_a_playable_url_is_rejected(self) -> None:
+        with self.assertRaisesRegex(RuntimeError, 'expected one combined stream'):
+            self.manager._youtube_inputs({'requested_formats': [{'format_id': '299'}]})
+
     def test_resume_prefix_ignores_legacy_recordings(self) -> None:
         destination = self.manager.recording_root / 'match' / 'main'
         destination.mkdir(parents=True)
@@ -88,7 +117,7 @@ class SourceManagerLifecycleTest(unittest.TestCase):
     def test_local_import_key_is_resolved_beneath_shared_root(self) -> None:
         capture_id = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'
         media_path = self.manager.import_root / capture_id / 'source.mp4'
-        media_path.parent.mkdir(parents=True)
+        media_path.parent.mkdir(parents=True, exist_ok=True)
         media_path.write_bytes(b'mp4')
 
         with patch('threading.Thread.start'):
@@ -114,6 +143,63 @@ class SourceManagerLifecycleTest(unittest.TestCase):
                 'ingest_path': 'match/local',
                 'source_kind': 'local_mp4',
             })
+
+    def test_segment_muxer_emits_fragmented_mp4_pts_epochs(self) -> None:
+        source = self.source()
+        media_path = self.manager.import_root / 'source.mp4'
+        media_path.parent.mkdir(parents=True, exist_ok=True)
+        media_path.write_bytes(b'mp4')
+
+        class CompletedProcess:
+            returncode = 0
+
+            @staticmethod
+            def poll() -> int:
+                return 0
+
+        with patch.object(self.manager, '_published_segment_prefix', return_value=1), \
+                patch('subprocess.Popen', return_value=CompletedProcess()) as popen:
+            self.assertEqual(
+                self.manager._segment_inputs(source, [str(media_path)], 'h264'),
+                1,
+            )
+
+        arguments = popen.call_args.args[0]
+        self.assertEqual(
+            arguments[arguments.index('-reset_timestamps') + 1],
+            '1',
+        )
+        self.assertIn('movflags=+frag_keyframe+empty_moov+default_base_moof', arguments)
+
+    def test_stopped_segment_muxer_withholds_unsealed_tail(self) -> None:
+        source = self.source()
+        source.stop.set()
+        capture_id = source.config['capture_session_id']
+
+        class StoppedProcess:
+            returncode = 255
+
+            @staticmethod
+            def poll() -> int:
+                return 255
+
+        def popen(_arguments: list[str]) -> StoppedProcess:
+            segment_root = self.manager.work_root / capture_id / 'segments'
+            (segment_root / 'segment-000000000.mp4').write_bytes(b'sealed')
+            (segment_root / 'segment-000000001.mp4').write_bytes(b'unsealed')
+            return StoppedProcess()
+
+        with patch('subprocess.Popen', side_effect=popen):
+            self.assertEqual(
+                self.manager._segment_inputs(source, ['source.mp4'], 'h264'),
+                1,
+            )
+
+        destination = self.manager.recording_root / 'match' / 'main'
+        self.assertEqual(
+            [path.read_bytes() for path in destination.glob('*.mp4')],
+            [b'sealed'],
+        )
 
 
 if __name__ == '__main__':
