@@ -24,7 +24,7 @@ import { mediaSourceRoutes } from './routes/media-sources.js'
 import { createAnnotationPresenceService } from './realtime/annotation-presence.js'
 import { createAiProgressService } from './realtime/ai-progress.js'
 import { annotationWebSocketRoutes } from './realtime/annotation-ws.js'
-import { coachWebSocketRoutes } from './realtime/coach-ws.js'
+import { CoachMatchEventHub, coachWebSocketRoutes } from './realtime/coach-ws.js'
 import { aiProviderWebSocketRoutes } from './realtime/ai-provider-ws.js'
 import { authenticateDevelopmentAnnotationRequest } from './realtime/auth.js'
 import { createAnnotationCommandService } from './services/annotation-command.js'
@@ -56,6 +56,7 @@ const annotationPresence = redis
     })
   : null
 const aiProgress = redis ? createAiProgressService(redis) : null
+const coachMatchEvents = new CoachMatchEventHub()
 
 const cursorDependencies = {
   now: () => new Date(),
@@ -66,7 +67,7 @@ const annotationCommands = createAnnotationCommandService({
   database: db,
   resolveCursor: (cursor, identity) => resolvePlaybackCursor(cursor, identity, cursorDependencies),
 })
-configureAnnotationGraphQL(annotationCommands)
+configureAnnotationGraphQL(annotationCommands, (matchId, reason) => coachMatchEvents.publish(matchId, reason))
 
 redis?.on('error', (error) => app.log.warn({ error }, 'Redis readiness connection error'))
 
@@ -158,6 +159,7 @@ await app.register(annotationWebSocketRoutes({
 }))
 await app.register(coachWebSocketRoutes({
   authenticate: (request) => authenticateDevelopmentAnnotationRequest(request, db),
+  events: coachMatchEvents,
 }))
 
 const yoga = createYoga<{ req: FastifyRequest; reply: FastifyReply }>({

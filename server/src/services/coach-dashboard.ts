@@ -34,9 +34,8 @@ export async function getCoachMatchState(
       rallies: {
         where: { activeSubmissionId: { not: null }, voidedAt: null },
         orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-        take: 100,
         select: {
-          id: true, ordinal: true, annotationRevision: true, processingStatus: true, scoringCourtSide: true, scoringTeamId: true,
+          id: true, ordinal: true, displayOrdinal: true, displaySetNumber: true, annotationRevision: true, processingStatus: true, scoringCourtSide: true, scoringTeamId: true,
           set: { select: { id: true, setNumber: true } },
           activeSubmission: {
             select: {
@@ -97,6 +96,8 @@ export async function getCoachMatchState(
     select: {
       id: true,
       ordinal: true,
+      displayOrdinal: true,
+      displaySetNumber: true,
       annotationRevision: true,
       annotationStatus: true,
       activeSubmissionId: true,
@@ -150,6 +151,29 @@ export async function getCoachMatchState(
   for (let offset = 0; offset < coverageTasks.length; offset += 8) {
     await Promise.all(coverageTasks.slice(offset, offset + 8).map(task => task()))
   }
+  const scoreByDisplaySet = new Map<number, { left: number; right: number }>()
+  const runningScoreByRallyId = new Map<string, { left: number; right: number; winnerSide: 'left' | 'right' | null }>()
+  const assignmentsBySetNumber = new Map(match.sets.map(set => [set.setNumber, set.sideAssignments[0] ?? null]))
+  for (const rally of [...match.rallies].sort((left, right) =>
+    left.displaySetNumber - right.displaySetNumber
+    || left.displayOrdinal - right.displayOrdinal
+    || left.id.localeCompare(right.id),
+  )) {
+    const score = scoreByDisplaySet.get(rally.displaySetNumber) ?? { left: 0, right: 0 }
+    const assignment = assignmentsBySetNumber.get(rally.displaySetNumber)
+    const scoringTeamId = rally.activeSubmission?.scoringTeamId ?? rally.scoringTeamId
+    const winnerSide = scoringTeamId && assignment
+      ? scoringTeamId === assignment.leftTeamId
+        ? 'left' as const
+        : scoringTeamId === assignment.rightTeamId
+          ? 'right' as const
+          : null
+      : null
+    if (winnerSide === 'left') score.left += 1
+    if (winnerSide === 'right') score.right += 1
+    scoreByDisplaySet.set(rally.displaySetNumber, score)
+    runningScoreByRallyId.set(rally.id, { ...score, winnerSide })
+  }
   return {
     schema_version: '1.0.0',
     match: {
@@ -163,6 +187,8 @@ export async function getCoachMatchState(
       drafts: drafts.map(draft => ({
         id: draft.id,
         ordinal: draft.ordinal,
+        display_ordinal: draft.displayOrdinal,
+        display_set_number: draft.displaySetNumber,
         annotation_revision: draft.annotationRevision.toString(),
         annotation_status: draft.annotationStatus.toLowerCase(),
         active_submission_id: draft.activeSubmissionId,
@@ -178,7 +204,10 @@ export async function getCoachMatchState(
         })),
       })),
       rallies: match.rallies.flatMap(rally => rally.activeSubmission ? [{
-        id: rally.id, ordinal: rally.ordinal, annotation_revision: rally.annotationRevision.toString(), processing_status: rally.processingStatus.toLowerCase(), scoring_court_side: rally.scoringCourtSide?.toLowerCase() ?? null, scoring_team_id: rally.scoringTeamId, set_id: rally.set.id, set_number: rally.set.setNumber,
+        id: rally.id, ordinal: rally.ordinal, display_ordinal: rally.displayOrdinal, display_set_number: rally.displaySetNumber, annotation_revision: rally.annotationRevision.toString(), processing_status: rally.processingStatus.toLowerCase(), scoring_court_side: rally.scoringCourtSide?.toLowerCase() ?? null, scoring_team_id: rally.scoringTeamId, set_id: rally.set.id, set_number: rally.set.setNumber,
+        left_score_after: runningScoreByRallyId.get(rally.id)?.left ?? 0,
+        right_score_after: runningScoreByRallyId.get(rally.id)?.right ?? 0,
+        winner_side: runningScoreByRallyId.get(rally.id)?.winnerSide ?? null,
         submission: {
           id: rally.activeSubmission.id, submitted_at: rally.activeSubmission.submittedAt.toISOString(), score_resolution: rally.activeSubmission.scoreResolutionState.toLowerCase(), scoring_court_side: rally.activeSubmission.scoringCourtSide?.toLowerCase() ?? null, scoring_team_id: rally.activeSubmission.scoringTeamId,
           contact_count: rally.activeSubmission.keyPoints.filter(point => point.markerKind === 'CONTACT').length,

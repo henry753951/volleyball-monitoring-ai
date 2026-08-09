@@ -131,6 +131,7 @@ type Mutation {
   createMatchSetup(input: CreateMatchSetupInput!): Match!
   deleteMatch(matchId: ID!): MatchDeleteReceipt!
   deleteProcessingRally(rallyId: ID!): Rally!
+  deleteRally(rallyId: ID!): RallyDeleteReceipt!
   retryProcessing(input: RetryProcessingInput!): ProcessingState!
   setTrackIdentityMappingComplete(analysisRunId: ID!, completed: Boolean!): JSON!
   startCapture(input: StartCaptureInput!): CaptureSession!
@@ -140,6 +141,7 @@ type Mutation {
   updateMatch(input: UpdateMatchInput!): Match!
   updateMatchClipPolicy(input: UpdateMatchClipPolicyInput!): Match!
   updateMatchRoster(input: UpdateMatchRosterInput!): Match!
+  updateRallyPlacement(input: UpdateRallyPlacementInput!): RallyPlacement!
 }
 
 type Player {
@@ -185,12 +187,30 @@ type Rally {
   activeSubmissionId: ID
   annotationRevision: BigInt!
   annotationStatus: AnnotationStatus!
+  displayOrdinal: Int!
+  displaySetNumber: Int!
   id: ID!
   matchId: ID!
   processingStatus: ProcessingStatus!
   scoreResolutionState: ScoreResolutionState!
   scoringCourtSide: CourtSide
   setId: ID!
+}
+
+type RallyDeleteReceipt {
+  abortedJobCount: Int!
+  cleanupWarnings: [String!]!
+  matchId: ID!
+  rallyId: ID!
+  removedAssetCount: Int!
+  removedBytes: String!
+}
+
+type RallyPlacement {
+  displayOrdinal: Int!
+  displaySetNumber: Int!
+  matchId: ID!
+  rallyId: ID!
 }
 
 input RetryProcessingInput {
@@ -276,6 +296,12 @@ input UpdateMatchRosterInput {
   matchId: ID!
   roster: [RosterEditInput!]!
   teamId: ID!
+}
+
+input UpdateRallyPlacementInput {
+  ordinal: Int!
+  rallyId: ID!
+  setNumber: Int!
 }
 
 enum UserRole {

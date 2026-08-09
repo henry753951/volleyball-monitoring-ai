@@ -114,3 +114,18 @@ export const RetryProcessingInputType = builder.inputRef<RetryProcessingInput>('
 RetryProcessingInputType.implement({
   fields: (t) => ({ rallyId: t.id({ required: true }) }),
 })
+
+export interface UpdateRallyPlacementInput {
+  rallyId: string
+  setNumber: number
+  ordinal: number
+}
+
+export const UpdateRallyPlacementInputType = builder.inputRef<UpdateRallyPlacementInput>('UpdateRallyPlacementInput')
+UpdateRallyPlacementInputType.implement({
+  fields: (t) => ({
+    ordinal: t.int({ required: true }),
+    rallyId: t.id({ required: true }),
+    setNumber: t.int({ required: true }),
+  }),
+})

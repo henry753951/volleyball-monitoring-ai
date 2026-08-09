@@ -165,6 +165,24 @@ export const aiProviderWebSocketRoutes = (
           ticking = true
           try {
             const now = new Date()
+            const durableAbortEvents = await database.outboxEvent.findMany({
+              orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+              select: { id: true, payload: true },
+              take: 100,
+              where: {
+                createdAt: { gte: new Date(now.getTime() - callbackLifetimeMs) },
+                eventType: 'ai.job_abort_requested.v1',
+                payload: { path: ['provider_instance_id'], equals: instanceId },
+              },
+            })
+            for (const event of durableAbortEvents) {
+              if (abortSent.has(event.id) || !isRecord(event.payload)) continue
+              const aiJobId = typeof event.payload.ai_job_id === 'string' ? event.payload.ai_job_id : null
+              const deliveryId = typeof event.payload.delivery_id === 'string' ? event.payload.delivery_id : null
+              if (!aiJobId || !deliveryId) continue
+              send({ schema_version: '1.0.0', type: 'abort_job', ai_job_id: aiJobId, delivery_id: deliveryId, reason: 'rally deleted' })
+              abortSent.add(event.id)
+            }
             const assigned = await database.aiJob.findMany({
               where: { providerInstanceId: instanceId, deliveryId: { not: null }, status: { in: [JobStatus.QUEUED, JobStatus.RUNNING, JobStatus.CANCELLED, JobStatus.COMPLETED] } },
               select: { id: true, deliveryId: true, status: true, cancelRequestedAt: true, completedAt: true },

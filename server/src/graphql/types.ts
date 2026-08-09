@@ -29,6 +29,7 @@ import {
 } from '../services/media-timeline.js'
 import type { ProcessingStateView } from '../services/capture-processing.js'
 import type { MatchDeleteReceipt } from '../services/match-administration.js'
+import type { RallyDeleteReceipt, RallyPlacementResult } from '../services/rally-administration.js'
 
 interface Health {
   service: string
@@ -75,6 +76,28 @@ MatchDeleteReceiptType.implement({
     matchId: t.exposeID('matchId'),
     removedAssetCount: t.exposeInt('removedAssetCount'),
     removedBytes: t.exposeString('removedBytes'),
+  }),
+})
+
+export const RallyDeleteReceiptType = builder.objectRef<RallyDeleteReceipt>('RallyDeleteReceipt')
+RallyDeleteReceiptType.implement({
+  fields: (t) => ({
+    abortedJobCount: t.exposeInt('abortedJobCount'),
+    cleanupWarnings: t.exposeStringList('cleanupWarnings'),
+    matchId: t.exposeID('matchId'),
+    rallyId: t.exposeID('rallyId'),
+    removedAssetCount: t.exposeInt('removedAssetCount'),
+    removedBytes: t.exposeString('removedBytes'),
+  }),
+})
+
+export const RallyPlacementType = builder.objectRef<RallyPlacementResult>('RallyPlacement')
+RallyPlacementType.implement({
+  fields: (t) => ({
+    displayOrdinal: t.exposeInt('displayOrdinal'),
+    displaySetNumber: t.exposeInt('displaySetNumber'),
+    matchId: t.exposeID('matchId'),
+    rallyId: t.exposeID('rallyId'),
   }),
 })
 
@@ -161,6 +184,8 @@ RallyType.implement({
     activeSubmissionId: t.exposeID('activeSubmissionId', { nullable: true }),
     annotationRevision: t.field({ type: 'BigInt', resolve: rally => rally.annotationRevision }),
     annotationStatus: t.field({ type: AnnotationStatusType, resolve: rally => rally.annotationStatus }),
+    displayOrdinal: t.exposeInt('displayOrdinal'),
+    displaySetNumber: t.exposeInt('displaySetNumber'),
     id: t.exposeID('id'),
     matchId: t.exposeID('matchId'),
     processingStatus: t.field({ type: ProcessingStatusType, resolve: rally => rally.processingStatus }),

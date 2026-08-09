@@ -415,6 +415,13 @@ export function useAnnotationRoom() {
     realtime?.setEditingKeyPoint(keyPointId)
   }
 
+  function forgetRally(rallyId: string) {
+    if (snapshot.value?.rally_id === rallyId) snapshot.value = null
+    const remaining = { ...processing.value }
+    delete remaining[rallyId]
+    processing.value = remaining
+  }
+
   onBeforeUnmount(() => {
     realtime?.disconnect()
     realtime = null
@@ -431,6 +438,7 @@ export function useAnnotationRoom() {
     dispatch,
     edit,
     error: readonly(error),
+    forgetRally,
     lastKeyPoint,
     outboxNeedsConfirmation,
     pendingCommands: shallowReadonly(outbox),
