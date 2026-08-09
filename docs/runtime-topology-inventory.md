@@ -76,11 +76,11 @@ live in PostgreSQL. There is no dedicated relay/watcher state volume.
 
 ## Database transport audit
 
-The development database has one enabled `WS_AGENT` integration, no HTTP integration and no
-queued/running legacy delivery jobs. The external engine also completed a real persisted job and
-callback. Phase 4 removed the central dispatcher and replay runtime without changing the working
-Nuxt, GraphQL, REST, Annotation WebSocket or AI Worker WebSocket interfaces. Compatibility columns
-remain in Prisma for now so this runtime-only cleanup does not force an unrelated public migration.
+The central database has one global `volleyball-analysis-engine` queue, global hashed Worker Tokens
+and globally unique Worker instance keys. There is no provider-integration or transport-mode domain.
+The external engine completed a real persisted job and callback before this final schema collapse.
+Phase 4 removed the central dispatcher and replay runtime without changing the working Nuxt,
+GraphQL, REST, Annotation WebSocket or AI Worker WebSocket interfaces.
 
 ## Preserved verification evidence
 

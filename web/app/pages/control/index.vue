@@ -98,8 +98,8 @@ const filteredMatches = computed(() => {
 })
 const database = computed(() => monitor.snapshot.value?.operations.database)
 const aiWorkers = computed(() => monitor.snapshot.value?.operations.aiWorkers ?? [])
-const aiIntegrations = computed(() => monitor.snapshot.value?.operations.aiIntegrations ?? [])
-const aiWorkerTokens = computed(() => aiIntegrations.value.flatMap(integration => integration.tokens))
+const aiWorkerAccess = computed(() => monitor.snapshot.value?.operations.aiWorkerAccess ?? null)
+const aiWorkerTokens = computed(() => aiWorkerAccess.value?.tokens ?? [])
 const aiWork = computed(() => monitor.snapshot.value?.operations.aiWork ?? [])
 const visibleMatchIds = computed(() => new Set(matchesState.matches.value.map(match => match.id)))
 const streams = computed(() => visibleStreamsForMatches(monitor.snapshot.value?.operations.streams ?? [], visibleMatchIds.value))
@@ -287,7 +287,7 @@ onMounted(async () => {
 
     <div v-else class="view-panel workers-view">
       <ControlAiWorkerConsole
-        :active-jobs="aiIntegrations.reduce((total, integration) => total + integration.activeJobCount, 0)"
+        :active-jobs="aiWorkerAccess?.activeJobCount ?? 0"
         :endpoint="websocketEndpoint()"
         :tokens="aiWorkerTokens"
         :workers="aiWorkers"

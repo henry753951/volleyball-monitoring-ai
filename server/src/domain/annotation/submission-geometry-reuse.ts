@@ -153,11 +153,10 @@ export async function reuseCompletedSubmissionGeometry(
   await tx.aiJob.create({
     data: {
       id: aiJobId,
-      integrationId: sourceAi.integrationId,
       submissionId: input.newSubmissionId,
       clipJobId,
       status: 'COMPLETED',
-      idempotencyKey: `${sourceAi.integrationId}:${input.newSubmissionId}:${clipJobId}:reuse`,
+      idempotencyKey: `volleyball-analysis-engine:${input.newSubmissionId}:${clipJobId}:reuse`,
       requestPayload: json(requestPayload),
       requestPayloadHash: createHash('sha256').update(canonical(requestPayload)).digest('hex'),
       jobSchemaVersion: sourceAi.jobSchemaVersion,

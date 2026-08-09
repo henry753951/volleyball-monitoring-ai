@@ -19,6 +19,7 @@ import { createPollingLifecycle } from '../workflow/poller.js'
 
 const runner = createNodeProbeRunner()
 const leaseMs = 5 * 60_000
+const AI_JOB_SCHEMA_VERSION = '1.1.0'
 
 async function runCommand(executable: string, args: string[], signal: AbortSignal) {
   const result = await runner(executable, args, { shell: false, timeoutMs: 10 * 60_000, maxOutputBytes: 4_000_000, signal })
@@ -208,16 +209,11 @@ export function createClipWorker(
         const timingAsset = await tx.mediaAsset.create({ data: { kind: MediaAssetKind.TIMING_MANIFEST, bucket: storage.rallyBucket, objectKey: manifestKey, contentType: 'application/json', byteLength: manifestUpload.byteLength, sha256: manifestUpload.sha256, internalSchemaVersion: '1.1.0', state: 'READY', readyAt: new Date() } })
         await tx.clipKeyPointMapping.createMany({ data: mappings.map(mapping => ({ clipJobId: job.id, submissionKeyPointId: mapping.submissionKeyPointId, clipPts: mapping.clipPts, clipTimeUs: mapping.clipTimeUs, clipFrameIndex: mapping.clipFrameIndex })) })
         await tx.clipJob.update({ where: { id: job.id }, data: { status: JobStatus.COMPLETED, actualStartCaptureUs: actualStart, actualEndCaptureUs: actualEnd, clipAssetId: clipAsset.id, timingManifestAssetId: timingAsset.id, leasedUntil: null, completedAt: new Date() } })
-        const integration = await tx.aiIntegration.findFirst({ where: { enabled: true }, orderBy: { createdAt: 'asc' } })
-        if (!integration) {
-          await tx.rally.update({ where: { id: job.submission.rallyId }, data: { processingStatus: ProcessingStatus.FAILED } })
-          return
-        }
         const aiJobId = randomUUID()
         const token = callbackToken(callbackSecret, aiJobId)
         const expiresAt = new Date(Date.now() + 24 * 60 * 60_000)
-        const basePayload = { schema_version: integration.jobSchemaVersion, ai_job_id: aiJobId, rally_submission_id: job.submissionId, rally_id: job.submission.rallyId, match_id: job.submission.rally.matchId, annotation_revision: job.submission.annotationRevision.toString(), clip: { clip_asset_id: clipAsset.id, sha256: clipUpload.sha256, byte_length: clipUpload.byteLength.toString(), content_type: 'video/mp4', video: manifest.video }, key_points: aiKeyPoints, outcome: { score_resolution: job.submission.scoreResolutionState.toLowerCase(), scoring_court_side: job.submission.scoringCourtSide?.toLowerCase() ?? null } }
-        await tx.aiJob.create({ data: { id: aiJobId, integrationId: integration.id, submissionId: job.submissionId, clipJobId: job.id, idempotencyKey: `${integration.id}:${job.submissionId}:${job.id}`, requestPayload: basePayload, requestPayloadHash: sha256Hex(stableJson(basePayload)), jobSchemaVersion: integration.jobSchemaVersion, callbackTokenHash: sha256Hex(token), callbackTokenExpiresAt: expiresAt } })
+        const basePayload = { schema_version: AI_JOB_SCHEMA_VERSION, ai_job_id: aiJobId, rally_submission_id: job.submissionId, rally_id: job.submission.rallyId, match_id: job.submission.rally.matchId, annotation_revision: job.submission.annotationRevision.toString(), clip: { clip_asset_id: clipAsset.id, sha256: clipUpload.sha256, byte_length: clipUpload.byteLength.toString(), content_type: 'video/mp4', video: manifest.video }, key_points: aiKeyPoints, outcome: { score_resolution: job.submission.scoreResolutionState.toLowerCase(), scoring_court_side: job.submission.scoringCourtSide?.toLowerCase() ?? null } }
+        await tx.aiJob.create({ data: { id: aiJobId, submissionId: job.submissionId, clipJobId: job.id, idempotencyKey: `volleyball-analysis-engine:${job.submissionId}:${job.id}`, requestPayload: basePayload, requestPayloadHash: sha256Hex(stableJson(basePayload)), jobSchemaVersion: AI_JOB_SCHEMA_VERSION, callbackTokenHash: sha256Hex(token), callbackTokenExpiresAt: expiresAt } })
         await tx.rally.update({ where: { id: job.submission.rallyId }, data: { processingStatus: ProcessingStatus.AI_QUEUED } })
       })
       return true

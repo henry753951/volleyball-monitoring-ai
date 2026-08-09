@@ -510,11 +510,10 @@ export async function retryProcessing(
     await tx.aiJob.create({
       data: {
         id: aiJobId,
-        integrationId: sourceAi.integrationId,
         submissionId: submission.id,
         clipJobId: clip.id,
         status: 'QUEUED',
-        idempotencyKey: `${sourceAi.integrationId}:${submission.id}:${clip.id}:retry:${aiJobId}`,
+        idempotencyKey: `volleyball-analysis-engine:${submission.id}:${clip.id}:retry:${aiJobId}`,
         requestPayload: json(requestPayload),
         requestPayloadHash: createHash('sha256').update(canonical(requestPayload)).digest('hex'),
         jobSchemaVersion: sourceAi.jobSchemaVersion,

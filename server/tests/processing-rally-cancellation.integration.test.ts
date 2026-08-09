@@ -30,7 +30,6 @@ const ids = {
   capture: '97000000-0000-4000-8000-000000000003',
   clipJob: '97000000-0000-4000-8000-000000000004',
   device: '97000000-0000-4000-8000-000000000005',
-  integration: '97000000-0000-4000-8000-000000000006',
   left: '97000000-0000-4000-8000-000000000007',
   match: '97000000-0000-4000-8000-000000000008',
   operator: '97000000-0000-4000-8000-000000000009',
@@ -74,8 +73,7 @@ beforeAll(async () => {
   await db.rallySubmission.create({ data: { id: ids.submission, rallyId: ids.rally, annotationRevision: 1n, contentHash: 'a'.repeat(64), status: 'ACTIVE', scoreResolutionState: 'UNKNOWN', leftTeamId: ids.left, rightTeamId: ids.right, sideAssignmentId: ids.assignment, clipPolicyVersion: 'clip-policy-v1', clipPreRollUs: 3_000_000n, clipPostRollUs: 3_000_000n, submittedByUserId: ids.operator } })
   await db.rally.update({ where: { id: ids.rally }, data: { activeSubmissionId: ids.submission } })
   await db.clipJob.create({ data: { id: ids.clipJob, submissionId: ids.submission, status: 'COMPLETED', idempotencyKey: 'cancel-clip', canonicalizationProfileVersion: 'canonical-v1', requestedStartCaptureUs: 0n, requestedEndCaptureUs: 1_000_000n, completedAt: new Date() } })
-  await db.aiIntegration.create({ data: { id: ids.integration, name: 'cancel-worker', transportMode: 'WS_AGENT', submitUrl: null, authSecretRef: 'env:AI_PROVIDER_WS_TOKEN' } })
-  await db.aiJob.create({ data: { id: ids.aiJob, integrationId: ids.integration, submissionId: ids.submission, clipJobId: ids.clipJob, status: 'RUNNING', idempotencyKey: 'cancel-ai', requestPayload: {}, requestPayloadHash: 'b'.repeat(64), jobSchemaVersion: '1.1.0', callbackTokenHash: 'c'.repeat(64), callbackTokenExpiresAt: new Date(Date.now() + 60_000) } })
+  await db.aiJob.create({ data: { id: ids.aiJob, submissionId: ids.submission, clipJobId: ids.clipJob, status: 'RUNNING', idempotencyKey: 'cancel-ai', requestPayload: {}, requestPayloadHash: 'b'.repeat(64), jobSchemaVersion: '1.1.0', callbackTokenHash: 'c'.repeat(64), callbackTokenExpiresAt: new Date(Date.now() + 60_000) } })
 
   await db.matchSet.create({ data: { id: ids.correctionSet, matchId: ids.match, setNumber: 2, status: 'LIVE', leftScore: 0, rightScore: 1, scoreRevision: 2 } })
   await db.courtSideAssignment.create({ data: { id: ids.correctionAssignment, setId: ids.correctionSet, effectiveFromRallyOrdinal: 1, leftTeamId: ids.left, rightTeamId: ids.right } })
@@ -86,7 +84,7 @@ beforeAll(async () => {
   await db.scoreLedgerEntry.create({ data: { kind: 'CORRECTION', setId: ids.correctionSet, submissionId: ids.correctionSubmission, supersededSubmissionId: ids.previousSubmission, leftDelta: -1, rightDelta: 1, leftScoreBefore: 1, rightScoreBefore: 0, leftScoreAfter: 0, rightScoreAfter: 1, scoreRevisionBefore: 1, scoreRevisionAfter: 2 } })
   await db.rally.update({ where: { id: ids.correctionRally }, data: { activeSubmissionId: ids.correctionSubmission } })
   await db.clipJob.create({ data: { id: ids.correctionClipJob, submissionId: ids.correctionSubmission, status: 'COMPLETED', idempotencyKey: 'cancel-correction-clip', canonicalizationProfileVersion: 'canonical-v1', requestedStartCaptureUs: 0n, requestedEndCaptureUs: 1_000_000n, completedAt: new Date() } })
-  await db.aiJob.create({ data: { id: ids.correctionAiJob, integrationId: ids.integration, submissionId: ids.correctionSubmission, clipJobId: ids.correctionClipJob, status: 'RUNNING', idempotencyKey: 'cancel-correction-ai', requestPayload: {}, requestPayloadHash: 'f'.repeat(64), jobSchemaVersion: '1.1.0', callbackTokenHash: '1'.repeat(64), callbackTokenExpiresAt: new Date(Date.now() + 60_000) } })
+  await db.aiJob.create({ data: { id: ids.correctionAiJob, submissionId: ids.correctionSubmission, clipJobId: ids.correctionClipJob, status: 'RUNNING', idempotencyKey: 'cancel-correction-ai', requestPayload: {}, requestPayloadHash: 'f'.repeat(64), jobSchemaVersion: '1.1.0', callbackTokenHash: '1'.repeat(64), callbackTokenExpiresAt: new Date(Date.now() + 60_000) } })
 }, 120_000)
 
 afterAll(async () => {

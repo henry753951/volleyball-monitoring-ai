@@ -66,7 +66,8 @@ for model_name, types in field_types.items():
 required_models = {
     "CaptureEpoch", "DvrProgram", "DvrSegment", "Rally", "KeyPoint", "RallySubmission",
     "RallySubmissionKeyPoint", "ClipJob", "AiJob", "AiCallbackReceipt", "AnalysisRun",
-    "ContactEvent", "BallPathSegment", "OutboxEvent",
+    "ContactEvent", "BallPathSegment", "OutboxEvent", "AiWorkerAccessToken",
+    "AiProviderInstance",
 }
 missing = sorted(required_models - set(models))
 if missing:

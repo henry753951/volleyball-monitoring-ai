@@ -26,7 +26,7 @@ let db: typeof DatabaseClient
 let createdDatabase = false
 
 const ids = {
-  actor: id('1'), assignment: id('2'), capture: id('3'), clip: id('4'), integration: id('5'),
+  actor: id('1'), assignment: id('2'), capture: id('3'), clip: id('4'),
   left: id('6'), match: id('7'), media: id('8'), program: id('9'), rally: id('10'), right: id('11'),
   set: id('12'), submission: id('13'), aiJob: id('14'), secondSet: id('15'), secondAssignment: id('16'),
   providerInstance: id('17'),
@@ -60,9 +60,8 @@ beforeAll(async () => {
   await db.rally.update({ data: { activeSubmissionId: ids.submission }, where: { id: ids.rally } })
   await db.mediaAsset.create({ data: { bucket: 'clips', byteLength: 123n, contentType: 'video/mp4', id: ids.media, kind: 'CANONICAL_CLIP', objectKey: 'rallies/delete-me.mp4', state: 'READY' } })
   await db.clipJob.create({ data: { canonicalizationProfileVersion: 'v1', clipAssetId: ids.media, id: ids.clip, idempotencyKey: 'rally-admin-clip', requestedEndCaptureUs: 1_000_000n, requestedStartCaptureUs: 0n, status: 'COMPLETED', submissionId: ids.submission } })
-  await db.aiIntegration.create({ data: { authSecretRef: 'env:AI_PROVIDER_WS_TOKEN', id: ids.integration, name: 'rally-admin-worker', transportMode: 'WS_AGENT' } })
-  await db.aiProviderInstance.create({ data: { capabilities: {}, id: ids.providerInstance, instanceKey: 'rally-admin-instance', integrationId: ids.integration, lastSeenAt: new Date(), maxConcurrency: 1, providerBuildId: 'test', sdkVersion: 'test' } })
-  await db.aiJob.create({ data: { callbackTokenExpiresAt: new Date(Date.now() + 60_000), callbackTokenHash: 'b'.repeat(64), clipJobId: ids.clip, deliveryId: ids.delivery, id: ids.aiJob, idempotencyKey: 'rally-admin-ai', integrationId: ids.integration, jobSchemaVersion: '1.1.0', providerInstanceId: ids.providerInstance, requestPayload: {}, requestPayloadHash: 'c'.repeat(64), status: 'RUNNING', submissionId: ids.submission } })
+  await db.aiProviderInstance.create({ data: { capabilities: {}, id: ids.providerInstance, instanceKey: 'rally-admin-instance', lastSeenAt: new Date(), maxConcurrency: 1, providerBuildId: 'test', sdkVersion: 'test' } })
+  await db.aiJob.create({ data: { callbackTokenExpiresAt: new Date(Date.now() + 60_000), callbackTokenHash: 'b'.repeat(64), clipJobId: ids.clip, deliveryId: ids.delivery, id: ids.aiJob, idempotencyKey: 'rally-admin-ai', jobSchemaVersion: '1.1.0', providerInstanceId: ids.providerInstance, requestPayload: {}, requestPayloadHash: 'c'.repeat(64), status: 'RUNNING', submissionId: ids.submission } })
 }, 120_000)
 
 afterAll(async () => {

@@ -50,15 +50,12 @@ export interface AiWorkerSnapshot {
   canDelete: boolean
 }
 
-export interface AiIntegrationAccessSnapshot {
-  name: string
-  enabled: boolean
-  authMode: 'managed' | 'environment' | 'legacy'
+export interface AiWorkerAccessSnapshot {
+  name: 'volleyball-analysis-engine'
+  authMode: 'managed' | 'environment' | 'unconfigured'
   workerCount: number
   onlineWorkerCount: number
   activeJobCount: number
-  createdAt: string
-  updatedAt: string
   tokens: AiWorkerTokenSnapshot[]
 }
 
@@ -134,7 +131,7 @@ export interface OperationsDashboardSnapshot {
       rallies: MetricGroup[]
     }
     aiWorkers: AiWorkerSnapshot[]
-    aiIntegrations: AiIntegrationAccessSnapshot[]
+    aiWorkerAccess: AiWorkerAccessSnapshot
     aiWork: AiWorkSnapshot[]
     hostStorage: HostStorageSnapshot
     matchMedia: MatchMediaSnapshot[]

@@ -5,7 +5,6 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { WebSocket } from 'ws'
 import { aiProviderWebSocketRoutes } from '../src/realtime/ai-provider-ws.js'
 
-const integrationId = '00000000-0000-4000-8000-000000000901'
 const instanceId = '00000000-0000-4000-8000-000000000902'
 const token = 'provider-token-long-enough'
 
@@ -42,27 +41,15 @@ afterEach(async () => {
 })
 
 describe('AI provider websocket startup', () => {
-  it('buffers an immediate provider hello while integration authentication is pending', async () => {
-    let releaseIntegration!: () => void
-    const authGate = new Promise<void>(resolve => { releaseIntegration = resolve })
+  it('buffers an immediate provider hello while token authentication is pending', async () => {
+    let releaseAuthentication!: () => void
+    const authGate = new Promise<void>(resolve => { releaseAuthentication = resolve })
     const updateProviderInstance = vi.fn(async () => ({ id: instanceId }))
     const database = {
-      aiIntegrationAccessToken: {
+      aiWorkerAccessToken: {
         findFirst: async () => {
           await authGate
-          return {
-            id: '00000000-0000-4000-8000-000000000903',
-            integration: {
-              id: integrationId,
-              name: 'volleyball-analysis-engine',
-              enabled: true,
-              transportMode: 'WS_AGENT',
-              authSecretRef: 'env:AI_PROVIDER_WS_TOKEN',
-              jobSchemaVersion: '1.1.0',
-              resultSchemaVersion: '1.0.0',
-              overlayFormat: 'flatbuffers_v1',
-            },
-          }
+          return { id: '00000000-0000-4000-8000-000000000903' }
         },
         update: async () => ({}),
       },
@@ -98,7 +85,7 @@ describe('AI provider websocket startup', () => {
       client.once('open', () => {
         clearTimeout(timeout)
         client.send(JSON.stringify(hello))
-        setTimeout(releaseIntegration, 10)
+        setTimeout(releaseAuthentication, 10)
         resolve()
       })
     })

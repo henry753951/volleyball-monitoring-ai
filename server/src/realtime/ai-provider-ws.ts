@@ -11,13 +11,16 @@ import type { FastifyPluginAsync } from 'fastify'
 import { Client } from 'minio'
 import type { RawData } from 'ws'
 import type { AiProgressService } from './ai-progress.js'
-import { resolveAiIntegrationForToken } from '../services/ai-worker-access.js'
+import { authenticateAiWorkerToken } from '../services/ai-worker-access.js'
 
 const leaseMs = 60_000
 const callbackLifetimeMs = 30 * 60_000
 const tickMs = 1_000
 const heartbeatIntervalSeconds = 10
 const heartbeatTimeoutMs = heartbeatIntervalSeconds * 3 * 1_000
+const AI_JOB_SCHEMA_VERSION = '1.1.0'
+const AI_RESULT_SCHEMA_VERSION = '1.0.0'
+const AI_OVERLAY_FORMAT = 'flatbuffers_v1'
 const isRecord = (value: unknown): value is Record<string, unknown> => value !== null && typeof value === 'object' && !Array.isArray(value)
 const sha256 = (value: string) => createHash('sha256').update(value).digest('hex')
 const json = (value: unknown) => JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue
@@ -42,14 +45,10 @@ function createMinioSigner() {
   })
 }
 
-function compatible(capabilities: AIProviderCapabilitiesPayload, integration: {
-  jobSchemaVersion: string
-  resultSchemaVersion: string
-  overlayFormat: string
-}) {
-  return capabilities.supported_job_schema_versions.includes(integration.jobSchemaVersion)
-    && capabilities.supported_result_schema_versions.includes(integration.resultSchemaVersion)
-    && capabilities.supported_overlay_formats.includes(integration.overlayFormat)
+function compatible(capabilities: AIProviderCapabilitiesPayload) {
+  return capabilities.supported_job_schema_versions.includes(AI_JOB_SCHEMA_VERSION)
+    && capabilities.supported_result_schema_versions.includes(AI_RESULT_SCHEMA_VERSION)
+    && capabilities.supported_overlay_formats.includes(AI_OVERLAY_FORMAT)
 }
 
 export interface AiProviderWebSocketDependencies {
@@ -74,7 +73,6 @@ interface ProviderInstanceLoadRow {
  */
 export async function findLeastBusyProviderInstanceId(
   database: PrismaClient,
-  integrationId: string,
 ): Promise<string | null> {
   const rows = await database.$queryRaw<ProviderInstanceLoadRow[]>`
     SELECT instance.id
@@ -83,8 +81,7 @@ export async function findLeastBusyProviderInstanceId(
       ON job."providerInstanceId" = instance.id
       AND job.status IN ('QUEUED', 'RUNNING')
       AND job."deliveryId" IS NOT NULL
-    WHERE instance."integrationId" = ${integrationId}::uuid
-      AND instance."disconnectedAt" IS NULL
+    WHERE instance."disconnectedAt" IS NULL
       AND instance."lastSeenAt" >= NOW() - INTERVAL '30 seconds'
       AND instance."maxConcurrency" > 0
     GROUP BY instance.id, instance."maxConcurrency", instance."connectedAt"
@@ -121,11 +118,11 @@ export const aiProviderWebSocketRoutes = (
         else socket.close(1008, 'too many messages before provider authentication')
       })
       void (async () => {
-        const integration = await resolveAiIntegrationForToken(
+        const authenticated = await authenticateAiWorkerToken(
           database,
           bearer(request.headers.authorization) ?? undefined,
         )
-        if (!integration) {
+        if (!authenticated) {
           socket.close(1008, 'authentication required')
           return
         }
@@ -188,7 +185,7 @@ export const aiProviderWebSocketRoutes = (
 
             const activeDeliveries = assigned.filter(job => job.status === JobStatus.QUEUED || job.status === JobStatus.RUNNING).length
             for (let slot = activeDeliveries; slot < maxConcurrency; slot += 1) {
-              const leastBusyInstanceId = await findLeastBusyProviderInstanceId(database, integration.id)
+              const leastBusyInstanceId = await findLeastBusyProviderInstanceId(database)
               if (leastBusyInstanceId !== instanceId) break
               const deliveryId = randomUUID()
               const callbackToken = randomBytes(32).toString('base64url')
@@ -198,10 +195,7 @@ export const aiProviderWebSocketRoutes = (
                 const rows = await tx.$queryRaw<Array<{ id: string }>>`
                   SELECT job.id
                   FROM "AiJob" job
-                  INNER JOIN "AiIntegration" integration ON integration.id = job."integrationId"
-                  WHERE job."integrationId" = ${integration.id}::uuid
-                    AND integration."transportMode" = 'WS_AGENT'
-                    AND job.status = 'QUEUED'
+                  WHERE job.status = 'QUEUED'
                     AND job."availableAt" <= NOW()
                     AND (job."leasedUntil" IS NULL OR job."leasedUntil" < NOW())
                     AND job."attemptCount" < job."maxAttempts"
@@ -313,8 +307,8 @@ export const aiProviderWebSocketRoutes = (
                 socket.close(1008, 'provider_hello may only be sent once')
                 return
               }
-              if (message.provider_build_id !== message.capabilities.provider_build_id || !compatible(message.capabilities, integration)) {
-                send({ schema_version: '1.0.0', type: 'protocol_error', code: 'INCOMPATIBLE_CAPABILITIES', message: 'provider capabilities are incompatible with this integration', retryable: false })
+              if (message.provider_build_id !== message.capabilities.provider_build_id || !compatible(message.capabilities)) {
+                send({ schema_version: '1.0.0', type: 'protocol_error', code: 'INCOMPATIBLE_CAPABILITIES', message: 'provider capabilities are incompatible with volleyball-analysis-engine', retryable: false })
                 socket.close(1008, 'incompatible capabilities')
                 return
               }
@@ -322,9 +316,9 @@ export const aiProviderWebSocketRoutes = (
               providerBuildId = message.provider_build_id
               maxConcurrency = message.max_concurrency
               const instance = await database.aiProviderInstance.upsert({
-                where: { integrationId_instanceKey: { integrationId: integration.id, instanceKey } },
+                where: { instanceKey },
                 update: { sdkVersion: message.sdk_version, providerBuildId: message.provider_build_id, capabilities: json(message.capabilities), maxConcurrency, lastSeenAt: new Date(), connectedAt: new Date(), disconnectedAt: null, latencyMs: null, lastPingAt: null, lastPongAt: null },
-                create: { integrationId: integration.id, instanceKey, sdkVersion: message.sdk_version, providerBuildId: message.provider_build_id, capabilities: json(message.capabilities), maxConcurrency, lastSeenAt: new Date(), latencyMs: null, lastPingAt: null, lastPongAt: null },
+                create: { instanceKey, sdkVersion: message.sdk_version, providerBuildId: message.provider_build_id, capabilities: json(message.capabilities), maxConcurrency, lastSeenAt: new Date(), latencyMs: null, lastPingAt: null, lastPongAt: null },
               })
               instanceId = instance.id
               lastHeartbeatAt = Date.now()

@@ -224,9 +224,8 @@ describe('capture lifecycle and processing retry', () => {
       submissionId: target.submissionId, status: 'COMPLETED', idempotencyKey: `completed-clip:${target.submissionId}`,
       canonicalizationProfileVersion: 'canonical-v1', requestedStartCaptureUs: 0n, requestedEndCaptureUs: 1n, actualStartCaptureUs: 0n, actualEndCaptureUs: 1n, clipAssetId: clipAsset.id,
     } })
-    const integration = await db.aiIntegration.create({ data: { name: `retry-${target.rallyId}`, submitUrl: 'http://retry.invalid/jobs', authSecretRef: 'retry' } })
     const failed = await db.aiJob.create({ data: {
-      integrationId: integration.id, submissionId: target.submissionId, clipJobId: clip.id, status: 'FAILED', idempotencyKey: `failed-ai:${target.submissionId}`,
+      submissionId: target.submissionId, clipJobId: clip.id, status: 'FAILED', idempotencyKey: `failed-ai:${target.submissionId}`,
       requestPayload: { ai_job_id: 'old-job', clip: { clip_asset_id: clipAsset.id, download_url: 'expired', download_url_expires_at: 'expired' }, callback: { token: '[redacted]' } },
       requestPayloadHash: 'b'.repeat(64), jobSchemaVersion: '1.1.0', callbackTokenHash: 'c'.repeat(64), callbackTokenExpiresAt: new Date(0), attemptCount: 5, maxAttempts: 5,
     } })
