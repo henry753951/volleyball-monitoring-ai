@@ -830,6 +830,23 @@ model AiIntegration {
   updatedAt           DateTime             @updatedAt
   jobs                AiJob[]
   providerInstances   AiProviderInstance[]
+  accessTokens        AiIntegrationAccessToken[]
+}
+
+model AiIntegrationAccessToken {
+  id            String        @id @default(uuid()) @db.Uuid
+  integrationId String        @db.Uuid
+  name          String
+  tokenHash     String        @unique
+  tokenPrefix   String
+  enabled       Boolean       @default(true)
+  lastUsedAt    DateTime?
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+  integration   AiIntegration @relation(fields: [integrationId], references: [id], onDelete: Cascade)
+
+  @@unique([integrationId, name])
+  @@index([integrationId, enabled])
 }
 
 model AiProviderInstance {
@@ -843,6 +860,9 @@ model AiProviderInstance {
   lastSeenAt      DateTime
   connectedAt     DateTime      @default(now())
   disconnectedAt  DateTime?
+  latencyMs       Int?
+  lastPingAt      DateTime?
+  lastPongAt      DateTime?
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt
   integration     AiIntegration @relation(fields: [integrationId], references: [id], onDelete: Cascade)

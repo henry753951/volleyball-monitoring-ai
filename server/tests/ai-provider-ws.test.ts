@@ -1,7 +1,7 @@
 import type { PrismaClient } from '@volleyball-monitoring/db'
 import websocket from '@fastify/websocket'
 import Fastify from 'fastify'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { WebSocket } from 'ws'
 import { aiProviderWebSocketRoutes } from '../src/realtime/ai-provider-ws.js'
 
@@ -45,6 +45,7 @@ describe('AI provider websocket startup', () => {
   it('buffers an immediate provider hello while integration authentication is pending', async () => {
     let releaseIntegration!: () => void
     const authGate = new Promise<void>(resolve => { releaseIntegration = resolve })
+    const updateProviderInstance = vi.fn(async () => ({ id: instanceId }))
     const database = {
       aiIntegration: {
         findUnique: async () => {
@@ -62,7 +63,7 @@ describe('AI provider websocket startup', () => {
       },
       aiProviderInstance: {
         upsert: async () => ({ id: instanceId }),
-        update: async () => ({ id: instanceId }),
+        update: updateProviderInstance,
       },
       aiJob: {
         findMany: async () => [],
@@ -76,6 +77,7 @@ describe('AI provider websocket startup', () => {
     await app.register(aiProviderWebSocketRoutes({
       database,
       presign: async () => 'https://example.invalid/clip',
+      transportPingIntervalMs: 20,
     }))
     await app.listen({ host: '127.0.0.1', port: 0 })
     closeApp = () => app.close()
@@ -111,6 +113,12 @@ describe('AI provider websocket startup', () => {
       heartbeat_interval_seconds: 10,
       lease_seconds: 60,
     })
+    await vi.waitFor(() => {
+      expect(updateProviderInstance).toHaveBeenCalledWith(expect.objectContaining({
+        data: expect.objectContaining({ latencyMs: expect.any(Number), lastPongAt: expect.any(Date) }),
+        where: { id: instanceId },
+      }))
+    }, { timeout: 1_000 })
     client.close()
   })
 })

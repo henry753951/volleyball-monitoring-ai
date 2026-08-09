@@ -29,6 +29,7 @@ import { aiProviderWebSocketRoutes } from './realtime/ai-provider-ws.js'
 import { authenticateDevelopmentAnnotationRequest } from './realtime/auth.js'
 import { createAnnotationCommandService } from './services/annotation-command.js'
 import { getAnnotationSnapshot } from './services/annotation-snapshot.js'
+import { createAiWorkerToken, rotateAiWorkerToken, setAiWorkerTokenEnabled } from './services/ai-worker-access.js'
 
 const app = Fastify({ logger: true })
 const redisUrl = process.env.REDIS_URL
@@ -139,7 +140,10 @@ await app.register(operationsRoutes(
   {
     authenticate: request => authenticateDevelopmentAnnotationRequest(request, db),
     collectReadiness: () => evaluateReadiness(readinessProbes),
+    createAiWorkerToken: (integrationId, name) => createAiWorkerToken(db, integrationId, name),
     deleteAiWorker: workerId => deleteInactiveAiWorker(db, workerId),
+    rotateAiWorkerToken: tokenId => rotateAiWorkerToken(db, tokenId),
+    updateAiWorkerTokenState: (tokenId, enabled) => setAiWorkerTokenEnabled(db, tokenId, enabled),
   },
 ))
 await app.register(annotationWebSocketRoutes({

@@ -944,3 +944,19 @@ The Nuxt build emits a dependency-level Node `DEP0155` deprecation warning but c
   the focused isolated-PostgreSQL lifecycle suite passes both immutable-placement and abort/purge/media
   cleanup cases; headed Chromium verified the grouped list, winner badge, dialog and all-state delete
   affordance on the host development app.
+
+# 2026-08-09 — Match-centric operations console and AI Worker access
+
+- Replaced the separate media-stream and AI-job pages with match workspaces. Each match is now the
+  operational unit for scoreboard, all attached inputs, DVR indexing/storage and recent AI pipeline
+  work; low-frequency roster, source, edit and delete actions live behind one compact menu.
+- Added a dedicated AI Workers surface for WS Agent pools, connected instances, capacity, active
+  deliveries and credential management. Multiple hashed access tokens can belong to one integration,
+  so adding a workstation credential does not split the least-busy scheduling pool.
+- Added server-initiated WebSocket transport ping/pong every ten seconds alongside the existing
+  application heartbeat. Provider instance snapshots now include round-trip latency, last ping and
+  last pong timestamps, while the application heartbeat remains authoritative for leases and resume.
+- Applied migration `20260809230000_ai_worker_access_and_latency` locally. Repository typecheck,
+  11 focused server tests and all 152 Web tests pass; Prisma validation and Impeccable detection pass.
+  Headed Chromium verified match grouping, removed legacy navigation, Worker Pool presentation and
+  the one-time token creation dialog on the host development app.

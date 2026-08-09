@@ -43,8 +43,35 @@ export interface AiWorkerSnapshot {
   connectedAt: string
   lastSeenAt: string
   disconnectedAt: string | null
+  latencyMs: number | null
+  lastPingAt: string | null
+  lastPongAt: string | null
   status: 'online' | 'stale' | 'offline'
   canDelete: boolean
+}
+
+export interface AiIntegrationAccessSnapshot {
+  id: string
+  name: string
+  enabled: boolean
+  authMode: 'managed' | 'environment' | 'legacy'
+  workerCount: number
+  onlineWorkerCount: number
+  activeJobCount: number
+  createdAt: string
+  updatedAt: string
+  tokens: AiWorkerTokenSnapshot[]
+}
+
+export interface AiWorkerTokenSnapshot {
+  id: string
+  integrationId: string
+  name: string
+  tokenPrefix: string
+  enabled: boolean
+  lastUsedAt: string | null
+  createdAt: string
+  updatedAt: string
 }
 
 export interface DeleteAiWorkerReceipt {
@@ -109,11 +136,49 @@ export interface OperationsDashboardSnapshot {
       rallies: MetricGroup[]
     }
     aiWorkers: AiWorkerSnapshot[]
+    aiIntegrations: AiIntegrationAccessSnapshot[]
     aiWork: AiWorkSnapshot[]
     hostStorage: HostStorageSnapshot
     matchMedia: MatchMediaSnapshot[]
     streams: StreamSnapshot[]
   }
+}
+
+async function operationsWrite<T>(
+  basePath: string,
+  path: string,
+  init: RequestInit,
+  fetchImpl: typeof fetch = fetch,
+): Promise<T> {
+  const response = await fetchImpl(`${basePath.replace(/\/$/, '')}${path}`, {
+    ...init,
+    credentials: 'include',
+    headers: { accept: 'application/json', 'content-type': 'application/json', ...init.headers },
+  })
+  if (!response.ok) {
+    const payload = await response.json().catch(() => null) as { error?: string } | null
+    if (response.status === 401 || response.status === 403) throw new Error('只有管理員可以管理 Worker Token')
+    throw new Error(payload?.error || `AI Worker 設定更新失敗（${response.status}）`)
+  }
+  return await response.json() as T
+}
+
+export function createAiWorkerToken(basePath: string, integrationId: string, name: string, fetchImpl: typeof fetch = fetch) {
+  return operationsWrite<{ schema_version: '1.0.0'; integration: { id: string; name: string }; access_token: { id: string; name: string; tokenPrefix: string }; token: string }>(
+    basePath, '/operations/ai-worker-tokens', { body: JSON.stringify({ integration_id: integrationId, name }), method: 'POST' }, fetchImpl,
+  )
+}
+
+export function rotateAiWorkerToken(basePath: string, tokenId: string, fetchImpl: typeof fetch = fetch) {
+  return operationsWrite<{ schema_version: '1.0.0'; token_id: string; token: string }>(
+    basePath, `/operations/ai-worker-tokens/${encodeURIComponent(tokenId)}/rotate`, { body: '{}', method: 'POST' }, fetchImpl,
+  )
+}
+
+export function setAiWorkerTokenEnabled(basePath: string, tokenId: string, enabled: boolean, fetchImpl: typeof fetch = fetch) {
+  return operationsWrite<{ schema_version: '1.0.0'; token_id: string; enabled: boolean }>(
+    basePath, `/operations/ai-worker-tokens/${encodeURIComponent(tokenId)}`, { body: JSON.stringify({ enabled }), method: 'PATCH' }, fetchImpl,
+  )
 }
 
 export function visibleStreamsForMatches(

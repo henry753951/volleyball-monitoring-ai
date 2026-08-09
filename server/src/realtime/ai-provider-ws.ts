@@ -1,4 +1,4 @@
-import { createHash, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto'
+import { createHash, randomBytes, randomUUID } from 'node:crypto'
 import {
   parseAIProviderClientMessage,
   type AIProviderActiveJob,
@@ -11,6 +11,7 @@ import type { FastifyPluginAsync } from 'fastify'
 import { Client } from 'minio'
 import type { RawData } from 'ws'
 import type { AiProgressService } from './ai-progress.js'
+import { authenticateAiIntegrationToken } from '../services/ai-worker-access.js'
 
 const leaseMs = 60_000
 const callbackLifetimeMs = 30 * 60_000
@@ -21,21 +22,9 @@ const isRecord = (value: unknown): value is Record<string, unknown> => value !==
 const sha256 = (value: string) => createHash('sha256').update(value).digest('hex')
 const json = (value: unknown) => JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue
 
-function secureTokenMatches(actual: string | null, expected: string | undefined) {
-  if (!actual || !expected) return false
-  const actualBytes = Buffer.from(actual)
-  const expectedBytes = Buffer.from(expected)
-  return actualBytes.length === expectedBytes.length && timingSafeEqual(actualBytes, expectedBytes)
-}
-
 function bearer(header: string | undefined) {
   const match = /^Bearer ([A-Za-z0-9._~-]{16,512})$/.exec(header ?? '')
   return match?.[1] ?? null
-}
-
-function integrationToken(authSecretRef: string) {
-  const referenced = authSecretRef.startsWith('env:') ? process.env[authSecretRef.slice(4)] : undefined
-  return process.env.AI_PROVIDER_WS_TOKEN ?? referenced
 }
 
 function createMinioSigner() {
@@ -68,6 +57,7 @@ export interface AiProviderWebSocketDependencies {
   presign?: (bucket: string, objectKey: string, expiresSeconds: number) => Promise<string>
   callbackBaseUrl?: string
   progress?: AiProgressService
+  transportPingIntervalMs?: number
 }
 
 interface ProviderInstanceLoadRow {
@@ -116,6 +106,8 @@ export const aiProviderWebSocketRoutes = (
   const minio = dependencies.presign ? null : createMinioSigner()
   const presign = dependencies.presign ?? ((bucket: string, objectKey: string, expiresSeconds: number) => minio!.presignedGetObject(bucket, objectKey, expiresSeconds))
   const callbackBase = (dependencies.callbackBaseUrl ?? process.env.CALLBACK_PUBLIC_BASE_URL ?? 'http://server:4000').replace(/\/+$/, '')
+  const transportPingIntervalMs = dependencies.transportPingIntervalMs ?? heartbeatIntervalSeconds * 1_000
+  const transportPingTimeoutMs = Math.max(transportPingIntervalMs * 3, 1_000)
 
   app.get<{ Querystring: { integration_id?: string } }>(
     '/api/v1/ai/providers/ws',
@@ -139,7 +131,7 @@ export const aiProviderWebSocketRoutes = (
           socket.close(1008, 'WebSocket AI integration not found')
           return
         }
-        if (!secureTokenMatches(bearer(request.headers.authorization), integrationToken(integration.authSecretRef))) {
+        if (!await authenticateAiIntegrationToken(database, integration, bearer(request.headers.authorization) ?? undefined)) {
           socket.close(1008, 'authentication required')
           return
         }
@@ -150,6 +142,7 @@ export const aiProviderWebSocketRoutes = (
         let maxConcurrency = 0
         let ticking = false
         let lastHeartbeatAt = Date.now()
+        let transportPingSentAt: number | null = null
         const abortSent = new Set<string>()
         const committedSent = new Set<string>()
         const send = (message: AIProviderServerMessage) => {
@@ -283,8 +276,32 @@ export const aiProviderWebSocketRoutes = (
         }
 
         const interval = setInterval(() => { void reconcile().catch(error => request.log.error({ error }, 'AI provider reconciliation failed')) }, tickMs)
+        const latencyInterval = setInterval(() => {
+          if (!instanceId || socket.readyState !== 1) return
+          if (transportPingSentAt !== null && Date.now() - transportPingSentAt > transportPingTimeoutMs) {
+            socket.close(1011, 'provider transport heartbeat timeout')
+            return
+          }
+          if (transportPingSentAt !== null) return
+          transportPingSentAt = Date.now()
+          socket.ping()
+          void database.aiProviderInstance.update({
+            data: { lastPingAt: new Date(transportPingSentAt) },
+            where: { id: instanceId },
+          }).catch(error => request.log.warn({ error, instanceId }, 'AI provider ping persistence failed'))
+        }, transportPingIntervalMs)
+        socket.on('pong', () => {
+          if (!instanceId || transportPingSentAt === null) return
+          const latencyMs = Math.max(0, Date.now() - transportPingSentAt)
+          transportPingSentAt = null
+          void database.aiProviderInstance.update({
+            data: { latencyMs, lastPongAt: new Date() },
+            where: { id: instanceId },
+          }).catch(error => request.log.warn({ error, instanceId }, 'AI provider pong persistence failed'))
+        })
         socket.on('close', () => {
           clearInterval(interval)
+          clearInterval(latencyInterval)
           if (instanceId) void database.aiProviderInstance.update({ where: { id: instanceId }, data: { disconnectedAt: new Date() } }).catch(() => undefined)
         })
         let messageQueue = Promise.resolve()
@@ -312,8 +329,8 @@ export const aiProviderWebSocketRoutes = (
               maxConcurrency = message.max_concurrency
               const instance = await database.aiProviderInstance.upsert({
                 where: { integrationId_instanceKey: { integrationId: integration.id, instanceKey } },
-                update: { sdkVersion: message.sdk_version, providerBuildId: message.provider_build_id, capabilities: json(message.capabilities), maxConcurrency, lastSeenAt: new Date(), connectedAt: new Date(), disconnectedAt: null },
-                create: { integrationId: integration.id, instanceKey, sdkVersion: message.sdk_version, providerBuildId: message.provider_build_id, capabilities: json(message.capabilities), maxConcurrency, lastSeenAt: new Date() },
+                update: { sdkVersion: message.sdk_version, providerBuildId: message.provider_build_id, capabilities: json(message.capabilities), maxConcurrency, lastSeenAt: new Date(), connectedAt: new Date(), disconnectedAt: null, latencyMs: null, lastPingAt: null, lastPongAt: null },
+                create: { integrationId: integration.id, instanceKey, sdkVersion: message.sdk_version, providerBuildId: message.provider_build_id, capabilities: json(message.capabilities), maxConcurrency, lastSeenAt: new Date(), latencyMs: null, lastPingAt: null, lastPongAt: null },
               })
               instanceId = instance.id
               lastHeartbeatAt = Date.now()

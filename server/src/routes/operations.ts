@@ -2,6 +2,7 @@ import type { db as DatabaseClient } from '@volleyball-monitoring/db'
 import type { FastifyPluginAsync, FastifyRequest } from 'fastify'
 import type { ReadinessResult } from '../health/readiness.js'
 import type { HostStorageProbe, HostStorageSnapshot } from '../operations/host-storage.js'
+import { AiWorkerAccessError, listAiIntegrationAccess, type AiIntegrationAccessSnapshot } from '../services/ai-worker-access.js'
 
 export interface MetricGroup {
   count: number
@@ -27,6 +28,7 @@ export interface OperationsSnapshot {
     rallies: MetricGroup[]
   }
   aiWorkers: AiWorkerSnapshot[]
+  aiIntegrations: AiIntegrationAccessSnapshot[]
   aiWork: AiWorkSnapshot[]
   hostStorage: HostStorageSnapshot
   matchMedia: MatchMediaSnapshot[]
@@ -56,6 +58,9 @@ export interface AiWorkerSnapshot {
   connectedAt: string
   lastSeenAt: string
   disconnectedAt: string | null
+  latencyMs: number | null
+  lastPingAt: string | null
+  lastPongAt: string | null
   status: 'online' | 'stale' | 'offline'
   canDelete: boolean
 }
@@ -116,6 +121,9 @@ export type AiWorkerDeleteResult =
   | { deleted: true; id: string; instanceKey: string }
   | { deleted: false; reason: 'active_jobs' | 'not_found' | 'online' }
 export type AiWorkerDeleter = (workerId: string, identity: OperationsIdentity) => Promise<AiWorkerDeleteResult>
+export type AiWorkerTokenCreator = (integrationId: string, name: string, identity: OperationsIdentity) => Promise<{ accessToken: { id: string; name: string; tokenPrefix: string }; integration: { id: string; name: string }; token: string }>
+export type AiWorkerTokenRotator = (tokenId: string, identity: OperationsIdentity) => Promise<{ tokenId: string; token: string }>
+export type AiWorkerTokenStateUpdater = (tokenId: string, enabled: boolean, identity: OperationsIdentity) => Promise<{ tokenId: string; enabled: boolean }>
 
 const group = (count: number, labels: Record<string, string>): MetricGroup => ({ count, labels })
 const AI_WORKER_STALE_MS = 30_000
@@ -166,7 +174,7 @@ export async function collectOperationsSnapshot(
   identity?: OperationsIdentity,
   hostStorageProbe?: HostStorageProbe,
 ): Promise<OperationsSnapshot> {
-  const [rallies, clipJobs, aiJobs, captures, outboxEvents, callbacks, mediaAssets, annotationReceipts, annotationOperations, captureSessions, providerInstances, recentAiWork, activeAiJobs] = await Promise.all([
+  const [rallies, clipJobs, aiJobs, captures, outboxEvents, callbacks, mediaAssets, annotationReceipts, annotationOperations, captureSessions, providerInstances, recentAiWork, activeAiJobs, aiIntegrations] = await Promise.all([
     database.rally.groupBy({ by: ['annotationStatus', 'processingStatus'], _count: { _all: true } }),
     database.clipJob.groupBy({ by: ['status'], _count: { _all: true } }),
     database.aiJob.groupBy({ by: ['status'], _count: { _all: true } }),
@@ -249,6 +257,7 @@ export async function collectOperationsSnapshot(
       },
       _count: { _all: true },
     }),
+    listAiIntegrationAccess(database),
   ])
   const programIds = captureSessions.flatMap(capture => capture.programs.map(program => program.id))
   const [segmentTotals, readySegments, gapSegments] = programIds.length === 0
@@ -355,10 +364,14 @@ export async function collectOperationsSnapshot(
         connectedAt: instance.connectedAt.toISOString(),
         lastSeenAt: instance.lastSeenAt.toISOString(),
         disconnectedAt: instance.disconnectedAt?.toISOString() ?? null,
+        latencyMs: instance.latencyMs,
+        lastPingAt: instance.lastPingAt?.toISOString() ?? null,
+        lastPongAt: instance.lastPongAt?.toISOString() ?? null,
         status,
         canDelete: status !== 'online' && activeJobs === 0,
       }
     }),
+    aiIntegrations,
     aiWork: recentAiWork.map(job => ({
       id: job.id,
       matchId: job.submission.rally.match.id,
@@ -465,6 +478,9 @@ export function operationsRoutes(
     authenticate?: OperationsAuthorizer
     collectReadiness?: () => Promise<ReadinessResult>
     deleteAiWorker?: AiWorkerDeleter
+    createAiWorkerToken?: AiWorkerTokenCreator
+    rotateAiWorkerToken?: AiWorkerTokenRotator
+    updateAiWorkerTokenState?: AiWorkerTokenStateUpdater
   } = {},
 ): FastifyPluginAsync {
   return async (app) => {
@@ -527,6 +543,58 @@ export function operationsRoutes(
         schema_version: '1.0.0',
         deleted_worker: { id: result.id, instance_key: result.instanceKey },
       })
+    })
+    app.post<{ Body: { integration_id?: string; name?: string } }>('/api/v1/operations/ai-worker-tokens', async (request, reply) => {
+      if (!options.authenticate || !options.createAiWorkerToken) return reply.status(404).send({ error: 'Not found' })
+      const identity = await options.authenticate(request).catch(() => null)
+      if (!identity) return reply.status(401).send({ error: 'Authentication required' })
+      if (identity.role !== 'ADMIN') return reply.status(403).send({ error: 'Administrator access required' })
+      if (!UUID_PATTERN.test(request.body?.integration_id ?? '')) return reply.status(400).send({ code: 'INVALID_AI_INTEGRATION_ID', error: 'Invalid AI integration id' })
+      try {
+        const result = await options.createAiWorkerToken(request.body!.integration_id!, request.body?.name ?? '', identity)
+        return reply.status(201).header('cache-control', 'no-store').send({
+          schema_version: '1.0.0',
+          integration: result.integration,
+          access_token: result.accessToken,
+          token: result.token,
+        })
+      }
+      catch (error) {
+        if (error instanceof AiWorkerAccessError) {
+          return reply.status(error.code === 'NAME_CONFLICT' ? 409 : 400).send({ code: error.code, error: error.message })
+        }
+        throw error
+      }
+    })
+    app.post<{ Params: { tokenId: string } }>('/api/v1/operations/ai-worker-tokens/:tokenId/rotate', async (request, reply) => {
+      if (!options.authenticate || !options.rotateAiWorkerToken) return reply.status(404).send({ error: 'Not found' })
+      const identity = await options.authenticate(request).catch(() => null)
+      if (!identity) return reply.status(401).send({ error: 'Authentication required' })
+      if (identity.role !== 'ADMIN') return reply.status(403).send({ error: 'Administrator access required' })
+      if (!UUID_PATTERN.test(request.params.tokenId)) return reply.status(400).send({ code: 'INVALID_AI_WORKER_TOKEN_ID', error: 'Invalid AI worker token id' })
+      try {
+        const result = await options.rotateAiWorkerToken(request.params.tokenId, identity)
+        return reply.header('cache-control', 'no-store').send({ schema_version: '1.0.0', token_id: result.tokenId, token: result.token })
+      }
+      catch (error) {
+        if (error instanceof AiWorkerAccessError && error.code === 'NOT_FOUND') return reply.status(404).send({ code: error.code, error: error.message })
+        throw error
+      }
+    })
+    app.patch<{ Body: { enabled?: boolean }; Params: { tokenId: string } }>('/api/v1/operations/ai-worker-tokens/:tokenId', async (request, reply) => {
+      if (!options.authenticate || !options.updateAiWorkerTokenState) return reply.status(404).send({ error: 'Not found' })
+      const identity = await options.authenticate(request).catch(() => null)
+      if (!identity) return reply.status(401).send({ error: 'Authentication required' })
+      if (identity.role !== 'ADMIN') return reply.status(403).send({ error: 'Administrator access required' })
+      if (!UUID_PATTERN.test(request.params.tokenId) || typeof request.body?.enabled !== 'boolean') return reply.status(400).send({ code: 'INVALID_AI_WORKER_TOKEN_UPDATE', error: 'Invalid AI worker token update' })
+      try {
+        const result = await options.updateAiWorkerTokenState(request.params.tokenId, request.body.enabled, identity)
+        return reply.header('cache-control', 'no-store').send({ schema_version: '1.0.0', token_id: result.tokenId, enabled: result.enabled })
+      }
+      catch (error) {
+        if (error instanceof AiWorkerAccessError && error.code === 'NOT_FOUND') return reply.status(404).send({ code: error.code, error: error.message })
+        throw error
+      }
     })
   }
 }
