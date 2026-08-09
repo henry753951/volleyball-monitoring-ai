@@ -20,6 +20,7 @@ import {
 } from 'lucide-vue-next'
 import { toast } from 'vue-sonner'
 import type { DeepReadonly } from 'vue'
+import MediaDvrMonitorDialog from '~/components/control/MediaDvrMonitorDialog.vue'
 import type { Match } from '~/lib/coreDomain'
 import type { CreateMatchWithMediaInput } from '~/lib/mediaSourceClient'
 import { createMediaSourceClient } from '~/lib/mediaSourceClient'
@@ -67,6 +68,7 @@ const deleteError = shallowRef<Error | null>(null)
 const workerDeleteTarget = shallowRef<AiWorkerSnapshot | null>(null)
 const workerDeletePending = ref(false)
 const workerDeleteError = shallowRef<Error | null>(null)
+const mediaMonitorMatch = shallowRef<DeepReadonly<Match> | null>(null)
 
 const tokenDialogOpen = ref(false)
 const tokenName = ref('')
@@ -155,6 +157,7 @@ async function openSource(matchId: string) { sourceMatch.value = await core.matc
 async function openRoster(matchId: string) { rosterMatch.value = await core.match(matchId); rosterDialogOpen.value = true }
 function openEdit(match: DeepReadonly<Match>) { editMatch.value = match; editError.value = null; editOpen.value = true }
 function openDelete(match: DeepReadonly<Match>) { deleteTarget.value = match; deleteError.value = null; deleteOpen.value = true }
+function openMediaMonitor(match: DeepReadonly<Match>) { mediaMonitorMatch.value = match }
 async function saveMatch(input: Parameters<typeof core.updateMatch>[0]) {
   editPending.value = true
   editError.value = null
@@ -271,14 +274,14 @@ onMounted(async () => {
       </section>
       <section class="storage-strip" :class="{ unavailable: !hostStorage?.available }"><HardDrive :size="16" /><div><strong>媒體儲存</strong><small>{{ hostStorage?.available ? hostStorage.path : '無法讀取媒體磁碟' }}</small></div><span><i :style="{ width: `${Math.min(100, hostUsedPercent)}%` }" /></span><b>{{ hostStorage?.available ? `${formatBytes(hostStorage.freeBytes)} 可用` : '狀態未知' }}</b></section>
       <div class="section-title"><div><h2>場次工作區</h2><p>媒體與分析狀態均以場次為單位</p></div><NuxtLink :to="{ path: '/control', query: { view: 'matches' } }">管理全部</NuxtLink></div>
-      <div class="match-grid overview-matches"><ControlMatchWorkspaceCard v-for="match in matchesState.matches.value.slice(0, 2)" :key="match.id" :match="match" :media="matchMediaById.get(match.id) ?? null" :streams="streamsByMatch.get(match.id) ?? []" :jobs="jobsByMatch.get(match.id) ?? []" @media="openSource(match.id)" @roster="openRoster(match.id)" @edit="openEdit(match)" @delete="openDelete(match)" /></div>
+      <div class="match-grid overview-matches"><ControlMatchWorkspaceCard v-for="match in matchesState.matches.value.slice(0, 2)" :key="match.id" :match="match" :media="matchMediaById.get(match.id) ?? null" :streams="streamsByMatch.get(match.id) ?? []" :jobs="jobsByMatch.get(match.id) ?? []" @media="openSource(match.id)" @monitor="openMediaMonitor(match)" @roster="openRoster(match.id)" @edit="openEdit(match)" @delete="openDelete(match)" /></div>
     </div>
 
     <div v-else-if="view === 'matches'" class="view-panel">
       <div class="control-actions"><label><Search :size="16" /><input v-model="search" placeholder="搜尋場次或隊伍"></label><button type="button" class="primary-action" @click="createOpen = true"><Plus :size="16" />新增場次</button></div>
       <div v-if="matchesState.pending.value" class="match-loading" />
       <div v-else-if="!filteredMatches.length" class="empty-state"><CircleDot :size="22" /><strong>沒有符合的場次</strong><span>調整搜尋條件或新增場次</span></div>
-      <div v-else class="match-grid"><ControlMatchWorkspaceCard v-for="match in filteredMatches" :key="match.id" :match="match" :media="matchMediaById.get(match.id) ?? null" :streams="streamsByMatch.get(match.id) ?? []" :jobs="jobsByMatch.get(match.id) ?? []" @media="openSource(match.id)" @roster="openRoster(match.id)" @edit="openEdit(match)" @delete="openDelete(match)" /></div>
+      <div v-else class="match-grid"><ControlMatchWorkspaceCard v-for="match in filteredMatches" :key="match.id" :match="match" :media="matchMediaById.get(match.id) ?? null" :streams="streamsByMatch.get(match.id) ?? []" :jobs="jobsByMatch.get(match.id) ?? []" @media="openSource(match.id)" @monitor="openMediaMonitor(match)" @roster="openRoster(match.id)" @edit="openEdit(match)" @delete="openDelete(match)" /></div>
     </div>
 
     <div v-else-if="view === 'systems'" class="view-panel systems-view">
@@ -306,6 +309,7 @@ onMounted(async () => {
     <ControlMatchEditorDialog :open="editOpen" :match="editMatch" :pending="editPending" :error="editError" @close="editOpen = false" @save="saveMatch" />
     <ControlMatchDeleteDialog :open="deleteOpen" :match="deleteTarget" :media="deleteTarget ? matchMediaById.get(deleteTarget.id) ?? null : null" :pending="deletePending" :error="deleteError" @close="deleteOpen = false" @confirm="confirmDelete" />
     <ControlAiWorkerDeleteDialog :open="Boolean(workerDeleteTarget)" :worker="workerDeleteTarget" :pending="workerDeletePending" :error="workerDeleteError" @close="workerDeleteTarget = null" @confirm="confirmWorkerDelete" />
+    <MediaDvrMonitorDialog :open="Boolean(mediaMonitorMatch)" :match-title="mediaMonitorMatch?.title ?? ''" :media="mediaMonitorMatch ? matchMediaById.get(mediaMonitorMatch.id) ?? null : null" :streams="mediaMonitorMatch ? streamsByMatch.get(mediaMonitorMatch.id) ?? [] : []" @close="mediaMonitorMatch = null" />
 
     <UiAnimatedModal :open="tokenDialogOpen" :title="rotatingToken ? '輪替 Worker Token' : '建立 Worker Token'" :description="revealedToken ? '請立即複製；關閉後無法再次查看。' : '供 volleyball-analysis-engine 連入中央系統。'" @close="tokenDialogOpen = false">
       <div class="token-dialog">
@@ -324,4 +328,5 @@ onMounted(async () => {
 @media(max-width:760px){.view-panel{padding:14px}.page-header{padding-inline:14px}.ops-command dl{grid-template-columns:repeat(2,1fr)}.storage-strip{grid-template-columns:auto 1fr}.storage-strip>span,.storage-strip>b{grid-column:2}.system-grid{grid-template-columns:1fr}.system-grid article:nth-child(n){border-left:0;border-top:1px solid #27292d}.system-grid article:first-child{border-top:0}.runtime dl{grid-template-columns:repeat(2,1fr)}.fleet-grid article{grid-template-columns:34px 1fr auto}.worker-load,.worker-latency{grid-column:2}.worker-state{grid-column:3;grid-row:1}.delete-worker{grid-column:3}.pool-grid{padding:8px}.control-actions label{width:100%}.control-actions{flex-wrap:wrap}}
 @media(prefers-reduced-motion:reduce){.spinning,.match-loading{animation:none}}
 .page-header{border-bottom-color:#1b1d20}.ops-command,.workspace-section,.worker-command{border-color:transparent}.ops-health,.ops-command dl>div,.section-title.compact,.system-grid article,.runtime dl>div{border-color:#202226}.storage-strip{border-color:transparent;background:#101114}.control-actions label{border-color:#292c31}.empty-state{border:0;background:#0f1012}
+.system-grid article:last-child:nth-child(odd){grid-column:1/-1}
 </style>
