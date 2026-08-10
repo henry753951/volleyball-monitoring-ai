@@ -551,6 +551,9 @@ const allPlayerBBoxCorrections = computed<
 const contactActorCorrections = computed<Record<string, number | null>>(() =>
    Object.fromEntries(analysisReview.contactActorCorrections.value),
 );
+const contactTimeCorrections = computed<Record<string, number>>(() =>
+   Object.fromEntries(analysisReview.contactTimeCorrections.value),
+);
 const selectedOverlayAction = computed(() =>
    selectedOverlayTrackId.value === null
       ? null
@@ -585,9 +588,12 @@ const selectedAnalysisHitHasOverride = computed(() =>
       ),
    ),
 );
+function effectiveContactFrame(keyPointId: string, fallbackFrame: number) {
+   return analysisReview.contactTimeCorrections.value.get(keyPointId) ?? fallbackFrame;
+}
 const analysisHitItems = computed(() =>
    overlayEvents.value.map((event) => {
-      const frameIndex = replayEventFrame(event);
+      const frameIndex = effectiveContactFrame(event.key_point_id, replayEventFrame(event));
       const manual = analysisReview.contactActorCorrections.value.has(
          event.key_point_id,
       );
@@ -595,6 +601,7 @@ const analysisHitItems = computed(() =>
          ? resolveEffectiveHitPosition(
               {
                  ballCorrections: allBallCorrections.value,
+                 contactTimeCorrections: contactTimeCorrections.value,
                  chunk: null,
                  videoWidth: overlayVideoSize.value.width,
                  videoHeight: overlayVideoSize.value.height,
@@ -621,6 +628,9 @@ const analysisHitItems = computed(() =>
          keyPointId: event.key_point_id,
          sequenceIndex: event.sequence_index,
          frameIndex,
+         anchorSource: event.anchor_origin === "ai_detected" ? ("ai" as const) : ("human" as const),
+         anchorConfidence: event.detection_confidence ?? null,
+         timeAdjusted: analysisReview.contactTimeCorrections.value.has(event.key_point_id),
          actorTrackId: trackId,
          actorLabel:
             trackId === null
@@ -862,6 +872,19 @@ function commandAvailability(action: AnnotationAction) {
       if (!cursor || !canMark.value)
          return { enabled: false, reason: "播放游標尚未確認" };
       const cursorValue = BigInt(cursor);
+      const service = displayAnnotation.value?.snapshot.key_points.find(
+         (point) => point.marker_kind === "service",
+      );
+      if (
+         state.value === "OPEN" &&
+         !displayAnnotation.value?.snapshot.active_submission_id
+      ) {
+         if (!service)
+            return { enabled: false, reason: "目前回合缺少發球點" };
+         return cursorValue > BigInt(service.capture_time_us)
+            ? { enabled: true, reason: "再次按 Z，以目前畫面作為回合終點" }
+            : { enabled: false, reason: "請將游標移到發球之後再結束" };
+      }
       if (
          openDraftBlocksNewRally(
             state.value,
@@ -2104,12 +2127,40 @@ function selectAnalysisHit(keyPointId: string) {
    );
    if (!event) return;
    selectedAnalysisHitId.value = keyPointId;
-   const captureTime = overlayPlayer.value?.overlayFrameCaptureTime(
-      replayEventFrame(event),
-   );
+   const frameIndex = effectiveContactFrame(keyPointId, replayEventFrame(event));
+   const captureTime = overlayPlayer.value?.overlayFrameCaptureTime(frameIndex);
    if (captureTime) void seekTimeline(captureTime);
-   else
-      overlayPlayer.value?.seekOverlayFrameIfBuffered(replayEventFrame(event));
+   else overlayPlayer.value?.seekOverlayFrameIfBuffered(frameIndex);
+}
+
+function adjustAnalysisHitTime(keyPointId: string, deltaFrames: number) {
+   const eventIndex = overlayEvents.value.findIndex((event) => event.key_point_id === keyPointId);
+   const event = overlayEvents.value[eventIndex];
+   if (!event || event.anchor_origin !== "ai_detected") return;
+   const currentFrame = effectiveContactFrame(keyPointId, replayEventFrame(event));
+   const nextFrame = currentFrame + deltaFrames;
+   const previous = overlayEvents.value[eventIndex - 1];
+   const following = overlayEvents.value[eventIndex + 1];
+   const previousFrame = previous
+      ? effectiveContactFrame(previous.key_point_id, replayEventFrame(previous))
+      : -1;
+   const followingFrame = following
+      ? effectiveContactFrame(following.key_point_id, replayEventFrame(following))
+      : Number.MAX_SAFE_INTEGER;
+   if (nextFrame <= previousFrame || nextFrame >= followingFrame || nextFrame < 0) {
+      toast.warning("擊球點必須維持在前後事件之間");
+      return;
+   }
+   analysisReview.setContactTime(keyPointId, nextFrame);
+   selectedAnalysisHitId.value = keyPointId;
+   const captureTime = overlayPlayer.value?.overlayFrameCaptureTime(nextFrame);
+   if (captureTime) void seekTimeline(captureTime);
+   else overlayPlayer.value?.seekOverlayFrameIfBuffered(nextFrame);
+}
+
+function resetAnalysisHitTime(keyPointId: string) {
+   analysisReview.clearContactTimeOverride(keyPointId);
+   selectAnalysisHit(keyPointId);
 }
 
 function markAnalysisHitNoActor(keyPointId: string) {
@@ -2534,6 +2585,9 @@ onBeforeUnmount(() => {
                      :contact-actor-corrections="
                         analysisOverlayActive ? contactActorCorrections : {}
                      "
+                     :contact-time-corrections="
+                        analysisOverlayActive ? contactTimeCorrections : {}
+                     "
                      :identity-labels="overlayIdentityLabels"
                      :overlay-events="overlayEvents"
                      :overlay-tracks="overlayTracks"
@@ -2709,6 +2763,8 @@ onBeforeUnmount(() => {
                      :saving="analysisReview.pending.value"
                      :connection="analysisReview.connection.value"
                      @select-hit="selectAnalysisHit"
+                     @adjust-hit-time="adjustAnalysisHitTime"
+                     @reset-hit-time="resetAnalysisHitTime"
                   />
                </template>
             </AnnotationMatchInspector>
@@ -2823,6 +2879,7 @@ onBeforeUnmount(() => {
             :command-ready="commandReady"
             :pending-command="annotation.pendingCount.value > 0"
             :availability="commandAvailabilityMap"
+            :service-mode="state === 'OPEN' && !displayAnnotation?.snapshot.active_submission_id ? 'end' : 'start'"
             @action="dispatchAnnotationAction"
             @settings="openSettings('hotkeys')"
          />

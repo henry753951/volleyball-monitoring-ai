@@ -367,6 +367,9 @@ class RepresentativeCourtPosition(StrictModel):
 
 class ContactEvent(StrictModel):
     key_point_id: str = Field(min_length=1, max_length=128)
+    source_key_point_id: str | None = Field(default=None, min_length=1, max_length=128)
+    anchor_origin: Literal["human_anchor", "ai_detected"] = "human_anchor"
+    detection_confidence: float | None = Field(default=None, ge=0, le=1)
     sequence_index: int = Field(ge=0)
     marker_kind: Literal["service", "contact"]
     is_terminal: bool
@@ -434,7 +437,7 @@ class AnalysisSummary(StrictModel):
 
 
 class AnalysisResult(StrictModel):
-    schema_version: Literal["1.0.0"]
+    schema_version: Literal["1.0.0", "1.1.0"]
     analysis_id: str = Field(min_length=1, max_length=128)
     analysis_version: str = Field(min_length=1, max_length=256)
     ai_job_id: str = Field(min_length=1, max_length=128)

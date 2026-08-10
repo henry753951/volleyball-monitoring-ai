@@ -50,6 +50,7 @@ export interface VolleyballOverlayRenderInput {
   actionCorrections?: Record<number, string>
   playerBBoxCorrections?: Record<number, Record<number, OverlayFrameBBox>>
   contactActorCorrections?: Record<string, number | null>
+  contactTimeCorrections?: Record<string, number>
   identityLabels?: Record<number, string>
   selectedTrackId?: number | null
 }
@@ -335,8 +336,8 @@ function drawBallMarker(context: CanvasRenderingContext2D, position: OverlayPoin
   context.restore()
 }
 
-export function replayEventFrame(event: ReplayContactEvent) {
-  return Number(BigInt(event.resolved_frame_index ?? event.anchor_frame_index))
+export function replayEventFrame(event: ReplayContactEvent, corrections?: Record<string, number>) {
+  return corrections?.[event.key_point_id] ?? Number(BigInt(event.resolved_frame_index ?? event.anchor_frame_index))
 }
 
 function rawBallAtFrame(input: VolleyballOverlayRenderInput, frame: number) {
@@ -348,8 +349,8 @@ function rawBallAtFrame(input: VolleyballOverlayRenderInput, frame: number) {
   return position ? quantizedToFrame(position, input.videoWidth, input.videoHeight) : null
 }
 
-export function resolveEffectiveHitPosition(input: Pick<VolleyballOverlayRenderInput, 'ballCorrections' | 'chunk' | 'videoHeight' | 'videoWidth'>, event: ReplayContactEvent) {
-  const targetFrame = replayEventFrame(event)
+export function resolveEffectiveHitPosition(input: Pick<VolleyballOverlayRenderInput, 'ballCorrections' | 'chunk' | 'contactTimeCorrections' | 'videoHeight' | 'videoWidth'>, event: ReplayContactEvent) {
+  const targetFrame = replayEventFrame(event, input.contactTimeCorrections)
   const exactOverride = input.ballCorrections?.[targetFrame]
   if (exactOverride?.state === 'position') return exactOverride.position
   if (!exactOverride) {
@@ -414,11 +415,11 @@ export function resolveEventActorFromResult(event: ReplayContactEvent, position:
   return (event.actors[0] ?? event.candidates[0])?.track_id ?? null
 }
 
-export function resolveEffectiveContactActor(input: Pick<VolleyballOverlayRenderInput, 'ballCorrections' | 'chunk' | 'contactActorCorrections' | 'playerBBoxCorrections' | 'videoHeight' | 'videoWidth'>, event: ReplayContactEvent) {
+export function resolveEffectiveContactActor(input: Pick<VolleyballOverlayRenderInput, 'ballCorrections' | 'chunk' | 'contactActorCorrections' | 'contactTimeCorrections' | 'playerBBoxCorrections' | 'videoHeight' | 'videoWidth'>, event: ReplayContactEvent) {
   if (Object.prototype.hasOwnProperty.call(input.contactActorCorrections ?? {}, event.key_point_id)) return input.contactActorCorrections?.[event.key_point_id] ?? null
   const position = resolveEffectiveHitPosition(input, event)
   if (position && input.chunk) {
-    const frame = replayEventFrame(event)
+    const frame = replayEventFrame(event, input.contactTimeCorrections)
     const detections = collectDetections(input.chunk, frame, input.videoWidth, input.videoHeight, input.playerBBoxCorrections?.[frame])
     const trackId = nearestTrack(position, detections)
     if (trackId !== null) return trackId
@@ -427,13 +428,13 @@ export function resolveEffectiveContactActor(input: Pick<VolleyballOverlayRender
 }
 
 function drawNextHit(context: CanvasRenderingContext2D, input: VolleyballOverlayRenderInput, content: OverlayRect) {
-  const event = input.events.find(candidate => replayEventFrame(candidate) >= input.frame && replayEventFrame(candidate) - input.frame <= 40)
+  const event = input.events.find(candidate => replayEventFrame(candidate, input.contactTimeCorrections) >= input.frame && replayEventFrame(candidate, input.contactTimeCorrections) - input.frame <= 40)
   if (!event) return
   const position = resolveEffectiveHitPosition(input, event)
   if (!position) return
   const target = framePoint(position, content, input.videoWidth, input.videoHeight)
   const targetTrackId = resolveEffectiveContactActor(input, event)
-  const remaining = Math.max(0, replayEventFrame(event) - input.frame)
+  const remaining = Math.max(0, replayEventFrame(event, input.contactTimeCorrections) - input.frame)
   const radius = 15 + Math.min(1, remaining / 30) * 23
   const color = targetTrackId == null ? UNKNOWN : trackColor(targetTrackId)
   context.save()
@@ -488,9 +489,9 @@ function drawCourtRadar(context: CanvasRenderingContext2D, input: VolleyballOver
 
 function drawEventFallback(context: CanvasRenderingContext2D, input: VolleyballOverlayRenderInput, content: OverlayRect) {
   const event = input.events.reduce<ReplayContactEvent | null>((nearest, candidate) => {
-    const distance = Math.abs(replayEventFrame(candidate) - input.frame)
+    const distance = Math.abs(replayEventFrame(candidate, input.contactTimeCorrections) - input.frame)
     if (distance > 2) return nearest
-    return !nearest || distance < Math.abs(replayEventFrame(nearest) - input.frame) ? candidate : nearest
+    return !nearest || distance < Math.abs(replayEventFrame(nearest, input.contactTimeCorrections) - input.frame) ? candidate : nearest
   }, null)
   if (!event) return
   for (const actor of event.actors) {

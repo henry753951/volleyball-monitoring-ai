@@ -42,7 +42,7 @@ function pendingPoint(entry: AnnotationOutboxEntry, sequenceIndex: number): Anno
     key_point_id: `pending:${entry.command.command_id}`,
     sequence_index: sequenceIndex,
     marker_kind: entry.command.kind === 'CREATE_SERVICE_KEY_POINT' ? 'service' : 'contact',
-    is_terminal: false,
+    is_terminal: entry.command.kind === 'CREATE_CONTACT_KEY_POINT' && entry.command.payload.terminal_outcome === 'unknown',
     capture_time_us: observation.capture_time_us,
     capture_frame_index: observation.capture_frame_index ?? '0',
     timing_precision: 'estimated',
@@ -110,7 +110,14 @@ export function projectAnnotationSnapshot(
     if (!projected || projected.rally_id !== command.rally_id) continue
     if (command.kind === 'CREATE_CONTACT_KEY_POINT') {
       const point = pendingPoint(entry, projected.snapshot.key_points.length)
-      if (point) projected.snapshot.key_points.push(point)
+      if (point) {
+        projected.snapshot.key_points.push(point)
+        if (command.payload.terminal_outcome === 'unknown') {
+          projected.snapshot.annotation_status = 'ready'
+          projected.snapshot.score_resolution = 'unknown'
+          projected.snapshot.scoring_court_side = null
+        }
+      }
     }
     else if (command.kind === 'CLOSE_RALLY') {
       const target = projected.snapshot.key_points.at(-1)
@@ -168,7 +175,7 @@ export function applyAnnotationAckLocally(
       key_point_id: ack.effects.created_key_point_id,
       sequence_index: next.snapshot.key_points.length,
       marker_kind: 'contact',
-      is_terminal: false,
+      is_terminal: command.payload.terminal_outcome === 'unknown' || ack.effects.terminal_key_point_id === ack.effects.created_key_point_id,
       capture_time_us: ack.resolved_anchor.capture_time_us,
       capture_frame_index: ack.resolved_anchor.capture_frame_index,
       timing_precision: ack.resolved_anchor.timing_precision,

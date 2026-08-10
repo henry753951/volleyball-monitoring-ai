@@ -3,8 +3,8 @@ import { describe, expect, it } from 'vitest'
 import AnnotationAnalysisPanel from './AnnotationAnalysisPanel.vue'
 
 const hits = [
-  { keyPointId: 'hit-1', sequenceIndex: 0, frameIndex: 189, actorTrackId: 5, actorLabel: 'Track 5', actorSource: 'auto' as const, ballLabel: 'AI 球點' },
-  { keyPointId: 'hit-2', sequenceIndex: 1, frameIndex: 249, actorTrackId: null, actorLabel: '沒人打', actorSource: 'none' as const, ballLabel: '人工球點' },
+  { keyPointId: 'hit-1', sequenceIndex: 0, frameIndex: 189, actorTrackId: 5, actorLabel: 'Track 5', actorSource: 'auto' as const, ballLabel: 'AI 球點', anchorSource: 'ai' as const, anchorConfidence: 0.86, timeAdjusted: false },
+  { keyPointId: 'hit-2', sequenceIndex: 1, frameIndex: 249, actorTrackId: null, actorLabel: '沒人打', actorSource: 'none' as const, ballLabel: '人工球點', anchorSource: 'human' as const, anchorConfidence: null, timeAdjusted: false },
 ]
 
 const baseProps = {
@@ -41,6 +41,14 @@ describe('AnnotationAnalysisPanel', () => {
 
     await wrapper.findAll('.hit-main')[1]!.trigger('click')
     expect(wrapper.emitted('selectHit')).toEqual([['hit-2']])
+  })
+
+  it('offers frame-safe nudging for an AI-detected hit', async () => {
+    const wrapper = mount(AnnotationAnalysisPanel, { props: { ...baseProps, page: 'hits' } })
+
+    expect(wrapper.text()).toContain('AI 擊球建議 86%')
+    await wrapper.get('button[title="往後一格"]').trigger('click')
+    expect(wrapper.emitted('adjustHitTime')).toEqual([['hit-1', 1]])
   })
 
   it('shows state only on the ball page without duplicating editing buttons', () => {

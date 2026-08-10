@@ -254,6 +254,17 @@ export function useAnnotationRoom() {
     const current = snapshot.value
     if (action === 'service') {
       if (!cursor || cursor.cursor_status !== 'ready') throw new Error('伺服器尚未取得可解析的播放游標')
+      if (current?.snapshot.annotation_status === 'open' && !current.snapshot.active_submission_id) {
+        return parseAnnotationCommand({
+          schema_version: '2.0.0',
+          command_id: crypto.randomUUID(),
+          room_id: roomId.value,
+          base_revision: current.revision,
+          rally_id: current.rally_id,
+          kind: 'CREATE_CONTACT_KEY_POINT',
+          payload: { playback_cursor: annotationCursor(cursor), terminal_outcome: 'unknown' },
+        })
+      }
       return parseAnnotationCommand({
         schema_version: '2.0.0',
         command_id: crypto.randomUUID(),

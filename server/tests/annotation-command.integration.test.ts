@@ -102,6 +102,16 @@ function contactCommand(commandId: string, rallyId: string, baseRevision = '1') 
   return { ...serviceCommand(commandId, rallyId), base_revision: baseRevision, kind: 'CREATE_CONTACT_KEY_POINT' as const }
 }
 
+function terminalCommand(commandId: string, rallyId: string, baseRevision = '1') {
+  return parseAnnotationCommand({
+    ...contactCommand(commandId, rallyId, baseRevision),
+    payload: {
+      ...contactCommand(commandId, rallyId, baseRevision).payload,
+      terminal_outcome: 'unknown',
+    },
+  })
+}
+
 function closeCommand(commandId: string, rallyId: string, targetKeyPointId: string, baseRevision: string, outcome: 'left' | 'right' | 'unknown' = 'unknown') {
   return (outcome === 'unknown'
     ? { ...serviceCommand(commandId, rallyId), base_revision: baseRevision, kind: 'CLOSE_RALLY' as const, payload: { target_key_point_id: targetKeyPointId, score_resolution: 'unknown' as const, scoring_court_side: null } }
@@ -849,6 +859,52 @@ describe('durable service annotation command', () => {
       kind: 'CORRECTION', leftDelta: 0, rightDelta: -1, scoreRevisionBefore: 2, scoreRevisionAfter: 3,
     })
   })
+
+  it('creates an authoritative terminal at the second Z and submits a two-boundary rally', async () => {
+    const rallyId = randomUUID()
+    await service.apply(serviceCommand(randomUUID(), rallyId), identity)
+    const endAnchor = {
+      ...anchor,
+      capture_time_us: (BigInt(anchor.capture_time_us) + 5_000_000n).toString(),
+      capture_frame_index: (BigInt(anchor.capture_frame_index) + 300n).toString(),
+      resolved_player_media_time_us: (BigInt(anchor.resolved_player_media_time_us) + 5_000_000n).toString(),
+    }
+    await Promise.all([
+      db.playbackWindow.update({ data: { captureEndUs: BigInt(endAnchor.capture_time_us) + 1n }, where: { id: ids.window } }),
+      db.dvrSegment.update({ data: { captureEndUs: BigInt(endAnchor.capture_time_us) + 1n, frameCount: 303n }, where: { id: ids.segment } }),
+    ])
+    const endService = createAnnotationCommandService({ database: db, resolveCursor: async () => endAnchor })
+    const ended = await endService.apply(terminalCommand(randomUUID(), rallyId), identity)
+    expect(ended).toMatchObject({
+      type: 'command_ack',
+      operation_kind: 'CREATE_CONTACT_KEY_POINT',
+      effects: { annotation_status: 'ready', score_resolution: 'unknown' },
+      resolved_anchor: { capture_time_us: endAnchor.capture_time_us },
+    })
+    const readyRally = await db.rally.findUniqueOrThrow({ include: { keyPoints: { orderBy: { sequenceIndex: 'asc' } } }, where: { id: rallyId } })
+    expect(readyRally).toMatchObject({
+      annotationStatus: 'READY',
+      scoreResolutionState: 'UNKNOWN',
+      keyPoints: [
+        expect.objectContaining({ markerKind: 'SERVICE', isTerminal: false }),
+        expect.objectContaining({ markerKind: 'CONTACT', isTerminal: true, captureTimeUs: BigInt(endAnchor.capture_time_us) }),
+      ],
+    })
+    const submitted = await endService.apply(submitCommand(randomUUID(), rallyId, '2'), identity)
+    expect(submitted).toMatchObject({
+      type: 'command_ack',
+      operation_kind: 'SUBMIT_RALLY',
+      effects: { annotation_status: 'submitted', score_resolution: 'unknown' },
+    })
+    const submission = await db.rallySubmission.findFirstOrThrow({ include: { keyPoints: true }, where: { rallyId } })
+    expect(submission).toMatchObject({
+      scoreResolutionState: 'UNKNOWN',
+      keyPoints: expect.arrayContaining([
+        expect.objectContaining({ markerKind: 'SERVICE' }),
+        expect.objectContaining({ markerKind: 'CONTACT', isTerminal: true }),
+      ]),
+    })
+  }, 30_000)
 
   it('reverses one submitted rally side snapshot and moves its point to the opposite team', async () => {
     const scoreBefore = await db.matchSet.findUniqueOrThrow({ where: { id: ids.set } })

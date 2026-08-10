@@ -6,7 +6,7 @@
   "additionalProperties": false,
   "required": ["schema_version", "client_patch_id", "base_revision", "operations"],
   "properties": {
-    "schema_version": { "const": "1.1.0" },
+    "schema_version": { "const": "1.2.0" },
     "client_patch_id": { "type": "string", "format": "uuid" },
     "base_revision": { "$ref": "#/$defs/uint" },
     "operations": {
@@ -21,7 +21,9 @@
           { "$ref": "#/$defs/frameTrackOnly" },
           { "$ref": "#/$defs/setPlayerBBox" },
           { "$ref": "#/$defs/setContactActor" },
-          { "$ref": "#/$defs/clearContactActor" }
+          { "$ref": "#/$defs/clearContactActor" },
+          { "$ref": "#/$defs/setContactTime" },
+          { "$ref": "#/$defs/clearContactTime" }
         ]
       }
     }
@@ -74,6 +76,14 @@
     "clearContactActor": {
       "type": "object", "additionalProperties": false, "required": ["op", "key_point_id"],
       "properties": { "op": { "const": "clear_contact_actor_override" }, "key_point_id": { "type": "string", "format": "uuid" } }
+    },
+    "setContactTime": {
+      "type": "object", "additionalProperties": false, "required": ["op", "key_point_id", "frame_index"],
+      "properties": { "op": { "const": "set_contact_time" }, "key_point_id": { "type": "string", "format": "uuid" }, "frame_index": { "$ref": "#/$defs/uint" } }
+    },
+    "clearContactTime": {
+      "type": "object", "additionalProperties": false, "required": ["op", "key_point_id"],
+      "properties": { "op": { "const": "clear_contact_time_override" }, "key_point_id": { "type": "string", "format": "uuid" } }
     }
   }
 }

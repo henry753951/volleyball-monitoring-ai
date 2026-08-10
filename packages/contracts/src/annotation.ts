@@ -42,7 +42,10 @@ export type CreateServiceKeyPointCommand = AnnotationCommandBase<
 
 export type AnnotationCommand =
   | CreateServiceKeyPointCommand
-  | AnnotationCommandBase<'CREATE_CONTACT_KEY_POINT', { playback_cursor: AnnotationPlaybackCursor }>
+  | AnnotationCommandBase<'CREATE_CONTACT_KEY_POINT', {
+      playback_cursor: AnnotationPlaybackCursor
+      terminal_outcome?: 'unknown'
+    }>
   | AnnotationCommandBase<'CLOSE_RALLY',
     | { target_key_point_id: string; score_resolution: 'resolved'; scoring_court_side: 'left' | 'right' }
     | { target_key_point_id: string; score_resolution: 'unknown'; scoring_court_side: null }

@@ -15,13 +15,30 @@ def validate_passthrough(job: AIJobRequest, result: AnalysisResult) -> None:
     if mismatches:
         raise ValueError(f"PASSTHROUGH mismatch: {mismatches}")
 
-    input_ids = [point.key_point_id for point in job.key_points]
-    output_ids = [event.key_point_id for event in result.contact_events]
-    if input_ids != output_ids:
-        raise ValueError("contact_events must match input key_points one-to-one and in order")
+    if result.schema_version == "1.0.0":
+        input_ids = [point.key_point_id for point in job.key_points]
+        output_ids = [event.key_point_id for event in result.contact_events]
+        if input_ids != output_ids:
+            raise ValueError("contact_events must match input key_points one-to-one and in order")
+        pairs_to_validate = zip(job.key_points, result.contact_events, strict=True)
+    else:
+        human_events = [event for event in result.contact_events if event.anchor_origin == "human_anchor"]
+        if [event.source_key_point_id for event in human_events] != [
+            point.key_point_id for point in job.key_points
+        ]:
+            raise ValueError("human contact events must preserve every input key point in order")
+        if any(
+            event.source_key_point_id is not None
+            or event.marker_kind != "contact"
+            or event.is_terminal
+            for event in result.contact_events
+            if event.anchor_origin == "ai_detected"
+        ):
+            raise ValueError("AI-detected events cannot claim immutable input key points")
+        pairs_to_validate = zip(job.key_points, human_events, strict=True)
 
-    for point, event in zip(job.key_points, result.contact_events, strict=True):
-        if (point.sequence_index, point.marker_kind, point.is_terminal, point.clip_frame_index) != (
-            event.sequence_index, event.marker_kind, event.is_terminal, event.anchor_frame_index
+    for point, event in pairs_to_validate:
+        if (point.marker_kind, point.is_terminal, point.clip_frame_index) != (
+            event.marker_kind, event.is_terminal, event.anchor_frame_index
         ):
             raise ValueError(f"key point passthrough mismatch: {point.key_point_id}")

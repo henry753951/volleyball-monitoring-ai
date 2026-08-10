@@ -13,13 +13,13 @@ export interface DraftCommandAvailabilityInput {
 }
 
 export function draftCommandAvailability(input: DraftCommandAvailabilityInput) {
-  if (input.state !== 'OPEN') return { enabled: false, reason: '尚未開始片段' }
-
   if (input.action.startsWith('close_')) {
-    return input.confirmedLastKeyPointId
+    return ['OPEN', 'READY'].includes(input.state) && input.confirmedLastKeyPointId
       ? { enabled: true, reason: '' }
-      : { enabled: false, reason: '沒有可結束的擊球點' }
+      : { enabled: false, reason: input.state === 'READY' ? '找不到回合終點' : '沒有可結束的擊球點' }
   }
+
+  if (input.state !== 'OPEN') return { enabled: false, reason: '尚未開始片段' }
 
   if (!input.canMark || !input.cursorCaptureTimeUs) return { enabled: false, reason: '游標尚未確認' }
   if (!input.serviceCaptureTimeUs || BigInt(input.cursorCaptureTimeUs) < BigInt(input.serviceCaptureTimeUs)) {

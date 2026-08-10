@@ -32,7 +32,7 @@ async function authorizedRun(database: PrismaClient, analysisRunId: string, iden
       reviewRevision: true,
       overlayManifest: { select: { totalFrames: true, videoHeight: true, videoWidth: true } },
       tracks: { select: { trackId: true, firstFrame: true, lastFrame: true } },
-      contactEvents: { select: { keyPointId: true, anchorFrameIndex: true, resolvedFrameIndex: true } },
+      contactEvents: { select: { keyPointId: true, sequenceIndex: true, anchorOrigin: true, anchorFrameIndex: true, resolvedFrameIndex: true }, orderBy: { sequenceIndex: 'asc' } },
     },
   })
 }
@@ -47,13 +47,14 @@ export async function readAnalysisReview(
 ): Promise<AnalysisReviewState | null> {
   const run = await authorizedRun(database, input.analysisRunId, input.identity)
   if (!run) return null
-  // Version 1.1 returns the complete sparse current state. That makes deletions
+  // Version 1.2 returns the complete sparse current state. That makes deletions
   // (restore automatic analysis) converge after a revision invalidation.
-  const [ball, action, bbox, contactActor] = await Promise.all([
+  const [ball, action, bbox, contactActor, contactTime] = await Promise.all([
     database.analysisBallCorrection.findMany({ where: { analysisRunId: input.analysisRunId }, orderBy: { frameIndex: 'asc' } }),
     database.analysisActionCorrection.findMany({ where: { analysisRunId: input.analysisRunId }, orderBy: [{ frameIndex: 'asc' }, { trackId: 'asc' }] }),
     database.analysisPlayerBBoxCorrection.findMany({ where: { analysisRunId: input.analysisRunId }, orderBy: [{ frameIndex: 'asc' }, { trackId: 'asc' }] }),
     database.analysisContactActorCorrection.findMany({ where: { analysisRunId: input.analysisRunId }, orderBy: { keyPointId: 'asc' } }),
+    database.analysisContactTimeCorrection.findMany({ where: { analysisRunId: input.analysisRunId }, orderBy: { keyPointId: 'asc' } }),
   ])
   return {
     schema_version: ANALYSIS_REVIEW_SCHEMA_VERSION,
@@ -65,6 +66,7 @@ export async function readAnalysisReview(
     action_corrections: action.map(item => ({ frame_index: item.frameIndex.toString(), track_id: item.trackId, action: item.action as AnalysisReviewState['action_corrections'][number]['action'], revision: item.revision.toString() })),
     player_bbox_corrections: bbox.map(item => ({ frame_index: item.frameIndex.toString(), track_id: item.trackId, frame_bbox: { x1: item.frameX1, y1: item.frameY1, x2: item.frameX2, y2: item.frameY2 }, revision: item.revision.toString() })),
     contact_actor_corrections: contactActor.map(item => ({ key_point_id: item.keyPointId, track_id: item.trackId, revision: item.revision.toString() })),
+    contact_time_corrections: contactTime.map(item => ({ key_point_id: item.keyPointId, frame_index: item.frameIndex.toString(), revision: item.revision.toString() })),
   }
 }
 
@@ -80,6 +82,12 @@ export async function applyAnalysisReviewPatch(
   const totalFrames = run.overlayManifest.totalFrames
   const tracks = new Map(run.tracks.map(track => [track.trackId, track]))
   const contacts = new Map(run.contactEvents.map(event => [event.keyPointId, event]))
+  const existingContactTimeCorrections = await database.analysisContactTimeCorrection.findMany({
+    where: { analysisRunId: input.analysisRunId },
+    select: { keyPointId: true, frameIndex: true },
+  })
+  const effectiveContactFrames = new Map(run.contactEvents.map(event => [event.keyPointId, event.resolvedFrameIndex ?? event.anchorFrameIndex]))
+  for (const correction of existingContactTimeCorrections) effectiveContactFrames.set(correction.keyPointId, correction.frameIndex)
   const assertFrame = (frameIndex: bigint) => {
     if (frameIndex >= totalFrames) throw new AnalysisReviewError('FRAME_OUT_OF_RANGE', 'frame is outside the analysis overlay')
   }
@@ -95,6 +103,20 @@ export async function applyAnalysisReviewPatch(
       if (!contact) throw new AnalysisReviewError('NOT_FOUND', 'contact event is unavailable')
       if (operation.op === 'set_contact_actor' && operation.track_id !== null) {
         assertTrack(operation.track_id, contact.resolvedFrameIndex ?? contact.anchorFrameIndex)
+      }
+      continue
+    }
+    if (operation.op === 'set_contact_time' || operation.op === 'clear_contact_time_override') {
+      const contact = contacts.get(operation.key_point_id)
+      if (!contact || contact.anchorOrigin !== 'ai_detected') throw new AnalysisReviewError('NOT_FOUND', 'AI-detected contact event is unavailable')
+      const frameIndex = operation.op === 'set_contact_time'
+        ? BigInt(operation.frame_index)
+        : (contact.resolvedFrameIndex ?? contact.anchorFrameIndex)
+      assertFrame(frameIndex)
+      effectiveContactFrames.set(operation.key_point_id, frameIndex)
+      const orderedFrames = run.contactEvents.map(event => effectiveContactFrames.get(event.keyPointId)!)
+      if (orderedFrames.some((frame, index) => index > 0 && frame <= orderedFrames[index - 1]!)) {
+        throw new AnalysisReviewError('FRAME_OUT_OF_RANGE', 'contact time must remain strictly ordered between neighboring events')
       }
       continue
     }
@@ -132,6 +154,18 @@ export async function applyAnalysisReviewPatch(
       }
       if (operation.op === 'clear_contact_actor_override') {
         await tx.analysisContactActorCorrection.deleteMany({ where: { analysisRunId: input.analysisRunId, keyPointId: operation.key_point_id } })
+        continue
+      }
+      if (operation.op === 'set_contact_time') {
+        await tx.analysisContactTimeCorrection.upsert({
+          where: { analysisRunId_keyPointId: { analysisRunId: input.analysisRunId, keyPointId: operation.key_point_id } },
+          create: { analysisRunId: input.analysisRunId, keyPointId: operation.key_point_id, frameIndex: BigInt(operation.frame_index), revision: updated.reviewRevision, updatedByUserId: input.identity.userId },
+          update: { frameIndex: BigInt(operation.frame_index), revision: updated.reviewRevision, updatedByUserId: input.identity.userId },
+        })
+        continue
+      }
+      if (operation.op === 'clear_contact_time_override') {
+        await tx.analysisContactTimeCorrection.deleteMany({ where: { analysisRunId: input.analysisRunId, keyPointId: operation.key_point_id } })
         continue
       }
       const frameIndex = BigInt(operation.frame_index)

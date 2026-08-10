@@ -75,12 +75,40 @@ function invariantError(result: Record<string, unknown>, job: Awaited<ReturnType
   const expected = { ai_job_id: job.id, rally_submission_id: job.submissionId, rally_id: job.submission.rallyId, match_id: job.submission.rally.matchId, annotation_revision: job.submission.annotationRevision.toString(), clip_asset_id: job.clipJob.clipAssetId, input_clip_sha256: job.clipJob.clipAsset?.sha256 }
   for (const [key, value] of Object.entries(expected)) if (result[key] !== value) return `${key} passthrough mismatch`
   const events = result.contact_events
-  if (!Array.isArray(events) || events.length !== job.submission.keyPoints.length) return 'contact event count does not match immutable key points'
+  if (!Array.isArray(events)) return 'contact events are missing'
+  if (result.schema_version === '1.0.0') {
+    if (events.length !== job.submission.keyPoints.length) return 'contact event count does not match immutable key points'
+    for (let index = 0; index < events.length; index += 1) {
+      const event = events[index]
+      const point = job.submission.keyPoints[index]
+      if (!isRecord(event) || !point || event.key_point_id !== point.id || event.sequence_index !== point.sequenceIndex || event.marker_kind !== point.markerKind.toLowerCase() || event.is_terminal !== point.isTerminal) return 'contact event passthrough/order mismatch'
+    }
+    return null
+  }
+  const inputById = new Map(job.submission.keyPoints.map(point => [point.id, point]))
+  const mappingByPoint = new Map(job.clipJob.keyPointMappings.map(mapping => [mapping.submissionKeyPointId, mapping]))
+  const seenIds = new Set<string>()
+  const humanIds: string[] = []
+  let previousAnchorFrame = -1n
   for (let index = 0; index < events.length; index += 1) {
     const event = events[index]
-    const point = job.submission.keyPoints[index]
-    if (!isRecord(event) || !point || event.key_point_id !== point.id || event.sequence_index !== point.sequenceIndex || event.marker_kind !== point.markerKind.toLowerCase() || event.is_terminal !== point.isTerminal) return 'contact event passthrough/order mismatch'
+    if (!isRecord(event) || event.sequence_index !== index || typeof event.key_point_id !== 'string' || seenIds.has(event.key_point_id)) return 'contact event identity/order mismatch'
+    if (typeof event.anchor_frame_index !== 'string' || !/^(0|[1-9][0-9]*)$/.test(event.anchor_frame_index)) return 'contact event anchor frame is invalid'
+    const anchorFrame = BigInt(event.anchor_frame_index)
+    if (anchorFrame <= previousAnchorFrame) return 'contact event anchor frames must be strictly increasing'
+    previousAnchorFrame = anchorFrame
+    seenIds.add(event.key_point_id)
+    if (event.anchor_origin === 'human_anchor') {
+      const sourceId = typeof event.source_key_point_id === 'string' ? event.source_key_point_id : ''
+      const point = inputById.get(sourceId)
+      const mapping = mappingByPoint.get(sourceId)
+      if (!point || !mapping || event.marker_kind !== point.markerKind.toLowerCase() || event.is_terminal !== point.isTerminal || event.anchor_frame_index !== mapping.clipFrameIndex.toString()) return 'human contact event passthrough mismatch'
+      humanIds.push(sourceId)
+    } else if (event.anchor_origin !== 'ai_detected' || event.source_key_point_id !== null || event.marker_kind !== 'contact' || event.is_terminal !== false) {
+      return 'AI-detected contact event provenance is invalid'
+    }
   }
+  if (humanIds.join(':') !== job.submission.keyPoints.map(point => point.id).join(':')) return 'human contact events do not preserve immutable key points in order'
   return null
 }
 
@@ -223,9 +251,10 @@ export const aiCallbackRoutesWithDependencies = (
         await tx.$queryRaw`SELECT id FROM "AiJob" WHERE id = ${aiJobId}::uuid FOR UPDATE`
         const current = await tx.aiJob.findUnique({ where: { id: aiJobId }, select: { status: true, submission: { select: { rally: { select: { voidedAt: true } } } } } })
         if (!current || current.status === JobStatus.CANCELLED || current.status === JobStatus.SUPERSEDED || current.submission.rally.voidedAt) throw new Error('AI_JOB_NOT_ACTIVE')
-        const rawAnalysis = await tx.mediaAsset.create({ data: { kind: MediaAssetKind.ANALYSIS_JSON, bucket: objectStore.bucket, objectKey: analysisKey, contentType: 'application/json', byteLength: BigInt(analysisBytes!.byteLength), sha256: analysisHash!, internalSchemaVersion: '1.0.0', state: ArtifactState.READY, readyAt: new Date() } })
+        const resultSchemaVersion = String(result.schema_version)
+        const rawAnalysis = await tx.mediaAsset.create({ data: { kind: MediaAssetKind.ANALYSIS_JSON, bucket: objectStore.bucket, objectKey: analysisKey, contentType: 'application/json', byteLength: BigInt(analysisBytes!.byteLength), sha256: analysisHash!, internalSchemaVersion: resultSchemaVersion, state: ArtifactState.READY, readyAt: new Date() } })
         const rawOverlay = await tx.mediaAsset.create({ data: { kind: MediaAssetKind.OVERLAY_SEQUENCE, bucket: objectStore.bucket, objectKey: overlayKey, contentType: 'application/vnd.volleyball.overlay+flatbuffers;version=1', byteLength: BigInt(overlayInfo!.bytes), sha256: overlayInfo!.sha256, internalSchemaVersion: '1.0.0', state: ArtifactState.READY, readyAt: new Date() } })
-        const analysisRun = await tx.analysisRun.create({ data: { aiJobId, submissionId: job.submissionId, analysisId: String(result.analysis_id), analysisVersion: String(result.analysis_version), resultSchemaVersion: '1.0.0', overlaySchemaVersion: 'flatbuffers_v1', inputClipSha256: String(result.input_clip_sha256), producerName: String(producer.name), producerBuildId: String(producer.build_id), producerSdkVersion: typeof producer.sdk_version === 'string' ? producer.sdk_version : null, status: JobStatus.COMPLETED, rawAnalysisAssetId: rawAnalysis.id, rawOverlayAssetId: rawOverlay.id, summary: json(result.summary), activatedAt: new Date() } })
+        const analysisRun = await tx.analysisRun.create({ data: { aiJobId, submissionId: job.submissionId, analysisId: String(result.analysis_id), analysisVersion: String(result.analysis_version), resultSchemaVersion, overlaySchemaVersion: 'flatbuffers_v1', inputClipSha256: String(result.input_clip_sha256), producerName: String(producer.name), producerBuildId: String(producer.build_id), producerSdkVersion: typeof producer.sdk_version === 'string' ? producer.sdk_version : null, status: JobStatus.COMPLETED, rawAnalysisAssetId: rawAnalysis.id, rawOverlayAssetId: rawOverlay.id, summary: json(result.summary), activatedAt: new Date() } })
         await tx.overlayManifest.create({ data: { analysisRunId: analysisRun.id, schemaVersion: '1.0.0', overlayVersion: '1', videoWidth: overlaySequence.videoWidth, videoHeight: overlaySequence.videoHeight, fpsNum: overlaySequence.fpsNum, fpsDen: overlaySequence.fpsDen, totalFrames: overlaySequence.totalFrames, chunkFrameCount: overlayChunkFrameCount, actionTaxonomy: overlaySequence.actionTaxonomyId ? json({ id: overlaySequence.actionTaxonomyId, version: overlaySequence.actionTaxonomyVersion, labels: overlaySequence.actionLabels }) : Prisma.JsonNull } })
         for (const item of browserChunks) {
           const chunkKey = `analysis/${job.submissionId}/${aiJobId}/${metadata.callback_id}/chunks/${item.chunk.chunkIndex}.fb`
@@ -236,12 +265,24 @@ export const aiCallbackRoutesWithDependencies = (
         const tracks = records(result.tracks)
         if (tracks.length) await tx.analysisTrack.createMany({ data: tracks.map(track => ({ analysisRunId: analysisRun.id, trackId: Number(track.track_id), courtSide: String(track.court_side).toUpperCase() as TrackCourtSide, firstFrame: BigInt(String(track.first_frame_index)), lastFrame: BigInt(String(track.last_frame_index)), meanConfidence: typeof track.mean_confidence === 'number' ? track.mean_confidence : null, metadata: track.metadata === undefined ? Prisma.JsonNull : json(track.metadata) })) })
         const mappingByPoint = new Map(job.clipJob.keyPointMappings.map(mapping => [mapping.submissionKeyPointId, mapping]))
+        const requestPayload = isRecord(job.requestPayload) ? job.requestPayload : {}
+        const requestClip = isRecord(requestPayload.clip) ? requestPayload.clip : {}
+        const requestVideo = isRecord(requestClip.video) ? requestClip.video : {}
+        const requestFps = isRecord(requestVideo.fps) ? requestVideo.fps : {}
+        const fpsNum = BigInt(String(requestFps.num))
+        const fpsDen = BigInt(String(requestFps.den))
         for (const event of records(result.contact_events)) {
           const keyPointId = String(event.key_point_id)
-          const mapping = mappingByPoint.get(keyPointId)
+          const generated = resultSchemaVersion !== '1.0.0' && event.anchor_origin === 'ai_detected'
+          const claimedSourceId = typeof event.source_key_point_id === 'string' ? event.source_key_point_id : keyPointId
+          const mapping = generated ? undefined : mappingByPoint.get(claimedSourceId)
           const ball = isRecord(event.ball) ? event.ball : {}
-          if (!mapping) throw new Error('analysis contact event has no immutable clip mapping')
-          await tx.contactEvent.create({ data: { analysisRunId: analysisRun.id, keyPointId, sequenceIndex: Number(event.sequence_index), anchorFrameIndex: BigInt(String(event.anchor_frame_index)), resolvedFrameIndex: event.resolved_frame_index === undefined ? null : BigInt(String(event.resolved_frame_index)), anchorTimeUs: mapping.clipTimeUs, markerKind: String(event.marker_kind).toUpperCase() as MarkerKind, isTerminal: Boolean(event.is_terminal), associationState: String(event.association_state).toUpperCase() as AssociationState, ballState: String(ball.state).toUpperCase() as BallObservationState, ballFrameIndex: ball.sample_frame_index === undefined ? null : BigInt(String(ball.sample_frame_index)), ballFrameX: isRecord(ball.frame_pos) && typeof ball.frame_pos.x === 'number' ? ball.frame_pos.x : null, ballFrameY: isRecord(ball.frame_pos) && typeof ball.frame_pos.y === 'number' ? ball.frame_pos.y : null, qualityFlags: Array.isArray(event.quality_flags) ? event.quality_flags.map(String) : [] } })
+          if (!mapping && resultSchemaVersion === '1.0.0') throw new Error('analysis contact event has no immutable clip mapping')
+          const anchorFrameIndex = BigInt(String(event.anchor_frame_index))
+          const anchorTimeUs = mapping?.clipTimeUs ?? anchorFrameIndex * 1_000_000n * fpsDen / fpsNum
+          const eventExtensions = isRecord(event.extensions) ? event.extensions : {}
+          const detectionEvidence = isRecord(eventExtensions.detection) ? eventExtensions.detection : null
+          await tx.contactEvent.create({ data: { analysisRunId: analysisRun.id, keyPointId, sourceKeyPointId: mapping ? claimedSourceId : null, anchorOrigin: generated ? 'ai_detected' : 'human_anchor', detectionConfidence: typeof event.detection_confidence === 'number' ? event.detection_confidence : null, detectionEvidence: detectionEvidence ? json(detectionEvidence) : Prisma.JsonNull, sequenceIndex: Number(event.sequence_index), anchorFrameIndex, resolvedFrameIndex: event.resolved_frame_index == null ? null : BigInt(String(event.resolved_frame_index)), anchorTimeUs, markerKind: String(event.marker_kind).toUpperCase() as MarkerKind, isTerminal: Boolean(event.is_terminal), associationState: String(event.association_state).toUpperCase() as AssociationState, ballState: String(ball.state).toUpperCase() as BallObservationState, ballFrameIndex: ball.sample_frame_index == null ? null : BigInt(String(ball.sample_frame_index)), ballFrameX: isRecord(ball.frame_pos) && typeof ball.frame_pos.x === 'number' ? ball.frame_pos.x : null, ballFrameY: isRecord(ball.frame_pos) && typeof ball.frame_pos.y === 'number' ? ball.frame_pos.y : null, qualityFlags: Array.isArray(event.quality_flags) ? event.quality_flags.map(String) : [] } })
           const actors = records(event.actors)
           if (actors.length) await tx.contactEventActor.createMany({ data: actors.map(actor => { const bbox = isRecord(actor.frame_bbox) ? actor.frame_bbox : {}; const foot = isRecord(actor.frame_foot_pos) ? actor.frame_foot_pos : {}; const court = isRecord(actor.court_pos) ? actor.court_pos : {}; return { analysisRunId: analysisRun.id, keyPointId, trackId: Number(actor.track_id), observationFrameIndex: BigInt(String(actor.observation_frame_index)), associationConfidence: typeof actor.association_confidence === 'number' ? actor.association_confidence : null, frameX1: typeof bbox.x1 === 'number' ? bbox.x1 : null, frameY1: typeof bbox.y1 === 'number' ? bbox.y1 : null, frameX2: typeof bbox.x2 === 'number' ? bbox.x2 : null, frameY2: typeof bbox.y2 === 'number' ? bbox.y2 : null, frameFootX: typeof foot.x === 'number' ? foot.x : null, frameFootY: typeof foot.y === 'number' ? foot.y : null, courtX: typeof court.x === 'number' ? court.x : null, courtY: typeof court.y === 'number' ? court.y : null, action: actor.action === undefined ? Prisma.JsonNull : json(actor.action) } }) })
           const candidates = records(event.actor_candidates)

@@ -7,10 +7,17 @@ const room = 'match:00000000-0000-4000-8000-000000000001:capture:00000000-0000-4
 const rally = '00000000-0000-4000-8000-000000000003'
 const cursor = { playback_window_id: 'window', mapping_version: 1, player_media_time_us: '100', observation_source: 'current_time_fallback' as const, presented_frames: null, seek_generation: 1, cursor_status: 'ready' as const }
 const contact = (id: string): AnnotationCommand => ({ schema_version: '2.0.0', command_id: id, room_id: room, base_revision: '1', rally_id: rally, kind: 'CREATE_CONTACT_KEY_POINT', payload: { playback_cursor: cursor } })
+const terminal = (id: string): AnnotationCommand => ({ schema_version: '2.0.0', command_id: id, room_id: room, base_revision: '1', rally_id: rally, kind: 'CREATE_CONTACT_KEY_POINT', payload: { playback_cursor: cursor, terminal_outcome: 'unknown' } })
 const service = (id: string, rallyId = rally): AnnotationCommand => ({ schema_version: '2.0.0', command_id: id, room_id: room, base_revision: '0', rally_id: rallyId, kind: 'CREATE_SERVICE_KEY_POINT', payload: { playback_cursor: cursor } })
 const snapshot: AnnotationRallySnapshot = { schema_version: '2.0.0', type: 'rally_snapshot', room_id: room, rally_id: rally, revision: '1', server_sequence: '1', snapshot: { annotation_status: 'open', side_assignment_id: 'side', score_resolution: 'pending', scoring_court_side: null, processing_status: 'idle', key_points: [{ key_point_id: 'service', sequence_index: 0, marker_kind: 'service', is_terminal: false, capture_time_us: '1000', capture_frame_index: '10', timing_precision: 'frame_exact', possible_duplicate: false }] } }
 
 describe('annotation optimistic command queue', () => {
+  it('projects the second Z as a terminal READY boundary before the acknowledgement', () => {
+    const entries = enqueueAnnotationCommand([], terminal('00000000-0000-4000-8000-000000000099'), new Date(), { observation: { capture_time_us: '2000', capture_frame_index: '20' } })
+    const projected = projectAnnotationSnapshot(snapshot, room, entries)
+    expect(projected?.snapshot).toMatchObject({ annotation_status: 'ready', score_resolution: 'unknown' })
+    expect(projected?.snapshot.key_points.at(-1)).toMatchObject({ marker_kind: 'contact', is_terminal: true, capture_time_us: '2000' })
+  })
   it('shows a new service rally immediately over the previously submitted snapshot', () => {
     const nextRally = '00000000-0000-4000-8000-000000000009'
     const submitted = structuredClone(snapshot)
