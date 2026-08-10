@@ -123,8 +123,10 @@ async function finalizeCaptureIfDrainedInTransaction(
       }),
       tx.dvrSegment.count({ where: { dvrProgramId: program.id, readyAt: null } }),
     ])
+    const declaredDurationCovered = capture.sourceDurationUs !== null
+      && program.durationUs >= capture.sourceDurationUs
     if (
-      readySegments < capture.completionExpectedSegments
+      (!declaredDurationCovered && readySegments < capture.completionExpectedSegments)
       || pendingSegments > 0
     ) return capture
   }

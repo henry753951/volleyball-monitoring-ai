@@ -175,13 +175,13 @@ describe('capture lifecycle and processing retry', () => {
     })).resolves.toBe(1)
   })
 
-  it('keeps a sealed capture draining until its expected segment is READY', async () => {
+  it('keeps a sealed capture draining until READY coverage reaches its declared duration', async () => {
     const capture = await startCapture(db, operator, {
       ingestPath: `youtube-${randomUUID()}`,
       matchId: ids.match,
       sourceKind: 'youtube',
     })
-    await db.dvrProgram.create({
+    const program = await db.dvrProgram.create({
       data: {
         captureSessionId: capture.id,
         fpsDen: 1,
@@ -192,17 +192,58 @@ describe('capture lifecycle and processing retry', () => {
       },
     })
     const draining = await requestCaptureCompletion(db, capture.id, {
-      expectedSegments: 1,
+      expectedSegments: 4,
       sourceDurationUs: 2_000_000n,
       sourceKind: 'youtube_vod',
     })
     expect(draining).toMatchObject({
-      completionExpectedSegments: 1,
+      completionExpectedSegments: 4,
       status: 'STOPPING',
     })
     await expect(db.dvrProgram.findFirstOrThrow({
       where: { captureSessionId: capture.id },
     })).resolves.toMatchObject({ status: 'STOPPING' })
+    const epoch = await db.captureEpoch.create({
+      data: {
+        captureFrameOrigin: 0n,
+        captureSessionId: capture.id,
+        captureTimeOriginUs: 0n,
+        sequenceIndex: 0,
+        sourcePtsOrigin: 0n,
+        sourceTimeBaseDen: 60_000,
+        sourceTimeBaseNum: 1,
+        startedAtCaptureUs: 0n,
+      },
+    })
+    await db.dvrSegment.createMany({
+      data: [
+        {
+          captureEndUs: 2_000_000n,
+          captureEpochId: epoch.id,
+          captureStartUs: 0n,
+          durationUs: 2_000_000n,
+          dvrProgramId: program.id,
+          frameCount: 120n,
+          readyAt: new Date(),
+          sequenceNumber: 0n,
+        },
+      ],
+    })
+    await db.dvrProgram.update({
+      data: { durationUs: 2_000_000n, liveEdgeUs: 2_000_000n },
+      where: { id: program.id },
+    })
+
+    const finished = await requestCaptureCompletion(db, capture.id, {
+      expectedSegments: 4,
+      sourceDurationUs: 2_000_000n,
+      sourceKind: 'youtube_vod',
+    })
+
+    expect(finished).toMatchObject({ status: 'FINISHED', health: 'OFFLINE' })
+    await expect(db.dvrProgram.findUniqueOrThrow({
+      where: { id: program.id },
+    })).resolves.toMatchObject({ status: 'FINISHED' })
   })
 
   it('resets a terminal failed clip job without creating a second job', async () => {
