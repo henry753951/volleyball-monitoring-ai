@@ -246,6 +246,40 @@ describe('capture lifecycle and processing retry', () => {
     })).resolves.toMatchObject({ status: 'FINISHED' })
   })
 
+  it('finalizes when every missing recording is durably quarantined', async () => {
+    const capture = await startCapture(db, operator, {
+      ingestPath: `youtube-${randomUUID()}`,
+      matchId: ids.match,
+      sourceKind: 'youtube',
+    })
+    const program = await db.dvrProgram.create({
+      data: {
+        captureSessionId: capture.id,
+        fpsDen: 1,
+        fpsNum: 60,
+        durationUs: 1n,
+        liveEdgeUs: 1n,
+        status: 'LIVE',
+        timeBaseDen: 60_000,
+        timeBaseNum: 1,
+      },
+    })
+    await db.mediaIngestFailure.createMany({ data: [
+      { captureSessionId: capture.id, code: 'PERMANENT_FAILURE', sourceJobId: randomUUID() },
+      { captureSessionId: capture.id, code: 'PERMANENT_FAILURE', sourceJobId: randomUUID() },
+    ] })
+
+    const finished = await requestCaptureCompletion(db, capture.id, {
+      expectedSegments: 2,
+      sourceDurationUs: null,
+      sourceKind: 'youtube_vod',
+    })
+
+    expect(finished).toMatchObject({ status: 'FINISHED', health: 'OFFLINE' })
+    await expect(db.dvrProgram.findUniqueOrThrow({ where: { id: program.id } }))
+      .resolves.toMatchObject({ status: 'FINISHED' })
+  })
+
   it('resets a terminal failed clip job without creating a second job', async () => {
     const target = await createFailedRally('clip')
     const clip = await db.clipJob.create({ data: {

@@ -47,6 +47,16 @@ export const mediaIngestQueueOptions = Object.freeze({
 
 export type PermanentMediaIngestCode = 'INVALID_JOB' | 'PERMANENT_FAILURE'
 
+export type PermanentMediaIngestFailure = {
+  sourceJobId: string
+  captureSessionId: string
+  code: PermanentMediaIngestCode
+}
+
+export type RecordPermanentMediaIngestFailure = (
+  failure: PermanentMediaIngestFailure,
+) => Promise<void>
+
 const DETERMINISTIC_REPOSITORY_CODES = new Set([
   'INVALID_INPUT',
   'SESSION_NOT_FOUND',
@@ -148,6 +158,7 @@ export async function quarantinePermanentMediaFailures(
     id: string,
     data: Record<string, unknown>,
   ) => Promise<unknown>,
+  recordFailure: RecordPermanentMediaIngestFailure,
 ): Promise<PermanentMediaIngestResult[]> {
   const jobsById = new Map(jobs.map(job => [job.id, job]))
   return Promise.all(results.map(async (result) => {
@@ -161,12 +172,67 @@ export async function quarantinePermanentMediaFailures(
       sourceJobId: job.id,
       sourceQueue: MEDIA_INGEST_QUEUE,
     })
+    if (parsed.success) {
+      await recordFailure({
+        captureSessionId: parsed.data.captureSessionId,
+        code: result.output?.code ?? 'PERMANENT_FAILURE',
+        sourceJobId: job.id,
+      })
+    }
     // key_strict_fifo intentionally blocks a key while its source job is in
     // failed state. The quarantined copy is the durable audit record, while
     // completing the source job lets independent captures and later valid
     // segments continue instead of creating a global head-of-line stall.
     return { ...result, status: 'completed' as const }
   }))
+}
+
+function failureFromDeadLetter(value: unknown): PermanentMediaIngestFailure | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+  const data = value as Record<string, unknown>
+  const parsed = MediaIngestEnvelope.safeParse({
+    schemaVersion: data.schemaVersion,
+    jobType: data.jobType,
+    captureSessionId: data.captureSessionId,
+    candidate: data.candidate,
+    sourceOrder: data.sourceOrder,
+    epochCandidateId: data.epochCandidateId,
+    sourceRestart: data.sourceRestart,
+    timestampDiscontinuity: data.timestampDiscontinuity,
+    explicitGapBeforeUs: data.explicitGapBeforeUs,
+  })
+  const failure = data.permanentFailure
+  const code = failure && typeof failure === 'object' && !Array.isArray(failure)
+    ? (failure as Record<string, unknown>).code
+    : null
+  if (
+    !parsed.success
+    || data.sourceJobId !== parsed.data.epochCandidateId
+    || !['INVALID_JOB', 'PERMANENT_FAILURE'].includes(String(code))
+  ) return null
+  return {
+    captureSessionId: parsed.data.captureSessionId,
+    code: code as PermanentMediaIngestCode,
+    sourceJobId: parsed.data.epochCandidateId,
+  }
+}
+
+type DeadLetterBoss = Pick<PgBoss, 'findJobs'>
+
+export async function reconcilePermanentMediaFailures(
+  boss: DeadLetterBoss,
+  deadLetter: string,
+  recordFailure: RecordPermanentMediaIngestFailure,
+): Promise<number> {
+  const jobs = await boss.findJobs<Record<string, unknown>>(deadLetter)
+  let recorded = 0
+  for (const job of jobs) {
+    const failure = failureFromDeadLetter(job.data)
+    if (!failure) continue
+    await recordFailure(failure)
+    recorded += 1
+  }
+  return recorded
 }
 
 async function releaseQuarantinedFailures(
@@ -243,6 +309,7 @@ export function createPgBossMediaRuntime(
     envelope: MediaIngestEnvelope,
     signal: AbortSignal,
   ) => Promise<void>,
+  recordFailure: RecordPermanentMediaIngestFailure = async () => undefined,
 ): PgBossMediaRuntime {
   const boss = new PgBoss({ connectionString, max: 4, useListenNotify: true })
   const deadLetter = mediaIngestQueueOptions.deadLetter
@@ -263,6 +330,7 @@ export function createPgBossMediaRuntime(
           throw new Error('Media ingest queue configuration conflicts with runtime policy.')
         }
         await releaseQuarantinedFailures(boss, deadLetter)
+        await reconcilePermanentMediaFailures(boss, deadLetter, recordFailure)
         await assignQueuedIngestGroups(boss)
 
         const workOptions = {
@@ -295,6 +363,7 @@ export function createPgBossMediaRuntime(
             jobs,
             await processMediaIngestJobs(jobs, processJob),
             (id, data) => boss.send(deadLetter, data, { singletonKey: id }),
+            recordFailure,
           ),
         )
       } catch (error) {

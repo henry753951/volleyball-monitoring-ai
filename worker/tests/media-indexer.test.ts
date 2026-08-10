@@ -3,6 +3,7 @@ import {
   assignQueuedIngestGroups,
   MEDIA_INGEST_QUEUE,
   quarantinePermanentMediaFailures,
+  reconcilePermanentMediaFailures,
   type MediaIngestEnvelope,
 } from '../src/roles/media-indexer.js'
 import type { PgBoss } from 'pg-boss'
@@ -21,6 +22,7 @@ describe('media ingest failure quarantine', () => {
       explicitGapBeforeUs: null,
     } satisfies MediaIngestEnvelope
     const quarantined: Record<string, unknown>[] = []
+    const failures: Record<string, unknown>[] = []
 
     const results = await quarantinePermanentMediaFailures(
       [{ id: envelope.epochCandidateId, data: envelope }],
@@ -32,6 +34,7 @@ describe('media ingest failure quarantine', () => {
       async (_id, data) => {
         quarantined.push(data)
       },
+      async failure => { failures.push(failure) },
     )
 
     expect(results).toEqual([{
@@ -45,6 +48,11 @@ describe('media ingest failure quarantine', () => {
       sourceJobId: envelope.epochCandidateId,
       sourceQueue: MEDIA_INGEST_QUEUE,
     })])
+    expect(failures).toEqual([{
+      captureSessionId: envelope.captureSessionId,
+      code: 'PERMANENT_FAILURE',
+      sourceJobId: envelope.epochCandidateId,
+    }])
   })
 
   it('does not copy malformed source data into the quarantine record', async () => {
@@ -60,6 +68,7 @@ describe('media ingest failure quarantine', () => {
         output: { code: 'INVALID_JOB' },
       }],
       async (_id, data) => { quarantined.push(data) },
+      async () => { throw new Error('malformed jobs must not be recorded') },
     )
 
     expect(quarantined).toEqual([{
@@ -69,6 +78,42 @@ describe('media ingest failure quarantine', () => {
     }])
     expect(JSON.stringify(quarantined)).not.toContain('private')
     expect(JSON.stringify(quarantined)).not.toContain('do-not-leak')
+  })
+
+  it('reconciles existing dead letters idempotently on worker startup', async () => {
+    const envelope = {
+      schemaVersion: '1.0.0',
+      jobType: MEDIA_INGEST_QUEUE,
+      captureSessionId: '10000000-0000-4000-8000-000000000011',
+      candidate: 'match/main/short-tail.mp4',
+      sourceOrder: '2',
+      epochCandidateId: '10000000-0000-4000-8000-000000000012',
+      sourceRestart: false,
+      timestampDiscontinuity: false,
+      explicitGapBeforeUs: null,
+    } satisfies MediaIngestEnvelope
+    const recorded: Record<string, unknown>[] = []
+    const boss = {
+      findJobs: async () => [{
+        data: {
+          ...envelope,
+          permanentFailure: { code: 'PERMANENT_FAILURE' },
+          sourceJobId: envelope.epochCandidateId,
+          sourceQueue: MEDIA_INGEST_QUEUE,
+        },
+      }, { data: { token: 'not-an-envelope' } }],
+    } as unknown as Pick<PgBoss, 'findJobs'>
+
+    await expect(reconcilePermanentMediaFailures(
+      boss,
+      `${MEDIA_INGEST_QUEUE}.dead-letter`,
+      async failure => { recorded.push(failure) },
+    )).resolves.toBe(1)
+    expect(recorded).toEqual([{
+      captureSessionId: envelope.captureSessionId,
+      code: 'PERMANENT_FAILURE',
+      sourceJobId: envelope.epochCandidateId,
+    }])
   })
 })
 

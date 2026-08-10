@@ -1154,7 +1154,7 @@ export class PrismaIngestRepository {
         session.status === 'STOPPING'
         && session.completionExpectedSegments !== null
       ) {
-        const [readySegments, pendingSegments] = await Promise.all([
+        const [readySegments, failedSegments, pendingSegments] = await Promise.all([
           tx.dvrSegment.count({
             where: {
               dvrProgramId: segment.dvrProgramId,
@@ -1162,12 +1162,15 @@ export class PrismaIngestRepository {
               readyAt: { not: null },
             },
           }),
+          tx.mediaIngestFailure.count({
+            where: { captureSessionId: input.reservation.captureSessionId },
+          }),
           tx.dvrSegment.count({
             where: { dvrProgramId: segment.dvrProgramId, readyAt: null },
           }),
         ])
         if (
-          readySegments >= session.completionExpectedSegments
+          readySegments + failedSegments >= session.completionExpectedSegments
           && pendingSegments === 0
         ) {
           const endedAt = this.#now()
