@@ -62,10 +62,13 @@ services:
     environment:
       MINIO_ROOT_USER: ${MINIO_ACCESS_KEY:-volleyball}
       MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY:-volleyball-dev-secret}
+      # Metrics stay on the MinIO API port and are exposed only for local operations monitoring.
+      MINIO_PROMETHEUS_AUTH_TYPE: public
     ports:
       - "${MINIO_HOST_PORT:-9000}:9000" # local SDK/debug access; browser app never receives credentials
       - "${MINIO_CONSOLE_HOST_PORT:-9001}:9001"
-    volumes: [minio-data:/data]
+    volumes:
+      - ${MINIO_DATA_HOST_PATH:-${DEV_DATA_ROOT:-../.data/runtime}/minio-data}:/data
     healthcheck:
       test: ["CMD", "curl", "-f", "http://127.0.0.1:9000/minio/health/live"]
       interval: 5s
@@ -83,7 +86,7 @@ services:
       OME_HOST_IP: ${OME_HOST_IP:-127.0.0.1}
     volumes:
       - ./ome:/opt/ovenmediaengine/bin/origin_conf:ro
-      - ${MEDIA_SPOOL_HOST_PATH:-../.data/runtime/media-spool}:/recordings
+      - ${MEDIA_SPOOL_HOST_PATH:-${DEV_DATA_ROOT:-../.data/runtime}/media-spool}:/recordings
       - ome-dvr:/var/lib/ovenmediaengine/dvr
       - ome-logs:/var/log/ovenmediaengine
     ports:
@@ -122,8 +125,8 @@ services:
       OME_API_ACCESS_TOKEN: ${OME_API_ACCESS_TOKEN:?OME_API_ACCESS_TOKEN is required}
       OME_API_URL: http://ovenmediaengine:8081
     volumes:
-      - ${MEDIA_IMPORT_HOST_PATH:-../.data/runtime/media-imports}:/var/lib/volleyball/media-imports
-      - ${MEDIA_SPOOL_HOST_PATH:-../.data/runtime/media-spool}:/recordings
+      - ${MEDIA_IMPORT_HOST_PATH:-${DEV_DATA_ROOT:-../.data/runtime}/media-imports}:/var/lib/volleyball/media-imports
+      - ${MEDIA_SPOOL_HOST_PATH:-${DEV_DATA_ROOT:-../.data/runtime}/media-spool}:/recordings
     depends_on:
       postgres: { condition: service_healthy }
       redis: { condition: service_healthy }
@@ -171,8 +174,8 @@ services:
       YOUTUBE_FORMAT: ${YOUTUBE_FORMAT:-best[protocol*=m3u8][height=1080][fps>=59][fps<=61][vcodec^=avc][acodec!=none]/bestvideo[height=1080][fps>=59][fps<=61][vcodec^=avc]+bestaudio[acodec^=mp4a]}
       YOUTUBE_EXTRACTOR_ARGS: ${YOUTUBE_EXTRACTOR_ARGS:-youtube:player_client=android_vr}
     volumes:
-      - ${MEDIA_IMPORT_HOST_PATH:-../.data/runtime/media-imports}:/var/lib/volleyball/media-imports
-      - ${MEDIA_SPOOL_HOST_PATH:-../.data/runtime/media-spool}:/var/lib/volleyball/media-spool
+      - ${MEDIA_IMPORT_HOST_PATH:-${DEV_DATA_ROOT:-../.data/runtime}/media-imports}:/var/lib/volleyball/media-imports
+      - ${MEDIA_SPOOL_HOST_PATH:-${DEV_DATA_ROOT:-../.data/runtime}/media-spool}:/var/lib/volleyball/media-spool
     depends_on:
       postgres: { condition: service_healthy }
       redis: { condition: service_healthy }
@@ -223,6 +226,5 @@ services:
 volumes:
   postgres-data: {}
   redis-data: {}
-  minio-data: {}
   ome-dvr: {}
   ome-logs: {}

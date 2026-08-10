@@ -8,6 +8,7 @@ describe('host development environment', () => {
       REDIS_HOST_PORT: '16380',
       MINIO_HOST_PORT: '19000',
       OME_API_HOST_PORT: '18081',
+      DEV_DATA_ROOT: 'F:\\vollyai-dev-data',
       SERVER_DEV_PORT: '14000',
       WEB_DEV_PORT: '13100',
     })
@@ -15,6 +16,8 @@ describe('host development environment', () => {
     expect(environment.DATABASE_URL).toContain('@127.0.0.1:15433/')
     expect(environment.REDIS_URL).toBe('redis://127.0.0.1:16380/0')
     expect(environment.MINIO_ENDPOINT).toBe('http://127.0.0.1:19000')
+    expect(environment.MEDIA_SPOOL_DIR).toBe('F:\\vollyai-dev-data\\media-spool')
+    expect(environment.MEDIA_IMPORT_ROOT).toBe('F:\\vollyai-dev-data\\media-imports')
     expect(environment.OME_API_URL).toBe('http://127.0.0.1:18081')
     expect(environment.NUXT_DEV_BACKEND_ORIGIN).toBe('http://127.0.0.1:14000')
     expect(environment.NUXT_PORT).toBe('13100')
