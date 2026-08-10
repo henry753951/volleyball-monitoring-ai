@@ -37,6 +37,10 @@ const snapshot: OperationsSnapshot = {
     lastPongAt: '2026-08-08T00:00:00.000Z',
     status: 'online',
     canDelete: false,
+    accelerator: 'NVIDIA H100 NVL',
+    modelVersion: 'court-canonical-v4',
+    modelSha256: 'f45f96ce',
+    deploymentStatus: 'ready',
   }],
   aiWorkerAccess: {
     name: 'volleyball-analysis-engine',
@@ -55,6 +59,13 @@ const snapshot: OperationsSnapshot = {
     }],
   },
   aiWork: [],
+  deployment: {
+    available: true,
+    components: [],
+    namespace: 'volleyball-monitoring',
+    overallStatus: 'ready',
+    source: 'kubernetes',
+  },
   hostStorage: {
     available: true,
     freeBytes: '3000',

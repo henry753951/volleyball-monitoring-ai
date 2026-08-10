@@ -502,7 +502,7 @@ describe('match setup, visibility, and court-side history', () => {
       deletionRequestedAt: expect.any(Date),
     })
     const visible = await execute(listQuery, contextFor(operatorUser))
-    expect(arrayField(visible.data, 'matches')).not.toContainEqual(expect.objectContaining({ id: matchId }))
+    expect(arrayField(visible.data ?? {}, 'matches')).not.toContainEqual(expect.objectContaining({ id: matchId }))
 
     await finalizeMatchDeletion(matchId, {
       database: db,

@@ -48,6 +48,39 @@ export interface AiWorkerSnapshot {
   lastPongAt: string | null
   status: 'online' | 'stale' | 'offline'
   canDelete: boolean
+  accelerator: string | null
+  modelVersion: string | null
+  modelSha256: string | null
+  deploymentStatus: 'degraded' | 'progressing' | 'ready' | 'unknown'
+}
+
+export interface DeploymentComponentSnapshot {
+  accelerator: string | null
+  availableReplicas: number
+  component: string
+  desiredImage: string
+  desiredReplicas: number
+  gitSha: string | null
+  imageDigest: string | null
+  limits: Record<string, string>
+  modelSha256: string | null
+  modelVersion: string | null
+  name: string
+  nodeNames: string[]
+  readyReplicas: number
+  repositoryUrl: string | null
+  requests: Record<string, string>
+  status: 'degraded' | 'progressing' | 'ready' | 'unknown'
+  updatedReplicas: number
+  version: string | null
+}
+
+export interface DeploymentSnapshot {
+  available: boolean
+  components: DeploymentComponentSnapshot[]
+  namespace: string | null
+  overallStatus: 'degraded' | 'progressing' | 'ready' | 'unknown'
+  source: 'environment' | 'kubernetes' | 'unavailable'
 }
 
 export interface AiWorkerAccessSnapshot {
@@ -140,6 +173,7 @@ export interface OperationsDashboardSnapshot {
     aiWorkers: AiWorkerSnapshot[]
     aiWorkerAccess: AiWorkerAccessSnapshot
     aiWork: AiWorkSnapshot[]
+    deployment: DeploymentSnapshot
     hostStorage: HostStorageSnapshot
     objectStorage: HostStorageSnapshot
     matchMedia: MatchMediaSnapshot[]

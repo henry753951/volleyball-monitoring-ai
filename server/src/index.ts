@@ -21,6 +21,7 @@ import { analysisMediaRoutesWithDependencies } from './routes/analysis-media.js'
 import { analysisReviewRoutes } from './routes/analysis-review.js'
 import { collectOperationsSnapshot, deleteInactiveAiWorker, operationsRoutes } from './routes/operations.js'
 import { createHostStorageProbe } from './operations/host-storage.js'
+import { createKubernetesDeploymentProbe } from './operations/kubernetes-deployments.js'
 import { createMinioStorageProbe } from './operations/minio-storage.js'
 import { mediaSourceRoutes } from './routes/media-sources.js'
 import { createAnnotationPresenceService } from './realtime/annotation-presence.js'
@@ -65,6 +66,7 @@ const hostStorageProbe = createHostStorageProbe(
   process.env.MEDIA_RECORDING_ROOT ?? '/var/lib/volleyball/media-recordings',
 )
 const objectStorageProbe = createMinioStorageProbe(minioEndpoint ?? '')
+const deploymentProbe = createKubernetesDeploymentProbe()
 const mediaObjectRemover = createMediaObjectRemoverFromEnv()
 const matchCleanupCoordinator = createMatchCleanupCoordinator({
   database: db,
@@ -155,6 +157,7 @@ await app.register(operationsRoutes(
     identity,
     hostStorageProbe,
     objectStorageProbe,
+    deploymentProbe,
   ),
   {
     authenticate: request => authenticateDevelopmentAnnotationRequest(request, db),

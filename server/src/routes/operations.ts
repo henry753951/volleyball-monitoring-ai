@@ -2,6 +2,7 @@ import type { db as DatabaseClient } from '@volleyball-monitoring/db'
 import type { FastifyPluginAsync, FastifyRequest } from 'fastify'
 import type { ReadinessResult } from '../health/readiness.js'
 import type { HostStorageProbe, HostStorageSnapshot } from '../operations/host-storage.js'
+import type { DeploymentProbe, DeploymentSnapshot } from '../operations/kubernetes-deployments.js'
 import { AiWorkerAccessError, getAiWorkerAccess, type AiWorkerAccessSnapshot } from '../services/ai-worker-access.js'
 
 export interface MetricGroup {
@@ -30,6 +31,7 @@ export interface OperationsSnapshot {
   aiWorkers: AiWorkerSnapshot[]
   aiWorkerAccess: AiWorkerAccessSnapshot
   aiWork: AiWorkSnapshot[]
+  deployment: DeploymentSnapshot
   hostStorage: HostStorageSnapshot
   objectStorage: HostStorageSnapshot
   matchMedia: MatchMediaSnapshot[]
@@ -64,6 +66,10 @@ export interface AiWorkerSnapshot {
   lastPongAt: string | null
   status: 'online' | 'stale' | 'offline'
   canDelete: boolean
+  accelerator: string | null
+  modelVersion: string | null
+  modelSha256: string | null
+  deploymentStatus: 'degraded' | 'progressing' | 'ready' | 'unknown'
 }
 
 export interface AiWorkSnapshot {
@@ -176,7 +182,15 @@ export async function collectOperationsSnapshot(
   identity?: OperationsIdentity,
   hostStorageProbe?: HostStorageProbe,
   objectStorageProbe?: HostStorageProbe,
+  deploymentProbe?: DeploymentProbe,
 ): Promise<OperationsSnapshot> {
+  const deploymentPromise = deploymentProbe?.() ?? Promise.resolve({
+    available: false,
+    components: [],
+    namespace: null,
+    overallStatus: 'unknown' as const,
+    source: 'unavailable' as const,
+  })
   const [rallies, clipJobs, aiJobs, captures, outboxEvents, callbacks, mediaAssets, annotationReceipts, annotationOperations, captureSessions, providerInstances, recentAiWork, activeAiJobs, aiWorkerAccess] = await Promise.all([
     database.rally.groupBy({ by: ['annotationStatus', 'processingStatus'], _count: { _all: true } }),
     database.clipJob.groupBy({ by: ['status'], _count: { _all: true } }),
@@ -283,7 +297,7 @@ export async function collectOperationsSnapshot(
           _count: { _all: true },
         }),
       ])
-  const [mediaByteRows, hostStorage, objectStorage] = await Promise.all([
+  const [mediaByteRows, hostStorage, objectStorage, deployment] = await Promise.all([
     database.$queryRaw<Array<{ matchId: string; storedBytes: bigint }>>`
       WITH asset_match AS (
         SELECT DISTINCT cs."matchId", ds."initAssetId" AS "assetId" FROM "DvrSegment" ds JOIN "DvrProgram" dp ON dp.id = ds."dvrProgramId" JOIN "CaptureSession" cs ON cs.id = dp."captureSessionId"
@@ -302,6 +316,7 @@ export async function collectOperationsSnapshot(
     `,
     hostStorageProbe?.() ?? Promise.resolve({ available: false, freeBytes: '0', managedBytes: '0', path: '', totalBytes: '0', usedBytes: '0' }),
     objectStorageProbe?.() ?? Promise.resolve({ available: false, freeBytes: '0', managedBytes: '0', path: '', totalBytes: '0', usedBytes: '0' }),
+    deploymentPromise,
   ])
   const totalsByProgram = new Map(segmentTotals.map(item => [item.dvrProgramId, item]))
   const readyByProgram = new Map(readySegments.map(item => [item.dvrProgramId, item._count._all]))
@@ -331,6 +346,7 @@ export async function collectOperationsSnapshot(
   }
   const workerStaleBefore = Date.now() - AI_WORKER_STALE_MS
   const memory = process.memoryUsage()
+  const aiDeployment = deployment.components.find(component => component.component === 'analysis-worker')
   return {
     generatedAt: new Date().toISOString(),
     process: {
@@ -375,6 +391,10 @@ export async function collectOperationsSnapshot(
         lastPongAt: instance.lastPongAt?.toISOString() ?? null,
         status,
         canDelete: status !== 'online' && activeJobs === 0,
+        accelerator: aiDeployment?.accelerator ?? null,
+        modelVersion: aiDeployment?.modelVersion ?? null,
+        modelSha256: aiDeployment?.modelSha256 ?? null,
+        deploymentStatus: aiDeployment?.status ?? 'unknown',
       }
     }),
     aiWorkerAccess,
@@ -390,6 +410,7 @@ export async function collectOperationsSnapshot(
       createdAt: job.createdAt.toISOString(),
       updatedAt: job.updatedAt.toISOString(),
     })),
+    deployment,
     hostStorage,
     objectStorage,
     matchMedia: [...matchMedia.values()],

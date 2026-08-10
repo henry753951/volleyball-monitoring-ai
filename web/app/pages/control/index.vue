@@ -126,6 +126,9 @@ const aiWorkerAccess = computed(
 );
 const aiWorkerTokens = computed(() => aiWorkerAccess.value?.tokens ?? []);
 const aiWork = computed(() => monitor.snapshot.value?.operations.aiWork ?? []);
+const deployment = computed(
+   () => monitor.snapshot.value?.operations.deployment ?? null,
+);
 const activeAiWork = computed(() => activeAiWorkForDashboard(aiWork.value));
 const visibleMatchIds = computed(
    () => new Set(matchesState.matches.value.map((match) => match.id)),
@@ -678,11 +681,12 @@ onBeforeUnmount(() => {
          </div>
       </div>
 
-      <div
-         v-else-if="view === 'systems'"
-         class="view-panel systems-view"
-      >
-         <section class="workspace-section">
+       <div
+          v-else-if="view === 'systems'"
+          class="view-panel systems-view"
+       >
+          <ControlDeploymentVersions :deployment="deployment" />
+          <section class="workspace-section">
             <div class="section-title compact">
                <div>
                   <h2>服務拓樸</h2>
@@ -765,6 +769,7 @@ onBeforeUnmount(() => {
             :endpoint="websocketEndpoint()"
             :tokens="aiWorkerTokens"
             :workers="aiWorkers"
+            :work="aiWork"
             @copy="copy"
             @create-token="openTokenCreate"
             @delete-token="openTokenDelete"

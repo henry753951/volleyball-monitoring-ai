@@ -193,6 +193,7 @@ ef6d651d4fbb397b566c56f0728dbf6a4ac9234cbf8cc17605d3a2c784fdabeb  ./packages/db/
 f42b50971a11ade2a92d53f49bce220b4ecfc12c8026bf6bb368bd6ae594ccc7  ./packages/db/prisma/migrations/20260810163000_analysis_review_current_overrides/migration.sql
 451b1c23bbc6a6d1c0f9dfd52e09ff922737249439f8102cafceafa094369a35  ./packages/db/prisma/migrations/20260810183000_rally_side_assignment_reversal/migration.sql
 58b248d55f8c83aa2bcd1d2415cce0e699cb21ddc35bc966e7fbfa15b00b17f1  ./packages/db/prisma/migrations/20260810190000_match_roster_position/migration.sql
+b1779995690ce6666907b34ce07ee7e25ada2476b16e75fdbf079a10f6b36d9a  ./packages/db/prisma/migrations/20260810195000_match_background_deletion/migration.sql
 99836963713b4f5b269ad49af0ed3d7b0b2e336115c2f92dc9ac683d139d0900  ./packages/db/prisma/migrations/migration_lock.toml
 80fca9872c955e7a49d3a4547f1bd133537b98724f4b69c210835d88cd331690  ./packages/db/prisma/schema.prisma
 78e73cf4d8515dd4774e362b9f317ed2e569827c9db9d6cc1961a7c0a801e69e  ./packages/db/prisma/seed.ts
@@ -272,7 +273,7 @@ c509e26da6a91a2ff130ab45a9e1664b7707539b201bed344c3dd9e9cd5ce71d  ./server/src/g
 daf55fad91c822857be170cd3d76c6a9170e2ae6df3e9524f6640818f43f310f  ./server/src/graphql/schema.ts
 109a119c866da6798c5ffedecf8ef3e2f6e5d0ae38f8d508d044c5fe29f5ef61  ./server/src/graphql/types.ts
 6b2c7115e325bd40f267f3c0c4f5ee83930a32c0ae71bb7f8a1c8fb8c33c578d  ./server/src/health/readiness.ts
-7e0e34079ecf0e353b62bd86af16c2275a285b7ffd41bf92366e5fe0be17db34  ./server/src/index.ts
+172f53648eb0fd23af3b0f923937ebd434d4c97fe7fdb5fe26b1cd1f18f7be99  ./server/src/index.ts
 ae4921ffeda11e61428c8e56ccf5f86e67a67dc78e6a832ce0139b725c932fa4  ./server/src/media/clip-timing-coverage.ts
 a75d66c2038a5c29bcc6994718e70fd0a43fc2b0fdd3e72a107886dc63ab4a29  ./server/src/media/cursor-resolution.ts
 91981dc02252c90ae48919cf728c76c63d7faa98ef0e01ab93c35051d7fd8661  ./server/src/media/cursor-routes.ts
@@ -298,7 +299,7 @@ df468df496dafcc28116e7f36c50efb4df6afc6804fa3f3ca6da912dc0bdee71  ./server/src/r
 1316b2f3028945107e842ec6cf4075c332ac44ef55abd7b995751820752860e4  ./server/src/routes/analysis-review.ts
 de29025147f181aec44ae214a244808707395a7c238b167163087cebd4fda429  ./server/src/routes/media-playback.ts
 171d603e040eeacaf97a13689ce990f05a44953a0a9aa535ab45e1f933f28cdd  ./server/src/routes/media-sources.ts
-fed9fa777e8935ddb01da14449bc1dfa10bc764e5645a0e20567335f6147e149  ./server/src/routes/operations.ts
+5ef758c28d31b03c3f3a0d57df432f8e4c74277bc73c1a362dbe81d40e65fd2a  ./server/src/routes/operations.ts
 29dc8ee62da32da243cba2f0c90575ba5e1cea4c36a2d392ab96360c6c926812  ./server/src/services/README.md
 88c3c2fddfa0bfda5fcca86fe1e5e1e35d759ac9be0627e7b2fa847484d35aa3  ./server/src/services/ai-worker-access.ts
 142c04e5598799c470a5acc5c5c063acb4d4797c3b3c900c2bd024ebf0b734b7  ./server/src/services/analysis-review.ts
@@ -311,6 +312,7 @@ db2215c77a7e78d3e4edec95f92d372f946f8aaa86db94ae2447905f3725fa7a  ./server/src/s
 aa63800d3a49ca56e44c9e0027911b9ca072efd3fe0708d1d300a7488a9a91c9  ./server/src/services/core-domain.ts
 e85b7b98a876f4a03c6329d2c99ddd1af96430fecb566c33b412aa0bb75007e7  ./server/src/services/correction-draft.ts
 a68b4c1cf4ffacefc385c4eec58939a798bdfe02fd7d92e88751418aad11c3f7  ./server/src/services/match-administration.ts
+f7353c644bd9d90e155d0eeb9eed1c71a6ed497039d15e96354db683806f59a1  ./server/src/services/match-cleanup-coordinator.ts
 3cfc6003cd4a60302dc311dbc45d900d2882b5c42df91e2aa2a3df5c5214374e  ./server/src/services/media-timeline.ts
 abd11872c09bcc55bb80c50149d54d9c4a71255c62bc971b87978706ce20030f  ./server/src/services/processing-rally-cancellation.ts
 727e786d1b3e5c4ef657776ba5bb3491601c0f90eb2b1c43d44c5a2c70a30c61  ./server/src/services/rally-administration.ts
@@ -328,7 +330,7 @@ e78b3d282fc84eaeea81fa758411bd4eac7e4816f98e4e357e96a41fad85ef11  ./server/tests
 40d8a2efc1947fc57cbb6fe571a8037a3a9ed36b3cfb1aaf5a2058d263831260  ./server/tests/capture-processing.integration.test.ts
 f56038cbaebc45b23f5b241814665c52d880be91a78abc39a7b2c96bd74c97cd  ./server/tests/clip-timing-coverage.test.ts
 9675c7ad845dedfa7d3cdbabd328190e53750f7ef34dc18c6b50331983e8df13  ./server/tests/coach-dashboard.test.ts
-6c3ae8cb223feef5887199c219849aac81fe4d741080592219d2166b99b5b039  ./server/tests/core-domain.integration.test.ts
+eb75e3735e93ec42d7f699b5569f8ba9b43c7a8b75f2a9c88ed1eeaccde4e53c  ./server/tests/core-domain.integration.test.ts
 c8030d8144e68adf8fe850834b67542dfff5e3cba17c17a70fe56c5c886556b2  ./server/tests/host-storage.test.ts
 4079f4292dcfea17d237277bb41912e6c16b01c65b3868bbc61b322770abf442  ./server/tests/match-administration.test.ts
 a24d73e176377bf389b5fdc14d32c7a395923b40e13127027d0aa65ed839f329  ./server/tests/media-cursor.integration.test.ts
@@ -338,7 +340,7 @@ e2b11a3053d26802dd1eca70ca45bba86bd6d3dc6682c3a44ce4e04ebb97774d  ./server/tests
 5e0cad7a3221de101513994c8b796a0fa458f8cdd9a0da297d2fc0a7de0f56dc  ./server/tests/media-sources.unit.test.ts
 58ec2e5eae3567d636a612b9bde0a9488c13e219fbd73117e0de923d2a291895  ./server/tests/minio-object-reader.test.ts
 c64e65443d69370542d7f7f294d4ea7d81313a7d9b3b7ec45e5fb15a070c8c7e  ./server/tests/minio-storage.test.ts
-b21b2e4b641a51263edfd5342c4a215a0cac9b5fcb52941d48f8e9bcfd24e831  ./server/tests/operations.test.ts
+fa84c4b06ffc11b2f25ef72a2797300552668e6aa1a9770f8debd45858c2dcd3  ./server/tests/operations.test.ts
 396b00f96ddd777284c9df4e6e3247b20794f936b3aed8ab0124538ad8aded7c  ./server/tests/processing-rally-cancellation.integration.test.ts
 8527c014f5b890dda19945a89e213a09464c1020f29c3face872b23daa207475  ./server/tests/rally-administration.integration.test.ts
 031192688f5c0aea7987cf2357db752ec326389195469c3f777f55a157763ef3  ./server/tests/readiness.test.ts
@@ -384,7 +386,7 @@ c668483005ba2f5aafc911cb40cfcecd974d10702dca22ded9fb729ec3ec8721  ./web/app/comp
 001eb706ab7b3ef9ff4e1bc6ce6f442ebc980b2ed866e63d5a4688b50bb97403  ./web/app/components/VolleyballOverlayCanvas.component.test.ts
 555229c7c24ed680c71c3a4e3e635273a99809f332209259d11dfda418ae72b0  ./web/app/components/VolleyballOverlayCanvas.vue
 4286a12b4e1640b27779890d2d7886ee47535c2118b8c1a1f3eded52208bd5f4  ./web/app/components/WsPingBadge.vue
-70d8667fa95e0efbada0dd4750609ad6bd52498189e061fca9e2693dad45b650  ./web/app/components/control/AiWorkerConsole.vue
+a44f53e1defb64d18e265798b89cbcfd99d4ac176fcbdfb4ee70e7f0d6086bb2  ./web/app/components/control/AiWorkerConsole.vue
 8a92834e183a6c89ff3441f73e6274a186248fc4dea6c4915c008e2bcedb8bfc  ./web/app/components/control/AiWorkerDeleteDialog.vue
 0fa61e6d6d0c8828ed6e2b26c354ab4ba302fdd7fbe7b3a126264d34c4fcae9f  ./web/app/components/control/AiWorkerTokenDeleteDialog.vue
 ffef07c3c212f5cc8341f6a87e42adadc4eb985400a7446210f83531fc9d0302  ./web/app/components/control/MatchDeleteDialog.vue
@@ -450,7 +452,7 @@ d1b04708728885977903eab107f60c16ba2cc611a6dffdef70e21995dc83ae0e  ./web/app/lib/
 a561970e83daa759bf48c4667133475062f98a773625ed1c8f9d0916c590d277  ./web/app/lib/mediaTimeline.test.ts
 e30acde6bc072f1fe4c9a86b8f69f2a6770ee17c550c505ae0fa801430557724  ./web/app/lib/mediaTimeline.ts
 a995e9296fabb9acf9a301422294ec76a02ce4462334e041449459a8d8130f8d  ./web/app/lib/operationsMonitor.test.ts
-aa4a9b4f9bd626968f7799e401e5cc379384ffdcae54bdf432c09dfff6e09ec9  ./web/app/lib/operationsMonitor.ts
+9f5026bd66fa8bc4174d7fde103f273668caf8fe6fa0844518d9b2015a215a5b  ./web/app/lib/operationsMonitor.ts
 ea2e5a8a0d7e2a81ef17e9afe1b2e7a6326c3099fc03539a7ee7ac346c6abf8a  ./web/app/lib/playbackContinuation.test.ts
 510308eefdbfb3a9f4f05acf973252b869c21f513eef07ba70625bf803ac0e4a  ./web/app/lib/playbackContinuation.ts
 cba670333ab1e0c411c488d0f3517da77337ca9c256ef9eaae31df1d6c9c3d6d  ./web/app/lib/playbackWindowCache.test.ts
@@ -462,7 +464,7 @@ fee354ea0a76c24c9172e653abb355c460e101f80bbb3cc5c22784447ab2b182  ./web/app/lib/
 e8400f19bc0f9ab77c9a0ff695af3a671d79e6cd86a3c1126bf1eb4383572e9a  ./web/app/lib/rosterPromptImport.ts
 52fe16f81674ddd4727c93d95986be02908b5bb247fcca16e04f5c2aba4a1ccb  ./web/app/middleware/auth.global.ts
 5abc171fd8d54adda24ca98d5c83da594c01d2dd5c0040b777f40090dae2bad1  ./web/app/pages/annotate/[matchId].vue
-160789b42e8a8359230317d9099bbecc797ba0dc1913710e6e01e8c4ed276690  ./web/app/pages/control/index.vue
+19540314ac128f33e341c5c799ae8b1f2ec6a1da130b5cc6c8cf13a1a14fe10f  ./web/app/pages/control/index.vue
 321e307830236adc5fd729268ae59aa0154cd5cf020dd041af064b69cf8f5ce2  ./web/app/pages/control/jobs.vue
 6b80bbf757b3c6aae350a338a1cf16dd5b60587899839726d175d4f0234e91cf  ./web/app/pages/index.vue
 c4e0f237dd10b98db71e9f767c82000ccaa5ce5eda1845c147461f11217617a4  ./web/app/pages/matches/[matchId]/history.vue
