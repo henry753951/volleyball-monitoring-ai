@@ -539,7 +539,7 @@ e6f2b68127f706b48f7d89f4dcc5e40d38b71c91eb7ca3698d274775f187a16b  ./worker/src/m
 4590bb5a1a8c6fd3b75142175cfdfc3a129bc7161f0f72d5980c3d370b7db15d  ./worker/src/media/resolvers.ts
 d7e9d29bfc521a6db59ceac844956f31ce97c87c93c2baffef2a35e5ed2669a8  ./worker/src/media/runtime-config.ts
 8f0a7c3f8c163da69d5c7be0980cadfedbc6515477416fe2f0a4cc7e8f3c4f3d  ./worker/src/media/sample-index.ts
-d373ab743e5cf533c3a7cb6e9eafdd93e31b56b5e22e985a56b05d0ae372ec21  ./worker/src/media/source-process.ts
+091af4b2c732ff65c7b734d9840d627735dd5a33d57cbed352c5ab258c317c71  ./worker/src/media/source-process.ts
 629ba9be4e47dd5647a07b44e4c0304dad11ec2d1a47f8739176acbdcab43f56  ./worker/src/media/source-runtime.ts
 448e4b90305b372332b458bb1cf922eed29a8f842bb40ebaa432410ca0606e65  ./worker/src/media/source-work.ts
 4b27e8aa77a6d9389034ee7992fa6ea0335241284e40735e99c27487a95cec67  ./worker/src/role-entry.ts
@@ -575,7 +575,7 @@ ae1cfe2d3ed2cd479f70eea2ddb1fe19619e5758caab08dea305183c1068da3a  ./worker/tests
 ecc383203ab1d25716b16df3cf43397763b7d3c1e6f72cd66b32f710ee26553a  ./worker/tests/prisma-ingest-repository.integration.test.ts
 1ff2bfb6d2fed095b16b95e563c4beef13891a307e1376ed343e137915f4258e  ./worker/tests/resolvers.test.ts
 17d706ad7805027bfc4dfc7eed1d68726fa9f328ab62d217a72f6a77f42cd4d0  ./worker/tests/runtime-health.test.ts
-b46b68b5f49eaf01efb52a6c890c9a806ce2efebd1f57d9417b2ed47c2a5d543  ./worker/tests/source-process.test.ts
+131cbd891dd1b749663929ed11737db6a93e1d7bd9d02c91ec6146db0fe17cca  ./worker/tests/source-process.test.ts
 a6576b496cd75f5ebda32f4592ee1e951eac5f066f611db53be0ff1fe67e6343  ./worker/tests/worker-role.test.ts
 8dec466308bc77a9c561462206386437ef115aae75fd352f5b0ed3c56ccdfc4e  ./worker/tests/workflow-composition.test.ts
 49efec4f3606ab482dba734f8a8269eae2812dd459b0713865cc8493499e1372  ./worker/tsconfig.json

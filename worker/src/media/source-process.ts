@@ -259,8 +259,8 @@ function youtubeIsLive(metadata: YoutubeMetadata): boolean {
   return metadata.is_live === true || ['is_live', 'is_upcoming'].includes(metadata.live_status ?? '')
 }
 
-function youtubeWasLive(metadata: YoutubeMetadata): boolean {
-  return metadata.live_status === 'was_live'
+export function classifyYoutubeSource(metadata: { is_live?: boolean; live_status?: string }): 'youtube_live' | 'youtube_vod' {
+  return youtubeIsLive(metadata) ? 'youtube_live' : 'youtube_vod'
 }
 
 function youtubeArguments(options: MediaSourceProcessOptions): string[] {
@@ -371,21 +371,7 @@ export function createMediaSourceProcess(options: MediaSourceProcessOptions) {
     if (!work.sourceUrl) throw new MediaSourceProcessError('SOURCE_URL_MISSING', 'YouTube media work has no source URL')
     let metadata = await probeYoutube(work.sourceUrl, options, signal)
     const durationUs = youtubeDuration(metadata)
-    if (youtubeWasLive(metadata)) {
-      await observer.classified({ sourceDurationUs: durationUs, sourceKind: 'youtube_live' })
-      if (work.attempts > 1) await writeSourceRestartMarker(options.recordingRoot, work.ingestPath)
-      const count = await segmentInputs(
-        work,
-        youtubeInputs(metadata),
-        options,
-        observer,
-        signal,
-        youtubeVideoCodec(metadata),
-        true,
-      )
-      return { expectedSegments: count, sourceDurationUs: durationUs, sourceKind: 'youtube_live' }
-    }
-    if (!youtubeIsLive(metadata)) {
+    if (classifyYoutubeSource(metadata) === 'youtube_vod') {
       await observer.classified({ sourceDurationUs: durationUs, sourceKind: 'youtube_vod' })
       const workspace = safeChild(options.workRoot, `${work.id}-download`)
       await rm(workspace, { force: true, recursive: true })
