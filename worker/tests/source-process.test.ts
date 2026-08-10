@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import {
   buildYoutubeProbeArgs,
   buildYoutubeVodDownloadArgs,
+  classifyYoutubeSource,
   createMediaSourceProcess,
   type MediaSourceProcessOptions,
 } from '../src/media/source-process.js'
@@ -38,6 +39,13 @@ const youtubeOptions: MediaSourceProcessOptions = {
 }
 
 describe('media source process', () => {
+  it('routes completed live broadcasts through the VOD pipeline', () => {
+    expect(classifyYoutubeSource({ is_live: false, live_status: 'was_live' })).toBe('youtube_vod')
+    expect(classifyYoutubeSource({ is_live: false, live_status: 'not_live' })).toBe('youtube_vod')
+    expect(classifyYoutubeSource({ is_live: true, live_status: 'is_live' })).toBe('youtube_live')
+    expect(classifyYoutubeSource({ is_live: false, live_status: 'is_upcoming' })).toBe('youtube_live')
+  })
+
   it('builds separate probe and VOD arguments without exposing cookie contents', () => {
     expect(buildYoutubeProbeArgs('https://youtu.be/example', youtubeOptions)).toEqual([
       '--dump-single-json', '--no-playlist', '--no-progress', '--no-warnings',
