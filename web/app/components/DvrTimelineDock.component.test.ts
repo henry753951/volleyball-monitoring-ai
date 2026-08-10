@@ -95,6 +95,41 @@ describe('DvrTimelineDock mounted interactions', () => {
     expect(w.findAll('.historical-point')).toHaveLength(3)
     expect(w.findAll('.historical-point').every(point => point.classes().includes('density-micro'))).toBe(true)
   })
+  it('renders the Rally outcome on current and historical masks', () => {
+    const readyAnnotation: AnnotationRallySnapshot = {
+      ...annotation,
+      snapshot: {
+        ...annotation.snapshot,
+        annotation_status: 'ready',
+        score_resolution: 'resolved',
+        scoring_court_side: 'right',
+        key_points: [
+          { ...annotation.snapshot.key_points[0]!, capture_time_us: '1200' },
+          { ...annotation.snapshot.key_points[0]!, key_point_id: 'point-2', sequence_index: 1, marker_kind: 'contact', is_terminal: true, capture_time_us: '1800' },
+        ],
+      },
+    }
+    const historical = {
+      id: 'historical-outcome',
+      label: '第 1 局 · 回合 2',
+      outcomeLabel: '得分未知',
+      startCaptureTimeUs: '3100',
+      endCaptureTimeUs: '3900',
+      status: 'processing' as const,
+    }
+    const w = mount(DvrTimelineDock, { props: {
+      timeline,
+      playhead: null,
+      annotation: readyAnnotation,
+      currentMaskOutcome: 'R 得分',
+      segments: [historical],
+    } })
+
+    expect(w.get('.timeline-mask.current .mask-outcome').text()).toBe('R 得分')
+    expect(w.get('.timeline-mask.current').attributes('aria-label')).toContain('R 得分')
+    expect(w.get('.timeline-mask.historical .mask-outcome').text()).toBe('得分未知')
+    expect(w.get('.timeline-mask.historical .mask-outcome').classes()).toContain('unknown')
+  })
   it('opens the analysis tab through the parent segment without a second selection state', async () => {
     const analyzedSegment = {
       id: 'analyzed', label: '第 1 局 · 回合 4', startCaptureTimeUs: '1200', endCaptureTimeUs: '1800', status: 'analyzed' as const,

@@ -61,8 +61,63 @@ describe('useAnnotationWorkstationModel timeline layers', () => {
 
     expect(model.timelineSegments.value).toMatchObject([{
       id: 'rally',
+      outcomeLabel: 'L 得分',
       analysis: { startCaptureTimeUs: '1100000', endCaptureTimeUs: '1900000', byteLength: '2048' },
     }])
+    expect(model.currentMaskOutcome.value).toBe('L 得分')
+  })
+
+  it('ignores a stale correction draft after realtime submit acknowledgement', () => {
+    const staleDashboard = structuredClone(coachState)
+    staleDashboard.match.drafts = [{
+      id: 'rally', ordinal: 1, display_ordinal: 1, display_set_number: 1,
+      annotation_revision: '4', annotation_status: 'open', active_submission_id: 'submission',
+      set_id: 'set', set_number: 1,
+      key_points: staleDashboard.match.rallies[0]!.submission.key_points,
+    }]
+    const model = useAnnotationWorkstationModel({
+      coachData: ref(staleDashboard),
+      match: ref<Match | null>(null),
+      timeline: computed<CaptureTimeline | null>(() => null),
+      displayAnnotation: computed(() => snapshot),
+      confirmedAnnotation: shallowRef(snapshot),
+      state: computed(() => 'SUBMITTED' as const),
+      selectedRallyId: computed(() => 'rally'),
+      selectedKeyPoint: computed<AnnotationKeyPoint | null>(() => null),
+      selectedTimelineItem: ref<TimelineSelectionItem>('point'),
+      cursorRallyId: ref('rally'),
+    })
+
+    expect(model.annotationDrafts.value).toEqual([])
+    expect(model.selectedSubmittedRally.value?.id).toBe('rally')
+    expect(model.activeContextState.value).toBe('分析完成')
+  })
+
+  it('shows fresh correction processing while retaining the previous analysis fallback', () => {
+    const processingCorrection = structuredClone(coachState)
+    processingCorrection.match.rallies[0]!.processing_status = 'clip_queued'
+    processingCorrection.match.rallies[0]!.submission.supersedes_submission_id = 'previous-submission'
+    const processingSnapshot = structuredClone(snapshot)
+    processingSnapshot.snapshot.processing_status = 'clip_queued'
+    const model = useAnnotationWorkstationModel({
+      coachData: ref(processingCorrection),
+      match: ref<Match | null>(null),
+      timeline: computed<CaptureTimeline | null>(() => null),
+      displayAnnotation: computed(() => processingSnapshot),
+      confirmedAnnotation: shallowRef(processingSnapshot),
+      state: computed(() => 'SUBMITTED' as const),
+      selectedRallyId: computed(() => 'rally'),
+      selectedKeyPoint: computed<AnnotationKeyPoint | null>(() => null),
+      selectedTimelineItem: ref<TimelineSelectionItem>('segment'),
+      cursorRallyId: ref('rally'),
+    })
+
+    expect(model.selectedAnalysisRunId.value).toBe('analysis')
+    expect(model.activeContextState.value).toBe('剪切中')
+    expect(model.timelineSegments.value[0]).toMatchObject({
+      status: 'processing',
+      analysis: { byteLength: '2048' },
+    })
   })
 
   it('keeps a failed submitted correction cancellable', () => {

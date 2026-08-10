@@ -10,6 +10,15 @@ interface CoachDashboardDependencies {
   timingManifestReader?: MediaObjectReader
 }
 
+export function selectDisplayAnalysis<T extends { status: string }>(
+  current: T | null | undefined,
+  previous: T | null | undefined,
+) {
+  if (current?.status === 'COMPLETED') return { analysis: current, source: 'current' as const }
+  if (previous?.status === 'COMPLETED') return { analysis: previous, source: 'previous' as const }
+  return { analysis: null, source: null }
+}
+
 const dashboardClipSelect = {
   id: true,
   status: true,
@@ -138,6 +147,9 @@ export async function getCoachMatchState(
       annotationRevision: true,
       annotationStatus: true,
       activeSubmissionId: true,
+      scoreResolutionState: true,
+      scoringCourtSide: true,
+      scoringTeamId: true,
       set: { select: { id: true, setNumber: true } },
       keyPoints: {
         where: { deletedAt: null },
@@ -149,10 +161,13 @@ export async function getCoachMatchState(
   const displayResultBySubmissionId = new Map(match.rallies.flatMap((rally) => {
     const submission = rally.activeSubmission
     if (!submission) return []
-    const activeAnalysis = submission.analysisRuns[0] ?? null
+    const displayAnalysis = selectDisplayAnalysis(
+      submission.analysisRuns[0],
+      submission.supersedes?.analysisRuns[0],
+    )
     return [[submission.id, {
-      analysis: activeAnalysis ?? submission.supersedes?.analysisRuns[0] ?? null,
-      clip: activeAnalysis
+      analysis: displayAnalysis.analysis,
+      clip: displayAnalysis.source === 'current'
         ? submission.clipJobs[0] ?? null
         : submission.supersedes?.clipJobs[0] ?? submission.clipJobs[0] ?? null,
     }] as const]
@@ -241,6 +256,9 @@ export async function getCoachMatchState(
         annotation_revision: draft.annotationRevision.toString(),
         annotation_status: draft.annotationStatus.toLowerCase(),
         active_submission_id: draft.activeSubmissionId,
+        score_resolution: draft.scoreResolutionState.toLowerCase(),
+        scoring_court_side: draft.scoringCourtSide?.toLowerCase() ?? null,
+        scoring_team_id: draft.scoringTeamId,
         set_id: draft.set.id,
         set_number: draft.set.setNumber,
         key_points: draft.keyPoints.map(point => ({

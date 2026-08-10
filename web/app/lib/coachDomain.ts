@@ -22,6 +22,9 @@ export interface CoachDraft {
   annotation_revision: string
   annotation_status: 'open' | 'ready'
   active_submission_id: string | null
+  score_resolution?: string
+  scoring_court_side?: string | null
+  scoring_team_id?: string | null
   set_id: string
   set_number: number
   key_points: Array<{ id: string; sequence_index: number; marker_kind: string; is_terminal: boolean; capture_time_us: string; capture_frame_index: string }>

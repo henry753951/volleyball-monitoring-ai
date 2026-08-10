@@ -1,6 +1,8 @@
 <script setup lang="ts">
-import { Check, Pencil, Trophy } from 'lucide-vue-next'
+import { Check, CircleHelp, Pencil, Trophy } from 'lucide-vue-next'
+import { computed, ref } from 'vue'
 import type { CoachDraft, CoachRally, CoachTeam } from '~/lib/coachDomain'
+import { annotationOutcomeLabel } from '~/utils/annotationOutcome'
 
 type SegmentListItem =
   | { kind: 'draft'; id: string; setNumber: number; ordinal: number; draft: CoachDraft }
@@ -84,6 +86,17 @@ function rallyStateLabel(rally: CoachRally) {
   if (rally.processing_status === 'artifact_ingesting') return '回傳結果中'
   return rally.submission.analysis?.status === 'completed' ? '分析完成' : '處理中'
 }
+function segmentOutcomeLabel(item: SegmentListItem) {
+  const source = item.kind === 'draft' ? item.draft : item.rally.submission
+  return annotationOutcomeLabel({
+    scoreResolution: source.score_resolution,
+    scoringCourtSide: source.scoring_court_side,
+    scoringTeamId: source.scoring_team_id,
+    teams: props.teams,
+    leftLabel: props.leftTeam?.shortName ?? props.leftTeam?.name ?? '左隊',
+    rightLabel: props.rightTeam?.shortName ?? props.rightTeam?.name ?? '右隊',
+  })
+}
 defineExpose({ closePlacement: () => { placementOpen.value = false } })
 </script>
 
@@ -108,7 +121,7 @@ defineExpose({ closePlacement: () => { placementOpen.value = false } })
             <button type="button" class="segment-main" @click="selectItem(item)">
               <div><span>回合 {{ item.ordinal }}</span><small v-if="item.kind === 'draft'">{{ item.draft.annotation_status === 'ready' ? '待送出' : '標記中' }} · {{ item.draft.key_points.filter(point => point.marker_kind === 'contact').length }} 次擊球</small><small v-else>{{ rallyStateLabel(item.rally) }} · {{ formatRallyDuration(item.rally) }} · {{ item.rally.submission.contact_count }} 次擊球</small></div>
               <span v-if="item.kind === 'rally'" class="score-at-rally">{{ item.rally.left_score_after }} : {{ item.rally.right_score_after }}</span>
-              <span v-if="item.kind === 'rally' && item.rally.winner_side" class="winner-badge"><Trophy :size="11" />{{ item.rally.winner_side === 'left' ? leftTeam?.shortName ?? '左隊' : rightTeam?.shortName ?? '右隊' }}</span>
+              <span v-if="segmentOutcomeLabel(item)" class="outcome-badge" :class="{ unknown: segmentOutcomeLabel(item) === '得分未知' }"><CircleHelp v-if="segmentOutcomeLabel(item) === '得分未知'" :size="11" /><Trophy v-else :size="11" />{{ segmentOutcomeLabel(item) }}</span>
               <i :class="item.kind === 'draft' ? 'draft' : { failed: item.rally.processing_status === 'failed', processing: item.rally.processing_status !== 'failed' && item.rally.submission.analysis?.status !== 'completed', mapped: item.rally.submission.analysis?.identity_mapping_completed }" />
             </button>
             <UiTooltip content="編輯局與回合"><UiButton variant="ghost" size="icon-sm" class="placement-edit" aria-label="編輯局與回合" @click="openPlacement(item)"><Pencil :size="13" /></UiButton></UiTooltip>
@@ -131,5 +144,5 @@ defineExpose({ closePlacement: () => { placementOpen.value = false } })
 <style scoped>
 .segment-row i.failed{background:#e16c74}
 .mode-switch{grid-template-columns:repeat(3,1fr)}.mode-switch button{font-size:.65rem}.match-inspector,.mapping-inspector,.analysis-inspector{min-height:0;flex:1}.mapping-inspector,.analysis-inspector{overflow:hidden}.set-scoreline{display:block;padding:3px 5px}.score-board{min-height:64px}.score-team{min-width:0;display:grid;gap:4px}.score-team.left span{text-align:left}.score-team.right span{text-align:right}.score-team small{width:max-content;padding:3px 6px;border-radius:5px;background:#202328;color:#aeb5bc;font-size:.49rem;font-weight:650;font-variant-numeric:tabular-nums}.score-team.left small{justify-self:start}.score-team.right small{justify-self:end}
-.set-divider{height:29px;display:flex;align-items:center;justify-content:space-between;padding:0 8px;border-bottom:1px solid #30363d;background:#171a1e;color:#b9c0c7;font-size:.61rem}.set-divider b{color:#f1f3f5;font-variant-numeric:tabular-nums}.segment-row{min-height:52px;display:grid;grid-template-columns:minmax(0,1fr) 30px;padding:0}.segment-main{min-width:0;min-height:51px;display:grid;grid-template-columns:minmax(0,1fr) auto auto 8px;align-items:center;gap:7px;padding:0 4px 0 8px;border:0;background:transparent;text-align:left}.segment-main>div{min-width:0;display:grid;gap:3px}.segment-row small{color:#929ba4}.score-at-rally{color:#c0c7ce;font-size:.6rem;font-variant-numeric:tabular-nums}.winner-badge{display:inline-flex;align-items:center;gap:3px;padding:3px 5px;border-radius:5px;background:#2b2f34;color:#f1f3f5;font-size:.55rem;font-weight:700}.placement-edit{opacity:0;color:#aab2bb!important}.segment-row:hover .placement-edit,.segment-row.active .placement-edit,.placement-edit:focus-visible{opacity:1}.placement-form{display:grid;grid-template-columns:1fr 1fr;gap:12px;padding:18px}.placement-form label{display:grid;gap:6px;color:#a8b0b8;font-size:.64rem}.placement-form input,.placement-form select{height:36px;padding:0 10px;border:1px solid #3a4148;border-radius:7px;outline:0;background:#171a1e;color:#f4f4f5;font-size:.72rem}.placement-form input:focus,.placement-form select:focus{border-color:#8b949e;box-shadow:0 0 0 2px rgb(139 148 158 / 18%)}
+.set-divider{height:29px;display:flex;align-items:center;justify-content:space-between;padding:0 8px;border-bottom:1px solid #30363d;background:#171a1e;color:#b9c0c7;font-size:.61rem}.set-divider b{color:#f1f3f5;font-variant-numeric:tabular-nums}.segment-row{min-height:52px;display:grid;grid-template-columns:minmax(0,1fr) 30px;padding:0}.segment-main{min-width:0;min-height:51px;display:grid;grid-template-columns:minmax(0,1fr) auto auto 8px;align-items:center;gap:7px;padding:0 4px 0 8px;border:0;background:transparent;text-align:left}.segment-main>div{min-width:0;display:grid;gap:3px}.segment-row small{color:#929ba4}.score-at-rally{color:#c0c7ce;font-size:.6rem;font-variant-numeric:tabular-nums}.outcome-badge{display:inline-flex;align-items:center;gap:3px;padding:3px 5px;border:1px solid #4a525a;border-radius:5px;background:#22272c;color:#f1f3f5;font-size:.55rem;font-weight:700;white-space:nowrap}.outcome-badge.unknown{border-style:dashed;color:#c5cbd1}.placement-edit{opacity:0;color:#aab2bb!important}.segment-row:hover .placement-edit,.segment-row.active .placement-edit,.placement-edit:focus-visible{opacity:1}.placement-form{display:grid;grid-template-columns:1fr 1fr;gap:12px;padding:18px}.placement-form label{display:grid;gap:6px;color:#a8b0b8;font-size:.64rem}.placement-form input,.placement-form select{height:36px;padding:0 10px;border:1px solid #3a4148;border-radius:7px;outline:0;background:#171a1e;color:#f4f4f5;font-size:.72rem}.placement-form input:focus,.placement-form select:focus{border-color:#8b949e;box-shadow:0 0 0 2px rgb(139 148 158 / 18%)}
 </style>

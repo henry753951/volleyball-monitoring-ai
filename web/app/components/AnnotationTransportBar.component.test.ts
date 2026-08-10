@@ -78,6 +78,14 @@ describe('AnnotationTransportBar', () => {
     expect(wrapper.emitted('cancelCorrection')).toHaveLength(1)
   })
 
+  it('keeps deletion available for every selected clip even when annotation editing is blocked', async () => {
+    const wrapper = mount(AnnotationTransportBar, { props: { ...baseProps, clipSelected: true, editReady: false } })
+    const remove = wrapper.get('[aria-label="刪除所選片段"]')
+    expect(remove.attributes('disabled')).toBeUndefined()
+    await remove.trigger('click')
+    expect(wrapper.emitted('deleteClip')).toHaveLength(1)
+  })
+
   it('hides correction actions when its clip is not selected', () => {
     const wrapper = mount(AnnotationTransportBar, { props: { ...baseProps, correctionActive: true } })
     expect(wrapper.find('[aria-label="片段工具"]').exists()).toBe(false)
@@ -88,6 +96,21 @@ describe('AnnotationTransportBar', () => {
     const wrapper = mount(AnnotationTransportBar, { props: { ...baseProps, clipSelected: true, draftSelected: true, submitEnabled: true, submittedSelected: false } })
     await wrapper.get('[aria-label="送出片段"]').trigger('click')
     expect(wrapper.emitted('submit')).toHaveLength(1)
+  })
+
+  it('places submit before and apart from destructive correction actions', () => {
+    const wrapper = mount(AnnotationTransportBar, { props: {
+      ...baseProps,
+      clipSelected: true,
+      correctionActive: true,
+      draftSelected: true,
+      submitEnabled: true,
+      submittedSelected: false,
+    } })
+    const labels = wrapper.get('[aria-label="片段工具"]').findAll('button').map(button => button.attributes('aria-label'))
+
+    expect(labels).toEqual(['送出片段', '取消修正片段', '刪除所選片段'])
+    expect(wrapper.find('.action-separator').exists()).toBe(true)
   })
 
   it('uses correction-draft language without implementation terminology', () => {
