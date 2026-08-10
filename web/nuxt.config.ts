@@ -108,8 +108,9 @@ export default defineNuxtConfig({
   },
   typescript: {
     strict: true,
-    // CI/local typecheck remains strict by default; production containers run a
-    // dedicated typecheck step and can disable Nuxt's duplicate Vite checker.
-    typeCheck: process.env.NUXT_TYPECHECK !== 'false',
+    // Keep the long-running dev server focused on HMR. Type errors are checked by
+    // the explicit `bun run typecheck` gate, which avoids an unbounded vue-tsc
+    // watcher repeatedly printing the same diagnostic to redirected stderr.
+    typeCheck: process.env.NUXT_TYPECHECK === 'true',
   },
 })
