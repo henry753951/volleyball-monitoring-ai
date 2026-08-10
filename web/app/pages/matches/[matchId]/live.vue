@@ -190,28 +190,32 @@ function handleDvrError(error: Error) {
                   <strong>最近回合</strong
                   ><NuxtLink :to="`/matches/${matchId}/rallies`">全部</NuxtLink>
                </div>
-               <ol>
-                  <li
-                     v-for="rally in match.rallies.slice(0, 6)"
-                     :key="rally.id"
-                  >
-                     <NuxtLink :to="`/matches/${matchId}/replay/${rally.id}`">
-                        <span
-                           ><b>{{ rally.ordinal }}</b
-                           ><small>第 {{ rally.set_number }} 局</small></span
+               <UiScrollArea class="live-feed__scroll">
+                  <div>
+                     <ol>
+                        <li
+                           v-for="rally in match.rallies"
+                           :key="rally.id"
                         >
-                        <strong>{{
-                           teamById.get(rally.submission.scoring_team_id ?? "")
-                              ?.shortName ||
-                           (rally.submission.score_resolution === "unknown"
-                              ? "結果待確認"
-                              : "—")
-                        }}</strong>
-                        <i :class="`state-${rally.processing_status}`" />
-                     </NuxtLink>
-                  </li>
-               </ol>
-               <p v-if="!match.rallies.length">尚無回合</p>
+                           <NuxtLink :to="`/matches/${matchId}/replay/${rally.id}`">
+                              <span
+                                 ><b>{{ rally.ordinal }}</b
+                                 ><small>第 {{ rally.set_number }} 局</small></span
+                              >
+                              <strong>{{
+                                 teamById.get(rally.submission.scoring_team_id ?? "")
+                                    ?.shortName ||
+                                 (rally.submission.score_resolution === "unknown"
+                                    ? "結果待確認"
+                                    : "—")
+                              }}</strong>
+                              <i :class="`state-${rally.processing_status}`" />
+                           </NuxtLink>
+                        </li>
+                     </ol>
+                     <p v-if="!match.rallies.length">尚無回合</p>
+                  </div>
+               </UiScrollArea>
             </aside>
          </div>
       </template>
@@ -246,11 +250,15 @@ function handleDvrError(error: Error) {
 
 <style scoped>
 .live-board {
+   height: 100%;
+   min-height: 0;
    display: grid;
+   grid-template-rows: auto minmax(0, 1fr);
    gap: 12px;
+   overflow: hidden;
 }
 .score-ribbon {
-   min-height: 112px;
+   min-height: clamp(84px, 14dvh, 112px);
    display: grid;
    grid-template-columns: 1fr 100px 1fr;
    align-items: center;
@@ -305,7 +313,7 @@ function handleDvrError(error: Error) {
    font-weight: 800;
 }
 .live-stage {
-   min-height: min(66dvh, 760px);
+   min-height: 0;
    display: grid;
    grid-template-columns: minmax(0, 1fr) clamp(230px, 24vw, 330px);
    gap: 12px;
@@ -359,6 +367,8 @@ function handleDvrError(error: Error) {
 }
 .live-feed {
    min-height: 0;
+   display: grid;
+   grid-template-rows: 48px minmax(0, 1fr);
    overflow: hidden;
    border-radius: 18px;
    background: #fff;
@@ -385,6 +395,10 @@ function handleDvrError(error: Error) {
    margin: 0;
    padding: 0;
    list-style: none;
+}
+.live-feed__scroll {
+   height: 100%;
+   min-height: 0;
 }
 .live-feed li + li {
    border-top: 1px solid #edf0f2;
@@ -436,21 +450,25 @@ function handleDvrError(error: Error) {
 .live-feed li i[class*="failed"] {
    background: #d13b46;
 }
-.live-feed > p {
+.live-feed__scroll p {
    padding: 20px;
    color: #858c96;
    font-size: 0.76rem;
    text-align: center;
 }
 .live-board__loading {
-   min-height: 70dvh;
+   height: 100%;
+   min-height: 0;
+   grid-row: 1 / -1;
    border-radius: 18px;
    background: linear-gradient(100deg, #eef1f4 20%, #e2e6ea 40%, #eef1f4 60%);
    background-size: 200% 100%;
    animation: shimmer 1.2s linear infinite;
 }
 .live-board__state {
-   min-height: 240px;
+   height: 100%;
+   min-height: 0;
+   grid-row: 1 / -1;
    display: grid;
    place-content: center;
    justify-items: center;
@@ -536,7 +554,7 @@ function handleDvrError(error: Error) {
       aspect-ratio: 16/9;
    }
    .live-feed {
-      max-height: 250px;
+      min-height: 180px;
    }
 }
 @media (prefers-reduced-motion: reduce) {

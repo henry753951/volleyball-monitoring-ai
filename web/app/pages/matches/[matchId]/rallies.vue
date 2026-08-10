@@ -36,28 +36,30 @@ function durationLabel(value?: string | null) {
 <template>
    <section class="rally-browser">
       <div class="rally-browser__bar">
-         <div
-            class="rally-browser__sets"
-            role="group"
-            aria-label="局數"
-         >
-            <button
-               type="button"
-               :class="{ active: selectedSet === 'all' }"
-               @click="selectedSet = 'all'"
+         <UiScrollArea horizontal class="rally-browser__set-scroll">
+            <div
+               class="rally-browser__sets"
+               role="group"
+               aria-label="局數"
             >
-               全部
-            </button>
-            <button
-               v-for="set in match?.sets"
-               :key="set.id"
-               type="button"
-               :class="{ active: selectedSet === set.set_number }"
-               @click="selectedSet = set.set_number"
-            >
-               第 {{ set.set_number }} 局
-            </button>
-         </div>
+               <button
+                  type="button"
+                  :class="{ active: selectedSet === 'all' }"
+                  @click="selectedSet = 'all'"
+               >
+                  全部
+               </button>
+               <button
+                  v-for="set in match?.sets"
+                  :key="set.id"
+                  type="button"
+                  :class="{ active: selectedSet === set.set_number }"
+                  @click="selectedSet = set.set_number"
+               >
+                  第 {{ set.set_number }} 局
+               </button>
+            </div>
+         </UiScrollArea>
          <strong>{{ rallies.length }} 回合</strong>
       </div>
 
@@ -72,71 +74,85 @@ function durationLabel(value?: string | null) {
       >
          <RotateCcw :size="24" /><span>目前沒有已完成的回合</span>
       </div>
-      <ol
-         v-else
-         class="rally-list"
-      >
-         <li
-            v-for="rally in rallies"
-            :key="rally.id"
-         >
-            <NuxtLink :to="`/matches/${matchId}/replay/${rally.id}`">
-               <div class="rally-index">
-                  <strong>{{ rally.ordinal }}</strong
-                  ><span>第 {{ rally.set_number }} 局</span>
-               </div>
-               <div class="rally-result">
-                  <strong>{{ outcomeLabel(rally) }}</strong
-                  ><span>{{
-                     new Intl.DateTimeFormat("zh-TW", {
-                        hour: "2-digit",
-                        minute: "2-digit",
-                        second: "2-digit",
-                     }).format(new Date(rally.submission.submitted_at))
-                  }}</span>
-               </div>
-               <dl>
-                  <div>
-                     <dt>持續時間</dt>
-                     <dd>
-                        {{ durationLabel(rally.submission.clip?.duration_us) }}
-                     </dd>
+      <UiScrollArea v-else class="rally-list-scroll">
+         <ol class="rally-list">
+            <li
+               v-for="rally in rallies"
+               :key="rally.id"
+            >
+               <NuxtLink :to="`/matches/${matchId}/replay/${rally.id}`">
+                  <div class="rally-index">
+                     <strong>{{ rally.ordinal }}</strong
+                     ><span>第 {{ rally.set_number }} 局</span>
                   </div>
-                  <div>
-                     <dt>擊球</dt>
-                     <dd>{{ rally.submission.contact_count }}</dd>
+                  <div class="rally-result">
+                     <strong>{{ outcomeLabel(rally) }}</strong
+                     ><span>{{
+                        new Intl.DateTimeFormat("zh-TW", {
+                           hour: "2-digit",
+                           minute: "2-digit",
+                           second: "2-digit",
+                        }).format(new Date(rally.submission.submitted_at))
+                     }}</span>
                   </div>
-               </dl>
-               <ChevronRight :size="20" />
-            </NuxtLink>
-         </li>
-      </ol>
+                  <dl>
+                     <div>
+                        <dt>持續時間</dt>
+                        <dd>
+                           {{ durationLabel(rally.submission.clip?.duration_us) }}
+                        </dd>
+                     </div>
+                     <div>
+                        <dt>擊球</dt>
+                        <dd>{{ rally.submission.contact_count }}</dd>
+                     </div>
+                  </dl>
+                  <ChevronRight :size="20" />
+               </NuxtLink>
+            </li>
+         </ol>
+      </UiScrollArea>
    </section>
 </template>
 
 <style scoped>
 .rally-browser {
    width: min(100%, 1060px);
+   height: 100%;
+   min-height: 0;
+   display: grid;
+   grid-template-rows: auto minmax(0, 1fr);
    margin: 0 auto;
+   overflow: hidden;
 }
 .rally-browser__bar {
+   position: sticky;
+   top: 0;
+   z-index: 3;
    min-height: 46px;
    display: flex;
    align-items: center;
    justify-content: space-between;
    gap: 12px;
    margin-bottom: 10px;
+   background: #edf1f5;
 }
 .rally-browser__bar > strong {
    color: #737a85;
    font-size: 0.72rem;
 }
 .rally-browser__sets {
+   width: max-content;
+   min-width: 100%;
    display: flex;
    gap: 4px;
    padding: 3px;
    border-radius: 11px;
    background: #e5e9ee;
+}
+.rally-browser__set-scroll {
+   width: min(100%, 720px);
+   height: 38px;
 }
 .rally-browser__sets button {
    min-height: 32px;
@@ -161,6 +177,13 @@ function durationLabel(value?: string | null) {
    background: #fff;
    box-shadow: 0 12px 34px #1822300d;
    list-style: none;
+}
+.rally-list-scroll {
+   height: 100%;
+   min-height: 0;
+   border-radius: 18px;
+   background: #fff;
+   box-shadow: 0 12px 34px #1822300d;
 }
 .rally-list li + li {
    border-top: 1px solid #e9ecf0;
@@ -265,9 +288,9 @@ function durationLabel(value?: string | null) {
       align-items: flex-start;
    }
    .rally-browser__sets {
-      max-width: 80vw;
-      overflow: auto;
+      min-width: max-content;
    }
+   .rally-browser__set-scroll { max-width: calc(100vw - 100px); }
 }
 @media (prefers-reduced-motion: reduce) {
    .rally-list--loading {

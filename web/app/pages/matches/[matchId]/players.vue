@@ -72,91 +72,97 @@ onMounted(load);
          class="players-layout"
       >
          <aside class="player-list">
-            <div
-               class="player-list__team"
-               v-for="team in analytics.teams"
-               :key="team.id"
-            >
-               <strong>{{ team.name }}</strong>
-               <button
-                  v-for="player in analytics.players.filter(
-                     (item) => item.team_id === team.id,
-                  )"
-                  :key="player.roster_entry_id"
-                  type="button"
-                  :class="{
-                     active:
-                        selectedPlayer?.roster_entry_id ===
-                        player.roster_entry_id,
-                  }"
-                  @click="selectedPlayerId = player.roster_entry_id"
-               >
-                  <span>#{{ player.jersey_number }}</span
-                  ><b>{{ player.name }}</b
-                  ><small>{{ player.contact_count }}</small>
-               </button>
-            </div>
-            <p v-if="!analytics.players.length">尚無球員資料</p>
+            <UiScrollArea class="player-list__scroll">
+               <div>
+                  <div
+                     class="player-list__team"
+                     v-for="team in analytics.teams"
+                     :key="team.id"
+                  >
+                     <strong>{{ team.name }}</strong>
+                     <button
+                        v-for="player in analytics.players.filter(
+                           (item) => item.team_id === team.id,
+                        )"
+                        :key="player.roster_entry_id"
+                        type="button"
+                        :class="{
+                           active:
+                              selectedPlayer?.roster_entry_id ===
+                              player.roster_entry_id,
+                        }"
+                        @click="selectedPlayerId = player.roster_entry_id"
+                     >
+                        <span>#{{ player.jersey_number }}</span
+                        ><b>{{ player.name }}</b
+                        ><small>{{ player.contact_count }}</small>
+                     </button>
+                  </div>
+                  <p v-if="!analytics.players.length">尚無球員資料</p>
+               </div>
+            </UiScrollArea>
          </aside>
 
-         <main
+         <UiScrollArea
             v-if="selectedPlayer"
-            class="player-detail"
+            class="player-detail-scroll"
          >
-            <header>
-               <div class="player-avatar"><UserRound :size="30" /></div>
-               <div>
-                  <span>{{ selectedTeam?.name }}</span>
-                  <h1>
-                     <small>#{{ selectedPlayer.jersey_number }}</small
-                     >{{ selectedPlayer.name }}
-                  </h1>
+            <main class="player-detail">
+               <header>
+                  <div class="player-avatar"><UserRound :size="30" /></div>
+                  <div>
+                     <span>{{ selectedTeam?.name }}</span>
+                     <h1>
+                        <small>#{{ selectedPlayer.jersey_number }}</small
+                        >{{ selectedPlayer.name }}
+                     </h1>
+                  </div>
+               </header>
+               <div class="player-measures">
+                  <div>
+                     <strong>{{ selectedPlayer.contact_count }}</strong
+                     ><span>擊球</span>
+                  </div>
+                  <div>
+                     <strong>{{ selectedPlayer.sample_count }}</strong
+                     ><span>分析樣本</span>
+                  </div>
+                  <div>
+                     <strong
+                        >{{
+                           selectedPlayer.sample_count
+                              ? Math.round(
+                                   (selectedPlayer.contact_count /
+                                      selectedPlayer.sample_count) *
+                                      100,
+                                )
+                              : 0
+                        }}%</strong
+                     ><span>事件覆蓋</span>
+                  </div>
                </div>
-            </header>
-            <div class="player-measures">
-               <div>
-                  <strong>{{ selectedPlayer.contact_count }}</strong
-                  ><span>擊球</span>
-               </div>
-               <div>
-                  <strong>{{ selectedPlayer.sample_count }}</strong
-                  ><span>分析樣本</span>
-               </div>
-               <div>
-                  <strong
-                     >{{
-                        selectedPlayer.sample_count
-                           ? Math.round(
-                                (selectedPlayer.contact_count /
-                                   selectedPlayer.sample_count) *
-                                   100,
-                             )
-                           : 0
-                     }}%</strong
-                  ><span>事件覆蓋</span>
-               </div>
-            </div>
-            <section class="player-evidence">
-               <div>
-                  <span>球員 ID</span
-                  ><code>{{ selectedPlayer.roster_entry_id }}</code>
-               </div>
-               <div>
-                  <span>球員識別覆蓋</span
-                  ><strong>{{
-                     analytics.metrics.identity_coverage
-                        ? `${(analytics.metrics.identity_coverage.value * 100).toFixed(1)}%`
-                        : "—"
-                  }}</strong>
-               </div>
-               <div>
-                  <span>球場座標樣本</span
-                  ><strong>{{
-                     analytics.metrics.court_position_samples?.value ?? 0
-                  }}</strong>
-               </div>
-            </section>
-         </main>
+               <section class="player-evidence">
+                  <div>
+                     <span>球員 ID</span
+                     ><code>{{ selectedPlayer.roster_entry_id }}</code>
+                  </div>
+                  <div>
+                     <span>球員識別覆蓋</span
+                     ><strong>{{
+                        analytics.metrics.identity_coverage
+                           ? `${(analytics.metrics.identity_coverage.value * 100).toFixed(1)}%`
+                           : "—"
+                     }}</strong>
+                  </div>
+                  <div>
+                     <span>球場座標樣本</span
+                     ><strong>{{
+                        analytics.metrics.court_position_samples?.value ?? 0
+                     }}</strong>
+                  </div>
+               </section>
+            </main>
+         </UiScrollArea>
          <main
             v-else
             class="players-state"
@@ -170,10 +176,14 @@ onMounted(load);
 <style scoped>
 .players-view {
    width: min(100%, 1100px);
+   height: 100%;
+   min-height: 0;
    margin: 0 auto;
+   overflow: hidden;
 }
 .players-layout {
-   min-height: calc(100dvh - 152px);
+   height: 100%;
+   min-height: 0;
    display: grid;
    grid-template-columns: 300px minmax(0, 1fr);
    overflow: hidden;
@@ -183,9 +193,14 @@ onMounted(load);
 }
 .player-list {
    min-height: 0;
-   overflow: auto;
+   overflow: hidden;
    border-right: 1px solid #e6e9ed;
    background: #f8f9fb;
+}
+.player-list__scroll,
+.player-detail-scroll {
+   height: 100%;
+   min-height: 0;
 }
 .player-list__team > strong {
    position: sticky;
@@ -241,6 +256,8 @@ onMounted(load);
 }
 .player-detail {
    min-width: 0;
+   min-height: 100%;
+   box-sizing: border-box;
    padding: clamp(22px, 4vw, 54px);
 }
 .player-detail > header {
@@ -328,7 +345,8 @@ onMounted(load);
    color: #4d5662;
 }
 .players-loading {
-   min-height: 60dvh;
+   height: 100%;
+   min-height: 0;
    border-radius: 18px;
    background: linear-gradient(100deg, #f1f3f5 20%, #e7ebef 40%, #f1f3f5 60%);
    background-size: 200% 100%;
