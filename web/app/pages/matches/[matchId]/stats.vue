@@ -94,7 +94,7 @@ function value(key: string, metric: CoachMetric) {
                }}</span
             >
          </div>
-         <section class="overflow-x-auto rounded-2xl bg-white shadow-sm">
+         <UiScrollArea horizontal class="rounded-2xl bg-white shadow-sm">
             <table class="w-full min-w-[760px] text-left text-sm">
                <thead class="bg-stone-100 text-stone-600">
                   <tr>
@@ -127,7 +127,7 @@ function value(key: string, metric: CoachMetric) {
                   </tr>
                </tbody>
             </table>
-         </section>
+         </UiScrollArea>
          <section class="rounded-2xl bg-white p-5 shadow-sm">
             <h2 class="font-semibold">Team rally outcomes</h2>
             <div class="mt-4 grid gap-3 sm:grid-cols-2">

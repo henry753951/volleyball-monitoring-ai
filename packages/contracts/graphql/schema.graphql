@@ -101,6 +101,7 @@ type MatchRosterEntry {
   id: ID!
   jerseyNumber: String!
   name: String!
+  position: RosterPosition!
   teamId: ID!
 }
 
@@ -220,11 +221,23 @@ input RosterEditInput {
   id: ID
   jerseyNumber: String!
   name: String!
+  position: RosterPosition
 }
 
 input RosterInput {
   jerseyNumber: String!
   name: String!
+  position: RosterPosition
+}
+
+enum RosterPosition {
+  DS
+  L
+  MB
+  OH
+  OPP
+  S
+  UNSPECIFIED
 }
 
 enum ScoreResolutionState {

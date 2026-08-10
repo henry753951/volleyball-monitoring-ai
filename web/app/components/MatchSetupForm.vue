@@ -11,14 +11,14 @@ const emit = defineEmits<{ submit: [input: CreateMatchWithMediaInput]; cancel: [
 const title = ref('')
 const venue = ref('')
 const scheduledAt = ref('')
-const firstTeam = reactive({ name: '', shortName: '', roster: [{ name: '', jerseyNumber: '' }] as RosterInput[] })
-const secondTeam = reactive({ name: '', shortName: '', roster: [{ name: '', jerseyNumber: '' }] as RosterInput[] })
+const firstTeam = reactive({ name: '', shortName: '', roster: [{ name: '', jerseyNumber: '', position: 'UNSPECIFIED' }] as RosterInput[] })
+const secondTeam = reactive({ name: '', shortName: '', roster: [{ name: '', jerseyNumber: '', position: 'UNSPECIFIED' }] as RosterInput[] })
 const validationErrors = ref<string[]>([])
 const step = ref<1 | 2>(1)
 const media = ref<MatchMediaSourceDraft>({ kind: 'youtube', label: '', url: '' })
 
 function addRosterRow(team: typeof firstTeam) {
-  team.roster.push({ name: '', jerseyNumber: '' })
+  team.roster.push({ name: '', jerseyNumber: '', position: 'UNSPECIFIED' })
 }
 
 function removeRosterRow(team: typeof firstTeam, index: number) {
@@ -31,8 +31,8 @@ function matchInput(): CreateMatchSetupInput {
     venue: venue.value.trim() || undefined,
     scheduledAt: scheduledAt.value ? new Date(scheduledAt.value).toISOString() : undefined,
     teams: [
-      { name: firstTeam.name.trim(), shortName: firstTeam.shortName.trim(), roster: firstTeam.roster.map(row => ({ name: row.name.trim(), jerseyNumber: row.jerseyNumber.trim() })) },
-      { name: secondTeam.name.trim(), shortName: secondTeam.shortName.trim(), roster: secondTeam.roster.map(row => ({ name: row.name.trim(), jerseyNumber: row.jerseyNumber.trim() })) },
+      { name: firstTeam.name.trim(), shortName: firstTeam.shortName.trim(), roster: firstTeam.roster.map(row => ({ name: row.name.trim(), jerseyNumber: row.jerseyNumber.trim(), position: row.position })) },
+      { name: secondTeam.name.trim(), shortName: secondTeam.shortName.trim(), roster: secondTeam.roster.map(row => ({ name: row.name.trim(), jerseyNumber: row.jerseyNumber.trim(), position: row.position })) },
     ],
   }
 }

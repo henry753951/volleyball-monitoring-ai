@@ -2,8 +2,10 @@
 import { ClipboardCopy, Plus, Save, Sparkles, Trash2 } from 'lucide-vue-next'
 import { toast } from 'vue-sonner'
 import UiButton from '~/components/ui/Button.vue'
+import UiSelect from '~/components/ui/Select.vue'
 import type { Match, RosterEditInput } from '~/lib/coreDomain'
 import { buildRosterResearchPrompt, parseRosterImportPaste } from '~/lib/rosterPromptImport'
+import { ROSTER_POSITION_SELECT_OPTIONS } from '~/lib/rosterPositions'
 
 const props = defineProps<{ open: boolean; match: Match }>()
 const emit = defineEmits<{ close: []; changed: [] }>()
@@ -22,7 +24,7 @@ const rows = computed(() => activeTeam.value ? (rowsByTeam[activeTeam.value.id] 
 const dirtyTeamCount = computed(() => dirtyTeamIds.size)
 const saveLabel = computed(() => pending.value ? '儲存中…' : dirtyTeamCount.value > 1 ? '儲存兩隊名單' : '儲存名單')
 
-function newRow(row: RosterEditInput = { jerseyNumber: '', name: '' }) {
+function newRow(row: RosterEditInput = { jerseyNumber: '', name: '', position: 'UNSPECIFIED' }) {
   rowSequence += 1
   return { ...row, rowKey: row.id ?? `new-${rowSequence}` }
 }
@@ -31,7 +33,7 @@ function hydrate(match: Match) {
   for (const team of match.teams) {
     rowsByTeam[team.id] = match.rosterEntries
       .filter(entry => entry.teamId === team.id)
-      .map(entry => newRow({ id: entry.id, jerseyNumber: entry.jerseyNumber, name: entry.name }))
+      .map(entry => newRow({ id: entry.id, jerseyNumber: entry.jerseyNumber, name: entry.name, position: entry.position }))
   }
   activeTeamId.value = match.teams.some(team => team.id === activeTeamId.value)
     ? activeTeamId.value
@@ -41,7 +43,7 @@ function hydrate(match: Match) {
 function hydrateTeam(match: Match, teamId: string) {
   rowsByTeam[teamId] = match.rosterEntries
     .filter(entry => entry.teamId === teamId)
-    .map(entry => newRow({ id: entry.id, jerseyNumber: entry.jerseyNumber, name: entry.name }))
+    .map(entry => newRow({ id: entry.id, jerseyNumber: entry.jerseyNumber, name: entry.name, position: entry.position }))
 }
 
 watch(() => [props.open, props.match.id] as const, ([open]) => {
@@ -80,6 +82,7 @@ function rosterForTeam(teamId: string) {
     ...(row.id ? { id: row.id } : {}),
     jerseyNumber: row.jerseyNumber.trim(),
     name: row.name.trim(),
+    position: row.position,
   }))
 }
 
@@ -88,6 +91,7 @@ function validateRoster(teamId: string, roster: RosterEditInput[]) {
   const label = team?.shortName ?? '隊伍'
   if (!roster.length) return `${label} 至少需要一位球員。`
   if (roster.some(row => !row.name || !row.jerseyNumber)) return `請填寫 ${label} 所有球員的姓名與背號。`
+  if (roster.some(row => row.position === 'UNSPECIFIED')) return `請選擇 ${label} 所有球員的位置。`
   const names = new Set<string>()
   const jerseys = new Set<string>()
   for (const row of roster) {
@@ -100,7 +104,7 @@ function validateRoster(teamId: string, roster: RosterEditInput[]) {
   return null
 }
 
-function importRows(teamId: string, players: Array<{ jerseyNumber: string; name: string }>) {
+function importRows(teamId: string, players: Array<{ jerseyNumber: string; name: string; position: RosterEditInput['position'] }>) {
   const available = [...(rowsByTeam[teamId] ?? [])]
   rowsByTeam[teamId] = players.map((player) => {
     const jerseyKey = player.jerseyNumber.normalize('NFKC').toLocaleLowerCase()
@@ -204,10 +208,11 @@ async function save() {
 
         <UiScrollArea class="roster-table">
           <div class="roster-table__inner">
-            <div class="roster-table__head"><span>背號</span><span>球員</span><span /></div>
+            <div class="roster-table__head"><span>背號</span><span>球員</span><span>位置</span><span /></div>
             <div v-for="(row, index) in rows" :key="row.rowKey" class="roster-row">
               <input v-model="row.jerseyNumber" :aria-label="`第 ${index + 1} 位球員背號`" maxlength="12" placeholder="00" @input="markActiveTeamDirty" />
               <input v-model="row.name" :aria-label="`第 ${index + 1} 位球員姓名`" maxlength="120" placeholder="球員姓名" @input="markActiveTeamDirty" />
+              <UiSelect v-model="row.position" :options="ROSTER_POSITION_SELECT_OPTIONS" :aria-label="`第 ${index + 1} 位球員位置`" @update:model-value="markActiveTeamDirty" />
               <UiButton variant="ghost" size="icon-sm" :aria-label="`移除 ${row.name || `第 ${index + 1} 位球員`}`" @click="removePlayer(index)"><Trash2 :size="15" /></UiButton>
             </div>
             <UiButton class="add" variant="ghost" size="sm" @click="addPlayer"><Plus :size="15" />新增球員</UiButton>
@@ -222,5 +227,5 @@ async function save() {
 </template>
 
 <style scoped>
-.roster-dialog{min-height:0;background:#09090b;color:#fafafa}.roster-import-bar{min-height:52px;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:8px 14px;border-bottom:1px solid #2f2f33;background:#18181b}.roster-import-bar>span{min-width:0;display:grid;grid-template-columns:auto auto;align-items:center;justify-content:start;gap:2px 7px}.roster-import-bar>span>svg{grid-row:1/3;color:#a1a1aa}.roster-import-bar strong{font-size:.69rem}.roster-import-bar small{grid-column:2;color:#a1a1aa;font-size:.6rem}.roster-import-bar :deep(button){flex:none}.roster-dialog nav{display:flex;gap:6px;padding:12px 14px 0}.roster-dialog nav :deep(button){min-width:0;flex:1;justify-content:flex-start;text-align:left}.roster-dialog nav :deep(button.active){background:#27272a;color:#fafafa}.roster-dialog nav b{font-size:.75rem}.roster-dialog nav span{overflow:hidden;color:#a1a1aa;font-size:.66rem;text-overflow:ellipsis;white-space:nowrap}.roster-table{height:min(430px,calc(86dvh - 232px));margin-top:10px}.roster-table__inner{padding:0 14px 16px}.roster-table__head,.roster-row{display:grid;grid-template-columns:82px minmax(0,1fr) 34px;align-items:center;gap:7px}.roster-table__head{height:26px;padding:0 7px;color:#71717a;font-size:.61rem;font-weight:700}.roster-row{margin-bottom:6px}.roster-row input{width:100%;height:36px;padding:0 10px;border:1px solid #27272a;border-radius:8px;outline:0;background:#18181b;color:#fafafa;font-size:.72rem}.roster-row input:focus{border-color:#71717a;box-shadow:0 0 0 2px #fafafa24}.roster-row :deep(button){color:#a1a1aa}.roster-row :deep(button:hover){background:#2b1114;color:#fca5a5}.add{margin-top:4px}.error{margin-right:auto;color:#fca5a5;font-size:.68rem}.imported,.saved{margin-right:auto;color:#86efac;font-size:.68rem}.footer-spacer{flex:1}@media(max-width:560px){.roster-import-bar{align-items:flex-start;flex-direction:column}.roster-import-bar :deep(button){width:100%}.roster-dialog nav span,.roster-import-bar small{display:none}.roster-table{height:min(400px,calc(86dvh - 240px))}}
+.roster-dialog{min-height:0;background:#09090b;color:#fafafa}.roster-import-bar{min-height:52px;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:8px 14px;border-bottom:1px solid #2f2f33;background:#18181b}.roster-import-bar>span{min-width:0;display:grid;grid-template-columns:auto auto;align-items:center;justify-content:start;gap:2px 7px}.roster-import-bar>span>svg{grid-row:1/3;color:#a1a1aa}.roster-import-bar strong{font-size:.69rem}.roster-import-bar small{grid-column:2;color:#a1a1aa;font-size:.6rem}.roster-import-bar :deep(button){flex:none}.roster-dialog nav{display:flex;gap:6px;padding:12px 14px 0}.roster-dialog nav :deep(button){min-width:0;flex:1;justify-content:flex-start;text-align:left}.roster-dialog nav :deep(button.active){background:#27272a;color:#fafafa}.roster-dialog nav b{font-size:.75rem}.roster-dialog nav span{overflow:hidden;color:#a1a1aa;font-size:.66rem;text-overflow:ellipsis;white-space:nowrap}.roster-table{height:min(430px,calc(86dvh - 232px));margin-top:10px}.roster-table__inner{padding:0 14px 16px}.roster-table__head,.roster-row{display:grid;grid-template-columns:72px minmax(130px,1fr) minmax(145px,.72fr) 34px;align-items:center;gap:7px}.roster-table__head{height:26px;padding:0 7px;color:#71717a;font-size:.61rem;font-weight:700}.roster-row{margin-bottom:6px}.roster-row input{width:100%;height:36px;padding:0 10px;border:1px solid #27272a;border-radius:8px;outline:0;background:#18181b;color:#fafafa;font-size:.72rem}.roster-row input:focus{border-color:#71717a;box-shadow:0 0 0 2px #fafafa24}.roster-row :deep(button){color:#a1a1aa}.roster-row :deep(button:hover){background:#2b1114;color:#fca5a5}.add{margin-top:4px}.error{margin-right:auto;color:#fca5a5;font-size:.68rem}.imported,.saved{margin-right:auto;color:#86efac;font-size:.68rem}.footer-spacer{flex:1}@media(max-width:680px){.roster-table__head,.roster-row{grid-template-columns:62px minmax(120px,1fr) 34px}.roster-table__head span:nth-child(3){display:none}.roster-row :deep(.ui-select__trigger){grid-column:1/3}}@media(max-width:560px){.roster-import-bar{align-items:flex-start;flex-direction:column}.roster-import-bar :deep(button){width:100%}.roster-dialog nav span,.roster-import-bar small{display:none}.roster-table{height:min(400px,calc(86dvh - 240px))}}
 </style>

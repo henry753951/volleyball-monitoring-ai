@@ -11,7 +11,7 @@ export async function getCoachMatchAnalytics(database: PrismaClient, input: { ma
     select: {
       id: true, title: true,
       matchTeams: { select: { team: { select: { id: true, name: true, shortName: true } } } },
-      rosterEntries: { where: { active: true }, orderBy: [{ teamId: 'asc' }, { jerseyNumber: 'asc' }], select: { id: true, teamId: true, jerseyNumber: true, displayNameSnapshot: true, player: { select: { name: true } } } },
+      rosterEntries: { where: { active: true }, orderBy: [{ teamId: 'asc' }, { jerseyNumber: 'asc' }], select: { id: true, teamId: true, jerseyNumber: true, position: true, displayNameSnapshot: true, player: { select: { name: true } } } },
       rallies: { where: { activeSubmissionId: { not: null }, voidedAt: null }, select: { id: true, ordinal: true, set: { select: { setNumber: true } }, activeSubmission: { select: { id: true, scoreResolutionState: true, scoringTeamId: true, analysisRuns: { where: { status: JobStatus.COMPLETED }, orderBy: { activatedAt: 'desc' }, take: 1, select: { id: true, analysisVersion: true, identityMappingCompletedAt: true, tracks: { select: { trackId: true, courtSide: true, firstFrame: true, lastFrame: true, identityAssignments: { select: { rosterEntryId: true, source: true } } } }, contactEvents: { select: { associationState: true, qualityFlags: true, representativePositions: { select: { courtX: true, courtY: true } }, actors: { select: { trackId: true, action: true, courtX: true, courtY: true } } } }, segments: { select: { renderState: true } } } } } } } },
     },
   })
@@ -50,7 +50,7 @@ export async function getCoachMatchAnalytics(database: PrismaClient, input: { ma
       action_samples: metric(actionSamples, actionSamples, actors.length - actionSamples, 0, {}, ['provider_action_extension']),
     },
     teams: teams.map(team => { const won = resolvedRallies.filter(rally => rally.submission.scoringTeamId === team.id).length; return { ...team, wins: won, losses: resolvedRallies.length - won, unknown: unknownRallies, sample_count: resolvedRallies.length } }),
-    players: match.rosterEntries.map(entry => ({ roster_entry_id: entry.id, team_id: entry.teamId, jersey_number: entry.jerseyNumber, name: entry.displayNameSnapshot ?? entry.player?.name ?? `#${entry.jerseyNumber}`, contact_count: playerContacts.get(entry.id) ?? 0, sample_count: playerContacts.get(entry.id) ?? 0 })),
+    players: match.rosterEntries.map(entry => ({ roster_entry_id: entry.id, team_id: entry.teamId, jersey_number: entry.jerseyNumber, position: entry.position, name: entry.displayNameSnapshot ?? entry.player?.name ?? `#${entry.jerseyNumber}`, contact_count: playerContacts.get(entry.id) ?? 0, sample_count: playerContacts.get(entry.id) ?? 0 })),
     tracks: analyzed.flatMap(entry => entry.run.tracks.map(track => ({
       analysis_run_id: entry.run.id,
       rally_id: entry.rally.id,

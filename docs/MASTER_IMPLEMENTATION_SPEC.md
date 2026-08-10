@@ -1114,6 +1114,7 @@ type Mutation {
 ## 12.1 核心分層
 
 - Match／MatchSet／Team／Player／Roster／CourtSideAssignment。
+- `MatchRosterEntry.position`保存該場次登錄位置：`OH`主攻、`MB`副攻、`OPP`舉對（接應）、`S`舉球員、`L`自由球員、`DS`防守專家；既有資料可為`UNSPECIFIED`，位置不寫入全域Player。
 - CaptureSession／CaptureEpoch／DvrProgram／DvrSegment／MediaAsset。
 - RallyDraft（`Rally`）／mutable KeyPoint／AnnotationOperation。
 - immutable RallySubmission／RallySubmissionKeyPoint／PointAward。
