@@ -2,11 +2,14 @@
 import { OVERLAY_PLAYER_FLAG, type BrowserOverlayChunk } from '@volleyball-monitoring/contracts'
 import { computed } from 'vue'
 import type { ReplayContactEvent, ReplayPath } from '~/lib/coachDomain'
+import type { RosterPosition } from '~/lib/coreDomain'
 
 interface CourtTrack {
   trackId: number
   courtSide?: string | null
   label?: string | null
+  jerseyNumber?: string | null
+  position?: RosterPosition | null
 }
 
 interface CurveLine {
@@ -164,7 +167,9 @@ const currentPlayers = computed(() => {
 
 function trackLabel(trackId: number | null) {
   if (trackId === null) return '落點'
-  return trackMetadata.value.get(trackId)?.label || `ID ${trackId}`
+  const track = trackMetadata.value.get(trackId)
+  if (!track?.jerseyNumber) return `ID ${trackId}`
+  return `[${track.position && track.position !== 'UNSPECIFIED' ? track.position : '?'}] ${track.jerseyNumber}`
 }
 
 function labelWidth(label: string) {

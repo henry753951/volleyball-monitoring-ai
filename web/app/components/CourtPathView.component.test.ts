@@ -65,7 +65,10 @@ describe('CourtPathView', () => {
         paths,
         activeFrame: 301,
         playing: true,
-        tracks: [{ trackId: 8, label: '王小明' }, { trackId: 3, label: null }],
+        tracks: [
+          { trackId: 8, label: '王小明', jerseyNumber: '8', position: 'OH' },
+          { trackId: 3, label: '林大華', jerseyNumber: '3', position: 'MB' },
+        ],
         fps: { num: 60, den: 1 },
       },
     })
@@ -73,8 +76,9 @@ describe('CourtPathView', () => {
     const startBall = wrapper.findAll('.flight-ball circle').at(-1)!
     expect(Number(startBall.attributes('cx'))).toBeCloseTo(24)
     expect(Number(startBall.attributes('cy'))).toBeCloseTo(212)
-    expect(wrapper.text()).toContain('王小明')
-    expect(wrapper.text()).toContain('ID 3')
+    expect(wrapper.text()).toContain('[OH] 8')
+    expect(wrapper.text()).toContain('[MB] 3')
+    expect(wrapper.text()).not.toContain('王小明')
     expect(wrapper.find('marker').exists()).toBe(false)
 
     await wrapper.setProps({ activeFrame: 420 })
@@ -90,7 +94,10 @@ describe('CourtPathView', () => {
         paths,
         activeFrame: 301,
         chunk,
-        tracks: [{ trackId: 8, label: '王小明' }, { trackId: 12, label: null }],
+        tracks: [
+          { trackId: 8, label: '王小明', jerseyNumber: '8', position: 'OH' },
+          { trackId: 12, label: null },
+        ],
         playerLabelMode: 'hitters',
       },
     })
@@ -101,5 +108,18 @@ describe('CourtPathView', () => {
 
     await wrapper.setProps({ playerLabelMode: 'all' })
     expect(wrapper.text()).toContain('ID 12')
+  })
+
+  it('keeps an explicit badge for mapped legacy roster entries without a position', () => {
+    const wrapper = mount(CourtPathView, {
+      props: {
+        paths,
+        activeFrame: 301,
+        tracks: [{ trackId: 8, label: '王小明', jerseyNumber: '8', position: 'UNSPECIFIED' }],
+      },
+    })
+
+    expect(wrapper.text()).toContain('[?] 8')
+    expect(wrapper.text()).not.toContain('王小明')
   })
 })

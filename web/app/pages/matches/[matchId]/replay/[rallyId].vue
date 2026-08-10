@@ -93,6 +93,8 @@ const overlayTracks = computed(() => replay.value?.analysis?.tracks.map(track =>
   trackId: track.track_id,
   courtSide: track.court_side,
   label: track.identity?.name ?? null,
+  jerseyNumber: track.identity?.jersey_number ?? null,
+  position: track.identity?.position ?? null,
 })) ?? [])
 const overlayIdentityLabels = computed(() => Object.fromEntries(
   overlayTracks.value.flatMap(track => track.label ? [[track.trackId, track.label]] : []),
