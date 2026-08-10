@@ -58,8 +58,17 @@ const snapshot: OperationsSnapshot = {
   hostStorage: {
     available: true,
     freeBytes: '3000',
+    managedBytes: '1250',
     path: '/var/lib/volleyball/media-recordings',
     totalBytes: '5000',
+    usedBytes: '2000',
+  },
+  objectStorage: {
+    available: true,
+    freeBytes: '8000',
+    managedBytes: '2048',
+    path: 'http://minio:9000',
+    totalBytes: '10000',
     usedBytes: '2000',
   },
   matchMedia: [{
@@ -106,6 +115,10 @@ describe('operations routes', () => {
     const metrics = renderPrometheusMetrics(snapshot)
     expect(metrics).toContain('vmai_process_resident_memory_bytes 1024')
     expect(metrics).toContain('vmai_host_storage_free_bytes 3000')
+    expect(metrics).toContain('vmai_host_storage_managed_bytes 1250')
+    expect(metrics).toContain('vmai_object_storage_free_bytes 8000')
+    expect(metrics).toContain('vmai_object_storage_total_bytes 10000')
+    expect(metrics).toContain('vmai_object_storage_managed_bytes 2048')
     expect(metrics).toContain('vmai_rallies_total{annotation_status="SUBMITTED",processing_status="COMPLETED"} 1')
     expect(metrics).toContain('vmai_annotation_command_receipts_total{accepted="false"} 1')
     expect(metrics).toContain('vmai_annotation_operations_total 7')

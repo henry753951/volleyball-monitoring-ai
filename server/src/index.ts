@@ -20,6 +20,7 @@ import { analysisMediaRoutesWithDependencies } from './routes/analysis-media.js'
 import { analysisReviewRoutes } from './routes/analysis-review.js'
 import { collectOperationsSnapshot, deleteInactiveAiWorker, operationsRoutes } from './routes/operations.js'
 import { createHostStorageProbe } from './operations/host-storage.js'
+import { createMinioStorageProbe } from './operations/minio-storage.js'
 import { mediaSourceRoutes } from './routes/media-sources.js'
 import { createAnnotationPresenceService } from './realtime/annotation-presence.js'
 import { createAiProgressService } from './realtime/ai-progress.js'
@@ -58,6 +59,10 @@ const annotationPresence = redis
   : null
 const aiProgress = redis ? createAiProgressService(redis) : null
 const coachMatchEvents = new CoachMatchEventHub()
+const hostStorageProbe = createHostStorageProbe(
+  process.env.MEDIA_RECORDING_ROOT ?? '/var/lib/volleyball/media-recordings',
+)
+const objectStorageProbe = createMinioStorageProbe(minioEndpoint ?? '')
 
 const cursorDependencies = {
   now: () => new Date(),
@@ -136,7 +141,12 @@ await app.register(mediaSourceRoutes({
   importRoot: process.env.MEDIA_IMPORT_ROOT ?? '/var/lib/volleyball/media-imports',
 }))
 await app.register(operationsRoutes(
-  identity => collectOperationsSnapshot(db, identity, createHostStorageProbe(process.env.MEDIA_RECORDING_ROOT ?? '/var/lib/volleyball/media-recordings')),
+  identity => collectOperationsSnapshot(
+    db,
+    identity,
+    hostStorageProbe,
+    objectStorageProbe,
+  ),
   {
     authenticate: request => authenticateDevelopmentAnnotationRequest(request, db),
     collectReadiness: () => evaluateReadiness(readinessProbes),

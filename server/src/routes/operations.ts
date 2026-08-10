@@ -31,6 +31,7 @@ export interface OperationsSnapshot {
   aiWorkerAccess: AiWorkerAccessSnapshot
   aiWork: AiWorkSnapshot[]
   hostStorage: HostStorageSnapshot
+  objectStorage: HostStorageSnapshot
   matchMedia: MatchMediaSnapshot[]
   streams: StreamSnapshot[]
 }
@@ -174,6 +175,7 @@ export async function collectOperationsSnapshot(
   database: typeof DatabaseClient,
   identity?: OperationsIdentity,
   hostStorageProbe?: HostStorageProbe,
+  objectStorageProbe?: HostStorageProbe,
 ): Promise<OperationsSnapshot> {
   const [rallies, clipJobs, aiJobs, captures, outboxEvents, callbacks, mediaAssets, annotationReceipts, annotationOperations, captureSessions, providerInstances, recentAiWork, activeAiJobs, aiWorkerAccess] = await Promise.all([
     database.rally.groupBy({ by: ['annotationStatus', 'processingStatus'], _count: { _all: true } }),
@@ -281,7 +283,7 @@ export async function collectOperationsSnapshot(
           _count: { _all: true },
         }),
       ])
-  const [mediaByteRows, hostStorage] = await Promise.all([
+  const [mediaByteRows, hostStorage, objectStorage] = await Promise.all([
     database.$queryRaw<Array<{ matchId: string; storedBytes: bigint }>>`
       WITH asset_match AS (
         SELECT DISTINCT cs."matchId", ds."initAssetId" AS "assetId" FROM "DvrSegment" ds JOIN "DvrProgram" dp ON dp.id = ds."dvrProgramId" JOIN "CaptureSession" cs ON cs.id = dp."captureSessionId"
@@ -298,14 +300,17 @@ export async function collectOperationsSnapshot(
       FROM asset_match am JOIN "MediaAsset" ma ON ma.id = am."assetId"
       WHERE am."assetId" IS NOT NULL GROUP BY am."matchId"
     `,
-    hostStorageProbe?.() ?? Promise.resolve({ available: false, freeBytes: '0', path: '', totalBytes: '0', usedBytes: '0' }),
+    hostStorageProbe?.() ?? Promise.resolve({ available: false, freeBytes: '0', managedBytes: '0', path: '', totalBytes: '0', usedBytes: '0' }),
+    objectStorageProbe?.() ?? Promise.resolve({ available: false, freeBytes: '0', managedBytes: '0', path: '', totalBytes: '0', usedBytes: '0' }),
   ])
   const totalsByProgram = new Map(segmentTotals.map(item => [item.dvrProgramId, item]))
   const readyByProgram = new Map(readySegments.map(item => [item.dvrProgramId, item._count._all]))
   const gapsByProgram = new Map(gapSegments.map(item => [item.dvrProgramId, item._count._all]))
   const activeJobsByWorker = new Map(activeAiJobs.map(item => [item.providerInstanceId, item._count._all]))
   const visibleMatchIds = new Set(captureSessions.map(capture => capture.matchId))
-  const bytesByMatch = new Map(mediaByteRows.filter(row => visibleMatchIds.has(row.matchId)).map(row => [row.matchId, row.storedBytes]))
+  const visibleMediaByteRows = mediaByteRows.filter(row => visibleMatchIds.has(row.matchId))
+  const bytesByMatch = new Map(visibleMediaByteRows.map(row => [row.matchId, row.storedBytes]))
+  objectStorage.managedBytes = visibleMediaByteRows.reduce((total, row) => total + row.storedBytes, 0n).toString()
   const matchMedia = new Map<string, MatchMediaSnapshot>()
   for (const capture of captureSessions) {
     const program = capture.programs[0]
@@ -386,6 +391,7 @@ export async function collectOperationsSnapshot(
       updatedAt: job.updatedAt.toISOString(),
     })),
     hostStorage,
+    objectStorage,
     matchMedia: [...matchMedia.values()],
     streams: captureSessions.map((capture) => {
       const program = capture.programs[0]
@@ -445,9 +451,16 @@ export function renderPrometheusMetrics(snapshot: OperationsSnapshot) {
   lines.push('# HELP vmai_process_heap_used_bytes JavaScript heap used in bytes.', '# TYPE vmai_process_heap_used_bytes gauge', metricLine('vmai_process_heap_used_bytes', snapshot.process.heapUsedBytes))
   lines.push('# HELP vmai_process_uptime_seconds Server process uptime in seconds.', '# TYPE vmai_process_uptime_seconds gauge', metricLine('vmai_process_uptime_seconds', snapshot.process.uptimeSeconds))
   if (snapshot.hostStorage.available) {
-    lines.push('# HELP vmai_host_storage_free_bytes Available bytes on the configured media volume.', '# TYPE vmai_host_storage_free_bytes gauge', metricLine('vmai_host_storage_free_bytes', Number(snapshot.hostStorage.freeBytes)))
-    lines.push('# HELP vmai_host_storage_used_bytes Used bytes on the configured media volume.', '# TYPE vmai_host_storage_used_bytes gauge', metricLine('vmai_host_storage_used_bytes', Number(snapshot.hostStorage.usedBytes)))
-    lines.push('# HELP vmai_host_storage_total_bytes Total bytes on the configured media volume.', '# TYPE vmai_host_storage_total_bytes gauge', metricLine('vmai_host_storage_total_bytes', Number(snapshot.hostStorage.totalBytes)))
+    lines.push('# HELP vmai_host_storage_free_bytes Available bytes on the server temporary media volume.', '# TYPE vmai_host_storage_free_bytes gauge', metricLine('vmai_host_storage_free_bytes', Number(snapshot.hostStorage.freeBytes)))
+    lines.push('# HELP vmai_host_storage_used_bytes Used bytes on the server temporary media volume.', '# TYPE vmai_host_storage_used_bytes gauge', metricLine('vmai_host_storage_used_bytes', Number(snapshot.hostStorage.usedBytes)))
+    lines.push('# HELP vmai_host_storage_total_bytes Total bytes on the server temporary media volume.', '# TYPE vmai_host_storage_total_bytes gauge', metricLine('vmai_host_storage_total_bytes', Number(snapshot.hostStorage.totalBytes)))
+    lines.push('# HELP vmai_host_storage_managed_bytes Bytes managed under the configured server temporary directory.', '# TYPE vmai_host_storage_managed_bytes gauge', metricLine('vmai_host_storage_managed_bytes', Number(snapshot.hostStorage.managedBytes)))
+  }
+  if (snapshot.objectStorage.available) {
+    lines.push('# HELP vmai_object_storage_free_bytes Available usable bytes in object storage.', '# TYPE vmai_object_storage_free_bytes gauge', metricLine('vmai_object_storage_free_bytes', Number(snapshot.objectStorage.freeBytes)))
+    lines.push('# HELP vmai_object_storage_used_bytes Used usable bytes in object storage.', '# TYPE vmai_object_storage_used_bytes gauge', metricLine('vmai_object_storage_used_bytes', Number(snapshot.objectStorage.usedBytes)))
+    lines.push('# HELP vmai_object_storage_total_bytes Total usable bytes in object storage.', '# TYPE vmai_object_storage_total_bytes gauge', metricLine('vmai_object_storage_total_bytes', Number(snapshot.objectStorage.totalBytes)))
+    lines.push('# HELP vmai_object_storage_managed_bytes Object bytes referenced by matches visible to the operator.', '# TYPE vmai_object_storage_managed_bytes gauge', metricLine('vmai_object_storage_managed_bytes', Number(snapshot.objectStorage.managedBytes)))
   }
   groupedMetric(lines, 'vmai_rallies_total', 'Persisted rallies grouped by annotation and processing state.', snapshot.database.rallies)
   groupedMetric(lines, 'vmai_clip_jobs_total', 'Clip jobs grouped by durable status.', snapshot.database.clipJobs)

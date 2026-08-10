@@ -21,6 +21,7 @@ import {
 import { toast } from "vue-sonner";
 import type { DeepReadonly } from "vue";
 import MediaDvrMonitorDialog from "~/components/control/MediaDvrMonitorDialog.vue";
+import StorageMeter from "~/components/control/StorageMeter.vue";
 import type { Match } from "~/lib/coreDomain";
 import type { CreateMatchWithMediaInput } from "~/lib/mediaSourceClient";
 import { createMediaSourceClient } from "~/lib/mediaSourceClient";
@@ -147,6 +148,9 @@ const generatedAt = computed(
 const hostStorage = computed(
    () => monitor.snapshot.value?.operations.hostStorage ?? null,
 );
+const objectStorage = computed(
+   () => monitor.snapshot.value?.operations.objectStorage ?? null,
+);
 const matchMediaById = computed(
    () =>
       new Map(
@@ -162,15 +166,6 @@ const totalMediaBytes = computed(() =>
       0n,
    ),
 );
-const hostUsedPercent = computed(() => {
-   const total = BigInt(hostStorage.value?.totalBytes ?? "0");
-   return total > 0n
-      ? Number(
-           (BigInt(hostStorage.value?.usedBytes ?? "0") * 10_000n) / total,
-        ) / 100
-      : 0;
-});
-
 function sum(
    groups: readonly MetricGroup[] | undefined,
    labels: Record<string, string | string[]> = {},
@@ -599,28 +594,20 @@ onBeforeUnmount(() => {
                </div>
             </dl>
          </section>
-         <section
-            class="storage-strip"
-            :class="{ unavailable: !hostStorage?.available }"
-         >
-            <HardDrive :size="16" />
-            <div>
-               <strong>媒體儲存</strong
-               ><small>{{
-                  hostStorage?.available ? hostStorage.path : "無法讀取媒體磁碟"
-               }}</small>
-            </div>
-            <span
-               ><i
-                  :style="{
-                     width: `${Math.min(100, hostUsedPercent)}%`,
-                  }" /></span
-            ><b>{{
-               hostStorage?.available
-                  ? `${formatBytes(hostStorage.freeBytes)} 可用`
-                  : "狀態未知"
-            }}</b>
-         </section>
+         <div class="storage-overview">
+            <StorageMeter
+               label="S3 物件儲存"
+               kind="object"
+               :storage="objectStorage"
+               :detail="`MinIO · ${objectStorage?.path ?? ''}`"
+            />
+            <StorageMeter
+               label="Server 暫存空間"
+               kind="temporary"
+               :storage="hostStorage"
+               :detail="hostStorage?.path ?? ''"
+            />
+         </div>
          <div class="section-title">
             <div>
                <h2>場次工作區</h2>
@@ -1107,40 +1094,12 @@ onBeforeUnmount(() => {
    color: #6c7076;
    font-size: 0.5rem;
 }
-.storage-strip {
-   min-height: 58px;
-   display: grid;
-   grid-template-columns: auto minmax(200px, 0.7fr) minmax(240px, 1fr) auto;
-   align-items: center;
-   gap: 12px;
+.storage-overview {
    margin: 10px 0 18px;
-   padding: 9px 14px;
-   border: 1px solid #292b30;
-   border-radius: 10px;
-   background: #0f1012;
-}
-.storage-strip > div {
-   display: grid;
-   gap: 3px;
-}
-.storage-strip strong,
-.storage-strip b {
-   font-size: 0.61rem;
-}
-.storage-strip small {
-   color: #72757b;
-   font-size: 0.51rem;
-}
-.storage-strip > span {
-   height: 5px;
    overflow: hidden;
-   border-radius: 3px;
-   background: #292c31;
-}
-.storage-strip > span i {
-   display: block;
-   height: 100%;
-   background: #aeb1b5;
+   border: 1px solid #292b30;
+   border-radius: 12px;
+   background: #0f1012;
 }
 .section-title {
    min-height: 48px;
@@ -1703,13 +1662,6 @@ onBeforeUnmount(() => {
    .ops-command dl {
       grid-template-columns: repeat(2, 1fr);
    }
-   .storage-strip {
-      grid-template-columns: auto 1fr;
-   }
-   .storage-strip > span,
-   .storage-strip > b {
-      grid-column: 2;
-   }
    .system-grid {
       grid-template-columns: 1fr;
    }
@@ -1782,7 +1734,7 @@ onBeforeUnmount(() => {
 .runtime dl > div {
    border-color: #303033;
 }
-.storage-strip {
+.storage-overview {
    border: 1px solid #2c2c2f;
    border-radius: 12px;
    background: #171718;

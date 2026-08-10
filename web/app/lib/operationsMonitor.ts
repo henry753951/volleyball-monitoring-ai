@@ -108,6 +108,7 @@ export interface MatchMediaSnapshot {
 export interface HostStorageSnapshot {
   available: boolean
   freeBytes: string
+  managedBytes: string
   path: string
   totalBytes: string
   usedBytes: string
@@ -140,6 +141,7 @@ export interface OperationsDashboardSnapshot {
     aiWorkerAccess: AiWorkerAccessSnapshot
     aiWork: AiWorkSnapshot[]
     hostStorage: HostStorageSnapshot
+    objectStorage: HostStorageSnapshot
     matchMedia: MatchMediaSnapshot[]
     streams: StreamSnapshot[]
   }
