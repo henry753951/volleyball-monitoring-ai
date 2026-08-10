@@ -69,6 +69,13 @@ export function useDvrPlayback(video: Ref<HTMLVideoElement | null>, options: Dvr
           // The bounded server archive is a rolling playlist, but it is not an
           // LL-HLS live edge. Applying live sync there overrides exact seeks.
           lowLatencyMode: descriptor.mode === 'live',
+          ...(descriptor.mode === 'live' ? {
+            // Stay behind the newest incomplete fragment. hls.js continues
+            // reloading the stable manifest and follows newly indexed media.
+            liveSyncDurationCount: 2,
+            liveMaxLatencyDurationCount: 5,
+            maxLiveSyncPlaybackRate: 1.05,
+          } : {}),
           enableWorker: true,
         })
         hls = nextHls

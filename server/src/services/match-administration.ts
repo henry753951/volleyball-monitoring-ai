@@ -24,7 +24,13 @@ export interface MatchCleanupDependencies {
   removePath?: (path: string) => Promise<void>
 }
 
+export interface MatchDeletionRequestDependencies {
+  database: PrismaClient
+  stopMediaSource?: typeof requestMediaSourceStop
+}
+
 interface CleanupAsset extends MediaObjectLocation { byteLength: bigint | null; id: string }
+const OBJECT_CLEANUP_CONCURRENCY = 8
 
 function safeChild(root: string, child: string): string | null {
   const base = resolve(root)
@@ -56,12 +62,54 @@ async function waitForMediaSourcesStopped(
   }
 }
 
-export async function deleteMatchWithMedia(
+export async function requestMatchDeletion(
   actor: AuthenticatedUser,
+  rawMatchId: string,
+  dependencies: MatchDeletionRequestDependencies,
+): Promise<MatchDeleteReceipt> {
+  if (actor.role !== UserRole.ADMIN && actor.role !== UserRole.OPERATOR) {
+    domainError('Insufficient role', 'FORBIDDEN')
+  }
+  const matchId = requireUuid(rawMatchId, 'matchId')
+  const database = dependencies.database
+  const match = await database.match.findFirst({
+    select: {
+      captureSessions: { select: { id: true, sourceKind: true, status: true } },
+      id: true,
+    },
+    where: {
+      deletionRequestedAt: null,
+      id: matchId,
+      ...(actor.role === UserRole.ADMIN
+        ? {}
+        : { members: { some: { userId: actor.id, role: { in: [UserRole.ADMIN, UserRole.OPERATOR] } } } }),
+    },
+  })
+  if (!match) domainError('Match was not found', 'NOT_FOUND')
+
+  await database.match.update({
+    data: { deletionRequestedAt: new Date() },
+    where: { id: matchId },
+  })
+
+  const sourceCaptures = match.captureSessions
+    .filter(capture => !['FAILED', 'FINISHED'].includes(capture.status))
+    .filter(capture => ['local_mp4', 'youtube', 'youtube_live', 'youtube_vod'].includes(capture.sourceKind))
+  const stopMediaSource = dependencies.stopMediaSource ?? requestMediaSourceStop
+  await Promise.allSettled(sourceCaptures.map(capture => stopMediaSource(database, capture.id)))
+
+  return {
+    cleanupWarnings: [],
+    matchId,
+    removedAssetCount: 0,
+    removedBytes: '0',
+  }
+}
+
+export async function finalizeMatchDeletion(
   rawMatchId: string,
   dependencies: MatchCleanupDependencies,
 ): Promise<MatchDeleteReceipt> {
-  if (actor.role !== UserRole.ADMIN && actor.role !== UserRole.OPERATOR) domainError('Insufficient role', 'FORBIDDEN')
   const matchId = requireUuid(rawMatchId, 'matchId')
   const database = dependencies.database
   const match = await database.match.findFirst({
@@ -73,10 +121,10 @@ export async function deleteMatchWithMedia(
     },
     where: {
       id: matchId,
-      ...(actor.role === UserRole.ADMIN ? {} : { members: { some: { userId: actor.id, role: { in: [UserRole.ADMIN, UserRole.OPERATOR] } } } }),
+      deletionRequestedAt: { not: null },
     },
   })
-  if (!match) domainError('Match was not found', 'NOT_FOUND')
+  if (!match) throw new Error('Match deletion is not pending')
 
   const assets = await database.mediaAsset.findMany({
     select: { bucket: true, byteLength: true, id: true, objectKey: true },
@@ -93,6 +141,24 @@ export async function deleteMatchWithMedia(
     ] },
   }) as CleanupAsset[]
 
+  const removableAssets = assets.length
+    ? await database.mediaAsset.findMany({
+        select: { bucket: true, byteLength: true, id: true, objectKey: true },
+        where: {
+          id: { in: assets.map(asset => asset.id) },
+          analysisArtifacts: { none: { analysisRun: { submission: { rally: { matchId: { not: matchId } } } } } },
+          analysisRawJson: { none: { submission: { rally: { matchId: { not: matchId } } } } },
+          analysisRawOverlay: { none: { submission: { rally: { matchId: { not: matchId } } } } },
+          clipOutputs: { none: { submission: { rally: { matchId: { not: matchId } } } } },
+          clipTimingManifests: { none: { submission: { rally: { matchId: { not: matchId } } } } },
+          dvrInitSegments: { none: { program: { captureSession: { matchId: { not: matchId } } } } },
+          dvrMediaSegments: { none: { program: { captureSession: { matchId: { not: matchId } } } } },
+          dvrSampleIndexSegments: { none: { program: { captureSession: { matchId: { not: matchId } } } } },
+          overlayChunks: { none: { manifest: { analysisRun: { submission: { rally: { matchId: { not: matchId } } } } } } },
+        },
+      }) as CleanupAsset[]
+    : []
+
   const sourceCaptures = match.captureSessions
     .filter(capture => !['FAILED', 'FINISHED'].includes(capture.status))
     .filter(capture => ['local_mp4', 'youtube', 'youtube_live', 'youtube_vod'].includes(capture.sourceKind))
@@ -102,6 +168,24 @@ export async function deleteMatchWithMedia(
     database,
     sourceCaptures.map(capture => capture.id),
   )
+
+  if (removableAssets.length > 0 && !dependencies.objectRemover) {
+    throw new Error('Media object cleanup is not configured; match was not deleted')
+  }
+  if (dependencies.objectRemover) await removeMediaObjects(removableAssets, dependencies.objectRemover)
+
+  const removePath = dependencies.removePath ?? (path => rm(path, { force: true, recursive: true }))
+  const paths = new Set<string>()
+  for (const capture of match.captureSessions) {
+    const recordingPath = safeChild(dependencies.recordingRoot, capture.ingestPath)
+    if (recordingPath) paths.add(recordingPath)
+    const importPath = safeChild(dependencies.importRoot, capture.id)
+    if (importPath) paths.add(importPath)
+  }
+  for (const path of paths) {
+    try { await removePath(path) }
+    catch { throw new Error(`Local media cleanup failed; match was not deleted: ${path}`) }
+  }
 
   const captureIds = match.captureSessions.map(capture => capture.id)
   const teamIds = match.matchTeams.map(item => item.teamId)
@@ -149,48 +233,46 @@ export async function deleteMatchWithMedia(
       await tx.captureSession.deleteMany({ where: { id: { in: captureIds } } })
     }
     await tx.match.delete({ where: { id: matchId } })
-    if (assets.length) await tx.mediaAsset.deleteMany({ where: {
-      id: { in: assets.map(asset => asset.id) }, analysisArtifacts: { none: {} }, analysisRawJson: { none: {} }, analysisRawOverlay: { none: {} },
-      clipOutputs: { none: {} }, clipTimingManifests: { none: {} }, dvrInitSegments: { none: {} }, dvrMediaSegments: { none: {} },
-      dvrSampleIndexSegments: { none: {} }, overlayChunks: { none: {} },
-    } })
+    if (removableAssets.length) {
+      const removed = await tx.mediaAsset.deleteMany({
+        where: {
+          id: { in: removableAssets.map(asset => asset.id) }, analysisArtifacts: { none: {} }, analysisRawJson: { none: {} }, analysisRawOverlay: { none: {} },
+          clipOutputs: { none: {} }, clipTimingManifests: { none: {} }, dvrInitSegments: { none: {} }, dvrMediaSegments: { none: {} },
+          dvrSampleIndexSegments: { none: {} }, overlayChunks: { none: {} },
+        },
+      })
+      if (removed.count !== removableAssets.length) {
+        throw new Error('Media asset references changed during match deletion')
+      }
+    }
     if (playerIds.length) await tx.player.deleteMany({ where: { id: { in: playerIds }, rosterEntries: { none: {} } } })
     if (teamIds.length) await tx.team.deleteMany({ where: { id: { in: teamIds }, matchTeams: { none: {} } } })
   })
 
-  const retainedAssetIds = assets.length
-    ? new Set((await database.mediaAsset.findMany({
-        select: { id: true },
-        where: { id: { in: assets.map(asset => asset.id) } },
-      })).map(asset => asset.id))
-    : new Set<string>()
-  const removedAssets = assets.filter(asset => !retainedAssetIds.has(asset.id))
-  const cleanupWarnings: string[] = []
-  if (dependencies.objectRemover) {
-    for (const asset of removedAssets) {
-      try { await dependencies.objectRemover(asset) }
-      catch { cleanupWarnings.push(`物件儲存清理失敗：${asset.bucket}/${asset.objectKey}`) }
-    }
-  }
-  else if (removedAssets.length) cleanupWarnings.push('物件儲存清理未設定')
-
-  const removePath = dependencies.removePath ?? (path => rm(path, { force: true, recursive: true }))
-  const paths = new Set<string>()
-  for (const capture of match.captureSessions) {
-    const recordingPath = safeChild(dependencies.recordingRoot, capture.ingestPath)
-    if (recordingPath) paths.add(recordingPath)
-    const importPath = safeChild(dependencies.importRoot, capture.id)
-    if (importPath) paths.add(importPath)
-  }
-  for (const path of paths) {
-    try { await removePath(path) }
-    catch { cleanupWarnings.push(`本機媒體清理失敗：${path}`) }
-  }
-
   return {
-    cleanupWarnings,
+    cleanupWarnings: [],
     matchId,
-    removedAssetCount: removedAssets.length,
-    removedBytes: removedAssets.reduce((total, asset) => total + (asset.byteLength ?? 0n), 0n).toString(),
+    removedAssetCount: removableAssets.length,
+    removedBytes: removableAssets.reduce((total, asset) => total + (asset.byteLength ?? 0n), 0n).toString(),
   }
+}
+
+async function removeMediaObjects(
+  assets: CleanupAsset[],
+  remover: MediaObjectRemover,
+): Promise<void> {
+  let cursor = 0
+  const workers = Array.from(
+    { length: Math.min(OBJECT_CLEANUP_CONCURRENCY, assets.length) },
+    async () => {
+      while (cursor < assets.length) {
+        const asset = assets[cursor++]!
+        try { await remover(asset) }
+        catch { throw new Error(`Media object cleanup failed; match was not deleted: ${asset.bucket}/${asset.objectKey}`) }
+      }
+    },
+  )
+  const results = await Promise.allSettled(workers)
+  const failure = results.find(result => result.status === 'rejected')
+  if (failure?.status === 'rejected') throw failure.reason
 }

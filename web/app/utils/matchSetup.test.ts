@@ -11,6 +11,12 @@ const valid = {
 
 describe('match setup validation', () => {
   it('accepts two complete teams', () => expect(validateMatchSetup(valid)).toEqual([]))
+  it('accepts teams without an initial roster', () => {
+    expect(validateMatchSetup({
+      ...valid,
+      teams: valid.teams.map(team => ({ ...team, roster: [] })),
+    })).toEqual([])
+  })
   it('rejects duplicate teams and jerseys within one team', () => {
     expect(validateMatchSetup({ ...valid, teams: [valid.teams[0]!, { ...valid.teams[0]!, roster: [{ name: '乙', jerseyNumber: '1', position: 'MB' }, { name: '丙', jerseyNumber: '1', position: 'S' }] }] })).toEqual(expect.arrayContaining(['參賽隊伍名稱必須不同。', '參賽隊伍簡稱必須不同。', '參賽隊伍 2 的背號不可重複。']))
   })

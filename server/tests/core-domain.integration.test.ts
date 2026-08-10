@@ -41,6 +41,7 @@ const coachUser = { id: '10000000-0000-4000-8000-000000000004', role: 'COACH' as
 let db: typeof databaseClient
 let schema: GraphQLSchema
 let createGraphQLContext: typeof import('../src/graphql/context.js')['createGraphQLContext']
+let finalizeMatchDeletion: typeof import('../src/services/match-administration.js')['finalizeMatchDeletion']
 let createdDatabase = false
 
 const setupMutation = /* GraphQL */ `
@@ -271,9 +272,11 @@ beforeAll(async () => {
   const dbModule = await import('@volleyball-monitoring/db')
   const schemaModule = await import('../src/graphql/schema.js')
   const contextModule = await import('../src/graphql/context.js')
+  const matchAdministrationModule = await import('../src/services/match-administration.js')
   db = dbModule.db
   schema = schemaModule.schema
   createGraphQLContext = contextModule.createGraphQLContext
+  finalizeMatchDeletion = matchAdministrationModule.finalizeMatchDeletion
 
   await Promise.all([
     createUser(adminUser.id, 'Admin'),
@@ -495,6 +498,17 @@ describe('match setup, visibility, and court-side history', () => {
     expect(errorCode(hidden)).toBe('NOT_FOUND')
     const deleted = await execute(deleteMatchMutation, contextFor(operatorUser), { matchId })
     expect(objectField(deleted.data, 'deleteMatch')).toEqual({ cleanupWarnings: [], matchId, removedAssetCount: 0, removedBytes: '0' })
+    await expect(db.match.findUnique({ where: { id: matchId } })).resolves.toMatchObject({
+      deletionRequestedAt: expect.any(Date),
+    })
+    const visible = await execute(listQuery, contextFor(operatorUser))
+    expect(arrayField(visible.data, 'matches')).not.toContainEqual(expect.objectContaining({ id: matchId }))
+
+    await finalizeMatchDeletion(matchId, {
+      database: db,
+      importRoot: repositoryRoot,
+      recordingRoot: repositoryRoot,
+    })
     expect(await db.match.findUnique({ where: { id: matchId } })).toBeNull()
   })
 

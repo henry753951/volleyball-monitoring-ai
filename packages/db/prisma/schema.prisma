@@ -254,21 +254,24 @@ model DeviceSession {
 }
 
 model Match {
-  id              String             @id @default(uuid()) @db.Uuid
-  title           String
-  venue           String?
-  status          MatchStatus        @default(PLANNED)
-  clipPreRollUs   BigInt             @default(3000000)
-  clipPostRollUs  BigInt             @default(3000000)
-  scheduledAt     DateTime?
-  createdAt       DateTime           @default(now())
-  updatedAt       DateTime           @updatedAt
-  members         MatchMember[]
-  matchTeams      MatchTeam[]
-  sets            MatchSet[]
-  rosterEntries   MatchRosterEntry[]
-  captureSessions CaptureSession[]
-  rallies         Rally[]
+  id                  String             @id @default(uuid()) @db.Uuid
+  title               String
+  venue               String?
+  status              MatchStatus        @default(PLANNED)
+  clipPreRollUs       BigInt             @default(3000000)
+  clipPostRollUs      BigInt             @default(3000000)
+  scheduledAt         DateTime?
+  deletionRequestedAt DateTime?
+  createdAt           DateTime           @default(now())
+  updatedAt           DateTime           @updatedAt
+  members             MatchMember[]
+  matchTeams          MatchTeam[]
+  sets                MatchSet[]
+  rosterEntries       MatchRosterEntry[]
+  captureSessions     CaptureSession[]
+  rallies             Rally[]
+
+  @@index([deletionRequestedAt])
 }
 
 model Team {

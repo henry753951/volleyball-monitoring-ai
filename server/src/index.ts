@@ -12,6 +12,7 @@ import { evaluateReadiness, type ReadinessProbe } from './health/readiness.js'
 import { createPrismaCursorWindowStore, mediaCursorRoutes } from './media/cursor-routes.js'
 import { resolvePlaybackCursor } from './media/cursor-resolution.js'
 import { createMinioObjectReaderFromEnv } from './media/minio-object-reader.js'
+import { createMediaObjectRemoverFromEnv } from './media/media-object-remover.js'
 import { createSampleIndexRepository } from './media/sample-index-repository.js'
 import { createPersistedSampleSnapResolver } from './media/sample-snap-resolver.js'
 import { mediaPlaybackRoutes } from './routes/media-playback.js'
@@ -31,6 +32,7 @@ import { authenticateDevelopmentAnnotationRequest } from './realtime/auth.js'
 import { createAnnotationCommandService } from './services/annotation-command.js'
 import { getAnnotationSnapshot } from './services/annotation-snapshot.js'
 import { createAiWorkerToken, deleteAiWorkerToken, rotateAiWorkerToken, setAiWorkerTokenEnabled } from './services/ai-worker-access.js'
+import { createMatchCleanupCoordinator } from './services/match-cleanup-coordinator.js'
 
 const app = Fastify({ logger: true })
 const redisUrl = process.env.REDIS_URL
@@ -63,6 +65,13 @@ const hostStorageProbe = createHostStorageProbe(
   process.env.MEDIA_RECORDING_ROOT ?? '/var/lib/volleyball/media-recordings',
 )
 const objectStorageProbe = createMinioStorageProbe(minioEndpoint ?? '')
+const mediaObjectRemover = createMediaObjectRemoverFromEnv()
+const matchCleanupCoordinator = createMatchCleanupCoordinator({
+  database: db,
+  importRoot: process.env.MEDIA_IMPORT_ROOT ?? '/var/lib/volleyball/media-imports',
+  ...(mediaObjectRemover ? { objectRemover: mediaObjectRemover } : {}),
+  recordingRoot: process.env.MEDIA_RECORDING_ROOT ?? '/var/lib/volleyball/media-recordings',
+}, app.log)
 
 const cursorDependencies = {
   now: () => new Date(),
@@ -213,9 +222,11 @@ app.get('/health/ready', async (_req, reply) => {
 
 const port = Number(process.env.PORT ?? 4000)
 app.addHook('onClose', async () => {
+  await matchCleanupCoordinator.stop()
   annotationPresence?.close()
   aiProgress?.close()
   redis?.disconnect()
   await db.$disconnect()
 })
 await app.listen({ port, host: '0.0.0.0' })
+matchCleanupCoordinator.start()

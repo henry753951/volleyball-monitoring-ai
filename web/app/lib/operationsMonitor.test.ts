@@ -102,7 +102,7 @@ describe('operations monitor client', () => {
     await expect(deleteAiWorkerToken('/api/v1/', 'token-1', fetchImpl)).resolves.toEqual(payload)
     expect(fetchImpl).toHaveBeenCalledWith('/api/v1/operations/ai-worker-tokens/token-1', {
       credentials: 'include',
-      headers: { accept: 'application/json', 'content-type': 'application/json' },
+      headers: { accept: 'application/json' },
       method: 'DELETE',
     })
   })

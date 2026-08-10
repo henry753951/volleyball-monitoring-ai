@@ -27,10 +27,7 @@ import {
 } from './inputs.js'
 import { CaptureSessionType, MatchDeleteReceiptType, MatchSetType, MatchType, ProcessingStateType } from './types.js'
 import { requestMediaSourceStop } from '../media/media-source-work.js'
-import { createMediaObjectRemoverFromEnv } from '../media/media-object-remover.js'
-import { deleteMatchWithMedia } from '../services/match-administration.js'
-
-const mediaObjectRemover = createMediaObjectRemoverFromEnv()
+import { requestMatchDeletion } from '../services/match-administration.js'
 
 async function operational<T>(work: () => Promise<T>): Promise<T> {
   try {
@@ -56,11 +53,8 @@ builder.mutationType({
     }),
     deleteMatch: t.field({
       args: { matchId: t.arg.id({ required: true }) },
-      resolve: (_root, args, context) => deleteMatchWithMedia(requireIdentity(context), args.matchId, {
+      resolve: (_root, args, context) => requestMatchDeletion(requireIdentity(context), args.matchId, {
         database: db,
-        importRoot: process.env.MEDIA_IMPORT_ROOT ?? '/var/lib/volleyball/media-imports',
-        ...(mediaObjectRemover ? { objectRemover: mediaObjectRemover } : {}),
-        recordingRoot: process.env.MEDIA_RECORDING_ROOT ?? '/var/lib/volleyball/media-recordings',
       }),
       type: MatchDeleteReceiptType,
     }),

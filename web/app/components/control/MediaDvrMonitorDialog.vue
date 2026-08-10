@@ -68,7 +68,7 @@ function statusLabel(stream: StreamSnapshot) {
     <UiScrollArea class="monitor-scroll">
       <div class="media-monitor">
         <section class="summary-strip">
-          <div><Film :size="16" /><span><small>來源</small><strong>{{ streams.length }}</strong></span></div>
+          <div><Film :size="16" /><span><small>採集紀錄</small><strong>{{ streams.length }}</strong></span></div>
           <div><RadioTower :size="16" /><span><small>運行中</small><strong>{{ media?.activeCaptureCount ?? 0 }}</strong></span></div>
           <div><Activity :size="16" /><span><small>已索引</small><strong>{{ media?.readySegmentCount ?? 0 }} / {{ media?.segmentCount ?? 0 }}</strong></span></div>
           <div><HardDrive :size="16" /><span><small>媒體用量</small><strong>{{ formatBytes(media?.storedBytes ?? '0') }}</strong></span></div>
@@ -81,7 +81,7 @@ function statusLabel(stream: StreamSnapshot) {
         </div>
 
         <section class="stream-section">
-          <header><div><h3>輸入來源</h3><p>每個來源的轉換、時間軸與索引狀態</p></div><span>更新於伺服器快照</span></header>
+          <header><div><h3>來源歷程</h3><p>每場同時只使用一個來源；這裡保留更換與重新啟動的採集紀錄</p></div><span>更新於伺服器快照</span></header>
           <div v-if="streams.length" class="stream-list">
             <article v-for="stream in streams" :key="stream.captureSessionId">
               <div class="stream-title">

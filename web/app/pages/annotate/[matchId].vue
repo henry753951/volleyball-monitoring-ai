@@ -43,7 +43,7 @@ import {
    resolveSegmentSelection,
    segmentAtCaptureTime,
 } from "~/lib/dvrTimeline";
-import { capturePlaybackMode } from "~/lib/mediaTimeline";
+import { capturePlaybackMode, clampLiveEdgeTarget } from "~/lib/mediaTimeline";
 import { decidePlaybackContinuation } from "~/lib/playbackContinuation";
 import {
    bufferedSecondsAhead,
@@ -708,7 +708,12 @@ const timelineEndTarget = computed(
       null,
 );
 const liveTarget = computed(() =>
-   liveCapture.value ? timelineEndTarget.value : null,
+   liveCapture.value && timelineEndTarget.value
+      ? clampLiveEdgeTarget(
+           timelineEndTarget.value,
+           timeline.value?.availableRanges ?? [],
+        )
+      : null,
 );
 const visualPlayhead = computed(() => {
    const cursor = observedCursor.value;
@@ -1056,9 +1061,13 @@ async function createWindow(
 ) {
    const mode =
       requestedMode ?? (target === liveTarget.value ? "live" : "archive");
+   const safeTarget =
+      target && mode === "live"
+         ? clampLiveEdgeTarget(target, timeline.value?.availableRanges ?? [])
+         : target;
    if (
       windowCreatePromise &&
-      target === windowCreateTarget &&
+      safeTarget === windowCreateTarget &&
       mode === windowCreateMode
    )
       return windowCreatePromise;
@@ -1066,14 +1075,14 @@ async function createWindow(
    const request = (async () => {
       try {
          const session = selectedCapture.value;
-         if (!session || !target)
+         if (!session || !safeTarget)
             throw new Error("目前沒有可播放的 capture range");
-         captureTarget.value = target;
+         captureTarget.value = safeTarget;
          return await dvr.create({
             schema_version: "1.0.0",
             capture_session_id: session.id,
             mode,
-            target_capture_time_us: target,
+            target_capture_time_us: safeTarget,
             requested_back_us: mediaBufferProfile.value.requestedBackUs,
             requested_forward_us: mediaBufferProfile.value.requestedForwardUs,
          });
@@ -1089,7 +1098,7 @@ async function createWindow(
       }
    })();
    windowCreatePromise = request;
-   windowCreateTarget = target;
+   windowCreateTarget = safeTarget;
    windowCreateMode = mode;
    try {
       return await request;
@@ -1107,20 +1116,33 @@ async function seekTimeline(targetCaptureTimeUs: string) {
    seekPreviewTarget = null;
    if (seekPreviewTimer) clearTimeout(seekPreviewTimer);
    seekPreviewTimer = null;
-   captureTarget.value = targetCaptureTimeUs;
-   if (overlayPlayer.value?.seekCaptureTimeIfBuffered(targetCaptureTimeUs))
+   const target = liveCapture.value
+      ? clampLiveEdgeTarget(
+           targetCaptureTimeUs,
+           timeline.value?.availableRanges ?? [],
+        )
+      : targetCaptureTimeUs;
+   captureTarget.value = target;
+   if (overlayPlayer.value?.seekCaptureTimeIfBuffered(target))
       return;
-   await createWindow(targetCaptureTimeUs);
+   await createWindow(target);
 }
 
 function previewTimelineSeek(targetCaptureTimeUs: string | null) {
-   seekPreviewActive.value = Boolean(targetCaptureTimeUs);
-   seekPreviewTarget = targetCaptureTimeUs;
+   const target =
+      targetCaptureTimeUs && liveCapture.value
+         ? clampLiveEdgeTarget(
+              targetCaptureTimeUs,
+              timeline.value?.availableRanges ?? [],
+           )
+         : targetCaptureTimeUs;
+   seekPreviewActive.value = Boolean(target);
+   seekPreviewTarget = target;
    if (seekPreviewTimer) clearTimeout(seekPreviewTimer);
    seekPreviewTimer = null;
    if (
-      !targetCaptureTimeUs ||
-      overlayPlayer.value?.previewCaptureTimeIfBuffered(targetCaptureTimeUs)
+      !target ||
+      overlayPlayer.value?.previewCaptureTimeIfBuffered(target)
    )
       return;
    seekPreviewTimer = setTimeout(() => {

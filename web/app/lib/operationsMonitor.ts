@@ -156,7 +156,11 @@ async function operationsWrite<T>(
   const response = await fetchImpl(`${basePath.replace(/\/$/, '')}${path}`, {
     ...init,
     credentials: 'include',
-    headers: { accept: 'application/json', 'content-type': 'application/json', ...init.headers },
+    headers: {
+      accept: 'application/json',
+      ...(init.body == null ? {} : { 'content-type': 'application/json' }),
+      ...init.headers,
+    },
   })
   if (!response.ok) {
     const payload = await response.json().catch(() => null) as { error?: string } | null

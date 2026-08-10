@@ -99,8 +99,11 @@ export async function createMediaComposition() {
       ingestBaseUrl: config.MEDIA_INGEST_BASE_URL,
       recordingRoot: config.MEDIA_SPOOL_DIR,
       workRoot: config.MEDIA_SOURCE_WORK_ROOT,
+      ...(config.YOUTUBE_COOKIES_FILE ? { youtubeCookiesFile: config.YOUTUBE_COOKIES_FILE } : {}),
       youtubeExtractorArgs: config.YOUTUBE_EXTRACTOR_ARGS,
       youtubeFormat: config.YOUTUBE_FORMAT,
+      youtubeVodConcurrentFragments: config.YOUTUBE_VOD_CONCURRENT_FRAGMENTS,
+      youtubeVodFormat: config.YOUTUBE_VOD_FORMAT,
       ytDlpCommand: config.YT_DLP_COMMAND,
     }),
   })

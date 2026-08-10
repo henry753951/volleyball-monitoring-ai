@@ -4,7 +4,12 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
 import { afterEach, describe, expect, it } from 'vitest'
-import { createMediaSourceProcess } from '../src/media/source-process.js'
+import {
+  buildYoutubeProbeArgs,
+  buildYoutubeVodDownloadArgs,
+  createMediaSourceProcess,
+  type MediaSourceProcessOptions,
+} from '../src/media/source-process.js'
 
 const execFileAsync = promisify(execFile)
 const temporaryPaths: string[] = []
@@ -20,7 +25,36 @@ async function ffmpegAvailable(): Promise<boolean> {
 
 const hasFfmpeg = await ffmpegAvailable()
 
+const youtubeOptions: MediaSourceProcessOptions = {
+  importRoot: '/imports',
+  ingestBaseUrl: 'rtmp://127.0.0.1:1935/app',
+  recordingRoot: '/recordings',
+  workRoot: '/work',
+  youtubeCookiesFile: '/run/secrets/youtube.cookies.txt',
+  youtubeExtractorArgs: 'youtube:player_client=default',
+  youtubeFormat: 'live-format',
+  youtubeVodConcurrentFragments: 4,
+  youtubeVodFormat: 'vod-format',
+}
+
 describe('media source process', () => {
+  it('builds separate probe and VOD arguments without exposing cookie contents', () => {
+    expect(buildYoutubeProbeArgs('https://youtu.be/example', youtubeOptions)).toEqual([
+      '--dump-single-json', '--no-playlist', '--no-progress', '--no-warnings',
+      '--cookies', '/run/secrets/youtube.cookies.txt',
+      '--extractor-args', 'youtube:player_client=default',
+      '--format', 'live-format', 'https://youtu.be/example',
+    ])
+    expect(buildYoutubeVodDownloadArgs('https://youtu.be/example', '/work/source.%(ext)s', youtubeOptions)).toEqual([
+      '--no-playlist', '--no-progress', '--no-warnings',
+      '--cookies', '/run/secrets/youtube.cookies.txt',
+      '--extractor-args', 'youtube:player_client=default',
+      '--abort-on-unavailable-fragments', '--concurrent-fragments', '4',
+      '--format', 'vod-format', '--merge-output-format', 'mp4',
+      '--output', '/work/source.%(ext)s', 'https://youtu.be/example',
+    ])
+  })
+
   it.skipIf(!hasFfmpeg)('segments an uploaded MP4 into resumable frame-timed recordings', async () => {
     const root = await mkdtemp(join(tmpdir(), 'vollyai-source-process-'))
     temporaryPaths.push(root)
@@ -45,6 +79,8 @@ describe('media source process', () => {
       workRoot,
       youtubeExtractorArgs: 'youtube:player_client=android_vr',
       youtubeFormat: 'best',
+      youtubeVodConcurrentFragments: 4,
+      youtubeVodFormat: 'best',
     })
     const result = await run({
       attempts: 1,
