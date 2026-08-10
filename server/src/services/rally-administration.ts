@@ -107,18 +107,6 @@ export async function deleteRallyWithMedia(
 ): Promise<RallyDeleteReceipt> {
   const rallyId = requireUuid(rawRallyId, 'rallyId')
   const authorized = await authorizeRally(dependencies.database, actor, rallyId)
-  const assets = await dependencies.database.mediaAsset.findMany({
-    select: { bucket: true, byteLength: true, id: true, objectKey: true },
-    where: { OR: [
-      { clipOutputs: { some: { submission: { rallyId } } } },
-      { clipTimingManifests: { some: { submission: { rallyId } } } },
-      { analysisRawJson: { some: { submission: { rallyId } } } },
-      { analysisRawOverlay: { some: { submission: { rallyId } } } },
-      { analysisArtifacts: { some: { analysisRun: { submission: { rallyId } } } } },
-      { overlayChunks: { some: { manifest: { analysisRun: { submission: { rallyId } } } } } },
-    ] },
-  }) as CleanupAsset[]
-
   const transactionResult = await dependencies.database.$transaction(async (tx) => {
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${authorized.matchId}))`
     await tx.$queryRaw`SELECT id FROM "Rally" WHERE id = ${rallyId}::uuid FOR UPDATE`
@@ -132,6 +120,20 @@ export async function deleteRallyWithMedia(
       where: { id: rallyId },
     })
     if (!rally) domainError('Rally was not found', 'NOT_FOUND')
+    // Resolve the media set only after locking the Rally. Querying it before the
+    // transaction allowed a just-finished worker callback to attach an artifact
+    // between discovery and deletion, leaving an orphaned object behind.
+    const assets = await tx.mediaAsset.findMany({
+      select: { bucket: true, byteLength: true, id: true, objectKey: true },
+      where: { OR: [
+        { clipOutputs: { some: { submission: { rallyId } } } },
+        { clipTimingManifests: { some: { submission: { rallyId } } } },
+        { analysisRawJson: { some: { submission: { rallyId } } } },
+        { analysisRawOverlay: { some: { submission: { rallyId } } } },
+        { analysisArtifacts: { some: { analysisRun: { submission: { rallyId } } } } },
+        { overlayChunks: { some: { manifest: { analysisRun: { submission: { rallyId } } } } } },
+      ] },
+    }) as CleanupAsset[]
     const submissionIds = rally.submissions.map(submission => submission.id)
     const clipJobIds = submissionIds.length
       ? (await tx.clipJob.findMany({ select: { id: true }, where: { submissionId: { in: submissionIds } } })).map(job => job.id)
@@ -215,9 +217,10 @@ export async function deleteRallyWithMedia(
         dvrMediaSegments: { none: {} }, dvrSampleIndexSegments: { none: {} }, overlayChunks: { none: {} },
       },
     })
-    return { abortedJobCount: activeAiJobs.length, matchId: rally.matchId }
+    return { abortedJobCount: activeAiJobs.length, assets, matchId: rally.matchId }
   }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable })
 
+  const { assets } = transactionResult
   const retained = assets.length
     ? new Set((await dependencies.database.mediaAsset.findMany({
         select: { id: true }, where: { id: { in: assets.map(asset => asset.id) } },
