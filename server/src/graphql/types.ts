@@ -4,6 +4,7 @@ import {
   CourtSide,
   MatchStatus,
   ProcessingStatus,
+  RosterPosition,
   ScoreResolutionState,
   SetStatus,
   UserRole,
@@ -43,6 +44,7 @@ interface Viewer extends AuthenticatedUser {
 
 export const UserRoleType = builder.enumType(UserRole, { name: 'UserRole' })
 export const MatchStatusType = builder.enumType(MatchStatus, { name: 'MatchStatus' })
+export const RosterPositionType = builder.enumType(RosterPosition, { name: 'RosterPosition' })
 export const SetStatusType = builder.enumType(SetStatus, { name: 'SetStatus' })
 export const CaptureStatusType = builder.enumType(CaptureStatus, { name: 'CaptureStatus' })
 export const SourceHealthType = builder.enumType(SourceHealth, { name: 'SourceHealth' })
@@ -144,6 +146,7 @@ MatchRosterEntryType.implement({
           ?? domainError('Roster entry player is unavailable', 'INTERNAL_SERVER_ERROR')
       },
     }),
+    position: t.field({ type: RosterPositionType, resolve: (entry) => entry.position }),
     teamId: t.exposeID('teamId'),
   }),
 })

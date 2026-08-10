@@ -1,5 +1,5 @@
 import type { AnnotationRallyProcessingUpdate } from '@volleyball-monitoring/contracts'
-import type { GraphQLTransport } from './coreDomain'
+import type { GraphQLTransport, RosterPosition } from './coreDomain'
 
 export interface CoachTeam { id: string; name: string; shortName: string }
 export interface CoachSideAssignment { id: string; left_team_id: string; right_team_id: string }
@@ -110,7 +110,7 @@ export interface CoachMatchAnalytics {
   feature_availability: { identity: boolean; action: boolean; court_positions: boolean }
   metrics: Record<string, CoachMetric>
   teams: Array<CoachTeam & { wins: number; losses: number; unknown: number; sample_count: number }>
-  players: Array<{ roster_entry_id: string; team_id: string; jersey_number: string; name: string; contact_count: number; sample_count: number }>
+  players: Array<{ roster_entry_id: string; team_id: string; jersey_number: string; position: RosterPosition; name: string; contact_count: number; sample_count: number }>
   tracks: Array<{ analysis_run_id: string; track_id: number; rally_id: string; set_number: number; rally_ordinal: number; court_side: string; first_frame_index: string; last_frame_index: string; roster_entry_id: string | null; identity_mapping_completed: boolean }>
   unassigned_tracks: Array<{ analysis_run_id: string; track_id: number; rally_id: string; set_number: number; rally_ordinal: number }>
 }

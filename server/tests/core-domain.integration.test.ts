@@ -57,7 +57,7 @@ const setupMutation = /* GraphQL */ `
         shortName
         players { id teamId name }
       }
-      rosterEntries { id teamId name jerseyNumber }
+      rosterEntries { id teamId name jerseyNumber position }
       sets {
         id
         setNumber
@@ -89,7 +89,7 @@ const detailQuery = /* GraphQL */ `
       id
       title
       teams { id name shortName players { id teamId name } }
-      rosterEntries { id teamId name jerseyNumber }
+      rosterEntries { id teamId name jerseyNumber position }
       sets {
         id
         setNumber
@@ -127,7 +127,7 @@ const updateRosterMutation = /* GraphQL */ `
   mutation UpdateMatchRoster($input: UpdateMatchRosterInput!) {
     updateMatchRoster(input: $input) {
       id
-      rosterEntries { id teamId name jerseyNumber }
+      rosterEntries { id teamId name jerseyNumber position }
     }
   }
 `
@@ -160,16 +160,16 @@ const validSetup = {
   leftTeam: {
     name: '  North   Stars ',
     roster: [
-      { jerseyNumber: '01', name: 'Avery Chen' },
-      { jerseyNumber: '12', name: 'Morgan Lin' },
+      { jerseyNumber: '01', name: 'Avery Chen', position: 'OH' },
+      { jerseyNumber: '12', name: 'Morgan Lin', position: 'S' },
     ],
     shortName: ' NS ',
   },
   rightTeam: {
     name: 'South Waves',
     roster: [
-      { jerseyNumber: '7', name: 'Jamie Wu' },
-      { jerseyNumber: '19', name: 'Riley Huang' },
+      { jerseyNumber: '7', name: 'Jamie Wu', position: 'MB' },
+      { jerseyNumber: '19', name: 'Riley Huang', position: 'L' },
     ],
     shortName: 'SW',
   },
@@ -527,6 +527,7 @@ describe('match setup, visibility, and court-side history', () => {
       'Jamie Wu',
       'Riley Huang',
     ])
+    expect(rosterEntries.map(entry => entry.position)).toEqual(['OH', 'S', 'MB', 'L'])
     leftRosterIds = rosterEntries.filter(entry => entry.teamId === leftTeamId).map(entry => String(entry.id))
 
     const sets = arrayField(match, 'sets') as Array<Record<string, unknown>>
@@ -561,6 +562,7 @@ describe('match setup, visibility, and court-side history', () => {
     duplicateJerseySetup.leftTeam.roster[1] = {
       jerseyNumber: ' ０１ ',
       name: 'Different Player',
+      position: 'S',
     }
 
     const result = await execute(
@@ -680,9 +682,9 @@ describe('match setup, visibility, and court-side history', () => {
         matchId,
         teamId: leftTeamId,
         roster: [
-          { id: leftRosterIds[0], jerseyNumber: '12', name: 'Avery Chen' },
-          { id: leftRosterIds[1], jerseyNumber: '01', name: 'Morgan Lin' },
-          { jerseyNumber: '25', name: 'Kai Tsai' },
+          { id: leftRosterIds[0], jerseyNumber: '12', name: 'Avery Chen', position: 'OPP' },
+          { id: leftRosterIds[1], jerseyNumber: '01', name: 'Morgan Lin', position: 'S' },
+          { jerseyNumber: '25', name: 'Kai Tsai', position: 'DS' },
         ],
       },
     })
@@ -690,9 +692,9 @@ describe('match setup, visibility, and court-side history', () => {
     const match = objectField(result.data, 'updateMatchRoster')
     const roster = arrayField(match, 'rosterEntries') as Array<Record<string, unknown>>
     expect(roster.filter(entry => entry.teamId === leftTeamId)).toEqual([
-      expect.objectContaining({ id: leftRosterIds[0], jerseyNumber: '12', name: 'Avery Chen' }),
-      expect.objectContaining({ id: leftRosterIds[1], jerseyNumber: '01', name: 'Morgan Lin' }),
-      expect.objectContaining({ jerseyNumber: '25', name: 'Kai Tsai' }),
+      expect.objectContaining({ id: leftRosterIds[0], jerseyNumber: '12', name: 'Avery Chen', position: 'OPP' }),
+      expect.objectContaining({ id: leftRosterIds[1], jerseyNumber: '01', name: 'Morgan Lin', position: 'S' }),
+      expect.objectContaining({ jerseyNumber: '25', name: 'Kai Tsai', position: 'DS' }),
     ])
   })
 

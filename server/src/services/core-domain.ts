@@ -1,5 +1,5 @@
 import { db } from '@volleyball-monitoring/db'
-import { MatchStatus, UserRole } from '@volleyball-monitoring/db/client'
+import { MatchStatus, RosterPosition, UserRole } from '@volleyball-monitoring/db/client'
 import type {
   Match,
   MatchSet,
@@ -14,6 +14,7 @@ const UUID = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i
 export interface RosterSetupInput {
   jerseyNumber: string
   name: string
+  position?: RosterPosition | null | undefined
 }
 
 export interface TeamSetupInput {
@@ -67,6 +68,7 @@ export interface StartNextSetInput {
 interface NormalizedRosterSetup {
   jerseyNumber: string
   name: string
+  position: RosterPosition
 }
 
 interface NormalizedTeamSetup {
@@ -127,7 +129,7 @@ function normalizeTeam(input: TeamSetupInput, field: string): NormalizedTeamSetu
 
     names.add(nameKey)
     jerseyNumbers.add(jerseyKey)
-    return { name: playerName, jerseyNumber }
+    return { name: playerName, jerseyNumber, position: row.position ?? RosterPosition.UNSPECIFIED }
   })
 
   return { name, shortName, roster }
@@ -178,6 +180,7 @@ async function createTeamWithRoster(
       data: {
         displayNameSnapshot: row.name,
         jerseyNumber: row.jerseyNumber,
+        position: row.position,
         matchId,
         playerId: player.id,
         teamId: team.id,
@@ -410,7 +413,7 @@ export async function updateMatchRoster(
       const existingEntry = requested?.id ? byId.get(requested.id) : undefined
       if (existingEntry) {
         await tx.matchRosterEntry.update({
-          data: { active: true, displayNameSnapshot: row.name, jerseyNumber: row.jerseyNumber },
+          data: { active: true, displayNameSnapshot: row.name, jerseyNumber: row.jerseyNumber, position: requested?.position ?? existingEntry.position },
           where: { id: existingEntry.id },
         })
         if (existingEntry.playerId) {
@@ -425,6 +428,7 @@ export async function updateMatchRoster(
           active: true,
           displayNameSnapshot: row.name,
           jerseyNumber: row.jerseyNumber,
+          position: row.position,
           matchId,
           playerId: player.id,
           teamId,

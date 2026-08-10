@@ -11,13 +11,14 @@ import type {
   UpdateMatchInput,
 } from '../services/core-domain.js'
 import type { StartCaptureInput } from '../services/capture-processing.js'
-import { MatchStatusType } from './types.js'
+import { MatchStatusType, RosterPositionType } from './types.js'
 
 export const RosterInputType = builder.inputRef<RosterSetupInput>('RosterInput')
 RosterInputType.implement({
   fields: (t) => ({
     jerseyNumber: t.string({ required: true }),
     name: t.string({ required: true }),
+    position: t.field({ type: RosterPositionType }),
   }),
 })
 
@@ -66,6 +67,7 @@ RosterEditInputType.implement({
     id: t.id(),
     jerseyNumber: t.string({ required: true }),
     name: t.string({ required: true }),
+    position: t.field({ type: RosterPositionType }),
   }),
 })
 

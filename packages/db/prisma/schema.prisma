@@ -35,6 +35,16 @@ enum SetStatus {
   FINISHED
 }
 
+enum RosterPosition {
+  UNSPECIFIED
+  OH
+  MB
+  OPP
+  S
+  L
+  DS
+}
+
 enum CaptureStatus {
   STARTING
   LIVE
@@ -305,6 +315,7 @@ model MatchRosterEntry {
   teamId              String                    @db.Uuid
   playerId            String?                   @db.Uuid
   jerseyNumber        String
+  position            RosterPosition            @default(UNSPECIFIED)
   displayNameSnapshot String?
   active              Boolean                   @default(true)
   createdAt           DateTime                  @default(now())

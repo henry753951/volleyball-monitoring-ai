@@ -11,14 +11,14 @@ const emit = defineEmits<{ submit: [input: CreateMatchWithMediaInput]; cancel: [
 const title = ref('')
 const venue = ref('')
 const scheduledAt = ref('')
-const leftTeam = reactive({ name: '', shortName: '', roster: [{ name: '', jerseyNumber: '' }] as RosterInput[] })
-const rightTeam = reactive({ name: '', shortName: '', roster: [{ name: '', jerseyNumber: '' }] as RosterInput[] })
+const leftTeam = reactive({ name: '', shortName: '', roster: [{ name: '', jerseyNumber: '', position: 'UNSPECIFIED' }] as RosterInput[] })
+const rightTeam = reactive({ name: '', shortName: '', roster: [{ name: '', jerseyNumber: '', position: 'UNSPECIFIED' }] as RosterInput[] })
 const validationErrors = ref<string[]>([])
 const step = ref<1 | 2>(1)
 const media = ref<MatchMediaSourceDraft>({ kind: 'youtube', label: '', url: '' })
 
 function addRosterRow(team: typeof leftTeam) {
-  team.roster.push({ name: '', jerseyNumber: '' })
+  team.roster.push({ name: '', jerseyNumber: '', position: 'UNSPECIFIED' })
 }
 
 function removeRosterRow(team: typeof leftTeam, index: number) {
@@ -30,8 +30,8 @@ function matchInput(): CreateMatchSetupInput {
     title: title.value.trim(),
     venue: venue.value.trim() || undefined,
     scheduledAt: scheduledAt.value ? new Date(scheduledAt.value).toISOString() : undefined,
-    leftTeam: { name: leftTeam.name.trim(), shortName: leftTeam.shortName.trim(), roster: leftTeam.roster.map(row => ({ name: row.name.trim(), jerseyNumber: row.jerseyNumber.trim() })) },
-    rightTeam: { name: rightTeam.name.trim(), shortName: rightTeam.shortName.trim(), roster: rightTeam.roster.map(row => ({ name: row.name.trim(), jerseyNumber: row.jerseyNumber.trim() })) },
+    leftTeam: { name: leftTeam.name.trim(), shortName: leftTeam.shortName.trim(), roster: leftTeam.roster.map(row => ({ name: row.name.trim(), jerseyNumber: row.jerseyNumber.trim(), position: row.position })) },
+    rightTeam: { name: rightTeam.name.trim(), shortName: rightTeam.shortName.trim(), roster: rightTeam.roster.map(row => ({ name: row.name.trim(), jerseyNumber: row.jerseyNumber.trim(), position: row.position })) },
   }
 }
 

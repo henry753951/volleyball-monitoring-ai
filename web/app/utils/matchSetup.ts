@@ -15,6 +15,7 @@ export function validateMatchSetup(input: CreateMatchSetupInput): string[] {
     const jerseys = roster.map((row) => row.jerseyNumber.trim()).filter(Boolean)
     if (new Set(jerseys).size !== jerseys.length) errors.push(`${label}隊伍的背號不可重複。`)
     if (roster.some((row) => !row.name.trim() || !row.jerseyNumber.trim())) errors.push(`${label}隊伍的球員姓名與背號都必填。`)
+    if (roster.some(row => row.position === 'UNSPECIFIED')) errors.push(`${label}隊伍的球員位置都必須選擇。`)
   }
   return errors
 }

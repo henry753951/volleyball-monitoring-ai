@@ -5,6 +5,7 @@ import {
    type CoachMatchAnalytics,
 } from "~/lib/coachDomain";
 import { createGraphQLTransport } from "~/lib/coreDomain";
+import { rosterPositionLabel } from "~/lib/rosterPositions";
 
 const route = useRoute();
 const matchId = computed(() => String(route.params.matchId));
@@ -111,7 +112,7 @@ onMounted(load);
                <header>
                   <div class="player-avatar"><UserRound :size="30" /></div>
                   <div>
-                     <span>{{ selectedTeam?.name }}</span>
+                     <span>{{ selectedTeam?.name }} · {{ rosterPositionLabel(selectedPlayer.position) }}</span>
                      <h1>
                         <small>#{{ selectedPlayer.jersey_number }}</small
                         >{{ selectedPlayer.name }}

@@ -1,5 +1,17 @@
 # Progress
 
+## 2026-08-10 — Match roster positions and Prompt import v2
+
+- Added match-scoped roster positions (`OH`, `MB`, `OPP`, `S`, `L`, `DS`) with Traditional Chinese
+  labels, a backward-compatible Prisma migration and additive GraphQL inputs/output.
+- Replaced manual position inputs with one reusable Reka-backed shadcn-vue Select in match creation
+  and roster editing. The coach player view now shows the registered position.
+- Upgraded the clipboard roster research workflow to `vollyai.roster-import.v2`; the copied Prompt
+  requests official positions and pasted JSON rejects missing or unsupported codes.
+- Validation passed: Prisma/schema and GraphQL operation checks, DB/Server/Web typechecks, 15 focused
+  Server integration tests, all 194 Web tests, Nuxt production build, contract validation, Prisma
+  structural validation and the Impeccable UI detector.
+
 ## 2026-08-09 — Composed workflow worker
 
 Status: implemented and locally validated on `codex/runtime-simplification`; container image smoke
