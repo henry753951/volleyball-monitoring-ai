@@ -330,16 +330,12 @@ async function confirmDelete() {
    deletePending.value = true;
    deleteError.value = null;
    try {
-      const receipt = await core.deleteMatch(deleteTarget.value.id);
+      await core.deleteMatch(deleteTarget.value.id);
       deleteOpen.value = false;
-      await Promise.all([matchesState.refresh(), monitor.refresh()]);
-      receipt.cleanupWarnings.length
-         ? toast.warning(
-              `場次已刪除，${receipt.cleanupWarnings.length} 項媒體清理需檢查`,
-           )
-         : toast.success(
-              `場次與 ${formatBytes(receipt.removedBytes)} 媒體已清理`,
-           );
+      deleteTarget.value = null;
+      await matchesState.refresh();
+      void monitor.refresh();
+      toast.success("場次已移除，採集工作與媒體正在背景清理");
    } catch (error) {
       deleteError.value =
          error instanceof Error ? error : new Error("場次刪除失敗");

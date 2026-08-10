@@ -230,9 +230,12 @@ export async function createMatchSetup(
 export function listVisibleMatches(actor: AuthenticatedUser): Promise<Match[]> {
   return db.match.findMany({
     orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-    ...(actor.role === UserRole.ADMIN
-      ? {}
-      : { where: { members: { some: { userId: actor.id } } } }),
+    where: {
+      deletionRequestedAt: null,
+      ...(actor.role === UserRole.ADMIN
+        ? {}
+        : { members: { some: { userId: actor.id } } }),
+    },
   })
 }
 
@@ -243,6 +246,7 @@ export function findVisibleMatch(
   const matchId = requireUuid(rawMatchId, 'id')
   return db.match.findFirst({
     where: {
+      deletionRequestedAt: null,
       id: matchId,
       ...(actor.role === UserRole.ADMIN
         ? {}
@@ -275,6 +279,7 @@ export async function updateMatch(actor: AuthenticatedUser, input: UpdateMatchIn
   const existing = await db.match.findFirst({
     select: { id: true },
     where: {
+      deletionRequestedAt: null,
       id: matchId,
       ...(actor.role === UserRole.ADMIN ? {} : { members: { some: { userId: actor.id, role: { in: [UserRole.ADMIN, UserRole.OPERATOR] } } } }),
     },
@@ -301,6 +306,7 @@ export async function updateMatchClipPolicy(
   const updated = await db.match.updateMany({
     data: { clipPreRollUs, clipPostRollUs },
     where: {
+      deletionRequestedAt: null,
       id: matchId,
       ...(actor.role === UserRole.ADMIN
         ? {}
@@ -324,6 +330,7 @@ export async function startNextSet(
     `
     const match = await tx.match.findFirst({
       where: {
+        deletionRequestedAt: null,
         id: matchId,
         matchTeams: { some: { teamId: winningTeamId } },
         ...(actor.role === UserRole.ADMIN
@@ -379,6 +386,7 @@ export async function updateMatchRoster(
     `
     const match = await tx.match.findFirst({
       where: {
+        deletionRequestedAt: null,
         id: matchId,
         matchTeams: { some: { teamId } },
         ...(actor.role === UserRole.ADMIN

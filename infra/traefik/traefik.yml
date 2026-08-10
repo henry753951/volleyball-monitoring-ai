@@ -3,6 +3,8 @@ api:
   insecure: true # local Docker only; protect or disable before non-local deployment
 
 entryPoints:
+  dev:
+    address: ":3100"
   web:
     address: ":80"
     http:

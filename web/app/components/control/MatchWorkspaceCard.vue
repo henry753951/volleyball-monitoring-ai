@@ -32,7 +32,8 @@ const emit = defineEmits<{
 const currentSet = computed(() => props.match.sets.find(set => set.status.toLowerCase() === 'live') ?? props.match.sets.at(-1))
 const leftSetWins = computed(() => props.match.sets.filter(set => set.winningTeamId === props.match.teams[0]?.id).length)
 const rightSetWins = computed(() => props.match.sets.filter(set => set.winningTeamId === props.match.teams[1]?.id).length)
-const liveSource = computed(() => props.streams.find(stream => stream.status === 'LIVE') ?? props.streams[0])
+const currentSource = computed(() => props.streams.find(stream => ['LIVE', 'STARTING', 'STOPPING'].includes(stream.status)) ?? props.streams[0] ?? null)
+const liveSource = computed(() => currentSource.value)
 const latestJob = computed(() => props.jobs[0] ?? null)
 const indexedPercent = computed(() => props.media?.segmentCount
   ? Math.min(100, props.media.readySegmentCount / props.media.segmentCount * 100)
@@ -110,8 +111,8 @@ function formatBytes(value: string | undefined) {
           <span><Film :size="15" />媒體與 DVR</span>
           <div class="rail-heading-actions"><strong :class="{ danger: media?.failedCaptureCount }">{{ media?.activeCaptureCount ?? 0 }} 運行中</strong><button type="button" @click="emit('monitor')">詳細監控<ChevronRight :size="13" /></button></div>
         </div>
-        <div v-if="streams.length" class="source-chips">
-          <span v-for="stream in streams" :key="stream.captureSessionId" :class="stream.status.toLowerCase()"><i />{{ sourceLabel(stream.sourceKind) }}<small>{{ statusLabel(stream.status) }}</small></span>
+        <div v-if="currentSource" class="source-chips">
+          <span :class="currentSource.status.toLowerCase()"><i />{{ sourceLabel(currentSource.sourceKind) }}<small>{{ statusLabel(currentSource.status) }}</small></span>
         </div>
         <div v-else class="rail-empty">尚未設定影音來源</div>
         <div class="rail-progress">

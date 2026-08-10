@@ -12,11 +12,19 @@ export type MediaSourceProcessOptions = {
   ingestBaseUrl: string
   recordingRoot: string
   workRoot: string
+  youtubeCookiesFile?: string
   youtubeExtractorArgs: string
   youtubeFormat: string
+  youtubeVodConcurrentFragments: number
+  youtubeVodFormat: string
   ytDlpCommand?: string
   ffmpegCommand?: string
   ffprobeCommand?: string
+}
+
+type MediaInput = {
+  httpHeaders?: Record<string, string>
+  url: string
 }
 
 export type MediaSourceProcessObserver = {
@@ -126,14 +134,26 @@ async function waitForChild(child: ChildProcess): Promise<number> {
   })
 }
 
-async function segmentFile(
+function mediaInputArgs(input: MediaInput, realtime: boolean, seekSeconds: number): string[] {
+  const headers = Object.entries(input.httpHeaders ?? {}).map(([name, value]) => `${name}: ${value}\r\n`).join('')
+  return [
+    ...(seekSeconds > 0 ? ['-ss', seekSeconds.toFixed(6)] : []),
+    ...(headers ? ['-headers', headers] : []),
+    ...(realtime ? ['-re'] : []),
+    '-i', input.url,
+  ]
+}
+
+async function segmentInputs(
   work: ClaimedMediaSourceWork,
-  mediaPath: string,
+  inputs: readonly MediaInput[],
   options: MediaSourceProcessOptions,
   observer: MediaSourceProcessObserver,
   signal: AbortSignal,
   codec: string,
+  realtime = false,
 ): Promise<number> {
+  if (inputs.length < 1 || inputs.length > 2) throw new MediaSourceProcessError('YOUTUBE_INPUT_COUNT', 'Media source returned an unsupported input layout')
   const destination = safeChild(options.recordingRoot, work.ingestPath)
   const workspace = safeChild(options.workRoot, work.id)
   const segments = join(workspace, 'segments')
@@ -148,13 +168,15 @@ async function segmentFile(
     : ['-c:v', 'libx264', '-preset', 'veryfast', '-pix_fmt', 'yuv420p']
   const args = [
     '-nostdin', '-hide_banner', '-loglevel', 'warning',
-    ...(seekSeconds > 0 ? ['-ss', seekSeconds.toFixed(6)] : []),
-    '-i', mediaPath, '-map', '0:v:0', '-map', '0:a:0?',
+  ]
+  for (const input of inputs) args.push(...mediaInputArgs(input, realtime, seekSeconds))
+  args.push(
+    '-map', '0:v:0', '-map', inputs.length === 1 ? '0:a:0?' : '1:a:0',
     ...videoCodec, '-c:a', 'aac', '-f', 'segment', '-segment_time', '2',
     '-reset_timestamps', '1', '-segment_format', 'mp4',
     '-segment_format_options', 'movflags=+frag_keyframe+empty_moov+default_base_moof',
     '-segment_start_number', String(published), join(segments, 'segment-%09d.mp4'),
-  ]
+  )
   const child = spawn(options.ffmpegCommand ?? 'ffmpeg', args, { stdio: ['ignore', 'ignore', 'pipe'], windowsHide: true })
   const stderr: Buffer[] = []
   child.stderr?.on('data', chunk => stderr.push(Buffer.from(chunk)))
@@ -206,13 +228,26 @@ async function segmentFile(
   }
 }
 
+async function segmentFile(
+  work: ClaimedMediaSourceWork,
+  mediaPath: string,
+  options: MediaSourceProcessOptions,
+  observer: MediaSourceProcessObserver,
+  signal: AbortSignal,
+  codec: string,
+): Promise<number> {
+  return segmentInputs(work, [{ url: mediaPath }], options, observer, signal, codec)
+}
+
 type YoutubeMetadata = {
+  acodec?: string
   duration?: number | string | null
   is_live?: boolean
   live_status?: string
-  requested_formats?: Array<{ http_headers?: Record<string, string>; url?: string }>
+  requested_formats?: Array<{ acodec?: string; http_headers?: Record<string, string>; url?: string; vcodec?: string }>
   http_headers?: Record<string, string>
   url?: string
+  vcodec?: string
 }
 
 function youtubeDuration(metadata: YoutubeMetadata): bigint | null {
@@ -224,24 +259,62 @@ function youtubeIsLive(metadata: YoutubeMetadata): boolean {
   return metadata.is_live === true || ['is_live', 'is_upcoming'].includes(metadata.live_status ?? '')
 }
 
+function youtubeWasLive(metadata: YoutubeMetadata): boolean {
+  return metadata.live_status === 'was_live'
+}
+
+function youtubeArguments(options: MediaSourceProcessOptions): string[] {
+  return [
+    '--no-playlist', '--no-progress', '--no-warnings',
+    ...(options.youtubeCookiesFile ? ['--cookies', options.youtubeCookiesFile] : []),
+    '--extractor-args', options.youtubeExtractorArgs,
+  ]
+}
+
+export function buildYoutubeProbeArgs(url: string, options: MediaSourceProcessOptions): string[] {
+  return [
+    '--dump-single-json',
+    ...youtubeArguments(options),
+    '--format', options.youtubeFormat,
+    url,
+  ]
+}
+
+export function buildYoutubeVodDownloadArgs(
+  url: string,
+  output: string,
+  options: MediaSourceProcessOptions,
+): string[] {
+  return [
+    ...youtubeArguments(options),
+    '--abort-on-unavailable-fragments',
+    '--concurrent-fragments', String(options.youtubeVodConcurrentFragments),
+    '--format', options.youtubeVodFormat,
+    '--merge-output-format', 'mp4',
+    '--output', output,
+    url,
+  ]
+}
+
 async function probeYoutube(
   url: string,
   options: MediaSourceProcessOptions,
   signal: AbortSignal,
 ): Promise<YoutubeMetadata> {
-  const result = await runProcess(options.ytDlpCommand ?? 'yt-dlp', [
-    '--dump-single-json', '--no-playlist', '--no-warnings',
-    '--extractor-args', options.youtubeExtractorArgs,
-    '--format', options.youtubeFormat,
-    url,
-  ], signal)
+  const result = await runProcess(options.ytDlpCommand ?? 'yt-dlp', buildYoutubeProbeArgs(url, options), signal)
   return JSON.parse(result.stdout.toString('utf8')) as YoutubeMetadata
 }
 
-function inputArgs(input: { http_headers?: Record<string, string>; url?: string }): string[] {
-  if (!input.url || !/^https?:\/\//.test(input.url)) throw new MediaSourceProcessError('YOUTUBE_INPUT_MISSING', 'YouTube did not provide a playable input URL')
-  const headers = Object.entries(input.http_headers ?? {}).map(([name, value]) => `${name}: ${value}\r\n`).join('')
-  return [...(headers ? ['-headers', headers] : []), '-re', '-i', input.url]
+function youtubeInputs(metadata: YoutubeMetadata): MediaInput[] {
+  const selected = metadata.requested_formats?.length ? metadata.requested_formats : [metadata]
+  return selected.map((input) => {
+    if (!input.url || !/^https?:\/\//.test(input.url)) throw new MediaSourceProcessError('YOUTUBE_INPUT_MISSING', 'YouTube did not provide a playable input URL')
+    return input.http_headers ? { httpHeaders: input.http_headers, url: input.url } : { url: input.url }
+  })
+}
+
+function youtubeVideoCodec(metadata: YoutubeMetadata): string {
+  return metadata.vcodec ?? metadata.requested_formats?.find(format => format.vcodec && format.vcodec !== 'none')?.vcodec ?? ''
 }
 
 async function stableRecordingCount(root: string, signal: AbortSignal): Promise<number> {
@@ -297,18 +370,33 @@ export function createMediaSourceProcess(options: MediaSourceProcessOptions) {
 
     if (!work.sourceUrl) throw new MediaSourceProcessError('SOURCE_URL_MISSING', 'YouTube media work has no source URL')
     let metadata = await probeYoutube(work.sourceUrl, options, signal)
+    const durationUs = youtubeDuration(metadata)
+    if (youtubeWasLive(metadata)) {
+      await observer.classified({ sourceDurationUs: durationUs, sourceKind: 'youtube_live' })
+      if (work.attempts > 1) await writeSourceRestartMarker(options.recordingRoot, work.ingestPath)
+      const count = await segmentInputs(
+        work,
+        youtubeInputs(metadata),
+        options,
+        observer,
+        signal,
+        youtubeVideoCodec(metadata),
+        true,
+      )
+      return { expectedSegments: count, sourceDurationUs: durationUs, sourceKind: 'youtube_live' }
+    }
     if (!youtubeIsLive(metadata)) {
-      const durationUs = youtubeDuration(metadata)
       await observer.classified({ sourceDurationUs: durationUs, sourceKind: 'youtube_vod' })
       const workspace = safeChild(options.workRoot, `${work.id}-download`)
       await rm(workspace, { force: true, recursive: true })
       await mkdir(workspace, { recursive: true })
       try {
-        await runProcess(options.ytDlpCommand ?? 'yt-dlp', [
-          '--no-playlist', '--no-warnings', '--extractor-args', options.youtubeExtractorArgs,
-          '--format', options.youtubeFormat, '--merge-output-format', 'mp4',
-          '--output', join(workspace, 'source.%(ext)s'), work.sourceUrl,
-        ], signal, 2 * 1024 * 1024)
+        await runProcess(
+          options.ytDlpCommand ?? 'yt-dlp',
+          buildYoutubeVodDownloadArgs(work.sourceUrl, join(workspace, 'source.%(ext)s'), options),
+          signal,
+          2 * 1024 * 1024,
+        )
         const downloaded = (await readdir(workspace)).find(name => name.startsWith('source.') && name.endsWith('.mp4'))
         if (!downloaded) throw new MediaSourceProcessError('YOUTUBE_DOWNLOAD_MISSING', 'YouTube download did not produce an MP4')
         const path = join(workspace, downloaded)
@@ -322,10 +410,10 @@ export function createMediaSourceProcess(options: MediaSourceProcessOptions) {
     await observer.classified({ sourceDurationUs: null, sourceKind: 'youtube_live' })
     if (work.attempts > 1) await writeSourceRestartMarker(options.recordingRoot, work.ingestPath)
     while (!signal.aborted && youtubeIsLive(metadata)) {
-      const inputs = metadata.requested_formats?.length ? metadata.requested_formats : [metadata]
+      const inputs = youtubeInputs(metadata)
       if (inputs.length < 1 || inputs.length > 2) throw new MediaSourceProcessError('YOUTUBE_INPUT_COUNT', 'YouTube returned an unsupported input layout')
       const args = ['-nostdin', '-hide_banner', '-loglevel', 'warning']
-      for (const input of inputs) args.push(...inputArgs(input))
+      for (const input of inputs) args.push(...mediaInputArgs(input, true, 0))
       args.push('-map', '0:v:0', '-map', inputs.length === 1 ? '0:a:0?' : '1:a:0', '-c', 'copy', '-flvflags', 'no_duration_filesize', '-f', 'flv', `${options.ingestBaseUrl.replace(/\/+$/, '')}/${work.ingestPath}`)
       try { await runProcess(options.ffmpegCommand ?? 'ffmpeg', args, signal, 2 * 1024 * 1024) }
       catch (error) {

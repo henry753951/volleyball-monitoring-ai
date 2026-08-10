@@ -14,6 +14,23 @@ export function availableBounds(ranges: readonly CaptureTimelineRange[]) {
   return { startUs: ranges.reduce((a, r) => BigInt(a.startUs) < BigInt(r.startUs) ? a : r).startUs, endUs: ranges.reduce((a, r) => BigInt(a.endUs) > BigInt(r.endUs) ? a : r).endUs }
 }
 
+export const LIVE_EDGE_SAFETY_US = 2_000_000n
+
+export function clampLiveEdgeTarget(
+  targetCaptureTimeUs: string,
+  ranges: readonly CaptureTimelineRange[],
+  safetyUs = LIVE_EDGE_SAFETY_US,
+): string {
+  const range = ranges.at(-1)
+  if (!range) return targetCaptureTimeUs
+  const start = BigInt(range.startUs)
+  const end = BigInt(range.endUs)
+  const target = BigInt(targetCaptureTimeUs)
+  if (end <= start || target < start) return targetCaptureTimeUs
+  const safeEdge = end - start > safetyUs ? end - safetyUs : start
+  return target >= safeEdge ? safeEdge.toString() : targetCaptureTimeUs
+}
+
 const LIVE_CAPTURE_SOURCE_KINDS = new Set(['live', 'rtmp', 'rtsp', 'srt', 'webrtc', 'whip', 'youtube_live', 'hls_live'])
 
 export function isLiveCaptureSource(sourceKind?: string | null): boolean {

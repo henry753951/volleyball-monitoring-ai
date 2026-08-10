@@ -270,6 +270,7 @@ export async function startCapture(
     await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`capture-path:${ingestPath}`}, 0))::text AS lock`
     const match = await tx.match.findFirst({
       where: {
+        deletionRequestedAt: null,
         id: input.matchId,
         status: { not: 'ARCHIVED' },
         ...(identity.role === UserRole.ADMIN ? {} : { members: { some: { userId: identity.id, role: { in: [UserRole.ADMIN, UserRole.OPERATOR] } } } }),
