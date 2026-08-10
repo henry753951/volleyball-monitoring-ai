@@ -5,6 +5,10 @@ import {
   type AnnotationCommandResponse,
   type AnnotationServerMessage,
 } from '@volleyball-monitoring/contracts'
+import {
+  browserAllowsRealtimeConnection,
+  createRealtimeReconnectScheduler,
+} from './realtimeReconnect'
 
 export type AnnotationConnectionState = 'connecting' | 'ready' | 'reconnecting' | 'closed'
 
@@ -30,8 +34,6 @@ export function createAnnotationRealtimeClient(
 ): AnnotationRealtimeClient {
   let socket: WebSocket | null = null
   let stopped = false
-  let reconnectAttempt = 0
-  let reconnectTimer: ReturnType<typeof setTimeout> | null = null
   let softLockTimer: ReturnType<typeof setInterval> | null = null
   let connectionReady = false
   let editingKeyPointId: string | null = null
@@ -41,6 +43,7 @@ export function createAnnotationRealtimeClient(
     resolve: (response: AnnotationCommandResponse) => void
     reject: (error: Error) => void
   }>()
+  const reconnect = createRealtimeReconnectScheduler(open)
 
   const setState = (state: AnnotationConnectionState) => {
     if (state === currentState) return
@@ -73,30 +76,38 @@ export function createAnnotationRealtimeClient(
   }
 
   function scheduleReconnect() {
-    if (stopped || reconnectTimer) return
+    if (stopped) return
     setState('reconnecting')
-    const delay = Math.min(5_000, 400 * (2 ** reconnectAttempt))
-    reconnectAttempt += 1
-    reconnectTimer = setTimeout(() => {
-      reconnectTimer = null
-      open()
-    }, delay)
+    reconnect.schedule()
   }
 
   function open() {
-    if (stopped || typeof window === 'undefined') return
+    if (stopped || socket || typeof window === 'undefined') return
+    if (!browserAllowsRealtimeConnection()) {
+      scheduleReconnect()
+      return
+    }
     connectionReady = false
-    setState(reconnectAttempt ? 'reconnecting' : 'connecting')
+    setState(currentState === 'closed' ? 'connecting' : 'reconnecting')
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
     const url = new URL(endpoint ?? `${protocol}//${window.location.host}/ws/annotations`)
     url.searchParams.set('room_id', roomId)
-    socket = new WebSocket(url.toString())
-    socket.addEventListener('message', (event) => {
+    let nextSocket: WebSocket
+    try {
+      nextSocket = new WebSocket(url.toString())
+      socket = nextSocket
+    }
+    catch (cause) {
+      handlers.onError?.(cause instanceof Error ? cause : new Error('Annotation WebSocket unavailable'))
+      scheduleReconnect()
+      return
+    }
+    nextSocket.addEventListener('message', (event) => {
       try {
         const message = parseAnnotationServerMessage(JSON.parse(String(event.data)))
         if (message.type === 'connection_ready') {
           connectionReady = true
-          reconnectAttempt = 0
+          reconnect.connected()
           setState('ready')
           clearSoftLockTimer()
           sendSoftLock()
@@ -116,14 +127,15 @@ export function createAnnotationRealtimeClient(
         handlers.onError?.(cause instanceof Error ? cause : new Error('Invalid annotation message'))
       }
     })
-    socket.addEventListener('error', () => {
+    nextSocket.addEventListener('error', () => {
       handlers.onError?.(new Error('Annotation WebSocket unavailable'))
     })
-    socket.addEventListener('close', () => {
+    nextSocket.addEventListener('close', () => {
+      if (socket !== nextSocket) return
       connectionReady = false
       clearSoftLockTimer()
       rejectPending(new Error('Annotation connection closed before acknowledgement'))
-      if (socket) socket = null
+      socket = null
       if (!stopped) scheduleReconnect()
       else setState('closed')
     })
@@ -139,8 +151,7 @@ export function createAnnotationRealtimeClient(
       sendSoftLock(null)
       connectionReady = false
       clearSoftLockTimer()
-      if (reconnectTimer) clearTimeout(reconnectTimer)
-      reconnectTimer = null
+      reconnect.dispose()
       rejectPending(new Error('Annotation client disconnected'))
       socket?.close(1000, 'client unmounted')
       socket = null

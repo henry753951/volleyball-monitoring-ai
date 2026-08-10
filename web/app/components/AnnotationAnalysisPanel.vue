@@ -1,6 +1,19 @@
 <script setup lang="ts">
-import { ANALYSIS_REVIEW_ACTIONS, type AnalysisReviewAction } from '@volleyball-monitoring/contracts'
-import { Ban, CircleDotDashed, Cloud, CloudOff, Crosshair, LoaderCircle, MousePointer2, RotateCcw, ScanLine, ScanSearch, UserRoundCheck, UserRoundX } from 'lucide-vue-next'
+import {
+  ChevronLeft,
+  ChevronRight,
+  CircleDotDashed,
+  Cloud,
+  CloudOff,
+  Crosshair,
+  LoaderCircle,
+  ScanSearch,
+  UserRoundCheck,
+} from 'lucide-vue-next'
+import { computed, ref } from 'vue'
+
+type AnalysisPanelPage = 'root' | 'hits' | 'ball' | 'players'
+type PageDirection = 'forward' | 'back'
 
 export interface AnalysisHitListItem {
   keyPointId: string
@@ -14,15 +27,13 @@ export interface AnalysisHitListItem {
 
 const props = defineProps<{
   analysisRunId: string | null
+  page: AnalysisPanelPage
   frameIndex: number
-  ballRelabel: boolean
-  bboxRelabel: boolean
   ballOverride: 'position' | 'missing' | null
   ballPosition: { x: number; y: number } | null
   selectedTrackId: number | null
   selectedTrackAction: string | null
   selectedHitId: string | null
-  selectedHitHasOverride: boolean
   hasActionOverride: boolean
   hasBboxOverride: boolean
   hits: AnalysisHitListItem[]
@@ -31,20 +42,20 @@ const props = defineProps<{
 }>()
 
 const emit = defineEmits<{
-  toggleBallRelabel: []
-  markBallMissing: []
-  clearBall: []
-  setAction: [action: AnalysisReviewAction]
-  clearAction: []
-  startBBox: []
-  clearBBox: []
+  'update:page': [page: AnalysisPanelPage]
   selectHit: [keyPointId: string]
-  assignHit: [keyPointId: string]
-  noHitActor: [keyPointId: string]
-  clearHitActor: [keyPointId: string]
 }>()
 
+const pageDirection = ref<PageDirection>('forward')
 const selectedHit = computed(() => props.hits.find(hit => hit.keyPointId === props.selectedHitId) ?? null)
+const ballStateLabel = computed(() => props.ballOverride === 'missing' ? '人工標記無球' : props.ballOverride === 'position' ? '人工位置' : 'AI 自動')
+const playerStateLabel = computed(() => props.selectedTrackId === null ? '尚未選取' : `Track ${props.selectedTrackId}`)
+
+function changePage(next: AnalysisPanelPage) {
+  if (next === props.page) return
+  pageDirection.value = next === 'root' ? 'back' : 'forward'
+  emit('update:page', next)
+}
 </script>
 
 <template>
@@ -56,61 +67,79 @@ const selectedHit = computed(() => props.hits.find(hit => hit.keyPointId === pro
         <span class="save-state"><LoaderCircle v-if="saving" class="spin" :size="14" />{{ saving ? '儲存中' : '即時同步' }}</span>
       </header>
 
-      <section class="hit-editor">
-        <header class="section-heading"><span><Crosshair :size="15" />擊球時間線</span><b>{{ hits.length }}</b></header>
-        <p v-if="!hits.length" class="empty-row">此分析沒有擊球事件。</p>
-        <ol v-else class="hit-list">
-          <li v-for="hit in hits" :key="hit.keyPointId" :class="{ selected: selectedHitId === hit.keyPointId }">
-            <button type="button" class="hit-main" @click="emit('selectHit', hit.keyPointId)">
-              <i>{{ hit.sequenceIndex + 1 }}</i>
-              <span><strong>{{ hit.actorLabel }}</strong><small>Frame {{ hit.frameIndex }} · {{ hit.ballLabel }}</small></span>
-              <em :class="hit.actorSource">{{ hit.actorSource === 'manual' ? '人工' : hit.actorSource === 'none' ? '無人' : '自動' }}</em>
-            </button>
-            <div v-if="selectedHitId === hit.keyPointId" class="hit-actions">
-              <button type="button" @click="emit('assignHit', hit.keyPointId)"><MousePointer2 :size="13" />點畫面指派</button>
-              <button type="button" @click="emit('noHitActor', hit.keyPointId)"><UserRoundX :size="13" />沒人打</button>
-              <button type="button" :disabled="!selectedHitHasOverride" @click="emit('clearHitActor', hit.keyPointId)"><RotateCcw :size="13" />恢復自動</button>
-            </div>
-          </li>
-        </ol>
-        <p v-if="selectedHit" class="dependency-note">先採用第 {{ selectedHit.sequenceIndex + 1 }} 球的有效球點，再推算最近球員；人工指派永遠優先。</p>
-      </section>
+      <div class="analysis-page-viewport">
+        <Transition :name="`analysis-${pageDirection}`">
+          <div :key="page" class="analysis-page" :data-page="page">
+            <nav v-if="page === 'root'" class="analysis-menu" aria-label="分析結果修改功能">
+              <button type="button" class="analysis-menu__item" @click="changePage('hits')">
+                <span class="analysis-menu__icon"><Crosshair :size="17" /></span>
+                <span><strong>擊球時間線</strong><small>檢查每一球與擊球球員</small></span>
+                <b>{{ hits.length }}</b><ChevronRight :size="16" />
+              </button>
+              <button type="button" class="analysis-menu__item" @click="changePage('ball')">
+                <span class="analysis-menu__icon"><CircleDotDashed :size="17" /></span>
+                <span><strong>球點</strong><small>{{ ballStateLabel }} · Frame {{ frameIndex >= 0 ? frameIndex : '—' }}</small></span>
+                <ChevronRight :size="16" />
+              </button>
+              <button type="button" class="analysis-menu__item" @click="changePage('players')">
+                <span class="analysis-menu__icon"><UserRoundCheck :size="17" /></span>
+                <span><strong>球員結果</strong><small>{{ playerStateLabel }} · 動作與球員外框</small></span>
+                <ChevronRight :size="16" />
+              </button>
+            </nav>
 
-      <section class="frame-tools">
-        <header class="section-heading"><span><CircleDotDashed :size="15" />目前畫格</span><code>F{{ frameIndex >= 0 ? frameIndex : '—' }}</code></header>
-        <div class="tool-row">
-          <div><strong>球點</strong><small>{{ ballOverride === 'missing' ? '人工標記無球' : ballOverride === 'position' ? '人工位置' : 'AI 自動' }}</small></div>
-          <button type="button" :class="{ active: ballRelabel }" :disabled="frameIndex < 0" @click="emit('toggleBallRelabel')"><Crosshair :size="14" />{{ ballRelabel ? '完成放置' : '放置球心' }}</button>
-        </div>
-        <div class="inline-actions">
-          <button type="button" :disabled="frameIndex < 0" @click="emit('markBallMissing')"><Ban :size="13" />此幀無球</button>
-          <button type="button" :disabled="!ballOverride" @click="emit('clearBall')"><RotateCcw :size="13" />恢復 AI</button>
-        </div>
-        <dl v-if="ballPosition" class="position-readout"><div><dt>X</dt><dd>{{ ballPosition.x.toFixed(1) }}</dd></div><div><dt>Y</dt><dd>{{ ballPosition.y.toFixed(1) }}</dd></div></dl>
-      </section>
+            <template v-else>
+              <header class="analysis-page__header">
+                <button type="button" class="analysis-back" aria-label="返回分析功能" @click="changePage('root')"><ChevronLeft :size="18" /></button>
+                <span>
+                  <strong>{{ page === 'hits' ? '擊球時間線' : page === 'ball' ? '球點' : '球員結果' }}</strong>
+                  <small>{{ page === 'hits' ? '從清單切換球次，直接在播放器指派' : page === 'ball' ? '修改目前畫格的球心或無球狀態' : '點播放器中的球員框開始修改' }}</small>
+                </span>
+                <b v-if="page === 'hits'" class="analysis-count">{{ hits.length }}</b>
+                <code v-else>F{{ frameIndex >= 0 ? frameIndex : '—' }}</code>
+              </header>
 
-      <section class="track-editor" :class="{ disabled: ballRelabel }">
-        <header class="section-heading"><span><UserRoundCheck :size="15" />球員結果</span><code>{{ selectedTrackId === null ? '未選球員' : `T${selectedTrackId}` }}</code></header>
-        <p v-if="selectedTrackId === null" class="empty-row">點擊播放器中的球員框，修改外框與逐幀動作。</p>
-        <template v-else>
-          <div class="inline-actions bbox-actions">
-            <button type="button" :class="{ active: bboxRelabel }" :disabled="ballRelabel" @click="emit('startBBox')"><ScanLine :size="13" />{{ bboxRelabel ? '完成框選' : '重畫外框' }}</button>
-            <button type="button" :disabled="!hasBboxOverride" @click="emit('clearBBox')"><RotateCcw :size="13" />恢復 AI 框</button>
+              <section v-if="page === 'hits'" class="hit-page">
+                <p v-if="!hits.length" class="empty-row">此分析沒有擊球事件。</p>
+                <ol v-else class="hit-list">
+                  <li v-for="hit in hits" :key="hit.keyPointId" :class="{ selected: selectedHitId === hit.keyPointId }">
+                    <button type="button" class="hit-main" :aria-current="selectedHitId === hit.keyPointId ? 'true' : undefined" @click="emit('selectHit', hit.keyPointId)">
+                      <i>{{ hit.sequenceIndex + 1 }}</i>
+                      <span><strong>{{ hit.actorLabel }}</strong><small>Frame {{ hit.frameIndex }} · {{ hit.ballLabel }}</small></span>
+                      <em :class="hit.actorSource">{{ hit.actorSource === 'manual' ? '人工' : hit.actorSource === 'none' ? '無人' : '自動' }}</em>
+                    </button>
+                  </li>
+                </ol>
+                <p v-if="selectedHit" class="dependency-note">第 {{ selectedHit.sequenceIndex + 1 }} 球會先採用有效球點，再推算最近球員；播放器上的人工指派永遠優先。</p>
+              </section>
+
+              <section v-else-if="page === 'ball'" class="summary-page">
+                <dl class="summary-list">
+                  <div><dt>目前畫格</dt><dd>F{{ frameIndex >= 0 ? frameIndex : '—' }}</dd></div>
+                  <div><dt>球點來源</dt><dd>{{ ballStateLabel }}</dd></div>
+                  <div v-if="ballPosition"><dt>球心座標</dt><dd>X {{ ballPosition.x.toFixed(1) }} · Y {{ ballPosition.y.toFixed(1) }}</dd></div>
+                </dl>
+                <p>修改工具已顯示在播放器上。點一下影片放置球心，也可標記此幀無球或恢復 AI。</p>
+              </section>
+
+              <section v-else class="summary-page">
+                <p v-if="selectedTrackId === null" class="player-empty">點擊播放器中的球員框，選取要修改的追蹤球員。</p>
+                <dl v-else class="summary-list">
+                  <div><dt>追蹤球員</dt><dd>Track {{ selectedTrackId }}</dd></div>
+                  <div><dt>逐幀動作</dt><dd>{{ selectedTrackAction || 'AI 自動' }}<small v-if="hasActionOverride">人工</small></dd></div>
+                  <div><dt>球員外框</dt><dd>{{ hasBboxOverride ? '人工外框' : 'AI 自動' }}</dd></div>
+                </dl>
+                <p>選取球員後，使用播放器上的工具修改逐幀動作或重畫外框。</p>
+              </section>
+            </template>
           </div>
-          <div class="action-grid">
-            <button v-for="action in ANALYSIS_REVIEW_ACTIONS" :key="action" type="button" :class="{ active: selectedTrackAction === action }" :disabled="ballRelabel || bboxRelabel || frameIndex < 0" @click="emit('setAction', action)">{{ action }}</button>
-          </div>
-          <button type="button" class="restore-action" :disabled="!hasActionOverride" @click="emit('clearAction')"><RotateCcw :size="13" />動作恢復自動</button>
-        </template>
-      </section>
+        </Transition>
+      </div>
     </template>
   </div>
 </template>
 
 <style scoped>
-.analysis-panel{display:grid;gap:0;min-height:0}.analysis-empty{min-height:120px;display:grid;place-content:center;justify-items:center;gap:8px;color:#7f8994;font-size:.68rem}.review-status{height:34px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid #2c3238;color:#aeb8c2;font-size:.62rem}.review-status span{display:flex;align-items:center;gap:6px}.review-status .save-state{color:#77828c}
-.hit-editor,.frame-tools,.track-editor{display:grid;gap:9px;padding:13px 0;border-bottom:1px solid #292f35}.section-heading{display:flex;align-items:center;justify-content:space-between;gap:8px}.section-heading>span{display:flex;align-items:center;gap:7px;font-size:.68rem;font-weight:750}.section-heading b{min-width:21px;padding:2px 6px;border-radius:999px;background:#282e34;color:#cbd2d8;font-size:.58rem;text-align:center}.section-heading code{color:#9fc7eb;font-size:.57rem}
-.hit-list{max-height:246px;margin:0;padding:0;overflow:auto;list-style:none;scrollbar-width:thin}.hit-list li{border-bottom:1px solid #242a30}.hit-list li.selected{background:#1c2329}.hit-main{width:100%;min-height:47px!important;display:grid!important;grid-template-columns:24px minmax(0,1fr) auto;align-items:center;gap:8px;padding:5px 6px!important;border:0!important;border-radius:0!important;background:transparent!important;text-align:left}.hit-main>i{display:grid;width:22px;height:22px;place-items:center;border:1px solid #4e5963;border-radius:50%;color:#dce3e9;font-size:.59rem;font-style:normal;font-weight:800}.hit-main>span{min-width:0;display:grid;gap:3px}.hit-main strong,.hit-main small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.hit-main strong{font-size:.66rem}.hit-main small{color:#7f8993;font:500 .55rem "Cascadia Mono",Consolas,monospace}.hit-main em{padding:2px 5px;border-radius:4px;background:#27303a;color:#a9c9e2;font-size:.52rem;font-style:normal}.hit-main em.manual{background:#42351d;color:#f0cf8e}.hit-main em.none{background:#3b292b;color:#d8aaad}.hit-actions{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:4px;padding:0 6px 8px}.hit-actions button,.inline-actions button,.restore-action{min-height:28px!important;display:flex!important;align-items:center;justify-content:center;gap:4px;padding:3px 5px!important;border-color:#303840!important;background:#171b1f!important;color:#aeb7c0!important;font-size:.54rem!important}.dependency-note{margin:0;color:#75818c;font-size:.58rem;line-height:1.45}
-.tool-row{display:flex;align-items:center;justify-content:space-between;gap:8px}.tool-row>div{display:grid;gap:2px}.tool-row strong{font-size:.66rem}.tool-row small{color:#7e8993;font-size:.56rem}.tool-row button{min-height:29px!important;display:flex;align-items:center;gap:5px;padding:4px 8px!important;font-size:.58rem}.tool-row button.active,.inline-actions button.active{border-color:#567c99!important;background:#203747!important;color:#d9efff!important}.inline-actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:4px}.position-readout{display:grid;grid-template-columns:1fr 1fr;margin:0;border:1px solid #292f35;border-radius:6px;overflow:hidden}.position-readout div{display:flex;align-items:center;justify-content:space-between;padding:6px 8px}.position-readout div+div{border-left:1px solid #292f35}.position-readout dt{color:#77828d;font-size:.57rem}.position-readout dd{margin:0;font:700 .63rem "Cascadia Mono",Consolas,monospace}
-.track-editor.disabled{opacity:.48}.empty-row{margin:0;padding:10px 5px;color:#7f8994;font-size:.62rem;text-align:center}.bbox-actions{margin-bottom:1px}.action-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:4px}.action-grid button{min-height:29px!important;padding:4px!important;border-color:#2f363d!important;background:#171b1f!important;color:#aab3bc!important;font-size:.57rem}.action-grid button.active{border-color:#6b879b!important;background:#243440!important;color:#edf7ff!important}.restore-action{width:100%}.spin{animation:spin .8s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}@media(prefers-reduced-motion:reduce){.spin{animation:none}}
+.analysis-panel{display:grid;min-height:0}.analysis-empty{min-height:120px;display:grid;place-content:center;justify-items:center;gap:8px;color:#8f99a3;font-size:.68rem}.review-status{height:34px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid #2c3238;color:#b7c0c9;font-size:.62rem}.review-status span{display:flex;align-items:center;gap:6px}.review-status .save-state{color:#8b96a0}.analysis-page-viewport{position:relative;min-height:0;overflow:hidden;isolation:isolate}.analysis-page{width:100%;min-height:0;background:#111317}.analysis-menu{display:grid}.analysis-menu__item{width:100%;min-height:70px;display:grid;grid-template-columns:34px minmax(0,1fr) auto auto;align-items:center;gap:9px;padding:10px 4px;border:0;border-bottom:1px solid #292f35;border-radius:0;background:transparent;color:#e6eaed;text-align:left}.analysis-menu__item:hover{background:#191e23}.analysis-menu__item:active{background:#20262c}.analysis-menu__item>span:nth-child(2){display:grid;gap:4px}.analysis-menu__item strong{font-size:.7rem}.analysis-menu__item small{overflow:hidden;color:#8f99a3;font-size:.58rem;font-weight:500;text-overflow:ellipsis;white-space:nowrap}.analysis-menu__item>b,.analysis-count{min-width:21px;padding:2px 6px;border-radius:999px;background:#293039;color:#cbd2d8;font-size:.58rem;text-align:center}.analysis-menu__icon{display:grid;width:32px;height:32px;place-items:center;border-radius:8px;background:#20252a;color:#d7dde3}.analysis-page__header{min-height:62px;display:grid;grid-template-columns:32px minmax(0,1fr) auto;align-items:center;gap:8px;border-bottom:1px solid #2c3238}.analysis-page__header>span{display:grid;gap:3px}.analysis-page__header strong{font-size:.7rem}.analysis-page__header small{overflow:hidden;color:#8f99a3;font-size:.56rem;text-overflow:ellipsis;white-space:nowrap}.analysis-page__header code{color:#9fc7eb;font-size:.57rem}.analysis-back{width:30px;min-height:30px;display:grid;place-items:center;padding:0;border:0;border-radius:7px;background:transparent;color:#aeb8c2}.analysis-back:hover{background:#272d33;color:#fff}.hit-list{margin:0;padding:0;list-style:none}.hit-list li{border-bottom:1px solid #262c32}.hit-list li.selected{background:#1d252c}.hit-main{width:100%;min-height:52px;display:grid;grid-template-columns:26px minmax(0,1fr) auto;align-items:center;gap:9px;padding:6px 5px;border:0;border-radius:0;background:transparent;color:#e9edf0;text-align:left}.hit-main:hover{background:#20272d}.hit-main>i{display:grid;width:24px;height:24px;place-items:center;border:1px solid #58636d;border-radius:50%;font-size:.59rem;font-style:normal;font-weight:800}.hit-main>span{min-width:0;display:grid;gap:3px}.hit-main strong,.hit-main small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.hit-main strong{font-size:.67rem}.hit-main small{color:#8f99a3;font:500 .55rem "Cascadia Mono",Consolas,monospace}.hit-main em{padding:2px 5px;border-radius:4px;background:#27303a;color:#b9d8ee;font-size:.52rem;font-style:normal}.hit-main em.manual{background:#42351d;color:#f0cf8e}.hit-main em.none{background:#3b292b;color:#e0b5b8}.dependency-note,.summary-page>p{margin:0;padding:12px 4px;color:#8b96a0;font-size:.59rem;line-height:1.55}.empty-row,.player-empty{min-height:92px;display:grid;place-items:center;margin:0;padding:16px;color:#8f99a3;font-size:.64rem;text-align:center}.summary-list{display:grid;margin:0}.summary-list>div{min-height:48px;display:flex;align-items:center;justify-content:space-between;gap:12px;border-bottom:1px solid #262c32}.summary-list dt{color:#929ca6;font-size:.61rem}.summary-list dd{display:flex;align-items:center;gap:6px;margin:0;color:#e2e7eb;font:700 .62rem "Cascadia Mono",Consolas,monospace}.summary-list dd small{padding:2px 5px;border-radius:4px;background:#42351d;color:#f0cf8e;font:700 .49rem system-ui,sans-serif}.spin{animation:spin .8s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}.analysis-forward-enter-active,.analysis-forward-leave-active,.analysis-back-enter-active,.analysis-back-leave-active{transition:transform 280ms cubic-bezier(.16,1,.3,1);will-change:transform}.analysis-forward-leave-active,.analysis-back-leave-active{position:absolute;inset:0;z-index:1;pointer-events:none}.analysis-forward-enter-active,.analysis-back-enter-active{position:relative;z-index:2}.analysis-forward-enter-from{transform:translateX(44px)}.analysis-forward-leave-to{transform:translateX(-28px)}.analysis-back-enter-from{transform:translateX(-44px)}.analysis-back-leave-to{transform:translateX(28px)}
+@media(prefers-reduced-motion:reduce){.spin{animation:none}.analysis-forward-enter-active,.analysis-forward-leave-active,.analysis-back-enter-active,.analysis-back-leave-active{transition-duration:120ms;transition-property:opacity}.analysis-forward-enter-from,.analysis-forward-leave-to,.analysis-back-enter-from,.analysis-back-leave-to{opacity:0;transform:none}}
 </style>

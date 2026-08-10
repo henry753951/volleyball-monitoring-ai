@@ -7,6 +7,12 @@ import {
   type AnalysisReviewState,
 } from '@volleyball-monitoring/contracts'
 import type { MaybeRefOrGetter } from 'vue'
+import {
+  browserAllowsRealtimeConnection,
+  createRealtimeReconnectScheduler,
+  realtimeReconnectDelay,
+  type RealtimeReconnectScheduler,
+} from '~/lib/realtimeReconnect'
 
 export type BallOverride = { state: 'position'; position: { x: number; y: number } } | { state: 'missing' }
 
@@ -30,9 +36,10 @@ export function useAnalysisReview(analysisRunId: MaybeRefOrGetter<string | null>
   const queued = new Map<string, AnalysisReviewOperation>()
   let flushTimer: ReturnType<typeof setTimeout> | null = null
   let socket: WebSocket | null = null
-  let reconnectTimer: ReturnType<typeof setTimeout> | null = null
+  let reconnect: RealtimeReconnectScheduler | null = null
   let generation = 0
   let flushing = false
+  let flushRetryAttempt = 0
 
   function frameTrackKey(frameIndex: string | number, trackId: number) { return `${frameIndex}:${trackId}` }
 
@@ -73,11 +80,31 @@ export function useAnalysisReview(analysisRunId: MaybeRefOrGetter<string | null>
   function connect(currentGeneration: number) {
     const id = toValue(analysisRunId)
     if (!id || !import.meta.client) return
-    socket?.close()
+    if (!browserAllowsRealtimeConnection()) {
+      connection.value = 'offline'
+      reconnect?.schedule()
+      return
+    }
+    if (socket && socket.readyState <= WebSocket.OPEN) return
     connection.value = 'connecting'
-    socket = new WebSocket(analysisReviewWsUrl(id))
-    socket.addEventListener('open', () => { if (currentGeneration === generation) connection.value = 'ready' })
-    socket.addEventListener('message', (event) => {
+    let nextSocket: WebSocket
+    try {
+      nextSocket = new WebSocket(analysisReviewWsUrl(id))
+      socket = nextSocket
+    }
+    catch (cause) {
+      error.value = cause instanceof Error ? cause : new Error('分析修正即時連線失敗')
+      connection.value = 'offline'
+      reconnect?.schedule()
+      return
+    }
+    nextSocket.addEventListener('open', () => {
+      if (currentGeneration !== generation || socket !== nextSocket) return
+      reconnect?.connected()
+      connection.value = 'ready'
+      if (error.value) void refresh(currentGeneration).catch(() => undefined)
+    })
+    nextSocket.addEventListener('message', (event) => {
       if (currentGeneration !== generation) return
       let message: AnalysisReviewRevisionEvent
       try { message = JSON.parse(String(event.data)) as AnalysisReviewRevisionEvent }
@@ -85,23 +112,30 @@ export function useAnalysisReview(analysisRunId: MaybeRefOrGetter<string | null>
       if (message.type !== 'analysis_review_revision' || message.analysis_run_id !== id || BigInt(message.revision) <= BigInt(revision.value)) return
       void refresh(currentGeneration).catch(cause => { error.value = cause instanceof Error ? cause : new Error('分析修正同步失敗') })
     })
-    socket.addEventListener('close', () => {
-      if (currentGeneration !== generation) return
+    nextSocket.addEventListener('close', () => {
+      if (currentGeneration !== generation || socket !== nextSocket) return
+      socket = null
       connection.value = 'offline'
-      reconnectTimer = setTimeout(() => connect(currentGeneration), 1_000)
+      reconnect?.schedule()
     })
+  }
+
+  function scheduleFlush(delay: number) {
+    if (flushTimer || !queued.size || !browserAllowsRealtimeConnection()) return
+    flushTimer = setTimeout(() => { flushTimer = null; void flush() }, delay)
   }
 
   function queue(operation: AnalysisReviewOperation) {
     queued.set(operationKey(operation), operation)
-    if (!flushTimer) flushTimer = setTimeout(() => { flushTimer = null; void flush() }, 70)
+    scheduleFlush(70)
   }
 
   async function flush() {
     const id = toValue(analysisRunId)
-    if (!id || flushing || !queued.size) return
+    if (!id || flushing || !queued.size || !browserAllowsRealtimeConnection()) return
     flushing = true
     pending.value = true
+    let failed = false
     const operations = [...queued.values()].slice(0, 32)
     operations.forEach(operation => queued.delete(operationKey(operation)))
     try {
@@ -115,15 +149,22 @@ export function useAnalysisReview(analysisRunId: MaybeRefOrGetter<string | null>
       const result = await response.json() as { revision: string }
       revision.value = result.revision
       error.value = null
+      flushRetryAttempt = 0
     }
     catch (cause) {
+      failed = true
+      flushRetryAttempt += 1
       operations.forEach(operation => queued.set(operationKey(operation), operation))
       error.value = cause instanceof Error ? cause : new Error('分析修正儲存失敗')
     }
     finally {
       flushing = false
       pending.value = false
-      if (queued.size && !flushTimer) flushTimer = setTimeout(() => { flushTimer = null; void flush() }, 180)
+      if (queued.size) {
+        scheduleFlush(failed
+          ? realtimeReconnectDelay(flushRetryAttempt - 1, { baseDelayMs: 500, maxDelayMs: 15_000 })
+          : 70)
+      }
     }
   }
 
@@ -168,9 +209,9 @@ export function useAnalysisReview(analysisRunId: MaybeRefOrGetter<string | null>
     generation += 1
     const currentGeneration = generation
     if (flushTimer) clearTimeout(flushTimer)
-    if (reconnectTimer) clearTimeout(reconnectTimer)
     flushTimer = null
-    reconnectTimer = null
+    reconnect?.dispose()
+    reconnect = null
     socket?.close()
     socket = null
     queued.clear()
@@ -180,17 +221,32 @@ export function useAnalysisReview(analysisRunId: MaybeRefOrGetter<string | null>
     playerBBoxCorrections.value = new Map()
     contactActorCorrections.value = new Map()
     error.value = null
+    flushRetryAttempt = 0
     connection.value = id ? 'connecting' : 'idle'
     if (!id) return
-    try { await refresh(currentGeneration); connect(currentGeneration) }
-    catch (cause) { if (currentGeneration === generation) { error.value = cause instanceof Error ? cause : new Error('分析修正載入失敗'); connection.value = 'offline' } }
+    reconnect = createRealtimeReconnectScheduler(() => connect(currentGeneration))
+    try { await refresh(currentGeneration) }
+    catch (cause) {
+      if (currentGeneration === generation) error.value = cause instanceof Error ? cause : new Error('分析修正載入失敗')
+    }
+    if (currentGeneration === generation) connect(currentGeneration)
   }, { immediate: true })
+
+  const resumeFlush = () => scheduleFlush(0)
+  if (import.meta.client) {
+    window.addEventListener('online', resumeFlush)
+    document.addEventListener('visibilitychange', resumeFlush)
+  }
 
   onBeforeUnmount(() => {
     generation += 1
     if (flushTimer) clearTimeout(flushTimer)
-    if (reconnectTimer) clearTimeout(reconnectTimer)
+    reconnect?.dispose()
     socket?.close()
+    if (import.meta.client) {
+      window.removeEventListener('online', resumeFlush)
+      document.removeEventListener('visibilitychange', resumeFlush)
+    }
   })
 
   return {

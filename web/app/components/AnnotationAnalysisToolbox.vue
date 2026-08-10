@@ -142,10 +142,11 @@ function handleAction(event: Event) {
             </template>
             <template v-else>
                <span class="toolbox-title"
-                  ><MousePointer2 :size="15" /><b>Track {{ selectedTrackId }}</b
-                  ><code>F{{ frameIndex }}</code></span
+                  ><MousePointer2 :size="15" /><b>{{ selectedTrackId === null ? '球員結果' : `Track ${selectedTrackId}` }}</b
+                  ><code v-if="selectedTrackId !== null">F{{ frameIndex }}</code></span
                >
-               <label class="action-select"
+               <span v-if="selectedTrackId === null" class="toolbox-instruction">點擊畫面中的球員框</span>
+               <label v-else class="action-select"
                   >動作<select
                      :value="selectedAction ?? ''"
                      @change="handleAction"
@@ -161,6 +162,7 @@ function handleAction(event: Event) {
                   </select></label
                >
                <button
+                  v-if="selectedTrackId !== null"
                   type="button"
                   @click="emit('startBBox')"
                >

@@ -27,3 +27,13 @@ export function draftCommandAvailability(input: DraftCommandAvailabilityInput) {
   }
   return { enabled: true, reason: '' }
 }
+
+export function openDraftBlocksNewRally(
+  state: string,
+  activeSubmissionId: string | null | undefined,
+) {
+  // A correction draft keeps an immutable active submission attached to the
+  // Rally. The backend intentionally allows that draft to coexist with a new
+  // Rally; only an unsent, submission-less draft owns the new-service slot.
+  return state === 'OPEN' && !activeSubmissionId
+}

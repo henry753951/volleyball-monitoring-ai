@@ -14,6 +14,7 @@ import {
 import {
    createCoreDomainClient,
    createGraphQLTransport,
+   GraphQLRequestError,
    type Match,
    type CaptureSession,
 } from "~/lib/coreDomain";
@@ -24,7 +25,10 @@ import {
    type HotkeyCommand,
    type MediaAction,
 } from "~/utils/annotationHotkeys";
-import { draftCommandAvailability } from "~/utils/annotationCommandAvailability";
+import {
+   draftCommandAvailability,
+   openDraftBlocksNewRally,
+} from "~/utils/annotationCommandAvailability";
 import type { PlaybackCursorInput } from "~/lib/mediaModel";
 import {
    createCoachDomainClient,
@@ -46,6 +50,10 @@ import {
    type CanonicalMediaRange,
 } from "~/utils/mediaBuffer";
 import type { TimelineSelectionItem } from "~/utils/timelineSelection";
+import {
+   captureNeedsPolling,
+   hasActiveRallyProcessing,
+} from "~/utils/annotationPolling";
 import {
    replayEventFrame,
    resolveEffectiveHitPosition,
@@ -183,11 +191,13 @@ const correctionCancelling = ref(false);
 let correctionOperationGeneration = 0;
 const processingRetrying = ref(false);
 const deleteRallyId = ref<string | null>(null);
+const rallyDeletePending = ref(false);
 const placementSaving = ref(false);
 const matchInspector = useTemplateRef<{ closePlacement: () => void }>(
    "matchInspector",
 );
 const inspectorTab = ref<"match" | "mapping" | "analysis">("match");
+const analysisPanelPage = ref<"root" | "hits" | "ball" | "players">("root");
 const pinnedRallyId = ref<string | null>(null);
 const cursorRallyId = ref<string | null>(null);
 const currentOverlayFrame = ref(-1);
@@ -355,7 +365,8 @@ const clipSelected = computed(() =>
    Boolean(
       selectedRallyId.value &&
       (selectedTimelineItem.value === "segment" ||
-         selectedTimelineItem.value === "mask"),
+         selectedTimelineItem.value === "mask" ||
+         selectedTimelineItem.value === "point"),
    ),
 );
 const displayedCorrectionDraft = computed(() =>
@@ -372,11 +383,26 @@ const selectedCorrectionDraft = computed(() =>
          (correctionRallyId.value ?? displayAnnotation.value?.rally_id),
    ),
 );
-const editorSelectedAnalysisRunId = computed(() => selectedAnalysisRunId.value);
-const editorOverlayAnalysisRunId = computed(
-   () => activeOverlayAnalysisRunId.value,
+const editorSelectedAnalysisRunId = computed(() =>
+   displayedCorrectionDraft.value ? null : selectedAnalysisRunId.value,
 );
-const editorMappingAvailable = computed(() => mappingAvailable.value);
+const editorOverlayAnalysisRunId = computed(
+   () =>
+      displayedCorrectionDraft.value
+         ? null
+         : (activeOverlayAnalysisRunId.value ?? selectedAnalysisRunId.value),
+);
+const editorOverlayClipStart = computed(
+   () =>
+      activeOverlayClipStart.value ??
+      submittedRallies.value.find(
+         (rally) => rally.id === selectedRallyId.value,
+      )?.submission.clip?.start_capture_time_us ??
+      null,
+);
+const editorMappingAvailable = computed(
+   () => !displayedCorrectionDraft.value && mappingAvailable.value,
+);
 const overlayReplay = shallowRef<CoachRallyReplay | null>(null);
 let overlayReplayGeneration = 0;
 async function refreshOverlayReplay() {
@@ -586,13 +612,16 @@ const analysisToolboxMode = computed<
 >(() => {
    if (!analysisOverlayActive.value || inspectorTab.value !== "analysis")
       return null;
-   if (actorAssignmentMode.value && selectedAnalysisHit.value) return "actor";
-   if (ballRelabelEnabled.value) return "ball";
-   if (bboxRelabelEnabled.value && selectedOverlayTrackId.value !== null)
-      return "bbox";
-   return selectedOverlayTrackId.value !== null ? "track" : null;
+   if (analysisPanelPage.value === "hits" && selectedAnalysisHit.value)
+      return "actor";
+   if (analysisPanelPage.value === "ball") return "ball";
+   if (analysisPanelPage.value !== "players") return null;
+   return bboxRelabelEnabled.value && selectedOverlayTrackId.value !== null
+      ? "bbox"
+      : "track";
 });
 watch(editorSelectedAnalysisRunId, () => {
+   analysisPanelPage.value = "root";
    ballRelabelEnabled.value = false;
    bboxRelabelEnabled.value = false;
    actorAssignmentMode.value = false;
@@ -609,9 +638,17 @@ watch(overlayEvents, (events) => {
 });
 watch(inspectorTab, (tab) => {
    if (tab === "analysis") return;
+   analysisPanelPage.value = "root";
    ballRelabelEnabled.value = false;
    bboxRelabelEnabled.value = false;
    actorAssignmentMode.value = false;
+   if (tab !== "mapping") trackPopover.open = false;
+});
+watch(analysisPanelPage, (page) => {
+   ballRelabelEnabled.value = page === "ball";
+   actorAssignmentMode.value = page === "hits";
+   bboxRelabelEnabled.value = false;
+   if (page !== "players") selectedOverlayTrackId.value = null;
 });
 const selectedHistoricalSegmentId = computed(() =>
    selectedCurrentMask.value ? null : selectedRallyId.value,
@@ -781,7 +818,12 @@ function commandAvailability(action: AnnotationAction) {
       if (!cursor || !canMark.value)
          return { enabled: false, reason: "播放游標尚未確認" };
       const cursorValue = BigInt(cursor);
-      if (state.value === "OPEN")
+      if (
+         openDraftBlocksNewRally(
+            state.value,
+            displayAnnotation.value?.snapshot.active_submission_id,
+         )
+      )
          return { enabled: false, reason: "目前仍有正在編輯的片段" };
       const start =
          cursorValue > clipPreRollUs.value
@@ -1113,7 +1155,7 @@ function clearTimelineSelection() {
 
 async function selectHistoricalSegment(
    segmentId: string,
-   _targetCaptureTimeUs: string,
+   targetCaptureTimeUs: string,
 ) {
    const draft = annotationDrafts.value.find(
       (candidate) => candidate.id === segmentId,
@@ -1123,6 +1165,7 @@ async function selectHistoricalSegment(
       pinnedRallyId.value = draft.id;
       selectedTimelineItem.value = "mask";
       selectedKeyPointId.value = null;
+      if (targetCaptureTimeUs !== "0") await seekTimeline(targetCaptureTimeUs);
       return;
    }
    pinnedRallyId.value = segmentId;
@@ -1322,12 +1365,16 @@ async function cancelCorrection() {
    correctionOperationGeneration++;
    correctionCancelling.value = true;
    try {
-      await annotation.cancelCorrection(rallyId);
-      pinnedRallyId.value = rallyId;
-      selectedTimelineItem.value = "segment";
+      const restored = await annotation.cancelCorrection(rallyId);
+      pinnedRallyId.value = restored ? rallyId : null;
+      selectedTimelineItem.value = restored ? "segment" : null;
       selectedKeyPointId.value = null;
       await coach.refresh();
-      toast.success("已取消修正，原送出版本維持有效");
+      toast.success(
+         restored
+            ? "已取消修正，原送出版本維持有效"
+            : "草稿已不存在，已清除本機殘留",
+      );
    } catch (error) {
       toast.error(
          error instanceof Error ? error.message : "無法取消修正版草稿，請重試",
@@ -1371,6 +1418,39 @@ function closeConfirmAction() {
    deleteRallyId.value = null;
 }
 
+function clearDeletedRallySelection(rallyId: string) {
+   annotation.forgetRally(rallyId);
+   if (pinnedRallyId.value === rallyId) pinnedRallyId.value = null;
+   selectedTimelineItem.value = null;
+   selectedKeyPointId.value = null;
+}
+
+async function purgeRally(rallyId: string) {
+   if (rallyDeletePending.value) return;
+   rallyDeletePending.value = true;
+   try {
+      const receipt = await coachDomain.deleteRally(rallyId);
+      clearDeletedRallySelection(rallyId);
+      await Promise.all([loadMatch({ silent: true }), coach.refresh()]);
+      toast.success(
+         receipt.abortedJobCount > 0
+            ? "片段已刪除，處理工作已中止"
+            : "片段與分析資料已刪除",
+      );
+      for (const warning of receipt.cleanupWarnings) toast.warning(warning);
+   } catch (error) {
+      await Promise.all([loadMatch({ silent: true }), coach.refresh()]);
+      if (error instanceof GraphQLRequestError && error.code === "NOT_FOUND") {
+         clearDeletedRallySelection(rallyId);
+         toast.success("片段已刪除，已清除本機殘留");
+      } else {
+         toast.error(error instanceof Error ? error.message : "無法刪除片段");
+      }
+   } finally {
+      rallyDeletePending.value = false;
+   }
+}
+
 function confirmPendingAction() {
    const action = confirmAction.value;
    const submissionId = correctionSubmissionId.value;
@@ -1379,27 +1459,7 @@ function confirmPendingAction() {
    correctionSubmissionId.value = null;
    deleteRallyId.value = null;
    if (action === "rally-delete" && targetRallyId) {
-      void coachDomain
-         .deleteRally(targetRallyId)
-         .then(async (receipt) => {
-            annotation.forgetRally(targetRallyId);
-            pinnedRallyId.value = null;
-            selectedTimelineItem.value = null;
-            selectedKeyPointId.value = null;
-            await Promise.all([loadMatch({ silent: true }), coach.refresh()]);
-            toast.success(
-               receipt.abortedJobCount > 0
-                  ? "片段已刪除，處理工作已中止"
-                  : "片段與分析資料已刪除",
-            );
-            for (const warning of receipt.cleanupWarnings)
-               toast.warning(warning);
-         })
-         .catch((error) =>
-            toast.error(
-               error instanceof Error ? error.message : "無法刪除片段",
-            ),
-         );
+      void purgeRally(targetRallyId);
       return;
    }
    if (action === "next-left" || action === "next-right") {
@@ -1821,7 +1881,6 @@ function handleOverlayTrack(selection: {
             selectedAnalysisHitId.value,
             selection.trackId,
          );
-         actorAssignmentMode.value = false;
       }
       return;
    }
@@ -1836,15 +1895,6 @@ function handleOverlayTrack(selection: {
    trackPopover.y = rect
       ? Math.max(20, Math.min(rect.height - 250, selection.clientY - rect.top))
       : 80;
-}
-
-function toggleBallRelabel() {
-   ballRelabelEnabled.value = !ballRelabelEnabled.value;
-   if (ballRelabelEnabled.value) {
-      bboxRelabelEnabled.value = false;
-      actorAssignmentMode.value = false;
-      trackPopover.open = false;
-   }
 }
 
 function markBallMissing() {
@@ -1911,17 +1961,9 @@ function selectAnalysisHit(keyPointId: string) {
       overlayPlayer.value?.seekOverlayFrameIfBuffered(replayEventFrame(event));
 }
 
-function assignAnalysisHit(keyPointId: string) {
-   selectAnalysisHit(keyPointId);
-   actorAssignmentMode.value = true;
-   ballRelabelEnabled.value = false;
-   bboxRelabelEnabled.value = false;
-}
-
 function markAnalysisHitNoActor(keyPointId: string) {
    analysisReview.setContactActor(keyPointId, null);
    selectedAnalysisHitId.value = keyPointId;
-   actorAssignmentMode.value = false;
 }
 
 function clearAnalysisHitActor(keyPointId: string) {
@@ -1930,12 +1972,11 @@ function clearAnalysisHitActor(keyPointId: string) {
 }
 
 function closeAnalysisToolbox() {
-   if (analysisToolboxMode.value === "ball") ballRelabelEnabled.value = false;
-   else if (analysisToolboxMode.value === "bbox")
+   if (analysisToolboxMode.value === "bbox") {
       bboxRelabelEnabled.value = false;
-   else if (analysisToolboxMode.value === "actor")
-      actorAssignmentMode.value = false;
-   else selectedOverlayTrackId.value = null;
+      return;
+   }
+   analysisPanelPage.value = "root";
 }
 
 function handleMappingChanged() {
@@ -2232,21 +2273,15 @@ watch(
    },
 );
 onMounted(() => {
-   annotationScope.value?.focus({ preventScroll: true });
-   void loadMatch();
-   timelineRefreshTimer = setInterval(() => {
-      void refreshSelectedCapture();
-      if (
-         coach.data.value?.match.rallies.some(
-            (rally) =>
-               !["completed", "failed", "superseded"].includes(
-                  rally.processing_status,
-               ),
-         )
-      )
+    annotationScope.value?.focus({ preventScroll: true });
+    void loadMatch();
+    timelineRefreshTimer = setInterval(() => {
+      if (captureNeedsPolling(selectedCapture.value?.status))
+         void refreshSelectedCapture();
+      if (hasActiveRallyProcessing(coach.data.value?.match.rallies))
          void coach.refresh();
       maintainPlaybackWindow();
-   }, 2_500);
+    }, 2_500);
 });
 onBeforeUnmount(() => {
    if (timelineRefreshTimer) clearInterval(timelineRefreshTimer);
@@ -2315,7 +2350,7 @@ onBeforeUnmount(() => {
                      :analysis-run-id="editorOverlayAnalysisRunId"
                      :overlay-capture-time-us="visualPlayhead"
                      :overlay-clip-start-capture-time-us="
-                        activeOverlayClipStart
+                        editorOverlayClipStart
                      "
                      :overlay-interactive="
                         analysisOverlayActive &&
@@ -2329,7 +2364,7 @@ onBeforeUnmount(() => {
                         inspectorTab === 'analysis' && bboxRelabelEnabled
                      "
                      :selected-track-id="
-                        inspectorTab === 'analysis'
+                        inspectorTab === 'analysis' || inspectorTab === 'mapping'
                            ? selectedOverlayTrackId
                            : null
                      "
@@ -2503,34 +2538,22 @@ onBeforeUnmount(() => {
             >
                <template #analysis>
                   <AnnotationAnalysisPanel
+                     v-model:page="analysisPanelPage"
                      :analysis-run-id="editorSelectedAnalysisRunId"
                      :frame-index="
                         analysisOverlayActive ? currentOverlayFrame : -1
                      "
-                     :ball-relabel="ballRelabelEnabled"
-                     :bbox-relabel="bboxRelabelEnabled"
                      :ball-override="currentBallOverride?.state ?? null"
                      :ball-position="currentBallPosition"
                      :selected-track-id="selectedOverlayTrackId"
                      :selected-track-action="selectedOverlayAction"
                      :selected-hit-id="selectedAnalysisHitId"
-                     :selected-hit-has-override="selectedAnalysisHitHasOverride"
                      :has-action-override="currentActionHasOverride"
                      :has-bbox-override="currentBBoxHasOverride"
                      :hits="analysisHitItems"
                      :saving="analysisReview.pending.value"
                      :connection="analysisReview.connection.value"
-                     @toggle-ball-relabel="toggleBallRelabel"
-                     @mark-ball-missing="markBallMissing"
-                     @clear-ball="clearBallOverride"
-                     @set-action="setAnalysisAction"
-                     @clear-action="clearAnalysisAction"
-                     @start-bbox="toggleBBoxRelabel"
-                     @clear-bbox="clearBBoxOverride"
                      @select-hit="selectAnalysisHit"
-                     @assign-hit="assignAnalysisHit"
-                     @no-hit-actor="markAnalysisHitNoActor"
-                     @clear-hit-actor="clearAnalysisHitActor"
                   />
                </template>
             </AnnotationMatchInspector>

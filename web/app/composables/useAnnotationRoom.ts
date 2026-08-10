@@ -23,7 +23,7 @@ import {
   rebaseQueuedAnnotationCommand,
   type AnnotationClientObservation,
 } from '../lib/annotationCommandQueue'
-import { createGraphQLTransport } from '../lib/coreDomain'
+import { createGraphQLTransport, GraphQLRequestError } from '../lib/coreDomain'
 import type { PlaybackCursorInput } from '../lib/mediaModel'
 import type { AnnotationAction } from '../utils/annotationHotkeys'
 
@@ -407,6 +407,12 @@ export function useAnnotationRoom() {
       return result.cancelCorrectionDraft
     }
     catch (cause) {
+      if (cause instanceof GraphQLRequestError && cause.code === 'NOT_FOUND') {
+        forgetRally(rallyId)
+        await refreshActive()
+        error.value = null
+        return null
+      }
       error.value = cause instanceof Error ? cause.message : '無法取消修正版草稿'
       throw cause
     }
@@ -427,6 +433,12 @@ export function useAnnotationRoom() {
       return result.deleteProcessingRally
     }
     catch (cause) {
+      if (cause instanceof GraphQLRequestError && cause.code === 'NOT_FOUND') {
+        forgetRally(rallyId)
+        await refreshActive()
+        error.value = null
+        return null
+      }
       error.value = cause instanceof Error ? cause.message : '無法刪除處理中片段'
       throw cause
     }
@@ -440,6 +452,10 @@ export function useAnnotationRoom() {
   }
 
   function forgetRally(rallyId: string) {
+    // A hard-deleted Rally must not retain offline commands. Otherwise a later
+    // reconnect can replay them against the deleted id and surface a misleading
+    // `Rally was not found` after the deletion already succeeded.
+    replaceOutbox(outbox.value.filter(entry => entry.command.rally_id !== rallyId))
     if (snapshot.value?.rally_id === rallyId) snapshot.value = null
     const remaining = { ...processing.value }
     delete remaining[rallyId]
