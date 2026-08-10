@@ -22,6 +22,17 @@ export type SourceCompletion = {
   sourceKind: 'youtube' | 'youtube_live' | 'youtube_vod' | 'local_mp4'
 }
 
+export async function recordPermanentMediaIngestFailure(
+  database: PrismaClient,
+  input: { sourceJobId: string; captureSessionId: string; code: string },
+): Promise<void> {
+  await database.mediaIngestFailure.upsert({
+    create: input,
+    update: { captureSessionId: input.captureSessionId, code: input.code },
+    where: { sourceJobId: input.sourceJobId },
+  })
+}
+
 export async function claimStoppedMediaSourceWork(
   database: PrismaClient,
   owner: string,
@@ -253,11 +264,12 @@ export async function finalizeMediaSourceIfDrained(
     const program = capture.programs[0] ?? null
     if (capture.completionExpectedSegments > 0 && !program) return false
     if (program) {
-      const [readySegments, pendingSegments] = await Promise.all([
+      const [readySegments, failedSegments, pendingSegments] = await Promise.all([
         tx.dvrSegment.count({ where: { dvrProgramId: program.id, isGap: false, readyAt: { not: null } } }),
+        tx.mediaIngestFailure.count({ where: { captureSessionId: capture.id } }),
         tx.dvrSegment.count({ where: { dvrProgramId: program.id, readyAt: null } }),
       ])
-      if (readySegments < capture.completionExpectedSegments || pendingSegments > 0) return false
+      if (readySegments + failedSegments < capture.completionExpectedSegments || pendingSegments > 0) return false
     }
     const endedAt = new Date()
     const endCaptureUs = program?.liveEdgeUs ?? null

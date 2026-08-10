@@ -7,6 +7,7 @@ import { ingestEnvelope } from './media/ingest-handler.js'
 import { resolveCaptureSession, resolveProgramProfile } from './media/resolvers.js'
 import { createMediaSourceProcess } from './media/source-process.js'
 import { MediaSourceRuntime } from './media/source-runtime.js'
+import { recordPermanentMediaIngestFailure } from './media/source-work.js'
 import { OmeMonitorRuntime } from './media/ome-monitor.js'
 import type { WorkerComponentHealth } from './runtime-health.js'
 
@@ -86,7 +87,11 @@ export async function createMediaComposition() {
   const store = createMinioMediaObjectStore({ endpointUrl: config.MINIO_ENDPOINT, useTls: endpoint.protocol === 'https:', accessKey: config.MINIO_ACCESS_KEY, secretKey: config.MINIO_SECRET_KEY, bucket: config.MINIO_DVR_BUCKET, operationTimeoutMs: 30_000 })
   const artifactSource = new FinalizedFileArtifactSource({ maxInputBytes: 8_000_000_000n, maxInitBytes: 64_000_000n, maxMediaBytes: 8_000_000_000n, readTimeoutMs: 30_000 })
   const processJob = async (envelope: import('./media/indexer-runtime.js').MediaIngestEnvelope, signal: AbortSignal) => ingestEnvelope(envelope, { spoolRoot: config.MEDIA_SPOOL_DIR, bucket: config.MINIO_DVR_BUCKET, repository, store, source: artifactSource, profile: async (captureSessionId, observed) => resolveProgramProfile(db, captureSessionId, observed) }, signal)
-  const queue = createPgBossMediaRuntime(config.DATABASE_URL, processJob)
+  const queue = createPgBossMediaRuntime(
+    config.DATABASE_URL,
+    processJob,
+    failure => recordPermanentMediaIngestFailure(db, failure),
+  )
   const scanner = new MediaIndexerRuntime({ spoolRoot: config.MEDIA_SPOOL_DIR, queue: { send: (_name, payload) => queue.send(payload) }, resolveCapture: (path) => resolveCaptureSession(db, path), intervalMs: config.MEDIA_INDEXER_SCAN_INTERVAL_MS })
   const indexer = createMediaIndexerLifecycle({ queue, scanner, disconnect: async () => undefined })
   const sources = new MediaSourceRuntime({

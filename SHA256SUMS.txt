@@ -196,7 +196,7 @@ f42b50971a11ade2a92d53f49bce220b4ecfc12c8026bf6bb368bd6ae594ccc7  ./packages/db/
 58b248d55f8c83aa2bcd1d2415cce0e699cb21ddc35bc966e7fbfa15b00b17f1  ./packages/db/prisma/migrations/20260810190000_match_roster_position/migration.sql
 b1779995690ce6666907b34ce07ee7e25ada2476b16e75fdbf079a10f6b36d9a  ./packages/db/prisma/migrations/20260810195000_match_background_deletion/migration.sql
 99836963713b4f5b269ad49af0ed3d7b0b2e336115c2f92dc9ac683d139d0900  ./packages/db/prisma/migrations/migration_lock.toml
-80fca9872c955e7a49d3a4547f1bd133537b98724f4b69c210835d88cd331690  ./packages/db/prisma/schema.prisma
+f82b5bbbeb65b7823591fe70eae6376c8ada21694d81bd2086613f9498eccde9  ./packages/db/prisma/schema.prisma
 78e73cf4d8515dd4774e362b9f317ed2e569827c9db9d6cc1961a7c0a801e69e  ./packages/db/prisma/seed.ts
 5a4a2e4f502cb776e2f0d2c910f93a2da8d76252a69ee11501c577f4c51a5df0  ./packages/db/src/index.ts
 20d52bc9a2da946466544f105eeffd10b169534370a27ea255b5de8c11654f6c  ./packages/db/tests/annotation-receipt-migration.integration.test.ts
@@ -307,7 +307,7 @@ de29025147f181aec44ae214a244808707395a7c238b167163087cebd4fda429  ./server/src/r
 142c04e5598799c470a5acc5c5c063acb4d4797c3b3c900c2bd024ebf0b734b7  ./server/src/services/analysis-review.ts
 28f3a944d323770433043b24800a2ab5399dc7d7efe93739b8a3cb83e1104a6e  ./server/src/services/annotation-command.ts
 4dfdcfb0c292a5fd791ef7dd861545c9314c255d9d729b34780ef32475ddc27f  ./server/src/services/annotation-snapshot.ts
-db0a87eeb3effbe6b8b419be060b0e84a7bbc50c11c3dad5d9169d3c789206ff  ./server/src/services/capture-processing.ts
+7d8ed1ff9bf2c57a109775589b214993089cc4ea71070ceabdd593c28e55240b  ./server/src/services/capture-processing.ts
 58bcee4e4c0a9898bfba76ea1e055248b6bf780d413c9947f00bf093c551a0de  ./server/src/services/coach-analytics.ts
 bf23079465486e5ebf7b23558101b7fc38f5ae5320114a5de7cccd98e30db1dc  ./server/src/services/coach-dashboard.ts
 db2215c77a7e78d3e4edec95f92d372f946f8aaa86db94ae2447905f3725fa7a  ./server/src/services/coach-replay.ts
@@ -329,7 +329,7 @@ de047af4a271a189a41c36b7bcf8a6f9c36f88d4d75c4749b2aef19324c638eb  ./server/tests
 a6b2690b51a33a5ee67eef44768ff959878cf0ecd2dcee357fc2c8c6901cd560  ./server/tests/annotation-snapshot.integration.test.ts
 78672dd867783ab115202afc27bc879794b1f85ebee9e5b0c066ac69f560cb45  ./server/tests/annotation-state.test.ts
 e78b3d282fc84eaeea81fa758411bd4eac7e4816f98e4e357e96a41fad85ef11  ./server/tests/annotation-transport.test.ts
-40d8a2efc1947fc57cbb6fe571a8037a3a9ed36b3cfb1aaf5a2058d263831260  ./server/tests/capture-processing.integration.test.ts
+57e3c24aa5d5de8338bb98c974744ad7af88b0f8c9f74989107b655fea267b9b  ./server/tests/capture-processing.integration.test.ts
 f56038cbaebc45b23f5b241814665c52d880be91a78abc39a7b2c96bd74c97cd  ./server/tests/clip-timing-coverage.test.ts
 9675c7ad845dedfa7d3cdbabd328190e53750f7ef34dc18c6b50331983e8df13  ./server/tests/coach-dashboard.test.ts
 eb75e3735e93ec42d7f699b5569f8ba9b43c7a8b75f2a9c88ed1eeaccde4e53c  ./server/tests/core-domain.integration.test.ts
@@ -521,7 +521,7 @@ b770a1a8751fbd0874c93253cf2000eb56844b02b3aa02e6c93b6e7ae1756a18  ./web/public/i
 171436a2da06f75854e2f4c4b7f08c867fa88f3836c77e7ac6e1c62440a40006  ./web/vitest.config.ts
 9de706ed533cd9f73d6995c70b3d01d75a8d8d20d3aa6256b3338672318fdf0e  ./worker/README.md
 f47ec9ae13f701a0551728179990f30b4d8fb589ed0c2db563d54f7e5c80e8df  ./worker/package.json
-83fad071ad679b772cff852b0c271806d22e70a68747277da9644c7f4e919800  ./worker/src/composition.ts
+d2cdeca2f03cebdadbe0d121685c4c7ff28e36edd45ec6b7a95951bf24ba4aa1  ./worker/src/composition.ts
 9d9e88d63858e394ac5c7ff951b11cb8c3c55109dcc9681d640dd06b77468fb7  ./worker/src/index.ts
 bdb83690f22acbaaeba3142d41157b9f1acb6624b5cbfdf776630ce393d396c9  ./worker/src/lifecycle.ts
 9fbea720f2c3cd3a7b6bb6f22e30a6b18705504b2fdf863c59975c379c67d28e  ./worker/src/media/artifacts.ts
@@ -534,18 +534,18 @@ ed2285ac76cd3aeb33557b8f7f7c5f80125b0bd207ad38a1226e05c8f2ae6cff  ./worker/src/m
 d440f787973b1ad5f6b2457550b5087a31c51eb02b8f0936e9ab5cedf6839399  ./worker/src/media/ingest.ts
 3651f7e0c46b5b678de450f2366bed07af7bc27be81670e9c1c8001d99f044a0  ./worker/src/media/minio-object-store.ts
 dda39aca82de75e46d16802f8481514d612961a6a805ee1621ae24be7bd02487  ./worker/src/media/ome-monitor.ts
-1fc6e5651d58381c7c4ace2bc63d9dc0aad3a17cac44e756cfac3f7da5c5ec33  ./worker/src/media/prisma-ingest-repository.ts
+485bb6dcab8e0202d955e0cda9ed8e62e16984e03bc9cad27a4188a4cf9a1a2e  ./worker/src/media/prisma-ingest-repository.ts
 e6f2b68127f706b48f7d89f4dcc5e40d38b71c91eb7ca3698d274775f187a16b  ./worker/src/media/resolver.ts
 4590bb5a1a8c6fd3b75142175cfdfc3a129bc7161f0f72d5980c3d370b7db15d  ./worker/src/media/resolvers.ts
 d7e9d29bfc521a6db59ceac844956f31ce97c87c93c2baffef2a35e5ed2669a8  ./worker/src/media/runtime-config.ts
 8f0a7c3f8c163da69d5c7be0980cadfedbc6515477416fe2f0a4cc7e8f3c4f3d  ./worker/src/media/sample-index.ts
 091af4b2c732ff65c7b734d9840d627735dd5a33d57cbed352c5ab258c317c71  ./worker/src/media/source-process.ts
 629ba9be4e47dd5647a07b44e4c0304dad11ec2d1a47f8739176acbdcab43f56  ./worker/src/media/source-runtime.ts
-448e4b90305b372332b458bb1cf922eed29a8f842bb40ebaa432410ca0606e65  ./worker/src/media/source-work.ts
+04261314087551132a44d2c722cf5b2fb0e69564ee332ac6e1577275bfa4b136  ./worker/src/media/source-work.ts
 4b27e8aa77a6d9389034ee7992fa6ea0335241284e40735e99c27487a95cec67  ./worker/src/role-entry.ts
 8192a2e8dbd0842aa981e1825abe2a2ae90dad332fb8b4d5334433060761f5f8  ./worker/src/roles/analysis-ingest.ts
 a929e42700aab1f2982d7543340066e7745d97ac6aecef860e0daca3bf881efb  ./worker/src/roles/clip-worker.ts
-6015805887ab430ad5ea8b1185e15704e223929a221f29d1badcb78f49d95414  ./worker/src/roles/media-indexer.ts
+29162dfc0818ea2c1bcf90b96d3e2cf923963d857097500ee7e1315c68fd830c  ./worker/src/roles/media-indexer.ts
 ead1b4f44f242fa35912993cdf96c666b7901d20bbfd0850f9873e7d391cfa59  ./worker/src/roles/outbox-publisher.ts
 69fb80fdf0c3ce7c48c3439a3e6cc5ab91f00a00347a257d2a0943cc49225823  ./worker/src/roles/playback-packager.ts
 a18e78d8172e7d4b3ffaaf5fb636c6aca341417e3ebfd7f9baac64c496d2c9af  ./worker/src/runtime-health.ts
@@ -566,7 +566,7 @@ a76ccb934805be9462d943c1c5b52c91691a165b2844bbebc3778e1304dddf85  ./worker/tests
 4d9f19ceac7b316e26a2a5bfff4107862c12b187e3ae48effba0f7d2761cb2b1  ./worker/tests/ingest-handler.test.ts
 bfa399d43b02598604923086bb2902d9e983e2fcc549522ebb2fa5db9cc53ef0  ./worker/tests/ingest.test.ts
 c5157db191cff534fecdaf8b097863e5c6780830c6dc14a62976251c24c77a33  ./worker/tests/lifecycle.test.ts
-589043070a305ed352e85baf0805ddb2999dc6efba47a2d288887b7bc8f3d295  ./worker/tests/media-indexer.test.ts
+b1733c6e27cad1422b518e6f102efe5e3f30ef980100310c23ea5a662e6a91fd  ./worker/tests/media-indexer.test.ts
 21f9bcf3c0550db20031e82b06829d7c6d8d6981e9a4de7fa81e675c74712f4c  ./worker/tests/media-resolver.test.ts
 c59ad74e93b0bf867e0022bf10f40df03c7b1dfcfd077b59308d45a99431566d  ./worker/tests/minio-object-store.test.ts
 ae1cfe2d3ed2cd479f70eea2ddb1fe19619e5758caab08dea305183c1068da3a  ./worker/tests/outbox-publisher.test.ts
