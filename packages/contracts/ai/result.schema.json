@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/OWNER/volleyball-monitoring-ai/packages/contracts/ai/result/1.0.0",
-  "title": "Volleyball AI Analysis Result 1.0.0",
+  "$id": "https://github.com/OWNER/volleyball-monitoring-ai/packages/contracts/ai/result/1.1.0",
+  "title": "Volleyball AI Analysis Result 1.1.0",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -23,7 +23,7 @@
   ],
   "properties": {
     "schema_version": {
-      "const": "1.0.0"
+      "enum": ["1.0.0", "1.1.0"]
     },
     "analysis_id": {
       "$ref": "#/$defs/id"
@@ -450,6 +450,20 @@
       "properties": {
         "key_point_id": {
           "$ref": "#/$defs/id"
+        },
+        "source_key_point_id": {
+          "oneOf": [
+            { "$ref": "#/$defs/id" },
+            { "type": "null" }
+          ]
+        },
+        "anchor_origin": {
+          "enum": ["human_anchor", "ai_detected"]
+        },
+        "detection_confidence": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
         },
         "sequence_index": {
           "type": "integer",

@@ -27,6 +27,7 @@ const props = withDefaults(defineProps<{
   actionCorrections?: Record<number, string>
   playerBboxCorrections?: Record<number, Record<number, OverlayFrameBBox>>
   contactActorCorrections?: Record<string, number | null>
+  contactTimeCorrections?: Record<string, number>
   identityLabels?: Record<number, string>
   overlayEvents?: ReplayContactEvent[]
   overlayTracks?: OverlayTrackMetadata[]
@@ -49,6 +50,7 @@ const props = withDefaults(defineProps<{
   actionCorrections: () => ({}),
   playerBboxCorrections: () => ({}),
   contactActorCorrections: () => ({}),
+  contactTimeCorrections: () => ({}),
   identityLabels: () => ({}),
   overlayEvents: () => [],
   overlayTracks: () => [],
@@ -250,6 +252,7 @@ defineExpose({ overlayFrameCaptureTime, previewCaptureTimeIfBuffered, recoverPla
       :action-corrections="actionCorrections"
       :player-bbox-corrections="playerBboxCorrections"
       :contact-actor-corrections="contactActorCorrections"
+      :contact-time-corrections="contactTimeCorrections"
       :identity-labels="identityLabels"
       :tracks="overlayTracks"
       :team-labels="overlayTeamLabels"

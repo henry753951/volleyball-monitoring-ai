@@ -29,7 +29,7 @@ export interface HotkeyCommandDefinition {
 }
 
 export const ANNOTATION_COMMANDS = [
-  { action: 'service', group: 'annotation', label: '發球', description: '開始新的回合並記錄發球時刻' },
+  { action: 'service', group: 'annotation', label: '發球 / 結束', description: '第一次按下開始回合；游標移到最後一球後再次按下即可結束' },
   { action: 'contact', group: 'annotation', label: '擊球', description: '記錄目前畫面的擊球時刻' },
   {
     action: 'close_left',

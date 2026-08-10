@@ -1,5 +1,5 @@
 {
-  "schema_version": "1.1.0",
+  "schema_version": "1.2.0",
   "analysis_run_id": "85000000-0000-4000-8000-000000000002",
   "revision": "8",
   "ball_corrections": [
@@ -13,5 +13,8 @@
   ],
   "contact_actor_corrections": [
     { "key_point_id": "85000000-0000-4000-8000-000000000003", "track_id": 5, "revision": "8" }
+  ],
+  "contact_time_corrections": [
+    { "key_point_id": "85000000-0000-4000-8000-000000000003", "frame_index": "31521", "revision": "8" }
   ]
 }

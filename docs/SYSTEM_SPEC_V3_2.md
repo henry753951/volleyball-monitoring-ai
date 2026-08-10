@@ -49,8 +49,8 @@
 
 | 預設介面顯示 | 預設快捷鍵 | 固定語意 | 重要限制 |
 |---|---:|---|---|
-| `Z 發球` | `Z` | 建立新 rally，並在目前已呈現影片 frame 建立第一個人工 `service` key point | 已有未提交 rally 時不可另開新 rally |
-| `X 擊球` | `X` | 在目前已呈現影片 frame 建立一般 `contact` key point | 播放器正在 seek、cursor stale 或位於 gap 時不可建立 |
+| `Z 發球／結束` | `Z` | 無 active draft 時建立 rally 與人工 `service`；同一 open rally 內再次按下則在目前 authoritative frame 建立 terminal `contact`，outcome 先設 `unknown` | 第二次 Z 必須位於 service 之後；播放器正在 seek、cursor stale 或位於 gap 時不可建立 |
+| `X 擊球` | `X` | 選擇性地在目前已呈現影片 frame 建立人工 `contact` key point；不再是初次送出的必要步驟 | 播放器正在 seek、cursor stale 或位於 gap 時不可建立 |
 | 播放／暫停 | `Space` | 切換目前影片播放狀態 | 只控制播放器，不建立 key point |
 | `< 左側得分` | `<` | 以單一 `CLOSE_RALLY` atomically把目前server-confirmed最後key point標為terminal，並將rally-level outcome設為`resolved/left` | Command必須帶`target_key_point_id`；若多人協作後它已不是最後一點，回傳revision conflict；不建立新時間或得分事件 |
 | `> 右側得分` | `>` | 同樣atomically關閉rally並將rally-level outcome設為`resolved/right` | 同上；方向鍵仍只供逐幀／播放器控制 |
@@ -171,7 +171,7 @@
 | High | 同一場次可能停止再啟動錄影；單一 capture session假設會使 timeline斷裂 | Match可有多個 `CaptureSession`，但 baseline標註 room指定一個 active capture；跨 capture replay由 match timeline聚合。 |
 | High | 只保存 callback token，未定義 retry/idempotency | token是 job-scoped且有TTL，可重試；每次 callback傳 `callback_id`，中央以唯一索引與payload checksum去重。 |
 | High | 只定義 AI complete callback，無明確 accepted/failed行為 | SDK與REST合約定義 `accepted`、optional `progress`、`failed`、`completed`；progress不影響 correctness，failed保存可重試分類。 |
-| High | AI event count沒有明確與 key point 對應規則 | Required invariant：每個 submission key point恰好一個分析 event；segment數通常為 `max(event_count-1, 0)`，只有service且terminal的service error合法為0段。 |
+| High | AI event count沒有明確與 key point 對應規則 | Result 1.0維持每個submission key point恰好一個event；Result 1.1則要求每個人工key point依序且恰好被`source_key_point_id`引用一次，並允許其間加入`anchor_origin=ai_detected`的提案。所有event與segment仍須連續、有序。 |
 | High | `frame_pos`/`court_pos` 缺失時沒有語意 | 兩者為 nullable；`quality_flags`與`association_state`表達缺失，禁止以 `(0,0)` 代表 unknown。 |
 | High | Overlay binary schema若把court座標量化到uint16，無法表示場外負值/大於1 | `frame_pos/frame_bbox`可uint16量化；`court_pos`使用float32，允許場外值。 |
 | High | 沒有 API authorization boundary | 新增角色/permission基線：administrator、operator、annotator、coach/viewer、integration service；MinIO與AI token永不下發瀏覽器。 |
@@ -842,17 +842,19 @@ VOIDED
 
 ## 9.2 完整操作
 
-### Z - 發球
+### Z - 發球／結束
 
 1. 播放器 cursor 必須 `ready` 且不在 gap。
 2. Client送單一且可重試的 `CREATE_SERVICE_KEY_POINT` command；`marker_kind=service`由command語意固定。
 3. Server解析 authoritative frame，建立 RallyDraft與 sequence 0 key point。
 4. Timeline開始顯示灰色 open mask。
 5. 若已有 active draft，拒絕，不自動關閉前一 rally。
+6. 同一個一般 `OPEN` draft 中再次按 Z，Client 送帶 `terminal_outcome=unknown` 的 `CREATE_CONTACT_KEY_POINT`；Server 在同一 transaction 解析 authoritative cursor、建立最後一個 terminal contact、把 Rally 改為 `READY`，不要求先按 X。
+7. 第二次 Z 必須嚴格位於 service 與既有最後 key point 之後。通過 DVR window、segment、epoch 與 sample-index 驗證的游標可延伸目前 open mask，不受舊的 `last_point + clip_post_roll` 人工上限限制。
 
 ### X - 擊球
 
-1. 僅 `OPEN` 可新增。
+1. 僅 `OPEN` 可新增，且為選擇性的人工補點／修正工具。
 2. 每次送一個 `contact` marker。
 3. Server依 canonical time排序並產生 revision。
 4. 多人幾乎同時打同一球時保留兩點並標 `possible_duplicate`，不靜默刪除。
@@ -950,7 +952,7 @@ WebSocket用於高頻 annotation command、ack、revision、presence與處理通
 | kind | 主要 payload | 說明 |
 |---|---|---|
 | `CREATE_SERVICE_KEY_POINT` | `playback_cursor` | Z；建立 rally與service marker |
-| `CREATE_CONTACT_KEY_POINT` | `playback_cursor` | X |
+| `CREATE_CONTACT_KEY_POINT` | `playback_cursor`，可選 `terminal_outcome=unknown` | X 建立一般接觸點；第二次 Z 原子建立 terminal 接觸點並使回合 READY |
 | `CLOSE_RALLY` | `target_key_point_id` + strict outcome union | `<`／`>`／`?`；atomically terminalize最後key point並保存rally-level outcome；不帶新時間／frame |
 | `MOVE_KEY_POINT` | `key_point_id`, `playback_cursor` | drag/frame step後由server重新解析authoritative anchor |
 | `DELETE_KEY_POINT` | `key_point_id` | draft-only |

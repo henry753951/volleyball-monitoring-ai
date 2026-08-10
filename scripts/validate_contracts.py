@@ -40,11 +40,20 @@ def assert_ai_invariants(job: dict, result: dict) -> None:
 
     points = job['key_points']
     events = result['contact_events']
-    assert len(points) == len(events)
+    if result['schema_version'] == '1.0.0':
+        human_events = events
+        assert len(points) == len(events)
+    else:
+        human_events = [event for event in events if event.get('anchor_origin') == 'human_anchor']
+        assert len(points) == len(human_events)
+        for event in events:
+            if event.get('anchor_origin') == 'ai_detected':
+                assert event.get('source_key_point_id') is None
+                assert event['marker_kind'] == 'contact'
+                assert not event['is_terminal']
     assert len(result['path_segments']) == max(len(events) - 1, 0)
-    for point, event in zip(points, events, strict=True):
-        assert event['key_point_id'] == point['key_point_id']
-        assert event['sequence_index'] == point['sequence_index']
+    for point, event in zip(points, human_events, strict=True):
+        assert event.get('source_key_point_id', event['key_point_id']) == point['key_point_id']
         assert event['marker_kind'] == point['marker_kind']
         assert event['is_terminal'] == point['is_terminal']
         assert event['anchor_frame_index'] == point['clip_frame_index']

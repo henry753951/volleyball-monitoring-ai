@@ -33,6 +33,7 @@ const props = withDefaults(defineProps<{
   actionCorrections?: Record<number, string>
   playerBboxCorrections?: Record<number, Record<number, OverlayFrameBBox>>
   contactActorCorrections?: Record<string, number | null>
+  contactTimeCorrections?: Record<string, number>
   identityLabels?: Record<number, string>
 }>(), {
   chunk: null,
@@ -49,6 +50,7 @@ const props = withDefaults(defineProps<{
   actionCorrections: () => ({}),
   playerBboxCorrections: () => ({}),
   contactActorCorrections: () => ({}),
+  contactTimeCorrections: () => ({}),
   identityLabels: () => ({}),
 })
 
@@ -116,6 +118,7 @@ function draw() {
     actionCorrections: props.actionCorrections,
     playerBBoxCorrections: liveBBoxCorrections(),
     contactActorCorrections: props.contactActorCorrections,
+    contactTimeCorrections: props.contactTimeCorrections,
     identityLabels: props.identityLabels,
     selectedTrackId: props.selectedTrackId,
   })
@@ -228,6 +231,7 @@ watch(() => [
   props.actionCorrections,
   props.playerBboxCorrections,
   props.contactActorCorrections,
+  props.contactTimeCorrections,
   props.identityLabels,
   props.selectedTrackId,
   props.bboxRelabel,

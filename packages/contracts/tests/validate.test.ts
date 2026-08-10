@@ -87,6 +87,7 @@ describe("golden contract fixtures", () => {
     expect(() => parseAnalysisReviewPatch({ ...patch, operations: [{ ...patch.operations[1], action: "Serving" }] })).toThrow();
     expect(() => parseAnalysisReviewPatch({ ...patch, operations: [{ op: "set_player_bbox", frame_index: "1", track_id: 2, frame_bbox: { x1: 20, y1: 20, x2: 10, y2: 30 } }] })).toThrow();
     expect(() => parseAnalysisReviewPatch({ ...patch, operations: [{ op: "set_contact_actor", key_point_id: "not-a-uuid", track_id: null }] })).toThrow();
+    expect(() => parseAnalysisReviewPatch({ ...patch, operations: [{ op: "set_contact_time", key_point_id: "85000000-0000-4000-8000-000000000003", frame_index: "-1" }] })).toThrow();
     expect(() => parseAnalysisReviewPatch({ ...patch, operations: [] })).toThrow();
   });
 
@@ -164,6 +165,28 @@ describe("golden contract fixtures", () => {
     expect(() => parseAnnotationCommandResponse(missingCreated)).toThrow();
     expect(() => parseAnnotationCommand(load("examples/annotation/create-service-non-uuid.invalid.json"))).toThrow();
     expect(() => parseAnnotationCommand(load("examples/annotation/create-service-noncanonical-room.invalid.json"))).toThrow();
+  });
+
+  it("accepts the additive terminal outcome only on contact commands", () => {
+    const service = load("examples/annotation/create-service.json");
+    const terminal = {
+      ...service,
+      base_revision: "1",
+      kind: "CREATE_CONTACT_KEY_POINT",
+      payload: { ...service.payload, terminal_outcome: "unknown" },
+    };
+    expect(parseAnnotationCommand(terminal)).toMatchObject({
+      kind: "CREATE_CONTACT_KEY_POINT",
+      payload: { terminal_outcome: "unknown" },
+    });
+    expect(() => parseAnnotationCommand({
+      ...service,
+      payload: { ...service.payload, terminal_outcome: "unknown" },
+    })).toThrow();
+    expect(() => parseAnnotationCommand({
+      ...terminal,
+      payload: { ...terminal.payload, terminal_outcome: "left" },
+    })).toThrow();
   });
 
   it("parses every v2 server-message discriminator without a record fallback", () => {

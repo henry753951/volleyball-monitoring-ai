@@ -45,8 +45,8 @@ describe('draft annotation command availability', () => {
     }).enabled).toBe(false)
   })
 
-  it('blocks all draft mutations after the rally is closed', () => {
+  it('blocks contact edits but keeps outcome selection available after Z closes the rally', () => {
     expect(draftCommandAvailability({ ...openDraft, action: 'contact', state: 'READY' }).enabled).toBe(false)
-    expect(draftCommandAvailability({ ...openDraft, action: 'close_right', state: 'READY' }).enabled).toBe(false)
+    expect(draftCommandAvailability({ ...openDraft, action: 'close_right', state: 'READY' })).toEqual({ enabled: true, reason: '' })
   })
 })

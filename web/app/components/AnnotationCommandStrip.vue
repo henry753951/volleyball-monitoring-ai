@@ -10,8 +10,9 @@ const props = withDefaults(defineProps<{
   lastKeyPoint: boolean
   commandReady?: boolean
   pendingCommand?: boolean
+  serviceMode?: 'start' | 'end'
   availability?: Partial<Record<AnnotationAction, { enabled: boolean; reason: string }>>
-}>(), { commandReady: true, pendingCommand: false })
+}>(), { commandReady: true, pendingCommand: false, serviceMode: 'start' })
 const emit = defineEmits<{ action: [AnnotationAction]; settings: [] }>()
 const visibleCommands = ANNOTATION_COMMANDS.filter(command => command.action !== 'submit')
 
@@ -22,8 +23,13 @@ function reason(action: AnnotationAction) {
   if (props.commandReady === false) return '標記暫時不可用'
   if (action === 'service' && (!['IDLE', 'READY', 'SUBMITTED', 'VOIDED'].includes(props.state) || !props.canMark)) return !['IDLE', 'READY', 'SUBMITTED', 'VOIDED'].includes(props.state) ? '目前片段尚未關閉' : '游標尚未確認'
   if (action === 'contact' && (props.state !== 'OPEN' || !props.canMark)) return props.state !== 'OPEN' ? '尚未開始片段' : '游標尚未確認'
-  if (action.startsWith('close_') && (props.state !== 'OPEN' || !props.lastKeyPoint)) return props.state !== 'OPEN' ? '尚未開始片段' : '沒有可結束的擊球點'
+  if (action.startsWith('close_') && (!['OPEN', 'READY'].includes(props.state) || !props.lastKeyPoint)) return !['OPEN', 'READY'].includes(props.state) ? '尚未開始片段' : '沒有可結束的擊球點'
   return ''
+}
+
+function label(action: AnnotationAction, fallback: string) {
+  if (action !== 'service') return fallback
+  return props.serviceMode === 'end' ? '結束' : '發球'
 }
 </script>
 
@@ -31,9 +37,9 @@ function reason(action: AnnotationAction) {
   <div class="command-strip" aria-label="標記工具列">
     <template v-for="command in visibleCommands" :key="command.action">
       <i v-if="command.action === 'close_left'" class="command-divider" aria-hidden="true" />
-      <UiButton variant="secondary" :class="[`command-${command.action}`, { 'command-primary': command.action === 'service', 'command-mark': command.action === 'contact', 'command-outcome': command.action.startsWith('close_') }]" :disabled="Boolean(reason(command.action))" :title="reason(command.action) || command.label" @click="emit('action', command.action)">
+      <UiButton variant="secondary" :class="[`command-${command.action}`, { 'command-primary': command.action === 'service', 'command-mark': command.action === 'contact', 'command-outcome': command.action.startsWith('close_') }]" :disabled="Boolean(reason(command.action))" :title="reason(command.action) || label(command.action, command.label)" @click="emit('action', command.action)">
         <UiKbd>{{ formatBindingForDisplay(bindings[command.action] ?? '') }}</UiKbd>
-        <span>{{ command.label }}</span>
+        <span>{{ label(command.action, command.label) }}</span>
       </UiButton>
     </template>
     <i class="command-divider" aria-hidden="true" />

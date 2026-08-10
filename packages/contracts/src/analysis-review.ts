@@ -1,4 +1,4 @@
-export const ANALYSIS_REVIEW_SCHEMA_VERSION = '1.1.0' as const
+export const ANALYSIS_REVIEW_SCHEMA_VERSION = '1.2.0' as const
 
 export const ANALYSIS_REVIEW_ACTIONS = [
   'Waiting',
@@ -40,6 +40,12 @@ export interface AnalysisContactActorCorrection {
   revision: string
 }
 
+export interface AnalysisContactTimeCorrection {
+  key_point_id: string
+  frame_index: string
+  revision: string
+}
+
 export interface AnalysisReviewState {
   schema_version: typeof ANALYSIS_REVIEW_SCHEMA_VERSION
   analysis_run_id: string
@@ -48,6 +54,7 @@ export interface AnalysisReviewState {
   action_corrections: AnalysisActionCorrection[]
   player_bbox_corrections: AnalysisPlayerBBoxCorrection[]
   contact_actor_corrections: AnalysisContactActorCorrection[]
+  contact_time_corrections: AnalysisContactTimeCorrection[]
 }
 
 export type AnalysisReviewOperation =
@@ -60,6 +67,8 @@ export type AnalysisReviewOperation =
   | { op: 'clear_player_bbox_override'; frame_index: string; track_id: number }
   | { op: 'set_contact_actor'; key_point_id: string; track_id: number | null }
   | { op: 'clear_contact_actor_override'; key_point_id: string }
+  | { op: 'set_contact_time'; key_point_id: string; frame_index: string }
+  | { op: 'clear_contact_time_override'; key_point_id: string }
 
 export interface AnalysisReviewPatch {
   schema_version: typeof ANALYSIS_REVIEW_SCHEMA_VERSION
@@ -116,6 +125,15 @@ export function parseAnalysisReviewPatch(value: unknown): AnalysisReviewPatch {
     }
     if (operation.op === 'clear_contact_actor_override') {
       if (typeof operation.key_point_id !== 'string' || !UUID.test(operation.key_point_id)) throw new TypeError('invalid contact actor correction')
+      continue
+    }
+    if (operation.op === 'set_contact_time') {
+      if (typeof operation.key_point_id !== 'string' || !UUID.test(operation.key_point_id)
+        || !validFrameIndex(operation.frame_index)) throw new TypeError('invalid contact time correction')
+      continue
+    }
+    if (operation.op === 'clear_contact_time_override') {
+      if (typeof operation.key_point_id !== 'string' || !UUID.test(operation.key_point_id)) throw new TypeError('invalid contact time correction')
       continue
     }
     if (!validFrameIndex(operation.frame_index)) throw new TypeError('invalid analysis review operation')

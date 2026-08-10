@@ -1,7 +1,7 @@
 import { OVERLAY_BALL_FLAG, OVERLAY_PLAYER_FLAG, type BrowserOverlayChunk } from '@volleyball-monitoring/contracts'
 import { describe, expect, it } from 'vitest'
 import type { ReplayContactEvent } from '~/lib/coachDomain'
-import { hitTestOverlayTrack, overlayCanvasPointToVideo, resolveEffectiveContactActor, resolveEffectiveHitPosition, resolveEventActorFromResult, resolveVideoContentRect, trackColor } from './volleyballOverlayRenderer'
+import { hitTestOverlayTrack, overlayCanvasPointToVideo, replayEventFrame, resolveEffectiveContactActor, resolveEffectiveHitPosition, resolveEventActorFromResult, resolveVideoContentRect, trackColor } from './volleyballOverlayRenderer'
 
 const chunk: BrowserOverlayChunk = {
   schemaVersion: 10_000,
@@ -86,5 +86,10 @@ describe('volleyball overlay geometry', () => {
   it('recomputes automatic ownership from a corrected hit position but preserves manual none', () => {
     expect(resolveEventActorFromResult(event, { x: 750, y: 250 }, 1_000, 500)).toBe(2)
     expect(resolveEffectiveContactActor({ ballCorrections: {}, chunk: null, contactActorCorrections: { [event.key_point_id]: null }, playerBBoxCorrections: {}, videoWidth: 1_000, videoHeight: 500 }, event)).toBeNull()
+  })
+
+  it('uses the sparse contact-time correction as the effective overlay frame', () => {
+    expect(replayEventFrame(event)).toBe(12)
+    expect(replayEventFrame(event, { [event.key_point_id]: 14 })).toBe(14)
   })
 })

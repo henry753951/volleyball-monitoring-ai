@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/OWNER/volleyball-monitoring-ai/packages/contracts/annotation/realtime/2.1.0",
-  "title": "Annotation Realtime Protocol 2.1.0",
-  "description": "2.1.0 adds a non-canonical soft-lock intent while retaining every 2.0.0 annotation command and server message. HTTP upgrade authenticates the user and binds the device session. CLOSE_RALLY atomically terminalizes the server-confirmed last key point and records the rally-level outcome without creating a new time or score event.",
+  "$id": "https://github.com/OWNER/volleyball-monitoring-ai/packages/contracts/annotation/realtime/2.2.0",
+  "title": "Annotation Realtime Protocol 2.2.0",
+  "description": "2.2.0 adds the optional CREATE_CONTACT_KEY_POINT terminal_outcome=unknown flow used by the second Z; ordinary 2.0.0 commands and the 2.1.0 non-canonical soft-lock intent remain compatible. Terminal contact creation resolves the current authoritative playback cursor and makes the rally READY in one transaction.",
   "allOf": [
     {
       "if": { "required": ["command_id"] },
@@ -173,7 +173,8 @@
           "additionalProperties": false,
           "required": ["playback_cursor"],
           "properties": {
-            "playback_cursor": { "$ref": "#/$defs/playback_cursor" }
+            "playback_cursor": { "$ref": "#/$defs/playback_cursor" },
+            "terminal_outcome": { "const": "unknown" }
           }
         }
       }

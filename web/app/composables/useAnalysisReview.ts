@@ -20,7 +20,8 @@ function operationKey(operation: AnalysisReviewOperation) {
   if (operation.op === 'set_ball_position' || operation.op === 'mark_ball_missing' || operation.op === 'clear_ball_override') return `ball:${operation.frame_index}`
   if (operation.op === 'set_action' || operation.op === 'clear_action_override') return `action:${operation.frame_index}:${operation.track_id}`
   if (operation.op === 'set_player_bbox' || operation.op === 'clear_player_bbox_override') return `bbox:${operation.frame_index}:${operation.track_id}`
-  return `actor:${operation.key_point_id}`
+  if (operation.op === 'set_contact_actor' || operation.op === 'clear_contact_actor_override') return `actor:${operation.key_point_id}`
+  return `contact-time:${operation.key_point_id}`
 }
 
 export function useAnalysisReview(analysisRunId: MaybeRefOrGetter<string | null>) {
@@ -30,6 +31,7 @@ export function useAnalysisReview(analysisRunId: MaybeRefOrGetter<string | null>
   const actionCorrections = shallowRef(new Map<string, AnalysisReviewAction>())
   const playerBBoxCorrections = shallowRef(new Map<string, AnalysisFrameBBox>())
   const contactActorCorrections = shallowRef(new Map<string, number | null>())
+  const contactTimeCorrections = shallowRef(new Map<string, number>())
   const pending = ref(false)
   const error = shallowRef<Error | null>(null)
   const connection = ref<'idle' | 'connecting' | 'ready' | 'offline'>('idle')
@@ -48,6 +50,7 @@ export function useAnalysisReview(analysisRunId: MaybeRefOrGetter<string | null>
     const actions = new Map(state.action_corrections.map(item => [frameTrackKey(item.frame_index, item.track_id), item.action]))
     const bboxes = new Map(state.player_bbox_corrections.map(item => [frameTrackKey(item.frame_index, item.track_id), item.frame_bbox]))
     const actors = new Map(state.contact_actor_corrections.map(item => [item.key_point_id, item.track_id]))
+    const contactTimes = new Map(state.contact_time_corrections.map(item => [item.key_point_id, Number(item.frame_index)]))
     // A remote invalidation may arrive while this client still has an unsent
     // optimistic edit. Reapply the compact local queue after replacing state.
     for (const operation of queued.values()) {
@@ -59,12 +62,15 @@ export function useAnalysisReview(analysisRunId: MaybeRefOrGetter<string | null>
       else if (operation.op === 'set_player_bbox') bboxes.set(frameTrackKey(operation.frame_index, operation.track_id), operation.frame_bbox)
       else if (operation.op === 'clear_player_bbox_override') bboxes.delete(frameTrackKey(operation.frame_index, operation.track_id))
       else if (operation.op === 'set_contact_actor') actors.set(operation.key_point_id, operation.track_id)
-      else actors.delete(operation.key_point_id)
+      else if (operation.op === 'clear_contact_actor_override') actors.delete(operation.key_point_id)
+      else if (operation.op === 'set_contact_time') contactTimes.set(operation.key_point_id, Number(operation.frame_index))
+      else contactTimes.delete(operation.key_point_id)
     }
     ballCorrections.value = balls
     actionCorrections.value = actions
     playerBBoxCorrections.value = bboxes
     contactActorCorrections.value = actors
+    contactTimeCorrections.value = contactTimes
     revision.value = state.revision
   }
 
@@ -204,6 +210,14 @@ export function useAnalysisReview(analysisRunId: MaybeRefOrGetter<string | null>
     const next = new Map(contactActorCorrections.value); next.delete(keyPointId); contactActorCorrections.value = next
     queue({ op: 'clear_contact_actor_override', key_point_id: keyPointId })
   }
+  function setContactTime(keyPointId: string, frameIndex: number) {
+    contactTimeCorrections.value = new Map(contactTimeCorrections.value).set(keyPointId, frameIndex)
+    queue({ op: 'set_contact_time', key_point_id: keyPointId, frame_index: String(frameIndex) })
+  }
+  function clearContactTimeOverride(keyPointId: string) {
+    const next = new Map(contactTimeCorrections.value); next.delete(keyPointId); contactTimeCorrections.value = next
+    queue({ op: 'clear_contact_time_override', key_point_id: keyPointId })
+  }
 
   watch(() => toValue(analysisRunId), async (id) => {
     generation += 1
@@ -220,6 +234,7 @@ export function useAnalysisReview(analysisRunId: MaybeRefOrGetter<string | null>
     actionCorrections.value = new Map()
     playerBBoxCorrections.value = new Map()
     contactActorCorrections.value = new Map()
+    contactTimeCorrections.value = new Map()
     error.value = null
     flushRetryAttempt = 0
     connection.value = id ? 'connecting' : 'idle'
@@ -254,6 +269,7 @@ export function useAnalysisReview(analysisRunId: MaybeRefOrGetter<string | null>
     ballCorrections: readonly(ballCorrections),
     connection: readonly(connection),
     contactActorCorrections: readonly(contactActorCorrections),
+    contactTimeCorrections: readonly(contactTimeCorrections),
     error: readonly(error),
     pending: readonly(pending),
     playerBBoxCorrections: readonly(playerBBoxCorrections),
@@ -261,11 +277,13 @@ export function useAnalysisReview(analysisRunId: MaybeRefOrGetter<string | null>
     clearActionOverride,
     clearBallOverride,
     clearContactActorOverride,
+    clearContactTimeOverride,
     clearPlayerBBoxOverride,
     markBallMissing,
     setAction,
     setBallPosition,
     setContactActor,
+    setContactTime,
     setPlayerBBox,
   }
 }

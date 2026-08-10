@@ -42,13 +42,20 @@ class FixtureResultBuilder:
             }
         )
 
-        templates = payload["contact_events"]
+        templates = [
+            event
+            for event in payload["contact_events"]
+            if event.get("anchor_origin", "human_anchor") == "human_anchor"
+        ]
         events: list[dict] = []
         for index, point in enumerate(job.key_points):
             event = copy.deepcopy(templates[min(index, len(templates) - 1)])
             event.update(
                 {
                     "key_point_id": point.key_point_id,
+                    "source_key_point_id": point.key_point_id,
+                    "anchor_origin": "human_anchor",
+                    "detection_confidence": None,
                     "sequence_index": index,
                     "marker_kind": point.marker_kind,
                     "is_terminal": point.is_terminal,

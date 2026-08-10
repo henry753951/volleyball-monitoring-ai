@@ -566,38 +566,38 @@ model PlaybackWindowSegment {
 }
 
 model Rally {
-  id                   String                @id @default(uuid()) @db.Uuid
-  matchId              String                @db.Uuid
-  setId                String                @db.Uuid
-  dvrProgramId         String                @db.Uuid
-  sideAssignmentId     String                @db.Uuid
-  sideAssignmentReversed Boolean             @default(false)
-  ordinal              Int
-  displaySetNumber     Int                   @default(1)
-  displayOrdinal       Int                   @default(1)
-  annotationRevision   BigInt                @default(0)
-  annotationStatus     AnnotationStatus      @default(OPEN)
-  processingStatus     ProcessingStatus      @default(IDLE)
-  scoreResolutionState ScoreResolutionState  @default(PENDING)
-  scoringCourtSide     CourtSide?
-  scoringTeamId        String?               @db.Uuid
-  leftScoreBefore      Int?
-  rightScoreBefore     Int?
-  leftScoreAfter       Int?
-  rightScoreAfter      Int?
-  activeSubmissionId   String?               @unique @db.Uuid
-  createdAt            DateTime              @default(now())
-  updatedAt            DateTime              @updatedAt
-  voidedAt             DateTime?
-  match                Match                 @relation(fields: [matchId], references: [id], onDelete: Cascade)
-  set                  MatchSet              @relation(fields: [setId], references: [id], onDelete: Restrict)
-  program              DvrProgram            @relation(fields: [dvrProgramId], references: [id], onDelete: Restrict)
-  sideAssignment       CourtSideAssignment   @relation(fields: [sideAssignmentId], references: [id], onDelete: Restrict)
-  scoringTeam          Team?                 @relation("RallyScoringTeam", fields: [scoringTeamId], references: [id], onDelete: Restrict)
-  activeSubmission     RallySubmission?      @relation("ActiveSubmission", fields: [activeSubmissionId], references: [id], onDelete: SetNull)
-  keyPoints            KeyPoint[]
-  operations           AnnotationOperation[]
-  submissions          RallySubmission[]     @relation("RallySubmissions")
+  id                     String                @id @default(uuid()) @db.Uuid
+  matchId                String                @db.Uuid
+  setId                  String                @db.Uuid
+  dvrProgramId           String                @db.Uuid
+  sideAssignmentId       String                @db.Uuid
+  sideAssignmentReversed Boolean               @default(false)
+  ordinal                Int
+  displaySetNumber       Int                   @default(1)
+  displayOrdinal         Int                   @default(1)
+  annotationRevision     BigInt                @default(0)
+  annotationStatus       AnnotationStatus      @default(OPEN)
+  processingStatus       ProcessingStatus      @default(IDLE)
+  scoreResolutionState   ScoreResolutionState  @default(PENDING)
+  scoringCourtSide       CourtSide?
+  scoringTeamId          String?               @db.Uuid
+  leftScoreBefore        Int?
+  rightScoreBefore       Int?
+  leftScoreAfter         Int?
+  rightScoreAfter        Int?
+  activeSubmissionId     String?               @unique @db.Uuid
+  createdAt              DateTime              @default(now())
+  updatedAt              DateTime              @updatedAt
+  voidedAt               DateTime?
+  match                  Match                 @relation(fields: [matchId], references: [id], onDelete: Cascade)
+  set                    MatchSet              @relation(fields: [setId], references: [id], onDelete: Restrict)
+  program                DvrProgram            @relation(fields: [dvrProgramId], references: [id], onDelete: Restrict)
+  sideAssignment         CourtSideAssignment   @relation(fields: [sideAssignmentId], references: [id], onDelete: Restrict)
+  scoringTeam            Team?                 @relation("RallyScoringTeam", fields: [scoringTeamId], references: [id], onDelete: Restrict)
+  activeSubmission       RallySubmission?      @relation("ActiveSubmission", fields: [activeSubmissionId], references: [id], onDelete: SetNull)
+  keyPoints              KeyPoint[]
+  operations             AnnotationOperation[]
+  submissions            RallySubmission[]     @relation("RallySubmissions")
 
   @@unique([setId, ordinal])
   @@index([matchId, displaySetNumber, displayOrdinal])
@@ -981,6 +981,7 @@ model AnalysisRun {
   actionCorrections                AnalysisActionCorrection[]
   playerBBoxCorrections            AnalysisPlayerBBoxCorrection[]
   contactActorCorrections          AnalysisContactActorCorrection[]
+  contactTimeCorrections           AnalysisContactTimeCorrection[]
   reviewPatchReceipts              AnalysisReviewPatchReceipt[]
 }
 
@@ -1020,6 +1021,20 @@ model AnalysisContactActorCorrection {
   analysisRunId   String       @db.Uuid
   keyPointId      String       @db.Uuid
   trackId         Int?
+  revision        BigInt
+  updatedByUserId String       @db.Uuid
+  updatedAt       DateTime     @updatedAt
+  analysisRun     AnalysisRun  @relation(fields: [analysisRunId], references: [id], onDelete: Cascade)
+  contactEvent    ContactEvent @relation(fields: [analysisRunId, keyPointId], references: [analysisRunId, keyPointId], onDelete: Cascade)
+
+  @@id([analysisRunId, keyPointId])
+  @@index([analysisRunId, revision])
+}
+
+model AnalysisContactTimeCorrection {
+  analysisRunId   String       @db.Uuid
+  keyPointId      String       @db.Uuid
+  frameIndex      BigInt
   revision        BigInt
   updatedByUserId String       @db.Uuid
   updatedAt       DateTime     @updatedAt
@@ -1118,6 +1133,10 @@ model AnalysisTrack {
 model ContactEvent {
   analysisRunId           String                          @db.Uuid
   keyPointId              String                          @db.Uuid
+  sourceKeyPointId        String?                         @db.Uuid
+  anchorOrigin            String                          @default("human_anchor")
+  detectionConfidence     Float?
+  detectionEvidence       Json?
   sequenceIndex           Int
   anchorFrameIndex        BigInt
   resolvedFrameIndex      BigInt?
@@ -1131,14 +1150,16 @@ model ContactEvent {
   ballFrameY              Float?
   qualityFlags            String[]
   analysisRun             AnalysisRun                     @relation(fields: [analysisRunId], references: [id], onDelete: Cascade)
-  submissionKeyPoint      RallySubmissionKeyPoint         @relation(fields: [keyPointId], references: [id], onDelete: Restrict)
+  submissionKeyPoint      RallySubmissionKeyPoint?        @relation(fields: [sourceKeyPointId], references: [id], onDelete: Restrict)
   actors                  ContactEventActor[]
   candidates              ContactEventCandidate[]
   representativePositions ContactEventPosition[]
   actorCorrection         AnalysisContactActorCorrection?
+  timeCorrection          AnalysisContactTimeCorrection?
 
   @@id([analysisRunId, keyPointId])
   @@unique([analysisRunId, sequenceIndex])
+  @@index([sourceKeyPointId])
 }
 
 model ContactEventActor {
