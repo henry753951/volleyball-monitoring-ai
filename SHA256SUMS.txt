@@ -4,6 +4,7 @@ a60955c8ffbec8a3999078369e0e57af39528b53f1bbbcb2593d25d2add1ea05  ./.codex/agent
 301580df4adbbcc2e9ff480855e7675ea4ee84c41844976ea258371cdade2b36  ./.codex/config.toml
 e7a6df94ed9f318be53b29c5b7da58c0b45f6446357bed618b7de96fc2bdd156  ./.dockerignore
 2ae8ebbad041ab0da1ef54ff02c453eac7d8f52e4312987ca7e2e06e6786a43d  ./.env.example
+6a9ebfdcf42bb25ff6dadf3fa8abac16b386ee7e412f3fcd91562628b79633de  ./.gitattributes
 1a78b016cc3ed8b7492c1282a5dcc43412332d77b857ae2971212ebe51e9f2a2  ./.github/workflows/ci.yml
 b395c52a1ad69331d58e5d8b5be82f34bcd337996b1c81fa6ef77c05ea1cb8cf  ./.github/workflows/release.yml
 2b5b7754fa1892b2c3e1c6e3873064bb7727122cb7938d03254f5c75ec96e6c3  ./.gitignore
@@ -285,6 +286,7 @@ a75d66c2038a5c29bcc6994718e70fd0a43fc2b0fdd3e72a107886dc63ab4a29  ./server/src/m
 705542a0de5dc586ef0ff3fba32224322a9253bcf78c21e0909e25f9cd6cc5cc  ./server/src/media/sample-index-repository.ts
 d13d44ad5fe80362b50b01cc66e7b2db4007e002e5e0c5eb1fdb1fc29f1e719d  ./server/src/media/sample-snap-resolver.ts
 8c7056bbc1320109d2856c041b428631e1c471be17f19b279d5158b6a9a0a210  ./server/src/operations/host-storage.ts
+8be2c49e9c003dbb62cbab38acce339e16f0a7ac40b9e4302daad1184a3e95f4  ./server/src/operations/kubernetes-deployments.ts
 dac51fd332e0c7d82c4ae577770a51ddc77f1ee89502026694f7cda2af6b881f  ./server/src/operations/minio-storage.ts
 789f0fbe544f0c2d943e00d7b6cea6b04de2ad4a1e49de0cfc11181fd136c520  ./server/src/realtime/README.md
 cd54df3e8f5e13172ad98e2132ef306d265ebeabd9aff9a26499674417d1ce25  ./server/src/realtime/ai-progress.ts
@@ -332,6 +334,7 @@ f56038cbaebc45b23f5b241814665c52d880be91a78abc39a7b2c96bd74c97cd  ./server/tests
 9675c7ad845dedfa7d3cdbabd328190e53750f7ef34dc18c6b50331983e8df13  ./server/tests/coach-dashboard.test.ts
 eb75e3735e93ec42d7f699b5569f8ba9b43c7a8b75f2a9c88ed1eeaccde4e53c  ./server/tests/core-domain.integration.test.ts
 c8030d8144e68adf8fe850834b67542dfff5e3cba17c17a70fe56c5c886556b2  ./server/tests/host-storage.test.ts
+a41e90b6bcfa7df439a645274053e172f1708e651dadcb6a07d0f733db07dd44  ./server/tests/kubernetes-deployments.test.ts
 4079f4292dcfea17d237277bb41912e6c16b01c65b3868bbc61b322770abf442  ./server/tests/match-administration.test.ts
 a24d73e176377bf389b5fdc14d32c7a395923b40e13127027d0aa65ed839f329  ./server/tests/media-cursor.integration.test.ts
 6d823e04ffda4ba5f7a833727effaa05b3c7c12a1e23a9eb0c82ba9679f5c287  ./server/tests/media-cursor.unit.test.ts
@@ -389,6 +392,7 @@ c668483005ba2f5aafc911cb40cfcecd974d10702dca22ded9fb729ec3ec8721  ./web/app/comp
 a44f53e1defb64d18e265798b89cbcfd99d4ac176fcbdfb4ee70e7f0d6086bb2  ./web/app/components/control/AiWorkerConsole.vue
 8a92834e183a6c89ff3441f73e6274a186248fc4dea6c4915c008e2bcedb8bfc  ./web/app/components/control/AiWorkerDeleteDialog.vue
 0fa61e6d6d0c8828ed6e2b26c354ab4ba302fdd7fbe7b3a126264d34c4fcae9f  ./web/app/components/control/AiWorkerTokenDeleteDialog.vue
+b6e7ae67e17e659caa0991fbd09768e59f5c2ee7805bfacf087ee66dee6589d5  ./web/app/components/control/DeploymentVersions.vue
 ffef07c3c212f5cc8341f6a87e42adadc4eb985400a7446210f83531fc9d0302  ./web/app/components/control/MatchDeleteDialog.vue
 0cc79bc3fb980f333259707d6977c84abf437e0994507a1409634df880e3b706  ./web/app/components/control/MatchEditorDialog.vue
 f66bd5ee8d2f77b789b88e159b35a24ba7443da1ac5972f21c424bbf6b96cf09  ./web/app/components/control/MatchWorkspaceCard.vue
