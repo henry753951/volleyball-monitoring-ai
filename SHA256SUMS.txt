@@ -58,6 +58,7 @@ d9a7158c16f027ba6035bc44d04efd24c5fedb2cd443b089ec4fd04e0467d26f  ./docs/adr/002
 c99db15abfe0bc1a6a85cdb90c143abcd84412b997dceb2f5eac8a3b82abb02a  ./docs/adr/0026-token-routed-ai-worker-endpoint.md
 d239973c2da6468329b9855e02a744cea443e47e5f5b9abfc1f7e4d535d8895b  ./docs/adr/0027-single-analysis-engine-domain.md
 3a6a2e48cda0571411d013d011b7b60fb20d2d35b7effe7d7c715a66f30ae69f  ./docs/adr/0028-match-roster-position.md
+6453c581ba6fa5824ee82233b644bf779520ca647745ebd93d27eb118d8eb713  ./docs/adr/0029-boundary-first-rally-annotation.md
 de376c790b3f7624d275cd8d6882725028d5264710ede7d748ad38304fee5c6a  ./docs/open-decisions.md
 dcd2dc6f00ded273da3a2ebfe0e98ac08e3d77edbfce514f3c8a250728cbfb0e  ./docs/progress.md
 aa5494b32c071ea634767c3858b1f3063aa2331777c50ec41b56cbc7a25c6d4b  ./docs/requirements-matrix.md
@@ -196,6 +197,7 @@ f42b50971a11ade2a92d53f49bce220b4ecfc12c8026bf6bb368bd6ae594ccc7  ./packages/db/
 58b248d55f8c83aa2bcd1d2415cce0e699cb21ddc35bc966e7fbfa15b00b17f1  ./packages/db/prisma/migrations/20260810190000_match_roster_position/migration.sql
 b1779995690ce6666907b34ce07ee7e25ada2476b16e75fdbf079a10f6b36d9a  ./packages/db/prisma/migrations/20260810195000_match_background_deletion/migration.sql
 bf3314afa0541a12ef1db6a33fe8f6ebaa83d72e43c6cb402528a858fd2cd6d8  ./packages/db/prisma/migrations/20260810203000_media_ingest_failures/migration.sql
+bba983ce9123cfc79cc3bf19360dba4bc775e84491df934f21e5d0c96e292175  ./packages/db/prisma/migrations/20260810211500_ai_detected_contact_events/migration.sql
 99836963713b4f5b269ad49af0ed3d7b0b2e336115c2f92dc9ac683d139d0900  ./packages/db/prisma/migrations/migration_lock.toml
 170c09dfcc667f9262f5a9b038c66f45a3af5a6a08c4182f1fb6a43436115653  ./packages/db/prisma/schema.prisma
 78e73cf4d8515dd4774e362b9f317ed2e569827c9db9d6cc1961a7c0a801e69e  ./packages/db/prisma/seed.ts
