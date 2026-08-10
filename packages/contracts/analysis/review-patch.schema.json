@@ -6,48 +6,74 @@
   "additionalProperties": false,
   "required": ["schema_version", "client_patch_id", "base_revision", "operations"],
   "properties": {
-    "schema_version": { "const": "1.0.0" },
+    "schema_version": { "const": "1.1.0" },
     "client_patch_id": { "type": "string", "format": "uuid" },
-    "base_revision": { "type": "string", "pattern": "^(0|[1-9][0-9]*)$" },
+    "base_revision": { "$ref": "#/$defs/uint" },
     "operations": {
       "type": "array",
       "minItems": 1,
       "maxItems": 32,
       "items": {
         "oneOf": [
-          {
-            "type": "object",
-            "additionalProperties": false,
-            "required": ["op", "frame_index", "frame_pos"],
-            "properties": {
-              "op": { "const": "set_ball_position" },
-              "frame_index": { "type": "string", "pattern": "^(0|[1-9][0-9]*)$" },
-              "frame_pos": {
-                "type": "object",
-                "additionalProperties": false,
-                "required": ["x", "y"],
-                "properties": {
-                  "x": { "type": "number", "minimum": 0 },
-                  "y": { "type": "number", "minimum": 0 }
-                }
-              }
-            }
-          },
-          {
-            "type": "object",
-            "additionalProperties": false,
-            "required": ["op", "frame_index", "track_id", "action"],
-            "properties": {
-              "op": { "const": "set_action" },
-              "frame_index": { "type": "string", "pattern": "^(0|[1-9][0-9]*)$" },
-              "track_id": { "type": "integer", "minimum": 0 },
-              "action": {
-                "enum": ["Waiting", "Setting", "Digging", "Falling", "Spiking", "Blocking", "Jumping", "Moving", "Standing"]
-              }
-            }
-          }
+          { "$ref": "#/$defs/setBallPosition" },
+          { "$ref": "#/$defs/frameOnly" },
+          { "$ref": "#/$defs/setAction" },
+          { "$ref": "#/$defs/frameTrackOnly" },
+          { "$ref": "#/$defs/setPlayerBBox" },
+          { "$ref": "#/$defs/setContactActor" },
+          { "$ref": "#/$defs/clearContactActor" }
         ]
       }
+    }
+  },
+  "$defs": {
+    "uint": { "type": "string", "pattern": "^(0|[1-9][0-9]*)$" },
+    "trackId": { "type": "integer", "minimum": 0 },
+    "point": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["x", "y"],
+      "properties": { "x": { "type": "number", "minimum": 0 }, "y": { "type": "number", "minimum": 0 } }
+    },
+    "bbox": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["x1", "y1", "x2", "y2"],
+      "properties": {
+        "x1": { "type": "number", "minimum": 0 }, "y1": { "type": "number", "minimum": 0 },
+        "x2": { "type": "number", "minimum": 0 }, "y2": { "type": "number", "minimum": 0 }
+      }
+    },
+    "setBallPosition": {
+      "type": "object", "additionalProperties": false, "required": ["op", "frame_index", "frame_pos"],
+      "properties": { "op": { "const": "set_ball_position" }, "frame_index": { "$ref": "#/$defs/uint" }, "frame_pos": { "$ref": "#/$defs/point" } }
+    },
+    "frameOnly": {
+      "type": "object", "additionalProperties": false, "required": ["op", "frame_index"],
+      "properties": { "op": { "enum": ["mark_ball_missing", "clear_ball_override"] }, "frame_index": { "$ref": "#/$defs/uint" } }
+    },
+    "setAction": {
+      "type": "object", "additionalProperties": false, "required": ["op", "frame_index", "track_id", "action"],
+      "properties": {
+        "op": { "const": "set_action" }, "frame_index": { "$ref": "#/$defs/uint" }, "track_id": { "$ref": "#/$defs/trackId" },
+        "action": { "enum": ["Waiting", "Setting", "Digging", "Falling", "Spiking", "Blocking", "Jumping", "Moving", "Standing"] }
+      }
+    },
+    "frameTrackOnly": {
+      "type": "object", "additionalProperties": false, "required": ["op", "frame_index", "track_id"],
+      "properties": { "op": { "enum": ["clear_action_override", "clear_player_bbox_override"] }, "frame_index": { "$ref": "#/$defs/uint" }, "track_id": { "$ref": "#/$defs/trackId" } }
+    },
+    "setPlayerBBox": {
+      "type": "object", "additionalProperties": false, "required": ["op", "frame_index", "track_id", "frame_bbox"],
+      "properties": { "op": { "const": "set_player_bbox" }, "frame_index": { "$ref": "#/$defs/uint" }, "track_id": { "$ref": "#/$defs/trackId" }, "frame_bbox": { "$ref": "#/$defs/bbox" } }
+    },
+    "setContactActor": {
+      "type": "object", "additionalProperties": false, "required": ["op", "key_point_id", "track_id"],
+      "properties": { "op": { "const": "set_contact_actor" }, "key_point_id": { "type": "string", "format": "uuid" }, "track_id": { "oneOf": [{ "$ref": "#/$defs/trackId" }, { "type": "null" }] } }
+    },
+    "clearContactActor": {
+      "type": "object", "additionalProperties": false, "required": ["op", "key_point_id"],
+      "properties": { "op": { "const": "clear_contact_actor_override" }, "key_point_id": { "type": "string", "format": "uuid" } }
     }
   }
 }

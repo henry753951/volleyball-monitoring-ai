@@ -41,6 +41,7 @@ export default defineNuxtConfig({
       analysisReviewWsPath: process.env.NUXT_PUBLIC_ANALYSIS_REVIEW_WS_PATH ?? '/ws/analysis-reviews',
       coachWsPath: process.env.NUXT_PUBLIC_COACH_WS_PATH ?? '/ws/coach',
       coachEmbedUrl: process.env.NUXT_PUBLIC_COACH_EMBED_URL ?? '',
+      devBackendOrigin: developmentBackendOrigin,
       restBasePath: process.env.NUXT_PUBLIC_REST_BASE_PATH ?? '/api/v1',
       liveHlsBasePath: process.env.NUXT_PUBLIC_LIVE_HLS_BASE_PATH ?? '/hls',
     },
@@ -107,8 +108,9 @@ export default defineNuxtConfig({
   },
   typescript: {
     strict: true,
-    // CI/local typecheck remains strict by default; production containers run a
-    // dedicated typecheck step and can disable Nuxt's duplicate Vite checker.
-    typeCheck: process.env.NUXT_TYPECHECK !== 'false',
+    // Keep the long-running dev server focused on HMR. Type errors are checked by
+    // the explicit `bun run typecheck` gate, which avoids an unbounded vue-tsc
+    // watcher repeatedly printing the same diagnostic to redirected stderr.
+    typeCheck: process.env.NUXT_TYPECHECK === 'true',
   },
 })

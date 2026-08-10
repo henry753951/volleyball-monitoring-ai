@@ -37,6 +37,10 @@ const snapshot: OperationsSnapshot = {
     lastPongAt: '2026-08-08T00:00:00.000Z',
     status: 'online',
     canDelete: false,
+    accelerator: 'NVIDIA H100 NVL',
+    modelVersion: 'court-canonical-v4',
+    modelSha256: 'f45f96ce',
+    deploymentStatus: 'ready',
   }],
   aiWorkerAccess: {
     name: 'volleyball-analysis-engine',
@@ -55,11 +59,27 @@ const snapshot: OperationsSnapshot = {
     }],
   },
   aiWork: [],
+  deployment: {
+    available: true,
+    components: [],
+    namespace: 'volleyball-monitoring',
+    overallStatus: 'ready',
+    source: 'kubernetes',
+  },
   hostStorage: {
     available: true,
     freeBytes: '3000',
+    managedBytes: '1250',
     path: '/var/lib/volleyball/media-recordings',
     totalBytes: '5000',
+    usedBytes: '2000',
+  },
+  objectStorage: {
+    available: true,
+    freeBytes: '8000',
+    managedBytes: '2048',
+    path: 'http://minio:9000',
+    totalBytes: '10000',
     usedBytes: '2000',
   },
   matchMedia: [{
@@ -106,6 +126,10 @@ describe('operations routes', () => {
     const metrics = renderPrometheusMetrics(snapshot)
     expect(metrics).toContain('vmai_process_resident_memory_bytes 1024')
     expect(metrics).toContain('vmai_host_storage_free_bytes 3000')
+    expect(metrics).toContain('vmai_host_storage_managed_bytes 1250')
+    expect(metrics).toContain('vmai_object_storage_free_bytes 8000')
+    expect(metrics).toContain('vmai_object_storage_total_bytes 10000')
+    expect(metrics).toContain('vmai_object_storage_managed_bytes 2048')
     expect(metrics).toContain('vmai_rallies_total{annotation_status="SUBMITTED",processing_status="COMPLETED"} 1')
     expect(metrics).toContain('vmai_annotation_command_receipts_total{accepted="false"} 1')
     expect(metrics).toContain('vmai_annotation_operations_total 7')
@@ -202,7 +226,7 @@ describe('operations routes', () => {
     await app.close()
   })
 
-  it('creates, rotates, and disables worker tokens without creating a new job pool', async () => {
+  it('lets an authenticated operator create, rotate, disable, and delete worker tokens', async () => {
     const app = Fastify()
     const createAiWorkerToken = vi.fn(async () => ({
       accessToken: { id: '40000000-0000-4000-8000-000000000001', name: 'GPU A', tokenPrefix: 'vmai_example' },
@@ -210,10 +234,12 @@ describe('operations routes', () => {
     }))
     const rotateAiWorkerToken = vi.fn(async () => ({ tokenId: '40000000-0000-4000-8000-000000000001', token: 'vmai_rotated' }))
     const updateAiWorkerTokenState = vi.fn(async () => ({ tokenId: '40000000-0000-4000-8000-000000000001', enabled: false }))
+    const deleteAiWorkerToken = vi.fn(async () => ({ tokenId: '40000000-0000-4000-8000-000000000001' }))
     await app.register(operationsRoutes(async () => snapshot, {
-      authenticate: async () => ({ role: 'ADMIN', userId: 'admin-1' }),
+      authenticate: async () => ({ role: 'OPERATOR', userId: 'operator-1' }),
       collectReadiness: async () => ({ status: 'ready', checks: {} }),
       createAiWorkerToken,
+      deleteAiWorkerToken,
       rotateAiWorkerToken,
       updateAiWorkerTokenState,
     }))
@@ -226,7 +252,7 @@ describe('operations routes', () => {
     expect(created.statusCode).toBe(201)
     expect(created.json()).toMatchObject({ token: 'vmai_secret' })
     expect(created.json()).not.toHaveProperty('integration')
-    expect(createAiWorkerToken).toHaveBeenCalledWith('GPU A', { role: 'ADMIN', userId: 'admin-1' })
+    expect(createAiWorkerToken).toHaveBeenCalledWith('GPU A', { role: 'OPERATOR', userId: 'operator-1' })
 
     const rotated = await app.inject({ method: 'POST', url: '/api/v1/operations/ai-worker-tokens/40000000-0000-4000-8000-000000000001/rotate' })
     expect(rotated.statusCode).toBe(200)
@@ -234,7 +260,15 @@ describe('operations routes', () => {
 
     const disabled = await app.inject({ method: 'PATCH', url: '/api/v1/operations/ai-worker-tokens/40000000-0000-4000-8000-000000000001', payload: { enabled: false } })
     expect(disabled.statusCode).toBe(200)
-    expect(updateAiWorkerTokenState).toHaveBeenCalledWith('40000000-0000-4000-8000-000000000001', false, { role: 'ADMIN', userId: 'admin-1' })
+    expect(updateAiWorkerTokenState).toHaveBeenCalledWith('40000000-0000-4000-8000-000000000001', false, { role: 'OPERATOR', userId: 'operator-1' })
+
+    const deleted = await app.inject({ method: 'DELETE', url: '/api/v1/operations/ai-worker-tokens/40000000-0000-4000-8000-000000000001' })
+    expect(deleted.statusCode).toBe(200)
+    expect(deleted.json()).toEqual({
+      schema_version: '1.0.0',
+      deleted_token: { id: '40000000-0000-4000-8000-000000000001' },
+    })
+    expect(deleteAiWorkerToken).toHaveBeenCalledWith('40000000-0000-4000-8000-000000000001', { role: 'OPERATOR', userId: 'operator-1' })
     await app.close()
   })
 

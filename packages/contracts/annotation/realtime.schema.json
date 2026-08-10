@@ -767,14 +767,30 @@
       "allOf": [
         {
           "if": {
+            "required": ["annotation_status", "active_submission_id"],
             "properties": {
-              "annotation_status": { "const": "open" }
+              "annotation_status": { "const": "open" },
+              "active_submission_id": { "type": "null" }
             }
           },
           "then": {
             "properties": {
               "score_resolution": { "const": "pending" },
               "scoring_court_side": { "type": "null" }
+            }
+          }
+        },
+        {
+          "if": {
+            "required": ["annotation_status", "active_submission_id"],
+            "properties": {
+              "annotation_status": { "const": "open" },
+              "active_submission_id": { "$ref": "#/$defs/identifier" }
+            }
+          },
+          "then": {
+            "properties": {
+              "score_resolution": { "enum": ["resolved", "unknown"] }
             }
           }
         },

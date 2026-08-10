@@ -121,7 +121,7 @@ describe('media indexer runtime kernel', () => {
   })
 
   it('validates the composed media worker environment', () => {
-    expect(mediaIndexerConfig({
+    const config = mediaIndexerConfig({
       DATABASE_URL: 'postgresql://postgres:postgres@postgres:5432/volleyball',
       MEDIA_IMPORT_ROOT: '/imports',
       MEDIA_INGEST_BASE_URL: 'rtmp://ovenmediaengine:1935/app',
@@ -133,11 +133,16 @@ describe('media indexer runtime kernel', () => {
       MINIO_DVR_BUCKET: 'dvr-media',
       OME_API_ACCESS_TOKEN: '0123456789abcdef0123456789abcdef',
       OME_API_URL: 'http://ovenmediaengine:8081',
-    })).toMatchObject({
+    })
+    expect(config).toMatchObject({
       MEDIA_INDEXER_SCAN_INTERVAL_MS: 1_000,
       MEDIA_SOURCE_CONCURRENCY: 2,
       MEDIA_SOURCE_POLL_INTERVAL_MS: 250,
+      YOUTUBE_EXTRACTOR_ARGS: 'youtube:player_client=default',
+      YOUTUBE_VOD_CONCURRENT_FRAGMENTS: 4,
     })
+    expect(config.YOUTUBE_FORMAT).toContain('best[protocol*=m3u8][height<=1080]')
+    expect(config.YOUTUBE_VOD_FORMAT).toContain('bestvideo[protocol^=http][height<=1080]')
     expect(() => mediaIndexerConfig({
       DATABASE_URL: 'not-a-url',
       MEDIA_IMPORT_ROOT: '/imports',
@@ -176,7 +181,7 @@ describe('media indexer runtime kernel', () => {
     })
     const deterministicConflict = await processMediaIngestJobs([job()], async () => {
       const error = Object.assign(new Error('do not expose this detail'), {
-        code: 'TIMELINE_CONFLICT',
+        code: 'ARTIFACT_CONFLICT',
       })
       error.name = 'PrismaIngestRepositoryError'
       throw error
@@ -185,6 +190,13 @@ describe('media indexer runtime kernel', () => {
       status: 'deadletter',
       output: { code: 'PERMANENT_FAILURE' },
     })
+    for (const code of ['RESERVATION_CONFLICT', 'TIMELINE_CONFLICT']) {
+      await expect(processMediaIngestJobs([job()], async () => {
+        const error = Object.assign(new Error('retry this ordered segment'), { code })
+        error.name = 'PrismaIngestRepositoryError'
+        throw error
+      })).rejects.toMatchObject({ code })
+    }
     const invalidArtifact = await processMediaIngestJobs([job()], async () => {
       const error = Object.assign(new Error('unsupported initialization box'), {
         code: 'INVALID_LAYOUT',

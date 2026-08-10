@@ -33,10 +33,10 @@ describe('core domain adapter', () => {
     const fetchImpl = vi.fn(async (_input, init) => {
       const request = JSON.parse(String(init?.body)) as { query: string; variables: Record<string, unknown> }
       expect(request.query).toContain('updateMatchRoster')
-      expect(request.variables).toEqual({ input: { matchId: 'm1', teamId: 't1', roster: [{ id: 'r1', jerseyNumber: '8', name: 'Lin' }] } })
+      expect(request.variables).toEqual({ input: { matchId: 'm1', teamId: 't1', roster: [{ id: 'r1', jerseyNumber: '8', name: 'Lin', position: 'OH' }] } })
       return new Response(JSON.stringify({ data: { updateMatchRoster: { id: 'm1', title: 'M', venue: null, status: 'LIVE', scheduledAt: null, teams: [], rosterEntries: [], sets: [] } } }), { status: 200 })
     })
     const client = createCoreDomainClient(createGraphQLTransport('/graphql', fetchImpl as typeof fetch))
-    await expect(client.updateMatchRoster({ matchId: 'm1', teamId: 't1', roster: [{ id: 'r1', jerseyNumber: '8', name: 'Lin' }] })).resolves.toMatchObject({ id: 'm1' })
+    await expect(client.updateMatchRoster({ matchId: 'm1', teamId: 't1', roster: [{ id: 'r1', jerseyNumber: '8', name: 'Lin', position: 'OH' }] })).resolves.toMatchObject({ id: 'm1' })
   })
 })

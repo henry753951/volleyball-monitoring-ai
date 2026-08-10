@@ -8,9 +8,16 @@ export function usePublicEndpoints() {
 
   const toWebSocketUrl = (path: string) => {
     if (import.meta.server) return path
-    const localDevOrigin = import.meta.dev && window.location.protocol === 'http:' && !['', '80'].includes(window.location.port)
-      ? `http://${window.location.hostname}:4000`
-      : window.location.origin
+    const localDevOrigin = (() => {
+      if (!import.meta.dev || window.location.protocol !== 'http:' || ['', '80'].includes(window.location.port)) {
+        return window.location.origin
+      }
+      const configured = new URL(config.public.devBackendOrigin, window.location.origin)
+      if (['0.0.0.0', '127.0.0.1', 'localhost'].includes(configured.hostname)) {
+        configured.hostname = window.location.hostname
+      }
+      return configured.origin
+    })()
     const url = new URL(path, localDevOrigin)
     url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:'
     return url.toString()

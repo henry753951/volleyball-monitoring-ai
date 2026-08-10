@@ -17,10 +17,10 @@ const stoppingId = ref<string | null>(null)
 const captureToStop = shallowRef<CaptureSession | null>(null)
 const error = ref<string | null>(null)
 
-const activeCaptures = computed(() => props.captures.filter(capture => ['STARTING', 'LIVE', 'STOPPING'].includes(capture.status.toUpperCase())))
+const activeCapture = computed(() => props.captures.find(capture => ['STARTING', 'LIVE', 'STOPPING'].includes(capture.status.toUpperCase())) ?? null)
 const captureToStopName = computed(() => captureToStop.value ? sourceName(captureToStop.value) : '目前來源')
 const canSubmit = computed(() => {
-  if (pending.value || activeCaptures.value.length > 0) return false
+  if (pending.value || activeCapture.value) return false
   if (source.value.kind === 'youtube') return Boolean(source.value.url.trim())
   if (source.value.kind === 'local_mp4') return Boolean(source.value.file?.name)
   return false
@@ -121,27 +121,26 @@ async function confirmStop() {
   <UiAnimatedModal :open="open" title="影音來源" description="管理此場次的影片、直播與本機檔案" width="wide" height="tall" @close="emit('close')">
     <UiScrollArea class="capture-scroll">
       <div class="capture-dialog">
-        <section class="source-list" aria-labelledby="active-sources-title">
+        <section class="source-list" aria-labelledby="active-source-title">
           <div class="section-heading">
-            <div><span class="eyebrow">目前連線</span><h2 id="active-sources-title">使用中的影音來源</h2></div>
-            <span class="count">{{ activeCaptures.length }}</span>
+            <div><span class="eyebrow">單一來源</span><h2 id="active-source-title">目前影音來源</h2></div>
           </div>
-          <p v-if="!activeCaptures.length" class="empty">目前沒有進行中的影音來源。</p>
-          <article v-for="capture in activeCaptures" :key="capture.id" class="source-row">
+          <p v-if="!activeCapture" class="empty">目前沒有進行中的影音來源。</p>
+          <article v-else class="source-row">
             <div class="source-copy">
-              <div class="source-name"><span class="status-dot" :class="{ healthy: capture.health.toUpperCase() === 'HEALTHY' }" />{{ sourceName(capture) }}</div>
-              <span class="source-status">{{ statusLabel(capture.status) }} <span aria-hidden="true">·</span> {{ healthLabel(capture.health) }}</span>
+              <div class="source-name"><span class="status-dot" :class="{ healthy: activeCapture.health.toUpperCase() === 'HEALTHY' }" />{{ sourceName(activeCapture) }}</div>
+              <span class="source-status">{{ statusLabel(activeCapture.status) }} <span aria-hidden="true">·</span> {{ healthLabel(activeCapture.health) }}</span>
             </div>
-            <UiButton variant="ghost" size="sm" :disabled="Boolean(stoppingId) || capture.status.toUpperCase() === 'STOPPING'" @click="stop(capture)">
-              <LoaderCircle v-if="stoppingId === capture.id" class="spin" :size="13" />
+            <UiButton variant="ghost" size="sm" :disabled="Boolean(stoppingId) || activeCapture.status.toUpperCase() === 'STOPPING'" @click="stop(activeCapture)">
+              <LoaderCircle v-if="stoppingId === activeCapture.id" class="spin" :size="13" />
               <Square v-else :size="12" />
-              {{ stoppingId === capture.id ? '停止中…' : '停止' }}
+              {{ stoppingId === activeCapture.id ? '停止中…' : '停止' }}
             </UiButton>
           </article>
         </section>
 
-        <section v-if="!activeCaptures.length" class="add-source" aria-labelledby="add-source-title">
-          <div class="section-heading"><div><span class="eyebrow">新增來源</span><h2 id="add-source-title">連接影音</h2></div></div>
+        <section v-if="!activeCapture" class="add-source" aria-labelledby="add-source-title">
+          <div class="section-heading"><div><span class="eyebrow">設定來源</span><h2 id="add-source-title">連接影音</h2></div></div>
           <p class="section-description">貼上 YouTube 影片或直播網址，或上傳 MP4。</p>
           <MediaSourcePicker v-model="source" />
           <div v-if="error" class="error" role="alert" aria-live="polite"><CircleAlert :size="15" /><span>{{ error }}</span></div>
@@ -151,7 +150,7 @@ async function confirmStop() {
     </UiScrollArea>
     <template #footer>
       <UiButton variant="ghost" :disabled="pending" @click="emit('close')">關閉</UiButton>
-      <UiButton v-if="!activeCaptures.length" :disabled="!canSubmit" @click="start">
+      <UiButton v-if="!activeCapture" :disabled="!canSubmit" @click="start">
         <LoaderCircle v-if="pending" class="spin" :size="14" />
         {{ pending ? '加入中…' : '加入影音來源' }}
       </UiButton>

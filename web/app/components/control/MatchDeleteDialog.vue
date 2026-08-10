@@ -20,14 +20,14 @@ function bytes(value: string | undefined) {
 </script>
 
 <template>
-  <UiAnimatedModal :open="open" title="刪除場次" description="這項操作會同步清理媒體與分析資料" width="compact" @close="emit('close')">
+  <UiAnimatedModal :open="open" title="刪除場次" description="場次會立即從畫面移除，媒體由背景工作清理" width="compact" @close="emit('close')">
     <div class="delete-dialog">
-      <div class="delete-warning"><TriangleAlert :size="19" /><p><strong>{{ match?.title }}</strong><span>場次、名單、標記、DVR、片段與分析結果會永久移除。</span></p></div>
-      <dl><div><dt><HardDrive :size="15" />媒體容量</dt><dd>{{ bytes(media?.storedBytes) }}</dd></div><div><dt><DatabaseZap :size="15" />採集資料</dt><dd>{{ media?.captureCount ?? 0 }} 來源 · {{ media?.segmentCount ?? 0 }} segments</dd></div></dl>
+      <div class="delete-warning"><TriangleAlert :size="19" /><p><strong>{{ match?.title }}</strong><span>場次會先標記刪除並停止採集；名單、標記、DVR、片段與分析結果會在背景完整清除。</span></p></div>
+      <dl><div><dt><HardDrive :size="15" />媒體容量</dt><dd>{{ bytes(media?.storedBytes) }}</dd></div><div><dt><DatabaseZap :size="15" />採集資料</dt><dd>{{ media?.captureCount ?? 0 }} 筆紀錄 · {{ media?.segmentCount ?? 0 }} segments</dd></div></dl>
       <label><span>輸入「刪除」以確認</span><input v-model="confirmation" autocomplete="off" /></label>
       <p v-if="error" class="delete-error" role="alert">{{ error.message }}</p>
     </div>
-    <template #footer><UiButton variant="ghost" :disabled="pending" @click="emit('close')">取消</UiButton><UiButton variant="destructive" :disabled="pending || confirmation !== '刪除'" @click="emit('confirm')">{{ pending ? '清理中…' : '刪除場次與媒體' }}</UiButton></template>
+    <template #footer><UiButton variant="ghost" :disabled="pending" @click="emit('close')">取消</UiButton><UiButton variant="destructive" :disabled="pending || confirmation !== '刪除'" @click="emit('confirm')">{{ pending ? '標記中…' : '刪除場次與媒體' }}</UiButton></template>
   </UiAnimatedModal>
 </template>
 

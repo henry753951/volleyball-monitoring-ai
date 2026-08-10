@@ -71,6 +71,9 @@ def test_tracking_overlay_preserves_unclamped_court_positions() -> None:
                     "frame_bbox": {"x1": 0.1, "y1": 0.2, "x2": 0.3, "y2": 0.4},
                     "frame_foot_pos": {"x": 0.2, "y": 0.4},
                     "court_pos": {"x": 1.25, "y": -0.15},
+                    "confidence": 0.91,
+                    "action_label": "setting",
+                    "action_confidence": 0.84,
                 },
                 {
                     "track_id": 8,
@@ -80,7 +83,13 @@ def test_tracking_overlay_preserves_unclamped_court_positions() -> None:
                 },
             ],
         }],
-        ball_positions={0: {"x": 0.5, "y": 0.5}},
+        ball_positions={0: {"x": 0.5, "y": 0.5, "confidence": 0.95}},
+        court_keypoints={0: [
+            {"keypoint_id": 0, "frame_pos": {"x": 0.05, "y": 0.9}, "confidence": 0.98},
+            {"keypoint_id": 35, "frame_pos": {"x": 0.95, "y": 0.1}, "confidence": 0.87},
+        ]},
+        action_taxonomy_id="volleyball-analysis-engine.rtv4-x3d-actions",
+        action_taxonomy_version="1",
     )
     assert overlay[4:8] == b"VOV1"
 

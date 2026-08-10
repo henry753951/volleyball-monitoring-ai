@@ -46,6 +46,10 @@ function createMinioSigner() {
     accessKey,
     secretKey,
     pathStyle: true,
+    // A public endpoint can be unreachable from inside the server container.
+    // Supplying the deployment region keeps presigning offline instead of
+    // performing a bucket-region lookup against that public hostname first.
+    region: process.env.MINIO_REGION ?? 'us-east-1',
   })
 }
 
@@ -67,6 +71,16 @@ interface ProviderInstanceLoadRow {
   id: string
 }
 
+export function isActiveProviderDelivery(
+  job: { status: JobStatus; leasedUntil: Date | null },
+  now: Date,
+): boolean {
+  if (job.status === JobStatus.RUNNING) return true
+  return job.status === JobStatus.QUEUED
+    && job.leasedUntil !== null
+    && job.leasedUntil > now
+}
+
 /**
  * Selects one globally least-loaded, recently-seen provider instance.
  *
@@ -83,7 +97,10 @@ export async function findLeastBusyProviderInstanceId(
     FROM "AiProviderInstance" instance
     LEFT JOIN "AiJob" job
       ON job."providerInstanceId" = instance.id
-      AND job.status IN ('QUEUED', 'RUNNING')
+      AND (
+        job.status = 'RUNNING'
+        OR (job.status = 'QUEUED' AND job."leasedUntil" > NOW())
+      )
       AND job."deliveryId" IS NOT NULL
     WHERE instance."disconnectedAt" IS NULL
       AND instance."lastSeenAt" >= NOW() - INTERVAL '30 seconds'
@@ -122,11 +139,21 @@ export const aiProviderWebSocketRoutes = (
         else socket.close(1008, 'too many messages before provider authentication')
       })
       void (async () => {
+        const presentedToken = bearer(request.headers.authorization) ?? undefined
         const authenticated = await authenticateAiWorkerToken(
           database,
-          bearer(request.headers.authorization) ?? undefined,
+          presentedToken,
         )
         if (!authenticated) {
+          if (socket.readyState === 1) {
+            socket.send(JSON.stringify({
+              schema_version: '1.0.0',
+              type: 'protocol_error',
+              code: 'AUTHORIZATION_REVOKED',
+              message: 'Worker token is missing, disabled, rotated, or deleted',
+              retryable: false,
+            } satisfies AIProviderServerMessage))
+          }
           socket.close(1008, 'authentication required')
           return
         }
@@ -144,6 +171,83 @@ export const aiProviderWebSocketRoutes = (
           if (socket.readyState === 1) socket.send(JSON.stringify(message))
         }
 
+        const revokeAuthorization = async () => {
+          const revokedInstanceId = instanceId
+          if (revokedInstanceId) {
+            const activeJobs = await database.aiJob.findMany({
+              where: {
+                providerInstanceId: revokedInstanceId,
+                status: { in: [JobStatus.QUEUED, JobStatus.RUNNING] },
+              },
+              select: {
+                id: true,
+                submission: {
+                  select: {
+                    id: true,
+                    rally: {
+                      select: {
+                        id: true,
+                        matchId: true,
+                        program: { select: { captureSessionId: true } },
+                      },
+                    },
+                  },
+                },
+              },
+            })
+            const rallyIds = [...new Set(activeJobs.map(job => job.submission.rally.id))]
+            await database.$transaction(async (tx) => {
+              await tx.aiJob.updateMany({
+                where: {
+                  providerInstanceId: revokedInstanceId,
+                  status: { in: [JobStatus.QUEUED, JobStatus.RUNNING] },
+                },
+                data: {
+                  status: JobStatus.QUEUED,
+                  providerInstanceId: null,
+                  deliveryId: null,
+                  providerJobId: null,
+                  leasedUntil: null,
+                  acceptedAt: null,
+                  startedAt: null,
+                  completedAt: null,
+                  lastCallbackAt: null,
+                  progress: null,
+                  stage: 'authorization_revoked',
+                  errorCode: null,
+                  errorMessage: null,
+                  availableAt: new Date(),
+                },
+              })
+              if (rallyIds.length > 0) {
+                await tx.rally.updateMany({
+                  where: {
+                    id: { in: rallyIds },
+                    voidedAt: null,
+                    processingStatus: { in: [ProcessingStatus.AI_QUEUED, ProcessingStatus.AI_PROCESSING] },
+                  },
+                  data: { processingStatus: ProcessingStatus.AI_QUEUED },
+                })
+              }
+              await tx.aiProviderInstance.deleteMany({ where: { id: revokedInstanceId } })
+            })
+            for (const job of activeJobs) {
+              await publishProgress(job, 'ai_queued', null, 'authorization_revoked')
+            }
+          }
+
+          send({
+            schema_version: '1.0.0',
+            type: 'protocol_error',
+            code: 'AUTHORIZATION_REVOKED',
+            message: 'Worker token was disabled, rotated, or deleted',
+            retryable: false,
+          })
+          instanceId = null
+          instanceKey = null
+          socket.close(1008, 'worker authorization revoked')
+        }
+
         const reconcile = async () => {
           if (!instanceId || ticking || socket.readyState !== 1) return
           if (Date.now() - lastHeartbeatAt > heartbeatTimeoutMs) {
@@ -153,6 +257,53 @@ export const aiProviderWebSocketRoutes = (
           ticking = true
           try {
             const now = new Date()
+            const expiredQueuedOffers = await database.aiJob.findMany({
+              where: { status: JobStatus.QUEUED, leasedUntil: { lt: now } },
+              select: {
+                id: true,
+                attemptCount: true,
+                maxAttempts: true,
+                submission: {
+                  select: {
+                    id: true,
+                    rally: {
+                      select: {
+                        id: true,
+                        matchId: true,
+                        program: { select: { captureSessionId: true } },
+                      },
+                    },
+                  },
+                },
+              },
+              take: 100,
+            })
+            for (const expired of expiredQueuedOffers) {
+              if (expired.attemptCount < expired.maxAttempts) continue
+              const changed = await database.$transaction(async (tx) => {
+                const updated = await tx.aiJob.updateMany({
+                  where: { id: expired.id, status: JobStatus.QUEUED, leasedUntil: { lt: now } },
+                  data: {
+                    status: JobStatus.FAILED,
+                    leasedUntil: null,
+                    completedAt: now,
+                    errorCode: 'AI_DELIVERY_EXHAUSTED',
+                    errorMessage: 'AI Worker did not accept the job before every delivery lease expired',
+                  },
+                })
+                if (updated.count !== 1) return false
+                await tx.rally.updateMany({
+                  where: {
+                    id: expired.submission.rally.id,
+                    voidedAt: null,
+                    processingStatus: { in: [ProcessingStatus.AI_QUEUED, ProcessingStatus.AI_PROCESSING] },
+                  },
+                  data: { processingStatus: ProcessingStatus.FAILED },
+                })
+                return true
+              })
+              if (changed) await publishProgress(expired, 'failed', null, 'delivery_failed')
+            }
             const durableAbortEvents = await database.outboxEvent.findMany({
               orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
               select: { id: true, payload: true },
@@ -173,7 +324,7 @@ export const aiProviderWebSocketRoutes = (
             }
             const assigned = await database.aiJob.findMany({
               where: { providerInstanceId: instanceId, deliveryId: { not: null }, status: { in: [JobStatus.QUEUED, JobStatus.RUNNING, JobStatus.CANCELLED, JobStatus.COMPLETED] } },
-              select: { id: true, deliveryId: true, status: true, cancelRequestedAt: true, completedAt: true },
+              select: { id: true, deliveryId: true, status: true, cancelRequestedAt: true, completedAt: true, leasedUntil: true },
             })
             for (const job of assigned) {
               if (!job.deliveryId) continue
@@ -187,7 +338,7 @@ export const aiProviderWebSocketRoutes = (
               }
             }
 
-            const activeDeliveries = assigned.filter(job => job.status === JobStatus.QUEUED || job.status === JobStatus.RUNNING).length
+            const activeDeliveries = assigned.filter(job => isActiveProviderDelivery(job, now)).length
             for (let slot = activeDeliveries; slot < maxConcurrency; slot += 1) {
               const leastBusyInstanceId = await findLeastBusyProviderInstanceId(database)
               if (leastBusyInstanceId !== instanceId) break
@@ -338,6 +489,11 @@ export const aiProviderWebSocketRoutes = (
             if (message.type === 'heartbeat' || message.type === 'resume_request') {
               if (message.instance_id !== instanceKey) {
                 socket.close(1008, 'instance_id mismatch')
+                return
+              }
+              const stillAuthorized = await authenticateAiWorkerToken(database, presentedToken)
+              if (!stillAuthorized) {
+                await revokeAuthorization()
                 return
               }
               lastHeartbeatAt = Date.now()

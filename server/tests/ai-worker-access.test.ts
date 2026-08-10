@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { authenticateAiWorkerToken, createAiWorkerToken, getAiWorkerAccess } from '../src/services/ai-worker-access.js'
+import { authenticateAiWorkerToken, createAiWorkerToken, deleteAiWorkerToken, getAiWorkerAccess } from '../src/services/ai-worker-access.js'
 
 afterEach(() => {
   delete process.env.AI_PROVIDER_WS_TOKEN
@@ -10,13 +10,11 @@ describe('AI worker access tokens', () => {
   it('authenticates a global managed token by hash and records last use', async () => {
     const presented = 'vmai_managed-token-long-enough'
     const tokenHash = createHash('sha256').update(presented).digest('hex')
-    const findFirst = vi.fn(async () => ({ id: '40000000-0000-4000-8000-000000000001' }))
-    const update = vi.fn(async () => ({}))
-    const database = { aiWorkerAccessToken: { findFirst, update } } as unknown as Parameters<typeof authenticateAiWorkerToken>[0]
+    const updateMany = vi.fn(async () => ({ count: 1 }))
+    const database = { aiWorkerAccessToken: { updateMany } } as unknown as Parameters<typeof authenticateAiWorkerToken>[0]
 
     await expect(authenticateAiWorkerToken(database, presented)).resolves.toBe(true)
-    expect(findFirst).toHaveBeenCalledWith({ select: { id: true }, where: { enabled: true, tokenHash } })
-    expect(update).toHaveBeenCalledWith({ data: { lastUsedAt: expect.any(Date) }, where: { id: '40000000-0000-4000-8000-000000000001' } })
+    expect(updateMany).toHaveBeenCalledWith({ data: { lastUsedAt: expect.any(Date) }, where: { enabled: true, tokenHash } })
   })
 
   it('accepts the deployment token without a database provider record', async () => {
@@ -38,6 +36,16 @@ describe('AI worker access tokens', () => {
     const persisted = create.mock.calls[0]![0].data
     expect(persisted.tokenHash).toBe(createHash('sha256').update(result.token).digest('hex'))
     expect(JSON.stringify(persisted)).not.toContain(result.token)
+  })
+
+  it('permanently deletes a managed token', async () => {
+    const deleteMany = vi.fn(async () => ({ count: 1 }))
+    const database = { aiWorkerAccessToken: { deleteMany } } as unknown as Parameters<typeof deleteAiWorkerToken>[0]
+
+    await expect(deleteAiWorkerToken(database, '40000000-0000-4000-8000-000000000001')).resolves.toEqual({
+      tokenId: '40000000-0000-4000-8000-000000000001',
+    })
+    expect(deleteMany).toHaveBeenCalledWith({ where: { id: '40000000-0000-4000-8000-000000000001' } })
   })
 
   it('summarizes the single engine directly from tokens, workers, and jobs', async () => {

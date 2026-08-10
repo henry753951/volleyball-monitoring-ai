@@ -33,6 +33,7 @@ from .worker import (
     JobAbortedError,
     JobContext,
     JobHandler,
+    WorkerAuthorizationRevokedError,
     WorkerConfig,
 )
 
@@ -51,6 +52,7 @@ __all__ = [
     "JobAccepted",
     "JobContext",
     "JobHandler",
+    "WorkerAuthorizationRevokedError",
     "MediaApiError",
     "OfflineAnalyzer",
     "OfflineProgressReporter",

@@ -85,6 +85,8 @@ describe("golden contract fixtures", () => {
     expect(parseAnalysisReviewPatch(patch)).toEqual(patch);
     expect(() => parseAnalysisReviewPatch({ ...patch, client_patch_id: "not-a-uuid" })).toThrow();
     expect(() => parseAnalysisReviewPatch({ ...patch, operations: [{ ...patch.operations[1], action: "Serving" }] })).toThrow();
+    expect(() => parseAnalysisReviewPatch({ ...patch, operations: [{ op: "set_player_bbox", frame_index: "1", track_id: 2, frame_bbox: { x1: 20, y1: 20, x2: 10, y2: 30 } }] })).toThrow();
+    expect(() => parseAnalysisReviewPatch({ ...patch, operations: [{ op: "set_contact_actor", key_point_id: "not-a-uuid", track_id: null }] })).toThrow();
     expect(() => parseAnalysisReviewPatch({ ...patch, operations: [] })).toThrow();
   });
 
@@ -176,7 +178,14 @@ describe("golden contract fixtures", () => {
         ...common, type: "rally_snapshot", rally_id: uuid(5), revision: "1", server_sequence: "1",
         snapshot: {
           annotation_status: "open", side_assignment_id: uuid(7), score_resolution: "pending", scoring_court_side: null,
-          processing_status: "idle", key_points: [],
+          processing_status: "idle", active_submission_id: null, key_points: [],
+        },
+      },
+      {
+        ...common, type: "rally_snapshot", rally_id: uuid(8), revision: "5", server_sequence: "2",
+        snapshot: {
+          annotation_status: "open", side_assignment_id: uuid(7), score_resolution: "resolved", scoring_court_side: "left",
+          processing_status: "completed", active_submission_id: uuid(6), key_points: [],
         },
       },
       {

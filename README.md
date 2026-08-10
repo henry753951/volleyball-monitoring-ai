@@ -70,4 +70,4 @@ uv run --project sdk --frozen pytest
 
 ## Fixed annotation controls
 
-`Z` service, `Space` contact, `<` close with resolved/left, `>` close with resolved/right, `?` close with explicit unknown, `Enter` submit. Each close command atomically terminalizes the server-confirmed last key point and stores the rally-level outcome without a new time or score event. Touch controls expose the same six actions; physical bindings remain configurable and Restore Defaults returns to these keys.
+`Z` service, `X` contact, `Space` play/pause, `<` close with resolved/left, `>` close with resolved/right, `?` close with explicit unknown, `Enter` submit. The comma, period and slash physical keys trigger `<`, `>` and `?` without Shift; `Ctrl+←/→` moves five frames. Each close command atomically terminalizes the server-confirmed last key point and stores the rally-level outcome without a new time or score event. Touch controls expose the same annotation actions; physical bindings remain configurable and Restore Defaults returns to these keys.

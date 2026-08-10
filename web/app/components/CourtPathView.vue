@@ -1,27 +1,66 @@
 <script setup lang="ts">
-import type { ReplayPath } from '~/lib/coachDomain'
+import { OVERLAY_PLAYER_FLAG, type BrowserOverlayChunk } from '@volleyball-monitoring/contracts'
+import { computed } from 'vue'
+import type { ReplayContactEvent, ReplayPath } from '~/lib/coachDomain'
+import type { RosterPosition } from '~/lib/coreDomain'
+
+interface CourtTrack {
+  trackId: number
+  courtSide?: string | null
+  label?: string | null
+  jerseyNumber?: string | null
+  position?: RosterPosition | null
+}
+
+interface CurveLine {
+  path: ReplayPath
+  pathIndex: number
+  lineIndex: number
+  start: NonNullable<ReplayPath['start_court_positions'][number]>
+  end: NonNullable<ReplayPath['end_court_positions'][number]>
+}
 
 const props = withDefaults(defineProps<{
   paths: ReplayPath[]
+  events?: ReplayContactEvent[]
+  tracks?: CourtTrack[]
+  chunk?: BrowserOverlayChunk | null
   leftTeam?: string
   rightTeam?: string
   activeFrame?: number
-}>(), { leftTeam: '左隊', rightTeam: '右隊', activeFrame: -1 })
+  playing?: boolean
+  showOtherPlayers?: boolean
+  playerLabelMode?: 'hitters' | 'all'
+  showLegend?: boolean
+  fps?: { num: number; den: number } | null
+}>(), {
+  events: () => [],
+  tracks: () => [],
+  chunk: null,
+  leftTeam: '左隊',
+  rightTeam: '右隊',
+  activeFrame: -1,
+  playing: false,
+  showOtherPlayers: true,
+  playerLabelMode: 'hitters',
+  showLegend: true,
+  fps: null,
+})
 const emit = defineEmits<{ seek: [frame: string | null] }>()
 
 const focusedPathIndex = computed(() => {
   if (!props.paths.length) return -1
-  const activeIndex = props.paths.findIndex(path => {
-    if (props.activeFrame < 0 || !path.start_frame_index || !path.end_frame_index) return false
+  const activeIndex = props.paths.findIndex((path) => {
+    if (props.activeFrame < 0 || path.start_frame_index === null || path.end_frame_index === null) return false
     return props.activeFrame >= Number(path.start_frame_index) && props.activeFrame <= Number(path.end_frame_index)
   })
   if (activeIndex >= 0) return activeIndex
-  if (props.activeFrame < 0) return props.paths.length - 1
+  if (props.activeFrame < 0) return 0
   let nearestIndex = 0
   let nearestDistance = Number.POSITIVE_INFINITY
   props.paths.forEach((path, index) => {
-    const start = path.start_frame_index ? Number(path.start_frame_index) : 0
-    const end = path.end_frame_index ? Number(path.end_frame_index) : start
+    const start = path.start_frame_index === null ? 0 : Number(path.start_frame_index)
+    const end = path.end_frame_index === null ? start : Number(path.end_frame_index)
     const distance = props.activeFrame < start ? start - props.activeFrame : props.activeFrame > end ? props.activeFrame - end : 0
     if (distance < nearestDistance) { nearestDistance = distance; nearestIndex = index }
   })
@@ -29,12 +68,12 @@ const focusedPathIndex = computed(() => {
 })
 
 const visiblePaths = computed(() => {
-  if (props.paths.length <= 5) return props.paths.map((path, index) => ({ path, index }))
-  const start = Math.max(0, Math.min(props.paths.length - 5, focusedPathIndex.value - 2))
-  return props.paths.slice(start, start + 5).map((path, offset) => ({ path, index: start + offset }))
+  if (props.paths.length <= 7) return props.paths.map((path, index) => ({ path, index }))
+  const start = Math.max(0, Math.min(props.paths.length - 7, focusedPathIndex.value - 3))
+  return props.paths.slice(start, start + 7).map((path, offset) => ({ path, index: start + offset }))
 })
 
-const lines = computed(() => visiblePaths.value.flatMap(({ path, index: pathIndex }) => {
+const lines = computed<CurveLine[]>(() => visiblePaths.value.flatMap(({ path, index: pathIndex }) => {
   const count = Math.max(path.start_court_positions.length, path.end_court_positions.length)
   return Array.from({ length: count }, (_, index) => ({
     path,
@@ -42,46 +81,189 @@ const lines = computed(() => visiblePaths.value.flatMap(({ path, index: pathInde
     lineIndex: index,
     start: path.start_court_positions[index] ?? path.start_court_positions[0],
     end: path.end_court_positions[index] ?? path.end_court_positions[0],
-  })).filter(line => line.start && line.end)
+  })).filter((line): line is CurveLine => Boolean(line.start && line.end))
 }))
+
+const focusedLine = computed(() => lines.value.find(line => line.pathIndex === focusedPathIndex.value && line.lineIndex === 0) ?? null)
+const focusedPath = computed(() => focusedLine.value?.path ?? null)
+const trackMetadata = computed(() => new Map(props.tracks.map(track => [track.trackId, track])))
+const focusedTrackIds = computed(() => new Set([
+  ...(focusedPath.value?.start_court_positions ?? []).flatMap(position => position.track_id === null ? [] : [position.track_id]),
+  ...(focusedPath.value?.end_court_positions ?? []).flatMap(position => position.track_id === null ? [] : [position.track_id]),
+]))
 
 const x = (value: number) => value * 100
 const y = (value: number) => (1 - value) * 200
 const isFocused = (pathIndex: number) => pathIndex === focusedPathIndex.value
-const pathOpacity = (pathIndex: number) => isFocused(pathIndex) ? 1 : Math.max(.22, 1 - Math.abs(pathIndex - focusedPathIndex.value) * .18)
+const pathOpacity = (pathIndex: number) => isFocused(pathIndex) ? 1 : Math.max(.16, .58 - Math.abs(pathIndex - focusedPathIndex.value) * .1)
+
+function curve(line: CurveLine) {
+  const startX = x(line.start.court_pos.y)
+  const startY = y(line.start.court_pos.x)
+  const endX = x(line.end.court_pos.y)
+  const endY = y(line.end.court_pos.x)
+  const dx = endX - startX
+  const dy = endY - startY
+  const length = Math.max(1, Math.hypot(dx, dy))
+  const bend = Math.min(13, Math.max(4.5, length * .09)) * (line.lineIndex % 2 ? -1 : 1)
+  return {
+    startX,
+    startY,
+    controlX: (startX + endX) / 2 - (dy / length) * bend,
+    controlY: (startY + endY) / 2 + (dx / length) * bend,
+    endX,
+    endY,
+  }
+}
+
+function curvePath(line: CurveLine) {
+  const value = curve(line)
+  return `M ${value.startX} ${value.startY} Q ${value.controlX} ${value.controlY} ${value.endX} ${value.endY}`
+}
+
+function pathProgress(path: ReplayPath) {
+  if (path.start_frame_index === null || path.end_frame_index === null) return 0
+  const start = Number(path.start_frame_index)
+  const end = Number(path.end_frame_index)
+  if (end <= start) return 1
+  return Math.max(0, Math.min(1, (props.activeFrame - start) / (end - start)))
+}
+
+function pointOnCurve(line: CurveLine, progress: number) {
+  const value = curve(line)
+  const inverse = 1 - progress
+  return {
+    x: inverse * inverse * value.startX + 2 * inverse * progress * value.controlX + progress * progress * value.endX,
+    y: inverse * inverse * value.startY + 2 * inverse * progress * value.controlY + progress * progress * value.endY,
+  }
+}
+
+const ballTrail = computed(() => {
+  const line = focusedLine.value
+  if (!line) return []
+  const progress = pathProgress(line.path)
+  return [0.09, 0.045, 0].map((offset, index) => ({ ...pointOnCurve(line, Math.max(0, progress - offset)), index }))
+})
+
+const currentPlayers = computed(() => {
+  const chunk = props.chunk
+  if (!chunk || props.activeFrame < 0) return []
+  const localFrame = props.activeFrame - Number(chunk.startFrameIndex)
+  if (localFrame < 0 || localFrame >= chunk.frameCount) return []
+  const start = chunk.frameOffsets[localFrame] ?? 0
+  const end = chunk.frameOffsets[localFrame + 1] ?? start
+  const players = [] as Array<{ trackId: number; x: number; y: number; hitter: boolean }>
+  for (let index = start; index < end; index += 1) {
+    if (!((chunk.playerFlags[index] ?? 0) & OVERLAY_PLAYER_FLAG.courtPosition)) continue
+    const position = chunk.courtPositions[index]
+    const trackId = chunk.trackIds[index]
+    if (!position || trackId === undefined || !Number.isFinite(position.x) || !Number.isFinite(position.y)) continue
+    const hitter = focusedTrackIds.value.has(trackId)
+    if (!props.showOtherPlayers && !hitter) continue
+    players.push({ trackId, x: x(position.y), y: y(position.x), hitter })
+  }
+  return players
+})
+
+function trackLabel(trackId: number | null) {
+  if (trackId === null) return '落點'
+  const track = trackMetadata.value.get(trackId)
+  if (!track?.jerseyNumber) return `ID ${trackId}`
+  return `[${track.position && track.position !== 'UNSPECIFIED' ? track.position : '?'}] ${track.jerseyNumber}`
+}
+
+function labelWidth(label: string) {
+  return Math.max(24, Math.min(54, label.length * 4 + 9))
+}
+
+function showPlayerLabel(trackId: number, hitter: boolean) {
+  return hitter || props.playerLabelMode === 'all'
+}
+
+function pathColor(path: ReplayPath) {
+  const startEvent = props.events.find(event => event.key_point_id === path.start_key_point_id)
+  if (startEvent?.marker_kind === 'service') return '#f4c66a'
+  if (path.is_terminal_segment) return '#ff7b72'
+  return '#69b7ff'
+}
+
+const focusedDuration = computed(() => {
+  const path = focusedPath.value
+  if (!path?.start_frame_index || !path.end_frame_index || !props.fps?.num) return null
+  const frames = Math.max(0, Number(path.end_frame_index) - Number(path.start_frame_index))
+  return frames * props.fps.den / props.fps.num
+})
 </script>
 
 <template>
   <div class="court-view">
-    <div class="court-heading"><span>球路焦點</span><small>{{ paths.length ? `${Math.max(1, focusedPathIndex + 1)} / ${paths.length}` : '—' }}</small></div>
+    <div class="court-heading">
+      <div><span>同步球路</span><small>{{ paths.length ? `${Math.max(1, focusedPathIndex + 1)} / ${paths.length}` : '—' }}<template v-if="focusedDuration !== null"> · {{ focusedDuration.toFixed(2) }} 秒</template></small></div>
+      <div v-if="showLegend" class="court-legend" aria-label="球路顏色"><span class="service">發球</span><span class="rally">一般</span><span class="terminal">終結</span></div>
+    </div>
     <span class="court-team court-team--far">{{ rightTeam }}</span>
-    <svg viewBox="-16 -18 132 236" role="img" aria-label="2D 球場路徑">
+    <svg viewBox="-18 -20 136 240" role="img" aria-label="2D 球場同步球路">
       <defs>
-        <linearGradient id="court-floor" x1="0" y1="0" x2="0" y2="1"><stop stop-color="#272b31" /><stop offset="1" stop-color="#14171b" /></linearGradient>
-        <linearGradient id="court-glow" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#f1c98a" /><stop offset="1" stop-color="#ef8b62" /></linearGradient>
-        <filter id="active-glow" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="1.8" result="blur" /><feMerge><feMergeNode in="blur" /><feMergeNode in="SourceGraphic" /></feMerge></filter>
-        <marker id="path-arrow" markerWidth="5" markerHeight="5" refX="4" refY="2.5" orient="auto"><path d="M0 0 5 2.5 0 5Z" fill="#f1c98a" /></marker>
+        <linearGradient id="court-floor" x1="0" y1="0" x2="0" y2="1"><stop stop-color="#26313a" /><stop offset="1" stop-color="#111820" /></linearGradient>
+        <radialGradient id="flight-ball"><stop offset="0" stop-color="#fff8cf" /><stop offset=".55" stop-color="#ffd84d" /><stop offset="1" stop-color="#dd8d13" /></radialGradient>
+        <filter id="ball-shadow" x="-200%" y="-200%" width="400%" height="400%"><feDropShadow dx="0" dy="1.3" stdDeviation="1.4" flood-color="#000" flood-opacity=".6" /></filter>
       </defs>
-      <rect x="0" y="0" width="100" height="200" rx="3" fill="url(#court-floor)" />
-      <g fill="none" stroke="#e7edf2" stroke-width="1.25" opacity=".72">
+      <rect x="0" y="0" width="100" height="200" rx="4" fill="url(#court-floor)" />
+      <g fill="none" stroke="#e7edf2" stroke-width="1.15" opacity=".66">
         <rect x="2" y="2" width="96" height="196" />
-        <line x1="2" y1="100" x2="98" y2="100" stroke="#fff" stroke-width="2.8" />
+        <line x1="2" y1="100" x2="98" y2="100" stroke="#fff" stroke-width="2.6" />
         <line x1="2" y1="66.67" x2="98" y2="66.67" opacity=".42" />
         <line x1="2" y1="133.33" x2="98" y2="133.33" opacity=".42" />
       </g>
-      <text x="50" y="96" text-anchor="middle" fill="#ffffff80" font-size="4" letter-spacing=".8">NET</text>
-      <g v-for="line in lines" :key="`${line.path.id}:${line.lineIndex}`" class="court-path" :class="{ focused: isFocused(line.pathIndex), terminal: line.path.is_terminal_segment }" :style="{ opacity: pathOpacity(line.pathIndex) }" role="button" :aria-label="`球路 ${line.path.sequence_index + 1}`" @click="emit('seek', line.path.start_frame_index)">
-        <line :x1="x(line.start!.court_pos.y)" :y1="y(line.start!.court_pos.x)" :x2="x(line.end!.court_pos.y)" :y2="y(line.end!.court_pos.x)" :marker-end="isFocused(line.pathIndex) && line.lineIndex === 0 ? 'url(#path-arrow)' : undefined" />
-        <circle :cx="x(line.start!.court_pos.y)" :cy="y(line.start!.court_pos.x)" r="2.3" />
-        <circle class="court-path__end" :cx="x(line.end!.court_pos.y)" :cy="y(line.end!.court_pos.x)" r="3.2" />
-        <circle v-if="isFocused(line.pathIndex) && line.lineIndex === 0" class="court-path__pulse" :cx="x(line.end!.court_pos.y)" :cy="y(line.end!.court_pos.x)" r="5" />
+      <text x="50" y="96" text-anchor="middle" fill="#ffffff70" font-size="4" letter-spacing=".7">NET</text>
+
+      <g class="court-players" aria-label="球員站位">
+        <g v-for="player in currentPlayers" :key="player.trackId" class="court-player" :class="{ hitter: player.hitter }" :transform="`translate(${player.x} ${player.y})`">
+          <circle r="3.3" />
+          <circle v-if="player.hitter" class="court-player__ring" r="5.6" />
+          <g v-if="showPlayerLabel(player.trackId, player.hitter)" class="court-nameplate" transform="translate(0 -8)">
+            <rect :x="-labelWidth(trackLabel(player.trackId)) / 2" y="-5.5" :width="labelWidth(trackLabel(player.trackId))" height="8" rx="2.5" />
+            <text y="0" text-anchor="middle">{{ trackLabel(player.trackId) }}</text>
+          </g>
+        </g>
+      </g>
+
+      <g
+        v-for="line in lines"
+        :key="`${line.path.id}:${line.lineIndex}`"
+        class="court-path"
+        :class="{ focused: isFocused(line.pathIndex), playing: playing && isFocused(line.pathIndex), terminal: line.path.is_terminal_segment }"
+        :style="{ opacity: pathOpacity(line.pathIndex), '--path-color': pathColor(line.path) }"
+        role="button"
+        tabindex="0"
+        :aria-label="`球路 ${line.path.sequence_index + 1}`"
+        @click="emit('seek', line.path.start_frame_index)"
+        @keydown.enter.space.prevent="emit('seek', line.path.start_frame_index)"
+      >
+        <path class="court-path__curve" :d="curvePath(line)" />
+        <circle class="court-path__start" :cx="x(line.start.court_pos.y)" :cy="y(line.start.court_pos.x)" r="2.5" />
+        <circle class="court-path__end" :cx="x(line.end.court_pos.y)" :cy="y(line.end.court_pos.x)" r="3" />
+        <g v-if="isFocused(line.pathIndex) && line.lineIndex === 0" class="court-endpoint-labels">
+          <g :transform="`translate(${x(line.start.court_pos.y)} ${y(line.start.court_pos.x) - 8})`">
+            <rect :x="-labelWidth(trackLabel(line.start.track_id)) / 2" y="-5.5" :width="labelWidth(trackLabel(line.start.track_id))" height="8" rx="2.5" />
+            <text y="0" text-anchor="middle">{{ trackLabel(line.start.track_id) }}</text>
+          </g>
+          <g :transform="`translate(${x(line.end.court_pos.y)} ${y(line.end.court_pos.x) + 12})`">
+            <rect :x="-labelWidth(trackLabel(line.end.track_id)) / 2" y="-5.5" :width="labelWidth(trackLabel(line.end.track_id))" height="8" rx="2.5" />
+            <text y="0" text-anchor="middle">{{ trackLabel(line.end.track_id) }}</text>
+          </g>
+        </g>
+      </g>
+
+      <g v-if="focusedLine && ballTrail.length" class="flight-ball" aria-label="模擬球位置">
+        <circle v-for="point in ballTrail" :key="point.index" :cx="point.x" :cy="point.y" :r="point.index === 2 ? 3.3 : 2.2 - point.index * .2" :opacity="point.index === 2 ? 1 : .16 + point.index * .16" />
       </g>
     </svg>
     <span class="court-team court-team--near">{{ leftTeam }}</span>
-    <p v-if="!lines.length">尚無球路資料</p>
+    <p v-if="!lines.length">尚無可顯示的球路資料</p>
   </div>
 </template>
 
 <style scoped>
-.court-view{position:relative;min-height:0;display:grid;grid-template-rows:26px 18px minmax(0,1fr) 18px;justify-items:center;overflow:hidden;border:1px solid #252a31;border-radius:16px;background:#101317;color:#e6ebef;box-shadow:0 16px 36px #0b0d1022}.court-view::before{position:absolute;inset:0;background:radial-gradient(circle at 50% 35%,#ffffff0b,transparent 56%);content:"";pointer-events:none}.court-heading{z-index:1;width:100%;display:flex;align-items:center;justify-content:space-between;padding:0 12px;color:#aeb7c1;font-size:.67rem;font-weight:700;letter-spacing:.02em}.court-heading small{color:#68727e;font-size:.61rem;font-variant-numeric:tabular-nums}.court-view svg{height:100%;max-width:100%;min-height:0;filter:drop-shadow(0 12px 14px #05070a55)}.court-team{z-index:1;align-self:center;max-width:90%;overflow:hidden;color:#c9d0d8;font-size:.65rem;font-weight:750;text-overflow:ellipsis;white-space:nowrap}.court-team--far{color:#d7dde4}.court-team--near{color:#f1c98a}.court-path{cursor:pointer;outline:none;transition:opacity 260ms ease}.court-path line{stroke:#d9e4ee;stroke-width:1.55;stroke-linecap:round;opacity:.56;transition:stroke .22s ease,opacity .22s ease}.court-path circle{fill:#d9e4ee;stroke:#101317;stroke-width:1}.court-path__end{fill:#a9b6c4!important}.court-path.focused line,.court-path:hover line{stroke:#f1c98a;stroke-width:2.5;opacity:1;filter:url(#active-glow)}.court-path.focused circle{fill:#f1c98a}.court-path.terminal .court-path__end{fill:#ef8b62!important}.court-path__pulse{fill:none!important;stroke:#f1c98a!important;stroke-width:1!important;opacity:0;animation:court-pulse 1.6s ease-out infinite}.court-view>p{position:absolute;inset:0;display:grid;place-items:center;margin:0;color:#98a3ad;font-size:.72rem}@keyframes court-pulse{0%{opacity:.7;transform:scale(.65)}100%{opacity:0;transform:scale(1.75)}}@media(prefers-reduced-motion:reduce){.court-path,.court-path line{transition:none}.court-path__pulse{animation:none;opacity:.35} }
+.court-view{position:relative;min-height:0;display:grid;grid-template-rows:34px 18px minmax(0,1fr) 18px;justify-items:center;overflow:hidden;border:1px solid #25303a;border-radius:16px;background:#0f151c;color:#e6ebef;box-shadow:0 16px 36px #0b0d1022}.court-view::before{position:absolute;inset:0;background:radial-gradient(circle at 50% 34%,#ffffff0c,transparent 58%);content:"";pointer-events:none}.court-heading{z-index:1;width:100%;display:flex;align-items:center;justify-content:space-between;gap:8px;padding:0 11px;box-sizing:border-box;color:#d2d8df;font-size:.68rem;font-weight:750}.court-heading>div:first-child{min-width:0;display:flex;align-items:baseline;gap:6px}.court-heading small{color:#7f8a96;font-size:.6rem;font-weight:600;font-variant-numeric:tabular-nums}.court-legend{display:flex;gap:6px;color:#89939e;font-size:.54rem;font-weight:650}.court-legend span{display:inline-flex;align-items:center;gap:3px}.court-legend span::before{width:9px;border-top:2px dashed currentColor;content:""}.court-legend .service{color:#f4c66a}.court-legend .rally{color:#69b7ff}.court-legend .terminal{color:#ff7b72}.court-view svg{height:100%;max-width:100%;min-height:0;overflow:visible;filter:drop-shadow(0 12px 14px #05070a55)}.court-team{z-index:1;align-self:center;max-width:90%;overflow:hidden;color:#c9d0d8;font-size:.64rem;font-weight:750;text-overflow:ellipsis;white-space:nowrap}.court-team--far{color:#d7dde4}.court-team--near{color:#f4c66a}.court-path{cursor:pointer;outline:none;transition:opacity 220ms ease-out}.court-path__curve{fill:none;stroke:var(--path-color);stroke-width:1.8;stroke-linecap:round;stroke-dasharray:4 4;opacity:.55;transition:opacity 180ms ease-out}.court-path circle{fill:var(--path-color);stroke:#111820;stroke-width:1}.court-path__end{opacity:.86}.court-path.focused .court-path__curve,.court-path:hover .court-path__curve,.court-path:focus-visible .court-path__curve{stroke-width:2.65;opacity:1}.court-path:focus-visible .court-path__curve{filter:drop-shadow(0 0 2px #fff)}.court-path.focused.playing .court-path__curve{animation:court-dash .72s linear infinite}.court-player{opacity:.34}.court-player circle:first-child{fill:#d7e0e8;stroke:#111820;stroke-width:1}.court-player.hitter{opacity:1}.court-player.hitter circle:first-child{fill:#fff2b3}.court-player__ring{fill:none!important;stroke:#f4c66a!important;stroke-width:1!important;opacity:.8}.court-nameplate rect,.court-endpoint-labels rect{fill:#111820e8;stroke:#ffffff20;stroke-width:.5}.court-nameplate text,.court-endpoint-labels text{fill:#f5f7f9;font-size:4px;font-weight:700;paint-order:stroke;stroke:#111820;stroke-width:.7}.court-endpoint-labels{pointer-events:none}.flight-ball{pointer-events:none;filter:url(#ball-shadow)}.flight-ball circle{fill:url(#flight-ball);stroke:#fff4bd;stroke-width:.45}.court-view>p{position:absolute;inset:0;display:grid;place-items:center;margin:0;color:#98a3ad;font-size:.72rem}@keyframes court-dash{to{stroke-dashoffset:-16}}@media(prefers-reduced-motion:reduce){.court-path,.court-path__curve{transition:none}.court-path.focused.playing .court-path__curve{animation:none}}@media(max-width:900px){.court-legend{display:none}.court-heading>div:first-child{width:100%;justify-content:space-between}}
 </style>

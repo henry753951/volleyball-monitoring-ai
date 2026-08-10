@@ -150,7 +150,12 @@ function recorderTimestamp(index: number) {
 }
 
 async function prepareOfflineDvr(sourcePath: string) {
-  const output = resolve(process.env.CONTRACT_LAB_DVR_SPOOL_PATH ?? '.data/contract-lab-dvr')
+  const output = resolve(
+    process.env.CONTRACT_LAB_DVR_SPOOL_PATH?.trim()
+      || (process.env.DEV_DATA_ROOT?.trim()
+        ? resolve(process.env.DEV_DATA_ROOT, 'contract-lab-dvr')
+        : '.data/contract-lab-dvr'),
+  )
   await mkdir(output, { recursive: true })
   const manifestPath = resolve(output, '.contract-lab-dvr-v2.json')
   const ready = (await readdir(output)).filter(name => /^\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}-\d{6}\.mp4$/.test(name))

@@ -23,6 +23,13 @@ export interface CaptureCoverage {
   endUs: bigint
 }
 
+export interface ClipFrameTimeline {
+  captureTimeUs: bigint[]
+  captureEndUs: bigint
+  clipTimeUs: bigint[]
+  clipEndUs: bigint
+}
+
 function record(value: unknown): Record<string, unknown> {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) {
     throw new ClipTimingManifestError('timing manifest must be an object')
@@ -37,12 +44,10 @@ function decimal(value: unknown, field: string): bigint {
   return BigInt(value)
 }
 
-export function resolveClipTimingCoverage(
+export function resolveClipFrameTimeline(
   input: unknown,
   expectedClipJobId: string,
-  firstFrame: bigint | null,
-  lastFrame: bigint | null,
-): CaptureCoverage {
+): ClipFrameTimeline {
   const manifest = record(input)
   if (
     manifest.schema_version !== '1.1.0'
@@ -58,14 +63,20 @@ export function resolveClipTimingCoverage(
     manifest.actual_end_capture_us,
     'actual_end_capture_us',
   )
+  const video = record(manifest.video)
+  const clipEndUs = decimal(video.duration_us, 'video.duration_us')
   if (actualEndUs <= actualStartUs) {
     throw new ClipTimingManifestError('timing manifest range is empty')
+  }
+  if (clipEndUs <= 0n) {
+    throw new ClipTimingManifestError('timing manifest clip range is empty')
   }
   if (!Array.isArray(manifest.frame_map) || manifest.frame_map.length === 0) {
     throw new ClipTimingManifestError('frame_map must be non-empty')
   }
 
   const captureTimes: bigint[] = []
+  const clipTimes: bigint[] = []
   for (const [index, value] of manifest.frame_map.entries()) {
     const frame = record(value)
     const clipFrameIndex = decimal(
@@ -75,6 +86,10 @@ export function resolveClipTimingCoverage(
     const captureTimeUs = decimal(
       frame.capture_time_us,
       `frame_map[${index}].capture_time_us`,
+    )
+    const clipTimeUs = decimal(
+      frame.clip_time_us,
+      `frame_map[${index}].clip_time_us`,
     )
     if (clipFrameIndex !== BigInt(index)) {
       throw new ClipTimingManifestError('frame_map indices must be contiguous')
@@ -86,8 +101,36 @@ export function resolveClipTimingCoverage(
     ) {
       throw new ClipTimingManifestError('frame_map capture times are invalid')
     }
+    if (
+      clipTimeUs < 0n
+      || clipTimeUs >= clipEndUs
+      || (clipTimes.length > 0 && clipTimeUs <= clipTimes.at(-1)!)
+      || (index === 0 && clipTimeUs !== 0n)
+    ) {
+      throw new ClipTimingManifestError('frame_map clip times are invalid')
+    }
     captureTimes.push(captureTimeUs)
+    clipTimes.push(clipTimeUs)
   }
+
+  return {
+    captureTimeUs: captureTimes,
+    captureEndUs: actualEndUs,
+    clipTimeUs: clipTimes,
+    clipEndUs,
+  }
+}
+
+export function resolveClipTimingCoverage(
+  input: unknown,
+  expectedClipJobId: string,
+  firstFrame: bigint | null,
+  lastFrame: bigint | null,
+): CaptureCoverage {
+  const timeline = resolveClipFrameTimeline(input, expectedClipJobId)
+  const captureTimes = timeline.captureTimeUs
+  const actualStartUs = captureTimes[0]!
+  const actualEndUs = timeline.captureEndUs
 
   if (firstFrame === null && lastFrame === null) {
     return { startUs: actualStartUs, endUs: actualEndUs }
@@ -112,13 +155,10 @@ export function resolveClipTimingCoverage(
   }
 }
 
-export async function readClipTimingCoverage(
+async function readTimingManifest(
   reader: MediaObjectReader,
   asset: TimingManifestAssetReference,
-  clipJobId: string,
-  firstFrame: bigint | null,
-  lastFrame: bigint | null,
-): Promise<CaptureCoverage> {
+): Promise<unknown> {
   if (
     asset.byteLength === null
     || asset.sha256 === null
@@ -135,14 +175,33 @@ export async function readClipTimingCoverage(
     expectedInternalSchemaVersion: asset.internalSchemaVersion,
     expectedKind: 'TIMING_MANIFEST',
   })
-  let manifest: unknown
   try {
-    manifest = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes))
+    return JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes))
   } catch {
     throw new ClipTimingManifestError('timing manifest JSON is invalid')
   }
+}
+
+export async function readClipFrameTimeline(
+  reader: MediaObjectReader,
+  asset: TimingManifestAssetReference,
+  clipJobId: string,
+): Promise<ClipFrameTimeline> {
+  return resolveClipFrameTimeline(
+    await readTimingManifest(reader, asset),
+    clipJobId,
+  )
+}
+
+export async function readClipTimingCoverage(
+  reader: MediaObjectReader,
+  asset: TimingManifestAssetReference,
+  clipJobId: string,
+  firstFrame: bigint | null,
+  lastFrame: bigint | null,
+): Promise<CaptureCoverage> {
   return resolveClipTimingCoverage(
-    manifest,
+    await readTimingManifest(reader, asset),
     clipJobId,
     firstFrame,
     lastFrame,

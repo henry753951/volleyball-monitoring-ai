@@ -116,6 +116,7 @@ export function selectCanonicalClipRange(
   const timeBase = segments[0]!.index.timeBase
   let previous: SelectedClipSourceSample | undefined
   let previousEndCaptureUs: bigint | undefined
+  const epochTimingOrigins = new Map<string, { sourcePts: bigint; captureTimeUs: bigint }>()
 
   for (const segment of segments) {
     validateSegmentMetadata(segment)
@@ -125,16 +126,33 @@ export function selectCanonicalClipRange(
     if (previousEndCaptureUs !== undefined && segment.captureStartUs !== previousEndCaptureUs) {
       throw new Error('canonical clip cannot cross a gap')
     }
+    const segmentFirstSample = segment.index.samples[0]!
+    if (!epochTimingOrigins.has(segment.captureEpochId)) {
+      epochTimingOrigins.set(segment.captureEpochId, {
+        sourcePts: segmentFirstSample.sourcePts,
+        captureTimeUs: segmentFirstSample.captureTimeUs,
+      })
+    }
+    const epochTimingOrigin = epochTimingOrigins.get(segment.captureEpochId)!
     for (const sample of segment.index.samples) {
+      const expectedCaptureTimeUs = epochTimingOrigin.captureTimeUs + rescalePtsToUs(
+        sample.sourcePts - epochTimingOrigin.sourcePts,
+        timeBase,
+      )
       if (previous) {
         if (
           (segment.captureEpochId === previous.captureEpochId
             && sample.sourcePts !== previous.sourcePts + previous.durationPts)
           || sample.captureFrameIndex !== previous.captureFrameIndex + 1n
-          || sample.captureTimeUs !== sampleEndCaptureUs(previous, timeBase)
         ) {
           throw new Error('canonical sample sequence is not contiguous')
         }
+      }
+      // Compute from cumulative epoch-relative PTS once. Summing individually
+      // rounded frame durations would create a false 1 µs discontinuity at
+      // rates such as 60000/1001, even though the PTS identity is exact.
+      if (sample.captureTimeUs !== expectedCaptureTimeUs) {
+        throw new Error('canonical sample capture time does not match source PTS')
       }
       const selectedSample = { ...sample, captureEpochId: segment.captureEpochId }
       allSamples.push(selectedSample)

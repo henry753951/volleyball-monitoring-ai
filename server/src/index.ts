@@ -12,14 +12,17 @@ import { evaluateReadiness, type ReadinessProbe } from './health/readiness.js'
 import { createPrismaCursorWindowStore, mediaCursorRoutes } from './media/cursor-routes.js'
 import { resolvePlaybackCursor } from './media/cursor-resolution.js'
 import { createMinioObjectReaderFromEnv } from './media/minio-object-reader.js'
+import { createMediaObjectRemoverFromEnv } from './media/media-object-remover.js'
 import { createSampleIndexRepository } from './media/sample-index-repository.js'
 import { createPersistedSampleSnapResolver } from './media/sample-snap-resolver.js'
 import { mediaPlaybackRoutes } from './routes/media-playback.js'
 import { aiCallbackRoutesWithDependencies } from './routes/ai-callback.js'
-import { analysisMediaRoutes } from './routes/analysis-media.js'
+import { analysisMediaRoutesWithDependencies } from './routes/analysis-media.js'
 import { analysisReviewRoutes } from './routes/analysis-review.js'
 import { collectOperationsSnapshot, deleteInactiveAiWorker, operationsRoutes } from './routes/operations.js'
 import { createHostStorageProbe } from './operations/host-storage.js'
+import { createKubernetesDeploymentProbe } from './operations/kubernetes-deployments.js'
+import { createMinioStorageProbe } from './operations/minio-storage.js'
 import { mediaSourceRoutes } from './routes/media-sources.js'
 import { createAnnotationPresenceService } from './realtime/annotation-presence.js'
 import { createAiProgressService } from './realtime/ai-progress.js'
@@ -29,7 +32,8 @@ import { aiProviderWebSocketRoutes } from './realtime/ai-provider-ws.js'
 import { authenticateDevelopmentAnnotationRequest } from './realtime/auth.js'
 import { createAnnotationCommandService } from './services/annotation-command.js'
 import { getAnnotationSnapshot } from './services/annotation-snapshot.js'
-import { createAiWorkerToken, rotateAiWorkerToken, setAiWorkerTokenEnabled } from './services/ai-worker-access.js'
+import { createAiWorkerToken, deleteAiWorkerToken, rotateAiWorkerToken, setAiWorkerTokenEnabled } from './services/ai-worker-access.js'
+import { createMatchCleanupCoordinator } from './services/match-cleanup-coordinator.js'
 
 const app = Fastify({ logger: true })
 const redisUrl = process.env.REDIS_URL
@@ -58,6 +62,18 @@ const annotationPresence = redis
   : null
 const aiProgress = redis ? createAiProgressService(redis) : null
 const coachMatchEvents = new CoachMatchEventHub()
+const hostStorageProbe = createHostStorageProbe(
+  process.env.MEDIA_RECORDING_ROOT ?? '/var/lib/volleyball/media-recordings',
+)
+const objectStorageProbe = createMinioStorageProbe(minioEndpoint ?? '')
+const deploymentProbe = createKubernetesDeploymentProbe()
+const mediaObjectRemover = createMediaObjectRemoverFromEnv()
+const matchCleanupCoordinator = createMatchCleanupCoordinator({
+  database: db,
+  importRoot: process.env.MEDIA_IMPORT_ROOT ?? '/var/lib/volleyball/media-imports',
+  ...(mediaObjectRemover ? { objectRemover: mediaObjectRemover } : {}),
+  recordingRoot: process.env.MEDIA_RECORDING_ROOT ?? '/var/lib/volleyball/media-recordings',
+}, app.log)
 
 const cursorDependencies = {
   now: () => new Date(),
@@ -123,7 +139,7 @@ await app.register(multipart, {
 await app.register(websocket)
 await app.register(aiCallbackRoutesWithDependencies({ ...(aiProgress ? { progress: aiProgress } : {}) }))
 await app.register(aiProviderWebSocketRoutes({ database: db, ...(aiProgress ? { progress: aiProgress } : {}) }))
-await app.register(analysisMediaRoutes)
+await app.register(analysisMediaRoutesWithDependencies({ timingManifestReader }))
 await app.register(analysisReviewRoutes)
 await app.register(mediaPlaybackRoutes({
   objectReader: mediaObjectReader,
@@ -136,11 +152,18 @@ await app.register(mediaSourceRoutes({
   importRoot: process.env.MEDIA_IMPORT_ROOT ?? '/var/lib/volleyball/media-imports',
 }))
 await app.register(operationsRoutes(
-  identity => collectOperationsSnapshot(db, identity, createHostStorageProbe(process.env.MEDIA_RECORDING_ROOT ?? '/var/lib/volleyball/media-recordings')),
+  identity => collectOperationsSnapshot(
+    db,
+    identity,
+    hostStorageProbe,
+    objectStorageProbe,
+    deploymentProbe,
+  ),
   {
     authenticate: request => authenticateDevelopmentAnnotationRequest(request, db),
     collectReadiness: () => evaluateReadiness(readinessProbes),
     createAiWorkerToken: name => createAiWorkerToken(db, name),
+    deleteAiWorkerToken: tokenId => deleteAiWorkerToken(db, tokenId),
     deleteAiWorker: workerId => deleteInactiveAiWorker(db, workerId),
     rotateAiWorkerToken: tokenId => rotateAiWorkerToken(db, tokenId),
     updateAiWorkerTokenState: (tokenId, enabled) => setAiWorkerTokenEnabled(db, tokenId, enabled),
@@ -202,9 +225,11 @@ app.get('/health/ready', async (_req, reply) => {
 
 const port = Number(process.env.PORT ?? 4000)
 app.addHook('onClose', async () => {
+  await matchCleanupCoordinator.stop()
   annotationPresence?.close()
   aiProgress?.close()
   redis?.disconnect()
   await db.$disconnect()
 })
 await app.listen({ port, host: '0.0.0.0' })
+matchCleanupCoordinator.start()

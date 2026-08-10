@@ -12,7 +12,7 @@ service names remain only in the superseded ADR/history and migrations.
 |---|---|---|---|
 | `postgres` | base | `postgres-data` | keep |
 | `redis` | base | `redis-data` | keep |
-| `minio` | base | `minio-data` | keep |
+| `minio` | base | host-bound object data under `DEV_DATA_ROOT` | keep |
 | `ovenmediaengine` | base | host-bound recording spool, OME data/logs | keep |
 | `traefik` | base | certificates/config | keep; optional in daily development |
 | `server` | `app` | shared imports/spool | keep |
@@ -26,10 +26,13 @@ command and does not create a stopped one-shot container in Docker Desktop.
 
 ## Current persistent paths and named volumes
 
-Keep named volumes: `postgres-data`, `redis-data`, `minio-data`, `ome-dvr`, `ome-logs`.
-Media imports and the OME recording spool are bind-mounted from `.data/runtime` by default so the
-same files are visible to host Bun workers and full-profile containers. Production may replace the
-defaults with absolute `MEDIA_IMPORT_HOST_PATH` and `MEDIA_SPOOL_HOST_PATH` values.
+Keep named volumes: `postgres-data`, `redis-data`, `ome-dvr`, `ome-logs`.
+Local MinIO data, media imports and the OME recording spool are bind-mounted below
+`DEV_DATA_ROOT` by default so their capacity can be moved off the development SSD and the same
+files remain visible to host Bun workers and full-profile containers. `MINIO_DATA_HOST_PATH`,
+`MEDIA_IMPORT_HOST_PATH` and `MEDIA_SPOOL_HOST_PATH` remain available as per-directory overrides.
+Production Kubernetes continues to provide object storage through its S3/NAS-backed persistent
+volume and does not consume these local Compose paths.
 
 Media source desired state, leases, retries, reconnect observations and completion watermarks now
 live in PostgreSQL. There is no dedicated relay/watcher state volume.
@@ -50,7 +53,8 @@ live in PostgreSQL. There is no dedicated relay/watcher state volume.
   `POSTGRES_HOST_PORT`, `REDIS_URL`, `REDIS_HOST_PORT`.
 - Object storage: `MINIO_ENDPOINT`, `MINIO_ACCESS_KEY`, `MINIO_SECRET_KEY`,
   `MINIO_RAW_BUCKET`, `MINIO_DVR_BUCKET`, `MINIO_RALLY_BUCKET`,
-  `MINIO_ANALYSIS_BUCKET`, `MINIO_BOOTSTRAP_ENDPOINT`,
+  `MINIO_ANALYSIS_BUCKET`, `MINIO_BOOTSTRAP_ENDPOINT`, `DEV_DATA_ROOT`,
+  `MINIO_DATA_HOST_PATH`,
   `OBJECT_STORAGE_BOOTSTRAP_MODE`, `OBJECT_STORAGE_BOOTSTRAP_TIMEOUT_MS`.
 - OME: `OME_API_URL`, `OME_API_ACCESS_TOKEN`, `OME_HOST_IP`, `OME_DVR_MAX_DURATION`.
 - Media worker: `MEDIA_SPOOL_DIR`, `MEDIA_IMPORT_ROOT`, `MEDIA_SOURCE_WORK_ROOT`,

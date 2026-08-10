@@ -1,5 +1,11 @@
 name: volleyball-monitoring-ai
 
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "${DOCKER_LOG_MAX_SIZE:-10m}"
+    max-file: "${DOCKER_LOG_MAX_FILES:-3}"
+
 networks:
   edge:
     name: volleyball-edge
@@ -16,6 +22,7 @@ services:
     ports:
       - "80:80"
       - "443:443"
+      - "127.0.0.1:${WEB_DEV_PORT:-3100}:3100"
       - "8080:8080" # local dashboard only
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
@@ -23,6 +30,7 @@ services:
       - ./traefik/dynamic:/etc/traefik/dynamic:ro
       - ./traefik/certs:/etc/traefik/certs:ro
     networks: [edge]
+    logging: *default-logging
     restart: unless-stopped
 
   postgres:
@@ -40,6 +48,7 @@ services:
       retries: 20
     volumes: [postgres-data:/var/lib/postgresql/data]
     networks: [internal, development]
+    logging: *default-logging
     restart: unless-stopped
 
   redis:
@@ -54,6 +63,7 @@ services:
       retries: 20
     volumes: [redis-data:/data]
     networks: [internal, development]
+    logging: *default-logging
     restart: unless-stopped
 
   minio:
@@ -62,10 +72,13 @@ services:
     environment:
       MINIO_ROOT_USER: ${MINIO_ACCESS_KEY:-volleyball}
       MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY:-volleyball-dev-secret}
+      # Metrics stay on the MinIO API port and are exposed only for local operations monitoring.
+      MINIO_PROMETHEUS_AUTH_TYPE: public
     ports:
       - "${MINIO_HOST_PORT:-9000}:9000" # local SDK/debug access; browser app never receives credentials
       - "${MINIO_CONSOLE_HOST_PORT:-9001}:9001"
-    volumes: [minio-data:/data]
+    volumes:
+      - ${MINIO_DATA_HOST_PATH:-${DEV_DATA_ROOT:-../.data/runtime}/minio-data}:/data
     healthcheck:
       test: ["CMD", "curl", "-f", "http://127.0.0.1:9000/minio/health/live"]
       interval: 5s
@@ -73,6 +86,7 @@ services:
       start_period: 120s
       retries: 60
     networks: [internal, edge]
+    logging: *default-logging
     restart: unless-stopped
 
   ovenmediaengine:
@@ -83,7 +97,7 @@ services:
       OME_HOST_IP: ${OME_HOST_IP:-127.0.0.1}
     volumes:
       - ./ome:/opt/ovenmediaengine/bin/origin_conf:ro
-      - ${MEDIA_SPOOL_HOST_PATH:-../.data/runtime/media-spool}:/recordings
+      - ${MEDIA_SPOOL_HOST_PATH:-${DEV_DATA_ROOT:-../.data/runtime}/media-spool}:/recordings
       - ome-dvr:/var/lib/ovenmediaengine/dvr
       - ome-logs:/var/log/ovenmediaengine
     ports:
@@ -105,7 +119,13 @@ services:
       - traefik.http.routers.ome-llhls.middlewares=ome-llhls-strip
       - traefik.http.middlewares.ome-llhls-strip.stripprefix.prefixes=/ome
       - traefik.http.services.ome-llhls.loadbalancer.server.port=3333
+      - traefik.http.routers.ome-llhls-dev.rule=PathPrefix(`/ome/`)
+      - traefik.http.routers.ome-llhls-dev.entrypoints=dev
+      - traefik.http.routers.ome-llhls-dev.priority=120
+      - traefik.http.routers.ome-llhls-dev.middlewares=ome-llhls-strip
+      - traefik.http.routers.ome-llhls-dev.service=ome-llhls
     networks: [internal, edge]
+    logging: *default-logging
     restart: unless-stopped
 
   server:
@@ -122,8 +142,8 @@ services:
       OME_API_ACCESS_TOKEN: ${OME_API_ACCESS_TOKEN:?OME_API_ACCESS_TOKEN is required}
       OME_API_URL: http://ovenmediaengine:8081
     volumes:
-      - ${MEDIA_IMPORT_HOST_PATH:-../.data/runtime/media-imports}:/var/lib/volleyball/media-imports
-      - ${MEDIA_SPOOL_HOST_PATH:-../.data/runtime/media-spool}:/recordings
+      - ${MEDIA_IMPORT_HOST_PATH:-${DEV_DATA_ROOT:-../.data/runtime}/media-imports}:/var/lib/volleyball/media-imports
+      - ${MEDIA_SPOOL_HOST_PATH:-${DEV_DATA_ROOT:-../.data/runtime}/media-spool}:/recordings
     depends_on:
       postgres: { condition: service_healthy }
       redis: { condition: service_healthy }
@@ -150,7 +170,20 @@ services:
       - traefik.http.routers.server-ws.tls=true
       - traefik.http.routers.server-ws.priority=200
       - traefik.http.services.server.loadbalancer.server.port=4000
+      - traefik.http.routers.server-graphql-dev.rule=Path(`/graphql`) || PathPrefix(`/graphql/`)
+      - traefik.http.routers.server-graphql-dev.entrypoints=dev
+      - traefik.http.routers.server-graphql-dev.priority=200
+      - traefik.http.routers.server-graphql-dev.service=server
+      - traefik.http.routers.server-api-dev.rule=PathPrefix(`/api/`)
+      - traefik.http.routers.server-api-dev.entrypoints=dev
+      - traefik.http.routers.server-api-dev.priority=200
+      - traefik.http.routers.server-api-dev.service=server
+      - traefik.http.routers.server-ws-dev.rule=PathPrefix(`/ws/`)
+      - traefik.http.routers.server-ws-dev.entrypoints=dev
+      - traefik.http.routers.server-ws-dev.priority=200
+      - traefik.http.routers.server-ws-dev.service=server
     networks: [internal, edge]
+    logging: *default-logging
     restart: unless-stopped
 
   worker-media: &worker
@@ -168,17 +201,22 @@ services:
       MEDIA_SOURCE_WORK_ROOT: /var/lib/volleyball/media-imports/.work
       OME_API_ACCESS_TOKEN: ${OME_API_ACCESS_TOKEN:?OME_API_ACCESS_TOKEN is required}
       OME_API_URL: http://ovenmediaengine:8081
-      YOUTUBE_FORMAT: ${YOUTUBE_FORMAT:-best[protocol*=m3u8][height=1080][fps>=59][fps<=61][vcodec^=avc][acodec!=none]/bestvideo[height=1080][fps>=59][fps<=61][vcodec^=avc]+bestaudio[acodec^=mp4a]}
-      YOUTUBE_EXTRACTOR_ARGS: ${YOUTUBE_EXTRACTOR_ARGS:-youtube:player_client=android_vr}
+      YOUTUBE_COOKIES_FILE: ${YOUTUBE_COOKIES_FILE:-}
+      YOUTUBE_FORMAT: ${YOUTUBE_FORMAT:-best[protocol*=m3u8][height=1080][fps>=59][fps<=61][vcodec^=avc][acodec!=none]/bestvideo[height=1080][fps>=59][fps<=61][vcodec^=avc]+bestaudio[acodec^=mp4a]/bestvideo[height=1080][vcodec^=avc]+bestaudio[acodec^=mp4a]/best[height=1080][vcodec^=avc][acodec!=none]/best[protocol*=m3u8][height<=1080][vcodec^=avc][acodec!=none]/bestvideo[height<=1080][vcodec^=avc]+bestaudio[acodec^=mp4a]/best[height<=1080][vcodec^=avc][acodec!=none]}
+      YOUTUBE_EXTRACTOR_ARGS: ${YOUTUBE_EXTRACTOR_ARGS:-youtube:player_client=default}
+      YOUTUBE_VOD_CONCURRENT_FRAGMENTS: ${YOUTUBE_VOD_CONCURRENT_FRAGMENTS:-4}
+      YOUTUBE_VOD_FORMAT: ${YOUTUBE_VOD_FORMAT:-bestvideo[protocol^=http][height=1080][fps>=59][fps<=61][vcodec^=avc]+bestaudio[protocol^=http][acodec^=mp4a]/bestvideo[protocol^=http][height=1080][vcodec^=avc]+bestaudio[protocol^=http][acodec^=mp4a]/bestvideo[height=1080][vcodec^=avc]+bestaudio[acodec^=mp4a]/best[height=1080][vcodec^=avc][acodec!=none]/bestvideo[protocol^=http][height<=1080][vcodec^=avc]+bestaudio[protocol^=http][acodec^=mp4a]/bestvideo[height<=1080][vcodec^=avc]+bestaudio[acodec^=mp4a]/best[height<=1080][vcodec^=avc][acodec!=none]}
     volumes:
-      - ${MEDIA_IMPORT_HOST_PATH:-../.data/runtime/media-imports}:/var/lib/volleyball/media-imports
-      - ${MEDIA_SPOOL_HOST_PATH:-../.data/runtime/media-spool}:/var/lib/volleyball/media-spool
+      - ${MEDIA_IMPORT_HOST_PATH:-${DEV_DATA_ROOT:-../.data/runtime}/media-imports}:/var/lib/volleyball/media-imports
+      - ${MEDIA_SPOOL_HOST_PATH:-${DEV_DATA_ROOT:-../.data/runtime}/media-spool}:/var/lib/volleyball/media-spool
+      - ${RUNTIME_SECRETS_HOST_PATH:-${DEV_DATA_ROOT:-../.data/runtime}/secrets}:/run/secrets:ro
     depends_on:
       postgres: { condition: service_healthy }
       redis: { condition: service_healthy }
       minio: { condition: service_healthy }
       ovenmediaengine: { condition: service_healthy }
-    networks: [internal]
+    networks: [internal, edge]
+    logging: *default-logging
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "bun", "-e", "const response = await fetch('http://127.0.0.1:' + process.env.WORKER_HEALTH_PORT + '/health/ready'); if (!response.ok) process.exit(1)"]
@@ -217,12 +255,16 @@ services:
       - traefik.http.routers.web.tls=true
       - traefik.http.routers.web.priority=1
       - traefik.http.services.web.loadbalancer.server.port=3000
+      - traefik.http.routers.web-dev.rule=PathPrefix(`/`)
+      - traefik.http.routers.web-dev.entrypoints=dev
+      - traefik.http.routers.web-dev.priority=1
+      - traefik.http.routers.web-dev.service=web
     networks: [edge]
+    logging: *default-logging
     restart: unless-stopped
 
 volumes:
   postgres-data: {}
   redis-data: {}
-  minio-data: {}
   ome-dvr: {}
   ome-logs: {}

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { availableBounds, canSeekCaptureTime, capturePlaybackMode, findAvailableRange, isCaptureGap, isLiveCaptureSource } from './mediaTimeline'
+import { availableBounds, canSeekCaptureTime, capturePlaybackMode, clampLiveEdgeTarget, findAvailableRange, isCaptureGap, isLiveCaptureSource } from './mediaTimeline'
 const ranges = [{ startUs: '9007199254740993', endUs: '9007199254741993', discontinuity: 0 }, { startUs: '9007199254742993', endUs: '9007199254743993', discontinuity: 1 }]
 describe('timeline gaps', () => {
   it('finds ranges without Number coercion', () => { expect(findAvailableRange('9007199254740993', ranges)?.discontinuity).toBe(0); expect(isCaptureGap('9007199254742493', ranges)).toBe(true); expect(canSeekCaptureTime('9007199254742993', ranges)).toBe(true) })
@@ -18,5 +18,11 @@ describe('capture source behavior', () => {
     expect(capturePlaybackMode({ sourceKind: 'youtube_live', status: 'FINISHED' })).toBe('ended_live')
     expect(capturePlaybackMode({ sourceKind: 'youtube_vod', status: 'LIVE' })).toBe('progressive_vod')
     expect(capturePlaybackMode({ sourceKind: 'local_mp4', status: 'FINISHED' })).toBe('complete_vod')
+  })
+  it('keeps live seeks inside a playable safety zone using bigint arithmetic', () => {
+    const liveRanges = [{ startUs: '9007199254740993', endUs: '9007199264740993', discontinuity: 0 }]
+    expect(clampLiveEdgeTarget('9007199264740993', liveRanges)).toBe('9007199262740993')
+    expect(clampLiveEdgeTarget('9007199255740993', liveRanges)).toBe('9007199255740993')
+    expect(clampLiveEdgeTarget('9007199263740993', liveRanges)).toBe('9007199262740993')
   })
 })

@@ -11,13 +11,14 @@ import type {
   UpdateMatchInput,
 } from '../services/core-domain.js'
 import type { StartCaptureInput } from '../services/capture-processing.js'
-import { MatchStatusType } from './types.js'
+import { MatchStatusType, RosterPositionType } from './types.js'
 
 export const RosterInputType = builder.inputRef<RosterSetupInput>('RosterInput')
 RosterInputType.implement({
   fields: (t) => ({
     jerseyNumber: t.string({ required: true }),
     name: t.string({ required: true }),
+    position: t.field({ type: RosterPositionType }),
   }),
 })
 
@@ -33,8 +34,7 @@ TeamSetupInputType.implement({
 export const CreateMatchSetupInputType = builder.inputRef<CreateMatchSetupInput>('CreateMatchSetupInput')
 CreateMatchSetupInputType.implement({
   fields: (t) => ({
-    leftTeam: t.field({ required: true, type: TeamSetupInputType }),
-    rightTeam: t.field({ required: true, type: TeamSetupInputType }),
+    teams: t.field({ required: true, type: [TeamSetupInputType] }),
     scheduledAt: t.field({ type: 'DateTime' }),
     title: t.string({ required: true }),
     venue: t.string(),
@@ -45,6 +45,8 @@ export const SwapCourtSidesInputType = builder.inputRef<SwapCourtSidesInput>('Sw
 SwapCourtSidesInputType.implement({
   fields: (t) => ({
     effectiveFromRallyOrdinal: t.int({ required: true }),
+    expectedLeftTeamId: t.id({ required: true }),
+    expectedRightTeamId: t.id({ required: true }),
     setId: t.id({ required: true }),
   }),
 })
@@ -66,6 +68,7 @@ RosterEditInputType.implement({
     id: t.id(),
     jerseyNumber: t.string({ required: true }),
     name: t.string({ required: true }),
+    position: t.field({ type: RosterPositionType }),
   }),
 })
 

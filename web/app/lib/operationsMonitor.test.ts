@@ -1,7 +1,38 @@
 import { describe, expect, it, vi } from 'vitest'
-import { deleteAiWorker, fetchOperationsSnapshot, visibleStreamsForMatches, type StreamSnapshot } from './operationsMonitor'
+import {
+  activeAiWorkForDashboard,
+  deleteAiWorker,
+  deleteAiWorkerToken,
+  fetchOperationsSnapshot,
+  visibleStreamsForMatches,
+  type AiWorkSnapshot,
+  type StreamSnapshot,
+} from './operationsMonitor'
 
 describe('operations monitor client', () => {
+  it('keeps the match dashboard focused on jobs that are still actionable', () => {
+    const job = (status: string, id = status): AiWorkSnapshot => ({
+      id,
+      matchId: 'match-1',
+      matchTitle: 'TPE vs PUR',
+      rallyId: 'rally-1',
+      status,
+      progress: null,
+      stage: null,
+      workerInstanceKey: null,
+      createdAt: '2026-08-10T00:00:00.000Z',
+      updatedAt: '2026-08-10T00:00:00.000Z',
+    })
+
+    expect(activeAiWorkForDashboard([
+      job('SUPERSEDED'),
+      job('RUNNING'),
+      job('CANCELLED'),
+      job('QUEUED'),
+      job('COMPLETED'),
+    ])).toEqual([job('RUNNING'), job('QUEUED')])
+  })
+
   it('keeps dashboard media sources scoped to visible matches', () => {
     const stream = (matchId: string): StreamSnapshot => ({
       captureSessionId: `capture-${matchId}`,
@@ -52,6 +83,24 @@ describe('operations monitor client', () => {
     })) as unknown as typeof fetch
     await expect(deleteAiWorker('/api/v1/', 'worker-1', fetchImpl)).resolves.toEqual(payload)
     expect(fetchImpl).toHaveBeenCalledWith('/api/v1/operations/ai-workers/worker-1', {
+      credentials: 'include',
+      headers: { accept: 'application/json' },
+      method: 'DELETE',
+    })
+  })
+
+  it('permanently deletes a worker token through the control route', async () => {
+    const payload = {
+      schema_version: '1.0.0',
+      deleted_token: { id: 'token-1' },
+    }
+    const fetchImpl = vi.fn(async () => new Response(JSON.stringify(payload), {
+      headers: { 'content-type': 'application/json' },
+      status: 200,
+    })) as unknown as typeof fetch
+
+    await expect(deleteAiWorkerToken('/api/v1/', 'token-1', fetchImpl)).resolves.toEqual(payload)
+    expect(fetchImpl).toHaveBeenCalledWith('/api/v1/operations/ai-worker-tokens/token-1', {
       credentials: 'include',
       headers: { accept: 'application/json' },
       method: 'DELETE',

@@ -20,6 +20,10 @@ table OverlayChunk {
   ball_frame_positions:[Volleyball.Overlay.V1.FramePosU16];
   ball_flags:[ubyte];
   ball_confidences:[ubyte];
+  court_keypoint_frame_offsets:[uint];
+  court_keypoint_ids:[ushort];
+  court_keypoint_positions:[Volleyball.Overlay.V1.FramePosU16];
+  court_keypoint_confidences:[ubyte];
 }
 
 root_type OverlayChunk;

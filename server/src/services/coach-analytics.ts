@@ -1,5 +1,6 @@
 import type { PrismaClient } from '@volleyball-monitoring/db'
 import { IdentitySource, JobStatus, UserRole } from '@volleyball-monitoring/db/client'
+import { GraphQLError } from 'graphql'
 
 const quality = (entries: Iterable<string>) => { const counts: Record<string, number> = {}; for (const entry of entries) counts[entry] = (counts[entry] ?? 0) + 1; return counts }
 const metric = (value: number, sampleCount: number, excludedCount: number, unknownCount: number, qualityBreakdown: Record<string, number>, featureDependencies: string[]) => ({ value, sample_count: sampleCount, excluded_count: excludedCount, unknown_count: unknownCount, quality_breakdown: qualityBreakdown, feature_dependencies: featureDependencies })
@@ -10,7 +11,7 @@ export async function getCoachMatchAnalytics(database: PrismaClient, input: { ma
     select: {
       id: true, title: true,
       matchTeams: { select: { team: { select: { id: true, name: true, shortName: true } } } },
-      rosterEntries: { where: { active: true }, orderBy: [{ teamId: 'asc' }, { jerseyNumber: 'asc' }], select: { id: true, teamId: true, jerseyNumber: true, displayNameSnapshot: true, player: { select: { name: true } } } },
+      rosterEntries: { where: { active: true }, orderBy: [{ teamId: 'asc' }, { jerseyNumber: 'asc' }], select: { id: true, teamId: true, jerseyNumber: true, position: true, displayNameSnapshot: true, player: { select: { name: true } } } },
       rallies: { where: { activeSubmissionId: { not: null }, voidedAt: null }, select: { id: true, ordinal: true, set: { select: { setNumber: true } }, activeSubmission: { select: { id: true, scoreResolutionState: true, scoringTeamId: true, analysisRuns: { where: { status: JobStatus.COMPLETED }, orderBy: { activatedAt: 'desc' }, take: 1, select: { id: true, analysisVersion: true, identityMappingCompletedAt: true, tracks: { select: { trackId: true, courtSide: true, firstFrame: true, lastFrame: true, identityAssignments: { select: { rosterEntryId: true, source: true } } } }, contactEvents: { select: { associationState: true, qualityFlags: true, representativePositions: { select: { courtX: true, courtY: true } }, actors: { select: { trackId: true, action: true, courtX: true, courtY: true } } } }, segments: { select: { renderState: true } } } } } } } },
     },
   })
@@ -49,7 +50,7 @@ export async function getCoachMatchAnalytics(database: PrismaClient, input: { ma
       action_samples: metric(actionSamples, actionSamples, actors.length - actionSamples, 0, {}, ['provider_action_extension']),
     },
     teams: teams.map(team => { const won = resolvedRallies.filter(rally => rally.submission.scoringTeamId === team.id).length; return { ...team, wins: won, losses: resolvedRallies.length - won, unknown: unknownRallies, sample_count: resolvedRallies.length } }),
-    players: match.rosterEntries.map(entry => ({ roster_entry_id: entry.id, team_id: entry.teamId, jersey_number: entry.jerseyNumber, name: entry.displayNameSnapshot ?? entry.player?.name ?? `#${entry.jerseyNumber}`, contact_count: playerContacts.get(entry.id) ?? 0, sample_count: playerContacts.get(entry.id) ?? 0 })),
+    players: match.rosterEntries.map(entry => ({ roster_entry_id: entry.id, team_id: entry.teamId, jersey_number: entry.jerseyNumber, position: entry.position, name: entry.displayNameSnapshot ?? entry.player?.name ?? `#${entry.jerseyNumber}`, contact_count: playerContacts.get(entry.id) ?? 0, sample_count: playerContacts.get(entry.id) ?? 0 })),
     tracks: analyzed.flatMap(entry => entry.run.tracks.map(track => ({
       analysis_run_id: entry.run.id,
       rally_id: entry.rally.id,
@@ -69,9 +70,33 @@ export async function getCoachMatchAnalytics(database: PrismaClient, input: { ma
 export async function assignTrackIdentity(database: PrismaClient, input: { analysisRunId: string; trackId: number; rosterEntryId: string; userId: string; role: UserRole }) {
   if (input.role !== UserRole.ADMIN && input.role !== UserRole.OPERATOR && input.role !== UserRole.COACH) throw new Error('FORBIDDEN')
   return database.$transaction(async (tx) => {
-    const track = await tx.analysisTrack.findUnique({ where: { analysisRunId_trackId: { analysisRunId: input.analysisRunId, trackId: input.trackId } }, select: { analysisRun: { select: { submission: { select: { rally: { select: { matchId: true } } } } } } } })
-    const roster = await tx.matchRosterEntry.findUnique({ where: { id: input.rosterEntryId }, select: { matchId: true } })
+    const track = await tx.analysisTrack.findUnique({
+      where: { analysisRunId_trackId: { analysisRunId: input.analysisRunId, trackId: input.trackId } },
+      select: {
+        courtSide: true,
+        analysisRun: {
+          select: {
+            submission: {
+              select: {
+                leftTeamId: true,
+                rightTeamId: true,
+                rally: { select: { matchId: true } },
+              },
+            },
+          },
+        },
+      },
+    })
+    const roster = await tx.matchRosterEntry.findUnique({ where: { id: input.rosterEntryId }, select: { matchId: true, teamId: true } })
     if (!track || !roster || roster.matchId !== track.analysisRun.submission.rally.matchId) throw new Error('NOT_FOUND')
+    const expectedTeamId = track.courtSide === 'LEFT'
+      ? track.analysisRun.submission.leftTeamId
+      : track.courtSide === 'RIGHT'
+        ? track.analysisRun.submission.rightTeamId
+        : null
+    if (expectedTeamId && roster.teamId !== expectedTeamId) {
+      throw new GraphQLError('所選球員不屬於此片段該場側的隊伍', { extensions: { code: 'ROSTER_TEAM_MISMATCH' } })
+    }
     const member = input.role === UserRole.ADMIN ? true : Boolean(await tx.matchMember.findUnique({ where: { matchId_userId: { matchId: roster.matchId, userId: input.userId } }, select: { userId: true } }))
     if (!member) throw new Error('NOT_FOUND')
     const assignment = await tx.trackIdentityAssignment.upsert({ where: { analysisRunId_trackId: { analysisRunId: input.analysisRunId, trackId: input.trackId } }, create: { analysisRunId: input.analysisRunId, trackId: input.trackId, rosterEntryId: input.rosterEntryId, source: IdentitySource.MANUAL, assignedByUserId: input.userId }, update: { rosterEntryId: input.rosterEntryId, source: IdentitySource.MANUAL, assignedByUserId: input.userId, confidence: null } })
@@ -94,11 +119,39 @@ export async function clearTrackIdentity(database: PrismaClient, input: { analys
 export async function setTrackIdentityMappingComplete(database: PrismaClient, input: { analysisRunId: string; completed: boolean; userId: string; role: UserRole }) {
   if (input.role !== UserRole.ADMIN && input.role !== UserRole.OPERATOR && input.role !== UserRole.COACH) throw new Error('FORBIDDEN')
   return database.$transaction(async (tx) => {
-    const run = await tx.analysisRun.findUnique({ where: { id: input.analysisRunId }, select: { id: true, status: true, submission: { select: { rally: { select: { matchId: true } } } } } })
+    const run = await tx.analysisRun.findUnique({
+      where: { id: input.analysisRunId },
+      select: {
+        id: true,
+        status: true,
+        submission: {
+          select: {
+            leftTeamId: true,
+            rightTeamId: true,
+            rally: { select: { matchId: true } },
+          },
+        },
+      },
+    })
     if (!run || run.status !== JobStatus.COMPLETED) throw new Error('NOT_FOUND')
     const matchId = run.submission.rally.matchId
     const member = input.role === UserRole.ADMIN ? true : Boolean(await tx.matchMember.findUnique({ where: { matchId_userId: { matchId, userId: input.userId } }, select: { userId: true } }))
     if (!member) throw new Error('NOT_FOUND')
+    if (input.completed) {
+      const invalidAssignment = await tx.trackIdentityAssignment.findFirst({
+        select: { id: true },
+        where: {
+          analysisRunId: input.analysisRunId,
+          OR: [
+            { track: { courtSide: 'LEFT' }, rosterEntry: { teamId: { not: run.submission.leftTeamId } } },
+            { track: { courtSide: 'RIGHT' }, rosterEntry: { teamId: { not: run.submission.rightTeamId } } },
+          ],
+        },
+      })
+      if (invalidAssignment) {
+        throw new GraphQLError('仍有球員指派不符合此片段的場側隊伍', { extensions: { code: 'ROSTER_TEAM_MISMATCH' } })
+      }
+    }
     const updated = await tx.analysisRun.update({ where: { id: input.analysisRunId }, data: { identityMappingCompletedAt: input.completed ? new Date() : null, identityMappingCompletedByUserId: input.completed ? input.userId : null }, select: { id: true, identityMappingCompletedAt: true } })
     return { schema_version: '1.0.0', analysis_run_id: updated.id, completed: Boolean(updated.identityMappingCompletedAt) }
   })

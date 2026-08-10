@@ -71,7 +71,7 @@
 
 1. 文字輸入、Dialog 或 Select 開啟時，禁止攔截全域快捷鍵。
 2. `OPEN`且存在server-confirmed最後key point時，左側得分、右側得分、未知等 `CLOSE_RALLY` command依目前綁定觸發；預設為`<`、`>`、`?`。
-3. 前後 canonical frame／播放器移動 command 預設綁定 `←`／`→`；使用者可改鍵，但該 command 不得變成得分或 annotation data mutation。
+3. 前後 canonical frame／播放器移動 command 預設綁定 `←`／`→`；`Ctrl+←`／`Ctrl+→`一次移動五個 canonical frame。選中可編輯 key point 時，同一組按鍵改為移動該 key point，播放器游標必須同步跟隨；使用者可改基礎鍵位，但該 command 不得變成得分或其他 annotation data mutation。
 4. 其他狀態下播放器 command 只控制播放器，不可暗中改資料。
 5. 每次 destructive action 都必須等待 server ack；optimistic UI 可顯示 pending，但不得把暫態當 canonical revision。
 
@@ -811,7 +811,7 @@ Response：
 
 ## 8.6 Frame Step
 
-編輯 key point 時，前端送 key point ID 與方向：
+編輯 key point 時，前端送 key point ID 與方向。單次方向鍵移動一幀；`Ctrl` 加方向鍵由前端依序執行五次 authoritative frame step，最後只提交一次 marker move，不擴充 wire schema：
 
 ```json
 {"key_point_id":"...","direction":"next","step_count":1}
@@ -859,7 +859,7 @@ VOIDED
 
 ### `<`、`>`、`?` - 關閉 Rally 並記錄 Outcome
 
-1. UI顯示三個按鈕：`< 左側得分`、`> 右側得分`、`? 未知`。硬體鍵盤使用實際`<`、`>`、`?`（通常為Shift+逗號、Shift+句點、Shift+斜線）；方向鍵保留給逐幀。
+1. UI顯示三個按鈕：`< 左側得分`、`> 右側得分`、`? 未知`。PC 鍵盤預設直接按逗號、句點、斜線實體鍵即可觸發，不要求 Shift；既有的 Shift+逗號、Shift+句點、Shift+斜線仍作相容別名。方向鍵保留給逐幀與選中 key point 的微調。
 2. Client從目前server-confirmed snapshot取得最後一個有效key point ID，作為`target_key_point_id`，並送單一`CLOSE_RALLY` command。
 3. `<`傳`resolved/left`、`>`傳`resolved/right`、`?`傳`unknown/null`。Outcome只屬於rally，不是key point。
 4. Command不含playback cursor、capture time、frame或score event；terminal時間／frame就是被選定key point既有的authoritative anchor。
@@ -880,20 +880,24 @@ Server以單一 transaction：
 6. 建立 ClipJob與Outbox event。
 7. 廣播 submission／processing狀態；UI mask轉黃。
 
-提交後不可原地修改。修正必須建立 correction draft並新建 submission，保留 supersedes關係。
+提交後不可原地修改。修正必須建立 correction draft並新建 submission，保留 supersedes關係。新的 correction 正在處理時，上一個已完成的 clip／analysis 仍是可讀的顯示 fallback；只有新 analysis 成功完成並於同一 transaction 啟用後，舊結果才標記 `SUPERSEDED`。若新 correction 處理失敗，操作員可取消修正：系統恢復上一個 submission，並以補償 ledger entry 回復比分，不刪除 immutable 歷史。
 
 ## 9.3 編輯與逐幀
 
 - 灰色 mask可新增、刪除、移動、重開rally；要改terminal或outcome時先`REOPEN_RALLY`，再以新的`CLOSE_RALLY` atomically關閉。
-- 方向鍵在 key point edit mode 呼叫 server frame-step API；後端依 sample index取得前後 sample，再更新 marker。
+- 選中灰色 draft 的可編輯 key point 後，方向鍵呼叫 server frame-step API並讓播放器游標同步跟隨；`Ctrl+方向鍵`一次移動五幀。未選中可編輯 key point 時，同一按鍵只移動播放器游標。
 - 黃色processing、藍色AI完成與綠色球員指派完成mask皆唯讀；開啟修正時從 submission建立新灰色draft。
+- 手動點選片段後，該顯式選取優先於 cursor 推導結果，直到使用者明確清除或改選；沒有顯式選取時才以 cursor 所在片段作 fallback，cursor 不在任何片段時回傳未選取。
+- correction draft 的取消入口由草稿的 `active_submission_id` 判定，不依賴 cursor 或暫時性的片段選取；即使 WebSocket pending／重連或 selection 尚未恢復，仍必須可取消並回到 immutable submission。
+- 同一場次最多只能有一個一般新回合的`OPEN` draft；correction draft以既有immutable submission為基礎，因command仍以`rally_id + revision`隔離，可與一般`OPEN` draft同時編輯。建立另一個一般新回合仍須拒絕。
 - 拖曳 marker時可用短暫 soft lock提示其他協作者，但 canonical concurrency仍以 revision/CAS為準。
 
 ## 9.4 UI 必備區域
 
 - 頂部：場次、來源健康、LIVE狀態、與 live edge距離、WebSocket、協作者、來源 timecode。
 - 中央：有聲 video、回到 LIVE、播放/暫停、逐幀、倍速。
-- 多軌 timeline：完整 capture range、gap、playhead、key points、rally masks、score strip、processing badges。
+- 多軌 timeline：完整 capture range、gap、playhead、key points、rally masks、score strip、processing badges；mask 右下角顯示片段狀態。顯式選取片段維持 sticky，cursor 只在未顯式選取時決定 context。
+- 時間尺與 buffer 軌皆支援按下立即 seek、按住拖曳連續 scrub、放開確認位置。縮放倍率顯示在靜音旁；`30s window = 10x`，範圍 `0.01x` 至 `10x`，預設 `0.1x`，按倍率可恢復預設。
 - 底部固定精簡 control deck：`Z`發球、`X`擊球、`<`左側得分、`>`右側得分、`?`未知與按鍵設定；不得顯示獨立結束或大型提交控制。`Enter`提交與`Space`播放／暫停仍由集中式鍵盤registry提供。
 - Inspector：選取 key point時顯示 canonical time、frame、建立者、revision、duplicate/precision資訊。
 
@@ -1114,6 +1118,7 @@ type Mutation {
 ## 12.1 核心分層
 
 - Match／MatchSet／Team／Player／Roster／CourtSideAssignment。
+- `MatchRosterEntry.position`保存該場次登錄位置：`OH`主攻、`MB`副攻、`OPP`舉對（接應）、`S`舉球員、`L`自由球員、`DS`防守專家；既有資料可為`UNSPECIFIED`，位置不寫入全域Player。
 - CaptureSession／CaptureEpoch／DvrProgram／DvrSegment／MediaAsset。
 - RallyDraft（`Rally`）／mutable KeyPoint／AnnotationOperation。
 - immutable RallySubmission／RallySubmissionKeyPoint／PointAward。

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { draftCommandAvailability } from './annotationCommandAvailability'
+import { draftCommandAvailability, openDraftBlocksNewRally } from './annotationCommandAvailability'
 
 const openDraft = {
   state: 'OPEN' as const,
@@ -10,6 +10,12 @@ const openDraft = {
 }
 
 describe('draft annotation command availability', () => {
+  it('allows a new Rally while an existing Rally is open only as a correction draft', () => {
+    expect(openDraftBlocksNewRally('OPEN', 'active-submission')).toBe(false)
+    expect(openDraftBlocksNewRally('OPEN', null)).toBe(true)
+    expect(openDraftBlocksNewRally('SUBMITTED', 'active-submission')).toBe(false)
+  })
+
   it('allows X after the service point without using the rendered mask end as a boundary', () => {
     expect(draftCommandAvailability({ ...openDraft, action: 'contact' })).toEqual({ enabled: true, reason: '' })
   })

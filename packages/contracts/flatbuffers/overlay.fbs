@@ -51,6 +51,12 @@ table OverlaySequence {
   ball_flags:[ubyte];
   // Quantized 0..254; 255 means missing.
   ball_confidences:[ubyte];
+  // Sparse per-frame image-space court landmarks. Off-screen points are omitted.
+  court_keypoint_frame_offsets:[uint];
+  court_keypoint_ids:[ushort];
+  court_keypoint_positions:[FramePosU16];
+  // Quantized 0..254; 255 means missing.
+  court_keypoint_confidences:[ubyte];
 }
 
 root_type OverlaySequence;

@@ -2,6 +2,7 @@ import type { db as DatabaseClient } from '@volleyball-monitoring/db'
 import type { FastifyPluginAsync, FastifyRequest } from 'fastify'
 import type { ReadinessResult } from '../health/readiness.js'
 import type { HostStorageProbe, HostStorageSnapshot } from '../operations/host-storage.js'
+import type { DeploymentProbe, DeploymentSnapshot } from '../operations/kubernetes-deployments.js'
 import { AiWorkerAccessError, getAiWorkerAccess, type AiWorkerAccessSnapshot } from '../services/ai-worker-access.js'
 
 export interface MetricGroup {
@@ -30,7 +31,9 @@ export interface OperationsSnapshot {
   aiWorkers: AiWorkerSnapshot[]
   aiWorkerAccess: AiWorkerAccessSnapshot
   aiWork: AiWorkSnapshot[]
+  deployment: DeploymentSnapshot
   hostStorage: HostStorageSnapshot
+  objectStorage: HostStorageSnapshot
   matchMedia: MatchMediaSnapshot[]
   streams: StreamSnapshot[]
 }
@@ -63,6 +66,10 @@ export interface AiWorkerSnapshot {
   lastPongAt: string | null
   status: 'online' | 'stale' | 'offline'
   canDelete: boolean
+  accelerator: string | null
+  modelVersion: string | null
+  modelSha256: string | null
+  deploymentStatus: 'degraded' | 'progressing' | 'ready' | 'unknown'
 }
 
 export interface AiWorkSnapshot {
@@ -124,6 +131,7 @@ export type AiWorkerDeleter = (workerId: string, identity: OperationsIdentity) =
 export type AiWorkerTokenCreator = (name: string, identity: OperationsIdentity) => Promise<{ accessToken: { id: string; name: string; tokenPrefix: string }; token: string }>
 export type AiWorkerTokenRotator = (tokenId: string, identity: OperationsIdentity) => Promise<{ tokenId: string; token: string }>
 export type AiWorkerTokenStateUpdater = (tokenId: string, enabled: boolean, identity: OperationsIdentity) => Promise<{ tokenId: string; enabled: boolean }>
+export type AiWorkerTokenDeleter = (tokenId: string, identity: OperationsIdentity) => Promise<{ tokenId: string }>
 
 const group = (count: number, labels: Record<string, string>): MetricGroup => ({ count, labels })
 const AI_WORKER_STALE_MS = 30_000
@@ -173,7 +181,16 @@ export async function collectOperationsSnapshot(
   database: typeof DatabaseClient,
   identity?: OperationsIdentity,
   hostStorageProbe?: HostStorageProbe,
+  objectStorageProbe?: HostStorageProbe,
+  deploymentProbe?: DeploymentProbe,
 ): Promise<OperationsSnapshot> {
+  const deploymentPromise = deploymentProbe?.() ?? Promise.resolve({
+    available: false,
+    components: [],
+    namespace: null,
+    overallStatus: 'unknown' as const,
+    source: 'unavailable' as const,
+  })
   const [rallies, clipJobs, aiJobs, captures, outboxEvents, callbacks, mediaAssets, annotationReceipts, annotationOperations, captureSessions, providerInstances, recentAiWork, activeAiJobs, aiWorkerAccess] = await Promise.all([
     database.rally.groupBy({ by: ['annotationStatus', 'processingStatus'], _count: { _all: true } }),
     database.clipJob.groupBy({ by: ['status'], _count: { _all: true } }),
@@ -280,7 +297,7 @@ export async function collectOperationsSnapshot(
           _count: { _all: true },
         }),
       ])
-  const [mediaByteRows, hostStorage] = await Promise.all([
+  const [mediaByteRows, hostStorage, objectStorage, deployment] = await Promise.all([
     database.$queryRaw<Array<{ matchId: string; storedBytes: bigint }>>`
       WITH asset_match AS (
         SELECT DISTINCT cs."matchId", ds."initAssetId" AS "assetId" FROM "DvrSegment" ds JOIN "DvrProgram" dp ON dp.id = ds."dvrProgramId" JOIN "CaptureSession" cs ON cs.id = dp."captureSessionId"
@@ -297,14 +314,18 @@ export async function collectOperationsSnapshot(
       FROM asset_match am JOIN "MediaAsset" ma ON ma.id = am."assetId"
       WHERE am."assetId" IS NOT NULL GROUP BY am."matchId"
     `,
-    hostStorageProbe?.() ?? Promise.resolve({ available: false, freeBytes: '0', path: '', totalBytes: '0', usedBytes: '0' }),
+    hostStorageProbe?.() ?? Promise.resolve({ available: false, freeBytes: '0', managedBytes: '0', path: '', totalBytes: '0', usedBytes: '0' }),
+    objectStorageProbe?.() ?? Promise.resolve({ available: false, freeBytes: '0', managedBytes: '0', path: '', totalBytes: '0', usedBytes: '0' }),
+    deploymentPromise,
   ])
   const totalsByProgram = new Map(segmentTotals.map(item => [item.dvrProgramId, item]))
   const readyByProgram = new Map(readySegments.map(item => [item.dvrProgramId, item._count._all]))
   const gapsByProgram = new Map(gapSegments.map(item => [item.dvrProgramId, item._count._all]))
   const activeJobsByWorker = new Map(activeAiJobs.map(item => [item.providerInstanceId, item._count._all]))
   const visibleMatchIds = new Set(captureSessions.map(capture => capture.matchId))
-  const bytesByMatch = new Map(mediaByteRows.filter(row => visibleMatchIds.has(row.matchId)).map(row => [row.matchId, row.storedBytes]))
+  const visibleMediaByteRows = mediaByteRows.filter(row => visibleMatchIds.has(row.matchId))
+  const bytesByMatch = new Map(visibleMediaByteRows.map(row => [row.matchId, row.storedBytes]))
+  objectStorage.managedBytes = visibleMediaByteRows.reduce((total, row) => total + row.storedBytes, 0n).toString()
   const matchMedia = new Map<string, MatchMediaSnapshot>()
   for (const capture of captureSessions) {
     const program = capture.programs[0]
@@ -325,6 +346,7 @@ export async function collectOperationsSnapshot(
   }
   const workerStaleBefore = Date.now() - AI_WORKER_STALE_MS
   const memory = process.memoryUsage()
+  const aiDeployment = deployment.components.find(component => component.component === 'analysis-worker')
   return {
     generatedAt: new Date().toISOString(),
     process: {
@@ -369,6 +391,10 @@ export async function collectOperationsSnapshot(
         lastPongAt: instance.lastPongAt?.toISOString() ?? null,
         status,
         canDelete: status !== 'online' && activeJobs === 0,
+        accelerator: aiDeployment?.accelerator ?? null,
+        modelVersion: aiDeployment?.modelVersion ?? null,
+        modelSha256: aiDeployment?.modelSha256 ?? null,
+        deploymentStatus: aiDeployment?.status ?? 'unknown',
       }
     }),
     aiWorkerAccess,
@@ -384,7 +410,9 @@ export async function collectOperationsSnapshot(
       createdAt: job.createdAt.toISOString(),
       updatedAt: job.updatedAt.toISOString(),
     })),
+    deployment,
     hostStorage,
+    objectStorage,
     matchMedia: [...matchMedia.values()],
     streams: captureSessions.map((capture) => {
       const program = capture.programs[0]
@@ -444,9 +472,16 @@ export function renderPrometheusMetrics(snapshot: OperationsSnapshot) {
   lines.push('# HELP vmai_process_heap_used_bytes JavaScript heap used in bytes.', '# TYPE vmai_process_heap_used_bytes gauge', metricLine('vmai_process_heap_used_bytes', snapshot.process.heapUsedBytes))
   lines.push('# HELP vmai_process_uptime_seconds Server process uptime in seconds.', '# TYPE vmai_process_uptime_seconds gauge', metricLine('vmai_process_uptime_seconds', snapshot.process.uptimeSeconds))
   if (snapshot.hostStorage.available) {
-    lines.push('# HELP vmai_host_storage_free_bytes Available bytes on the configured media volume.', '# TYPE vmai_host_storage_free_bytes gauge', metricLine('vmai_host_storage_free_bytes', Number(snapshot.hostStorage.freeBytes)))
-    lines.push('# HELP vmai_host_storage_used_bytes Used bytes on the configured media volume.', '# TYPE vmai_host_storage_used_bytes gauge', metricLine('vmai_host_storage_used_bytes', Number(snapshot.hostStorage.usedBytes)))
-    lines.push('# HELP vmai_host_storage_total_bytes Total bytes on the configured media volume.', '# TYPE vmai_host_storage_total_bytes gauge', metricLine('vmai_host_storage_total_bytes', Number(snapshot.hostStorage.totalBytes)))
+    lines.push('# HELP vmai_host_storage_free_bytes Available bytes on the server temporary media volume.', '# TYPE vmai_host_storage_free_bytes gauge', metricLine('vmai_host_storage_free_bytes', Number(snapshot.hostStorage.freeBytes)))
+    lines.push('# HELP vmai_host_storage_used_bytes Used bytes on the server temporary media volume.', '# TYPE vmai_host_storage_used_bytes gauge', metricLine('vmai_host_storage_used_bytes', Number(snapshot.hostStorage.usedBytes)))
+    lines.push('# HELP vmai_host_storage_total_bytes Total bytes on the server temporary media volume.', '# TYPE vmai_host_storage_total_bytes gauge', metricLine('vmai_host_storage_total_bytes', Number(snapshot.hostStorage.totalBytes)))
+    lines.push('# HELP vmai_host_storage_managed_bytes Bytes managed under the configured server temporary directory.', '# TYPE vmai_host_storage_managed_bytes gauge', metricLine('vmai_host_storage_managed_bytes', Number(snapshot.hostStorage.managedBytes)))
+  }
+  if (snapshot.objectStorage.available) {
+    lines.push('# HELP vmai_object_storage_free_bytes Available usable bytes in object storage.', '# TYPE vmai_object_storage_free_bytes gauge', metricLine('vmai_object_storage_free_bytes', Number(snapshot.objectStorage.freeBytes)))
+    lines.push('# HELP vmai_object_storage_used_bytes Used usable bytes in object storage.', '# TYPE vmai_object_storage_used_bytes gauge', metricLine('vmai_object_storage_used_bytes', Number(snapshot.objectStorage.usedBytes)))
+    lines.push('# HELP vmai_object_storage_total_bytes Total usable bytes in object storage.', '# TYPE vmai_object_storage_total_bytes gauge', metricLine('vmai_object_storage_total_bytes', Number(snapshot.objectStorage.totalBytes)))
+    lines.push('# HELP vmai_object_storage_managed_bytes Object bytes referenced by matches visible to the operator.', '# TYPE vmai_object_storage_managed_bytes gauge', metricLine('vmai_object_storage_managed_bytes', Number(snapshot.objectStorage.managedBytes)))
   }
   groupedMetric(lines, 'vmai_rallies_total', 'Persisted rallies grouped by annotation and processing state.', snapshot.database.rallies)
   groupedMetric(lines, 'vmai_clip_jobs_total', 'Clip jobs grouped by durable status.', snapshot.database.clipJobs)
@@ -479,6 +514,7 @@ export function operationsRoutes(
     collectReadiness?: () => Promise<ReadinessResult>
     deleteAiWorker?: AiWorkerDeleter
     createAiWorkerToken?: AiWorkerTokenCreator
+    deleteAiWorkerToken?: AiWorkerTokenDeleter
     rotateAiWorkerToken?: AiWorkerTokenRotator
     updateAiWorkerTokenState?: AiWorkerTokenStateUpdater
   } = {},
@@ -548,7 +584,6 @@ export function operationsRoutes(
       if (!options.authenticate || !options.createAiWorkerToken) return reply.status(404).send({ error: 'Not found' })
       const identity = await options.authenticate(request).catch(() => null)
       if (!identity) return reply.status(401).send({ error: 'Authentication required' })
-      if (identity.role !== 'ADMIN') return reply.status(403).send({ error: 'Administrator access required' })
       try {
         const result = await options.createAiWorkerToken(request.body?.name ?? '', identity)
         return reply.status(201).header('cache-control', 'no-store').send({
@@ -568,7 +603,6 @@ export function operationsRoutes(
       if (!options.authenticate || !options.rotateAiWorkerToken) return reply.status(404).send({ error: 'Not found' })
       const identity = await options.authenticate(request).catch(() => null)
       if (!identity) return reply.status(401).send({ error: 'Authentication required' })
-      if (identity.role !== 'ADMIN') return reply.status(403).send({ error: 'Administrator access required' })
       if (!UUID_PATTERN.test(request.params.tokenId)) return reply.status(400).send({ code: 'INVALID_AI_WORKER_TOKEN_ID', error: 'Invalid AI worker token id' })
       try {
         const result = await options.rotateAiWorkerToken(request.params.tokenId, identity)
@@ -583,11 +617,27 @@ export function operationsRoutes(
       if (!options.authenticate || !options.updateAiWorkerTokenState) return reply.status(404).send({ error: 'Not found' })
       const identity = await options.authenticate(request).catch(() => null)
       if (!identity) return reply.status(401).send({ error: 'Authentication required' })
-      if (identity.role !== 'ADMIN') return reply.status(403).send({ error: 'Administrator access required' })
       if (!UUID_PATTERN.test(request.params.tokenId) || typeof request.body?.enabled !== 'boolean') return reply.status(400).send({ code: 'INVALID_AI_WORKER_TOKEN_UPDATE', error: 'Invalid AI worker token update' })
       try {
         const result = await options.updateAiWorkerTokenState(request.params.tokenId, request.body.enabled, identity)
         return reply.header('cache-control', 'no-store').send({ schema_version: '1.0.0', token_id: result.tokenId, enabled: result.enabled })
+      }
+      catch (error) {
+        if (error instanceof AiWorkerAccessError && error.code === 'NOT_FOUND') return reply.status(404).send({ code: error.code, error: error.message })
+        throw error
+      }
+    })
+    app.delete<{ Params: { tokenId: string } }>('/api/v1/operations/ai-worker-tokens/:tokenId', async (request, reply) => {
+      if (!options.authenticate || !options.deleteAiWorkerToken) return reply.status(404).send({ error: 'Not found' })
+      const identity = await options.authenticate(request).catch(() => null)
+      if (!identity) return reply.status(401).send({ error: 'Authentication required' })
+      if (!UUID_PATTERN.test(request.params.tokenId)) return reply.status(400).send({ code: 'INVALID_AI_WORKER_TOKEN_ID', error: 'Invalid AI worker token id' })
+      try {
+        const result = await options.deleteAiWorkerToken(request.params.tokenId, identity)
+        return reply.header('cache-control', 'no-store').send({
+          schema_version: '1.0.0',
+          deleted_token: { id: result.tokenId },
+        })
       }
       catch (error) {
         if (error instanceof AiWorkerAccessError && error.code === 'NOT_FOUND') return reply.status(404).send({ code: error.code, error: error.message })

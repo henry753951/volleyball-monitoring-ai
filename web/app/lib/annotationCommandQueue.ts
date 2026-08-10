@@ -50,6 +50,26 @@ function pendingPoint(entry: AnnotationOutboxEntry, sequenceIndex: number): Anno
   }
 }
 
+function normalizeKeyPointOrder(points: AnnotationKeyPoint[]) {
+  const ordered = [...points].sort((left, right) => {
+    if (left.marker_kind === 'service') return right.marker_kind === 'service' ? 0 : -1
+    if (right.marker_kind === 'service') return 1
+    const timeDifference = BigInt(left.capture_time_us) - BigInt(right.capture_time_us)
+    if (timeDifference !== 0n) return timeDifference < 0n ? -1 : 1
+    const frameDifference = BigInt(left.capture_frame_index) - BigInt(right.capture_frame_index)
+    return frameDifference < 0n ? -1 : frameDifference > 0n ? 1 : left.key_point_id.localeCompare(right.key_point_id)
+  })
+  return ordered.map((point, sequenceIndex) => ({
+    ...point,
+    sequence_index: sequenceIndex,
+    possible_duplicate: point.marker_kind === 'contact' && ordered.some(other =>
+      other.key_point_id !== point.key_point_id
+      && other.marker_kind === 'contact'
+      && other.capture_frame_index === point.capture_frame_index,
+    ),
+  }))
+}
+
 export function projectAnnotationSnapshot(
   confirmed: AnnotationRallySnapshot | null,
   roomId: string | null,
@@ -140,6 +160,9 @@ export function applyAnnotationAckLocally(
   const next = structuredClone(confirmed)
   next.revision = ack.result_revision
   next.server_sequence = ack.server_sequence
+  if (ack.effects.annotation_status) next.snapshot.annotation_status = ack.effects.annotation_status
+  if (ack.effects.score_resolution) next.snapshot.score_resolution = ack.effects.score_resolution
+  if (ack.effects.scoring_court_side !== undefined) next.snapshot.scoring_court_side = ack.effects.scoring_court_side
   if (command.kind === 'CREATE_CONTACT_KEY_POINT' && ack.resolved_anchor && ack.effects.created_key_point_id) {
     next.snapshot.key_points.push({
       key_point_id: ack.effects.created_key_point_id,
@@ -155,10 +178,23 @@ export function applyAnnotationAckLocally(
   else if (command.kind === 'CLOSE_RALLY') {
     const target = next.snapshot.key_points.at(-1)
     if (target) target.is_terminal = true
-    next.snapshot.annotation_status = 'ready'
-    next.snapshot.score_resolution = command.payload.score_resolution
-    next.snapshot.scoring_court_side = command.payload.scoring_court_side
   }
-  else if (command.kind === 'SUBMIT_RALLY') next.snapshot.annotation_status = 'submitted'
+  else if (command.kind === 'MOVE_KEY_POINT' && ack.resolved_anchor) {
+    next.snapshot.key_points = normalizeKeyPointOrder(next.snapshot.key_points.map(point =>
+      point.key_point_id === command.payload.key_point_id
+        ? {
+            ...point,
+            capture_time_us: ack.resolved_anchor!.capture_time_us,
+            capture_frame_index: ack.resolved_anchor!.capture_frame_index,
+            timing_precision: ack.resolved_anchor!.timing_precision,
+          }
+        : point,
+    ))
+  }
+  else if (command.kind === 'DELETE_KEY_POINT') {
+    next.snapshot.key_points = normalizeKeyPointOrder(next.snapshot.key_points.filter(point =>
+      point.key_point_id !== command.payload.key_point_id,
+    ))
+  }
   return next
 }

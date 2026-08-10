@@ -20,8 +20,9 @@ export function createHostDevelopmentEnvironment(
   const omeApiPort = source.OME_API_HOST_PORT ?? '8081'
   const serverPort = source.SERVER_DEV_PORT ?? '4000'
   const webPort = source.WEB_DEV_PORT ?? '3100'
-  const spoolRoot = hostPath(source.MEDIA_SPOOL_HOST_PATH, '../.data/runtime/media-spool')
-  const importRoot = hostPath(source.MEDIA_IMPORT_HOST_PATH, '../.data/runtime/media-imports')
+  const dataRoot = hostPath(source.DEV_DATA_ROOT, '../.data/runtime')
+  const spoolRoot = hostPath(source.MEDIA_SPOOL_HOST_PATH, resolve(dataRoot, 'media-spool'))
+  const importRoot = hostPath(source.MEDIA_IMPORT_HOST_PATH, resolve(dataRoot, 'media-imports'))
 
   return {
     ...Object.fromEntries(Object.entries(source).filter((entry): entry is [string, string] => entry[1] !== undefined)),

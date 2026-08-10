@@ -23,7 +23,7 @@ import {
   rebaseQueuedAnnotationCommand,
   type AnnotationClientObservation,
 } from '../lib/annotationCommandQueue'
-import { createGraphQLTransport } from '../lib/coreDomain'
+import { createGraphQLTransport, GraphQLRequestError } from '../lib/coreDomain'
 import type { PlaybackCursorInput } from '../lib/mediaModel'
 import type { AnnotationAction } from '../utils/annotationHotkeys'
 
@@ -33,8 +33,8 @@ const ACTIVE_SNAPSHOT_QUERY = `query ActiveAnnotationRally($roomId: String!) {
 const SNAPSHOT_QUERY = `query AnnotationRally($roomId: String!, $rallyId: ID!) {
   annotationRallySnapshot(roomId: $roomId, rallyId: $rallyId)
 }`
-const CREATE_CORRECTION_DRAFT = `mutation CreateCorrectionDraft($submissionId: ID!) {
-  createCorrectionDraft(submissionId: $submissionId) { id }
+const CREATE_CORRECTION_DRAFT = `mutation CreateCorrectionDraft($submissionId: ID!, $reverseCourtSides: Boolean) {
+  createCorrectionDraft(submissionId: $submissionId, reverseCourtSides: $reverseCourtSides) { id }
 }`
 const CANCEL_CORRECTION_DRAFT = `mutation CancelCorrectionDraft($rallyId: ID!) {
   cancelCorrectionDraft(rallyId: $rallyId) { id }
@@ -316,9 +316,20 @@ export function useAnnotationRoom() {
     return parseAnnotationCommand({ ...base, kind, payload: { key_point_id: options.keyPointId, playback_cursor: annotationCursor(options.cursor) } })
   }
 
+  async function flushQueuedCommand(commandId: string) {
+    await flushOutbox()
+    // A command can be enqueued while an existing flush is leaving its loop but
+    // before flushPromise is cleared. In that narrow window the first await
+    // resolves without having seen the new entry, so give this command one
+    // fresh pass instead of leaving it stranded until another WS event occurs.
+    if (realtime?.ready() && outbox.value.some(entry => entry.command.command_id === commandId && entry.status === 'pending')) {
+      await flushOutbox()
+    }
+  }
+
   function sendCommand(command: AnnotationCommand, observation?: AnnotationClientObservation) {
     replaceOutbox(enqueueAnnotationCommand(outbox.value, command, new Date(), { ...(observation ? { observation } : {}) }))
-    return realtime?.ready() ? flushOutbox() : Promise.resolve()
+    return realtime?.ready() ? flushQueuedCommand(command.command_id) : Promise.resolve()
   }
 
   function dispatch(action: AnnotationAction, cursor: PlaybackCursorInput | null, observation?: AnnotationClientObservation) {
@@ -350,7 +361,7 @@ export function useAnnotationRoom() {
     }
   }
 
-  async function createCorrection(targetSubmissionId?: string) {
+  async function createCorrection(targetSubmissionId?: string, options: { reverseCourtSides?: boolean } = {}) {
     const submissionId = targetSubmissionId ?? snapshot.value?.snapshot.active_submission_id
     if (!submissionId) throw new Error('目前沒有可修正的已送出片段')
     if (!targetSubmissionId && (state.value === 'OPEN' || state.value === 'READY')) throw new Error('請先完成目前的標記片段')
@@ -359,7 +370,7 @@ export function useAnnotationRoom() {
     try {
       const result = await transport.request<{
         createCorrectionDraft: { id: string }
-      }>(CREATE_CORRECTION_DRAFT, { submissionId })
+      }>(CREATE_CORRECTION_DRAFT, { submissionId, reverseCourtSides: options.reverseCourtSides ?? false })
       return await fetchSnapshot(result.createCorrectionDraft.id)
     }
     catch (cause) {
@@ -371,19 +382,54 @@ export function useAnnotationRoom() {
     }
   }
 
-  async function cancelCorrection() {
-    const rallyId = snapshot.value?.rally_id
-    if (!rallyId || !snapshot.value?.snapshot.active_submission_id || !['OPEN', 'READY'].includes(state.value)) {
-      throw new Error('目前沒有可取消的修正版')
-    }
+  async function submitCorrection() {
+    if (state.value !== 'OPEN' && state.value !== 'READY') throw new Error('目前沒有可送出的修正草稿')
     busy.value = true
     error.value = null
     try {
-      await transport.request<{ cancelCorrectionDraft: { id: string } }>(CANCEL_CORRECTION_DRAFT, { rallyId })
-      return await fetchSnapshot(rallyId)
+      return await sendCommand(buildCommand('submit', null))
     }
     catch (cause) {
-      error.value = cause instanceof Error ? cause.message : '無法取消修正版'
+      error.value = cause instanceof Error ? cause.message : '無法送出修正草稿'
+      throw cause
+    }
+    finally {
+      busy.value = false
+    }
+  }
+
+  async function cancelCorrection(targetRallyId?: string) {
+    const rallyId = targetRallyId ?? snapshot.value?.rally_id
+    const failedSubmittedCorrection = state.value === 'SUBMITTED'
+      && snapshot.value?.snapshot.processing_status === 'failed'
+    const currentSnapshotCanCancel = Boolean(
+      snapshot.value?.snapshot.active_submission_id
+      && (['OPEN', 'READY'].includes(state.value) || failedSubmittedCorrection),
+    )
+    if (!rallyId || (!targetRallyId && !currentSnapshotCanCancel)) {
+      throw new Error('目前沒有可取消的修正版草稿')
+    }
+    // Cancellation is also the recovery path when a correction edit is stuck
+    // locally. Discard this Rally's queued commands before deleting the draft
+    // so a delayed REOPEN/MOVE cannot revive or mutate it afterward.
+    replaceOutbox(outbox.value.filter(entry => entry.command.rally_id !== rallyId))
+    busy.value = true
+    error.value = null
+    try {
+      const result = await transport.request<{ cancelCorrectionDraft: { id: string } }>(CANCEL_CORRECTION_DRAFT, { rallyId })
+      const restored = await fetchSnapshot(rallyId)
+      if (restored) return restored
+      await refreshActive()
+      return result.cancelCorrectionDraft
+    }
+    catch (cause) {
+      if (cause instanceof GraphQLRequestError && cause.code === 'NOT_FOUND') {
+        forgetRally(rallyId)
+        await refreshActive()
+        error.value = null
+        return null
+      }
+      error.value = cause instanceof Error ? cause.message : '無法取消修正版草稿'
       throw cause
     }
     finally {
@@ -403,6 +449,12 @@ export function useAnnotationRoom() {
       return result.deleteProcessingRally
     }
     catch (cause) {
+      if (cause instanceof GraphQLRequestError && cause.code === 'NOT_FOUND') {
+        forgetRally(rallyId)
+        await refreshActive()
+        error.value = null
+        return null
+      }
       error.value = cause instanceof Error ? cause.message : '無法刪除處理中片段'
       throw cause
     }
@@ -416,6 +468,10 @@ export function useAnnotationRoom() {
   }
 
   function forgetRally(rallyId: string) {
+    // A hard-deleted Rally must not retain offline commands. Otherwise a later
+    // reconnect can replay them against the deleted id and surface a misleading
+    // `Rally was not found` after the deletion already succeeded.
+    replaceOutbox(outbox.value.filter(entry => entry.command.rally_id !== rallyId))
     if (snapshot.value?.rally_id === rallyId) snapshot.value = null
     const remaining = { ...processing.value }
     delete remaining[rallyId]
@@ -448,6 +504,7 @@ export function useAnnotationRoom() {
     remoteEditorsByKeyPoint,
     selectRally: fetchSnapshot,
     setEditingKeyPoint,
+    submitCorrection,
     discardPending,
     refreshActive,
     snapshot: shallowReadonly(snapshot),

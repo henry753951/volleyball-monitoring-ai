@@ -29,8 +29,12 @@ export interface CorrectionDraftIdentity {
   userId: string
 }
 
+export interface CorrectionDraftOptions {
+  reverseCourtSides?: boolean
+}
+
 export interface CorrectionDraftResult {
-  annotation_status: 'ready'
+  annotation_status: 'open'
   rally_id: string
   revision: string
   score_resolution: 'resolved' | 'unknown'
@@ -57,6 +61,7 @@ export async function createCorrectionDraft(
   database: PrismaClient,
   submissionId: string,
   identity: CorrectionDraftIdentity,
+  options: CorrectionDraftOptions = {},
 ): Promise<CorrectionDraftResult> {
   if (!CORRECTION_ROLES.has(identity.role)) {
     throw new CorrectionDraftError('FORBIDDEN', 'Correction drafts require annotation access')
@@ -96,6 +101,25 @@ export async function createCorrectionDraft(
           select: { userId: true },
         })
         if (!authorized) throw new CorrectionDraftError('FORBIDDEN', 'Submission is outside the current annotation scope')
+
+        const existingCorrectionDraft = submission.status === 'ACTIVE'
+          && rally.activeSubmissionId === submission.id
+          && ['OPEN', 'READY'].includes(rally.annotationStatus)
+          && rally.voidedAt === null
+        if (existingCorrectionDraft) {
+          if (options.reverseCourtSides && rally.sideAssignmentReversed === submission.sideAssignmentReversed) {
+            throw new CorrectionDraftError('INVALID_SUBMISSION_STATE', 'The existing correction draft does not contain a court-side reversal')
+          }
+          return {
+            annotation_status: 'open',
+            rally_id: rally.id,
+            revision: rally.annotationRevision.toString(),
+            score_resolution: submission.scoreResolutionState.toLowerCase() as 'resolved' | 'unknown',
+            scoring_court_side: submission.scoringCourtSide?.toLowerCase() as 'left' | 'right' | undefined ?? null,
+            supersedes_submission_id: submission.id,
+          }
+        }
+
         if (
           submission.status !== 'ACTIVE'
           || rally.activeSubmissionId !== submission.id
@@ -107,6 +131,20 @@ export async function createCorrectionDraft(
 
         const revision = rally.annotationRevision + 1n
         const now = new Date()
+        const sideAssignmentReversed = options.reverseCourtSides
+          ? !submission.sideAssignmentReversed
+          : submission.sideAssignmentReversed
+        const effectiveLeftTeamId = sideAssignmentReversed === submission.sideAssignmentReversed
+          ? submission.leftTeamId
+          : submission.rightTeamId
+        const effectiveRightTeamId = sideAssignmentReversed === submission.sideAssignmentReversed
+          ? submission.rightTeamId
+          : submission.leftTeamId
+        const scoringTeamId = submission.scoreResolutionState === 'RESOLVED'
+          ? submission.scoringCourtSide === 'LEFT'
+            ? effectiveLeftTeamId
+            : effectiveRightTeamId
+          : null
         const snapshotIds = new Set(submission.keyPoints.map(point => point.sourceDraftKeyPointId))
         const temporaryBase = Math.min(
           -1,
@@ -184,10 +222,11 @@ export async function createCorrectionDraft(
           },
           data: {
             annotationRevision: revision,
-            annotationStatus: 'READY',
+            annotationStatus: 'OPEN',
+            sideAssignmentReversed,
             scoreResolutionState: submission.scoreResolutionState,
             scoringCourtSide: submission.scoringCourtSide,
-            scoringTeamId: submission.scoringTeamId,
+            scoringTeamId,
             leftScoreBefore: submission.leftScoreBefore,
             rightScoreBefore: submission.rightScoreBefore,
             leftScoreAfter: submission.leftScoreAfter,
@@ -199,6 +238,7 @@ export async function createCorrectionDraft(
         const auditPayload = {
           source_submission_id: submission.id,
           restored_key_point_count: submission.keyPoints.length,
+          reverse_court_sides: Boolean(options.reverseCourtSides),
         }
         await tx.annotationOperation.create({
           data: {
@@ -228,7 +268,7 @@ export async function createCorrectionDraft(
         })
 
         return {
-          annotation_status: 'ready',
+          annotation_status: 'open',
           rally_id: rally.id,
           revision: revision.toString(),
           score_resolution: submission.scoreResolutionState.toLowerCase() as 'resolved' | 'unknown',
@@ -266,7 +306,13 @@ export async function cancelCorrectionDraft(
         const rally = await tx.rally.findUnique({
           where: { id: rallyId },
           include: {
-            activeSubmission: { include: { keyPoints: { orderBy: [{ sequenceIndex: 'asc' }, { id: 'asc' }] } } },
+            activeSubmission: { include: {
+              keyPoints: { orderBy: [{ sequenceIndex: 'asc' }, { id: 'asc' }] },
+              supersedes: { include: {
+                analysisRuns: { where: { status: 'COMPLETED' }, take: 1 },
+                keyPoints: { orderBy: [{ sequenceIndex: 'asc' }, { id: 'asc' }] },
+              } },
+            } },
             keyPoints: true,
           },
         })
@@ -282,17 +328,23 @@ export async function cancelCorrectionDraft(
         })
         if (!authorized) throw new CorrectionDraftError('FORBIDDEN', 'Rally is outside the current annotation scope')
         const submission = rally.activeSubmission
+        const failedSubmittedCorrection = Boolean(
+          submission?.supersedes
+          && rally.annotationStatus === 'SUBMITTED'
+          && rally.processingStatus === 'FAILED',
+        )
         if (
           !submission
           || submission.status !== 'ACTIVE'
-          || !['OPEN', 'READY'].includes(rally.annotationStatus)
+          || (!['OPEN', 'READY'].includes(rally.annotationStatus) && !failedSubmittedCorrection)
           || rally.voidedAt !== null
         ) {
-          throw new CorrectionDraftError('INVALID_SUBMISSION_STATE', 'Only an active correction draft can be cancelled')
+          throw new CorrectionDraftError('INVALID_SUBMISSION_STATE', 'Only an active or failed submitted correction can be cancelled')
         }
+        const restoredSubmission = failedSubmittedCorrection ? submission.supersedes! : submission
         const revision = rally.annotationRevision + 1n
         const now = new Date()
-        const snapshotIds = new Set(submission.keyPoints.map(point => point.sourceDraftKeyPointId))
+        const snapshotIds = new Set(restoredSubmission.keyPoints.map(point => point.sourceDraftKeyPointId))
         const temporaryBase = Math.min(-1, ...rally.keyPoints.map(point => point.sequenceIndex - rally.keyPoints.length - 1))
         for (const [index, point] of rally.keyPoints.entries()) {
           await tx.keyPoint.update({
@@ -300,7 +352,7 @@ export async function cancelCorrectionDraft(
             data: { deletedAt: now, isTerminal: false, sequenceIndex: temporaryBase - index, updatedByUserId: identity.userId },
           })
         }
-        for (const point of submission.keyPoints) {
+        for (const point of restoredSubmission.keyPoints) {
           const data = {
             captureEpochId: point.captureEpochId,
             captureFrameIndex: point.captureFrameIndex,
@@ -309,7 +361,7 @@ export async function cancelCorrectionDraft(
             deviceSessionId: identity.deviceSessionId,
             isTerminal: point.isTerminal,
             markerKind: point.markerKind,
-            originalPlaybackCursor: json({ source: 'immutable_submission_correction_cancelled', submission_id: submission.id }),
+            originalPlaybackCursor: json({ source: 'immutable_submission_correction_cancelled', submission_id: restoredSubmission.id }),
             possibleDuplicate: false,
             sequenceIndex: point.sequenceIndex,
             snapDistanceUs: null,
@@ -324,22 +376,69 @@ export async function cancelCorrectionDraft(
         for (const point of rally.keyPoints) {
           if (!snapshotIds.has(point.id)) await tx.keyPoint.update({ where: { id: point.id }, data: { deletedAt: now, updatedByUserId: identity.userId } })
         }
+        if (failedSubmittedCorrection) {
+          const correctionLedger = await tx.scoreLedgerEntry.findFirst({
+            where: { kind: 'CORRECTION', submissionId: submission.id },
+            orderBy: { scoreRevisionAfter: 'desc' },
+          })
+          if (correctionLedger) {
+            const set = await tx.matchSet.findUniqueOrThrow({ where: { id: rally.setId } })
+            const leftAfter = set.leftScore - correctionLedger.leftDelta
+            const rightAfter = set.rightScore - correctionLedger.rightDelta
+            const scoreRevisionAfter = set.scoreRevision + 1
+            const scoreChanged = await tx.matchSet.updateMany({
+              where: { id: set.id, scoreRevision: set.scoreRevision },
+              data: { leftScore: leftAfter, rightScore: rightAfter, scoreRevision: scoreRevisionAfter },
+            })
+            if (scoreChanged.count !== 1) throw new CorrectionDraftError('INVALID_SUBMISSION_STATE', 'Set score changed while rolling back the correction')
+            await tx.scoreLedgerEntry.create({ data: {
+              kind: 'CORRECTION_ROLLBACK',
+              setId: set.id,
+              submissionId: submission.id,
+              supersededSubmissionId: restoredSubmission.id,
+              reversalOfEntryId: correctionLedger.id,
+              leftDelta: -correctionLedger.leftDelta,
+              rightDelta: -correctionLedger.rightDelta,
+              leftScoreBefore: set.leftScore,
+              rightScoreBefore: set.rightScore,
+              leftScoreAfter: leftAfter,
+              rightScoreAfter: rightAfter,
+              scoreRevisionBefore: set.scoreRevision,
+              scoreRevisionAfter,
+            } })
+          }
+          await Promise.all([
+            tx.rallySubmission.update({ where: { id: submission.id }, data: { status: 'SUPERSEDED' } }),
+            tx.rallySubmission.update({ where: { id: restoredSubmission.id }, data: { status: 'ACTIVE' } }),
+            tx.clipJob.updateMany({ where: { submissionId: submission.id, status: { not: 'COMPLETED' } }, data: { status: 'CANCELLED', leasedUntil: null } }),
+            tx.aiJob.updateMany({ where: { submissionId: submission.id, status: { not: 'COMPLETED' } }, data: { status: 'CANCELLED', leasedUntil: null } }),
+            tx.analysisRun.updateMany({ where: { submissionId: submission.id }, data: { status: 'SUPERSEDED' } }),
+          ])
+        }
         const changed = await tx.rally.updateMany({
-          where: { id: rally.id, activeSubmissionId: submission.id, annotationRevision: rally.annotationRevision, annotationStatus: { in: ['OPEN', 'READY'] } },
+          where: {
+            id: rally.id,
+            activeSubmissionId: submission.id,
+            annotationRevision: rally.annotationRevision,
+            annotationStatus: failedSubmittedCorrection ? 'SUBMITTED' : { in: ['OPEN', 'READY'] },
+          },
           data: {
             annotationRevision: revision,
             annotationStatus: 'SUBMITTED',
-            scoreResolutionState: submission.scoreResolutionState,
-            scoringCourtSide: submission.scoringCourtSide,
-            scoringTeamId: submission.scoringTeamId,
-            leftScoreBefore: submission.leftScoreBefore,
-            rightScoreBefore: submission.rightScoreBefore,
-            leftScoreAfter: submission.leftScoreAfter,
-            rightScoreAfter: submission.rightScoreAfter,
+            activeSubmissionId: restoredSubmission.id,
+            processingStatus: failedSubmittedCorrection && submission.supersedes!.analysisRuns.length > 0 ? 'COMPLETED' : rally.processingStatus,
+            scoreResolutionState: restoredSubmission.scoreResolutionState,
+            scoringCourtSide: restoredSubmission.scoringCourtSide,
+            scoringTeamId: restoredSubmission.scoringTeamId,
+            sideAssignmentReversed: restoredSubmission.sideAssignmentReversed,
+            leftScoreBefore: restoredSubmission.leftScoreBefore,
+            rightScoreBefore: restoredSubmission.rightScoreBefore,
+            leftScoreAfter: restoredSubmission.leftScoreAfter,
+            rightScoreAfter: restoredSubmission.rightScoreAfter,
           },
         })
         if (changed.count !== 1) throw new CorrectionDraftError('INVALID_SUBMISSION_STATE', 'Correction draft changed while cancelling')
-        const auditPayload = { active_submission_id: submission.id }
+        const auditPayload = { active_submission_id: restoredSubmission.id, failed_submission_id: failedSubmittedCorrection ? submission.id : null }
         await tx.annotationOperation.create({
           data: {
             baseRevision: rally.annotationRevision,
@@ -359,11 +458,11 @@ export async function cancelCorrectionDraft(
             aggregateType: 'Rally',
             dedupeKey: `correction-cancelled:${rally.id}:${revision}`,
             eventType: 'annotation.correction_draft_cancelled.v1',
-            payload: json({ rally_id: rally.id, revision: revision.toString(), active_submission_id: submission.id }),
+            payload: json({ rally_id: rally.id, revision: revision.toString(), active_submission_id: restoredSubmission.id, failed_submission_id: failedSubmittedCorrection ? submission.id : null }),
           },
         })
         return {
-          active_submission_id: submission.id,
+          active_submission_id: restoredSubmission.id,
           annotation_status: 'submitted',
           rally_id: rally.id,
           revision: revision.toString(),

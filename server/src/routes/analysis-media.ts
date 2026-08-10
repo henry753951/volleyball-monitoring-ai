@@ -2,18 +2,23 @@ import { db } from '@volleyball-monitoring/db'
 import { ArtifactState, JobStatus, UserRole } from '@volleyball-monitoring/db/client'
 import type { FastifyPluginAsync } from 'fastify'
 import { Client } from 'minio'
+import { readClipFrameTimeline } from '../media/clip-timing-coverage.js'
+import { resolveOverlayAnalysisId, resolveOverlaySourceAnalysisRunId } from '../media/overlay-analysis-id.js'
+import type { MediaObjectReader } from '../media/playback-domain.js'
 import { authenticateDevelopmentAnnotationRequest } from '../realtime/auth.js'
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 function client() { const endpoint = new URL(process.env.MINIO_ENDPOINT ?? 'http://minio:9000'); const accessKey = process.env.MINIO_ACCESS_KEY; const secretKey = process.env.MINIO_SECRET_KEY; if (!accessKey || !secretKey) throw new Error('MinIO credentials are required'); return new Client({ endPoint: endpoint.hostname, port: Number(endpoint.port || (endpoint.protocol === 'https:' ? 443 : 80)), useSSL: endpoint.protocol === 'https:', accessKey, secretKey, pathStyle: true }) }
 
-export const analysisMediaRoutes: FastifyPluginAsync = async (app) => {
+export function analysisMediaRoutesWithDependencies(dependencies: { timingManifestReader: MediaObjectReader }): FastifyPluginAsync {
+  return async (app) => {
   const storage = client()
-  app.get<{ Params: { rallyId: string } }>('/api/v1/analysis/rallies/:rallyId/clip', async (request, reply) => {
+  app.get<{ Params: { rallyId: string }; Querystring: { clipJobId?: string } }>('/api/v1/analysis/rallies/:rallyId/clip', async (request, reply) => {
     if (!UUID.test(request.params.rallyId)) return reply.status(404).send({ code: 'NOT_FOUND' })
+    if (request.query.clipJobId && !UUID.test(request.query.clipJobId)) return reply.status(404).send({ code: 'NOT_FOUND' })
     const identity = await authenticateDevelopmentAnnotationRequest(request, db)
     if (!identity) return reply.status(401).send({ code: 'UNAUTHENTICATED' })
-    const clip = await db.clipJob.findFirst({ where: { status: JobStatus.COMPLETED, submission: { rally: { id: request.params.rallyId, voidedAt: null, ...(identity.role === UserRole.ADMIN ? {} : { match: { members: { some: { userId: identity.userId } } } }) } }, clipAsset: { state: ArtifactState.READY, deletedAt: null } }, orderBy: { completedAt: 'desc' }, select: { clipAsset: { select: { bucket: true, objectKey: true, contentType: true, byteLength: true, sha256: true } } } })
+    const clip = await db.clipJob.findFirst({ where: { ...(request.query.clipJobId ? { id: request.query.clipJobId } : {}), status: JobStatus.COMPLETED, submission: { rally: { id: request.params.rallyId, voidedAt: null, ...(identity.role === UserRole.ADMIN ? {} : { match: { members: { some: { userId: identity.userId } } } }) } }, clipAsset: { state: ArtifactState.READY, deletedAt: null } }, orderBy: { completedAt: 'desc' }, select: { clipAsset: { select: { bucket: true, objectKey: true, contentType: true, byteLength: true, sha256: true } } } })
     const asset = clip?.clipAsset
     if (!asset || asset.byteLength === null || asset.sha256 === null || asset.byteLength > BigInt(Number.MAX_SAFE_INTEGER)) return reply.status(404).send({ code: 'NOT_FOUND' })
     const total = Number(asset.byteLength)
@@ -35,14 +40,62 @@ export const analysisMediaRoutes: FastifyPluginAsync = async (app) => {
     if (!identity) return reply.status(401).send({ code: 'UNAUTHENTICATED' })
     const manifest = await db.overlayManifest.findFirst({
       where: { analysisRunId: request.params.analysisRunId, analysisRun: { status: JobStatus.COMPLETED, submission: { rally: { voidedAt: null, ...(identity.role === UserRole.ADMIN ? {} : { match: { members: { some: { userId: identity.userId } } } }) } } } },
-      include: { chunks: { where: { asset: { state: ArtifactState.READY, deletedAt: null } }, include: { asset: { select: { contentType: true } } }, orderBy: { chunkIndex: 'asc' } } },
+      include: {
+        chunks: { where: { asset: { state: ArtifactState.READY, deletedAt: null } }, include: { asset: { select: { contentType: true } } }, orderBy: { chunkIndex: 'asc' } },
+        analysisRun: {
+          select: {
+            analysisId: true,
+            aiJob: {
+              select: {
+                requestPayload: true,
+                clipJob: {
+                  select: {
+                    id: true,
+                    timingManifest: { select: { bucket: true, objectKey: true, contentType: true, byteLength: true, sha256: true, internalSchemaVersion: true } },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
     })
     if (!manifest) return reply.status(404).send({ code: 'NOT_FOUND' })
+    const clipJob = manifest.analysisRun.aiJob.clipJob
+    let frameTiming: {
+      capture_time_us: string[]
+      capture_end_time_us: string
+      clip_time_us: string[]
+      clip_end_time_us: string
+    } | null = null
+    if (clipJob.timingManifest) {
+      try {
+        const timeline = await readClipFrameTimeline(dependencies.timingManifestReader, clipJob.timingManifest, clipJob.id)
+        if (BigInt(timeline.clipTimeUs.length) !== manifest.totalFrames) throw new Error('overlay and timing manifest frame counts differ')
+        frameTiming = {
+          capture_time_us: timeline.captureTimeUs.map(value => value.toString()),
+          capture_end_time_us: timeline.captureEndUs.toString(),
+          clip_time_us: timeline.clipTimeUs.map(value => value.toString()),
+          clip_end_time_us: timeline.clipEndUs.toString(),
+        }
+      }
+      catch (error) {
+        request.log.warn({ error, analysisRunId: manifest.analysisRunId }, 'Exact overlay frame timeline is unavailable')
+      }
+    }
+    const requestPayload = manifest.analysisRun.aiJob.requestPayload
+    const directEmbeddedAnalysisId = resolveOverlayAnalysisId(manifest.analysisRun.analysisId, requestPayload)
+    const sourceAnalysisRunId = resolveOverlaySourceAnalysisRunId(requestPayload)
+    const legacySourceAnalysis = directEmbeddedAnalysisId === manifest.analysisRun.analysisId && sourceAnalysisRunId
+      ? await db.analysisRun.findUnique({ where: { id: sourceAnalysisRunId }, select: { analysisId: true } })
+      : null
+    const embeddedAnalysisId = legacySourceAnalysis?.analysisId ?? directEmbeddedAnalysisId
     return reply.header('Cache-Control', 'private, no-store').send({
       schema_version: manifest.schemaVersion,
-      analysis_id: (await db.analysisRun.findUniqueOrThrow({ where: { id: manifest.analysisRunId }, select: { analysisId: true } })).analysisId,
+      analysis_id: embeddedAnalysisId,
       overlay_version: manifest.overlayVersion,
       video: { width: manifest.videoWidth, height: manifest.videoHeight, fps: { num: manifest.fpsNum, den: manifest.fpsDen }, total_frames: manifest.totalFrames.toString() },
+      frame_timing: frameTiming,
       chunk_frame_count: manifest.chunkFrameCount,
       chunks: manifest.chunks.map(chunk => ({ chunk_index: chunk.chunkIndex, start_frame_index: chunk.startFrameIndex.toString(), frame_count: chunk.frameCount, url: `/api/v1/analysis-runs/${manifest.analysisRunId}/overlay-chunks/${chunk.chunkIndex}`, byte_length: chunk.byteLength.toString(), sha256: chunk.sha256 })),
       action_taxonomy: manifest.actionTaxonomy,
@@ -62,4 +115,5 @@ export const analysisMediaRoutes: FastifyPluginAsync = async (app) => {
     if (!chunk) return reply.status(404).send({ code: 'NOT_FOUND' })
     return reply.header('Cache-Control', 'private, max-age=300').header('Content-Length', chunk.byteLength.toString()).header('ETag', `"${chunk.sha256}"`).type(chunk.asset.contentType).send(await storage.getObject(chunk.asset.bucket, chunk.asset.objectKey))
   })
+  }
 }

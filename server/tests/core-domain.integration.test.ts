@@ -41,6 +41,7 @@ const coachUser = { id: '10000000-0000-4000-8000-000000000004', role: 'COACH' as
 let db: typeof databaseClient
 let schema: GraphQLSchema
 let createGraphQLContext: typeof import('../src/graphql/context.js')['createGraphQLContext']
+let finalizeMatchDeletion: typeof import('../src/services/match-administration.js')['finalizeMatchDeletion']
 let createdDatabase = false
 
 const setupMutation = /* GraphQL */ `
@@ -57,7 +58,7 @@ const setupMutation = /* GraphQL */ `
         shortName
         players { id teamId name }
       }
-      rosterEntries { id teamId name jerseyNumber }
+      rosterEntries { id teamId name jerseyNumber position }
       sets {
         id
         setNumber
@@ -89,7 +90,7 @@ const detailQuery = /* GraphQL */ `
       id
       title
       teams { id name shortName players { id teamId name } }
-      rosterEntries { id teamId name jerseyNumber }
+      rosterEntries { id teamId name jerseyNumber position }
       sets {
         id
         setNumber
@@ -112,6 +113,8 @@ const swapMutation = /* GraphQL */ `
   mutation SwapCourtSides($input: SwapCourtSidesInput!) {
     swapCourtSides(input: $input) {
       id
+      leftScore
+      rightScore
       sideAssignments {
         id
         effectiveFromRallyOrdinal
@@ -127,7 +130,7 @@ const updateRosterMutation = /* GraphQL */ `
   mutation UpdateMatchRoster($input: UpdateMatchRosterInput!) {
     updateMatchRoster(input: $input) {
       id
-      rosterEntries { id teamId name jerseyNumber }
+      rosterEntries { id teamId name jerseyNumber position }
     }
   }
 `
@@ -157,22 +160,21 @@ const deleteMatchMutation = /* GraphQL */ `
 `
 
 const validSetup = {
-  leftTeam: {
+  teams: [{
     name: '  North   Stars ',
     roster: [
-      { jerseyNumber: '01', name: 'Avery Chen' },
-      { jerseyNumber: '12', name: 'Morgan Lin' },
+      { jerseyNumber: '01', name: 'Avery Chen', position: 'OH' },
+      { jerseyNumber: '12', name: 'Morgan Lin', position: 'S' },
     ],
     shortName: ' NS ',
-  },
-  rightTeam: {
+  }, {
     name: 'South Waves',
     roster: [
-      { jerseyNumber: '7', name: 'Jamie Wu' },
-      { jerseyNumber: '19', name: 'Riley Huang' },
+      { jerseyNumber: '7', name: 'Jamie Wu', position: 'MB' },
+      { jerseyNumber: '19', name: 'Riley Huang', position: 'L' },
     ],
     shortName: 'SW',
-  },
+  }],
   scheduledAt: '2026-08-08T02:30:00.000Z',
   title: '  Phase 1B   Match ',
   venue: ' Main   Court ',
@@ -270,9 +272,11 @@ beforeAll(async () => {
   const dbModule = await import('@volleyball-monitoring/db')
   const schemaModule = await import('../src/graphql/schema.js')
   const contextModule = await import('../src/graphql/context.js')
+  const matchAdministrationModule = await import('../src/services/match-administration.js')
   db = dbModule.db
   schema = schemaModule.schema
   createGraphQLContext = contextModule.createGraphQLContext
+  finalizeMatchDeletion = matchAdministrationModule.finalizeMatchDeletion
 
   await Promise.all([
     createUser(adminUser.id, 'Admin'),
@@ -383,7 +387,12 @@ describe('Phase 1B GraphQL schema', () => {
           ? validSetup
           : operation === updateRosterMutation
             ? { matchId: '10000000-0000-4000-8000-000000000099', roster: [], teamId: '10000000-0000-4000-8000-000000000098' }
-            : { effectiveFromRallyOrdinal: 2, setId: '10000000-0000-4000-8000-000000000099' },
+            : {
+                effectiveFromRallyOrdinal: 2,
+                expectedLeftTeamId: '10000000-0000-4000-8000-000000000097',
+                expectedRightTeamId: '10000000-0000-4000-8000-000000000098',
+                setId: '10000000-0000-4000-8000-000000000099',
+              },
       })
       expect(response.errors?.[0]?.extensions.code).not.toBe('GRAPHQL_VALIDATION_FAILED')
     }
@@ -404,6 +413,8 @@ describe('Phase 1B GraphQL schema', () => {
         variables: {
           input: {
             effectiveFromRallyOrdinal: 2,
+            expectedLeftTeamId: '10000000-0000-4000-8000-000000000097',
+            expectedRightTeamId: '10000000-0000-4000-8000-000000000098',
             setId: '10000000-0000-4000-8000-000000000099',
           },
         },
@@ -487,6 +498,17 @@ describe('match setup, visibility, and court-side history', () => {
     expect(errorCode(hidden)).toBe('NOT_FOUND')
     const deleted = await execute(deleteMatchMutation, contextFor(operatorUser), { matchId })
     expect(objectField(deleted.data, 'deleteMatch')).toEqual({ cleanupWarnings: [], matchId, removedAssetCount: 0, removedBytes: '0' })
+    await expect(db.match.findUnique({ where: { id: matchId } })).resolves.toMatchObject({
+      deletionRequestedAt: expect.any(Date),
+    })
+    const visible = await execute(listQuery, contextFor(operatorUser))
+    expect(arrayField(visible.data ?? {}, 'matches')).not.toContainEqual(expect.objectContaining({ id: matchId }))
+
+    await finalizeMatchDeletion(matchId, {
+      database: db,
+      importRoot: repositoryRoot,
+      recordingRoot: repositoryRoot,
+    })
     expect(await db.match.findUnique({ where: { id: matchId } })).toBeNull()
   })
 
@@ -527,6 +549,7 @@ describe('match setup, visibility, and court-side history', () => {
       'Jamie Wu',
       'Riley Huang',
     ])
+    expect(rosterEntries.map(entry => entry.position)).toEqual(['OH', 'S', 'MB', 'L'])
     leftRosterIds = rosterEntries.filter(entry => entry.teamId === leftTeamId).map(entry => String(entry.id))
 
     const sets = arrayField(match, 'sets') as Array<Record<string, unknown>>
@@ -558,9 +581,10 @@ describe('match setup, visibility, and court-side history', () => {
   it('returns BAD_USER_INPUT and preserves every setup row count for duplicate input', async () => {
     const before = await setupRowCounts()
     const duplicateJerseySetup = structuredClone(validSetup)
-    duplicateJerseySetup.leftTeam.roster[1] = {
+    duplicateJerseySetup.teams[0]!.roster[1] = {
       jerseyNumber: ' ０１ ',
       name: 'Different Player',
+      position: 'S',
     }
 
     const result = await execute(
@@ -606,28 +630,30 @@ describe('match setup, visibility, and court-side history', () => {
     expect(errorCode(invalidDetail)).toBe('BAD_USER_INPUT')
 
     const forbidden = await execute(swapMutation, contextFor(coachUser), {
-      input: { effectiveFromRallyOrdinal: 2, setId },
+      input: { effectiveFromRallyOrdinal: 2, expectedLeftTeamId: leftTeamId, expectedRightTeamId: rightTeamId, setId },
     })
     expect(errorCode(forbidden)).toBe('FORBIDDEN')
 
     const hidden = await execute(swapMutation, contextFor(outsiderOperator), {
-      input: { effectiveFromRallyOrdinal: 2, setId },
+      input: { effectiveFromRallyOrdinal: 2, expectedLeftTeamId: leftTeamId, expectedRightTeamId: rightTeamId, setId },
     })
     expect(errorCode(hidden)).toBe('NOT_FOUND')
   })
 
   it('serializes concurrent swaps and returns ordered, non-overlapping assignment history', async () => {
+    await db.matchSet.update({ where: { id: setId }, data: { leftScore: 7, rightScore: 5 } })
     const firstSwap = await execute(swapMutation, contextFor(operatorUser), {
-      input: { effectiveFromRallyOrdinal: 4, setId },
+      input: { effectiveFromRallyOrdinal: 4, expectedLeftTeamId: leftTeamId, expectedRightTeamId: rightTeamId, setId },
     })
     expect(firstSwap.errors).toBeUndefined()
+    expect(firstSwap.data?.swapCourtSides).toMatchObject({ leftScore: 5, rightScore: 7 })
 
     const concurrent = await Promise.all([
       execute(swapMutation, contextFor(operatorUser), {
-        input: { effectiveFromRallyOrdinal: 8, setId },
+        input: { effectiveFromRallyOrdinal: 8, expectedLeftTeamId: rightTeamId, expectedRightTeamId: leftTeamId, setId },
       }),
       execute(swapMutation, contextFor(operatorUser), {
-        input: { effectiveFromRallyOrdinal: 8, setId },
+        input: { effectiveFromRallyOrdinal: 8, expectedLeftTeamId: rightTeamId, expectedRightTeamId: leftTeamId, setId },
       }),
     ])
     expect(concurrent.filter((result) => result.errors === undefined)).toHaveLength(1)
@@ -637,6 +663,7 @@ describe('match setup, visibility, and court-side history', () => {
     expect(detail.errors).toBeUndefined()
     const match = objectField(detail.data, 'match')
     const sets = arrayField(match, 'sets') as Array<Record<string, unknown>>
+    expect(sets[0]).toMatchObject({ leftScore: 7, rightScore: 5 })
     expect(sets[0]?.sideAssignments).toEqual([
       expect.objectContaining({
         effectiveFromRallyOrdinal: 1,
@@ -659,13 +686,13 @@ describe('match setup, visibility, and court-side history', () => {
     ])
   })
 
-  it('rejects a non-advancing ordinal without changing assignment rows', async () => {
+  it('rejects a stale side snapshot without changing assignment rows', async () => {
     const before = await db.courtSideAssignment.findMany({
       orderBy: { effectiveFromRallyOrdinal: 'asc' },
       where: { setId },
     })
     const result = await execute(swapMutation, contextFor(operatorUser), {
-      input: { effectiveFromRallyOrdinal: 8, setId },
+      input: { effectiveFromRallyOrdinal: 8, expectedLeftTeamId: rightTeamId, expectedRightTeamId: leftTeamId, setId },
     })
     expect(errorCode(result)).toBe('BAD_USER_INPUT')
     await expect(db.courtSideAssignment.findMany({
@@ -674,15 +701,32 @@ describe('match setup, visibility, and court-side history', () => {
     })).resolves.toEqual(before)
   })
 
+  it('allows an intentional swap-back before the effective rally exists', async () => {
+    const result = await execute(swapMutation, contextFor(operatorUser), {
+      input: { effectiveFromRallyOrdinal: 8, expectedLeftTeamId: leftTeamId, expectedRightTeamId: rightTeamId, setId },
+    })
+    expect(result.errors).toBeUndefined()
+    expect(result.data?.swapCourtSides).toMatchObject({ leftScore: 5, rightScore: 7 })
+    const current = await db.courtSideAssignment.findFirstOrThrow({
+      orderBy: { effectiveFromRallyOrdinal: 'desc' },
+      where: { effectiveToRallyOrdinal: null, setId },
+    })
+    expect(current).toMatchObject({
+      effectiveFromRallyOrdinal: 8,
+      leftTeamId: rightTeamId,
+      rightTeamId: leftTeamId,
+    })
+  })
+
   it('edits one team roster while preserving existing entry IDs for identity history', async () => {
     const result = await execute(updateRosterMutation, contextFor(operatorUser), {
       input: {
         matchId,
         teamId: leftTeamId,
         roster: [
-          { id: leftRosterIds[0], jerseyNumber: '12', name: 'Avery Chen' },
-          { id: leftRosterIds[1], jerseyNumber: '01', name: 'Morgan Lin' },
-          { jerseyNumber: '25', name: 'Kai Tsai' },
+          { id: leftRosterIds[0], jerseyNumber: '12', name: 'Avery Chen', position: 'OPP' },
+          { id: leftRosterIds[1], jerseyNumber: '01', name: 'Morgan Lin', position: 'S' },
+          { jerseyNumber: '25', name: 'Kai Tsai', position: 'DS' },
         ],
       },
     })
@@ -690,9 +734,9 @@ describe('match setup, visibility, and court-side history', () => {
     const match = objectField(result.data, 'updateMatchRoster')
     const roster = arrayField(match, 'rosterEntries') as Array<Record<string, unknown>>
     expect(roster.filter(entry => entry.teamId === leftTeamId)).toEqual([
-      expect.objectContaining({ id: leftRosterIds[0], jerseyNumber: '12', name: 'Avery Chen' }),
-      expect.objectContaining({ id: leftRosterIds[1], jerseyNumber: '01', name: 'Morgan Lin' }),
-      expect.objectContaining({ jerseyNumber: '25', name: 'Kai Tsai' }),
+      expect.objectContaining({ id: leftRosterIds[0], jerseyNumber: '12', name: 'Avery Chen', position: 'OPP' }),
+      expect.objectContaining({ id: leftRosterIds[1], jerseyNumber: '01', name: 'Morgan Lin', position: 'S' }),
+      expect.objectContaining({ jerseyNumber: '25', name: 'Kai Tsai', position: 'DS' }),
     ])
   })
 

@@ -61,9 +61,8 @@ type CourtSideAssignment {
 }
 
 input CreateMatchSetupInput {
-  leftTeam: TeamSetupInput!
-  rightTeam: TeamSetupInput!
   scheduledAt: DateTime
+  teams: [TeamSetupInput!]!
   title: String!
   venue: String
 }
@@ -102,6 +101,7 @@ type MatchRosterEntry {
   id: ID!
   jerseyNumber: String!
   name: String!
+  position: RosterPosition!
   teamId: ID!
 }
 
@@ -127,7 +127,7 @@ type Mutation {
   assignTrackIdentity(analysisRunId: ID!, rosterEntryId: ID!, trackId: Int!): JSON!
   cancelCorrectionDraft(rallyId: ID!): Rally!
   clearTrackIdentity(analysisRunId: ID!, trackId: Int!): JSON!
-  createCorrectionDraft(submissionId: ID!): Rally!
+  createCorrectionDraft(reverseCourtSides: Boolean = false, submissionId: ID!): Rally!
   createMatchSetup(input: CreateMatchSetupInput!): Match!
   deleteMatch(matchId: ID!): MatchDeleteReceipt!
   deleteProcessingRally(rallyId: ID!): Rally!
@@ -221,11 +221,23 @@ input RosterEditInput {
   id: ID
   jerseyNumber: String!
   name: String!
+  position: RosterPosition
 }
 
 input RosterInput {
   jerseyNumber: String!
   name: String!
+  position: RosterPosition
+}
+
+enum RosterPosition {
+  DS
+  L
+  MB
+  OH
+  OPP
+  S
+  UNSPECIFIED
 }
 
 enum ScoreResolutionState {
@@ -262,6 +274,8 @@ input StartNextSetInput {
 
 input SwapCourtSidesInput {
   effectiveFromRallyOrdinal: Int!
+  expectedLeftTeamId: ID!
+  expectedRightTeamId: ID!
   setId: ID!
 }
 

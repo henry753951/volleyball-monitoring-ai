@@ -48,6 +48,39 @@ export interface AiWorkerSnapshot {
   lastPongAt: string | null
   status: 'online' | 'stale' | 'offline'
   canDelete: boolean
+  accelerator: string | null
+  modelVersion: string | null
+  modelSha256: string | null
+  deploymentStatus: 'degraded' | 'progressing' | 'ready' | 'unknown'
+}
+
+export interface DeploymentComponentSnapshot {
+  accelerator: string | null
+  availableReplicas: number
+  component: string
+  desiredImage: string
+  desiredReplicas: number
+  gitSha: string | null
+  imageDigest: string | null
+  limits: Record<string, string>
+  modelSha256: string | null
+  modelVersion: string | null
+  name: string
+  nodeNames: string[]
+  readyReplicas: number
+  repositoryUrl: string | null
+  requests: Record<string, string>
+  status: 'degraded' | 'progressing' | 'ready' | 'unknown'
+  updatedReplicas: number
+  version: string | null
+}
+
+export interface DeploymentSnapshot {
+  available: boolean
+  components: DeploymentComponentSnapshot[]
+  namespace: string | null
+  overallStatus: 'degraded' | 'progressing' | 'ready' | 'unknown'
+  source: 'environment' | 'kubernetes' | 'unavailable'
 }
 
 export interface AiWorkerAccessSnapshot {
@@ -87,6 +120,12 @@ export interface AiWorkSnapshot {
   updatedAt: string
 }
 
+const ACTIVE_AI_WORK_STATUSES = new Set(['QUEUED', 'RUNNING'])
+
+export function activeAiWorkForDashboard(items: readonly AiWorkSnapshot[]) {
+  return items.filter(item => ACTIVE_AI_WORK_STATUSES.has(item.status.toUpperCase()))
+}
+
 export interface MatchMediaSnapshot {
   matchId: string
   captureCount: number
@@ -102,6 +141,7 @@ export interface MatchMediaSnapshot {
 export interface HostStorageSnapshot {
   available: boolean
   freeBytes: string
+  managedBytes: string
   path: string
   totalBytes: string
   usedBytes: string
@@ -133,7 +173,9 @@ export interface OperationsDashboardSnapshot {
     aiWorkers: AiWorkerSnapshot[]
     aiWorkerAccess: AiWorkerAccessSnapshot
     aiWork: AiWorkSnapshot[]
+    deployment: DeploymentSnapshot
     hostStorage: HostStorageSnapshot
+    objectStorage: HostStorageSnapshot
     matchMedia: MatchMediaSnapshot[]
     streams: StreamSnapshot[]
   }
@@ -148,11 +190,16 @@ async function operationsWrite<T>(
   const response = await fetchImpl(`${basePath.replace(/\/$/, '')}${path}`, {
     ...init,
     credentials: 'include',
-    headers: { accept: 'application/json', 'content-type': 'application/json', ...init.headers },
+    headers: {
+      accept: 'application/json',
+      ...(init.body == null ? {} : { 'content-type': 'application/json' }),
+      ...init.headers,
+    },
   })
   if (!response.ok) {
     const payload = await response.json().catch(() => null) as { error?: string } | null
-    if (response.status === 401 || response.status === 403) throw new Error('只有管理員可以管理 Worker Token')
+    if (response.status === 401) throw new Error('無法確認操作身分，請重新整理後再試')
+    if (response.status === 403) throw new Error('目前無法管理 Worker Token')
     throw new Error(payload?.error || `AI Worker 設定更新失敗（${response.status}）`)
   }
   return await response.json() as T
@@ -173,6 +220,12 @@ export function rotateAiWorkerToken(basePath: string, tokenId: string, fetchImpl
 export function setAiWorkerTokenEnabled(basePath: string, tokenId: string, enabled: boolean, fetchImpl: typeof fetch = fetch) {
   return operationsWrite<{ schema_version: '1.0.0'; token_id: string; enabled: boolean }>(
     basePath, `/operations/ai-worker-tokens/${encodeURIComponent(tokenId)}`, { body: JSON.stringify({ enabled }), method: 'PATCH' }, fetchImpl,
+  )
+}
+
+export function deleteAiWorkerToken(basePath: string, tokenId: string, fetchImpl: typeof fetch = fetch) {
+  return operationsWrite<{ schema_version: '1.0.0'; deleted_token: { id: string } }>(
+    basePath, `/operations/ai-worker-tokens/${encodeURIComponent(tokenId)}`, { method: 'DELETE' }, fetchImpl,
   )
 }
 

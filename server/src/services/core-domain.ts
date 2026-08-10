@@ -1,5 +1,5 @@
 import { db } from '@volleyball-monitoring/db'
-import { MatchStatus, UserRole } from '@volleyball-monitoring/db/client'
+import { MatchStatus, RosterPosition, UserRole } from '@volleyball-monitoring/db/client'
 import type {
   Match,
   MatchSet,
@@ -14,6 +14,7 @@ const UUID = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i
 export interface RosterSetupInput {
   jerseyNumber: string
   name: string
+  position?: RosterPosition | null | undefined
 }
 
 export interface TeamSetupInput {
@@ -23,8 +24,7 @@ export interface TeamSetupInput {
 }
 
 export interface CreateMatchSetupInput {
-  leftTeam: TeamSetupInput
-  rightTeam: TeamSetupInput
+  teams: readonly TeamSetupInput[]
   scheduledAt?: Date | null | undefined
   title: string
   venue?: string | null | undefined
@@ -32,6 +32,8 @@ export interface CreateMatchSetupInput {
 
 export interface SwapCourtSidesInput {
   effectiveFromRallyOrdinal: number
+  expectedLeftTeamId: string
+  expectedRightTeamId: string
   setId: string
 }
 
@@ -67,6 +69,7 @@ export interface StartNextSetInput {
 interface NormalizedRosterSetup {
   jerseyNumber: string
   name: string
+  position: RosterPosition
 }
 
 interface NormalizedTeamSetup {
@@ -76,8 +79,7 @@ interface NormalizedTeamSetup {
 }
 
 interface NormalizedMatchSetup {
-  leftTeam: NormalizedTeamSetup
-  rightTeam: NormalizedTeamSetup
+  teams: readonly [NormalizedTeamSetup, NormalizedTeamSetup]
   scheduledAt: Date | null
   title: string
   venue: string | null
@@ -127,7 +129,7 @@ function normalizeTeam(input: TeamSetupInput, field: string): NormalizedTeamSetu
 
     names.add(nameKey)
     jerseyNumbers.add(jerseyKey)
-    return { name: playerName, jerseyNumber }
+    return { name: playerName, jerseyNumber, position: row.position ?? RosterPosition.UNSPECIFIED }
   })
 
   return { name, shortName, roster }
@@ -135,13 +137,14 @@ function normalizeTeam(input: TeamSetupInput, field: string): NormalizedTeamSetu
 
 export function normalizeMatchSetup(input: CreateMatchSetupInput): NormalizedMatchSetup {
   const title = requireText(input.title, 'title')
-  const leftTeam = normalizeTeam(input.leftTeam, 'leftTeam')
-  const rightTeam = normalizeTeam(input.rightTeam, 'rightTeam')
+  if (input.teams.length !== 2) domainError('Exactly two teams are required', 'BAD_USER_INPUT')
+  const firstTeam = normalizeTeam(input.teams[0]!, 'teams[0]')
+  const secondTeam = normalizeTeam(input.teams[1]!, 'teams[1]')
 
-  if (comparisonKey(leftTeam.name) === comparisonKey(rightTeam.name)) {
+  if (comparisonKey(firstTeam.name) === comparisonKey(secondTeam.name)) {
     domainError('Team names must be distinct', 'BAD_USER_INPUT')
   }
-  if (comparisonKey(leftTeam.shortName) === comparisonKey(rightTeam.shortName)) {
+  if (comparisonKey(firstTeam.shortName) === comparisonKey(secondTeam.shortName)) {
     domainError('Team short names must be distinct', 'BAD_USER_INPUT')
   }
 
@@ -151,7 +154,7 @@ export function normalizeMatchSetup(input: CreateMatchSetupInput): NormalizedMat
   }
 
   const venue = input.venue == null ? null : normalizeText(input.venue) || null
-  return { title, venue, scheduledAt, leftTeam, rightTeam }
+  return { title, venue, scheduledAt, teams: [firstTeam, secondTeam] }
 }
 
 function requireSetupRole(actor: AuthenticatedUser): void {
@@ -178,6 +181,7 @@ async function createTeamWithRoster(
       data: {
         displayNameSnapshot: row.name,
         jerseyNumber: row.jerseyNumber,
+        position: row.position,
         matchId,
         playerId: player.id,
         teamId: team.id,
@@ -203,8 +207,8 @@ export async function createMatchSetup(
         venue: setup.venue,
       },
     })
-    const leftTeam = await createTeamWithRoster(tx, match.id, setup.leftTeam)
-    const rightTeam = await createTeamWithRoster(tx, match.id, setup.rightTeam)
+    const firstTeam = await createTeamWithRoster(tx, match.id, setup.teams[0])
+    const secondTeam = await createTeamWithRoster(tx, match.id, setup.teams[1])
     await tx.matchMember.create({
       data: { matchId: match.id, role: UserRole.OPERATOR, userId: actor.id },
     })
@@ -214,8 +218,8 @@ export async function createMatchSetup(
     await tx.courtSideAssignment.create({
       data: {
         effectiveFromRallyOrdinal: 1,
-        leftTeamId: leftTeam.id,
-        rightTeamId: rightTeam.id,
+        leftTeamId: firstTeam.id,
+        rightTeamId: secondTeam.id,
         setId: firstSet.id,
       },
     })
@@ -226,9 +230,12 @@ export async function createMatchSetup(
 export function listVisibleMatches(actor: AuthenticatedUser): Promise<Match[]> {
   return db.match.findMany({
     orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-    ...(actor.role === UserRole.ADMIN
-      ? {}
-      : { where: { members: { some: { userId: actor.id } } } }),
+    where: {
+      deletionRequestedAt: null,
+      ...(actor.role === UserRole.ADMIN
+        ? {}
+        : { members: { some: { userId: actor.id } } }),
+    },
   })
 }
 
@@ -239,6 +246,7 @@ export function findVisibleMatch(
   const matchId = requireUuid(rawMatchId, 'id')
   return db.match.findFirst({
     where: {
+      deletionRequestedAt: null,
       id: matchId,
       ...(actor.role === UserRole.ADMIN
         ? {}
@@ -271,6 +279,7 @@ export async function updateMatch(actor: AuthenticatedUser, input: UpdateMatchIn
   const existing = await db.match.findFirst({
     select: { id: true },
     where: {
+      deletionRequestedAt: null,
       id: matchId,
       ...(actor.role === UserRole.ADMIN ? {} : { members: { some: { userId: actor.id, role: { in: [UserRole.ADMIN, UserRole.OPERATOR] } } } }),
     },
@@ -297,6 +306,7 @@ export async function updateMatchClipPolicy(
   const updated = await db.match.updateMany({
     data: { clipPreRollUs, clipPostRollUs },
     where: {
+      deletionRequestedAt: null,
       id: matchId,
       ...(actor.role === UserRole.ADMIN
         ? {}
@@ -320,6 +330,7 @@ export async function startNextSet(
     `
     const match = await tx.match.findFirst({
       where: {
+        deletionRequestedAt: null,
         id: matchId,
         matchTeams: { some: { teamId: winningTeamId } },
         ...(actor.role === UserRole.ADMIN
@@ -375,6 +386,7 @@ export async function updateMatchRoster(
     `
     const match = await tx.match.findFirst({
       where: {
+        deletionRequestedAt: null,
         id: matchId,
         matchTeams: { some: { teamId } },
         ...(actor.role === UserRole.ADMIN
@@ -410,7 +422,7 @@ export async function updateMatchRoster(
       const existingEntry = requested?.id ? byId.get(requested.id) : undefined
       if (existingEntry) {
         await tx.matchRosterEntry.update({
-          data: { active: true, displayNameSnapshot: row.name, jerseyNumber: row.jerseyNumber },
+          data: { active: true, displayNameSnapshot: row.name, jerseyNumber: row.jerseyNumber, position: requested?.position ?? existingEntry.position },
           where: { id: existingEntry.id },
         })
         if (existingEntry.playerId) {
@@ -425,6 +437,7 @@ export async function updateMatchRoster(
           active: true,
           displayNameSnapshot: row.name,
           jerseyNumber: row.jerseyNumber,
+          position: row.position,
           matchId,
           playerId: player.id,
           teamId,
@@ -448,11 +461,16 @@ export async function swapCourtSides(
   }
 
   const setId = requireUuid(input.setId, 'setId')
+  const expectedLeftTeamId = requireUuid(input.expectedLeftTeamId, 'expectedLeftTeamId')
+  const expectedRightTeamId = requireUuid(input.expectedRightTeamId, 'expectedRightTeamId')
   return db.$transaction(async (tx) => {
     await tx.$queryRaw<Array<{ locked: string }>>`
       SELECT pg_advisory_xact_lock(
         hashtextextended(${`court-side-assignment:${setId}`}, 0)
       )::text AS locked
+    `
+    await tx.$queryRaw<Array<{ locked: string }>>`
+      SELECT pg_advisory_xact_lock(hashtextextended(${`annotation-set:${setId}`}, 0))::text AS locked
     `
 
     const matchSet = await tx.matchSet.findFirst({ where: operatorSetWhere(actor, setId) })
@@ -467,22 +485,49 @@ export async function swapCourtSides(
     if (!current) {
       domainError('Set has no current court-side assignment', 'INTERNAL_SERVER_ERROR')
     }
-    if (input.effectiveFromRallyOrdinal <= current.effectiveFromRallyOrdinal) {
-      domainError('effectiveFromRallyOrdinal must advance the current assignment', 'BAD_USER_INPUT')
+    if (current.leftTeamId !== expectedLeftTeamId || current.rightTeamId !== expectedRightTeamId) {
+      domainError('Court-side assignment changed; refresh before swapping again', 'BAD_USER_INPUT')
     }
-
-    await tx.courtSideAssignment.update({
-      data: { effectiveToRallyOrdinal: input.effectiveFromRallyOrdinal - 1 },
-      where: { id: current.id },
+    const latestRally = await tx.rally.findFirst({
+      orderBy: [{ ordinal: 'desc' }, { id: 'desc' }],
+      select: { ordinal: true },
+      where: { setId, voidedAt: null },
     })
-    await tx.courtSideAssignment.create({
+    if (latestRally && input.effectiveFromRallyOrdinal <= latestRally.ordinal) {
+      domainError('Court-side changes must start after every existing rally in the set', 'BAD_USER_INPUT')
+    }
+    if (input.effectiveFromRallyOrdinal < current.effectiveFromRallyOrdinal) {
+      domainError('effectiveFromRallyOrdinal cannot precede the current assignment', 'BAD_USER_INPUT')
+    }
+    const changed = await tx.matchSet.updateMany({
       data: {
-        effectiveFromRallyOrdinal: input.effectiveFromRallyOrdinal,
-        leftTeamId: current.rightTeamId,
-        rightTeamId: current.leftTeamId,
-        setId,
+        leftScore: matchSet.rightScore,
+        rightScore: matchSet.leftScore,
+        scoreRevision: { increment: 1 },
       },
+      where: { id: matchSet.id, scoreRevision: matchSet.scoreRevision },
     })
-    return matchSet
+    if (changed.count !== 1) domainError('Set score changed while swapping court sides', 'BAD_USER_INPUT')
+
+    if (input.effectiveFromRallyOrdinal === current.effectiveFromRallyOrdinal) {
+      await tx.courtSideAssignment.update({
+        data: { leftTeamId: current.rightTeamId, rightTeamId: current.leftTeamId },
+        where: { id: current.id },
+      })
+    } else {
+      await tx.courtSideAssignment.update({
+        data: { effectiveToRallyOrdinal: input.effectiveFromRallyOrdinal - 1 },
+        where: { id: current.id },
+      })
+      await tx.courtSideAssignment.create({
+        data: {
+          effectiveFromRallyOrdinal: input.effectiveFromRallyOrdinal,
+          leftTeamId: current.rightTeamId,
+          rightTeamId: current.leftTeamId,
+          setId,
+        },
+      })
+    }
+    return tx.matchSet.findUniqueOrThrow({ where: { id: matchSet.id } })
   })
 }

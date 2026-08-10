@@ -12,6 +12,7 @@ import {
   parseStoredHotkeyPreferences,
   rebindHotkey,
   restoreDefaultHotkeys,
+  runtimeHotkeysForBinding,
   serializeHotkeyPreferences,
   toRuntimeHotkey,
   type HotkeyBindings,
@@ -111,10 +112,12 @@ export function createAnnotationHotkeyDefinitions(
         meta: { name: command.label, description: command.group },
       },
     })
+    const runtimes = runtimeHotkeysForBinding(bindings[command.action])
+    const definitions = runtimes.map(definition)
+    if (!repeatable) return definitions
     const runtime = toRuntimeHotkey(bindings[command.action])
-    if (!repeatable) return [definition(runtime)]
-    const shifted = typeof runtime === 'string' ? { key: runtime, shift: true } : { ...runtime, shift: true }
-    return [definition(runtime), definition(shifted)]
+    const accelerated = typeof runtime === 'string' ? { key: runtime, ctrl: true } : { ...runtime, ctrl: true }
+    return [...definitions, definition(accelerated)]
   })
 }
 

@@ -169,6 +169,8 @@ assert service_names == expected_services, f'Compose service allowlist mismatch:
 environment_example = (ROOT / '.env.example').read_text(encoding='utf-8')
 for variable in (
     'OBJECT_STORAGE_BOOTSTRAP_MODE',
+    'DEV_DATA_ROOT',
+    'MINIO_DATA_HOST_PATH',
     'REDIS_HOST_PORT',
     'MEDIA_SPOOL_HOST_PATH',
     'MEDIA_IMPORT_HOST_PATH',
@@ -176,7 +178,7 @@ for variable in (
     'WORKER_WORKFLOW_HEALTH_PORT',
 ):
     assert variable in environment_example, f'missing host runtime environment variable: {variable}'
-for required_runtime_literal in ('WORKER_HEALTH_PORT', 'health/ready', 'MEDIA_SPOOL_HOST_PATH'):
+for required_runtime_literal in ('WORKER_HEALTH_PORT', 'health/ready', 'DEV_DATA_ROOT', 'MINIO_DATA_HOST_PATH', 'MEDIA_SPOOL_HOST_PATH'):
     assert required_runtime_literal in compose_source, f'Compose missing runtime health/bind contract: {required_runtime_literal}'
 host_override = (ROOT / 'infra/compose.host-dev.yaml').read_text(encoding='utf-8')
 for route in ('Path(`/graphql`)', 'PathPrefix(`/api/`)', 'PathPrefix(`/ws/`)'):

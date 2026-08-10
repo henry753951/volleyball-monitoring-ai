@@ -123,8 +123,10 @@ async function finalizeCaptureIfDrainedInTransaction(
       }),
       tx.dvrSegment.count({ where: { dvrProgramId: program.id, readyAt: null } }),
     ])
+    const declaredDurationCovered = capture.sourceDurationUs !== null
+      && program.durationUs >= capture.sourceDurationUs
     if (
-      readySegments < capture.completionExpectedSegments
+      (!declaredDurationCovered && readySegments < capture.completionExpectedSegments)
       || pendingSegments > 0
     ) return capture
   }
@@ -268,6 +270,7 @@ export async function startCapture(
     await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`capture-path:${ingestPath}`}, 0))::text AS lock`
     const match = await tx.match.findFirst({
       where: {
+        deletionRequestedAt: null,
         id: input.matchId,
         status: { not: 'ARCHIVED' },
         ...(identity.role === UserRole.ADMIN ? {} : { members: { some: { userId: identity.id, role: { in: [UserRole.ADMIN, UserRole.OPERATOR] } } } }),
@@ -456,7 +459,6 @@ export async function retryProcessing(
   rallyId: string,
   callbackSecret: string,
 ): Promise<ProcessingStateView> {
-  assertOperator(identity)
   return database.$transaction(async tx => {
     await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`processing-retry:${rallyId}`}, 0))::text AS lock`
     const rally = await tx.rally.findFirst({
@@ -464,7 +466,7 @@ export async function retryProcessing(
         id: rallyId,
         processingStatus: 'FAILED',
         activeSubmissionId: { not: null },
-        ...(identity.role === UserRole.ADMIN ? {} : { match: { members: { some: { userId: identity.id, role: { in: [UserRole.ADMIN, UserRole.OPERATOR] } } } } }),
+        ...(identity.role === UserRole.ADMIN ? {} : { match: { members: { some: { userId: identity.id } } } }),
       },
       include: {
         activeSubmission: {

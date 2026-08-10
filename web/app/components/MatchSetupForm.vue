@@ -11,18 +11,24 @@ const emit = defineEmits<{ submit: [input: CreateMatchWithMediaInput]; cancel: [
 const title = ref('')
 const venue = ref('')
 const scheduledAt = ref('')
-const leftTeam = reactive({ name: '', shortName: '', roster: [{ name: '', jerseyNumber: '' }] as RosterInput[] })
-const rightTeam = reactive({ name: '', shortName: '', roster: [{ name: '', jerseyNumber: '' }] as RosterInput[] })
+const firstTeam = reactive({ name: '', shortName: '', roster: [] as RosterInput[] })
+const secondTeam = reactive({ name: '', shortName: '', roster: [] as RosterInput[] })
 const validationErrors = ref<string[]>([])
 const step = ref<1 | 2>(1)
 const media = ref<MatchMediaSourceDraft>({ kind: 'youtube', label: '', url: '' })
 
-function addRosterRow(team: typeof leftTeam) {
-  team.roster.push({ name: '', jerseyNumber: '' })
+function addRosterRow(team: typeof firstTeam) {
+  team.roster.push({ name: '', jerseyNumber: '', position: 'UNSPECIFIED' })
 }
 
-function removeRosterRow(team: typeof leftTeam, index: number) {
-  if (team.roster.length > 1) team.roster.splice(index, 1)
+function removeRosterRow(team: typeof firstTeam, index: number) {
+  team.roster.splice(index, 1)
+}
+
+function rosterInput(rows: readonly RosterInput[]): RosterInput[] {
+  return rows
+    .map(row => ({ name: row.name.trim(), jerseyNumber: row.jerseyNumber.trim(), position: row.position }))
+    .filter(row => row.name || row.jerseyNumber || row.position !== 'UNSPECIFIED')
 }
 
 function matchInput(): CreateMatchSetupInput {
@@ -30,8 +36,10 @@ function matchInput(): CreateMatchSetupInput {
     title: title.value.trim(),
     venue: venue.value.trim() || undefined,
     scheduledAt: scheduledAt.value ? new Date(scheduledAt.value).toISOString() : undefined,
-    leftTeam: { name: leftTeam.name.trim(), shortName: leftTeam.shortName.trim(), roster: leftTeam.roster.map(row => ({ name: row.name.trim(), jerseyNumber: row.jerseyNumber.trim() })) },
-    rightTeam: { name: rightTeam.name.trim(), shortName: rightTeam.shortName.trim(), roster: rightTeam.roster.map(row => ({ name: row.name.trim(), jerseyNumber: row.jerseyNumber.trim() })) },
+    teams: [
+      { name: firstTeam.name.trim(), shortName: firstTeam.shortName.trim(), roster: rosterInput(firstTeam.roster) },
+      { name: secondTeam.name.trim(), shortName: secondTeam.shortName.trim(), roster: rosterInput(secondTeam.roster) },
+    ],
   }
 }
 
@@ -80,8 +88,8 @@ function submit() {
         <label class="block"><span class="field-label">預定時間（選填）</span><input v-model="scheduledAt" class="field" type="datetime-local" autocomplete="off" /></label>
       </div>
       <div class="team-grid">
-        <TeamSetupCard v-model="leftTeam" label="左側隊伍" @add="addRosterRow(leftTeam)" @remove="removeRosterRow(leftTeam, $event)" />
-        <TeamSetupCard v-model="rightTeam" label="右側隊伍" @add="addRosterRow(rightTeam)" @remove="removeRosterRow(rightTeam, $event)" />
+        <TeamSetupCard v-model="firstTeam" label="參賽隊伍 1" @add="addRosterRow(firstTeam)" @remove="removeRosterRow(firstTeam, $event)" />
+        <TeamSetupCard v-model="secondTeam" label="參賽隊伍 2" @add="addRosterRow(secondTeam)" @remove="removeRosterRow(secondTeam, $event)" />
       </div>
     </template>
 
