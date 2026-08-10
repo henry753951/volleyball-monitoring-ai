@@ -920,7 +920,7 @@ describe('durable service annotation command', () => {
     ])
   })
 
-  it('reuses completed clip, AI geometry and overlay assets for an outcome-only correction', async () => {
+  it('queues fresh processing and keeps the previous completed analysis readable for an outcome-only correction', async () => {
     const rallyId = randomUUID()
     await service.apply(serviceCommand(randomUUID(), rallyId), identity)
     const draftPoint = await db.keyPoint.findFirstOrThrow({ where: { rallyId } })
@@ -969,16 +969,12 @@ describe('durable service annotation command', () => {
     await service.apply(closeCommand(randomUUID(), rallyId, draftPoint.id, '5', 'right'), identity)
     const corrected = await service.apply(submitCommand(randomUUID(), rallyId, '6'), identity)
     const correctedSubmissionId = corrected.type === 'command_ack' ? corrected.effects.submission_id : null
-    const reusedClip = await db.clipJob.findFirstOrThrow({ where: { submissionId: correctedSubmissionId! } })
-    const reusedAi = await db.aiJob.findFirstOrThrow({ where: { submissionId: correctedSubmissionId! }, include: { analysisRun: { include: { contactEvents: true, overlayManifest: { include: { chunks: true } } } } } })
-    const correctedPoint = await db.rallySubmissionKeyPoint.findFirstOrThrow({ where: { submissionId: correctedSubmissionId! } })
-    expect(reusedClip).toMatchObject({ status: 'COMPLETED', clipAssetId, timingManifestAssetId: timingAssetId })
-    expect(reusedAi).toMatchObject({ status: 'COMPLETED', stage: 'geometry_reused' })
-    expect(reusedAi.requestPayload).toMatchObject({ reuse: { source_analysis_id: sourceAnalysis.analysisId } })
-    expect(reusedAi.analysisRun).toMatchObject({ status: 'COMPLETED', contactEvents: [{ keyPointId: correctedPoint.id }], overlayManifest: { chunks: [{ assetId: overlayAssetId }] } })
-    await expect(db.rally.findUniqueOrThrow({ where: { id: rallyId } })).resolves.toMatchObject({ processingStatus: 'COMPLETED', activeSubmissionId: correctedSubmissionId })
-    await expect(db.clipJob.findUniqueOrThrow({ where: { id: sourceClip.id } })).resolves.toMatchObject({ status: 'SUPERSEDED' })
-    await expect(db.analysisRun.findUniqueOrThrow({ where: { id: sourceAnalysis.id } })).resolves.toMatchObject({ status: 'SUPERSEDED' })
+    const freshClip = await db.clipJob.findFirstOrThrow({ where: { submissionId: correctedSubmissionId! } })
+    expect(freshClip).toMatchObject({ status: 'QUEUED', clipAssetId: null, timingManifestAssetId: null })
+    await expect(db.aiJob.findFirst({ where: { submissionId: correctedSubmissionId! } })).resolves.toBeNull()
+    await expect(db.rally.findUniqueOrThrow({ where: { id: rallyId } })).resolves.toMatchObject({ processingStatus: 'CLIP_QUEUED', activeSubmissionId: correctedSubmissionId })
+    await expect(db.clipJob.findUniqueOrThrow({ where: { id: sourceClip.id } })).resolves.toMatchObject({ status: 'COMPLETED' })
+    await expect(db.analysisRun.findUniqueOrThrow({ where: { id: sourceAnalysis.id } })).resolves.toMatchObject({ status: 'COMPLETED' })
   })
 
   it('creates an editable correction and submits it unchanged without reopening', async () => {

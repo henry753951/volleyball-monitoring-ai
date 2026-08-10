@@ -7,7 +7,6 @@ import {
 } from '@volleyball-monitoring/contracts'
 import { Prisma, UserRole } from '@volleyball-monitoring/db/client'
 import type { AnnotationIdentity, AnnotationRoom } from './room.js'
-import { reuseCompletedSubmissionGeometry } from './submission-geometry-reuse.js'
 import {
   CLIP_CANONICALIZATION_PROFILE,
   CLIP_POLICY_VERSION,
@@ -249,15 +248,6 @@ export async function submitRally(
     data: { serviceKeyPointId: serviceRow.id, terminalKeyPointId: terminalRow.id },
   })
 
-  const geometryReused = Boolean(superseded && geometryUnchanged) && await reuseCompletedSubmissionGeometry(tx, {
-    annotationRevision: rally.annotationRevision,
-    newKeyPoints: rows.map(row => ({ id: row.id, sequenceIndex: row.sequenceIndex })),
-    newSubmissionId: submission.id,
-    outcome: { resolution, side },
-    sourceKeyPoints: superseded!.keyPoints.map(point => ({ id: point.id, sequenceIndex: point.sequenceIndex })),
-    sourceSubmissionId: superseded!.id,
-  })
-
   if (scoreChanged) {
     const cas = await tx.matchSet.updateMany({
       where: { id: set.id, scoreRevision: set.scoreRevision },
@@ -298,37 +288,26 @@ export async function submitRally(
     }
   }
 
-  if (!geometryReused) {
-    await tx.clipJob.create({
-      data: {
-        submissionId: submission.id,
-        status: 'QUEUED',
-        idempotencyKey: `rally-submission:${submission.id}`,
-        canonicalizationProfileVersion: CLIP_CANONICALIZATION_PROFILE,
-        requestedStartCaptureUs: requestedStart,
-        requestedEndCaptureUs: requestedEnd,
-      },
-    })
-  }
+  await tx.clipJob.create({
+    data: {
+      submissionId: submission.id,
+      status: 'QUEUED',
+      idempotencyKey: `rally-submission:${submission.id}`,
+      canonicalizationProfileVersion: CLIP_CANONICALIZATION_PROFILE,
+      requestedStartCaptureUs: requestedStart,
+      requestedEndCaptureUs: requestedEnd,
+    },
+  })
 
   if (superseded) {
     await tx.rallySubmission.update({ where: { id: superseded.id }, data: { status: 'SUPERSEDED' } })
-    if (geometryReused) {
-      await Promise.all([
-        tx.clipJob.updateMany({ where: { submissionId: superseded.id }, data: { status: 'SUPERSEDED', leasedUntil: null } }),
-        tx.aiJob.updateMany({ where: { submissionId: superseded.id }, data: { status: 'SUPERSEDED', leasedUntil: null } }),
-        tx.analysisRun.updateMany({ where: { submissionId: superseded.id }, data: { status: 'SUPERSEDED' } }),
-      ])
-    }
-    else {
-      // Keep the last completed clip/analysis readable while the correction is
-      // processing. Only unfinished source work is retired immediately; the
-      // completed result is superseded atomically by the successful callback.
-      await Promise.all([
-        tx.clipJob.updateMany({ where: { submissionId: superseded.id, status: { not: 'COMPLETED' } }, data: { status: 'SUPERSEDED', leasedUntil: null } }),
-        tx.aiJob.updateMany({ where: { submissionId: superseded.id, status: { not: 'COMPLETED' } }, data: { status: 'SUPERSEDED', leasedUntil: null } }),
-      ])
-    }
+    // A correction always produces a fresh worker result. Keep the last
+    // completed analysis readable until that callback succeeds, and only
+    // retire unfinished source work immediately.
+    await Promise.all([
+      tx.clipJob.updateMany({ where: { submissionId: superseded.id, status: { not: 'COMPLETED' } }, data: { status: 'SUPERSEDED', leasedUntil: null } }),
+      tx.aiJob.updateMany({ where: { submissionId: superseded.id, status: { not: 'COMPLETED' } }, data: { status: 'SUPERSEDED', leasedUntil: null } }),
+    ])
   }
 
   const revision = rally.annotationRevision + 1n
@@ -343,7 +322,7 @@ export async function submitRally(
       annotationRevision: revision,
       annotationStatus: 'SUBMITTED',
       activeSubmissionId: submission.id,
-      processingStatus: geometryReused ? 'COMPLETED' : 'CLIP_QUEUED',
+      processingStatus: 'CLIP_QUEUED',
       scoringTeamId,
       leftScoreBefore: scoreSnapshot.before?.left ?? null,
       rightScoreBefore: scoreSnapshot.before?.right ?? null,
@@ -415,7 +394,7 @@ export async function submitRally(
         dedupeKey: `submission-superseded:${superseded.id}:${submission.id}`,
         eventType: 'rally.submission_superseded.v1',
         payload: json({
-          geometry_reused: geometryReused,
+          geometry_reused: false,
           geometry_unchanged: geometryUnchanged,
           rally_id: rally.id,
           submission_id: submission.id,
