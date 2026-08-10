@@ -25,6 +25,10 @@ export interface CoachDraft {
   score_resolution?: string
   scoring_court_side?: string | null
   scoring_team_id?: string | null
+  side_assignment_id?: string
+  side_assignment_reversed?: boolean
+  left_team_id?: string
+  right_team_id?: string
   set_id: string
   set_number: number
   key_points: Array<{ id: string; sequence_index: number; marker_kind: string; is_terminal: boolean; capture_time_us: string; capture_frame_index: string }>
@@ -50,6 +54,10 @@ export interface CoachRally {
     score_resolution: string
     scoring_court_side: string | null
     scoring_team_id: string | null
+    side_assignment_id: string
+    side_assignment_reversed: boolean
+    left_team_id: string
+    right_team_id: string
     contact_count: number
     key_points: Array<{
       id: string

@@ -25,7 +25,8 @@ const tracks = computed(() => analytics.value?.tracks.filter(track => track.anal
 const groups = computed(() => [
   { side: 'left', teamId: props.leftTeamId, label: props.teams.find(team => team.id === props.leftTeamId)?.name ?? '左隊' },
   { side: 'right', teamId: props.rightTeamId, label: props.teams.find(team => team.id === props.rightTeamId)?.name ?? '右隊' },
-].map(group => ({ ...group, tracks: tracks.value.filter(track => track.court_side === group.side || (track.court_side === 'unknown' && group.side === 'left')) })))
+  { side: 'unknown', teamId: null, label: '未判定場側' },
+].map(group => ({ ...group, tracks: tracks.value.filter(track => track.court_side === group.side) })))
 const activeTracks = computed(() => new Set(tracks.value.filter(track => props.currentFrame !== undefined && props.currentFrame >= Number(track.first_frame_index) && props.currentFrame <= Number(track.last_frame_index)).map(track => track.track_id)))
 
 function playersFor(teamId: string | null) {

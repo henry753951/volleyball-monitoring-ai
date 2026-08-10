@@ -78,8 +78,7 @@ export interface CreateMatchSetupInput {
   title: string
   venue?: string
   scheduledAt?: string
-  leftTeam: TeamSetupInput
-  rightTeam: TeamSetupInput
+  teams: TeamSetupInput[]
 }
 
 export interface UpdateMatchInput {
@@ -100,6 +99,8 @@ export interface MatchDeleteReceipt {
 export interface SwapCourtSidesInput {
   setId: string
   effectiveFromRallyOrdinal: number
+  expectedLeftTeamId: string
+  expectedRightTeamId: string
 }
 
 export interface UpdateMatchClipPolicyInput {

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Check, CircleHelp, Pencil, Trophy } from 'lucide-vue-next'
+import { ArrowLeftRight, Check, CircleHelp, Pencil, Trophy } from 'lucide-vue-next'
 import { computed, ref } from 'vue'
 import type { CoachDraft, CoachRally, CoachTeam } from '~/lib/coachDomain'
 import { annotationOutcomeLabel } from '~/utils/annotationOutcome'
@@ -30,12 +30,14 @@ const props = defineProps<{
   mappingCompleted: boolean
   teams: CoachTeam[]
   canStartNextSet: boolean
+  canSwapSides: boolean
   formatRallyDuration: (rally: CoachRally) => string
   currentFrame: number
   setNumbers: number[]
   placementSaving?: boolean
   focusedTrackId?: number | null
   mappingRefreshToken?: number
+  sideSwapPending?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -43,6 +45,8 @@ const emit = defineEmits<{
   selectDraft: [id: string, captureTimeUs: string]
   selectRally: [rally: CoachRally]
   nextSet: [side: 'left' | 'right']
+  swapSides: []
+  swapRallySides: [rally: CoachRally]
   mappingChanged: []
   updatePlacement: [input: { rallyId: string; setNumber: number; ordinal: number }]
 }>()
@@ -111,6 +115,11 @@ defineExpose({ closePlacement: () => { placementOpen.value = false } })
       <div class="score-summary">
         <div class="set-scoreline"><span>第 {{ setNumber }} 局 · 回合 {{ rallyOrdinal }}</span></div>
         <div class="score-board"><div class="score-team left"><span>{{ leftTeam?.shortName || leftTeam?.name || '左隊' }}</span><small :aria-label="`左隊勝局 ${leftSetWins}`">{{ leftSetWins }}</small></div><b>{{ leftScore }}</b><i>:</i><b>{{ rightScore }}</b><div class="score-team right"><span>{{ rightTeam?.shortName || rightTeam?.name || '右隊' }}</span><small :aria-label="`右隊勝局 ${rightSetWins}`">{{ rightSetWins }}</small></div></div>
+        <div class="court-side-row">
+          <span>目前場地</span>
+          <div><b>{{ leftTeam?.shortName || leftTeam?.name || '左側隊伍' }}</b><ArrowLeftRight :size="13" aria-hidden="true" /><b>{{ rightTeam?.shortName || rightTeam?.name || '右側隊伍' }}</b></div>
+          <UiButton variant="ghost" size="sm" :disabled="!canSwapSides || sideSwapPending" @click="emit('swapSides')"><ArrowLeftRight :size="13" />{{ sideSwapPending ? '交換中' : '交換場地' }}</UiButton>
+        </div>
         <div class="next-set-actions"><button type="button" :disabled="!canStartNextSet || !leftTeamId" @click="emit('nextSet', 'left')">{{ leftTeam?.shortName ?? '左隊' }} 勝局</button><button type="button" :disabled="!canStartNextSet || !rightTeamId" @click="emit('nextSet', 'right')">{{ rightTeam?.shortName ?? '右隊' }} 勝局</button></div>
       </div>
       <div class="segment-list-title"><span>片段</span><b>{{ total }}</b></div>
@@ -124,7 +133,10 @@ defineExpose({ closePlacement: () => { placementOpen.value = false } })
               <span v-if="segmentOutcomeLabel(item)" class="outcome-badge" :class="{ unknown: segmentOutcomeLabel(item) === '得分未知' }"><CircleHelp v-if="segmentOutcomeLabel(item) === '得分未知'" :size="11" /><Trophy v-else :size="11" />{{ segmentOutcomeLabel(item) }}</span>
               <i :class="item.kind === 'draft' ? 'draft' : { failed: item.rally.processing_status === 'failed', processing: item.rally.processing_status !== 'failed' && item.rally.submission.analysis?.status !== 'completed', mapped: item.rally.submission.analysis?.identity_mapping_completed }" />
             </button>
-            <UiTooltip content="編輯局與回合"><UiButton variant="ghost" size="icon-sm" class="placement-edit" aria-label="編輯局與回合" @click="openPlacement(item)"><Pencil :size="13" /></UiButton></UiTooltip>
+            <div class="segment-actions">
+              <UiTooltip v-if="item.kind === 'rally' && item.rally.submission.analysis?.status === 'completed'" content="修正此片段的場地配置"><UiButton variant="ghost" size="icon-sm" class="row-action" aria-label="修正此片段的左右隊伍" :disabled="sideSwapPending" @click="emit('swapRallySides', item.rally)"><ArrowLeftRight :size="13" /></UiButton></UiTooltip>
+              <UiTooltip content="編輯局與回合"><UiButton variant="ghost" size="icon-sm" class="row-action" aria-label="編輯局與回合" @click="openPlacement(item)"><Pencil :size="13" /></UiButton></UiTooltip>
+            </div>
           </div>
         </section>
       </div></UiScrollArea>
@@ -144,5 +156,5 @@ defineExpose({ closePlacement: () => { placementOpen.value = false } })
 <style scoped>
 .segment-row i.failed{background:#e16c74}
 .mode-switch{grid-template-columns:repeat(3,1fr)}.mode-switch button{font-size:.65rem}.match-inspector,.mapping-inspector,.analysis-inspector{min-height:0;flex:1}.mapping-inspector,.analysis-inspector{overflow:hidden}.set-scoreline{display:block;padding:3px 5px}.score-board{min-height:64px}.score-team{min-width:0;display:grid;gap:4px}.score-team.left span{text-align:left}.score-team.right span{text-align:right}.score-team small{width:max-content;padding:3px 6px;border-radius:5px;background:#202328;color:#aeb5bc;font-size:.49rem;font-weight:650;font-variant-numeric:tabular-nums}.score-team.left small{justify-self:start}.score-team.right small{justify-self:end}
-.set-divider{height:29px;display:flex;align-items:center;justify-content:space-between;padding:0 8px;border-bottom:1px solid #30363d;background:#171a1e;color:#b9c0c7;font-size:.61rem}.set-divider b{color:#f1f3f5;font-variant-numeric:tabular-nums}.segment-row{min-height:52px;display:grid;grid-template-columns:minmax(0,1fr) 30px;padding:0}.segment-main{min-width:0;min-height:51px;display:grid;grid-template-columns:minmax(0,1fr) auto auto 8px;align-items:center;gap:7px;padding:0 4px 0 8px;border:0;background:transparent;text-align:left}.segment-main>div{min-width:0;display:grid;gap:3px}.segment-row small{color:#929ba4}.score-at-rally{color:#c0c7ce;font-size:.6rem;font-variant-numeric:tabular-nums}.outcome-badge{display:inline-flex;align-items:center;gap:3px;padding:3px 5px;border:1px solid #4a525a;border-radius:5px;background:#22272c;color:#f1f3f5;font-size:.55rem;font-weight:700;white-space:nowrap}.outcome-badge.unknown{border-style:dashed;color:#c5cbd1}.placement-edit{opacity:0;color:#aab2bb!important}.segment-row:hover .placement-edit,.segment-row.active .placement-edit,.placement-edit:focus-visible{opacity:1}.placement-form{display:grid;grid-template-columns:1fr 1fr;gap:12px;padding:18px}.placement-form label{display:grid;gap:6px;color:#a8b0b8;font-size:.64rem}.placement-form input,.placement-form select{height:36px;padding:0 10px;border:1px solid #3a4148;border-radius:7px;outline:0;background:#171a1e;color:#f4f4f5;font-size:.72rem}.placement-form input:focus,.placement-form select:focus{border-color:#8b949e;box-shadow:0 0 0 2px rgb(139 148 158 / 18%)}
+.court-side-row{min-height:38px;display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:8px;padding:5px 6px;border-top:1px solid #282e34;color:#8f99a3;font-size:.56rem}.court-side-row>div{min-width:0;display:flex;align-items:center;justify-content:center;gap:5px}.court-side-row b{overflow:hidden;color:#d7dce1;font-size:.58rem;text-overflow:ellipsis;white-space:nowrap}.court-side-row button{min-height:27px!important;padding:3px 7px!important;font-size:.57rem}.set-divider{height:29px;display:flex;align-items:center;justify-content:space-between;padding:0 8px;border-bottom:1px solid #30363d;background:#171a1e;color:#b9c0c7;font-size:.61rem}.set-divider b{color:#f1f3f5;font-variant-numeric:tabular-nums}.segment-row{min-height:52px;display:grid;grid-template-columns:minmax(0,1fr) auto;padding:0}.segment-main{min-width:0;min-height:51px;display:grid;grid-template-columns:minmax(0,1fr) auto auto 8px;align-items:center;gap:7px;padding:0 4px 0 8px;border:0;background:transparent;text-align:left}.segment-main>div{min-width:0;display:grid;gap:3px}.segment-row small{color:#929ba4}.score-at-rally{color:#c0c7ce;font-size:.6rem;font-variant-numeric:tabular-nums}.outcome-badge{display:inline-flex;align-items:center;gap:3px;padding:3px 5px;border:1px solid #4a525a;border-radius:5px;background:#22272c;color:#f1f3f5;font-size:.55rem;font-weight:700;white-space:nowrap}.outcome-badge.unknown{border-style:dashed;color:#c5cbd1}.segment-actions{display:flex;align-items:center}.row-action{opacity:0;color:#aab2bb!important}.segment-row:hover .row-action,.segment-row.active .row-action,.row-action:focus-visible{opacity:1}.placement-form{display:grid;grid-template-columns:1fr 1fr;gap:12px;padding:18px}.placement-form label{display:grid;gap:6px;color:#a8b0b8;font-size:.64rem}.placement-form input,.placement-form select{height:36px;padding:0 10px;border:1px solid #3a4148;border-radius:7px;outline:0;background:#171a1e;color:#f4f4f5;font-size:.72rem}.placement-form input:focus,.placement-form select:focus{border-color:#8b949e;box-shadow:0 0 0 2px rgb(139 148 158 / 18%)}
 </style>

@@ -112,6 +112,8 @@ const swapMutation = /* GraphQL */ `
   mutation SwapCourtSides($input: SwapCourtSidesInput!) {
     swapCourtSides(input: $input) {
       id
+      leftScore
+      rightScore
       sideAssignments {
         id
         effectiveFromRallyOrdinal
@@ -157,22 +159,21 @@ const deleteMatchMutation = /* GraphQL */ `
 `
 
 const validSetup = {
-  leftTeam: {
+  teams: [{
     name: '  North   Stars ',
     roster: [
       { jerseyNumber: '01', name: 'Avery Chen' },
       { jerseyNumber: '12', name: 'Morgan Lin' },
     ],
     shortName: ' NS ',
-  },
-  rightTeam: {
+  }, {
     name: 'South Waves',
     roster: [
       { jerseyNumber: '7', name: 'Jamie Wu' },
       { jerseyNumber: '19', name: 'Riley Huang' },
     ],
     shortName: 'SW',
-  },
+  }],
   scheduledAt: '2026-08-08T02:30:00.000Z',
   title: '  Phase 1B   Match ',
   venue: ' Main   Court ',
@@ -383,7 +384,12 @@ describe('Phase 1B GraphQL schema', () => {
           ? validSetup
           : operation === updateRosterMutation
             ? { matchId: '10000000-0000-4000-8000-000000000099', roster: [], teamId: '10000000-0000-4000-8000-000000000098' }
-            : { effectiveFromRallyOrdinal: 2, setId: '10000000-0000-4000-8000-000000000099' },
+            : {
+                effectiveFromRallyOrdinal: 2,
+                expectedLeftTeamId: '10000000-0000-4000-8000-000000000097',
+                expectedRightTeamId: '10000000-0000-4000-8000-000000000098',
+                setId: '10000000-0000-4000-8000-000000000099',
+              },
       })
       expect(response.errors?.[0]?.extensions.code).not.toBe('GRAPHQL_VALIDATION_FAILED')
     }
@@ -404,6 +410,8 @@ describe('Phase 1B GraphQL schema', () => {
         variables: {
           input: {
             effectiveFromRallyOrdinal: 2,
+            expectedLeftTeamId: '10000000-0000-4000-8000-000000000097',
+            expectedRightTeamId: '10000000-0000-4000-8000-000000000098',
             setId: '10000000-0000-4000-8000-000000000099',
           },
         },
@@ -558,7 +566,7 @@ describe('match setup, visibility, and court-side history', () => {
   it('returns BAD_USER_INPUT and preserves every setup row count for duplicate input', async () => {
     const before = await setupRowCounts()
     const duplicateJerseySetup = structuredClone(validSetup)
-    duplicateJerseySetup.leftTeam.roster[1] = {
+    duplicateJerseySetup.teams[0]!.roster[1] = {
       jerseyNumber: ' ０１ ',
       name: 'Different Player',
     }
@@ -606,28 +614,30 @@ describe('match setup, visibility, and court-side history', () => {
     expect(errorCode(invalidDetail)).toBe('BAD_USER_INPUT')
 
     const forbidden = await execute(swapMutation, contextFor(coachUser), {
-      input: { effectiveFromRallyOrdinal: 2, setId },
+      input: { effectiveFromRallyOrdinal: 2, expectedLeftTeamId: leftTeamId, expectedRightTeamId: rightTeamId, setId },
     })
     expect(errorCode(forbidden)).toBe('FORBIDDEN')
 
     const hidden = await execute(swapMutation, contextFor(outsiderOperator), {
-      input: { effectiveFromRallyOrdinal: 2, setId },
+      input: { effectiveFromRallyOrdinal: 2, expectedLeftTeamId: leftTeamId, expectedRightTeamId: rightTeamId, setId },
     })
     expect(errorCode(hidden)).toBe('NOT_FOUND')
   })
 
   it('serializes concurrent swaps and returns ordered, non-overlapping assignment history', async () => {
+    await db.matchSet.update({ where: { id: setId }, data: { leftScore: 7, rightScore: 5 } })
     const firstSwap = await execute(swapMutation, contextFor(operatorUser), {
-      input: { effectiveFromRallyOrdinal: 4, setId },
+      input: { effectiveFromRallyOrdinal: 4, expectedLeftTeamId: leftTeamId, expectedRightTeamId: rightTeamId, setId },
     })
     expect(firstSwap.errors).toBeUndefined()
+    expect(firstSwap.data?.swapCourtSides).toMatchObject({ leftScore: 5, rightScore: 7 })
 
     const concurrent = await Promise.all([
       execute(swapMutation, contextFor(operatorUser), {
-        input: { effectiveFromRallyOrdinal: 8, setId },
+        input: { effectiveFromRallyOrdinal: 8, expectedLeftTeamId: rightTeamId, expectedRightTeamId: leftTeamId, setId },
       }),
       execute(swapMutation, contextFor(operatorUser), {
-        input: { effectiveFromRallyOrdinal: 8, setId },
+        input: { effectiveFromRallyOrdinal: 8, expectedLeftTeamId: rightTeamId, expectedRightTeamId: leftTeamId, setId },
       }),
     ])
     expect(concurrent.filter((result) => result.errors === undefined)).toHaveLength(1)
@@ -637,6 +647,7 @@ describe('match setup, visibility, and court-side history', () => {
     expect(detail.errors).toBeUndefined()
     const match = objectField(detail.data, 'match')
     const sets = arrayField(match, 'sets') as Array<Record<string, unknown>>
+    expect(sets[0]).toMatchObject({ leftScore: 7, rightScore: 5 })
     expect(sets[0]?.sideAssignments).toEqual([
       expect.objectContaining({
         effectiveFromRallyOrdinal: 1,
@@ -659,19 +670,36 @@ describe('match setup, visibility, and court-side history', () => {
     ])
   })
 
-  it('rejects a non-advancing ordinal without changing assignment rows', async () => {
+  it('rejects a stale side snapshot without changing assignment rows', async () => {
     const before = await db.courtSideAssignment.findMany({
       orderBy: { effectiveFromRallyOrdinal: 'asc' },
       where: { setId },
     })
     const result = await execute(swapMutation, contextFor(operatorUser), {
-      input: { effectiveFromRallyOrdinal: 8, setId },
+      input: { effectiveFromRallyOrdinal: 8, expectedLeftTeamId: rightTeamId, expectedRightTeamId: leftTeamId, setId },
     })
     expect(errorCode(result)).toBe('BAD_USER_INPUT')
     await expect(db.courtSideAssignment.findMany({
       orderBy: { effectiveFromRallyOrdinal: 'asc' },
       where: { setId },
     })).resolves.toEqual(before)
+  })
+
+  it('allows an intentional swap-back before the effective rally exists', async () => {
+    const result = await execute(swapMutation, contextFor(operatorUser), {
+      input: { effectiveFromRallyOrdinal: 8, expectedLeftTeamId: leftTeamId, expectedRightTeamId: rightTeamId, setId },
+    })
+    expect(result.errors).toBeUndefined()
+    expect(result.data?.swapCourtSides).toMatchObject({ leftScore: 5, rightScore: 7 })
+    const current = await db.courtSideAssignment.findFirstOrThrow({
+      orderBy: { effectiveFromRallyOrdinal: 'desc' },
+      where: { effectiveToRallyOrdinal: null, setId },
+    })
+    expect(current).toMatchObject({
+      effectiveFromRallyOrdinal: 8,
+      leftTeamId: rightTeamId,
+      rightTeamId: leftTeamId,
+    })
   })
 
   it('edits one team roster while preserving existing entry IDs for identity history', async () => {

@@ -850,6 +850,44 @@ describe('durable service annotation command', () => {
     })
   })
 
+  it('reverses one submitted rally side snapshot and moves its point to the opposite team', async () => {
+    const scoreBefore = await db.matchSet.findUniqueOrThrow({ where: { id: ids.set } })
+    const rallyId = randomUUID()
+    await service.apply(serviceCommand(randomUUID(), rallyId), identity)
+    const point = await db.keyPoint.findFirstOrThrow({ where: { rallyId } })
+    await service.apply(closeCommand(randomUUID(), rallyId, point.id, '1', 'left'), identity)
+    const first = await service.apply(submitCommand(randomUUID(), rallyId, '2'), identity)
+    const firstSubmissionId = first.type === 'command_ack' ? first.effects.submission_id : null
+    expect(firstSubmissionId).toBeTruthy()
+
+    await expect(createCorrectionDraft(db, firstSubmissionId!, identity, { reverseCourtSides: true })).resolves.toMatchObject({
+      annotation_status: 'open',
+      revision: '4',
+      supersedes_submission_id: firstSubmissionId,
+    })
+    await expect(db.rally.findUniqueOrThrow({ where: { id: rallyId } })).resolves.toMatchObject({
+      scoringCourtSide: 'LEFT',
+      scoringTeamId: ids.right,
+      sideAssignmentReversed: true,
+    })
+
+    const corrected = await service.apply(submitCommand(randomUUID(), rallyId, '4'), identity)
+    const correctedSubmissionId = corrected.type === 'command_ack' ? corrected.effects.submission_id : null
+    await expect(db.rallySubmission.findUniqueOrThrow({ where: { id: correctedSubmissionId! } })).resolves.toMatchObject({
+      leftTeamId: ids.right,
+      rightTeamId: ids.left,
+      scoringCourtSide: 'LEFT',
+      scoringTeamId: ids.right,
+      sideAssignmentReversed: true,
+      supersedesSubmissionId: firstSubmissionId,
+    })
+    await expect(db.matchSet.findUniqueOrThrow({ where: { id: ids.set } })).resolves.toMatchObject({
+      leftScore: scoreBefore.leftScore,
+      rightScore: scoreBefore.rightScore + 1,
+      scoreRevision: scoreBefore.scoreRevision + 2,
+    })
+  })
+
   it('cancels a correction and restores the active immutable submission', async () => {
     const rallyId = randomUUID()
     await service.apply(serviceCommand(randomUUID(), rallyId), identity)
@@ -880,13 +918,14 @@ describe('durable service annotation command', () => {
 
   it('rolls back a failed submitted correction and records a compensating score entry', async () => {
     const rallyId = randomUUID()
-    const scoreBefore = await db.matchSet.findUniqueOrThrow({ where: { id: ids.set } })
+    await db.matchSet.update({ where: { id: ids.set }, data: { leftScore: 0, rightScore: 0 } })
     await service.apply(serviceCommand(randomUUID(), rallyId), identity)
     const servicePoint = await db.keyPoint.findFirstOrThrow({ where: { rallyId } })
     await service.apply(closeCommand(randomUUID(), rallyId, servicePoint.id, '1', 'left'), identity)
     const submitted = await service.apply(submitCommand(randomUUID(), rallyId, '2'), identity)
     const sourceSubmissionId = submitted.type === 'command_ack' ? submitted.effects.submission_id : null
     expect(sourceSubmissionId).toBeTruthy()
+    const sourceScore = await db.matchSet.findUniqueOrThrow({ where: { id: ids.set } })
 
     await createCorrectionDraft(db, sourceSubmissionId!, identity)
     await service.apply(parseAnnotationCommand({ ...serviceCommand(randomUUID(), rallyId), base_revision: '4', kind: 'REOPEN_RALLY', payload: {} }), identity)
@@ -894,6 +933,7 @@ describe('durable service annotation command', () => {
     const corrected = await service.apply(submitCommand(randomUUID(), rallyId, '6'), identity)
     const failedSubmissionId = corrected.type === 'command_ack' ? corrected.effects.submission_id : null
     expect(failedSubmissionId).toBeTruthy()
+    const correctedScore = await db.matchSet.findUniqueOrThrow({ where: { id: ids.set } })
     await db.rally.update({ where: { id: rallyId }, data: { processingStatus: 'FAILED' } })
 
     await expect(cancelCorrectionDraft(db, rallyId, identity)).resolves.toMatchObject({
@@ -907,9 +947,9 @@ describe('durable service annotation command', () => {
       scoringCourtSide: 'LEFT',
     })
     await expect(db.matchSet.findUniqueOrThrow({ where: { id: ids.set } })).resolves.toMatchObject({
-      leftScore: scoreBefore.leftScore + 1,
-      rightScore: scoreBefore.rightScore,
-      scoreRevision: scoreBefore.scoreRevision + 3,
+      leftScore: sourceScore.leftScore,
+      rightScore: sourceScore.rightScore,
+      scoreRevision: correctedScore.scoreRevision + 1,
     })
     await expect(db.rallySubmission.findUniqueOrThrow({ where: { id: sourceSubmissionId! } })).resolves.toMatchObject({ status: 'ACTIVE' })
     await expect(db.rallySubmission.findUniqueOrThrow({ where: { id: failedSubmissionId! } })).resolves.toMatchObject({ status: 'SUPERSEDED' })
@@ -920,7 +960,7 @@ describe('durable service annotation command', () => {
     ])
   })
 
-  it('queues fresh processing and keeps the previous completed analysis readable for an outcome-only correction', async () => {
+  it('reuses completed geometry immediately for an outcome-only correction', async () => {
     const rallyId = randomUUID()
     await service.apply(serviceCommand(randomUUID(), rallyId), identity)
     const draftPoint = await db.keyPoint.findFirstOrThrow({ where: { rallyId } })
@@ -970,11 +1010,12 @@ describe('durable service annotation command', () => {
     const corrected = await service.apply(submitCommand(randomUUID(), rallyId, '6'), identity)
     const correctedSubmissionId = corrected.type === 'command_ack' ? corrected.effects.submission_id : null
     const freshClip = await db.clipJob.findFirstOrThrow({ where: { submissionId: correctedSubmissionId! } })
-    expect(freshClip).toMatchObject({ status: 'QUEUED', clipAssetId: null, timingManifestAssetId: null })
-    await expect(db.aiJob.findFirst({ where: { submissionId: correctedSubmissionId! } })).resolves.toBeNull()
-    await expect(db.rally.findUniqueOrThrow({ where: { id: rallyId } })).resolves.toMatchObject({ processingStatus: 'CLIP_QUEUED', activeSubmissionId: correctedSubmissionId })
+    expect(freshClip).toMatchObject({ status: 'COMPLETED', clipAssetId, timingManifestAssetId: timingAssetId })
+    await expect(db.aiJob.findFirstOrThrow({ where: { submissionId: correctedSubmissionId! } })).resolves.toMatchObject({ status: 'COMPLETED', stage: 'geometry_reused' })
+    await expect(db.analysisRun.findFirstOrThrow({ where: { submissionId: correctedSubmissionId! } })).resolves.toMatchObject({ status: 'COMPLETED', analysisVersion: 'reuse-v1' })
+    await expect(db.rally.findUniqueOrThrow({ where: { id: rallyId } })).resolves.toMatchObject({ processingStatus: 'COMPLETED', activeSubmissionId: correctedSubmissionId })
     await expect(db.clipJob.findUniqueOrThrow({ where: { id: sourceClip.id } })).resolves.toMatchObject({ status: 'COMPLETED' })
-    await expect(db.analysisRun.findUniqueOrThrow({ where: { id: sourceAnalysis.id } })).resolves.toMatchObject({ status: 'COMPLETED' })
+    await expect(db.analysisRun.findUniqueOrThrow({ where: { id: sourceAnalysis.id } })).resolves.toMatchObject({ status: 'COMPLETED', supersededAt: expect.any(Date) })
   })
 
   it('creates an editable correction and submits it unchanged without reopening', async () => {

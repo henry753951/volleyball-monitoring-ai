@@ -33,8 +33,8 @@ const ACTIVE_SNAPSHOT_QUERY = `query ActiveAnnotationRally($roomId: String!) {
 const SNAPSHOT_QUERY = `query AnnotationRally($roomId: String!, $rallyId: ID!) {
   annotationRallySnapshot(roomId: $roomId, rallyId: $rallyId)
 }`
-const CREATE_CORRECTION_DRAFT = `mutation CreateCorrectionDraft($submissionId: ID!) {
-  createCorrectionDraft(submissionId: $submissionId) { id }
+const CREATE_CORRECTION_DRAFT = `mutation CreateCorrectionDraft($submissionId: ID!, $reverseCourtSides: Boolean) {
+  createCorrectionDraft(submissionId: $submissionId, reverseCourtSides: $reverseCourtSides) { id }
 }`
 const CANCEL_CORRECTION_DRAFT = `mutation CancelCorrectionDraft($rallyId: ID!) {
   cancelCorrectionDraft(rallyId: $rallyId) { id }
@@ -361,7 +361,7 @@ export function useAnnotationRoom() {
     }
   }
 
-  async function createCorrection(targetSubmissionId?: string) {
+  async function createCorrection(targetSubmissionId?: string, options: { reverseCourtSides?: boolean } = {}) {
     const submissionId = targetSubmissionId ?? snapshot.value?.snapshot.active_submission_id
     if (!submissionId) throw new Error('目前沒有可修正的已送出片段')
     if (!targetSubmissionId && (state.value === 'OPEN' || state.value === 'READY')) throw new Error('請先完成目前的標記片段')
@@ -370,11 +370,27 @@ export function useAnnotationRoom() {
     try {
       const result = await transport.request<{
         createCorrectionDraft: { id: string }
-      }>(CREATE_CORRECTION_DRAFT, { submissionId })
+      }>(CREATE_CORRECTION_DRAFT, { submissionId, reverseCourtSides: options.reverseCourtSides ?? false })
       return await fetchSnapshot(result.createCorrectionDraft.id)
     }
     catch (cause) {
       error.value = cause instanceof Error ? cause.message : '無法建立修正草稿'
+      throw cause
+    }
+    finally {
+      busy.value = false
+    }
+  }
+
+  async function submitCorrection() {
+    if (state.value !== 'OPEN' && state.value !== 'READY') throw new Error('目前沒有可送出的修正草稿')
+    busy.value = true
+    error.value = null
+    try {
+      return await sendCommand(buildCommand('submit', null))
+    }
+    catch (cause) {
+      error.value = cause instanceof Error ? cause.message : '無法送出修正草稿'
       throw cause
     }
     finally {
@@ -488,6 +504,7 @@ export function useAnnotationRoom() {
     remoteEditorsByKeyPoint,
     selectRally: fetchSnapshot,
     setEditingKeyPoint,
+    submitCorrection,
     discardPending,
     refreshActive,
     snapshot: shallowReadonly(snapshot),

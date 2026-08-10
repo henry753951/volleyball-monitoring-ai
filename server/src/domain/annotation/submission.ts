@@ -11,6 +11,7 @@ import {
   CLIP_CANONICALIZATION_PROFILE,
   CLIP_POLICY_VERSION,
 } from '../../config/clip-policy.js'
+import { reuseCompletedSubmissionGeometry } from './submission-geometry-reuse.js'
 
 type Tx = Prisma.TransactionClient
 type SubmissionCommand = Extract<AnnotationCommand, { kind: 'SUBMIT_RALLY' }>
@@ -32,13 +33,6 @@ const reject = (command: AnnotationCommand, code: string, message: string, actua
   snapshot_refetch_required: code === 'REVISION_CONFLICT',
   ...(actual ? { actual_revision: actual, expected_revision: command.base_revision } : {}),
 })
-
-function contribution(resolution: 'RESOLVED' | 'UNKNOWN', side: 'LEFT' | 'RIGHT' | null) {
-  return {
-    left: resolution === 'RESOLVED' && side === 'LEFT' ? 1 : 0,
-    right: resolution === 'RESOLVED' && side === 'RIGHT' ? 1 : 0,
-  }
-}
 
 export async function submitRally(
   tx: Tx,
@@ -121,31 +115,69 @@ export async function submitRally(
 
   const resolution = rally.scoreResolutionState
   const side = rally.scoringCourtSide
-  const currentContribution = contribution(resolution, side)
-  const previousContribution = superseded
-    ? contribution(superseded.scoreResolutionState, superseded.scoringCourtSide)
-    : { left: 0, right: 0 }
-  const leftDelta = currentContribution.left - previousContribution.left
-  const rightDelta = currentContribution.right - previousContribution.right
-  const scoreChanged = leftDelta !== 0 || rightDelta !== 0
+  const effectiveAssignment = rally.sideAssignmentReversed
+    ? { leftTeamId: assignment.rightTeamId, rightTeamId: assignment.leftTeamId }
+    : { leftTeamId: assignment.leftTeamId, rightTeamId: assignment.rightTeamId }
+  const scoringTeamId = resolution === 'RESOLVED'
+    ? side === 'LEFT' ? effectiveAssignment.leftTeamId : effectiveAssignment.rightTeamId
+    : null
 
   const set = await tx.matchSet.findUnique({
     where: { id: rally.setId },
-    select: { id: true, leftScore: true, rightScore: true, scoreRevision: true },
+    select: {
+      id: true,
+      leftScore: true,
+      rightScore: true,
+      scoreRevision: true,
+      sideAssignments: {
+        orderBy: { effectiveFromRallyOrdinal: 'desc' },
+        take: 1,
+        select: { leftTeamId: true, rightTeamId: true },
+      },
+      rallies: {
+        where: { id: { not: rally.id }, voidedAt: null, activeSubmissionId: { not: null } },
+        orderBy: { ordinal: 'asc' },
+        select: {
+          id: true,
+          ordinal: true,
+          activeSubmission: { select: { scoreResolutionState: true, scoringTeamId: true } },
+        },
+      },
+    },
   })
   if (!set) return persist(tx, command, identity, hash, reject(command, 'ANNOTATION_NOT_READY', 'Set no longer exists'))
+  const currentAssignment = set.sideAssignments[0]
+  if (!currentAssignment) return persist(tx, command, identity, hash, reject(command, 'ANNOTATION_NOT_READY', 'Current court-side assignment is missing'))
+
+  const teamScores = new Map<string, number>()
+  const scoreFor = (leftTeamId: string, rightTeamId: string) => ({
+    left: teamScores.get(leftTeamId) ?? 0,
+    right: teamScores.get(rightTeamId) ?? 0,
+  })
+  const scoreEntries = [
+    ...set.rallies.flatMap(entry => entry.activeSubmission
+      ? [{ id: entry.id, ordinal: entry.ordinal, resolution: entry.activeSubmission.scoreResolutionState, scoringTeamId: entry.activeSubmission.scoringTeamId }]
+      : []),
+    { id: rally.id, ordinal: rally.ordinal, resolution, scoringTeamId },
+  ].sort((left, right) => left.ordinal - right.ordinal || left.id.localeCompare(right.id))
+  let historicalBefore = { left: 0, right: 0 }
+  let historicalAfter = { left: 0, right: 0 }
+  for (const entry of scoreEntries) {
+    if (entry.id === rally.id) historicalBefore = scoreFor(effectiveAssignment.leftTeamId, effectiveAssignment.rightTeamId)
+    if (entry.resolution === 'RESOLVED' && entry.scoringTeamId) {
+      teamScores.set(entry.scoringTeamId, (teamScores.get(entry.scoringTeamId) ?? 0) + 1)
+    }
+    if (entry.id === rally.id) historicalAfter = scoreFor(effectiveAssignment.leftTeamId, effectiveAssignment.rightTeamId)
+  }
+  const currentScore = scoreFor(currentAssignment.leftTeamId, currentAssignment.rightTeamId)
+  const leftDelta = currentScore.left - set.leftScore
+  const rightDelta = currentScore.right - set.rightScore
+  const scoreChanged = leftDelta !== 0 || rightDelta !== 0
   const scoreAfter = {
-    left: set.leftScore + leftDelta,
-    right: set.rightScore + rightDelta,
+    left: currentScore.left,
+    right: currentScore.right,
     revision: set.scoreRevision + (scoreChanged ? 1 : 0),
   }
-  if (scoreAfter.left < 0 || scoreAfter.right < 0) {
-    return persist(tx, command, identity, hash, reject(command, 'ANNOTATION_NOT_READY', 'Correction would produce a negative set score'))
-  }
-
-  const scoringTeamId = resolution === 'RESOLVED'
-    ? side === 'LEFT' ? assignment.leftTeamId : assignment.rightTeamId
-    : null
   const snapshot = rally.keyPoints.map(point => ({
     capture_epoch_id: point.captureEpochId,
     sequence_index: point.sequenceIndex,
@@ -178,15 +210,15 @@ export async function submitRally(
   const requestedEnd = terminal.captureTimeUs + clipPostRollUs
   const scoreSnapshot = resolution === 'RESOLVED'
     ? {
-        before: { left: set.leftScore, right: set.rightScore, revision: set.scoreRevision },
-        after: scoreAfter,
+        before: { ...historicalBefore, revision: set.scoreRevision },
+        after: { ...historicalAfter, revision: scoreAfter.revision },
       }
     : { before: null, after: null }
   const contentHash = createHash('sha256').update(canonical({
     schema_version: 'rally-submission-content-v1',
     key_points: snapshot,
     outcome: { resolution, side: side ?? null, scoring_team_id: scoringTeamId },
-    assignment: { id: assignment.id, left_team_id: assignment.leftTeamId, right_team_id: assignment.rightTeamId },
+    assignment: { id: assignment.id, reversed: rally.sideAssignmentReversed, left_team_id: effectiveAssignment.leftTeamId, right_team_id: effectiveAssignment.rightTeamId },
     score: scoreSnapshot,
     clip: {
       policy_version: CLIP_POLICY_VERSION,
@@ -208,9 +240,10 @@ export async function submitRally(
       scoreResolutionState: resolution,
       scoringCourtSide: side,
       scoringTeamId,
-      leftTeamId: assignment.leftTeamId,
-      rightTeamId: assignment.rightTeamId,
+      leftTeamId: effectiveAssignment.leftTeamId,
+      rightTeamId: effectiveAssignment.rightTeamId,
       sideAssignmentId: assignment.id,
+      sideAssignmentReversed: rally.sideAssignmentReversed,
       leftScoreBefore: scoreSnapshot.before?.left ?? null,
       rightScoreBefore: scoreSnapshot.before?.right ?? null,
       leftScoreAfter: scoreSnapshot.after?.left ?? null,
@@ -270,7 +303,7 @@ export async function submitRally(
         scoreRevisionAfter: scoreAfter.revision,
       },
     })
-    if (!superseded && resolution === 'RESOLVED' && scoringTeamId) {
+    if (resolution === 'RESOLVED' && scoringTeamId) {
       await tx.pointAward.create({
         data: {
           submissionId: submission.id,
@@ -288,16 +321,29 @@ export async function submitRally(
     }
   }
 
-  await tx.clipJob.create({
-    data: {
-      submissionId: submission.id,
-      status: 'QUEUED',
-      idempotencyKey: `rally-submission:${submission.id}`,
-      canonicalizationProfileVersion: CLIP_CANONICALIZATION_PROFILE,
-      requestedStartCaptureUs: requestedStart,
-      requestedEndCaptureUs: requestedEnd,
-    },
-  })
+  const geometryReused = superseded && geometryUnchanged
+    ? await reuseCompletedSubmissionGeometry(tx, {
+        annotationRevision: rally.annotationRevision,
+        newKeyPoints: rows,
+        newSubmissionId: submission.id,
+        outcome: { resolution, side },
+        sideTeams: effectiveAssignment,
+        sourceKeyPoints: superseded.keyPoints,
+        sourceSubmissionId: superseded.id,
+      })
+    : false
+  if (!geometryReused) {
+    await tx.clipJob.create({
+      data: {
+        submissionId: submission.id,
+        status: 'QUEUED',
+        idempotencyKey: `rally-submission:${submission.id}`,
+        canonicalizationProfileVersion: CLIP_CANONICALIZATION_PROFILE,
+        requestedStartCaptureUs: requestedStart,
+        requestedEndCaptureUs: requestedEnd,
+      },
+    })
+  }
 
   if (superseded) {
     await tx.rallySubmission.update({ where: { id: superseded.id }, data: { status: 'SUPERSEDED' } })
@@ -308,6 +354,9 @@ export async function submitRally(
       tx.clipJob.updateMany({ where: { submissionId: superseded.id, status: { not: 'COMPLETED' } }, data: { status: 'SUPERSEDED', leasedUntil: null } }),
       tx.aiJob.updateMany({ where: { submissionId: superseded.id, status: { not: 'COMPLETED' } }, data: { status: 'SUPERSEDED', leasedUntil: null } }),
     ])
+    if (geometryReused) {
+      await tx.analysisRun.updateMany({ where: { submissionId: superseded.id, status: 'COMPLETED' }, data: { supersededAt: new Date() } })
+    }
   }
 
   const revision = rally.annotationRevision + 1n
@@ -322,7 +371,7 @@ export async function submitRally(
       annotationRevision: revision,
       annotationStatus: 'SUBMITTED',
       activeSubmissionId: submission.id,
-      processingStatus: 'CLIP_QUEUED',
+      processingStatus: geometryReused ? 'COMPLETED' : 'CLIP_QUEUED',
       scoringTeamId,
       leftScoreBefore: scoreSnapshot.before?.left ?? null,
       rightScoreBefore: scoreSnapshot.before?.right ?? null,
@@ -394,7 +443,7 @@ export async function submitRally(
         dedupeKey: `submission-superseded:${superseded.id}:${submission.id}`,
         eventType: 'rally.submission_superseded.v1',
         payload: json({
-          geometry_reused: false,
+          geometry_reused: geometryReused,
           geometry_unchanged: geometryUnchanged,
           rally_id: rally.id,
           submission_id: submission.id,

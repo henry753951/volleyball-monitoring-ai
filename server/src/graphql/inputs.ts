@@ -33,8 +33,7 @@ TeamSetupInputType.implement({
 export const CreateMatchSetupInputType = builder.inputRef<CreateMatchSetupInput>('CreateMatchSetupInput')
 CreateMatchSetupInputType.implement({
   fields: (t) => ({
-    leftTeam: t.field({ required: true, type: TeamSetupInputType }),
-    rightTeam: t.field({ required: true, type: TeamSetupInputType }),
+    teams: t.field({ required: true, type: [TeamSetupInputType] }),
     scheduledAt: t.field({ type: 'DateTime' }),
     title: t.string({ required: true }),
     venue: t.string(),
@@ -45,6 +44,8 @@ export const SwapCourtSidesInputType = builder.inputRef<SwapCourtSidesInput>('Sw
 SwapCourtSidesInputType.implement({
   fields: (t) => ({
     effectiveFromRallyOrdinal: t.int({ required: true }),
+    expectedLeftTeamId: t.id({ required: true }),
+    expectedRightTeamId: t.id({ required: true }),
     setId: t.id({ required: true }),
   }),
 })

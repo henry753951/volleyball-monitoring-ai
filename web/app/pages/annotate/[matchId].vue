@@ -162,30 +162,50 @@ const clipPolicyError = ref<string | null>(null);
 const captureDialogOpen = ref(false);
 const connectionDialogOpen = ref(false);
 const rosterDialogOpen = ref(false);
+const swapRallyTarget = ref<CoachRally | null>(null);
+const sideSwapPending = ref(false);
 const confirmAction = ref<
-   "rally-delete" | "correction" | "next-left" | "next-right" | null
+   | "rally-delete"
+   | "correction"
+   | "next-left"
+   | "next-right"
+   | "swap-live"
+   | "swap-rally"
+   | null
 >(null);
-const confirmTitle = computed(() =>
-   confirmAction.value === "rally-delete"
-      ? "永久刪除片段"
-      : confirmAction.value === "correction"
-        ? "建立修正版草稿"
-        : "開啟新一局",
-);
-const confirmMessage = computed(() =>
-   confirmAction.value === "rally-delete"
-      ? "片段、裁切媒體與分析結果會永久刪除；若仍在處理，工作會先中止。此動作無法復原。"
-      : confirmAction.value === "correction"
-        ? "會複製目前已送出的片段，建立可編輯、可重新送出的草稿；草稿期間不顯示舊分析結果。"
-        : `${confirmAction.value === "next-left" ? (leftTeam.value?.name ?? "左隊") : (rightTeam.value?.name ?? "右隊")}取得本局，比分歸零並開始下一局。`,
-);
-const confirmLabel = computed(() =>
-   confirmAction.value === "rally-delete"
-      ? "永久刪除"
-      : confirmAction.value === "correction"
-        ? "建立修正版草稿"
-        : "確認並開始",
-);
+const confirmTitle = computed(() => {
+   if (confirmAction.value === "rally-delete") return "永久刪除片段";
+   if (confirmAction.value === "correction") return "建立修正版草稿";
+   if (confirmAction.value === "swap-live") return "交換目前場地";
+   if (confirmAction.value === "swap-rally") return "修正此片段的場地配置";
+   return "開啟新一局";
+});
+const confirmMessage = computed(() => {
+   if (confirmAction.value === "rally-delete")
+      return "片段、裁切媒體與分析結果會永久刪除；若仍在處理，工作會先中止。此動作無法復原。";
+   if (confirmAction.value === "correction")
+      return "會複製目前已送出的片段，建立可編輯、可重新送出的草稿；草稿期間不顯示舊分析結果。";
+   if (confirmAction.value === "swap-live")
+      return `${leftTeam.value?.name ?? "目前左側隊伍"}與${rightTeam.value?.name ?? "目前右側隊伍"}將從下一個新片段起交換場地；目前比分會跟著隊伍名牌交換，已送出的片段不受影響。`;
+   if (confirmAction.value === "swap-rally") {
+      const submission = swapRallyTarget.value?.submission;
+      const left = coach.data.value?.match.teams.find(
+         (team) => team.id === submission?.left_team_id,
+      );
+      const right = coach.data.value?.match.teams.find(
+         (team) => team.id === submission?.right_team_id,
+      );
+      return `將${left?.name ?? "此片段左側隊伍"}與${right?.name ?? "右側隊伍"}的名牌、得分歸屬及球員指派規則交換。既有球場座標、球路與追蹤框不翻轉；不符合新隊伍的手動球員指派會清除。系統會建立新的不可變修正版，原版本保留於歷程。`;
+   }
+   return `${confirmAction.value === "next-left" ? (leftTeam.value?.name ?? "左隊") : (rightTeam.value?.name ?? "右隊")}取得本局，比分歸零並開始下一局。`;
+});
+const confirmLabel = computed(() => {
+   if (confirmAction.value === "rally-delete") return "永久刪除";
+   if (confirmAction.value === "correction") return "建立修正版草稿";
+   if (confirmAction.value === "swap-live") return "交換目前場地";
+   if (confirmAction.value === "swap-rally") return "建立並套用修正";
+   return "確認並開始";
+});
 const correctionSubmissionId = ref<string | null>(null);
 const correctionCancelling = ref(false);
 let correctionOperationGeneration = 0;
@@ -361,6 +381,25 @@ const {
    displayRallyOrdinal,
    displaySetNumber,
 } = workstation;
+const selectedSideLeftTeamId = computed(
+   () => selectedSubmittedRally.value?.submission.left_team_id ?? leftTeamId.value,
+);
+const selectedSideRightTeamId = computed(
+   () => selectedSubmittedRally.value?.submission.right_team_id ?? rightTeamId.value,
+);
+const nextRallyOrdinal = computed(() => {
+   const setId = currentSet.value?.id;
+   if (!setId) return 1;
+   const ordinals = [
+      ...annotationDrafts.value
+         .filter((draft) => draft.set_id === setId)
+         .map((draft) => draft.ordinal),
+      ...submittedRallies.value
+         .filter((rally) => rally.set_id === setId)
+         .map((rally) => rally.ordinal),
+   ];
+   return Math.max(0, ...ordinals) + 1;
+});
 const clipSelected = computed(() =>
    Boolean(
       selectedRallyId.value &&
@@ -1393,6 +1432,31 @@ function requestNextSet(side: "left" | "right") {
    confirmAction.value = side === "left" ? "next-left" : "next-right";
 }
 
+function requestCurrentSideSwap() {
+   if (
+      !currentSet.value ||
+      !leftTeamId.value ||
+      !rightTeamId.value ||
+      state.value === "OPEN" ||
+      !editReady.value ||
+      sideSwapPending.value
+   )
+      return;
+   swapRallyTarget.value = null;
+   confirmAction.value = "swap-live";
+}
+
+function requestRallySideSwap(rally: CoachRally) {
+   if (
+      rally.submission.analysis?.status !== "completed" ||
+      sideSwapPending.value ||
+      !editReady.value
+   )
+      return;
+   swapRallyTarget.value = rally;
+   confirmAction.value = "swap-rally";
+}
+
 async function updateRallyPlacement(input: {
    rallyId: string;
    setNumber: number;
@@ -1416,6 +1480,7 @@ function closeConfirmAction() {
    confirmAction.value = null;
    correctionSubmissionId.value = null;
    deleteRallyId.value = null;
+   swapRallyTarget.value = null;
 }
 
 function clearDeletedRallySelection(rallyId: string) {
@@ -1451,15 +1516,79 @@ async function purgeRally(rallyId: string) {
    }
 }
 
+async function swapCurrentCourtSides() {
+   const set = currentSet.value;
+   const expectedLeftTeamId = leftTeamId.value;
+   const expectedRightTeamId = rightTeamId.value;
+   if (!set || !expectedLeftTeamId || !expectedRightTeamId || sideSwapPending.value)
+      return;
+   sideSwapPending.value = true;
+   try {
+      await core.swapCourtSides({
+         setId: set.id,
+         effectiveFromRallyOrdinal: nextRallyOrdinal.value,
+         expectedLeftTeamId,
+         expectedRightTeamId,
+      });
+      await Promise.all([loadMatch({ silent: true }), coach.refresh()]);
+      toast.success(`場地已交換，從回合 ${nextRallyOrdinal.value} 起生效`);
+   } catch (error) {
+      toast.error(error instanceof Error ? error.message : "無法交換目前場地");
+   } finally {
+      sideSwapPending.value = false;
+   }
+}
+
+async function swapCompletedRallySides(rally: CoachRally) {
+   if (sideSwapPending.value) return;
+   const correctionOperation = ++correctionOperationGeneration;
+   let draftCreated = false;
+   sideSwapPending.value = true;
+   try {
+      await annotation.createCorrection(rally.submission.id, {
+         reverseCourtSides: true,
+      });
+      draftCreated = true;
+      if (correctionOperation !== correctionOperationGeneration) return;
+      pinnedRallyId.value = rally.id;
+      selectedTimelineItem.value = "mask";
+      selectedKeyPointId.value = null;
+      await annotation.submitCorrection();
+      if (correctionOperation !== correctionOperationGeneration) return;
+      selectedTimelineItem.value = "segment";
+      await Promise.all([loadMatch({ silent: true }), coach.refresh()]);
+      toast.success("片段場地配置已修正，隊伍名牌與得分歸屬已更新");
+   } catch (error) {
+      await coach.refresh().catch(() => undefined);
+      toast.error(
+         `${error instanceof Error ? error.message : "無法修正片段場地配置"}${
+            draftCreated ? "；修正草稿仍保留，可取消修正以還原" : ""
+         }`,
+      );
+   } finally {
+      sideSwapPending.value = false;
+   }
+}
+
 function confirmPendingAction() {
    const action = confirmAction.value;
    const submissionId = correctionSubmissionId.value;
    const targetRallyId = deleteRallyId.value;
+   const sideSwapRally = swapRallyTarget.value;
    confirmAction.value = null;
    correctionSubmissionId.value = null;
    deleteRallyId.value = null;
+   swapRallyTarget.value = null;
    if (action === "rally-delete" && targetRallyId) {
       void purgeRally(targetRallyId);
+      return;
+   }
+   if (action === "swap-live") {
+      void swapCurrentCourtSides();
+      return;
+   }
+   if (action === "swap-rally" && sideSwapRally) {
+      void swapCompletedRallySides(sideSwapRally);
       return;
    }
    if (action === "next-left" || action === "next-right") {
@@ -2473,8 +2602,8 @@ onBeforeUnmount(() => {
                      :analysis-run-id="editorSelectedAnalysisRunId"
                      :track-id="trackPopover.trackId"
                      :current-frame="currentOverlayFrame"
-                     :left-team-id="leftTeamId"
-                     :right-team-id="rightTeamId"
+                     :left-team-id="selectedSideLeftTeamId"
+                     :right-team-id="selectedSideRightTeamId"
                      :x="trackPopover.x"
                      :y="trackPopover.y"
                      @close="trackPopover.open = false"
@@ -2504,8 +2633,8 @@ onBeforeUnmount(() => {
                :right-set-wins="rightSetWins"
                :set-number="displaySetNumber"
                :rally-ordinal="displayRallyOrdinal"
-               :left-team-id="leftTeamId"
-               :right-team-id="rightTeamId"
+               :left-team-id="selectedSideLeftTeamId"
+               :right-team-id="selectedSideRightTeamId"
                :drafts="annotationDrafts"
                :rallies="visibleSubmittedRallies"
                :selected-rally-id="selectedRallyId"
@@ -2527,12 +2656,16 @@ onBeforeUnmount(() => {
                :mapping-refresh-token="mappingRefreshToken"
                :teams="coach.data.value?.match.teams ?? []"
                :can-start-next-set="state !== 'OPEN' && editReady"
+               :can-swap-sides="state !== 'OPEN' && editReady"
+               :side-swap-pending="sideSwapPending"
                :format-rally-duration="
                   (rally) => formatDuration(rallyDisplayDuration(rally))
                "
                @select-draft="selectHistoricalSegment"
                @select-rally="selectRally"
                @next-set="requestNextSet"
+               @swap-sides="requestCurrentSideSwap"
+               @swap-rally-sides="requestRallySideSwap"
                @mapping-changed="handleMappingChanged"
                @update-placement="updateRallyPlacement"
             >

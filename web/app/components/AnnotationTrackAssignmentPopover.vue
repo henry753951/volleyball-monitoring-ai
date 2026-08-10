@@ -22,10 +22,14 @@ const error = ref<string | null>(null)
 
 const track = computed(() => analytics.value?.tracks.find(item => item.analysis_run_id === props.analysisRunId && item.track_id === props.trackId) ?? null)
 const runTracks = computed(() => analytics.value?.tracks.filter(item => item.analysis_run_id === props.analysisRunId) ?? [])
-const teamId = computed(() => track.value?.court_side === 'right' ? props.rightTeamId : props.leftTeamId)
+const teamId = computed(() => track.value?.court_side === 'left'
+  ? props.leftTeamId
+  : track.value?.court_side === 'right'
+    ? props.rightTeamId
+    : null)
 const activeTrackIds = computed(() => new Set(runTracks.value.filter(item => props.currentFrame >= Number(item.first_frame_index) && props.currentFrame <= Number(item.last_frame_index)).map(item => item.track_id)))
 const unavailableRosterIds = computed(() => new Set(runTracks.value.filter(item => item.track_id !== props.trackId && activeTrackIds.value.has(item.track_id) && item.roster_entry_id).map(item => item.roster_entry_id)))
-const players = computed(() => analytics.value?.players.filter(player => player.team_id === teamId.value && !unavailableRosterIds.value.has(player.roster_entry_id)) ?? [])
+const players = computed(() => analytics.value?.players.filter(player => (!teamId.value || player.team_id === teamId.value) && !unavailableRosterIds.value.has(player.roster_entry_id)) ?? [])
 const team = computed(() => analytics.value?.teams.find(item => item.id === teamId.value) ?? null)
 const previousTrackByRoster = computed(() => {
   const result = new Map<string, number>()
@@ -63,7 +67,7 @@ watch(() => [props.open, props.analysisRunId, props.trackId], refresh, { immedia
 
 <template>
   <div v-if="open && trackId !== null" class="track-popover" :class="track?.court_side" :style="{ left: `${x}px`, top: `${y}px` }" role="dialog" aria-label="快速指派球員" @click.stop>
-    <header><span><UserRoundCog :size="15" /><b>{{ team?.shortName || team?.name || '隊伍' }}</b> · T{{ String(trackId).padStart(2, '0') }}<small>手動 ReID</small></span><button type="button" aria-label="關閉" @click="emit('close')"><X :size="14" /></button></header>
+    <header><span><UserRoundCog :size="15" /><b>{{ team?.shortName || team?.name || '兩隊' }}</b> · T{{ String(trackId).padStart(2, '0') }}<small>手動 ReID</small></span><button type="button" aria-label="關閉" @click="emit('close')"><X :size="14" /></button></header>
     <div v-if="pending && !analytics" class="loading"><LoaderCircle class="spin" :size="16" />載入中</div>
     <template v-else>
       <button type="button" class="player-option" :class="{ selected: !track?.roster_entry_id }" :disabled="pending" @click="assign('')"><span>清除球員關聯</span><Check v-if="!track?.roster_entry_id" :size="13" /></button>

@@ -29,6 +29,10 @@ export interface CorrectionDraftIdentity {
   userId: string
 }
 
+export interface CorrectionDraftOptions {
+  reverseCourtSides?: boolean
+}
+
 export interface CorrectionDraftResult {
   annotation_status: 'open'
   rally_id: string
@@ -57,6 +61,7 @@ export async function createCorrectionDraft(
   database: PrismaClient,
   submissionId: string,
   identity: CorrectionDraftIdentity,
+  options: CorrectionDraftOptions = {},
 ): Promise<CorrectionDraftResult> {
   if (!CORRECTION_ROLES.has(identity.role)) {
     throw new CorrectionDraftError('FORBIDDEN', 'Correction drafts require annotation access')
@@ -102,6 +107,9 @@ export async function createCorrectionDraft(
           && ['OPEN', 'READY'].includes(rally.annotationStatus)
           && rally.voidedAt === null
         if (existingCorrectionDraft) {
+          if (options.reverseCourtSides && rally.sideAssignmentReversed === submission.sideAssignmentReversed) {
+            throw new CorrectionDraftError('INVALID_SUBMISSION_STATE', 'The existing correction draft does not contain a court-side reversal')
+          }
           return {
             annotation_status: 'open',
             rally_id: rally.id,
@@ -123,6 +131,20 @@ export async function createCorrectionDraft(
 
         const revision = rally.annotationRevision + 1n
         const now = new Date()
+        const sideAssignmentReversed = options.reverseCourtSides
+          ? !submission.sideAssignmentReversed
+          : submission.sideAssignmentReversed
+        const effectiveLeftTeamId = sideAssignmentReversed === submission.sideAssignmentReversed
+          ? submission.leftTeamId
+          : submission.rightTeamId
+        const effectiveRightTeamId = sideAssignmentReversed === submission.sideAssignmentReversed
+          ? submission.rightTeamId
+          : submission.leftTeamId
+        const scoringTeamId = submission.scoreResolutionState === 'RESOLVED'
+          ? submission.scoringCourtSide === 'LEFT'
+            ? effectiveLeftTeamId
+            : effectiveRightTeamId
+          : null
         const snapshotIds = new Set(submission.keyPoints.map(point => point.sourceDraftKeyPointId))
         const temporaryBase = Math.min(
           -1,
@@ -201,9 +223,10 @@ export async function createCorrectionDraft(
           data: {
             annotationRevision: revision,
             annotationStatus: 'OPEN',
+            sideAssignmentReversed,
             scoreResolutionState: submission.scoreResolutionState,
             scoringCourtSide: submission.scoringCourtSide,
-            scoringTeamId: submission.scoringTeamId,
+            scoringTeamId,
             leftScoreBefore: submission.leftScoreBefore,
             rightScoreBefore: submission.rightScoreBefore,
             leftScoreAfter: submission.leftScoreAfter,
@@ -215,6 +238,7 @@ export async function createCorrectionDraft(
         const auditPayload = {
           source_submission_id: submission.id,
           restored_key_point_count: submission.keyPoints.length,
+          reverse_court_sides: Boolean(options.reverseCourtSides),
         }
         await tx.annotationOperation.create({
           data: {
@@ -406,6 +430,7 @@ export async function cancelCorrectionDraft(
             scoreResolutionState: restoredSubmission.scoreResolutionState,
             scoringCourtSide: restoredSubmission.scoringCourtSide,
             scoringTeamId: restoredSubmission.scoringTeamId,
+            sideAssignmentReversed: restoredSubmission.sideAssignmentReversed,
             leftScoreBefore: restoredSubmission.leftScoreBefore,
             rightScoreBefore: restoredSubmission.rightScoreBefore,
             leftScoreAfter: restoredSubmission.leftScoreAfter,

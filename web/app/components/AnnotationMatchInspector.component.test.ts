@@ -8,7 +8,7 @@ const teams = [
 ]
 
 describe('AnnotationMatchInspector outcomes', () => {
-  it('shows resolved and explicitly unknown outcomes in the segment list', () => {
+  it('shows resolved and explicitly unknown outcomes in the segment list', async () => {
     const wrapper = mount(AnnotationMatchInspector, {
       global: {
         stubs: {
@@ -23,6 +23,7 @@ describe('AnnotationMatchInspector outcomes', () => {
         analysisAvailable: false,
         analysisRunId: null,
         canStartNextSet: false,
+        canSwapSides: true,
         currentFrame: -1,
         drafts: [{
           id: 'draft', ordinal: 2, display_ordinal: 2, display_set_number: 1,
@@ -44,8 +45,15 @@ describe('AnnotationMatchInspector outcomes', () => {
           annotation_revision: '1', processing_status: 'completed', scoring_court_side: 'left', scoring_team_id: 'left',
           set_id: 'set', set_number: 1, left_score_after: 1, right_score_after: 0, winner_side: 'left',
           submission: {
-            id: 'submission', supersedes_submission_id: null, submitted_at: '', score_resolution: 'resolved', scoring_court_side: 'left', scoring_team_id: 'left', contact_count: 0,
-            key_points: [], clip: null, processing: {} as never, analysis: null,
+            id: 'submission', supersedes_submission_id: null, submitted_at: '', score_resolution: 'resolved', scoring_court_side: 'left', scoring_team_id: 'left',
+            side_assignment_id: 'assignment', side_assignment_reversed: false, left_team_id: 'left', right_team_id: 'right', contact_count: 0,
+            key_points: [], clip: null, processing: {} as never,
+            analysis: {
+              id: 'analysis', status: 'completed', version: 'v1', summary: null,
+              identity_mapping_completed: false, coverage_start_capture_time_us: null,
+              coverage_end_capture_time_us: null, byte_length: '0', track_count: 0,
+              ball_path_count: 0, contact_count: 0, capabilities: [],
+            },
           },
         }],
         rallyOrdinal: 2,
@@ -63,5 +71,12 @@ describe('AnnotationMatchInspector outcomes', () => {
 
     expect(wrapper.findAll('.outcome-badge').map(badge => badge.text())).toEqual(['TPE 得分', '得分未知'])
     expect(wrapper.get('.outcome-badge.unknown').text()).toBe('得分未知')
+
+    await wrapper.get('button[aria-label="修正此片段的左右隊伍"]').trigger('click')
+    expect(wrapper.emitted('swapRallySides')?.[0]?.[0]).toMatchObject({ id: 'rally' })
+    const liveSwap = wrapper.findAll('button').find(button => button.text().includes('交換場地'))
+    expect(liveSwap).toBeTruthy()
+    await liveSwap!.trigger('click')
+    expect(wrapper.emitted('swapSides')).toHaveLength(1)
   })
 })

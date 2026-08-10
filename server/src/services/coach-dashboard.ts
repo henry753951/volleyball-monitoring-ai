@@ -86,6 +86,7 @@ export async function getCoachMatchState(
           activeSubmission: {
             select: {
               id: true, submittedAt: true, scoreResolutionState: true, scoringCourtSide: true, scoringTeamId: true, supersedesSubmissionId: true,
+              leftTeamId: true, rightTeamId: true, sideAssignmentId: true, sideAssignmentReversed: true,
               keyPoints: {
                 orderBy: { sequenceIndex: 'asc' },
                 select: { id: true, sequenceIndex: true, markerKind: true, isTerminal: true, captureTimeUs: true, captureFrameIndex: true },
@@ -150,6 +151,9 @@ export async function getCoachMatchState(
       scoreResolutionState: true,
       scoringCourtSide: true,
       scoringTeamId: true,
+      sideAssignmentId: true,
+      sideAssignmentReversed: true,
+      sideAssignment: { select: { leftTeamId: true, rightTeamId: true } },
       set: { select: { id: true, setNumber: true } },
       keyPoints: {
         where: { deletedAt: null },
@@ -215,28 +219,32 @@ export async function getCoachMatchState(
   for (let offset = 0; offset < coverageTasks.length; offset += 8) {
     await Promise.all(coverageTasks.slice(offset, offset + 8).map(task => task()))
   }
-  const scoreByDisplaySet = new Map<number, { left: number; right: number }>()
+  const scoreByDisplaySet = new Map<number, Map<string, number>>()
   const runningScoreByRallyId = new Map<string, { left: number; right: number; winnerSide: 'left' | 'right' | null }>()
-  const assignmentsBySetNumber = new Map(match.sets.map(set => [set.setNumber, set.sideAssignments[0] ?? null]))
   for (const rally of [...match.rallies].sort((left, right) =>
     left.displaySetNumber - right.displaySetNumber
     || left.displayOrdinal - right.displayOrdinal
     || left.id.localeCompare(right.id),
   )) {
-    const score = scoreByDisplaySet.get(rally.displaySetNumber) ?? { left: 0, right: 0 }
-    const assignment = assignmentsBySetNumber.get(rally.displaySetNumber)
-    const scoringTeamId = rally.activeSubmission?.scoringTeamId ?? rally.scoringTeamId
-    const winnerSide = scoringTeamId && assignment
-      ? scoringTeamId === assignment.leftTeamId
+    const teamScore = scoreByDisplaySet.get(rally.displaySetNumber) ?? new Map<string, number>()
+    const submission = rally.activeSubmission
+    const scoringTeamId = submission?.scoringTeamId ?? rally.scoringTeamId
+    const winnerSide = scoringTeamId && submission
+      ? scoringTeamId === submission.leftTeamId
         ? 'left' as const
-        : scoringTeamId === assignment.rightTeamId
+        : scoringTeamId === submission.rightTeamId
           ? 'right' as const
           : null
       : null
-    if (winnerSide === 'left') score.left += 1
-    if (winnerSide === 'right') score.right += 1
-    scoreByDisplaySet.set(rally.displaySetNumber, score)
-    runningScoreByRallyId.set(rally.id, { ...score, winnerSide })
+    if (submission?.scoreResolutionState === 'RESOLVED' && scoringTeamId) {
+      teamScore.set(scoringTeamId, (teamScore.get(scoringTeamId) ?? 0) + 1)
+    }
+    scoreByDisplaySet.set(rally.displaySetNumber, teamScore)
+    runningScoreByRallyId.set(rally.id, {
+      left: submission ? (teamScore.get(submission.leftTeamId) ?? 0) : 0,
+      right: submission ? (teamScore.get(submission.rightTeamId) ?? 0) : 0,
+      winnerSide,
+    })
   }
   return {
     schema_version: '1.0.0',
@@ -259,6 +267,10 @@ export async function getCoachMatchState(
         score_resolution: draft.scoreResolutionState.toLowerCase(),
         scoring_court_side: draft.scoringCourtSide?.toLowerCase() ?? null,
         scoring_team_id: draft.scoringTeamId,
+        side_assignment_id: draft.sideAssignmentId,
+        side_assignment_reversed: draft.sideAssignmentReversed,
+        left_team_id: draft.sideAssignmentReversed ? draft.sideAssignment.rightTeamId : draft.sideAssignment.leftTeamId,
+        right_team_id: draft.sideAssignmentReversed ? draft.sideAssignment.leftTeamId : draft.sideAssignment.rightTeamId,
         set_id: draft.set.id,
         set_number: draft.set.setNumber,
         key_points: draft.keyPoints.map(point => ({
@@ -277,6 +289,10 @@ export async function getCoachMatchState(
         winner_side: runningScoreByRallyId.get(rally.id)?.winnerSide ?? null,
         submission: {
           id: rally.activeSubmission.id, supersedes_submission_id: rally.activeSubmission.supersedesSubmissionId, submitted_at: rally.activeSubmission.submittedAt.toISOString(), score_resolution: rally.activeSubmission.scoreResolutionState.toLowerCase(), scoring_court_side: rally.activeSubmission.scoringCourtSide?.toLowerCase() ?? null, scoring_team_id: rally.activeSubmission.scoringTeamId,
+          side_assignment_id: rally.activeSubmission.sideAssignmentId,
+          side_assignment_reversed: rally.activeSubmission.sideAssignmentReversed,
+          left_team_id: rally.activeSubmission.leftTeamId,
+          right_team_id: rally.activeSubmission.rightTeamId,
           contact_count: rally.activeSubmission.keyPoints.filter(point => point.markerKind === 'CONTACT').length,
           key_points: rally.activeSubmission.keyPoints.map(point => ({
             id: point.id,

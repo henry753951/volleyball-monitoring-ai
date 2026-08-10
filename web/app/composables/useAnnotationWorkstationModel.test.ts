@@ -27,7 +27,8 @@ const coachState = {
       id: 'rally', ordinal: 1, display_ordinal: 1, display_set_number: 1, annotation_revision: '3', processing_status: 'completed',
       scoring_court_side: 'left', scoring_team_id: 'left', set_id: 'set', set_number: 1, left_score_after: 1, right_score_after: 0, winner_side: 'left',
       submission: {
-        id: 'submission', supersedes_submission_id: null, submitted_at: '2026-08-10T00:00:00.000Z', score_resolution: 'resolved', scoring_court_side: 'left', scoring_team_id: 'left', contact_count: 1,
+        id: 'submission', supersedes_submission_id: null, submitted_at: '2026-08-10T00:00:00.000Z', score_resolution: 'resolved', scoring_court_side: 'left', scoring_team_id: 'left',
+        side_assignment_id: 'assignment', side_assignment_reversed: false, left_team_id: 'left', right_team_id: 'right', contact_count: 1,
         key_points: [
           { id: 'service', sequence_index: 0, marker_kind: 'service', is_terminal: false, capture_time_us: '1000000', capture_frame_index: '30' },
           { id: 'terminal', sequence_index: 1, marker_kind: 'contact', is_terminal: true, capture_time_us: '2000000', capture_frame_index: '60' },

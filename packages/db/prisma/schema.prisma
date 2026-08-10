@@ -546,6 +546,7 @@ model Rally {
   setId                String                @db.Uuid
   dvrProgramId         String                @db.Uuid
   sideAssignmentId     String                @db.Uuid
+  sideAssignmentReversed Boolean             @default(false)
   ordinal              Int
   displaySetNumber     Int                   @default(1)
   displayOrdinal       Int                   @default(1)
@@ -660,6 +661,7 @@ model RallySubmission {
   leftTeamId                String                    @db.Uuid
   rightTeamId               String                    @db.Uuid
   sideAssignmentId          String                    @db.Uuid
+  sideAssignmentReversed    Boolean                   @default(false)
   leftScoreBefore           Int?
   rightScoreBefore          Int?
   leftScoreAfter            Int?

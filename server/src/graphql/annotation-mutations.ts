@@ -47,7 +47,10 @@ builder.mutationField('applyAnnotationCommand', (t) => t.field({
 }))
 
 builder.mutationField('createCorrectionDraft', (t) => t.field({
-  args: { submissionId: t.arg.id({ required: true }) },
+  args: {
+    reverseCourtSides: t.arg.boolean({ required: false, defaultValue: false }),
+    submissionId: t.arg.id({ required: true }),
+  },
   resolve: async (_root, args, context) => {
     if (!context.user || !context.deviceSessionId) {
       throw new GraphQLError('Authentication required', { extensions: { code: 'UNAUTHENTICATED' } })
@@ -57,7 +60,7 @@ builder.mutationField('createCorrectionDraft', (t) => t.field({
         deviceSessionId: context.deviceSessionId,
         role: context.user.role,
         userId: context.user.id,
-      })
+      }, { reverseCourtSides: args.reverseCourtSides ?? false })
       return db.rally.findUniqueOrThrow({ where: { id: result.rally_id } })
     }
     catch (error) {

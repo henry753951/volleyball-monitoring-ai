@@ -16,6 +16,10 @@ interface GeometryReuseInput {
     resolution: 'RESOLVED' | 'UNKNOWN'
     side: 'LEFT' | 'RIGHT' | null
   }
+  sideTeams: {
+    leftTeamId: string
+    rightTeamId: string
+  }
   sourceKeyPoints: SubmissionKeyPointIdentity[]
   sourceSubmissionId: string
 }
@@ -62,14 +66,21 @@ export async function reuseCompletedSubmissionGeometry(
     include: {
       analysisRun: {
         include: {
+          actionCorrections: true,
           artifacts: true,
+          ballCorrections: true,
           contactEvents: {
             include: { actors: true, candidates: true, representativePositions: true },
             orderBy: { sequenceIndex: 'asc' },
           },
+          contactActorCorrections: true,
           overlayManifest: { include: { chunks: { orderBy: { chunkIndex: 'asc' } } } },
           segments: { include: { positions: true }, orderBy: { sequenceIndex: 'asc' } },
-          tracks: { include: { identityAssignments: true }, orderBy: { trackId: 'asc' } },
+          playerBBoxCorrections: true,
+          tracks: {
+            include: { identityAssignments: { include: { rosterEntry: { select: { teamId: true } } } } },
+            orderBy: { trackId: 'asc' },
+          },
         },
       },
     },
@@ -177,6 +188,15 @@ export async function reuseCompletedSubmissionGeometry(
   })
 
   const analysisRunId = randomUUID()
+  const preservedIdentityAssignments = sourceAnalysis.tracks.flatMap(track => track.identityAssignments.filter((assignment) => {
+    if (track.courtSide === 'UNKNOWN') return true
+    const expectedTeamId = track.courtSide === 'LEFT'
+      ? input.sideTeams.leftTeamId
+      : input.sideTeams.rightTeamId
+    return assignment.rosterEntry.teamId === expectedTeamId
+  }).map(assignment => ({ track, assignment })))
+  const sourceIdentityAssignmentCount = sourceAnalysis.tracks.reduce((count, track) => count + track.identityAssignments.length, 0)
+  const identityAssignmentsDropped = preservedIdentityAssignments.length !== sourceIdentityAssignmentCount
   await tx.analysisRun.create({
     data: {
       id: analysisRunId,
@@ -191,11 +211,14 @@ export async function reuseCompletedSubmissionGeometry(
       producerBuildId: sourceAnalysis.producerBuildId,
       producerSdkVersion: sourceAnalysis.producerSdkVersion,
       status: 'COMPLETED',
+      reviewRevision: sourceAnalysis.reviewRevision,
       rawAnalysisAssetId: sourceAnalysis.rawAnalysisAssetId,
       rawOverlayAssetId: sourceAnalysis.rawOverlayAssetId,
       ...(sourceAnalysis.summary === null ? {} : { summary: json(sourceAnalysis.summary) }),
       createdAt: now,
       activatedAt: now,
+      identityMappingCompletedAt: identityAssignmentsDropped ? null : sourceAnalysis.identityMappingCompletedAt,
+      identityMappingCompletedByUserId: identityAssignmentsDropped ? null : sourceAnalysis.identityMappingCompletedByUserId,
     },
   })
   await tx.analysisTrack.createMany({
@@ -210,7 +233,7 @@ export async function reuseCompletedSubmissionGeometry(
     })),
   })
   await tx.trackIdentityAssignment.createMany({
-    data: sourceAnalysis.tracks.flatMap(track => track.identityAssignments.map(assignment => ({
+    data: preservedIdentityAssignments.map(({ assignment }) => ({
       id: randomUUID(),
       analysisRunId,
       trackId: assignment.trackId,
@@ -219,7 +242,7 @@ export async function reuseCompletedSubmissionGeometry(
       assignedByUserId: assignment.assignedByUserId,
       confidence: assignment.confidence,
       createdAt: now,
-    }))),
+    })),
   })
 
   await tx.contactEvent.createMany({
@@ -310,6 +333,62 @@ export async function reuseCompletedSubmissionGeometry(
         courtX: position.courtX,
         courtY: position.courtY,
         confidence: position.confidence,
+      })),
+    })
+  }
+
+  if (sourceAnalysis.ballCorrections.length) {
+    await tx.analysisBallCorrection.createMany({
+      data: sourceAnalysis.ballCorrections.map(correction => ({
+        analysisRunId,
+        frameIndex: correction.frameIndex,
+        frameX: correction.frameX,
+        frameY: correction.frameY,
+        visible: correction.visible,
+        revision: correction.revision,
+        updatedByUserId: correction.updatedByUserId,
+        updatedAt: correction.updatedAt,
+      })),
+    })
+  }
+  if (sourceAnalysis.actionCorrections.length) {
+    await tx.analysisActionCorrection.createMany({
+      data: sourceAnalysis.actionCorrections.map(correction => ({
+        analysisRunId,
+        frameIndex: correction.frameIndex,
+        trackId: correction.trackId,
+        action: correction.action,
+        revision: correction.revision,
+        updatedByUserId: correction.updatedByUserId,
+        updatedAt: correction.updatedAt,
+      })),
+    })
+  }
+  if (sourceAnalysis.playerBBoxCorrections.length) {
+    await tx.analysisPlayerBBoxCorrection.createMany({
+      data: sourceAnalysis.playerBBoxCorrections.map(correction => ({
+        analysisRunId,
+        frameIndex: correction.frameIndex,
+        trackId: correction.trackId,
+        frameX1: correction.frameX1,
+        frameY1: correction.frameY1,
+        frameX2: correction.frameX2,
+        frameY2: correction.frameY2,
+        revision: correction.revision,
+        updatedByUserId: correction.updatedByUserId,
+        updatedAt: correction.updatedAt,
+      })),
+    })
+  }
+  if (sourceAnalysis.contactActorCorrections.length) {
+    await tx.analysisContactActorCorrection.createMany({
+      data: sourceAnalysis.contactActorCorrections.map(correction => ({
+        analysisRunId,
+        keyPointId: newIdByOldId.get(correction.keyPointId)!,
+        trackId: correction.trackId,
+        revision: correction.revision,
+        updatedByUserId: correction.updatedByUserId,
+        updatedAt: correction.updatedAt,
       })),
     })
   }
