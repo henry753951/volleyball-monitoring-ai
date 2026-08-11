@@ -542,7 +542,7 @@ describe('Phase 2A playback-window HTTP', () => {
     expect(manifest.body).toContain(`/segments/media-${ids.segment2}`)
     expect(manifest.body).toContain('#EXT-X-DISCONTINUITY-SEQUENCE:0')
     expect(manifest.body.match(/^#EXT-X-DISCONTINUITY$/gm)).toHaveLength(1)
-    expect(manifest.body).not.toContain('#EXT-X-ENDLIST')
+    expect(manifest.body).toContain('#EXT-X-ENDLIST')
   })
 
   it('serves a bounded manifest and verified init/media bytes through opaque tokens', async () => {

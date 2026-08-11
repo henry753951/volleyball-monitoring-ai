@@ -34,9 +34,13 @@ export function useDvrPlayback(video: Ref<HTMLVideoElement | null>, options: Dvr
     if (!element) throw new Error('video element is not mounted')
 
     if (!requiresPlaybackPipelineReplacement(activeWindow.value, descriptor)) {
+      const mappingChanged = activeWindow.value?.mapping_version !== descriptor.mapping_version
       activeWindow.value = descriptor
-      // The manifest URL is stable for a rolling window. Keep the same blob /
-      // MediaSource and merely wake hls.js so it can observe the new revision.
+      // Archive manifests are sealed to stop playlist polling. When the same
+      // bounded window gains a mapping revision, reload that stable URL once.
+      if (mappingChanged && descriptor.mode === 'archive') {
+        hls?.loadSource(descriptor.manifest_url)
+      }
       hls?.startLoad(Math.max(0, element.currentTime))
       return
     }

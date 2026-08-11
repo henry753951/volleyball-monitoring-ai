@@ -440,6 +440,7 @@ function adjacentMappingIsUsable(
 
 async function directionalMappings(input: {
   captureFrameIndex: bigint
+  count: number
   direction: 'previous' | 'next'
   identity: CursorMediaIdentity
   window: CursorPlaybackWindow
@@ -452,38 +453,40 @@ async function directionalMappings(input: {
   if (!found) {
     throw new MediaHttpError(422, 'SAMPLE_NOT_FOUND', 'Sample was not found')
   }
-  const { mapping, index } = found
-  const atDirectionalEdge = input.direction === 'next'
-    ? input.captureFrameIndex === mapping.firstFrameIndex! + mapping.frameCount - 1n
-    : input.captureFrameIndex === mapping.firstFrameIndex
-  if (!atDirectionalEdge) return [mapping]
+  const { index } = found
+  const mapped = input.direction === 'next'
+    ? input.window.segments.slice(index)
+    : input.window.segments.slice(0, index + 1)
+  const edge = input.direction === 'next' ? mapped.at(-1)! : mapped[0]!
+  const targetFrameIndex = input.direction === 'next'
+    ? input.captureFrameIndex + BigInt(input.count)
+    : input.captureFrameIndex - BigInt(input.count)
+  const needsAdjacent = input.direction === 'next'
+    ? targetFrameIndex >= edge.firstFrameIndex! + edge.frameCount
+    : targetFrameIndex < edge.firstFrameIndex!
+  if (!needsAdjacent) return mapped
 
-  const mappedAdjacent = input.window.segments[
-    index + (input.direction === 'next' ? 1 : -1)
-  ]
-  let adjacent = mappedAdjacent ?? null
-  if (!adjacent) {
-    try {
-      adjacent = await input.store.loadAdjacentSegment({
-        direction: input.direction,
-        edge: mapping,
-        identity: input.identity,
-        window: input.window,
-      })
-    } catch {
-      throw new MediaHttpError(
-        500,
-        'MEDIA_NOT_READY',
-        'Adjacent media could not be read',
-      )
-    }
+  let adjacent: CursorWindowSegment | null
+  try {
+    adjacent = await input.store.loadAdjacentSegment({
+      direction: input.direction,
+      edge,
+      identity: input.identity,
+      window: input.window,
+    })
+  } catch {
+    throw new MediaHttpError(
+      500,
+      'MEDIA_NOT_READY',
+      'Adjacent media could not be read',
+    )
   }
-  if (!adjacent || !adjacentMappingIsUsable(mapping, adjacent, input.direction)) {
-    return [mapping]
+  if (!adjacent || !adjacentMappingIsUsable(edge, adjacent, input.direction)) {
+    return mapped
   }
   return input.direction === 'next'
-    ? [mapping, adjacent]
-    : [adjacent, mapping]
+    ? [...mapped, adjacent]
+    : [adjacent, ...mapped]
 }
 
 export async function stepCanonicalFrame(
@@ -502,6 +505,7 @@ export async function stepCanonicalFrame(
   const captureFrameIndex = BigInt(request.capture_frame_index)
   const mappings = await directionalMappings({
     captureFrameIndex,
+    count: request.count,
     direction: request.direction,
     identity,
     store: deps.store,
@@ -517,18 +521,23 @@ export async function stepCanonicalFrame(
     ? window.captureEndUs
     : indexedEndUs
 
-  let resolution: ReturnType<typeof frameStepAcrossSegments>
-  try {
-    resolution = frameStepAcrossSegments(
-      indexed,
-      captureFrameIndex,
-      request.direction,
-      resolverStartUs,
-      resolverEndUs,
-    )
-  } catch (error) {
-    resolverFailure(error)
+  let resolution: ReturnType<typeof frameStepAcrossSegments> | null = null
+  let currentFrameIndex = captureFrameIndex
+  for (let index = 0; index < request.count; index += 1) {
+    try {
+      resolution = frameStepAcrossSegments(
+        indexed,
+        currentFrameIndex,
+        request.direction,
+        resolverStartUs,
+        resolverEndUs,
+      )
+      currentFrameIndex = BigInt(resolution.sample.captureFrameIndex)
+    } catch (error) {
+      resolverFailure(error)
+    }
   }
+  if (!resolution) mediaUnavailable('Canonical frame step count is invalid')
   const segment = indexedSegment(indexed, resolution.segmentId)
   return validateStepResponse({
     schema_version: '1.0.0',

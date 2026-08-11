@@ -1,7 +1,9 @@
 import { db } from '@volleyball-monitoring/db'
 import { ArtifactState, JobStatus, UserRole } from '@volleyball-monitoring/db/client'
 import type { FastifyPluginAsync } from 'fastify'
+import archiver from 'archiver'
 import { Client } from 'minio'
+import { extname } from 'node:path'
 import { readClipFrameTimeline } from '../media/clip-timing-coverage.js'
 import { resolveOverlayAnalysisId, resolveOverlaySourceAnalysisRunId } from '../media/overlay-analysis-id.js'
 import type { MediaObjectReader } from '../media/playback-domain.js'
@@ -32,6 +34,77 @@ export function analysisMediaRoutesWithDependencies(dependencies: { timingManife
     }
     reply.header('Content-Length', String(total))
     return reply.send(await storage.getObject(asset.bucket, asset.objectKey))
+  })
+
+  app.get<{ Params: { analysisRunId: string } }>('/api/v1/analysis-runs/:analysisRunId/dataset.zip', async (request, reply) => {
+    if (!UUID.test(request.params.analysisRunId)) return reply.status(404).send({ code: 'NOT_FOUND' })
+    const identity = await authenticateDevelopmentAnnotationRequest(request, db)
+    if (!identity) return reply.status(401).send({ code: 'UNAUTHENTICATED' })
+    const run = await db.analysisRun.findFirst({
+      where: {
+        id: request.params.analysisRunId,
+        status: JobStatus.COMPLETED,
+        submission: { rally: { voidedAt: null, ...(identity.role === UserRole.ADMIN ? {} : { match: { members: { some: { userId: identity.userId } } } }) } },
+      },
+      include: {
+        actionCorrections: true,
+        artifacts: { include: { asset: true } },
+        ballCorrections: true,
+        contactActorCorrections: true,
+        contactTimeCorrections: true,
+        playerBBoxCorrections: true,
+        rawAnalysisAsset: true,
+        rawOverlayAsset: true,
+        aiJob: { include: { clipJob: { include: { clipAsset: true, timingManifest: true } } } },
+        submission: { select: { rally: { select: { id: true, match: { select: { title: true } } } } } },
+      },
+    })
+    if (!run?.aiJob.clipJob?.clipAsset) return reply.status(404).send({ code: 'NOT_FOUND' })
+
+    const json = (value: unknown) => Buffer.from(JSON.stringify(value, (_key, item) => typeof item === 'bigint' ? item.toString() : item, 2))
+    const assets = [
+      { name: 'video/clip.mp4', asset: run.aiJob.clipJob.clipAsset, store: true },
+      ...(run.rawAnalysisAsset ? [{ name: 'analysis/result.json', asset: run.rawAnalysisAsset, store: false }] : []),
+      ...(run.rawOverlayAsset ? [{ name: 'analysis/overlay.flatbuffers', asset: run.rawOverlayAsset, store: true }] : []),
+      ...(run.aiJob.clipJob.timingManifest ? [{ name: 'analysis/timing-manifest.json', asset: run.aiJob.clipJob.timingManifest, store: false }] : []),
+      ...run.artifacts.map((entry, index) => ({ name: `analysis/artifacts/${String(entry.kind).toLowerCase()}-${index + 1}${extname(entry.asset.objectKey)}`, asset: entry.asset, store: true })),
+    ].filter(entry => entry.asset.state === ArtifactState.READY && entry.asset.deletedAt === null)
+    const seenAssets = new Set<string>()
+    const uniqueAssets = assets.filter(entry => seenAssets.has(entry.asset.id) ? false : (seenAssets.add(entry.asset.id), true))
+    const manifest = {
+      schema_version: '1.0.0',
+      analysis_run_id: run.id,
+      analysis_id: run.analysisId,
+      analysis_version: run.analysisVersion,
+      producer: { name: run.producerName, build_id: run.producerBuildId, sdk_version: run.producerSdkVersion },
+      input_clip_sha256: run.inputClipSha256,
+      review_revision: run.reviewRevision.toString(),
+      files: uniqueAssets.map(entry => ({ path: entry.name, byte_length: entry.asset.byteLength?.toString() ?? null, sha256: entry.asset.sha256, content_type: entry.asset.contentType })),
+    }
+    const review = {
+      revision: run.reviewRevision.toString(),
+      ball_corrections: run.ballCorrections,
+      action_corrections: run.actionCorrections,
+      player_bbox_corrections: run.playerBBoxCorrections,
+      contact_actor_corrections: run.contactActorCorrections,
+      contact_time_corrections: run.contactTimeCorrections,
+    }
+
+    const archive = archiver('zip', { zlib: { level: 6 } })
+    archive.on('warning', error => request.log.warn({ error, analysisRunId: run.id }, 'dataset zip warning'))
+    archive.on('error', error => request.log.error({ error, analysisRunId: run.id }, 'dataset zip failed'))
+    archive.append(json(manifest), { name: 'manifest.json' })
+    archive.append(json(review), { name: 'analysis/review-corrections.json' })
+    for (const entry of uniqueAssets) {
+      archive.append(await storage.getObject(entry.asset.bucket, entry.asset.objectKey), { name: entry.name, store: entry.store })
+    }
+    const baseName = `${run.submission.rally.match.title}-${run.submission.rally.id}`.replace(/[^\p{L}\p{N}._-]+/gu, '-').slice(0, 120)
+    reply
+      .header('Cache-Control', 'private, no-store')
+      .header('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(`${baseName}-dataset.zip`)}`)
+      .type('application/zip')
+    void archive.finalize()
+    return reply.send(archive)
   })
 
   app.get<{ Params: { analysisRunId: string } }>('/api/v1/analysis-runs/:analysisRunId/overlay-manifest', async (request, reply) => {

@@ -728,7 +728,8 @@ export const mediaPlaybackRoutes = (
         }
         assertWindowActive(window, now())
         const bounds = timelineBounds((await loadProgramSegments(window.dvrProgramId)).map(toCandidate))
-        const terminal = window.dvrProgram.status === 'FINISHED' && window.captureEndUs >= bounds.endUs
+        const terminal = window.mode === 'ARCHIVE'
+          || (window.dvrProgram.status === 'FINISHED' && window.captureEndUs >= bounds.endUs)
         return reply
           .type('application/vnd.apple.mpegurl')
           .header('cache-control', 'no-store, must-revalidate')
@@ -769,7 +770,11 @@ export const mediaPlaybackRoutes = (
         } catch {
           throw new MediaHttpError(409, 'MEDIA_NOT_READY', 'Media object is unavailable')
         }
-        return reply.type(asset.contentType).send(Buffer.from(bytes))
+        return reply
+          .header('cache-control', 'private, max-age=300, immutable')
+          .header('etag', `"${asset.sha256}"`)
+          .type(asset.contentType)
+          .send(Buffer.from(bytes))
       } catch (error) {
         return sendMediaError(request, reply, error)
       }

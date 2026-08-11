@@ -109,7 +109,8 @@ def test_media_fixtures_validate_and_preserve_decimal_strings() -> None:
     cursor = PlaybackCursor.model_validate_json((media / "playback-cursor-fallback.json").read_text())
     assert cursor.player_media_time_us == "9007199254740993"
     ResolvedMediaAnchor.model_validate_json((media / "resolved-media-anchor-negative-pts.json").read_text())
-    FrameStepRequest.model_validate_json((media / "frame-step-request.json").read_text())
+    frame_step = FrameStepRequest.model_validate_json((media / "frame-step-request.json").read_text())
+    assert frame_step.count == 5
     CanonicalFrameAnchor.model_validate_json((media / "canonical-frame-anchor.json").read_text())
     MediaApiError.model_validate_json((media / "error-classes.json").read_text())
 

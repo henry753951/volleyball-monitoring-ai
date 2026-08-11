@@ -1,12 +1,12 @@
 <script setup lang="ts">
 import type { AnnotationRallyProcessingUpdate } from '@volleyball-monitoring/contracts'
 import { usePreferredReducedMotion, useResizeObserver } from '@vueuse/core'
-import { ChevronLeft, ChevronRight, Pause, Play, RotateCcw, Send, SkipBack, SkipForward, StepBack, StepForward, Trash2, Volume2, VolumeX, XCircle } from 'lucide-vue-next'
+import { ChevronLeft, ChevronRight, Download, Pause, Play, RotateCcw, Send, SkipBack, SkipForward, StepBack, StepForward, Trash2, Volume2, VolumeX, XCircle } from 'lucide-vue-next'
 import { AnimatePresence, Motion } from 'motion-v'
 import { computed, ref } from 'vue'
 import { formatTimelineScale } from '~/lib/dvrTimeline'
 
-defineProps<{
+withDefaults(defineProps<{
   playing: boolean
   playerReady: boolean
   frameReady: boolean
@@ -25,6 +25,7 @@ defineProps<{
   correctionCancelling?: boolean
   submittedSelected: boolean
   clipSelected: boolean
+  downloadAvailable?: boolean
   draftSelected: boolean
   submitEnabled: boolean
   navigable: boolean
@@ -35,7 +36,7 @@ defineProps<{
   muted: boolean
   timelineScale: number
   shortcuts: { play: string; previousFrame: string; nextFrame: string; previousPoint: string; nextPoint: string }
-}>()
+}>(), { downloadAvailable: false })
 
 defineEmits<{
   playPause: []
@@ -51,6 +52,7 @@ defineEmits<{
   nudgePrevious: []
   nudgeNext: []
   deleteClip: []
+  downloadClip: []
   deletePoint: []
   toggleMute: []
   resetTimelineZoom: []
@@ -105,6 +107,7 @@ const clipTransition = computed(() => reducedMotion.value === 'reduce'
           <UiTooltip v-if="correctionActive" content="取消本次修正並恢復上一個已送出版本；同步卡住時也可以使用"><button type="button" class="tool-button danger" :disabled="correctionCancelling" aria-label="取消修正片段" @click="$emit('cancelCorrection')"><XCircle :size="14" />{{ correctionCancelling ? '取消中' : '取消修正片段' }}</button></UiTooltip>
           <UiTooltip v-else-if="submittedSelected && processing?.processing_status === 'failed'" content="保留目前標記，重新執行失敗的處理階段"><button type="button" class="tool-button retry" :disabled="processingRetrying" aria-label="重新處理" @click="$emit('retryProcessing')"><RotateCcw :size="14" :class="{ spinning: processingRetrying }" />{{ processingRetrying ? '排程中' : '重新處理' }}</button></UiTooltip>
           <UiTooltip v-else-if="submittedSelected" content="複製目前已送出的片段，建立可編輯的修正版草稿"><button type="button" class="tool-button" :disabled="!editReady" aria-label="建立修正版草稿" @click="$emit('startCorrection')"><RotateCcw :size="14" />建立修正版草稿</button></UiTooltip>
+          <UiTooltip :content="downloadAvailable ? '下載影片或包含分析資料的 ZIP' : '片段尚未產出可下載影片'"><button type="button" class="tool-button" :disabled="!downloadAvailable" aria-label="下載片段" @click="$emit('downloadClip')"><Download :size="14" />下載片段</button></UiTooltip>
           <UiTooltip content="永久刪除目前選取的片段"><button type="button" class="tool-button danger" aria-label="刪除所選片段" @click="$emit('deleteClip')"><Trash2 :size="14" />刪除所選片段</button></UiTooltip>
         </div>
       </Motion>

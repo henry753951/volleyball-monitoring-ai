@@ -20,6 +20,7 @@ const analytics = shallowRef<CoachMatchAnalytics | null>(null)
 const pending = ref(false)
 const savingTrack = ref<number | null>(null)
 const error = ref<string | null>(null)
+const { enabled: replacementWarningEnabled } = useIdentityReplacementWarning()
 
 const tracks = computed(() => analytics.value?.tracks.filter(track => track.analysis_run_id === props.analysisRunId) ?? [])
 const groups = computed(() => [
@@ -33,10 +34,10 @@ function playersFor(teamId: string | null) {
   return analytics.value?.players.filter(player => !teamId || player.team_id === teamId) ?? []
 }
 function playerOptions(teamId: string | null, trackId: number) {
-  const unavailable = new Set(tracks.value.filter(track => track.track_id !== trackId && activeTracks.value.has(track.track_id) && track.roster_entry_id).map(track => track.roster_entry_id))
+  const assigned = new Map(tracks.value.filter(track => track.track_id !== trackId && activeTracks.value.has(track.track_id) && track.roster_entry_id).map(track => [track.roster_entry_id!, track.track_id]))
   return [
     { value: '', label: '清除關聯' },
-    ...playersFor(teamId).filter(player => !unavailable.has(player.roster_entry_id)).map(player => ({ value: player.roster_entry_id, label: `#${player.jersey_number} ${player.name}` })),
+    ...playersFor(teamId).map(player => ({ value: player.roster_entry_id, label: `#${player.jersey_number} ${player.name}${assigned.has(player.roster_entry_id) ? ` · 取代 Track ${assigned.get(player.roster_entry_id)}` : ''}` })),
   ]
 }
 
@@ -64,7 +65,14 @@ async function assign(trackId: number, rosterEntryId: string) {
 }
 
 function handleAssign(trackId: number, event: Event) {
-  void assign(trackId, (event.target as HTMLSelectElement).value)
+  const select = event.target as HTMLSelectElement
+  const rosterEntryId = select.value
+  const conflict = tracks.value.find(track => track.track_id !== trackId && activeTracks.value.has(track.track_id) && track.roster_entry_id === rosterEntryId)
+  if (conflict && replacementWarningEnabled.value && !window.confirm(`這位球員目前由 Track ${conflict.track_id} 使用。是否取代並指派到 Track ${trackId}？`)) {
+    select.value = tracks.value.find(track => track.track_id === trackId)?.roster_entry_id ?? ''
+    return
+  }
+  void assign(trackId, rosterEntryId)
 }
 
 async function toggleComplete() {
@@ -106,6 +114,7 @@ watch([() => props.analysisRunId, () => props.refreshToken], refresh, { immediat
         <UserRoundCheck v-else :size="15" />
         {{ mappingCompleted ? '重新開放指派' : '完成球員指派' }}
       </button>
+      <label class="replacement-preference"><input v-model="replacementWarningEnabled" type="checkbox">球員已被使用時顯示取代提示</label>
       <p v-if="error" class="identity-error" role="alert">{{ error }}</p>
     </template>
   </div>
@@ -116,4 +125,5 @@ watch([() => props.analysisRunId, () => props.refreshToken], refresh, { immediat
 </style>
 <style scoped>
 .identity-panel label{min-height:46px;grid-template-columns:86px minmax(0,1fr);padding:0 4px}.identity-panel label.focused{background:#202a32;box-shadow:inset 2px 0 #9fc7eb}.identity-panel code{display:grid;gap:2px}.identity-panel code i{color:#68737e;font-size:.5rem;font-style:normal}.identity-panel code i.active{color:#72d8a0}
+.replacement-preference{min-height:30px!important;display:flex!important;grid-template-columns:none!important;align-items:center!important;gap:7px!important;color:#8f99a3;font-size:.57rem}
 </style>
