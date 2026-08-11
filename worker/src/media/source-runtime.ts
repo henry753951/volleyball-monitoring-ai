@@ -1,6 +1,7 @@
 import { hostname } from 'node:os'
 import type { PrismaClient } from '@volleyball-monitoring/db'
 import {
+  claimDrainingMediaSourceWork,
   claimMediaSourceWork,
   claimStoppedMediaSourceWork,
   failMediaSourceWork,
@@ -25,6 +26,7 @@ export type MediaSourceRunner = (
 
 type ActiveSource = {
   controller: AbortController
+  phase: 'source' | 'draining'
   promise: Promise<void>
   stopRequested: boolean
   work: ClaimedMediaSourceWork
@@ -32,6 +34,7 @@ type ActiveSource = {
 
 export type MediaSourceRuntimeOptions = {
   concurrency?: number
+  drainConcurrency?: number
   database: PrismaClient
   leaseSeconds?: number
   maxAttempts?: number
@@ -45,6 +48,12 @@ export type MediaSourceRuntimeOptions = {
 function errorCode(error: unknown): string {
   if (error instanceof Error && 'code' in error && typeof error.code === 'string') return error.code
   return error instanceof Error ? error.name.toUpperCase() : 'MEDIA_SOURCE_FAILED'
+}
+
+export function mediaSourceRetryDelay(code: string, attempts: number, maxAttempts: number): number | null {
+  if (code === 'YOUTUBE_UPCOMING') return 30_000
+  if (attempts >= maxAttempts) return null
+  return Math.min(30_000, 1_000 * 2 ** Math.max(0, attempts - 1))
 }
 
 export class MediaSourceRuntime {
@@ -119,7 +128,20 @@ export class MediaSourceRuntime {
       )
     }
 
-    let available = (this.options.concurrency ?? 2) - this.#active.size
+    const draining = [...this.#active.values()].filter(active => active.phase === 'draining').length
+    const drainAvailable = (this.options.drainConcurrency ?? 16) - draining
+    if (drainAvailable > 0) {
+      const claimedDraining = await claimDrainingMediaSourceWork(
+        this.options.database,
+        this.#owner,
+        drainAvailable,
+        this.options.leaseSeconds ?? 30,
+      )
+      for (const work of claimedDraining) this.#launchDraining(work)
+    }
+
+    const running = [...this.#active.values()].filter(active => active.phase === 'source').length
+    let available = (this.options.concurrency ?? 2) - running
     if (available <= 0) return
     const stopped = await claimStoppedMediaSourceWork(
       this.options.database,
@@ -128,7 +150,8 @@ export class MediaSourceRuntime {
       this.options.leaseSeconds ?? 30,
     )
     for (const work of stopped) this.#launchStopped(work)
-    available = (this.options.concurrency ?? 2) - this.#active.size
+    available = (this.options.concurrency ?? 2)
+      - [...this.#active.values()].filter(active => active.phase === 'source').length
     if (available <= 0) return
     const claimed = await claimMediaSourceWork(
       this.options.database,
@@ -143,11 +166,12 @@ export class MediaSourceRuntime {
     const controller = new AbortController()
     const active: ActiveSource = {
       controller,
+      phase: 'source',
       promise: Promise.resolve(),
       stopRequested: false,
       work,
     }
-    active.promise = (work.status === 'DRAINING' ? this.#drain(work) : this.#run(active))
+    active.promise = this.#run(active)
       .finally(() => this.#active.delete(work.id))
     this.#active.set(work.id, active)
   }
@@ -156,11 +180,24 @@ export class MediaSourceRuntime {
     const controller = new AbortController()
     const active: ActiveSource = {
       controller,
+      phase: 'draining',
       promise: Promise.resolve(),
       stopRequested: true,
       work,
     }
     active.promise = this.#completeStopped(work).finally(() => this.#active.delete(work.id))
+    this.#active.set(work.id, active)
+  }
+
+  #launchDraining(work: ClaimedMediaSourceWork): void {
+    const active: ActiveSource = {
+      controller: new AbortController(),
+      phase: 'draining',
+      promise: Promise.resolve(),
+      stopRequested: false,
+      work,
+    }
+    active.promise = this.#drain(work).finally(() => this.#active.delete(work.id))
     this.#active.set(work.id, active)
   }
 
@@ -183,11 +220,13 @@ export class MediaSourceRuntime {
       classified: async value => {
         state.classification = value
         await recordMediaSourceClassification(this.options.database, work.captureSessionId, value)
+        this.options.log?.(`media-source classified capture=${work.captureSessionId} kind=${value.sourceKind}`)
       },
       resumed: segmentIndex => recordMediaSourceResume(this.options.database, work.id, segmentIndex),
     }
     try {
       const completion = await this.options.run(work, observer, active.controller.signal)
+      active.phase = 'draining'
       await this.#complete(work, completion)
     }
     catch (error) {
@@ -206,16 +245,21 @@ export class MediaSourceRuntime {
         return
       }
       const code = errorCode(error)
-      if (work.attempts < (this.options.maxAttempts ?? 5)) {
-        const delayMs = Math.min(30_000, 1_000 * 2 ** Math.max(0, work.attempts - 1))
+      const delayMs = mediaSourceRetryDelay(code, work.attempts, this.options.maxAttempts ?? 5)
+      if (delayMs !== null) {
+        this.options.log?.(`media-source retry capture=${work.captureSessionId} code=${code} delay_ms=${delayMs}`)
         await retryMediaSourceWork(this.options.database, work.id, code, delayMs)
       }
-      else await failMediaSourceWork(this.options.database, work.id, code)
+      else {
+        this.options.log?.(`media-source failed capture=${work.captureSessionId} code=${code}`)
+        await failMediaSourceWork(this.options.database, work.id, code)
+      }
     }
   }
 
   async #complete(work: ClaimedMediaSourceWork, completion: SourceCompletion): Promise<void> {
     await requestMediaSourceCompletion(this.options.database, work.id, completion)
+    this.options.log?.(`media-source draining capture=${work.captureSessionId} expected_segments=${completion.expectedSegments}`)
     await this.#drain(work)
   }
 
