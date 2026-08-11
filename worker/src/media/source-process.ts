@@ -393,6 +393,9 @@ export function createMediaSourceProcess(options: MediaSourceProcessOptions) {
       finally { await rm(workspace, { force: true, recursive: true }).catch(() => undefined) }
     }
 
+    if (metadata.live_status === 'is_upcoming') {
+      throw new MediaSourceProcessError('YOUTUBE_UPCOMING', 'YouTube live stream has not started yet')
+    }
     await observer.classified({ sourceDurationUs: null, sourceKind: 'youtube_live' })
     if (work.attempts > 1) await writeSourceRestartMarker(options.recordingRoot, work.ingestPath)
     while (!signal.aborted && youtubeIsLive(metadata)) {
