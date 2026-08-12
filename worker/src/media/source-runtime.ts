@@ -1,4 +1,6 @@
+import { rm } from 'node:fs/promises'
 import { hostname } from 'node:os'
+import { dirname, resolve } from 'node:path'
 import type { PrismaClient } from '@volleyball-monitoring/db'
 import {
   claimDrainingMediaSourceWork,
@@ -7,6 +9,7 @@ import {
   failMediaSourceWork,
   finalizeMediaSourceIfDrained,
   heartbeatMediaSourceWork,
+  listCompletedMediaSpoolCandidates,
   mediaSourceWorkStates,
   recordMediaSourceClassification,
   recordMediaSourceResume,
@@ -50,6 +53,31 @@ function errorCode(error: unknown): string {
   return error instanceof Error ? error.name.toUpperCase() : 'MEDIA_SOURCE_FAILED'
 }
 
+export function completedMediaSpoolPath(recordingRoot: string, ingestPath: string): string {
+  const root = resolve(recordingRoot)
+  const target = resolve(root, ingestPath)
+  if (!ingestPath || ingestPath === '.' || dirname(target) !== root) {
+    throw new Error('completed media spool path is outside the recording root')
+  }
+  return target
+}
+
+export async function cleanupCompletedMediaSpools(
+  database: PrismaClient,
+  recordingRoot: string,
+  options: {
+    load?: typeof listCompletedMediaSpoolCandidates
+    remove?: (path: string) => Promise<void>
+  } = {},
+): Promise<number> {
+  const candidates = await (options.load ?? listCompletedMediaSpoolCandidates)(database)
+  const remove = options.remove ?? (path => rm(path, { force: true, recursive: true }))
+  for (const candidate of candidates) {
+    await remove(completedMediaSpoolPath(recordingRoot, candidate.ingestPath))
+  }
+  return candidates.length
+}
+
 export function mediaSourceRetryDelay(code: string, attempts: number, maxAttempts: number): number | null {
   if (code === 'YOUTUBE_UPCOMING') return 30_000
   if (attempts >= maxAttempts) return null
@@ -87,6 +115,7 @@ export class MediaSourceRuntime {
 
   async start(): Promise<void> {
     this.#stopping = false
+    await this.#cleanupCompletedSpools()
     await this.tick()
     this.#timer = setInterval(() => void this.tick().catch(error => {
       this.options.log?.(`media-source scheduler tick failed: ${errorCode(error)}`)
@@ -265,10 +294,26 @@ export class MediaSourceRuntime {
 
   async #drain(work: ClaimedMediaSourceWork): Promise<void> {
     while (!this.#stopping) {
-      if (await finalizeMediaSourceIfDrained(this.options.database, work.id)) return
+      if (await finalizeMediaSourceIfDrained(this.options.database, work.id)) {
+        await this.#cleanupCompletedSpools()
+        return
+      }
       await new Promise(resolvePromise => setTimeout(resolvePromise, 250))
     }
     await releaseMediaSourceLease(this.options.database, work.id)
+  }
+
+  async #cleanupCompletedSpools(): Promise<void> {
+    try {
+      const removed = await cleanupCompletedMediaSpools(
+        this.options.database,
+        this.options.recordingRoot,
+      )
+      if (removed > 0) this.options.log?.(`media-source cleaned completed spools=${removed}`)
+    }
+    catch (error) {
+      this.options.log?.(`media-source completed spool cleanup failed: ${errorCode(error)}`)
+    }
   }
 
   async stop(): Promise<void> {

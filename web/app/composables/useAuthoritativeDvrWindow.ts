@@ -81,14 +81,20 @@ export function useAuthoritativeDvrWindow(client: MediaClient) {
       return null
     }
   }
-  async function step(direction: 'previous' | 'next', inputFactory: (target: string) => Parameters<MediaClient['createPlaybackWindow']>[0]) {
+  async function step(
+    direction: 'previous' | 'next',
+    countOrFactory: number | ((target: string) => Parameters<MediaClient['createPlaybackWindow']>[0]),
+    maybeInputFactory?: (target: string) => Parameters<MediaClient['createPlaybackWindow']>[0],
+  ) {
+    const count = typeof countOrFactory === 'number' ? countOrFactory : 1
+    const inputFactory = typeof countOrFactory === 'function' ? countOrFactory : maybeInputFactory!
     if (!current.value || !anchor.value) return null
     let attempt = 0
     while (attempt++ < 2) {
       const id = begin()
       const sourceAnchor: ResolvedMediaAnchor | CanonicalFrameAnchor | null = anchor.value
       if (!sourceAnchor || !current.value) return null
-      try { const value = await client.frameStep({ schema_version: '1.0.0', capture_session_id: current.value.capture_session_id, playback_window_id: current.value.playback_window_id, mapping_version: current.value.mapping_version, capture_frame_index: sourceAnchor.capture_frame_index, direction }); if (!valid(id)) return null; anchor.value = value; status.value = 'ready'; busy.value = false; return value }
+      try { const value = await client.frameStep({ schema_version: '1.1.0', capture_session_id: current.value.capture_session_id, playback_window_id: current.value.playback_window_id, mapping_version: current.value.mapping_version, capture_frame_index: sourceAnchor.capture_frame_index, direction, count: Math.max(1, Math.min(120, Math.trunc(count))) }); if (!valid(id)) return null; anchor.value = value; status.value = 'ready'; busy.value = false; return value }
       catch (cause) {
         if (!valid(id)) return null
         const mediaError = cause as MediaApiError

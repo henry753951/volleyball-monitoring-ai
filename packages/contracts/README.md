@@ -8,7 +8,7 @@ invent fields outside these versioned files.
 
 - `media/playback-window-request.schema.json` / `playback-window-extend-request.schema.json` / `playback-window-descriptor.schema.json`: create and append to one bounded live/archive HLS window without changing its manifest identity.
 - `media/playback-cursor.schema.json` / `resolved-media-anchor.schema.json`: client observation and authoritative server result.
-- `media/frame-step-request.schema.json` / `canonical-frame-anchor.schema.json`: previous/next canonical sample.
+- `media/frame-step-request.schema.json` / `canonical-frame-anchor.schema.json`: bounded, batched previous/next canonical sample stepping with one authoritative response.
 - `annotation/realtime.schema.json`: v2.2 protocol envelope retaining v2.0 commands and v2.1 soft locks. The additive `CREATE_CONTACT_KEY_POINT.terminal_outcome=unknown` payload lets a second Z create the authoritative terminal contact and make the Rally READY; ordinary X contacts remain non-terminal. `CLOSE_RALLY` still changes the last point's rally-level outcome without creating a new timestamp.
 - `ai/capabilities.schema.json`, `job.schema.json`, `job-accepted.schema.json`: provider handshake and immutable job submission.
 - `ai/result.schema.json`: external AI provider to central result JSON. Result 1.1 retains human boundary provenance and permits ordered AI-detected intermediate contact proposals; Result 1.0 remains accepted as strict one-to-one output.

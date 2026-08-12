@@ -19,6 +19,8 @@ const client = createCoachDomainClient(createGraphQLTransport('/graphql'))
 const analytics = shallowRef<CoachMatchAnalytics | null>(null)
 const pending = ref(false)
 const error = ref<string | null>(null)
+const replacement = shallowRef<{ rosterEntryId: string; playerName: string; trackId: number } | null>(null)
+const { enabled: replacementWarningEnabled } = useIdentityReplacementWarning()
 
 const track = computed(() => analytics.value?.tracks.find(item => item.analysis_run_id === props.analysisRunId && item.track_id === props.trackId) ?? null)
 const runTracks = computed(() => analytics.value?.tracks.filter(item => item.analysis_run_id === props.analysisRunId) ?? [])
@@ -28,8 +30,10 @@ const teamId = computed(() => track.value?.court_side === 'left'
     ? props.rightTeamId
     : null)
 const activeTrackIds = computed(() => new Set(runTracks.value.filter(item => props.currentFrame >= Number(item.first_frame_index) && props.currentFrame <= Number(item.last_frame_index)).map(item => item.track_id)))
-const unavailableRosterIds = computed(() => new Set(runTracks.value.filter(item => item.track_id !== props.trackId && activeTrackIds.value.has(item.track_id) && item.roster_entry_id).map(item => item.roster_entry_id)))
-const players = computed(() => analytics.value?.players.filter(player => (!teamId.value || player.team_id === teamId.value) && !unavailableRosterIds.value.has(player.roster_entry_id)) ?? [])
+const assignedTrackByRoster = computed(() => new Map(runTracks.value
+  .filter(item => item.track_id !== props.trackId && activeTrackIds.value.has(item.track_id) && item.roster_entry_id)
+  .map(item => [item.roster_entry_id!, item.track_id])))
+const players = computed(() => analytics.value?.players.filter(player => !teamId.value || player.team_id === teamId.value) ?? [])
 const team = computed(() => analytics.value?.teams.find(item => item.id === teamId.value) ?? null)
 const previousTrackByRoster = computed(() => {
   const result = new Map<string, number>()
@@ -49,7 +53,7 @@ async function refresh() {
   finally { pending.value = false }
 }
 
-async function assign(rosterEntryId: string) {
+async function commitAssignment(rosterEntryId: string) {
   if (!props.analysisRunId || props.trackId === null) return
   pending.value = true
   try {
@@ -62,6 +66,22 @@ async function assign(rosterEntryId: string) {
   finally { pending.value = false }
 }
 
+function assign(rosterEntryId: string) {
+  const assignedTrack = assignedTrackByRoster.value.get(rosterEntryId)
+  const player = players.value.find(item => item.roster_entry_id === rosterEntryId)
+  if (rosterEntryId && assignedTrack !== undefined && replacementWarningEnabled.value && player) {
+    replacement.value = { rosterEntryId, playerName: player.name, trackId: assignedTrack }
+    return
+  }
+  void commitAssignment(rosterEntryId)
+}
+
+function confirmReplacement() {
+  const current = replacement.value
+  replacement.value = null
+  if (current) void commitAssignment(current.rosterEntryId)
+}
+
 watch(() => [props.open, props.analysisRunId, props.trackId], refresh, { immediate: true })
 </script>
 
@@ -70,16 +90,23 @@ watch(() => [props.open, props.analysisRunId, props.trackId], refresh, { immedia
     <header><span><UserRoundCog :size="15" /><b>{{ team?.shortName || team?.name || '兩隊' }}</b> · T{{ String(trackId).padStart(2, '0') }}<small>手動 ReID</small></span><button type="button" aria-label="關閉" @click="emit('close')"><X :size="14" /></button></header>
     <div v-if="pending && !analytics" class="loading"><LoaderCircle class="spin" :size="16" />載入中</div>
     <template v-else>
+      <div v-if="replacement" class="replacement-warning" role="alertdialog" aria-label="確認取代球員指派">
+        <strong>{{ replacement.playerName }} 已由 T{{ String(replacement.trackId).padStart(2, '0') }} 使用</strong>
+        <p>繼續後會把球員改指派到目前的 T{{ String(trackId).padStart(2, '0') }}。</p>
+        <label><input v-model="replacementWarningEnabled" type="checkbox">下次仍顯示取代提示</label>
+        <div><button type="button" @click="replacement = null">取消</button><button type="button" class="replace" @click="confirmReplacement">取代指派</button></div>
+      </div>
       <button type="button" class="player-option" :class="{ selected: !track?.roster_entry_id }" :disabled="pending" @click="assign('')"><span>清除球員關聯</span><Check v-if="!track?.roster_entry_id" :size="13" /></button>
       <UiScrollArea class="player-scroll"><div>
-        <button v-for="player in players" :key="player.roster_entry_id" type="button" class="player-option" :class="{ selected: track?.roster_entry_id === player.roster_entry_id }" :disabled="pending" @click="assign(player.roster_entry_id)"><span><b>#{{ player.jersey_number }}</b><span class="player-name">{{ player.name }}<small v-if="previousTrackByRoster.has(player.roster_entry_id)">接續 T{{ String(previousTrackByRoster.get(player.roster_entry_id)).padStart(2, '0') }}</small><small v-else>目前未追蹤</small></span></span><Check v-if="track?.roster_entry_id === player.roster_entry_id" :size="13" /></button>
+        <button v-for="player in players" :key="player.roster_entry_id" type="button" class="player-option" :class="{ selected: track?.roster_entry_id === player.roster_entry_id, occupied: assignedTrackByRoster.has(player.roster_entry_id) }" :disabled="pending" @click="assign(player.roster_entry_id)"><span><b>#{{ player.jersey_number }}</b><span class="player-name">{{ player.name }}<small v-if="assignedTrackByRoster.has(player.roster_entry_id)">目前由 T{{ String(assignedTrackByRoster.get(player.roster_entry_id)).padStart(2, '0') }} 使用，可取代</small><small v-else-if="previousTrackByRoster.has(player.roster_entry_id)">接續 T{{ String(previousTrackByRoster.get(player.roster_entry_id)).padStart(2, '0') }}</small><small v-else>目前未追蹤</small></span></span><Check v-if="track?.roster_entry_id === player.roster_entry_id" :size="13" /></button>
       </div></UiScrollArea>
-      <p v-if="!players.length" class="empty">目前沒有可指派的場下球員</p>
+      <p v-if="!players.length" class="empty">目前沒有可指派的球員</p>
+      <label class="warning-preference"><input v-model="replacementWarningEnabled" type="checkbox">球員已被使用時顯示取代提示</label>
       <p v-if="error" class="error">{{ error }}</p>
     </template>
   </div>
 </template>
 
 <style scoped>
-.track-popover{--team:#91a0b2;position:absolute;z-index:30;width:252px;max-height:340px;display:grid;grid-template-rows:auto auto minmax(0,1fr) auto;overflow:hidden;transform:translate(-50%,10px);border:1px solid color-mix(in srgb,var(--team) 28%,#303840);border-radius:10px;background:#11161be8;color:#edf1f4;box-shadow:0 18px 42px #000b;backdrop-filter:blur(16px) saturate(135%)}.track-popover.left{--team:#22d3ee}.track-popover.right{--team:#fb7185}.track-popover header{height:38px;display:flex;align-items:center;justify-content:space-between;padding:0 7px 0 11px;border-bottom:1px solid #ffffff14;box-shadow:inset 3px 0 var(--team)}.track-popover header span{display:flex;align-items:center;gap:6px;font-size:.65rem;font-weight:700}.track-popover header b{color:var(--team);font-weight:850}.track-popover header small{padding:2px 5px;border-radius:4px;background:#ffffff0d;color:#98a3ad;font-size:.48rem}.track-popover header button{width:27px;min-height:27px!important;display:grid;place-items:center;padding:0!important;border:0!important;background:transparent!important}.player-scroll{max-height:240px}.player-option{width:100%;min-height:42px!important;display:flex;align-items:center;justify-content:space-between;padding:0 10px!important;border:0!important;border-bottom:1px solid #ffffff0c!important;border-radius:0!important;background:transparent!important;color:#bac2ca!important;font-size:.62rem}.player-option:hover,.player-option.selected{background:color-mix(in srgb,var(--team) 9%,#1b2228)!important;color:#fff!important}.player-option>span{display:flex;align-items:center;gap:8px;text-align:left}.player-option b{min-width:28px;color:var(--team)}.player-name{display:grid!important;gap:1px!important}.player-name small{color:#737f8b;font-size:.52rem;font-weight:500}.loading,.empty{min-height:56px;display:flex;align-items:center;justify-content:center;gap:7px;margin:0;color:#7f8994;font-size:.61rem}.error{margin:6px;padding:6px;border-radius:5px;background:#391d20;color:#ffb4b9;font-size:.58rem}.spin{animation:spin .8s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}@media(prefers-reduced-motion:reduce){.spin{animation:none}}
+.track-popover{--team:#91a0b2;position:absolute;z-index:30;width:272px;max-height:390px;display:grid;grid-template-rows:auto auto minmax(0,1fr) auto;overflow:hidden;transform:translate(-50%,10px);border:1px solid color-mix(in srgb,var(--team) 28%,#303840);border-radius:10px;background:#11161be8;color:#edf1f4;box-shadow:0 18px 42px #000b;backdrop-filter:blur(16px) saturate(135%)}.track-popover.left{--team:#22d3ee}.track-popover.right{--team:#fb7185}.track-popover header{height:38px;display:flex;align-items:center;justify-content:space-between;padding:0 7px 0 11px;border-bottom:1px solid #ffffff14;box-shadow:inset 3px 0 var(--team)}.track-popover header span{display:flex;align-items:center;gap:6px;font-size:.65rem;font-weight:700}.track-popover header b{color:var(--team);font-weight:850}.track-popover header small{padding:2px 5px;border-radius:4px;background:#ffffff0d;color:#98a3ad;font-size:.48rem}.track-popover header button{width:27px;min-height:27px!important;display:grid;place-items:center;padding:0!important;border:0!important;background:transparent!important}.player-scroll{max-height:240px}.player-option{width:100%;min-height:42px!important;display:flex;align-items:center;justify-content:space-between;padding:0 10px!important;border:0!important;border-bottom:1px solid #ffffff0c!important;border-radius:0!important;background:transparent!important;color:#bac2ca!important;font-size:.62rem}.player-option:hover,.player-option.selected{background:color-mix(in srgb,var(--team) 9%,#1b2228)!important;color:#fff!important}.player-option.occupied{color:#e5c98d!important}.player-option>span{display:flex;align-items:center;gap:8px;text-align:left}.player-option b{min-width:28px;color:var(--team)}.player-name{display:grid!important;gap:1px!important}.player-name small{color:#737f8b;font-size:.52rem;font-weight:500}.replacement-warning{display:grid;gap:7px;padding:10px;border-bottom:1px solid #70572f;background:#2b2418}.replacement-warning strong{font-size:.63rem}.replacement-warning p{margin:0;color:#c8b998;font-size:.55rem;line-height:1.45}.replacement-warning label,.warning-preference{display:flex;align-items:center;gap:6px;color:#aeb7bf;font-size:.53rem}.replacement-warning>div{display:grid;grid-template-columns:1fr 1fr;gap:6px}.replacement-warning button{min-height:29px;border:1px solid #555b62;border-radius:6px;background:#20262c}.replacement-warning button.replace{border-color:#81683b;color:#f2d395}.warning-preference{padding:7px 10px;border-top:1px solid #ffffff0c}.loading,.empty{min-height:56px;display:flex;align-items:center;justify-content:center;gap:7px;margin:0;color:#7f8994;font-size:.61rem}.error{margin:6px;padding:6px;border-radius:5px;background:#391d20;color:#ffb4b9;font-size:.58rem}.spin{animation:spin .8s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}@media(prefers-reduced-motion:reduce){.spin{animation:none}}
 </style>

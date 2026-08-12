@@ -18,8 +18,8 @@ const annotation: AnnotationRallySnapshot = {
   snapshot: { annotation_status: 'open', side_assignment_id: 'assignment', score_resolution: 'pending', scoring_court_side: null, processing_status: 'idle', key_points: [{ key_point_id: 'point-1', sequence_index: 0, marker_kind: 'service', is_terminal: false, capture_time_us: '1750', capture_frame_index: '10', timing_precision: 'frame_exact', possible_duplicate: false }] },
 }
 describe('DvrTimelineDock mounted interactions', () => {
-  it('keeps manual selection, emits the exact target, and blocks gaps', async () => { const w = mount(DvrTimelineDock, { props: { timeline, playhead: null } }); const lane = w.find('.buffer-status'); Object.defineProperty(lane.element, 'getBoundingClientRect', { value: () => ({ left: 0, width: 100 }) }); await lane.trigger('pointerdown', { button: 0, clientX: 25 }); expect(w.emitted('clearSelection')).toBeUndefined(); expect(w.emitted('seek')?.[0]).toEqual(['1750']); await lane.trigger('pointerdown', { button: 0, clientX: 62 }); expect(w.emitted('clearSelection')).toBeUndefined(); expect(w.emitted('seek')).toHaveLength(1) })
-  it('seeks immediately from the upper ruler without discarding manual selection', async () => { const w = mount(DvrTimelineDock, { props: { timeline, playhead: null } }); const ruler = w.find('.ruler-row'); Object.defineProperty(ruler.element, 'getBoundingClientRect', { value: () => ({ left: 0, width: 100 }) }); await ruler.trigger('pointerdown', { button: 0, clientX: 25 }); expect(w.emitted('clearSelection')).toBeUndefined(); expect(w.emitted('seek')?.[0]).toEqual(['1750']) })
+  it('keeps manual selection, emits one exact committed target, and blocks gaps', async () => { const w = mount(DvrTimelineDock, { props: { timeline, playhead: null } }); const lane = w.find('.buffer-status'); Object.defineProperty(lane.element, 'getBoundingClientRect', { value: () => ({ left: 0, width: 100 }) }); await lane.trigger('pointerdown', { pointerId: 1, button: 0, clientX: 25 }); expect(w.emitted('seek')).toBeUndefined(); await lane.trigger('pointerup', { pointerId: 1, clientX: 25 }); expect(w.emitted('clearSelection')).toBeUndefined(); expect(w.emitted('seek')?.[0]).toEqual(['1750']); await lane.trigger('pointerdown', { pointerId: 2, button: 0, clientX: 62 }); await lane.trigger('pointerup', { pointerId: 2, clientX: 62 }); expect(w.emitted('clearSelection')).toBeUndefined(); expect(w.emitted('seek')).toHaveLength(1) })
+  it('commits one seek from the upper ruler without discarding manual selection', async () => { const w = mount(DvrTimelineDock, { props: { timeline, playhead: null } }); const ruler = w.find('.ruler-row'); Object.defineProperty(ruler.element, 'getBoundingClientRect', { value: () => ({ left: 0, width: 100 }) }); await ruler.trigger('pointerdown', { pointerId: 1, button: 0, clientX: 25 }); expect(w.emitted('seek')).toBeUndefined(); await ruler.trigger('pointerup', { pointerId: 1, clientX: 25 }); expect(w.emitted('clearSelection')).toBeUndefined(); expect(w.emitted('seek')?.[0]).toEqual(['1750']) })
   it('clears a pinned segment from empty lane space without seeking', async () => { const w = mount(DvrTimelineDock, { props: { timeline, playhead: null } }); const lane = w.find('.lane-content'); Object.defineProperty(lane.element, 'getBoundingClientRect', { value: () => ({ left: 0, width: 100 }) }); await lane.trigger('click', { clientX: 25 }); expect(w.emitted('clearSelection')).toHaveLength(1); expect(w.emitted('seek')).toBeUndefined() })
   it('uses Shift+wheel for zoom, plain wheel for pan, and reset restores the 0.1x default', async () => {
     const zoomTimeline = {
@@ -188,14 +188,14 @@ describe('DvrTimelineDock mounted interactions', () => {
     await w.setProps({ playhead: '3250' })
     expect(w.find('.buffer-status').attributes('aria-valuenow')).toBe('3250')
   })
-  it('seeks on press and previews continuously while dragging the ruler', async () => {
+  it('previews continuously and sends one seek after dragging the ruler', async () => {
     const w = mount(DvrTimelineDock, { props: { timeline, playhead: '1750' } })
     const ruler = w.find('.ruler-row')
     Object.defineProperty(ruler.element, 'getBoundingClientRect', { value: () => ({ left: 0, width: 100 }) })
     Object.defineProperty(ruler.element, 'setPointerCapture', { value: () => undefined })
     Object.defineProperty(ruler.element, 'hasPointerCapture', { value: () => false })
     await ruler.trigger('pointerdown', { pointerId: 9, button: 0, clientX: 25 })
-    expect(w.emitted('seek')?.[0]).toEqual(['1750'])
+    expect(w.emitted('seek')).toBeUndefined()
     await ruler.trigger('pointermove', { pointerId: 9, clientX: 75 })
     expect(w.emitted('preview')?.at(-1)).toEqual(['3250'])
     await ruler.trigger('pointerup', { pointerId: 9, clientX: 75 })

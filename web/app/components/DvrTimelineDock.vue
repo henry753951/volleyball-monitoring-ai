@@ -420,8 +420,11 @@ function beginTimelineScrub(event: PointerEvent) {
   if (!viewBounds.value || !props.timeline) return
   const target = pointerTarget(event.clientX, (event.currentTarget as HTMLElement).getBoundingClientRect(), viewBounds.value)
   if (!readyAt(target, props.timeline.availableRanges)) return
-  requestSeek(target)
-  playheadDrag.value = { pointerId: event.pointerId, startCaptureTimeUs: target, targetCaptureTimeUs: target, committedAtStart: true }
+  // Keep pointer movement entirely client-side. One canonical seek is emitted
+  // only when the gesture commits on pointerup.
+  optimisticPlayhead.value = target
+  emit('preview', target)
+  playheadDrag.value = { pointerId: event.pointerId, startCaptureTimeUs: target, targetCaptureTimeUs: target, committedAtStart: false }
   ;(event.currentTarget as HTMLElement).setPointerCapture?.(event.pointerId)
 }
 function moveTimelineScrub(event: PointerEvent) {
@@ -563,6 +566,6 @@ defineExpose({ resetView })
 .analysis-rail.density-compact svg:not(:first-child){display:none}
 .analysis-rail.density-micro{min-width:0;padding:0;justify-content:center}
 .analysis-rail.density-micro>*{display:none}
-.keypoint-dot.density-compact:not(.service):not(.terminal):not(.selected){opacity:.22}
-.keypoint-dot.density-micro:not(.selected){opacity:0;pointer-events:none}
+.keypoint-dot.density-compact:not(.selected){width:10px;height:10px;opacity:.82}
+.keypoint-dot.density-micro:not(.selected){width:7px;height:7px;border-width:1px;opacity:.88;pointer-events:auto}
 </style>

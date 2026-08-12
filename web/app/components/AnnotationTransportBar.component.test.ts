@@ -109,7 +109,7 @@ describe('AnnotationTransportBar', () => {
     } })
     const labels = wrapper.get('[aria-label="片段工具"]').findAll('button').map(button => button.attributes('aria-label'))
 
-    expect(labels).toEqual(['送出片段', '取消修正片段', '刪除所選片段'])
+    expect(labels).toEqual(['送出片段', '取消修正片段', '下載片段', '刪除所選片段'])
     expect(wrapper.find('.action-separator').exists()).toBe(true)
   })
 

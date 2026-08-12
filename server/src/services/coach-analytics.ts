@@ -99,8 +99,11 @@ export async function assignTrackIdentity(database: PrismaClient, input: { analy
     }
     const member = input.role === UserRole.ADMIN ? true : Boolean(await tx.matchMember.findUnique({ where: { matchId_userId: { matchId: roster.matchId, userId: input.userId } }, select: { userId: true } }))
     if (!member) throw new Error('NOT_FOUND')
+    await tx.$queryRaw`SELECT id FROM "AnalysisRun" WHERE id = ${input.analysisRunId}::uuid FOR UPDATE`
+    const replaced = await tx.trackIdentityAssignment.findMany({ where: { analysisRunId: input.analysisRunId, rosterEntryId: input.rosterEntryId, trackId: { not: input.trackId } }, select: { trackId: true } })
+    await tx.trackIdentityAssignment.deleteMany({ where: { analysisRunId: input.analysisRunId, rosterEntryId: input.rosterEntryId, trackId: { not: input.trackId } } })
     const assignment = await tx.trackIdentityAssignment.upsert({ where: { analysisRunId_trackId: { analysisRunId: input.analysisRunId, trackId: input.trackId } }, create: { analysisRunId: input.analysisRunId, trackId: input.trackId, rosterEntryId: input.rosterEntryId, source: IdentitySource.MANUAL, assignedByUserId: input.userId }, update: { rosterEntryId: input.rosterEntryId, source: IdentitySource.MANUAL, assignedByUserId: input.userId, confidence: null } })
-    return { schema_version: '1.0.0', assignment: { id: assignment.id, analysis_run_id: assignment.analysisRunId, track_id: assignment.trackId, roster_entry_id: assignment.rosterEntryId, source: assignment.source.toLowerCase() } }
+    return { schema_version: '1.0.0', match_id: roster.matchId, replaced_track_ids: replaced.map(item => item.trackId), assignment: { id: assignment.id, analysis_run_id: assignment.analysisRunId, track_id: assignment.trackId, roster_entry_id: assignment.rosterEntryId, source: assignment.source.toLowerCase() } }
   })
 }
 
@@ -112,7 +115,7 @@ export async function clearTrackIdentity(database: PrismaClient, input: { analys
     const member = input.role === UserRole.ADMIN ? true : Boolean(await tx.matchMember.findUnique({ where: { matchId_userId: { matchId: track.analysisRun.submission.rally.matchId, userId: input.userId } }, select: { userId: true } }))
     if (!member) throw new Error('NOT_FOUND')
     await tx.trackIdentityAssignment.deleteMany({ where: { analysisRunId: input.analysisRunId, trackId: input.trackId } })
-    return { schema_version: '1.0.0', analysis_run_id: input.analysisRunId, track_id: input.trackId, roster_entry_id: null }
+    return { schema_version: '1.0.0', match_id: track.analysisRun.submission.rally.matchId, analysis_run_id: input.analysisRunId, track_id: input.trackId, roster_entry_id: null }
   })
 }
 
@@ -153,6 +156,6 @@ export async function setTrackIdentityMappingComplete(database: PrismaClient, in
       }
     }
     const updated = await tx.analysisRun.update({ where: { id: input.analysisRunId }, data: { identityMappingCompletedAt: input.completed ? new Date() : null, identityMappingCompletedByUserId: input.completed ? input.userId : null }, select: { id: true, identityMappingCompletedAt: true } })
-    return { schema_version: '1.0.0', analysis_run_id: updated.id, completed: Boolean(updated.identityMappingCompletedAt) }
+    return { schema_version: '1.0.0', match_id: matchId, analysis_run_id: updated.id, completed: Boolean(updated.identityMappingCompletedAt) }
   })
 }

@@ -18,7 +18,7 @@ import { createPersistedSampleSnapResolver } from './media/sample-snap-resolver.
 import { mediaPlaybackRoutes } from './routes/media-playback.js'
 import { aiCallbackRoutesWithDependencies } from './routes/ai-callback.js'
 import { analysisMediaRoutesWithDependencies } from './routes/analysis-media.js'
-import { analysisReviewRoutes } from './routes/analysis-review.js'
+import { analysisReviewRoutesWithDependencies } from './routes/analysis-review.js'
 import { collectOperationsSnapshot, deleteInactiveAiWorker, operationsRoutes } from './routes/operations.js'
 import { createHostStorageProbe } from './operations/host-storage.js'
 import { createKubernetesDeploymentProbe } from './operations/kubernetes-deployments.js'
@@ -28,6 +28,7 @@ import { createAnnotationPresenceService } from './realtime/annotation-presence.
 import { createAiProgressService } from './realtime/ai-progress.js'
 import { annotationWebSocketRoutes } from './realtime/annotation-ws.js'
 import { CoachMatchEventHub, coachWebSocketRoutes } from './realtime/coach-ws.js'
+import { configureCoachAnalyticsGraphQL } from './graphql/coach-analytics.js'
 import { aiProviderWebSocketRoutes } from './realtime/ai-provider-ws.js'
 import { authenticateDevelopmentAnnotationRequest } from './realtime/auth.js'
 import { createAnnotationCommandService } from './services/annotation-command.js'
@@ -62,10 +63,16 @@ const annotationPresence = redis
   : null
 const aiProgress = redis ? createAiProgressService(redis) : null
 const coachMatchEvents = new CoachMatchEventHub()
+configureCoachAnalyticsGraphQL(matchId => coachMatchEvents.publish(matchId, 'identity_mapping_updated'))
 const hostStorageProbe = createHostStorageProbe(
   process.env.MEDIA_RECORDING_ROOT ?? '/var/lib/volleyball/media-recordings',
 )
-const objectStorageProbe = createMinioStorageProbe(minioEndpoint ?? '')
+const objectStorageProbe = createMinioStorageProbe(
+  minioEndpoint ?? '',
+  fetch,
+  1_500,
+  process.env.MINIO_METRICS_BEARER_TOKEN?.trim() ?? '',
+)
 const deploymentProbe = createKubernetesDeploymentProbe()
 const mediaObjectRemover = createMediaObjectRemoverFromEnv()
 const matchCleanupCoordinator = createMatchCleanupCoordinator({
@@ -140,7 +147,9 @@ await app.register(websocket)
 await app.register(aiCallbackRoutesWithDependencies({ ...(aiProgress ? { progress: aiProgress } : {}) }))
 await app.register(aiProviderWebSocketRoutes({ database: db, ...(aiProgress ? { progress: aiProgress } : {}) }))
 await app.register(analysisMediaRoutesWithDependencies({ timingManifestReader }))
-await app.register(analysisReviewRoutes)
+await app.register(analysisReviewRoutesWithDependencies({
+  onChanged: matchId => coachMatchEvents.publish(matchId, 'analysis_review_updated'),
+}))
 await app.register(mediaPlaybackRoutes({
   objectReader: mediaObjectReader,
   resolveSample: createPersistedSampleSnapResolver(db, mediaObjectReader),

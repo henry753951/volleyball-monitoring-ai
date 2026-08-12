@@ -288,14 +288,16 @@ function stepPayload(
   windowId: string,
   frame: bigint,
   direction: 'previous' | 'next',
+  count = 1,
 ) {
   return {
     capture_frame_index: frame.toString(),
     capture_session_id: ids.session,
     direction,
+    count,
     mapping_version: 3,
     playback_window_id: windowId,
-    schema_version: '1.0.0',
+    schema_version: '1.1.0',
   }
 }
 

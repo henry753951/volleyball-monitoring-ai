@@ -37,4 +37,30 @@ minio_cluster_health_capacity_usable_free_bytes 8.24633720832e+11
       usedBytes: '0',
     })
   })
+
+  it('authenticates metrics without exposing the bearer token in the snapshot', async () => {
+    const fetchImpl = vi.fn(async () => new Response(`
+minio_cluster_health_capacity_usable_total_bytes 1000
+minio_cluster_health_capacity_usable_free_bytes 750
+`)) as unknown as typeof fetch
+
+    const snapshot = await createMinioStorageProbe(
+      'http://minio:9000',
+      fetchImpl,
+      1_500,
+      'metrics-secret',
+    )()
+
+    expect(fetchImpl).toHaveBeenCalledWith(
+      new URL('http://minio:9000/minio/metrics/v3/cluster/health'),
+      expect.objectContaining({
+        headers: {
+          accept: 'text/plain',
+          authorization: 'Bearer metrics-secret',
+        },
+      }),
+    )
+    expect(JSON.stringify(snapshot)).not.toContain('metrics-secret')
+    expect(snapshot.available).toBe(true)
+  })
 })

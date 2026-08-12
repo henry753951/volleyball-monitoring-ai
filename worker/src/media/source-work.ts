@@ -22,6 +22,55 @@ export type SourceCompletion = {
   sourceKind: 'youtube' | 'youtube_live' | 'youtube_vod' | 'local_mp4'
 }
 
+export type CompletedMediaSpoolCandidate = {
+  workId: string
+  ingestPath: string
+}
+
+export async function listCompletedMediaSpoolCandidates(
+  database: PrismaClient,
+): Promise<CompletedMediaSpoolCandidate[]> {
+  return database.$queryRaw<CompletedMediaSpoolCandidate[]>`
+    WITH segment_counts AS (
+      SELECT
+        program."captureSessionId",
+        COUNT(segment."id") FILTER (WHERE segment."isGap" = FALSE)::int AS "segmentCount",
+        COUNT(segment."id") FILTER (
+          WHERE segment."isGap" = FALSE
+            AND segment."readyAt" IS NOT NULL
+            AND init."state" = 'READY'
+            AND init."sha256" IS NOT NULL
+            AND media."state" = 'READY'
+            AND media."sha256" IS NOT NULL
+            AND sample."state" = 'READY'
+            AND sample."sha256" IS NOT NULL
+        )::int AS "readySegmentCount"
+      FROM "DvrProgram" program
+      LEFT JOIN "DvrSegment" segment ON segment."dvrProgramId" = program."id"
+      LEFT JOIN "MediaAsset" init ON init."id" = segment."initAssetId"
+      LEFT JOIN "MediaAsset" media ON media."id" = segment."mediaAssetId"
+      LEFT JOIN "MediaAsset" sample ON sample."id" = segment."sampleIndexAssetId"
+      GROUP BY program."captureSessionId"
+    )
+    SELECT
+      work."id" AS "workId",
+      capture."ingestPath"
+    FROM "MediaSourceWork" work
+    JOIN "CaptureSession" capture ON capture."id" = work."captureSessionId"
+    LEFT JOIN segment_counts counts ON counts."captureSessionId" = capture."id"
+    WHERE work."status" = 'COMPLETED'
+      AND capture."status" = 'FINISHED'
+      AND capture."completionExpectedSegments" IS NOT NULL
+      AND COALESCE(counts."segmentCount", 0) = capture."completionExpectedSegments"
+      AND COALESCE(counts."readySegmentCount", 0) = capture."completionExpectedSegments"
+      AND NOT EXISTS (
+        SELECT 1 FROM "MediaIngestFailure" failure
+        WHERE failure."captureSessionId" = capture."id"
+    )
+    ORDER BY work."updatedAt" ASC, work."id" ASC
+  `
+}
+
 export async function recordPermanentMediaIngestFailure(
   database: PrismaClient,
   input: { sourceJobId: string; captureSessionId: string; code: string },

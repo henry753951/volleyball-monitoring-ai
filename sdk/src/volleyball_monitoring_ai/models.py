@@ -131,12 +131,13 @@ class ResolvedMediaAnchor(MediaAnchorBase):
 
 
 class FrameStepRequest(StrictModel):
-    schema_version: Literal["1.0.0"]
+    schema_version: Literal["1.1.0"]
     capture_session_id: str = Field(min_length=1, max_length=128)
     playback_window_id: str = Field(min_length=1, max_length=128)
     mapping_version: int = Field(ge=1)
     capture_frame_index: str
     direction: Literal["previous", "next"]
+    count: int = Field(ge=1, le=120)
 
     @field_validator("capture_frame_index")
     @classmethod

@@ -14,7 +14,13 @@ function broadcast(analysisRunId: string, revision: string) {
   for (const socket of sockets.get(analysisRunId) ?? []) if (socket.readyState === 1) socket.send(payload)
 }
 
-export const analysisReviewRoutes: FastifyPluginAsync = async (app) => {
+interface AnalysisReviewRouteDependencies {
+  onChanged?: (matchId: string) => void
+}
+
+export const analysisReviewRoutesWithDependencies = (
+  dependencies: AnalysisReviewRouteDependencies = {},
+): FastifyPluginAsync => async (app) => {
   app.get<{ Params: { analysisRunId: string }; Querystring: { after_revision?: string } }>('/api/v1/analysis-runs/:analysisRunId/review', async (request, reply) => {
     if (!UUID.test(request.params.analysisRunId) || (request.query.after_revision !== undefined && !/^(0|[1-9][0-9]*)$/.test(request.query.after_revision))) return reply.status(400).send({ code: 'BAD_REQUEST' })
     const identity = await authenticateDevelopmentAnnotationRequest(request, db)
@@ -30,6 +36,10 @@ export const analysisReviewRoutes: FastifyPluginAsync = async (app) => {
     try {
       const result = await applyAnalysisReviewPatch(db, { analysisRunId: request.params.analysisRunId, patch: parseAnalysisReviewPatch(request.body), identity })
       broadcast(request.params.analysisRunId, result.revision)
+      if (dependencies.onChanged) {
+        const run = await db.analysisRun.findUnique({ where: { id: request.params.analysisRunId }, select: { submission: { select: { rally: { select: { matchId: true } } } } } })
+        if (run) dependencies.onChanged(run.submission.rally.matchId)
+      }
       return reply.header('Cache-Control', 'private, no-store').send(result)
     }
     catch (error) {
@@ -54,3 +64,5 @@ export const analysisReviewRoutes: FastifyPluginAsync = async (app) => {
     })()
   })
 }
+
+export const analysisReviewRoutes = analysisReviewRoutesWithDependencies()

@@ -142,14 +142,15 @@ function cursorBody(playerMediaTimeUs: bigint) {
   }
 }
 
-function stepBody(captureFrameIndex: bigint, direction: 'previous' | 'next') {
+function stepBody(captureFrameIndex: bigint, direction: 'previous' | 'next', count = 1) {
   return {
     capture_frame_index: captureFrameIndex.toString(),
     capture_session_id: ids.session,
     direction,
+    count,
     mapping_version: 3,
     playback_window_id: ids.window,
-    schema_version: '1.0.0',
+    schema_version: '1.1.0',
   }
 }
 
@@ -447,6 +448,20 @@ describe('canonical frame-step HTTP', () => {
     expect(parseCanonicalFrameAnchor(backward.json()).capture_frame_index).toBe(
       first.captureFrameIndex.toString(),
     )
+  })
+
+  it('coalesces a bounded multi-frame step into one canonical response', async () => {
+    const first = firstIndex.samples[0]!
+    const expected = secondIndex.samples[0]!
+    const response = await app.inject({
+      headers: testHeaders(),
+      method: 'POST',
+      payload: stepBody(first.captureFrameIndex, 'next', 2),
+      url: '/api/v1/media/frame-step',
+    })
+    expect(response.statusCode).toBe(200)
+    expect(parseCanonicalFrameAnchor(response.json()).capture_frame_index).toBe(expected.captureFrameIndex.toString())
+    expect(loadedSegmentIds).toEqual([[ids.segment1, ids.segment2]])
   })
 
   it('steps exactly across a mapped segment boundary', async () => {

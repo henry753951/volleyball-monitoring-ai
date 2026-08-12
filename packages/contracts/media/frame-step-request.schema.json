@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/OWNER/volleyball-monitoring-ai/packages/contracts/media/frame-step-request/1.0.0",
-  "title": "Canonical Frame Step Request 1.0.0",
+  "$id": "https://github.com/OWNER/volleyball-monitoring-ai/packages/contracts/media/frame-step-request/1.1.0",
+  "title": "Canonical Frame Step Request 1.1.0",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -10,11 +10,12 @@
     "playback_window_id",
     "mapping_version",
     "capture_frame_index",
-    "direction"
+    "direction",
+    "count"
   ],
   "properties": {
     "schema_version": {
-      "const": "1.0.0"
+      "const": "1.1.0"
     },
     "capture_session_id": {
       "type": "string",
@@ -39,6 +40,11 @@
         "previous",
         "next"
       ]
+    },
+    "count": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 120
     }
   }
 }

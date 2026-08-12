@@ -129,6 +129,7 @@ const pendingTimelineMove = shallowRef<{
    playbackWindowId: string | null;
 } | null>(null);
 const frameQueueRunning = ref(false);
+const keyPointNudgeRunning = ref(false);
 const seekPreviewActive = ref(false);
 const canMark = computed(() =>
    authoritativeControlsEnabled({
@@ -162,6 +163,7 @@ const clipPolicyError = ref<string | null>(null);
 const captureDialogOpen = ref(false);
 const connectionDialogOpen = ref(false);
 const rosterDialogOpen = ref(false);
+const downloadDialogOpen = ref(false);
 const swapRallyTarget = ref<CoachRally | null>(null);
 const sideSwapPending = ref(false);
 const confirmAction = ref<
@@ -272,6 +274,8 @@ let timelineRefreshTimer: ReturnType<typeof setInterval> | null = null;
 let timelineMoveTimeout: ReturnType<typeof setTimeout> | null = null;
 let cursorResolveTimer: ReturnType<typeof setTimeout> | null = null;
 let seekPreviewTimer: ReturnType<typeof setTimeout> | null = null;
+let frameQueueTimer: ReturnType<typeof setTimeout> | null = null;
+let keyPointNudgeTimer: ReturnType<typeof setTimeout> | null = null;
 let seekPreviewTarget: string | null = null;
 let cursorResolveInFlight = false;
 let pendingCursorResolve: PlaybackCursorInput | null = null;
@@ -290,6 +294,8 @@ let windowCreatePromise: ReturnType<typeof dvr.create> | null = null;
 let windowCreateTarget: string | undefined;
 let windowCreateMode: "live" | "archive" | undefined;
 let queuedFrameDelta = 0;
+let queuedKeyPointDelta = 0;
+let queuedKeyPointId: string | null = null;
 let framePreviewTargetSeconds: number | null = null;
 let estimatedFrameSeconds = 1 / 60;
 
@@ -1051,7 +1057,14 @@ function handleCursor(cursor: PlaybackCursorInput) {
    // Frame stepping owns the player position until its authoritative queue has
    // drained. Browser seek callbacks are observations of the optimistic preview,
    // not new commands that should race the canonical sample-index resolver.
-   if (seekPreviewActive.value || frameQueueRunning.value) return;
+   if (
+      seekPreviewActive.value ||
+      frameQueueRunning.value ||
+      queuedFrameDelta !== 0 ||
+      keyPointNudgeRunning.value ||
+      queuedKeyPointDelta !== 0
+   )
+      return;
    if (cursor.cursor_status !== "ready") {
       pendingCursorResolve = null;
       return;
@@ -1087,7 +1100,25 @@ async function createWindow(
    const safeTarget =
       target && mode === "live"
          ? clampLiveEdgeTarget(target, timeline.value?.availableRanges ?? [])
-         : target;
+          : target;
+   const current = descriptor.value;
+   if (
+      current &&
+      safeTarget &&
+      current.capture_session_id === selectedCapture.value?.id &&
+      current.mode === mode &&
+      Date.parse(current.expires_at) > Date.now() + 30_000 &&
+      BigInt(safeTarget) >= BigInt(current.window_capture_start_us) &&
+      BigInt(safeTarget) < BigInt(current.window_capture_end_us)
+   ) {
+      captureTarget.value = safeTarget;
+      if (video.value) {
+         video.value.currentTime = Number(
+            BigInt(safeTarget) - BigInt(current.presentation_origin_capture_us),
+         ) / 1_000_000;
+      }
+      return current;
+   }
    if (
       windowCreatePromise &&
       safeTarget === windowCreateTarget &&
@@ -1138,6 +1169,8 @@ async function seekTimeline(targetCaptureTimeUs: string) {
    seekPreviewActive.value = false;
    seekPreviewTarget = null;
    if (seekPreviewTimer) clearTimeout(seekPreviewTimer);
+   if (frameQueueTimer) clearTimeout(frameQueueTimer);
+   if (keyPointNudgeTimer) clearTimeout(keyPointNudgeTimer);
    seekPreviewTimer = null;
    const target = liveCapture.value
       ? clampLiveEdgeTarget(
@@ -1163,17 +1196,11 @@ function previewTimelineSeek(targetCaptureTimeUs: string | null) {
    seekPreviewTarget = target;
    if (seekPreviewTimer) clearTimeout(seekPreviewTimer);
    seekPreviewTimer = null;
-   if (
-      !target ||
-      overlayPlayer.value?.previewCaptureTimeIfBuffered(target)
-   )
-      return;
-   seekPreviewTimer = setTimeout(() => {
-      seekPreviewTimer = null;
-      const target = seekPreviewTarget;
-      if (!target || !seekPreviewActive.value) return;
-      void createWindow(target);
-   }, 140);
+   if (!target) return;
+   // Dragging is observational. Preview already-buffered media immediately, but
+   // never create a playback window until the user commits the seek. This keeps
+   // one gesture from fanning out into many manifests and segment downloads.
+   overlayPlayer.value?.previewCaptureTimeIfBuffered(target);
 }
 
 function dispatchAnnotationAction(action: AnnotationAction) {
@@ -1353,14 +1380,78 @@ async function moveTimelineKeyPoint(
    }
 }
 
-async function nudgeSelectedKeyPoint(
+function nudgeSelectedKeyPoint(
    direction: "previous" | "next",
    count = 1,
 ) {
    const point = selectedKeyPoint.value;
    const capture = selectedCapture.value;
-   if (!point || !capture || state.value !== "OPEN" || !editReady.value) return;
+   if (
+      !point ||
+      !capture ||
+      state.value !== "OPEN" ||
+      !editReady.value ||
+      keyPointNudgeRunning.value
+   )
+      return;
+   if (queuedKeyPointId && queuedKeyPointId !== point.key_point_id) return;
+   queuedKeyPointId = point.key_point_id;
+   queuedKeyPointDelta = Math.max(
+      -120,
+      Math.min(
+         120,
+         queuedKeyPointDelta + (direction === "next" ? count : -count),
+      ),
+   );
    annotation.setEditingKeyPoint(point.key_point_id);
+   const estimatedFrameUs = BigInt(
+      Math.max(1, Math.round(estimatedFrameSeconds * 1_000_000)),
+   );
+   const previewUs = BigInt(point.capture_time_us) +
+      BigInt(queuedKeyPointDelta) * estimatedFrameUs;
+   if (previewUs >= 0n) {
+      const preview = previewUs.toString();
+      previewKeyPointMove(point.key_point_id, preview);
+      const window = descriptor.value;
+      if (
+         video.value &&
+         window &&
+         previewUs >= BigInt(window.window_capture_start_us) &&
+         previewUs < BigInt(window.window_capture_end_us)
+      ) {
+         video.value.pause();
+         video.value.currentTime = Number(
+            previewUs - BigInt(window.presentation_origin_capture_us),
+         ) / 1_000_000;
+      }
+   }
+   if (keyPointNudgeTimer) clearTimeout(keyPointNudgeTimer);
+   keyPointNudgeTimer = setTimeout(() => {
+      keyPointNudgeTimer = null;
+      void flushKeyPointNudge();
+   }, 90);
+}
+
+async function flushKeyPointNudge() {
+   const keyPointId = queuedKeyPointId;
+   const delta = queuedKeyPointDelta;
+   queuedKeyPointId = null;
+   queuedKeyPointDelta = 0;
+   if (!keyPointId || delta === 0) {
+      if (keyPointId) clearKeyPointMovePreview(keyPointId);
+      releaseEditingIntent();
+      return;
+   }
+   const point = annotation.snapshot.value?.snapshot.key_points.find(
+      (candidate) => candidate.key_point_id === keyPointId,
+   );
+   const capture = selectedCapture.value;
+   if (!point || !capture || state.value !== "OPEN") {
+      clearKeyPointMovePreview(keyPointId);
+      releaseEditingIntent();
+      return;
+   }
+   keyPointNudgeRunning.value = true;
    try {
       let window = descriptor.value;
       if (
@@ -1377,24 +1468,15 @@ async function nudgeSelectedKeyPoint(
          });
       }
       if (!window) throw new Error("無法建立擊球點微調視窗");
-      let playbackWindowId = window.playback_window_id;
-      let mappingVersion = window.mapping_version;
-      let captureFrameIndex = point.capture_frame_index;
-      let frame: Awaited<ReturnType<typeof media.frameStep>> | null = null;
-      for (let index = 0; index < Math.max(1, count); index += 1) {
-         frame = await media.frameStep({
-            schema_version: "1.0.0",
-            capture_session_id: capture.id,
-            playback_window_id: playbackWindowId,
-            mapping_version: mappingVersion,
-            capture_frame_index: captureFrameIndex,
-            direction,
-         });
-         playbackWindowId = frame.playback_window_id;
-         mappingVersion = frame.mapping_version;
-         captureFrameIndex = frame.capture_frame_index;
-      }
-      if (!frame) throw new Error("伺服器沒有回傳可用畫格");
+       const frame = await media.frameStep({
+          schema_version: "1.1.0",
+          capture_session_id: capture.id,
+          playback_window_id: window.playback_window_id,
+          mapping_version: window.mapping_version,
+          capture_frame_index: point.capture_frame_index,
+          direction: delta > 0 ? "next" : "previous",
+          count: Math.abs(delta),
+       });
       const cursor: PlaybackCursorInput = {
          schema_version: "1.0.0",
          playback_window_id: frame.playback_window_id,
@@ -1417,12 +1499,13 @@ async function nudgeSelectedKeyPoint(
          keyPointId: point.key_point_id,
          cursor,
       });
-   } catch (error) {
-      toast.error(error instanceof Error ? error.message : "擊球點微調失敗");
-   } finally {
-      clearKeyPointMovePreview(point.key_point_id);
-      releaseEditingIntent();
-   }
+    } catch (error) {
+       toast.error(error instanceof Error ? error.message : "擊球點微調失敗");
+    } finally {
+       keyPointNudgeRunning.value = false;
+       clearKeyPointMovePreview(keyPointId);
+       releaseEditingIntent();
+    }
 }
 
 function deleteSelectedKeyPoint() {
@@ -1874,9 +1957,13 @@ function dispatchMediaAction(action: PlayerAction, frameCount = 1) {
 
 function queueFrameStep(direction: "previous" | "next", count = 1) {
    const delta = direction === "next" ? count : -count;
-   queuedFrameDelta = Math.max(-60, Math.min(60, queuedFrameDelta + delta));
+   queuedFrameDelta = Math.max(-120, Math.min(120, queuedFrameDelta + delta));
    previewFrameStep(delta);
-   if (!frameQueueRunning.value) void drainFrameQueue();
+   if (frameQueueTimer) clearTimeout(frameQueueTimer);
+   frameQueueTimer = setTimeout(() => {
+      frameQueueTimer = null;
+      if (!frameQueueRunning.value) void drainFrameQueue();
+   }, 90);
 }
 
 function previewFrameStep(delta: number) {
@@ -1905,24 +1992,12 @@ async function drainFrameQueue() {
    frameQueueRunning.value = true;
    let finalStepAnchor: Awaited<ReturnType<typeof dvr.step>> = null;
    try {
-      if (observedCursor.value?.cursor_status === "ready") {
-         const observedKey = `${observedCursor.value.playback_window_id}:${observedCursor.value.mapping_version}:${observedCursor.value.seek_generation}:${observedCursor.value.player_media_time_us}`;
-         if (observedKey !== lastResolvedCursorKey) {
-            const resolved = await dvr.resolve(observedCursor.value);
-            if (resolved) lastResolvedCursorKey = observedKey;
-         }
-      }
-      while (
-         queuedFrameDelta !== 0 &&
-         descriptor.value &&
-         authoritativeAnchor.value
-      ) {
-         const direction = queuedFrameDelta > 0 ? "next" : "previous";
-         queuedFrameDelta += direction === "next" ? -1 : 1;
-         const previousCaptureUs = BigInt(
-            authoritativeAnchor.value.capture_time_us,
-         );
-         const anchor = await dvr.step(direction, (target) => ({
+      const delta = queuedFrameDelta;
+      queuedFrameDelta = 0;
+      if (delta !== 0 && descriptor.value && authoritativeAnchor.value) {
+         const direction = delta > 0 ? "next" : "previous";
+         const previousCaptureUs = BigInt(authoritativeAnchor.value.capture_time_us);
+         const anchor = await dvr.step(direction, Math.abs(delta), (target) => ({
             schema_version: "1.0.0",
             capture_session_id: descriptor.value!.capture_session_id,
             mode: descriptor.value!.mode,
@@ -1930,21 +2005,22 @@ async function drainFrameQueue() {
          }));
          if (!anchor) {
             queuedFrameDelta = 0;
-            break;
+         } else {
+            finalStepAnchor = anchor;
+            const localUs = BigInt(anchor.player_media_time_us);
+            if (localUs < 0n || localUs > 86_400_000_000n)
+               throw new RangeError(
+                  "frame-step returned an unbounded player time",
+               );
+            const anchorCaptureUs = BigInt(anchor.capture_time_us);
+            const measuredFrameUs =
+               anchorCaptureUs >= previousCaptureUs
+                  ? anchorCaptureUs - previousCaptureUs
+                  : previousCaptureUs - anchorCaptureUs;
+            if (measuredFrameUs > 0n && measuredFrameUs <= 24_000_000n)
+               estimatedFrameSeconds =
+                  Number(measuredFrameUs) / Math.abs(delta) / 1_000_000;
          }
-         finalStepAnchor = anchor;
-         const localUs = BigInt(anchor.player_media_time_us);
-         if (localUs < 0n || localUs > 86_400_000_000n)
-            throw new RangeError(
-               "frame-step returned an unbounded player time",
-            );
-         const anchorCaptureUs = BigInt(anchor.capture_time_us);
-         const measuredFrameUs =
-            anchorCaptureUs >= previousCaptureUs
-               ? anchorCaptureUs - previousCaptureUs
-               : previousCaptureUs - anchorCaptureUs;
-         if (measuredFrameUs > 0n && measuredFrameUs <= 200_000n)
-            estimatedFrameSeconds = Number(measuredFrameUs) / 1_000_000;
       }
       if (video.value && finalStepAnchor)
          seekVideoToCanonicalFrame(video.value, finalStepAnchor);
@@ -1953,9 +2029,12 @@ async function drainFrameQueue() {
       mediaError.value =
          error instanceof Error ? error.message : "逐幀請求失敗";
    } finally {
-      framePreviewTargetSeconds = null;
       frameQueueRunning.value = false;
-      if (queuedFrameDelta !== 0) queueMicrotask(() => void drainFrameQueue());
+      if (queuedFrameDelta !== 0) {
+         queueMicrotask(() => void drainFrameQueue());
+      } else {
+         framePreviewTargetSeconds = null;
+      }
    }
 }
 
@@ -2187,6 +2266,12 @@ function handleMappingChanged() {
    void coach.refresh();
    void refreshOverlayReplay();
 }
+
+watch(coach.lastUpdatedAt, (updatedAt, previous) => {
+   if (!updatedAt || !previous || updatedAt.getTime() === previous.getTime()) return;
+   mappingRefreshToken.value += 1;
+   void refreshOverlayReplay();
+});
 
 function dispatchHotkeyCommand(action: HotkeyCommand, event: KeyboardEvent) {
    const frameCount = event.ctrlKey ? 5 : 1;
@@ -2490,6 +2575,8 @@ onBeforeUnmount(() => {
    if (timelineMoveTimeout) clearTimeout(timelineMoveTimeout);
    if (cursorResolveTimer) clearTimeout(cursorResolveTimer);
    if (seekPreviewTimer) clearTimeout(seekPreviewTimer);
+   if (frameQueueTimer) clearTimeout(frameQueueTimer);
+   if (keyPointNudgeTimer) clearTimeout(keyPointNudgeTimer);
    if (continuationRetryTimer) clearTimeout(continuationRetryTimer);
    annotation.setEditingKeyPoint(null);
    detachVideoState(video.value);
@@ -2795,6 +2882,7 @@ onBeforeUnmount(() => {
                Boolean(selectedSubmittedRally) && !selectedCorrectionDraft
             "
             :clip-selected="clipSelected"
+            :download-available="Boolean(selectedSubmittedRally?.submission.clip)"
             :draft-selected="selectedEditableDraft"
             :submit-enabled="
                selectedEditableDraft &&
@@ -2830,6 +2918,7 @@ onBeforeUnmount(() => {
             @nudge-previous="nudgeSelectedKeyPoint('previous')"
             @nudge-next="nudgeSelectedKeyPoint('next')"
             @delete-clip="deleteSelectedClip"
+            @download-clip="downloadDialogOpen = true"
             @delete-point="deleteSelectedKeyPoint"
             @toggle-mute="dispatchMediaAction('mute')"
             @reset-timeline-zoom="resetTimelineZoom"
@@ -2884,6 +2973,13 @@ onBeforeUnmount(() => {
             @settings="openSettings('hotkeys')"
          />
       </footer>
+      <ClipDownloadDialog
+         :open="downloadDialogOpen"
+         :rally-id="selectedSubmittedRally?.id ?? null"
+         :analysis-run-id="selectedAnalysisRunId"
+         :title="activeContextTitle"
+         @close="downloadDialogOpen = false"
+      />
 
       <LazyAnnotationSettingsDialog
          :open="settingsOpen"

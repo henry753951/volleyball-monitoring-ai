@@ -52,6 +52,7 @@ export function createMinioStorageProbe(
   endpoint: string,
   fetchImpl: typeof fetch = fetch,
   timeoutMs = 1_500,
+  bearerToken = '',
 ): HostStorageProbe {
   let metricsUrl: URL | null = null
   try {
@@ -65,8 +66,10 @@ export function createMinioStorageProbe(
   return async () => {
     if (!metricsUrl) return unavailable(path)
     try {
+      const headers: Record<string, string> = { accept: 'text/plain' }
+      if (bearerToken) headers.authorization = `Bearer ${bearerToken}`
       const response = await fetchImpl(metricsUrl, {
-        headers: { accept: 'text/plain' },
+        headers,
         signal: AbortSignal.timeout(timeoutMs),
       })
       if (!response.ok) return unavailable(path)
