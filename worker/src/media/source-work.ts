@@ -97,9 +97,6 @@ export async function claimMediaSourceWork(
       ) OR (
         work."status" = 'RUNNING'
         AND work."leaseExpiresAt" < CURRENT_TIMESTAMP
-      ) OR (
-        work."status" = 'DRAINING'
-        AND (work."leaseExpiresAt" IS NULL OR work."leaseExpiresAt" < CURRENT_TIMESTAMP)
       )
       ORDER BY work."availableAt" ASC, work."createdAt" ASC, work."id" ASC
       FOR UPDATE SKIP LOCKED
@@ -107,8 +104,8 @@ export async function claimMediaSourceWork(
     ), claimed AS (
       UPDATE "MediaSourceWork" work
       SET
-        "status" = CASE WHEN work."status" = 'DRAINING' THEN 'DRAINING'::"MediaSourceWorkStatus" ELSE 'RUNNING'::"MediaSourceWorkStatus" END,
-        "attempts" = work."attempts" + CASE WHEN work."status" = 'DRAINING' THEN 0 ELSE 1 END,
+        "status" = 'RUNNING'::"MediaSourceWorkStatus",
+        "attempts" = work."attempts" + 1,
         "leaseOwner" = ${owner},
         "leaseExpiresAt" = CURRENT_TIMESTAMP + (${leaseSeconds} * INTERVAL '1 second'),
         "lastHeartbeatAt" = CURRENT_TIMESTAMP,
@@ -130,6 +127,53 @@ export async function claimMediaSourceWork(
       claimed."resumeSegmentIndex",
       claimed."resumeCaptureTimeUs",
       capture."ingestPath"
+    FROM claimed
+    JOIN "CaptureSession" capture ON capture."id" = claimed."captureSessionId"
+  `
+}
+
+export async function claimDrainingMediaSourceWork(
+  database: PrismaClient,
+  owner: string,
+  limit: number,
+  leaseSeconds = 30,
+): Promise<ClaimedMediaSourceWork[]> {
+  if (!Number.isSafeInteger(limit) || limit < 1 || limit > 32) throw new TypeError('invalid media source drain claim limit')
+  if (!Number.isSafeInteger(leaseSeconds) || leaseSeconds < 5 || leaseSeconds > 300) throw new TypeError('invalid media source lease')
+  return database.$queryRaw<ClaimedMediaSourceWork[]>`
+    WITH candidate AS (
+      SELECT work."id"
+      FROM "MediaSourceWork" work
+      WHERE work."status" = 'DRAINING'
+        AND (work."leaseExpiresAt" IS NULL OR work."leaseExpiresAt" < CURRENT_TIMESTAMP)
+      ORDER BY work."updatedAt" ASC, work."id" ASC
+      FOR UPDATE SKIP LOCKED
+      LIMIT ${limit}
+    ), claimed AS (
+      UPDATE "MediaSourceWork" work
+      SET
+        "leaseOwner" = ${owner},
+        "leaseExpiresAt" = CURRENT_TIMESTAMP + (${leaseSeconds} * INTERVAL '1 second'),
+        "lastHeartbeatAt" = CURRENT_TIMESTAMP,
+        "updatedAt" = CURRENT_TIMESTAMP
+      FROM candidate
+      WHERE work."id" = candidate."id"
+      RETURNING work.*
+    )
+    SELECT
+      claimed."id",
+      claimed."captureSessionId",
+      claimed."sourceKind",
+      claimed."sourceUrl",
+      claimed."importKey",
+      claimed."attempts",
+      claimed."status",
+      claimed."segmentBaseAt",
+      claimed."resumeSegmentIndex",
+      claimed."resumeCaptureTimeUs",
+      capture."ingestPath",
+      capture."sourceKind" AS "captureSourceKind",
+      capture."sourceDurationUs" AS "captureSourceDurationUs"
     FROM claimed
     JOIN "CaptureSession" capture ON capture."id" = claimed."captureSessionId"
   `
