@@ -9,7 +9,7 @@ e7a6df94ed9f318be53b29c5b7da58c0b45f6446357bed618b7de96fc2bdd156  ./.dockerignor
 b395c52a1ad69331d58e5d8b5be82f34bcd337996b1c81fa6ef77c05ea1cb8cf  ./.github/workflows/release.yml
 2b5b7754fa1892b2c3e1c6e3873064bb7727122cb7938d03254f5c75ec96e6c3  ./.gitignore
 89bca2bb5b1d934901dfb58af0bc8ddd248710746043c55e2dc4bd36053d4629  ./.release-please-config.json
-5f2fad2ced4b17aba50a3070f44ce85ae1447e4aa6c16a787a9efcd5a744014b  ./.release-please-manifest.json
+35383d8ce40e34fb20748c10c007cf969ede4100b670d2b6b6721f9f969874e7  ./.release-please-manifest.json
 a632b384ee8a2d5138062fec7422dbc4f6f616827ca0fedb1489ce850bd98365  ./AGENTS.md
 7d8bce16c46787a57e6ec210e592fde913fef00f1fa4719828acebbf382940ac  ./CODEX_SOL_PROMPT.txt
 2a24c9293ee8102e1f876a99ca9c69fa27b3d4258dc15fa08e1b0d1bff31cd02  ./DELIVERY_MANIFEST.md
