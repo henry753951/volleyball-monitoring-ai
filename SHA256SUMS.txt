@@ -584,6 +584,7 @@ ecc383203ab1d25716b16df3cf43397763b7d3c1e6f72cd66b32f710ee26553a  ./worker/tests
 1ff2bfb6d2fed095b16b95e563c4beef13891a307e1376ed343e137915f4258e  ./worker/tests/resolvers.test.ts
 17d706ad7805027bfc4dfc7eed1d68726fa9f328ab62d217a72f6a77f42cd4d0  ./worker/tests/runtime-health.test.ts
 131cbd891dd1b749663929ed11737db6a93e1d7bd9d02c91ec6146db0fe17cca  ./worker/tests/source-process.test.ts
+5f13481faec9bf6f5be5c88149993ec71606da2d0c3eff4b9816bdbeb51c3e6d  ./worker/tests/source-spool-cleanup.test.ts
 eefb7a5ec01c9a9f25cb14a083bb82067054efe231753f98ffd25ad01325ed26  ./worker/tests/source-work.test.ts
 a6576b496cd75f5ebda32f4592ee1e951eac5f066f611db53be0ff1fe67e6343  ./worker/tests/worker-role.test.ts
 8dec466308bc77a9c561462206386437ef115aae75fd352f5b0ed3c56ccdfc4e  ./worker/tests/workflow-composition.test.ts
