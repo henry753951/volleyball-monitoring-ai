@@ -4,6 +4,7 @@ import { mediaSourceRetryDelay } from '../src/media/source-runtime.js'
 import {
   claimDrainingMediaSourceWork,
   claimMediaSourceWork,
+  listCompletedMediaSpoolCandidates,
 } from '../src/media/source-work.js'
 
 function queryRecorder() {
@@ -35,5 +36,16 @@ describe('media source work scheduling', () => {
     expect(mediaSourceRetryDelay('YOUTUBE_UPCOMING', 100, 5)).toBe(30_000)
     expect(mediaSourceRetryDelay('MEDIA_COMMAND_FAILED', 4, 5)).toBe(8_000)
     expect(mediaSourceRetryDelay('MEDIA_COMMAND_FAILED', 5, 5)).toBeNull()
+  })
+
+  it('selects cleanup candidates only after every expected artifact is durable', async () => {
+    const recorded = queryRecorder()
+    await listCompletedMediaSpoolCandidates(recorded.database)
+    expect(recorded.queries[0]).toContain(`work."status" = 'COMPLETED'`)
+    expect(recorded.queries[0]).toContain(`capture."status" = 'FINISHED'`)
+    expect(recorded.queries[0]).toContain(`init."state" = 'READY'`)
+    expect(recorded.queries[0]).toContain(`media."state" = 'READY'`)
+    expect(recorded.queries[0]).toContain(`sample."state" = 'READY'`)
+    expect(recorded.queries[0]).toContain(`"MediaIngestFailure"`)
   })
 })

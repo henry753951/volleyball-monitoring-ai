@@ -1,5 +1,16 @@
 # Progress
 
+## 2026-08-12 — Durable S3 telemetry and completed-spool cleanup
+
+- MinIO capacity monitoring now supports the authenticated Prometheus v3 endpoint through an
+  optional bearer token; the token remains runtime-only and is never returned in operations data.
+- Completed media-source spools are removed only after the capture and source work are terminal,
+  every expected DVR segment has three checksum-bearing READY S3 artifacts, and no ingest failure
+  exists. Unsafe or nested paths are rejected before filesystem removal.
+- Existing HSULab data was audited before cleanup: PostgreSQL and MinIO both reported 46,365
+  `dvr-media` objects totaling 27,239,755,178 bytes. Seven finished local spools totaling
+  26,892,543,835 bytes were then removed without changing the S3 object count or bytes.
+
 ## 2026-08-10 — Match roster positions and Prompt import v2
 
 - Added match-scoped roster positions (`OH`, `MB`, `OPP`, `S`, `L`, `DS`) with Traditional Chinese

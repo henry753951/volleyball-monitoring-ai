@@ -67,7 +67,12 @@ configureCoachAnalyticsGraphQL(matchId => coachMatchEvents.publish(matchId, 'ide
 const hostStorageProbe = createHostStorageProbe(
   process.env.MEDIA_RECORDING_ROOT ?? '/var/lib/volleyball/media-recordings',
 )
-const objectStorageProbe = createMinioStorageProbe(minioEndpoint ?? '')
+const objectStorageProbe = createMinioStorageProbe(
+  minioEndpoint ?? '',
+  fetch,
+  1_500,
+  process.env.MINIO_METRICS_BEARER_TOKEN?.trim() ?? '',
+)
 const deploymentProbe = createKubernetesDeploymentProbe()
 const mediaObjectRemover = createMediaObjectRemoverFromEnv()
 const matchCleanupCoordinator = createMatchCleanupCoordinator({
