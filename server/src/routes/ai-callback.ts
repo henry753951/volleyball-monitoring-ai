@@ -128,11 +128,17 @@ function loadJob(aiJobId: string) {
 
 export interface AiCallbackRouteDependencies {
   progress?: AiProgressService
+  onAnalysisStateChanged?: (matchId: string) => void | Promise<void>
 }
 
 export const aiCallbackRoutesWithDependencies = (
   dependencies: AiCallbackRouteDependencies = {},
 ): FastifyPluginAsync => async (app) => {
+  async function notifyCoach(matchId: string) {
+    try { await dependencies.onAnalysisStateChanged?.(matchId) }
+    catch (error) { app.log.warn({ error, matchId }, 'Coach analysis invalidation failed') }
+  }
+
   app.post<{ Params: { aiJobId: string } }>('/api/v1/ai/callback/:aiJobId', async (request, reply) => {
     const aiJobId = request.params.aiJobId
     if (!uuid.test(aiJobId)) return reject(reply, 404, 'NOT_FOUND', 'AI job not found')
@@ -183,6 +189,7 @@ export const aiCallbackRoutesWithDependencies = (
           progress: typeof metadata.progress === 'number' ? metadata.progress : null,
           stage: typeof metadata.stage === 'string' ? metadata.stage : null,
         })
+        await notifyCoach(job.submission.rally.matchId)
         return reply.send(response)
       }
       if (kind === 'failed') {
@@ -198,6 +205,7 @@ export const aiCallbackRoutesWithDependencies = (
           stage: 'failed',
           error: failure,
         })
+        await notifyCoach(job.submission.rally.matchId)
         return reply.send(response)
       }
 
@@ -349,6 +357,7 @@ export const aiCallbackRoutesWithDependencies = (
         analysisId: String(result.analysis_id),
         analysisDataVersion: '1',
       })
+      await notifyCoach(job.submission.rally.matchId)
       return reply.send(response)
     }
     catch (error) {

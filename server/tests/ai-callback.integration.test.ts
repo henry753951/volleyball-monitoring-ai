@@ -46,6 +46,7 @@ const sha256 = (value: string) => createHash('sha256').update(value).digest('hex
 let app: FastifyInstance
 let db: typeof DatabaseClient
 let createdDatabase = false
+const invalidatedMatches: string[] = []
 
 function processingCallback(callbackId: string, overrides: Record<string, unknown> = {}) {
   return {
@@ -79,12 +80,14 @@ beforeAll(async () => {
     windowsHide: true,
   })
   db = (await import('@volleyball-monitoring/db')).db
-  const { aiCallbackRoutes } = await import('../src/routes/ai-callback.js')
+  const { aiCallbackRoutesWithDependencies } = await import('../src/routes/ai-callback.js')
   app = Fastify()
   await app.register(multipart, {
     limits: { fields: 4, files: 2, fileSize: 512 * 1024 * 1024, parts: 6 },
   })
-  await app.register(aiCallbackRoutes)
+  await app.register(aiCallbackRoutesWithDependencies({
+    onAnalysisStateChanged: (matchId) => { invalidatedMatches.push(matchId) },
+  }))
   await app.ready()
 
   await db.user.create({ data: { id: ids.operator, email: 'operator@callback.local', displayName: 'Operator' } })
@@ -140,6 +143,7 @@ afterAll(async () => {
 
 describe('AI callback route acceptance', () => {
   it('persists processing progress and returns the same receipt for an identical retry', async () => {
+    invalidatedMatches.length = 0
     const callbackId = randomUUID()
     const payload = processingCallback(callbackId)
     const first = await app.inject({ method: 'POST', url: `/api/v1/ai/callback/${ids.aiJob}`, headers: { authorization: `Bearer ${callbackToken}` }, payload })
@@ -151,6 +155,7 @@ describe('AI callback route acceptance', () => {
     await expect(db.aiCallbackReceipt.count({ where: { callbackId } })).resolves.toBe(1)
     await expect(db.aiJob.findUniqueOrThrow({ where: { id: ids.aiJob } })).resolves.toMatchObject({ status: 'RUNNING', progress: 0.5, stage: 'tracking' })
     await expect(db.rally.findUniqueOrThrow({ where: { id: ids.rally } })).resolves.toMatchObject({ processingStatus: 'AI_PROCESSING' })
+    expect(invalidatedMatches).toEqual([ids.match])
   })
 
   it('rejects reuse of a callback ID with a different payload', async () => {
