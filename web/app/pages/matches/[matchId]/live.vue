@@ -249,7 +249,7 @@ function handleDvrError(error: Error) {
    min-height: 0;
    display: grid;
    grid-template-rows: auto minmax(0, 1fr);
-   gap: 12px;
+   gap: 1px;
    overflow: hidden;
 }
 .score-ribbon {
@@ -258,10 +258,8 @@ function handleDvrError(error: Error) {
    grid-template-columns: 1fr 100px 1fr;
    align-items: center;
    overflow: hidden;
-   border-radius: 18px;
    background: #11151b;
    color: #fff;
-   box-shadow: 0 16px 36px #1118271f;
 }
 .score-ribbon__team {
    min-width: 0;
@@ -311,15 +309,13 @@ function handleDvrError(error: Error) {
    min-height: 0;
    display: grid;
    grid-template-columns: minmax(0, 1fr) clamp(230px, 24vw, 330px);
-   gap: 12px;
+   gap: 1px;
 }
 .live-video {
    position: relative;
    min-width: 0;
    overflow: hidden;
-   border-radius: 18px;
    background: #050608;
-   box-shadow: 0 18px 44px #0f172a24;
 }
 .live-video iframe {
    width: 100%;
@@ -365,9 +361,8 @@ function handleDvrError(error: Error) {
    display: grid;
    grid-template-rows: 48px minmax(0, 1fr);
    overflow: hidden;
-   border-radius: 18px;
    background: #fff;
-   box-shadow: 0 12px 34px #1822300d;
+   border-left: 1px solid #e2e6ea;
 }
 .live-feed__header {
    height: 48px;
