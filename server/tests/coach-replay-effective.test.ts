@@ -1,7 +1,28 @@
 import { describe, expect, it } from 'vitest'
-import { projectEffectiveReplayEvents } from '../src/services/coach-replay.js'
+import { projectEffectiveReplayEvents, projectReplayTrack } from '../src/services/coach-replay.js'
 
 describe('coach replay effective contact projection', () => {
+  it('keeps GID visible even before a roster player is assigned', () => {
+    const track = projectReplayTrack({
+      trackId: 7,
+      courtSide: 'LEFT',
+      firstFrame: 0n,
+      lastFrame: 120n,
+      meanConfidence: 0.9,
+      identityAssignments: [],
+      reidObservation: {
+        matchConfidence: 0.95,
+        identityRevision: 4n,
+        reidIdentity: { id: 'gid-1', label: 'G001' },
+      },
+    } as never)
+    expect(track).toMatchObject({
+      track_id: 7,
+      global_identity: { id: 'gid-1', label: 'G001', source: 'ai', confidence: 0.95, identity_revision: '4' },
+      identity: null,
+    })
+  })
+
   it('applies time and actor corrections without mutating raw inference', () => {
     const rawActor = {
       trackId: 1, observationFrameIndex: 10n, associationConfidence: 0.8,

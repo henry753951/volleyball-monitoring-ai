@@ -65,7 +65,7 @@ function analyticsFixture(): CoachMatchAnalytics {
         roster_entry_id: 'roster-1',
         identity_mapping_completed: false,
         gid_id: '2d9a44cc-21f2-4c02-a172-c4ca8aa00001',
-        gid_label: 'G-ALPHA',
+        gid_label: 'G001',
         identity_source: 'propagated',
         identity_confidence: 0.91,
         identity_revision: '4',
@@ -84,7 +84,7 @@ function analyticsFixture(): CoachMatchAnalytics {
         roster_entry_id: null,
         identity_mapping_completed: false,
         gid_id: '2d9a44cc-21f2-4c02-a172-c4ca8aa00002',
-        gid_label: 'G-BETA',
+        gid_label: 'G002',
         identity_source: 'ai',
         identity_confidence: 0.73,
         identity_revision: '4',
@@ -134,7 +134,8 @@ describe('AnnotationIdentityPanel ReID assignments', () => {
     await flushPromises()
 
     expect(wrapper.text()).toContain('沿用先前確認')
-    expect(wrapper.text()).toContain('G-ALPHA')
+    expect(wrapper.text()).toContain('T001')
+    expect(wrapper.text()).toContain('G001')
     expect(wrapper.text()).toContain('91%')
 
     const unassigned = wrapper.findAllComponents(UiPlayerCombobox)[1]!

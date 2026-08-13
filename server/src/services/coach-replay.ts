@@ -11,7 +11,25 @@ const replayClipSelect = {
 const replayAnalysisSelect = {
   id: true, analysisId: true, analysisVersion: true, producerName: true, producerBuildId: true, summary: true, reviewRevision: true,
   analysisDataManifest: { select: { fpsNum: true, fpsDen: true } },
-  tracks: { orderBy: { trackId: 'asc' }, select: { trackId: true, courtSide: true, firstFrame: true, lastFrame: true, meanConfidence: true, identityAssignments: { orderBy: { createdAt: 'desc' }, take: 1, select: { rosterEntry: { select: { id: true, jerseyNumber: true, position: true, displayNameSnapshot: true, player: { select: { name: true } } } } } } } },
+  tracks: { orderBy: { trackId: 'asc' }, select: {
+    trackId: true,
+    courtSide: true,
+    firstFrame: true,
+    lastFrame: true,
+    meanConfidence: true,
+    identityAssignments: { orderBy: { createdAt: 'desc' }, take: 1, select: {
+      source: true,
+      confidence: true,
+      identityRevision: true,
+      reidIdentity: { select: { id: true, label: true } },
+      rosterEntry: { select: { id: true, jerseyNumber: true, position: true, displayNameSnapshot: true, player: { select: { name: true } } } },
+    } },
+    reidObservation: { select: {
+      matchConfidence: true,
+      identityRevision: true,
+      reidIdentity: { select: { id: true, label: true } },
+    } },
+  } },
   contactEvents: { orderBy: { sequenceIndex: 'asc' }, select: { keyPointId: true, sourceKeyPointId: true, anchorOrigin: true, detectionConfidence: true, detectionEvidence: true, sequenceIndex: true, markerKind: true, isTerminal: true, anchorFrameIndex: true, resolvedFrameIndex: true, anchorTimeUs: true, associationState: true, ballState: true, ballFrameIndex: true, ballFrameX: true, ballFrameY: true, qualityFlags: true, actors: { select: { trackId: true, observationFrameIndex: true, associationConfidence: true, frameX1: true, frameY1: true, frameX2: true, frameY2: true, frameFootX: true, frameFootY: true, courtX: true, courtY: true, action: true } }, candidates: { orderBy: { rank: 'asc' }, select: { trackId: true, rank: true, confidence: true } }, representativePositions: { orderBy: { positionIndex: 'asc' }, select: { trackId: true, basis: true, courtX: true, courtY: true, confidence: true } } } },
   contactActorCorrections: { select: { keyPointId: true, trackId: true } },
   contactTimeCorrections: { select: { keyPointId: true, frameIndex: true } },
@@ -21,9 +39,36 @@ const replayAnalysisSelect = {
 
 type ReplayAnalysis = Prisma.AnalysisRunGetPayload<{ select: typeof replayAnalysisSelect }>
 type ReplayEvent = ReplayAnalysis['contactEvents'][number]
+type ReplayTrack = ReplayAnalysis['tracks'][number]
 
 function replayActor(actor: ReplayEvent['actors'][number]) {
   return { track_id: actor.trackId, observation_frame_index: actor.observationFrameIndex.toString(), association_confidence: actor.associationConfidence, frame_bbox: actor.frameX1 !== null && actor.frameY1 !== null && actor.frameX2 !== null && actor.frameY2 !== null ? { x1: actor.frameX1, y1: actor.frameY1, x2: actor.frameX2, y2: actor.frameY2 } : null, frame_foot_pos: actor.frameFootX !== null && actor.frameFootY !== null ? { x: actor.frameFootX, y: actor.frameFootY } : null, court_pos: actor.courtX !== null && actor.courtY !== null ? { x: actor.courtX, y: actor.courtY } : null, action: actor.action }
+}
+
+export function projectReplayTrack(track: ReplayTrack) {
+  const assignment = track.identityAssignments[0] ?? null
+  const rosterEntry = assignment?.rosterEntry ?? null
+  const globalIdentity = assignment?.reidIdentity ?? track.reidObservation?.reidIdentity ?? null
+  return {
+    track_id: track.trackId,
+    court_side: track.courtSide.toLowerCase(),
+    first_frame_index: track.firstFrame.toString(),
+    last_frame_index: track.lastFrame.toString(),
+    mean_confidence: track.meanConfidence,
+    global_identity: globalIdentity ? {
+      id: globalIdentity.id,
+      label: globalIdentity.label,
+      source: assignment?.source.toLowerCase() ?? 'ai',
+      confidence: assignment?.confidence ?? track.reidObservation?.matchConfidence ?? null,
+      identity_revision: (assignment?.identityRevision ?? track.reidObservation?.identityRevision)?.toString() ?? null,
+    } : null,
+    identity: rosterEntry ? {
+      roster_entry_id: rosterEntry.id,
+      jersey_number: rosterEntry.jerseyNumber,
+      position: rosterEntry.position,
+      name: rosterEntry.displayNameSnapshot ?? rosterEntry.player?.name ?? `#${rosterEntry.jerseyNumber}`,
+    } : null,
+  }
 }
 
 export function projectEffectiveReplayEvents(analysis: ReplayAnalysis) {
@@ -103,10 +148,10 @@ export async function getCoachRallyReplay(
   const effectiveEvents = analysis ? projectEffectiveReplayEvents(analysis) : []
   const effectiveEventById = new Map(effectiveEvents.map(event => [event.raw.keyPointId, event]))
   return {
-    schema_version: '1.1.0',
+    schema_version: '1.2.0',
     rally: { id: rally.id, match_id: rally.matchId, ordinal: rally.ordinal, processing_status: rally.processingStatus.toLowerCase(), set: { id: rally.set.id, number: rally.set.setNumber }, outcome: { score_resolution: submission.scoreResolutionState.toLowerCase(), scoring_court_side: submission.scoringCourtSide?.toLowerCase() ?? null, scoring_team: submission.scoringTeam }, left_team: submission.leftTeam, right_team: submission.rightTeam },
     submission: { id: submission.id, annotation_revision: submission.annotationRevision.toString(), submitted_at: submission.submittedAt.toISOString(), key_points: submission.keyPoints.map(point => { const mapping = mappingByPoint.get(point.id); return { id: point.id, sequence_index: point.sequenceIndex, marker_kind: point.markerKind.toLowerCase(), is_terminal: point.isTerminal, clip_pts: mapping?.clipPts.toString() ?? null, clip_time_us: mapping?.clipTimeUs.toString() ?? null, clip_frame_index: mapping?.clipFrameIndex.toString() ?? null } }) },
     clip: clip && clip.actualStartCaptureUs !== null && clip.actualEndCaptureUs !== null ? { id: clip.id, url: `/api/v1/analysis/rallies/${rally.id}/clip?clipJobId=${clip.id}`, duration_us: (clip.actualEndCaptureUs - clip.actualStartCaptureUs).toString(), fps: { num: rally.program.fpsNum, den: rally.program.fpsDen } } : null,
-    analysis: analysis ? { id: analysis.id, analysis_id: analysis.analysisId, version: analysis.analysisVersion, review_revision: analysis.reviewRevision.toString(), producer: { name: analysis.producerName, build_id: analysis.producerBuildId }, summary: analysis.summary, tracks: analysis.tracks.map(track => { const assignment = track.identityAssignments[0]?.rosterEntry; return { track_id: track.trackId, court_side: track.courtSide.toLowerCase(), first_frame_index: track.firstFrame.toString(), last_frame_index: track.lastFrame.toString(), mean_confidence: track.meanConfidence, identity: assignment ? { roster_entry_id: assignment.id, jersey_number: assignment.jerseyNumber, position: assignment.position, name: assignment.displayNameSnapshot ?? assignment.player?.name ?? `#${assignment.jerseyNumber}` } : null } }), contact_events: effectiveEvents.map(event => event.wire), paths: analysis.segments.map(segment => { const startEvent = effectiveEventById.get(segment.startKeyPointId); const endEvent = effectiveEventById.get(segment.endKeyPointId); return { id: segment.id, sequence_index: segment.sequenceIndex, start_key_point_id: segment.startKeyPointId, end_key_point_id: segment.endKeyPointId, start_frame_index: startEvent?.effectiveFrame.toString() ?? segment.startFrameIndex?.toString() ?? null, end_frame_index: endEvent?.effectiveFrame.toString() ?? segment.endFrameIndex?.toString() ?? null, render_state: segment.renderState.toLowerCase(), is_terminal_segment: segment.isTerminalSegment, quality_flags: startEvent || endEvent ? [...segment.qualityFlags, 'effective_contact_binding'] : segment.qualityFlags, start_court_positions: startEvent?.wire.representative_court_positions ?? segment.positions.filter(position => position.endpoint === 'START').map(position => ({ track_id: position.trackId, basis: position.basis, court_pos: { x: position.courtX, y: position.courtY }, confidence: position.confidence })), end_court_positions: endEvent?.wire.representative_court_positions ?? segment.positions.filter(position => position.endpoint === 'END').map(position => ({ track_id: position.trackId, basis: position.basis, court_pos: { x: position.courtX, y: position.courtY }, confidence: position.confidence })) } }) } : null,
+    analysis: analysis ? { id: analysis.id, analysis_id: analysis.analysisId, version: analysis.analysisVersion, review_revision: analysis.reviewRevision.toString(), producer: { name: analysis.producerName, build_id: analysis.producerBuildId }, summary: analysis.summary, tracks: analysis.tracks.map(projectReplayTrack), contact_events: effectiveEvents.map(event => event.wire), paths: analysis.segments.map(segment => { const startEvent = effectiveEventById.get(segment.startKeyPointId); const endEvent = effectiveEventById.get(segment.endKeyPointId); return { id: segment.id, sequence_index: segment.sequenceIndex, start_key_point_id: segment.startKeyPointId, end_key_point_id: segment.endKeyPointId, start_frame_index: startEvent?.effectiveFrame.toString() ?? segment.startFrameIndex?.toString() ?? null, end_frame_index: endEvent?.effectiveFrame.toString() ?? segment.endFrameIndex?.toString() ?? null, render_state: segment.renderState.toLowerCase(), is_terminal_segment: segment.isTerminalSegment, quality_flags: startEvent || endEvent ? [...segment.qualityFlags, 'effective_contact_binding'] : segment.qualityFlags, start_court_positions: startEvent?.wire.representative_court_positions ?? segment.positions.filter(position => position.endpoint === 'START').map(position => ({ track_id: position.trackId, basis: position.basis, court_pos: { x: position.courtX, y: position.courtY }, confidence: position.confidence })), end_court_positions: endEvent?.wire.representative_court_positions ?? segment.positions.filter(position => position.endpoint === 'END').map(position => ({ track_id: position.trackId, basis: position.basis, court_pos: { x: position.courtX, y: position.courtY }, confidence: position.confidence })) } }) } : null,
   }
 }

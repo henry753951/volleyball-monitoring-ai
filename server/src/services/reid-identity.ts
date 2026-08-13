@@ -50,6 +50,10 @@ export interface ReidCanonicalPosition {
   rallyOrdinal: number
 }
 
+interface ReidObservationPosition extends ReidCanonicalPosition {
+  firstFrame: bigint
+}
+
 export class ReidFeatureBankError extends Error {
   constructor(message: string) {
     super(message)
@@ -229,13 +233,13 @@ export function selectReidIdentityMatch(
   candidates: readonly ReidIdentityCandidate[],
   forbiddenIdentityIds: ReadonlySet<string> = new Set(),
 ): { identityId: string; similarity: number } | null {
-  const bestByIdentity = new Map<string, number>()
+  const completeLinkByIdentity = new Map<string, number>()
   for (const candidate of candidates) {
     if (forbiddenIdentityIds.has(candidate.identityId)) continue
     const similarity = cosineSimilarity(prototype, candidate.prototype)
-    bestByIdentity.set(candidate.identityId, Math.max(similarity, bestByIdentity.get(candidate.identityId) ?? -1))
+    completeLinkByIdentity.set(candidate.identityId, Math.min(similarity, completeLinkByIdentity.get(candidate.identityId) ?? 1))
   }
-  const ranked = [...bestByIdentity].map(([identityId, similarity]) => ({ identityId, similarity }))
+  const ranked = [...completeLinkByIdentity].map(([identityId, similarity]) => ({ identityId, similarity }))
     .sort((left, right) => right.similarity - left.similarity || left.identityId.localeCompare(right.identityId))
   const best = ranked[0]
   if (!best || best.similarity < REID_COSINE_THRESHOLD) return null
@@ -274,6 +278,35 @@ function canonicalBefore(position: ReidCanonicalPosition) {
   }
 }
 
+function observationAfter(position: ReidObservationPosition) {
+  return {
+    OR: [
+      { setNumber: { gt: position.setNumber } },
+      { setNumber: position.setNumber, rallyOrdinal: { gt: position.rallyOrdinal } },
+      { setNumber: position.setNumber, rallyOrdinal: position.rallyOrdinal, firstFrame: { gt: position.firstFrame } },
+    ],
+  }
+}
+
+function observationBefore(position: ReidObservationPosition) {
+  return {
+    OR: [
+      { setNumber: { lt: position.setNumber } },
+      { setNumber: position.setNumber, rallyOrdinal: { lt: position.rallyOrdinal } },
+      { setNumber: position.setNumber, rallyOrdinal: position.rallyOrdinal, firstFrame: { lt: position.firstFrame } },
+    ],
+  }
+}
+
+const activeObservationScope = {
+  track: {
+    analysisRun: {
+      supersededAt: null,
+      submission: { activeForRally: { isNot: null } },
+    },
+  },
+} as const
+
 async function latestBinding(tx: TransactionClient, reidIdentityId: string, position: ReidCanonicalPosition) {
   return tx.reidPlayerBinding.findFirst({
     where: {
@@ -287,7 +320,19 @@ async function latestBinding(tx: TransactionClient, reidIdentityId: string, posi
   })
 }
 
-function identityData(input: { matchId: string; teamId: string; model: ReidEmbeddingModel; revision: bigint }) {
+async function nextReidIdentityLabel(tx: TransactionClient, matchId: string, modelNamespace: string) {
+  const identities = await tx.reidIdentity.findMany({
+    where: { matchId, modelNamespace },
+    select: { label: true },
+  })
+  const next = identities.reduce((maximum, identity) => {
+    const matched = /^G([0-9]+)$/.exec(identity.label)
+    return matched ? Math.max(maximum, Number(matched[1])) : maximum
+  }, 0) + 1
+  return `G${String(next).padStart(3, '0')}`
+}
+
+async function identityData(tx: TransactionClient, input: { matchId: string; teamId: string; model: ReidEmbeddingModel; revision: bigint }) {
   const id = randomUUID()
   return {
     id,
@@ -301,10 +346,178 @@ function identityData(input: { matchId: string; teamId: string; model: ReidEmbed
       modelPreprocessVersion: input.model.preprocessVersion,
       modelDimension: input.model.dimension,
       modelDistance: input.model.distance,
-      label: `GID-${id.slice(0, 8).toUpperCase()}`,
+      label: await nextReidIdentityLabel(tx, input.matchId, input.model.namespace),
       createdRevision: input.revision,
     },
   }
+}
+
+function storedEmbeddingModel(input: {
+  modelNamespace: string
+  modelName: string
+  modelCheckpointSha256: string
+  modelPreprocessVersion: string
+  modelDimension: number
+  modelDistance: string
+}): ReidEmbeddingModel {
+  if (input.modelName !== 'sports-osnet' || input.modelDimension !== 512 || input.modelDistance !== 'cosine') {
+    throw new ReidFeatureBankError('stored ReID model metadata is incompatible')
+  }
+  return {
+    namespace: input.modelNamespace,
+    name: input.modelName,
+    checkpointSha256: input.modelCheckpointSha256,
+    preprocessVersion: input.modelPreprocessVersion,
+    dimension: input.modelDimension,
+    distance: input.modelDistance,
+  }
+}
+
+async function propagateBindingToObservation(
+  tx: TransactionClient,
+  input: {
+    analysisRunId: string
+    trackId: number
+    matchConfidence: number | null
+    reidIdentityId: string
+    binding: { id: string; rosterEntryId: string | null }
+    revision: bigint
+  },
+) {
+  if (!input.binding.rosterEntryId) return false
+  const existing = await tx.trackIdentityAssignment.findUnique({
+    where: { analysisRunId_trackId: { analysisRunId: input.analysisRunId, trackId: input.trackId } },
+    select: { source: true },
+  })
+  if (existing?.source === IdentitySource.MANUAL) return false
+  await tx.trackIdentityAssignment.upsert({
+    where: { analysisRunId_trackId: { analysisRunId: input.analysisRunId, trackId: input.trackId } },
+    create: {
+      analysisRunId: input.analysisRunId,
+      trackId: input.trackId,
+      rosterEntryId: input.binding.rosterEntryId,
+      source: IdentitySource.PROPAGATED,
+      confidence: input.matchConfidence,
+      reidIdentityId: input.reidIdentityId,
+      reidBindingId: input.binding.id,
+      identityRevision: input.revision,
+    },
+    update: {
+      rosterEntryId: input.binding.rosterEntryId,
+      source: IdentitySource.PROPAGATED,
+      assignedByUserId: null,
+      confidence: input.matchConfidence,
+      reidIdentityId: input.reidIdentityId,
+      reidBindingId: input.binding.id,
+      identityRevision: input.revision,
+    },
+  })
+  return true
+}
+
+async function reconcileFutureReidObservations(
+  tx: TransactionClient,
+  input: {
+    matchId: string
+    modelNamespace: string
+    from: ReidObservationPosition
+    revision: bigint
+    preferredIdentityId?: string | null
+  },
+) {
+  const future = await tx.reidFeatureObservation.findMany({
+    where: {
+      matchId: input.matchId,
+      modelNamespace: input.modelNamespace,
+      teamId: { not: null },
+      reidIdentityId: { not: null },
+      ...activeObservationScope,
+      ...observationAfter(input.from),
+    },
+    orderBy: [{ setNumber: 'asc' }, { rallyOrdinal: 'asc' }, { firstFrame: 'asc' }, { trackId: 'asc' }],
+    select: {
+      id: true,
+      analysisRunId: true,
+      trackId: true,
+      teamId: true,
+      reidIdentityId: true,
+      prototype: true,
+      cannotLinkTrackIds: true,
+      setNumber: true,
+      rallyOrdinal: true,
+      firstFrame: true,
+      matchConfidence: true,
+    },
+  })
+  let reassociatedCount = 0
+  let propagatedCount = 0
+  const reassociatedObservationIds: string[] = []
+  for (const candidate of future) {
+    if (!candidate.teamId || !candidate.reidIdentityId) continue
+    const manualAssignment = await tx.trackIdentityAssignment.findUnique({
+      where: { analysisRunId_trackId: { analysisRunId: candidate.analysisRunId, trackId: candidate.trackId } },
+      select: { source: true },
+    })
+    if (manualAssignment?.source === IdentitySource.MANUAL) continue
+    const currentBinding = await tx.reidPlayerBinding.findFirst({
+      where: { reidIdentityId: candidate.reidIdentityId, rosterEntryId: { not: null } },
+      select: { id: true },
+    })
+    if (currentBinding && candidate.reidIdentityId !== input.preferredIdentityId) continue
+
+    const candidatePosition = { setNumber: candidate.setNumber, rallyOrdinal: candidate.rallyOrdinal, firstFrame: candidate.firstFrame }
+    const [history, forbiddenObservations] = await Promise.all([
+      tx.reidFeatureObservation.findMany({
+        where: {
+          matchId: input.matchId,
+          teamId: candidate.teamId,
+          modelNamespace: input.modelNamespace,
+          reidIdentityId: { not: null },
+          ...activeObservationScope,
+          ...observationBefore(candidatePosition),
+        },
+        select: { reidIdentityId: true, prototype: true },
+      }),
+      tx.reidFeatureObservation.findMany({
+        where: {
+          analysisRunId: candidate.analysisRunId,
+          reidIdentityId: { not: null },
+          OR: [
+            { trackId: { in: candidate.cannotLinkTrackIds } },
+            { cannotLinkTrackIds: { has: candidate.trackId } },
+          ],
+        },
+        select: { reidIdentityId: true },
+      }),
+    ])
+    const forbidden = new Set(forbiddenObservations.flatMap(item => item.reidIdentityId ? [item.reidIdentityId] : []))
+    const matched = selectReidIdentityMatch(
+      decodeFloat32Le(candidate.prototype),
+      history.flatMap(item => item.reidIdentityId ? [{ identityId: item.reidIdentityId, prototype: decodeFloat32Le(item.prototype) }] : []),
+      forbidden,
+    )
+    if (!matched || (input.preferredIdentityId && matched.identityId !== input.preferredIdentityId)) continue
+    if (matched.identityId !== candidate.reidIdentityId) {
+      await tx.reidFeatureObservation.update({
+        where: { id: candidate.id },
+        data: { reidIdentityId: matched.identityId, matchConfidence: matched.similarity, identityRevision: input.revision },
+      })
+      candidate.reidIdentityId = matched.identityId
+      candidate.matchConfidence = matched.similarity
+      reassociatedCount += 1
+      reassociatedObservationIds.push(candidate.id)
+    }
+    const binding = await latestBinding(tx, matched.identityId, candidatePosition)
+    if (binding && await propagateBindingToObservation(tx, {
+      analysisRunId: candidate.analysisRunId,
+      trackId: candidate.trackId,
+      matchConfidence: candidate.matchConfidence,
+      reidIdentityId: matched.identityId,
+      binding,
+      revision: input.revision,
+    })) propagatedCount += 1
+  }
+  return { reassociatedCount, propagatedCount, reassociatedObservationIds }
 }
 
 export async function ingestReidFeatureBank(
@@ -356,6 +569,7 @@ export async function ingestReidFeatureBank(
             teamId,
             modelNamespace: model.namespace,
             reidIdentityId: { not: null },
+            ...activeObservationScope,
             ...canonicalBefore(position),
           },
           select: { reidIdentityId: true, prototype: true },
@@ -373,7 +587,7 @@ export async function ingestReidFeatureBank(
         reidIdentityId = matched.identityId
         matchConfidence = matched.similarity
       } else {
-        const created = identityData({ matchId: input.matchId, teamId, model, revision })
+        const created = await identityData(tx, { matchId: input.matchId, teamId, model, revision })
         await tx.reidIdentity.create({ data: created.data })
         reidIdentityId = created.id
       }
@@ -411,34 +625,29 @@ export async function ingestReidFeatureBank(
     if (!reidIdentityId) continue
     const binding = await latestBinding(tx, reidIdentityId, position)
     if (!binding?.rosterEntryId) continue
-    const existing = await tx.trackIdentityAssignment.findUnique({ where: { analysisRunId_trackId: { analysisRunId: input.analysisRunId, trackId: feature.trackId } }, select: { source: true } })
-    if (existing?.source === IdentitySource.MANUAL) continue
-    await tx.trackIdentityAssignment.upsert({
-      where: { analysisRunId_trackId: { analysisRunId: input.analysisRunId, trackId: feature.trackId } },
-      create: {
-        analysisRunId: input.analysisRunId,
-        trackId: feature.trackId,
-        rosterEntryId: binding.rosterEntryId,
-        source: IdentitySource.PROPAGATED,
-        confidence: matchConfidence,
-        reidIdentityId,
-        reidBindingId: binding.id,
-        identityRevision: revision,
-      },
-      update: {
-        rosterEntryId: binding.rosterEntryId,
-        source: IdentitySource.PROPAGATED,
-        assignedByUserId: null,
-        confidence: matchConfidence,
-        reidIdentityId,
-        reidBindingId: binding.id,
-        identityRevision: revision,
-      },
-    })
-    propagatedCount += 1
+    if (await propagateBindingToObservation(tx, {
+      analysisRunId: input.analysisRunId,
+      trackId: feature.trackId,
+      matchConfidence,
+      reidIdentityId,
+      binding,
+      revision,
+    })) propagatedCount += 1
     void observation
   }
-  return { identityRevision: revision, observationCount: features.length, propagatedCount }
+  const earliestFrame = ordered.reduce((minimum, item) => item.feature.firstFrame < minimum ? item.feature.firstFrame : minimum, ordered[0]!.feature.firstFrame)
+  const reconciled = await reconcileFutureReidObservations(tx, {
+    matchId: input.matchId,
+    modelNamespace: model.namespace,
+    from: { ...position, firstFrame: earliestFrame - 1n },
+    revision,
+  })
+  return {
+    identityRevision: revision,
+    observationCount: features.length,
+    propagatedCount: propagatedCount + reconciled.propagatedCount,
+    reassociatedCount: reconciled.reassociatedCount,
+  }
 }
 
 export function parseReidIdentityMode(value: unknown): ReidIdentityMode {
@@ -478,40 +687,26 @@ export async function applyManualReidDecision(
   let targetIdentityId = sourceIdentityId
   let reassociatedObservationIds: string[] = []
   if (observation && !observation.reidIdentity) {
-    const id = randomUUID()
-    await tx.reidIdentity.create({ data: {
-      id,
+    const created = await identityData(tx, {
       matchId: input.matchId,
       teamId: input.teamId,
-      modelNamespace: observation.modelNamespace,
-      modelName: observation.modelName,
-      modelCheckpointSha256: observation.modelCheckpointSha256,
-      modelPreprocessVersion: observation.modelPreprocessVersion,
-      modelDimension: observation.modelDimension,
-      modelDistance: observation.modelDistance,
-      label: `GID-${id.slice(0, 8).toUpperCase()}`,
-      createdRevision: revision,
-    } })
-    targetIdentityId = id
-    await tx.reidFeatureObservation.update({ where: { id: observation.id }, data: { teamId: input.teamId, reidIdentityId: id, identityRevision: revision, matchConfidence: null } })
+      model: storedEmbeddingModel(observation),
+      revision,
+    })
+    await tx.reidIdentity.create({ data: created.data })
+    targetIdentityId = created.id
+    await tx.reidFeatureObservation.update({ where: { id: observation.id }, data: { teamId: input.teamId, reidIdentityId: created.id, identityRevision: revision, matchConfidence: null } })
   } else if (input.mode === 'split_identity' && observation?.reidIdentity) {
     const source = observation.reidIdentity
-    const id = randomUUID()
-    await tx.reidIdentity.create({ data: {
-      id,
+    const created = await identityData(tx, {
       matchId: source.matchId,
       teamId: source.teamId,
-      modelNamespace: source.modelNamespace,
-      modelName: source.modelName,
-      modelCheckpointSha256: source.modelCheckpointSha256,
-      modelPreprocessVersion: source.modelPreprocessVersion,
-      modelDimension: source.modelDimension,
-      modelDistance: source.modelDistance,
-      label: `GID-${id.slice(0, 8).toUpperCase()}`,
-      createdRevision: revision,
-    } })
-    targetIdentityId = id
-    await tx.reidFeatureObservation.update({ where: { id: observation.id }, data: { reidIdentityId: id, identityRevision: revision, matchConfidence: null } })
+      model: storedEmbeddingModel(source),
+      revision,
+    })
+    await tx.reidIdentity.create({ data: created.data })
+    targetIdentityId = created.id
+    await tx.reidFeatureObservation.update({ where: { id: observation.id }, data: { reidIdentityId: created.id, identityRevision: revision, matchConfidence: null } })
 
     const [sourceReferences, laterSourceObservations] = await Promise.all([
       tx.reidFeatureObservation.findMany({
@@ -527,11 +722,11 @@ export async function applyManualReidDecision(
     const referenceCandidates: ReidIdentityCandidate[] = sourceReferences.map(item => ({ identityId: source.id, prototype: decodeFloat32Le(item.prototype) }))
     for (const candidate of laterSourceObservations) {
       const match = selectReidIdentityMatch(decodeFloat32Le(candidate.prototype), [
-        { identityId: id, prototype: currentPrototype },
+        { identityId: created.id, prototype: currentPrototype },
         ...referenceCandidates,
       ])
-      if (match?.identityId !== id) continue
-      await tx.reidFeatureObservation.update({ where: { id: candidate.id }, data: { reidIdentityId: id, identityRevision: revision, matchConfidence: match.similarity } })
+      if (match?.identityId !== created.id) continue
+      await tx.reidFeatureObservation.update({ where: { id: candidate.id }, data: { reidIdentityId: created.id, identityRevision: revision, matchConfidence: match.similarity } })
       reassociatedObservationIds.push(candidate.id)
     }
   }
@@ -548,6 +743,20 @@ export async function applyManualReidDecision(
       identityRevision: revision,
       assignedByUserId: input.userId,
     }, select: { id: true } })
+  }
+
+  if (binding && targetIdentityId && observation) {
+    const reconciled = await reconcileFutureReidObservations(tx, {
+      matchId: input.matchId,
+      modelNamespace: observation.modelNamespace,
+      from: {
+        ...input.position,
+        firstFrame: (observation.firstFrame as bigint | undefined) ?? 0n,
+      },
+      revision,
+      preferredIdentityId: targetIdentityId,
+    })
+    reassociatedObservationIds = [...new Set([...reassociatedObservationIds, ...reconciled.reassociatedObservationIds])]
   }
 
   await tx.reidCorrectionEvent.create({ data: {

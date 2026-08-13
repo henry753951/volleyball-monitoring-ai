@@ -41,6 +41,7 @@ const groups = computed(() => [
       track,
       active: assignment.view.model.activeTrackIds.has(track.track_id),
       status: assignment.view.model.track.status(track),
+      tidLabel: assignment.view.model.track.tidLabel(track),
       gidLabel: assignment.view.model.track.gidLabel(track),
       options: assignment.view.model.options.forTrack({ teamId: group.teamId, trackId: track.track_id }),
     })),
@@ -62,11 +63,11 @@ function toggleComplete() {
         <p v-if="!group.rows.length">沒有追蹤球員</p>
         <template v-for="row in group.rows" :key="row.track.track_id">
           <label :class="{ focused: focusedTrackId === row.track.track_id }">
-            <code><span>T{{ String(row.track.track_id).padStart(2, '0') }}</span><i :class="{ active: row.active }">{{ row.active ? '畫面中' : '未出現' }}</i><small v-if="row.gidLabel">{{ row.gidLabel }}</small></code>
+            <code><span>{{ row.tidLabel }}</span><i :class="{ active: row.active }">{{ row.active ? '畫面中' : '未出現' }}</i><small>{{ row.gidLabel }}</small></code>
             <span class="identity-control">
               <span class="identity-state" :data-tone="row.status.tone"><ShieldCheck v-if="['manual', 'propagated'].includes(row.status.tone)" :size="11" /><CircleHelp v-else :size="11" />{{ row.status.label }}<small v-if="row.track.identity_confidence != null">{{ Math.round(row.track.identity_confidence * 100) }}%</small></span>
               <span class="identity-select">
-                <UiPlayerCombobox :model-value="row.track.roster_entry_id ?? ''" :options="row.options" :disabled="assignment.state.savingTrackId === row.track.track_id" :aria-label="`指派 T${row.track.track_id} 的球員`" @update:model-value="assignment.actions.requestAssignment({ trackId: row.track.track_id, rosterEntryId: $event })">
+                <UiPlayerCombobox :model-value="row.track.roster_entry_id ?? ''" :options="row.options" :disabled="assignment.state.savingTrackId === row.track.track_id" :aria-label="`指派 ${row.tidLabel} ${row.gidLabel} 的球員`" @update:model-value="assignment.actions.requestAssignment({ trackId: row.track.track_id, rosterEntryId: $event })">
                   <template #preview="{ option }"><PlayerIdentityPreview v-if="assignment.view.model.players.byRosterEntry(option.value)" :match-id="matchId" :roster-entry-id="option.value" :player-name="assignment.view.model.players.byRosterEntry(option.value)!.name" :jersey-number="assignment.view.model.players.byRosterEntry(option.value)!.jersey_number" :tracks="assignment.state.analytics?.tracks ?? []" :analysis-run-id="analysisRunId" :track-id="row.track.track_id" /></template>
                 </UiPlayerCombobox>
                 <LoaderCircle v-if="assignment.state.savingTrackId === row.track.track_id" class="spin" :size="14" />

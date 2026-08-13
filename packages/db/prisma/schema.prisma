@@ -1386,7 +1386,7 @@ model ReidIdentity {
   sourceCorrections      ReidCorrectionEvent[]     @relation("ReidCorrectionSource")
   targetCorrections      ReidCorrectionEvent[]     @relation("ReidCorrectionTarget")
 
-  @@unique([matchId, teamId, modelNamespace, label])
+  @@unique([matchId, modelNamespace, label])
   @@index([matchId, teamId, modelNamespace, createdAt])
 }
 

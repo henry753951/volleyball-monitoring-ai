@@ -104,7 +104,7 @@ describe('ReID feature bank validation', () => {
     const tx = {
       $queryRaw: vi.fn().mockResolvedValue([{ id: 'match-1' }]),
       match: { update: vi.fn().mockResolvedValue({ identityRevision: 2n }) },
-      reidIdentity: { create: vi.fn().mockResolvedValue({}) },
+      reidIdentity: { findMany: vi.fn().mockResolvedValue([]), create: vi.fn().mockResolvedValue({}) },
       reidFeatureObservation: {
         findMany: vi.fn().mockResolvedValue([]),
         create: vi.fn().mockResolvedValue({ id: 'observation-1' }),
@@ -118,9 +118,97 @@ describe('ReID feature bank validation', () => {
     expect(tx.reidFeatureObservation.findMany).toHaveBeenCalledWith({
       where: expect.objectContaining({
         matchId: 'match-1', teamId: 'team-left',
+        track: { analysisRun: { supersededAt: null, submission: { activeForRally: { isNot: null } } } },
         OR: [{ setNumber: { lt: 2 } }, { setNumber: 2, rallyOrdinal: { lt: 4 } }],
       }),
       select: { reidIdentityId: true, prototype: true },
+    })
+  })
+
+  it('uses complete-link scoring across every prototype in one GID', () => {
+    const prototypeAt = (similarity: number) => [similarity, Math.sqrt(1 - similarity * similarity), ...Array.from({ length: 510 }, () => 0)]
+    expect(selectReidIdentityMatch(unitPrototype(), [
+      { identityId: 'gid-a', prototype: unitPrototype() },
+      { identityId: 'gid-a', prototype: prototypeAt(0.9) },
+      { identityId: 'gid-b', prototype: prototypeAt(0.95) },
+    ])).toMatchObject({ identityId: 'gid-b', similarity: 0.95 })
+  })
+
+  it('carries the confirmed player to a returning track with a new TID', async () => {
+    const featureBank = parseReidFeatureBankExtension(resultWithFeatureBank())!
+    const binding = { id: 'binding-1', rosterEntryId: 'roster-9' }
+    const tx = {
+      $queryRaw: vi.fn().mockResolvedValue([{ id: 'match-1' }]),
+      match: { update: vi.fn().mockResolvedValue({ identityRevision: 3n }) },
+      reidFeatureObservation: {
+        findMany: vi.fn()
+          .mockResolvedValueOnce([{ reidIdentityId: 'gid-player-9', prototype: encodeFloat32Le(unitPrototype()) }])
+          .mockResolvedValueOnce([])
+          .mockResolvedValueOnce([]),
+        create: vi.fn().mockResolvedValue({ id: 'returning-observation' }),
+      },
+      reidPlayerBinding: { findFirst: vi.fn().mockResolvedValue(binding) },
+      trackIdentityAssignment: {
+        findUnique: vi.fn().mockResolvedValue(null),
+        upsert: vi.fn().mockResolvedValue({}),
+      },
+    }
+
+    const result = await ingestReidFeatureBank(tx as never, {
+      analysisRunId: 'run-returning',
+      matchId: 'match-1',
+      leftTeamId: 'team-left',
+      rightTeamId: 'team-right',
+      setNumber: 2,
+      rallyOrdinal: 5,
+      featureBank,
+    })
+
+    expect(result.propagatedCount).toBe(1)
+    expect(tx.trackIdentityAssignment.upsert).toHaveBeenCalledWith(expect.objectContaining({
+      create: expect.objectContaining({
+        analysisRunId: 'run-returning',
+        trackId: 7,
+        rosterEntryId: 'roster-9',
+        reidIdentityId: 'gid-player-9',
+        reidBindingId: 'binding-1',
+        source: 'PROPAGATED',
+      }),
+    }))
+  })
+
+  it('reconciles a later rally that was persisted before an earlier callback arrived', async () => {
+    const featureBank = parseReidFeatureBankExtension(resultWithFeatureBank())!
+    const futurePrototype = encodeFloat32Le(unitPrototype())
+    let createdIdentityId = ''
+    const tx = {
+      $queryRaw: vi.fn().mockResolvedValue([{ id: 'match-1' }]),
+      match: { update: vi.fn().mockResolvedValue({ identityRevision: 3n }) },
+      reidIdentity: {
+        findMany: vi.fn().mockResolvedValue([{ label: 'G001' }]),
+        create: vi.fn().mockImplementation(({ data }) => { createdIdentityId = data.id; return Promise.resolve({}) }),
+      },
+      reidFeatureObservation: {
+        findMany: vi.fn()
+          .mockResolvedValueOnce([])
+          .mockResolvedValueOnce([{
+            id: 'future-observation', analysisRunId: 'run-future', trackId: 9, teamId: 'team-left', reidIdentityId: 'gid-future',
+            prototype: futurePrototype, cannotLinkTrackIds: [], setNumber: 2, rallyOrdinal: 5, firstFrame: 1n, matchConfidence: null,
+          }])
+          .mockImplementationOnce(() => Promise.resolve([{ reidIdentityId: createdIdentityId, prototype: futurePrototype }]))
+          .mockResolvedValueOnce([]),
+        create: vi.fn().mockResolvedValue({ id: 'earlier-observation' }),
+        update: vi.fn().mockResolvedValue({}),
+      },
+      reidPlayerBinding: { findFirst: vi.fn().mockResolvedValue(null) },
+      trackIdentityAssignment: { findUnique: vi.fn().mockResolvedValue(null), upsert: vi.fn() },
+    }
+    await ingestReidFeatureBank(tx as never, { analysisRunId: 'run-earlier', matchId: 'match-1', leftTeamId: 'team-left', rightTeamId: 'team-right', setNumber: 2, rallyOrdinal: 4, featureBank })
+
+    expect(tx.reidIdentity.create.mock.calls[0]![0].data.label).toBe('G002')
+    expect(tx.reidFeatureObservation.update).toHaveBeenCalledWith({
+      where: { id: 'future-observation' },
+      data: expect.objectContaining({ reidIdentityId: createdIdentityId, matchConfidence: 1, identityRevision: 3n }),
     })
   })
 })
@@ -135,7 +223,7 @@ describe('manual ReID decisions', () => {
     const tx = {
       $queryRaw: vi.fn().mockResolvedValue([{ id: 'match-1' }]),
       match: { update: vi.fn().mockResolvedValue({ identityRevision: 9n }) },
-      reidIdentity: { create: vi.fn().mockResolvedValue({}) },
+      reidIdentity: { findMany: vi.fn().mockResolvedValue([]), create: vi.fn().mockResolvedValue({}) },
       reidFeatureObservation: {
         findUnique: vi.fn().mockResolvedValue(observation),
         update: vi.fn().mockResolvedValue({}),
@@ -150,6 +238,7 @@ describe('manual ReID decisions', () => {
 
     expect(decision.reidIdentityId).toEqual(expect.any(String))
     expect(tx.reidIdentity.create).toHaveBeenCalledWith({ data: expect.objectContaining({ matchId: 'match-1', teamId: 'team-left', modelNamespace: 'namespace-1' }) })
+    expect(tx.reidIdentity.create).toHaveBeenCalledWith({ data: expect.objectContaining({ label: 'G001' }) })
     expect(tx.reidFeatureObservation.update).toHaveBeenCalledWith({ where: { id: 'observation-1' }, data: expect.objectContaining({ teamId: 'team-left', reidIdentityId: decision.reidIdentityId }) })
     expect(tx.reidPlayerBinding.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ effectiveFromSetNumber: 2, effectiveFromRallyOrdinal: 4, sourceObservationId: 'observation-1' }) }))
   })
@@ -166,7 +255,9 @@ describe('manual ReID decisions', () => {
       reidFeatureObservation: {
         findUnique: vi.fn().mockResolvedValue({ id: 'observation-current', reidIdentityId: identity.id, reidIdentity: identity }),
         update: vi.fn(),
-        findMany: vi.fn().mockResolvedValue([{ analysisRunId: 'run-1', trackId: 8, matchConfidence: 0.96 }]),
+        findMany: vi.fn()
+          .mockResolvedValueOnce([])
+          .mockResolvedValueOnce([{ analysisRunId: 'run-1', trackId: 8, matchConfidence: 0.96 }]),
       },
       reidPlayerBinding: { create: vi.fn().mockResolvedValue({ id: 'binding-1' }) },
       reidCorrectionEvent: { create: vi.fn().mockResolvedValue({}) },
@@ -196,13 +287,14 @@ describe('manual ReID decisions', () => {
     const tx = {
       $queryRaw: vi.fn().mockResolvedValue([{ id: 'match-1' }]),
       match: { update: vi.fn().mockResolvedValue({ identityRevision: 10n }) },
-      reidIdentity: { create: vi.fn().mockResolvedValue({}) },
+      reidIdentity: { findMany: vi.fn().mockResolvedValue([]), create: vi.fn().mockResolvedValue({}) },
       reidFeatureObservation: {
         findUnique: vi.fn().mockResolvedValue({ id: 'observation-current', prototype: encodeFloat32Le(unitPrototype()), reidIdentityId: 'gid-old', reidIdentity: sourceIdentity }),
         update: vi.fn().mockResolvedValue({}),
         findMany: vi.fn()
           .mockResolvedValueOnce([])
           .mockResolvedValueOnce([{ id: 'observation-later', prototype: encodeFloat32Le(unitPrototype()) }])
+          .mockResolvedValueOnce([])
           .mockResolvedValueOnce([{ analysisRunId: 'run-later', trackId: 11, matchConfidence: 1 }]),
       },
       reidPlayerBinding: { create: vi.fn().mockResolvedValue({ id: 'binding-new' }) },
