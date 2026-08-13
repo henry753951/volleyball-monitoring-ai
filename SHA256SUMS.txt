@@ -430,7 +430,9 @@ a644dbcf93a9ec1f44b576fcd6803ed857df1ff4f22da238ee5433e82378bf79  ./web/app/comp
 8f4e62425c432eac94b128c6ab74fb79568032713d54e09a4438bd0666ffbdb0  ./web/app/composables/useAuthoritativeDvrWindow.integration.test.ts
 ce37f5454b6179fdb0db0159c86c077f04a900e64baddd58e6ebcd25736b5366  ./web/app/composables/useAuthoritativeDvrWindow.test.ts
 1bceada688c18a28231346368a874c8d921c93cdff56ddeb81fc1dbb2d8d20bc  ./web/app/composables/useAuthoritativeDvrWindow.ts
+581dc100081f6e2c050fd3b74b9bc7360ba1394558f97eb4508b77a117059950  ./web/app/composables/useCoachAnalytics.ts
 433be910a0622b0b887a0251e9c13dae63fca75b19d08041f79a8cc972966efa  ./web/app/composables/useCoachMatchState.ts
+ad92d9880cb6c09b955508f5ba3b260ef2e6662a4adc40a29799a78387adb354  ./web/app/composables/useCoachRallyStatus.ts
 720e78ae4badec403fe5eac68c314354e7130ddc6f571c858a53e9ada5d5f92a  ./web/app/composables/useCoachSocket.ts
 6b7b9b1cf46ef22c4d5d5e8e131f077b3114cd3c3ae0b386d73812faf0ec0758  ./web/app/composables/useCoreDomain.ts
 92cfc2539bbc59a321631d7e4eb50df670cc78dc1c87e95081a228004c8e44fe  ./web/app/composables/useDvrPlayback.test.ts
@@ -500,6 +502,8 @@ a60c0cce97ded92137dba8ec99dfe9c05fa082f5ebbe48eafaa85c34a89aded7  ./web/app/util
 e71924873860e5fc0da75f5454a63c95d2e10d2c9295aeafe3228157876e8d86  ./web/app/utils/annotationPolling.ts
 4a1ec75d46e574ed894b28ec51905bd995a7cd020c53a7689f0387ae76b136d6  ./web/app/utils/authBoundary.test.ts
 c81b2357e6c7d27f6d0836c737d8790225ff02215260c2f91066335274fbc912  ./web/app/utils/authBoundary.ts
+c4123e71b15fe86ec6b2fb9957fc1d3b8f23afee84e0ebf9c9a1a5939831b171  ./web/app/utils/coachPresentation.test.ts
+05ac8675ce4c58462445cdf21b454dfbbb01c4272ccaaaa04cfb13d8666459ab  ./web/app/utils/coachPresentation.ts
 a22fce91408b92dcf1d361c1534c3c790c69a1081755ef0d47897efd418a4c22  ./web/app/utils/matchSetup.test.ts
 e27fa9e03651c155f730f012d788449729d0415305d9ff654be36fd8e476ab57  ./web/app/utils/matchSetup.ts
 34b6db8edff4e74ce05afe415f0ba252ca939bbef776a3fc3c878f58aa658ea3  ./web/app/utils/matchViewState.test.ts
@@ -514,6 +518,7 @@ b0a1c7aeeaf5b7f3d49c61490e392cb45f98a8f106db0f35bbd7e404d25912b2  ./web/app/util
 52e04e218d426a607ce2b35e6ce286299b0b1e396c2cfa5413644f07b183c677  ./web/app/utils/playbackWindow.ts
 2c412e3b31b835638c2626fd1bd9c7a2bd29e7e38b35dee5f6a7c37811e9db35  ./web/app/utils/playerMediaTime.ts
 6b1b4d21f6ebe3cdf613a9265376b94f123796536644ccd2da43efdc226b3d7f  ./web/app/utils/timelineSelection.ts
+96140cbbc44c2fec6a75d22b15bf045fec5b2606a19f10ff3ec82e1efca08377  ./web/app/utils/videoPresentation.test.ts
 c39b3f6f659b41c01374f830d07df404be6b1d52a255a935999c51545ac994d1  ./web/app/utils/volleyballOverlayRenderer.test.ts
 2bb7687a3c3a1c624d8c6cee46f28c517baa4c764666eedd3e4d88c3bdf77ff2  ./web/app/utils/volleyballOverlayRenderer.ts
 4d7e163460b4cdaa0c80de4675187a0ac7a973d90db4a55f19353a870ca60d79  ./web/app/utils/youtubeEmbed.ts
