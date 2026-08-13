@@ -3,6 +3,9 @@ import addFormats from 'ajv-formats'
 import realtimeSchema from '../annotation/realtime.schema.json'
 
 export const ANNOTATION_COMMAND_KINDS = [
+  'START_RALLY',
+  'END_RALLY',
+  'SET_RALLY_OUTCOME',
   'CREATE_SERVICE_KEY_POINT',
   'CREATE_CONTACT_KEY_POINT',
   'CLOSE_RALLY',
@@ -26,7 +29,11 @@ export interface AnnotationPlaybackCursor {
 }
 
 interface AnnotationCommandBase<K extends AnnotationCommandKind, P> {
-  schema_version: '2.0.0'
+  schema_version: K extends 'START_RALLY' | 'END_RALLY' | 'SET_RALLY_OUTCOME'
+    ? '3.0.0'
+    : K extends 'CREATE_SERVICE_KEY_POINT' | 'CLOSE_RALLY'
+      ? '2.0.0'
+      : '2.0.0' | '3.0.0'
   command_id: string
   room_id: string
   base_revision: string
@@ -41,6 +48,12 @@ export type CreateServiceKeyPointCommand = AnnotationCommandBase<
 >
 
 export type AnnotationCommand =
+  | AnnotationCommandBase<'START_RALLY', { playback_cursor: AnnotationPlaybackCursor }>
+  | AnnotationCommandBase<'END_RALLY', { playback_cursor: AnnotationPlaybackCursor }>
+  | AnnotationCommandBase<'SET_RALLY_OUTCOME',
+      | { score_resolution: 'resolved'; scoring_court_side: 'left' | 'right' }
+      | { score_resolution: 'unknown'; scoring_court_side: null }
+    >
   | CreateServiceKeyPointCommand
   | AnnotationCommandBase<'CREATE_CONTACT_KEY_POINT', {
       playback_cursor: AnnotationPlaybackCursor
@@ -72,6 +85,7 @@ export interface AnnotationResolvedAnchor {
 }
 
 export interface AnnotationAckEffects {
+  boundary_kind?: 'start' | 'end' | null
   created_key_point_id?: string | null
   terminal_key_point_id?: string | null
   deleted_key_point_id?: string | null
@@ -82,7 +96,7 @@ export interface AnnotationAckEffects {
 }
 
 interface AnnotationCommandAckBase<K extends AnnotationCommandKind, E extends AnnotationAckEffects> {
-  schema_version: '2.0.0'
+  schema_version: '2.0.0' | '3.0.0'
   type: 'command_ack'
   command_id: string
   room_id: string
@@ -96,6 +110,11 @@ interface AnnotationCommandAckBase<K extends AnnotationCommandKind, E extends An
 export type AnnotationCreateKeyPointAck = AnnotationCommandAckBase<
   'CREATE_SERVICE_KEY_POINT' | 'CREATE_CONTACT_KEY_POINT',
   AnnotationAckEffects & { created_key_point_id: string }
+> & { resolved_anchor: AnnotationResolvedAnchor }
+
+export type AnnotationBoundaryAck = AnnotationCommandAckBase<
+  'START_RALLY' | 'END_RALLY',
+  AnnotationAckEffects & { boundary_kind: 'start' | 'end'; annotation_status: 'open' | 'ready' }
 > & { resolved_anchor: AnnotationResolvedAnchor }
 
 export type AnnotationCloseRallyAck = AnnotationCommandAckBase<
@@ -120,18 +139,19 @@ export type AnnotationSubmitRallyAck = AnnotationCommandAckBase<
 > & { resolved_anchor: null }
 
 export type AnnotationOtherCommandAck = AnnotationCommandAckBase<
-  'MOVE_KEY_POINT' | 'DELETE_KEY_POINT' | 'REOPEN_RALLY' | 'VOID_RALLY',
+  'SET_RALLY_OUTCOME' | 'MOVE_KEY_POINT' | 'DELETE_KEY_POINT' | 'REOPEN_RALLY' | 'VOID_RALLY',
   AnnotationAckEffects
 > & { resolved_anchor?: AnnotationResolvedAnchor | null }
 
 export type AnnotationCommandAck =
+  | AnnotationBoundaryAck
   | AnnotationCreateKeyPointAck
   | AnnotationCloseRallyAck
   | AnnotationSubmitRallyAck
   | AnnotationOtherCommandAck
 
 export interface AnnotationCommandRejected {
-  schema_version: '2.0.0'
+  schema_version: '2.0.0' | '3.0.0'
   type: 'command_rejected'
   command_id: string
   room_id: string
@@ -174,8 +194,15 @@ export interface AnnotationKeyPoint {
   possible_duplicate: boolean
 }
 
+export interface AnnotationRallyBoundary {
+  kind: 'start' | 'end'
+  capture_time_us: string
+  capture_frame_index: string
+  timing_precision: 'frame_exact' | 'pts_exact' | 'estimated'
+}
+
 export interface AnnotationRallySnapshot {
-  schema_version: '2.0.0'
+  schema_version: '2.0.0' | '3.0.0'
   type: 'rally_snapshot'
   room_id: string
   rally_id: string
@@ -188,6 +215,7 @@ export interface AnnotationRallySnapshot {
     scoring_court_side: 'left' | 'right' | null
     processing_status: AnnotationProcessingStatus
     active_submission_id?: string | null
+    boundaries?: AnnotationRallyBoundary[]
     key_points: AnnotationKeyPoint[]
   }
 }
@@ -225,7 +253,7 @@ export interface AnnotationRallyProcessingUpdate {
   stage?: string | null
   updated_at?: string | null
   analysis_id?: string | null
-  overlay_version?: string | null
+  analysis_data_version?: string | null
   error?: Record<string, unknown> | null
 }
 

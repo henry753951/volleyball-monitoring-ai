@@ -101,7 +101,7 @@ services:
       - ome-dvr:/var/lib/ovenmediaengine/dvr
       - ome-logs:/var/log/ovenmediaengine
     ports:
-      - "1935:1935"
+      - "${OME_RTMP_HOST_PORT:-1935}:1935"
       - "9999:9999/udp"
       - "127.0.0.1:${OME_API_HOST_PORT:-8081}:8081"
     healthcheck:

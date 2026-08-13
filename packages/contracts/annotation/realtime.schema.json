@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/OWNER/volleyball-monitoring-ai/packages/contracts/annotation/realtime/2.2.0",
-  "title": "Annotation Realtime Protocol 2.2.0",
-  "description": "2.2.0 adds the optional CREATE_CONTACT_KEY_POINT terminal_outcome=unknown flow used by the second Z; ordinary 2.0.0 commands and the 2.1.0 non-canonical soft-lock intent remain compatible. Terminal contact creation resolves the current authoritative playback cursor and makes the rally READY in one transaction.",
+  "$id": "https://github.com/OWNER/volleyball-monitoring-ai/packages/contracts/annotation/realtime/3.0.0",
+  "title": "Annotation Realtime Protocol 3.0.0",
+  "description": "3.0.0 separates canonical START/END Rally boundaries from optional manual CONTACT key points. Legacy 2.x commands remain readable during migration.",
   "allOf": [
     {
       "if": { "required": ["command_id"] },
@@ -14,6 +14,9 @@
     }
   ],
   "oneOf": [
+    { "$ref": "#/$defs/start_rally_command" },
+    { "$ref": "#/$defs/end_rally_command" },
+    { "$ref": "#/$defs/set_rally_outcome_command" },
     { "$ref": "#/$defs/create_service_command" },
     { "$ref": "#/$defs/create_contact_command" },
     { "$ref": "#/$defs/close_rally_command" },
@@ -120,6 +123,58 @@
         }
       }
     },
+    "start_rally_command": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "command_id", "room_id", "base_revision", "rally_id", "kind", "payload"],
+      "properties": {
+        "schema_version": { "const": "3.0.0" },
+        "command_id": { "$ref": "#/$defs/identifier" },
+        "room_id": { "$ref": "#/$defs/canonical_room_id" },
+        "base_revision": { "$ref": "#/$defs/decimal_string" },
+        "rally_id": { "$ref": "#/$defs/identifier" },
+        "kind": { "const": "START_RALLY" },
+        "payload": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["playback_cursor"],
+          "properties": { "playback_cursor": { "$ref": "#/$defs/playback_cursor" } }
+        }
+      }
+    },
+    "end_rally_command": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "command_id", "room_id", "base_revision", "rally_id", "kind", "payload"],
+      "properties": {
+        "schema_version": { "const": "3.0.0" },
+        "command_id": { "$ref": "#/$defs/identifier" },
+        "room_id": { "$ref": "#/$defs/canonical_room_id" },
+        "base_revision": { "$ref": "#/$defs/decimal_string" },
+        "rally_id": { "$ref": "#/$defs/identifier" },
+        "kind": { "const": "END_RALLY" },
+        "payload": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["playback_cursor"],
+          "properties": { "playback_cursor": { "$ref": "#/$defs/playback_cursor" } }
+        }
+      }
+    },
+    "set_rally_outcome_command": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "command_id", "room_id", "base_revision", "rally_id", "kind", "payload"],
+      "properties": {
+        "schema_version": { "const": "3.0.0" },
+        "command_id": { "$ref": "#/$defs/identifier" },
+        "room_id": { "$ref": "#/$defs/canonical_room_id" },
+        "base_revision": { "$ref": "#/$defs/decimal_string" },
+        "rally_id": { "$ref": "#/$defs/identifier" },
+        "kind": { "const": "SET_RALLY_OUTCOME" },
+        "payload": { "$ref": "#/$defs/outcome" }
+      }
+    },
     "create_service_command": {
       "type": "object",
       "additionalProperties": false,
@@ -162,7 +217,7 @@
         "payload"
       ],
       "properties": {
-        "schema_version": { "const": "2.0.0" },
+        "schema_version": { "enum": ["2.0.0", "3.0.0"] },
         "command_id": { "$ref": "#/$defs/identifier" },
         "room_id": { "$ref": "#/$defs/canonical_room_id" },
         "base_revision": { "$ref": "#/$defs/decimal_string" },
@@ -245,7 +300,7 @@
         "payload"
       ],
       "properties": {
-        "schema_version": { "const": "2.0.0" },
+        "schema_version": { "enum": ["2.0.0", "3.0.0"] },
         "command_id": { "$ref": "#/$defs/identifier" },
         "room_id": { "$ref": "#/$defs/canonical_room_id" },
         "base_revision": { "$ref": "#/$defs/decimal_string" },
@@ -275,7 +330,7 @@
         "payload"
       ],
       "properties": {
-        "schema_version": { "const": "2.0.0" },
+        "schema_version": { "enum": ["2.0.0", "3.0.0"] },
         "command_id": { "$ref": "#/$defs/identifier" },
         "room_id": { "$ref": "#/$defs/canonical_room_id" },
         "base_revision": { "$ref": "#/$defs/decimal_string" },
@@ -304,7 +359,7 @@
         "payload"
       ],
       "properties": {
-        "schema_version": { "const": "2.0.0" },
+        "schema_version": { "enum": ["2.0.0", "3.0.0"] },
         "command_id": { "$ref": "#/$defs/identifier" },
         "room_id": { "$ref": "#/$defs/canonical_room_id" },
         "base_revision": { "$ref": "#/$defs/decimal_string" },
@@ -330,7 +385,7 @@
         "payload"
       ],
       "properties": {
-        "schema_version": { "const": "2.0.0" },
+        "schema_version": { "enum": ["2.0.0", "3.0.0"] },
         "command_id": { "$ref": "#/$defs/identifier" },
         "room_id": { "$ref": "#/$defs/canonical_room_id" },
         "base_revision": { "$ref": "#/$defs/decimal_string" },
@@ -363,7 +418,7 @@
         "payload"
       ],
       "properties": {
-        "schema_version": { "const": "2.0.0" },
+        "schema_version": { "enum": ["2.0.0", "3.0.0"] },
         "command_id": { "$ref": "#/$defs/identifier" },
         "room_id": { "$ref": "#/$defs/canonical_room_id" },
         "base_revision": { "$ref": "#/$defs/decimal_string" },
@@ -478,6 +533,12 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
+        "boundary_kind": {
+          "oneOf": [
+            { "enum": ["start", "end"] },
+            { "type": "null" }
+          ]
+        },
         "created_key_point_id": {
           "oneOf": [
             { "$ref": "#/$defs/identifier" },
@@ -552,13 +613,16 @@
         "effects"
       ],
       "properties": {
-        "schema_version": { "const": "2.0.0" },
+        "schema_version": { "enum": ["2.0.0", "3.0.0"] },
         "type": { "const": "command_ack" },
         "command_id": { "$ref": "#/$defs/identifier" },
         "room_id": { "$ref": "#/$defs/canonical_room_id" },
         "rally_id": { "$ref": "#/$defs/identifier" },
         "operation_kind": {
           "enum": [
+            "START_RALLY",
+            "END_RALLY",
+            "SET_RALLY_OUTCOME",
             "CREATE_SERVICE_KEY_POINT",
             "CREATE_CONTACT_KEY_POINT",
             "CLOSE_RALLY",
@@ -580,6 +644,22 @@
         }
       },
       "allOf": [
+        {
+          "if": {
+            "required": ["operation_kind"],
+            "properties": { "operation_kind": { "enum": ["START_RALLY", "END_RALLY"] } }
+          },
+          "then": {
+            "required": ["resolved_anchor"],
+            "properties": {
+              "resolved_anchor": { "$ref": "#/$defs/resolved_anchor" },
+              "effects": {
+                "required": ["boundary_kind", "annotation_status"],
+                "properties": { "boundary_kind": { "enum": ["start", "end"] } }
+              }
+            }
+          }
+        },
         {
           "if": {
             "required": ["operation_kind"],
@@ -664,7 +744,7 @@
         "snapshot_refetch_required"
       ],
       "properties": {
-        "schema_version": { "const": "2.0.0" },
+        "schema_version": { "enum": ["2.0.0", "3.0.0"] },
         "type": { "const": "command_rejected" },
         "command_id": { "$ref": "#/$defs/identifier" },
         "room_id": { "$ref": "#/$defs/canonical_room_id" },
@@ -725,6 +805,17 @@
         "possible_duplicate": { "type": "boolean" }
       }
     },
+    "rally_boundary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "capture_time_us", "capture_frame_index", "timing_precision"],
+      "properties": {
+        "kind": { "enum": ["start", "end"] },
+        "capture_time_us": { "$ref": "#/$defs/decimal_string" },
+        "capture_frame_index": { "$ref": "#/$defs/decimal_string" },
+        "timing_precision": { "enum": ["frame_exact", "pts_exact", "estimated"] }
+      }
+    },
     "rally_snapshot_body": {
       "type": "object",
       "additionalProperties": false,
@@ -763,6 +854,11 @@
         "key_points": {
           "type": "array",
           "items": { "$ref": "#/$defs/key_point" }
+        },
+        "boundaries": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/rally_boundary" },
+          "maxItems": 2
         }
       },
       "allOf": [
@@ -791,7 +887,7 @@
           },
           "then": {
             "properties": {
-              "score_resolution": { "enum": ["resolved", "unknown"] }
+              "score_resolution": { "enum": ["pending", "resolved", "unknown"] }
             }
           }
         },
@@ -803,7 +899,7 @@
           },
           "then": {
             "properties": {
-              "score_resolution": { "enum": ["resolved", "unknown"] }
+              "score_resolution": { "enum": ["pending", "resolved", "unknown"] }
             }
           }
         },
@@ -846,7 +942,7 @@
         "snapshot"
       ],
       "properties": {
-        "schema_version": { "const": "2.0.0" },
+        "schema_version": { "enum": ["2.0.0", "3.0.0"] },
         "type": { "const": "rally_snapshot" },
         "room_id": { "$ref": "#/$defs/canonical_room_id" },
         "rally_id": { "$ref": "#/$defs/identifier" },
@@ -956,7 +1052,7 @@
             { "type": "null" }
           ]
         },
-        "overlay_version": {
+        "analysis_data_version": {
           "oneOf": [
             {
               "type": "string",

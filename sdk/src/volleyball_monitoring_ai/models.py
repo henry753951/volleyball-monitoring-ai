@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from math import sqrt
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, HttpUrl, field_validator, model_validator
@@ -237,16 +238,28 @@ class KeyPointInput(StrictModel):
         return _digits(value, info.field_name)
 
 
+class RallyBoundaryInput(StrictModel):
+    kind: Literal["start", "end"]
+    clip_pts: WireUInt64
+    clip_time_us: WireUInt64
+    clip_frame_index: WireUInt64
+
+    @field_validator("clip_pts", "clip_time_us", "clip_frame_index")
+    @classmethod
+    def validate_wire_uint64(cls, value: str, info: Any) -> str:
+        return _digits(value, info.field_name)
+
+
 class Outcome(StrictModel):
-    score_resolution: Literal["resolved", "unknown"]
+    score_resolution: Literal["pending", "resolved", "unknown"]
     scoring_court_side: Literal["left", "right"] | None
 
     @model_validator(mode="after")
     def state_matches_side(self) -> "Outcome":
         if self.score_resolution == "resolved" and self.scoring_court_side is None:
             raise ValueError("resolved outcome requires scoring_court_side")
-        if self.score_resolution == "unknown" and self.scoring_court_side is not None:
-            raise ValueError("unknown outcome requires null scoring_court_side")
+        if self.score_resolution in {"pending", "unknown"} and self.scoring_court_side is not None:
+            raise ValueError("pending or unknown outcome requires null scoring_court_side")
         return self
 
 
@@ -256,17 +269,59 @@ class CallbackTarget(StrictModel):
     expires_at: datetime
 
 
+class AnalysisDataArtifact(StrictModel):
+    analysis_run_id: str = Field(min_length=1, max_length=128)
+    download_url: HttpUrl
+    download_url_expires_at: datetime
+    sha256: str = Field(pattern=r"^[A-Fa-f0-9]{64}$")
+    byte_length: WireUInt64
+    content_type: Literal["application/vnd.volleyball.analysis-data+flatbuffers;version=1"]
+
+    @field_validator("byte_length")
+    @classmethod
+    def validate_byte_length(cls, value: str) -> str:
+        return _digits(value, "byte_length")
+
+
+class AnalysisModules(StrictModel):
+    court: Literal["run", "reuse"]
+    tracking: Literal["run", "reuse"]
+    reid: Literal["run", "reuse"]
+    contacts: Literal["run", "reuse"]
+
+
+class AnalysisPlan(StrictModel):
+    mode: Literal["full", "selective"]
+    modules: AnalysisModules
+    source_analysis_data: AnalysisDataArtifact | None
+    preserve_manual_corrections: Literal[True]
+
+    @model_validator(mode="after")
+    def validate_source(self) -> "AnalysisPlan":
+        values = self.modules.model_dump()
+        if self.mode == "full":
+            if self.source_analysis_data is not None or set(values.values()) != {"run"}:
+                raise ValueError("full analysis must run every module without source AnalysisData")
+        elif self.source_analysis_data is None:
+            raise ValueError("selective analysis requires source AnalysisData")
+        if values["tracking"] == "run" and (values["reid"] != "run" or values["contacts"] != "run"):
+            raise ValueError("tracking rerun requires ReID and contacts to rerun")
+        return self
+
+
 class AIJobRequest(StrictModel):
-    schema_version: Literal["1.1.0"]
+    schema_version: Literal["3.0.0"]
     ai_job_id: str = Field(min_length=1, max_length=128)
     rally_submission_id: str = Field(min_length=1, max_length=128)
     rally_id: str = Field(min_length=1, max_length=128)
     match_id: str = Field(min_length=1, max_length=128)
     annotation_revision: WireUInt64
     clip: ClipInput
-    key_points: list[KeyPointInput] = Field(min_length=1)
+    key_points: list[KeyPointInput]
+    boundaries: list[RallyBoundaryInput]
     outcome: Outcome
     callback: CallbackTarget
+    analysis_plan: AnalysisPlan
 
     @field_validator("annotation_revision")
     @classmethod
@@ -275,14 +330,19 @@ class AIJobRequest(StrictModel):
 
     @model_validator(mode="after")
     def validate_key_points(self) -> "AIJobRequest":
-        if self.key_points[0].marker_kind != "service":
-            raise ValueError("the first human marker must have marker_kind=service because Z starts the rally; this is not an AI action label")
-        if sum(p.marker_kind == "service" for p in self.key_points) != 1:
-            raise ValueError("exactly one service marker is required")
+        if [boundary.kind for boundary in self.boundaries] != ["start", "end"]:
+            raise ValueError("jobs require exactly one ordered start/end boundary pair")
+        if any(point.marker_kind != "contact" or point.is_terminal for point in self.key_points):
+            raise ValueError("jobs accept only non-terminal contact hints")
+        boundary_frames = [int(boundary.clip_frame_index) for boundary in self.boundaries]
+        boundary_times = [int(boundary.clip_time_us) for boundary in self.boundaries]
+        boundary_pts = [int(boundary.clip_pts) for boundary in self.boundaries]
+        if boundary_frames != sorted(boundary_frames) or boundary_times != sorted(boundary_times) or boundary_pts != sorted(boundary_pts):
+            raise ValueError("rally boundaries must be monotonic in clip frame/time/PTS")
+        if boundary_frames[-1] >= int(self.clip.video.total_frames) or boundary_times[-1] > int(self.clip.video.duration_us):
+            raise ValueError("rally boundary outside clip")
         if [p.sequence_index for p in self.key_points] != list(range(len(self.key_points))):
             raise ValueError("sequence_index must be contiguous from zero")
-        if sum(p.is_terminal for p in self.key_points) != 1 or not self.key_points[-1].is_terminal:
-            raise ValueError("last key point must be the only terminal point")
         frames = [int(p.clip_frame_index) for p in self.key_points]
         times = [int(p.clip_time_us) for p in self.key_points]
         pts = [int(p.clip_pts) for p in self.key_points]
@@ -315,6 +375,85 @@ class Track(StrictModel):
     @classmethod
     def validate_frame(cls, value: str, info: Any) -> str:
         return _digits(value, info.field_name)
+
+
+class ReIDEmbeddingModel(StrictModel):
+    name: Literal["sports-osnet"]
+    checkpoint_sha256: str = Field(pattern=r"^[A-Fa-f0-9]{64}$")
+    preprocess_version: str = Field(min_length=1, max_length=128)
+    dimension: Literal[512]
+    distance: Literal["cosine"]
+
+
+class ReIDTrackFeature(StrictModel):
+    provisional_gid: str = Field(pattern=r"^clip:(left|right|unknown):[0-9]+$", max_length=64)
+    track_id: int = Field(ge=0, le=65534)
+    first_frame_index: WireUInt64
+    last_frame_index: WireUInt64
+    sample_count: int = Field(ge=1)
+    mean_quality: float = Field(ge=0, le=1)
+    prototype: list[float] = Field(min_length=512, max_length=512)
+    cannot_link_track_ids: list[int]
+
+    @field_validator("first_frame_index", "last_frame_index")
+    @classmethod
+    def validate_frame(cls, value: str, info: Any) -> str:
+        return _digits(value, info.field_name)
+
+    @field_validator("prototype")
+    @classmethod
+    def validate_l2_prototype(cls, value: list[float]) -> list[float]:
+        if any(component < -1 or component > 1 for component in value):
+            raise ValueError("ReID prototype components must be within [-1, 1]")
+        norm = sqrt(sum(component * component for component in value))
+        if not 0.999 <= norm <= 1.001:
+            raise ValueError("ReID prototype must be L2-normalized")
+        return value
+
+    @model_validator(mode="after")
+    def validate_track_evidence(self) -> "ReIDTrackFeature":
+        if int(self.first_frame_index) > int(self.last_frame_index):
+            raise ValueError("ReID feature first frame cannot exceed last frame")
+        if len(self.cannot_link_track_ids) != len(set(self.cannot_link_track_ids)):
+            raise ValueError("ReID cannot-link track IDs must be unique")
+        if self.track_id in self.cannot_link_track_ids:
+            raise ValueError("ReID feature cannot conflict with itself")
+        expected_gid = self.provisional_gid.rsplit(":", 1)[-1]
+        if expected_gid != str(self.track_id):
+            raise ValueError("ReID provisional GID must end with its track ID")
+        return self
+
+
+class ReIDSideFeatureBank(StrictModel):
+    court_side: Literal["left", "right", "unknown"]
+    features: list[ReIDTrackFeature]
+
+    @model_validator(mode="after")
+    def validate_side_and_tracks(self) -> "ReIDSideFeatureBank":
+        track_ids = [feature.track_id for feature in self.features]
+        if len(track_ids) != len(set(track_ids)):
+            raise ValueError("ReID track IDs must be unique within one side bank")
+        prefix = f"clip:{self.court_side}:"
+        if any(not feature.provisional_gid.startswith(prefix) for feature in self.features):
+            raise ValueError("ReID provisional GID side must match its bank")
+        return self
+
+
+class ReIDFeatureBank(StrictModel):
+    schema_version: Literal["1.0.0"]
+    scope: Literal["clip"]
+    embedding_model: ReIDEmbeddingModel
+    side_feature_banks: list[ReIDSideFeatureBank] = Field(min_length=3, max_length=3)
+
+    @model_validator(mode="after")
+    def validate_complete_sides(self) -> "ReIDFeatureBank":
+        sides = [bank.court_side for bank in self.side_feature_banks]
+        if sorted(sides) != ["left", "right", "unknown"]:
+            raise ValueError("ReID feature bank must contain left, right and unknown exactly once")
+        all_tracks = [feature.track_id for bank in self.side_feature_banks for feature in bank.features]
+        if len(all_tracks) != len(set(all_tracks)):
+            raise ValueError("ReID track IDs must belong to exactly one side bank")
+        return self
 
 
 class Actor(StrictModel):
@@ -368,12 +507,12 @@ class RepresentativeCourtPosition(StrictModel):
 
 class ContactEvent(StrictModel):
     key_point_id: str = Field(min_length=1, max_length=128)
-    source_key_point_id: str | None = Field(default=None, min_length=1, max_length=128)
-    anchor_origin: Literal["human_anchor", "ai_detected"] = "human_anchor"
+    source_key_point_id: str | None = Field(min_length=1, max_length=128)
+    anchor_origin: Literal["human_anchor", "ai_detected"]
     detection_confidence: float | None = Field(default=None, ge=0, le=1)
     sequence_index: int = Field(ge=0)
-    marker_kind: Literal["service", "contact"]
-    is_terminal: bool
+    marker_kind: Literal["contact"]
+    is_terminal: Literal[False]
     anchor_frame_index: WireUInt64
     resolved_frame_index: WireUInt64 | None = None
     association_state: Literal["resolved_single", "resolved_multiple", "ambiguous", "unresolved", "no_player"]
@@ -413,7 +552,7 @@ class PathSegment(StrictModel):
     start_court_positions: list[RepresentativeCourtPosition]
     end_court_positions: list[RepresentativeCourtPosition]
     render_state: Literal["complete", "partial", "unavailable"]
-    is_terminal_segment: bool
+    is_terminal_segment: Literal[False]
     quality_flags: list[str]
 
     @field_validator("start_frame_index", "end_frame_index")
@@ -437,8 +576,8 @@ class AnalysisSummary(StrictModel):
     warnings: list[str] | None = None
 
 
-class AnalysisResult(StrictModel):
-    schema_version: Literal["1.0.0", "1.1.0"]
+class AnalysisDomainData(StrictModel):
+    schema_version: Literal["1.0.0"]
     analysis_id: str = Field(min_length=1, max_length=128)
     analysis_version: str = Field(min_length=1, max_length=256)
     ai_job_id: str = Field(min_length=1, max_length=128)
@@ -461,7 +600,18 @@ class AnalysisResult(StrictModel):
         return _digits(value, "annotation_revision")
 
     @model_validator(mode="after")
-    def validate_counts_and_refs(self) -> "AnalysisResult":
+    def validate_counts_and_refs(self) -> "AnalysisDomainData":
+        reid_payload = self.extensions.get("reid_feature_bank")
+        if reid_payload is not None:
+            feature_bank = ReIDFeatureBank.model_validate(reid_payload)
+            result_tracks = {track.track_id for track in self.tracks}
+            feature_tracks = {
+                feature.track_id
+                for bank in feature_bank.side_feature_banks
+                for feature in bank.features
+            }
+            if not feature_tracks.issubset(result_tracks):
+                raise ValueError("ReID feature references an unknown result track")
         if len(self.tracks) != self.summary.track_count:
             raise ValueError("summary track_count mismatch")
         if len(self.contact_events) != self.summary.contact_event_count:
@@ -515,6 +665,7 @@ class OptionalExtensionsCapability(StrictModel):
     action: bool
     group_phase: bool
     confidence: bool
+    reid_feature_bank: bool = False
 
 
 class ProviderLimits(StrictModel):
@@ -529,12 +680,13 @@ class ProviderLimits(StrictModel):
 
 
 class ProviderCapabilities(StrictModel):
-    schema_version: Literal["1.0.0"]
+    schema_version: Literal["2.0.0"]
     provider_name: str = Field(min_length=1)
     provider_build_id: str = Field(min_length=1)
     supported_job_schema_versions: list[str] = Field(min_length=1)
-    supported_result_schema_versions: list[str] = Field(min_length=1)
-    supported_overlay_formats: list[str] = Field(min_length=1)
+    supported_analysis_data_versions: list[str] = Field(min_length=1)
+    supported_analysis_modules: list[Literal["court", "tracking", "reid", "contacts"]] = Field(min_length=1)
+    supports_selective_rerun: bool
     optional_extensions: OptionalExtensionsCapability
     action_taxonomies: list[ActionTaxonomyCapability]
     limits: ProviderLimits | None = None
@@ -548,6 +700,6 @@ class JobAccepted(StrictModel):
     accepted_at: datetime
 
 
-class AnalysisBundle(StrictModel):
-    result: AnalysisResult
-    overlay_bytes: bytes
+class AnalysisDataBundle(StrictModel):
+    domain: AnalysisDomainData
+    analysis_data_bytes: bytes

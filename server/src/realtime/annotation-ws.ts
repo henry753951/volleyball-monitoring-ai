@@ -171,7 +171,13 @@ export const annotationWebSocketRoutes = (
                 }
               }
               else socket.send(payload)
-            } catch {
+            } catch (cause) {
+              request.log.error({
+                err: cause,
+                annotation_command_id: command.command_id,
+                annotation_command_kind: command.kind,
+                rally_id: command.rally_id,
+              }, 'annotation command failed')
               socket.close(1011, 'annotation command failed')
             }
           })()

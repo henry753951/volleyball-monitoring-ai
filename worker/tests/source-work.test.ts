@@ -5,6 +5,7 @@ import {
   claimDrainingMediaSourceWork,
   claimMediaSourceWork,
   listCompletedMediaSpoolCandidates,
+  recordPermanentMediaIngestFailure,
 } from '../src/media/source-work.js'
 
 function queryRecorder() {
@@ -47,5 +48,30 @@ describe('media source work scheduling', () => {
     expect(recorded.queries[0]).toContain(`media."state" = 'READY'`)
     expect(recorded.queries[0]).toContain(`sample."state" = 'READY'`)
     expect(recorded.queries[0]).toContain(`"MediaIngestFailure"`)
+  })
+})
+
+describe('recordPermanentMediaIngestFailure', () => {
+  it('ignores the expected FK race after match deletion removes the capture', async () => {
+    const database = {
+      mediaIngestFailure: {
+        upsert: () => Promise.reject(Object.assign(new Error('capture deleted'), { code: 'P2003' })),
+      },
+    }
+    await expect(recordPermanentMediaIngestFailure(database as never, {
+      sourceJobId: crypto.randomUUID(),
+      captureSessionId: crypto.randomUUID(),
+      code: 'source_failed',
+    })).resolves.toBeUndefined()
+  })
+
+  it('does not hide unrelated persistence failures', async () => {
+    const failure = Object.assign(new Error('database unavailable'), { code: 'P1001' })
+    const database = { mediaIngestFailure: { upsert: () => Promise.reject(failure) } }
+    await expect(recordPermanentMediaIngestFailure(database as never, {
+      sourceJobId: crypto.randomUUID(),
+      captureSessionId: crypto.randomUUID(),
+      code: 'source_failed',
+    })).rejects.toBe(failure)
   })
 })

@@ -1,6 +1,6 @@
 {
-  "schema_version": "1.1.0",
-  "analysis_id": "analysis-0190-normal",
+  "schema_version": "1.0.0",
+  "analysis_id": "analysis-0190-ambiguous",
   "analysis_version": "provider-build-2026-08-07.1",
   "ai_job_id": "018f6d86-2d8c-7f10-9c1b-0f0c32aa6001",
   "rally_submission_id": "018f6d86-2d8c-7f10-9c1b-0f0c32aa3101",
@@ -12,7 +12,7 @@
   "producer": {
     "name": "fixture-provider",
     "build_id": "fixture-1",
-    "sdk_version": "0.1.0"
+    "sdk_version": "1.0.0"
   },
   "tracks": [
     {
@@ -40,7 +40,7 @@
       "source_key_point_id": "018f6d86-2d8c-7f10-9c1b-0f0c32aa4000",
       "anchor_origin": "human_anchor",
       "sequence_index": 0,
-      "marker_kind": "service",
+      "marker_kind": "contact",
       "is_terminal": false,
       "anchor_frame_index": "300",
       "resolved_frame_index": "301",
@@ -95,33 +95,20 @@
       "is_terminal": false,
       "anchor_frame_index": "420",
       "resolved_frame_index": "419",
-      "association_state": "resolved_single",
-      "actors": [
+      "association_state": "ambiguous",
+      "actors": [],
+      "actor_candidates": [
         {
           "track_id": 3,
-          "frame_bbox": {
-            "x1": 0.63,
-            "y1": 0.28,
-            "x2": 0.72,
-            "y2": 0.83
-          },
-          "frame_foot_pos": {
-            "x": 0.675,
-            "y": 0.83
-          },
-          "court_pos": {
-            "x": 0.72,
-            "y": 0.64
-          },
-          "action": {
-            "label": "provider-action-17",
-            "taxonomy_id": "provider-taxonomy",
-            "taxonomy_version": "v1"
-          },
-          "observation_frame_index": "419"
+          "rank": 1,
+          "confidence": 0.55
+        },
+        {
+          "track_id": 4,
+          "rank": 2,
+          "confidence": 0.39
         }
       ],
-      "actor_candidates": [],
       "ball": {
         "state": "interpolated",
         "sample_frame_index": "419",
@@ -130,54 +117,16 @@
           "y": 0.51
         }
       },
-      "representative_court_positions": [
-        {
-          "track_id": 3,
-          "basis": "player_footprint_proxy",
-          "court_pos": {
-            "x": 0.72,
-            "y": 0.64
-          }
-        }
-      ],
-      "quality_flags": []
-    },
-    {
-      "key_point_id": "018f6d86-2d8c-7f10-9c1b-0f0c32aa4a11",
-      "source_key_point_id": null,
-      "anchor_origin": "ai_detected",
-      "detection_confidence": 0.82,
-      "sequence_index": 2,
-      "marker_kind": "contact",
-      "is_terminal": false,
-      "anchor_frame_index": "451",
-      "resolved_frame_index": "451",
-      "association_state": "no_player",
-      "actors": [],
-      "actor_candidates": [],
-      "ball": {
-        "state": "observed",
-        "sample_frame_index": "451",
-        "frame_pos": { "x": 0.81, "y": 0.42 }
-      },
       "representative_court_positions": [],
-      "quality_flags": ["trajectory_contact_proposal"],
-      "extensions": {
-        "detection": {
-          "method": "ball_trajectory_change_v1",
-          "direction_change": 0.78,
-          "acceleration": 14.2,
-          "speed_ratio": 1.61
-        }
-      }
+      "quality_flags": []
     },
     {
       "key_point_id": "018f6d86-2d8c-7f10-9c1b-0f0c32aa4002",
       "source_key_point_id": "018f6d86-2d8c-7f10-9c1b-0f0c32aa4002",
       "anchor_origin": "human_anchor",
-      "sequence_index": 3,
+      "sequence_index": 2,
       "marker_kind": "contact",
-      "is_terminal": true,
+      "is_terminal": false,
       "anchor_frame_index": "480",
       "association_state": "no_player",
       "actors": [],
@@ -217,46 +166,16 @@
           }
         }
       ],
-      "end_court_positions": [
-        {
-          "track_id": 3,
-          "basis": "player_footprint_proxy",
-          "court_pos": {
-            "x": 0.72,
-            "y": 0.64
-          }
-        }
-      ],
-      "render_state": "complete",
+      "end_court_positions": [],
+      "render_state": "partial",
       "is_terminal_segment": false,
       "quality_flags": []
     },
     {
       "sequence_index": 1,
       "start_key_point_id": "018f6d86-2d8c-7f10-9c1b-0f0c32aa4001",
-      "end_key_point_id": "018f6d86-2d8c-7f10-9c1b-0f0c32aa4a11",
-      "start_frame_index": "419",
-      "end_frame_index": "451",
-      "start_court_positions": [
-        {
-          "track_id": 3,
-          "basis": "player_footprint_proxy",
-          "court_pos": {
-            "x": 0.72,
-            "y": 0.64
-          }
-        }
-      ],
-      "end_court_positions": [],
-      "render_state": "partial",
-      "is_terminal_segment": false,
-      "quality_flags": ["trajectory_contact_proposal"]
-    },
-    {
-      "sequence_index": 2,
-      "start_key_point_id": "018f6d86-2d8c-7f10-9c1b-0f0c32aa4a11",
       "end_key_point_id": "018f6d86-2d8c-7f10-9c1b-0f0c32aa4002",
-      "start_frame_index": "451",
+      "start_frame_index": "419",
       "end_frame_index": "480",
       "start_court_positions": [],
       "end_court_positions": [
@@ -269,8 +188,8 @@
           }
         }
       ],
-      "render_state": "complete",
-      "is_terminal_segment": true,
+      "render_state": "partial",
+      "is_terminal_segment": false,
       "quality_flags": [
         "terminal_projection"
       ]
@@ -278,9 +197,9 @@
   ],
   "summary": {
     "track_count": 3,
-    "contact_event_count": 4,
-    "path_segment_count": 3,
-    "unresolved_event_count": 0,
+    "contact_event_count": 3,
+    "path_segment_count": 2,
+    "unresolved_event_count": 1,
     "multiple_event_count": 0,
     "warnings": []
   },

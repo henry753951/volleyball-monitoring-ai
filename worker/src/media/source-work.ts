@@ -75,11 +75,19 @@ export async function recordPermanentMediaIngestFailure(
   database: PrismaClient,
   input: { sourceJobId: string; captureSessionId: string; code: string },
 ): Promise<void> {
-  await database.mediaIngestFailure.upsert({
-    create: input,
-    update: { captureSessionId: input.captureSessionId, code: input.code },
-    where: { sourceJobId: input.sourceJobId },
-  })
+  try {
+    await database.mediaIngestFailure.upsert({
+      create: input,
+      update: { captureSessionId: input.captureSessionId, code: input.code },
+      where: { sourceJobId: input.sourceJobId },
+    })
+  }
+  catch (error) {
+    // Match deletion may cascade the capture/work rows while a leased worker unwinds.
+    // There is intentionally no failure record to retain once its capture is gone.
+    if (typeof error === 'object' && error !== null && 'code' in error && error.code === 'P2003') return
+    throw error
+  }
 }
 
 export async function claimStoppedMediaSourceWork(
@@ -276,10 +284,12 @@ export async function recordMediaSourceResume(
   database: PrismaClient,
   workId: string,
   segmentIndex: number,
+  captureTimeUs: bigint,
 ): Promise<void> {
+  if (!Number.isSafeInteger(segmentIndex) || segmentIndex < 0 || captureTimeUs < 0n) throw new TypeError('invalid media source resume point')
   await database.mediaSourceWork.update({
     data: {
-      resumeCaptureTimeUs: BigInt(segmentIndex) * 2_000_000n,
+      resumeCaptureTimeUs: captureTimeUs,
       resumeSegmentIndex: segmentIndex,
     },
     where: { id: workId },

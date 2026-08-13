@@ -1,18 +1,18 @@
 import { mount } from '@vue/test-utils'
 import { defineComponent, h, nextTick, ref } from 'vue'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { useOverlayChunks } from './useOverlayChunks'
+import { useAnalysisFrameChunks } from './useAnalysisFrameChunks'
 
 afterEach(() => vi.unstubAllGlobals())
 
-describe('useOverlayChunks power state', () => {
-  it('does not request or decode overlay data while disabled', async () => {
+describe('useAnalysisFrameChunks power state', () => {
+  it('does not request or decode AnalysisData while disabled', async () => {
     const fetchMock = vi.fn()
     vi.stubGlobal('fetch', fetchMock)
     const enabled = ref(false)
     const wrapper = mount(defineComponent({
       setup() {
-        useOverlayChunks(() => 'analysis', () => 0, enabled)
+        useAnalysisFrameChunks(() => 'analysis', () => 0, enabled)
         return () => h('div')
       },
     }))
@@ -22,7 +22,7 @@ describe('useOverlayChunks power state', () => {
     wrapper.unmount()
   })
 
-  it('aborts an in-flight manifest request when the overlay is switched off', async () => {
+  it('aborts an in-flight manifest request when AnalysisData display is switched off', async () => {
     let signal: AbortSignal | undefined
     vi.stubGlobal('fetch', vi.fn((_url: string, init?: RequestInit) => {
       signal = init?.signal ?? undefined
@@ -31,7 +31,7 @@ describe('useOverlayChunks power state', () => {
     const enabled = ref(true)
     const wrapper = mount(defineComponent({
       setup() {
-        useOverlayChunks(() => 'analysis', () => 0, enabled)
+        useAnalysisFrameChunks(() => 'analysis', () => 0, enabled)
         return () => h('div')
       },
     }))

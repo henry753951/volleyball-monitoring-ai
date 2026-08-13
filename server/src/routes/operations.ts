@@ -305,10 +305,9 @@ export async function collectOperationsSnapshot(
         UNION SELECT DISTINCT cs."matchId", ds."sampleIndexAssetId" FROM "DvrSegment" ds JOIN "DvrProgram" dp ON dp.id = ds."dvrProgramId" JOIN "CaptureSession" cs ON cs.id = dp."captureSessionId"
         UNION SELECT DISTINCT r."matchId", cj."clipAssetId" FROM "ClipJob" cj JOIN "RallySubmission" rs ON rs.id = cj."submissionId" JOIN "Rally" r ON r.id = rs."rallyId"
         UNION SELECT DISTINCT r."matchId", cj."timingManifestAssetId" FROM "ClipJob" cj JOIN "RallySubmission" rs ON rs.id = cj."submissionId" JOIN "Rally" r ON r.id = rs."rallyId"
-        UNION SELECT DISTINCT r."matchId", ar."rawAnalysisAssetId" FROM "AnalysisRun" ar JOIN "RallySubmission" rs ON rs.id = ar."submissionId" JOIN "Rally" r ON r.id = rs."rallyId"
-        UNION SELECT DISTINCT r."matchId", ar."rawOverlayAssetId" FROM "AnalysisRun" ar JOIN "RallySubmission" rs ON rs.id = ar."submissionId" JOIN "Rally" r ON r.id = rs."rallyId"
+        UNION SELECT DISTINCT r."matchId", ar."rawAnalysisDataAssetId" FROM "AnalysisRun" ar JOIN "RallySubmission" rs ON rs.id = ar."submissionId" JOIN "Rally" r ON r.id = rs."rallyId"
         UNION SELECT DISTINCT r."matchId", aa."assetId" FROM "AnalysisArtifact" aa JOIN "AnalysisRun" ar ON ar.id = aa."analysisRunId" JOIN "RallySubmission" rs ON rs.id = ar."submissionId" JOIN "Rally" r ON r.id = rs."rallyId"
-        UNION SELECT DISTINCT r."matchId", oc."assetId" FROM "OverlayChunk" oc JOIN "AnalysisRun" ar ON ar.id = oc."analysisRunId" JOIN "RallySubmission" rs ON rs.id = ar."submissionId" JOIN "Rally" r ON r.id = rs."rallyId"
+        UNION SELECT DISTINCT r."matchId", oc."assetId" FROM "AnalysisFrameChunk" oc JOIN "AnalysisRun" ar ON ar.id = oc."analysisRunId" JOIN "RallySubmission" rs ON rs.id = ar."submissionId" JOIN "Rally" r ON r.id = rs."rallyId"
       )
       SELECT am."matchId", COALESCE(SUM(ma."byteLength"), 0)::bigint AS "storedBytes"
       FROM asset_match am JOIN "MediaAsset" ma ON ma.id = am."assetId"

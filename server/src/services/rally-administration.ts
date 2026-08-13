@@ -1,5 +1,6 @@
 import type { PrismaClient } from '@volleyball-monitoring/db'
 import { Prisma, UserRole } from '@volleyball-monitoring/db/client'
+import { deriveRallyDisplayOrdinals, segmentStartCaptureTimeUs } from '../domain/rally-display-order.js'
 import type { AuthenticatedUser } from '../graphql/context.js'
 import { domainError } from '../graphql/errors.js'
 import type { MediaObjectLocation, MediaObjectRemover } from '../media/media-object-remover.js'
@@ -32,6 +33,20 @@ export interface RallyAdministrationDependencies {
   notifyMatchChanged?: (matchId: string, reason: 'rally_deleted' | 'rally_placement_updated') => void
 }
 
+type RallyPlacementTransaction = Prisma.TransactionClient
+type RallyPlacementReader = Pick<PrismaClient, 'rally'>
+
+type RallyPlacementRow = {
+  id: string
+  displaySetNumber: number
+  boundaries: Array<{ captureTimeUs: bigint; kind: string }>
+  keyPoints: Array<{ captureTimeUs: bigint; markerKind: string }>
+  activeSubmission: null | {
+    boundaries: Array<{ captureTimeUs: bigint; kind: string }>
+    keyPoints: Array<{ captureTimeUs: bigint; markerKind: string }>
+  }
+}
+
 function json(value: unknown): Prisma.InputJsonValue {
   return value as Prisma.InputJsonValue
 }
@@ -56,6 +71,52 @@ async function authorizeRally(database: PrismaClient, actor: AuthenticatedUser, 
   return rally
 }
 
+export async function getDerivedRallyDisplayOrdinal(
+  database: RallyPlacementReader,
+  matchId: string,
+  rallyId: string,
+): Promise<number> {
+  const rallies = await database.rally.findMany({
+    where: { matchId, voidedAt: null },
+    select: {
+      id: true,
+      displaySetNumber: true,
+      boundaries: {
+        where: { kind: 'START' },
+        orderBy: [{ captureTimeUs: 'asc' }, { id: 'asc' }],
+        take: 1,
+        select: { captureTimeUs: true, kind: true },
+      },
+      keyPoints: {
+        where: { deletedAt: null },
+        orderBy: [{ captureTimeUs: 'asc' }, { captureFrameIndex: 'asc' }, { id: 'asc' }],
+        select: { captureTimeUs: true, markerKind: true },
+      },
+      activeSubmission: {
+        select: {
+          boundaries: {
+            where: { kind: 'START' },
+            orderBy: [{ captureTimeUs: 'asc' }, { id: 'asc' }],
+            take: 1,
+            select: { captureTimeUs: true, kind: true },
+          },
+          keyPoints: {
+            orderBy: [{ captureTimeUs: 'asc' }, { captureFrameIndex: 'asc' }, { id: 'asc' }],
+            select: { captureTimeUs: true, markerKind: true },
+          },
+        },
+      },
+    },
+  }) as RallyPlacementRow[]
+  const candidates = rallies.map(rally => ({
+    displaySetNumber: rally.displaySetNumber,
+    id: rally.id,
+    startCaptureTimeUs: segmentStartCaptureTimeUs(rally)
+      ?? segmentStartCaptureTimeUs(rally.activeSubmission ?? {}),
+  }))
+  return deriveRallyDisplayOrdinals(candidates).get(rallyId) ?? 1
+}
+
 export async function updateRallyDisplayPlacement(
   actor: AuthenticatedUser,
   input: { rallyId: string; setNumber: number; ordinal: number },
@@ -65,6 +126,8 @@ export async function updateRallyDisplayPlacement(
   if (!Number.isInteger(input.setNumber) || input.setNumber < 1 || input.setNumber > 99) {
     domainError('Set number must be between 1 and 99', 'BAD_USER_INPUT')
   }
+  // Keep ordinal in the existing GraphQL input for backward compatibility,
+  // but never trust it as placement authority. Capture order decides the value.
   if (!Number.isInteger(input.ordinal) || input.ordinal < 1 || input.ordinal > 999) {
     domainError('Rally ordinal must be between 1 and 999', 'BAD_USER_INPUT')
   }
@@ -73,24 +136,13 @@ export async function updateRallyDisplayPlacement(
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${authorized.matchId}))`
     const setExists = await tx.matchSet.count({ where: { matchId: authorized.matchId, setNumber: input.setNumber } })
     if (!setExists) domainError('The selected set does not exist', 'BAD_USER_INPUT')
-    const occupied = await tx.rally.findFirst({
-      select: { id: true },
-      where: {
-        displayOrdinal: input.ordinal,
-        displaySetNumber: input.setNumber,
-        id: { not: rallyId },
-        matchId: authorized.matchId,
-        voidedAt: null,
-      },
-    })
-    if (occupied) domainError('That set and rally number is already in use', 'BAD_USER_INPUT')
     const updated = await tx.rally.update({
-      data: { displayOrdinal: input.ordinal, displaySetNumber: input.setNumber },
-      select: { displayOrdinal: true, displaySetNumber: true, id: true, matchId: true },
+      data: { displaySetNumber: input.setNumber },
+      select: { displaySetNumber: true, id: true, matchId: true },
       where: { id: rallyId },
     })
     return {
-      displayOrdinal: updated.displayOrdinal,
+      displayOrdinal: await getDerivedRallyDisplayOrdinal(tx, authorized.matchId, rallyId),
       displaySetNumber: updated.displaySetNumber,
       matchId: updated.matchId,
       rallyId: updated.id,
@@ -115,6 +167,7 @@ export async function deleteRallyWithMedia(
         id: true,
         matchId: true,
         setId: true,
+        displaySetNumber: true,
         submissions: { select: { id: true } },
       },
       where: { id: rallyId },
@@ -128,10 +181,9 @@ export async function deleteRallyWithMedia(
       where: { OR: [
         { clipOutputs: { some: { submission: { rallyId } } } },
         { clipTimingManifests: { some: { submission: { rallyId } } } },
-        { analysisRawJson: { some: { submission: { rallyId } } } },
-        { analysisRawOverlay: { some: { submission: { rallyId } } } },
+        { analysisDataRaw: { some: { submission: { rallyId } } } },
         { analysisArtifacts: { some: { analysisRun: { submission: { rallyId } } } } },
-        { overlayChunks: { some: { manifest: { analysisRun: { submission: { rallyId } } } } } },
+        { analysisFrameChunks: { some: { manifest: { analysisRun: { submission: { rallyId } } } } } },
       ] },
     }) as CleanupAsset[]
     const submissionIds = rally.submissions.map(submission => submission.id)
@@ -189,6 +241,7 @@ export async function deleteRallyWithMedia(
         data: { serviceKeyPointId: null, supersedesSubmissionId: null, terminalKeyPointId: null },
         where: { id: { in: submissionIds } },
       })
+      await tx.rallySubmissionBoundary.deleteMany({ where: { submissionId: { in: submissionIds } } })
       await tx.rallySubmissionKeyPoint.deleteMany({ where: { submissionId: { in: submissionIds } } })
       await tx.rallySubmission.deleteMany({ where: { id: { in: submissionIds } } })
     }
@@ -212,9 +265,9 @@ export async function deleteRallyWithMedia(
     if (assets.length) await tx.mediaAsset.deleteMany({
       where: {
         id: { in: assets.map(asset => asset.id) },
-        analysisArtifacts: { none: {} }, analysisRawJson: { none: {} }, analysisRawOverlay: { none: {} },
+        analysisArtifacts: { none: {} }, analysisDataRaw: { none: {} },
         clipOutputs: { none: {} }, clipTimingManifests: { none: {} }, dvrInitSegments: { none: {} },
-        dvrMediaSegments: { none: {} }, dvrSampleIndexSegments: { none: {} }, overlayChunks: { none: {} },
+        dvrMediaSegments: { none: {} }, dvrSampleIndexSegments: { none: {} }, analysisFrameChunks: { none: {} },
       },
     })
     return { abortedJobCount: activeAiJobs.length, assets, matchId: rally.matchId }

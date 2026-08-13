@@ -490,10 +490,23 @@ export async function swapCourtSides(
     }
     const latestRally = await tx.rally.findFirst({
       orderBy: [{ ordinal: 'desc' }, { id: 'desc' }],
-      select: { ordinal: true },
+      select: {
+        activeSubmissionId: true,
+        annotationStatus: true,
+        id: true,
+        ordinal: true,
+        scoreResolutionState: true,
+        scoringCourtSide: true,
+      },
       where: { setId, voidedAt: null },
     })
-    if (latestRally && input.effectiveFromRallyOrdinal <= latestRally.ordinal) {
+    const updatesLatestDraft = Boolean(
+      latestRally
+      && input.effectiveFromRallyOrdinal === latestRally.ordinal
+      && latestRally.activeSubmissionId === null
+      && (latestRally.annotationStatus === 'OPEN' || latestRally.annotationStatus === 'READY'),
+    )
+    if (latestRally && input.effectiveFromRallyOrdinal <= latestRally.ordinal && !updatesLatestDraft) {
       domainError('Court-side changes must start after every existing rally in the set', 'BAD_USER_INPUT')
     }
     if (input.effectiveFromRallyOrdinal < current.effectiveFromRallyOrdinal) {
@@ -509,6 +522,7 @@ export async function swapCourtSides(
     })
     if (changed.count !== 1) domainError('Set score changed while swapping court sides', 'BAD_USER_INPUT')
 
+    let nextAssignmentId = current.id
     if (input.effectiveFromRallyOrdinal === current.effectiveFromRallyOrdinal) {
       await tx.courtSideAssignment.update({
         data: { leftTeamId: current.rightTeamId, rightTeamId: current.leftTeamId },
@@ -519,7 +533,7 @@ export async function swapCourtSides(
         data: { effectiveToRallyOrdinal: input.effectiveFromRallyOrdinal - 1 },
         where: { id: current.id },
       })
-      await tx.courtSideAssignment.create({
+      const nextAssignment = await tx.courtSideAssignment.create({
         data: {
           effectiveFromRallyOrdinal: input.effectiveFromRallyOrdinal,
           leftTeamId: current.rightTeamId,
@@ -527,6 +541,32 @@ export async function swapCourtSides(
           setId,
         },
       })
+      nextAssignmentId = nextAssignment.id
+    }
+
+    if (updatesLatestDraft && latestRally) {
+      const scoringTeamId = latestRally.scoreResolutionState === 'RESOLVED'
+        ? latestRally.scoringCourtSide === 'LEFT'
+          ? current.rightTeamId
+          : latestRally.scoringCourtSide === 'RIGHT'
+            ? current.leftTeamId
+            : null
+        : null
+      const updatedDraft = await tx.rally.updateMany({
+        data: {
+          scoringTeamId,
+          sideAssignmentId: nextAssignmentId,
+          sideAssignmentReversed: false,
+        },
+        where: {
+          activeSubmissionId: null,
+          annotationStatus: { in: ['OPEN', 'READY'] },
+          id: latestRally.id,
+        },
+      })
+      if (updatedDraft.count !== 1) {
+        domainError('The editable rally changed while swapping court sides', 'BAD_USER_INPUT')
+      }
     }
     return tx.matchSet.findUniqueOrThrow({ where: { id: matchSet.id } })
   })

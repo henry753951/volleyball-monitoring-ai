@@ -26,12 +26,13 @@ from volleyball_monitoring_ai import (
 
 CAPABILITIES = ProviderCapabilities.model_validate(
     {
-        "schema_version": "1.0.0",
+        "schema_version": "2.0.0",
         "provider_name": "fixture-worker",
         "provider_build_id": "fixture-example-v1",
-        "supported_job_schema_versions": ["1.1.0"],
-        "supported_result_schema_versions": ["1.0.0"],
-        "supported_overlay_formats": ["flatbuffers_v1"],
+        "supported_job_schema_versions": ["3.0.0"],
+        "supported_analysis_data_versions": ["1.0.0"],
+        "supported_analysis_modules": ["court", "tracking", "reid", "contacts"],
+        "supports_selective_rerun": True,
         "optional_extensions": {"action": False, "group_phase": False, "confidence": False},
         "action_taxonomies": [],
     }

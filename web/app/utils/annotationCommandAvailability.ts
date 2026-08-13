@@ -14,17 +14,14 @@ export interface DraftCommandAvailabilityInput {
 
 export function draftCommandAvailability(input: DraftCommandAvailabilityInput) {
   if (input.action.startsWith('close_')) {
-    return ['OPEN', 'READY'].includes(input.state) && input.confirmedLastKeyPointId
+    return ['OPEN', 'READY'].includes(input.state)
       ? { enabled: true, reason: '' }
-      : { enabled: false, reason: input.state === 'READY' ? '找不到回合終點' : '沒有可結束的擊球點' }
+      : { enabled: false, reason: '目前沒有可設定結果的片段' }
   }
 
   if (input.state !== 'OPEN') return { enabled: false, reason: '尚未開始片段' }
 
   if (!input.canMark || !input.cursorCaptureTimeUs) return { enabled: false, reason: '游標尚未確認' }
-  if (!input.serviceCaptureTimeUs || BigInt(input.cursorCaptureTimeUs) < BigInt(input.serviceCaptureTimeUs)) {
-    return { enabled: false, reason: '游標位於目前片段開始之前' }
-  }
   return { enabled: true, reason: '' }
 }
 

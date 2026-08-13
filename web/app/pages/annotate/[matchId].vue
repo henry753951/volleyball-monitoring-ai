@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { useThrottleFn } from "@vueuse/core";
 import { toast } from "vue-sonner";
 import type {
    AnalysisFrameBBox,
@@ -35,6 +36,7 @@ import {
    type CoachRally,
    type CoachRallyReplay,
 } from "~/lib/coachDomain";
+import { provideIdentityAssignmentService } from "~/composables/useIdentityAssignmentService";
 import {
    DEFAULT_TIMELINE_SCALE,
    clipRangeOverlaps,
@@ -42,7 +44,9 @@ import {
    paddedClipRange,
    resolveSegmentSelection,
    segmentAtCaptureTime,
+   type TimelineViewport,
 } from "~/lib/dvrTimeline";
+import { useAnnotationWorkstationViewState } from "~/composables/useAnnotationWorkstationViewState";
 import { capturePlaybackMode, clampLiveEdgeTarget } from "~/lib/mediaTimeline";
 import { decidePlaybackContinuation } from "~/lib/playbackContinuation";
 import {
@@ -64,11 +68,13 @@ import {
 definePageMeta({ layout: "annotation" });
 const route = useRoute();
 const matchId = String(route.params.matchId);
+const workstationViewState = useAnnotationWorkstationViewState(matchId);
 const match = ref<Match | null>(null);
 const loadError = ref<string | null>(null);
 const media = createMediaClient();
 const core = createCoreDomainClient(createGraphQLTransport("/graphql"));
 const coachDomain = createCoachDomainClient(createGraphQLTransport("/graphql"));
+provideIdentityAssignmentService(coachDomain);
 const dvr = useAuthoritativeDvrWindow(media);
 const descriptor = computed(() => dvr.current.value);
 const { profile: mediaBufferProfile } = useMediaPlaybackPreferences();
@@ -116,6 +122,12 @@ const currentLastKeyPointId = computed(
    () =>
       displayAnnotation.value?.snapshot.key_points.at(-1)?.key_point_id ?? null,
 );
+const correctionDraftContactIds = computed(
+   () =>
+      displayAnnotation.value?.snapshot.key_points
+         .filter((point) => point.marker_kind === "contact")
+         .map((point) => point.key_point_id) ?? [],
+);
 const selectedKeyPointId = ref<string | null>(null);
 const selectedTimelineItem = ref<TimelineSelectionItem>(null);
 const selectedKeyPoint = computed(
@@ -129,16 +141,20 @@ const pendingTimelineMove = shallowRef<{
    playbackWindowId: string | null;
 } | null>(null);
 const frameQueueRunning = ref(false);
+const frameQueuePending = ref(false);
 const keyPointNudgeRunning = ref(false);
 const seekPreviewActive = ref(false);
-const canMark = computed(() =>
-   authoritativeControlsEnabled({
-      cursorReady: cursorStatus.value === "ready",
-      status: dvr.status.value,
-      busy: dvr.busy.value,
-      descriptor: descriptor.value,
-      anchor: authoritativeAnchor.value,
-   }),
+const canMark = computed(
+   () =>
+      !frameQueuePending.value &&
+      !frameQueueRunning.value &&
+      authoritativeControlsEnabled({
+         cursorReady: cursorStatus.value === "ready",
+         status: dvr.status.value,
+         busy: dvr.busy.value,
+         descriptor: descriptor.value,
+         anchor: authoritativeAnchor.value,
+      }),
 );
 const commandReady = computed(() => !annotation.outboxNeedsConfirmation.value);
 const editReady = computed(
@@ -166,19 +182,25 @@ const rosterDialogOpen = ref(false);
 const downloadDialogOpen = ref(false);
 const swapRallyTarget = ref<CoachRally | null>(null);
 const sideSwapPending = ref(false);
+const sideSwapAffectsDraft = ref(false);
 const confirmAction = ref<
    | "rally-delete"
    | "correction"
+   | "correction-submit"
    | "next-left"
    | "next-right"
-   | "swap-live"
+   | "swap-segment"
    | "swap-rally"
+   | "ws-resync"
    | null
 >(null);
 const confirmTitle = computed(() => {
    if (confirmAction.value === "rally-delete") return "永久刪除片段";
    if (confirmAction.value === "correction") return "建立修正版草稿";
-   if (confirmAction.value === "swap-live") return "交換目前場地";
+   if (confirmAction.value === "correction-submit") return "送出修正版";
+   if (confirmAction.value === "ws-resync") return "重新同步標註狀態";
+   if (confirmAction.value === "swap-segment")
+      return sideSwapAffectsDraft.value ? "對調目前片段左右" : "對調下一片段左右";
    if (confirmAction.value === "swap-rally") return "修正此片段的場地配置";
    return "開啟新一局";
 });
@@ -186,9 +208,15 @@ const confirmMessage = computed(() => {
    if (confirmAction.value === "rally-delete")
       return "片段、裁切媒體與分析結果會永久刪除；若仍在處理，工作會先中止。此動作無法復原。";
    if (confirmAction.value === "correction")
-      return "會複製目前已送出的片段，建立可編輯、可重新送出的草稿；草稿期間不顯示舊分析結果。";
-   if (confirmAction.value === "swap-live")
-      return `${leftTeam.value?.name ?? "目前左側隊伍"}與${rightTeam.value?.name ?? "目前右側隊伍"}將從下一個新片段起交換場地；目前比分會跟著隊伍名牌交換，已送出的片段不受影響。`;
+      return "會保留片段範圍、得分與目前有效的擊球點，建立可編輯草稿。完成修改並送出時，再決定保留標記或交由 AI 重新產生。";
+   if (confirmAction.value === "correction-submit")
+      return `草稿目前有 ${correctionDraftContactIds.value.length} 個擊球標記。清除後，AI 會依球路重新產生；保留後，這些標記會作為人工結果，不再加入自動擊球點。兩種方式都會重新執行球員辨識與分析。`;
+   if (confirmAction.value === "ws-resync")
+      return "有一筆本機操作已和伺服器最新狀態衝突。重新同步會捨棄尚未確認的操作，再載入最新片段；已由伺服器確認的標記不會被刪除。";
+   if (confirmAction.value === "swap-segment")
+      return sideSwapAffectsDraft.value
+         ? `將目前片段改為左側 ${rightTeam.value?.name ?? "右隊"}、右側 ${leftTeam.value?.name ?? "左隊"}；畫面上的隊名、比分歸屬、球員判斷與後續片段都會使用新的左右順序。`
+         : `下一個片段將從左側 ${rightTeam.value?.name ?? "右隊"}、右側 ${leftTeam.value?.name ?? "左隊"} 開始；畫面上的隊名、比分歸屬、球員判斷與後續片段都會使用新的左右順序。`;
    if (confirmAction.value === "swap-rally") {
       const submission = swapRallyTarget.value?.submission;
       const left = coach.data.value?.match.teams.find(
@@ -203,13 +231,20 @@ const confirmMessage = computed(() => {
 });
 const confirmLabel = computed(() => {
    if (confirmAction.value === "rally-delete") return "永久刪除";
-   if (confirmAction.value === "correction") return "建立修正版草稿";
-   if (confirmAction.value === "swap-live") return "交換目前場地";
+   if (confirmAction.value === "correction")
+      return "建立草稿";
+   if (confirmAction.value === "correction-submit")
+      return "清除並由 AI 重新標記";
+   if (confirmAction.value === "ws-resync") return "捨棄衝突並同步";
+   if (confirmAction.value === "swap-segment") return "對調左右";
    if (confirmAction.value === "swap-rally") return "建立並套用修正";
    return "確認並開始";
 });
 const correctionSubmissionId = ref<string | null>(null);
+const correctionCreating = ref(false);
+const correctionSubmitting = ref(false);
 const correctionCancelling = ref(false);
+const annotationResyncing = ref(false);
 let correctionOperationGeneration = 0;
 const processingRetrying = ref(false);
 const deleteRallyId = ref<string | null>(null);
@@ -229,9 +264,10 @@ const selectedOverlayTrackId = ref<number | null>(null);
 const selectedOverlayTrackAction = ref<string | null>(null);
 const selectedAnalysisHitId = ref<string | null>(null);
 const actorAssignmentMode = ref(false);
-const overlayVideoSize = shallowRef<{ width: number; height: number } | null>(
-   null,
-);
+const overlayVideoSize = shallowRef<{
+   width: number;
+   height: number;
+} | null>(null);
 const trackPopover = reactive({
    open: false,
    trackId: null as number | null,
@@ -274,7 +310,6 @@ let timelineRefreshTimer: ReturnType<typeof setInterval> | null = null;
 let timelineMoveTimeout: ReturnType<typeof setTimeout> | null = null;
 let cursorResolveTimer: ReturnType<typeof setTimeout> | null = null;
 let seekPreviewTimer: ReturnType<typeof setTimeout> | null = null;
-let frameQueueTimer: ReturnType<typeof setTimeout> | null = null;
 let keyPointNudgeTimer: ReturnType<typeof setTimeout> | null = null;
 let seekPreviewTarget: string | null = null;
 let cursorResolveInFlight = false;
@@ -293,11 +328,66 @@ let continuationRetryTimer: ReturnType<typeof setTimeout> | null = null;
 let windowCreatePromise: ReturnType<typeof dvr.create> | null = null;
 let windowCreateTarget: string | undefined;
 let windowCreateMode: "live" | "archive" | undefined;
-let queuedFrameDelta = 0;
 let queuedKeyPointDelta = 0;
 let queuedKeyPointId: string | null = null;
 let framePreviewTargetSeconds: number | null = null;
+let framePreviewRaf: number | null = null;
 let estimatedFrameSeconds = 1 / 60;
+
+const frameNavigation = useCoalescedFrameNavigation({
+   preview: previewFrameStep,
+   step: async (direction, count) => {
+      if (!descriptor.value || !authoritativeAnchor.value) return null;
+      const previousCaptureUs = BigInt(
+         authoritativeAnchor.value.capture_time_us,
+      );
+      const anchor = await dvr.step(direction, count, (target) => ({
+         schema_version: "1.0.0",
+         capture_session_id: descriptor.value!.capture_session_id,
+         mode: descriptor.value!.mode,
+         target_capture_time_us: target,
+      }));
+      if (!anchor) return null;
+      const anchorCaptureUs = BigInt(anchor.capture_time_us);
+      const measuredFrameUs =
+         anchorCaptureUs >= previousCaptureUs
+            ? anchorCaptureUs - previousCaptureUs
+            : previousCaptureUs - anchorCaptureUs;
+      if (measuredFrameUs > 0n && measuredFrameUs <= 24_000_000n)
+         estimatedFrameSeconds = Number(measuredFrameUs) / count / 1_000_000;
+      return anchor;
+   },
+   apply: (anchor, direction) => {
+      const element = video.value;
+      if (!element) return;
+      const localSeconds =
+         Number(BigInt(anchor.player_media_time_us)) / 1_000_000;
+      if (
+         !Number.isFinite(localSeconds) ||
+         localSeconds < 0 ||
+         localSeconds > 86_400
+      )
+         throw new RangeError("frame-step returned an unbounded player time");
+      const preservesDirection =
+         direction === "next"
+            ? localSeconds >= element.currentTime
+            : localSeconds <= element.currentTime;
+      if (preservesDirection) seekVideoToCanonicalFrame(element, anchor);
+   },
+   onError: (error) => {
+      mediaError.value =
+         error instanceof Error ? error.message : "逐幀請求失敗";
+   },
+   onSettled: () => {
+      framePreviewTargetSeconds = null;
+   },
+   settleMs: 140,
+   holdWatchdogMs: 650,
+});
+watchEffect(() => {
+   frameQueueRunning.value = frameNavigation.running.value;
+   frameQueuePending.value = frameNavigation.active.value;
+});
 
 const controls = computed(() =>
    ANNOTATION_COMMANDS.map((command) => ({
@@ -335,6 +425,15 @@ const selectedCapture = computed<CaptureSession | null>(() => {
    );
 });
 const timeline = computed(() => selectedCapture.value?.timeline ?? null);
+const restoredWorkstationState = computed(() => {
+   const capture = selectedCapture.value;
+   if (!capture) return null;
+   return workstationViewState.restoredStateForCapture(
+      capture.id,
+      capture.timeline?.availableRanges ?? [],
+   );
+});
+const maskPreviewCursor = ref<string | null>(null);
 const workstation = useAnnotationWorkstationModel({
    coachData: coach.data,
    match,
@@ -346,6 +445,7 @@ const workstation = useAnnotationWorkstationModel({
    selectedKeyPoint,
    selectedTimelineItem,
    cursorRallyId,
+   visualPlayhead: maskPreviewCursor,
 });
 const {
    submittedRallies,
@@ -358,8 +458,6 @@ const {
    currentSet,
    leftTeamId,
    rightTeamId,
-   leftSetWins,
-   rightSetWins,
    leftTeam,
    rightTeam,
    clipPreRollUs,
@@ -384,14 +482,89 @@ const {
    activeContextHits,
    activeContextDuration,
    activeContextState,
+   displayOrdinalFor,
    displayRallyOrdinal,
    displaySetNumber,
 } = workstation;
+const selectedDraftForSides = computed(
+   () =>
+      annotationDrafts.value.find((draft) => draft.id === selectedRallyId.value) ??
+      null,
+);
 const selectedSideLeftTeamId = computed(
-   () => selectedSubmittedRally.value?.submission.left_team_id ?? leftTeamId.value,
+   () =>
+      selectedSubmittedRally.value?.submission.left_team_id ??
+      selectedDraftForSides.value?.left_team_id ??
+      leftTeamId.value,
 );
 const selectedSideRightTeamId = computed(
-   () => selectedSubmittedRally.value?.submission.right_team_id ?? rightTeamId.value,
+   () =>
+      selectedSubmittedRally.value?.submission.right_team_id ??
+      selectedDraftForSides.value?.right_team_id ??
+      rightTeamId.value,
+);
+const selectedSideLeftTeam = computed(
+   () =>
+      coach.data.value?.match.teams.find(
+         (team) => team.id === selectedSideLeftTeamId.value,
+      ) ?? leftTeam.value,
+);
+const selectedSideRightTeam = computed(
+   () =>
+      coach.data.value?.match.teams.find(
+         (team) => team.id === selectedSideRightTeamId.value,
+      ) ?? rightTeam.value,
+);
+const commandDraftForSides = computed(
+   () =>
+      annotationDrafts.value.find(
+         (draft) => draft.id === displayAnnotation.value?.rally_id,
+      ) ?? null,
+);
+const commandLeftTeam = computed(
+   () =>
+      coach.data.value?.match.teams.find(
+         (team) => team.id === commandDraftForSides.value?.left_team_id,
+      ) ?? leftTeam.value,
+);
+const commandRightTeam = computed(
+   () =>
+      coach.data.value?.match.teams.find(
+         (team) => team.id === commandDraftForSides.value?.right_team_id,
+      ) ?? rightTeam.value,
+);
+function compactTeamLabel(team: { name: string; shortName: string | null } | null) {
+   return team?.shortName?.trim() || team?.name.trim() || null;
+}
+const commandLeftTeamLabel = computed(() => compactTeamLabel(commandLeftTeam.value));
+const commandRightTeamLabel = computed(() => compactTeamLabel(commandRightTeam.value));
+function currentScoreForTeam(teamId: string | null) {
+   if (!teamId || !currentSet.value) return 0;
+   if (teamId === leftTeamId.value) return currentSet.value.left_score;
+   if (teamId === rightTeamId.value) return currentSet.value.right_score;
+   return 0;
+}
+const selectedSideLeftScore = computed(
+   () =>
+      selectedSubmittedRally.value?.left_score_after ??
+      currentScoreForTeam(selectedSideLeftTeamId.value),
+);
+const selectedSideRightScore = computed(
+   () =>
+      selectedSubmittedRally.value?.right_score_after ??
+      currentScoreForTeam(selectedSideRightTeamId.value),
+);
+const selectedSideLeftSetWins = computed(
+   () =>
+      coach.data.value?.match.sets.filter(
+         (set) => set.winning_team_id === selectedSideLeftTeamId.value,
+      ).length ?? 0,
+);
+const selectedSideRightSetWins = computed(
+   () =>
+      coach.data.value?.match.sets.filter(
+         (set) => set.winning_team_id === selectedSideRightTeamId.value,
+      ).length ?? 0,
 );
 const nextRallyOrdinal = computed(() => {
    const setId = currentSet.value?.id;
@@ -406,6 +579,19 @@ const nextRallyOrdinal = computed(() => {
    ];
    return Math.max(0, ...ordinals) + 1;
 });
+const currentOrdinaryDraft = computed(() =>
+   [...annotationDrafts.value]
+      .filter(
+         (draft) =>
+            draft.set_id === currentSet.value?.id &&
+            !draft.active_submission_id &&
+            (draft.annotation_status === "open" || draft.annotation_status === "ready"),
+      )
+      .sort((left, right) => right.ordinal - left.ordinal)[0] ?? null,
+);
+const sideSwapEffectiveOrdinal = computed(
+   () => currentOrdinaryDraft.value?.ordinal ?? nextRallyOrdinal.value,
+);
 const clipSelected = computed(() =>
    Boolean(
       selectedRallyId.value &&
@@ -428,25 +614,42 @@ const selectedCorrectionDraft = computed(() =>
          (correctionRallyId.value ?? displayAnnotation.value?.rally_id),
    ),
 );
+const selectedSubmissionPending = computed(() => {
+   const rallyId = selectedRallyId.value ?? displayAnnotation.value?.rally_id;
+   if (!rallyId) return false;
+   return annotation.pendingCommands.value.some(
+      (entry) =>
+         entry.status === "pending" &&
+         entry.command.kind === "SUBMIT_RALLY" &&
+         entry.command.rally_id === rallyId,
+   );
+});
+const correctionBlockReason = computed(() => {
+   if (annotation.outboxNeedsConfirmation.value)
+      return "標記狀態有衝突；按下後可先重新同步";
+   if (annotation.pendingCount.value > 0)
+      return "前一筆標記操作仍在同步；按下可查看目前狀態";
+   if (annotation.busy.value || pendingTimelineMove.value)
+      return "目前操作完成後即可建立修正版";
+   return null;
+});
 const editorSelectedAnalysisRunId = computed(() =>
-   displayedCorrectionDraft.value ? null : selectedAnalysisRunId.value,
+   selectedCorrectionDraft.value ? null : selectedAnalysisRunId.value,
 );
-const editorOverlayAnalysisRunId = computed(
-   () =>
-      displayedCorrectionDraft.value
-         ? null
-         : (activeOverlayAnalysisRunId.value ?? selectedAnalysisRunId.value),
+const editorOverlayAnalysisRunId = computed(() =>
+   selectedCorrectionDraft.value
+      ? null
+      : (activeOverlayAnalysisRunId.value ?? selectedAnalysisRunId.value),
 );
 const editorOverlayClipStart = computed(
    () =>
       activeOverlayClipStart.value ??
-      submittedRallies.value.find(
-         (rally) => rally.id === selectedRallyId.value,
-      )?.submission.clip?.start_capture_time_us ??
+      submittedRallies.value.find((rally) => rally.id === selectedRallyId.value)
+         ?.submission.clip?.start_capture_time_us ??
       null,
 );
 const editorMappingAvailable = computed(
-   () => !displayedCorrectionDraft.value && mappingAvailable.value,
+   () => !selectedCorrectionDraft.value && mappingAvailable.value,
 );
 const overlayReplay = shallowRef<CoachRallyReplay | null>(null);
 let overlayReplayGeneration = 0;
@@ -508,6 +711,11 @@ const overlayTeamLabels = computed(() => ({
       "右隊",
 }));
 const analysisReview = useAnalysisReview(editorSelectedAnalysisRunId);
+const confirmSecondaryLabel = computed(() =>
+   confirmAction.value === "correction-submit"
+      ? "保留目前標記點"
+      : null,
+);
 const analysisOverlayActive = computed(() =>
    Boolean(
       editorSelectedAnalysisRunId.value &&
@@ -595,79 +803,146 @@ const selectedAnalysisHitHasOverride = computed(() =>
    ),
 );
 function effectiveContactFrame(keyPointId: string, fallbackFrame: number) {
-   return analysisReview.contactTimeCorrections.value.get(keyPointId) ?? fallbackFrame;
+   return (
+      analysisReview.contactTimeCorrections.value.get(keyPointId) ??
+      fallbackFrame
+   );
 }
 const analysisHitItems = computed(() =>
-   overlayEvents.value.map((event) => {
-      const frameIndex = effectiveContactFrame(event.key_point_id, replayEventFrame(event));
-      const manual = analysisReview.contactActorCorrections.value.has(
-         event.key_point_id,
-      );
-      const position = overlayVideoSize.value
-         ? resolveEffectiveHitPosition(
-              {
-                 ballCorrections: allBallCorrections.value,
-                 contactTimeCorrections: contactTimeCorrections.value,
-                 chunk: null,
-                 videoWidth: overlayVideoSize.value.width,
-                 videoHeight: overlayVideoSize.value.height,
-              },
-              event,
-           )
-         : null;
-      const trackId = manual
-         ? (analysisReview.contactActorCorrections.value.get(
-              event.key_point_id,
-           ) ?? null)
-         : overlayVideoSize.value
-           ? resolveEventActorFromResult(
-                event,
-                position,
-                overlayVideoSize.value.width,
-                overlayVideoSize.value.height,
-             )
-           : ((event.actors[0] ?? event.candidates[0])?.track_id ?? null);
-      const exactBall = analysisReview.ballCorrections.value.get(
-         String(frameIndex),
-      );
-      return {
-         keyPointId: event.key_point_id,
-         sequenceIndex: event.sequence_index,
-         frameIndex,
-         anchorSource: event.anchor_origin === "ai_detected" ? ("ai" as const) : ("human" as const),
-         anchorConfidence: event.detection_confidence ?? null,
-         timeAdjusted: analysisReview.contactTimeCorrections.value.has(event.key_point_id),
-         actorTrackId: trackId,
-         actorLabel:
-            trackId === null
-               ? "沒人打"
-               : (overlayIdentityLabels.value[trackId] ?? `Track ${trackId}`),
-         actorSource: manual
-            ? trackId === null
-               ? ("none" as const)
-               : ("manual" as const)
-            : ("auto" as const),
-         ballLabel:
-            exactBall?.state === "position"
-               ? "人工球點"
-               : exactBall?.state === "missing"
-                 ? position
-                    ? "回溯球點"
-                    : "無球點"
-                 : event.ball.frame_pos
-                   ? "AI 球點"
-                   : position
-                     ? "回溯球點"
-                     : "無球點",
-      };
-   }),
+   [
+      ...overlayEvents.value
+         .filter(
+            (event) =>
+               !analysisReview.contactEdits.value.get(event.key_point_id)
+                  ?.deleted,
+         )
+         .map((event) => {
+            const frameIndex = effectiveContactFrame(
+               event.key_point_id,
+               replayEventFrame(event),
+            );
+            const manual = analysisReview.contactActorCorrections.value.has(
+               event.key_point_id,
+            );
+            const position = overlayVideoSize.value
+               ? resolveEffectiveHitPosition(
+                    {
+                       ballCorrections: allBallCorrections.value,
+                       contactTimeCorrections: contactTimeCorrections.value,
+                       chunk: null,
+                       videoWidth: overlayVideoSize.value.width,
+                       videoHeight: overlayVideoSize.value.height,
+                    },
+                    event,
+                 )
+               : null;
+            const trackId = manual
+               ? (analysisReview.contactActorCorrections.value.get(
+                    event.key_point_id,
+                 ) ?? null)
+               : overlayVideoSize.value
+                 ? resolveEventActorFromResult(
+                      event,
+                      position,
+                      overlayVideoSize.value.width,
+                      overlayVideoSize.value.height,
+                   )
+                 : ((event.actors[0] ?? event.candidates[0])?.track_id ?? null);
+            const exactBall = analysisReview.ballCorrections.value.get(
+               String(frameIndex),
+            );
+            return {
+               keyPointId: event.key_point_id,
+               sequenceIndex: event.sequence_index,
+               frameIndex,
+               anchorSource:
+                  event.anchor_origin === "ai_detected"
+                     ? ("ai" as const)
+                     : ("human" as const),
+               anchorConfidence: event.detection_confidence ?? null,
+               timeAdjusted: analysisReview.contactTimeCorrections.value.has(
+                  event.key_point_id,
+               ),
+               actorTrackId: trackId,
+               actorLabel:
+                  trackId === null
+                     ? "沒人打"
+                     : (overlayIdentityLabels.value[trackId] ??
+                       `Track ${trackId}`),
+               actorSource: manual
+                  ? trackId === null
+                     ? ("none" as const)
+                     : ("manual" as const)
+                  : ("auto" as const),
+               ballLabel:
+                  exactBall?.state === "position"
+                     ? "人工球點"
+                     : exactBall?.state === "missing"
+                       ? position
+                          ? "回溯球點"
+                          : "無球點"
+                       : event.ball.frame_pos
+                         ? "AI 球點"
+                         : position
+                           ? "回溯球點"
+                           : "無球點",
+            };
+         }),
+      ...[...analysisReview.contactEdits.value.values()]
+         .filter((edit) => !edit.base_key_point_id && !edit.deleted)
+         .map((edit) => ({
+            keyPointId: edit.contact_id,
+            sequenceIndex: 0,
+            frameIndex: effectiveContactFrame(
+               edit.contact_id,
+               Number(edit.frame_index),
+            ),
+            anchorSource: "manual" as const,
+            anchorConfidence: null,
+            timeAdjusted: analysisReview.contactTimeCorrections.value.has(
+               edit.contact_id,
+            ),
+            actorTrackId: edit.track_id,
+            actorLabel:
+               edit.track_id === null
+                  ? "尚未指派"
+                  : (overlayIdentityLabels.value[edit.track_id] ??
+                    `Track ${edit.track_id}`),
+            actorSource:
+               edit.track_id === null ? ("none" as const) : ("manual" as const),
+            ballLabel: "人工新增",
+         })),
+   ]
+      .sort((left, right) => left.frameIndex - right.frameIndex)
+      .map((hit, sequenceIndex) => ({ ...hit, sequenceIndex })),
+);
+const removedAnalysisHitItems = computed(() =>
+   [...analysisReview.contactEdits.value.values()]
+      .filter((edit) => edit.deleted)
+      .map((edit) => {
+         const base = edit.base_key_point_id
+            ? overlayEvents.value.find(
+                 (event) => event.key_point_id === edit.base_key_point_id,
+              )
+            : null;
+         return {
+            keyPointId: edit.contact_id,
+            frameIndex: Number(edit.frame_index),
+            label: edit.base_key_point_id
+               ? base?.anchor_origin === "ai_detected"
+                  ? "AI 擊球建議"
+                  : "人工 X 碰撞"
+               : "人工新增擊球點",
+         };
+      })
+      .sort((left, right) => left.frameIndex - right.frameIndex),
 );
 const analysisToolboxMode = computed<
    "ball" | "bbox" | "actor" | "track" | null
 >(() => {
    if (!analysisOverlayActive.value || inspectorTab.value !== "analysis")
       return null;
-   if (analysisPanelPage.value === "hits" && selectedAnalysisHit.value)
+   if (analysisPanelPage.value === "hits" && selectedAnalysisHitId.value)
       return "actor";
    if (analysisPanelPage.value === "ball") return "ball";
    if (analysisPanelPage.value !== "players") return null;
@@ -798,6 +1073,8 @@ const selectedEditableKeyPoint = computed(() =>
    ),
 );
 const defaultPlaybackTarget = computed(() => {
+   const restoredCursor = restoredWorkstationState.value?.cursorCaptureTimeUs;
+   if (restoredCursor) return restoredCursor;
    if (liveCapture.value) return timelineEndTarget.value;
 
    const earliestKeyPoint = navigableKeyPoints.value[0]?.captureTimeUs;
@@ -805,13 +1082,32 @@ const defaultPlaybackTarget = computed(() => {
 
    return timeline.value?.availableRanges[0]?.startUs ?? null;
 });
+const defaultPlaybackWindowMode = computed<"live" | "archive">(() =>
+   restoredWorkstationState.value?.cursorCaptureTimeUs
+      ? "archive"
+      : liveCapture.value
+        ? "live"
+        : "archive",
+);
+const syncNeedsAttention = computed(
+   () =>
+      Boolean(annotation.error.value) ||
+      annotation.outboxNeedsConfirmation.value ||
+      ["reconnecting", "closed"].includes(annotation.connection.value),
+);
 const syncLabel = computed(() =>
-   annotation.error.value || annotation.outboxNeedsConfirmation.value
-      ? "WS 需注意"
-      : annotation.pendingCount.value || annotation.busy.value
-        ? "WS 同步中"
-        : annotation.connection.value === "ready"
-          ? "WS 正常"
+   annotationResyncing.value
+      ? "WS 重新同步中"
+      : annotation.outboxNeedsConfirmation.value
+        ? "WS 需重新同步"
+        : annotation.error.value
+          ? "WS 需注意"
+          : annotation.pendingCount.value || annotation.busy.value
+         ? "WS 同步中"
+         : ["connecting", "reconnecting"].includes(annotation.connection.value)
+           ? "WS 連線中"
+         : annotation.connection.value === "ready"
+           ? "WS 正常"
           : "WS 離線",
 );
 const displayTimecode = computed(() =>
@@ -867,7 +1163,11 @@ function movedPointWouldOverlap(
 }
 
 function commandAvailability(action: AnnotationAction) {
-   if (!commandReady.value) return { enabled: false, reason: "標記同步中" };
+   if (!commandReady.value)
+      return {
+         enabled: false,
+         reason: "標記狀態有衝突，請按上方「重新同步」",
+      };
    if (action === "submit")
       return state.value === "READY" ||
          (state.value === "OPEN" && correctionActive.value)
@@ -878,18 +1178,24 @@ function commandAvailability(action: AnnotationAction) {
       if (!cursor || !canMark.value)
          return { enabled: false, reason: "播放游標尚未確認" };
       const cursorValue = BigInt(cursor);
-      const service = displayAnnotation.value?.snapshot.key_points.find(
-         (point) => point.marker_kind === "service",
+      const startBoundary = displayAnnotation.value?.snapshot.boundaries?.find(
+         (boundary) => boundary.kind === "start",
       );
       if (
          state.value === "OPEN" &&
          !displayAnnotation.value?.snapshot.active_submission_id
       ) {
-         if (!service)
-            return { enabled: false, reason: "目前回合缺少發球點" };
-         return cursorValue > BigInt(service.capture_time_us)
-            ? { enabled: true, reason: "再次按 Z，以目前畫面作為回合終點" }
-            : { enabled: false, reason: "請將游標移到發球之後再結束" };
+         if (!startBoundary)
+            return { enabled: false, reason: "目前片段缺少開始邊界" };
+         return cursorValue > BigInt(startBoundary.capture_time_us)
+            ? {
+                 enabled: true,
+                 reason: "再次按 Z，以目前畫面作為片段結束",
+              }
+            : {
+                 enabled: false,
+                 reason: "請將游標移到片段開始之後再結束",
+              };
       }
       if (
          openDraftBlocksNewRally(
@@ -898,29 +1204,17 @@ function commandAvailability(action: AnnotationAction) {
          )
       )
          return { enabled: false, reason: "目前仍有正在編輯的片段" };
-      const start =
-         cursorValue > clipPreRollUs.value
-            ? cursorValue - clipPreRollUs.value
-            : 0n;
-      const end = cursorValue + clipPostRollUs.value;
-      const overlap = selectableSegmentRanges.value.some(
-         (range) =>
-            start < BigInt(range.endCaptureTimeUs) &&
-            end > BigInt(range.startCaptureTimeUs),
-      );
-      return overlap
-         ? { enabled: false, reason: "片段延展範圍會與既有片段重疊" }
-         : { enabled: true, reason: "" };
+      return { enabled: true, reason: "" };
    }
-   const service = displayAnnotation.value?.snapshot.key_points.find(
-      (point) => point.marker_kind === "service",
-   );
    return draftCommandAvailability({
       action,
       state: state.value,
       canMark: canMark.value,
       cursorCaptureTimeUs: visualPlayhead.value,
-      serviceCaptureTimeUs: service?.capture_time_us ?? null,
+      serviceCaptureTimeUs:
+         displayAnnotation.value?.snapshot.boundaries?.find(
+            (boundary) => boundary.kind === "start",
+         )?.capture_time_us ?? null,
       confirmedLastKeyPointId:
          annotation.lastKeyPoint.value?.key_point_id ?? null,
    });
@@ -1060,7 +1354,7 @@ function handleCursor(cursor: PlaybackCursorInput) {
    if (
       seekPreviewActive.value ||
       frameQueueRunning.value ||
-      queuedFrameDelta !== 0 ||
+      frameQueuePending.value ||
       keyPointNudgeRunning.value ||
       queuedKeyPointDelta !== 0
    )
@@ -1100,7 +1394,7 @@ async function createWindow(
    const safeTarget =
       target && mode === "live"
          ? clampLiveEdgeTarget(target, timeline.value?.availableRanges ?? [])
-          : target;
+         : target;
    const current = descriptor.value;
    if (
       current &&
@@ -1113,9 +1407,12 @@ async function createWindow(
    ) {
       captureTarget.value = safeTarget;
       if (video.value) {
-         video.value.currentTime = Number(
-            BigInt(safeTarget) - BigInt(current.presentation_origin_capture_us),
-         ) / 1_000_000;
+         prepareAuthoritativeSeek();
+         video.value.currentTime =
+            Number(
+               BigInt(safeTarget) -
+                  BigInt(current.presentation_origin_capture_us),
+            ) / 1_000_000;
       }
       return current;
    }
@@ -1169,7 +1466,7 @@ async function seekTimeline(targetCaptureTimeUs: string) {
    seekPreviewActive.value = false;
    seekPreviewTarget = null;
    if (seekPreviewTimer) clearTimeout(seekPreviewTimer);
-   if (frameQueueTimer) clearTimeout(frameQueueTimer);
+   prepareAuthoritativeSeek();
    if (keyPointNudgeTimer) clearTimeout(keyPointNudgeTimer);
    seekPreviewTimer = null;
    const target = liveCapture.value
@@ -1179,9 +1476,17 @@ async function seekTimeline(targetCaptureTimeUs: string) {
         )
       : targetCaptureTimeUs;
    captureTarget.value = target;
-   if (overlayPlayer.value?.seekCaptureTimeIfBuffered(target))
-      return;
+   if (overlayPlayer.value?.seekCaptureTimeIfBuffered(target)) return;
    await createWindow(target);
+}
+
+function prepareAuthoritativeSeek() {
+   frameNavigation.cancel();
+   pendingCursorResolve = null;
+   lastResolvedCursorKey = "";
+   lastAutomaticCursorResolveKey = "";
+   cursorStatus.value = "seeking";
+   dvr.invalidateAnchor();
 }
 
 function previewTimelineSeek(targetCaptureTimeUs: string | null) {
@@ -1206,6 +1511,10 @@ function previewTimelineSeek(targetCaptureTimeUs: string | null) {
 function dispatchAnnotationAction(action: AnnotationAction) {
    const control = controls.value.find((item) => item.action === action);
    if (!control?.enabled) return;
+   if (action === "submit" && displayedCorrectionDraft.value) {
+      requestCorrectionSubmit();
+      return;
+   }
    const captureTimeUs = visualPlayhead.value;
    try {
       annotation.dispatch(
@@ -1332,6 +1641,7 @@ async function moveTimelineKeyPoint(
    annotation.setEditingKeyPoint(keyPointId);
    pendingTimelineMove.value = { keyPointId, playbackWindowId: null };
    try {
+      prepareAuthoritativeSeek();
       if (
          descriptor.value &&
          overlayPlayer.value?.seekCaptureTimeIfBuffered(targetCaptureTimeUs)
@@ -1380,10 +1690,7 @@ async function moveTimelineKeyPoint(
    }
 }
 
-function nudgeSelectedKeyPoint(
-   direction: "previous" | "next",
-   count = 1,
-) {
+function nudgeSelectedKeyPoint(direction: "previous" | "next", count = 1) {
    const point = selectedKeyPoint.value;
    const capture = selectedCapture.value;
    if (
@@ -1407,7 +1714,8 @@ function nudgeSelectedKeyPoint(
    const estimatedFrameUs = BigInt(
       Math.max(1, Math.round(estimatedFrameSeconds * 1_000_000)),
    );
-   const previewUs = BigInt(point.capture_time_us) +
+   const previewUs =
+      BigInt(point.capture_time_us) +
       BigInt(queuedKeyPointDelta) * estimatedFrameUs;
    if (previewUs >= 0n) {
       const preview = previewUs.toString();
@@ -1420,9 +1728,9 @@ function nudgeSelectedKeyPoint(
          previewUs < BigInt(window.window_capture_end_us)
       ) {
          video.value.pause();
-         video.value.currentTime = Number(
-            previewUs - BigInt(window.presentation_origin_capture_us),
-         ) / 1_000_000;
+         video.value.currentTime =
+            Number(previewUs - BigInt(window.presentation_origin_capture_us)) /
+            1_000_000;
       }
    }
    if (keyPointNudgeTimer) clearTimeout(keyPointNudgeTimer);
@@ -1468,15 +1776,15 @@ async function flushKeyPointNudge() {
          });
       }
       if (!window) throw new Error("無法建立擊球點微調視窗");
-       const frame = await media.frameStep({
-          schema_version: "1.1.0",
-          capture_session_id: capture.id,
-          playback_window_id: window.playback_window_id,
-          mapping_version: window.mapping_version,
-          capture_frame_index: point.capture_frame_index,
-          direction: delta > 0 ? "next" : "previous",
-          count: Math.abs(delta),
-       });
+      const frame = await media.frameStep({
+         schema_version: "1.1.0",
+         capture_session_id: capture.id,
+         playback_window_id: window.playback_window_id,
+         mapping_version: window.mapping_version,
+         capture_frame_index: point.capture_frame_index,
+         direction: delta > 0 ? "next" : "previous",
+         count: Math.abs(delta),
+      });
       const cursor: PlaybackCursorInput = {
          schema_version: "1.0.0",
          playback_window_id: frame.playback_window_id,
@@ -1499,13 +1807,13 @@ async function flushKeyPointNudge() {
          keyPointId: point.key_point_id,
          cursor,
       });
-    } catch (error) {
-       toast.error(error instanceof Error ? error.message : "擊球點微調失敗");
-    } finally {
-       keyPointNudgeRunning.value = false;
-       clearKeyPointMovePreview(keyPointId);
-       releaseEditingIntent();
-    }
+   } catch (error) {
+      toast.error(error instanceof Error ? error.message : "擊球點微調失敗");
+   } finally {
+      keyPointNudgeRunning.value = false;
+      clearKeyPointMovePreview(keyPointId);
+      releaseEditingIntent();
+   }
 }
 
 function deleteSelectedKeyPoint() {
@@ -1518,11 +1826,145 @@ function deleteSelectedClip() {
    confirmAction.value = "rally-delete";
 }
 
+function requestAnnotationResync() {
+   if (annotationResyncing.value) return;
+   if (annotation.outboxNeedsConfirmation.value) {
+      confirmAction.value = "ws-resync";
+      return;
+   }
+   void performAnnotationResync(false);
+}
+
+async function performAnnotationResync(discardConflicts: boolean) {
+   if (annotationResyncing.value) return;
+   annotationResyncing.value = true;
+   try {
+      await annotation.resync({ discardConflicts });
+      toast.success(
+         annotation.connection.value === "ready"
+            ? "標註狀態已重新同步"
+            : "已取得最新狀態，標註連線正在重新建立",
+      );
+   } catch (error) {
+      toast.error(error instanceof Error ? error.message : "無法重新同步標註狀態");
+   } finally {
+      annotationResyncing.value = false;
+   }
+}
+
 function startCorrection() {
    const submissionId = selectedSubmittedRally.value?.submission.id;
-   if (!submissionId || !editReady.value) return;
+   if (!submissionId || correctionCreating.value) return;
+   if (annotation.outboxNeedsConfirmation.value) {
+      toast.warning("先重新同步標註狀態，再建立修正版", {
+         action: { label: "重新同步", onClick: requestAnnotationResync },
+      });
+      return;
+   }
+   if (
+      annotation.pendingCount.value > 0 ||
+      annotation.busy.value ||
+      pendingTimelineMove.value
+   ) {
+      toast.info("前一筆標記操作仍在同步，完成後即可建立修正版");
+      return;
+   }
+   if (
+      editorSelectedAnalysisRunId.value &&
+      analysisReview.loadedAnalysisRunId.value !==
+         editorSelectedAnalysisRunId.value
+   ) {
+      toast.info("正在同步擊球點修改，請稍後再試");
+      return;
+   }
+   if (analysisReview.dirtyCount.value > 0) {
+      toast.warning("請先套用或捨棄尚未儲存的分析修改");
+      return;
+   }
    correctionSubmissionId.value = submissionId;
    confirmAction.value = "correction";
+}
+
+async function createSelectedCorrection(
+   submissionId: string,
+) {
+   if (correctionCreating.value) return;
+   const correctionOperation = ++correctionOperationGeneration;
+   correctionCreating.value = true;
+   try {
+      const preserveAnalysisContacts = overlayEvents.value.length > 0;
+      const draft = await annotation.createCorrection(submissionId, {
+         preserveAnalysisContacts,
+         regenerateAnalysisContacts: !preserveAnalysisContacts,
+      });
+      if (correctionOperation !== correctionOperationGeneration) return;
+      const rallyId = draft?.rally_id;
+      if (!rallyId) throw new Error("修正版已建立，但尚未取得片段狀態");
+
+      // Select the returned Rally directly. Depending on the dashboard refresh here
+      // made a successfully-created draft look like the old completed analysis.
+      pinnedRallyId.value = rallyId;
+      selectedTimelineItem.value = "mask";
+      selectedKeyPointId.value =
+         annotation.lastKeyPoint.value?.key_point_id ?? null;
+
+      if (state.value !== "OPEN" && state.value !== "READY") {
+         await annotation.selectRally(rallyId);
+      }
+      if (state.value !== "OPEN" && state.value !== "READY") {
+         throw new Error("修正版已建立，正在重新同步；請稍後再選取此片段");
+      }
+
+      await coach.refresh();
+      if (correctionOperation !== correctionOperationGeneration) return;
+      toast.success("修正版草稿已建立；送出時可選擇保留或重新產生擊球點");
+   } catch (error) {
+      if (correctionOperation === correctionOperationGeneration) {
+         await coach.refresh().catch(() => undefined);
+         toast.error(
+            error instanceof Error ? error.message : "無法建立修正版草稿",
+         );
+      }
+   } finally {
+      if (correctionOperation === correctionOperationGeneration)
+         correctionCreating.value = false;
+   }
+}
+
+function requestCorrectionSubmit() {
+   if (!displayedCorrectionDraft.value || correctionSubmitting.value) return;
+   if (correctionDraftContactIds.value.length === 0) {
+      void submitSelectedCorrection("regenerate");
+      return;
+   }
+   confirmAction.value = "correction-submit";
+}
+
+async function submitSelectedCorrection(
+   contactStrategy: "regenerate" | "preserve",
+) {
+   if (correctionSubmitting.value) return;
+   correctionSubmitting.value = true;
+   try {
+      if (contactStrategy === "regenerate") {
+         for (const keyPointId of [...correctionDraftContactIds.value]) {
+            await annotation.edit("DELETE_KEY_POINT", { keyPointId });
+         }
+      }
+      await annotation.submitCorrection();
+      selectedTimelineItem.value = "segment";
+      selectedKeyPointId.value = null;
+      await coach.refresh();
+      toast.success(
+         contactStrategy === "preserve"
+            ? "修正版已送出；保留目前標記點並重新執行球員辨識與分析"
+            : "修正版已送出；AI 將重新產生擊球點並執行球員辨識",
+      );
+   } catch (error) {
+      toast.error(error instanceof Error ? error.message : "無法送出修正版");
+   } finally {
+      correctionSubmitting.value = false;
+   }
 }
 
 async function cancelCorrection() {
@@ -1565,13 +2007,13 @@ function requestCurrentSideSwap() {
       !currentSet.value ||
       !leftTeamId.value ||
       !rightTeamId.value ||
-      state.value === "OPEN" ||
       !editReady.value ||
       sideSwapPending.value
    )
       return;
    swapRallyTarget.value = null;
-   confirmAction.value = "swap-live";
+   sideSwapAffectsDraft.value = Boolean(currentOrdinaryDraft.value);
+   confirmAction.value = "swap-segment";
 }
 
 function requestRallySideSwap(rally: CoachRally) {
@@ -1593,10 +2035,12 @@ async function updateRallyPlacement(input: {
    if (placementSaving.value) return;
    placementSaving.value = true;
    try {
-      await coachDomain.updateRallyPlacement(input);
+      const placement = await coachDomain.updateRallyPlacement(input);
       await coach.refresh();
       matchInspector.value?.closePlacement();
-      toast.success(`已調整為第 ${input.setNumber} 局 · 回合 ${input.ordinal}`);
+      toast.success(
+         `已調整為第 ${placement.displaySetNumber} 局 · 回合 ${placement.displayOrdinal}`,
+      );
    } catch (error) {
       toast.error(error instanceof Error ? error.message : "無法調整局與回合");
    } finally {
@@ -1609,6 +2053,7 @@ function closeConfirmAction() {
    correctionSubmissionId.value = null;
    deleteRallyId.value = null;
    swapRallyTarget.value = null;
+   sideSwapAffectsDraft.value = false;
 }
 
 function clearDeletedRallySelection(rallyId: string) {
@@ -1646,24 +2091,35 @@ async function purgeRally(rallyId: string) {
 
 async function swapCurrentCourtSides() {
    const set = currentSet.value;
-   const expectedLeftTeamId = leftTeamId.value;
-   const expectedRightTeamId = rightTeamId.value;
-   if (!set || !expectedLeftTeamId || !expectedRightTeamId || sideSwapPending.value)
+   const currentLeftTeamId = leftTeamId.value;
+   const currentRightTeamId = rightTeamId.value;
+   if (
+      !set ||
+      !currentLeftTeamId ||
+      !currentRightTeamId ||
+      sideSwapPending.value
+   )
       return;
+   const affectsCurrentDraft = sideSwapAffectsDraft.value;
    sideSwapPending.value = true;
    try {
       await core.swapCourtSides({
+         effectiveFromRallyOrdinal: sideSwapEffectiveOrdinal.value,
+         expectedLeftTeamId: currentLeftTeamId,
+         expectedRightTeamId: currentRightTeamId,
          setId: set.id,
-         effectiveFromRallyOrdinal: nextRallyOrdinal.value,
-         expectedLeftTeamId,
-         expectedRightTeamId,
       });
       await Promise.all([loadMatch({ silent: true }), coach.refresh()]);
-      toast.success(`場地已交換，從回合 ${nextRallyOrdinal.value} 起生效`);
+      toast.success(
+         affectsCurrentDraft
+            ? "目前片段與後續片段的左右隊伍已對調"
+            : "下一片段的左右隊伍已對調",
+      );
    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "無法交換目前場地");
+      toast.error(error instanceof Error ? error.message : "無法對調片段左右隊伍");
    } finally {
       sideSwapPending.value = false;
+      sideSwapAffectsDraft.value = false;
    }
 }
 
@@ -1707,12 +2163,20 @@ function confirmPendingAction() {
    correctionSubmissionId.value = null;
    deleteRallyId.value = null;
    swapRallyTarget.value = null;
+   if (action === "ws-resync") {
+      void performAnnotationResync(true);
+      return;
+   }
    if (action === "rally-delete" && targetRallyId) {
       void purgeRally(targetRallyId);
       return;
    }
-   if (action === "swap-live") {
+   if (action === "swap-segment") {
       void swapCurrentCourtSides();
+      return;
+   }
+   if (action === "correction-submit") {
+      void submitSelectedCorrection("regenerate");
       return;
    }
    if (action === "swap-rally" && sideSwapRally) {
@@ -1737,32 +2201,15 @@ function confirmPendingAction() {
       return;
    }
    if (!submissionId) return;
-   const correctionOperation = ++correctionOperationGeneration;
-   void annotation
-      .createCorrection(submissionId)
-      .then(async () => {
-         if (correctionOperation !== correctionOperationGeneration) return;
-         if (state.value !== "OPEN") {
-            const reopenError =
-               annotation.error.value || "修正版草稿無法進入編輯狀態";
-            await annotation.cancelCorrection().catch(() => undefined);
-            await coach.refresh();
-            throw new Error(reopenError);
-         }
-         pinnedRallyId.value = displayAnnotation.value?.rally_id ?? null;
-         selectedTimelineItem.value = "mask";
-         selectedKeyPointId.value =
-            annotation.lastKeyPoint.value?.key_point_id ?? null;
-         await coach.refresh();
-         if (correctionOperation !== correctionOperationGeneration) return;
-         toast.success("修正版草稿已建立，可直接送出或開始編輯");
-      })
-      .catch((error) => {
-         if (correctionOperation === correctionOperationGeneration)
-            toast.error(
-               error instanceof Error ? error.message : "無法建立修正版草稿",
-            );
-      });
+   void createSelectedCorrection(submissionId);
+}
+
+function confirmSecondaryAction() {
+   const action = confirmAction.value;
+   closeConfirmAction();
+   if (action === "correction-submit") {
+      void submitSelectedCorrection("preserve");
+   }
 }
 
 type PlayerAction = MediaAction | "mute";
@@ -1937,7 +2384,11 @@ function handleBufferState(value: {
          ? value.buffered
          : [];
 }
-function dispatchMediaAction(action: PlayerAction, frameCount = 1) {
+function dispatchMediaAction(
+   action: PlayerAction,
+   frameCount = 1,
+   input: "keyboard" | "button" = "button",
+) {
    const element = video.value;
    if (!element) return;
    if (action === "play_pause") {
@@ -1950,20 +2401,21 @@ function dispatchMediaAction(action: PlayerAction, frameCount = 1) {
    }
    if (action === "mute") element.muted = !element.muted;
    if (action === "frame_previous" || action === "frame_next")
-      queueFrameStep(action === "frame_next" ? "next" : "previous", frameCount);
+      queueFrameStep(
+         action === "frame_next" ? "next" : "previous",
+         frameCount,
+         input,
+      );
    if (action === "key_point_previous" || action === "key_point_next")
       navigateKeyPoint(action === "key_point_next" ? "next" : "previous");
 }
 
-function queueFrameStep(direction: "previous" | "next", count = 1) {
-   const delta = direction === "next" ? count : -count;
-   queuedFrameDelta = Math.max(-120, Math.min(120, queuedFrameDelta + delta));
-   previewFrameStep(delta);
-   if (frameQueueTimer) clearTimeout(frameQueueTimer);
-   frameQueueTimer = setTimeout(() => {
-      frameQueueTimer = null;
-      if (!frameQueueRunning.value) void drainFrameQueue();
-   }, 90);
+function queueFrameStep(
+   direction: "previous" | "next",
+   count = 1,
+   input: "keyboard" | "button" = "button",
+) {
+   frameNavigation.enqueue(direction, count, input);
 }
 
 function previewFrameStep(delta: number) {
@@ -1984,58 +2436,12 @@ function previewFrameStep(delta: number) {
       0,
       Math.min(mediaEnd, base + delta * estimatedFrameSeconds),
    );
-   element.currentTime = framePreviewTargetSeconds;
-}
-
-async function drainFrameQueue() {
-   if (!descriptor.value || frameQueueRunning.value) return;
-   frameQueueRunning.value = true;
-   let finalStepAnchor: Awaited<ReturnType<typeof dvr.step>> = null;
-   try {
-      const delta = queuedFrameDelta;
-      queuedFrameDelta = 0;
-      if (delta !== 0 && descriptor.value && authoritativeAnchor.value) {
-         const direction = delta > 0 ? "next" : "previous";
-         const previousCaptureUs = BigInt(authoritativeAnchor.value.capture_time_us);
-         const anchor = await dvr.step(direction, Math.abs(delta), (target) => ({
-            schema_version: "1.0.0",
-            capture_session_id: descriptor.value!.capture_session_id,
-            mode: descriptor.value!.mode,
-            target_capture_time_us: target,
-         }));
-         if (!anchor) {
-            queuedFrameDelta = 0;
-         } else {
-            finalStepAnchor = anchor;
-            const localUs = BigInt(anchor.player_media_time_us);
-            if (localUs < 0n || localUs > 86_400_000_000n)
-               throw new RangeError(
-                  "frame-step returned an unbounded player time",
-               );
-            const anchorCaptureUs = BigInt(anchor.capture_time_us);
-            const measuredFrameUs =
-               anchorCaptureUs >= previousCaptureUs
-                  ? anchorCaptureUs - previousCaptureUs
-                  : previousCaptureUs - anchorCaptureUs;
-            if (measuredFrameUs > 0n && measuredFrameUs <= 24_000_000n)
-               estimatedFrameSeconds =
-                  Number(measuredFrameUs) / Math.abs(delta) / 1_000_000;
-         }
-      }
-      if (video.value && finalStepAnchor)
-         seekVideoToCanonicalFrame(video.value, finalStepAnchor);
-   } catch (error) {
-      queuedFrameDelta = 0;
-      mediaError.value =
-         error instanceof Error ? error.message : "逐幀請求失敗";
-   } finally {
-      frameQueueRunning.value = false;
-      if (queuedFrameDelta !== 0) {
-         queueMicrotask(() => void drainFrameQueue());
-      } else {
-         framePreviewTargetSeconds = null;
-      }
-   }
+   if (framePreviewRaf !== null) return;
+   framePreviewRaf = requestAnimationFrame(() => {
+      framePreviewRaf = null;
+      if (video.value && framePreviewTargetSeconds !== null)
+         video.value.currentTime = framePreviewTargetSeconds;
+   });
 }
 
 function navigateKeyPoint(direction: "previous" | "next") {
@@ -2138,16 +2544,12 @@ function handleOverlayTrack(selection: {
       return;
    }
    inspectorTab.value = "mapping";
-   const stage = videoStage.value;
-   const rect = stage?.getBoundingClientRect();
    trackPopover.open = true;
    trackPopover.trackId = selection.trackId;
-   trackPopover.x = rect
-      ? Math.max(120, Math.min(rect.width - 120, selection.clientX - rect.left))
-      : 180;
-   trackPopover.y = rect
-      ? Math.max(20, Math.min(rect.height - 250, selection.clientY - rect.top))
-      : 80;
+   // The Reka/shadcn popover collision engine needs viewport coordinates.
+   // It will flip and shift the panel when the selected bbox is near an edge.
+   trackPopover.x = selection.clientX;
+   trackPopover.y = selection.clientY;
 }
 
 function markBallMissing() {
@@ -2204,29 +2606,50 @@ function selectAnalysisHit(keyPointId: string) {
    const event = overlayEvents.value.find(
       (candidate) => candidate.key_point_id === keyPointId,
    );
-   if (!event) return;
+   if (!event) {
+      const manual = analysisReview.contactEdits.value.get(keyPointId);
+      if (!manual || manual.deleted) return;
+      selectedAnalysisHitId.value = keyPointId;
+      const frameIndex = Number(manual.frame_index);
+      const captureTime =
+         overlayPlayer.value?.overlayFrameCaptureTime(frameIndex);
+      if (captureTime) void seekTimeline(captureTime);
+      else {
+         prepareAuthoritativeSeek();
+         overlayPlayer.value?.seekOverlayFrameIfBuffered(frameIndex);
+      }
+      return;
+   }
    selectedAnalysisHitId.value = keyPointId;
-   const frameIndex = effectiveContactFrame(keyPointId, replayEventFrame(event));
+   const frameIndex = effectiveContactFrame(
+      keyPointId,
+      replayEventFrame(event),
+   );
    const captureTime = overlayPlayer.value?.overlayFrameCaptureTime(frameIndex);
    if (captureTime) void seekTimeline(captureTime);
-   else overlayPlayer.value?.seekOverlayFrameIfBuffered(frameIndex);
+   else {
+      prepareAuthoritativeSeek();
+      overlayPlayer.value?.seekOverlayFrameIfBuffered(frameIndex);
+   }
 }
 
 function adjustAnalysisHitTime(keyPointId: string, deltaFrames: number) {
-   const eventIndex = overlayEvents.value.findIndex((event) => event.key_point_id === keyPointId);
-   const event = overlayEvents.value[eventIndex];
-   if (!event || event.anchor_origin !== "ai_detected") return;
-   const currentFrame = effectiveContactFrame(keyPointId, replayEventFrame(event));
+   const hitIndex = analysisHitItems.value.findIndex(
+      (hit) => hit.keyPointId === keyPointId,
+   );
+   const hit = analysisHitItems.value[hitIndex];
+   if (!hit || hit.anchorSource === "human") return;
+   const currentFrame = hit.frameIndex;
    const nextFrame = currentFrame + deltaFrames;
-   const previous = overlayEvents.value[eventIndex - 1];
-   const following = overlayEvents.value[eventIndex + 1];
-   const previousFrame = previous
-      ? effectiveContactFrame(previous.key_point_id, replayEventFrame(previous))
-      : -1;
-   const followingFrame = following
-      ? effectiveContactFrame(following.key_point_id, replayEventFrame(following))
-      : Number.MAX_SAFE_INTEGER;
-   if (nextFrame <= previousFrame || nextFrame >= followingFrame || nextFrame < 0) {
+   const previousFrame = analysisHitItems.value[hitIndex - 1]?.frameIndex ?? -1;
+   const followingFrame =
+      analysisHitItems.value[hitIndex + 1]?.frameIndex ??
+      Number.MAX_SAFE_INTEGER;
+   if (
+      nextFrame <= previousFrame ||
+      nextFrame >= followingFrame ||
+      nextFrame < 0
+   ) {
       toast.warning("擊球點必須維持在前後事件之間");
       return;
    }
@@ -2234,7 +2657,10 @@ function adjustAnalysisHitTime(keyPointId: string, deltaFrames: number) {
    selectedAnalysisHitId.value = keyPointId;
    const captureTime = overlayPlayer.value?.overlayFrameCaptureTime(nextFrame);
    if (captureTime) void seekTimeline(captureTime);
-   else overlayPlayer.value?.seekOverlayFrameIfBuffered(nextFrame);
+   else {
+      prepareAuthoritativeSeek();
+      overlayPlayer.value?.seekOverlayFrameIfBuffered(nextFrame);
+   }
 }
 
 function resetAnalysisHitTime(keyPointId: string) {
@@ -2267,11 +2693,97 @@ function handleMappingChanged() {
    void refreshOverlayReplay();
 }
 
+function addAnalysisHit() {
+   if (!analysisOverlayActive.value) return;
+   const id = analysisReview.addContact(
+      currentOverlayFrame.value,
+      selectedOverlayTrackId.value,
+   );
+   selectedAnalysisHitId.value = id;
+   analysisPanelPage.value = "hits";
+}
+
+function deleteAnalysisHit(keyPointId: string) {
+   const hit = analysisHitItems.value.find(
+      (candidate) => candidate.keyPointId === keyPointId,
+   );
+   if (!hit) return;
+   analysisReview.deleteContact(keyPointId, hit.frameIndex);
+   selectedAnalysisHitId.value = null;
+}
+
+function restoreAnalysisHit(keyPointId: string) {
+   analysisReview.restoreContact(keyPointId);
+   selectedAnalysisHitId.value = keyPointId;
+}
+
+async function applyAnalysisChanges() {
+   try {
+      await analysisReview.applyChanges();
+      toast.success("修改已套用");
+   } catch (cause) {
+      toast.error(cause instanceof Error ? cause.message : "修改套用失敗");
+   }
+}
+
+async function discardAnalysisChanges() {
+   try {
+      await analysisReview.discardChanges();
+      toast.info("已捨棄尚未套用的修改");
+   } catch (cause) {
+      toast.error(cause instanceof Error ? cause.message : "無法還原修改");
+   }
+}
+
+async function recalculateAnalysis() {
+   try {
+      await analysisReview.recalculate();
+      toast.success("統計與事件已重新分析");
+      await refreshOverlayReplay();
+   } catch (cause) {
+      toast.error(cause instanceof Error ? cause.message : "重新分析失敗");
+   }
+}
+
+async function approveAnalysis() {
+   try {
+      await analysisReview.approve();
+      toast.success("片段已審核，教練端現在可查看");
+      await coach.refresh();
+   } catch (cause) {
+      toast.error(cause instanceof Error ? cause.message : "審核發布失敗");
+   }
+}
+
 watch(coach.lastUpdatedAt, (updatedAt, previous) => {
-   if (!updatedAt || !previous || updatedAt.getTime() === previous.getTime()) return;
+   if (!updatedAt || !previous || updatedAt.getTime() === previous.getTime())
+      return;
    mappingRefreshToken.value += 1;
    void refreshOverlayReplay();
 });
+watch(
+   visualPlayhead,
+   (value) => {
+      maskPreviewCursor.value = value;
+   },
+   { immediate: true },
+);
+const rememberCursorPosition = useThrottleFn(
+   (captureSessionId: string, captureTimeUs: string) => {
+      workstationViewState.rememberCursor(captureSessionId, captureTimeUs);
+   },
+   250,
+   true,
+   true,
+);
+watch([selectedCaptureId, visualPlayhead], ([captureSessionId, captureTimeUs]) => {
+   if (captureSessionId && captureTimeUs)
+      rememberCursorPosition(captureSessionId, captureTimeUs);
+});
+function rememberTimelineViewport(viewport: TimelineViewport) {
+   if (viewport.captureSessionId !== selectedCaptureId.value) return;
+   workstationViewState.rememberTimelineViewport(viewport);
+}
 
 function dispatchHotkeyCommand(action: HotkeyCommand, event: KeyboardEvent) {
    const frameCount = event.ctrlKey ? 5 : 1;
@@ -2290,8 +2802,13 @@ function dispatchHotkeyCommand(action: HotkeyCommand, event: KeyboardEvent) {
       action.startsWith("frame_") ||
       action.startsWith("key_point_")
    )
-      dispatchMediaAction(action as MediaAction, frameCount);
+      dispatchMediaAction(action as MediaAction, frameCount, "keyboard");
    else dispatchAnnotationAction(action as AnnotationAction);
+}
+
+function releaseHotkeyCommand(action: HotkeyCommand) {
+   if (action === "frame_previous" || action === "frame_next")
+      frameNavigation.release(action === "frame_next" ? "next" : "previous");
 }
 
 async function retrySelectedProcessing() {
@@ -2330,15 +2847,40 @@ function commandEnabled(action: HotkeyCommand) {
       ? Boolean(
            descriptor.value &&
            authoritativeAnchor.value &&
-           (cursorStatus.value === "ready" || frameQueueRunning.value),
+           (cursorStatus.value === "ready" ||
+              frameQueueRunning.value ||
+              frameQueuePending.value),
         )
       : controls.value.some(
            (control) => control.action === action && control.enabled,
-        );
+         );
+}
+let lastBlockedHotkeyNotice = "";
+let lastBlockedHotkeyNoticeAt = 0;
+function reportBlockedHotkey(action: HotkeyCommand) {
+   const control = controls.value.find((item) => item.action === action);
+   const reason = control?.reason || "目前狀態尚不能執行此操作";
+   const signature = `${action}:${reason}`;
+   const now = performance.now();
+   if (
+      signature === lastBlockedHotkeyNotice &&
+      now - lastBlockedHotkeyNoticeAt < 1_200
+   )
+      return;
+   lastBlockedHotkeyNotice = signature;
+   lastBlockedHotkeyNoticeAt = now;
+   toast.info(`${formatBindingForDisplay(bindings.value[action])} 暫時不能使用`, {
+      description: reason,
+      ...(syncNeedsAttention.value
+         ? { action: { label: "重新同步", onClick: requestAnnotationResync } }
+         : {}),
+   });
 }
 useAnnotationHotkeyRuntime({
    target: hotkeyTarget,
    dispatch: dispatchHotkeyCommand,
+   blocked: reportBlockedHotkey,
+   release: releaseHotkeyCommand,
    commandEnabled,
 });
 
@@ -2365,7 +2907,7 @@ watch(
    { immediate: true },
 );
 watch(
-   [selectedCaptureId, defaultPlaybackTarget, playbackMode],
+   [selectedCaptureId, defaultPlaybackTarget, defaultPlaybackWindowMode],
    ([captureId, target, mode]) => {
       if (
          !captureId ||
@@ -2374,7 +2916,7 @@ watch(
          descriptor.value?.capture_session_id === captureId
       )
          return;
-      void createWindow(target, mode === "active_live" ? "live" : "archive");
+      void createWindow(target, mode);
    },
    { immediate: true },
 );
@@ -2454,7 +2996,7 @@ watch(editorSelectedAnalysisRunId, () => {
    trackPopover.open = false;
 });
 watch([state, selectedKeyPointId], () => {
-   queuedFrameDelta = 0;
+   frameNavigation.cancel();
    releaseEditingIntent();
 });
 watch(loadError, (value) => {
@@ -2483,7 +3025,10 @@ watch(
    (value) => {
       if (value)
          toast.warning("場次狀態已更新，請重新操作", {
-            action: { label: "重新同步", onClick: annotation.discardPending },
+            action: {
+               label: "重新同步",
+               onClick: annotation.discardPending,
+            },
          });
    },
 );
@@ -2506,7 +3051,7 @@ watch(
             (item) => item.id === update.rally_id,
          );
          const title = rally
-            ? `第 ${rally.display_set_number} 局 · 回合 ${rally.display_ordinal} 處理失敗`
+            ? `第 ${rally.display_set_number} 局 · 回合 ${displayOrdinalFor(rally.id)} 處理失敗`
             : "片段處理失敗";
          const description =
             typeof update.error?.message === "string"
@@ -2560,22 +3105,28 @@ watch(
    },
 );
 onMounted(() => {
-    annotationScope.value?.focus({ preventScroll: true });
-    void loadMatch();
-    timelineRefreshTimer = setInterval(() => {
+   annotationScope.value?.focus({ preventScroll: true });
+   void loadMatch();
+   timelineRefreshTimer = setInterval(() => {
       if (captureNeedsPolling(selectedCapture.value?.status))
          void refreshSelectedCapture();
       if (hasActiveRallyProcessing(coach.data.value?.match.rallies))
          void coach.refresh();
       maintainPlaybackWindow();
-    }, 2_500);
+   }, 2_500);
 });
 onBeforeUnmount(() => {
+   if (selectedCaptureId.value && visualPlayhead.value)
+      workstationViewState.rememberCursor(
+         selectedCaptureId.value,
+         visualPlayhead.value,
+      );
    if (timelineRefreshTimer) clearInterval(timelineRefreshTimer);
    if (timelineMoveTimeout) clearTimeout(timelineMoveTimeout);
    if (cursorResolveTimer) clearTimeout(cursorResolveTimer);
    if (seekPreviewTimer) clearTimeout(seekPreviewTimer);
-   if (frameQueueTimer) clearTimeout(frameQueueTimer);
+   frameNavigation.stop();
+   if (framePreviewRaf !== null) cancelAnimationFrame(framePreviewRaf);
    if (keyPointNudgeTimer) clearTimeout(keyPointNudgeTimer);
    if (continuationRetryTimer) clearTimeout(continuationRetryTimer);
    annotation.setEditingKeyPoint(null);
@@ -2607,28 +3158,26 @@ onBeforeUnmount(() => {
             )
          "
          :connection-title="`${annotation.connection.value} · ${annotation.latencyMs.value ?? '—'} ms · ${selectedCapture?.health ?? 'unknown'}`"
+         :resync-visible="syncNeedsAttention"
+         :resyncing="annotationResyncing"
          @media="captureDialogOpen = true"
          @connection="connectionDialogOpen = true"
+         @resync="requestAnnotationResync"
          @roster="rosterDialogOpen = true"
          @settings="openSettings('root')"
       />
 
-      <UiResizablePanelGroup
-         id="annotation-workspace"
-         class="editor-body"
-      >
+      <UiResizablePanelGroup id="annotation-workspace" class="editor-body">
          <UiResizablePanel
             id="annotation-video"
             :default-size="78"
             :min-size="55"
          >
             <main class="viewer-panel">
-               <div
-                  ref="videoStage"
-                  class="video-stage"
-               >
+               <div ref="videoStage" class="video-stage">
                   <VideoOverlayPlayer
                      ref="overlayPlayer"
+                     class="video-overlay-player"
                      :descriptor="descriptor"
                      :controls="false"
                      :toggle-on-click="
@@ -2653,7 +3202,8 @@ onBeforeUnmount(() => {
                         inspectorTab === 'analysis' && bboxRelabelEnabled
                      "
                      :selected-track-id="
-                        inspectorTab === 'analysis' || inspectorTab === 'mapping'
+                        inspectorTab === 'analysis' ||
+                        inspectorTab === 'mapping'
                            ? selectedOverlayTrackId
                            : null
                      "
@@ -2732,19 +3282,13 @@ onBeforeUnmount(() => {
                      @set-action="setAnalysisAction"
                      @clear-action="clearAnalysisAction"
                   />
-                  <div
-                     class="viewer-frame-index"
-                     aria-label="目前畫格索引"
-                  >
+                  <div class="viewer-frame-index" aria-label="目前畫格索引">
                      <span>FRAME IDX</span>
                      <code>{{
                         authoritativeAnchor?.capture_frame_index ?? "—"
                      }}</code>
                   </div>
-                  <div
-                     v-if="!descriptor"
-                     class="stage-empty"
-                  >
+                  <div v-if="!descriptor" class="stage-empty">
                      <strong>{{ mediaEmptyLabel }}</strong
                      ><button
                         v-if="defaultPlaybackTarget"
@@ -2788,12 +3332,14 @@ onBeforeUnmount(() => {
                :mapping-available="editorMappingAvailable"
                :analysis-available="editorMappingAvailable"
                :match-id="matchId"
-               :left-team="leftTeam"
-               :right-team="rightTeam"
-               :left-score="currentSet?.left_score ?? 0"
-               :right-score="currentSet?.right_score ?? 0"
-               :left-set-wins="leftSetWins"
-               :right-set-wins="rightSetWins"
+               :left-team="selectedSideLeftTeam"
+               :right-team="selectedSideRightTeam"
+               :current-left-team="leftTeam"
+               :current-right-team="rightTeam"
+               :left-score="selectedSideLeftScore"
+               :right-score="selectedSideRightScore"
+               :left-set-wins="selectedSideLeftSetWins"
+               :right-set-wins="selectedSideRightSetWins"
                :set-number="displaySetNumber"
                :rally-ordinal="displayRallyOrdinal"
                :left-team-id="selectedSideLeftTeamId"
@@ -2819,7 +3365,8 @@ onBeforeUnmount(() => {
                :mapping-refresh-token="mappingRefreshToken"
                :teams="coach.data.value?.match.teams ?? []"
                :can-start-next-set="state !== 'OPEN' && editReady"
-               :can-swap-sides="state !== 'OPEN' && editReady"
+               :can-swap-sides="Boolean(currentSet && leftTeamId && rightTeamId) && editReady"
+               :swap-affects-current-draft="Boolean(currentOrdinaryDraft)"
                :side-swap-pending="sideSwapPending"
                :format-rally-duration="
                   (rally) => formatDuration(rallyDisplayDuration(rally))
@@ -2847,11 +3394,21 @@ onBeforeUnmount(() => {
                      :has-action-override="currentActionHasOverride"
                      :has-bbox-override="currentBBoxHasOverride"
                      :hits="analysisHitItems"
+                     :removed-hits="removedAnalysisHitItems"
                      :saving="analysisReview.pending.value"
                      :connection="analysisReview.connection.value"
+                     :dirty-count="analysisReview.dirtyCount.value"
+                     :review-status="analysisReview.status.value"
                      @select-hit="selectAnalysisHit"
                      @adjust-hit-time="adjustAnalysisHitTime"
                      @reset-hit-time="resetAnalysisHitTime"
+                     @add-hit="addAnalysisHit"
+                     @delete-hit="deleteAnalysisHit"
+                     @restore-hit="restoreAnalysisHit"
+                     @apply="applyAnalysisChanges"
+                     @discard="discardAnalysisChanges"
+                     @recalculate="recalculateAnalysis"
+                     @approve="approveAnalysis"
                   />
                </template>
             </AnnotationMatchInspector>
@@ -2873,21 +3430,39 @@ onBeforeUnmount(() => {
             :context-title="activeContextTitle"
             :context-hits="activeContextHits"
             :context-duration="formatDuration(activeContextDuration)"
-            :context-state="activeContextState"
-            :processing="activeProcessing"
+            :context-state="
+               selectedSubmissionPending || correctionSubmitting
+                  ? '等待伺服器確認'
+                  : correctionCreating
+                    ? '建立修正版中'
+                    : activeContextState
+            "
+            :processing="
+               selectedSubmissionPending || correctionSubmitting
+                  ? null
+                  : activeProcessing
+            "
             :processing-retrying="processingRetrying"
-            :correction-active="selectedCorrectionDraft"
+             :correction-active="selectedCorrectionDraft"
+             :correction-block-reason="correctionBlockReason"
+            :correction-creating="correctionCreating"
             :correction-cancelling="correctionCancelling"
+            :submission-pending="
+               selectedSubmissionPending || correctionSubmitting
+            "
             :submitted-selected="
                Boolean(selectedSubmittedRally) && !selectedCorrectionDraft
             "
             :clip-selected="clipSelected"
-            :download-available="Boolean(selectedSubmittedRally?.submission.clip)"
+            :download-available="
+               Boolean(selectedSubmittedRally?.submission.clip)
+            "
             :draft-selected="selectedEditableDraft"
             :submit-enabled="
                selectedEditableDraft &&
                commandAvailability('submit').enabled &&
-               editReady
+               editReady &&
+               !correctionSubmitting
             "
             :navigable="navigableKeyPoints.length > 0"
             :selected-point="Boolean(selectedKeyPoint)"
@@ -2928,6 +3503,7 @@ onBeforeUnmount(() => {
             :timeline="timeline"
             :playhead="visualPlayhead"
             :playback-mode="playbackMode"
+            :restored-view="restoredWorkstationState?.timelineViewport ?? null"
             :buffered-window="
                descriptor
                   ? {
@@ -2949,6 +3525,7 @@ onBeforeUnmount(() => {
             :selected-segment-id="selectedHistoricalSegmentId"
             :soft-locks="annotation.remoteEditorsByKeyPoint.value"
             @scale-change="timelineScale = $event"
+            @view-change="rememberTimelineViewport"
             @preview="previewTimelineSeek"
             @seek="seekTimeline"
             @clear-selection="clearTimelineSelection"
@@ -2964,11 +3541,18 @@ onBeforeUnmount(() => {
             :bindings="bindings"
             :state="state"
             :can-mark="canMark"
+            :left-team-label="commandLeftTeamLabel"
+            :right-team-label="commandRightTeamLabel"
             :last-key-point="Boolean(annotation.lastKeyPoint.value)"
             :command-ready="commandReady"
             :pending-command="annotation.pendingCount.value > 0"
             :availability="commandAvailabilityMap"
-            :service-mode="state === 'OPEN' && !displayAnnotation?.snapshot.active_submission_id ? 'end' : 'start'"
+            :service-mode="
+               state === 'OPEN' &&
+               !displayAnnotation?.snapshot.active_submission_id
+                  ? 'end'
+                  : 'start'
+            "
             @action="dispatchAnnotationAction"
             @settings="openSettings('hotkeys')"
          />
@@ -3005,7 +3589,11 @@ onBeforeUnmount(() => {
          :descriptor="descriptor"
          :pending="annotation.pendingCount.value"
          :editors="annotation.presence.value.length"
+         :needs-attention="syncNeedsAttention"
+         :has-conflicts="annotation.outboxNeedsConfirmation.value"
+         :resyncing="annotationResyncing"
          @close="connectionDialogOpen = false"
+         @resync="requestAnnotationResync"
       />
       <LazyRosterEditorDialog
          v-if="match"
@@ -3019,9 +3607,11 @@ onBeforeUnmount(() => {
          :title="confirmTitle"
          :message="confirmMessage"
          :confirm-label="confirmLabel"
+         :secondary-label="confirmSecondaryLabel"
          :danger="confirmAction === 'rally-delete'"
          @close="closeConfirmAction"
          @confirm="confirmPendingAction"
+         @secondary="confirmSecondaryAction"
       />
    </section>
 </template>
@@ -3080,10 +3670,9 @@ onBeforeUnmount(() => {
 .app-bar {
    min-width: 0;
    display: grid;
-   grid-template-columns: minmax(280px, auto) minmax(220px, 1fr) minmax(
-         300px,
-         auto
-      );
+   grid-template-columns:
+      minmax(280px, auto) minmax(220px, 1fr)
+      minmax(300px, auto);
    align-items: center;
    gap: 18px;
    padding: 0 16px;
@@ -3171,7 +3760,7 @@ onBeforeUnmount(() => {
    background: #000;
    box-shadow: 0 12px 38px #0006;
 }
-.video-stage :deep(> div) {
+.video-stage :deep(> .video-overlay-player) {
    width: 100%;
    height: 100%;
    border-radius: 0;
@@ -3271,8 +3860,8 @@ onBeforeUnmount(() => {
 }
 .inspector {
    min-height: 0;
-   padding: 12px;
-   overflow-y: auto;
+   padding: 0;
+   overflow: hidden;
    border-left: 1px solid var(--line);
    background: var(--surface-1);
    font-size: 0.77rem;
@@ -3476,7 +4065,7 @@ onBeforeUnmount(() => {
       grid-template-rows: 39px minmax(0, 1fr) 50px;
    }
    .inspector {
-      padding: 9px;
+      padding: 0;
    }
    .keypoint-list {
       max-height: 110px;
@@ -3831,7 +4420,7 @@ onBeforeUnmount(() => {
    font-size: 0.59rem;
 }
 .inspector {
-   padding: 10px;
+   padding: 0;
 }
 .mode-switch {
    margin-bottom: 10px;

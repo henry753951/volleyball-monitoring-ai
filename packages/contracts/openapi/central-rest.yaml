@@ -122,34 +122,36 @@ paths:
         '413': { description: Payload too large }
         '415': { description: Unsupported media/schema/FlatBuffers version }
         '422': { description: Contract or invariant validation failed }
-  /api/v1/analysis-runs/{analysisRunId}/overlay-manifest:
+  /api/v1/analysis-runs/{analysisRunId}/analysis-data-manifest:
     get:
-      summary: Get the authorized lazy browser overlay manifest
+      summary: Get the authorized lazy AnalysisData frame manifest
       parameters: [{ $ref: '#/components/parameters/AnalysisRunId' }]
       responses:
         '200':
-          description: Versioned overlay manifest with bounded chunk URLs
-          content: { application/json: { schema: { $ref: '../ai/overlay-manifest.schema.json' } } }
+          description: Versioned AnalysisData manifest with bounded frame-chunk URLs
+          content: { application/json: { schema: { $ref: '../ai/analysis-data-manifest.schema.json' } } }
         '401': { $ref: '#/components/responses/Unauthenticated' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
   /api/v1/analysis-runs/{analysisRunId}/dataset.zip:
     get:
-      summary: Stream the authorized canonical clip and complete analysis dataset as ZIP
+      summary: Stream an authorized, versioned ML experiment bundle for one completed analysis
+      description: Includes the unchanged canonical clip, authoritative AnalysisData/timing artifacts, source and cut metadata, decoded per-frame and event JSONL tables, immutable submission and match context, identity assignments, review corrections, provider/job metadata and SHA-256 checksums. Callback credentials are redacted.
       parameters: [{ $ref: '#/components/parameters/AnalysisRunId' }]
       responses:
         '200': { description: Analysis dataset archive, content: { application/zip: {} } }
         '401': { $ref: '#/components/responses/Unauthenticated' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
-  /api/v1/analysis-runs/{analysisRunId}/overlay-chunks/{chunkIndex}:
+        '409': { description: Completed analysis is missing verifiable AnalysisData, clip, or canonical timing metadata }
+  /api/v1/analysis-runs/{analysisRunId}/analysis-frame-chunks/{chunkIndex}:
     get:
-      summary: Get one authorized FlatBuffers browser overlay chunk
+      summary: Get one authorized FlatBuffers AnalysisData frame chunk
       parameters:
         - { $ref: '#/components/parameters/AnalysisRunId' }
         - { name: chunkIndex, in: path, required: true, schema: { type: integer, minimum: 0 } }
       responses:
-        '200': { description: VOC1 overlay chunk, content: { application/vnd.volleyball.overlay-chunk+flatbuffers;version=1: {} } }
+        '200': { description: VFC1 AnalysisData frame chunk, content: { application/vnd.volleyball.analysis-frame-chunk+flatbuffers;version=1: {} } }
         '401': { $ref: '#/components/responses/Unauthenticated' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }

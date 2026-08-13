@@ -144,7 +144,10 @@ await app.register(multipart, {
   },
 })
 await app.register(websocket)
-await app.register(aiCallbackRoutesWithDependencies({ ...(aiProgress ? { progress: aiProgress } : {}) }))
+await app.register(aiCallbackRoutesWithDependencies({
+  ...(aiProgress ? { progress: aiProgress } : {}),
+  onAnalysisStateChanged: matchId => coachMatchEvents.publish(matchId, 'analysis_state_updated'),
+}))
 await app.register(aiProviderWebSocketRoutes({ database: db, ...(aiProgress ? { progress: aiProgress } : {}) }))
 await app.register(analysisMediaRoutesWithDependencies({ timingManifestReader }))
 await app.register(analysisReviewRoutesWithDependencies({

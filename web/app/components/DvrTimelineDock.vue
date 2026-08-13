@@ -4,7 +4,7 @@ import { Activity, Bot, CircleDotDashed, UserRound } from 'lucide-vue-next'
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import type { CaptureTimeline } from '~/lib/coreDomain'
 import type { CapturePlaybackMode } from '~/lib/mediaTimeline'
-import { DEFAULT_TIMELINE_SCALE, MAX_TIMELINE_SCALE, MIN_TIMELINE_SCALE, timelineBounds, timelineScaleForZoom, timelineZoomForScale, timelineViewForScale, focusedTimelineView, capturePercentBps, rulerTicks, pointerTarget, readyAt, gapRanges, selectNonOverlappingRanges } from '~/lib/dvrTimeline'
+import { DEFAULT_TIMELINE_SCALE, MAX_TIMELINE_SCALE, MIN_TIMELINE_SCALE, timelineBounds, timelineScaleForZoom, timelineZoomForScale, timelineViewForRange, timelineViewForScale, focusedTimelineView, capturePercentBps, rulerTicks, pointerTarget, readyAt, gapRanges, selectNonOverlappingRanges, type TimelineViewport } from '~/lib/dvrTimeline'
 
 const props = defineProps<{
   timeline: CaptureTimeline | null
@@ -22,7 +22,7 @@ const props = defineProps<{
     outcomeLabel?: string | null
     startCaptureTimeUs: string
     endCaptureTimeUs: string
-    status: 'draft' | 'failed' | 'processing' | 'analyzed' | 'mapped'
+    status: 'draft' | 'idle' | 'failed' | 'processing' | 'analyzed' | 'mapped'
     points?: Array<{ id: string; markerKind: string; isTerminal: boolean; captureTimeUs: string }>
     analysis?: {
       startCaptureTimeUs: string
@@ -37,10 +37,11 @@ const props = defineProps<{
   selectedSegmentId?: string | null
   bufferedWindow?: { startCaptureTimeUs: string; endCaptureTimeUs: string } | null
   bufferedRanges?: Array<{ startCaptureTimeUs: string; endCaptureTimeUs: string }>
-  currentMaskStatus?: 'failed' | 'processing' | 'analyzed' | 'mapped'
+  currentMaskStatus?: 'idle' | 'failed' | 'processing' | 'analyzed' | 'mapped'
   currentMaskLabel?: string | null
   currentMaskOutcome?: string | null
   maskRange?: { startCaptureTimeUs: string; endCaptureTimeUs: string } | null
+  restoredView?: TimelineViewport | null
 }>()
 
 const emit = defineEmits<{
@@ -55,6 +56,7 @@ const emit = defineEmits<{
   selectAnalysis: [segmentId: string]
   clearSelection: []
   scaleChange: [scale: number]
+  viewChange: [viewport: TimelineViewport]
 }>()
 const readyBounds = computed(() => timelineBounds(props.timeline?.availableRanges ?? []))
 const fullBounds = computed(() => {
@@ -100,10 +102,10 @@ function calculateViewBounds(bounds: { startUs: string; endUs: string } | null, 
   const end = BigInt(bounds.endUs)
   const span = end - start
   if (span <= 1n || zoomValue <= 1) return bounds
-  const calculatedSpan = span / BigInt(Math.max(1, Math.round(zoomValue * 100))) * 100n
-  const visibleSpan = calculatedSpan > 0n ? calculatedSpan : 1n
+  const visibleSpan = BigInt(Math.max(1, Math.round(Number(span) / zoomValue)))
   const availablePan = span - visibleSpan
-  const viewStart = start + availablePan * BigInt(Math.round(panValue * 1_000_000)) / 1_000_000n
+  const normalizedPan = Math.max(0, Math.min(1, Number.isFinite(panValue) ? panValue : 0))
+  const viewStart = start + BigInt(Math.round(Number(availablePan) * normalizedPan))
   return { startUs: viewStart.toString(), endUs: (viewStart + visibleSpan).toString() }
 }
 const viewBounds = computed(() => calculateViewBounds(fullBounds.value, zoom.value, pan.value))
@@ -217,7 +219,7 @@ const currentMaskGeometry = computed(() => {
     density: segmentDensityClass(range),
   }
 })
-const segmentStatusLabel = (status: 'draft' | 'failed' | 'processing' | 'analyzed' | 'mapped') => status === 'draft' ? '未送出' : status === 'failed' ? '處理失敗' : status === 'mapped' ? '球員已確認' : status === 'analyzed' ? '分析完成' : '分析中'
+const segmentStatusLabel = (status: 'draft' | 'idle' | 'failed' | 'processing' | 'analyzed' | 'mapped') => status === 'draft' ? '未送出' : status === 'idle' ? '待重新分析' : status === 'failed' ? '處理失敗' : status === 'mapped' ? '球員已確認' : status === 'analyzed' ? '分析完成' : '分析中'
 // A live/correction draft is the active representation of its time range.
 // Suppress historical revisions rather than painting multiple masks together.
 const displaySegments = computed(() => selectNonOverlappingRanges(
@@ -240,17 +242,93 @@ const pointTop = () => 62
 const timelineScale = computed(() => fullBounds.value ? timelineScaleForZoom(fullBounds.value, targetZoom.value) : DEFAULT_TIMELINE_SCALE)
 let defaultViewInitialized = false
 let defaultViewAnchoredToPlayhead = Boolean(props.playhead)
+let initializedCaptureSessionId: string | null = null
 
-watch(fullBounds, (bounds) => {
-  if (!bounds || defaultViewInitialized) return
-  defaultViewInitialized = true
-  const initialAnchor = props.playhead ?? stablePlayhead.value
-  defaultViewAnchoredToPlayhead = Boolean(initialAnchor)
-  const initial = timelineViewForScale(bounds, DEFAULT_TIMELINE_SCALE, initialAnchor ?? bounds.endUs)
-  zoom.value = targetZoom.value = initial.zoom
-  pan.value = targetPan.value = initial.pan
+function restoredTimelineView(bounds: { startUs: string; endUs: string }) {
+  const restored = props.restoredView
+  if (
+    !restored
+    || restored.captureSessionId !== props.timeline?.captureSessionId
+    || !Number.isFinite(restored.scale)
+    || restored.scale < MIN_TIMELINE_SCALE
+    || restored.scale > MAX_TIMELINE_SCALE
+  ) return null
+  try {
+    if (BigInt(restored.endCaptureTimeUs) <= BigInt(restored.startCaptureTimeUs)) return null
+    return timelineViewForRange(bounds, {
+      startUs: restored.startCaptureTimeUs,
+      endUs: restored.endCaptureTimeUs,
+    })
+  }
+  catch {
+    return null
+  }
+}
+
+watch(fullBounds, (bounds, previousBounds) => {
+  if (!bounds) return
+  const captureSessionId = props.timeline?.captureSessionId ?? null
+  const switchedSource = defaultViewInitialized && initializedCaptureSessionId !== captureSessionId
+  if (!defaultViewInitialized || switchedSource || !previousBounds) {
+    defaultViewInitialized = true
+    initializedCaptureSessionId = captureSessionId
+    if (switchedSource) {
+      stablePlayhead.value = props.playhead
+      clearOptimisticPlayhead()
+    }
+    const restored = restoredTimelineView(bounds)
+    if (switchedSource && animationFrame !== null) {
+      cancelAnimationFrame(animationFrame)
+      animationFrame = null
+    }
+    const initialAnchor = props.playhead ?? stablePlayhead.value
+    defaultViewAnchoredToPlayhead = Boolean(restored || initialAnchor)
+    const initial = restored ?? timelineViewForScale(bounds, DEFAULT_TIMELINE_SCALE, initialAnchor ?? bounds.endUs)
+    zoom.value = targetZoom.value = initial.zoom
+    pan.value = targetPan.value = initial.pan
+    return
+  }
+
+  // A live capture or progressive download extends fullBounds frequently. Keep
+  // both the rendered and animation-target windows fixed to their old absolute
+  // capture times so new media appears off-screen instead of stretching or
+  // shifting the operator's current view.
+  const previousView = calculateViewBounds(previousBounds, zoom.value, pan.value)
+  const previousTargetView = calculateViewBounds(previousBounds, targetZoom.value, targetPan.value)
+  if (previousView) {
+    const preserved = timelineViewForRange(bounds, previousView)
+    zoom.value = preserved.zoom
+    pan.value = preserved.pan
+  }
+  if (previousTargetView) {
+    const preservedTarget = timelineViewForRange(bounds, previousTargetView)
+    targetZoom.value = preservedTarget.zoom
+    targetPan.value = preservedTarget.pan
+  }
 }, { immediate: true })
 watch(timelineScale, value => emit('scaleChange', value), { immediate: true })
+watch(
+  [targetViewBounds, timelineScale, () => props.timeline?.captureSessionId ?? null],
+  ([bounds, scale, captureSessionId]) => {
+    // During hydration the computed bounds can invalidate before the
+    // initialization watcher has applied a persisted viewport. Do not emit
+    // that transient default view back to storage or it will erase the value
+    // we are about to restore.
+    if (
+      !bounds
+      || !captureSessionId
+      || !defaultViewInitialized
+      || initializedCaptureSessionId !== captureSessionId
+    ) return
+    emit('viewChange', {
+      captureSessionId,
+      startCaptureTimeUs: bounds.startUs,
+      endCaptureTimeUs: bounds.endUs,
+      scale,
+    })
+  },
+  { immediate: true },
+)
 
 watch(() => props.playhead, (value) => {
   if (!value) return
@@ -539,7 +617,7 @@ defineExpose({ resetView })
         <button v-for="point in annotationPoints" v-show="isVisible(point.capture_time_us)" :key="point.key_point_id" data-timeline-interactive type="button" class="keypoint-dot" :class="[{ service: point.marker_kind === 'service', terminal: point.is_terminal, pending: isPendingPoint(point.key_point_id), locked: immutable || !editable || isPendingPoint(point.key_point_id), editable: editable && !immutable && !isPendingPoint(point.key_point_id), selected: selectedKeyPointId === point.key_point_id, 'soft-locked': remoteEditors(point.key_point_id).length, 'point-dragging': pointDrag?.keyPointId === point.key_point_id }, currentMaskGeometry?.density]" :style="{ left: `${pointPosition(point.key_point_id, point.capture_time_us)}%`, top: `${pointTop()}px` }" :aria-label="`${point.marker_kind} marker at frame ${point.capture_frame_index}${isPendingPoint(point.key_point_id) ? '; syncing' : ''}${remoteEditors(point.key_point_id).length ? `; ${remoteEditors(point.key_point_id).join('、')} 正在調整` : ''}`" :aria-pressed="selectedKeyPointId === point.key_point_id" :title="isPendingPoint(point.key_point_id) ? `${point.marker_kind} · 本機已標記，等待伺服器確認` : `${point.marker_kind} · frame ${point.capture_frame_index}${editable && !immutable ? ' · 拖曳移動' : ''}${remoteEditors(point.key_point_id).length ? ` · ${remoteEditors(point.key_point_id).join('、')} 正在調整（提示，不阻擋）` : ''}`" @pointerdown.stop="beginPointDrag($event, point.key_point_id, point.capture_time_us)" @pointermove.stop="movePointDrag" @pointerup.stop="endPointDrag" @pointercancel.stop="cancelPointDrag" @click.stop="clickPoint(point.key_point_id, point.capture_time_us)" />
       </div>
     </div>
-    <template v-for="segment in displaySegments" :key="`${segment.id}:points`"><button v-for="point in segment.points ?? []" v-show="isVisible(point.captureTimeUs)" :key="point.id" data-timeline-interactive type="button" class="keypoint-dot historical-point locked" :class="[{ service: point.markerKind === 'service', terminal: point.isTerminal }, segmentDensityClass(segment)]" :style="{ left: `calc(78px + (100% - 78px) * ${position(point.captureTimeUs) / 100})`, top: `${34 + pointTop()}px` }" :aria-label="`${segment.label} · ${point.markerKind}`" @click.stop="selectHistoricalPoint(segment.id, point.captureTimeUs)" /></template>
+    <template v-for="segment in segments ?? []" :key="`${segment.id}:points`"><button v-for="point in segment.points ?? []" v-show="isVisible(point.captureTimeUs)" :key="point.id" data-timeline-interactive type="button" class="keypoint-dot historical-point locked" :class="[{ service: point.markerKind === 'service', terminal: point.isTerminal }, segmentDensityClass(segment)]" :style="{ left: `calc(78px + (100% - 78px) * ${position(point.captureTimeUs) / 100})`, top: `${34 + pointTop()}px` }" :aria-label="`${segment.label} · ${point.markerKind}`" @click.stop="selectHistoricalPoint(segment.id, point.captureTimeUs)" /></template>
     <div v-if="displayPlayhead && isVisible(displayPlayhead)" class="playhead" :class="{ dragging: playheadDrag }" :style="{ left: `calc(78px + (100% - 78px) * ${position(displayPlayhead) / 100})` }"><button data-timeline-interactive type="button" class="playhead-handle" aria-label="拖曳播放游標" @pointerdown.stop="beginPlayheadDrag" @pointermove.stop="movePlayheadDrag" @pointerup.stop="endPlayheadDrag" @pointercancel.stop="cancelPlayheadDrag"><span /><i /></button><output v-if="playheadDrag">{{ playheadDragLabel() }}</output></div>
     <div v-if="liveEdge && isVisible(liveEdge)" class="live-edge" :style="{ left: `calc(78px + (100% - 78px) * ${position(liveEdge) / 100})` }"><span>LIVE</span></div>
     <div v-else-if="terminalEdge && isVisible(terminalEdge)" class="source-edge terminal" :style="{ left: `calc(78px + (100% - 78px) * ${position(terminalEdge) / 100})` }"><span>END</span></div>
@@ -549,6 +627,7 @@ defineExpose({ resetView })
 
 <style scoped>
 .timeline-surface{position:relative;min-height:0;margin:0 12px;overflow:hidden;background:#0c0f12;touch-action:pan-y;user-select:none;color:#edf1f4}.ruler-row{position:absolute;inset:0 0 auto 78px;height:26px;border-bottom:1px solid #353b42;cursor:col-resize;touch-action:none}.ruler-tick{position:absolute;top:4px;transform:translateX(-50%);color:#7f8993;font:.58rem "Cascadia Mono",Consolas,monospace;white-space:nowrap;pointer-events:none}.ruler-tick:first-child{transform:none}.ruler-tick:last-child{transform:translateX(-100%)}.ruler-tick i{position:absolute;left:50%;top:15px;width:1px;height:7px;background:#56616b}.buffer-status{position:absolute;z-index:2;left:78px;right:0;top:27px;height:4px;overflow:hidden;background:#191c20;touch-action:none}.buffer-status .ready-range,.buffer-status .playback-window,.buffer-status .playback-ready,.buffer-status .gap-range,.buffer-status .server-pending,.buffer-status .source-unavailable{position:absolute;inset-block:0}.buffer-status .source-unavailable{z-index:0;background:repeating-linear-gradient(135deg,#191c20 0 4px,#23272c 4px 7px)}.buffer-status .server-pending{z-index:1;background:#9a7228}.buffer-status .ready-range{z-index:2;background:#2b3534}.buffer-status .playback-ready{z-index:3;background:#45d58b;box-shadow:0 0 5px #45d58b66}.buffer-status .playback-window{z-index:4;border:1px solid #647b8d;background:transparent}.buffer-status .gap-range{z-index:5;background:repeating-linear-gradient(135deg,#292d32 0 3px,#111316 3px 6px)}.lane-row{position:absolute;left:0;right:0;border-bottom:1px solid #292f35}.clip-lane{top:34px;bottom:0}.lane-label{position:absolute;inset:0 auto 0 0;width:78px;display:grid;place-items:center start;padding-left:8px;border-right:1px solid #30363d;color:#717b84;font:700 .66rem "Segoe UI Variable Text","Segoe UI",sans-serif;pointer-events:none}.lane-content{position:absolute;inset:0 0 0 78px;overflow:hidden;cursor:default}.timeline-mask{box-sizing:border-box;position:absolute;top:8px;height:72px;min-width:0;min-height:0;padding:8px 12px 38px;overflow:hidden;border:1px solid #69737c;border-radius:8px;background:#838e9854;color:#e5eaee;font:700 .72rem/1.25 "Segoe UI Variable Text","Segoe UI",sans-serif;text-align:left;white-space:nowrap}.timeline-mask.draft{pointer-events:auto}.timeline-mask.processing{border-color:#aa7c22;background:#8c651c73;color:#ffe3a1}.timeline-mask.analyzed{border-color:#327fb8;background:#246fa573;color:#c0e3fc}.timeline-mask.mapped{border-color:#318a5e;background:#24744873;color:#bdf1d2}.timeline-mask.historical{z-index:1}.timeline-mask.current{z-index:2;background:#69737c38}.timeline-mask.selected{z-index:3;box-shadow:0 0 0 2px #dceeff,0 0 12px #62a9ff80}.keypoint-dot{position:absolute;z-index:4;top:56px;width:15px;height:15px;min-height:0;padding:0;transform:translate(-50%,-50%);border:2px solid #f4f7fa;border-radius:50%;background:#62a9ff}.keypoint-dot.service{background:#f5b84b}.keypoint-dot.terminal{border-radius:2px;transform:translate(-50%,-50%) rotate(45deg)}.keypoint-dot.editable{cursor:grab}.keypoint-dot.point-dragging{z-index:6;cursor:grabbing}.keypoint-dot.selected{z-index:5;box-shadow:0 0 0 3px #62a9ff55,0 0 12px #62a9ff}.keypoint-dot.soft-locked{z-index:5;border-color:#f3c2ff;box-shadow:0 0 0 4px #cf77e64d,0 0 14px #cf77e6}.keypoint-dot.locked{opacity:.62}.playhead{position:absolute;z-index:8;top:0;bottom:0;width:24px;margin-left:-12px;pointer-events:auto;cursor:col-resize;touch-action:none}.playhead::before{position:absolute;top:0;bottom:0;left:50%;width:2px;transform:translateX(-50%);background:#ff6b72;content:""}.playhead span{position:absolute;left:50%;top:0;width:13px;height:13px;transform:translateX(-50%);background:#ff6b72;clip-path:polygon(0 0,100% 0,50% 100%);filter:drop-shadow(0 1px 3px #000)}.playhead.dragging{cursor:grabbing}.live-edge,.source-edge{position:absolute;z-index:7;top:0;bottom:0;width:1px;pointer-events:none}.live-edge{background:#6d947d}.source-edge{background:#71717a}.source-edge.progressive{background:#a47c35}.live-edge span,.source-edge span{position:absolute;top:2px;right:4px;padding:2px 4px;border-radius:4px;background:#181a1e;color:#c9d0d6;font:800 .5rem "Cascadia Mono",Consolas,monospace;white-space:nowrap}.source-edge.progressive span{color:#d7b873}.timeline-surface button:focus,.timeline-surface [role="slider"]:focus{outline:none}
+.timeline-mask.idle,.timeline-mask.current.idle{border-color:#69737c;background:#838e9854;color:#e5eaee}
 .timeline-mask.current.processing{border-color:#aa7c22;background:#8c651c73;color:#ffe3a1}
 .timeline-mask.failed,.timeline-mask.current.failed{border-color:#b94d56;background:#7e303873;color:#ffd0d4}
 .timeline-mask.current.analyzed{border-color:#327fb8;background:#246fa573;color:#c0e3fc}

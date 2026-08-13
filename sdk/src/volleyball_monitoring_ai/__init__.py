@@ -2,8 +2,8 @@ from .callback import CallbackClient
 from .fixture import FixtureResultBuilder
 from .models import (
     AIJobRequest,
-    AnalysisBundle,
-    AnalysisResult,
+    AnalysisDataBundle,
+    AnalysisDomainData,
     CanonicalFrameAnchor,
     FrameStepRequest,
     JobAccepted,
@@ -13,15 +13,19 @@ from .models import (
     PlaybackWindowExtendRequest,
     PlaybackWindowRequest,
     ProviderCapabilities,
+    ReIDEmbeddingModel,
+    ReIDFeatureBank,
+    ReIDSideFeatureBank,
+    ReIDTrackFeature,
     ResolvedMediaAnchor,
 )
 from .offline import OfflineAnalyzer, OfflineProgressReporter, OfflineRunner, OfflineRunResult
-from .overlay import (
-    build_empty_overlay,
-    build_tracking_overlay,
-    overlay_schema_path,
+from .analysis_data import (
+    analysis_data_schema_path,
+    build_analysis_data,
+    build_empty_analysis_data,
     quantize_frame_coordinate,
-    validate_overlay_bytes,
+    validate_analysis_data_bytes,
 )
 from .provider import create_provider_app, download_and_verify_clip
 from .realtime import parse_server_message
@@ -40,8 +44,8 @@ from .worker import (
 __all__ = [
     "AIJobRequest",
     "AIWorkerClient",
-    "AnalysisBundle",
-    "AnalysisResult",
+    "AnalysisDataBundle",
+    "AnalysisDomainData",
     "CallbackClient",
     "CancellationToken",
     "CanonicalFrameAnchor",
@@ -63,15 +67,19 @@ __all__ = [
     "PlaybackWindowExtendRequest",
     "PlaybackWindowRequest",
     "ProviderCapabilities",
+    "ReIDEmbeddingModel",
+    "ReIDFeatureBank",
+    "ReIDSideFeatureBank",
+    "ReIDTrackFeature",
     "ResolvedMediaAnchor",
     "WorkerConfig",
-    "build_empty_overlay",
-    "build_tracking_overlay",
+    "build_analysis_data",
+    "build_empty_analysis_data",
     "create_provider_app",
     "download_and_verify_clip",
-    "overlay_schema_path",
+    "analysis_data_schema_path",
     "parse_server_message",
     "quantize_frame_coordinate",
-    "validate_overlay_bytes",
+    "validate_analysis_data_bytes",
     "validate_passthrough",
 ]

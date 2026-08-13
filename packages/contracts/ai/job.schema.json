@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/OWNER/volleyball-monitoring-ai/packages/contracts/ai/job/1.1.0",
-  "title": "Volleyball AI Job Request 1.1.0",
+  "$id": "https://github.com/OWNER/volleyball-monitoring-ai/packages/contracts/ai/job/3.0.0",
+  "title": "Volleyball AI Job Request 3.0.0",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -14,12 +14,12 @@
     "clip",
     "key_points",
     "outcome",
-    "callback"
+    "callback",
+    "boundaries",
+    "analysis_plan"
   ],
   "properties": {
-    "schema_version": {
-      "const": "1.1.0"
-    },
+    "schema_version": { "const": "3.0.0" },
     "ai_job_id": {
       "$ref": "#/$defs/id"
     },
@@ -40,16 +40,24 @@
     },
     "key_points": {
       "type": "array",
-      "minItems": 1,
       "items": {
         "$ref": "#/$defs/keyPoint"
       }
+    },
+    "boundaries": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 2,
+      "items": { "$ref": "#/$defs/boundary" }
     },
     "outcome": {
       "$ref": "#/$defs/outcome"
     },
     "callback": {
       "$ref": "#/$defs/callback"
+    },
+    "analysis_plan": {
+      "$ref": "#/$defs/analysisPlan"
     }
   },
   "$defs": {
@@ -198,6 +206,17 @@
         }
       }
     },
+    "boundary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "clip_pts", "clip_time_us", "clip_frame_index"],
+      "properties": {
+        "kind": { "enum": ["start", "end"] },
+        "clip_pts": { "$ref": "#/$defs/uint64" },
+        "clip_time_us": { "$ref": "#/$defs/uint64" },
+        "clip_frame_index": { "$ref": "#/$defs/uint64" }
+      }
+    },
     "outcome": {
       "oneOf": [
         {
@@ -234,6 +253,15 @@
               "type": "null"
             }
           }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["score_resolution", "scoring_court_side"],
+          "properties": {
+            "score_resolution": { "const": "pending" },
+            "scoring_court_side": { "type": "null" }
+          }
         }
       ]
     },
@@ -260,6 +288,66 @@
           "format": "date-time"
         }
       }
+    },
+    "analysisDataArtifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["analysis_run_id", "download_url", "download_url_expires_at", "sha256", "byte_length", "content_type"],
+      "properties": {
+        "analysis_run_id": { "$ref": "#/$defs/id" },
+        "download_url": { "type": "string", "format": "uri" },
+        "download_url_expires_at": { "type": "string", "format": "date-time" },
+        "sha256": { "$ref": "#/$defs/sha256" },
+        "byte_length": { "$ref": "#/$defs/uint64" },
+        "content_type": { "const": "application/vnd.volleyball.analysis-data+flatbuffers;version=1" }
+      }
+    },
+    "analysisPlan": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mode", "modules", "source_analysis_data", "preserve_manual_corrections"],
+      "properties": {
+        "mode": { "enum": ["full", "selective"] },
+        "modules": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["court", "tracking", "reid", "contacts"],
+          "properties": {
+            "court": { "enum": ["run", "reuse"] },
+            "tracking": { "enum": ["run", "reuse"] },
+            "reid": { "enum": ["run", "reuse"] },
+            "contacts": { "enum": ["run", "reuse"] }
+          }
+        },
+        "source_analysis_data": { "oneOf": [{ "$ref": "#/$defs/analysisDataArtifact" }, { "type": "null" }] },
+        "preserve_manual_corrections": { "const": true }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "mode": { "const": "full" } }, "required": ["mode"] },
+          "then": {
+            "properties": {
+              "source_analysis_data": { "type": "null" },
+              "modules": {
+                "properties": {
+                  "court": { "const": "run" }, "tracking": { "const": "run" },
+                  "reid": { "const": "run" }, "contacts": { "const": "run" }
+                }
+              }
+            }
+          },
+          "else": { "properties": { "source_analysis_data": { "$ref": "#/$defs/analysisDataArtifact" } } }
+        }
+      ]
     }
-  }
+  },
+  "allOf": [{
+    "properties": {
+      "key_points": { "items": { "properties": { "marker_kind": { "const": "contact" }, "is_terminal": { "const": false } } } },
+      "boundaries": {
+        "prefixItems": [{ "properties": { "kind": { "const": "start" } } }, { "properties": { "kind": { "const": "end" } } }],
+        "items": false
+      }
+    }
+  }]
 }

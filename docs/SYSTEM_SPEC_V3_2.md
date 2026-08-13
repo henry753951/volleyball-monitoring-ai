@@ -17,8 +17,8 @@
 → 多人標註端在 live／歷史回放畫面上建立人工 key point
 → 人工確認並提交 immutable rally submission
 → 後端依 authoritative source time 裁切影片並換算 clip-local time
-→ 外部 AI 透過固定 Job Schema 收件
-→ 外部 AI 透過 callback 回傳 Analysis JSON + FlatBuffers overlay
+→ 外部 AI 透過 Job 3.0 Schema 收件
+→ 外部 AI 透過 callback 2.0 回傳單一 AnalysisData VAD1 FlatBuffer
 → 中央系統驗證、保存、正規化與聚合
 → 教練／裁判端查看歷史、影片 overlay、2D 球路、熱點與統計
 ```
@@ -49,13 +49,13 @@
 
 | 預設介面顯示 | 預設快捷鍵 | 固定語意 | 重要限制 |
 |---|---:|---|---|
-| `Z 發球／結束` | `Z` | 無 active draft 時建立 rally 與人工 `service`；同一 open rally 內再次按下則在目前 authoritative frame 建立 terminal `contact`，outcome 先設 `unknown` | 第二次 Z 必須位於 service 之後；播放器正在 seek、cursor stale 或位於 gap 時不可建立 |
+| `Z 片段開始／結束` | `Z` | 無 ordinary open draft 時建立 rally 與 `START` boundary；同一 open rally 內再次按下建立 `END` boundary，兩者都不是擊球事件 | END 必須晚於 START；播放器正在 seek、cursor stale 或位於 gap 時不可建立；READY 未送出片段不阻擋下一段 START |
 | `X 擊球` | `X` | 選擇性地在目前已呈現影片 frame 建立人工 `contact` key point；不再是初次送出的必要步驟 | 播放器正在 seek、cursor stale 或位於 gap 時不可建立 |
 | 播放／暫停 | `Space` | 切換目前影片播放狀態 | 只控制播放器，不建立 key point |
-| `< 左側得分` | `<` | 以單一 `CLOSE_RALLY` atomically把目前server-confirmed最後key point標為terminal，並將rally-level outcome設為`resolved/left` | Command必須帶`target_key_point_id`；若多人協作後它已不是最後一點，回傳revision conflict；不建立新時間或得分事件 |
-| `> 右側得分` | `>` | 同樣atomically關閉rally並將rally-level outcome設為`resolved/right` | 同上；方向鍵仍只供逐幀／播放器控制 |
-| `? 未知` | `?` | 同樣atomically關閉rally並將rally-level outcome設為`unknown/null` | 不是`pending`；可以提交 AI，但不納入勝負統計；不建立新時間或得分事件 |
-| `Enter 提交` | `Enter` | 將目前 draft 建立成 immutable `RallySubmission`，啟動裁切與 AI 串接 | `pending` 不可提交；`resolved` 或 `unknown` 可提交 |
+| `< 左側得分` | `<` | 設定 rally-level outcome 為 `resolved/left` | 不移動 boundary、不建立或 terminalize key point |
+| `> 右側得分` | `>` | 設定 rally-level outcome 為 `resolved/right` | 同上；方向鍵仍只供逐幀／播放器控制 |
+| `? 未知` | `?` | 設定 rally-level outcome 為 `unknown/null` | 不建立新時間或得分事件 |
+| `Enter 提交` | `Enter` | 將 READY draft 建立成 immutable `RallySubmission`，啟動裁切與 AI 串接 | outcome 可為 `pending`、`resolved` 或 `unknown`；人工 X 可以為零 |
 
 ### 快捷鍵自訂邊界
 
@@ -65,12 +65,12 @@
 - 相同 scope 不得有重複鍵位；瀏覽器保留鍵、文字輸入焦點、Dialog/Select scope 與平台鍵盤差異必須被辨識並清楚提示。
 - Control deck、設定選單與快捷鍵說明必須以 TanStack Hotkeys `formatForDisplay` 顯示目前綁定，讓 macOS 使用符號、Windows/Linux 使用平台慣用標籤；不得自行拼接鍵帽文字。底部固定顯示Z、X、`<`、`>`、`?`與按鍵設定；Enter保留為鍵盤command，不顯示大型提交按鈕。
 
-`service` 與 `contact` 只是人工 marker kind，不是 AI action label，也沒有人工 confidence。第一個 key point 被標成 `service` 只代表標註流程由 Z 開始；AI 是否輸出任何 action、action label 長什麼樣、是否有 confidence，均屬待 AI 團隊提供真實輸出後確認的 optional extension。
+`START`／`END` 是片段 boundary，不是人工擊球 marker、發球或落點。`contact` 是唯一人工 marker kind，沒有人工 confidence。AI 是否輸出 action、action label 或 confidence，屬 provider 的 optional extension。
 
 ### 按鍵模式優先順序
 
 1. 文字輸入、Dialog 或 Select 開啟時，禁止攔截全域快捷鍵。
-2. `OPEN`且存在server-confirmed最後key point時，左側得分、右側得分、未知等 `CLOSE_RALLY` command依目前綁定觸發；預設為`<`、`>`、`?`。
+2. `OPEN` 或 `READY` 時，左側得分、右側得分、未知等 `SET_RALLY_OUTCOME` command 依目前綁定觸發；預設為 `<`、`>`、`?`，不要求存在 key point，也不結束片段。
 3. 前後 canonical frame／播放器移動 command 預設綁定 `←`／`→`；`Ctrl+←`／`Ctrl+→`一次移動五個 canonical frame。選中可編輯 key point 時，同一組按鍵改為移動該 key point，播放器游標必須同步跟隨；使用者可改基礎鍵位，但該 command 不得變成得分或其他 annotation data mutation。
 4. 其他狀態下播放器 command 只控制播放器，不可暗中改資料。
 5. 每次 destructive action 都必須等待 server ack；optimistic UI 可顯示 pending，但不得把暫態當 canonical revision。
@@ -85,8 +85,8 @@
   - `右側得分`
   - `? 得分未知`
   - `回合進行中`
-- Mask 代表完整 clip：預設從 service key point 前 5 秒到 terminal key point 後 5 秒，並在 source 邊界或 DVR gap 依 server clip policy 截短。Key point 本身仍只保存實際 service/contact/terminal 時間，mask 的 padding 不建立事件或得分 frame。
-- Key point marker 至少可辨識 `Z/service`、一般 `contact`、terminal、selected、possible duplicate、server pending。
+- Mask 代表完整 clip：預設就是第一次 Z 的 START 到第二次 Z 的 END，前後延伸皆為 0 秒；若場次另行設定延伸，server 會在 source 邊界或 DVR gap 依 clip policy 截短。Boundary 與 contact 仍只保存實際 canonical 時間，padding 不建立事件或得分 frame。
+- Timeline 至少可辨識 START／END boundary、一般 `contact`、selected、possible duplicate 與 server pending；Z boundary 不得渲染成 contact。
 - 顏色、線寬與動畫屬前端衍生視覺，不保存為 canonical DB 欄位。
 
 ## 1.3 教練端不是單頁
@@ -132,19 +132,19 @@
 | Critical | `multiple` 同時表示共同參與與無法分辨 | 兩名重疊球員會被錯算成共同觸球 | `resolved_single`、`resolved_multiple`、`ambiguous`、`unresolved` 分開；actors/candidates 分開 |
 | Critical | tracker ID 被當成跨 rally 球員 ID | 同一整場球員統計會錯綁 | `track_id` 只在單 rally／analysis run 內有效；中央另建 identity assignment |
 | Critical | 每次編輯都複製完整 revision snapshot | 大量 DB 寫入與多人同步成本不必要 | Draft 使用 mutable rows + operation log + revision；只有 Enter 建 immutable submission snapshot |
-| High | `?` 與「尚未選得分」都用 null | UI 無法區分使用者已明確標未知 | 新增 `score_resolution_state`: `pending/resolved/unknown`；`?` 後可提交，pending 不可提交 |
-| High | 舊流程以獨立end-rally動作建立另一個timestamp | 與使用者定義衝突，也會多一個虛假事件 | `CLOSE_RALLY`只標記指定的既有最後key point為terminal並保存rally-level outcome；command不含新時間 |
-| High | 沒有 reopen／改 terminal 的流程 | 關閉rally誤按後只能刪整個rally | Draft提供`REOPEN_RALLY`；重開後以新的`CLOSE_RALLY`重新指定目前最後key point與outcome；submitted必須建立correction draft |
+| High | `?` 與「尚未選得分」都用 null | UI 無法區分使用者已明確標未知 | `score_resolution_state` 使用 `pending/resolved/unknown`；三種狀態都可提交，只有 resolved 寫入得分 ledger |
+| High | 舊流程把 Z 邊界建立成 service／terminal key point | 邊界被誤判成發球、擊球或落點 | `START_RALLY`／`END_RALLY` 只建立 canonical boundary；X 才建立 contact |
+| High | 沒有 reopen／修正 boundary 的流程 | END 誤按後只能刪整個 Rally | 一般 draft 的 `REOPEN_RALLY` 移除 END boundary 回 OPEN；submitted 必須建立 correction draft |
 | High | Rally 只有單一 status | annotation、clip、AI 狀態互相覆寫 | `annotation_status` 與 `processing_status` 分離 |
 | High | submitted draft 可被原地修改 | AI 結果無法知道對應哪個版本 | submission 永久 immutable；修正建立新 submission，舊 job/result 標 superseded |
 | High | Score 修正必定重跑 AI | 只改勝方卻浪費推論 | 比對 submission content hash；只改 outcome 可重用 clip/AI geometry，重算分析聚合 |
-| High | AI Job 混入 `court_definition`、模型 requirements、上傳 URI | AI request 像是在遠端配置 pipeline，耦合中央儲存 | 固定座標規格只寫一次；Job 僅含 clip、key points、outcome、callback 與 passthrough IDs |
+| High | AI Job 混入 `court_definition`、模型 requirements、上傳 URI | AI request 像是在遠端配置 pipeline，耦合中央儲存 | 固定座標規格只寫一次；Job 僅含 clip、boundaries、可選 contact hints、outcome、callback 與 passthrough IDs |
 | High | AI Result 的 `x_m/y_m/x_norm/y_norm` 多套命名 | 前後端容易混用或方向錯誤 | 對外只用 `frame_pos`、`frame_bbox`、`court_pos`；公尺值由固定公式需要時衍生 |
 | High | AI actor 只有單一 `actor_track_id` | 不能表達雙人攔網、共同事件或不確定候選 | `actors[]` 與 `candidates[]`；每個 contact event 具有 association state |
 | High | Action label 被寫死 | AI 團隊尚未確認 taxonomy，會被假規格綁住 | action 是 optional extension，label 是 provider 提供字串，帶 taxonomy ID/version |
 | High | Confidence 被視為必填 | 實際模型未必輸出可校準 confidence | 所有 confidence optional；缺少時不得前端自行補 0 或 1 |
 | High | AI input/output IDs 沒有 passthrough 規則 | callback 對不到 submission/key point | `ai_job_id/rally_id/submission_id/annotation_revision/key_point_id` 必須原樣回傳 |
-| High | 一次 WebSocket 傳整段逐幀 JSON | iPad 記憶體、解析與 GC 壓力過大 | JSON 管 metadata；FlatBuffers 管 per-frame overlay；HTTP lazy chunk，WS 只通知 ready/version |
+| High | 一次 WebSocket 傳整段逐幀 JSON | iPad 記憶體、解析與 GC 壓力過大 | AnalysisData保存完整domain與per-frame資料；後端導出VFC1 bounded chunks供HTTP lazy load，WS只通知ready/version |
 | High | Clip URL 與 callback token 共用同一 bearer | SDK 若把 callback token帶到物件儲存，會擴大secret暴露面 | `clip.download_url` 是獨立、短期簽名URL；`callback.token`只可送到中央callback，兩者不可混用且都不進browser |
 | High | callback token 真正一次性 | 網路重試會失敗 | job-scoped、TTL 內可重試；每次 callback 有唯一 `callback_id` 做 idempotency |
 | High | 沒有 media discontinuity/gap | 來源重連後時間軸假裝連續，key point 會錯段 | capture timeline 保存 discontinuity；UI 顯示 gap，不允許 seek/mark 到缺檔區 |
@@ -187,9 +187,9 @@
 | 嚴重度 | 缺口 | 修正後基線 |
 |---|---|---|
 | Critical | GraphQL 文件使用 `BigInt`，code-first builder卻註冊 `Int64` | 全部統一為 `BigInt`；Web codegen映射為`string`。 |
-| Critical | Annotation WebSocket只定義自由格式 `payload` | 每一個Z／X／`CLOSE_RALLY`／move／delete／reopen／Enter command都具有strict payload schema；close必須帶target ID與strict outcome；Space僅在本地控制播放器。 |
+| Critical | Annotation WebSocket只定義自由格式 `payload` | 每一個 START／END／X／outcome／move／delete／reopen／Enter command 都具有 strict payload schema；Space 僅在本地控制播放器。 |
 | Critical | `DvrSegment.presentationStartUs`容易被誤認為player/HLS presentation time | DB改名`captureStartUs/captureEndUs`，只表示整場canonical timeline。 |
-| High | SDK內附的FlatBuffers schema與canonical schema欄位／版本不一致 | SDK wheel強制內含與`packages/contracts/flatbuffers/overlay.fbs`完全相同的檔案，CI byte-compare。 |
+| High | SDK內附的FlatBuffers schema與canonical schema欄位／版本不一致 | SDK wheel強制內含與`packages/contracts/flatbuffers/analysis-data.fbs`完全相同的檔案，CI byte-compare。 |
 | High | callback文件使用`kind`，schema/SDK使用`status` | Callback metadata統一使用`kind=processing/failed/completed`。 |
 | High | Score ledger沒有revision序列 | `MatchSet.scoreRevision`與`PointAward.scoreRevisionBefore/After`形成CAS ledger；after revision在set內唯一。 |
 | High | AI ContactEvent只保存key point UUID字串，沒有DB relation | ContactEvent外鍵指向immutable `RallySubmissionKeyPoint`；仍由domain validator確認同一submission。 |
@@ -211,7 +211,7 @@
 | High | `observed` ball可以沒有座標，而`missing`卻可殘留座標 | observed/interpolated必須帶sample frame與`frame_pos`；missing兩者皆不得帶。 |
 | High | Submission可保存`PENDING`，且clip policy只有版本沒有實際roll值 | Submission使用只含RESOLVED／UNKNOWN的enum，並snapshot`clip_pre_roll_us`／`clip_post_roll_us`及service/terminal IDs。 |
 | High | MediaAsset在UPLOADING狀態就強制要求checksum/size | `byte_length`與`sha256`在upload完成前可null；轉READY時domain transaction必須補齊。 |
-| Medium | Browser OverlayChunk內嵌完整OverlaySequence | Chunk schema改成獨立SoA payload，只保留chunk範圍與陣列，不重複整段metadata。 |
+| Medium | Browser frame chunk內嵌完整AnalysisData | VFC1 schema只保留chunk範圍與SoA陣列，不重複完整VAD1 domain/metadata。 |
 
 ## 2.2 Schema 欄位來源標記
 
@@ -237,7 +237,7 @@
 ### 負責
 
 - 以 SDK／HTTP 接收 AI Job。
-- 使用既有 AI work 產生 tracks、contact events、participants、A/B segments 與 overlay。
+- 使用既有 AI work 產生tracks、contact events、participants、A/B segments與逐幀AnalysisData。
 - 保持所有 PASSTHROUGH 欄位不變。
 - 呼叫中央 callback。
 
@@ -253,9 +253,10 @@
 AI 團隊不單方面擁有任何 public schema。它與後端共同消費：
 
 - `packages/contracts/ai/job.schema.json`
-- `packages/contracts/ai/result.schema.json`
+- `packages/contracts/ai/analysis-data-domain.schema.json`
 - `packages/contracts/ai/callback.schema.json`
-- `packages/contracts/flatbuffers/overlay.fbs`
+- `packages/contracts/flatbuffers/analysis-data.fbs`
+- `packages/contracts/flatbuffers/analysis-frame-chunk.fbs`
 
 Schema 由主 Agent核准；AI 團隊透過 Python SDK 使用。
 
@@ -321,8 +322,8 @@ AI request 建立後，下列值在 AI result/callback 不得改寫：
 | Clip job | Backend | Worker | PostgreSQL durable job |
 | AI Job | Backend AI gateway | External AI | REST JSON |
 | AI callback metadata | External AI SDK | Backend | REST JSON/multipart |
-| Full per-frame overlay | External AI | Backend | FlatBuffers multipart |
-| Overlay manifest/chunks | Backend | Web | REST JSON + FlatBuffers |
+| Complete AnalysisData | External AI | Backend | VAD1 FlatBuffers multipart |
+| AnalysisData manifest/frame chunks | Backend | Web | REST JSON + VFC1 FlatBuffers |
 | Analysis query | Backend | Web | GraphQL |
 | Presence/soft lock | Backend | Web | WebSocket |
 
@@ -555,9 +556,8 @@ rally-media/
 
 analysis-artifacts/
   matches/{match_id}/rallies/{rally_id}/runs/{analysis_run_id}/
-    result.json
-    overlay-sequence.fb
-    overlay-manifest.json
+    analysis-data.vad1
+    analysis-data-manifest.json
     chunks/{index}.fb
 ```
 
@@ -611,8 +611,8 @@ POST /v1/media/frame-step
 
 GET  /v1/ai/jobs/{ai_job_id}/clip
 POST /v1/ai/callback/{ai_job_id}
-GET  /v1/analysis-runs/{id}/overlay-manifest
-GET  /v1/analysis-runs/{id}/overlay-chunks/{index}
+GET  /v1/analysis-runs/{id}/analysis-data-manifest
+GET  /v1/analysis-runs/{id}/analysis-frame-chunks/{index}
 
 GET  /health/live
 GET  /health/ready
@@ -633,7 +633,7 @@ GET  /health/ready
 - `processing.status_changed`
 - `analysis.ready`
 
-WebSocket 不廣播完整逐幀 overlay，也不應每次小操作廣播整場大型 snapshot。
+WebSocket不廣播完整逐幀AnalysisData，也不應每次小操作廣播整場大型snapshot。
 
 ## 6.4 FlatBuffers 適用
 
@@ -826,12 +826,16 @@ Response：
 ## 9.1 狀態
 
 ```text
+IDLE
+  └─ Z START_RALLY → OPEN
 OPEN
-  ├─ < CLOSE_RALLY(target, resolved/left) → READY
-  ├─ > CLOSE_RALLY(target, resolved/right) → READY
-  └─ ? CLOSE_RALLY(target, unknown/null) → READY
+  ├─ X CREATE_CONTACT_KEY_POINT → OPEN
+  ├─ < / > / ? SET_RALLY_OUTCOME → OPEN
+  └─ Z END_RALLY → READY
 READY
-  ├─ reopen → OPEN（清除terminal與outcome，之後重新CLOSE_RALLY）
+  ├─ < / > / ? SET_RALLY_OUTCOME → READY
+  ├─ reopen → OPEN（只移除 END boundary）
+  ├─ Z START_RALLY(new id) → 另一個 OPEN（原 READY 保留）
   └─ Enter → SUBMITTED
 SUBMITTED
   └─ correction → 新 draft / 新 submission
@@ -842,15 +846,15 @@ VOIDED
 
 ## 9.2 完整操作
 
-### Z - 發球／結束
+### Z - 片段開始／結束
 
 1. 播放器 cursor 必須 `ready` 且不在 gap。
-2. Client送單一且可重試的 `CREATE_SERVICE_KEY_POINT` command；`marker_kind=service`由command語意固定。
-3. Server解析 authoritative frame，建立 RallyDraft與 sequence 0 key point。
+2. Client送單一且可重試的 `START_RALLY` command；Server解析 authoritative frame並建立 START boundary，不建立 key point。
+3. Timeline以 START 為左界顯示灰色 open mask，右界在 client 端跟隨目前 cursor，canonical cursor仍由server確認。
 4. Timeline開始顯示灰色 open mask。
-5. 若已有 active draft，拒絕，不自動關閉前一 rally。
-6. 同一個一般 `OPEN` draft 中再次按 Z，Client 送帶 `terminal_outcome=unknown` 的 `CREATE_CONTACT_KEY_POINT`；Server 在同一 transaction 解析 authoritative cursor、建立最後一個 terminal contact、把 Rally 改為 `READY`，不要求先按 X。
-7. 第二次 Z 必須嚴格位於 service 與既有最後 key point 之後。通過 DVR window、segment、epoch 與 sample-index 驗證的游標可延伸目前 open mask，不受舊的 `last_point + clip_post_roll` 人工上限限制。
+5. 只有 ordinary `OPEN` draft 會阻擋另一個 START；`READY` 未送出片段可與下一個 OPEN 片段共存。
+6. 同一個 `OPEN` draft 中再次按 Z，Client 送 `END_RALLY`；Server建立 END boundary並把 Rally改為 `READY`，不建立 terminal contact、不自動設定得分。
+7. 第二次 Z 必須嚴格位於 START 之後。X 可落在 START/END 可編輯範圍之外；裁切工作會擴大實際 coverage 以包含所有 canonical X，確保 PTS/frame mapping不遺失。
 
 ### X - 擊球
 
@@ -859,16 +863,15 @@ VOIDED
 3. Server依 canonical time排序並產生 revision。
 4. 多人幾乎同時打同一球時保留兩點並標 `possible_duplicate`，不靜默刪除。
 
-### `<`、`>`、`?` - 關閉 Rally 並記錄 Outcome
+### `<`、`>`、`?` - 設定 Outcome
 
 1. UI顯示三個按鈕：`< 左側得分`、`> 右側得分`、`? 未知`。PC 鍵盤預設直接按逗號、句點、斜線實體鍵即可觸發，不要求 Shift；既有的 Shift+逗號、Shift+句點、Shift+斜線仍作相容別名。方向鍵保留給逐幀與選中 key point 的微調。
-2. Client從目前server-confirmed snapshot取得最後一個有效key point ID，作為`target_key_point_id`，並送單一`CLOSE_RALLY` command。
+2. Client送單一 `SET_RALLY_OUTCOME` command，不需要 key point target。
 3. `<`傳`resolved/left`、`>`傳`resolved/right`、`?`傳`unknown/null`。Outcome只屬於rally，不是key point。
-4. Command不含playback cursor、capture time、frame或score event；terminal時間／frame就是被選定key point既有的authoritative anchor。
-5. Server在同一transaction驗證target於`base_revision`仍是最後一個未刪除key point，將它標為terminal，保存outcome並把狀態改為`READY`。
-6. 若另一協作者已新增點，回`REVISION_CONFLICT`／`CLOSE_RALLY_TARGET_NOT_LAST`；前端refetch後讓使用者再決定，不自動terminalize新點。
+4. Command不含playback cursor、capture time、frame或score event，也不改變 OPEN/READY 狀態。
+5. Server只以 revision/CAS保存outcome；多人衝突時refetch最新snapshot。
 7. `left/right`指當下球場左右側，不是永久team identity；Server依immutable submission的side-assignment snapshot解析team ID。
-8. `pending`與`unknown`不同：pending只允許open draft；unknown代表使用者已明確選`?`且可以提交。
+8. `pending`與`unknown`不同，但兩者都可提交；pending代表尚未標結果，unknown代表使用者明確選`?`。
 
 ### Enter - 提交
 
@@ -878,7 +881,7 @@ Server以單一 transaction：
 2. 驗證 score state是 `resolved` 或 `unknown`。
 3. 鎖定 draft revision並建立 immutable `RallySubmission`。
 4. 複製 immutable submission key points、side assignment、score resolution、clip policy與 content hash。
-5. `resolved` 才建立 `PointAward`；`unknown` 不改比分 ledger。
+5. `resolved` 才建立 `PointAward`；`pending` 與 `unknown` 都不改比分 ledger。
 6. 建立 ClipJob與Outbox event。
 7. 廣播 submission／processing狀態；UI mask轉黃。
 
@@ -886,7 +889,7 @@ Server以單一 transaction：
 
 ## 9.3 編輯與逐幀
 
-- 灰色 mask可新增、刪除、移動、重開rally；要改terminal或outcome時先`REOPEN_RALLY`，再以新的`CLOSE_RALLY` atomically關閉。
+- 灰色 mask 可新增、重開並編輯 X contact；一般 draft 的 `REOPEN_RALLY` 只移除 END boundary。Outcome 可用 `SET_RALLY_OUTCOME` 獨立修改，不需重開片段。
 - 選中灰色 draft 的可編輯 key point 後，方向鍵呼叫 server frame-step API並讓播放器游標同步跟隨；`Ctrl+方向鍵`一次移動五幀。未選中可編輯 key point 時，同一按鍵只移動播放器游標。
 - 黃色processing、藍色AI完成與綠色球員指派完成mask皆唯讀；開啟修正時從 submission建立新灰色draft。
 - 手動點選片段後，該顯式選取優先於 cursor 推導結果，直到使用者明確清除或改選；沒有顯式選取時才以 cursor 所在片段作 fallback，cursor 不在任何片段時回傳未選取。
@@ -900,19 +903,19 @@ Server以單一 transaction：
 - 中央：有聲 video、回到 LIVE、播放/暫停、逐幀、倍速。
 - 多軌 timeline：完整 capture range、gap、playhead、key points、rally masks、score strip、processing badges；mask 右下角顯示片段狀態。顯式選取片段維持 sticky，cursor 只在未顯式選取時決定 context。
 - 時間尺與 buffer 軌皆支援按下立即 seek、按住拖曳連續 scrub、放開確認位置。縮放倍率顯示在靜音旁；`30s window = 10x`，範圍 `0.01x` 至 `10x`，預設 `0.1x`，按倍率可恢復預設。
-- 底部固定精簡 control deck：`Z`發球、`X`擊球、`<`左側得分、`>`右側得分、`?`未知與按鍵設定；不得顯示獨立結束或大型提交控制。`Enter`提交與`Space`播放／暫停仍由集中式鍵盤registry提供。
+- 底部固定精簡 control deck：`Z`片段開始／結束、`X`擊球、`<`左側得分、`>`右側得分、`?`未知與按鍵設定；不得顯示另一個獨立結束控制。`Enter`提交與`Space`播放／暫停仍由集中式鍵盤registry提供。
 - Inspector：選取 key point時顯示 canonical time、frame、建立者、revision、duplicate/precision資訊。
 
-# 10. Annotation Realtime Schema v2.1
+# 10. Annotation Realtime Schema v3.0
 
 
 ### 10.0 協議版本
 
-Annotation Realtime Protocol 的正式registry版本為`2.1.0`。Canonical Rally command／ACK仍使用`2.0.0`：這是先前移除v1.1獨立terminal與後續score兩階段command的breaking boundary，改由一個`CLOSE_RALLY` atomically terminalize目前server-confirmed最後key point並保存rally-level outcome。任何v1.x annotation message都不得被2.x consumer靜默當成相同語意。
+Annotation Realtime Protocol 的正式 registry 版本為 `3.0.0`。Canonical Rally command、ACK 與 snapshot 都使用 `3.0.0`。這個 breaking boundary 將「片段邊界」與「擊球事件」拆開：Z 只建立 START／END boundary，X 才建立 contact key point，得分／未知只更新 Rally outcome。Protocol 2.x command 與歷史 snapshot 仍可讀取，但新 client 不得再寫 `CREATE_SERVICE_KEY_POINT` 或 `CLOSE_RALLY`。
 
-`2.1.0`只新增ephemeral `soft_lock_intent`。它沒有`command_id`、`rally_id`、revision或authoritative media anchor，不進PostgreSQL、不建立operation/receipt，也不得阻擋另一位operator送出MOVE；Redis短TTL提示失效、client release或disconnect後即清除，canonical concurrency仍完全由Rally revision/CAS決定。
+Ephemeral `soft_lock_intent` 沿用 `2.1.0` presence envelope。它沒有 `command_id`、`rally_id`、revision 或 authoritative media anchor，不進 PostgreSQL、不建立 operation／receipt，也不得阻擋另一位 operator 送出 MOVE；Redis 短 TTL 提示失效、client release 或 disconnect 後即清除，canonical concurrency 仍完全由 Rally revision／CAS 決定。
 
-WebSocket用於高頻 annotation command、ack、revision、presence與處理通知。GraphQL提供 snapshot/refetch，不承擔逐次按鍵。
+WebSocket 用於 annotation command、ack、revision、presence 與處理通知。GraphQL 提供指定 Rally snapshot／refetch，不承擔逐次按鍵。Open mask 右界只在 client 跟隨 cursor，直到第二次 Z 送出一個 canonical `END_RALLY`。
 
 ```json
 {
@@ -923,81 +926,89 @@ WebSocket用於高頻 annotation command、ack、revision、presence與處理通
 }
 ```
 
-`editing_key_point_id: null`表示主動釋放。Server只採用已驗證connection的user/device identity，並透過既有`presence_snapshot.members[].editing_key_point_id`廣播提示；client不得自報display name或其他member identity。
+`editing_key_point_id: null` 表示主動釋放。Server 只採用已驗證 connection 的 user／device identity，並透過 `presence_snapshot.members[].editing_key_point_id` 廣播提示；client 不得自報 display name 或其他 member identity。
 
 ## 10.1 Client Command Envelope
 
 ```json
 {
-  "schema_version": "2.0.0",
+  "schema_version": "3.0.0",
   "command_id": "0190...",
   "room_id": "match:...:capture:...",
   "rally_id": "0190...",
   "base_revision": "27",
-  "kind": "CLOSE_RALLY",
+  "kind": "END_RALLY",
   "payload": {
-    "target_key_point_id": "0190...",
-    "score_resolution": "resolved",
-    "scoring_court_side": "left"
+    "playback_cursor": {
+      "capture_session_id": "0190...",
+      "observed_capture_time_us": "18400000"
+    }
   }
 }
 ```
 
-`user_id`與`device_session_id`不由每一個command自報。HTTP/WebSocket upgrade先驗證登入身份並綁定device session；server寫入operation log時使用connection context。`CREATE_SERVICE_KEY_POINT`的`rally_id`由client在按Z當下產生UUID，讓「建立rally＋解析該frame＋建立service marker」保持單一idempotent command，不需要先呼叫另一個會造成時間漂移的API。
+`user_id` 與 `device_session_id` 不由每一個 command 自報。HTTP／WebSocket upgrade 先驗證登入身份並綁定 device session；server 寫入 operation log 時使用 connection context。`START_RALLY` 的 `rally_id` 由 client 在第一次按 Z 時產生 UUID，讓「建立 Rally＋解析 canonical frame＋建立 START boundary」保持單一 idempotent command。
 
-所有 revision、time、PTS、global frame在 JSON wire使用 decimal string。
+所有 revision、time、PTS、global frame 在 JSON wire 使用 decimal string。
 
 ## 10.2 Command Kinds
 
 | kind | 主要 payload | 說明 |
 |---|---|---|
-| `CREATE_SERVICE_KEY_POINT` | `playback_cursor` | Z；建立 rally與service marker |
-| `CREATE_CONTACT_KEY_POINT` | `playback_cursor`，可選 `terminal_outcome=unknown` | X 建立一般接觸點；第二次 Z 原子建立 terminal 接觸點並使回合 READY |
-| `CLOSE_RALLY` | `target_key_point_id` + strict outcome union | `<`／`>`／`?`；atomically terminalize最後key point並保存rally-level outcome；不帶新時間／frame |
-| `MOVE_KEY_POINT` | `key_point_id`, `playback_cursor` | drag/frame step後由server重新解析authoritative anchor |
-| `DELETE_KEY_POINT` | `key_point_id` | draft-only |
-| `REOPEN_RALLY` | none | 清除terminal與outcome、回OPEN；之後以新的`CLOSE_RALLY`重新關閉 |
-| `VOID_RALLY` | `reason` | 明確作廢draft，不等於刪除歷史 |
-| `SUBMIT_RALLY` | none | Enter，建立immutable submission |
+| `START_RALLY` | `playback_cursor` | 第一次 Z；建立 Rally 與 START boundary，不建立 key point |
+| `END_RALLY` | `playback_cursor` | 第二次 Z；建立 END boundary 並使 Rally READY，不建立 contact／terminal／outcome |
+| `CREATE_CONTACT_KEY_POINT` | `playback_cursor` | X 建立可選人工 contact；可以位於 START／END 之外 |
+| `SET_RALLY_OUTCOME` | strict `pending/resolved/unknown` union | `<`／`>`／`?`；只更新 Rally outcome，不改 boundary 或 contact |
+| `MOVE_KEY_POINT` | `key_point_id`, `playback_cursor` | 移動人工或 correction contact，由 server 重新解析 authoritative anchor |
+| `DELETE_KEY_POINT` | `key_point_id` | draft-only；不刪 boundary |
+| `REOPEN_RALLY` | none | 一般 v3 draft 移除 END boundary 回 OPEN；不建立或恢復 terminal contact |
+| `VOID_RALLY` | `reason` | 明確作廢 draft，不等於刪除歷史 |
+| `SUBMIT_RALLY` | none | Enter；START／END 完整即可建立 immutable submission，X 可為零，outcome 可為 pending |
+
+READY 且尚未送出的 Rally 不阻擋另一個 `START_RALLY`；同一場次仍最多只有一個一般 OPEN Rally。指定 READY Rally 必須可由 timeline 選回並送出。
 
 ## 10.3 Ack
 
 ```json
 {
-  "schema_version": "2.0.0",
+  "schema_version": "3.0.0",
   "type": "command_ack",
   "command_id": "0190...",
   "room_id": "match:...:capture:...",
   "rally_id": "0190...",
-  "operation_kind": "CLOSE_RALLY",
+  "operation_kind": "END_RALLY",
   "result_revision": "28",
   "server_sequence": "1042",
   "effects": {
-    "terminal_key_point_id": "0190...",
     "annotation_status": "ready",
-    "score_resolution": "resolved",
-    "scoring_court_side": "left"
+    "score_resolution": "pending",
+    "scoring_court_side": null
   },
-  "resolved_anchor": null
+  "resolved_anchor": {
+    "capture_time_us": "18400000",
+    "capture_frame_index": "1101"
+  }
 }
 ```
 
-同一`command_id`重送必須回相同結果。對`CLOSE_RALLY`，effects必須同時回傳terminal key point、`ready`狀態與strict rally outcome，且`resolved_anchor`必須為null；schema不允許score time、score frame或其他新event anchor。Server先寫DB transaction/outbox，再廣播；WebSocket訊息不是唯一durable record。
+同一 `command_id` 重送必須回相同結果。`START_RALLY`／`END_RALLY` ACK 的 `resolved_anchor` 是 server 建立 boundary 的 canonical PTS／frame；`SET_RALLY_OUTCOME` 不帶新時間，因此 `resolved_anchor` 為 null。Server 先寫 DB transaction／outbox，再廣播；WebSocket 訊息不是唯一 durable record。
 
 ## 10.4 Conflict
 
 ```json
 {
+  "schema_version": "3.0.0",
   "type": "command_rejected",
   "command_id": "0190...",
-  "code": "CLOSE_RALLY_TARGET_NOT_LAST",
+  "code": "REVISION_CONFLICT",
   "expected_revision": "27",
   "actual_revision": "28",
   "snapshot_refetch_required": true
 }
 ```
 
-`CLOSE_RALLY_TARGET_NOT_LAST`、`REVISION_CONFLICT`、`CURSOR_STALE`、`CURSOR_IN_GAP`、`RALLY_NOT_OPEN`、`SCORE_PENDING`等均用明確domain code。Close target不再是最後key point時必須CAS失敗並要求snapshot refetch，不可自動terminalize新點。Reconnect時若server revision大於client最後revision且delta不完整，必須GraphQL refetch snapshot。
+`REVISION_CONFLICT`、`CURSOR_STALE`、`CURSOR_IN_GAP`、`RALLY_NOT_OPEN`、`RALLY_BOUNDARY_INVALID` 等均使用明確 domain code。Contact 可在 START／END 之外，因此不得因「anchor outside editable segment」拒絕；clip coverage 必須擴張到包含所有 canonical contact。Reconnect 時若 server revision 大於 client 最後 revision 且 delta 不完整，必須 GraphQL refetch 指定 Rally snapshot。
+
 
 # 11. GraphQL Schema 使用規格
 
@@ -1274,16 +1285,18 @@ AI團隊已經有球員追蹤、球追蹤、球場追蹤／投影、個體動作
 
 ```json
 {
-  "schema_version": "1.0.0",
+  "schema_version": "2.0.0",
   "provider_name": "team-ai",
   "provider_build_id": "2026-08-07.1",
-  "supported_job_schema_versions": ["1.1.0"],
-  "supported_result_schema_versions": ["1.0.0"],
-  "supported_overlay_formats": ["flatbuffers_v1"],
+  "supported_job_schema_versions": ["3.0.0"],
+  "supported_analysis_data_versions": ["1.0.0"],
+  "supported_analysis_modules": ["court", "tracking", "reid", "contacts"],
+  "supports_selective_rerun": true,
   "optional_extensions": {
     "action": true,
     "group_phase": false,
-    "confidence": false
+    "confidence": false,
+    "reid_feature_bank": true
   },
   "action_taxonomies": []
 }
@@ -1292,7 +1305,7 @@ AI團隊已經有球員追蹤、球追蹤、球場追蹤／投影、個體動作
 ## 15.2 AI Job Request
 
 
-AI Job Request 的正式版本為 `1.1.0`；`AnalysisResult`、callback envelope、provider capabilities envelope 與 `JobAccepted` 仍各自維持 `1.0.0`。Job 1.1 新增必填的 `clip.download_url_expires_at`，且明確分離 clip signed URL 與 callback bearer token。Capabilities 必須宣告 `supported_job_schema_versions` 包含 `1.1.0` 才能接收。
+AI Job Request正式版本為`3.0.0`；AnalysisData為`1.0.0`、callback envelope與provider capabilities為`2.0.0`。Job 3.0將START/END boundaries、非終止contact hints與可選擇重跑的analysis plan分開。Capabilities必須明確宣告Job、AnalysisData與module支援。
 
 ```http
 POST /v1/jobs
@@ -1303,7 +1316,7 @@ Content-Type: application/json
 
 ```json
 {
-  "schema_version": "1.1.0",
+  "schema_version": "3.0.0",
   "ai_job_id": "018f6d86-2d8c-7f10-9c1b-0f0c32aa6001",
   "rally_submission_id": "018f6d86-2d8c-7f10-9c1b-0f0c32aa3101",
   "rally_id": "018f6d86-2d8c-7f10-9c1b-0f0c32aa3001",
@@ -1330,7 +1343,7 @@ Content-Type: application/json
     {
       "key_point_id": "...4000",
       "sequence_index": 0,
-      "marker_kind": "service",
+      "marker_kind": "contact",
       "is_terminal": false,
       "clip_pts": "300300",
       "clip_time_us": "5005000",
@@ -1340,12 +1353,22 @@ Content-Type: application/json
       "key_point_id": "...4010",
       "sequence_index": 1,
       "marker_kind": "contact",
-      "is_terminal": true,
+      "is_terminal": false,
       "clip_pts": "480480",
       "clip_time_us": "8008000",
       "clip_frame_index": "480"
     }
   ],
+  "boundaries": [
+    {"kind":"start","clip_pts":"0","clip_time_us":"0","clip_frame_index":"0"},
+    {"kind":"end","clip_pts":"900900","clip_time_us":"15015000","clip_frame_index":"900"}
+  ],
+  "analysis_plan": {
+    "mode": "full",
+    "modules": {"court":"run","tracking":"run","reid":"run","contacts":"run"},
+    "source_analysis_data": null,
+    "preserve_manual_corrections": true
+  },
   "outcome": {
     "score_resolution": "resolved",
     "scoring_court_side": "left"
@@ -1378,8 +1401,9 @@ Job不包含court definition、team IDs、model requirements、threshold、MinIO
 | `annotation_revision` | SUBMISSION SNAPSHOT + PASSTHROUGH | 原樣回傳 |
 | `clip_asset_id` | PREPROCESS + PASSTHROUGH | 原樣回傳 |
 | clip URL/checksum/video metadata | PREPROCESS | 下載並驗證；不回寫修改 |
-| `key_point_id` | SUBMISSION SNAPSHOT + PASSTHROUGH | 每個恰好出現一次 |
-| marker/sequence/terminal/clip timing | PREPROCESS + PASSTHROUGH | 作anchor，不改寫 |
+| `key_point_id` | SUBMISSION SNAPSHOT + PASSTHROUGH | 人工contact由`source_key_point_id`恰好引用一次；AI可新增自己的event ID |
+| boundaries/contact timing | PREPROCESS + PASSTHROUGH | START/END只限定片段；contact hint為非終止anchor，不改寫 |
+| `analysis_plan` | CENTRAL | 指定module run/reuse與是否保留人工修正；Worker不得宣告支援卻忽略 |
 | `outcome` | SUBMISSION SNAPSHOT | 可使用，不需要在result重複回傳 |
 | callback URL/token | CENTRAL | token只授權中央callback POST；clip使用獨立signed URL；兩者皆不放result、不下發browser |
 | track/event/action/position | AI_GENERATED | 由AI輸出 |
@@ -1406,9 +1430,9 @@ GitHub安裝：
 pip install "volleyball-monitoring-ai-sdk @ git+https://github.com/<owner>/volleyball-monitoring-ai.git@v0.1.0#subdirectory=sdk"
 ```
 
-SDK必須提供Pydantic job/result/capabilities/accepted models、JSON Schema validation、signed clip下載與checksum、callback client、FlatBuffers helper、passthrough/invariant validator、FastAPI provider adapter optional extra與fake fixtures。SDK不依賴torch/CUDA/OpenCV，也不實作AI模型。
+SDK必須提供Pydantic Job/AnalysisData domain/capabilities/accepted models、JSON Schema validation、signed clip下載與checksum、callback client、VAD1 FlatBuffers helper、passthrough/invariant validator、provider adapter與fake fixtures。SDK不依賴torch/CUDA/OpenCV，也不實作AI模型。
 
-# 16. AI Analysis Result Schema
+# 16. AnalysisData Domain Schema
 
 ## 16.1 結果範例
 
@@ -1431,8 +1455,10 @@ SDK必須提供Pydantic job/result/capabilities/accepted models、JSON Schema va
   "contact_events": [
     {
       "key_point_id":"...4000",
+      "source_key_point_id":"...4000",
+      "anchor_origin":"human_anchor",
       "sequence_index":0,
-      "marker_kind":"service",
+      "marker_kind":"contact",
       "is_terminal":false,
       "anchor_frame_index":"300",
       "resolved_frame_index":"301",
@@ -1461,9 +1487,9 @@ SDK必須提供Pydantic job/result/capabilities/accepted models、JSON Schema va
 ## 16.2 Passthrough與1:1 invariant
 
 - `ai_job_id/rally_submission_id/rally_id/match_id/annotation_revision/clip_asset_id`原樣回傳。
-- 每個input key point恰好一個contact event。
-- `key_point_id/sequence_index/marker_kind/is_terminal`與job完全一致。
-- N個events通常有N-1個segments；只有單一service且terminal的回合可為0段。
+- 每個人工contact hint依序且恰好被一個`source_key_point_id`引用；AI可在其間加入`anchor_origin=ai_detected`事件。
+- 所有event皆為`marker_kind=contact`且`is_terminal=false`；START/END boundaries不會變成發球或落地事件。
+- N個events有N-1個相鄰segments；零或單一contact可為0段。
 - 無法判斷actor仍回event，不得刪掉。
 
 ## 16.3 Actor observation frame
@@ -1547,10 +1573,9 @@ Content-Type: multipart/form-data
 Parts：
 
 - `metadata`：callback envelope JSON，含 callback ID與 checksums。
-- `analysis`：`application/json`。
-- `overlay`：`application/vnd.volleyball.overlay+flatbuffers;version=1`。
+- `analysis_data`：`application/vnd.volleyball.analysis-data+flatbuffers;version=1`。
 
-中央以 streaming方式寫 temporary object，不將整個 overlay載入 Node heap。全部驗證通過後才 commit analysis run。
+中央以streaming方式寫temporary object並限制檔案大小；全部VAD1/schema/passthrough/checksum驗證通過後才commit analysis run。
 
 ## 17.4 HTTP Semantics
 
@@ -1567,17 +1592,17 @@ Parts：
 
 ---
 
-# 18. FlatBuffers Overlay v1
+# 18. AnalysisData FlatBuffers v1
 
 ## 18.1 原則
 
-- AI 回傳一個 rally完整 sequence binary。
-- Central驗證後依固定 frame chunk切成 Web用 chunks。
+- AI回傳一個rally完整VAD1 binary，內含domain JSON與全部逐幀column。
+- Central驗證後保存原始VAD1，再依固定frame chunk導出Web用VFC1；VFC1不是第二份AI result。
 - 採 Structure of Arrays，避免大量 nested JS object。
 - frame座標量化 U16；court座標 float32，因為可場外。
 - 缺值由 flags/sentinel表示，不偽造 0。
 
-## 18.2 Chunk 內容
+## 18.2 VAD1／VFC1內容
 
 ```text
 start_frame_index
@@ -1611,7 +1636,7 @@ Invariant：
 {
   "schema_version":"1.0.0",
   "analysis_run_id":"...",
-  "overlay_version":2,
+  "analysis_data_version":"1",
   "video":{"width":1920,"height":1080,"total_frames":"1079"},
   "chunk_frame_count":120,
   "action_dictionary":[],
@@ -1620,7 +1645,7 @@ Invariant：
       "index":0,
       "start_frame":"0",
       "end_frame":"119",
-      "url":"/v1/analysis-runs/.../overlay-chunks/0",
+      "url":"/api/v1/analysis-runs/.../analysis-frame-chunks/0",
       "byte_length":"48211",
       "sha256":"..."
     }
@@ -1814,7 +1839,7 @@ Backend：
 
 - WS command/revision/idempotency。
 - Draft mutable model + operation log。
-- Z/X/CLOSE_RALLY(left/right/unknown)/reopen/move/delete/Enter；Space只控制播放／暫停。
+- START_RALLY／END_RALLY／X／SET_RALLY_OUTCOME(left/right/unknown)／reopen／move／delete／Enter；Space 只控制播放／暫停。
 - immutable submission。
 
 Frontend：
@@ -1953,8 +1978,8 @@ C. Nuxt Frontend
 - 先稽核 scaffold是否與 MASTER spec一致，再依 Phase 0開始。
 - Contract-first；跨系統欄位只以 `packages/contracts` 為真實來源。
 - 不要寫死 action labels、confidence、AI模型參數或群體phase。
-- `CLOSE_RALLY`只將指定的server-confirmed最後key point標terminal並保存rally-level outcome，不建立時間點或得分event。
-- `?` 是明確unknown，可送出；pending不可送出。
+- Z 只建立 server-confirmed START／END boundary；X 才建立 contact，outcome 不建立時間點或得分 event。
+- `?` 是明確 unknown；pending 表示尚未標結果，兩者都可送出。
 - Left/right只表示court side，不是team identity。
 - Browser只送PlaybackCursor；authoritative PTS/frame由後端resolve。
 - 整場可回放，但client只lazy-load目前數分鐘，不下載全場。
@@ -2087,11 +2112,11 @@ max_concurrent_threads_per_session = 3
 
 ## 25.3 Annotation
 
-- Z/X/left-close/right-close/unknown-close/Enter固定標註語意；Space固定為播放／暫停。
-- `CLOSE_RALLY`不新增timestamp、score frame或score event，terminal anchor沿用target key point。
-- 只有 service的service error。
-- Unknown可提交，pending不可。
-- Reopen與change terminal。
+- Z START／END、X contact、left/right/unknown outcome 與 Enter 固定標註語意；Space 固定為播放／暫停。
+- START／END boundary 使用 server canonical timestamp／PTS／frame，但不建立 contact、score frame 或 score event。
+- X 可為零，也可位於 START／END 之外；AI detected contact 回傳後可建立 correction。
+- Unknown 與 pending 都可提交；只有 resolved 更新比分。
+- Reopen 移除 END boundary，outcome 可獨立修改。
 - Duplicate command idempotency。
 - 多人revision conflict/refetch。
 - Submitted immutable/correction draft。
@@ -2216,9 +2241,8 @@ max_concurrent_threads_per_session = 3
 | AI | ProviderCapabilities | 後端 | REST JSON | `packages/contracts/ai/capabilities.schema.json` |
 | 後端前處理 | AIJobRequest | AI SDK/provider | REST JSON | `packages/contracts/ai/job.schema.json` |
 | AI | JobAccepted | 後端 | REST JSON | `packages/contracts/ai/job-accepted.schema.json` |
-| AI | AnalysisResult | 後端 | callback JSON part | `packages/contracts/ai/result.schema.json` |
-| AI | OverlaySequence | 後端 | callback FlatBuffers part | `flatbuffers/overlay.fbs` |
-| 後端 | OverlayManifest/Chunk | 前端 | REST JSON + FlatBuffers | manifest schema + `overlay-chunk.fbs` |
+| AI | AnalysisData | 後端 | callback VAD1 FlatBuffers part | `ai/analysis-data-domain.schema.json` + `flatbuffers/analysis-data.fbs` |
+| 後端 | AnalysisDataManifest/AnalysisFrameChunk | 前端 | REST JSON + VFC1 FlatBuffers | `ai/analysis-data-manifest.schema.json` + `flatbuffers/analysis-frame-chunk.fbs` |
 | 後端 | Domain query/mutation | 前端 | GraphQL | Pothos code-first generated SDL |
 
 ## 29.2 前端送後端的 PlaybackCursor
@@ -2250,9 +2274,9 @@ max_concurrent_threads_per_session = 3
 
 ## 29.4 Immutable Submission Snapshot
 
-必要：submission ID、rally ID、annotation revision、content hash、score resolution、nullable scoring court side/team、left/right team snapshot、nullable scores、service/terminal key point IDs、clip policy version與實際pre/post-roll快照、submitted by/at、supersedes ID與完整submission key points。
+必要：submission ID、rally ID、annotation revision、content hash、START／END boundary snapshot、score resolution、nullable scoring court side/team、left/right team snapshot、nullable scores、clip policy version與實際 pre/post-roll快照、submitted by/at、supersedes ID與完整submission contact key points。
 
-`unknown` submission：score resolution=unknown；scoring side/team、score before/after與PointAward皆為null/不存在。`resolved` submission：side/team與score ledger必須完整且transaction一致。
+`pending`／`unknown` submission：scoring side/team、score before/after 與 PointAward 皆為 null／不存在；兩者只在使用者是否明確選擇未知上不同。`resolved` submission：side/team 與 score ledger 必須完整且 transaction 一致。
 
 ## 29.5 AI Job／Result最小原則
 
@@ -2260,7 +2284,7 @@ max_concurrent_threads_per_session = 3
 - Job不傳court definition、requirements、模型參數、MinIO prefix或team metadata。
 - Result不重複人工得分、side assignment或team truth；中央以submission join。
 - 所有跨AI邊界ID在欄位表標成PASSTHROUGH。
-- AI生成欄位只包含tracks、contact events、path segments、overlay與optional extensions。
+- AI生成欄位只包含tracks、contact events、path segments、逐幀AnalysisData與optional extensions。
 
 ## 29.6 已知待確認但不阻塞介面
 

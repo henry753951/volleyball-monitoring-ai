@@ -23,11 +23,24 @@ export interface CaptureCoverage {
   endUs: bigint
 }
 
+export function timingManifestIdentity(
+  clipJobId: string,
+  idempotencyKey: string,
+  objectKey: string,
+): string {
+  return /\/([0-9a-f-]{36})\.timing\.json$/i.exec(objectKey)?.[1]
+    ?? /:reuse:([0-9a-f-]{36})$/i.exec(idempotencyKey)?.[1]
+    ?? clipJobId
+}
+
 export interface ClipFrameTimeline {
+  captureEpochId: string[]
+  captureFrameIndex: bigint[]
   captureTimeUs: bigint[]
   captureEndUs: bigint
   clipTimeUs: bigint[]
   clipEndUs: bigint
+  sourcePts: bigint[]
 }
 
 function record(value: unknown): Record<string, unknown> {
@@ -50,7 +63,7 @@ export function resolveClipFrameTimeline(
 ): ClipFrameTimeline {
   const manifest = record(input)
   if (
-    manifest.schema_version !== '1.1.0'
+    !['1.1.0', '2.0.0'].includes(String(manifest.schema_version))
     || manifest.clip_job_id !== expectedClipJobId
   ) {
     throw new ClipTimingManifestError('timing manifest identity is invalid')
@@ -76,9 +89,23 @@ export function resolveClipFrameTimeline(
   }
 
   const captureTimes: bigint[] = []
+  const captureEpochIds: string[] = []
+  const captureFrameIndexes: bigint[] = []
   const clipTimes: bigint[] = []
+  const sourcePtsValues: bigint[] = []
   for (const [index, value] of manifest.frame_map.entries()) {
     const frame = record(value)
+    if (typeof frame.capture_epoch_id !== 'string' || frame.capture_epoch_id.length === 0) {
+      throw new ClipTimingManifestError(`frame_map[${index}].capture_epoch_id must be a non-empty string`)
+    }
+    const captureFrameIndex = decimal(
+      frame.capture_frame_index,
+      `frame_map[${index}].capture_frame_index`,
+    )
+    const sourcePts = decimal(
+      frame.source_pts,
+      `frame_map[${index}].source_pts`,
+    )
     const clipFrameIndex = decimal(
       frame.clip_frame_index,
       `frame_map[${index}].clip_frame_index`,
@@ -109,15 +136,21 @@ export function resolveClipFrameTimeline(
     ) {
       throw new ClipTimingManifestError('frame_map clip times are invalid')
     }
+    captureEpochIds.push(frame.capture_epoch_id)
+    captureFrameIndexes.push(captureFrameIndex)
     captureTimes.push(captureTimeUs)
     clipTimes.push(clipTimeUs)
+    sourcePtsValues.push(sourcePts)
   }
 
   return {
+    captureEpochId: captureEpochIds,
+    captureFrameIndex: captureFrameIndexes,
     captureTimeUs: captureTimes,
     captureEndUs: actualEndUs,
     clipTimeUs: clipTimes,
     clipEndUs,
+    sourcePts: sourcePtsValues,
   }
 }
 
@@ -162,7 +195,8 @@ async function readTimingManifest(
   if (
     asset.byteLength === null
     || asset.sha256 === null
-    || asset.internalSchemaVersion !== '1.1.0'
+    || asset.internalSchemaVersion === null
+    || !['1.1.0', '2.0.0'].includes(asset.internalSchemaVersion)
   ) {
     throw new ClipTimingManifestError('timing manifest asset is incomplete')
   }

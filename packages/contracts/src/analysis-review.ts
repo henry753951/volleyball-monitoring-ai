@@ -1,4 +1,6 @@
-export const ANALYSIS_REVIEW_SCHEMA_VERSION = '1.2.0' as const
+export const ANALYSIS_REVIEW_SCHEMA_VERSION = '1.3.0' as const
+
+export type AnalysisReviewStatus = 'editing' | 'ready' | 'approved'
 
 export const ANALYSIS_REVIEW_ACTIONS = [
   'Waiting',
@@ -46,15 +48,28 @@ export interface AnalysisContactTimeCorrection {
   revision: string
 }
 
+export interface AnalysisContactEdit {
+  contact_id: string
+  base_key_point_id: string | null
+  frame_index: string
+  track_id: number | null
+  deleted: boolean
+  revision: string
+}
+
 export interface AnalysisReviewState {
   schema_version: typeof ANALYSIS_REVIEW_SCHEMA_VERSION
   analysis_run_id: string
   revision: string
+  status: AnalysisReviewStatus
+  computed_revision: string | null
+  approved_revision: string | null
   ball_corrections: AnalysisBallCorrection[]
   action_corrections: AnalysisActionCorrection[]
   player_bbox_corrections: AnalysisPlayerBBoxCorrection[]
   contact_actor_corrections: AnalysisContactActorCorrection[]
   contact_time_corrections: AnalysisContactTimeCorrection[]
+  contact_edits: AnalysisContactEdit[]
 }
 
 export type AnalysisReviewOperation =
@@ -69,6 +84,9 @@ export type AnalysisReviewOperation =
   | { op: 'clear_contact_actor_override'; key_point_id: string }
   | { op: 'set_contact_time'; key_point_id: string; frame_index: string }
   | { op: 'clear_contact_time_override'; key_point_id: string }
+  | { op: 'add_contact'; contact_id: string; frame_index: string; track_id: number | null }
+  | { op: 'delete_contact'; contact_id: string }
+  | { op: 'restore_contact'; contact_id: string }
 
 export interface AnalysisReviewPatch {
   schema_version: typeof ANALYSIS_REVIEW_SCHEMA_VERSION
@@ -118,6 +136,16 @@ export function parseAnalysisReviewPatch(value: unknown): AnalysisReviewPatch {
 
   for (const operation of value.operations) {
     if (!record(operation) || typeof operation.op !== 'string') throw new TypeError('invalid analysis review operation')
+    if (operation.op === 'add_contact') {
+      if (typeof operation.contact_id !== 'string' || !UUID.test(operation.contact_id)
+        || !validFrameIndex(operation.frame_index)
+        || !(operation.track_id === null || validTrackId(operation.track_id))) throw new TypeError('invalid added contact')
+      continue
+    }
+    if (operation.op === 'delete_contact' || operation.op === 'restore_contact') {
+      if (typeof operation.contact_id !== 'string' || !UUID.test(operation.contact_id)) throw new TypeError('invalid contact edit')
+      continue
+    }
     if (operation.op === 'set_contact_actor') {
       if (typeof operation.key_point_id !== 'string' || !UUID.test(operation.key_point_id)
         || !(operation.track_id === null || validTrackId(operation.track_id))) throw new TypeError('invalid contact actor correction')

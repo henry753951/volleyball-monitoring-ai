@@ -79,7 +79,7 @@ describe('media source process', () => {
       '-c:v', 'libx264', '-g', '60', '-pix_fmt', 'yuv420p', '-an', '-y', input,
     ])
     const classified: unknown[] = []
-    const resumed: number[] = []
+    const resumed: Array<{ captureTimeUs: bigint; segmentIndex: number }> = []
     const run = createMediaSourceProcess({
       importRoot,
       ingestBaseUrl: 'rtmp://127.0.0.1:1935/app',
@@ -104,14 +104,16 @@ describe('media source process', () => {
       status: 'RUNNING',
     }, {
       classified: async value => { classified.push(value) },
-      resumed: async value => { resumed.push(value) },
+      resumed: async (segmentIndex, captureTimeUs) => { resumed.push({ captureTimeUs, segmentIndex }) },
     }, new AbortController().signal)
 
     const files = await readdir(join(recordingRoot, 'fixture-court'))
     expect(result).toMatchObject({ sourceKind: 'local_mp4' })
     expect(result.expectedSegments).toBeGreaterThanOrEqual(2)
     expect(classified).toHaveLength(1)
-    expect(resumed.at(-1)).toBe(result.expectedSegments)
+    expect(resumed.at(-1)?.segmentIndex).toBe(result.expectedSegments)
+    expect(resumed.at(-1)?.captureTimeUs).toBeGreaterThanOrEqual(4_000_000n)
+    expect(resumed.at(-1)?.captureTimeUs).not.toBe(BigInt(result.expectedSegments) * 2_000_000n)
     expect(files).toHaveLength(result.expectedSegments)
     expect(files.every(name => /^2026-08-09_06-00-\d{2}-\d{6}\.mp4$/.test(name))).toBe(true)
   })

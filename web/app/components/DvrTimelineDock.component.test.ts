@@ -34,7 +34,7 @@ describe('DvrTimelineDock mounted interactions', () => {
     expect(latestScale()).toBeCloseTo(0.1)
     for (let index = 0; index < 100; index++) dock.element.dispatchEvent(new WheelEvent('wheel', { deltaY: -100, shiftKey: true }))
     await w.vm.$nextTick()
-    expect(latestScale()).toBe(10)
+    expect(latestScale()).toBe(60)
     const beforePan = firstTick()
     dock.element.dispatchEvent(new WheelEvent('wheel', { deltaY: 500 }))
     await w.vm.$nextTick()
@@ -42,6 +42,85 @@ describe('DvrTimelineDock mounted interactions', () => {
     ;(w.vm as unknown as { resetView: () => void }).resetView()
     await w.vm.$nextTick()
     expect(latestScale()).toBeCloseTo(0.1)
+  })
+  it('restores the persisted viewport and scale for the same capture session', async () => {
+    const longTimeline = {
+      ...timeline,
+      captureStartTimeUs: '0', sourceEndCaptureTimeUs: '7200000000', ingestFrontierCaptureTimeUs: '7200000000',
+      gapRanges: [], availableRanges: [{ startUs: '0', endUs: '7200000000', discontinuity: 0 }],
+    }
+    const w = mount(DvrTimelineDock, { props: {
+      timeline: longTimeline,
+      playhead: null,
+      restoredView: {
+        captureSessionId: 's',
+        startCaptureTimeUs: '3600000000',
+        endCaptureTimeUs: '3605000000',
+        scale: 60,
+      },
+    } })
+    const slider = w.get('.buffer-status')
+    expect(slider.attributes('aria-valuemin')).toBe('3600000000')
+    expect(slider.attributes('aria-valuemax')).toBe('3605000000')
+    expect(Number(w.emitted('scaleChange')?.at(-1)?.[0])).toBe(60)
+    expect(w.emitted('viewChange')?.at(-1)?.[0]).toEqual({
+      captureSessionId: 's',
+      startCaptureTimeUs: '3600000000',
+      endCaptureTimeUs: '3605000000',
+      scale: 60,
+    })
+    await w.setProps({ playhead: '3602500000' })
+    expect(slider.attributes('aria-valuemin')).toBe('3600000000')
+    expect(slider.attributes('aria-valuemax')).toBe('3605000000')
+    expect(Number(w.emitted('scaleChange')?.at(-1)?.[0])).toBe(60)
+  })
+  it('ignores a viewport persisted for another capture session', () => {
+    const longTimeline = {
+      ...timeline,
+      captureStartTimeUs: '0', sourceEndCaptureTimeUs: '7200000000', ingestFrontierCaptureTimeUs: '7200000000',
+      gapRanges: [], availableRanges: [{ startUs: '0', endUs: '7200000000', discontinuity: 0 }],
+    }
+    const w = mount(DvrTimelineDock, { props: {
+      timeline: longTimeline,
+      playhead: '3602500000',
+      restoredView: {
+        captureSessionId: 'other-capture',
+        startCaptureTimeUs: '3600000000',
+        endCaptureTimeUs: '3605000000',
+        scale: 60,
+      },
+    } })
+    const slider = w.get('.buffer-status')
+    expect(BigInt(slider.attributes('aria-valuemax')!) - BigInt(slider.attributes('aria-valuemin')!)).toBe(3_000_000_000n)
+    expect(Number(w.emitted('scaleChange')?.at(-1)?.[0])).toBeCloseTo(0.1)
+  })
+  it('keeps the visible time range and scale fixed while a live or progressive source grows', async () => {
+    const progressiveTimeline = {
+      ...timeline,
+      captureStartTimeUs: '0', sourceEndCaptureTimeUs: null, ingestFrontierCaptureTimeUs: '7200000000',
+      availabilityComplete: false, timelineVersion: '1', gapRanges: [],
+      availableRanges: [{ startUs: '0', endUs: '7200000000', discontinuity: 0 }],
+    }
+    const w = mount(DvrTimelineDock, { props: { timeline: progressiveTimeline, playhead: '3600000000', playbackMode: 'progressive_vod' } })
+    const dock = w.get('.timeline-surface')
+    const slider = () => w.get('.buffer-status')
+    for (let index = 0; index < 100; index++) dock.element.dispatchEvent(new WheelEvent('wheel', { deltaY: -100, shiftKey: true }))
+    await w.vm.$nextTick()
+    const initialRange = [slider().attributes('aria-valuemin'), slider().attributes('aria-valuemax')]
+    const initialScale = Number(w.emitted('scaleChange')?.at(-1)?.[0])
+    expect(BigInt(initialRange[1]!) - BigInt(initialRange[0]!)).toBe(5_000_000n)
+    expect(initialScale).toBe(60)
+
+    await w.setProps({
+      timeline: {
+        ...progressiveTimeline,
+        ingestFrontierCaptureTimeUs: '9000000000', timelineVersion: '2',
+        availableRanges: [{ startUs: '0', endUs: '9000000000', discontinuity: 0 }],
+      },
+    })
+
+    expect([slider().attributes('aria-valuemin'), slider().attributes('aria-valuemax')]).toEqual(initialRange)
+    expect(Number(w.emitted('scaleChange')?.at(-1)?.[0])).toBeCloseTo(initialScale)
   })
   it('renders discontinuity marker', () => { const w = mount(DvrTimelineDock, { props: { timeline, playhead: null } }); expect(w.findAll('.gap-range').length).toBeGreaterThan(0) })
   it('distinguishes the browser-buffered window from server-available ranges', () => {
@@ -155,6 +234,7 @@ describe('DvrTimelineDock mounted interactions', () => {
     }
     const analyzedSegment = {
       id: 'rally', label: '第 1 局 · 回合 1', startCaptureTimeUs: '1200', endCaptureTimeUs: '1900', status: 'analyzed' as const,
+      points: [{ id: 'ai-contact', markerKind: 'contact', isTerminal: false, captureTimeUs: '1750' }],
       analysis: { startCaptureTimeUs: '1250', endCaptureTimeUs: '1850', byteLength: '2400000', trackCount: 12, ballPathCount: 1, contactCount: 3, capabilities: ['player_tracking', 'ball_tracking'] },
     }
     const w = mount(DvrTimelineDock, { props: {
@@ -164,6 +244,8 @@ describe('DvrTimelineDock mounted interactions', () => {
 
     expect(w.findAll('.timeline-mask.historical')).toHaveLength(0)
     expect(w.find('.timeline-mask.current').exists()).toBe(true)
+    expect(w.findAll('.historical-point')).toHaveLength(1)
+    expect(w.get('.historical-point').attributes('aria-label')).toContain('回合 1 · contact')
     expect(w.findAll('.analysis-rail')).toHaveLength(1)
     expect(w.find('.analysis-rail').attributes('aria-label')).toContain('開啟分析結果')
 

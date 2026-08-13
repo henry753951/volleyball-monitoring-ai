@@ -12,13 +12,19 @@ MANIFEST = ROOT / 'SHA256SUMS.txt'
 
 def tracked_paths() -> list[str]:
     result = subprocess.run(
-        ['git', 'ls-files', '-z'],
+        ['git', 'ls-files', '--cached', '--others', '--exclude-standard', '-z'],
         cwd=ROOT,
         check=True,
         capture_output=True,
     )
     paths = result.stdout.decode('utf-8').split('\0')
-    return sorted(path for path in paths if path and path != MANIFEST.name)
+    return sorted(
+        path
+        for path in paths
+        if path
+        and path != MANIFEST.name
+        and ROOT.joinpath(*path.split('/')).is_file()
+    )
 
 
 def main() -> None:

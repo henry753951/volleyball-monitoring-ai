@@ -29,25 +29,25 @@ export interface HotkeyCommandDefinition {
 }
 
 export const ANNOTATION_COMMANDS = [
-  { action: 'service', group: 'annotation', label: '發球 / 結束', description: '第一次按下開始回合；游標移到最後一球後再次按下即可結束' },
+  { action: 'service', group: 'annotation', label: '片段開始 / 結束', description: '第一次按 Z 設定片段開始；再次按 Z 設定片段結束。Z 不代表發球或落點。' },
   { action: 'contact', group: 'annotation', label: '擊球', description: '記錄目前畫面的擊球時刻' },
   {
     action: 'close_left',
     group: 'annotation',
     label: '左側得分',
-    description: '以最後一個擊球點結束回合並記錄左側得分',
+    description: '將目前片段結果記錄為左側得分；不會結束片段',
   },
   {
     action: 'close_right',
     group: 'annotation',
     label: '右側得分',
-    description: '以最後一個擊球點結束回合並記錄右側得分',
+    description: '將目前片段結果記錄為右側得分；不會結束片段',
   },
   {
     action: 'close_unknown',
     group: 'annotation',
     label: '未知',
-    description: '以最後一個擊球點結束回合，結果保留為未知',
+    description: '將目前片段結果標記為未知；不會結束片段',
   },
   { action: 'submit', group: 'annotation', label: '送出', description: '送出目前回合進行分析' },
 ] as const satisfies ReadonlyArray<HotkeyCommandDefinition>

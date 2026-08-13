@@ -30,7 +30,11 @@ import {
 } from '../services/media-timeline.js'
 import type { ProcessingStateView } from '../services/capture-processing.js'
 import type { MatchDeleteReceipt } from '../services/match-administration.js'
-import type { RallyDeleteReceipt, RallyPlacementResult } from '../services/rally-administration.js'
+import {
+  getDerivedRallyDisplayOrdinal,
+  type RallyDeleteReceipt,
+  type RallyPlacementResult,
+} from '../services/rally-administration.js'
 
 interface Health {
   service: string
@@ -187,7 +191,9 @@ RallyType.implement({
     activeSubmissionId: t.exposeID('activeSubmissionId', { nullable: true }),
     annotationRevision: t.field({ type: 'BigInt', resolve: rally => rally.annotationRevision }),
     annotationStatus: t.field({ type: AnnotationStatusType, resolve: rally => rally.annotationStatus }),
-    displayOrdinal: t.exposeInt('displayOrdinal'),
+    displayOrdinal: t.int({
+      resolve: rally => getDerivedRallyDisplayOrdinal(db, rally.matchId, rally.id),
+    }),
     displaySetNumber: t.exposeInt('displaySetNumber'),
     id: t.exposeID('id'),
     matchId: t.exposeID('matchId'),

@@ -23,6 +23,11 @@ const ids = {
   initB: '10000000-0000-4000-8000-000000000008',
 }
 
+const initFingerprints = {
+  a: 'a'.repeat(64),
+  b: 'b'.repeat(64),
+}
+
 function segment(
   id: string,
   startUs: bigint,
@@ -197,9 +202,9 @@ describe('playback manifest and wire views', () => {
 
   it('emits deterministic authorized init/media tokens and exact durations', () => {
     const manifest = formatManifest(ids.window, [
-      { discontinuity: 0, durationUs: 1_001_001n, id: ids.first, initAssetId: ids.initA, sequenceNumber: 41n },
-      { discontinuity: 0, durationUs: 16_683n, id: ids.second, initAssetId: ids.initA, sequenceNumber: 42n },
-      { discontinuity: 1, durationUs: 2_000_000n, id: ids.third, initAssetId: ids.initB, sequenceNumber: 43n },
+      { discontinuity: 0, durationUs: 1_001_001n, id: ids.first, initFingerprint: initFingerprints.a, sequenceNumber: 41n },
+      { discontinuity: 0, durationUs: 16_683n, id: ids.second, initFingerprint: initFingerprints.a, sequenceNumber: 42n },
+      { discontinuity: 1, durationUs: 2_000_000n, id: ids.third, initFingerprint: initFingerprints.a, sequenceNumber: 43n },
     ], { endList: false })
 
     expect(manifest).toContain('#EXT-X-TARGETDURATION:2')
@@ -209,7 +214,7 @@ describe('playback manifest and wire views', () => {
     expect(manifest).not.toContain('#EXT-X-ENDLIST')
     expect(manifest).toContain('#EXTINF:1.001001,')
     expect(manifest).toContain('#EXTINF:0.016683,')
-    expect(manifest.match(/#EXT-X-MAP/g)).toHaveLength(2)
+    expect(manifest.match(/#EXT-X-MAP/g)).toHaveLength(1)
     expect(manifest.match(/^#EXT-X-DISCONTINUITY$/gm)).toHaveLength(1)
     expect(manifest).toContain(`/segments/init-${ids.first}`)
     expect(manifest).toContain(`/segments/media-${ids.second}`)
@@ -220,23 +225,34 @@ describe('playback manifest and wire views', () => {
     })
   })
 
+  it('re-emits initialization media only when its content changes', () => {
+    const manifest = formatManifest(ids.window, [
+      { discontinuity: 0, durationUs: 1_000_000n, id: ids.first, initFingerprint: initFingerprints.a, sequenceNumber: 41n },
+      { discontinuity: 0, durationUs: 1_000_000n, id: ids.second, initFingerprint: initFingerprints.b, sequenceNumber: 42n },
+    ], { endList: false })
+
+    expect(manifest.match(/#EXT-X-MAP/g)).toHaveLength(2)
+    expect(manifest).toContain(`/segments/init-${ids.first}`)
+    expect(manifest).toContain(`/segments/init-${ids.second}`)
+  })
+
   it('preserves the absolute discontinuity sequence after a rolling prefix is dropped', () => {
     const manifest = formatManifest(ids.window, [
-      { discontinuity: 4, durationUs: 1_000_000n, id: ids.second, initAssetId: ids.initA, sequenceNumber: 42n },
-      { discontinuity: 5, durationUs: 1_000_000n, id: ids.third, initAssetId: ids.initB, sequenceNumber: 43n },
+      { discontinuity: 4, durationUs: 1_000_000n, id: ids.second, initFingerprint: initFingerprints.a, sequenceNumber: 42n },
+      { discontinuity: 5, durationUs: 1_000_000n, id: ids.third, initFingerprint: initFingerprints.a, sequenceNumber: 43n },
     ], { endList: false })
 
     expect(manifest).toContain('#EXT-X-DISCONTINUITY-SEQUENCE:4')
     expect(manifest.match(/#EXT-X-DISCONTINUITY\n/g)).toHaveLength(1)
     expect(() => formatManifest(ids.window, [
-      { discontinuity: 4, durationUs: 1_000_000n, id: ids.second, initAssetId: ids.initA, sequenceNumber: 42n },
-      { discontinuity: 6, durationUs: 1_000_000n, id: ids.third, initAssetId: ids.initB, sequenceNumber: 43n },
+      { discontinuity: 4, durationUs: 1_000_000n, id: ids.second, initFingerprint: initFingerprints.a, sequenceNumber: 42n },
+      { discontinuity: 6, durationUs: 1_000_000n, id: ids.third, initFingerprint: initFingerprints.b, sequenceNumber: 43n },
     ], { endList: false })).toThrow('discontinuity sequence')
   })
 
   it('seals a completed finite source playlist with ENDLIST', () => {
     const manifest = formatManifest(ids.window, [
-      { discontinuity: 0, durationUs: 1_000_000n, id: ids.first, initAssetId: ids.initA, sequenceNumber: 0n },
+      { discontinuity: 0, durationUs: 1_000_000n, id: ids.first, initFingerprint: initFingerprints.a, sequenceNumber: 0n },
     ], { endList: true })
 
     expect(manifest).toContain('#EXT-X-PLAYLIST-TYPE:VOD')

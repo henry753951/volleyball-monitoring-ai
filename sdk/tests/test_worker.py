@@ -21,6 +21,7 @@ from volleyball_monitoring_ai import (
 
 ROOT = Path(__file__).parents[2]
 FIXTURE = ROOT / "packages" / "contracts" / "fixtures" / "normal-rally" / "job.json"
+BOUNDARY_FIXTURE = ROOT / "packages" / "contracts" / "examples" / "ai" / "boundary-job.json"
 CAPABILITIES = ROOT / "packages" / "contracts" / "examples" / "ai" / "capabilities.json"
 
 
@@ -196,8 +197,17 @@ def test_fixture_result_builder_adapts_golden_data_to_incoming_job() -> None:
 
     bundle = FixtureResultBuilder().build(job)
 
-    assert bundle.result.ai_job_id == job.ai_job_id
-    assert [event.key_point_id for event in bundle.result.contact_events] == [
+    assert bundle.domain.ai_job_id == job.ai_job_id
+    assert [event.key_point_id for event in bundle.domain.contact_events if event.anchor_origin == "human_anchor"] == [
         point.key_point_id for point in job.key_points
     ]
-    assert bundle.overlay_bytes[4:8] == b"VOV1"
+    assert bundle.analysis_data_bytes[4:8] == b"VAD1"
+
+
+def test_fixture_result_builder_emits_ai_contacts_for_boundary_only_job() -> None:
+    job = AIJobRequest.model_validate_json(BOUNDARY_FIXTURE.read_text())
+    bundle = FixtureResultBuilder().build(job)
+
+    assert bundle.domain.contact_events
+    assert all(event.anchor_origin == "ai_detected" for event in bundle.domain.contact_events)
+    assert all(event.source_key_point_id is None for event in bundle.domain.contact_events)

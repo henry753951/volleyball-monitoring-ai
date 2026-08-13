@@ -12,7 +12,7 @@ interface CoachWebSocketDependencies {
 export interface CoachMatchInvalidation {
   type: 'match_state_invalidated'
   match_id: string
-  reason: 'analysis_review_updated' | 'identity_mapping_updated' | 'rally_deleted' | 'rally_placement_updated'
+  reason: 'analysis_review_updated' | 'analysis_state_updated' | 'identity_mapping_updated' | 'rally_deleted' | 'rally_placement_updated'
   server_time_ms: number
 }
 

@@ -9,9 +9,29 @@ const cursor = { playback_window_id: 'window', mapping_version: 1, player_media_
 const contact = (id: string): AnnotationCommand => ({ schema_version: '2.0.0', command_id: id, room_id: room, base_revision: '1', rally_id: rally, kind: 'CREATE_CONTACT_KEY_POINT', payload: { playback_cursor: cursor } })
 const terminal = (id: string): AnnotationCommand => ({ schema_version: '2.0.0', command_id: id, room_id: room, base_revision: '1', rally_id: rally, kind: 'CREATE_CONTACT_KEY_POINT', payload: { playback_cursor: cursor, terminal_outcome: 'unknown' } })
 const service = (id: string, rallyId = rally): AnnotationCommand => ({ schema_version: '2.0.0', command_id: id, room_id: room, base_revision: '0', rally_id: rallyId, kind: 'CREATE_SERVICE_KEY_POINT', payload: { playback_cursor: cursor } })
+const start = (id: string, rallyId = rally): AnnotationCommand => ({ schema_version: '3.0.0', command_id: id, room_id: room, base_revision: '0', rally_id: rallyId, kind: 'START_RALLY', payload: { playback_cursor: cursor } })
+const end = (id: string): AnnotationCommand => ({ schema_version: '3.0.0', command_id: id, room_id: room, base_revision: '1', rally_id: rally, kind: 'END_RALLY', payload: { playback_cursor: cursor } })
 const snapshot: AnnotationRallySnapshot = { schema_version: '2.0.0', type: 'rally_snapshot', room_id: room, rally_id: rally, revision: '1', server_sequence: '1', snapshot: { annotation_status: 'open', side_assignment_id: 'side', score_resolution: 'pending', scoring_court_side: null, processing_status: 'idle', key_points: [{ key_point_id: 'service', sequence_index: 0, marker_kind: 'service', is_terminal: false, capture_time_us: '1000', capture_frame_index: '10', timing_precision: 'frame_exact', possible_duplicate: false }] } }
 
 describe('annotation optimistic command queue', () => {
+  it('projects v3 Z presses as start/end boundaries without creating key points', () => {
+    const started = enqueueAnnotationCommand([], start('00000000-0000-4000-8000-000000000030'), new Date(), { observation: { capture_time_us: '1000', capture_frame_index: '10' } })
+    const open = projectAnnotationSnapshot(null, room, started)
+    expect(open).toMatchObject({
+      schema_version: '3.0.0',
+      snapshot: { annotation_status: 'open', key_points: [], boundaries: [{ kind: 'start', capture_time_us: '1000' }] },
+    })
+
+    const ended = enqueueAnnotationCommand([], end('00000000-0000-4000-8000-000000000031'), new Date(), { observation: { capture_time_us: '2000', capture_frame_index: '20' } })
+    const ready = projectAnnotationSnapshot(open, room, ended)
+    expect(ready).toMatchObject({
+      snapshot: {
+        annotation_status: 'ready', score_resolution: 'pending', key_points: [],
+        boundaries: [{ kind: 'start', capture_time_us: '1000' }, { kind: 'end', capture_time_us: '2000' }],
+      },
+    })
+  })
+
   it('projects the second Z as a terminal READY boundary before the acknowledgement', () => {
     const entries = enqueueAnnotationCommand([], terminal('00000000-0000-4000-8000-000000000099'), new Date(), { observation: { capture_time_us: '2000', capture_frame_index: '20' } })
     const projected = projectAnnotationSnapshot(snapshot, room, entries)
@@ -42,6 +62,12 @@ describe('annotation optimistic command queue', () => {
   it('rebases each queued command to the latest confirmed revision', () => {
     const rebased = rebaseQueuedAnnotationCommand(contact('00000000-0000-4000-8000-000000000004'), { ...snapshot, revision: '8' })
     expect(rebased?.base_revision).toBe('8')
+  })
+
+  it('keeps a new START_RALLY queued when the previous segment is READY', () => {
+    const ready = structuredClone(snapshot)
+    ready.snapshot.annotation_status = 'ready'
+    expect(rebaseQueuedAnnotationCommand(start('00000000-0000-4000-8000-000000000032', '00000000-0000-4000-8000-000000000033'), ready)).toMatchObject({ kind: 'START_RALLY' })
   })
 
   it('replaces a pending point with the canonical ACK anchor', () => {

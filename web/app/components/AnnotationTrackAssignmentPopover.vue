@@ -1,7 +1,12 @@
 <script setup lang="ts">
-import { Check, LoaderCircle, UserRoundCog, X } from 'lucide-vue-next'
-import { createCoachDomainClient, type CoachMatchAnalytics } from '~/lib/coachDomain'
-import { createGraphQLTransport } from '~/lib/coreDomain'
+import { CircleHelp, LoaderCircle, ShieldCheck, UserRoundCog, X } from 'lucide-vue-next'
+import { computed } from 'vue'
+import { useIdentityAssignmentController } from '~/composables/useIdentityAssignmentController'
+import IdentityReplacementDialog from './IdentityReplacementDialog.vue'
+import PlayerIdentityPreview from './PlayerIdentityPreview.vue'
+import UiPlayerCombobox from './ui/PlayerCombobox.vue'
+import UiPopover from './ui/Popover.vue'
+import UiSwitch from './ui/Switch.vue'
 
 const props = defineProps<{
   open: boolean
@@ -15,98 +20,74 @@ const props = defineProps<{
   y: number
 }>()
 const emit = defineEmits<{ close: []; changed: [] }>()
-const client = createCoachDomainClient(createGraphQLTransport('/graphql'))
-const analytics = shallowRef<CoachMatchAnalytics | null>(null)
-const pending = ref(false)
-const error = ref<string | null>(null)
-const replacement = shallowRef<{ rosterEntryId: string; playerName: string; trackId: number } | null>(null)
-const { enabled: replacementWarningEnabled } = useIdentityReplacementWarning()
-
-const track = computed(() => analytics.value?.tracks.find(item => item.analysis_run_id === props.analysisRunId && item.track_id === props.trackId) ?? null)
-const runTracks = computed(() => analytics.value?.tracks.filter(item => item.analysis_run_id === props.analysisRunId) ?? [])
-const teamId = computed(() => track.value?.court_side === 'left'
-  ? props.leftTeamId
-  : track.value?.court_side === 'right'
-    ? props.rightTeamId
-    : null)
-const activeTrackIds = computed(() => new Set(runTracks.value.filter(item => props.currentFrame >= Number(item.first_frame_index) && props.currentFrame <= Number(item.last_frame_index)).map(item => item.track_id)))
-const assignedTrackByRoster = computed(() => new Map(runTracks.value
-  .filter(item => item.track_id !== props.trackId && activeTrackIds.value.has(item.track_id) && item.roster_entry_id)
-  .map(item => [item.roster_entry_id!, item.track_id])))
-const players = computed(() => analytics.value?.players.filter(player => !teamId.value || player.team_id === teamId.value) ?? [])
-const team = computed(() => analytics.value?.teams.find(item => item.id === teamId.value) ?? null)
-const previousTrackByRoster = computed(() => {
-  const result = new Map<string, number>()
-  const candidates = runTracks.value
-    .filter(item => item.track_id !== props.trackId && !activeTrackIds.value.has(item.track_id) && item.roster_entry_id)
-    .sort((left, right) => Number(right.last_frame_index) - Number(left.last_frame_index))
-  for (const item of candidates) if (!result.has(item.roster_entry_id!)) result.set(item.roster_entry_id!, item.track_id)
-  return result
+const assignment = useIdentityAssignmentController({
+  matchId: () => props.matchId,
+  analysisRunId: () => props.analysisRunId,
+  currentFrame: () => props.currentFrame,
+  enabled: () => props.open && props.trackId !== null,
+  refreshKey: () => props.trackId,
+  onChanged: () => emit('changed'),
+  onCommitted: () => emit('close'),
+})
+const presentation = computed(() => {
+  const track = props.trackId === null ? null : assignment.view.model.track.byId(props.trackId)
+  const teamId = track?.court_side === 'left'
+    ? props.leftTeamId
+    : track?.court_side === 'right'
+      ? props.rightTeamId
+      : null
+  return {
+    track,
+    team: assignment.state.analytics?.teams.find(item => item.id === teamId) ?? null,
+    players: assignment.view.model.players.forTeam(teamId),
+    status: track ? assignment.view.model.track.status(track) : { label: '無辨識資料', tone: 'muted' as const },
+    gidLabel: track ? assignment.view.model.track.gidLabel(track) : null,
+    options: props.trackId === null ? [] : assignment.view.model.options.forTrack({ teamId, trackId: props.trackId }),
+    previewSide: import.meta.client && props.x < window.innerWidth / 2 ? 'right' as const : 'left' as const,
+  }
 })
 
-async function refresh() {
-  if (!props.open || !props.analysisRunId || props.trackId === null) return
-  pending.value = true
-  error.value = null
-  try { analytics.value = await client.analytics(props.matchId) }
-  catch (cause) { error.value = cause instanceof Error ? cause.message : '無法載入球員名單' }
-  finally { pending.value = false }
+function handleOpenChange(open: boolean) {
+  if (!open) emit('close')
 }
-
-async function commitAssignment(rosterEntryId: string) {
-  if (!props.analysisRunId || props.trackId === null) return
-  pending.value = true
-  try {
-    if (rosterEntryId) await client.assignTrackIdentity({ analysisRunId: props.analysisRunId, trackId: props.trackId, rosterEntryId })
-    else await client.clearTrackIdentity({ analysisRunId: props.analysisRunId, trackId: props.trackId })
-    emit('changed')
-    emit('close')
-  }
-  catch (cause) { error.value = cause instanceof Error ? cause.message : '指派失敗' }
-  finally { pending.value = false }
-}
-
-function assign(rosterEntryId: string) {
-  const assignedTrack = assignedTrackByRoster.value.get(rosterEntryId)
-  const player = players.value.find(item => item.roster_entry_id === rosterEntryId)
-  if (rosterEntryId && assignedTrack !== undefined && replacementWarningEnabled.value && player) {
-    replacement.value = { rosterEntryId, playerName: player.name, trackId: assignedTrack }
-    return
-  }
-  void commitAssignment(rosterEntryId)
-}
-
-function confirmReplacement() {
-  const current = replacement.value
-  replacement.value = null
-  if (current) void commitAssignment(current.rosterEntryId)
-}
-
-watch(() => [props.open, props.analysisRunId, props.trackId], refresh, { immediate: true })
 </script>
 
 <template>
-  <div v-if="open && trackId !== null" class="track-popover" :class="track?.court_side" :style="{ left: `${x}px`, top: `${y}px` }" role="dialog" aria-label="快速指派球員" @click.stop>
-    <header><span><UserRoundCog :size="15" /><b>{{ team?.shortName || team?.name || '兩隊' }}</b> · T{{ String(trackId).padStart(2, '0') }}<small>手動 ReID</small></span><button type="button" aria-label="關閉" @click="emit('close')"><X :size="14" /></button></header>
-    <div v-if="pending && !analytics" class="loading"><LoaderCircle class="spin" :size="16" />載入中</div>
+  <UiPopover
+    :open="open && trackId !== null"
+    side="right"
+    align="start"
+    :side-offset="12"
+    :collision-padding="12"
+    sticky="always"
+    :content-class="`track-popover ${presentation.track?.court_side ?? ''}`"
+    aria-label="快速指派球員"
+    @update:open="handleOpenChange"
+  >
+    <template #anchor><span class="track-popover-anchor" :style="{ left: `${x}px`, top: `${y}px` }" /></template>
+    <header><span><UserRoundCog :size="15" /><b>{{ presentation.team?.shortName || presentation.team?.name || '兩隊' }}</b> · T{{ String(trackId).padStart(2, '0') }}<small>球員辨識</small></span><button type="button" aria-label="關閉" @click="emit('close')"><X :size="14" /></button></header>
+    <div v-if="assignment.state.loading && !assignment.state.analytics" class="loading"><LoaderCircle class="spin" :size="16" />載入中</div>
     <template v-else>
-      <div v-if="replacement" class="replacement-warning" role="alertdialog" aria-label="確認取代球員指派">
-        <strong>{{ replacement.playerName }} 已由 T{{ String(replacement.trackId).padStart(2, '0') }} 使用</strong>
-        <p>繼續後會把球員改指派到目前的 T{{ String(trackId).padStart(2, '0') }}。</p>
-        <label><input v-model="replacementWarningEnabled" type="checkbox">下次仍顯示取代提示</label>
-        <div><button type="button" @click="replacement = null">取消</button><button type="button" class="replace" @click="confirmReplacement">取代指派</button></div>
+      <div class="identity-summary" :data-tone="presentation.status.tone"><ShieldCheck v-if="['manual', 'propagated'].includes(presentation.status.tone)" :size="13" /><CircleHelp v-else :size="13" /><span><b>{{ presentation.status.label }}</b><small>{{ presentation.gidLabel || '尚未建立跨片段身分' }}<template v-if="presentation.track?.identity_confidence != null"> · {{ Math.round(presentation.track.identity_confidence * 100) }}%</template></small></span></div>
+      <div v-if="presentation.players.length && !assignment.state.dialogs.correction" class="player-picker"><span>選擇球員</span><UiPlayerCombobox :model-value="presentation.track?.roster_entry_id ?? ''" :options="presentation.options" :disabled="assignment.view.busy" :preview-side="presentation.previewSide" :aria-label="`指派 T${trackId} 的球員`" @update:model-value="assignment.actions.requestAssignment({ trackId: trackId!, rosterEntryId: $event })">
+        <template #preview="{ option }"><PlayerIdentityPreview v-if="assignment.view.model.players.byRosterEntry(option.value)" :match-id="matchId" :roster-entry-id="option.value" :player-name="assignment.view.model.players.byRosterEntry(option.value)!.name" :jersey-number="assignment.view.model.players.byRosterEntry(option.value)!.jersey_number" :tracks="assignment.state.analytics?.tracks ?? []" :analysis-run-id="analysisRunId" :track-id="trackId" /></template>
+      </UiPlayerCombobox></div>
+      <div v-if="assignment.state.dialogs.correction" class="correction-choice" role="dialog" aria-label="選擇球員修正方式">
+        <strong>要如何套用「{{ assignment.state.dialogs.correction.playerName }}」？</strong>
+        <p>選擇會影響後續片段是否沿用這次修正。</p>
+        <button type="button" @click="assignment.actions.applyCorrection('from_here')"><b>從這段起改正球員</b><small>適合先前綁錯姓名；較早片段不變</small></button>
+        <button type="button" @click="assignment.actions.applyCorrection('split_identity')"><b>這其實是不同的人</b><small>適合替補或辨識混人；拆開後續資料</small></button>
+        <button type="button" @click="assignment.actions.applyCorrection('clip_only')"><b>只修正這個片段</b><small>不影響之後的自動辨識</small></button>
+        <button type="button" class="cancel" @click="assignment.actions.closeCorrection">取消</button>
       </div>
-      <button type="button" class="player-option" :class="{ selected: !track?.roster_entry_id }" :disabled="pending" @click="assign('')"><span>清除球員關聯</span><Check v-if="!track?.roster_entry_id" :size="13" /></button>
-      <UiScrollArea class="player-scroll"><div>
-        <button v-for="player in players" :key="player.roster_entry_id" type="button" class="player-option" :class="{ selected: track?.roster_entry_id === player.roster_entry_id, occupied: assignedTrackByRoster.has(player.roster_entry_id) }" :disabled="pending" @click="assign(player.roster_entry_id)"><span><b>#{{ player.jersey_number }}</b><span class="player-name">{{ player.name }}<small v-if="assignedTrackByRoster.has(player.roster_entry_id)">目前由 T{{ String(assignedTrackByRoster.get(player.roster_entry_id)).padStart(2, '0') }} 使用，可取代</small><small v-else-if="previousTrackByRoster.has(player.roster_entry_id)">接續 T{{ String(previousTrackByRoster.get(player.roster_entry_id)).padStart(2, '0') }}</small><small v-else>目前未追蹤</small></span></span><Check v-if="track?.roster_entry_id === player.roster_entry_id" :size="13" /></button>
-      </div></UiScrollArea>
-      <p v-if="!players.length" class="empty">目前沒有可指派的球員</p>
-      <label class="warning-preference"><input v-model="replacementWarningEnabled" type="checkbox">球員已被使用時顯示取代提示</label>
-      <p v-if="error" class="error">{{ error }}</p>
+      <p v-if="!presentation.players.length" class="empty">目前沒有可指派的球員</p>
+      <label class="warning-preference"><span>球員已被使用時顯示取代提示</span><UiSwitch v-model="assignment.preferences.replacementWarningEnabled" /></label>
+      <p v-if="assignment.state.error" class="error">{{ assignment.state.error }}</p>
     </template>
-  </div>
+  </UiPopover>
+  <IdentityReplacementDialog v-if="assignment.state.dialogs.replacement && trackId !== null" :open="true" :player-name="assignment.state.dialogs.replacement.playerName" :occupied-track-id="assignment.state.dialogs.replacement.occupiedTrackId" :target-track-id="trackId" :warning-enabled="assignment.preferences.replacementWarningEnabled" @update:warning-enabled="assignment.preferences.replacementWarningEnabled = $event" @close="assignment.actions.closeReplacement" @confirm="assignment.actions.confirmReplacement" />
 </template>
 
-<style scoped>
-.track-popover{--team:#91a0b2;position:absolute;z-index:30;width:272px;max-height:390px;display:grid;grid-template-rows:auto auto minmax(0,1fr) auto;overflow:hidden;transform:translate(-50%,10px);border:1px solid color-mix(in srgb,var(--team) 28%,#303840);border-radius:10px;background:#11161be8;color:#edf1f4;box-shadow:0 18px 42px #000b;backdrop-filter:blur(16px) saturate(135%)}.track-popover.left{--team:#22d3ee}.track-popover.right{--team:#fb7185}.track-popover header{height:38px;display:flex;align-items:center;justify-content:space-between;padding:0 7px 0 11px;border-bottom:1px solid #ffffff14;box-shadow:inset 3px 0 var(--team)}.track-popover header span{display:flex;align-items:center;gap:6px;font-size:.65rem;font-weight:700}.track-popover header b{color:var(--team);font-weight:850}.track-popover header small{padding:2px 5px;border-radius:4px;background:#ffffff0d;color:#98a3ad;font-size:.48rem}.track-popover header button{width:27px;min-height:27px!important;display:grid;place-items:center;padding:0!important;border:0!important;background:transparent!important}.player-scroll{max-height:240px}.player-option{width:100%;min-height:42px!important;display:flex;align-items:center;justify-content:space-between;padding:0 10px!important;border:0!important;border-bottom:1px solid #ffffff0c!important;border-radius:0!important;background:transparent!important;color:#bac2ca!important;font-size:.62rem}.player-option:hover,.player-option.selected{background:color-mix(in srgb,var(--team) 9%,#1b2228)!important;color:#fff!important}.player-option.occupied{color:#e5c98d!important}.player-option>span{display:flex;align-items:center;gap:8px;text-align:left}.player-option b{min-width:28px;color:var(--team)}.player-name{display:grid!important;gap:1px!important}.player-name small{color:#737f8b;font-size:.52rem;font-weight:500}.replacement-warning{display:grid;gap:7px;padding:10px;border-bottom:1px solid #70572f;background:#2b2418}.replacement-warning strong{font-size:.63rem}.replacement-warning p{margin:0;color:#c8b998;font-size:.55rem;line-height:1.45}.replacement-warning label,.warning-preference{display:flex;align-items:center;gap:6px;color:#aeb7bf;font-size:.53rem}.replacement-warning>div{display:grid;grid-template-columns:1fr 1fr;gap:6px}.replacement-warning button{min-height:29px;border:1px solid #555b62;border-radius:6px;background:#20262c}.replacement-warning button.replace{border-color:#81683b;color:#f2d395}.warning-preference{padding:7px 10px;border-top:1px solid #ffffff0c}.loading,.empty{min-height:56px;display:flex;align-items:center;justify-content:center;gap:7px;margin:0;color:#7f8994;font-size:.61rem}.error{margin:6px;padding:6px;border-radius:5px;background:#391d20;color:#ffb4b9;font-size:.58rem}.spin{animation:spin .8s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}@media(prefers-reduced-motion:reduce){.spin{animation:none}}
+<style>
+.track-popover-anchor{position:fixed;width:2px;height:2px;pointer-events:none}.ui-popover.track-popover{--team:#91a0b2;z-index:1250;width:min(304px,calc(100vw - 24px));max-height:min(470px,calc(100dvh - 24px));display:grid;grid-template-rows:auto auto minmax(0,1fr) auto;overflow:hidden;padding:0;border-color:color-mix(in srgb,var(--team) 30%,#3f3f46);border-radius:12px;background:#11161bf2;color:#edf1f4;box-shadow:0 20px 54px #000c;backdrop-filter:blur(18px) saturate(140%)}.track-popover.left{--team:#22d3ee}.track-popover.right{--team:#fb7185}.track-popover header{height:42px;display:flex;align-items:center;justify-content:space-between;padding:0 8px 0 12px;border-bottom:1px solid #ffffff14;box-shadow:inset 3px 0 var(--team)}.track-popover header span{display:flex;align-items:center;gap:6px;font-size:.67rem;font-weight:700}.track-popover header b{color:var(--team);font-weight:850}.track-popover header small{padding:2px 5px;border-radius:4px;background:#ffffff0d;color:#98a3ad;font-size:.49rem}.track-popover header button{width:29px;min-height:29px!important;display:grid;place-items:center;padding:0!important;border:0!important;background:transparent!important}.track-popover .ui-popover__arrow{fill:#11161b}.identity-summary{display:flex;align-items:center;gap:7px;padding:8px 11px;border-bottom:1px solid #ffffff0c;color:#aab4bd;background:#171d22}.identity-summary[data-tone="manual"],.identity-summary[data-tone="propagated"]{color:#8cddb1}.identity-summary[data-tone="required"]{color:#f4c881}.identity-summary span{display:grid;gap:1px}.identity-summary b{font-size:.61rem}.identity-summary small{color:#aab3bb;font-size:.52rem}.player-picker{display:grid;gap:6px;padding:11px}.player-picker>span{color:#aab3bb;font-size:.56rem;font-weight:700}.warning-preference{min-height:40px;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:7px 11px;border-top:1px solid #ffffff0c;color:#aeb7bf;font-size:.55rem}.loading,.empty{min-height:72px;display:flex;align-items:center;justify-content:center;gap:7px;margin:0;color:#a1a1aa;font-size:.62rem}.error{margin:6px 10px 10px;padding:7px;border-radius:6px;background:#391d20;color:#ffb4b9;font-size:.58rem}.correction-choice{display:grid;gap:6px;padding:11px;background:#171c20}.correction-choice strong{font-size:.66rem}.correction-choice p{margin:0 0 2px;color:#aeb7bf;font-size:.56rem;line-height:1.45}.correction-choice button{min-height:42px!important;display:grid!important;justify-items:start;padding:7px 9px!important;border:1px solid #3d4852!important;border-radius:7px!important;background:#20272d!important;text-align:left}.correction-choice button:hover{border-color:#60707d!important;background:#283139!important}.correction-choice button:focus-visible{outline:2px solid #9fc7eb;outline-offset:1px}.correction-choice button b{color:#eef2f5;font-size:.61rem}.correction-choice button small{color:#a6b0b8;font-size:.52rem}.correction-choice button.cancel{min-height:30px!important;display:block!important;background:transparent!important;color:#b9c1c8!important;text-align:center}.spin{animation:spin .8s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}@media(prefers-reduced-motion:reduce){.spin{animation:none}}
 </style>

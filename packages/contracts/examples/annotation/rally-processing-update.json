@@ -12,6 +12,6 @@
   "stage": "hit_association",
   "updated_at": "2026-08-09T12:00:00.000Z",
   "analysis_id": null,
-  "overlay_version": null,
+  "analysis_data_version": null,
   "error": null
 }

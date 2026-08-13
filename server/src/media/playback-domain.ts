@@ -76,7 +76,7 @@ export interface PlaybackManifestSegment {
   id: string
   durationUs: bigint
   discontinuity: number
-  initAssetId: string
+  initFingerprint: string
   sequenceNumber: bigint
 }
 
@@ -468,7 +468,7 @@ export function formatManifest(
     `#EXT-X-MEDIA-SEQUENCE:${segments[0]!.sequenceNumber}`,
     `#EXT-X-DISCONTINUITY-SEQUENCE:${segments[0]!.discontinuity}`,
   ]
-  let previousInitAssetId: string | null = null
+  let previousInitFingerprint: string | null = null
   let previousDiscontinuity: number | null = null
   for (const segment of segments) {
     if (
@@ -482,20 +482,24 @@ export function formatManifest(
     ) {
       throw new MediaHttpError(409, 'MEDIA_NOT_READY', 'Playback discontinuity sequence is invalid')
     }
-    if (!UUID.test(segment.initAssetId)) {
+    if (!validSha256(segment.initFingerprint)) {
       throw new MediaHttpError(409, 'MEDIA_NOT_READY', 'Initialization media is unavailable')
     }
-    if (
-      previousDiscontinuity !== null
+    const startsDiscontinuity = previousDiscontinuity !== null
       && segment.discontinuity !== previousDiscontinuity
+    if (
+      startsDiscontinuity
     ) {
       lines.push('#EXT-X-DISCONTINUITY')
     }
-    if (segment.initAssetId !== previousInitAssetId) {
+    // EXT-X-MAP remains in effect until another EXT-X-MAP or the end of the
+    // playlist, including across EXT-X-DISCONTINUITY. Re-emit it only when
+    // the initialization bytes actually change.
+    if (segment.initFingerprint !== previousInitFingerprint) {
       lines.push(
         `#EXT-X-MAP:URI="${base}/${playbackResourceToken('init', segment.id)}"`,
       )
-      previousInitAssetId = segment.initAssetId
+      previousInitFingerprint = segment.initFingerprint
     }
     lines.push(
       `#EXTINF:${formatDurationUs(segment.durationUs)},`,

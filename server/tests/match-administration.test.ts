@@ -13,14 +13,24 @@ const operator = { id: '71000000-0000-4000-8000-000000000003', role: UserRole.OP
 function deletionTransaction() {
   const remove = () => vi.fn().mockResolvedValue({ count: 1 })
   const tx = {
+    aiJob: { deleteMany: remove(), findMany: vi.fn().mockResolvedValue([]) },
+    analysisRun: { deleteMany: remove(), findMany: vi.fn().mockResolvedValue([]) },
+    annotationCommandReceipt: { deleteMany: remove() },
+    annotationOperation: { deleteMany: remove() },
     captureEpoch: { deleteMany: remove() },
     captureSession: { deleteMany: remove() },
+    clipJob: { deleteMany: remove(), findMany: vi.fn().mockResolvedValue([]) },
     dvrProgram: { deleteMany: remove() },
     match: { delete: vi.fn().mockResolvedValue({ id: matchId }) },
     mediaAsset: { deleteMany: remove() },
     outboxEvent: { deleteMany: remove() },
     playbackWindow: { deleteMany: remove() },
-    rally: { findMany: vi.fn().mockResolvedValue([]) },
+    pointAward: { deleteMany: remove() },
+    rally: { deleteMany: remove(), findMany: vi.fn().mockResolvedValue([]) },
+    rallySubmission: { deleteMany: remove(), findMany: vi.fn().mockResolvedValue([]), updateMany: remove() },
+    rallySubmissionBoundary: { deleteMany: remove() },
+    rallySubmissionKeyPoint: { deleteMany: remove(), findMany: vi.fn().mockResolvedValue([]) },
+    scoreLedgerEntry: { deleteMany: remove() },
   }
   return tx
 }
@@ -105,6 +115,35 @@ describe('match administration', () => {
 
     expect(database.$transaction).not.toHaveBeenCalled()
     expect(tx.match.delete).not.toHaveBeenCalled()
+  })
+
+  it('removes immutable boundary copies before deleting v3 submissions', async () => {
+    const rallyId = '71000000-0000-4000-8000-000000000010'
+    const submissionId = '71000000-0000-4000-8000-000000000011'
+    const tx = deletionTransaction()
+    tx.rally.findMany.mockResolvedValue([{ id: rallyId }])
+    tx.rallySubmission.findMany.mockResolvedValue([{ id: submissionId }])
+    const database = {
+      $transaction: vi.fn(async (work: (client: typeof tx) => Promise<void>) => work(tx)),
+      match: { findFirst: vi.fn().mockResolvedValue({
+        captureSessions: [], id: matchId, matchTeams: [], rosterEntries: [],
+      }) },
+      mediaAsset: { findMany: vi.fn().mockResolvedValue([]) },
+      mediaSourceWork: { count: vi.fn().mockResolvedValue(0) },
+    } as unknown as PrismaClient
+
+    await finalizeMatchDeletion(matchId, {
+      database,
+      importRoot: '/imports',
+      recordingRoot: '/recordings',
+      removePath: vi.fn().mockResolvedValue(undefined),
+    })
+
+    expect(tx.rallySubmissionBoundary.deleteMany).toHaveBeenCalledWith({
+      where: { submissionId: { in: [submissionId] } },
+    })
+    expect(tx.rallySubmissionBoundary.deleteMany.mock.invocationCallOrder[0])
+      .toBeLessThan(tx.rallySubmission.deleteMany.mock.invocationCallOrder[0]!)
   })
 
   it('cleans large object sets with bounded concurrency before deleting database rows', async () => {

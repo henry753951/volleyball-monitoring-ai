@@ -60,7 +60,7 @@ const overlayLayers = reactive({
   court: true,
   nextHit: true,
 })
-const overlay = useOverlayChunks(
+const overlay = useAnalysisFrameChunks(
   computed(() => replay.value?.analysis?.id ?? null),
   currentFrame,
   computed(() => Boolean(replay.value?.analysis)),

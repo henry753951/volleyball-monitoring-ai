@@ -1,0 +1,42 @@
+{
+  "schema_version": "3.0.0",
+  "ai_job_id": "018f6d86-2d8c-7f10-9c1b-0f0c32aa6010",
+  "rally_submission_id": "018f6d86-2d8c-7f10-9c1b-0f0c32aa3110",
+  "rally_id": "018f6d86-2d8c-7f10-9c1b-0f0c32aa3010",
+  "match_id": "018f6d86-2d8c-7f10-9c1b-0f0c32aa1010",
+  "annotation_revision": "15",
+  "clip": {
+    "clip_asset_id": "018f6d86-2d8c-7f10-9c1b-0f0c32aa5010",
+    "download_url": "https://central.example/api/v1/ai/jobs/018f6d86-2d8c-7f10-9c1b-0f0c32aa6010/clip",
+    "sha256": "9a31d43d2c2aeb1a1a98beec4ff8bbd649f68f16eb7345a51fd61a3b302543aa",
+    "byte_length": "83124491",
+    "content_type": "video/mp4",
+    "video": {
+      "width": 1920,
+      "height": 1080,
+      "fps": { "num": 60000, "den": 1001 },
+      "time_base": { "num": 1, "den": 60000 },
+      "total_frames": "1079",
+      "duration_us": "18001333",
+      "has_audio": true
+    },
+    "download_url_expires_at": "2026-08-07T06:00:00Z"
+  },
+  "key_points": [],
+  "boundaries": [
+    { "kind": "start", "clip_pts": "180180", "clip_time_us": "3003000", "clip_frame_index": "180" },
+    { "kind": "end", "clip_pts": "720720", "clip_time_us": "12012000", "clip_frame_index": "720" }
+  ],
+  "analysis_plan": {
+    "mode": "full",
+    "modules": { "court": "run", "tracking": "run", "reid": "run", "contacts": "run" },
+    "source_analysis_data": null,
+    "preserve_manual_corrections": true
+  },
+  "outcome": { "score_resolution": "pending", "scoring_court_side": null },
+  "callback": {
+    "url": "https://central.example/api/v1/ai/callback/018f6d86-2d8c-7f10-9c1b-0f0c32aa6010",
+    "token": "example-job-capability-token-0010",
+    "expires_at": "2026-08-07T06:00:00Z"
+  }
+}

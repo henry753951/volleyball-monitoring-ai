@@ -28,7 +28,7 @@
 - Browser時間只是一個PlaybackCursor observation；authoritative PTS/frame由後端解析。
 - Server保存整場DVR；所有browser surface只lazy-load bounded playback window，live ingest持續進行。Annotation editor以PC鍵盤／滑鼠高資訊密度工作流驗收；只有coach/viewer顯示面板要求installable iPad PWA。
 - `court_pos`由外部AI依固定canonical court model轉換；中央與前端不得投影或clamp。
-- GraphQL管structured domain；REST管media/binary/callback；專用WS管annotation；FlatBuffers管逐幀overlay。
+- GraphQL管structured domain與人工修正；REST管media/binary/callback；專用WS管annotation；AnalysisData VAD1保存完整AI輸出，後端導出的VFC1 frame chunks供前端bounded lazy load。
 - Action labels/confidence/group phase尚未確認，不可寫死。
 
 先執行scaffold/contract稽核，提出Phase 0三個精確任務與exit criteria，再委派。每個Phase完成真正vertical slice、實際build/test、更新`docs/progress.md`，不要把placeholder宣稱成完成。

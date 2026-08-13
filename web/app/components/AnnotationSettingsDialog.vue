@@ -132,7 +132,7 @@ function close() {
               </UiButton>
               <UiButton variant="ghost" class="settings-menu__item" @click="changePage('clip')">
                 <span class="settings-menu__icon"><Scissors :size="18" /></span>
-                <span><strong>片段範圍</strong><small>發球前與結束後的延展秒數</small></span>
+                <span><strong>片段範圍</strong><small>Z 標記範圍之外要額外保留的秒數</small></span>
                 <ChevronRight :size="17" />
               </UiButton>
               <UiButton variant="ghost" class="settings-menu__item" @click="changePage('hotkeys')">
@@ -166,14 +166,14 @@ function close() {
             <div v-else-if="page === 'clip'" class="settings-child">
               <section class="clip-settings">
                 <div class="clip-setting-row">
-                  <label for="clip-pre-roll"><strong>發球前</strong><small>草稿片段向前保留</small></label>
+                  <label for="clip-pre-roll"><strong>開始前延伸</strong><small>第一次按 Z 的片段開始之前</small></label>
                   <span><input id="clip-pre-roll" v-model.number="clipPreRollSeconds" type="number" min="0" max="30" step="1"><i>秒</i></span>
                 </div>
                 <div class="clip-setting-row">
-                  <label for="clip-post-roll"><strong>結束後</strong><small>終止擊球點後保留</small></label>
+                  <label for="clip-post-roll"><strong>結束後延伸</strong><small>第二次按 Z 的片段結束之後</small></label>
                   <span><input id="clip-post-roll" v-model.number="clipPostRollSeconds" type="number" min="0" max="30" step="1"><i>秒</i></span>
                 </div>
-            <p>已送出的片段保留送出當下的範圍；建立並送出修正版草稿時才套用目前設定。</p>
+                <p>預設為 0 秒，不改動你用 Z 標記的片段範圍。設定只套用到之後送出的新片段或修正版；已完成片段維持原範圍。</p>
                 <p v-if="clipValidationError || clipPolicyError" class="annotation-settings__error" role="alert">{{ clipValidationError || clipPolicyError }}</p>
                 <UiButton :disabled="clipPolicySaving" @click="saveClipPolicy">{{ clipPolicySaving ? '儲存中…' : '套用到本場' }}</UiButton>
               </section>

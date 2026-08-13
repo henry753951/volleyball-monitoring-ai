@@ -1,12 +1,12 @@
-import { OVERLAY_BALL_FLAG, OVERLAY_PLAYER_FLAG, type BrowserOverlayChunk } from '@volleyball-monitoring/contracts'
+import { ANALYSIS_BALL_FLAG, ANALYSIS_PLAYER_FLAG, type AnalysisFrameChunk } from '@volleyball-monitoring/contracts'
 import { describe, expect, it } from 'vitest'
 import type { ReplayContactEvent } from '~/lib/coachDomain'
 import { hitTestOverlayTrack, overlayCanvasPointToVideo, replayEventFrame, resolveEffectiveContactActor, resolveEffectiveHitPosition, resolveEventActorFromResult, resolveVideoContentRect, trackColor } from './volleyballOverlayRenderer'
 
-const chunk: BrowserOverlayChunk = {
+const chunk: AnalysisFrameChunk = {
   schemaVersion: 10_000,
   analysisId: 'analysis',
-  overlayVersion: '1',
+  analysisDataVersion: '1',
   chunkIndex: 0,
   startFrameIndex: 10n,
   frameCount: 1,
@@ -15,7 +15,7 @@ const chunk: BrowserOverlayChunk = {
   frameBboxes: [{ x1: 16_384, y1: 16_384, x2: 32_768, y2: 49_151 }],
   frameFootPositions: [{ x: 24_576, y: 49_151 }],
   courtPositions: [{ x: .25, y: .75 }],
-  playerFlags: [OVERLAY_PLAYER_FLAG.frameBBox | OVERLAY_PLAYER_FLAG.frameFootPosition | OVERLAY_PLAYER_FLAG.courtPosition],
+  playerFlags: [ANALYSIS_PLAYER_FLAG.frameBBox | ANALYSIS_PLAYER_FLAG.frameFootPosition | ANALYSIS_PLAYER_FLAG.courtPosition],
   playerConfidences: [240],
   actionLabelIds: [0],
   actionConfidences: [230],
@@ -68,14 +68,14 @@ describe('volleyball overlay geometry', () => {
   })
 
   it('uses the last tracked ball when the contact frame is explicitly missing', () => {
-    const ballChunk: BrowserOverlayChunk = {
+    const ballChunk: AnalysisFrameChunk = {
       ...chunk,
       startFrameIndex: 10n,
       frameCount: 3,
       frameOffsets: [0, 0, 0, 0],
       trackIds: [], frameBboxes: [], frameFootPositions: [], courtPositions: [], playerFlags: [], playerConfidences: [], actionLabelIds: [], actionConfidences: [],
       ballFramePositions: [{ x: 32_768, y: 16_384 }, { x: 0, y: 0 }, { x: 0, y: 0 }],
-      ballFlags: [OVERLAY_BALL_FLAG.framePosition, 0, 0], ballConfidences: [240, 0, 0],
+      ballFlags: [ANALYSIS_BALL_FLAG.framePosition, 0, 0], ballConfidences: [240, 0, 0],
       courtKeypointFrameOffsets: [0, 0, 0, 0], courtKeypointIds: [], courtKeypointPositions: [], courtKeypointConfidences: [],
     }
     const position = resolveEffectiveHitPosition({ ballCorrections: { 12: { state: 'missing' } }, chunk: ballChunk, videoWidth: 1_000, videoHeight: 500 }, event)

@@ -75,7 +75,7 @@ if missing:
 
 required_tokens = [
     'scoreResolutionState SubmissionScoreResolution',
-    'jobSchemaVersion String @default("1.1.0")',
+    'jobSchemaVersion String @default("3.0.0")',
     'sourcePts BigInt',
     'captureTimeUs BigInt',
     'captureFrameIndex BigInt',
@@ -83,6 +83,8 @@ required_tokens = [
     'callbackId String @unique @db.Uuid',
     'serviceKeyPointId String? @unique @db.Uuid',
     'terminalKeyPointId String? @unique @db.Uuid',
+    'boundaries RallyBoundary[]',
+    'boundaries RallySubmissionBoundary[]',
     'producerName String',
     'producerBuildId String',
     'producerSdkVersion String?',
@@ -95,10 +97,9 @@ for token in required_tokens:
         raise AssertionError(f"missing required Prisma invariant: {token}")
 
 submission_score_values = set(re.findall(r"\b[A-Z][A-Z0-9_]*\b", enums.get("SubmissionScoreResolution", "")))
-if submission_score_values != {"RESOLVED", "UNKNOWN"}:
+if submission_score_values != {"PENDING", "RESOLVED", "UNKNOWN"}:
     raise AssertionError(
-        "SubmissionScoreResolution must contain only RESOLVED and UNKNOWN; "
-        "PENDING is draft-only"
+        "SubmissionScoreResolution must preserve PENDING, RESOLVED and UNKNOWN"
     )
 
 for durable_job_model in ("ClipJob", "AiJob"):

@@ -82,4 +82,31 @@ describe('annotation realtime soft-lock client', () => {
     client.disconnect()
     expect(latency.at(-1)).toBeNull()
   })
+
+  it('restarts the socket immediately and restores the current edit intent', () => {
+    const states: string[] = []
+    const client = createAnnotationRealtimeClient(roomId, { onState: state => states.push(state) })
+    client.connect()
+    const first = FakeWebSocket.instances[0]!
+    first.receive({
+      schema_version: '2.0.0', type: 'connection_ready', room_id: roomId, server_sequence: '0',
+      authenticated_user_id: 'user-1', device_session_id: 'device-1',
+    })
+    client.setEditingKeyPoint('key-point-2')
+
+    client.reconnect()
+
+    expect(first.readyState).toBe(3)
+    expect(client.ready()).toBe(false)
+    expect(FakeWebSocket.instances).toHaveLength(2)
+    const second = FakeWebSocket.instances[1]!
+    second.receive({
+      schema_version: '2.0.0', type: 'connection_ready', room_id: roomId, server_sequence: '1',
+      authenticated_user_id: 'user-1', device_session_id: 'device-2',
+    })
+    expect(client.ready()).toBe(true)
+    expect(parseAnnotationSoftLockIntent(JSON.parse(second.sent[0]!)).editing_key_point_id).toBe('key-point-2')
+    expect(states).toEqual(['connecting', 'ready', 'reconnecting', 'ready'])
+    client.disconnect()
+  })
 })

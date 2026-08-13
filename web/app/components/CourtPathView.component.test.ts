@@ -1,4 +1,4 @@
-import { OVERLAY_PLAYER_FLAG, type BrowserOverlayChunk } from '@volleyball-monitoring/contracts'
+import { ANALYSIS_PLAYER_FLAG, type AnalysisFrameChunk } from '@volleyball-monitoring/contracts'
 import { mount } from '@vue/test-utils'
 import { describe, expect, it } from 'vitest'
 import CourtPathView from './CourtPathView.vue'
@@ -33,10 +33,10 @@ const paths: ReplayPath[] = [
   },
 ]
 
-const chunk: BrowserOverlayChunk = {
+const chunk: AnalysisFrameChunk = {
   schemaVersion: 1,
   analysisId: 'analysis',
-  overlayVersion: '1',
+  analysisDataVersion: '1',
   chunkIndex: 0,
   startFrameIndex: 301n,
   frameCount: 1,
@@ -45,7 +45,7 @@ const chunk: BrowserOverlayChunk = {
   frameBboxes: [{ x1: 0, y1: 0, x2: 0, y2: 0 }, { x1: 0, y1: 0, x2: 0, y2: 0 }],
   frameFootPositions: [{ x: 0, y: 0 }, { x: 0, y: 0 }],
   courtPositions: [{ x: -.06, y: .24 }, { x: .4, y: .8 }],
-  playerFlags: [OVERLAY_PLAYER_FLAG.courtPosition, OVERLAY_PLAYER_FLAG.courtPosition],
+  playerFlags: [ANALYSIS_PLAYER_FLAG.courtPosition, ANALYSIS_PLAYER_FLAG.courtPosition],
   playerConfidences: [-1, -1],
   actionLabelIds: [65535, 65535],
   actionConfidences: [-1, -1],

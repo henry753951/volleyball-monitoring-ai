@@ -16,7 +16,7 @@ describe('draft annotation command availability', () => {
     expect(openDraftBlocksNewRally('SUBMITTED', 'active-submission')).toBe(false)
   })
 
-  it('allows X after the service point without using the rendered mask end as a boundary', () => {
+  it('allows X while a segment is open without using the rendered mask as a hard boundary', () => {
     expect(draftCommandAvailability({ ...openDraft, action: 'contact' })).toEqual({ enabled: true, reason: '' })
   })
 
@@ -32,17 +32,17 @@ describe('draft annotation command availability', () => {
     },
   )
 
-  it('blocks X before service and close actions without a confirmed target', () => {
+  it('allows X outside the visible segment and outcome selection without a confirmed contact', () => {
     expect(draftCommandAvailability({
       ...openDraft,
       action: 'contact',
       cursorCaptureTimeUs: '9000000',
-    }).enabled).toBe(false)
+    })).toEqual({ enabled: true, reason: '' })
     expect(draftCommandAvailability({
       ...openDraft,
       action: 'close_left',
       confirmedLastKeyPointId: null,
-    }).enabled).toBe(false)
+    })).toEqual({ enabled: true, reason: '' })
   })
 
   it('blocks contact edits but keeps outcome selection available after Z closes the rally', () => {

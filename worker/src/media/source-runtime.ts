@@ -251,7 +251,7 @@ export class MediaSourceRuntime {
         await recordMediaSourceClassification(this.options.database, work.captureSessionId, value)
         this.options.log?.(`media-source classified capture=${work.captureSessionId} kind=${value.sourceKind}`)
       },
-      resumed: segmentIndex => recordMediaSourceResume(this.options.database, work.id, segmentIndex),
+      resumed: (segmentIndex, captureTimeUs) => recordMediaSourceResume(this.options.database, work.id, segmentIndex, captureTimeUs),
     }
     try {
       const completion = await this.options.run(work, observer, active.controller.signal)

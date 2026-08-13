@@ -1,0 +1,86 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://volleyball-monitoring.local/contracts/ai/reid-feature-bank-v1.schema.json",
+  "title": "ReID Feature Bank Extension v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "scope", "embedding_model", "side_feature_banks"],
+  "properties": {
+    "schema_version": { "const": "1.0.0" },
+    "scope": { "const": "clip" },
+    "embedding_model": { "$ref": "#/$defs/embeddingModel" },
+    "side_feature_banks": {
+      "type": "array",
+      "minItems": 3,
+      "maxItems": 3,
+      "items": { "$ref": "#/$defs/sideBank" },
+      "allOf": [
+        { "contains": { "properties": { "court_side": { "const": "left" } }, "required": ["court_side"] }, "minContains": 1, "maxContains": 1 },
+        { "contains": { "properties": { "court_side": { "const": "right" } }, "required": ["court_side"] }, "minContains": 1, "maxContains": 1 },
+        { "contains": { "properties": { "court_side": { "const": "unknown" } }, "required": ["court_side"] }, "minContains": 1, "maxContains": 1 }
+      ]
+    }
+  },
+  "$defs": {
+    "uint64": { "type": "string", "pattern": "^(0|[1-9][0-9]*)$" },
+    "sha256": { "type": "string", "pattern": "^[A-Fa-f0-9]{64}$" },
+    "trackId": { "type": "integer", "minimum": 0, "maximum": 65534 },
+    "embeddingModel": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "checkpoint_sha256", "preprocess_version", "dimension", "distance"],
+      "properties": {
+        "name": { "const": "sports-osnet" },
+        "checkpoint_sha256": { "$ref": "#/$defs/sha256" },
+        "preprocess_version": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "dimension": { "const": 512 },
+        "distance": { "const": "cosine" }
+      }
+    },
+    "trackFeature": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "provisional_gid",
+        "track_id",
+        "first_frame_index",
+        "last_frame_index",
+        "sample_count",
+        "mean_quality",
+        "prototype",
+        "cannot_link_track_ids"
+      ],
+      "properties": {
+        "provisional_gid": { "type": "string", "pattern": "^clip:(left|right|unknown):[0-9]+$", "maxLength": 64 },
+        "track_id": { "$ref": "#/$defs/trackId" },
+        "first_frame_index": { "$ref": "#/$defs/uint64" },
+        "last_frame_index": { "$ref": "#/$defs/uint64" },
+        "sample_count": { "type": "integer", "minimum": 1 },
+        "mean_quality": { "type": "number", "minimum": 0, "maximum": 1 },
+        "prototype": {
+          "type": "array",
+          "minItems": 512,
+          "maxItems": 512,
+          "items": { "type": "number", "minimum": -1, "maximum": 1 }
+        },
+        "cannot_link_track_ids": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/trackId" }
+        }
+      }
+    },
+    "sideBank": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["court_side", "features"],
+      "properties": {
+        "court_side": { "enum": ["left", "right", "unknown"] },
+        "features": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/trackFeature" }
+        }
+      }
+    }
+  }
+}

@@ -371,7 +371,11 @@ function manifestEntries(window: VisibleWindowWithSegments) {
       // describes canonical clip/gap boundaries rather than transport PTS.
       discontinuity: segment.captureEpoch.sequenceIndex,
       id: segment.id,
-      initAssetId: segment.initAssetId,
+      // Capture workers may create a fresh MediaAsset row for every segment
+      // even when the fMP4 initialization bytes are identical. Use the
+      // content fingerprint for playlist identity so hls.js does not fetch
+      // the same init object before every media fragment.
+      initFingerprint: segment.initAsset.sha256,
       sequenceNumber: segment.sequenceNumber,
     }
   })

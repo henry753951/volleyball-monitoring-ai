@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { OVERLAY_PLAYER_FLAG, type BrowserOverlayChunk } from '@volleyball-monitoring/contracts'
+import { ANALYSIS_PLAYER_FLAG, type AnalysisFrameChunk } from '@volleyball-monitoring/contracts'
 import { computed } from 'vue'
 import type { ReplayContactEvent, ReplayPath } from '~/lib/coachDomain'
 import type { RosterPosition } from '~/lib/coreDomain'
@@ -24,7 +24,7 @@ const props = withDefaults(defineProps<{
   paths: ReplayPath[]
   events?: ReplayContactEvent[]
   tracks?: CourtTrack[]
-  chunk?: BrowserOverlayChunk | null
+  chunk?: AnalysisFrameChunk | null
   leftTeam?: string
   rightTeam?: string
   activeFrame?: number
@@ -154,7 +154,7 @@ const currentPlayers = computed(() => {
   const end = chunk.frameOffsets[localFrame + 1] ?? start
   const players = [] as Array<{ trackId: number; x: number; y: number; hitter: boolean }>
   for (let index = start; index < end; index += 1) {
-    if (!((chunk.playerFlags[index] ?? 0) & OVERLAY_PLAYER_FLAG.courtPosition)) continue
+    if (!((chunk.playerFlags[index] ?? 0) & ANALYSIS_PLAYER_FLAG.courtPosition)) continue
     const position = chunk.courtPositions[index]
     const trackId = chunk.trackIds[index]
     if (!position || trackId === undefined || !Number.isFinite(position.x) || !Number.isFinite(position.y)) continue

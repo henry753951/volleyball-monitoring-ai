@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/OWNER/volleyball-monitoring-ai/packages/contracts/ai/callback/1.0.0",
-  "title": "AI Callback Metadata 1.0.0",
+  "$id": "https://github.com/OWNER/volleyball-monitoring-ai/packages/contracts/ai/callback/2.0.0",
+  "title": "AI Callback Metadata 2.0.0",
   "oneOf": [
     {
       "type": "object",
@@ -14,7 +14,7 @@
       ],
       "properties": {
         "schema_version": {
-          "const": "1.0.0"
+          "const": "2.0.0"
         },
         "callback_id": {
           "type": "string",
@@ -59,7 +59,7 @@
       ],
       "properties": {
         "schema_version": {
-          "const": "1.0.0"
+          "const": "2.0.0"
         },
         "callback_id": {
           "type": "string",
@@ -109,14 +109,12 @@
         "callback_id",
         "ai_job_id",
         "kind",
-        "analysis_sha256",
-        "overlay_sha256",
-        "analysis_bytes",
-        "overlay_bytes"
+        "analysis_data_sha256",
+        "analysis_data_bytes"
       ],
       "properties": {
         "schema_version": {
-          "const": "1.0.0"
+          "const": "2.0.0"
         },
         "callback_id": {
           "type": "string",
@@ -127,19 +125,11 @@
           "minLength": 1,
           "maxLength": 128
         },
-        "analysis_sha256": {
+        "analysis_data_sha256": {
           "type": "string",
           "pattern": "^[A-Fa-f0-9]{64}$"
         },
-        "overlay_sha256": {
-          "type": "string",
-          "pattern": "^[A-Fa-f0-9]{64}$"
-        },
-        "analysis_bytes": {
-          "type": "string",
-          "pattern": "^[0-9]+$"
-        },
-        "overlay_bytes": {
+        "analysis_data_bytes": {
           "type": "string",
           "pattern": "^[0-9]+$"
         },

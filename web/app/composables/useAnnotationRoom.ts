@@ -33,8 +33,8 @@ const ACTIVE_SNAPSHOT_QUERY = `query ActiveAnnotationRally($roomId: String!) {
 const SNAPSHOT_QUERY = `query AnnotationRally($roomId: String!, $rallyId: ID!) {
   annotationRallySnapshot(roomId: $roomId, rallyId: $rallyId)
 }`
-const CREATE_CORRECTION_DRAFT = `mutation CreateCorrectionDraft($submissionId: ID!, $reverseCourtSides: Boolean) {
-  createCorrectionDraft(submissionId: $submissionId, reverseCourtSides: $reverseCourtSides) { id }
+const CREATE_CORRECTION_DRAFT = `mutation CreateCorrectionDraft($submissionId: ID!, $preserveAnalysisContacts: Boolean, $regenerateAnalysisContacts: Boolean, $reverseCourtSides: Boolean) {
+  createCorrectionDraft(submissionId: $submissionId, preserveAnalysisContacts: $preserveAnalysisContacts, regenerateAnalysisContacts: $regenerateAnalysisContacts, reverseCourtSides: $reverseCourtSides) { id }
 }`
 const CANCEL_CORRECTION_DRAFT = `mutation CancelCorrectionDraft($rallyId: ID!) {
   cancelCorrectionDraft(rallyId: $rallyId) { id }
@@ -142,7 +142,7 @@ export function useAnnotationRoom() {
   }
 
   async function refreshActive() {
-    if (!roomId.value) return
+    if (!roomId.value) return false
     try {
       const result = await transport.request<{ activeAnnotationRallySnapshot: unknown }>(ACTIVE_SNAPSHOT_QUERY, {
         roomId: roomId.value,
@@ -150,13 +150,39 @@ export function useAnnotationRoom() {
       const active = asSnapshot(result.activeAnnotationRallySnapshot)
       if (active) acceptSnapshot(active)
       else if (snapshot.value && state.value !== 'SUBMITTED') await fetchSnapshot(snapshot.value.rally_id)
+      error.value = null
+      return true
     }
     catch (cause) {
       if (typeof navigator !== 'undefined' && !navigator.onLine) {
         error.value = null
-        return
+        return false
       }
       error.value = cause instanceof Error ? cause.message : '無法同步標註狀態'
+      return false
+    }
+  }
+
+  async function resync(options: { discardConflicts?: boolean } = {}) {
+    if (!roomId.value || !realtime) throw new Error('標註工作區尚未就緒')
+    if (outboxNeedsConfirmation.value && !options.discardConflicts) {
+      throw new Error('有一筆本機操作已和伺服器狀態衝突，請確認後重新同步')
+    }
+    busy.value = true
+    error.value = null
+    try {
+      if (options.discardConflicts) replaceOutbox([])
+      realtime.reconnect()
+      const refreshed = await refreshActive()
+      if (!refreshed) throw new Error(error.value ?? '無法取得最新標註狀態')
+      if (realtime.ready()) await flushOutbox()
+    }
+    catch (cause) {
+      error.value = cause instanceof Error ? cause.message : '無法重新同步標註狀態'
+      throw cause
+    }
+    finally {
+      busy.value = false
     }
   }
 
@@ -256,30 +282,30 @@ export function useAnnotationRoom() {
       if (!cursor || cursor.cursor_status !== 'ready') throw new Error('伺服器尚未取得可解析的播放游標')
       if (current?.snapshot.annotation_status === 'open' && !current.snapshot.active_submission_id) {
         return parseAnnotationCommand({
-          schema_version: '2.0.0',
+          schema_version: '3.0.0',
           command_id: crypto.randomUUID(),
           room_id: roomId.value,
           base_revision: current.revision,
           rally_id: current.rally_id,
-          kind: 'CREATE_CONTACT_KEY_POINT',
-          payload: { playback_cursor: annotationCursor(cursor), terminal_outcome: 'unknown' },
+          kind: 'END_RALLY',
+          payload: { playback_cursor: annotationCursor(cursor) },
         })
       }
       return parseAnnotationCommand({
-        schema_version: '2.0.0',
+        schema_version: '3.0.0',
         command_id: crypto.randomUUID(),
         room_id: roomId.value,
         base_revision: '0',
         rally_id: crypto.randomUUID(),
-        kind: 'CREATE_SERVICE_KEY_POINT',
+        kind: 'START_RALLY',
         payload: { playback_cursor: annotationCursor(cursor) },
       })
     }
-    const pendingService = outbox.value.find(entry => entry.status === 'pending' && entry.command.kind === 'CREATE_SERVICE_KEY_POINT')?.command
+    const pendingService = outbox.value.find(entry => entry.status === 'pending' && ['START_RALLY', 'CREATE_SERVICE_KEY_POINT'].includes(entry.command.kind))?.command
     const rallyId = current?.rally_id ?? pendingService?.rally_id
     if (!rallyId) throw new Error('目前沒有可操作的 Rally')
     const base = {
-      schema_version: '2.0.0',
+      schema_version: '3.0.0',
       command_id: crypto.randomUUID(),
       room_id: roomId.value,
       base_revision: current?.revision ?? '0',
@@ -290,17 +316,14 @@ export function useAnnotationRoom() {
       return parseAnnotationCommand({ ...base, kind: 'CREATE_CONTACT_KEY_POINT', payload: { playback_cursor: annotationCursor(cursor) } })
     }
     if (action === 'submit') return parseAnnotationCommand({ ...base, kind: 'SUBMIT_RALLY', payload: {} })
-    const target = lastKeyPoint.value?.key_point_id
-      ?? [...outbox.value].reverse().find(entry => ['CREATE_SERVICE_KEY_POINT', 'CREATE_CONTACT_KEY_POINT'].includes(entry.command.kind))?.command.command_id
-    if (!target) throw new Error('沒有可排程的最後 key point')
     if (action === 'close_unknown') {
-      return parseAnnotationCommand({ ...base, kind: 'CLOSE_RALLY', payload: { target_key_point_id: target, score_resolution: 'unknown', scoring_court_side: null } })
+      return parseAnnotationCommand({ ...base, schema_version: '3.0.0', kind: 'SET_RALLY_OUTCOME', payload: { score_resolution: 'unknown', scoring_court_side: null } })
     }
     return parseAnnotationCommand({
       ...base,
-      kind: 'CLOSE_RALLY',
+      schema_version: '3.0.0',
+      kind: 'SET_RALLY_OUTCOME',
       payload: {
-        target_key_point_id: target,
         score_resolution: 'resolved',
         scoring_court_side: action === 'close_left' ? 'left' : 'right',
       },
@@ -313,7 +336,7 @@ export function useAnnotationRoom() {
   ): AnnotationCommand {
     if (!roomId.value || !snapshot.value) throw new Error('目前沒有可編輯的 Rally')
     const base = {
-      schema_version: '2.0.0',
+      schema_version: '3.0.0',
       command_id: crypto.randomUUID(),
       room_id: roomId.value,
       base_revision: snapshot.value.revision,
@@ -372,7 +395,7 @@ export function useAnnotationRoom() {
     }
   }
 
-  async function createCorrection(targetSubmissionId?: string, options: { reverseCourtSides?: boolean } = {}) {
+  async function createCorrection(targetSubmissionId?: string, options: { preserveAnalysisContacts?: boolean; regenerateAnalysisContacts?: boolean; reverseCourtSides?: boolean } = {}) {
     const submissionId = targetSubmissionId ?? snapshot.value?.snapshot.active_submission_id
     if (!submissionId) throw new Error('目前沒有可修正的已送出片段')
     if (!targetSubmissionId && (state.value === 'OPEN' || state.value === 'READY')) throw new Error('請先完成目前的標記片段')
@@ -381,7 +404,12 @@ export function useAnnotationRoom() {
     try {
       const result = await transport.request<{
         createCorrectionDraft: { id: string }
-      }>(CREATE_CORRECTION_DRAFT, { submissionId, reverseCourtSides: options.reverseCourtSides ?? false })
+      }>(CREATE_CORRECTION_DRAFT, {
+        preserveAnalysisContacts: options.preserveAnalysisContacts ?? false,
+        regenerateAnalysisContacts: options.regenerateAnalysisContacts ?? false,
+        reverseCourtSides: options.reverseCourtSides ?? false,
+        submissionId,
+      })
       return await fetchSnapshot(result.createCorrectionDraft.id)
     }
     catch (cause) {
@@ -513,6 +541,7 @@ export function useAnnotationRoom() {
     presence: shallowReadonly(presence),
     processing: shallowReadonly(processing),
     remoteEditorsByKeyPoint,
+    resync,
     selectRally: fetchSnapshot,
     setEditingKeyPoint,
     submitCorrection,

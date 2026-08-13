@@ -38,7 +38,9 @@ const coachState = {
         analysis: {
           id: 'analysis', status: 'completed', version: 'v1', summary: {}, identity_mapping_completed: false,
           coverage_start_capture_time_us: '1100000', coverage_end_capture_time_us: '1900000', byte_length: '2048',
-          track_count: 12, ball_path_count: 1, contact_count: 1, capabilities: ['player_tracking', 'ball_tracking'],
+          track_count: 12, ball_path_count: 1, contact_count: 1,
+          contact_points: [{ id: 'ai-contact', capture_time_us: '1500000', frame_index: '15', source: 'ai', confidence: 0.9 }],
+          capabilities: ['player_tracking', 'ball_tracking'],
         },
       },
     }],
@@ -46,6 +48,50 @@ const coachState = {
 } as CoachMatchState
 
 describe('useAnnotationWorkstationModel timeline layers', () => {
+  it('keeps an earlier READY boundary draft selectable after a new OPEN draft starts', () => {
+    const state = structuredClone(coachState)
+    state.match.rallies = []
+    state.match.drafts = [
+      {
+        id: 'ready-rally', ordinal: 1, display_ordinal: 1, display_set_number: 1,
+        annotation_revision: '2', annotation_status: 'ready', active_submission_id: null,
+        score_resolution: 'pending', scoring_court_side: null, scoring_team_id: null,
+        set_id: 'set', set_number: 1, key_points: [],
+        boundaries: [
+          { kind: 'start', capture_time_us: '1000000', capture_frame_index: '30' },
+          { kind: 'end', capture_time_us: '2000000', capture_frame_index: '60' },
+        ],
+      },
+      {
+        id: 'open-rally', ordinal: 2, display_ordinal: 2, display_set_number: 1,
+        annotation_revision: '1', annotation_status: 'open', active_submission_id: null,
+        score_resolution: 'pending', scoring_court_side: null, scoring_team_id: null,
+        set_id: 'set', set_number: 1, key_points: [],
+        boundaries: [{ kind: 'start', capture_time_us: '3000000', capture_frame_index: '90' }],
+      },
+    ]
+    const openSnapshot: AnnotationRallySnapshot = {
+      schema_version: '3.0.0', type: 'rally_snapshot', room_id: 'room', rally_id: 'open-rally', revision: '1', server_sequence: '4',
+      snapshot: {
+        annotation_status: 'open', active_submission_id: null, side_assignment_id: 'assignment',
+        score_resolution: 'pending', scoring_court_side: null, processing_status: 'idle',
+        boundaries: [{ kind: 'start', capture_time_us: '3000000', capture_frame_index: '90', timing_precision: 'frame_exact' }],
+        key_points: [],
+      },
+    }
+    const model = useAnnotationWorkstationModel({
+      coachData: ref(state), match: ref<Match | null>(null), timeline: computed<CaptureTimeline | null>(() => null),
+      displayAnnotation: computed(() => openSnapshot), confirmedAnnotation: shallowRef(openSnapshot),
+      state: computed(() => 'OPEN' as const), selectedRallyId: computed(() => 'ready-rally'),
+      selectedKeyPoint: computed<AnnotationKeyPoint | null>(() => null), selectedTimelineItem: ref<TimelineSelectionItem>('mask'),
+      cursorRallyId: ref('open-rally'), visualPlayhead: ref('3500000'),
+    })
+
+    expect(model.annotationDrafts.value.map(draft => draft.id)).toEqual(['ready-rally', 'open-rally'])
+    expect(model.timelineSegments.value).toContainEqual(expect.objectContaining({ id: 'ready-rally', stateLabel: '待送出' }))
+    expect(model.currentMaskRange.value).toMatchObject({ startCaptureTimeUs: '3000000', endCaptureTimeUs: '3500000' })
+  })
+
   it('keeps the current submitted Rally analysis data for the independent result rail', () => {
     const model = useAnnotationWorkstationModel({
       coachData: ref(coachState),
@@ -62,14 +108,64 @@ describe('useAnnotationWorkstationModel timeline layers', () => {
 
     expect(model.timelineSegments.value).toMatchObject([{
       id: 'rally',
-      outcomeLabel: 'L 得分',
+      outcomeLabel: '左側 L 得分',
+      points: [{ id: 'ai-contact', markerKind: 'contact', captureTimeUs: '1500000' }],
       analysis: { startCaptureTimeUs: '1100000', endCaptureTimeUs: '1900000', byteLength: '2048' },
     }])
-    expect(model.currentMaskOutcome.value).toBe('L 得分')
+    expect(model.currentMaskOutcome.value).toBe('左側 L 得分')
+  })
+
+  it('labels a hard-cut legacy result as awaiting a new analysis instead of processing', () => {
+    const retiredState = structuredClone(coachState)
+    retiredState.match.rallies[0]!.processing_status = 'idle'
+    retiredState.match.rallies[0]!.submission.analysis = null
+    const model = useAnnotationWorkstationModel({
+      coachData: ref(retiredState),
+      match: ref<Match | null>(null),
+      timeline: computed<CaptureTimeline | null>(() => null),
+      displayAnnotation: computed(() => snapshot),
+      confirmedAnnotation: shallowRef(snapshot),
+      state: computed(() => 'SUBMITTED' as const),
+      selectedRallyId: computed(() => 'rally'),
+      selectedKeyPoint: computed<AnnotationKeyPoint | null>(() => null),
+      selectedTimelineItem: ref<TimelineSelectionItem>('segment'),
+      cursorRallyId: ref('rally'),
+    })
+
+    expect(model.timelineSegments.value[0]).toMatchObject({
+      stateLabel: '待重新分析',
+      status: 'idle',
+    })
+    expect(model.currentMaskStatus.value).toBe('idle')
+    expect(model.activeContextState.value).toBe('待重新分析')
+  })
+
+  it('derives visible rally numbers from capture order when stored values are stale', () => {
+    const staleState = structuredClone(coachState)
+    staleState.match.rallies[0]!.display_ordinal = 8
+    const model = useAnnotationWorkstationModel({
+      coachData: ref(staleState),
+      match: ref<Match | null>(null),
+      timeline: computed<CaptureTimeline | null>(() => null),
+      displayAnnotation: computed(() => snapshot),
+      confirmedAnnotation: shallowRef(snapshot),
+      state: computed(() => 'SUBMITTED' as const),
+      selectedRallyId: computed(() => 'rally'),
+      selectedKeyPoint: computed<AnnotationKeyPoint | null>(() => null),
+      selectedTimelineItem: ref<TimelineSelectionItem>('segment'),
+      cursorRallyId: ref('rally'),
+    })
+
+    expect(model.timelineSegments.value[0]?.label).toBe('第 1 局 · 回合 1')
+    expect(model.currentMaskLabel.value).toBe('第 1 局 · 回合 1')
+    expect(model.activeContextTitle.value).toBe('第 1 局 · 回合 1')
+    expect(model.displayRallyOrdinal.value).toBe(1)
   })
 
   it('ignores a stale correction draft after realtime submit acknowledgement', () => {
     const staleDashboard = structuredClone(coachState)
+    staleDashboard.match.rallies[0]!.submission.contact_count = 0
+    staleDashboard.match.rallies[0]!.submission.analysis!.contact_count = 2
     staleDashboard.match.drafts = [{
       id: 'rally', ordinal: 1, display_ordinal: 1, display_set_number: 1,
       annotation_revision: '4', annotation_status: 'open', active_submission_id: 'submission',
@@ -92,6 +188,7 @@ describe('useAnnotationWorkstationModel timeline layers', () => {
     expect(model.annotationDrafts.value).toEqual([])
     expect(model.selectedSubmittedRally.value?.id).toBe('rally')
     expect(model.activeContextState.value).toBe('分析完成')
+    expect(model.activeContextHits.value).toBe(2)
   })
 
   it('shows fresh correction processing while retaining the previous analysis fallback', () => {
