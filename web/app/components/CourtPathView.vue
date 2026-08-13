@@ -3,6 +3,7 @@ import { ANALYSIS_PLAYER_FLAG, type AnalysisFrameChunk } from '@volleyball-monit
 import { computed } from 'vue'
 import type { ReplayContactEvent, ReplayPath } from '~/lib/coachDomain'
 import type { RosterPosition } from '~/lib/coreDomain'
+import { actionColor, actionDisplayLabel, actionKey, actionName } from '~/utils/coachPlayerActions'
 
 interface CourtTrack {
   trackId: number
@@ -180,12 +181,32 @@ function showPlayerLabel(trackId: number, hitter: boolean) {
   return hitter || props.playerLabelMode === 'all'
 }
 
+function pathAction(path: ReplayPath) {
+  const startEvent = props.events.find(event => event.key_point_id === path.start_key_point_id)
+  const startTrackId = path.start_court_positions[0]?.track_id
+  return startEvent?.actors.find(actor => startTrackId === null || startTrackId === undefined || actor.track_id === startTrackId)?.action ?? null
+}
+
 function pathColor(path: ReplayPath) {
+  const action = pathAction(path)
+  if (actionName(action)) return actionColor(actionKey(action))
   const startEvent = props.events.find(event => event.key_point_id === path.start_key_point_id)
   if (startEvent?.marker_kind === 'service') return '#f4c66a'
   if (path.is_terminal_segment) return '#ff7b72'
   return '#69b7ff'
 }
+
+const actionLegend = computed(() => {
+  const values = new Map<string, { key: string; label: string }>()
+  for (const { path } of visiblePaths.value) {
+    const action = pathAction(path)
+    const name = actionName(action)
+    if (!name) continue
+    const key = actionKey(action)
+    values.set(key, { key, label: actionDisplayLabel(action) })
+  }
+  return [...values.values()].slice(0, 4)
+})
 
 const focusedDuration = computed(() => {
   const path = focusedPath.value
@@ -199,7 +220,10 @@ const focusedDuration = computed(() => {
   <div class="court-view">
     <div class="court-heading">
       <div><span>同步球路</span><small>{{ paths.length ? `${Math.max(1, focusedPathIndex + 1)} / ${paths.length}` : '—' }}<template v-if="focusedDuration !== null"> · {{ focusedDuration.toFixed(2) }} 秒</template></small></div>
-      <div v-if="showLegend" class="court-legend" aria-label="球路顏色"><span class="service">發球</span><span class="rally">一般</span><span class="terminal">終結</span></div>
+      <div v-if="showLegend" class="court-legend" aria-label="球路顏色">
+        <template v-if="actionLegend.length"><span v-for="item in actionLegend" :key="item.key" :style="{ color: actionColor(item.key) }">{{ item.label }}</span></template>
+        <template v-else><span class="service">發球</span><span class="rally">一般</span><span class="terminal">終結</span></template>
+      </div>
     </div>
     <span class="court-team court-team--far">{{ rightTeam }}</span>
     <svg viewBox="-18 -20 136 240" role="img" aria-label="2D 球場同步球路">

@@ -17,6 +17,7 @@ import {
   type ReplayContactEvent,
 } from '~/lib/coachDomain'
 import { createGraphQLTransport } from '~/lib/coreDomain'
+import { replayStartSeconds } from '~/utils/coachPlayerActions'
 import { resolveFrameFromRate, resolveFrameFromTimeline } from '~/utils/overlayFrameTimeline'
 import { resolveVideoContentRect } from '~/utils/volleyballOverlayRenderer'
 
@@ -147,6 +148,7 @@ const videoPresentationStyle = computed(() => {
 })
 let videoFrameCallbackId: number | null = null
 let mediaObserver: ResizeObserver | null = null
+let initialEventSeekApplied = false
 
 onMounted(async () => {
   document.addEventListener('fullscreenchange', handleFullscreenChange)
@@ -181,6 +183,15 @@ function updateVideoState(presentedMediaTime?: number | Event) {
   const timing = overlay.manifest.value?.frame_timing
   if (timing) currentFrame.value = resolveFrameFromTimeline(mediaTimeUs, timing.clip_time_us, timing.clip_end_time_us)
   else if (fps) currentFrame.value = resolveFrameFromRate(mediaTimeUs, fps, totalClipFrames.value)
+}
+
+function handleLoadedMetadata() {
+  updateVideoState()
+  if (initialEventSeekApplied) return
+  const eventUs = Array.isArray(route.query.event_us) ? route.query.event_us[0] : route.query.event_us
+  if (typeof eventUs !== 'string' || !/^\d+$/.test(eventUs)) return
+  initialEventSeekApplied = true
+  seekSeconds(replayStartSeconds(eventUs, 5))
 }
 
 function scheduleVideoFrameCallback(element: HTMLVideoElement) {
@@ -357,7 +368,7 @@ onBeforeUnmount(() => {
                 playsinline
                 preload="metadata"
                 @click="togglePlayback"
-                @loadedmetadata="updateVideoState"
+                @loadedmetadata="handleLoadedMetadata"
                 @timeupdate="updateVideoState"
                 @play="updateVideoState"
                 @pause="updateVideoState"

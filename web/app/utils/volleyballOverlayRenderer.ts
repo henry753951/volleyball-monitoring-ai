@@ -6,6 +6,7 @@ import {
   type AnalysisFrameChunk,
 } from '@volleyball-monitoring/contracts'
 import type { ReplayContactEvent } from '~/lib/coachDomain'
+import { actionColor, actionKey } from '~/utils/coachPlayerActions'
 
 export type VolleyballOverlayMode = 'off' | 'tracking' | 'coach' | 'tactical' | 'debug'
 
@@ -237,6 +238,7 @@ function drawPlayerLabel(context: CanvasRenderingContext2D, detection: FrameDete
     }
   }
   if (input.layers.action && action) {
+    const actionTone = actionColor(actionKey(action))
     const text = action.replaceAll('_', ' ').toUpperCase()
     context.font = '800 8px Inter, ui-sans-serif, system-ui, sans-serif'
     const width = Math.ceil(context.measureText(text).width) + 12
@@ -244,8 +246,8 @@ function drawPlayerLabel(context: CanvasRenderingContext2D, detection: FrameDete
     const actionX = Math.max(input.viewport.x + 3, Math.min((topLeft.x + bottomRight.x - width) / 2, input.viewport.x + input.viewport.width - width - 3))
     roundedRect(context, actionX, actionY, width, 14, 4)
     context.fillStyle = 'rgba(7, 11, 16, .7)'; context.fill()
-    context.strokeStyle = `${color}b8`; context.lineWidth = 1; context.stroke()
-    context.fillStyle = color; context.fillText(text, actionX + 6, actionY + 9.8)
+    context.strokeStyle = `${actionTone}cc`; context.lineWidth = 1; context.stroke()
+    context.fillStyle = actionTone; context.fillText(text, actionX + 6, actionY + 9.8)
   }
 }
 

@@ -404,9 +404,10 @@ a172cdf8ecf053b7a1e7a7436a02d85c999024bbd04cf0b459188a7039cb5ef5  ./web/app/comp
 fbc3976683734913bc9428cb1c99f90814b5fae09ba321d934184bfef6bd6966  ./web/app/components/CaptureControlDialog.vue
 e58e564652b1e81206444c0f426239a09641f5ec95de64255a7f7fb46cedd350  ./web/app/components/ClipDownloadDialog.component.test.ts
 ff7be9b650eb9c8230390256c62ddb9eafdfeb8add9eaae76e0cd7985f346548  ./web/app/components/ClipDownloadDialog.vue
+d09731c0acdac2424fac2c3bccb97512d3727121a677cea8e7359257c4e25b97  ./web/app/components/CoachTrackIdentityEditor.vue
 ed5c55ce5f5b7a08d5925f49639fc8130259bb5e01cec54d4bf2303a56e6a4e8  ./web/app/components/ConfirmActionDialog.vue
 6d3b2b5bf345fbacea82dfd998e30ef305fa792a7d240d95cc69f5f80a8cad65  ./web/app/components/CourtPathView.component.test.ts
-eb2cc321677a6300b77bf7a33430f267f1d3100197696844afde867354f44f97  ./web/app/components/CourtPathView.vue
+5fdd6385915beaa5cda415aea2335582f9279431716c1b84dfe1293a661477ac  ./web/app/components/CourtPathView.vue
 94d233678b7c53d05fe8da41879c505cdddbfbe539ea7ce8ab777eef31394753  ./web/app/components/DvrTimelineDock.component.test.ts
 d31178929bbb0713255b5d729b93b68bd0689e9248531e95b6bad0392ec06719  ./web/app/components/DvrTimelineDock.test.ts
 d51160c7126ad8c95aa9a8dc8d9cf9c2c985a564221601a28be4619568e42a31  ./web/app/components/DvrTimelineDock.vue
@@ -464,6 +465,7 @@ ce37f5454b6179fdb0db0159c86c077f04a900e64baddd58e6ebcd25736b5366  ./web/app/comp
 433be910a0622b0b887a0251e9c13dae63fca75b19d08041f79a8cc972966efa  ./web/app/composables/useCoachMatchState.ts
 ad92d9880cb6c09b955508f5ba3b260ef2e6662a4adc40a29799a78387adb354  ./web/app/composables/useCoachRallyStatus.ts
 720e78ae4badec403fe5eac68c314354e7130ddc6f571c858a53e9ada5d5f92a  ./web/app/composables/useCoachSocket.ts
+695ddb09fba6d54e75496080d61b6b30c958c30dc51f516f7d4364090027980a  ./web/app/composables/useCoachTrackEvents.ts
 cd1ef63c40c6c91ee1ac2b094067103c4d15a342fc1746df18aa39f2ecd02b4f  ./web/app/composables/useCoalescedFrameNavigation.test.ts
 007d09044a3e4d63346bda6366d56a5762ffbfd28381bed2eef1f0919096f221  ./web/app/composables/useCoalescedFrameNavigation.ts
 6b7b9b1cf46ef22c4d5d5e8e131f077b3114cd3c3ae0b386d73812faf0ec0758  ./web/app/composables/useCoreDomain.ts
@@ -518,9 +520,9 @@ a86ede1c01650d366d0d759da3a62bff56fcd3b61fba7079a199f908fbd7bfce  ./web/app/page
 c4e0f237dd10b98db71e9f767c82000ccaa5ce5eda1845c147461f11217617a4  ./web/app/pages/matches/[matchId]/history.vue
 807cca7a246d3e3b7fd7ee4def69515cec2321838b659cd60946991463ae8425  ./web/app/pages/matches/[matchId]/live.vue
 c4e0f237dd10b98db71e9f767c82000ccaa5ce5eda1845c147461f11217617a4  ./web/app/pages/matches/[matchId]/paths.vue
-7a5d6ddb4449db6e28b77eefcd0fcda1b2ac6131748efe772d24fa8f5da9627f  ./web/app/pages/matches/[matchId]/players.vue
+f2a336d4c3d741d0ef3bf3539dd375bf32b7b285064799da7dbd3528d4096d56  ./web/app/pages/matches/[matchId]/players.vue
 8f0efd9ce935a1bf23ee0db514a19d4592d92820dbbc7893def3391feecc15e1  ./web/app/pages/matches/[matchId]/rallies.vue
-e863bd34c1ea212222baef6d5b05b188bf49d0725fa1056e920e2f1c6c81f4f8  ./web/app/pages/matches/[matchId]/replay/[rallyId].vue
+fcfa430e43338a7267b507789247b47979ed2e240f59dd3f260a4e57da14feb1  ./web/app/pages/matches/[matchId]/replay/[rallyId].vue
 80abf2931795bfec87a543ca346cd08bb828d38753698e1baf4affc3528fdb7a  ./web/app/pages/matches/[matchId]/stats.vue
 d640a2a6680e9e4b37a689dbd38a24f2173333684c5857beafb17b9b1892e365  ./web/app/pages/matches/new.vue
 98bdc7a7949cd484730c7ad495b6bb041409c6b337d813a0cb54e91a2f385f0b  ./web/app/pages/settings.vue
@@ -536,6 +538,8 @@ a60c0cce97ded92137dba8ec99dfe9c05fa082f5ebbe48eafaa85c34a89aded7  ./web/app/util
 e71924873860e5fc0da75f5454a63c95d2e10d2c9295aeafe3228157876e8d86  ./web/app/utils/annotationPolling.ts
 4a1ec75d46e574ed894b28ec51905bd995a7cd020c53a7689f0387ae76b136d6  ./web/app/utils/authBoundary.test.ts
 c81b2357e6c7d27f6d0836c737d8790225ff02215260c2f91066335274fbc912  ./web/app/utils/authBoundary.ts
+d5f8401e2aeaa08117c31d653a94dbc0de4e8e582ede36ca445a34ca8c5a1fe0  ./web/app/utils/coachPlayerActions.test.ts
+0c9b48add99233df97ea60e8c61e0e236bc1ba15a9f7205791eab41ef0079909  ./web/app/utils/coachPlayerActions.ts
 c4123e71b15fe86ec6b2fb9957fc1d3b8f23afee84e0ebf9c9a1a5939831b171  ./web/app/utils/coachPresentation.test.ts
 05ac8675ce4c58462445cdf21b454dfbbb01c4272ccaaaa04cfb13d8666459ab  ./web/app/utils/coachPresentation.ts
 a22fce91408b92dcf1d361c1534c3c790c69a1081755ef0d47897efd418a4c22  ./web/app/utils/matchSetup.test.ts
@@ -557,7 +561,7 @@ d8e2674d17886755a322cead0c146fcf2f588729aa4f30a121a3745453a0ca69  ./web/app/util
 6b1b4d21f6ebe3cdf613a9265376b94f123796536644ccd2da43efdc226b3d7f  ./web/app/utils/timelineSelection.ts
 96140cbbc44c2fec6a75d22b15bf045fec5b2606a19f10ff3ec82e1efca08377  ./web/app/utils/videoPresentation.test.ts
 359143943ed0fdd3fcf0fb93d91b1e1859c2bfc4e732c485c74dc11e74de0af9  ./web/app/utils/volleyballOverlayRenderer.test.ts
-9d625b8e9a5474552aa6600006a7a1cd3f0f982dfa71d0217c49f6524e67f629  ./web/app/utils/volleyballOverlayRenderer.ts
+46a088c23d4272e2bb874f3b4eff07e643c4592ad9b099c2239c79474f5bea89  ./web/app/utils/volleyballOverlayRenderer.ts
 4d7e163460b4cdaa0c80de4675187a0ac7a973d90db4a55f19353a870ca60d79  ./web/app/utils/youtubeEmbed.ts
 8f30de51fa8ac210e39037ac72fdc22ec25542d707ff6cab85b12f6c93048e1a  ./web/codegen.ts
 473afc31d9e54a60a0f1b294d44401d0e62e18c7d73940352b40bd5e353faa0d  ./web/graphql/README.md
