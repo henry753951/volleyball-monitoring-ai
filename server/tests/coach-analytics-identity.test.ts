@@ -57,7 +57,19 @@ describe('coach track identity replacement', () => {
       matchRosterEntry: { findUnique: vi.fn().mockResolvedValue({ matchId: 'match-1', teamId: 'team-left' }) },
       matchMember: { findUnique: vi.fn().mockResolvedValue({ userId: 'user-1' }) },
       match: { update: vi.fn().mockResolvedValue({ identityRevision: 7n }) },
-      reidFeatureObservation: { findUnique: vi.fn().mockResolvedValue(null) },
+      reidFeatureObservation: {
+        findUnique: vi.fn().mockResolvedValue({
+          id: 'observation-9', reidIdentityId: 'slot-1', modelNamespace: 'nested-v1',
+          aliasTrackIds: [9], courtSide: 'LEFT',
+          reidIdentity: { id: 'slot-1', teamId: 'team-left', slotIndex: 1 },
+        }),
+        updateMany: vi.fn(),
+        findMany: vi.fn().mockResolvedValue([]),
+      },
+      reidPlayerBinding: {
+        findFirst: vi.fn().mockResolvedValue(null),
+        create: vi.fn().mockResolvedValue({ id: 'binding-1' }),
+      },
       reidCorrectionEvent: { create: vi.fn().mockResolvedValue({ id: 'correction-1' }) },
       trackIdentityAssignment: {
         findMany: vi.fn().mockResolvedValue([
@@ -96,7 +108,19 @@ describe('coach track identity replacement', () => {
       matchRosterEntry: { findUnique: vi.fn().mockResolvedValue({ matchId: 'match-1', teamId: 'team-left' }) },
       matchMember: { findUnique: vi.fn().mockResolvedValue({ userId: 'user-1' }) },
       match: { update: vi.fn().mockResolvedValue({ identityRevision: 8n }) },
-      reidFeatureObservation: { findUnique: vi.fn().mockResolvedValue(null) },
+      reidFeatureObservation: {
+        findUnique: vi.fn().mockResolvedValue({
+          id: 'observation-9', reidIdentityId: 'slot-1', modelNamespace: 'nested-v1',
+          aliasTrackIds: [9], courtSide: 'LEFT',
+          reidIdentity: { id: 'slot-1', teamId: 'team-left', slotIndex: 1 },
+        }),
+        updateMany: vi.fn(),
+        findMany: vi.fn().mockResolvedValue([]),
+      },
+      reidPlayerBinding: {
+        findFirst: vi.fn().mockResolvedValue(null),
+        create: vi.fn().mockResolvedValue({ id: 'binding-1' }),
+      },
       reidCorrectionEvent: { create: vi.fn().mockResolvedValue({ id: 'correction-1' }) },
       trackIdentityAssignment: {
         findMany: vi.fn().mockResolvedValue([{ trackId: 5, track: { firstFrame: 201n, lastFrame: 300n } }]),

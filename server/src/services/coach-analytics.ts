@@ -1,7 +1,7 @@
 import type { PrismaClient } from '@volleyball-monitoring/db'
-import { AnalysisReviewStatus, IdentitySource, JobStatus, UserRole } from '@volleyball-monitoring/db/client'
+import { AnalysisReviewStatus, JobStatus, UserRole } from '@volleyball-monitoring/db/client'
 import { GraphQLError } from 'graphql'
-import { applyManualReidDecision, parseReidIdentityMode, ReidIdentityDecisionError } from './reid-identity.js'
+import { applyManualReidDecision, parseReidIdentityMode, ReidIdentityDecisionError } from './fixed-roster-reid.js'
 
 const quality = (entries: Iterable<string>) => { const counts: Record<string, number> = {}; for (const entry of entries) counts[entry] = (counts[entry] ?? 0) + 1; return counts }
 const metric = (value: number, sampleCount: number, excludedCount: number, unknownCount: number, qualityBreakdown: Record<string, number>, featureDependencies: string[]) => ({ value, sample_count: sampleCount, excluded_count: excludedCount, unknown_count: unknownCount, quality_breakdown: qualityBreakdown, feature_dependencies: featureDependencies })
@@ -27,7 +27,7 @@ export async function getCoachMatchAnalytics(database: PrismaClient, input: { ma
       id: true, title: true, identityRevision: true,
       matchTeams: { select: { team: { select: { id: true, name: true, shortName: true } } } },
       rosterEntries: { where: { active: true }, orderBy: [{ teamId: 'asc' }, { jerseyNumber: 'asc' }], select: { id: true, teamId: true, jerseyNumber: true, position: true, displayNameSnapshot: true, player: { select: { name: true } } } },
-       rallies: { where: { activeSubmissionId: { not: null }, voidedAt: null }, orderBy: [{ set: { setNumber: 'asc' } }, { ordinal: 'asc' }], select: { id: true, ordinal: true, set: { select: { setNumber: true } }, activeSubmission: { select: { id: true, scoreResolutionState: true, scoringTeamId: true, leftTeamId: true, rightTeamId: true, analysisRuns: { where: { status: JobStatus.COMPLETED, ...(publishedOnly ? { reviewStatus: AnalysisReviewStatus.APPROVED } : {}) }, orderBy: { activatedAt: 'desc' }, take: 1, select: { id: true, analysisVersion: true, identityMappingCompletedAt: true, tracks: { select: { trackId: true, courtSide: true, firstFrame: true, lastFrame: true, identityAssignments: { select: { rosterEntryId: true, source: true, confidence: true, identityRevision: true, reidIdentity: { select: { id: true, label: true } } } }, reidObservation: { select: { matchConfidence: true, identityRevision: true, modelNamespace: true, modelName: true, modelCheckpointSha256: true, modelPreprocessVersion: true, modelDimension: true, modelDistance: true, reidIdentity: { select: { id: true, label: true } } } } } }, contactActorCorrections: { select: { keyPointId: true, trackId: true } }, contactTimeCorrections: { select: { keyPointId: true, frameIndex: true } }, contactEdits: { select: { contactId: true, baseKeyPointId: true, frameIndex: true, trackId: true, deleted: true } }, actionCorrections: { select: { frameIndex: true, trackId: true, action: true } }, contactEvents: { select: { keyPointId: true, anchorFrameIndex: true, resolvedFrameIndex: true, associationState: true, qualityFlags: true, representativePositions: { select: { courtX: true, courtY: true } }, actors: { select: { trackId: true, action: true, courtX: true, courtY: true } } } }, segments: { select: { renderState: true } } } } } } } },
+      rallies: { where: { activeSubmissionId: { not: null }, voidedAt: null }, orderBy: [{ set: { setNumber: 'asc' } }, { ordinal: 'asc' }], select: { id: true, ordinal: true, set: { select: { setNumber: true } }, activeSubmission: { select: { id: true, scoreResolutionState: true, scoringTeamId: true, leftTeamId: true, rightTeamId: true, analysisRuns: { where: { status: JobStatus.COMPLETED, ...(publishedOnly ? { reviewStatus: AnalysisReviewStatus.APPROVED } : {}) }, orderBy: { activatedAt: 'desc' }, take: 1, select: { id: true, analysisVersion: true, identityMappingCompletedAt: true, tracks: { select: { trackId: true, courtSide: true, firstFrame: true, lastFrame: true, identityAssignments: { select: { rosterEntryId: true, source: true, confidence: true, identityRevision: true, reidIdentity: { select: { id: true, label: true, slotIndex: true } } } }, reidObservation: { select: { matchConfidence: true, identityRevision: true, modelNamespace: true, modelName: true, modelCheckpointSha256: true, modelPreprocessVersion: true, modelDimension: true, modelDistance: true, reidIdentity: { select: { id: true, label: true, slotIndex: true } } } } } }, contactActorCorrections: { select: { keyPointId: true, trackId: true } }, contactTimeCorrections: { select: { keyPointId: true, frameIndex: true } }, contactEdits: { select: { contactId: true, baseKeyPointId: true, frameIndex: true, trackId: true, deleted: true } }, actionCorrections: { select: { frameIndex: true, trackId: true, action: true } }, contactEvents: { select: { keyPointId: true, anchorFrameIndex: true, resolvedFrameIndex: true, associationState: true, qualityFlags: true, representativePositions: { select: { courtX: true, courtY: true } }, actors: { select: { trackId: true, action: true, courtX: true, courtY: true } } } }, segments: { select: { renderState: true } } } } } } } },
     },
   })
   if (!match) return null
@@ -133,7 +133,9 @@ export async function getCoachMatchAnalytics(database: PrismaClient, input: { ma
       last_frame_index: track.lastFrame.toString(),
       roster_entry_id: assignment?.rosterEntryId ?? null,
       gid_id: identity?.id ?? null,
-      gid_label: identity?.label ?? null,
+      gid_label: identity
+        ? `${track.courtSide === 'LEFT' ? 'L' : track.courtSide === 'RIGHT' ? 'R' : 'G'}${identity.slotIndex}`
+        : null,
       identity_source: assignment?.source.toLowerCase() ?? (observation ? 'ai' : null),
       identity_confidence: assignment?.confidence ?? observation?.matchConfidence ?? null,
       identity_revision: (assignment?.identityRevision ?? observation?.identityRevision)?.toString() ?? null,
@@ -211,11 +213,7 @@ export async function assignTrackIdentity(database: PrismaClient, input: { analy
       if (error instanceof ReidIdentityDecisionError) throw new GraphQLError(error.message, { extensions: { code: error.code } })
       throw error
     }
-    const assignment = await tx.trackIdentityAssignment.upsert({
-      where: { analysisRunId_trackId: { analysisRunId: input.analysisRunId, trackId: input.trackId } },
-      create: { analysisRunId: input.analysisRunId, trackId: input.trackId, rosterEntryId: input.rosterEntryId, source: IdentitySource.MANUAL, assignedByUserId: input.userId, reidIdentityId: decision.reidIdentityId, reidBindingId: decision.bindingId, identityRevision: decision.identityRevision },
-      update: { rosterEntryId: input.rosterEntryId, source: IdentitySource.MANUAL, assignedByUserId: input.userId, confidence: null, reidIdentityId: decision.reidIdentityId, reidBindingId: decision.bindingId, identityRevision: decision.identityRevision },
-    })
+    const assignment = decision.assignment
     return { schema_version: '1.0.0', match_id: roster.matchId, identity_mode: identityMode, identity_revision: decision.identityRevision.toString(), gid_id: decision.reidIdentityId, replaced_track_ids: replacedTrackIds, assignment: { id: assignment.id, analysis_run_id: assignment.analysisRunId, track_id: assignment.trackId, roster_entry_id: assignment.rosterEntryId, source: assignment.source.toLowerCase() } }
   })
 }

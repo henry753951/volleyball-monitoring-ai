@@ -134,7 +134,8 @@ describe('ML analysis dataset', () => {
     }
     const identity = {
       id: 'gid-1',
-      label: 'GID-00000001',
+      label: 'S1',
+      slotIndex: 1,
       teamId: 'team-1',
       modelNamespace: 'namespace-1',
       createdRevision: 2n,
@@ -168,7 +169,7 @@ describe('ML analysis dataset', () => {
       analysisRunId: 'run-1',
       matchId: 'match-1',
       matchIdentityRevision: 8n,
-      featureBankPath: 'reid/clip-feature-bank.json',
+      featureBankPath: 'reid/fixed-roster-tracklets.json',
       observations: [{
         id: 'observation-1',
         analysisRunId: 'run-1',
@@ -183,7 +184,21 @@ describe('ML analysis dataset', () => {
         modelDimension: 512,
         modelDistance: 'cosine',
         courtSide: 'LEFT',
-        provisionalGid: 'clip:left:12',
+        provisionalGid: 'L1',
+        canonicalTrackId: 12,
+        isCanonicalTrack: true,
+        aliasTrackIds: [12],
+        medianCourtX: 0.25,
+        medianCourtY: 0.5,
+        descriptorRecipe: { name: 'nested-part-adaptation', version: '1.0.0' },
+        dinoDescriptor: new Uint8Array(384 * 4).fill(1),
+        osnetDescriptor: prototype,
+        kprDescriptor: new Uint8Array(4096 * 4).fill(2),
+        kprPromptDescriptor: new Uint8Array(4096 * 4).fill(3),
+        promptCoverage: 0.75,
+        selectedModalities: ['kpr_prompt'],
+        selectedKernel: 'linear',
+        selectedRegularization: 0.1,
         firstFrame: 2n,
         lastFrame: 42n,
         sampleCount: 5,
@@ -216,22 +231,23 @@ describe('ML analysis dataset', () => {
         },
         createdAt: new Date('2026-08-13T00:03:00.000Z'),
         sourceIdentity: identity,
-        targetIdentity: { ...identity, id: 'gid-2', label: 'GID-00000002' },
+        targetIdentity: { ...identity, id: 'gid-2', label: 'S2', slotIndex: 2 },
         rosterEntry,
       }],
     })
 
     const observations = payload(files, 'reid/persisted-observations.jsonl')
     expect(observations).toMatchObject({
-      schema_version: '1.0.0',
+      schema_version: '2.0.0',
       match_identity_revision: '8',
-      feature_vectors_are_stored_only_in: 'reid/clip-feature-bank.json',
+      feature_vectors_are_stored_only_in: 'reid/fixed-roster-tracklets.json',
       track_id: 12,
-      gid: { id: 'gid-1', label: 'GID-00000001', model_namespace: 'namespace-1' },
-      persisted_prototype: {
-        byte_length: 2_048,
-        sha256: sha256Bytes(prototype),
-        feature_vector_ref: { path: 'reid/clip-feature-bank.json', court_side: 'left', track_id: 12 },
+      gid: { id: 'gid-1', label: 'S1', slot_index: 1, model_namespace: 'namespace-1' },
+      nested_part_adaptation: {
+        selected_modalities: ['kpr_prompt'],
+        selected_kernel: 'linear',
+        selected_regularization: 0.1,
+        feature_vector_ref: { path: 'reid/fixed-roster-tracklets.json', canonical_track_id: 12 },
       },
     })
     expect(JSON.stringify(observations)).not.toContain('prototype":[')

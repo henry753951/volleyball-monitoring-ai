@@ -4,8 +4,9 @@ export function formatReidTrackId(trackId: number) {
 
 export function formatReidGlobalId(label?: string | null) {
   if (!label) return 'G---'
-  const sequential = /^G([0-9]+)$/.exec(label)
-  return sequential ? `G${sequential[1]!.padStart(3, '0')}` : label
+  const fixedSlot = /^([LR])([1-6])$/.exec(label)
+  if (fixedSlot) return `${fixedSlot[1]}${fixedSlot[2]}`
+  return 'G---'
 }
 
 export function formatReidPair(trackId: number, gidLabel?: string | null) {

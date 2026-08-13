@@ -13,12 +13,12 @@ describe('coach replay effective contact projection', () => {
       reidObservation: {
         matchConfidence: 0.95,
         identityRevision: 4n,
-        reidIdentity: { id: 'gid-1', label: 'G001' },
+        reidIdentity: { id: 'gid-1', label: 'S1', slotIndex: 1 },
       },
     } as never)
     expect(track).toMatchObject({
       track_id: 7,
-      global_identity: { id: 'gid-1', label: 'G001', source: 'ai', confidence: 0.95, identity_revision: '4' },
+      global_identity: { id: 'gid-1', label: 'L1', source: 'ai', confidence: 0.95, identity_revision: '4' },
       identity: null,
     })
   })
