@@ -57,7 +57,6 @@ onMounted(async () => {
    >
       <div class="match-browser__heading">
          <div>
-            <p class="match-browser__eyebrow">VollyAI</p>
             <h1 id="match-browser-title">場次</h1>
          </div>
          <span class="match-browser__count"
@@ -394,4 +393,8 @@ onMounted(async () => {
       animation: none;
    }
 }
+</style>
+
+<style scoped>
+.match-browser{width:100%}.match-browser__heading{margin:4px 2px 13px;padding-bottom:12px;border-bottom:1px solid #dfe4e8}.match-list{border:0;border-radius:0;background:transparent;box-shadow:none}.match-row{min-height:96px;border-bottom:1px solid #e1e5e9}.match-list li+li{border-top:0}.state-panel{border-width:1px 0;border-radius:0;background:transparent}.match-row--skeleton{border-bottom:1px solid #dfe4e8}
 </style>

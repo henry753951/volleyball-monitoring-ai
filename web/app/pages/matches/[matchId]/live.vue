@@ -2,6 +2,7 @@
 import type { PlaybackWindowDescriptor } from "@volleyball-monitoring/contracts";
 import { ExternalLink, Radio, RotateCcw, X } from "lucide-vue-next";
 import { createMediaClient } from "~/lib/mediaClient";
+import { coachRallyContactCount } from "~/utils/coachPresentation";
 import { youtubeEmbedUrl } from "~/utils/youtubeEmbed";
 
 const route = useRoute();
@@ -198,17 +199,11 @@ function handleDvrError(error: Error) {
                            :key="rally.id"
                         >
                            <NuxtLink :to="`/matches/${matchId}/replay/${rally.id}`">
-                              <span
-                                 ><b>{{ rally.ordinal }}</b
-                                 ><small>第 {{ rally.set_number }} 局</small></span
-                              >
-                              <strong>{{
-                                 teamById.get(rally.submission.scoring_team_id ?? "")
-                                    ?.shortName ||
-                                 (rally.submission.score_resolution === "unknown"
-                                    ? "結果待確認"
-                                    : "—")
-                              }}</strong>
+                              <span><b>回合 {{ rally.ordinal }}</b><small>第 {{ rally.set_number }} 局</small></span>
+                              <span class="live-feed__result"><strong>{{
+                                 teamById.get(rally.submission.scoring_team_id ?? "")?.shortName ||
+                                 (rally.submission.score_resolution === "unknown" ? "結果待確認" : "—")
+                              }}</strong><small>{{ coachRallyContactCount(rally) }} 擊球</small></span>
                               <i :class="`state-${rally.processing_status}`" />
                            </NuxtLink>
                         </li>
@@ -562,4 +557,8 @@ function handleDvrError(error: Error) {
       animation: none;
    }
 }
+</style>
+
+<style scoped>
+.live-board{gap:1px;background:#dce1e6}.score-ribbon{min-height:clamp(78px,13dvh,106px);border-radius:0;box-shadow:none}.live-stage{gap:1px}.live-video{border-radius:0;box-shadow:none}.live-feed{border-radius:0;box-shadow:none}.live-feed li a{grid-template-columns:minmax(92px,1fr) minmax(70px,.72fr) 8px}.live-feed li b{font-size:.74rem}.live-feed__result{display:grid!important;justify-items:end;gap:2px!important}.live-feed__result strong{font-size:.72rem}.live-feed__result small{font-size:.58rem}.live-board__loading,.live-board__state{border-radius:0}
 </style>
