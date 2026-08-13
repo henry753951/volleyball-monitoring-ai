@@ -1,3 +1,4 @@
+import json
 from importlib.resources import files
 from math import isfinite
 from pathlib import Path
@@ -6,16 +7,29 @@ from typing import TYPE_CHECKING, Any, Iterable, Mapping
 import flatbuffers
 
 if TYPE_CHECKING:
-    from .models import AIJobRequest
+    from .models import AIJobRequest, AnalysisDomainData
 
-FILE_IDENTIFIER = b"VOV1"
+FILE_IDENTIFIER = b"VAD1"
 
-def overlay_schema_path() -> Path:
-    return Path(str(files("volleyball_monitoring_ai.schemas").joinpath("overlay.fbs")))
 
-def validate_overlay_bytes(data: bytes) -> None:
+def _domain_json(domain: "AnalysisDomainData") -> str:
+    """Serialize the exact JSON Schema wire shape embedded in VAD1."""
+    payload = domain.model_dump(mode="json", exclude_none=True)
+    contact_events = payload.get("contact_events")
+    if isinstance(contact_events, list):
+        for index, event in enumerate(domain.contact_events):
+            # This is the one nullable field that is required to distinguish a
+            # human anchor from an AI-created contact with no source key point.
+            if event.source_key_point_id is None:
+                contact_events[index]["source_key_point_id"] = None
+    return json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+
+def analysis_data_schema_path() -> Path:
+    return Path(str(files("volleyball_monitoring_ai.schemas").joinpath("analysis-data.fbs")))
+
+def validate_analysis_data_bytes(data: bytes) -> None:
     if len(data) < 8 or data[4:8] != FILE_IDENTIFIER:
-        raise ValueError("overlay is not a VOV1 FlatBuffer")
+        raise ValueError("analysis data is not a VAD1 FlatBuffer")
 
 
 def _scalar_vector(builder: flatbuffers.Builder, values: list[int], width: int) -> int:
@@ -97,18 +111,17 @@ def _confidence(value: Any, *, name: str) -> int:
     return round(number * 254)
 
 
-def build_tracking_overlay(
+def build_analysis_data(
     job: "AIJobRequest",
     *,
-    analysis_id: str,
-    analysis_version: str,
+    domain: "AnalysisDomainData",
     frame_records: Iterable[Mapping[str, Any]],
     ball_positions: Mapping[int, Mapping[str, Any]],
     court_keypoints: Mapping[int, Iterable[Mapping[str, Any]]] | None = None,
     action_taxonomy_id: str = "",
     action_taxonomy_version: str = "",
 ) -> bytes:
-    """Build VOV1 from recorded provider observations.
+    """Build the only authoritative VAD1 artifact from provider observations.
 
     Video-space values are quantized to U16. AI-owned ``court_pos`` values are
     written as finite float32 values without projection or clamping.
@@ -138,7 +151,7 @@ def build_tracking_overlay(
         for player in players:
             track_id = int(player.get("track_id", -1))
             if track_id < 0 or track_id >= 65_535:
-                raise ValueError("track_id is outside the VOV1 ushort range")
+                raise ValueError("track_id is outside the VAD1 ushort range")
             raw_bbox = _bbox(player.get("frame_bbox"))
             raw_foot = _position(player.get("frame_foot_pos"), name="frame_foot_pos")
             court_value = player.get("court_pos")
@@ -161,7 +174,7 @@ def build_tracking_overlay(
                 if action_id is None:
                     action_id = len(action_labels)
                     if action_id >= 65_535:
-                        raise ValueError("too many overlay action labels")
+                        raise ValueError("too many AnalysisData action labels")
                     action_label_lookup[normalized_action] = action_id
                     action_labels.append(normalized_action)
                 action_label_ids.append(action_id)
@@ -197,7 +210,7 @@ def build_tracking_overlay(
         for keypoint in keypoints:
             keypoint_id = int(keypoint.get("keypoint_id", keypoint.get("index", -1)))
             if keypoint_id < 0 or keypoint_id >= 65_535:
-                raise ValueError("court keypoint id is outside the VOV1 ushort range")
+                raise ValueError("court keypoint id is outside the VAD1 ushort range")
             x, y = _position(keypoint.get("frame_pos"), name="court_keypoint.frame_pos")
             if not 0.0 <= x <= 1.0 or not 0.0 <= y <= 1.0:
                 continue
@@ -217,10 +230,16 @@ def build_tracking_overlay(
         "rally_id": builder.CreateString(job.rally_id),
         "match_id": builder.CreateString(job.match_id),
         "clip_asset_id": builder.CreateString(job.clip.clip_asset_id),
-        "analysis_id": builder.CreateString(analysis_id),
-        "analysis_version": builder.CreateString(analysis_version),
+        "analysis_id": builder.CreateString(domain.analysis_id),
+        "analysis_version": builder.CreateString(domain.analysis_version),
         "taxonomy_id": builder.CreateString(action_taxonomy_id),
         "taxonomy_version": builder.CreateString(action_taxonomy_version),
+        "domain_json": builder.CreateString(_domain_json(domain)),
+        "input_clip_sha256": builder.CreateString(domain.input_clip_sha256),
+        "producer_name": builder.CreateString(domain.producer.name),
+        "producer_build_id": builder.CreateString(domain.producer.build_id),
+        "producer_sdk_version": builder.CreateString(domain.producer.sdk_version or ""),
+        "execution_manifest_json": builder.CreateString(job.analysis_plan.model_dump_json()),
     }
     empty_u32 = _scalar_vector(builder, [], 4)
     action_label_strings = [builder.CreateString(label) for label in action_labels]
@@ -245,7 +264,7 @@ def build_tracking_overlay(
         builder.PrependUOffsetTRelative(label)
     action_labels_vector = builder.EndVector()
 
-    builder.StartObject(34)
+    builder.StartObject(40)
     builder.PrependUint32Slot(0, 10_000, 10_000)
     builder.PrependUOffsetTRelativeSlot(1, strings["ai_job_id"], 0)
     builder.PrependUOffsetTRelativeSlot(2, strings["submission_id"], 0)
@@ -280,15 +299,21 @@ def build_tracking_overlay(
     builder.PrependUOffsetTRelativeSlot(31, court_keypoint_ids_vector, 0)
     builder.PrependUOffsetTRelativeSlot(32, court_keypoint_positions_vector, 0)
     builder.PrependUOffsetTRelativeSlot(33, court_keypoint_confidences_vector, 0)
+    builder.PrependUOffsetTRelativeSlot(34, strings["domain_json"], 0)
+    builder.PrependUOffsetTRelativeSlot(35, strings["input_clip_sha256"], 0)
+    builder.PrependUOffsetTRelativeSlot(36, strings["producer_name"], 0)
+    builder.PrependUOffsetTRelativeSlot(37, strings["producer_build_id"], 0)
+    builder.PrependUOffsetTRelativeSlot(38, strings["producer_sdk_version"], 0)
+    builder.PrependUOffsetTRelativeSlot(39, strings["execution_manifest_json"], 0)
     root = builder.EndObject()
     builder.Finish(root, file_identifier=FILE_IDENTIFIER)
     result = bytes(builder.Output())
-    validate_overlay_bytes(result)
+    validate_analysis_data_bytes(result)
     return result
 
 
-def build_empty_overlay(job: "AIJobRequest", *, analysis_id: str, analysis_version: str) -> bytes:
-    """Build a contract-valid VOV1 sequence containing no model detections.
+def build_empty_analysis_data(job: "AIJobRequest", *, domain: "AnalysisDomainData") -> bytes:
+    """Build a contract-valid VAD1 artifact containing no model detections.
 
     This is intended for recorded replay or baseline providers. Missing ball/player data is
     represented by zero flags, not fabricated coordinates or confidence.
@@ -302,9 +327,15 @@ def build_empty_overlay(job: "AIJobRequest", *, analysis_id: str, analysis_versi
         "rally_id": builder.CreateString(job.rally_id),
         "match_id": builder.CreateString(job.match_id),
         "clip_asset_id": builder.CreateString(job.clip.clip_asset_id),
-        "analysis_id": builder.CreateString(analysis_id),
-        "analysis_version": builder.CreateString(analysis_version),
+        "analysis_id": builder.CreateString(domain.analysis_id),
+        "analysis_version": builder.CreateString(domain.analysis_version),
         "empty": builder.CreateString(""),
+        "domain_json": builder.CreateString(_domain_json(domain)),
+        "input_clip_sha256": builder.CreateString(domain.input_clip_sha256),
+        "producer_name": builder.CreateString(domain.producer.name),
+        "producer_build_id": builder.CreateString(domain.producer.build_id),
+        "producer_sdk_version": builder.CreateString(domain.producer.sdk_version or ""),
+        "execution_manifest_json": builder.CreateString(job.analysis_plan.model_dump_json()),
     }
     frame_offsets = _scalar_vector(builder, [0] * (total_frames + 1), 4)
     court_keypoint_frame_offsets = _scalar_vector(builder, [0] * (total_frames + 1), 4)
@@ -318,7 +349,7 @@ def build_empty_overlay(job: "AIJobRequest", *, analysis_id: str, analysis_versi
     ball_flags = _scalar_vector(builder, [0] * total_frames, 1)
     ball_confidences = _scalar_vector(builder, [0] * total_frames, 1)
 
-    builder.StartObject(34)
+    builder.StartObject(40)
     builder.PrependUint32Slot(0, 10_000, 10_000)
     builder.PrependUOffsetTRelativeSlot(1, strings["ai_job_id"], 0)
     builder.PrependUOffsetTRelativeSlot(2, strings["submission_id"], 0)
@@ -353,12 +384,19 @@ def build_empty_overlay(job: "AIJobRequest", *, analysis_id: str, analysis_versi
     builder.PrependUOffsetTRelativeSlot(31, empty_u16, 0)
     builder.PrependUOffsetTRelativeSlot(32, empty_frame_pos, 0)
     builder.PrependUOffsetTRelativeSlot(33, empty_u8, 0)
+    builder.PrependUOffsetTRelativeSlot(34, strings["domain_json"], 0)
+    builder.PrependUOffsetTRelativeSlot(35, strings["input_clip_sha256"], 0)
+    builder.PrependUOffsetTRelativeSlot(36, strings["producer_name"], 0)
+    builder.PrependUOffsetTRelativeSlot(37, strings["producer_build_id"], 0)
+    builder.PrependUOffsetTRelativeSlot(38, strings["producer_sdk_version"], 0)
+    builder.PrependUOffsetTRelativeSlot(39, strings["execution_manifest_json"], 0)
     root = builder.EndObject()
     builder.Finish(root, file_identifier=FILE_IDENTIFIER)
     result = bytes(builder.Output())
-    validate_overlay_bytes(result)
+    validate_analysis_data_bytes(result)
     return result
 
 def quantize_frame_coordinate(value: float) -> int:
-    if not 0 <= value <= 1: raise ValueError("frame coordinate outside [0,1]")
+    if not 0 <= value <= 1:
+        raise ValueError("frame coordinate outside [0,1]")
     return round(value * 65534)

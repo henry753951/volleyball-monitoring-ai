@@ -70,6 +70,27 @@ describe('canonical clip timing', () => {
     }])).toThrow('has no exact source sample')
   })
 
+  it('includes an immutable end boundary at the exact requested end with zero post-roll', () => {
+    const source = segment([33_366n, 33_367n, 33_366n])
+    const endBoundary = source.index.samples[2]!
+    const selected = selectCanonicalClipRange(
+      [source],
+      0n,
+      endBoundary.captureTimeUs,
+      [{
+        id: 'end-boundary',
+        captureEpochId: source.captureEpochId,
+        sourcePts: endBoundary.sourcePts,
+        captureTimeUs: endBoundary.captureTimeUs,
+        captureFrameIndex: endBoundary.captureFrameIndex,
+      }],
+    )
+
+    expect(selected.sourceSamples).toHaveLength(3)
+    expect(selected.keyPointOrdinals.get('end-boundary')).toBe(2)
+    expect(selected.actualEndCaptureUs).toBe(100_099n)
+  })
+
   it('preserves exact anchors across a contiguous OME epoch PTS reset', () => {
     const first = segment([16_000n, 16_000n])
     const reset = segment([16_000n, 16_000n])
@@ -207,5 +228,31 @@ describe('canonical clip timing', () => {
     })
     expect(() => parseCanonicalClipProbe(payload, 4, { fpsNum: 30, fpsDen: 1 }))
       .toThrow('frame count mismatch')
+  })
+
+  it('derives a missing final packet duration from the exact stream end', () => {
+    const video = parseCanonicalClipProbe({
+      streams: [{
+        codec_type: 'video',
+        width: 1920,
+        height: 1080,
+        avg_frame_rate: '60000/1001',
+        time_base: '1/60000',
+        start_pts: '0',
+        duration_ts: '3003',
+      }],
+      frames: [
+        { media_type: 'video', pts: '0', pkt_duration: '1001', key_frame: 1 },
+        { media_type: 'video', pts: '1001', pkt_duration: '1001', key_frame: 0 },
+        { media_type: 'video', pts: '2002', key_frame: 0 },
+      ],
+    }, 3, { fpsNum: 60, fpsDen: 1 })
+
+    expect(video.frames).toEqual([
+      { pts: 0n, durationPts: 1001n },
+      { pts: 1001n, durationPts: 1001n },
+      { pts: 2002n, durationPts: 1001n },
+    ])
+    expect(video.durationUs).toBe(50_050n)
   })
 })

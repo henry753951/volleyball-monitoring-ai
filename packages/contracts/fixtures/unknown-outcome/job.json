@@ -1,5 +1,5 @@
 {
-  "schema_version": "1.1.0",
+  "schema_version": "3.0.0",
   "ai_job_id": "018f6d86-2d8c-7f10-9c1b-0f0c32aa6001",
   "rally_submission_id": "018f6d86-2d8c-7f10-9c1b-0f0c32aa3101",
   "rally_id": "018f6d86-2d8c-7f10-9c1b-0f0c32aa3001",
@@ -32,7 +32,7 @@
     {
       "key_point_id": "018f6d86-2d8c-7f10-9c1b-0f0c32aa4000",
       "sequence_index": 0,
-      "marker_kind": "service",
+      "marker_kind": "contact",
       "is_terminal": false,
       "clip_pts": "300300",
       "clip_time_us": "5005000",
@@ -51,12 +51,22 @@
       "key_point_id": "018f6d86-2d8c-7f10-9c1b-0f0c32aa4002",
       "sequence_index": 2,
       "marker_kind": "contact",
-      "is_terminal": true,
+      "is_terminal": false,
       "clip_pts": "480480",
       "clip_time_us": "8008000",
       "clip_frame_index": "480"
     }
   ],
+  "boundaries": [
+    { "kind": "start", "clip_pts": "0", "clip_time_us": "0", "clip_frame_index": "0" },
+    { "kind": "end", "clip_pts": "1079078", "clip_time_us": "18001333", "clip_frame_index": "1078" }
+  ],
+  "analysis_plan": {
+    "mode": "full",
+    "modules": { "court": "run", "tracking": "run", "reid": "run", "contacts": "run" },
+    "source_analysis_data": null,
+    "preserve_manual_corrections": true
+  },
   "outcome": {
     "score_resolution": "unknown",
     "scoring_court_side": null

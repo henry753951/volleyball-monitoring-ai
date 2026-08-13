@@ -30,16 +30,16 @@ describe("golden contract fixtures", () => {
   });
   it("validates every AI fixture against the current schemas", () => {
     const validateJob = validator("ai/job.schema.json");
-    const validateResult = validator("ai/result.schema.json");
+    const validateAnalysisData = validator("ai/analysis-data-domain.schema.json");
     for (const name of readdirSync(resolve(root, "fixtures"))) {
       expect(validateJob(load(`fixtures/${name}/job.json`)), name).toBe(true);
-      expect(validateResult(load(`fixtures/${name}/result.json`)), name).toBe(true);
+      expect(validateAnalysisData(load(`fixtures/${name}/analysis-data-domain.json`)), name).toBe(true);
     }
   });
 
   it("preserves resolved-multiple semantics and passthrough order", () => {
     const job = load("fixtures/resolved-multiple/job.json");
-    const result = load("fixtures/resolved-multiple/result.json");
+    const result = load("fixtures/resolved-multiple/analysis-data-domain.json");
     expect(result.contact_events.map((event: any) => event.key_point_id)).toEqual(job.key_points.map((point: any) => point.key_point_id));
     const event = result.contact_events.find((item: any) => item.association_state === "resolved_multiple");
     expect(event.actors.length).toBeGreaterThanOrEqual(2);
@@ -69,10 +69,12 @@ describe("golden contract fixtures", () => {
       "examples/annotation/submit.json": "annotation/realtime.schema.json",
       "examples/ai/capabilities.json": "ai/capabilities.schema.json",
       "examples/ai/job-accepted.json": "ai/job-accepted.schema.json",
-      "examples/ai/overlay-manifest.json": "ai/overlay-manifest.schema.json",
+      "examples/ai/analysis-data-manifest.json": "ai/analysis-data-manifest.schema.json",
       "examples/ai/provider-hello.json": "ai/provider-realtime.schema.json",
       "examples/ai/job-offer.json": "ai/provider-realtime.schema.json",
       "examples/ai/abort-job.json": "ai/provider-realtime.schema.json",
+      "examples/ai/boundary-job.json": "ai/job.schema.json",
+      "examples/ai/reid-feature-bank-v1.json": "ai/reid-feature-bank-v1.schema.json",
       "examples/analysis/review-patch.json": "analysis/review-patch.schema.json",
       "examples/analysis/review-state.json": "analysis/review-state.schema.json",
       "examples/analysis/review-revision-event.json": "analysis/review-revision-event.schema.json",
@@ -217,7 +219,7 @@ describe("golden contract fixtures", () => {
       },
       {
         ...common, type: "rally_processing_update", rally_id: uuid(5), submission_id: uuid(6),
-        processing_status: "ai_processing", analysis_id: null, overlay_version: null, error: null,
+        processing_status: "ai_processing", analysis_id: null, analysis_data_version: null, error: null,
       },
     ];
     for (const message of messages) expect(parseAnnotationServerMessage(message).type).toBe(message.type);

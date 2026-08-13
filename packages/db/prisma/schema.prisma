@@ -90,6 +90,11 @@ enum MarkerKind {
   CONTACT
 }
 
+enum RallyBoundaryKind {
+  START
+  END
+}
+
 enum TimingPrecision {
   FRAME_EXACT
   PTS_EXACT
@@ -103,6 +108,7 @@ enum ScoreResolutionState {
 }
 
 enum SubmissionScoreResolution {
+  PENDING
   RESOLVED
   UNKNOWN
 }
@@ -163,9 +169,8 @@ enum MediaAssetKind {
   CANONICAL_CLIP
   PREVIEW_CLIP
   TIMING_MANIFEST
-  ANALYSIS_JSON
-  OVERLAY_SEQUENCE
-  OVERLAY_CHUNK
+  ANALYSIS_DATA
+  ANALYSIS_FRAME_CHUNK
 }
 
 enum AssociationState {
@@ -199,6 +204,13 @@ enum IdentitySource {
   PROPAGATED
 }
 
+enum ReidCorrectionKind {
+  FROM_HERE
+  CLIP_ONLY
+  SPLIT_IDENTITY
+  MERGE_IDENTITY
+}
+
 enum CallbackKind {
   PROCESSING
   FAILED
@@ -209,6 +221,12 @@ enum OutboxStatus {
   PENDING
   PUBLISHED
   FAILED
+}
+
+enum AnalysisReviewStatus {
+  EDITING
+  READY
+  APPROVED
 }
 
 model User {
@@ -225,7 +243,10 @@ model User {
   annotationReceipts        AnnotationCommandReceipt[]
   submittedRevisions        RallySubmission[]          @relation("SubmissionSubmittedBy")
   identityAssignments       TrackIdentityAssignment[]
+  reidPlayerBindings        ReidPlayerBinding[]        @relation("ReidBindingAssignedBy")
+  reidCorrectionEvents      ReidCorrectionEvent[]      @relation("ReidCorrectionCreatedBy")
   completedIdentityMappings AnalysisRun[]              @relation("IdentityMappingCompletedBy")
+  approvedAnalysisReviews   AnalysisRun[]              @relation("AnalysisReviewApprovedBy")
   playbackWindows           PlaybackWindow[]           @relation("PlaybackWindowCreatedBy")
 }
 
@@ -254,43 +275,50 @@ model DeviceSession {
 }
 
 model Match {
-  id                  String             @id @default(uuid()) @db.Uuid
+  id                  String                   @id @default(uuid()) @db.Uuid
   title               String
   venue               String?
-  status              MatchStatus        @default(PLANNED)
-  clipPreRollUs       BigInt             @default(3000000)
-  clipPostRollUs      BigInt             @default(3000000)
+  status              MatchStatus              @default(PLANNED)
+  clipPreRollUs       BigInt                   @default(0)
+  clipPostRollUs      BigInt                   @default(0)
   scheduledAt         DateTime?
   deletionRequestedAt DateTime?
-  createdAt           DateTime           @default(now())
-  updatedAt           DateTime           @updatedAt
+  identityRevision    BigInt                   @default(0)
+  createdAt           DateTime                 @default(now())
+  updatedAt           DateTime                 @updatedAt
   members             MatchMember[]
   matchTeams          MatchTeam[]
   sets                MatchSet[]
   rosterEntries       MatchRosterEntry[]
   captureSessions     CaptureSession[]
   rallies             Rally[]
+  reidIdentities      ReidIdentity[]
+  reidObservations    ReidFeatureObservation[]
+  reidCorrections     ReidCorrectionEvent[]
 
   @@index([deletionRequestedAt])
 }
 
 model Team {
-  id                   String                @id @default(uuid()) @db.Uuid
+  id                   String                   @id @default(uuid()) @db.Uuid
   name                 String
   shortName            String
-  createdAt            DateTime              @default(now())
-  updatedAt            DateTime              @updatedAt
+  createdAt            DateTime                 @default(now())
+  updatedAt            DateTime                 @updatedAt
   matchTeams           MatchTeam[]
   players              Player[]
   rosterEntries        MatchRosterEntry[]
-  leftAssignments      CourtSideAssignment[] @relation("AssignmentLeftTeam")
-  rightAssignments     CourtSideAssignment[] @relation("AssignmentRightTeam")
-  scoringRallies       Rally[]               @relation("RallyScoringTeam")
-  submissionLeftTeams  RallySubmission[]     @relation("SubmissionLeftTeam")
-  submissionRightTeams RallySubmission[]     @relation("SubmissionRightTeam")
-  submissionWinners    RallySubmission[]     @relation("SubmissionScoringTeam")
+  leftAssignments      CourtSideAssignment[]    @relation("AssignmentLeftTeam")
+  rightAssignments     CourtSideAssignment[]    @relation("AssignmentRightTeam")
+  scoringRallies       Rally[]                  @relation("RallyScoringTeam")
+  submissionLeftTeams  RallySubmission[]        @relation("SubmissionLeftTeam")
+  submissionRightTeams RallySubmission[]        @relation("SubmissionRightTeam")
+  submissionWinners    RallySubmission[]        @relation("SubmissionScoringTeam")
   pointAwards          PointAward[]
-  wonSets              MatchSet[]            @relation("SetWinningTeam")
+  wonSets              MatchSet[]               @relation("SetWinningTeam")
+  reidIdentities       ReidIdentity[]
+  reidObservations     ReidFeatureObservation[]
+  reidCorrections      ReidCorrectionEvent[]
 }
 
 model MatchTeam {
@@ -327,6 +355,8 @@ model MatchRosterEntry {
   team                Team                      @relation(fields: [teamId], references: [id], onDelete: Restrict)
   player              Player?                   @relation(fields: [playerId], references: [id], onDelete: SetNull)
   identityAssignments TrackIdentityAssignment[]
+  reidBindings        ReidPlayerBinding[]
+  reidCorrections     ReidCorrectionEvent[]
 
   @@index([matchId, teamId, jerseyNumber])
 }
@@ -433,22 +463,24 @@ model MediaSourceWork {
 }
 
 model CaptureEpoch {
-  id                  String                    @id @default(uuid()) @db.Uuid
-  captureSessionId    String                    @db.Uuid
-  sequenceIndex       Int
-  sourceTimeBaseNum   Int
-  sourceTimeBaseDen   Int
-  sourcePtsOrigin     BigInt
-  captureTimeOriginUs BigInt
-  captureFrameOrigin  BigInt
-  startedAtCaptureUs  BigInt
-  endedAtCaptureUs    BigInt?
-  discontinuityReason String?
-  createdAt           DateTime                  @default(now())
-  captureSession      CaptureSession            @relation(fields: [captureSessionId], references: [id], onDelete: Cascade)
-  segments            DvrSegment[]
-  keyPoints           KeyPoint[]
-  submissionKeyPoints RallySubmissionKeyPoint[]
+  id                   String                    @id @default(uuid()) @db.Uuid
+  captureSessionId     String                    @db.Uuid
+  sequenceIndex        Int
+  sourceTimeBaseNum    Int
+  sourceTimeBaseDen    Int
+  sourcePtsOrigin      BigInt
+  captureTimeOriginUs  BigInt
+  captureFrameOrigin   BigInt
+  startedAtCaptureUs   BigInt
+  endedAtCaptureUs     BigInt?
+  discontinuityReason  String?
+  createdAt            DateTime                  @default(now())
+  captureSession       CaptureSession            @relation(fields: [captureSessionId], references: [id], onDelete: Cascade)
+  segments             DvrSegment[]
+  keyPoints            KeyPoint[]
+  submissionKeyPoints  RallySubmissionKeyPoint[]
+  rallyBoundaries      RallyBoundary[]
+  submissionBoundaries RallySubmissionBoundary[]
 
   @@unique([captureSessionId, sequenceIndex])
   @@index([captureSessionId, startedAtCaptureUs, endedAtCaptureUs])
@@ -491,10 +523,9 @@ model MediaAsset {
   dvrSampleIndexSegments DvrSegment[]       @relation("DvrSampleIndexAsset")
   clipOutputs            ClipJob[]          @relation("ClipOutputAsset")
   clipTimingManifests    ClipJob[]          @relation("ClipTimingAsset")
-  analysisRawJson        AnalysisRun[]      @relation("AnalysisRawJson")
-  analysisRawOverlay     AnalysisRun[]      @relation("AnalysisRawOverlay")
+  analysisDataRaw        AnalysisRun[]      @relation("AnalysisDataRaw")
   analysisArtifacts      AnalysisArtifact[]
-  overlayChunks          OverlayChunk[]
+  analysisFrameChunks    AnalysisFrameChunk[]
 
   @@unique([bucket, objectKey])
   @@index([kind, state, createdAt])
@@ -596,11 +627,36 @@ model Rally {
   scoringTeam            Team?                 @relation("RallyScoringTeam", fields: [scoringTeamId], references: [id], onDelete: Restrict)
   activeSubmission       RallySubmission?      @relation("ActiveSubmission", fields: [activeSubmissionId], references: [id], onDelete: SetNull)
   keyPoints              KeyPoint[]
+  boundaries             RallyBoundary[]
   operations             AnnotationOperation[]
   submissions            RallySubmission[]     @relation("RallySubmissions")
 
   @@unique([setId, ordinal])
   @@index([matchId, displaySetNumber, displayOrdinal])
+}
+
+model RallyBoundary {
+  id                     String                    @id @default(uuid()) @db.Uuid
+  rallyId                String                    @db.Uuid
+  kind                   RallyBoundaryKind
+  captureEpochId         String                    @db.Uuid
+  sourcePts              BigInt
+  captureTimeUs          BigInt
+  captureFrameIndex      BigInt
+  timingPrecision        TimingPrecision
+  originalPlaybackCursor Json
+  snapDistanceUs         BigInt?
+  createdByUserId        String                    @db.Uuid
+  updatedByUserId        String                    @db.Uuid
+  deviceSessionId        String                    @db.Uuid
+  createdAt              DateTime                  @default(now())
+  updatedAt              DateTime                  @updatedAt
+  rally                  Rally                     @relation(fields: [rallyId], references: [id], onDelete: Cascade)
+  captureEpoch           CaptureEpoch              @relation(fields: [captureEpochId], references: [id], onDelete: Restrict)
+  submissionCopies       RallySubmissionBoundary[]
+
+  @@unique([rallyId, kind])
+  @@index([rallyId, captureTimeUs])
 }
 
 model KeyPoint {
@@ -713,6 +769,7 @@ model RallySubmission {
   serviceKeyPoint           RallySubmissionKeyPoint?  @relation("SubmissionServiceKeyPoint", fields: [serviceKeyPointId], references: [id], onDelete: Restrict)
   terminalKeyPoint          RallySubmissionKeyPoint?  @relation("SubmissionTerminalKeyPoint", fields: [terminalKeyPointId], references: [id], onDelete: Restrict)
   keyPoints                 RallySubmissionKeyPoint[] @relation("SubmissionKeyPoints")
+  boundaries                RallySubmissionBoundary[]
   pointAward                PointAward?
   clipJobs                  ClipJob[]
   aiJobs                    AiJob[]
@@ -721,7 +778,26 @@ model RallySubmission {
   supersessionLedgerEntries ScoreLedgerEntry[]        @relation("ScoreLedgerSupersededSubmission")
 
   @@unique([rallyId, annotationRevision])
-  @@unique([rallyId, contentHash])
+  @@index([rallyId, contentHash])
+}
+
+model RallySubmissionBoundary {
+  id                    String            @id @default(uuid()) @db.Uuid
+  submissionId          String            @db.Uuid
+  sourceDraftBoundaryId String            @db.Uuid
+  kind                  RallyBoundaryKind
+  captureEpochId        String            @db.Uuid
+  sourcePts             BigInt
+  captureTimeUs         BigInt
+  captureFrameIndex     BigInt
+  timingPrecision       TimingPrecision
+  submission            RallySubmission   @relation(fields: [submissionId], references: [id], onDelete: Restrict)
+  sourceDraftBoundary   RallyBoundary     @relation(fields: [sourceDraftBoundaryId], references: [id], onDelete: Restrict)
+  captureEpoch          CaptureEpoch      @relation(fields: [captureEpochId], references: [id], onDelete: Restrict)
+
+  @@unique([submissionId, kind])
+  @@unique([submissionId, sourceDraftBoundaryId])
+  @@index([captureEpochId])
 }
 
 model RallySubmissionKeyPoint {
@@ -882,7 +958,7 @@ model AiJob {
   idempotencyKey         String              @unique
   requestPayload         Json
   requestPayloadHash     String
-  jobSchemaVersion       String              @default("1.1.0")
+  jobSchemaVersion       String              @default("3.0.0")
   callbackTokenHash      String
   callbackTokenExpiresAt DateTime
   providerInstanceId     String?             @db.Uuid
@@ -951,15 +1027,13 @@ model AnalysisRun {
   submissionId                     String                           @db.Uuid
   analysisId                       String                           @unique
   analysisVersion                  String
-  resultSchemaVersion              String
-  overlaySchemaVersion             String
+  analysisDataSchemaVersion        String
   inputClipSha256                  String
   producerName                     String
   producerBuildId                  String
   producerSdkVersion               String?
   status                           JobStatus                        @default(RUNNING)
-  rawAnalysisAssetId               String?                          @db.Uuid
-  rawOverlayAssetId                String?                          @db.Uuid
+  rawAnalysisDataAssetId           String?                          @db.Uuid
   summary                          Json?
   createdAt                        DateTime                         @default(now())
   activatedAt                      DateTime?
@@ -967,22 +1041,30 @@ model AnalysisRun {
   identityMappingCompletedAt       DateTime?
   identityMappingCompletedByUserId String?                          @db.Uuid
   reviewRevision                   BigInt                           @default(0)
+  reviewStatus                     AnalysisReviewStatus             @default(EDITING)
+  reviewComputedRevision           BigInt?
+  reviewComputedAt                 DateTime?
+  reviewApprovedRevision           BigInt?
+  reviewApprovedAt                 DateTime?
+  reviewApprovedByUserId           String?                          @db.Uuid
   aiJob                            AiJob                            @relation(fields: [aiJobId], references: [id], onDelete: Restrict)
   submission                       RallySubmission                  @relation(fields: [submissionId], references: [id], onDelete: Restrict)
-  rawAnalysisAsset                 MediaAsset?                      @relation("AnalysisRawJson", fields: [rawAnalysisAssetId], references: [id], onDelete: Restrict)
-  rawOverlayAsset                  MediaAsset?                      @relation("AnalysisRawOverlay", fields: [rawOverlayAssetId], references: [id], onDelete: Restrict)
+  rawAnalysisDataAsset             MediaAsset?                      @relation("AnalysisDataRaw", fields: [rawAnalysisDataAssetId], references: [id], onDelete: Restrict)
   tracks                           AnalysisTrack[]
   contactEvents                    ContactEvent[]
   segments                         BallPathSegment[]
   artifacts                        AnalysisArtifact[]
-  overlayManifest                  OverlayManifest?
+  analysisDataManifest             AnalysisDataManifest?
   identityMappingCompletedBy       User?                            @relation("IdentityMappingCompletedBy", fields: [identityMappingCompletedByUserId], references: [id], onDelete: SetNull)
+  reviewApprovedBy                 User?                            @relation("AnalysisReviewApprovedBy", fields: [reviewApprovedByUserId], references: [id], onDelete: SetNull)
   ballCorrections                  AnalysisBallCorrection[]
   actionCorrections                AnalysisActionCorrection[]
   playerBBoxCorrections            AnalysisPlayerBBoxCorrection[]
   contactActorCorrections          AnalysisContactActorCorrection[]
   contactTimeCorrections           AnalysisContactTimeCorrection[]
+  contactEdits                     AnalysisContactEdit[]
   reviewPatchReceipts              AnalysisReviewPatchReceipt[]
+  reidCorrectionEvents             ReidCorrectionEvent[]
 }
 
 model AnalysisBallCorrection {
@@ -1045,6 +1127,23 @@ model AnalysisContactTimeCorrection {
   @@index([analysisRunId, revision])
 }
 
+model AnalysisContactEdit {
+  analysisRunId   String      @db.Uuid
+  contactId       String      @db.Uuid
+  baseKeyPointId  String?     @db.Uuid
+  frameIndex      BigInt
+  trackId         Int?
+  deleted         Boolean     @default(false)
+  revision        BigInt
+  updatedByUserId String      @db.Uuid
+  updatedAt       DateTime    @updatedAt
+  analysisRun     AnalysisRun @relation(fields: [analysisRunId], references: [id], onDelete: Cascade)
+
+  @@id([analysisRunId, contactId])
+  @@index([analysisRunId, revision])
+  @@index([analysisRunId, frameIndex])
+}
+
 model AnalysisActionCorrection {
   analysisRunId   String      @db.Uuid
   frameIndex      BigInt
@@ -1081,10 +1180,10 @@ model AnalysisArtifact {
   @@unique([analysisRunId, kind, assetId])
 }
 
-model OverlayManifest {
+model AnalysisDataManifest {
   analysisRunId   String         @id @db.Uuid
   schemaVersion   String
-  overlayVersion  String
+  analysisDataVersion String
   videoWidth      Int
   videoHeight     Int
   fpsNum          Int
@@ -1094,10 +1193,10 @@ model OverlayManifest {
   actionTaxonomy  Json?
   createdAt       DateTime       @default(now())
   analysisRun     AnalysisRun    @relation(fields: [analysisRunId], references: [id], onDelete: Cascade)
-  chunks          OverlayChunk[]
+  chunks          AnalysisFrameChunk[]
 }
 
-model OverlayChunk {
+model AnalysisFrameChunk {
   analysisRunId   String          @db.Uuid
   chunkIndex      Int
   startFrameIndex BigInt
@@ -1106,7 +1205,7 @@ model OverlayChunk {
   byteLength      BigInt
   sha256          String
   createdAt       DateTime        @default(now())
-  manifest        OverlayManifest @relation(fields: [analysisRunId], references: [analysisRunId], onDelete: Cascade)
+  manifest        AnalysisDataManifest @relation(fields: [analysisRunId], references: [analysisRunId], onDelete: Cascade)
   asset           MediaAsset      @relation(fields: [assetId], references: [id], onDelete: Restrict)
 
   @@id([analysisRunId, chunkIndex])
@@ -1126,6 +1225,7 @@ model AnalysisTrack {
   actors              ContactEventActor[]
   candidates          ContactEventCandidate[]
   identityAssignments TrackIdentityAssignment[]
+  reidObservation     ReidFeatureObservation?
 
   @@id([analysisRunId, trackId])
 }
@@ -1243,17 +1343,135 @@ model BallPathSegmentPosition {
 }
 
 model TrackIdentityAssignment {
-  id               String           @id @default(uuid()) @db.Uuid
-  analysisRunId    String           @db.Uuid
+  id               String             @id @default(uuid()) @db.Uuid
+  analysisRunId    String             @db.Uuid
   trackId          Int
-  rosterEntryId    String           @db.Uuid
+  rosterEntryId    String             @db.Uuid
   source           IdentitySource
-  assignedByUserId String?          @db.Uuid
+  assignedByUserId String?            @db.Uuid
   confidence       Float?
-  createdAt        DateTime         @default(now())
-  track            AnalysisTrack    @relation(fields: [analysisRunId, trackId], references: [analysisRunId, trackId], onDelete: Cascade)
-  rosterEntry      MatchRosterEntry @relation(fields: [rosterEntryId], references: [id], onDelete: Restrict)
-  assignedBy       User?            @relation(fields: [assignedByUserId], references: [id], onDelete: SetNull)
+  reidIdentityId   String?            @db.Uuid
+  reidBindingId    String?            @db.Uuid
+  identityRevision BigInt?
+  createdAt        DateTime           @default(now())
+  track            AnalysisTrack      @relation(fields: [analysisRunId, trackId], references: [analysisRunId, trackId], onDelete: Cascade)
+  rosterEntry      MatchRosterEntry   @relation(fields: [rosterEntryId], references: [id], onDelete: Restrict)
+  assignedBy       User?              @relation(fields: [assignedByUserId], references: [id], onDelete: SetNull)
+  reidIdentity     ReidIdentity?      @relation(fields: [reidIdentityId], references: [id], onDelete: SetNull)
+  reidBinding      ReidPlayerBinding? @relation("ReidAssignmentBinding", fields: [reidBindingId], references: [id], onDelete: SetNull)
 
   @@unique([analysisRunId, trackId])
+  @@index([reidIdentityId])
+  @@index([reidBindingId])
+}
+
+model ReidIdentity {
+  id                     String                    @id @default(uuid()) @db.Uuid
+  matchId                String                    @db.Uuid
+  teamId                 String                    @db.Uuid
+  modelNamespace         String
+  modelName              String
+  modelCheckpointSha256  String
+  modelPreprocessVersion String
+  modelDimension         Int
+  modelDistance          String
+  label                  String
+  createdRevision        BigInt
+  createdAt              DateTime                  @default(now())
+  match                  Match                     @relation(fields: [matchId], references: [id], onDelete: Cascade)
+  team                   Team                      @relation(fields: [teamId], references: [id], onDelete: Restrict)
+  observations           ReidFeatureObservation[]
+  bindings               ReidPlayerBinding[]
+  trackAssignments       TrackIdentityAssignment[]
+  sourceCorrections      ReidCorrectionEvent[]     @relation("ReidCorrectionSource")
+  targetCorrections      ReidCorrectionEvent[]     @relation("ReidCorrectionTarget")
+
+  @@unique([matchId, teamId, modelNamespace, label])
+  @@index([matchId, teamId, modelNamespace, createdAt])
+}
+
+model ReidFeatureObservation {
+  id                     String              @id @default(uuid()) @db.Uuid
+  analysisRunId          String              @db.Uuid
+  trackId                Int
+  matchId                String              @db.Uuid
+  teamId                 String?             @db.Uuid
+  reidIdentityId         String?             @db.Uuid
+  modelNamespace         String
+  modelName              String
+  modelCheckpointSha256  String
+  modelPreprocessVersion String
+  modelDimension         Int
+  modelDistance          String
+  courtSide              TrackCourtSide
+  provisionalGid         String
+  firstFrame             BigInt
+  lastFrame              BigInt
+  sampleCount            Int
+  meanQuality            Float
+  prototype              Bytes
+  cannotLinkTrackIds     Int[]
+  setNumber              Int
+  rallyOrdinal           Int
+  matchConfidence        Float?
+  identityRevision       BigInt
+  createdAt              DateTime            @default(now())
+  track                  AnalysisTrack       @relation(fields: [analysisRunId, trackId], references: [analysisRunId, trackId], onDelete: Cascade)
+  match                  Match               @relation(fields: [matchId], references: [id], onDelete: Cascade)
+  team                   Team?               @relation(fields: [teamId], references: [id], onDelete: Restrict)
+  reidIdentity           ReidIdentity?       @relation(fields: [reidIdentityId], references: [id], onDelete: SetNull)
+  bindings               ReidPlayerBinding[]
+
+  @@unique([analysisRunId, trackId])
+  @@index([matchId, teamId, modelNamespace, setNumber, rallyOrdinal])
+  @@index([reidIdentityId, setNumber, rallyOrdinal])
+}
+
+model ReidPlayerBinding {
+  id                        String                    @id @default(uuid()) @db.Uuid
+  reidIdentityId            String                    @db.Uuid
+  rosterEntryId             String?                   @db.Uuid
+  sourceObservationId       String?                   @db.Uuid
+  effectiveFromSetNumber    Int
+  effectiveFromRallyOrdinal Int
+  source                    IdentitySource            @default(MANUAL)
+  identityRevision          BigInt
+  assignedByUserId          String?                   @db.Uuid
+  createdAt                 DateTime                  @default(now())
+  reidIdentity              ReidIdentity              @relation(fields: [reidIdentityId], references: [id], onDelete: Cascade)
+  rosterEntry               MatchRosterEntry?         @relation(fields: [rosterEntryId], references: [id], onDelete: SetNull)
+  sourceObservation         ReidFeatureObservation?   @relation(fields: [sourceObservationId], references: [id], onDelete: SetNull)
+  assignedBy                User?                     @relation("ReidBindingAssignedBy", fields: [assignedByUserId], references: [id], onDelete: SetNull)
+  trackAssignments          TrackIdentityAssignment[] @relation("ReidAssignmentBinding")
+
+  @@index([reidIdentityId, effectiveFromSetNumber, effectiveFromRallyOrdinal, identityRevision])
+  @@index([rosterEntryId])
+}
+
+model ReidCorrectionEvent {
+  id               String             @id @default(uuid()) @db.Uuid
+  matchId          String             @db.Uuid
+  teamId           String             @db.Uuid
+  analysisRunId    String?            @db.Uuid
+  trackId          Int?
+  sourceIdentityId String?            @db.Uuid
+  targetIdentityId String?            @db.Uuid
+  rosterEntryId    String?            @db.Uuid
+  kind             ReidCorrectionKind
+  identityRevision BigInt
+  createdByUserId  String?            @db.Uuid
+  details          Json?
+  createdAt        DateTime           @default(now())
+  match            Match              @relation(fields: [matchId], references: [id], onDelete: Cascade)
+  team             Team               @relation(fields: [teamId], references: [id], onDelete: Restrict)
+  analysisRun      AnalysisRun?       @relation(fields: [analysisRunId], references: [id], onDelete: SetNull)
+  sourceIdentity   ReidIdentity?      @relation("ReidCorrectionSource", fields: [sourceIdentityId], references: [id], onDelete: SetNull)
+  targetIdentity   ReidIdentity?      @relation("ReidCorrectionTarget", fields: [targetIdentityId], references: [id], onDelete: SetNull)
+  rosterEntry      MatchRosterEntry?  @relation(fields: [rosterEntryId], references: [id], onDelete: SetNull)
+  createdBy        User?              @relation("ReidCorrectionCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+
+  @@unique([matchId, identityRevision])
+  @@index([analysisRunId, trackId])
+  @@index([sourceIdentityId])
+  @@index([targetIdentityId])
 }

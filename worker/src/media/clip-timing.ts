@@ -51,6 +51,8 @@ export interface OutputProbePayload extends FfprobePayload {
     height?: number
     avg_frame_rate?: string
     time_base?: string
+    start_pts?: string
+    duration_ts?: string
   }[]
 }
 
@@ -164,7 +166,10 @@ export function selectCanonicalClipRange(
   const firstOrdinal = allSamples.findIndex(sample =>
     sampleEndCaptureUs(sample, timeBase) > requestedStartCaptureUs,
   )
-  let endOrdinalExclusive = allSamples.findIndex(sample => sample.captureTimeUs >= requestedEndCaptureUs)
+  // A rally END boundary is an observed source frame, not the gap after it.
+  // Keep the sample whose start is exactly the requested end so zero post-roll
+  // clips can still map that immutable boundary without approximating timing.
+  let endOrdinalExclusive = allSamples.findIndex(sample => sample.captureTimeUs > requestedEndCaptureUs)
   if (endOrdinalExclusive < 0) endOrdinalExclusive = allSamples.length
   if (firstOrdinal < 0 || endOrdinalExclusive <= firstOrdinal) {
     throw new Error('requested DVR range does not contain a complete source sample')
@@ -255,10 +260,41 @@ export function parseCanonicalClipProbe(
   if (parsed.frames.length !== expectedFrameCount) {
     throw new Error(`canonical clip frame count mismatch: expected ${expectedFrameCount}, received ${parsed.frames.length}`)
   }
-  const frames = parsed.frames.map((frame) => ({
-    pts: BigInt(frame.pts!),
-    durationPts: BigInt(frame.pkt_duration!),
-  }))
+  const framePts = parsed.frames.map((frame, index) => {
+    try {
+      if (frame.pts === undefined) throw new Error('missing')
+      return BigInt(frame.pts)
+    }
+    catch {
+      throw new Error(`canonical output frame ${index} has invalid PTS`)
+    }
+  })
+  const frames = parsed.frames.map((frame, index) => {
+    const pts = framePts[index]!
+    const nextPts = framePts[index + 1]
+    let packetDuration: bigint | undefined
+    if (frame.pkt_duration !== undefined) {
+      try {
+        packetDuration = BigInt(frame.pkt_duration)
+      }
+      catch {
+        throw new Error(`canonical output frame ${index} has invalid duration`)
+      }
+    }
+    const durationPts = nextPts === undefined
+      ? packetDuration ?? (parsed.streamEndPtsExclusive === undefined ? 0n : parsed.streamEndPtsExclusive - pts)
+      : nextPts - pts
+    if (durationPts <= 0n) throw new Error(`canonical output frame ${index} has invalid timing`)
+    if (
+      nextPts === undefined
+      && packetDuration !== undefined
+      && parsed.streamEndPtsExclusive !== undefined
+      && pts + packetDuration !== parsed.streamEndPtsExclusive
+    ) {
+      throw new Error('canonical output tail duration conflicts with stream duration')
+    }
+    return { pts, durationPts }
+  })
   const firstPts = frames[0]!.pts
   const last = frames.at(-1)!
   if (firstPts < 0n) throw new Error('canonical clip starts with a negative PTS')

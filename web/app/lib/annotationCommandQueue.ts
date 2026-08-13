@@ -20,6 +20,9 @@ export function rebaseQueuedAnnotationCommand(
   command: AnnotationCommand,
   snapshot: AnnotationRallySnapshot | null,
 ): AnnotationCommand | null {
+  if (command.kind === 'START_RALLY') {
+    return snapshot && stateOf(snapshot) === 'open' && !snapshot.snapshot.active_submission_id ? null : command
+  }
   if (command.kind === 'CREATE_SERVICE_KEY_POINT') {
     return snapshot && ['open', 'ready'].includes(stateOf(snapshot) ?? '') ? null : command
   }
@@ -80,17 +83,17 @@ export function projectAnnotationSnapshot(
     const command = entry.command
     if (entry.status !== 'pending') continue
     if (
-      command.kind === 'CREATE_SERVICE_KEY_POINT'
+      (command.kind === 'START_RALLY' || command.kind === 'CREATE_SERVICE_KEY_POINT')
       && (
         !projected
         || projected.rally_id !== command.rally_id
         || ['submitted', 'voided'].includes(projected.snapshot.annotation_status)
       )
     ) {
-      const point = pendingPoint(entry, 0)
-      if (!point || !roomId) continue
+      const point = command.kind === 'CREATE_SERVICE_KEY_POINT' ? pendingPoint(entry, 0) : null
+      if ((!point && command.kind === 'CREATE_SERVICE_KEY_POINT') || !entry.observation || !roomId) continue
       projected = {
-        schema_version: '2.0.0',
+        schema_version: command.kind === 'START_RALLY' ? '3.0.0' : '2.0.0',
         type: 'rally_snapshot',
         room_id: roomId,
         rally_id: command.rally_id,
@@ -102,13 +105,35 @@ export function projectAnnotationSnapshot(
           score_resolution: 'pending',
           scoring_court_side: null,
           processing_status: 'idle',
-          key_points: [point],
+          ...(command.kind === 'START_RALLY'
+            ? {
+                boundaries: [{
+                  kind: 'start' as const,
+                  capture_time_us: entry.observation.capture_time_us,
+                  capture_frame_index: entry.observation.capture_frame_index ?? '0',
+                  timing_precision: 'estimated' as const,
+                }],
+              }
+            : {}),
+          key_points: point ? [point] : [],
         },
       }
       continue
     }
     if (!projected || projected.rally_id !== command.rally_id) continue
-    if (command.kind === 'CREATE_CONTACT_KEY_POINT') {
+    if (command.kind === 'END_RALLY' && entry.observation) {
+      projected.snapshot.boundaries = [
+        ...(projected.snapshot.boundaries ?? []).filter(boundary => boundary.kind !== 'end'),
+        {
+          kind: 'end',
+          capture_time_us: entry.observation.capture_time_us,
+          capture_frame_index: entry.observation.capture_frame_index ?? '0',
+          timing_precision: 'estimated',
+        },
+      ]
+      projected.snapshot.annotation_status = 'ready'
+    }
+    else if (command.kind === 'CREATE_CONTACT_KEY_POINT') {
       const point = pendingPoint(entry, projected.snapshot.key_points.length)
       if (point) {
         projected.snapshot.key_points.push(point)
@@ -118,6 +143,10 @@ export function projectAnnotationSnapshot(
           projected.snapshot.scoring_court_side = null
         }
       }
+    }
+    else if (command.kind === 'SET_RALLY_OUTCOME') {
+      projected.snapshot.score_resolution = command.payload.score_resolution
+      projected.snapshot.scoring_court_side = command.payload.scoring_court_side
     }
     else if (command.kind === 'CLOSE_RALLY') {
       const target = projected.snapshot.key_points.at(-1)
@@ -136,6 +165,30 @@ export function applyAnnotationAckLocally(
   command: AnnotationCommand,
   ack: AnnotationCommandAck,
 ): AnnotationRallySnapshot | null {
+  if (command.kind === 'START_RALLY' && ack.resolved_anchor && ack.effects.boundary_kind === 'start') {
+    return {
+      schema_version: '3.0.0',
+      type: 'rally_snapshot',
+      room_id: command.room_id,
+      rally_id: ack.rally_id,
+      revision: ack.result_revision,
+      server_sequence: ack.server_sequence,
+      snapshot: {
+        annotation_status: 'open',
+        side_assignment_id: 'pending',
+        score_resolution: 'pending',
+        scoring_court_side: null,
+        processing_status: 'idle',
+        boundaries: [{
+          kind: 'start',
+          capture_time_us: ack.resolved_anchor.capture_time_us,
+          capture_frame_index: ack.resolved_anchor.capture_frame_index,
+          timing_precision: ack.resolved_anchor.timing_precision,
+        }],
+        key_points: [],
+      },
+    }
+  }
   if (command.kind === 'CREATE_SERVICE_KEY_POINT' && ack.resolved_anchor && ack.effects.created_key_point_id) {
     return {
       schema_version: '2.0.0',
@@ -170,7 +223,19 @@ export function applyAnnotationAckLocally(
   if (ack.effects.annotation_status) next.snapshot.annotation_status = ack.effects.annotation_status
   if (ack.effects.score_resolution) next.snapshot.score_resolution = ack.effects.score_resolution
   if (ack.effects.scoring_court_side !== undefined) next.snapshot.scoring_court_side = ack.effects.scoring_court_side
-  if (command.kind === 'CREATE_CONTACT_KEY_POINT' && ack.resolved_anchor && ack.effects.created_key_point_id) {
+  if (command.kind === 'END_RALLY' && ack.resolved_anchor && ack.effects.boundary_kind === 'end') {
+    next.schema_version = '3.0.0'
+    next.snapshot.boundaries = [
+      ...(next.snapshot.boundaries ?? []).filter(boundary => boundary.kind !== 'end'),
+      {
+        kind: 'end',
+        capture_time_us: ack.resolved_anchor.capture_time_us,
+        capture_frame_index: ack.resolved_anchor.capture_frame_index,
+        timing_precision: ack.resolved_anchor.timing_precision,
+      },
+    ]
+  }
+  else if (command.kind === 'CREATE_CONTACT_KEY_POINT' && ack.resolved_anchor && ack.effects.created_key_point_id) {
     next.snapshot.key_points.push({
       key_point_id: ack.effects.created_key_point_id,
       sequence_index: next.snapshot.key_points.length,

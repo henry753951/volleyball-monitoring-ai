@@ -1,0 +1,30 @@
+include "analysis-data.fbs";
+namespace Volleyball.AnalysisData.FrameChunk.V1;
+
+table AnalysisFrameChunk {
+  schema_version:uint = 10000;
+  analysis_id:string;
+  analysis_data_version:string;
+  chunk_index:uint;
+  start_frame_index:ulong;
+  frame_count:uint;
+  frame_offsets:[uint];
+  track_ids:[ushort];
+  frame_bboxes:[Volleyball.AnalysisData.V1.FrameBBoxU16];
+  frame_foot_positions:[Volleyball.AnalysisData.V1.FramePosU16];
+  court_positions:[Volleyball.AnalysisData.V1.CourtPosF32];
+  player_flags:[ubyte];
+  player_confidences:[ubyte];
+  action_label_ids:[ushort];
+  action_confidences:[ubyte];
+  ball_frame_positions:[Volleyball.AnalysisData.V1.FramePosU16];
+  ball_flags:[ubyte];
+  ball_confidences:[ubyte];
+  court_keypoint_frame_offsets:[uint];
+  court_keypoint_ids:[ushort];
+  court_keypoint_positions:[Volleyball.AnalysisData.V1.FramePosU16];
+  court_keypoint_confidences:[ubyte];
+}
+
+root_type AnalysisFrameChunk;
+file_identifier "VFC1";

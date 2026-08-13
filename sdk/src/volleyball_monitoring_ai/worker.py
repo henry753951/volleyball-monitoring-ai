@@ -18,7 +18,7 @@ import httpx
 from websockets.asyncio.client import ClientConnection, connect
 
 from .callback import CallbackClient
-from .models import AIJobRequest, AnalysisBundle, ProviderCapabilities
+from .models import AIJobRequest, AnalysisDataBundle, ProviderCapabilities
 from .realtime import (
     AbortAckMessage,
     AbortJobMessage,
@@ -185,9 +185,9 @@ class JobContext:
             )
         )
 
-    async def complete(self, bundle: AnalysisBundle) -> None:
+    async def complete(self, bundle: AnalysisDataBundle) -> None:
         self.cancellation.raise_if_aborted()
-        await self._callback.completed(bundle.result, bundle.overlay_bytes)
+        await self._callback.completed(bundle.analysis_data_bytes)
 
     async def fail(
         self,

@@ -5,22 +5,23 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Transform } from 'node:stream'
 import { pipeline } from 'node:stream/promises'
-import { chunkProviderOverlay, encodeBrowserOverlayChunk, parseProviderOverlaySequence, type ProviderOverlaySequence } from '@volleyball-monitoring/contracts'
+import { chunkAnalysisData, encodeAnalysisFrameChunk, parseAnalysisData, type AnalysisData } from '@volleyball-monitoring/contracts'
 import { db } from '@volleyball-monitoring/db'
-import { ArtifactState, AssociationState, BallObservationState, CallbackKind, JobStatus, MarkerKind, MediaAssetKind, Prisma, ProcessingStatus, SegmentEndpoint, SegmentRenderState, TrackCourtSide } from '@volleyball-monitoring/db/client'
+import { AnalysisReviewStatus, ArtifactState, AssociationState, BallObservationState, CallbackKind, JobStatus, MarkerKind, MediaAssetKind, Prisma, ProcessingStatus, SegmentEndpoint, SegmentRenderState, TrackCourtSide } from '@volleyball-monitoring/db/client'
 import Ajv2020 from 'ajv/dist/2020.js'
 import type { FastifyPluginAsync, FastifyReply } from 'fastify'
 import { Client } from 'minio'
 import type { AiProgressService } from '../realtime/ai-progress.js'
+import { ingestReidFeatureBank, parseReidFeatureBankExtension, ReidFeatureBankError } from '../services/reid-identity.js'
 
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 const ajv = new Ajv2020({ allErrors: true, strict: false })
 ajv.addFormat('uuid', uuid)
 const contractsRoot = new URL('../../../packages/contracts/ai/', import.meta.url)
 const callbackSchema = JSON.parse(await readFile(new URL('callback.schema.json', contractsRoot), 'utf8'))
-const resultSchema = JSON.parse(await readFile(new URL('result.schema.json', contractsRoot), 'utf8'))
+const analysisDataDomainSchema = JSON.parse(await readFile(new URL('analysis-data-domain.schema.json', contractsRoot), 'utf8'))
 const validateCallback = ajv.compile(callbackSchema)
-const validateResult = ajv.compile(resultSchema)
+const validateAnalysisDataDomain = ajv.compile(analysisDataDomainSchema)
 const json = (value: unknown) => JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue
 const isRecord = (value: unknown): value is Record<string, unknown> => value !== null && typeof value === 'object' && !Array.isArray(value)
 const records = (value: unknown) => Array.isArray(value) ? value.filter(isRecord) : []
@@ -50,18 +51,6 @@ function authenticated(token: string | null, expectedHash: string) {
   return actual.length === expected.length && timingSafeEqual(actual, expected)
 }
 
-async function readBounded(stream: NodeJS.ReadableStream, maximum: number) {
-  const chunks: Buffer[] = []
-  let bytes = 0
-  for await (const chunk of stream) {
-    const buffer = Buffer.from(chunk as Uint8Array)
-    bytes += buffer.byteLength
-    if (bytes > maximum) throw new Error('PAYLOAD_TOO_LARGE')
-    chunks.push(buffer)
-  }
-  return Buffer.concat(chunks)
-}
-
 async function writeBounded(stream: NodeJS.ReadableStream, path: string, maximum: number) {
   const digest = createHash('sha256')
   let bytes = 0
@@ -76,15 +65,6 @@ function invariantError(result: Record<string, unknown>, job: Awaited<ReturnType
   for (const [key, value] of Object.entries(expected)) if (result[key] !== value) return `${key} passthrough mismatch`
   const events = result.contact_events
   if (!Array.isArray(events)) return 'contact events are missing'
-  if (result.schema_version === '1.0.0') {
-    if (events.length !== job.submission.keyPoints.length) return 'contact event count does not match immutable key points'
-    for (let index = 0; index < events.length; index += 1) {
-      const event = events[index]
-      const point = job.submission.keyPoints[index]
-      if (!isRecord(event) || !point || event.key_point_id !== point.id || event.sequence_index !== point.sequenceIndex || event.marker_kind !== point.markerKind.toLowerCase() || event.is_terminal !== point.isTerminal) return 'contact event passthrough/order mismatch'
-    }
-    return null
-  }
   const inputById = new Map(job.submission.keyPoints.map(point => [point.id, point]))
   const mappingByPoint = new Map(job.clipJob.keyPointMappings.map(mapping => [mapping.submissionKeyPointId, mapping]))
   const seenIds = new Set<string>()
@@ -112,7 +92,7 @@ function invariantError(result: Record<string, unknown>, job: Awaited<ReturnType
   return null
 }
 
-function overlayInvariantError(overlay: ProviderOverlaySequence, result: Record<string, unknown>, job: NonNullable<Awaited<ReturnType<typeof loadJob>>>) {
+function analysisDataInvariantError(analysisData: AnalysisData, domain: Record<string, unknown>, job: NonNullable<Awaited<ReturnType<typeof loadJob>>>) {
   const expected = {
     aiJobId: job.id,
     rallySubmissionId: job.submissionId,
@@ -120,24 +100,30 @@ function overlayInvariantError(overlay: ProviderOverlaySequence, result: Record<
     matchId: job.submission.rally.matchId,
     annotationRevision: job.submission.annotationRevision.toString(),
     clipAssetId: job.clipJob.clipAssetId ?? '',
-    analysisId: String(result.analysis_id),
-    analysisVersion: String(result.analysis_version),
+    analysisId: String(domain.analysis_id),
+    analysisVersion: String(domain.analysis_version),
   }
   for (const [key, value] of Object.entries(expected)) {
-    const actual = key === 'annotationRevision' ? overlay.annotationRevision.toString() : overlay[key as keyof ProviderOverlaySequence]
-    if (actual !== value) return `overlay ${key} passthrough mismatch`
+    const actual = key === 'annotationRevision' ? analysisData.annotationRevision.toString() : analysisData[key as keyof AnalysisData]
+    if (actual !== value) return `AnalysisData ${key} passthrough mismatch`
   }
   const payload = isRecord(job.requestPayload) ? job.requestPayload : null
   const clip = payload && isRecord(payload.clip) ? payload.clip : null
   const video = clip && isRecord(clip.video) ? clip.video : null
   const fps = video && isRecord(video.fps) ? video.fps : null
   if (!video || !fps) return 'AI request video metadata is unavailable'
-  if (overlay.videoWidth !== video.width || overlay.videoHeight !== video.height || overlay.fpsNum !== fps.num || overlay.fpsDen !== fps.den || overlay.totalFrames.toString() !== video.total_frames) return 'overlay video metadata mismatch'
+  if (analysisData.videoWidth !== video.width || analysisData.videoHeight !== video.height || analysisData.fpsNum !== fps.num || analysisData.fpsDen !== fps.den || analysisData.totalFrames.toString() !== video.total_frames) return 'AnalysisData video metadata mismatch'
+  if (analysisData.domainJson.length === 0 || analysisData.inputClipSha256 !== domain.input_clip_sha256) return 'AnalysisData domain metadata mismatch'
   return null
 }
 
+function analysisDataMaximumBytes() {
+  const value = Number(process.env.AI_CALLBACK_ANALYSIS_DATA_MAX_BYTES ?? 512 * 1024 * 1024)
+  return Number.isSafeInteger(value) && value >= 1 ? value : 512 * 1024 * 1024
+}
+
 function loadJob(aiJobId: string) {
-  return db.aiJob.findUnique({ where: { id: aiJobId }, include: { submission: { include: { rally: { include: { program: true } }, keyPoints: { orderBy: { sequenceIndex: 'asc' } } } }, clipJob: { include: { clipAsset: true, keyPointMappings: true } } } })
+  return db.aiJob.findUnique({ where: { id: aiJobId }, include: { submission: { include: { rally: { include: { program: true, set: true } }, keyPoints: { orderBy: { sequenceIndex: 'asc' } } } }, clipJob: { include: { clipAsset: true, keyPointMappings: true } } } })
 }
 
 export interface AiCallbackRouteDependencies {
@@ -160,17 +146,16 @@ export const aiCallbackRoutesWithDependencies = (
     const directory = await mkdtemp(join(tmpdir(), 'volleyball-callback-'))
     try {
       let metadata: unknown
-      let analysisBytes: Buffer | null = null
-      let overlayPath: string | null = null
-      let overlayInfo: { bytes: number; sha256: string } | null = null
+      let analysisDataPath: string | null = null
+      let analysisDataInfo: { bytes: number; sha256: string } | null = null
       const contentType = request.headers['content-type'] ?? ''
       if (request.isMultipart()) {
+        const maximumBytes = analysisDataMaximumBytes()
         for await (const part of request.parts({
-          limits: { fields: 4, files: 2, fileSize: 512 * 1024 * 1024, parts: 6 },
+          limits: { fields: 2, files: 1, fileSize: maximumBytes, parts: 4 },
         })) {
           if (part.type === 'field' && part.fieldname === 'metadata') metadata = typeof part.value === 'string' ? JSON.parse(part.value) : part.value
-          else if (part.type === 'file' && part.fieldname === 'analysis') analysisBytes = await readBounded(part.file, 10 * 1024 * 1024)
-          else if (part.type === 'file' && part.fieldname === 'overlay') { overlayPath = join(directory, 'overlay.fb'); overlayInfo = await writeBounded(part.file, overlayPath, 512 * 1024 * 1024) }
+          else if (part.type === 'file' && part.fieldname === 'analysis_data') { analysisDataPath = join(directory, 'analysis-data.fb'); analysisDataInfo = await writeBounded(part.file, analysisDataPath, maximumBytes) }
           else if (part.type === 'file') part.file.resume()
         }
       } else {
@@ -178,10 +163,9 @@ export const aiCallbackRoutesWithDependencies = (
       }
       if (!validateCallback(metadata) || !isRecord(metadata) || metadata.ai_job_id !== aiJobId) return reject(reply, 422, 'INVALID_CALLBACK', 'Callback metadata failed schema or job validation')
       const kind = String(metadata.kind)
-      if (kind === 'completed' && (!analysisBytes || !overlayPath || !overlayInfo)) return reject(reply, 422, 'INVALID_CALLBACK', 'Completed callback requires analysis and overlay parts')
+      if (kind === 'completed' && (!analysisDataPath || !analysisDataInfo)) return reject(reply, 422, 'INVALID_CALLBACK', 'Completed callback requires one AnalysisData part')
 
-      const analysisHash = analysisBytes ? sha256(analysisBytes) : null
-      const payloadHash = sha256(`${JSON.stringify(metadata)}:${analysisHash ?? ''}:${overlayInfo?.sha256 ?? ''}`)
+      const payloadHash = sha256(`${JSON.stringify(metadata)}:${analysisDataInfo?.sha256 ?? ''}`)
       const existing = await db.aiCallbackReceipt.findUnique({ where: { callbackId: String(metadata.callback_id) } })
       if (existing) {
         if (existing.aiJobId !== aiJobId || existing.payloadHash !== payloadHash) return reject(reply, 409, 'CALLBACK_ID_CONFLICT', 'Callback ID was already used for another payload')
@@ -217,33 +201,39 @@ export const aiCallbackRoutesWithDependencies = (
         return reply.send(response)
       }
 
-      if (!analysisBytes || !overlayPath || !overlayInfo || analysisHash !== String(metadata.analysis_sha256).toLowerCase() || overlayInfo.sha256 !== String(metadata.overlay_sha256).toLowerCase() || analysisBytes.byteLength !== Number(metadata.analysis_bytes) || overlayInfo.bytes !== Number(metadata.overlay_bytes)) return reject(reply, 422, 'CHECKSUM_MISMATCH', 'Completed callback artifact checksum or length mismatch')
-      const overlayBytes = await readFile(overlayPath)
-      if (overlayInfo.bytes < 16 || overlayBytes.subarray(4, 8).toString('ascii') !== 'VOV1') return reject(reply, 415, 'INVALID_OVERLAY', 'Overlay is not a VOV1 FlatBuffer')
-      const result = JSON.parse(analysisBytes.toString('utf8')) as unknown
-      if (!validateResult(result) || !isRecord(result)) return reject(reply, 422, 'INVALID_ANALYSIS', 'Analysis result failed schema validation')
+      if (!analysisDataPath || !analysisDataInfo || analysisDataInfo.sha256 !== String(metadata.analysis_data_sha256).toLowerCase() || analysisDataInfo.bytes !== Number(metadata.analysis_data_bytes)) return reject(reply, 422, 'CHECKSUM_MISMATCH', 'Completed callback AnalysisData checksum or length mismatch')
+      const analysisDataBytes = await readFile(analysisDataPath)
+      if (analysisDataInfo.bytes < 16 || analysisDataBytes.subarray(4, 8).toString('ascii') !== 'VAD1') return reject(reply, 415, 'INVALID_ANALYSIS_DATA', 'AnalysisData is not a VAD1 FlatBuffer')
+      let analysisData: AnalysisData
+      try { analysisData = parseAnalysisData(analysisDataBytes) }
+      catch { return reject(reply, 415, 'INVALID_ANALYSIS_DATA', 'AnalysisData FlatBuffer failed schema or column validation') }
+      let result: unknown
+      try { result = JSON.parse(analysisData.domainJson) as unknown }
+      catch { return reject(reply, 422, 'INVALID_ANALYSIS_DATA', 'AnalysisData domain payload is not valid JSON') }
+      if (!validateAnalysisDataDomain(result) || !isRecord(result)) return reject(reply, 422, 'INVALID_ANALYSIS_DATA', 'AnalysisData domain payload failed schema validation')
       const invariant = invariantError(result, job)
       if (invariant) return reject(reply, 409, 'PASSTHROUGH_MISMATCH', invariant)
-      let overlaySequence: ProviderOverlaySequence
-      try { overlaySequence = parseProviderOverlaySequence(overlayBytes) }
-      catch { return reject(reply, 415, 'INVALID_OVERLAY', 'Overlay FlatBuffer failed schema or column validation') }
-      const overlayInvariant = overlayInvariantError(overlaySequence, result, job)
-      if (overlayInvariant) return reject(reply, 409, 'PASSTHROUGH_MISMATCH', overlayInvariant)
-      const overlayChunkFrameCount = Number(process.env.OVERLAY_CHUNK_FRAME_COUNT ?? 120)
-      if (!Number.isSafeInteger(overlayChunkFrameCount) || overlayChunkFrameCount < 1 || overlayChunkFrameCount > 3_600) return reject(reply, 503, 'OVERLAY_CONFIGURATION_INVALID', 'Overlay chunk configuration is invalid')
-      const browserChunks = chunkProviderOverlay(overlaySequence, overlayChunkFrameCount).map((chunk) => {
-        const bytes = Buffer.from(encodeBrowserOverlayChunk(chunk))
+      let reidFeatureBank
+      try { reidFeatureBank = parseReidFeatureBankExtension(result) }
+      catch (error) {
+        if (error instanceof ReidFeatureBankError) return reject(reply, 422, 'INVALID_REID_FEATURE_BANK', error.message)
+        throw error
+      }
+      const analysisDataInvariant = analysisDataInvariantError(analysisData, result, job)
+      if (analysisDataInvariant) return reject(reply, 409, 'PASSTHROUGH_MISMATCH', analysisDataInvariant)
+      const analysisFrameChunkCount = Number(process.env.ANALYSIS_FRAME_CHUNK_COUNT ?? 120)
+      if (!Number.isSafeInteger(analysisFrameChunkCount) || analysisFrameChunkCount < 1 || analysisFrameChunkCount > 3_600) return reject(reply, 503, 'ANALYSIS_DATA_CONFIGURATION_INVALID', 'AnalysisData chunk configuration is invalid')
+      const browserChunks = chunkAnalysisData(analysisData, analysisFrameChunkCount).map((chunk) => {
+        const bytes = Buffer.from(encodeAnalysisFrameChunk(chunk))
         return { chunk, bytes, sha256: sha256(bytes) }
       })
 
       const objectStore = storage()
-      const analysisKey = `analysis/${job.submissionId}/${aiJobId}/${metadata.callback_id}.json`
-      const overlayKey = `analysis/${job.submissionId}/${aiJobId}/${metadata.callback_id}.fb`
-      await objectStore.client.putObject(objectStore.bucket, analysisKey, analysisBytes, analysisBytes.byteLength, { 'Content-Type': 'application/json', 'x-amz-meta-sha256': analysisHash, 'x-amz-meta-byte-length': String(analysisBytes.byteLength), 'x-amz-meta-artifact-kind': 'analysis-json' })
-      await objectStore.client.fPutObject(objectStore.bucket, overlayKey, overlayPath, { 'Content-Type': 'application/vnd.volleyball.overlay+flatbuffers;version=1', 'x-amz-meta-sha256': overlayInfo.sha256, 'x-amz-meta-byte-length': String(overlayInfo.bytes), 'x-amz-meta-artifact-kind': 'overlay-sequence' })
+      const analysisDataKey = `analysis/${job.submissionId}/${aiJobId}/${metadata.callback_id}/analysis-data.fb`
+      await objectStore.client.fPutObject(objectStore.bucket, analysisDataKey, analysisDataPath, { 'Content-Type': 'application/vnd.volleyball.analysis-data+flatbuffers;version=1', 'x-amz-meta-sha256': analysisDataInfo.sha256, 'x-amz-meta-byte-length': String(analysisDataInfo.bytes), 'x-amz-meta-artifact-kind': 'analysis-data' })
       for (const item of browserChunks) {
-        const chunkKey = `analysis/${job.submissionId}/${aiJobId}/${metadata.callback_id}/chunks/${item.chunk.chunkIndex}.fb`
-        await objectStore.client.putObject(objectStore.bucket, chunkKey, item.bytes, item.bytes.byteLength, { 'Content-Type': 'application/vnd.volleyball.overlay-chunk+flatbuffers;version=1', 'x-amz-meta-sha256': item.sha256, 'x-amz-meta-byte-length': String(item.bytes.byteLength), 'x-amz-meta-artifact-kind': 'overlay-chunk' })
+        const chunkKey = `analysis/${job.submissionId}/${aiJobId}/${metadata.callback_id}/frame-chunks/${item.chunk.chunkIndex}.fb`
+        await objectStore.client.putObject(objectStore.bucket, chunkKey, item.bytes, item.bytes.byteLength, { 'Content-Type': 'application/vnd.volleyball.analysis-frame-chunk+flatbuffers;version=1', 'x-amz-meta-sha256': item.sha256, 'x-amz-meta-byte-length': String(item.bytes.byteLength), 'x-amz-meta-artifact-kind': 'analysis-frame-chunk' })
       }
       const producer = isRecord(result.producer) ? result.producer : {}
       const response = { schema_version: '1.0.0', accepted: true, callback_id: metadata.callback_id, analysis_id: result.analysis_id }
@@ -251,21 +241,51 @@ export const aiCallbackRoutesWithDependencies = (
         await tx.$queryRaw`SELECT id FROM "AiJob" WHERE id = ${aiJobId}::uuid FOR UPDATE`
         const current = await tx.aiJob.findUnique({ where: { id: aiJobId }, select: { status: true, submission: { select: { rally: { select: { voidedAt: true } } } } } })
         if (!current || current.status === JobStatus.CANCELLED || current.status === JobStatus.SUPERSEDED || current.submission.rally.voidedAt) throw new Error('AI_JOB_NOT_ACTIVE')
-        const resultSchemaVersion = String(result.schema_version)
-        const rawAnalysis = await tx.mediaAsset.create({ data: { kind: MediaAssetKind.ANALYSIS_JSON, bucket: objectStore.bucket, objectKey: analysisKey, contentType: 'application/json', byteLength: BigInt(analysisBytes!.byteLength), sha256: analysisHash!, internalSchemaVersion: resultSchemaVersion, state: ArtifactState.READY, readyAt: new Date() } })
-        const rawOverlay = await tx.mediaAsset.create({ data: { kind: MediaAssetKind.OVERLAY_SEQUENCE, bucket: objectStore.bucket, objectKey: overlayKey, contentType: 'application/vnd.volleyball.overlay+flatbuffers;version=1', byteLength: BigInt(overlayInfo!.bytes), sha256: overlayInfo!.sha256, internalSchemaVersion: '1.0.0', state: ArtifactState.READY, readyAt: new Date() } })
-        const analysisRun = await tx.analysisRun.create({ data: { aiJobId, submissionId: job.submissionId, analysisId: String(result.analysis_id), analysisVersion: String(result.analysis_version), resultSchemaVersion, overlaySchemaVersion: 'flatbuffers_v1', inputClipSha256: String(result.input_clip_sha256), producerName: String(producer.name), producerBuildId: String(producer.build_id), producerSdkVersion: typeof producer.sdk_version === 'string' ? producer.sdk_version : null, status: JobStatus.COMPLETED, rawAnalysisAssetId: rawAnalysis.id, rawOverlayAssetId: rawOverlay.id, summary: json(result.summary), activatedAt: new Date() } })
-        await tx.overlayManifest.create({ data: { analysisRunId: analysisRun.id, schemaVersion: '1.0.0', overlayVersion: '1', videoWidth: overlaySequence.videoWidth, videoHeight: overlaySequence.videoHeight, fpsNum: overlaySequence.fpsNum, fpsDen: overlaySequence.fpsDen, totalFrames: overlaySequence.totalFrames, chunkFrameCount: overlayChunkFrameCount, actionTaxonomy: overlaySequence.actionTaxonomyId ? json({ id: overlaySequence.actionTaxonomyId, version: overlaySequence.actionTaxonomyVersion, labels: overlaySequence.actionLabels }) : Prisma.JsonNull } })
+        const analysisDataSchemaVersion = String(result.schema_version)
+        const requestPayloadRoot = isRecord(job.requestPayload) ? job.requestPayload : {}
+        const requestAnalysisPlan = isRecord(requestPayloadRoot.analysis_plan) ? requestPayloadRoot.analysis_plan : {}
+        const preserveManualCorrections = requestAnalysisPlan.preserve_manual_corrections !== false
+        const predecessorSubmissionId = job.submission.supersedesSubmissionId
+        const priorRun = preserveManualCorrections ? await tx.analysisRun.findFirst({
+          where: {
+            submissionId: predecessorSubmissionId
+              ? { in: [job.submissionId, predecessorSubmissionId] }
+              : job.submissionId,
+            status: JobStatus.COMPLETED,
+          },
+          orderBy: [{ activatedAt: 'desc' }, { createdAt: 'desc' }],
+          include: {
+            ballCorrections: true,
+            playerBBoxCorrections: true,
+            actionCorrections: true,
+            contactActorCorrections: true,
+            contactTimeCorrections: true,
+            contactEdits: true,
+            tracks: { include: { identityAssignments: true } },
+          },
+        }) : null
+        const rawAnalysisData = await tx.mediaAsset.create({ data: { kind: MediaAssetKind.ANALYSIS_DATA, bucket: objectStore.bucket, objectKey: analysisDataKey, contentType: 'application/vnd.volleyball.analysis-data+flatbuffers;version=1', byteLength: BigInt(analysisDataInfo!.bytes), sha256: analysisDataInfo!.sha256, internalSchemaVersion: analysisDataSchemaVersion, state: ArtifactState.READY, readyAt: new Date() } })
+        const analysisRun = await tx.analysisRun.create({ data: { aiJobId, submissionId: job.submissionId, analysisId: String(result.analysis_id), analysisVersion: String(result.analysis_version), analysisDataSchemaVersion, inputClipSha256: String(result.input_clip_sha256), producerName: String(producer.name), producerBuildId: String(producer.build_id), producerSdkVersion: typeof producer.sdk_version === 'string' ? producer.sdk_version : null, status: JobStatus.COMPLETED, rawAnalysisDataAssetId: rawAnalysisData.id, summary: json(result.summary), activatedAt: new Date(), ...(priorRun ? { reviewRevision: priorRun.reviewRevision, reviewStatus: AnalysisReviewStatus.EDITING } : {}) } })
+        await tx.analysisDataManifest.create({ data: { analysisRunId: analysisRun.id, schemaVersion: '1.0.0', analysisDataVersion: '1', videoWidth: analysisData.videoWidth, videoHeight: analysisData.videoHeight, fpsNum: analysisData.fpsNum, fpsDen: analysisData.fpsDen, totalFrames: analysisData.totalFrames, chunkFrameCount: analysisFrameChunkCount, actionTaxonomy: analysisData.actionTaxonomyId ? json({ id: analysisData.actionTaxonomyId, version: analysisData.actionTaxonomyVersion, labels: analysisData.actionLabels }) : Prisma.JsonNull } })
         for (const item of browserChunks) {
-          const chunkKey = `analysis/${job.submissionId}/${aiJobId}/${metadata.callback_id}/chunks/${item.chunk.chunkIndex}.fb`
-          const asset = await tx.mediaAsset.create({ data: { kind: MediaAssetKind.OVERLAY_CHUNK, bucket: objectStore.bucket, objectKey: chunkKey, contentType: 'application/vnd.volleyball.overlay-chunk+flatbuffers;version=1', byteLength: BigInt(item.bytes.byteLength), sha256: item.sha256, internalSchemaVersion: '1.0.0', state: ArtifactState.READY, readyAt: new Date() } })
-          await tx.overlayChunk.create({ data: { analysisRunId: analysisRun.id, chunkIndex: item.chunk.chunkIndex, startFrameIndex: item.chunk.startFrameIndex, frameCount: item.chunk.frameCount, assetId: asset.id, byteLength: BigInt(item.bytes.byteLength), sha256: item.sha256 } })
-          await tx.analysisArtifact.create({ data: { analysisRunId: analysisRun.id, kind: MediaAssetKind.OVERLAY_CHUNK, assetId: asset.id } })
+          const chunkKey = `analysis/${job.submissionId}/${aiJobId}/${metadata.callback_id}/frame-chunks/${item.chunk.chunkIndex}.fb`
+          const asset = await tx.mediaAsset.create({ data: { kind: MediaAssetKind.ANALYSIS_FRAME_CHUNK, bucket: objectStore.bucket, objectKey: chunkKey, contentType: 'application/vnd.volleyball.analysis-frame-chunk+flatbuffers;version=1', byteLength: BigInt(item.bytes.byteLength), sha256: item.sha256, internalSchemaVersion: '1.0.0', state: ArtifactState.READY, readyAt: new Date() } })
+          await tx.analysisFrameChunk.create({ data: { analysisRunId: analysisRun.id, chunkIndex: item.chunk.chunkIndex, startFrameIndex: item.chunk.startFrameIndex, frameCount: item.chunk.frameCount, assetId: asset.id, byteLength: BigInt(item.bytes.byteLength), sha256: item.sha256 } })
+          await tx.analysisArtifact.create({ data: { analysisRunId: analysisRun.id, kind: MediaAssetKind.ANALYSIS_FRAME_CHUNK, assetId: asset.id } })
         }
         const tracks = records(result.tracks)
         if (tracks.length) await tx.analysisTrack.createMany({ data: tracks.map(track => ({ analysisRunId: analysisRun.id, trackId: Number(track.track_id), courtSide: String(track.court_side).toUpperCase() as TrackCourtSide, firstFrame: BigInt(String(track.first_frame_index)), lastFrame: BigInt(String(track.last_frame_index)), meanConfidence: typeof track.mean_confidence === 'number' ? track.mean_confidence : null, metadata: track.metadata === undefined ? Prisma.JsonNull : json(track.metadata) })) })
+        await ingestReidFeatureBank(tx, {
+          analysisRunId: analysisRun.id,
+          matchId: job.submission.rally.matchId,
+          leftTeamId: job.submission.leftTeamId,
+          rightTeamId: job.submission.rightTeamId,
+          setNumber: job.submission.rally.set.setNumber,
+          rallyOrdinal: job.submission.rally.ordinal,
+          featureBank: reidFeatureBank,
+        })
         const mappingByPoint = new Map(job.clipJob.keyPointMappings.map(mapping => [mapping.submissionKeyPointId, mapping]))
-        const requestPayload = isRecord(job.requestPayload) ? job.requestPayload : {}
+        const requestPayload = requestPayloadRoot
         const requestClip = isRecord(requestPayload.clip) ? requestPayload.clip : {}
         const requestVideo = isRecord(requestClip.video) ? requestClip.video : {}
         const requestFps = isRecord(requestVideo.fps) ? requestVideo.fps : {}
@@ -273,11 +293,11 @@ export const aiCallbackRoutesWithDependencies = (
         const fpsDen = BigInt(String(requestFps.den))
         for (const event of records(result.contact_events)) {
           const keyPointId = String(event.key_point_id)
-          const generated = resultSchemaVersion !== '1.0.0' && event.anchor_origin === 'ai_detected'
+          const generated = event.anchor_origin === 'ai_detected'
           const claimedSourceId = typeof event.source_key_point_id === 'string' ? event.source_key_point_id : keyPointId
           const mapping = generated ? undefined : mappingByPoint.get(claimedSourceId)
           const ball = isRecord(event.ball) ? event.ball : {}
-          if (!mapping && resultSchemaVersion === '1.0.0') throw new Error('analysis contact event has no immutable clip mapping')
+          if (!mapping && !generated) throw new Error('AnalysisData human contact has no immutable clip mapping')
           const anchorFrameIndex = BigInt(String(event.anchor_frame_index))
           const anchorTimeUs = mapping?.clipTimeUs ?? anchorFrameIndex * 1_000_000n * fpsDen / fpsNum
           const eventExtensions = isRecord(event.extensions) ? event.extensions : {}
@@ -295,6 +315,23 @@ export const aiCallbackRoutesWithDependencies = (
           const endpoints = [[SegmentEndpoint.START, records(path.start_court_positions)], [SegmentEndpoint.END, records(path.end_court_positions)]] as const
           for (const [endpoint, positions] of endpoints) if (positions.length) await tx.ballPathSegmentPosition.createMany({ data: positions.map((position, positionIndex) => { const court = isRecord(position.court_pos) ? position.court_pos : {}; return { segmentId: segment.id, endpoint, positionIndex, trackId: typeof position.track_id === 'number' ? position.track_id : null, basis: String(position.basis), courtX: Number(court.x), courtY: Number(court.y), confidence: typeof position.confidence === 'number' ? position.confidence : null } }) })
         }
+        if (priorRun) {
+          const validKeyPointIds = new Set(records(result.contact_events).map(event => String(event.key_point_id)))
+          const validTrackIds = new Set(tracks.map(track => Number(track.track_id)))
+          if (priorRun.ballCorrections.length) await tx.analysisBallCorrection.createMany({ data: priorRun.ballCorrections.map(item => ({ analysisRunId: analysisRun.id, frameIndex: item.frameIndex, frameX: item.frameX, frameY: item.frameY, visible: item.visible, revision: item.revision, updatedByUserId: item.updatedByUserId })) })
+          const bboxCorrections = priorRun.playerBBoxCorrections.filter(item => validTrackIds.has(item.trackId))
+          if (bboxCorrections.length) await tx.analysisPlayerBBoxCorrection.createMany({ data: bboxCorrections.map(item => ({ analysisRunId: analysisRun.id, frameIndex: item.frameIndex, trackId: item.trackId, frameX1: item.frameX1, frameY1: item.frameY1, frameX2: item.frameX2, frameY2: item.frameY2, revision: item.revision, updatedByUserId: item.updatedByUserId })) })
+          const actionCorrections = priorRun.actionCorrections.filter(item => validTrackIds.has(item.trackId))
+          if (actionCorrections.length) await tx.analysisActionCorrection.createMany({ data: actionCorrections.map(item => ({ analysisRunId: analysisRun.id, frameIndex: item.frameIndex, trackId: item.trackId, action: item.action, revision: item.revision, updatedByUserId: item.updatedByUserId })) })
+          const actorCorrections = priorRun.contactActorCorrections.filter(item => validKeyPointIds.has(item.keyPointId) && (item.trackId === null || validTrackIds.has(item.trackId)))
+          if (actorCorrections.length) await tx.analysisContactActorCorrection.createMany({ data: actorCorrections.map(item => ({ analysisRunId: analysisRun.id, keyPointId: item.keyPointId, trackId: item.trackId, revision: item.revision, updatedByUserId: item.updatedByUserId })) })
+          const timeCorrections = priorRun.contactTimeCorrections.filter(item => validKeyPointIds.has(item.keyPointId))
+          if (timeCorrections.length) await tx.analysisContactTimeCorrection.createMany({ data: timeCorrections.map(item => ({ analysisRunId: analysisRun.id, keyPointId: item.keyPointId, frameIndex: item.frameIndex, revision: item.revision, updatedByUserId: item.updatedByUserId })) })
+          if (priorRun.contactEdits.length) await tx.analysisContactEdit.createMany({ data: priorRun.contactEdits.map(item => ({ analysisRunId: analysisRun.id, contactId: item.contactId, baseKeyPointId: item.baseKeyPointId, frameIndex: item.frameIndex, trackId: item.trackId !== null && validTrackIds.has(item.trackId) ? item.trackId : null, deleted: item.deleted, revision: item.revision, updatedByUserId: item.updatedByUserId })) })
+          const identityAssignments = priorRun.tracks.flatMap(track => track.identityAssignments).filter(item => validTrackIds.has(item.trackId))
+          if (identityAssignments.length) await tx.trackIdentityAssignment.createMany({ data: identityAssignments.map(item => ({ analysisRunId: analysisRun.id, trackId: item.trackId, rosterEntryId: item.rosterEntryId, source: item.source, assignedByUserId: item.assignedByUserId, confidence: item.confidence, reidIdentityId: item.reidIdentityId, reidBindingId: item.reidBindingId, identityRevision: item.identityRevision })) })
+          await tx.analysisRun.update({ where: { id: priorRun.id }, data: { status: JobStatus.SUPERSEDED, supersededAt: new Date() } })
+        }
         await tx.aiCallbackReceipt.create({ data: { aiJobId, callbackId: String(metadata.callback_id), kind: CallbackKind.COMPLETED, requestContentType: contentType, requestMetadata: json(metadata), payloadHash, responseStatus: 200, responseBody: json(response) } })
         await tx.aiJob.update({ where: { id: aiJobId }, data: { status: JobStatus.COMPLETED, progress: 1, stage: 'completed', lastCallbackAt: new Date(), completedAt: new Date(), leasedUntil: null } })
         if (job.submission.supersedesSubmissionId) {
@@ -310,12 +347,12 @@ export const aiCallbackRoutesWithDependencies = (
         progress: 1,
         stage: 'completed',
         analysisId: String(result.analysis_id),
-        overlayVersion: '1',
+        analysisDataVersion: '1',
       })
       return reply.send(response)
     }
     catch (error) {
-      if (error instanceof Error && error.message === 'PAYLOAD_TOO_LARGE') return reject(reply, 413, 'PAYLOAD_TOO_LARGE', 'Callback payload exceeds the configured limit')
+      if (error instanceof Error && (error.message === 'PAYLOAD_TOO_LARGE' || ('code' in error && error.code === 'FST_REQ_FILE_TOO_LARGE'))) return reject(reply, 413, 'PAYLOAD_TOO_LARGE', 'Callback payload exceeds the configured limit')
       if (error instanceof Error && error.message === 'AI_JOB_NOT_ACTIVE') return reject(reply, 409, 'JOB_NOT_ACTIVE', 'AI job was cancelled or superseded')
       request.log.error({ error }, 'AI callback ingest failed')
       return reject(reply, 503, 'CALLBACK_INGEST_FAILED', 'Callback could not be ingested')
@@ -332,7 +369,7 @@ export const aiCallbackRoutesWithDependencies = (
       progress: number | null
       stage: string | null
       analysisId?: string
-      overlayVersion?: string
+      analysisDataVersion?: string
       error?: Record<string, unknown>
     },
   ) {
@@ -358,7 +395,7 @@ export const aiCallbackRoutesWithDependencies = (
         stage: details.stage,
         updated_at: new Date().toISOString(),
         analysis_id: details.analysisId ?? null,
-        overlay_version: details.overlayVersion ?? null,
+        analysis_data_version: details.analysisDataVersion ?? null,
         error: details.error ?? null,
       })
     }

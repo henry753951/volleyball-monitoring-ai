@@ -1,4 +1,4 @@
-namespace Volleyball.Overlay.V1;
+namespace Volleyball.AnalysisData.V1;
 
 enum CourtSide : ubyte { Unknown = 0, Left = 1, Right = 2 }
 
@@ -13,7 +13,7 @@ table TrackMeta {
   last_frame:ulong;
 }
 
-table OverlaySequence {
+table AnalysisData {
   schema_version:uint = 10000;
   ai_job_id:string;
   rally_submission_id:string;
@@ -57,7 +57,16 @@ table OverlaySequence {
   court_keypoint_positions:[FramePosU16];
   // Quantized 0..254; 255 means missing.
   court_keypoint_confidences:[ubyte];
+  // The domain payload is part of this FlatBuffer and validates against
+  // ai/analysis-data-domain.schema.json. It carries events, paths, ReID and
+  // module provenance; there is no second result artifact.
+  domain_json:string;
+  input_clip_sha256:string;
+  producer_name:string;
+  producer_build_id:string;
+  producer_sdk_version:string;
+  execution_manifest_json:string;
 }
 
-root_type OverlaySequence;
-file_identifier "VOV1";
+root_type AnalysisData;
+file_identifier "VAD1";

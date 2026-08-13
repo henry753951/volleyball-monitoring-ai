@@ -1,12 +1,13 @@
 export const AI_PROVIDER_REALTIME_VERSION = '1.0.0' as const
 
 export interface AIProviderCapabilitiesPayload {
-  schema_version: '1.0.0'
+  schema_version: '2.0.0'
   provider_name: string
   provider_build_id: string
   supported_job_schema_versions: string[]
-  supported_result_schema_versions: string[]
-  supported_overlay_formats: string[]
+  supported_analysis_data_versions: string[]
+  supported_analysis_modules: Array<'court' | 'tracking' | 'reid' | 'contacts'>
+  supports_selective_rerun: boolean
   optional_extensions: Record<string, boolean>
   action_taxonomies: unknown[]
   [key: string]: unknown
@@ -45,12 +46,14 @@ const validDate = (value: unknown) => typeof value === 'string' && !Number.isNaN
 const validProgress = (value: unknown) => typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= 1
 const stringArray = (value: unknown): value is string[] => Array.isArray(value) && value.length > 0 && value.every(item => typeof item === 'string' && item.length > 0)
 const validCapabilities = (value: unknown): value is AIProviderCapabilitiesPayload => isRecord(value)
-  && value.schema_version === '1.0.0'
+  && value.schema_version === '2.0.0'
   && stringField(value, 'provider_name')
   && stringField(value, 'provider_build_id')
   && stringArray(value.supported_job_schema_versions)
-  && stringArray(value.supported_result_schema_versions)
-  && stringArray(value.supported_overlay_formats)
+  && stringArray(value.supported_analysis_data_versions)
+  && stringArray(value.supported_analysis_modules)
+  && value.supported_analysis_modules.every(module => ['court', 'tracking', 'reid', 'contacts'].includes(module))
+  && typeof value.supports_selective_rerun === 'boolean'
   && isRecord(value.optional_extensions)
   && Object.values(value.optional_extensions).every(flag => typeof flag === 'boolean')
   && Array.isArray(value.action_taxonomies)
@@ -97,7 +100,7 @@ export function parseAIProviderServerMessage(input: unknown): AIProviderServerMe
       if (!hasOnly(value, ['schema_version', 'type', 'connection_id', 'server_time', 'heartbeat_interval_seconds', 'lease_seconds']) || !stringField(value, 'connection_id') || !validDate(value.server_time) || !Number.isInteger(value.heartbeat_interval_seconds) || Number(value.heartbeat_interval_seconds) < 1 || !Number.isInteger(value.lease_seconds) || Number(value.lease_seconds) < 5) throw new TypeError('invalid connection_ready')
       break
     case 'job_offer':
-      if (!hasOnly(value, ['schema_version', 'type', 'ai_job_id', 'delivery_id', 'lease_expires_at', 'job']) || !identity() || !validDate(value.lease_expires_at) || !isRecord(value.job) || value.job.schema_version !== '1.1.0' || value.job.ai_job_id !== value.ai_job_id) throw new TypeError('invalid job_offer')
+      if (!hasOnly(value, ['schema_version', 'type', 'ai_job_id', 'delivery_id', 'lease_expires_at', 'job']) || !identity() || !validDate(value.lease_expires_at) || !isRecord(value.job) || value.job.schema_version !== '3.0.0' || value.job.ai_job_id !== value.ai_job_id) throw new TypeError('invalid job_offer')
       break
     case 'lease_renewed':
     case 'resume_job':

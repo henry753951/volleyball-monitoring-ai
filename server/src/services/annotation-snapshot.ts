@@ -40,8 +40,9 @@ async function loadAnnotationSnapshot(
         },
         include: {
           activeSubmission: {
-            include: { keyPoints: { orderBy: [{ sequenceIndex: 'asc' }, { id: 'asc' }] } },
+            include: { boundaries: { orderBy: { kind: 'asc' } }, keyPoints: { orderBy: [{ sequenceIndex: 'asc' }, { id: 'asc' }] } },
           },
+          boundaries: { orderBy: { kind: 'asc' } },
           keyPoints: {
             where: { deletedAt: null },
             orderBy: [{ sequenceIndex: 'asc' }, { id: 'asc' }],
@@ -57,8 +58,9 @@ async function loadAnnotationSnapshot(
         },
         include: {
           activeSubmission: {
-            include: { keyPoints: { orderBy: [{ sequenceIndex: 'asc' }, { id: 'asc' }] } },
+            include: { boundaries: { orderBy: { kind: 'asc' } }, keyPoints: { orderBy: [{ sequenceIndex: 'asc' }, { id: 'asc' }] } },
           },
+          boundaries: { orderBy: { kind: 'asc' } },
           keyPoints: {
             where: { deletedAt: null },
             orderBy: [{ sequenceIndex: 'asc' }, { id: 'asc' }],
@@ -77,8 +79,9 @@ async function loadAnnotationSnapshot(
       },
       include: {
         activeSubmission: {
-          include: { keyPoints: { orderBy: [{ sequenceIndex: 'asc' }, { id: 'asc' }] } },
+          include: { boundaries: { orderBy: { kind: 'asc' } }, keyPoints: { orderBy: [{ sequenceIndex: 'asc' }, { id: 'asc' }] } },
         },
+        boundaries: { orderBy: { kind: 'asc' } },
         keyPoints: {
           where: { deletedAt: null },
           orderBy: [{ sequenceIndex: 'asc' }, { id: 'asc' }],
@@ -105,8 +108,11 @@ async function loadAnnotationSnapshot(
         possibleDuplicate: false,
       }))
     : rally.keyPoints
+  const boundaries = (rally.annotationStatus === AnnotationStatus.SUBMITTED && rally.activeSubmission
+    ? rally.activeSubmission.boundaries
+    : rally.boundaries) ?? []
   return parseAnnotationServerMessage({
-    schema_version: '2.0.0',
+    schema_version: boundaries.length ? '3.0.0' : '2.0.0',
     type: 'rally_snapshot',
     room_id: input.roomId,
     rally_id: rally.id,
@@ -119,6 +125,16 @@ async function loadAnnotationSnapshot(
       scoring_court_side: rally.scoringCourtSide?.toLowerCase() ?? null,
       processing_status: rally.processingStatus.toLowerCase(),
       active_submission_id: rally.activeSubmissionId,
+      ...(boundaries.length
+        ? {
+            boundaries: boundaries.map(boundary => ({
+              kind: boundary.kind.toLowerCase(),
+              capture_time_us: boundary.captureTimeUs.toString(),
+              capture_frame_index: boundary.captureFrameIndex.toString(),
+              timing_precision: boundary.timingPrecision.toLowerCase(),
+            })),
+          }
+        : {}),
       key_points: keyPoints.map(point => ({
         key_point_id: point.id,
         sequence_index: point.sequenceIndex,

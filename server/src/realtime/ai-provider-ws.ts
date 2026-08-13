@@ -18,9 +18,9 @@ const callbackLifetimeMs = 30 * 60_000
 const tickMs = 1_000
 const heartbeatIntervalSeconds = 10
 const heartbeatTimeoutMs = heartbeatIntervalSeconds * 3 * 1_000
-const AI_JOB_SCHEMA_VERSION = '1.1.0'
-const AI_RESULT_SCHEMA_VERSION = '1.0.0'
-const AI_OVERLAY_FORMAT = 'flatbuffers_v1'
+const AI_JOB_SCHEMA_VERSION = '3.0.0'
+const ANALYSIS_DATA_VERSION = '1.0.0'
+const REQUIRED_ANALYSIS_MODULES = ['court', 'tracking', 'reid', 'contacts'] as const
 const isRecord = (value: unknown): value is Record<string, unknown> => value !== null && typeof value === 'object' && !Array.isArray(value)
 const sha256 = (value: string) => createHash('sha256').update(value).digest('hex')
 const json = (value: unknown) => JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue
@@ -53,10 +53,10 @@ function createMinioSigner() {
   })
 }
 
-function compatible(capabilities: AIProviderCapabilitiesPayload) {
+export function compatible(capabilities: AIProviderCapabilitiesPayload) {
   return capabilities.supported_job_schema_versions.includes(AI_JOB_SCHEMA_VERSION)
-    && capabilities.supported_result_schema_versions.includes(AI_RESULT_SCHEMA_VERSION)
-    && capabilities.supported_overlay_formats.includes(AI_OVERLAY_FORMAT)
+    && capabilities.supported_analysis_data_versions.includes(ANALYSIS_DATA_VERSION)
+    && REQUIRED_ANALYSIS_MODULES.every(module => capabilities.supported_analysis_modules.includes(module))
 }
 
 export interface AiProviderWebSocketDependencies {
@@ -91,7 +91,11 @@ export function isActiveProviderDelivery(
  */
 export async function findLeastBusyProviderInstanceId(
   database: PrismaClient,
+  jobSchemaVersion?: string,
 ): Promise<string | null> {
+  const schemaCondition = jobSchemaVersion
+    ? Prisma.sql`AND instance.capabilities->'supported_job_schema_versions' @> ${JSON.stringify([jobSchemaVersion])}::jsonb`
+    : Prisma.empty
   const rows = await database.$queryRaw<ProviderInstanceLoadRow[]>`
     SELECT instance.id
     FROM "AiProviderInstance" instance
@@ -105,6 +109,7 @@ export async function findLeastBusyProviderInstanceId(
     WHERE instance."disconnectedAt" IS NULL
       AND instance."lastSeenAt" >= NOW() - INTERVAL '30 seconds'
       AND instance."maxConcurrency" > 0
+      ${schemaCondition}
     GROUP BY instance.id, instance."maxConcurrency", instance."connectedAt"
     HAVING COUNT(job.id) < instance."maxConcurrency"
     ORDER BY
@@ -162,6 +167,7 @@ export const aiProviderWebSocketRoutes = (
         let instanceKey: string | null = null
         let providerBuildId: string | null = null
         let maxConcurrency = 0
+        let supportedJobSchemaVersions: string[] = []
         let ticking = false
         let lastHeartbeatAt = Date.now()
         let transportPingSentAt: number | null = null
@@ -340,7 +346,22 @@ export const aiProviderWebSocketRoutes = (
 
             const activeDeliveries = assigned.filter(job => isActiveProviderDelivery(job, now)).length
             for (let slot = activeDeliveries; slot < maxConcurrency; slot += 1) {
-              const leastBusyInstanceId = await findLeastBusyProviderInstanceId(database)
+              const compatibleSchemas = Prisma.join(supportedJobSchemaVersions)
+              const nextCompatibleRows = await database.$queryRaw<Array<{ jobSchemaVersion: string }>>`
+                SELECT job."jobSchemaVersion"
+                FROM "AiJob" job
+                WHERE job.status = 'QUEUED'
+                  AND job."availableAt" <= NOW()
+                  AND (job."leasedUntil" IS NULL OR job."leasedUntil" < NOW())
+                  AND job."attemptCount" < job."maxAttempts"
+                  AND job."cancelRequestedAt" IS NULL
+                  AND job."jobSchemaVersion" IN (${compatibleSchemas})
+                ORDER BY job."availableAt", job."createdAt", job.id
+                LIMIT 1
+              `
+              const nextCompatibleJob = nextCompatibleRows[0]
+              if (!nextCompatibleJob) break
+              const leastBusyInstanceId = await findLeastBusyProviderInstanceId(database, nextCompatibleJob.jobSchemaVersion)
               if (leastBusyInstanceId !== instanceId) break
               const deliveryId = randomUUID()
               const callbackToken = randomBytes(32).toString('base64url')
@@ -355,6 +376,7 @@ export const aiProviderWebSocketRoutes = (
                     AND (job."leasedUntil" IS NULL OR job."leasedUntil" < NOW())
                     AND job."attemptCount" < job."maxAttempts"
                     AND job."cancelRequestedAt" IS NULL
+                    AND job."jobSchemaVersion" = ${nextCompatibleJob.jobSchemaVersion}
                   ORDER BY job."availableAt", job."createdAt", job.id
                   FOR UPDATE SKIP LOCKED LIMIT 1
                 `
@@ -470,6 +492,7 @@ export const aiProviderWebSocketRoutes = (
               instanceKey = message.instance_id
               providerBuildId = message.provider_build_id
               maxConcurrency = message.max_concurrency
+              supportedJobSchemaVersions = message.capabilities.supported_job_schema_versions.filter(version => version === AI_JOB_SCHEMA_VERSION)
               const instance = await database.aiProviderInstance.upsert({
                 where: { instanceKey },
                 update: { sdkVersion: message.sdk_version, providerBuildId: message.provider_build_id, capabilities: json(message.capabilities), maxConcurrency, lastSeenAt: new Date(), connectedAt: new Date(), disconnectedAt: null, latencyMs: null, lastPingAt: null, lastPongAt: null },
@@ -610,7 +633,19 @@ export const aiProviderWebSocketRoutes = (
             return
           }
           const leaseExpiresAt = new Date(Date.now() + leaseMs)
-          await database.aiJob.update({ where: { id: active.ai_job_id }, data: { leasedUntil: leaseExpiresAt, ...(active.progress === undefined ? {} : { progress: active.progress }) } })
+          const resumed = await database.aiJob.updateMany({
+            where: {
+              id: active.ai_job_id,
+              providerInstanceId: instanceId,
+              deliveryId: active.delivery_id,
+              status: JobStatus.RUNNING,
+            },
+            data: { leasedUntil: leaseExpiresAt, ...(active.progress === undefined ? {} : { progress: active.progress }) },
+          })
+          if (resumed.count !== 1) {
+            send({ schema_version: '1.0.0', type: 'discard_job', ai_job_id: active.ai_job_id, delivery_id: active.delivery_id, reason: 'central job changed while resuming' })
+            return
+          }
           send({ schema_version: '1.0.0', type: 'resume_job', ai_job_id: active.ai_job_id, delivery_id: active.delivery_id, lease_expires_at: leaseExpiresAt.toISOString() })
         }
 

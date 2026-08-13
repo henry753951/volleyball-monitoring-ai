@@ -31,8 +31,8 @@ async def test_offline_runner_writes_bundle_without_network(tmp_path: Path) -> N
         progress=lambda _progress, stage: stages.append(stage),
     )
 
-    assert result.result_path.exists()
-    assert result.overlay_path.read_bytes()[4:8] == b"VOV1"
+    assert result.analysis_data_path.exists()
+    assert result.analysis_data_path.read_bytes()[4:8] == b"VAD1"
     manifest = json.loads(result.manifest_path.read_text(encoding="utf-8"))
     assert manifest["network_used"] is False
     assert stages == ["offline_inputs_ready", "analyzing", "offline_artifacts_written"]

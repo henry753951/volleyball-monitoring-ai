@@ -40,20 +40,16 @@ def assert_ai_invariants(job: dict, result: dict) -> None:
 
     points = job['key_points']
     events = result['contact_events']
-    if result['schema_version'] == '1.0.0':
-        human_events = events
-        assert len(points) == len(events)
-    else:
-        human_events = [event for event in events if event.get('anchor_origin') == 'human_anchor']
-        assert len(points) == len(human_events)
-        for event in events:
-            if event.get('anchor_origin') == 'ai_detected':
-                assert event.get('source_key_point_id') is None
-                assert event['marker_kind'] == 'contact'
-                assert not event['is_terminal']
+    human_events = [event for event in events if event['anchor_origin'] == 'human_anchor']
+    assert len(points) == len(human_events)
+    for event in events:
+        assert event['marker_kind'] == 'contact'
+        assert not event['is_terminal']
+        if event['anchor_origin'] == 'ai_detected':
+            assert event['source_key_point_id'] is None
     assert len(result['path_segments']) == max(len(events) - 1, 0)
     for point, event in zip(points, human_events, strict=True):
-        assert event.get('source_key_point_id', event['key_point_id']) == point['key_point_id']
+        assert event['source_key_point_id'] == point['key_point_id']
         assert event['marker_kind'] == point['marker_kind']
         assert event['is_terminal'] == point['is_terminal']
         assert event['anchor_frame_index'] == point['clip_frame_index']
@@ -73,11 +69,11 @@ def assert_ai_invariants(job: dict, result: dict) -> None:
 
 def main() -> None:
     ai_job_schema = CONTRACTS / 'ai' / 'job.schema.json'
-    ai_result_schema = CONTRACTS / 'ai' / 'result.schema.json'
+    analysis_domain_schema = CONTRACTS / 'ai' / 'analysis-data-domain.schema.json'
     for folder in sorted(path for path in FIXTURES.iterdir() if path.is_dir()):
         validate(ai_job_schema, folder / 'job.json')
-        validate(ai_result_schema, folder / 'result.json')
-        assert_ai_invariants(load(folder / 'job.json'), load(folder / 'result.json'))
+        validate(analysis_domain_schema, folder / 'analysis-data-domain.json')
+        assert_ai_invariants(load(folder / 'job.json'), load(folder / 'analysis-data-domain.json'))
 
     example_pairs = {
         'examples/media/playback-window-request.json': 'media/playback-window-request.schema.json',
@@ -123,7 +119,7 @@ def main() -> None:
     unknown = load(FIXTURES / 'unknown-outcome' / 'job.json')
     assert unknown['outcome'] == {'score_resolution': 'unknown', 'scoring_court_side': None}
 
-    normal = load(FIXTURES / 'normal-rally' / 'result.json')
+    normal = load(FIXTURES / 'normal-rally' / 'analysis-data-domain.json')
     positions = [
         position['court_pos']['x']
         for event in normal['contact_events']
@@ -133,8 +129,8 @@ def main() -> None:
     assert any(value > 1 for value in positions)
 
     # Actor observations must identify the clip frame used; path segments use adjacent passthrough key-point IDs, not AI-generated segment IDs.
-    for result_file in sorted(FIXTURES.glob('*/result.json')):
-        result = load(result_file)
+    for domain_file in sorted(FIXTURES.glob('*/analysis-data-domain.json')):
+        result = load(domain_file)
         for event in result['contact_events']:
             for actor in event['actors']:
                 assert actor['observation_frame_index'].isdigit()

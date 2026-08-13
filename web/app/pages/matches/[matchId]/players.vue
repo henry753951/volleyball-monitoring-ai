@@ -12,6 +12,8 @@ const matchId = computed(() => String(route.params.matchId));
 const analytics = shallowRef<CoachMatchAnalytics | null>(null);
 const pending = ref(true);
 const error = shallowRef<Error | null>(null);
+let refreshing = false;
+let refreshTimer: ReturnType<typeof setInterval> | undefined;
 const selectedPlayerId = ref<string | null>(null);
 const selectedPlayer = computed(
    () =>
@@ -27,8 +29,12 @@ const selectedTeam = computed(
          (team) => team.id === selectedPlayer.value?.team_id,
       ) ?? null,
 );
+const selectedSamples = computed(() => selectedPlayer.value?.heatmap_samples ?? []);
+const actionLabels: Record<string, string> = { attack: "進攻", set: "傳球", defense: "防守", block: "攔網", other: "其他" };
 
 async function load() {
+   if (refreshing) return;
+   refreshing = true;
    try {
       analytics.value = await createCoachDomainClient(
          createGraphQLTransport("/graphql"),
@@ -42,9 +48,18 @@ async function load() {
          cause instanceof Error ? cause : new Error("無法載入球員資料");
    } finally {
       pending.value = false;
+      refreshing = false;
    }
 }
-onMounted(load);
+onMounted(() => {
+   void load();
+   refreshTimer = setInterval(() => {
+      if (document.visibilityState === "visible") void load();
+   }, 2_000);
+});
+onUnmounted(() => {
+   if (refreshTimer) clearInterval(refreshTimer);
+});
 </script>
 
 <template>
@@ -129,38 +144,23 @@ onMounted(load);
                      ><span>分析樣本</span>
                   </div>
                   <div>
-                     <strong
-                        >{{
-                           selectedPlayer.sample_count
-                              ? Math.round(
-                                   (selectedPlayer.contact_count /
-                                      selectedPlayer.sample_count) *
-                                      100,
-                                )
-                              : 0
-                        }}%</strong
-                     ><span>事件覆蓋</span>
+                     <strong>{{ selectedPlayer.rally_count }}</strong><span>參與回合</span>
                   </div>
                </div>
-               <section class="player-evidence">
-                  <div>
-                     <span>球員 ID</span
-                     ><code>{{ selectedPlayer.roster_entry_id }}</code>
-                  </div>
-                  <div>
-                     <span>球員識別覆蓋</span
-                     ><strong>{{
-                        analytics.metrics.identity_coverage
-                           ? `${(analytics.metrics.identity_coverage.value * 100).toFixed(1)}%`
-                           : "—"
-                     }}</strong>
-                  </div>
-                  <div>
-                     <span>球場座標樣本</span
-                     ><strong>{{
-                        analytics.metrics.court_position_samples?.value ?? 0
-                     }}</strong>
-                  </div>
+               <section class="player-analysis">
+                  <article class="player-heatmap">
+                     <header><strong>觸球位置</strong><span>已依換場方向統一</span></header>
+                     <div class="court-map" aria-label="球員觸球位置熱圖">
+                        <i class="net" />
+                        <span v-for="(sample, index) in selectedSamples" :key="`${sample.rally_id}:${index}`" :class="sample.action || 'other'" :style="{ left: `${Math.max(0, Math.min(100, sample.x * 100))}%`, top: `${Math.max(0, Math.min(100, sample.y * 100))}%` }" :title="`第 ${sample.set_number} 局 · ${actionLabels[sample.action || 'other']}`" />
+                        <p v-if="!selectedSamples.length">尚無可用的場地位置</p>
+                     </div>
+                  </article>
+                  <article class="action-summary">
+                     <header><strong>擊球分類</strong><span>依模型動作與人工校正</span></header>
+                     <div v-for="(label, key) in actionLabels" :key="key"><span>{{ label }}</span><strong>{{ selectedPlayer.action_counts[key] ?? 0 }}</strong></div>
+                     <p v-if="selectedPlayer.error_count === null">失誤需有明確事件結果後才列入統計。</p>
+                  </article>
                </section>
             </main>
          </UiScrollArea>
@@ -379,6 +379,7 @@ onMounted(load);
       background-position: -200% 0;
    }
 }
+.player-analysis{display:grid;grid-template-columns:minmax(0,1.35fr) minmax(220px,.65fr);gap:14px}.player-analysis article{overflow:hidden;border:1px solid #e4e7ea;border-radius:14px;background:#fafbfc}.player-analysis header{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:12px 14px;border-bottom:1px solid #e8ebed}.player-analysis header strong{font-size:.78rem}.player-analysis header span{color:#7e858d;font-size:.62rem}.court-map{position:relative;aspect-ratio:18/9;margin:14px;border:2px solid #8296a4;background:linear-gradient(90deg,#e8c88f 0 49.7%,#d8b97f 49.7% 50.3%,#e8c88f 50.3%)}.court-map::before,.court-map::after{position:absolute;inset-block:0;width:1px;background:#ffffffb0;content:""}.court-map::before{left:16.666%}.court-map::after{right:16.666%}.court-map .net{position:absolute;z-index:1;inset-block:-2px;left:50%;width:2px;background:#f7fafc}.court-map>span{position:absolute;z-index:2;width:10px;height:10px;transform:translate(-50%,-50%);border:2px solid #fff;border-radius:50%;background:#376f9b;box-shadow:0 1px 4px #0006}.court-map>span.attack{background:#c94f56}.court-map>span.set{background:#4a8d69}.court-map>span.defense{background:#3b6fa4}.court-map>span.block{background:#9a6934}.court-map p{position:absolute;inset:0;display:grid;place-items:center;margin:0;color:#6d5c40;font-size:.7rem}.action-summary>div{min-height:42px;display:flex;align-items:center;justify-content:space-between;padding:0 14px;border-bottom:1px solid #e8ebed}.action-summary>div span{color:#646c74;font-size:.72rem}.action-summary>div strong{font-size:.92rem}.action-summary>p{margin:0;padding:12px 14px;color:#848b92;font-size:.64rem;line-height:1.5}
 @media (max-width: 720px) {
    .players-layout {
       grid-template-columns: 220px minmax(0, 1fr);
@@ -401,6 +402,7 @@ onMounted(load);
    .player-evidence > div {
       grid-template-columns: 1fr;
    }
+   .player-analysis{grid-template-columns:1fr}
 }
 @media (prefers-reduced-motion: reduce) {
    .players-loading {

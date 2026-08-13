@@ -3,7 +3,7 @@ import websocket from '@fastify/websocket'
 import Fastify from 'fastify'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { WebSocket } from 'ws'
-import { aiProviderWebSocketRoutes, isActiveProviderDelivery } from '../src/realtime/ai-provider-ws.js'
+import { aiProviderWebSocketRoutes, compatible, isActiveProviderDelivery } from '../src/realtime/ai-provider-ws.js'
 
 const instanceId = '00000000-0000-4000-8000-000000000902'
 const token = 'provider-token-long-enough'
@@ -16,12 +16,13 @@ const hello = {
   provider_build_id: 'fixture-v1',
   max_concurrency: 1,
   capabilities: {
-    schema_version: '1.0.0',
+    schema_version: '2.0.0',
     provider_name: 'fixture-worker',
     provider_build_id: 'fixture-v1',
-    supported_job_schema_versions: ['1.1.0'],
-    supported_result_schema_versions: ['1.0.0'],
-    supported_overlay_formats: ['flatbuffers_v1'],
+    supported_job_schema_versions: ['3.0.0'],
+    supported_analysis_data_versions: ['1.0.0'],
+    supported_analysis_modules: ['court', 'tracking', 'reid', 'contacts'],
+    supports_selective_rerun: true,
     optional_extensions: {
       action: false,
       group_phase: false,
@@ -41,6 +42,31 @@ afterEach(async () => {
 })
 
 describe('AI provider websocket startup', () => {
+  it('accepts only providers that implement Job 3 and every AnalysisData module', () => {
+    expect(compatible({
+      ...hello.capabilities,
+      supported_job_schema_versions: ['3.0.0'],
+      supported_analysis_data_versions: [...hello.capabilities.supported_analysis_data_versions],
+      supported_analysis_modules: [...hello.capabilities.supported_analysis_modules],
+      action_taxonomies: [...hello.capabilities.action_taxonomies],
+    })).toBe(true)
+    expect(compatible({
+      ...hello.capabilities,
+      supports_selective_rerun: false,
+      supported_job_schema_versions: ['3.0.0'],
+      supported_analysis_data_versions: [...hello.capabilities.supported_analysis_data_versions],
+      supported_analysis_modules: [...hello.capabilities.supported_analysis_modules],
+      action_taxonomies: [...hello.capabilities.action_taxonomies],
+    })).toBe(true)
+    expect(compatible({
+      ...hello.capabilities,
+      supported_job_schema_versions: ['0.9.0'],
+      supported_analysis_data_versions: [...hello.capabilities.supported_analysis_data_versions],
+      supported_analysis_modules: [...hello.capabilities.supported_analysis_modules],
+      action_taxonomies: [...hello.capabilities.action_taxonomies],
+    })).toBe(false)
+  })
+
   it('does not let an expired queued offer occupy provider capacity', () => {
     const now = new Date('2026-08-10T00:00:00.000Z')
 

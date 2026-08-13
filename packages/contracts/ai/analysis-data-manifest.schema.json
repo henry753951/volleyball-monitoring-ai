@@ -1,13 +1,13 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/OWNER/volleyball-monitoring-ai/packages/contracts/ai/overlay-manifest/1.0.0",
-  "title": "Browser Overlay Manifest 1.0.0",
+  "$id": "https://github.com/OWNER/volleyball-monitoring-ai/packages/contracts/ai/analysis-data-manifest/1.0.0",
+  "title": "Browser AnalysisData Manifest 1.0.0",
   "type": "object",
   "additionalProperties": false,
   "required": [
     "schema_version",
     "analysis_id",
-    "overlay_version",
+    "analysis_data_version",
     "video",
     "chunk_frame_count",
     "chunks"
@@ -21,7 +21,7 @@
       "minLength": 1,
       "maxLength": 128
     },
-    "overlay_version": {
+    "analysis_data_version": {
       "type": "string",
       "minLength": 1
     },

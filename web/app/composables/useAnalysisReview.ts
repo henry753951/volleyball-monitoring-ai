@@ -10,7 +10,6 @@ import type { MaybeRefOrGetter } from 'vue'
 import {
   browserAllowsRealtimeConnection,
   createRealtimeReconnectScheduler,
-  realtimeReconnectDelay,
   type RealtimeReconnectScheduler,
 } from '~/lib/realtimeReconnect'
 
@@ -21,6 +20,7 @@ function operationKey(operation: AnalysisReviewOperation) {
   if (operation.op === 'set_action' || operation.op === 'clear_action_override') return `action:${operation.frame_index}:${operation.track_id}`
   if (operation.op === 'set_player_bbox' || operation.op === 'clear_player_bbox_override') return `bbox:${operation.frame_index}:${operation.track_id}`
   if (operation.op === 'set_contact_actor' || operation.op === 'clear_contact_actor_override') return `actor:${operation.key_point_id}`
+  if (operation.op === 'add_contact' || operation.op === 'delete_contact' || operation.op === 'restore_contact') return `contact-edit:${operation.contact_id}`
   return `contact-time:${operation.key_point_id}`
 }
 
@@ -32,16 +32,20 @@ export function useAnalysisReview(analysisRunId: MaybeRefOrGetter<string | null>
   const playerBBoxCorrections = shallowRef(new Map<string, AnalysisFrameBBox>())
   const contactActorCorrections = shallowRef(new Map<string, number | null>())
   const contactTimeCorrections = shallowRef(new Map<string, number>())
+  const contactEdits = shallowRef(new Map<string, AnalysisReviewState['contact_edits'][number]>())
+  const status = ref<AnalysisReviewState['status']>('editing')
+  const computedRevision = ref<string | null>(null)
+  const approvedRevision = ref<string | null>(null)
+  const dirtyCount = ref(0)
   const pending = ref(false)
   const error = shallowRef<Error | null>(null)
   const connection = ref<'idle' | 'connecting' | 'ready' | 'offline'>('idle')
+  const loadedAnalysisRunId = ref<string | null>(null)
   const queued = new Map<string, AnalysisReviewOperation>()
-  let flushTimer: ReturnType<typeof setTimeout> | null = null
   let socket: WebSocket | null = null
   let reconnect: RealtimeReconnectScheduler | null = null
   let generation = 0
   let flushing = false
-  let flushRetryAttempt = 0
 
   function frameTrackKey(frameIndex: string | number, trackId: number) { return `${frameIndex}:${trackId}` }
 
@@ -51,6 +55,7 @@ export function useAnalysisReview(analysisRunId: MaybeRefOrGetter<string | null>
     const bboxes = new Map(state.player_bbox_corrections.map(item => [frameTrackKey(item.frame_index, item.track_id), item.frame_bbox]))
     const actors = new Map(state.contact_actor_corrections.map(item => [item.key_point_id, item.track_id]))
     const contactTimes = new Map(state.contact_time_corrections.map(item => [item.key_point_id, Number(item.frame_index)]))
+    const edits = new Map(state.contact_edits.map(item => [item.contact_id, item]))
     // A remote invalidation may arrive while this client still has an unsent
     // optimistic edit. Reapply the compact local queue after replacing state.
     for (const operation of queued.values()) {
@@ -64,14 +69,28 @@ export function useAnalysisReview(analysisRunId: MaybeRefOrGetter<string | null>
       else if (operation.op === 'set_contact_actor') actors.set(operation.key_point_id, operation.track_id)
       else if (operation.op === 'clear_contact_actor_override') actors.delete(operation.key_point_id)
       else if (operation.op === 'set_contact_time') contactTimes.set(operation.key_point_id, Number(operation.frame_index))
-      else contactTimes.delete(operation.key_point_id)
+      else if (operation.op === 'clear_contact_time_override') contactTimes.delete(operation.key_point_id)
+      else if (operation.op === 'add_contact') edits.set(operation.contact_id, { contact_id: operation.contact_id, base_key_point_id: null, frame_index: operation.frame_index, track_id: operation.track_id, deleted: false, revision: state.revision })
+      else if (operation.op === 'delete_contact') {
+        const current = edits.get(operation.contact_id)
+        if (current) edits.set(operation.contact_id, { ...current, deleted: true })
+      }
+      else if (operation.op === 'restore_contact') {
+        const current = edits.get(operation.contact_id)
+        if (current) edits.set(operation.contact_id, { ...current, deleted: false })
+      }
     }
     ballCorrections.value = balls
     actionCorrections.value = actions
     playerBBoxCorrections.value = bboxes
     contactActorCorrections.value = actors
     contactTimeCorrections.value = contactTimes
+    contactEdits.value = edits
     revision.value = state.revision
+    status.value = state.status
+    computedRevision.value = state.computed_revision
+    approvedRevision.value = state.approved_revision
+    loadedAnalysisRunId.value = state.analysis_run_id
   }
 
   async function refresh(currentGeneration = generation) {
@@ -126,14 +145,13 @@ export function useAnalysisReview(analysisRunId: MaybeRefOrGetter<string | null>
     })
   }
 
-  function scheduleFlush(delay: number) {
-    if (flushTimer || !queued.size || !browserAllowsRealtimeConnection()) return
-    flushTimer = setTimeout(() => { flushTimer = null; void flush() }, delay)
-  }
-
   function queue(operation: AnalysisReviewOperation) {
     queued.set(operationKey(operation), operation)
-    scheduleFlush(70)
+    dirtyCount.value = queued.size
+    status.value = 'editing'
+    computedRevision.value = null
+    approvedRevision.value = null
+    loadedAnalysisRunId.value = null
   }
 
   async function flush() {
@@ -141,7 +159,6 @@ export function useAnalysisReview(analysisRunId: MaybeRefOrGetter<string | null>
     if (!id || flushing || !queued.size || !browserAllowsRealtimeConnection()) return
     flushing = true
     pending.value = true
-    let failed = false
     const operations = [...queued.values()].slice(0, 32)
     operations.forEach(operation => queued.delete(operationKey(operation)))
     try {
@@ -155,24 +172,45 @@ export function useAnalysisReview(analysisRunId: MaybeRefOrGetter<string | null>
       const result = await response.json() as { revision: string }
       revision.value = result.revision
       error.value = null
-      flushRetryAttempt = 0
+      dirtyCount.value = queued.size
     }
     catch (cause) {
-      failed = true
-      flushRetryAttempt += 1
       operations.forEach(operation => queued.set(operationKey(operation), operation))
+      dirtyCount.value = queued.size
       error.value = cause instanceof Error ? cause : new Error('分析修正儲存失敗')
+      throw error.value
     }
     finally {
       flushing = false
       pending.value = false
-      if (queued.size) {
-        scheduleFlush(failed
-          ? realtimeReconnectDelay(flushRetryAttempt - 1, { baseDelayMs: 500, maxDelayMs: 15_000 })
-          : 70)
-      }
     }
   }
+
+  async function applyChanges() {
+    while (queued.size) await flush()
+    await refresh()
+  }
+
+  async function discardChanges() {
+    queued.clear()
+    dirtyCount.value = 0
+    await refresh()
+  }
+
+  async function reviewAction(action: 'recalculate' | 'approve') {
+    const id = toValue(analysisRunId)
+    if (!id || queued.size) throw new Error('請先套用目前修改')
+    pending.value = true
+    try {
+      const response = await fetch(`/api/v1/analysis-runs/${encodeURIComponent(id)}/review/${action}`, { method: 'POST', credentials: 'include' })
+      if (!response.ok) throw new Error(`${action === 'recalculate' ? '重新分析' : '審核發布'}失敗 (${response.status})`)
+      await refresh()
+    }
+    finally { pending.value = false }
+  }
+
+  const recalculate = () => reviewAction('recalculate')
+  const approve = () => reviewAction('approve')
 
   function setBallPosition(frameIndex: number, position: { x: number; y: number }) {
     ballCorrections.value = new Map(ballCorrections.value).set(String(frameIndex), { state: 'position', position })
@@ -218,12 +256,28 @@ export function useAnalysisReview(analysisRunId: MaybeRefOrGetter<string | null>
     const next = new Map(contactTimeCorrections.value); next.delete(keyPointId); contactTimeCorrections.value = next
     queue({ op: 'clear_contact_time_override', key_point_id: keyPointId })
   }
+  function addContact(frameIndex: number, trackId: number | null = null) {
+    const contactId = crypto.randomUUID()
+    contactEdits.value = new Map(contactEdits.value).set(contactId, { contact_id: contactId, base_key_point_id: null, frame_index: String(frameIndex), track_id: trackId, deleted: false, revision: revision.value })
+    queue({ op: 'add_contact', contact_id: contactId, frame_index: String(frameIndex), track_id: trackId })
+    return contactId
+  }
+  function deleteContact(contactId: string, frameIndex: number) {
+    const current = contactEdits.value.get(contactId)
+    contactEdits.value = new Map(contactEdits.value).set(contactId, current
+      ? { ...current, deleted: true }
+      : { contact_id: contactId, base_key_point_id: contactId, frame_index: String(frameIndex), track_id: null, deleted: true, revision: revision.value })
+    queue({ op: 'delete_contact', contact_id: contactId })
+  }
+  function restoreContact(contactId: string) {
+    const current = contactEdits.value.get(contactId)
+    if (current) contactEdits.value = new Map(contactEdits.value).set(contactId, { ...current, deleted: false })
+    queue({ op: 'restore_contact', contact_id: contactId })
+  }
 
   watch(() => toValue(analysisRunId), async (id) => {
     generation += 1
     const currentGeneration = generation
-    if (flushTimer) clearTimeout(flushTimer)
-    flushTimer = null
     reconnect?.dispose()
     reconnect = null
     socket?.close()
@@ -235,8 +289,12 @@ export function useAnalysisReview(analysisRunId: MaybeRefOrGetter<string | null>
     playerBBoxCorrections.value = new Map()
     contactActorCorrections.value = new Map()
     contactTimeCorrections.value = new Map()
+    contactEdits.value = new Map()
+    dirtyCount.value = 0
+    status.value = 'editing'
+    computedRevision.value = null
+    approvedRevision.value = null
     error.value = null
-    flushRetryAttempt = 0
     connection.value = id ? 'connecting' : 'idle'
     if (!id) return
     reconnect = createRealtimeReconnectScheduler(() => connect(currentGeneration))
@@ -247,21 +305,10 @@ export function useAnalysisReview(analysisRunId: MaybeRefOrGetter<string | null>
     if (currentGeneration === generation) connect(currentGeneration)
   }, { immediate: true })
 
-  const resumeFlush = () => scheduleFlush(0)
-  if (import.meta.client) {
-    window.addEventListener('online', resumeFlush)
-    document.addEventListener('visibilitychange', resumeFlush)
-  }
-
   onBeforeUnmount(() => {
     generation += 1
-    if (flushTimer) clearTimeout(flushTimer)
     reconnect?.dispose()
     socket?.close()
-    if (import.meta.client) {
-      window.removeEventListener('online', resumeFlush)
-      document.removeEventListener('visibilitychange', resumeFlush)
-    }
   })
 
   return {
@@ -270,16 +317,29 @@ export function useAnalysisReview(analysisRunId: MaybeRefOrGetter<string | null>
     connection: readonly(connection),
     contactActorCorrections: readonly(contactActorCorrections),
     contactTimeCorrections: readonly(contactTimeCorrections),
+    contactEdits: readonly(contactEdits),
+    status: readonly(status),
+    computedRevision: readonly(computedRevision),
+    approvedRevision: readonly(approvedRevision),
+    dirtyCount: readonly(dirtyCount),
     error: readonly(error),
+    loadedAnalysisRunId: readonly(loadedAnalysisRunId),
     pending: readonly(pending),
     playerBBoxCorrections: readonly(playerBBoxCorrections),
     revision: readonly(revision),
+    applyChanges,
+    addContact,
+    approve,
     clearActionOverride,
     clearBallOverride,
     clearContactActorOverride,
     clearContactTimeOverride,
     clearPlayerBBoxOverride,
+    discardChanges,
+    deleteContact,
     markBallMissing,
+    recalculate,
+    restoreContact,
     setAction,
     setBallPosition,
     setContactActor,

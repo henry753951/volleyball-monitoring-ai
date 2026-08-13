@@ -52,6 +52,8 @@ const setupMutation = /* GraphQL */ `
       venue
       status
       scheduledAt
+      clipPreRollUs
+      clipPostRollUs
       teams {
         id
         name
@@ -529,6 +531,8 @@ describe('match setup, visibility, and court-side history', () => {
     matchId = String(match.id)
     expect(match).toMatchObject({
       scheduledAt: '2026-08-08T02:30:00.000Z',
+      clipPreRollUs: '0',
+      clipPostRollUs: '0',
       status: 'PLANNED',
       title: 'Phase 1B Match',
       venue: 'Main Court',
@@ -638,6 +642,74 @@ describe('match setup, visibility, and court-side history', () => {
       input: { effectiveFromRallyOrdinal: 2, expectedLeftTeamId: leftTeamId, expectedRightTeamId: rightTeamId, setId },
     })
     expect(errorCode(hidden)).toBe('NOT_FOUND')
+  })
+
+  it('updates the current editable rally when its left and right teams were entered incorrectly', async () => {
+    const captureSessionId = randomUUID()
+    const dvrProgramId = randomUUID()
+    const rallyId = randomUUID()
+    const assignment = await db.courtSideAssignment.findFirstOrThrow({
+      where: { effectiveFromRallyOrdinal: 1, setId },
+    })
+    await db.captureSession.create({
+      data: {
+        id: captureSessionId,
+        ingestPath: `/fixture/${captureSessionId}`,
+        matchId,
+        sourceKind: 'fixture',
+      },
+    })
+    await db.dvrProgram.create({
+      data: {
+        captureSessionId,
+        fpsDen: 1,
+        fpsNum: 30,
+        id: dvrProgramId,
+        timeBaseDen: 30,
+        timeBaseNum: 1,
+      },
+    })
+    await db.rally.create({
+      data: {
+        annotationStatus: 'READY',
+        dvrProgramId,
+        id: rallyId,
+        matchId,
+        ordinal: 1,
+        scoreResolutionState: 'RESOLVED',
+        scoringCourtSide: 'LEFT',
+        scoringTeamId: leftTeamId,
+        setId,
+        sideAssignmentId: assignment.id,
+      },
+    })
+
+    const swapped = await execute(swapMutation, contextFor(operatorUser), {
+      input: {
+        effectiveFromRallyOrdinal: 1,
+        expectedLeftTeamId: leftTeamId,
+        expectedRightTeamId: rightTeamId,
+        setId,
+      },
+    })
+    expect(swapped.errors).toBeUndefined()
+    await expect(db.rally.findUniqueOrThrow({ where: { id: rallyId } })).resolves.toMatchObject({
+      scoringTeamId: rightTeamId,
+      sideAssignmentId: assignment.id,
+      sideAssignmentReversed: false,
+    })
+
+    await db.rally.delete({ where: { id: rallyId } })
+    const restored = await execute(swapMutation, contextFor(operatorUser), {
+      input: {
+        effectiveFromRallyOrdinal: 1,
+        expectedLeftTeamId: rightTeamId,
+        expectedRightTeamId: leftTeamId,
+        setId,
+      },
+    })
+    expect(restored.errors).toBeUndefined()
+    await db.captureSession.delete({ where: { id: captureSessionId } })
   })
 
   it('serializes concurrent swaps and returns ordered, non-overlapping assignment history', async () => {

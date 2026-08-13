@@ -65,11 +65,11 @@ const EXPECTED_CONTENT_TYPES: Readonly<Record<MediaAssetKind, string>> = {
   SAMPLE_INDEX: 'application/json',
   TIMING_MANIFEST: 'application/json',
 }
-const EXPECTED_SCHEMA_VERSIONS: Readonly<Record<MediaAssetKind, string>> = {
-  DVR_INIT: '1.0.0',
-  DVR_SEGMENT: '1.0.0',
-  SAMPLE_INDEX: '1.0.0',
-  TIMING_MANIFEST: '1.1.0',
+const EXPECTED_SCHEMA_VERSIONS: Readonly<Record<MediaAssetKind, readonly string[]>> = {
+  DVR_INIT: ['1.0.0'],
+  DVR_SEGMENT: ['1.0.0'],
+  SAMPLE_INDEX: ['1.0.0'],
+  TIMING_MANIFEST: ['1.1.0', '2.0.0'],
 }
 
 const defaultClientFactory: MinioObjectClientFactory = (options) => {
@@ -207,8 +207,8 @@ function validateRequest(
     || request.expectedByteLength > BigInt(maxObjectBytes)
     || request.expectedByteLength > BigInt(Number.MAX_SAFE_INTEGER)
     || !SHA256.test(request.expectedSha256)
-    || EXPECTED_SCHEMA_VERSIONS[request.expectedKind]
-      !== request.expectedInternalSchemaVersion
+    || !EXPECTED_SCHEMA_VERSIONS[request.expectedKind]
+      .includes(request.expectedInternalSchemaVersion)
     || EXPECTED_CONTENT_TYPES[request.expectedKind] !== request.expectedContentType
   ) {
     throw new MinioObjectReaderError(

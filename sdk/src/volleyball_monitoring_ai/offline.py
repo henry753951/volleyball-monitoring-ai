@@ -11,13 +11,13 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, TypeAlias
 
-from .models import AIJobRequest, AnalysisBundle, KeyPointInput
+from .models import AIJobRequest, AnalysisDataBundle, KeyPointInput
 from .validation import validate_passthrough
 
 OfflineProgressReporter: TypeAlias = Callable[[float, str], None]
 OfflineAnalyzer: TypeAlias = Callable[
     [AIJobRequest, Path, OfflineProgressReporter],
-    AnalysisBundle | Awaitable[AnalysisBundle],
+    AnalysisDataBundle | Awaitable[AnalysisDataBundle],
 ]
 
 
@@ -26,10 +26,9 @@ class OfflineRunResult:
     """Paths and typed values produced by one local run."""
 
     job: AIJobRequest
-    bundle: AnalysisBundle
+    bundle: AnalysisDataBundle
     output_dir: Path
-    result_path: Path
-    overlay_path: Path
+    analysis_data_path: Path
     manifest_path: Path
 
 
@@ -77,18 +76,13 @@ class OfflineRunner:
         reporter(0.0, "offline_inputs_ready")
         candidate = analyzer(job, resolved_clip, reporter)
         bundle = await candidate if inspect.isawaitable(candidate) else candidate
-        validate_passthrough(job, bundle.result)
+        validate_passthrough(job, bundle.domain)
 
         resolved_output = output_dir.expanduser().resolve()
         resolved_output.mkdir(parents=True, exist_ok=True)
-        result_path = resolved_output / "analysis-result.json"
-        overlay_path = resolved_output / "overlay.vov1"
+        analysis_data_path = resolved_output / "analysis-data.vad1"
         manifest_path = resolved_output / "offline-run.json"
-        self._atomic_write_text(
-            result_path,
-            bundle.result.model_dump_json(indent=2, exclude_none=True),
-        )
-        self._atomic_write_bytes(overlay_path, bundle.overlay_bytes)
+        self._atomic_write_bytes(analysis_data_path, bundle.analysis_data_bytes)
         manifest = {
             "schema_version": "1.0.0",
             "mode": "offline",
@@ -99,8 +93,7 @@ class OfflineRunner:
             "key_points_path": (
                 str(key_points_path.expanduser().resolve()) if key_points_path else None
             ),
-            "result_path": result_path.name,
-            "overlay_path": overlay_path.name,
+            "analysis_data_path": analysis_data_path.name,
         }
         self._atomic_write_text(
             manifest_path,
@@ -111,8 +104,7 @@ class OfflineRunner:
             job=job,
             bundle=bundle,
             output_dir=resolved_output,
-            result_path=result_path,
-            overlay_path=overlay_path,
+            analysis_data_path=analysis_data_path,
             manifest_path=manifest_path,
         )
 

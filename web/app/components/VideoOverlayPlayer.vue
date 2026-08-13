@@ -109,7 +109,7 @@ const playback = useDvrPlayback(video, {
   onError: error => emit('error', error),
 })
 const resolvedOverlayFrame = ref(props.overlayFrame)
-const overlay = useOverlayChunks(() => props.analysisRunId ?? null, resolvedOverlayFrame, () => props.overlayMode !== 'off')
+const overlay = useAnalysisFrameChunks(() => props.analysisRunId ?? null, resolvedOverlayFrame, () => props.overlayMode !== 'off')
 watch([overlay.manifest, () => props.overlayFrame, () => props.overlayCaptureTimeUs, () => props.overlayClipStartCaptureTimeUs], ([manifest]) => {
   if (props.overlayFrame >= 0) { resolvedOverlayFrame.value = props.overlayFrame; return }
   if (!manifest || !props.overlayCaptureTimeUs) { resolvedOverlayFrame.value = -1; return }

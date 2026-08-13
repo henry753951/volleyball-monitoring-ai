@@ -119,6 +119,50 @@ describe('AnnotationTransportBar', () => {
     expect(wrapper.text()).not.toContain('immutable')
   })
 
+  it('keeps the correction entry actionable while another annotation operation needs attention', async () => {
+    const wrapper = mount(AnnotationTransportBar, { props: {
+      ...baseProps,
+      clipSelected: true,
+      editReady: false,
+      correctionBlockReason: '標記狀態有衝突；按下後可先重新同步',
+    } })
+
+    const correction = wrapper.get('[aria-label="建立修正版草稿"]')
+    expect(correction.attributes('disabled')).toBeUndefined()
+    await correction.trigger('click')
+    expect(wrapper.emitted('startCorrection')).toHaveLength(1)
+  })
+
+  it('shows an explicit loading state while a correction draft is being created', () => {
+    const wrapper = mount(AnnotationTransportBar, { props: {
+      ...baseProps,
+      clipSelected: true,
+      correctionCreating: true,
+    } })
+
+    const pending = wrapper.get('[aria-label="正在建立修正版草稿"]')
+    expect(pending.attributes('disabled')).toBeDefined()
+    expect(pending.text()).toContain('建立修正版中')
+    expect(wrapper.find('[aria-label="建立修正版草稿"]').exists()).toBe(false)
+  })
+
+  it('shows a durable waiting state instead of the previous completed result while submit awaits acknowledgement', () => {
+    const wrapper = mount(AnnotationTransportBar, { props: {
+      ...baseProps,
+      clipSelected: true,
+      draftSelected: true,
+      submitEnabled: false,
+      submittedSelected: true,
+      submissionPending: true,
+    } })
+
+    const pending = wrapper.get('[aria-label="等待伺服器確認送出"]')
+    expect(pending.attributes('disabled')).toBeDefined()
+    expect(pending.text()).toContain('等待確認')
+    expect(wrapper.find('[aria-label="送出片段"]').exists()).toBe(false)
+    expect(wrapper.find('[aria-label="建立修正版草稿"]').exists()).toBe(false)
+  })
+
   it('shows a stable timeline scale beside mute and resets it on click', async () => {
     const wrapper = mount(AnnotationTransportBar, { props: { ...baseProps, timelineScale: 0.01 } })
     const scale = wrapper.get('[aria-label^="時間軸倍率"]')

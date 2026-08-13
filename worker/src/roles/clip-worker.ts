@@ -19,7 +19,7 @@ import { createPollingLifecycle } from '../workflow/poller.js'
 
 const runner = createNodeProbeRunner()
 const leaseMs = 5 * 60_000
-const AI_JOB_SCHEMA_VERSION = '1.1.0'
+const AI_JOB_SCHEMA_VERSION = '3.0.0'
 
 async function runCommand(executable: string, args: string[], signal: AbortSignal) {
   const result = await runner(executable, args, { shell: false, timeoutMs: 10 * 60_000, maxOutputBytes: 4_000_000, signal })
@@ -30,7 +30,7 @@ async function runCommand(executable: string, args: string[], signal: AbortSigna
 async function probeCanonicalClip(filePath: string, fallback: { fpsNum: number; fpsDen: number }, signal: AbortSignal) {
   const output = await runCommand('ffprobe', [
     '-v', 'error',
-    '-show_entries', 'stream=codec_type,width,height,avg_frame_rate,time_base:frame=media_type,pts,pkt_duration,key_frame',
+    '-show_entries', 'stream=codec_type,width,height,avg_frame_rate,time_base,start_pts,duration_ts:frame=media_type,pts,pkt_duration,key_frame',
     '-of', 'json',
     filePath,
   ], signal)
@@ -99,7 +99,7 @@ export function createClipWorker(
     try {
       const job = await database.clipJob.findUniqueOrThrow({
         where: { id: claimed.id },
-        include: { submission: { include: { rally: { include: { program: true } }, keyPoints: { orderBy: { sequenceIndex: 'asc' } } } } },
+        include: { submission: { include: { boundaries: { orderBy: { kind: 'asc' } }, rally: { include: { program: true } }, keyPoints: { orderBy: { sequenceIndex: 'asc' } } } } },
       })
       const program = job.submission.rally.program
       const candidates = await database.dvrSegment.findMany({
@@ -107,7 +107,7 @@ export function createClipWorker(
         orderBy: { sequenceNumber: 'asc' },
         include: { initAsset: true, mediaAsset: true, sampleIndexAsset: true, captureEpoch: true },
       })
-      const firstPoint = job.submission.keyPoints[0]
+      const firstPoint = job.submission.boundaries.find(boundary => boundary.kind === 'START') ?? job.submission.keyPoints[0]
       const anchorSegment = firstPoint ? candidates.find(segment => firstPoint.captureTimeUs >= segment.captureStartUs && firstPoint.captureTimeUs < segment.captureEndUs) : null
       const segments = anchorSegment ? candidates.filter(segment => segment.discontinuitySequence === anchorSegment.discontinuitySequence) : []
       if (!segments.length || segments.some(segment => !segment.initAsset || !segment.mediaAsset || !segment.sampleIndexAsset)) throw new Error('requested DVR range is not ready')
@@ -142,7 +142,7 @@ export function createClipWorker(
         indexedSegments,
         job.requestedStartCaptureUs,
         job.requestedEndCaptureUs,
-        job.submission.keyPoints,
+        [...job.submission.boundaries, ...job.submission.keyPoints],
       )
       const actualStart = selection.actualStartCaptureUs
       const actualEnd = selection.actualEndCaptureUs
@@ -180,10 +180,23 @@ export function createClipWorker(
           ...mapClipKeyPoint(point.id, ordinal, video),
         }
       })
+      const boundaryMappings = job.submission.boundaries.map(boundary => {
+        const ordinal = selection.keyPointOrdinals.get(boundary.id)
+        if (ordinal === undefined) throw new Error(`immutable ${boundary.kind.toLowerCase()} boundary ${boundary.id} has no selected source frame`)
+        return {
+          kind: boundary.kind.toLowerCase() as 'start' | 'end',
+          captureEpochId: boundary.captureEpochId,
+          sourcePts: boundary.sourcePts,
+          captureTimeUs: boundary.captureTimeUs,
+          captureFrameIndex: boundary.captureFrameIndex,
+          ...mapClipKeyPoint(boundary.id, ordinal, video),
+        }
+      })
       const clipKey = `clips/${job.submissionId}/${job.id}.mp4`
       await ensureActive()
       const clipUpload = await uploadFile(storage.client, storage.rallyBucket, clipKey, outputPath, 'video/mp4', { 'x-amz-meta-artifact-kind': 'canonical-clip' })
       const aiKeyPoints = mappings.map(mapping => ({ key_point_id: mapping.submissionKeyPointId, sequence_index: mapping.sequenceIndex, marker_kind: mapping.markerKind, is_terminal: mapping.isTerminal, clip_pts: mapping.clipPts.toString(), clip_time_us: mapping.clipTimeUs.toString(), clip_frame_index: mapping.clipFrameIndex.toString() }))
+      const aiBoundaries = boundaryMappings.map(mapping => ({ kind: mapping.kind, clip_pts: mapping.clipPts.toString(), clip_time_us: mapping.clipTimeUs.toString(), clip_frame_index: mapping.clipFrameIndex.toString() }))
       const frameMap = selection.sourceSamples.map((sample, ordinal) => ({
         capture_epoch_id: sample.captureEpochId,
         source_pts: sample.sourcePts.toString(),
@@ -195,31 +208,36 @@ export function createClipWorker(
         clip_time_us: mapClipKeyPoint(`frame-${ordinal}`, ordinal, video).clipTimeUs.toString(),
         clip_frame_index: ordinal.toString(),
       }))
-      const manifest = { schema_version: '1.1.0', clip_job_id: job.id, submission_id: job.submissionId, requested_start_capture_us: job.requestedStartCaptureUs.toString(), requested_end_capture_us: job.requestedEndCaptureUs.toString(), actual_start_capture_us: actualStart.toString(), actual_end_capture_us: actualEnd.toString(), source_time_base: { num: selection.sourceTimeBase.num.toString(), den: selection.sourceTimeBase.den.toString() }, video: { width: video.width, height: video.height, fps: video.fps, time_base: video.timeBase, total_frames: video.totalFrames.toString(), duration_us: video.durationUs.toString(), has_audio: video.hasAudio }, frame_map: frameMap, key_points: mappings.map(mapping => ({ key_point_id: mapping.submissionKeyPointId, sequence_index: mapping.sequenceIndex, marker_kind: mapping.markerKind, is_terminal: mapping.isTerminal, capture_epoch_id: mapping.captureEpochId, source_pts: mapping.sourcePts.toString(), source_time_base: { num: selection.sourceTimeBase.num.toString(), den: selection.sourceTimeBase.den.toString() }, capture_time_us: mapping.captureTimeUs.toString(), capture_frame_index: mapping.captureFrameIndex.toString(), clip_pts: mapping.clipPts.toString(), clip_time_us: mapping.clipTimeUs.toString(), clip_frame_index: mapping.clipFrameIndex.toString() })) }
+      const manifest = { schema_version: boundaryMappings.length ? '2.0.0' : '1.1.0', clip_job_id: job.id, submission_id: job.submissionId, requested_start_capture_us: job.requestedStartCaptureUs.toString(), requested_end_capture_us: job.requestedEndCaptureUs.toString(), actual_start_capture_us: actualStart.toString(), actual_end_capture_us: actualEnd.toString(), source_time_base: { num: selection.sourceTimeBase.num.toString(), den: selection.sourceTimeBase.den.toString() }, video: { width: video.width, height: video.height, fps: video.fps, time_base: video.timeBase, total_frames: video.totalFrames.toString(), duration_us: video.durationUs.toString(), has_audio: video.hasAudio }, frame_map: frameMap, boundaries: boundaryMappings.map(mapping => ({ kind: mapping.kind, capture_epoch_id: mapping.captureEpochId, source_pts: mapping.sourcePts.toString(), capture_time_us: mapping.captureTimeUs.toString(), capture_frame_index: mapping.captureFrameIndex.toString(), clip_pts: mapping.clipPts.toString(), clip_time_us: mapping.clipTimeUs.toString(), clip_frame_index: mapping.clipFrameIndex.toString() })), key_points: mappings.map(mapping => ({ key_point_id: mapping.submissionKeyPointId, sequence_index: mapping.sequenceIndex, marker_kind: mapping.markerKind, is_terminal: mapping.isTerminal, capture_epoch_id: mapping.captureEpochId, source_pts: mapping.sourcePts.toString(), source_time_base: { num: selection.sourceTimeBase.num.toString(), den: selection.sourceTimeBase.den.toString() }, capture_time_us: mapping.captureTimeUs.toString(), capture_frame_index: mapping.captureFrameIndex.toString(), clip_pts: mapping.clipPts.toString(), clip_time_us: mapping.clipTimeUs.toString(), clip_frame_index: mapping.clipFrameIndex.toString() })) }
       const manifestPath = join(directory, 'timing-manifest.json')
       await writeFile(manifestPath, `${stableJson(manifest)}\n`, 'utf8')
       const manifestKey = `clips/${job.submissionId}/${job.id}.timing.json`
-      const manifestUpload = await uploadFile(storage.client, storage.rallyBucket, manifestKey, manifestPath, 'application/json', { 'x-amz-meta-artifact-kind': 'timing-manifest', 'x-amz-meta-internal-schema-version': '1.1.0' })
+      const manifestUpload = await uploadFile(storage.client, storage.rallyBucket, manifestKey, manifestPath, 'application/json', { 'x-amz-meta-artifact-kind': 'timing-manifest', 'x-amz-meta-internal-schema-version': manifest.schema_version })
 
       await database.$transaction(async (tx) => {
         await tx.$queryRaw`SELECT id FROM "ClipJob" WHERE id = ${job.id}::uuid FOR UPDATE`
         const current = await tx.clipJob.findUnique({ where: { id: job.id }, select: { status: true } })
         if (!current || current.status !== JobStatus.RUNNING) throw new Error('PROCESSING_CANCELLED')
         const clipAsset = await tx.mediaAsset.create({ data: { kind: MediaAssetKind.CANONICAL_CLIP, bucket: storage.rallyBucket, objectKey: clipKey, contentType: 'video/mp4', byteLength: clipUpload.byteLength, sha256: clipUpload.sha256, internalSchemaVersion: '1.0.0', state: 'READY', readyAt: new Date() } })
-        const timingAsset = await tx.mediaAsset.create({ data: { kind: MediaAssetKind.TIMING_MANIFEST, bucket: storage.rallyBucket, objectKey: manifestKey, contentType: 'application/json', byteLength: manifestUpload.byteLength, sha256: manifestUpload.sha256, internalSchemaVersion: '1.1.0', state: 'READY', readyAt: new Date() } })
+        const timingAsset = await tx.mediaAsset.create({ data: { kind: MediaAssetKind.TIMING_MANIFEST, bucket: storage.rallyBucket, objectKey: manifestKey, contentType: 'application/json', byteLength: manifestUpload.byteLength, sha256: manifestUpload.sha256, internalSchemaVersion: manifest.schema_version, state: 'READY', readyAt: new Date() } })
         await tx.clipKeyPointMapping.createMany({ data: mappings.map(mapping => ({ clipJobId: job.id, submissionKeyPointId: mapping.submissionKeyPointId, clipPts: mapping.clipPts, clipTimeUs: mapping.clipTimeUs, clipFrameIndex: mapping.clipFrameIndex })) })
         await tx.clipJob.update({ where: { id: job.id }, data: { status: JobStatus.COMPLETED, actualStartCaptureUs: actualStart, actualEndCaptureUs: actualEnd, clipAssetId: clipAsset.id, timingManifestAssetId: timingAsset.id, leasedUntil: null, completedAt: new Date() } })
         const aiJobId = randomUUID()
         const token = callbackToken(callbackSecret, aiJobId)
         const expiresAt = new Date(Date.now() + 24 * 60 * 60_000)
-        const basePayload = { schema_version: AI_JOB_SCHEMA_VERSION, ai_job_id: aiJobId, rally_submission_id: job.submissionId, rally_id: job.submission.rallyId, match_id: job.submission.rally.matchId, annotation_revision: job.submission.annotationRevision.toString(), clip: { clip_asset_id: clipAsset.id, sha256: clipUpload.sha256, byte_length: clipUpload.byteLength.toString(), content_type: 'video/mp4', video: manifest.video }, key_points: aiKeyPoints, outcome: { score_resolution: job.submission.scoreResolutionState.toLowerCase(), scoring_court_side: job.submission.scoringCourtSide?.toLowerCase() ?? null } }
-        await tx.aiJob.create({ data: { id: aiJobId, submissionId: job.submissionId, clipJobId: job.id, idempotencyKey: `volleyball-analysis-engine:${job.submissionId}:${job.id}`, requestPayload: basePayload, requestPayloadHash: sha256Hex(stableJson(basePayload)), jobSchemaVersion: AI_JOB_SCHEMA_VERSION, callbackTokenHash: sha256Hex(token), callbackTokenExpiresAt: expiresAt } })
+        if (aiBoundaries.length !== 2) throw new Error('AnalysisData Job 3.0 requires immutable start and end boundaries')
+        const jobSchemaVersion = AI_JOB_SCHEMA_VERSION
+        const basePayload = { schema_version: jobSchemaVersion, ai_job_id: aiJobId, rally_submission_id: job.submissionId, rally_id: job.submission.rallyId, match_id: job.submission.rally.matchId, annotation_revision: job.submission.annotationRevision.toString(), clip: { clip_asset_id: clipAsset.id, sha256: clipUpload.sha256, byte_length: clipUpload.byteLength.toString(), content_type: 'video/mp4', video: manifest.video }, boundaries: aiBoundaries, key_points: aiKeyPoints, outcome: { score_resolution: job.submission.scoreResolutionState.toLowerCase(), scoring_court_side: job.submission.scoringCourtSide?.toLowerCase() ?? null }, analysis_plan: { mode: 'full', modules: { court: 'run', tracking: 'run', reid: 'run', contacts: 'run' }, source_analysis_data: null, preserve_manual_corrections: true } }
+        await tx.aiJob.create({ data: { id: aiJobId, submissionId: job.submissionId, clipJobId: job.id, idempotencyKey: `volleyball-analysis-engine:${job.submissionId}:${job.id}`, requestPayload: basePayload, requestPayloadHash: sha256Hex(stableJson(basePayload)), jobSchemaVersion, callbackTokenHash: sha256Hex(token), callbackTokenExpiresAt: expiresAt } })
         await tx.rally.update({ where: { id: job.submission.rallyId }, data: { processingStatus: ProcessingStatus.AI_QUEUED } })
       })
       return true
     }
     catch (error) {
-      if (!cancellation.signal.aborted && !(error instanceof Error && error.message === 'PROCESSING_CANCELLED')) await failClipJob(database, claimed.id, error)
+      if (!cancellation.signal.aborted && !(error instanceof Error && error.message === 'PROCESSING_CANCELLED')) {
+        console.error('clip-worker job failed', { clipJobId: claimed.id, error })
+        await failClipJob(database, claimed.id, error)
+      }
       return true
     }
     finally {

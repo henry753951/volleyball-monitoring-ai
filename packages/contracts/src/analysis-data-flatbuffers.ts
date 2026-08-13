@@ -1,17 +1,17 @@
 import { Builder, ByteBuffer, type Offset } from 'flatbuffers'
 
-export const PROVIDER_OVERLAY_IDENTIFIER = 'VOV1'
-export const BROWSER_OVERLAY_CHUNK_IDENTIFIER = 'VOC1'
-export const OVERLAY_PLAYER_FLAG = { frameBBox: 1, frameFootPosition: 2, courtPosition: 4 } as const
-export const OVERLAY_BALL_FLAG = { framePosition: 1 } as const
-export const OVERLAY_MISSING_ACTION_LABEL = 65_535
-export const OVERLAY_MISSING_CONFIDENCE = 255
+export const ANALYSIS_DATA_IDENTIFIER = 'VAD1'
+export const ANALYSIS_FRAME_CHUNK_IDENTIFIER = 'VFC1'
+export const ANALYSIS_PLAYER_FLAG = { frameBBox: 1, frameFootPosition: 2, courtPosition: 4 } as const
+export const ANALYSIS_BALL_FLAG = { framePosition: 1 } as const
+export const ANALYSIS_MISSING_ACTION_LABEL = 65_535
+export const ANALYSIS_MISSING_CONFIDENCE = 255
 
-export interface OverlayFrameBBox { x1: number; y1: number; x2: number; y2: number }
-export interface OverlayFramePosition { x: number; y: number }
-export interface OverlayCourtPosition { x: number; y: number }
+export interface AnalysisDataFrameBBox { x1: number; y1: number; x2: number; y2: number }
+export interface AnalysisFramePosition { x: number; y: number }
+export interface AnalysisCourtPosition { x: number; y: number }
 
-export interface ProviderOverlaySequence {
+export interface AnalysisData {
   schemaVersion: number
   aiJobId: string
   rallySubmissionId: string
@@ -28,9 +28,9 @@ export interface ProviderOverlaySequence {
   totalFrames: bigint
   frameOffsets: number[]
   trackIds: number[]
-  frameBboxes: OverlayFrameBBox[]
-  frameFootPositions: OverlayFramePosition[]
-  courtPositions: OverlayCourtPosition[]
+  frameBboxes: AnalysisDataFrameBBox[]
+  frameFootPositions: AnalysisFramePosition[]
+  courtPositions: AnalysisCourtPosition[]
   playerFlags: number[]
   playerConfidences: number[]
   actionTaxonomyId: string
@@ -38,37 +38,43 @@ export interface ProviderOverlaySequence {
   actionLabels: string[]
   actionLabelIds: number[]
   actionConfidences: number[]
-  ballFramePositions: OverlayFramePosition[]
+  ballFramePositions: AnalysisFramePosition[]
   ballFlags: number[]
   ballConfidences: number[]
   courtKeypointFrameOffsets: number[]
   courtKeypointIds: number[]
-  courtKeypointPositions: OverlayFramePosition[]
+  courtKeypointPositions: AnalysisFramePosition[]
   courtKeypointConfidences: number[]
+  domainJson: string
+  inputClipSha256: string
+  producerName: string
+  producerBuildId: string
+  producerSdkVersion: string
+  executionManifestJson: string
 }
 
-export interface BrowserOverlayChunk {
+export interface AnalysisFrameChunk {
   schemaVersion: number
   analysisId: string
-  overlayVersion: string
+  analysisDataVersion: string
   chunkIndex: number
   startFrameIndex: bigint
   frameCount: number
   frameOffsets: number[]
   trackIds: number[]
-  frameBboxes: OverlayFrameBBox[]
-  frameFootPositions: OverlayFramePosition[]
-  courtPositions: OverlayCourtPosition[]
+  frameBboxes: AnalysisDataFrameBBox[]
+  frameFootPositions: AnalysisFramePosition[]
+  courtPositions: AnalysisCourtPosition[]
   playerFlags: number[]
   playerConfidences: number[]
   actionLabelIds: number[]
   actionConfidences: number[]
-  ballFramePositions: OverlayFramePosition[]
+  ballFramePositions: AnalysisFramePosition[]
   ballFlags: number[]
   ballConfidences: number[]
   courtKeypointFrameOffsets: number[]
   courtKeypointIds: number[]
-  courtKeypointPositions: OverlayFramePosition[]
+  courtKeypointPositions: AnalysisFramePosition[]
   courtKeypointConfidences: number[]
 }
 
@@ -153,30 +159,30 @@ function validateColumns(input: {
   courtKeypointPositions: unknown[]
   courtKeypointConfidences: number[]
 }) {
-  if (input.totalFrames < 0n || input.totalFrames > BigInt(Number.MAX_SAFE_INTEGER)) throw new TypeError('overlay total_frames is outside the supported range')
+  if (input.totalFrames < 0n || input.totalFrames > BigInt(Number.MAX_SAFE_INTEGER)) throw new TypeError('analysis data total_frames is outside the supported range')
   const frameCount = Number(input.totalFrames)
   if (frameCount === 0 && input.frameOffsets.length === 0) input.frameOffsets.push(0)
-  if (input.frameOffsets.length !== frameCount + 1 || input.frameOffsets[0] !== 0) throw new TypeError('overlay frame_offsets must contain frame_count + 1 entries and begin at zero')
-  for (let index = 1; index < input.frameOffsets.length; index += 1) if (input.frameOffsets[index]! < input.frameOffsets[index - 1]!) throw new TypeError('overlay frame_offsets must be monotonic')
+  if (input.frameOffsets.length !== frameCount + 1 || input.frameOffsets[0] !== 0) throw new TypeError('analysis data frame_offsets must contain frame_count + 1 entries and begin at zero')
+  for (let index = 1; index < input.frameOffsets.length; index += 1) if (input.frameOffsets[index]! < input.frameOffsets[index - 1]!) throw new TypeError('analysis data frame_offsets must be monotonic')
   const detections = input.frameOffsets.at(-1) ?? 0
   for (const [name, column] of Object.entries({ trackIds: input.trackIds, frameBboxes: input.frameBboxes, frameFootPositions: input.frameFootPositions, courtPositions: input.courtPositions, playerFlags: input.playerFlags, playerConfidences: input.playerConfidences, actionLabelIds: input.actionLabelIds, actionConfidences: input.actionConfidences })) {
-    if (column.length !== detections) throw new TypeError(`overlay ${name} length does not match detection count`)
+    if (column.length !== detections) throw new TypeError(`analysis data ${name} length does not match detection count`)
   }
   for (const [name, column] of Object.entries({ ballFramePositions: input.ballFramePositions, ballFlags: input.ballFlags, ballConfidences: input.ballConfidences })) {
-    if (column.length !== frameCount) throw new TypeError(`overlay ${name} length does not match frame count`)
+    if (column.length !== frameCount) throw new TypeError(`analysis data ${name} length does not match frame count`)
   }
   if (input.courtKeypointFrameOffsets.length === 0) input.courtKeypointFrameOffsets.push(...Array.from({ length: frameCount + 1 }, () => 0))
-  if (input.courtKeypointFrameOffsets.length !== frameCount + 1 || input.courtKeypointFrameOffsets[0] !== 0) throw new TypeError('overlay courtKeypointFrameOffsets must contain frame_count + 1 entries and begin at zero')
-  for (let index = 1; index < input.courtKeypointFrameOffsets.length; index += 1) if (input.courtKeypointFrameOffsets[index]! < input.courtKeypointFrameOffsets[index - 1]!) throw new TypeError('overlay courtKeypointFrameOffsets must be monotonic')
+  if (input.courtKeypointFrameOffsets.length !== frameCount + 1 || input.courtKeypointFrameOffsets[0] !== 0) throw new TypeError('analysis data courtKeypointFrameOffsets must contain frame_count + 1 entries and begin at zero')
+  for (let index = 1; index < input.courtKeypointFrameOffsets.length; index += 1) if (input.courtKeypointFrameOffsets[index]! < input.courtKeypointFrameOffsets[index - 1]!) throw new TypeError('analysis data courtKeypointFrameOffsets must be monotonic')
   const courtKeypoints = input.courtKeypointFrameOffsets.at(-1) ?? 0
   for (const [name, column] of Object.entries({ courtKeypointIds: input.courtKeypointIds, courtKeypointPositions: input.courtKeypointPositions, courtKeypointConfidences: input.courtKeypointConfidences })) {
-    if (column.length !== courtKeypoints) throw new TypeError(`overlay ${name} length does not match court keypoint count`)
+    if (column.length !== courtKeypoints) throw new TypeError(`analysis data ${name} length does not match court keypoint count`)
   }
 }
 
-export function parseProviderOverlaySequence(bytes: Uint8Array): ProviderOverlaySequence {
-  const { bb, table } = root(bytes, PROVIDER_OVERLAY_IDENTIFIER)
-  const result: ProviderOverlaySequence = {
+export function parseAnalysisData(bytes: Uint8Array): AnalysisData {
+  const { bb, table } = root(bytes, ANALYSIS_DATA_IDENTIFIER)
+  const result: AnalysisData = {
     schemaVersion: u32(bb, table, 0, 10_000),
     aiJobId: stringField(bb, table, 1), rallySubmissionId: stringField(bb, table, 2), rallyId: stringField(bb, table, 3), matchId: stringField(bb, table, 4), annotationRevision: u64(bb, table, 5), clipAssetId: stringField(bb, table, 6), analysisId: stringField(bb, table, 7), analysisVersion: stringField(bb, table, 8),
     videoWidth: u32(bb, table, 9), videoHeight: u32(bb, table, 10), fpsNum: u32(bb, table, 11), fpsDen: u32(bb, table, 12), totalFrames: u64(bb, table, 13),
@@ -184,8 +190,10 @@ export function parseProviderOverlaySequence(bytes: Uint8Array): ProviderOverlay
     actionTaxonomyId: stringField(bb, table, 22), actionTaxonomyVersion: stringField(bb, table, 23), actionLabels: stringVector(bb, table, 24), actionLabelIds: scalarVector(bb, table, 25, 2), actionConfidences: scalarVector(bb, table, 26, 1),
     ballFramePositions: framePositionVector(bb, table, 27), ballFlags: scalarVector(bb, table, 28, 1), ballConfidences: scalarVector(bb, table, 29, 1),
     courtKeypointFrameOffsets: scalarVector(bb, table, 30, 4), courtKeypointIds: scalarVector(bb, table, 31, 2), courtKeypointPositions: framePositionVector(bb, table, 32), courtKeypointConfidences: scalarVector(bb, table, 33, 1),
+    domainJson: stringField(bb, table, 34), inputClipSha256: stringField(bb, table, 35), producerName: stringField(bb, table, 36), producerBuildId: stringField(bb, table, 37), producerSdkVersion: stringField(bb, table, 38), executionManifestJson: stringField(bb, table, 39),
   }
-  if (result.schemaVersion !== 10_000) throw new TypeError('provider overlay schema_version is unsupported')
+  if (result.schemaVersion !== 10_000) throw new TypeError('AnalysisData schema_version is unsupported')
+  if (!result.domainJson || !result.inputClipSha256 || !result.producerName || !result.producerBuildId) throw new TypeError('AnalysisData metadata is incomplete')
   validateColumns(result)
   return result
 }
@@ -196,29 +204,29 @@ function intVector(builder: Builder, values: readonly number[], width: 1 | 2 | 4
   return builder.endVector()
 }
 
-function bboxesVector(builder: Builder, values: readonly OverlayFrameBBox[]): Offset {
+function bboxesVector(builder: Builder, values: readonly AnalysisDataFrameBBox[]): Offset {
   builder.startVector(8, values.length, 2)
   for (let index = values.length - 1; index >= 0; index -= 1) { const value = values[index]!; builder.prep(2, 8); builder.writeInt16(value.y2); builder.writeInt16(value.x2); builder.writeInt16(value.y1); builder.writeInt16(value.x1) }
   return builder.endVector()
 }
 
-function framePositionsVector(builder: Builder, values: readonly OverlayFramePosition[]): Offset {
+function framePositionsVector(builder: Builder, values: readonly AnalysisFramePosition[]): Offset {
   builder.startVector(4, values.length, 2)
   for (let index = values.length - 1; index >= 0; index -= 1) { const value = values[index]!; builder.prep(2, 4); builder.writeInt16(value.y); builder.writeInt16(value.x) }
   return builder.endVector()
 }
 
-function courtPositionsVector(builder: Builder, values: readonly OverlayCourtPosition[]): Offset {
+function courtPositionsVector(builder: Builder, values: readonly AnalysisCourtPosition[]): Offset {
   builder.startVector(8, values.length, 4)
   for (let index = values.length - 1; index >= 0; index -= 1) { const value = values[index]!; builder.prep(4, 8); builder.writeFloat32(value.y); builder.writeFloat32(value.x) }
   return builder.endVector()
 }
 
-export function encodeBrowserOverlayChunk(input: BrowserOverlayChunk): Uint8Array {
+export function encodeAnalysisFrameChunk(input: AnalysisFrameChunk): Uint8Array {
   validateColumns({ ...input, totalFrames: BigInt(input.frameCount) })
   const builder = new Builder(Math.max(1024, input.trackIds.length * 48))
   const analysisId = builder.createString(input.analysisId)
-  const overlayVersion = builder.createString(input.overlayVersion)
+  const analysisDataVersion = builder.createString(input.analysisDataVersion)
   const frameOffsets = intVector(builder, input.frameOffsets, 4)
   const trackIds = intVector(builder, input.trackIds, 2)
   const frameBboxes = bboxesVector(builder, input.frameBboxes)
@@ -238,33 +246,33 @@ export function encodeBrowserOverlayChunk(input: BrowserOverlayChunk): Uint8Arra
   builder.startObject(22)
   builder.addFieldInt32(0, input.schemaVersion, 10_000)
   builder.addFieldOffset(1, analysisId, 0)
-  builder.addFieldOffset(2, overlayVersion, 0)
+  builder.addFieldOffset(2, analysisDataVersion, 0)
   builder.addFieldInt32(3, input.chunkIndex, 0)
   builder.addFieldInt64(4, input.startFrameIndex, 0n)
   builder.addFieldInt32(5, input.frameCount, 0)
   builder.addFieldOffset(6, frameOffsets, 0); builder.addFieldOffset(7, trackIds, 0); builder.addFieldOffset(8, frameBboxes, 0); builder.addFieldOffset(9, frameFootPositions, 0); builder.addFieldOffset(10, courtPositions, 0); builder.addFieldOffset(11, playerFlags, 0); builder.addFieldOffset(12, playerConfidences, 0); builder.addFieldOffset(13, actionLabelIds, 0); builder.addFieldOffset(14, actionConfidences, 0); builder.addFieldOffset(15, ballFramePositions, 0); builder.addFieldOffset(16, ballFlags, 0); builder.addFieldOffset(17, ballConfidences, 0)
   builder.addFieldOffset(18, courtKeypointFrameOffsets, 0); builder.addFieldOffset(19, courtKeypointIds, 0); builder.addFieldOffset(20, courtKeypointPositions, 0); builder.addFieldOffset(21, courtKeypointConfidences, 0)
   const result = builder.endObject()
-  builder.finish(result, BROWSER_OVERLAY_CHUNK_IDENTIFIER)
+  builder.finish(result, ANALYSIS_FRAME_CHUNK_IDENTIFIER)
   return builder.asUint8Array()
 }
 
-export function parseBrowserOverlayChunk(bytes: Uint8Array): BrowserOverlayChunk {
-  const { bb, table } = root(bytes, BROWSER_OVERLAY_CHUNK_IDENTIFIER)
-  const result: BrowserOverlayChunk = {
-    schemaVersion: u32(bb, table, 0, 10_000), analysisId: stringField(bb, table, 1), overlayVersion: stringField(bb, table, 2), chunkIndex: u32(bb, table, 3), startFrameIndex: u64(bb, table, 4), frameCount: u32(bb, table, 5),
+export function parseAnalysisFrameChunk(bytes: Uint8Array): AnalysisFrameChunk {
+  const { bb, table } = root(bytes, ANALYSIS_FRAME_CHUNK_IDENTIFIER)
+  const result: AnalysisFrameChunk = {
+    schemaVersion: u32(bb, table, 0, 10_000), analysisId: stringField(bb, table, 1), analysisDataVersion: stringField(bb, table, 2), chunkIndex: u32(bb, table, 3), startFrameIndex: u64(bb, table, 4), frameCount: u32(bb, table, 5),
     frameOffsets: scalarVector(bb, table, 6, 4), trackIds: scalarVector(bb, table, 7, 2), frameBboxes: bboxVector(bb, table, 8), frameFootPositions: framePositionVector(bb, table, 9), courtPositions: courtPositionVector(bb, table, 10), playerFlags: scalarVector(bb, table, 11, 1), playerConfidences: scalarVector(bb, table, 12, 1), actionLabelIds: scalarVector(bb, table, 13, 2), actionConfidences: scalarVector(bb, table, 14, 1), ballFramePositions: framePositionVector(bb, table, 15), ballFlags: scalarVector(bb, table, 16, 1), ballConfidences: scalarVector(bb, table, 17, 1),
     courtKeypointFrameOffsets: scalarVector(bb, table, 18, 4), courtKeypointIds: scalarVector(bb, table, 19, 2), courtKeypointPositions: framePositionVector(bb, table, 20), courtKeypointConfidences: scalarVector(bb, table, 21, 1),
   }
-  if (result.schemaVersion !== 10_000) throw new TypeError('browser overlay chunk schema_version is unsupported')
+  if (result.schemaVersion !== 10_000) throw new TypeError('browser analysis frame chunk schema_version is unsupported')
   validateColumns({ ...result, totalFrames: BigInt(result.frameCount) })
   return result
 }
 
-export function chunkProviderOverlay(sequence: ProviderOverlaySequence, chunkFrameCount = 120): BrowserOverlayChunk[] {
+export function chunkAnalysisData(sequence: AnalysisData, chunkFrameCount = 120): AnalysisFrameChunk[] {
   if (!Number.isSafeInteger(chunkFrameCount) || chunkFrameCount < 1) throw new RangeError('chunkFrameCount must be a positive safe integer')
   const totalFrames = Number(sequence.totalFrames)
-  const chunks: BrowserOverlayChunk[] = []
+  const chunks: AnalysisFrameChunk[] = []
   for (let start = 0, chunkIndex = 0; start < totalFrames; start += chunkFrameCount, chunkIndex += 1) {
     const frameCount = Math.min(chunkFrameCount, totalFrames - start)
     const detectionStart = sequence.frameOffsets[start]!
@@ -272,7 +280,7 @@ export function chunkProviderOverlay(sequence: ProviderOverlaySequence, chunkFra
     const courtKeypointStart = sequence.courtKeypointFrameOffsets[start]!
     const courtKeypointEnd = sequence.courtKeypointFrameOffsets[start + frameCount]!
     chunks.push({
-      schemaVersion: 10_000, analysisId: sequence.analysisId, overlayVersion: '1', chunkIndex, startFrameIndex: BigInt(start), frameCount,
+      schemaVersion: 10_000, analysisId: sequence.analysisId, analysisDataVersion: '1', chunkIndex, startFrameIndex: BigInt(start), frameCount,
       frameOffsets: sequence.frameOffsets.slice(start, start + frameCount + 1).map(value => value - detectionStart),
       trackIds: sequence.trackIds.slice(detectionStart, detectionEnd), frameBboxes: sequence.frameBboxes.slice(detectionStart, detectionEnd), frameFootPositions: sequence.frameFootPositions.slice(detectionStart, detectionEnd), courtPositions: sequence.courtPositions.slice(detectionStart, detectionEnd), playerFlags: sequence.playerFlags.slice(detectionStart, detectionEnd), playerConfidences: sequence.playerConfidences.slice(detectionStart, detectionEnd), actionLabelIds: sequence.actionLabelIds.slice(detectionStart, detectionEnd), actionConfidences: sequence.actionConfidences.slice(detectionStart, detectionEnd),
       ballFramePositions: sequence.ballFramePositions.slice(start, start + frameCount), ballFlags: sequence.ballFlags.slice(start, start + frameCount), ballConfidences: sequence.ballConfidences.slice(start, start + frameCount),

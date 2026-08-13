@@ -45,7 +45,10 @@ REQUIRED = [
     'docs/MASTER_IMPLEMENTATION_SPEC.md',
     'docs/MAIN_AGENT_PROMPT.md',
     'packages/contracts/ai/job.schema.json',
-    'packages/contracts/ai/result.schema.json',
+    'packages/contracts/ai/analysis-data-domain.schema.json',
+    'packages/contracts/ai/analysis-data-manifest.schema.json',
+    'packages/contracts/flatbuffers/analysis-data.fbs',
+    'packages/contracts/flatbuffers/analysis-frame-chunk.fbs',
     'packages/contracts/media/playback-window-request.schema.json',
     'packages/contracts/media/playback-window-descriptor.schema.json',
     'packages/contracts/media/playback-cursor.schema.json',
@@ -121,14 +124,17 @@ if not args.skip_checksums:
         assert actual_digest == expected_digest, f'checksum mismatch: {relative}'
 
 spec = (ROOT / 'docs/MASTER_IMPLEMENTATION_SPEC.md').read_text(encoding='utf-8')
-assert '`CLOSE_RALLY`' in spec and 'target_key_point_id' in spec
-assert 'Annotation Realtime Schema v2.1' in spec
-assert '正式registry版本為`2.1.0`' in spec and 'Canonical Rally command／ACK仍使用`2.0.0`' in spec
+assert '`START_RALLY`' in spec and '`END_RALLY`' in spec and '`SET_RALLY_OUTCOME`' in spec
+assert 'Annotation Realtime Schema v3.0' in spec
+assert '正式 registry 版本為 `3.0.0`' in spec and 'Canonical Rally command、ACK 與 snapshot 都使用 `3.0.0`' in spec
 assert '`soft_lock_intent`' in spec and 'revision/CAS' in spec
-assert '`? 未知`' in spec and '可以提交 AI' in spec
+assert '`? 未知`' in spec and 'pending`、`resolved` 或 `unknown' in spec
 assert 'GraphQL Yoga' in spec and 'Pothos' in spec and 'Prisma' in spec
 assert 'full-session' in spec.lower() or '完整 DVR' in spec
-assert (ROOT / 'docs/SYSTEM_SPEC_V3_2.md').read_bytes() == (ROOT / 'docs/MASTER_IMPLEMENTATION_SPEC.md').read_bytes()
+assert (
+    (ROOT / 'docs/SYSTEM_SPEC_V3_2.md').read_text(encoding='utf-8')
+    == (ROOT / 'docs/MASTER_IMPLEMENTATION_SPEC.md').read_text(encoding='utf-8')
+)
 
 annotation_page = (ROOT / 'web/app/pages/annotate/[matchId].vue').read_text(encoding='utf-8')
 annotation_room = (ROOT / 'web/app/composables/useAnnotationRoom.ts').read_text(encoding='utf-8')
@@ -149,7 +155,8 @@ for binding in ["service: 'Z'", "contact: 'X'", "play_pause: 'Space'", "close_le
     assert binding in hotkey_registry, f'annotation default missing: {binding}'
 for forbidden_terminal_flow in ["kind: 'terminal'", "type: 'terminal'", "kind === 'terminal'"]:
     assert forbidden_terminal_flow not in annotation_page, 'standalone terminal key-point flow returned'
-assert 'CLOSE_RALLY' in annotation_room
+for v3_command in ['START_RALLY', 'END_RALLY', 'SET_RALLY_OUTCOME']:
+    assert v3_command in annotation_room, f'annotation room missing v3 command: {v3_command}'
 
 compose_source = (ROOT / 'infra/compose.yaml').read_text(encoding='utf-8')
 compose_services = compose_source.split('\nservices:\n', 1)[1].split('\nvolumes:\n', 1)[0]
@@ -200,9 +207,10 @@ for path in active_annotation_sources:
     for forbidden in ('MARK_TERMINAL', 'SET_SCORE', 'AWAITING_SCORE', 'X 結束'):
         assert forbidden not in text, f'active old annotation flow in {path.relative_to(ROOT)}: {forbidden}'
 
-sdk_overlay = (ROOT / 'sdk/src/volleyball_monitoring_ai/schemas/overlay.fbs').read_bytes()
-canonical_overlay = (ROOT / 'packages/contracts/flatbuffers/overlay.fbs').read_bytes()
-assert sdk_overlay == canonical_overlay, 'SDK overlay schema is stale'
+for schema_name in ('analysis-data.fbs', 'analysis-frame-chunk.fbs'):
+    sdk_schema = (ROOT / 'sdk/src/volleyball_monitoring_ai/schemas' / schema_name).read_bytes()
+    canonical_schema = (ROOT / 'packages/contracts/flatbuffers' / schema_name).read_bytes()
+    assert sdk_schema == canonical_schema, f'SDK {schema_name} schema is stale'
 
 if args.skip_checksums:
     print(

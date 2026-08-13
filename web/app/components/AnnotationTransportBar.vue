@@ -22,7 +22,10 @@ withDefaults(defineProps<{
   processing?: AnnotationRallyProcessingUpdate | null
   processingRetrying?: boolean
   correctionActive: boolean
+  correctionBlockReason?: string | null
+  correctionCreating?: boolean
   correctionCancelling?: boolean
+  submissionPending?: boolean
   submittedSelected: boolean
   clipSelected: boolean
   downloadAvailable?: boolean
@@ -36,7 +39,7 @@ withDefaults(defineProps<{
   muted: boolean
   timelineScale: number
   shortcuts: { play: string; previousFrame: string; nextFrame: string; previousPoint: string; nextPoint: string }
-}>(), { downloadAvailable: false })
+}>(), { correctionBlockReason: null, correctionCreating: false, downloadAvailable: false, submissionPending: false })
 
 defineEmits<{
   playPause: []
@@ -102,11 +105,13 @@ const clipTransition = computed(() => reducedMotion.value === 'reduce'
       >
         <div ref="clipActionsContent" class="clip-actions" role="group" aria-label="片段工具">
           <i class="transport-separator context-separator" />
-          <UiTooltip v-if="draftSelected" :content="submitEnabled ? '送出目前草稿並開始處理' : '片段尚未完成，或仍有操作正在同步'"><button type="button" class="tool-button submit" :disabled="!submitEnabled" aria-label="送出片段" @click="$emit('submit')"><Send :size="14" />送出</button></UiTooltip>
-          <i v-if="draftSelected" class="action-separator" aria-hidden="true" />
-          <UiTooltip v-if="correctionActive" content="取消本次修正並恢復上一個已送出版本；同步卡住時也可以使用"><button type="button" class="tool-button danger" :disabled="correctionCancelling" aria-label="取消修正片段" @click="$emit('cancelCorrection')"><XCircle :size="14" />{{ correctionCancelling ? '取消中' : '取消修正片段' }}</button></UiTooltip>
-          <UiTooltip v-else-if="submittedSelected && processing?.processing_status === 'failed'" content="保留目前標記，重新執行失敗的處理階段"><button type="button" class="tool-button retry" :disabled="processingRetrying" aria-label="重新處理" @click="$emit('retryProcessing')"><RotateCcw :size="14" :class="{ spinning: processingRetrying }" />{{ processingRetrying ? '排程中' : '重新處理' }}</button></UiTooltip>
-          <UiTooltip v-else-if="submittedSelected" content="複製目前已送出的片段，建立可編輯的修正版草稿"><button type="button" class="tool-button" :disabled="!editReady" aria-label="建立修正版草稿" @click="$emit('startCorrection')"><RotateCcw :size="14" />建立修正版草稿</button></UiTooltip>
+          <UiTooltip v-if="submissionPending" content="送出內容已安全保留，連線恢復後會自動完成"><button type="button" class="tool-button pending" disabled aria-label="等待伺服器確認送出" aria-live="polite"><RotateCcw :size="14" class="spinning" />等待確認</button></UiTooltip>
+          <UiTooltip v-else-if="draftSelected" :content="submitEnabled ? '送出目前草稿並開始處理' : '片段尚未完成，或仍有操作正在同步'"><button type="button" class="tool-button submit" :disabled="!submitEnabled" aria-label="送出片段" @click="$emit('submit')"><Send :size="14" />送出</button></UiTooltip>
+          <i v-if="draftSelected && !submissionPending" class="action-separator" aria-hidden="true" />
+          <UiTooltip v-if="!submissionPending && correctionCreating" content="正在複製已送出的片段並切換到可編輯草稿"><button type="button" class="tool-button pending" disabled aria-label="正在建立修正版草稿" aria-live="polite"><RotateCcw :size="14" class="spinning" />建立修正版中</button></UiTooltip>
+          <UiTooltip v-else-if="!submissionPending && correctionActive" content="取消本次修正並恢復上一個已送出版本；同步卡住時也可以使用"><button type="button" class="tool-button danger" :disabled="correctionCancelling" aria-label="取消修正片段" @click="$emit('cancelCorrection')"><XCircle :size="14" />{{ correctionCancelling ? '取消中' : '取消修正片段' }}</button></UiTooltip>
+          <UiTooltip v-else-if="!submissionPending && submittedSelected && processing?.processing_status === 'failed'" content="保留目前標記，重新執行失敗的處理階段"><button type="button" class="tool-button retry" :disabled="processingRetrying" aria-label="重新處理" @click="$emit('retryProcessing')"><RotateCcw :size="14" :class="{ spinning: processingRetrying }" />{{ processingRetrying ? '排程中' : '重新處理' }}</button></UiTooltip>
+          <UiTooltip v-else-if="!submissionPending && submittedSelected" :content="correctionBlockReason || '複製目前已送出的片段，建立可編輯的修正版草稿'"><button type="button" class="tool-button" aria-label="建立修正版草稿" @click="$emit('startCorrection')"><RotateCcw :size="14" />建立修正版草稿</button></UiTooltip>
           <UiTooltip :content="downloadAvailable ? '下載影片或包含分析資料的 ZIP' : '片段尚未產出可下載影片'"><button type="button" class="tool-button" :disabled="!downloadAvailable" aria-label="下載片段" @click="$emit('downloadClip')"><Download :size="14" />下載片段</button></UiTooltip>
           <UiTooltip content="永久刪除目前選取的片段"><button type="button" class="tool-button danger" aria-label="刪除所選片段" @click="$emit('deleteClip')"><Trash2 :size="14" />刪除所選片段</button></UiTooltip>
         </div>
@@ -131,4 +136,5 @@ const clipTransition = computed(() => reducedMotion.value === 'reduce'
 .transport-bar{min-width:0;display:flex;align-items:center;gap:4px;padding:4px 10px;border-bottom:1px solid #292f35;color:#f4f4f5}.transport-bar button{color:inherit;cursor:pointer}.transport-bar button:disabled{opacity:.35;cursor:not-allowed}.transport-button{width:34px;min-height:31px;display:grid;place-items:center;padding:0;border:0;border-radius:7px;background:#18181b;transition:background-color .16s ease,transform .12s ease}.transport-button:hover:not(:disabled){background:#27272a}.transport-button:active:not(:disabled),.tool-button:active:not(:disabled),.timeline-scale:active:not(:disabled){transform:scale(.96)}.transport-button:focus-visible,.tool-button:focus-visible,.live-badge:focus-visible,.timeline-scale:focus-visible{outline:2px solid #fca5a5;outline-offset:2px}.transport-media-group{display:flex;align-items:center;gap:6px}.timecode{min-width:82px;margin-left:3px;color:#fff;font:700 .7rem "Cascadia Mono",Consolas,monospace}.live-badge{min-height:22px;padding:2px 7px;border:0;border-radius:999px;background:#27272a;color:#a1a1aa;font-size:.56rem;font-weight:800}.live-badge.active{background:#163c27;color:#86efac}.terminal-badge{padding:3px 7px;border:1px solid #3f3f46;border-radius:999px;color:#a1a1aa;font:800 .56rem "Cascadia Mono",Consolas,monospace}.transport-separator{width:1px;height:23px;margin:0 3px;background:#30363d}.action-separator{width:1px;height:18px;margin:0 2px;background:#3b4249}.transport-context{flex:0 1 270px;min-width:150px;max-width:340px;display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:10px;padding:0 8px}.transport-context>div{min-width:0;display:grid;gap:1px}.transport-context strong,.transport-context small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.transport-context strong{font-size:.65rem}.transport-context small{color:#7f8a95;font-size:.56rem}.transport-context>span{padding:3px 7px;border-radius:999px;background:#27272a;color:#d4d4d8;font-size:.56rem;font-weight:750}.clip-actions-shell{flex:none;min-width:0;overflow:hidden}.clip-actions,.keypoint-actions{display:flex;flex:none;align-items:center;gap:4px;white-space:nowrap}.clip-actions{width:max-content}.tool-button{min-height:30px;display:flex;align-items:center;gap:5px;padding:0 5px;border:0;border-radius:6px;background:transparent;color:#aab3bc;font-size:.63rem;transition:background-color .16s ease,color .16s ease,transform .12s ease}.tool-button:hover:not(:disabled),.tool-button.active{background:#27272a;color:#fff}.tool-button.danger{color:#dba1a5}.tool-button.icon-only{width:28px;justify-content:center;padding:0}.transport-end{margin-left:auto;display:flex;align-items:center;gap:5px}.timeline-scale{min-width:47px;min-height:26px;padding:0 8px;border:1px solid #3d4b58;border-radius:6px;background:#151a1f;color:#a9d6f7!important;font:750 .62rem "Cascadia Mono",Consolas,monospace;font-variant-numeric:tabular-nums;transition:border-color .16s ease,background-color .16s ease,transform .12s ease}.timeline-scale:hover{border-color:#62788b;background:#1c242b}@media(max-width:1280px){.transport-context{max-width:210px}.transport-context small{display:none}}@media(max-width:980px){.transport-context,.context-separator{display:none}}
 .tool-button.retry{color:#ffb3b8}.spinning{animation:spin .9s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}@media(prefers-reduced-motion:reduce){.spinning{animation:none}.transport-button,.tool-button{transition-duration:.01ms}}
 .tool-button.submit{color:#a9d6f7}
+.tool-button.pending{color:#f8d18a;opacity:1!important}
 </style>

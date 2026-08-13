@@ -2,8 +2,8 @@
 
 External AI worker SDK. The AI computer makes one outbound WebSocket connection to the central
 server and therefore does **not** need to host a public API server. The WebSocket is only the
-control plane (job offers, leases, progress, resume and abort). Canonical MP4 download and result
-callback remain bounded HTTPS transfers; media and full overlays never travel through WebSocket.
+control plane (job offers, leases, progress, resume and abort). Canonical MP4 download and
+AnalysisData callback remain bounded HTTPS transfers; binary analysis data never travels through WebSocket.
 
 ```bash
 uv add "volleyball-monitoring-ai-sdk @ git+https://github.com/henry753951/volleyball-monitoring-ai.git@<COMMIT_SHA>#subdirectory=sdk"
@@ -23,8 +23,8 @@ The example performs the complete lifecycle:
 2. downloads the signed canonical MP4 to `<workspace>/<ai_job_id>/canonical.mp4` through a
    checksum-verified `.part` file;
 3. runs an abort-aware placeholder loop where the AI team connects its decoder and models;
-4. adapts the bundled golden analysis data into typed `AnalysisResult` / `AnalysisBundle` objects;
-5. sends the result and `VOV1` overlay to the job's authenticated callback URL.
+4. adapts the bundled golden domain result into a typed `AnalysisDomainData` object;
+5. sends exactly one `VAD1` AnalysisData FlatBuffer to the job's authenticated callback URL.
 
 `abort_job` cancels an active download or handler and removes an incomplete `.part` file. On a
 network interruption, the client reconnects with exponential backoff and advertises active jobs so
@@ -35,22 +35,22 @@ workers never need an internal integration UUID.
 
 ## Existing HTTP provider adapter
 
-`create_provider_app` remains available under the optional `provider` extra for compatibility. New
-AI deployments should use `AIWorkerClient`; they do not need FastAPI or an inbound port.
+`create_provider_app` is available under the optional `provider` extra for local adapters. Normal
+AI deployments use `AIWorkerClient`; they do not need FastAPI or an inbound port.
 
 ## Contract boundary
 
-The SDK validates Job `1.1.0`, Analysis Result `1.0.0`, Provider Realtime `1.0.0` and callback
-`1.0.0`. Human `marker_kind=service` is only the Z-key time anchor. Action labels, confidence and
-group phase remain optional AI-owned extensions. The signed `clip.download_url` never receives the
-callback bearer token.
+The SDK validates Job `3.0.0`, AnalysisData domain `1.0.0`, Provider Realtime `2.0.0` and callback
+`2.0.0`. Z supplies only start/end boundaries; X supplies optional non-terminal contact hints.
+Action labels, confidence and group phase remain optional AI-owned extensions. The signed
+`clip.download_url` never receives the callback bearer token.
 
 ## Offline development mode
 
 `OfflineRunner` executes an analyzer without constructing a WebSocket, downloader or callback
 client. It validates the same `AIJobRequest`, optionally replaces `key_points` from a standalone
-JSON file, verifies the local clip byte length and SHA-256, and writes `analysis-result.json`,
-`overlay.vov1` and `offline-run.json` atomically.
+JSON file, verifies the local clip byte length and SHA-256, and writes `analysis-data.vad1` and
+`offline-run.json` atomically.
 
 ```python
 from pathlib import Path

@@ -4,16 +4,20 @@
   "title": "Analysis Review State",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema_version", "analysis_run_id", "revision", "ball_corrections", "action_corrections", "player_bbox_corrections", "contact_actor_corrections", "contact_time_corrections"],
+  "required": ["schema_version", "analysis_run_id", "revision", "status", "computed_revision", "approved_revision", "ball_corrections", "action_corrections", "player_bbox_corrections", "contact_actor_corrections", "contact_time_corrections", "contact_edits"],
   "properties": {
-    "schema_version": { "const": "1.2.0" },
+    "schema_version": { "const": "1.3.0" },
     "analysis_run_id": { "type": "string", "format": "uuid" },
     "revision": { "$ref": "#/$defs/uint" },
+    "status": { "enum": ["editing", "ready", "approved"] },
+    "computed_revision": { "oneOf": [{ "$ref": "#/$defs/uint" }, { "type": "null" }] },
+    "approved_revision": { "oneOf": [{ "$ref": "#/$defs/uint" }, { "type": "null" }] },
     "ball_corrections": { "type": "array", "items": { "$ref": "#/$defs/ball" } },
     "action_corrections": { "type": "array", "items": { "$ref": "#/$defs/action" } },
     "player_bbox_corrections": { "type": "array", "items": { "$ref": "#/$defs/bboxCorrection" } },
     "contact_actor_corrections": { "type": "array", "items": { "$ref": "#/$defs/contactActor" } },
-    "contact_time_corrections": { "type": "array", "items": { "$ref": "#/$defs/contactTime" } }
+    "contact_time_corrections": { "type": "array", "items": { "$ref": "#/$defs/contactTime" } },
+    "contact_edits": { "type": "array", "items": { "$ref": "#/$defs/contactEdit" } }
   },
   "$defs": {
     "uint": { "type": "string", "pattern": "^(0|[1-9][0-9]*)$" },
@@ -29,6 +33,7 @@
     "action": { "type": "object", "additionalProperties": false, "required": ["frame_index", "track_id", "action", "revision"], "properties": { "frame_index": { "$ref": "#/$defs/uint" }, "track_id": { "type": "integer", "minimum": 0 }, "action": { "enum": ["Waiting", "Setting", "Digging", "Falling", "Spiking", "Blocking", "Jumping", "Moving", "Standing"] }, "revision": { "$ref": "#/$defs/revision" } } },
     "bboxCorrection": { "type": "object", "additionalProperties": false, "required": ["frame_index", "track_id", "frame_bbox", "revision"], "properties": { "frame_index": { "$ref": "#/$defs/uint" }, "track_id": { "type": "integer", "minimum": 0 }, "frame_bbox": { "$ref": "#/$defs/bboxValue" }, "revision": { "$ref": "#/$defs/revision" } } },
     "contactActor": { "type": "object", "additionalProperties": false, "required": ["key_point_id", "track_id", "revision"], "properties": { "key_point_id": { "type": "string", "format": "uuid" }, "track_id": { "oneOf": [{ "type": "integer", "minimum": 0 }, { "type": "null" }] }, "revision": { "$ref": "#/$defs/revision" } } },
-    "contactTime": { "type": "object", "additionalProperties": false, "required": ["key_point_id", "frame_index", "revision"], "properties": { "key_point_id": { "type": "string", "format": "uuid" }, "frame_index": { "$ref": "#/$defs/uint" }, "revision": { "$ref": "#/$defs/revision" } } }
+    "contactTime": { "type": "object", "additionalProperties": false, "required": ["key_point_id", "frame_index", "revision"], "properties": { "key_point_id": { "type": "string", "format": "uuid" }, "frame_index": { "$ref": "#/$defs/uint" }, "revision": { "$ref": "#/$defs/revision" } } },
+    "contactEdit": { "type": "object", "additionalProperties": false, "required": ["contact_id", "base_key_point_id", "frame_index", "track_id", "deleted", "revision"], "properties": { "contact_id": { "type": "string", "format": "uuid" }, "base_key_point_id": { "oneOf": [{ "type": "string", "format": "uuid" }, { "type": "null" }] }, "frame_index": { "$ref": "#/$defs/uint" }, "track_id": { "oneOf": [{ "type": "integer", "minimum": 0 }, { "type": "null" }] }, "deleted": { "type": "boolean" }, "revision": { "$ref": "#/$defs/revision" } } }
   }
 }

@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted — 2026-08-10
+Superseded by ADR 0031 — 2026-08-12
 
 Decision owner: Main PM / architecture integration agent
 

@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/OWNER/volleyball-monitoring-ai/packages/contracts/ai/result/1.1.0",
-  "title": "Volleyball AI Analysis Result 1.1.0",
+  "$id": "https://github.com/OWNER/volleyball-monitoring-ai/packages/contracts/ai/analysis-data-domain/1.0.0",
+  "title": "Volleyball AI AnalysisData Domain 1.0.0",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -22,9 +22,7 @@
     "summary"
   ],
   "properties": {
-    "schema_version": {
-      "enum": ["1.0.0", "1.1.0"]
-    },
+    "schema_version": { "const": "1.0.0" },
     "analysis_id": {
       "$ref": "#/$defs/id"
     },
@@ -436,6 +434,8 @@
       "additionalProperties": false,
       "required": [
         "key_point_id",
+        "source_key_point_id",
+        "anchor_origin",
         "sequence_index",
         "marker_kind",
         "is_terminal",
@@ -470,13 +470,10 @@
           "minimum": 0
         },
         "marker_kind": {
-          "enum": [
-            "service",
-            "contact"
-          ]
+          "const": "contact"
         },
         "is_terminal": {
-          "type": "boolean"
+          "const": false
         },
         "anchor_frame_index": {
           "$ref": "#/$defs/uint64"
@@ -671,7 +668,7 @@
           ]
         },
         "is_terminal_segment": {
-          "type": "boolean"
+          "const": false
         },
         "quality_flags": {
           "type": "array",

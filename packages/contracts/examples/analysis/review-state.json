@@ -1,7 +1,10 @@
 {
-  "schema_version": "1.2.0",
+  "schema_version": "1.3.0",
   "analysis_run_id": "85000000-0000-4000-8000-000000000002",
   "revision": "8",
+  "status": "ready",
+  "computed_revision": "8",
+  "approved_revision": null,
   "ball_corrections": [
     { "frame_index": "31520", "state": "position", "frame_pos": { "x": 936.25, "y": 412.5 }, "revision": "8" }
   ],
@@ -16,5 +19,6 @@
   ],
   "contact_time_corrections": [
     { "key_point_id": "85000000-0000-4000-8000-000000000003", "frame_index": "31521", "revision": "8" }
-  ]
+  ],
+  "contact_edits": []
 }

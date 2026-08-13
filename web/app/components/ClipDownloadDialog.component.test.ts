@@ -28,6 +28,8 @@ describe('ClipDownloadDialog', () => {
       props: { open: true, rallyId: 'rally-1', analysisRunId: 'analysis-1', title: 'Test case' },
       global,
     })
+    expect(wrapper.text()).toContain('來源與裁切資訊')
+    expect(wrapper.text()).toContain('擊球 JSONL')
     await wrapper.get('input[value="dataset"]').setValue(true)
     await wrapper.findAll('button').at(-1)!.trigger('click')
     const anchor = append.mock.calls.at(-1)?.[0] as HTMLAnchorElement

@@ -21,7 +21,7 @@ describe('annotation outcome label', () => {
       scoringCourtSide: 'right',
       scoringTeamId: 'tpe',
       teams,
-    })).toBe('TPE 得分')
+    })).toBe('右側 TPE 得分')
   })
 
   it('falls back to the visible side label for a live draft', () => {
@@ -29,6 +29,6 @@ describe('annotation outcome label', () => {
       leftLabel: 'TPE',
       scoreResolution: 'resolved',
       scoringCourtSide: 'left',
-    })).toBe('TPE 得分')
+    })).toBe('左側 TPE 得分')
   })
 })

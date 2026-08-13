@@ -11,6 +11,8 @@ const props = withDefaults(defineProps<{
   commandReady?: boolean
   pendingCommand?: boolean
   serviceMode?: 'start' | 'end'
+  leftTeamLabel?: string | null
+  rightTeamLabel?: string | null
   availability?: Partial<Record<AnnotationAction, { enabled: boolean; reason: string }>>
 }>(), { commandReady: true, pendingCommand: false, serviceMode: 'start' })
 const emit = defineEmits<{ action: [AnnotationAction]; settings: [] }>()
@@ -21,15 +23,17 @@ function reason(action: AnnotationAction) {
   if (availability) return availability.enabled ? '' : availability.reason
   if (props.pendingCommand) return '已有待送出操作'
   if (props.commandReady === false) return '標記暫時不可用'
-  if (action === 'service' && (!['IDLE', 'READY', 'SUBMITTED', 'VOIDED'].includes(props.state) || !props.canMark)) return !['IDLE', 'READY', 'SUBMITTED', 'VOIDED'].includes(props.state) ? '目前片段尚未關閉' : '游標尚未確認'
+  if (action === 'service' && !props.canMark) return '游標尚未確認'
   if (action === 'contact' && (props.state !== 'OPEN' || !props.canMark)) return props.state !== 'OPEN' ? '尚未開始片段' : '游標尚未確認'
-  if (action.startsWith('close_') && (!['OPEN', 'READY'].includes(props.state) || !props.lastKeyPoint)) return !['OPEN', 'READY'].includes(props.state) ? '尚未開始片段' : '沒有可結束的擊球點'
+  if (action.startsWith('close_') && !['OPEN', 'READY'].includes(props.state)) return '目前沒有可設定結果的片段'
   return ''
 }
 
 function label(action: AnnotationAction, fallback: string) {
-  if (action !== 'service') return fallback
-  return props.serviceMode === 'end' ? '結束' : '發球'
+  if (action === 'service') return props.serviceMode === 'end' ? '結束片段' : '開始片段'
+  if (action === 'close_left' && props.leftTeamLabel) return `左側 ${props.leftTeamLabel} 得分`
+  if (action === 'close_right' && props.rightTeamLabel) return `右側 ${props.rightTeamLabel} 得分`
+  return fallback
 }
 </script>
 

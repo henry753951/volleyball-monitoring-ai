@@ -122,7 +122,7 @@ describe('MinIO object reader configuration', () => {
 })
 
 describe('MinIO verified object reads', () => {
-  it('accepts checksum-bound timing manifest assets only at schema 1.1.0', async () => {
+  it('accepts checksum-bound timing manifest assets at supported 1.1.0 and 2.0.0 schemas', async () => {
     const expected = Buffer.from('{"schema_version":"1.1.0"}')
     const getObject = vi.fn(async () => Readable.from([expected]))
     const { reader } = createReader({ getObject }, { bucket: 'rally-media' })
@@ -130,6 +130,13 @@ describe('MinIO verified object reads', () => {
       bucket: 'rally-media',
       expectedContentType: 'application/json',
       expectedInternalSchemaVersion: '1.1.0',
+      expectedKind: 'TIMING_MANIFEST',
+      key: 'clips/submission/clip.timing.json',
+    }))).resolves.toEqual(expected)
+    await expect(reader(requestFor(expected, {
+      bucket: 'rally-media',
+      expectedContentType: 'application/json',
+      expectedInternalSchemaVersion: '2.0.0',
       expectedKind: 'TIMING_MANIFEST',
       key: 'clips/submission/clip.timing.json',
     }))).resolves.toEqual(expected)

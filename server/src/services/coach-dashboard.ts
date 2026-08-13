@@ -1,8 +1,11 @@
 import type { PrismaClient } from '@volleyball-monitoring/db'
 import { AnnotationStatus, UserRole } from '@volleyball-monitoring/db/client'
+import { deriveRallyDisplayOrdinals, segmentStartCaptureTimeUs } from '../domain/rally-display-order.js'
 import {
-  readClipTimingCoverage,
+  readClipFrameTimeline,
+  timingManifestIdentity,
   type CaptureCoverage,
+  type ClipFrameTimeline,
 } from '../media/clip-timing-coverage.js'
 import type { MediaObjectReader } from '../media/playback-domain.js'
 
@@ -21,6 +24,7 @@ export function selectDisplayAnalysis<T extends { status: string }>(
 
 const dashboardClipSelect = {
   id: true,
+  idempotencyKey: true,
   status: true,
   actualStartCaptureUs: true,
   actualEndCaptureUs: true,
@@ -47,13 +51,32 @@ const dashboardClipSelect = {
 
 const dashboardAnalysisSelect = {
   id: true, status: true, analysisVersion: true, summary: true, identityMappingCompletedAt: true,
-  rawAnalysisAsset: { select: { byteLength: true } },
-  rawOverlayAsset: { select: { byteLength: true } },
+  rawAnalysisDataAsset: { select: { byteLength: true } },
   artifacts: { select: { asset: { select: { byteLength: true } } } },
-  overlayManifest: { select: { fpsNum: true, fpsDen: true, chunks: { select: { byteLength: true } } } },
+  analysisDataManifest: { select: { fpsNum: true, fpsDen: true, chunks: { select: { byteLength: true } } } },
   tracks: { select: { firstFrame: true, lastFrame: true } },
+  contactEvents: { select: { anchorFrameIndex: true, anchorOrigin: true, detectionConfidence: true, keyPointId: true } },
+  contactTimeCorrections: { select: { frameIndex: true, keyPointId: true } },
+  contactEdits: { select: { baseKeyPointId: true, contactId: true, deleted: true, frameIndex: true } },
   _count: { select: { tracks: true, segments: true, contactEvents: true } },
 } as const
+
+function frameCoverage(
+  timeline: ClipFrameTimeline,
+  firstFrame: bigint | null,
+  lastFrame: bigint | null,
+): CaptureCoverage | null {
+  if (firstFrame === null && lastFrame === null) {
+    return { startUs: timeline.captureTimeUs[0]!, endUs: timeline.captureEndUs }
+  }
+  if (firstFrame === null || lastFrame === null || firstFrame < 0n || lastFrame < firstFrame || lastFrame >= BigInt(timeline.captureTimeUs.length)) return null
+  const first = Number(firstFrame)
+  const last = Number(lastFrame)
+  return {
+    startUs: timeline.captureTimeUs[first]!,
+    endUs: timeline.captureTimeUs[last + 1] ?? timeline.captureEndUs,
+  }
+}
 
 export async function getCoachMatchState(
   database: PrismaClient,
@@ -80,7 +103,7 @@ export async function getCoachMatchState(
         where: { activeSubmissionId: { not: null }, voidedAt: null },
         orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
         select: {
-          id: true, ordinal: true, displayOrdinal: true, displaySetNumber: true, annotationRevision: true, processingStatus: true, scoringCourtSide: true, scoringTeamId: true,
+          id: true, ordinal: true, displaySetNumber: true, annotationRevision: true, processingStatus: true, scoringCourtSide: true, scoringTeamId: true,
           set: { select: { id: true, setNumber: true } },
           program: { select: { captureSessionId: true } },
           activeSubmission: {
@@ -90,6 +113,10 @@ export async function getCoachMatchState(
               keyPoints: {
                 orderBy: { sequenceIndex: 'asc' },
                 select: { id: true, sequenceIndex: true, markerKind: true, isTerminal: true, captureTimeUs: true, captureFrameIndex: true },
+              },
+              boundaries: {
+                orderBy: { kind: 'asc' },
+                select: { kind: true, captureTimeUs: true, captureFrameIndex: true },
               },
               clipJobs: {
                 orderBy: { createdAt: 'desc' },
@@ -143,7 +170,6 @@ export async function getCoachMatchState(
     select: {
       id: true,
       ordinal: true,
-      displayOrdinal: true,
       displaySetNumber: true,
       annotationRevision: true,
       annotationStatus: true,
@@ -160,8 +186,32 @@ export async function getCoachMatchState(
         orderBy: { sequenceIndex: 'asc' },
         select: { id: true, sequenceIndex: true, markerKind: true, isTerminal: true, captureTimeUs: true, captureFrameIndex: true },
       },
+      boundaries: {
+        orderBy: { kind: 'asc' },
+        select: { kind: true, captureTimeUs: true, captureFrameIndex: true },
+      },
     },
   })
+  // The set is persisted because it is an editorial decision. The ordinal is
+  // a view over capture order and must never depend on a stale database value.
+  // A correction draft replaces the same rally's submitted geometry while it
+  // is editable, so it intentionally wins the de-duplication below.
+  const displayOrderByRallyId = new Map(match.rallies.flatMap((rally) => {
+    if (!rally.activeSubmission) return []
+    return [[rally.id, {
+      displaySetNumber: rally.displaySetNumber,
+      id: rally.id,
+      startCaptureTimeUs: segmentStartCaptureTimeUs(rally.activeSubmission),
+    }] as const]
+  }))
+  for (const draft of drafts) {
+    displayOrderByRallyId.set(draft.id, {
+      displaySetNumber: draft.displaySetNumber,
+      id: draft.id,
+      startCaptureTimeUs: segmentStartCaptureTimeUs(draft),
+    })
+  }
+  const displayOrdinalByRallyId = deriveRallyDisplayOrdinals([...displayOrderByRallyId.values()])
   const displayResultBySubmissionId = new Map(match.rallies.flatMap((rally) => {
     const submission = rally.activeSubmission
     if (!submission) return []
@@ -177,6 +227,7 @@ export async function getCoachMatchState(
     }] as const]
   }))
   const coverageByAnalysisId = new Map<string, CaptureCoverage | null>()
+  const timelineByAnalysisId = new Map<string, ClipFrameTimeline>()
   const coverageTasks = match.rallies.flatMap((rally) => {
     const submission = rally.activeSubmission
     const displayResult = submission ? displayResultBySubmissionId.get(submission.id) : null
@@ -201,16 +252,13 @@ export async function getCoachMatchState(
         return
       }
       try {
-        coverageByAnalysisId.set(
-          analysis.id,
-          await readClipTimingCoverage(
-            dependencies.timingManifestReader,
-            clip.timingManifest,
-            clip.id,
-            firstFrame,
-            lastFrame,
-          ),
+        const timeline = await readClipFrameTimeline(
+          dependencies.timingManifestReader,
+          clip.timingManifest,
+          timingManifestIdentity(clip.id, clip.idempotencyKey, clip.timingManifest.objectKey),
         )
+        timelineByAnalysisId.set(analysis.id, timeline)
+        coverageByAnalysisId.set(analysis.id, frameCoverage(timeline, firstFrame, lastFrame))
       } catch {
         coverageByAnalysisId.set(analysis.id, null)
       }
@@ -223,7 +271,7 @@ export async function getCoachMatchState(
   const runningScoreByRallyId = new Map<string, { left: number; right: number; winnerSide: 'left' | 'right' | null }>()
   for (const rally of [...match.rallies].sort((left, right) =>
     left.displaySetNumber - right.displaySetNumber
-    || left.displayOrdinal - right.displayOrdinal
+    || (displayOrdinalByRallyId.get(left.id) ?? 1) - (displayOrdinalByRallyId.get(right.id) ?? 1)
     || left.id.localeCompare(right.id),
   )) {
     const teamScore = scoreByDisplaySet.get(rally.displaySetNumber) ?? new Map<string, number>()
@@ -259,7 +307,7 @@ export async function getCoachMatchState(
       drafts: drafts.map(draft => ({
         id: draft.id,
         ordinal: draft.ordinal,
-        display_ordinal: draft.displayOrdinal,
+        display_ordinal: displayOrdinalByRallyId.get(draft.id) ?? 1,
         display_set_number: draft.displaySetNumber,
         annotation_revision: draft.annotationRevision.toString(),
         annotation_status: draft.annotationStatus.toLowerCase(),
@@ -281,9 +329,14 @@ export async function getCoachMatchState(
           capture_time_us: point.captureTimeUs.toString(),
           capture_frame_index: point.captureFrameIndex.toString(),
         })),
+        boundaries: draft.boundaries.map(boundary => ({
+          kind: boundary.kind.toLowerCase(),
+          capture_time_us: boundary.captureTimeUs.toString(),
+          capture_frame_index: boundary.captureFrameIndex.toString(),
+        })),
       })),
       rallies: match.rallies.flatMap(rally => rally.activeSubmission ? [{
-        id: rally.id, ordinal: rally.ordinal, display_ordinal: rally.displayOrdinal, display_set_number: rally.displaySetNumber, annotation_revision: rally.annotationRevision.toString(), processing_status: rally.processingStatus.toLowerCase(), scoring_court_side: rally.scoringCourtSide?.toLowerCase() ?? null, scoring_team_id: rally.scoringTeamId, set_id: rally.set.id, set_number: rally.set.setNumber,
+        id: rally.id, ordinal: rally.ordinal, display_ordinal: displayOrdinalByRallyId.get(rally.id) ?? 1, display_set_number: rally.displaySetNumber, annotation_revision: rally.annotationRevision.toString(), processing_status: rally.processingStatus.toLowerCase(), scoring_court_side: rally.scoringCourtSide?.toLowerCase() ?? null, scoring_team_id: rally.scoringTeamId, set_id: rally.set.id, set_number: rally.set.setNumber,
         left_score_after: runningScoreByRallyId.get(rally.id)?.left ?? 0,
         right_score_after: runningScoreByRallyId.get(rally.id)?.right ?? 0,
         winner_side: runningScoreByRallyId.get(rally.id)?.winnerSide ?? null,
@@ -301,6 +354,11 @@ export async function getCoachMatchState(
             is_terminal: point.isTerminal,
             capture_time_us: point.captureTimeUs.toString(),
             capture_frame_index: point.captureFrameIndex.toString(),
+          })),
+          boundaries: rally.activeSubmission.boundaries.map(boundary => ({
+            kind: boundary.kind.toLowerCase(),
+            capture_time_us: boundary.captureTimeUs.toString(),
+            capture_frame_index: boundary.captureFrameIndex.toString(),
           })),
           clip: (() => {
             const clip = displayResultBySubmissionId.get(rally.activeSubmission.id)?.clip
@@ -361,7 +419,7 @@ export async function getCoachMatchState(
               stage,
               updated_at: (aiJob?.updatedAt ?? clip?.updatedAt ?? rally.activeSubmission.submittedAt).toISOString(),
               analysis_id: displayResultBySubmissionId.get(rally.activeSubmission.id)?.analysis?.id ?? null,
-              overlay_version: null,
+              analysis_data_version: null,
               error: failedJob ? {
                 code: failedJob.errorCode ?? 'PROCESSING_FAILED',
                 message: failedJob.errorMessage ?? '處理工作失敗',
@@ -375,17 +433,37 @@ export async function getCoachMatchState(
           analysis: displayResultBySubmissionId.get(rally.activeSubmission.id)?.analysis ? (() => {
             const analysis = displayResultBySubmissionId.get(rally.activeSubmission.id)!.analysis!
             const coverage = coverageByAnalysisId.get(analysis.id) ?? null
+            const frameTimeline = timelineByAnalysisId.get(analysis.id)
+            const timeByContact = new Map(analysis.contactTimeCorrections.map(item => [item.keyPointId, item.frameIndex]))
+            const editByContact = new Map(analysis.contactEdits.map(item => [item.contactId, item]))
+            const effectiveContacts = [
+              ...analysis.contactEvents.flatMap(event => editByContact.get(event.keyPointId)?.deleted
+                ? []
+                : [{
+                    id: event.keyPointId,
+                    frameIndex: timeByContact.get(event.keyPointId) ?? event.anchorFrameIndex,
+                    source: event.anchorOrigin === 'ai_detected' ? 'ai' as const : 'human' as const,
+                    confidence: event.detectionConfidence,
+                  }]),
+              ...analysis.contactEdits.flatMap(edit => !edit.baseKeyPointId && !edit.deleted
+                ? [{
+                    id: edit.contactId,
+                    frameIndex: timeByContact.get(edit.contactId) ?? edit.frameIndex,
+                    source: 'manual' as const,
+                    confidence: null,
+                  }]
+                : []),
+            ].sort((left, right) => left.frameIndex < right.frameIndex ? -1 : left.frameIndex > right.frameIndex ? 1 : left.id.localeCompare(right.id))
             const byteLength = [
-              analysis.rawAnalysisAsset?.byteLength,
-              analysis.rawOverlayAsset?.byteLength,
+              analysis.rawAnalysisDataAsset?.byteLength,
               ...analysis.artifacts.map(artifact => artifact.asset.byteLength),
-              ...(analysis.overlayManifest?.chunks.map(chunk => chunk.byteLength) ?? []),
+              ...(analysis.analysisDataManifest?.chunks.map(chunk => chunk.byteLength) ?? []),
             ].reduce<bigint>((total, value) => total + (value ?? 0n), 0n)
             const capabilities = [
               analysis._count.tracks > 0 ? 'player_tracking' : null,
               analysis._count.segments > 0 ? 'ball_tracking' : null,
               analysis._count.contactEvents > 0 ? 'contact_association' : null,
-              analysis.overlayManifest ? 'overlay' : null,
+              analysis.analysisDataManifest ? 'analysis_data' : null,
             ].filter((value): value is string => value !== null)
             return {
               id: analysis.id,
@@ -398,7 +476,17 @@ export async function getCoachMatchState(
               byte_length: byteLength.toString(),
               track_count: analysis._count.tracks,
               ball_path_count: analysis._count.segments,
-              contact_count: analysis._count.contactEvents,
+              contact_count: effectiveContacts.length,
+              contact_points: effectiveContacts.flatMap((contact) => {
+                if (!frameTimeline || contact.frameIndex < 0n || contact.frameIndex >= BigInt(frameTimeline.captureTimeUs.length)) return []
+                return [{
+                  id: contact.id,
+                  capture_time_us: frameTimeline.captureTimeUs[Number(contact.frameIndex)]!.toString(),
+                  frame_index: contact.frameIndex.toString(),
+                  source: contact.source,
+                  confidence: contact.confidence,
+                }]
+              }),
               capabilities,
             }
           })() : null,

@@ -4,11 +4,12 @@ from pathlib import Path
 import pytest
 
 from volleyball_monitoring_ai import (
-    AIJobRequest, AnalysisResult, ProviderCapabilities, validate_passthrough,
+    AIJobRequest, AnalysisDomainData, ProviderCapabilities, ReIDFeatureBank, validate_passthrough,
     PlaybackWindowRequest, PlaybackWindowExtendRequest, PlaybackWindowDescriptor, PlaybackCursor,
     ResolvedMediaAnchor, FrameStepRequest, CanonicalFrameAnchor, MediaApiError,
-    build_empty_overlay, build_tracking_overlay,
+    build_empty_analysis_data, build_analysis_data,
 )
+from volleyball_monitoring_ai.analysis_data import _domain_json
 
 FIXTURES = Path(__file__).parents[2] / "packages" / "contracts" / "fixtures"
 
@@ -17,18 +18,18 @@ FIXTURES = Path(__file__).parents[2] / "packages" / "contracts" / "fixtures"
 def test_golden_contracts(name: str) -> None:
     folder = FIXTURES / name
     job = AIJobRequest.model_validate_json((folder / "job.json").read_text())
-    result = AnalysisResult.model_validate_json((folder / "result.json").read_text())
+    result = AnalysisDomainData.model_validate_json((folder / "analysis-data-domain.json").read_text())
     validate_passthrough(job, result)
 
 
 def test_court_position_is_not_clamped() -> None:
-    result = json.loads((FIXTURES / "normal-rally" / "result.json").read_text())
+    result = json.loads((FIXTURES / "normal-rally" / "analysis-data-domain.json").read_text())
     assert result["contact_events"][0]["representative_court_positions"][0]["court_pos"]["x"] < 0
     assert result["contact_events"][-1]["representative_court_positions"][0]["court_pos"]["x"] > 1
 
 
 def test_resolved_multiple_preserves_two_actors_without_candidates() -> None:
-    result = AnalysisResult.model_validate_json((FIXTURES / "resolved-multiple" / "result.json").read_text())
+    result = AnalysisDomainData.model_validate_json((FIXTURES / "resolved-multiple" / "analysis-data-domain.json").read_text())
     event = next(event for event in result.contact_events if event.association_state == "resolved_multiple")
     assert len(event.actors) >= 2
     assert event.actor_candidates == []
@@ -44,25 +45,82 @@ def test_unknown_outcome_is_explicit_and_valid() -> None:
 
 def test_contract_versions_are_explicit() -> None:
     job = AIJobRequest.model_validate_json((FIXTURES / "normal-rally" / "job.json").read_text())
-    assert job.schema_version == "1.1.0"
+    assert job.schema_version == "3.0.0"
     capabilities_path = FIXTURES.parents[0] / "examples" / "ai" / "capabilities.json"
     capabilities = ProviderCapabilities.model_validate_json(capabilities_path.read_text())
-    assert "1.1.0" in capabilities.supported_job_schema_versions
+    assert capabilities.supported_job_schema_versions == ["3.0.0"]
 
 
-def test_empty_provider_overlay_uses_real_vov1_table() -> None:
+def test_reid_feature_bank_contract_is_versioned_and_l2_normalized() -> None:
+    example = FIXTURES.parents[0] / "examples" / "ai" / "reid-feature-bank-v1.json"
+    bank = ReIDFeatureBank.model_validate_json(example.read_text())
+    feature = bank.side_feature_banks[0].features[0]
+    assert feature.provisional_gid == "clip:left:7"
+    assert len(feature.prototype) == 512
+
+
+def test_reid_feature_bank_rejects_cross_side_or_non_normalized_features() -> None:
+    example = FIXTURES.parents[0] / "examples" / "ai" / "reid-feature-bank-v1.json"
+    payload = json.loads(example.read_text())
+    payload["side_feature_banks"][0]["features"][0]["provisional_gid"] = "clip:right:7"
+    with pytest.raises(ValueError):
+        ReIDFeatureBank.model_validate(payload)
+    payload = json.loads(example.read_text())
+    payload["side_feature_banks"][0]["features"][0]["prototype"][0] = 0.5
+    with pytest.raises(ValueError):
+        ReIDFeatureBank.model_validate(payload)
+
+
+def test_boundary_job_allows_zero_manual_contacts_and_pending_score() -> None:
+    job = AIJobRequest.model_validate_json((FIXTURES.parents[0] / "examples" / "ai" / "boundary-job.json").read_text())
+    assert job.schema_version == "3.0.0"
+    assert job.key_points == []
+    assert [boundary.kind for boundary in job.boundaries or []] == ["start", "end"]
+    assert job.outcome.score_resolution == "pending"
+
+
+def test_boundary_job_rejects_terminal_or_service_contact_hints() -> None:
+    payload = json.loads((FIXTURES.parents[0] / "examples" / "ai" / "boundary-job.json").read_text())
+    payload["key_points"] = [{
+        "key_point_id": "bad-service",
+        "sequence_index": 0,
+        "marker_kind": "service",
+        "is_terminal": True,
+        "clip_pts": "300300",
+        "clip_time_us": "5005000",
+        "clip_frame_index": "300",
+    }]
+    with pytest.raises(ValueError):
+        AIJobRequest.model_validate(payload)
+
+
+def test_empty_analysis_data_uses_real_vad1_table() -> None:
     job = AIJobRequest.model_validate_json((FIXTURES / "normal-rally" / "job.json").read_text())
-    overlay = build_empty_overlay(job, analysis_id="fixture-analysis", analysis_version="fixture-v1")
-    assert overlay[4:8] == b"VOV1"
-    assert len(overlay) > int(job.clip.video.total_frames) * 6
+    domain = AnalysisDomainData.model_validate_json((FIXTURES / "normal-rally" / "analysis-data-domain.json").read_text())
+    analysis_data = build_empty_analysis_data(job, domain=domain)
+    assert analysis_data[4:8] == b"VAD1"
+    assert len(analysis_data) > int(job.clip.video.total_frames) * 6
 
 
-def test_tracking_overlay_preserves_unclamped_court_positions() -> None:
+def test_analysis_data_domain_wire_json_omits_optional_nulls_but_keeps_ai_provenance() -> None:
+    domain = AnalysisDomainData.model_validate_json(
+        (FIXTURES / "normal-rally" / "analysis-data-domain.json").read_text()
+    )
+    payload = json.loads(_domain_json(domain))
+    ai_event = next(event for event in payload["contact_events"] if event["source_key_point_id"] is None)
+
+    assert "detection_confidence" not in ai_event or isinstance(ai_event["detection_confidence"], float)
+    assert ai_event["source_key_point_id"] is None
+    assert all(actor.get("court_pos", {}) is not None for actor in ai_event["actors"])
+    assert all(actor.get("action", {}) is not None for actor in ai_event["actors"])
+
+
+def test_analysis_data_preserves_unclamped_court_positions() -> None:
     job = AIJobRequest.model_validate_json((FIXTURES / "normal-rally" / "job.json").read_text())
-    overlay = build_tracking_overlay(
+    domain = AnalysisDomainData.model_validate_json((FIXTURES / "normal-rally" / "analysis-data-domain.json").read_text())
+    analysis_data = build_analysis_data(
         job,
-        analysis_id="tracking-analysis",
-        analysis_version="tracking-replay-v1",
+        domain=domain,
         frame_records=[{
             "frame_index": 0,
             "players": [
@@ -91,7 +149,7 @@ def test_tracking_overlay_preserves_unclamped_court_positions() -> None:
         action_taxonomy_id="volleyball-analysis-engine.rtv4-x3d-actions",
         action_taxonomy_version="1",
     )
-    assert overlay[4:8] == b"VOV1"
+    assert analysis_data[4:8] == b"VAD1"
 
 
 def test_non_monotonic_key_points_are_rejected() -> None:

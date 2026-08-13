@@ -18,6 +18,7 @@ export function createHostDevelopmentEnvironment(
   const redisPort = source.REDIS_HOST_PORT ?? '16379'
   const minioPort = source.MINIO_HOST_PORT ?? '9000'
   const omeApiPort = source.OME_API_HOST_PORT ?? '8081'
+  const omeRtmpPort = source.OME_RTMP_HOST_PORT ?? '1935'
   const serverPort = source.SERVER_DEV_PORT ?? '4000'
   const webPort = source.WEB_DEV_PORT ?? '3100'
   const dataRoot = hostPath(source.DEV_DATA_ROOT, '../.data/runtime')
@@ -29,7 +30,7 @@ export function createHostDevelopmentEnvironment(
     CALLBACK_PUBLIC_BASE_URL: `http://127.0.0.1:${serverPort}`,
     DATABASE_URL: `postgresql://volleyball:volleyball@127.0.0.1:${postgresPort}/volleyball?schema=public`,
     MEDIA_IMPORT_ROOT: importRoot,
-    MEDIA_INGEST_BASE_URL: 'rtmp://127.0.0.1:1935/app',
+    MEDIA_INGEST_BASE_URL: `rtmp://127.0.0.1:${omeRtmpPort}/app`,
     MEDIA_RECORDING_ROOT: spoolRoot,
     MEDIA_SOURCE_WORK_ROOT: resolve(importRoot, '.work'),
     MEDIA_SPOOL_DIR: spoolRoot,

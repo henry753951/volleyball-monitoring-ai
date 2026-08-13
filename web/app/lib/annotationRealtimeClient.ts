@@ -22,6 +22,7 @@ interface AnnotationRealtimeHandlers {
 export interface AnnotationRealtimeClient {
   connect(): void
   disconnect(): void
+  reconnect(): void
   send(command: AnnotationCommand): Promise<AnnotationCommandResponse>
   setEditingKeyPoint(keyPointId: string | null): boolean
   ready(): boolean
@@ -43,7 +44,7 @@ export function createAnnotationRealtimeClient(
     resolve: (response: AnnotationCommandResponse) => void
     reject: (error: Error) => void
   }>()
-  const reconnect = createRealtimeReconnectScheduler(open)
+  const reconnectScheduler = createRealtimeReconnectScheduler(open)
 
   const setState = (state: AnnotationConnectionState) => {
     if (state === currentState) return
@@ -78,7 +79,7 @@ export function createAnnotationRealtimeClient(
   function scheduleReconnect() {
     if (stopped) return
     setState('reconnecting')
-    reconnect.schedule()
+    reconnectScheduler.schedule()
   }
 
   function open() {
@@ -107,7 +108,7 @@ export function createAnnotationRealtimeClient(
         const message = parseAnnotationServerMessage(JSON.parse(String(event.data)))
         if (message.type === 'connection_ready') {
           connectionReady = true
-          reconnect.connected()
+          reconnectScheduler.connected()
           setState('ready')
           clearSoftLockTimer()
           sendSoftLock()
@@ -151,11 +152,23 @@ export function createAnnotationRealtimeClient(
       sendSoftLock(null)
       connectionReady = false
       clearSoftLockTimer()
-      reconnect.dispose()
+      reconnectScheduler.dispose()
       rejectPending(new Error('Annotation client disconnected'))
       socket?.close(1000, 'client unmounted')
       socket = null
       setState('closed')
+    },
+    reconnect() {
+      if (stopped) return
+      connectionReady = false
+      clearSoftLockTimer()
+      reconnectScheduler.connected()
+      rejectPending(new Error('Annotation connection restarted before acknowledgement'))
+      const previousSocket = socket
+      socket = null
+      previousSocket?.close(4000, 'manual resync')
+      setState('reconnecting')
+      open()
     },
     ready: () => connectionReady && socket?.readyState === WebSocket.OPEN,
     setEditingKeyPoint(keyPointId) {

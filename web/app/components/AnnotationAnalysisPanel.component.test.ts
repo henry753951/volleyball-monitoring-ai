@@ -19,8 +19,11 @@ const baseProps = {
   hasActionOverride: false,
   hasBboxOverride: false,
   hits,
+  removedHits: [],
   saving: false,
   connection: 'ready' as const,
+  dirtyCount: 0,
+  reviewStatus: 'editing' as const,
 }
 
 describe('AnnotationAnalysisPanel', () => {
@@ -51,12 +54,20 @@ describe('AnnotationAnalysisPanel', () => {
     expect(wrapper.emitted('adjustHitTime')).toEqual([['hit-1', 1]])
   })
 
+  it('restores a removed hit from the staged review', async () => {
+    const wrapper = mount(AnnotationAnalysisPanel, { props: { ...baseProps, page: 'hits', removedHits: [{ keyPointId: 'hit-3', frameIndex: 320, label: 'AI 擊球建議' }] } })
+
+    expect(wrapper.text()).toContain('已移除')
+    await wrapper.get('.removed-hits button').trigger('click')
+    expect(wrapper.emitted('restoreHit')).toEqual([['hit-3']])
+  })
+
   it('shows state only on the ball page without duplicating editing buttons', () => {
     const wrapper = mount(AnnotationAnalysisPanel, { props: { ...baseProps, page: 'ball', ballOverride: 'position', ballPosition: { x: 640, y: 360 } } })
 
     expect(wrapper.text()).toContain('人工位置')
     expect(wrapper.text()).toContain('X 640.0 · Y 360.0')
     expect(wrapper.find('button[aria-label="返回分析功能"]').exists()).toBe(true)
-    expect(wrapper.findAll('button')).toHaveLength(1)
+    expect(wrapper.findAll('button')).toHaveLength(5)
   })
 })

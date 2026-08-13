@@ -127,6 +127,34 @@ function submitCommand(commandId: string, rallyId: string, baseRevision: string)
   })
 }
 
+function boundaryCommand(
+  commandId: string,
+  rallyId: string,
+  kind: 'START_RALLY' | 'END_RALLY',
+  baseRevision: string,
+  playerMediaTimeUs: string,
+) {
+  return parseAnnotationCommand({
+    schema_version: '3.0.0',
+    base_revision: baseRevision,
+    command_id: commandId,
+    kind,
+    payload: {
+      playback_cursor: {
+        cursor_status: 'ready',
+        mapping_version: 1,
+        observation_source: 'request_video_frame_callback',
+        playback_window_id: ids.window,
+        player_media_time_us: playerMediaTimeUs,
+        presented_frames: '44',
+        seek_generation: 0,
+      },
+    },
+    rally_id: rallyId,
+    room_id: roomId,
+  })
+}
+
 beforeAll(async () => {
   await maintenancePool.query(`CREATE DATABASE "${databaseName}"`)
   createdDatabase = true
@@ -275,12 +303,146 @@ afterAll(async () => {
 }, 120_000)
 
 describe('durable service annotation command', () => {
+  it('uses Z as start/end boundaries, allows zero contacts and submits with a pending score', async () => {
+    const rallyId = randomUUID()
+    const laterRallyId = randomUUID()
+    const startAnchor = anchor
+    const endAnchor = {
+      ...anchor,
+      capture_frame_index: (BigInt(anchor.capture_frame_index) + 1n).toString(),
+      capture_time_us: (BigInt(anchor.capture_time_us) + 50n).toString(),
+      resolved_player_media_time_us: '1284',
+      source_pts: (BigInt(anchor.source_pts) + 1n).toString(),
+    }
+    const boundaryService = createAnnotationCommandService({
+      database: db,
+      resolveCursor: async cursor => cursor.player_media_time_us === '1234' ? startAnchor : endAnchor,
+    })
+
+    await db.rally.create({ data: {
+      id: laterRallyId,
+      annotationRevision: 1n,
+      annotationStatus: 'READY',
+      displayOrdinal: 1,
+      displaySetNumber: 1,
+      dvrProgramId: ids.program,
+      matchId: ids.match,
+      ordinal: 1,
+      scoreResolutionState: 'UNKNOWN',
+      setId: ids.set,
+      sideAssignmentId: ids.assignment,
+    } })
+    await db.rallyBoundary.create({ data: {
+      captureEpochId: ids.epoch,
+      captureFrameIndex: BigInt(anchor.capture_frame_index) + 10n,
+      captureTimeUs: BigInt(anchor.capture_time_us) + 500n,
+      createdByUserId: ids.operator,
+      deviceSessionId: ids.device,
+      kind: 'START',
+      originalPlaybackCursor: {},
+      rallyId: laterRallyId,
+      sourcePts: BigInt(anchor.source_pts) + 10n,
+      timingPrecision: 'FRAME_EXACT',
+      updatedByUserId: ids.operator,
+    } })
+
+    await expect(boundaryService.apply(boundaryCommand(randomUUID(), rallyId, 'START_RALLY', '0', '1234'), identity)).resolves.toMatchObject({
+      type: 'command_ack', operation_kind: 'START_RALLY', result_revision: '1',
+      effects: { annotation_status: 'open', boundary_kind: 'start', score_resolution: 'pending' },
+    })
+    await expect(db.rally.findUniqueOrThrow({ where: { id: rallyId } })).resolves.toMatchObject({
+      annotationStatus: 'OPEN', displayOrdinal: 1, ordinal: 2, scoreResolutionState: 'PENDING', scoringCourtSide: null,
+    })
+    await expect(db.rally.findUniqueOrThrow({ where: { id: laterRallyId } })).resolves.toMatchObject({ displayOrdinal: 1 })
+    await expect(boundaryService.apply(boundaryCommand(randomUUID(), rallyId, 'END_RALLY', '1', '1284'), identity)).resolves.toMatchObject({
+      type: 'command_ack', operation_kind: 'END_RALLY', result_revision: '2',
+      effects: { annotation_status: 'ready', boundary_kind: 'end', score_resolution: 'unknown' },
+    })
+    const submit = parseAnnotationCommand({ ...submitCommand(randomUUID(), rallyId, '2'), schema_version: '3.0.0' })
+    await expect(boundaryService.apply(submit, identity)).resolves.toMatchObject({
+      schema_version: '3.0.0', type: 'command_ack', operation_kind: 'SUBMIT_RALLY', result_revision: '3',
+      effects: { annotation_status: 'submitted', score_resolution: 'unknown' },
+    })
+
+    const persisted = await db.rally.findUniqueOrThrow({
+      where: { id: rallyId },
+      include: { boundaries: true, keyPoints: true, activeSubmission: { include: { boundaries: true, keyPoints: true, clipJobs: true } } },
+    })
+    expect(persisted.keyPoints).toHaveLength(0)
+    expect(persisted.boundaries.map(boundary => boundary.kind).sort()).toEqual(['END', 'START'])
+    expect(persisted.activeSubmission?.keyPoints).toHaveLength(0)
+    expect(persisted.activeSubmission?.boundaries.map(boundary => boundary.kind).sort()).toEqual(['END', 'START'])
+    expect(persisted.activeSubmission?.scoreResolutionState).toBe('UNKNOWN')
+    expect(persisted.activeSubmission?.clipJobs).toHaveLength(1)
+  })
+
+  it('keeps an X outside the Z boundary interval and expands clip coverage to preserve its canonical PTS', async () => {
+    const rallyId = randomUUID()
+    const contactAnchor = {
+      ...anchor,
+      capture_frame_index: (BigInt(anchor.capture_frame_index) - 1n).toString(),
+      capture_time_us: (BigInt(anchor.capture_time_us) - 50n).toString(),
+      resolved_player_media_time_us: '1184',
+      source_pts: (BigInt(anchor.source_pts) - 1n).toString(),
+    }
+    const endAnchor = {
+      ...anchor,
+      capture_frame_index: (BigInt(anchor.capture_frame_index) + 1n).toString(),
+      capture_time_us: (BigInt(anchor.capture_time_us) + 50n).toString(),
+      resolved_player_media_time_us: '1284',
+      source_pts: (BigInt(anchor.source_pts) + 1n).toString(),
+    }
+    const boundaryService = createAnnotationCommandService({
+      database: db,
+      resolveCursor: async cursor => cursor.player_media_time_us === '1184' ? contactAnchor : cursor.player_media_time_us === '1284' ? endAnchor : anchor,
+    })
+    await boundaryService.apply(boundaryCommand(randomUUID(), rallyId, 'START_RALLY', '0', '1234'), identity)
+    const contact = parseAnnotationCommand({
+      ...contactCommand(randomUUID(), rallyId, '1'), schema_version: '3.0.0',
+      payload: { playback_cursor: { ...contactCommand(randomUUID(), rallyId, '1').payload.playback_cursor, player_media_time_us: '1184' } },
+    })
+    await expect(boundaryService.apply(contact, identity)).resolves.toMatchObject({ schema_version: '3.0.0', type: 'command_ack', result_revision: '2' })
+    await boundaryService.apply(boundaryCommand(randomUUID(), rallyId, 'END_RALLY', '2', '1284'), identity)
+    await boundaryService.apply(parseAnnotationCommand({ ...submitCommand(randomUUID(), rallyId, '3'), schema_version: '3.0.0' }), identity)
+
+    const [match, clip] = await Promise.all([
+      db.match.findUniqueOrThrow({ where: { id: ids.match }, select: { clipPreRollUs: true } }),
+      db.clipJob.findFirstOrThrow({ where: { submission: { rallyId } } }),
+    ])
+    expect(clip.requestedStartCaptureUs).toBe(BigInt(contactAnchor.capture_time_us) - match.clipPreRollUs)
+    await expect(db.keyPoint.findMany({ where: { rallyId }, select: { markerKind: true, isTerminal: true } })).resolves.toEqual([{ markerKind: 'CONTACT', isTerminal: false }])
+  })
+
+  it('does not let a READY unsubmitted segment block starting the next segment', async () => {
+    const firstRallyId = randomUUID()
+    const secondRallyId = randomUUID()
+    const endAnchor = {
+      ...anchor,
+      capture_frame_index: (BigInt(anchor.capture_frame_index) + 1n).toString(),
+      capture_time_us: (BigInt(anchor.capture_time_us) + 50n).toString(),
+      resolved_player_media_time_us: '1284',
+      source_pts: (BigInt(anchor.source_pts) + 1n).toString(),
+    }
+    const boundaryService = createAnnotationCommandService({
+      database: db,
+      resolveCursor: async cursor => cursor.player_media_time_us === '1284' ? endAnchor : anchor,
+    })
+    await boundaryService.apply(boundaryCommand(randomUUID(), firstRallyId, 'START_RALLY', '0', '1234'), identity)
+    await boundaryService.apply(boundaryCommand(randomUUID(), firstRallyId, 'END_RALLY', '1', '1284'), identity)
+
+    await expect(boundaryService.apply(boundaryCommand(randomUUID(), secondRallyId, 'START_RALLY', '0', '1234'), identity)).resolves.toMatchObject({
+      type: 'command_ack', operation_kind: 'START_RALLY', result_revision: '1',
+    })
+    await expect(db.rally.findUniqueOrThrow({ where: { id: firstRallyId } })).resolves.toMatchObject({ annotationStatus: 'READY' })
+    await expect(db.rally.findUniqueOrThrow({ where: { id: secondRallyId } })).resolves.toMatchObject({ annotationStatus: 'OPEN' })
+  })
+
   it('atomically creates revision one, seq-zero service, receipt, operation and outbox only', async () => {
     const command = serviceCommand(randomUUID(), randomUUID())
     const response = await service.apply(command, identity)
     expect(response).toMatchObject({
       type: 'command_ack', operation_kind: 'CREATE_SERVICE_KEY_POINT', result_revision: '1',
-      effects: { annotation_status: 'open', score_resolution: 'pending', scoring_court_side: null },
+      effects: { annotation_status: 'open', score_resolution: 'unknown', scoring_court_side: null },
       resolved_anchor: { capture_time_us: anchor.capture_time_us },
     })
     const receipt = await db.annotationCommandReceipt.findUnique({ where: { commandId: command.command_id } })
@@ -566,6 +728,10 @@ describe('durable service annotation command', () => {
   })
 
   it('rejects a key-point move whose padded clip would overlap another Rally', async () => {
+    await db.match.update({
+      data: { clipPostRollUs: 3_000_000n, clipPreRollUs: 3_000_000n },
+      where: { id: ids.match },
+    })
     const rallyId = randomUUID()
     await service.apply(serviceCommand(randomUUID(), rallyId), identity)
     const contact = await service.apply(contactCommand(randomUUID(), rallyId), identity)
@@ -597,6 +763,10 @@ describe('durable service annotation command', () => {
     })
     await expect(service.apply(move, identity)).resolves.toMatchObject({ type: 'command_rejected', code: 'ANNOTATION_NOT_READY', message: 'Moving the key point would overlap another Rally clip' })
     await expect(db.rally.findUniqueOrThrow({ where: { id: rallyId } })).resolves.toMatchObject({ annotationRevision: 2n })
+    await db.match.update({
+      data: { clipPostRollUs: 0n, clipPreRollUs: 0n },
+      where: { id: ids.match },
+    })
   })
 
   it('marks equal-frame contacts as possible duplicates and rejects stale mapping/anchor state', async () => {
@@ -630,7 +800,7 @@ describe('durable service annotation command', () => {
     expect(response).toMatchObject({ type: 'command_ack', operation_kind: 'CLOSE_RALLY', resolved_anchor: null, effects: { annotation_status: 'ready', score_resolution: outcome === 'unknown' ? 'unknown' : 'resolved', scoring_court_side: outcome === 'unknown' ? null : outcome } })
     const after = await db.keyPoint.findMany({ where: { rallyId }, select: { id: true, captureTimeUs: true, captureFrameIndex: true, sourcePts: true, captureEpochId: true, timingPrecision: true, isTerminal: true } })
     expect(after).toHaveLength(before.length); expect(after[0]).toMatchObject({ id: before[0]!.id, captureTimeUs: before[0]!.captureTimeUs, captureFrameIndex: before[0]!.captureFrameIndex, sourcePts: before[0]!.sourcePts, captureEpochId: before[0]!.captureEpochId, timingPrecision: before[0]!.timingPrecision, isTerminal: true }); await expect(db.rallySubmission.count({ where: { rallyId } })).resolves.toBe(0); await expect(db.pointAward.count()).resolves.toBe(0)
-    await expect(db.clipJob.count()).resolves.toBe(0); await expect(db.aiJob.count()).resolves.toBe(0); await expect(db.analysisRun.count()).resolves.toBe(0)
+    await expect(db.clipJob.count({ where: { submission: { rallyId } } })).resolves.toBe(0); await expect(db.aiJob.count({ where: { submission: { rallyId } } })).resolves.toBe(0); await expect(db.analysisRun.count({ where: { submission: { rallyId } } })).resolves.toBe(0)
     const replay = await service.apply(structuredClone(closeCommandValue), identity)
     expect(JSON.stringify(replay)).toBe(JSON.stringify(parseAnnotationCommandResponse((await db.annotationCommandReceipt.findUniqueOrThrow({ where: { commandId: closeCommandValue.command_id } })).responseJson)))
   })
@@ -707,7 +877,7 @@ describe('durable service annotation command', () => {
       await expect(db.rally.findUniqueOrThrow({ where: { id: rallyId } })).resolves.toMatchObject({
         annotationRevision: 1n,
         annotationStatus: 'OPEN',
-        scoreResolutionState: 'PENDING',
+        scoreResolutionState: 'UNKNOWN',
         scoringCourtSide: null,
       })
       await expect(db.keyPoint.findUniqueOrThrow({ where: { id: target.id } })).resolves.toMatchObject({
@@ -757,7 +927,7 @@ describe('durable service annotation command', () => {
     const command = closeCommand(randomUUID(), rallyId, point.id, '1', 'unknown')
     await db.annotationOperation.create({ data: { baseRevision: 99n, clientMutationId: command.command_id, deviceSessionId: ids.device, operationKind: 'LEGACY_TEST', payload: {}, payloadHash: 'legacy', rallyId, resultRevision: 99n, userId: ids.operator } })
     await expect(service.apply(command, identity)).rejects.toMatchObject({ code: 'P2002' })
-    await expect(db.rally.findUniqueOrThrow({ where: { id: rallyId } })).resolves.toMatchObject({ annotationRevision: 1n, annotationStatus: 'OPEN', scoreResolutionState: 'PENDING' }); await expect(db.keyPoint.findUniqueOrThrow({ where: { id: point.id } })).resolves.toMatchObject({ isTerminal: false }); await expect(db.annotationCommandReceipt.findUnique({ where: { commandId: command.command_id } })).resolves.toBeNull()
+    await expect(db.rally.findUniqueOrThrow({ where: { id: rallyId } })).resolves.toMatchObject({ annotationRevision: 1n, annotationStatus: 'OPEN', scoreResolutionState: 'UNKNOWN' }); await expect(db.keyPoint.findUniqueOrThrow({ where: { id: point.id } })).resolves.toMatchObject({ isTerminal: false }); await expect(db.annotationCommandReceipt.findUnique({ where: { commandId: command.command_id } })).resolves.toBeNull()
   })
 
   it('allows an editable correction beside the current live OPEN rally', async () => {
@@ -857,6 +1027,39 @@ describe('durable service annotation command', () => {
     await expect(db.pointAward.findUnique({ where: { submissionId: thirdSubmissionId! } })).resolves.toBeNull()
     await expect(db.scoreLedgerEntry.findFirst({ where: { submissionId: thirdSubmissionId! } })).resolves.toMatchObject({
       kind: 'CORRECTION', leftDelta: 0, rightDelta: -1, scoreRevisionBefore: 2, scoreRevisionAfter: 3,
+    })
+  })
+
+  it('turns a legacy multi-point submission into boundaries and clears contacts for AI regeneration', async () => {
+    const rallyId = randomUUID()
+    await service.apply(serviceCommand(randomUUID(), rallyId), identity)
+    const laterAnchor = {
+      ...anchor,
+      capture_frame_index: (BigInt(anchor.capture_frame_index) + 120n).toString(),
+      capture_time_us: (BigInt(anchor.capture_time_us) + 2_000_000n).toString(),
+      resolved_player_media_time_us: (BigInt(anchor.resolved_player_media_time_us) + 2_000_000n).toString(),
+    }
+    await Promise.all([
+      db.playbackWindow.update({ data: { captureEndUs: BigInt(laterAnchor.capture_time_us) + 1n }, where: { id: ids.window } }),
+      db.dvrSegment.update({ data: { captureEndUs: BigInt(laterAnchor.capture_time_us) + 1n, frameCount: 123n }, where: { id: ids.segment } }),
+    ])
+    const laterService = createAnnotationCommandService({ database: db, resolveCursor: async () => laterAnchor })
+    await laterService.apply(contactCommand(randomUUID(), rallyId, '1'), identity)
+    const finalPoint = await db.keyPoint.findFirstOrThrow({ where: { rallyId }, orderBy: { sequenceIndex: 'desc' } })
+    await laterService.apply(closeCommand(randomUUID(), rallyId, finalPoint.id, '2', 'unknown'), identity)
+    const submitted = await service.apply(submitCommand(randomUUID(), rallyId, '3'), identity)
+    const submissionId = submitted.type === 'command_ack' ? submitted.effects.submission_id : null
+
+    await createCorrectionDraft(db, submissionId!, identity, { regenerateAnalysisContacts: true })
+
+    await expect(db.keyPoint.count({ where: { rallyId, deletedAt: null } })).resolves.toBe(0)
+    await expect(db.rallyBoundary.findMany({ where: { rallyId }, orderBy: { kind: 'asc' } })).resolves.toMatchObject([
+      { kind: 'START', captureTimeUs: BigInt(anchor.capture_time_us) },
+      { kind: 'END', captureTimeUs: BigInt(laterAnchor.capture_time_us) },
+    ])
+    await expect(db.rally.findUniqueOrThrow({ where: { id: rallyId } })).resolves.toMatchObject({
+      annotationStatus: 'OPEN',
+      activeSubmissionId: submissionId,
     })
   })
 
@@ -1016,7 +1219,7 @@ describe('durable service annotation command', () => {
     ])
   })
 
-  it('reuses completed geometry immediately for an outcome-only correction', async () => {
+  it('reuses completed clip bytes but queues fresh AI for an outcome-only correction', async () => {
     const rallyId = randomUUID()
     await service.apply(serviceCommand(randomUUID(), rallyId), identity)
     const draftPoint = await db.keyPoint.findFirstOrThrow({ where: { rallyId } })
@@ -1027,11 +1230,11 @@ describe('durable service annotation command', () => {
       where: { id: sourceSubmissionId! }, include: { keyPoints: { orderBy: { sequenceIndex: 'asc' } } },
     })
     const sourcePoint = sourceSubmission.keyPoints[0]!
-    const clipAssetId = randomUUID(); const timingAssetId = randomUUID(); const overlayAssetId = randomUUID()
+    const clipAssetId = randomUUID(); const timingAssetId = randomUUID(); const analysisFrameAssetId = randomUUID()
     await db.mediaAsset.createMany({ data: [
       { id: clipAssetId, kind: 'CANONICAL_CLIP', bucket: 'reuse-test', objectKey: `${rallyId}.mp4`, contentType: 'video/mp4', byteLength: 10n, sha256: 'a'.repeat(64), state: 'READY', readyAt: new Date() },
       { id: timingAssetId, kind: 'TIMING_MANIFEST', bucket: 'reuse-test', objectKey: `${rallyId}.json`, contentType: 'application/json', byteLength: 10n, sha256: 'b'.repeat(64), state: 'READY', readyAt: new Date() },
-      { id: overlayAssetId, kind: 'OVERLAY_CHUNK', bucket: 'reuse-test', objectKey: `${rallyId}.bin`, contentType: 'application/vnd.volleyball.overlay-chunk+flatbuffers', byteLength: 8n, sha256: 'c'.repeat(64), state: 'READY', readyAt: new Date() },
+      { id: analysisFrameAssetId, kind: 'ANALYSIS_FRAME_CHUNK', bucket: 'reuse-test', objectKey: `${rallyId}.bin`, contentType: 'application/vnd.volleyball.analysis-frame-chunk+flatbuffers;version=1', byteLength: 8n, sha256: 'c'.repeat(64), state: 'READY', readyAt: new Date() },
     ] })
     const sourceClip = await db.clipJob.findFirstOrThrow({ where: { submissionId: sourceSubmission.id } })
     await db.clipJob.update({ where: { id: sourceClip.id }, data: {
@@ -1041,11 +1244,11 @@ describe('durable service annotation command', () => {
     await db.clipKeyPointMapping.create({ data: { clipJobId: sourceClip.id, submissionKeyPointId: sourcePoint.id, clipPts: 0n, clipTimeUs: 1n, clipFrameIndex: 0n } })
     const sourceAi = await db.aiJob.create({ data: {
       submissionId: sourceSubmission.id, clipJobId: sourceClip.id, status: 'COMPLETED',
-      idempotencyKey: `reuse-source:${rallyId}`, requestPayload: { ai_job_id: 'source', rally_submission_id: sourceSubmission.id, annotation_revision: sourceSubmission.annotationRevision.toString(), key_points: [{ key_point_id: sourcePoint.id }], outcome: { score_resolution: 'unknown', scoring_court_side: null } },
-      requestPayloadHash: 'd'.repeat(64), jobSchemaVersion: '1.1.0', callbackTokenHash: 'e'.repeat(64), callbackTokenExpiresAt: new Date(), completedAt: new Date(),
+      idempotencyKey: `reuse-source:${rallyId}`, requestPayload: { ai_job_id: 'source', rally_submission_id: sourceSubmission.id, annotation_revision: sourceSubmission.annotationRevision.toString(), clip: { clip_job_id: sourceClip.id }, key_points: [{ key_point_id: sourcePoint.id }], outcome: { score_resolution: 'unknown', scoring_court_side: null } },
+      requestPayloadHash: 'd'.repeat(64), jobSchemaVersion: '3.0.0', callbackTokenHash: 'e'.repeat(64), callbackTokenExpiresAt: new Date(), completedAt: new Date(),
     } })
     const sourceAnalysis = await db.analysisRun.create({ data: {
-      aiJobId: sourceAi.id, submissionId: sourceSubmission.id, analysisId: `reuse-analysis-${rallyId}`, analysisVersion: 'reuse-v1', resultSchemaVersion: '1.0.0', overlaySchemaVersion: '1.0.0', inputClipSha256: 'a'.repeat(64), producerName: 'fixture', producerBuildId: 'fixture', status: 'COMPLETED', activatedAt: new Date(),
+      aiJobId: sourceAi.id, submissionId: sourceSubmission.id, analysisId: `reuse-analysis-${rallyId}`, analysisVersion: 'reuse-v1', analysisDataSchemaVersion: '1.0.0', inputClipSha256: 'a'.repeat(64), producerName: 'fixture', producerBuildId: 'fixture', status: 'COMPLETED', activatedAt: new Date(),
     } })
     await db.contactEvent.create({ data: {
       analysisRunId: sourceAnalysis.id, keyPointId: sourcePoint.id, sequenceIndex: 0, anchorFrameIndex: sourcePoint.captureFrameIndex, anchorTimeUs: sourcePoint.captureTimeUs,
@@ -1055,9 +1258,9 @@ describe('durable service annotation command', () => {
       analysisRunId: sourceAnalysis.id, sequenceIndex: 0, startKeyPointId: sourcePoint.id, endKeyPointId: sourcePoint.id,
       startFrameIndex: sourcePoint.captureFrameIndex, endFrameIndex: sourcePoint.captureFrameIndex, renderState: 'UNAVAILABLE', isTerminalSegment: true, qualityFlags: [],
     } })
-    await db.overlayManifest.create({ data: {
-      analysisRunId: sourceAnalysis.id, schemaVersion: '1.0.0', overlayVersion: '1.0.0', videoWidth: 1920, videoHeight: 1080, fpsNum: 60, fpsDen: 1, totalFrames: 1n, chunkFrameCount: 60,
-      chunks: { create: { chunkIndex: 0, startFrameIndex: 0n, frameCount: 1, assetId: overlayAssetId, byteLength: 8n, sha256: 'c'.repeat(64) } },
+    await db.analysisDataManifest.create({ data: {
+      analysisRunId: sourceAnalysis.id, schemaVersion: '1.0.0', analysisDataVersion: '1.0.0', videoWidth: 1920, videoHeight: 1080, fpsNum: 60, fpsDen: 1, totalFrames: 1n, chunkFrameCount: 60,
+      chunks: { create: { chunkIndex: 0, startFrameIndex: 0n, frameCount: 1, assetId: analysisFrameAssetId, byteLength: 8n, sha256: 'c'.repeat(64) } },
     } })
 
     await createCorrectionDraft(db, sourceSubmission.id, identity)
@@ -1067,18 +1270,22 @@ describe('durable service annotation command', () => {
     const correctedSubmissionId = corrected.type === 'command_ack' ? corrected.effects.submission_id : null
     const freshClip = await db.clipJob.findFirstOrThrow({ where: { submissionId: correctedSubmissionId! } })
     expect(freshClip).toMatchObject({ status: 'COMPLETED', clipAssetId, timingManifestAssetId: timingAssetId })
-    await expect(db.aiJob.findFirstOrThrow({ where: { submissionId: correctedSubmissionId! } })).resolves.toMatchObject({ status: 'COMPLETED', stage: 'geometry_reused' })
-    await expect(db.analysisRun.findFirstOrThrow({ where: { submissionId: correctedSubmissionId! } })).resolves.toMatchObject({ status: 'COMPLETED', analysisVersion: 'reuse-v1' })
-    await expect(db.rally.findUniqueOrThrow({ where: { id: rallyId } })).resolves.toMatchObject({ processingStatus: 'COMPLETED', activeSubmissionId: correctedSubmissionId })
+    await expect(db.aiJob.findFirstOrThrow({ where: { submissionId: correctedSubmissionId! } })).resolves.toMatchObject({
+      status: 'QUEUED',
+      stage: 'waiting_worker',
+      providerInstanceId: null,
+    })
+    await expect(db.analysisRun.findFirst({ where: { submissionId: correctedSubmissionId! } })).resolves.toBeNull()
+    await expect(db.rally.findUniqueOrThrow({ where: { id: rallyId } })).resolves.toMatchObject({ processingStatus: 'AI_QUEUED', activeSubmissionId: correctedSubmissionId })
     await expect(db.clipJob.findUniqueOrThrow({ where: { id: sourceClip.id } })).resolves.toMatchObject({ status: 'COMPLETED' })
-    await expect(db.analysisRun.findUniqueOrThrow({ where: { id: sourceAnalysis.id } })).resolves.toMatchObject({ status: 'COMPLETED', supersededAt: expect.any(Date) })
+    await expect(db.analysisRun.findUniqueOrThrow({ where: { id: sourceAnalysis.id } })).resolves.toMatchObject({ status: 'COMPLETED', supersededAt: null })
   })
 
   it('creates an editable correction and submits it unchanged without reopening', async () => {
     const rallyId = randomUUID()
     await service.apply(serviceCommand(randomUUID(), rallyId), identity)
     const point = await db.keyPoint.findFirstOrThrow({ where: { rallyId } })
-    await service.apply(closeCommand(randomUUID(), rallyId, point.id, '1', 'left'), identity)
+    await service.apply(closeCommand(randomUUID(), rallyId, point.id, '1', 'unknown'), identity)
     const first = await service.apply(submitCommand(randomUUID(), rallyId, '2'), identity)
     const submissionId = first.type === 'command_ack' ? first.effects.submission_id : null
     await expect(createCorrectionDraft(db, submissionId!, identity)).resolves.toMatchObject({
@@ -1094,7 +1301,7 @@ describe('durable service annotation command', () => {
     await expect(db.rallySubmission.findUniqueOrThrow({ where: { id: submissionId! } })).resolves.toMatchObject({ status: 'SUPERSEDED' })
     await expect(db.rally.findUniqueOrThrow({ where: { id: rallyId } })).resolves.toMatchObject({
       activeSubmissionId: duplicateSubmissionId, annotationStatus: 'SUBMITTED', annotationRevision: 5n,
-      scoreResolutionState: 'RESOLVED', scoringCourtSide: 'LEFT',
+      scoreResolutionState: 'UNKNOWN', scoringCourtSide: null,
     })
   })
 

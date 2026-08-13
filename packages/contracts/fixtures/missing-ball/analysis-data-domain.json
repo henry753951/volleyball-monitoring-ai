@@ -12,7 +12,7 @@
   "producer": {
     "name": "fixture-provider",
     "build_id": "fixture-1",
-    "sdk_version": "0.1.0"
+    "sdk_version": "1.0.0"
   },
   "tracks": [
     {
@@ -37,8 +37,10 @@
   "contact_events": [
     {
       "key_point_id": "018f6d86-2d8c-7f10-9c1b-0f0c32aa4000",
+      "source_key_point_id": "018f6d86-2d8c-7f10-9c1b-0f0c32aa4000",
+      "anchor_origin": "human_anchor",
       "sequence_index": 0,
-      "marker_kind": "service",
+      "marker_kind": "contact",
       "is_terminal": false,
       "anchor_frame_index": "300",
       "resolved_frame_index": "301",
@@ -86,6 +88,8 @@
     },
     {
       "key_point_id": "018f6d86-2d8c-7f10-9c1b-0f0c32aa4001",
+      "source_key_point_id": "018f6d86-2d8c-7f10-9c1b-0f0c32aa4001",
+      "anchor_origin": "human_anchor",
       "sequence_index": 1,
       "marker_kind": "contact",
       "is_terminal": false,
@@ -137,9 +141,11 @@
     },
     {
       "key_point_id": "018f6d86-2d8c-7f10-9c1b-0f0c32aa4002",
+      "source_key_point_id": "018f6d86-2d8c-7f10-9c1b-0f0c32aa4002",
+      "anchor_origin": "human_anchor",
       "sequence_index": 2,
       "marker_kind": "contact",
-      "is_terminal": true,
+      "is_terminal": false,
       "anchor_frame_index": "480",
       "association_state": "no_player",
       "actors": [],
@@ -220,7 +226,7 @@
         }
       ],
       "render_state": "complete",
-      "is_terminal_segment": true,
+      "is_terminal_segment": false,
       "quality_flags": [
         "terminal_projection"
       ]

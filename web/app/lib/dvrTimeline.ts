@@ -1,9 +1,15 @@
 import type { CaptureTimelineRange } from './mediaModel'
-export const MIN_MANUAL_TIMELINE_SPAN_US = 30_000_000n
+export interface TimelineViewport {
+  captureSessionId: string
+  startCaptureTimeUs: string
+  endCaptureTimeUs: string
+  scale: number
+}
+export const MIN_MANUAL_TIMELINE_SPAN_US = 5_000_000n
 export const TIMELINE_SCALE_BASE_SPAN_US = 300_000_000n
 export const MIN_TIMELINE_SCALE = 0.01
 export const DEFAULT_TIMELINE_SCALE = 0.1
-export const MAX_TIMELINE_SCALE = 10
+export const MAX_TIMELINE_SCALE = 60
 export function timelineBounds(ranges: readonly CaptureTimelineRange[]) { if (!ranges.length) return null; return { startUs: ranges[0]!.startUs, endUs: ranges[ranges.length - 1]!.endUs } }
 export function timelineZoomLimit(bounds: { startUs: string; endUs: string }, minimumVisibleSpanUs = MIN_MANUAL_TIMELINE_SPAN_US) {
   const fullSpan = BigInt(bounds.endUs) - BigInt(bounds.startUs)
@@ -54,6 +60,34 @@ export function timelineViewForScale(
     endUs: (viewStart + visibleSpan).toString(),
   }
 }
+export function timelineViewForRange(
+  bounds: { startUs: string; endUs: string },
+  range: { startUs: string; endUs: string },
+) {
+  const fullStart = BigInt(bounds.startUs)
+  const fullEnd = BigInt(bounds.endUs)
+  const fullSpan = fullEnd - fullStart
+  if (fullSpan <= 1n) return { zoom: 1, pan: 0, startUs: bounds.startUs, endUs: bounds.endUs }
+
+  const requestedStart = BigInt(range.startUs)
+  const requestedEnd = BigInt(range.endUs)
+  const requestedSpan = requestedEnd > requestedStart ? requestedEnd - requestedStart : 1n
+  const visibleSpan = requestedSpan < fullSpan ? requestedSpan : fullSpan
+  const availablePan = fullSpan - visibleSpan
+  const latestStart = fullEnd - visibleSpan
+  const viewStart = requestedStart < fullStart
+    ? fullStart
+    : requestedStart > latestStart
+      ? latestStart
+      : requestedStart
+
+  return {
+    zoom: visibleSpan < fullSpan ? Number(fullSpan) / Number(visibleSpan) : 1,
+    pan: availablePan > 0n ? Number(viewStart - fullStart) / Number(availablePan) : 0,
+    startUs: viewStart.toString(),
+    endUs: (viewStart + visibleSpan).toString(),
+  }
+}
 export function formatTimelineScale(scale: number) {
   const value = clampTimelineScale(scale)
   if (value >= 1) return `${Number(value.toFixed(1))}×`
@@ -75,7 +109,7 @@ export function focusedTimelineView(
   const rangeEnd = rawEnd > fullEnd ? fullEnd : rawEnd < rangeStart ? rangeStart : rawEnd
   const rangeSpan = rangeEnd > rangeStart ? rangeEnd - rangeStart : 1n
   // 80% segment width leaves 10% breathing room on either side. Never focus
-  // closer than the fixed 30-second/10x ceiling, so tiny clips stay legible.
+  // closer than the fixed five-second/60x ceiling, so tiny clips stay legible.
   const paddedSpan = (rangeSpan * 5n + 3n) / 4n
   const desiredSpan = (paddedSpan < MIN_MANUAL_TIMELINE_SPAN_US ? MIN_MANUAL_TIMELINE_SPAN_US : paddedSpan) > fullSpan
     ? fullSpan

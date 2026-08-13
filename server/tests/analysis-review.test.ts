@@ -7,7 +7,7 @@ import { AnalysisReviewError, applyAnalysisReviewPatch, readAnalysisReview } fro
 const analysisRunId = '85000000-0000-4000-8000-000000000002'
 const identity = { userId: '85000000-0000-4000-8000-000000000003', role: UserRole.OPERATOR }
 const patch: AnalysisReviewPatch = {
-  schema_version: '1.2.0',
+  schema_version: '1.3.0',
   client_patch_id: '85000000-0000-4000-8000-000000000001',
   base_revision: '2',
   operations: [
@@ -23,7 +23,7 @@ function authorizedRun() {
   return {
     id: analysisRunId,
     reviewRevision: 2n,
-    overlayManifest: { totalFrames: 120n, videoHeight: 1080, videoWidth: 1920 },
+    analysisDataManifest: { totalFrames: 120n, videoHeight: 1080, videoWidth: 1920 },
     tracks: [{ trackId: 5, firstFrame: 10n, lastFrame: 20n }],
     contactEvents: [{ keyPointId: '85000000-0000-4000-8000-000000000004', sequenceIndex: 0, anchorOrigin: 'ai_detected', anchorFrameIndex: 12n, resolvedFrameIndex: 12n }],
   }
@@ -53,7 +53,7 @@ describe('analysis review corrections', () => {
     } as unknown as PrismaClient
 
     await expect(applyAnalysisReviewPatch(database, { analysisRunId, identity, patch })).resolves.toEqual({
-      schema_version: '1.2.0',
+      schema_version: '1.3.0',
       analysis_run_id: analysisRunId,
       revision: '3',
       duplicate: false,
@@ -83,6 +83,29 @@ describe('analysis review corrections', () => {
     await expect(applyAnalysisReviewPatch(database, { analysisRunId, identity, patch: outside }))
       .rejects.toEqual(expect.objectContaining<Partial<AnalysisReviewError>>({ code: 'TRACK_NOT_ACTIVE' }))
     expect(database.$transaction).not.toHaveBeenCalled()
+  })
+
+  it('validates a corrected actor against the effective contact time in the same patch', async () => {
+    const run = {
+      ...authorizedRun(),
+      tracks: [{ trackId: 5, firstFrame: 13n, lastFrame: 20n }],
+    }
+    const reachedTransaction = new Error('transaction reached')
+    const database = {
+      analysisRun: { findFirst: vi.fn().mockResolvedValue(run) },
+      analysisContactTimeCorrection: { findMany: vi.fn().mockResolvedValue([]) },
+      $transaction: vi.fn().mockRejectedValue(reachedTransaction),
+    } as unknown as PrismaClient
+    const combined: AnalysisReviewPatch = {
+      ...patch,
+      operations: [
+        { op: 'set_contact_actor', key_point_id: '85000000-0000-4000-8000-000000000004', track_id: 5 },
+        { op: 'set_contact_time', key_point_id: '85000000-0000-4000-8000-000000000004', frame_index: '13' },
+      ],
+    }
+
+    await expect(applyAnalysisReviewPatch(database, { analysisRunId, identity, patch: combined })).rejects.toBe(reachedTransaction)
+    expect(database.$transaction).toHaveBeenCalledOnce()
   })
 
   it('rejects an AI contact-time correction that crosses a neighboring event', async () => {
@@ -121,7 +144,7 @@ describe('analysis review corrections', () => {
     } as unknown as PrismaClient
 
     await expect(readAnalysisReview(database, { analysisRunId, afterRevision: 2n, identity })).resolves.toEqual(expect.objectContaining({
-      schema_version: '1.2.0',
+      schema_version: '1.3.0',
       ball_corrections: [{ frame_index: '12', state: 'missing', frame_pos: null, revision: '3' }],
       contact_actor_corrections: [{ key_point_id: '85000000-0000-4000-8000-000000000004', track_id: null, revision: '3' }],
       contact_time_corrections: [{ key_point_id: '85000000-0000-4000-8000-000000000004', frame_index: '13', revision: '3' }],

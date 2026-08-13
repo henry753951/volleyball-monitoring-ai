@@ -124,10 +124,10 @@ enum MatchStatus {
 
 type Mutation {
   applyAnnotationCommand(command: JSON!): JSON!
-  assignTrackIdentity(analysisRunId: ID!, rosterEntryId: ID!, trackId: Int!): JSON!
+  assignTrackIdentity(analysisRunId: ID!, identityMode: String, rosterEntryId: ID!, trackId: Int!): JSON!
   cancelCorrectionDraft(rallyId: ID!): Rally!
   clearTrackIdentity(analysisRunId: ID!, trackId: Int!): JSON!
-  createCorrectionDraft(reverseCourtSides: Boolean = false, submissionId: ID!): Rally!
+  createCorrectionDraft(preserveAnalysisContacts: Boolean = false, regenerateAnalysisContacts: Boolean = false, reverseCourtSides: Boolean = false, submissionId: ID!): Rally!
   createMatchSetup(input: CreateMatchSetupInput!): Match!
   deleteMatch(matchId: ID!): MatchDeleteReceipt!
   deleteProcessingRally(rallyId: ID!): Rally!

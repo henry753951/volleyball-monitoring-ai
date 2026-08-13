@@ -63,6 +63,14 @@ export function useAuthoritativeDvrWindow(client: MediaClient) {
     error.value = null
     busy.value = false
   }
+  function invalidateAnchor() {
+    generation += 1
+    resolveGeneration += 1
+    anchor.value = null
+    status.value = current.value ? 'ready' : 'idle'
+    error.value = null
+    busy.value = false
+  }
   async function resolve(cursor: PlaybackCursorInput) {
     const operationGeneration = generation
     const id = ++resolveGeneration
@@ -110,5 +118,5 @@ export function useAuthoritativeDvrWindow(client: MediaClient) {
     }
     return null
   }
-  return { current, anchor, status: readonly(status), error: readonly(error), busy: readonly(busy), activate, clear, create, refresh, resolve, step }
+  return { current, anchor, status: readonly(status), error: readonly(error), busy: readonly(busy), activate, clear, create, invalidateAnchor, refresh, resolve, step }
 }

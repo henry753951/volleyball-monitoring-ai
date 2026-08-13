@@ -49,7 +49,7 @@ let createdDatabase = false
 
 function processingCallback(callbackId: string, overrides: Record<string, unknown> = {}) {
   return {
-    schema_version: '1.0.0',
+    schema_version: '2.0.0',
     callback_id: callbackId,
     ai_job_id: ids.aiJob,
     kind: 'processing',
@@ -59,35 +59,14 @@ function processingCallback(callbackId: string, overrides: Record<string, unknow
   }
 }
 
-function multipartBody(metadata: Record<string, unknown>, analysis: string, overlay: string) {
+function multipartBody(metadata: Record<string, unknown>, analysisData: string) {
   const boundary = `vmai-${randomUUID()}`
   const body = [
     `--${boundary}\r\nContent-Disposition: form-data; name="metadata"\r\n\r\n${JSON.stringify(metadata)}\r\n`,
-    `--${boundary}\r\nContent-Disposition: form-data; name="analysis"; filename="analysis.json"\r\nContent-Type: application/json\r\n\r\n${analysis}\r\n`,
-    `--${boundary}\r\nContent-Disposition: form-data; name="overlay"; filename="overlay.fb"\r\nContent-Type: application/octet-stream\r\n\r\n${overlay}\r\n`,
+    `--${boundary}\r\nContent-Disposition: form-data; name="analysis_data"; filename="analysis-data.fb"\r\nContent-Type: application/vnd.volleyball.analysis-data+flatbuffers;version=1\r\n\r\n${analysisData}\r\n`,
     `--${boundary}--\r\n`,
   ].join('')
   return { body, contentType: `multipart/form-data; boundary=${boundary}` }
-}
-
-function emptyAnalysisResult(analysisId: string) {
-  return {
-    schema_version: '1.0.0',
-    analysis_id: analysisId,
-    analysis_version: 'callback-test-1',
-    ai_job_id: ids.aiJob,
-    rally_submission_id: ids.submission,
-    rally_id: ids.rally,
-    match_id: ids.match,
-    annotation_revision: '1',
-    clip_asset_id: ids.clipAsset,
-    input_clip_sha256: 'a'.repeat(64),
-    producer: { name: 'callback-test', build_id: 'fixture-1' },
-    tracks: [],
-    contact_events: [],
-    path_segments: [],
-    summary: { track_count: 0, contact_event_count: 0, path_segment_count: 0, unresolved_event_count: 0 },
-  }
 }
 
 beforeAll(async () => {
@@ -142,7 +121,7 @@ beforeAll(async () => {
   } })
   await db.aiJob.create({ data: {
     id: ids.aiJob, submissionId: ids.submission, clipJobId: ids.clipJob, status: 'QUEUED', idempotencyKey: 'callback-ai',
-    requestPayload: {}, requestPayloadHash: 'b'.repeat(64), jobSchemaVersion: '1.1.0', callbackTokenHash,
+    requestPayload: {}, requestPayloadHash: 'b'.repeat(64), jobSchemaVersion: '3.0.0', callbackTokenHash,
     callbackTokenExpiresAt: new Date(Date.now() + 60 * 60 * 1000),
   } })
 }, 120_000)
@@ -198,13 +177,12 @@ describe('AI callback route acceptance', () => {
 
   it('rejects completed artifacts with bad checksums before persistence', async () => {
     const callbackId = randomUUID()
-    const analysis = '{}'
-    const overlay = '0000VOV1invalid'
+    const analysisData = '0000VAD1invalid'
     const request = multipartBody({
-      schema_version: '1.0.0', callback_id: callbackId, ai_job_id: ids.aiJob, kind: 'completed',
-      analysis_sha256: '0'.repeat(64), overlay_sha256: '1'.repeat(64),
-      analysis_bytes: String(Buffer.byteLength(analysis)), overlay_bytes: String(Buffer.byteLength(overlay)),
-    }, analysis, overlay)
+      schema_version: '2.0.0', callback_id: callbackId, ai_job_id: ids.aiJob, kind: 'completed',
+      analysis_data_sha256: '0'.repeat(64),
+      analysis_data_bytes: String(Buffer.byteLength(analysisData)),
+    }, analysisData)
     const response = await app.inject({
       method: 'POST', url: `/api/v1/ai/callback/${ids.aiJob}`,
       headers: { authorization: `Bearer ${callbackToken}`, 'content-type': request.contentType },
@@ -222,7 +200,7 @@ describe('AI callback route acceptance', () => {
     const response = await app.inject({
       method: 'POST', url: `/api/v1/ai/callback/${ids.aiJob}`,
       headers: { authorization: `Bearer ${callbackToken}` },
-      payload: { schema_version: '1.0.0', callback_id: callbackId, ai_job_id: ids.aiJob },
+      payload: { schema_version: '2.0.0', callback_id: callbackId, ai_job_id: ids.aiJob },
     })
 
     expect(response.statusCode).toBe(422)
@@ -230,15 +208,14 @@ describe('AI callback route acceptance', () => {
     await expect(db.aiCallbackReceipt.count({ where: { callbackId } })).resolves.toBe(0)
   })
 
-  it('rejects a checksum-valid payload whose overlay is not a valid VOV1 FlatBuffer', async () => {
+  it('rejects a checksum-valid payload that is not a valid VAD1 FlatBuffer', async () => {
     const callbackId = randomUUID()
-    const analysis = JSON.stringify(emptyAnalysisResult(`analysis-${callbackId}`))
-    const overlay = '0000VOV1invalid!'
+    const analysisData = '0000VAD1invalid!'
     const request = multipartBody({
-      schema_version: '1.0.0', callback_id: callbackId, ai_job_id: ids.aiJob, kind: 'completed',
-      analysis_sha256: sha256(analysis), overlay_sha256: sha256(overlay),
-      analysis_bytes: String(Buffer.byteLength(analysis)), overlay_bytes: String(Buffer.byteLength(overlay)),
-    }, analysis, overlay)
+      schema_version: '2.0.0', callback_id: callbackId, ai_job_id: ids.aiJob, kind: 'completed',
+      analysis_data_sha256: sha256(analysisData),
+      analysis_data_bytes: String(Buffer.byteLength(analysisData)),
+    }, analysisData)
     const response = await app.inject({
       method: 'POST', url: `/api/v1/ai/callback/${ids.aiJob}`,
       headers: { authorization: `Bearer ${callbackToken}`, 'content-type': request.contentType },
@@ -246,25 +223,28 @@ describe('AI callback route acceptance', () => {
     })
 
     expect(response.statusCode).toBe(415)
-    expect(response.json()).toMatchObject({ code: 'INVALID_OVERLAY' })
+    expect(response.json()).toMatchObject({ code: 'INVALID_ANALYSIS_DATA' })
     await expect(db.aiCallbackReceipt.count({ where: { callbackId } })).resolves.toBe(0)
     await expect(db.analysisRun.count({ where: { aiJobId: ids.aiJob } })).resolves.toBe(0)
   })
 
-  it('rejects an analysis part above the bounded callback limit', async () => {
+  it('rejects an AnalysisData part above the configured callback limit', async () => {
     const callbackId = randomUUID()
-    const analysis = 'x'.repeat(10 * 1024 * 1024 + 1)
-    const overlay = '0000VOV1invalid!'
+    const previousLimit = process.env.AI_CALLBACK_ANALYSIS_DATA_MAX_BYTES
+    process.env.AI_CALLBACK_ANALYSIS_DATA_MAX_BYTES = '1024'
+    const analysisData = 'x'.repeat(1025)
     const request = multipartBody({
-      schema_version: '1.0.0', callback_id: callbackId, ai_job_id: ids.aiJob, kind: 'completed',
-      analysis_sha256: sha256(analysis), overlay_sha256: sha256(overlay),
-      analysis_bytes: String(Buffer.byteLength(analysis)), overlay_bytes: String(Buffer.byteLength(overlay)),
-    }, analysis, overlay)
+      schema_version: '2.0.0', callback_id: callbackId, ai_job_id: ids.aiJob, kind: 'completed',
+      analysis_data_sha256: sha256(analysisData),
+      analysis_data_bytes: String(Buffer.byteLength(analysisData)),
+    }, analysisData)
     const response = await app.inject({
       method: 'POST', url: `/api/v1/ai/callback/${ids.aiJob}`,
       headers: { authorization: `Bearer ${callbackToken}`, 'content-type': request.contentType },
       payload: request.body,
     })
+    if (previousLimit === undefined) delete process.env.AI_CALLBACK_ANALYSIS_DATA_MAX_BYTES
+    else process.env.AI_CALLBACK_ANALYSIS_DATA_MAX_BYTES = previousLimit
 
     expect(response.statusCode).toBe(413)
     expect(response.json()).toMatchObject({ code: 'PAYLOAD_TOO_LARGE' })

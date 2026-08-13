@@ -8,10 +8,10 @@ from pathlib import Path
 import httpx
 
 from .callback import CallbackClient
-from .models import AIJobRequest, AnalysisBundle, ProviderCapabilities
+from .models import AIJobRequest, AnalysisDataBundle, ProviderCapabilities
 from .validation import validate_passthrough
 
-AnalyzeFn = Callable[[AIJobRequest, Path], AnalysisBundle | Awaitable[AnalysisBundle]]
+AnalyzeFn = Callable[[AIJobRequest, Path], AnalysisDataBundle | Awaitable[AnalysisDataBundle]]
 
 
 async def download_and_verify_clip(job: AIJobRequest, destination: Path) -> None:
@@ -46,12 +46,13 @@ def create_provider_app(
     app = FastAPI(title="Volleyball Monitoring External AI Provider")
     advertised = capabilities or ProviderCapabilities.model_validate(
         {
-            "schema_version": "1.0.0",
+            "schema_version": "2.0.0",
             "provider_name": "example-provider",
             "provider_build_id": "replace-me",
-            "supported_job_schema_versions": ["1.1.0"],
-            "supported_result_schema_versions": ["1.0.0"],
-            "supported_overlay_formats": ["flatbuffers_v1"],
+            "supported_job_schema_versions": ["3.0.0"],
+            "supported_analysis_data_versions": ["1.0.0"],
+            "supported_analysis_modules": ["court", "tracking", "reid", "contacts"],
+            "supports_selective_rerun": True,
             "optional_extensions": {
                 "action": False,
                 "group_phase": False,
@@ -73,8 +74,8 @@ def create_provider_app(
                 await download_and_verify_clip(job, clip)
                 candidate = analyze(job, clip)
                 bundle = await candidate if inspect.isawaitable(candidate) else candidate
-                validate_passthrough(job, bundle.result)
-                await callback.completed(bundle.result, bundle.overlay_bytes)
+                validate_passthrough(job, bundle.domain)
+            await callback.completed(bundle.analysis_data_bytes)
         except Exception as exc:  # noqa: BLE001 - provider boundary must close every job lifecycle
             # BackgroundTasks otherwise logs the exception after the 202 response while the
             # central job remains RUNNING forever. Providers must close the callback lifecycle.

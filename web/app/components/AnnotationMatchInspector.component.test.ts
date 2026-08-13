@@ -12,7 +12,7 @@ describe('AnnotationMatchInspector outcomes', () => {
     const wrapper = mount(AnnotationMatchInspector, {
       global: {
         stubs: {
-          UiAnimatedModal: true,
+          UiAnimatedModal: { props: ['open'], template: '<div v-if="open"><slot /><slot name="footer" /></div>' },
           AnnotationIdentityPanel: true,
           UiButton: { template: '<button><slot /></button>' },
           UiScrollArea: { template: '<div><slot /></div>' },
@@ -24,12 +24,15 @@ describe('AnnotationMatchInspector outcomes', () => {
         analysisRunId: null,
         canStartNextSet: false,
         canSwapSides: true,
-        currentFrame: -1,
+         currentFrame: -1,
+         currentLeftTeam: teams[0]!,
+         currentRightTeam: teams[1]!,
         drafts: [{
-          id: 'draft', ordinal: 2, display_ordinal: 2, display_set_number: 1,
+          id: 'draft', ordinal: 2, display_ordinal: 99, display_set_number: 1,
           annotation_revision: '2', annotation_status: 'ready', active_submission_id: null,
           score_resolution: 'unknown', scoring_court_side: null, scoring_team_id: null,
           set_id: 'set', set_number: 1,
+          boundaries: [{ kind: 'start', capture_time_us: '2000000', capture_frame_index: '120' }],
           key_points: [{ id: 'draft-point', sequence_index: 0, marker_kind: 'service', is_terminal: true, capture_time_us: '2', capture_frame_index: '2' }],
         }],
         formatRallyDuration: () => '1.0 秒',
@@ -47,6 +50,7 @@ describe('AnnotationMatchInspector outcomes', () => {
           submission: {
             id: 'submission', supersedes_submission_id: null, submitted_at: '', score_resolution: 'resolved', scoring_court_side: 'left', scoring_team_id: 'left',
             side_assignment_id: 'assignment', side_assignment_reversed: false, left_team_id: 'left', right_team_id: 'right', contact_count: 0,
+            boundaries: [{ kind: 'start', capture_time_us: '1000000', capture_frame_index: '60' }],
             key_points: [], clip: null, processing: {} as never,
             analysis: {
               id: 'analysis', status: 'completed', version: 'v1', summary: null,
@@ -69,14 +73,33 @@ describe('AnnotationMatchInspector outcomes', () => {
       },
     })
 
-    expect(wrapper.findAll('.outcome-badge').map(badge => badge.text())).toEqual(['TPE 得分', '得分未知'])
+    expect(wrapper.findAll('.outcome-badge').map(badge => badge.text())).toEqual(['左側 TPE 得分', '得分未知'])
     expect(wrapper.get('.outcome-badge.unknown').text()).toBe('得分未知')
+    expect(wrapper.findAll('.segment-side-order').map(row => row.text())).toEqual([
+      '左側 TPE · 右側 PUR',
+      '左側 TPE · 右側 PUR',
+    ])
+    expect(wrapper.findAll('.segment-main').map(row => row.text())).toEqual([
+      expect.stringContaining('回合 1'),
+      expect.stringContaining('回合 2'),
+    ])
 
     await wrapper.get('button[aria-label="修正此片段的左右隊伍"]').trigger('click')
     expect(wrapper.emitted('swapRallySides')?.[0]?.[0]).toMatchObject({ id: 'rally' })
-    const liveSwap = wrapper.findAll('button').find(button => button.text().includes('交換場地'))
+    const liveSwap = wrapper.findAll('button').find(button => button.text().includes('對調左右'))
     expect(liveSwap).toBeTruthy()
     await liveSwap!.trigger('click')
     expect(wrapper.emitted('swapSides')).toHaveLength(1)
+
+    const placementButtons = wrapper.findAll('button[aria-label="編輯局與回合"]')
+    await placementButtons[1]!.trigger('click')
+    expect(wrapper.find('input[type="number"]').exists()).toBe(false)
+    expect(wrapper.get('.placement-order strong').text()).toBe('第 2 回合')
+    await wrapper.get('.placement-form').trigger('submit')
+    expect(wrapper.emitted('updatePlacement')?.at(-1)?.[0]).toEqual({
+      ordinal: 2,
+      rallyId: 'draft',
+      setNumber: 1,
+    })
   })
 })

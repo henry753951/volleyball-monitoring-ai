@@ -63,7 +63,7 @@ function rejected(
   revision?: { expected: string | null; actual: string | null },
 ): AnnotationCommandRejected {
   return {
-    schema_version: '2.0.0',
+    schema_version: command.schema_version,
     type: 'command_rejected',
     command_id: command.command_id,
     room_id: command.room_id,
@@ -97,7 +97,7 @@ function wireAnchor(anchor: ResolvedMediaAnchor): AnnotationResolvedAnchor {
   }
 }
 
-function toMediaCursor(command: CreateServiceKeyPointCommand): PlaybackCursor {
+function toMediaCursor(command: { payload: { playback_cursor: CreateServiceKeyPointCommand['payload']['playback_cursor'] } }): PlaybackCursor {
   return { schema_version: '1.0.0', ...command.payload.playback_cursor }
 }
 
@@ -223,7 +223,7 @@ async function selectCurrentSet(tx: Transaction, matchId: string) {
 async function acceptService(
   database: PrismaClient,
   room: AnnotationRoom,
-  command: CreateServiceKeyPointCommand,
+  command: CreateServiceKeyPointCommand | Extract<AnnotationCommand, { kind: 'START_RALLY' }>,
   identity: AnnotationIdentity,
   hash: string,
   anchor: ResolvedMediaAnchor,
@@ -381,13 +381,9 @@ async function acceptService(
       ? captureTimeUs - authorizedMatch.clipPreRollUs
       : 0n
     const proposedEnd = captureTimeUs + authorizedMatch.clipPostRollUs
-    const overlapsExisting = await clipRangeOverlapsExistingRally(
-      tx,
-      room.matchId,
-      proposedStart,
-      proposedEnd,
-      authorizedMatch.clipPreRollUs,
-      authorizedMatch.clipPostRollUs,
+    const overlapsExisting = command.kind === 'CREATE_SERVICE_KEY_POINT' && await clipRangeOverlapsExistingRally(
+      tx, room.matchId, proposedStart, proposedEnd,
+      authorizedMatch.clipPreRollUs, authorizedMatch.clipPostRollUs,
     )
     if (overlapsExisting) {
       return persistRejection(tx, command, identity, hash, rejected(
@@ -396,23 +392,17 @@ async function acceptService(
         'The configured clip padding would overlap an existing segment',
       ))
     }
-    const [aggregate, existingPlacements] = await Promise.all([
-      tx.rally.aggregate({ _max: { ordinal: true }, where: { setId: set.id } }),
-      tx.rally.findMany({
-        select: { displayOrdinal: true },
-        where: { displaySetNumber: set.setNumber, matchId: room.matchId, voidedAt: null },
-      }),
-    ])
-    const ordinal = (aggregate._max.ordinal ?? 0) + 1
-    const displayOrdinal = existingPlacements.reduce(
-      (maximum, rally) => Math.max(maximum, rally.displayOrdinal),
-      0,
-    ) + 1
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${room.matchId}))`
+    // Rally.ordinal is an append-only internal allocation used by immutable
+    // submissions and side-assignment history. Product naming never reads it;
+    // the dashboard derives the visible number from canonical capture time.
+    const aggregate = await tx.rally.aggregate({ _max: { ordinal: true }, where: { setId: set.id } })
+    const internalOrdinal = (aggregate._max.ordinal ?? 0) + 1
     const assignment = await tx.courtSideAssignment.findFirst({
       orderBy: { effectiveFromRallyOrdinal: 'desc' },
       where: {
-        effectiveFromRallyOrdinal: { lte: ordinal },
-        OR: [{ effectiveToRallyOrdinal: null }, { effectiveToRallyOrdinal: { gte: ordinal } }],
+        effectiveFromRallyOrdinal: { lte: internalOrdinal },
+        OR: [{ effectiveToRallyOrdinal: null }, { effectiveToRallyOrdinal: { gte: internalOrdinal } }],
         setId: set.id,
       },
     })
@@ -423,36 +413,55 @@ async function acceptService(
         'Court-side assignment is not ready',
       ))
     }
-
-    const keyPointId = randomUUID()
+    const anchorId = randomUUID()
     await tx.rally.create({ data: {
       annotationRevision: 1n,
       dvrProgramId: playbackWindow.dvrProgramId,
       id: command.rally_id,
       matchId: room.matchId,
-      ordinal,
-      displayOrdinal,
+      ordinal: internalOrdinal,
+      displayOrdinal: 1,
       displaySetNumber: set.setNumber,
       setId: set.id,
       sideAssignmentId: assignment.id,
+      sideAssignmentReversed: false,
+      scoreResolutionState: command.kind === 'START_RALLY' ? 'PENDING' : 'UNKNOWN',
     } })
-    await tx.keyPoint.create({ data: {
-      captureEpochId: anchor.capture_epoch_id,
-      captureFrameIndex: BigInt(anchor.capture_frame_index),
-      captureTimeUs: BigInt(anchor.capture_time_us),
-      createdByUserId: identity.userId,
-      deviceSessionId: identity.deviceSessionId,
-      id: keyPointId,
-      markerKind: 'SERVICE',
-      originalPlaybackCursor: jsonValue(command.payload.playback_cursor),
-      rallyId: command.rally_id,
-      sequenceIndex: 0,
-      snapDistanceUs: anchor.snap_distance_us == null ? null : BigInt(anchor.snap_distance_us),
-      sourcePts: BigInt(anchor.source_pts),
-      timingPrecision: anchor.timing_precision.toUpperCase() as 'FRAME_EXACT' | 'PTS_EXACT' | 'ESTIMATED',
-      updatedByUserId: identity.userId,
-    } })
-
+    if (command.kind === 'START_RALLY') {
+      await tx.rallyBoundary.create({ data: {
+        captureEpochId: anchor.capture_epoch_id,
+        captureFrameIndex: BigInt(anchor.capture_frame_index),
+        captureTimeUs: BigInt(anchor.capture_time_us),
+        createdByUserId: identity.userId,
+        deviceSessionId: identity.deviceSessionId,
+        id: anchorId,
+        kind: 'START',
+        originalPlaybackCursor: jsonValue(command.payload.playback_cursor),
+        rallyId: command.rally_id,
+        snapDistanceUs: anchor.snap_distance_us == null ? null : BigInt(anchor.snap_distance_us),
+        sourcePts: BigInt(anchor.source_pts),
+        timingPrecision: anchor.timing_precision.toUpperCase() as 'FRAME_EXACT' | 'PTS_EXACT' | 'ESTIMATED',
+        updatedByUserId: identity.userId,
+      } })
+    }
+    else {
+      await tx.keyPoint.create({ data: {
+        captureEpochId: anchor.capture_epoch_id,
+        captureFrameIndex: BigInt(anchor.capture_frame_index),
+        captureTimeUs: BigInt(anchor.capture_time_us),
+        createdByUserId: identity.userId,
+        deviceSessionId: identity.deviceSessionId,
+        id: anchorId,
+        markerKind: 'SERVICE',
+        originalPlaybackCursor: jsonValue(command.payload.playback_cursor),
+        rallyId: command.rally_id,
+        sequenceIndex: 0,
+        snapDistanceUs: anchor.snap_distance_us == null ? null : BigInt(anchor.snap_distance_us),
+        sourcePts: BigInt(anchor.source_pts),
+        timingPrecision: anchor.timing_precision.toUpperCase() as 'FRAME_EXACT' | 'PTS_EXACT' | 'ESTIMATED',
+        updatedByUserId: identity.userId,
+      } })
+    }
     const receipt = await tx.annotationCommandReceipt.create({ data: {
       accepted: true,
       commandId: command.command_id,
@@ -465,7 +474,7 @@ async function acceptService(
       userId: identity.userId,
     } })
     const response = parseAnnotationCommandResponse({
-      schema_version: '2.0.0',
+      schema_version: command.kind === 'START_RALLY' ? '3.0.0' : '2.0.0',
       type: 'command_ack',
       command_id: command.command_id,
       room_id: command.room_id,
@@ -475,8 +484,10 @@ async function acceptService(
       server_sequence: receipt.serverSequence.toString(),
       effects: {
         annotation_status: 'open',
-        created_key_point_id: keyPointId,
-        score_resolution: 'pending',
+        ...(command.kind === 'START_RALLY'
+          ? { boundary_kind: 'start' as const }
+          : { created_key_point_id: anchorId }),
+        score_resolution: command.kind === 'START_RALLY' ? 'pending' : 'unknown',
         scoring_court_side: null,
       },
       resolved_anchor: wireAnchor(anchor),
@@ -512,16 +523,18 @@ async function acceptService(
 }
 
 type ContactCommand = Extract<AnnotationCommand, { kind: 'CREATE_CONTACT_KEY_POINT' }>
+type EndCommand = Extract<AnnotationCommand, { kind: 'END_RALLY' }>
 type CloseCommand = Extract<AnnotationCommand, { kind: 'CLOSE_RALLY' }>
+type OutcomeCommand = Extract<AnnotationCommand, { kind: 'SET_RALLY_OUTCOME' }>
 type EditCommand = Extract<AnnotationCommand, { kind: 'MOVE_KEY_POINT' | 'DELETE_KEY_POINT' | 'REOPEN_RALLY' | 'VOID_RALLY' }>
 
-async function acceptContact(database: PrismaClient, room: AnnotationRoom, command: ContactCommand, identity: AnnotationIdentity, hash: string, anchor: ResolvedMediaAnchor): Promise<AnnotationCommandResponse> {
+async function acceptContact(database: PrismaClient, room: AnnotationRoom, command: ContactCommand | EndCommand, identity: AnnotationIdentity, hash: string, anchor: ResolvedMediaAnchor): Promise<AnnotationCommandResponse> {
   return serializable(database, async (tx) => {
     await commandLock(tx, command.command_id)
     const existing = await replay(tx, command, hash)
     if (existing) return existing
     await rallyLock(tx, command.rally_id)
-    const rally = await tx.rally.findUnique({ where: { id: command.rally_id }, include: { keyPoints: { where: { deletedAt: null }, orderBy: { sequenceIndex: 'desc' }, take: 1 } } })
+    const rally = await tx.rally.findUnique({ where: { id: command.rally_id }, include: { boundaries: true, keyPoints: { where: { deletedAt: null }, orderBy: { sequenceIndex: 'desc' }, take: 1 } } })
     const device = await tx.deviceSession.findUnique({ select: { revokedAt: true, userId: true }, where: { id: identity.deviceSessionId } })
     if (!device || device.userId !== identity.userId || device.revokedAt) return persistRejection(tx, command, identity, hash, rejected(command, 'UNAUTHENTICATED', 'Authenticated device session is no longer active'))
     const authorizedMatch = await tx.match.findFirst({ select: { id: true }, where: { id: room.matchId, captureSessions: { some: { id: room.captureSessionId } }, ...(identity.role === UserRole.ADMIN ? {} : { members: { some: { userId: identity.userId, role: { in: [UserRole.ADMIN, UserRole.OPERATOR, UserRole.ANNOTATOR] } } } }) } })
@@ -535,18 +548,55 @@ async function acceptContact(database: PrismaClient, room: AnnotationRoom, comma
     const resolvedTime = BigInt(anchor.capture_time_us); const resolvedFrame = BigInt(anchor.capture_frame_index); const playerTime = BigInt(anchor.resolved_player_media_time_us)
     const valid = anchor.capture_session_id === room.captureSessionId && !!mapping && !!segment && !!epoch && mapping.dvrProgramId === rally.dvrProgramId && segment.dvrProgramId === rally.dvrProgramId && segment.captureEpochId === anchor.capture_epoch_id && !segment.isGap && segment.readyAt !== null && segment.sampleIndexAssetId !== null && resolvedTime >= mapping.captureStartUs && resolvedTime < mapping.captureEndUs && resolvedTime >= segment.captureStartUs && resolvedTime < segment.captureEndUs && segment.firstFrameIndex !== null && segment.firstFrameIndex !== undefined && resolvedFrame >= segment.firstFrameIndex && resolvedFrame < segment.firstFrameIndex + segment.frameCount && playerTime === resolvedTime - mapping.presentationOriginCaptureUs && anchor.playback_window_id === command.payload.playback_cursor.playback_window_id && anchor.mapping_version === command.payload.playback_cursor.mapping_version
     if (!valid) return persistRejection(tx, command, identity, hash, rejected(command, 'ANNOTATION_NOT_READY', 'Resolved playback state is no longer valid'))
+    if (command.kind === 'END_RALLY') {
+      const start = rally.boundaries.find(boundary => boundary.kind === 'START')
+      if (!start) return persistRejection(tx, command, identity, hash, rejected(command, 'ANNOTATION_NOT_READY', 'Rally start boundary is missing'))
+      if (resolvedTime < start.captureTimeUs || (resolvedTime === start.captureTimeUs && resolvedFrame <= start.captureFrameIndex)) {
+        return persistRejection(tx, command, identity, hash, rejected(command, 'ANNOTATION_NOT_READY', 'Rally end must be after its start boundary'))
+      }
+      await tx.rallyBoundary.create({ data: {
+        captureEpochId: anchor.capture_epoch_id,
+        captureFrameIndex: resolvedFrame,
+        captureTimeUs: resolvedTime,
+        createdByUserId: identity.userId,
+        deviceSessionId: identity.deviceSessionId,
+        kind: 'END',
+        originalPlaybackCursor: jsonValue(command.payload.playback_cursor),
+        rallyId: command.rally_id,
+        snapDistanceUs: anchor.snap_distance_us == null ? null : BigInt(anchor.snap_distance_us),
+        sourcePts: BigInt(anchor.source_pts),
+        timingPrecision: anchor.timing_precision.toUpperCase() as 'FRAME_EXACT' | 'PTS_EXACT' | 'ESTIMATED',
+        updatedByUserId: identity.userId,
+      } })
+      const revision = rally.annotationRevision + 1n
+      const scoreResolutionState = rally.scoreResolutionState === 'PENDING' ? 'UNKNOWN' : rally.scoreResolutionState
+      const scoringCourtSide = scoreResolutionState === 'RESOLVED' ? rally.scoringCourtSide : null
+      const cas = await tx.rally.updateMany({
+        data: { annotationRevision: revision, annotationStatus: 'READY', scoreResolutionState, scoringCourtSide },
+        where: { id: rally.id, annotationRevision: rally.annotationRevision, annotationStatus: 'OPEN' },
+      })
+      if (cas.count !== 1) throw new Prisma.PrismaClientKnownRequestError('Rally changed concurrently', { code: 'P2034', clientVersion: 'annotation-v3' })
+      const receipt = await tx.annotationCommandReceipt.create({ data: { accepted: true, commandId: command.command_id, deviceSessionId: identity.deviceSessionId, rallyId: command.rally_id, requestHash: hash, requestJson: jsonValue(command), responseJson: {}, roomId: command.room_id, userId: identity.userId } })
+      const response = parseAnnotationCommandResponse({ schema_version: '3.0.0', type: 'command_ack', command_id: command.command_id, room_id: command.room_id, rally_id: command.rally_id, operation_kind: command.kind, result_revision: revision.toString(), server_sequence: receipt.serverSequence.toString(), effects: { annotation_status: 'ready', boundary_kind: 'end', score_resolution: scoreResolutionState.toLowerCase(), scoring_court_side: scoringCourtSide?.toLowerCase() ?? null }, resolved_anchor: wireAnchor(anchor) })
+      await tx.annotationCommandReceipt.update({ data: { responseJson: jsonValue(response) }, where: { serverSequence: receipt.serverSequence } })
+      await tx.annotationOperation.create({ data: { baseRevision: rally.annotationRevision, clientMutationId: command.command_id, deviceSessionId: identity.deviceSessionId, operationKind: command.kind, payload: jsonValue(command.payload), payloadHash: hash, rallyId: command.rally_id, receiptServerSequence: receipt.serverSequence, resultRevision: revision, userId: identity.userId } })
+      await tx.outboxEvent.create({ data: { aggregateId: command.rally_id, aggregateType: 'Rally', dedupeKey: `annotation-accepted:${receipt.serverSequence}`, eventType: 'annotation.command_accepted.v3', payload: jsonValue(response) } })
+      return response
+    }
     const allPoints = await tx.keyPoint.findMany({ where: { rallyId: command.rally_id, deletedAt: null }, orderBy: [{ captureTimeUs: 'asc' }, { captureFrameIndex: 'asc' }, { sequenceIndex: 'asc' }] })
     const servicePoint = allPoints.find((point) => point.markerKind === 'SERVICE')
+    const startBoundary = rally.boundaries.find(boundary => boundary.kind === 'START')
     const terminal = command.payload.terminal_outcome === 'unknown'
     const captureTime = BigInt(anchor.capture_time_us)
     const captureFrame = BigInt(anchor.capture_frame_index)
-    if (servicePoint && (captureTime < servicePoint.captureTimeUs || (captureTime === servicePoint.captureTimeUs && captureFrame < servicePoint.captureFrameIndex))) return persistRejection(tx, command, identity, hash, rejected(command, 'ANNOTATION_NOT_READY', 'Contact anchor precedes service'))
-    if (!servicePoint) return persistRejection(tx, command, identity, hash, rejected(command, 'ANNOTATION_NOT_READY', 'Rally service anchor is missing'))
-    if (terminal && (captureTime < servicePoint.captureTimeUs || (captureTime === servicePoint.captureTimeUs && captureFrame <= servicePoint.captureFrameIndex))) return persistRejection(tx, command, identity, hash, rejected(command, 'ANNOTATION_NOT_READY', 'Rally end must be after service'))
+    if (!servicePoint && !startBoundary) return persistRejection(tx, command, identity, hash, rejected(command, 'ANNOTATION_NOT_READY', 'Rally start boundary is missing'))
+    if (terminal && !servicePoint) return persistRejection(tx, command, identity, hash, rejected(command, 'ANNOTATION_NOT_READY', 'Legacy terminal contact requires a service anchor'))
+    if (terminal && servicePoint && (captureTime < servicePoint.captureTimeUs || (captureTime === servicePoint.captureTimeUs && captureFrame <= servicePoint.captureFrameIndex))) return persistRejection(tx, command, identity, hash, rejected(command, 'ANNOTATION_NOT_READY', 'Rally end must be after service'))
     const lastPoint = allPoints.at(-1)
     if (terminal && lastPoint && (captureTime < lastPoint.captureTimeUs || (captureTime === lastPoint.captureTimeUs && captureFrame <= lastPoint.captureFrameIndex))) return persistRejection(tx, command, identity, hash, rejected(command, 'ANNOTATION_NOT_READY', 'Rally end must be after the last key point'))
-    const foundIndex = allPoints.findIndex((point) => point.sequenceIndex > 0 && (point.captureTimeUs > captureTime || (point.captureTimeUs === captureTime && point.captureFrameIndex > captureFrame)))
-    const insertion = foundIndex >= 0 ? Math.max(1, foundIndex) : allPoints.length
+    const firstContactIndex = servicePoint ? 1 : 0
+    const foundIndex = allPoints.findIndex((point) => point.sequenceIndex >= firstContactIndex && (point.captureTimeUs > captureTime || (point.captureTimeUs === captureTime && point.captureFrameIndex > captureFrame)))
+    const insertion = foundIndex >= 0 ? Math.max(firstContactIndex, foundIndex) : allPoints.length
     for (const point of allPoints.filter((point) => point.sequenceIndex >= insertion).sort((a, b) => b.sequenceIndex - a.sequenceIndex)) await tx.keyPoint.update({ data: { sequenceIndex: { increment: 1 } }, where: { id: point.id } })
     const equals = allPoints.filter((point) => point.markerKind === 'CONTACT' && point.captureFrameIndex === captureFrame)
     const possibleDuplicate = equals.length > 0
@@ -558,10 +608,10 @@ async function acceptContact(database: PrismaClient, room: AnnotationRoom, comma
     const cas = await tx.rally.updateMany({ data: terminal ? { annotationRevision: revision, annotationStatus: 'READY', scoreResolutionState: 'UNKNOWN', scoringCourtSide: null } : { annotationRevision: revision }, where: { id: rally.id, annotationRevision: rally.annotationRevision, annotationStatus: 'OPEN' } })
     if (cas.count !== 1) return persistRejection(tx, command, identity, hash, rejected(command, 'REVISION_CONFLICT', 'Rally revision is stale', { actual: rally.annotationRevision.toString(), expected: command.base_revision }))
     const receipt = await tx.annotationCommandReceipt.create({ data: { accepted: true, commandId: command.command_id, deviceSessionId: identity.deviceSessionId, rallyId: command.rally_id, requestHash: hash, requestJson: jsonValue(command), responseJson: {}, roomId: command.room_id, userId: identity.userId } })
-    const response = parseAnnotationCommandResponse({ schema_version: '2.0.0', type: 'command_ack', command_id: command.command_id, room_id: command.room_id, rally_id: command.rally_id, operation_kind: command.kind, result_revision: revision.toString(), server_sequence: receipt.serverSequence.toString(), effects: terminal ? { annotation_status: 'ready', created_key_point_id: keyPointId, terminal_key_point_id: keyPointId, score_resolution: 'unknown', scoring_court_side: null } : { annotation_status: 'open', created_key_point_id: keyPointId, score_resolution: 'pending', scoring_court_side: null }, resolved_anchor: wireAnchor(anchor) })
+    const response = parseAnnotationCommandResponse({ schema_version: command.schema_version, type: 'command_ack', command_id: command.command_id, room_id: command.room_id, rally_id: command.rally_id, operation_kind: command.kind, result_revision: revision.toString(), server_sequence: receipt.serverSequence.toString(), effects: terminal ? { annotation_status: 'ready', created_key_point_id: keyPointId, terminal_key_point_id: keyPointId, score_resolution: 'unknown', scoring_court_side: null } : { annotation_status: 'open', created_key_point_id: keyPointId, score_resolution: 'pending', scoring_court_side: null }, resolved_anchor: wireAnchor(anchor) })
     await tx.annotationCommandReceipt.update({ data: { responseJson: jsonValue(response) }, where: { serverSequence: receipt.serverSequence } })
     await tx.annotationOperation.create({ data: { baseRevision: rally.annotationRevision, clientMutationId: command.command_id, deviceSessionId: identity.deviceSessionId, operationKind: command.kind, payload: jsonValue(command.payload), payloadHash: hash, rallyId: command.rally_id, receiptServerSequence: receipt.serverSequence, resultRevision: revision, userId: identity.userId } })
-    await tx.outboxEvent.create({ data: { aggregateId: command.rally_id, aggregateType: 'Rally', dedupeKey: `annotation-accepted:${receipt.serverSequence}`, eventType: 'annotation.command_accepted.v2', payload: jsonValue(response) } })
+    await tx.outboxEvent.create({ data: { aggregateId: command.rally_id, aggregateType: 'Rally', dedupeKey: `annotation-accepted:${receipt.serverSequence}`, eventType: `annotation.command_accepted.v${command.schema_version.startsWith('3.') ? '3' : '2'}`, payload: jsonValue(response) } })
     return response
   })
 }
@@ -590,6 +640,38 @@ async function acceptClose(database: PrismaClient, room: AnnotationRoom, command
     await tx.annotationCommandReceipt.update({ data: { responseJson: jsonValue(response) }, where: { serverSequence: receipt.serverSequence } })
     await tx.annotationOperation.create({ data: { baseRevision: rally.annotationRevision, clientMutationId: command.command_id, deviceSessionId: identity.deviceSessionId, operationKind: command.kind, payload: jsonValue(command.payload), payloadHash: hash, rallyId: command.rally_id, receiptServerSequence: receipt.serverSequence, resultRevision: revision, userId: identity.userId } })
     await tx.outboxEvent.create({ data: { aggregateId: command.rally_id, aggregateType: 'Rally', dedupeKey: `annotation-accepted:${receipt.serverSequence}`, eventType: 'annotation.command_accepted.v2', payload: jsonValue(response) } })
+    return response
+  })
+}
+
+async function acceptOutcome(database: PrismaClient, room: AnnotationRoom, command: OutcomeCommand, identity: AnnotationIdentity, hash: string): Promise<AnnotationCommandResponse> {
+  return serializable(database, async (tx) => {
+    await commandLock(tx, command.command_id)
+    const existing = await replay(tx, command, hash)
+    if (existing) return existing
+    await rallyLock(tx, command.rally_id)
+    const [rally, device, authorizedMatch] = await Promise.all([
+      tx.rally.findUnique({ where: { id: command.rally_id } }),
+      tx.deviceSession.findUnique({ select: { revokedAt: true, userId: true }, where: { id: identity.deviceSessionId } }),
+      tx.match.findFirst({ select: { id: true }, where: { id: room.matchId, captureSessions: { some: { id: room.captureSessionId } }, ...(identity.role === UserRole.ADMIN ? {} : { members: { some: { userId: identity.userId, role: { in: [UserRole.ADMIN, UserRole.OPERATOR, UserRole.ANNOTATOR] } } } }) } }),
+    ])
+    if (!device || device.userId !== identity.userId || device.revokedAt) return persistRejection(tx, command, identity, hash, rejected(command, 'UNAUTHENTICATED', 'Authenticated device session is no longer active'))
+    if (!authorizedMatch) return persistRejection(tx, command, identity, hash, rejected(command, 'ROOM_AUTHORIZATION_STALE', 'Annotation room authorization changed before commit'))
+    if (!rally || rally.matchId !== room.matchId || !['OPEN', 'READY'].includes(rally.annotationStatus)) return persistRejection(tx, command, identity, hash, rejected(command, 'RALLY_NOT_OPEN', 'Rally outcome is not editable'))
+    if (command.base_revision !== rally.annotationRevision.toString()) return persistRejection(tx, command, identity, hash, rejected(command, 'REVISION_CONFLICT', 'Rally revision is stale', { actual: rally.annotationRevision.toString(), expected: command.base_revision }))
+    const revision = rally.annotationRevision + 1n
+    const resolution = command.payload.score_resolution.toUpperCase() as 'RESOLVED' | 'UNKNOWN'
+    const scoringCourtSide = command.payload.scoring_court_side?.toUpperCase() as 'LEFT' | 'RIGHT' | undefined
+    const cas = await tx.rally.updateMany({
+      data: { annotationRevision: revision, scoreResolutionState: resolution, scoringCourtSide: scoringCourtSide ?? null, scoringTeamId: null },
+      where: { id: rally.id, annotationRevision: rally.annotationRevision, annotationStatus: { in: ['OPEN', 'READY'] } },
+    })
+    if (cas.count !== 1) throw new Prisma.PrismaClientKnownRequestError('Rally changed concurrently', { code: 'P2034', clientVersion: 'annotation-v3' })
+    const receipt = await tx.annotationCommandReceipt.create({ data: { accepted: true, commandId: command.command_id, deviceSessionId: identity.deviceSessionId, rallyId: command.rally_id, requestHash: hash, requestJson: jsonValue(command), responseJson: {}, roomId: command.room_id, userId: identity.userId } })
+    const response = parseAnnotationCommandResponse({ schema_version: '3.0.0', type: 'command_ack', command_id: command.command_id, room_id: command.room_id, rally_id: command.rally_id, operation_kind: command.kind, result_revision: revision.toString(), server_sequence: receipt.serverSequence.toString(), effects: { annotation_status: rally.annotationStatus.toLowerCase(), score_resolution: command.payload.score_resolution, scoring_court_side: command.payload.scoring_court_side } })
+    await tx.annotationCommandReceipt.update({ data: { responseJson: jsonValue(response) }, where: { serverSequence: receipt.serverSequence } })
+    await tx.annotationOperation.create({ data: { baseRevision: rally.annotationRevision, clientMutationId: command.command_id, deviceSessionId: identity.deviceSessionId, operationKind: command.kind, payload: jsonValue(command.payload), payloadHash: hash, rallyId: command.rally_id, receiptServerSequence: receipt.serverSequence, resultRevision: revision, userId: identity.userId } })
+    await tx.outboxEvent.create({ data: { aggregateId: command.rally_id, aggregateType: 'Rally', dedupeKey: `annotation-accepted:${receipt.serverSequence}`, eventType: 'annotation.command_accepted.v3', payload: jsonValue(response) } })
     return response
   })
 }
@@ -641,7 +723,7 @@ async function clipRangeOverlapsExistingRally(
 async function acceptDraftEdit(database: PrismaClient, room: AnnotationRoom, command: EditCommand, identity: AnnotationIdentity, hash: string, anchor?: ResolvedMediaAnchor): Promise<AnnotationCommandResponse> {
   return serializable(database, async (tx) => {
     await commandLock(tx, command.command_id); const existing = await replay(tx, command, hash); if (existing) return existing; await rallyLock(tx, command.rally_id)
-    const rally = await tx.rally.findUnique({ where: { id: command.rally_id }, include: { keyPoints: { where: { deletedAt: null }, orderBy: { sequenceIndex: 'asc' } } } })
+    const rally = await tx.rally.findUnique({ where: { id: command.rally_id }, include: { boundaries: true, keyPoints: { where: { deletedAt: null }, orderBy: { sequenceIndex: 'asc' } } } })
     const device = await tx.deviceSession.findUnique({ select: { revokedAt: true, userId: true }, where: { id: identity.deviceSessionId } })
     if (!device || device.userId !== identity.userId || device.revokedAt) return persistRejection(tx, command, identity, hash, rejected(command, 'UNAUTHENTICATED', 'Authenticated device session is no longer active'))
     const authorizedMatch = await tx.match.findFirst({ select: { clipPostRollUs: true, clipPreRollUs: true, id: true }, where: { id: room.matchId, captureSessions: { some: { id: room.captureSessionId } }, ...(identity.role === UserRole.ADMIN ? {} : { members: { some: { userId: identity.userId, role: { in: [UserRole.ADMIN, UserRole.OPERATOR, UserRole.ANNOTATOR] } } } }) } })
@@ -663,6 +745,7 @@ async function acceptDraftEdit(database: PrismaClient, room: AnnotationRoom, com
       }
       if (!isCorrection) {
         await tx.keyPoint.updateMany({ where: { rallyId: rally.id, deletedAt: null, isTerminal: true }, data: { isTerminal: false, updatedByUserId: identity.userId } })
+        await tx.rallyBoundary.deleteMany({ where: { rallyId: rally.id, kind: 'END' } })
       }
       await tx.rally.update({
         where: { id: rally.id },
@@ -699,19 +782,22 @@ async function acceptDraftEdit(database: PrismaClient, room: AnnotationRoom, com
       const mapping = anchor.dvr_segment_id ? await tx.playbackWindow.findFirst({ where: { id: anchor.playback_window_id, captureSessionId: room.captureSessionId, mappingVersion: anchor.mapping_version, dvrProgramId: rally.dvrProgramId, segments: { some: { dvrSegment: { id: anchor.dvr_segment_id, captureEpochId: anchor.capture_epoch_id, dvrProgramId: rally.dvrProgramId, isGap: false, readyAt: { not: null }, sampleIndexAssetId: { not: null } } } } }, select: { captureStartUs: true, captureEndUs: true, presentationOriginCaptureUs: true } }) : null
       const resolvedTime = BigInt(anchor.capture_time_us); const resolvedFrame = BigInt(anchor.capture_frame_index); const playerTime = BigInt(anchor.resolved_player_media_time_us)
       if (!mapping || resolvedTime < mapping.captureStartUs || resolvedTime >= mapping.captureEndUs || playerTime !== resolvedTime - mapping.presentationOriginCaptureUs || anchor.playback_window_id !== command.payload.playback_cursor.playback_window_id || anchor.mapping_version !== command.payload.playback_cursor.mapping_version) return persistRejection(tx, command, identity, hash, rejected(command, 'ANNOTATION_NOT_READY', 'Resolved playback state is no longer valid'))
-      const service = rally.keyPoints.find(point => point.markerKind === 'SERVICE')
-      if ((target.markerKind === 'CONTACT' && service && resolvedTime < service.captureTimeUs) || (target.markerKind === 'SERVICE' && rally.keyPoints.some(point => point.markerKind === 'CONTACT' && resolvedTime > point.captureTimeUs))) return persistRejection(tx, command, identity, hash, rejected(command, 'ANNOTATION_NOT_READY', 'Moved point would violate service-first ordering'))
-      const proposedTimes = rally.keyPoints
-        .map(point => point.id === target.id ? resolvedTime : point.captureTimeUs)
-        .sort((left, right) => left < right ? -1 : left > right ? 1 : 0)
-      const paddedStart = proposedTimes[0]! - authorizedMatch.clipPreRollUs
-      const proposedStart = paddedStart < 0n ? 0n : paddedStart
-      const proposedEnd = proposedTimes.at(-1)! + authorizedMatch.clipPostRollUs
-      if (await clipRangeOverlapsExistingRally(tx, room.matchId, proposedStart, proposedEnd, authorizedMatch.clipPreRollUs, authorizedMatch.clipPostRollUs, rally.id)) {
-        return persistRejection(tx, command, identity, hash, rejected(command, 'ANNOTATION_NOT_READY', 'Moving the key point would overlap another Rally clip'))
+      const isBoundaryDraft = rally.boundaries.some(boundary => boundary.kind === 'START')
+      if (!isBoundaryDraft) {
+        const service = rally.keyPoints.find(point => point.markerKind === 'SERVICE')
+        if ((target.markerKind === 'CONTACT' && service && resolvedTime < service.captureTimeUs) || (target.markerKind === 'SERVICE' && rally.keyPoints.some(point => point.markerKind === 'CONTACT' && resolvedTime > point.captureTimeUs))) return persistRejection(tx, command, identity, hash, rejected(command, 'ANNOTATION_NOT_READY', 'Moved point would violate service-first ordering'))
+        const proposedTimes = rally.keyPoints
+          .map(point => point.id === target.id ? resolvedTime : point.captureTimeUs)
+          .sort((left, right) => left < right ? -1 : left > right ? 1 : 0)
+        const paddedStart = proposedTimes[0]! - authorizedMatch.clipPreRollUs
+        const proposedStart = paddedStart < 0n ? 0n : paddedStart
+        const proposedEnd = proposedTimes.at(-1)! + authorizedMatch.clipPostRollUs
+        if (await clipRangeOverlapsExistingRally(tx, room.matchId, proposedStart, proposedEnd, authorizedMatch.clipPreRollUs, authorizedMatch.clipPostRollUs, rally.id)) {
+          return persistRejection(tx, command, identity, hash, rejected(command, 'ANNOTATION_NOT_READY', 'Moving the key point would overlap another Rally clip'))
+        }
       }
       await tx.keyPoint.update({ where: { id: target.id }, data: { captureEpochId: anchor.capture_epoch_id, captureFrameIndex: resolvedFrame, captureTimeUs: resolvedTime, sourcePts: BigInt(anchor.source_pts), timingPrecision: anchor.timing_precision.toUpperCase() as 'FRAME_EXACT' | 'PTS_EXACT' | 'ESTIMATED', snapDistanceUs: anchor.snap_distance_us == null ? null : BigInt(anchor.snap_distance_us), originalPlaybackCursor: jsonValue(command.payload.playback_cursor), updatedByUserId: identity.userId } })
-      const ordered = rally.keyPoints.map(point => point.id === target.id ? { ...point, captureTimeUs: resolvedTime, captureFrameIndex: resolvedFrame } : point).sort((left, right) => left.markerKind === 'SERVICE' ? -1 : right.markerKind === 'SERVICE' ? 1 : left.captureTimeUs < right.captureTimeUs ? -1 : left.captureTimeUs > right.captureTimeUs ? 1 : left.captureFrameIndex < right.captureFrameIndex ? -1 : 1)
+      const ordered = rally.keyPoints.map(point => point.id === target.id ? { ...point, captureTimeUs: resolvedTime, captureFrameIndex: resolvedFrame } : point).sort((left, right) => !isBoundaryDraft && left.markerKind === 'SERVICE' ? -1 : !isBoundaryDraft && right.markerKind === 'SERVICE' ? 1 : left.captureTimeUs < right.captureTimeUs ? -1 : left.captureTimeUs > right.captureTimeUs ? 1 : left.captureFrameIndex < right.captureFrameIndex ? -1 : 1)
       await rewriteActiveSequence(tx, rally.id, ordered)
       for (const point of ordered) await tx.keyPoint.update({ where: { id: point.id }, data: { possibleDuplicate: point.markerKind === 'CONTACT' && ordered.filter(other => other.markerKind === 'CONTACT' && other.captureFrameIndex === point.captureFrameIndex).length > 1 } })
       await tx.rally.update({ where: { id: rally.id }, data: { annotationRevision: revision } })
@@ -722,10 +808,10 @@ async function acceptDraftEdit(database: PrismaClient, room: AnnotationRoom, com
       }
     }
     const receipt = await tx.annotationCommandReceipt.create({ data: { accepted: true, commandId: command.command_id, deviceSessionId: identity.deviceSessionId, rallyId: command.rally_id, requestHash: hash, requestJson: jsonValue(command), responseJson: {}, roomId: command.room_id, userId: identity.userId } })
-    const response = parseAnnotationCommandResponse({ schema_version: '2.0.0', type: 'command_ack', command_id: command.command_id, room_id: command.room_id, rally_id: command.rally_id, operation_kind: command.kind, result_revision: revision.toString(), server_sequence: receipt.serverSequence.toString(), effects, resolved_anchor: anchor ? wireAnchor(anchor) : null })
+    const response = parseAnnotationCommandResponse({ schema_version: command.schema_version, type: 'command_ack', command_id: command.command_id, room_id: command.room_id, rally_id: command.rally_id, operation_kind: command.kind, result_revision: revision.toString(), server_sequence: receipt.serverSequence.toString(), effects, resolved_anchor: anchor ? wireAnchor(anchor) : null })
     await tx.annotationCommandReceipt.update({ data: { responseJson: jsonValue(response) }, where: { serverSequence: receipt.serverSequence } })
     await tx.annotationOperation.create({ data: { baseRevision: rally.annotationRevision, clientMutationId: command.command_id, deviceSessionId: identity.deviceSessionId, operationKind: command.kind, payload: jsonValue(command.payload), payloadHash: hash, rallyId: command.rally_id, receiptServerSequence: receipt.serverSequence, resultRevision: revision, userId: identity.userId } })
-    await tx.outboxEvent.create({ data: { aggregateId: command.rally_id, aggregateType: 'Rally', dedupeKey: `annotation-accepted:${receipt.serverSequence}`, eventType: 'annotation.command_accepted.v2', payload: jsonValue(response) } })
+    await tx.outboxEvent.create({ data: { aggregateId: command.rally_id, aggregateType: 'Rally', dedupeKey: `annotation-accepted:${receipt.serverSequence}`, eventType: `annotation.command_accepted.v${command.schema_version.startsWith('3.') ? '3' : '2'}`, payload: jsonValue(response) } })
     return response
   })
 }
@@ -767,20 +853,21 @@ export function createAnnotationCommandService(
           return submitRally(tx, room, command, identity, hash)
         })
       }
-      if (command.kind === 'CREATE_CONTACT_KEY_POINT') {
+      if (command.kind === 'CREATE_CONTACT_KEY_POINT' || command.kind === 'END_RALLY') {
         if (command.base_revision === '0') return storeRejection(deps.database, command, identity, hash, rejected(command, 'REVISION_CONFLICT', 'Contact command cannot start at revision zero', { actual: '1', expected: '0' }))
         let anchor: ResolvedMediaAnchor
-        try { anchor = await deps.resolveCursor(toMediaCursor(command as unknown as CreateServiceKeyPointCommand), { id: identity.userId, role: identity.role }) } catch (error) { if (!(error instanceof MediaHttpError)) throw error; return storeRejection(deps.database, command, identity, hash, mediaRejection(command, error)) }
+        try { anchor = await deps.resolveCursor(toMediaCursor(command), { id: identity.userId, role: identity.role }) } catch (error) { if (!(error instanceof MediaHttpError)) throw error; return storeRejection(deps.database, command, identity, hash, mediaRejection(command, error)) }
         return acceptContact(deps.database, room, command, identity, hash, anchor)
       }
       if (command.kind === 'CLOSE_RALLY') return acceptClose(deps.database, room, command, identity, hash)
+      if (command.kind === 'SET_RALLY_OUTCOME') return acceptOutcome(deps.database, room, command, identity, hash)
       if (command.kind === 'MOVE_KEY_POINT') {
         let anchor: ResolvedMediaAnchor
         try { anchor = await deps.resolveCursor(toMediaCursor(command as unknown as CreateServiceKeyPointCommand), { id: identity.userId, role: identity.role }) } catch (error) { if (!(error instanceof MediaHttpError)) throw error; return storeRejection(deps.database, command, identity, hash, mediaRejection(command, error)) }
         return acceptDraftEdit(deps.database, room, command, identity, hash, anchor)
       }
       if (command.kind === 'DELETE_KEY_POINT' || command.kind === 'REOPEN_RALLY' || command.kind === 'VOID_RALLY') return acceptDraftEdit(deps.database, room, command, identity, hash)
-      if (command.kind !== 'CREATE_SERVICE_KEY_POINT') return storeRejection(deps.database, command, identity, hash, rejected(command, 'UNSUPPORTED_COMMAND', 'Command is not durable in this server slice'))
+      if (command.kind !== 'CREATE_SERVICE_KEY_POINT' && command.kind !== 'START_RALLY') return storeRejection(deps.database, command, identity, hash, rejected(command, 'UNSUPPORTED_COMMAND', 'Command is not durable in this server slice'))
       if (command.base_revision !== '0') {
         return storeRejection(deps.database, command, identity, hash, rejected(command, 'REVISION_CONFLICT', 'Service command must start at revision zero', {
           actual: '0', expected: command.base_revision,

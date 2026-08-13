@@ -1,6 +1,8 @@
-import { createHash } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import type { PrismaClient } from '@volleyball-monitoring/db'
 import { Prisma, UserRole } from '@volleyball-monitoring/db/client'
+import { readClipFrameTimeline, timingManifestIdentity } from '../media/clip-timing-coverage.js'
+import type { MediaObjectReader } from '../media/playback-domain.js'
 
 const SERIALIZABLE_RETRIES = 3
 const CORRECTION_ROLES = new Set<UserRole>([
@@ -30,14 +32,17 @@ export interface CorrectionDraftIdentity {
 }
 
 export interface CorrectionDraftOptions {
+  preserveAnalysisContacts?: boolean
+  regenerateAnalysisContacts?: boolean
   reverseCourtSides?: boolean
+  timingManifestReader?: MediaObjectReader
 }
 
 export interface CorrectionDraftResult {
   annotation_status: 'open'
   rally_id: string
   revision: string
-  score_resolution: 'resolved' | 'unknown'
+  score_resolution: 'pending' | 'resolved' | 'unknown'
   scoring_court_side: 'left' | 'right' | null
   supersedes_submission_id: string
 }
@@ -57,12 +62,98 @@ function json(value: unknown): Prisma.InputJsonValue {
   return JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue
 }
 
+interface PreservedContactAnchor {
+  captureEpochId: string
+  captureFrameIndex: bigint
+  captureTimeUs: bigint
+  contactId: string
+  sourcePts: bigint
+}
+
+async function preservedContactAnchors(
+  tx: Prisma.TransactionClient,
+  submissionId: string,
+  reader: MediaObjectReader | undefined,
+): Promise<PreservedContactAnchor[]> {
+  if (!reader) throw new CorrectionDraftError('INVALID_SUBMISSION_STATE', 'Timing manifest access is required to preserve reviewed key points')
+  const analysis = await tx.analysisRun.findFirst({
+    where: { submissionId, status: 'COMPLETED' },
+    orderBy: [{ activatedAt: 'desc' }, { createdAt: 'desc' }],
+    select: {
+      contactEvents: { select: { anchorFrameIndex: true, keyPointId: true } },
+      contactTimeCorrections: { select: { frameIndex: true, keyPointId: true } },
+      contactEdits: { select: { baseKeyPointId: true, contactId: true, deleted: true, frameIndex: true } },
+      aiJob: {
+        select: {
+          clipJob: {
+            select: {
+              id: true,
+              idempotencyKey: true,
+              timingManifest: {
+                select: {
+                  bucket: true,
+                  objectKey: true,
+                  contentType: true,
+                  byteLength: true,
+                  sha256: true,
+                  internalSchemaVersion: true,
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+  })
+  const clip = analysis?.aiJob.clipJob
+  if (!analysis || !clip?.timingManifest) {
+    throw new CorrectionDraftError('INVALID_SUBMISSION_STATE', 'Completed analysis timing is unavailable')
+  }
+  const timeline = await readClipFrameTimeline(
+    reader,
+    clip.timingManifest,
+    timingManifestIdentity(clip.id, clip.idempotencyKey, clip.timingManifest.objectKey),
+  )
+  const timeById = new Map(analysis.contactTimeCorrections.map(item => [item.keyPointId, item.frameIndex]))
+  const editById = new Map(analysis.contactEdits.map(item => [item.contactId, item]))
+  const effective = [
+    ...analysis.contactEvents.flatMap((event) => {
+      if (editById.get(event.keyPointId)?.deleted) return []
+      return [{ contactId: event.keyPointId, frameIndex: timeById.get(event.keyPointId) ?? event.anchorFrameIndex }]
+    }),
+    ...analysis.contactEdits.flatMap(edit => !edit.baseKeyPointId && !edit.deleted
+      ? [{ contactId: edit.contactId, frameIndex: timeById.get(edit.contactId) ?? edit.frameIndex }]
+      : []),
+  ].sort((left, right) => left.frameIndex < right.frameIndex ? -1 : left.frameIndex > right.frameIndex ? 1 : left.contactId.localeCompare(right.contactId))
+
+  if (effective.length === 0) {
+    throw new CorrectionDraftError('INVALID_SUBMISSION_STATE', 'There are no reviewed key points to preserve; choose automatic regeneration')
+  }
+
+  return effective.map((contact) => {
+    if (contact.frameIndex < 0n || contact.frameIndex >= BigInt(timeline.captureTimeUs.length) || contact.frameIndex > BigInt(Number.MAX_SAFE_INTEGER)) {
+      throw new CorrectionDraftError('INVALID_SUBMISSION_STATE', 'A reviewed key point is outside the canonical clip')
+    }
+    const index = Number(contact.frameIndex)
+    return {
+      captureEpochId: timeline.captureEpochId[index]!,
+      captureFrameIndex: timeline.captureFrameIndex[index]!,
+      captureTimeUs: timeline.captureTimeUs[index]!,
+      contactId: contact.contactId,
+      sourcePts: timeline.sourcePts[index]!,
+    }
+  })
+}
+
 export async function createCorrectionDraft(
   database: PrismaClient,
   submissionId: string,
   identity: CorrectionDraftIdentity,
   options: CorrectionDraftOptions = {},
 ): Promise<CorrectionDraftResult> {
+  if (options.preserveAnalysisContacts && options.regenerateAnalysisContacts) {
+    throw new CorrectionDraftError('INVALID_SUBMISSION_STATE', 'Key points cannot be preserved and regenerated at the same time')
+  }
   if (!CORRECTION_ROLES.has(identity.role)) {
     throw new CorrectionDraftError('FORBIDDEN', 'Correction drafts require annotation access')
   }
@@ -82,8 +173,9 @@ export async function createCorrectionDraft(
         const submission = await tx.rallySubmission.findUnique({
           where: { id: submissionId },
           include: {
+            boundaries: true,
             keyPoints: { orderBy: [{ sequenceIndex: 'asc' }, { id: 'asc' }] },
-            rally: { include: { keyPoints: true } },
+            rally: { include: { boundaries: true, keyPoints: true } },
           },
         })
         if (!submission) throw new CorrectionDraftError('NOT_FOUND', 'Submission was not found')
@@ -114,7 +206,7 @@ export async function createCorrectionDraft(
             annotation_status: 'open',
             rally_id: rally.id,
             revision: rally.annotationRevision.toString(),
-            score_resolution: submission.scoreResolutionState.toLowerCase() as 'resolved' | 'unknown',
+            score_resolution: submission.scoreResolutionState.toLowerCase() as 'pending' | 'resolved' | 'unknown',
             scoring_court_side: submission.scoringCourtSide?.toLowerCase() as 'left' | 'right' | undefined ?? null,
             supersedes_submission_id: submission.id,
           }
@@ -145,7 +237,42 @@ export async function createCorrectionDraft(
             ? effectiveLeftTeamId
             : effectiveRightTeamId
           : null
-        const snapshotIds = new Set(submission.keyPoints.map(point => point.sourceDraftKeyPointId))
+        const preservedContacts = options.preserveAnalysisContacts
+          ? await preservedContactAnchors(tx, submission.id, options.timingManifestReader)
+          : null
+        const fallbackStart = submission.keyPoints[0]
+        const fallbackEnd = submission.keyPoints.at(-1)
+        const restoresAnalysisContacts = Boolean(options.preserveAnalysisContacts || options.regenerateAnalysisContacts)
+        const restoredBoundaries = submission.boundaries.length > 0
+          ? submission.boundaries
+          : restoresAnalysisContacts && fallbackStart && fallbackEnd && fallbackStart.id !== fallbackEnd.id
+            ? [
+                {
+                  captureEpochId: fallbackStart.captureEpochId,
+                  captureFrameIndex: fallbackStart.captureFrameIndex,
+                  captureTimeUs: fallbackStart.captureTimeUs,
+                  id: randomUUID(),
+                  kind: 'START' as const,
+                  sourceDraftBoundaryId: randomUUID(),
+                  sourcePts: fallbackStart.sourcePts,
+                  timingPrecision: fallbackStart.timingPrecision,
+                },
+                {
+                  captureEpochId: fallbackEnd.captureEpochId,
+                  captureFrameIndex: fallbackEnd.captureFrameIndex,
+                  captureTimeUs: fallbackEnd.captureTimeUs,
+                  id: randomUUID(),
+                  kind: 'END' as const,
+                  sourceDraftBoundaryId: randomUUID(),
+                  sourcePts: fallbackEnd.sourcePts,
+                  timingPrecision: fallbackEnd.timingPrecision,
+                },
+              ]
+            : submission.boundaries
+        if (restoresAnalysisContacts && restoredBoundaries.length !== 2) {
+          throw new CorrectionDraftError('INVALID_SUBMISSION_STATE', 'The submitted segment does not have enough timing anchors for a correction')
+        }
+        const snapshotIds = new Set<string>()
         const temporaryBase = Math.min(
           -1,
           ...rally.keyPoints.map(point => point.sequenceIndex - rally.keyPoints.length - 1),
@@ -163,7 +290,38 @@ export async function createCorrectionDraft(
           })
         }
 
-        for (const point of submission.keyPoints) {
+        for (const point of preservedContacts ?? []) {
+          const id = randomUUID()
+          snapshotIds.add(id)
+          await tx.keyPoint.create({
+            data: {
+              captureEpochId: point.captureEpochId,
+              captureFrameIndex: point.captureFrameIndex,
+              captureTimeUs: point.captureTimeUs,
+              createdByUserId: identity.userId,
+              deletedAt: null,
+              deviceSessionId: identity.deviceSessionId,
+              id,
+              isTerminal: false,
+              markerKind: 'CONTACT',
+              originalPlaybackCursor: json({
+                source: 'reviewed_analysis_correction',
+                analysis_contact_id: point.contactId,
+                submission_id: submission.id,
+              }),
+              possibleDuplicate: false,
+              rallyId: rally.id,
+              sequenceIndex: snapshotIds.size - 1,
+              snapDistanceUs: null,
+              sourcePts: point.sourcePts,
+              timingPrecision: 'FRAME_EXACT',
+              updatedByUserId: identity.userId,
+            },
+          })
+        }
+
+        for (const point of preservedContacts || options.regenerateAnalysisContacts ? [] : submission.keyPoints) {
+          snapshotIds.add(point.sourceDraftKeyPointId)
           const originalPlaybackCursor = json({
             source: 'immutable_submission_correction',
             submission_id: submission.id,
@@ -213,6 +371,40 @@ export async function createCorrectionDraft(
           }
         }
 
+        for (const boundary of restoredBoundaries) {
+          const originalPlaybackCursor = json({
+            source: 'immutable_submission_correction',
+            submission_boundary_id: boundary.id,
+            submission_id: submission.id,
+          })
+          const data = {
+            captureEpochId: boundary.captureEpochId,
+            captureFrameIndex: boundary.captureFrameIndex,
+            captureTimeUs: boundary.captureTimeUs,
+            deviceSessionId: identity.deviceSessionId,
+            kind: boundary.kind,
+            originalPlaybackCursor,
+            snapDistanceUs: null,
+            sourcePts: boundary.sourcePts,
+            timingPrecision: boundary.timingPrecision,
+            updatedByUserId: identity.userId,
+          } as const
+          const existing = rally.boundaries.find(candidate => candidate.kind === boundary.kind)
+          if (existing) {
+            await tx.rallyBoundary.update({ where: { id: existing.id }, data })
+          }
+          else {
+            await tx.rallyBoundary.create({
+              data: {
+                ...data,
+                createdByUserId: identity.userId,
+                id: boundary.sourceDraftBoundaryId,
+                rallyId: rally.id,
+              },
+            })
+          }
+        }
+
         const changed = await tx.rally.updateMany({
           where: {
             id: rally.id,
@@ -237,7 +429,10 @@ export async function createCorrectionDraft(
 
         const auditPayload = {
           source_submission_id: submission.id,
-          restored_key_point_count: submission.keyPoints.length,
+          restored_boundary_count: restoredBoundaries.length,
+          restored_key_point_count: preservedContacts?.length ?? (options.regenerateAnalysisContacts ? 0 : submission.keyPoints.length),
+          preserved_reviewed_contacts: Boolean(preservedContacts),
+          regenerated_analysis_contacts: Boolean(options.regenerateAnalysisContacts),
           reverse_court_sides: Boolean(options.reverseCourtSides),
         }
         await tx.annotationOperation.create({

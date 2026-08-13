@@ -23,7 +23,7 @@ const canonical = (value: unknown): string => Array.isArray(value)
     ? `{${Object.keys(value as object).sort().map(key => `${JSON.stringify(key)}:${canonical((value as Record<string, unknown>)[key])}`).join(',')}}`
     : JSON.stringify(value)
 const reject = (command: AnnotationCommand, code: string, message: string, actual?: string): AnnotationCommandRejected => ({
-  schema_version: '2.0.0',
+  schema_version: command.schema_version,
   type: 'command_rejected',
   command_id: command.command_id,
   room_id: command.room_id,
@@ -65,6 +65,7 @@ export async function submitRally(
   const rally = await tx.rally.findUnique({
     where: { id: command.rally_id },
     include: {
+      boundaries: { orderBy: { kind: 'asc' } },
       keyPoints: { where: { deletedAt: null }, orderBy: { sequenceIndex: 'asc' } },
       sideAssignment: true,
     },
@@ -77,7 +78,7 @@ export async function submitRally(
   const superseded = rally.activeSubmissionId
     ? await tx.rallySubmission.findUnique({
         where: { id: rally.activeSubmissionId },
-        include: { keyPoints: { orderBy: [{ sequenceIndex: 'asc' }, { id: 'asc' }] } },
+        include: { boundaries: { orderBy: { kind: 'asc' } }, keyPoints: { orderBy: [{ sequenceIndex: 'asc' }, { id: 'asc' }] } },
       })
     : null
   if (rally.activeSubmissionId && (!superseded || superseded.rallyId !== rally.id || superseded.status !== 'ACTIVE')) {
@@ -89,7 +90,14 @@ export async function submitRally(
   const service = services[0]
   const terminal = terminals[0]
   const contiguous = rally.keyPoints.every((point, index) => point.sequenceIndex === index)
-  if (
+  const startBoundary = rally.boundaries.find(boundary => boundary.kind === 'START')
+  const endBoundary = rally.boundaries.find(boundary => boundary.kind === 'END')
+  const boundaryIntegrity = !!startBoundary && !!endBoundary
+    && (endBoundary.captureTimeUs > startBoundary.captureTimeUs
+      || (endBoundary.captureTimeUs === startBoundary.captureTimeUs && endBoundary.captureFrameIndex > startBoundary.captureFrameIndex))
+    && contiguous
+    && rally.keyPoints.every(point => point.markerKind === 'CONTACT' && !point.isTerminal)
+  const legacyIntegrity = (
     services.length !== 1
     || terminals.length !== 1
     || !service
@@ -99,18 +107,32 @@ export async function submitRally(
     || terminal.sequenceIndex !== rally.keyPoints.length - 1
     || terminal.captureTimeUs < service.captureTimeUs
     || (terminal.captureTimeUs === service.captureTimeUs && terminal.captureFrameIndex < service.captureFrameIndex)
-  ) {
+  ) === false
+  if (!boundaryIntegrity && !legacyIntegrity) {
     return persist(tx, command, identity, hash, reject(command, 'ANNOTATION_NOT_READY', 'Rally key-point integrity is invalid'))
   }
+  const clipStartAnchor = startBoundary ?? service!
+  const clipEndAnchor = endBoundary ?? terminal!
+  const clipCoverageAnchors = boundaryIntegrity
+    ? [clipStartAnchor, clipEndAnchor, ...rally.keyPoints]
+    : [clipStartAnchor, clipEndAnchor]
+  const coverageStartAnchor = clipCoverageAnchors.reduce((earliest, candidate) => (
+    candidate.captureTimeUs < earliest.captureTimeUs ? candidate : earliest
+  ))
+  const coverageEndAnchor = clipCoverageAnchors.reduce((latest, candidate) => (
+    candidate.captureTimeUs > latest.captureTimeUs ? candidate : latest
+  ))
 
   const assignment = rally.sideAssignment
   if (assignment.setId !== rally.setId) return persist(tx, command, identity, hash, reject(command, 'ANNOTATION_NOT_READY', 'Court-side assignment does not belong to the Rally set'))
-  if (rally.scoreResolutionState === 'PENDING') return persist(tx, command, identity, hash, reject(command, 'ANNOTATION_NOT_READY', 'Pending rallies cannot be submitted'))
   if ((rally.scoreResolutionState === 'RESOLVED') !== (rally.scoringCourtSide === 'LEFT' || rally.scoringCourtSide === 'RIGHT')) {
     return persist(tx, command, identity, hash, reject(command, 'ANNOTATION_NOT_READY', 'Score resolution and court side are inconsistent'))
   }
   if (rally.scoreResolutionState === 'UNKNOWN' && rally.scoringCourtSide !== null) {
     return persist(tx, command, identity, hash, reject(command, 'ANNOTATION_NOT_READY', 'Unknown rallies cannot have a scoring side'))
+  }
+  if (rally.scoreResolutionState === 'PENDING' && rally.scoringCourtSide !== null) {
+    return persist(tx, command, identity, hash, reject(command, 'ANNOTATION_NOT_READY', 'Pending rallies cannot have a scoring side'))
   }
 
   const resolution = rally.scoreResolutionState
@@ -188,10 +210,29 @@ export async function submitRally(
     capture_frame_index: point.captureFrameIndex.toString(),
     timing_precision: point.timingPrecision,
   }))
+  const boundarySnapshot = rally.boundaries.map(boundary => ({
+    kind: boundary.kind,
+    capture_epoch_id: boundary.captureEpochId,
+    source_pts: boundary.sourcePts.toString(),
+    capture_time_us: boundary.captureTimeUs.toString(),
+    capture_frame_index: boundary.captureFrameIndex.toString(),
+    timing_precision: boundary.timingPrecision,
+  }))
   const geometryUnchanged = superseded !== null
     && superseded.clipPolicyVersion === CLIP_POLICY_VERSION
     && superseded.clipPreRollUs === clipPreRollUs
     && superseded.clipPostRollUs === clipPostRollUs
+    && superseded.boundaries.length === rally.boundaries.length
+    && superseded.boundaries.every((boundary) => {
+      const draft = rally.boundaries.find(item => item.id === boundary.sourceDraftBoundaryId)
+      return !!draft
+        && boundary.kind === draft.kind
+        && boundary.captureEpochId === draft.captureEpochId
+        && boundary.sourcePts === draft.sourcePts
+        && boundary.captureTimeUs === draft.captureTimeUs
+        && boundary.captureFrameIndex === draft.captureFrameIndex
+        && boundary.timingPrecision === draft.timingPrecision
+    })
     && superseded.keyPoints.length === rally.keyPoints.length
     && superseded.keyPoints.every((point, index) => {
       const draft = rally.keyPoints[index]
@@ -206,8 +247,8 @@ export async function submitRally(
         && point.captureFrameIndex === draft.captureFrameIndex
         && point.timingPrecision === draft.timingPrecision
     })
-  const requestedStart = service.captureTimeUs - clipPreRollUs < 0n ? 0n : service.captureTimeUs - clipPreRollUs
-  const requestedEnd = terminal.captureTimeUs + clipPostRollUs
+  const requestedStart = coverageStartAnchor.captureTimeUs - clipPreRollUs < 0n ? 0n : coverageStartAnchor.captureTimeUs - clipPreRollUs
+  const requestedEnd = coverageEndAnchor.captureTimeUs + clipPostRollUs
   const scoreSnapshot = resolution === 'RESOLVED'
     ? {
         before: { ...historicalBefore, revision: set.scoreRevision },
@@ -215,7 +256,8 @@ export async function submitRally(
       }
     : { before: null, after: null }
   const contentHash = createHash('sha256').update(canonical({
-    schema_version: 'rally-submission-content-v1',
+    schema_version: boundaryIntegrity ? 'rally-submission-content-v2' : 'rally-submission-content-v1',
+    boundaries: boundarySnapshot,
     key_points: snapshot,
     outcome: { resolution, side: side ?? null, scoring_team_id: scoringTeamId },
     assignment: { id: assignment.id, reversed: rally.sideAssignmentReversed, left_team_id: effectiveAssignment.leftTeamId, right_team_id: effectiveAssignment.rightTeamId },
@@ -273,13 +315,29 @@ export async function submitRally(
     timingPrecision: point.timingPrecision,
   }))
   await tx.rallySubmissionKeyPoint.createMany({ data: rows })
-  const serviceRow = rows.find(row => row.sourceDraftKeyPointId === service.id)
-  const terminalRow = rows.find(row => row.sourceDraftKeyPointId === terminal.id)
-  if (!serviceRow || !terminalRow) throw new Error('SNAPSHOT_KEYPOINT_MISSING')
-  await tx.rallySubmission.update({
-    where: { id: submission.id },
-    data: { serviceKeyPointId: serviceRow.id, terminalKeyPointId: terminalRow.id },
-  })
+  const boundaryRows = rally.boundaries.map(boundary => ({
+      captureEpochId: boundary.captureEpochId,
+      captureFrameIndex: boundary.captureFrameIndex,
+      captureTimeUs: boundary.captureTimeUs,
+      id: randomUUID(),
+      kind: boundary.kind,
+      sourceDraftBoundaryId: boundary.id,
+      sourcePts: boundary.sourcePts,
+      submissionId: submission.id,
+      timingPrecision: boundary.timingPrecision,
+  }))
+  if (boundaryRows.length) {
+    await tx.rallySubmissionBoundary.createMany({ data: boundaryRows })
+  }
+  if (legacyIntegrity) {
+    const serviceRow = rows.find(row => row.sourceDraftKeyPointId === service!.id)
+    const terminalRow = rows.find(row => row.sourceDraftKeyPointId === terminal!.id)
+    if (!serviceRow || !terminalRow) throw new Error('SNAPSHOT_KEYPOINT_MISSING')
+    await tx.rallySubmission.update({
+      where: { id: submission.id },
+      data: { serviceKeyPointId: serviceRow.id, terminalKeyPointId: terminalRow.id },
+    })
+  }
 
   if (scoreChanged) {
     const cas = await tx.matchSet.updateMany({
@@ -321,18 +379,19 @@ export async function submitRally(
     }
   }
 
-  const geometryReused = superseded && geometryUnchanged
+  const clipReused = superseded && geometryUnchanged && resolution !== 'PENDING'
     ? await reuseCompletedSubmissionGeometry(tx, {
         annotationRevision: rally.annotationRevision,
+        newBoundaries: boundaryRows,
         newKeyPoints: rows,
         newSubmissionId: submission.id,
         outcome: { resolution, side },
-        sideTeams: effectiveAssignment,
+        sourceBoundaries: superseded.boundaries,
         sourceKeyPoints: superseded.keyPoints,
         sourceSubmissionId: superseded.id,
       })
     : false
-  if (!geometryReused) {
+  if (!clipReused) {
     await tx.clipJob.create({
       data: {
         submissionId: submission.id,
@@ -354,9 +413,6 @@ export async function submitRally(
       tx.clipJob.updateMany({ where: { submissionId: superseded.id, status: { not: 'COMPLETED' } }, data: { status: 'SUPERSEDED', leasedUntil: null } }),
       tx.aiJob.updateMany({ where: { submissionId: superseded.id, status: { not: 'COMPLETED' } }, data: { status: 'SUPERSEDED', leasedUntil: null } }),
     ])
-    if (geometryReused) {
-      await tx.analysisRun.updateMany({ where: { submissionId: superseded.id, status: 'COMPLETED' }, data: { supersededAt: new Date() } })
-    }
   }
 
   const revision = rally.annotationRevision + 1n
@@ -371,7 +427,7 @@ export async function submitRally(
       annotationRevision: revision,
       annotationStatus: 'SUBMITTED',
       activeSubmissionId: submission.id,
-      processingStatus: geometryReused ? 'COMPLETED' : 'CLIP_QUEUED',
+      processingStatus: clipReused ? 'AI_QUEUED' : 'CLIP_QUEUED',
       scoringTeamId,
       leftScoreBefore: scoreSnapshot.before?.left ?? null,
       rightScoreBefore: scoreSnapshot.before?.right ?? null,
@@ -395,7 +451,7 @@ export async function submitRally(
     },
   })
   const response = parseAnnotationCommandResponse({
-    schema_version: '2.0.0',
+    schema_version: command.schema_version,
     type: 'command_ack',
     command_id: command.command_id,
     room_id: command.room_id,
@@ -431,7 +487,7 @@ export async function submitRally(
       aggregateId: rally.id,
       aggregateType: 'Rally',
       dedupeKey: `annotation-accepted:${receipt.serverSequence}`,
-      eventType: 'annotation.command_accepted.v2',
+      eventType: `annotation.command_accepted.v${command.schema_version.startsWith('3.') ? '3' : '2'}`,
       payload: json(response),
     },
   })
@@ -443,7 +499,7 @@ export async function submitRally(
         dedupeKey: `submission-superseded:${superseded.id}:${submission.id}`,
         eventType: 'rally.submission_superseded.v1',
         payload: json({
-          geometry_reused: geometryReused,
+          clip_reused: clipReused,
           geometry_unchanged: geometryUnchanged,
           rally_id: rally.id,
           submission_id: submission.id,

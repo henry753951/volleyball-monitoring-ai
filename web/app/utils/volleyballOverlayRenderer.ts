@@ -1,9 +1,9 @@
 import {
-  OVERLAY_BALL_FLAG,
-  OVERLAY_MISSING_ACTION_LABEL,
-  OVERLAY_MISSING_CONFIDENCE,
-  OVERLAY_PLAYER_FLAG,
-  type BrowserOverlayChunk,
+  ANALYSIS_BALL_FLAG,
+  ANALYSIS_MISSING_ACTION_LABEL,
+  ANALYSIS_MISSING_CONFIDENCE,
+  ANALYSIS_PLAYER_FLAG,
+  type AnalysisFrameChunk,
 } from '@volleyball-monitoring/contracts'
 import type { ReplayContactEvent } from '~/lib/coachDomain'
 
@@ -38,7 +38,7 @@ export interface VolleyballOverlayRenderInput {
   frame: number
   videoWidth: number
   videoHeight: number
-  chunk?: BrowserOverlayChunk | null
+  chunk?: AnalysisFrameChunk | null
   events: ReplayContactEvent[]
   actionLabels: string[]
   layers: VolleyballOverlayLayers
@@ -122,13 +122,13 @@ function quantizedToFrame(position: OverlayPoint, videoWidth: number, videoHeigh
   return { x: position.x / QUANTIZED_MAX * videoWidth, y: position.y / QUANTIZED_MAX * videoHeight }
 }
 
-function frameRange(chunk: BrowserOverlayChunk, frame: number) {
+function frameRange(chunk: AnalysisFrameChunk, frame: number) {
   const localFrame = frame - Number(chunk.startFrameIndex)
   if (localFrame < 0 || localFrame >= chunk.frameCount) return null
   return { localFrame, start: chunk.frameOffsets[localFrame]!, end: chunk.frameOffsets[localFrame + 1]! }
 }
 
-function collectDetections(chunk: BrowserOverlayChunk, frame: number, videoWidth: number, videoHeight: number, corrections?: Record<number, OverlayFrameBBox>): FrameDetection[] {
+function collectDetections(chunk: AnalysisFrameChunk, frame: number, videoWidth: number, videoHeight: number, corrections?: Record<number, OverlayFrameBBox>): FrameDetection[] {
   const range = frameRange(chunk, frame)
   if (!range) return []
   const result: FrameDetection[] = []
@@ -145,8 +145,8 @@ function collectDetections(chunk: BrowserOverlayChunk, frame: number, videoWidth
       })(),
       foot: chunk.frameFootPositions[index]!,
       court: chunk.courtPositions[index]!,
-      actionId: chunk.actionLabelIds[index] ?? OVERLAY_MISSING_ACTION_LABEL,
-      confidence: chunk.playerConfidences[index] ?? OVERLAY_MISSING_CONFIDENCE,
+      actionId: chunk.actionLabelIds[index] ?? ANALYSIS_MISSING_ACTION_LABEL,
+      confidence: chunk.playerConfidences[index] ?? ANALYSIS_MISSING_CONFIDENCE,
     })
   }
   return result
@@ -203,10 +203,10 @@ function drawPlayerLabel(context: CanvasRenderingContext2D, detection: FrameDete
   const identity = input.identityLabels?.[detection.trackId]
   const team = track?.courtSide === 'left' ? input.teamLabels?.left : track?.courtSide === 'right' ? input.teamLabels?.right : null
   const correctedAction = input.actionCorrections?.[detection.trackId]
-  const action = correctedAction ?? (detection.actionId === OVERLAY_MISSING_ACTION_LABEL ? null : input.actionLabels[detection.actionId] ?? null)
+  const action = correctedAction ?? (detection.actionId === ANALYSIS_MISSING_ACTION_LABEL ? null : input.actionLabels[detection.actionId] ?? null)
   const tid = `T${String(detection.trackId).padStart(2, '0')}`
   const primary = identity && input.layers.trackId ? `${identity}  ${tid}` : input.layers.trackId ? tid : identity ?? ''
-  const confidence = input.layers.confidence && detection.confidence !== OVERLAY_MISSING_CONFIDENCE ? `${Math.round(detection.confidence / 254 * 100)}%` : ''
+  const confidence = input.layers.confidence && detection.confidence !== ANALYSIS_MISSING_CONFIDENCE ? `${Math.round(detection.confidence / 254 * 100)}%` : ''
   if (!primary && !team && !(input.layers.action && action) && !confidence) return
   const teamColor = sideColor(track?.courtSide)
   context.font = '800 8px Inter, ui-sans-serif, system-ui, sans-serif'
@@ -249,14 +249,14 @@ function drawPlayerLabel(context: CanvasRenderingContext2D, detection: FrameDete
   }
 }
 
-function drawCourtKeypoints(context: CanvasRenderingContext2D, input: VolleyballOverlayRenderInput, chunk: BrowserOverlayChunk, localFrame: number, content: OverlayRect) {
+function drawCourtKeypoints(context: CanvasRenderingContext2D, input: VolleyballOverlayRenderInput, chunk: AnalysisFrameChunk, localFrame: number, content: OverlayRect) {
   const start = chunk.courtKeypointFrameOffsets[localFrame] ?? 0
   const end = chunk.courtKeypointFrameOffsets[localFrame + 1] ?? start
   if (end <= start) return
   const points = new Map<number, OverlayPoint>()
   for (let index = start; index < end; index += 1) {
-    const confidence = chunk.courtKeypointConfidences[index] ?? OVERLAY_MISSING_CONFIDENCE
-    if (confidence !== OVERLAY_MISSING_CONFIDENCE && confidence < 64) continue
+    const confidence = chunk.courtKeypointConfidences[index] ?? ANALYSIS_MISSING_CONFIDENCE
+    if (confidence !== ANALYSIS_MISSING_CONFIDENCE && confidence < 64) continue
     const position = chunk.courtKeypointPositions[index]
     if (!position) continue
     points.set(chunk.courtKeypointIds[index] ?? index - start, quantizedPoint(position, content))
@@ -295,7 +295,7 @@ function drawCourtKeypoints(context: CanvasRenderingContext2D, input: Volleyball
   context.restore()
 }
 
-function drawBallTrail(context: CanvasRenderingContext2D, input: VolleyballOverlayRenderInput, chunk: BrowserOverlayChunk, localFrame: number, content: OverlayRect) {
+function drawBallTrail(context: CanvasRenderingContext2D, input: VolleyballOverlayRenderInput, chunk: AnalysisFrameChunk, localFrame: number, content: OverlayRect) {
   const points: OverlayPoint[] = []
   for (let frame = Math.max(0, localFrame - 18); frame <= localFrame; frame += 1) {
     const absoluteFrame = Number(chunk.startFrameIndex) + frame
@@ -304,7 +304,7 @@ function drawBallTrail(context: CanvasRenderingContext2D, input: VolleyballOverl
       points.push(framePoint(correction.position, content, input.videoWidth, input.videoHeight))
       continue
     }
-    if (correction?.state === 'missing' || !((chunk.ballFlags[frame] ?? 0) & OVERLAY_BALL_FLAG.framePosition)) continue
+    if (correction?.state === 'missing' || !((chunk.ballFlags[frame] ?? 0) & ANALYSIS_BALL_FLAG.framePosition)) continue
     const position = chunk.ballFramePositions[frame]
     if (position) points.push(quantizedPoint(position, content))
   }
@@ -344,7 +344,7 @@ function rawBallAtFrame(input: VolleyballOverlayRenderInput, frame: number) {
   const chunk = input.chunk
   if (!chunk) return null
   const range = frameRange(chunk, frame)
-  if (!range || !((chunk.ballFlags[range.localFrame] ?? 0) & OVERLAY_BALL_FLAG.framePosition)) return null
+  if (!range || !((chunk.ballFlags[range.localFrame] ?? 0) & ANALYSIS_BALL_FLAG.framePosition)) return null
   const position = chunk.ballFramePositions[range.localFrame]
   return position ? quantizedToFrame(position, input.videoWidth, input.videoHeight) : null
 }
@@ -388,7 +388,7 @@ function contactPoint(bbox: OverlayFrameBBox) {
 function nearestTrack(position: OverlayPoint, detections: FrameDetection[]) {
   let best: { trackId: number; distance: number } | null = null
   for (const detection of detections) {
-    if (!(detection.flags & OVERLAY_PLAYER_FLAG.frameBBox)) continue
+    if (!(detection.flags & ANALYSIS_PLAYER_FLAG.frameBBox)) continue
     const point = contactPoint(detection.bbox)
     const distance = Math.hypot(position.x - point.x, position.y - point.y)
     if (!best || distance < best.distance) best = { trackId: detection.trackId, distance }
@@ -455,7 +455,7 @@ function drawNextHit(context: CanvasRenderingContext2D, input: VolleyballOverlay
 }
 
 function drawCourtRadar(context: CanvasRenderingContext2D, input: VolleyballOverlayRenderInput, detections: FrameDetection[], metadata: Map<number, OverlayTrackMetadata>) {
-  const players = detections.filter(item => (item.flags & OVERLAY_PLAYER_FLAG.courtPosition) && Number.isFinite(item.court.x) && Number.isFinite(item.court.y))
+  const players = detections.filter(item => (item.flags & ANALYSIS_PLAYER_FLAG.courtPosition) && Number.isFinite(item.court.x) && Number.isFinite(item.court.y))
   if (!players.length) return
   const width = Math.max(116, Math.min(176, input.viewport.width * .2))
   const height = width / 2
@@ -518,14 +518,14 @@ export function renderVolleyballOverlay(input: VolleyballOverlayRenderInput) {
     for (const detection of detections) {
       const track = metadata.get(detection.trackId)
       const color = trackColor(detection.trackId)
-      if (detection.flags & OVERLAY_PLAYER_FLAG.frameBBox) {
+      if (detection.flags & ANALYSIS_PLAYER_FLAG.frameBBox) {
         const topLeft = framePoint({ x: detection.bbox.x1, y: detection.bbox.y1 }, content, input.videoWidth, input.videoHeight)
         const bottomRight = framePoint({ x: detection.bbox.x2, y: detection.bbox.y2 }, content, input.videoWidth, input.videoHeight)
         if (layers.bbox) drawCornerBox(context, topLeft, bottomRight, color)
         if (input.selectedTrackId === detection.trackId) drawSelectionBox(context, topLeft, bottomRight)
         drawPlayerLabel(context, detection, topLeft, bottomRight, color, input, track)
       }
-      if (layers.footprint && (detection.flags & OVERLAY_PLAYER_FLAG.frameFootPosition)) {
+      if (layers.footprint && (detection.flags & ANALYSIS_PLAYER_FLAG.frameFootPosition)) {
         const correctedBBox = input.playerBBoxCorrections?.[input.frame]?.[detection.trackId]
         const foot = correctedBBox
           ? framePoint({ x: (correctedBBox.x1 + correctedBBox.x2) / 2, y: correctedBBox.y2 }, content, input.videoWidth, input.videoHeight)
@@ -536,7 +536,7 @@ export function renderVolleyballOverlay(input: VolleyballOverlayRenderInput) {
     if (layers.trail) drawBallTrail(context, input, chunk, range.localFrame, content)
     if (layers.ball) {
       if (input.ballCorrection?.state === 'position') drawBallMarker(context, framePoint(input.ballCorrection.position, content, input.videoWidth, input.videoHeight), true)
-      else if (input.ballCorrection?.state !== 'missing' && (chunk.ballFlags[range.localFrame] ?? 0) & OVERLAY_BALL_FLAG.framePosition) {
+      else if (input.ballCorrection?.state !== 'missing' && (chunk.ballFlags[range.localFrame] ?? 0) & ANALYSIS_BALL_FLAG.framePosition) {
         const ball = chunk.ballFramePositions[range.localFrame]
         if (ball) drawBallMarker(context, quantizedPoint(ball, content))
       }
@@ -553,7 +553,7 @@ export function hitTestOverlayTrack(input: Pick<VolleyballOverlayRenderInput, 'c
   const detections = collectDetections(input.chunk, input.frame, input.videoWidth, input.videoHeight, input.playerBBoxCorrections?.[input.frame])
   for (let index = detections.length - 1; index >= 0; index -= 1) {
     const detection = detections[index]!
-    if (!(detection.flags & OVERLAY_PLAYER_FLAG.frameBBox)) continue
+    if (!(detection.flags & ANALYSIS_PLAYER_FLAG.frameBBox)) continue
     const topLeft = framePoint({ x: detection.bbox.x1, y: detection.bbox.y1 }, content, input.videoWidth, input.videoHeight)
     const bottomRight = framePoint({ x: detection.bbox.x2, y: detection.bbox.y2 }, content, input.videoWidth, input.videoHeight)
     if (point.x >= topLeft.x && point.x <= bottomRight.x && point.y >= topLeft.y && point.y <= bottomRight.y) return detection

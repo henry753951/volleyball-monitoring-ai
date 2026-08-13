@@ -1,9 +1,7 @@
 import { spawn, type ChildProcess } from 'node:child_process'
-import { copyFile, mkdir, readdir, rename, rm, stat, writeFile } from 'node:fs/promises'
+import { copyFile, mkdir, readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { isAbsolute, join, relative, resolve } from 'node:path'
 import type { ClaimedMediaSourceWork, SourceCompletion } from './source-work.js'
-
-const SEGMENT_DURATION_US = 2_000_000n
 
 type ProcessResult = { stderr: Buffer; stdout: Buffer }
 
@@ -29,7 +27,7 @@ type MediaInput = {
 
 export type MediaSourceProcessObserver = {
   classified(value: Pick<SourceCompletion, 'sourceDurationUs' | 'sourceKind'>): Promise<void>
-  resumed(segmentIndex: number): Promise<void>
+  resumed(segmentIndex: number, captureTimeUs: bigint): Promise<void>
 }
 
 export class MediaSourceProcessError extends Error {
@@ -107,6 +105,26 @@ async function existingPrefix(destination: string, base: Date): Promise<number> 
   }
 }
 
+function segmentListEndTimeUs(content: string, segmentName: string): bigint | null {
+  for (const line of content.split(/\r?\n/)) {
+    if (!line.trim()) continue
+    const fields = line.split(',')
+    if (fields.length < 3) continue
+    const end = Number(fields.pop())
+    fields.pop()
+    const rawPath = fields.join(',').trim().replace(/^"|"$/g, '').replaceAll('\\', '/')
+    if (!rawPath.endsWith(`/${segmentName}`) && rawPath !== segmentName) continue
+    if (!Number.isFinite(end) || end <= 0) return null
+    return BigInt(Math.round(end * 1_000_000))
+  }
+  return null
+}
+
+async function segmentEndTimeUs(listPath: string, segmentName: string): Promise<bigint | null> {
+  const content = await readFile(listPath, 'utf8').catch(() => '')
+  return segmentListEndTimeUs(content, segmentName)
+}
+
 async function probeFile(
   path: string,
   options: MediaSourceProcessOptions,
@@ -157,12 +175,13 @@ async function segmentInputs(
   const destination = safeChild(options.recordingRoot, work.ingestPath)
   const workspace = safeChild(options.workRoot, work.id)
   const segments = join(workspace, 'segments')
+  const segmentList = join(workspace, 'segments.csv')
   await mkdir(destination, { recursive: true })
   await rm(workspace, { force: true, recursive: true })
   await mkdir(segments, { recursive: true })
   let published = Math.max(work.resumeSegmentIndex, await existingPrefix(destination, work.segmentBaseAt))
   const startPublished = published
-  const seekSeconds = Number(BigInt(published) * SEGMENT_DURATION_US) / 1_000_000
+  const seekSeconds = Number(work.resumeCaptureTimeUs) / 1_000_000
   const videoCodec = codec === 'h264' || codec.startsWith('avc')
     ? ['-c:v', 'copy']
     : ['-c:v', 'libx264', '-preset', 'veryfast', '-pix_fmt', 'yuv420p']
@@ -175,6 +194,7 @@ async function segmentInputs(
     ...videoCodec, '-c:a', 'aac', '-f', 'segment', '-segment_time', '2',
     '-reset_timestamps', '1', '-segment_format', 'mp4',
     '-segment_format_options', 'movflags=+frag_keyframe+empty_moov+default_base_moof',
+    '-segment_list', segmentList, '-segment_list_type', 'csv',
     '-segment_start_number', String(published), join(segments, 'segment-%09d.mp4'),
   )
   const child = spawn(options.ffmpegCommand ?? 'ffmpeg', args, { stdio: ['ignore', 'ignore', 'pipe'], windowsHide: true })
@@ -194,12 +214,14 @@ async function segmentInputs(
       for (const name of publishable) {
         const index = Number(name.slice(8, 17))
         if (index !== published) continue
+        const relativeEndUs = await segmentEndTimeUs(segmentList, name)
+        if (relativeEndUs === null) continue
         const target = join(destination, timestampName(work.segmentBaseAt, index))
         const temporary = `${target}.part`
         await copyFile(join(segments, name), temporary)
         await rename(temporary, target)
         published += 1
-        await observer.resumed(published)
+        await observer.resumed(published, work.resumeCaptureTimeUs + relativeEndUs)
       }
       await new Promise(resolvePromise => setTimeout(resolvePromise, 100))
     }
@@ -210,12 +232,14 @@ async function segmentInputs(
     for (const name of publishable) {
       const index = Number(name.slice(8, 17))
       if (index !== published) continue
+      const relativeEndUs = await segmentEndTimeUs(segmentList, name)
+      if (relativeEndUs === null) throw new MediaSourceProcessError('MEDIA_SEGMENT_TIMING_MISSING', `Missing timing for ${name}`)
       const target = join(destination, timestampName(work.segmentBaseAt, index))
       const temporary = `${target}.part`
       await copyFile(join(segments, name), temporary)
       await rename(temporary, target)
       published += 1
-      await observer.resumed(published)
+      await observer.resumed(published, work.resumeCaptureTimeUs + relativeEndUs)
     }
     if (signal.aborted) throw abortError()
     if (code !== 0) throw new MediaSourceProcessError('MEDIA_SEGMENT_FAILED', boundedMessage(Buffer.concat(stderr)) || `ffmpeg exited ${code}`)

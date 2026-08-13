@@ -134,10 +134,9 @@ export async function finalizeMatchDeletion(
       { dvrSampleIndexSegments: { some: { program: { captureSession: { matchId } } } } },
       { clipOutputs: { some: { submission: { rally: { matchId } } } } },
       { clipTimingManifests: { some: { submission: { rally: { matchId } } } } },
-      { analysisRawJson: { some: { submission: { rally: { matchId } } } } },
-      { analysisRawOverlay: { some: { submission: { rally: { matchId } } } } },
+      { analysisDataRaw: { some: { submission: { rally: { matchId } } } } },
       { analysisArtifacts: { some: { analysisRun: { submission: { rally: { matchId } } } } } },
-      { overlayChunks: { some: { manifest: { analysisRun: { submission: { rally: { matchId } } } } } } },
+      { analysisFrameChunks: { some: { manifest: { analysisRun: { submission: { rally: { matchId } } } } } } },
     ] },
   }) as CleanupAsset[]
 
@@ -147,14 +146,13 @@ export async function finalizeMatchDeletion(
         where: {
           id: { in: assets.map(asset => asset.id) },
           analysisArtifacts: { none: { analysisRun: { submission: { rally: { matchId: { not: matchId } } } } } },
-          analysisRawJson: { none: { submission: { rally: { matchId: { not: matchId } } } } },
-          analysisRawOverlay: { none: { submission: { rally: { matchId: { not: matchId } } } } },
+          analysisDataRaw: { none: { submission: { rally: { matchId: { not: matchId } } } } },
           clipOutputs: { none: { submission: { rally: { matchId: { not: matchId } } } } },
           clipTimingManifests: { none: { submission: { rally: { matchId: { not: matchId } } } } },
           dvrInitSegments: { none: { program: { captureSession: { matchId: { not: matchId } } } } },
           dvrMediaSegments: { none: { program: { captureSession: { matchId: { not: matchId } } } } },
           dvrSampleIndexSegments: { none: { program: { captureSession: { matchId: { not: matchId } } } } },
-          overlayChunks: { none: { manifest: { analysisRun: { submission: { rally: { matchId: { not: matchId } } } } } } },
+          analysisFrameChunks: { none: { manifest: { analysisRun: { submission: { rally: { matchId: { not: matchId } } } } } } },
         },
       }) as CleanupAsset[]
     : []
@@ -218,6 +216,7 @@ export async function finalizeMatchDeletion(
       await tx.pointAward.deleteMany({ where: { submissionId: { in: submissionIds } } })
       await tx.scoreLedgerEntry.deleteMany({ where: { OR: [{ submissionId: { in: submissionIds } }, { supersededSubmissionId: { in: submissionIds } }] } })
       await tx.rallySubmission.updateMany({ data: { serviceKeyPointId: null, supersedesSubmissionId: null, terminalKeyPointId: null }, where: { id: { in: submissionIds } } })
+      await tx.rallySubmissionBoundary.deleteMany({ where: { submissionId: { in: submissionIds } } })
     }
     if (submissionKeyPointIds.length) await tx.rallySubmissionKeyPoint.deleteMany({ where: { id: { in: submissionKeyPointIds } } })
     if (submissionIds.length) await tx.rallySubmission.deleteMany({ where: { id: { in: submissionIds } } })
@@ -236,9 +235,9 @@ export async function finalizeMatchDeletion(
     if (removableAssets.length) {
       const removed = await tx.mediaAsset.deleteMany({
         where: {
-          id: { in: removableAssets.map(asset => asset.id) }, analysisArtifacts: { none: {} }, analysisRawJson: { none: {} }, analysisRawOverlay: { none: {} },
+          id: { in: removableAssets.map(asset => asset.id) }, analysisArtifacts: { none: {} }, analysisDataRaw: { none: {} },
           clipOutputs: { none: {} }, clipTimingManifests: { none: {} }, dvrInitSegments: { none: {} }, dvrMediaSegments: { none: {} },
-          dvrSampleIndexSegments: { none: {} }, overlayChunks: { none: {} },
+          dvrSampleIndexSegments: { none: {} }, analysisFrameChunks: { none: {} },
         },
       })
       if (removed.count !== removableAssets.length) {

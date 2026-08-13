@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { OVERLAY_MISSING_ACTION_LABEL, type BrowserOverlayChunk } from '@volleyball-monitoring/contracts'
+import { ANALYSIS_MISSING_ACTION_LABEL, type AnalysisFrameChunk } from '@volleyball-monitoring/contracts'
 import { onMounted, onUnmounted, useTemplateRef, watch } from 'vue'
 import type { ReplayContactEvent } from '~/lib/coachDomain'
 import {
@@ -18,7 +18,7 @@ const props = withDefaults(defineProps<{
   frame: number
   videoWidth: number
   videoHeight: number
-  chunk?: BrowserOverlayChunk | null
+  chunk?: AnalysisFrameChunk | null
   actionLabels?: string[]
   mode?: VolleyballOverlayMode
   layers: VolleyballOverlayLayers
@@ -160,7 +160,7 @@ function handleClick(event: MouseEvent) {
     trackId: hit.trackId,
     clientX: event.clientX,
     clientY: event.clientY,
-    action: props.actionCorrections[hit.trackId] ?? (actionId === OVERLAY_MISSING_ACTION_LABEL ? null : props.actionLabels[actionId] ?? null),
+    action: props.actionCorrections[hit.trackId] ?? (actionId === ANALYSIS_MISSING_ACTION_LABEL ? null : props.actionLabels[actionId] ?? null),
   })
 }
 
