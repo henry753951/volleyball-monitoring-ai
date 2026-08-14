@@ -528,10 +528,10 @@ e8400f19bc0f9ab77c9a0ff695af3a671d79e6cd86a3c1126bf1eb4383572e9a  ./web/app/lib/
 c4e0f237dd10b98db71e9f767c82000ccaa5ce5eda1845c147461f11217617a4  ./web/app/pages/matches/[matchId]/history.vue
 257cce1ded5632f7d483acea70625f965c9167caebe56b3c541d5566e78da771  ./web/app/pages/matches/[matchId]/live.vue
 c4e0f237dd10b98db71e9f767c82000ccaa5ce5eda1845c147461f11217617a4  ./web/app/pages/matches/[matchId]/paths.vue
-5d3b3f810ff79203421e00f631501b5c038b1b9753cf61305f28b3f7a0969b13  ./web/app/pages/matches/[matchId]/players.vue
+847f53ee0090d1f09bb4f63af7ebda4fb85ed90cc11e9e3035bdbea54f83043b  ./web/app/pages/matches/[matchId]/players.vue
 dfb7d79fa537c23f3351b9fa4f2e97afb41afb34108a9c074ebf0d0c7365a23c  ./web/app/pages/matches/[matchId]/rallies.vue
 5a3711b3c490b3f6f716bfe1b8838ab13eb1ca872e5582ab67414da2fd27948c  ./web/app/pages/matches/[matchId]/replay/[rallyId].vue
-80abf2931795bfec87a543ca346cd08bb828d38753698e1baf4affc3528fdb7a  ./web/app/pages/matches/[matchId]/stats.vue
+fa6f94495a553320d59d49e5b532a6c379f5c4cae3f3bff3bbd238b81f06c328  ./web/app/pages/matches/[matchId]/stats.vue
 d640a2a6680e9e4b37a689dbd38a24f2173333684c5857beafb17b9b1892e365  ./web/app/pages/matches/new.vue
 98bdc7a7949cd484730c7ad495b6bb041409c6b337d813a0cb54e91a2f385f0b  ./web/app/pages/settings.vue
 f0233d078e63a9721e9ef342d10c86d6bb2895cccfe9b915210cfdffd59e53eb  ./web/app/types/hls-light.d.ts
@@ -550,8 +550,8 @@ beb5fd85486b4ac9952074ac3774ee98b37549b8d2453d44ecf23014bea10861  ./web/app/util
 dd0f6f7d95982f706367b02ea1b3ac66fdab0033e1b5271518399fc456530b24  ./web/app/utils/coachMatchStatus.ts
 d5f8401e2aeaa08117c31d653a94dbc0de4e8e582ede36ca445a34ca8c5a1fe0  ./web/app/utils/coachPlayerActions.test.ts
 0c9b48add99233df97ea60e8c61e0e236bc1ba15a9f7205791eab41ef0079909  ./web/app/utils/coachPlayerActions.ts
-c4123e71b15fe86ec6b2fb9957fc1d3b8f23afee84e0ebf9c9a1a5939831b171  ./web/app/utils/coachPresentation.test.ts
-05ac8675ce4c58462445cdf21b454dfbbb01c4272ccaaaa04cfb13d8666459ab  ./web/app/utils/coachPresentation.ts
+c9079534a295dc2d05e7cfc2c1322833a207ade8667f887997d6ae44baa746ab  ./web/app/utils/coachPresentation.test.ts
+b29bf4f838f39c8944fd74bd6dc610199350ff497312942940e74b3214ab14b8  ./web/app/utils/coachPresentation.ts
 a22fce91408b92dcf1d361c1534c3c790c69a1081755ef0d47897efd418a4c22  ./web/app/utils/matchSetup.test.ts
 e27fa9e03651c155f730f012d788449729d0415305d9ff654be36fd8e476ab57  ./web/app/utils/matchSetup.ts
 34b6db8edff4e74ce05afe415f0ba252ca939bbef776a3fc3c878f58aa658ea3  ./web/app/utils/matchViewState.test.ts
