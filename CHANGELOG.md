@@ -1,5 +1,35 @@
 # Changelog
 
+## [0.5.0](https://github.com/henry753951/volleyball-monitoring-ai/compare/v0.4.0...v0.5.0) (2026-08-14)
+
+
+### Features
+
+* **analysis:** adopt AnalysisData v1 workflow ([93f2091](https://github.com/henry753951/volleyball-monitoring-ai/commit/93f2091223a2cd858d6c3a7167fca22f6b2c0893))
+* **analysis:** adopt AnalysisData v1 workflow ([a82cbc0](https://github.com/henry753951/volleyball-monitoring-ai/commit/a82cbc05b7e54f0833ae1bb07ee965a7805e0625))
+* **coach:** add team-wide player analytics ([bff99ac](https://github.com/henry753951/volleyball-monitoring-ai/commit/bff99acc8305007a2dab82f534664617f3e05954))
+* **coach:** add team-wide player analytics ([0345c68](https://github.com/henry753951/volleyball-monitoring-ai/commit/0345c68574a6449ebc36bd162c6fa7ab4fdd4f16))
+* integrate coach analytics and fixed-roster ReID ([28c7555](https://github.com/henry753951/volleyball-monitoring-ai/commit/28c75552b86ca7b0711b1d2c495a4714b44bb827))
+* manage Local ID and GID player assignments ([de24816](https://github.com/henry753951/volleyball-monitoring-ai/commit/de248160999314a69ab1c249081cf53a2779e24d))
+* **reid:** adopt fixed-roster nested part adaptation ([344e758](https://github.com/henry753951/volleyball-monitoring-ai/commit/344e758ff9a1b457b7f43771561c92367655c7d5))
+* **reid:** manage local and global identity assignments ([a6f99f6](https://github.com/henry753951/volleyball-monitoring-ai/commit/a6f99f6f1527501fb2660f33facdb1f33d8a8c34))
+* **reid:** propagate global identities across tracks ([34f6c32](https://github.com/henry753951/volleyball-monitoring-ai/commit/34f6c32424dc28f17c504e60ea81dee58cc6657a))
+* **web:** add player action analytics ([ec33db8](https://github.com/henry753951/volleyball-monitoring-ai/commit/ec33db867ee12483f0ff940de516cbf087c08ed6))
+* **web:** redesign coach analysis surfaces ([#71](https://github.com/henry753951/volleyball-monitoring-ai/issues/71)) ([a4895ff](https://github.com/henry753951/volleyball-monitoring-ai/commit/a4895ffa87e9b883a37b73800bb8965f270f7c18))
+
+
+### Bug Fixes
+
+* harden live processing and annotation workflows ([8d6d468](https://github.com/henry753951/volleyball-monitoring-ai/commit/8d6d46827574202f4125e5a83db37162ec0750a3))
+* harden live processing and annotation workflows ([13f6d1e](https://github.com/henry753951/volleyball-monitoring-ai/commit/13f6d1e26e6d568e95ac283824a35bf5ddcf2603))
+* **web:** clarify coach navigation and match state ([8555287](https://github.com/henry753951/volleyball-monitoring-ai/commit/85552871a5dc9841cbd4484e0f521b43f4602bfc))
+* **web:** refine coach navigation density ([7270ada](https://github.com/henry753951/volleyball-monitoring-ai/commit/7270adaa76368bba1ba8945c3b72cb8e138e41bd))
+
+
+### Maintenance
+
+* refresh checksum manifest ([0476df2](https://github.com/henry753951/volleyball-monitoring-ai/commit/0476df208b356a84de0c798a240e03e7a2c3963b))
+
 ## [0.4.0](https://github.com/henry753951/volleyball-monitoring-ai/compare/v0.3.1...v0.4.0) (2026-08-12)
 
 
