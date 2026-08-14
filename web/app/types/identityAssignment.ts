@@ -12,6 +12,8 @@ export interface IdentityReplacementRequest {
   rosterEntryId: string
   playerName: string
   occupiedTrackId: number
+  scope?: 'local' | 'gid'
+  trackIds?: number[]
 }
 
 export interface IdentityCorrectionRequest {
@@ -24,4 +26,6 @@ export interface IdentityAssignmentCommand {
   trackId: number
   rosterEntryId: string
   identityMode?: IdentityMode
+  scope?: 'local' | 'gid'
+  trackIds?: number[]
 }

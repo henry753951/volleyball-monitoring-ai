@@ -124,6 +124,7 @@ enum MatchStatus {
 
 type Mutation {
   applyAnnotationCommand(command: JSON!): JSON!
+  applyReidAutomaticAssignments(analysisRunId: ID!): JSON!
   assignTrackIdentity(analysisRunId: ID!, identityMode: String, rosterEntryId: ID!, trackId: Int!): JSON!
   cancelCorrectionDraft(rallyId: ID!): Rally!
   clearTrackIdentity(analysisRunId: ID!, trackId: Int!): JSON!

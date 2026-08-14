@@ -1,7 +1,9 @@
 import type { PrismaClient } from '@volleyball-monitoring/db'
-import { IdentitySource, UserRole } from '@volleyball-monitoring/db/client'
+import { IdentitySource, JobStatus, UserRole } from '@volleyball-monitoring/db/client'
 import { describe, expect, it, vi } from 'vitest'
 import { assignTrackIdentity, getCoachMatchAnalytics, setTrackIdentityMappingComplete } from '../src/services/coach-analytics.js'
+import { applyManualReidDecision } from '../src/services/fixed-roster-reid.js'
+import { applyReidAutomaticAssignments } from '../src/services/reid-automatic-assignment.js'
 
 describe('coach track identity replacement', () => {
   it('uses the effective corrected contact actor in coach player totals', async () => {
@@ -64,7 +66,7 @@ describe('coach track identity replacement', () => {
           reidIdentity: { id: 'slot-1', teamId: 'team-left', slotIndex: 1 },
         }),
         updateMany: vi.fn(),
-        findMany: vi.fn().mockResolvedValue([]),
+        findMany: vi.fn().mockResolvedValueOnce([{ trackId: 9 }, { trackId: 10 }, { trackId: 11 }]).mockResolvedValueOnce([]),
       },
       reidPlayerBinding: {
         findFirst: vi.fn().mockResolvedValue(null),
@@ -99,7 +101,8 @@ describe('coach track identity replacement', () => {
     expect(tx.trackIdentityAssignment.deleteMany).toHaveBeenCalledWith({
       where: { analysisRunId: 'run-1', rosterEntryId: 'roster-1', trackId: { in: [4] } },
     })
-    expect(tx.trackIdentityAssignment.upsert).toHaveBeenCalledOnce()
+    expect(tx.trackIdentityAssignment.upsert).toHaveBeenCalledTimes(3)
+    expect(tx.trackIdentityAssignment.upsert.mock.calls.map(call => call[0].where.analysisRunId_trackId.trackId)).toEqual([9, 10, 11])
   })
 
   it('preserves a same-player track when its frame range does not overlap', async () => {
@@ -115,7 +118,7 @@ describe('coach track identity replacement', () => {
           reidIdentity: { id: 'slot-1', teamId: 'team-left', slotIndex: 1 },
         }),
         updateMany: vi.fn(),
-        findMany: vi.fn().mockResolvedValue([]),
+        findMany: vi.fn().mockResolvedValueOnce([{ trackId: 9 }]).mockResolvedValueOnce([]),
       },
       reidPlayerBinding: {
         findFirst: vi.fn().mockResolvedValue(null),
@@ -165,5 +168,83 @@ describe('coach track identity replacement', () => {
     const database = { $transaction: vi.fn(async (work: (client: typeof tx) => Promise<unknown>) => work(tx)) } as unknown as PrismaClient
 
     await expect(setTrackIdentityMappingComplete(database, { analysisRunId: 'run-1', completed: true, userId: 'user-1', role: UserRole.COACH })).resolves.toMatchObject({ completed: true })
+  })
+
+  it('reapplies one GID binding as separate local assignments while preserving manual overrides', async () => {
+    const tx = {
+      analysisRun: {
+        findUnique: vi.fn().mockResolvedValue({
+          id: 'run-1',
+          status: JobStatus.COMPLETED,
+          submission: { rally: { matchId: 'match-1', ordinal: 3, set: { setNumber: 2 } } },
+          tracks: [
+            { trackId: 9, identityAssignments: [], reidObservation: { reidIdentityId: 'slot-1', matchConfidence: 0.91 } },
+            { trackId: 12, identityAssignments: [], reidObservation: { reidIdentityId: 'slot-1', matchConfidence: 0.84 } },
+            { trackId: 15, identityAssignments: [{ source: IdentitySource.MANUAL, rosterEntryId: 'roster-2', reidIdentityId: 'slot-1', reidBindingId: null }], reidObservation: { reidIdentityId: 'slot-1', matchConfidence: 0.72 } },
+            { trackId: 18, identityAssignments: [], reidObservation: { reidIdentityId: null, matchConfidence: null } },
+          ],
+        }),
+      },
+      matchMember: { findUnique: vi.fn().mockResolvedValue({ userId: 'user-1' }) },
+      reidPlayerBinding: {
+        findMany: vi.fn().mockResolvedValue([{ id: 'binding-1', reidIdentityId: 'slot-1', rosterEntryId: 'roster-1', identityRevision: 7n, reidIdentity: { teamId: 'team-left' }, rosterEntry: { teamId: 'team-left' } }]),
+      },
+      trackIdentityAssignment: { upsert: vi.fn().mockResolvedValue({ id: 'assignment' }) },
+      $queryRaw: vi.fn().mockResolvedValue([{ id: 'run-1' }]),
+    }
+    const database = { $transaction: vi.fn(async (work: (client: typeof tx) => Promise<unknown>) => work(tx)) } as unknown as PrismaClient
+
+    await expect(applyReidAutomaticAssignments(database, {
+      analysisRunId: 'run-1',
+      userId: 'user-1',
+      role: UserRole.COACH,
+    })).resolves.toMatchObject({
+      assigned_count: 2,
+      preserved_manual_count: 1,
+      unresolved_count: 1,
+    })
+    expect(tx.trackIdentityAssignment.upsert).toHaveBeenCalledTimes(2)
+    expect(tx.trackIdentityAssignment.upsert).toHaveBeenCalledWith(expect.objectContaining({
+      where: { analysisRunId_trackId: { analysisRunId: 'run-1', trackId: 9 } },
+      create: expect.objectContaining({ rosterEntryId: 'roster-1', source: IdentitySource.PROPAGATED }),
+    }))
+  })
+
+  it('keeps a clip-only correction scoped to exactly one local track', async () => {
+    const tx = {
+      reidFeatureObservation: {
+        findUnique: vi.fn().mockResolvedValue({
+          id: 'observation-21', reidIdentityId: 'slot-1', aliasTrackIds: [21, 22], courtSide: 'LEFT',
+          reidIdentity: { id: 'slot-1', teamId: 'team-left', slotIndex: 1 },
+        }),
+        findMany: vi.fn().mockResolvedValue([{ trackId: 21 }, { trackId: 22 }]),
+        updateMany: vi.fn(),
+      },
+      match: { update: vi.fn().mockResolvedValue({ identityRevision: 9n }) },
+      reidPlayerBinding: { findFirst: vi.fn().mockResolvedValue(null), create: vi.fn() },
+      trackIdentityAssignment: {
+        upsert: vi.fn().mockImplementation(({ where }) => Promise.resolve({
+          id: 'assignment-21', analysisRunId: 'run-1',
+          trackId: where.analysisRunId_trackId.trackId,
+          rosterEntryId: 'roster-1', source: IdentitySource.MANUAL,
+        })),
+        deleteMany: vi.fn(),
+      },
+      reidCorrectionEvent: { create: vi.fn().mockResolvedValue({ id: 'correction-1' }) },
+      $queryRaw: vi.fn().mockResolvedValue([{ id: 'match-1' }]),
+    }
+
+    await applyManualReidDecision(tx as never, {
+      matchId: 'match-1', teamId: 'team-left', analysisRunId: 'run-1', trackId: 21,
+      rosterEntryId: 'roster-1', userId: 'user-1',
+      position: { setNumber: 1, rallyOrdinal: 2 }, mode: 'clip_only', replacedTrackIds: [],
+    })
+
+    expect(tx.trackIdentityAssignment.upsert).toHaveBeenCalledOnce()
+    expect(tx.trackIdentityAssignment.upsert).toHaveBeenCalledWith(expect.objectContaining({
+      where: { analysisRunId_trackId: { analysisRunId: 'run-1', trackId: 21 } },
+    }))
+    expect(tx.reidPlayerBinding.create).not.toHaveBeenCalled()
+    expect(tx.reidFeatureObservation.updateMany).not.toHaveBeenCalled()
   })
 })

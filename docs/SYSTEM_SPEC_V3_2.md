@@ -1062,6 +1062,7 @@ type Mutation {
   createCorrectionDraft(submissionId: ID!): Rally!
 
   assignTrackIdentity(input: AssignTrackIdentityInput!): TrackIdentityAssignment!
+  applyReidAutomaticAssignments(analysisRunId: ID!): JSON!
   retryProcessing(input: RetryProcessingInput!): ProcessingState!
 }
 ```
@@ -1139,6 +1140,7 @@ type Mutation {
 - AiWorkerAccessToken／AiProviderInstance／AiJob／AiCallbackReceipt；中央系統只維護單一 `volleyball-analysis-engine` 作業佇列，不以 integration／pool 分區。
 - AnalysisRun／AnalysisTrack／ContactEvent／Actor／Candidate／BallPathSegment／AnalysisArtifact。
 - TrackIdentityAssignment／OutboxEvent。
+- 球員綁定的 canonical storage 永遠是 `(analysis_run_id, track_id) -> roster_entry_id`。ReID GID 只分組 Local/TID、保存跨片段提示與批次建立多筆 Local assignment；人工 Local-only 覆寫優先，不得把 GID 當成 actor/event 的球員外鍵。
 
 ## 12.2 必要欄位與約束
 

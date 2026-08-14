@@ -4,7 +4,7 @@ import { createGraphQLTransport } from '~/lib/coreDomain'
 
 export type IdentityAssignmentService = Pick<
   ReturnType<typeof createCoachDomainClient>,
-  'analytics' | 'rallyReplay' | 'assignTrackIdentity' | 'clearTrackIdentity' | 'setTrackIdentityMappingComplete'
+  'analytics' | 'rallyReplay' | 'assignTrackIdentity' | 'clearTrackIdentity' | 'applyReidAutomaticAssignments' | 'setTrackIdentityMappingComplete'
 >
 
 const identityAssignmentServiceKey: InjectionKey<IdentityAssignmentService> = Symbol('identity-assignment-service')

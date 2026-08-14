@@ -146,6 +146,8 @@ export interface CoachMatchAnalytics {
     roster_entry_id: string | null
     identity_mapping_completed: boolean
     gid_id?: string | null
+    gid_team_id?: string | null
+    gid_slot_index?: number | null
     gid_label?: string | null
     identity_source?: 'manual' | 'ai' | 'propagated' | null
     identity_confidence?: number | null
@@ -190,6 +192,17 @@ export function createCoachDomainClient(transport: GraphQLTransport) {
     },
     async clearTrackIdentity(input: { analysisRunId: string; trackId: number }) {
       return transport.request<{ clearTrackIdentity: { schema_version: '1.0.0' } }>('mutation ClearTrackIdentity($analysisRunId: ID!, $trackId: Int!) { clearTrackIdentity(analysisRunId: $analysisRunId, trackId: $trackId) }', input)
+    },
+    async applyReidAutomaticAssignments(input: { analysisRunId: string }) {
+      return transport.request<{ applyReidAutomaticAssignments: {
+        schema_version: '1.0.0'
+        match_id: string
+        analysis_run_id: string
+        assigned_count: number
+        already_assigned_count: number
+        preserved_manual_count: number
+        unresolved_count: number
+      } }>('mutation ApplyReidAutomaticAssignments($analysisRunId: ID!) { applyReidAutomaticAssignments(analysisRunId: $analysisRunId) }', input)
     },
     async setTrackIdentityMappingComplete(input: { analysisRunId: string; completed: boolean }) {
       return transport.request<{ setTrackIdentityMappingComplete: { schema_version: '1.0.0'; completed: boolean } }>('mutation SetTrackIdentityMappingComplete($analysisRunId: ID!, $completed: Boolean!) { setTrackIdentityMappingComplete(analysisRunId: $analysisRunId, completed: $completed) }', input)

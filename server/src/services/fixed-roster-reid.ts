@@ -724,13 +724,36 @@ export async function applyManualReidDecision(tx: TransactionClient, input: {
   }
 
   const aliases = observation.aliasTrackIds
+  const identityTracks = observation.reidIdentityId
+    ? await tx.reidFeatureObservation.findMany({
+        where: {
+          analysisRunId: input.analysisRunId,
+          reidIdentityId: observation.reidIdentityId,
+        },
+        select: { trackId: true },
+      })
+    : []
+  const gidTrackIds = [...new Set([
+    ...aliases,
+    ...identityTracks.map(item => item.trackId),
+  ])]
+  const assignmentTrackIds = input.mode === 'from_here'
+    ? gidTrackIds
+    : input.mode === 'split_identity'
+      ? aliases
+      : [input.trackId]
+  const observationTrackIds = input.mode === 'from_here'
+    ? gidTrackIds
+    : input.mode === 'split_identity'
+      ? aliases
+      : []
   const sourceIdentityId = observation.reidIdentityId
   const sidePrefix = observation.courtSide === TrackCourtSide.LEFT
     ? 'L'
     : observation.courtSide === TrackCourtSide.RIGHT ? 'R' : 'G'
-  if (targetIdentity.id !== sourceIdentityId) {
+  if (targetIdentity.id !== sourceIdentityId && observationTrackIds.length > 0) {
     await tx.reidFeatureObservation.updateMany({
-      where: { analysisRunId: input.analysisRunId, trackId: { in: aliases } },
+      where: { analysisRunId: input.analysisRunId, trackId: { in: observationTrackIds } },
       data: {
         teamId: input.teamId, reidIdentityId: targetIdentity.id,
         provisionalGid: `${sidePrefix}${targetIdentity.slotIndex}`,
@@ -760,7 +783,7 @@ export async function applyManualReidDecision(tx: TransactionClient, input: {
     rosterEntryId: string
     source: IdentitySource
   } | null = null
-  for (const trackId of aliases) {
+  for (const trackId of assignmentTrackIds) {
     const assignment = await tx.trackIdentityAssignment.upsert({
       where: { analysisRunId_trackId: { analysisRunId: input.analysisRunId, trackId } },
       create: {
@@ -786,7 +809,7 @@ export async function applyManualReidDecision(tx: TransactionClient, input: {
     if (trackId === input.trackId) selectedAssignment = assignment
   }
   for (const replacedTrackId of input.replacedTrackIds) {
-    if (aliases.includes(replacedTrackId)) continue
+    if (assignmentTrackIds.includes(replacedTrackId)) continue
     await tx.trackIdentityAssignment.deleteMany({
       where: { analysisRunId: input.analysisRunId, trackId: replacedTrackId, rosterEntryId: input.rosterEntryId },
     })
@@ -836,6 +859,7 @@ export async function applyManualReidDecision(tx: TransactionClient, input: {
     details: {
       fixed_slot: targetIdentity.slotIndex,
       aliases,
+      assigned_local_track_ids: assignmentTrackIds,
       replaced_track_ids: input.replacedTrackIds,
     },
   } })
