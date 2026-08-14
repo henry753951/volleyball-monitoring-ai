@@ -486,7 +486,7 @@ aa39c63e0df9048c8804da342f8852cea1bae298df4b5baef7896173f4d6042f  ./web/app/comp
 d4f922fda70732ccf418a138500c66edbe5e9fff930894328fa36078e570fd0d  ./web/app/composables/usePlaybackCursor.ts
 8370410c7aee58e0bbffa86d78829f6a5ab88c19302dc741ca7ac6120280ab7d  ./web/app/composables/usePublicEndpoints.ts
 d0efd072e39bb5c7979ccf95061f62811d565883764dce352e07e2a2cb3aebf2  ./web/app/layouts/annotation.vue
-f4632b220d68b16ee8368d42ae418af186d99cdf0fec07c6d3c91c7eb212a94f  ./web/app/layouts/coach.vue
+ba7eb83f22d61af4c7fbc9452cb0a70fdff39dd5d188cf0bfcdcafcef6b34acd  ./web/app/layouts/coach.vue
 1cc0a2779d48960b000ac4108b94ebf01e8229400bf975edd639045925534b1b  ./web/app/layouts/control.vue
 ee074a247cf2a8293e9f2e73e957add8a2fc2a56303239d249918feb02e3c982  ./web/app/layouts/default.vue
 77613d070c493c0b0ef922844eacd3a91334f1accc20a77193325d1cee55ae39  ./web/app/lib/annotationCommandQueue.test.ts
@@ -496,8 +496,8 @@ ee074a247cf2a8293e9f2e73e957add8a2fc2a56303239d249918feb02e3c982  ./web/app/layo
 707a1f91335e48c7e2d97eb2702fb39bf9590d566a9fb13cfc28d83d36946658  ./web/app/lib/annotationRealtimeClient.test.ts
 c2f699058f8154b9bdfcf874a4530a935c408e31e2cf76580f2d941ff73e24a1  ./web/app/lib/annotationRealtimeClient.ts
 1e1e66aa5c52c4e123bfc6163e531b36727d7b608bb9e7f0d224a7a4b94a1f32  ./web/app/lib/coachDomain.ts
-8f9321ac9e9bdb6187849277b4d0cc40aea023fdb6d4e1361b1b6a30e04033c3  ./web/app/lib/coreDomain.test.ts
-fd004dd6364240152a4ba22e75419f26d8e16c919d83cb542b5bad25291743d1  ./web/app/lib/coreDomain.ts
+5b4fd59784948a10311cd823ad7fabda81071c8b63b6a273e7a75716378d445b  ./web/app/lib/coreDomain.test.ts
+d6b5d7428c558ebacb7535e7cac094da35ea43b0fbe90e9732f40e49674da7ae  ./web/app/lib/coreDomain.ts
 07123a048c6e5923b5107535819c770228684b322878901f674024530801fd6e  ./web/app/lib/dvrTimeline.test.ts
 a40f334616105c64629bdb1e8ca0fc65c30d64830a1c512dfb82cb5d6287f4d9  ./web/app/lib/dvrTimeline.ts
 7f509096b1f36b3a8d3a8c212ba7321bd0295354a717a2fb17988dac8c0b7684  ./web/app/lib/identityAssignmentModel.ts
@@ -523,7 +523,7 @@ e8400f19bc0f9ab77c9a0ff695af3a671d79e6cd86a3c1126bf1eb4383572e9a  ./web/app/lib/
 4bd40a649aac65356ae55be7e672b4d581ccfe49662a1671f353cad0cdaffcba  ./web/app/pages/annotate/[matchId].vue
 19540314ac128f33e341c5c799ae8b1f2ec6a1da130b5cc6c8cf13a1a14fe10f  ./web/app/pages/control/index.vue
 321e307830236adc5fd729268ae59aa0154cd5cf020dd041af064b69cf8f5ce2  ./web/app/pages/control/jobs.vue
-0c1b6c89d7afe622c30920fdd3efd741f96e0a400ce40ef9a9491b835076cbc8  ./web/app/pages/index.vue
+3817d4a45318ab7f880ba6af0d0f963651663776b5c114c9359caeb055a846f2  ./web/app/pages/index.vue
 c4e0f237dd10b98db71e9f767c82000ccaa5ce5eda1845c147461f11217617a4  ./web/app/pages/matches/[matchId]/history.vue
 257cce1ded5632f7d483acea70625f965c9167caebe56b3c541d5566e78da771  ./web/app/pages/matches/[matchId]/live.vue
 c4e0f237dd10b98db71e9f767c82000ccaa5ce5eda1845c147461f11217617a4  ./web/app/pages/matches/[matchId]/paths.vue
@@ -545,6 +545,8 @@ a60c0cce97ded92137dba8ec99dfe9c05fa082f5ebbe48eafaa85c34a89aded7  ./web/app/util
 e71924873860e5fc0da75f5454a63c95d2e10d2c9295aeafe3228157876e8d86  ./web/app/utils/annotationPolling.ts
 4a1ec75d46e574ed894b28ec51905bd995a7cd020c53a7689f0387ae76b136d6  ./web/app/utils/authBoundary.test.ts
 c81b2357e6c7d27f6d0836c737d8790225ff02215260c2f91066335274fbc912  ./web/app/utils/authBoundary.ts
+beb5fd85486b4ac9952074ac3774ee98b37549b8d2453d44ecf23014bea10861  ./web/app/utils/coachMatchStatus.test.ts
+dd0f6f7d95982f706367b02ea1b3ac66fdab0033e1b5271518399fc456530b24  ./web/app/utils/coachMatchStatus.ts
 d5f8401e2aeaa08117c31d653a94dbc0de4e8e582ede36ca445a34ca8c5a1fe0  ./web/app/utils/coachPlayerActions.test.ts
 0c9b48add99233df97ea60e8c61e0e236bc1ba15a9f7205791eab41ef0079909  ./web/app/utils/coachPlayerActions.ts
 c4123e71b15fe86ec6b2fb9957fc1d3b8f23afee84e0ebf9c9a1a5939831b171  ./web/app/utils/coachPresentation.test.ts

@@ -13,8 +13,16 @@ const nav = computed(() => hasMatchContext.value ? [
   { to: `/matches/${matchId.value}/rallies`, label: '回合', icon: RotateCcw },
   { to: `/matches/${matchId.value}/players`, label: '球員', icon: Users },
 ] : [])
-const backTarget = computed(() => isReplay.value ? `/matches/${matchId.value}/rallies` : '/')
-const backLabel = computed(() => isReplay.value ? '回合列表' : '場次列表')
+const backNavigation = computed(() => {
+  if (isReplay.value) return { to: `/matches/${matchId.value}/rallies`, label: '回合' }
+  if (/^\/matches\/[^/]+\/stats\/?$/.test(route.path)) return { to: `/matches/${matchId.value}/players`, label: '球員' }
+  return { to: '/', label: '場次列表' }
+})
+
+function isNavActive(target: string) {
+  if (target.endsWith('/players') && /^\/matches\/[^/]+\/stats\/?$/.test(route.path)) return true
+  return route.path === target || route.path === `${target}/`
+}
 
 useHead({ bodyAttrs: { class: 'coach-viewport-body' } })
 
@@ -31,7 +39,7 @@ watch(matchId, async (id) => {
     <LandscapeGuard />
     <header class="coach-toolbar">
       <div class="coach-toolbar__inner">
-        <NuxtLink v-if="hasMatchContext" :to="backTarget" class="coach-toolbar__back" :aria-label="backLabel"><ChevronLeft :size="20" /><span>{{ backLabel }}</span></NuxtLink>
+        <NuxtLink v-if="hasMatchContext" :to="backNavigation.to" class="coach-toolbar__back" :aria-label="`返回${backNavigation.label}`"><ChevronLeft :size="20" /><span>{{ backNavigation.label }}</span></NuxtLink>
         <NuxtLink v-else to="/" class="coach-toolbar__brand" aria-label="VollyAI 場次列表">VollyAI</NuxtLink>
         <div class="coach-toolbar__title"><strong>{{ matchTitle || (hasMatchContext ? '場次' : '教練檢視') }}</strong></div>
         <div class="coach-toolbar__actions"><WsPingBadge /><a v-if="!hasMatchContext" href="/control" target="_blank" rel="noopener" class="coach-toolbar__control">控制台<ExternalLink :size="14" /></a></div>
@@ -52,7 +60,7 @@ watch(matchId, async (id) => {
       </dl>
     </footer>
     <nav v-else-if="hasMatchContext" class="coach-tabs" aria-label="場次導覽">
-      <NuxtLink v-for="item in nav" :key="item.to" :to="item.to" class="coach-tab" active-class="coach-tab--active"><component :is="item.icon" :size="21" /><span>{{ item.label }}</span></NuxtLink>
+      <NuxtLink v-for="item in nav" :key="item.to" :to="item.to" class="coach-tab" :class="{ 'coach-tab--active': isNavActive(item.to) }"><component :is="item.icon" :size="21" /><span>{{ item.label }}</span></NuxtLink>
     </nav>
   </div>
 </template>

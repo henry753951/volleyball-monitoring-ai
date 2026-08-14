@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ChevronRight, CircleAlert, Radio } from "lucide-vue-next";
-import type { Match } from "~/lib/coreDomain";
+import { coachMatchStatus } from "~/utils/coachMatchStatus";
 
 definePageMeta({ layout: "coach" });
 
@@ -29,19 +29,6 @@ function matchTeams(match: MatchListItem) {
       left: byId.get(assignment?.leftTeamId ?? "") ?? match.teams[0],
       right: byId.get(assignment?.rightTeamId ?? "") ?? match.teams[1],
    };
-}
-
-function statusLabel(status: string) {
-   return (
-      (
-         {
-            planned: "尚未開始",
-            live: "直播中",
-            finished: "已結束",
-            archived: "已封存",
-         } as Record<string, string>
-      )[status.toLowerCase()] ?? status
-   );
 }
 
 onMounted(async () => {
@@ -142,14 +129,11 @@ onMounted(async () => {
                <div class="match-row__meta">
                   <span
                      class="match-status"
-                     :class="{
-                        'match-status--live':
-                           match.status.toLowerCase() === 'live',
-                     }"
+                     :class="`match-status--${coachMatchStatus(match).kind}`"
                      ><Radio
-                        v-if="match.status.toLowerCase() === 'live'"
+                        v-if="coachMatchStatus(match).kind === 'live'"
                         :size="12"
-                     />{{ statusLabel(match.status) }}</span
+                     />{{ coachMatchStatus(match).label }}</span
                   >
                   <strong>{{ match.title }}</strong>
                   <small>{{
@@ -286,6 +270,15 @@ onMounted(async () => {
 }
 .match-status--live {
    color: #16734a;
+}
+.match-status--ready {
+   color: #1767ae;
+}
+.match-status--processing {
+   color: #8a6219;
+}
+.match-status--failed {
+   color: #a3323a;
 }
 .match-score {
    display: grid;
