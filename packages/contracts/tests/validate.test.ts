@@ -74,7 +74,7 @@ describe("golden contract fixtures", () => {
       "examples/ai/job-offer.json": "ai/provider-realtime.schema.json",
       "examples/ai/abort-job.json": "ai/provider-realtime.schema.json",
       "examples/ai/boundary-job.json": "ai/job.schema.json",
-      "examples/ai/reid-feature-bank-v1.json": "ai/reid-feature-bank-v1.schema.json",
+      "examples/ai/fixed-roster-reid-v2.json": "ai/fixed-roster-reid-v2.schema.json",
       "examples/analysis/review-patch.json": "analysis/review-patch.schema.json",
       "examples/analysis/review-state.json": "analysis/review-state.schema.json",
       "examples/analysis/review-revision-event.json": "analysis/review-revision-event.schema.json",

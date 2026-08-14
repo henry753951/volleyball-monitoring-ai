@@ -164,8 +164,8 @@ export function analysisMediaRoutesWithDependencies(dependencies: { timingManife
       db.reidCorrectionEvent.findMany({
         where: { matchId: run.submission.rally.match.id },
         include: {
-          sourceIdentity: { select: { id: true, label: true, teamId: true, modelNamespace: true } },
-          targetIdentity: { select: { id: true, label: true, teamId: true, modelNamespace: true } },
+          sourceIdentity: { select: { id: true, label: true, slotIndex: true, teamId: true, modelNamespace: true } },
+          targetIdentity: { select: { id: true, label: true, slotIndex: true, teamId: true, modelNamespace: true } },
           rosterEntry: { include: { player: true, team: true } },
         },
         orderBy: [{ identityRevision: 'asc' }, { createdAt: 'asc' }],
@@ -184,8 +184,8 @@ export function analysisMediaRoutesWithDependencies(dependencies: { timingManife
     const analysisData = parseAnalysisData(analysisDataBytes)
     const rawAnalysis = JSON.parse(analysisData.domainJson) as unknown
     const rawExtensions = isRecord(rawAnalysis) && isRecord(rawAnalysis.extensions) ? rawAnalysis.extensions : null
-    const reidFeatureBank = rawExtensions && isRecord(rawExtensions.reid_feature_bank) ? rawExtensions.reid_feature_bank : null
-    const reidFeatureBankPath = reidFeatureBank ? 'reid/clip-feature-bank.json' : null
+    const reidFeatureBank = rawExtensions && isRecord(rawExtensions.fixed_roster_reid) ? rawExtensions.fixed_roster_reid : null
+    const reidFeatureBankPath = reidFeatureBank ? 'reid/fixed-roster-tracklets.json' : null
     let timeline
     try {
       timeline = await readClipFrameTimeline(
@@ -441,7 +441,7 @@ export function analysisMediaRoutesWithDependencies(dependencies: { timingManife
         path: reidFeatureBankPath!,
         bytes: jsonBytes(reidFeatureBank),
         contentType: 'application/json',
-        description: 'Versioned per-side ReID prototypes, model checksum, quality, and co-visibility cannot-link evidence emitted for this clip.',
+        description: 'Versioned fixed-roster tracklets with DINOv2, Sports OSNet, Official KPR, prompted KPR, aliases, and co-visibility constraints.',
       }] : []),
       {
         path: 'analysis/database-view.json',
@@ -475,7 +475,7 @@ export function analysisMediaRoutesWithDependencies(dependencies: { timingManife
         raw_authoritative_files: ['analysis/analysis-data.vad1', 'analysis/timing-manifest.json'],
         generated_ml_tables: generated.filter(entry => entry.path.endsWith('.jsonl')).map(entry => entry.path),
         generated_label_files: generated.filter(entry => entry.path.startsWith('labels/') || entry.path.startsWith('reid/')).map(entry => entry.path),
-        persisted_reid_feature_bank: Boolean(reidFeatureBank),
+        persisted_fixed_roster_reid: Boolean(reidFeatureBank),
         persisted_reid_observation_count: reidObservations.length,
         identity_correction_event_count: reidCorrections.length,
         reid_feature_vector_locations: reidFeatureBankPath

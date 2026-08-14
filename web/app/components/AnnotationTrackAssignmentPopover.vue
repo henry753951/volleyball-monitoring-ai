@@ -41,6 +41,7 @@ const presentation = computed(() => {
     team: assignment.state.analytics?.teams.find(item => item.id === teamId) ?? null,
     players: assignment.view.model.players.forTeam(teamId),
     status: track ? assignment.view.model.track.status(track) : { label: '無辨識資料', tone: 'muted' as const },
+    tidLabel: track ? assignment.view.model.track.tidLabel(track) : null,
     gidLabel: track ? assignment.view.model.track.gidLabel(track) : null,
     options: props.trackId === null ? [] : assignment.view.model.options.forTrack({ teamId, trackId: props.trackId }),
     previewSide: import.meta.client && props.x < window.innerWidth / 2 ? 'right' as const : 'left' as const,
@@ -65,11 +66,11 @@ function handleOpenChange(open: boolean) {
     @update:open="handleOpenChange"
   >
     <template #anchor><span class="track-popover-anchor" :style="{ left: `${x}px`, top: `${y}px` }" /></template>
-    <header><span><UserRoundCog :size="15" /><b>{{ presentation.team?.shortName || presentation.team?.name || '兩隊' }}</b> · T{{ String(trackId).padStart(2, '0') }}<small>球員辨識</small></span><button type="button" aria-label="關閉" @click="emit('close')"><X :size="14" /></button></header>
+    <header><span><UserRoundCog :size="15" /><b>{{ presentation.team?.shortName || presentation.team?.name || '兩隊' }}</b> · {{ presentation.tidLabel }} · {{ presentation.gidLabel }}<small>球員辨識</small></span><button type="button" aria-label="關閉" @click="emit('close')"><X :size="14" /></button></header>
     <div v-if="assignment.state.loading && !assignment.state.analytics" class="loading"><LoaderCircle class="spin" :size="16" />載入中</div>
     <template v-else>
-      <div class="identity-summary" :data-tone="presentation.status.tone"><ShieldCheck v-if="['manual', 'propagated'].includes(presentation.status.tone)" :size="13" /><CircleHelp v-else :size="13" /><span><b>{{ presentation.status.label }}</b><small>{{ presentation.gidLabel || '尚未建立跨片段身分' }}<template v-if="presentation.track?.identity_confidence != null"> · {{ Math.round(presentation.track.identity_confidence * 100) }}%</template></small></span></div>
-      <div v-if="presentation.players.length && !assignment.state.dialogs.correction" class="player-picker"><span>選擇球員</span><UiPlayerCombobox :model-value="presentation.track?.roster_entry_id ?? ''" :options="presentation.options" :disabled="assignment.view.busy" :preview-side="presentation.previewSide" :aria-label="`指派 T${trackId} 的球員`" @update:model-value="assignment.actions.requestAssignment({ trackId: trackId!, rosterEntryId: $event })">
+      <div class="identity-summary" :data-tone="presentation.status.tone"><ShieldCheck v-if="['manual', 'propagated'].includes(presentation.status.tone)" :size="13" /><CircleHelp v-else :size="13" /><span><b>{{ presentation.status.label }}</b><small>{{ presentation.tidLabel }} · {{ presentation.gidLabel }}<template v-if="presentation.track?.identity_confidence != null"> · {{ Math.round(presentation.track.identity_confidence * 100) }}%</template></small></span></div>
+      <div v-if="presentation.players.length && !assignment.state.dialogs.correction" class="player-picker"><span>選擇球員</span><UiPlayerCombobox :model-value="presentation.track?.roster_entry_id ?? ''" :options="presentation.options" :disabled="assignment.view.busy" :preview-side="presentation.previewSide" :aria-label="`指派 ${presentation.tidLabel} ${presentation.gidLabel} 的球員`" @update:model-value="assignment.actions.requestAssignment({ trackId: trackId!, rosterEntryId: $event })">
         <template #preview="{ option }"><PlayerIdentityPreview v-if="assignment.view.model.players.byRosterEntry(option.value)" :match-id="matchId" :roster-entry-id="option.value" :player-name="assignment.view.model.players.byRosterEntry(option.value)!.name" :jersey-number="assignment.view.model.players.byRosterEntry(option.value)!.jersey_number" :tracks="assignment.state.analytics?.tracks ?? []" :analysis-run-id="analysisRunId" :track-id="trackId" /></template>
       </UiPlayerCombobox></div>
       <div v-if="assignment.state.dialogs.correction" class="correction-choice" role="dialog" aria-label="選擇球員修正方式">

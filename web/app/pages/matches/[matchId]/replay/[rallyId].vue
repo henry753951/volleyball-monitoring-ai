@@ -98,6 +98,7 @@ const overlayTracks = computed(() => replay.value?.analysis?.tracks.map(track =>
   trackId: track.track_id,
   courtSide: track.court_side,
   label: track.identity?.name ?? null,
+  gidLabel: track.global_identity?.label ?? null,
   jerseyNumber: track.identity?.jersey_number ?? null,
   position: track.identity?.position ?? null,
 })) ?? [])

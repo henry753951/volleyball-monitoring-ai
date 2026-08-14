@@ -12,7 +12,7 @@ invent fields outside these versioned files.
 - `annotation/realtime.schema.json`: v3.0 uses canonical `START_RALLY`/`END_RALLY` boundaries. Z writes boundaries only; X creates optional manual contact key points. Score resolution no longer closes a Rally or gates submission.
 - `ai/capabilities.schema.json`, `job.schema.json`, `job-accepted.schema.json`: provider handshake and immutable job submission.
 - `ai/analysis-data-domain.schema.json`: domain JSON embedded inside the sole `VAD1` AnalysisData FlatBuffer. It contains tracks, contacts, paths, summaries and versioned extensions.
-- `ai/reid-feature-bank-v1.schema.json`: optional `AnalysisData.extensions.reid_feature_bank` payload. It carries per-clip, per-court-side Sports OSNet prototypes and cannot-link evidence; central maps sides to immutable submission teams and owns match-scoped GIDs.
+- `ai/fixed-roster-reid-v2.schema.json`: optional `AnalysisData.extensions.fixed_roster_reid` payload. It carries DINOv2, Sports OSNet, Official KPR and COCO-17-prompted KPR tracklet descriptors plus aliases and cannot-link evidence. Central owns exactly six team slots and selects Kernel Ridge parameters from earlier clips only.
 - `ai/callback.schema.json`: progress/failure/completed callback metadata.
 - `ai/provider-realtime.schema.json`: outbound AI worker control plane for hello, job offer, lease/resume, progress and abort. Media and AnalysisData bytes are forbidden on this channel.
 - `ai/analysis-data-manifest.schema.json`: central-to-web lazy AnalysisData frame manifest.

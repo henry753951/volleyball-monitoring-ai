@@ -19,7 +19,7 @@ export interface GeneratedDatasetFile {
 }
 
 export const ML_DATASET_SCHEMA_VERSION = '1.3.0'
-export const REID_DATASET_SCHEMA_VERSION = '1.0.0'
+export const REID_DATASET_SCHEMA_VERSION = '2.0.0'
 
 interface ReidRosterEntrySnapshot {
   id: string
@@ -48,6 +48,7 @@ interface ReidPlayerBindingSnapshot {
 interface ReidIdentitySnapshot {
   id: string
   label: string
+  slotIndex: number
   teamId: string
   modelNamespace: string
   createdRevision: bigint
@@ -70,6 +71,20 @@ export interface ReidObservationSnapshot {
   modelDistance: string
   courtSide: string
   provisionalGid: string
+  canonicalTrackId: number
+  isCanonicalTrack: boolean
+  aliasTrackIds: number[]
+  medianCourtX: number | null
+  medianCourtY: number | null
+  descriptorRecipe: unknown
+  dinoDescriptor: Uint8Array | null
+  osnetDescriptor: Uint8Array | null
+  kprDescriptor: Uint8Array | null
+  kprPromptDescriptor: Uint8Array | null
+  promptCoverage: number
+  selectedModalities: string[]
+  selectedKernel: string
+  selectedRegularization: number
   firstFrame: bigint
   lastFrame: bigint
   sampleCount: number
@@ -87,6 +102,7 @@ export interface ReidObservationSnapshot {
 interface ReidIdentityReference {
   id: string
   label: string
+  slotIndex: number
   teamId: string
   modelNamespace: string
 }
@@ -131,6 +147,7 @@ function reidIdentityReference(identity: ReidIdentityReference | null) {
   return identity ? {
     id: identity.id,
     label: identity.label,
+    slot_index: identity.slotIndex,
     team_id: identity.teamId,
     model_namespace: identity.modelNamespace,
   } : null
@@ -195,10 +212,15 @@ export function buildPersistedReidDatasetFiles(input: {
     team_id: observation.teamId,
     gid: reidIdentityReference(observation.reidIdentity),
     provisional_gid: observation.provisionalGid,
+    fixed_slot: observation.reidIdentity?.slotIndex ?? null,
+    canonical_track_id: observation.canonicalTrackId,
+    is_canonical_track: observation.isCanonicalTrack,
+    alias_track_ids: observation.aliasTrackIds,
     court_side: observation.courtSide.toLowerCase(),
     frame_range: { first_frame_index: observation.firstFrame, last_frame_index: observation.lastFrame },
     sample_count: observation.sampleCount,
     mean_quality: observation.meanQuality,
+    prompt_coverage: observation.promptCoverage,
     cannot_link_track_ids: observation.cannotLinkTrackIds,
     canonical_position: { set_number: observation.setNumber, rally_ordinal: observation.rallyOrdinal },
     match_confidence: observation.matchConfidence,
@@ -211,14 +233,25 @@ export function buildPersistedReidDatasetFiles(input: {
       dimension: observation.modelDimension,
       distance: observation.modelDistance,
     },
-    persisted_prototype: {
-      encoding: 'float32_le',
-      byte_length: observation.prototype.byteLength,
-      sha256: sha256Bytes(observation.prototype),
+    nested_part_adaptation: {
+      descriptor_recipe: observation.descriptorRecipe,
+      selected_modalities: observation.selectedModalities,
+      selected_kernel: observation.selectedKernel,
+      selected_regularization: observation.selectedRegularization,
+      median_court_pos: observation.medianCourtX === null || observation.medianCourtY === null
+        ? null
+        : [observation.medianCourtX, observation.medianCourtY],
+      descriptors: Object.fromEntries([
+        ['dino', observation.dinoDescriptor],
+        ['osnet', observation.osnetDescriptor],
+        ['kpr', observation.kprDescriptor],
+        ['kpr_prompt', observation.kprPromptDescriptor],
+      ].map(([name, bytes]) => [name, bytes instanceof Uint8Array ? {
+        encoding: 'float32_le', byte_length: bytes.byteLength, sha256: sha256Bytes(bytes),
+      } : null])),
       feature_vector_ref: input.featureBankPath ? {
         path: input.featureBankPath,
-        court_side: observation.courtSide.toLowerCase(),
-        track_id: observation.trackId,
+        canonical_track_id: observation.canonicalTrackId,
       } : null,
     },
     created_at: observation.createdAt,
@@ -420,8 +453,8 @@ This archive is a versioned snapshot of one canonical rally clip and every AI ou
 - \`events/*.jsonl\`: contact ownership and ball-path records decoded from AnalysisData.
 - \`tables/frames.jsonl\`: joins every prediction to canonical frame, clip time, and capture time.
 - \`labels/*.jsonl\`: sparse human corrections and identity assignments; these override predictions at the same key.
-- \`reid/clip-feature-bank.json\`: versioned Sports OSNet track prototypes, quality, frame bounds, and cannot-link evidence when the Worker produced ReID features.
-- \`reid/persisted-observations.jsonl\`: central persistence rows for each clip track, including GID, model namespace, prototype checksum, and the exact feature-bank reference. It never duplicates feature vectors.
+- \`reid/fixed-roster-tracklets.json\`: versioned four-stream Nested Part Adaptation descriptors, TID aliases, court evidence, and cannot-link constraints.
+- \`reid/persisted-observations.jsonl\`: central rows for each TID with its canonical TID, fixed team slot, selected modalities/kernel/regularization, descriptor checksums, and exact tracklet reference. It never duplicates feature vectors.
 - \`reid/effective-bindings.jsonl\`: GID-to-roster labels effective at this clip's set/rally position. Unresolved rows are retained with \`manual_assignment_required: true\`.
 - \`reid/correction-lineage.jsonl\`: match-wide human identity correction lineage through the exported \`snapshot_identity_revision\`; actor account identifiers are intentionally omitted.
 - \`analysis/database-view.json\`: normalized server-ingested events, tracks, paths, identities, and effective correction links.
@@ -436,5 +469,5 @@ Use \`frame_index\` as the primary join key. Do not infer frame timing from nomi
 
 ## Reproducibility boundary
 
-The archive includes the canonical clip, its source/cut/timing metadata, authoritative AnalysisData, generated JSONL tables, human review state, identity assignments, versioned ReID track prototypes, current effective roster bindings, correction lineage, job/run metadata, and checksums. The authoritative AnalysisData embeds the ReID feature bank, and \`reid/clip-feature-bank.json\` is an exact extracted view for ML tooling. Generated observation, binding, correction, and label JSONL files reference prototype checksums without duplicating vectors. Per-frame detector embeddings are intentionally reduced to track prototypes; transient GPU tensors, feature maps, process memory, and worker-local debug previews/logs are not part of the online inference contract.
+The archive includes the canonical clip, source/cut/timing metadata, authoritative AnalysisData, generated JSONL tables, human review state, fixed roster slots, current effective roster bindings, correction lineage, job/run metadata, and checksums. The authoritative AnalysisData embeds all four tracklet descriptors; \`reid/fixed-roster-tracklets.json\` is the exact extracted ML view. Generated observation, binding, correction, and label JSONL files reference descriptor checksums without duplicating vectors. Per-frame embeddings and transient GPU state are excluded.
 `

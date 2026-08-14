@@ -4,7 +4,7 @@ from pathlib import Path
 import pytest
 
 from volleyball_monitoring_ai import (
-    AIJobRequest, AnalysisDomainData, ProviderCapabilities, ReIDFeatureBank, validate_passthrough,
+    AIJobRequest, AnalysisDomainData, FixedRosterReID, ProviderCapabilities, validate_passthrough,
     PlaybackWindowRequest, PlaybackWindowExtendRequest, PlaybackWindowDescriptor, PlaybackCursor,
     ResolvedMediaAnchor, FrameStepRequest, CanonicalFrameAnchor, MediaApiError,
     build_empty_analysis_data, build_analysis_data,
@@ -51,24 +51,23 @@ def test_contract_versions_are_explicit() -> None:
     assert capabilities.supported_job_schema_versions == ["3.0.0"]
 
 
-def test_reid_feature_bank_contract_is_versioned_and_l2_normalized() -> None:
-    example = FIXTURES.parents[0] / "examples" / "ai" / "reid-feature-bank-v1.json"
-    bank = ReIDFeatureBank.model_validate_json(example.read_text())
-    feature = bank.side_feature_banks[0].features[0]
-    assert feature.provisional_gid == "clip:left:7"
-    assert len(feature.prototype) == 512
+def test_fixed_roster_reid_contract_is_versioned_and_bounded() -> None:
+    example = FIXTURES.parents[0] / "examples" / "ai" / "fixed-roster-reid-v2.json"
+    bank = FixedRosterReID.model_validate_json(example.read_text())
+    assert bank.slots_per_team == 6
+    assert bank.tracklets[0].track_ids == [7, 19]
 
 
-def test_reid_feature_bank_rejects_cross_side_or_non_normalized_features() -> None:
-    example = FIXTURES.parents[0] / "examples" / "ai" / "reid-feature-bank-v1.json"
+def test_fixed_roster_reid_rejects_invalid_aliases_or_asymmetric_constraints() -> None:
+    example = FIXTURES.parents[0] / "examples" / "ai" / "fixed-roster-reid-v2.json"
     payload = json.loads(example.read_text())
-    payload["side_feature_banks"][0]["features"][0]["provisional_gid"] = "clip:right:7"
+    payload["tracklets"][0]["track_ids"] = [19]
     with pytest.raises(ValueError):
-        ReIDFeatureBank.model_validate(payload)
+        FixedRosterReID.model_validate(payload)
     payload = json.loads(example.read_text())
-    payload["side_feature_banks"][0]["features"][0]["prototype"][0] = 0.5
+    payload["tracklets"][1]["cannot_link_canonical_track_ids"] = []
     with pytest.raises(ValueError):
-        ReIDFeatureBank.model_validate(payload)
+        FixedRosterReID.model_validate(payload)
 
 
 def test_boundary_job_allows_zero_manual_contacts_and_pending_score() -> None:

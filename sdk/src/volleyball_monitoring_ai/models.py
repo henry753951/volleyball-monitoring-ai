@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+from base64 import b64decode
 from datetime import datetime
 from math import sqrt
+from struct import iter_unpack
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, HttpUrl, field_validator, model_validator
@@ -377,82 +379,93 @@ class Track(StrictModel):
         return _digits(value, info.field_name)
 
 
-class ReIDEmbeddingModel(StrictModel):
-    name: Literal["sports-osnet"]
-    checkpoint_sha256: str = Field(pattern=r"^[A-Fa-f0-9]{64}$")
-    preprocess_version: str = Field(min_length=1, max_length=128)
-    dimension: Literal[512]
-    distance: Literal["cosine"]
+def _reid_descriptor(value: str, dimension: int, name: str) -> str:
+    try:
+        raw = b64decode(value, validate=True)
+    except ValueError as error:
+        raise ValueError(f"{name} must be valid base64") from error
+    if len(raw) != dimension * 4:
+        raise ValueError(f"{name} must contain {dimension} Float32LE values")
+    values = [entry[0] for entry in iter_unpack("<f", raw)]
+    length = sqrt(sum(component * component for component in values))
+    if not 0.999 <= length <= 1.001:
+        raise ValueError(f"{name} must be L2-normalized")
+    return value
 
 
-class ReIDTrackFeature(StrictModel):
-    provisional_gid: str = Field(pattern=r"^clip:(left|right|unknown):[0-9]+$", max_length=64)
-    track_id: int = Field(ge=0, le=65534)
+class NestedReIDDescriptors(StrictModel):
+    dino: str
+    osnet: str
+    kpr: str
+    kpr_prompt: str
+
+    @model_validator(mode="after")
+    def validate_descriptors(self) -> "NestedReIDDescriptors":
+        _reid_descriptor(self.dino, 384, "dino")
+        _reid_descriptor(self.osnet, 512, "osnet")
+        _reid_descriptor(self.kpr, 4096, "kpr")
+        _reid_descriptor(self.kpr_prompt, 4096, "kpr_prompt")
+        return self
+
+
+class NestedReIDRecipe(StrictModel):
+    name: Literal["nested-part-adaptation"]
+    version: Literal["1.0.0"]
+    selection_protocol: Literal["past-only-nested-leave-one-clip-out"]
+    roster_contract: Literal["fixed-six-per-team"]
+    modalities: list[dict[str, Any]] = Field(min_length=4)
+
+
+class FixedRosterTracklet(StrictModel):
+    canonical_track_id: int = Field(ge=0, le=65534)
+    track_ids: list[int] = Field(min_length=1)
+    court_side: Literal["left", "right", "unknown"]
+    median_court_pos: tuple[float, float] | None
     first_frame_index: WireUInt64
     last_frame_index: WireUInt64
     sample_count: int = Field(ge=1)
     mean_quality: float = Field(ge=0, le=1)
-    prototype: list[float] = Field(min_length=512, max_length=512)
-    cannot_link_track_ids: list[int]
+    prompt_coverage: float = Field(ge=0, le=1)
+    descriptors: NestedReIDDescriptors | None
+    cannot_link_canonical_track_ids: list[int]
 
     @field_validator("first_frame_index", "last_frame_index")
     @classmethod
     def validate_frame(cls, value: str, info: Any) -> str:
         return _digits(value, info.field_name)
 
-    @field_validator("prototype")
-    @classmethod
-    def validate_l2_prototype(cls, value: list[float]) -> list[float]:
-        if any(component < -1 or component > 1 for component in value):
-            raise ValueError("ReID prototype components must be within [-1, 1]")
-        norm = sqrt(sum(component * component for component in value))
-        if not 0.999 <= norm <= 1.001:
-            raise ValueError("ReID prototype must be L2-normalized")
-        return value
-
     @model_validator(mode="after")
-    def validate_track_evidence(self) -> "ReIDTrackFeature":
+    def validate_track_evidence(self) -> "FixedRosterTracklet":
         if int(self.first_frame_index) > int(self.last_frame_index):
             raise ValueError("ReID feature first frame cannot exceed last frame")
-        if len(self.cannot_link_track_ids) != len(set(self.cannot_link_track_ids)):
+        if self.canonical_track_id not in self.track_ids or len(self.track_ids) != len(set(self.track_ids)):
+            raise ValueError("ReID aliases must uniquely contain the canonical TID")
+        if len(self.cannot_link_canonical_track_ids) != len(set(self.cannot_link_canonical_track_ids)):
             raise ValueError("ReID cannot-link track IDs must be unique")
-        if self.track_id in self.cannot_link_track_ids:
+        if self.canonical_track_id in self.cannot_link_canonical_track_ids:
             raise ValueError("ReID feature cannot conflict with itself")
-        expected_gid = self.provisional_gid.rsplit(":", 1)[-1]
-        if expected_gid != str(self.track_id):
-            raise ValueError("ReID provisional GID must end with its track ID")
         return self
 
 
-class ReIDSideFeatureBank(StrictModel):
-    court_side: Literal["left", "right", "unknown"]
-    features: list[ReIDTrackFeature]
-
-    @model_validator(mode="after")
-    def validate_side_and_tracks(self) -> "ReIDSideFeatureBank":
-        track_ids = [feature.track_id for feature in self.features]
-        if len(track_ids) != len(set(track_ids)):
-            raise ValueError("ReID track IDs must be unique within one side bank")
-        prefix = f"clip:{self.court_side}:"
-        if any(not feature.provisional_gid.startswith(prefix) for feature in self.features):
-            raise ValueError("ReID provisional GID side must match its bank")
-        return self
-
-
-class ReIDFeatureBank(StrictModel):
-    schema_version: Literal["1.0.0"]
+class FixedRosterReID(StrictModel):
+    schema_version: Literal["2.0.0"]
     scope: Literal["clip"]
-    embedding_model: ReIDEmbeddingModel
-    side_feature_banks: list[ReIDSideFeatureBank] = Field(min_length=3, max_length=3)
+    identity_contract: Literal["fixed-six-per-team"]
+    slots_per_team: Literal[6]
+    descriptor_recipe: NestedReIDRecipe
+    tracklets: list[FixedRosterTracklet]
 
     @model_validator(mode="after")
-    def validate_complete_sides(self) -> "ReIDFeatureBank":
-        sides = [bank.court_side for bank in self.side_feature_banks]
-        if sorted(sides) != ["left", "right", "unknown"]:
-            raise ValueError("ReID feature bank must contain left, right and unknown exactly once")
-        all_tracks = [feature.track_id for bank in self.side_feature_banks for feature in bank.features]
-        if len(all_tracks) != len(set(all_tracks)):
-            raise ValueError("ReID track IDs must belong to exactly one side bank")
+    def validate_complete_sides(self) -> "FixedRosterReID":
+        canonical = {tracklet.canonical_track_id for tracklet in self.tracklets}
+        aliases = [track_id for tracklet in self.tracklets for track_id in tracklet.track_ids]
+        if len(canonical) != len(self.tracklets) or len(aliases) != len(set(aliases)):
+            raise ValueError("ReID canonical and alias TIDs must be unique")
+        for tracklet in self.tracklets:
+            for linked in tracklet.cannot_link_canonical_track_ids:
+                other = next((candidate for candidate in self.tracklets if candidate.canonical_track_id == linked), None)
+                if other is None or tracklet.canonical_track_id not in other.cannot_link_canonical_track_ids:
+                    raise ValueError("ReID cannot-links must be symmetric canonical TIDs")
         return self
 
 
@@ -601,14 +614,12 @@ class AnalysisDomainData(StrictModel):
 
     @model_validator(mode="after")
     def validate_counts_and_refs(self) -> "AnalysisDomainData":
-        reid_payload = self.extensions.get("reid_feature_bank")
+        reid_payload = self.extensions.get("fixed_roster_reid")
         if reid_payload is not None:
-            feature_bank = ReIDFeatureBank.model_validate(reid_payload)
+            feature_bank = FixedRosterReID.model_validate(reid_payload)
             result_tracks = {track.track_id for track in self.tracks}
             feature_tracks = {
-                feature.track_id
-                for bank in feature_bank.side_feature_banks
-                for feature in bank.features
+                track_id for tracklet in feature_bank.tracklets for track_id in tracklet.track_ids
             }
             if not feature_tracks.issubset(result_tracks):
                 raise ValueError("ReID feature references an unknown result track")
@@ -665,7 +676,7 @@ class OptionalExtensionsCapability(StrictModel):
     action: bool
     group_phase: bool
     confidence: bool
-    reid_feature_bank: bool = False
+    fixed_roster_reid: bool = False
 
 
 class ProviderLimits(StrictModel):
