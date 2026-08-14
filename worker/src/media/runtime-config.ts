@@ -25,6 +25,7 @@ const MediaIndexerEnvironment = z.object({
   ),
   YOUTUBE_EXTRACTOR_ARGS: z.string().min(1).default('youtube:player_client=default'),
   YOUTUBE_FORMAT: z.string().min(1).default(YOUTUBE_PROBE_FORMAT),
+  YOUTUBE_LIVE_MAX_CONSECUTIVE_FAILURES: z.coerce.number().int().min(1).max(100).default(5),
   YOUTUBE_VOD_CONCURRENT_FRAGMENTS: z.coerce.number().int().min(1).max(8).default(4),
   YOUTUBE_VOD_FORMAT: z.string().min(1).default(YOUTUBE_VOD_FORMAT),
   YT_DLP_COMMAND: z.string().min(1).default('yt-dlp'),

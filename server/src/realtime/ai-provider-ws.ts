@@ -75,10 +75,84 @@ export function isActiveProviderDelivery(
   job: { status: JobStatus; leasedUntil: Date | null },
   now: Date,
 ): boolean {
-  if (job.status === JobStatus.RUNNING) return true
-  return job.status === JobStatus.QUEUED
+  return (job.status === JobStatus.RUNNING || job.status === JobStatus.QUEUED)
     && job.leasedUntil !== null
     && job.leasedUntil > now
+}
+
+type ExpiredRunningJob = {
+  id: string
+  attemptCount: number
+  maxAttempts: number
+  submission: {
+    id: string
+    rally: {
+      id: string
+      matchId: string
+      program: { captureSessionId: string }
+    }
+  }
+}
+
+export async function recoverExpiredRunningAiJobs(database: PrismaClient, now: Date) {
+  const expired = await database.aiJob.findMany({
+    where: { status: JobStatus.RUNNING, leasedUntil: { lt: now } },
+    select: {
+      id: true,
+      attemptCount: true,
+      maxAttempts: true,
+      submission: {
+        select: {
+          id: true,
+          rally: {
+            select: {
+              id: true,
+              matchId: true,
+              program: { select: { captureSessionId: true } },
+            },
+          },
+        },
+      },
+    },
+    take: 100,
+  })
+  const recovered: Array<{ job: ExpiredRunningJob; terminal: boolean }> = []
+  for (const job of expired) {
+    const terminal = job.attemptCount >= job.maxAttempts
+    const changed = await database.$transaction(async (tx) => {
+      const updated = await tx.aiJob.updateMany({
+        where: { id: job.id, status: JobStatus.RUNNING, leasedUntil: { lt: now } },
+        data: {
+          status: terminal ? JobStatus.FAILED : JobStatus.QUEUED,
+          providerInstanceId: null,
+          deliveryId: null,
+          providerJobId: null,
+          leasedUntil: null,
+          acceptedAt: null,
+          startedAt: null,
+          completedAt: terminal ? now : null,
+          lastCallbackAt: null,
+          ...(terminal ? {} : { progress: null }),
+          stage: 'worker_lease_expired',
+          errorCode: terminal ? 'AI_EXECUTION_LEASE_EXHAUSTED' : null,
+          errorMessage: terminal ? 'AI Worker stopped renewing the execution lease before every attempt completed' : null,
+          availableAt: now,
+        },
+      })
+      if (updated.count !== 1) return false
+      await tx.rally.updateMany({
+        where: {
+          id: job.submission.rally.id,
+          voidedAt: null,
+          processingStatus: { in: [ProcessingStatus.AI_QUEUED, ProcessingStatus.AI_PROCESSING] },
+        },
+        data: { processingStatus: terminal ? ProcessingStatus.FAILED : ProcessingStatus.AI_QUEUED },
+      })
+      return true
+    })
+    if (changed) recovered.push({ job, terminal })
+  }
+  return recovered
 }
 
 /**
@@ -263,6 +337,15 @@ export const aiProviderWebSocketRoutes = (
           ticking = true
           try {
             const now = new Date()
+            const recoveredRunningJobs = await recoverExpiredRunningAiJobs(database, now)
+            for (const recovered of recoveredRunningJobs) {
+              await publishProgress(
+                recovered.job,
+                recovered.terminal ? 'failed' : 'ai_queued',
+                null,
+                recovered.terminal ? 'execution_lease_exhausted' : 'worker_lease_expired',
+              )
+            }
             const expiredQueuedOffers = await database.aiJob.findMany({
               where: { status: JobStatus.QUEUED, leasedUntil: { lt: now } },
               select: {

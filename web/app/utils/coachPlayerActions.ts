@@ -36,6 +36,7 @@ const ACTION_TRANSLATIONS: Record<string, string> = {
   serving: '發球',
   block: '攔網',
   blocking: '攔網',
+  standing: '站立',
 }
 
 const ACTION_COLORS = ['#007aff', '#ff3b30', '#34c759', '#ff9500', '#af52de', '#00a6a6', '#d05a91'] as const
@@ -58,6 +59,7 @@ const KNOWN_ACTION_COLORS: Record<string, string> = {
   serving: '#ff9500',
   block: '#d05a91',
   blocking: '#d05a91',
+  standing: '#8e8e93',
 }
 
 function actionRecord(value: unknown) {

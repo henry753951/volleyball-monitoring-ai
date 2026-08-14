@@ -18,7 +18,7 @@ export function createHostDevelopmentEnvironment(
   const redisPort = source.REDIS_HOST_PORT ?? '16379'
   const minioPort = source.MINIO_HOST_PORT ?? '9000'
   const omeApiPort = source.OME_API_HOST_PORT ?? '8081'
-  const omeRtmpPort = source.OME_RTMP_HOST_PORT ?? '1935'
+  const omeRtmpPort = source.OME_RTMP_HOST_PORT ?? '2035'
   const serverPort = source.SERVER_DEV_PORT ?? '4000'
   const webPort = source.WEB_DEV_PORT ?? '3100'
   const dataRoot = hostPath(source.DEV_DATA_ROOT, '../.data/runtime')

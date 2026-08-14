@@ -9,6 +9,7 @@ import {
   buildYoutubeVodDownloadArgs,
   classifyYoutubeSource,
   createMediaSourceProcess,
+  nextLiveRelayFailureCount,
   type MediaSourceProcessOptions,
 } from '../src/media/source-process.js'
 
@@ -61,6 +62,13 @@ describe('media source process', () => {
       '--format', 'vod-format', '--merge-output-format', 'mp4',
       '--output', '/work/source.%(ext)s', 'https://youtu.be/example',
     ])
+  })
+
+  it('bounds consecutive live relay failures and resets the budget on durable progress', () => {
+    expect(nextLiveRelayFailureCount(0, 0, 0)).toBe(1)
+    expect(nextLiveRelayFailureCount(4, 0, 0)).toBe(5)
+    expect(nextLiveRelayFailureCount(4, 3, 4)).toBe(0)
+    expect(() => nextLiveRelayFailureCount(-1, 0, 0)).toThrow()
   })
 
   it.skipIf(!hasFfmpeg)('segments an uploaded MP4 into resumable frame-timed recordings', async () => {

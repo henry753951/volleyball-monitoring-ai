@@ -13,6 +13,7 @@ import {
 describe('coachPlayerActions', () => {
   it('translates known labels without hiding provider-specific labels', () => {
     expect(actionDisplayLabel({ label: 'spiking', confidence: 0.92 })).toBe('殺球')
+    expect(actionDisplayLabel({ label: 'standing' })).toBe('站立')
     expect(actionDisplayLabel({ label: 'jump-float custom' })).toBe('jump-float custom')
     expect(actionKey('Jump Float')).toBe('jump_float')
     expect(actionColor('spiking')).not.toBe(actionColor('digging'))

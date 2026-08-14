@@ -375,9 +375,64 @@ export function solveSlots(
   const assigned = new Map<number, string>()
   let best: { assignedCount: number; score: number; assignments: Map<number, string> } | null = null
   const ordered = [...tracklets].sort((left, right) =>
-    right.cannotLinkCanonicalTrackIds.length - left.cannotLinkCanonicalTrackIds.length
+    Number(fixed.has(right.canonicalTrackId)) - Number(fixed.has(left.canonicalTrackId))
+    || right.cannotLinkCanonicalTrackIds.length - left.cannotLinkCanonicalTrackIds.length
     || right.sampleCount - left.sampleCount || left.canonicalTrackId - right.canonicalTrackId)
+  const scoreFor = (trackId: number, slotId: string) => scores.get(`${trackId}:${slotId}`) ?? 0
+  const optionsByTrack = new Map(ordered.map((tracklet) => {
+    const forced = fixed.get(tracklet.canonicalTrackId)
+    const options = (candidates.get(tracklet.canonicalTrackId) ?? [])
+      .filter(slot => !forced || slot.id === forced)
+      .sort((left, right) => scoreFor(tracklet.canonicalTrackId, right.id)
+        - scoreFor(tracklet.canonicalTrackId, left.id) || left.slotIndex - right.slotIndex)
+    return [tracklet.canonicalTrackId, options] as const
+  }))
+  const optimisticRemainingScore = Array.from({ length: ordered.length + 1 }, () => 0)
+  for (let index = ordered.length - 1; index >= 0; index -= 1) {
+    const tracklet = ordered[index]!
+    const highest = optionsByTrack.get(tracklet.canonicalTrackId)?.[0]
+    optimisticRemainingScore[index] = optimisticRemainingScore[index + 1]!
+      + Math.max(0, highest ? scoreFor(tracklet.canonicalTrackId, highest.id) : 0)
+  }
+
+  // Seed branch-and-bound with a deterministic valid assignment. Most clips
+  // contain many non-overlapping tracklets; without an incumbent the previous
+  // exhaustive 6^N search could keep the callback open after inference had
+  // already reached 98%.
+  let greedyScore = 0
+  let greedyValid = true
+  for (const tracklet of ordered) {
+    const forced = fixed.get(tracklet.canonicalTrackId)
+    const option = (optionsByTrack.get(tracklet.canonicalTrackId) ?? []).find(slot =>
+      !tracklet.cannotLinkCanonicalTrackIds.some(linked => assigned.get(linked) === slot.id))
+    if (!option) {
+      if (forced) {
+        greedyValid = false
+        break
+      }
+      continue
+    }
+    assigned.set(tracklet.canonicalTrackId, option.id)
+    greedyScore += scoreFor(tracklet.canonicalTrackId, option.id)
+  }
+  if (greedyValid) {
+    best = { assignedCount: assigned.size, score: greedyScore, assignments: new Map(assigned) }
+  }
+  assigned.clear()
+
+  // Weighted six-colouring is NP-hard. Keep the callback latency bounded on
+  // noisy clips while retaining the best valid incumbent found so far.
+  const searchBudget = Math.max(10_000, Math.min(100_000, ordered.length * 2_000))
+  let visitedStates = 0
   const visit = (index: number, total: number) => {
+    visitedStates += 1
+    if (visitedStates > searchBudget) return
+    if (best) {
+      const maximumAssigned = assigned.size + ordered.length - index
+      if (maximumAssigned < best.assignedCount) return
+      if (maximumAssigned === best.assignedCount
+        && total + optimisticRemainingScore[index]! <= best.score) return
+    }
     if (index === ordered.length) {
       if (!best || assigned.size > best.assignedCount
         || (assigned.size === best.assignedCount && total > best.score)) {
@@ -387,14 +442,10 @@ export function solveSlots(
     }
     const tracklet = ordered[index]!
     const forced = fixed.get(tracklet.canonicalTrackId)
-    const options = (candidates.get(tracklet.canonicalTrackId) ?? [])
-      .filter(slot => !forced || slot.id === forced)
-      .sort((left, right) => (scores.get(`${tracklet.canonicalTrackId}:${right.id}`) ?? 0)
-        - (scores.get(`${tracklet.canonicalTrackId}:${left.id}`) ?? 0) || left.slotIndex - right.slotIndex)
-    for (const slot of options) {
+    for (const slot of optionsByTrack.get(tracklet.canonicalTrackId) ?? []) {
       if (tracklet.cannotLinkCanonicalTrackIds.some(linked => assigned.get(linked) === slot.id)) continue
       assigned.set(tracklet.canonicalTrackId, slot.id)
-      visit(index + 1, total + (scores.get(`${tracklet.canonicalTrackId}:${slot.id}`) ?? 0))
+      visit(index + 1, total + scoreFor(tracklet.canonicalTrackId, slot.id))
       assigned.delete(tracklet.canonicalTrackId)
     }
     // A detector/bench tracklet can overlap all six active slots across

@@ -12,6 +12,8 @@ import {
   listCompletedMediaSpoolCandidates,
   mediaSourceWorkStates,
   recordMediaSourceClassification,
+  recordMediaSourceRelayError,
+  recordMediaSourceRelayHealthy,
   recordMediaSourceResume,
   releaseMediaSourceLease,
   requestMediaSourceCompletion,
@@ -31,6 +33,9 @@ type ActiveSource = {
   controller: AbortController
   phase: 'source' | 'draining'
   promise: Promise<void>
+  relayErrorAt: string | null
+  relayErrorName: string | null
+  retryBudgetReset: boolean
   stopRequested: boolean
   work: ClaimedMediaSourceWork
 }
@@ -101,8 +106,15 @@ export class MediaSourceRuntime {
   }
 
   get snapshot() {
+    const relayErrors = [...this.#active.values()]
+      .filter(active => active.relayErrorAt && active.relayErrorName)
+      .sort((left, right) => (right.relayErrorAt ?? '').localeCompare(left.relayErrorAt ?? ''))
+    const latestRelayError = relayErrors[0]
     return {
       active: this.#active.size,
+      activeFailureCount: relayErrors.length,
+      activeLastErrorAt: latestRelayError?.relayErrorAt ?? null,
+      activeLastErrorName: latestRelayError?.relayErrorName ?? null,
       failedCount: this.#failedCount,
       lastErrorAt: this.#lastErrorAt,
       lastErrorName: this.#lastErrorName,
@@ -144,8 +156,15 @@ export class MediaSourceRuntime {
       const states = await mediaSourceWorkStates(this.options.database, activeIds)
       for (const [id, active] of this.#active) {
         const state = states.get(id)
-        if (!['RUNNING', 'DRAINING'].includes(state ?? '') && !active.controller.signal.aborted) {
-          active.stopRequested = state === 'STOP_REQUESTED' || state === undefined
+        if (state?.sourceOnline && (!active.retryBudgetReset || active.relayErrorName)) {
+          active.relayErrorAt = null
+          active.relayErrorName = null
+          active.retryBudgetReset = true
+          active.work.attempts = 0
+          await recordMediaSourceRelayHealthy(this.options.database, id, this.#owner)
+        }
+        if (!['RUNNING', 'DRAINING'].includes(state?.status ?? '') && !active.controller.signal.aborted) {
+          active.stopRequested = state?.status === 'STOP_REQUESTED' || state === undefined
           active.controller.abort()
         }
       }
@@ -197,6 +216,9 @@ export class MediaSourceRuntime {
       controller,
       phase: 'source',
       promise: Promise.resolve(),
+      relayErrorAt: null,
+      relayErrorName: null,
+      retryBudgetReset: false,
       stopRequested: false,
       work,
     }
@@ -211,6 +233,9 @@ export class MediaSourceRuntime {
       controller,
       phase: 'draining',
       promise: Promise.resolve(),
+      relayErrorAt: null,
+      relayErrorName: null,
+      retryBudgetReset: false,
       stopRequested: true,
       work,
     }
@@ -223,6 +248,9 @@ export class MediaSourceRuntime {
       controller: new AbortController(),
       phase: 'draining',
       promise: Promise.resolve(),
+      relayErrorAt: null,
+      relayErrorName: null,
+      retryBudgetReset: false,
       stopRequested: false,
       work,
     }
@@ -250,6 +278,13 @@ export class MediaSourceRuntime {
         state.classification = value
         await recordMediaSourceClassification(this.options.database, work.captureSessionId, value)
         this.options.log?.(`media-source classified capture=${work.captureSessionId} kind=${value.sourceKind}`)
+      },
+      retrying: async code => {
+        active.relayErrorAt = new Date().toISOString()
+        active.relayErrorName = code
+        active.retryBudgetReset = false
+        await recordMediaSourceRelayError(this.options.database, work.id, this.#owner, code)
+        this.options.log?.(`media-source live relay retry capture=${work.captureSessionId} code=${code}`)
       },
       resumed: (segmentIndex, captureTimeUs) => recordMediaSourceResume(this.options.database, work.id, segmentIndex, captureTimeUs),
     }

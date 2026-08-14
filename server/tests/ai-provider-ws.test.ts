@@ -3,7 +3,12 @@ import websocket from '@fastify/websocket'
 import Fastify from 'fastify'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { WebSocket } from 'ws'
-import { aiProviderWebSocketRoutes, compatible, isActiveProviderDelivery } from '../src/realtime/ai-provider-ws.js'
+import {
+  aiProviderWebSocketRoutes,
+  compatible,
+  isActiveProviderDelivery,
+  recoverExpiredRunningAiJobs,
+} from '../src/realtime/ai-provider-ws.js'
 
 const instanceId = '00000000-0000-4000-8000-000000000902'
 const token = 'provider-token-long-enough'
@@ -67,7 +72,7 @@ describe('AI provider websocket startup', () => {
     })).toBe(false)
   })
 
-  it('does not let an expired queued offer occupy provider capacity', () => {
+  it('does not let an expired queued or running lease occupy provider capacity', () => {
     const now = new Date('2026-08-10T00:00:00.000Z')
 
     expect(isActiveProviderDelivery({
@@ -78,7 +83,53 @@ describe('AI provider websocket startup', () => {
       status: 'QUEUED',
       leasedUntil: new Date(now.getTime() + 1),
     }, now)).toBe(true)
-    expect(isActiveProviderDelivery({ status: 'RUNNING', leasedUntil: null }, now)).toBe(true)
+    expect(isActiveProviderDelivery({ status: 'RUNNING', leasedUntil: null }, now)).toBe(false)
+    expect(isActiveProviderDelivery({
+      status: 'RUNNING',
+      leasedUntil: new Date(now.getTime() + 1),
+    }, now)).toBe(true)
+  })
+
+  it('requeues an expired running job so another Worker can resume it', async () => {
+    const now = new Date('2026-08-14T01:30:00.000Z')
+    const updateJob = vi.fn(async () => ({ count: 1 }))
+    const updateRally = vi.fn(async () => ({ count: 1 }))
+    const expiredJob = {
+      id: '00000000-0000-4000-8000-000000000909',
+      attemptCount: 1,
+      maxAttempts: 5,
+      submission: {
+        id: '00000000-0000-4000-8000-000000000910',
+        rally: {
+          id: '00000000-0000-4000-8000-000000000911',
+          matchId: '00000000-0000-4000-8000-000000000912',
+          program: { captureSessionId: '00000000-0000-4000-8000-000000000913' },
+        },
+      },
+    }
+    const database = {
+      aiJob: { findMany: async () => [expiredJob] },
+      $transaction: async (callback: (tx: unknown) => Promise<unknown>) => callback({
+        aiJob: { updateMany: updateJob },
+        rally: { updateMany: updateRally },
+      }),
+    } as unknown as PrismaClient
+
+    await expect(recoverExpiredRunningAiJobs(database, now)).resolves.toEqual([
+      { job: expiredJob, terminal: false },
+    ])
+    expect(updateJob).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        deliveryId: null,
+        providerInstanceId: null,
+        stage: 'worker_lease_expired',
+        status: 'QUEUED',
+      }),
+      where: expect.objectContaining({ id: expiredJob.id, status: 'RUNNING' }),
+    }))
+    expect(updateRally).toHaveBeenCalledWith(expect.objectContaining({
+      data: { processingStatus: 'AI_QUEUED' },
+    }))
   })
 
   it('buffers an immediate provider hello while token authentication is pending', async () => {
@@ -99,6 +150,7 @@ describe('AI provider websocket startup', () => {
       aiJob: {
         findMany: async () => [],
       },
+      outboxEvent: { findMany: async () => [] },
       $queryRaw: async () => [],
     } as unknown as PrismaClient
 

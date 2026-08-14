@@ -139,4 +139,52 @@ describe('fixed roster Nested Part ReID', () => {
     expect(assignment.size).toBe(6)
     expect(assignment.has(7)).toBe(false)
   })
+
+  it('solves many non-overlapping tracklets without exhaustive slot permutations', () => {
+    const slots = Array.from({ length: 6 }, (_, index) => ({
+      id: `slot-${index + 1}`,
+      label: `S${index + 1}`,
+      slotIndex: index + 1,
+      teamId: 'team-1',
+    }))
+    const tracklets = Array.from({ length: 48 }, (_, index) => ({
+      canonicalTrackId: index + 1,
+      trackIds: [index + 1],
+      cannotLinkCanonicalTrackIds: [],
+      sampleCount: 100 - index,
+    }))
+    const candidates = new Map(tracklets.map(tracklet => [tracklet.canonicalTrackId, slots]))
+    const scores = new Map(tracklets.flatMap(tracklet => slots.map(slot => [
+      `${tracklet.canonicalTrackId}:${slot.id}`,
+      slot.slotIndex === (tracklet.canonicalTrackId % 6) + 1 ? 1 : 0,
+    ] as const)))
+
+    const assignment = solveSlots(tracklets as any, candidates, scores)
+
+    expect(assignment.size).toBe(48)
+    expect(assignment.get(1)).toBe('slot-2')
+    expect(assignment.get(48)).toBe('slot-1')
+  })
+
+  it('keeps a bounded valid roster for a pathological all-overlapping graph', () => {
+    const slots = Array.from({ length: 6 }, (_, index) => ({
+      id: `slot-${index + 1}`,
+      label: `S${index + 1}`,
+      slotIndex: index + 1,
+      teamId: 'team-1',
+    }))
+    const tracklets = Array.from({ length: 42 }, (_, index) => ({
+      canonicalTrackId: index + 1,
+      trackIds: [index + 1],
+      cannotLinkCanonicalTrackIds: Array.from({ length: 42 }, (_, linked) => linked + 1)
+        .filter(linked => linked !== index + 1),
+      sampleCount: 100 - index,
+    }))
+    const candidates = new Map(tracklets.map(tracklet => [tracklet.canonicalTrackId, slots]))
+
+    const assignment = solveSlots(tracklets as any, candidates, new Map())
+
+    expect(assignment.size).toBe(6)
+    expect([...assignment.keys()]).toEqual([1, 2, 3, 4, 5, 6])
+  })
 })

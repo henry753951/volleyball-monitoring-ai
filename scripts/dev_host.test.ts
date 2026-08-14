@@ -2,6 +2,12 @@ import { describe, expect, it } from 'bun:test'
 import { createDevelopmentProcesses, createHostDevelopmentEnvironment } from './dev_host.js'
 
 describe('host development environment', () => {
+  it('uses the same safe RTMP host-port default as Compose', () => {
+    const environment = createHostDevelopmentEnvironment({})
+
+    expect(environment.MEDIA_INGEST_BASE_URL).toBe('rtmp://127.0.0.1:2035/app')
+  })
+
   it('maps container DNS endpoints to loopback ports without changing browser API paths', () => {
     const environment = createHostDevelopmentEnvironment({
       POSTGRES_HOST_PORT: '15433',
