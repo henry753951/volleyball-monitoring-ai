@@ -11,7 +11,6 @@ import {
 import {
   playerContactShare,
   playerParticipation,
-  teamContactCount,
   teamParticipation,
   teamTracks,
 } from '~/utils/coachPresentation'
@@ -38,7 +37,6 @@ const selectedPlayerTeam = computed(() => analytics.value?.teams.find(team => te
 const selectedTeam = computed(() => analytics.value?.teams.find(team => team.id === selectedTeamId.value) ?? analytics.value?.teams[0] ?? null)
 const selectedTeamPlayers = computed(() => analytics.value?.players.filter(player => player.team_id === selectedTeam.value?.id) ?? [])
 const selectedTeamTracks = computed(() => analytics.value && selectedTeam.value ? teamTracks(analytics.value, selectedTeam.value.id) : [])
-const selectedTeamContacts = computed(() => analytics.value && selectedTeam.value ? teamContactCount(analytics.value, selectedTeam.value.id) : 0)
 const selectedTeamParticipation = computed(() => analytics.value && selectedTeam.value ? teamParticipation(analytics.value, selectedTeam.value.id) : 0)
 const selectedTeamWinRate = computed(() => {
   const team = selectedTeam.value
@@ -169,7 +167,7 @@ function refreshAfterIdentityChange() {
             <section class="entity-list__group team-entities">
               <h2>全隊統計</h2>
               <button v-for="team in analytics.teams" :key="team.id" type="button" :class="{ active: selectedTeam?.id === team.id }" @click="selectTeam(team.id)">
-                <span>{{ team.shortName || 'TEAM' }}</span><b>{{ team.name }}</b><small>{{ teamContactCount(analytics, team.id) }} 擊球</small>
+                <span>{{ team.shortName || 'TEAM' }}</span><b>{{ team.name }}</b><small>{{ teamParticipation(analytics, team.id) }} 回合</small>
               </button>
             </section>
             <p v-if="!analytics.teams.length" class="entity-list__empty">尚無隊伍資料</p>
@@ -212,7 +210,7 @@ function refreshAfterIdentityChange() {
               <div><dt>人物狀態</dt><dd class="mapping-state">{{ selectedMappedPlayer ? '已綁定' : '待分配' }}</dd><small>{{ selectedMappedPlayer ? playerBadge(selectedMappedPlayer) : '仍保留此 local ID 的所有紀錄' }}</small></div>
             </template>
             <template v-else-if="selectedTeam">
-              <div><dt>全隊擊球</dt><dd>{{ selectedTeamContacts }}</dd><small>已綁定球員的分析事件</small></div>
+              <div><dt>模型動作</dt><dd>{{ eventState.events.value.length }}</dd><small>含未分配片段 ID 的分析事件</small></div>
               <div><dt>動作種類</dt><dd>{{ actionOptions.length }}</dd><small>隊伍所有可用動作分類</small></div>
               <div><dt>參與回合</dt><dd>{{ selectedTeamParticipation }}</dd><small>含已辨識的匿名人物 ID</small></div>
               <div><dt>已確認勝率</dt><dd>{{ selectedTeamWinRate === null ? '—' : `${(selectedTeamWinRate * 100).toFixed(1)}%` }}</dd><small>{{ selectedTeam.wins }} 勝 · {{ selectedTeam.losses }} 負 · {{ selectedTeam.unknown }} 未知</small></div>
@@ -248,7 +246,8 @@ function refreshAfterIdentityChange() {
                     :style="{ left: `${Math.max(0, Math.min(100, event.courtPosition!.x * 100))}%`, top: `${Math.max(0, Math.min(100, event.courtPosition!.y * 100))}%`, '--action-color': actionColor(event.actionKey) }"
                     :title="`第 ${event.setNumber} 局 · 回合 ${event.rallyOrdinal} · ${event.actionLabel}`"
                   />
-                  <p v-if="!selectedHeatmap.length">這個篩選沒有可用的場地位置</p>
+                  <p v-if="!filteredEvents.length">目前沒有可用的動作資料</p>
+                  <p v-else-if="!selectedHeatmap.length">這個篩選沒有可用的場地位置</p>
                 </div>
               </article>
               <aside class="action-rate">

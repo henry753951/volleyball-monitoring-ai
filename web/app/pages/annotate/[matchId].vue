@@ -27,8 +27,8 @@ import {
    type MediaAction,
 } from "~/utils/annotationHotkeys";
 import {
+   boundaryCommandAvailability,
    draftCommandAvailability,
-   openDraftBlocksNewRally,
 } from "~/utils/annotationCommandAvailability";
 import type { PlaybackCursorInput } from "~/lib/mediaModel";
 import {
@@ -142,7 +142,6 @@ const pendingTimelineMove = shallowRef<{
 } | null>(null);
 const frameQueueRunning = ref(false);
 const frameQueuePending = ref(false);
-const keyPointNudgeRunning = ref(false);
 const seekPreviewActive = ref(false);
 const canMark = computed(
    () =>
@@ -163,6 +162,9 @@ const editReady = computed(
       !annotation.busy.value &&
       !pendingTimelineMove.value &&
       annotation.pendingCount.value === 0,
+);
+const keyPointEditReady = computed(
+   () => editReady.value || keyPointNavigation.active.value,
 );
 const { bindings } = useAnnotationHotkeys();
 const annotationScope = useTemplateRef<HTMLElement>("annotationScope");
@@ -310,7 +312,6 @@ let timelineRefreshTimer: ReturnType<typeof setInterval> | null = null;
 let timelineMoveTimeout: ReturnType<typeof setTimeout> | null = null;
 let cursorResolveTimer: ReturnType<typeof setTimeout> | null = null;
 let seekPreviewTimer: ReturnType<typeof setTimeout> | null = null;
-let keyPointNudgeTimer: ReturnType<typeof setTimeout> | null = null;
 let seekPreviewTarget: string | null = null;
 let cursorResolveInFlight = false;
 let pendingCursorResolve: PlaybackCursorInput | null = null;
@@ -328,8 +329,7 @@ let continuationRetryTimer: ReturnType<typeof setTimeout> | null = null;
 let windowCreatePromise: ReturnType<typeof dvr.create> | null = null;
 let windowCreateTarget: string | undefined;
 let windowCreateMode: "live" | "archive" | undefined;
-let queuedKeyPointDelta = 0;
-let queuedKeyPointId: string | null = null;
+let keyPointNudgeTargetId: string | null = null;
 let framePreviewTargetSeconds: number | null = null;
 let framePreviewRaf: number | null = null;
 let estimatedFrameSeconds = 1 / 60;
@@ -382,6 +382,24 @@ const frameNavigation = useCoalescedFrameNavigation({
       framePreviewTargetSeconds = null;
    },
    settleMs: 140,
+   holdWatchdogMs: 650,
+});
+const keyPointNavigation = useCoalescedFrameNavigation({
+   preview: previewKeyPointNudge,
+   step: performKeyPointNudge,
+   apply: (frame) => {
+      if (video.value) seekVideoToCanonicalFrame(video.value, frame);
+   },
+   onError: (error) => {
+      toast.error(error instanceof Error ? error.message : "擊球點微調失敗");
+   },
+   onSettled: () => {
+      if (keyPointNudgeTargetId)
+         clearKeyPointMovePreview(keyPointNudgeTargetId);
+      keyPointNudgeTargetId = null;
+      releaseEditingIntent();
+   },
+   settleMs: 90,
    holdWatchdogMs: 650,
 });
 watchEffect(() => {
@@ -1103,9 +1121,7 @@ const syncLabel = computed(() =>
         ? "WS 需重新同步"
         : annotation.error.value
           ? "WS 需注意"
-          : annotation.pendingCount.value || annotation.busy.value
-         ? "WS 同步中"
-         : ["connecting", "reconnecting"].includes(annotation.connection.value)
+          : ["connecting", "reconnecting"].includes(annotation.connection.value)
            ? "WS 連線中"
          : annotation.connection.value === "ready"
            ? "WS 正常"
@@ -1175,37 +1191,32 @@ function commandAvailability(action: AnnotationAction) {
          ? { enabled: true, reason: "" }
          : { enabled: false, reason: "片段尚未完成" };
    if (action === "service") {
-      const cursor = visualPlayhead.value;
-      if (!cursor || !canMark.value)
-         return { enabled: false, reason: "播放游標尚未確認" };
-      const cursorValue = BigInt(cursor);
       const startBoundary = displayAnnotation.value?.snapshot.boundaries?.find(
          (boundary) => boundary.kind === "start",
       );
-      if (
-         state.value === "OPEN" &&
-         !displayAnnotation.value?.snapshot.active_submission_id
-      ) {
-         if (!startBoundary)
-            return { enabled: false, reason: "目前片段缺少開始邊界" };
-         return cursorValue > BigInt(startBoundary.capture_time_us)
-            ? {
-                 enabled: true,
-                 reason: "再次按 Z，以目前畫面作為片段結束",
-              }
-            : {
-                 enabled: false,
-                 reason: "請將游標移到片段開始之後再結束",
-              };
-      }
-      if (
-         openDraftBlocksNewRally(
-            state.value,
+      const otherBoundaries =
+         displayAnnotation.value?.snapshot.boundaries
+            ?.filter((boundary) => boundary.kind !== "start")
+            .map((boundary) => boundary.capture_time_us) ?? [];
+      return boundaryCommandAvailability({
+         state: state.value,
+         activeSubmissionId:
             displayAnnotation.value?.snapshot.active_submission_id,
-         )
-      )
-         return { enabled: false, reason: "目前仍有正在編輯的片段" };
-      return { enabled: true, reason: "" };
+         canMark: canMark.value,
+         cursorCaptureTimeUs: visualPlayhead.value,
+         currentRallyId: displayAnnotation.value?.rally_id,
+         startBoundaryCaptureTimeUs: startBoundary?.capture_time_us,
+         currentDraftCaptureTimes: [
+            ...(startBoundary ? [startBoundary.capture_time_us] : []),
+            ...(displayAnnotation.value?.snapshot.key_points.map(
+               (point) => point.capture_time_us,
+            ) ?? []),
+            ...otherBoundaries,
+         ],
+         clipPreRollUs: clipPreRollUs.value,
+         clipPostRollUs: clipPostRollUs.value,
+         segments: selectableSegmentRanges.value,
+      });
    }
    return draftCommandAvailability({
       action,
@@ -1356,8 +1367,7 @@ function handleCursor(cursor: PlaybackCursorInput) {
       seekPreviewActive.value ||
       frameQueueRunning.value ||
       frameQueuePending.value ||
-      keyPointNudgeRunning.value ||
-      queuedKeyPointDelta !== 0
+      keyPointNavigation.active.value
    )
       return;
    if (cursor.cursor_status !== "ready") {
@@ -1468,7 +1478,7 @@ async function seekTimeline(targetCaptureTimeUs: string) {
    seekPreviewTarget = null;
    if (seekPreviewTimer) clearTimeout(seekPreviewTimer);
    prepareAuthoritativeSeek();
-   if (keyPointNudgeTimer) clearTimeout(keyPointNudgeTimer);
+   keyPointNavigation.cancel();
    seekPreviewTimer = null;
    const target = liveCapture.value
       ? clampLiveEdgeTarget(
@@ -1691,36 +1701,22 @@ async function moveTimelineKeyPoint(
    }
 }
 
-function nudgeSelectedKeyPoint(direction: "previous" | "next", count = 1) {
-   const point = selectedKeyPoint.value;
-   const capture = selectedCapture.value;
-   if (
-      !point ||
-      !capture ||
-      state.value !== "OPEN" ||
-      !editReady.value ||
-      keyPointNudgeRunning.value
-   )
-      return;
-   if (queuedKeyPointId && queuedKeyPointId !== point.key_point_id) return;
-   queuedKeyPointId = point.key_point_id;
-   queuedKeyPointDelta = Math.max(
-      -120,
-      Math.min(
-         120,
-         queuedKeyPointDelta + (direction === "next" ? count : -count),
-      ),
+function previewKeyPointNudge(delta: number) {
+   const keyPointId = keyPointNudgeTargetId;
+   if (!keyPointId) return;
+   const point = annotation.snapshot.value?.snapshot.key_points.find(
+      (candidate) => candidate.key_point_id === keyPointId,
    );
-   annotation.setEditingKeyPoint(point.key_point_id);
+   if (!point) return;
    const estimatedFrameUs = BigInt(
       Math.max(1, Math.round(estimatedFrameSeconds * 1_000_000)),
    );
-   const previewUs =
-      BigInt(point.capture_time_us) +
-      BigInt(queuedKeyPointDelta) * estimatedFrameUs;
+   const previewUs = BigInt(
+      optimisticKeyPointMoves.value[keyPointId] ?? point.capture_time_us,
+   ) + BigInt(delta) * estimatedFrameUs;
    if (previewUs >= 0n) {
       const preview = previewUs.toString();
-      previewKeyPointMove(point.key_point_id, preview);
+      previewKeyPointMove(keyPointId, preview);
       const window = descriptor.value;
       if (
          video.value &&
@@ -1734,87 +1730,89 @@ function nudgeSelectedKeyPoint(direction: "previous" | "next", count = 1) {
             1_000_000;
       }
    }
-   if (keyPointNudgeTimer) clearTimeout(keyPointNudgeTimer);
-   keyPointNudgeTimer = setTimeout(() => {
-      keyPointNudgeTimer = null;
-      void flushKeyPointNudge();
-   }, 90);
 }
 
-async function flushKeyPointNudge() {
-   const keyPointId = queuedKeyPointId;
-   const delta = queuedKeyPointDelta;
-   queuedKeyPointId = null;
-   queuedKeyPointDelta = 0;
-   if (!keyPointId || delta === 0) {
-      if (keyPointId) clearKeyPointMovePreview(keyPointId);
-      releaseEditingIntent();
+function nudgeSelectedKeyPoint(
+   direction: "previous" | "next",
+   count = 1,
+   input: "keyboard" | "button" = "button",
+) {
+   const point = selectedKeyPoint.value;
+   if (
+      !point ||
+      !selectedCapture.value ||
+      state.value !== "OPEN" ||
+      !commandReady.value ||
+      pendingTimelineMove.value ||
+      (!editReady.value && !keyPointNavigation.active.value)
+   )
       return;
-   }
+   if (
+      keyPointNudgeTargetId &&
+      keyPointNudgeTargetId !== point.key_point_id
+   )
+      return;
+   keyPointNudgeTargetId = point.key_point_id;
+   annotation.setEditingKeyPoint(point.key_point_id);
+   keyPointNavigation.enqueue(direction, count, input);
+}
+
+async function performKeyPointNudge(
+   direction: "previous" | "next",
+   count: number,
+) {
+   const keyPointId = keyPointNudgeTargetId;
    const point = annotation.snapshot.value?.snapshot.key_points.find(
       (candidate) => candidate.key_point_id === keyPointId,
    );
    const capture = selectedCapture.value;
    if (!point || !capture || state.value !== "OPEN") {
-      clearKeyPointMovePreview(keyPointId);
-      releaseEditingIntent();
-      return;
+      throw new Error("目前擊球點已無法編輯");
    }
-   keyPointNudgeRunning.value = true;
-   try {
-      let window = descriptor.value;
-      if (
-         !window ||
-         BigInt(point.capture_time_us) <
-            BigInt(window.window_capture_start_us) ||
-         BigInt(point.capture_time_us) >= BigInt(window.window_capture_end_us)
-      ) {
-         window = await dvr.create({
-            schema_version: "1.0.0",
-            capture_session_id: capture.id,
-            mode: "archive",
-            target_capture_time_us: point.capture_time_us,
-         });
-      }
-      if (!window) throw new Error("無法建立擊球點微調視窗");
-      const frame = await media.frameStep({
-         schema_version: "1.1.0",
-         capture_session_id: capture.id,
-         playback_window_id: window.playback_window_id,
-         mapping_version: window.mapping_version,
-         capture_frame_index: point.capture_frame_index,
-         direction: delta > 0 ? "next" : "previous",
-         count: Math.abs(delta),
-      });
-      const cursor: PlaybackCursorInput = {
+   let window = descriptor.value;
+   if (
+      !window ||
+      BigInt(point.capture_time_us) < BigInt(window.window_capture_start_us) ||
+      BigInt(point.capture_time_us) >= BigInt(window.window_capture_end_us)
+   ) {
+      window = await dvr.create({
          schema_version: "1.0.0",
-         playback_window_id: frame.playback_window_id,
-         mapping_version: frame.mapping_version,
-         player_media_time_us: frame.player_media_time_us,
-         observation_source: "current_time_fallback",
-         presented_frames: null,
-         seek_generation: (observedCursor.value?.seek_generation ?? 0) + 1,
-         cursor_status: "ready",
-      };
-      observedCursor.value = cursor;
-      cursorStatus.value = "ready";
-      const resolved = await dvr.resolve(cursor);
-      if (!resolved) throw new Error("伺服器無法解析微調畫格");
-      if (movedPointWouldOverlap(point.key_point_id, resolved.capture_time_us))
-         throw new Error("移動後的片段範圍會與其他片段重疊");
-      previewKeyPointMove(point.key_point_id, frame.capture_time_us);
-      if (video.value) seekVideoToCanonicalFrame(video.value, frame);
-      await annotation.edit("MOVE_KEY_POINT", {
-         keyPointId: point.key_point_id,
-         cursor,
+         capture_session_id: capture.id,
+         mode: "archive",
+         target_capture_time_us: point.capture_time_us,
       });
-   } catch (error) {
-      toast.error(error instanceof Error ? error.message : "擊球點微調失敗");
-   } finally {
-      keyPointNudgeRunning.value = false;
-      clearKeyPointMovePreview(keyPointId);
-      releaseEditingIntent();
    }
+   if (!window) throw new Error("無法建立擊球點微調視窗");
+   const frame = await media.frameStep({
+      schema_version: "1.1.0",
+      capture_session_id: capture.id,
+      playback_window_id: window.playback_window_id,
+      mapping_version: window.mapping_version,
+      capture_frame_index: point.capture_frame_index,
+      direction,
+      count,
+   });
+   const cursor: PlaybackCursorInput = {
+      schema_version: "1.0.0",
+      playback_window_id: frame.playback_window_id,
+      mapping_version: frame.mapping_version,
+      player_media_time_us: frame.player_media_time_us,
+      observation_source: "current_time_fallback",
+      presented_frames: null,
+      seek_generation: (observedCursor.value?.seek_generation ?? 0) + 1,
+      cursor_status: "ready",
+   };
+   observedCursor.value = cursor;
+   cursorStatus.value = "ready";
+   const resolved = await dvr.resolve(cursor);
+   if (!resolved) throw new Error("伺服器無法解析微調畫格");
+   if (movedPointWouldOverlap(point.key_point_id, resolved.capture_time_us))
+      throw new Error("移動後的片段範圍會與其他片段重疊");
+   await annotation.edit("MOVE_KEY_POINT", {
+      keyPointId: point.key_point_id,
+      cursor,
+   });
+   return frame;
 }
 
 function deleteSelectedKeyPoint() {
@@ -1905,9 +1903,10 @@ async function createSelectedCorrection(
       // Select the returned Rally directly. Depending on the dashboard refresh here
       // made a successfully-created draft look like the old completed analysis.
       pinnedRallyId.value = rallyId;
-      selectedTimelineItem.value = "mask";
-      selectedKeyPointId.value =
+      const initialKeyPointId =
          annotation.lastKeyPoint.value?.key_point_id ?? null;
+      selectedTimelineItem.value = initialKeyPointId ? "point" : "mask";
+      selectedKeyPointId.value = initialKeyPointId;
 
       if (state.value !== "OPEN" && state.value !== "READY") {
          await annotation.selectRally(rallyId);
@@ -2795,6 +2794,7 @@ function dispatchHotkeyCommand(action: HotkeyCommand, event: KeyboardEvent) {
       void nudgeSelectedKeyPoint(
          action === "frame_next" ? "next" : "previous",
          frameCount,
+         "keyboard",
       );
       return;
    }
@@ -2808,8 +2808,11 @@ function dispatchHotkeyCommand(action: HotkeyCommand, event: KeyboardEvent) {
 }
 
 function releaseHotkeyCommand(action: HotkeyCommand) {
-   if (action === "frame_previous" || action === "frame_next")
-      frameNavigation.release(action === "frame_next" ? "next" : "previous");
+   if (action !== "frame_previous" && action !== "frame_next") return;
+   const direction = action === "frame_next" ? "next" : "previous";
+   if (keyPointNudgeTargetId || keyPointNavigation.active.value)
+      keyPointNavigation.release(direction);
+   else frameNavigation.release(direction);
 }
 
 async function retrySelectedProcessing() {
@@ -2841,7 +2844,11 @@ function commandEnabled(action: HotkeyCommand) {
       return navigableKeyPoints.value.length > 0;
    if (action.startsWith("frame_") && selectedEditableKeyPoint.value) {
       return Boolean(
-         selectedCapture.value && state.value === "OPEN" && editReady.value,
+         selectedCapture.value &&
+            state.value === "OPEN" &&
+            commandReady.value &&
+            !pendingTimelineMove.value &&
+            keyPointEditReady.value,
       );
    }
    return action.startsWith("frame_")
@@ -2928,6 +2935,7 @@ watch(
 watch(
    () => displayAnnotation.value?.rally_id,
    () => {
+      keyPointNavigation.cancel();
       selectedKeyPointId.value = null;
       if (selectedTimelineItem.value === "point") {
          selectedTimelineItem.value = pinnedRallyId.value
@@ -3128,7 +3136,7 @@ onBeforeUnmount(() => {
    if (seekPreviewTimer) clearTimeout(seekPreviewTimer);
    frameNavigation.stop();
    if (framePreviewRaf !== null) cancelAnimationFrame(framePreviewRaf);
-   if (keyPointNudgeTimer) clearTimeout(keyPointNudgeTimer);
+   keyPointNavigation.stop();
    if (continuationRetryTimer) clearTimeout(continuationRetryTimer);
    annotation.setEditingKeyPoint(null);
    detachVideoState(video.value);
@@ -3148,14 +3156,14 @@ onBeforeUnmount(() => {
          :sync-label="syncLabel"
          :latency-ms="annotation.latencyMs.value"
          :busy="
-            annotation.busy.value ||
-            annotation.pendingCount.value > 0 ||
-            annotation.connection.value !== 'ready'
+            annotationResyncing ||
+            ['connecting', 'reconnecting'].includes(annotation.connection.value)
          "
          :error="
             Boolean(
                annotation.error.value ||
-               annotation.outboxNeedsConfirmation.value,
+               annotation.outboxNeedsConfirmation.value ||
+               annotation.connection.value === 'closed',
             )
          "
          :connection-title="`${annotation.connection.value} · ${annotation.latencyMs.value ?? '—'} ms · ${selectedCapture?.health ?? 'unknown'}`"
@@ -3468,7 +3476,7 @@ onBeforeUnmount(() => {
             :navigable="navigableKeyPoints.length > 0"
             :selected-point="Boolean(selectedKeyPoint)"
             :editable="state === 'OPEN'"
-            :edit-ready="editReady"
+            :edit-ready="keyPointEditReady"
             :point-delete-enabled="Boolean(selectedDeletablePoint)"
             :muted="muted"
             :timeline-scale="timelineScale"

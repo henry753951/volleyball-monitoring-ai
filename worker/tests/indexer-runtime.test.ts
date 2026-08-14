@@ -139,6 +139,7 @@ describe('media indexer runtime kernel', () => {
       MEDIA_SOURCE_CONCURRENCY: 2,
       MEDIA_SOURCE_POLL_INTERVAL_MS: 250,
       YOUTUBE_EXTRACTOR_ARGS: 'youtube:player_client=default',
+      YOUTUBE_LIVE_MAX_CONSECUTIVE_FAILURES: 5,
       YOUTUBE_VOD_CONCURRENT_FRAGMENTS: 4,
     })
     expect(config.YOUTUBE_FORMAT).toContain('best[protocol*=m3u8][height<=1080]')

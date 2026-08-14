@@ -413,9 +413,45 @@ describe('durable service annotation command', () => {
     await expect(db.keyPoint.findMany({ where: { rallyId }, select: { markerKind: true, isTerminal: true } })).resolves.toEqual([{ markerKind: 'CONTACT', isTerminal: false }])
   })
 
-  it('does not let a READY unsubmitted segment block starting the next segment', async () => {
+  it('blocks START inside a READY segment but allows the next non-overlapping segment', async () => {
     const firstRallyId = randomUUID()
     const secondRallyId = randomUUID()
+    const endAnchor = {
+      ...anchor,
+      capture_frame_index: (BigInt(anchor.capture_frame_index) + 1n).toString(),
+      capture_time_us: (BigInt(anchor.capture_time_us) + 50n).toString(),
+      resolved_player_media_time_us: '1284',
+      source_pts: (BigInt(anchor.source_pts) + 1n).toString(),
+    }
+    const nextAnchor = {
+      ...anchor,
+      capture_frame_index: (BigInt(anchor.capture_frame_index) + 2n).toString(),
+      capture_time_us: (BigInt(anchor.capture_time_us) + 75n).toString(),
+      resolved_player_media_time_us: '1309',
+      source_pts: (BigInt(anchor.source_pts) + 2n).toString(),
+    }
+    const boundaryService = createAnnotationCommandService({
+      database: db,
+      resolveCursor: async cursor => cursor.player_media_time_us === '1284'
+        ? endAnchor
+        : cursor.player_media_time_us === '1309' ? nextAnchor : anchor,
+    })
+    await boundaryService.apply(boundaryCommand(randomUUID(), firstRallyId, 'START_RALLY', '0', '1234'), identity)
+    await boundaryService.apply(boundaryCommand(randomUUID(), firstRallyId, 'END_RALLY', '1', '1284'), identity)
+
+    await expect(boundaryService.apply(boundaryCommand(randomUUID(), secondRallyId, 'START_RALLY', '0', '1234'), identity)).resolves.toMatchObject({
+      type: 'command_rejected', code: 'ANNOTATION_NOT_READY', message: 'The configured clip range would overlap an existing segment',
+    })
+    await expect(boundaryService.apply(boundaryCommand(randomUUID(), secondRallyId, 'START_RALLY', '0', '1309'), identity)).resolves.toMatchObject({
+      type: 'command_ack', operation_kind: 'START_RALLY', result_revision: '1',
+    })
+    await expect(db.rally.findUniqueOrThrow({ where: { id: firstRallyId } })).resolves.toMatchObject({ annotationStatus: 'READY' })
+    await expect(db.rally.findUniqueOrThrow({ where: { id: secondRallyId } })).resolves.toMatchObject({ annotationStatus: 'OPEN' })
+  })
+
+  it('rejects END when the resulting boundary range overlaps another segment', async () => {
+    const currentRallyId = randomUUID()
+    const otherRallyId = randomUUID()
     const endAnchor = {
       ...anchor,
       capture_frame_index: (BigInt(anchor.capture_frame_index) + 1n).toString(),
@@ -427,14 +463,36 @@ describe('durable service annotation command', () => {
       database: db,
       resolveCursor: async cursor => cursor.player_media_time_us === '1284' ? endAnchor : anchor,
     })
-    await boundaryService.apply(boundaryCommand(randomUUID(), firstRallyId, 'START_RALLY', '0', '1234'), identity)
-    await boundaryService.apply(boundaryCommand(randomUUID(), firstRallyId, 'END_RALLY', '1', '1284'), identity)
+    const otherOrdinal = ((await db.rally.aggregate({ _max: { ordinal: true }, where: { setId: ids.set } }))._max.ordinal ?? 0) + 1
+    await db.rally.create({ data: {
+      id: otherRallyId, annotationRevision: 1n, annotationStatus: 'READY', displayOrdinal: 1,
+      displaySetNumber: 1, dvrProgramId: ids.program, matchId: ids.match, ordinal: otherOrdinal,
+      scoreResolutionState: 'UNKNOWN', setId: ids.set, sideAssignmentId: ids.assignment,
+    } })
+    await db.rallyBoundary.createMany({ data: [
+      {
+        id: randomUUID(), captureEpochId: ids.epoch, captureFrameIndex: BigInt(anchor.capture_frame_index) + 1n,
+        captureTimeUs: BigInt(anchor.capture_time_us) + 40n, createdByUserId: ids.operator,
+        deviceSessionId: ids.device, kind: 'START', originalPlaybackCursor: {}, rallyId: otherRallyId,
+        sourcePts: BigInt(anchor.source_pts) + 1n, timingPrecision: 'FRAME_EXACT', updatedByUserId: ids.operator,
+      },
+      {
+        id: randomUUID(), captureEpochId: ids.epoch, captureFrameIndex: BigInt(anchor.capture_frame_index) + 2n,
+        captureTimeUs: BigInt(anchor.capture_time_us) + 80n, createdByUserId: ids.operator,
+        deviceSessionId: ids.device, kind: 'END', originalPlaybackCursor: {}, rallyId: otherRallyId,
+        sourcePts: BigInt(anchor.source_pts) + 2n, timingPrecision: 'FRAME_EXACT', updatedByUserId: ids.operator,
+      },
+    ] })
 
-    await expect(boundaryService.apply(boundaryCommand(randomUUID(), secondRallyId, 'START_RALLY', '0', '1234'), identity)).resolves.toMatchObject({
+    await expect(boundaryService.apply(boundaryCommand(randomUUID(), currentRallyId, 'START_RALLY', '0', '1234'), identity)).resolves.toMatchObject({
       type: 'command_ack', operation_kind: 'START_RALLY', result_revision: '1',
     })
-    await expect(db.rally.findUniqueOrThrow({ where: { id: firstRallyId } })).resolves.toMatchObject({ annotationStatus: 'READY' })
-    await expect(db.rally.findUniqueOrThrow({ where: { id: secondRallyId } })).resolves.toMatchObject({ annotationStatus: 'OPEN' })
+    await expect(boundaryService.apply(boundaryCommand(randomUUID(), currentRallyId, 'END_RALLY', '1', '1284'), identity)).resolves.toMatchObject({
+      type: 'command_rejected', code: 'ANNOTATION_NOT_READY', message: 'Rally end would overlap another segment',
+    })
+    await expect(db.rally.findUniqueOrThrow({ where: { id: currentRallyId }, include: { boundaries: true } })).resolves.toMatchObject({
+      annotationStatus: 'OPEN', annotationRevision: 1n, boundaries: [expect.objectContaining({ kind: 'START' })],
+    })
   })
 
   it('atomically creates revision one, seq-zero service, receipt, operation and outbox only', async () => {

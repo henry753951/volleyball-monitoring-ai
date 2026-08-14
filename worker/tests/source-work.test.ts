@@ -6,6 +6,8 @@ import {
   claimMediaSourceWork,
   listCompletedMediaSpoolCandidates,
   recordPermanentMediaIngestFailure,
+  recordMediaSourceRelayError,
+  recordMediaSourceRelayHealthy,
 } from '../src/media/source-work.js'
 
 function queryRecorder() {
@@ -73,5 +75,54 @@ describe('recordPermanentMediaIngestFailure', () => {
       captureSessionId: crypto.randomUUID(),
       code: 'source_failed',
     })).rejects.toBe(failure)
+  })
+})
+
+describe('recordMediaSourceRelayError', () => {
+  it('records only the current owner relay failure and can clear it after OME observes the source', async () => {
+    const updates: unknown[] = []
+    const database = {
+      mediaSourceWork: {
+        updateMany: async (input: unknown) => { updates.push(input); return { count: 1 } },
+      },
+    }
+
+    await expect(recordMediaSourceRelayError(
+      database as never,
+      'work-id',
+      'worker-a',
+      'MEDIA command failed!',
+    )).resolves.toBe(1)
+    await recordMediaSourceRelayError(database as never, 'work-id', 'worker-a', null)
+
+    expect(updates).toEqual([
+      {
+        data: { lastErrorCode: 'MEDIA_COMMAND_FAILED_' },
+        where: { id: 'work-id', leaseOwner: 'worker-a', status: 'RUNNING' },
+      },
+      {
+        data: { lastErrorCode: null },
+        where: { id: 'work-id', leaseOwner: 'worker-a', status: 'RUNNING' },
+      },
+    ])
+  })
+
+  it('resets the durable retry budget only after OME observes the source online', async () => {
+    const updates: unknown[] = []
+    const database = {
+      mediaSourceWork: {
+        updateMany: async (input: unknown) => { updates.push(input); return { count: 1 } },
+      },
+    }
+
+    await expect(recordMediaSourceRelayHealthy(
+      database as never,
+      'work-id',
+      'worker-a',
+    )).resolves.toBe(1)
+    expect(updates).toEqual([{
+      data: { attempts: 0, lastErrorCode: null },
+      where: { id: 'work-id', leaseOwner: 'worker-a', status: 'RUNNING' },
+    }])
   })
 })

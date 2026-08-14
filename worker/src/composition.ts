@@ -107,6 +107,7 @@ export async function createMediaComposition() {
       ...(config.YOUTUBE_COOKIES_FILE ? { youtubeCookiesFile: config.YOUTUBE_COOKIES_FILE } : {}),
       youtubeExtractorArgs: config.YOUTUBE_EXTRACTOR_ARGS,
       youtubeFormat: config.YOUTUBE_FORMAT,
+      youtubeLiveMaxConsecutiveFailures: config.YOUTUBE_LIVE_MAX_CONSECUTIVE_FAILURES,
       youtubeVodConcurrentFragments: config.YOUTUBE_VOD_CONCURRENT_FRAGMENTS,
       youtubeVodFormat: config.YOUTUBE_VOD_FORMAT,
       ytDlpCommand: config.YT_DLP_COMMAND,
@@ -130,10 +131,13 @@ export async function createMediaComposition() {
       return [
         {
           name: 'source-scheduler', critical: true,
-          status: started && (!source.lastErrorAt || (source.lastSuccessAt && source.lastSuccessAt >= source.lastErrorAt)) ? 'healthy' : started ? 'degraded' : 'unhealthy',
-          activeWork: source.active, failedJobs: source.failedCount, backlog: null,
+          status: started && source.activeFailureCount > 0
+            ? 'degraded'
+            : started && (!source.lastErrorAt || (source.lastSuccessAt && source.lastSuccessAt >= source.lastErrorAt)) ? 'healthy' : started ? 'degraded' : 'unhealthy',
+          activeWork: source.active, failedJobs: source.failedCount + source.activeFailureCount, backlog: null,
           lastHeartbeatAt: source.lastHeartbeatAt, lastSuccessAt: source.lastSuccessAt,
-          lastErrorAt: source.lastErrorAt, lastErrorName: source.lastErrorName,
+          lastErrorAt: source.activeLastErrorAt ?? source.lastErrorAt,
+          lastErrorName: source.activeLastErrorName ?? source.lastErrorName,
         },
         {
           name: 'media-indexer', critical: true,

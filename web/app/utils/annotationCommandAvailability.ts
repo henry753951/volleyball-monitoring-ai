@@ -25,6 +25,80 @@ export function draftCommandAvailability(input: DraftCommandAvailabilityInput) {
   return { enabled: true, reason: '' }
 }
 
+export interface AnnotationSegmentRange {
+  id: string
+  startCaptureTimeUs: string
+  endCaptureTimeUs: string
+}
+
+interface BoundaryCommandAvailabilityInput {
+  state: string
+  activeSubmissionId?: string | null
+  canMark: boolean
+  cursorCaptureTimeUs: string | null
+  currentRallyId?: string | null
+  startBoundaryCaptureTimeUs?: string | null
+  currentDraftCaptureTimes?: readonly string[]
+  clipPreRollUs: bigint
+  clipPostRollUs: bigint
+  segments: readonly AnnotationSegmentRange[]
+}
+
+function paddedRange(captureTimes: readonly string[], clipPreRollUs: bigint, clipPostRollUs: bigint) {
+  if (!captureTimes.length) return null
+  const ordered = captureTimes.map(BigInt).sort((left, right) => left < right ? -1 : left > right ? 1 : 0)
+  const requestedStart = ordered[0]! - clipPreRollUs
+  const startCaptureTimeUs = requestedStart < 0n ? 0n : requestedStart
+  const requestedEnd = ordered.at(-1)! + clipPostRollUs
+  return {
+    startCaptureTimeUs,
+    endCaptureTimeUs: requestedEnd > startCaptureTimeUs ? requestedEnd : startCaptureTimeUs + 1n,
+  }
+}
+
+function overlapsSegment(
+  range: { startCaptureTimeUs: bigint; endCaptureTimeUs: bigint },
+  segments: readonly AnnotationSegmentRange[],
+  excludedRallyId?: string | null,
+) {
+  return segments.some(segment => segment.id !== excludedRallyId
+    && range.startCaptureTimeUs < BigInt(segment.endCaptureTimeUs)
+    && range.endCaptureTimeUs > BigInt(segment.startCaptureTimeUs))
+}
+
+export function boundaryCommandAvailability(input: BoundaryCommandAvailabilityInput) {
+  if (!input.canMark || !input.cursorCaptureTimeUs) {
+    return { enabled: false, reason: '播放游標尚未確認' }
+  }
+
+  const isOrdinaryOpenDraft = input.state === 'OPEN' && !input.activeSubmissionId
+  if (isOrdinaryOpenDraft) {
+    const startCaptureTimeUs = input.startBoundaryCaptureTimeUs
+    if (!startCaptureTimeUs) return { enabled: false, reason: '目前片段缺少開始邊界' }
+    if (BigInt(input.cursorCaptureTimeUs) <= BigInt(startCaptureTimeUs)) {
+      return { enabled: false, reason: '請將游標移到片段開始之後再結束' }
+    }
+    const range = paddedRange(
+      [...(input.currentDraftCaptureTimes ?? []), input.cursorCaptureTimeUs],
+      input.clipPreRollUs,
+      input.clipPostRollUs,
+    )
+    if (range && overlapsSegment(range, input.segments, input.currentRallyId)) {
+      return { enabled: false, reason: '片段結束位置會與其他片段重疊' }
+    }
+    return { enabled: true, reason: '再次按 Z，以目前畫面作為片段結束' }
+  }
+
+  if (openDraftBlocksNewRally(input.state, input.activeSubmissionId)) {
+    return { enabled: false, reason: '目前仍有正在編輯的片段' }
+  }
+  const range = paddedRange([input.cursorCaptureTimeUs], input.clipPreRollUs, input.clipPostRollUs)
+  if (range && overlapsSegment(range, input.segments)) {
+    return { enabled: false, reason: '目前位置位於既有片段內' }
+  }
+  return { enabled: true, reason: '' }
+}
+
 export function openDraftBlocksNewRally(
   state: string,
   activeSubmissionId: string | null | undefined,

@@ -22,6 +22,11 @@ export type SourceCompletion = {
   sourceKind: 'youtube' | 'youtube_live' | 'youtube_vod' | 'local_mp4'
 }
 
+export type MediaSourceWorkState = {
+  sourceOnline: boolean
+  status: string
+}
+
 export type CompletedMediaSpoolCandidate = {
   workId: string
   ingestPath: string
@@ -256,13 +261,20 @@ export async function heartbeatMediaSourceWork(
 export async function mediaSourceWorkStates(
   database: PrismaClient,
   workIds: string[],
-): Promise<Map<string, string>> {
+): Promise<Map<string, MediaSourceWorkState>> {
   if (workIds.length === 0) return new Map()
   const rows = await database.mediaSourceWork.findMany({
-    select: { id: true, status: true },
+    select: {
+      captureSession: { select: { sourceOnline: true } },
+      id: true,
+      status: true,
+    },
     where: { id: { in: workIds } },
   })
-  return new Map(rows.map(row => [row.id, row.status]))
+  return new Map(rows.map(row => [row.id, {
+    sourceOnline: row.captureSession.sourceOnline,
+    status: row.status,
+  }]))
 }
 
 export async function recordMediaSourceClassification(
@@ -294,6 +306,34 @@ export async function recordMediaSourceResume(
     },
     where: { id: workId },
   })
+}
+
+export async function recordMediaSourceRelayError(
+  database: PrismaClient,
+  workId: string,
+  owner: string,
+  errorCode: string | null,
+): Promise<number> {
+  const safeCode = errorCode === null
+    ? null
+    : errorCode.toUpperCase().replace(/[^A-Z0-9_]/g, '_').slice(0, 120) || 'MEDIA_COMMAND_FAILED'
+  const result = await database.mediaSourceWork.updateMany({
+    data: { lastErrorCode: safeCode },
+    where: { id: workId, leaseOwner: owner, status: 'RUNNING' },
+  })
+  return result.count
+}
+
+export async function recordMediaSourceRelayHealthy(
+  database: PrismaClient,
+  workId: string,
+  owner: string,
+): Promise<number> {
+  const result = await database.mediaSourceWork.updateMany({
+    data: { attempts: 0, lastErrorCode: null },
+    where: { id: workId, leaseOwner: owner, status: 'RUNNING' },
+  })
+  return result.count
 }
 
 export async function requestMediaSourceCompletion(

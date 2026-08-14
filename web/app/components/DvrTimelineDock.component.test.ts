@@ -376,4 +376,17 @@ describe('DvrTimelineDock mounted interactions', () => {
     expect(markers.every(marker => marker.classes().includes('editable'))).toBe(true)
     expect(markers.every(marker => !marker.classes().includes('locked'))).toBe(true)
   })
+  it('does not place immutable historical markers over correction-draft markers', () => {
+    const correction: AnnotationRallySnapshot = {
+      ...annotation,
+      snapshot: { ...annotation.snapshot, active_submission_id: 'submission-1' },
+    }
+    const duplicateSegment = {
+      id: 'rally', label: '第 1 局 · 回合 1', startCaptureTimeUs: '1500', endCaptureTimeUs: '1900', status: 'analyzed' as const,
+      points: [{ id: 'immutable-point', markerKind: 'service', isTerminal: false, captureTimeUs: '1750' }],
+    }
+    const w = mount(DvrTimelineDock, { props: { timeline, playhead: null, annotation: correction, editable: true, segments: [duplicateSegment] } })
+    expect(w.findAll('.keypoint-dot:not(.historical-point)')).toHaveLength(1)
+    expect(w.findAll('.historical-point')).toHaveLength(0)
+  })
 })

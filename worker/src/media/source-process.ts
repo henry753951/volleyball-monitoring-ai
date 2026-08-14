@@ -13,6 +13,7 @@ export type MediaSourceProcessOptions = {
   youtubeCookiesFile?: string
   youtubeExtractorArgs: string
   youtubeFormat: string
+  youtubeLiveMaxConsecutiveFailures?: number
   youtubeVodConcurrentFragments: number
   youtubeVodFormat: string
   ytDlpCommand?: string
@@ -27,6 +28,7 @@ type MediaInput = {
 
 export type MediaSourceProcessObserver = {
   classified(value: Pick<SourceCompletion, 'sourceDurationUs' | 'sourceKind'>): Promise<void>
+  retrying?(code: string): Promise<void>
   resumed(segmentIndex: number, captureTimeUs: bigint): Promise<void>
 }
 
@@ -341,6 +343,20 @@ function youtubeVideoCodec(metadata: YoutubeMetadata): string {
   return metadata.vcodec ?? metadata.requested_formats?.find(format => format.vcodec && format.vcodec !== 'none')?.vcodec ?? ''
 }
 
+export function nextLiveRelayFailureCount(
+  previousFailures: number,
+  previousRecordingCount: number,
+  currentRecordingCount: number,
+): number {
+  if (![previousFailures, previousRecordingCount, currentRecordingCount].every(Number.isSafeInteger)) {
+    throw new TypeError('live relay progress counters must be safe integers')
+  }
+  if (previousFailures < 0 || previousRecordingCount < 0 || currentRecordingCount < 0) {
+    throw new TypeError('live relay progress counters must be non-negative')
+  }
+  return currentRecordingCount > previousRecordingCount ? 0 : previousFailures + 1
+}
+
 async function stableRecordingCount(root: string, signal: AbortSignal): Promise<number> {
   let previous = ''
   let stable = 0
@@ -422,6 +438,12 @@ export function createMediaSourceProcess(options: MediaSourceProcessOptions) {
     }
     await observer.classified({ sourceDurationUs: null, sourceKind: 'youtube_live' })
     if (work.attempts > 1) await writeSourceRestartMarker(options.recordingRoot, work.ingestPath)
+    const maxConsecutiveFailures = options.youtubeLiveMaxConsecutiveFailures ?? 5
+    if (!Number.isSafeInteger(maxConsecutiveFailures) || maxConsecutiveFailures < 1) {
+      throw new TypeError('youtubeLiveMaxConsecutiveFailures must be a positive safe integer')
+    }
+    let recordingCount = await countMediaSourceRecordings(options.recordingRoot, work.ingestPath)
+    let consecutiveFailures = 0
     while (!signal.aborted && youtubeIsLive(metadata)) {
       const inputs = youtubeInputs(metadata)
       if (inputs.length < 1 || inputs.length > 2) throw new MediaSourceProcessError('YOUTUBE_INPUT_COUNT', 'YouTube returned an unsupported input layout')
@@ -431,7 +453,18 @@ export function createMediaSourceProcess(options: MediaSourceProcessOptions) {
       try { await runProcess(options.ffmpegCommand ?? 'ffmpeg', args, signal, 2 * 1024 * 1024) }
       catch (error) {
         if (signal.aborted) break
+        const currentRecordingCount = await countMediaSourceRecordings(options.recordingRoot, work.ingestPath)
+        consecutiveFailures = nextLiveRelayFailureCount(consecutiveFailures, recordingCount, currentRecordingCount)
+        recordingCount = currentRecordingCount
+        const code = error instanceof MediaSourceProcessError ? error.code : 'MEDIA_COMMAND_FAILED'
+        await observer.retrying?.(code)
         await writeSourceRestartMarker(options.recordingRoot, work.ingestPath)
+        if (consecutiveFailures >= maxConsecutiveFailures) {
+          throw new MediaSourceProcessError(
+            'YOUTUBE_LIVE_RELAY_STALLED',
+            `YouTube live relay made no recording progress after ${consecutiveFailures} consecutive failures`,
+          )
+        }
         await new Promise(resolvePromise => setTimeout(resolvePromise, 1_000))
       }
       if (!signal.aborted) metadata = await probeYoutube(work.sourceUrl, options, signal)

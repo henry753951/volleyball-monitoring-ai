@@ -27,17 +27,18 @@ const completed = computed(() => props.processing?.processing_status === 'comple
 const active = computed(() => Boolean(props.processing && !failed.value && !completed.value && props.processing.processing_status !== 'superseded'))
 
 const analysisStages = new Set([
-  'analysis_bundle_ready', 'building_artifacts', 'building_wire_artifacts', 'callback',
+  'analysis_bundle_ready', 'analysis_data_ready', 'building_artifacts', 'building_wire_artifacts', 'callback',
   'completed', 'court_projection', 'court_reidentification', 'hit_association',
   'loading_court_keypose', 'loading_models', 'loading_osnet', 'loading_reference_data',
   'loading_rtv4_x3d', 'player_tracking', 'reidentification', 'rtv4_x3d_tracking',
-  'writing_visual_v5_artifacts',
+  'reid_feature_bank', 'writing_visual_v5_artifacts',
 ])
 const assignmentStages = new Set(['accepted', 'ai_queued', 'assigned', 'clip_ready', 'downloading_clip', 'waiting_worker'])
 const activePhaseKey = computed<PhaseKey>(() => {
   const stage = props.processing?.stage ?? ''
   const status = props.processing?.processing_status
-  if (completed.value || status === 'ai_processing' || status === 'artifact_ingesting' || analysisStages.has(stage)) return 'analyze'
+  const providerAnalysisFailed = props.processing?.error?.code === 'PROVIDER_ANALYSIS_FAILED'
+  if (completed.value || providerAnalysisFailed || status === 'ai_processing' || status === 'artifact_ingesting' || analysisStages.has(stage)) return 'analyze'
   if (status === 'ai_queued' || assignmentStages.has(stage)) return 'assign'
   return 'clip'
 })
@@ -60,6 +61,7 @@ const detailDescription = computed(() => {
   if (stage.startsWith('loading_')) return 'Worker 正在載入球場、追蹤與 ReID 模型。'
   if (stage.includes('tracking') || stage === 'player_tracking') return '正在辨識球場關鍵點並追蹤場上球員。'
   if (stage === 'court_projection') return '正在將畫面位置轉換到標準球場座標。'
+  if (stage === 'reid_feature_bank') return '正在依場地側別建立固定六人 ReID 特徵；額外偵測不會中斷其他分析。'
   if (stage === 'court_reidentification' || stage === 'reidentification') return '正在合併跨畫格的球員身份。'
   if (stage === 'hit_association') return '正在將擊球標記與球員、球路事件建立關聯。'
   if (stage === 'callback' || props.processing?.processing_status === 'artifact_ingesting') return '分析已完成，正在回傳並寫入中央系統。'

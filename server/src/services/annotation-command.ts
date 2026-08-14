@@ -380,8 +380,8 @@ async function acceptService(
     const proposedStart = captureTimeUs > authorizedMatch.clipPreRollUs
       ? captureTimeUs - authorizedMatch.clipPreRollUs
       : 0n
-    const proposedEnd = captureTimeUs + authorizedMatch.clipPostRollUs
-    const overlapsExisting = command.kind === 'CREATE_SERVICE_KEY_POINT' && await clipRangeOverlapsExistingRally(
+    const proposedEnd = captureTimeUs + (authorizedMatch.clipPostRollUs > 0n ? authorizedMatch.clipPostRollUs : 1n)
+    const overlapsExisting = await clipRangeOverlapsExistingRally(
       tx, room.matchId, proposedStart, proposedEnd,
       authorizedMatch.clipPreRollUs, authorizedMatch.clipPostRollUs,
     )
@@ -389,7 +389,7 @@ async function acceptService(
       return persistRejection(tx, command, identity, hash, rejected(
         command,
         'ANNOTATION_NOT_READY',
-        'The configured clip padding would overlap an existing segment',
+        'The configured clip range would overlap an existing segment',
       ))
     }
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${room.matchId}))`
@@ -534,10 +534,10 @@ async function acceptContact(database: PrismaClient, room: AnnotationRoom, comma
     const existing = await replay(tx, command, hash)
     if (existing) return existing
     await rallyLock(tx, command.rally_id)
-    const rally = await tx.rally.findUnique({ where: { id: command.rally_id }, include: { boundaries: true, keyPoints: { where: { deletedAt: null }, orderBy: { sequenceIndex: 'desc' }, take: 1 } } })
+    const rally = await tx.rally.findUnique({ where: { id: command.rally_id }, include: { boundaries: true, keyPoints: { where: { deletedAt: null }, orderBy: [{ captureTimeUs: 'asc' }, { captureFrameIndex: 'asc' }, { sequenceIndex: 'asc' }] } } })
     const device = await tx.deviceSession.findUnique({ select: { revokedAt: true, userId: true }, where: { id: identity.deviceSessionId } })
     if (!device || device.userId !== identity.userId || device.revokedAt) return persistRejection(tx, command, identity, hash, rejected(command, 'UNAUTHENTICATED', 'Authenticated device session is no longer active'))
-    const authorizedMatch = await tx.match.findFirst({ select: { id: true }, where: { id: room.matchId, captureSessions: { some: { id: room.captureSessionId } }, ...(identity.role === UserRole.ADMIN ? {} : { members: { some: { userId: identity.userId, role: { in: [UserRole.ADMIN, UserRole.OPERATOR, UserRole.ANNOTATOR] } } } }) } })
+    const authorizedMatch = await tx.match.findFirst({ select: { clipPostRollUs: true, clipPreRollUs: true, id: true }, where: { id: room.matchId, captureSessions: { some: { id: room.captureSessionId } }, ...(identity.role === UserRole.ADMIN ? {} : { members: { some: { userId: identity.userId, role: { in: [UserRole.ADMIN, UserRole.OPERATOR, UserRole.ANNOTATOR] } } } }) } })
     if (!authorizedMatch) return persistRejection(tx, command, identity, hash, rejected(command, 'ROOM_AUTHORIZATION_STALE', 'Annotation room authorization changed before commit'))
     if (!rally || rally.matchId !== room.matchId || rally.annotationStatus !== 'OPEN') return persistRejection(tx, command, identity, hash, rejected(command, 'RALLY_NOT_OPEN', 'Rally is not an open draft'))
     await setAllocationLock(tx, rally.setId)
@@ -548,11 +548,20 @@ async function acceptContact(database: PrismaClient, room: AnnotationRoom, comma
     const resolvedTime = BigInt(anchor.capture_time_us); const resolvedFrame = BigInt(anchor.capture_frame_index); const playerTime = BigInt(anchor.resolved_player_media_time_us)
     const valid = anchor.capture_session_id === room.captureSessionId && !!mapping && !!segment && !!epoch && mapping.dvrProgramId === rally.dvrProgramId && segment.dvrProgramId === rally.dvrProgramId && segment.captureEpochId === anchor.capture_epoch_id && !segment.isGap && segment.readyAt !== null && segment.sampleIndexAssetId !== null && resolvedTime >= mapping.captureStartUs && resolvedTime < mapping.captureEndUs && resolvedTime >= segment.captureStartUs && resolvedTime < segment.captureEndUs && segment.firstFrameIndex !== null && segment.firstFrameIndex !== undefined && resolvedFrame >= segment.firstFrameIndex && resolvedFrame < segment.firstFrameIndex + segment.frameCount && playerTime === resolvedTime - mapping.presentationOriginCaptureUs && anchor.playback_window_id === command.payload.playback_cursor.playback_window_id && anchor.mapping_version === command.payload.playback_cursor.mapping_version
     if (!valid) return persistRejection(tx, command, identity, hash, rejected(command, 'ANNOTATION_NOT_READY', 'Resolved playback state is no longer valid'))
+    const allPoints = rally.keyPoints
     if (command.kind === 'END_RALLY') {
       const start = rally.boundaries.find(boundary => boundary.kind === 'START')
       if (!start) return persistRejection(tx, command, identity, hash, rejected(command, 'ANNOTATION_NOT_READY', 'Rally start boundary is missing'))
       if (resolvedTime < start.captureTimeUs || (resolvedTime === start.captureTimeUs && resolvedFrame <= start.captureFrameIndex)) {
         return persistRejection(tx, command, identity, hash, rejected(command, 'ANNOTATION_NOT_READY', 'Rally end must be after its start boundary'))
+      }
+      const proposedTimes = [...rally.boundaries.map(boundary => boundary.captureTimeUs), ...allPoints.map(point => point.captureTimeUs), resolvedTime]
+        .sort((left, right) => left < right ? -1 : left > right ? 1 : 0)
+      const paddedStart = proposedTimes[0]! - authorizedMatch.clipPreRollUs
+      const proposedStart = paddedStart < 0n ? 0n : paddedStart
+      const proposedEnd = proposedTimes.at(-1)! + authorizedMatch.clipPostRollUs
+      if (await clipRangeOverlapsExistingRally(tx, room.matchId, proposedStart, proposedEnd, authorizedMatch.clipPreRollUs, authorizedMatch.clipPostRollUs, rally.id)) {
+        return persistRejection(tx, command, identity, hash, rejected(command, 'ANNOTATION_NOT_READY', 'Rally end would overlap another segment'))
       }
       await tx.rallyBoundary.create({ data: {
         captureEpochId: anchor.capture_epoch_id,
@@ -583,7 +592,6 @@ async function acceptContact(database: PrismaClient, room: AnnotationRoom, comma
       await tx.outboxEvent.create({ data: { aggregateId: command.rally_id, aggregateType: 'Rally', dedupeKey: `annotation-accepted:${receipt.serverSequence}`, eventType: 'annotation.command_accepted.v3', payload: jsonValue(response) } })
       return response
     }
-    const allPoints = await tx.keyPoint.findMany({ where: { rallyId: command.rally_id, deletedAt: null }, orderBy: [{ captureTimeUs: 'asc' }, { captureFrameIndex: 'asc' }, { sequenceIndex: 'asc' }] })
     const servicePoint = allPoints.find((point) => point.markerKind === 'SERVICE')
     const startBoundary = rally.boundaries.find(boundary => boundary.kind === 'START')
     const terminal = command.payload.terminal_outcome === 'unknown'
@@ -691,6 +699,7 @@ async function clipRangeOverlapsExistingRally(
       annotationStatus: true,
       activeSubmission: {
         select: {
+          boundaries: { orderBy: { captureTimeUs: 'asc' }, select: { captureTimeUs: true } },
           clipPostRollUs: true,
           clipPreRollUs: true,
           clipJobs: {
@@ -701,13 +710,17 @@ async function clipRangeOverlapsExistingRally(
           keyPoints: { orderBy: { sequenceIndex: 'asc' }, select: { captureTimeUs: true } },
         },
       },
+      boundaries: { orderBy: { captureTimeUs: 'asc' }, select: { captureTimeUs: true } },
       keyPoints: { orderBy: { sequenceIndex: 'asc' }, select: { captureTimeUs: true }, where: { deletedAt: null } },
     },
   })
   return existingSegments.some((segment) => {
     const immutable = ['OPEN', 'READY'].includes(segment.annotationStatus) ? null : segment.activeSubmission
     const clip = immutable?.clipJobs[0]
-    const points = immutable?.keyPoints.length ? immutable.keyPoints : segment.keyPoints
+    const points = immutable
+      ? [...immutable.boundaries, ...immutable.keyPoints]
+      : [...segment.boundaries, ...segment.keyPoints]
+    points.sort((left, right) => left.captureTimeUs < right.captureTimeUs ? -1 : left.captureTimeUs > right.captureTimeUs ? 1 : 0)
     const first = points[0]
     const last = points.at(-1)
     if (!first || !last) return false
