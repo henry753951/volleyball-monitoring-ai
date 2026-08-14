@@ -6,6 +6,8 @@ import {
   type AnalysisFrameChunk,
 } from '@volleyball-monitoring/contracts'
 import type { ReplayContactEvent } from '~/lib/coachDomain'
+import { actionColor, actionKey } from '~/utils/coachPlayerActions'
+import { formatReidPair } from '~/utils/reidIdentity'
 
 export type VolleyballOverlayMode = 'off' | 'tracking' | 'coach' | 'tactical' | 'debug'
 
@@ -25,6 +27,7 @@ export interface OverlayTrackMetadata {
   trackId: number
   courtSide?: string | null
   label?: string | null
+  gidLabel?: string | null
 }
 
 export interface OverlayRect { x: number; y: number; width: number; height: number }
@@ -156,6 +159,10 @@ function sideColor(side?: string | null) {
   return side === 'left' ? LEFT : side === 'right' ? RIGHT : UNKNOWN
 }
 
+export function overlayTrackIdentityLabel(trackId: number, gidLabel?: string | null, playerLabel?: string | null) {
+  return [formatReidPair(trackId, gidLabel), playerLabel].filter(Boolean).join('  ')
+}
+
 export function trackColor(trackId: number) {
   const normalizedTrackId = Number.isFinite(trackId) ? Math.max(0, Math.floor(trackId)) : 0
   return TRACK_PALETTE[(normalizedTrackId === 0 ? 0 : normalizedTrackId - 1) % TRACK_PALETTE.length]!
@@ -204,8 +211,9 @@ function drawPlayerLabel(context: CanvasRenderingContext2D, detection: FrameDete
   const team = track?.courtSide === 'left' ? input.teamLabels?.left : track?.courtSide === 'right' ? input.teamLabels?.right : null
   const correctedAction = input.actionCorrections?.[detection.trackId]
   const action = correctedAction ?? (detection.actionId === ANALYSIS_MISSING_ACTION_LABEL ? null : input.actionLabels[detection.actionId] ?? null)
-  const tid = `T${String(detection.trackId).padStart(2, '0')}`
-  const primary = identity && input.layers.trackId ? `${identity}  ${tid}` : input.layers.trackId ? tid : identity ?? ''
+  const primary = input.layers.trackId
+    ? overlayTrackIdentityLabel(detection.trackId, track?.gidLabel, identity)
+    : identity ?? ''
   const confidence = input.layers.confidence && detection.confidence !== ANALYSIS_MISSING_CONFIDENCE ? `${Math.round(detection.confidence / 254 * 100)}%` : ''
   if (!primary && !team && !(input.layers.action && action) && !confidence) return
   const teamColor = sideColor(track?.courtSide)
@@ -237,6 +245,7 @@ function drawPlayerLabel(context: CanvasRenderingContext2D, detection: FrameDete
     }
   }
   if (input.layers.action && action) {
+    const actionTone = actionColor(actionKey(action))
     const text = action.replaceAll('_', ' ').toUpperCase()
     context.font = '800 8px Inter, ui-sans-serif, system-ui, sans-serif'
     const width = Math.ceil(context.measureText(text).width) + 12
@@ -244,8 +253,8 @@ function drawPlayerLabel(context: CanvasRenderingContext2D, detection: FrameDete
     const actionX = Math.max(input.viewport.x + 3, Math.min((topLeft.x + bottomRight.x - width) / 2, input.viewport.x + input.viewport.width - width - 3))
     roundedRect(context, actionX, actionY, width, 14, 4)
     context.fillStyle = 'rgba(7, 11, 16, .7)'; context.fill()
-    context.strokeStyle = `${color}b8`; context.lineWidth = 1; context.stroke()
-    context.fillStyle = color; context.fillText(text, actionX + 6, actionY + 9.8)
+    context.strokeStyle = `${actionTone}cc`; context.lineWidth = 1; context.stroke()
+    context.fillStyle = actionTone; context.fillText(text, actionX + 6, actionY + 9.8)
   }
 }
 

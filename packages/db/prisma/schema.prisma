@@ -506,7 +506,7 @@ model DvrProgram {
 }
 
 model MediaAsset {
-  id                     String             @id @default(uuid()) @db.Uuid
+  id                     String               @id @default(uuid()) @db.Uuid
   kind                   MediaAssetKind
   bucket                 String
   objectKey              String
@@ -514,16 +514,16 @@ model MediaAsset {
   byteLength             BigInt?
   sha256                 String?
   internalSchemaVersion  String?
-  state                  ArtifactState      @default(UPLOADING)
-  createdAt              DateTime           @default(now())
+  state                  ArtifactState        @default(UPLOADING)
+  createdAt              DateTime             @default(now())
   readyAt                DateTime?
   deletedAt              DateTime?
-  dvrInitSegments        DvrSegment[]       @relation("DvrInitAsset")
-  dvrMediaSegments       DvrSegment[]       @relation("DvrMediaAsset")
-  dvrSampleIndexSegments DvrSegment[]       @relation("DvrSampleIndexAsset")
-  clipOutputs            ClipJob[]          @relation("ClipOutputAsset")
-  clipTimingManifests    ClipJob[]          @relation("ClipTimingAsset")
-  analysisDataRaw        AnalysisRun[]      @relation("AnalysisDataRaw")
+  dvrInitSegments        DvrSegment[]         @relation("DvrInitAsset")
+  dvrMediaSegments       DvrSegment[]         @relation("DvrMediaAsset")
+  dvrSampleIndexSegments DvrSegment[]         @relation("DvrSampleIndexAsset")
+  clipOutputs            ClipJob[]            @relation("ClipOutputAsset")
+  clipTimingManifests    ClipJob[]            @relation("ClipTimingAsset")
+  analysisDataRaw        AnalysisRun[]        @relation("AnalysisDataRaw")
   analysisArtifacts      AnalysisArtifact[]
   analysisFrameChunks    AnalysisFrameChunk[]
 
@@ -1181,32 +1181,32 @@ model AnalysisArtifact {
 }
 
 model AnalysisDataManifest {
-  analysisRunId   String         @id @db.Uuid
-  schemaVersion   String
+  analysisRunId       String               @id @db.Uuid
+  schemaVersion       String
   analysisDataVersion String
-  videoWidth      Int
-  videoHeight     Int
-  fpsNum          Int
-  fpsDen          Int
-  totalFrames     BigInt
-  chunkFrameCount Int
-  actionTaxonomy  Json?
-  createdAt       DateTime       @default(now())
-  analysisRun     AnalysisRun    @relation(fields: [analysisRunId], references: [id], onDelete: Cascade)
-  chunks          AnalysisFrameChunk[]
+  videoWidth          Int
+  videoHeight         Int
+  fpsNum              Int
+  fpsDen              Int
+  totalFrames         BigInt
+  chunkFrameCount     Int
+  actionTaxonomy      Json?
+  createdAt           DateTime             @default(now())
+  analysisRun         AnalysisRun          @relation(fields: [analysisRunId], references: [id], onDelete: Cascade)
+  chunks              AnalysisFrameChunk[]
 }
 
 model AnalysisFrameChunk {
-  analysisRunId   String          @db.Uuid
+  analysisRunId   String               @db.Uuid
   chunkIndex      Int
   startFrameIndex BigInt
   frameCount      Int
-  assetId         String          @db.Uuid
+  assetId         String               @db.Uuid
   byteLength      BigInt
   sha256          String
-  createdAt       DateTime        @default(now())
+  createdAt       DateTime             @default(now())
   manifest        AnalysisDataManifest @relation(fields: [analysisRunId], references: [analysisRunId], onDelete: Cascade)
-  asset           MediaAsset      @relation(fields: [assetId], references: [id], onDelete: Restrict)
+  asset           MediaAsset           @relation(fields: [assetId], references: [id], onDelete: Restrict)
 
   @@id([analysisRunId, chunkIndex])
   @@index([analysisRunId, startFrameIndex])
@@ -1376,6 +1376,7 @@ model ReidIdentity {
   modelDimension         Int
   modelDistance          String
   label                  String
+  slotIndex              Int
   createdRevision        BigInt
   createdAt              DateTime                  @default(now())
   match                  Match                     @relation(fields: [matchId], references: [id], onDelete: Cascade)
@@ -1386,8 +1387,8 @@ model ReidIdentity {
   sourceCorrections      ReidCorrectionEvent[]     @relation("ReidCorrectionSource")
   targetCorrections      ReidCorrectionEvent[]     @relation("ReidCorrectionTarget")
 
-  @@unique([matchId, teamId, modelNamespace, label])
-  @@index([matchId, teamId, modelNamespace, createdAt])
+  @@unique([matchId, teamId, slotIndex])
+  @@index([matchId, teamId, createdAt])
 }
 
 model ReidFeatureObservation {
@@ -1405,6 +1406,20 @@ model ReidFeatureObservation {
   modelDistance          String
   courtSide              TrackCourtSide
   provisionalGid         String
+  canonicalTrackId       Int
+  isCanonicalTrack       Boolean
+  aliasTrackIds          Int[]
+  medianCourtX           Float?
+  medianCourtY           Float?
+  descriptorRecipe       Json
+  dinoDescriptor         Bytes?
+  osnetDescriptor        Bytes?
+  kprDescriptor          Bytes?
+  kprPromptDescriptor    Bytes?
+  promptCoverage         Float
+  selectedModalities     String[]
+  selectedKernel         String
+  selectedRegularization Float
   firstFrame             BigInt
   lastFrame              BigInt
   sampleCount            Int

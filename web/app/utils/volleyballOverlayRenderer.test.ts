@@ -1,7 +1,7 @@
 import { ANALYSIS_BALL_FLAG, ANALYSIS_PLAYER_FLAG, type AnalysisFrameChunk } from '@volleyball-monitoring/contracts'
 import { describe, expect, it } from 'vitest'
 import type { ReplayContactEvent } from '~/lib/coachDomain'
-import { hitTestOverlayTrack, overlayCanvasPointToVideo, replayEventFrame, resolveEffectiveContactActor, resolveEffectiveHitPosition, resolveEventActorFromResult, resolveVideoContentRect, trackColor } from './volleyballOverlayRenderer'
+import { hitTestOverlayTrack, overlayCanvasPointToVideo, overlayTrackIdentityLabel, replayEventFrame, resolveEffectiveContactActor, resolveEffectiveHitPosition, resolveEventActorFromResult, resolveVideoContentRect, trackColor } from './volleyballOverlayRenderer'
 
 const chunk: AnalysisFrameChunk = {
   schemaVersion: 10_000,
@@ -65,6 +65,11 @@ describe('volleyball overlay geometry', () => {
     expect(trackColor(7)).toBe(trackColor(7))
     expect(trackColor(7)).not.toBe(trackColor(8))
     expect(new Set(Array.from({ length: 12 }, (_, index) => trackColor(index + 1))).size).toBe(12)
+  })
+
+  it('renders the canonical TID and GID before the assigned player name', () => {
+    expect(overlayTrackIdentityLabel(7, 'L1', '#11 TEST')).toBe('T007  L1  #11 TEST')
+    expect(overlayTrackIdentityLabel(7, null, null)).toBe('T007  G---')
   })
 
   it('uses the last tracked ball when the contact frame is explicitly missing', () => {

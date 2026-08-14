@@ -65,12 +65,12 @@ function analyticsFixture(): CoachMatchAnalytics {
         roster_entry_id: 'roster-1',
         identity_mapping_completed: false,
         gid_id: '2d9a44cc-21f2-4c02-a172-c4ca8aa00001',
-        gid_label: 'G-ALPHA',
+        gid_label: 'L1',
         identity_source: 'propagated',
         identity_confidence: 0.91,
         identity_revision: '4',
         manual_required: false,
-        reid_model: { name: 'sports-osnet', checkpoint_sha256: 'a'.repeat(64), preprocess_version: 'roi-align-rgb-imagenet-v1' },
+        reid_model: { name: 'nested-part-adaptation', checkpoint_sha256: 'a'.repeat(64), preprocess_version: 'nested-part-adaptation-v1' },
       },
       {
         analysis_run_id: 'analysis-1',
@@ -84,12 +84,12 @@ function analyticsFixture(): CoachMatchAnalytics {
         roster_entry_id: null,
         identity_mapping_completed: false,
         gid_id: '2d9a44cc-21f2-4c02-a172-c4ca8aa00002',
-        gid_label: 'G-BETA',
+        gid_label: 'L2',
         identity_source: 'ai',
         identity_confidence: 0.73,
         identity_revision: '4',
         manual_required: true,
-        reid_model: { name: 'sports-osnet', checkpoint_sha256: 'a'.repeat(64), preprocess_version: 'roi-align-rgb-imagenet-v1' },
+        reid_model: { name: 'nested-part-adaptation', checkpoint_sha256: 'a'.repeat(64), preprocess_version: 'nested-part-adaptation-v1' },
       },
     ],
     unassigned_tracks: [{ analysis_run_id: 'analysis-1', track_id: 2, rally_id: 'rally-1', set_number: 1, rally_ordinal: 1 }],
@@ -134,7 +134,8 @@ describe('AnnotationIdentityPanel ReID assignments', () => {
     await flushPromises()
 
     expect(wrapper.text()).toContain('沿用先前確認')
-    expect(wrapper.text()).toContain('G-ALPHA')
+    expect(wrapper.text()).toContain('T001')
+    expect(wrapper.text()).toContain('L1')
     expect(wrapper.text()).toContain('91%')
 
     const unassigned = wrapper.findAllComponents(UiPlayerCombobox)[1]!

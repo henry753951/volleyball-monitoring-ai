@@ -72,7 +72,7 @@
         "confidence": {
           "type": "boolean"
         },
-        "reid_feature_bank": {
+        "fixed_roster_reid": {
           "type": "boolean",
           "default": false
         }

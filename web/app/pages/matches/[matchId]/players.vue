@@ -1,108 +1,248 @@
 <script setup lang="ts">
-import { BarChart3, ChevronRight, CircleAlert } from 'lucide-vue-next'
+import { Activity, BarChart3, ChevronRight, CircleAlert, UserRoundSearch } from 'lucide-vue-next'
 import { rosterPositionLabel } from '~/lib/rosterPositions'
+import {
+  actionColor,
+  actionOutcomeRate,
+  formatActionTime,
+  replayEventUrl,
+  type CoachPlayerActionEvent,
+} from '~/utils/coachPlayerActions'
 import { playerContactShare, playerParticipation } from '~/utils/coachPresentation'
+
+type ViewMode = 'players' | 'tracks'
 
 const route = useRoute()
 const matchId = computed(() => String(route.params.matchId))
 const analyticsState = useCoachAnalytics(matchId)
 const analytics = computed(() => analyticsState.data.value)
+const viewMode = ref<ViewMode>('players')
+const viewTabs = [
+  { value: 'players', label: '球員' },
+  { value: 'tracks', label: '片段 ID' },
+] as const
 const selectedPlayerId = ref<string | null>(null)
+const selectedTrackKey = ref<string | null>(null)
+const selectedActionKey = ref('all')
+
 const selectedPlayer = computed(() => analytics.value?.players.find(player => player.roster_entry_id === selectedPlayerId.value) ?? analytics.value?.players[0] ?? null)
 const selectedTeam = computed(() => analytics.value?.teams.find(team => team.id === selectedPlayer.value?.team_id) ?? null)
 const selectedParticipation = computed(() => analytics.value && selectedPlayer.value ? playerParticipation(analytics.value, selectedPlayer.value.roster_entry_id) : [])
 const selectedShare = computed(() => analytics.value && selectedPlayer.value ? playerContactShare(analytics.value, selectedPlayer.value.roster_entry_id) : 0)
 const identityCoverage = computed(() => analytics.value?.metrics.identity_coverage?.value ?? 0)
-const selectedSamples = computed(() => selectedPlayer.value?.heatmap_samples ?? [])
-const actionLabels: Record<string, string> = {
-  attack: '進攻',
-  set: '傳球',
-  defense: '防守',
-  block: '攔網',
-  other: '其他',
-}
+const localTracks = computed(() => [...(analytics.value?.tracks ?? [])].sort((left, right) => Number(Boolean(left.roster_entry_id)) - Number(Boolean(right.roster_entry_id)) || right.set_number - left.set_number || right.rally_ordinal - left.rally_ordinal || left.track_id - right.track_id))
+const selectedLocalTrack = computed(() => localTracks.value.find(track => trackKey(track) === selectedTrackKey.value) ?? localTracks.value[0] ?? null)
+const selectedMappedPlayer = computed(() => analytics.value?.players.find(player => player.roster_entry_id === selectedLocalTrack.value?.roster_entry_id) ?? null)
+const selectedTracks = computed(() => viewMode.value === 'players'
+  ? (analytics.value?.tracks.filter(track => track.roster_entry_id === selectedPlayer.value?.roster_entry_id) ?? [])
+  : selectedLocalTrack.value ? [selectedLocalTrack.value] : [])
+const eventState = useCoachTrackEvents(selectedTracks)
+const selectedReplay = computed(() => selectedLocalTrack.value ? eventState.replays.get(selectedLocalTrack.value.rally_id) ?? null : null)
+const selectedLocalTeamId = computed(() => {
+  const track = selectedLocalTrack.value
+  const replay = selectedReplay.value
+  if (!track || !replay) return null
+  return track.court_side === 'left' ? replay.rally.left_team.id : track.court_side === 'right' ? replay.rally.right_team.id : null
+})
+const actionOptions = computed(() => {
+  const byKey = new Map<string, { key: string; label: string; count: number }>()
+  for (const event of eventState.events.value) {
+    const current = byKey.get(event.actionKey)
+    byKey.set(event.actionKey, { key: event.actionKey, label: event.actionLabel, count: (current?.count ?? 0) + 1 })
+  }
+  return [...byKey.values()].sort((left, right) => right.count - left.count || left.label.localeCompare(right.label, 'zh-Hant'))
+})
+const filteredEvents = computed(() => selectedActionKey.value === 'all' ? eventState.events.value : eventState.events.value.filter(event => event.actionKey === selectedActionKey.value))
+const outcomeSummary = computed(() => actionOutcomeRate(filteredEvents.value))
+const selectedHeatmap = computed(() => filteredEvents.value.filter(event => event.courtPosition))
+const selectedActionLabel = computed(() => selectedActionKey.value === 'all' ? '全部動作' : actionOptions.value.find(option => option.key === selectedActionKey.value)?.label ?? '所選動作')
+const analyticsErrorMessage = computed(() => {
+  const message = analyticsState.error.value?.message
+  if (!message) return ''
+  if (message === 'Unexpected error.') return '分析服務版本與本地資料庫尚未同步。請完成資料庫 migration 後重試。'
+  return message
+})
 
 watch(analytics, (value) => {
   if (!selectedPlayerId.value || !value?.players.some(player => player.roster_entry_id === selectedPlayerId.value)) selectedPlayerId.value = value?.players[0]?.roster_entry_id ?? null
+  if (!selectedTrackKey.value || !value?.tracks.some(track => trackKey(track) === selectedTrackKey.value)) {
+    const first = value?.tracks.find(track => !track.roster_entry_id) ?? value?.tracks[0]
+    selectedTrackKey.value = first ? trackKey(first) : null
+  }
 }, { immediate: true })
+watch([viewMode, actionOptions], () => {
+  if (selectedActionKey.value !== 'all' && !actionOptions.value.some(option => option.key === selectedActionKey.value)) selectedActionKey.value = 'all'
+})
+
+function trackKey(track: { analysis_run_id: string; track_id: number }) {
+  return `${track.analysis_run_id}:${track.track_id}`
+}
 
 function playerBadge(player: NonNullable<typeof selectedPlayer.value>) {
   return `[${player.position === 'UNSPECIFIED' ? '—' : player.position}] ${player.jersey_number}`
+}
+
+function trackLabel(track: NonNullable<typeof selectedLocalTrack.value>) {
+  return `ID ${String(track.track_id).padStart(2, '0')}`
+}
+
+function selectPlayer(playerId: string) {
+  selectedPlayerId.value = playerId
+  selectedActionKey.value = 'all'
+}
+
+function selectTrack(key: string) {
+  selectedTrackKey.value = key
+  selectedActionKey.value = 'all'
+}
+
+function outcomeLabel(event: CoachPlayerActionEvent) {
+  return event.outcome === 'won' ? '該回合得分' : event.outcome === 'lost' ? '對方得分' : '結果未判定'
+}
+
+function refreshAfterIdentityChange() {
+  void analyticsState.refresh()
+  void eventState.refresh()
 }
 </script>
 
 <template>
   <section class="players-view">
-    <div v-if="analyticsState.pending.value" class="players-loading" aria-busy="true"><i v-for="n in 7" :key="n" /></div>
-    <div v-else-if="analyticsState.error.value && !analytics" class="players-state" role="alert"><CircleAlert :size="22" /><strong>球員資料載入失敗</strong><span>{{ analyticsState.error.value.message }}</span><button type="button" @click="analyticsState.refresh">重試</button></div>
+    <div v-if="analyticsState.pending.value" class="players-loading" aria-busy="true" />
+    <div v-else-if="analyticsState.error.value && !analytics" class="players-state" role="alert"><CircleAlert :size="22" /><strong>球員資料載入失敗</strong><span>{{ analyticsErrorMessage }}</span><button type="button" @click="analyticsState.refresh">重試</button></div>
     <div v-else-if="analytics" class="players-layout">
-      <aside class="player-list" aria-label="球員名單">
-        <header><strong>球員</strong><NuxtLink :to="`/matches/${matchId}/stats`"><BarChart3 :size="16" />完整統計</NuxtLink></header>
-        <UiScrollArea class="player-list__scroll">
-          <div>
-            <section v-for="team in analytics.teams" :key="team.id" class="player-list__team">
+      <aside class="entity-list" aria-label="分析對象">
+        <header>
+          <UiTabs v-model="viewMode" class="entity-mode" :options="viewTabs" aria-label="分析方式" />
+          <NuxtLink :to="`/matches/${matchId}/stats`" aria-label="完整統計"><BarChart3 :size="16" /></NuxtLink>
+        </header>
+        <UiScrollArea class="entity-list__scroll">
+          <div v-if="viewMode === 'players'">
+            <section v-for="team in analytics.teams" :key="team.id" class="entity-list__group">
               <h2>{{ team.name }}</h2>
-              <button v-for="player in analytics.players.filter(item => item.team_id === team.id)" :key="player.roster_entry_id" type="button" :class="{ active: selectedPlayer?.roster_entry_id === player.roster_entry_id }" @click="selectedPlayerId = player.roster_entry_id">
+              <button v-for="player in analytics.players.filter(item => item.team_id === team.id)" :key="player.roster_entry_id" type="button" :class="{ active: selectedPlayer?.roster_entry_id === player.roster_entry_id }" @click="selectPlayer(player.roster_entry_id)">
                 <span>{{ playerBadge(player) }}</span><b>{{ player.name }}</b><small>{{ player.contact_count }} 擊球</small>
               </button>
             </section>
-            <p v-if="!analytics.players.length">尚無球員資料</p>
+            <p v-if="!analytics.players.length" class="entity-list__empty">尚無球員資料</p>
+          </div>
+          <div v-else>
+            <section v-for="rally in analytics.rallies.filter(item => localTracks.some(track => track.rally_id === item.id))" :key="rally.id" class="entity-list__group">
+              <h2>第 {{ rally.set_number }} 局 · 回合 {{ rally.ordinal }}</h2>
+              <button v-for="track in localTracks.filter(item => item.rally_id === rally.id)" :key="trackKey(track)" type="button" :class="{ active: selectedTrackKey === trackKey(track) }" @click="selectTrack(trackKey(track))">
+                <span>{{ trackLabel(track) }}</span><b>{{ analytics.players.find(player => player.roster_entry_id === track.roster_entry_id)?.name ?? '未分配球員' }}</b><small>{{ track.court_side === 'left' ? '左側' : track.court_side === 'right' ? '右側' : '場側未知' }}</small>
+              </button>
+            </section>
+            <p v-if="!localTracks.length" class="entity-list__empty">尚無片段追蹤資料</p>
           </div>
         </UiScrollArea>
       </aside>
 
-      <UiScrollArea v-if="selectedPlayer" class="player-detail-scroll">
-        <main class="player-detail">
-          <header class="player-title">
-            <div><span class="player-badge">{{ playerBadge(selectedPlayer) }}</span><p>{{ selectedTeam?.name }} · {{ rosterPositionLabel(selectedPlayer.position) }}</p><h1>{{ selectedPlayer.name }}</h1></div>
-            <span v-if="analyticsState.refreshing.value" class="player-sync">同步中</span>
+      <UiScrollArea v-if="(viewMode === 'players' && selectedPlayer) || (viewMode === 'tracks' && selectedLocalTrack)" class="entity-detail-scroll">
+        <main class="entity-detail">
+          <header class="entity-title">
+            <div v-if="viewMode === 'players' && selectedPlayer">
+              <span class="entity-badge">{{ playerBadge(selectedPlayer) }}</span>
+              <p>{{ selectedTeam?.name }} · {{ rosterPositionLabel(selectedPlayer.position) }}</p>
+              <h1>{{ selectedPlayer.name }}</h1>
+            </div>
+            <div v-else-if="selectedLocalTrack">
+              <span class="entity-badge local">{{ trackLabel(selectedLocalTrack) }}</span>
+              <p>第 {{ selectedLocalTrack.set_number }} 局 · 回合 {{ selectedLocalTrack.rally_ordinal }} · {{ selectedLocalTrack.court_side === 'left' ? '左側' : selectedLocalTrack.court_side === 'right' ? '右側' : '場側未知' }}</p>
+              <h1>{{ selectedMappedPlayer?.name ?? '未分配球員' }}</h1>
+            </div>
+            <span v-if="analyticsState.refreshing.value || eventState.pending.value" class="entity-sync">同步中</span>
           </header>
 
-          <dl class="player-measures">
-            <div><dt>分析擊球</dt><dd>{{ selectedPlayer.contact_count }}</dd><small>已綁定到此球員的事件</small></div>
-            <div><dt>佔已辨識擊球</dt><dd>{{ (selectedShare * 100).toFixed(1) }}%</dd><small>{{ analytics.players.reduce((sum, player) => sum + player.contact_count, 0) }} 個已辨識事件</small></div>
-            <div><dt>參與回合</dt><dd>{{ selectedParticipation.length }}</dd><small>具有此球員軌跡的回合</small></div>
-            <div><dt>場次識別覆蓋</dt><dd>{{ (identityCoverage * 100).toFixed(1) }}%</dd><small>{{ analytics.metrics.identity_coverage?.sample_count ?? 0 }} 條球員軌跡</small></div>
+          <dl class="entity-measures">
+            <template v-if="viewMode === 'players' && selectedPlayer">
+              <div><dt>分析擊球</dt><dd>{{ selectedPlayer.contact_count }}</dd><small>已綁定到此球員的事件</small></div>
+              <div><dt>佔已辨識擊球</dt><dd>{{ (selectedShare * 100).toFixed(1) }}%</dd><small>{{ analytics.players.reduce((sum, player) => sum + player.contact_count, 0) }} 個已辨識事件</small></div>
+              <div><dt>參與回合</dt><dd>{{ selectedParticipation.length }}</dd><small>具有此球員軌跡的回合</small></div>
+              <div><dt>場次識別覆蓋</dt><dd>{{ (identityCoverage * 100).toFixed(1) }}%</dd><small>{{ analytics.metrics.identity_coverage?.sample_count ?? 0 }} 條球員軌跡</small></div>
+            </template>
+            <template v-else-if="selectedLocalTrack">
+              <div><dt>動作事件</dt><dd>{{ eventState.events.value.length }}</dd><small>此片段 ID 的模型動作</small></div>
+              <div><dt>動作種類</dt><dd>{{ actionOptions.length }}</dd><small>依 provider label 動態產生</small></div>
+              <div><dt>出現範圍</dt><dd>{{ Number(BigInt(selectedLocalTrack.last_frame_index) - BigInt(selectedLocalTrack.first_frame_index) + 1n) }}</dd><small>frames {{ selectedLocalTrack.first_frame_index }}–{{ selectedLocalTrack.last_frame_index }}</small></div>
+              <div><dt>人物狀態</dt><dd class="mapping-state">{{ selectedMappedPlayer ? '已綁定' : '待分配' }}</dd><small>{{ selectedMappedPlayer ? playerBadge(selectedMappedPlayer) : '仍保留此 local ID 的所有紀錄' }}</small></div>
+            </template>
           </dl>
 
-          <section class="player-analysis">
-            <article class="player-heatmap">
-              <header><strong>觸球位置</strong><span>已依換場方向統一</span></header>
-              <div class="court-map" aria-label="球員觸球位置熱圖">
-                <i class="net" />
-                <span
-                  v-for="(sample, index) in selectedSamples"
-                  :key="`${sample.rally_id}:${index}`"
-                  :class="sample.action || 'other'"
-                  :style="{ left: `${Math.max(0, Math.min(100, sample.x * 100))}%`, top: `${Math.max(0, Math.min(100, sample.y * 100))}%` }"
-                  :title="`第 ${sample.set_number} 局 · ${actionLabels[sample.action || 'other']}`"
-                />
-                <p v-if="!selectedSamples.length">尚無可用的場地位置</p>
+          <CoachTrackIdentityEditor
+            v-if="viewMode === 'tracks' && selectedLocalTrack"
+            :match-id="matchId"
+            :analysis-run-id="selectedLocalTrack.analysis_run_id"
+            :track-id="selectedLocalTrack.track_id"
+            :team-id="selectedLocalTeamId"
+            @changed="refreshAfterIdentityChange"
+          />
+
+          <section class="action-workspace">
+            <header class="action-toolbar">
+              <div><Activity :size="17" /><span><strong>動作分析</strong><small>依模型輸出動態分類；未知 label 會保留原名</small></span></div>
+              <div class="action-filters" aria-label="動作篩選">
+                <button type="button" :class="{ active: selectedActionKey === 'all' }" @click="selectedActionKey = 'all'">全部 <b>{{ eventState.events.value.length }}</b></button>
+                <button v-for="option in actionOptions" :key="option.key" type="button" :class="{ active: selectedActionKey === option.key }" @click="selectedActionKey = option.key"><i :style="{ background: actionColor(option.key) }" />{{ option.label }} <b>{{ option.count }}</b></button>
               </div>
-            </article>
-            <article class="action-summary">
-              <header><strong>擊球分類</strong><span>依模型動作與人工校正</span></header>
-              <div v-for="(label, key) in actionLabels" :key="key"><span>{{ label }}</span><strong>{{ selectedPlayer.action_counts[key] ?? 0 }}</strong></div>
-              <p v-if="selectedPlayer.error_count === null">失誤需有明確事件結果後才列入統計。</p>
-            </article>
+            </header>
+
+            <div class="action-overview">
+              <article class="action-heatmap">
+                <header><strong>{{ selectedActionLabel }}位置</strong><span>{{ selectedHeatmap.length }} 個座標樣本</span></header>
+                <div class="court-map" aria-label="動作位置熱圖">
+                  <i class="net" />
+                  <span
+                    v-for="event in selectedHeatmap"
+                    :key="event.id"
+                    :style="{ left: `${Math.max(0, Math.min(100, event.courtPosition!.x * 100))}%`, top: `${Math.max(0, Math.min(100, event.courtPosition!.y * 100))}%`, '--action-color': actionColor(event.actionKey) }"
+                    :title="`第 ${event.setNumber} 局 · 回合 ${event.rallyOrdinal} · ${event.actionLabel}`"
+                  />
+                  <p v-if="!selectedHeatmap.length">這個篩選沒有可用的場地位置</p>
+                </div>
+              </article>
+              <aside class="action-rate">
+                <span>動作後回合得分率</span>
+                <strong>{{ outcomeSummary.rate === null ? '—' : `${(outcomeSummary.rate * 100).toFixed(1)}%` }}</strong>
+                <p>{{ outcomeSummary.won }} / {{ outcomeSummary.resolved }} 個已判定事件</p>
+                <small>這是該動作發生後的回合結果，不會把回合得分誤標成直接殺球成功。<template v-if="outcomeSummary.unknown">另有 {{ outcomeSummary.unknown }} 筆結果未判定。</template></small>
+              </aside>
+            </div>
+
+            <section class="action-records">
+              <header><div><h2>動作時間軸</h2><p>選擇紀錄會從事件前 5 秒進入 Replay</p></div><span>{{ filteredEvents.length }} 筆</span></header>
+              <UiScrollArea v-if="filteredEvents.length" class="action-records__scroll">
+                <div class="action-records__list">
+                  <NuxtLink v-for="event in filteredEvents" :key="event.id" :to="replayEventUrl(matchId, event)">
+                    <i :style="{ background: actionColor(event.actionKey) }" />
+                    <div class="action-record__identity"><strong>{{ event.actionLabel }}</strong><span>第 {{ event.setNumber }} 局 · 回合 {{ event.rallyOrdinal }} · ID {{ event.trackId }}</span></div>
+                    <time>{{ formatActionTime(event.anchorTimeUs) }}</time>
+                    <span class="action-record__outcome" :data-outcome="event.outcome">{{ outcomeLabel(event) }}</span>
+                    <span v-if="event.actionConfidence !== null" class="action-record__confidence">{{ Math.round(event.actionConfidence * 100) }}%</span>
+                    <ChevronRight :size="17" />
+                  </NuxtLink>
+                </div>
+              </UiScrollArea>
+              <div v-else class="action-records__empty"><UserRoundSearch :size="20" /><strong>{{ eventState.error.value ? '動作紀錄載入失敗' : '目前沒有符合的動作紀錄' }}</strong><span>{{ eventState.error.value?.message ?? '模型尚未提供動作 label 時，不顯示推測資料。' }}</span></div>
+            </section>
           </section>
 
-          <section class="player-rallies">
-            <header><div><h2>參與回合</h2><p>由已完成分析與球員 mapping 即時彙整</p></div><span>{{ selectedParticipation.length }} 回合</span></header>
-            <div v-if="selectedParticipation.length" class="player-rallies__list">
+          <section v-if="viewMode === 'players'" class="participation-list">
+            <header><div><h2>參與回合</h2><p>由已完成分析與人物綁定即時彙整</p></div><span>{{ selectedParticipation.length }} 回合</span></header>
+            <div v-if="selectedParticipation.length">
               <NuxtLink v-for="track in selectedParticipation" :key="track.rally_id" :to="`/matches/${matchId}/replay/${track.rally_id}`">
-                <div><strong>第 {{ track.set_number }} 局 · 回合 {{ track.rally_ordinal }}</strong><span>Track {{ track.track_id }} · frame {{ track.first_frame_index }}–{{ track.last_frame_index }}</span></div><ChevronRight :size="18" />
+                <div><strong>第 {{ track.set_number }} 局 · 回合 {{ track.rally_ordinal }}</strong><span>ID {{ track.track_id }} · frame {{ track.first_frame_index }}–{{ track.last_frame_index }}</span></div><ChevronRight :size="18" />
               </NuxtLink>
             </div>
-            <p v-else class="player-rallies__empty">目前沒有已綁定到這位球員的分析軌跡。</p>
+            <p v-else>目前沒有已綁定到這位球員的分析軌跡。</p>
           </section>
         </main>
       </UiScrollArea>
-      <main v-else class="players-state">尚無球員資料。</main>
+      <main v-else class="players-state">尚無可分析資料。</main>
     </div>
   </section>
 </template>
 
 <style scoped>
-.players-view{height:100%;min-height:0;overflow:hidden}.players-layout{height:100%;min-height:0;display:grid;grid-template-columns:288px minmax(0,1fr);overflow:hidden;border-block:1px solid #e0e5e9;background:#fbfcfd}.player-list{min-height:0;display:grid;grid-template-rows:50px minmax(0,1fr);overflow:hidden;border-right:1px solid #dfe4e8;background:#eef1f4}.player-list>header{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:0 14px;border-bottom:1px solid #dde2e7}.player-list>header strong{font-size:.82rem}.player-list>header a{min-height:36px;display:inline-flex;align-items:center;gap:5px;color:#0670df;font-size:.67rem;font-weight:700;text-decoration:none}.player-list__scroll,.player-detail-scroll{height:100%;min-height:0}.player-list__team h2{position:sticky;top:0;z-index:2;margin:0;padding:12px 14px 7px;background:rgba(238,241,244,.94);color:#707985;font-size:.63rem;backdrop-filter:blur(12px)}.player-list button{width:100%;min-height:54px;display:grid;grid-template-columns:58px minmax(0,1fr) auto;align-items:center;gap:8px;padding:0 14px;border:0;background:transparent;color:#20242a;text-align:left}.player-list button:hover{background:#e5eaf0}.player-list button.active{background:#fff;color:#075fbe;box-shadow:inset 3px 0 #0670df}.player-list button span{font-size:.68rem;font-weight:780;font-variant-numeric:tabular-nums}.player-list button b{overflow:hidden;font-size:.74rem;text-overflow:ellipsis;white-space:nowrap}.player-list button small{color:#858d97;font-size:.59rem;font-variant-numeric:tabular-nums}.player-detail{min-width:0;min-height:100%;padding:clamp(26px,4vw,58px) clamp(28px,5vw,72px);box-sizing:border-box}.player-title{display:flex;align-items:flex-start;justify-content:space-between;gap:20px}.player-title>div{min-width:0}.player-badge{display:inline-flex;min-height:27px;align-items:center;padding:0 8px;border-radius:7px;background:#17202a;color:#fff;font-size:.68rem;font-weight:780;font-variant-numeric:tabular-nums}.player-title p{margin:13px 0 3px;color:#737c87;font-size:.7rem;font-weight:620}.player-title h1{margin:0;font-size:clamp(2rem,4vw,3.6rem);line-height:1;letter-spacing:-.04em}.player-sync{color:#74808b;font-size:.62rem}.player-measures{display:grid;grid-template-columns:repeat(4,1fr);margin:clamp(30px,5vw,64px) 0 0;border-block:1px solid #dfe4e8}.player-measures>div{min-width:0;padding:20px 18px}.player-measures>div+div{border-left:1px solid #e1e5e9}.player-measures dt{color:#68727e;font-size:.65rem;font-weight:650}.player-measures dd{margin:8px 0 5px;font-size:clamp(1.65rem,3vw,2.65rem);font-weight:720;line-height:1;letter-spacing:-.04em;font-variant-numeric:tabular-nums}.player-measures small{display:block;color:#858d97;font-size:.59rem;line-height:1.4}.player-analysis{display:grid;grid-template-columns:minmax(0,1.35fr) minmax(220px,.65fr);gap:14px;margin-top:clamp(28px,4vw,48px)}.player-analysis article{overflow:hidden;border:1px solid #e1e5e9;border-radius:14px;background:#f7f9fb}.player-analysis article>header{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:12px 14px;border-bottom:1px solid #e2e6ea}.player-analysis article>header strong{font-size:.76rem}.player-analysis article>header span{color:#79828c;font-size:.61rem}.court-map{position:relative;aspect-ratio:18/9;margin:14px;border:2px solid #8296a4;background:linear-gradient(90deg,#e8c88f 0 49.7%,#d8b97f 49.7% 50.3%,#e8c88f 50.3%)}.court-map::before,.court-map::after{position:absolute;inset-block:0;width:1px;background:#ffffffb0;content:""}.court-map::before{left:16.666%}.court-map::after{right:16.666%}.court-map .net{position:absolute;z-index:1;inset-block:-2px;left:50%;width:2px;background:#f7fafc}.court-map>span{position:absolute;z-index:2;width:10px;height:10px;transform:translate(-50%,-50%);border:2px solid #fff;border-radius:50%;background:#376f9b;box-shadow:0 1px 4px #0006}.court-map>span.attack{background:#c94f56}.court-map>span.set{background:#4a8d69}.court-map>span.defense{background:#3b6fa4}.court-map>span.block{background:#9a6934}.court-map p{position:absolute;inset:0;display:grid;place-items:center;margin:0;color:#6d5c40;font-size:.7rem}.action-summary>div{min-height:42px;display:flex;align-items:center;justify-content:space-between;padding:0 14px;border-bottom:1px solid #e2e6ea}.action-summary>div span{color:#646c74;font-size:.72rem}.action-summary>div strong{font-size:.92rem}.action-summary>p{margin:0;padding:12px 14px;color:#848b92;font-size:.64rem;line-height:1.5}.player-rallies{margin-top:clamp(28px,4vw,48px)}.player-rallies>header{display:flex;align-items:end;justify-content:space-between;gap:16px;padding-bottom:10px;border-bottom:1px solid #dfe4e8}.player-rallies h2{margin:0;font-size:.9rem}.player-rallies header p{margin:3px 0 0;color:#79828c;font-size:.63rem}.player-rallies header>span{color:#707a85;font-size:.65rem}.player-rallies__list a{min-height:58px;display:flex;align-items:center;justify-content:space-between;gap:14px;border-bottom:1px solid #e4e7eb;color:inherit;text-decoration:none}.player-rallies__list a:hover{background:#f2f5f8}.player-rallies__list a>div{display:grid;gap:3px}.player-rallies__list strong{font-size:.73rem}.player-rallies__list span{color:#7c858f;font-size:.6rem;font-variant-numeric:tabular-nums}.player-rallies__list svg{color:#8c949d}.player-rallies__empty{margin:0;padding:24px 0;color:#7b848f;font-size:.7rem}.players-loading{height:100%;display:grid;grid-template-columns:288px 1fr;background:#fbfcfd}.players-loading i{display:none}.players-loading::before,.players-loading::after{content:"";background:linear-gradient(100deg,#edf0f3 20%,#e2e6ea 40%,#edf0f3 60%);background-size:200% 100%;animation:shimmer 1.2s linear infinite}.players-loading::before{border-right:1px solid #dde2e7}.players-state{height:100%;display:grid;place-content:center;justify-items:center;gap:8px;color:#707984}.players-state span{font-size:.7rem}.players-state button{min-height:38px;padding:0 14px;border:0;border-radius:9px;background:#e4e9ef;font-weight:700}@keyframes shimmer{to{background-position:-200% 0}}@media(max-width:900px){.player-analysis{grid-template-columns:1fr}}@media(max-width:820px){.players-layout{grid-template-columns:240px minmax(0,1fr)}.player-detail{padding:24px}.player-measures{grid-template-columns:repeat(2,1fr)}.player-measures>div:nth-child(3){border-left:0;border-top:1px solid #e1e5e9}.player-measures>div:nth-child(4){border-top:1px solid #e1e5e9}}@media(max-width:620px){.players-layout{grid-template-columns:200px minmax(0,1fr)}.player-list>header a{font-size:0}.player-title h1{font-size:1.8rem}.player-measures{grid-template-columns:1fr}.player-measures>div+div{border-left:0;border-top:1px solid #e1e5e9}}@media(prefers-reduced-motion:reduce){.players-loading::before,.players-loading::after{animation:none}}
+.players-view{height:100%;min-height:0;overflow:hidden}.players-layout{height:100%;min-height:0;display:grid;grid-template-columns:300px minmax(0,1fr);overflow:hidden;border-block:1px solid #e0e5e9;background:#fbfcfd}.entity-list{min-height:0;display:grid;grid-template-rows:52px minmax(0,1fr);overflow:hidden;border-right:1px solid #dfe4e8;background:#eef1f4}.entity-list>header{display:flex;align-items:center;gap:8px;padding:7px 10px;border-bottom:1px solid #dde2e7}.entity-list>header>a{width:36px;height:36px;display:grid;place-items:center;border-radius:9px;color:#69737e}.entity-list>header>a:hover{background:#e2e7ec;color:#0670df}.entity-mode{min-width:0;flex:1}.entity-list__scroll,.entity-detail-scroll{height:100%;min-height:0}.entity-list__group h2{position:sticky;top:0;z-index:2;margin:0;padding:12px 14px 7px;background:rgba(238,241,244,.94);color:#707985;font-size:.63rem;backdrop-filter:blur(12px)}.entity-list__group>button{width:100%;min-height:55px;display:grid;grid-template-columns:62px minmax(0,1fr) auto;align-items:center;gap:8px;padding:0 14px;border:0;background:transparent;color:#20242a;text-align:left}.entity-list__group>button:hover{background:#e5eaf0}.entity-list__group>button.active{background:#fff;color:#075fbe;box-shadow:inset 3px 0 #0670df}.entity-list__group>button>span{font-size:.67rem;font-weight:780;font-variant-numeric:tabular-nums}.entity-list__group>button>b{overflow:hidden;font-size:.72rem;text-overflow:ellipsis;white-space:nowrap}.entity-list__group>button>small{color:#858d97;font-size:.57rem;font-variant-numeric:tabular-nums}.entity-list__empty{padding:22px 14px;color:#7b858f;font-size:.68rem}.entity-detail{min-width:0;min-height:100%;padding:clamp(25px,3.6vw,50px) clamp(28px,4.5vw,68px);box-sizing:border-box}.entity-title{display:flex;align-items:flex-start;justify-content:space-between;gap:20px}.entity-title>div{min-width:0}.entity-badge{display:inline-flex;min-height:27px;align-items:center;padding:0 8px;border-radius:7px;background:#17202a;color:#fff;font-size:.68rem;font-weight:780;font-variant-numeric:tabular-nums}.entity-badge.local{background:#e9edf1;color:#333a42}.entity-title p{margin:13px 0 3px;color:#737c87;font-size:.7rem;font-weight:620}.entity-title h1{margin:0;font-size:clamp(2rem,4vw,3.45rem);line-height:1;letter-spacing:-.035em}.entity-sync{color:#74808b;font-size:.62rem}.entity-measures{display:grid;grid-template-columns:repeat(4,1fr);margin:clamp(28px,4vw,54px) 0 26px;border-block:1px solid #dfe4e8}.entity-measures>div{min-width:0;padding:18px}.entity-measures>div+div{border-left:1px solid #e1e5e9}.entity-measures dt{color:#68727e;font-size:.64rem;font-weight:650}.entity-measures dd{margin:8px 0 5px;font-size:clamp(1.55rem,2.7vw,2.45rem);font-weight:720;line-height:1;letter-spacing:-.035em;font-variant-numeric:tabular-nums}.entity-measures dd.mapping-state{font-size:1.25rem;letter-spacing:-.01em}.entity-measures small{display:block;color:#858d97;font-size:.58rem;line-height:1.4}.action-workspace{margin-top:34px}.action-toolbar{display:flex;align-items:flex-end;justify-content:space-between;gap:18px;padding-bottom:12px;border-bottom:1px solid #dfe4e8}.action-toolbar>div:first-child{display:flex;align-items:center;gap:8px}.action-toolbar>div:first-child>span{display:grid;gap:2px}.action-toolbar strong{font-size:.78rem}.action-toolbar small{color:#7c858f;font-size:.59rem}.action-filters{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:4px}.action-filters button{min-height:34px;display:inline-flex;align-items:center;gap:6px;padding:0 9px;border:0;border-radius:8px;background:transparent;color:#68727c;font-size:.63rem;font-weight:690}.action-filters button:hover{background:#eef2f5}.action-filters button.active{background:#e4ebf2;color:#10161d}.action-filters i{width:7px;height:7px;border-radius:50%}.action-filters b{font-size:.57rem;font-variant-numeric:tabular-nums}.action-overview{display:grid;grid-template-columns:minmax(0,1.5fr) minmax(220px,.5fr);gap:24px;padding:26px 0;border-bottom:1px solid #dfe4e8}.action-heatmap>header{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:10px}.action-heatmap>header strong{font-size:.72rem}.action-heatmap>header span{color:#7b858f;font-size:.59rem}.court-map{position:relative;aspect-ratio:18/9;overflow:hidden;border:1px solid #8496a3;background:linear-gradient(90deg,#e8c88f 0 49.7%,#d3b276 49.7% 50.3%,#e8c88f 50.3%)}.court-map::before,.court-map::after{position:absolute;inset-block:0;width:1px;background:#ffffffbd;content:""}.court-map::before{left:16.666%}.court-map::after{right:16.666%}.court-map .net{position:absolute;z-index:1;inset-block:0;left:50%;width:2px;background:#f8fafc}.court-map>span{position:absolute;z-index:2;width:12px;height:12px;transform:translate(-50%,-50%);border:2px solid #fff;border-radius:50%;background:var(--action-color);box-shadow:0 2px 7px color-mix(in srgb,var(--action-color) 55%,transparent)}.court-map p{position:absolute;inset:0;display:grid;place-items:center;margin:0;color:#6d5c40;font-size:.68rem}.action-rate{display:flex;min-width:0;flex-direction:column;justify-content:center;padding-left:24px;border-left:1px solid #e0e5e9}.action-rate>span{color:#6d7782;font-size:.66rem;font-weight:680}.action-rate>strong{margin:10px 0 4px;font-size:clamp(2.2rem,4.2vw,4rem);line-height:1;letter-spacing:-.045em;font-variant-numeric:tabular-nums}.action-rate p{margin:0;color:#414951;font-size:.68rem}.action-rate small{max-width:34ch;margin-top:12px;color:#7b858f;font-size:.59rem;line-height:1.55}.action-records{padding-top:26px}.action-records>header,.participation-list>header{display:flex;align-items:end;justify-content:space-between;gap:16px;padding-bottom:10px;border-bottom:1px solid #dfe4e8}.action-records h2,.participation-list h2{margin:0;font-size:.86rem}.action-records header p,.participation-list header p{margin:3px 0 0;color:#79828c;font-size:.61rem}.action-records header>span,.participation-list header>span{color:#707a85;font-size:.63rem}.action-records__scroll{height:min(300px,36dvh)}.action-records__list a{min-height:58px;display:grid;grid-template-columns:4px minmax(180px,1fr) 74px 100px 48px 18px;align-items:center;gap:12px;border-bottom:1px solid #e4e7eb;color:inherit;text-decoration:none}.action-records__list a:hover{background:#f2f5f8}.action-records__list>a>i{width:3px;height:30px;border-radius:2px}.action-record__identity{display:grid;gap:3px}.action-record__identity strong{font-size:.71rem}.action-record__identity span,.action-record__confidence{color:#7c858f;font-size:.58rem}.action-records time{font-size:.68rem;font-weight:720;font-variant-numeric:tabular-nums}.action-record__outcome{font-size:.6rem}.action-record__outcome[data-outcome="won"]{color:#187742}.action-record__outcome[data-outcome="lost"]{color:#a53a3f}.action-record__outcome[data-outcome="unknown"]{color:#7b858e}.action-records__list svg{color:#8b949d}.action-records__empty{min-height:130px;display:grid;place-content:center;justify-items:center;gap:6px;color:#77818b}.action-records__empty strong{font-size:.7rem}.action-records__empty span{font-size:.6rem}.participation-list{margin-top:36px}.participation-list>div a{min-height:58px;display:flex;align-items:center;justify-content:space-between;gap:14px;border-bottom:1px solid #e4e7eb;color:inherit;text-decoration:none}.participation-list>div a:hover{background:#f2f5f8}.participation-list>div a>div{display:grid;gap:3px}.participation-list>div strong{font-size:.71rem}.participation-list>div span{color:#7c858f;font-size:.58rem;font-variant-numeric:tabular-nums}.participation-list>p{margin:0;padding:22px 0;color:#7b848f;font-size:.68rem}.players-loading{height:100%;background:linear-gradient(100deg,#edf0f3 20%,#e2e6ea 40%,#edf0f3 60%);background-size:200% 100%;animation:shimmer 1.2s linear infinite}.players-state{height:100%;display:grid;place-content:center;justify-items:center;gap:8px;color:#707984}.players-state span{max-width:48ch;font-size:.7rem;line-height:1.55;text-align:center}.players-state button{min-height:38px;padding:0 14px;border:0;border-radius:9px;background:#e4e9ef;font-weight:700}@keyframes shimmer{to{background-position:-200% 0}}@media(max-width:980px){.players-layout{grid-template-columns:260px minmax(0,1fr)}.action-overview{grid-template-columns:1fr}.action-rate{padding:18px 0 0;border-top:1px solid #e0e5e9;border-left:0}.action-records__list a{grid-template-columns:4px minmax(150px,1fr) 65px 90px 18px}.action-record__confidence{display:none}}@media(max-width:760px){.players-layout{grid-template-columns:220px minmax(0,1fr)}.entity-detail{padding:22px}.entity-measures{grid-template-columns:repeat(2,1fr)}.entity-measures>div:nth-child(3){border-left:0;border-top:1px solid #e1e5e9}.entity-measures>div:nth-child(4){border-top:1px solid #e1e5e9}.action-toolbar{align-items:flex-start;flex-direction:column}.action-filters{justify-content:flex-start}.action-records__list a{grid-template-columns:4px minmax(130px,1fr) 62px 18px}.action-record__outcome,.action-record__confidence{display:none}}@media(prefers-reduced-motion:reduce){.players-loading{animation:none}}@media(prefers-reduced-transparency:reduce){.entity-list__group h2{background:#eef1f4;backdrop-filter:none}}
 </style>

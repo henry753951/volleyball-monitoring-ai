@@ -12,7 +12,7 @@ import Ajv2020 from 'ajv/dist/2020.js'
 import type { FastifyPluginAsync, FastifyReply } from 'fastify'
 import { Client } from 'minio'
 import type { AiProgressService } from '../realtime/ai-progress.js'
-import { ingestReidFeatureBank, parseReidFeatureBankExtension, ReidFeatureBankError } from '../services/reid-identity.js'
+import { FixedRosterReidError, ingestFixedRosterReid, parseFixedRosterReidExtension } from '../services/fixed-roster-reid.js'
 
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 const ajv = new Ajv2020({ allErrors: true, strict: false })
@@ -222,9 +222,9 @@ export const aiCallbackRoutesWithDependencies = (
       const invariant = invariantError(result, job)
       if (invariant) return reject(reply, 409, 'PASSTHROUGH_MISMATCH', invariant)
       let reidFeatureBank
-      try { reidFeatureBank = parseReidFeatureBankExtension(result) }
+      try { reidFeatureBank = parseFixedRosterReidExtension(result) }
       catch (error) {
-        if (error instanceof ReidFeatureBankError) return reject(reply, 422, 'INVALID_REID_FEATURE_BANK', error.message)
+        if (error instanceof FixedRosterReidError) return reject(reply, 422, 'INVALID_REID_FEATURE_BANK', error.message)
         throw error
       }
       const analysisDataInvariant = analysisDataInvariantError(analysisData, result, job)
@@ -283,7 +283,7 @@ export const aiCallbackRoutesWithDependencies = (
         }
         const tracks = records(result.tracks)
         if (tracks.length) await tx.analysisTrack.createMany({ data: tracks.map(track => ({ analysisRunId: analysisRun.id, trackId: Number(track.track_id), courtSide: String(track.court_side).toUpperCase() as TrackCourtSide, firstFrame: BigInt(String(track.first_frame_index)), lastFrame: BigInt(String(track.last_frame_index)), meanConfidence: typeof track.mean_confidence === 'number' ? track.mean_confidence : null, metadata: track.metadata === undefined ? Prisma.JsonNull : json(track.metadata) })) })
-        await ingestReidFeatureBank(tx, {
+        await ingestFixedRosterReid(tx, {
           analysisRunId: analysisRun.id,
           matchId: job.submission.rally.matchId,
           leftTeamId: job.submission.leftTeamId,
@@ -363,7 +363,11 @@ export const aiCallbackRoutesWithDependencies = (
     catch (error) {
       if (error instanceof Error && (error.message === 'PAYLOAD_TOO_LARGE' || ('code' in error && error.code === 'FST_REQ_FILE_TOO_LARGE'))) return reject(reply, 413, 'PAYLOAD_TOO_LARGE', 'Callback payload exceeds the configured limit')
       if (error instanceof Error && error.message === 'AI_JOB_NOT_ACTIVE') return reject(reply, 409, 'JOB_NOT_ACTIVE', 'AI job was cancelled or superseded')
-      request.log.error({ error }, 'AI callback ingest failed')
+      if (error instanceof FixedRosterReidError) {
+        request.log.warn({ err: error }, 'Fixed roster ReID callback rejected')
+        return reject(reply, 422, 'INVALID_REID_FEATURE_BANK', error.message)
+      }
+      request.log.error({ err: error }, 'AI callback ingest failed')
       return reject(reply, 503, 'CALLBACK_INGEST_FAILED', 'Callback could not be ingested')
     }
     finally {

@@ -1,5 +1,6 @@
 import type { CoachMatchAnalytics } from '~/lib/coachDomain'
 import type { PlayerComboboxOption } from '~/types/identityAssignment'
+import { formatReidGlobalId, formatReidTrackId } from '~/utils/reidIdentity'
 
 export type IdentityTrack = CoachMatchAnalytics['tracks'][number]
 export type IdentityPlayer = CoachMatchAnalytics['players'][number]
@@ -29,9 +30,7 @@ function identityStatus(track: IdentityTrack): IdentityStatusView {
 }
 
 function gidLabel(track: IdentityTrack) {
-  if (track.gid_label) return track.gid_label
-  if (!track.gid_id) return null
-  return `G-${track.gid_id.replaceAll('-', '').slice(0, 6).toUpperCase()}`
+  return formatReidGlobalId(track.gid_label)
 }
 
 function isEarlierTrack(candidate: IdentityTrack, current: IdentityTrack | undefined) {
@@ -83,7 +82,7 @@ export function createIdentityAssignmentModel(input: IdentityAssignmentModelInpu
           value: player.roster_entry_id,
           label: `#${player.jersey_number} ${player.name}`,
           description: occupiedTrack
-            ? `目前由 T${String(occupiedTrack.track_id).padStart(2, '0')} 使用，選擇後可取代`
+            ? `目前由 ${formatReidTrackId(occupiedTrack.track_id)} · ${gidLabel(occupiedTrack)} 使用，選擇後可取代`
             : previousTrack
               ? `最近出現在第 ${previousTrack.set_number} 局 · 回合 ${previousTrack.rally_ordinal}`
               : '尚無過往片段',
@@ -107,6 +106,7 @@ export function createIdentityAssignmentModel(input: IdentityAssignmentModelInpu
       conflictFor,
       status: identityStatus,
       gidLabel,
+      tidLabel: (track: IdentityTrack) => formatReidTrackId(track.track_id),
     },
     options: {
       forTrack: optionsForTrack,
