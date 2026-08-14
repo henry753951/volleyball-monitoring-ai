@@ -76,9 +76,9 @@ function handleOpenChange(open: boolean) {
       <div v-if="assignment.state.dialogs.correction" class="correction-choice" role="dialog" aria-label="選擇球員修正方式">
         <strong>要如何套用「{{ assignment.state.dialogs.correction.playerName }}」？</strong>
         <p>選擇會影響後續片段是否沿用這次修正。</p>
-        <button type="button" @click="assignment.actions.applyCorrection('from_here')"><b>從這段起改正球員</b><small>適合先前綁錯姓名；較早片段不變</small></button>
-        <button type="button" @click="assignment.actions.applyCorrection('split_identity')"><b>這其實是不同的人</b><small>適合替補或辨識混人；拆開後續資料</small></button>
-        <button type="button" @click="assignment.actions.applyCorrection('clip_only')"><b>只修正這個片段</b><small>不影響之後的自動辨識</small></button>
+        <button type="button" @click="assignment.actions.applyCorrection('from_here')"><b>依 GID 從這段起改正</b><small>同一 GID 的 Local ID 與後續片段一起套用</small></button>
+        <button type="button" @click="assignment.actions.applyCorrection('split_identity')"><b>這其實是不同的人</b><small>適合替補或辨識混人；只拆開這組 Local ID</small></button>
+        <button type="button" @click="assignment.actions.applyCorrection('clip_only')"><b>只修正這個 Local ID</b><small>不改 GID 關聯，也不影響其他 Local ID</small></button>
         <button type="button" class="cancel" @click="assignment.actions.closeCorrection">取消</button>
       </div>
       <p v-if="!presentation.players.length" class="empty">目前沒有可指派的球員</p>

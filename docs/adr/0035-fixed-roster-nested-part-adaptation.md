@@ -36,9 +36,17 @@ assignments but clears v1-derived identity links. New results must advertise
 
 ## Human corrections
 
-Immutable AnalysisData is retained. A manual player correction binds or rebinds an existing fixed
-team slot from a canonical set/rally position, applies to every alias TID, and benefits later clips.
-It cannot create a new identity. Dataset exports include the raw v2 tracklet payload, separated
+Immutable AnalysisData is retained. The canonical player assignment is always persisted per
+run-local track as `(analysis_run_id, track_id) -> roster_entry_id`; GID is not the player-assignment
+primary key. The UI may group multiple Local/TIDs by one fixed team slot and batch-apply one player,
+but this writes one `TrackIdentityAssignment` for every Local/TID. A Local-only correction remains
+possible when ReID grouped a track incorrectly.
+
+A match-scoped GID binding records which player a fixed slot represented from one set/rally onward.
+It assists automatic assignment for later clips and can be manually re-applied to an existing run,
+but it never replaces the Local/TID assignments consumed by events, replay or analytics. Manual
+assignments take precedence over automatic propagation. It cannot create a new identity. Dataset
+exports include the raw v2 tracklet payload, separated
 JSONL persistence/binding/correction views, descriptor hashes, recipe, selection parameters, and
 source clip metadata.
 

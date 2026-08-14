@@ -19,6 +19,22 @@ export interface IdentityAssignmentModelInput {
 export interface TrackOptionRequest {
   teamId: string | null
   trackId: number
+  trackIds?: number[]
+}
+
+export interface IdentityGidGroup {
+  gidId: string
+  gidLabel: string
+  slotIndex: number | null
+  teamId: string | null
+  tracks: IdentityTrack[]
+  trackIds: number[]
+  representativeTrackId: number
+  rosterEntryId: string | null
+  assignedCount: number
+  active: boolean
+  confidence: number | null
+  status: IdentityStatusView
 }
 
 function identityStatus(track: IdentityTrack): IdentityStatusView {
@@ -51,18 +67,70 @@ export function createIdentityAssignmentModel(input: IdentityAssignmentModelInpu
   const players = input.analytics?.players ?? []
   const playerByRosterEntry = new Map(players.map(player => [player.roster_entry_id, player]))
 
+  const gidGroups = [...tracks.reduce((groups, track) => {
+    if (!track.gid_id) return groups
+    const group = groups.get(track.gid_id) ?? []
+    group.push(track)
+    groups.set(track.gid_id, group)
+    return groups
+  }, new Map<string, IdentityTrack[]>())].map(([gidId, groupedTracks]): IdentityGidGroup => {
+    const assigned = groupedTracks.filter(track => track.roster_entry_id)
+    const rosterEntryIds = [...new Set(assigned.map(track => track.roster_entry_id!))]
+    const confidenceSamples = groupedTracks
+      .map(track => track.identity_confidence)
+      .filter((value): value is number => value != null)
+    const allAssigned = assigned.length === groupedTracks.length
+    const allManual = allAssigned && groupedTracks.every(track => track.identity_source === 'manual')
+    const allPropagated = allAssigned && groupedTracks.every(track => track.identity_source === 'propagated')
+    const status: IdentityStatusView = rosterEntryIds.length > 1
+      ? { label: '有 Local 覆寫', tone: 'suggested' }
+      : !assigned.length
+        ? { label: '待指派', tone: 'required' }
+        : !allAssigned
+          ? { label: `已套用 ${assigned.length}/${groupedTracks.length}`, tone: 'required' }
+          : allManual
+            ? { label: '人工確認', tone: 'manual' }
+            : allPropagated
+              ? { label: '沿用先前確認', tone: 'propagated' }
+              : { label: '已套用到全部 Local', tone: 'suggested' }
+    return {
+      gidId,
+      gidLabel: gidLabel(groupedTracks[0]!),
+      slotIndex: groupedTracks[0]!.gid_slot_index ?? null,
+      teamId: groupedTracks[0]!.gid_team_id ?? null,
+      tracks: groupedTracks,
+      trackIds: groupedTracks.map(track => track.track_id),
+      representativeTrackId: groupedTracks[0]!.track_id,
+      rosterEntryId: rosterEntryIds.length === 1 ? rosterEntryIds[0]! : null,
+      assignedCount: assigned.length,
+      active: groupedTracks.some(track => activeTrackIds.has(track.track_id)),
+      confidence: confidenceSamples.length
+        ? confidenceSamples.reduce((sum, value) => sum + value, 0) / confidenceSamples.length
+        : null,
+      status,
+    }
+  }).sort((left, right) => (left.teamId ?? '').localeCompare(right.teamId ?? '')
+    || (left.slotIndex ?? Number.MAX_SAFE_INTEGER) - (right.slotIndex ?? Number.MAX_SAFE_INTEGER)
+    || left.gidLabel.localeCompare(right.gidLabel))
+
   function playersForTeam(teamId: string | null) {
     return players.filter(player => !teamId || player.team_id === teamId)
   }
 
   function conflictFor(trackId: number, rosterEntryId: string) {
-    return tracks.find(track => track.track_id !== trackId
+    return conflictForTracks([trackId], rosterEntryId)
+  }
+
+  function conflictForTracks(trackIds: number[], rosterEntryId: string) {
+    const excluded = new Set(trackIds)
+    return tracks.find(track => !excluded.has(track.track_id)
       && activeTrackIds.has(track.track_id)
       && track.roster_entry_id === rosterEntryId) ?? null
   }
 
   function optionsForTrack(request: TrackOptionRequest): PlayerComboboxOption[] {
     const current = trackById.get(request.trackId) ?? tracks[0]
+    const memberTrackIds = request.trackIds ?? [request.trackId]
     const previousByRoster = new Map<string, IdentityTrack>()
     const historicalTracks = allTracks
       .filter(track => track.analysis_run_id !== input.analysisRunId && isEarlierTrack(track, current))
@@ -76,7 +144,7 @@ export function createIdentityAssignmentModel(input: IdentityAssignmentModelInpu
     return [
       { value: '', label: '清除球員關聯', description: '保留辨識身分，移除姓名綁定' },
       ...playersForTeam(request.teamId).map((player) => {
-        const occupiedTrack = conflictFor(request.trackId, player.roster_entry_id)
+        const occupiedTrack = conflictForTracks(memberTrackIds, player.roster_entry_id)
         const previousTrack = previousByRoster.get(player.roster_entry_id)
         return {
           value: player.roster_entry_id,
@@ -94,6 +162,8 @@ export function createIdentityAssignmentModel(input: IdentityAssignmentModelInpu
 
   return {
     tracks,
+    gidGroups,
+    ungroupedTrackCount: tracks.filter(track => !track.gid_id).length,
     activeTrackIds,
     identityReady: tracks.every(track => !track.manual_required || Boolean(track.roster_entry_id)),
     players: {
@@ -104,6 +174,7 @@ export function createIdentityAssignmentModel(input: IdentityAssignmentModelInpu
     track: {
       byId: (trackId: number) => trackById.get(trackId) ?? null,
       conflictFor,
+      conflictForTracks,
       status: identityStatus,
       gidLabel,
       tidLabel: (track: IdentityTrack) => formatReidTrackId(track.track_id),

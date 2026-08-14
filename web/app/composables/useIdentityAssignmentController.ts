@@ -24,8 +24,10 @@ interface IdentityAssignmentControllerOptions {
 interface IdentityAssignmentState {
   analytics: CoachMatchAnalytics | null
   loading: boolean
+  autoAssigning: boolean
   savingTrackId: number | null
   error: string | null
+  automaticAssignmentResult: string | null
   dialogs: {
     replacement: IdentityReplacementRequest | null
     correction: IdentityCorrectionRequest | null
@@ -38,8 +40,10 @@ export function useIdentityAssignmentController(options: IdentityAssignmentContr
   const state = reactive<IdentityAssignmentState>({
     analytics: null,
     loading: false,
+    autoAssigning: false,
     savingTrackId: null,
     error: null,
+    automaticAssignmentResult: null,
     dialogs: { replacement: null, correction: null },
   })
   const preferences = reactive({ replacementWarningEnabled: replacementWarning.enabled })
@@ -52,7 +56,7 @@ export function useIdentityAssignmentController(options: IdentityAssignmentContr
   }))
   const view = reactive({
     model,
-    busy: computed(() => state.loading || state.savingTrackId !== null),
+    busy: computed(() => state.loading || state.autoAssigning || state.savingTrackId !== null),
   })
 
   async function refresh() {
@@ -111,7 +115,8 @@ export function useIdentityAssignmentController(options: IdentityAssignmentContr
   function continueAssignment(command: IdentityAssignmentCommand) {
     const current = view.model.track.byId(command.trackId)
     const player = view.model.players.byRosterEntry(command.rosterEntryId)
-    if (command.rosterEntryId
+    if (command.scope !== 'gid'
+      && command.rosterEntryId
       && current?.gid_id
       && current.roster_entry_id
       && current.roster_entry_id !== command.rosterEntryId
@@ -143,6 +148,22 @@ export function useIdentityAssignmentController(options: IdentityAssignmentContr
     continueAssignment(command)
   }
 
+  function requestGidAssignment(command: IdentityAssignmentCommand & { trackIds: number[] }) {
+    if (!command.rosterEntryId) return
+    const conflict = view.model.track.conflictForTracks(command.trackIds, command.rosterEntryId)
+    const player = view.model.players.byRosterEntry(command.rosterEntryId)
+    const scopedCommand = { ...command, scope: 'gid' as const, identityMode: 'from_here' as const }
+    if (conflict && preferences.replacementWarningEnabled && player) {
+      state.dialogs.replacement = {
+        ...scopedCommand,
+        playerName: player.name,
+        occupiedTrackId: conflict.track_id,
+      }
+      return
+    }
+    void commit(scopedCommand)
+  }
+
   function confirmReplacement() {
     const request = state.dialogs.replacement
     state.dialogs.replacement = null
@@ -172,6 +193,31 @@ export function useIdentityAssignmentController(options: IdentityAssignmentContr
     }
   }
 
+  async function applyAutomaticAssignments() {
+    const analysisRunId = toValue(options.analysisRunId)
+    if (!analysisRunId || state.autoAssigning) return
+    state.autoAssigning = true
+    state.error = null
+    state.automaticAssignmentResult = null
+    try {
+      const response = await service.applyReidAutomaticAssignments({ analysisRunId })
+      const result = response.applyReidAutomaticAssignments
+      state.automaticAssignmentResult = result.assigned_count > 0
+        ? `已自動套用 ${result.assigned_count} 個 Local ID${result.unresolved_count ? `，另有 ${result.unresolved_count} 個需人工確認` : ''}`
+        : result.unresolved_count > 0
+          ? `沒有可沿用的既有關聯，仍有 ${result.unresolved_count} 個 Local ID 需人工確認`
+          : '目前的 Local ID 都已完成分配'
+      if (options.refreshAfterCommit) await refresh()
+      options.onChanged?.()
+    }
+    catch (cause) {
+      state.error = cause instanceof Error ? cause.message : 'ReID 自動分配失敗'
+    }
+    finally {
+      state.autoAssigning = false
+    }
+  }
+
   watch([
     () => toValue(options.matchId),
     () => toValue(options.analysisRunId),
@@ -186,8 +232,10 @@ export function useIdentityAssignmentController(options: IdentityAssignmentContr
     actions: {
       refresh,
       requestAssignment,
+      requestGidAssignment,
       confirmReplacement,
       applyCorrection,
+      applyAutomaticAssignments,
       setMappingCompleted,
       closeReplacement: () => { state.dialogs.replacement = null },
       closeCorrection: () => { state.dialogs.correction = null },
