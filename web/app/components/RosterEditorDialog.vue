@@ -86,6 +86,12 @@ function markActiveTeamDirty() {
   if (activeTeam.value) markTeamDirty(activeTeam.value.id)
 }
 
+function selectTeam(teamId: string) {
+  activeTeamId.value = teamId
+  error.value = null
+  saved.value = false
+}
+
 function addPlayer() {
   if (!activeTeam.value) return
   rowsByTeam[activeTeam.value.id] ??= []
@@ -251,11 +257,7 @@ async function save() {
           :key="team.id"
           :variant="team.id === activeTeam?.id ? 'secondary' : 'ghost'"
           :class="{ active: team.id === activeTeam?.id }"
-          @click="
-            activeTeamId = team.id
-            error = null
-            saved = false
-          "
+          @click="selectTeam(team.id)"
         >
           <b>{{ team.shortName }}</b
           ><span>{{ team.name }}</span>

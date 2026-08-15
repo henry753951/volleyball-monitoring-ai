@@ -1,10 +1,10 @@
-import type {
-  PlaybackCursorInput,
-  PlaybackWindowDescriptor,
-  ResolvedMediaAnchor,
-  CanonicalFrameAnchor,
-  MediaApiError,
+import {
   classifyMediaError,
+  type CanonicalFrameAnchor,
+  type MediaApiError,
+  type PlaybackCursorInput,
+  type PlaybackWindowDescriptor,
+  type ResolvedMediaAnchor,
 } from '../lib/mediaModel'
 import type { MediaClient } from '../lib/mediaClient'
 import { shallowRef, ref, readonly } from 'vue'
