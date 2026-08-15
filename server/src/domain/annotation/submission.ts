@@ -34,6 +34,50 @@ const reject = (command: AnnotationCommand, code: string, message: string, actua
   ...(actual ? { actual_revision: actual, expected_revision: command.base_revision } : {}),
 })
 
+function ordinaryDraftBelongsToDevice(rally: {
+  activeSubmissionId: string | null
+  boundaries: Array<{ kind: string; deviceSessionId: string }>
+  keyPoints: Array<{ markerKind: string; deviceSessionId: string }>
+  operations: Array<{ deviceSessionId: string }>
+}, deviceSessionId: string) {
+  if (rally.activeSubmissionId !== null) return true
+  const owner = rally.boundaries.find(boundary => boundary.kind === 'START')?.deviceSessionId
+    ?? rally.keyPoints.find(point => point.markerKind === 'SERVICE')?.deviceSessionId
+    ?? rally.operations[0]?.deviceSessionId
+  return owner === deviceSessionId
+}
+
+function immutableSubmissionRange(submission: {
+  boundaries: Array<{ captureTimeUs: bigint }>
+  keyPoints: Array<{ captureTimeUs: bigint }>
+  clipPreRollUs: bigint
+  clipPostRollUs: bigint
+  clipJobs: Array<{
+    actualStartCaptureUs: bigint | null
+    actualEndCaptureUs: bigint | null
+    requestedStartCaptureUs: bigint
+    requestedEndCaptureUs: bigint
+  }>
+}) {
+  const clip = submission.clipJobs[0]
+  if (clip) {
+    return {
+      start: clip.actualStartCaptureUs ?? clip.requestedStartCaptureUs,
+      end: clip.actualEndCaptureUs ?? clip.requestedEndCaptureUs,
+    }
+  }
+  const anchors = [...submission.boundaries, ...submission.keyPoints]
+    .sort((left, right) => left.captureTimeUs < right.captureTimeUs ? -1 : left.captureTimeUs > right.captureTimeUs ? 1 : 0)
+  const first = anchors[0]
+  const last = anchors.at(-1)
+  if (!first || !last) return null
+  const paddedStart = first.captureTimeUs - submission.clipPreRollUs
+  return {
+    start: paddedStart < 0n ? 0n : paddedStart,
+    end: last.captureTimeUs + submission.clipPostRollUs,
+  }
+}
+
 export async function submitRally(
   tx: Tx,
   room: AnnotationRoom,
@@ -59,6 +103,7 @@ export async function submitRally(
     },
   })
   if (!member) return persist(tx, command, identity, hash, reject(command, 'ROOM_AUTHORIZATION_STALE', 'Annotation room authorization changed before commit'))
+  await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${room.matchId}))`
   const clipPreRollUs = member.clipPreRollUs
   const clipPostRollUs = member.clipPostRollUs
 
@@ -67,10 +112,14 @@ export async function submitRally(
     include: {
       boundaries: { orderBy: { kind: 'asc' } },
       keyPoints: { where: { deletedAt: null }, orderBy: { sequenceIndex: 'asc' } },
+      operations: { orderBy: { resultRevision: 'asc' }, take: 1 },
       sideAssignment: true,
     },
   })
   if (!rally || rally.matchId !== room.matchId) return persist(tx, command, identity, hash, reject(command, 'RALLY_NOT_FOUND', 'Rally was not found'))
+  if (!ordinaryDraftBelongsToDevice(rally, identity.deviceSessionId)) {
+    return persist(tx, command, identity, hash, reject(command, 'RALLY_OWNED_BY_OTHER_CLIENT', '這個片段屬於另一個標註客戶端'))
+  }
   const correctionIsEditable = rally.annotationStatus === 'OPEN' && rally.activeSubmissionId !== null
   if (rally.annotationStatus !== 'READY' && !correctionIsEditable) return persist(tx, command, identity, hash, reject(command, 'ANNOTATION_NOT_READY', 'Rally must be READY before submit'))
   if (rally.annotationRevision.toString() !== command.base_revision) return persist(tx, command, identity, hash, reject(command, 'REVISION_CONFLICT', 'Rally revision is stale', rally.annotationRevision.toString()))
@@ -249,6 +298,39 @@ export async function submitRally(
     })
   const requestedStart = coverageStartAnchor.captureTimeUs - clipPreRollUs < 0n ? 0n : coverageStartAnchor.captureTimeUs - clipPreRollUs
   const requestedEnd = coverageEndAnchor.captureTimeUs + clipPostRollUs
+  const immutableSubmissions = await tx.rallySubmission.findMany({
+    where: {
+      status: 'ACTIVE',
+      rally: { matchId: room.matchId, id: { not: rally.id }, voidedAt: null },
+    },
+    select: {
+      boundaries: { select: { captureTimeUs: true } },
+      clipPostRollUs: true,
+      clipPreRollUs: true,
+      clipJobs: {
+        orderBy: { createdAt: 'desc' },
+        select: {
+          actualEndCaptureUs: true,
+          actualStartCaptureUs: true,
+          requestedEndCaptureUs: true,
+          requestedStartCaptureUs: true,
+        },
+        take: 1,
+      },
+      keyPoints: { select: { captureTimeUs: true } },
+    },
+  })
+  const overlapsImmutableSubmission = immutableSubmissions.some((submission) => {
+    const range = immutableSubmissionRange(submission)
+    return range !== null && requestedStart < range.end && requestedEnd > range.start
+  })
+  if (overlapsImmutableSubmission) {
+    return persist(tx, command, identity, hash, reject(
+      command,
+      'RALLY_OVERLAP',
+      '這個片段與已送出的片段重疊；草稿仍保留，可調整後再送出',
+    ))
+  }
   const scoreSnapshot = resolution === 'RESOLVED'
     ? {
         before: { ...historicalBefore, revision: set.scoreRevision },

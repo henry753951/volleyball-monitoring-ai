@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { UserRole } from '@volleyball-monitoring/db/client'
-import { getAnnotationSnapshot } from '../src/services/annotation-snapshot.js'
+import { getActiveAnnotationSnapshot, getAnnotationSnapshot } from '../src/services/annotation-snapshot.js'
 
 describe('annotation snapshot authorization and wire safety', () => {
   it('returns an authorized room snapshot with decimal bigint fields', async () => {
@@ -23,5 +23,26 @@ describe('annotation snapshot authorization and wire safety', () => {
     const database = { matchMember: { findFirst: async () => null }, rally: { findFirst: async () => { queried = true; return null } } } as never
     await expect(getAnnotationSnapshot(database, { roomId: 'match:81000000-0000-4000-8000-000000000002:capture:81000000-0000-4000-8000-000000000003', rallyId: '81000000-0000-4000-8000-000000000004', userId: '81000000-0000-4000-8000-000000000009', role: UserRole.VIEWER })).resolves.toBeNull()
     expect(queried).toBe(false)
+  })
+
+  it('scopes the active draft query to the requesting device session', async () => {
+    let rallyWhere: unknown = null
+    const database = {
+      matchMember: { findFirst: async () => ({}) },
+      deviceSession: { findFirst: async () => ({ id: 'device-1' }) },
+      rally: { findFirst: async (input: { where: unknown }) => { rallyWhere = input.where; return null } },
+    } as never
+    await expect(getActiveAnnotationSnapshot(database, {
+      roomId: 'match:81000000-0000-4000-8000-000000000002:capture:81000000-0000-4000-8000-000000000003',
+      deviceSessionId: '81000000-0000-4000-8000-000000000010',
+      userId: '81000000-0000-4000-8000-000000000008',
+      role: UserRole.OPERATOR,
+    })).resolves.toBeNull()
+    expect(rallyWhere).toMatchObject({
+      OR: [
+        { boundaries: { some: { deviceSessionId: '81000000-0000-4000-8000-000000000010', kind: 'START' } } },
+        { keyPoints: { some: { deviceSessionId: '81000000-0000-4000-8000-000000000010', markerKind: 'SERVICE' } } },
+      ],
+    })
   })
 })

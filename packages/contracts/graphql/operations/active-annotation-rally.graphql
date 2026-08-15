@@ -1,3 +1,3 @@
-query ActiveAnnotationRally($roomId: String!) {
-  activeAnnotationRallySnapshot(roomId: $roomId)
+query ActiveAnnotationRally($roomId: String!, $deviceSessionId: ID!) {
+  activeAnnotationRallySnapshot(roomId: $roomId, deviceSessionId: $deviceSessionId)
 }

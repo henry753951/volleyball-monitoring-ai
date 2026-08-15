@@ -16,6 +16,25 @@ function stateOf(snapshot: AnnotationRallySnapshot | null) {
   return snapshot?.snapshot.annotation_status ?? null
 }
 
+export function shouldAcceptAnnotationBroadcast(input: {
+  nextRallyId: string
+  currentRallyId?: string | null
+  pendingRallyIds?: Iterable<string>
+  rememberedRallyId?: string | null
+}) {
+  return input.currentRallyId === input.nextRallyId
+    || input.rememberedRallyId === input.nextRallyId
+    || new Set(input.pendingRallyIds).has(input.nextRallyId)
+}
+
+export function annotationDraftOwnedByClient(
+  snapshot: AnnotationRallySnapshot | null,
+  rememberedRallyId: string | null,
+) {
+  if (!snapshot) return false
+  return snapshot.snapshot.active_submission_id != null || snapshot.rally_id === rememberedRallyId
+}
+
 export function rebaseQueuedAnnotationCommand(
   command: AnnotationCommand,
   snapshot: AnnotationRallySnapshot | null,
@@ -35,6 +54,31 @@ export function rebaseQueuedAnnotationCommand(
     ...base,
     payload: { ...command.payload, target_key_point_id: target.key_point_id },
   })
+}
+
+export function annotationCommandConverged(
+  command: AnnotationCommand,
+  snapshot: AnnotationRallySnapshot | null,
+) {
+  if (!snapshot || snapshot.rally_id !== command.rally_id) return false
+  const state = stateOf(snapshot)
+  if (command.kind === 'START_RALLY' || command.kind === 'CREATE_SERVICE_KEY_POINT') {
+    return ['open', 'ready', 'submitted'].includes(state ?? '')
+  }
+  if (command.kind === 'END_RALLY') {
+    return snapshot.snapshot.boundaries?.some(boundary => boundary.kind === 'end') === true
+  }
+  if (command.kind === 'SET_RALLY_OUTCOME') {
+    return snapshot.snapshot.score_resolution === command.payload.score_resolution
+      && snapshot.snapshot.scoring_court_side === command.payload.scoring_court_side
+  }
+  if (command.kind === 'DELETE_KEY_POINT') {
+    return !snapshot.snapshot.key_points.some(point => point.key_point_id === command.payload.key_point_id)
+  }
+  if (command.kind === 'REOPEN_RALLY') return state === 'open'
+  if (command.kind === 'VOID_RALLY') return state === 'voided'
+  if (command.kind === 'SUBMIT_RALLY') return state === 'submitted'
+  return false
 }
 
 function pendingPoint(entry: AnnotationOutboxEntry, sequenceIndex: number): AnnotationKeyPoint | null {

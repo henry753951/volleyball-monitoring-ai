@@ -36,10 +36,12 @@ describe('annotation realtime soft-lock client', () => {
 
   it('replays edit intent after ready, refreshes it, and releases it explicitly', () => {
     const states: string[] = []
-    const client = createAnnotationRealtimeClient(roomId, { onState: state => states.push(state) })
+    const deviceSessionId = '84000000-0000-4000-8000-000000000003'
+    const client = createAnnotationRealtimeClient(roomId, { onState: state => states.push(state) }, undefined, deviceSessionId)
     client.connect()
     const socket = FakeWebSocket.instances[0]!
     expect(socket.url).toContain(encodeURIComponent(roomId))
+    expect(socket.url).toContain(`device_session_id=${deviceSessionId}`)
     expect(client.setEditingKeyPoint('key-point-1')).toBe(false)
 
     socket.receive({

@@ -368,7 +368,16 @@ async function acceptService(
     await setAllocationLock(tx, set.id)
     const activeDraft = await tx.rally.findFirst({
       select: { id: true },
-      where: { activeSubmissionId: null, annotationStatus: 'OPEN', matchId: room.matchId, voidedAt: null },
+      where: {
+        activeSubmissionId: null,
+        annotationStatus: 'OPEN',
+        matchId: room.matchId,
+        voidedAt: null,
+        OR: [
+          { boundaries: { some: { deviceSessionId: identity.deviceSessionId, kind: 'START' } } },
+          { keyPoints: { some: { deviceSessionId: identity.deviceSessionId, markerKind: 'SERVICE' } } },
+        ],
+      },
     })
     if (activeDraft) {
       return persistRejection(tx, command, identity, hash, rejected(
@@ -528,18 +537,35 @@ type CloseCommand = Extract<AnnotationCommand, { kind: 'CLOSE_RALLY' }>
 type OutcomeCommand = Extract<AnnotationCommand, { kind: 'SET_RALLY_OUTCOME' }>
 type EditCommand = Extract<AnnotationCommand, { kind: 'MOVE_KEY_POINT' | 'DELETE_KEY_POINT' | 'REOPEN_RALLY' | 'VOID_RALLY' }>
 
+function ordinaryDraftBelongsToDevice(rally: {
+  activeSubmissionId: string | null
+  boundaries?: Array<{ kind: string; deviceSessionId: string }>
+  keyPoints?: Array<{ markerKind: string; deviceSessionId: string }>
+  operations?: Array<{ deviceSessionId: string }>
+}, deviceSessionId: string) {
+  if (rally.activeSubmissionId !== null) return true
+  const owner = rally.boundaries?.find(boundary => boundary.kind === 'START')?.deviceSessionId
+    ?? rally.keyPoints?.find(point => point.markerKind === 'SERVICE')?.deviceSessionId
+    ?? rally.operations?.[0]?.deviceSessionId
+  return owner === deviceSessionId
+}
+
 async function acceptContact(database: PrismaClient, room: AnnotationRoom, command: ContactCommand | EndCommand, identity: AnnotationIdentity, hash: string, anchor: ResolvedMediaAnchor): Promise<AnnotationCommandResponse> {
   return serializable(database, async (tx) => {
     await commandLock(tx, command.command_id)
     const existing = await replay(tx, command, hash)
     if (existing) return existing
     await rallyLock(tx, command.rally_id)
-    const rally = await tx.rally.findUnique({ where: { id: command.rally_id }, include: { boundaries: true, keyPoints: { where: { deletedAt: null }, orderBy: [{ captureTimeUs: 'asc' }, { captureFrameIndex: 'asc' }, { sequenceIndex: 'asc' }] } } })
+    const rally = await tx.rally.findUnique({ where: { id: command.rally_id }, include: { boundaries: true, keyPoints: { where: { deletedAt: null }, orderBy: [{ captureTimeUs: 'asc' }, { captureFrameIndex: 'asc' }, { sequenceIndex: 'asc' }] }, operations: { orderBy: { resultRevision: 'asc' }, take: 1 } } })
     const device = await tx.deviceSession.findUnique({ select: { revokedAt: true, userId: true }, where: { id: identity.deviceSessionId } })
     if (!device || device.userId !== identity.userId || device.revokedAt) return persistRejection(tx, command, identity, hash, rejected(command, 'UNAUTHENTICATED', 'Authenticated device session is no longer active'))
     const authorizedMatch = await tx.match.findFirst({ select: { clipPostRollUs: true, clipPreRollUs: true, id: true }, where: { id: room.matchId, captureSessions: { some: { id: room.captureSessionId } }, ...(identity.role === UserRole.ADMIN ? {} : { members: { some: { userId: identity.userId, role: { in: [UserRole.ADMIN, UserRole.OPERATOR, UserRole.ANNOTATOR] } } } }) } })
     if (!authorizedMatch) return persistRejection(tx, command, identity, hash, rejected(command, 'ROOM_AUTHORIZATION_STALE', 'Annotation room authorization changed before commit'))
-    if (!rally || rally.matchId !== room.matchId || rally.annotationStatus !== 'OPEN') return persistRejection(tx, command, identity, hash, rejected(command, 'RALLY_NOT_OPEN', 'Rally is not an open draft'))
+    const editableStatuses = command.kind === 'END_RALLY' || command.payload.terminal_outcome === 'unknown'
+      ? ['OPEN']
+      : ['OPEN', 'READY']
+    if (!rally || rally.matchId !== room.matchId || !editableStatuses.includes(rally.annotationStatus)) return persistRejection(tx, command, identity, hash, rejected(command, 'RALLY_NOT_OPEN', 'Rally is not an editable draft'))
+    if (!ordinaryDraftBelongsToDevice(rally, identity.deviceSessionId)) return persistRejection(tx, command, identity, hash, rejected(command, 'RALLY_OWNED_BY_OTHER_CLIENT', '這個片段屬於另一個標註客戶端'))
     await setAllocationLock(tx, rally.setId)
     if (command.base_revision !== rally.annotationRevision.toString()) return persistRejection(tx, command, identity, hash, rejected(command, 'REVISION_CONFLICT', 'Rally revision is stale', { actual: rally.annotationRevision.toString(), expected: command.base_revision }))
     const mapping = anchor.dvr_segment_id ? await tx.playbackWindow.findFirst({ where: { id: anchor.playback_window_id, captureSessionId: room.captureSessionId, mappingVersion: anchor.mapping_version, segments: { some: { dvrSegment: { id: anchor.dvr_segment_id, captureEpochId: anchor.capture_epoch_id, dvrProgramId: rally.dvrProgramId, isGap: false, readyAt: { not: null }, sampleIndexAssetId: { not: null } } } } }, select: { captureEndUs: true, captureStartUs: true, dvrProgramId: true, mappingVersion: true, presentationOriginCaptureUs: true, segments: { where: { dvrSegmentId: anchor.dvr_segment_id }, select: { dvrSegment: { select: { captureEndUs: true, captureStartUs: true, firstFrameIndex: true, frameCount: true, captureEpochId: true, dvrProgramId: true, isGap: true, readyAt: true, sampleIndexAssetId: true } } } } } }) : null
@@ -613,10 +639,10 @@ async function acceptContact(database: PrismaClient, room: AnnotationRoom, comma
     const sequenceIndex = insertion
     await tx.keyPoint.create({ data: { captureEpochId: anchor.capture_epoch_id, captureFrameIndex: BigInt(anchor.capture_frame_index), captureTimeUs: BigInt(anchor.capture_time_us), createdByUserId: identity.userId, deviceSessionId: identity.deviceSessionId, id: keyPointId, isTerminal: terminal, markerKind: 'CONTACT', originalPlaybackCursor: jsonValue(command.payload.playback_cursor), rallyId: command.rally_id, sequenceIndex, snapDistanceUs: anchor.snap_distance_us == null ? null : BigInt(anchor.snap_distance_us), sourcePts: BigInt(anchor.source_pts), timingPrecision: anchor.timing_precision.toUpperCase() as 'FRAME_EXACT' | 'PTS_EXACT' | 'ESTIMATED', updatedByUserId: identity.userId, possibleDuplicate } })
     const revision = rally.annotationRevision + 1n
-    const cas = await tx.rally.updateMany({ data: terminal ? { annotationRevision: revision, annotationStatus: 'READY', scoreResolutionState: 'UNKNOWN', scoringCourtSide: null } : { annotationRevision: revision }, where: { id: rally.id, annotationRevision: rally.annotationRevision, annotationStatus: 'OPEN' } })
+    const cas = await tx.rally.updateMany({ data: terminal ? { annotationRevision: revision, annotationStatus: 'READY', scoreResolutionState: 'UNKNOWN', scoringCourtSide: null } : { annotationRevision: revision }, where: { id: rally.id, annotationRevision: rally.annotationRevision, annotationStatus: rally.annotationStatus } })
     if (cas.count !== 1) return persistRejection(tx, command, identity, hash, rejected(command, 'REVISION_CONFLICT', 'Rally revision is stale', { actual: rally.annotationRevision.toString(), expected: command.base_revision }))
     const receipt = await tx.annotationCommandReceipt.create({ data: { accepted: true, commandId: command.command_id, deviceSessionId: identity.deviceSessionId, rallyId: command.rally_id, requestHash: hash, requestJson: jsonValue(command), responseJson: {}, roomId: command.room_id, userId: identity.userId } })
-    const response = parseAnnotationCommandResponse({ schema_version: command.schema_version, type: 'command_ack', command_id: command.command_id, room_id: command.room_id, rally_id: command.rally_id, operation_kind: command.kind, result_revision: revision.toString(), server_sequence: receipt.serverSequence.toString(), effects: terminal ? { annotation_status: 'ready', created_key_point_id: keyPointId, terminal_key_point_id: keyPointId, score_resolution: 'unknown', scoring_court_side: null } : { annotation_status: 'open', created_key_point_id: keyPointId, score_resolution: 'pending', scoring_court_side: null }, resolved_anchor: wireAnchor(anchor) })
+    const response = parseAnnotationCommandResponse({ schema_version: command.schema_version, type: 'command_ack', command_id: command.command_id, room_id: command.room_id, rally_id: command.rally_id, operation_kind: command.kind, result_revision: revision.toString(), server_sequence: receipt.serverSequence.toString(), effects: terminal ? { annotation_status: 'ready', created_key_point_id: keyPointId, terminal_key_point_id: keyPointId, score_resolution: 'unknown', scoring_court_side: null } : { annotation_status: rally.annotationStatus.toLowerCase(), created_key_point_id: keyPointId, score_resolution: rally.scoreResolutionState.toLowerCase(), scoring_court_side: rally.scoringCourtSide?.toLowerCase() ?? null }, resolved_anchor: wireAnchor(anchor) })
     await tx.annotationCommandReceipt.update({ data: { responseJson: jsonValue(response) }, where: { serverSequence: receipt.serverSequence } })
     await tx.annotationOperation.create({ data: { baseRevision: rally.annotationRevision, clientMutationId: command.command_id, deviceSessionId: identity.deviceSessionId, operationKind: command.kind, payload: jsonValue(command.payload), payloadHash: hash, rallyId: command.rally_id, receiptServerSequence: receipt.serverSequence, resultRevision: revision, userId: identity.userId } })
     await tx.outboxEvent.create({ data: { aggregateId: command.rally_id, aggregateType: 'Rally', dedupeKey: `annotation-accepted:${receipt.serverSequence}`, eventType: `annotation.command_accepted.v${command.schema_version.startsWith('3.') ? '3' : '2'}`, payload: jsonValue(response) } })
@@ -627,12 +653,13 @@ async function acceptContact(database: PrismaClient, room: AnnotationRoom, comma
 async function acceptClose(database: PrismaClient, room: AnnotationRoom, command: CloseCommand, identity: AnnotationIdentity, hash: string): Promise<AnnotationCommandResponse> {
   return serializable(database, async (tx) => {
     await commandLock(tx, command.command_id); const existing = await replay(tx, command, hash); if (existing) return existing; await rallyLock(tx, command.rally_id)
-    const rally = await tx.rally.findUnique({ where: { id: command.rally_id }, include: { keyPoints: { where: { deletedAt: null }, orderBy: { sequenceIndex: 'desc' }, take: 1 } } })
+    const rally = await tx.rally.findUnique({ where: { id: command.rally_id }, include: { keyPoints: { where: { deletedAt: null }, orderBy: { sequenceIndex: 'desc' }, take: 1 }, operations: { orderBy: { resultRevision: 'asc' }, take: 1 } } })
     const device = await tx.deviceSession.findUnique({ select: { revokedAt: true, userId: true }, where: { id: identity.deviceSessionId } })
     if (!device || device.userId !== identity.userId || device.revokedAt) return persistRejection(tx, command, identity, hash, rejected(command, 'UNAUTHENTICATED', 'Authenticated device session is no longer active'))
     const authorizedMatch = await tx.match.findFirst({ select: { id: true }, where: { id: room.matchId, captureSessions: { some: { id: room.captureSessionId } }, ...(identity.role === UserRole.ADMIN ? {} : { members: { some: { userId: identity.userId, role: { in: [UserRole.ADMIN, UserRole.OPERATOR, UserRole.ANNOTATOR] } } } }) } })
     if (!authorizedMatch) return persistRejection(tx, command, identity, hash, rejected(command, 'ROOM_AUTHORIZATION_STALE', 'Annotation room authorization changed before commit'))
     if (!rally || rally.matchId !== room.matchId) return persistRejection(tx, command, identity, hash, rejected(command, 'RALLY_NOT_FOUND', 'Rally was not found'))
+    if (!ordinaryDraftBelongsToDevice(rally, identity.deviceSessionId)) return persistRejection(tx, command, identity, hash, rejected(command, 'RALLY_OWNED_BY_OTHER_CLIENT', '這個片段屬於另一個標註客戶端'))
     await setAllocationLock(tx, rally.setId)
     if (!['OPEN', 'READY'].includes(rally.annotationStatus)) return persistRejection(tx, command, identity, hash, rejected(command, 'RALLY_ALREADY_READY', 'Rally is not an editable draft'))
     if (rally.annotationRevision.toString() !== command.base_revision) return persistRejection(tx, command, identity, hash, rejected(command, 'REVISION_CONFLICT', 'Rally revision is stale', { actual: rally.annotationRevision.toString(), expected: command.base_revision }))
@@ -659,13 +686,14 @@ async function acceptOutcome(database: PrismaClient, room: AnnotationRoom, comma
     if (existing) return existing
     await rallyLock(tx, command.rally_id)
     const [rally, device, authorizedMatch] = await Promise.all([
-      tx.rally.findUnique({ where: { id: command.rally_id } }),
+      tx.rally.findUnique({ where: { id: command.rally_id }, include: { boundaries: true, keyPoints: { where: { deletedAt: null } }, operations: { orderBy: { resultRevision: 'asc' }, take: 1 } } }),
       tx.deviceSession.findUnique({ select: { revokedAt: true, userId: true }, where: { id: identity.deviceSessionId } }),
       tx.match.findFirst({ select: { id: true }, where: { id: room.matchId, captureSessions: { some: { id: room.captureSessionId } }, ...(identity.role === UserRole.ADMIN ? {} : { members: { some: { userId: identity.userId, role: { in: [UserRole.ADMIN, UserRole.OPERATOR, UserRole.ANNOTATOR] } } } }) } }),
     ])
     if (!device || device.userId !== identity.userId || device.revokedAt) return persistRejection(tx, command, identity, hash, rejected(command, 'UNAUTHENTICATED', 'Authenticated device session is no longer active'))
     if (!authorizedMatch) return persistRejection(tx, command, identity, hash, rejected(command, 'ROOM_AUTHORIZATION_STALE', 'Annotation room authorization changed before commit'))
     if (!rally || rally.matchId !== room.matchId || !['OPEN', 'READY'].includes(rally.annotationStatus)) return persistRejection(tx, command, identity, hash, rejected(command, 'RALLY_NOT_OPEN', 'Rally outcome is not editable'))
+    if (!ordinaryDraftBelongsToDevice(rally, identity.deviceSessionId)) return persistRejection(tx, command, identity, hash, rejected(command, 'RALLY_OWNED_BY_OTHER_CLIENT', '這個片段屬於另一個標註客戶端'))
     if (command.base_revision !== rally.annotationRevision.toString()) return persistRejection(tx, command, identity, hash, rejected(command, 'REVISION_CONFLICT', 'Rally revision is stale', { actual: rally.annotationRevision.toString(), expected: command.base_revision }))
     const revision = rally.annotationRevision + 1n
     const resolution = command.payload.score_resolution.toUpperCase() as 'RESOLVED' | 'UNKNOWN'
@@ -715,7 +743,11 @@ async function clipRangeOverlapsExistingRally(
     },
   })
   return existingSegments.some((segment) => {
-    const immutable = ['OPEN', 'READY'].includes(segment.annotationStatus) ? null : segment.activeSubmission
+    // Other clients may keep overlapping editable drafts. Only the active,
+    // immutable submission is a canonical clip conflict. Keep the fallback for
+    // legacy non-editable rows created before activeSubmissionId was mandatory.
+    const immutable = segment.activeSubmission
+    if (!immutable && (segment.annotationStatus === 'OPEN' || segment.annotationStatus === 'READY')) return false
     const clip = immutable?.clipJobs[0]
     const points = immutable
       ? [...immutable.boundaries, ...immutable.keyPoints]
@@ -736,11 +768,12 @@ async function clipRangeOverlapsExistingRally(
 async function acceptDraftEdit(database: PrismaClient, room: AnnotationRoom, command: EditCommand, identity: AnnotationIdentity, hash: string, anchor?: ResolvedMediaAnchor): Promise<AnnotationCommandResponse> {
   return serializable(database, async (tx) => {
     await commandLock(tx, command.command_id); const existing = await replay(tx, command, hash); if (existing) return existing; await rallyLock(tx, command.rally_id)
-    const rally = await tx.rally.findUnique({ where: { id: command.rally_id }, include: { boundaries: true, keyPoints: { where: { deletedAt: null }, orderBy: { sequenceIndex: 'asc' } } } })
+    const rally = await tx.rally.findUnique({ where: { id: command.rally_id }, include: { boundaries: true, keyPoints: { where: { deletedAt: null }, orderBy: { sequenceIndex: 'asc' } }, operations: { orderBy: { resultRevision: 'asc' }, take: 1 } } })
     const device = await tx.deviceSession.findUnique({ select: { revokedAt: true, userId: true }, where: { id: identity.deviceSessionId } })
     if (!device || device.userId !== identity.userId || device.revokedAt) return persistRejection(tx, command, identity, hash, rejected(command, 'UNAUTHENTICATED', 'Authenticated device session is no longer active'))
     const authorizedMatch = await tx.match.findFirst({ select: { clipPostRollUs: true, clipPreRollUs: true, id: true }, where: { id: room.matchId, captureSessions: { some: { id: room.captureSessionId } }, ...(identity.role === UserRole.ADMIN ? {} : { members: { some: { userId: identity.userId, role: { in: [UserRole.ADMIN, UserRole.OPERATOR, UserRole.ANNOTATOR] } } } }) } })
     if (!authorizedMatch || !rally || rally.matchId !== room.matchId) return persistRejection(tx, command, identity, hash, rejected(command, 'ROOM_AUTHORIZATION_STALE', 'Rally authorization changed before commit'))
+    if (!ordinaryDraftBelongsToDevice(rally, identity.deviceSessionId)) return persistRejection(tx, command, identity, hash, rejected(command, 'RALLY_OWNED_BY_OTHER_CLIENT', '這個片段屬於另一個標註客戶端'))
     await setAllocationLock(tx, rally.setId)
     if (rally.annotationRevision.toString() !== command.base_revision) return persistRejection(tx, command, identity, hash, rejected(command, 'REVISION_CONFLICT', 'Rally revision is stale', { actual: rally.annotationRevision.toString(), expected: command.base_revision }))
     if (rally.annotationStatus === 'SUBMITTED' || rally.annotationStatus === 'VOIDED') return persistRejection(tx, command, identity, hash, rejected(command, 'IMMUTABLE_SUBMISSION', 'Submitted or voided Rally cannot be edited in place'))
@@ -751,7 +784,17 @@ async function acceptDraftEdit(database: PrismaClient, room: AnnotationRoom, com
       if (rally.annotationStatus !== 'READY' && !(isCorrection && rally.annotationStatus === 'OPEN')) return persistRejection(tx, command, identity, hash, rejected(command, 'RALLY_NOT_READY', 'Only a READY Rally or an open correction draft can be reopened'))
       if (!isCorrection) {
         const competing = await tx.rally.findFirst({
-          where: { activeSubmissionId: null, id: { not: rally.id }, matchId: rally.matchId, annotationStatus: 'OPEN', voidedAt: null },
+          where: {
+            activeSubmissionId: null,
+            id: { not: rally.id },
+            matchId: rally.matchId,
+            annotationStatus: 'OPEN',
+            voidedAt: null,
+            OR: [
+              { boundaries: { some: { deviceSessionId: identity.deviceSessionId, kind: 'START' } } },
+              { keyPoints: { some: { deviceSessionId: identity.deviceSessionId, markerKind: 'SERVICE' } } },
+            ],
+          },
           select: { id: true },
         })
         if (competing) return persistRejection(tx, command, identity, hash, rejected(command, 'ACTIVE_RALLY_EXISTS', 'Close or void the open Rally before reopening another draft'))
@@ -773,7 +816,7 @@ async function acceptDraftEdit(database: PrismaClient, room: AnnotationRoom, com
       await tx.rally.update({ where: { id: rally.id }, data: { annotationRevision: revision, annotationStatus: 'VOIDED', voidedAt: new Date() } })
       effects = { annotation_status: 'voided' }
     } else if (command.kind === 'DELETE_KEY_POINT') {
-      if (rally.annotationStatus !== 'OPEN') return persistRejection(tx, command, identity, hash, rejected(command, 'RALLY_NOT_OPEN', 'Reopen the Rally before deleting a key point'))
+      if (!['OPEN', 'READY'].includes(rally.annotationStatus)) return persistRejection(tx, command, identity, hash, rejected(command, 'RALLY_NOT_OPEN', 'Rally is not editable'))
       const target = rally.keyPoints.find(point => point.id === command.payload.key_point_id)
       if (!target || target.markerKind === 'SERVICE') return persistRejection(tx, command, identity, hash, rejected(command, 'KEY_POINT_NOT_EDITABLE', 'The service anchor cannot be deleted'))
       await tx.keyPoint.update({ where: { id: target.id }, data: { deletedAt: new Date(), sequenceIndex: await nextTombstoneSequence(tx, rally.id), updatedByUserId: identity.userId } })
@@ -783,13 +826,13 @@ async function acceptDraftEdit(database: PrismaClient, room: AnnotationRoom, com
       for (const point of remaining) await tx.keyPoint.update({ where: { id: point.id }, data: { possibleDuplicate: remaining.filter(other => other.captureFrameIndex === point.captureFrameIndex).length > 1 } })
       await tx.rally.update({ where: { id: rally.id }, data: { annotationRevision: revision } })
       effects = {
-        annotation_status: 'open',
+        annotation_status: rally.annotationStatus.toLowerCase(),
         deleted_key_point_id: target.id,
-        score_resolution: rally.activeSubmissionId ? rally.scoreResolutionState.toLowerCase() : 'pending',
-        scoring_court_side: rally.activeSubmissionId ? rally.scoringCourtSide?.toLowerCase() ?? null : null,
+        score_resolution: rally.scoreResolutionState.toLowerCase(),
+        scoring_court_side: rally.scoringCourtSide?.toLowerCase() ?? null,
       }
     } else {
-      if (rally.annotationStatus !== 'OPEN' || !anchor) return persistRejection(tx, command, identity, hash, rejected(command, 'RALLY_NOT_OPEN', 'Reopen the Rally before moving a key point'))
+      if (!['OPEN', 'READY'].includes(rally.annotationStatus) || !anchor) return persistRejection(tx, command, identity, hash, rejected(command, 'RALLY_NOT_OPEN', 'Rally is not editable'))
       const target = rally.keyPoints.find(point => point.id === command.payload.key_point_id)
       if (!target) return persistRejection(tx, command, identity, hash, rejected(command, 'KEY_POINT_NOT_FOUND', 'Key point was not found'))
       const mapping = anchor.dvr_segment_id ? await tx.playbackWindow.findFirst({ where: { id: anchor.playback_window_id, captureSessionId: room.captureSessionId, mappingVersion: anchor.mapping_version, dvrProgramId: rally.dvrProgramId, segments: { some: { dvrSegment: { id: anchor.dvr_segment_id, captureEpochId: anchor.capture_epoch_id, dvrProgramId: rally.dvrProgramId, isGap: false, readyAt: { not: null }, sampleIndexAssetId: { not: null } } } } }, select: { captureStartUs: true, captureEndUs: true, presentationOriginCaptureUs: true } }) : null
@@ -815,9 +858,9 @@ async function acceptDraftEdit(database: PrismaClient, room: AnnotationRoom, com
       for (const point of ordered) await tx.keyPoint.update({ where: { id: point.id }, data: { possibleDuplicate: point.markerKind === 'CONTACT' && ordered.filter(other => other.markerKind === 'CONTACT' && other.captureFrameIndex === point.captureFrameIndex).length > 1 } })
       await tx.rally.update({ where: { id: rally.id }, data: { annotationRevision: revision } })
       effects = {
-        annotation_status: 'open',
-        score_resolution: rally.activeSubmissionId ? rally.scoreResolutionState.toLowerCase() : 'pending',
-        scoring_court_side: rally.activeSubmissionId ? rally.scoringCourtSide?.toLowerCase() ?? null : null,
+        annotation_status: rally.annotationStatus.toLowerCase(),
+        score_resolution: rally.scoreResolutionState.toLowerCase(),
+        scoring_court_side: rally.scoringCourtSide?.toLowerCase() ?? null,
       }
     }
     const receipt = await tx.annotationCommandReceipt.create({ data: { accepted: true, commandId: command.command_id, deviceSessionId: identity.deviceSessionId, rallyId: command.rally_id, requestHash: hash, requestJson: jsonValue(command), responseJson: {}, roomId: command.room_id, userId: identity.userId } })

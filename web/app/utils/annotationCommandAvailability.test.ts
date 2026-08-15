@@ -45,8 +45,8 @@ describe('draft annotation command availability', () => {
     })).toEqual({ enabled: true, reason: '' })
   })
 
-  it('blocks contact edits but keeps outcome selection available after Z closes the rally', () => {
-    expect(draftCommandAvailability({ ...openDraft, action: 'contact', state: 'READY' }).enabled).toBe(false)
+  it('keeps contact edits and outcome selection available after Z fixes the end boundary', () => {
+    expect(draftCommandAvailability({ ...openDraft, action: 'contact', state: 'READY' })).toEqual({ enabled: true, reason: '' })
     expect(draftCommandAvailability({ ...openDraft, action: 'close_right', state: 'READY' })).toEqual({ enabled: true, reason: '' })
   })
 })

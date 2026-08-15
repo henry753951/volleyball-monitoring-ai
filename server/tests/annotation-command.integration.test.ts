@@ -34,6 +34,7 @@ const ids = {
   assignment: '82000000-0000-4000-8000-000000000001',
   capture: '82000000-0000-4000-8000-000000000002',
   device: '82000000-0000-4000-8000-000000000003',
+  secondDevice: '82000000-0000-4000-8000-000000000021',
   epoch: '82000000-0000-4000-8000-000000000004',
   left: '82000000-0000-4000-8000-000000000005',
   match: '82000000-0000-4000-8000-000000000006',
@@ -54,6 +55,7 @@ const ids = {
 }
 
 const identity = { deviceSessionId: ids.device, role: UserRole.OPERATOR, userId: ids.operator }
+const secondIdentity = { deviceSessionId: ids.secondDevice, role: UserRole.OPERATOR, userId: ids.operator }
 const roomId = `match:${ids.match}:capture:${ids.capture}`
 const anchor: ResolvedMediaAnchor = {
   schema_version: '1.0.0',
@@ -169,7 +171,10 @@ beforeAll(async () => {
     { displayName: 'Operator', email: 'operator@phase3.local', id: ids.operator },
     { displayName: 'Outsider', email: 'outsider@phase3.local', id: ids.outsider },
   ] })
-  await db.deviceSession.create({ data: { id: ids.device, userId: ids.operator } })
+  await db.deviceSession.createMany({ data: [
+    { id: ids.device, userId: ids.operator },
+    { id: ids.secondDevice, userId: ids.operator },
+  ] })
   await db.team.createMany({ data: [
     { id: ids.left, name: 'Left', shortName: 'L' },
     { id: ids.right, name: 'Right', shortName: 'R' },
@@ -413,7 +418,51 @@ describe('durable service annotation command', () => {
     await expect(db.keyPoint.findMany({ where: { rallyId }, select: { markerKind: true, isTerminal: true } })).resolves.toEqual([{ markerKind: 'CONTACT', isTerminal: false }])
   })
 
-  it('blocks START inside a READY segment but allows the next non-overlapping segment', async () => {
+  it('keeps X, move and delete editable after END while preserving READY', async () => {
+    const rallyId = randomUUID()
+    const contactAnchor = {
+      ...anchor,
+      capture_frame_index: (BigInt(anchor.capture_frame_index) - 1n).toString(),
+      capture_time_us: (BigInt(anchor.capture_time_us) - 50n).toString(),
+      resolved_player_media_time_us: '1184',
+      source_pts: (BigInt(anchor.source_pts) - 1n).toString(),
+    }
+    const endAnchor = {
+      ...anchor,
+      capture_frame_index: (BigInt(anchor.capture_frame_index) + 1n).toString(),
+      capture_time_us: (BigInt(anchor.capture_time_us) + 50n).toString(),
+      resolved_player_media_time_us: '1284',
+      source_pts: (BigInt(anchor.source_pts) + 1n).toString(),
+    }
+    const boundaryService = createAnnotationCommandService({
+      database: db,
+      resolveCursor: async cursor => cursor.player_media_time_us === '1184' ? contactAnchor : cursor.player_media_time_us === '1284' ? endAnchor : anchor,
+    })
+    await boundaryService.apply(boundaryCommand(randomUUID(), rallyId, 'START_RALLY', '0', '1234'), identity)
+    await boundaryService.apply(boundaryCommand(randomUUID(), rallyId, 'END_RALLY', '1', '1284'), identity)
+
+    const contact = await boundaryService.apply(parseAnnotationCommand({
+      ...contactCommand(randomUUID(), rallyId, '2'), schema_version: '3.0.0',
+      payload: { playback_cursor: { ...contactCommand(randomUUID(), rallyId, '2').payload.playback_cursor, player_media_time_us: '1184' } },
+    }), identity)
+    expect(contact).toMatchObject({ type: 'command_ack', result_revision: '3', effects: { annotation_status: 'ready' } })
+    const keyPointId = contact.type === 'command_ack' ? contact.effects.created_key_point_id : null
+    expect(keyPointId).toBeTruthy()
+
+    const move = parseAnnotationCommand({
+      ...serviceCommand(randomUUID(), rallyId), schema_version: '3.0.0', base_revision: '3', kind: 'MOVE_KEY_POINT',
+      payload: { key_point_id: keyPointId, playback_cursor: serviceCommand(randomUUID(), rallyId).payload.playback_cursor },
+    })
+    await expect(boundaryService.apply(move, identity)).resolves.toMatchObject({ type: 'command_ack', result_revision: '4', effects: { annotation_status: 'ready' } })
+    const remove = parseAnnotationCommand({
+      ...serviceCommand(randomUUID(), rallyId), schema_version: '3.0.0', base_revision: '4', kind: 'DELETE_KEY_POINT',
+      payload: { key_point_id: keyPointId },
+    })
+    await expect(boundaryService.apply(remove, identity)).resolves.toMatchObject({ type: 'command_ack', result_revision: '5', effects: { annotation_status: 'ready' } })
+    await expect(db.rally.findUniqueOrThrow({ where: { id: rallyId } })).resolves.toMatchObject({ annotationStatus: 'READY', annotationRevision: 5n })
+  })
+
+  it('allows a new editable draft to overlap a READY draft before either is submitted', async () => {
     const firstRallyId = randomUUID()
     const secondRallyId = randomUUID()
     const endAnchor = {
@@ -423,33 +472,21 @@ describe('durable service annotation command', () => {
       resolved_player_media_time_us: '1284',
       source_pts: (BigInt(anchor.source_pts) + 1n).toString(),
     }
-    const nextAnchor = {
-      ...anchor,
-      capture_frame_index: (BigInt(anchor.capture_frame_index) + 2n).toString(),
-      capture_time_us: (BigInt(anchor.capture_time_us) + 75n).toString(),
-      resolved_player_media_time_us: '1309',
-      source_pts: (BigInt(anchor.source_pts) + 2n).toString(),
-    }
     const boundaryService = createAnnotationCommandService({
       database: db,
-      resolveCursor: async cursor => cursor.player_media_time_us === '1284'
-        ? endAnchor
-        : cursor.player_media_time_us === '1309' ? nextAnchor : anchor,
+      resolveCursor: async cursor => cursor.player_media_time_us === '1284' ? endAnchor : anchor,
     })
     await boundaryService.apply(boundaryCommand(randomUUID(), firstRallyId, 'START_RALLY', '0', '1234'), identity)
     await boundaryService.apply(boundaryCommand(randomUUID(), firstRallyId, 'END_RALLY', '1', '1284'), identity)
 
     await expect(boundaryService.apply(boundaryCommand(randomUUID(), secondRallyId, 'START_RALLY', '0', '1234'), identity)).resolves.toMatchObject({
-      type: 'command_rejected', code: 'ANNOTATION_NOT_READY', message: 'The configured clip range would overlap an existing segment',
-    })
-    await expect(boundaryService.apply(boundaryCommand(randomUUID(), secondRallyId, 'START_RALLY', '0', '1309'), identity)).resolves.toMatchObject({
       type: 'command_ack', operation_kind: 'START_RALLY', result_revision: '1',
     })
     await expect(db.rally.findUniqueOrThrow({ where: { id: firstRallyId } })).resolves.toMatchObject({ annotationStatus: 'READY' })
     await expect(db.rally.findUniqueOrThrow({ where: { id: secondRallyId } })).resolves.toMatchObject({ annotationStatus: 'OPEN' })
   })
 
-  it('rejects END when the resulting boundary range overlaps another segment', async () => {
+  it('allows END to overlap another editable draft without coupling their states', async () => {
     const currentRallyId = randomUUID()
     const otherRallyId = randomUUID()
     const endAnchor = {
@@ -488,10 +525,10 @@ describe('durable service annotation command', () => {
       type: 'command_ack', operation_kind: 'START_RALLY', result_revision: '1',
     })
     await expect(boundaryService.apply(boundaryCommand(randomUUID(), currentRallyId, 'END_RALLY', '1', '1284'), identity)).resolves.toMatchObject({
-      type: 'command_rejected', code: 'ANNOTATION_NOT_READY', message: 'Rally end would overlap another segment',
+      type: 'command_ack', operation_kind: 'END_RALLY', effects: { annotation_status: 'ready' },
     })
     await expect(db.rally.findUniqueOrThrow({ where: { id: currentRallyId }, include: { boundaries: true } })).resolves.toMatchObject({
-      annotationStatus: 'OPEN', annotationRevision: 1n, boundaries: [expect.objectContaining({ kind: 'START' })],
+      annotationStatus: 'READY', annotationRevision: 2n,
     })
   })
 
@@ -554,6 +591,54 @@ describe('durable service annotation command', () => {
     })
     await expect(db.rally.count({ where: { id: { in: [first.rally_id, second.rally_id] } } })).resolves.toBe(1)
     await expect(db.annotationCommandReceipt.findUnique({ where: { commandId: second.command_id } })).resolves.toMatchObject({ accepted: false })
+  })
+
+  it('keeps simultaneous OPEN drafts independent across device sessions', async () => {
+    const first = serviceCommand(randomUUID(), randomUUID())
+    const second = serviceCommand(randomUUID(), randomUUID())
+    await expect(service.apply(first, identity)).resolves.toMatchObject({ type: 'command_ack' })
+    await expect(service.apply(second, secondIdentity)).resolves.toMatchObject({ type: 'command_ack' })
+    await expect(db.rally.findMany({
+      where: { id: { in: [first.rally_id, second.rally_id] } },
+      select: { id: true, annotationStatus: true },
+    })).resolves.toEqual(expect.arrayContaining([
+      { id: first.rally_id, annotationStatus: 'OPEN' },
+      { id: second.rally_id, annotationStatus: 'OPEN' },
+    ]))
+
+    await expect(service.apply(contactCommand(randomUUID(), first.rally_id, '1'), secondIdentity)).resolves.toMatchObject({
+      type: 'command_rejected', code: 'RALLY_OWNED_BY_OTHER_CLIENT',
+    })
+  })
+
+  it('serializes overlapping device drafts at immutable submit', async () => {
+    const firstRallyId = randomUUID()
+    const secondRallyId = randomUUID()
+    const endAnchor = {
+      ...anchor,
+      capture_frame_index: (BigInt(anchor.capture_frame_index) + 1n).toString(),
+      capture_time_us: (BigInt(anchor.capture_time_us) + 50n).toString(),
+      resolved_player_media_time_us: '1284',
+      source_pts: (BigInt(anchor.source_pts) + 1n).toString(),
+    }
+    const boundaryService = createAnnotationCommandService({
+      database: db,
+      resolveCursor: async cursor => cursor.player_media_time_us === '1284' ? endAnchor : anchor,
+    })
+    await boundaryService.apply(boundaryCommand(randomUUID(), firstRallyId, 'START_RALLY', '0', '1234'), identity)
+    await boundaryService.apply(boundaryCommand(randomUUID(), secondRallyId, 'START_RALLY', '0', '1234'), secondIdentity)
+    await boundaryService.apply(boundaryCommand(randomUUID(), firstRallyId, 'END_RALLY', '1', '1284'), identity)
+    await boundaryService.apply(boundaryCommand(randomUUID(), secondRallyId, 'END_RALLY', '1', '1284'), secondIdentity)
+
+    await expect(boundaryService.apply(submitCommand(randomUUID(), firstRallyId, '2'), identity)).resolves.toMatchObject({
+      type: 'command_ack', effects: { annotation_status: 'submitted' },
+    })
+    await expect(boundaryService.apply(submitCommand(randomUUID(), secondRallyId, '2'), secondIdentity)).resolves.toMatchObject({
+      type: 'command_rejected', code: 'RALLY_OVERLAP',
+    })
+    await expect(db.rally.findUniqueOrThrow({ where: { id: secondRallyId } })).resolves.toMatchObject({
+      annotationStatus: 'READY', activeSubmissionId: null,
+    })
   })
 
   it('keeps a closed unsubmitted rally while starting the next rally', async () => {

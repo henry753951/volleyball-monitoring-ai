@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { AnnotationCommand, AnnotationCommandAck, AnnotationRallySnapshot } from '@volleyball-monitoring/contracts'
-import { applyAnnotationAckLocally, projectAnnotationSnapshot, rebaseQueuedAnnotationCommand } from './annotationCommandQueue'
+import { annotationCommandConverged, annotationDraftOwnedByClient, applyAnnotationAckLocally, projectAnnotationSnapshot, rebaseQueuedAnnotationCommand, shouldAcceptAnnotationBroadcast } from './annotationCommandQueue'
 import { enqueueAnnotationCommand } from './annotationOutbox'
 
 const room = 'match:00000000-0000-4000-8000-000000000001:capture:00000000-0000-4000-8000-000000000002'
@@ -14,6 +14,19 @@ const end = (id: string): AnnotationCommand => ({ schema_version: '3.0.0', comma
 const snapshot: AnnotationRallySnapshot = { schema_version: '2.0.0', type: 'rally_snapshot', room_id: room, rally_id: rally, revision: '1', server_sequence: '1', snapshot: { annotation_status: 'open', side_assignment_id: 'side', score_resolution: 'pending', scoring_court_side: null, processing_status: 'idle', key_points: [{ key_point_id: 'service', sequence_index: 0, marker_kind: 'service', is_terminal: false, capture_time_us: '1000', capture_frame_index: '10', timing_precision: 'frame_exact', possible_duplicate: false }] } }
 
 describe('annotation optimistic command queue', () => {
+  it('does not let another client broadcast replace the local draft', () => {
+    const peerRally = '00000000-0000-4000-8000-000000000099'
+    expect(shouldAcceptAnnotationBroadcast({ currentRallyId: rally, nextRallyId: peerRally })).toBe(false)
+    expect(shouldAcceptAnnotationBroadcast({ currentRallyId: rally, nextRallyId: rally })).toBe(true)
+    expect(shouldAcceptAnnotationBroadcast({ nextRallyId: peerRally, pendingRallyIds: [peerRally] })).toBe(true)
+    expect(shouldAcceptAnnotationBroadcast({ nextRallyId: peerRally, rememberedRallyId: peerRally })).toBe(true)
+  })
+
+  it('keeps an explicitly viewed peer draft read-only', () => {
+    expect(annotationDraftOwnedByClient(snapshot, rally)).toBe(true)
+    expect(annotationDraftOwnedByClient(snapshot, '00000000-0000-4000-8000-000000000099')).toBe(false)
+  })
+
   it('projects v3 Z presses as start/end boundaries without creating key points', () => {
     const started = enqueueAnnotationCommand([], start('00000000-0000-4000-8000-000000000030'), new Date(), { observation: { capture_time_us: '1000', capture_frame_index: '10' } })
     const open = projectAnnotationSnapshot(null, room, started)
@@ -68,6 +81,17 @@ describe('annotation optimistic command queue', () => {
     const ready = structuredClone(snapshot)
     ready.snapshot.annotation_status = 'ready'
     expect(rebaseQueuedAnnotationCommand(start('00000000-0000-4000-8000-000000000032', '00000000-0000-4000-8000-000000000033'), ready)).toMatchObject({ kind: 'START_RALLY' })
+  })
+
+  it('recognizes an END whose acknowledgement was lost after the boundary committed', () => {
+    const ready = structuredClone(snapshot)
+    ready.schema_version = '3.0.0'
+    ready.snapshot.annotation_status = 'ready'
+    ready.snapshot.boundaries = [
+      { kind: 'start', capture_time_us: '1000', capture_frame_index: '10', timing_precision: 'frame_exact' },
+      { kind: 'end', capture_time_us: '2000', capture_frame_index: '20', timing_precision: 'frame_exact' },
+    ]
+    expect(annotationCommandConverged(end('00000000-0000-4000-8000-000000000034'), ready)).toBe(true)
   })
 
   it('replaces a pending point with the canonical ACK anchor', () => {

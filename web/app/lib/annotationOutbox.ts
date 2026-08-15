@@ -11,6 +11,7 @@ export interface AnnotationOutboxEntry {
     capture_frame_index: string | null
   }
   retry_count?: number
+  attempted_at?: string
 }
 
 interface StorageLike {
@@ -44,7 +45,8 @@ export function readAnnotationOutbox(storage: StorageLike, roomId: string): Anno
         ? { capture_time_us: item.observation.capture_time_us, capture_frame_index: item.observation.capture_frame_index as string | null }
         : undefined
       const retry_count = typeof item.retry_count === 'number' && Number.isInteger(item.retry_count) && item.retry_count >= 0 ? item.retry_count : undefined
-      return { command, queued_at: item.queued_at, status: item.status as AnnotationOutboxStatus, reason: item.reason, ...(observation ? { observation } : {}), ...(retry_count !== undefined ? { retry_count } : {}) }
+      const attempted_at = typeof item.attempted_at === 'string' && !Number.isNaN(Date.parse(item.attempted_at)) ? item.attempted_at : undefined
+      return { command, queued_at: item.queued_at, status: item.status as AnnotationOutboxStatus, reason: item.reason, ...(observation ? { observation } : {}), ...(retry_count !== undefined ? { retry_count } : {}), ...(attempted_at ? { attempted_at } : {}) }
     })
   }
   catch {
@@ -64,7 +66,15 @@ export function enqueueAnnotationCommand(entries: AnnotationOutboxEntry[], comma
 }
 
 export function replaceAnnotationOutboxCommand(entries: AnnotationOutboxEntry[], commandId: string, command: AnnotationCommand) {
-  return entries.map(entry => entry.command.command_id === commandId ? { ...entry, command } : entry)
+  return entries.map(entry => entry.command.command_id === commandId
+    ? { ...entry, command, attempted_at: undefined, status: 'pending' as const, reason: null }
+    : entry)
+}
+
+export function markAnnotationOutboxAttempted(entries: AnnotationOutboxEntry[], commandId: string, now = new Date()) {
+  return entries.map(entry => entry.command.command_id === commandId
+    ? { ...entry, attempted_at: now.toISOString() }
+    : entry)
 }
 
 export function resolveAnnotationOutboxEntry(entries: AnnotationOutboxEntry[], commandId: string) {

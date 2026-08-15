@@ -7,6 +7,7 @@ import type {
    AnnotationRallyProcessingUpdate,
 } from "@volleyball-monitoring/contracts";
 import { createMediaClient } from "~/lib/mediaClient";
+import { adjacentAnnotationKeyPoint } from "~/lib/annotationKeyPointNavigation";
 import {
    useAuthoritativeDvrWindow,
    seekVideoToCanonicalFrame,
@@ -53,6 +54,7 @@ import {
    bufferedSecondsAhead,
    type CanonicalMediaRange,
 } from "~/utils/mediaBuffer";
+import { estimateFrameDurationSeconds } from "~/utils/framePreviewCalibration";
 import type { TimelineSelectionItem } from "~/utils/timelineSelection";
 import {
    captureNeedsPolling,
@@ -118,6 +120,10 @@ const displayAnnotation = computed(() => {
    return projected;
 });
 const state = annotation.viewState;
+const editableDraftState = computed(() =>
+   (state.value === "OPEN" || state.value === "READY") &&
+   annotation.draftOwnedByClient.value,
+);
 const currentLastKeyPointId = computed(
    () =>
       displayAnnotation.value?.snapshot.key_points.at(-1)?.key_point_id ?? null,
@@ -129,6 +135,8 @@ const correctionDraftContactIds = computed(
          .map((point) => point.key_point_id) ?? [],
 );
 const selectedKeyPointId = ref<string | null>(null);
+const navigationKeyPointId = ref<string | null>(null);
+let annotationPointNavigationGeneration = 0;
 const selectedTimelineItem = ref<TimelineSelectionItem>(null);
 const selectedKeyPoint = computed(
    () =>
@@ -332,15 +340,16 @@ let windowCreateMode: "live" | "archive" | undefined;
 let keyPointNudgeTargetId: string | null = null;
 let framePreviewTargetSeconds: number | null = null;
 let framePreviewRaf: number | null = null;
-let estimatedFrameSeconds = 1 / 60;
+let estimatedFrameSeconds: number | null = null;
+let framePreviewCalibrationGeneration = 0;
+const framePreviewDurationByContext = new Map<string, number>();
 
 const frameNavigation = useCoalescedFrameNavigation({
    preview: previewFrameStep,
    step: async (direction, count) => {
       if (!descriptor.value || !authoritativeAnchor.value) return null;
-      const previousCaptureUs = BigInt(
-         authoritativeAnchor.value.capture_time_us,
-      );
+      const previousCaptureUs = authoritativeAnchor.value.capture_time_us;
+      const previousContext = currentFramePreviewContext();
       const anchor = await dvr.step(direction, count, (target) => ({
          schema_version: "1.0.0",
          capture_session_id: descriptor.value!.capture_session_id,
@@ -348,13 +357,13 @@ const frameNavigation = useCoalescedFrameNavigation({
          target_capture_time_us: target,
       }));
       if (!anchor) return null;
-      const anchorCaptureUs = BigInt(anchor.capture_time_us);
-      const measuredFrameUs =
-         anchorCaptureUs >= previousCaptureUs
-            ? anchorCaptureUs - previousCaptureUs
-            : previousCaptureUs - anchorCaptureUs;
-      if (measuredFrameUs > 0n && measuredFrameUs <= 24_000_000n)
-         estimatedFrameSeconds = Number(measuredFrameUs) / count / 1_000_000;
+      rememberFramePreviewDuration(
+         previousCaptureUs,
+         anchor.capture_time_us,
+         count,
+         previousContext,
+         currentFramePreviewContext(),
+      );
       return anchor;
    },
    apply: (anchor, direction) => {
@@ -381,9 +390,16 @@ const frameNavigation = useCoalescedFrameNavigation({
    onSettled: () => {
       framePreviewTargetSeconds = null;
    },
-   settleMs: 140,
+   settleMs: 80,
    holdWatchdogMs: 650,
 });
+watch(
+   currentFramePreviewContext,
+   () => {
+      void warmFramePreviewDuration();
+   },
+   { immediate: true },
+);
 const keyPointNavigation = useCoalescedFrameNavigation({
    preview: previewKeyPointNudge,
    step: performKeyPointNudge,
@@ -504,6 +520,11 @@ const {
    displayRallyOrdinal,
    displaySetNumber,
 } = workstation;
+const protectedSegmentRanges = computed(() =>
+   selectableSegmentRanges.value.filter(
+      (segment) => !("status" in segment) || segment.status !== "draft",
+   ),
+);
 const selectedDraftForSides = computed(
    () =>
       annotationDrafts.value.find((draft) => draft.id === selectedRallyId.value) ??
@@ -1063,7 +1084,7 @@ const navigableKeyPoints = computed(() => {
               id: point.id,
               captureTimeUs: point.capture_time_us,
               rallyId: draft.id,
-              editable: draft.annotation_status === "open",
+              editable: ["open", "ready"].includes(draft.annotation_status),
            })),
    );
    const current = (displayAnnotation.value?.snapshot.key_points ?? []).map(
@@ -1071,7 +1092,7 @@ const navigableKeyPoints = computed(() => {
          id: point.key_point_id,
          captureTimeUs: point.capture_time_us,
          rallyId: currentRallyId,
-         editable: state.value === "OPEN",
+         editable: editableDraftState.value,
       }),
    );
    return [...submitted, ...drafts, ...current].sort((left, right) => {
@@ -1088,7 +1109,7 @@ const selectedEditableKeyPoint = computed(() =>
    Boolean(
       selectedTimelineItem.value === "point" &&
       selectedKeyPoint.value &&
-      state.value === "OPEN",
+      editableDraftState.value,
    ),
 );
 const defaultPlaybackTarget = computed(() => {
@@ -1175,7 +1196,7 @@ function movedPointWouldOverlap(
    );
    return (
       !range ||
-      clipRangeOverlaps(range, selectableSegmentRanges.value, snapshot.rally_id)
+      clipRangeOverlaps(range, protectedSegmentRanges.value, snapshot.rally_id)
    );
 }
 
@@ -1185,26 +1206,37 @@ function commandAvailability(action: AnnotationAction) {
          enabled: false,
          reason: "標記狀態有衝突，請按上方「重新同步」",
       };
+   const viewingOtherClientDraft =
+      (state.value === "OPEN" || state.value === "READY") &&
+      !annotation.draftOwnedByClient.value;
+   if (viewingOtherClientDraft && action !== "service")
+      return { enabled: false, reason: "此片段屬於另一個標註客戶端，只能檢視" };
    if (action === "submit")
       return state.value === "READY" ||
          (state.value === "OPEN" && correctionActive.value)
          ? { enabled: true, reason: "" }
          : { enabled: false, reason: "片段尚未完成" };
    if (action === "service") {
-      const startBoundary = displayAnnotation.value?.snapshot.boundaries?.find(
-         (boundary) => boundary.kind === "start",
-      );
-      const otherBoundaries =
-         displayAnnotation.value?.snapshot.boundaries
+      const localDraft = annotation.draftOwnedByClient.value;
+      const startBoundary = localDraft
+         ? displayAnnotation.value?.snapshot.boundaries?.find(
+              (boundary) => boundary.kind === "start",
+           )
+         : undefined;
+      const otherBoundaries = localDraft
+         ? displayAnnotation.value?.snapshot.boundaries
             ?.filter((boundary) => boundary.kind !== "start")
-            .map((boundary) => boundary.capture_time_us) ?? [];
+            .map((boundary) => boundary.capture_time_us) ?? []
+         : [];
       return boundaryCommandAvailability({
-         state: state.value,
+         state: localDraft ? state.value : "IDLE",
          activeSubmissionId:
-            displayAnnotation.value?.snapshot.active_submission_id,
+            localDraft
+               ? displayAnnotation.value?.snapshot.active_submission_id
+               : null,
          canMark: canMark.value,
          cursorCaptureTimeUs: visualPlayhead.value,
-         currentRallyId: displayAnnotation.value?.rally_id,
+         currentRallyId: localDraft ? displayAnnotation.value?.rally_id : null,
          startBoundaryCaptureTimeUs: startBoundary?.capture_time_us,
          currentDraftCaptureTimes: [
             ...(startBoundary ? [startBoundary.capture_time_us] : []),
@@ -1215,7 +1247,7 @@ function commandAvailability(action: AnnotationAction) {
          ],
          clipPreRollUs: clipPreRollUs.value,
          clipPostRollUs: clipPostRollUs.value,
-         segments: selectableSegmentRanges.value,
+         segments: protectedSegmentRanges.value,
       });
    }
    return draftCommandAvailability({
@@ -1320,7 +1352,7 @@ async function resolveLatestCursor() {
          timelineMoveTimeout = null;
          try {
             if (
-               state.value === "OPEN" &&
+               editableDraftState.value &&
                selectedKeyPointId.value === timelineMove.keyPointId &&
                editReady.value
             ) {
@@ -1545,7 +1577,7 @@ function dispatchAnnotationAction(action: AnnotationAction) {
 }
 
 function editKeyPoint(kind: "MOVE_KEY_POINT" | "DELETE_KEY_POINT") {
-   if (!selectedKeyPointId.value || state.value !== "OPEN" || !editReady.value)
+   if (!selectedKeyPointId.value || !editableDraftState.value || !editReady.value)
       return;
    if (kind === "MOVE_KEY_POINT" && !canMark.value) return;
    if (kind === "MOVE_KEY_POINT")
@@ -1567,18 +1599,24 @@ function editKeyPoint(kind: "MOVE_KEY_POINT" | "DELETE_KEY_POINT") {
 }
 
 function selectTimelineKeyPoint(keyPointId: string) {
+   annotationPointNavigationGeneration += 1;
+   navigationKeyPointId.value = keyPointId;
    pinnedRallyId.value = displayAnnotation.value?.rally_id ?? null;
    selectedKeyPointId.value = keyPointId;
    selectedTimelineItem.value = "point";
 }
 
 function selectTimelineMask() {
+   annotationPointNavigationGeneration += 1;
+   navigationKeyPointId.value = null;
    pinnedRallyId.value = displayAnnotation.value?.rally_id ?? null;
    selectedTimelineItem.value = "mask";
    selectedKeyPointId.value = null;
 }
 
 function clearTimelineSelection() {
+   annotationPointNavigationGeneration += 1;
+   navigationKeyPointId.value = null;
    pinnedRallyId.value = null;
    selectedTimelineItem.value = cursorRallyId.value ? "segment" : null;
    selectedKeyPointId.value = null;
@@ -1624,7 +1662,7 @@ function releaseEditingIntent() {
 }
 
 function beginTimelineKeyPointEdit(keyPointId: string) {
-   if (state.value !== "OPEN" || !editReady.value) return;
+   if (!editableDraftState.value || !editReady.value) return;
    selectTimelineKeyPoint(keyPointId);
    annotation.setEditingKeyPoint(keyPointId);
 }
@@ -1638,7 +1676,7 @@ async function moveTimelineKeyPoint(
    keyPointId: string,
    targetCaptureTimeUs: string,
 ) {
-   if (state.value !== "OPEN" || !editReady.value || !selectedCapture.value) {
+   if (!editableDraftState.value || !editReady.value || !selectedCapture.value) {
       releaseEditingIntent();
       return;
    }
@@ -1707,7 +1745,7 @@ function previewKeyPointNudge(delta: number) {
    const point = annotation.snapshot.value?.snapshot.key_points.find(
       (candidate) => candidate.key_point_id === keyPointId,
    );
-   if (!point) return;
+   if (!point || estimatedFrameSeconds === null) return;
    const estimatedFrameUs = BigInt(
       Math.max(1, Math.round(estimatedFrameSeconds * 1_000_000)),
    );
@@ -1741,7 +1779,7 @@ function nudgeSelectedKeyPoint(
    if (
       !point ||
       !selectedCapture.value ||
-      state.value !== "OPEN" ||
+      !editableDraftState.value ||
       !commandReady.value ||
       pendingTimelineMove.value ||
       (!editReady.value && !keyPointNavigation.active.value)
@@ -1766,7 +1804,7 @@ async function performKeyPointNudge(
       (candidate) => candidate.key_point_id === keyPointId,
    );
    const capture = selectedCapture.value;
-   if (!point || !capture || state.value !== "OPEN") {
+   if (!point || !capture || !editableDraftState.value) {
       throw new Error("目前擊球點已無法編輯");
    }
    let window = descriptor.value;
@@ -2407,7 +2445,7 @@ function dispatchMediaAction(
          input,
       );
    if (action === "key_point_previous" || action === "key_point_next")
-      navigateKeyPoint(action === "key_point_next" ? "next" : "previous");
+      void navigateKeyPoint(action === "key_point_next" ? "next" : "previous");
 }
 
 function queueFrameStep(
@@ -2418,11 +2456,90 @@ function queueFrameStep(
    frameNavigation.enqueue(direction, count, input);
 }
 
+function currentFramePreviewContext(): string {
+   const window = descriptor.value;
+   const anchor = authoritativeAnchor.value;
+   if (!window || !anchor) return "";
+   return [
+      window.playback_window_id,
+      window.mapping_version,
+      anchor.capture_epoch_id,
+      anchor.dvr_segment_id ?? "",
+   ].join(":");
+}
+
+function rememberFramePreviewDuration(
+   fromCaptureTimeUs: string,
+   toCaptureTimeUs: string,
+   count: number,
+   ...contexts: string[]
+) {
+   const seconds = estimateFrameDurationSeconds(
+      fromCaptureTimeUs,
+      toCaptureTimeUs,
+      count,
+   );
+   if (seconds === null) return null;
+   estimatedFrameSeconds = seconds;
+   for (const context of contexts) {
+      if (context) framePreviewDurationByContext.set(context, seconds);
+   }
+   return seconds;
+}
+
+async function warmFramePreviewDuration() {
+   const generation = ++framePreviewCalibrationGeneration;
+   const window = descriptor.value;
+   const anchor = authoritativeAnchor.value;
+   const context = currentFramePreviewContext();
+   framePreviewTargetSeconds = null;
+   if (!window || !anchor || !context) {
+      estimatedFrameSeconds = null;
+      return;
+   }
+   const cached = framePreviewDurationByContext.get(context);
+   if (cached !== undefined) {
+      estimatedFrameSeconds = cached;
+      return;
+   }
+   estimatedFrameSeconds = null;
+   for (const direction of ["next", "previous"] as const) {
+      try {
+         const adjacent = await media.frameStep({
+            schema_version: "1.1.0",
+            capture_session_id: window.capture_session_id,
+            playback_window_id: window.playback_window_id,
+            mapping_version: window.mapping_version,
+            capture_frame_index: anchor.capture_frame_index,
+            direction,
+            count: 1,
+         });
+         if (
+            generation !== framePreviewCalibrationGeneration ||
+            context !== currentFramePreviewContext()
+         )
+            return;
+         if (
+            rememberFramePreviewDuration(
+               anchor.capture_time_us,
+               adjacent.capture_time_us,
+               1,
+               context,
+            ) !== null
+         )
+            return;
+      } catch {
+         // A boundary on one side is normal; try the opposite adjacent frame.
+      }
+   }
+}
+
 function previewFrameStep(delta: number) {
    const element = video.value;
    const window = descriptor.value;
    if (!element || !window) return;
    if (!element.paused) element.pause();
+   if (estimatedFrameSeconds === null) return;
    const windowDuration =
       Number(
          BigInt(window.window_capture_end_us) -
@@ -2444,34 +2561,24 @@ function previewFrameStep(delta: number) {
    });
 }
 
-function navigateKeyPoint(direction: "previous" | "next") {
+async function navigateKeyPoint(direction: "previous" | "next") {
    const points = navigableKeyPoints.value;
    if (!points.length) return;
-   const selectedIndex = selectedKeyPointId.value
-      ? points.findIndex((point) => point.id === selectedKeyPointId.value)
-      : -1;
    const reference =
       selectedKeyPoint.value?.capture_time_us ?? visualPlayhead.value;
-   const target =
-      selectedIndex >= 0
-         ? points[selectedIndex + (direction === "next" ? 1 : -1)]
-         : direction === "next"
-           ? points.find(
-                (point) =>
-                   !reference ||
-                   BigInt(point.captureTimeUs) > BigInt(reference),
-             )
-           : points.findLast(
-                (point) =>
-                   !reference ||
-                   BigInt(point.captureTimeUs) < BigInt(reference),
-             );
+   const target = adjacentAnnotationKeyPoint(points, {
+      direction,
+      selectedId: navigationKeyPointId.value ?? selectedKeyPointId.value,
+      referenceCaptureTimeUs: reference,
+   });
    if (!target) {
       toast.info(
          direction === "next" ? "已到最後一個擊球點" : "已到第一個擊球點",
       );
       return;
    }
+   const generation = ++annotationPointNavigationGeneration;
+   navigationKeyPointId.value = target.id;
    if (target.rallyId === displayAnnotation.value?.rally_id) {
       selectedKeyPointId.value = target.id;
       selectedTimelineItem.value = "point";
@@ -2479,14 +2586,27 @@ function navigateKeyPoint(direction: "previous" | "next") {
       target.rallyId &&
       annotationDrafts.value.some((draft) => draft.id === target.rallyId)
    ) {
-      void selectHistoricalSegment(target.rallyId, target.captureTimeUs);
-      return;
+      try {
+         const selected = await annotation.selectRally(target.rallyId);
+         if (generation !== annotationPointNavigationGeneration || !selected)
+            return;
+         pinnedRallyId.value = target.rallyId;
+         selectedTimelineItem.value = "point";
+         selectedKeyPointId.value = target.id;
+      } catch (error) {
+         if (generation === annotationPointNavigationGeneration)
+            toast.error(
+               error instanceof Error ? error.message : "無法載入擊球點",
+            );
+         return;
+      }
    } else {
       pinnedRallyId.value = target.rallyId;
-      selectedTimelineItem.value = "segment";
-      selectedKeyPointId.value = null;
+      selectedTimelineItem.value = "point";
+      selectedKeyPointId.value = target.id;
    }
-   void seekTimeline(target.captureTimeUs);
+   if (generation === annotationPointNavigationGeneration)
+      await seekTimeline(target.captureTimeUs);
 }
 
 function handleOverlayFrame(frame: number) {
@@ -2845,7 +2965,7 @@ function commandEnabled(action: HotkeyCommand) {
    if (action.startsWith("frame_") && selectedEditableKeyPoint.value) {
       return Boolean(
          selectedCapture.value &&
-            state.value === "OPEN" &&
+            editableDraftState.value &&
             commandReady.value &&
             !pendingTimelineMove.value &&
             keyPointEditReady.value,
@@ -3475,7 +3595,7 @@ onBeforeUnmount(() => {
             "
             :navigable="navigableKeyPoints.length > 0"
             :selected-point="Boolean(selectedKeyPoint)"
-            :editable="state === 'OPEN'"
+            :editable="state === 'OPEN' || state === 'READY'"
             :edit-ready="keyPointEditReady"
             :point-delete-enabled="Boolean(selectedDeletablePoint)"
             :muted="muted"
@@ -3523,7 +3643,7 @@ onBeforeUnmount(() => {
             "
             :buffered-ranges="playerBufferedRanges"
             :annotation="displayAnnotation"
-            :editable="state === 'OPEN' && editReady && !pendingTimelineMove"
+            :editable="(state === 'OPEN' || state === 'READY') && editReady && !pendingTimelineMove"
             :selected-key-point-id="selectedKeyPointId"
             :mask-selected="selectedCurrentMask"
             :mask-range="currentMaskRange"
@@ -3557,7 +3677,7 @@ onBeforeUnmount(() => {
             :pending-command="annotation.pendingCount.value > 0"
             :availability="commandAvailabilityMap"
             :service-mode="
-               state === 'OPEN' &&
+               state === 'OPEN' && annotation.draftOwnedByClient.value &&
                !displayAnnotation?.snapshot.active_submission_id
                   ? 'end'
                   : 'start'

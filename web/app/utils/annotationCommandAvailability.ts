@@ -19,7 +19,7 @@ export function draftCommandAvailability(input: DraftCommandAvailabilityInput) {
       : { enabled: false, reason: '目前沒有可設定結果的片段' }
   }
 
-  if (input.state !== 'OPEN') return { enabled: false, reason: '尚未開始片段' }
+  if (!['OPEN', 'READY'].includes(input.state)) return { enabled: false, reason: '尚未開始片段' }
 
   if (!input.canMark || !input.cursorCaptureTimeUs) return { enabled: false, reason: '游標尚未確認' }
   return { enabled: true, reason: '' }

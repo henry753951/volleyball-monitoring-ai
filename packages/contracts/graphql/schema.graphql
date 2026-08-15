@@ -172,7 +172,7 @@ enum ProcessingStatus {
 }
 
 type Query {
-  activeAnnotationRallySnapshot(roomId: String!): JSON
+  activeAnnotationRallySnapshot(deviceSessionId: ID!, roomId: String!): JSON
   annotationRallySnapshot(rallyId: ID!, roomId: String!): JSON
   captureSession(id: ID!): CaptureSession
   coachMatchAnalytics(matchId: ID!): JSON

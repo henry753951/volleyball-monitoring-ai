@@ -50,7 +50,7 @@
 | 預設介面顯示 | 預設快捷鍵 | 固定語意 | 重要限制 |
 |---|---:|---|---|
 | `Z 片段開始／結束` | `Z` | 無 ordinary open draft 時建立 rally 與 `START` boundary；同一 open rally 內再次按下建立 `END` boundary，兩者都不是擊球事件 | END 必須晚於 START；播放器正在 seek、cursor stale 或位於 gap 時不可建立；READY 未送出片段不阻擋下一段 START |
-| `X 擊球` | `X` | 選擇性地在目前已呈現影片 frame 建立人工 `contact` key point；不再是初次送出的必要步驟 | 播放器正在 seek、cursor stale 或位於 gap 時不可建立 |
+| `X 擊球` | `X` | 選擇性地在目前已呈現影片 frame 建立人工 `contact` key point；OPEN 與第二次 Z 後的 READY 都可新增、移動或刪除，直到 Enter 提交才不可變 | 播放器正在 seek、cursor stale 或位於 gap 時不可建立；contact 可位於 START／END 之外，clip coverage 必須包含它 |
 | 播放／暫停 | `Space` | 切換目前影片播放狀態 | 只控制播放器，不建立 key point |
 | `< 左側得分` | `<` | 設定 rally-level outcome 為 `resolved/left` | 不移動 boundary、不建立或 terminalize key point |
 | `> 右側得分` | `>` | 設定 rally-level outcome 為 `resolved/right` | 同上；方向鍵仍只供逐幀／播放器控制 |
@@ -86,6 +86,7 @@
   - `? 得分未知`
   - `回合進行中`
 - Mask 代表完整 clip：預設就是第一次 Z 的 START 到第二次 Z 的 END，前後延伸皆為 0 秒；若場次另行設定延伸，server 會在 source 邊界或 DVR gap 依 clip policy 截短。Boundary 與 contact 仍只保存實際 canonical 時間，padding 不建立事件或得分 frame。
+- OPEN mask 的暫時右緣只跟隨建立該草稿之瀏覽器分頁的本機 cursor；cursor 與「目前作用中的草稿」不得透過 room broadcast 改變另一位標註者的 Z 狀態。重新整理可恢復同一分頁的草稿與 pending command，另一個分頁則保持獨立。
 - Timeline 至少可辨識 START／END boundary、一般 `contact`、selected、possible duplicate 與 server pending；Z boundary 不得渲染成 contact。
 - 顏色、線寬與動畫屬前端衍生視覺，不保存為 canonical DB 欄位。
 
@@ -965,7 +966,7 @@ WebSocket 用於 annotation command、ack、revision、presence 與處理通知�
 | `VOID_RALLY` | `reason` | 明確作廢 draft，不等於刪除歷史 |
 | `SUBMIT_RALLY` | none | Enter；START／END 完整即可建立 immutable submission，X 可為零，outcome 可為 pending |
 
-READY 且尚未送出的 Rally 不阻擋另一個 `START_RALLY`；同一場次仍最多只有一個一般 OPEN Rally。指定 READY Rally 必須可由 timeline 選回並送出。
+READY 且尚未送出的 Rally 不阻擋另一個 `START_RALLY`；每個 device session 最多只有一個一般 OPEN Rally，不同 client 可各自建立互相重疊的 OPEN／READY 草稿。指定 READY Rally 必須可由 timeline 選回並送出。可編輯草稿暫時重疊是合法的，但 `SUBMIT_RALLY` 必須在 match advisory lock 內檢查 immutable submission 範圍，確保重疊草稿只有一個能成為有效 submission；失敗者維持 READY 可修正狀態。
 
 ## 10.3 Ack
 
@@ -1007,7 +1008,7 @@ READY 且尚未送出的 Rally 不阻擋另一個 `START_RALLY`；同一場次�
 }
 ```
 
-`REVISION_CONFLICT`、`CURSOR_STALE`、`CURSOR_IN_GAP`、`RALLY_NOT_OPEN`、`RALLY_BOUNDARY_INVALID` 等均使用明確 domain code。Contact 可在 START／END 之外，因此不得因「anchor outside editable segment」拒絕；clip coverage 必須擴張到包含所有 canonical contact。Reconnect 時若 server revision 大於 client 最後 revision 且 delta 不完整，必須 GraphQL refetch 指定 Rally snapshot。
+`REVISION_CONFLICT`、`CURSOR_STALE`、`CURSOR_IN_GAP`、`RALLY_NOT_OPEN`、`RALLY_BOUNDARY_INVALID` 等均使用明確 domain code。Contact 可在 START／END 之外，因此不得因「anchor outside editable segment」拒絕；clip coverage 必須擴張到包含所有 canonical contact。Reconnect 時先以原 `command_id` 重送取得 idempotent 結果；若 server revision 大於 client 最後 revision 且 delta 不完整，必須 GraphQL refetch 該 client 記住或明確選取的 Rally snapshot，辨識已收斂操作，必要時 rebase 後自動重送。不得要求重新整理或留下會阻塞後續操作的永久 confirmation 狀態。
 
 
 # 11. GraphQL Schema 使用規格

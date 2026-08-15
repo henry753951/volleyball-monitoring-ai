@@ -7,6 +7,7 @@ interface SnapshotIdentity {
   roomId: string
   userId: string
   role: UserRole
+  deviceSessionId?: string
 }
 
 async function loadAnnotationSnapshot(
@@ -31,64 +32,50 @@ async function loadAnnotationSnapshot(
   })
   if (!authorized) return null
 
-  let rally = rallyId
-    ? await database.rally.findFirst({
-        where: {
-          id: rallyId,
-          matchId: room.matchId,
-          program: { captureSessionId: room.captureSessionId },
-        },
-        include: {
-          activeSubmission: {
-            include: { boundaries: { orderBy: { kind: 'asc' } }, keyPoints: { orderBy: [{ sequenceIndex: 'asc' }, { id: 'asc' }] } },
-          },
-          boundaries: { orderBy: { kind: 'asc' } },
-          keyPoints: {
-            where: { deletedAt: null },
-            orderBy: [{ sequenceIndex: 'asc' }, { id: 'asc' }],
-          },
-        },
-      })
-    : await database.rally.findFirst({
+  const snapshotInclude = {
+    activeSubmission: {
+      include: { boundaries: { orderBy: { kind: 'asc' as const } }, keyPoints: { orderBy: [{ sequenceIndex: 'asc' as const }, { id: 'asc' as const }] } },
+    },
+    boundaries: { orderBy: { kind: 'asc' as const } },
+    keyPoints: {
+      where: { deletedAt: null },
+      orderBy: [{ sequenceIndex: 'asc' as const }, { id: 'asc' as const }],
+    },
+  }
+
+  let rally
+  if (rallyId) {
+    rally = await database.rally.findFirst({
+      where: {
+        id: rallyId,
+        matchId: room.matchId,
+        program: { captureSessionId: room.captureSessionId },
+      },
+      include: snapshotInclude,
+    })
+  }
+  else {
+    const deviceSessionId = input.deviceSessionId
+    if (!deviceSessionId) return null
+    const device = await database.deviceSession.findFirst({
+      where: { id: deviceSessionId, revokedAt: null, userId: input.userId },
+      select: { id: true },
+    })
+    if (!device) return null
+    rally = await database.rally.findFirst({
         where: {
           annotationStatus: { in: [AnnotationStatus.OPEN, AnnotationStatus.READY] },
           voidedAt: null,
           matchId: room.matchId,
           program: { captureSessionId: room.captureSessionId },
+          OR: [
+            { boundaries: { some: { deviceSessionId, kind: 'START' } } },
+            { keyPoints: { some: { deviceSessionId, markerKind: 'SERVICE' } } },
+          ],
         },
-        include: {
-          activeSubmission: {
-            include: { boundaries: { orderBy: { kind: 'asc' } }, keyPoints: { orderBy: [{ sequenceIndex: 'asc' }, { id: 'asc' }] } },
-          },
-          boundaries: { orderBy: { kind: 'asc' } },
-          keyPoints: {
-            where: { deletedAt: null },
-            orderBy: [{ sequenceIndex: 'asc' }, { id: 'asc' }],
-          },
-        },
+        include: snapshotInclude,
         orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
       })
-  if (!rally && !rallyId) {
-    rally = await database.rally.findFirst({
-      where: {
-        activeSubmissionId: { not: null },
-        annotationStatus: AnnotationStatus.SUBMITTED,
-        voidedAt: null,
-        matchId: room.matchId,
-        program: { captureSessionId: room.captureSessionId },
-      },
-      include: {
-        activeSubmission: {
-          include: { boundaries: { orderBy: { kind: 'asc' } }, keyPoints: { orderBy: [{ sequenceIndex: 'asc' }, { id: 'asc' }] } },
-        },
-        boundaries: { orderBy: { kind: 'asc' } },
-        keyPoints: {
-          where: { deletedAt: null },
-          orderBy: [{ sequenceIndex: 'asc' }, { id: 'asc' }],
-        },
-      },
-      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-    })
   }
   if (!rally) return null
 

@@ -17,13 +17,17 @@ builder.queryField('annotationRallySnapshot', (t) => t.field({
 }))
 
 builder.queryField('activeAnnotationRallySnapshot', (t) => t.field({
-  args: { roomId: t.arg.string({ required: true }) },
+  args: {
+    roomId: t.arg.string({ required: true }),
+    deviceSessionId: t.arg.id({ required: true }),
+  },
   nullable: true,
   type: 'JSON',
   resolve: (_root, args, context) => {
     const identity = requireIdentity(context)
     return getActiveAnnotationSnapshot(db, {
       roomId: args.roomId,
+      deviceSessionId: args.deviceSessionId,
       userId: identity.id,
       role: identity.role,
     })

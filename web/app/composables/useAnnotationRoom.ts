@@ -10,25 +10,28 @@ import {
 import { createAnnotationRealtimeClient, type AnnotationConnectionState, type AnnotationRealtimeClient } from '../lib/annotationRealtimeClient'
 import {
   enqueueAnnotationCommand,
+  markAnnotationOutboxAttempted,
   readAnnotationOutbox,
   replaceAnnotationOutboxCommand,
-  requireAnnotationOutboxConfirmation,
   resolveAnnotationOutboxEntry,
   writeAnnotationOutbox,
   type AnnotationOutboxEntry,
 } from '../lib/annotationOutbox'
 import {
+  annotationCommandConverged,
+  annotationDraftOwnedByClient,
   applyAnnotationAckLocally,
   projectAnnotationSnapshot,
   rebaseQueuedAnnotationCommand,
+  shouldAcceptAnnotationBroadcast,
   type AnnotationClientObservation,
 } from '../lib/annotationCommandQueue'
 import { createGraphQLTransport, GraphQLRequestError } from '../lib/coreDomain'
 import type { PlaybackCursorInput } from '../lib/mediaModel'
 import type { AnnotationAction } from '../utils/annotationHotkeys'
 
-const ACTIVE_SNAPSHOT_QUERY = `query ActiveAnnotationRally($roomId: String!) {
-  activeAnnotationRallySnapshot(roomId: $roomId)
+const ACTIVE_SNAPSHOT_QUERY = `query ActiveAnnotationRally($roomId: String!, $deviceSessionId: ID!) {
+  activeAnnotationRallySnapshot(roomId: $roomId, deviceSessionId: $deviceSessionId)
 }`
 const SNAPSHOT_QUERY = `query AnnotationRally($roomId: String!, $rallyId: ID!) {
   annotationRallySnapshot(roomId: $roomId, rallyId: $rallyId)
@@ -42,6 +45,8 @@ const CANCEL_CORRECTION_DRAFT = `mutation CancelCorrectionDraft($rallyId: ID!) {
 const DELETE_PROCESSING_RALLY = `mutation DeleteProcessingRally($rallyId: ID!) {
   deleteProcessingRally(rallyId: $rallyId) { id processingStatus voidedAt }
 }`
+const DEVICE_SESSION_STORAGE_KEY = 'vollyai.annotation-device-session.v1'
+const ACTIVE_RALLY_STORAGE_PREFIX = 'vollyai.annotation-active-rally.v1:'
 
 function asSnapshot(value: unknown): AnnotationRallySnapshot | null {
   if (value === null) return null
@@ -77,6 +82,8 @@ export function useAnnotationRoom() {
   const { annotationWsUrl } = usePublicEndpoints()
   let realtime: AnnotationRealtimeClient | null = null
   let flushPromise: Promise<void> | null = null
+  let rallySelectionGeneration = 0
+  let deviceSessionHint: string | null = null
 
   const state = computed<'IDLE' | 'OPEN' | 'READY' | 'SUBMITTED' | 'VOIDED'>(() => {
     const status = snapshot.value?.snapshot.annotation_status
@@ -89,6 +96,7 @@ export function useAnnotationRoom() {
     const status = viewSnapshot.value?.snapshot.annotation_status
     return status ? status.toUpperCase() as 'OPEN' | 'READY' | 'SUBMITTED' | 'VOIDED' : 'IDLE'
   })
+  const draftOwnedByClient = computed(() => annotationDraftOwnedByClient(viewSnapshot.value, rememberedRallyId()))
   const outboxNeedsConfirmation = computed(() => outbox.value.some(entry => entry.status === 'needs_confirmation'))
   const remoteEditorsByKeyPoint = computed<Record<string, string[]>>(() => {
     const editors: Record<string, string[]> = {}
@@ -101,7 +109,31 @@ export function useAnnotationRoom() {
     return editors
   })
 
-  function storage() { return typeof window === 'undefined' ? null : window.localStorage }
+  // sessionStorage survives reloads while keeping separate tabs, cursors and
+  // pending commands independent from one another.
+  function storage() { return typeof window === 'undefined' ? null : window.sessionStorage }
+  function activeRallyStorageKey() { return roomId.value ? `${ACTIVE_RALLY_STORAGE_PREFIX}${roomId.value}` : null }
+  function rememberedRallyId() {
+    const target = storage()
+    const key = activeRallyStorageKey()
+    return target && key ? target.getItem(key) : null
+  }
+  function rememberRallyId(rallyId: string | null) {
+    const target = storage()
+    const key = activeRallyStorageKey()
+    if (!target || !key) return
+    if (rallyId) target.setItem(key, rallyId)
+    else target.removeItem(key)
+  }
+  function loadDeviceSessionHint() {
+    if (deviceSessionHint) return deviceSessionHint
+    const target = storage()
+    const stored = target?.getItem(DEVICE_SESSION_STORAGE_KEY)
+    deviceSessionHint = stored ?? crypto.randomUUID()
+    try { target?.setItem(DEVICE_SESSION_STORAGE_KEY, deviceSessionHint) }
+    catch { /* this tab still keeps the in-memory identity */ }
+    return deviceSessionHint
+  }
   function replaceOutbox(entries: AnnotationOutboxEntry[]) {
     outbox.value = entries
     const target = storage()
@@ -119,7 +151,7 @@ export function useAnnotationRoom() {
     void refreshActive()
   }
 
-  function acceptSnapshot(next: AnnotationRallySnapshot | null) {
+  function acceptSnapshot(next: AnnotationRallySnapshot | null, options: { remember?: boolean } = {}) {
     if (!next) return
     const current = snapshot.value
     if (
@@ -128,28 +160,67 @@ export function useAnnotationRoom() {
       && BigInt(next.server_sequence) < BigInt(current.server_sequence)
     ) return
     snapshot.value = next
+    if (options.remember) {
+      if (['open', 'ready'].includes(next.snapshot.annotation_status)) rememberRallyId(next.rally_id)
+      else if (rememberedRallyId() === next.rally_id) rememberRallyId(null)
+    }
   }
 
-  async function fetchSnapshot(rallyId: string) {
+  function acceptBroadcastSnapshot(next: AnnotationRallySnapshot) {
+    const currentRallyId = snapshot.value?.rally_id
+    const pendingRally = outbox.value.some(entry => entry.command.rally_id === next.rally_id)
+    const restoredRally = rememberedRallyId() === next.rally_id
+    if (!shouldAcceptAnnotationBroadcast({
+      currentRallyId,
+      nextRallyId: next.rally_id,
+      pendingRallyIds: outbox.value.map(entry => entry.command.rally_id),
+      rememberedRallyId: restoredRally ? next.rally_id : null,
+    })) return
+    acceptSnapshot(next, { remember: pendingRally || restoredRally })
+  }
+
+  async function requestSnapshot(rallyId: string) {
     if (!roomId.value) return null
     const result = await transport.request<{ annotationRallySnapshot: unknown }>(SNAPSHOT_QUERY, {
       roomId: roomId.value,
       rallyId,
     })
-    const next = asSnapshot(result.annotationRallySnapshot)
+    return asSnapshot(result.annotationRallySnapshot)
+  }
+
+  async function fetchSnapshot(rallyId: string, options: { remember?: boolean } = {}) {
+    const next = await requestSnapshot(rallyId)
+    acceptSnapshot(next, options)
+    return next
+  }
+
+  async function selectRally(rallyId: string) {
+    const generation = ++rallySelectionGeneration
+    const next = await requestSnapshot(rallyId)
+    if (generation !== rallySelectionGeneration) return null
     acceptSnapshot(next)
     return next
   }
 
   async function refreshActive() {
-    if (!roomId.value) return false
+    if (!roomId.value || !selfDeviceSessionId.value) return false
     try {
+      const preferredRallyId = outbox.value[0]?.command.rally_id ?? rememberedRallyId()
+      if (preferredRallyId) {
+        const preferred = await requestSnapshot(preferredRallyId)
+        if (preferred && ['open', 'ready'].includes(preferred.snapshot.annotation_status)) {
+          acceptSnapshot(preferred, { remember: true })
+          error.value = null
+          return true
+        }
+        if (!outbox.value.some(entry => entry.command.rally_id === preferredRallyId)) rememberRallyId(null)
+      }
       const result = await transport.request<{ activeAnnotationRallySnapshot: unknown }>(ACTIVE_SNAPSHOT_QUERY, {
+        deviceSessionId: selfDeviceSessionId.value,
         roomId: roomId.value,
       })
       const active = asSnapshot(result.activeAnnotationRallySnapshot)
-      if (active) acceptSnapshot(active)
-      else if (snapshot.value && state.value !== 'SUBMITTED') await fetchSnapshot(snapshot.value.rally_id)
+      if (active) acceptSnapshot(active, { remember: true })
       error.value = null
       return true
     }
@@ -165,9 +236,6 @@ export function useAnnotationRoom() {
 
   async function resync(options: { discardConflicts?: boolean } = {}) {
     if (!roomId.value || !realtime) throw new Error('標註工作區尚未就緒')
-    if (outboxNeedsConfirmation.value && !options.discardConflicts) {
-      throw new Error('有一筆本機操作已和伺服器狀態衝突，請確認後重新同步')
-    }
     busy.value = true
     error.value = null
     try {
@@ -186,8 +254,41 @@ export function useAnnotationRoom() {
     }
   }
 
-  function markForConfirmation(entry: AnnotationOutboxEntry, reason: string) {
-    replaceOutbox(requireAnnotationOutboxConfirmation(outbox.value, entry.command.command_id, reason))
+  async function reconcileQueuedCommand(entry: AnnotationOutboxEntry) {
+    let latest: AnnotationRallySnapshot | null
+    try { latest = await requestSnapshot(entry.command.rally_id) }
+    catch { return false }
+    if (latest) acceptSnapshot(latest, { remember: true })
+    if (annotationCommandConverged(entry.command, latest)) {
+      replaceOutbox(resolveAnnotationOutboxEntry(outbox.value, entry.command.command_id))
+      error.value = null
+      return true
+    }
+    if ((entry.retry_count ?? 0) >= 3) {
+      replaceOutbox(resolveAnnotationOutboxEntry(outbox.value, entry.command.command_id))
+      error.value = null
+      return true
+    }
+    const retry = rebaseQueuedAnnotationCommand({
+      ...entry.command,
+      command_id: crypto.randomUUID(),
+    } as AnnotationCommand, latest)
+    if (!retry) {
+      replaceOutbox(resolveAnnotationOutboxEntry(outbox.value, entry.command.command_id))
+      error.value = null
+      return true
+    }
+    replaceOutbox(outbox.value.map(candidate => candidate.command.command_id === entry.command.command_id
+      ? {
+          ...candidate,
+          attempted_at: undefined,
+          command: retry,
+          reason: null,
+          retry_count: (candidate.retry_count ?? 0) + 1,
+          status: 'pending' as const,
+        }
+      : candidate))
+    return true
   }
 
   function flushOutbox() {
@@ -195,41 +296,45 @@ export function useAnnotationRoom() {
     flushPromise = (async () => {
       while (outbox.value.length) {
         const queued = outbox.value[0]!
-        if (!realtime?.ready() || queued.status === 'needs_confirmation') return
-        const rebased = rebaseQueuedAnnotationCommand(queued.command, snapshot.value)
+        if (!realtime?.ready()) return
+        if (queued.status === 'needs_confirmation') {
+          if (!await reconcileQueuedCommand(queued)) return
+          continue
+        }
+        const rebased = queued.attempted_at
+          ? queued.command
+          : rebaseQueuedAnnotationCommand(queued.command, snapshot.value)
         if (!rebased) {
-          markForConfirmation(queued, '伺服器片段狀態已變更；請捨棄後在目前畫格重新操作')
-          return
+          if (annotationCommandConverged(queued.command, snapshot.value)) {
+            replaceOutbox(resolveAnnotationOutboxEntry(outbox.value, queued.command.command_id))
+            continue
+          }
+          if (!await reconcileQueuedCommand(queued)) return
+          continue
         }
         if (rebased.base_revision !== queued.command.base_revision || JSON.stringify(rebased.payload) !== JSON.stringify(queued.command.payload)) {
           replaceOutbox(replaceAnnotationOutboxCommand(outbox.value, queued.command.command_id, rebased))
         }
         let response: AnnotationCommandResponse
+        replaceOutbox(markAnnotationOutboxAttempted(outbox.value, rebased.command_id))
         try { response = await realtime.send(rebased) }
         catch { return }
         if (response.type === 'command_rejected') {
-          if (response.code === 'REVISION_CONFLICT' && (queued.retry_count ?? 0) < 2 && ['CREATE_CONTACT_KEY_POINT', 'CLOSE_RALLY', 'SUBMIT_RALLY'].includes(rebased.kind)) {
-            if (snapshot.value) await fetchSnapshot(snapshot.value.rally_id).catch(() => null)
-            const retry = rebaseQueuedAnnotationCommand({ ...rebased, command_id: crypto.randomUUID() } as AnnotationCommand, snapshot.value)
-            if (retry) {
-              replaceOutbox(outbox.value.map(entry => entry.command.command_id === queued.command.command_id
-                ? { ...entry, command: retry, retry_count: (entry.retry_count ?? 0) + 1 }
-                : entry))
-              continue
-            }
+          if (
+            response.snapshot_refetch_required
+            || ['COMMAND_ID_REUSED', 'RALLY_ALREADY_READY', 'RALLY_NOT_OPEN'].includes(response.code)
+          ) {
+            const currentEntry = outbox.value.find(entry => entry.command.command_id === rebased.command_id) ?? queued
+            if (!await reconcileQueuedCommand(currentEntry)) return
+            continue
           }
-          if (response.snapshot_refetch_required) {
-            if (snapshot.value) await fetchSnapshot(snapshot.value.rally_id).catch(() => null)
-            markForConfirmation(queued, response.message ?? '伺服器狀態已變更；請確認後重新操作')
-            return
-          }
-          replaceOutbox(resolveAnnotationOutboxEntry(outbox.value, queued.command.command_id))
+          replaceOutbox(resolveAnnotationOutboxEntry(outbox.value, rebased.command_id))
           error.value = response.message ?? '標註命令被拒絕'
-          return
+          continue
         }
-        replaceOutbox(resolveAnnotationOutboxEntry(outbox.value, queued.command.command_id))
+        replaceOutbox(resolveAnnotationOutboxEntry(outbox.value, rebased.command_id))
         error.value = null
-        snapshot.value = applyAnnotationAckLocally(snapshot.value, rebased, response)
+        acceptSnapshot(applyAnnotationAckLocally(snapshot.value, rebased, response), { remember: true })
       }
     })().finally(() => { flushPromise = null })
     return flushPromise
@@ -256,7 +361,7 @@ export function useAnnotationRoom() {
           selfDeviceSessionId.value = message.device_session_id
           void refreshActive().then(() => flushOutbox())
         }
-        if (message.type === 'rally_snapshot') acceptSnapshot(message)
+        if (message.type === 'rally_snapshot') acceptBroadcastSnapshot(message)
         if (message.type === 'presence_snapshot') presence.value = message.members
         if (message.type === 'rally_processing_update') {
           processing.value = { ...processing.value, [message.rally_id]: message }
@@ -271,16 +376,16 @@ export function useAnnotationRoom() {
           }
         }
       },
-    }, annotationWsUrl.value)
+    }, annotationWsUrl.value, loadDeviceSessionHint())
     realtime.connect()
   }
 
   function buildCommand(action: AnnotationAction, cursor: PlaybackCursorInput | null): AnnotationCommand {
     if (!roomId.value) throw new Error('Annotation room is not selected')
-    const current = snapshot.value
+    const current = viewSnapshot.value
     if (action === 'service') {
       if (!cursor || cursor.cursor_status !== 'ready') throw new Error('伺服器尚未取得可解析的播放游標')
-      if (current?.snapshot.annotation_status === 'open' && !current.snapshot.active_submission_id) {
+      if (current?.snapshot.annotation_status === 'open' && !current.snapshot.active_submission_id && annotationDraftOwnedByClient(current, rememberedRallyId())) {
         return parseAnnotationCommand({
           schema_version: '3.0.0',
           command_id: crypto.randomUUID(),
@@ -300,6 +405,9 @@ export function useAnnotationRoom() {
         kind: 'START_RALLY',
         payload: { playback_cursor: annotationCursor(cursor) },
       })
+    }
+    if (current && ['open', 'ready'].includes(current.snapshot.annotation_status) && !annotationDraftOwnedByClient(current, rememberedRallyId())) {
+      throw new Error('這個片段屬於另一個標註客戶端，只能檢視')
     }
     const pendingService = outbox.value.find(entry => entry.status === 'pending' && ['START_RALLY', 'CREATE_SERVICE_KEY_POINT'].includes(entry.command.kind))?.command
     const rallyId = current?.rally_id ?? pendingService?.rally_id
@@ -335,6 +443,7 @@ export function useAnnotationRoom() {
     options: { keyPointId?: string; cursor?: PlaybackCursorInput | null; reason?: string } = {},
   ): AnnotationCommand {
     if (!roomId.value || !snapshot.value) throw new Error('目前沒有可編輯的 Rally')
+    if (!annotationDraftOwnedByClient(snapshot.value, rememberedRallyId())) throw new Error('這個片段屬於另一個標註客戶端，只能檢視')
     const base = {
       schema_version: '3.0.0',
       command_id: crypto.randomUUID(),
@@ -362,6 +471,9 @@ export function useAnnotationRoom() {
   }
 
   function sendCommand(command: AnnotationCommand, observation?: AnnotationClientObservation) {
+    if (command.kind === 'START_RALLY' || command.kind === 'CREATE_SERVICE_KEY_POINT') {
+      rememberRallyId(command.rally_id)
+    }
     replaceOutbox(enqueueAnnotationCommand(outbox.value, command, new Date(), { ...(observation ? { observation } : {}) }))
     return realtime?.ready() ? flushQueuedCommand(command.command_id) : Promise.resolve()
   }
@@ -531,6 +643,7 @@ export function useAnnotationRoom() {
     createCorrection,
     deleteProcessingRally,
     dispatch,
+    draftOwnedByClient,
     edit,
     error: readonly(error),
     forgetRally,
@@ -542,7 +655,7 @@ export function useAnnotationRoom() {
     processing: shallowReadonly(processing),
     remoteEditorsByKeyPoint,
     resync,
-    selectRally: fetchSnapshot,
+    selectRally,
     setEditingKeyPoint,
     submitCorrection,
     discardPending,
