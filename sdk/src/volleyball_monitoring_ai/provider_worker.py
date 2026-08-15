@@ -243,8 +243,11 @@ class ProviderWorkerClient:
                     self.config.server_ws_url,
                     additional_headers={"Authorization": f"Bearer {self.config.token}"},
                     open_timeout=self.config.open_timeout_seconds,
-                    ping_interval=20,
-                    ping_timeout=20,
+                    # Realtime 2.0.0 already sends an application heartbeat negotiated by
+                    # Central. Rely on that heartbeat for liveness so reverse proxies that
+                    # don't return protocol-level pong frames cannot force reconnect loops.
+                    ping_interval=None,
+                    ping_timeout=None,
                     max_size=2 * 1024 * 1024,
                 ) as websocket:
                     self._socket = websocket
