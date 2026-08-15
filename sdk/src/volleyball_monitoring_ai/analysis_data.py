@@ -1,8 +1,9 @@
 import json
+from collections.abc import Iterable, Mapping
 from importlib.resources import files
 from math import isfinite
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Iterable, Mapping
+from typing import TYPE_CHECKING, Any
 
 import flatbuffers
 
@@ -24,8 +25,10 @@ def _domain_json(domain: "AnalysisDomainData") -> str:
                 contact_events[index]["source_key_point_id"] = None
     return json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
 
+
 def analysis_data_schema_path() -> Path:
     return Path(str(files("volleyball_monitoring_ai.schemas").joinpath("analysis-data.fbs")))
+
 
 def validate_analysis_data_bytes(data: bytes) -> None:
     if len(data) < 8 or data[4:8] != FILE_IDENTIFIER:
@@ -49,7 +52,9 @@ def _empty_frame_positions(builder: flatbuffers.Builder, frame_count: int) -> in
     return builder.EndVector()
 
 
-def _frame_bbox_vector(builder: flatbuffers.Builder, values: list[tuple[int, int, int, int]]) -> int:
+def _frame_bbox_vector(
+    builder: flatbuffers.Builder, values: list[tuple[int, int, int, int]]
+) -> int:
     builder.StartVector(8, len(values), 2)
     for x1, y1, x2, y2 in reversed(values):
         builder.Prep(2, 8)
@@ -96,7 +101,9 @@ def _position(value: Any, *, name: str) -> tuple[float, float]:
 def _bbox(value: Any) -> tuple[float, float, float, float]:
     if not isinstance(value, Mapping):
         raise ValueError("frame_bbox must be an object")
-    result = tuple(_number(value.get(key), name=f"frame_bbox.{key}") for key in ("x1", "y1", "x2", "y2"))
+    result = tuple(
+        _number(value.get(key), name=f"frame_bbox.{key}") for key in ("x1", "y1", "x2", "y2")
+    )
     if result[0] > result[2] or result[1] > result[3]:
         raise ValueError("frame_bbox coordinates must be ordered")
     return result  # type: ignore[return-value]
@@ -155,13 +162,19 @@ def build_analysis_data(
             raw_bbox = _bbox(player.get("frame_bbox"))
             raw_foot = _position(player.get("frame_foot_pos"), name="frame_foot_pos")
             court_value = player.get("court_pos")
-            raw_court = (0.0, 0.0) if court_value is None else _position(court_value, name="court_pos")
+            raw_court = (
+                (0.0, 0.0) if court_value is None else _position(court_value, name="court_pos")
+            )
             track_ids.append(track_id)
             frame_bboxes.append(tuple(quantize_frame_coordinate(value) for value in raw_bbox))
-            frame_foot_positions.append(tuple(quantize_frame_coordinate(value) for value in raw_foot))
+            frame_foot_positions.append(
+                tuple(quantize_frame_coordinate(value) for value in raw_foot)
+            )
             court_positions.append(raw_court)
             player_flags.append(0b011 if court_value is None else 0b111)
-            player_confidences.append(_confidence(player.get("confidence"), name="player.confidence"))
+            player_confidences.append(
+                _confidence(player.get("confidence"), name="player.confidence")
+            )
             action_label = player.get("action_label")
             if action_label is None:
                 action_label_ids.append(65_535)
@@ -193,9 +206,13 @@ def build_analysis_data(
             ball_flags.append(0)
         else:
             x, y = _position(ball, name="ball.frame_pos")
-            ball_frame_positions.append((quantize_frame_coordinate(x), quantize_frame_coordinate(y)))
+            ball_frame_positions.append(
+                (quantize_frame_coordinate(x), quantize_frame_coordinate(y))
+            )
             ball_flags.append(1)
-        ball_confidences.append(_confidence(ball.get("confidence") if ball else None, name="ball.confidence"))
+        ball_confidences.append(
+            _confidence(ball.get("confidence") if ball else None, name="ball.confidence")
+        )
 
     court_keypoint_frame_offsets = [0]
     court_keypoint_ids: list[int] = []
@@ -395,6 +412,7 @@ def build_empty_analysis_data(job: "AIJobRequest", *, domain: "AnalysisDomainDat
     result = bytes(builder.Output())
     validate_analysis_data_bytes(result)
     return result
+
 
 def quantize_frame_coordinate(value: float) -> int:
     if not 0 <= value <= 1:

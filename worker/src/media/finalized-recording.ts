@@ -1,12 +1,5 @@
 import { realpath, stat } from 'node:fs/promises'
-import {
-  extname,
-  isAbsolute,
-  relative,
-  resolve,
-  sep,
-  win32,
-} from 'node:path'
+import { extname, isAbsolute, relative, resolve, sep, win32 } from 'node:path'
 
 export type FinalizedRecording = {
   captureSessionId: string
@@ -45,11 +38,7 @@ export function normalizeSourceIdentity(sourceIdentity: string): string {
 
   const normalized = sourceIdentity.replaceAll('\\', '/')
   const segments = normalized.split('/')
-  if (
-    segments.some(
-      (segment) => segment.length === 0 || segment === '.' || segment === '..',
-    )
-  ) {
+  if (segments.some(segment => segment.length === 0 || segment === '.' || segment === '..')) {
     throw new Error('invalid source identity')
   }
   return segments.join('/')
@@ -58,10 +47,7 @@ export function normalizeSourceIdentity(sourceIdentity: string): string {
 export function assertFinalizedRecording(recording: FinalizedRecording): void {
   validateCaptureSessionId(recording.captureSessionId)
   normalizeSourceIdentity(recording.sourceIdentity)
-  if (
-    !isAbsolute(recording.trustedPath) &&
-    !win32.isAbsolute(recording.trustedPath)
-  ) {
+  if (!isAbsolute(recording.trustedPath) && !win32.isAbsolute(recording.trustedPath)) {
     throw new Error('recording path must be absolute')
   }
   if (!recording.finalized) throw new Error('recording is not finalized')
@@ -73,11 +59,7 @@ export async function parseFinalizedRecording(
   input: FinalizedRecordingInput,
 ): Promise<FinalizedRecording> {
   validateCaptureSessionId(input.captureSessionId)
-  if (
-    !input.candidate ||
-    isAbsolute(input.candidate) ||
-    win32.isAbsolute(input.candidate)
-  ) {
+  if (!input.candidate || isAbsolute(input.candidate) || win32.isAbsolute(input.candidate)) {
     throw new Error('recording candidate must be relative')
   }
 

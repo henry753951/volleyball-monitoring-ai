@@ -1,8 +1,14 @@
 function reuseMetadata(requestPayload: unknown): Record<string, unknown> | null {
-  if (!requestPayload || typeof requestPayload !== 'object' || Array.isArray(requestPayload) || !('reuse' in requestPayload)) return null
+  if (
+    !requestPayload ||
+    typeof requestPayload !== 'object' ||
+    Array.isArray(requestPayload) ||
+    !('reuse' in requestPayload)
+  )
+    return null
   const reuse = requestPayload.reuse
   return reuse && typeof reuse === 'object' && !Array.isArray(reuse)
-    ? reuse as Record<string, unknown>
+    ? (reuse as Record<string, unknown>)
     : null
 }
 

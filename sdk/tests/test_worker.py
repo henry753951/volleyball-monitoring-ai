@@ -6,8 +6,6 @@ from pathlib import Path
 import httpx
 import pytest
 import respx
-from websockets.asyncio.server import serve
-
 from volleyball_monitoring_ai import (
     AIJobRequest,
     AIWorkerClient,
@@ -18,6 +16,7 @@ from volleyball_monitoring_ai import (
     ProviderCapabilities,
     WorkerConfig,
 )
+from websockets.asyncio.server import serve
 
 ROOT = Path(__file__).parents[2]
 FIXTURE = ROOT / "packages" / "contracts" / "fixtures" / "normal-rally" / "job.json"
@@ -42,7 +41,9 @@ async def test_clip_downloader_uses_part_file_and_atomic_destination(tmp_path: P
     )
     destination = tmp_path / "job" / "canonical.mp4"
 
-    result = await ClipDownloader().download(job_with_clip(content), destination, CancellationToken())
+    result = await ClipDownloader().download(
+        job_with_clip(content), destination, CancellationToken()
+    )
 
     assert result.read_bytes() == content
     assert not destination.with_suffix(".mp4.part").exists()
@@ -198,9 +199,11 @@ def test_fixture_result_builder_adapts_golden_data_to_incoming_job() -> None:
     bundle = FixtureResultBuilder().build(job)
 
     assert bundle.domain.ai_job_id == job.ai_job_id
-    assert [event.key_point_id for event in bundle.domain.contact_events if event.anchor_origin == "human_anchor"] == [
-        point.key_point_id for point in job.key_points
-    ]
+    assert [
+        event.key_point_id
+        for event in bundle.domain.contact_events
+        if event.anchor_origin == "human_anchor"
+    ] == [point.key_point_id for point in job.key_points]
     assert bundle.analysis_data_bytes[4:8] == b"VAD1"
 
 

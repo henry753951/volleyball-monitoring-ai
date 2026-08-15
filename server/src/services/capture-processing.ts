@@ -34,11 +34,17 @@ export interface ProcessingStateView {
 }
 
 const json = (value: unknown) => JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue
-const canonical = (value: unknown): string => Array.isArray(value)
-  ? `[${value.map(canonical).join(',')}]`
-  : value && typeof value === 'object'
-    ? `{${Object.keys(value as object).sort().map(key => `${JSON.stringify(key)}:${canonical((value as Record<string, unknown>)[key])}`).join(',')}}`
-    : JSON.stringify(value)
+const canonical = (value: unknown): string =>
+  Array.isArray(value)
+    ? `[${value.map(canonical).join(',')}]`
+    : value && typeof value === 'object'
+      ? `{${Object.keys(value as object)
+          .sort()
+          .map(
+            key => `${JSON.stringify(key)}:${canonical((value as Record<string, unknown>)[key])}`,
+          )
+          .join(',')}}`
+      : JSON.stringify(value)
 
 function assertOperator(identity: { id: string; role: UserRole }): void {
   if (!OPERATOR_ROLES.has(identity.role)) {
@@ -50,16 +56,16 @@ function normalizedCapturePath(value: string): string {
   const path = value.trim()
   const parts = path.split('/')
   if (!CAPTURE_PATH.test(path) || parts.some(part => !part || part === '.' || part === '..')) {
-    throw new OperationalMutationError('BAD_USER_INPUT', 'ingestPath must be a safe media stream path')
+    throw new OperationalMutationError(
+      'BAD_USER_INPUT',
+      'ingestPath must be a safe media stream path',
+    )
   }
   return path
 }
 
 function transactionWriteConflict(error: unknown): boolean {
-  return typeof error === 'object'
-    && error !== null
-    && 'code' in error
-    && error.code === 'P2034'
+  return typeof error === 'object' && error !== null && 'code' in error && error.code === 'P2034'
 }
 
 async function serializableTransaction<T>(
@@ -71,12 +77,9 @@ async function serializableTransaction<T>(
       return await database.$transaction(operation, {
         isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
       })
-    }
-    catch (error) {
-      if (
-        !transactionWriteConflict(error)
-        || attempt >= SERIALIZABLE_TRANSACTION_ATTEMPTS
-      ) throw error
+    } catch (error) {
+      if (!transactionWriteConflict(error) || attempt >= SERIALIZABLE_TRANSACTION_ATTEMPTS)
+        throw error
       // PostgreSQL can abort a serializable snapshot after the per-match
       // advisory lock wakes up. Retry the whole operation so it observes the
       // capture committed by the winner and returns the domain-level duplicate
@@ -108,11 +111,8 @@ async function finalizeCaptureIfDrainedInTransaction(
     include: { programs: { orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], take: 1 } },
     where: { id: captureSessionId },
   })
-  if (
-    !capture
-    || capture.status !== 'STOPPING'
-    || capture.completionExpectedSegments === null
-  ) return capture
+  if (!capture || capture.status !== 'STOPPING' || capture.completionExpectedSegments === null)
+    return capture
 
   const program = capture.programs[0] ?? null
   if (capture.completionExpectedSegments > 0 && !program) return capture
@@ -123,10 +123,7 @@ async function finalizeCaptureIfDrainedInTransaction(
       }),
       tx.dvrSegment.count({ where: { dvrProgramId: program.id, readyAt: null } }),
     ])
-    if (
-      readySegments < capture.completionExpectedSegments
-      || pendingSegments > 0
-    ) return capture
+    if (readySegments < capture.completionExpectedSegments || pendingSegments > 0) return capture
   }
 
   const endedAt = new Date()
@@ -174,7 +171,10 @@ export async function updateCaptureSourceMetadata(
   input: { sourceKind: string; sourceDurationUs: bigint | null },
 ) {
   const sourceKind = input.sourceKind.trim().toLowerCase()
-  if (!SOURCE_KIND.test(sourceKind) || input.sourceDurationUs !== null && input.sourceDurationUs <= 0n) {
+  if (
+    !SOURCE_KIND.test(sourceKind) ||
+    (input.sourceDurationUs !== null && input.sourceDurationUs <= 0n)
+  ) {
     throw new OperationalMutationError('BAD_USER_INPUT', 'Capture source metadata is invalid')
   }
   return serializableTransaction(database, async tx => {
@@ -204,7 +204,10 @@ export async function requestCaptureCompletion(
     throw new OperationalMutationError('BAD_USER_INPUT', 'Capture completion watermark is invalid')
   }
   const sourceKind = input.sourceKind.trim().toLowerCase()
-  if (!SOURCE_KIND.test(sourceKind) || input.sourceDurationUs !== null && input.sourceDurationUs <= 0n) {
+  if (
+    !SOURCE_KIND.test(sourceKind) ||
+    (input.sourceDurationUs !== null && input.sourceDurationUs <= 0n)
+  ) {
     throw new OperationalMutationError('BAD_USER_INPUT', 'Capture completion metadata is invalid')
   }
   return serializableTransaction(database, async tx => {
@@ -213,8 +216,8 @@ export async function requestCaptureCompletion(
     if (!capture) throw new OperationalMutationError('NOT_FOUND', 'Capture session was not found')
     if (['FAILED', 'FINISHED'].includes(capture.status)) return capture
     if (
-      capture.completionExpectedSegments !== null
-      && capture.completionExpectedSegments !== input.expectedSegments
+      capture.completionExpectedSegments !== null &&
+      capture.completionExpectedSegments !== input.expectedSegments
     ) {
       throw new OperationalMutationError('BAD_USER_INPUT', 'Capture completion watermark changed')
     }
@@ -237,14 +240,14 @@ export async function requestCaptureCompletion(
   })
 }
 
-export async function finalizeCaptureIfDrained(
-  database: PrismaClient,
-  captureSessionId: string,
-) {
-  return database.$transaction(async tx => {
-    await mediaLifecycleLock(tx, captureSessionId)
-    return finalizeCaptureIfDrainedInTransaction(tx, captureSessionId)
-  }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable })
+export async function finalizeCaptureIfDrained(database: PrismaClient, captureSessionId: string) {
+  return database.$transaction(
+    async tx => {
+      await mediaLifecycleLock(tx, captureSessionId)
+      return finalizeCaptureIfDrainedInTransaction(tx, captureSessionId)
+    },
+    { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+  )
 }
 
 export async function startCapture(
@@ -257,10 +260,18 @@ export async function startCapture(
   const ingestPath = normalizedCapturePath(input.ingestPath)
   const sourceLabel = input.sourceLabel?.trim() || null
   const sourceConfigSecretRef = input.sourceConfigSecretRef?.trim() || null
-  if (!SOURCE_KIND.test(sourceKind)) throw new OperationalMutationError('BAD_USER_INPUT', 'sourceKind is invalid')
-  if (sourceLabel && sourceLabel.length > 120) throw new OperationalMutationError('BAD_USER_INPUT', 'sourceLabel is too long')
-  if (sourceConfigSecretRef && (sourceConfigSecretRef.length > 200 || /\s/.test(sourceConfigSecretRef))) {
-    throw new OperationalMutationError('BAD_USER_INPUT', 'sourceConfigSecretRef must be an opaque secret reference')
+  if (!SOURCE_KIND.test(sourceKind))
+    throw new OperationalMutationError('BAD_USER_INPUT', 'sourceKind is invalid')
+  if (sourceLabel && sourceLabel.length > 120)
+    throw new OperationalMutationError('BAD_USER_INPUT', 'sourceLabel is too long')
+  if (
+    sourceConfigSecretRef &&
+    (sourceConfigSecretRef.length > 200 || /\s/.test(sourceConfigSecretRef))
+  ) {
+    throw new OperationalMutationError(
+      'BAD_USER_INPUT',
+      'sourceConfigSecretRef must be an opaque secret reference',
+    )
   }
 
   return serializableTransaction(database, async tx => {
@@ -271,11 +282,18 @@ export async function startCapture(
         deletionRequestedAt: null,
         id: input.matchId,
         status: { not: 'ARCHIVED' },
-        ...(identity.role === UserRole.ADMIN ? {} : { members: { some: { userId: identity.id, role: { in: [UserRole.ADMIN, UserRole.OPERATOR] } } } }),
+        ...(identity.role === UserRole.ADMIN
+          ? {}
+          : {
+              members: {
+                some: { userId: identity.id, role: { in: [UserRole.ADMIN, UserRole.OPERATOR] } },
+              },
+            }),
       },
       select: { id: true, status: true },
     })
-    if (!match) throw new OperationalMutationError('NOT_FOUND', 'Match was not found or is not writable')
+    if (!match)
+      throw new OperationalMutationError('NOT_FOUND', 'Match was not found or is not writable')
     const duplicate = await tx.captureSession.findFirst({
       where: {
         OR: [{ ingestPath }, { matchId: match.id }],
@@ -283,7 +301,11 @@ export async function startCapture(
       },
       select: { id: true },
     })
-    if (duplicate) throw new OperationalMutationError('BAD_USER_INPUT', 'Match already has an active media source')
+    if (duplicate)
+      throw new OperationalMutationError(
+        'BAD_USER_INPUT',
+        'Match already has an active media source',
+      )
 
     const capture = await tx.captureSession.create({
       data: {
@@ -297,14 +319,19 @@ export async function startCapture(
         startedAt: new Date(),
       },
     })
-    if (match.status === 'PLANNED') await tx.match.update({ where: { id: match.id }, data: { status: 'LIVE' } })
+    if (match.status === 'PLANNED')
+      await tx.match.update({ where: { id: match.id }, data: { status: 'LIVE' } })
     await tx.outboxEvent.create({
       data: {
         aggregateId: capture.id,
         aggregateType: 'CaptureSession',
         dedupeKey: `capture-start-requested:${capture.id}`,
         eventType: 'capture.start_requested.v1',
-        payload: json({ capture_session_id: capture.id, ingest_path: capture.ingestPath, match_id: capture.matchId }),
+        payload: json({
+          capture_session_id: capture.id,
+          ingest_path: capture.ingestPath,
+          match_id: capture.matchId,
+        }),
       },
     })
     return { ...capture, timeline: null }
@@ -317,38 +344,43 @@ export async function failCaptureStartup(
   reason: string,
 ) {
   const errorCode = createHash('sha256').update(reason).digest('hex').slice(0, 16)
-  return database.$transaction(async tx => {
-    await mediaLifecycleLock(tx, captureSessionId)
-    const capture = await tx.captureSession.findUnique({ where: { id: captureSessionId } })
-    if (!capture || !['STARTING', 'LIVE'].includes(capture.status)) return capture
-    const endedAt = new Date()
-    const program = await tx.dvrProgram.findFirst({
-      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-      where: { captureSessionId: capture.id },
-    })
-    await tx.dvrProgram.updateMany({
-      data: { status: 'FINISHED' },
-      where: { captureSessionId: capture.id, status: { in: ['STARTING', 'LIVE', 'STOPPING'] } },
-    })
-    if (program) {
-      await tx.captureEpoch.updateMany({
-        data: { endedAtCaptureUs: program.liveEdgeUs },
-        where: { captureSessionId: capture.id, endedAtCaptureUs: null },
+  return database.$transaction(
+    async tx => {
+      await mediaLifecycleLock(tx, captureSessionId)
+      const capture = await tx.captureSession.findUnique({ where: { id: captureSessionId } })
+      if (!capture || !['STARTING', 'LIVE'].includes(capture.status)) return capture
+      const endedAt = new Date()
+      const program = await tx.dvrProgram.findFirst({
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        where: { captureSessionId: capture.id },
       })
-    }
-    const failed = await tx.captureSession.update({
-      data: { endedAt, health: 'OFFLINE', status: 'FAILED' },
-      where: { id: capture.id },
-    })
-    await tx.outboxEvent.create({ data: {
-      aggregateId: failed.id,
-      aggregateType: 'CaptureSession',
-      dedupeKey: `capture-start-failed:${failed.id}`,
-      eventType: 'capture.start_failed.v1',
-      payload: json({ capture_session_id: failed.id, error_code: errorCode }),
-    } })
-    return failed
-  }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable })
+      await tx.dvrProgram.updateMany({
+        data: { status: 'FINISHED' },
+        where: { captureSessionId: capture.id, status: { in: ['STARTING', 'LIVE', 'STOPPING'] } },
+      })
+      if (program) {
+        await tx.captureEpoch.updateMany({
+          data: { endedAtCaptureUs: program.liveEdgeUs },
+          where: { captureSessionId: capture.id, endedAtCaptureUs: null },
+        })
+      }
+      const failed = await tx.captureSession.update({
+        data: { endedAt, health: 'OFFLINE', status: 'FAILED' },
+        where: { id: capture.id },
+      })
+      await tx.outboxEvent.create({
+        data: {
+          aggregateId: failed.id,
+          aggregateType: 'CaptureSession',
+          dedupeKey: `capture-start-failed:${failed.id}`,
+          eventType: 'capture.start_failed.v1',
+          payload: json({ capture_session_id: failed.id, error_code: errorCode }),
+        },
+      })
+      return failed
+    },
+    { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+  )
 }
 
 export async function stopCapture(
@@ -357,75 +389,104 @@ export async function stopCapture(
   captureSessionId: string,
 ) {
   assertOperator(identity)
-  return database.$transaction(async tx => {
-    await mediaLifecycleLock(tx, captureSessionId)
-    const capture = await tx.captureSession.findFirst({
-      where: {
-        id: captureSessionId,
-        ...(identity.role === UserRole.ADMIN ? {} : { match: { members: { some: { userId: identity.id, role: { in: [UserRole.ADMIN, UserRole.OPERATOR] } } } } }),
-      },
-      include: {
-        programs: { orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], take: 1 },
-      },
-    })
-    if (!capture) throw new OperationalMutationError('NOT_FOUND', 'Capture session was not found')
-    if (['FAILED', 'FINISHED'].includes(capture.status)) {
-      return { ...capture, timeline: null }
-    }
-    if (capture.completionExpectedSegments !== null) {
-      const finalized = await finalizeCaptureIfDrainedInTransaction(tx, capture.id) ?? capture
-      return { ...finalized, timeline: null }
-    }
-    const managedSource = ['local_mp4', 'youtube', 'youtube_live', 'youtube_vod'].includes(capture.sourceKind)
-    if (managedSource) {
-      if (capture.status !== 'STOPPING') {
-        const stopping = await tx.captureSession.update({
-          data: { status: 'STOPPING' },
-          where: { id: capture.id },
-        })
-        await tx.dvrProgram.updateMany({
-          data: { status: 'STOPPING' },
-          where: { captureSessionId: capture.id, status: { in: ['STARTING', 'LIVE'] } },
-        })
-        await tx.outboxEvent.create({
-          data: {
-            aggregateId: stopping.id,
-            aggregateType: 'CaptureSession',
-            dedupeKey: `capture-stop-requested:${stopping.id}`,
-            eventType: 'capture.stop_requested.v1',
-            payload: json({ capture_session_id: stopping.id }),
-          },
-        })
-        return { ...stopping, timeline: null }
+  return database.$transaction(
+    async tx => {
+      await mediaLifecycleLock(tx, captureSessionId)
+      const capture = await tx.captureSession.findFirst({
+        where: {
+          id: captureSessionId,
+          ...(identity.role === UserRole.ADMIN
+            ? {}
+            : {
+                match: {
+                  members: {
+                    some: {
+                      userId: identity.id,
+                      role: { in: [UserRole.ADMIN, UserRole.OPERATOR] },
+                    },
+                  },
+                },
+              }),
+        },
+        include: {
+          programs: { orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], take: 1 },
+        },
+      })
+      if (!capture) throw new OperationalMutationError('NOT_FOUND', 'Capture session was not found')
+      if (['FAILED', 'FINISHED'].includes(capture.status)) {
+        return { ...capture, timeline: null }
       }
-      return { ...capture, timeline: null }
-    }
-    const endedAt = new Date()
-    const endCaptureUs = capture.programs[0]?.liveEdgeUs ?? null
-    await tx.dvrProgram.updateMany({ where: { captureSessionId: capture.id, status: { in: ['STARTING', 'LIVE', 'STOPPING'] } }, data: { status: 'FINISHED' } })
-    if (endCaptureUs !== null) {
-      await tx.captureEpoch.updateMany({ where: { captureSessionId: capture.id, endedAtCaptureUs: null }, data: { endedAtCaptureUs: endCaptureUs } })
-    }
-    const stopped = await tx.captureSession.update({
-      where: { id: capture.id },
-      data: { status: 'FINISHED', health: 'OFFLINE', endedAt },
-    })
-    await tx.outboxEvent.create({
-      data: {
-        aggregateId: stopped.id,
-        aggregateType: 'CaptureSession',
-        dedupeKey: `capture-stopped:${stopped.id}`,
-        eventType: 'capture.stopped.v1',
-        payload: json({ capture_session_id: stopped.id, ended_at: endedAt.toISOString(), final_capture_time_us: endCaptureUs?.toString() ?? null }),
-      },
-    })
-    return { ...stopped, timeline: null }
-  }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable })
+      if (capture.completionExpectedSegments !== null) {
+        const finalized = (await finalizeCaptureIfDrainedInTransaction(tx, capture.id)) ?? capture
+        return { ...finalized, timeline: null }
+      }
+      const managedSource = ['local_mp4', 'youtube', 'youtube_live', 'youtube_vod'].includes(
+        capture.sourceKind,
+      )
+      if (managedSource) {
+        if (capture.status !== 'STOPPING') {
+          const stopping = await tx.captureSession.update({
+            data: { status: 'STOPPING' },
+            where: { id: capture.id },
+          })
+          await tx.dvrProgram.updateMany({
+            data: { status: 'STOPPING' },
+            where: { captureSessionId: capture.id, status: { in: ['STARTING', 'LIVE'] } },
+          })
+          await tx.outboxEvent.create({
+            data: {
+              aggregateId: stopping.id,
+              aggregateType: 'CaptureSession',
+              dedupeKey: `capture-stop-requested:${stopping.id}`,
+              eventType: 'capture.stop_requested.v1',
+              payload: json({ capture_session_id: stopping.id }),
+            },
+          })
+          return { ...stopping, timeline: null }
+        }
+        return { ...capture, timeline: null }
+      }
+      const endedAt = new Date()
+      const endCaptureUs = capture.programs[0]?.liveEdgeUs ?? null
+      await tx.dvrProgram.updateMany({
+        where: { captureSessionId: capture.id, status: { in: ['STARTING', 'LIVE', 'STOPPING'] } },
+        data: { status: 'FINISHED' },
+      })
+      if (endCaptureUs !== null) {
+        await tx.captureEpoch.updateMany({
+          where: { captureSessionId: capture.id, endedAtCaptureUs: null },
+          data: { endedAtCaptureUs: endCaptureUs },
+        })
+      }
+      const stopped = await tx.captureSession.update({
+        where: { id: capture.id },
+        data: { status: 'FINISHED', health: 'OFFLINE', endedAt },
+      })
+      await tx.outboxEvent.create({
+        data: {
+          aggregateId: stopped.id,
+          aggregateType: 'CaptureSession',
+          dedupeKey: `capture-stopped:${stopped.id}`,
+          eventType: 'capture.stopped.v1',
+          payload: json({
+            capture_session_id: stopped.id,
+            ended_at: endedAt.toISOString(),
+            final_capture_time_us: endCaptureUs?.toString() ?? null,
+          }),
+        },
+      })
+      return { ...stopped, timeline: null }
+    },
+    { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+  )
 }
 
 function callbackToken(secret: string, aiJobId: string): string {
-  if (secret.length < 32) throw new OperationalMutationError('NOT_RETRYABLE', 'AI callback retry secret is unavailable')
-  return createHmac('sha256', secret).update(`volleyball-ai-callback:${aiJobId}`).digest('base64url')
+  if (secret.length < 32)
+    throw new OperationalMutationError('NOT_RETRYABLE', 'AI callback retry secret is unavailable')
+  return createHmac('sha256', secret)
+    .update(`volleyball-ai-callback:${aiJobId}`)
+    .digest('base64url')
 }
 
 function retryPayload(value: Prisma.JsonValue, sourceAiJobId: string, nextAiJobId: string) {
@@ -445,7 +506,10 @@ function retryPayload(value: Prisma.JsonValue, sourceAiJobId: string, nextAiJobI
   const replace = (entry: unknown): unknown => {
     if (entry === sourceAiJobId) return nextAiJobId
     if (Array.isArray(entry)) return entry.map(replace)
-    if (entry && typeof entry === 'object') return Object.fromEntries(Object.entries(entry).map(([key, nested]) => [key, replace(nested)]))
+    if (entry && typeof entry === 'object')
+      return Object.fromEntries(
+        Object.entries(entry).map(([key, nested]) => [key, replace(nested)]),
+      )
     return entry
   }
   return replace(payload)
@@ -457,77 +521,141 @@ export async function retryProcessing(
   rallyId: string,
   callbackSecret: string,
 ): Promise<ProcessingStateView> {
-  return database.$transaction(async tx => {
-    await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`processing-retry:${rallyId}`}, 0))::text AS lock`
-    const rally = await tx.rally.findFirst({
-      where: {
-        id: rallyId,
-        processingStatus: 'FAILED',
-        activeSubmissionId: { not: null },
-        ...(identity.role === UserRole.ADMIN ? {} : { match: { members: { some: { userId: identity.id } } } }),
-      },
-      include: {
-        activeSubmission: {
-          include: {
-            aiJobs: { orderBy: [{ createdAt: 'desc' }, { id: 'desc' }] },
-            analysisRuns: { orderBy: [{ createdAt: 'desc' }, { id: 'desc' }] },
-            clipJobs: { orderBy: [{ createdAt: 'desc' }, { id: 'desc' }] },
+  return database.$transaction(
+    async tx => {
+      await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`processing-retry:${rallyId}`}, 0))::text AS lock`
+      const rally = await tx.rally.findFirst({
+        where: {
+          id: rallyId,
+          processingStatus: 'FAILED',
+          activeSubmissionId: { not: null },
+          ...(identity.role === UserRole.ADMIN
+            ? {}
+            : { match: { members: { some: { userId: identity.id } } } }),
+        },
+        include: {
+          activeSubmission: {
+            include: {
+              aiJobs: { orderBy: [{ createdAt: 'desc' }, { id: 'desc' }] },
+              analysisRuns: { orderBy: [{ createdAt: 'desc' }, { id: 'desc' }] },
+              clipJobs: { orderBy: [{ createdAt: 'desc' }, { id: 'desc' }] },
+            },
           },
         },
-      },
-    })
-    const submission = rally?.activeSubmission
-    if (!rally || !submission || submission.status !== 'ACTIVE') {
-      throw new OperationalMutationError('NOT_FOUND', 'Failed active Rally processing state was not found')
-    }
-    const clip = submission.clipJobs[0]
-    if (clip?.status === 'FAILED') {
-      await tx.clipKeyPointMapping.deleteMany({ where: { clipJobId: clip.id } })
-      await tx.clipJob.update({
-        where: { id: clip.id },
+      })
+      const submission = rally?.activeSubmission
+      if (!rally || !submission || submission.status !== 'ACTIVE') {
+        throw new OperationalMutationError(
+          'NOT_FOUND',
+          'Failed active Rally processing state was not found',
+        )
+      }
+      const clip = submission.clipJobs[0]
+      if (clip?.status === 'FAILED') {
+        await tx.clipKeyPointMapping.deleteMany({ where: { clipJobId: clip.id } })
+        await tx.clipJob.update({
+          where: { id: clip.id },
+          data: {
+            status: 'QUEUED',
+            attemptCount: 0,
+            availableAt: new Date(),
+            leasedUntil: null,
+            errorCode: null,
+            errorMessage: null,
+            startedAt: null,
+            completedAt: null,
+            actualStartCaptureUs: null,
+            actualEndCaptureUs: null,
+            clipAssetId: null,
+            timingManifestAssetId: null,
+          },
+        })
+        await tx.rally.update({
+          where: { id: rally.id },
+          data: { processingStatus: 'CLIP_QUEUED' },
+        })
+        await tx.outboxEvent.create({
+          data: {
+            aggregateId: rally.id,
+            aggregateType: 'Rally',
+            dedupeKey: `processing-retry:clip:${clip.id}:${Date.now()}`,
+            eventType: 'rally.processing_retry_requested.v1',
+            payload: json({ rally_id: rally.id, stage: 'clip', submission_id: submission.id }),
+          },
+        })
+        return {
+          rallyId: rally.id,
+          submissionId: submission.id,
+          status: 'CLIP_QUEUED',
+          retriedStage: 'clip',
+        }
+      }
+
+      const sourceAi = submission.aiJobs[0]
+      const failedAnalysis = submission.analysisRuns.find(run => run.status === 'FAILED')
+      if (!sourceAi || (sourceAi.status !== 'FAILED' && !failedAnalysis)) {
+        throw new OperationalMutationError(
+          'NOT_RETRYABLE',
+          'No failed clip or AI stage is retryable',
+        )
+      }
+      if (clip?.status !== 'COMPLETED' || !clip.clipAssetId) {
+        throw new OperationalMutationError(
+          'NOT_RETRYABLE',
+          'Canonical clip is not ready for AI retry',
+        )
+      }
+      const aiJobId = randomUUID()
+      const requestPayload = retryPayload(sourceAi.requestPayload, sourceAi.id, aiJobId)
+      const token = callbackToken(callbackSecret, aiJobId)
+      await tx.aiJob.create({
         data: {
-          status: 'QUEUED', attemptCount: 0, availableAt: new Date(), leasedUntil: null,
-          errorCode: null, errorMessage: null, startedAt: null, completedAt: null,
-          actualStartCaptureUs: null, actualEndCaptureUs: null, clipAssetId: null, timingManifestAssetId: null,
+          id: aiJobId,
+          submissionId: submission.id,
+          clipJobId: clip.id,
+          status: 'QUEUED',
+          idempotencyKey: `volleyball-analysis-engine:${submission.id}:${clip.id}:retry:${aiJobId}`,
+          requestPayload: json(requestPayload),
+          requestPayloadHash: createHash('sha256').update(canonical(requestPayload)).digest('hex'),
+          jobSchemaVersion: sourceAi.jobSchemaVersion,
+          callbackTokenHash: createHash('sha256').update(token).digest('hex'),
+          callbackTokenExpiresAt: new Date(Date.now() + 24 * 60 * 60_000),
+          attemptCount: 0,
+          maxAttempts: sourceAi.maxAttempts,
+          availableAt: new Date(),
         },
       })
-      await tx.rally.update({ where: { id: rally.id }, data: { processingStatus: 'CLIP_QUEUED' } })
-      await tx.outboxEvent.create({ data: { aggregateId: rally.id, aggregateType: 'Rally', dedupeKey: `processing-retry:clip:${clip.id}:${Date.now()}`, eventType: 'rally.processing_retry_requested.v1', payload: json({ rally_id: rally.id, stage: 'clip', submission_id: submission.id }) } })
-      return { rallyId: rally.id, submissionId: submission.id, status: 'CLIP_QUEUED', retriedStage: 'clip' }
-    }
-
-    const sourceAi = submission.aiJobs[0]
-    const failedAnalysis = submission.analysisRuns.find(run => run.status === 'FAILED')
-    if (!sourceAi || (sourceAi.status !== 'FAILED' && !failedAnalysis)) {
-      throw new OperationalMutationError('NOT_RETRYABLE', 'No failed clip or AI stage is retryable')
-    }
-    if (clip?.status !== 'COMPLETED' || !clip.clipAssetId) {
-      throw new OperationalMutationError('NOT_RETRYABLE', 'Canonical clip is not ready for AI retry')
-    }
-    const aiJobId = randomUUID()
-    const requestPayload = retryPayload(sourceAi.requestPayload, sourceAi.id, aiJobId)
-    const token = callbackToken(callbackSecret, aiJobId)
-    await tx.aiJob.create({
-      data: {
-        id: aiJobId,
+      await tx.aiJob.update({
+        where: { id: sourceAi.id },
+        data: { status: 'SUPERSEDED', leasedUntil: null },
+      })
+      await tx.analysisRun.updateMany({
+        where: { submissionId: submission.id, status: 'FAILED' },
+        data: { status: 'SUPERSEDED', supersededAt: new Date() },
+      })
+      await tx.rally.update({ where: { id: rally.id }, data: { processingStatus: 'AI_QUEUED' } })
+      await tx.outboxEvent.create({
+        data: {
+          aggregateId: rally.id,
+          aggregateType: 'Rally',
+          dedupeKey: `processing-retry:ai:${aiJobId}`,
+          eventType: 'rally.processing_retry_requested.v1',
+          payload: json({
+            ai_job_id: aiJobId,
+            rally_id: rally.id,
+            stage: 'ai',
+            submission_id: submission.id,
+            supersedes_ai_job_id: sourceAi.id,
+          }),
+        },
+      })
+      return {
+        rallyId: rally.id,
         submissionId: submission.id,
-        clipJobId: clip.id,
-        status: 'QUEUED',
-        idempotencyKey: `volleyball-analysis-engine:${submission.id}:${clip.id}:retry:${aiJobId}`,
-        requestPayload: json(requestPayload),
-        requestPayloadHash: createHash('sha256').update(canonical(requestPayload)).digest('hex'),
-        jobSchemaVersion: sourceAi.jobSchemaVersion,
-        callbackTokenHash: createHash('sha256').update(token).digest('hex'),
-        callbackTokenExpiresAt: new Date(Date.now() + 24 * 60 * 60_000),
-        attemptCount: 0,
-        maxAttempts: sourceAi.maxAttempts,
-        availableAt: new Date(),
-      },
-    })
-    await tx.aiJob.update({ where: { id: sourceAi.id }, data: { status: 'SUPERSEDED', leasedUntil: null } })
-    await tx.analysisRun.updateMany({ where: { submissionId: submission.id, status: 'FAILED' }, data: { status: 'SUPERSEDED', supersededAt: new Date() } })
-    await tx.rally.update({ where: { id: rally.id }, data: { processingStatus: 'AI_QUEUED' } })
-    await tx.outboxEvent.create({ data: { aggregateId: rally.id, aggregateType: 'Rally', dedupeKey: `processing-retry:ai:${aiJobId}`, eventType: 'rally.processing_retry_requested.v1', payload: json({ ai_job_id: aiJobId, rally_id: rally.id, stage: 'ai', submission_id: submission.id, supersedes_ai_job_id: sourceAi.id }) } })
-    return { rallyId: rally.id, submissionId: submission.id, status: 'AI_QUEUED', retriedStage: 'ai' }
-  }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable })
+        status: 'AI_QUEUED',
+        retriedStage: 'ai',
+      }
+    },
+    { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+  )
 }

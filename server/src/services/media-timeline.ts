@@ -50,7 +50,7 @@ export async function loadCaptureTimelines(
     }
   }
 
-  const programIds = [...newestProgramBySession.values()].map((program) => program.id)
+  const programIds = [...newestProgramBySession.values()].map(program => program.id)
   const sessions = await db.captureSession.findMany({
     where: { id: { in: sessionIds } },
   })
@@ -81,23 +81,23 @@ export async function loadCaptureTimelines(
         })
         continue
       }
-      const ready = segment.readyAt !== null
-        && segment.initAsset?.state === 'READY'
-        && segment.initAsset.internalSchemaVersion !== null
-        && segment.mediaAsset?.state === 'READY'
-        && segment.mediaAsset.internalSchemaVersion !== null
-        && segment.sampleIndexAsset?.state === 'READY'
-        && segment.sampleIndexAsset.internalSchemaVersion !== null
+      const ready =
+        segment.readyAt !== null &&
+        segment.initAsset?.state === 'READY' &&
+        segment.initAsset.internalSchemaVersion !== null &&
+        segment.mediaAsset?.state === 'READY' &&
+        segment.mediaAsset.internalSchemaVersion !== null &&
+        segment.sampleIndexAsset?.state === 'READY' &&
+        segment.sampleIndexAsset.internalSchemaVersion !== null
       if (!ready) continue
       const previous = availableRanges.at(-1)
       if (
-        previous
-        && previous.discontinuity === segment.discontinuitySequence
-        && previous.endUs >= segment.captureStartUs
+        previous &&
+        previous.discontinuity === segment.discontinuitySequence &&
+        previous.endUs >= segment.captureStartUs
       ) {
-        previous.endUs = previous.endUs > segment.captureEndUs
-          ? previous.endUs
-          : segment.captureEndUs
+        previous.endUs =
+          previous.endUs > segment.captureEndUs ? previous.endUs : segment.captureEndUs
       } else {
         availableRanges.push({
           discontinuity: segment.discontinuitySequence,
@@ -112,18 +112,18 @@ export async function loadCaptureTimelines(
       const captureStartTimeUs = availableRanges[0]!.startUs
       const lastReadyEndUs = availableRanges.at(-1)!.endUs
       const ingestFrontierCaptureTimeUs = programSegments.reduce<bigint | null>(
-        (frontier, segment) => frontier === null || segment.captureEndUs > frontier
-          ? segment.captureEndUs
-          : frontier,
+        (frontier, segment) =>
+          frontier === null || segment.captureEndUs > frontier ? segment.captureEndUs : frontier,
         null,
       )
-      const sourceEndCaptureTimeUs = session?.status === 'FAILED'
-        ? lastReadyEndUs
-        : session?.sourceDurationUs
-        ? captureStartTimeUs + session.sourceDurationUs
-        : session?.status === 'FINISHED'
+      const sourceEndCaptureTimeUs =
+        session?.status === 'FAILED'
           ? lastReadyEndUs
-          : null
+          : session?.sourceDurationUs
+            ? captureStartTimeUs + session.sourceDurationUs
+            : session?.status === 'FINISHED'
+              ? lastReadyEndUs
+              : null
       timelines.set(sessionId, {
         availableRanges,
         availabilityComplete: session?.status === 'FINISHED' || session?.status === 'FAILED',
@@ -140,15 +140,13 @@ export async function loadCaptureTimelines(
   return timelines
 }
 
-export async function listCaptureSessionsForMatch(
-  matchId: string,
-): Promise<CaptureSessionView[]> {
+export async function listCaptureSessionsForMatch(matchId: string): Promise<CaptureSessionView[]> {
   const sessions = await db.captureSession.findMany({
     orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
     where: { matchId },
   })
-  const timelines = await loadCaptureTimelines(sessions.map((session) => session.id))
-  return sessions.map((session) => ({
+  const timelines = await loadCaptureTimelines(sessions.map(session => session.id))
+  return sessions.map(session => ({
     endedAt: session.endedAt,
     health: session.health,
     id: session.id,
@@ -162,9 +160,7 @@ export async function listCaptureSessionsForMatch(
   }))
 }
 
-export async function loadCaptureTimeline(
-  sessionId: string,
-): Promise<CaptureTimelineView | null> {
+export async function loadCaptureTimeline(sessionId: string): Promise<CaptureTimelineView | null> {
   return (await loadCaptureTimelines([sessionId])).get(sessionId) ?? null
 }
 
@@ -176,9 +172,7 @@ export function getVisibleCaptureSession(
   return db.captureSession.findFirst({
     where: {
       id,
-      ...(role === UserRole.ADMIN
-        ? {}
-        : { match: { members: { some: { userId } } } }),
+      ...(role === UserRole.ADMIN ? {} : { match: { members: { some: { userId } } } }),
     },
   })
 }

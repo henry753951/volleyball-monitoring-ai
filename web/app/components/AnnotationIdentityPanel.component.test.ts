@@ -22,7 +22,7 @@ vi.mock('~/lib/coreDomain', () => ({
 }))
 
 const replacementWarningEnabled = ref(true)
-let AnnotationIdentityPanel: typeof import('./AnnotationIdentityPanel.vue')['default']
+let AnnotationIdentityPanel: (typeof import('./AnnotationIdentityPanel.vue'))['default']
 
 const teams = [
   { id: 'team-left', name: 'Blue Waves', shortName: 'BLU' },
@@ -34,7 +34,7 @@ function analyticsFixture(): CoachMatchAnalytics {
     roster_entry_id: `roster-${index + 1}`,
     team_id: 'team-left',
     jersey_number: String(index + 11),
-    position: index === 7 ? 'DS' as const : 'OH' as const,
+    position: index === 7 ? ('DS' as const) : ('OH' as const),
     name: index === 7 ? 'Bench Player' : `Player ${index + 1}`,
     contact_count: 0,
     sample_count: 0,
@@ -73,7 +73,11 @@ function analyticsFixture(): CoachMatchAnalytics {
         identity_confidence: 0.91,
         identity_revision: '4',
         manual_required: false,
-        reid_model: { name: 'nested-part-adaptation', checkpoint_sha256: 'a'.repeat(64), preprocess_version: 'nested-part-adaptation-v1' },
+        reid_model: {
+          name: 'nested-part-adaptation',
+          checkpoint_sha256: 'a'.repeat(64),
+          preprocess_version: 'nested-part-adaptation-v1',
+        },
       },
       {
         analysis_run_id: 'analysis-1',
@@ -94,10 +98,22 @@ function analyticsFixture(): CoachMatchAnalytics {
         identity_confidence: 0.73,
         identity_revision: '4',
         manual_required: true,
-        reid_model: { name: 'nested-part-adaptation', checkpoint_sha256: 'a'.repeat(64), preprocess_version: 'nested-part-adaptation-v1' },
+        reid_model: {
+          name: 'nested-part-adaptation',
+          checkpoint_sha256: 'a'.repeat(64),
+          preprocess_version: 'nested-part-adaptation-v1',
+        },
       },
     ],
-    unassigned_tracks: [{ analysis_run_id: 'analysis-1', track_id: 2, rally_id: 'rally-1', set_number: 1, rally_ordinal: 1 }],
+    unassigned_tracks: [
+      {
+        analysis_run_id: 'analysis-1',
+        track_id: 2,
+        rally_id: 'rally-1',
+        set_number: 1,
+        rally_ordinal: 1,
+      },
+    ],
   }
 }
 
@@ -130,11 +146,18 @@ beforeEach(() => {
   vi.clearAllMocks()
   replacementWarningEnabled.value = true
   coachClient.analytics.mockResolvedValue(analyticsFixture())
-  coachClient.assignTrackIdentity.mockResolvedValue({ assignTrackIdentity: { schema_version: '1.0.0' } })
+  coachClient.assignTrackIdentity.mockResolvedValue({
+    assignTrackIdentity: { schema_version: '1.0.0' },
+  })
   coachClient.applyReidAutomaticAssignments.mockResolvedValue({
     applyReidAutomaticAssignments: {
-      schema_version: '1.0.0', match_id: 'match-1', analysis_run_id: 'analysis-1',
-      assigned_count: 1, already_assigned_count: 1, preserved_manual_count: 0, unresolved_count: 0,
+      schema_version: '1.0.0',
+      match_id: 'match-1',
+      analysis_run_id: 'analysis-1',
+      assigned_count: 1,
+      already_assigned_count: 1,
+      preserved_manual_count: 0,
+      unresolved_count: 0,
     },
   })
 })
@@ -195,7 +218,11 @@ describe('AnnotationIdentityPanel ReID assignments', () => {
     await flushPromises()
 
     const dialog = wrapper.getComponent(IdentityReplacementDialog)
-    expect(dialog.props()).toMatchObject({ playerName: 'Player 1', occupiedTrackId: 1, targetTrackId: 2 })
+    expect(dialog.props()).toMatchObject({
+      playerName: 'Player 1',
+      occupiedTrackId: 1,
+      targetTrackId: 2,
+    })
     expect(browserConfirm).not.toHaveBeenCalled()
     dialog.vm.$emit('confirm')
     await flushPromises()
@@ -215,7 +242,9 @@ describe('AnnotationIdentityPanel ReID assignments', () => {
     await flushPromises()
 
     const tabs = wrapper.findAll('[role="tab"]')
-    expect(tabs.map(tab => tab.text())).toEqual(expect.arrayContaining(['Local 分派2', 'GID 分派2']))
+    expect(tabs.map(tab => tab.text())).toEqual(
+      expect.arrayContaining(['Local 分派2', 'GID 分派2']),
+    )
     await tabs.find(tab => tab.text().includes('GID 分派'))!.trigger('click')
 
     expect(wrapper.text()).toContain('一個 GID 可包含多個 Local ID')
@@ -239,7 +268,9 @@ describe('AnnotationIdentityPanel ReID assignments', () => {
     await wrapper.get('.identity-auto').trigger('click')
     await flushPromises()
 
-    expect(coachClient.applyReidAutomaticAssignments).toHaveBeenCalledWith({ analysisRunId: 'analysis-1' })
+    expect(coachClient.applyReidAutomaticAssignments).toHaveBeenCalledWith({
+      analysisRunId: 'analysis-1',
+    })
     expect(wrapper.text()).toContain('已自動套用 1 個 Local ID')
     expect(wrapper.emitted('changed')).toHaveLength(1)
     wrapper.unmount()

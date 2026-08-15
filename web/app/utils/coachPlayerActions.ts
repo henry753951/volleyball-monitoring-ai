@@ -39,7 +39,15 @@ const ACTION_TRANSLATIONS: Record<string, string> = {
   standing: '站立',
 }
 
-const ACTION_COLORS = ['#007aff', '#ff3b30', '#34c759', '#ff9500', '#af52de', '#00a6a6', '#d05a91'] as const
+const ACTION_COLORS = [
+  '#007aff',
+  '#ff3b30',
+  '#34c759',
+  '#ff9500',
+  '#af52de',
+  '#00a6a6',
+  '#d05a91',
+] as const
 const KNOWN_ACTION_COLORS: Record<string, string> = {
   attack: '#ff3b30',
   attacking: '#ff3b30',
@@ -63,7 +71,7 @@ const KNOWN_ACTION_COLORS: Record<string, string> = {
 }
 
 function actionRecord(value: unknown) {
-  return value && typeof value === 'object' ? value as Record<string, unknown> : null
+  return value && typeof value === 'object' ? (value as Record<string, unknown>) : null
 }
 
 export function actionName(value: unknown) {
@@ -78,7 +86,12 @@ export function actionConfidence(value: unknown) {
 }
 
 export function actionKey(value: unknown) {
-  return actionName(value)?.toLocaleLowerCase().replaceAll(/[^\p{L}\p{N}]+/gu, '_').replace(/^_+|_+$/g, '') || 'unknown'
+  return (
+    actionName(value)
+      ?.toLocaleLowerCase()
+      .replaceAll(/[^\p{L}\p{N}]+/gu, '_')
+      .replace(/^_+|_+$/g, '') || 'unknown'
+  )
 }
 
 export function actionDisplayLabel(value: unknown) {
@@ -101,7 +114,10 @@ export function replayStartSeconds(anchorTimeUs: string, leadSeconds = 5) {
   return Number(startUs) / 1_000_000
 }
 
-export function replayEventUrl(matchId: string, event: Pick<CoachPlayerActionEvent, 'rallyId' | 'anchorTimeUs'>) {
+export function replayEventUrl(
+  matchId: string,
+  event: Pick<CoachPlayerActionEvent, 'rallyId' | 'anchorTimeUs'>,
+) {
   return `/matches/${matchId}/replay/${event.rallyId}?event_us=${event.anchorTimeUs}`
 }
 
@@ -150,15 +166,23 @@ export function collectCoachActionEvents(
       })
     }
   }
-  return [...records.values()].sort((left, right) => left.setNumber - right.setNumber
-    || left.rallyOrdinal - right.rallyOrdinal
-    || Number(BigInt(left.anchorTimeUs) - BigInt(right.anchorTimeUs)))
+  return [...records.values()].sort(
+    (left, right) =>
+      left.setNumber - right.setNumber ||
+      left.rallyOrdinal - right.rallyOrdinal ||
+      Number(BigInt(left.anchorTimeUs) - BigInt(right.anchorTimeUs)),
+  )
 }
 
 export function actionOutcomeRate(events: CoachPlayerActionEvent[]) {
   const resolved = events.filter(event => event.outcome !== 'unknown')
   const won = resolved.filter(event => event.outcome === 'won').length
-  return { won, resolved: resolved.length, unknown: events.length - resolved.length, rate: resolved.length ? won / resolved.length : null }
+  return {
+    won,
+    resolved: resolved.length,
+    unknown: events.length - resolved.length,
+    rate: resolved.length ? won / resolved.length : null,
+  }
 }
 
 export function formatActionTime(anchorTimeUs: string) {

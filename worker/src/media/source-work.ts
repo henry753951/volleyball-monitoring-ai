@@ -86,11 +86,11 @@ export async function recordPermanentMediaIngestFailure(
       update: { captureSessionId: input.captureSessionId, code: input.code },
       where: { sourceJobId: input.sourceJobId },
     })
-  }
-  catch (error) {
+  } catch (error) {
     // Match deletion may cascade the capture/work rows while a leased worker unwinds.
     // There is intentionally no failure record to retain once its capture is gone.
-    if (typeof error === 'object' && error !== null && 'code' in error && error.code === 'P2003') return
+    if (typeof error === 'object' && error !== null && 'code' in error && error.code === 'P2003')
+      return
     throw error
   }
 }
@@ -147,8 +147,10 @@ export async function claimMediaSourceWork(
   limit: number,
   leaseSeconds = 30,
 ): Promise<ClaimedMediaSourceWork[]> {
-  if (!Number.isSafeInteger(limit) || limit < 1 || limit > 32) throw new TypeError('invalid media source claim limit')
-  if (!Number.isSafeInteger(leaseSeconds) || leaseSeconds < 5 || leaseSeconds > 300) throw new TypeError('invalid media source lease')
+  if (!Number.isSafeInteger(limit) || limit < 1 || limit > 32)
+    throw new TypeError('invalid media source claim limit')
+  if (!Number.isSafeInteger(leaseSeconds) || leaseSeconds < 5 || leaseSeconds > 300)
+    throw new TypeError('invalid media source lease')
   return database.$queryRaw<ClaimedMediaSourceWork[]>`
     WITH candidate AS (
       SELECT work."id"
@@ -200,8 +202,10 @@ export async function claimDrainingMediaSourceWork(
   limit: number,
   leaseSeconds = 30,
 ): Promise<ClaimedMediaSourceWork[]> {
-  if (!Number.isSafeInteger(limit) || limit < 1 || limit > 32) throw new TypeError('invalid media source drain claim limit')
-  if (!Number.isSafeInteger(leaseSeconds) || leaseSeconds < 5 || leaseSeconds > 300) throw new TypeError('invalid media source lease')
+  if (!Number.isSafeInteger(limit) || limit < 1 || limit > 32)
+    throw new TypeError('invalid media source drain claim limit')
+  if (!Number.isSafeInteger(leaseSeconds) || leaseSeconds < 5 || leaseSeconds > 300)
+    throw new TypeError('invalid media source lease')
   return database.$queryRaw<ClaimedMediaSourceWork[]>`
     WITH candidate AS (
       SELECT work."id"
@@ -271,10 +275,15 @@ export async function mediaSourceWorkStates(
     },
     where: { id: { in: workIds } },
   })
-  return new Map(rows.map(row => [row.id, {
-    sourceOnline: row.captureSession.sourceOnline,
-    status: row.status,
-  }]))
+  return new Map(
+    rows.map(row => [
+      row.id,
+      {
+        sourceOnline: row.captureSession.sourceOnline,
+        status: row.status,
+      },
+    ]),
+  )
 }
 
 export async function recordMediaSourceClassification(
@@ -298,7 +307,8 @@ export async function recordMediaSourceResume(
   segmentIndex: number,
   captureTimeUs: bigint,
 ): Promise<void> {
-  if (!Number.isSafeInteger(segmentIndex) || segmentIndex < 0 || captureTimeUs < 0n) throw new TypeError('invalid media source resume point')
+  if (!Number.isSafeInteger(segmentIndex) || segmentIndex < 0 || captureTimeUs < 0n)
+    throw new TypeError('invalid media source resume point')
   await database.mediaSourceWork.update({
     data: {
       resumeCaptureTimeUs: captureTimeUs,
@@ -314,9 +324,13 @@ export async function recordMediaSourceRelayError(
   owner: string,
   errorCode: string | null,
 ): Promise<number> {
-  const safeCode = errorCode === null
-    ? null
-    : errorCode.toUpperCase().replace(/[^A-Z0-9_]/g, '_').slice(0, 120) || 'MEDIA_COMMAND_FAILED'
+  const safeCode =
+    errorCode === null
+      ? null
+      : errorCode
+          .toUpperCase()
+          .replace(/[^A-Z0-9_]/g, '_')
+          .slice(0, 120) || 'MEDIA_COMMAND_FAILED'
   const result = await database.mediaSourceWork.updateMany({
     data: { lastErrorCode: safeCode },
     where: { id: workId, leaseOwner: owner, status: 'RUNNING' },
@@ -341,36 +355,40 @@ export async function requestMediaSourceCompletion(
   workId: string,
   completion: SourceCompletion,
 ): Promise<void> {
-  await database.$transaction(async (tx) => {
-    const work = await tx.mediaSourceWork.findUnique({ where: { id: workId } })
-    if (!work) return
-    await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`capture-media:${work.captureSessionId}`}, 0))::text AS lock`
-    const capture = await tx.captureSession.findUnique({ where: { id: work.captureSessionId } })
-    if (!capture || ['FAILED', 'FINISHED'].includes(capture.status)) return
-    if (
-      capture.completionExpectedSegments !== null
-      && capture.completionExpectedSegments !== completion.expectedSegments
-    ) throw new Error('Capture completion watermark changed')
-    await tx.captureSession.update({
-      data: {
-        completionExpectedSegments: completion.expectedSegments,
-        completionRequestedAt: capture.completionRequestedAt ?? new Date(),
-        health: 'HEALTHY',
-        sourceDurationUs: completion.sourceDurationUs,
-        sourceKind: completion.sourceKind,
-        status: 'STOPPING',
-      },
-      where: { id: work.captureSessionId },
-    })
-    await tx.dvrProgram.updateMany({
-      data: { status: 'STOPPING' },
-      where: { captureSessionId: work.captureSessionId, status: { in: ['STARTING', 'LIVE'] } },
-    })
-    await tx.mediaSourceWork.update({
-      data: { status: 'DRAINING' },
-      where: { id: workId },
-    })
-  }, { isolationLevel: 'Serializable' })
+  await database.$transaction(
+    async tx => {
+      const work = await tx.mediaSourceWork.findUnique({ where: { id: workId } })
+      if (!work) return
+      await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`capture-media:${work.captureSessionId}`}, 0))::text AS lock`
+      const capture = await tx.captureSession.findUnique({ where: { id: work.captureSessionId } })
+      if (!capture || ['FAILED', 'FINISHED'].includes(capture.status)) return
+      if (
+        capture.completionExpectedSegments !== null &&
+        capture.completionExpectedSegments !== completion.expectedSegments
+      )
+        throw new Error('Capture completion watermark changed')
+      await tx.captureSession.update({
+        data: {
+          completionExpectedSegments: completion.expectedSegments,
+          completionRequestedAt: capture.completionRequestedAt ?? new Date(),
+          health: 'HEALTHY',
+          sourceDurationUs: completion.sourceDurationUs,
+          sourceKind: completion.sourceKind,
+          status: 'STOPPING',
+        },
+        where: { id: work.captureSessionId },
+      })
+      await tx.dvrProgram.updateMany({
+        data: { status: 'STOPPING' },
+        where: { captureSessionId: work.captureSessionId, status: { in: ['STARTING', 'LIVE'] } },
+      })
+      await tx.mediaSourceWork.update({
+        data: { status: 'DRAINING' },
+        where: { id: workId },
+      })
+    },
+    { isolationLevel: 'Serializable' },
+  )
 }
 
 export async function releaseMediaSourceLease(
@@ -387,71 +405,83 @@ export async function finalizeMediaSourceIfDrained(
   database: PrismaClient,
   workId: string,
 ): Promise<boolean> {
-  return database.$transaction(async (tx) => {
-    const work = await tx.mediaSourceWork.findUnique({ where: { id: workId } })
-    if (!work) return true
-    await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`capture-media:${work.captureSessionId}`}, 0))::text AS lock`
-    const capture = await tx.captureSession.findUnique({
-      include: { programs: { orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], take: 1 } },
-      where: { id: work.captureSessionId },
-    })
-    if (!capture || capture.status === 'FAILED') {
-      await tx.mediaSourceWork.update({ data: { leaseExpiresAt: null, leaseOwner: null, status: 'FAILED' }, where: { id: workId } })
-      return true
-    }
-    if (capture.status === 'FINISHED') {
-      await tx.mediaSourceWork.update({ data: { leaseExpiresAt: null, leaseOwner: null, status: 'COMPLETED' }, where: { id: workId } })
-      return true
-    }
-    if (capture.status !== 'STOPPING' || capture.completionExpectedSegments === null) return false
-    const program = capture.programs[0] ?? null
-    if (capture.completionExpectedSegments > 0 && !program) return false
-    if (program) {
-      const [readySegments, pendingSegments] = await Promise.all([
-        tx.dvrSegment.count({ where: { dvrProgramId: program.id, isGap: false, readyAt: { not: null } } }),
-        tx.dvrSegment.count({ where: { dvrProgramId: program.id, readyAt: null } }),
-      ])
-      if (readySegments < capture.completionExpectedSegments || pendingSegments > 0) return false
-    }
-    const endedAt = new Date()
-    const endCaptureUs = program?.liveEdgeUs ?? null
-    if (program) await tx.dvrProgram.update({ data: { status: 'FINISHED' }, where: { id: program.id } })
-    if (endCaptureUs !== null) {
-      await tx.captureEpoch.updateMany({
-        data: { endedAtCaptureUs: endCaptureUs },
-        where: { captureSessionId: capture.id, endedAtCaptureUs: null },
+  return database.$transaction(
+    async tx => {
+      const work = await tx.mediaSourceWork.findUnique({ where: { id: workId } })
+      if (!work) return true
+      await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`capture-media:${work.captureSessionId}`}, 0))::text AS lock`
+      const capture = await tx.captureSession.findUnique({
+        include: { programs: { orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], take: 1 } },
+        where: { id: work.captureSessionId },
       })
-    }
-    await tx.captureSession.update({
-      data: {
-        endedAt,
-        health: 'OFFLINE',
-        sourceDurationUs: capture.sourceDurationUs ?? program?.durationUs ?? null,
-        status: 'FINISHED',
-      },
-      where: { id: capture.id },
-    })
-    await tx.mediaSourceWork.update({
-      data: { leaseExpiresAt: null, leaseOwner: null, status: 'COMPLETED' },
-      where: { id: workId },
-    })
-    await tx.outboxEvent.upsert({
-      create: {
-        aggregateId: capture.id,
-        aggregateType: 'CaptureSession',
-        dedupeKey: `capture-source-completed:${capture.id}`,
-        eventType: 'capture.source_completed.v1',
-        payload: {
-          capture_session_id: capture.id,
-          ended_at: endedAt.toISOString(),
-          final_capture_time_us: endCaptureUs?.toString() ?? null,
+      if (!capture || capture.status === 'FAILED') {
+        await tx.mediaSourceWork.update({
+          data: { leaseExpiresAt: null, leaseOwner: null, status: 'FAILED' },
+          where: { id: workId },
+        })
+        return true
+      }
+      if (capture.status === 'FINISHED') {
+        await tx.mediaSourceWork.update({
+          data: { leaseExpiresAt: null, leaseOwner: null, status: 'COMPLETED' },
+          where: { id: workId },
+        })
+        return true
+      }
+      if (capture.status !== 'STOPPING' || capture.completionExpectedSegments === null) return false
+      const program = capture.programs[0] ?? null
+      if (capture.completionExpectedSegments > 0 && !program) return false
+      if (program) {
+        const [readySegments, pendingSegments] = await Promise.all([
+          tx.dvrSegment.count({
+            where: { dvrProgramId: program.id, isGap: false, readyAt: { not: null } },
+          }),
+          tx.dvrSegment.count({ where: { dvrProgramId: program.id, readyAt: null } }),
+        ])
+        if (readySegments < capture.completionExpectedSegments || pendingSegments > 0) return false
+      }
+      const endedAt = new Date()
+      const endCaptureUs = program?.liveEdgeUs ?? null
+      if (program)
+        await tx.dvrProgram.update({ data: { status: 'FINISHED' }, where: { id: program.id } })
+      if (endCaptureUs !== null) {
+        await tx.captureEpoch.updateMany({
+          data: { endedAtCaptureUs: endCaptureUs },
+          where: { captureSessionId: capture.id, endedAtCaptureUs: null },
+        })
+      }
+      await tx.captureSession.update({
+        data: {
+          endedAt,
+          health: 'OFFLINE',
+          sourceDurationUs: capture.sourceDurationUs ?? program?.durationUs ?? null,
+          status: 'FINISHED',
         },
-      },
-      update: {},
-      where: { dedupeKey: `capture-source-completed:${capture.id}` },
-    })
-    return true
-  }, { isolationLevel: 'Serializable' })
+        where: { id: capture.id },
+      })
+      await tx.mediaSourceWork.update({
+        data: { leaseExpiresAt: null, leaseOwner: null, status: 'COMPLETED' },
+        where: { id: workId },
+      })
+      await tx.outboxEvent.upsert({
+        create: {
+          aggregateId: capture.id,
+          aggregateType: 'CaptureSession',
+          dedupeKey: `capture-source-completed:${capture.id}`,
+          eventType: 'capture.source_completed.v1',
+          payload: {
+            capture_session_id: capture.id,
+            ended_at: endedAt.toISOString(),
+            final_capture_time_us: endCaptureUs?.toString() ?? null,
+          },
+        },
+        update: {},
+        where: { dedupeKey: `capture-source-completed:${capture.id}` },
+      })
+      return true
+    },
+    { isolationLevel: 'Serializable' },
+  )
 }
 
 export async function failMediaSourceWork(
@@ -460,7 +490,7 @@ export async function failMediaSourceWork(
   errorCode: string,
 ): Promise<void> {
   const safeCode = errorCode.replace(/[^A-Z0-9_]/gi, '_').slice(0, 120) || 'MEDIA_SOURCE_FAILED'
-  await database.$transaction(async (tx) => {
+  await database.$transaction(async tx => {
     const work = await tx.mediaSourceWork.findUnique({ where: { id: workId } })
     if (!work) return
     await tx.mediaSourceWork.update({
@@ -473,7 +503,10 @@ export async function failMediaSourceWork(
     })
     await tx.dvrProgram.updateMany({
       data: { status: 'FAILED' },
-      where: { captureSessionId: work.captureSessionId, status: { in: ['STARTING', 'LIVE', 'STOPPING'] } },
+      where: {
+        captureSessionId: work.captureSessionId,
+        status: { in: ['STARTING', 'LIVE', 'STOPPING'] },
+      },
     })
   })
 }

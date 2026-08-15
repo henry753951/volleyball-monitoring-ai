@@ -3,7 +3,11 @@ import type { FastifyPluginAsync, FastifyRequest } from 'fastify'
 import type { ReadinessResult } from '../health/readiness.js'
 import type { HostStorageProbe, HostStorageSnapshot } from '../operations/host-storage.js'
 import type { DeploymentProbe, DeploymentSnapshot } from '../operations/kubernetes-deployments.js'
-import { AiWorkerAccessError, getAiWorkerAccess, type AiWorkerAccessSnapshot } from '../services/ai-worker-access.js'
+import {
+  AiWorkerAccessError,
+  getAiWorkerAccess,
+  type AiWorkerAccessSnapshot,
+} from '../services/ai-worker-access.js'
 
 export interface MetricGroup {
   count: number
@@ -127,11 +131,27 @@ export type OperationsAuthorizer = (request: FastifyRequest) => Promise<Operatio
 export type AiWorkerDeleteResult =
   | { deleted: true; id: string; instanceKey: string }
   | { deleted: false; reason: 'active_jobs' | 'not_found' | 'online' }
-export type AiWorkerDeleter = (workerId: string, identity: OperationsIdentity) => Promise<AiWorkerDeleteResult>
-export type AiWorkerTokenCreator = (name: string, identity: OperationsIdentity) => Promise<{ accessToken: { id: string; name: string; tokenPrefix: string }; token: string }>
-export type AiWorkerTokenRotator = (tokenId: string, identity: OperationsIdentity) => Promise<{ tokenId: string; token: string }>
-export type AiWorkerTokenStateUpdater = (tokenId: string, enabled: boolean, identity: OperationsIdentity) => Promise<{ tokenId: string; enabled: boolean }>
-export type AiWorkerTokenDeleter = (tokenId: string, identity: OperationsIdentity) => Promise<{ tokenId: string }>
+export type AiWorkerDeleter = (
+  workerId: string,
+  identity: OperationsIdentity,
+) => Promise<AiWorkerDeleteResult>
+export type AiWorkerTokenCreator = (
+  name: string,
+  identity: OperationsIdentity,
+) => Promise<{ accessToken: { id: string; name: string; tokenPrefix: string }; token: string }>
+export type AiWorkerTokenRotator = (
+  tokenId: string,
+  identity: OperationsIdentity,
+) => Promise<{ tokenId: string; token: string }>
+export type AiWorkerTokenStateUpdater = (
+  tokenId: string,
+  enabled: boolean,
+  identity: OperationsIdentity,
+) => Promise<{ tokenId: string; enabled: boolean }>
+export type AiWorkerTokenDeleter = (
+  tokenId: string,
+  identity: OperationsIdentity,
+) => Promise<{ tokenId: string }>
 
 const group = (count: number, labels: Record<string, string>): MetricGroup => ({ count, labels })
 const AI_WORKER_STALE_MS = 30_000
@@ -155,10 +175,7 @@ export async function deleteInactiveAiWorker(
   const deleted = await database.aiProviderInstance.deleteMany({
     where: {
       id: workerId,
-      OR: [
-        { disconnectedAt: { not: null } },
-        { lastSeenAt: { lt: staleBefore } },
-      ],
+      OR: [{ disconnectedAt: { not: null } }, { lastSeenAt: { lt: staleBefore } }],
       jobs: { none: { status: { in: ['QUEUED', 'RUNNING'] } } },
     },
   })
@@ -184,15 +201,35 @@ export async function collectOperationsSnapshot(
   objectStorageProbe?: HostStorageProbe,
   deploymentProbe?: DeploymentProbe,
 ): Promise<OperationsSnapshot> {
-  const deploymentPromise = deploymentProbe?.() ?? Promise.resolve({
-    available: false,
-    components: [],
-    namespace: null,
-    overallStatus: 'unknown' as const,
-    source: 'unavailable' as const,
-  })
-  const [rallies, clipJobs, aiJobs, captures, outboxEvents, callbacks, mediaAssets, annotationReceipts, annotationOperations, captureSessions, providerInstances, recentAiWork, activeAiJobs, aiWorkerAccess] = await Promise.all([
-    database.rally.groupBy({ by: ['annotationStatus', 'processingStatus'], _count: { _all: true } }),
+  const deploymentPromise =
+    deploymentProbe?.() ??
+    Promise.resolve({
+      available: false,
+      components: [],
+      namespace: null,
+      overallStatus: 'unknown' as const,
+      source: 'unavailable' as const,
+    })
+  const [
+    rallies,
+    clipJobs,
+    aiJobs,
+    captures,
+    outboxEvents,
+    callbacks,
+    mediaAssets,
+    annotationReceipts,
+    annotationOperations,
+    captureSessions,
+    providerInstances,
+    recentAiWork,
+    activeAiJobs,
+    aiWorkerAccess,
+  ] = await Promise.all([
+    database.rally.groupBy({
+      by: ['annotationStatus', 'processingStatus'],
+      _count: { _all: true },
+    }),
     database.clipJob.groupBy({ by: ['status'], _count: { _all: true } }),
     database.aiJob.groupBy({ by: ['status'], _count: { _all: true } }),
     database.captureSession.groupBy({ by: ['status', 'health'], _count: { _all: true } }),
@@ -204,11 +241,13 @@ export async function collectOperationsSnapshot(
     database.captureSession.findMany({
       orderBy: { updatedAt: 'desc' },
       ...(identity && identity.role !== 'ADMIN'
-        ? { where: {
-            match: {
-              members: { some: { userId: identity.userId } },
+        ? {
+            where: {
+              match: {
+                members: { some: { userId: identity.userId } },
+              },
             },
-          } }
+          }
         : {}),
       select: {
         id: true,
@@ -277,26 +316,27 @@ export async function collectOperationsSnapshot(
     getAiWorkerAccess(database),
   ])
   const programIds = captureSessions.flatMap(capture => capture.programs.map(program => program.id))
-  const [segmentTotals, readySegments, gapSegments] = programIds.length === 0
-    ? [[], [], []] as const
-    : await Promise.all([
-        database.dvrSegment.groupBy({
-          by: ['dvrProgramId'],
-          where: { dvrProgramId: { in: programIds } },
-          _count: { _all: true },
-          _sum: { durationUs: true, frameCount: true },
-        }),
-        database.dvrSegment.groupBy({
-          by: ['dvrProgramId'],
-          where: { dvrProgramId: { in: programIds }, readyAt: { not: null } },
-          _count: { _all: true },
-        }),
-        database.dvrSegment.groupBy({
-          by: ['dvrProgramId'],
-          where: { dvrProgramId: { in: programIds }, isGap: true },
-          _count: { _all: true },
-        }),
-      ])
+  const [segmentTotals, readySegments, gapSegments] =
+    programIds.length === 0
+      ? ([[], [], []] as const)
+      : await Promise.all([
+          database.dvrSegment.groupBy({
+            by: ['dvrProgramId'],
+            where: { dvrProgramId: { in: programIds } },
+            _count: { _all: true },
+            _sum: { durationUs: true, frameCount: true },
+          }),
+          database.dvrSegment.groupBy({
+            by: ['dvrProgramId'],
+            where: { dvrProgramId: { in: programIds }, readyAt: { not: null } },
+            _count: { _all: true },
+          }),
+          database.dvrSegment.groupBy({
+            by: ['dvrProgramId'],
+            where: { dvrProgramId: { in: programIds }, isGap: true },
+            _count: { _all: true },
+          }),
+        ])
   const [mediaByteRows, hostStorage, objectStorage, deployment] = await Promise.all([
     database.$queryRaw<Array<{ matchId: string; storedBytes: bigint }>>`
       WITH asset_match AS (
@@ -313,39 +353,69 @@ export async function collectOperationsSnapshot(
       FROM asset_match am JOIN "MediaAsset" ma ON ma.id = am."assetId"
       WHERE am."assetId" IS NOT NULL GROUP BY am."matchId"
     `,
-    hostStorageProbe?.() ?? Promise.resolve({ available: false, freeBytes: '0', managedBytes: '0', path: '', totalBytes: '0', usedBytes: '0' }),
-    objectStorageProbe?.() ?? Promise.resolve({ available: false, freeBytes: '0', managedBytes: '0', path: '', totalBytes: '0', usedBytes: '0' }),
+    hostStorageProbe?.() ??
+      Promise.resolve({
+        available: false,
+        freeBytes: '0',
+        managedBytes: '0',
+        path: '',
+        totalBytes: '0',
+        usedBytes: '0',
+      }),
+    objectStorageProbe?.() ??
+      Promise.resolve({
+        available: false,
+        freeBytes: '0',
+        managedBytes: '0',
+        path: '',
+        totalBytes: '0',
+        usedBytes: '0',
+      }),
     deploymentPromise,
   ])
   const totalsByProgram = new Map(segmentTotals.map(item => [item.dvrProgramId, item]))
   const readyByProgram = new Map(readySegments.map(item => [item.dvrProgramId, item._count._all]))
   const gapsByProgram = new Map(gapSegments.map(item => [item.dvrProgramId, item._count._all]))
-  const activeJobsByWorker = new Map(activeAiJobs.map(item => [item.providerInstanceId, item._count._all]))
+  const activeJobsByWorker = new Map(
+    activeAiJobs.map(item => [item.providerInstanceId, item._count._all]),
+  )
   const visibleMatchIds = new Set(captureSessions.map(capture => capture.matchId))
   const visibleMediaByteRows = mediaByteRows.filter(row => visibleMatchIds.has(row.matchId))
   const bytesByMatch = new Map(visibleMediaByteRows.map(row => [row.matchId, row.storedBytes]))
-  objectStorage.managedBytes = visibleMediaByteRows.reduce((total, row) => total + row.storedBytes, 0n).toString()
+  objectStorage.managedBytes = visibleMediaByteRows
+    .reduce((total, row) => total + row.storedBytes, 0n)
+    .toString()
   const matchMedia = new Map<string, MatchMediaSnapshot>()
   for (const capture of captureSessions) {
     const program = capture.programs[0]
     const totals = program ? totalsByProgram.get(program.id) : undefined
     const current = matchMedia.get(capture.matchId) ?? {
-      activeCaptureCount: 0, captureCount: 0, failedCaptureCount: 0, gapSegmentCount: 0,
-      indexedDurationUs: '0', matchId: capture.matchId, readySegmentCount: 0, segmentCount: 0,
+      activeCaptureCount: 0,
+      captureCount: 0,
+      failedCaptureCount: 0,
+      gapSegmentCount: 0,
+      indexedDurationUs: '0',
+      matchId: capture.matchId,
+      readySegmentCount: 0,
+      segmentCount: 0,
       storedBytes: (bytesByMatch.get(capture.matchId) ?? 0n).toString(),
     }
     current.captureCount += 1
     if (['STARTING', 'LIVE', 'STOPPING'].includes(capture.status)) current.activeCaptureCount += 1
     if (capture.status === 'FAILED') current.failedCaptureCount += 1
     current.segmentCount += totals?._count._all ?? 0
-    current.readySegmentCount += program ? readyByProgram.get(program.id) ?? 0 : 0
-    current.gapSegmentCount += program ? gapsByProgram.get(program.id) ?? 0 : 0
-    current.indexedDurationUs = (BigInt(current.indexedDurationUs) + (totals?._sum.durationUs ?? 0n)).toString()
+    current.readySegmentCount += program ? (readyByProgram.get(program.id) ?? 0) : 0
+    current.gapSegmentCount += program ? (gapsByProgram.get(program.id) ?? 0) : 0
+    current.indexedDurationUs = (
+      BigInt(current.indexedDurationUs) + (totals?._sum.durationUs ?? 0n)
+    ).toString()
     matchMedia.set(capture.matchId, current)
   }
   const workerStaleBefore = Date.now() - AI_WORKER_STALE_MS
   const memory = process.memoryUsage()
-  const aiDeployment = deployment.components.find(component => component.component === 'analysis-worker')
+  const aiDeployment = deployment.components.find(
+    component => component.component === 'analysis-worker',
+  )
   return {
     generatedAt: new Date().toISOString(),
     process: {
@@ -354,26 +424,37 @@ export async function collectOperationsSnapshot(
       uptimeSeconds: process.uptime(),
     },
     database: {
-      rallies: rallies.map(row => group(row._count._all, { annotation_status: row.annotationStatus, processing_status: row.processingStatus })),
+      rallies: rallies.map(row =>
+        group(row._count._all, {
+          annotation_status: row.annotationStatus,
+          processing_status: row.processingStatus,
+        }),
+      ),
       clipJobs: clipJobs.map(row => group(row._count._all, { status: row.status })),
       aiJobs: aiJobs.map(row => group(row._count._all, { status: row.status })),
-      captures: captures.map(row => group(row._count._all, { health: row.health, status: row.status })),
+      captures: captures.map(row =>
+        group(row._count._all, { health: row.health, status: row.status }),
+      ),
       outboxEvents: outboxEvents.map(row => group(row._count._all, { status: row.status })),
       aiCallbacks: callbacks.map(row => group(row._count._all, { kind: row.kind })),
-      mediaAssets: mediaAssets.map(row => group(row._count._all, { kind: row.kind, state: row.state })),
-      annotationReceipts: annotationReceipts.map(row => group(row._count._all, { accepted: String(row.accepted) })),
+      mediaAssets: mediaAssets.map(row =>
+        group(row._count._all, { kind: row.kind, state: row.state }),
+      ),
+      annotationReceipts: annotationReceipts.map(row =>
+        group(row._count._all, { accepted: String(row.accepted) }),
+      ),
       annotationOperations: {
         lastAt: annotationOperations._max.createdAt?.toISOString() ?? null,
         total: annotationOperations._count._all,
       },
     },
-    aiWorkers: providerInstances.map((instance) => {
+    aiWorkers: providerInstances.map(instance => {
       const activeJobs = activeJobsByWorker.get(instance.id) ?? 0
       const status = instance.disconnectedAt
-        ? 'offline' as const
+        ? ('offline' as const)
         : instance.lastSeenAt.getTime() < workerStaleBefore
-          ? 'stale' as const
-          : 'online' as const
+          ? ('stale' as const)
+          : ('online' as const)
       return {
         id: instance.id,
         instanceKey: instance.instanceKey,
@@ -413,7 +494,7 @@ export async function collectOperationsSnapshot(
     hostStorage,
     objectStorage,
     matchMedia: [...matchMedia.values()],
-    streams: captureSessions.map((capture) => {
+    streams: captureSessions.map(capture => {
       const program = capture.programs[0]
       const totals = program ? totalsByProgram.get(program.id) : undefined
       return {
@@ -454,9 +535,10 @@ function escapeLabel(value: string) {
 
 function metricLine(name: string, value: number, labels: Record<string, string> = {}) {
   const entries = Object.entries(labels).sort(([left], [right]) => left.localeCompare(right))
-  const suffix = entries.length === 0
-    ? ''
-    : `{${entries.map(([key, label]) => `${key}="${escapeLabel(label)}"`).join(',')}}`
+  const suffix =
+    entries.length === 0
+      ? ''
+      : `{${entries.map(([key, label]) => `${key}="${escapeLabel(label)}"`).join(',')}}`
   return `${name}${suffix} ${value}`
 }
 
@@ -467,41 +549,147 @@ function groupedMetric(lines: string[], name: string, help: string, groups: Metr
 
 export function renderPrometheusMetrics(snapshot: OperationsSnapshot) {
   const lines: string[] = []
-  lines.push('# HELP vmai_process_resident_memory_bytes Resident process memory in bytes.', '# TYPE vmai_process_resident_memory_bytes gauge', metricLine('vmai_process_resident_memory_bytes', snapshot.process.residentBytes))
-  lines.push('# HELP vmai_process_heap_used_bytes JavaScript heap used in bytes.', '# TYPE vmai_process_heap_used_bytes gauge', metricLine('vmai_process_heap_used_bytes', snapshot.process.heapUsedBytes))
-  lines.push('# HELP vmai_process_uptime_seconds Server process uptime in seconds.', '# TYPE vmai_process_uptime_seconds gauge', metricLine('vmai_process_uptime_seconds', snapshot.process.uptimeSeconds))
+  lines.push(
+    '# HELP vmai_process_resident_memory_bytes Resident process memory in bytes.',
+    '# TYPE vmai_process_resident_memory_bytes gauge',
+    metricLine('vmai_process_resident_memory_bytes', snapshot.process.residentBytes),
+  )
+  lines.push(
+    '# HELP vmai_process_heap_used_bytes JavaScript heap used in bytes.',
+    '# TYPE vmai_process_heap_used_bytes gauge',
+    metricLine('vmai_process_heap_used_bytes', snapshot.process.heapUsedBytes),
+  )
+  lines.push(
+    '# HELP vmai_process_uptime_seconds Server process uptime in seconds.',
+    '# TYPE vmai_process_uptime_seconds gauge',
+    metricLine('vmai_process_uptime_seconds', snapshot.process.uptimeSeconds),
+  )
   if (snapshot.hostStorage.available) {
-    lines.push('# HELP vmai_host_storage_free_bytes Available bytes on the server temporary media volume.', '# TYPE vmai_host_storage_free_bytes gauge', metricLine('vmai_host_storage_free_bytes', Number(snapshot.hostStorage.freeBytes)))
-    lines.push('# HELP vmai_host_storage_used_bytes Used bytes on the server temporary media volume.', '# TYPE vmai_host_storage_used_bytes gauge', metricLine('vmai_host_storage_used_bytes', Number(snapshot.hostStorage.usedBytes)))
-    lines.push('# HELP vmai_host_storage_total_bytes Total bytes on the server temporary media volume.', '# TYPE vmai_host_storage_total_bytes gauge', metricLine('vmai_host_storage_total_bytes', Number(snapshot.hostStorage.totalBytes)))
-    lines.push('# HELP vmai_host_storage_managed_bytes Bytes managed under the configured server temporary directory.', '# TYPE vmai_host_storage_managed_bytes gauge', metricLine('vmai_host_storage_managed_bytes', Number(snapshot.hostStorage.managedBytes)))
+    lines.push(
+      '# HELP vmai_host_storage_free_bytes Available bytes on the server temporary media volume.',
+      '# TYPE vmai_host_storage_free_bytes gauge',
+      metricLine('vmai_host_storage_free_bytes', Number(snapshot.hostStorage.freeBytes)),
+    )
+    lines.push(
+      '# HELP vmai_host_storage_used_bytes Used bytes on the server temporary media volume.',
+      '# TYPE vmai_host_storage_used_bytes gauge',
+      metricLine('vmai_host_storage_used_bytes', Number(snapshot.hostStorage.usedBytes)),
+    )
+    lines.push(
+      '# HELP vmai_host_storage_total_bytes Total bytes on the server temporary media volume.',
+      '# TYPE vmai_host_storage_total_bytes gauge',
+      metricLine('vmai_host_storage_total_bytes', Number(snapshot.hostStorage.totalBytes)),
+    )
+    lines.push(
+      '# HELP vmai_host_storage_managed_bytes Bytes managed under the configured server temporary directory.',
+      '# TYPE vmai_host_storage_managed_bytes gauge',
+      metricLine('vmai_host_storage_managed_bytes', Number(snapshot.hostStorage.managedBytes)),
+    )
   }
   if (snapshot.objectStorage.available) {
-    lines.push('# HELP vmai_object_storage_free_bytes Available usable bytes in object storage.', '# TYPE vmai_object_storage_free_bytes gauge', metricLine('vmai_object_storage_free_bytes', Number(snapshot.objectStorage.freeBytes)))
-    lines.push('# HELP vmai_object_storage_used_bytes Used usable bytes in object storage.', '# TYPE vmai_object_storage_used_bytes gauge', metricLine('vmai_object_storage_used_bytes', Number(snapshot.objectStorage.usedBytes)))
-    lines.push('# HELP vmai_object_storage_total_bytes Total usable bytes in object storage.', '# TYPE vmai_object_storage_total_bytes gauge', metricLine('vmai_object_storage_total_bytes', Number(snapshot.objectStorage.totalBytes)))
-    lines.push('# HELP vmai_object_storage_managed_bytes Object bytes referenced by matches visible to the operator.', '# TYPE vmai_object_storage_managed_bytes gauge', metricLine('vmai_object_storage_managed_bytes', Number(snapshot.objectStorage.managedBytes)))
+    lines.push(
+      '# HELP vmai_object_storage_free_bytes Available usable bytes in object storage.',
+      '# TYPE vmai_object_storage_free_bytes gauge',
+      metricLine('vmai_object_storage_free_bytes', Number(snapshot.objectStorage.freeBytes)),
+    )
+    lines.push(
+      '# HELP vmai_object_storage_used_bytes Used usable bytes in object storage.',
+      '# TYPE vmai_object_storage_used_bytes gauge',
+      metricLine('vmai_object_storage_used_bytes', Number(snapshot.objectStorage.usedBytes)),
+    )
+    lines.push(
+      '# HELP vmai_object_storage_total_bytes Total usable bytes in object storage.',
+      '# TYPE vmai_object_storage_total_bytes gauge',
+      metricLine('vmai_object_storage_total_bytes', Number(snapshot.objectStorage.totalBytes)),
+    )
+    lines.push(
+      '# HELP vmai_object_storage_managed_bytes Object bytes referenced by matches visible to the operator.',
+      '# TYPE vmai_object_storage_managed_bytes gauge',
+      metricLine('vmai_object_storage_managed_bytes', Number(snapshot.objectStorage.managedBytes)),
+    )
   }
-  groupedMetric(lines, 'vmai_rallies_total', 'Persisted rallies grouped by annotation and processing state.', snapshot.database.rallies)
-  groupedMetric(lines, 'vmai_clip_jobs_total', 'Clip jobs grouped by durable status.', snapshot.database.clipJobs)
-  groupedMetric(lines, 'vmai_ai_jobs_total', 'AI jobs grouped by durable status.', snapshot.database.aiJobs)
-  groupedMetric(lines, 'vmai_capture_sessions_total', 'Capture sessions grouped by lifecycle and source health.', snapshot.database.captures)
-  groupedMetric(lines, 'vmai_outbox_events_total', 'Outbox events grouped by delivery status.', snapshot.database.outboxEvents)
-  groupedMetric(lines, 'vmai_ai_callback_receipts_total', 'Accepted AI callback receipts grouped by kind.', snapshot.database.aiCallbacks)
-  groupedMetric(lines, 'vmai_media_assets_total', 'Media assets grouped by immutable kind and lifecycle state.', snapshot.database.mediaAssets)
-  groupedMetric(lines, 'vmai_annotation_command_receipts_total', 'Annotation command receipts grouped by acceptance.', snapshot.database.annotationReceipts)
-  lines.push('# HELP vmai_ai_provider_worker_online AI provider worker liveness (1 online, 0 otherwise).', '# TYPE vmai_ai_provider_worker_online gauge')
-  lines.push('# HELP vmai_ai_provider_worker_active_jobs Active deliveries owned by an AI provider worker.', '# TYPE vmai_ai_provider_worker_active_jobs gauge')
-  lines.push('# HELP vmai_ai_provider_worker_capacity Configured maximum concurrency for an AI provider worker.', '# TYPE vmai_ai_provider_worker_capacity gauge')
+  groupedMetric(
+    lines,
+    'vmai_rallies_total',
+    'Persisted rallies grouped by annotation and processing state.',
+    snapshot.database.rallies,
+  )
+  groupedMetric(
+    lines,
+    'vmai_clip_jobs_total',
+    'Clip jobs grouped by durable status.',
+    snapshot.database.clipJobs,
+  )
+  groupedMetric(
+    lines,
+    'vmai_ai_jobs_total',
+    'AI jobs grouped by durable status.',
+    snapshot.database.aiJobs,
+  )
+  groupedMetric(
+    lines,
+    'vmai_capture_sessions_total',
+    'Capture sessions grouped by lifecycle and source health.',
+    snapshot.database.captures,
+  )
+  groupedMetric(
+    lines,
+    'vmai_outbox_events_total',
+    'Outbox events grouped by delivery status.',
+    snapshot.database.outboxEvents,
+  )
+  groupedMetric(
+    lines,
+    'vmai_ai_callback_receipts_total',
+    'Accepted AI callback receipts grouped by kind.',
+    snapshot.database.aiCallbacks,
+  )
+  groupedMetric(
+    lines,
+    'vmai_media_assets_total',
+    'Media assets grouped by immutable kind and lifecycle state.',
+    snapshot.database.mediaAssets,
+  )
+  groupedMetric(
+    lines,
+    'vmai_annotation_command_receipts_total',
+    'Annotation command receipts grouped by acceptance.',
+    snapshot.database.annotationReceipts,
+  )
+  lines.push(
+    '# HELP vmai_ai_provider_worker_online AI provider worker liveness (1 online, 0 otherwise).',
+    '# TYPE vmai_ai_provider_worker_online gauge',
+  )
+  lines.push(
+    '# HELP vmai_ai_provider_worker_active_jobs Active deliveries owned by an AI provider worker.',
+    '# TYPE vmai_ai_provider_worker_active_jobs gauge',
+  )
+  lines.push(
+    '# HELP vmai_ai_provider_worker_capacity Configured maximum concurrency for an AI provider worker.',
+    '# TYPE vmai_ai_provider_worker_capacity gauge',
+  )
   for (const worker of snapshot.aiWorkers) {
     const labels = { instance: worker.instanceKey, build: worker.providerBuildId }
-    lines.push(metricLine('vmai_ai_provider_worker_online', worker.status === 'online' ? 1 : 0, labels))
+    lines.push(
+      metricLine('vmai_ai_provider_worker_online', worker.status === 'online' ? 1 : 0, labels),
+    )
     lines.push(metricLine('vmai_ai_provider_worker_active_jobs', worker.activeJobs, labels))
     lines.push(metricLine('vmai_ai_provider_worker_capacity', worker.maxConcurrency, labels))
   }
-  lines.push('# HELP vmai_annotation_operations_total Durable annotation audit operations.', '# TYPE vmai_annotation_operations_total gauge', metricLine('vmai_annotation_operations_total', snapshot.database.annotationOperations.total))
+  lines.push(
+    '# HELP vmai_annotation_operations_total Durable annotation audit operations.',
+    '# TYPE vmai_annotation_operations_total gauge',
+    metricLine('vmai_annotation_operations_total', snapshot.database.annotationOperations.total),
+  )
   if (snapshot.database.annotationOperations.lastAt) {
-    lines.push('# HELP vmai_annotation_operation_last_timestamp_seconds Unix timestamp of the newest durable annotation operation.', '# TYPE vmai_annotation_operation_last_timestamp_seconds gauge', metricLine('vmai_annotation_operation_last_timestamp_seconds', Date.parse(snapshot.database.annotationOperations.lastAt) / 1000))
+    lines.push(
+      '# HELP vmai_annotation_operation_last_timestamp_seconds Unix timestamp of the newest durable annotation operation.',
+      '# TYPE vmai_annotation_operation_last_timestamp_seconds gauge',
+      metricLine(
+        'vmai_annotation_operation_last_timestamp_seconds',
+        Date.parse(snapshot.database.annotationOperations.lastAt) / 1000,
+      ),
+    )
   }
   return `${lines.join('\n')}\n`
 }
@@ -518,7 +706,7 @@ export function operationsRoutes(
     updateAiWorkerTokenState?: AiWorkerTokenStateUpdater
   } = {},
 ): FastifyPluginAsync {
-  return async (app) => {
+  return async app => {
     app.get('/internal/metrics', async (_request, reply) => {
       const snapshot = await collect()
       return reply
@@ -531,117 +719,169 @@ export function operationsRoutes(
       return reply.header('cache-control', 'no-store').send(snapshot)
     })
     app.get('/api/v1/operations/summary', async (request, reply) => {
-      if (!options.authenticate || !options.collectReadiness) return reply.status(404).send({ error: 'Not found' })
-      let identity: OperationsIdentity | null = null
+      if (!options.authenticate || !options.collectReadiness)
+        return reply.status(404).send({ error: 'Not found' })
+      let identity: OperationsIdentity | null
       try {
         identity = await options.authenticate(request)
-      }
-      catch {
+      } catch {
         return reply.status(401).send({ error: 'Authentication required' })
       }
       if (!identity) return reply.status(401).send({ error: 'Authentication required' })
       if (identity.role !== 'ADMIN' && identity.role !== 'OPERATOR') {
         return reply.status(403).send({ error: 'Operations access required' })
       }
-      const [operations, readiness] = await Promise.all([collect(identity), options.collectReadiness()])
+      const [operations, readiness] = await Promise.all([
+        collect(identity),
+        options.collectReadiness(),
+      ])
       const payload: OperationsDashboardSnapshot = { operations, readiness }
       return reply.header('cache-control', 'no-store').send(payload)
     })
-    app.delete<{ Params: { workerId: string } }>('/api/v1/operations/ai-workers/:workerId', async (request, reply) => {
-      if (!options.authenticate || !options.deleteAiWorker) return reply.status(404).send({ error: 'Not found' })
-      let identity: OperationsIdentity | null = null
-      try {
-        identity = await options.authenticate(request)
-      }
-      catch {
-        return reply.status(401).send({ error: 'Authentication required' })
-      }
-      if (!identity) return reply.status(401).send({ error: 'Authentication required' })
-      if (identity.role !== 'ADMIN' && identity.role !== 'OPERATOR') {
-        return reply.status(403).send({ error: 'Operations access required' })
-      }
-      if (!UUID_PATTERN.test(request.params.workerId)) {
-        return reply.status(400).send({ code: 'INVALID_AI_WORKER_ID', error: 'Invalid AI worker id' })
-      }
+    app.delete<{ Params: { workerId: string } }>(
+      '/api/v1/operations/ai-workers/:workerId',
+      async (request, reply) => {
+        if (!options.authenticate || !options.deleteAiWorker)
+          return reply.status(404).send({ error: 'Not found' })
+        let identity: OperationsIdentity | null
+        try {
+          identity = await options.authenticate(request)
+        } catch {
+          return reply.status(401).send({ error: 'Authentication required' })
+        }
+        if (!identity) return reply.status(401).send({ error: 'Authentication required' })
+        if (identity.role !== 'ADMIN' && identity.role !== 'OPERATOR') {
+          return reply.status(403).send({ error: 'Operations access required' })
+        }
+        if (!UUID_PATTERN.test(request.params.workerId)) {
+          return reply
+            .status(400)
+            .send({ code: 'INVALID_AI_WORKER_ID', error: 'Invalid AI worker id' })
+        }
 
-      const result = await options.deleteAiWorker(request.params.workerId, identity)
-      if (!result.deleted) {
-        if (result.reason === 'not_found') {
-          return reply.status(404).send({ code: 'AI_WORKER_NOT_FOUND', error: 'AI worker not found' })
+        const result = await options.deleteAiWorker(request.params.workerId, identity)
+        if (!result.deleted) {
+          if (result.reason === 'not_found') {
+            return reply
+              .status(404)
+              .send({ code: 'AI_WORKER_NOT_FOUND', error: 'AI worker not found' })
+          }
+          if (result.reason === 'online') {
+            return reply
+              .status(409)
+              .send({ code: 'AI_WORKER_ONLINE', error: 'AI worker is online' })
+          }
+          return reply
+            .status(409)
+            .send({ code: 'AI_WORKER_HAS_ACTIVE_JOBS', error: 'AI worker still owns active jobs' })
         }
-        if (result.reason === 'online') {
-          return reply.status(409).send({ code: 'AI_WORKER_ONLINE', error: 'AI worker is online' })
-        }
-        return reply.status(409).send({ code: 'AI_WORKER_HAS_ACTIVE_JOBS', error: 'AI worker still owns active jobs' })
-      }
-      return reply.header('cache-control', 'no-store').send({
-        schema_version: '1.0.0',
-        deleted_worker: { id: result.id, instance_key: result.instanceKey },
-      })
-    })
-    app.post<{ Body: { name?: string } }>('/api/v1/operations/ai-worker-tokens', async (request, reply) => {
-      if (!options.authenticate || !options.createAiWorkerToken) return reply.status(404).send({ error: 'Not found' })
-      const identity = await options.authenticate(request).catch(() => null)
-      if (!identity) return reply.status(401).send({ error: 'Authentication required' })
-      try {
-        const result = await options.createAiWorkerToken(request.body?.name ?? '', identity)
-        return reply.status(201).header('cache-control', 'no-store').send({
-          schema_version: '1.0.0',
-          access_token: result.accessToken,
-          token: result.token,
-        })
-      }
-      catch (error) {
-        if (error instanceof AiWorkerAccessError) {
-          return reply.status(error.code === 'NAME_CONFLICT' ? 409 : 400).send({ code: error.code, error: error.message })
-        }
-        throw error
-      }
-    })
-    app.post<{ Params: { tokenId: string } }>('/api/v1/operations/ai-worker-tokens/:tokenId/rotate', async (request, reply) => {
-      if (!options.authenticate || !options.rotateAiWorkerToken) return reply.status(404).send({ error: 'Not found' })
-      const identity = await options.authenticate(request).catch(() => null)
-      if (!identity) return reply.status(401).send({ error: 'Authentication required' })
-      if (!UUID_PATTERN.test(request.params.tokenId)) return reply.status(400).send({ code: 'INVALID_AI_WORKER_TOKEN_ID', error: 'Invalid AI worker token id' })
-      try {
-        const result = await options.rotateAiWorkerToken(request.params.tokenId, identity)
-        return reply.header('cache-control', 'no-store').send({ schema_version: '1.0.0', token_id: result.tokenId, token: result.token })
-      }
-      catch (error) {
-        if (error instanceof AiWorkerAccessError && error.code === 'NOT_FOUND') return reply.status(404).send({ code: error.code, error: error.message })
-        throw error
-      }
-    })
-    app.patch<{ Body: { enabled?: boolean }; Params: { tokenId: string } }>('/api/v1/operations/ai-worker-tokens/:tokenId', async (request, reply) => {
-      if (!options.authenticate || !options.updateAiWorkerTokenState) return reply.status(404).send({ error: 'Not found' })
-      const identity = await options.authenticate(request).catch(() => null)
-      if (!identity) return reply.status(401).send({ error: 'Authentication required' })
-      if (!UUID_PATTERN.test(request.params.tokenId) || typeof request.body?.enabled !== 'boolean') return reply.status(400).send({ code: 'INVALID_AI_WORKER_TOKEN_UPDATE', error: 'Invalid AI worker token update' })
-      try {
-        const result = await options.updateAiWorkerTokenState(request.params.tokenId, request.body.enabled, identity)
-        return reply.header('cache-control', 'no-store').send({ schema_version: '1.0.0', token_id: result.tokenId, enabled: result.enabled })
-      }
-      catch (error) {
-        if (error instanceof AiWorkerAccessError && error.code === 'NOT_FOUND') return reply.status(404).send({ code: error.code, error: error.message })
-        throw error
-      }
-    })
-    app.delete<{ Params: { tokenId: string } }>('/api/v1/operations/ai-worker-tokens/:tokenId', async (request, reply) => {
-      if (!options.authenticate || !options.deleteAiWorkerToken) return reply.status(404).send({ error: 'Not found' })
-      const identity = await options.authenticate(request).catch(() => null)
-      if (!identity) return reply.status(401).send({ error: 'Authentication required' })
-      if (!UUID_PATTERN.test(request.params.tokenId)) return reply.status(400).send({ code: 'INVALID_AI_WORKER_TOKEN_ID', error: 'Invalid AI worker token id' })
-      try {
-        const result = await options.deleteAiWorkerToken(request.params.tokenId, identity)
         return reply.header('cache-control', 'no-store').send({
           schema_version: '1.0.0',
-          deleted_token: { id: result.tokenId },
+          deleted_worker: { id: result.id, instance_key: result.instanceKey },
         })
-      }
-      catch (error) {
-        if (error instanceof AiWorkerAccessError && error.code === 'NOT_FOUND') return reply.status(404).send({ code: error.code, error: error.message })
-        throw error
-      }
-    })
+      },
+    )
+    app.post<{ Body: { name?: string } }>(
+      '/api/v1/operations/ai-worker-tokens',
+      async (request, reply) => {
+        if (!options.authenticate || !options.createAiWorkerToken)
+          return reply.status(404).send({ error: 'Not found' })
+        const identity = await options.authenticate(request).catch(() => null)
+        if (!identity) return reply.status(401).send({ error: 'Authentication required' })
+        try {
+          const result = await options.createAiWorkerToken(request.body?.name ?? '', identity)
+          return reply.status(201).header('cache-control', 'no-store').send({
+            schema_version: '1.0.0',
+            access_token: result.accessToken,
+            token: result.token,
+          })
+        } catch (error) {
+          if (error instanceof AiWorkerAccessError) {
+            return reply
+              .status(error.code === 'NAME_CONFLICT' ? 409 : 400)
+              .send({ code: error.code, error: error.message })
+          }
+          throw error
+        }
+      },
+    )
+    app.post<{ Params: { tokenId: string } }>(
+      '/api/v1/operations/ai-worker-tokens/:tokenId/rotate',
+      async (request, reply) => {
+        if (!options.authenticate || !options.rotateAiWorkerToken)
+          return reply.status(404).send({ error: 'Not found' })
+        const identity = await options.authenticate(request).catch(() => null)
+        if (!identity) return reply.status(401).send({ error: 'Authentication required' })
+        if (!UUID_PATTERN.test(request.params.tokenId))
+          return reply
+            .status(400)
+            .send({ code: 'INVALID_AI_WORKER_TOKEN_ID', error: 'Invalid AI worker token id' })
+        try {
+          const result = await options.rotateAiWorkerToken(request.params.tokenId, identity)
+          return reply
+            .header('cache-control', 'no-store')
+            .send({ schema_version: '1.0.0', token_id: result.tokenId, token: result.token })
+        } catch (error) {
+          if (error instanceof AiWorkerAccessError && error.code === 'NOT_FOUND')
+            return reply.status(404).send({ code: error.code, error: error.message })
+          throw error
+        }
+      },
+    )
+    app.patch<{ Body: { enabled?: boolean }; Params: { tokenId: string } }>(
+      '/api/v1/operations/ai-worker-tokens/:tokenId',
+      async (request, reply) => {
+        if (!options.authenticate || !options.updateAiWorkerTokenState)
+          return reply.status(404).send({ error: 'Not found' })
+        const identity = await options.authenticate(request).catch(() => null)
+        if (!identity) return reply.status(401).send({ error: 'Authentication required' })
+        if (
+          !UUID_PATTERN.test(request.params.tokenId) ||
+          typeof request.body?.enabled !== 'boolean'
+        )
+          return reply.status(400).send({
+            code: 'INVALID_AI_WORKER_TOKEN_UPDATE',
+            error: 'Invalid AI worker token update',
+          })
+        try {
+          const result = await options.updateAiWorkerTokenState(
+            request.params.tokenId,
+            request.body.enabled,
+            identity,
+          )
+          return reply
+            .header('cache-control', 'no-store')
+            .send({ schema_version: '1.0.0', token_id: result.tokenId, enabled: result.enabled })
+        } catch (error) {
+          if (error instanceof AiWorkerAccessError && error.code === 'NOT_FOUND')
+            return reply.status(404).send({ code: error.code, error: error.message })
+          throw error
+        }
+      },
+    )
+    app.delete<{ Params: { tokenId: string } }>(
+      '/api/v1/operations/ai-worker-tokens/:tokenId',
+      async (request, reply) => {
+        if (!options.authenticate || !options.deleteAiWorkerToken)
+          return reply.status(404).send({ error: 'Not found' })
+        const identity = await options.authenticate(request).catch(() => null)
+        if (!identity) return reply.status(401).send({ error: 'Authentication required' })
+        if (!UUID_PATTERN.test(request.params.tokenId))
+          return reply
+            .status(400)
+            .send({ code: 'INVALID_AI_WORKER_TOKEN_ID', error: 'Invalid AI worker token id' })
+        try {
+          const result = await options.deleteAiWorkerToken(request.params.tokenId, identity)
+          return reply.header('cache-control', 'no-store').send({
+            schema_version: '1.0.0',
+            deleted_token: { id: result.tokenId },
+          })
+        } catch (error) {
+          if (error instanceof AiWorkerAccessError && error.code === 'NOT_FOUND')
+            return reply.status(404).send({ code: error.code, error: error.message })
+          throw error
+        }
+      },
+    )
   }
 }

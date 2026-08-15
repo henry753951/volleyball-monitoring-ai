@@ -1,7 +1,4 @@
-export const workerRoles = [
-  'media',
-  'workflow',
-] as const
+export const workerRoles = ['media', 'workflow'] as const
 
 export type WorkerRole = (typeof workerRoles)[number]
 

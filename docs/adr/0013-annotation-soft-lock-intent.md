@@ -25,6 +25,7 @@ Soft locks are advisory only. They must never become PostgreSQL state, a prerequ
    ```
 
    It contains no command ID, Rally ID, revision, playback cursor or identity. Authentication, user and device session come only from the authorized WebSocket connection.
+
 3. The server stores the hint in the existing Redis presence hash with an independent 12-second expiry and publishes the existing strict `presence_snapshot`. The client refreshes an active hint every five seconds and sends `null` on release/disconnect. A server expiry timer publishes a clearing snapshot even if the release message is lost.
 4. A remote hint changes presentation only. The marker remains selectable/draggable, the server still accepts concurrent MOVE attempts, and ordinary serializable revision/CAS conflict handling decides canonical state.
 5. A drag target is only navigation intent. The workstation opens a bounded archive window, waits for a real browser frame observation and asks the server to resolve it before sending the unchanged `MOVE_KEY_POINT` command. Timeline pixel position never becomes an authoritative anchor.

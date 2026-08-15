@@ -1,1 +1,1 @@
-export * from '@volleyball-monitoring/media/resolver';
+export * from '@volleyball-monitoring/media/resolver'

@@ -11,11 +11,13 @@ describe('annotation workstation polling policy', () => {
   })
 
   it('does not treat idle drafts or terminal rallies as active processing', () => {
-    expect(hasActiveRallyProcessing([
-      { processing_status: 'idle' },
-      { processing_status: 'completed' },
-      { processing_status: 'failed' },
-    ])).toBe(false)
+    expect(
+      hasActiveRallyProcessing([
+        { processing_status: 'idle' },
+        { processing_status: 'completed' },
+        { processing_status: 'failed' },
+      ]),
+    ).toBe(false)
   })
 
   it('keeps polling while a clip or AI artifact is actually progressing', () => {

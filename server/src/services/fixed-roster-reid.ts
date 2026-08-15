@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto'
-import { IdentitySource, Prisma, TrackCourtSide } from '@volleyball-monitoring/db/client'
+import type { Prisma } from '@volleyball-monitoring/db/client'
+import { IdentitySource, TrackCourtSide } from '@volleyball-monitoring/db/client'
 
 type TransactionClient = Prisma.TransactionClient
 type CourtSide = 'left' | 'right' | 'unknown'
@@ -73,7 +74,12 @@ function exactRecord(value: unknown, keys: readonly string[], label: string) {
   return value
 }
 
-function integer(value: unknown, label: string, minimum: number, maximum = Number.MAX_SAFE_INTEGER) {
+function integer(
+  value: unknown,
+  label: string,
+  minimum: number,
+  maximum = Number.MAX_SAFE_INTEGER,
+) {
   if (typeof value !== 'number' || !Number.isInteger(value) || value < minimum || value > maximum) {
     throw new FixedRosterReidError(`${label} must be an integer between ${minimum} and ${maximum}`)
   }
@@ -97,7 +103,10 @@ function uint64(value: unknown, label: string) {
 function stableJson(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map(stableJson).join(',')}]`
   if (!isRecord(value)) return JSON.stringify(value)
-  return `{${Object.keys(value).sort().map(key => `${JSON.stringify(key)}:${stableJson(value[key])}`).join(',')}}`
+  return `{${Object.keys(value)
+    .sort()
+    .map(key => `${JSON.stringify(key)}:${stableJson(value[key])}`)
+    .join(',')}}`
 }
 
 function parseDescriptor(value: unknown, name: DescriptorName, label: string) {
@@ -139,11 +148,20 @@ function resultTracks(result: Record<string, unknown>) {
   return tracks
 }
 
-export function parseFixedRosterReidExtension(result: Record<string, unknown>): ParsedFixedRosterReid | null {
+export function parseFixedRosterReidExtension(
+  result: Record<string, unknown>,
+): ParsedFixedRosterReid | null {
   if (!isRecord(result.extensions) || !('fixed_roster_reid' in result.extensions)) return null
   const payload = exactRecord(
     result.extensions.fixed_roster_reid,
-    ['schema_version', 'scope', 'identity_contract', 'slots_per_team', 'descriptor_recipe', 'tracklets'],
+    [
+      'schema_version',
+      'scope',
+      'identity_contract',
+      'slots_per_team',
+      'descriptor_recipe',
+      'tracklets',
+    ],
     'fixed_roster_reid',
   )
   if (payload.schema_version !== '2.0.0' || payload.scope !== 'clip') {
@@ -152,32 +170,54 @@ export function parseFixedRosterReidExtension(result: Record<string, unknown>): 
   if (payload.identity_contract !== 'fixed-six-per-team' || payload.slots_per_team !== SLOT_COUNT) {
     throw new FixedRosterReidError('fixed_roster_reid must use exactly six slots per team')
   }
-  if (!isRecord(payload.descriptor_recipe)
-    || payload.descriptor_recipe.name !== 'nested-part-adaptation'
-    || payload.descriptor_recipe.version !== '1.0.0'
-    || payload.descriptor_recipe.selection_protocol !== 'past-only-nested-leave-one-clip-out') {
+  if (
+    !isRecord(payload.descriptor_recipe) ||
+    payload.descriptor_recipe.name !== 'nested-part-adaptation' ||
+    payload.descriptor_recipe.version !== '1.0.0' ||
+    payload.descriptor_recipe.selection_protocol !== 'past-only-nested-leave-one-clip-out'
+  ) {
     throw new FixedRosterReidError('descriptor_recipe is not Nested Part Adaptation v1')
   }
-  if (!Array.isArray(payload.tracklets)) throw new FixedRosterReidError('tracklets must be an array')
+  if (!Array.isArray(payload.tracklets))
+    throw new FixedRosterReidError('tracklets must be an array')
 
   const tracks = resultTracks(result)
   const seenTrackIds = new Set<number>()
   const seenCanonicalIds = new Set<number>()
   const tracklets = payload.tracklets.map((entry, index): FixedRosterTracklet => {
     const label = `tracklets[${index}]`
-    const tracklet = exactRecord(entry, [
-      'canonical_track_id', 'track_ids', 'court_side', 'median_court_pos',
-      'first_frame_index', 'last_frame_index', 'sample_count', 'mean_quality',
-      'prompt_coverage', 'descriptors', 'cannot_link_canonical_track_ids',
-    ], label)
-    const canonicalTrackId = integer(tracklet.canonical_track_id, `${label}.canonical_track_id`, 0, 65_534)
-    if (seenCanonicalIds.has(canonicalTrackId)) throw new FixedRosterReidError(`${label} duplicates a canonical track`)
+    const tracklet = exactRecord(
+      entry,
+      [
+        'canonical_track_id',
+        'track_ids',
+        'court_side',
+        'median_court_pos',
+        'first_frame_index',
+        'last_frame_index',
+        'sample_count',
+        'mean_quality',
+        'prompt_coverage',
+        'descriptors',
+        'cannot_link_canonical_track_ids',
+      ],
+      label,
+    )
+    const canonicalTrackId = integer(
+      tracklet.canonical_track_id,
+      `${label}.canonical_track_id`,
+      0,
+      65_534,
+    )
+    if (seenCanonicalIds.has(canonicalTrackId))
+      throw new FixedRosterReidError(`${label} duplicates a canonical track`)
     seenCanonicalIds.add(canonicalTrackId)
     if (!Array.isArray(tracklet.track_ids) || tracklet.track_ids.length === 0) {
       throw new FixedRosterReidError(`${label}.track_ids must be non-empty`)
     }
     const trackIds = tracklet.track_ids.map((value, aliasIndex) =>
-      integer(value, `${label}.track_ids[${aliasIndex}]`, 0, 65_534))
+      integer(value, `${label}.track_ids[${aliasIndex}]`, 0, 65_534),
+    )
     if (!trackIds.includes(canonicalTrackId) || new Set(trackIds).size !== trackIds.length) {
       throw new FixedRosterReidError(`${label}.track_ids must uniquely contain its canonical track`)
     }
@@ -188,17 +228,23 @@ export function parseFixedRosterReidExtension(result: Record<string, unknown>): 
     for (const trackId of trackIds) {
       const track = tracks.get(trackId)
       if (!track || track.courtSide !== courtSide || seenTrackIds.has(trackId)) {
-        throw new FixedRosterReidError(`${label} has an invalid or repeated analysis track reference`)
+        throw new FixedRosterReidError(
+          `${label} has an invalid or repeated analysis track reference`,
+        )
       }
       seenTrackIds.add(trackId)
     }
     const firstFrame = uint64(tracklet.first_frame_index, `${label}.first_frame_index`)
     const lastFrame = uint64(tracklet.last_frame_index, `${label}.last_frame_index`)
     const aliasTracks = trackIds.map(trackId => tracks.get(trackId)!)
-    const earliestAliasFrame = aliasTracks.reduce((minimum, track) =>
-      track.firstFrame < minimum ? track.firstFrame : minimum, aliasTracks[0]!.firstFrame)
-    const latestAliasFrame = aliasTracks.reduce((maximum, track) =>
-      track.lastFrame > maximum ? track.lastFrame : maximum, aliasTracks[0]!.lastFrame)
+    const earliestAliasFrame = aliasTracks.reduce(
+      (minimum, track) => (track.firstFrame < minimum ? track.firstFrame : minimum),
+      aliasTracks[0]!.firstFrame,
+    )
+    const latestAliasFrame = aliasTracks.reduce(
+      (maximum, track) => (track.lastFrame > maximum ? track.lastFrame : maximum),
+      aliasTracks[0]!.lastFrame,
+    )
     if (lastFrame < firstFrame || firstFrame < earliestAliasFrame || lastFrame > latestAliasFrame) {
       throw new FixedRosterReidError(`${label} frame range is outside its alias group`)
     }
@@ -215,15 +261,21 @@ export function parseFixedRosterReidExtension(result: Record<string, unknown>): 
     let descriptors: Record<DescriptorName, number[]> | null = null
     if (tracklet.descriptors !== null) {
       const raw = exactRecord(tracklet.descriptors, MODALITIES, `${label}.descriptors`)
-      descriptors = Object.fromEntries(MODALITIES.map(name => [name, parseDescriptor(raw[name], name, `${label}.descriptors`)])) as Record<DescriptorName, number[]>
+      descriptors = Object.fromEntries(
+        MODALITIES.map(name => [name, parseDescriptor(raw[name], name, `${label}.descriptors`)]),
+      ) as Record<DescriptorName, number[]>
     }
     if (!Array.isArray(tracklet.cannot_link_canonical_track_ids)) {
       throw new FixedRosterReidError(`${label}.cannot_link_canonical_track_ids must be an array`)
     }
-    const cannotLinkCanonicalTrackIds = tracklet.cannot_link_canonical_track_ids.map((value, linkIndex) =>
-      integer(value, `${label}.cannot_link_canonical_track_ids[${linkIndex}]`, 0, 65_534))
-    if (cannotLinkCanonicalTrackIds.includes(canonicalTrackId)
-      || new Set(cannotLinkCanonicalTrackIds).size !== cannotLinkCanonicalTrackIds.length) {
+    const cannotLinkCanonicalTrackIds = tracklet.cannot_link_canonical_track_ids.map(
+      (value, linkIndex) =>
+        integer(value, `${label}.cannot_link_canonical_track_ids[${linkIndex}]`, 0, 65_534),
+    )
+    if (
+      cannotLinkCanonicalTrackIds.includes(canonicalTrackId) ||
+      new Set(cannotLinkCanonicalTrackIds).size !== cannotLinkCanonicalTrackIds.length
+    ) {
       throw new FixedRosterReidError(`${label} contains a duplicate or self cannot-link`)
     }
     return {
@@ -244,7 +296,9 @@ export function parseFixedRosterReidExtension(result: Record<string, unknown>): 
     for (const linked of tracklet.cannotLinkCanonicalTrackIds) {
       const other = tracklets.find(candidate => candidate.canonicalTrackId === linked)
       if (!other || !other.cannotLinkCanonicalTrackIds.includes(tracklet.canonicalTrackId)) {
-        throw new FixedRosterReidError(`cannot-link ${tracklet.canonicalTrackId}<->${linked} must be symmetric`)
+        throw new FixedRosterReidError(
+          `cannot-link ${tracklet.canonicalTrackId}<->${linked} must be symmetric`,
+        )
       }
     }
   }
@@ -266,10 +320,13 @@ function norm(values: readonly number[]) {
 
 function normalized(values: readonly number[]) {
   const length = norm(values)
-  return values.map(value => length > 1e-12 ? value / length : 0)
+  return values.map(value => (length > 1e-12 ? value / length : 0))
 }
 
-function featureVector(descriptors: Record<DescriptorName, number[]>, modalities: readonly DescriptorName[]) {
+function featureVector(
+  descriptors: Record<DescriptorName, number[]>,
+  modalities: readonly DescriptorName[],
+) {
   const scale = Math.sqrt(modalities.length)
   return modalities.flatMap(name => normalized(descriptors[name]).map(value => value / scale))
 }
@@ -294,7 +351,8 @@ function solveLinearSystem(matrix: number[][], targets: number[][]) {
     ;[augmented[column], augmented[pivot]] = [augmented[pivot]!, augmented[column]!]
     const divisor = augmented[column]![column]!
     if (Math.abs(divisor) < 1e-12) throw new FixedRosterReidError('kernel ridge system is singular')
-    for (let value = column; value < matrix.length + width; value += 1) augmented[column]![value]! /= divisor
+    for (let value = column; value < matrix.length + width; value += 1)
+      augmented[column]![value]! /= divisor
     for (let row = 0; row < matrix.length; row += 1) {
       if (row === column) continue
       const factor = augmented[row]![column]!
@@ -306,19 +364,35 @@ function solveLinearSystem(matrix: number[][], targets: number[][]) {
   return augmented.map(row => row.slice(matrix.length))
 }
 
-function fitAndScore(train: HistoricalRow[], query: Record<DescriptorName, number[]>, candidate: NestedCandidate) {
+function fitAndScore(
+  train: HistoricalRow[],
+  query: Record<DescriptorName, number[]>,
+  candidate: NestedCandidate,
+) {
   const labels = [...new Set(train.map(row => row.label))].sort()
-  const labelIndex = new Map(labels.map((label, index) => [label, index]))
   const vectors = train.map(row => featureVector(row.descriptors, candidate.modalities))
-  const mean = vectors[0]!.map((_, column) => vectors.reduce((sum, row) => sum + row[column]!, 0) / vectors.length)
+  const mean = vectors[0]!.map(
+    (_, column) => vectors.reduce((sum, row) => sum + row[column]!, 0) / vectors.length,
+  )
   const centered = vectors.map(row => normalized(row.map((value, column) => value - mean[column]!)))
-  const gram = centered.map((left, row) => centered.map((right, column) =>
-    kernel(left, right, candidate.kernel) + (row === column ? candidate.regularization : 0)))
+  const gram = centered.map((left, row) =>
+    centered.map(
+      (right, column) =>
+        kernel(left, right, candidate.kernel) + (row === column ? candidate.regularization : 0),
+    ),
+  )
   const targets = train.map(row => labels.map(label => Number(label === row.label)))
   const dual = solveLinearSystem(gram, targets)
-  const queryVector = normalized(featureVector(query, candidate.modalities).map((value, column) => value - mean[column]!))
-  const scores = labels.map((_, labelColumn) => centered.reduce((sum, row, trainIndex) =>
-    sum + kernel(queryVector, row, candidate.kernel) * dual[trainIndex]![labelColumn]!, 0))
+  const queryVector = normalized(
+    featureVector(query, candidate.modalities).map((value, column) => value - mean[column]!),
+  )
+  const scores = labels.map((_, labelColumn) =>
+    centered.reduce(
+      (sum, row, trainIndex) =>
+        sum + kernel(queryVector, row, candidate.kernel) * dual[trainIndex]![labelColumn]!,
+      0,
+    ),
+  )
   return Object.fromEntries(labels.map((label, index) => [label, scores[index]!]))
 }
 
@@ -327,7 +401,9 @@ function modalitySubsets() {
   for (let mask = 1; mask < 1 << MODALITIES.length; mask += 1) {
     output.push(MODALITIES.filter((_, index) => (mask & (1 << index)) !== 0))
   }
-  return output.sort((left, right) => left.length - right.length || left.join(',').localeCompare(right.join(',')))
+  return output.sort(
+    (left, right) => left.length - right.length || left.join(',').localeCompare(right.join(',')),
+  )
 }
 
 export function selectNestedCandidate(history: HistoricalRow[]): NestedCandidate {
@@ -344,14 +420,20 @@ export function selectNestedCandidate(history: HistoricalRow[]): NestedCandidate
           for (const query of history.filter(row => row.clipId === heldOut)) {
             if (!train.length) continue
             const scores = fitAndScore(train, query.descriptors, candidate)
-            const predicted = Object.entries(scores).sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0]))[0]?.[0]
+            const predicted = Object.entries(scores).sort(
+              (left, right) => right[1] - left[1] || left[0].localeCompare(right[0]),
+            )[0]?.[0]
             if (predicted === query.label) hits += 1
           }
         }
-        if (!best || hits > best.hits
-          || (hits === best.hits && modalities.length < best.candidate.modalities.length)
-          || (hits === best.hits && modalities.length === best.candidate.modalities.length
-            && modalities.join(',').localeCompare(best.candidate.modalities.join(',')) > 0)) {
+        if (
+          !best ||
+          hits > best.hits ||
+          (hits === best.hits && modalities.length < best.candidate.modalities.length) ||
+          (hits === best.hits &&
+            modalities.length === best.candidate.modalities.length &&
+            modalities.join(',').localeCompare(best.candidate.modalities.join(',')) > 0)
+        ) {
           best = { hits, candidate }
         }
       }
@@ -374,25 +456,34 @@ export function solveSlots(
 ) {
   const assigned = new Map<number, string>()
   let best: { assignedCount: number; score: number; assignments: Map<number, string> } | null = null
-  const ordered = [...tracklets].sort((left, right) =>
-    Number(fixed.has(right.canonicalTrackId)) - Number(fixed.has(left.canonicalTrackId))
-    || right.cannotLinkCanonicalTrackIds.length - left.cannotLinkCanonicalTrackIds.length
-    || right.sampleCount - left.sampleCount || left.canonicalTrackId - right.canonicalTrackId)
+  const ordered = [...tracklets].sort(
+    (left, right) =>
+      Number(fixed.has(right.canonicalTrackId)) - Number(fixed.has(left.canonicalTrackId)) ||
+      right.cannotLinkCanonicalTrackIds.length - left.cannotLinkCanonicalTrackIds.length ||
+      right.sampleCount - left.sampleCount ||
+      left.canonicalTrackId - right.canonicalTrackId,
+  )
   const scoreFor = (trackId: number, slotId: string) => scores.get(`${trackId}:${slotId}`) ?? 0
-  const optionsByTrack = new Map(ordered.map((tracklet) => {
-    const forced = fixed.get(tracklet.canonicalTrackId)
-    const options = (candidates.get(tracklet.canonicalTrackId) ?? [])
-      .filter(slot => !forced || slot.id === forced)
-      .sort((left, right) => scoreFor(tracklet.canonicalTrackId, right.id)
-        - scoreFor(tracklet.canonicalTrackId, left.id) || left.slotIndex - right.slotIndex)
-    return [tracklet.canonicalTrackId, options] as const
-  }))
+  const optionsByTrack = new Map(
+    ordered.map(tracklet => {
+      const forced = fixed.get(tracklet.canonicalTrackId)
+      const options = (candidates.get(tracklet.canonicalTrackId) ?? [])
+        .filter(slot => !forced || slot.id === forced)
+        .sort(
+          (left, right) =>
+            scoreFor(tracklet.canonicalTrackId, right.id) -
+              scoreFor(tracklet.canonicalTrackId, left.id) || left.slotIndex - right.slotIndex,
+        )
+      return [tracklet.canonicalTrackId, options] as const
+    }),
+  )
   const optimisticRemainingScore = Array.from({ length: ordered.length + 1 }, () => 0)
   for (let index = ordered.length - 1; index >= 0; index -= 1) {
     const tracklet = ordered[index]!
     const highest = optionsByTrack.get(tracklet.canonicalTrackId)?.[0]
-    optimisticRemainingScore[index] = optimisticRemainingScore[index + 1]!
-      + Math.max(0, highest ? scoreFor(tracklet.canonicalTrackId, highest.id) : 0)
+    optimisticRemainingScore[index] =
+      optimisticRemainingScore[index + 1]! +
+      Math.max(0, highest ? scoreFor(tracklet.canonicalTrackId, highest.id) : 0)
   }
 
   // Seed branch-and-bound with a deterministic valid assignment. Most clips
@@ -403,8 +494,10 @@ export function solveSlots(
   let greedyValid = true
   for (const tracklet of ordered) {
     const forced = fixed.get(tracklet.canonicalTrackId)
-    const option = (optionsByTrack.get(tracklet.canonicalTrackId) ?? []).find(slot =>
-      !tracklet.cannotLinkCanonicalTrackIds.some(linked => assigned.get(linked) === slot.id))
+    const option = (optionsByTrack.get(tracklet.canonicalTrackId) ?? []).find(
+      slot =>
+        !tracklet.cannotLinkCanonicalTrackIds.some(linked => assigned.get(linked) === slot.id),
+    )
     if (!option) {
       if (forced) {
         greedyValid = false
@@ -430,12 +523,18 @@ export function solveSlots(
     if (best) {
       const maximumAssigned = assigned.size + ordered.length - index
       if (maximumAssigned < best.assignedCount) return
-      if (maximumAssigned === best.assignedCount
-        && total + optimisticRemainingScore[index]! <= best.score) return
+      if (
+        maximumAssigned === best.assignedCount &&
+        total + optimisticRemainingScore[index]! <= best.score
+      )
+        return
     }
     if (index === ordered.length) {
-      if (!best || assigned.size > best.assignedCount
-        || (assigned.size === best.assignedCount && total > best.score)) {
+      if (
+        !best ||
+        assigned.size > best.assignedCount ||
+        (assigned.size === best.assignedCount && total > best.score)
+      ) {
         best = { assignedCount: assigned.size, score: total, assignments: new Map(assigned) }
       }
       return
@@ -443,7 +542,8 @@ export function solveSlots(
     const tracklet = ordered[index]!
     const forced = fixed.get(tracklet.canonicalTrackId)
     for (const slot of optionsByTrack.get(tracklet.canonicalTrackId) ?? []) {
-      if (tracklet.cannotLinkCanonicalTrackIds.some(linked => assigned.get(linked) === slot.id)) continue
+      if (tracklet.cannotLinkCanonicalTrackIds.some(linked => assigned.get(linked) === slot.id))
+        continue
       assigned.set(tracklet.canonicalTrackId, slot.id)
       visit(index + 1, total + scoreFor(tracklet.canonicalTrackId, slot.id))
       assigned.delete(tracklet.canonicalTrackId)
@@ -455,8 +555,10 @@ export function solveSlots(
     if (!forced) visit(index + 1, total)
   }
   visit(0, 0)
-  if (!best) throw new FixedRosterReidError('fixed roster constraints have no valid six-slot assignment')
-  return (best as { assignedCount: number; score: number; assignments: Map<number, string> }).assignments
+  if (!best)
+    throw new FixedRosterReidError('fixed roster constraints have no valid six-slot assignment')
+  return (best as { assignedCount: number; score: number; assignments: Map<number, string> })
+    .assignments
 }
 
 const activeObservationScope = {
@@ -464,10 +566,12 @@ const activeObservationScope = {
 } as const
 
 function canonicalBefore(position: { setNumber: number; rallyOrdinal: number }) {
-  return { OR: [
-    { setNumber: { lt: position.setNumber } },
-    { setNumber: position.setNumber, rallyOrdinal: { lt: position.rallyOrdinal } },
-  ] }
+  return {
+    OR: [
+      { setNumber: { lt: position.setNumber } },
+      { setNumber: position.setNumber, rallyOrdinal: { lt: position.rallyOrdinal } },
+    ],
+  }
 }
 
 function descriptorBytes(values: readonly number[] | undefined) {
@@ -478,29 +582,44 @@ function descriptorBytes(values: readonly number[] | undefined) {
 }
 
 function decodedDescriptor(value: Uint8Array | null, dimension: number) {
-  if (!value || value.byteLength !== dimension * 4) throw new FixedRosterReidError('persisted descriptor has an invalid size')
+  if (!value || value.byteLength !== dimension * 4)
+    throw new FixedRosterReidError('persisted descriptor has an invalid size')
   const bytes = Buffer.from(value)
   return Array.from({ length: dimension }, (_, index) => bytes.readFloatLE(index * 4))
 }
 
-async function ensureSlots(tx: TransactionClient, input: {
-  matchId: string
-  teamIds: string[]
-  revision: bigint
-}) {
+async function ensureSlots(
+  tx: TransactionClient,
+  input: {
+    matchId: string
+    teamIds: string[]
+    revision: bigint
+  },
+) {
   const slots: SlotIdentity[] = []
   for (const teamId of input.teamIds) {
     for (let slotIndex = 1; slotIndex <= SLOT_COUNT; slotIndex += 1) {
       const id = randomUUID()
       const identity = await tx.reidIdentity.upsert({
-        where: { matchId_teamId_slotIndex: {
-          matchId: input.matchId, teamId, slotIndex,
-        } },
+        where: {
+          matchId_teamId_slotIndex: {
+            matchId: input.matchId,
+            teamId,
+            slotIndex,
+          },
+        },
         create: {
-          id, matchId: input.matchId, teamId, modelNamespace: FIXED_ROSTER_IDENTITY_NAMESPACE,
-          modelName: 'fixed-roster-slot', modelCheckpointSha256: FIXED_ROSTER_IDENTITY_NAMESPACE,
-          modelPreprocessVersion: 'fixed-roster-v2', modelDimension: 0,
-          modelDistance: 'slot', label: `S${slotIndex}`, slotIndex,
+          id,
+          matchId: input.matchId,
+          teamId,
+          modelNamespace: FIXED_ROSTER_IDENTITY_NAMESPACE,
+          modelName: 'fixed-roster-slot',
+          modelCheckpointSha256: FIXED_ROSTER_IDENTITY_NAMESPACE,
+          modelPreprocessVersion: 'fixed-roster-v2',
+          modelDimension: 0,
+          modelDistance: 'slot',
+          label: `S${slotIndex}`,
+          slotIndex,
           createdRevision: input.revision,
         },
         update: {},
@@ -512,21 +631,25 @@ async function ensureSlots(tx: TransactionClient, input: {
   return slots
 }
 
-export async function ingestFixedRosterReid(tx: TransactionClient, input: {
-  analysisRunId: string
-  matchId: string
-  leftTeamId: string
-  rightTeamId: string
-  setNumber: number
-  rallyOrdinal: number
-  featureBank: ParsedFixedRosterReid | null
-}) {
+export async function ingestFixedRosterReid(
+  tx: TransactionClient,
+  input: {
+    analysisRunId: string
+    matchId: string
+    leftTeamId: string
+    rightTeamId: string
+    setNumber: number
+    rallyOrdinal: number
+    featureBank: ParsedFixedRosterReid | null
+  },
+) {
   if (!input.featureBank || input.featureBank.tracklets.length === 0) {
     return { identityRevision: null, observationCount: 0, propagatedCount: 0 }
   }
   await tx.$queryRaw`SELECT id FROM "Match" WHERE id = ${input.matchId}::uuid FOR UPDATE`
   const match = await tx.match.update({
-    where: { id: input.matchId }, data: { identityRevision: { increment: 1 } },
+    where: { id: input.matchId },
+    data: { identityRevision: { increment: 1 } },
     select: { identityRevision: true },
   })
   const revision = match.identityRevision
@@ -538,16 +661,26 @@ export async function ingestFixedRosterReid(tx: TransactionClient, input: {
   })
   const persisted = await tx.reidFeatureObservation.findMany({
     where: {
-      analysisRunId: { not: input.analysisRunId }, matchId: input.matchId,
-      modelNamespace: input.featureBank.modelNamespace, reidIdentityId: { not: null },
-      isCanonicalTrack: true, dinoDescriptor: { not: null }, osnetDescriptor: { not: null },
-      kprDescriptor: { not: null }, kprPromptDescriptor: { not: null },
-      ...activeObservationScope, ...canonicalBefore(position),
+      analysisRunId: { not: input.analysisRunId },
+      matchId: input.matchId,
+      modelNamespace: input.featureBank.modelNamespace,
+      reidIdentityId: { not: null },
+      isCanonicalTrack: true,
+      dinoDescriptor: { not: null },
+      osnetDescriptor: { not: null },
+      kprDescriptor: { not: null },
+      kprPromptDescriptor: { not: null },
+      ...activeObservationScope,
+      ...canonicalBefore(position),
     },
     select: {
-      analysisRunId: true, teamId: true,
+      analysisRunId: true,
+      teamId: true,
       reidIdentity: { select: { id: true, label: true, slotIndex: true } },
-      dinoDescriptor: true, osnetDescriptor: true, kprDescriptor: true, kprPromptDescriptor: true,
+      dinoDescriptor: true,
+      osnetDescriptor: true,
+      kprDescriptor: true,
+      kprPromptDescriptor: true,
     },
   })
   const historyByTeam = new Map<string, HistoricalRow[]>()
@@ -569,7 +702,10 @@ export async function ingestFixedRosterReid(tx: TransactionClient, input: {
 
   const assigned = new Map<number, SlotIdentity>()
   const selectedByTeam = new Map<string, NestedCandidate>()
-  for (const [side, teamId] of [['left', input.leftTeamId], ['right', input.rightTeamId]] as const) {
+  for (const [side, teamId] of [
+    ['left', input.leftTeamId],
+    ['right', input.rightTeamId],
+  ] as const) {
     const tracklets = input.featureBank.tracklets.filter(tracklet => tracklet.courtSide === side)
     if (!tracklets.length) continue
     const teamSlots = slots.filter(slot => slot.teamId === teamId)
@@ -583,30 +719,53 @@ export async function ingestFixedRosterReid(tx: TransactionClient, input: {
       for (const tracklet of tracklets) {
         if (!tracklet.descriptors) continue
         const labelScores = fitAndScore(history, tracklet.descriptors, candidate)
-        for (const slot of teamSlots) scores.set(`${tracklet.canonicalTrackId}:${slot.id}`, labelScores[`S${slot.slotIndex}`] ?? -1)
+        for (const slot of teamSlots)
+          scores.set(
+            `${tracklet.canonicalTrackId}:${slot.id}`,
+            labelScores[`S${slot.slotIndex}`] ?? -1,
+          )
       }
     } else {
-      const seeds = [...tracklets].sort((left, right) => right.sampleCount - left.sampleCount
-        || right.meanQuality - left.meanQuality || left.canonicalTrackId - right.canonicalTrackId)
+      const seeds = [...tracklets]
+        .sort(
+          (left, right) =>
+            right.sampleCount - left.sampleCount ||
+            right.meanQuality - left.meanQuality ||
+            left.canonicalTrackId - right.canonicalTrackId,
+        )
         .slice(0, SLOT_COUNT)
-        .sort((left, right) => (left.medianCourtPos?.[1] ?? Infinity) - (right.medianCourtPos?.[1] ?? Infinity)
-          || (left.medianCourtPos?.[0] ?? Infinity) - (right.medianCourtPos?.[0] ?? Infinity)
-          || left.canonicalTrackId - right.canonicalTrackId)
+        .sort(
+          (left, right) =>
+            (left.medianCourtPos?.[1] ?? Infinity) - (right.medianCourtPos?.[1] ?? Infinity) ||
+            (left.medianCourtPos?.[0] ?? Infinity) - (right.medianCourtPos?.[0] ?? Infinity) ||
+            left.canonicalTrackId - right.canonicalTrackId,
+        )
       seeds.forEach((tracklet, index) => fixed.set(tracklet.canonicalTrackId, teamSlots[index]!.id))
-      for (const tracklet of tracklets) for (const seed of seeds) {
-        const seedSlot = teamSlots[seeds.indexOf(seed)]!
-        const score = tracklet.descriptors && seed.descriptors
-          ? kernel(normalized(tracklet.descriptors.kpr_prompt), normalized(seed.descriptors.kpr_prompt), 'linear')
-          : 0
-        scores.set(`${tracklet.canonicalTrackId}:${seedSlot.id}`, score)
-      }
+      for (const tracklet of tracklets)
+        for (const seed of seeds) {
+          const seedSlot = teamSlots[seeds.indexOf(seed)]!
+          const score =
+            tracklet.descriptors && seed.descriptors
+              ? kernel(
+                  normalized(tracklet.descriptors.kpr_prompt),
+                  normalized(seed.descriptors.kpr_prompt),
+                  'linear',
+                )
+              : 0
+          scores.set(`${tracklet.canonicalTrackId}:${seedSlot.id}`, score)
+        }
     }
     for (const [trackId, identityId] of solveSlots(tracklets, candidates, scores, fixed)) {
-      assigned.set(trackId, teamSlots.find(slot => slot.id === identityId)!)
+      assigned.set(
+        trackId,
+        teamSlots.find(slot => slot.id === identityId)!,
+      )
     }
   }
 
-  const unknownTracklets = input.featureBank.tracklets.filter(tracklet => tracklet.courtSide === 'unknown')
+  const unknownTracklets = input.featureBank.tracklets.filter(
+    tracklet => tracklet.courtSide === 'unknown',
+  )
   if (unknownTracklets.length) {
     const candidates = new Map<number, SlotIdentity[]>()
     const scores = new Map<string, number>()
@@ -619,10 +778,18 @@ export async function ingestFixedRosterReid(tx: TransactionClient, input: {
           const candidate = selectNestedCandidate(history)
           selectedByTeam.set(teamId, candidate)
           const labelScores = fitAndScore(history, tracklet.descriptors, candidate)
-          for (const slot of slots.filter(item => item.teamId === teamId
-            && !tracklet.cannotLinkCanonicalTrackIds.some(linked => assigned.get(linked)?.id === item.id))) {
+          for (const slot of slots.filter(
+            item =>
+              item.teamId === teamId &&
+              !tracklet.cannotLinkCanonicalTrackIds.some(
+                linked => assigned.get(linked)?.id === item.id,
+              ),
+          )) {
             viable.push(slot)
-            scores.set(`${tracklet.canonicalTrackId}:${slot.id}`, labelScores[`S${slot.slotIndex}`] ?? -1)
+            scores.set(
+              `${tracklet.canonicalTrackId}:${slot.id}`,
+              labelScores[`S${slot.slotIndex}`] ?? -1,
+            )
           }
         }
       }
@@ -630,7 +797,10 @@ export async function ingestFixedRosterReid(tx: TransactionClient, input: {
     }
     if ([...candidates.values()].every(value => value.length > 0)) {
       for (const [trackId, identityId] of solveSlots(unknownTracklets, candidates, scores)) {
-        assigned.set(trackId, slots.find(slot => slot.id === identityId)!)
+        assigned.set(
+          trackId,
+          slots.find(slot => slot.id === identityId)!,
+        )
       }
     }
   }
@@ -640,46 +810,74 @@ export async function ingestFixedRosterReid(tx: TransactionClient, input: {
   for (const tracklet of input.featureBank.tracklets) {
     const slot = assigned.get(tracklet.canonicalTrackId)
     const candidate = slot ? selectedByTeam.get(slot.teamId) : undefined
-    const sidePrefix = tracklet.courtSide === 'left' ? 'L' : tracklet.courtSide === 'right' ? 'R' : 'G'
-    const slotHistory = slot ? historyByTeam.get(slot.teamId) ?? [] : []
-    const matchConfidence = slot && tracklet.descriptors && candidate && slotHistory.length
-      ? fitAndScore(slotHistory, tracklet.descriptors, candidate)[`S${slot.slotIndex}`] ?? null
+    const sidePrefix =
+      tracklet.courtSide === 'left' ? 'L' : tracklet.courtSide === 'right' ? 'R' : 'G'
+    const slotHistory = slot ? (historyByTeam.get(slot.teamId) ?? []) : []
+    const matchConfidence =
+      slot && tracklet.descriptors && candidate && slotHistory.length
+        ? (fitAndScore(slotHistory, tracklet.descriptors, candidate)[`S${slot.slotIndex}`] ?? null)
+        : null
+    const binding = slot
+      ? await tx.reidPlayerBinding.findFirst({
+          where: {
+            reidIdentityId: slot.id,
+            OR: [
+              { effectiveFromSetNumber: { lt: position.setNumber } },
+              {
+                effectiveFromSetNumber: position.setNumber,
+                effectiveFromRallyOrdinal: { lte: position.rallyOrdinal },
+              },
+            ],
+          },
+          orderBy: [
+            { effectiveFromSetNumber: 'desc' },
+            { effectiveFromRallyOrdinal: 'desc' },
+            { identityRevision: 'desc' },
+          ],
+        })
       : null
-    const binding = slot ? await tx.reidPlayerBinding.findFirst({
-      where: { reidIdentityId: slot.id, OR: [
-        { effectiveFromSetNumber: { lt: position.setNumber } },
-        { effectiveFromSetNumber: position.setNumber, effectiveFromRallyOrdinal: { lte: position.rallyOrdinal } },
-      ] },
-      orderBy: [{ effectiveFromSetNumber: 'desc' }, { effectiveFromRallyOrdinal: 'desc' }, { identityRevision: 'desc' }],
-    }) : null
     for (const trackId of tracklet.trackIds) {
-      await tx.reidFeatureObservation.create({ data: {
-        analysisRunId: input.analysisRunId, trackId, matchId: input.matchId,
-        teamId: slot?.teamId ?? null, reidIdentityId: slot?.id ?? null,
-        modelNamespace: input.featureBank.modelNamespace, modelName: 'nested-part-adaptation',
-        modelCheckpointSha256: input.featureBank.modelNamespace,
-        modelPreprocessVersion: 'nested-part-adaptation-v1', modelDimension: 9088,
-        modelDistance: 'kernel-ridge', courtSide: tracklet.courtSide.toUpperCase() as TrackCourtSide,
-        provisionalGid: slot ? `${sidePrefix}${slot.slotIndex}` : 'G---',
-        canonicalTrackId: tracklet.canonicalTrackId, isCanonicalTrack: trackId === tracklet.canonicalTrackId,
-        aliasTrackIds: tracklet.trackIds, medianCourtX: tracklet.medianCourtPos?.[0] ?? null,
-        medianCourtY: tracklet.medianCourtPos?.[1] ?? null,
-        descriptorRecipe: input.featureBank.descriptorRecipe as Prisma.InputJsonValue,
-        dinoDescriptor: descriptorBytes(tracklet.descriptors?.dino),
-        osnetDescriptor: descriptorBytes(tracklet.descriptors?.osnet),
-        kprDescriptor: descriptorBytes(tracklet.descriptors?.kpr),
-        kprPromptDescriptor: descriptorBytes(tracklet.descriptors?.kpr_prompt),
-        promptCoverage: tracklet.promptCoverage,
-        selectedModalities: candidate?.modalities ?? ['kpr_prompt'],
-        selectedKernel: candidate?.kernel ?? 'linear',
-        selectedRegularization: candidate?.regularization ?? 0.1,
-        firstFrame: tracklet.firstFrame, lastFrame: tracklet.lastFrame,
-        sampleCount: tracklet.sampleCount, meanQuality: tracklet.meanQuality,
-        prototype: descriptorBytes(tracklet.descriptors?.osnet) ?? Buffer.alloc(512 * 4),
-        cannotLinkTrackIds: tracklet.cannotLinkCanonicalTrackIds,
-        setNumber: position.setNumber, rallyOrdinal: position.rallyOrdinal,
-        matchConfidence, identityRevision: revision,
-      } })
+      await tx.reidFeatureObservation.create({
+        data: {
+          analysisRunId: input.analysisRunId,
+          trackId,
+          matchId: input.matchId,
+          teamId: slot?.teamId ?? null,
+          reidIdentityId: slot?.id ?? null,
+          modelNamespace: input.featureBank.modelNamespace,
+          modelName: 'nested-part-adaptation',
+          modelCheckpointSha256: input.featureBank.modelNamespace,
+          modelPreprocessVersion: 'nested-part-adaptation-v1',
+          modelDimension: 9088,
+          modelDistance: 'kernel-ridge',
+          courtSide: tracklet.courtSide.toUpperCase() as TrackCourtSide,
+          provisionalGid: slot ? `${sidePrefix}${slot.slotIndex}` : 'G---',
+          canonicalTrackId: tracklet.canonicalTrackId,
+          isCanonicalTrack: trackId === tracklet.canonicalTrackId,
+          aliasTrackIds: tracklet.trackIds,
+          medianCourtX: tracklet.medianCourtPos?.[0] ?? null,
+          medianCourtY: tracklet.medianCourtPos?.[1] ?? null,
+          descriptorRecipe: input.featureBank.descriptorRecipe as Prisma.InputJsonValue,
+          dinoDescriptor: descriptorBytes(tracklet.descriptors?.dino),
+          osnetDescriptor: descriptorBytes(tracklet.descriptors?.osnet),
+          kprDescriptor: descriptorBytes(tracklet.descriptors?.kpr),
+          kprPromptDescriptor: descriptorBytes(tracklet.descriptors?.kpr_prompt),
+          promptCoverage: tracklet.promptCoverage,
+          selectedModalities: candidate?.modalities ?? ['kpr_prompt'],
+          selectedKernel: candidate?.kernel ?? 'linear',
+          selectedRegularization: candidate?.regularization ?? 0.1,
+          firstFrame: tracklet.firstFrame,
+          lastFrame: tracklet.lastFrame,
+          sampleCount: tracklet.sampleCount,
+          meanQuality: tracklet.meanQuality,
+          prototype: descriptorBytes(tracklet.descriptors?.osnet) ?? Buffer.alloc(512 * 4),
+          cannotLinkTrackIds: tracklet.cannotLinkCanonicalTrackIds,
+          setNumber: position.setNumber,
+          rallyOrdinal: position.rallyOrdinal,
+          matchConfidence,
+          identityRevision: revision,
+        },
+      })
       observationCount += 1
       if (!slot || !binding?.rosterEntryId) continue
       const existing = await tx.trackIdentityAssignment.findUnique({
@@ -690,14 +888,23 @@ export async function ingestFixedRosterReid(tx: TransactionClient, input: {
       await tx.trackIdentityAssignment.upsert({
         where: { analysisRunId_trackId: { analysisRunId: input.analysisRunId, trackId } },
         create: {
-          analysisRunId: input.analysisRunId, trackId, rosterEntryId: binding.rosterEntryId,
-          source: IdentitySource.PROPAGATED, confidence: matchConfidence,
-          reidIdentityId: slot.id, reidBindingId: binding.id, identityRevision: revision,
+          analysisRunId: input.analysisRunId,
+          trackId,
+          rosterEntryId: binding.rosterEntryId,
+          source: IdentitySource.PROPAGATED,
+          confidence: matchConfidence,
+          reidIdentityId: slot.id,
+          reidBindingId: binding.id,
+          identityRevision: revision,
         },
         update: {
-          rosterEntryId: binding.rosterEntryId, source: IdentitySource.PROPAGATED,
-          assignedByUserId: null, confidence: matchConfidence,
-          reidIdentityId: slot.id, reidBindingId: binding.id, identityRevision: revision,
+          rosterEntryId: binding.rosterEntryId,
+          source: IdentitySource.PROPAGATED,
+          assignedByUserId: null,
+          confidence: matchConfidence,
+          reidIdentityId: slot.id,
+          reidBindingId: binding.id,
+          identityRevision: revision,
         },
       })
       propagatedCount += 1
@@ -710,7 +917,11 @@ export type ReidIdentityMode = 'from_here' | 'clip_only' | 'split_identity'
 
 export class ReidIdentityDecisionError extends Error {
   constructor(
-    readonly code: 'REID_IDENTITY_REQUIRED' | 'REID_OBSERVATION_NOT_FOUND' | 'REID_TEAM_MISMATCH' | 'REID_ASSIGNMENT_FAILED',
+    readonly code:
+      | 'REID_IDENTITY_REQUIRED'
+      | 'REID_OBSERVATION_NOT_FOUND'
+      | 'REID_TEAM_MISMATCH'
+      | 'REID_ASSIGNMENT_FAILED',
     message: string,
   ) {
     super(message)
@@ -724,19 +935,24 @@ export function parseReidIdentityMode(value: unknown): ReidIdentityMode {
   throw new TypeError('identityMode must be from_here, clip_only or split_identity')
 }
 
-export async function applyManualReidDecision(tx: TransactionClient, input: {
-  matchId: string
-  teamId: string
-  analysisRunId: string
-  trackId: number
-  rosterEntryId: string
-  userId: string
-  position: { setNumber: number; rallyOrdinal: number }
-  mode: ReidIdentityMode
-  replacedTrackIds: number[]
-}) {
+export async function applyManualReidDecision(
+  tx: TransactionClient,
+  input: {
+    matchId: string
+    teamId: string
+    analysisRunId: string
+    trackId: number
+    rosterEntryId: string
+    userId: string
+    position: { setNumber: number; rallyOrdinal: number }
+    mode: ReidIdentityMode
+    replacedTrackIds: number[]
+  },
+) {
   const observation = await tx.reidFeatureObservation.findUnique({
-    where: { analysisRunId_trackId: { analysisRunId: input.analysisRunId, trackId: input.trackId } },
+    where: {
+      analysisRunId_trackId: { analysisRunId: input.analysisRunId, trackId: input.trackId },
+    },
     include: { reidIdentity: true },
   })
   if (!observation && input.mode !== 'clip_only') {
@@ -747,13 +963,16 @@ export async function applyManualReidDecision(tx: TransactionClient, input: {
   }
   await tx.$queryRaw`SELECT id FROM "Match" WHERE id = ${input.matchId}::uuid FOR UPDATE`
   const match = await tx.match.update({
-    where: { id: input.matchId }, data: { identityRevision: { increment: 1 } },
+    where: { id: input.matchId },
+    data: { identityRevision: { increment: 1 } },
     select: { identityRevision: true },
   })
   const revision = match.identityRevision
   async function assignClipOnlyWithoutSlot(sourceIdentityId: string | null) {
     const assignment = await tx.trackIdentityAssignment.upsert({
-      where: { analysisRunId_trackId: { analysisRunId: input.analysisRunId, trackId: input.trackId } },
+      where: {
+        analysisRunId_trackId: { analysisRunId: input.analysisRunId, trackId: input.trackId },
+      },
       create: {
         analysisRunId: input.analysisRunId,
         trackId: input.trackId,
@@ -778,26 +997,32 @@ export async function applyManualReidDecision(tx: TransactionClient, input: {
     })
     for (const replacedTrackId of input.replacedTrackIds) {
       await tx.trackIdentityAssignment.deleteMany({
-        where: { analysisRunId: input.analysisRunId, trackId: replacedTrackId, rosterEntryId: input.rosterEntryId },
+        where: {
+          analysisRunId: input.analysisRunId,
+          trackId: replacedTrackId,
+          rosterEntryId: input.rosterEntryId,
+        },
       })
     }
-    await tx.reidCorrectionEvent.create({ data: {
-      matchId: input.matchId,
-      teamId: input.teamId,
-      analysisRunId: input.analysisRunId,
-      trackId: input.trackId,
-      sourceIdentityId,
-      targetIdentityId: null,
-      rosterEntryId: input.rosterEntryId,
-      kind: 'CLIP_ONLY',
-      identityRevision: revision,
-      createdByUserId: input.userId,
-      details: {
-        assigned_local_track_ids: [input.trackId],
-        fixed_slot: null,
-        replaced_track_ids: input.replacedTrackIds,
+    await tx.reidCorrectionEvent.create({
+      data: {
+        matchId: input.matchId,
+        teamId: input.teamId,
+        analysisRunId: input.analysisRunId,
+        trackId: input.trackId,
+        sourceIdentityId,
+        targetIdentityId: null,
+        rosterEntryId: input.rosterEntryId,
+        kind: 'CLIP_ONLY',
+        identityRevision: revision,
+        createdByUserId: input.userId,
+        details: {
+          assigned_local_track_ids: [input.trackId],
+          fixed_slot: null,
+          replaced_track_ids: input.replacedTrackIds,
+        },
       },
-    } })
+    })
     return {
       bindingId: null,
       reidIdentityId: null,
@@ -810,20 +1035,26 @@ export async function applyManualReidDecision(tx: TransactionClient, input: {
     where: {
       rosterEntryId: input.rosterEntryId,
       reidIdentity: {
-        matchId: input.matchId, teamId: input.teamId,
+        matchId: input.matchId,
+        teamId: input.teamId,
       },
       OR: [
         { effectiveFromSetNumber: { lt: input.position.setNumber } },
-        { effectiveFromSetNumber: input.position.setNumber,
-          effectiveFromRallyOrdinal: { lte: input.position.rallyOrdinal } },
+        {
+          effectiveFromSetNumber: input.position.setNumber,
+          effectiveFromRallyOrdinal: { lte: input.position.rallyOrdinal },
+        },
       ],
     },
-    orderBy: [{ effectiveFromSetNumber: 'desc' }, { effectiveFromRallyOrdinal: 'desc' }, { identityRevision: 'desc' }],
+    orderBy: [
+      { effectiveFromSetNumber: 'desc' },
+      { effectiveFromRallyOrdinal: 'desc' },
+      { identityRevision: 'desc' },
+    ],
     include: { reidIdentity: true },
   })
-  const currentIdentity = observation.reidIdentity?.teamId === input.teamId
-    ? observation.reidIdentity
-    : null
+  const currentIdentity =
+    observation.reidIdentity?.teamId === input.teamId ? observation.reidIdentity : null
   const targetIdentity = existingPlayerSlot?.reidIdentity ?? currentIdentity
   if (!targetIdentity) {
     if (input.mode === 'clip_only') {
@@ -845,31 +1076,31 @@ export async function applyManualReidDecision(tx: TransactionClient, input: {
         select: { trackId: true },
       })
     : []
-  const gidTrackIds = [...new Set([
-    ...aliases,
-    ...identityTracks.map(item => item.trackId),
-  ])]
-  const assignmentTrackIds = input.mode === 'from_here'
-    ? gidTrackIds
-    : input.mode === 'split_identity'
-      ? aliases
-      : [input.trackId]
-  const observationTrackIds = input.mode === 'from_here'
-    ? gidTrackIds
-    : input.mode === 'split_identity'
-      ? aliases
-      : []
+  const gidTrackIds = [...new Set([...aliases, ...identityTracks.map(item => item.trackId)])]
+  const assignmentTrackIds =
+    input.mode === 'from_here'
+      ? gidTrackIds
+      : input.mode === 'split_identity'
+        ? aliases
+        : [input.trackId]
+  const observationTrackIds =
+    input.mode === 'from_here' ? gidTrackIds : input.mode === 'split_identity' ? aliases : []
   const sourceIdentityId = observation.reidIdentityId
-  const sidePrefix = observation.courtSide === TrackCourtSide.LEFT
-    ? 'L'
-    : observation.courtSide === TrackCourtSide.RIGHT ? 'R' : 'G'
+  const sidePrefix =
+    observation.courtSide === TrackCourtSide.LEFT
+      ? 'L'
+      : observation.courtSide === TrackCourtSide.RIGHT
+        ? 'R'
+        : 'G'
   if (targetIdentity.id !== sourceIdentityId && observationTrackIds.length > 0) {
     await tx.reidFeatureObservation.updateMany({
       where: { analysisRunId: input.analysisRunId, trackId: { in: observationTrackIds } },
       data: {
-        teamId: input.teamId, reidIdentityId: targetIdentity.id,
+        teamId: input.teamId,
+        reidIdentityId: targetIdentity.id,
         provisionalGid: `${sidePrefix}${targetIdentity.slotIndex}`,
-        matchConfidence: null, identityRevision: revision,
+        matchConfidence: null,
+        identityRevision: revision,
       },
     })
   }
@@ -878,11 +1109,13 @@ export async function applyManualReidDecision(tx: TransactionClient, input: {
   if (input.mode !== 'clip_only') {
     binding = await tx.reidPlayerBinding.create({
       data: {
-        reidIdentityId: targetIdentity.id, rosterEntryId: input.rosterEntryId,
+        reidIdentityId: targetIdentity.id,
+        rosterEntryId: input.rosterEntryId,
         sourceObservationId: observation.id,
         effectiveFromSetNumber: input.position.setNumber,
         effectiveFromRallyOrdinal: input.position.rallyOrdinal,
-        source: IdentitySource.MANUAL, identityRevision: revision,
+        source: IdentitySource.MANUAL,
+        identityRevision: revision,
         assignedByUserId: input.userId,
       },
       select: { id: true },
@@ -899,15 +1132,23 @@ export async function applyManualReidDecision(tx: TransactionClient, input: {
     const assignment = await tx.trackIdentityAssignment.upsert({
       where: { analysisRunId_trackId: { analysisRunId: input.analysisRunId, trackId } },
       create: {
-        analysisRunId: input.analysisRunId, trackId, rosterEntryId: input.rosterEntryId,
-        source: IdentitySource.MANUAL, assignedByUserId: input.userId,
-        confidence: null, reidIdentityId: targetIdentity.id,
-        reidBindingId: binding?.id ?? null, identityRevision: revision,
+        analysisRunId: input.analysisRunId,
+        trackId,
+        rosterEntryId: input.rosterEntryId,
+        source: IdentitySource.MANUAL,
+        assignedByUserId: input.userId,
+        confidence: null,
+        reidIdentityId: targetIdentity.id,
+        reidBindingId: binding?.id ?? null,
+        identityRevision: revision,
       },
       update: {
-        rosterEntryId: input.rosterEntryId, source: IdentitySource.MANUAL,
-        assignedByUserId: input.userId, confidence: null,
-        reidIdentityId: targetIdentity.id, reidBindingId: binding?.id ?? null,
+        rosterEntryId: input.rosterEntryId,
+        source: IdentitySource.MANUAL,
+        assignedByUserId: input.userId,
+        confidence: null,
+        reidIdentityId: targetIdentity.id,
+        reidBindingId: binding?.id ?? null,
         identityRevision: revision,
       },
       select: {
@@ -923,7 +1164,11 @@ export async function applyManualReidDecision(tx: TransactionClient, input: {
   for (const replacedTrackId of input.replacedTrackIds) {
     if (assignmentTrackIds.includes(replacedTrackId)) continue
     await tx.trackIdentityAssignment.deleteMany({
-      where: { analysisRunId: input.analysisRunId, trackId: replacedTrackId, rosterEntryId: input.rosterEntryId },
+      where: {
+        analysisRunId: input.analysisRunId,
+        trackId: replacedTrackId,
+        rosterEntryId: input.rosterEntryId,
+      },
     })
   }
 
@@ -933,50 +1178,79 @@ export async function applyManualReidDecision(tx: TransactionClient, input: {
         reidIdentityId: targetIdentity.id,
         OR: [
           { setNumber: { gt: input.position.setNumber } },
-          { setNumber: input.position.setNumber, rallyOrdinal: { gte: input.position.rallyOrdinal } },
+          {
+            setNumber: input.position.setNumber,
+            rallyOrdinal: { gte: input.position.rallyOrdinal },
+          },
         ],
       },
       select: { analysisRunId: true, trackId: true, matchConfidence: true },
     })
     for (const item of later) {
       const existing = await tx.trackIdentityAssignment.findUnique({
-        where: { analysisRunId_trackId: { analysisRunId: item.analysisRunId, trackId: item.trackId } },
+        where: {
+          analysisRunId_trackId: { analysisRunId: item.analysisRunId, trackId: item.trackId },
+        },
         select: { source: true },
       })
       if (existing?.source === IdentitySource.MANUAL) continue
       await tx.trackIdentityAssignment.upsert({
-        where: { analysisRunId_trackId: { analysisRunId: item.analysisRunId, trackId: item.trackId } },
+        where: {
+          analysisRunId_trackId: { analysisRunId: item.analysisRunId, trackId: item.trackId },
+        },
         create: {
-          analysisRunId: item.analysisRunId, trackId: item.trackId,
-          rosterEntryId: input.rosterEntryId, source: IdentitySource.PROPAGATED,
-          confidence: item.matchConfidence, reidIdentityId: targetIdentity.id,
-          reidBindingId: binding.id, identityRevision: revision,
+          analysisRunId: item.analysisRunId,
+          trackId: item.trackId,
+          rosterEntryId: input.rosterEntryId,
+          source: IdentitySource.PROPAGATED,
+          confidence: item.matchConfidence,
+          reidIdentityId: targetIdentity.id,
+          reidBindingId: binding.id,
+          identityRevision: revision,
         },
         update: {
-          rosterEntryId: input.rosterEntryId, source: IdentitySource.PROPAGATED,
-          assignedByUserId: null, confidence: item.matchConfidence,
-          reidIdentityId: targetIdentity.id, reidBindingId: binding.id,
+          rosterEntryId: input.rosterEntryId,
+          source: IdentitySource.PROPAGATED,
+          assignedByUserId: null,
+          confidence: item.matchConfidence,
+          reidIdentityId: targetIdentity.id,
+          reidBindingId: binding.id,
           identityRevision: revision,
         },
       })
     }
   }
 
-  await tx.reidCorrectionEvent.create({ data: {
-    matchId: input.matchId, teamId: input.teamId, analysisRunId: input.analysisRunId,
-    trackId: input.trackId, sourceIdentityId, targetIdentityId: targetIdentity.id,
-    rosterEntryId: input.rosterEntryId,
-    kind: input.mode === 'clip_only' ? 'CLIP_ONLY' : input.mode === 'split_identity' ? 'SPLIT_IDENTITY' : 'FROM_HERE',
-    identityRevision: revision, createdByUserId: input.userId,
-    details: {
-      fixed_slot: targetIdentity.slotIndex,
-      aliases,
-      assigned_local_track_ids: assignmentTrackIds,
-      replaced_track_ids: input.replacedTrackIds,
+  await tx.reidCorrectionEvent.create({
+    data: {
+      matchId: input.matchId,
+      teamId: input.teamId,
+      analysisRunId: input.analysisRunId,
+      trackId: input.trackId,
+      sourceIdentityId,
+      targetIdentityId: targetIdentity.id,
+      rosterEntryId: input.rosterEntryId,
+      kind:
+        input.mode === 'clip_only'
+          ? 'CLIP_ONLY'
+          : input.mode === 'split_identity'
+            ? 'SPLIT_IDENTITY'
+            : 'FROM_HERE',
+      identityRevision: revision,
+      createdByUserId: input.userId,
+      details: {
+        fixed_slot: targetIdentity.slotIndex,
+        aliases,
+        assigned_local_track_ids: assignmentTrackIds,
+        replaced_track_ids: input.replacedTrackIds,
+      },
     },
-  } })
+  })
   if (!selectedAssignment) {
-    throw new ReidIdentityDecisionError('REID_ASSIGNMENT_FAILED', '所選 Local ID 未能完成指派，請重新整理後再試')
+    throw new ReidIdentityDecisionError(
+      'REID_ASSIGNMENT_FAILED',
+      '所選 Local ID 未能完成指派，請重新整理後再試',
+    )
   }
   return {
     bindingId: binding?.id ?? null,

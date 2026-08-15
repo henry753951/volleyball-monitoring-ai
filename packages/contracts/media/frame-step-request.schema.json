@@ -36,10 +36,7 @@
       "pattern": "^[0-9]+$"
     },
     "direction": {
-      "enum": [
-        "previous",
-        "next"
-      ]
+      "enum": ["previous", "next"]
     },
     "count": {
       "type": "integer",

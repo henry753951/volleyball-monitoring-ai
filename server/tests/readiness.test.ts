@@ -21,7 +21,12 @@ describe('evaluateReadiness', () => {
   it('reports failed dependencies without exposing their errors', async () => {
     const result = await evaluateReadiness([
       { name: 'postgres', check: async () => undefined },
-      { name: 'minio', check: async () => { throw new Error('secret endpoint detail') } },
+      {
+        name: 'minio',
+        check: async () => {
+          throw new Error('secret endpoint detail')
+        },
+      },
     ])
 
     expect(result).toEqual({
@@ -33,13 +38,18 @@ describe('evaluateReadiness', () => {
   it('bounds a stalled dependency probe and aborts its signal', async () => {
     vi.useFakeTimers()
     let signal: AbortSignal | undefined
-    const resultPromise = evaluateReadiness([{
-      name: 'redis',
-      check: async (probeSignal) => {
-        signal = probeSignal
-        await new Promise(() => undefined)
-      },
-    }], 100)
+    const resultPromise = evaluateReadiness(
+      [
+        {
+          name: 'redis',
+          check: async probeSignal => {
+            signal = probeSignal
+            await new Promise(() => undefined)
+          },
+        },
+      ],
+      100,
+    )
 
     await vi.advanceTimersByTimeAsync(100)
 

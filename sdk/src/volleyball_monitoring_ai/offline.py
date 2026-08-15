@@ -43,9 +43,7 @@ class OfflineRunner:
         """Load an online-shaped job and optionally replace its human key-point list."""
         payload: dict[str, Any] = json.loads(job_path.read_text(encoding="utf-8"))
         if key_points_path is not None:
-            key_point_payload: object = json.loads(
-                key_points_path.read_text(encoding="utf-8")
-            )
+            key_point_payload: object = json.loads(key_points_path.read_text(encoding="utf-8"))
             if isinstance(key_point_payload, dict):
                 key_point_payload = key_point_payload.get("key_points")
             if not isinstance(key_point_payload, list):

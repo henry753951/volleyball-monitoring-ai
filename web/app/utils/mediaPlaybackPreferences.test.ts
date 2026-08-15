@@ -12,7 +12,9 @@ describe('media playback preferences', () => {
 
   it('rejects malformed and unknown stored values', () => {
     expect(parseMediaBufferPreset('{broken')).toBeNull()
-    expect(parseMediaBufferPreset(JSON.stringify({ version: 1, bufferPreset: 'unbounded' }))).toBeNull()
+    expect(
+      parseMediaBufferPreset(JSON.stringify({ version: 1, bufferPreset: 'unbounded' })),
+    ).toBeNull()
     expect(DEFAULT_MEDIA_BUFFER_PRESET).toBe('balanced')
   })
 })

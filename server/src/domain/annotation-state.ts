@@ -18,12 +18,15 @@ export function canCloseRally(params: {
   currentLastKeyPointId: string | null
   outcome: RallyOutcome
 }): boolean {
-  const outcomeIsValid = params.outcome.scoreResolution === 'RESOLVED'
-    ? params.outcome.scoringCourtSide === 'LEFT' || params.outcome.scoringCourtSide === 'RIGHT'
-    : params.outcome.scoreResolution === 'UNKNOWN' && params.outcome.scoringCourtSide === null
+  const outcomeIsValid =
+    params.outcome.scoreResolution === 'RESOLVED'
+      ? params.outcome.scoringCourtSide === 'LEFT' || params.outcome.scoringCourtSide === 'RIGHT'
+      : params.outcome.scoreResolution === 'UNKNOWN' && params.outcome.scoringCourtSide === null
 
-  return params.state === 'OPEN'
-    && params.targetKeyPointId !== null
-    && params.targetKeyPointId === params.currentLastKeyPointId
-    && outcomeIsValid
+  return (
+    params.state === 'OPEN' &&
+    params.targetKeyPointId !== null &&
+    params.targetKeyPointId === params.currentLastKeyPointId &&
+    outcomeIsValid
+  )
 }

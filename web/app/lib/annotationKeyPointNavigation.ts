@@ -20,9 +20,19 @@ export function adjacentAnnotationKeyPoint(
     return points[selectedIndex + (input.direction === 'next' ? 1 : -1)] ?? null
   }
   if (input.direction === 'next') {
-    return points.find(point => !input.referenceCaptureTimeUs
-      || BigInt(point.captureTimeUs) > BigInt(input.referenceCaptureTimeUs)) ?? null
+    return (
+      points.find(
+        point =>
+          !input.referenceCaptureTimeUs ||
+          BigInt(point.captureTimeUs) > BigInt(input.referenceCaptureTimeUs),
+      ) ?? null
+    )
   }
-  return points.findLast(point => !input.referenceCaptureTimeUs
-    || BigInt(point.captureTimeUs) < BigInt(input.referenceCaptureTimeUs)) ?? null
+  return (
+    points.findLast(
+      point =>
+        !input.referenceCaptureTimeUs ||
+        BigInt(point.captureTimeUs) < BigInt(input.referenceCaptureTimeUs),
+    ) ?? null
+  )
 }

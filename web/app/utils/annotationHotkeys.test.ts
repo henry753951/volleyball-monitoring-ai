@@ -62,7 +62,9 @@ describe('annotation hotkey registry', () => {
     const edited = { ...restoreDefaultHotkeys(), service: 'S', frame_previous: 'J' }
     expect(edited).not.toEqual(DEFAULT_HOTKEY_BINDINGS)
     expect(restoreDefaultHotkeys()).toEqual(DEFAULT_HOTKEY_BINDINGS)
-    expect(Object.keys(restoreDefaultHotkeys())).toEqual(HOTKEY_COMMANDS.map(({ action }) => action))
+    expect(Object.keys(restoreDefaultHotkeys())).toEqual(
+      HOTKEY_COMMANDS.map(({ action }) => action),
+    )
   })
 
   it('normalizes recorder output while preserving product punctuation defaults', () => {
@@ -134,24 +136,35 @@ describe('hotkey preference persistence', () => {
         key_point_next: 'PageDown',
       },
     })
-    expect(parseStoredHotkeyPreferences(JSON.stringify({ version: 2, bindings: legacy })))
-      .toEqual(parseStoredHotkeyPreferences(JSON.stringify(legacy)))
+    expect(parseStoredHotkeyPreferences(JSON.stringify({ version: 2, bindings: legacy }))).toEqual(
+      parseStoredHotkeyPreferences(JSON.stringify(legacy)),
+    )
   })
 
   it('migrates v3 Space-as-contact preferences to X contact and Space playback', () => {
     const previous = {
       version: 3,
       bindings: {
-        service: 'Z', contact: 'Space', close_left: '<', close_right: '>', close_unknown: '?', submit: 'Enter',
-        frame_previous: 'ArrowLeft', frame_next: 'ArrowRight',
+        service: 'Z',
+        contact: 'Space',
+        close_left: '<',
+        close_right: '>',
+        close_unknown: '?',
+        submit: 'Enter',
+        frame_previous: 'ArrowLeft',
+        frame_next: 'ArrowRight',
       },
     }
-    expect(parseStoredHotkeyPreferences(JSON.stringify(previous))?.bindings).toEqual(DEFAULT_HOTKEY_BINDINGS)
+    expect(parseStoredHotkeyPreferences(JSON.stringify(previous))?.bindings).toEqual(
+      DEFAULT_HOTKEY_BINDINGS,
+    )
   })
 
   it('accepts swapped bindings and rejects corrupt, duplicate or reserved stored records', () => {
     const swapped = { ...restoreDefaultHotkeys(), service: 'X', contact: 'Z' }
-    expect(parseStoredHotkeyPreferences(serializeHotkeyPreferences(swapped))?.bindings).toEqual(swapped)
+    expect(parseStoredHotkeyPreferences(serializeHotkeyPreferences(swapped))?.bindings).toEqual(
+      swapped,
+    )
 
     const duplicate = { ...restoreDefaultHotkeys(), service: 'Space' }
     const reserved = { ...restoreDefaultHotkeys(), service: 'Mod+L' }

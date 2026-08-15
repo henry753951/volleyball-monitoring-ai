@@ -5,13 +5,15 @@
   "base_revision": "1",
   "rally_id": "81000000-0000-4000-8000-000000000004",
   "kind": "CREATE_CONTACT_KEY_POINT",
-  "payload": { "playback_cursor": {
-    "playback_window_id": "81000000-0000-4000-8000-000000000005",
-    "mapping_version": 1,
-    "player_media_time_us": "9007199254740993",
-    "observation_source": "request_video_frame_callback",
-    "presented_frames": "9007199254740994",
-    "seek_generation": 0,
-    "cursor_status": "ready"
-  }}
+  "payload": {
+    "playback_cursor": {
+      "playback_window_id": "81000000-0000-4000-8000-000000000005",
+      "mapping_version": 1,
+      "player_media_time_us": "9007199254740993",
+      "observation_source": "request_video_frame_callback",
+      "presented_frames": "9007199254740994",
+      "seek_generation": 0,
+      "cursor_status": "ready"
+    }
+  }
 }

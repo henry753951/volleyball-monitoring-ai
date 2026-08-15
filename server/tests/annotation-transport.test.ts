@@ -33,11 +33,16 @@ const command = parseAnnotationCommand({
   base_revision: '0',
   command_id: commandId,
   kind: 'CREATE_SERVICE_KEY_POINT',
-  payload: { playback_cursor: {
-    cursor_status: 'ready', mapping_version: 1,
-    observation_source: 'request_video_frame_callback', playback_window_id: windowId,
-    player_media_time_us: '1', seek_generation: 0,
-  } },
+  payload: {
+    playback_cursor: {
+      cursor_status: 'ready',
+      mapping_version: 1,
+      observation_source: 'request_video_frame_callback',
+      playback_window_id: windowId,
+      player_media_time_us: '1',
+      seek_generation: 0,
+    },
+  },
   rally_id: rallyId,
   room_id: roomId,
 })
@@ -52,7 +57,11 @@ const closeCommand = parseAnnotationCommand({
   ...command,
   command_id: '83000000-0000-4000-8000-000000000011',
   kind: 'CLOSE_RALLY',
-  payload: { target_key_point_id: keyPointId, score_resolution: 'unknown', scoring_court_side: null },
+  payload: {
+    target_key_point_id: keyPointId,
+    score_resolution: 'unknown',
+    scoring_court_side: null,
+  },
 })
 
 const mismatchCommand = parseAnnotationCommand({
@@ -68,9 +77,15 @@ const response: AnnotationCommandResponse = parseAnnotationCommandResponse({
   operation_kind: 'CREATE_SERVICE_KEY_POINT',
   rally_id: rallyId,
   resolved_anchor: {
-    capture_epoch_id: epochId, capture_frame_index: '1', capture_session_id: captureId,
-    capture_time_us: '1', mapping_version: 1, playback_window_id: windowId,
-    resolved_player_media_time_us: '1', source_pts: '1', source_time_base: { den: 60, num: 1 },
+    capture_epoch_id: epochId,
+    capture_frame_index: '1',
+    capture_session_id: captureId,
+    capture_time_us: '1',
+    mapping_version: 1,
+    playback_window_id: windowId,
+    resolved_player_media_time_us: '1',
+    source_pts: '1',
+    source_time_base: { den: 60, num: 1 },
     timing_precision: 'frame_exact',
   },
   result_revision: '1',
@@ -90,16 +105,18 @@ const rallySnapshot = parseAnnotationServerMessage({
     score_resolution: 'pending',
     scoring_court_side: null,
     processing_status: 'idle',
-    key_points: [{
-      key_point_id: keyPointId,
-      sequence_index: 0,
-      marker_kind: 'service',
-      is_terminal: false,
-      capture_time_us: '1',
-      capture_frame_index: '1',
-      timing_precision: 'frame_exact',
-      possible_duplicate: false,
-    }],
+    key_points: [
+      {
+        key_point_id: keyPointId,
+        sequence_index: 0,
+        marker_kind: 'service',
+        is_terminal: false,
+        capture_time_us: '1',
+        capture_frame_index: '1',
+        timing_precision: 'frame_exact',
+        possible_duplicate: false,
+      },
+    ],
   },
 })
 
@@ -107,8 +124,25 @@ function fakeService(seen: unknown[]): AnnotationCommandService {
   return {
     async apply(value, annotationIdentity) {
       seen.push({ annotationIdentity, value })
-      if (value.kind === 'CLOSE_RALLY') return parseAnnotationCommandResponse({ ...response, command_id: value.command_id, operation_kind: 'CLOSE_RALLY', resolved_anchor: null, effects: { terminal_key_point_id: keyPointId, annotation_status: 'ready', score_resolution: 'unknown', scoring_court_side: null } })
-      if (value.kind === 'CREATE_CONTACT_KEY_POINT') return parseAnnotationCommandResponse({ ...response, command_id: value.command_id, operation_kind: 'CREATE_CONTACT_KEY_POINT' })
+      if (value.kind === 'CLOSE_RALLY')
+        return parseAnnotationCommandResponse({
+          ...response,
+          command_id: value.command_id,
+          operation_kind: 'CLOSE_RALLY',
+          resolved_anchor: null,
+          effects: {
+            terminal_key_point_id: keyPointId,
+            annotation_status: 'ready',
+            score_resolution: 'unknown',
+            scoring_court_side: null,
+          },
+        })
+      if (value.kind === 'CREATE_CONTACT_KEY_POINT')
+        return parseAnnotationCommandResponse({
+          ...response,
+          command_id: value.command_id,
+          operation_kind: 'CREATE_CONTACT_KEY_POINT',
+        })
       return parseAnnotationCommandResponse({ ...response, command_id: value.command_id })
     },
     async authorizeRoom(value) {
@@ -126,9 +160,16 @@ function fakeService(seen: unknown[]): AnnotationCommandService {
 }
 
 function fakePresence(onEditing: (keyPointId: string | null) => void): AnnotationPresenceService {
-  const member = { user_id: userId, device_session_id: deviceSessionId, display_name: 'Operator', editing_key_point_id: null as string | null }
+  const member = {
+    user_id: userId,
+    device_session_id: deviceSessionId,
+    display_name: 'Operator',
+    editing_key_point_id: null as string | null,
+  }
   return {
-    async join() { return member },
+    async join() {
+      return member
+    },
     async touch() {},
     async setEditing(_roomId, current, keyPointId) {
       onEditing(keyPointId)
@@ -136,11 +177,18 @@ function fakePresence(onEditing: (keyPointId: string | null) => void): Annotatio
     },
     async leave() {},
     async snapshot() {
-      const message = parseAnnotationServerMessage({ schema_version: '2.0.0', type: 'presence_snapshot', room_id: roomId, members: [member] })
+      const message = parseAnnotationServerMessage({
+        schema_version: '2.0.0',
+        type: 'presence_snapshot',
+        room_id: roomId,
+        members: [member],
+      })
       if (message.type !== 'presence_snapshot') throw new TypeError('presence fixture mismatch')
       return message
     },
-    async subscribe() { return () => undefined },
+    async subscribe() {
+      return () => undefined
+    },
     close() {},
   }
 }
@@ -148,19 +196,23 @@ function fakePresence(onEditing: (keyPointId: string | null) => void): Annotatio
 async function openAnnotationSocket(seen: unknown[]) {
   const app = Fastify({ logger: false })
   await app.register(websocket)
-  await app.register(annotationWebSocketRoutes({
-    authenticate: async () => identity,
-    service: fakeService(seen),
-  }))
+  await app.register(
+    annotationWebSocketRoutes({
+      authenticate: async () => identity,
+      service: fakeService(seen),
+    }),
+  )
   await app.listen({ host: '127.0.0.1', port: 0 })
   closeApp = () => app.close()
   const address = app.server.address()
   if (!address || typeof address === 'string') throw new Error('missing test listener')
-  const client = new WebSocket(`ws://127.0.0.1:${address.port}/ws/annotations?room_id=${encodeURIComponent(roomId)}`)
+  const client = new WebSocket(
+    `ws://127.0.0.1:${address.port}/ws/annotations?room_id=${encodeURIComponent(roomId)}`,
+  )
   await new Promise<void>((resolvePromise, reject) => {
     const timeout = setTimeout(() => reject(new Error('websocket ready timeout')), 5_000)
     client.addEventListener('error', () => reject(new Error('websocket error')))
-    client.addEventListener('message', (event) => {
+    client.addEventListener('message', event => {
       try {
         const ready = JSON.parse(String(event.data)) as { type?: string }
         if (ready.type === 'connection_ready') {
@@ -186,7 +238,8 @@ afterEach(async () => {
 describe('annotation transport adapters', () => {
   it('passes strict JSON through the GraphQL fallback to the shared handler', async () => {
     const seen: unknown[] = []
-    process.env.DATABASE_URL ??= 'postgresql://volleyball:volleyball@127.0.0.1:5433/volleyball?schema=public'
+    process.env.DATABASE_URL ??=
+      'postgresql://volleyball:volleyball@127.0.0.1:5433/volleyball?schema=public'
     const [{ configureAnnotationGraphQL }, { schema }] = await Promise.all([
       import('../src/graphql/annotation-mutations.js'),
       import('../src/graphql/schema.js'),
@@ -202,50 +255,79 @@ describe('annotation transport adapters', () => {
       maskedErrors: false,
       schema,
     })
-    const fetchResult = await Promise.resolve(yoga.fetch('http://localhost/graphql', {
-      body: JSON.stringify({
-        query: 'mutation Apply($command: JSON!) { applyAnnotationCommand(command: $command) }',
-        variables: { command },
+    const fetchResult = await Promise.resolve(
+      yoga.fetch('http://localhost/graphql', {
+        body: JSON.stringify({
+          query: 'mutation Apply($command: JSON!) { applyAnnotationCommand(command: $command) }',
+          variables: { command },
+        }),
+        headers: { 'content-type': 'application/json' },
+        method: 'POST',
       }),
-      headers: { 'content-type': 'application/json' },
-      method: 'POST',
-    }))
-    const result = await fetchResult.json() as { data: { applyAnnotationCommand: unknown } }
+    )
+    const result = (await fetchResult.json()) as { data: { applyAnnotationCommand: unknown } }
     expect(result.data.applyAnnotationCommand).toEqual(response)
     expect(seen).toEqual([{ annotationIdentity: identity, value: command }])
 
-    const invalidFetch = await Promise.resolve(yoga.fetch('http://localhost/graphql', {
-      body: JSON.stringify({
-        query: 'mutation Apply($command: JSON!) { applyAnnotationCommand(command: $command) }',
-        variables: { command: { ...command, unexpected: true } },
+    const invalidFetch = await Promise.resolve(
+      yoga.fetch('http://localhost/graphql', {
+        body: JSON.stringify({
+          query: 'mutation Apply($command: JSON!) { applyAnnotationCommand(command: $command) }',
+          variables: { command: { ...command, unexpected: true } },
+        }),
+        headers: { 'content-type': 'application/json' },
+        method: 'POST',
       }),
-      headers: { 'content-type': 'application/json' },
-      method: 'POST',
-    }))
-    const invalid = await invalidFetch.json() as { errors: Array<{ extensions: { code: string } }> }
+    )
+    const invalid = (await invalidFetch.json()) as {
+      errors: Array<{ extensions: { code: string } }>
+    }
     expect(invalid.errors[0]?.extensions.code).toBe('BAD_USER_INPUT')
     expect(seen).toHaveLength(1)
 
-    const noncanonicalFetch = await Promise.resolve(yoga.fetch('http://localhost/graphql', {
-      body: JSON.stringify({
-        query: 'mutation Apply($command: JSON!) { applyAnnotationCommand(command: $command) }',
-        variables: { command: { ...command, room_id: roomId.replace('abcdef', 'ABCDEF') } },
+    const noncanonicalFetch = await Promise.resolve(
+      yoga.fetch('http://localhost/graphql', {
+        body: JSON.stringify({
+          query: 'mutation Apply($command: JSON!) { applyAnnotationCommand(command: $command) }',
+          variables: { command: { ...command, room_id: roomId.replace('abcdef', 'ABCDEF') } },
+        }),
+        headers: { 'content-type': 'application/json' },
+        method: 'POST',
       }),
-      headers: { 'content-type': 'application/json' },
-      method: 'POST',
-    }))
-    const noncanonical = await noncanonicalFetch.json() as { errors: Array<{ extensions: { code: string } }> }
+    )
+    const noncanonical = (await noncanonicalFetch.json()) as {
+      errors: Array<{ extensions: { code: string } }>
+    }
     expect(noncanonical.errors[0]?.extensions.code).toBe('BAD_USER_INPUT')
     expect(seen).toHaveLength(1)
 
     for (const variant of [
       { ...command, kind: 'CREATE_CONTACT_KEY_POINT', base_revision: '1' as const },
-      { ...command, kind: 'CLOSE_RALLY', base_revision: '1' as const, payload: { target_key_point_id: keyPointId, score_resolution: 'unknown' as const, scoring_court_side: null } },
+      {
+        ...command,
+        kind: 'CLOSE_RALLY',
+        base_revision: '1' as const,
+        payload: {
+          target_key_point_id: keyPointId,
+          score_resolution: 'unknown' as const,
+          scoring_court_side: null,
+        },
+      },
     ]) {
-      const r = await Promise.resolve(yoga.fetch('http://localhost/graphql', { body: JSON.stringify({ query: 'mutation Apply($command: JSON!) { applyAnnotationCommand(command: $command) }', variables: { command: variant } }), headers: { 'content-type': 'application/json' }, method: 'POST' }))
-      const body = await r.json() as { data: { applyAnnotationCommand: AnnotationCommandAck } }
+      const r = await Promise.resolve(
+        yoga.fetch('http://localhost/graphql', {
+          body: JSON.stringify({
+            query: 'mutation Apply($command: JSON!) { applyAnnotationCommand(command: $command) }',
+            variables: { command: variant },
+          }),
+          headers: { 'content-type': 'application/json' },
+          method: 'POST',
+        }),
+      )
+      const body = (await r.json()) as { data: { applyAnnotationCommand: AnnotationCommandAck } }
       expect(body.data.applyAnnotationCommand.operation_kind).toBe(variant.kind)
-      if (variant.kind === 'CLOSE_RALLY') expect(body.data.applyAnnotationCommand.resolved_anchor).toBeNull()
+      if (variant.kind === 'CLOSE_RALLY')
+        expect(body.data.applyAnnotationCommand.resolved_anchor).toBeNull()
     }
     expect(seen).toHaveLength(3)
   })
@@ -254,22 +336,26 @@ describe('annotation transport adapters', () => {
     const seen: unknown[] = []
     const app = Fastify({ logger: false })
     await app.register(websocket)
-    await app.register(annotationWebSocketRoutes({
-      authenticate: async () => identity,
-      service: fakeService(seen),
-      snapshot: async () => rallySnapshot.type === 'rally_snapshot' ? rallySnapshot : null,
-    }))
+    await app.register(
+      annotationWebSocketRoutes({
+        authenticate: async () => identity,
+        service: fakeService(seen),
+        snapshot: async () => (rallySnapshot.type === 'rally_snapshot' ? rallySnapshot : null),
+      }),
+    )
     await app.listen({ host: '127.0.0.1', port: 0 })
     closeApp = () => app.close()
     const address = app.server.address()
     if (!address || typeof address === 'string') throw new Error('missing test listener')
 
-    const client = new WebSocket(`ws://127.0.0.1:${address.port}/ws/annotations?room_id=${encodeURIComponent(roomId)}`)
+    const client = new WebSocket(
+      `ws://127.0.0.1:${address.port}/ws/annotations?room_id=${encodeURIComponent(roomId)}`,
+    )
     const messages: unknown[] = []
     await new Promise<void>((resolvePromise, reject) => {
       const timeout = setTimeout(() => reject(new Error('websocket timeout')), 5_000)
       client.addEventListener('error', () => reject(new Error('websocket error')))
-      client.addEventListener('message', (event) => {
+      client.addEventListener('message', event => {
         messages.push(JSON.parse(String(event.data)))
         if (messages.length === 1) client.send(JSON.stringify(command))
         if (messages.length === 3) {
@@ -280,8 +366,11 @@ describe('annotation transport adapters', () => {
     })
     client.close()
     expect(messages[0]).toMatchObject({
-      type: 'connection_ready', room_id: roomId, server_sequence: '10',
-      authenticated_user_id: userId, device_session_id: deviceSessionId,
+      type: 'connection_ready',
+      room_id: roomId,
+      server_sequence: '10',
+      authenticated_user_id: userId,
+      device_session_id: deviceSessionId,
     })
     expect(messages[1]).toEqual(response)
     expect(messages[2]).toEqual(rallySnapshot)
@@ -293,7 +382,7 @@ describe('annotation transport adapters', () => {
     const client = await openAnnotationSocket(seen)
     const ackPromise = new Promise<AnnotationCommandAck>((resolve, reject) => {
       const timeout = setTimeout(() => reject(new Error('websocket ack timeout')), 5_000)
-      client.addEventListener('message', (event) => {
+      client.addEventListener('message', event => {
         const message = JSON.parse(String(event.data)) as AnnotationCommandAck
         clearTimeout(timeout)
         resolve(message)
@@ -302,7 +391,10 @@ describe('annotation transport adapters', () => {
     client.send(JSON.stringify(contactCommand))
     const ack = await ackPromise
     expect(seen).toEqual([{ annotationIdentity: identity, value: contactCommand }])
-    expect(ack).toMatchObject({ command_id: contactCommand.command_id, operation_kind: 'CREATE_CONTACT_KEY_POINT' })
+    expect(ack).toMatchObject({
+      command_id: contactCommand.command_id,
+      operation_kind: 'CREATE_CONTACT_KEY_POINT',
+    })
     expect(ack.resolved_anchor).not.toBeNull()
     client.close()
   })
@@ -312,7 +404,7 @@ describe('annotation transport adapters', () => {
     const client = await openAnnotationSocket(seen)
     const ackPromise = new Promise<AnnotationCommandAck>((resolve, reject) => {
       const timeout = setTimeout(() => reject(new Error('websocket ack timeout')), 5_000)
-      client.addEventListener('message', (event) => {
+      client.addEventListener('message', event => {
         const message = JSON.parse(String(event.data)) as AnnotationCommandAck
         clearTimeout(timeout)
         resolve(message)
@@ -321,7 +413,11 @@ describe('annotation transport adapters', () => {
     client.send(JSON.stringify(closeCommand))
     const ack = await ackPromise
     expect(seen).toEqual([{ annotationIdentity: identity, value: closeCommand }])
-    expect(ack).toMatchObject({ command_id: closeCommand.command_id, operation_kind: 'CLOSE_RALLY', resolved_anchor: null })
+    expect(ack).toMatchObject({
+      command_id: closeCommand.command_id,
+      operation_kind: 'CLOSE_RALLY',
+      resolved_anchor: null,
+    })
     expect(ack.effects).toMatchObject({ score_resolution: 'unknown' })
     client.close()
   })
@@ -329,23 +425,29 @@ describe('annotation transport adapters', () => {
   it('accepts an authenticated v2.1 soft-lock intent without invoking the durable command handler', async () => {
     const seen: unknown[] = []
     let resolveEditing: ((value: string | null) => void) | null = null
-    const editing = new Promise<string | null>((resolve) => { resolveEditing = resolve })
+    const editing = new Promise<string | null>(resolve => {
+      resolveEditing = resolve
+    })
     const app = Fastify({ logger: false })
     await app.register(websocket)
-    await app.register(annotationWebSocketRoutes({
-      authenticate: async () => identity,
-      presence: fakePresence(value => resolveEditing?.(value)),
-      service: fakeService(seen),
-    }))
+    await app.register(
+      annotationWebSocketRoutes({
+        authenticate: async () => identity,
+        presence: fakePresence(value => resolveEditing?.(value)),
+        service: fakeService(seen),
+      }),
+    )
     await app.listen({ host: '127.0.0.1', port: 0 })
     closeApp = () => app.close()
     const address = app.server.address()
     if (!address || typeof address === 'string') throw new Error('missing test listener')
-    const client = new WebSocket(`ws://127.0.0.1:${address.port}/ws/annotations?room_id=${encodeURIComponent(roomId)}`)
+    const client = new WebSocket(
+      `ws://127.0.0.1:${address.port}/ws/annotations?room_id=${encodeURIComponent(roomId)}`,
+    )
     await new Promise<void>((resolve, reject) => {
       const timeout = setTimeout(() => reject(new Error('websocket ready timeout')), 5_000)
       client.addEventListener('error', () => reject(new Error('websocket error')))
-      client.addEventListener('message', (event) => {
+      client.addEventListener('message', event => {
         const message = JSON.parse(String(event.data)) as { type?: string }
         if (message.type !== 'connection_ready') return
         clearTimeout(timeout)
@@ -353,7 +455,10 @@ describe('annotation transport adapters', () => {
       })
     })
     const intent = parseAnnotationSoftLockIntent({
-      schema_version: '2.1.0', type: 'soft_lock_intent', room_id: roomId, editing_key_point_id: keyPointId,
+      schema_version: '2.1.0',
+      type: 'soft_lock_intent',
+      room_id: roomId,
+      editing_key_point_id: keyPointId,
     })
     client.send(JSON.stringify(intent))
     expect(await editing).toBe(keyPointId)
@@ -368,7 +473,7 @@ describe('annotation transport adapters', () => {
       const closeEvent = new Promise<CloseEvent>((resolve, reject) => {
         const timeout = setTimeout(() => reject(new Error('websocket close timeout')), 5_000)
         client.addEventListener('error', () => undefined)
-        client.addEventListener('close', (event) => {
+        client.addEventListener('close', event => {
           clearTimeout(timeout)
           resolve(event)
         })
@@ -386,21 +491,27 @@ describe('annotation transport adapters', () => {
     const seen: unknown[] = []
     const app = Fastify({ logger: false })
     await app.register(websocket)
-    await app.register(annotationWebSocketRoutes({
-      authenticate: async () => identity,
-      service: fakeService(seen),
-    }))
+    await app.register(
+      annotationWebSocketRoutes({
+        authenticate: async () => identity,
+        service: fakeService(seen),
+      }),
+    )
     await app.listen({ host: '127.0.0.1', port: 0 })
     closeApp = () => app.close()
     const address = app.server.address()
     if (!address || typeof address === 'string') throw new Error('missing test listener')
     const noncanonicalRoom = roomId.replace('abcdef', 'ABCDEF')
-    const client = new WebSocket(`ws://127.0.0.1:${address.port}/ws/annotations?room_id=${encodeURIComponent(noncanonicalRoom)}`)
+    const client = new WebSocket(
+      `ws://127.0.0.1:${address.port}/ws/annotations?room_id=${encodeURIComponent(noncanonicalRoom)}`,
+    )
     await new Promise<void>((resolvePromise, reject) => {
       const timeout = setTimeout(() => reject(new Error('websocket timeout')), 5_000)
-      client.addEventListener('message', () => reject(new Error('noncanonical room received a message')))
+      client.addEventListener('message', () =>
+        reject(new Error('noncanonical room received a message')),
+      )
       client.addEventListener('error', () => undefined)
-      client.addEventListener('close', (event) => {
+      client.addEventListener('close', event => {
         clearTimeout(timeout)
         try {
           expect(event.code).toBe(1008)

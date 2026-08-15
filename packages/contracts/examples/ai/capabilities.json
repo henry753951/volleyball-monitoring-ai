@@ -2,12 +2,8 @@
   "schema_version": "2.0.0",
   "provider_name": "example-provider",
   "provider_build_id": "build-2026-08-07",
-  "supported_job_schema_versions": [
-    "3.0.0"
-  ],
-  "supported_analysis_data_versions": [
-    "1.0.0"
-  ],
+  "supported_job_schema_versions": ["3.0.0"],
+  "supported_analysis_data_versions": ["1.0.0"],
   "supported_analysis_modules": ["court", "tracking", "reid", "contacts"],
   "supports_selective_rerun": true,
   "optional_extensions": {

@@ -12,7 +12,10 @@ describe('AnnotationMatchInspector outcomes', () => {
     const wrapper = mount(AnnotationMatchInspector, {
       global: {
         stubs: {
-          UiAnimatedModal: { props: ['open'], template: '<div v-if="open"><slot /><slot name="footer" /></div>' },
+          UiAnimatedModal: {
+            props: ['open'],
+            template: '<div v-if="open"><slot /><slot name="footer" /></div>',
+          },
           AnnotationIdentityPanel: true,
           UiButton: { template: '<button><slot /></button>' },
           UiScrollArea: { template: '<div><slot /></div>' },
@@ -24,17 +27,36 @@ describe('AnnotationMatchInspector outcomes', () => {
         analysisRunId: null,
         canStartNextSet: false,
         canSwapSides: true,
-         currentFrame: -1,
-         currentLeftTeam: teams[0]!,
-         currentRightTeam: teams[1]!,
-        drafts: [{
-          id: 'draft', ordinal: 2, display_ordinal: 99, display_set_number: 1,
-          annotation_revision: '2', annotation_status: 'ready', active_submission_id: null,
-          score_resolution: 'unknown', scoring_court_side: null, scoring_team_id: null,
-          set_id: 'set', set_number: 1,
-          boundaries: [{ kind: 'start', capture_time_us: '2000000', capture_frame_index: '120' }],
-          key_points: [{ id: 'draft-point', sequence_index: 0, marker_kind: 'service', is_terminal: true, capture_time_us: '2', capture_frame_index: '2' }],
-        }],
+        currentFrame: -1,
+        currentLeftTeam: teams[0]!,
+        currentRightTeam: teams[1]!,
+        drafts: [
+          {
+            id: 'draft',
+            ordinal: 2,
+            display_ordinal: 99,
+            display_set_number: 1,
+            annotation_revision: '2',
+            annotation_status: 'ready',
+            active_submission_id: null,
+            score_resolution: 'unknown',
+            scoring_court_side: null,
+            scoring_team_id: null,
+            set_id: 'set',
+            set_number: 1,
+            boundaries: [{ kind: 'start', capture_time_us: '2000000', capture_frame_index: '120' }],
+            key_points: [
+              {
+                id: 'draft-point',
+                sequence_index: 0,
+                marker_kind: 'service',
+                is_terminal: true,
+                capture_time_us: '2',
+                capture_frame_index: '2',
+              },
+            ],
+          },
+        ],
         formatRallyDuration: () => '1.0 秒',
         leftScore: 1,
         leftSetWins: 0,
@@ -43,23 +65,56 @@ describe('AnnotationMatchInspector outcomes', () => {
         mappingAvailable: false,
         mappingCompleted: false,
         matchId: 'match',
-        rallies: [{
-          id: 'rally', ordinal: 1, display_ordinal: 1, display_set_number: 1,
-          annotation_revision: '1', processing_status: 'completed', scoring_court_side: 'left', scoring_team_id: 'left',
-          set_id: 'set', set_number: 1, left_score_after: 1, right_score_after: 0, winner_side: 'left',
-          submission: {
-            id: 'submission', supersedes_submission_id: null, submitted_at: '', score_resolution: 'resolved', scoring_court_side: 'left', scoring_team_id: 'left',
-            side_assignment_id: 'assignment', side_assignment_reversed: false, left_team_id: 'left', right_team_id: 'right', contact_count: 0,
-            boundaries: [{ kind: 'start', capture_time_us: '1000000', capture_frame_index: '60' }],
-            key_points: [], clip: null, processing: {} as never,
-            analysis: {
-              id: 'analysis', status: 'completed', version: 'v1', summary: null,
-              identity_mapping_completed: false, coverage_start_capture_time_us: null,
-              coverage_end_capture_time_us: null, byte_length: '0', track_count: 0,
-              ball_path_count: 0, contact_count: 0, capabilities: [],
+        rallies: [
+          {
+            id: 'rally',
+            ordinal: 1,
+            display_ordinal: 1,
+            display_set_number: 1,
+            annotation_revision: '1',
+            processing_status: 'completed',
+            scoring_court_side: 'left',
+            scoring_team_id: 'left',
+            set_id: 'set',
+            set_number: 1,
+            left_score_after: 1,
+            right_score_after: 0,
+            winner_side: 'left',
+            submission: {
+              id: 'submission',
+              supersedes_submission_id: null,
+              submitted_at: '',
+              score_resolution: 'resolved',
+              scoring_court_side: 'left',
+              scoring_team_id: 'left',
+              side_assignment_id: 'assignment',
+              side_assignment_reversed: false,
+              left_team_id: 'left',
+              right_team_id: 'right',
+              contact_count: 0,
+              boundaries: [
+                { kind: 'start', capture_time_us: '1000000', capture_frame_index: '60' },
+              ],
+              key_points: [],
+              clip: null,
+              processing: {} as never,
+              analysis: {
+                id: 'analysis',
+                status: 'completed',
+                version: 'v1',
+                summary: null,
+                identity_mapping_completed: false,
+                coverage_start_capture_time_us: null,
+                coverage_end_capture_time_us: null,
+                byte_length: '0',
+                track_count: 0,
+                ball_path_count: 0,
+                contact_count: 0,
+                capabilities: [],
+              },
             },
           },
-        }],
+        ],
         rallyOrdinal: 2,
         rightScore: 0,
         rightSetWins: 0,
@@ -73,7 +128,10 @@ describe('AnnotationMatchInspector outcomes', () => {
       },
     })
 
-    expect(wrapper.findAll('.outcome-badge').map(badge => badge.text())).toEqual(['左側 TPE 得分', '得分未知'])
+    expect(wrapper.findAll('.outcome-badge').map(badge => badge.text())).toEqual([
+      '左側 TPE 得分',
+      '得分未知',
+    ])
     expect(wrapper.get('.outcome-badge.unknown').text()).toBe('得分未知')
     expect(wrapper.findAll('.segment-side-order').map(row => row.text())).toEqual([
       '左側 TPE · 右側 PUR',

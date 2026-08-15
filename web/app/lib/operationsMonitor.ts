@@ -197,35 +197,68 @@ async function operationsWrite<T>(
     },
   })
   if (!response.ok) {
-    const payload = await response.json().catch(() => null) as { error?: string } | null
+    const payload = (await response.json().catch(() => null)) as { error?: string } | null
     if (response.status === 401) throw new Error('無法確認操作身分，請重新整理後再試')
     if (response.status === 403) throw new Error('目前無法管理 Worker Token')
     throw new Error(payload?.error || `AI Worker 設定更新失敗（${response.status}）`)
   }
-  return await response.json() as T
+  return (await response.json()) as T
 }
 
-export function createAiWorkerToken(basePath: string, name: string, fetchImpl: typeof fetch = fetch) {
-  return operationsWrite<{ schema_version: '1.0.0'; access_token: { id: string; name: string; tokenPrefix: string }; token: string }>(
-    basePath, '/operations/ai-worker-tokens', { body: JSON.stringify({ name }), method: 'POST' }, fetchImpl,
+export function createAiWorkerToken(
+  basePath: string,
+  name: string,
+  fetchImpl: typeof fetch = fetch,
+) {
+  return operationsWrite<{
+    schema_version: '1.0.0'
+    access_token: { id: string; name: string; tokenPrefix: string }
+    token: string
+  }>(
+    basePath,
+    '/operations/ai-worker-tokens',
+    { body: JSON.stringify({ name }), method: 'POST' },
+    fetchImpl,
   )
 }
 
-export function rotateAiWorkerToken(basePath: string, tokenId: string, fetchImpl: typeof fetch = fetch) {
+export function rotateAiWorkerToken(
+  basePath: string,
+  tokenId: string,
+  fetchImpl: typeof fetch = fetch,
+) {
   return operationsWrite<{ schema_version: '1.0.0'; token_id: string; token: string }>(
-    basePath, `/operations/ai-worker-tokens/${encodeURIComponent(tokenId)}/rotate`, { body: '{}', method: 'POST' }, fetchImpl,
+    basePath,
+    `/operations/ai-worker-tokens/${encodeURIComponent(tokenId)}/rotate`,
+    { body: '{}', method: 'POST' },
+    fetchImpl,
   )
 }
 
-export function setAiWorkerTokenEnabled(basePath: string, tokenId: string, enabled: boolean, fetchImpl: typeof fetch = fetch) {
+export function setAiWorkerTokenEnabled(
+  basePath: string,
+  tokenId: string,
+  enabled: boolean,
+  fetchImpl: typeof fetch = fetch,
+) {
   return operationsWrite<{ schema_version: '1.0.0'; token_id: string; enabled: boolean }>(
-    basePath, `/operations/ai-worker-tokens/${encodeURIComponent(tokenId)}`, { body: JSON.stringify({ enabled }), method: 'PATCH' }, fetchImpl,
+    basePath,
+    `/operations/ai-worker-tokens/${encodeURIComponent(tokenId)}`,
+    { body: JSON.stringify({ enabled }), method: 'PATCH' },
+    fetchImpl,
   )
 }
 
-export function deleteAiWorkerToken(basePath: string, tokenId: string, fetchImpl: typeof fetch = fetch) {
+export function deleteAiWorkerToken(
+  basePath: string,
+  tokenId: string,
+  fetchImpl: typeof fetch = fetch,
+) {
   return operationsWrite<{ schema_version: '1.0.0'; deleted_token: { id: string } }>(
-    basePath, `/operations/ai-worker-tokens/${encodeURIComponent(tokenId)}`, { method: 'DELETE' }, fetchImpl,
+    basePath,
+    `/operations/ai-worker-tokens/${encodeURIComponent(tokenId)}`,
+    { method: 'DELETE' },
+    fetchImpl,
   )
 }
 
@@ -245,10 +278,11 @@ export async function fetchOperationsSnapshot(
     headers: { accept: 'application/json' },
   })
   if (!response.ok) {
-    if (response.status === 401 || response.status === 403) throw new Error('目前帳號沒有系統監控權限')
+    if (response.status === 401 || response.status === 403)
+      throw new Error('目前帳號沒有系統監控權限')
     throw new Error(`監控資料讀取失敗（${response.status}）`)
   }
-  return await response.json() as OperationsDashboardSnapshot
+  return (await response.json()) as OperationsDashboardSnapshot
 }
 
 export async function deleteAiWorker(
@@ -256,18 +290,23 @@ export async function deleteAiWorker(
   workerId: string,
   fetchImpl: typeof fetch = fetch,
 ): Promise<DeleteAiWorkerReceipt> {
-  const response = await fetchImpl(`${basePath.replace(/\/$/, '')}/operations/ai-workers/${encodeURIComponent(workerId)}`, {
-    credentials: 'include',
-    headers: { accept: 'application/json' },
-    method: 'DELETE',
-  })
+  const response = await fetchImpl(
+    `${basePath.replace(/\/$/, '')}/operations/ai-workers/${encodeURIComponent(workerId)}`,
+    {
+      credentials: 'include',
+      headers: { accept: 'application/json' },
+      method: 'DELETE',
+    },
+  )
   if (!response.ok) {
-    const payload = await response.json().catch(() => null) as { code?: string } | null
+    const payload = (await response.json().catch(() => null)) as { code?: string } | null
     if (payload?.code === 'AI_WORKER_ONLINE') throw new Error('Worker 已恢復連線，無法刪除')
-    if (payload?.code === 'AI_WORKER_HAS_ACTIVE_JOBS') throw new Error('Worker 仍持有進行中的工作，無法刪除')
+    if (payload?.code === 'AI_WORKER_HAS_ACTIVE_JOBS')
+      throw new Error('Worker 仍持有進行中的工作，無法刪除')
     if (payload?.code === 'AI_WORKER_NOT_FOUND') throw new Error('Worker 紀錄已不存在')
-    if (response.status === 401 || response.status === 403) throw new Error('目前帳號沒有移除 AI Worker 的權限')
+    if (response.status === 401 || response.status === 403)
+      throw new Error('目前帳號沒有移除 AI Worker 的權限')
     throw new Error(`AI Worker 刪除失敗（${response.status}）`)
   }
-  return await response.json() as DeleteAiWorkerReceipt
+  return (await response.json()) as DeleteAiWorkerReceipt
 }

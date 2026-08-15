@@ -1,13 +1,17 @@
 import type { CaptureSession } from '~/lib/coreDomain'
 
-export type CoachMatchStatusKind = 'live' | 'processing' | 'ready' | 'planned' | 'finished' | 'failed' | 'archived'
+export type CoachMatchStatusKind =
+  'live' | 'processing' | 'ready' | 'planned' | 'finished' | 'failed' | 'archived'
 
 export interface CoachMatchStatusPresentation {
   kind: CoachMatchStatusKind
   label: string
 }
 
-type StatusCapture = Pick<CaptureSession, 'status' | 'health' | 'sourceKind' | 'startedAt' | 'endedAt'>
+type StatusCapture = Pick<
+  CaptureSession,
+  'status' | 'health' | 'sourceKind' | 'startedAt' | 'endedAt'
+>
 type StatusMatch = { status: string; captureSessions?: readonly StatusCapture[] }
 
 function captureTime(value: { startedAt: string | null; endedAt: string | null }) {
@@ -15,7 +19,9 @@ function captureTime(value: { startedAt: string | null; endedAt: string | null }
 }
 
 export function coachMatchStatus(match: StatusMatch): CoachMatchStatusPresentation {
-  const captures = [...(match.captureSessions ?? [])].sort((left, right) => captureTime(right) - captureTime(left))
+  const captures = [...(match.captureSessions ?? [])].sort(
+    (left, right) => captureTime(right) - captureTime(left),
+  )
   const active = captures.find(capture => capture.status.toLowerCase() === 'live')
   if (active) {
     return active.health.toLowerCase() === 'healthy'
@@ -23,8 +29,10 @@ export function coachMatchStatus(match: StatusMatch): CoachMatchStatusPresentati
       : { kind: 'failed', label: '直播異常' }
   }
 
-  if (captures.some(capture => capture.status.toLowerCase() === 'starting')) return { kind: 'processing', label: '連線中' }
-  if (captures.some(capture => capture.status.toLowerCase() === 'stopping')) return { kind: 'processing', label: '結束處理中' }
+  if (captures.some(capture => capture.status.toLowerCase() === 'starting'))
+    return { kind: 'processing', label: '連線中' }
+  if (captures.some(capture => capture.status.toLowerCase() === 'stopping'))
+    return { kind: 'processing', label: '結束處理中' }
 
   const matchStatus = match.status.toLowerCase()
   if (matchStatus === 'archived') return { kind: 'archived', label: '已封存' }

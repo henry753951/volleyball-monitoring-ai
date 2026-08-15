@@ -13,13 +13,17 @@ describe('bounded player media time', () => {
 
 describe('rolling HLS attachment', () => {
   it('keeps one MSE pipeline for mapping revisions of the same window', () => {
-    expect(requiresPlaybackPipelineReplacement(
-      { playback_window_id: 'window-a' },
-      { playback_window_id: 'window-a' },
-    )).toBe(false)
-    expect(requiresPlaybackPipelineReplacement(
-      { playback_window_id: 'window-a' },
-      { playback_window_id: 'window-b' },
-    )).toBe(true)
+    expect(
+      requiresPlaybackPipelineReplacement(
+        { playback_window_id: 'window-a' },
+        { playback_window_id: 'window-a' },
+      ),
+    ).toBe(false)
+    expect(
+      requiresPlaybackPipelineReplacement(
+        { playback_window_id: 'window-a' },
+        { playback_window_id: 'window-b' },
+      ),
+    ).toBe(true)
   })
 })

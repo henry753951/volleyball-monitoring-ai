@@ -20,17 +20,17 @@ function normalizeViewport(value: unknown, captureSessionId: string): TimelineVi
   if (!value || typeof value !== 'object') return null
   const candidate = value as Partial<TimelineViewport>
   if (
-    candidate.captureSessionId !== captureSessionId
-    || !isDecimalTime(candidate.startCaptureTimeUs)
-    || !isDecimalTime(candidate.endCaptureTimeUs)
-    || typeof candidate.scale !== 'number'
-    || !Number.isFinite(candidate.scale)
-  ) return null
+    candidate.captureSessionId !== captureSessionId ||
+    !isDecimalTime(candidate.startCaptureTimeUs) ||
+    !isDecimalTime(candidate.endCaptureTimeUs) ||
+    typeof candidate.scale !== 'number' ||
+    !Number.isFinite(candidate.scale)
+  )
+    return null
 
   try {
     if (BigInt(candidate.endCaptureTimeUs) <= BigInt(candidate.startCaptureTimeUs)) return null
-  }
-  catch {
+  } catch {
     return null
   }
 
@@ -42,15 +42,18 @@ function normalizeViewport(value: unknown, captureSessionId: string): TimelineVi
   }
 }
 
-export function parseAnnotationWorkstationViewState(value: unknown): AnnotationWorkstationViewState | null {
+export function parseAnnotationWorkstationViewState(
+  value: unknown,
+): AnnotationWorkstationViewState | null {
   if (!value || typeof value !== 'object') return null
   const candidate = value as Partial<AnnotationWorkstationViewState>
   if (
-    candidate.schemaVersion !== 1
-    || typeof candidate.captureSessionId !== 'string'
-    || !candidate.captureSessionId
-    || (candidate.cursorCaptureTimeUs !== null && !isDecimalTime(candidate.cursorCaptureTimeUs))
-  ) return null
+    candidate.schemaVersion !== 1 ||
+    typeof candidate.captureSessionId !== 'string' ||
+    !candidate.captureSessionId ||
+    (candidate.cursorCaptureTimeUs !== null && !isDecimalTime(candidate.cursorCaptureTimeUs))
+  )
+    return null
 
   return {
     schemaVersion: 1,
@@ -64,15 +67,17 @@ export function annotationWorkstationViewStorageKey(matchId: string) {
   return `${STORAGE_PREFIX}:${encodeURIComponent(matchId.trim().toLowerCase())}`
 }
 
-function cursorWithinAvailableRanges(cursorCaptureTimeUs: string | null, ranges: readonly CaptureTimelineRange[]) {
+function cursorWithinAvailableRanges(
+  cursorCaptureTimeUs: string | null,
+  ranges: readonly CaptureTimelineRange[],
+) {
   if (!cursorCaptureTimeUs) return null
   try {
     const cursor = BigInt(cursorCaptureTimeUs)
     return ranges.some(range => cursor >= BigInt(range.startUs) && cursor < BigInt(range.endUs))
       ? cursorCaptureTimeUs
       : null
-  }
-  catch {
+  } catch {
     return null
   }
 }
@@ -88,8 +93,7 @@ export function useAnnotationWorkstationViewState(matchId: string) {
         read(raw) {
           try {
             return parseAnnotationWorkstationViewState(JSON.parse(raw))
-          }
-          catch {
+          } catch {
             return null
           }
         },
@@ -139,7 +143,10 @@ export function useAnnotationWorkstationViewState(matchId: string) {
     if (!current || current.captureSessionId !== captureSessionId) return null
     return {
       ...current,
-      cursorCaptureTimeUs: cursorWithinAvailableRanges(current.cursorCaptureTimeUs, availableRanges),
+      cursorCaptureTimeUs: cursorWithinAvailableRanges(
+        current.cursorCaptureTimeUs,
+        availableRanges,
+      ),
     }
   }
 

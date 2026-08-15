@@ -28,9 +28,11 @@ export function timingManifestIdentity(
   idempotencyKey: string,
   objectKey: string,
 ): string {
-  return /\/([0-9a-f-]{36})\.timing\.json$/i.exec(objectKey)?.[1]
-    ?? /:reuse:([0-9a-f-]{36})$/i.exec(idempotencyKey)?.[1]
-    ?? clipJobId
+  return (
+    /\/([0-9a-f-]{36})\.timing\.json$/i.exec(objectKey)?.[1] ??
+    /:reuse:([0-9a-f-]{36})$/i.exec(idempotencyKey)?.[1] ??
+    clipJobId
+  )
 }
 
 export interface ClipFrameTimeline {
@@ -63,19 +65,13 @@ export function resolveClipFrameTimeline(
 ): ClipFrameTimeline {
   const manifest = record(input)
   if (
-    !['1.1.0', '2.0.0'].includes(String(manifest.schema_version))
-    || manifest.clip_job_id !== expectedClipJobId
+    !['1.1.0', '2.0.0'].includes(String(manifest.schema_version)) ||
+    manifest.clip_job_id !== expectedClipJobId
   ) {
     throw new ClipTimingManifestError('timing manifest identity is invalid')
   }
-  const actualStartUs = decimal(
-    manifest.actual_start_capture_us,
-    'actual_start_capture_us',
-  )
-  const actualEndUs = decimal(
-    manifest.actual_end_capture_us,
-    'actual_end_capture_us',
-  )
+  const actualStartUs = decimal(manifest.actual_start_capture_us, 'actual_start_capture_us')
+  const actualEndUs = decimal(manifest.actual_end_capture_us, 'actual_end_capture_us')
   const video = record(manifest.video)
   const clipEndUs = decimal(video.duration_us, 'video.duration_us')
   if (actualEndUs <= actualStartUs) {
@@ -96,43 +92,33 @@ export function resolveClipFrameTimeline(
   for (const [index, value] of manifest.frame_map.entries()) {
     const frame = record(value)
     if (typeof frame.capture_epoch_id !== 'string' || frame.capture_epoch_id.length === 0) {
-      throw new ClipTimingManifestError(`frame_map[${index}].capture_epoch_id must be a non-empty string`)
+      throw new ClipTimingManifestError(
+        `frame_map[${index}].capture_epoch_id must be a non-empty string`,
+      )
     }
     const captureFrameIndex = decimal(
       frame.capture_frame_index,
       `frame_map[${index}].capture_frame_index`,
     )
-    const sourcePts = decimal(
-      frame.source_pts,
-      `frame_map[${index}].source_pts`,
-    )
-    const clipFrameIndex = decimal(
-      frame.clip_frame_index,
-      `frame_map[${index}].clip_frame_index`,
-    )
-    const captureTimeUs = decimal(
-      frame.capture_time_us,
-      `frame_map[${index}].capture_time_us`,
-    )
-    const clipTimeUs = decimal(
-      frame.clip_time_us,
-      `frame_map[${index}].clip_time_us`,
-    )
+    const sourcePts = decimal(frame.source_pts, `frame_map[${index}].source_pts`)
+    const clipFrameIndex = decimal(frame.clip_frame_index, `frame_map[${index}].clip_frame_index`)
+    const captureTimeUs = decimal(frame.capture_time_us, `frame_map[${index}].capture_time_us`)
+    const clipTimeUs = decimal(frame.clip_time_us, `frame_map[${index}].clip_time_us`)
     if (clipFrameIndex !== BigInt(index)) {
       throw new ClipTimingManifestError('frame_map indices must be contiguous')
     }
     if (
-      captureTimeUs < actualStartUs
-      || captureTimeUs >= actualEndUs
-      || (captureTimes.length > 0 && captureTimeUs <= captureTimes.at(-1)!)
+      captureTimeUs < actualStartUs ||
+      captureTimeUs >= actualEndUs ||
+      (captureTimes.length > 0 && captureTimeUs <= captureTimes.at(-1)!)
     ) {
       throw new ClipTimingManifestError('frame_map capture times are invalid')
     }
     if (
-      clipTimeUs < 0n
-      || clipTimeUs >= clipEndUs
-      || (clipTimes.length > 0 && clipTimeUs <= clipTimes.at(-1)!)
-      || (index === 0 && clipTimeUs !== 0n)
+      clipTimeUs < 0n ||
+      clipTimeUs >= clipEndUs ||
+      (clipTimes.length > 0 && clipTimeUs <= clipTimes.at(-1)!) ||
+      (index === 0 && clipTimeUs !== 0n)
     ) {
       throw new ClipTimingManifestError('frame_map clip times are invalid')
     }
@@ -169,12 +155,12 @@ export function resolveClipTimingCoverage(
     return { startUs: actualStartUs, endUs: actualEndUs }
   }
   if (
-    firstFrame === null
-    || lastFrame === null
-    || firstFrame < 0n
-    || lastFrame < firstFrame
-    || lastFrame >= BigInt(captureTimes.length)
-    || lastFrame > BigInt(Number.MAX_SAFE_INTEGER)
+    firstFrame === null ||
+    lastFrame === null ||
+    firstFrame < 0n ||
+    lastFrame < firstFrame ||
+    lastFrame >= BigInt(captureTimes.length) ||
+    lastFrame > BigInt(Number.MAX_SAFE_INTEGER)
   ) {
     throw new ClipTimingManifestError('analysis frame coverage is invalid')
   }
@@ -182,9 +168,7 @@ export function resolveClipTimingCoverage(
   const lastIndex = Number(lastFrame)
   return {
     startUs: captureTimes[firstIndex]!,
-    endUs: lastIndex + 1 < captureTimes.length
-      ? captureTimes[lastIndex + 1]!
-      : actualEndUs,
+    endUs: lastIndex + 1 < captureTimes.length ? captureTimes[lastIndex + 1]! : actualEndUs,
   }
 }
 
@@ -193,10 +177,10 @@ async function readTimingManifest(
   asset: TimingManifestAssetReference,
 ): Promise<unknown> {
   if (
-    asset.byteLength === null
-    || asset.sha256 === null
-    || asset.internalSchemaVersion === null
-    || !['1.1.0', '2.0.0'].includes(asset.internalSchemaVersion)
+    asset.byteLength === null ||
+    asset.sha256 === null ||
+    asset.internalSchemaVersion === null ||
+    !['1.1.0', '2.0.0'].includes(asset.internalSchemaVersion)
   ) {
     throw new ClipTimingManifestError('timing manifest asset is incomplete')
   }
@@ -221,10 +205,7 @@ export async function readClipFrameTimeline(
   asset: TimingManifestAssetReference,
   clipJobId: string,
 ): Promise<ClipFrameTimeline> {
-  return resolveClipFrameTimeline(
-    await readTimingManifest(reader, asset),
-    clipJobId,
-  )
+  return resolveClipFrameTimeline(await readTimingManifest(reader, asset), clipJobId)
 }
 
 export async function readClipTimingCoverage(

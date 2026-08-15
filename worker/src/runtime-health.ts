@@ -27,7 +27,9 @@ export function createWorkerHealthDocument(
   role: WorkerRole,
   components: WorkerComponentHealth[],
 ): WorkerHealthDocument {
-  const unhealthy = components.some(component => component.critical && component.status === 'unhealthy')
+  const unhealthy = components.some(
+    component => component.critical && component.status === 'unhealthy',
+  )
   const degraded = components.some(component => component.status !== 'healthy')
   return {
     role,
@@ -66,8 +68,9 @@ export async function startWorkerHealthServer(options: {
     })
   })
   return {
-    stop: () => new Promise<void>((resolve, reject) => {
-      server.close(error => error ? reject(error) : resolve())
-    }),
+    stop: () =>
+      new Promise<void>((resolve, reject) => {
+        server.close(error => (error ? reject(error) : resolve()))
+      }),
   }
 }

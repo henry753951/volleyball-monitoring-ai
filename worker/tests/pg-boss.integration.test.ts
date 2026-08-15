@@ -54,7 +54,11 @@ function requireJobId(id: string | null): string {
   return id
 }
 
-function envelope(captureSessionId: string, sourceOrder = '1', epochCandidateId = captureSessionId) {
+function envelope(
+  captureSessionId: string,
+  sourceOrder = '1',
+  epochCandidateId = captureSessionId,
+) {
   return {
     schemaVersion: '1.0.0' as const,
     jobType: MEDIA_INGEST_QUEUE as const,
@@ -92,8 +96,7 @@ integration('pg-boss media runtime integration', () => {
       expect(completed.state).toBe('completed')
       expect(seen).toEqual(['00000000-0000-4000-8000-000000000001'])
       expect(await runtime.send(item)).toBeNull()
-    }
-    finally {
+    } finally {
       await runtime.stop()
     }
   })
@@ -105,24 +108,20 @@ integration('pg-boss media runtime integration', () => {
     await runtime.start()
 
     try {
-      const sourceId = requireJobId(await runtime.send(
-        envelope('00000000-0000-4000-8000-000000000002'),
-      ))
+      const sourceId = requireJobId(
+        await runtime.send(envelope('00000000-0000-4000-8000-000000000002')),
+      )
       const deadLetter = await eventually(async () => {
         const jobs = await runtime.boss.findJobs(mediaIngestQueueOptions.deadLetter)
-        return jobs.find(job => (
-          job.data as { sourceJobId?: string }
-        ).sourceJobId === sourceId)
+        return jobs.find(job => (job.data as { sourceJobId?: string }).sourceJobId === sourceId)
       })
 
-      expect((deadLetter.data as { permanentFailure?: unknown }).permanentFailure)
-        .toEqual({ code: 'PERMANENT_FAILURE' })
-      expect((deadLetter.data as { sourceQueue?: string }).sourceQueue)
-        .toBe(MEDIA_INGEST_QUEUE)
-      expect((await runtime.boss.getJobById(MEDIA_INGEST_QUEUE, sourceId))?.state)
-        .toBe('completed')
-    }
-    finally {
+      expect((deadLetter.data as { permanentFailure?: unknown }).permanentFailure).toEqual({
+        code: 'PERMANENT_FAILURE',
+      })
+      expect((deadLetter.data as { sourceQueue?: string }).sourceQueue).toBe(MEDIA_INGEST_QUEUE)
+      expect((await runtime.boss.getJobById(MEDIA_INGEST_QUEUE, sourceId))?.state).toBe('completed')
+    } finally {
       await runtime.stop()
     }
   })
@@ -130,7 +129,9 @@ integration('pg-boss media runtime integration', () => {
   it('keeps same-capture jobs FIFO while accepting an independent capture', async () => {
     const order: string[] = []
     let releaseFirst!: () => void
-    const firstGate = new Promise<void>((resolve) => { releaseFirst = resolve })
+    const firstGate = new Promise<void>(resolve => {
+      releaseFirst = resolve
+    })
     const captureA = '00000000-0000-4000-8000-000000000011'
     const captureB = '00000000-0000-4000-8000-000000000012'
     const runtime = createPgBossMediaRuntime(isolatedDatabaseUrl, async item => {
@@ -143,8 +144,12 @@ integration('pg-boss media runtime integration', () => {
 
     try {
       const first = requireJobId(await runtime.send(envelope(captureA, '1')))
-      const second = requireJobId(await runtime.send(envelope(captureA, '2', '00000000-0000-4000-8000-0000000000a2')))
-      const independent = requireJobId(await runtime.send(envelope(captureB, '1', '00000000-0000-4000-8000-0000000000b1')))
+      const second = requireJobId(
+        await runtime.send(envelope(captureA, '2', '00000000-0000-4000-8000-0000000000a2')),
+      )
+      const independent = requireJobId(
+        await runtime.send(envelope(captureB, '1', '00000000-0000-4000-8000-0000000000b1')),
+      )
       expect(new Set([first, second, independent]).size).toBe(3)
 
       await wait(400)
@@ -155,10 +160,11 @@ integration('pg-boss media runtime integration', () => {
         const captureAOrder = order.filter(item => item.startsWith(captureA))
         return captureAOrder.length === 2 ? captureAOrder : null
       })
-      expect(order.filter(item => item.startsWith(captureA)))
-        .toEqual([`${captureA}:1`, `${captureA}:2`])
-    }
-    finally {
+      expect(order.filter(item => item.startsWith(captureA))).toEqual([
+        `${captureA}:1`,
+        `${captureA}:2`,
+      ])
+    } finally {
       releaseFirst()
       await runtime.stop()
     }
@@ -184,8 +190,7 @@ integration('pg-boss media runtime integration', () => {
       expect(completed.state).toBe('completed')
       const deadLetters = await runtime.boss.findJobs(mediaIngestQueueOptions.deadLetter)
       expect(deadLetters.some(job => job.sourceId === sourceId)).toBe(false)
-    }
-    finally {
+    } finally {
       await runtime.stop()
     }
   }, 30_000)
@@ -206,8 +211,7 @@ integration('pg-boss media runtime integration', () => {
         return job?.state === 'completed' ? job : null
       })
       expect(runtimeADeliveries).toBe(1)
-    }
-    finally {
+    } finally {
       await runtimeA.stop()
     }
 
@@ -223,15 +227,18 @@ integration('pg-boss media runtime integration', () => {
       await wait(400)
       expect(runtimeBDeliveries).toBe(0)
 
-      const secondId = requireJobId(await runtimeB.send(envelope(captureSessionId, '2', '00000000-0000-4000-8000-0000000000c2')))
+      const secondId = requireJobId(
+        await runtimeB.send(
+          envelope(captureSessionId, '2', '00000000-0000-4000-8000-0000000000c2'),
+        ),
+      )
       await eventually(async () => {
         const job = await runtimeB.boss.getJobById(MEDIA_INGEST_QUEUE, secondId)
         return job?.state === 'completed' ? job : null
       })
       expect(runtimeBDeliveries).toBe(1)
       expect(runtimeADeliveries).toBe(1)
-    }
-    finally {
+    } finally {
       await runtimeB.stop()
     }
   })
@@ -244,25 +251,25 @@ integration('pg-boss media runtime integration', () => {
     await runtime.start()
 
     try {
-      const sourceId = requireJobId(await runtime.boss.send(
-        MEDIA_INGEST_QUEUE,
-        { candidate: '/private/camera/path', token: 'do-not-leak-this-token' },
-        { singletonKey: '00000000-0000-4000-8000-0000000000bb' },
-      ))
+      const sourceId = requireJobId(
+        await runtime.boss.send(
+          MEDIA_INGEST_QUEUE,
+          { candidate: '/private/camera/path', token: 'do-not-leak-this-token' },
+          { singletonKey: '00000000-0000-4000-8000-0000000000bb' },
+        ),
+      )
       const deadLetter = await eventually(async () => {
         const jobs = await runtime.boss.findJobs(mediaIngestQueueOptions.deadLetter)
-        return jobs.find(job => (
-          job.data as { sourceJobId?: string }
-        ).sourceJobId === sourceId)
+        return jobs.find(job => (job.data as { sourceJobId?: string }).sourceJobId === sourceId)
       })
 
       expect(handlerDeliveries).toBe(0)
-      expect((deadLetter.data as { permanentFailure?: unknown }).permanentFailure)
-        .toEqual({ code: 'INVALID_JOB' })
+      expect((deadLetter.data as { permanentFailure?: unknown }).permanentFailure).toEqual({
+        code: 'INVALID_JOB',
+      })
       expect(JSON.stringify(deadLetter.data)).not.toContain('private')
       expect(JSON.stringify(deadLetter.data)).not.toContain('do-not-leak')
-    }
-    finally {
+    } finally {
       await runtime.stop()
     }
   })

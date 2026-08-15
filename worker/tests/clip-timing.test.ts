@@ -45,15 +45,22 @@ describe('canonical clip timing', () => {
   it('selects VFR samples and maps an immutable key point by exact identity', () => {
     const source = segment([33_366n, 41_000n, 25_000n, 50_000n])
     const point = source.index.samples[1]!
-    const selected = selectCanonicalClipRange([source], 30_000n, 120_000n, [{
-      id: 'point-1',
-      captureEpochId: source.captureEpochId,
-      sourcePts: point.sourcePts,
-      captureTimeUs: point.captureTimeUs,
-      captureFrameIndex: point.captureFrameIndex,
-    }])
+    const selected = selectCanonicalClipRange([source], 30_000n, 120_000n, [
+      {
+        id: 'point-1',
+        captureEpochId: source.captureEpochId,
+        sourcePts: point.sourcePts,
+        captureTimeUs: point.captureTimeUs,
+        captureFrameIndex: point.captureFrameIndex,
+      },
+    ])
 
-    expect(selected.sourceSamples.map(sample => sample.durationPts)).toEqual([33_366n, 41_000n, 25_000n, 50_000n])
+    expect(selected.sourceSamples.map(sample => sample.durationPts)).toEqual([
+      33_366n,
+      41_000n,
+      25_000n,
+      50_000n,
+    ])
     expect(selected.keyPointOrdinals.get('point-1')).toBe(1)
     expect(selected.actualStartCaptureUs).toBe(0n)
     expect(selected.actualEndCaptureUs).toBe(149_366n)
@@ -61,30 +68,31 @@ describe('canonical clip timing', () => {
 
   it('fails closed when the immutable anchor does not match the actual source sample', () => {
     const source = segment([33_366n, 33_367n])
-    expect(() => selectCanonicalClipRange([source], 0n, 60_000n, [{
-      id: 'wrong-point',
-      captureEpochId: source.captureEpochId,
-      sourcePts: 1n,
-      captureTimeUs: 0n,
-      captureFrameIndex: 0n,
-    }])).toThrow('has no exact source sample')
+    expect(() =>
+      selectCanonicalClipRange([source], 0n, 60_000n, [
+        {
+          id: 'wrong-point',
+          captureEpochId: source.captureEpochId,
+          sourcePts: 1n,
+          captureTimeUs: 0n,
+          captureFrameIndex: 0n,
+        },
+      ]),
+    ).toThrow('has no exact source sample')
   })
 
   it('includes an immutable end boundary at the exact requested end with zero post-roll', () => {
     const source = segment([33_366n, 33_367n, 33_366n])
     const endBoundary = source.index.samples[2]!
-    const selected = selectCanonicalClipRange(
-      [source],
-      0n,
-      endBoundary.captureTimeUs,
-      [{
+    const selected = selectCanonicalClipRange([source], 0n, endBoundary.captureTimeUs, [
+      {
         id: 'end-boundary',
         captureEpochId: source.captureEpochId,
         sourcePts: endBoundary.sourcePts,
         captureTimeUs: endBoundary.captureTimeUs,
         captureFrameIndex: endBoundary.captureFrameIndex,
-      }],
-    )
+      },
+    ])
 
     expect(selected.sourceSamples).toHaveLength(3)
     expect(selected.keyPointOrdinals.get('end-boundary')).toBe(2)
@@ -114,18 +122,15 @@ describe('canonical clip timing', () => {
       },
     }
     const point = second.index.samples[0]!
-    const selected = selectCanonicalClipRange(
-      [first, second],
-      0n,
-      second.captureEndUs,
-      [{
+    const selected = selectCanonicalClipRange([first, second], 0n, second.captureEndUs, [
+      {
         id: 'reset-point',
         captureEpochId: second.captureEpochId,
         sourcePts: point.sourcePts,
         captureTimeUs: point.captureTimeUs,
         captureFrameIndex: point.captureFrameIndex,
-      }],
-    )
+      },
+    ])
 
     expect(selected.sourceSamples.map(sample => sample.captureEpochId)).toEqual([
       'epoch-1',
@@ -144,9 +149,27 @@ describe('canonical clip timing', () => {
 
   it('preserves exact cumulative PTS timing at 60000/1001 without per-frame rounding drift', () => {
     const samples = [
-      { sourcePts: 1_001n, durationPts: 1_001n, captureTimeUs: 0n, captureFrameIndex: 0n, keyframe: true },
-      { sourcePts: 2_002n, durationPts: 1_001n, captureTimeUs: 16_683n, captureFrameIndex: 1n, keyframe: false },
-      { sourcePts: 3_003n, durationPts: 1_001n, captureTimeUs: 33_367n, captureFrameIndex: 2n, keyframe: false },
+      {
+        sourcePts: 1_001n,
+        durationPts: 1_001n,
+        captureTimeUs: 0n,
+        captureFrameIndex: 0n,
+        keyframe: true,
+      },
+      {
+        sourcePts: 2_002n,
+        durationPts: 1_001n,
+        captureTimeUs: 16_683n,
+        captureFrameIndex: 1n,
+        keyframe: false,
+      },
+      {
+        sourcePts: 3_003n,
+        durationPts: 1_001n,
+        captureTimeUs: 33_367n,
+        captureFrameIndex: 2n,
+        keyframe: false,
+      },
     ]
     const source: ClipSourceSegment = {
       id: 'segment-60fps',
@@ -180,8 +203,9 @@ describe('canonical clip timing', () => {
       index: { ...source.index, samples },
     }
 
-    expect(() => selectCanonicalClipRange([discontinuous], 0n, 48_000n, []))
-      .toThrow('canonical sample capture time does not match source PTS')
+    expect(() => selectCanonicalClipRange([discontinuous], 0n, 48_000n, [])).toThrow(
+      'canonical sample capture time does not match source PTS',
+    )
   })
 
   it('builds a frame-ordinal transcode without CFR coercion or time seeking', () => {
@@ -198,19 +222,30 @@ describe('canonical clip timing', () => {
     expect(args).not.toContain('-shortest')
     expect(args).toContain('atrim=start=0.100000:duration=0.200000,asetpts=PTS-STARTPTS')
 
-    const concatArgs = buildCanonicalClipFfmpegArgs('source.concat.txt', 'clip.mp4', {
-      sourceStartFrame: 3n,
-      sourceEndFrameExclusive: 9n,
-      sourceStartOffsetUs: 100_000n,
-      durationUs: 200_000n,
-    }, 'concat')
+    const concatArgs = buildCanonicalClipFfmpegArgs(
+      'source.concat.txt',
+      'clip.mp4',
+      {
+        sourceStartFrame: 3n,
+        sourceEndFrameExclusive: 9n,
+        sourceStartOffsetUs: 100_000n,
+        durationUs: 200_000n,
+      },
+      'concat',
+    )
     expect(concatArgs).toEqual(expect.arrayContaining(['-f', 'concat', '-safe', '0']))
   })
 
   it('uses actual output PTS and rejects dropped or duplicated output frames', () => {
     const payload = {
       streams: [
-        { codec_type: 'video', width: 1920, height: 1080, avg_frame_rate: '30000/1001', time_base: '1/90000' },
+        {
+          codec_type: 'video',
+          width: 1920,
+          height: 1080,
+          avg_frame_rate: '30000/1001',
+          time_base: '1/90000',
+        },
         { codec_type: 'audio' },
       ],
       frames: [
@@ -226,27 +261,34 @@ describe('canonical clip timing', () => {
       clipTimeUs: 33_367n,
       clipFrameIndex: 1n,
     })
-    expect(() => parseCanonicalClipProbe(payload, 4, { fpsNum: 30, fpsDen: 1 }))
-      .toThrow('frame count mismatch')
+    expect(() => parseCanonicalClipProbe(payload, 4, { fpsNum: 30, fpsDen: 1 })).toThrow(
+      'frame count mismatch',
+    )
   })
 
   it('derives a missing final packet duration from the exact stream end', () => {
-    const video = parseCanonicalClipProbe({
-      streams: [{
-        codec_type: 'video',
-        width: 1920,
-        height: 1080,
-        avg_frame_rate: '60000/1001',
-        time_base: '1/60000',
-        start_pts: '0',
-        duration_ts: '3003',
-      }],
-      frames: [
-        { media_type: 'video', pts: '0', pkt_duration: '1001', key_frame: 1 },
-        { media_type: 'video', pts: '1001', pkt_duration: '1001', key_frame: 0 },
-        { media_type: 'video', pts: '2002', key_frame: 0 },
-      ],
-    }, 3, { fpsNum: 60, fpsDen: 1 })
+    const video = parseCanonicalClipProbe(
+      {
+        streams: [
+          {
+            codec_type: 'video',
+            width: 1920,
+            height: 1080,
+            avg_frame_rate: '60000/1001',
+            time_base: '1/60000',
+            start_pts: '0',
+            duration_ts: '3003',
+          },
+        ],
+        frames: [
+          { media_type: 'video', pts: '0', pkt_duration: '1001', key_frame: 1 },
+          { media_type: 'video', pts: '1001', pkt_duration: '1001', key_frame: 0 },
+          { media_type: 'video', pts: '2002', key_frame: 0 },
+        ],
+      },
+      3,
+      { fpsNum: 60, fpsDen: 1 },
+    )
 
     expect(video.frames).toEqual([
       { pts: 0n, durationPts: 1001n },

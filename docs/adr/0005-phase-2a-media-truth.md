@@ -85,15 +85,15 @@ Production media authorization uses a same-site HTTP-only session cookie so nati
 
 All non-success JSON responses use a versioned media error envelope and stable codes:
 
-| HTTP | Codes |
-| --- | --- |
-| 400 | `BAD_REQUEST` |
-| 401 | `UNAUTHENTICATED` |
-| 403 | `FORBIDDEN` |
-| 404 | `NOT_FOUND` |
-| 409 | `MAPPING_STALE`, `MEDIA_NOT_READY`, `WINDOW_BOUNDARY` |
-| 410 | `WINDOW_EXPIRED` |
-| 422 | `CURSOR_NOT_READY`, `CAPTURE_GAP`, `SAMPLE_NOT_FOUND` |
+| HTTP | Codes                                                 |
+| ---- | ----------------------------------------------------- |
+| 400  | `BAD_REQUEST`                                         |
+| 401  | `UNAUTHENTICATED`                                     |
+| 403  | `FORBIDDEN`                                           |
+| 404  | `NOT_FOUND`                                           |
+| 409  | `MAPPING_STALE`, `MEDIA_NOT_READY`, `WINDOW_BOUNDARY` |
+| 410  | `WINDOW_EXPIRED`                                      |
+| 422  | `CURSOR_NOT_READY`, `CAPTURE_GAP`, `SAMPLE_NOT_FOUND` |
 
 An expired descriptor, manifest, segment or resolve/step request returns `410`; the PWA requests a new window around its last authoritative canonical capture position. The server does not silently renew a mapping version.
 

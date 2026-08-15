@@ -1,7 +1,11 @@
 import type { PrismaClient } from '@volleyball-monitoring/db'
 import { JobStatus, UserRole } from '@volleyball-monitoring/db/client'
 import { describe, expect, it, vi } from 'vitest'
-import { getCoachRallyReplay, projectEffectiveReplayEvents, projectReplayTrack } from '../src/services/coach-replay.js'
+import {
+  getCoachRallyReplay,
+  projectEffectiveReplayEvents,
+  projectReplayTrack,
+} from '../src/services/coach-replay.js'
 
 describe('coach replay effective contact projection', () => {
   it('shows completed analysis to a coach before optional review approval', async () => {
@@ -24,22 +28,24 @@ describe('coach replay effective contact projection', () => {
         scoringTeam: null,
         keyPoints: [],
         clipJobs: [],
-        analysisRuns: [{
-          id: 'analysis-1',
-          analysisId: 'provider-analysis-1',
-          analysisVersion: '1.0.0',
-          producerName: 'fixture',
-          producerBuildId: 'fixture-build',
-          summary: {},
-          reviewRevision: 0n,
-          tracks: [],
-          contactEvents: [],
-          contactActorCorrections: [],
-          contactTimeCorrections: [],
-          contactEdits: [],
-          actionCorrections: [],
-          segments: [],
-        }],
+        analysisRuns: [
+          {
+            id: 'analysis-1',
+            analysisId: 'provider-analysis-1',
+            analysisVersion: '1.0.0',
+            producerName: 'fixture',
+            producerBuildId: 'fixture-build',
+            summary: {},
+            reviewRevision: 0n,
+            tracks: [],
+            contactEvents: [],
+            contactActorCorrections: [],
+            contactTimeCorrections: [],
+            contactEdits: [],
+            actionCorrections: [],
+            segments: [],
+          },
+        ],
         supersedes: null,
       },
     })
@@ -52,15 +58,17 @@ describe('coach replay effective contact projection', () => {
     })
 
     expect(replay?.analysis?.id).toBe('analysis-1')
-    expect(findFirst).toHaveBeenCalledWith(expect.objectContaining({
-      select: expect.objectContaining({
-        activeSubmission: expect.objectContaining({
-          select: expect.objectContaining({
-            analysisRuns: expect.objectContaining({ where: { status: JobStatus.COMPLETED } }),
+    expect(findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        select: expect.objectContaining({
+          activeSubmission: expect.objectContaining({
+            select: expect.objectContaining({
+              analysisRuns: expect.objectContaining({ where: { status: JobStatus.COMPLETED } }),
+            }),
           }),
         }),
       }),
-    }))
+    )
   })
 
   it('keeps GID visible even before a roster player is assigned', () => {
@@ -79,33 +87,65 @@ describe('coach replay effective contact projection', () => {
     } as never)
     expect(track).toMatchObject({
       track_id: 7,
-      global_identity: { id: 'gid-1', label: 'L1', source: 'ai', confidence: 0.95, identity_revision: '4' },
+      global_identity: {
+        id: 'gid-1',
+        label: 'L1',
+        source: 'ai',
+        confidence: 0.95,
+        identity_revision: '4',
+      },
       identity: null,
     })
   })
 
   it('applies time and actor corrections without mutating raw inference', () => {
     const rawActor = {
-      trackId: 1, observationFrameIndex: 10n, associationConfidence: 0.8,
-      frameX1: 1, frameY1: 2, frameX2: 3, frameY2: 4,
-      frameFootX: 2, frameFootY: 4, courtX: 0.2, courtY: 0.4, action: null,
+      trackId: 1,
+      observationFrameIndex: 10n,
+      associationConfidence: 0.8,
+      frameX1: 1,
+      frameY1: 2,
+      frameX2: 3,
+      frameY2: 4,
+      frameFootX: 2,
+      frameFootY: 4,
+      courtX: 0.2,
+      courtY: 0.4,
+      action: null,
     }
     const analysis = {
       contactTimeCorrections: [{ keyPointId: 'contact-1', frameIndex: 14n }],
       contactActorCorrections: [{ keyPointId: 'contact-1', trackId: 2 }],
-      contactEvents: [{
-        keyPointId: 'contact-1', sourceKeyPointId: null, anchorOrigin: 'ai_detected',
-        detectionConfidence: 0.9, detectionEvidence: null, sequenceIndex: 0,
-        markerKind: 'CONTACT', isTerminal: false, anchorFrameIndex: 10n,
-        resolvedFrameIndex: 11n, anchorTimeUs: 1000n, associationState: 'RESOLVED_SINGLE',
-        ballState: 'OBSERVED', ballFrameIndex: 10n, ballFrameX: 100, ballFrameY: 200,
-        qualityFlags: [], actors: [rawActor], candidates: [], representativePositions: [],
-      }],
+      contactEvents: [
+        {
+          keyPointId: 'contact-1',
+          sourceKeyPointId: null,
+          anchorOrigin: 'ai_detected',
+          detectionConfidence: 0.9,
+          detectionEvidence: null,
+          sequenceIndex: 0,
+          markerKind: 'CONTACT',
+          isTerminal: false,
+          anchorFrameIndex: 10n,
+          resolvedFrameIndex: 11n,
+          anchorTimeUs: 1000n,
+          associationState: 'RESOLVED_SINGLE',
+          ballState: 'OBSERVED',
+          ballFrameIndex: 10n,
+          ballFrameX: 100,
+          ballFrameY: 200,
+          qualityFlags: [],
+          actors: [rawActor],
+          candidates: [],
+          representativePositions: [],
+        },
+      ],
     } as unknown as Parameters<typeof projectEffectiveReplayEvents>[0]
 
     const [event] = projectEffectiveReplayEvents(analysis)
     expect(event?.wire).toMatchObject({
-      resolved_frame_index: '14', association_state: 'resolved_single',
+      resolved_frame_index: '14',
+      association_state: 'resolved_single',
       actors: [{ track_id: 2, observation_frame_index: '14', frame_bbox: null }],
       quality_flags: ['manual_review_effective'],
     })

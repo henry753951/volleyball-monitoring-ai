@@ -1,9 +1,5 @@
 import { createHash } from 'node:crypto'
-import {
-  serializeSampleIndex,
-  type SampleIndex,
-  type SampleIndexDocument,
-} from './sample-index'
+import { serializeSampleIndex, type SampleIndex, type SampleIndexDocument } from './sample-index'
 import {
   normalizeSourceIdentity,
   validateCaptureSessionId,
@@ -55,10 +51,7 @@ export function sha256(bytes: Uint8Array): string {
   return createHash('sha256').update(bytes).digest('hex')
 }
 
-function canonicalDigest(
-  domain: string,
-  fields: readonly (readonly [string, string])[],
-): string {
+function canonicalDigest(domain: string, fields: readonly (readonly [string, string])[]): string {
   const hash = createHash('sha256')
   for (const [name, value] of [['domain', domain] as const, ...fields]) {
     const nameBytes = Buffer.from(name, 'utf8')
@@ -114,10 +107,7 @@ export function sourceContentSha256(source: ArtifactSourceBytes): string {
   return hash.digest('hex')
 }
 
-export function idempotencyKey(
-  recording: FinalizedRecording,
-  contentSha256: string,
-): string {
+export function idempotencyKey(recording: FinalizedRecording, contentSha256: string): string {
   if (!/^[a-f0-9]{64}$/.test(contentSha256)) {
     throw new Error('invalid source content checksum')
   }
@@ -159,12 +149,7 @@ function artifact(
   const immutableBytes = Buffer.from(bytes)
   return {
     kind,
-    location: planObjectLocation(
-      bucket,
-      captureSessionId,
-      hashedSource,
-      kind,
-    ),
+    location: planObjectLocation(bucket, captureSessionId, hashedSource, kind),
     bytes: immutableBytes,
     sha256: sha256(immutableBytes),
     byteLength: BigInt(immutableBytes.byteLength),
@@ -220,18 +205,9 @@ export function buildArtifactPlan(
   }
 }
 
-export function metadataFor(
-  artifacts: readonly MediaArtifact[],
-): ArtifactMetadata[] {
+export function metadataFor(artifacts: readonly MediaArtifact[]): ArtifactMetadata[] {
   return artifacts.map(
-    ({
-      kind,
-      location,
-      sha256: checksum,
-      byteLength,
-      contentType,
-      internalSchemaVersion,
-    }) => ({
+    ({ kind, location, sha256: checksum, byteLength, contentType, internalSchemaVersion }) => ({
       kind,
       location,
       sha256: checksum,

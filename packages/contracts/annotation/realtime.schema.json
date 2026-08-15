@@ -58,10 +58,7 @@
       "enum": ["pending", "resolved", "unknown"]
     },
     "scoring_court_side": {
-      "oneOf": [
-        { "enum": ["left", "right"] },
-        { "type": "null" }
-      ]
+      "oneOf": [{ "enum": ["left", "right"] }, { "type": "null" }]
     },
     "resolved_outcome": {
       "type": "object",
@@ -82,10 +79,7 @@
       }
     },
     "outcome": {
-      "oneOf": [
-        { "$ref": "#/$defs/resolved_outcome" },
-        { "$ref": "#/$defs/unknown_outcome" }
-      ]
+      "oneOf": [{ "$ref": "#/$defs/resolved_outcome" }, { "$ref": "#/$defs/unknown_outcome" }]
     },
     "playback_cursor": {
       "type": "object",
@@ -109,10 +103,7 @@
           "enum": ["request_video_frame_callback", "current_time_fallback"]
         },
         "presented_frames": {
-          "oneOf": [
-            { "$ref": "#/$defs/decimal_string" },
-            { "type": "null" }
-          ]
+          "oneOf": [{ "$ref": "#/$defs/decimal_string" }, { "type": "null" }]
         },
         "seek_generation": {
           "type": "integer",
@@ -126,7 +117,15 @@
     "start_rally_command": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["schema_version", "command_id", "room_id", "base_revision", "rally_id", "kind", "payload"],
+      "required": [
+        "schema_version",
+        "command_id",
+        "room_id",
+        "base_revision",
+        "rally_id",
+        "kind",
+        "payload"
+      ],
       "properties": {
         "schema_version": { "const": "3.0.0" },
         "command_id": { "$ref": "#/$defs/identifier" },
@@ -145,7 +144,15 @@
     "end_rally_command": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["schema_version", "command_id", "room_id", "base_revision", "rally_id", "kind", "payload"],
+      "required": [
+        "schema_version",
+        "command_id",
+        "room_id",
+        "base_revision",
+        "rally_id",
+        "kind",
+        "payload"
+      ],
       "properties": {
         "schema_version": { "const": "3.0.0" },
         "command_id": { "$ref": "#/$defs/identifier" },
@@ -164,7 +171,15 @@
     "set_rally_outcome_command": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["schema_version", "command_id", "room_id", "base_revision", "rally_id", "kind", "payload"],
+      "required": [
+        "schema_version",
+        "command_id",
+        "room_id",
+        "base_revision",
+        "rally_id",
+        "kind",
+        "payload"
+      ],
       "properties": {
         "schema_version": { "const": "3.0.0" },
         "command_id": { "$ref": "#/$defs/identifier" },
@@ -258,11 +273,7 @@
             {
               "type": "object",
               "additionalProperties": false,
-              "required": [
-                "target_key_point_id",
-                "score_resolution",
-                "scoring_court_side"
-              ],
+              "required": ["target_key_point_id", "score_resolution", "scoring_court_side"],
               "properties": {
                 "target_key_point_id": { "$ref": "#/$defs/identifier" },
                 "score_resolution": { "const": "resolved" },
@@ -272,11 +283,7 @@
             {
               "type": "object",
               "additionalProperties": false,
-              "required": [
-                "target_key_point_id",
-                "score_resolution",
-                "scoring_court_side"
-              ],
+              "required": ["target_key_point_id", "score_resolution", "scoring_court_side"],
               "properties": {
                 "target_key_point_id": { "$ref": "#/$defs/identifier" },
                 "score_resolution": { "const": "unknown" },
@@ -440,10 +447,7 @@
         "type": { "const": "soft_lock_intent" },
         "room_id": { "$ref": "#/$defs/canonical_room_id" },
         "editing_key_point_id": {
-          "oneOf": [
-            { "$ref": "#/$defs/identifier" },
-            { "type": "null" }
-          ]
+          "oneOf": [{ "$ref": "#/$defs/identifier" }, { "type": "null" }]
         }
       }
     },
@@ -487,10 +491,7 @@
         "capture_session_id": { "$ref": "#/$defs/identifier" },
         "capture_epoch_id": { "$ref": "#/$defs/identifier" },
         "dvr_segment_id": {
-          "oneOf": [
-            { "$ref": "#/$defs/identifier" },
-            { "type": "null" }
-          ]
+          "oneOf": [{ "$ref": "#/$defs/identifier" }, { "type": "null" }]
         },
         "source_pts": {
           "type": "string",
@@ -519,10 +520,7 @@
           "minimum": 1
         },
         "snap_distance_us": {
-          "oneOf": [
-            { "$ref": "#/$defs/decimal_string" },
-            { "type": "null" }
-          ]
+          "oneOf": [{ "$ref": "#/$defs/decimal_string" }, { "type": "null" }]
         },
         "timing_precision": {
           "enum": ["frame_exact", "pts_exact", "estimated"]
@@ -534,34 +532,19 @@
       "additionalProperties": false,
       "properties": {
         "boundary_kind": {
-          "oneOf": [
-            { "enum": ["start", "end"] },
-            { "type": "null" }
-          ]
+          "oneOf": [{ "enum": ["start", "end"] }, { "type": "null" }]
         },
         "created_key_point_id": {
-          "oneOf": [
-            { "$ref": "#/$defs/identifier" },
-            { "type": "null" }
-          ]
+          "oneOf": [{ "$ref": "#/$defs/identifier" }, { "type": "null" }]
         },
         "terminal_key_point_id": {
-          "oneOf": [
-            { "$ref": "#/$defs/identifier" },
-            { "type": "null" }
-          ]
+          "oneOf": [{ "$ref": "#/$defs/identifier" }, { "type": "null" }]
         },
         "deleted_key_point_id": {
-          "oneOf": [
-            { "$ref": "#/$defs/identifier" },
-            { "type": "null" }
-          ]
+          "oneOf": [{ "$ref": "#/$defs/identifier" }, { "type": "null" }]
         },
         "submission_id": {
-          "oneOf": [
-            { "$ref": "#/$defs/identifier" },
-            { "type": "null" }
-          ]
+          "oneOf": [{ "$ref": "#/$defs/identifier" }, { "type": "null" }]
         },
         "annotation_status": { "$ref": "#/$defs/annotation_status" },
         "score_resolution": { "$ref": "#/$defs/score_resolution" },
@@ -637,10 +620,7 @@
         "server_sequence": { "$ref": "#/$defs/decimal_string" },
         "effects": { "$ref": "#/$defs/effects" },
         "resolved_anchor": {
-          "oneOf": [
-            { "$ref": "#/$defs/resolved_anchor" },
-            { "type": "null" }
-          ]
+          "oneOf": [{ "$ref": "#/$defs/resolved_anchor" }, { "type": "null" }]
         }
       },
       "allOf": [
@@ -754,22 +734,13 @@
           "minLength": 1
         },
         "message": {
-          "oneOf": [
-            { "type": "string" },
-            { "type": "null" }
-          ]
+          "oneOf": [{ "type": "string" }, { "type": "null" }]
         },
         "expected_revision": {
-          "oneOf": [
-            { "$ref": "#/$defs/decimal_string" },
-            { "type": "null" }
-          ]
+          "oneOf": [{ "$ref": "#/$defs/decimal_string" }, { "type": "null" }]
         },
         "actual_revision": {
-          "oneOf": [
-            { "$ref": "#/$defs/decimal_string" },
-            { "type": "null" }
-          ]
+          "oneOf": [{ "$ref": "#/$defs/decimal_string" }, { "type": "null" }]
         },
         "snapshot_refetch_required": { "type": "boolean" }
       }
@@ -846,10 +817,7 @@
           ]
         },
         "active_submission_id": {
-          "oneOf": [
-            { "$ref": "#/$defs/identifier" },
-            { "type": "null" }
-          ]
+          "oneOf": [{ "$ref": "#/$defs/identifier" }, { "type": "null" }]
         },
         "key_points": {
           "type": "array",
@@ -970,10 +938,7 @@
               "device_session_id": { "$ref": "#/$defs/identifier" },
               "display_name": { "type": "string" },
               "editing_key_point_id": {
-                "oneOf": [
-                  { "$ref": "#/$defs/identifier" },
-                  { "type": "null" }
-                ]
+                "oneOf": [{ "$ref": "#/$defs/identifier" }, { "type": "null" }]
               }
             }
           }
@@ -1011,46 +976,25 @@
           ]
         },
         "ai_job_id": {
-          "oneOf": [
-            { "$ref": "#/$defs/identifier" },
-            { "type": "null" }
-          ]
+          "oneOf": [{ "$ref": "#/$defs/identifier" }, { "type": "null" }]
         },
         "worker_instance_key": {
-          "oneOf": [
-            { "type": "string", "minLength": 1, "maxLength": 128 },
-            { "type": "null" }
-          ]
+          "oneOf": [{ "type": "string", "minLength": 1, "maxLength": 128 }, { "type": "null" }]
         },
         "provider_build_id": {
-          "oneOf": [
-            { "type": "string", "minLength": 1, "maxLength": 256 },
-            { "type": "null" }
-          ]
+          "oneOf": [{ "type": "string", "minLength": 1, "maxLength": 256 }, { "type": "null" }]
         },
         "progress": {
-          "oneOf": [
-            { "type": "number", "minimum": 0, "maximum": 1 },
-            { "type": "null" }
-          ]
+          "oneOf": [{ "type": "number", "minimum": 0, "maximum": 1 }, { "type": "null" }]
         },
         "stage": {
-          "oneOf": [
-            { "type": "string", "minLength": 1, "maxLength": 128 },
-            { "type": "null" }
-          ]
+          "oneOf": [{ "type": "string", "minLength": 1, "maxLength": 128 }, { "type": "null" }]
         },
         "updated_at": {
-          "oneOf": [
-            { "type": "string", "format": "date-time" },
-            { "type": "null" }
-          ]
+          "oneOf": [{ "type": "string", "format": "date-time" }, { "type": "null" }]
         },
         "analysis_id": {
-          "oneOf": [
-            { "$ref": "#/$defs/identifier" },
-            { "type": "null" }
-          ]
+          "oneOf": [{ "$ref": "#/$defs/identifier" }, { "type": "null" }]
         },
         "analysis_data_version": {
           "oneOf": [

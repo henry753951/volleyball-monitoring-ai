@@ -26,10 +26,12 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '409':
           description: Media not ready
-          content: { application/json: { schema: { $ref: '../media/media-api-error.schema.json' } } }
+          content:
+            { application/json: { schema: { $ref: '../media/media-api-error.schema.json' } } }
         '422':
           description: Capture gap
-          content: { application/json: { schema: { $ref: '../media/media-api-error.schema.json' } } }
+          content:
+            { application/json: { schema: { $ref: '../media/media-api-error.schema.json' } } }
   /api/v1/media/playback-windows/{windowId}:
     get:
       summary: Get a bounded playback descriptor
@@ -37,7 +39,11 @@ paths:
       responses:
         '200':
           description: Playback window descriptor
-          content: { application/json: { schema: { $ref: '../media/playback-window-descriptor.schema.json' } } }
+          content:
+            {
+              application/json:
+                { schema: { $ref: '../media/playback-window-descriptor.schema.json' } },
+            }
         '401': { $ref: '#/components/responses/Unauthenticated' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
@@ -83,13 +89,32 @@ paths:
         required: true
         content: { application/json: { schema: { $ref: '../media/playback-cursor.schema.json' } } }
       responses:
-        '200': { description: Resolved anchor, content: { application/json: { schema: { $ref: '../media/resolved-media-anchor.schema.json' } } } }
+        '200':
+          {
+            description: Resolved anchor,
+            content:
+              {
+                application/json:
+                  { schema: { $ref: '../media/resolved-media-anchor.schema.json' } },
+              },
+          }
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthenticated' }
         '404': { $ref: '#/components/responses/NotFound' }
-        '409': { description: Mapping stale, content: { application/json: { schema: { $ref: '../media/media-api-error.schema.json' } } } }
+        '409':
+          {
+            description: Mapping stale,
+            content:
+              { application/json: { schema: { $ref: '../media/media-api-error.schema.json' } } },
+          }
         '410': { $ref: '#/components/responses/WindowExpired' }
-        '422': { description: Cursor not ready, gap or sample missing, content: { application/json: { schema: { $ref: '../media/media-api-error.schema.json' } } } }
+        '422':
+          {
+            description: Cursor not ready,
+            gap or sample missing,
+            content:
+              { application/json: { schema: { $ref: '../media/media-api-error.schema.json' } } },
+          }
   /api/v1/media/frame-step:
     post:
       summary: Resolve a bounded batch of adjacent canonical samples
@@ -97,15 +122,34 @@ paths:
         - sessionCookie: []
       requestBody:
         required: true
-        content: { application/json: { schema: { $ref: '../media/frame-step-request.schema.json' } } }
+        content:
+          { application/json: { schema: { $ref: '../media/frame-step-request.schema.json' } } }
       responses:
-        '200': { description: Canonical adjacent frame, content: { application/json: { schema: { $ref: '../media/canonical-frame-anchor.schema.json' } } } }
+        '200':
+          {
+            description: Canonical adjacent frame,
+            content:
+              {
+                application/json:
+                  { schema: { $ref: '../media/canonical-frame-anchor.schema.json' } },
+              },
+          }
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthenticated' }
         '404': { $ref: '#/components/responses/NotFound' }
-        '409': { description: Mapping stale or window boundary, content: { application/json: { schema: { $ref: '../media/media-api-error.schema.json' } } } }
+        '409':
+          {
+            description: Mapping stale or window boundary,
+            content:
+              { application/json: { schema: { $ref: '../media/media-api-error.schema.json' } } },
+          }
         '410': { $ref: '#/components/responses/WindowExpired' }
-        '422': { description: Adjacent sample not found, content: { application/json: { schema: { $ref: '../media/media-api-error.schema.json' } } } }
+        '422':
+          {
+            description: Adjacent sample not found,
+            content:
+              { application/json: { schema: { $ref: '../media/media-api-error.schema.json' } } },
+          }
   /api/v1/ai/callback/{jobId}:
     post:
       summary: Receive idempotent AI callback
@@ -114,7 +158,12 @@ paths:
       parameters:
         - { name: jobId, in: path, required: true, schema: { type: string } }
         - { name: Authorization, in: header, required: true, schema: { type: string } }
-        - { name: Idempotency-Key, in: header, required: true, schema: { type: string, format: uuid } }
+        - {
+            name: Idempotency-Key,
+            in: header,
+            required: true,
+            schema: { type: string, format: uuid },
+          }
       responses:
         '200': { description: Callback already processed idempotently }
         '202': { description: Accepted }
@@ -129,7 +178,8 @@ paths:
       responses:
         '200':
           description: Versioned AnalysisData manifest with bounded frame-chunk URLs
-          content: { application/json: { schema: { $ref: '../ai/analysis-data-manifest.schema.json' } } }
+          content:
+            { application/json: { schema: { $ref: '../ai/analysis-data-manifest.schema.json' } } }
         '401': { $ref: '#/components/responses/Unauthenticated' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
@@ -143,7 +193,12 @@ paths:
         '401': { $ref: '#/components/responses/Unauthenticated' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
-        '409': { description: Completed analysis is missing verifiable AnalysisData, clip, or canonical timing metadata }
+        '409':
+          {
+            description: Completed analysis is missing verifiable AnalysisData,
+            clip,
+            or canonical timing metadata,
+          }
   /api/v1/analysis-runs/{analysisRunId}/analysis-frame-chunks/{chunkIndex}:
     get:
       summary: Get one authorized FlatBuffers AnalysisData frame chunk
@@ -151,7 +206,11 @@ paths:
         - { $ref: '#/components/parameters/AnalysisRunId' }
         - { name: chunkIndex, in: path, required: true, schema: { type: integer, minimum: 0 } }
       responses:
-        '200': { description: VFC1 AnalysisData frame chunk, content: { application/vnd.volleyball.analysis-frame-chunk+flatbuffers;version=1: {} } }
+        '200':
+          {
+            description: VFC1 AnalysisData frame chunk,
+            content: { application/vnd.volleyball.analysis-frame-chunk+flatbuffers;version=1: {} },
+          }
         '401': { $ref: '#/components/responses/Unauthenticated' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }

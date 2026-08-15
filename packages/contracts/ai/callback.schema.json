@@ -6,12 +6,7 @@
     {
       "type": "object",
       "additionalProperties": false,
-      "required": [
-        "schema_version",
-        "callback_id",
-        "ai_job_id",
-        "kind"
-      ],
+      "required": ["schema_version", "callback_id", "ai_job_id", "kind"],
       "properties": {
         "schema_version": {
           "const": "2.0.0"
@@ -31,16 +26,10 @@
           "maximum": 1
         },
         "stage": {
-          "type": [
-            "string",
-            "null"
-          ]
+          "type": ["string", "null"]
         },
         "message": {
-          "type": [
-            "string",
-            "null"
-          ]
+          "type": ["string", "null"]
         },
         "kind": {
           "const": "processing"
@@ -50,13 +39,7 @@
     {
       "type": "object",
       "additionalProperties": false,
-      "required": [
-        "schema_version",
-        "callback_id",
-        "ai_job_id",
-        "kind",
-        "error"
-      ],
+      "required": ["schema_version", "callback_id", "ai_job_id", "kind", "error"],
       "properties": {
         "schema_version": {
           "const": "2.0.0"
@@ -73,11 +56,7 @@
         "error": {
           "type": "object",
           "additionalProperties": false,
-          "required": [
-            "code",
-            "message",
-            "retryable"
-          ],
+          "required": ["code", "message", "retryable"],
           "properties": {
             "code": {
               "type": "string",

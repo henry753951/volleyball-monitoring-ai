@@ -14,7 +14,12 @@ function queryRecorder() {
   const queries: string[] = []
   const database = {
     $queryRaw(strings: TemplateStringsArray, ...values: unknown[]) {
-      queries.push(strings.reduce((sql, part, index) => `${sql}${part}${index < values.length ? '?' : ''}`, ''))
+      queries.push(
+        strings.reduce(
+          (sql, part, index) => `${sql}${part}${index < values.length ? '?' : ''}`,
+          '',
+        ),
+      )
       return Promise.resolve([])
     },
   } as unknown as PrismaClient
@@ -57,24 +62,29 @@ describe('recordPermanentMediaIngestFailure', () => {
   it('ignores the expected FK race after match deletion removes the capture', async () => {
     const database = {
       mediaIngestFailure: {
-        upsert: () => Promise.reject(Object.assign(new Error('capture deleted'), { code: 'P2003' })),
+        upsert: () =>
+          Promise.reject(Object.assign(new Error('capture deleted'), { code: 'P2003' })),
       },
     }
-    await expect(recordPermanentMediaIngestFailure(database as never, {
-      sourceJobId: crypto.randomUUID(),
-      captureSessionId: crypto.randomUUID(),
-      code: 'source_failed',
-    })).resolves.toBeUndefined()
+    await expect(
+      recordPermanentMediaIngestFailure(database as never, {
+        sourceJobId: crypto.randomUUID(),
+        captureSessionId: crypto.randomUUID(),
+        code: 'source_failed',
+      }),
+    ).resolves.toBeUndefined()
   })
 
   it('does not hide unrelated persistence failures', async () => {
     const failure = Object.assign(new Error('database unavailable'), { code: 'P1001' })
     const database = { mediaIngestFailure: { upsert: () => Promise.reject(failure) } }
-    await expect(recordPermanentMediaIngestFailure(database as never, {
-      sourceJobId: crypto.randomUUID(),
-      captureSessionId: crypto.randomUUID(),
-      code: 'source_failed',
-    })).rejects.toBe(failure)
+    await expect(
+      recordPermanentMediaIngestFailure(database as never, {
+        sourceJobId: crypto.randomUUID(),
+        captureSessionId: crypto.randomUUID(),
+        code: 'source_failed',
+      }),
+    ).rejects.toBe(failure)
   })
 })
 
@@ -83,16 +93,21 @@ describe('recordMediaSourceRelayError', () => {
     const updates: unknown[] = []
     const database = {
       mediaSourceWork: {
-        updateMany: async (input: unknown) => { updates.push(input); return { count: 1 } },
+        updateMany: async (input: unknown) => {
+          updates.push(input)
+          return { count: 1 }
+        },
       },
     }
 
-    await expect(recordMediaSourceRelayError(
-      database as never,
-      'work-id',
-      'worker-a',
-      'MEDIA command failed!',
-    )).resolves.toBe(1)
+    await expect(
+      recordMediaSourceRelayError(
+        database as never,
+        'work-id',
+        'worker-a',
+        'MEDIA command failed!',
+      ),
+    ).resolves.toBe(1)
     await recordMediaSourceRelayError(database as never, 'work-id', 'worker-a', null)
 
     expect(updates).toEqual([
@@ -111,18 +126,21 @@ describe('recordMediaSourceRelayError', () => {
     const updates: unknown[] = []
     const database = {
       mediaSourceWork: {
-        updateMany: async (input: unknown) => { updates.push(input); return { count: 1 } },
+        updateMany: async (input: unknown) => {
+          updates.push(input)
+          return { count: 1 }
+        },
       },
     }
 
-    await expect(recordMediaSourceRelayHealthy(
-      database as never,
-      'work-id',
-      'worker-a',
-    )).resolves.toBe(1)
-    expect(updates).toEqual([{
-      data: { attempts: 0, lastErrorCode: null },
-      where: { id: 'work-id', leaseOwner: 'worker-a', status: 'RUNNING' },
-    }])
+    await expect(
+      recordMediaSourceRelayHealthy(database as never, 'work-id', 'worker-a'),
+    ).resolves.toBe(1)
+    expect(updates).toEqual([
+      {
+        data: { attempts: 0, lastErrorCode: null },
+        where: { id: 'work-id', leaseOwner: 'worker-a', status: 'RUNNING' },
+      },
+    ])
   })
 })

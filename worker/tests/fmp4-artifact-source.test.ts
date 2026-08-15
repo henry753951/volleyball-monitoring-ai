@@ -9,11 +9,7 @@ import {
 } from '../src/media/fmp4-artifact-source'
 import type { FinalizedRecording } from '../src/media/finalized-recording'
 
-function box(
-  type: string,
-  payload: Uint8Array = Uint8Array.of(1),
-  extended = false,
-): Buffer {
+function box(type: string, payload: Uint8Array = Uint8Array.of(1), extended = false): Buffer {
   const headerLength = extended ? 16 : 8
   const result = Buffer.alloc(headerLength + payload.byteLength)
   if (extended) {
@@ -140,17 +136,7 @@ describe('FinalizedFileArtifactSource', () => {
     const emsg = box('emsg', Uint8Array.of(5))
     const secondMoof = box('moof', Uint8Array.of(13))
     const secondMdat = box('mdat', Uint8Array.of(14, 15))
-    const bytes = Buffer.concat([
-      ftyp,
-      moov,
-      styp,
-      sidx,
-      moof,
-      mdat,
-      emsg,
-      secondMoof,
-      secondMdat,
-    ])
+    const bytes = Buffer.concat([ftyp, moov, styp, sidx, moof, mdat, emsg, secondMoof, secondMdat])
 
     const result = await split(bytes)
 
@@ -169,14 +155,10 @@ describe('FinalizedFileArtifactSource', () => {
     }
     const fileSystem = new MemoryFileSystem(progressive)
     const calls: string[] = []
-    const source = new FinalizedFileArtifactSource(
-      defaultConfig,
-      fileSystem,
-      async (path) => {
-        calls.push(path)
-        return fragmented
-      },
-    )
+    const source = new FinalizedFileArtifactSource(defaultConfig, fileSystem, async path => {
+      calls.push(path)
+      return fragmented
+    })
 
     await expect(source.read(recording(progressive))).resolves.toEqual(fragmented)
     expect(calls).toEqual(['H:\\trusted-spool\\segment.mp4'])
@@ -184,11 +166,7 @@ describe('FinalizedFileArtifactSource', () => {
   })
 
   it('validates and preserves a 64-bit extended-size box', async () => {
-    const extendedFtyp = box(
-      'ftyp',
-      Buffer.from('iso6\x00\x00\x00\x01', 'binary'),
-      true,
-    )
+    const extendedFtyp = box('ftyp', Buffer.from('iso6\x00\x00\x00\x01', 'binary'), true)
     const bytes = Buffer.concat([extendedFtyp, moov, moof, mdat])
 
     const result = await split(bytes)
@@ -210,18 +188,9 @@ describe('FinalizedFileArtifactSource', () => {
 
   it.each([
     ['truncated header', Buffer.from([0, 0, 0, 8])],
-    [
-      'declared truncation',
-      Buffer.from([0, 0, 0, 20, 0x66, 0x74, 0x79, 0x70]),
-    ],
-    [
-      'size zero',
-      Buffer.from([0, 0, 0, 0, 0x66, 0x74, 0x79, 0x70]),
-    ],
-    [
-      'size smaller than header',
-      Buffer.from([0, 0, 0, 4, 0x66, 0x74, 0x79, 0x70]),
-    ],
+    ['declared truncation', Buffer.from([0, 0, 0, 20, 0x66, 0x74, 0x79, 0x70])],
+    ['size zero', Buffer.from([0, 0, 0, 0, 0x66, 0x74, 0x79, 0x70])],
+    ['size smaller than header', Buffer.from([0, 0, 0, 4, 0x66, 0x74, 0x79, 0x70])],
     [
       '64-bit overflow',
       (() => {
@@ -312,10 +281,7 @@ describe('FinalizedFileArtifactSource', () => {
 
   it('does not trust extension or caller-provided content type', async () => {
     const bytes = Buffer.concat([ftyp, moov, moof, mdat])
-    const source = new FinalizedFileArtifactSource(
-      defaultConfig,
-      new MemoryFileSystem(bytes),
-    )
+    const source = new FinalizedFileArtifactSource(defaultConfig, new MemoryFileSystem(bytes))
     const value = { ...recording(bytes), trustedPath: 'H:\\trusted\\opaque.bin' }
 
     const result = await source.read(value)
@@ -328,10 +294,7 @@ describe('FinalizedFileArtifactSource', () => {
   it('returns stable typed errors without exposing the trusted path', async () => {
     const bytes = Buffer.concat([ftyp, moov, moof])
     const trustedPath = 'H:\\private-secret-path\\capture.mp4'
-    const source = new FinalizedFileArtifactSource(
-      defaultConfig,
-      new MemoryFileSystem(bytes),
-    )
+    const source = new FinalizedFileArtifactSource(defaultConfig, new MemoryFileSystem(bytes))
 
     try {
       await source.read({ ...recording(bytes), trustedPath })

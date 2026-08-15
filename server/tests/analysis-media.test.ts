@@ -1,11 +1,16 @@
 import { describe, expect, it } from 'vitest'
-import { resolveOverlayAnalysisId, resolveOverlaySourceAnalysisRunId } from '../src/media/overlay-analysis-id.js'
+import {
+  resolveOverlayAnalysisId,
+  resolveOverlaySourceAnalysisRunId,
+} from '../src/media/overlay-analysis-id.js'
 
 describe('overlay manifest analysis identity', () => {
   it('reports the analysis id embedded in reused binary chunks', () => {
-    expect(resolveOverlayAnalysisId('new-analysis', {
-      reuse: { source_analysis_id: 'source-analysis' },
-    })).toBe('source-analysis')
+    expect(
+      resolveOverlayAnalysisId('new-analysis', {
+        reuse: { source_analysis_id: 'source-analysis' },
+      }),
+    ).toBe('source-analysis')
   })
 
   it('reports the current analysis id for newly generated chunks', () => {

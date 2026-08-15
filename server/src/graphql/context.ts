@@ -39,8 +39,8 @@ export async function createGraphQLContext(input: {
   reply?: FastifyReply
   timingManifestReader?: MediaObjectReader
 }): Promise<GraphQLContext> {
-  const developmentAuthEnabled = process.env.DEV_AUTH_ENABLED === 'true'
-    && process.env.NODE_ENV !== 'production'
+  const developmentAuthEnabled =
+    process.env.DEV_AUTH_ENABLED === 'true' && process.env.NODE_ENV !== 'production'
 
   if (!developmentAuthEnabled) {
     return { ...input, deviceSessionId: null, user: null }
@@ -60,9 +60,10 @@ export async function createGraphQLContext(input: {
 
   const role = parseDevelopmentRole(roleValue)
   const email = `${userId}@dev.volleyball.local`
-  const displayName = input.request.headers.get('x-dev-display-name')?.trim()
-    || process.env.DEV_USER_DISPLAY_NAME?.trim()
-    || 'Development User'
+  const displayName =
+    input.request.headers.get('x-dev-display-name')?.trim() ||
+    process.env.DEV_USER_DISPLAY_NAME?.trim() ||
+    'Development User'
 
   await db.user.upsert({
     where: { id: userId },

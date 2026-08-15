@@ -12,8 +12,13 @@ function fakeClient(existing: string[] = []): StorageAdminClient & { created: st
   const created: string[] = []
   return {
     created,
-    async bucketExists(bucket) { return buckets.has(bucket) },
-    async makeBucket(bucket) { buckets.add(bucket); created.push(bucket) },
+    async bucketExists(bucket) {
+      return buckets.has(bucket)
+    },
+    async makeBucket(bucket) {
+      buckets.add(bucket)
+      created.push(bucket)
+    },
   }
 }
 
@@ -29,7 +34,10 @@ const env = {
 describe('storage bootstrap', () => {
   it('maps the Compose service hostname to the host-published port', () => {
     expect(resolveHostMinioEndpoint(env).origin).toBe('http://127.0.0.1:9100')
-    expect(resolveHostMinioEndpoint({ ...env, MINIO_BOOTSTRAP_ENDPOINT: 'https://storage.example.test' }).origin).toBe('https://storage.example.test')
+    expect(
+      resolveHostMinioEndpoint({ ...env, MINIO_BOOTSTRAP_ENDPOINT: 'https://storage.example.test' })
+        .origin,
+    ).toBe('https://storage.example.test')
   })
 
   it('defaults production to validation and development to ensure', () => {
@@ -49,7 +57,9 @@ describe('storage bootstrap', () => {
   it('never creates buckets in validate mode', async () => {
     const client = fakeClient(['raw-media'])
     const config = storageBootstrapConfig({ ...env, OBJECT_STORAGE_BOOTSTRAP_MODE: 'validate' })
-    await expect(bootstrapStorage(client, config)).rejects.toThrow('dvr-media, rally-media, analysis-artifacts')
+    await expect(bootstrapStorage(client, config)).rejects.toThrow(
+      'dvr-media, rally-media, analysis-artifacts',
+    )
     expect(client.created).toEqual([])
   })
 })

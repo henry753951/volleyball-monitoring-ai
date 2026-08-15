@@ -4,9 +4,9 @@ api:
 
 entryPoints:
   dev:
-    address: ":3100"
+    address: ':3100'
   web:
-    address: ":80"
+    address: ':80'
     http:
       redirections:
         entryPoint:
@@ -14,11 +14,11 @@ entryPoints:
           scheme: https
           permanent: true
   websecure:
-    address: ":443"
+    address: ':443'
 
 providers:
   docker:
-    endpoint: "unix:///var/run/docker.sock"
+    endpoint: 'unix:///var/run/docker.sock'
     exposedByDefault: false
     network: volleyball-edge
   file:

@@ -8,9 +8,11 @@ if (!connectionString) {
 
 const globalForPrisma = globalThis as unknown as { volleyballPrisma?: PrismaClient }
 
-export const db = globalForPrisma.volleyballPrisma ?? new PrismaClient({
-  adapter: new PrismaPg({ connectionString }),
-})
+export const db =
+  globalForPrisma.volleyballPrisma ??
+  new PrismaClient({
+    adapter: new PrismaPg({ connectionString }),
+  })
 
 if (process.env.NODE_ENV !== 'production') globalForPrisma.volleyballPrisma = db
 

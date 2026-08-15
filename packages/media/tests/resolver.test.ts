@@ -1,9 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import {
-  buildSampleIndex,
-  type CaptureEpochOrigin,
-  type SampleIndex,
-} from '../src/sample-index'
+import { buildSampleIndex, type CaptureEpochOrigin, type SampleIndex } from '../src/sample-index'
 import {
   frameStep,
   frameStepAcrossSegments,
@@ -61,10 +57,7 @@ function twoTouchingSegments(): [IndexedSegment, IndexedSegment] {
   ]
 }
 
-function twoTouchingSegmentsAcrossEpochReset(): [
-  IndexedSegment,
-  IndexedSegment,
-] {
+function twoTouchingSegmentsAcrossEpochReset(): [IndexedSegment, IndexedSegment] {
   const [first] = twoTouchingSegments()
   const second = buildSampleIndex(
     [
@@ -79,10 +72,7 @@ function twoTouchingSegmentsAcrossEpochReset(): [
       timeBase,
     },
   )
-  return [
-    first,
-    { segmentId: 'second', index: second, discontinuity: 7 },
-  ]
+  return [first, { segmentId: 'second', index: second, discontinuity: 7 }]
 }
 
 function oneSampleIndex(options: {
@@ -111,11 +101,7 @@ function oneSampleIndex(options: {
   )
 }
 
-function expectResolverCode(
-  action: () => unknown,
-  code: ResolverError['code'],
-  message?: string,
-) {
+function expectResolverCode(action: () => unknown, code: ResolverError['code'], message?: string) {
   try {
     action()
   } catch (error) {
@@ -189,13 +175,9 @@ describe('canonical sample resolution', () => {
     const segments = twoTouchingSegments()
     const earlier = segments[0].index.samples.at(-1)!
     const later = segments[1].index.samples[0]!
-    const midpoint =
-      earlier.captureTimeUs +
-      (later.captureTimeUs - earlier.captureTimeUs) / 2n
+    const midpoint = earlier.captureTimeUs + (later.captureTimeUs - earlier.captureTimeUs) / 2n
 
-    expect(later.captureTimeUs - midpoint).toBe(
-      midpoint - earlier.captureTimeUs,
-    )
+    expect(later.captureTimeUs - midpoint).toBe(midpoint - earlier.captureTimeUs)
     expect(
       resolveCanonicalTimeAcrossSegments(
         segments,
@@ -223,9 +205,7 @@ describe('canonical sample resolution', () => {
 
     expect(BigInt(result.sample.sourcePts)).toBeLessThan(0n)
     expect(result.sample.captureTimeUs).toBe(target.captureTimeUs.toString())
-    expect(result.sample.captureFrameIndex).toBe(
-      target.captureFrameIndex.toString(),
-    )
+    expect(result.sample.captureFrameIndex).toBe(target.captureFrameIndex.toString())
     expect(BigInt(result.sample.captureTimeUs)).toBeGreaterThan(2n ** 53n)
     expect(BigInt(result.sample.captureFrameIndex)).toBeGreaterThan(2n ** 53n)
   })
@@ -235,21 +215,16 @@ describe('canonical sample resolution', () => {
     const startUs = segments[1].index.availableStartUs
     const endUs = segments[1].index.availableEndUs
 
-    expect(
-      resolveCanonicalTimeAcrossSegments(segments, startUs, startUs, endUs),
-    ).toMatchObject({ segmentId: 'second', snapDistanceUs: '0' })
+    expect(resolveCanonicalTimeAcrossSegments(segments, startUs, startUs, endUs)).toMatchObject({
+      segmentId: 'second',
+      snapDistanceUs: '0',
+    })
     expectResolverCode(
       () => resolveCanonicalTimeAcrossSegments(segments, endUs, startUs, endUs),
       'CAPTURE_GAP',
     )
     expectResolverCode(
-      () =>
-        resolveCanonicalTimeAcrossSegments(
-          segments,
-          startUs - 1n,
-          startUs,
-          endUs,
-        ),
+      () => resolveCanonicalTimeAcrossSegments(segments, startUs - 1n, startUs, endUs),
       'CAPTURE_GAP',
     )
   })
@@ -401,39 +376,36 @@ describe('canonical frame step', () => {
   it.each([
     ['gap', 'no adjacent sample across canonical gap'],
     ['discontinuity', 'no adjacent sample across discontinuity'],
-  ] as const)(
-    'returns SAMPLE_NOT_FOUND instead of crossing a %s boundary',
-    (boundary, message) => {
-      const segments = twoTouchingSegments()
-      const current = segments[0].index.samples.at(-1)!
-      if (boundary === 'gap') {
-        const shiftedStartUs = segments[1].index.availableStartUs + 1n
-        segments[1] = {
-          ...segments[1],
-          index: oneSampleIndex({
-            sourcePts: segments[1].index.samples[0]!.sourcePts,
-            captureTimeUs: shiftedStartUs,
-            captureFrameIndex: current.captureFrameIndex + 1n,
-          }),
-        }
-      } else {
-        segments[1] = { ...segments[1], discontinuity: 8 }
+  ] as const)('returns SAMPLE_NOT_FOUND instead of crossing a %s boundary', (boundary, message) => {
+    const segments = twoTouchingSegments()
+    const current = segments[0].index.samples.at(-1)!
+    if (boundary === 'gap') {
+      const shiftedStartUs = segments[1].index.availableStartUs + 1n
+      segments[1] = {
+        ...segments[1],
+        index: oneSampleIndex({
+          sourcePts: segments[1].index.samples[0]!.sourcePts,
+          captureTimeUs: shiftedStartUs,
+          captureFrameIndex: current.captureFrameIndex + 1n,
+        }),
       }
+    } else {
+      segments[1] = { ...segments[1], discontinuity: 8 }
+    }
 
-      expectResolverCode(
-        () =>
-          frameStepAcrossSegments(
-            segments,
-            current.captureFrameIndex,
-            'next',
-            segments[0].index.availableStartUs,
-            segments[1].index.availableEndUs,
-          ),
-        'SAMPLE_NOT_FOUND',
-        message,
-      )
-    },
-  )
+    expectResolverCode(
+      () =>
+        frameStepAcrossSegments(
+          segments,
+          current.captureFrameIndex,
+          'next',
+          segments[0].index.availableStartUs,
+          segments[1].index.availableEndUs,
+        ),
+      'SAMPLE_NOT_FOUND',
+      message,
+    )
+  })
 
   it('keeps the single-segment step API exact', () => {
     const [first] = twoTouchingSegments()
@@ -441,12 +413,7 @@ describe('canonical frame step', () => {
     const expected = first.index.samples[1]!
 
     expect(
-      frameStep(
-        first.index,
-        first.segmentId,
-        current.captureFrameIndex,
-        'next',
-      ),
+      frameStep(first.index, first.segmentId, current.captureFrameIndex, 'next'),
     ).toMatchObject({
       kind: 'frame_exact',
       epochId: origin.epochId,
@@ -485,40 +452,32 @@ describe('cross-segment validation', () => {
     )
   })
 
-  it.each(['order', 'gap', 'overlap'] as const)(
-    'rejects invalid segment range %s',
-    (failure) => {
-      const segments = twoTouchingSegments()
-      const indexedStartUs = segments[0].index.availableStartUs
-      const indexedEndUs = segments[1].index.availableEndUs
-      if (failure === 'order') {
-        segments.reverse()
-      } else {
-        const firstLast = segments[0].index.samples.at(-1)!
-        const delta = failure === 'gap' ? 1n : -1n
-        const captureTimeUs = segments[1].index.availableStartUs + delta
-        segments[1] = {
-          ...segments[1],
-          index: oneSampleIndex({
-            sourcePts: firstLast.sourcePts + firstLast.durationPts,
-            captureTimeUs,
-            captureFrameIndex: firstLast.captureFrameIndex + 1n,
-          }),
-        }
+  it.each(['order', 'gap', 'overlap'] as const)('rejects invalid segment range %s', failure => {
+    const segments = twoTouchingSegments()
+    const indexedStartUs = segments[0].index.availableStartUs
+    const indexedEndUs = segments[1].index.availableEndUs
+    if (failure === 'order') {
+      segments.reverse()
+    } else {
+      const firstLast = segments[0].index.samples.at(-1)!
+      const delta = failure === 'gap' ? 1n : -1n
+      const captureTimeUs = segments[1].index.availableStartUs + delta
+      segments[1] = {
+        ...segments[1],
+        index: oneSampleIndex({
+          sourcePts: firstLast.sourcePts + firstLast.durationPts,
+          captureTimeUs,
+          captureFrameIndex: firstLast.captureFrameIndex + 1n,
+        }),
       }
+    }
 
-      expectResolverCode(
-        () =>
-          resolveCanonicalTimeAcrossSegments(
-            segments,
-            indexedStartUs,
-            indexedStartUs,
-            indexedEndUs,
-          ),
-        'INVALID_SEGMENT_SET',
-      )
-    },
-  )
+    expectResolverCode(
+      () =>
+        resolveCanonicalTimeAcrossSegments(segments, indexedStartUs, indexedStartUs, indexedEndUs),
+      'INVALID_SEGMENT_SET',
+    )
+  })
 
   it('rejects a resolver set that crosses a discontinuity boundary', () => {
     const segments = twoTouchingSegments()
@@ -584,11 +543,7 @@ describe('cross-segment validation', () => {
       }),
     }
 
-    for (const invalid of [
-      frameDiscontinuity,
-      mismatchedTimeBase,
-      duplicateSourceSample,
-    ]) {
+    for (const invalid of [frameDiscontinuity, mismatchedTimeBase, duplicateSourceSample]) {
       expectResolverCode(
         () =>
           resolveCanonicalTimeAcrossSegments(
@@ -613,13 +568,7 @@ describe('cross-segment validation', () => {
       [indexedStartUs, indexedEndUs + 1n],
     ] as const) {
       expectResolverCode(
-        () =>
-          resolveCanonicalTimeAcrossSegments(
-            segments,
-            indexedStartUs,
-            startUs,
-            endUs,
-          ),
+        () => resolveCanonicalTimeAcrossSegments(segments, indexedStartUs, startUs, endUs),
         'INVALID_SEGMENT_SET',
       )
       expectResolverCode(
@@ -642,10 +591,7 @@ describe('cross-segment validation', () => {
       ...first,
       index: {
         ...first.index,
-        samples: [
-          { ...first.index.samples[0]!, durationPts: 0n },
-          first.index.samples[1]!,
-        ],
+        samples: [{ ...first.index.samples[0]!, durationPts: 0n }, first.index.samples[1]!],
       },
     }
 

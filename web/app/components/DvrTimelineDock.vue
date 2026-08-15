@@ -4,7 +4,24 @@ import { Activity, Bot, CircleDotDashed, UserRound } from 'lucide-vue-next'
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import type { CaptureTimeline } from '~/lib/coreDomain'
 import type { CapturePlaybackMode } from '~/lib/mediaTimeline'
-import { DEFAULT_TIMELINE_SCALE, MAX_TIMELINE_SCALE, MIN_TIMELINE_SCALE, timelineBounds, timelineScaleForZoom, timelineZoomForScale, timelineViewForRange, timelineViewForScale, focusedTimelineView, capturePercentBps, rulerTicks, pointerTarget, readyAt, gapRanges, selectNonOverlappingRanges, type TimelineViewport } from '~/lib/dvrTimeline'
+import {
+  DEFAULT_TIMELINE_SCALE,
+  MAX_TIMELINE_SCALE,
+  MIN_TIMELINE_SCALE,
+  timelineBounds,
+  timelineScaleForZoom,
+  timelineZoomForScale,
+  timelineViewForRange,
+  timelineViewForScale,
+  focusedTimelineView,
+  capturePercentBps,
+  rulerTicks,
+  pointerTarget,
+  readyAt,
+  gapRanges,
+  selectNonOverlappingRanges,
+  type TimelineViewport,
+} from '~/lib/dvrTimeline'
 
 const props = defineProps<{
   timeline: CaptureTimeline | null
@@ -63,20 +80,24 @@ const fullBounds = computed(() => {
   const timeline = props.timeline
   const ready = readyBounds.value
   if (!timeline || !ready) return ready
-  const start = BigInt(timeline.captureStartTimeUs) < BigInt(ready.startUs)
-    ? timeline.captureStartTimeUs
-    : ready.startUs
+  const start =
+    BigInt(timeline.captureStartTimeUs) < BigInt(ready.startUs)
+      ? timeline.captureStartTimeUs
+      : ready.startUs
   const candidateEnds = [
     ready.endUs,
     timeline.ingestFrontierCaptureTimeUs,
     timeline.sourceEndCaptureTimeUs,
   ].filter((value): value is string => Boolean(value))
-  const end = candidateEnds.reduce((latest, value) =>
-    BigInt(value) > BigInt(latest) ? value : latest,
-  ready.endUs)
+  const end = candidateEnds.reduce(
+    (latest, value) => (BigInt(value) > BigInt(latest) ? value : latest),
+    ready.endUs,
+  )
   return { startUs: start, endUs: end }
 })
-const timelineOriginUs = computed(() => props.timeline?.captureStartTimeUs ?? fullBounds.value?.startUs ?? null)
+const timelineOriginUs = computed(
+  () => props.timeline?.captureStartTimeUs ?? fullBounds.value?.startUs ?? null,
+)
 const zoom = ref(1)
 const pan = ref(1)
 const targetZoom = ref(1)
@@ -95,8 +116,17 @@ const pointDrag = ref<{
   announced: boolean
 } | null>(null)
 const suppressPointClick = ref<string | null>(null)
-const playheadDrag = ref<{ pointerId: number; startCaptureTimeUs: string; targetCaptureTimeUs: string; committedAtStart: boolean } | null>(null)
-function calculateViewBounds(bounds: { startUs: string; endUs: string } | null, zoomValue: number, panValue: number) {
+const playheadDrag = ref<{
+  pointerId: number
+  startCaptureTimeUs: string
+  targetCaptureTimeUs: string
+  committedAtStart: boolean
+} | null>(null)
+function calculateViewBounds(
+  bounds: { startUs: string; endUs: string } | null,
+  zoomValue: number,
+  panValue: number,
+) {
   if (!bounds) return null
   const start = BigInt(bounds.startUs)
   const end = BigInt(bounds.endUs)
@@ -109,94 +139,156 @@ function calculateViewBounds(bounds: { startUs: string; endUs: string } | null, 
   return { startUs: viewStart.toString(), endUs: (viewStart + visibleSpan).toString() }
 }
 const viewBounds = computed(() => calculateViewBounds(fullBounds.value, zoom.value, pan.value))
-const targetViewBounds = computed(() => calculateViewBounds(fullBounds.value, targetZoom.value, targetPan.value))
+const targetViewBounds = computed(() =>
+  calculateViewBounds(fullBounds.value, targetZoom.value, targetPan.value),
+)
 const ticks = computed(() => rulerTicks(viewBounds.value, timelineOriginUs.value ?? undefined))
 const gaps = computed(() => {
   const values = [
     ...gapRanges(props.timeline?.availableRanges ?? []),
     ...(props.timeline?.gapRanges ?? []),
   ]
-  return values.filter((range, index) => values.findIndex(candidate =>
-    candidate.startUs === range.startUs && candidate.endUs === range.endUs,
-  ) === index)
+  return values.filter(
+    (range, index) =>
+      values.findIndex(
+        candidate => candidate.startUs === range.startUs && candidate.endUs === range.endUs,
+      ) === index,
+  )
 })
 const annotationPoints = computed(() => props.annotation?.snapshot.key_points ?? [])
 const immutable = computed(() => props.annotation?.snapshot.annotation_status === 'submitted')
-const currentMaskTone = computed(() => immutable.value ? props.currentMaskStatus ?? 'processing' : 'draft')
+const currentMaskTone = computed(() =>
+  immutable.value ? (props.currentMaskStatus ?? 'processing') : 'draft',
+)
 const currentMaskLabel = computed(() => {
   if (props.currentMaskLabel) return props.currentMaskLabel
-  if (!immutable.value) return props.annotation?.snapshot.active_submission_id ? '修正版草稿' : '標記中'
+  if (!immutable.value)
+    return props.annotation?.snapshot.active_submission_id ? '修正版草稿' : '標記中'
   return '目前片段'
 })
 const currentMaskStateLabel = computed(() => {
   const status = props.annotation?.snapshot.annotation_status
-  if (status === 'open') return props.annotation?.snapshot.active_submission_id ? '修正版草稿' : '標記中'
-  if (status === 'ready') return props.annotation?.snapshot.active_submission_id ? '修正版草稿 · 待送出' : '待送出'
+  if (status === 'open')
+    return props.annotation?.snapshot.active_submission_id ? '修正版草稿' : '標記中'
+  if (status === 'ready')
+    return props.annotation?.snapshot.active_submission_id ? '修正版草稿 · 待送出' : '待送出'
   return segmentStatusLabel(currentMaskTone.value)
 })
-const maskStart = computed(() => props.maskRange?.startCaptureTimeUs ?? annotationPoints.value[0]?.capture_time_us ?? null)
-const maskEnd = computed(() => props.maskRange?.endCaptureTimeUs ?? annotationPoints.value.at(-1)?.capture_time_us ?? null)
-const liveEdge = computed(() => props.playbackMode === 'active_live'
-  ? props.timeline?.liveEdgeCaptureTimeUs ?? props.timeline?.availableRanges.at(-1)?.endUs ?? null
-  : null)
-const terminalEdge = computed(() => ['complete_vod', 'ended_live', 'failed'].includes(props.playbackMode ?? '')
-  ? props.timeline?.sourceEndCaptureTimeUs ?? props.timeline?.availableRanges.at(-1)?.endUs ?? null
-  : null)
-const progressiveEdge = computed(() => ['progressive_vod', 'stopping'].includes(props.playbackMode ?? '')
-  ? props.timeline?.ingestFrontierCaptureTimeUs ?? props.timeline?.availableRanges.at(-1)?.endUs ?? null
-  : null)
-const displayPlayhead = computed(() => playheadDrag.value?.targetCaptureTimeUs ?? optimisticPlayhead.value ?? props.playhead ?? stablePlayhead.value)
-const isVisible = (time: string) => Boolean(viewBounds.value && BigInt(time) >= BigInt(viewBounds.value.startUs) && BigInt(time) <= BigInt(viewBounds.value.endUs))
-const position = (time: string) => viewBounds.value ? capturePercentBps(time, viewBounds.value) / 100 : 0
+const maskStart = computed(
+  () => props.maskRange?.startCaptureTimeUs ?? annotationPoints.value[0]?.capture_time_us ?? null,
+)
+const maskEnd = computed(
+  () => props.maskRange?.endCaptureTimeUs ?? annotationPoints.value.at(-1)?.capture_time_us ?? null,
+)
+const liveEdge = computed(() =>
+  props.playbackMode === 'active_live'
+    ? (props.timeline?.liveEdgeCaptureTimeUs ??
+      props.timeline?.availableRanges.at(-1)?.endUs ??
+      null)
+    : null,
+)
+const terminalEdge = computed(() =>
+  ['complete_vod', 'ended_live', 'failed'].includes(props.playbackMode ?? '')
+    ? (props.timeline?.sourceEndCaptureTimeUs ??
+      props.timeline?.availableRanges.at(-1)?.endUs ??
+      null)
+    : null,
+)
+const progressiveEdge = computed(() =>
+  ['progressive_vod', 'stopping'].includes(props.playbackMode ?? '')
+    ? (props.timeline?.ingestFrontierCaptureTimeUs ??
+      props.timeline?.availableRanges.at(-1)?.endUs ??
+      null)
+    : null,
+)
+const displayPlayhead = computed(
+  () =>
+    playheadDrag.value?.targetCaptureTimeUs ??
+    optimisticPlayhead.value ??
+    props.playhead ??
+    stablePlayhead.value,
+)
+const isVisible = (time: string) =>
+  Boolean(
+    viewBounds.value &&
+    BigInt(time) >= BigInt(viewBounds.value.startUs) &&
+    BigInt(time) <= BigInt(viewBounds.value.endUs),
+  )
+const position = (time: string) =>
+  viewBounds.value ? capturePercentBps(time, viewBounds.value) / 100 : 0
 const remoteEditors = (keyPointId: string) => props.softLocks?.[keyPointId] ?? []
 const isPendingPoint = (keyPointId: string) => keyPointId.startsWith('pending:')
 const historicalPointSegments = computed(() => {
-  const correctionRallyId = props.annotation?.snapshot.active_submission_id
-    && ['open', 'ready'].includes(props.annotation.snapshot.annotation_status)
-    ? props.annotation.rally_id
-    : null
+  const correctionRallyId =
+    props.annotation?.snapshot.active_submission_id &&
+    ['open', 'ready'].includes(props.annotation.snapshot.annotation_status)
+      ? props.annotation.rally_id
+      : null
   return (props.segments ?? []).filter(segment => segment.id !== correctionRallyId)
 })
-const pointPosition = (keyPointId: string, captureTimeUs: string) => position(pointDrag.value?.keyPointId === keyPointId ? pointDrag.value.targetCaptureTimeUs : captureTimeUs)
+const pointPosition = (keyPointId: string, captureTimeUs: string) =>
+  position(
+    pointDrag.value?.keyPointId === keyPointId
+      ? pointDrag.value.targetCaptureTimeUs
+      : captureTimeUs,
+  )
 type SegmentRange = { startCaptureTimeUs: string; endCaptureTimeUs: string }
 const clippedSegmentRange = (segment: SegmentRange) => {
   const view = viewBounds.value
   if (!view) return null
-  const start = BigInt(segment.startCaptureTimeUs) > BigInt(view.startUs) ? segment.startCaptureTimeUs : view.startUs
-  const end = BigInt(segment.endCaptureTimeUs) < BigInt(view.endUs) ? segment.endCaptureTimeUs : view.endUs
+  const start =
+    BigInt(segment.startCaptureTimeUs) > BigInt(view.startUs)
+      ? segment.startCaptureTimeUs
+      : view.startUs
+  const end =
+    BigInt(segment.endCaptureTimeUs) < BigInt(view.endUs) ? segment.endCaptureTimeUs : view.endUs
   return BigInt(end) > BigInt(start) ? { startCaptureTimeUs: start, endCaptureTimeUs: end } : null
 }
 const segmentVisibleWidth = (segment: SegmentRange) => {
   const clipped = clippedSegmentRange(segment)
-  return clipped ? Math.max(0, position(clipped.endCaptureTimeUs) - position(clipped.startCaptureTimeUs)) : 0
+  return clipped
+    ? Math.max(0, position(clipped.endCaptureTimeUs) - position(clipped.startCaptureTimeUs))
+    : 0
 }
 const segmentVisible = (segment: SegmentRange) => segmentVisibleWidth(segment) > 0
 const segmentLeft = (segment: SegmentRange) => {
   const clipped = clippedSegmentRange(segment)
   return clipped ? position(clipped.startCaptureTimeUs) : 0
 }
-const segmentWidth = (segment: SegmentRange) => Math.max(.35, segmentVisibleWidth(segment))
+const segmentWidth = (segment: SegmentRange) => Math.max(0.35, segmentVisibleWidth(segment))
 const segmentDensityClass = (segment: SegmentRange) => {
   const width = segmentVisibleWidth(segment)
   return width < 5 ? 'density-micro' : width < 12 ? 'density-compact' : ''
 }
-const readyRails = computed(() => (props.timeline?.availableRanges ?? []).map(range => ({
-  id: `${range.startUs}-${range.endUs}`,
-  startCaptureTimeUs: range.startUs,
-  endCaptureTimeUs: range.endUs,
-})).filter(segmentVisible))
-const gapRails = computed(() => gaps.value.map(range => ({
-  id: `${range.startUs}-${range.endUs}`,
-  startCaptureTimeUs: range.startUs,
-  endCaptureTimeUs: range.endUs,
-})).filter(segmentVisible))
-const bufferedRails = computed(() => (props.bufferedRanges ?? []).map(range => ({
-  id: `${range.startCaptureTimeUs}-${range.endCaptureTimeUs}`,
-  ...range,
-})).filter(segmentVisible))
-const playbackWindowRail = computed(() => props.bufferedWindow && segmentVisible(props.bufferedWindow)
-  ? props.bufferedWindow
-  : null)
+const readyRails = computed(() =>
+  (props.timeline?.availableRanges ?? [])
+    .map(range => ({
+      id: `${range.startUs}-${range.endUs}`,
+      startCaptureTimeUs: range.startUs,
+      endCaptureTimeUs: range.endUs,
+    }))
+    .filter(segmentVisible),
+)
+const gapRails = computed(() =>
+  gaps.value
+    .map(range => ({
+      id: `${range.startUs}-${range.endUs}`,
+      startCaptureTimeUs: range.startUs,
+      endCaptureTimeUs: range.endUs,
+    }))
+    .filter(segmentVisible),
+)
+const bufferedRails = computed(() =>
+  (props.bufferedRanges ?? [])
+    .map(range => ({
+      id: `${range.startCaptureTimeUs}-${range.endCaptureTimeUs}`,
+      ...range,
+    }))
+    .filter(segmentVisible),
+)
+const playbackWindowRail = computed(() =>
+  props.bufferedWindow && segmentVisible(props.bufferedWindow) ? props.bufferedWindow : null,
+)
 const serverPendingRail = computed<SegmentRange | null>(() => {
   const readyEnd = props.timeline?.availableRanges.at(-1)?.endUs
   const frontier = props.timeline?.ingestFrontierCaptureTimeUs
@@ -206,13 +298,18 @@ const serverPendingRail = computed<SegmentRange | null>(() => {
 const unavailableSourceRail = computed<SegmentRange | null>(() => {
   const timeline = props.timeline
   if (!timeline?.sourceEndCaptureTimeUs || timeline.availabilityComplete) return null
-  const start = timeline.ingestFrontierCaptureTimeUs
-    ?? timeline.availableRanges.at(-1)?.endUs
-    ?? timeline.captureStartTimeUs
+  const start =
+    timeline.ingestFrontierCaptureTimeUs ??
+    timeline.availableRanges.at(-1)?.endUs ??
+    timeline.captureStartTimeUs
   if (BigInt(timeline.sourceEndCaptureTimeUs) <= BigInt(start)) return null
   return { startCaptureTimeUs: start, endCaptureTimeUs: timeline.sourceEndCaptureTimeUs }
 })
-const analysisRange = (segment: SegmentRange & { analysis?: { startCaptureTimeUs: string; endCaptureTimeUs: string } | null }): SegmentRange => ({
+const analysisRange = (
+  segment: SegmentRange & {
+    analysis?: { startCaptureTimeUs: string; endCaptureTimeUs: string } | null
+  },
+): SegmentRange => ({
   startCaptureTimeUs: segment.analysis?.startCaptureTimeUs ?? segment.startCaptureTimeUs,
   endCaptureTimeUs: segment.analysis?.endCaptureTimeUs ?? segment.endCaptureTimeUs,
 })
@@ -226,27 +323,50 @@ const currentMaskGeometry = computed(() => {
     density: segmentDensityClass(range),
   }
 })
-const segmentStatusLabel = (status: 'draft' | 'idle' | 'failed' | 'processing' | 'analyzed' | 'mapped') => status === 'draft' ? '未送出' : status === 'idle' ? '待重新分析' : status === 'failed' ? '處理失敗' : status === 'mapped' ? '球員已確認' : status === 'analyzed' ? '分析完成' : '分析中'
+const segmentStatusLabel = (
+  status: 'draft' | 'idle' | 'failed' | 'processing' | 'analyzed' | 'mapped',
+) =>
+  status === 'draft'
+    ? '未送出'
+    : status === 'idle'
+      ? '待重新分析'
+      : status === 'failed'
+        ? '處理失敗'
+        : status === 'mapped'
+          ? '球員已確認'
+          : status === 'analyzed'
+            ? '分析完成'
+            : '分析中'
 // A live/correction draft is the active representation of its time range.
 // Suppress historical revisions rather than painting multiple masks together.
-const displaySegments = computed(() => selectNonOverlappingRanges(
-  props.segments ?? [],
-  maskStart.value && maskEnd.value ? { startCaptureTimeUs: maskStart.value, endCaptureTimeUs: maskEnd.value } : null,
-  props.selectedSegmentId,
-))
+const displaySegments = computed(() =>
+  selectNonOverlappingRanges(
+    props.segments ?? [],
+    maskStart.value && maskEnd.value
+      ? { startCaptureTimeUs: maskStart.value, endCaptureTimeUs: maskEnd.value }
+      : null,
+    props.selectedSegmentId,
+  ),
+)
 // Analysis coverage is an independent timeline layer. Do not derive it from
 // displaySegments: that list intentionally removes the current segment mask to
 // avoid painting it twice, but its AI result rail must remain visible.
-const displayAnalysisSegments = computed(() => selectNonOverlappingRanges(
-  (props.segments ?? []).filter(segment => Boolean(segment.analysis)),
-  null,
-  props.selectedSegmentId,
-).map(segment => ({ segment, range: analysisRange(segment) })))
+const displayAnalysisSegments = computed(() =>
+  selectNonOverlappingRanges(
+    (props.segments ?? []).filter(segment => Boolean(segment.analysis)),
+    null,
+    props.selectedSegmentId,
+  ).map(segment => ({ segment, range: analysisRange(segment) })),
+)
 // Rally clips are guaranteed to be non-overlapping. Keep one generous visual lane
 // so the mask label remains readable instead of creating artificial parallel lanes.
 const maskTop = () => 8
 const pointTop = () => 62
-const timelineScale = computed(() => fullBounds.value ? timelineScaleForZoom(fullBounds.value, targetZoom.value) : DEFAULT_TIMELINE_SCALE)
+const timelineScale = computed(() =>
+  fullBounds.value
+    ? timelineScaleForZoom(fullBounds.value, targetZoom.value)
+    : DEFAULT_TIMELINE_SCALE,
+)
 let defaultViewInitialized = false
 let defaultViewAnchoredToPlayhead = Boolean(props.playhead)
 let initializedCaptureSessionId: string | null = null
@@ -254,65 +374,76 @@ let initializedCaptureSessionId: string | null = null
 function restoredTimelineView(bounds: { startUs: string; endUs: string }) {
   const restored = props.restoredView
   if (
-    !restored
-    || restored.captureSessionId !== props.timeline?.captureSessionId
-    || !Number.isFinite(restored.scale)
-    || restored.scale < MIN_TIMELINE_SCALE
-    || restored.scale > MAX_TIMELINE_SCALE
-  ) return null
+    !restored ||
+    restored.captureSessionId !== props.timeline?.captureSessionId ||
+    !Number.isFinite(restored.scale) ||
+    restored.scale < MIN_TIMELINE_SCALE ||
+    restored.scale > MAX_TIMELINE_SCALE
+  )
+    return null
   try {
     if (BigInt(restored.endCaptureTimeUs) <= BigInt(restored.startCaptureTimeUs)) return null
     return timelineViewForRange(bounds, {
       startUs: restored.startCaptureTimeUs,
       endUs: restored.endCaptureTimeUs,
     })
-  }
-  catch {
+  } catch {
     return null
   }
 }
 
-watch(fullBounds, (bounds, previousBounds) => {
-  if (!bounds) return
-  const captureSessionId = props.timeline?.captureSessionId ?? null
-  const switchedSource = defaultViewInitialized && initializedCaptureSessionId !== captureSessionId
-  if (!defaultViewInitialized || switchedSource || !previousBounds) {
-    defaultViewInitialized = true
-    initializedCaptureSessionId = captureSessionId
-    if (switchedSource) {
-      stablePlayhead.value = props.playhead
-      clearOptimisticPlayhead()
+watch(
+  fullBounds,
+  (bounds, previousBounds) => {
+    if (!bounds) return
+    const captureSessionId = props.timeline?.captureSessionId ?? null
+    const switchedSource =
+      defaultViewInitialized && initializedCaptureSessionId !== captureSessionId
+    if (!defaultViewInitialized || switchedSource || !previousBounds) {
+      defaultViewInitialized = true
+      initializedCaptureSessionId = captureSessionId
+      if (switchedSource) {
+        stablePlayhead.value = props.playhead
+        clearOptimisticPlayhead()
+      }
+      const restored = restoredTimelineView(bounds)
+      if (switchedSource && animationFrame !== null) {
+        cancelAnimationFrame(animationFrame)
+        animationFrame = null
+      }
+      const initialAnchor = props.playhead ?? stablePlayhead.value
+      defaultViewAnchoredToPlayhead = Boolean(restored || initialAnchor)
+      const initial =
+        restored ??
+        timelineViewForScale(bounds, DEFAULT_TIMELINE_SCALE, initialAnchor ?? bounds.endUs)
+      zoom.value = targetZoom.value = initial.zoom
+      pan.value = targetPan.value = initial.pan
+      return
     }
-    const restored = restoredTimelineView(bounds)
-    if (switchedSource && animationFrame !== null) {
-      cancelAnimationFrame(animationFrame)
-      animationFrame = null
-    }
-    const initialAnchor = props.playhead ?? stablePlayhead.value
-    defaultViewAnchoredToPlayhead = Boolean(restored || initialAnchor)
-    const initial = restored ?? timelineViewForScale(bounds, DEFAULT_TIMELINE_SCALE, initialAnchor ?? bounds.endUs)
-    zoom.value = targetZoom.value = initial.zoom
-    pan.value = targetPan.value = initial.pan
-    return
-  }
 
-  // A live capture or progressive download extends fullBounds frequently. Keep
-  // both the rendered and animation-target windows fixed to their old absolute
-  // capture times so new media appears off-screen instead of stretching or
-  // shifting the operator's current view.
-  const previousView = calculateViewBounds(previousBounds, zoom.value, pan.value)
-  const previousTargetView = calculateViewBounds(previousBounds, targetZoom.value, targetPan.value)
-  if (previousView) {
-    const preserved = timelineViewForRange(bounds, previousView)
-    zoom.value = preserved.zoom
-    pan.value = preserved.pan
-  }
-  if (previousTargetView) {
-    const preservedTarget = timelineViewForRange(bounds, previousTargetView)
-    targetZoom.value = preservedTarget.zoom
-    targetPan.value = preservedTarget.pan
-  }
-}, { immediate: true })
+    // A live capture or progressive download extends fullBounds frequently. Keep
+    // both the rendered and animation-target windows fixed to their old absolute
+    // capture times so new media appears off-screen instead of stretching or
+    // shifting the operator's current view.
+    const previousView = calculateViewBounds(previousBounds, zoom.value, pan.value)
+    const previousTargetView = calculateViewBounds(
+      previousBounds,
+      targetZoom.value,
+      targetPan.value,
+    )
+    if (previousView) {
+      const preserved = timelineViewForRange(bounds, previousView)
+      zoom.value = preserved.zoom
+      pan.value = preserved.pan
+    }
+    if (previousTargetView) {
+      const preservedTarget = timelineViewForRange(bounds, previousTargetView)
+      targetZoom.value = preservedTarget.zoom
+      targetPan.value = preservedTarget.pan
+    }
+  },
+  { immediate: true },
+)
 watch(timelineScale, value => emit('scaleChange', value), { immediate: true })
 watch(
   [targetViewBounds, timelineScale, () => props.timeline?.captureSessionId ?? null],
@@ -322,11 +453,12 @@ watch(
     // that transient default view back to storage or it will erase the value
     // we are about to restore.
     if (
-      !bounds
-      || !captureSessionId
-      || !defaultViewInitialized
-      || initializedCaptureSessionId !== captureSessionId
-    ) return
+      !bounds ||
+      !captureSessionId ||
+      !defaultViewInitialized ||
+      initializedCaptureSessionId !== captureSessionId
+    )
+      return
     emit('viewChange', {
       captureSessionId,
       startCaptureTimeUs: bounds.startUs,
@@ -337,33 +469,51 @@ watch(
   { immediate: true },
 )
 
-watch(() => props.playhead, (value) => {
-  if (!value) return
-  stablePlayhead.value = value
-  if (optimisticPlayhead.value && absDiff(value, optimisticPlayhead.value) <= 100_000n) clearOptimisticPlayhead()
-  const bounds = fullBounds.value
-  const view = viewBounds.value
-  if (bounds && defaultViewInitialized && !defaultViewAnchoredToPlayhead && Date.now() >= manualViewUntil) {
-    defaultViewAnchoredToPlayhead = true
-    const initial = timelineViewForScale(bounds, DEFAULT_TIMELINE_SCALE, value)
-    targetZoom.value = initial.zoom
-    targetPan.value = initial.pan
+watch(
+  () => props.playhead,
+  value => {
+    if (!value) return
+    stablePlayhead.value = value
+    if (optimisticPlayhead.value && absDiff(value, optimisticPlayhead.value) <= 100_000n)
+      clearOptimisticPlayhead()
+    const bounds = fullBounds.value
+    const view = viewBounds.value
+    if (
+      bounds &&
+      defaultViewInitialized &&
+      !defaultViewAnchoredToPlayhead &&
+      Date.now() >= manualViewUntil
+    ) {
+      defaultViewAnchoredToPlayhead = true
+      const initial = timelineViewForScale(bounds, DEFAULT_TIMELINE_SCALE, value)
+      targetZoom.value = initial.zoom
+      targetPan.value = initial.pan
+      animateView()
+      return
+    }
+    if (
+      !bounds ||
+      !view ||
+      targetZoom.value <= 1 ||
+      Date.now() < manualViewUntil ||
+      optimisticPlayhead.value ||
+      playheadDrag.value
+    )
+      return
+    const target = BigInt(value)
+    if (target >= BigInt(view.startUs) && target <= BigInt(view.endUs)) return
+    const fullStart = BigInt(bounds.startUs)
+    const fullSpan = BigInt(bounds.endUs) - fullStart
+    const viewSpan = BigInt(view.endUs) - BigInt(view.startUs)
+    const availablePan = fullSpan - viewSpan
+    if (availablePan <= 0n) return
+    const desiredStart = target - viewSpan / 2n - fullStart
+    const clamped =
+      desiredStart < 0n ? 0n : desiredStart > availablePan ? availablePan : desiredStart
+    targetPan.value = Number((clamped * 1_000_000n) / availablePan) / 1_000_000
     animateView()
-    return
-  }
-  if (!bounds || !view || targetZoom.value <= 1 || Date.now() < manualViewUntil || optimisticPlayhead.value || playheadDrag.value) return
-  const target = BigInt(value)
-  if (target >= BigInt(view.startUs) && target <= BigInt(view.endUs)) return
-  const fullStart = BigInt(bounds.startUs)
-  const fullSpan = BigInt(bounds.endUs) - fullStart
-  const viewSpan = BigInt(view.endUs) - BigInt(view.startUs)
-  const availablePan = fullSpan - viewSpan
-  if (availablePan <= 0n) return
-  const desiredStart = target - viewSpan / 2n - fullStart
-  const clamped = desiredStart < 0n ? 0n : desiredStart > availablePan ? availablePan : desiredStart
-  targetPan.value = Number(clamped * 1_000_000n / availablePan) / 1_000_000
-  animateView()
-})
+  },
+)
 function absDiff(left: string, right: string) {
   const difference = BigInt(left) - BigInt(right)
   return difference < 0n ? -difference : difference
@@ -382,16 +532,21 @@ function requestSeek(target: string) {
 }
 function animateView() {
   if (animationFrame !== null) return
-  const reduceMotion = typeof window.matchMedia !== 'function' || window.matchMedia('(prefers-reduced-motion: reduce)').matches
+  const reduceMotion =
+    typeof window.matchMedia !== 'function' ||
+    window.matchMedia('(prefers-reduced-motion: reduce)').matches
   if (reduceMotion) {
     zoom.value = targetZoom.value
     pan.value = targetPan.value
     return
   }
   const tick = () => {
-    zoom.value += (targetZoom.value - zoom.value) * .16
-    pan.value += (targetPan.value - pan.value) * .16
-    if (Math.abs(targetZoom.value - zoom.value) < .001 && Math.abs(targetPan.value - pan.value) < .000001) {
+    zoom.value += (targetZoom.value - zoom.value) * 0.16
+    pan.value += (targetPan.value - pan.value) * 0.16
+    if (
+      Math.abs(targetZoom.value - zoom.value) < 0.001 &&
+      Math.abs(targetPan.value - pan.value) < 0.000001
+    ) {
       zoom.value = targetZoom.value
       pan.value = targetPan.value
       animationFrame = null
@@ -404,7 +559,11 @@ function animateView() {
 function resetView() {
   const bounds = fullBounds.value
   if (!bounds) return
-  const initial = timelineViewForScale(bounds, DEFAULT_TIMELINE_SCALE, displayPlayhead.value ?? bounds.endUs)
+  const initial = timelineViewForScale(
+    bounds,
+    DEFAULT_TIMELINE_SCALE,
+    displayPlayhead.value ?? bounds.endUs,
+  )
   targetZoom.value = initial.zoom
   targetPan.value = initial.pan
   defaultViewAnchoredToPlayhead = true
@@ -415,7 +574,12 @@ function wheel(event: WheelEvent) {
   defaultViewAnchoredToPlayhead = true
   manualViewUntil = Date.now() + 3_000
   const delta = Math.abs(event.deltaX) > Math.abs(event.deltaY) ? event.deltaX : event.deltaY
-  const unit = event.deltaMode === WheelEvent.DOM_DELTA_LINE ? 16 : event.deltaMode === WheelEvent.DOM_DELTA_PAGE ? 240 : 1
+  const unit =
+    event.deltaMode === WheelEvent.DOM_DELTA_LINE
+      ? 16
+      : event.deltaMode === WheelEvent.DOM_DELTA_PAGE
+        ? 240
+        : 1
   const normalizedDelta = Math.max(-120, Math.min(120, delta * unit))
   if (event.shiftKey) {
     const bounds = fullBounds.value
@@ -424,8 +588,14 @@ function wheel(event: WheelEvent) {
     const laneLeft = 78
     const surface = event.currentTarget as HTMLElement
     const laneWidth = Math.max(1, surface.clientWidth - laneLeft)
-    let anchor = Math.max(0, Math.min(1, (event.clientX - surface.getBoundingClientRect().left - laneLeft) / laneWidth))
-    const nextScale = Math.max(MIN_TIMELINE_SCALE, Math.min(MAX_TIMELINE_SCALE, timelineScale.value * Math.exp(-normalizedDelta * .0007)))
+    let anchor = Math.max(
+      0,
+      Math.min(1, (event.clientX - surface.getBoundingClientRect().left - laneLeft) / laneWidth),
+    )
+    const nextScale = Math.max(
+      MIN_TIMELINE_SCALE,
+      Math.min(MAX_TIMELINE_SCALE, timelineScale.value * Math.exp(-normalizedDelta * 0.0007)),
+    )
     const nextZoom = timelineZoomForScale(bounds, nextScale)
     const fullStart = BigInt(bounds.startUs)
     const fullEnd = BigInt(bounds.endUs)
@@ -434,24 +604,29 @@ function wheel(event: WheelEvent) {
     const currentSpan = BigInt(currentView.endUs) - currentStart
     const playhead = displayPlayhead.value ? BigInt(displayPlayhead.value) : null
     if (playhead !== null && playhead >= currentStart && playhead <= BigInt(currentView.endUs)) {
-      anchor = Number((playhead - currentStart) * 1_000_000n / currentSpan) / 1_000_000
+      anchor = Number(((playhead - currentStart) * 1_000_000n) / currentSpan) / 1_000_000
     }
-    const anchorCapture = playhead !== null && playhead >= currentStart && playhead <= BigInt(currentView.endUs)
-      ? playhead
-      : currentStart + currentSpan * BigInt(Math.round(anchor * 1_000_000)) / 1_000_000n
-    const calculatedSpan = fullSpan / BigInt(Math.max(1, Math.round(nextZoom * 100))) * 100n
+    const anchorCapture =
+      playhead !== null && playhead >= currentStart && playhead <= BigInt(currentView.endUs)
+        ? playhead
+        : currentStart + (currentSpan * BigInt(Math.round(anchor * 1_000_000))) / 1_000_000n
+    const calculatedSpan = (fullSpan / BigInt(Math.max(1, Math.round(nextZoom * 100)))) * 100n
     const nextVisibleSpan = calculatedSpan > 0n ? calculatedSpan : 1n
     const availablePan = fullSpan - nextVisibleSpan
-    const desiredStart = anchorCapture - nextVisibleSpan * BigInt(Math.round(anchor * 1_000_000)) / 1_000_000n - fullStart
-    const clampedStart = desiredStart < 0n ? 0n : desiredStart > availablePan ? availablePan : desiredStart
+    const desiredStart =
+      anchorCapture -
+      (nextVisibleSpan * BigInt(Math.round(anchor * 1_000_000))) / 1_000_000n -
+      fullStart
+    const clampedStart =
+      desiredStart < 0n ? 0n : desiredStart > availablePan ? availablePan : desiredStart
     targetZoom.value = nextZoom
-    targetPan.value = availablePan > 0n ? Number(clampedStart * 1_000_000n / availablePan) / 1_000_000 : 0
-  }
-  else if (targetZoom.value > 1.001) {
+    targetPan.value =
+      availablePan > 0n ? Number((clampedStart * 1_000_000n) / availablePan) / 1_000_000 : 0
+  } else if (targetZoom.value > 1.001) {
     const surface = event.currentTarget as HTMLElement
     const laneWidth = Math.max(1, surface.clientWidth - 78)
-    const screenShift = normalizedDelta / laneWidth * .32
-    const panShift = screenShift / Math.max(.25, targetZoom.value - 1)
+    const screenShift = (normalizedDelta / laneWidth) * 0.32
+    const panShift = screenShift / Math.max(0.25, targetZoom.value - 1)
     targetPan.value = Math.max(0, Math.min(1, targetPan.value + panShift))
   }
   animateView()
@@ -459,13 +634,20 @@ function wheel(event: WheelEvent) {
 function beginPlayheadDrag(event: PointerEvent) {
   const value = displayPlayhead.value
   if (!value) return
-  playheadDrag.value = { pointerId: event.pointerId, startCaptureTimeUs: value, targetCaptureTimeUs: value, committedAtStart: false }
+  playheadDrag.value = {
+    pointerId: event.pointerId,
+    startCaptureTimeUs: value,
+    targetCaptureTimeUs: value,
+    committedAtStart: false,
+  }
   ;(event.currentTarget as HTMLElement).setPointerCapture?.(event.pointerId)
 }
 function movePlayheadDrag(event: PointerEvent) {
   const drag = playheadDrag.value
   if (!drag || drag.pointerId !== event.pointerId || !viewBounds.value || !props.timeline) return
-  const root = (event.currentTarget as HTMLElement).closest('.timeline-surface') as HTMLElement | null
+  const root = (event.currentTarget as HTMLElement).closest(
+    '.timeline-surface',
+  ) as HTMLElement | null
   const lane = root?.querySelector<HTMLElement>('.lane-content')
   if (!lane) return
   const target = pointerTarget(event.clientX, lane.getBoundingClientRect(), viewBounds.value)
@@ -482,7 +664,8 @@ function endPlayheadDrag(event: PointerEvent) {
   optimisticPlayhead.value = drag.targetCaptureTimeUs
   playheadDrag.value = null
   emit('preview', null)
-  if (!drag.committedAtStart || drag.targetCaptureTimeUs !== drag.startCaptureTimeUs) requestSeek(drag.targetCaptureTimeUs)
+  if (!drag.committedAtStart || drag.targetCaptureTimeUs !== drag.startCaptureTimeUs)
+    requestSeek(drag.targetCaptureTimeUs)
 }
 function cancelPlayheadDrag(event: PointerEvent) {
   const drag = playheadDrag.value
@@ -496,39 +679,58 @@ function playheadDragLabel() {
   if (!target || !origin) return ''
   const milliseconds = Number((BigInt(target) - BigInt(origin)) / 1_000n)
   const minutes = Math.max(0, Math.floor(milliseconds / 60_000))
-  const seconds = Math.max(0, Math.floor(milliseconds % 60_000 / 1_000))
+  const seconds = Math.max(0, Math.floor((milliseconds % 60_000) / 1_000))
   const ms = Math.max(0, milliseconds % 1_000)
   return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}.${String(ms).padStart(3, '0')}`
 }
 function beginTimelineScrub(event: PointerEvent) {
   defaultViewAnchoredToPlayhead = true
   if (!viewBounds.value || !props.timeline) return
-  const target = pointerTarget(event.clientX, (event.currentTarget as HTMLElement).getBoundingClientRect(), viewBounds.value)
+  const target = pointerTarget(
+    event.clientX,
+    (event.currentTarget as HTMLElement).getBoundingClientRect(),
+    viewBounds.value,
+  )
   if (!readyAt(target, props.timeline.availableRanges)) return
   // Keep pointer movement entirely client-side. One canonical seek is emitted
   // only when the gesture commits on pointerup.
   optimisticPlayhead.value = target
   emit('preview', target)
-  playheadDrag.value = { pointerId: event.pointerId, startCaptureTimeUs: target, targetCaptureTimeUs: target, committedAtStart: false }
+  playheadDrag.value = {
+    pointerId: event.pointerId,
+    startCaptureTimeUs: target,
+    targetCaptureTimeUs: target,
+    committedAtStart: false,
+  }
   ;(event.currentTarget as HTMLElement).setPointerCapture?.(event.pointerId)
 }
 function moveTimelineScrub(event: PointerEvent) {
   const drag = playheadDrag.value
   if (!drag || drag.pointerId !== event.pointerId || !viewBounds.value || !props.timeline) return
-  const target = pointerTarget(event.clientX, (event.currentTarget as HTMLElement).getBoundingClientRect(), viewBounds.value)
+  const target = pointerTarget(
+    event.clientX,
+    (event.currentTarget as HTMLElement).getBoundingClientRect(),
+    viewBounds.value,
+  )
   if (!readyAt(target, props.timeline.availableRanges)) return
   drag.targetCaptureTimeUs = target
   emit('preview', target)
 }
 function selectPoint(keyPointId: string, captureTimeUs: string) {
   emit('select', keyPointId)
-  if (props.timeline && readyAt(captureTimeUs, props.timeline.availableRanges)) requestSeek(captureTimeUs)
+  if (props.timeline && readyAt(captureTimeUs, props.timeline.availableRanges))
+    requestSeek(captureTimeUs)
 }
 function selectHistoricalPoint(segmentId: string, captureTimeUs: string) {
   emit('selectSegment', segmentId, captureTimeUs)
-  if (props.timeline && readyAt(captureTimeUs, props.timeline.availableRanges)) requestSeek(captureTimeUs)
+  if (props.timeline && readyAt(captureTimeUs, props.timeline.availableRanges))
+    requestSeek(captureTimeUs)
 }
-function focusRange(startCaptureTimeUs: string, endCaptureTimeUs: string, seekTarget: string | null = startCaptureTimeUs) {
+function focusRange(
+  startCaptureTimeUs: string,
+  endCaptureTimeUs: string,
+  seekTarget: string | null = startCaptureTimeUs,
+) {
   const bounds = fullBounds.value
   if (!bounds) return
   defaultViewAnchoredToPlayhead = true
@@ -539,7 +741,11 @@ function focusRange(startCaptureTimeUs: string, endCaptureTimeUs: string, seekTa
   animateView()
   if (seekTarget) requestSeek(seekTarget)
 }
-function focusHistoricalSegment(segment: { id: string; startCaptureTimeUs: string; endCaptureTimeUs: string }) {
+function focusHistoricalSegment(segment: {
+  id: string
+  startCaptureTimeUs: string
+  endCaptureTimeUs: string
+}) {
   focusRange(segment.startCaptureTimeUs, segment.endCaptureTimeUs)
 }
 function focusCurrentMask() {
@@ -549,7 +755,14 @@ function focusCurrentMask() {
 }
 function beginPointDrag(event: PointerEvent, keyPointId: string, captureTimeUs: string) {
   if (!props.editable || immutable.value) return
-  pointDrag.value = { keyPointId, pointerId: event.pointerId, startX: event.clientX, targetCaptureTimeUs: captureTimeUs, moved: false, announced: false }
+  pointDrag.value = {
+    keyPointId,
+    pointerId: event.pointerId,
+    startX: event.clientX,
+    targetCaptureTimeUs: captureTimeUs,
+    moved: false,
+    announced: false,
+  }
   const element = event.currentTarget as HTMLElement
   if (typeof element.setPointerCapture === 'function') element.setPointerCapture(event.pointerId)
 }
@@ -571,7 +784,11 @@ function endPointDrag(event: PointerEvent) {
   const drag = pointDrag.value
   if (!drag || drag.pointerId !== event.pointerId) return
   const element = event.currentTarget as HTMLElement
-  if (typeof element.releasePointerCapture === 'function' && element.hasPointerCapture?.(event.pointerId)) element.releasePointerCapture(event.pointerId)
+  if (
+    typeof element.releasePointerCapture === 'function' &&
+    element.hasPointerCapture?.(event.pointerId)
+  )
+    element.releasePointerCapture(event.pointerId)
   pointDrag.value = null
   if (!drag.moved || !drag.announced) return
   suppressPointClick.value = drag.keyPointId
@@ -606,52 +823,789 @@ defineExpose({ resetView })
 
 <template>
   <section class="timeline-surface" aria-label="影音時間軸" @wheel.prevent="wheel">
-    <div class="ruler-row" role="slider" aria-label="時間軸跳轉" :aria-valuemin="viewBounds?.startUs ?? '0'" :aria-valuemax="viewBounds?.endUs ?? '0'" :aria-valuenow="displayPlayhead ?? viewBounds?.startUs ?? '0'" @pointerdown.left="beginTimelineScrub" @pointermove="moveTimelineScrub" @pointerup="endPlayheadDrag" @pointercancel="cancelPlayheadDrag"><span v-for="(tick, index) in ticks" :key="`${tick.value}-${index}`" class="ruler-tick" :style="{ left: `${tick.percentBps / 100}%` }" :title="tick.value">{{ tick.label }}<i /></span></div>
-    <div class="buffer-status" role="slider" aria-label="影片定位" :aria-valuemin="viewBounds?.startUs ?? '0'" :aria-valuemax="viewBounds?.endUs ?? '0'" :aria-valuenow="displayPlayhead ?? viewBounds?.startUs ?? '0'" @pointerdown.left="beginTimelineScrub" @pointermove="moveTimelineScrub" @pointerup="endPlayheadDrag" @pointercancel="cancelPlayheadDrag">
-      <i v-if="unavailableSourceRail" v-show="segmentVisible(unavailableSourceRail)" class="source-unavailable" :style="{ left: `${segmentLeft(unavailableSourceRail)}%`, width: `${segmentWidth(unavailableSourceRail)}%` }" title="來源尚未下載" />
-      <i v-if="serverPendingRail" v-show="segmentVisible(serverPendingRail)" class="server-pending" :style="{ left: `${segmentLeft(serverPendingRail)}%`, width: `${segmentWidth(serverPendingRail)}%` }" title="伺服器正在建立索引" />
-      <i v-for="range in readyRails" :key="range.id" class="ready-range" :style="{ left: `${segmentLeft(range)}%`, width: `${segmentWidth(range)}%` }" title="伺服器可用" />
-      <i v-if="playbackWindowRail" class="playback-window" :style="{ left: `${segmentLeft(playbackWindowRail)}%`, width: `${segmentWidth(playbackWindowRail)}%` }" title="目前播放視窗" />
-      <i v-for="range in bufferedRails" :key="`buffered-${range.id}`" class="playback-ready" :style="{ left: `${segmentLeft(range)}%`, width: `${segmentWidth(range)}%` }" title="瀏覽器已載入" />
-      <i v-for="gap in gapRails" :key="gap.id" class="gap-range" :style="{ left: `${segmentLeft(gap)}%`, width: `${segmentWidth(gap)}%` }" title="媒體中斷" />
+    <div
+      class="ruler-row"
+      role="slider"
+      aria-label="時間軸跳轉"
+      :aria-valuemin="viewBounds?.startUs ?? '0'"
+      :aria-valuemax="viewBounds?.endUs ?? '0'"
+      :aria-valuenow="displayPlayhead ?? viewBounds?.startUs ?? '0'"
+      @pointerdown.left="beginTimelineScrub"
+      @pointermove="moveTimelineScrub"
+      @pointerup="endPlayheadDrag"
+      @pointercancel="cancelPlayheadDrag"
+    >
+      <span
+        v-for="(tick, index) in ticks"
+        :key="`${tick.value}-${index}`"
+        class="ruler-tick"
+        :style="{ left: `${tick.percentBps / 100}%` }"
+        :title="tick.value"
+        >{{ tick.label }}<i
+      /></span>
+    </div>
+    <div
+      class="buffer-status"
+      role="slider"
+      aria-label="影片定位"
+      :aria-valuemin="viewBounds?.startUs ?? '0'"
+      :aria-valuemax="viewBounds?.endUs ?? '0'"
+      :aria-valuenow="displayPlayhead ?? viewBounds?.startUs ?? '0'"
+      @pointerdown.left="beginTimelineScrub"
+      @pointermove="moveTimelineScrub"
+      @pointerup="endPlayheadDrag"
+      @pointercancel="cancelPlayheadDrag"
+    >
+      <i
+        v-if="unavailableSourceRail"
+        v-show="segmentVisible(unavailableSourceRail)"
+        class="source-unavailable"
+        :style="{
+          left: `${segmentLeft(unavailableSourceRail)}%`,
+          width: `${segmentWidth(unavailableSourceRail)}%`,
+        }"
+        title="來源尚未下載"
+      />
+      <i
+        v-if="serverPendingRail"
+        v-show="segmentVisible(serverPendingRail)"
+        class="server-pending"
+        :style="{
+          left: `${segmentLeft(serverPendingRail)}%`,
+          width: `${segmentWidth(serverPendingRail)}%`,
+        }"
+        title="伺服器正在建立索引"
+      />
+      <i
+        v-for="range in readyRails"
+        :key="range.id"
+        class="ready-range"
+        :style="{ left: `${segmentLeft(range)}%`, width: `${segmentWidth(range)}%` }"
+        title="伺服器可用"
+      />
+      <i
+        v-if="playbackWindowRail"
+        class="playback-window"
+        :style="{
+          left: `${segmentLeft(playbackWindowRail)}%`,
+          width: `${segmentWidth(playbackWindowRail)}%`,
+        }"
+        title="目前播放視窗"
+      />
+      <i
+        v-for="range in bufferedRails"
+        :key="`buffered-${range.id}`"
+        class="playback-ready"
+        :style="{ left: `${segmentLeft(range)}%`, width: `${segmentWidth(range)}%` }"
+        title="瀏覽器已載入"
+      />
+      <i
+        v-for="gap in gapRails"
+        :key="gap.id"
+        class="gap-range"
+        :style="{ left: `${segmentLeft(gap)}%`, width: `${segmentWidth(gap)}%` }"
+        title="媒體中斷"
+      />
     </div>
     <div class="lane-row clip-lane">
       <span class="lane-label">片段</span>
       <div class="lane-content" @click="emit('clearSelection')">
-        <button v-for="segment in displaySegments" v-show="segmentVisible(segment)" :key="segment.id" data-timeline-interactive type="button" class="timeline-mask historical" :class="[segment.status, segmentDensityClass(segment), { selected: selectedSegmentId === segment.id, 'has-outcome': Boolean(segment.outcomeLabel) }]" :style="{ left: `${segmentLeft(segment)}%`, top: `${maskTop()}px`, width: `${segmentWidth(segment)}%` }" :aria-label="`${segment.label} · ${segment.outcomeLabel ? `${segment.outcomeLabel} · ` : ''}${segment.stateLabel || segmentStatusLabel(segment.status)}`" @click.stop="emit('selectSegment', segment.id, segment.startCaptureTimeUs)" @dblclick.stop="focusHistoricalSegment(segment)"><span>{{ segment.label }}</span><strong v-if="segment.outcomeLabel" class="mask-outcome" :class="{ unknown: segment.outcomeLabel === '得分未知' }">{{ segment.outcomeLabel }}</strong><small>{{ segment.stateLabel || segmentStatusLabel(segment.status) }}</small></button>
-        <button v-if="currentMaskGeometry" v-show="currentMaskGeometry.visible" data-timeline-interactive type="button" class="timeline-mask current" :class="[currentMaskTone, currentMaskGeometry.density, { selected: maskSelected, 'has-outcome': Boolean(currentMaskOutcome) }]" :style="{ left: `${currentMaskGeometry.left}%`, top: `${maskTop()}px`, width: `${currentMaskGeometry.width}%` }" :aria-label="`${currentMaskLabel} · ${currentMaskOutcome ? `${currentMaskOutcome} · ` : ''}${currentMaskStateLabel}`" @click.stop="emit('selectMask')" @dblclick.stop="focusCurrentMask"><span>{{ currentMaskLabel }}</span><strong v-if="currentMaskOutcome" class="mask-outcome" :class="{ unknown: currentMaskOutcome === '得分未知' }">{{ currentMaskOutcome }}</strong><small>{{ currentMaskStateLabel }}</small></button>
-        <button v-for="item in displayAnalysisSegments" v-show="segmentVisible(item.range)" :key="`${item.segment.id}:analysis`" data-timeline-interactive type="button" class="analysis-rail" :class="segmentDensityClass(item.range)" :style="{ left: `${segmentLeft(item.range)}%`, width: `${segmentWidth(item.range)}%` }" :aria-label="`${item.segment.label} · 開啟分析結果 · ${formatBytes(item.segment.analysis?.byteLength ?? '0')}`" @click.stop="emit('selectAnalysis', item.segment.id)"><Bot :size="11" /><span>{{ formatBytes(item.segment.analysis?.byteLength ?? '0') }}</span><UserRound v-if="item.segment.analysis?.capabilities.includes('player_tracking')" :size="11" /><CircleDotDashed v-if="item.segment.analysis?.capabilities.includes('ball_tracking')" :size="11" /><Activity v-if="item.segment.analysis?.capabilities.includes('contact_association')" :size="11" /></button>
-        <button v-for="point in annotationPoints" v-show="isVisible(point.capture_time_us)" :key="point.key_point_id" data-timeline-interactive type="button" class="keypoint-dot" :class="[{ service: point.marker_kind === 'service', terminal: point.is_terminal, pending: isPendingPoint(point.key_point_id), locked: immutable || !editable || isPendingPoint(point.key_point_id), editable: editable && !immutable && !isPendingPoint(point.key_point_id), selected: selectedKeyPointId === point.key_point_id, 'soft-locked': remoteEditors(point.key_point_id).length, 'point-dragging': pointDrag?.keyPointId === point.key_point_id }, currentMaskGeometry?.density]" :style="{ left: `${pointPosition(point.key_point_id, point.capture_time_us)}%`, top: `${pointTop()}px` }" :aria-label="`${point.marker_kind} marker at frame ${point.capture_frame_index}${isPendingPoint(point.key_point_id) ? '; syncing' : ''}${remoteEditors(point.key_point_id).length ? `; ${remoteEditors(point.key_point_id).join('、')} 正在調整` : ''}`" :aria-pressed="selectedKeyPointId === point.key_point_id" :title="isPendingPoint(point.key_point_id) ? `${point.marker_kind} · 本機已標記，等待伺服器確認` : `${point.marker_kind} · frame ${point.capture_frame_index}${editable && !immutable ? ' · 拖曳移動' : ''}${remoteEditors(point.key_point_id).length ? ` · ${remoteEditors(point.key_point_id).join('、')} 正在調整（提示，不阻擋）` : ''}`" @pointerdown.stop="beginPointDrag($event, point.key_point_id, point.capture_time_us)" @pointermove.stop="movePointDrag" @pointerup.stop="endPointDrag" @pointercancel.stop="cancelPointDrag" @click.stop="clickPoint(point.key_point_id, point.capture_time_us)" />
+        <button
+          v-for="segment in displaySegments"
+          v-show="segmentVisible(segment)"
+          :key="segment.id"
+          data-timeline-interactive
+          type="button"
+          class="timeline-mask historical"
+          :class="[
+            segment.status,
+            segmentDensityClass(segment),
+            {
+              selected: selectedSegmentId === segment.id,
+              'has-outcome': Boolean(segment.outcomeLabel),
+            },
+          ]"
+          :style="{
+            left: `${segmentLeft(segment)}%`,
+            top: `${maskTop()}px`,
+            width: `${segmentWidth(segment)}%`,
+          }"
+          :aria-label="`${segment.label} · ${segment.outcomeLabel ? `${segment.outcomeLabel} · ` : ''}${segment.stateLabel || segmentStatusLabel(segment.status)}`"
+          @click.stop="emit('selectSegment', segment.id, segment.startCaptureTimeUs)"
+          @dblclick.stop="focusHistoricalSegment(segment)"
+        >
+          <span>{{ segment.label }}</span
+          ><strong
+            v-if="segment.outcomeLabel"
+            class="mask-outcome"
+            :class="{ unknown: segment.outcomeLabel === '得分未知' }"
+            >{{ segment.outcomeLabel }}</strong
+          ><small>{{ segment.stateLabel || segmentStatusLabel(segment.status) }}</small>
+        </button>
+        <button
+          v-if="currentMaskGeometry"
+          v-show="currentMaskGeometry.visible"
+          data-timeline-interactive
+          type="button"
+          class="timeline-mask current"
+          :class="[
+            currentMaskTone,
+            currentMaskGeometry.density,
+            { selected: maskSelected, 'has-outcome': Boolean(currentMaskOutcome) },
+          ]"
+          :style="{
+            left: `${currentMaskGeometry.left}%`,
+            top: `${maskTop()}px`,
+            width: `${currentMaskGeometry.width}%`,
+          }"
+          :aria-label="`${currentMaskLabel} · ${currentMaskOutcome ? `${currentMaskOutcome} · ` : ''}${currentMaskStateLabel}`"
+          @click.stop="emit('selectMask')"
+          @dblclick.stop="focusCurrentMask"
+        >
+          <span>{{ currentMaskLabel }}</span
+          ><strong
+            v-if="currentMaskOutcome"
+            class="mask-outcome"
+            :class="{ unknown: currentMaskOutcome === '得分未知' }"
+            >{{ currentMaskOutcome }}</strong
+          ><small>{{ currentMaskStateLabel }}</small>
+        </button>
+        <button
+          v-for="item in displayAnalysisSegments"
+          v-show="segmentVisible(item.range)"
+          :key="`${item.segment.id}:analysis`"
+          data-timeline-interactive
+          type="button"
+          class="analysis-rail"
+          :class="segmentDensityClass(item.range)"
+          :style="{ left: `${segmentLeft(item.range)}%`, width: `${segmentWidth(item.range)}%` }"
+          :aria-label="`${item.segment.label} · 開啟分析結果 · ${formatBytes(item.segment.analysis?.byteLength ?? '0')}`"
+          @click.stop="emit('selectAnalysis', item.segment.id)"
+        >
+          <Bot :size="11" /><span>{{ formatBytes(item.segment.analysis?.byteLength ?? '0') }}</span
+          ><UserRound
+            v-if="item.segment.analysis?.capabilities.includes('player_tracking')"
+            :size="11"
+          /><CircleDotDashed
+            v-if="item.segment.analysis?.capabilities.includes('ball_tracking')"
+            :size="11"
+          /><Activity
+            v-if="item.segment.analysis?.capabilities.includes('contact_association')"
+            :size="11"
+          />
+        </button>
+        <button
+          v-for="point in annotationPoints"
+          v-show="isVisible(point.capture_time_us)"
+          :key="point.key_point_id"
+          data-timeline-interactive
+          type="button"
+          class="keypoint-dot"
+          :class="[
+            {
+              service: point.marker_kind === 'service',
+              terminal: point.is_terminal,
+              pending: isPendingPoint(point.key_point_id),
+              locked: immutable || !editable || isPendingPoint(point.key_point_id),
+              editable: editable && !immutable && !isPendingPoint(point.key_point_id),
+              selected: selectedKeyPointId === point.key_point_id,
+              'soft-locked': remoteEditors(point.key_point_id).length,
+              'point-dragging': pointDrag?.keyPointId === point.key_point_id,
+            },
+            currentMaskGeometry?.density,
+          ]"
+          :style="{
+            left: `${pointPosition(point.key_point_id, point.capture_time_us)}%`,
+            top: `${pointTop()}px`,
+          }"
+          :aria-label="`${point.marker_kind} marker at frame ${point.capture_frame_index}${isPendingPoint(point.key_point_id) ? '; syncing' : ''}${remoteEditors(point.key_point_id).length ? `; ${remoteEditors(point.key_point_id).join('、')} 正在調整` : ''}`"
+          :aria-pressed="selectedKeyPointId === point.key_point_id"
+          :title="
+            isPendingPoint(point.key_point_id)
+              ? `${point.marker_kind} · 本機已標記，等待伺服器確認`
+              : `${point.marker_kind} · frame ${point.capture_frame_index}${editable && !immutable ? ' · 拖曳移動' : ''}${remoteEditors(point.key_point_id).length ? ` · ${remoteEditors(point.key_point_id).join('、')} 正在調整（提示，不阻擋）` : ''}`
+          "
+          @pointerdown.stop="beginPointDrag($event, point.key_point_id, point.capture_time_us)"
+          @pointermove.stop="movePointDrag"
+          @pointerup.stop="endPointDrag"
+          @pointercancel.stop="cancelPointDrag"
+          @click.stop="clickPoint(point.key_point_id, point.capture_time_us)"
+        />
       </div>
     </div>
-    <template v-for="segment in historicalPointSegments" :key="`${segment.id}:points`"><button v-for="point in segment.points ?? []" v-show="isVisible(point.captureTimeUs)" :key="point.id" data-timeline-interactive type="button" class="keypoint-dot historical-point locked" :class="[{ service: point.markerKind === 'service', terminal: point.isTerminal, selected: selectedKeyPointId === point.id }, segmentDensityClass(segment)]" :style="{ left: `calc(78px + (100% - 78px) * ${position(point.captureTimeUs) / 100})`, top: `${34 + pointTop()}px` }" :aria-label="`${segment.label} · ${point.markerKind}`" :aria-pressed="selectedKeyPointId === point.id" @click.stop="selectHistoricalPoint(segment.id, point.captureTimeUs)" /></template>
-    <div v-if="displayPlayhead && isVisible(displayPlayhead)" class="playhead" :class="{ dragging: playheadDrag }" :style="{ left: `calc(78px + (100% - 78px) * ${position(displayPlayhead) / 100})` }"><button data-timeline-interactive type="button" class="playhead-handle" aria-label="拖曳播放游標" @pointerdown.stop="beginPlayheadDrag" @pointermove.stop="movePlayheadDrag" @pointerup.stop="endPlayheadDrag" @pointercancel.stop="cancelPlayheadDrag"><span /><i /></button><output v-if="playheadDrag">{{ playheadDragLabel() }}</output></div>
-    <div v-if="liveEdge && isVisible(liveEdge)" class="live-edge" :style="{ left: `calc(78px + (100% - 78px) * ${position(liveEdge) / 100})` }"><span>LIVE</span></div>
-    <div v-else-if="terminalEdge && isVisible(terminalEdge)" class="source-edge terminal" :style="{ left: `calc(78px + (100% - 78px) * ${position(terminalEdge) / 100})` }"><span>END</span></div>
-    <div v-else-if="progressiveEdge && isVisible(progressiveEdge)" class="source-edge progressive" :style="{ left: `calc(78px + (100% - 78px) * ${position(progressiveEdge) / 100})` }"><span>載入中</span></div>
+    <template v-for="segment in historicalPointSegments" :key="`${segment.id}:points`"
+      ><button
+        v-for="point in segment.points ?? []"
+        v-show="isVisible(point.captureTimeUs)"
+        :key="point.id"
+        data-timeline-interactive
+        type="button"
+        class="keypoint-dot historical-point locked"
+        :class="[
+          {
+            service: point.markerKind === 'service',
+            terminal: point.isTerminal,
+            selected: selectedKeyPointId === point.id,
+          },
+          segmentDensityClass(segment),
+        ]"
+        :style="{
+          left: `calc(78px + (100% - 78px) * ${position(point.captureTimeUs) / 100})`,
+          top: `${34 + pointTop()}px`,
+        }"
+        :aria-label="`${segment.label} · ${point.markerKind}`"
+        :aria-pressed="selectedKeyPointId === point.id"
+        @click.stop="selectHistoricalPoint(segment.id, point.captureTimeUs)"
+    /></template>
+    <div
+      v-if="displayPlayhead && isVisible(displayPlayhead)"
+      class="playhead"
+      :class="{ dragging: playheadDrag }"
+      :style="{ left: `calc(78px + (100% - 78px) * ${position(displayPlayhead) / 100})` }"
+    >
+      <button
+        data-timeline-interactive
+        type="button"
+        class="playhead-handle"
+        aria-label="拖曳播放游標"
+        @pointerdown.stop="beginPlayheadDrag"
+        @pointermove.stop="movePlayheadDrag"
+        @pointerup.stop="endPlayheadDrag"
+        @pointercancel.stop="cancelPlayheadDrag"
+      >
+        <span /><i /></button
+      ><output v-if="playheadDrag">{{ playheadDragLabel() }}</output>
+    </div>
+    <div
+      v-if="liveEdge && isVisible(liveEdge)"
+      class="live-edge"
+      :style="{ left: `calc(78px + (100% - 78px) * ${position(liveEdge) / 100})` }"
+    >
+      <span>LIVE</span>
+    </div>
+    <div
+      v-else-if="terminalEdge && isVisible(terminalEdge)"
+      class="source-edge terminal"
+      :style="{ left: `calc(78px + (100% - 78px) * ${position(terminalEdge) / 100})` }"
+    >
+      <span>END</span>
+    </div>
+    <div
+      v-else-if="progressiveEdge && isVisible(progressiveEdge)"
+      class="source-edge progressive"
+      :style="{ left: `calc(78px + (100% - 78px) * ${position(progressiveEdge) / 100})` }"
+    >
+      <span>載入中</span>
+    </div>
   </section>
 </template>
 
 <style scoped>
-.timeline-surface{position:relative;min-height:0;margin:0 12px;overflow:hidden;background:#0c0f12;touch-action:pan-y;user-select:none;color:#edf1f4}.ruler-row{position:absolute;inset:0 0 auto 78px;height:26px;border-bottom:1px solid #353b42;cursor:col-resize;touch-action:none}.ruler-tick{position:absolute;top:4px;transform:translateX(-50%);color:#7f8993;font:.58rem "Cascadia Mono",Consolas,monospace;white-space:nowrap;pointer-events:none}.ruler-tick:first-child{transform:none}.ruler-tick:last-child{transform:translateX(-100%)}.ruler-tick i{position:absolute;left:50%;top:15px;width:1px;height:7px;background:#56616b}.buffer-status{position:absolute;z-index:2;left:78px;right:0;top:27px;height:4px;overflow:hidden;background:#191c20;touch-action:none}.buffer-status .ready-range,.buffer-status .playback-window,.buffer-status .playback-ready,.buffer-status .gap-range,.buffer-status .server-pending,.buffer-status .source-unavailable{position:absolute;inset-block:0}.buffer-status .source-unavailable{z-index:0;background:repeating-linear-gradient(135deg,#191c20 0 4px,#23272c 4px 7px)}.buffer-status .server-pending{z-index:1;background:#9a7228}.buffer-status .ready-range{z-index:2;background:#2b3534}.buffer-status .playback-ready{z-index:3;background:#45d58b;box-shadow:0 0 5px #45d58b66}.buffer-status .playback-window{z-index:4;border:1px solid #647b8d;background:transparent}.buffer-status .gap-range{z-index:5;background:repeating-linear-gradient(135deg,#292d32 0 3px,#111316 3px 6px)}.lane-row{position:absolute;left:0;right:0;border-bottom:1px solid #292f35}.clip-lane{top:34px;bottom:0}.lane-label{position:absolute;inset:0 auto 0 0;width:78px;display:grid;place-items:center start;padding-left:8px;border-right:1px solid #30363d;color:#717b84;font:700 .66rem "Segoe UI Variable Text","Segoe UI",sans-serif;pointer-events:none}.lane-content{position:absolute;inset:0 0 0 78px;overflow:hidden;cursor:default}.timeline-mask{box-sizing:border-box;position:absolute;top:8px;height:72px;min-width:0;min-height:0;padding:8px 12px 38px;overflow:hidden;border:1px solid #69737c;border-radius:8px;background:#838e9854;color:#e5eaee;font:700 .72rem/1.25 "Segoe UI Variable Text","Segoe UI",sans-serif;text-align:left;white-space:nowrap}.timeline-mask.draft{pointer-events:auto}.timeline-mask.processing{border-color:#aa7c22;background:#8c651c73;color:#ffe3a1}.timeline-mask.analyzed{border-color:#327fb8;background:#246fa573;color:#c0e3fc}.timeline-mask.mapped{border-color:#318a5e;background:#24744873;color:#bdf1d2}.timeline-mask.historical{z-index:1}.timeline-mask.current{z-index:2;background:#69737c38}.timeline-mask.selected{z-index:3;box-shadow:0 0 0 2px #dceeff,0 0 12px #62a9ff80}.keypoint-dot{position:absolute;z-index:4;top:56px;width:15px;height:15px;min-height:0;padding:0;transform:translate(-50%,-50%);border:2px solid #f4f7fa;border-radius:50%;background:#62a9ff}.keypoint-dot.service{background:#f5b84b}.keypoint-dot.terminal{border-radius:2px;transform:translate(-50%,-50%) rotate(45deg)}.keypoint-dot.editable{cursor:grab}.keypoint-dot.point-dragging{z-index:6;cursor:grabbing}.keypoint-dot.selected{z-index:5;box-shadow:0 0 0 3px #62a9ff55,0 0 12px #62a9ff}.keypoint-dot.soft-locked{z-index:5;border-color:#f3c2ff;box-shadow:0 0 0 4px #cf77e64d,0 0 14px #cf77e6}.keypoint-dot.locked{opacity:.62}.playhead{position:absolute;z-index:8;top:0;bottom:0;width:24px;margin-left:-12px;pointer-events:auto;cursor:col-resize;touch-action:none}.playhead::before{position:absolute;top:0;bottom:0;left:50%;width:2px;transform:translateX(-50%);background:#ff6b72;content:""}.playhead span{position:absolute;left:50%;top:0;width:13px;height:13px;transform:translateX(-50%);background:#ff6b72;clip-path:polygon(0 0,100% 0,50% 100%);filter:drop-shadow(0 1px 3px #000)}.playhead.dragging{cursor:grabbing}.live-edge,.source-edge{position:absolute;z-index:7;top:0;bottom:0;width:1px;pointer-events:none}.live-edge{background:#6d947d}.source-edge{background:#71717a}.source-edge.progressive{background:#a47c35}.live-edge span,.source-edge span{position:absolute;top:2px;right:4px;padding:2px 4px;border-radius:4px;background:#181a1e;color:#c9d0d6;font:800 .5rem "Cascadia Mono",Consolas,monospace;white-space:nowrap}.source-edge.progressive span{color:#d7b873}.timeline-surface button:focus,.timeline-surface [role="slider"]:focus{outline:none}
-.timeline-mask.idle,.timeline-mask.current.idle{border-color:#69737c;background:#838e9854;color:#e5eaee}
-.timeline-mask.current.processing{border-color:#aa7c22;background:#8c651c73;color:#ffe3a1}
-.timeline-mask.failed,.timeline-mask.current.failed{border-color:#b94d56;background:#7e303873;color:#ffd0d4}
-.timeline-mask.current.analyzed{border-color:#327fb8;background:#246fa573;color:#c0e3fc}
-.timeline-mask.current.mapped{border-color:#318a5e;background:#24744873;color:#bdf1d2}
-.keypoint-dot.pending{border-style:dashed;opacity:.82}
+.timeline-surface {
+  position: relative;
+  min-height: 0;
+  margin: 0 12px;
+  overflow: hidden;
+  background: #0c0f12;
+  touch-action: pan-y;
+  user-select: none;
+  color: #edf1f4;
+}
+.ruler-row {
+  position: absolute;
+  inset: 0 0 auto 78px;
+  height: 26px;
+  border-bottom: 1px solid #353b42;
+  cursor: col-resize;
+  touch-action: none;
+}
+.ruler-tick {
+  position: absolute;
+  top: 4px;
+  transform: translateX(-50%);
+  color: #7f8993;
+  font:
+    0.58rem 'Cascadia Mono',
+    Consolas,
+    monospace;
+  white-space: nowrap;
+  pointer-events: none;
+}
+.ruler-tick:first-child {
+  transform: none;
+}
+.ruler-tick:last-child {
+  transform: translateX(-100%);
+}
+.ruler-tick i {
+  position: absolute;
+  left: 50%;
+  top: 15px;
+  width: 1px;
+  height: 7px;
+  background: #56616b;
+}
+.buffer-status {
+  position: absolute;
+  z-index: 2;
+  left: 78px;
+  right: 0;
+  top: 27px;
+  height: 4px;
+  overflow: hidden;
+  background: #191c20;
+  touch-action: none;
+}
+.buffer-status .ready-range,
+.buffer-status .playback-window,
+.buffer-status .playback-ready,
+.buffer-status .gap-range,
+.buffer-status .server-pending,
+.buffer-status .source-unavailable {
+  position: absolute;
+  inset-block: 0;
+}
+.buffer-status .source-unavailable {
+  z-index: 0;
+  background: repeating-linear-gradient(135deg, #191c20 0 4px, #23272c 4px 7px);
+}
+.buffer-status .server-pending {
+  z-index: 1;
+  background: #9a7228;
+}
+.buffer-status .ready-range {
+  z-index: 2;
+  background: #2b3534;
+}
+.buffer-status .playback-ready {
+  z-index: 3;
+  background: #45d58b;
+  box-shadow: 0 0 5px #45d58b66;
+}
+.buffer-status .playback-window {
+  z-index: 4;
+  border: 1px solid #647b8d;
+  background: transparent;
+}
+.buffer-status .gap-range {
+  z-index: 5;
+  background: repeating-linear-gradient(135deg, #292d32 0 3px, #111316 3px 6px);
+}
+.lane-row {
+  position: absolute;
+  left: 0;
+  right: 0;
+  border-bottom: 1px solid #292f35;
+}
+.clip-lane {
+  top: 34px;
+  bottom: 0;
+}
+.lane-label {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 78px;
+  display: grid;
+  place-items: center start;
+  padding-left: 8px;
+  border-right: 1px solid #30363d;
+  color: #717b84;
+  font:
+    700 0.66rem 'Segoe UI Variable Text',
+    'Segoe UI',
+    sans-serif;
+  pointer-events: none;
+}
+.lane-content {
+  position: absolute;
+  inset: 0 0 0 78px;
+  overflow: hidden;
+  cursor: default;
+}
+.timeline-mask {
+  box-sizing: border-box;
+  position: absolute;
+  top: 8px;
+  height: 72px;
+  min-width: 0;
+  min-height: 0;
+  padding: 8px 12px 38px;
+  overflow: hidden;
+  border: 1px solid #69737c;
+  border-radius: 8px;
+  background: #838e9854;
+  color: #e5eaee;
+  font:
+    700 0.72rem/1.25 'Segoe UI Variable Text',
+    'Segoe UI',
+    sans-serif;
+  text-align: left;
+  white-space: nowrap;
+}
+.timeline-mask.draft {
+  pointer-events: auto;
+}
+.timeline-mask.processing {
+  border-color: #aa7c22;
+  background: #8c651c73;
+  color: #ffe3a1;
+}
+.timeline-mask.analyzed {
+  border-color: #327fb8;
+  background: #246fa573;
+  color: #c0e3fc;
+}
+.timeline-mask.mapped {
+  border-color: #318a5e;
+  background: #24744873;
+  color: #bdf1d2;
+}
+.timeline-mask.historical {
+  z-index: 1;
+}
+.timeline-mask.current {
+  z-index: 2;
+  background: #69737c38;
+}
+.timeline-mask.selected {
+  z-index: 3;
+  box-shadow:
+    0 0 0 2px #dceeff,
+    0 0 12px #62a9ff80;
+}
+.keypoint-dot {
+  position: absolute;
+  z-index: 4;
+  top: 56px;
+  width: 15px;
+  height: 15px;
+  min-height: 0;
+  padding: 0;
+  transform: translate(-50%, -50%);
+  border: 2px solid #f4f7fa;
+  border-radius: 50%;
+  background: #62a9ff;
+}
+.keypoint-dot.service {
+  background: #f5b84b;
+}
+.keypoint-dot.terminal {
+  border-radius: 2px;
+  transform: translate(-50%, -50%) rotate(45deg);
+}
+.keypoint-dot.editable {
+  cursor: grab;
+}
+.keypoint-dot.point-dragging {
+  z-index: 6;
+  cursor: grabbing;
+}
+.keypoint-dot.selected {
+  z-index: 5;
+  box-shadow:
+    0 0 0 3px #62a9ff55,
+    0 0 12px #62a9ff;
+}
+.keypoint-dot.soft-locked {
+  z-index: 5;
+  border-color: #f3c2ff;
+  box-shadow:
+    0 0 0 4px #cf77e64d,
+    0 0 14px #cf77e6;
+}
+.keypoint-dot.locked {
+  opacity: 0.62;
+}
+.playhead {
+  position: absolute;
+  z-index: 8;
+  top: 0;
+  bottom: 0;
+  width: 24px;
+  margin-left: -12px;
+  pointer-events: auto;
+  cursor: col-resize;
+  touch-action: none;
+}
+.playhead::before {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 2px;
+  transform: translateX(-50%);
+  background: #ff6b72;
+  content: '';
+}
+.playhead span {
+  position: absolute;
+  left: 50%;
+  top: 0;
+  width: 13px;
+  height: 13px;
+  transform: translateX(-50%);
+  background: #ff6b72;
+  clip-path: polygon(0 0, 100% 0, 50% 100%);
+  filter: drop-shadow(0 1px 3px #000);
+}
+.playhead.dragging {
+  cursor: grabbing;
+}
+.live-edge,
+.source-edge {
+  position: absolute;
+  z-index: 7;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  pointer-events: none;
+}
+.live-edge {
+  background: #6d947d;
+}
+.source-edge {
+  background: #71717a;
+}
+.source-edge.progressive {
+  background: #a47c35;
+}
+.live-edge span,
+.source-edge span {
+  position: absolute;
+  top: 2px;
+  right: 4px;
+  padding: 2px 4px;
+  border-radius: 4px;
+  background: #181a1e;
+  color: #c9d0d6;
+  font:
+    800 0.5rem 'Cascadia Mono',
+    Consolas,
+    monospace;
+  white-space: nowrap;
+}
+.source-edge.progressive span {
+  color: #d7b873;
+}
+.timeline-surface button:focus,
+.timeline-surface [role='slider']:focus {
+  outline: none;
+}
+.timeline-mask.idle,
+.timeline-mask.current.idle {
+  border-color: #69737c;
+  background: #838e9854;
+  color: #e5eaee;
+}
+.timeline-mask.current.processing {
+  border-color: #aa7c22;
+  background: #8c651c73;
+  color: #ffe3a1;
+}
+.timeline-mask.failed,
+.timeline-mask.current.failed {
+  border-color: #b94d56;
+  background: #7e303873;
+  color: #ffd0d4;
+}
+.timeline-mask.current.analyzed {
+  border-color: #327fb8;
+  background: #246fa573;
+  color: #c0e3fc;
+}
+.timeline-mask.current.mapped {
+  border-color: #318a5e;
+  background: #24744873;
+  color: #bdf1d2;
+}
+.keypoint-dot.pending {
+  border-style: dashed;
+  opacity: 0.82;
+}
 </style>
 <style scoped>
-.playhead output{position:absolute;left:50%;bottom:calc(100% + 5px);padding:4px 7px;transform:translateX(-50%);border:1px solid #3f3f46;border-radius:6px;background:#09090b;color:#fafafa;font:700 .6rem "Cascadia Mono",Consolas,monospace;white-space:nowrap}
-.historical-point{top:auto}
-.buffer-status{height:7px;cursor:col-resize}.timeline-mask{height:84px;padding:8px 10px 44px}.timeline-mask span,.timeline-mask small{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.timeline-mask.has-outcome span{padding-right:84px}.timeline-mask small{position:absolute;right:7px;bottom:6px;max-width:calc(100% - 14px);color:currentColor;font-size:.55rem;font-weight:650;opacity:.76}.mask-outcome{position:absolute;right:7px;top:7px;max-width:calc(100% - 14px);padding:2px 6px;overflow:hidden;border:1px solid rgb(255 255 255 / 32%);border-radius:5px;background:rgb(9 12 15 / 58%);color:#f4f7fa;font-size:.52rem;font-weight:750;text-overflow:ellipsis;white-space:nowrap}.mask-outcome.unknown{border-style:dashed;color:#d4d9de}.analysis-rail{box-sizing:border-box;position:absolute;z-index:3;top:99px;height:20px;min-width:0;min-height:20px;display:flex;align-items:center;gap:5px;padding:0 6px;overflow:hidden;border:1px solid #444b52;border-radius:4px;background:#15191d;color:#aeb8c2;font:650 .54rem "Cascadia Mono",Consolas,monospace;text-align:left;white-space:nowrap;cursor:pointer}.analysis-rail:hover{border-color:#71808d;background:#1c2228;color:#e2e8ed}.analysis-rail:focus-visible{outline:2px solid #9bd0f6;outline-offset:1px}.playhead{pointer-events:none}.playhead::before{display:block;pointer-events:none}.playhead-handle{position:absolute;top:0;left:50%;width:20px;height:34px;min-height:0;padding:0;transform:translateX(-50%);border:0;background:transparent;pointer-events:auto;cursor:col-resize;touch-action:none}.playhead-handle>*{pointer-events:none}.playhead-handle i{position:absolute;inset:0 auto auto 50%;width:2px;height:34px;transform:translateX(-50%);background:#ff6b72}.playhead-handle span{top:0}.playhead.dragging .playhead-handle{cursor:grabbing}
-.timeline-mask span,.timeline-mask small,.mask-outcome,.keypoint-dot,.analysis-rail{transition:opacity 140ms cubic-bezier(.2,.8,.2,1)}
-.timeline-mask.density-compact .mask-outcome{opacity:0;pointer-events:none}
-.timeline-mask.density-micro{padding-inline:0;border-radius:3px}
-.timeline-mask.density-micro span,.timeline-mask.density-micro small,.timeline-mask.density-micro .mask-outcome{opacity:0;pointer-events:none}
-.analysis-rail.density-compact svg:not(:first-child){display:none}
-.analysis-rail.density-micro{min-width:0;padding:0;justify-content:center}
-.analysis-rail.density-micro>*{display:none}
-.keypoint-dot.density-compact:not(.selected){width:10px;height:10px;opacity:.82}
-.keypoint-dot.density-micro:not(.selected){width:7px;height:7px;border-width:1px;opacity:.88;pointer-events:auto}
+.playhead output {
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 5px);
+  padding: 4px 7px;
+  transform: translateX(-50%);
+  border: 1px solid #3f3f46;
+  border-radius: 6px;
+  background: #09090b;
+  color: #fafafa;
+  font:
+    700 0.6rem 'Cascadia Mono',
+    Consolas,
+    monospace;
+  white-space: nowrap;
+}
+.historical-point {
+  top: auto;
+}
+.buffer-status {
+  height: 7px;
+  cursor: col-resize;
+}
+.timeline-mask {
+  height: 84px;
+  padding: 8px 10px 44px;
+}
+.timeline-mask span,
+.timeline-mask small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.timeline-mask.has-outcome span {
+  padding-right: 84px;
+}
+.timeline-mask small {
+  position: absolute;
+  right: 7px;
+  bottom: 6px;
+  max-width: calc(100% - 14px);
+  color: currentColor;
+  font-size: 0.55rem;
+  font-weight: 650;
+  opacity: 0.76;
+}
+.mask-outcome {
+  position: absolute;
+  right: 7px;
+  top: 7px;
+  max-width: calc(100% - 14px);
+  padding: 2px 6px;
+  overflow: hidden;
+  border: 1px solid rgb(255 255 255 / 32%);
+  border-radius: 5px;
+  background: rgb(9 12 15 / 58%);
+  color: #f4f7fa;
+  font-size: 0.52rem;
+  font-weight: 750;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mask-outcome.unknown {
+  border-style: dashed;
+  color: #d4d9de;
+}
+.analysis-rail {
+  box-sizing: border-box;
+  position: absolute;
+  z-index: 3;
+  top: 99px;
+  height: 20px;
+  min-width: 0;
+  min-height: 20px;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0 6px;
+  overflow: hidden;
+  border: 1px solid #444b52;
+  border-radius: 4px;
+  background: #15191d;
+  color: #aeb8c2;
+  font:
+    650 0.54rem 'Cascadia Mono',
+    Consolas,
+    monospace;
+  text-align: left;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.analysis-rail:hover {
+  border-color: #71808d;
+  background: #1c2228;
+  color: #e2e8ed;
+}
+.analysis-rail:focus-visible {
+  outline: 2px solid #9bd0f6;
+  outline-offset: 1px;
+}
+.playhead {
+  pointer-events: none;
+}
+.playhead::before {
+  display: block;
+  pointer-events: none;
+}
+.playhead-handle {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  width: 20px;
+  height: 34px;
+  min-height: 0;
+  padding: 0;
+  transform: translateX(-50%);
+  border: 0;
+  background: transparent;
+  pointer-events: auto;
+  cursor: col-resize;
+  touch-action: none;
+}
+.playhead-handle > * {
+  pointer-events: none;
+}
+.playhead-handle i {
+  position: absolute;
+  inset: 0 auto auto 50%;
+  width: 2px;
+  height: 34px;
+  transform: translateX(-50%);
+  background: #ff6b72;
+}
+.playhead-handle span {
+  top: 0;
+}
+.playhead.dragging .playhead-handle {
+  cursor: grabbing;
+}
+.timeline-mask span,
+.timeline-mask small,
+.mask-outcome,
+.keypoint-dot,
+.analysis-rail {
+  transition: opacity 140ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.timeline-mask.density-compact .mask-outcome {
+  opacity: 0;
+  pointer-events: none;
+}
+.timeline-mask.density-micro {
+  padding-inline: 0;
+  border-radius: 3px;
+}
+.timeline-mask.density-micro span,
+.timeline-mask.density-micro small,
+.timeline-mask.density-micro .mask-outcome {
+  opacity: 0;
+  pointer-events: none;
+}
+.analysis-rail.density-compact svg:not(:first-child) {
+  display: none;
+}
+.analysis-rail.density-micro {
+  min-width: 0;
+  padding: 0;
+  justify-content: center;
+}
+.analysis-rail.density-micro > * {
+  display: none;
+}
+.keypoint-dot.density-compact:not(.selected) {
+  width: 10px;
+  height: 10px;
+  opacity: 0.82;
+}
+.keypoint-dot.density-micro:not(.selected) {
+  width: 7px;
+  height: 7px;
+  border-width: 1px;
+  opacity: 0.88;
+  pointer-events: auto;
+}
 </style>

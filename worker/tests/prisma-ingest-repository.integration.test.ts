@@ -3,13 +3,7 @@ import { createHash, randomUUID } from 'node:crypto'
 import { resolve } from 'node:path'
 import { promisify } from 'node:util'
 import { Pool } from 'pg'
-import {
-  afterAll,
-  beforeAll,
-  describe,
-  expect,
-  it,
-} from 'vitest'
+import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { serializeSampleIndex } from '@volleyball-monitoring/media'
 import {
   createPrismaIngestRepository,
@@ -23,9 +17,10 @@ const execFileAsync = promisify(execFile)
 const repositoryRoot = resolve(process.cwd(), '..')
 const databasePackageRoot = resolve(repositoryRoot, 'packages/db')
 const originalDatabaseUrl = process.env.DATABASE_URL
-const sourceDatabaseUrl = process.env.TEST_DATABASE_URL
-  ?? originalDatabaseUrl
-  ?? 'postgresql://volleyball:volleyball@127.0.0.1:5433/volleyball?schema=public'
+const sourceDatabaseUrl =
+  process.env.TEST_DATABASE_URL ??
+  originalDatabaseUrl ??
+  'postgresql://volleyball:volleyball@127.0.0.1:5433/volleyball?schema=public'
 const databaseName = `phase2a_ingest_${randomUUID().replaceAll('-', '')}`
 const maintenanceUrl = new URL(sourceDatabaseUrl)
 maintenanceUrl.pathname = '/postgres'
@@ -45,7 +40,7 @@ const profile = {
   timeBaseDen: 90_000,
 }
 
-let db: typeof import('@volleyball-monitoring/db')['db']
+let db: (typeof import('@volleyball-monitoring/db'))['db']
 let repository: ReturnType<typeof createPrismaIngestRepository>
 let createdDatabase = false
 
@@ -59,7 +54,9 @@ function uuidFor(index: number): string {
 
 let identityIndex = 1
 
-async function createSession(status: 'STARTING' | 'LIVE' | 'STOPPING' | 'FINISHED' | 'FAILED' = 'STARTING') {
+async function createSession(
+  status: 'STARTING' | 'LIVE' | 'STOPPING' | 'FINISHED' | 'FAILED' = 'STARTING',
+) {
   const index = identityIndex++
   const matchId = uuidFor(index * 10)
   const captureSessionId = uuidFor(index * 10 + 1)
@@ -77,10 +74,7 @@ async function createSession(status: 'STARTING' | 'LIVE' | 'STOPPING' | 'FINISHE
   return { captureSessionId, matchId }
 }
 
-function samples(
-  firstPts: bigint,
-  durations: readonly bigint[] = [3_003n, 1_501n, 3_003n],
-) {
+function samples(firstPts: bigint, durations: readonly bigint[] = [3_003n, 1_501n, 3_003n]) {
   let pts = firstPts
   return durations.map((durationPts, index) => {
     const sample = {
@@ -113,19 +107,28 @@ function reservationInput(
     artifacts: [
       {
         kind: 'init',
-        location: { bucket: 'volleyball-dvr', key: `dvr/${captureSessionId}/${idempotencyKey}/init.mp4` },
+        location: {
+          bucket: 'volleyball-dvr',
+          key: `dvr/${captureSessionId}/${idempotencyKey}/init.mp4`,
+        },
         contentType: 'video/mp4',
         internalSchemaVersion: '1.0.0',
       },
       {
         kind: 'media',
-        location: { bucket: 'volleyball-dvr', key: `dvr/${captureSessionId}/${idempotencyKey}/media.mp4` },
+        location: {
+          bucket: 'volleyball-dvr',
+          key: `dvr/${captureSessionId}/${idempotencyKey}/media.mp4`,
+        },
         contentType: 'video/mp4',
         internalSchemaVersion: '1.0.0',
       },
       {
         kind: 'sample-index',
-        location: { bucket: 'volleyball-dvr', key: `dvr/${captureSessionId}/${idempotencyKey}/sample-index.json` },
+        location: {
+          bucket: 'volleyball-dvr',
+          key: `dvr/${captureSessionId}/${idempotencyKey}/sample-index.json`,
+        },
         contentType: 'application/json',
         internalSchemaVersion: '1.0.0',
       },
@@ -203,15 +206,11 @@ beforeAll(async () => {
   await maintenancePool.query(`CREATE DATABASE "${databaseName}"`)
   createdDatabase = true
   process.env.DATABASE_URL = isolatedDatabaseUrl.toString()
-  await execFileAsync(
-    'bun',
-    ['x', 'prisma', 'migrate', 'deploy', '--config', 'prisma.config.ts'],
-    {
-      cwd: databasePackageRoot,
-      env: { ...process.env, DATABASE_URL: isolatedDatabaseUrl.toString() },
-      windowsHide: true,
-    },
-  )
+  await execFileAsync('bun', ['x', 'prisma', 'migrate', 'deploy', '--config', 'prisma.config.ts'], {
+    cwd: databasePackageRoot,
+    env: { ...process.env, DATABASE_URL: isolatedDatabaseUrl.toString() },
+    windowsHide: true,
+  })
   db = (await import('@volleyball-monitoring/db')).db
   repository = createPrismaIngestRepository(db, {
     maxTransactionAttempts: 5,
@@ -270,7 +269,9 @@ describe('Prisma finalized media ingest repository', () => {
     const [programs, epochs, assets, segments] = await Promise.all([
       db.dvrProgram.findMany({ where: { captureSessionId } }),
       db.captureEpoch.findMany({ where: { captureSessionId } }),
-      db.mediaAsset.findMany({ where: { id: { in: Object.values(left.artifacts).map((value) => value.id) } } }),
+      db.mediaAsset.findMany({
+        where: { id: { in: Object.values(left.artifacts).map(value => value.id) } },
+      }),
       db.dvrSegment.findMany({ where: { dvrProgramId: left.reference.dvrProgramId } }),
     ])
     expect(programs).toHaveLength(1)
@@ -286,7 +287,11 @@ describe('Prisma finalized media ingest repository', () => {
       discontinuityReason: '["SESSION_START"]',
     })
     expect(assets).toHaveLength(3)
-    expect(assets.every((asset) => asset.state === 'UPLOADING' && asset.byteLength === null && asset.sha256 === null)).toBe(true)
+    expect(
+      assets.every(
+        asset => asset.state === 'UPLOADING' && asset.byteLength === null && asset.sha256 === null,
+      ),
+    ).toBe(true)
     expect(segments).toHaveLength(1)
     expect(segments[0]).toMatchObject({
       readyAt: null,
@@ -305,15 +310,13 @@ describe('Prisma finalized media ingest repository', () => {
     const first = await repository.reserveUploading(firstInput)
     await prepareAndPublish(first)
 
-    const changed = await repository.reserveUploading(reservationInput(
-      captureSessionId,
-      'time-base-change',
-      {
+    const changed = await repository.reserveUploading(
+      reservationInput(captureSessionId, 'time-base-change', {
         sourceOrder: firstInput.sourceOrder + 1n,
         samples: samples(first.plan.segment.sourcePtsEndExclusive),
         timeBase: { num: 1n, den: 60_000n },
-      },
-    ))
+      }),
+    )
 
     expect(changed.createdNewEpoch).toBe(true)
     expect(changed.plan.epoch.reasons).toContain('TIME_BASE_CHANGE')
@@ -353,12 +356,14 @@ describe('Prisma finalized media ingest repository', () => {
     const [programs, epochs, assets, segments, session] = await Promise.all([
       db.dvrProgram.count({ where: { captureSessionId } }),
       db.captureEpoch.count({ where: { captureSessionId } }),
-      db.mediaAsset.count({ where: {
-        OR: input.artifacts.map((artifact) => ({
-          bucket: artifact.location.bucket,
-          objectKey: artifact.location.key,
-        })),
-      } }),
+      db.mediaAsset.count({
+        where: {
+          OR: input.artifacts.map(artifact => ({
+            bucket: artifact.location.bucket,
+            objectKey: artifact.location.key,
+          })),
+        },
+      }),
       db.dvrSegment.count({
         where: { program: { captureSessionId } },
       }),
@@ -391,9 +396,13 @@ describe('Prisma finalized media ingest repository', () => {
     await repository.recordArtifactExpectations(recordInput)
     await repository.recordArtifactExpectations(recordInput)
     const uploading = await db.mediaAsset.findMany({
-      where: { id: { in: Object.values(reservation.artifacts).map((value) => value.id) } },
+      where: { id: { in: Object.values(reservation.artifacts).map(value => value.id) } },
     })
-    expect(uploading.every((asset) => asset.state === 'UPLOADING' && asset.byteLength !== null && asset.sha256 !== null)).toBe(true)
+    expect(
+      uploading.every(
+        asset => asset.state === 'UPLOADING' && asset.byteLength !== null && asset.sha256 !== null,
+      ),
+    ).toBe(true)
 
     const published = await repository.publishReady({
       reservation: reservation.reference,
@@ -408,10 +417,16 @@ describe('Prisma finalized media ingest repository', () => {
       db.dvrSegment.findUniqueOrThrow({ where: { id: reservation.reference.dvrSegmentId } }),
       db.dvrProgram.findUniqueOrThrow({ where: { id: reservation.reference.dvrProgramId } }),
       db.captureSession.findUniqueOrThrow({ where: { id: captureSessionId } }),
-      db.mediaAsset.findMany({ where: { id: { in: Object.values(reservation.artifacts).map((value) => value.id) } } }),
+      db.mediaAsset.findMany({
+        where: { id: { in: Object.values(reservation.artifacts).map(value => value.id) } },
+      }),
     ])
     expect(segment.readyAt).toEqual(fixedReadyAt)
-    expect(readyAssets.every((asset) => asset.state === 'READY' && asset.readyAt?.getTime() === fixedReadyAt.getTime())).toBe(true)
+    expect(
+      readyAssets.every(
+        asset => asset.state === 'READY' && asset.readyAt?.getTime() === fixedReadyAt.getTime(),
+      ),
+    ).toBe(true)
     expect(program).toMatchObject({
       status: 'LIVE',
       liveEdgeUs: reservation.plan.segment.captureEndUs,
@@ -427,12 +442,16 @@ describe('Prisma finalized media ingest repository', () => {
     )
     expect(replay.disposition).toBe('ALREADY_READY')
     await repository.recordArtifactExpectations(recordInput)
-    await expect(repository.recordArtifactExpectations({
-      ...recordInput,
-      artifacts: artifactExpectations.map((artifact) => artifact.kind === 'init'
-        ? { ...artifact, sha256: digest('forbidden-ready-mutation') }
-        : artifact),
-    })).rejects.toMatchObject({ code: 'ARTIFACT_CONFLICT' })
+    await expect(
+      repository.recordArtifactExpectations({
+        ...recordInput,
+        artifacts: artifactExpectations.map(artifact =>
+          artifact.kind === 'init'
+            ? { ...artifact, sha256: digest('forbidden-ready-mutation') }
+            : artifact,
+        ),
+      }),
+    ).rejects.toMatchObject({ code: 'ARTIFACT_CONFLICT' })
     const redelivery = await repository.publishReady({
       reservation: reservation.reference,
       verifiedArtifacts: artifactExpectations,
@@ -442,7 +461,9 @@ describe('Prisma finalized media ingest repository', () => {
       readyAt: fixedReadyAt,
       playlistRevision: 1n,
     })
-    await expect(db.dvrProgram.findUniqueOrThrow({ where: { id: program.id } })).resolves.toMatchObject({ playlistRevision: 1n })
+    await expect(
+      db.dvrProgram.findUniqueOrThrow({ where: { id: program.id } }),
+    ).resolves.toMatchObject({ playlistRevision: 1n })
   })
 
   it('publishes a draining reservation without resurrecting stopping lifecycle state', async () => {
@@ -467,10 +488,12 @@ describe('Prisma finalized media ingest repository', () => {
       }),
     ])
 
-    await expect(repository.publishReady({
-      reservation: reservation.reference,
-      verifiedArtifacts: artifactExpectations,
-    })).resolves.toEqual({
+    await expect(
+      repository.publishReady({
+        reservation: reservation.reference,
+        verifiedArtifacts: artifactExpectations,
+      }),
+    ).resolves.toEqual({
       disposition: 'PUBLISHED',
       readyAt: fixedReadyAt,
       playlistRevision: 1n,
@@ -480,7 +503,7 @@ describe('Prisma finalized media ingest repository', () => {
       db.dvrProgram.findUniqueOrThrow({ where: { id: reservation.reference.dvrProgramId } }),
       db.dvrSegment.findUniqueOrThrow({ where: { id: reservation.reference.dvrSegmentId } }),
       db.mediaAsset.findMany({
-        where: { id: { in: Object.values(reservation.artifacts).map((artifact) => artifact.id) } },
+        where: { id: { in: Object.values(reservation.artifacts).map(artifact => artifact.id) } },
       }),
     ])
     expect(session).toMatchObject({
@@ -495,9 +518,11 @@ describe('Prisma finalized media ingest repository', () => {
       durationUs: reservation.plan.segment.durationUs,
     })
     expect(segment.readyAt).toEqual(fixedReadyAt)
-    expect(assets.every((asset) =>
-      asset.state === 'READY' && asset.readyAt?.getTime() === fixedReadyAt.getTime()
-    )).toBe(true)
+    expect(
+      assets.every(
+        asset => asset.state === 'READY' && asset.readyAt?.getTime() === fixedReadyAt.getTime(),
+      ),
+    ).toBe(true)
   })
 
   it('finalizes a sealed capture when the final expected segment becomes ready', async () => {
@@ -527,10 +552,12 @@ describe('Prisma finalized media ingest repository', () => {
       }),
     ])
 
-    await expect(repository.publishReady({
-      reservation: reservation.reference,
-      verifiedArtifacts: artifactExpectations,
-    })).resolves.toMatchObject({ disposition: 'PUBLISHED' })
+    await expect(
+      repository.publishReady({
+        reservation: reservation.reference,
+        verifiedArtifacts: artifactExpectations,
+      }),
+    ).resolves.toMatchObject({ disposition: 'PUBLISHED' })
 
     const [session, program, epoch, completionEvents] = await Promise.all([
       db.captureSession.findUniqueOrThrow({ where: { id: captureSessionId } }),
@@ -592,10 +619,12 @@ describe('Prisma finalized media ingest repository', () => {
       }),
     ])
 
-    await expect(repository.publishReady({
-      reservation: reservation.reference,
-      verifiedArtifacts: artifactExpectations,
-    })).resolves.toMatchObject({ disposition: 'PUBLISHED' })
+    await expect(
+      repository.publishReady({
+        reservation: reservation.reference,
+        verifiedArtifacts: artifactExpectations,
+      }),
+    ).resolves.toMatchObject({ disposition: 'PUBLISHED' })
 
     const [session, program, completionEvents] = await Promise.all([
       db.captureSession.findUniqueOrThrow({ where: { id: captureSessionId } }),
@@ -632,21 +661,32 @@ describe('Prisma finalized media ingest repository', () => {
       FOR EACH ROW EXECUTE FUNCTION reject_ingest_session_publish();
     `)
     try {
-      const error = await repository.publishReady({
-        reservation: reservation.reference,
-        verifiedArtifacts: artifactExpectations,
-      }).catch((value: unknown) => value)
+      const error = await repository
+        .publishReady({
+          reservation: reservation.reference,
+          verifiedArtifacts: artifactExpectations,
+        })
+        .catch((value: unknown) => value)
       expectSafeError(error, 'DATABASE_FAILURE', [captureSessionId, 'secret late failure'])
       const [segment, assets, program, session, epoch] = await Promise.all([
         db.dvrSegment.findUniqueOrThrow({ where: { id: reservation.reference.dvrSegmentId } }),
-        db.mediaAsset.findMany({ where: { id: { in: Object.values(reservation.artifacts).map((value) => value.id) } } }),
+        db.mediaAsset.findMany({
+          where: { id: { in: Object.values(reservation.artifacts).map(value => value.id) } },
+        }),
         db.dvrProgram.findUniqueOrThrow({ where: { id: reservation.reference.dvrProgramId } }),
         db.captureSession.findUniqueOrThrow({ where: { id: captureSessionId } }),
         db.captureEpoch.findUniqueOrThrow({ where: { id: reservation.captureEpochId } }),
       ])
       expect(segment.readyAt).toBeNull()
-      expect(assets.every((asset) => asset.state === 'UPLOADING' && asset.readyAt === null)).toBe(true)
-      expect(program).toMatchObject({ status: 'STARTING', playlistRevision: 0n, liveEdgeUs: 0n, durationUs: 0n })
+      expect(assets.every(asset => asset.state === 'UPLOADING' && asset.readyAt === null)).toBe(
+        true,
+      )
+      expect(program).toMatchObject({
+        status: 'STARTING',
+        playlistRevision: 0n,
+        liveEdgeUs: 0n,
+        durationUs: 0n,
+      })
       expect(session).toMatchObject({ status: 'STARTING', health: 'STARTING', startedAt: null })
       expect(epoch.endedAtCaptureUs).toBeNull()
     } finally {
@@ -664,10 +704,12 @@ describe('Prisma finalized media ingest repository', () => {
     await prepareAndPublish(first)
 
     const firstEndPts = first.plan.segment.sourcePtsEndExclusive
-    const second = await repository.reserveUploading(reservationInput(captureSessionId, 'timeline-second', {
-      samples: samples(firstEndPts, [1_501n, 3_003n]),
-      sourceOrder: firstInput.sourceOrder + 1n,
-    }))
+    const second = await repository.reserveUploading(
+      reservationInput(captureSessionId, 'timeline-second', {
+        samples: samples(firstEndPts, [1_501n, 3_003n]),
+        sourceOrder: firstInput.sourceOrder + 1n,
+      }),
+    )
     expect(second.sequenceNumber).toBe(1n)
     expect(second.createdNewEpoch).toBe(false)
     expect(second.captureEpochId).toBe(first.captureEpochId)
@@ -675,43 +717,59 @@ describe('Prisma finalized media ingest repository', () => {
     expect(second.plan.segment.firstFrameIndex).toBe(first.plan.nextCaptureFrameIndex)
     await prepareAndPublish(second)
 
-    const reset = await repository.reserveUploading(reservationInput(captureSessionId, 'timeline-reset', {
-      samples: samples(first.plan.segment.sourcePtsStart - 100n, [1n, 2n, 1n]),
-      sourceOrder: firstInput.sourceOrder + 2n,
-    }))
+    const reset = await repository.reserveUploading(
+      reservationInput(captureSessionId, 'timeline-reset', {
+        samples: samples(first.plan.segment.sourcePtsStart - 100n, [1n, 2n, 1n]),
+        sourceOrder: firstInput.sourceOrder + 2n,
+      }),
+    )
     expect(reset.createdNewEpoch).toBe(true)
     expect(reset.plan.epoch.reasons).toContain('PTS_RESET')
     expect(reset.plan.segment.captureStartUs).toBe(second.plan.segment.captureEndUs)
     await prepareAndPublish(reset)
-    await expect(db.captureEpoch.findUniqueOrThrow({ where: { id: first.captureEpochId } })).resolves.toMatchObject({
+    await expect(
+      db.captureEpoch.findUniqueOrThrow({ where: { id: first.captureEpochId } }),
+    ).resolves.toMatchObject({
       endedAtCaptureUs: reset.plan.segment.captureStartUs,
     })
-    await expect(db.captureEpoch.findUniqueOrThrow({ where: { id: reset.captureEpochId } })).resolves.toMatchObject({ endedAtCaptureUs: null })
+    await expect(
+      db.captureEpoch.findUniqueOrThrow({ where: { id: reset.captureEpochId } }),
+    ).resolves.toMatchObject({ endedAtCaptureUs: null })
 
-    const restart = await repository.reserveUploading(reservationInput(captureSessionId, 'timeline-restart-gap', {
-      samples: samples(reset.plan.segment.sourcePtsStart - 100n, [2n, 1n]),
-      sourceOrder: firstInput.sourceOrder + 3n,
-      sourceRestart: true,
-      timestampDiscontinuity: true,
-      explicitGapBeforeUs: 250_000n,
-    }))
-    expect(restart.plan.epoch.reasons).toEqual(expect.arrayContaining([
-      'SOURCE_RESTART',
-      'TIMESTAMP_DISCONTINUITY',
-      'PTS_RESET',
-      'EXPLICIT_GAP',
-    ]))
+    const restart = await repository.reserveUploading(
+      reservationInput(captureSessionId, 'timeline-restart-gap', {
+        samples: samples(reset.plan.segment.sourcePtsStart - 100n, [2n, 1n]),
+        sourceOrder: firstInput.sourceOrder + 3n,
+        sourceRestart: true,
+        timestampDiscontinuity: true,
+        explicitGapBeforeUs: 250_000n,
+      }),
+    )
+    expect(restart.plan.epoch.reasons).toEqual(
+      expect.arrayContaining([
+        'SOURCE_RESTART',
+        'TIMESTAMP_DISCONTINUITY',
+        'PTS_RESET',
+        'EXPLICIT_GAP',
+      ]),
+    )
     expect(restart.plan.gap).toMatchObject({
       startUs: reset.plan.segment.captureEndUs,
       endUs: reset.plan.segment.captureEndUs + 250_000n,
     })
     expect(restart.plan.segment.captureStartUs).toBe(reset.plan.segment.captureEndUs + 250_000n)
     await prepareAndPublish(restart)
-    await expect(db.captureEpoch.findUniqueOrThrow({ where: { id: reset.captureEpochId } })).resolves.toMatchObject({
+    await expect(
+      db.captureEpoch.findUniqueOrThrow({ where: { id: reset.captureEpochId } }),
+    ).resolves.toMatchObject({
       endedAtCaptureUs: restart.plan.segment.captureStartUs,
     })
     expect(await db.captureEpoch.count({ where: { captureSessionId } })).toBe(3)
-    expect(await db.dvrSegment.count({ where: { dvrProgramId: first.reference.dvrProgramId, isGap: true } })).toBe(0)
+    expect(
+      await db.dvrSegment.count({
+        where: { dvrProgramId: first.reference.dvrProgramId, isGap: true },
+      }),
+    ).toBe(0)
   })
 
   it('fails closed on expectation conflicts and incomplete or mismatched verified metadata', async () => {
@@ -720,32 +778,42 @@ describe('Prisma finalized media ingest repository', () => {
       reservationInput(captureSessionId, 'metadata-conflicts'),
     )
     const expected = expectations(reservation)
-    const badSample = expected.map((artifact) => artifact.kind === 'sample-index'
-      ? { ...artifact, sha256: digest('wrong-sample-document') }
-      : artifact)
-    await expect(repository.recordArtifactExpectations({
-      reservation: reservation.reference,
-      artifacts: badSample,
-      sampleIndexDocument: serializeSampleIndex(reservation.sampleIndex),
-    })).rejects.toMatchObject({ code: 'ARTIFACT_CONFLICT' })
+    const badSample = expected.map(artifact =>
+      artifact.kind === 'sample-index'
+        ? { ...artifact, sha256: digest('wrong-sample-document') }
+        : artifact,
+    )
+    await expect(
+      repository.recordArtifactExpectations({
+        reservation: reservation.reference,
+        artifacts: badSample,
+        sampleIndexDocument: serializeSampleIndex(reservation.sampleIndex),
+      }),
+    ).rejects.toMatchObject({ code: 'ARTIFACT_CONFLICT' })
     await repository.recordArtifactExpectations({
       reservation: reservation.reference,
       artifacts: expected,
       sampleIndexDocument: serializeSampleIndex(reservation.sampleIndex),
     })
-    const badInit = expected.map((artifact) => artifact.kind === 'init'
-      ? { ...artifact, sha256: digest('different-init') }
-      : artifact)
-    await expect(repository.recordArtifactExpectations({
-      reservation: reservation.reference,
-      artifacts: badInit,
-      sampleIndexDocument: serializeSampleIndex(reservation.sampleIndex),
-    })).rejects.toMatchObject({ code: 'ARTIFACT_CONFLICT' })
-    await expect(repository.publishReady({
-      reservation: reservation.reference,
-      verifiedArtifacts: badInit,
-    })).rejects.toMatchObject({ code: 'EXPECTATIONS_REQUIRED' })
-    await expect(db.dvrSegment.findUniqueOrThrow({ where: { id: reservation.reference.dvrSegmentId } })).resolves.toMatchObject({ readyAt: null })
+    const badInit = expected.map(artifact =>
+      artifact.kind === 'init' ? { ...artifact, sha256: digest('different-init') } : artifact,
+    )
+    await expect(
+      repository.recordArtifactExpectations({
+        reservation: reservation.reference,
+        artifacts: badInit,
+        sampleIndexDocument: serializeSampleIndex(reservation.sampleIndex),
+      }),
+    ).rejects.toMatchObject({ code: 'ARTIFACT_CONFLICT' })
+    await expect(
+      repository.publishReady({
+        reservation: reservation.reference,
+        verifiedArtifacts: badInit,
+      }),
+    ).rejects.toMatchObject({ code: 'EXPECTATIONS_REQUIRED' })
+    await expect(
+      db.dvrSegment.findUniqueOrThrow({ where: { id: reservation.reference.dvrSegmentId } }),
+    ).resolves.toMatchObject({ readyAt: null })
   })
 
   it('rejects terminal sessions, program ambiguity/profile drift, FIFO bypass, and replay conflicts with sanitized errors', async () => {
@@ -753,15 +821,22 @@ describe('Prisma finalized media ingest repository', () => {
       const { captureSessionId } = await createSession(status)
       const input = reservationInput(captureSessionId, `terminal-${status}`)
       const error = await repository.reserveUploading(input).catch((value: unknown) => value)
-      expectSafeError(error, 'SESSION_TERMINAL', [captureSessionId, input.artifacts[0]!.location.key])
+      expectSafeError(error, 'SESSION_TERMINAL', [
+        captureSessionId,
+        input.artifacts[0]!.location.key,
+      ])
     }
 
     const profileSession = await createSession()
     const firstInput = reservationInput(profileSession.captureSessionId, 'profile')
     const first = await repository.reserveUploading(firstInput)
-    const profileError = await repository.reserveUploading(reservationInput(profileSession.captureSessionId, 'profile-other', {
-      programProfile: { ...profile, fpsNum: 30 },
-    })).catch((value: unknown) => value)
+    const profileError = await repository
+      .reserveUploading(
+        reservationInput(profileSession.captureSessionId, 'profile-other', {
+          programProfile: { ...profile, fpsNum: 30 },
+        }),
+      )
+      .catch((value: unknown) => value)
     expectSafeError(profileError, 'PROGRAM_CONFLICT', [profileSession.captureSessionId])
 
     const fifoInput = reservationInput(profileSession.captureSessionId, 'fifo-later')
@@ -770,32 +845,47 @@ describe('Prisma finalized media ingest repository', () => {
 
     const artifactConflictInput = {
       ...firstInput,
-      artifacts: firstInput.artifacts.map((artifact) => artifact.kind === 'media'
-        ? { ...artifact, location: { ...artifact.location, key: `${artifact.location.key}.conflict` } }
-        : artifact),
+      artifacts: firstInput.artifacts.map(artifact =>
+        artifact.kind === 'media'
+          ? {
+              ...artifact,
+              location: { ...artifact.location, key: `${artifact.location.key}.conflict` },
+            }
+          : artifact,
+      ),
     }
-    const artifactError = await repository.reserveUploading(artifactConflictInput).catch((value: unknown) => value)
-    expectSafeError(artifactError, 'ARTIFACT_CONFLICT', [artifactConflictInput.artifacts[1]!.location.key])
+    const artifactError = await repository
+      .reserveUploading(artifactConflictInput)
+      .catch((value: unknown) => value)
+    expectSafeError(artifactError, 'ARTIFACT_CONFLICT', [
+      artifactConflictInput.artifacts[1]!.location.key,
+    ])
 
-    const timelineError = await repository.reserveUploading({
-      ...firstInput,
-      samples: samples(123n),
-    }).catch((value: unknown) => value)
+    const timelineError = await repository
+      .reserveUploading({
+        ...firstInput,
+        samples: samples(123n),
+      })
+      .catch((value: unknown) => value)
     expectSafeError(timelineError, 'TIMELINE_CONFLICT', [first.reference.dvrSegmentId])
 
     const multiple = await createSession()
-    await Promise.all([0, 1].map((offset) => db.dvrProgram.create({
-      data: {
-        captureSessionId: multiple.captureSessionId,
-        fpsNum: profile.fpsNum,
-        fpsDen: profile.fpsDen,
-        timeBaseNum: profile.timeBaseNum,
-        timeBaseDen: profile.timeBaseDen,
-        playlistRevision: BigInt(offset),
-      },
-    })))
-    await expect(repository.reserveUploading(
-      reservationInput(multiple.captureSessionId, 'multiple-programs'),
-    )).rejects.toMatchObject({ code: 'PROGRAM_CONFLICT' })
+    await Promise.all(
+      [0, 1].map(offset =>
+        db.dvrProgram.create({
+          data: {
+            captureSessionId: multiple.captureSessionId,
+            fpsNum: profile.fpsNum,
+            fpsDen: profile.fpsDen,
+            timeBaseNum: profile.timeBaseNum,
+            timeBaseDen: profile.timeBaseDen,
+            playlistRevision: BigInt(offset),
+          },
+        }),
+      ),
+    )
+    await expect(
+      repository.reserveUploading(reservationInput(multiple.captureSessionId, 'multiple-programs')),
+    ).rejects.toMatchObject({ code: 'PROGRAM_CONFLICT' })
   })
 })

@@ -30,9 +30,10 @@ function prometheusInteger(value: string): bigint | null {
   const scale = Number.parseInt(exponent, 10) - fraction.length
   if (!Number.isSafeInteger(scale)) return null
 
-  const integerDigits = scale >= 0
-    ? `${digits}${'0'.repeat(scale)}`
-    : digits.slice(0, Math.max(0, digits.length + scale)) || '0'
+  const integerDigits =
+    scale >= 0
+      ? `${digits}${'0'.repeat(scale)}`
+      : digits.slice(0, Math.max(0, digits.length + scale)) || '0'
   const result = BigInt(`${sign}${integerDigits}`)
   return result >= 0n ? result : null
 }
@@ -59,8 +60,9 @@ export function createMinioStorageProbe(
     const baseUrl = new URL(endpoint)
     if (!['http:', 'https:'].includes(baseUrl.protocol)) throw new Error('unsupported protocol')
     metricsUrl = new URL(CAPACITY_METRICS_PATH, baseUrl)
+  } catch {
+    // Invalid or unsupported endpoints are reported as unavailable by the probe.
   }
-  catch {}
 
   const path = metricsUrl?.origin ?? ''
   return async () => {
@@ -89,8 +91,7 @@ export function createMinioStorageProbe(
         totalBytes: totalBytes.toString(),
         usedBytes: (totalBytes - freeBytes).toString(),
       }
-    }
-    catch {
+    } catch {
       return unavailable(path)
     }
   }

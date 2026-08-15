@@ -1,4 +1,3 @@
-
 # Public contracts
 
 This directory is owned by the main agent and the contracts/SDK worker. Consumers must not

@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import { deriveRallyDisplayOrdinals, segmentStartCaptureTimeUs } from '../src/domain/rally-display-order.js'
+import {
+  deriveRallyDisplayOrdinals,
+  segmentStartCaptureTimeUs,
+} from '../src/domain/rally-display-order.js'
 import { selectDisplayAnalysis } from '../src/services/coach-dashboard.js'
 
 describe('coach dashboard analysis failover', () => {
@@ -30,10 +33,12 @@ describe('coach dashboard analysis failover', () => {
 
 describe('derived rally display order', () => {
   it('uses the START boundary rather than stored or legacy naming state', () => {
-    expect(segmentStartCaptureTimeUs({
-      boundaries: [{ captureTimeUs: 5_000_000n, kind: 'START' }],
-      keyPoints: [{ captureTimeUs: 1_000_000n, markerKind: 'SERVICE' }],
-    })).toBe(5_000_000n)
+    expect(
+      segmentStartCaptureTimeUs({
+        boundaries: [{ captureTimeUs: 5_000_000n, kind: 'START' }],
+        keyPoints: [{ captureTimeUs: 1_000_000n, markerKind: 'SERVICE' }],
+      }),
+    ).toBe(5_000_000n)
   })
 
   it('numbers each set by capture order and closes gaps without persisted ordinals', () => {

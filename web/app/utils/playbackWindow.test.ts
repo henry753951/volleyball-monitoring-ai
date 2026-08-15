@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { captureTimeToPlayerSeconds, isCaptureTimeWithinWindow, isPlayerMediaTimeWithinWindow } from './playbackWindow'
+import {
+  captureTimeToPlayerSeconds,
+  isCaptureTimeWithinWindow,
+  isPlayerMediaTimeWithinWindow,
+} from './playbackWindow'
 
 const descriptor = {
   window_capture_start_us: '9007199254740000',

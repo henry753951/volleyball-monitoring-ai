@@ -91,10 +91,7 @@ class FakeMinioClient implements MinioClientLike {
   }
 
   seed(value: MinioObjectStat, target = artifact): void {
-    this.objects.set(
-      this.identity(target.location.bucket, target.location.key),
-      value,
-    )
+    this.objects.set(this.identity(target.location.bucket, target.location.key), value)
   }
 }
 
@@ -114,14 +111,17 @@ function expectedStat(): MinioObjectStat {
 function createHarness(overrides: Partial<MinioObjectStoreConfig> = {}) {
   const client = new FakeMinioClient()
   let clientOptions: ClientOptions | undefined
-  const store = createMinioMediaObjectStore(
-    { ...config, ...overrides },
-    (options) => {
-      clientOptions = options
-      return client
+  const store = createMinioMediaObjectStore({ ...config, ...overrides }, options => {
+    clientOptions = options
+    return client
+  })
+  return {
+    client,
+    store,
+    get clientOptions() {
+      return clientOptions
     },
-  )
-  return { client, store, get clientOptions() { return clientOptions } }
+  }
 }
 
 afterEach(() => {
@@ -184,10 +184,7 @@ describe('MinioMediaObjectStore', () => {
   })
 
   it.each([
-    [
-      'length',
-      (value: MinioObjectStat) => ({ ...value, size: value.size + 1 }),
-    ],
+    ['length', (value: MinioObjectStat) => ({ ...value, size: value.size + 1 })],
     [
       'checksum',
       (value: MinioObjectStat) => ({
@@ -223,10 +220,7 @@ describe('MinioMediaObjectStore', () => {
   })
 
   it.each([
-    [
-      'length',
-      (value: MinioObjectStat) => ({ ...value, size: value.size + 1 }),
-    ],
+    ['length', (value: MinioObjectStat) => ({ ...value, size: value.size + 1 })],
     [
       'checksum',
       (value: MinioObjectStat) => ({
@@ -346,7 +340,7 @@ describe('MinioMediaObjectStore', () => {
     { secretKey: '' },
     { bucket: '../bucket' },
     { operationTimeoutMs: 0 },
-  ])('rejects invalid sanitized configuration %#', (override) => {
+  ])('rejects invalid sanitized configuration %#', override => {
     const serialized = JSON.stringify(override)
     expect(() => createHarness(override)).toThrow(MinioObjectStoreError)
     try {

@@ -41,10 +41,13 @@ export function createAnnotationRealtimeClient(
   let editingKeyPointId: string | null = null
   let heartbeatStartedAt: number | null = null
   let currentState: AnnotationConnectionState = 'closed'
-  const pending = new Map<string, {
-    resolve: (response: AnnotationCommandResponse) => void
-    reject: (error: Error) => void
-  }>()
+  const pending = new Map<
+    string,
+    {
+      resolve: (response: AnnotationCommandResponse) => void
+      reject: (error: Error) => void
+    }
+  >()
   const reconnectScheduler = createRealtimeReconnectScheduler(open)
 
   const setState = (state: AnnotationConnectionState) => {
@@ -99,13 +102,14 @@ export function createAnnotationRealtimeClient(
     try {
       nextSocket = new WebSocket(url.toString())
       socket = nextSocket
-    }
-    catch (cause) {
-      handlers.onError?.(cause instanceof Error ? cause : new Error('Annotation WebSocket unavailable'))
+    } catch (cause) {
+      handlers.onError?.(
+        cause instanceof Error ? cause : new Error('Annotation WebSocket unavailable'),
+      )
       scheduleReconnect()
       return
     }
-    nextSocket.addEventListener('message', (event) => {
+    nextSocket.addEventListener('message', event => {
       try {
         const message = parseAnnotationServerMessage(JSON.parse(String(event.data)))
         if (message.type === 'connection_ready') {
@@ -114,7 +118,9 @@ export function createAnnotationRealtimeClient(
           setState('ready')
           clearSoftLockTimer()
           sendSoftLock()
-          softLockTimer = setInterval(() => { sendSoftLock() }, 5_000)
+          softLockTimer = setInterval(() => {
+            sendSoftLock()
+          }, 5_000)
         }
         if (message.type === 'presence_snapshot' && heartbeatStartedAt !== null) {
           handlers.onLatency?.(Math.max(0, Math.round(performance.now() - heartbeatStartedAt)))
@@ -125,8 +131,7 @@ export function createAnnotationRealtimeClient(
           pending.delete(message.command_id)
         }
         handlers.onMessage?.(message)
-      }
-      catch (cause) {
+      } catch (cause) {
         handlers.onError?.(cause instanceof Error ? cause : new Error('Invalid annotation message'))
       }
     })

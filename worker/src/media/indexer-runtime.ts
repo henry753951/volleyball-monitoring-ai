@@ -7,35 +7,38 @@ export const MEDIA_INGEST_QUEUE = 'media.ingest.finalized.v1' as const
 const SUPPORTED_EXTENSIONS = new Set(['.mp4', '.m4s', '.fmp4'])
 const CANONICAL_UNSIGNED_DECIMAL = /^(?:0|[1-9][0-9]*)$/
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
-const RECORDING_TIMESTAMP = /(?:^|\/)(\d{4})-(\d{2})-(\d{2})_(\d{2})-(\d{2})-(\d{2})(?:-(\d{6})|_(\d+))(?:\.[^.]+)$/
-const OME_RECORDING_TIMESTAMP = /(?:^|\/)(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})_(\d+)(?:\.[^.]+)$/
-const SOURCE_RESTART_MARKER = /(?:^|\/)\.source-restart-(\d{4})-(\d{2})-(\d{2})_(\d{2})-(\d{2})-(\d{2})-(\d{6})\.marker$/
+const RECORDING_TIMESTAMP =
+  /(?:^|\/)(\d{4})-(\d{2})-(\d{2})_(\d{2})-(\d{2})-(\d{2})(?:-(\d{6})|_(\d+))(?:\.[^.]+)$/
+const OME_RECORDING_TIMESTAMP =
+  /(?:^|\/)(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})_(\d+)(?:\.[^.]+)$/
+const SOURCE_RESTART_MARKER =
+  /(?:^|\/)\.source-restart-(\d{4})-(\d{2})-(\d{2})_(\d{2})-(\d{2})-(\d{2})-(\d{6})\.marker$/
 
-export const MediaIngestEnvelope = z.object({
-  schemaVersion: z.literal('1.0.0'),
-  jobType: z.literal(MEDIA_INGEST_QUEUE),
-  captureSessionId: z.string().regex(UUID),
-  candidate: z.string(),
-  sourceOrder: z.string().regex(CANONICAL_UNSIGNED_DECIMAL),
-  epochCandidateId: z.string().regex(UUID),
-  sourceRestart: z.boolean(),
-  timestampDiscontinuity: z.boolean(),
-  explicitGapBeforeUs: z.string().regex(/^[1-9][0-9]*$/).nullable(),
-}).strict()
+export const MediaIngestEnvelope = z
+  .object({
+    schemaVersion: z.literal('1.0.0'),
+    jobType: z.literal(MEDIA_INGEST_QUEUE),
+    captureSessionId: z.string().regex(UUID),
+    candidate: z.string(),
+    sourceOrder: z.string().regex(CANONICAL_UNSIGNED_DECIMAL),
+    epochCandidateId: z.string().regex(UUID),
+    sourceRestart: z.boolean(),
+    timestampDiscontinuity: z.boolean(),
+    explicitGapBeforeUs: z
+      .string()
+      .regex(/^[1-9][0-9]*$/)
+      .nullable(),
+  })
+  .strict()
 
 export type MediaIngestEnvelope = z.infer<typeof MediaIngestEnvelope>
 
 export function canonicalCandidate(value: string): string {
-  if (
-    !value
-    || value.includes('\0')
-    || value.includes('\\')
-    || value.startsWith('/')
-  ) {
+  if (!value || value.includes('\0') || value.includes('\\') || value.startsWith('/')) {
     throw new Error('invalid spool candidate')
   }
   const parts = value.split('/')
-  if (parts.some((part) => !part || part === '.' || part === '..')) {
+  if (parts.some(part => !part || part === '.' || part === '..')) {
     throw new Error('invalid spool candidate')
   }
   if (!SUPPORTED_EXTENSIONS.has(extname(value).toLowerCase())) {
@@ -52,10 +55,7 @@ function uuidFromDigest(input: string): string {
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`
 }
 
-export function epochCandidateId(
-  captureSessionId: string,
-  candidate: string,
-): string {
+export function epochCandidateId(captureSessionId: string, candidate: string): string {
   if (!UUID.test(captureSessionId)) throw new Error('invalid capture session id')
   return uuidFromDigest(
     `volleyball-media-epoch-candidate-v1\0${captureSessionId}\0${canonicalCandidate(candidate)}`,
@@ -64,33 +64,38 @@ export function epochCandidateId(
 
 function sourceOrderFromTimestampMatch(match: RegExpExecArray | null): string {
   if (!match) throw new Error('invalid recording timestamp')
-  const [year, month, day, hour, minute, second] = match
-    .slice(1, 7)
-    .map(Number) as [number, number, number, number, number, number]
+  const [year, month, day, hour, minute, second] = match.slice(1, 7).map(Number) as [
+    number,
+    number,
+    number,
+    number,
+    number,
+    number,
+  ]
   const micros = match[7] === undefined ? Number(match[8]!) : Number(match[7])
   if (
-    year < 1970
-    || month < 1
-    || month > 12
-    || day < 1
-    || day > 31
-    || hour > 23
-    || minute > 59
-    || second > 59
-    || micros < 0
-    || micros > 999_999
+    year < 1970 ||
+    month < 1 ||
+    month > 12 ||
+    day < 1 ||
+    day > 31 ||
+    hour > 23 ||
+    minute > 59 ||
+    second > 59 ||
+    micros < 0 ||
+    micros > 999_999
   ) {
     throw new Error('invalid recorder segment timestamp')
   }
   const timestampMs = Date.UTC(year, month - 1, day, hour, minute, second)
   const date = new Date(timestampMs)
   if (
-    date.getUTCFullYear() !== year
-    || date.getUTCMonth() !== month - 1
-    || date.getUTCDate() !== day
-    || date.getUTCHours() !== hour
-    || date.getUTCMinutes() !== minute
-    || date.getUTCSeconds() !== second
+    date.getUTCFullYear() !== year ||
+    date.getUTCMonth() !== month - 1 ||
+    date.getUTCDate() !== day ||
+    date.getUTCHours() !== hour ||
+    date.getUTCMinutes() !== minute ||
+    date.getUTCSeconds() !== second
   ) {
     throw new Error('invalid recorder segment timestamp')
   }
@@ -99,12 +104,18 @@ function sourceOrderFromTimestampMatch(match: RegExpExecArray | null): string {
 
 export function sourceOrderFromCandidate(candidateValue: string): string {
   const candidate = canonicalCandidate(candidateValue)
-  return sourceOrderFromTimestampMatch(RECORDING_TIMESTAMP.exec(candidate) ?? OME_RECORDING_TIMESTAMP.exec(candidate))
+  return sourceOrderFromTimestampMatch(
+    RECORDING_TIMESTAMP.exec(candidate) ?? OME_RECORDING_TIMESTAMP.exec(candidate),
+  )
 }
 
 export function sourceOrderFromRestartMarker(markerValue: string): string {
   const marker = markerValue.replaceAll('\\', '/')
-  if (!marker || marker.startsWith('/') || marker.split('/').some(part => !part || part === '.' || part === '..')) {
+  if (
+    !marker ||
+    marker.startsWith('/') ||
+    marker.split('/').some(part => !part || part === '.' || part === '..')
+  ) {
     throw new Error('invalid source restart marker')
   }
   return sourceOrderFromTimestampMatch(SOURCE_RESTART_MARKER.exec(marker))
@@ -151,7 +162,11 @@ export async function scanSpool(
     if (!relativePath || relativePath === '..' || relativePath.startsWith(`..${sep}`)) continue
     const marker = relativePath.replaceAll(sep, '/')
     let order: bigint
-    try { order = BigInt(sourceOrderFromRestartMarker(marker)) } catch { continue }
+    try {
+      order = BigInt(sourceOrderFromRestartMarker(marker))
+    } catch {
+      continue
+    }
     const ingestPath = dirname(marker).replaceAll('\\', '/')
     const orders = restartOrders.get(ingestPath) ?? []
     orders.push(order)
@@ -162,11 +177,7 @@ export async function scanSpool(
   for (const path of files) {
     const canonicalPath = await realpath(path)
     const relativePath = relative(trustedRoot, canonicalPath)
-    if (
-      !relativePath
-      || relativePath === '..'
-      || relativePath.startsWith(`..${sep}`)
-    ) continue
+    if (!relativePath || relativePath === '..' || relativePath.startsWith(`..${sep}`)) continue
 
     const candidate = canonicalCandidate(relativePath.replaceAll(sep, '/'))
     const metadata = await stat(canonicalPath, { bigint: true })
@@ -182,20 +193,25 @@ export async function scanSpool(
     }
     const captureSessionId = await resolveCapture(candidate.slice(0, separator))
     if (!captureSessionId || !UUID.test(captureSessionId)) continue
-    discovered.push({ ingestPath: candidate.slice(0, separator), envelope: createEnvelope({
-      schemaVersion: '1.0.0',
-      jobType: MEDIA_INGEST_QUEUE,
-      captureSessionId,
-      candidate,
-      sourceOrder,
-      sourceRestart: false,
-      timestampDiscontinuity: false,
-      explicitGapBeforeUs: null,
-    }) })
+    discovered.push({
+      ingestPath: candidate.slice(0, separator),
+      envelope: createEnvelope({
+        schemaVersion: '1.0.0',
+        jobType: MEDIA_INGEST_QUEUE,
+        captureSessionId,
+        candidate,
+        sourceOrder,
+        sourceRestart: false,
+        timestampDiscontinuity: false,
+        explicitGapBeforeUs: null,
+      }),
+    })
   }
 
   discovered.sort((left, right) => {
-    const captureOrder = left.envelope.captureSessionId.localeCompare(right.envelope.captureSessionId)
+    const captureOrder = left.envelope.captureSessionId.localeCompare(
+      right.envelope.captureSessionId,
+    )
     if (captureOrder !== 0) return captureOrder
     const leftOrder = BigInt(left.envelope.sourceOrder)
     const rightOrder = BigInt(right.envelope.sourceOrder)
@@ -212,16 +228,18 @@ export async function scanSpool(
     }
   }
 
-  return discovered.map(({ envelope }) => restartCandidates.has(envelope.candidate)
-    ? { ...envelope, sourceRestart: true }
-    : envelope).sort((left, right) => {
-    const captureOrder = left.captureSessionId.localeCompare(right.captureSessionId)
-    if (captureOrder !== 0) return captureOrder
-    const leftOrder = BigInt(left.sourceOrder)
-    const rightOrder = BigInt(right.sourceOrder)
-    if (leftOrder !== rightOrder) return leftOrder < rightOrder ? -1 : 1
-    return left.candidate.localeCompare(right.candidate)
-  })
+  return discovered
+    .map(({ envelope }) =>
+      restartCandidates.has(envelope.candidate) ? { ...envelope, sourceRestart: true } : envelope,
+    )
+    .sort((left, right) => {
+      const captureOrder = left.captureSessionId.localeCompare(right.captureSessionId)
+      if (captureOrder !== 0) return captureOrder
+      const leftOrder = BigInt(left.sourceOrder)
+      const rightOrder = BigInt(right.sourceOrder)
+      if (leftOrder !== rightOrder) return leftOrder < rightOrder ? -1 : 1
+      return left.candidate.localeCompare(right.candidate)
+    })
 }
 
 export type IngestQueue = {

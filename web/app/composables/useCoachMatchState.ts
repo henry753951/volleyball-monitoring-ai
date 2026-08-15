@@ -17,14 +17,14 @@ export function useCoachMatchState(
     if (refreshing.value) return
     refreshing.value = true
     try {
-      data.value = await createCoachDomainClient(createGraphQLTransport('/graphql')).matchState(toValue(matchId))
+      data.value = await createCoachDomainClient(createGraphQLTransport('/graphql')).matchState(
+        toValue(matchId),
+      )
       error.value = null
       lastUpdatedAt.value = new Date()
-    }
-    catch (cause) {
+    } catch (cause) {
       error.value = cause instanceof Error ? cause : new Error('無法同步教練面板')
-    }
-    finally {
+    } finally {
       pending.value = false
       refreshing.value = false
     }

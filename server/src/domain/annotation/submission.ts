@@ -5,24 +5,33 @@ import {
   type AnnotationCommandRejected,
   type AnnotationCommandResponse,
 } from '@volleyball-monitoring/contracts'
-import { Prisma, UserRole } from '@volleyball-monitoring/db/client'
+import type { Prisma } from '@volleyball-monitoring/db/client'
+import { UserRole } from '@volleyball-monitoring/db/client'
 import type { AnnotationIdentity, AnnotationRoom } from './room.js'
-import {
-  CLIP_CANONICALIZATION_PROFILE,
-  CLIP_POLICY_VERSION,
-} from '../../config/clip-policy.js'
+import { CLIP_CANONICALIZATION_PROFILE, CLIP_POLICY_VERSION } from '../../config/clip-policy.js'
 import { reuseCompletedSubmissionGeometry } from './submission-geometry-reuse.js'
 
 type Tx = Prisma.TransactionClient
 type SubmissionCommand = Extract<AnnotationCommand, { kind: 'SUBMIT_RALLY' }>
 
 const json = (value: unknown) => JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue
-const canonical = (value: unknown): string => Array.isArray(value)
-  ? `[${value.map(canonical).join(',')}]`
-  : value && typeof value === 'object'
-    ? `{${Object.keys(value as object).sort().map(key => `${JSON.stringify(key)}:${canonical((value as Record<string, unknown>)[key])}`).join(',')}}`
-    : JSON.stringify(value)
-const reject = (command: AnnotationCommand, code: string, message: string, actual?: string): AnnotationCommandRejected => ({
+const canonical = (value: unknown): string =>
+  Array.isArray(value)
+    ? `[${value.map(canonical).join(',')}]`
+    : value && typeof value === 'object'
+      ? `{${Object.keys(value as object)
+          .sort()
+          .map(
+            key => `${JSON.stringify(key)}:${canonical((value as Record<string, unknown>)[key])}`,
+          )
+          .join(',')}}`
+      : JSON.stringify(value)
+const reject = (
+  command: AnnotationCommand,
+  code: string,
+  message: string,
+  actual?: string,
+): AnnotationCommandRejected => ({
   schema_version: command.schema_version,
   type: 'command_rejected',
   command_id: command.command_id,
@@ -34,16 +43,20 @@ const reject = (command: AnnotationCommand, code: string, message: string, actua
   ...(actual ? { actual_revision: actual, expected_revision: command.base_revision } : {}),
 })
 
-function ordinaryDraftBelongsToDevice(rally: {
-  activeSubmissionId: string | null
-  boundaries: Array<{ kind: string; deviceSessionId: string }>
-  keyPoints: Array<{ markerKind: string; deviceSessionId: string }>
-  operations: Array<{ deviceSessionId: string }>
-}, deviceSessionId: string) {
+function ordinaryDraftBelongsToDevice(
+  rally: {
+    activeSubmissionId: string | null
+    boundaries: Array<{ kind: string; deviceSessionId: string }>
+    keyPoints: Array<{ markerKind: string; deviceSessionId: string }>
+    operations: Array<{ deviceSessionId: string }>
+  },
+  deviceSessionId: string,
+) {
   if (rally.activeSubmissionId !== null) return true
-  const owner = rally.boundaries.find(boundary => boundary.kind === 'START')?.deviceSessionId
-    ?? rally.keyPoints.find(point => point.markerKind === 'SERVICE')?.deviceSessionId
-    ?? rally.operations[0]?.deviceSessionId
+  const owner =
+    rally.boundaries.find(boundary => boundary.kind === 'START')?.deviceSessionId ??
+    rally.keyPoints.find(point => point.markerKind === 'SERVICE')?.deviceSessionId ??
+    rally.operations[0]?.deviceSessionId
   return owner === deviceSessionId
 }
 
@@ -66,8 +79,13 @@ function immutableSubmissionRange(submission: {
       end: clip.actualEndCaptureUs ?? clip.requestedEndCaptureUs,
     }
   }
-  const anchors = [...submission.boundaries, ...submission.keyPoints]
-    .sort((left, right) => left.captureTimeUs < right.captureTimeUs ? -1 : left.captureTimeUs > right.captureTimeUs ? 1 : 0)
+  const anchors = [...submission.boundaries, ...submission.keyPoints].sort((left, right) =>
+    left.captureTimeUs < right.captureTimeUs
+      ? -1
+      : left.captureTimeUs > right.captureTimeUs
+        ? 1
+        : 0,
+  )
   const first = anchors[0]
   const last = anchors.at(-1)
   if (!first || !last) return null
@@ -90,7 +108,13 @@ export async function submitRally(
     where: { id: identity.deviceSessionId },
   })
   if (!device || device.userId !== identity.userId || device.revokedAt) {
-    return persist(tx, command, identity, hash, reject(command, 'UNAUTHENTICATED', 'Authenticated device session is no longer active'))
+    return persist(
+      tx,
+      command,
+      identity,
+      hash,
+      reject(command, 'UNAUTHENTICATED', 'Authenticated device session is no longer active'),
+    )
   }
   const member = await tx.match.findFirst({
     select: { clipPostRollUs: true, clipPreRollUs: true, id: true },
@@ -99,10 +123,28 @@ export async function submitRally(
       captureSessions: { some: { id: room.captureSessionId } },
       ...(identity.role === UserRole.ADMIN
         ? {}
-        : { members: { some: { userId: identity.userId, role: { in: [UserRole.ADMIN, UserRole.OPERATOR, UserRole.ANNOTATOR] } } } }),
+        : {
+            members: {
+              some: {
+                userId: identity.userId,
+                role: { in: [UserRole.ADMIN, UserRole.OPERATOR, UserRole.ANNOTATOR] },
+              },
+            },
+          }),
     },
   })
-  if (!member) return persist(tx, command, identity, hash, reject(command, 'ROOM_AUTHORIZATION_STALE', 'Annotation room authorization changed before commit'))
+  if (!member)
+    return persist(
+      tx,
+      command,
+      identity,
+      hash,
+      reject(
+        command,
+        'ROOM_AUTHORIZATION_STALE',
+        'Annotation room authorization changed before commit',
+      ),
+    )
   await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${room.matchId}))`
   const clipPreRollUs = member.clipPreRollUs
   const clipPostRollUs = member.clipPostRollUs
@@ -116,22 +158,67 @@ export async function submitRally(
       sideAssignment: true,
     },
   })
-  if (!rally || rally.matchId !== room.matchId) return persist(tx, command, identity, hash, reject(command, 'RALLY_NOT_FOUND', 'Rally was not found'))
+  if (!rally || rally.matchId !== room.matchId)
+    return persist(
+      tx,
+      command,
+      identity,
+      hash,
+      reject(command, 'RALLY_NOT_FOUND', 'Rally was not found'),
+    )
   if (!ordinaryDraftBelongsToDevice(rally, identity.deviceSessionId)) {
-    return persist(tx, command, identity, hash, reject(command, 'RALLY_OWNED_BY_OTHER_CLIENT', '這個片段屬於另一個標註客戶端'))
+    return persist(
+      tx,
+      command,
+      identity,
+      hash,
+      reject(command, 'RALLY_OWNED_BY_OTHER_CLIENT', '這個片段屬於另一個標註客戶端'),
+    )
   }
-  const correctionIsEditable = rally.annotationStatus === 'OPEN' && rally.activeSubmissionId !== null
-  if (rally.annotationStatus !== 'READY' && !correctionIsEditable) return persist(tx, command, identity, hash, reject(command, 'ANNOTATION_NOT_READY', 'Rally must be READY before submit'))
-  if (rally.annotationRevision.toString() !== command.base_revision) return persist(tx, command, identity, hash, reject(command, 'REVISION_CONFLICT', 'Rally revision is stale', rally.annotationRevision.toString()))
+  const correctionIsEditable =
+    rally.annotationStatus === 'OPEN' && rally.activeSubmissionId !== null
+  if (rally.annotationStatus !== 'READY' && !correctionIsEditable)
+    return persist(
+      tx,
+      command,
+      identity,
+      hash,
+      reject(command, 'ANNOTATION_NOT_READY', 'Rally must be READY before submit'),
+    )
+  if (rally.annotationRevision.toString() !== command.base_revision)
+    return persist(
+      tx,
+      command,
+      identity,
+      hash,
+      reject(
+        command,
+        'REVISION_CONFLICT',
+        'Rally revision is stale',
+        rally.annotationRevision.toString(),
+      ),
+    )
 
   const superseded = rally.activeSubmissionId
     ? await tx.rallySubmission.findUnique({
         where: { id: rally.activeSubmissionId },
-        include: { boundaries: { orderBy: { kind: 'asc' } }, keyPoints: { orderBy: [{ sequenceIndex: 'asc' }, { id: 'asc' }] } },
+        include: {
+          boundaries: { orderBy: { kind: 'asc' } },
+          keyPoints: { orderBy: [{ sequenceIndex: 'asc' }, { id: 'asc' }] },
+        },
       })
     : null
-  if (rally.activeSubmissionId && (!superseded || superseded.rallyId !== rally.id || superseded.status !== 'ACTIVE')) {
-    return persist(tx, command, identity, hash, reject(command, 'ANNOTATION_NOT_READY', 'Correction source submission is no longer active'))
+  if (
+    rally.activeSubmissionId &&
+    (!superseded || superseded.rallyId !== rally.id || superseded.status !== 'ACTIVE')
+  ) {
+    return persist(
+      tx,
+      command,
+      identity,
+      hash,
+      reject(command, 'ANNOTATION_NOT_READY', 'Correction source submission is no longer active'),
+    )
   }
 
   const services = rally.keyPoints.filter(point => point.markerKind === 'SERVICE')
@@ -141,47 +228,88 @@ export async function submitRally(
   const contiguous = rally.keyPoints.every((point, index) => point.sequenceIndex === index)
   const startBoundary = rally.boundaries.find(boundary => boundary.kind === 'START')
   const endBoundary = rally.boundaries.find(boundary => boundary.kind === 'END')
-  const boundaryIntegrity = !!startBoundary && !!endBoundary
-    && (endBoundary.captureTimeUs > startBoundary.captureTimeUs
-      || (endBoundary.captureTimeUs === startBoundary.captureTimeUs && endBoundary.captureFrameIndex > startBoundary.captureFrameIndex))
-    && contiguous
-    && rally.keyPoints.every(point => point.markerKind === 'CONTACT' && !point.isTerminal)
-  const legacyIntegrity = (
-    services.length !== 1
-    || terminals.length !== 1
-    || !service
-    || !terminal
-    || !contiguous
-    || service.sequenceIndex !== 0
-    || terminal.sequenceIndex !== rally.keyPoints.length - 1
-    || terminal.captureTimeUs < service.captureTimeUs
-    || (terminal.captureTimeUs === service.captureTimeUs && terminal.captureFrameIndex < service.captureFrameIndex)
-  ) === false
+  const boundaryIntegrity =
+    !!startBoundary &&
+    !!endBoundary &&
+    (endBoundary.captureTimeUs > startBoundary.captureTimeUs ||
+      (endBoundary.captureTimeUs === startBoundary.captureTimeUs &&
+        endBoundary.captureFrameIndex > startBoundary.captureFrameIndex)) &&
+    contiguous &&
+    rally.keyPoints.every(point => point.markerKind === 'CONTACT' && !point.isTerminal)
+  const legacyIntegrity =
+    (services.length !== 1 ||
+      terminals.length !== 1 ||
+      !service ||
+      !terminal ||
+      !contiguous ||
+      service.sequenceIndex !== 0 ||
+      terminal.sequenceIndex !== rally.keyPoints.length - 1 ||
+      terminal.captureTimeUs < service.captureTimeUs ||
+      (terminal.captureTimeUs === service.captureTimeUs &&
+        terminal.captureFrameIndex < service.captureFrameIndex)) === false
   if (!boundaryIntegrity && !legacyIntegrity) {
-    return persist(tx, command, identity, hash, reject(command, 'ANNOTATION_NOT_READY', 'Rally key-point integrity is invalid'))
+    return persist(
+      tx,
+      command,
+      identity,
+      hash,
+      reject(command, 'ANNOTATION_NOT_READY', 'Rally key-point integrity is invalid'),
+    )
   }
   const clipStartAnchor = startBoundary ?? service!
   const clipEndAnchor = endBoundary ?? terminal!
   const clipCoverageAnchors = boundaryIntegrity
     ? [clipStartAnchor, clipEndAnchor, ...rally.keyPoints]
     : [clipStartAnchor, clipEndAnchor]
-  const coverageStartAnchor = clipCoverageAnchors.reduce((earliest, candidate) => (
-    candidate.captureTimeUs < earliest.captureTimeUs ? candidate : earliest
-  ))
-  const coverageEndAnchor = clipCoverageAnchors.reduce((latest, candidate) => (
-    candidate.captureTimeUs > latest.captureTimeUs ? candidate : latest
-  ))
+  const coverageStartAnchor = clipCoverageAnchors.reduce((earliest, candidate) =>
+    candidate.captureTimeUs < earliest.captureTimeUs ? candidate : earliest,
+  )
+  const coverageEndAnchor = clipCoverageAnchors.reduce((latest, candidate) =>
+    candidate.captureTimeUs > latest.captureTimeUs ? candidate : latest,
+  )
 
   const assignment = rally.sideAssignment
-  if (assignment.setId !== rally.setId) return persist(tx, command, identity, hash, reject(command, 'ANNOTATION_NOT_READY', 'Court-side assignment does not belong to the Rally set'))
-  if ((rally.scoreResolutionState === 'RESOLVED') !== (rally.scoringCourtSide === 'LEFT' || rally.scoringCourtSide === 'RIGHT')) {
-    return persist(tx, command, identity, hash, reject(command, 'ANNOTATION_NOT_READY', 'Score resolution and court side are inconsistent'))
+  if (assignment.setId !== rally.setId)
+    return persist(
+      tx,
+      command,
+      identity,
+      hash,
+      reject(
+        command,
+        'ANNOTATION_NOT_READY',
+        'Court-side assignment does not belong to the Rally set',
+      ),
+    )
+  if (
+    (rally.scoreResolutionState === 'RESOLVED') !==
+    (rally.scoringCourtSide === 'LEFT' || rally.scoringCourtSide === 'RIGHT')
+  ) {
+    return persist(
+      tx,
+      command,
+      identity,
+      hash,
+      reject(command, 'ANNOTATION_NOT_READY', 'Score resolution and court side are inconsistent'),
+    )
   }
   if (rally.scoreResolutionState === 'UNKNOWN' && rally.scoringCourtSide !== null) {
-    return persist(tx, command, identity, hash, reject(command, 'ANNOTATION_NOT_READY', 'Unknown rallies cannot have a scoring side'))
+    return persist(
+      tx,
+      command,
+      identity,
+      hash,
+      reject(command, 'ANNOTATION_NOT_READY', 'Unknown rallies cannot have a scoring side'),
+    )
   }
   if (rally.scoreResolutionState === 'PENDING' && rally.scoringCourtSide !== null) {
-    return persist(tx, command, identity, hash, reject(command, 'ANNOTATION_NOT_READY', 'Pending rallies cannot have a scoring side'))
+    return persist(
+      tx,
+      command,
+      identity,
+      hash,
+      reject(command, 'ANNOTATION_NOT_READY', 'Pending rallies cannot have a scoring side'),
+    )
   }
 
   const resolution = rally.scoreResolutionState
@@ -189,9 +317,12 @@ export async function submitRally(
   const effectiveAssignment = rally.sideAssignmentReversed
     ? { leftTeamId: assignment.rightTeamId, rightTeamId: assignment.leftTeamId }
     : { leftTeamId: assignment.leftTeamId, rightTeamId: assignment.rightTeamId }
-  const scoringTeamId = resolution === 'RESOLVED'
-    ? side === 'LEFT' ? effectiveAssignment.leftTeamId : effectiveAssignment.rightTeamId
-    : null
+  const scoringTeamId =
+    resolution === 'RESOLVED'
+      ? side === 'LEFT'
+        ? effectiveAssignment.leftTeamId
+        : effectiveAssignment.rightTeamId
+      : null
 
   const set = await tx.matchSet.findUnique({
     where: { id: rally.setId },
@@ -216,9 +347,23 @@ export async function submitRally(
       },
     },
   })
-  if (!set) return persist(tx, command, identity, hash, reject(command, 'ANNOTATION_NOT_READY', 'Set no longer exists'))
+  if (!set)
+    return persist(
+      tx,
+      command,
+      identity,
+      hash,
+      reject(command, 'ANNOTATION_NOT_READY', 'Set no longer exists'),
+    )
   const currentAssignment = set.sideAssignments[0]
-  if (!currentAssignment) return persist(tx, command, identity, hash, reject(command, 'ANNOTATION_NOT_READY', 'Current court-side assignment is missing'))
+  if (!currentAssignment)
+    return persist(
+      tx,
+      command,
+      identity,
+      hash,
+      reject(command, 'ANNOTATION_NOT_READY', 'Current court-side assignment is missing'),
+    )
 
   const teamScores = new Map<string, number>()
   const scoreFor = (leftTeamId: string, rightTeamId: string) => ({
@@ -226,19 +371,30 @@ export async function submitRally(
     right: teamScores.get(rightTeamId) ?? 0,
   })
   const scoreEntries = [
-    ...set.rallies.flatMap(entry => entry.activeSubmission
-      ? [{ id: entry.id, ordinal: entry.ordinal, resolution: entry.activeSubmission.scoreResolutionState, scoringTeamId: entry.activeSubmission.scoringTeamId }]
-      : []),
+    ...set.rallies.flatMap(entry =>
+      entry.activeSubmission
+        ? [
+            {
+              id: entry.id,
+              ordinal: entry.ordinal,
+              resolution: entry.activeSubmission.scoreResolutionState,
+              scoringTeamId: entry.activeSubmission.scoringTeamId,
+            },
+          ]
+        : [],
+    ),
     { id: rally.id, ordinal: rally.ordinal, resolution, scoringTeamId },
   ].sort((left, right) => left.ordinal - right.ordinal || left.id.localeCompare(right.id))
   let historicalBefore = { left: 0, right: 0 }
   let historicalAfter = { left: 0, right: 0 }
   for (const entry of scoreEntries) {
-    if (entry.id === rally.id) historicalBefore = scoreFor(effectiveAssignment.leftTeamId, effectiveAssignment.rightTeamId)
+    if (entry.id === rally.id)
+      historicalBefore = scoreFor(effectiveAssignment.leftTeamId, effectiveAssignment.rightTeamId)
     if (entry.resolution === 'RESOLVED' && entry.scoringTeamId) {
       teamScores.set(entry.scoringTeamId, (teamScores.get(entry.scoringTeamId) ?? 0) + 1)
     }
-    if (entry.id === rally.id) historicalAfter = scoreFor(effectiveAssignment.leftTeamId, effectiveAssignment.rightTeamId)
+    if (entry.id === rally.id)
+      historicalAfter = scoreFor(effectiveAssignment.leftTeamId, effectiveAssignment.rightTeamId)
   }
   const currentScore = scoreFor(currentAssignment.leftTeamId, currentAssignment.rightTeamId)
   const leftDelta = currentScore.left - set.leftScore
@@ -267,36 +423,44 @@ export async function submitRally(
     capture_frame_index: boundary.captureFrameIndex.toString(),
     timing_precision: boundary.timingPrecision,
   }))
-  const geometryUnchanged = superseded !== null
-    && superseded.clipPolicyVersion === CLIP_POLICY_VERSION
-    && superseded.clipPreRollUs === clipPreRollUs
-    && superseded.clipPostRollUs === clipPostRollUs
-    && superseded.boundaries.length === rally.boundaries.length
-    && superseded.boundaries.every((boundary) => {
+  const geometryUnchanged =
+    superseded !== null &&
+    superseded.clipPolicyVersion === CLIP_POLICY_VERSION &&
+    superseded.clipPreRollUs === clipPreRollUs &&
+    superseded.clipPostRollUs === clipPostRollUs &&
+    superseded.boundaries.length === rally.boundaries.length &&
+    superseded.boundaries.every(boundary => {
       const draft = rally.boundaries.find(item => item.id === boundary.sourceDraftBoundaryId)
-      return !!draft
-        && boundary.kind === draft.kind
-        && boundary.captureEpochId === draft.captureEpochId
-        && boundary.sourcePts === draft.sourcePts
-        && boundary.captureTimeUs === draft.captureTimeUs
-        && boundary.captureFrameIndex === draft.captureFrameIndex
-        && boundary.timingPrecision === draft.timingPrecision
-    })
-    && superseded.keyPoints.length === rally.keyPoints.length
-    && superseded.keyPoints.every((point, index) => {
+      return (
+        !!draft &&
+        boundary.kind === draft.kind &&
+        boundary.captureEpochId === draft.captureEpochId &&
+        boundary.sourcePts === draft.sourcePts &&
+        boundary.captureTimeUs === draft.captureTimeUs &&
+        boundary.captureFrameIndex === draft.captureFrameIndex &&
+        boundary.timingPrecision === draft.timingPrecision
+      )
+    }) &&
+    superseded.keyPoints.length === rally.keyPoints.length &&
+    superseded.keyPoints.every((point, index) => {
       const draft = rally.keyPoints[index]
-      return !!draft
-        && point.sourceDraftKeyPointId === draft.id
-        && point.captureEpochId === draft.captureEpochId
-        && point.sequenceIndex === draft.sequenceIndex
-        && point.markerKind === draft.markerKind
-        && point.isTerminal === draft.isTerminal
-        && point.sourcePts === draft.sourcePts
-        && point.captureTimeUs === draft.captureTimeUs
-        && point.captureFrameIndex === draft.captureFrameIndex
-        && point.timingPrecision === draft.timingPrecision
+      return (
+        !!draft &&
+        point.sourceDraftKeyPointId === draft.id &&
+        point.captureEpochId === draft.captureEpochId &&
+        point.sequenceIndex === draft.sequenceIndex &&
+        point.markerKind === draft.markerKind &&
+        point.isTerminal === draft.isTerminal &&
+        point.sourcePts === draft.sourcePts &&
+        point.captureTimeUs === draft.captureTimeUs &&
+        point.captureFrameIndex === draft.captureFrameIndex &&
+        point.timingPrecision === draft.timingPrecision
+      )
     })
-  const requestedStart = coverageStartAnchor.captureTimeUs - clipPreRollUs < 0n ? 0n : coverageStartAnchor.captureTimeUs - clipPreRollUs
+  const requestedStart =
+    coverageStartAnchor.captureTimeUs - clipPreRollUs < 0n
+      ? 0n
+      : coverageStartAnchor.captureTimeUs - clipPreRollUs
   const requestedEnd = coverageEndAnchor.captureTimeUs + clipPostRollUs
   const immutableSubmissions = await tx.rallySubmission.findMany({
     where: {
@@ -320,39 +484,53 @@ export async function submitRally(
       keyPoints: { select: { captureTimeUs: true } },
     },
   })
-  const overlapsImmutableSubmission = immutableSubmissions.some((submission) => {
+  const overlapsImmutableSubmission = immutableSubmissions.some(submission => {
     const range = immutableSubmissionRange(submission)
     return range !== null && requestedStart < range.end && requestedEnd > range.start
   })
   if (overlapsImmutableSubmission) {
-    return persist(tx, command, identity, hash, reject(
+    return persist(
+      tx,
       command,
-      'RALLY_OVERLAP',
-      '這個片段與已送出的片段重疊；草稿仍保留，可調整後再送出',
-    ))
+      identity,
+      hash,
+      reject(command, 'RALLY_OVERLAP', '這個片段與已送出的片段重疊；草稿仍保留，可調整後再送出'),
+    )
   }
-  const scoreSnapshot = resolution === 'RESOLVED'
-    ? {
-        before: { ...historicalBefore, revision: set.scoreRevision },
-        after: { ...historicalAfter, revision: scoreAfter.revision },
-      }
-    : { before: null, after: null }
-  const contentHash = createHash('sha256').update(canonical({
-    schema_version: boundaryIntegrity ? 'rally-submission-content-v2' : 'rally-submission-content-v1',
-    boundaries: boundarySnapshot,
-    key_points: snapshot,
-    outcome: { resolution, side: side ?? null, scoring_team_id: scoringTeamId },
-    assignment: { id: assignment.id, reversed: rally.sideAssignmentReversed, left_team_id: effectiveAssignment.leftTeamId, right_team_id: effectiveAssignment.rightTeamId },
-    score: scoreSnapshot,
-    clip: {
-      policy_version: CLIP_POLICY_VERSION,
-      canonicalization_profile: CLIP_CANONICALIZATION_PROFILE,
-      pre_us: clipPreRollUs.toString(),
-      post_us: clipPostRollUs.toString(),
-      requested_start_us: requestedStart.toString(),
-      requested_end_us: requestedEnd.toString(),
-    },
-  })).digest('hex')
+  const scoreSnapshot =
+    resolution === 'RESOLVED'
+      ? {
+          before: { ...historicalBefore, revision: set.scoreRevision },
+          after: { ...historicalAfter, revision: scoreAfter.revision },
+        }
+      : { before: null, after: null }
+  const contentHash = createHash('sha256')
+    .update(
+      canonical({
+        schema_version: boundaryIntegrity
+          ? 'rally-submission-content-v2'
+          : 'rally-submission-content-v1',
+        boundaries: boundarySnapshot,
+        key_points: snapshot,
+        outcome: { resolution, side: side ?? null, scoring_team_id: scoringTeamId },
+        assignment: {
+          id: assignment.id,
+          reversed: rally.sideAssignmentReversed,
+          left_team_id: effectiveAssignment.leftTeamId,
+          right_team_id: effectiveAssignment.rightTeamId,
+        },
+        score: scoreSnapshot,
+        clip: {
+          policy_version: CLIP_POLICY_VERSION,
+          canonicalization_profile: CLIP_CANONICALIZATION_PROFILE,
+          pre_us: clipPreRollUs.toString(),
+          post_us: clipPostRollUs.toString(),
+          requested_start_us: requestedStart.toString(),
+          requested_end_us: requestedEnd.toString(),
+        },
+      }),
+    )
+    .digest('hex')
 
   const submission = await tx.rallySubmission.create({
     data: {
@@ -398,15 +576,15 @@ export async function submitRally(
   }))
   await tx.rallySubmissionKeyPoint.createMany({ data: rows })
   const boundaryRows = rally.boundaries.map(boundary => ({
-      captureEpochId: boundary.captureEpochId,
-      captureFrameIndex: boundary.captureFrameIndex,
-      captureTimeUs: boundary.captureTimeUs,
-      id: randomUUID(),
-      kind: boundary.kind,
-      sourceDraftBoundaryId: boundary.id,
-      sourcePts: boundary.sourcePts,
-      submissionId: submission.id,
-      timingPrecision: boundary.timingPrecision,
+    captureEpochId: boundary.captureEpochId,
+    captureFrameIndex: boundary.captureFrameIndex,
+    captureTimeUs: boundary.captureTimeUs,
+    id: randomUUID(),
+    kind: boundary.kind,
+    sourceDraftBoundaryId: boundary.id,
+    sourcePts: boundary.sourcePts,
+    submissionId: submission.id,
+    timingPrecision: boundary.timingPrecision,
   }))
   if (boundaryRows.length) {
     await tx.rallySubmissionBoundary.createMany({ data: boundaryRows })
@@ -424,7 +602,11 @@ export async function submitRally(
   if (scoreChanged) {
     const cas = await tx.matchSet.updateMany({
       where: { id: set.id, scoreRevision: set.scoreRevision },
-      data: { leftScore: scoreAfter.left, rightScore: scoreAfter.right, scoreRevision: scoreAfter.revision },
+      data: {
+        leftScore: scoreAfter.left,
+        rightScore: scoreAfter.right,
+        scoreRevision: scoreAfter.revision,
+      },
     })
     if (cas.count !== 1) throw new Error('SCORE_REVISION_CONFLICT')
     const ledger = await tx.scoreLedgerEntry.create({
@@ -461,18 +643,19 @@ export async function submitRally(
     }
   }
 
-  const clipReused = superseded && geometryUnchanged && resolution !== 'PENDING'
-    ? await reuseCompletedSubmissionGeometry(tx, {
-        annotationRevision: rally.annotationRevision,
-        newBoundaries: boundaryRows,
-        newKeyPoints: rows,
-        newSubmissionId: submission.id,
-        outcome: { resolution, side },
-        sourceBoundaries: superseded.boundaries,
-        sourceKeyPoints: superseded.keyPoints,
-        sourceSubmissionId: superseded.id,
-      })
-    : false
+  const clipReused =
+    superseded && geometryUnchanged && resolution !== 'PENDING'
+      ? await reuseCompletedSubmissionGeometry(tx, {
+          annotationRevision: rally.annotationRevision,
+          newBoundaries: boundaryRows,
+          newKeyPoints: rows,
+          newSubmissionId: submission.id,
+          outcome: { resolution, side },
+          sourceBoundaries: superseded.boundaries,
+          sourceKeyPoints: superseded.keyPoints,
+          sourceSubmissionId: superseded.id,
+        })
+      : false
   if (!clipReused) {
     await tx.clipJob.create({
       data: {
@@ -487,13 +670,22 @@ export async function submitRally(
   }
 
   if (superseded) {
-    await tx.rallySubmission.update({ where: { id: superseded.id }, data: { status: 'SUPERSEDED' } })
+    await tx.rallySubmission.update({
+      where: { id: superseded.id },
+      data: { status: 'SUPERSEDED' },
+    })
     // A correction always produces a fresh worker result. Keep the last
     // completed analysis readable until that callback succeeds, and only
     // retire unfinished source work immediately.
     await Promise.all([
-      tx.clipJob.updateMany({ where: { submissionId: superseded.id, status: { not: 'COMPLETED' } }, data: { status: 'SUPERSEDED', leasedUntil: null } }),
-      tx.aiJob.updateMany({ where: { submissionId: superseded.id, status: { not: 'COMPLETED' } }, data: { status: 'SUPERSEDED', leasedUntil: null } }),
+      tx.clipJob.updateMany({
+        where: { submissionId: superseded.id, status: { not: 'COMPLETED' } },
+        data: { status: 'SUPERSEDED', leasedUntil: null },
+      }),
+      tx.aiJob.updateMany({
+        where: { submissionId: superseded.id, status: { not: 'COMPLETED' } },
+        data: { status: 'SUPERSEDED', leasedUntil: null },
+      }),
     ])
   }
 
@@ -549,7 +741,10 @@ export async function submitRally(
     },
     resolved_anchor: null,
   })
-  await tx.annotationCommandReceipt.update({ where: { serverSequence: receipt.serverSequence }, data: { responseJson: json(response) } })
+  await tx.annotationCommandReceipt.update({
+    where: { serverSequence: receipt.serverSequence },
+    data: { responseJson: json(response) },
+  })
   await tx.annotationOperation.create({
     data: {
       baseRevision: rally.annotationRevision,

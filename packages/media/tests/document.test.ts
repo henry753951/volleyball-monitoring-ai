@@ -49,10 +49,7 @@ function validDocument(): SampleIndexDocument {
   return serializeSampleIndex(validIndex())
 }
 
-function documentWithSampleOverride(
-  override: Record<string, unknown>,
-  sampleIndex = 0,
-): unknown {
+function documentWithSampleOverride(override: Record<string, unknown>, sampleIndex = 0): unknown {
   const document = validDocument()
   return {
     ...document,
@@ -66,10 +63,7 @@ describe('strict sample index v1 codec', () => {
   it('materializes bigint values and is a stable JSON byte inverse', () => {
     const original = validIndex()
     const documentBytes = JSON.stringify(serializeSampleIndex(original))
-    const parsed = parseSampleIndexDocument(
-      JSON.parse(documentBytes),
-      epochOrigin,
-    )
+    const parsed = parseSampleIndexDocument(JSON.parse(documentBytes), epochOrigin)
 
     expect(parsed).toEqual(original)
     expect(parsed.samples[0]).toMatchObject({
@@ -111,27 +105,23 @@ describe('strict sample index v1 codec', () => {
     expect(document.samples[0]!.sourcePts).toBe((-large).toString())
     expect(document.samples[0]!.durationPts).toBe(large.toString())
     expect(BigInt(document.samples[1]!.captureTimeUs)).toBeGreaterThan(large)
-    expect(BigInt(document.samples[1]!.captureFrameIndex)).toBeGreaterThanOrEqual(
-      large,
-    )
+    expect(BigInt(document.samples[1]!.captureFrameIndex)).toBeGreaterThanOrEqual(large)
     expect(parseSampleIndexDocument(document, origin)).toEqual(index)
   })
 
-  it.each([
-    null,
-    [],
-    {},
-    { schemaVersion: '1.0.0', epochId: 'epoch-v1', timeBase: {} },
-  ])('rejects malformed document containers', (value) => {
-    expect(() => parseSampleIndexDocument(value, epochOrigin)).toThrow()
-  })
+  it.each([null, [], {}, { schemaVersion: '1.0.0', epochId: 'epoch-v1', timeBase: {} }])(
+    'rejects malformed document containers',
+    value => {
+      expect(() => parseSampleIndexDocument(value, epochOrigin)).toThrow()
+    },
+  )
 
   it('rejects unknown fields at every document level', () => {
     const document = validDocument()
 
-    expect(() =>
-      parseSampleIndexDocument({ ...document, extra: true }, epochOrigin),
-    ).toThrow('unknown or missing fields')
+    expect(() => parseSampleIndexDocument({ ...document, extra: true }, epochOrigin)).toThrow(
+      'unknown or missing fields',
+    )
     expect(() =>
       parseSampleIndexDocument(
         { ...document, timeBase: { ...document.timeBase, extra: true } },
@@ -139,10 +129,7 @@ describe('strict sample index v1 codec', () => {
       ),
     ).toThrow('unknown or missing fields')
     expect(() =>
-      parseSampleIndexDocument(
-        documentWithSampleOverride({ extra: true }),
-        epochOrigin,
-      ),
+      parseSampleIndexDocument(documentWithSampleOverride({ extra: true }), epochOrigin),
     ).toThrow('unknown or missing fields')
   })
 
@@ -150,17 +137,14 @@ describe('strict sample index v1 codec', () => {
     const document = validDocument()
 
     expect(() =>
-      parseSampleIndexDocument(
-        { ...document, schemaVersion: '2.0.0' },
-        epochOrigin,
-      ),
+      parseSampleIndexDocument({ ...document, schemaVersion: '2.0.0' }, epochOrigin),
     ).toThrow('unsupported')
-    expect(() =>
-      parseSampleIndexDocument({ ...document, epochId: '' }, epochOrigin),
-    ).toThrow('non-empty')
-    expect(() =>
-      parseSampleIndexDocument({ ...document, samples: [] }, epochOrigin),
-    ).toThrow('non-empty')
+    expect(() => parseSampleIndexDocument({ ...document, epochId: '' }, epochOrigin)).toThrow(
+      'non-empty',
+    )
+    expect(() => parseSampleIndexDocument({ ...document, samples: [] }, epochOrigin)).toThrow(
+      'non-empty',
+    )
   })
 
   it.each([
@@ -169,11 +153,9 @@ describe('strict sample index v1 codec', () => {
     { num: '01', den: '60000' },
     { num: '1', den: '0' },
     { num: 1, den: '60000' },
-  ])('rejects invalid or numeric time base %#', (timeBase) => {
+  ])('rejects invalid or numeric time base %#', timeBase => {
     const document = validDocument()
-    expect(() =>
-      parseSampleIndexDocument({ ...document, timeBase }, epochOrigin),
-    ).toThrow()
+    expect(() => parseSampleIndexDocument({ ...document, timeBase }, epochOrigin)).toThrow()
   })
 
   it.each([
@@ -191,10 +173,7 @@ describe('strict sample index v1 codec', () => {
     ['keyframe', 'true'],
   ])('rejects invalid persisted sample field %s', (field, value) => {
     expect(() =>
-      parseSampleIndexDocument(
-        documentWithSampleOverride({ [field]: value }),
-        epochOrigin,
-      ),
+      parseSampleIndexDocument(documentWithSampleOverride({ [field]: value }), epochOrigin),
     ).toThrow()
   })
 
@@ -202,10 +181,7 @@ describe('strict sample index v1 codec', () => {
     const document = validDocument()
 
     expect(() =>
-      parseSampleIndexDocument(
-        document,
-        { ...epochOrigin, epochId: 'other-epoch' },
-      ),
+      parseSampleIndexDocument(document, { ...epochOrigin, epochId: 'other-epoch' }),
     ).toThrow('epoch')
     expect(() =>
       parseSampleIndexDocument(document, {
@@ -215,10 +191,7 @@ describe('strict sample index v1 codec', () => {
     ).toThrow('time base')
     expect(() =>
       parseSampleIndexDocument(
-        documentWithSampleOverride(
-          { captureTimeUs: (large + 16_684n).toString() },
-          1,
-        ),
+        documentWithSampleOverride({ captureTimeUs: (large + 16_684n).toString() }, 1),
         epochOrigin,
       ),
     ).toThrow('epoch origin')
@@ -227,28 +200,19 @@ describe('strict sample index v1 codec', () => {
   it('rejects sample holes, overlaps, and frame-index discontinuities', () => {
     expect(() =>
       parseSampleIndexDocument(
-        documentWithSampleOverride(
-          { sourcePts: (-large + 1_002n).toString() },
-          1,
-        ),
+        documentWithSampleOverride({ sourcePts: (-large + 1_002n).toString() }, 1),
         epochOrigin,
       ),
     ).toThrow('hole')
     expect(() =>
       parseSampleIndexDocument(
-        documentWithSampleOverride(
-          { sourcePts: (-large + 1_000n).toString() },
-          1,
-        ),
+        documentWithSampleOverride({ sourcePts: (-large + 1_000n).toString() }, 1),
         epochOrigin,
       ),
     ).toThrow('overlap')
     expect(() =>
       parseSampleIndexDocument(
-        documentWithSampleOverride(
-          { captureFrameIndex: (large + 2n).toString() },
-          1,
-        ),
+        documentWithSampleOverride({ captureFrameIndex: (large + 2n).toString() }, 1),
         epochOrigin,
       ),
     ).toThrow('frame indices')
@@ -288,10 +252,10 @@ describe('shared sample timing kernel', () => {
       ],
       origin,
     )
-    const second = buildSampleIndex(
-      [{ media_type: 'video', pts: '2', pkt_duration: '1' }],
-      { ...origin, captureFrameOrigin: 2n },
-    )
+    const second = buildSampleIndex([{ media_type: 'video', pts: '2', pkt_duration: '1' }], {
+      ...origin,
+      captureFrameOrigin: 2n,
+    })
 
     expect(first.availableEndUs).toBe(66_667n)
     expect(second.availableStartUs).toBe(66_667n)
@@ -326,10 +290,10 @@ describe('shared sample timing kernel', () => {
       ],
       origin,
     )
-    const second = buildSampleIndex(
-      [{ media_type: 'video', pts: '2002', pkt_duration: '1001' }],
-      { ...origin, captureFrameOrigin: 2n },
-    )
+    const second = buildSampleIndex([{ media_type: 'video', pts: '2002', pkt_duration: '1001' }], {
+      ...origin,
+      captureFrameOrigin: 2n,
+    })
 
     expect(first.availableEndUs).toBe(33_367n)
     expect(second.availableStartUs).toBe(33_367n)
@@ -351,15 +315,12 @@ describe('shared sample timing kernel', () => {
       ],
       origin,
     )
-    const second = buildSampleIndex(
-      [{ media_type: 'video', pts: '0', pkt_duration: '3000' }],
-      { ...origin, captureFrameOrigin: large + 2n },
-    )
+    const second = buildSampleIndex([{ media_type: 'video', pts: '0', pkt_duration: '3000' }], {
+      ...origin,
+      captureFrameOrigin: large + 2n,
+    })
 
-    expect(first.samples.map((sample) => sample.sourcePts)).toEqual([
-      -3_003n,
-      -1_502n,
-    ])
+    expect(first.samples.map(sample => sample.sourcePts)).toEqual([-3_003n, -1_502n])
     expect(first.availableEndUs).toBe(large + 33_367n)
     expect(second.availableStartUs).toBe(first.availableEndUs)
   })
@@ -422,12 +383,7 @@ describe('availability range validation', () => {
   it('preserves a real gap and a touching discontinuity as separate ranges', () => {
     const first = oneSampleIndex('epoch-0', 0n, 0n, 0n)
     const afterGap = oneSampleIndex('epoch-1', 0n, 2_000_000n, 1n)
-    const touchingDiscontinuity = oneSampleIndex(
-      'epoch-2',
-      0n,
-      3_000_000n,
-      2n,
-    )
+    const touchingDiscontinuity = oneSampleIndex('epoch-2', 0n, 3_000_000n, 2n)
 
     expect(
       buildAvailabilityRanges([

@@ -50,11 +50,47 @@ export interface Match {
   sets: MatchSet[]
   captureSessions?: CaptureSession[]
 }
-export interface CaptureTimelineRange { startUs: string; endUs: string; discontinuity: number }
-export interface CaptureTimeline { captureSessionId: string; captureStartTimeUs: string; liveEdgeCaptureTimeUs: string | null; timelineVersion: string; availableRanges: CaptureTimelineRange[]; availabilityComplete: boolean; gapRanges: CaptureTimelineRange[]; ingestFrontierCaptureTimeUs: string | null; sourceEndCaptureTimeUs: string | null }
-export interface CaptureSession { id: string; matchId: string; sourceKind: string; sourceLabel: string | null; sourceDurationUs: string | null; status: string; health: string; startedAt: string | null; endedAt: string | null; timeline: CaptureTimeline | null }
-export interface StartCaptureInput { matchId: string; ingestPath: string; sourceKind: string; sourceLabel?: string; sourceConfigSecretRef?: string }
-export interface ProcessingState { rallyId: string; submissionId: string; status: string; retriedStage: 'clip' | 'ai' }
+export interface CaptureTimelineRange {
+  startUs: string
+  endUs: string
+  discontinuity: number
+}
+export interface CaptureTimeline {
+  captureSessionId: string
+  captureStartTimeUs: string
+  liveEdgeCaptureTimeUs: string | null
+  timelineVersion: string
+  availableRanges: CaptureTimelineRange[]
+  availabilityComplete: boolean
+  gapRanges: CaptureTimelineRange[]
+  ingestFrontierCaptureTimeUs: string | null
+  sourceEndCaptureTimeUs: string | null
+}
+export interface CaptureSession {
+  id: string
+  matchId: string
+  sourceKind: string
+  sourceLabel: string | null
+  sourceDurationUs: string | null
+  status: string
+  health: string
+  startedAt: string | null
+  endedAt: string | null
+  timeline: CaptureTimeline | null
+}
+export interface StartCaptureInput {
+  matchId: string
+  ingestPath: string
+  sourceKind: string
+  sourceLabel?: string
+  sourceConfigSecretRef?: string
+}
+export interface ProcessingState {
+  rallyId: string
+  submissionId: string
+  status: string
+  retriedStage: 'clip' | 'ai'
+}
 
 export interface RosterInput {
   name: string
@@ -185,9 +221,13 @@ export function createGraphQLTransport(
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ query, variables }),
       })
-      const payload = await response.json() as { data?: T; errors?: GraphQLErrorLike[] }
+      const payload = (await response.json()) as { data?: T; errors?: GraphQLErrorLike[] }
       if (!response.ok || payload.errors?.length) {
-        throw new GraphQLRequestError(payload.errors?.length ? payload.errors : [{ message: `GraphQL HTTP ${response.status}` }])
+        throw new GraphQLRequestError(
+          payload.errors?.length
+            ? payload.errors
+            : [{ message: `GraphQL HTTP ${response.status}` }],
+        )
       }
       return payload.data as T
     },
@@ -209,47 +249,79 @@ export function createCoreDomainClient(transport: GraphQLTransport): CoreDomainC
       return result.match
     },
     async captureSession(id) {
-      const result = await transport.request<{ captureSession: CaptureSession | null }>(CORE_OPERATIONS.captureSession, { id })
+      const result = await transport.request<{ captureSession: CaptureSession | null }>(
+        CORE_OPERATIONS.captureSession,
+        { id },
+      )
       return result.captureSession
     },
     async createMatchSetup(input) {
-      const result = await transport.request<{ createMatchSetup: Match }>(CORE_OPERATIONS.createMatchSetup, { input })
+      const result = await transport.request<{ createMatchSetup: Match }>(
+        CORE_OPERATIONS.createMatchSetup,
+        { input },
+      )
       return result.createMatchSetup
     },
     async deleteMatch(matchId) {
-      const result = await transport.request<{ deleteMatch: MatchDeleteReceipt }>(CORE_OPERATIONS.deleteMatch, { matchId })
+      const result = await transport.request<{ deleteMatch: MatchDeleteReceipt }>(
+        CORE_OPERATIONS.deleteMatch,
+        { matchId },
+      )
       return result.deleteMatch
     },
     async updateMatch(input) {
-      const result = await transport.request<{ updateMatch: Match }>(CORE_OPERATIONS.updateMatch, { input })
+      const result = await transport.request<{ updateMatch: Match }>(CORE_OPERATIONS.updateMatch, {
+        input,
+      })
       return result.updateMatch
     },
     async updateMatchRoster(input) {
-      const result = await transport.request<{ updateMatchRoster: Match }>(CORE_OPERATIONS.updateMatchRoster, { input })
+      const result = await transport.request<{ updateMatchRoster: Match }>(
+        CORE_OPERATIONS.updateMatchRoster,
+        { input },
+      )
       return result.updateMatchRoster
     },
     async swapCourtSides(input) {
-      const result = await transport.request<{ swapCourtSides: MatchSet }>(CORE_OPERATIONS.swapCourtSides, { input })
+      const result = await transport.request<{ swapCourtSides: MatchSet }>(
+        CORE_OPERATIONS.swapCourtSides,
+        { input },
+      )
       return result.swapCourtSides
     },
     async startCapture(input) {
-      const result = await transport.request<{ startCapture: CaptureSession }>(CORE_OPERATIONS.startCapture, { input })
+      const result = await transport.request<{ startCapture: CaptureSession }>(
+        CORE_OPERATIONS.startCapture,
+        { input },
+      )
       return result.startCapture
     },
     async stopCapture(captureSessionId) {
-      const result = await transport.request<{ stopCapture: CaptureSession }>(CORE_OPERATIONS.stopCapture, { captureSessionId })
+      const result = await transport.request<{ stopCapture: CaptureSession }>(
+        CORE_OPERATIONS.stopCapture,
+        { captureSessionId },
+      )
       return result.stopCapture
     },
     async retryProcessing(rallyId) {
-      const result = await transport.request<{ retryProcessing: ProcessingState }>(CORE_OPERATIONS.retryProcessing, { input: { rallyId } })
+      const result = await transport.request<{ retryProcessing: ProcessingState }>(
+        CORE_OPERATIONS.retryProcessing,
+        { input: { rallyId } },
+      )
       return result.retryProcessing
     },
     async updateMatchClipPolicy(input) {
-      const result = await transport.request<{ updateMatchClipPolicy: Match }>(CORE_OPERATIONS.updateMatchClipPolicy, { input })
+      const result = await transport.request<{ updateMatchClipPolicy: Match }>(
+        CORE_OPERATIONS.updateMatchClipPolicy,
+        { input },
+      )
       return result.updateMatchClipPolicy
     },
     async startNextSet(input) {
-      const result = await transport.request<{ startNextSet: MatchSet }>(CORE_OPERATIONS.startNextSet, { input })
+      const result = await transport.request<{ startNextSet: MatchSet }>(
+        CORE_OPERATIONS.startNextSet,
+        { input },
+      )
       return result.startNextSet
     },
   }

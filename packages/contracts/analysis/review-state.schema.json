@@ -4,7 +4,20 @@
   "title": "Analysis Review State",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema_version", "analysis_run_id", "revision", "status", "computed_revision", "approved_revision", "ball_corrections", "action_corrections", "player_bbox_corrections", "contact_actor_corrections", "contact_time_corrections", "contact_edits"],
+  "required": [
+    "schema_version",
+    "analysis_run_id",
+    "revision",
+    "status",
+    "computed_revision",
+    "approved_revision",
+    "ball_corrections",
+    "action_corrections",
+    "player_bbox_corrections",
+    "contact_actor_corrections",
+    "contact_time_corrections",
+    "contact_edits"
+  ],
   "properties": {
     "schema_version": { "const": "1.3.0" },
     "analysis_run_id": { "type": "string", "format": "uuid" },
@@ -22,18 +35,127 @@
   "$defs": {
     "uint": { "type": "string", "pattern": "^(0|[1-9][0-9]*)$" },
     "revision": { "type": "string", "pattern": "^(0|[1-9][0-9]*)$" },
-    "point": { "type": "object", "additionalProperties": false, "required": ["x", "y"], "properties": { "x": { "type": "number", "minimum": 0 }, "y": { "type": "number", "minimum": 0 } } },
-    "bboxValue": { "type": "object", "additionalProperties": false, "required": ["x1", "y1", "x2", "y2"], "properties": { "x1": { "type": "number", "minimum": 0 }, "y1": { "type": "number", "minimum": 0 }, "x2": { "type": "number", "minimum": 0 }, "y2": { "type": "number", "minimum": 0 } } },
+    "point": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["x", "y"],
+      "properties": {
+        "x": { "type": "number", "minimum": 0 },
+        "y": { "type": "number", "minimum": 0 }
+      }
+    },
+    "bboxValue": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["x1", "y1", "x2", "y2"],
+      "properties": {
+        "x1": { "type": "number", "minimum": 0 },
+        "y1": { "type": "number", "minimum": 0 },
+        "x2": { "type": "number", "minimum": 0 },
+        "y2": { "type": "number", "minimum": 0 }
+      }
+    },
     "ball": {
       "oneOf": [
-        { "type": "object", "additionalProperties": false, "required": ["frame_index", "state", "frame_pos", "revision"], "properties": { "frame_index": { "$ref": "#/$defs/uint" }, "state": { "const": "position" }, "frame_pos": { "$ref": "#/$defs/point" }, "revision": { "$ref": "#/$defs/revision" } } },
-        { "type": "object", "additionalProperties": false, "required": ["frame_index", "state", "frame_pos", "revision"], "properties": { "frame_index": { "$ref": "#/$defs/uint" }, "state": { "const": "missing" }, "frame_pos": { "type": "null" }, "revision": { "$ref": "#/$defs/revision" } } }
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["frame_index", "state", "frame_pos", "revision"],
+          "properties": {
+            "frame_index": { "$ref": "#/$defs/uint" },
+            "state": { "const": "position" },
+            "frame_pos": { "$ref": "#/$defs/point" },
+            "revision": { "$ref": "#/$defs/revision" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["frame_index", "state", "frame_pos", "revision"],
+          "properties": {
+            "frame_index": { "$ref": "#/$defs/uint" },
+            "state": { "const": "missing" },
+            "frame_pos": { "type": "null" },
+            "revision": { "$ref": "#/$defs/revision" }
+          }
+        }
       ]
     },
-    "action": { "type": "object", "additionalProperties": false, "required": ["frame_index", "track_id", "action", "revision"], "properties": { "frame_index": { "$ref": "#/$defs/uint" }, "track_id": { "type": "integer", "minimum": 0 }, "action": { "enum": ["Waiting", "Setting", "Digging", "Falling", "Spiking", "Blocking", "Jumping", "Moving", "Standing"] }, "revision": { "$ref": "#/$defs/revision" } } },
-    "bboxCorrection": { "type": "object", "additionalProperties": false, "required": ["frame_index", "track_id", "frame_bbox", "revision"], "properties": { "frame_index": { "$ref": "#/$defs/uint" }, "track_id": { "type": "integer", "minimum": 0 }, "frame_bbox": { "$ref": "#/$defs/bboxValue" }, "revision": { "$ref": "#/$defs/revision" } } },
-    "contactActor": { "type": "object", "additionalProperties": false, "required": ["key_point_id", "track_id", "revision"], "properties": { "key_point_id": { "type": "string", "format": "uuid" }, "track_id": { "oneOf": [{ "type": "integer", "minimum": 0 }, { "type": "null" }] }, "revision": { "$ref": "#/$defs/revision" } } },
-    "contactTime": { "type": "object", "additionalProperties": false, "required": ["key_point_id", "frame_index", "revision"], "properties": { "key_point_id": { "type": "string", "format": "uuid" }, "frame_index": { "$ref": "#/$defs/uint" }, "revision": { "$ref": "#/$defs/revision" } } },
-    "contactEdit": { "type": "object", "additionalProperties": false, "required": ["contact_id", "base_key_point_id", "frame_index", "track_id", "deleted", "revision"], "properties": { "contact_id": { "type": "string", "format": "uuid" }, "base_key_point_id": { "oneOf": [{ "type": "string", "format": "uuid" }, { "type": "null" }] }, "frame_index": { "$ref": "#/$defs/uint" }, "track_id": { "oneOf": [{ "type": "integer", "minimum": 0 }, { "type": "null" }] }, "deleted": { "type": "boolean" }, "revision": { "$ref": "#/$defs/revision" } } }
+    "action": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["frame_index", "track_id", "action", "revision"],
+      "properties": {
+        "frame_index": { "$ref": "#/$defs/uint" },
+        "track_id": { "type": "integer", "minimum": 0 },
+        "action": {
+          "enum": [
+            "Waiting",
+            "Setting",
+            "Digging",
+            "Falling",
+            "Spiking",
+            "Blocking",
+            "Jumping",
+            "Moving",
+            "Standing"
+          ]
+        },
+        "revision": { "$ref": "#/$defs/revision" }
+      }
+    },
+    "bboxCorrection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["frame_index", "track_id", "frame_bbox", "revision"],
+      "properties": {
+        "frame_index": { "$ref": "#/$defs/uint" },
+        "track_id": { "type": "integer", "minimum": 0 },
+        "frame_bbox": { "$ref": "#/$defs/bboxValue" },
+        "revision": { "$ref": "#/$defs/revision" }
+      }
+    },
+    "contactActor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["key_point_id", "track_id", "revision"],
+      "properties": {
+        "key_point_id": { "type": "string", "format": "uuid" },
+        "track_id": { "oneOf": [{ "type": "integer", "minimum": 0 }, { "type": "null" }] },
+        "revision": { "$ref": "#/$defs/revision" }
+      }
+    },
+    "contactTime": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["key_point_id", "frame_index", "revision"],
+      "properties": {
+        "key_point_id": { "type": "string", "format": "uuid" },
+        "frame_index": { "$ref": "#/$defs/uint" },
+        "revision": { "$ref": "#/$defs/revision" }
+      }
+    },
+    "contactEdit": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "contact_id",
+        "base_key_point_id",
+        "frame_index",
+        "track_id",
+        "deleted",
+        "revision"
+      ],
+      "properties": {
+        "contact_id": { "type": "string", "format": "uuid" },
+        "base_key_point_id": {
+          "oneOf": [{ "type": "string", "format": "uuid" }, { "type": "null" }]
+        },
+        "frame_index": { "$ref": "#/$defs/uint" },
+        "track_id": { "oneOf": [{ "type": "integer", "minimum": 0 }, { "type": "null" }] },
+        "deleted": { "type": "boolean" },
+        "revision": { "$ref": "#/$defs/revision" }
+      }
+    }
   }
 }

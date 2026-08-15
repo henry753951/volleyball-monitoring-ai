@@ -1,4 +1,3 @@
-
 # ADR-0001: GraphQL / REST / WebSocket / FlatBuffers boundaries
 
 Status: Accepted by scaffold; primary agent must reconfirm during Phase 0.

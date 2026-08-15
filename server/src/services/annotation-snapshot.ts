@@ -18,23 +18,27 @@ async function loadAnnotationSnapshot(
   let room
   try {
     room = parseAnnotationRoomId(input.roomId)
-  }
-  catch {
+  } catch {
     return null
   }
 
-  const authorized = input.role === UserRole.ADMIN || await database.matchMember.findFirst({
-    where: {
-      matchId: room.matchId,
-      userId: input.userId,
-      role: { in: [UserRole.ADMIN, UserRole.OPERATOR, UserRole.ANNOTATOR] },
-    },
-  })
+  const authorized =
+    input.role === UserRole.ADMIN ||
+    (await database.matchMember.findFirst({
+      where: {
+        matchId: room.matchId,
+        userId: input.userId,
+        role: { in: [UserRole.ADMIN, UserRole.OPERATOR, UserRole.ANNOTATOR] },
+      },
+    }))
   if (!authorized) return null
 
   const snapshotInclude = {
     activeSubmission: {
-      include: { boundaries: { orderBy: { kind: 'asc' as const } }, keyPoints: { orderBy: [{ sequenceIndex: 'asc' as const }, { id: 'asc' as const }] } },
+      include: {
+        boundaries: { orderBy: { kind: 'asc' as const } },
+        keyPoints: { orderBy: [{ sequenceIndex: 'asc' as const }, { id: 'asc' as const }] },
+      },
     },
     boundaries: { orderBy: { kind: 'asc' as const } },
     keyPoints: {
@@ -53,8 +57,7 @@ async function loadAnnotationSnapshot(
       },
       include: snapshotInclude,
     })
-  }
-  else {
+  } else {
     const deviceSessionId = input.deviceSessionId
     if (!deviceSessionId) return null
     const device = await database.deviceSession.findFirst({
@@ -63,19 +66,19 @@ async function loadAnnotationSnapshot(
     })
     if (!device) return null
     rally = await database.rally.findFirst({
-        where: {
-          annotationStatus: { in: [AnnotationStatus.OPEN, AnnotationStatus.READY] },
-          voidedAt: null,
-          matchId: room.matchId,
-          program: { captureSessionId: room.captureSessionId },
-          OR: [
-            { boundaries: { some: { deviceSessionId, kind: 'START' } } },
-            { keyPoints: { some: { deviceSessionId, markerKind: 'SERVICE' } } },
-          ],
-        },
-        include: snapshotInclude,
-        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-      })
+      where: {
+        annotationStatus: { in: [AnnotationStatus.OPEN, AnnotationStatus.READY] },
+        voidedAt: null,
+        matchId: room.matchId,
+        program: { captureSessionId: room.captureSessionId },
+        OR: [
+          { boundaries: { some: { deviceSessionId, kind: 'START' } } },
+          { keyPoints: { some: { deviceSessionId, markerKind: 'SERVICE' } } },
+        ],
+      },
+      include: snapshotInclude,
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+    })
   }
   if (!rally) return null
 
@@ -83,21 +86,23 @@ async function loadAnnotationSnapshot(
     _max: { serverSequence: true },
     where: { roomId: input.roomId },
   })
-  const keyPoints = rally.annotationStatus === AnnotationStatus.SUBMITTED && rally.activeSubmission
-    ? rally.activeSubmission.keyPoints.map(point => ({
-        id: point.id,
-        sequenceIndex: point.sequenceIndex,
-        markerKind: point.markerKind,
-        isTerminal: point.isTerminal,
-        captureTimeUs: point.captureTimeUs,
-        captureFrameIndex: point.captureFrameIndex,
-        timingPrecision: point.timingPrecision,
-        possibleDuplicate: false,
-      }))
-    : rally.keyPoints
-  const boundaries = (rally.annotationStatus === AnnotationStatus.SUBMITTED && rally.activeSubmission
-    ? rally.activeSubmission.boundaries
-    : rally.boundaries) ?? []
+  const keyPoints =
+    rally.annotationStatus === AnnotationStatus.SUBMITTED && rally.activeSubmission
+      ? rally.activeSubmission.keyPoints.map(point => ({
+          id: point.id,
+          sequenceIndex: point.sequenceIndex,
+          markerKind: point.markerKind,
+          isTerminal: point.isTerminal,
+          captureTimeUs: point.captureTimeUs,
+          captureFrameIndex: point.captureFrameIndex,
+          timingPrecision: point.timingPrecision,
+          possibleDuplicate: false,
+        }))
+      : rally.keyPoints
+  const boundaries =
+    (rally.annotationStatus === AnnotationStatus.SUBMITTED && rally.activeSubmission
+      ? rally.activeSubmission.boundaries
+      : rally.boundaries) ?? []
   return parseAnnotationServerMessage({
     schema_version: boundaries.length ? '3.0.0' : '2.0.0',
     type: 'rally_snapshot',

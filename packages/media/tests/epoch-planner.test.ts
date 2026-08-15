@@ -51,9 +51,7 @@ function segment(
     ...(options.sourceStartTimeUs === undefined
       ? {}
       : { sourceStartTimeUs: options.sourceStartTimeUs }),
-    ...(options.sourceRestart === undefined
-      ? {}
-      : { sourceRestart: options.sourceRestart }),
+    ...(options.sourceRestart === undefined ? {} : { sourceRestart: options.sourceRestart }),
     ...(options.timestampDiscontinuity === undefined
       ? {}
       : { timestampDiscontinuity: options.timestampDiscontinuity }),
@@ -77,8 +75,7 @@ function persistedHead(
     captureFrameOrigin: result.epoch.captureFrameOrigin,
     lastSourcePtsEndExclusive: result.segment.sourcePtsEndExclusive,
     lastCaptureEndUs: result.segment.captureEndUs,
-    lastCaptureFrameIndex:
-      result.segment.firstFrameIndex + result.segment.frameCount - 1n,
+    lastCaptureFrameIndex: result.segment.firstFrameIndex + result.segment.frameCount - 1n,
   }
 }
 
@@ -117,9 +114,7 @@ describe('planCaptureEpochs', () => {
     expect(plan.epochs).toHaveLength(1)
     expect(plan.segments[0]!.captureStartUs).toBe(canonicalOriginUs)
     expect(plan.segments[0]!.captureEndUs).toBe(canonicalOriginUs + 100_000n)
-    expect(plan.segments[1]!.captureStartUs).toBe(
-      plan.segments[0]!.captureEndUs,
-    )
+    expect(plan.segments[1]!.captureStartUs).toBe(plan.segments[0]!.captureEndUs)
     expect(plan.availableRanges).toEqual([
       {
         startUs: canonicalOriginUs,
@@ -146,8 +141,10 @@ describe('planCaptureEpochs', () => {
       canonicalFrameOrigin: 0n,
     })
 
-    expect(plan.segments[0]!.sampleIndex.samples.map((sample) => sample.captureTimeUs))
-      .toEqual([0n, 16_683n])
+    expect(plan.segments[0]!.sampleIndex.samples.map(sample => sample.captureTimeUs)).toEqual([
+      0n,
+      16_683n,
+    ])
     expect(plan.segments[0]!.captureEndUs).toBe(33_367n)
     expect(plan.segments[1]!.captureStartUs).toBe(33_367n)
     expect(plan.liveEdgeCaptureTimeUs).toBe(50_050n)
@@ -168,8 +165,10 @@ describe('planCaptureEpochs', () => {
       canonicalFrameOrigin: 0n,
     })
 
-    expect(plan.segments[0]!.sampleIndex.samples.map((sample) => sample.captureTimeUs))
-      .toEqual([0n, 16_678n])
+    expect(plan.segments[0]!.sampleIndex.samples.map(sample => sample.captureTimeUs)).toEqual([
+      0n,
+      16_678n,
+    ])
     expect(plan.segments[0]!.captureEndUs).toBe(33_367n)
     expect(plan.segments[1]!.captureStartUs).toBe(33_367n)
     expect(plan.segments[1]!.captureEndUs).toBe(66_700n)
@@ -187,9 +186,7 @@ describe('planCaptureEpochs', () => {
 
     expect(plan.epochs[0]!.sourcePtsOrigin).toBe(-9_000n)
     expect(plan.segments[1]!.sampleIndex.samples[0]!.sourcePts).toBe(-3_000n)
-    expect(plan.segments[1]!.captureStartUs).toBe(
-      canonicalOriginUs + 66_667n,
-    )
+    expect(plan.segments[1]!.captureStartUs).toBe(canonicalOriginUs + 66_667n)
   })
 
   it('retains bigint precision beyond JavaScript safe integers', () => {
@@ -217,9 +214,7 @@ describe('planCaptureEpochs', () => {
     expect(plan.epochs[1]!.reasons).toContain('PTS_RESET')
     expect(plan.segments[1]!.discontinuity).toBe(0)
     expect(plan.segments[1]!.sampleIndex.samples[0]!.sourcePts).toBe(0n)
-    expect(plan.segments[1]!.captureStartUs).toBe(
-      plan.segments[0]!.captureEndUs,
-    )
+    expect(plan.segments[1]!.captureStartUs).toBe(plan.segments[0]!.captureEndUs)
     expect(plan.gaps).toHaveLength(0)
     expect(plan.availableRanges).toHaveLength(1)
   })
@@ -290,12 +285,10 @@ describe('planCaptureEpochs', () => {
       },
     ])
     expect(plan.segments[1]!.captureStartUs).toBe(5_066_667n)
-    const allSampleTimes = plan.segments.flatMap((value) =>
-      value.sampleIndex.samples.map((sample) => sample.captureTimeUs),
+    const allSampleTimes = plan.segments.flatMap(value =>
+      value.sampleIndex.samples.map(sample => sample.captureTimeUs),
     )
-    expect(
-      allSampleTimes.some((time) => time > 66_667n && time < 5_066_667n),
-    ).toBe(false)
+    expect(allSampleTimes.some(time => time > 66_667n && time < 5_066_667n)).toBe(false)
   })
 
   it('keeps a declared discontinuity boundary explicit even without a gap', () => {
@@ -307,12 +300,8 @@ describe('planCaptureEpochs', () => {
     const plan = planCaptureEpochs([first, second], config)
 
     expect(plan.epochs[1]!.reasons).toEqual(['TIMESTAMP_DISCONTINUITY'])
-    expect(plan.segments[1]!.captureStartUs).toBe(
-      plan.segments[0]!.captureEndUs,
-    )
-    expect(plan.availableRanges.map((range) => range.discontinuity)).toEqual([
-      0, 1,
-    ])
+    expect(plan.segments[1]!.captureStartUs).toBe(plan.segments[0]!.captureEndUs)
+    expect(plan.availableRanges.map(range => range.discontinuity)).toEqual([0, 1])
   })
 
   it('uses explicit bigint timestamp tolerance and exposes real timestamp drift', () => {
@@ -330,12 +319,9 @@ describe('planCaptureEpochs', () => {
     })
     const toleranceConfig = { ...config, timestampToleranceUs: 10n }
 
-    expect(planCaptureEpochs([first, withinTolerance], toleranceConfig).epochs)
-      .toHaveLength(1)
+    expect(planCaptureEpochs([first, withinTolerance], toleranceConfig).epochs).toHaveLength(1)
     const driftPlan = planCaptureEpochs([first, drifted], toleranceConfig)
-    expect(driftPlan.epochs[1]!.reasons).toEqual([
-      'TIMESTAMP_DISCONTINUITY',
-    ])
+    expect(driftPlan.epochs[1]!.reasons).toEqual(['TIMESTAMP_DISCONTINUITY'])
     expect(driftPlan.gaps[0]!.endUs - driftPlan.gaps[0]!.startUs).toBe(11n)
   })
 
@@ -344,14 +330,14 @@ describe('planCaptureEpochs', () => {
     const second = segment('segment-2', 1n, 2n, [1n])
     const replay = {
       ...first,
-      samples: first.samples.map((sample) => ({ ...sample })),
+      samples: first.samples.map(sample => ({ ...sample })),
     }
 
     const baseline = planCaptureEpochs([first, second], config)
     const replayed = planCaptureEpochs([first, second, replay], config)
 
     expect(replayed).toEqual(baseline)
-    expect(replayed.segments.map((value) => value.segmentIdentity)).toEqual([
+    expect(replayed.segments.map(value => value.segmentIdentity)).toEqual([
       'segment-1',
       'segment-2',
     ])
@@ -372,13 +358,8 @@ describe('planCaptureEpochs', () => {
     expect(() => planCaptureEpochs([first, reusedOrder], config)).toThrowError(
       CaptureEpochPlannerError,
     )
-    expect(() =>
-      planCaptureEpochs([first, conflictingReplay], config),
-    ).toThrowError(
-      new CaptureEpochPlannerError(
-        'DUPLICATE_CONFLICT',
-        'segment segment-1 replay conflicts',
-      ),
+    expect(() => planCaptureEpochs([first, conflictingReplay], config)).toThrowError(
+      new CaptureEpochPlannerError('DUPLICATE_CONFLICT', 'segment segment-1 replay conflicts'),
     )
   })
 
@@ -394,17 +375,13 @@ describe('planCaptureEpochs', () => {
     ]
 
     const plan = planCaptureEpochs(segments, config)
-    const samples = plan.segments.flatMap((value) => value.sampleIndex.samples)
+    const samples = plan.segments.flatMap(value => value.sampleIndex.samples)
 
     for (let index = 1; index < samples.length; index += 1) {
-      expect(samples[index]!.captureTimeUs).toBeGreaterThan(
-        samples[index - 1]!.captureTimeUs,
-      )
-      expect(samples[index]!.captureFrameIndex).toBe(
-        samples[index - 1]!.captureFrameIndex + 1n,
-      )
+      expect(samples[index]!.captureTimeUs).toBeGreaterThan(samples[index - 1]!.captureTimeUs)
+      expect(samples[index]!.captureFrameIndex).toBe(samples[index - 1]!.captureFrameIndex + 1n)
     }
-    expect(plan.epochs.map((epoch) => epoch.discontinuity)).toEqual([0, 0, 1, 2])
+    expect(plan.epochs.map(epoch => epoch.discontinuity)).toEqual([0, 0, 1, 2])
     expect(plan.liveEdgeCaptureTimeUs).toBeGreaterThan(canonicalOriginUs)
   })
 
@@ -425,10 +402,7 @@ describe('planCaptureEpochs', () => {
         timestampToleranceUs: 10n,
       }),
     ).toThrowError(
-      new CaptureEpochPlannerError(
-        'GAP_CONFLICT',
-        'independent gap observations conflict',
-      ),
+      new CaptureEpochPlannerError('GAP_CONFLICT', 'independent gap observations conflict'),
     )
   })
 
@@ -491,18 +465,10 @@ describe('planNextCaptureSegment', () => {
   })
 
   it('reuses the persisted affine epoch for an exact continuation', () => {
-    const first = planIncremental(
-      segment('first', 0n, 90_071_992_547_409_931n, [1n, 1n]),
-      null,
-    )
+    const first = planIncremental(segment('first', 0n, 90_071_992_547_409_931n, [1n, 1n]), null)
     const head = persistedHead(first, 'persisted-epoch-id')
     const second = planIncremental(
-      segment(
-        'second',
-        1n,
-        head.lastSourcePtsEndExclusive,
-        [1n, 1n],
-      ),
+      segment('second', 1n, head.lastSourcePtsEndExclusive, [1n, 1n]),
       head,
       { newEpochId: 'unused-new-epoch-id' },
     )
@@ -530,17 +496,11 @@ describe('planNextCaptureSegment', () => {
   })
 
   it('opens a touching next epoch without splitting playback for PTS reset or overlap', () => {
-    const first = planIncremental(
-      segment('first', 0n, 100n, [10n, 10n]),
-      null,
-    )
+    const first = planIncremental(segment('first', 0n, 100n, [10n, 10n]), null)
     const head = persistedHead(first)
 
     for (const firstPts of [0n, 110n]) {
-      const next = planIncremental(
-        segment(`boundary-${firstPts}`, 1n, firstPts, [1n]),
-        head,
-      )
+      const next = planIncremental(segment(`boundary-${firstPts}`, 1n, firstPts, [1n]), head)
       expect(next.epoch).toMatchObject({
         disposition: 'CREATE_NEXT',
         epochKey: `new-epoch-boundary-${firstPts}`,
@@ -553,9 +513,7 @@ describe('planNextCaptureSegment', () => {
       expect(next.epoch.reasons).toContain('PTS_RESET')
       expect(next.segment.captureStartUs).toBe(head.lastCaptureEndUs)
       expect(next.segment.epochKey).toBe(`new-epoch-boundary-${firstPts}`)
-      expect(next.segment.sampleIndex.epochId).toBe(
-        `new-epoch-boundary-${firstPts}`,
-      )
+      expect(next.segment.sampleIndex.epochId).toBe(`new-epoch-boundary-${firstPts}`)
       expect(next.gap).toBeUndefined()
     }
   })
@@ -600,11 +558,9 @@ describe('planNextCaptureSegment', () => {
       canonicalFrameOrigin: 0n,
       timestampToleranceUs: 10n,
     }
-    const first = planIncremental(
-      segment('first', 0n, 0n, [1_000n], { timeBase }),
-      null,
-      { plannerConfig: toleranceConfig },
-    )
+    const first = planIncremental(segment('first', 0n, 0n, [1_000n], { timeBase }), null, {
+      plannerConfig: toleranceConfig,
+    })
     const head = persistedHead(first)
     const matching = planIncremental(
       segment('matching', 1n, 1_500n, [1_000n], { timeBase }),
@@ -619,24 +575,14 @@ describe('planNextCaptureSegment', () => {
       startUs: 1_000_000n,
       endUs: 1_500_000n,
     })
-    expect(matching.epoch.reasons).toEqual([
-      'TIMESTAMP_DISCONTINUITY',
-      'EXPLICIT_GAP',
-    ])
+    expect(matching.epoch.reasons).toEqual(['TIMESTAMP_DISCONTINUITY', 'EXPLICIT_GAP'])
     expect(() =>
-      planIncremental(
-        segment('conflicting', 1n, 1_500n, [1_000n], { timeBase }),
-        head,
-        {
-          explicitGapBeforeUs: 500_011n,
-          plannerConfig: toleranceConfig,
-        },
-      ),
+      planIncremental(segment('conflicting', 1n, 1_500n, [1_000n], { timeBase }), head, {
+        explicitGapBeforeUs: 500_011n,
+        plannerConfig: toleranceConfig,
+      }),
     ).toThrowError(
-      new CaptureEpochPlannerError(
-        'GAP_CONFLICT',
-        'independent gap observations conflict',
-      ),
+      new CaptureEpochPlannerError('GAP_CONFLICT', 'independent gap observations conflict'),
     )
   })
 
@@ -664,9 +610,7 @@ describe('planNextCaptureSegment', () => {
       }),
       head,
     )
-    expect(changedIdentityWithoutSignal.epoch.disposition).toBe(
-      'REUSE_EXISTING',
-    )
+    expect(changedIdentityWithoutSignal.epoch.disposition).toBe('REUSE_EXISTING')
 
     const restarted = planIncremental(
       segment('restart', 1n, 1n, [1n], {
@@ -679,14 +623,10 @@ describe('planNextCaptureSegment', () => {
     expect(restarted.epoch.discontinuity).toBe(1)
     expect(restarted.segment.captureStartUs).toBe(head.lastCaptureEndUs)
 
-    const discontinuous = planIncremental(
-      segment('discontinuous', 1n, 1n, [1n]),
-      head,
-      { timestampDiscontinuity: true },
-    )
-    expect(discontinuous.epoch.reasons).toEqual([
-      'TIMESTAMP_DISCONTINUITY',
-    ])
+    const discontinuous = planIncremental(segment('discontinuous', 1n, 1n, [1n]), head, {
+      timestampDiscontinuity: true,
+    })
+    expect(discontinuous.epoch.reasons).toEqual(['TIMESTAMP_DISCONTINUITY'])
     expect(discontinuous.segment.captureStartUs).toBe(head.lastCaptureEndUs)
   })
 
@@ -772,9 +712,9 @@ describe('planNextCaptureSegment', () => {
     ]
 
     for (const head of malformed) {
-      expect(() =>
-        planIncremental(segment('next', 1n, 1n, [1n]), head),
-      ).toThrowError(CaptureEpochPlannerError)
+      expect(() => planIncremental(segment('next', 1n, 1n, [1n]), head)).toThrowError(
+        CaptureEpochPlannerError,
+      )
       try {
         planIncremental(segment('next', 1n, 1n, [1n]), head)
       } catch (error) {
@@ -809,24 +749,17 @@ describe('planNextCaptureSegment', () => {
       discontinuity: 2_147_483_647,
     }
 
-    expect(() =>
-      planIncremental(segment('reset', 1n, 0n, [1n]), exhausted),
-    ).toThrowError(
-      new CaptureEpochPlannerError(
-        'INT32_EXHAUSTED',
-        'capture epoch Int32 sequence exhausted',
-      ),
+    expect(() => planIncremental(segment('reset', 1n, 0n, [1n]), exhausted)).toThrowError(
+      new CaptureEpochPlannerError('INT32_EXHAUSTED', 'capture epoch Int32 sequence exhausted'),
     )
   })
 
   it('does not fabricate a sample or frame inside an explicit gap', () => {
     const first = planIncremental(segment('first', 0n, 0n, [1n, 1n]), null)
     const head = persistedHead(first)
-    const after = planIncremental(
-      segment('after-gap', 1n, 2n, [1n]),
-      head,
-      { explicitGapBeforeUs: 5_000_000n },
-    )
+    const after = planIncremental(segment('after-gap', 1n, 2n, [1n]), head, {
+      explicitGapBeforeUs: 5_000_000n,
+    })
 
     expect(after.gap).toEqual({
       startUs: head.lastCaptureEndUs,
@@ -837,9 +770,7 @@ describe('planNextCaptureSegment', () => {
     expect(after.segment.sampleIndex.samples).toHaveLength(1)
     expect(after.segment.firstFrameIndex).toBe(head.lastCaptureFrameIndex + 1n)
     expect(after.nextCaptureFrameIndex).toBe(head.lastCaptureFrameIndex + 2n)
-    expect(after.segment.sampleIndex.samples[0]!.captureTimeUs).toBe(
-      after.gap.endUs,
-    )
+    expect(after.segment.sampleIndex.samples[0]!.captureTimeUs).toBe(after.gap.endUs)
   })
 
   it('matches the batch planner for equivalent two-segment inputs', () => {
@@ -852,10 +783,7 @@ describe('planNextCaptureSegment', () => {
           timeBase: { num: 1n, den: 60_000n },
         }),
       ],
-      [
-        segment('first-reset', 0n, 100n, [1n, 1n]),
-        segment('second-reset', 1n, 0n, [1n]),
-      ],
+      [segment('first-reset', 0n, 100n, [1n, 1n]), segment('second-reset', 1n, 0n, [1n])],
       [
         segment('first-hole', 0n, 0n, [1_000n], {
           timeBase: { num: 1n, den: 1_000n },
@@ -888,9 +816,7 @@ describe('planNextCaptureSegment', () => {
         captureEndUs: expected.captureEndUs,
         sampleIndex: expected.sampleIndex,
       })
-      expect(second.liveEdgeCaptureTimeUs).toBe(
-        batch.liveEdgeCaptureTimeUs,
-      )
+      expect(second.liveEdgeCaptureTimeUs).toBe(batch.liveEdgeCaptureTimeUs)
       expect(second.nextCaptureFrameIndex).toBe(batch.nextCaptureFrameIndex)
     }
   })

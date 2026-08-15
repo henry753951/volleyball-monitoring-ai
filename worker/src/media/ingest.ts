@@ -9,16 +9,10 @@ import {
   type ArtifactSourceBytes,
   type MediaArtifact,
 } from './artifacts'
-import {
-  assertFinalizedRecording,
-  type FinalizedRecording,
-} from './finalized-recording'
+import { assertFinalizedRecording, type FinalizedRecording } from './finalized-recording'
 
 export type { FinalizedRecording } from './finalized-recording'
-export {
-  parseFinalizedRecording,
-  normalizeSourceIdentity,
-} from './finalized-recording'
+export { parseFinalizedRecording, normalizeSourceIdentity } from './finalized-recording'
 export {
   buildArtifactPlan,
   idempotencyKey,
@@ -161,13 +155,7 @@ export async function ingestFinalizedSegment(
   try {
     claim = await ports.repository.claim(plan.idempotencyKey)
   } catch (error) {
-    return markFailure(
-      ports.repository,
-      plan.idempotencyKey,
-      'CLAIM',
-      'CLAIM_FAILED',
-      error,
-    )
+    return markFailure(ports.repository, plan.idempotencyKey, 'CLAIM', 'CLAIM_FAILED', error)
   }
 
   if (claim === 'ALREADY_READY') return 'already_ready'

@@ -12,21 +12,16 @@ import {
 import type { db as databaseClient } from '@volleyball-monitoring/db'
 import type { MediaObjectReadRequest } from '../src/media/playback-domain.js'
 import type { MediaCursorRouteDependencies } from '../src/media/cursor-routes.js'
-import {
-  afterAll,
-  beforeAll,
-  describe,
-  expect,
-  it,
-} from 'vitest'
+import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 
 const execFileAsync = promisify(execFile)
 const repositoryRoot = resolve(process.cwd(), '..')
 const databasePackageRoot = resolve(repositoryRoot, 'packages/db')
 const originalDatabaseUrl = process.env.DATABASE_URL
-const sourceDatabaseUrl = process.env.TEST_DATABASE_URL
-  ?? originalDatabaseUrl
-  ?? 'postgresql://volleyball:volleyball@127.0.0.1:5433/volleyball?schema=public'
+const sourceDatabaseUrl =
+  process.env.TEST_DATABASE_URL ??
+  originalDatabaseUrl ??
+  'postgresql://volleyball:volleyball@127.0.0.1:5433/volleyball?schema=public'
 const databaseName = `mediacursor_${randomUUID().replaceAll('-', '')}`
 const maintenanceUrl = new URL(sourceDatabaseUrl)
 maintenanceUrl.pathname = '/postgres'
@@ -75,10 +70,7 @@ function sampleFrame(sourcePts: bigint, keyFrame = false) {
 }
 
 const firstIndex = buildSampleIndex(
-  [
-    sampleFrame(sourcePtsOrigin, true),
-    sampleFrame(sourcePtsOrigin + sampleDurationPts),
-  ],
+  [sampleFrame(sourcePtsOrigin, true), sampleFrame(sourcePtsOrigin + sampleDurationPts)],
   epochOrigin,
 )
 const secondIndex = buildSampleIndex(
@@ -199,10 +191,7 @@ async function createWindow(input: {
 }
 
 async function seedFixture(): Promise<void> {
-  await Promise.all([
-    createUser(ids.operator, 'Operator'),
-    createUser(ids.outsider, 'Outsider'),
-  ])
+  await Promise.all([createUser(ids.operator, 'Operator'), createUser(ids.outsider, 'Outsider')])
   await db.match.create({
     data: {
       id: ids.match,
@@ -284,12 +273,7 @@ function cursorPayload(windowId: string, playerMediaTimeUs: bigint) {
   }
 }
 
-function stepPayload(
-  windowId: string,
-  frame: bigint,
-  direction: 'previous' | 'next',
-  count = 1,
-) {
+function stepPayload(windowId: string, frame: bigint, direction: 'previous' | 'next', count = 1) {
   return {
     capture_frame_index: frame.toString(),
     capture_session_id: ids.session,
@@ -309,22 +293,18 @@ beforeAll(async () => {
   await maintenancePool.query(`CREATE DATABASE "${databaseName}"`)
   createdDatabase = true
   process.env.DATABASE_URL = isolatedDatabaseUrl.toString()
-  await execFileAsync(
-    'bun',
-    ['x', 'prisma', 'migrate', 'deploy', '--config', 'prisma.config.ts'],
-    {
-      cwd: databasePackageRoot,
-      env: { ...process.env, DATABASE_URL: isolatedDatabaseUrl.toString() },
-      windowsHide: true,
-    },
-  )
+  await execFileAsync('bun', ['x', 'prisma', 'migrate', 'deploy', '--config', 'prisma.config.ts'], {
+    cwd: databasePackageRoot,
+    env: { ...process.env, DATABASE_URL: isolatedDatabaseUrl.toString() },
+    windowsHide: true,
+  })
   const dbModule = await import('@volleyball-monitoring/db')
   const routeModule = await import('../src/media/cursor-routes.js')
   db = dbModule.db
   await seedFixture()
 
   const dependencies: MediaCursorRouteDependencies = {
-    authenticate: async (request) => {
+    authenticate: async request => {
       const key = request.headers['x-test-user']
       if (key === 'operator') return { id: ids.operator, role: 'OPERATOR' }
       if (key === 'outsider') return { id: ids.outsider, role: 'OPERATOR' }
@@ -332,14 +312,15 @@ beforeAll(async () => {
     },
     database: db,
     now: () => now,
-    objectReader: async (request) => {
+    objectReader: async request => {
       reads.push(request)
       const bytes = bytesByLocation.get(`${request.bucket}/${request.key}`)
       if (!bytes) throw new Error('private missing object')
       if (
-        BigInt(bytes.byteLength) !== request.expectedByteLength
-        || sha256(bytes) !== request.expectedSha256
-      ) throw new Error('private corrupt object')
+        BigInt(bytes.byteLength) !== request.expectedByteLength ||
+        sha256(bytes) !== request.expectedSha256
+      )
+        throw new Error('private corrupt object')
       return bytes
     },
   }
@@ -367,8 +348,7 @@ describe('media cursor persistence integration', () => {
   it('membership-filters a persisted window and resolves only its ordered mappings', async () => {
     const earlier = firstIndex.samples.at(-1)!
     const later = secondIndex.samples[0]!
-    const midpoint = earlier.captureTimeUs
-      + (later.captureTimeUs - earlier.captureTimeUs) / 2n
+    const midpoint = earlier.captureTimeUs + (later.captureTimeUs - earlier.captureTimeUs) / 2n
 
     const anonymous = await app.inject({
       method: 'POST',
@@ -400,7 +380,7 @@ describe('media cursor persistence integration', () => {
       source_pts: earlier.sourcePts.toString(),
       timing_precision: 'frame_exact',
     })
-    expect(reads.map((read) => read.key)).toEqual([keys.first, keys.second])
+    expect(reads.map(read => read.key)).toEqual([keys.first, keys.second])
   })
 
   it('steps across a persisted segment and detects the bounded playback edge', async () => {
@@ -416,9 +396,7 @@ describe('media cursor persistence integration', () => {
     expect(across.json()).toMatchObject({
       capture_frame_index: expected.captureFrameIndex.toString(),
       dvr_segment_id: ids.segment2,
-      player_media_time_us: (
-        expected.captureTimeUs - captureOriginUs
-      ).toString(),
+      player_media_time_us: (expected.captureTimeUs - captureOriginUs).toString(),
     })
 
     const bounded = await app.inject({

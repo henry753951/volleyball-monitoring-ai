@@ -4,7 +4,14 @@
   "title": "Fixed Roster Nested Part ReID Extension v2",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema_version", "scope", "identity_contract", "slots_per_team", "descriptor_recipe", "tracklets"],
+  "required": [
+    "schema_version",
+    "scope",
+    "identity_contract",
+    "slots_per_team",
+    "descriptor_recipe",
+    "tracklets"
+  ],
   "properties": {
     "schema_version": { "const": "2.0.0" },
     "scope": { "const": "clip" },
@@ -41,19 +48,45 @@
     "tracklet": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["canonical_track_id", "track_ids", "court_side", "median_court_pos", "first_frame_index", "last_frame_index", "sample_count", "mean_quality", "prompt_coverage", "descriptors", "cannot_link_canonical_track_ids"],
+      "required": [
+        "canonical_track_id",
+        "track_ids",
+        "court_side",
+        "median_court_pos",
+        "first_frame_index",
+        "last_frame_index",
+        "sample_count",
+        "mean_quality",
+        "prompt_coverage",
+        "descriptors",
+        "cannot_link_canonical_track_ids"
+      ],
       "properties": {
         "canonical_track_id": { "type": "integer", "minimum": 0, "maximum": 65534 },
-        "track_ids": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "integer", "minimum": 0, "maximum": 65534 } },
+        "track_ids": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "type": "integer", "minimum": 0, "maximum": 65534 }
+        },
         "court_side": { "enum": ["left", "right", "unknown"] },
-        "median_court_pos": { "oneOf": [{ "type": "null" }, { "type": "array", "minItems": 2, "maxItems": 2, "items": { "type": "number" } }] },
+        "median_court_pos": {
+          "oneOf": [
+            { "type": "null" },
+            { "type": "array", "minItems": 2, "maxItems": 2, "items": { "type": "number" } }
+          ]
+        },
         "first_frame_index": { "type": "string", "pattern": "^(0|[1-9][0-9]*)$" },
         "last_frame_index": { "type": "string", "pattern": "^(0|[1-9][0-9]*)$" },
         "sample_count": { "type": "integer", "minimum": 1 },
         "mean_quality": { "type": "number", "minimum": 0, "maximum": 1 },
         "prompt_coverage": { "type": "number", "minimum": 0, "maximum": 1 },
         "descriptors": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/descriptorSet" }] },
-        "cannot_link_canonical_track_ids": { "type": "array", "uniqueItems": true, "items": { "type": "integer", "minimum": 0, "maximum": 65534 } }
+        "cannot_link_canonical_track_ids": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "integer", "minimum": 0, "maximum": 65534 }
+        }
       }
     }
   }

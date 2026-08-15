@@ -39,18 +39,21 @@ function createReader(
   overrides: Partial<Parameters<typeof createMinioObjectReader>[0]> = {},
 ) {
   let options: ClientOptions | undefined
-  const reader = createMinioObjectReader({
-    accessKey,
-    bucket,
-    endpoint: 'http://127.0.0.1:9000',
-    maxObjectBytes: 1024,
-    operationTimeoutMs: 1000,
-    secretKey,
-    ...overrides,
-  }, (value) => {
-    options = value
-    return client
-  })
+  const reader = createMinioObjectReader(
+    {
+      accessKey,
+      bucket,
+      endpoint: 'http://127.0.0.1:9000',
+      maxObjectBytes: 1024,
+      operationTimeoutMs: 1000,
+      secretKey,
+      ...overrides,
+    },
+    value => {
+      options = value
+      return client
+    },
+  )
   return { options, reader }
 }
 
@@ -62,9 +65,12 @@ function rejectingClient(error: unknown): MinioObjectClient {
 
 describe('MinIO object reader configuration', () => {
   it('builds the official client options from a strict endpoint', () => {
-    const { options } = createReader({
-      getObject: async () => Readable.from([]),
-    }, { endpoint: 'https://minio.internal:9443' })
+    const { options } = createReader(
+      {
+        getObject: async () => Readable.from([]),
+      },
+      { endpoint: 'https://minio.internal:9443' },
+    )
     expect(options).toEqual({
       accessKey,
       endPoint: 'minio.internal',
@@ -82,13 +88,20 @@ describe('MinIO object reader configuration', () => {
     'http://minio.internal?region=local',
     'http://minio.internal#fragment',
     'not a URL',
-  ])('rejects unsafe endpoint %s', (endpoint) => {
-    expect(() => createReader({
-      getObject: async () => Readable.from([]),
-    }, { endpoint })).toThrowError(expect.objectContaining({
-      code: 'INVALID_CONFIG',
-      message: 'MinIO endpoint is invalid',
-    }))
+  ])('rejects unsafe endpoint %s', endpoint => {
+    expect(() =>
+      createReader(
+        {
+          getObject: async () => Readable.from([]),
+        },
+        { endpoint },
+      ),
+    ).toThrowError(
+      expect.objectContaining({
+        code: 'INVALID_CONFIG',
+        message: 'MinIO endpoint is invalid',
+      }),
+    )
   })
 
   it('requires complete valid credentials, bucket and bounds', () => {
@@ -106,18 +119,27 @@ describe('MinIO object reader configuration', () => {
       )
     }
     expect(createMinioObjectReaderFromEnv({})).toBeUndefined()
-    expect(() => createMinioObjectReaderFromEnv({
-      MINIO_ENDPOINT: 'http://127.0.0.1:9000',
-    })).toThrowError(expect.objectContaining({
-      code: 'INVALID_CONFIG',
-      message: 'MinIO reader configuration is incomplete',
-    }))
-    expect(createMinioObjectReaderFromEnv({
-      MINIO_ENDPOINT: 'http://127.0.0.1:9000',
-      MINIO_ACCESS_KEY: accessKey,
-      MINIO_SECRET_KEY: secretKey,
-      MINIO_RALLY_BUCKET: 'rally-media',
-    }, 'MINIO_RALLY_BUCKET')).toBeTypeOf('function')
+    expect(() =>
+      createMinioObjectReaderFromEnv({
+        MINIO_ENDPOINT: 'http://127.0.0.1:9000',
+      }),
+    ).toThrowError(
+      expect.objectContaining({
+        code: 'INVALID_CONFIG',
+        message: 'MinIO reader configuration is incomplete',
+      }),
+    )
+    expect(
+      createMinioObjectReaderFromEnv(
+        {
+          MINIO_ENDPOINT: 'http://127.0.0.1:9000',
+          MINIO_ACCESS_KEY: accessKey,
+          MINIO_SECRET_KEY: secretKey,
+          MINIO_RALLY_BUCKET: 'rally-media',
+        },
+        'MINIO_RALLY_BUCKET',
+      ),
+    ).toBeTypeOf('function')
   })
 })
 
@@ -126,35 +148,46 @@ describe('MinIO verified object reads', () => {
     const expected = Buffer.from('{"schema_version":"1.1.0"}')
     const getObject = vi.fn(async () => Readable.from([expected]))
     const { reader } = createReader({ getObject }, { bucket: 'rally-media' })
-    await expect(reader(requestFor(expected, {
-      bucket: 'rally-media',
-      expectedContentType: 'application/json',
-      expectedInternalSchemaVersion: '1.1.0',
-      expectedKind: 'TIMING_MANIFEST',
-      key: 'clips/submission/clip.timing.json',
-    }))).resolves.toEqual(expected)
-    await expect(reader(requestFor(expected, {
-      bucket: 'rally-media',
-      expectedContentType: 'application/json',
-      expectedInternalSchemaVersion: '2.0.0',
-      expectedKind: 'TIMING_MANIFEST',
-      key: 'clips/submission/clip.timing.json',
-    }))).resolves.toEqual(expected)
-    await expect(reader(requestFor(expected, {
-      bucket: 'rally-media',
-      expectedContentType: 'application/json',
-      expectedInternalSchemaVersion: '1.0.0',
-      expectedKind: 'TIMING_MANIFEST',
-      key: 'clips/submission/clip.timing.json',
-    }))).rejects.toMatchObject({ code: 'INVALID_REQUEST' })
+    await expect(
+      reader(
+        requestFor(expected, {
+          bucket: 'rally-media',
+          expectedContentType: 'application/json',
+          expectedInternalSchemaVersion: '1.1.0',
+          expectedKind: 'TIMING_MANIFEST',
+          key: 'clips/submission/clip.timing.json',
+        }),
+      ),
+    ).resolves.toEqual(expected)
+    await expect(
+      reader(
+        requestFor(expected, {
+          bucket: 'rally-media',
+          expectedContentType: 'application/json',
+          expectedInternalSchemaVersion: '2.0.0',
+          expectedKind: 'TIMING_MANIFEST',
+          key: 'clips/submission/clip.timing.json',
+        }),
+      ),
+    ).resolves.toEqual(expected)
+    await expect(
+      reader(
+        requestFor(expected, {
+          bucket: 'rally-media',
+          expectedContentType: 'application/json',
+          expectedInternalSchemaVersion: '1.0.0',
+          expectedKind: 'TIMING_MANIFEST',
+          key: 'clips/submission/clip.timing.json',
+        }),
+      ),
+    ).rejects.toMatchObject({ code: 'INVALID_REQUEST' })
   })
 
   it('returns exact bytes only after length and checksum verification', async () => {
     const expected = Buffer.from('verified media bytes')
-    const getObject = vi.fn(async () => Readable.from([
-      expected.subarray(0, 5),
-      expected.subarray(5),
-    ]))
+    const getObject = vi.fn(async () =>
+      Readable.from([expected.subarray(0, 5), expected.subarray(5)]),
+    )
     const { reader } = createReader({ getObject })
 
     await expect(reader(requestFor(expected))).resolves.toEqual(expected)
@@ -169,7 +202,7 @@ describe('MinIO verified object reads', () => {
     { key: 'folder//empty.m4s' },
     { key: 'folder\\windows.m4s' },
     { key: 'folder/./relative.m4s' },
-  ])('rejects an unauthorized bucket or unsafe key', async (overrides) => {
+  ])('rejects an unauthorized bucket or unsafe key', async overrides => {
     const bytes = Buffer.from('bytes')
     const getObject = vi.fn(async () => Readable.from([bytes]))
     const { reader } = createReader({ getObject })
@@ -182,13 +215,15 @@ describe('MinIO verified object reads', () => {
 
   it('maps missing and network failures to typed sanitized errors', async () => {
     const bytes = Buffer.from('bytes')
-    const missing = createReader(rejectingClient({
-      code: 'NoSuchKey',
-      message: 'secret endpoint and object details',
-    })).reader
-    const network = createReader(rejectingClient(new Error(
-      'connect ECONNREFUSED http://secret-endpoint/private-key',
-    ))).reader
+    const missing = createReader(
+      rejectingClient({
+        code: 'NoSuchKey',
+        message: 'secret endpoint and object details',
+      }),
+    ).reader
+    const network = createReader(
+      rejectingClient(new Error('connect ECONNREFUSED http://secret-endpoint/private-key')),
+    ).reader
 
     await expect(missing(requestFor(bytes))).rejects.toMatchObject({
       code: 'OBJECT_MISSING',
@@ -244,9 +279,13 @@ describe('MinIO verified object reads', () => {
       code: 'OBJECT_TOO_LARGE',
     })
     expect(destroy).toHaveBeenCalled()
-    await expect(checksum(requestFor(Buffer.from('mismatch'), {
-      expectedSha256: sha256(expected),
-    }))).rejects.toMatchObject({ code: 'CHECKSUM_MISMATCH' })
+    await expect(
+      checksum(
+        requestFor(Buffer.from('mismatch'), {
+          expectedSha256: sha256(expected),
+        }),
+      ),
+    ).rejects.toMatchObject({ code: 'CHECKSUM_MISMATCH' })
   })
 
   it('enforces the configured object bound before contacting MinIO', async () => {
@@ -264,10 +303,7 @@ describe('MinIO verified object reads', () => {
     const bytes = Buffer.from('bytes')
     const stream = new Readable({ read() {} })
     const destroy = vi.spyOn(stream, 'destroy')
-    const { reader } = createReader(
-      { getObject: async () => stream },
-      { operationTimeoutMs: 20 },
-    )
+    const { reader } = createReader({ getObject: async () => stream }, { operationTimeoutMs: 20 })
     await expect(reader(requestFor(bytes))).rejects.toMatchObject({
       code: 'TIMEOUT',
       message: 'Media object read timed out',
@@ -278,13 +314,10 @@ describe('MinIO verified object reads', () => {
   it('destroys a stream that arrives after the getObject timeout', async () => {
     const bytes = Buffer.from('bytes')
     let resolveStream: ((stream: Readable) => void) | undefined
-    const getObject = new Promise<Readable>((resolve) => {
+    const getObject = new Promise<Readable>(resolve => {
       resolveStream = resolve
     })
-    const { reader } = createReader(
-      { getObject: () => getObject },
-      { operationTimeoutMs: 20 },
-    )
+    const { reader } = createReader({ getObject: () => getObject }, { operationTimeoutMs: 20 })
     await expect(reader(requestFor(bytes))).rejects.toMatchObject({
       code: 'TIMEOUT',
     })
@@ -292,17 +325,12 @@ describe('MinIO verified object reads', () => {
     const stream = new Readable({ read() {} })
     const destroy = vi.spyOn(stream, 'destroy')
     resolveStream?.(stream)
-    await new Promise<void>((resolve) => setImmediate(resolve))
+    await new Promise<void>(resolve => setImmediate(resolve))
     expect(destroy).toHaveBeenCalled()
   })
 
   it('keeps all errors free of credentials, endpoint and object identity', async () => {
-    const sensitive = [
-      accessKey,
-      secretKey,
-      'secret-endpoint.internal',
-      'private/object.m4s',
-    ]
+    const sensitive = [accessKey, secretKey, 'secret-endpoint.internal', 'private/object.m4s']
     const errors: MinioObjectReaderError[] = []
     try {
       createMinioObjectReader({
@@ -314,9 +342,9 @@ describe('MinIO verified object reads', () => {
     } catch (error) {
       if (error instanceof MinioObjectReaderError) errors.push(error)
     }
-    const reader = createReader(rejectingClient(new Error(
-      'secret-endpoint.internal/private/object.m4s',
-    ))).reader
+    const reader = createReader(
+      rejectingClient(new Error('secret-endpoint.internal/private/object.m4s')),
+    ).reader
     try {
       await reader(requestFor(Buffer.from('bytes'), { key: 'private/object.m4s' }))
     } catch (error) {

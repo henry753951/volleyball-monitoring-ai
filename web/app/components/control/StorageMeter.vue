@@ -15,8 +15,7 @@ const usedPercent = computed(() => {
     const total = BigInt(props.storage?.totalBytes ?? '0')
     if (total <= 0n) return 0
     return Number((BigInt(props.storage?.managedBytes ?? '0') * 10_000n) / total) / 100
-  }
-  catch {
+  } catch {
     return 0
   }
 })
@@ -52,7 +51,11 @@ function formatBytes(value: string) {
     </div>
     <div class="storage-capacity">
       <strong>{{ storage?.available ? `${formatBytes(storage.freeBytes)} 可用` : '—' }}</strong>
-      <small>{{ storage?.available ? `${formatBytes(storage.managedBytes)} 已使用 · ${usedPercent.toFixed(1)}%` : '狀態未知' }}</small>
+      <small>{{
+        storage?.available
+          ? `${formatBytes(storage.managedBytes)} 已使用 · ${usedPercent.toFixed(1)}%`
+          : '狀態未知'
+      }}</small>
     </div>
   </section>
 </template>
@@ -61,12 +64,14 @@ function formatBytes(value: string) {
 .storage-meter {
   min-height: 64px;
   display: grid;
-  grid-template-columns: 32px minmax(180px, .65fr) minmax(180px, 1fr) auto;
+  grid-template-columns: 32px minmax(180px, 0.65fr) minmax(180px, 1fr) auto;
   align-items: center;
   gap: 12px;
   padding: 10px 14px;
 }
-.storage-meter + .storage-meter { border-top: 1px solid #27292d; }
+.storage-meter + .storage-meter {
+  border-top: 1px solid #27292d;
+}
 .storage-icon {
   width: 30px;
   height: 30px;
@@ -76,19 +81,32 @@ function formatBytes(value: string) {
   background: #23252a;
   color: #b7bac0;
 }
-.storage-meter.object .storage-icon { color: #65d7a2; }
+.storage-meter.object .storage-icon {
+  color: #65d7a2;
+}
 .storage-copy,
-.storage-capacity { display: grid; gap: 3px; }
+.storage-capacity {
+  display: grid;
+  gap: 3px;
+}
 .storage-copy strong,
-.storage-capacity strong { font-size: .62rem; }
+.storage-capacity strong {
+  font-size: 0.62rem;
+}
 .storage-copy small,
-.storage-capacity small { color: #72757b; font-size: .51rem; }
+.storage-capacity small {
+  color: #72757b;
+  font-size: 0.51rem;
+}
 .storage-copy small {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.storage-capacity { min-width: 92px; text-align: right; }
+.storage-capacity {
+  min-width: 92px;
+  text-align: right;
+}
 .storage-progress {
   height: 5px;
   overflow: hidden;
@@ -104,13 +122,23 @@ function formatBytes(value: string) {
   transform-origin: left;
   transition: transform 240ms ease;
 }
-.object .storage-progress i { background: #47c187; }
-.unavailable { opacity: .58; }
+.object .storage-progress i {
+  background: #47c187;
+}
+.unavailable {
+  opacity: 0.58;
+}
 @media (max-width: 760px) {
-  .storage-meter { grid-template-columns: 32px 1fr auto; }
-  .storage-progress { grid-column: 2 / 4; }
+  .storage-meter {
+    grid-template-columns: 32px 1fr auto;
+  }
+  .storage-progress {
+    grid-column: 2 / 4;
+  }
 }
 @media (prefers-reduced-motion: reduce) {
-  .storage-progress i { transition: none; }
+  .storage-progress i {
+    transition: none;
+  }
 }
 </style>

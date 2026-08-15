@@ -22,9 +22,11 @@ export function shouldAcceptAnnotationBroadcast(input: {
   pendingRallyIds?: Iterable<string>
   rememberedRallyId?: string | null
 }) {
-  return input.currentRallyId === input.nextRallyId
-    || input.rememberedRallyId === input.nextRallyId
-    || new Set(input.pendingRallyIds).has(input.nextRallyId)
+  return (
+    input.currentRallyId === input.nextRallyId ||
+    input.rememberedRallyId === input.nextRallyId ||
+    new Set(input.pendingRallyIds).has(input.nextRallyId)
+  )
 }
 
 export function annotationDraftOwnedByClient(
@@ -40,7 +42,9 @@ export function rebaseQueuedAnnotationCommand(
   snapshot: AnnotationRallySnapshot | null,
 ): AnnotationCommand | null {
   if (command.kind === 'START_RALLY') {
-    return snapshot && stateOf(snapshot) === 'open' && !snapshot.snapshot.active_submission_id ? null : command
+    return snapshot && stateOf(snapshot) === 'open' && !snapshot.snapshot.active_submission_id
+      ? null
+      : command
   }
   if (command.kind === 'CREATE_SERVICE_KEY_POINT') {
     return snapshot && ['open', 'ready'].includes(stateOf(snapshot) ?? '') ? null : command
@@ -69,11 +73,15 @@ export function annotationCommandConverged(
     return snapshot.snapshot.boundaries?.some(boundary => boundary.kind === 'end') === true
   }
   if (command.kind === 'SET_RALLY_OUTCOME') {
-    return snapshot.snapshot.score_resolution === command.payload.score_resolution
-      && snapshot.snapshot.scoring_court_side === command.payload.scoring_court_side
+    return (
+      snapshot.snapshot.score_resolution === command.payload.score_resolution &&
+      snapshot.snapshot.scoring_court_side === command.payload.scoring_court_side
+    )
   }
   if (command.kind === 'DELETE_KEY_POINT') {
-    return !snapshot.snapshot.key_points.some(point => point.key_point_id === command.payload.key_point_id)
+    return !snapshot.snapshot.key_points.some(
+      point => point.key_point_id === command.payload.key_point_id,
+    )
   }
   if (command.kind === 'REOPEN_RALLY') return state === 'open'
   if (command.kind === 'VOID_RALLY') return state === 'voided'
@@ -81,15 +89,21 @@ export function annotationCommandConverged(
   return false
 }
 
-function pendingPoint(entry: AnnotationOutboxEntry, sequenceIndex: number): AnnotationKeyPoint | null {
-  if (!['CREATE_SERVICE_KEY_POINT', 'CREATE_CONTACT_KEY_POINT'].includes(entry.command.kind)) return null
+function pendingPoint(
+  entry: AnnotationOutboxEntry,
+  sequenceIndex: number,
+): AnnotationKeyPoint | null {
+  if (!['CREATE_SERVICE_KEY_POINT', 'CREATE_CONTACT_KEY_POINT'].includes(entry.command.kind))
+    return null
   const observation = entry.observation
   if (!observation) return null
   return {
     key_point_id: `pending:${entry.command.command_id}`,
     sequence_index: sequenceIndex,
     marker_kind: entry.command.kind === 'CREATE_SERVICE_KEY_POINT' ? 'service' : 'contact',
-    is_terminal: entry.command.kind === 'CREATE_CONTACT_KEY_POINT' && entry.command.payload.terminal_outcome === 'unknown',
+    is_terminal:
+      entry.command.kind === 'CREATE_CONTACT_KEY_POINT' &&
+      entry.command.payload.terminal_outcome === 'unknown',
     capture_time_us: observation.capture_time_us,
     capture_frame_index: observation.capture_frame_index ?? '0',
     timing_precision: 'estimated',
@@ -104,16 +118,23 @@ function normalizeKeyPointOrder(points: AnnotationKeyPoint[]) {
     const timeDifference = BigInt(left.capture_time_us) - BigInt(right.capture_time_us)
     if (timeDifference !== 0n) return timeDifference < 0n ? -1 : 1
     const frameDifference = BigInt(left.capture_frame_index) - BigInt(right.capture_frame_index)
-    return frameDifference < 0n ? -1 : frameDifference > 0n ? 1 : left.key_point_id.localeCompare(right.key_point_id)
+    return frameDifference < 0n
+      ? -1
+      : frameDifference > 0n
+        ? 1
+        : left.key_point_id.localeCompare(right.key_point_id)
   })
   return ordered.map((point, sequenceIndex) => ({
     ...point,
     sequence_index: sequenceIndex,
-    possible_duplicate: point.marker_kind === 'contact' && ordered.some(other =>
-      other.key_point_id !== point.key_point_id
-      && other.marker_kind === 'contact'
-      && other.capture_frame_index === point.capture_frame_index,
-    ),
+    possible_duplicate:
+      point.marker_kind === 'contact' &&
+      ordered.some(
+        other =>
+          other.key_point_id !== point.key_point_id &&
+          other.marker_kind === 'contact' &&
+          other.capture_frame_index === point.capture_frame_index,
+      ),
   }))
 }
 
@@ -127,15 +148,14 @@ export function projectAnnotationSnapshot(
     const command = entry.command
     if (entry.status !== 'pending') continue
     if (
-      (command.kind === 'START_RALLY' || command.kind === 'CREATE_SERVICE_KEY_POINT')
-      && (
-        !projected
-        || projected.rally_id !== command.rally_id
-        || ['submitted', 'voided'].includes(projected.snapshot.annotation_status)
-      )
+      (command.kind === 'START_RALLY' || command.kind === 'CREATE_SERVICE_KEY_POINT') &&
+      (!projected ||
+        projected.rally_id !== command.rally_id ||
+        ['submitted', 'voided'].includes(projected.snapshot.annotation_status))
     ) {
       const point = command.kind === 'CREATE_SERVICE_KEY_POINT' ? pendingPoint(entry, 0) : null
-      if ((!point && command.kind === 'CREATE_SERVICE_KEY_POINT') || !entry.observation || !roomId) continue
+      if ((!point && command.kind === 'CREATE_SERVICE_KEY_POINT') || !entry.observation || !roomId)
+        continue
       projected = {
         schema_version: command.kind === 'START_RALLY' ? '3.0.0' : '2.0.0',
         type: 'rally_snapshot',
@@ -151,12 +171,14 @@ export function projectAnnotationSnapshot(
           processing_status: 'idle',
           ...(command.kind === 'START_RALLY'
             ? {
-                boundaries: [{
-                  kind: 'start' as const,
-                  capture_time_us: entry.observation.capture_time_us,
-                  capture_frame_index: entry.observation.capture_frame_index ?? '0',
-                  timing_precision: 'estimated' as const,
-                }],
+                boundaries: [
+                  {
+                    kind: 'start' as const,
+                    capture_time_us: entry.observation.capture_time_us,
+                    capture_frame_index: entry.observation.capture_frame_index ?? '0',
+                    timing_precision: 'estimated' as const,
+                  },
+                ],
               }
             : {}),
           key_points: point ? [point] : [],
@@ -176,8 +198,7 @@ export function projectAnnotationSnapshot(
         },
       ]
       projected.snapshot.annotation_status = 'ready'
-    }
-    else if (command.kind === 'CREATE_CONTACT_KEY_POINT') {
+    } else if (command.kind === 'CREATE_CONTACT_KEY_POINT') {
       const point = pendingPoint(entry, projected.snapshot.key_points.length)
       if (point) {
         projected.snapshot.key_points.push(point)
@@ -187,19 +208,16 @@ export function projectAnnotationSnapshot(
           projected.snapshot.scoring_court_side = null
         }
       }
-    }
-    else if (command.kind === 'SET_RALLY_OUTCOME') {
+    } else if (command.kind === 'SET_RALLY_OUTCOME') {
       projected.snapshot.score_resolution = command.payload.score_resolution
       projected.snapshot.scoring_court_side = command.payload.scoring_court_side
-    }
-    else if (command.kind === 'CLOSE_RALLY') {
+    } else if (command.kind === 'CLOSE_RALLY') {
       const target = projected.snapshot.key_points.at(-1)
       if (target) target.is_terminal = true
       projected.snapshot.annotation_status = 'ready'
       projected.snapshot.score_resolution = command.payload.score_resolution
       projected.snapshot.scoring_court_side = command.payload.scoring_court_side
-    }
-    else if (command.kind === 'SUBMIT_RALLY') projected.snapshot.annotation_status = 'submitted'
+    } else if (command.kind === 'SUBMIT_RALLY') projected.snapshot.annotation_status = 'submitted'
   }
   return projected
 }
@@ -209,7 +227,11 @@ export function applyAnnotationAckLocally(
   command: AnnotationCommand,
   ack: AnnotationCommandAck,
 ): AnnotationRallySnapshot | null {
-  if (command.kind === 'START_RALLY' && ack.resolved_anchor && ack.effects.boundary_kind === 'start') {
+  if (
+    command.kind === 'START_RALLY' &&
+    ack.resolved_anchor &&
+    ack.effects.boundary_kind === 'start'
+  ) {
     return {
       schema_version: '3.0.0',
       type: 'rally_snapshot',
@@ -223,17 +245,23 @@ export function applyAnnotationAckLocally(
         score_resolution: 'pending',
         scoring_court_side: null,
         processing_status: 'idle',
-        boundaries: [{
-          kind: 'start',
-          capture_time_us: ack.resolved_anchor.capture_time_us,
-          capture_frame_index: ack.resolved_anchor.capture_frame_index,
-          timing_precision: ack.resolved_anchor.timing_precision,
-        }],
+        boundaries: [
+          {
+            kind: 'start',
+            capture_time_us: ack.resolved_anchor.capture_time_us,
+            capture_frame_index: ack.resolved_anchor.capture_frame_index,
+            timing_precision: ack.resolved_anchor.timing_precision,
+          },
+        ],
         key_points: [],
       },
     }
   }
-  if (command.kind === 'CREATE_SERVICE_KEY_POINT' && ack.resolved_anchor && ack.effects.created_key_point_id) {
+  if (
+    command.kind === 'CREATE_SERVICE_KEY_POINT' &&
+    ack.resolved_anchor &&
+    ack.effects.created_key_point_id
+  ) {
     return {
       schema_version: '2.0.0',
       type: 'rally_snapshot',
@@ -247,26 +275,34 @@ export function applyAnnotationAckLocally(
         score_resolution: 'pending',
         scoring_court_side: null,
         processing_status: 'idle',
-        key_points: [{
-          key_point_id: ack.effects.created_key_point_id,
-          sequence_index: 0,
-          marker_kind: 'service',
-          is_terminal: false,
-          capture_time_us: ack.resolved_anchor.capture_time_us,
-          capture_frame_index: ack.resolved_anchor.capture_frame_index,
-          timing_precision: ack.resolved_anchor.timing_precision,
-          possible_duplicate: false,
-        }],
+        key_points: [
+          {
+            key_point_id: ack.effects.created_key_point_id,
+            sequence_index: 0,
+            marker_kind: 'service',
+            is_terminal: false,
+            capture_time_us: ack.resolved_anchor.capture_time_us,
+            capture_frame_index: ack.resolved_anchor.capture_frame_index,
+            timing_precision: ack.resolved_anchor.timing_precision,
+            possible_duplicate: false,
+          },
+        ],
       },
     }
   }
-  if (!confirmed || confirmed.rally_id !== ack.rally_id || BigInt(confirmed.revision) >= BigInt(ack.result_revision)) return confirmed
+  if (
+    !confirmed ||
+    confirmed.rally_id !== ack.rally_id ||
+    BigInt(confirmed.revision) >= BigInt(ack.result_revision)
+  )
+    return confirmed
   const next = structuredClone(confirmed)
   next.revision = ack.result_revision
   next.server_sequence = ack.server_sequence
   if (ack.effects.annotation_status) next.snapshot.annotation_status = ack.effects.annotation_status
   if (ack.effects.score_resolution) next.snapshot.score_resolution = ack.effects.score_resolution
-  if (ack.effects.scoring_court_side !== undefined) next.snapshot.scoring_court_side = ack.effects.scoring_court_side
+  if (ack.effects.scoring_court_side !== undefined)
+    next.snapshot.scoring_court_side = ack.effects.scoring_court_side
   if (command.kind === 'END_RALLY' && ack.resolved_anchor && ack.effects.boundary_kind === 'end') {
     next.schema_version = '3.0.0'
     next.snapshot.boundaries = [
@@ -278,39 +314,45 @@ export function applyAnnotationAckLocally(
         timing_precision: ack.resolved_anchor.timing_precision,
       },
     ]
-  }
-  else if (command.kind === 'CREATE_CONTACT_KEY_POINT' && ack.resolved_anchor && ack.effects.created_key_point_id) {
+  } else if (
+    command.kind === 'CREATE_CONTACT_KEY_POINT' &&
+    ack.resolved_anchor &&
+    ack.effects.created_key_point_id
+  ) {
     next.snapshot.key_points.push({
       key_point_id: ack.effects.created_key_point_id,
       sequence_index: next.snapshot.key_points.length,
       marker_kind: 'contact',
-      is_terminal: command.payload.terminal_outcome === 'unknown' || ack.effects.terminal_key_point_id === ack.effects.created_key_point_id,
+      is_terminal:
+        command.payload.terminal_outcome === 'unknown' ||
+        ack.effects.terminal_key_point_id === ack.effects.created_key_point_id,
       capture_time_us: ack.resolved_anchor.capture_time_us,
       capture_frame_index: ack.resolved_anchor.capture_frame_index,
       timing_precision: ack.resolved_anchor.timing_precision,
-      possible_duplicate: next.snapshot.key_points.some(point => point.capture_frame_index === ack.resolved_anchor?.capture_frame_index),
+      possible_duplicate: next.snapshot.key_points.some(
+        point => point.capture_frame_index === ack.resolved_anchor?.capture_frame_index,
+      ),
     })
-  }
-  else if (command.kind === 'CLOSE_RALLY') {
+  } else if (command.kind === 'CLOSE_RALLY') {
     const target = next.snapshot.key_points.at(-1)
     if (target) target.is_terminal = true
-  }
-  else if (command.kind === 'MOVE_KEY_POINT' && ack.resolved_anchor) {
-    next.snapshot.key_points = normalizeKeyPointOrder(next.snapshot.key_points.map(point =>
-      point.key_point_id === command.payload.key_point_id
-        ? {
-            ...point,
-            capture_time_us: ack.resolved_anchor!.capture_time_us,
-            capture_frame_index: ack.resolved_anchor!.capture_frame_index,
-            timing_precision: ack.resolved_anchor!.timing_precision,
-          }
-        : point,
-    ))
-  }
-  else if (command.kind === 'DELETE_KEY_POINT') {
-    next.snapshot.key_points = normalizeKeyPointOrder(next.snapshot.key_points.filter(point =>
-      point.key_point_id !== command.payload.key_point_id,
-    ))
+  } else if (command.kind === 'MOVE_KEY_POINT' && ack.resolved_anchor) {
+    next.snapshot.key_points = normalizeKeyPointOrder(
+      next.snapshot.key_points.map(point =>
+        point.key_point_id === command.payload.key_point_id
+          ? {
+              ...point,
+              capture_time_us: ack.resolved_anchor!.capture_time_us,
+              capture_frame_index: ack.resolved_anchor!.capture_frame_index,
+              timing_precision: ack.resolved_anchor!.timing_precision,
+            }
+          : point,
+      ),
+    )
+  } else if (command.kind === 'DELETE_KEY_POINT') {
+    next.snapshot.key_points = normalizeKeyPointOrder(
+      next.snapshot.key_points.filter(point => point.key_point_id !== command.payload.key_point_id),
+    )
   }
   return next
 }

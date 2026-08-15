@@ -1,7 +1,4 @@
-import type {
-  FfprobeFrame,
-  Rational,
-} from '@volleyball-monitoring/media'
+import type { FfprobeFrame, Rational } from '@volleyball-monitoring/media'
 import {
   INTERNAL_MEDIA_SCHEMA_VERSION,
   buildArtifactPlan,
@@ -13,10 +10,7 @@ import {
   type ArtifactKind,
   type ArtifactSourceBytes,
 } from './artifacts.js'
-import {
-  parseFinalizedRecording,
-  type FinalizedRecording,
-} from './finalized-recording.js'
+import { parseFinalizedRecording, type FinalizedRecording } from './finalized-recording.js'
 import { runFfprobe, type ProbeOptions } from './ffprobe.js'
 import {
   MediaIngestEnvelope as MediaIngestEnvelopeSchema,
@@ -79,19 +73,15 @@ function deterministicProbeError(
 }
 
 export function probeSamples(frames: readonly FfprobeFrame[], streamEndPtsExclusive?: bigint) {
-  const videoFrames = frames.filter((frame) => frame.media_type === 'video')
+  const videoFrames = frames.filter(frame => frame.media_type === 'video')
   if (videoFrames.length === 0) {
     throw deterministicProbeError('NO_VIDEO_SAMPLES', 'Finalized media has no video samples.')
   }
-  const normalized = videoFrames.map((frame) => {
+  const normalized = videoFrames.map(frame => {
     if (
-      frame.pts === undefined
-      || !SIGNED_DECIMAL.test(frame.pts)
-      || (
-        frame.key_frame !== undefined
-        && frame.key_frame !== 0
-        && frame.key_frame !== 1
-      )
+      frame.pts === undefined ||
+      !SIGNED_DECIMAL.test(frame.pts) ||
+      (frame.key_frame !== undefined && frame.key_frame !== 0 && frame.key_frame !== 1)
     ) {
       throw deterministicProbeError(
         'INVALID_SAMPLE_TIMING',
@@ -106,19 +96,26 @@ export function probeSamples(frames: readonly FfprobeFrame[], streamEndPtsExclus
   })
   return normalized.map((frame, index) => {
     const next = normalized[index + 1]
-    const packetDuration = frame.packetDuration !== undefined && POSITIVE_DECIMAL.test(frame.packetDuration)
-      ? BigInt(frame.packetDuration)
-      : null
+    const packetDuration =
+      frame.packetDuration !== undefined && POSITIVE_DECIMAL.test(frame.packetDuration)
+        ? BigInt(frame.packetDuration)
+        : null
     const durationPts = next
       ? next.sourcePts - frame.sourcePts
-      : packetDuration ?? (streamEndPtsExclusive === undefined ? 0n : streamEndPtsExclusive - frame.sourcePts)
+      : (packetDuration ??
+        (streamEndPtsExclusive === undefined ? 0n : streamEndPtsExclusive - frame.sourcePts))
     if (durationPts <= 0n) {
       throw deterministicProbeError(
         'INVALID_SAMPLE_TIMING',
         'Finalized media sample timing is invalid.',
       )
     }
-    if (!next && packetDuration !== null && streamEndPtsExclusive !== undefined && frame.sourcePts + packetDuration !== streamEndPtsExclusive) {
+    if (
+      !next &&
+      packetDuration !== null &&
+      streamEndPtsExclusive !== undefined &&
+      frame.sourcePts + packetDuration !== streamEndPtsExclusive
+    ) {
       throw deterministicProbeError(
         'INVALID_SAMPLE_TIMING',
         'Finalized media sample timing is invalid.',
@@ -141,9 +138,7 @@ function artifactReservation(
   return {
     kind,
     location: planObjectLocation(bucket, captureSessionId, ingestKey, kind),
-    contentType: kind === 'sample-index'
-      ? 'application/json' as const
-      : 'video/mp4' as const,
+    contentType: kind === 'sample-index' ? ('application/json' as const) : ('video/mp4' as const),
     internalSchemaVersion: INTERNAL_MEDIA_SCHEMA_VERSION,
   }
 }
@@ -157,16 +152,15 @@ function assertAuthoritativePlan(
     throw new Error('Authoritative artifact identity conflicts with reservation.')
   }
   for (const reservation of reservations) {
-    const artifact = authoritative.artifacts.find(
-      (candidate) => candidate.kind === reservation.kind,
-    )
+    const artifact = authoritative.artifacts.find(candidate => candidate.kind === reservation.kind)
     if (
-      !artifact
-      || artifact.location.bucket !== reservation.location.bucket
-      || artifact.location.key !== reservation.location.key
-      || artifact.contentType !== reservation.contentType
-      || artifact.internalSchemaVersion !== reservation.internalSchemaVersion
-    ) throw new Error('Authoritative artifact metadata conflicts with reservation.')
+      !artifact ||
+      artifact.location.bucket !== reservation.location.bucket ||
+      artifact.location.key !== reservation.location.key ||
+      artifact.contentType !== reservation.contentType ||
+      artifact.internalSchemaVersion !== reservation.internalSchemaVersion
+    )
+      throw new Error('Authoritative artifact metadata conflicts with reservation.')
   }
 }
 
@@ -184,32 +178,18 @@ export async function ingestEnvelope(
     finalized: true,
   })
   const probe = deps.probe ?? runFfprobe
-  const probeResult = await probe(
-    recording.trustedPath,
-    signal ? { signal } : {},
-  )
+  const probeResult = await probe(recording.trustedPath, signal ? { signal } : {})
   const samples = probeSamples(probeResult.frames, probeResult.streamEndPtsExclusive)
-  const source = await deps.source.read(
-    recording,
-    signal ? { signal } : {},
-  )
+  const source = await deps.source.read(recording, signal ? { signal } : {})
 
   const ingestKey = idempotencyKey(recording, sourceContentSha256(source))
-  const reservations = (['init', 'media', 'sample-index'] as const).map(
-    (kind) => artifactReservation(
-      deps.bucket,
-      envelope.captureSessionId,
-      ingestKey,
-      kind,
-    ),
+  const reservations = (['init', 'media', 'sample-index'] as const).map(kind =>
+    artifactReservation(deps.bucket, envelope.captureSessionId, ingestKey, kind),
   )
   const profile = await deps.profile(envelope.captureSessionId, {
     frameCount: BigInt(samples.length),
     timeBase: probeResult.timeBase,
-    durationPts: samples.reduce(
-      (duration, sample) => duration + sample.durationPts,
-      0n,
-    ),
+    durationPts: samples.reduce((duration, sample) => duration + sample.durationPts, 0n),
   })
   const reservationInput: FinalizedSegmentReservationInput = {
     captureSessionId: envelope.captureSessionId,
@@ -228,12 +208,7 @@ export async function ingestEnvelope(
     artifacts: reservations,
   }
   const reservation = await deps.repository.reserveUploading(reservationInput)
-  const authoritative = buildArtifactPlan(
-    deps.bucket,
-    recording,
-    source,
-    reservation.sampleIndex,
-  )
+  const authoritative = buildArtifactPlan(deps.bucket, recording, source, reservation.sampleIndex)
   assertAuthoritativePlan(ingestKey, reservations, authoritative)
 
   const expected = metadataFor(authoritative.artifacts)

@@ -46,12 +46,7 @@ describe('composition lifecycle', () => {
     const lifecycle = createMediaIndexerLifecycle(test.ports)
     await expect(lifecycle.start()).rejects.toThrow('scanner.start failed')
     await lifecycle.stop()
-    expect(test.calls).toEqual([
-      'queue.start',
-      'scanner.start',
-      'queue.stop',
-      'disconnect',
-    ])
+    expect(test.calls).toEqual(['queue.start', 'scanner.start', 'queue.stop', 'disconnect'])
   })
 
   it('stops scanner, queue and database once in reverse order', async () => {
@@ -95,12 +90,7 @@ describe('composition lifecycle', () => {
     const test = harness({ scannerStart: true, queueStop: true })
     const lifecycle = createMediaIndexerLifecycle(test.ports)
     await expect(lifecycle.start()).rejects.toThrow('startup and cleanup failed')
-    expect(test.calls).toEqual([
-      'queue.start',
-      'scanner.start',
-      'queue.stop',
-      'disconnect',
-    ])
+    expect(test.calls).toEqual(['queue.start', 'scanner.start', 'queue.stop', 'disconnect'])
   })
 
   it('preserves receiver binding for stateful lifecycle ports', async () => {
@@ -130,7 +120,9 @@ describe('composition lifecycle', () => {
     const lifecycle = createMediaIndexerLifecycle({
       queue,
       scanner,
-      disconnect: async () => { calls.push('disconnect') },
+      disconnect: async () => {
+        calls.push('disconnect')
+      },
     })
 
     await lifecycle.start()

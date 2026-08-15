@@ -34,13 +34,14 @@ export function createPgBossOutboxPublisher(connectionString: string): DurableOu
           retentionSeconds: 7 * 24 * 60 * 60,
           deleteAfterSeconds: 7 * 24 * 60 * 60,
         })
-      }
-      catch (error) {
+      } catch (error) {
         await boss.stop({ graceful: true }).catch(() => undefined)
         throw error
       }
     },
-    async stop() { await boss.stop({ graceful: true }) },
+    async stop() {
+      await boss.stop({ graceful: true })
+    },
     async send(envelope) {
       return boss.send(OUTBOX_QUEUE, envelope, {
         id: envelope.outbox_event_id,
@@ -50,8 +51,10 @@ export function createPgBossOutboxPublisher(connectionString: string): DurableOu
   }
 }
 
-const retryDelayMs = (attempt: number) => Math.min(60 * 60_000, 1_000 * 2 ** Math.min(10, Math.max(0, attempt - 1)))
-const sanitizedFailure = (error: unknown) => `OUTBOX_PUBLISH_FAILED:${error instanceof Error ? error.name : 'UnknownError'}`.slice(0, 500)
+const retryDelayMs = (attempt: number) =>
+  Math.min(60 * 60_000, 1_000 * 2 ** Math.min(10, Math.max(0, attempt - 1)))
+const sanitizedFailure = (error: unknown) =>
+  `OUTBOX_PUBLISH_FAILED:${error instanceof Error ? error.name : 'UnknownError'}`.slice(0, 500)
 
 export function createOutboxPublisherWorker(
   database: PrismaClient,
@@ -119,8 +122,7 @@ export function createOutboxPublisherWorker(
         data: { status: 'PUBLISHED', publishedAt, availableAt: publishedAt, lastError: null },
       })
       if (updated.count !== 1) throw new Error('Outbox publish acknowledgement lost its claim')
-    }
-    catch (error) {
+    } catch (error) {
       const terminal = attempt >= MAX_ATTEMPTS
       await database.outboxEvent.updateMany({
         where: { id: candidate.id, status: 'PENDING', attempts: attempt },
@@ -136,16 +138,20 @@ export function createOutboxPublisherWorker(
 
   const polling = createPollingLifecycle(processNext, {
     ...(options.idleMs === undefined ? {} : { idleMs: options.idleMs }),
-    onError: (error) => {
-      console.error('outbox-publisher loop error', error instanceof Error ? error.name : 'UnknownError')
+    onError: error => {
+      console.error(
+        'outbox-publisher loop error',
+        error instanceof Error ? error.name : 'UnknownError',
+      )
       options.onError?.(error)
     },
   })
   return {
     async start() {
       await publisher.start()
-      try { await polling.start() }
-      catch (error) {
+      try {
+        await polling.start()
+      } catch (error) {
         await publisher.stop().catch(() => undefined)
         throw error
       }

@@ -11,7 +11,7 @@ const { buildSchema, parse, validate } = requireFromServer('graphql')
 
 function graphqlDocuments(directory) {
   return readdirSync(directory, { withFileTypes: true })
-    .flatMap((entry) => {
+    .flatMap(entry => {
       const path = join(directory, entry.name)
       if (entry.isDirectory()) return graphqlDocuments(path)
       return extname(entry.name) === '.graphql' ? [path] : []

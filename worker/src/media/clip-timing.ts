@@ -85,13 +85,13 @@ function validateSegmentMetadata(segment: ClipSourceSegment): void {
   const last = segment.index.samples.at(-1)
   if (!first || !last) throw new Error(`sample index is empty for segment ${segment.id}`)
   if (
-    segment.index.epochId !== segment.captureEpochId
-    || segment.captureStartUs !== segment.index.availableStartUs
-    || segment.captureEndUs !== segment.index.availableEndUs
-    || segment.sourcePtsStart !== first.sourcePts
-    || segment.sourcePtsEnd !== last.sourcePts + last.durationPts
-    || segment.firstFrameIndex !== first.captureFrameIndex
-    || segment.frameCount !== BigInt(segment.index.samples.length)
+    segment.index.epochId !== segment.captureEpochId ||
+    segment.captureStartUs !== segment.index.availableStartUs ||
+    segment.captureEndUs !== segment.index.availableEndUs ||
+    segment.sourcePtsStart !== first.sourcePts ||
+    segment.sourcePtsEnd !== last.sourcePts + last.durationPts ||
+    segment.firstFrameIndex !== first.captureFrameIndex ||
+    segment.frameCount !== BigInt(segment.index.samples.length)
   ) {
     throw new Error(`sample index metadata does not match segment ${segment.id}`)
   }
@@ -137,15 +137,14 @@ export function selectCanonicalClipRange(
     }
     const epochTimingOrigin = epochTimingOrigins.get(segment.captureEpochId)!
     for (const sample of segment.index.samples) {
-      const expectedCaptureTimeUs = epochTimingOrigin.captureTimeUs + rescalePtsToUs(
-        sample.sourcePts - epochTimingOrigin.sourcePts,
-        timeBase,
-      )
+      const expectedCaptureTimeUs =
+        epochTimingOrigin.captureTimeUs +
+        rescalePtsToUs(sample.sourcePts - epochTimingOrigin.sourcePts, timeBase)
       if (previous) {
         if (
-          (segment.captureEpochId === previous.captureEpochId
-            && sample.sourcePts !== previous.sourcePts + previous.durationPts)
-          || sample.captureFrameIndex !== previous.captureFrameIndex + 1n
+          (segment.captureEpochId === previous.captureEpochId &&
+            sample.sourcePts !== previous.sourcePts + previous.durationPts) ||
+          sample.captureFrameIndex !== previous.captureFrameIndex + 1n
         ) {
           throw new Error('canonical sample sequence is not contiguous')
         }
@@ -163,13 +162,15 @@ export function selectCanonicalClipRange(
     previousEndCaptureUs = segment.captureEndUs
   }
 
-  const firstOrdinal = allSamples.findIndex(sample =>
-    sampleEndCaptureUs(sample, timeBase) > requestedStartCaptureUs,
+  const firstOrdinal = allSamples.findIndex(
+    sample => sampleEndCaptureUs(sample, timeBase) > requestedStartCaptureUs,
   )
   // A rally END boundary is an observed source frame, not the gap after it.
   // Keep the sample whose start is exactly the requested end so zero post-roll
   // clips can still map that immutable boundary without approximating timing.
-  let endOrdinalExclusive = allSamples.findIndex(sample => sample.captureTimeUs > requestedEndCaptureUs)
+  let endOrdinalExclusive = allSamples.findIndex(
+    sample => sample.captureTimeUs > requestedEndCaptureUs,
+  )
   if (endOrdinalExclusive < 0) endOrdinalExclusive = allSamples.length
   if (firstOrdinal < 0 || endOrdinalExclusive <= firstOrdinal) {
     throw new Error('requested DVR range does not contain a complete source sample')
@@ -180,11 +181,12 @@ export function selectCanonicalClipRange(
   const last = sourceSamples.at(-1)!
   const keyPointOrdinals = new Map<string, number>()
   for (const point of keyPoints) {
-    const ordinal = sourceSamples.findIndex(sample =>
-      point.captureEpochId === sample.captureEpochId
-      && point.sourcePts === sample.sourcePts
-      && point.captureTimeUs === sample.captureTimeUs
-      && point.captureFrameIndex === sample.captureFrameIndex,
+    const ordinal = sourceSamples.findIndex(
+      sample =>
+        point.captureEpochId === sample.captureEpochId &&
+        point.sourcePts === sample.sourcePts &&
+        point.captureTimeUs === sample.captureTimeUs &&
+        point.captureFrameIndex === sample.captureFrameIndex,
     )
     if (ordinal < 0) throw new Error(`immutable key point ${point.id} has no exact source sample`)
     keyPointOrdinals.set(point.id, ordinal)
@@ -207,28 +209,44 @@ export function selectCanonicalClipRange(
 export function buildCanonicalClipFfmpegArgs(
   sourcePath: string,
   outputPath: string,
-  selection: Pick<SelectedClipRange, 'sourceStartFrame' | 'sourceEndFrameExclusive' | 'sourceStartOffsetUs' | 'durationUs'>,
+  selection: Pick<
+    SelectedClipRange,
+    'sourceStartFrame' | 'sourceEndFrameExclusive' | 'sourceStartOffsetUs' | 'durationUs'
+  >,
   sourceKind: 'file' | 'concat' = 'file',
 ): string[] {
   const seconds = (value: bigint) => {
-    if (value < 0n || value > 3_600_000_000n) throw new Error('clip timing is outside the bounded profile')
+    if (value < 0n || value > 3_600_000_000n)
+      throw new Error('clip timing is outside the bounded profile')
     return `${value / 1_000_000n}.${(value % 1_000_000n).toString().padStart(6, '0')}`
   }
   return [
     '-y',
-    '-v', 'error',
+    '-v',
+    'error',
     ...(sourceKind === 'concat' ? ['-f', 'concat', '-safe', '0'] : []),
-    '-i', sourcePath,
-    '-map', '0:v:0',
-    '-map', '0:a?',
-    '-vf', `trim=start_frame=${selection.sourceStartFrame}:end_frame=${selection.sourceEndFrameExclusive},setpts=PTS-STARTPTS`,
-    '-af', `atrim=start=${seconds(selection.sourceStartOffsetUs)}:duration=${seconds(selection.durationUs)},asetpts=PTS-STARTPTS`,
-    '-c:v', 'libx264',
-    '-preset', 'veryfast',
-    '-pix_fmt', 'yuv420p',
-    '-fps_mode', 'passthrough',
-    '-c:a', 'aac',
-    '-movflags', '+faststart',
+    '-i',
+    sourcePath,
+    '-map',
+    '0:v:0',
+    '-map',
+    '0:a?',
+    '-vf',
+    `trim=start_frame=${selection.sourceStartFrame}:end_frame=${selection.sourceEndFrameExclusive},setpts=PTS-STARTPTS`,
+    '-af',
+    `atrim=start=${seconds(selection.sourceStartOffsetUs)}:duration=${seconds(selection.durationUs)},asetpts=PTS-STARTPTS`,
+    '-c:v',
+    'libx264',
+    '-preset',
+    'veryfast',
+    '-pix_fmt',
+    'yuv420p',
+    '-fps_mode',
+    'passthrough',
+    '-c:a',
+    'aac',
+    '-movflags',
+    '+faststart',
     outputPath,
   ]
 }
@@ -258,14 +276,15 @@ export function parseCanonicalClipProbe(
     frames: (payload.frames ?? []).filter(frame => frame.media_type === 'video'),
   })
   if (parsed.frames.length !== expectedFrameCount) {
-    throw new Error(`canonical clip frame count mismatch: expected ${expectedFrameCount}, received ${parsed.frames.length}`)
+    throw new Error(
+      `canonical clip frame count mismatch: expected ${expectedFrameCount}, received ${parsed.frames.length}`,
+    )
   }
   const framePts = parsed.frames.map((frame, index) => {
     try {
       if (frame.pts === undefined) throw new Error('missing')
       return BigInt(frame.pts)
-    }
-    catch {
+    } catch {
       throw new Error(`canonical output frame ${index} has invalid PTS`)
     }
   })
@@ -276,20 +295,21 @@ export function parseCanonicalClipProbe(
     if (frame.pkt_duration !== undefined) {
       try {
         packetDuration = BigInt(frame.pkt_duration)
-      }
-      catch {
+      } catch {
         throw new Error(`canonical output frame ${index} has invalid duration`)
       }
     }
-    const durationPts = nextPts === undefined
-      ? packetDuration ?? (parsed.streamEndPtsExclusive === undefined ? 0n : parsed.streamEndPtsExclusive - pts)
-      : nextPts - pts
+    const durationPts =
+      nextPts === undefined
+        ? (packetDuration ??
+          (parsed.streamEndPtsExclusive === undefined ? 0n : parsed.streamEndPtsExclusive - pts))
+        : nextPts - pts
     if (durationPts <= 0n) throw new Error(`canonical output frame ${index} has invalid timing`)
     if (
-      nextPts === undefined
-      && packetDuration !== undefined
-      && parsed.streamEndPtsExclusive !== undefined
-      && pts + packetDuration !== parsed.streamEndPtsExclusive
+      nextPts === undefined &&
+      packetDuration !== undefined &&
+      parsed.streamEndPtsExclusive !== undefined &&
+      pts + packetDuration !== parsed.streamEndPtsExclusive
     ) {
       throw new Error('canonical output tail duration conflicts with stream duration')
     }
@@ -320,7 +340,8 @@ export function mapClipKeyPoint(
 ): { clipPts: bigint; clipTimeUs: bigint; clipFrameIndex: bigint } {
   const frame = video.frames[ordinal]
   const first = video.frames[0]
-  if (!frame || !first) throw new Error(`canonical output frame is missing for key point ${keyPointId}`)
+  if (!frame || !first)
+    throw new Error(`canonical output frame is missing for key point ${keyPointId}`)
   const timeBase = { num: BigInt(video.timeBase.num), den: BigInt(video.timeBase.den) }
   return {
     clipPts: frame.pts,

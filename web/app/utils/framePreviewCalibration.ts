@@ -17,8 +17,7 @@ export function estimateFrameDurationSeconds(
     }
     const seconds = Number(delta) / frameCount / 1_000_000
     return Number.isFinite(seconds) ? seconds : null
-  }
-  catch {
+  } catch {
     return null
   }
 }

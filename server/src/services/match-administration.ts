@@ -29,7 +29,10 @@ export interface MatchDeletionRequestDependencies {
   stopMediaSource?: typeof requestMediaSourceStop
 }
 
-interface CleanupAsset extends MediaObjectLocation { byteLength: bigint | null; id: string }
+interface CleanupAsset extends MediaObjectLocation {
+  byteLength: bigint | null
+  id: string
+}
 const OBJECT_CLEANUP_CONCURRENCY = 8
 
 function safeChild(root: string, child: string): string | null {
@@ -57,7 +60,8 @@ async function waitForMediaSourcesStopped(
       },
     })
     if (active === 0) return
-    if (Date.now() >= deadline) throw new Error('Media source shutdown did not settle before match deletion')
+    if (Date.now() >= deadline)
+      throw new Error('Media source shutdown did not settle before match deletion')
     await new Promise(resolvePromise => setTimeout(resolvePromise, 100))
   }
 }
@@ -82,7 +86,11 @@ export async function requestMatchDeletion(
       id: matchId,
       ...(actor.role === UserRole.ADMIN
         ? {}
-        : { members: { some: { userId: actor.id, role: { in: [UserRole.ADMIN, UserRole.OPERATOR] } } } }),
+        : {
+            members: {
+              some: { userId: actor.id, role: { in: [UserRole.ADMIN, UserRole.OPERATOR] } },
+            },
+          }),
     },
   })
   if (!match) domainError('Match was not found', 'NOT_FOUND')
@@ -94,7 +102,9 @@ export async function requestMatchDeletion(
 
   const sourceCaptures = match.captureSessions
     .filter(capture => !['FAILED', 'FINISHED'].includes(capture.status))
-    .filter(capture => ['local_mp4', 'youtube', 'youtube_live', 'youtube_vod'].includes(capture.sourceKind))
+    .filter(capture =>
+      ['local_mp4', 'youtube', 'youtube_live', 'youtube_vod'].includes(capture.sourceKind),
+    )
   const stopMediaSource = dependencies.stopMediaSource ?? requestMediaSourceStop
   await Promise.allSettled(sourceCaptures.map(capture => stopMediaSource(database, capture.id)))
 
@@ -126,40 +136,58 @@ export async function finalizeMatchDeletion(
   })
   if (!match) throw new Error('Match deletion is not pending')
 
-  const assets = await database.mediaAsset.findMany({
+  const assets = (await database.mediaAsset.findMany({
     select: { bucket: true, byteLength: true, id: true, objectKey: true },
-    where: { OR: [
-      { dvrInitSegments: { some: { program: { captureSession: { matchId } } } } },
-      { dvrMediaSegments: { some: { program: { captureSession: { matchId } } } } },
-      { dvrSampleIndexSegments: { some: { program: { captureSession: { matchId } } } } },
-      { clipOutputs: { some: { submission: { rally: { matchId } } } } },
-      { clipTimingManifests: { some: { submission: { rally: { matchId } } } } },
-      { analysisDataRaw: { some: { submission: { rally: { matchId } } } } },
-      { analysisArtifacts: { some: { analysisRun: { submission: { rally: { matchId } } } } } },
-      { analysisFrameChunks: { some: { manifest: { analysisRun: { submission: { rally: { matchId } } } } } } },
-    ] },
-  }) as CleanupAsset[]
+    where: {
+      OR: [
+        { dvrInitSegments: { some: { program: { captureSession: { matchId } } } } },
+        { dvrMediaSegments: { some: { program: { captureSession: { matchId } } } } },
+        { dvrSampleIndexSegments: { some: { program: { captureSession: { matchId } } } } },
+        { clipOutputs: { some: { submission: { rally: { matchId } } } } },
+        { clipTimingManifests: { some: { submission: { rally: { matchId } } } } },
+        { analysisDataRaw: { some: { submission: { rally: { matchId } } } } },
+        { analysisArtifacts: { some: { analysisRun: { submission: { rally: { matchId } } } } } },
+        {
+          analysisFrameChunks: {
+            some: { manifest: { analysisRun: { submission: { rally: { matchId } } } } },
+          },
+        },
+      ],
+    },
+  })) as CleanupAsset[]
 
   const removableAssets = assets.length
-    ? await database.mediaAsset.findMany({
+    ? ((await database.mediaAsset.findMany({
         select: { bucket: true, byteLength: true, id: true, objectKey: true },
         where: {
           id: { in: assets.map(asset => asset.id) },
-          analysisArtifacts: { none: { analysisRun: { submission: { rally: { matchId: { not: matchId } } } } } },
+          analysisArtifacts: {
+            none: { analysisRun: { submission: { rally: { matchId: { not: matchId } } } } },
+          },
           analysisDataRaw: { none: { submission: { rally: { matchId: { not: matchId } } } } },
           clipOutputs: { none: { submission: { rally: { matchId: { not: matchId } } } } },
           clipTimingManifests: { none: { submission: { rally: { matchId: { not: matchId } } } } },
           dvrInitSegments: { none: { program: { captureSession: { matchId: { not: matchId } } } } },
-          dvrMediaSegments: { none: { program: { captureSession: { matchId: { not: matchId } } } } },
-          dvrSampleIndexSegments: { none: { program: { captureSession: { matchId: { not: matchId } } } } },
-          analysisFrameChunks: { none: { manifest: { analysisRun: { submission: { rally: { matchId: { not: matchId } } } } } } },
+          dvrMediaSegments: {
+            none: { program: { captureSession: { matchId: { not: matchId } } } },
+          },
+          dvrSampleIndexSegments: {
+            none: { program: { captureSession: { matchId: { not: matchId } } } },
+          },
+          analysisFrameChunks: {
+            none: {
+              manifest: { analysisRun: { submission: { rally: { matchId: { not: matchId } } } } },
+            },
+          },
         },
-      }) as CleanupAsset[]
+      })) as CleanupAsset[])
     : []
 
   const sourceCaptures = match.captureSessions
     .filter(capture => !['FAILED', 'FINISHED'].includes(capture.status))
-    .filter(capture => ['local_mp4', 'youtube', 'youtube_live', 'youtube_vod'].includes(capture.sourceKind))
+    .filter(capture =>
+      ['local_mp4', 'youtube', 'youtube_live', 'youtube_vod'].includes(capture.sourceKind),
+    )
   const stopMediaSource = dependencies.stopMediaSource ?? requestMediaSourceStop
   await Promise.all(sourceCaptures.map(capture => stopMediaSource(database, capture.id)))
   await waitForMediaSourcesStopped(
@@ -170,7 +198,8 @@ export async function finalizeMatchDeletion(
   if (removableAssets.length > 0 && !dependencies.objectRemover) {
     throw new Error('Media object cleanup is not configured; match was not deleted')
   }
-  if (dependencies.objectRemover) await removeMediaObjects(removableAssets, dependencies.objectRemover)
+  if (dependencies.objectRemover)
+    await removeMediaObjects(removableAssets, dependencies.objectRemover)
 
   const removePath = dependencies.removePath ?? (path => rm(path, { force: true, recursive: true }))
   const paths = new Set<string>()
@@ -181,45 +210,98 @@ export async function finalizeMatchDeletion(
     if (importPath) paths.add(importPath)
   }
   for (const path of paths) {
-    try { await removePath(path) }
-    catch { throw new Error(`Local media cleanup failed; match was not deleted: ${path}`) }
+    try {
+      await removePath(path)
+    } catch {
+      throw new Error(`Local media cleanup failed; match was not deleted: ${path}`)
+    }
   }
 
   const captureIds = match.captureSessions.map(capture => capture.id)
   const teamIds = match.matchTeams.map(item => item.teamId)
-  const playerIds = match.rosterEntries.flatMap(item => item.playerId ? [item.playerId] : [])
-  await database.$transaction(async (tx) => {
-    const rallyIds = (await tx.rally.findMany({ select: { id: true }, where: { matchId } })).map(item => item.id)
+  const playerIds = match.rosterEntries.flatMap(item => (item.playerId ? [item.playerId] : []))
+  await database.$transaction(async tx => {
+    const rallyIds = (await tx.rally.findMany({ select: { id: true }, where: { matchId } })).map(
+      item => item.id,
+    )
     const submissionIds = rallyIds.length
-      ? (await tx.rallySubmission.findMany({ select: { id: true }, where: { rallyId: { in: rallyIds } } })).map(item => item.id)
+      ? (
+          await tx.rallySubmission.findMany({
+            select: { id: true },
+            where: { rallyId: { in: rallyIds } },
+          })
+        ).map(item => item.id)
       : []
     const submissionKeyPointIds = submissionIds.length
-      ? (await tx.rallySubmissionKeyPoint.findMany({ select: { id: true }, where: { submissionId: { in: submissionIds } } })).map(item => item.id)
+      ? (
+          await tx.rallySubmissionKeyPoint.findMany({
+            select: { id: true },
+            where: { submissionId: { in: submissionIds } },
+          })
+        ).map(item => item.id)
       : []
     const clipJobIds = submissionIds.length
-      ? (await tx.clipJob.findMany({ select: { id: true }, where: { submissionId: { in: submissionIds } } })).map(item => item.id)
+      ? (
+          await tx.clipJob.findMany({
+            select: { id: true },
+            where: { submissionId: { in: submissionIds } },
+          })
+        ).map(item => item.id)
       : []
     const aiJobIds = submissionIds.length
-      ? (await tx.aiJob.findMany({ select: { id: true }, where: { submissionId: { in: submissionIds } } })).map(item => item.id)
+      ? (
+          await tx.aiJob.findMany({
+            select: { id: true },
+            where: { submissionId: { in: submissionIds } },
+          })
+        ).map(item => item.id)
       : []
     const analysisRunIds = submissionIds.length
-      ? (await tx.analysisRun.findMany({ select: { id: true }, where: { submissionId: { in: submissionIds } } })).map(item => item.id)
+      ? (
+          await tx.analysisRun.findMany({
+            select: { id: true },
+            where: { submissionId: { in: submissionIds } },
+          })
+        ).map(item => item.id)
       : []
 
-    const aggregateIds = [matchId, ...captureIds, ...rallyIds, ...submissionIds, ...clipJobIds, ...aiJobIds, ...analysisRunIds]
+    const aggregateIds = [
+      matchId,
+      ...captureIds,
+      ...rallyIds,
+      ...submissionIds,
+      ...clipJobIds,
+      ...aiJobIds,
+      ...analysisRunIds,
+    ]
     await tx.outboxEvent.deleteMany({ where: { aggregateId: { in: aggregateIds } } })
 
-    if (analysisRunIds.length) await tx.analysisRun.deleteMany({ where: { id: { in: analysisRunIds } } })
+    if (analysisRunIds.length)
+      await tx.analysisRun.deleteMany({ where: { id: { in: analysisRunIds } } })
     if (aiJobIds.length) await tx.aiJob.deleteMany({ where: { id: { in: aiJobIds } } })
     if (clipJobIds.length) await tx.clipJob.deleteMany({ where: { id: { in: clipJobIds } } })
     if (submissionIds.length) {
       await tx.pointAward.deleteMany({ where: { submissionId: { in: submissionIds } } })
-      await tx.scoreLedgerEntry.deleteMany({ where: { OR: [{ submissionId: { in: submissionIds } }, { supersededSubmissionId: { in: submissionIds } }] } })
-      await tx.rallySubmission.updateMany({ data: { serviceKeyPointId: null, supersedesSubmissionId: null, terminalKeyPointId: null }, where: { id: { in: submissionIds } } })
-      await tx.rallySubmissionBoundary.deleteMany({ where: { submissionId: { in: submissionIds } } })
+      await tx.scoreLedgerEntry.deleteMany({
+        where: {
+          OR: [
+            { submissionId: { in: submissionIds } },
+            { supersededSubmissionId: { in: submissionIds } },
+          ],
+        },
+      })
+      await tx.rallySubmission.updateMany({
+        data: { serviceKeyPointId: null, supersedesSubmissionId: null, terminalKeyPointId: null },
+        where: { id: { in: submissionIds } },
+      })
+      await tx.rallySubmissionBoundary.deleteMany({
+        where: { submissionId: { in: submissionIds } },
+      })
     }
-    if (submissionKeyPointIds.length) await tx.rallySubmissionKeyPoint.deleteMany({ where: { id: { in: submissionKeyPointIds } } })
-    if (submissionIds.length) await tx.rallySubmission.deleteMany({ where: { id: { in: submissionIds } } })
+    if (submissionKeyPointIds.length)
+      await tx.rallySubmissionKeyPoint.deleteMany({ where: { id: { in: submissionKeyPointIds } } })
+    if (submissionIds.length)
+      await tx.rallySubmission.deleteMany({ where: { id: { in: submissionIds } } })
     if (rallyIds.length) {
       await tx.annotationOperation.deleteMany({ where: { rallyId: { in: rallyIds } } })
       await tx.annotationCommandReceipt.deleteMany({ where: { rallyId: { in: rallyIds } } })
@@ -235,24 +317,34 @@ export async function finalizeMatchDeletion(
     if (removableAssets.length) {
       const removed = await tx.mediaAsset.deleteMany({
         where: {
-          id: { in: removableAssets.map(asset => asset.id) }, analysisArtifacts: { none: {} }, analysisDataRaw: { none: {} },
-          clipOutputs: { none: {} }, clipTimingManifests: { none: {} }, dvrInitSegments: { none: {} }, dvrMediaSegments: { none: {} },
-          dvrSampleIndexSegments: { none: {} }, analysisFrameChunks: { none: {} },
+          id: { in: removableAssets.map(asset => asset.id) },
+          analysisArtifacts: { none: {} },
+          analysisDataRaw: { none: {} },
+          clipOutputs: { none: {} },
+          clipTimingManifests: { none: {} },
+          dvrInitSegments: { none: {} },
+          dvrMediaSegments: { none: {} },
+          dvrSampleIndexSegments: { none: {} },
+          analysisFrameChunks: { none: {} },
         },
       })
       if (removed.count !== removableAssets.length) {
         throw new Error('Media asset references changed during match deletion')
       }
     }
-    if (playerIds.length) await tx.player.deleteMany({ where: { id: { in: playerIds }, rosterEntries: { none: {} } } })
-    if (teamIds.length) await tx.team.deleteMany({ where: { id: { in: teamIds }, matchTeams: { none: {} } } })
+    if (playerIds.length)
+      await tx.player.deleteMany({ where: { id: { in: playerIds }, rosterEntries: { none: {} } } })
+    if (teamIds.length)
+      await tx.team.deleteMany({ where: { id: { in: teamIds }, matchTeams: { none: {} } } })
   })
 
   return {
     cleanupWarnings: [],
     matchId,
     removedAssetCount: removableAssets.length,
-    removedBytes: removableAssets.reduce((total, asset) => total + (asset.byteLength ?? 0n), 0n).toString(),
+    removedBytes: removableAssets
+      .reduce((total, asset) => total + (asset.byteLength ?? 0n), 0n)
+      .toString(),
   }
 }
 
@@ -266,8 +358,13 @@ async function removeMediaObjects(
     async () => {
       while (cursor < assets.length) {
         const asset = assets[cursor++]!
-        try { await remover(asset) }
-        catch { throw new Error(`Media object cleanup failed; match was not deleted: ${asset.bucket}/${asset.objectKey}`) }
+        try {
+          await remover(asset)
+        } catch {
+          throw new Error(
+            `Media object cleanup failed; match was not deleted: ${asset.bucket}/${asset.objectKey}`,
+          )
+        }
       }
     },
   )

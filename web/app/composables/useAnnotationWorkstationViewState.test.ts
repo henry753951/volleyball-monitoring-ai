@@ -34,7 +34,9 @@ describe('annotation workstation view persistence', () => {
     })
     await nextTick()
 
-    expect(JSON.parse(localStorage.getItem(annotationWorkstationViewStorageKey('match-1'))!)).toMatchObject({
+    expect(
+      JSON.parse(localStorage.getItem(annotationWorkstationViewStorageKey('match-1'))!),
+    ).toMatchObject({
       schemaVersion: 1,
       captureSessionId: 'capture-1',
       cursorCaptureTimeUs: '3500',
@@ -78,18 +80,26 @@ describe('annotation workstation view persistence', () => {
   })
 
   it('rejects malformed or cross-capture stored values without throwing', () => {
-    expect(parseAnnotationWorkstationViewState({ schemaVersion: 1, captureSessionId: 'capture-1', cursorCaptureTimeUs: '-1' })).toBeNull()
-    expect(parseAnnotationWorkstationViewState({
-      schemaVersion: 1,
-      captureSessionId: 'capture-1',
-      cursorCaptureTimeUs: '1200',
-      timelineViewport: {
-        captureSessionId: 'capture-2',
-        startCaptureTimeUs: '1000',
-        endCaptureTimeUs: '2000',
-        scale: 1,
-      },
-    })).toMatchObject({ cursorCaptureTimeUs: '1200', timelineViewport: null })
+    expect(
+      parseAnnotationWorkstationViewState({
+        schemaVersion: 1,
+        captureSessionId: 'capture-1',
+        cursorCaptureTimeUs: '-1',
+      }),
+    ).toBeNull()
+    expect(
+      parseAnnotationWorkstationViewState({
+        schemaVersion: 1,
+        captureSessionId: 'capture-1',
+        cursorCaptureTimeUs: '1200',
+        timelineViewport: {
+          captureSessionId: 'capture-2',
+          startCaptureTimeUs: '1000',
+          endCaptureTimeUs: '2000',
+          scale: 1,
+        },
+      }),
+    ).toMatchObject({ cursorCaptureTimeUs: '1200', timelineViewport: null })
 
     localStorage.setItem(annotationWorkstationViewStorageKey('match-1'), '{broken')
     const current = harness()

@@ -8,17 +8,17 @@ service names remain only in the superseded ADR/history and migrations.
 
 ## Current Compose services
 
-| Service | Profile | Persistent state | Disposition |
-|---|---|---|---|
-| `postgres` | base | `postgres-data` | keep |
-| `redis` | base | `redis-data` | keep |
-| `minio` | base | host-bound object data under `DEV_DATA_ROOT` | keep |
-| `ovenmediaengine` | base | host-bound recording spool, OME data/logs | keep |
-| `traefik` | base | certificates/config | keep; optional in daily development |
-| `server` | `app` | shared imports/spool | keep |
-| `web` | `app` | none | keep |
-| `worker-media` | `app` | shared imports/spool; PostgreSQL jobs | keep |
-| `worker-workflow` | `app` | PostgreSQL/MinIO | keep |
+| Service           | Profile | Persistent state                             | Disposition                         |
+| ----------------- | ------- | -------------------------------------------- | ----------------------------------- |
+| `postgres`        | base    | `postgres-data`                              | keep                                |
+| `redis`           | base    | `redis-data`                                 | keep                                |
+| `minio`           | base    | host-bound object data under `DEV_DATA_ROOT` | keep                                |
+| `ovenmediaengine` | base    | host-bound recording spool, OME data/logs    | keep                                |
+| `traefik`         | base    | certificates/config                          | keep; optional in daily development |
+| `server`          | `app`   | shared imports/spool                         | keep                                |
+| `web`             | `app`   | none                                         | keep                                |
+| `worker-media`    | `app`   | shared imports/spool; PostgreSQL jobs        | keep                                |
+| `worker-workflow` | `app`   | PostgreSQL/MinIO                             | keep                                |
 
 The Phase 2 through Phase 5 runtime consolidation is complete in source and Compose. The central
 `app` profile contains exactly the fixed target of nine services. Bucket provisioning is a host
@@ -39,10 +39,10 @@ live in PostgreSQL. There is no dedicated relay/watcher state volume.
 
 ## Current Dockerfiles
 
-| File | Target state |
-|---|---|
-| `infra/docker/server.Dockerfile` | keep |
-| `infra/docker/web.Dockerfile` | keep |
+| File                             | Target state                                                        |
+| -------------------------------- | ------------------------------------------------------------------- |
+| `infra/docker/server.Dockerfile` | keep                                                                |
+| `infra/docker/web.Dockerfile`    | keep                                                                |
 | `infra/docker/worker.Dockerfile` | keep; builds both composed workers and installs uv-managed `yt-dlp` |
 
 ## Environment-variable ownership

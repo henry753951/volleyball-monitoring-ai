@@ -73,7 +73,9 @@ function resultWithFixedRoster() {
 
 describe('fixed roster Nested Part ReID', () => {
   it('hard-cuts the old optional extension and accepts exact v2 descriptors', () => {
-    expect(parseFixedRosterReidExtension({ tracks: [], extensions: { reid_feature_bank: {} } })).toBeNull()
+    expect(
+      parseFixedRosterReidExtension({ tracks: [], extensions: { reid_feature_bank: {} } }),
+    ).toBeNull()
     const parsed = parseFixedRosterReidExtension(resultWithFixedRoster())
     expect(parsed).toMatchObject({ schemaVersion: '2.0.0', slotsPerTeam: 6 })
     expect(parsed?.tracklets[0]?.descriptors?.dino).toHaveLength(384)
@@ -102,7 +104,9 @@ describe('fixed roster Nested Part ReID', () => {
       { clipId: 'clip-2', label: 'S1', descriptors: descriptors(true) },
     ]
     expect(selectNestedCandidate(shortHistory)).toEqual({
-      modalities: ['kpr_prompt'], regularization: 0.1, kernel: 'linear',
+      modalities: ['kpr_prompt'],
+      regularization: 0.1,
+      kernel: 'linear',
     })
     const history = [
       ...shortHistory,
@@ -124,15 +128,15 @@ describe('fixed roster Nested Part ReID', () => {
     const tracklets = Array.from({ length: 7 }, (_, index) => ({
       canonicalTrackId: index + 1,
       trackIds: [index + 1],
-      cannotLinkCanonicalTrackIds: Array.from({ length: 7 }, (_, linked) => linked + 1)
-        .filter(linked => linked !== index + 1),
+      cannotLinkCanonicalTrackIds: Array.from({ length: 7 }, (_, linked) => linked + 1).filter(
+        linked => linked !== index + 1,
+      ),
       sampleCount: 100 - index,
     }))
     const candidates = new Map(tracklets.map(tracklet => [tracklet.canonicalTrackId, slots]))
-    const fixed = new Map(tracklets.slice(0, 6).map((tracklet, index) => [
-      tracklet.canonicalTrackId,
-      slots[index]!.id,
-    ]))
+    const fixed = new Map(
+      tracklets.slice(0, 6).map((tracklet, index) => [tracklet.canonicalTrackId, slots[index]!.id]),
+    )
 
     const assignment = solveSlots(tracklets as any, candidates, new Map(), fixed)
 
@@ -154,10 +158,17 @@ describe('fixed roster Nested Part ReID', () => {
       sampleCount: 100 - index,
     }))
     const candidates = new Map(tracklets.map(tracklet => [tracklet.canonicalTrackId, slots]))
-    const scores = new Map(tracklets.flatMap(tracklet => slots.map(slot => [
-      `${tracklet.canonicalTrackId}:${slot.id}`,
-      slot.slotIndex === (tracklet.canonicalTrackId % 6) + 1 ? 1 : 0,
-    ] as const)))
+    const scores = new Map(
+      tracklets.flatMap(tracklet =>
+        slots.map(
+          slot =>
+            [
+              `${tracklet.canonicalTrackId}:${slot.id}`,
+              slot.slotIndex === (tracklet.canonicalTrackId % 6) + 1 ? 1 : 0,
+            ] as const,
+        ),
+      ),
+    )
 
     const assignment = solveSlots(tracklets as any, candidates, scores)
 
@@ -176,8 +187,9 @@ describe('fixed roster Nested Part ReID', () => {
     const tracklets = Array.from({ length: 42 }, (_, index) => ({
       canonicalTrackId: index + 1,
       trackIds: [index + 1],
-      cannotLinkCanonicalTrackIds: Array.from({ length: 42 }, (_, linked) => linked + 1)
-        .filter(linked => linked !== index + 1),
+      cannotLinkCanonicalTrackIds: Array.from({ length: 42 }, (_, linked) => linked + 1).filter(
+        linked => linked !== index + 1,
+      ),
       sampleCount: 100 - index,
     }))
     const candidates = new Map(tracklets.map(tracklet => [tracklet.canonicalTrackId, slots]))

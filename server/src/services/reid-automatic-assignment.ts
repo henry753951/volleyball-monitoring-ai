@@ -1,23 +1,25 @@
 import type { PrismaClient } from '@volleyball-monitoring/db'
 import { IdentitySource, JobStatus, UserRole } from '@volleyball-monitoring/db/client'
 
-const canManageIdentity = (role: UserRole) => role === UserRole.ADMIN
-  || role === UserRole.OPERATOR
-  || role === UserRole.COACH
+const canManageIdentity = (role: UserRole) =>
+  role === UserRole.ADMIN || role === UserRole.OPERATOR || role === UserRole.COACH
 
 /**
  * Reprojects match-scoped ReID bindings onto run-local track assignments.
  * The durable player mapping remains one TrackIdentityAssignment per Local/TID;
  * a GID only groups tracks and selects which existing binding may be reused.
  */
-export async function applyReidAutomaticAssignments(database: PrismaClient, input: {
-  analysisRunId: string
-  userId: string
-  role: UserRole
-}) {
+export async function applyReidAutomaticAssignments(
+  database: PrismaClient,
+  input: {
+    analysisRunId: string
+    userId: string
+    role: UserRole
+  },
+) {
   if (!canManageIdentity(input.role)) throw new Error('FORBIDDEN')
 
-  return database.$transaction(async (tx) => {
+  return database.$transaction(async tx => {
     const run = await tx.analysisRun.findUnique({
       where: { id: input.analysisRunId },
       select: {
@@ -58,58 +60,68 @@ export async function applyReidAutomaticAssignments(database: PrismaClient, inpu
     if (!run || run.status !== JobStatus.COMPLETED) throw new Error('NOT_FOUND')
 
     const matchId = run.submission.rally.matchId
-    const member = input.role === UserRole.ADMIN
-      ? true
-      : Boolean(await tx.matchMember.findUnique({
-          where: { matchId_userId: { matchId, userId: input.userId } },
-          select: { userId: true },
-        }))
+    const member =
+      input.role === UserRole.ADMIN
+        ? true
+        : Boolean(
+            await tx.matchMember.findUnique({
+              where: { matchId_userId: { matchId, userId: input.userId } },
+              select: { userId: true },
+            }),
+          )
     if (!member) throw new Error('NOT_FOUND')
 
     await tx.$queryRaw`SELECT id FROM "AnalysisRun" WHERE id = ${input.analysisRunId}::uuid FOR UPDATE`
 
-    const reidIdentityIds = [...new Set(run.tracks
-      .map(track => track.reidObservation?.reidIdentityId)
-      .filter((identityId): identityId is string => Boolean(identityId)))]
+    const reidIdentityIds = [
+      ...new Set(
+        run.tracks
+          .map(track => track.reidObservation?.reidIdentityId)
+          .filter((identityId): identityId is string => Boolean(identityId)),
+      ),
+    ]
     const position = {
       setNumber: run.submission.rally.set.setNumber,
       rallyOrdinal: run.submission.rally.ordinal,
     }
-    const bindings = reidIdentityIds.length === 0
-      ? []
-      : await tx.reidPlayerBinding.findMany({
-          where: {
-            reidIdentityId: { in: reidIdentityIds },
-            rosterEntryId: { not: null },
-            reidIdentity: { matchId },
-            rosterEntry: { matchId, active: true },
-            OR: [
-              { effectiveFromSetNumber: { lt: position.setNumber } },
-              {
-                effectiveFromSetNumber: position.setNumber,
-                effectiveFromRallyOrdinal: { lte: position.rallyOrdinal },
-              },
+    const bindings =
+      reidIdentityIds.length === 0
+        ? []
+        : await tx.reidPlayerBinding.findMany({
+            where: {
+              reidIdentityId: { in: reidIdentityIds },
+              rosterEntryId: { not: null },
+              reidIdentity: { matchId },
+              rosterEntry: { matchId, active: true },
+              OR: [
+                { effectiveFromSetNumber: { lt: position.setNumber } },
+                {
+                  effectiveFromSetNumber: position.setNumber,
+                  effectiveFromRallyOrdinal: { lte: position.rallyOrdinal },
+                },
+              ],
+            },
+            orderBy: [
+              { effectiveFromSetNumber: 'desc' },
+              { effectiveFromRallyOrdinal: 'desc' },
+              { identityRevision: 'desc' },
             ],
-          },
-          orderBy: [
-            { effectiveFromSetNumber: 'desc' },
-            { effectiveFromRallyOrdinal: 'desc' },
-            { identityRevision: 'desc' },
-          ],
-          select: {
-            id: true,
-            reidIdentityId: true,
-            rosterEntryId: true,
-            identityRevision: true,
-            reidIdentity: { select: { teamId: true } },
-            rosterEntry: { select: { teamId: true } },
-          },
-        })
-    const bindingByIdentity = new Map<string, typeof bindings[number]>()
+            select: {
+              id: true,
+              reidIdentityId: true,
+              rosterEntryId: true,
+              identityRevision: true,
+              reidIdentity: { select: { teamId: true } },
+              rosterEntry: { select: { teamId: true } },
+            },
+          })
+    const bindingByIdentity = new Map<string, (typeof bindings)[number]>()
     for (const binding of bindings) {
-      if (binding.rosterEntryId
-        && binding.reidIdentity.teamId === binding.rosterEntry?.teamId
-        && !bindingByIdentity.has(binding.reidIdentityId)) {
+      if (
+        binding.rosterEntryId &&
+        binding.reidIdentity.teamId === binding.rosterEntry?.teamId &&
+        !bindingByIdentity.has(binding.reidIdentityId)
+      ) {
         bindingByIdentity.set(binding.reidIdentityId, binding)
       }
     }
@@ -131,10 +143,12 @@ export async function applyReidAutomaticAssignments(database: PrismaClient, inpu
         preservedManualCount += 1
         continue
       }
-      if (existing?.source === IdentitySource.PROPAGATED
-        && existing.rosterEntryId === binding.rosterEntryId
-        && existing.reidIdentityId === identityId
-        && existing.reidBindingId === binding.id) {
+      if (
+        existing?.source === IdentitySource.PROPAGATED &&
+        existing.rosterEntryId === binding.rosterEntryId &&
+        existing.reidIdentityId === identityId &&
+        existing.reidBindingId === binding.id
+      ) {
         alreadyAssignedCount += 1
         continue
       }

@@ -13,11 +13,9 @@ export function useOperationsMonitor() {
     try {
       snapshot.value = await fetchOperationsSnapshot(config.public.restBasePath)
       error.value = null
-    }
-    catch (cause) {
+    } catch (cause) {
       error.value = cause instanceof Error ? cause : new Error('監控資料讀取失敗')
-    }
-    finally {
+    } finally {
       pending.value = false
     }
   }

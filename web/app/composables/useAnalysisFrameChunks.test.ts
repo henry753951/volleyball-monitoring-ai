@@ -10,12 +10,18 @@ describe('useAnalysisFrameChunks power state', () => {
     const fetchMock = vi.fn()
     vi.stubGlobal('fetch', fetchMock)
     const enabled = ref(false)
-    const wrapper = mount(defineComponent({
-      setup() {
-        useAnalysisFrameChunks(() => 'analysis', () => 0, enabled)
-        return () => h('div')
-      },
-    }))
+    const wrapper = mount(
+      defineComponent({
+        setup() {
+          useAnalysisFrameChunks(
+            () => 'analysis',
+            () => 0,
+            enabled,
+          )
+          return () => h('div')
+        },
+      }),
+    )
 
     await nextTick()
     expect(fetchMock).not.toHaveBeenCalled()
@@ -24,17 +30,30 @@ describe('useAnalysisFrameChunks power state', () => {
 
   it('aborts an in-flight manifest request when AnalysisData display is switched off', async () => {
     let signal: AbortSignal | undefined
-    vi.stubGlobal('fetch', vi.fn((_url: string, init?: RequestInit) => {
-      signal = init?.signal ?? undefined
-      return new Promise<Response>((_resolve, reject) => signal?.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError'))))
-    }))
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((_url: string, init?: RequestInit) => {
+        signal = init?.signal ?? undefined
+        return new Promise<Response>((_resolve, reject) =>
+          signal?.addEventListener('abort', () =>
+            reject(new DOMException('Aborted', 'AbortError')),
+          ),
+        )
+      }),
+    )
     const enabled = ref(true)
-    const wrapper = mount(defineComponent({
-      setup() {
-        useAnalysisFrameChunks(() => 'analysis', () => 0, enabled)
-        return () => h('div')
-      },
-    }))
+    const wrapper = mount(
+      defineComponent({
+        setup() {
+          useAnalysisFrameChunks(
+            () => 'analysis',
+            () => 0,
+            enabled,
+          )
+          return () => h('div')
+        },
+      }),
+    )
 
     await nextTick()
     expect(signal?.aborted).toBe(false)

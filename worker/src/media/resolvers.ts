@@ -4,10 +4,7 @@ import type { DvrProgramProfile } from './prisma-ingest-repository.js'
 const INT32_MAX = 2_147_483_647n
 const ACTIVE_CAPTURE_STATUSES = ['STARTING', 'LIVE', 'STOPPING'] as const
 
-export type MediaResolverErrorCode =
-  | 'CAPTURE_AMBIGUOUS'
-  | 'PROGRAM_AMBIGUOUS'
-  | 'PROFILE_INVALID'
+export type MediaResolverErrorCode = 'CAPTURE_AMBIGUOUS' | 'PROGRAM_AMBIGUOUS' | 'PROFILE_INVALID'
 
 export class MediaResolverError extends Error {
   readonly permanent = true
@@ -35,10 +32,9 @@ export async function resolveCaptureSession(
     select: { id: true, status: true },
     where: { ingestPath },
   })
-  const active = rows.filter((row) =>
-    ACTIVE_CAPTURE_STATUSES.includes(
-      row.status as (typeof ACTIVE_CAPTURE_STATUSES)[number],
-    ))
+  const active = rows.filter(row =>
+    ACTIVE_CAPTURE_STATUSES.includes(row.status as (typeof ACTIVE_CAPTURE_STATUSES)[number]),
+  )
   if (active.length > 1) throw new MediaResolverError('CAPTURE_AMBIGUOUS')
   return active[0]?.id ?? null
 }
@@ -70,11 +66,12 @@ function positiveInt32(value: number): boolean {
 
 function validatePersistedProfile(profile: DvrProgramProfile): DvrProgramProfile {
   if (
-    !positiveInt32(profile.fpsNum)
-    || !positiveInt32(profile.fpsDen)
-    || !positiveInt32(profile.timeBaseNum)
-    || !positiveInt32(profile.timeBaseDen)
-  ) throw new MediaResolverError('PROFILE_INVALID')
+    !positiveInt32(profile.fpsNum) ||
+    !positiveInt32(profile.fpsDen) ||
+    !positiveInt32(profile.timeBaseNum) ||
+    !positiveInt32(profile.timeBaseDen)
+  )
+    throw new MediaResolverError('PROFILE_INVALID')
   return profile
 }
 
@@ -104,12 +101,8 @@ export async function resolveProgramProfile(
   if (rows.length === 1) return validatePersistedProfile(rows[0]!)
 
   const { frameCount, durationPts, timeBase } = observed
-  if (
-    frameCount <= 0n
-    || durationPts <= 0n
-    || timeBase.num <= 0n
-    || timeBase.den <= 0n
-  ) throw new MediaResolverError('PROFILE_INVALID')
+  if (frameCount <= 0n || durationPts <= 0n || timeBase.num <= 0n || timeBase.den <= 0n)
+    throw new MediaResolverError('PROFILE_INVALID')
 
   const numerator = frameCount * timeBase.den
   const denominator = durationPts * timeBase.num
@@ -117,11 +110,12 @@ export async function resolveProgramProfile(
   const fpsNum = numerator / divisor
   const fpsDen = denominator / divisor
   if (
-    fpsNum > INT32_MAX
-    || fpsDen > INT32_MAX
-    || timeBase.num > INT32_MAX
-    || timeBase.den > INT32_MAX
-  ) throw new MediaResolverError('PROFILE_INVALID')
+    fpsNum > INT32_MAX ||
+    fpsDen > INT32_MAX ||
+    timeBase.num > INT32_MAX ||
+    timeBase.den > INT32_MAX
+  )
+    throw new MediaResolverError('PROFILE_INVALID')
 
   return {
     fpsNum: Number(fpsNum),

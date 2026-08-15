@@ -7,35 +7,24 @@ import {
 } from '@volleyball-monitoring/contracts'
 import type { PrismaClient } from '@volleyball-monitoring/db'
 import { UserRole } from '@volleyball-monitoring/db/client'
-import type {
-  FastifyPluginAsync,
-  FastifyReply,
-  FastifyRequest,
-} from 'fastify'
+import type { FastifyPluginAsync, FastifyReply, FastifyRequest } from 'fastify'
 import {
   resolvePlaybackCursor,
   stepCanonicalFrame,
   type CursorMediaIdentity,
-  type CursorPlaybackWindow,
   type CursorResolutionDependencies,
   type CursorSampleIndexLoader,
   type CursorWindowSegment,
   type CursorWindowStore,
 } from './cursor-resolution.js'
-import {
-  MediaHttpError,
-  mediaErrorEnvelope,
-  type MediaObjectReader,
-} from './playback-domain.js'
+import { MediaHttpError, mediaErrorEnvelope, type MediaObjectReader } from './playback-domain.js'
 import { createSampleIndexRepository } from './sample-index-repository.js'
 
 const UUID = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i
 const USER_ROLES = new Set<UserRole>(Object.values(UserRole))
 
 export interface MediaCursorRouteDependencies {
-  authenticate?: (
-    request: FastifyRequest,
-  ) => Promise<CursorMediaIdentity | null>
+  authenticate?: (request: FastifyRequest) => Promise<CursorMediaIdentity | null>
   database?: PrismaClient
   now?: () => Date
   objectReader?: MediaObjectReader
@@ -58,10 +47,7 @@ interface PersistedSegment {
   sequenceNumber: bigint
 }
 
-function toWindowSegment(
-  segment: PersistedSegment,
-  sequenceIndex: number,
-): CursorWindowSegment {
+function toWindowSegment(segment: PersistedSegment, sequenceIndex: number): CursorWindowSegment {
   return {
     captureEndUs: segment.captureEndUs,
     captureEpochId: segment.captureEpochId,
@@ -78,9 +64,7 @@ function toWindowSegment(
   }
 }
 
-export function createPrismaCursorWindowStore(
-  database: PrismaClient,
-): CursorWindowStore {
+export function createPrismaCursorWindowStore(database: PrismaClient): CursorWindowStore {
   return {
     async loadVisibleWindow(id, identity) {
       const row = await database.playbackWindow.findFirst({
@@ -113,8 +97,9 @@ export function createPrismaCursorWindowStore(
         mappingVersion: row.mappingVersion,
         presentationOriginCaptureUs: row.presentationOriginCaptureUs,
         programCaptureSessionId: row.dvrProgram.captureSessionId,
-        segments: row.segments.map((mapping) =>
-          toWindowSegment(mapping.dvrSegment, mapping.sequenceIndex)),
+        segments: row.segments.map(mapping =>
+          toWindowSegment(mapping.dvrSegment, mapping.sequenceIndex),
+        ),
       }
     },
 
@@ -125,9 +110,8 @@ export function createPrismaCursorWindowStore(
         },
         where: {
           dvrProgramId: window.dvrProgramId,
-          sequenceNumber: direction === 'next'
-            ? { gt: edge.sequenceNumber }
-            : { lt: edge.sequenceNumber },
+          sequenceNumber:
+            direction === 'next' ? { gt: edge.sequenceNumber } : { lt: edge.sequenceNumber },
         },
       })
       return row ? toWindowSegment(row, -1) : null
@@ -144,17 +128,10 @@ async function defaultDevelopmentIdentity(
   request: FastifyRequest,
   database: PrismaClient,
 ): Promise<CursorMediaIdentity | null> {
-  if (
-    process.env.DEV_AUTH_ENABLED !== 'true'
-    || process.env.NODE_ENV === 'production'
-  ) return null
+  if (process.env.DEV_AUTH_ENABLED !== 'true' || process.env.NODE_ENV === 'production') return null
 
-  const id = headerValue(request, 'x-dev-user-id')
-    ?? process.env.DEV_USER_ID
-    ?? null
-  const roleValue = headerValue(request, 'x-dev-role')
-    ?? process.env.DEV_USER_ROLE
-    ?? null
+  const id = headerValue(request, 'x-dev-user-id') ?? process.env.DEV_USER_ID ?? null
+  const roleValue = headerValue(request, 'x-dev-role') ?? process.env.DEV_USER_ROLE ?? null
   if (id === null && roleValue === null) return null
   if (id === null || !UUID.test(id) || roleValue === null) {
     throw new MediaHttpError(401, 'UNAUTHENTICATED', 'Invalid development identity')
@@ -167,9 +144,10 @@ async function defaultDevelopmentIdentity(
     where: { id },
     update: {},
     create: {
-      displayName: headerValue(request, 'x-dev-display-name')?.trim()
-        || process.env.DEV_USER_DISPLAY_NAME?.trim()
-        || 'Development User',
+      displayName:
+        headerValue(request, 'x-dev-display-name')?.trim() ||
+        process.env.DEV_USER_DISPLAY_NAME?.trim() ||
+        'Development User',
       email: `${id}@dev.volleyball.local`,
       id,
     },
@@ -201,21 +179,19 @@ function requestId(request: FastifyRequest): string {
   return value.length > 0 && value.length <= 128 ? value : randomUUID()
 }
 
-function sendMediaError(
-  request: FastifyRequest,
-  reply: FastifyReply,
-  error: unknown,
-) {
+function sendMediaError(request: FastifyRequest, reply: FastifyReply, error: unknown) {
   if (error instanceof MediaHttpError) {
-    return reply
-      .code(error.status)
-      .send(mediaErrorEnvelope(error, requestId(request)))
+    return reply.code(error.status).send(mediaErrorEnvelope(error, requestId(request)))
   }
   request.log.error({ err: error }, 'media cursor request failed')
-  return reply.code(500).send(mediaErrorEnvelope(
-    new MediaHttpError(500, 'MEDIA_NOT_READY', 'Media request failed'),
-    requestId(request),
-  ))
+  return reply
+    .code(500)
+    .send(
+      mediaErrorEnvelope(
+        new MediaHttpError(500, 'MEDIA_NOT_READY', 'Media request failed'),
+        requestId(request),
+      ),
+    )
 }
 
 const unavailableSampleIndexes: CursorSampleIndexLoader = {
@@ -224,29 +200,29 @@ const unavailableSampleIndexes: CursorSampleIndexLoader = {
   },
 }
 
-export const mediaCursorRoutes = (
-  deps: MediaCursorRouteDependencies = {},
-): FastifyPluginAsync => async (app) => {
-  const needsDatabase = deps.store === undefined
-    || (deps.sampleIndexes === undefined && deps.objectReader !== undefined)
-    || deps.authenticate === undefined
-  const database = deps.database
-    ?? (needsDatabase ? (await import('@volleyball-monitoring/db')).db : undefined)
-  if (!deps.store && !database) {
-    throw new Error('database is required for the media cursor store')
-  }
-  const serviceDeps: CursorResolutionDependencies = {
-    now: deps.now ?? (() => new Date()),
-    sampleIndexes: deps.sampleIndexes
-      ?? (deps.objectReader
-        ? createSampleIndexRepository(database!, deps.objectReader)
-        : unavailableSampleIndexes),
-    store: deps.store ?? createPrismaCursorWindowStore(database!),
-  }
+export const mediaCursorRoutes =
+  (deps: MediaCursorRouteDependencies = {}): FastifyPluginAsync =>
+  async app => {
+    const needsDatabase =
+      deps.store === undefined ||
+      (deps.sampleIndexes === undefined && deps.objectReader !== undefined) ||
+      deps.authenticate === undefined
+    const database =
+      deps.database ?? (needsDatabase ? (await import('@volleyball-monitoring/db')).db : undefined)
+    if (!deps.store && !database) {
+      throw new Error('database is required for the media cursor store')
+    }
+    const serviceDeps: CursorResolutionDependencies = {
+      now: deps.now ?? (() => new Date()),
+      sampleIndexes:
+        deps.sampleIndexes ??
+        (deps.objectReader
+          ? createSampleIndexRepository(database!, deps.objectReader)
+          : unavailableSampleIndexes),
+      store: deps.store ?? createPrismaCursorWindowStore(database!),
+    }
 
-  app.post<{ Body: unknown }>(
-    '/api/v1/media/resolve-cursor',
-    async (request, reply) => {
+    app.post<{ Body: unknown }>('/api/v1/media/resolve-cursor', async (request, reply) => {
       try {
         const identity = await authenticate(request, deps.authenticate, database)
         let body: PlaybackCursor
@@ -259,12 +235,9 @@ export const mediaCursorRoutes = (
       } catch (error) {
         return sendMediaError(request, reply, error)
       }
-    },
-  )
+    })
 
-  app.post<{ Body: unknown }>(
-    '/api/v1/media/frame-step',
-    async (request, reply) => {
+    app.post<{ Body: unknown }>('/api/v1/media/frame-step', async (request, reply) => {
       try {
         const identity = await authenticate(request, deps.authenticate, database)
         let body: FrameStepRequest
@@ -277,6 +250,5 @@ export const mediaCursorRoutes = (
       } catch (error) {
         return sendMediaError(request, reply, error)
       }
-    },
-  )
-}
+    })
+  }

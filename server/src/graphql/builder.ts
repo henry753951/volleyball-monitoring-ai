@@ -67,6 +67,6 @@ builder.scalarType('DateTime', {
 })
 
 builder.scalarType('JSON', {
-  serialize: (value) => value,
-  parseValue: (value) => value,
+  serialize: value => value,
+  parseValue: value => value,
 })

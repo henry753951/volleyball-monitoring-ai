@@ -1,4 +1,3 @@
-
 # Implementation and usage audit — corrected v3.0 baseline
 
 This audit records the defects that were corrected before implementation begins.

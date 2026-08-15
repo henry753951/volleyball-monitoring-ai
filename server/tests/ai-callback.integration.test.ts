@@ -12,9 +12,10 @@ const execFileAsync = promisify(execFile)
 const repositoryRoot = resolve(process.cwd(), '..')
 const databasePackageRoot = resolve(repositoryRoot, 'packages/db')
 const originalDatabaseUrl = process.env.DATABASE_URL
-const sourceDatabaseUrl = process.env.TEST_DATABASE_URL
-  ?? originalDatabaseUrl
-  ?? 'postgresql://volleyball:volleyball@127.0.0.1:5433/volleyball?schema=public'
+const sourceDatabaseUrl =
+  process.env.TEST_DATABASE_URL ??
+  originalDatabaseUrl ??
+  'postgresql://volleyball:volleyball@127.0.0.1:5433/volleyball?schema=public'
 const databaseName = `ai_callback_${randomUUID().replaceAll('-', '')}`
 const maintenanceUrl = new URL(sourceDatabaseUrl)
 maintenanceUrl.pathname = '/postgres'
@@ -85,55 +86,147 @@ beforeAll(async () => {
   await app.register(multipart, {
     limits: { fields: 4, files: 2, fileSize: 512 * 1024 * 1024, parts: 6 },
   })
-  await app.register(aiCallbackRoutesWithDependencies({
-    onAnalysisStateChanged: (matchId) => { invalidatedMatches.push(matchId) },
-  }))
+  await app.register(
+    aiCallbackRoutesWithDependencies({
+      onAnalysisStateChanged: matchId => {
+        invalidatedMatches.push(matchId)
+      },
+    }),
+  )
   await app.ready()
 
-  await db.user.create({ data: { id: ids.operator, email: 'operator@callback.local', displayName: 'Operator' } })
-  await db.team.createMany({ data: [
-    { id: ids.left, name: 'Left', shortName: 'L' },
-    { id: ids.right, name: 'Right', shortName: 'R' },
-  ] })
+  await db.user.create({
+    data: { id: ids.operator, email: 'operator@callback.local', displayName: 'Operator' },
+  })
+  await db.team.createMany({
+    data: [
+      { id: ids.left, name: 'Left', shortName: 'L' },
+      { id: ids.right, name: 'Right', shortName: 'R' },
+    ],
+  })
   await db.match.create({ data: { id: ids.match, title: 'AI callback acceptance' } })
-  await db.matchTeam.createMany({ data: [
-    { matchId: ids.match, teamId: ids.left },
-    { matchId: ids.match, teamId: ids.right },
-  ] })
-  await db.matchSet.create({ data: { id: ids.set, matchId: ids.match, setNumber: 1, status: 'LIVE' } })
-  await db.courtSideAssignment.create({ data: { id: ids.assignment, setId: ids.set, effectiveFromRallyOrdinal: 1, leftTeamId: ids.left, rightTeamId: ids.right } })
-  await db.captureSession.create({ data: { id: ids.capture, matchId: ids.match, sourceKind: 'fixture', ingestPath: 'fixture/callback', status: 'FINISHED', health: 'OFFLINE' } })
-  await db.dvrProgram.create({ data: { id: ids.program, captureSessionId: ids.capture, status: 'FINISHED', fpsNum: 60, fpsDen: 1, timeBaseNum: 1, timeBaseDen: 60_000 } })
-  await db.rally.create({ data: {
-    id: ids.rally, matchId: ids.match, setId: ids.set, dvrProgramId: ids.program, sideAssignmentId: ids.assignment,
-    ordinal: 1, annotationRevision: 1n, annotationStatus: 'SUBMITTED', processingStatus: 'AI_QUEUED', scoreResolutionState: 'UNKNOWN',
-  } })
-  await db.rallySubmission.create({ data: {
-    id: ids.submission, rallyId: ids.rally, annotationRevision: 1n, contentHash: 'callback-submission', status: 'ACTIVE',
-    scoreResolutionState: 'UNKNOWN', leftTeamId: ids.left, rightTeamId: ids.right, sideAssignmentId: ids.assignment,
-    clipPolicyVersion: 'clip-policy-v1', clipPreRollUs: 3_000_000n, clipPostRollUs: 3_000_000n, submittedByUserId: ids.operator,
-  } })
+  await db.matchTeam.createMany({
+    data: [
+      { matchId: ids.match, teamId: ids.left },
+      { matchId: ids.match, teamId: ids.right },
+    ],
+  })
+  await db.matchSet.create({
+    data: { id: ids.set, matchId: ids.match, setNumber: 1, status: 'LIVE' },
+  })
+  await db.courtSideAssignment.create({
+    data: {
+      id: ids.assignment,
+      setId: ids.set,
+      effectiveFromRallyOrdinal: 1,
+      leftTeamId: ids.left,
+      rightTeamId: ids.right,
+    },
+  })
+  await db.captureSession.create({
+    data: {
+      id: ids.capture,
+      matchId: ids.match,
+      sourceKind: 'fixture',
+      ingestPath: 'fixture/callback',
+      status: 'FINISHED',
+      health: 'OFFLINE',
+    },
+  })
+  await db.dvrProgram.create({
+    data: {
+      id: ids.program,
+      captureSessionId: ids.capture,
+      status: 'FINISHED',
+      fpsNum: 60,
+      fpsDen: 1,
+      timeBaseNum: 1,
+      timeBaseDen: 60_000,
+    },
+  })
+  await db.rally.create({
+    data: {
+      id: ids.rally,
+      matchId: ids.match,
+      setId: ids.set,
+      dvrProgramId: ids.program,
+      sideAssignmentId: ids.assignment,
+      ordinal: 1,
+      annotationRevision: 1n,
+      annotationStatus: 'SUBMITTED',
+      processingStatus: 'AI_QUEUED',
+      scoreResolutionState: 'UNKNOWN',
+    },
+  })
+  await db.rallySubmission.create({
+    data: {
+      id: ids.submission,
+      rallyId: ids.rally,
+      annotationRevision: 1n,
+      contentHash: 'callback-submission',
+      status: 'ACTIVE',
+      scoreResolutionState: 'UNKNOWN',
+      leftTeamId: ids.left,
+      rightTeamId: ids.right,
+      sideAssignmentId: ids.assignment,
+      clipPolicyVersion: 'clip-policy-v1',
+      clipPreRollUs: 3_000_000n,
+      clipPostRollUs: 3_000_000n,
+      submittedByUserId: ids.operator,
+    },
+  })
   await db.rally.update({ where: { id: ids.rally }, data: { activeSubmissionId: ids.submission } })
-  await db.mediaAsset.create({ data: {
-    id: ids.clipAsset, kind: 'CANONICAL_CLIP', bucket: 'rally-media', objectKey: 'callback/clip.mp4', contentType: 'video/mp4',
-    byteLength: 16n, sha256: 'a'.repeat(64), state: 'READY', readyAt: new Date(),
-  } })
-  await db.clipJob.create({ data: {
-    id: ids.clipJob, submissionId: ids.submission, status: 'COMPLETED', idempotencyKey: 'callback-clip', canonicalizationProfileVersion: 'canonical-v1',
-    requestedStartCaptureUs: 0n, requestedEndCaptureUs: 1_000_000n, actualStartCaptureUs: 0n, actualEndCaptureUs: 1_000_000n, clipAssetId: ids.clipAsset,
-  } })
-  await db.aiJob.create({ data: {
-    id: ids.aiJob, submissionId: ids.submission, clipJobId: ids.clipJob, status: 'QUEUED', idempotencyKey: 'callback-ai',
-    requestPayload: {}, requestPayloadHash: 'b'.repeat(64), jobSchemaVersion: '3.0.0', callbackTokenHash,
-    callbackTokenExpiresAt: new Date(Date.now() + 60 * 60 * 1000),
-  } })
+  await db.mediaAsset.create({
+    data: {
+      id: ids.clipAsset,
+      kind: 'CANONICAL_CLIP',
+      bucket: 'rally-media',
+      objectKey: 'callback/clip.mp4',
+      contentType: 'video/mp4',
+      byteLength: 16n,
+      sha256: 'a'.repeat(64),
+      state: 'READY',
+      readyAt: new Date(),
+    },
+  })
+  await db.clipJob.create({
+    data: {
+      id: ids.clipJob,
+      submissionId: ids.submission,
+      status: 'COMPLETED',
+      idempotencyKey: 'callback-clip',
+      canonicalizationProfileVersion: 'canonical-v1',
+      requestedStartCaptureUs: 0n,
+      requestedEndCaptureUs: 1_000_000n,
+      actualStartCaptureUs: 0n,
+      actualEndCaptureUs: 1_000_000n,
+      clipAssetId: ids.clipAsset,
+    },
+  })
+  await db.aiJob.create({
+    data: {
+      id: ids.aiJob,
+      submissionId: ids.submission,
+      clipJobId: ids.clipJob,
+      status: 'QUEUED',
+      idempotencyKey: 'callback-ai',
+      requestPayload: {},
+      requestPayloadHash: 'b'.repeat(64),
+      jobSchemaVersion: '3.0.0',
+      callbackTokenHash,
+      callbackTokenExpiresAt: new Date(Date.now() + 60 * 60 * 1000),
+    },
+  })
 }, 120_000)
 
 afterAll(async () => {
   if (app) await app.close()
   if (db) await db.$disconnect()
   if (createdDatabase) {
-    await maintenancePool.query('SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = $1 AND pid <> pg_backend_pid()', [databaseName])
+    await maintenancePool.query(
+      'SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = $1 AND pid <> pg_backend_pid()',
+      [databaseName],
+    )
     await maintenancePool.query(`DROP DATABASE "${databaseName}"`)
   }
   await maintenancePool.end()
@@ -146,22 +239,48 @@ describe('AI callback route acceptance', () => {
     invalidatedMatches.length = 0
     const callbackId = randomUUID()
     const payload = processingCallback(callbackId)
-    const first = await app.inject({ method: 'POST', url: `/api/v1/ai/callback/${ids.aiJob}`, headers: { authorization: `Bearer ${callbackToken}` }, payload })
-    const retry = await app.inject({ method: 'POST', url: `/api/v1/ai/callback/${ids.aiJob}`, headers: { authorization: `Bearer ${callbackToken}` }, payload })
+    const first = await app.inject({
+      method: 'POST',
+      url: `/api/v1/ai/callback/${ids.aiJob}`,
+      headers: { authorization: `Bearer ${callbackToken}` },
+      payload,
+    })
+    const retry = await app.inject({
+      method: 'POST',
+      url: `/api/v1/ai/callback/${ids.aiJob}`,
+      headers: { authorization: `Bearer ${callbackToken}` },
+      payload,
+    })
 
     expect(first.statusCode).toBe(200)
     expect(retry.statusCode).toBe(200)
     expect(retry.json()).toEqual(first.json())
     await expect(db.aiCallbackReceipt.count({ where: { callbackId } })).resolves.toBe(1)
-    await expect(db.aiJob.findUniqueOrThrow({ where: { id: ids.aiJob } })).resolves.toMatchObject({ status: 'RUNNING', progress: 0.5, stage: 'tracking' })
-    await expect(db.rally.findUniqueOrThrow({ where: { id: ids.rally } })).resolves.toMatchObject({ processingStatus: 'AI_PROCESSING' })
+    await expect(db.aiJob.findUniqueOrThrow({ where: { id: ids.aiJob } })).resolves.toMatchObject({
+      status: 'RUNNING',
+      progress: 0.5,
+      stage: 'tracking',
+    })
+    await expect(db.rally.findUniqueOrThrow({ where: { id: ids.rally } })).resolves.toMatchObject({
+      processingStatus: 'AI_PROCESSING',
+    })
     expect(invalidatedMatches).toEqual([ids.match])
   })
 
   it('rejects reuse of a callback ID with a different payload', async () => {
     const callbackId = randomUUID()
-    const first = await app.inject({ method: 'POST', url: `/api/v1/ai/callback/${ids.aiJob}`, headers: { authorization: `Bearer ${callbackToken}` }, payload: processingCallback(callbackId) })
-    const conflict = await app.inject({ method: 'POST', url: `/api/v1/ai/callback/${ids.aiJob}`, headers: { authorization: `Bearer ${callbackToken}` }, payload: processingCallback(callbackId, { stage: 'pose' }) })
+    const first = await app.inject({
+      method: 'POST',
+      url: `/api/v1/ai/callback/${ids.aiJob}`,
+      headers: { authorization: `Bearer ${callbackToken}` },
+      payload: processingCallback(callbackId),
+    })
+    const conflict = await app.inject({
+      method: 'POST',
+      url: `/api/v1/ai/callback/${ids.aiJob}`,
+      headers: { authorization: `Bearer ${callbackToken}` },
+      payload: processingCallback(callbackId, { stage: 'pose' }),
+    })
 
     expect(first.statusCode).toBe(200)
     expect(conflict.statusCode).toBe(409)
@@ -170,10 +289,21 @@ describe('AI callback route acceptance', () => {
   })
 
   it('rejects an expired job-scoped callback token without creating a receipt', async () => {
-    await db.aiJob.update({ where: { id: ids.aiJob }, data: { callbackTokenExpiresAt: new Date(0) } })
+    await db.aiJob.update({
+      where: { id: ids.aiJob },
+      data: { callbackTokenExpiresAt: new Date(0) },
+    })
     const callbackId = randomUUID()
-    const response = await app.inject({ method: 'POST', url: `/api/v1/ai/callback/${ids.aiJob}`, headers: { authorization: `Bearer ${callbackToken}` }, payload: processingCallback(callbackId) })
-    await db.aiJob.update({ where: { id: ids.aiJob }, data: { callbackTokenExpiresAt: new Date(Date.now() + 60 * 60 * 1000) } })
+    const response = await app.inject({
+      method: 'POST',
+      url: `/api/v1/ai/callback/${ids.aiJob}`,
+      headers: { authorization: `Bearer ${callbackToken}` },
+      payload: processingCallback(callbackId),
+    })
+    await db.aiJob.update({
+      where: { id: ids.aiJob },
+      data: { callbackTokenExpiresAt: new Date(Date.now() + 60 * 60 * 1000) },
+    })
 
     expect(response.statusCode).toBe(401)
     expect(response.json()).toMatchObject({ code: 'UNAUTHENTICATED' })
@@ -183,13 +313,20 @@ describe('AI callback route acceptance', () => {
   it('rejects completed artifacts with bad checksums before persistence', async () => {
     const callbackId = randomUUID()
     const analysisData = '0000VAD1invalid'
-    const request = multipartBody({
-      schema_version: '2.0.0', callback_id: callbackId, ai_job_id: ids.aiJob, kind: 'completed',
-      analysis_data_sha256: '0'.repeat(64),
-      analysis_data_bytes: String(Buffer.byteLength(analysisData)),
-    }, analysisData)
+    const request = multipartBody(
+      {
+        schema_version: '2.0.0',
+        callback_id: callbackId,
+        ai_job_id: ids.aiJob,
+        kind: 'completed',
+        analysis_data_sha256: '0'.repeat(64),
+        analysis_data_bytes: String(Buffer.byteLength(analysisData)),
+      },
+      analysisData,
+    )
     const response = await app.inject({
-      method: 'POST', url: `/api/v1/ai/callback/${ids.aiJob}`,
+      method: 'POST',
+      url: `/api/v1/ai/callback/${ids.aiJob}`,
       headers: { authorization: `Bearer ${callbackToken}`, 'content-type': request.contentType },
       payload: request.body,
     })
@@ -203,7 +340,8 @@ describe('AI callback route acceptance', () => {
   it('rejects callback metadata that does not match the public schema', async () => {
     const callbackId = randomUUID()
     const response = await app.inject({
-      method: 'POST', url: `/api/v1/ai/callback/${ids.aiJob}`,
+      method: 'POST',
+      url: `/api/v1/ai/callback/${ids.aiJob}`,
       headers: { authorization: `Bearer ${callbackToken}` },
       payload: { schema_version: '2.0.0', callback_id: callbackId, ai_job_id: ids.aiJob },
     })
@@ -216,13 +354,20 @@ describe('AI callback route acceptance', () => {
   it('rejects a checksum-valid payload that is not a valid VAD1 FlatBuffer', async () => {
     const callbackId = randomUUID()
     const analysisData = '0000VAD1invalid!'
-    const request = multipartBody({
-      schema_version: '2.0.0', callback_id: callbackId, ai_job_id: ids.aiJob, kind: 'completed',
-      analysis_data_sha256: sha256(analysisData),
-      analysis_data_bytes: String(Buffer.byteLength(analysisData)),
-    }, analysisData)
+    const request = multipartBody(
+      {
+        schema_version: '2.0.0',
+        callback_id: callbackId,
+        ai_job_id: ids.aiJob,
+        kind: 'completed',
+        analysis_data_sha256: sha256(analysisData),
+        analysis_data_bytes: String(Buffer.byteLength(analysisData)),
+      },
+      analysisData,
+    )
     const response = await app.inject({
-      method: 'POST', url: `/api/v1/ai/callback/${ids.aiJob}`,
+      method: 'POST',
+      url: `/api/v1/ai/callback/${ids.aiJob}`,
       headers: { authorization: `Bearer ${callbackToken}`, 'content-type': request.contentType },
       payload: request.body,
     })
@@ -238,13 +383,20 @@ describe('AI callback route acceptance', () => {
     const previousLimit = process.env.AI_CALLBACK_ANALYSIS_DATA_MAX_BYTES
     process.env.AI_CALLBACK_ANALYSIS_DATA_MAX_BYTES = '1024'
     const analysisData = 'x'.repeat(1025)
-    const request = multipartBody({
-      schema_version: '2.0.0', callback_id: callbackId, ai_job_id: ids.aiJob, kind: 'completed',
-      analysis_data_sha256: sha256(analysisData),
-      analysis_data_bytes: String(Buffer.byteLength(analysisData)),
-    }, analysisData)
+    const request = multipartBody(
+      {
+        schema_version: '2.0.0',
+        callback_id: callbackId,
+        ai_job_id: ids.aiJob,
+        kind: 'completed',
+        analysis_data_sha256: sha256(analysisData),
+        analysis_data_bytes: String(Buffer.byteLength(analysisData)),
+      },
+      analysisData,
+    )
     const response = await app.inject({
-      method: 'POST', url: `/api/v1/ai/callback/${ids.aiJob}`,
+      method: 'POST',
+      url: `/api/v1/ai/callback/${ids.aiJob}`,
       headers: { authorization: `Bearer ${callbackToken}`, 'content-type': request.contentType },
       payload: request.body,
     })
