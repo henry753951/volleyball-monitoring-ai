@@ -101,7 +101,7 @@ integration('pg-boss media runtime integration', () => {
     }
   })
 
-  it('dead-letters permanent failures with sanitized output', async () => {
+  it('dead-letters permanent failures and preserves the failed source sentinel', async () => {
     const runtime = createPgBossMediaRuntime(isolatedDatabaseUrl, async () => {
       throw new PermanentMediaIngestError('PERMANENT_FAILURE')
     })
@@ -120,7 +120,7 @@ integration('pg-boss media runtime integration', () => {
         code: 'PERMANENT_FAILURE',
       })
       expect((deadLetter.data as { sourceQueue?: string }).sourceQueue).toBe(MEDIA_INGEST_QUEUE)
-      expect((await runtime.boss.getJobById(MEDIA_INGEST_QUEUE, sourceId))?.state).toBe('completed')
+      expect((await runtime.boss.getJobById(MEDIA_INGEST_QUEUE, sourceId))?.state).toBe('failed')
     } finally {
       await runtime.stop()
     }

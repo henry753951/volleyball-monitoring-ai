@@ -656,7 +656,7 @@ fd1823d0ee878eac515206a3dcce99518ddb6e1481f97f78aa433145d152e69f  ./worker/tests
 5c0fb448757fc09d33fce0dc6d93ebe679286dccf468b7a97b615e1061392009  ./worker/tests/media-resolver.test.ts
 44dbd5ef5b7e1d7c1fa34bf3d3418edabe8d1de17d324d107a9d565fe8c772d9  ./worker/tests/minio-object-store.test.ts
 2888639f5aa9ec7961819da8376792572e46c00d116d0e6d59a48c7e3eb9a5ca  ./worker/tests/outbox-publisher.test.ts
-92540b511685590819ea6a0e8cd9b89f790642d810163ec33a17877f4e347a97  ./worker/tests/pg-boss.integration.test.ts
+25e740b5911014af213d6eddfae32cd3c9991d6a401b592f158848d81923cd36  ./worker/tests/pg-boss.integration.test.ts
 b9cf9414f98539dfa7e723f03a3fd3e89ee006f95b165a7c312774c011523761  ./worker/tests/playback-packager.test.ts
 d1d7daea44352999a0d33acc1e396a431c769c0dc1f97029b09e27dbc6dfe1f9  ./worker/tests/prisma-ingest-repository.integration.test.ts
 71294ae25a9fe9530a17e039c7a11e64359f0be841dae963c5433f41e5c79c99  ./worker/tests/resolvers.test.ts
