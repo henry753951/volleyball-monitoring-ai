@@ -17,7 +17,10 @@
     "dev:worker-media": "bun --cwd worker dev:media",
     "dev:worker-workflow": "bun --cwd worker dev:workflow",
     "build": "bun --cwd packages/contracts build && bun --cwd packages/db build && bun --cwd packages/media build && bun --cwd server build && bun --cwd worker build && bun --cwd web build",
-    "lint": "bun --cwd packages/contracts lint && bun --cwd packages/db lint && bun --cwd packages/media lint && bun --cwd server lint && bun --cwd worker lint && bun --cwd web lint",
+    "lint": "eslint . && uv run --project sdk --frozen ruff check --config ruff.toml scripts sdk",
+    "lint:fix": "eslint . --fix && uv run --project sdk --frozen ruff check --fix --config ruff.toml scripts sdk",
+    "format": "prettier . --write && uv run --project sdk --frozen ruff format --config ruff.toml scripts sdk",
+    "format:check": "prettier . --check && uv run --project sdk --frozen ruff format --check --config ruff.toml scripts sdk",
     "typecheck": "bun --cwd packages/contracts typecheck && bun --cwd packages/db typecheck && bun --cwd packages/media typecheck && bun --cwd server typecheck && bun --cwd worker typecheck && bun --cwd web typecheck",
     "test": "bun run test:storage-bootstrap && bun run test:dev-host && bun --cwd packages/contracts test && bun --cwd packages/db test && bun --cwd packages/media test && bun --cwd server test && bun --cwd worker test && bun --cwd web test && uv run --project sdk --frozen --extra test pytest sdk/tests",
     "test:storage-bootstrap": "bun test scripts/storage_bootstrap.test.ts",
@@ -46,7 +49,11 @@
     "compose:down": "docker compose --env-file .env -f infra/compose.yaml --profile app down"
   },
   "devDependencies": {
+    "@nuxt/eslint-config": "1.17.0",
+    "eslint": "10.8.1",
+    "eslint-config-prettier": "10.1.8",
     "minio": "8.0.7",
+    "prettier": "3.9.6",
     "typescript": "^5.9.0"
   }
 }

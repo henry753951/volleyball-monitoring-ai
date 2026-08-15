@@ -73,6 +73,10 @@ jobs:
         run: uv sync --project sdk --frozen --extra test
       - name: Install JavaScript dependencies
         run: bun install --frozen-lockfile
+      - name: Verify formatting and lint
+        run: |
+          bun run format:check
+          bun run lint
       - name: Generate and validate database client
         run: |
           bun run db:generate
