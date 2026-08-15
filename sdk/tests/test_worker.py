@@ -6,6 +6,7 @@ from pathlib import Path
 import httpx
 import pytest
 import respx
+import volleyball_monitoring_ai.provider_worker as provider_worker_module
 from volleyball_monitoring_ai import (
     AIJobRequest,
     AIWorkerClient,
@@ -14,6 +15,9 @@ from volleyball_monitoring_ai import (
     FixtureResultBuilder,
     JobAbortedError,
     ProviderCapabilities,
+    ProviderWorkCapabilities,
+    ProviderWorkerClient,
+    ProviderWorkerConfig,
     WorkerConfig,
 )
 from websockets.asyncio.server import serve
@@ -22,6 +26,67 @@ ROOT = Path(__file__).parents[2]
 FIXTURE = ROOT / "packages" / "contracts" / "fixtures" / "normal-rally" / "job.json"
 BOUNDARY_FIXTURE = ROOT / "packages" / "contracts" / "examples" / "ai" / "boundary-job.json"
 CAPABILITIES = ROOT / "packages" / "contracts" / "examples" / "ai" / "capabilities.json"
+PROVIDER_WORK_CAPABILITIES = (
+    ROOT / "packages" / "contracts" / "examples" / "ai" / "provider-capabilities-v3.json"
+)
+
+
+@pytest.mark.asyncio
+async def test_provider_worker_uses_application_heartbeat_for_proxy_stability(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    capabilities = ProviderWorkCapabilities.model_validate_json(
+        PROVIDER_WORK_CAPABILITIES.read_text()
+    )
+    observed_connect: dict[str, object] = {}
+    sent_messages: list[dict] = []
+    client: ProviderWorkerClient | None = None
+
+    class FakeWebSocket:
+        def __aiter__(self):
+            return self
+
+        async def __anext__(self):
+            assert client is not None
+            await client.stop()
+            raise StopAsyncIteration
+
+        async def send(self, payload: str) -> None:
+            sent_messages.append(json.loads(payload))
+
+        async def close(self, *, code: int, reason: str) -> None:
+            assert code == 1000
+            assert reason == "worker stopping"
+
+    class FakeConnection:
+        async def __aenter__(self) -> FakeWebSocket:
+            return FakeWebSocket()
+
+        async def __aexit__(self, *_args: object) -> None:
+            return None
+
+    def fake_connect(url: str, **kwargs: object) -> FakeConnection:
+        observed_connect["url"] = url
+        observed_connect.update(kwargs)
+        return FakeConnection()
+
+    monkeypatch.setattr(provider_worker_module, "connect", fake_connect)
+    client = ProviderWorkerClient(
+        ProviderWorkerConfig(
+            server_ws_url="wss://central.example.test/api/v2/ai/providers/ws",
+            token="provider-token",
+            workspace=tmp_path,
+            provider_build_id=capabilities.provider_build_id,
+            capabilities=capabilities,
+            instance_id="proxy-stability-test",
+        )
+    )
+
+    await asyncio.wait_for(client.run_forever({}), timeout=1)
+
+    assert observed_connect["ping_interval"] is None
+    assert observed_connect["ping_timeout"] is None
+    assert sent_messages[0]["type"] == "provider_hello"
 
 
 def job_with_clip(content: bytes) -> AIJobRequest:
