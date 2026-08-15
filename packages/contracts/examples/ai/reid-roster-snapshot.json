@@ -1,0 +1,41 @@
+{
+  "schema_version": "1.0.0",
+  "roster_snapshot_id": "roster-snapshot-001",
+  "match_id": "match-001",
+  "rally_submission_id": "submission-001",
+  "as_of_position": {
+    "set_number": 1,
+    "rally_ordinal": 2
+  },
+  "teams": [
+    {
+      "team_id": "team-chn",
+      "court_side": "LEFT",
+      "entries": [
+        {
+          "roster_entry_id": "roster-chn-11",
+          "player_id": "player-chn-11",
+          "jersey_number": "11",
+          "display_name": "Player 11",
+          "position": "OH",
+          "active": true
+        }
+      ]
+    },
+    {
+      "team_id": "team-tpe",
+      "court_side": "RIGHT",
+      "entries": [
+        {
+          "roster_entry_id": "roster-tpe-02",
+          "player_id": null,
+          "jersey_number": "2",
+          "display_name": null,
+          "position": "UNSPECIFIED",
+          "active": true
+        }
+      ]
+    }
+  ],
+  "content_sha256": "7777777777777777777777777777777777777777777777777777777777777777"
+}

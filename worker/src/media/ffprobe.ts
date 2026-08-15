@@ -62,7 +62,6 @@ export const createNodeProbeRunner =
       let stderrBytes = 0
       let settled = false
       // The timer is assigned only after the early-abort check below.
-      // eslint-disable-next-line prefer-const
       let timeout: ReturnType<typeof setTimeout> | undefined
 
       const abort = () => {

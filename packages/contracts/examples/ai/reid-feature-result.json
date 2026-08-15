@@ -1,0 +1,58 @@
+{
+  "schema_version": "1.0.0",
+  "provider_job_id": "provider-job-feature-001",
+  "evidence_set_id": "evidence-set-001",
+  "analysis_run_id": "analysis-run-001",
+  "match_id": "match-001",
+  "status": "READY",
+  "descriptor_artifact": {
+    "artifact_id": "descriptor-bundle-001",
+    "kind": "REID_DESCRIPTOR_BUNDLE",
+    "schema_version": "1.0.0",
+    "sha256": "3333333333333333333333333333333333333333333333333333333333333333",
+    "byte_length": "20000",
+    "content_type": "application/vnd.volleyball.reid-descriptors+octet-stream;version=1"
+  },
+  "jersey_vlm_response_artifact": {
+    "artifact_id": "jersey-vlm-response-001",
+    "kind": "JERSEY_VLM_RESPONSE",
+    "schema_version": "1.0.0",
+    "sha256": "9999999999999999999999999999999999999999999999999999999999999999",
+    "byte_length": "1024",
+    "content_type": "application/vnd.volleyball.reid-jersey-vlm-responses+json;version=1"
+  },
+  "tracklets": [
+    {
+      "tracklet_id": "tracklet-001",
+      "canonical_track_id": 17,
+      "track_id_aliases": [17, 23],
+      "court_side": "LEFT",
+      "first_frame_index": "10",
+      "last_frame_index": "900",
+      "cannot_link_tracklet_ids": ["tracklet-002"],
+      "vectors": [
+        {
+          "vector_id": "vector-dino-001",
+          "modality": "DINO",
+          "model_namespace": "dinov2/vits14-reg/v1",
+          "dimension": 384,
+          "normalization": "L2",
+          "distance": "COSINE",
+          "byte_offset": "0",
+          "byte_length": "1536",
+          "sha256": "4444444444444444444444444444444444444444444444444444444444444444",
+          "source_frame_indices": ["120", "420", "720"]
+        }
+      ],
+      "jersey_vlm": {
+        "model_namespace": "jersey-vlm/qwen-v1",
+        "raw_response_key": "tracklet-001:jersey-vlm:qwen-v1",
+        "raw_response_sha256": "741cf693b1cfcbc41d0ce7eceeac819edc5a937c89319cff5dc78c33744e98e0",
+        "candidate_numbers": [11],
+        "selected_frame_indices": ["120", "420"]
+      }
+    }
+  ],
+  "unavailable_evidence": [],
+  "content_sha256": "6666666666666666666666666666666666666666666666666666666666666666"
+}

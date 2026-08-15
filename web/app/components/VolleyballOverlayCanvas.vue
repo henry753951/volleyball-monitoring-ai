@@ -37,6 +37,7 @@ const props = withDefaults(
     actionCorrections?: Record<number, string>
     playerBboxCorrections?: Record<number, Record<number, OverlayFrameBBox>>
     contactActorCorrections?: Record<string, number | null>
+    contactActorProjections?: Record<string, number | null>
     contactTimeCorrections?: Record<string, number>
     identityLabels?: Record<number, string>
   }>(),
@@ -55,6 +56,7 @@ const props = withDefaults(
     actionCorrections: () => ({}),
     playerBboxCorrections: () => ({}),
     contactActorCorrections: () => ({}),
+    contactActorProjections: () => ({}),
     contactTimeCorrections: () => ({}),
     identityLabels: () => ({}),
   },
@@ -130,6 +132,7 @@ function draw() {
     actionCorrections: props.actionCorrections,
     playerBBoxCorrections: liveBBoxCorrections(),
     contactActorCorrections: props.contactActorCorrections,
+    contactActorProjections: props.contactActorProjections,
     contactTimeCorrections: props.contactTimeCorrections,
     identityLabels: props.identityLabels,
     selectedTrackId: props.selectedTrackId,

@@ -8,7 +8,11 @@ const SERIALIZABLE_RETRIES = 3
 const CORRECTION_ROLES = new Set<UserRole>([UserRole.ADMIN, UserRole.OPERATOR, UserRole.ANNOTATOR])
 
 export type CorrectionDraftErrorCode =
-  'ACTIVE_RALLY_EXISTS' | 'FORBIDDEN' | 'INVALID_SUBMISSION_STATE' | 'NOT_FOUND' | 'UNAUTHENTICATED'
+  | 'ACTIVE_RALLY_EXISTS'
+  | 'FORBIDDEN'
+  | 'INVALID_SUBMISSION_STATE'
+  | 'NOT_FOUND'
+  | 'UNAUTHENTICATED'
 
 export class CorrectionDraftError extends Error {
   constructor(
@@ -262,7 +266,9 @@ export async function createCorrectionDraft(
               rally_id: rally.id,
               revision: rally.annotationRevision.toString(),
               score_resolution: submission.scoreResolutionState.toLowerCase() as
-                'pending' | 'resolved' | 'unknown',
+                | 'pending'
+                | 'resolved'
+                | 'unknown',
               scoring_court_side:
                 (submission.scoringCourtSide?.toLowerCase() as 'left' | 'right' | undefined) ??
                 null,
@@ -553,7 +559,8 @@ export async function createCorrectionDraft(
             rally_id: rally.id,
             revision: revision.toString(),
             score_resolution: submission.scoreResolutionState.toLowerCase() as
-              'resolved' | 'unknown',
+              | 'resolved'
+              | 'unknown',
             scoring_court_side:
               (submission.scoringCourtSide?.toLowerCase() as 'left' | 'right' | undefined) ?? null,
             supersedes_submission_id: submission.id,

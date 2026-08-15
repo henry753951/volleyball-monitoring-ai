@@ -1,7 +1,13 @@
 import type { CaptureSession } from '~/lib/coreDomain'
 
 export type CoachMatchStatusKind =
-  'live' | 'processing' | 'ready' | 'planned' | 'finished' | 'failed' | 'archived'
+  | 'live'
+  | 'processing'
+  | 'ready'
+  | 'planned'
+  | 'finished'
+  | 'failed'
+  | 'archived'
 
 export interface CoachMatchStatusPresentation {
   kind: CoachMatchStatusKind

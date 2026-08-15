@@ -24,7 +24,10 @@ export type StepResult = {
 }
 
 export type ResolveErrorCode =
-  'WINDOW_BOUNDARY' | 'SAMPLE_NOT_FOUND' | 'CAPTURE_GAP' | 'INVALID_SEGMENT_SET'
+  | 'WINDOW_BOUNDARY'
+  | 'SAMPLE_NOT_FOUND'
+  | 'CAPTURE_GAP'
+  | 'INVALID_SEGMENT_SET'
 
 export class ResolverError extends Error {
   constructor(

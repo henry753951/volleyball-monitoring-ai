@@ -1,0 +1,62 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/OWNER/volleyball-monitoring-ai/packages/contracts/ai/identity-preview-result/1.0.0",
+  "title": "Identity Preview Generation Result 1.0.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "provider_job_id",
+    "preview_id",
+    "tracklet_id",
+    "recipe_namespace",
+    "media_artifact",
+    "source_frame_indices",
+    "start_frame_index",
+    "end_frame_index",
+    "width",
+    "height",
+    "frame_count",
+    "duration_ms",
+    "content_sha256"
+  ],
+  "properties": {
+    "schema_version": { "const": "1.0.0" },
+    "provider_job_id": { "$ref": "#/$defs/id" },
+    "preview_id": { "$ref": "#/$defs/id" },
+    "tracklet_id": { "$ref": "#/$defs/id" },
+    "recipe_namespace": { "$ref": "#/$defs/id" },
+    "media_artifact": { "$ref": "#/$defs/artifact" },
+    "source_frame_indices": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 96,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/uint64" }
+    },
+    "start_frame_index": { "$ref": "#/$defs/uint64" },
+    "end_frame_index": { "$ref": "#/$defs/uint64" },
+    "width": { "type": "integer", "minimum": 1 },
+    "height": { "type": "integer", "minimum": 1 },
+    "frame_count": { "type": "integer", "minimum": 1, "maximum": 96 },
+    "duration_ms": { "type": "integer", "minimum": 1 },
+    "content_sha256": { "$ref": "#/$defs/sha256" }
+  },
+  "$defs": {
+    "id": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "uint64": { "type": "string", "pattern": "^(0|[1-9][0-9]*)$" },
+    "sha256": { "type": "string", "pattern": "^[A-Fa-f0-9]{64}$" },
+    "artifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["artifact_id", "kind", "sha256", "byte_length", "content_type"],
+      "properties": {
+        "artifact_id": { "$ref": "#/$defs/id" },
+        "kind": { "const": "IDENTITY_PREVIEW" },
+        "sha256": { "$ref": "#/$defs/sha256" },
+        "byte_length": { "$ref": "#/$defs/uint64" },
+        "content_type": { "enum": ["image/webp", "video/mp4"] }
+      }
+    }
+  }
+}

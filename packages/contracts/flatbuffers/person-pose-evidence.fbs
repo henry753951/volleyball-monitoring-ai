@@ -1,0 +1,54 @@
+namespace volleyball.monitoring.pose;
+
+enum PoseObservationStatus : ubyte {
+  AVAILABLE = 0,
+  NO_USABLE_BBOX = 1,
+  INFERENCE_FAILED = 2,
+  LOW_QUALITY = 3
+}
+
+enum BboxObservationSource : ubyte {
+  DETECTOR = 0,
+  TRACKER_PROPAGATED = 1
+}
+
+table PersonPoseEvidenceChunk {
+  schema_version:string;
+  analysis_run_id:string;
+  pose_recipe_namespace:string;
+  start_frame_index:ulong;
+  frame_count:uint;
+
+  // frame_offsets has frame_count + 1 values and indexes every observation column.
+  frame_offsets:[uint];
+  track_ids:[int];
+  bbox_sources:[BboxObservationSource];
+  bbox_x1:[float];
+  bbox_y1:[float];
+  bbox_x2:[float];
+  bbox_y2:[float];
+
+  // Bboxes and keypoints use normalized video coordinates in [0,1]. The affine
+  // crop transform maps crop pixels to that space:
+  // video_x = crop_x * scale_x + offset_x,
+  // video_y = crop_y * scale_y + offset_y.
+  crop_scale_x:[float];
+  crop_scale_y:[float];
+  crop_offset_x:[float];
+  crop_offset_y:[float];
+  statuses:[PoseObservationStatus];
+
+  // Flattened observation_count * 32 SHA-256 bytes over the canonical
+  // observation fields. This permits per-observation provenance checks while
+  // the manifest hash remains authoritative for the complete chunk.
+  observation_sha256:[ubyte];
+
+  // Each keypoint column has observation_count * 17 values in COCO-17 order.
+  // Missing/invalid keypoints use confidence -1, never fabricated (0,0) evidence.
+  keypoint_x:[float];
+  keypoint_y:[float];
+  keypoint_confidence:[float];
+}
+
+root_type PersonPoseEvidenceChunk;
+file_identifier "VPE1";

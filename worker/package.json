@@ -1,16 +1,16 @@
 {
   "name": "@volleyball-monitoring/worker",
+  "version": "0.1.0",
   "private": true,
   "type": "module",
-  "version": "0.1.0",
   "scripts": {
     "dev": "bun --watch src/index.ts",
     "dev:media": "bun --watch src/role-entry.ts media",
     "dev:workflow": "bun --watch src/role-entry.ts workflow",
     "build": "tsc -p tsconfig.json",
     "start": "bun dist/index.js",
-    "lint": "eslint .",
-    "lint:fix": "eslint . --fix",
+    "lint": "oxlint .",
+    "lint:fix": "oxlint . --fix",
     "typecheck": "tsc --noEmit",
     "test": "vitest run --exclude 'dist/**'"
   },
@@ -18,6 +18,7 @@
     "@volleyball-monitoring/contracts": "workspace:*",
     "@volleyball-monitoring/db": "workspace:*",
     "@volleyball-monitoring/media": "workspace:*",
+    "ajv": "^8.17.1",
     "minio": "^8.0.7",
     "pg-boss": "^12.0.0",
     "zod": "^4.4.3"

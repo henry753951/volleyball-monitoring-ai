@@ -1,5 +1,6 @@
 import {
   ANALYSIS_REVIEW_SCHEMA_VERSION,
+  type AnalysisContactActorProjection,
   type AnalysisFrameBBox,
   type AnalysisReviewAction,
   type AnalysisReviewOperation,
@@ -14,7 +15,8 @@ import {
 } from '~/lib/realtimeReconnect'
 
 export type BallOverride =
-  { state: 'position'; position: { x: number; y: number } } | { state: 'missing' }
+  | { state: 'position'; position: { x: number; y: number } }
+  | { state: 'missing' }
 
 function operationKey(operation: AnalysisReviewOperation) {
   if (
@@ -45,6 +47,7 @@ export function useAnalysisReview(analysisRunId: MaybeRefOrGetter<string | null>
   const actionCorrections = shallowRef(new Map<string, AnalysisReviewAction>())
   const playerBBoxCorrections = shallowRef(new Map<string, AnalysisFrameBBox>())
   const contactActorCorrections = shallowRef(new Map<string, number | null>())
+  const contactActorProjections = shallowRef(new Map<string, AnalysisContactActorProjection>())
   const contactTimeCorrections = shallowRef(new Map<string, number>())
   const contactEdits = shallowRef(new Map<string, AnalysisReviewState['contact_edits'][number]>())
   const status = ref<AnalysisReviewState['status']>('editing')
@@ -60,6 +63,7 @@ export function useAnalysisReview(analysisRunId: MaybeRefOrGetter<string | null>
   let reconnect: RealtimeReconnectScheduler | null = null
   let generation = 0
   let flushing = false
+  let projectionPoll: ReturnType<typeof setTimeout> | null = null
 
   function frameTrackKey(frameIndex: string | number, trackId: number) {
     return `${frameIndex}:${trackId}`
@@ -88,6 +92,9 @@ export function useAnalysisReview(analysisRunId: MaybeRefOrGetter<string | null>
     )
     const actors = new Map(
       state.contact_actor_corrections.map(item => [item.key_point_id, item.track_id]),
+    )
+    const actorProjections = new Map(
+      state.contact_actor_projections.map(item => [item.key_point_id, item]),
     )
     const contactTimes = new Map(
       state.contact_time_corrections.map(item => [item.key_point_id, Number(item.frame_index)]),
@@ -138,6 +145,7 @@ export function useAnalysisReview(analysisRunId: MaybeRefOrGetter<string | null>
     actionCorrections.value = actions
     playerBBoxCorrections.value = bboxes
     contactActorCorrections.value = actors
+    contactActorProjections.value = actorProjections
     contactTimeCorrections.value = contactTimes
     contactEdits.value = edits
     revision.value = state.revision
@@ -145,6 +153,32 @@ export function useAnalysisReview(analysisRunId: MaybeRefOrGetter<string | null>
     computedRevision.value = state.computed_revision
     approvedRevision.value = state.approved_revision
     loadedAnalysisRunId.value = state.analysis_run_id
+    scheduleProjectionPoll(state.analysis_run_id, actorProjections)
+  }
+
+  function scheduleProjectionPoll(
+    analysisId: string,
+    projections = contactActorProjections.value,
+    delayMs = 750,
+  ) {
+    if (projectionPoll !== null) clearTimeout(projectionPoll)
+    projectionPoll = null
+    if (
+      ![...projections.values()].some(
+        item => item.status === 'pending' || item.status === 'running',
+      )
+    )
+      return
+    const currentGeneration = generation
+    projectionPoll = setTimeout(() => {
+      projectionPoll = null
+      if (currentGeneration !== generation || toValue(analysisRunId) !== analysisId) return
+      void refresh(currentGeneration).catch(cause => {
+        if (currentGeneration !== generation) return
+        error.value = cause instanceof Error ? cause : new Error('擊球者關聯同步失敗')
+        scheduleProjectionPoll(analysisId, contactActorProjections.value, 2_000)
+      })
+    }, delayMs)
   }
 
   async function refresh(currentGeneration = generation) {
@@ -345,16 +379,45 @@ export function useAnalysisReview(analysisRunId: MaybeRefOrGetter<string | null>
     const next = new Map(contactActorCorrections.value)
     next.delete(keyPointId)
     contactActorCorrections.value = next
+    const projection = contactActorProjections.value.get(keyPointId)
+    if (projection)
+      contactActorProjections.value = new Map(contactActorProjections.value).set(keyPointId, {
+        ...projection,
+        status: 'pending',
+        track_id: null,
+        observation_frame_index: null,
+        source: null,
+        confidence: null,
+        fallback_reason: null,
+      })
     queue({ op: 'clear_contact_actor_override', key_point_id: keyPointId })
   }
   function setContactTime(keyPointId: string, frameIndex: number) {
     contactTimeCorrections.value = new Map(contactTimeCorrections.value).set(keyPointId, frameIndex)
+    const projection = contactActorProjections.value.get(keyPointId)
+    contactActorProjections.value = new Map(contactActorProjections.value).set(keyPointId, {
+      key_point_id: keyPointId,
+      frame_index: String(frameIndex),
+      status: 'pending',
+      track_id: null,
+      observation_frame_index: null,
+      source: null,
+      confidence: null,
+      algorithm_namespace:
+        projection?.algorithm_namespace ?? 'contact-association/coco17-pose-first-v1',
+      pose_recipe_namespace: projection?.pose_recipe_namespace ?? null,
+      fallback_reason: null,
+      revision: revision.value,
+    })
     queue({ op: 'set_contact_time', key_point_id: keyPointId, frame_index: String(frameIndex) })
   }
   function clearContactTimeOverride(keyPointId: string) {
     const next = new Map(contactTimeCorrections.value)
     next.delete(keyPointId)
     contactTimeCorrections.value = next
+    const projections = new Map(contactActorProjections.value)
+    projections.delete(keyPointId)
+    contactActorProjections.value = projections
     queue({ op: 'clear_contact_time_override', key_point_id: keyPointId })
   }
   function addContact(frameIndex: number, trackId: number | null = null) {
@@ -417,6 +480,7 @@ export function useAnalysisReview(analysisRunId: MaybeRefOrGetter<string | null>
       actionCorrections.value = new Map()
       playerBBoxCorrections.value = new Map()
       contactActorCorrections.value = new Map()
+      contactActorProjections.value = new Map()
       contactTimeCorrections.value = new Map()
       contactEdits.value = new Map()
       dirtyCount.value = 0
@@ -425,6 +489,8 @@ export function useAnalysisReview(analysisRunId: MaybeRefOrGetter<string | null>
       approvedRevision.value = null
       error.value = null
       connection.value = id ? 'connecting' : 'idle'
+      if (projectionPoll !== null) clearTimeout(projectionPoll)
+      projectionPoll = null
       if (!id) return
       reconnect = createRealtimeReconnectScheduler(() => connect(currentGeneration))
       try {
@@ -442,6 +508,7 @@ export function useAnalysisReview(analysisRunId: MaybeRefOrGetter<string | null>
     generation += 1
     reconnect?.dispose()
     socket?.close()
+    if (projectionPoll !== null) clearTimeout(projectionPoll)
   })
 
   return {
@@ -449,6 +516,7 @@ export function useAnalysisReview(analysisRunId: MaybeRefOrGetter<string | null>
     ballCorrections: readonly(ballCorrections),
     connection: readonly(connection),
     contactActorCorrections: readonly(contactActorCorrections),
+    contactActorProjections: readonly(contactActorProjections),
     contactTimeCorrections: readonly(contactTimeCorrections),
     contactEdits: readonly(contactEdits),
     status: readonly(status),

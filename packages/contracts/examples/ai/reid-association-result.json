@@ -1,0 +1,35 @@
+{
+  "schema_version": "1.0.0",
+  "provider_job_id": "provider-job-association-001",
+  "association_run_id": "association-run-001",
+  "evidence_set_id": "evidence-set-001",
+  "bank_snapshot_id": "bank-snapshot-001",
+  "status": "NEEDS_REVIEW",
+  "decisions": [
+    {
+      "tracklet_id": "tracklet-001",
+      "group_key": "current-group-001",
+      "association_state": "NEEDS_REVIEW",
+      "selected_person_cluster_id": null,
+      "selected_roster_entry_id": null,
+      "candidates": [
+        {
+          "candidate_key": "candidate-001",
+          "person_cluster_id": "person-cluster-001",
+          "roster_entry_id": "roster-entry-011",
+          "rank": 1,
+          "confidence": 0.61,
+          "scores": [
+            {
+              "component": "DINO",
+              "value": 0.82,
+              "model_namespace": "dinov2/vits14-reg/v1"
+            }
+          ]
+        }
+      ],
+      "unresolved_reason": "candidate margin is below the activation threshold"
+    }
+  ],
+  "content_sha256": "9999999999999999999999999999999999999999999999999999999999999999"
+}

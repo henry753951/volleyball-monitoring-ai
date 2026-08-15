@@ -1,0 +1,324 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/OWNER/volleyball-monitoring-ai/packages/contracts/ai/provider-work-realtime/2.0.0",
+  "title": "Provider Work Realtime Protocol 2.0.0",
+  "oneOf": [
+    { "$ref": "#/$defs/providerHello" },
+    { "$ref": "#/$defs/activeEnvelope" },
+    { "$ref": "#/$defs/jobAccepted" },
+    { "$ref": "#/$defs/jobFailure" },
+    { "$ref": "#/$defs/progress" },
+    { "$ref": "#/$defs/abortAck" },
+    { "$ref": "#/$defs/connectionReady" },
+    { "$ref": "#/$defs/jobOffer" },
+    { "$ref": "#/$defs/lease" },
+    { "$ref": "#/$defs/control" },
+    { "$ref": "#/$defs/jobCommitted" },
+    { "$ref": "#/$defs/protocolError" }
+  ],
+  "$defs": {
+    "id": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "date": { "type": "string", "format": "date-time" },
+    "workKind": {
+      "enum": [
+        "ANALYSIS",
+        "REID_FEATURE_EXTRACTION",
+        "REID_ASSOCIATION",
+        "PERSON_POSE_EVIDENCE_REBUILD",
+        "IDENTITY_PREVIEW_GENERATION"
+      ]
+    },
+    "activeWork": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["provider_job_id", "work_kind", "delivery_id"],
+      "properties": {
+        "provider_job_id": { "$ref": "#/$defs/id" },
+        "work_kind": { "$ref": "#/$defs/workKind" },
+        "delivery_id": { "$ref": "#/$defs/id" },
+        "progress": { "type": "number", "minimum": 0, "maximum": 1 }
+      }
+    },
+    "providerHello": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "type",
+        "instance_id",
+        "sdk_version",
+        "provider_build_id",
+        "capabilities",
+        "active_work"
+      ],
+      "properties": {
+        "schema_version": { "const": "2.0.0" },
+        "type": { "const": "provider_hello" },
+        "instance_id": { "$ref": "#/$defs/id" },
+        "sdk_version": { "$ref": "#/$defs/id" },
+        "provider_build_id": { "$ref": "#/$defs/id" },
+        "capabilities": { "type": "object", "required": ["schema_version", "work_capabilities"] },
+        "active_work": { "type": "array", "items": { "$ref": "#/$defs/activeWork" } }
+      }
+    },
+    "activeEnvelope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "type", "instance_id", "active_work"],
+      "properties": {
+        "schema_version": { "const": "2.0.0" },
+        "type": { "enum": ["heartbeat", "resume_request"] },
+        "instance_id": { "$ref": "#/$defs/id" },
+        "active_work": { "type": "array", "items": { "$ref": "#/$defs/activeWork" } }
+      }
+    },
+    "identity": {
+      "type": "object",
+      "required": ["schema_version", "type", "provider_job_id", "work_kind", "delivery_id"],
+      "properties": {
+        "schema_version": { "const": "2.0.0" },
+        "type": { "type": "string" },
+        "provider_job_id": { "$ref": "#/$defs/id" },
+        "work_kind": { "$ref": "#/$defs/workKind" },
+        "delivery_id": { "$ref": "#/$defs/id" }
+      }
+    },
+    "jobAccepted": {
+      "allOf": [
+        { "$ref": "#/$defs/identity" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "schema_version",
+            "type",
+            "provider_job_id",
+            "work_kind",
+            "delivery_id",
+            "accepted_at"
+          ],
+          "properties": {
+            "schema_version": { "const": "2.0.0" },
+            "type": { "const": "job_accepted" },
+            "provider_job_id": { "$ref": "#/$defs/id" },
+            "work_kind": { "$ref": "#/$defs/workKind" },
+            "delivery_id": { "$ref": "#/$defs/id" },
+            "accepted_at": { "$ref": "#/$defs/date" }
+          }
+        }
+      ]
+    },
+    "jobFailure": {
+      "allOf": [
+        { "$ref": "#/$defs/identity" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "schema_version",
+            "type",
+            "provider_job_id",
+            "work_kind",
+            "delivery_id",
+            "code",
+            "message",
+            "retryable"
+          ],
+          "properties": {
+            "schema_version": { "const": "2.0.0" },
+            "type": { "enum": ["job_rejected", "job_failed"] },
+            "provider_job_id": { "$ref": "#/$defs/id" },
+            "work_kind": { "$ref": "#/$defs/workKind" },
+            "delivery_id": { "$ref": "#/$defs/id" },
+            "code": { "$ref": "#/$defs/id" },
+            "message": { "type": "string", "minLength": 1, "maxLength": 1000 },
+            "retryable": { "type": "boolean" }
+          }
+        }
+      ]
+    },
+    "progress": {
+      "allOf": [
+        { "$ref": "#/$defs/identity" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "schema_version",
+            "type",
+            "provider_job_id",
+            "work_kind",
+            "delivery_id",
+            "progress"
+          ],
+          "properties": {
+            "schema_version": { "const": "2.0.0" },
+            "type": { "const": "progress" },
+            "provider_job_id": { "$ref": "#/$defs/id" },
+            "work_kind": { "$ref": "#/$defs/workKind" },
+            "delivery_id": { "$ref": "#/$defs/id" },
+            "progress": { "type": "number", "minimum": 0, "maximum": 1 },
+            "stage": { "type": ["string", "null"] }
+          }
+        }
+      ]
+    },
+    "abortAck": {
+      "allOf": [
+        { "$ref": "#/$defs/identity" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "schema_version",
+            "type",
+            "provider_job_id",
+            "work_kind",
+            "delivery_id",
+            "acknowledged_at"
+          ],
+          "properties": {
+            "schema_version": { "const": "2.0.0" },
+            "type": { "const": "abort_ack" },
+            "provider_job_id": { "$ref": "#/$defs/id" },
+            "work_kind": { "$ref": "#/$defs/workKind" },
+            "delivery_id": { "$ref": "#/$defs/id" },
+            "acknowledged_at": { "$ref": "#/$defs/date" }
+          }
+        }
+      ]
+    },
+    "connectionReady": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "type",
+        "connection_id",
+        "server_time",
+        "heartbeat_interval_seconds",
+        "lease_seconds"
+      ],
+      "properties": {
+        "schema_version": { "const": "2.0.0" },
+        "type": { "const": "connection_ready" },
+        "connection_id": { "$ref": "#/$defs/id" },
+        "server_time": { "$ref": "#/$defs/date" },
+        "heartbeat_interval_seconds": { "type": "integer", "minimum": 1 },
+        "lease_seconds": { "type": "integer", "minimum": 5 }
+      }
+    },
+    "jobOffer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "type",
+        "provider_job_id",
+        "work_kind",
+        "delivery_id",
+        "lease_expires_at",
+        "work"
+      ],
+      "properties": {
+        "schema_version": { "const": "2.0.0" },
+        "type": { "const": "job_offer" },
+        "provider_job_id": { "$ref": "#/$defs/id" },
+        "work_kind": { "$ref": "#/$defs/workKind" },
+        "delivery_id": { "$ref": "#/$defs/id" },
+        "lease_expires_at": { "$ref": "#/$defs/date" },
+        "work": {
+          "type": "object",
+          "required": ["schema_version", "provider_job_id", "work_kind", "request_schema_version"]
+        }
+      }
+    },
+    "lease": {
+      "allOf": [
+        { "$ref": "#/$defs/identity" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "schema_version",
+            "type",
+            "provider_job_id",
+            "work_kind",
+            "delivery_id",
+            "lease_expires_at"
+          ],
+          "properties": {
+            "schema_version": { "const": "2.0.0" },
+            "type": { "enum": ["lease_renewed", "resume_job"] },
+            "provider_job_id": { "$ref": "#/$defs/id" },
+            "work_kind": { "$ref": "#/$defs/workKind" },
+            "delivery_id": { "$ref": "#/$defs/id" },
+            "lease_expires_at": { "$ref": "#/$defs/date" }
+          }
+        }
+      ]
+    },
+    "control": {
+      "allOf": [
+        { "$ref": "#/$defs/identity" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "schema_version",
+            "type",
+            "provider_job_id",
+            "work_kind",
+            "delivery_id",
+            "reason"
+          ],
+          "properties": {
+            "schema_version": { "const": "2.0.0" },
+            "type": { "enum": ["abort_job", "discard_job"] },
+            "provider_job_id": { "$ref": "#/$defs/id" },
+            "work_kind": { "$ref": "#/$defs/workKind" },
+            "delivery_id": { "$ref": "#/$defs/id" },
+            "reason": { "type": "string", "minLength": 1, "maxLength": 1000 }
+          }
+        }
+      ]
+    },
+    "jobCommitted": {
+      "allOf": [
+        { "$ref": "#/$defs/identity" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "schema_version",
+            "type",
+            "provider_job_id",
+            "work_kind",
+            "delivery_id",
+            "committed_at"
+          ],
+          "properties": {
+            "schema_version": { "const": "2.0.0" },
+            "type": { "const": "job_committed" },
+            "provider_job_id": { "$ref": "#/$defs/id" },
+            "work_kind": { "$ref": "#/$defs/workKind" },
+            "delivery_id": { "$ref": "#/$defs/id" },
+            "committed_at": { "$ref": "#/$defs/date" }
+          }
+        }
+      ]
+    },
+    "protocolError": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "type", "code", "message", "retryable"],
+      "properties": {
+        "schema_version": { "const": "2.0.0" },
+        "type": { "const": "protocol_error" },
+        "code": { "$ref": "#/$defs/id" },
+        "message": { "type": "string", "minLength": 1 },
+        "retryable": { "type": "boolean" }
+      }
+    }
+  }
+}

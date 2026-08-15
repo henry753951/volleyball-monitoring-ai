@@ -1,0 +1,26 @@
+{
+  "schema_version": "1.0.0",
+  "callback_id": "callback-feature-001",
+  "provider_job_id": "provider-job-feature-001",
+  "work_kind": "REID_FEATURE_EXTRACTION",
+  "kind": "completed",
+  "result_schema_version": "1.0.0",
+  "artifacts": [
+    {
+      "part_name": "reid_feature_result",
+      "kind": "REID_FEATURE_RESULT",
+      "schema_version": "1.0.0",
+      "sha256": "6666666666666666666666666666666666666666666666666666666666666666",
+      "byte_length": "4096",
+      "content_type": "application/json"
+    },
+    {
+      "part_name": "descriptor_bundle",
+      "kind": "REID_DESCRIPTOR_BUNDLE",
+      "schema_version": "1.0.0",
+      "sha256": "3333333333333333333333333333333333333333333333333333333333333333",
+      "byte_length": "20000",
+      "content_type": "application/vnd.volleyball.reid-descriptors+octet-stream;version=1"
+    }
+  ]
+}

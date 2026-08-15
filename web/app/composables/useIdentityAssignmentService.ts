@@ -9,6 +9,10 @@ export type IdentityAssignmentService = Pick<
   | 'assignTrackIdentity'
   | 'clearTrackIdentity'
   | 'applyReidAutomaticAssignments'
+  | 'requestReidFeatureRebuild'
+  | 'reidFeatureRebuildRequest'
+  | 'requestReidAssociationRerun'
+  | 'reidAssociationRerunRequest'
   | 'setTrackIdentityMappingComplete'
 >
 

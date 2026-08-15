@@ -6,6 +6,14 @@ import {
   setTrackIdentityMappingComplete,
 } from '../services/coach-analytics.js'
 import { applyReidAutomaticAssignments } from '../services/reid-automatic-assignment.js'
+import {
+  getReidAssociationRerunRequest,
+  requestReidAssociationRerun,
+} from '../services/reid-association-rerun.js'
+import {
+  getReidFeatureRebuildRequest,
+  requestReidFeatureRebuild,
+} from '../services/reid-feature-rebuild.js'
 import { builder } from './builder.js'
 import { requireIdentity } from './errors.js'
 
@@ -103,6 +111,82 @@ builder.mutationField('setTrackIdentityMappingComplete', t =>
       })
       publishMatchInvalidation?.(result.match_id)
       return result
+    },
+  }),
+)
+
+builder.mutationField('requestReidFeatureRebuild', t =>
+  t.field({
+    args: {
+      requestId: t.arg.id({ required: true }),
+      analysisRunId: t.arg.id({ required: true }),
+      reason: t.arg.string(),
+    },
+    type: 'JSON',
+    resolve: async (_root, args, context) => {
+      const identity = requireIdentity(context)
+      const result = await requestReidFeatureRebuild(db, {
+        requestId: args.requestId,
+        analysisRunId: args.analysisRunId,
+        reason: args.reason,
+        userId: identity.id,
+        role: identity.role,
+      })
+      publishMatchInvalidation?.(result.match_id)
+      return result
+    },
+  }),
+)
+
+builder.queryField('reidFeatureRebuildRequest', t =>
+  t.field({
+    args: { requestId: t.arg.id({ required: true }) },
+    nullable: true,
+    type: 'JSON',
+    resolve: (_root, args, context) => {
+      const identity = requireIdentity(context)
+      return getReidFeatureRebuildRequest(db, {
+        requestId: args.requestId,
+        role: identity.role,
+      })
+    },
+  }),
+)
+
+builder.mutationField('requestReidAssociationRerun', t =>
+  t.field({
+    args: {
+      requestId: t.arg.id({ required: true }),
+      analysisRunId: t.arg.id({ required: true }),
+      reason: t.arg.string(),
+    },
+    type: 'JSON',
+    resolve: async (_root, args, context) => {
+      const identity = requireIdentity(context)
+      const result = await requestReidAssociationRerun(db, {
+        requestId: args.requestId,
+        analysisRunId: args.analysisRunId,
+        reason: args.reason,
+        userId: identity.id,
+        role: identity.role,
+      })
+      publishMatchInvalidation?.(result.match_id)
+      return result
+    },
+  }),
+)
+
+builder.queryField('reidAssociationRerunRequest', t =>
+  t.field({
+    args: { requestId: t.arg.id({ required: true }) },
+    nullable: true,
+    type: 'JSON',
+    resolve: (_root, args, context) => {
+      const identity = requireIdentity(context)
+      return getReidAssociationRerunRequest(db, {
+        requestId: args.requestId,
+        role: identity.role,
+      })
     },
   }),
 )

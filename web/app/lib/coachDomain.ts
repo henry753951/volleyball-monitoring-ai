@@ -145,6 +145,13 @@ export interface CoachMatchState {
   }
 }
 
+export interface ReidJobRequestState {
+  request_id: string
+  analysis_run_id: string
+  status: 'QUEUED' | 'RUNNING' | 'COMPLETED' | 'FAILED' | 'CANCELLED'
+  error_message: string | null
+}
+
 export interface ReplayCourtPosition {
   track_id: number | null
   basis: string
@@ -325,6 +332,7 @@ export interface CoachMatchAnalytics {
     identity_confidence?: number | null
     identity_revision?: string | null
     manual_required?: boolean
+    identity_preview_url?: string | null
     reid_model?: { name: string; checkpoint_sha256: string; preprocess_version: string } | null
   }>
   unassigned_tracks: Array<{
@@ -422,6 +430,46 @@ export function createCoachDomainClient(transport: GraphQLTransport) {
         'mutation ApplyReidAutomaticAssignments($analysisRunId: ID!) { applyReidAutomaticAssignments(analysisRunId: $analysisRunId) }',
         input,
       )
+    },
+    async requestReidFeatureRebuild(input: {
+      requestId: string
+      analysisRunId: string
+      reason?: string
+    }) {
+      const result = await transport.request<{ requestReidFeatureRebuild: ReidJobRequestState }>(
+        'mutation RequestReidFeatureRebuild($requestId: ID!, $analysisRunId: ID!, $reason: String) { requestReidFeatureRebuild(requestId: $requestId, analysisRunId: $analysisRunId, reason: $reason) }',
+        input,
+      )
+      return result.requestReidFeatureRebuild
+    },
+    async reidFeatureRebuildRequest(requestId: string) {
+      const result = await transport.request<{
+        reidFeatureRebuildRequest: ReidJobRequestState | null
+      }>(
+        'query ReidFeatureRebuildRequest($requestId: ID!) { reidFeatureRebuildRequest(requestId: $requestId) }',
+        { requestId },
+      )
+      return result.reidFeatureRebuildRequest
+    },
+    async requestReidAssociationRerun(input: {
+      requestId: string
+      analysisRunId: string
+      reason?: string
+    }) {
+      const result = await transport.request<{ requestReidAssociationRerun: ReidJobRequestState }>(
+        'mutation RequestReidAssociationRerun($requestId: ID!, $analysisRunId: ID!, $reason: String) { requestReidAssociationRerun(requestId: $requestId, analysisRunId: $analysisRunId, reason: $reason) }',
+        input,
+      )
+      return result.requestReidAssociationRerun
+    },
+    async reidAssociationRerunRequest(requestId: string) {
+      const result = await transport.request<{
+        reidAssociationRerunRequest: ReidJobRequestState | null
+      }>(
+        'query ReidAssociationRerunRequest($requestId: ID!) { reidAssociationRerunRequest(requestId: $requestId) }',
+        { requestId },
+      )
+      return result.reidAssociationRerunRequest
     },
     async setTrackIdentityMappingComplete(input: { analysisRunId: string; completed: boolean }) {
       return transport.request<{

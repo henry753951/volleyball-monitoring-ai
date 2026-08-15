@@ -36,7 +36,7 @@ from .realtime import (
 )
 
 LOGGER = logging.getLogger(__name__)
-SDK_VERSION = "0.4.0"
+SDK_VERSION = "0.5.0"
 
 
 class JobAbortedError(asyncio.CancelledError):

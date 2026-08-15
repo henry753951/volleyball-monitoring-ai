@@ -25,7 +25,7 @@ export interface AnalysisHitListItem {
   frameIndex: number
   actorTrackId: number | null
   actorLabel: string
-  actorSource: 'auto' | 'manual' | 'none'
+  actorSource: 'auto' | 'manual' | 'none' | 'pending' | 'failed'
   ballLabel: string
   anchorSource: 'human' | 'ai' | 'manual'
   anchorConfidence: number | null
@@ -237,7 +237,11 @@ function changePage(next: AnalysisPanelPage) {
                           ? '人工'
                           : hit.actorSource === 'none'
                             ? '無人'
-                            : '自動'
+                            : hit.actorSource === 'pending'
+                              ? '重算中'
+                              : hit.actorSource === 'failed'
+                                ? '待重試'
+                                : '自動'
                       }}</em>
                     </button>
                   </li>
@@ -568,6 +572,14 @@ function changePage(next: AnalysisPanelPage) {
 .hit-main em.none {
   background: #3b292b;
   color: #e0b5b8;
+}
+.hit-main em.pending {
+  background: #25364a;
+  color: #a7d8ff;
+}
+.hit-main em.failed {
+  background: #4a2c2c;
+  color: #ffb6b6;
 }
 .hit-time-editor {
   display: grid;

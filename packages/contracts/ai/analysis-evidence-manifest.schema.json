@@ -1,0 +1,69 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/OWNER/volleyball-monitoring-ai/packages/contracts/ai/analysis-evidence-manifest/1.0.0",
+  "title": "Analysis Evidence Manifest 1.0.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "analysis_run_id",
+    "match_id",
+    "rally_submission_id",
+    "clip_asset_id",
+    "analysis_data_artifact",
+    "pose_manifest_artifact",
+    "crop_source_manifest_artifact",
+    "content_sha256",
+    "unavailable_evidence"
+  ],
+  "properties": {
+    "schema_version": { "const": "1.0.0" },
+    "analysis_run_id": { "$ref": "#/$defs/id" },
+    "match_id": { "$ref": "#/$defs/id" },
+    "rally_submission_id": { "$ref": "#/$defs/id" },
+    "clip_asset_id": { "$ref": "#/$defs/id" },
+    "analysis_data_artifact": { "$ref": "#/$defs/artifact" },
+    "pose_manifest_artifact": { "$ref": "#/$defs/artifact" },
+    "crop_source_manifest_artifact": { "$ref": "#/$defs/artifact" },
+    "content_sha256": { "$ref": "#/$defs/sha256" },
+    "unavailable_evidence": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/unavailable" }
+    }
+  },
+  "$defs": {
+    "id": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "uint64": { "type": "string", "pattern": "^[0-9]+$" },
+    "sha256": { "type": "string", "pattern": "^[A-Fa-f0-9]{64}$" },
+    "artifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "artifact_id",
+        "kind",
+        "schema_version",
+        "sha256",
+        "byte_length",
+        "content_type"
+      ],
+      "properties": {
+        "artifact_id": { "$ref": "#/$defs/id" },
+        "kind": { "$ref": "#/$defs/id" },
+        "schema_version": { "type": "string", "minLength": 1, "maxLength": 32 },
+        "sha256": { "$ref": "#/$defs/sha256" },
+        "byte_length": { "$ref": "#/$defs/uint64" },
+        "content_type": { "type": "string", "minLength": 1, "maxLength": 128 }
+      }
+    },
+    "unavailable": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "reason_code", "message"],
+      "properties": {
+        "kind": { "$ref": "#/$defs/id" },
+        "reason_code": { "$ref": "#/$defs/id" },
+        "message": { "type": "string", "minLength": 1, "maxLength": 1000 }
+      }
+    }
+  }
+}

@@ -1,0 +1,36 @@
+{
+  "schema_version": "3.0.0",
+  "provider_name": "volleyball-analysis-engine",
+  "provider_build_id": "2026-08-15.every-frame-pose",
+  "work_capabilities": [
+    {
+      "work_kind": "ANALYSIS",
+      "request_schema_versions": ["1.0.0"],
+      "result_schema_versions": ["1.0.0"],
+      "accepted_input_artifact_kinds": ["CANONICAL_CLIP"],
+      "produced_artifact_kinds": [
+        "ANALYSIS_DATA",
+        "ANALYSIS_EVIDENCE_MANIFEST",
+        "PERSON_POSE_EVIDENCE_MANIFEST",
+        "PERSON_POSE_EVIDENCE_CHUNK",
+        "PLAYER_CROP_SOURCE_MANIFEST"
+      ],
+      "model_recipe_namespaces": ["analysis/every-frame-pose-v1"],
+      "hardware": {
+        "accelerator": "CUDA",
+        "minimum_memory_bytes": "12884901888"
+      },
+      "max_concurrency": 1
+    },
+    {
+      "work_kind": "REID_ASSOCIATION",
+      "request_schema_versions": ["1.0.0"],
+      "result_schema_versions": ["1.0.0"],
+      "accepted_input_artifact_kinds": ["REID_EVIDENCE_SET", "REID_BANK_SNAPSHOT"],
+      "produced_artifact_kinds": ["REID_ASSOCIATION_RESULT"],
+      "model_recipe_namespaces": ["reid/nested-part-v2"],
+      "hardware": { "accelerator": "CPU" },
+      "max_concurrency": 2
+    }
+  ]
+}

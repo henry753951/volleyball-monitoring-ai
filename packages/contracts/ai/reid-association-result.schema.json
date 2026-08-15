@@ -1,0 +1,76 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/OWNER/volleyball-monitoring-ai/packages/contracts/ai/reid-association-result/1.0.0",
+  "title": "ReID Association Result 1.0.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "provider_job_id",
+    "association_run_id",
+    "evidence_set_id",
+    "bank_snapshot_id",
+    "status",
+    "decisions",
+    "content_sha256"
+  ],
+  "properties": {
+    "schema_version": { "const": "1.0.0" },
+    "provider_job_id": { "$ref": "#/$defs/id" },
+    "association_run_id": { "$ref": "#/$defs/id" },
+    "evidence_set_id": { "$ref": "#/$defs/id" },
+    "bank_snapshot_id": { "$ref": "#/$defs/id" },
+    "status": { "enum": ["COMPLETED", "NEEDS_REVIEW"] },
+    "decisions": { "type": "array", "items": { "$ref": "#/$defs/decision" } },
+    "content_sha256": { "$ref": "#/$defs/sha256" }
+  },
+  "$defs": {
+    "id": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "sha256": { "type": "string", "pattern": "^[A-Fa-f0-9]{64}$" },
+    "score": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["component", "value", "model_namespace"],
+      "properties": {
+        "component": { "enum": ["DINO", "OSNET", "KPR", "KPR_PROMPT", "JERSEY_VLM", "CONSTRAINT"] },
+        "value": { "type": "number" },
+        "model_namespace": { "$ref": "#/$defs/id" }
+      }
+    },
+    "candidate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["candidate_key", "person_cluster_id", "roster_entry_id", "rank", "scores"],
+      "properties": {
+        "candidate_key": { "$ref": "#/$defs/id" },
+        "person_cluster_id": { "oneOf": [{ "$ref": "#/$defs/id" }, { "type": "null" }] },
+        "roster_entry_id": { "oneOf": [{ "$ref": "#/$defs/id" }, { "type": "null" }] },
+        "rank": { "type": "integer", "minimum": 1 },
+        "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+        "scores": { "type": "array", "items": { "$ref": "#/$defs/score" } }
+      }
+    },
+    "decision": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "tracklet_id",
+        "group_key",
+        "association_state",
+        "selected_person_cluster_id",
+        "selected_roster_entry_id",
+        "candidates",
+        "unresolved_reason"
+      ],
+      "properties": {
+        "tracklet_id": { "$ref": "#/$defs/id" },
+        "group_key": { "$ref": "#/$defs/id" },
+        "association_state": { "enum": ["RESOLVED", "UNRESOLVED", "NEEDS_REVIEW"] },
+        "selected_person_cluster_id": { "oneOf": [{ "$ref": "#/$defs/id" }, { "type": "null" }] },
+        "selected_roster_entry_id": { "oneOf": [{ "$ref": "#/$defs/id" }, { "type": "null" }] },
+        "candidates": { "type": "array", "items": { "$ref": "#/$defs/candidate" } },
+        "unresolved_reason": { "type": ["string", "null"], "maxLength": 1000 }
+      }
+    }
+  }
+}

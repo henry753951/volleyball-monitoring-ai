@@ -1,0 +1,150 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/OWNER/volleyball-monitoring-ai/packages/contracts/ai/provider-analysis-job/1.0.0",
+  "title": "Provider Base Analysis Job 1.0.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "provider_job_id",
+    "ai_job_id",
+    "rally_submission_id",
+    "rally_id",
+    "match_id",
+    "annotation_revision",
+    "clip",
+    "key_points",
+    "boundaries",
+    "outcome",
+    "modules"
+  ],
+  "properties": {
+    "schema_version": { "const": "1.0.0" },
+    "provider_job_id": { "$ref": "#/$defs/id" },
+    "ai_job_id": { "$ref": "#/$defs/id" },
+    "rally_submission_id": { "$ref": "#/$defs/id" },
+    "rally_id": { "$ref": "#/$defs/id" },
+    "match_id": { "$ref": "#/$defs/id" },
+    "annotation_revision": { "$ref": "#/$defs/uint64" },
+    "clip": { "$ref": "#/$defs/clip" },
+    "key_points": { "type": "array", "items": { "$ref": "#/$defs/keyPoint" } },
+    "boundaries": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 2,
+      "prefixItems": [{ "$ref": "#/$defs/startBoundary" }, { "$ref": "#/$defs/endBoundary" }],
+      "items": false
+    },
+    "outcome": { "$ref": "#/$defs/outcome" },
+    "modules": { "$ref": "#/$defs/modules" }
+  },
+  "$defs": {
+    "id": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "uint64": { "type": "string", "pattern": "^[0-9]+$" },
+    "rational": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["num", "den"],
+      "properties": {
+        "num": { "type": "integer" },
+        "den": { "type": "integer", "not": { "const": 0 } }
+      }
+    },
+    "video": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "width",
+        "height",
+        "fps",
+        "time_base",
+        "total_frames",
+        "duration_us",
+        "has_audio"
+      ],
+      "properties": {
+        "width": { "type": "integer", "minimum": 1 },
+        "height": { "type": "integer", "minimum": 1 },
+        "fps": { "$ref": "#/$defs/rational" },
+        "time_base": { "$ref": "#/$defs/rational" },
+        "total_frames": { "$ref": "#/$defs/uint64" },
+        "duration_us": { "$ref": "#/$defs/uint64" },
+        "has_audio": { "type": "boolean" }
+      }
+    },
+    "clip": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["clip_asset_id", "video"],
+      "properties": {
+        "clip_asset_id": { "$ref": "#/$defs/id" },
+        "video": { "$ref": "#/$defs/video" }
+      }
+    },
+    "keyPoint": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "key_point_id",
+        "sequence_index",
+        "marker_kind",
+        "is_terminal",
+        "clip_pts",
+        "clip_time_us",
+        "clip_frame_index"
+      ],
+      "properties": {
+        "key_point_id": { "$ref": "#/$defs/id" },
+        "sequence_index": { "type": "integer", "minimum": 0 },
+        "marker_kind": { "const": "contact" },
+        "is_terminal": { "const": false },
+        "clip_pts": { "$ref": "#/$defs/uint64" },
+        "clip_time_us": { "$ref": "#/$defs/uint64" },
+        "clip_frame_index": { "$ref": "#/$defs/uint64" }
+      }
+    },
+    "boundaryBase": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "clip_pts", "clip_time_us", "clip_frame_index"],
+      "properties": {
+        "kind": { "enum": ["start", "end"] },
+        "clip_pts": { "$ref": "#/$defs/uint64" },
+        "clip_time_us": { "$ref": "#/$defs/uint64" },
+        "clip_frame_index": { "$ref": "#/$defs/uint64" }
+      }
+    },
+    "startBoundary": {
+      "allOf": [
+        { "$ref": "#/$defs/boundaryBase" },
+        { "properties": { "kind": { "const": "start" } } }
+      ]
+    },
+    "endBoundary": {
+      "allOf": [
+        { "$ref": "#/$defs/boundaryBase" },
+        { "properties": { "kind": { "const": "end" } } }
+      ]
+    },
+    "outcome": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["score_resolution", "scoring_court_side"],
+      "properties": {
+        "score_resolution": { "enum": ["pending", "resolved", "unknown"] },
+        "scoring_court_side": { "type": ["string", "null"], "enum": ["left", "right", null] }
+      }
+    },
+    "modules": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["court", "tracking", "contacts", "person_pose"],
+      "properties": {
+        "court": { "const": "run" },
+        "tracking": { "const": "run" },
+        "contacts": { "const": "run" },
+        "person_pose": { "const": "run" }
+      }
+    }
+  }
+}

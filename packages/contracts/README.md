@@ -10,6 +10,39 @@ invent fields outside these versioned files.
 - `media/frame-step-request.schema.json` / `canonical-frame-anchor.schema.json`: bounded, batched previous/next canonical sample stepping with one authoritative response.
 - `annotation/realtime.schema.json`: v3.0 uses canonical `START_RALLY`/`END_RALLY` boundaries. Z writes boundaries only; X creates optional manual contact key points in both OPEN and READY until Enter creates the immutable submission. Score resolution no longer closes a Rally or gates submission. Active ordinary drafts are device-session scoped; room broadcasts do not select another client's draft, and reconnect retries the same command id before refetch/rebase.
 - `ai/capabilities.schema.json`, `job.schema.json`, `job-accepted.schema.json`: provider handshake and immutable job submission.
+- `ai/provider-capabilities-v3.schema.json`, `provider-work-envelope.schema.json`, and
+  `provider-work-realtime.schema.json`: capability-gated multi-work transport for `ANALYSIS`,
+  `REID_FEATURE_EXTRACTION`, `REID_ASSOCIATION`, `IDENTITY_PREVIEW_GENERATION`, and explicit
+  pose-evidence rebuild. The legacy analysis-only realtime/capabilities schemas remain readable
+  during staged migration.
+- `ai/provider-work-callback.schema.json`: idempotent generic progress/failure/completed callback
+  metadata. Completed artifacts are named multipart parts with exact kind/schema/hash/size; callback
+  authorization remains independent from every signed input URL.
+- `ai/provider-analysis-job.schema.json`: base analysis request with court, tracking, contacts, and
+  every-frame person pose only. ReID is deliberately absent and can never run inline through this
+  request.
+- `ai/analysis-evidence-manifest.schema.json`, `person-pose-evidence-manifest.schema.json`,
+  `player-crop-source-manifest.schema.json`, and
+  `flatbuffers/person-pose-evidence.fbs`: immutable every-canonical-frame/player pose evidence and
+  bounded artifact manifests. Contact-time edits consume these artifacts and do not schedule model
+  work.
+- `analysis/review-*.schema.json`: Analysis Review `1.4.0` keeps sparse human edits separate from
+  immutable AI output and exposes the latest durable pose-first actor projection independently from
+  an explicit human actor override.
+- `ai/reid-roster-snapshot.schema.json`, `reid-feature-job.schema.json`,
+  `reid-feature-result.schema.json`, `reid-jersey-vlm-response.schema.json`,
+  `reid-bank-snapshot.schema.json`, `reid-association-job.schema.json`, and
+  `reid-association-result.schema.json`: independently rerunnable feature/association jobs with one
+  explicit immutable roster input and eligible-history snapshot. Raw VLM responses remain a
+  separately addressable artifact and are linked to each normalized jersey observation by key and
+  hash; a later matcher never has to trust only a normalized jersey number. Bank snapshot `1.1.0`
+  includes the immutable cluster/roster candidate index and each historical vector's artifact,
+  byte range, dimension, metric, and model namespace; association workers never guess descriptor
+  offsets from database-local state.
+- `ai/identity-preview-job.schema.json` `1.1.0` and `identity-preview-result.schema.json` `1.0.0`:
+  independently rerunnable animated player-crop previews. The job pins the central tracklet to its
+  canonical analysis track ID, the saved pose manifest, canonical crop-source evidence, and an
+  explicit frame list; it never reruns pose or alters identity evidence.
 - `ai/analysis-data-domain.schema.json`: domain JSON embedded inside the sole `VAD1` AnalysisData FlatBuffer. It contains tracks, contacts, paths, summaries and versioned extensions.
 - `ai/fixed-roster-reid-v2.schema.json`: optional `AnalysisData.extensions.fixed_roster_reid` payload. It carries DINOv2, Sports OSNet, Official KPR and COCO-17-prompted KPR tracklet descriptors plus aliases and cannot-link evidence. Central owns exactly six team slots and selects Kernel Ridge parameters from earlier clips only.
 - `ai/callback.schema.json`: progress/failure/completed callback metadata.
@@ -41,6 +74,7 @@ The HTTP/WebSocket connection authenticates the user; annotation commands do not
 
 Personal-computer providers use Provider Realtime `2.0.0`: the SDK opens an outbound WSS and waits
 for central job control. Job `3.0.0` carries explicit segment boundaries and a full/selective module
-plan. Callback `2.0.0` uploads exactly one `VAD1` AnalysisData file. Analysis Review `1.3.0` stores
-sparse human correction operations separately from immutable AI output. WSS is control-plane only;
+plan. Callback `2.0.0` uploads exactly one `VAD1` AnalysisData file. Analysis Review `1.4.0` stores
+sparse human correction operations plus versioned pose-first actor projections separately from
+immutable AI output. WSS is control-plane only;
 the canonical MP4 uses its signed URL and completed AnalysisData uses the authenticated callback.

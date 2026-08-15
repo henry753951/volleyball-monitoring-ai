@@ -91,3 +91,21 @@ export async function uploadFile(
   })
   return { sha256, byteLength: BigInt(info.size) }
 }
+
+export async function putVerifiedBuffer(
+  client: Client,
+  bucket: string,
+  objectKey: string,
+  value: Buffer,
+  contentType: string,
+  extraMetadata: Record<string, string> = {},
+) {
+  const sha256 = createHash('sha256').update(value).digest('hex')
+  await client.putObject(bucket, objectKey, value, value.byteLength, {
+    'Content-Type': contentType,
+    'x-amz-meta-sha256': sha256,
+    'x-amz-meta-byte-length': String(value.byteLength),
+    ...extraMetadata,
+  })
+  return { sha256, byteLength: BigInt(value.byteLength) }
+}

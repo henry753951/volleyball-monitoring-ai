@@ -25,7 +25,8 @@ import { RallyDeleteReceiptType, RallyPlacementType, RallyType } from './types.j
 
 let service: AnnotationCommandService | null = null
 let notifyMatchChanged:
-  ((matchId: string, reason: 'rally_deleted' | 'rally_placement_updated') => void) | undefined
+  | ((matchId: string, reason: 'rally_deleted' | 'rally_placement_updated') => void)
+  | undefined
 const mediaObjectRemover = createMediaObjectRemoverFromEnv()
 
 export function configureAnnotationGraphQL(

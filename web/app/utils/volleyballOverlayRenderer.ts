@@ -47,7 +47,8 @@ export interface OverlayFrameBBox {
   y2: number
 }
 export type OverlayBallOverride =
-  { state: 'position'; position: OverlayPoint } | { state: 'missing' }
+  | { state: 'position'; position: OverlayPoint }
+  | { state: 'missing' }
 
 export interface VolleyballOverlayRenderInput {
   context: CanvasRenderingContext2D
@@ -67,6 +68,7 @@ export interface VolleyballOverlayRenderInput {
   actionCorrections?: Record<number, string>
   playerBBoxCorrections?: Record<number, Record<number, OverlayFrameBBox>>
   contactActorCorrections?: Record<string, number | null>
+  contactActorProjections?: Record<string, number | null>
   contactTimeCorrections?: Record<string, number>
   identityLabels?: Record<number, string>
   selectedTrackId?: number | null
@@ -645,6 +647,7 @@ export function resolveEffectiveContactActor(
     | 'ballCorrections'
     | 'chunk'
     | 'contactActorCorrections'
+    | 'contactActorProjections'
     | 'contactTimeCorrections'
     | 'playerBBoxCorrections'
     | 'videoHeight'
@@ -654,6 +657,8 @@ export function resolveEffectiveContactActor(
 ) {
   if (Object.prototype.hasOwnProperty.call(input.contactActorCorrections ?? {}, event.key_point_id))
     return input.contactActorCorrections?.[event.key_point_id] ?? null
+  if (Object.prototype.hasOwnProperty.call(input.contactActorProjections ?? {}, event.key_point_id))
+    return input.contactActorProjections?.[event.key_point_id] ?? null
   const position = resolveEffectiveHitPosition(input, event)
   if (position && input.chunk) {
     const frame = replayEventFrame(event, input.contactTimeCorrections)

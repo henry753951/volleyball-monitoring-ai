@@ -133,6 +133,8 @@ type Mutation {
   deleteMatch(matchId: ID!): MatchDeleteReceipt!
   deleteProcessingRally(rallyId: ID!): Rally!
   deleteRally(rallyId: ID!): RallyDeleteReceipt!
+  requestReidAssociationRerun(analysisRunId: ID!, reason: String, requestId: ID!): JSON!
+  requestReidFeatureRebuild(analysisRunId: ID!, reason: String, requestId: ID!): JSON!
   retryProcessing(input: RetryProcessingInput!): ProcessingState!
   setTrackIdentityMappingComplete(analysisRunId: ID!, completed: Boolean!): JSON!
   startCapture(input: StartCaptureInput!): CaptureSession!
@@ -181,6 +183,8 @@ type Query {
   health: Health!
   match(id: ID!): Match
   matches: [Match!]!
+  reidAssociationRerunRequest(requestId: ID!): JSON
+  reidFeatureRebuildRequest(requestId: ID!): JSON
   viewer: Viewer!
 }
 

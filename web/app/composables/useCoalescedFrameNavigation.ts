@@ -6,11 +6,14 @@ export interface CoalescedFrameNavigationOptions<T> {
   preview: (delta: number) => void
   step: (direction: FrameNavigationDirection, count: number) => Promise<T | null>
   apply: (value: T, direction: FrameNavigationDirection) => void
+  ready?: () => boolean
   onError?: (cause: unknown) => void
   onSettled?: () => void
   settleMs?: number
+  heldFlushMs?: number
   holdWatchdogMs?: number
   maxDelta?: number
+  flushWhileHeld?: boolean
 }
 
 export function useCoalescedFrameNavigation<T>(options: CoalescedFrameNavigationOptions<T>) {
@@ -19,9 +22,12 @@ export function useCoalescedFrameNavigation<T>(options: CoalescedFrameNavigation
   const active = ref(false)
   const heldDirections = new Set<FrameNavigationDirection>()
   const settleMs = options.settleMs ?? 160
+  const heldFlushMs = options.heldFlushMs ?? settleMs
   const holdWatchdogMs = options.holdWatchdogMs ?? 600
   const maxDelta = options.maxDelta ?? 120
   let generation = 0
+  let latestResult: { value: T; direction: FrameNavigationDirection; generation: number } | null =
+    null
   let settleTimer: ReturnType<typeof setTimeout> | null = null
   let holdWatchdogTimer: ReturnType<typeof setTimeout> | null = null
   let stopped = false
@@ -44,13 +50,20 @@ export function useCoalescedFrameNavigation<T>(options: CoalescedFrameNavigation
     active.value = running.value || pendingDelta.value !== 0 || heldDirections.size > 0
   }
 
-  function notifySettled() {
-    if (settled()) options.onSettled?.()
+  function finishSettled() {
+    if (!settled()) return
+    const result = latestResult
+    latestResult = null
+    if (result && result.generation === generation && !stopped)
+      options.apply(result.value, result.direction)
+    updateActive()
+    options.onSettled?.()
   }
 
-  function scheduleFlush(delay = settleMs) {
-    if (stopped || heldDirections.size > 0) return
-    clearSettleTimer()
+  function scheduleFlush(delay = settleMs, reset = true) {
+    if (stopped || (heldDirections.size > 0 && !options.flushWhileHeld)) return
+    if (settleTimer && !reset) return
+    if (reset) clearSettleTimer()
     settleTimer = setTimeout(() => {
       settleTimer = null
       void flush()
@@ -63,7 +76,7 @@ export function useCoalescedFrameNavigation<T>(options: CoalescedFrameNavigation
       holdWatchdogTimer = null
       heldDirections.clear()
       updateActive()
-      scheduleFlush()
+      scheduleFlush(0)
     }, holdWatchdogMs)
   }
 
@@ -75,15 +88,16 @@ export function useCoalescedFrameNavigation<T>(options: CoalescedFrameNavigation
     if (stopped) return
     const boundedCount = Math.max(1, Math.trunc(count))
     const delta = direction === 'next' ? boundedCount : -boundedCount
-    generation += 1
-    pendingDelta.value = Math.max(-maxDelta, Math.min(maxDelta, pendingDelta.value + delta))
+    const nextDelta = Math.max(-maxDelta, Math.min(maxDelta, pendingDelta.value + delta))
+    const acceptedDelta = nextDelta - pendingDelta.value
+    pendingDelta.value = nextDelta
     updateActive()
-    options.preview(delta)
-    clearSettleTimer()
+    if (acceptedDelta !== 0) options.preview(acceptedDelta)
     if (input === 'keyboard') {
       heldDirections.add(direction)
       updateActive()
       armHoldWatchdog()
+      if (options.flushWhileHeld) scheduleFlush(heldFlushMs, false)
       return
     }
     scheduleFlush()
@@ -95,14 +109,20 @@ export function useCoalescedFrameNavigation<T>(options: CoalescedFrameNavigation
     updateActive()
     if (heldDirections.size > 0) return
     clearHoldWatchdog()
-    scheduleFlush()
+    scheduleFlush(0)
   }
 
   async function flush(): Promise<void> {
-    if (stopped || running.value || heldDirections.size > 0) return
+    if (
+      stopped ||
+      running.value ||
+      (heldDirections.size > 0 && !options.flushWhileHeld) ||
+      (options.ready && !options.ready())
+    )
+      return
     const delta = pendingDelta.value
     if (delta === 0) {
-      notifySettled()
+      finishSettled()
       return
     }
 
@@ -113,33 +133,32 @@ export function useCoalescedFrameNavigation<T>(options: CoalescedFrameNavigation
     const direction: FrameNavigationDirection = delta > 0 ? 'next' : 'previous'
     try {
       const value = await options.step(direction, Math.abs(delta))
-      if (
-        value &&
-        !stopped &&
-        requestGeneration === generation &&
-        pendingDelta.value === 0 &&
-        heldDirections.size === 0
-      ) {
-        options.apply(value, direction)
-      }
+      if (value && !stopped && requestGeneration === generation)
+        latestResult = { value, direction, generation: requestGeneration }
     } catch (cause) {
       if (!stopped && requestGeneration === generation) options.onError?.(cause)
     } finally {
       running.value = false
       updateActive()
-      if (!stopped && pendingDelta.value !== 0 && heldDirections.size === 0) scheduleFlush(0)
-      else notifySettled()
+      if (
+        !stopped &&
+        pendingDelta.value !== 0 &&
+        (heldDirections.size === 0 || options.flushWhileHeld)
+      )
+        scheduleFlush(heldDirections.size > 0 ? heldFlushMs : 0)
+      else finishSettled()
     }
   }
 
   function cancel() {
     generation += 1
+    latestResult = null
     pendingDelta.value = 0
     heldDirections.clear()
     updateActive()
     clearSettleTimer()
     clearHoldWatchdog()
-    notifySettled()
+    finishSettled()
   }
 
   function stop() {

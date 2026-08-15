@@ -1,0 +1,25 @@
+{
+  "schema_version": "2.0.0",
+  "type": "provider_hello",
+  "instance_id": "gpu-worker-001",
+  "sdk_version": "0.5.0",
+  "provider_build_id": "2026-08-15.every-frame-pose",
+  "capabilities": {
+    "schema_version": "3.0.0",
+    "provider_name": "volleyball-analysis-engine",
+    "provider_build_id": "2026-08-15.every-frame-pose",
+    "work_capabilities": [
+      {
+        "work_kind": "REID_FEATURE_EXTRACTION",
+        "request_schema_versions": ["1.0.0"],
+        "result_schema_versions": ["1.0.0"],
+        "accepted_input_artifact_kinds": ["ANALYSIS_EVIDENCE_MANIFEST"],
+        "produced_artifact_kinds": ["REID_FEATURE_RESULT", "REID_DESCRIPTOR_BUNDLE"],
+        "model_recipe_namespaces": ["reid/features-v1"],
+        "hardware": { "accelerator": "CUDA" },
+        "max_concurrency": 1
+      }
+    ]
+  },
+  "active_work": []
+}

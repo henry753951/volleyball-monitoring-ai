@@ -24,15 +24,19 @@ Do not commit `.env`; start from `.env.example`. Local managed media roots are c
 | `bun run dev:web`      | Nuxt only                                                           |
 | `bun run dev:server`   | Fastify/API only                                                    |
 | `bun run dev:worker`   | Media and workflow workers                                          |
-| `bun run format`       | Prettier for JS/TS/Vue/config/docs plus Ruff formatter for Python   |
+| `bun run format`       | Oxfmt for JS/TS/Vue/config/docs plus Ruff formatter for Python      |
 | `bun run format:check` | Verify formatting without writes                                    |
-| `bun run lint`         | ESLint flat config plus Ruff checks                                 |
-| `bun run lint:fix`     | Apply safe ESLint/Ruff fixes                                        |
+| `bun run lint`         | Oxlint for JS/TS/Vue scripts plus Ruff checks                       |
+| `bun run lint:fix`     | Apply safe Oxlint/Ruff fixes                                        |
 | `bun run typecheck`    | TypeScript/Nuxt type checks across workspaces                       |
 | `bun run test`         | Full Bun/Vitest and SDK pytest suite                                |
 | `bun run build`        | Production builds for contracts, DB, media, server, worker, and web |
 
 Run `format` and `lint:fix` serially. Review their diff before mixing them with functional changes.
+
+Oxlint checks JavaScript, TypeScript, and the `<script>` blocks in Vue SFCs. It does not replace
+Nuxt/Vue template compilation, so every web change must still pass `bun --cwd web typecheck` and a
+production build.
 
 ## Contract and persistence commands
 

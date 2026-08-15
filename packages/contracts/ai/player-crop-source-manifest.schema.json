@@ -1,0 +1,84 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/OWNER/volleyball-monitoring-ai/packages/contracts/ai/player-crop-source-manifest/1.0.0",
+  "title": "Player Crop Source Manifest 1.0.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "analysis_run_id",
+    "clip_asset_id",
+    "canonical_frame_count",
+    "coordinate_space",
+    "clip_artifact",
+    "pose_manifest_artifact",
+    "crop_recipe",
+    "content_sha256"
+  ],
+  "properties": {
+    "schema_version": { "const": "1.0.0" },
+    "analysis_run_id": { "$ref": "#/$defs/id" },
+    "clip_asset_id": { "$ref": "#/$defs/id" },
+    "canonical_frame_count": { "$ref": "#/$defs/uint64" },
+    "coordinate_space": { "const": "NORMALIZED_VIDEO" },
+    "clip_artifact": { "$ref": "#/$defs/clipArtifact" },
+    "pose_manifest_artifact": { "$ref": "#/$defs/poseArtifact" },
+    "crop_recipe": { "$ref": "#/$defs/cropRecipe" },
+    "content_sha256": { "$ref": "#/$defs/sha256" }
+  },
+  "$defs": {
+    "id": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "uint64": { "type": "string", "pattern": "^[0-9]+$" },
+    "sha256": { "type": "string", "pattern": "^[A-Fa-f0-9]{64}$" },
+    "artifactBase": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "artifact_id",
+        "kind",
+        "schema_version",
+        "sha256",
+        "byte_length",
+        "content_type"
+      ],
+      "properties": {
+        "artifact_id": { "$ref": "#/$defs/id" },
+        "kind": { "$ref": "#/$defs/id" },
+        "schema_version": { "type": "string", "minLength": 1, "maxLength": 32 },
+        "sha256": { "$ref": "#/$defs/sha256" },
+        "byte_length": { "$ref": "#/$defs/uint64" },
+        "content_type": { "type": "string", "minLength": 1, "maxLength": 128 }
+      }
+    },
+    "clipArtifact": {
+      "allOf": [
+        { "$ref": "#/$defs/artifactBase" },
+        { "properties": { "kind": { "const": "CANONICAL_CLIP" } } }
+      ]
+    },
+    "poseArtifact": {
+      "allOf": [
+        { "$ref": "#/$defs/artifactBase" },
+        { "properties": { "kind": { "const": "PERSON_POSE_EVIDENCE_MANIFEST" } } }
+      ]
+    },
+    "cropRecipe": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "namespace",
+        "bbox_source",
+        "decode_alignment",
+        "padding_ratio",
+        "clamp_to_frame"
+      ],
+      "properties": {
+        "namespace": { "$ref": "#/$defs/id" },
+        "bbox_source": { "const": "PERSON_POSE_EVIDENCE" },
+        "decode_alignment": { "const": "CANONICAL_FRAME_INDEX" },
+        "padding_ratio": { "type": "number", "minimum": 0, "maximum": 1 },
+        "clamp_to_frame": { "const": true }
+      }
+    }
+  }
+}

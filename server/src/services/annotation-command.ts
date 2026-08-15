@@ -539,7 +539,9 @@ async function acceptService(
           snapDistanceUs: anchor.snap_distance_us == null ? null : BigInt(anchor.snap_distance_us),
           sourcePts: BigInt(anchor.source_pts),
           timingPrecision: anchor.timing_precision.toUpperCase() as
-            'FRAME_EXACT' | 'PTS_EXACT' | 'ESTIMATED',
+            | 'FRAME_EXACT'
+            | 'PTS_EXACT'
+            | 'ESTIMATED',
           updatedByUserId: identity.userId,
         },
       })
@@ -559,7 +561,9 @@ async function acceptService(
           snapDistanceUs: anchor.snap_distance_us == null ? null : BigInt(anchor.snap_distance_us),
           sourcePts: BigInt(anchor.source_pts),
           timingPrecision: anchor.timing_precision.toUpperCase() as
-            'FRAME_EXACT' | 'PTS_EXACT' | 'ESTIMATED',
+            | 'FRAME_EXACT'
+            | 'PTS_EXACT'
+            | 'ESTIMATED',
           updatedByUserId: identity.userId,
         },
       })
@@ -907,7 +911,9 @@ async function acceptContact(
           snapDistanceUs: anchor.snap_distance_us == null ? null : BigInt(anchor.snap_distance_us),
           sourcePts: BigInt(anchor.source_pts),
           timingPrecision: anchor.timing_precision.toUpperCase() as
-            'FRAME_EXACT' | 'PTS_EXACT' | 'ESTIMATED',
+            | 'FRAME_EXACT'
+            | 'PTS_EXACT'
+            | 'ESTIMATED',
           updatedByUserId: identity.userId,
         },
       })
@@ -1085,7 +1091,9 @@ async function acceptContact(
         snapDistanceUs: anchor.snap_distance_us == null ? null : BigInt(anchor.snap_distance_us),
         sourcePts: BigInt(anchor.source_pts),
         timingPrecision: anchor.timing_precision.toUpperCase() as
-          'FRAME_EXACT' | 'PTS_EXACT' | 'ESTIMATED',
+          | 'FRAME_EXACT'
+          | 'PTS_EXACT'
+          | 'ESTIMATED',
         updatedByUserId: identity.userId,
         possibleDuplicate,
       },
@@ -1482,7 +1490,9 @@ async function acceptOutcome(
     const revision = rally.annotationRevision + 1n
     const resolution = command.payload.score_resolution.toUpperCase() as 'RESOLVED' | 'UNKNOWN'
     const scoringCourtSide = command.payload.scoring_court_side?.toUpperCase() as
-      'LEFT' | 'RIGHT' | undefined
+      | 'LEFT'
+      | 'RIGHT'
+      | undefined
     const cas = await tx.rally.updateMany({
       data: {
         annotationRevision: revision,
@@ -1977,7 +1987,9 @@ async function acceptDraftEdit(
           captureTimeUs: resolvedTime,
           sourcePts: BigInt(anchor.source_pts),
           timingPrecision: anchor.timing_precision.toUpperCase() as
-            'FRAME_EXACT' | 'PTS_EXACT' | 'ESTIMATED',
+            | 'FRAME_EXACT'
+            | 'PTS_EXACT'
+            | 'ESTIMATED',
           snapDistanceUs: anchor.snap_distance_us == null ? null : BigInt(anchor.snap_distance_us),
           originalPlaybackCursor: jsonValue(command.payload.playback_cursor),
           updatedByUserId: identity.userId,

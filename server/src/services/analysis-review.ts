@@ -16,11 +16,16 @@ const WRITE_ROLES = new Set<UserRole>([
   UserRole.ANNOTATOR,
   UserRole.COACH,
 ])
+export const CONTACT_ASSOCIATION_ALGORITHM = 'contact-association/coco17-pose-first-v1'
 
 export class AnalysisReviewError extends Error {
   constructor(
     public readonly code:
-      'FORBIDDEN' | 'NOT_FOUND' | 'FRAME_OUT_OF_RANGE' | 'TRACK_NOT_ACTIVE' | 'REVIEW_NOT_READY',
+      | 'FORBIDDEN'
+      | 'NOT_FOUND'
+      | 'FRAME_OUT_OF_RANGE'
+      | 'TRACK_NOT_ACTIVE'
+      | 'REVIEW_NOT_READY',
     message: string,
   ) {
     super(message)
@@ -98,32 +103,46 @@ export async function readAnalysisReview(
   if (!run) return null
   // Version 1.2 returns the complete sparse current state. That makes deletions
   // (restore automatic analysis) converge after a revision invalidation.
-  const [ball, action, bbox, contactActor, contactTime, contactEdits] = await Promise.all([
-    database.analysisBallCorrection.findMany({
-      where: { analysisRunId: input.analysisRunId },
-      orderBy: { frameIndex: 'asc' },
-    }),
-    database.analysisActionCorrection.findMany({
-      where: { analysisRunId: input.analysisRunId },
-      orderBy: [{ frameIndex: 'asc' }, { trackId: 'asc' }],
-    }),
-    database.analysisPlayerBBoxCorrection.findMany({
-      where: { analysisRunId: input.analysisRunId },
-      orderBy: [{ frameIndex: 'asc' }, { trackId: 'asc' }],
-    }),
-    database.analysisContactActorCorrection.findMany({
-      where: { analysisRunId: input.analysisRunId },
-      orderBy: { keyPointId: 'asc' },
-    }),
-    database.analysisContactTimeCorrection.findMany({
-      where: { analysisRunId: input.analysisRunId },
-      orderBy: { keyPointId: 'asc' },
-    }),
-    database.analysisContactEdit?.findMany({
-      where: { analysisRunId: input.analysisRunId },
-      orderBy: [{ frameIndex: 'asc' }, { contactId: 'asc' }],
-    }) ?? Promise.resolve([]),
-  ])
+  const [ball, action, bbox, contactActor, contactAssociationJobs, contactTime, contactEdits] =
+    await Promise.all([
+      database.analysisBallCorrection.findMany({
+        where: { analysisRunId: input.analysisRunId },
+        orderBy: { frameIndex: 'asc' },
+      }),
+      database.analysisActionCorrection.findMany({
+        where: { analysisRunId: input.analysisRunId },
+        orderBy: [{ frameIndex: 'asc' }, { trackId: 'asc' }],
+      }),
+      database.analysisPlayerBBoxCorrection.findMany({
+        where: { analysisRunId: input.analysisRunId },
+        orderBy: [{ frameIndex: 'asc' }, { trackId: 'asc' }],
+      }),
+      database.analysisContactActorCorrection.findMany({
+        where: { analysisRunId: input.analysisRunId },
+        orderBy: { keyPointId: 'asc' },
+      }),
+      database.analysisContactAssociationJob.findMany({
+        where: {
+          analysisRunId: input.analysisRunId,
+          status: {
+            in: [JobStatus.QUEUED, JobStatus.RUNNING, JobStatus.COMPLETED, JobStatus.FAILED],
+          },
+        },
+        orderBy: [{ reviewRevision: 'desc' }, { createdAt: 'desc' }],
+        include: { projection: true },
+      }),
+      database.analysisContactTimeCorrection.findMany({
+        where: { analysisRunId: input.analysisRunId },
+        orderBy: { keyPointId: 'asc' },
+      }),
+      database.analysisContactEdit?.findMany({
+        where: { analysisRunId: input.analysisRunId },
+        orderBy: [{ frameIndex: 'asc' }, { contactId: 'asc' }],
+      }) ?? Promise.resolve([]),
+    ])
+  const latestAssociationJobs = new Map<string, (typeof contactAssociationJobs)[number]>()
+  for (const job of contactAssociationJobs)
+    if (!latestAssociationJobs.has(job.keyPointId)) latestAssociationJobs.set(job.keyPointId, job)
   return {
     schema_version: ANALYSIS_REVIEW_SCHEMA_VERSION,
     analysis_run_id: run.id,
@@ -165,6 +184,31 @@ export async function readAnalysisReview(
       track_id: item.trackId,
       revision: item.revision.toString(),
     })),
+    contact_actor_projections: [...latestAssociationJobs.values()]
+      .sort((left, right) => left.keyPointId.localeCompare(right.keyPointId))
+      .map(job => ({
+        key_point_id: job.keyPointId,
+        frame_index: job.frameIndex.toString(),
+        status: (job.status === JobStatus.QUEUED
+          ? 'pending'
+          : job.status === JobStatus.COMPLETED
+            ? 'ready'
+            : job.status.toLowerCase()) as AnalysisReviewState['contact_actor_projections'][number]['status'],
+        track_id: job.projection?.trackId ?? null,
+        observation_frame_index: job.projection?.observationFrameIndex?.toString() ?? null,
+        source: job.projection
+          ? (job.projection.source.toLowerCase() as AnalysisReviewState['contact_actor_projections'][number]['source'])
+          : null,
+        confidence: job.projection?.confidence ?? null,
+        algorithm_namespace: job.algorithmNamespace,
+        pose_recipe_namespace: job.projection?.poseRecipeNamespace ?? null,
+        fallback_reason:
+          job.projection?.fallbackReason ??
+          (job.status === JobStatus.FAILED
+            ? (job.errorCode ?? 'association_recompute_failed')
+            : null),
+        revision: job.reviewRevision.toString(),
+      })),
     contact_time_corrections: contactTime.map(item => ({
       key_point_id: item.keyPointId,
       frame_index: item.frameIndex.toString(),
@@ -209,6 +253,11 @@ export async function applyAnalysisReviewPatch(
   for (const edit of runContactEdits) effectiveContactFrames.set(edit.contactId, edit.frameIndex)
   for (const correction of existingContactTimeCorrections)
     effectiveContactFrames.set(correction.keyPointId, correction.frameIndex)
+  const activeContactIds = new Set(run.contactEvents.map(event => event.keyPointId))
+  for (const edit of runContactEdits) {
+    if (edit.deleted) activeContactIds.delete(edit.contactId)
+    else activeContactIds.add(edit.contactId)
+  }
   const assertFrame = (frameIndex: bigint) => {
     if (frameIndex >= totalFrames)
       throw new AnalysisReviewError('FRAME_OUT_OF_RANGE', 'frame is outside AnalysisData')
@@ -239,6 +288,13 @@ export async function applyAnalysisReviewPatch(
           : (contact!.resolvedFrameIndex ?? contact!.anchorFrameIndex)
     assertFrame(frameIndex)
     effectiveContactFrames.set(operation.key_point_id, frameIndex)
+  }
+  for (const operation of input.patch.operations) {
+    if (operation.op === 'add_contact') {
+      activeContactIds.add(operation.contact_id)
+      effectiveContactFrames.set(operation.contact_id, BigInt(operation.frame_index))
+    } else if (operation.op === 'delete_contact') activeContactIds.delete(operation.contact_id)
+    else if (operation.op === 'restore_contact') activeContactIds.add(operation.contact_id)
   }
   const orderedBaseFrames = run.contactEvents.map(event =>
     effectiveContactFrames.get(event.keyPointId)!,
@@ -303,6 +359,42 @@ export async function applyAnalysisReviewPatch(
         throw new AnalysisReviewError('FRAME_OUT_OF_RANGE', 'player box is outside the video frame')
       }
     }
+  }
+
+  const associationRequests = new Map<string, bigint>()
+  for (const operation of input.patch.operations) {
+    if (operation.op === 'set_contact_time' || operation.op === 'clear_contact_time_override') {
+      associationRequests.set(
+        operation.key_point_id,
+        effectiveContactFrames.get(operation.key_point_id)!,
+      )
+      continue
+    }
+    if (operation.op === 'clear_contact_actor_override') {
+      associationRequests.set(
+        operation.key_point_id,
+        effectiveContactFrames.get(operation.key_point_id)!,
+      )
+      continue
+    }
+    if (operation.op === 'add_contact' && operation.track_id === null) {
+      associationRequests.set(operation.contact_id, BigInt(operation.frame_index))
+      continue
+    }
+    if (
+      operation.op !== 'set_ball_position' &&
+      operation.op !== 'mark_ball_missing' &&
+      operation.op !== 'clear_ball_override' &&
+      operation.op !== 'set_action' &&
+      operation.op !== 'clear_action_override' &&
+      operation.op !== 'set_player_bbox' &&
+      operation.op !== 'clear_player_bbox_override'
+    )
+      continue
+    const frameIndex = BigInt(operation.frame_index)
+    for (const contactId of activeContactIds)
+      if (effectiveContactFrames.get(contactId) === frameIndex)
+        associationRequests.set(contactId, frameIndex)
   }
 
   const result = await database.$transaction(async tx => {
@@ -608,6 +700,17 @@ export async function applyAnalysisReviewPatch(
         })
       }
     }
+    if (associationRequests.size)
+      await tx.analysisContactAssociationJob.createMany({
+        data: [...associationRequests].map(([keyPointId, frameIndex]) => ({
+          analysisRunId: input.analysisRunId,
+          keyPointId,
+          reviewRevision: updated.reviewRevision,
+          frameIndex,
+          algorithmNamespace: CONTACT_ASSOCIATION_ALGORITHM,
+        })),
+        skipDuplicates: true,
+      })
     await tx.analysisReviewPatchReceipt.create({
       data: {
         id: input.patch.client_patch_id,

@@ -1,0 +1,33 @@
+{
+  "schema_version": "1.0.0",
+  "analysis_run_id": "analysis-run-001",
+  "match_id": "match-001",
+  "rally_submission_id": "submission-001",
+  "clip_asset_id": "clip-asset-001",
+  "analysis_data_artifact": {
+    "artifact_id": "analysis-data-001",
+    "kind": "ANALYSIS_DATA",
+    "schema_version": "1.0.0",
+    "sha256": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "byte_length": "1048576",
+    "content_type": "application/vnd.volleyball.analysis-data+flatbuffers;version=1"
+  },
+  "pose_manifest_artifact": {
+    "artifact_id": "pose-manifest-001",
+    "kind": "PERSON_POSE_EVIDENCE_MANIFEST",
+    "schema_version": "1.0.0",
+    "sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+    "byte_length": "4096",
+    "content_type": "application/json"
+  },
+  "crop_source_manifest_artifact": {
+    "artifact_id": "crop-source-manifest-001",
+    "kind": "PLAYER_CROP_SOURCE_MANIFEST",
+    "schema_version": "1.0.0",
+    "sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+    "byte_length": "32768",
+    "content_type": "application/json"
+  },
+  "content_sha256": "2222222222222222222222222222222222222222222222222222222222222222",
+  "unavailable_evidence": []
+}
