@@ -9,7 +9,7 @@ import {
 import type { PgBoss } from 'pg-boss'
 
 describe('media ingest failure quarantine', () => {
-  it('keeps the audit copy without leaving a strict FIFO poison job', async () => {
+  it('keeps the audit copy and preserves the strict FIFO failure sentinel', async () => {
     const envelope = {
       schemaVersion: '1.0.0',
       jobType: MEDIA_INGEST_QUEUE,
@@ -39,7 +39,7 @@ describe('media ingest failure quarantine', () => {
 
     expect(results).toEqual([{
       id: envelope.epochCandidateId,
-      status: 'completed',
+      status: 'deadletter',
       output: { code: 'PERMANENT_FAILURE' },
     }])
     expect(quarantined).toEqual([expect.objectContaining({

@@ -50,7 +50,7 @@ export type PermanentMediaIngestCode = 'INVALID_JOB' | 'PERMANENT_FAILURE'
 export type PermanentMediaIngestFailure = {
   sourceJobId: string
   captureSessionId: string
-  code: PermanentMediaIngestCode
+  code: string
 }
 
 export type RecordPermanentMediaIngestFailure = (
@@ -125,13 +125,32 @@ function permanentCode(error: unknown): PermanentMediaIngestCode | null {
   return null
 }
 
+function safeCauseCode(error: unknown): string | undefined {
+  if (!(error instanceof Error) || !('code' in error)) return undefined
+  const raw = String((error as { code?: unknown }).code ?? '')
+  const safe = raw.toUpperCase().replace(/[^A-Z0-9_]/g, '_').slice(0, 120)
+  return safe || undefined
+}
+
+function shouldRetryFinalizedMedia(error: unknown, job: JobWithMetadata<MediaIngestEnvelope>): boolean {
+  return error instanceof Error
+    && 'retryable' in error
+    && (error as { retryable?: unknown }).retryable === true
+    && job.retryCount < job.retryLimit
+}
+
+type PermanentMediaIngestOutput = {
+  code?: PermanentMediaIngestCode
+  causeCode?: string
+}
+
 export async function processMediaIngestJobs(
   jobs: JobWithMetadata<MediaIngestEnvelope>[],
   processJob: (
     envelope: MediaIngestEnvelope,
     signal: AbortSignal,
   ) => Promise<void>,
-): Promise<JobResult<{ code?: PermanentMediaIngestCode }>[]> {
+): Promise<JobResult<PermanentMediaIngestOutput>[]> {
   const job = jobs[0]
   if (!job) return []
   try {
@@ -141,15 +160,23 @@ export async function processMediaIngestJobs(
   } catch (error) {
     const code = permanentCode(error)
     if (code) {
-      return [{ id: job.id, status: 'deadletter', output: { code } }]
+      // A recorder file can look structurally incomplete while its final bytes
+      // are still becoming visible on a shared volume. Retry those probe
+      // failures with the queue's bounded backoff before treating them as
+      // terminal; a genuinely corrupt file still fails closed at the limit.
+      if (shouldRetryFinalizedMedia(error, job)) throw error
+      const causeCode = safeCauseCode(error)
+      return [{
+        id: job.id,
+        status: 'deadletter',
+        output: { code, ...(causeCode && causeCode !== code ? { causeCode } : {}) },
+      }]
     }
     throw error
   }
 }
 
-type PermanentMediaIngestResult = JobResult<{
-  code?: PermanentMediaIngestCode
-}>
+type PermanentMediaIngestResult = JobResult<PermanentMediaIngestOutput>
 
 export async function quarantinePermanentMediaFailures(
   jobs: Pick<JobWithMetadata<MediaIngestEnvelope>, 'id' | 'data'>[],
@@ -175,15 +202,14 @@ export async function quarantinePermanentMediaFailures(
     if (parsed.success) {
       await recordFailure({
         captureSessionId: parsed.data.captureSessionId,
-        code: result.output?.code ?? 'PERMANENT_FAILURE',
+        code: result.output?.causeCode ?? result.output?.code ?? 'PERMANENT_FAILURE',
         sourceJobId: job.id,
       })
     }
-    // key_strict_fifo intentionally blocks a key while its source job is in
-    // failed state. The quarantined copy is the durable audit record, while
-    // completing the source job lets independent captures and later valid
-    // segments continue instead of creating a global head-of-line stall.
-    return { ...result, status: 'completed' as const }
+    // Preserve the terminal failure in key_strict_fifo. Releasing this source
+    // sentinel would silently skip media and let the capture look complete.
+    // Other capture keys remain independent and continue draining normally.
+    return result
   }))
 }
 
@@ -205,6 +231,9 @@ function failureFromDeadLetter(value: unknown): PermanentMediaIngestFailure | nu
   const code = failure && typeof failure === 'object' && !Array.isArray(failure)
     ? (failure as Record<string, unknown>).code
     : null
+  const causeCode = failure && typeof failure === 'object' && !Array.isArray(failure)
+    ? (failure as Record<string, unknown>).causeCode
+    : null
   if (
     !parsed.success
     || data.sourceJobId !== parsed.data.epochCandidateId
@@ -212,7 +241,9 @@ function failureFromDeadLetter(value: unknown): PermanentMediaIngestFailure | nu
   ) return null
   return {
     captureSessionId: parsed.data.captureSessionId,
-    code: code as PermanentMediaIngestCode,
+    code: typeof causeCode === 'string' && /^[A-Z0-9_]{1,120}$/.test(causeCode)
+      ? causeCode
+      : code as PermanentMediaIngestCode,
     sourceJobId: parsed.data.epochCandidateId,
   }
 }
@@ -233,26 +264,6 @@ export async function reconcilePermanentMediaFailures(
     recorded += 1
   }
   return recorded
-}
-
-async function releaseQuarantinedFailures(
-  boss: PgBoss,
-  deadLetter: string,
-): Promise<void> {
-  const blockedKeys = await boss.getBlockedKeys(MEDIA_INGEST_QUEUE)
-  for (const key of blockedKeys) {
-    const jobs = await boss.findJobs<MediaIngestEnvelope>(MEDIA_INGEST_QUEUE, { key })
-    for (const job of jobs) {
-      if (job.state !== 'failed') continue
-      const quarantined = await boss.findJobs(deadLetter, { data: job.data })
-      if (quarantined.length > 0) {
-        // pg-boss cannot cancel a terminal failed job. Its quarantined copy
-        // is already durable, so removing only the source sentinel releases
-        // the strict-FIFO key without losing the failure audit.
-        await boss.deleteJob(MEDIA_INGEST_QUEUE, job.id)
-      }
-    }
-  }
 }
 
 type IngestGroupBoss = Pick<PgBoss, 'findJobs' | 'update'>
@@ -329,7 +340,6 @@ export function createPgBossMediaRuntime(
         if (!persisted || !queueMatches(persisted)) {
           throw new Error('Media ingest queue configuration conflicts with runtime policy.')
         }
-        await releaseQuarantinedFailures(boss, deadLetter)
         await reconcilePermanentMediaFailures(boss, deadLetter, recordFailure)
         await assignQueuedIngestGroups(boss)
 
@@ -354,7 +364,7 @@ export function createPgBossMediaRuntime(
         } as const
         await boss.work<
           MediaIngestEnvelope,
-          JobResult<{ code?: PermanentMediaIngestCode }>[],
+          JobResult<PermanentMediaIngestOutput>[],
           typeof workOptions
         >(
           MEDIA_INGEST_QUEUE,
@@ -435,7 +445,9 @@ export class MediaIndexerRuntime {
           ? prior.stable + 1
           : 0
         this.#observations.set(item.candidate, { mtimeMs: metadata.mtimeMs, size: metadata.size, stable })
-        if (stable < 1 || Date.now() - metadata.mtimeMs < 500) continue
+        // Require two complete unchanged scan intervals. One interval is too
+        // easy to satisfy during a short writer or shared-volume stall.
+        if (stable < 2 || Date.now() - metadata.mtimeMs < 1_000) continue
         await enqueueUnique(this.options.queue, item)
         enqueued += 1
       }

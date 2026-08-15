@@ -117,17 +117,14 @@ async function finalizeCaptureIfDrainedInTransaction(
   const program = capture.programs[0] ?? null
   if (capture.completionExpectedSegments > 0 && !program) return capture
   if (program) {
-    const [readySegments, failedSegments, pendingSegments] = await Promise.all([
+    const [readySegments, pendingSegments] = await Promise.all([
       tx.dvrSegment.count({
         where: { dvrProgramId: program.id, isGap: false, readyAt: { not: null } },
       }),
-      tx.mediaIngestFailure.count({ where: { captureSessionId } }),
       tx.dvrSegment.count({ where: { dvrProgramId: program.id, readyAt: null } }),
     ])
-    const declaredDurationCovered = capture.sourceDurationUs !== null
-      && program.durationUs >= capture.sourceDurationUs
     if (
-      (!declaredDurationCovered && readySegments + failedSegments < capture.completionExpectedSegments)
+      readySegments < capture.completionExpectedSegments
       || pendingSegments > 0
     ) return capture
   }

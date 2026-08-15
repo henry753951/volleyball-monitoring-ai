@@ -559,6 +559,59 @@ describe('Prisma finalized media ingest repository', () => {
     expect(completionEvents).toHaveLength(1)
   })
 
+  it('keeps a sealed capture stopping when a failure record replaces missing READY media', async () => {
+    const { captureSessionId } = await createSession()
+    const reservation = await repository.reserveUploading(
+      reservationInput(captureSessionId, 'sealed-missing-ready-segment'),
+    )
+    const artifactExpectations = expectations(reservation)
+    await repository.recordArtifactExpectations({
+      reservation: reservation.reference,
+      artifacts: artifactExpectations,
+      sampleIndexDocument: serializeSampleIndex(reservation.sampleIndex),
+    })
+    await Promise.all([
+      db.captureSession.update({
+        data: {
+          completionExpectedSegments: 2,
+          completionRequestedAt: fixedReadyAt,
+          status: 'STOPPING',
+        },
+        where: { id: captureSessionId },
+      }),
+      db.dvrProgram.update({
+        data: { status: 'STOPPING' },
+        where: { id: reservation.reference.dvrProgramId },
+      }),
+      db.mediaIngestFailure.create({
+        data: {
+          captureSessionId,
+          code: 'NO_VIDEO_SAMPLES',
+          sourceJobId: randomUUID(),
+        },
+      }),
+    ])
+
+    await expect(repository.publishReady({
+      reservation: reservation.reference,
+      verifiedArtifacts: artifactExpectations,
+    })).resolves.toMatchObject({ disposition: 'PUBLISHED' })
+
+    const [session, program, completionEvents] = await Promise.all([
+      db.captureSession.findUniqueOrThrow({ where: { id: captureSessionId } }),
+      db.dvrProgram.findUniqueOrThrow({ where: { id: reservation.reference.dvrProgramId } }),
+      db.outboxEvent.findMany({
+        where: {
+          aggregateId: captureSessionId,
+          eventType: 'capture.source_completed.v1',
+        },
+      }),
+    ])
+    expect(session).toMatchObject({ status: 'STOPPING', health: 'HEALTHY' })
+    expect(program).toMatchObject({ status: 'STOPPING', playlistRevision: 1n })
+    expect(completionEvents).toHaveLength(0)
+  })
+
   it('rolls back every readiness, program, epoch, and session write on a late database failure', async () => {
     const { captureSessionId } = await createSession()
     const reservation = await repository.reserveUploading(

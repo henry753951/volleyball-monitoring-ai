@@ -65,14 +65,23 @@ export type HandlerDeps = {
   ) => Promise<DvrProgramProfile>
 }
 
-function deterministicProbeError(message: string): Error & { permanent: true } {
-  return Object.assign(new Error(message), { permanent: true as const })
+type FinalizedMediaProbeErrorCode = 'NO_VIDEO_SAMPLES' | 'INVALID_SAMPLE_TIMING'
+
+function deterministicProbeError(
+  code: FinalizedMediaProbeErrorCode,
+  message: string,
+): Error & { code: FinalizedMediaProbeErrorCode; permanent: true; retryable: true } {
+  return Object.assign(new Error(message), {
+    code,
+    permanent: true as const,
+    retryable: true as const,
+  })
 }
 
 export function probeSamples(frames: readonly FfprobeFrame[], streamEndPtsExclusive?: bigint) {
   const videoFrames = frames.filter((frame) => frame.media_type === 'video')
   if (videoFrames.length === 0) {
-    throw deterministicProbeError('Finalized media has no video samples.')
+    throw deterministicProbeError('NO_VIDEO_SAMPLES', 'Finalized media has no video samples.')
   }
   const normalized = videoFrames.map((frame) => {
     if (
@@ -84,7 +93,10 @@ export function probeSamples(frames: readonly FfprobeFrame[], streamEndPtsExclus
         && frame.key_frame !== 1
       )
     ) {
-      throw deterministicProbeError('Finalized media sample timing is invalid.')
+      throw deterministicProbeError(
+        'INVALID_SAMPLE_TIMING',
+        'Finalized media sample timing is invalid.',
+      )
     }
     return {
       sourcePts: BigInt(frame.pts),
@@ -101,10 +113,16 @@ export function probeSamples(frames: readonly FfprobeFrame[], streamEndPtsExclus
       ? next.sourcePts - frame.sourcePts
       : packetDuration ?? (streamEndPtsExclusive === undefined ? 0n : streamEndPtsExclusive - frame.sourcePts)
     if (durationPts <= 0n) {
-      throw deterministicProbeError('Finalized media sample timing is invalid.')
+      throw deterministicProbeError(
+        'INVALID_SAMPLE_TIMING',
+        'Finalized media sample timing is invalid.',
+      )
     }
     if (!next && packetDuration !== null && streamEndPtsExclusive !== undefined && frame.sourcePts + packetDuration !== streamEndPtsExclusive) {
-      throw deterministicProbeError('Finalized media sample timing is invalid.')
+      throw deterministicProbeError(
+        'INVALID_SAMPLE_TIMING',
+        'Finalized media sample timing is invalid.',
+      )
     }
     return {
       sourcePts: frame.sourcePts,

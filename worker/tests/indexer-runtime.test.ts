@@ -41,11 +41,15 @@ function envelope(candidate = 'court-a/2026-08-07_06-30-01-123456.mp4') {
 function job(
   value = envelope(),
   singletonKey: string | null = session,
+  retryCount = 0,
+  retryLimit = 5,
 ): JobWithMetadata<typeof value> {
   return {
     id: 'job-id',
     data: value,
     singletonKey,
+    retryCount,
+    retryLimit,
     signal: new AbortController().signal,
   } as unknown as JobWithMetadata<typeof value>
 }
@@ -216,6 +220,22 @@ describe('media indexer runtime kernel', () => {
       status: 'deadletter',
       output: { code: 'PERMANENT_FAILURE' },
     })
+    const retryableProbe = Object.assign(new Error('file may still be finalizing'), {
+      code: 'NO_VIDEO_SAMPLES',
+      permanent: true,
+      retryable: true,
+    })
+    await expect(processMediaIngestJobs([job()], async () => {
+      throw retryableProbe
+    })).rejects.toBe(retryableProbe)
+    const exhaustedProbe = await processMediaIngestJobs(
+      [job(envelope(), session, 5, 5)],
+      async () => { throw retryableProbe },
+    )
+    expect(exhaustedProbe[0]).toMatchObject({
+      status: 'deadletter',
+      output: { code: 'PERMANENT_FAILURE', causeCode: 'NO_VIDEO_SAMPLES' },
+    })
     await expect(processMediaIngestJobs([job()], async () => {
       const error = Object.assign(new Error('earlier reservation is pending'), {
         code: 'FIFO_BLOCKED',
@@ -249,6 +269,8 @@ describe('media indexer runtime kernel', () => {
       queue: { send: async (_name, value) => { sent.push(value); return 'job-id' } },
       resolveCapture: async () => session,
     })
+    await runtime.scan()
+    expect(sent).toHaveLength(0)
     await runtime.scan()
     expect(sent).toHaveLength(0)
     await runtime.scan()

@@ -175,7 +175,7 @@ describe('capture lifecycle and processing retry', () => {
     })).resolves.toBe(1)
   })
 
-  it('keeps a sealed capture draining until READY coverage reaches its declared duration', async () => {
+  it('keeps a sealed capture draining until every expected segment is READY', async () => {
     const capture = await startCapture(db, operator, {
       ingestPath: `youtube-${randomUUID()}`,
       matchId: ids.match,
@@ -234,6 +234,29 @@ describe('capture lifecycle and processing retry', () => {
       where: { id: program.id },
     })
 
+    const durationCovered = await requestCaptureCompletion(db, capture.id, {
+      expectedSegments: 4,
+      sourceDurationUs: 2_000_000n,
+      sourceKind: 'youtube_vod',
+    })
+
+    expect(durationCovered).toMatchObject({ status: 'STOPPING', health: 'HEALTHY' })
+    await expect(db.dvrProgram.findUniqueOrThrow({
+      where: { id: program.id },
+    })).resolves.toMatchObject({ status: 'STOPPING' })
+
+    await db.dvrSegment.createMany({
+      data: [1n, 2n, 3n].map(sequenceNumber => ({
+        captureEndUs: 2_000_000n + sequenceNumber,
+        captureEpochId: epoch.id,
+        captureStartUs: 1_999_999n + sequenceNumber,
+        durationUs: 1n,
+        dvrProgramId: program.id,
+        frameCount: 1n,
+        readyAt: new Date(),
+        sequenceNumber,
+      })),
+    })
     const finished = await requestCaptureCompletion(db, capture.id, {
       expectedSegments: 4,
       sourceDurationUs: 2_000_000n,
@@ -246,7 +269,7 @@ describe('capture lifecycle and processing retry', () => {
     })).resolves.toMatchObject({ status: 'FINISHED' })
   })
 
-  it('finalizes when every missing recording is durably quarantined', async () => {
+  it('does not finalize when missing recordings are only quarantined', async () => {
     const capture = await startCapture(db, operator, {
       ingestPath: `youtube-${randomUUID()}`,
       matchId: ids.match,
@@ -269,15 +292,15 @@ describe('capture lifecycle and processing retry', () => {
       { captureSessionId: capture.id, code: 'PERMANENT_FAILURE', sourceJobId: randomUUID() },
     ] })
 
-    const finished = await requestCaptureCompletion(db, capture.id, {
+    const draining = await requestCaptureCompletion(db, capture.id, {
       expectedSegments: 2,
       sourceDurationUs: null,
       sourceKind: 'youtube_vod',
     })
 
-    expect(finished).toMatchObject({ status: 'FINISHED', health: 'OFFLINE' })
+    expect(draining).toMatchObject({ status: 'STOPPING', health: 'HEALTHY' })
     await expect(db.dvrProgram.findUniqueOrThrow({ where: { id: program.id } }))
-      .resolves.toMatchObject({ status: 'FINISHED' })
+      .resolves.toMatchObject({ status: 'STOPPING' })
   })
 
   it('resets a terminal failed clip job without creating a second job', async () => {
