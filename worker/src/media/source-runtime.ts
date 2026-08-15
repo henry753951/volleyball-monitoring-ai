@@ -83,7 +83,11 @@ export async function cleanupCompletedMediaSpools(
   return candidates.length
 }
 
-export function mediaSourceRetryDelay(code: string, attempts: number, maxAttempts: number): number | null {
+export function mediaSourceRetryDelay(
+  code: string,
+  attempts: number,
+  maxAttempts: number,
+): number | null {
   if (code === 'YOUTUBE_UPCOMING') return 30_000
   if (attempts >= maxAttempts) return null
   return Math.min(30_000, 1_000 * 2 ** Math.max(0, attempts - 1))
@@ -129,9 +133,13 @@ export class MediaSourceRuntime {
     this.#stopping = false
     await this.#cleanupCompletedSpools()
     await this.tick()
-    this.#timer = setInterval(() => void this.tick().catch(error => {
-      this.options.log?.(`media-source scheduler tick failed: ${errorCode(error)}`)
-    }), this.options.pollIntervalMs ?? 250)
+    this.#timer = setInterval(
+      () =>
+        void this.tick().catch(error => {
+          this.options.log?.(`media-source scheduler tick failed: ${errorCode(error)}`)
+        }),
+      this.options.pollIntervalMs ?? 250,
+    )
   }
 
   async tick(): Promise<void> {
@@ -139,14 +147,18 @@ export class MediaSourceRuntime {
     if (this.#tickPromise) return this.#tickPromise
     this.#lastHeartbeatAt = new Date().toISOString()
     this.#tickPromise = this.#tick()
-      .then(() => { this.#lastSuccessAt = new Date().toISOString() })
-      .catch((error) => {
+      .then(() => {
+        this.#lastSuccessAt = new Date().toISOString()
+      })
+      .catch(error => {
         this.#failedCount += 1
         this.#lastErrorAt = new Date().toISOString()
         this.#lastErrorName = errorCode(error)
         throw error
       })
-      .finally(() => { this.#tickPromise = undefined })
+      .finally(() => {
+        this.#tickPromise = undefined
+      })
     return this.#tickPromise
   }
 
@@ -163,7 +175,10 @@ export class MediaSourceRuntime {
           active.work.attempts = 0
           await recordMediaSourceRelayHealthy(this.options.database, id, this.#owner)
         }
-        if (!['RUNNING', 'DRAINING'].includes(state?.status ?? '') && !active.controller.signal.aborted) {
+        if (
+          !['RUNNING', 'DRAINING'].includes(state?.status ?? '') &&
+          !active.controller.signal.aborted
+        ) {
           active.stopRequested = state?.status === 'STOP_REQUESTED' || state === undefined
           active.controller.abort()
         }
@@ -198,8 +213,9 @@ export class MediaSourceRuntime {
       this.options.leaseSeconds ?? 30,
     )
     for (const work of stopped) this.#launchStopped(work)
-    available = (this.options.concurrency ?? 2)
-      - [...this.#active.values()].filter(active => active.phase === 'source').length
+    available =
+      (this.options.concurrency ?? 2) -
+      [...this.#active.values()].filter(active => active.phase === 'source').length
     if (available <= 0) return
     const claimed = await claimMediaSourceWork(
       this.options.database,
@@ -222,8 +238,7 @@ export class MediaSourceRuntime {
       stopRequested: false,
       work,
     }
-    active.promise = this.#run(active)
-      .finally(() => this.#active.delete(work.id))
+    active.promise = this.#run(active).finally(() => this.#active.delete(work.id))
     this.#active.set(work.id, active)
   }
 
@@ -259,9 +274,14 @@ export class MediaSourceRuntime {
   }
 
   async #completeStopped(work: ClaimedMediaSourceWork): Promise<void> {
-    const expectedSegments = await countMediaSourceRecordings(this.options.recordingRoot, work.ingestPath)
-    const sourceKind = ['youtube', 'youtube_live', 'youtube_vod', 'local_mp4'].includes(work.captureSourceKind ?? '')
-      ? work.captureSourceKind as SourceCompletion['sourceKind']
+    const expectedSegments = await countMediaSourceRecordings(
+      this.options.recordingRoot,
+      work.ingestPath,
+    )
+    const sourceKind = ['youtube', 'youtube_live', 'youtube_vod', 'local_mp4'].includes(
+      work.captureSourceKind ?? '',
+    )
+      ? (work.captureSourceKind as SourceCompletion['sourceKind'])
       : work.sourceKind
     await this.#complete(work, {
       expectedSegments,
@@ -272,38 +292,46 @@ export class MediaSourceRuntime {
 
   async #run(active: ActiveSource): Promise<void> {
     const { work } = active
-    const state: { classification: Pick<SourceCompletion, 'sourceDurationUs' | 'sourceKind'> | null } = { classification: null }
+    const state: {
+      classification: Pick<SourceCompletion, 'sourceDurationUs' | 'sourceKind'> | null
+    } = { classification: null }
     const observer: MediaSourceProcessObserver = {
       classified: async value => {
         state.classification = value
         await recordMediaSourceClassification(this.options.database, work.captureSessionId, value)
-        this.options.log?.(`media-source classified capture=${work.captureSessionId} kind=${value.sourceKind}`)
+        this.options.log?.(
+          `media-source classified capture=${work.captureSessionId} kind=${value.sourceKind}`,
+        )
       },
       retrying: async code => {
         active.relayErrorAt = new Date().toISOString()
         active.relayErrorName = code
         active.retryBudgetReset = false
         await recordMediaSourceRelayError(this.options.database, work.id, this.#owner, code)
-        this.options.log?.(`media-source live relay retry capture=${work.captureSessionId} code=${code}`)
+        this.options.log?.(
+          `media-source live relay retry capture=${work.captureSessionId} code=${code}`,
+        )
       },
-      resumed: (segmentIndex, captureTimeUs) => recordMediaSourceResume(this.options.database, work.id, segmentIndex, captureTimeUs),
+      resumed: (segmentIndex, captureTimeUs) =>
+        recordMediaSourceResume(this.options.database, work.id, segmentIndex, captureTimeUs),
     }
     try {
       const completion = await this.options.run(work, observer, active.controller.signal)
       active.phase = 'draining'
       await this.#complete(work, completion)
-    }
-    catch (error) {
+    } catch (error) {
       if (active.controller.signal.aborted) {
         if (active.stopRequested) {
-          const expectedSegments = await countMediaSourceRecordings(this.options.recordingRoot, work.ingestPath)
+          const expectedSegments = await countMediaSourceRecordings(
+            this.options.recordingRoot,
+            work.ingestPath,
+          )
           await this.#complete(work, {
             expectedSegments,
             sourceDurationUs: state.classification?.sourceDurationUs ?? null,
             sourceKind: state.classification?.sourceKind ?? work.sourceKind,
           })
-        }
-        else {
+        } else {
           await retryMediaSourceWork(this.options.database, work.id, 'WORKER_STOPPED', 0)
         }
         return
@@ -311,10 +339,11 @@ export class MediaSourceRuntime {
       const code = errorCode(error)
       const delayMs = mediaSourceRetryDelay(code, work.attempts, this.options.maxAttempts ?? 5)
       if (delayMs !== null) {
-        this.options.log?.(`media-source retry capture=${work.captureSessionId} code=${code} delay_ms=${delayMs}`)
+        this.options.log?.(
+          `media-source retry capture=${work.captureSessionId} code=${code} delay_ms=${delayMs}`,
+        )
         await retryMediaSourceWork(this.options.database, work.id, code, delayMs)
-      }
-      else {
+      } else {
         this.options.log?.(`media-source failed capture=${work.captureSessionId} code=${code}`)
         await failMediaSourceWork(this.options.database, work.id, code)
       }
@@ -323,7 +352,9 @@ export class MediaSourceRuntime {
 
   async #complete(work: ClaimedMediaSourceWork, completion: SourceCompletion): Promise<void> {
     await requestMediaSourceCompletion(this.options.database, work.id, completion)
-    this.options.log?.(`media-source draining capture=${work.captureSessionId} expected_segments=${completion.expectedSegments}`)
+    this.options.log?.(
+      `media-source draining capture=${work.captureSessionId} expected_segments=${completion.expectedSegments}`,
+    )
     await this.#drain(work)
   }
 
@@ -345,8 +376,7 @@ export class MediaSourceRuntime {
         this.options.recordingRoot,
       )
       if (removed > 0) this.options.log?.(`media-source cleaned completed spools=${removed}`)
-    }
-    catch (error) {
+    } catch (error) {
       this.options.log?.(`media-source completed spool cleanup failed: ${errorCode(error)}`)
     }
   }

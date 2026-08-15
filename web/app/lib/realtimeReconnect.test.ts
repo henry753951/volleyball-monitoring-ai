@@ -9,8 +9,9 @@ describe('realtime reconnect policy', () => {
 
   it('uses capped exponential backoff with bounded jitter', () => {
     const options = { baseDelayMs: 500, maxDelayMs: 30_000, random: () => 0.5 }
-    expect([0, 1, 2, 3, 4, 5, 6, 7].map(attempt => realtimeReconnectDelay(attempt, options)))
-      .toEqual([500, 1_000, 2_000, 4_000, 8_000, 16_000, 30_000, 30_000])
+    expect(
+      [0, 1, 2, 3, 4, 5, 6, 7].map(attempt => realtimeReconnectDelay(attempt, options)),
+    ).toEqual([500, 1_000, 2_000, 4_000, 8_000, 16_000, 30_000, 30_000])
   })
 
   it('pauses while offline and resumes immediately on the online event', () => {

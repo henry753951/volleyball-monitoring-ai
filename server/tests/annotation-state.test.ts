@@ -17,21 +17,28 @@ describe('annotation state baseline', () => {
     { scoreResolution: 'RESOLVED' as const, scoringCourtSide: 'LEFT' as const },
     { scoreResolution: 'RESOLVED' as const, scoringCourtSide: 'RIGHT' as const },
     { scoreResolution: 'UNKNOWN' as const, scoringCourtSide: null },
-  ])('atomically closes on the current last key point with outcome $scoreResolution/$scoringCourtSide', (outcome) => {
-    expect(canCloseRally({
-      state: 'OPEN',
-      targetKeyPointId: 'kp-2',
-      currentLastKeyPointId: 'kp-2',
-      outcome,
-    })).toBe(true)
-  })
+  ])(
+    'atomically closes on the current last key point with outcome $scoreResolution/$scoringCourtSide',
+    outcome => {
+      expect(
+        canCloseRally({
+          state: 'OPEN',
+          targetKeyPointId: 'kp-2',
+          currentLastKeyPointId: 'kp-2',
+          outcome,
+        }),
+      ).toBe(true)
+    },
+  )
 
   it('rejects a stale target so the client must refetch after a revision conflict', () => {
-    expect(canCloseRally({
-      state: 'OPEN',
-      targetKeyPointId: 'kp-1',
-      currentLastKeyPointId: 'kp-2',
-      outcome: { scoreResolution: 'RESOLVED', scoringCourtSide: 'LEFT' },
-    })).toBe(false)
+    expect(
+      canCloseRally({
+        state: 'OPEN',
+        targetKeyPointId: 'kp-1',
+        currentLastKeyPointId: 'kp-2',
+        outcome: { scoreResolution: 'RESOLVED', scoringCourtSide: 'LEFT' },
+      }),
+    ).toBe(false)
   })
 })

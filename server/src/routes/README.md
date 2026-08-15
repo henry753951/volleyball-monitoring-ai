@@ -1,4 +1,3 @@
-
 # REST boundaries
 
 Use REST for resources that are a poor fit for GraphQL:

@@ -1,4 +1,3 @@
-
 # Annotation realtime boundary
 
 `/ws/annotations` carries only versioned messages from

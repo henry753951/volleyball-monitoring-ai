@@ -17,8 +17,7 @@ export interface RosterImportPayload {
 }
 
 export type RosterImportParseResult =
-  | { ok: true; value: RosterImportPayload }
-  | { ok: false; reason: string }
+  { ok: true; value: RosterImportPayload } | { ok: false; reason: string }
 
 const MAX_PLAYERS_PER_TEAM = 60
 const TOP_LEVEL_KEYS = ['matchId', 'schema', 'teams']
@@ -84,19 +83,25 @@ export function buildRosterResearchPrompt(match: RosterPromptMatch) {
   ].join('\n')
 }
 
-export function parseRosterImportPaste(value: string, match: RosterPromptMatch): RosterImportParseResult {
+export function parseRosterImportPaste(
+  value: string,
+  match: RosterPromptMatch,
+): RosterImportParseResult {
   let parsed: unknown
   try {
     parsed = JSON.parse(jsonCandidate(value))
-  }
-  catch {
+  } catch {
     return invalid('貼上的內容不是有效 JSON。')
   }
 
   if (!isRecord(parsed) || !hasOnlyKeys(parsed, TOP_LEVEL_KEYS)) {
     return invalid('JSON 頂層格式不符合球員名單匯入格式。')
   }
-  if (parsed.schema !== ROSTER_IMPORT_SCHEMA || parsed.matchId !== match.id || !Array.isArray(parsed.teams)) {
+  if (
+    parsed.schema !== ROSTER_IMPORT_SCHEMA ||
+    parsed.matchId !== match.id ||
+    !Array.isArray(parsed.teams)
+  ) {
     return invalid('JSON schema 或比賽識別碼不符合目前場次。')
   }
   if (parsed.teams.length !== match.teams.length) {
@@ -108,8 +113,13 @@ export function parseRosterImportPaste(value: string, match: RosterPromptMatch):
   const teams: RosterImportTeam[] = []
 
   for (const rawTeam of parsed.teams) {
-    if (!isRecord(rawTeam) || !hasOnlyKeys(rawTeam, TEAM_KEYS)) return invalid('隊伍資料欄位不符合固定格式。')
-    if (typeof rawTeam.teamId !== 'string' || typeof rawTeam.teamName !== 'string' || !Array.isArray(rawTeam.players)) {
+    if (!isRecord(rawTeam) || !hasOnlyKeys(rawTeam, TEAM_KEYS))
+      return invalid('隊伍資料欄位不符合固定格式。')
+    if (
+      typeof rawTeam.teamId !== 'string' ||
+      typeof rawTeam.teamName !== 'string' ||
+      !Array.isArray(rawTeam.players)
+    ) {
       return invalid('隊伍識別碼、名稱或 players 格式不正確。')
     }
 
@@ -125,8 +135,14 @@ export function parseRosterImportPaste(value: string, match: RosterPromptMatch):
     const jerseyNumbers = new Set<string>()
     const players: RosterInput[] = []
     for (const rawPlayer of rawTeam.players) {
-      if (!isRecord(rawPlayer) || !hasOnlyKeys(rawPlayer, PLAYER_KEYS)) return invalid('球員資料只能包含 jerseyNumber、name 與 position。')
-      if (typeof rawPlayer.jerseyNumber !== 'string' || typeof rawPlayer.name !== 'string' || typeof rawPlayer.position !== 'string') return invalid('球員背號、姓名與位置必須是字串。')
+      if (!isRecord(rawPlayer) || !hasOnlyKeys(rawPlayer, PLAYER_KEYS))
+        return invalid('球員資料只能包含 jerseyNumber、name 與 position。')
+      if (
+        typeof rawPlayer.jerseyNumber !== 'string' ||
+        typeof rawPlayer.name !== 'string' ||
+        typeof rawPlayer.position !== 'string'
+      )
+        return invalid('球員背號、姓名與位置必須是字串。')
 
       const jerseyNumber = rawPlayer.jerseyNumber.trim()
       const name = rawPlayer.name.trim()
@@ -134,7 +150,8 @@ export function parseRosterImportPaste(value: string, match: RosterPromptMatch):
       if (!jerseyNumber || jerseyNumber.length > 12 || !name || name.length > 120) {
         return invalid('球員姓名或背號為空，或超過欄位長度限制。')
       }
-      if (!ROSTER_POSITIONS.has(position)) return invalid('球員位置必須是 OH、MB、OPP、S、L 或 DS。')
+      if (!ROSTER_POSITIONS.has(position))
+        return invalid('球員位置必須是 OH、MB、OPP、S、L 或 DS。')
 
       const nameKey = comparisonKey(name)
       const jerseyKey = comparisonKey(jerseyNumber)

@@ -4,10 +4,17 @@ import { createGraphQLTransport } from '~/lib/coreDomain'
 
 export type IdentityAssignmentService = Pick<
   ReturnType<typeof createCoachDomainClient>,
-  'analytics' | 'rallyReplay' | 'assignTrackIdentity' | 'clearTrackIdentity' | 'applyReidAutomaticAssignments' | 'setTrackIdentityMappingComplete'
+  | 'analytics'
+  | 'rallyReplay'
+  | 'assignTrackIdentity'
+  | 'clearTrackIdentity'
+  | 'applyReidAutomaticAssignments'
+  | 'setTrackIdentityMappingComplete'
 >
 
-const identityAssignmentServiceKey: InjectionKey<IdentityAssignmentService> = Symbol('identity-assignment-service')
+const identityAssignmentServiceKey: InjectionKey<IdentityAssignmentService> = Symbol(
+  'identity-assignment-service',
+)
 
 export function createIdentityAssignmentService(): IdentityAssignmentService {
   return createCoachDomainClient(createGraphQLTransport('/graphql'))

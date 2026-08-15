@@ -3,11 +3,14 @@ import { createMinioStorageProbe } from '../src/operations/minio-storage.js'
 
 describe('MinIO storage probe', () => {
   it('reads usable cluster capacity from current MinIO v3 metrics', async () => {
-    const fetchImpl = vi.fn(async () => new Response(`
+    const fetchImpl = vi.fn(
+      async () =>
+        new Response(`
 # HELP minio_cluster_health_capacity_usable_total_bytes Total cluster usable storage capacity in bytes
 minio_cluster_health_capacity_usable_total_bytes 1.099511627776e+12
 minio_cluster_health_capacity_usable_free_bytes 8.24633720832e+11
-`)) as unknown as typeof fetch
+`),
+    ) as unknown as typeof fetch
 
     const snapshot = await createMinioStorageProbe('http://127.0.0.1:9000', fetchImpl)()
 
@@ -26,7 +29,9 @@ minio_cluster_health_capacity_usable_free_bytes 8.24633720832e+11
   })
 
   it('returns an unavailable snapshot when metrics require authentication', async () => {
-    const fetchImpl = vi.fn(async () => new Response('forbidden', { status: 403 })) as unknown as typeof fetch
+    const fetchImpl = vi.fn(
+      async () => new Response('forbidden', { status: 403 }),
+    ) as unknown as typeof fetch
 
     await expect(createMinioStorageProbe('http://minio:9000', fetchImpl)()).resolves.toEqual({
       available: false,
@@ -39,10 +44,13 @@ minio_cluster_health_capacity_usable_free_bytes 8.24633720832e+11
   })
 
   it('authenticates metrics without exposing the bearer token in the snapshot', async () => {
-    const fetchImpl = vi.fn(async () => new Response(`
+    const fetchImpl = vi.fn(
+      async () =>
+        new Response(`
 minio_cluster_health_capacity_usable_total_bytes 1000
 minio_cluster_health_capacity_usable_free_bytes 750
-`)) as unknown as typeof fetch
+`),
+    ) as unknown as typeof fetch
 
     const snapshot = await createMinioStorageProbe(
       'http://minio:9000',

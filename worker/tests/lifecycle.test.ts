@@ -8,7 +8,7 @@ describe('runWorkerLifecycle', () => {
     const running = runWorkerLifecycle({
       role: 'workflow',
       signal: controller.signal,
-      log: (message) => logs.push(message),
+      log: message => logs.push(message),
     })
 
     expect(logs).toHaveLength(1)
@@ -26,7 +26,7 @@ describe('runWorkerLifecycle', () => {
     await runWorkerLifecycle({
       role: 'media-indexer',
       signal: controller.signal,
-      log: (message) => logs.push(message),
+      log: message => logs.push(message),
     })
 
     expect(logs).toHaveLength(0)
@@ -35,7 +35,7 @@ describe('runWorkerLifecycle', () => {
   it('awaits media-indexer cleanup and surfaces cleanup failures', async () => {
     const controller = new AbortController()
     let releaseCleanup: (() => void) | undefined
-    const cleanup = new Promise<void>((resolve) => {
+    const cleanup = new Promise<void>(resolve => {
       releaseCleanup = resolve
     })
     const running = runWorkerLifecycle({
@@ -48,7 +48,9 @@ describe('runWorkerLifecycle', () => {
 
     controller.abort()
     let settled = false
-    void running.then(() => { settled = true })
+    void running.then(() => {
+      settled = true
+    })
     await Promise.resolve()
     expect(settled).toBe(false)
     releaseCleanup!()
@@ -60,7 +62,9 @@ describe('runWorkerLifecycle', () => {
       signal: failedController.signal,
       log: () => undefined,
       start: async () => undefined,
-      stop: async () => { throw new Error('cleanup failed') },
+      stop: async () => {
+        throw new Error('cleanup failed')
+      },
     })
     failedController.abort()
     await expect(failed).rejects.toThrow('cleanup failed')

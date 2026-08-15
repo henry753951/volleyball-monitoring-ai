@@ -1,9 +1,4 @@
-import {
-  rescalePtsToUs,
-  type IndexedSample,
-  type Rational,
-  type SampleIndex,
-} from './sample-index'
+import { rescalePtsToUs, type IndexedSample, type Rational, type SampleIndex } from './sample-index'
 
 /** One real source sample from a finalized fMP4 segment. */
 export type SourceSampleTiming = {
@@ -148,10 +143,7 @@ function absolute(value: bigint): bigint {
 
 function validateIdentity(value: string, field: string): void {
   if (!value || value.includes('\0')) {
-    throw new CaptureEpochPlannerError(
-      'INVALID_SEGMENT',
-      `${field} must be non-empty`,
-    )
+    throw new CaptureEpochPlannerError('INVALID_SEGMENT', `${field} must be non-empty`)
   }
 }
 
@@ -159,31 +151,16 @@ function segmentBounds(segment: FinalizedIndexedSegment): SegmentBounds {
   validateIdentity(segment.segmentIdentity, 'segmentIdentity')
   validateIdentity(segment.sourceIdentity, 'sourceIdentity')
   if (segment.sourceOrder < 0n) {
-    throw new CaptureEpochPlannerError(
-      'INVALID_SEGMENT',
-      'sourceOrder must be non-negative',
-    )
+    throw new CaptureEpochPlannerError('INVALID_SEGMENT', 'sourceOrder must be non-negative')
   }
   if (segment.timeBase.num <= 0n || segment.timeBase.den <= 0n) {
-    throw new CaptureEpochPlannerError(
-      'INVALID_SEGMENT',
-      'time base must be positive',
-    )
+    throw new CaptureEpochPlannerError('INVALID_SEGMENT', 'time base must be positive')
   }
   if (segment.samples.length === 0) {
-    throw new CaptureEpochPlannerError(
-      'INVALID_SEGMENT',
-      'segment must contain samples',
-    )
+    throw new CaptureEpochPlannerError('INVALID_SEGMENT', 'segment must contain samples')
   }
-  if (
-    segment.explicitGapBeforeUs !== undefined &&
-    segment.explicitGapBeforeUs <= 0n
-  ) {
-    throw new CaptureEpochPlannerError(
-      'INVALID_SEGMENT',
-      'explicit gap must be positive',
-    )
+  if (segment.explicitGapBeforeUs !== undefined && segment.explicitGapBeforeUs <= 0n) {
+    throw new CaptureEpochPlannerError('INVALID_SEGMENT', 'explicit gap must be positive')
   }
 
   let previousEndPts: bigint | undefined
@@ -191,10 +168,7 @@ function segmentBounds(segment: FinalizedIndexedSegment): SegmentBounds {
   const firstPts = segment.samples[0]!.sourcePts
   for (const sample of segment.samples) {
     if (sample.durationPts <= 0n) {
-      throw new CaptureEpochPlannerError(
-        'INVALID_SEGMENT',
-        'sample duration must be positive',
-      )
+      throw new CaptureEpochPlannerError('INVALID_SEGMENT', 'sample duration must be positive')
     }
     if (previousEndPts !== undefined && sample.sourcePts !== previousEndPts) {
       throw new CaptureEpochPlannerError(
@@ -202,14 +176,8 @@ function segmentBounds(segment: FinalizedIndexedSegment): SegmentBounds {
         'sample table must be contiguous within a segment',
       )
     }
-    const captureOffsetUs = rescalePtsToUs(
-      sample.sourcePts - firstPts,
-      segment.timeBase,
-    )
-    if (
-      previousCaptureOffsetUs !== undefined &&
-      captureOffsetUs <= previousCaptureOffsetUs
-    ) {
+    const captureOffsetUs = rescalePtsToUs(sample.sourcePts - firstPts, segment.timeBase)
+    if (previousCaptureOffsetUs !== undefined && captureOffsetUs <= previousCaptureOffsetUs) {
       throw new CaptureEpochPlannerError(
         'INVALID_SEGMENT',
         'sample times collapse at microsecond precision',
@@ -221,10 +189,7 @@ function segmentBounds(segment: FinalizedIndexedSegment): SegmentBounds {
 
   const lastPts = segment.samples.at(-1)!.sourcePts
   const endPtsExclusive = previousEndPts!
-  const durationUs = rescalePtsToUs(
-    endPtsExclusive - firstPts,
-    segment.timeBase,
-  )
+  const durationUs = rescalePtsToUs(endPtsExclusive - firstPts, segment.timeBase)
   if (durationUs <= 0n) {
     throw new CaptureEpochPlannerError(
       'INVALID_SEGMENT',
@@ -234,10 +199,7 @@ function segmentBounds(segment: FinalizedIndexedSegment): SegmentBounds {
   return { firstPts, lastPts, endPtsExclusive, durationUs }
 }
 
-function sameSegment(
-  left: FinalizedIndexedSegment,
-  right: FinalizedIndexedSegment,
-): boolean {
+function sameSegment(left: FinalizedIndexedSegment, right: FinalizedIndexedSegment): boolean {
   if (
     left.segmentIdentity !== right.segmentIdentity ||
     left.sourceIdentity !== right.sourceIdentity ||
@@ -266,25 +228,16 @@ function epochKey(sequence: number): string {
   return `capture-epoch-${sequence}`
 }
 
-function addReason(
-  reasons: DiscontinuityReason[],
-  reason: DiscontinuityReason,
-): void {
+function addReason(reasons: DiscontinuityReason[], reason: DiscontinuityReason): void {
   if (!reasons.includes(reason)) reasons.push(reason)
 }
 
-function reconcileGapCandidates(
-  candidates: readonly bigint[],
-  toleranceUs: bigint,
-): bigint {
+function reconcileGapCandidates(candidates: readonly bigint[], toleranceUs: bigint): bigint {
   if (candidates.length === 0) return 0n
   const authoritative = candidates[0]!
   for (const candidate of candidates.slice(1)) {
     if (absolute(candidate - authoritative) > toleranceUs) {
-      throw new CaptureEpochPlannerError(
-        'GAP_CONFLICT',
-        'independent gap observations conflict',
-      )
+      throw new CaptureEpochPlannerError('GAP_CONFLICT', 'independent gap observations conflict')
     }
   }
   return authoritative
@@ -304,10 +257,7 @@ function buildSampleIndex(
       durationPts: sample.durationPts,
       captureTimeUs:
         epoch.captureTimeOriginUs +
-        rescalePtsToUs(
-          sample.sourcePts - epoch.sourcePtsOrigin,
-          epoch.timeBase,
-        ),
+        rescalePtsToUs(sample.sourcePts - epoch.sourcePtsOrigin, epoch.timeBase),
       captureFrameIndex: frameIndex,
       keyframe: sample.keyframe,
     })
@@ -315,10 +265,7 @@ function buildSampleIndex(
   }
   const availableEndUs =
     epoch.captureTimeOriginUs +
-    rescalePtsToUs(
-      bounds.endPtsExclusive - epoch.sourcePtsOrigin,
-      epoch.timeBase,
-    )
+    rescalePtsToUs(bounds.endPtsExclusive - epoch.sourcePtsOrigin, epoch.timeBase)
   return {
     epochId: epoch.epochKey,
     timeBase: epoch.timeBase,
@@ -328,15 +275,9 @@ function buildSampleIndex(
   }
 }
 
-function nextInt32Sequence(
-  current: number,
-  field: 'capture epoch' | 'discontinuity',
-): number {
+function nextInt32Sequence(current: number, field: 'capture epoch' | 'discontinuity'): number {
   if (current === 2_147_483_647) {
-    throw new CaptureEpochPlannerError(
-      'INT32_EXHAUSTED',
-      `${field} Int32 sequence exhausted`,
-    )
+    throw new CaptureEpochPlannerError('INT32_EXHAUSTED', `${field} Int32 sequence exhausted`)
   }
   return current + 1
 }
@@ -345,7 +286,7 @@ function opensPlaybackDiscontinuity(
   reasons: readonly DiscontinuityReason[],
   gapUs: bigint,
 ): boolean {
-  return gapUs > 0n || reasons.some((reason) => reason !== 'PTS_RESET')
+  return gapUs > 0n || reasons.some(reason => reason !== 'PTS_RESET')
 }
 
 /**
@@ -374,11 +315,7 @@ export type PersistedCaptureHead = {
  */
 export type IncrementalFinalizedIndexedSegment = Pick<
   FinalizedIndexedSegment,
-  | 'segmentIdentity'
-  | 'sourceIdentity'
-  | 'sourceOrder'
-  | 'timeBase'
-  | 'samples'
+  'segmentIdentity' | 'sourceIdentity' | 'sourceOrder' | 'timeBase' | 'samples'
 >
 
 export type PlanNextCaptureSegmentInput = {
@@ -480,10 +417,7 @@ function validateInt32Sequence(value: number, field: string): void {
 
 function validatePersistedHead(head: PersistedCaptureHead): void {
   if (!isSafeOpaqueIdentity(head.epochId)) {
-    throw new CaptureEpochPlannerError(
-      'INVALID_PERSISTED_HEAD',
-      'epochId must be non-empty',
-    )
+    throw new CaptureEpochPlannerError('INVALID_PERSISTED_HEAD', 'epochId must be non-empty')
   }
   validateInt32Sequence(head.epochSequence, 'epochSequence')
   validateInt32Sequence(head.discontinuity, 'discontinuity')
@@ -521,10 +455,7 @@ function validatePersistedHead(head: PersistedCaptureHead): void {
   }
   const expectedCaptureEndUs =
     head.captureTimeOriginUs +
-    rescalePtsToUs(
-      head.lastSourcePtsEndExclusive - head.sourcePtsOrigin,
-      head.timeBase,
-    )
+    rescalePtsToUs(head.lastSourcePtsEndExclusive - head.sourcePtsOrigin, head.timeBase)
   if (head.lastCaptureEndUs !== expectedCaptureEndUs) {
     throw new CaptureEpochPlannerError(
       'INVALID_PERSISTED_HEAD',
@@ -632,12 +563,7 @@ export function planNextCaptureSegment(
       captureFrameOrigin: head.captureFrameOrigin,
       reasons,
     }
-    const result = buildIncrementalResult(
-      segment,
-      bounds,
-      epoch,
-      head.lastCaptureFrameIndex + 1n,
-    )
+    const result = buildIncrementalResult(segment, bounds, epoch, head.lastCaptureFrameIndex + 1n)
     if (result.segment.captureStartUs !== head.lastCaptureEndUs) {
       throw new CaptureEpochPlannerError(
         'INVALID_PERSISTED_HEAD',
@@ -647,10 +573,7 @@ export function planNextCaptureSegment(
     return result
   }
 
-  const gapUs = reconcileGapCandidates(
-    gapCandidates,
-    input.config.timestampToleranceUs,
-  )
+  const gapUs = reconcileGapCandidates(gapCandidates, input.config.timestampToleranceUs)
   const sequence = nextInt32Sequence(head.epochSequence, 'capture epoch')
   const discontinuity = opensPlaybackDiscontinuity(reasons, gapUs)
     ? nextInt32Sequence(head.discontinuity, 'discontinuity')
@@ -668,12 +591,7 @@ export function planNextCaptureSegment(
     captureFrameOrigin,
     reasons,
   }
-  const result = buildIncrementalResult(
-    segment,
-    bounds,
-    epoch,
-    captureFrameOrigin,
-  )
+  const result = buildIncrementalResult(segment, bounds, epoch, captureFrameOrigin)
   if (result.segment.captureStartUs < head.lastCaptureEndUs) {
     throw new CaptureEpochPlannerError(
       'ORDER_CONFLICT',
@@ -716,8 +634,7 @@ function buildIncrementalResult(
   )
   const captureStartUs = sampleIndex.availableStartUs
   const captureEndUs = sampleIndex.availableEndUs
-  const nextCaptureFrameIndex =
-    sampleIndex.samples.at(-1)!.captureFrameIndex + 1n
+  const nextCaptureFrameIndex = sampleIndex.samples.at(-1)!.captureFrameIndex + 1n
   return {
     epoch,
     segment: {
@@ -757,10 +674,7 @@ export function planCaptureEpochs(
     )
   }
   if (input.length === 0) {
-    throw new CaptureEpochPlannerError(
-      'INVALID_SEGMENT',
-      'at least one segment is required',
-    )
+    throw new CaptureEpochPlannerError('INVALID_SEGMENT', 'at least one segment is required')
   }
 
   const seenByIdentity = new Map<string, FinalizedIndexedSegment>()
@@ -868,9 +782,7 @@ export function planCaptureEpochs(
         if (ptsDelta < 0n) {
           addReason(
             reasons,
-            bounds.firstPts <= previousBounds.lastPts
-              ? 'PTS_RESET'
-              : 'TIMESTAMP_DISCONTINUITY',
+            bounds.firstPts <= previousBounds.lastPts ? 'PTS_RESET' : 'TIMESTAMP_DISCONTINUITY',
           )
         } else if (ptsDelta > 0n) {
           addReason(reasons, 'TIMESTAMP_DISCONTINUITY')
@@ -879,14 +791,9 @@ export function planCaptureEpochs(
         }
       }
 
-      if (
-        previous.sourceStartTimeUs !== undefined &&
-        segment.sourceStartTimeUs !== undefined
-      ) {
-        const expectedSourceStartUs =
-          previous.sourceStartTimeUs + previousBounds.durationUs
-        const timestampDriftUs =
-          segment.sourceStartTimeUs - expectedSourceStartUs
+      if (previous.sourceStartTimeUs !== undefined && segment.sourceStartTimeUs !== undefined) {
+        const expectedSourceStartUs = previous.sourceStartTimeUs + previousBounds.durationUs
+        const timestampDriftUs = segment.sourceStartTimeUs - expectedSourceStartUs
         if (absolute(timestampDriftUs) > config.timestampToleranceUs) {
           addReason(reasons, 'TIMESTAMP_DISCONTINUITY')
           if (timestampDriftUs > 0n) gapCandidates.push(timestampDriftUs)
@@ -896,14 +803,8 @@ export function planCaptureEpochs(
       if (reasons.length === 0) {
         epoch = previousEpoch
       } else {
-        const gapUs = reconcileGapCandidates(
-          gapCandidates,
-          config.timestampToleranceUs,
-        )
-        const sequence = nextInt32Sequence(
-          previousEpoch.epochSequence,
-          'capture epoch',
-        )
+        const gapUs = reconcileGapCandidates(gapCandidates, config.timestampToleranceUs)
+        const sequence = nextInt32Sequence(previousEpoch.epochSequence, 'capture epoch')
         const discontinuity = opensPlaybackDiscontinuity(reasons, gapUs)
           ? nextInt32Sequence(previousEpoch.discontinuity, 'discontinuity')
           : previousEpoch.discontinuity
@@ -938,8 +839,7 @@ export function planCaptureEpochs(
     if (
       previousPlan &&
       (firstSample.captureTimeUs < previousPlan.captureEndUs ||
-        firstSample.captureFrameIndex <=
-          previousPlan.sampleIndex.samples.at(-1)!.captureFrameIndex)
+        firstSample.captureFrameIndex <= previousPlan.sampleIndex.samples.at(-1)!.captureFrameIndex)
     ) {
       throw new CaptureEpochPlannerError(
         'ORDER_CONFLICT',

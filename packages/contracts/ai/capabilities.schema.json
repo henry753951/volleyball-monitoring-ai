@@ -57,11 +57,7 @@
     "optional_extensions": {
       "type": "object",
       "additionalProperties": false,
-      "required": [
-        "action",
-        "group_phase",
-        "confidence"
-      ],
+      "required": ["action", "group_phase", "confidence"],
       "properties": {
         "action": {
           "type": "boolean"
@@ -83,10 +79,7 @@
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": [
-          "taxonomy_id",
-          "taxonomy_version"
-        ],
+        "required": ["taxonomy_id", "taxonomy_version"],
         "properties": {
           "taxonomy_id": {
             "type": "string",

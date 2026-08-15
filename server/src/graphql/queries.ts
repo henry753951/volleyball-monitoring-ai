@@ -1,15 +1,12 @@
 import { db } from '@volleyball-monitoring/db'
-import {
-  findVisibleMatch,
-  listVisibleMatches,
-} from '../services/core-domain.js'
+import { findVisibleMatch, listVisibleMatches } from '../services/core-domain.js'
 import { builder } from './builder.js'
 import { domainError, requireIdentity } from './errors.js'
 import { CaptureSessionType, HealthType, MatchType, ViewerType } from './types.js'
 import { getVisibleCaptureSession, loadCaptureTimeline } from '../services/media-timeline.js'
 
 builder.queryType({
-  fields: (t) => ({
+  fields: t => ({
     health: t.field({
       resolve: () => ({ service: 'volleyball-monitoring-server', status: 'ok' }),
       type: HealthType,

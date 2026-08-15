@@ -55,7 +55,7 @@ describe('media artifact planning', () => {
     expect(first.sourceContentSha256).toBe(
       '8123de70879203ccb636ab102d8a3ad1a73302ad0b48400edbd6d25930405eeb',
     )
-    expect(first.artifacts.map((artifact) => artifact.location.key)).toEqual([
+    expect(first.artifacts.map(artifact => artifact.location.key)).toEqual([
       `dvr/capture-session-01/${first.idempotencyKey}/init.mp4`,
       `dvr/capture-session-01/${first.idempotencyKey}/media.mp4`,
       `dvr/capture-session-01/${first.idempotencyKey}/sample-index.json`,
@@ -76,20 +76,14 @@ describe('media artifact planning', () => {
     const plan = buildArtifactPlan('volleyball-dvr', recording, source, sampleIndex)
 
     expect(plan.artifacts).toHaveLength(3)
-    expect(plan.artifacts.map((artifact) => artifact.kind)).toEqual([
-      'init',
-      'media',
-      'sample-index',
-    ])
+    expect(plan.artifacts.map(artifact => artifact.kind)).toEqual(['init', 'media', 'sample-index'])
     expect(
-      plan.artifacts.map(
-        ({ kind, byteLength, contentType, internalSchemaVersion }) => ({
-          kind,
-          byteLength,
-          contentType,
-          internalSchemaVersion,
-        }),
-      ),
+      plan.artifacts.map(({ kind, byteLength, contentType, internalSchemaVersion }) => ({
+        kind,
+        byteLength,
+        contentType,
+        internalSchemaVersion,
+      })),
     ).toEqual([
       {
         kind: 'init',
@@ -115,14 +109,14 @@ describe('media artifact planning', () => {
       expect(artifact.byteLength).toBeGreaterThan(0n)
       expect(artifact.sha256).toBe(sha256(artifact.bytes))
     }
-    expect(plan.artifacts.map((artifact) => artifact.sha256)).toEqual([
+    expect(plan.artifacts.map(artifact => artifact.sha256)).toEqual([
       '054edec1d0211f624fed0cbca9d4f9400b0e491c43742af2c5b0abebf0c990d8',
       '015daf6013376b77421b7fb9d5654d844c8cba4f7a5326d829426d87fd0d1a5f',
       '7dd623e7d21584d62d4776faef8fde83bfc40e219053b665c9d4a2d0ac24ee91',
     ])
-    expect(
-      JSON.parse(Buffer.from(plan.artifacts[2].bytes).toString('utf8')),
-    ).toEqual(plan.sampleIndex)
+    expect(JSON.parse(Buffer.from(plan.artifacts[2].bytes).toString('utf8'))).toEqual(
+      plan.sampleIndex,
+    )
     expect(plan.sampleIndex.schemaVersion).toBe('1.0.0')
   })
 
@@ -136,34 +130,27 @@ describe('media artifact planning', () => {
       { ...recording, mtimeNs: recording.mtimeNs + 1n },
     ]
 
-    expect(new Set(variants.map((value) => idempotencyKey(value, checksum))).size)
-      .toBe(variants.length)
+    expect(new Set(variants.map(value => idempotencyKey(value, checksum))).size).toBe(
+      variants.length,
+    )
     expect(
-      idempotencyKey(
-        recording,
-        sourceContentSha256({ ...source, mediaBytes: Uint8Array.of(9) }),
-      ),
+      idempotencyKey(recording, sourceContentSha256({ ...source, mediaBytes: Uint8Array.of(9) })),
     ).not.toBe(baseline)
   })
 
-  it.each([
-    '',
-    'UPPERCASE',
-    'ab',
-    'bucket/name',
-    'bucket..name',
-    'bucket.-name',
-    '127.0.0.1',
-  ])('rejects invalid bucket %j separately', (bucket) => {
-    expect(() => validateBucketName(bucket)).toThrow('invalid DVR bucket')
-  })
+  it.each(['', 'UPPERCASE', 'ab', 'bucket/name', 'bucket..name', 'bucket.-name', '127.0.0.1'])(
+    'rejects invalid bucket %j separately',
+    bucket => {
+      expect(() => validateBucketName(bucket)).toThrow('invalid DVR bucket')
+    },
+  )
 
   it('rejects unsafe capture IDs and non-digest source locations', () => {
     expect(() =>
       planObjectLocation('volleyball-dvr', '../capture', 'a'.repeat(64), 'init'),
     ).toThrow('invalid capture session id')
-    expect(() =>
-      planObjectLocation('volleyball-dvr', 'capture-01', 'raw/source', 'init'),
-    ).toThrow('invalid hashed source')
+    expect(() => planObjectLocation('volleyball-dvr', 'capture-01', 'raw/source', 'init')).toThrow(
+      'invalid hashed source',
+    )
   })
 })

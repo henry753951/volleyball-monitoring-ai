@@ -59,10 +59,7 @@
     "source_time_base": {
       "type": "object",
       "additionalProperties": false,
-      "required": [
-        "num",
-        "den"
-      ],
+      "required": ["num", "den"],
       "properties": {
         "num": {
           "type": "integer",
@@ -87,11 +84,7 @@
       "pattern": "^[0-9]+$"
     },
     "timing_precision": {
-      "enum": [
-        "frame_exact",
-        "pts_exact",
-        "estimated"
-      ]
+      "enum": ["frame_exact", "pts_exact", "estimated"]
     }
   }
 }

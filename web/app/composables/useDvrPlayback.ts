@@ -22,7 +22,10 @@ function timeoutError(stage: string) {
   return new Error(`HLS ${stage} timed out`)
 }
 
-export function useDvrPlayback(video: Ref<HTMLVideoElement | null>, options: DvrPlaybackOptions = {}) {
+export function useDvrPlayback(
+  video: Ref<HTMLVideoElement | null>,
+  options: DvrPlaybackOptions = {},
+) {
   const activeWindow = shallowRef<PlaybackWindowDescriptor | null>(null)
   const loading = ref(false)
   const { profile } = useMediaPlaybackPreferences()
@@ -73,13 +76,15 @@ export function useDvrPlayback(video: Ref<HTMLVideoElement | null>, options: Dvr
           // The bounded server archive is a rolling playlist, but it is not an
           // LL-HLS live edge. Applying live sync there overrides exact seeks.
           lowLatencyMode: descriptor.mode === 'live',
-          ...(descriptor.mode === 'live' ? {
-            // Stay behind the newest incomplete fragment. hls.js continues
-            // reloading the stable manifest and follows newly indexed media.
-            liveSyncDurationCount: 2,
-            liveMaxLatencyDurationCount: 5,
-            maxLiveSyncPlaybackRate: 1.05,
-          } : {}),
+          ...(descriptor.mode === 'live'
+            ? {
+                // Stay behind the newest incomplete fragment. hls.js continues
+                // reloading the stable manifest and follows newly indexed media.
+                liveSyncDurationCount: 2,
+                liveMaxLatencyDurationCount: 5,
+                maxLiveSyncPlaybackRate: 1.05,
+              }
+            : {}),
           enableWorker: true,
         })
         hls = nextHls
@@ -88,7 +93,10 @@ export function useDvrPlayback(video: Ref<HTMLVideoElement | null>, options: Dvr
           fatalRecoveries = 0
           options.onBufferActivity?.()
         }
-        const handleRuntimeError = (_event: unknown, data: { details: string; fatal: boolean; type: string }) => {
+        const handleRuntimeError = (
+          _event: unknown,
+          data: { details: string; fatal: boolean; type: string },
+        ) => {
           if (currentGeneration !== generation || !data.fatal) return
           if (fatalRecoveries < 2 && data.type === HlsRuntime.ErrorTypes.NETWORK_ERROR) {
             fatalRecoveries += 1
@@ -119,7 +127,8 @@ export function useDvrPlayback(video: Ref<HTMLVideoElement | null>, options: Dvr
             clearTimeout(timer)
             nextHls.off(HlsRuntime.Events.MANIFEST_PARSED, onReady)
             nextHls.off(HlsRuntime.Events.ERROR, onError)
-            error ? reject(error) : resolve()
+            if (error) reject(error)
+            else resolve()
           }
           nextHls.on(HlsRuntime.Events.MANIFEST_PARSED, onReady)
           nextHls.on(HlsRuntime.Events.ERROR, onError)
@@ -135,7 +144,8 @@ export function useDvrPlayback(video: Ref<HTMLVideoElement | null>, options: Dvr
             clearTimeout(timer)
             nextHls.off(HlsRuntime.Events.FRAG_BUFFERED, onReady)
             nextHls.off(HlsRuntime.Events.ERROR, onError)
-            error ? reject(error) : resolve()
+            if (error) reject(error)
+            else resolve()
           }
           nextHls.on(HlsRuntime.Events.FRAG_BUFFERED, onReady)
           nextHls.on(HlsRuntime.Events.ERROR, onError)
@@ -144,24 +154,26 @@ export function useDvrPlayback(video: Ref<HTMLVideoElement | null>, options: Dvr
         // rolling archive manifests open until the canonical source ends.
         nextHls.startLoad(startPosition)
         await firstFragment
-      }
-      else if (element.canPlayType('application/vnd.apple.mpegurl')) {
+      } else if (element.canPlayType('application/vnd.apple.mpegurl')) {
         element.src = descriptor.manifest_url
         await new Promise<void>((resolve, reject) => {
-          const timer = setTimeout(() => finish(timeoutError('native manifest load')), ATTACH_TIMEOUT_MS)
+          const timer = setTimeout(
+            () => finish(timeoutError('native manifest load')),
+            ATTACH_TIMEOUT_MS,
+          )
           const onReady = () => finish()
           const onError = () => finish(new Error('native HLS failed to load'))
           const finish = (error?: Error) => {
             clearTimeout(timer)
             element.removeEventListener('loadedmetadata', onReady)
             element.removeEventListener('error', onError)
-            error ? reject(error) : resolve()
+            if (error) reject(error)
+            else resolve()
           }
           element.addEventListener('loadedmetadata', onReady)
           element.addEventListener('error', onError)
         })
-      }
-      else throw new Error('HLS playback is not supported by this browser')
+      } else throw new Error('HLS playback is not supported by this browser')
 
       if (currentGeneration !== generation) return
       activeWindow.value = descriptor
@@ -189,9 +201,13 @@ export function useDvrPlayback(video: Ref<HTMLVideoElement | null>, options: Dvr
 
   const detach = () => {
     generation += 1
-    hls?.destroy(); hls = null
+    hls?.destroy()
+    hls = null
     const element = video.value
-    if (element) { element.removeAttribute('src'); element.load() }
+    if (element) {
+      element.removeAttribute('src')
+      element.load()
+    }
     activeWindow.value = null
   }
 
@@ -200,15 +216,9 @@ export function useDvrPlayback(video: Ref<HTMLVideoElement | null>, options: Dvr
     createWindow: (targetCaptureTimeUs: string) => Promise<PlaybackWindowDescriptor>,
   ) => {
     const current = activeWindow.value
-    const expiresSoon = current
-      ? Date.parse(current.expires_at) <= Date.now() + 30_000
-      : true
+    const expiresSoon = current ? Date.parse(current.expires_at) <= Date.now() + 30_000 : true
 
-    if (
-      !current
-      || expiresSoon
-      || !isCaptureTimeWithinWindow(captureTimeUs, current)
-    ) {
+    if (!current || expiresSoon || !isCaptureTimeWithinWindow(captureTimeUs, current)) {
       await attach(await createWindow(captureTimeUs.toString()))
       return
     }

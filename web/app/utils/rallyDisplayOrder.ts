@@ -23,7 +23,11 @@ export function segmentStartCaptureTimeUs(source: SegmentCaptureSource): bigint 
 }
 
 function compareCaptureOrder(left: DisplayOrderCandidate, right: DisplayOrderCandidate): number {
-  if (left.startCaptureTimeUs !== null && right.startCaptureTimeUs !== null && left.startCaptureTimeUs !== right.startCaptureTimeUs) {
+  if (
+    left.startCaptureTimeUs !== null &&
+    right.startCaptureTimeUs !== null &&
+    left.startCaptureTimeUs !== right.startCaptureTimeUs
+  ) {
     return left.startCaptureTimeUs < right.startCaptureTimeUs ? -1 : 1
   }
   if (left.startCaptureTimeUs !== null && right.startCaptureTimeUs === null) return -1

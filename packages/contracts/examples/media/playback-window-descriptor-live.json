@@ -1,4 +1,18 @@
 {
-  "schema_version": "1.0.0", "playback_window_id": "window-live", "capture_session_id": "capture-001", "mode": "live", "mapping_version": 4,
-  "timeline_capture_start_us": "9007199254740992", "timeline_capture_end_us": "9007199254741992", "window_capture_start_us": "9007199254740992", "window_capture_end_us": "9007199254741992", "presentation_origin_capture_us": "9007199254740992", "target_player_media_time_us": "0", "manifest_url": "/api/v1/media/playback-windows/window-live/manifest.m3u8", "expires_at": "2026-08-07T06:00:00Z", "live_edge_capture_time_us": "9007199254741992", "has_more_before": true, "has_more_after": false
+  "schema_version": "1.0.0",
+  "playback_window_id": "window-live",
+  "capture_session_id": "capture-001",
+  "mode": "live",
+  "mapping_version": 4,
+  "timeline_capture_start_us": "9007199254740992",
+  "timeline_capture_end_us": "9007199254741992",
+  "window_capture_start_us": "9007199254740992",
+  "window_capture_end_us": "9007199254741992",
+  "presentation_origin_capture_us": "9007199254740992",
+  "target_player_media_time_us": "0",
+  "manifest_url": "/api/v1/media/playback-windows/window-live/manifest.m3u8",
+  "expires_at": "2026-08-07T06:00:00Z",
+  "live_edge_capture_time_us": "9007199254741992",
+  "has_more_before": true,
+  "has_more_after": false
 }

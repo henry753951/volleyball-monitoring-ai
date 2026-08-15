@@ -23,7 +23,6 @@ from volleyball_monitoring_ai import (
     WorkerConfig,
 )
 
-
 CAPABILITIES = ProviderCapabilities.model_validate(
     {
         "schema_version": "2.0.0",

@@ -1,21 +1,12 @@
 import Fastify, { type FastifyInstance } from 'fastify'
-import { parseCanonicalFrameAnchor, parseResolvedMediaAnchor } from '@volleyball-monitoring/contracts'
+import {
+  parseCanonicalFrameAnchor,
+  parseResolvedMediaAnchor,
+} from '@volleyball-monitoring/contracts'
 import { UserRole } from '@volleyball-monitoring/db/client'
-import {
-  buildSampleIndex,
-  type IndexedSegment,
-} from '@volleyball-monitoring/media'
-import {
-  afterEach,
-  beforeEach,
-  describe,
-  expect,
-  it,
-} from 'vitest'
-import {
-  mediaCursorRoutes,
-  type MediaCursorRouteDependencies,
-} from '../src/media/cursor-routes.js'
+import { buildSampleIndex, type IndexedSegment } from '@volleyball-monitoring/media'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { mediaCursorRoutes, type MediaCursorRouteDependencies } from '../src/media/cursor-routes.js'
 import type {
   CursorMediaIdentity,
   CursorPlaybackWindow,
@@ -61,35 +52,22 @@ function sampleFrame(sourcePts: bigint, keyFrame = false) {
 }
 
 const firstIndex = buildSampleIndex(
-  [
-    sampleFrame(sourcePtsOrigin, true),
-    sampleFrame(sourcePtsOrigin + sampleDurationPts),
-  ],
+  [sampleFrame(sourcePtsOrigin, true), sampleFrame(sourcePtsOrigin + sampleDurationPts)],
   epochOrigin,
 )
-const secondIndex = buildSampleIndex(
-  [
-    sampleFrame(0n, true),
-    sampleFrame(sampleDurationPts),
-  ],
-  {
-    ...epochOrigin,
-    captureFrameOrigin: captureFrameOrigin + 2n,
-    captureTimeOriginUs: firstIndex.availableEndUs,
-    epochId: ids.epoch2,
-    sourcePtsOrigin: 0n,
-  },
-)
+const secondIndex = buildSampleIndex([sampleFrame(0n, true), sampleFrame(sampleDurationPts)], {
+  ...epochOrigin,
+  captureFrameOrigin: captureFrameOrigin + 2n,
+  captureTimeOriginUs: firstIndex.availableEndUs,
+  epochId: ids.epoch2,
+  sourcePtsOrigin: 0n,
+})
 const indexedSegments: readonly IndexedSegment[] = [
   { discontinuity: 0, index: firstIndex, segmentId: ids.segment1 },
   { discontinuity: 0, index: secondIndex, segmentId: ids.segment2 },
 ]
 
-function mapping(
-  id: string,
-  indexed: IndexedSegment,
-  sequenceIndex: number,
-): CursorWindowSegment {
+function mapping(id: string, indexed: IndexedSegment, sequenceIndex: number): CursorWindowSegment {
   return {
     captureEndUs: indexed.index.availableEndUs,
     captureEpochId: indexed.index.epochId,
@@ -183,17 +161,16 @@ beforeEach(async () => {
     },
   }
   const dependencies: MediaCursorRouteDependencies = {
-    authenticate: async (request) => {
+    authenticate: async request => {
       const key = request.headers['x-test-user']
-      return typeof key === 'string' ? identities[key] ?? null : null
+      return typeof key === 'string' ? (identities[key] ?? null) : null
     },
     now: () => now,
     sampleIndexes: {
       async loadOrderedSegments(segmentIds) {
         loadedSegmentIds.push([...segmentIds])
         if (indexFailure) throw indexFailure
-        return segmentIds.map((id) =>
-          availableIndexes.find((segment) => segment.segmentId === id)!)
+        return segmentIds.map(id => availableIndexes.find(segment => segment.segmentId === id)!)
       },
     },
     store,
@@ -287,8 +264,9 @@ describe('media cursor HTTP authorization and validation', () => {
       url: '/api/v1/media/resolve-cursor',
     })
     expect(terminal.statusCode).toBe(200)
-    expect(parseResolvedMediaAnchor(terminal.json()).capture_frame_index)
-      .toBe(secondIndex.samples.at(-1)!.captureFrameIndex.toString())
+    expect(parseResolvedMediaAnchor(terminal.json()).capture_frame_index).toBe(
+      secondIndex.samples.at(-1)!.captureFrameIndex.toString(),
+    )
 
     const outside = await app.inject({
       headers: testHeaders(),
@@ -315,9 +293,7 @@ describe('media cursor HTTP authorization and validation', () => {
     expect(foreign.json().code).toBe('MEDIA_NOT_READY')
 
     visibleWindow = fullWindow()
-    indexFailure = new Error(
-      's3://secret-bucket/private/index.json credential=top-secret',
-    )
+    indexFailure = new Error('s3://secret-bucket/private/index.json credential=top-secret')
     const unavailable = await app.inject({
       headers: testHeaders(),
       method: 'POST',
@@ -345,8 +321,7 @@ describe('authoritative cursor resolution', () => {
   it('resolves globally across segments with deterministic tie-earlier and decimal bigint wire values', async () => {
     const earlier = firstIndex.samples.at(-1)!
     const later = secondIndex.samples[0]!
-    const midpoint = earlier.captureTimeUs
-      + (later.captureTimeUs - earlier.captureTimeUs) / 2n
+    const midpoint = earlier.captureTimeUs + (later.captureTimeUs - earlier.captureTimeUs) / 2n
     const response = await app.inject({
       headers: testHeaders(),
       method: 'POST',
@@ -358,9 +333,7 @@ describe('authoritative cursor resolution', () => {
     const anchor = parseResolvedMediaAnchor(response.json())
     expect(anchor.dvr_segment_id).toBe(ids.segment1)
     expect(anchor.capture_time_us).toBe(earlier.captureTimeUs.toString())
-    expect(anchor.capture_frame_index).toBe(
-      earlier.captureFrameIndex.toString(),
-    )
+    expect(anchor.capture_frame_index).toBe(earlier.captureFrameIndex.toString())
     expect(anchor.source_pts).toBe(earlier.sourcePts.toString())
     expect(anchor.source_pts.startsWith('-')).toBe(true)
     expect(BigInt(anchor.capture_time_us)).toBeGreaterThan(2n ** 53n)
@@ -370,16 +343,13 @@ describe('authoritative cursor resolution', () => {
   })
 
   it('resolves across recorder PTS-reset epochs without treating them as a playback discontinuity', async () => {
-    const resetIndex = buildSampleIndex(
-      [sampleFrame(0n, true), sampleFrame(sampleDurationPts)],
-      {
-        captureFrameOrigin: captureFrameOrigin + 2n,
-        captureTimeOriginUs: firstIndex.availableEndUs,
-        epochId: ids.epoch2,
-        sourcePtsOrigin: 0n,
-        timeBase,
-      },
-    )
+    const resetIndex = buildSampleIndex([sampleFrame(0n, true), sampleFrame(sampleDurationPts)], {
+      captureFrameOrigin: captureFrameOrigin + 2n,
+      captureTimeOriginUs: firstIndex.availableEndUs,
+      epochId: ids.epoch2,
+      sourcePtsOrigin: 0n,
+      timeBase,
+    })
     availableIndexes = [
       indexedSegments[0]!,
       { discontinuity: 0, index: resetIndex, segmentId: ids.segment2 },
@@ -460,7 +430,9 @@ describe('canonical frame-step HTTP', () => {
       url: '/api/v1/media/frame-step',
     })
     expect(response.statusCode).toBe(200)
-    expect(parseCanonicalFrameAnchor(response.json()).capture_frame_index).toBe(expected.captureFrameIndex.toString())
+    expect(parseCanonicalFrameAnchor(response.json()).capture_frame_index).toBe(
+      expected.captureFrameIndex.toString(),
+    )
     expect(loadedSegmentIds).toEqual([[ids.segment1, ids.segment2]])
   })
 
@@ -479,9 +451,7 @@ describe('canonical frame-step HTTP', () => {
     expect(anchor.capture_epoch_id).toBe(ids.epoch2)
     expect(anchor.source_pts).toBe('0')
     expect(anchor.capture_frame_index).toBe(expected.captureFrameIndex.toString())
-    expect(anchor.player_media_time_us).toBe(
-      (expected.captureTimeUs - captureOriginUs).toString(),
-    )
+    expect(anchor.player_media_time_us).toBe((expected.captureTimeUs - captureOriginUs).toString())
     expect(loadedSegmentIds).toEqual([[ids.segment1, ids.segment2]])
   })
 

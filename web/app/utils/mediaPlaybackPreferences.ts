@@ -51,11 +51,14 @@ export function parseMediaBufferPreset(value: string | null | undefined): MediaB
   if (!value) return null
   try {
     const parsed = JSON.parse(value) as { version?: unknown; bufferPreset?: unknown }
-    return parsed.version === 1 && typeof parsed.bufferPreset === 'string' && parsed.bufferPreset in MEDIA_BUFFER_PROFILES
-      ? parsed.bufferPreset as MediaBufferPreset
+    return parsed.version === 1 &&
+      typeof parsed.bufferPreset === 'string' &&
+      parsed.bufferPreset in MEDIA_BUFFER_PROFILES
+      ? (parsed.bufferPreset as MediaBufferPreset)
       : null
+  } catch {
+    return null
   }
-  catch { return null }
 }
 
 export function serializeMediaBufferPreset(bufferPreset: MediaBufferPreset): string {

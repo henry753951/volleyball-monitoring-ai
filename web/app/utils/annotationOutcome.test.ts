@@ -16,19 +16,23 @@ describe('annotation outcome label', () => {
   })
 
   it('prefers the scoring team identity over its temporary court side', () => {
-    expect(annotationOutcomeLabel({
-      scoreResolution: 'resolved',
-      scoringCourtSide: 'right',
-      scoringTeamId: 'tpe',
-      teams,
-    })).toBe('右側 TPE 得分')
+    expect(
+      annotationOutcomeLabel({
+        scoreResolution: 'resolved',
+        scoringCourtSide: 'right',
+        scoringTeamId: 'tpe',
+        teams,
+      }),
+    ).toBe('右側 TPE 得分')
   })
 
   it('falls back to the visible side label for a live draft', () => {
-    expect(annotationOutcomeLabel({
-      leftLabel: 'TPE',
-      scoreResolution: 'resolved',
-      scoringCourtSide: 'left',
-    })).toBe('左側 TPE 得分')
+    expect(
+      annotationOutcomeLabel({
+        leftLabel: 'TPE',
+        scoreResolution: 'resolved',
+        scoringCourtSide: 'left',
+      }),
+    ).toBe('左側 TPE 得分')
   })
 })

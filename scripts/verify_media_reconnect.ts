@@ -11,14 +11,24 @@ const spoolRoot = process.argv[2]
 const ingestPath = process.argv[3] ?? 'gate/main'
 const captureSessionId = process.argv[4] ?? '00000000-0000-4000-8000-000000000001'
 
-if (!spoolRoot) throw new Error('usage: bun scripts/verify_media_reconnect.ts <spool-root> [ingest-path] [capture-session-id]')
+if (!spoolRoot)
+  throw new Error(
+    'usage: bun scripts/verify_media_reconnect.ts <spool-root> [ingest-path] [capture-session-id]',
+  )
 
-const envelopes = await scanSpool(spoolRoot, async path => path === ingestPath ? captureSessionId : null)
-if (envelopes.length < 2) throw new Error(`expected at least two finalized segments, received ${envelopes.length}`)
+const envelopes = await scanSpool(spoolRoot, async path =>
+  path === ingestPath ? captureSessionId : null,
+)
+if (envelopes.length < 2)
+  throw new Error(`expected at least two finalized segments, received ${envelopes.length}`)
 
-const restartIndexes = envelopes.flatMap((envelope, index) => envelope.sourceRestart ? [index] : [])
+const restartIndexes = envelopes.flatMap((envelope, index) =>
+  envelope.sourceRestart ? [index] : [],
+)
 if (restartIndexes.length !== 1 || restartIndexes[0] === 0) {
-  throw new Error(`expected exactly one persisted reconnect boundary after the first segment, received ${restartIndexes.join(',') || 'none'}`)
+  throw new Error(
+    `expected exactly one persisted reconnect boundary after the first segment, received ${restartIndexes.join(',') || 'none'}`,
+  )
 }
 
 let head: PersistedCaptureHead | null = null
@@ -42,8 +52,14 @@ for (const [index, envelope] of envelopes.entries()) {
     },
     sourceRestart: envelope.sourceRestart,
     timestampDiscontinuity: envelope.timestampDiscontinuity,
-    ...(envelope.explicitGapBeforeUs === null ? {} : { explicitGapBeforeUs: BigInt(envelope.explicitGapBeforeUs) }),
-    config: { canonicalSessionOriginUs: 0n, canonicalFrameOrigin: 0n, timestampToleranceUs: 250_000n },
+    ...(envelope.explicitGapBeforeUs === null
+      ? {}
+      : { explicitGapBeforeUs: BigInt(envelope.explicitGapBeforeUs) }),
+    config: {
+      canonicalSessionOriginUs: 0n,
+      canonicalFrameOrigin: 0n,
+      timestampToleranceUs: 250_000n,
+    },
   })
 
   if (previousCaptureEndUs !== null && plan.segment.captureStartUs < previousCaptureEndUs) {
@@ -52,7 +68,10 @@ for (const [index, envelope] of envelopes.entries()) {
   if (previousFrameEnd !== null && plan.segment.firstFrameIndex !== previousFrameEnd) {
     throw new Error(`canonical frame sequence is not contiguous at ${envelope.candidate}`)
   }
-  if (envelope.sourceRestart && (!plan.epoch.reasons.includes('SOURCE_RESTART') || plan.epoch.disposition !== 'CREATE_NEXT')) {
+  if (
+    envelope.sourceRestart &&
+    (!plan.epoch.reasons.includes('SOURCE_RESTART') || plan.epoch.disposition !== 'CREATE_NEXT')
+  ) {
     throw new Error(`reconnect did not create an explicit capture epoch at ${envelope.candidate}`)
   }
   if (previousDiscontinuity === null) {
@@ -102,13 +121,19 @@ for (const [index, envelope] of envelopes.entries()) {
   })
 }
 
-process.stdout.write(`${JSON.stringify({
-  schema_version: '1.0.0',
-  capture_session_id: captureSessionId,
-  ingest_path: ingestPath,
-  reconnect_segment_index: restartIndexes[0],
-  segment_count: envelopes.length,
-  final_capture_time_us: previousCaptureEndUs!.toString(),
-  final_capture_frame_count: previousFrameEnd!.toString(),
-  segments: evidence,
-}, null, 2)}\n`)
+process.stdout.write(
+  `${JSON.stringify(
+    {
+      schema_version: '1.0.0',
+      capture_session_id: captureSessionId,
+      ingest_path: ingestPath,
+      reconnect_segment_index: restartIndexes[0],
+      segment_count: envelopes.length,
+      final_capture_time_us: previousCaptureEndUs!.toString(),
+      final_capture_frame_count: previousFrameEnd!.toString(),
+      segments: evidence,
+    },
+    null,
+    2,
+  )}\n`,
+)

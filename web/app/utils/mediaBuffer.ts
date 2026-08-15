@@ -5,7 +5,10 @@ export interface CanonicalMediaRange {
   endCaptureTimeUs: string
 }
 
-export function mediaTimeRangesToCaptureRanges(ranges: TimeRanges, presentationOriginCaptureUs: string): CanonicalMediaRange[] {
+export function mediaTimeRangesToCaptureRanges(
+  ranges: TimeRanges,
+  presentationOriginCaptureUs: string,
+): CanonicalMediaRange[] {
   const origin = BigInt(presentationOriginCaptureUs)
   return Array.from({ length: ranges.length }, (_, index) => ({
     startCaptureTimeUs: (origin + BigInt(Math.round(ranges.start(index) * 1_000_000))).toString(),
@@ -32,8 +35,9 @@ export function playbackWindowSecondsAhead(input: {
   windowCaptureEndUs: string
 }) {
   if (!Number.isFinite(input.currentTimeSeconds) || input.currentTimeSeconds < 0) return 0
-  const observedCaptureUs = BigInt(input.presentationOriginCaptureUs)
-    + BigInt(Math.round(input.currentTimeSeconds * 1_000_000))
+  const observedCaptureUs =
+    BigInt(input.presentationOriginCaptureUs) +
+    BigInt(Math.round(input.currentTimeSeconds * 1_000_000))
   const aheadUs = BigInt(input.windowCaptureEndUs) - observedCaptureUs
   if (aheadUs <= 0n) return 0
   const wholeSeconds = aheadUs / 1_000_000n

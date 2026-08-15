@@ -10,10 +10,10 @@ import {
 } from '../src/media/ffprobe'
 
 const validProbe = JSON.stringify({
-  streams: [{ codec_type: 'video', time_base: '1/30', start_pts: '9007199254740993', duration_ts: '1' }],
-  frames: [
-    { media_type: 'video', pts: '9007199254740993', pkt_duration: '1' },
+  streams: [
+    { codec_type: 'video', time_base: '1/30', start_pts: '9007199254740993', duration_ts: '1' },
   ],
+  frames: [{ media_type: 'video', pts: '9007199254740993', pkt_duration: '1' }],
 })
 
 const defaultRunnerOptions = {
@@ -53,11 +53,7 @@ function fakeSpawn(
 ): SpawnLike {
   // This is the single narrow test-double cast: the adapter only consumes
   // stdout, stderr, kill, error, and close from Node's larger child API.
-  return ((
-    executable: string,
-    args: readonly string[],
-    options: { shell: false },
-  ) => {
+  return ((executable: string, args: readonly string[], options: { shell: false }) => {
     onSpawn?.({ executable, args, options })
     if (childOrError instanceof Error) throw childOrError
     return childOrError
@@ -89,11 +85,7 @@ describe('createNodeProbeRunner', () => {
 
   it('maps an emitted spawn failure to SPAWN_FAILED', async () => {
     const child = new FakeChildProcess()
-    const pending = runnerFor(child)(
-      'ffprobe',
-      ['recording.mp4'],
-      defaultRunnerOptions,
-    )
+    const pending = runnerFor(child)('ffprobe', ['recording.mp4'], defaultRunnerOptions)
     const rejection = expect(pending).rejects.toMatchObject({
       code: 'SPAWN_FAILED',
       message: 'permission denied',
@@ -192,7 +184,7 @@ describe('createNodeProbeRunner', () => {
     const child = new FakeChildProcess()
     let invocation: SpawnInvocation | undefined
     const pending = createNodeProbeRunner(
-      fakeSpawn(child, (value) => {
+      fakeSpawn(child, value => {
         invocation = value
       }),
     )('ffprobe-custom', ['recording.mp4'], {
@@ -218,10 +210,7 @@ describe('createNodeProbeRunner', () => {
     expect(vi.getTimerCount()).toBe(0)
     expect(addListener).toHaveBeenCalledTimes(1)
     expect(removeListener).toHaveBeenCalledTimes(1)
-    expect(removeListener.mock.calls[0]).toEqual([
-      'abort',
-      addListener.mock.calls[0]![1],
-    ])
+    expect(removeListener.mock.calls[0]).toEqual(['abort', addListener.mock.calls[0]![1]])
     expect(child.killCalls).toBe(0)
   })
 
@@ -247,16 +236,18 @@ describe('createNodeProbeRunner', () => {
 
 describe('runFfprobe', () => {
   it('passes the exact selected-field argv and keeps metacharacters in one arg', async () => {
-    let invocation: {
-      executable: string
-      args: string[]
-      options: {
-        shell: false
-        timeoutMs: number
-        maxOutputBytes: number
-        signal?: AbortSignal
-      }
-    } | undefined
+    let invocation:
+      | {
+          executable: string
+          args: string[]
+          options: {
+            shell: false
+            timeoutMs: number
+            maxOutputBytes: number
+            signal?: AbortSignal
+          }
+        }
+      | undefined
     const filePath = 'C:/captures/game one & echo owned; $(bad).mp4'
 
     const result = await runFfprobe(filePath, {
@@ -315,11 +306,7 @@ describe('runFfprobe', () => {
   })
 
   it('preserves runner timeout, cancellation, and overflow errors', async () => {
-    for (const code of [
-      'TIMEOUT',
-      'CANCELLED',
-      'OUTPUT_TOO_LARGE',
-    ] as const) {
+    for (const code of ['TIMEOUT', 'CANCELLED', 'OUTPUT_TOO_LARGE'] as const) {
       await expect(
         runFfprobe('recording.mp4', {
           runner: async () => {

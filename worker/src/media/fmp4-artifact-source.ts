@@ -1,10 +1,5 @@
 import { spawn } from 'node:child_process'
-import {
-  mkdtemp,
-  open as openFile,
-  rm,
-  stat as statFile,
-} from 'node:fs/promises'
+import { mkdtemp, open as openFile, rm, stat as statFile } from 'node:fs/promises'
 import type { FileHandle } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -145,11 +140,7 @@ function validateBoxType(type: string): string {
 }
 
 function validateConfig(config: Fmp4ArtifactSourceConfig): ValidatedConfig {
-  for (const limit of [
-    config.maxInputBytes,
-    config.maxInitBytes,
-    config.maxMediaBytes,
-  ]) {
+  for (const limit of [config.maxInputBytes, config.maxInitBytes, config.maxMediaBytes]) {
     if (limit <= 0n || limit > MAX_SAFE_BYTES) {
       throw new Fmp4ArtifactSourceError(
         'INVALID_CONFIG',
@@ -173,10 +164,7 @@ function validateConfig(config: Fmp4ArtifactSourceConfig): ValidatedConfig {
     readChunkBytes <= 0 ||
     readChunkBytes > 4 * 1024 * 1024
   ) {
-    throw new Fmp4ArtifactSourceError(
-      'INVALID_CONFIG',
-      'read chunk size is invalid',
-    )
+    throw new Fmp4ArtifactSourceError('INVALID_CONFIG', 'read chunk size is invalid')
   }
   return {
     maxInputBytes: config.maxInputBytes,
@@ -210,19 +198,13 @@ class ReadGuard {
       this.rejectCancellation = reject
     })
     this.abort = signal
-      ? () =>
-          this.stop(
-            new Fmp4ArtifactSourceError('ABORTED', 'artifact read aborted'),
-          )
+      ? () => this.stop(new Fmp4ArtifactSourceError('ABORTED', 'artifact read aborted'))
       : undefined
     if (signal && this.abort) {
       signal.addEventListener('abort', this.abort, { once: true })
     }
     this.timeout = setTimeout(
-      () =>
-        this.stop(
-          new Fmp4ArtifactSourceError('TIMEOUT', 'artifact read timed out'),
-        ),
+      () => this.stop(new Fmp4ArtifactSourceError('TIMEOUT', 'artifact read timed out')),
       timeoutMs,
     )
     if (signal?.aborted) this.abort?.()
@@ -253,14 +235,9 @@ async function readExactly(
   const buffer = Buffer.allocUnsafe(length)
   let offset = 0
   while (offset < length) {
-    const result = await guard.run(
-      handle.read(buffer, offset, length - offset, position + offset),
-    )
+    const result = await guard.run(handle.read(buffer, offset, length - offset, position + offset))
     if (result.bytesRead <= 0 || result.bytesRead > length - offset) {
-      throw new Fmp4ArtifactSourceError(
-        'INVALID_BOX',
-        'fragmented MP4 is truncated',
-      )
+      throw new Fmp4ArtifactSourceError('INVALID_BOX', 'fragmented MP4 is truncated')
     }
     offset += result.bytesRead
   }
@@ -280,10 +257,7 @@ async function readBoxHeader(
   guard: ReadGuard,
 ): Promise<BoxHeader> {
   if (fileSize - position < 8) {
-    throw new Fmp4ArtifactSourceError(
-      'INVALID_BOX',
-      'fragmented MP4 has a truncated box header',
-    )
+    throw new Fmp4ArtifactSourceError('INVALID_BOX', 'fragmented MP4 has a truncated box header')
   }
   const base = await readExactly(handle, position, 8, guard)
   const type = base.toString('ascii', 4, 8)
@@ -292,10 +266,7 @@ async function readBoxHeader(
   }
   const size32 = base.readUInt32BE(0)
   if (size32 === 0) {
-    throw new Fmp4ArtifactSourceError(
-      'INVALID_BOX',
-      'size-zero MP4 boxes are ambiguous before EOF',
-    )
+    throw new Fmp4ArtifactSourceError('INVALID_BOX', 'size-zero MP4 boxes are ambiguous before EOF')
   }
 
   let size = BigInt(size32)
@@ -312,25 +283,15 @@ async function readBoxHeader(
     header = Buffer.concat([base, extended])
   }
   if (size < BigInt(header.byteLength)) {
-    throw new Fmp4ArtifactSourceError(
-      'INVALID_BOX',
-      'MP4 box size is smaller than its header',
-    )
+    throw new Fmp4ArtifactSourceError('INVALID_BOX', 'MP4 box size is smaller than its header')
   }
   if (size > BigInt(fileSize - position) || size > MAX_SAFE_BYTES) {
-    throw new Fmp4ArtifactSourceError(
-      'INVALID_BOX',
-      'MP4 box size exceeds the remaining input',
-    )
+    throw new Fmp4ArtifactSourceError('INVALID_BOX', 'MP4 box size exceeds the remaining input')
   }
   return { type, size: Number(size), header }
 }
 
-function assertOutputLimit(
-  current: bigint,
-  additional: number,
-  maximum: bigint,
-): bigint {
+function assertOutputLimit(current: bigint, additional: number, maximum: bigint): bigint {
   const next = current + BigInt(additional)
   if (next > maximum) {
     throw new Fmp4ArtifactSourceError(
@@ -380,23 +341,14 @@ async function splitFragmentedMp4(
   while (position < fileSize) {
     const box = await readBoxHeader(handle, position, fileSize, guard)
     const payloadBytes = box.size - box.header.byteLength
-    if (
-      ['ftyp', 'moov', 'moof', 'mdat'].includes(box.type) &&
-      payloadBytes === 0
-    ) {
-      throw new Fmp4ArtifactSourceError(
-        'INVALID_BOX',
-        `required ${box.type} box is empty`,
-      )
+    if (['ftyp', 'moov', 'moof', 'mdat'].includes(box.type) && payloadBytes === 0) {
+      throw new Fmp4ArtifactSourceError('INVALID_BOX', `required ${box.type} box is empty`)
     }
 
     let target: Buffer[]
     if (!mediaStarted) {
       if (position === 0 && box.type !== 'ftyp') {
-        throw new Fmp4ArtifactSourceError(
-          'INVALID_LAYOUT',
-          'fragmented MP4 must begin with ftyp',
-        )
+        throw new Fmp4ArtifactSourceError('INVALID_LAYOUT', 'fragmented MP4 must begin with ftyp')
       }
       if (box.type === 'ftyp') {
         if (seenFtyp || seenMoov) {
@@ -434,17 +386,10 @@ async function splitFragmentedMp4(
           { cause: { progressiveMp4: true } },
         )
       } else {
-        throw new Fmp4ArtifactSourceError(
-          'INVALID_LAYOUT',
-          'unsupported initialization box',
-        )
+        throw new Fmp4ArtifactSourceError('INVALID_LAYOUT', 'unsupported initialization box')
       }
     } else {
-      if (
-        box.type === 'ftyp' ||
-        box.type === 'moov' ||
-        config.initBoxTypes.has(box.type)
-      ) {
+      if (box.type === 'ftyp' || box.type === 'moov' || config.initBoxTypes.has(box.type)) {
         throw new Fmp4ArtifactSourceError(
           'INVALID_LAYOUT',
           'initialization box appears after media started',
@@ -466,30 +411,16 @@ async function splitFragmentedMp4(
       } else if (box.type === 'moof') {
         awaitingMdat = true
       } else if (box.type === 'mdat') {
-        throw new Fmp4ArtifactSourceError(
-          'INVALID_LAYOUT',
-          'mdat must follow a moof box',
-        )
+        throw new Fmp4ArtifactSourceError('INVALID_LAYOUT', 'mdat must follow a moof box')
       } else if (!config.mediaBoxTypes.has(box.type)) {
-        throw new Fmp4ArtifactSourceError(
-          'INVALID_LAYOUT',
-          'unsupported media box',
-        )
+        throw new Fmp4ArtifactSourceError('INVALID_LAYOUT', 'unsupported media box')
       }
     }
 
     if (target === initChunks) {
-      initBytes = assertOutputLimit(
-        initBytes,
-        box.size,
-        config.maxInitBytes,
-      )
+      initBytes = assertOutputLimit(initBytes, box.size, config.maxInitBytes)
     } else {
-      mediaBytes = assertOutputLimit(
-        mediaBytes,
-        box.size,
-        config.maxMediaBytes,
-      )
+      mediaBytes = assertOutputLimit(mediaBytes, box.size, config.maxMediaBytes)
     }
     await appendBox(target, handle, position, box, config, guard)
     position += box.size
@@ -508,10 +439,7 @@ async function splitFragmentedMp4(
     )
   }
   if (initBytes === 0n || mediaBytes === 0n) {
-    throw new Fmp4ArtifactSourceError(
-      'INVALID_LAYOUT',
-      'fragmented MP4 outputs must be non-empty',
-    )
+    throw new Fmp4ArtifactSourceError('INVALID_LAYOUT', 'fragmented MP4 outputs must be non-empty')
   }
   return {
     initBytes: Buffer.concat(initChunks, Number(initBytes)),
@@ -520,11 +448,13 @@ async function splitFragmentedMp4(
 }
 
 function isProgressiveMp4(error: unknown): error is Fmp4ArtifactSourceError {
-  return error instanceof Fmp4ArtifactSourceError
-    && error.code === 'INVALID_LAYOUT'
-    && typeof error.cause === 'object'
-    && error.cause !== null
-    && 'progressiveMp4' in error.cause
+  return (
+    error instanceof Fmp4ArtifactSourceError &&
+    error.code === 'INVALID_LAYOUT' &&
+    typeof error.cause === 'object' &&
+    error.cause !== null &&
+    'progressiveMp4' in error.cause
+  )
 }
 
 async function runFfmpegRemux(
@@ -535,21 +465,33 @@ async function runFfmpegRemux(
 ): Promise<void> {
   await new Promise<void>((resolve, reject) => {
     let settled = false
-    const child = spawn('ffmpeg', [
-      '-nostdin',
-      '-hide_banner',
-      '-loglevel', 'error',
-      '-i', inputPath,
-      '-map', '0:v:0',
-      '-map', '0:a:0?',
-      '-c', 'copy',
-      '-movflags', '+frag_keyframe+empty_moov+default_base_moof',
-      '-f', 'mp4',
-      '-y', outputPath,
-    ], {
-      stdio: ['ignore', 'ignore', 'pipe'],
-      windowsHide: true,
-    })
+    const child = spawn(
+      'ffmpeg',
+      [
+        '-nostdin',
+        '-hide_banner',
+        '-loglevel',
+        'error',
+        '-i',
+        inputPath,
+        '-map',
+        '0:v:0',
+        '-map',
+        '0:a:0?',
+        '-c',
+        'copy',
+        '-movflags',
+        '+frag_keyframe+empty_moov+default_base_moof',
+        '-f',
+        'mp4',
+        '-y',
+        outputPath,
+      ],
+      {
+        stdio: ['ignore', 'ignore', 'pipe'],
+        windowsHide: true,
+      },
+    )
 
     const cleanup = () => {
       clearTimeout(timer)
@@ -562,22 +504,23 @@ async function runFfmpegRemux(
       child.kill('SIGKILL')
       reject(error)
     }
-    const onAbort = () => fail(
-      new Fmp4ArtifactSourceError('ABORTED', 'artifact remux aborted'),
+    const onAbort = () => fail(new Fmp4ArtifactSourceError('ABORTED', 'artifact remux aborted'))
+    const timer = setTimeout(
+      () => fail(new Fmp4ArtifactSourceError('TIMEOUT', 'artifact remux timed out')),
+      timeoutMs,
     )
-    const timer = setTimeout(() => fail(
-      new Fmp4ArtifactSourceError('TIMEOUT', 'artifact remux timed out'),
-    ), timeoutMs)
 
     signal?.addEventListener('abort', onAbort, { once: true })
     child.stderr.resume()
     if (signal?.aborted) onAbort()
-    child.once('error', error => fail(new Fmp4ArtifactSourceError(
-      'INVALID_LAYOUT',
-      'failed to start progressive MP4 remux',
-      { cause: error },
-    )))
-    child.once('close', (code) => {
+    child.once('error', error =>
+      fail(
+        new Fmp4ArtifactSourceError('INVALID_LAYOUT', 'failed to start progressive MP4 remux', {
+          cause: error,
+        }),
+      ),
+    )
+    child.once('close', code => {
       if (settled) return
       settled = true
       cleanup()
@@ -585,19 +528,12 @@ async function runFfmpegRemux(
         resolve()
         return
       }
-      reject(new Fmp4ArtifactSourceError(
-        'INVALID_LAYOUT',
-        'progressive MP4 remux failed',
-      ))
+      reject(new Fmp4ArtifactSourceError('INVALID_LAYOUT', 'progressive MP4 remux failed'))
     })
   })
 }
 
-const defaultProgressiveMp4Remuxer: ProgressiveMp4Remuxer = async (
-  path,
-  configValue,
-  signal,
-) => {
+const defaultProgressiveMp4Remuxer: ProgressiveMp4Remuxer = async (path, configValue, signal) => {
   const config = validateConfig(configValue)
   const directory = await mkdtemp(join(tmpdir(), 'volleyball-fmp4-'))
   const outputPath = join(directory, 'fragmented.mp4')
@@ -619,12 +555,7 @@ const defaultProgressiveMp4Remuxer: ProgressiveMp4Remuxer = async (
       )
     }
     handle = wrapNodeFileHandle(await guard.run(openFile(outputPath, 'r')))
-    const outputs = await splitFragmentedMp4(
-      handle,
-      Number(outputStat.size),
-      config,
-      guard,
-    )
+    const outputs = await splitFragmentedMp4(handle, Number(outputStat.size), config, guard)
     await guard.run(handle.close())
     handle = undefined
     return outputs
@@ -635,19 +566,9 @@ const defaultProgressiveMp4Remuxer: ProgressiveMp4Remuxer = async (
   }
 }
 
-function assertStableStat(
-  stat: ArtifactFileStat,
-  recording: FinalizedRecording,
-): void {
-  if (
-    !stat.isFile ||
-    stat.size !== recording.byteLength ||
-    stat.mtimeNs !== recording.mtimeNs
-  ) {
-    throw new Fmp4ArtifactSourceError(
-      'SOURCE_CHANGED',
-      'finalized recording identity changed',
-    )
+function assertStableStat(stat: ArtifactFileStat, recording: FinalizedRecording): void {
+  if (!stat.isFile || stat.size !== recording.byteLength || stat.mtimeNs !== recording.mtimeNs) {
+    throw new Fmp4ArtifactSourceError('SOURCE_CHANGED', 'finalized recording identity changed')
   }
 }
 
@@ -678,19 +599,12 @@ export class FinalizedFileArtifactSource implements ArtifactSource {
     const guard = new ReadGuard(this.config.readTimeoutMs, options.signal)
     let handle: ArtifactFileHandle | undefined
     try {
-      const before = await guard.run(
-        this.fileSystem.stat(expectedRecording.trustedPath),
-      )
+      const before = await guard.run(this.fileSystem.stat(expectedRecording.trustedPath))
       assertStableStat(before, expectedRecording)
       handle = await guard.run(this.fileSystem.open(expectedRecording.trustedPath))
       let outputs: ArtifactSourceBytes
       try {
-        outputs = await splitFragmentedMp4(
-          handle,
-          Number(before.size),
-          this.config,
-          guard,
-        )
+        outputs = await splitFragmentedMp4(handle, Number(before.size), this.config, guard)
       } catch (error) {
         if (!isProgressiveMp4(error)) throw error
         await guard.run(handle.close())
@@ -711,9 +625,7 @@ export class FinalizedFileArtifactSource implements ArtifactSource {
         await guard.run(handle.close())
         handle = undefined
       }
-      const after = await guard.run(
-        this.fileSystem.stat(expectedRecording.trustedPath),
-      )
+      const after = await guard.run(this.fileSystem.stat(expectedRecording.trustedPath))
       assertStableStat(after, expectedRecording)
       if (
         !recording.finalized ||
@@ -725,19 +637,14 @@ export class FinalizedFileArtifactSource implements ArtifactSource {
         after.device !== before.device ||
         after.inode !== before.inode
       ) {
-        throw new Fmp4ArtifactSourceError(
-          'SOURCE_CHANGED',
-          'finalized recording identity changed',
-        )
+        throw new Fmp4ArtifactSourceError('SOURCE_CHANGED', 'finalized recording identity changed')
       }
       return outputs
     } catch (error) {
       if (error instanceof Fmp4ArtifactSourceError) throw error
-      throw new Fmp4ArtifactSourceError(
-        'INVALID_BOX',
-        'failed to read finalized fragmented MP4',
-        { cause: error },
-      )
+      throw new Fmp4ArtifactSourceError('INVALID_BOX', 'failed to read finalized fragmented MP4', {
+        cause: error,
+      })
     } finally {
       guard.dispose()
       if (handle) {

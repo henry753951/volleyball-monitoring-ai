@@ -31,10 +31,7 @@
       "pattern": "^[0-9]+$"
     },
     "observation_source": {
-      "enum": [
-        "request_video_frame_callback",
-        "current_time_fallback"
-      ]
+      "enum": ["request_video_frame_callback", "current_time_fallback"]
     },
     "presented_frames": {
       "oneOf": [
@@ -52,12 +49,7 @@
       "minimum": 0
     },
     "cursor_status": {
-      "enum": [
-        "ready",
-        "seeking",
-        "stale",
-        "gap"
-      ]
+      "enum": ["ready", "seeking", "stale", "gap"]
     }
   }
 }

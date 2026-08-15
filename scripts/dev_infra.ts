@@ -13,7 +13,7 @@ function run(arguments_: string[], allowFailure = false): Promise<void> {
       shell: false,
     })
     child.once('error', reject)
-    child.once('exit', (code) => {
+    child.once('exit', code => {
       if (code === 0 || allowFailure) resolvePromise()
       else reject(new Error(`${arguments_.join(' ')} exited with code ${code ?? 'unknown'}`))
     })
@@ -21,9 +21,45 @@ function run(arguments_: string[], allowFailure = false): Promise<void> {
 }
 
 async function main(): Promise<void> {
-  await run([...compose, '--profile', 'app', 'stop', 'server', 'web', 'worker-media', 'worker-workflow', 'traefik'], true)
-  await run([...compose, '--profile', 'app', 'rm', '-f', 'server', 'web', 'worker-media', 'worker-workflow', 'traefik'], true)
-  await run([...compose, 'up', '-d', '--remove-orphans', 'postgres', 'redis', 'minio', 'ovenmediaengine'])
+  await run(
+    [
+      ...compose,
+      '--profile',
+      'app',
+      'stop',
+      'server',
+      'web',
+      'worker-media',
+      'worker-workflow',
+      'traefik',
+    ],
+    true,
+  )
+  await run(
+    [
+      ...compose,
+      '--profile',
+      'app',
+      'rm',
+      '-f',
+      'server',
+      'web',
+      'worker-media',
+      'worker-workflow',
+      'traefik',
+    ],
+    true,
+  )
+  await run([
+    ...compose,
+    'up',
+    '-d',
+    '--remove-orphans',
+    'postgres',
+    'redis',
+    'minio',
+    'ovenmediaengine',
+  ])
   await run(['bun', 'run', 'storage:bootstrap'])
   if (process.argv.includes('--https')) {
     await run([...compose, '-f', 'infra/compose.host-dev.yaml', 'up', '-d', 'traefik'])

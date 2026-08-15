@@ -3,8 +3,30 @@ import { describe, expect, it } from 'vitest'
 import AnnotationAnalysisPanel from './AnnotationAnalysisPanel.vue'
 
 const hits = [
-  { keyPointId: 'hit-1', sequenceIndex: 0, frameIndex: 189, actorTrackId: 5, actorLabel: 'Track 5', actorSource: 'auto' as const, ballLabel: 'AI 球點', anchorSource: 'ai' as const, anchorConfidence: 0.86, timeAdjusted: false },
-  { keyPointId: 'hit-2', sequenceIndex: 1, frameIndex: 249, actorTrackId: null, actorLabel: '沒人打', actorSource: 'none' as const, ballLabel: '人工球點', anchorSource: 'human' as const, anchorConfidence: null, timeAdjusted: false },
+  {
+    keyPointId: 'hit-1',
+    sequenceIndex: 0,
+    frameIndex: 189,
+    actorTrackId: 5,
+    actorLabel: 'Track 5',
+    actorSource: 'auto' as const,
+    ballLabel: 'AI 球點',
+    anchorSource: 'ai' as const,
+    anchorConfidence: 0.86,
+    timeAdjusted: false,
+  },
+  {
+    keyPointId: 'hit-2',
+    sequenceIndex: 1,
+    frameIndex: 249,
+    actorTrackId: null,
+    actorLabel: '沒人打',
+    actorSource: 'none' as const,
+    ballLabel: '人工球點',
+    anchorSource: 'human' as const,
+    anchorConfidence: null,
+    timeAdjusted: false,
+  },
 ]
 
 const baseProps = {
@@ -55,7 +77,13 @@ describe('AnnotationAnalysisPanel', () => {
   })
 
   it('restores a removed hit from the staged review', async () => {
-    const wrapper = mount(AnnotationAnalysisPanel, { props: { ...baseProps, page: 'hits', removedHits: [{ keyPointId: 'hit-3', frameIndex: 320, label: 'AI 擊球建議' }] } })
+    const wrapper = mount(AnnotationAnalysisPanel, {
+      props: {
+        ...baseProps,
+        page: 'hits',
+        removedHits: [{ keyPointId: 'hit-3', frameIndex: 320, label: 'AI 擊球建議' }],
+      },
+    })
 
     expect(wrapper.text()).toContain('已移除')
     await wrapper.get('.removed-hits button').trigger('click')
@@ -63,7 +91,14 @@ describe('AnnotationAnalysisPanel', () => {
   })
 
   it('shows state only on the ball page without duplicating editing buttons', () => {
-    const wrapper = mount(AnnotationAnalysisPanel, { props: { ...baseProps, page: 'ball', ballOverride: 'position', ballPosition: { x: 640, y: 360 } } })
+    const wrapper = mount(AnnotationAnalysisPanel, {
+      props: {
+        ...baseProps,
+        page: 'ball',
+        ballOverride: 'position',
+        ballPosition: { x: 640, y: 360 },
+      },
+    })
 
     expect(wrapper.text()).toContain('人工位置')
     expect(wrapper.text()).toContain('X 640.0 · Y 360.0')

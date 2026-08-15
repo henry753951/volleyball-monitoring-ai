@@ -4,6 +4,7 @@
 This catches truncated blocks, duplicate model/enum names and fields, unknown relation targets,
 and a few project-specific invariants. It is intentionally not a replacement for the Prisma CLI.
 """
+
 from __future__ import annotations
 
 import re
@@ -55,7 +56,15 @@ for model_name, body in models.items():
     field_types[model_name] = types
 
 scalar_types = {
-    "String", "Boolean", "Int", "BigInt", "Float", "Decimal", "DateTime", "Json", "Bytes",
+    "String",
+    "Boolean",
+    "Int",
+    "BigInt",
+    "Float",
+    "Decimal",
+    "DateTime",
+    "Json",
+    "Bytes",
 }
 known = set(models) | set(enums) | scalar_types
 for model_name, types in field_types.items():
@@ -64,9 +73,21 @@ for model_name, types in field_types.items():
         raise AssertionError(f"unknown field types in {model_name}: {unknown}")
 
 required_models = {
-    "CaptureEpoch", "DvrProgram", "DvrSegment", "Rally", "KeyPoint", "RallySubmission",
-    "RallySubmissionKeyPoint", "ClipJob", "AiJob", "AiCallbackReceipt", "AnalysisRun",
-    "ContactEvent", "BallPathSegment", "OutboxEvent", "AiWorkerAccessToken",
+    "CaptureEpoch",
+    "DvrProgram",
+    "DvrSegment",
+    "Rally",
+    "KeyPoint",
+    "RallySubmission",
+    "RallySubmissionKeyPoint",
+    "ClipJob",
+    "AiJob",
+    "AiCallbackReceipt",
+    "AnalysisRun",
+    "ContactEvent",
+    "BallPathSegment",
+    "OutboxEvent",
+    "AiWorkerAccessToken",
     "AiProviderInstance",
 }
 missing = sorted(required_models - set(models))
@@ -74,33 +95,33 @@ if missing:
     raise AssertionError(f"missing required models: {missing}")
 
 required_tokens = [
-    'scoreResolutionState SubmissionScoreResolution',
+    "scoreResolutionState SubmissionScoreResolution",
     'jobSchemaVersion String @default("3.0.0")',
-    'sourcePts BigInt',
-    'captureTimeUs BigInt',
-    'captureFrameIndex BigInt',
-    'requestPayloadHash String',
-    'callbackId String @unique @db.Uuid',
-    'serviceKeyPointId String? @unique @db.Uuid',
-    'terminalKeyPointId String? @unique @db.Uuid',
-    'boundaries RallyBoundary[]',
-    'boundaries RallySubmissionBoundary[]',
-    'producerName String',
-    'producerBuildId String',
-    'producerSdkVersion String?',
-    'meanConfidence Float?',
-    'resolvedFrameIndex BigInt?',
-    'observationFrameIndex BigInt',
+    "sourcePts BigInt",
+    "captureTimeUs BigInt",
+    "captureFrameIndex BigInt",
+    "requestPayloadHash String",
+    "callbackId String @unique @db.Uuid",
+    "serviceKeyPointId String? @unique @db.Uuid",
+    "terminalKeyPointId String? @unique @db.Uuid",
+    "boundaries RallyBoundary[]",
+    "boundaries RallySubmissionBoundary[]",
+    "producerName String",
+    "producerBuildId String",
+    "producerSdkVersion String?",
+    "meanConfidence Float?",
+    "resolvedFrameIndex BigInt?",
+    "observationFrameIndex BigInt",
 ]
 for token in required_tokens:
     if normalized(token) not in normalized(TEXT):
         raise AssertionError(f"missing required Prisma invariant: {token}")
 
-submission_score_values = set(re.findall(r"\b[A-Z][A-Z0-9_]*\b", enums.get("SubmissionScoreResolution", "")))
+submission_score_values = set(
+    re.findall(r"\b[A-Z][A-Z0-9_]*\b", enums.get("SubmissionScoreResolution", ""))
+)
 if submission_score_values != {"PENDING", "RESOLVED", "UNKNOWN"}:
-    raise AssertionError(
-        "SubmissionScoreResolution must preserve PENDING, RESOLVED and UNKNOWN"
-    )
+    raise AssertionError("SubmissionScoreResolution must preserve PENDING, RESOLVED and UNKNOWN")
 
 for durable_job_model in ("ClipJob", "AiJob"):
     body = normalized(models[durable_job_model])
@@ -113,8 +134,8 @@ for durable_job_model in ("ClipJob", "AiJob"):
         if normalized(token) not in body:
             raise AssertionError(f"missing durable job invariant in {durable_job_model}: {token}")
 
-if '@@index([analysisId])' in TEXT:
-    raise AssertionError('analysisId is already @unique; redundant @@index must be removed')
+if "@@index([analysisId])" in TEXT:
+    raise AssertionError("analysisId is already @unique; redundant @@index must be removed")
 
 print(f"Prisma structural validation passed ({len(models)} models, {len(enums)} enums)")
 print("NOTE: run `bun run db:validate` with installed Prisma before migration or deployment.")

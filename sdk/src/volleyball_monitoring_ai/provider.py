@@ -76,7 +76,7 @@ def create_provider_app(
                 bundle = await candidate if inspect.isawaitable(candidate) else candidate
                 validate_passthrough(job, bundle.domain)
             await callback.completed(bundle.analysis_data_bytes)
-        except Exception as exc:  # noqa: BLE001 - provider boundary must close every job lifecycle
+        except Exception as exc:
             # BackgroundTasks otherwise logs the exception after the 202 response while the
             # central job remains RUNNING forever. Providers must close the callback lifecycle.
             await callback.failed(
@@ -87,7 +87,11 @@ def create_provider_app(
             )
 
     @app.post("/v1/jobs", status_code=202)
-    async def submit(job: AIJobRequest, background_tasks: BackgroundTasks, idempotency_key: str | None = Header(default=None)) -> dict:
+    async def submit(
+        job: AIJobRequest,
+        background_tasks: BackgroundTasks,
+        idempotency_key: str | None = Header(default=None),
+    ) -> dict:
         if idempotency_key != job.ai_job_id:
             raise HTTPException(422, "Idempotency-Key must equal ai_job_id")
         # Adapter skeleton only. A production provider should persist an idempotency record and enqueue durably.

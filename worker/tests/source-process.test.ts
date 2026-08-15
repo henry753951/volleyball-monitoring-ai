@@ -17,12 +17,18 @@ const execFileAsync = promisify(execFile)
 const temporaryPaths: string[] = []
 
 afterEach(async () => {
-  await Promise.all(temporaryPaths.splice(0).map(path => rm(path, { force: true, recursive: true })))
+  await Promise.all(
+    temporaryPaths.splice(0).map(path => rm(path, { force: true, recursive: true })),
+  )
 })
 
 async function ffmpegAvailable(): Promise<boolean> {
-  try { await execFileAsync('ffmpeg', ['-version']); return true }
-  catch { return false }
+  try {
+    await execFileAsync('ffmpeg', ['-version'])
+    return true
+  } catch {
+    return false
+  }
 }
 
 const hasFfmpeg = await ffmpegAvailable()
@@ -44,23 +50,49 @@ describe('media source process', () => {
     expect(classifyYoutubeSource({ is_live: false, live_status: 'was_live' })).toBe('youtube_vod')
     expect(classifyYoutubeSource({ is_live: false, live_status: 'not_live' })).toBe('youtube_vod')
     expect(classifyYoutubeSource({ is_live: true, live_status: 'is_live' })).toBe('youtube_live')
-    expect(classifyYoutubeSource({ is_live: false, live_status: 'is_upcoming' })).toBe('youtube_live')
+    expect(classifyYoutubeSource({ is_live: false, live_status: 'is_upcoming' })).toBe(
+      'youtube_live',
+    )
   })
 
   it('builds separate probe and VOD arguments without exposing cookie contents', () => {
     expect(buildYoutubeProbeArgs('https://youtu.be/example', youtubeOptions)).toEqual([
-      '--dump-single-json', '--no-playlist', '--no-progress', '--no-warnings',
-      '--cookies', '/run/secrets/youtube.cookies.txt',
-      '--extractor-args', 'youtube:player_client=default',
-      '--format', 'live-format', 'https://youtu.be/example',
+      '--dump-single-json',
+      '--no-playlist',
+      '--no-progress',
+      '--no-warnings',
+      '--cookies',
+      '/run/secrets/youtube.cookies.txt',
+      '--extractor-args',
+      'youtube:player_client=default',
+      '--format',
+      'live-format',
+      'https://youtu.be/example',
     ])
-    expect(buildYoutubeVodDownloadArgs('https://youtu.be/example', '/work/source.%(ext)s', youtubeOptions)).toEqual([
-      '--no-playlist', '--no-progress', '--no-warnings',
-      '--cookies', '/run/secrets/youtube.cookies.txt',
-      '--extractor-args', 'youtube:player_client=default',
-      '--abort-on-unavailable-fragments', '--concurrent-fragments', '4',
-      '--format', 'vod-format', '--merge-output-format', 'mp4',
-      '--output', '/work/source.%(ext)s', 'https://youtu.be/example',
+    expect(
+      buildYoutubeVodDownloadArgs(
+        'https://youtu.be/example',
+        '/work/source.%(ext)s',
+        youtubeOptions,
+      ),
+    ).toEqual([
+      '--no-playlist',
+      '--no-progress',
+      '--no-warnings',
+      '--cookies',
+      '/run/secrets/youtube.cookies.txt',
+      '--extractor-args',
+      'youtube:player_client=default',
+      '--abort-on-unavailable-fragments',
+      '--concurrent-fragments',
+      '4',
+      '--format',
+      'vod-format',
+      '--merge-output-format',
+      'mp4',
+      '--output',
+      '/work/source.%(ext)s',
+      'https://youtu.be/example',
     ])
   })
 
@@ -71,58 +103,84 @@ describe('media source process', () => {
     expect(() => nextLiveRelayFailureCount(-1, 0, 0)).toThrow()
   })
 
-  it.skipIf(!hasFfmpeg)('segments an uploaded MP4 into resumable frame-timed recordings', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'vollyai-source-process-'))
-    temporaryPaths.push(root)
-    const importRoot = join(root, 'imports')
-    const recordingRoot = join(root, 'recordings')
-    const workRoot = join(root, 'work')
-    const captureId = '92000000-0000-4000-8000-000000000001'
-    const { mkdir } = await import('node:fs/promises')
-    await mkdir(join(importRoot, captureId), { recursive: true })
-    const input = join(importRoot, captureId, 'source.mp4')
-    await execFileAsync('ffmpeg', [
-      '-hide_banner', '-loglevel', 'error', '-f', 'lavfi',
-      '-i', 'testsrc2=size=320x180:rate=60', '-t', '4.1',
-      '-c:v', 'libx264', '-g', '60', '-pix_fmt', 'yuv420p', '-an', '-y', input,
-    ])
-    const classified: unknown[] = []
-    const resumed: Array<{ captureTimeUs: bigint; segmentIndex: number }> = []
-    const run = createMediaSourceProcess({
-      importRoot,
-      ingestBaseUrl: 'rtmp://127.0.0.1:1935/app',
-      recordingRoot,
-      workRoot,
-      youtubeExtractorArgs: 'youtube:player_client=android_vr',
-      youtubeFormat: 'best',
-      youtubeVodConcurrentFragments: 4,
-      youtubeVodFormat: 'best',
-    })
-    const result = await run({
-      attempts: 1,
-      captureSessionId: captureId,
-      id: '92000000-0000-4000-8000-000000000002',
-      importKey: `${captureId}/source.mp4`,
-      ingestPath: 'fixture-court',
-      resumeCaptureTimeUs: 0n,
-      resumeSegmentIndex: 0,
-      segmentBaseAt: new Date('2026-08-09T06:00:00.000Z'),
-      sourceKind: 'local_mp4',
-      sourceUrl: null,
-      status: 'RUNNING',
-    }, {
-      classified: async value => { classified.push(value) },
-      resumed: async (segmentIndex, captureTimeUs) => { resumed.push({ captureTimeUs, segmentIndex }) },
-    }, new AbortController().signal)
+  it.skipIf(!hasFfmpeg)(
+    'segments an uploaded MP4 into resumable frame-timed recordings',
+    async () => {
+      const root = await mkdtemp(join(tmpdir(), 'vollyai-source-process-'))
+      temporaryPaths.push(root)
+      const importRoot = join(root, 'imports')
+      const recordingRoot = join(root, 'recordings')
+      const workRoot = join(root, 'work')
+      const captureId = '92000000-0000-4000-8000-000000000001'
+      const { mkdir } = await import('node:fs/promises')
+      await mkdir(join(importRoot, captureId), { recursive: true })
+      const input = join(importRoot, captureId, 'source.mp4')
+      await execFileAsync('ffmpeg', [
+        '-hide_banner',
+        '-loglevel',
+        'error',
+        '-f',
+        'lavfi',
+        '-i',
+        'testsrc2=size=320x180:rate=60',
+        '-t',
+        '4.1',
+        '-c:v',
+        'libx264',
+        '-g',
+        '60',
+        '-pix_fmt',
+        'yuv420p',
+        '-an',
+        '-y',
+        input,
+      ])
+      const classified: unknown[] = []
+      const resumed: Array<{ captureTimeUs: bigint; segmentIndex: number }> = []
+      const run = createMediaSourceProcess({
+        importRoot,
+        ingestBaseUrl: 'rtmp://127.0.0.1:1935/app',
+        recordingRoot,
+        workRoot,
+        youtubeExtractorArgs: 'youtube:player_client=android_vr',
+        youtubeFormat: 'best',
+        youtubeVodConcurrentFragments: 4,
+        youtubeVodFormat: 'best',
+      })
+      const result = await run(
+        {
+          attempts: 1,
+          captureSessionId: captureId,
+          id: '92000000-0000-4000-8000-000000000002',
+          importKey: `${captureId}/source.mp4`,
+          ingestPath: 'fixture-court',
+          resumeCaptureTimeUs: 0n,
+          resumeSegmentIndex: 0,
+          segmentBaseAt: new Date('2026-08-09T06:00:00.000Z'),
+          sourceKind: 'local_mp4',
+          sourceUrl: null,
+          status: 'RUNNING',
+        },
+        {
+          classified: async value => {
+            classified.push(value)
+          },
+          resumed: async (segmentIndex, captureTimeUs) => {
+            resumed.push({ captureTimeUs, segmentIndex })
+          },
+        },
+        new AbortController().signal,
+      )
 
-    const files = await readdir(join(recordingRoot, 'fixture-court'))
-    expect(result).toMatchObject({ sourceKind: 'local_mp4' })
-    expect(result.expectedSegments).toBeGreaterThanOrEqual(2)
-    expect(classified).toHaveLength(1)
-    expect(resumed.at(-1)?.segmentIndex).toBe(result.expectedSegments)
-    expect(resumed.at(-1)?.captureTimeUs).toBeGreaterThanOrEqual(4_000_000n)
-    expect(resumed.at(-1)?.captureTimeUs).not.toBe(BigInt(result.expectedSegments) * 2_000_000n)
-    expect(files).toHaveLength(result.expectedSegments)
-    expect(files.every(name => /^2026-08-09_06-00-\d{2}-\d{6}\.mp4$/.test(name))).toBe(true)
-  })
+      const files = await readdir(join(recordingRoot, 'fixture-court'))
+      expect(result).toMatchObject({ sourceKind: 'local_mp4' })
+      expect(result.expectedSegments).toBeGreaterThanOrEqual(2)
+      expect(classified).toHaveLength(1)
+      expect(resumed.at(-1)?.segmentIndex).toBe(result.expectedSegments)
+      expect(resumed.at(-1)?.captureTimeUs).toBeGreaterThanOrEqual(4_000_000n)
+      expect(resumed.at(-1)?.captureTimeUs).not.toBe(BigInt(result.expectedSegments) * 2_000_000n)
+      expect(files).toHaveLength(result.expectedSegments)
+      expect(files.every(name => /^2026-08-09_06-00-\d{2}-\d{6}\.mp4$/.test(name))).toBe(true)
+    },
+  )
 })

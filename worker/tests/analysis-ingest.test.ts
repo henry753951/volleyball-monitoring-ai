@@ -5,8 +5,12 @@ import { createAnalysisIngestWorker } from '../src/roles/analysis-ingest.js'
 async function eventually(assertion: () => void, timeoutMs = 2_000) {
   const deadline = Date.now() + timeoutMs
   while (Date.now() < deadline) {
-    try { assertion(); return }
-    catch { await new Promise(resolve => setTimeout(resolve, 2)) }
+    try {
+      assertion()
+      return
+    } catch {
+      await new Promise(resolve => setTimeout(resolve, 2))
+    }
   }
   assertion()
 }
@@ -19,7 +23,11 @@ describe('analysis ingest convergence worker', () => {
       aiJob: { status: 'RUNNING' },
       submission: {
         rallyId: 'rally-1',
-        rally: { activeSubmissionId: 'submission-1', processingStatus: 'AI_PROCESSING', voidedAt: null },
+        rally: {
+          activeSubmissionId: 'submission-1',
+          processingStatus: 'AI_PROCESSING',
+          voidedAt: null,
+        },
       },
     }
     let disconnected = false
@@ -27,16 +35,28 @@ describe('analysis ingest convergence worker', () => {
     const database = {
       analysisRun: { findMany: async () => [run] },
       aiJob: {
-        updateMany: ({ data }: { data: Record<string, unknown> }) => ({ execute: () => { Object.assign(run.aiJob, data); return { count: 1 } } }),
+        updateMany: ({ data }: { data: Record<string, unknown> }) => ({
+          execute: () => {
+            Object.assign(run.aiJob, data)
+            return { count: 1 }
+          },
+        }),
       },
       rally: {
-        updateMany: ({ data }: { data: Record<string, unknown> }) => ({ execute: () => { Object.assign(run.submission.rally, data); return { count: 1 } } }),
+        updateMany: ({ data }: { data: Record<string, unknown> }) => ({
+          execute: () => {
+            Object.assign(run.submission.rally, data)
+            return { count: 1 }
+          },
+        }),
       },
       $transaction: async (operations: Array<{ execute(): unknown }>) => {
         transactions += 1
         return operations.map(operation => operation.execute())
       },
-      $disconnect: async () => { disconnected = true },
+      $disconnect: async () => {
+        disconnected = true
+      },
     } as unknown as PrismaClient
     const worker = createAnalysisIngestWorker(database, { idleMs: 1 })
 
@@ -58,7 +78,11 @@ describe('analysis ingest convergence worker', () => {
       aiJob: { status: 'SUPERSEDED' },
       submission: {
         rallyId: 'rally-1',
-        rally: { activeSubmissionId: 'submission-new', processingStatus: 'COMPLETED', voidedAt: null },
+        rally: {
+          activeSubmissionId: 'submission-new',
+          processingStatus: 'COMPLETED',
+          voidedAt: null,
+        },
       },
     }
     let transactions = 0
@@ -66,7 +90,9 @@ describe('analysis ingest convergence worker', () => {
       analysisRun: { findMany: async () => [run] },
       aiJob: { updateMany: () => ({}) },
       rally: { updateMany: () => ({}) },
-      $transaction: async () => { transactions += 1 },
+      $transaction: async () => {
+        transactions += 1
+      },
       $disconnect: async () => undefined,
     } as unknown as PrismaClient
     const worker = createAnalysisIngestWorker(database, { idleMs: 1 })

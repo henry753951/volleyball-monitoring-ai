@@ -99,10 +99,7 @@
     "framePos": {
       "type": "object",
       "additionalProperties": false,
-      "required": [
-        "x",
-        "y"
-      ],
+      "required": ["x", "y"],
       "properties": {
         "x": {
           "type": "number",
@@ -119,12 +116,7 @@
     "frameBBox": {
       "type": "object",
       "additionalProperties": false,
-      "required": [
-        "x1",
-        "y1",
-        "x2",
-        "y2"
-      ],
+      "required": ["x1", "y1", "x2", "y2"],
       "properties": {
         "x1": {
           "type": "number",
@@ -151,10 +143,7 @@
     "courtPos": {
       "type": "object",
       "additionalProperties": false,
-      "required": [
-        "x",
-        "y"
-      ],
+      "required": ["x", "y"],
       "properties": {
         "x": {
           "type": "number"
@@ -168,10 +157,7 @@
     "producer": {
       "type": "object",
       "additionalProperties": false,
-      "required": [
-        "name",
-        "build_id"
-      ],
+      "required": ["name", "build_id"],
       "properties": {
         "name": {
           "type": "string",
@@ -191,9 +177,7 @@
     "action": {
       "type": "object",
       "additionalProperties": false,
-      "required": [
-        "label"
-      ],
+      "required": ["label"],
       "properties": {
         "label": {
           "type": "string",
@@ -221,12 +205,7 @@
     "track": {
       "type": "object",
       "additionalProperties": false,
-      "required": [
-        "track_id",
-        "court_side",
-        "first_frame_index",
-        "last_frame_index"
-      ],
+      "required": ["track_id", "court_side", "first_frame_index", "last_frame_index"],
       "properties": {
         "track_id": {
           "type": "integer",
@@ -234,11 +213,7 @@
           "maximum": 65534
         },
         "court_side": {
-          "enum": [
-            "left",
-            "right",
-            "unknown"
-          ]
+          "enum": ["left", "right", "unknown"]
         },
         "first_frame_index": {
           "$ref": "#/$defs/uint64"
@@ -261,10 +236,7 @@
     "actor": {
       "type": "object",
       "additionalProperties": false,
-      "required": [
-        "track_id",
-        "observation_frame_index"
-      ],
+      "required": ["track_id", "observation_frame_index"],
       "properties": {
         "track_id": {
           "type": "integer",
@@ -297,10 +269,7 @@
     "candidate": {
       "type": "object",
       "additionalProperties": false,
-      "required": [
-        "track_id",
-        "rank"
-      ],
+      "required": ["track_id", "rank"],
       "properties": {
         "track_id": {
           "type": "integer",
@@ -321,16 +290,10 @@
     "ball": {
       "type": "object",
       "additionalProperties": false,
-      "required": [
-        "state"
-      ],
+      "required": ["state"],
       "properties": {
         "state": {
-          "enum": [
-            "observed",
-            "interpolated",
-            "missing"
-          ]
+          "enum": ["observed", "interpolated", "missing"]
         },
         "sample_frame_index": {
           "$ref": "#/$defs/uint64"
@@ -349,21 +312,13 @@
           "if": {
             "properties": {
               "state": {
-                "enum": [
-                  "observed",
-                  "interpolated"
-                ]
+                "enum": ["observed", "interpolated"]
               }
             },
-            "required": [
-              "state"
-            ]
+            "required": ["state"]
           },
           "then": {
-            "required": [
-              "sample_frame_index",
-              "frame_pos"
-            ]
+            "required": ["sample_frame_index", "frame_pos"]
           }
         },
         {
@@ -373,22 +328,16 @@
                 "const": "missing"
               }
             },
-            "required": [
-              "state"
-            ]
+            "required": ["state"]
           },
           "then": {
             "not": {
               "anyOf": [
                 {
-                  "required": [
-                    "sample_frame_index"
-                  ]
+                  "required": ["sample_frame_index"]
                 },
                 {
-                  "required": [
-                    "frame_pos"
-                  ]
+                  "required": ["frame_pos"]
                 }
               ]
             }
@@ -399,25 +348,15 @@
     "representativePosition": {
       "type": "object",
       "additionalProperties": false,
-      "required": [
-        "basis",
-        "court_pos"
-      ],
+      "required": ["basis", "court_pos"],
       "properties": {
         "track_id": {
-          "type": [
-            "integer",
-            "null"
-          ],
+          "type": ["integer", "null"],
           "minimum": 0,
           "maximum": 65534
         },
         "basis": {
-          "enum": [
-            "player_footprint_proxy",
-            "terminal_projection",
-            "provider_defined"
-          ]
+          "enum": ["player_footprint_proxy", "terminal_projection", "provider_defined"]
         },
         "court_pos": {
           "$ref": "#/$defs/courtPos"
@@ -452,10 +391,7 @@
           "$ref": "#/$defs/id"
         },
         "source_key_point_id": {
-          "oneOf": [
-            { "$ref": "#/$defs/id" },
-            { "type": "null" }
-          ]
+          "oneOf": [{ "$ref": "#/$defs/id" }, { "type": "null" }]
         },
         "anchor_origin": {
           "enum": ["human_anchor", "ai_detected"]
@@ -482,13 +418,7 @@
           "$ref": "#/$defs/uint64"
         },
         "association_state": {
-          "enum": [
-            "resolved_single",
-            "resolved_multiple",
-            "ambiguous",
-            "unresolved",
-            "no_player"
-          ]
+          "enum": ["resolved_single", "resolved_multiple", "ambiguous", "unresolved", "no_player"]
         },
         "actors": {
           "type": "array",
@@ -531,9 +461,7 @@
                 "const": "resolved_single"
               }
             },
-            "required": [
-              "association_state"
-            ]
+            "required": ["association_state"]
           },
           "then": {
             "properties": {
@@ -554,9 +482,7 @@
                 "const": "resolved_multiple"
               }
             },
-            "required": [
-              "association_state"
-            ]
+            "required": ["association_state"]
           },
           "then": {
             "properties": {
@@ -576,9 +502,7 @@
                 "const": "ambiguous"
               }
             },
-            "required": [
-              "association_state"
-            ]
+            "required": ["association_state"]
           },
           "then": {
             "properties": {
@@ -595,15 +519,10 @@
           "if": {
             "properties": {
               "association_state": {
-                "enum": [
-                  "unresolved",
-                  "no_player"
-                ]
+                "enum": ["unresolved", "no_player"]
               }
             },
-            "required": [
-              "association_state"
-            ]
+            "required": ["association_state"]
           },
           "then": {
             "properties": {
@@ -661,11 +580,7 @@
           }
         },
         "render_state": {
-          "enum": [
-            "complete",
-            "partial",
-            "unavailable"
-          ]
+          "enum": ["complete", "partial", "unavailable"]
         },
         "is_terminal_segment": {
           "const": false

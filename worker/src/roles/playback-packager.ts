@@ -20,7 +20,8 @@ export function createPlaybackPackagerWorker(
 ): PollingLifecycle {
   const now = options.now ?? (() => new Date())
   const batchSize = options.batchSize ?? DEFAULT_BATCH_SIZE
-  if (!Number.isInteger(batchSize) || batchSize < 1 || batchSize > 1_000) throw new TypeError('playback cleanup batch size must be between 1 and 1000')
+  if (!Number.isInteger(batchSize) || batchSize < 1 || batchSize > 1_000)
+    throw new TypeError('playback cleanup batch size must be between 1 and 1000')
 
   async function processNext(): Promise<boolean> {
     const expired = await database.playbackWindow.findMany({
@@ -30,14 +31,19 @@ export function createPlaybackPackagerWorker(
       take: batchSize,
     })
     if (!expired.length) return false
-    await database.playbackWindow.deleteMany({ where: { id: { in: expired.map(window => window.id) } } })
+    await database.playbackWindow.deleteMany({
+      where: { id: { in: expired.map(window => window.id) } },
+    })
     return true
   }
 
   return createPollingLifecycle(processNext, {
     ...(options.idleMs === undefined ? {} : { idleMs: options.idleMs }),
-    onError: (error) => {
-      console.error('playback-packager loop error', error instanceof Error ? error.name : 'UnknownError')
+    onError: error => {
+      console.error(
+        'playback-packager loop error',
+        error instanceof Error ? error.name : 'UnknownError',
+      )
       options.onError?.(error)
     },
     ...(options.disconnectOnStop === false ? {} : { disconnect: () => database.$disconnect() }),

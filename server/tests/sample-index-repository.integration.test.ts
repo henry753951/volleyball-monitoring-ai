@@ -4,22 +4,10 @@ import { createHash, randomUUID } from 'node:crypto'
 import { resolve } from 'node:path'
 import { promisify } from 'node:util'
 import { Pool } from 'pg'
-import {
-  afterAll,
-  afterEach,
-  beforeAll,
-  beforeEach,
-  describe,
-  expect,
-  it,
-  vi,
-} from 'vitest'
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { db as databaseClient } from '@volleyball-monitoring/db'
 import { rescalePtsToUs } from '@volleyball-monitoring/media'
-import type {
-  MediaObjectReader,
-  MediaObjectReadRequest,
-} from '../src/media/playback-domain.js'
+import type { MediaObjectReader, MediaObjectReadRequest } from '../src/media/playback-domain.js'
 import type {
   SampleIndexRepository as SampleIndexRepositoryType,
   SampleIndexRepositoryError,
@@ -30,9 +18,10 @@ const execFileAsync = promisify(execFile)
 const repositoryRoot = resolve(process.cwd(), '..')
 const databasePackageRoot = resolve(repositoryRoot, 'packages/db')
 const originalDatabaseUrl = process.env.DATABASE_URL
-const sourceDatabaseUrl = process.env.TEST_DATABASE_URL
-  ?? originalDatabaseUrl
-  ?? 'postgresql://volleyball:volleyball@127.0.0.1:5433/volleyball?schema=public'
+const sourceDatabaseUrl =
+  process.env.TEST_DATABASE_URL ??
+  originalDatabaseUrl ??
+  'postgresql://volleyball:volleyball@127.0.0.1:5433/volleyball?schema=public'
 const databaseName = `sampleindex_${randomUUID().replaceAll('-', '')}`
 const maintenanceUrl = new URL(sourceDatabaseUrl)
 maintenanceUrl.pathname = '/postgres'
@@ -72,15 +61,11 @@ const segment1SourceEnd = sourcePtsOrigin + 2n * sampleDurationPts
 const segment2SourceStart = segment1SourceEnd
 const segment2SourceEnd = segment2SourceStart + 2n * sampleDurationPts
 const segment1CaptureStart = captureOriginUs
-const segment1CaptureEnd = captureOriginUs + rescalePtsToUs(
-  segment1SourceEnd - sourcePtsOrigin,
-  timeBase,
-)
+const segment1CaptureEnd =
+  captureOriginUs + rescalePtsToUs(segment1SourceEnd - sourcePtsOrigin, timeBase)
 const segment2CaptureStart = segment1CaptureEnd
-const segment2CaptureEnd = captureOriginUs + rescalePtsToUs(
-  segment2SourceEnd - sourcePtsOrigin,
-  timeBase,
-)
+const segment2CaptureEnd =
+  captureOriginUs + rescalePtsToUs(segment2SourceEnd - sourcePtsOrigin, timeBase)
 const bucket = 'dvr-media'
 const keys = {
   asset1: 'sample-index/segment-one.json',
@@ -106,31 +91,30 @@ function sampleIndexBytes(input: {
 }): Uint8Array {
   const durationPts = input.durationPts ?? sampleDurationPts
   const sampleCount = input.sampleCount ?? segmentSampleCount
-  return Buffer.from(JSON.stringify({
-    epochId: input.documentEpochId ?? input.origin.epochId,
-    samples: Array.from({ length: sampleCount }, (_value, index) => {
-      const ordinal = BigInt(index)
-      const sourcePts = input.firstSourcePts + ordinal * durationPts
-      return {
-        captureFrameIndex: (input.firstFrameIndex + ordinal).toString(),
-        captureTimeUs: (
-          input.origin.captureTimeOriginUs
-          + rescalePtsToUs(
-            sourcePts - input.origin.sourcePtsOrigin,
-            input.origin.timeBase,
-          )
-        ).toString(),
-        durationPts: durationPts.toString(),
-        keyframe: index === 0,
-        sourcePts: sourcePts.toString(),
-      }
+  return Buffer.from(
+    JSON.stringify({
+      epochId: input.documentEpochId ?? input.origin.epochId,
+      samples: Array.from({ length: sampleCount }, (_value, index) => {
+        const ordinal = BigInt(index)
+        const sourcePts = input.firstSourcePts + ordinal * durationPts
+        return {
+          captureFrameIndex: (input.firstFrameIndex + ordinal).toString(),
+          captureTimeUs: (
+            input.origin.captureTimeOriginUs +
+            rescalePtsToUs(sourcePts - input.origin.sourcePtsOrigin, input.origin.timeBase)
+          ).toString(),
+          durationPts: durationPts.toString(),
+          keyframe: index === 0,
+          sourcePts: sourcePts.toString(),
+        }
+      }),
+      schemaVersion: '1.0.0',
+      timeBase: {
+        den: (input.documentTimeBase ?? input.origin.timeBase).den.toString(),
+        num: (input.documentTimeBase ?? input.origin.timeBase).num.toString(),
+      },
     }),
-    schemaVersion: '1.0.0',
-    timeBase: {
-      den: (input.documentTimeBase ?? input.origin.timeBase).den.toString(),
-      num: (input.documentTimeBase ?? input.origin.timeBase).num.toString(),
-    },
-  }))
+  )
 }
 
 const epoch1Origin: EpochDocumentOrigin = {
@@ -170,24 +154,20 @@ function sha256(bytes: Uint8Array): string {
   return createHash('sha256').update(bytes).digest('hex')
 }
 
-const inMemoryReader: MediaObjectReader = async (request) => {
+const inMemoryReader: MediaObjectReader = async request => {
   reads.push(request)
   const bytes = objectBytes.get(objectMapKey(request))
   if (!bytes) throw new Error('secret missing object identity')
   if (
-    BigInt(bytes.byteLength) !== request.expectedByteLength
-    || sha256(bytes) !== request.expectedSha256.toLowerCase()
+    BigInt(bytes.byteLength) !== request.expectedByteLength ||
+    sha256(bytes) !== request.expectedSha256.toLowerCase()
   ) {
     throw new Error('secret object verification failure')
   }
   return bytes
 }
 
-async function setAssetBytes(
-  assetId: string,
-  key: string,
-  bytes: Uint8Array,
-): Promise<void> {
+async function setAssetBytes(assetId: string, key: string, bytes: Uint8Array): Promise<void> {
   objectBytes.set(`${bucket}/${key}`, bytes)
   await db.mediaAsset.update({
     data: {
@@ -235,7 +215,7 @@ async function seedFixture(): Promise<void> {
     ],
   })
   await db.dvrProgram.createMany({
-    data: [ids.program1, ids.program2].map((id) => ({
+    data: [ids.program1, ids.program2].map(id => ({
       captureSessionId: ids.session,
       durationUs: segment2CaptureEnd - segment1CaptureStart,
       fpsDen: 1,
@@ -469,19 +449,13 @@ beforeAll(async () => {
   await maintenancePool.query(`CREATE DATABASE "${databaseName}"`)
   createdDatabase = true
   process.env.DATABASE_URL = isolatedDatabaseUrl.toString()
-  await execFileAsync(
-    'bun',
-    ['x', 'prisma', 'migrate', 'deploy', '--config', 'prisma.config.ts'],
-    {
-      cwd: databasePackageRoot,
-      env: { ...process.env, DATABASE_URL: isolatedDatabaseUrl.toString() },
-      windowsHide: true,
-    },
-  )
+  await execFileAsync('bun', ['x', 'prisma', 'migrate', 'deploy', '--config', 'prisma.config.ts'], {
+    cwd: databasePackageRoot,
+    env: { ...process.env, DATABASE_URL: isolatedDatabaseUrl.toString() },
+    windowsHide: true,
+  })
   const dbModule = await import('@volleyball-monitoring/db')
-  const repositoryModule = await import(
-    '../src/media/sample-index-repository.js'
-  )
+  const repositoryModule = await import('../src/media/sample-index-repository.js')
   db = dbModule.db
   SampleIndexRepositoryErrorClass = repositoryModule.SampleIndexRepositoryError
   await seedFixture()
@@ -515,25 +489,15 @@ describe('persisted sample index repository', () => {
   it('loads two touching segments in caller order with exact reads and no writes', async () => {
     const countsBefore = await rowCounts()
     const findMany = vi.spyOn(db.dvrSegment, 'findMany')
-    const segments = await repository.loadOrderedSegments([
-      ids.segment1,
-      ids.segment2,
-    ])
+    const segments = await repository.loadOrderedSegments([ids.segment1, ids.segment2])
 
     expect(findMany).toHaveBeenCalledOnce()
     findMany.mockRestore()
-    expect(segments.map((segment) => segment.segmentId)).toEqual([
-      ids.segment1,
-      ids.segment2,
-    ])
+    expect(segments.map(segment => segment.segmentId)).toEqual([ids.segment1, ids.segment2])
     expect(segments[0]!.index.samples[0]!.sourcePts).toBe(sourcePtsOrigin)
     expect(segments[0]!.index.samples[0]!.sourcePts).toBeLessThan(0n)
-    expect(segments[1]!.index.samples.at(-1)!.captureTimeUs).toBeGreaterThan(
-      2n ** 53n,
-    )
-    expect(segments[1]!.index.samples.at(-1)!.captureFrameIndex).toBeGreaterThan(
-      2n ** 53n,
-    )
+    expect(segments[1]!.index.samples.at(-1)!.captureTimeUs).toBeGreaterThan(2n ** 53n)
+    expect(segments[1]!.index.samples.at(-1)!.captureFrameIndex).toBeGreaterThan(2n ** 53n)
     expect(reads).toEqual([
       {
         bucket,
@@ -569,10 +533,7 @@ describe('persisted sample index repository', () => {
       ),
     ],
   ])('rejects %s segment identities before object reads', async (_label, segmentIds) => {
-    await expectRepositoryError(
-      () => repository.loadOrderedSegments(segmentIds),
-      'INVALID_REQUEST',
-    )
+    await expectRepositoryError(() => repository.loadOrderedSegments(segmentIds), 'INVALID_REQUEST')
     expect(reads).toHaveLength(0)
   })
 
@@ -597,42 +558,78 @@ describe('persisted sample index repository', () => {
   })
 
   it.each([
-    ['missing relation', async () => db.dvrSegment.update({
-      data: { sampleIndexAssetId: null },
-      where: { id: ids.segment1 },
-    })],
-    ['uploading state', async () => db.mediaAsset.update({
-      data: { state: 'UPLOADING' },
-      where: { id: ids.asset1 },
-    })],
-    ['missing ready time', async () => db.mediaAsset.update({
-      data: { readyAt: null },
-      where: { id: ids.asset1 },
-    })],
-    ['deleted asset', async () => db.mediaAsset.update({
-      data: { deletedAt: now },
-      where: { id: ids.asset1 },
-    })],
-    ['wrong kind', async () => db.mediaAsset.update({
-      data: { kind: 'DVR_SEGMENT' },
-      where: { id: ids.asset1 },
-    })],
-    ['wrong content type', async () => db.mediaAsset.update({
-      data: { contentType: 'video/mp4' },
-      where: { id: ids.asset1 },
-    })],
-    ['wrong schema', async () => db.mediaAsset.update({
-      data: { internalSchemaVersion: '2.0.0' },
-      where: { id: ids.asset1 },
-    })],
-    ['nonpositive length', async () => db.mediaAsset.update({
-      data: { byteLength: 0n },
-      where: { id: ids.asset1 },
-    })],
-    ['invalid sha', async () => db.mediaAsset.update({
-      data: { sha256: 'not-a-sha' },
-      where: { id: ids.asset1 },
-    })],
+    [
+      'missing relation',
+      async () =>
+        db.dvrSegment.update({
+          data: { sampleIndexAssetId: null },
+          where: { id: ids.segment1 },
+        }),
+    ],
+    [
+      'uploading state',
+      async () =>
+        db.mediaAsset.update({
+          data: { state: 'UPLOADING' },
+          where: { id: ids.asset1 },
+        }),
+    ],
+    [
+      'missing ready time',
+      async () =>
+        db.mediaAsset.update({
+          data: { readyAt: null },
+          where: { id: ids.asset1 },
+        }),
+    ],
+    [
+      'deleted asset',
+      async () =>
+        db.mediaAsset.update({
+          data: { deletedAt: now },
+          where: { id: ids.asset1 },
+        }),
+    ],
+    [
+      'wrong kind',
+      async () =>
+        db.mediaAsset.update({
+          data: { kind: 'DVR_SEGMENT' },
+          where: { id: ids.asset1 },
+        }),
+    ],
+    [
+      'wrong content type',
+      async () =>
+        db.mediaAsset.update({
+          data: { contentType: 'video/mp4' },
+          where: { id: ids.asset1 },
+        }),
+    ],
+    [
+      'wrong schema',
+      async () =>
+        db.mediaAsset.update({
+          data: { internalSchemaVersion: '2.0.0' },
+          where: { id: ids.asset1 },
+        }),
+    ],
+    [
+      'nonpositive length',
+      async () =>
+        db.mediaAsset.update({
+          data: { byteLength: 0n },
+          where: { id: ids.asset1 },
+        }),
+    ],
+    [
+      'invalid sha',
+      async () =>
+        db.mediaAsset.update({
+          data: { sha256: 'not-a-sha' },
+          where: { id: ids.asset1 },
+        }),
+    ],
   ] as const)('rejects a sample-index asset with %s', async (_label, mutate) => {
     await mutate()
     await expectRepositoryError(
@@ -655,17 +652,10 @@ describe('persisted sample index repository', () => {
   })
 
   it('sanitizes object-reader failures', async () => {
-    const repositoryModule = await import(
-      '../src/media/sample-index-repository.js'
-    )
-    const failingRepository = repositoryModule.createSampleIndexRepository(
-      db,
-      async () => {
-        throw new Error(
-          'secret credential at http://endpoint.internal/private-object',
-        )
-      },
-    )
+    const repositoryModule = await import('../src/media/sample-index-repository.js')
+    const failingRepository = repositoryModule.createSampleIndexRepository(db, async () => {
+      throw new Error('secret credential at http://endpoint.internal/private-object')
+    })
     await expectRepositoryError(
       () => failingRepository.loadOrderedSegments([ids.segment1]),
       'OBJECT_READ_FAILED',
@@ -682,10 +672,7 @@ describe('persisted sample index repository', () => {
     ],
   ] as const)('rejects %s object bytes', async (_label, bytes, code) => {
     await setAssetBytes(ids.asset1, keys.asset1, bytes)
-    await expectRepositoryError(
-      () => repository.loadOrderedSegments([ids.segment1]),
-      code,
-    )
+    await expectRepositoryError(() => repository.loadOrderedSegments([ids.segment1]), code)
   })
 
   it.each([
@@ -794,30 +781,42 @@ describe('persisted sample index repository', () => {
   })
 
   it.each([
-    ['wrong start/origin', async (): Promise<void> => {
-      await db.captureEpoch.update({
-        data: { startedAtCaptureUs: captureOriginUs + 1n },
-        where: { id: ids.epoch1 },
-      })
-    }],
-    ['ended before segment', async (): Promise<void> => {
-      await db.captureEpoch.update({
-        data: { endedAtCaptureUs: segment1CaptureEnd - 1n },
-        where: { id: ids.epoch1 },
-      })
-    }],
-    ['empty epoch range', async (): Promise<void> => {
-      await db.captureEpoch.update({
-        data: { endedAtCaptureUs: captureOriginUs },
-        where: { id: ids.epoch1 },
-      })
-    }],
-    ['negative epoch sequence', async (): Promise<void> => {
-      await db.captureEpoch.update({
-        data: { sequenceIndex: -1 },
-        where: { id: ids.epoch1 },
-      })
-    }],
+    [
+      'wrong start/origin',
+      async (): Promise<void> => {
+        await db.captureEpoch.update({
+          data: { startedAtCaptureUs: captureOriginUs + 1n },
+          where: { id: ids.epoch1 },
+        })
+      },
+    ],
+    [
+      'ended before segment',
+      async (): Promise<void> => {
+        await db.captureEpoch.update({
+          data: { endedAtCaptureUs: segment1CaptureEnd - 1n },
+          where: { id: ids.epoch1 },
+        })
+      },
+    ],
+    [
+      'empty epoch range',
+      async (): Promise<void> => {
+        await db.captureEpoch.update({
+          data: { endedAtCaptureUs: captureOriginUs },
+          where: { id: ids.epoch1 },
+        })
+      },
+    ],
+    [
+      'negative epoch sequence',
+      async (): Promise<void> => {
+        await db.captureEpoch.update({
+          data: { sequenceIndex: -1 },
+          where: { id: ids.epoch1 },
+        })
+      },
+    ],
   ] as const)('rejects persisted epoch corruption: %s', async (_label, mutate) => {
     await mutate()
     await expectRepositoryError(
@@ -828,50 +827,52 @@ describe('persisted sample index repository', () => {
   })
 
   it.each([
+    ['caller order', async (): Promise<void> => undefined, [ids.segment2, ids.segment1]],
     [
-      'caller order',
-      async (): Promise<void> => undefined,
-      [ids.segment2, ids.segment1],
+      'program',
+      async (): Promise<void> => {
+        await db.dvrSegment.update({
+          data: { dvrProgramId: ids.program2 },
+          where: { id: ids.segment2 },
+        })
+      },
+      [ids.segment1, ids.segment2],
     ],
-    ['program', async (): Promise<void> => {
-      await db.dvrSegment.update({
-        data: { dvrProgramId: ids.program2 },
-        where: { id: ids.segment2 },
-      })
-    }, [ids.segment1, ids.segment2]],
-    ['discontinuity', async (): Promise<void> => {
-      await db.dvrSegment.update({
-        data: { discontinuitySequence: 1 },
-        where: { id: ids.segment2 },
-      })
-    }, [ids.segment1, ids.segment2]],
-    ['frame continuity', async (): Promise<void> => {
-      const bytes = sampleIndexBytes({
-        firstFrameIndex: captureFrameOrigin + 3n,
-        firstSourcePts: segment2SourceStart,
-        origin: epoch1Origin,
-      })
-      await setAssetBytes(ids.asset2, keys.asset2, bytes)
-      await db.dvrSegment.update({
-        data: { firstFrameIndex: captureFrameOrigin + 3n },
-        where: { id: ids.segment2 },
-      })
-    }, [ids.segment1, ids.segment2]],
+    [
+      'discontinuity',
+      async (): Promise<void> => {
+        await db.dvrSegment.update({
+          data: { discontinuitySequence: 1 },
+          where: { id: ids.segment2 },
+        })
+      },
+      [ids.segment1, ids.segment2],
+    ],
+    [
+      'frame continuity',
+      async (): Promise<void> => {
+        const bytes = sampleIndexBytes({
+          firstFrameIndex: captureFrameOrigin + 3n,
+          firstSourcePts: segment2SourceStart,
+          origin: epoch1Origin,
+        })
+        await setAssetBytes(ids.asset2, keys.asset2, bytes)
+        await db.dvrSegment.update({
+          data: { firstFrameIndex: captureFrameOrigin + 3n },
+          where: { id: ids.segment2 },
+        })
+      },
+      [ids.segment1, ids.segment2],
+    ],
   ] as const)('rejects an ordered set crossing %s', async (_label, mutate, order) => {
     await mutate()
-    await expectRepositoryError(
-      () => repository.loadOrderedSegments(order),
-      'INVALID_SEGMENT_SET',
-    )
+    await expectRepositoryError(() => repository.loadOrderedSegments(order), 'INVALID_SEGMENT_SET')
   })
 
   it('loads a zero-gap capture epoch transition with reset source PTS', async () => {
     const resetSourcePtsOrigin = 0n
     const resetSourcePtsEnd = 2n * sampleDurationPts
-    const resetCaptureEnd = segment2CaptureStart + rescalePtsToUs(
-      resetSourcePtsEnd,
-      timeBase,
-    )
+    const resetCaptureEnd = segment2CaptureStart + rescalePtsToUs(resetSourcePtsEnd, timeBase)
     const epoch2Origin: EpochDocumentOrigin = {
       captureFrameOrigin: captureFrameOrigin + 2n,
       captureTimeOriginUs: segment2CaptureStart,
@@ -907,24 +908,16 @@ describe('persisted sample index repository', () => {
       where: { id: ids.segment2 },
     })
 
-    const segments = await repository.loadOrderedSegments([
-      ids.segment1,
-      ids.segment2,
-    ])
+    const segments = await repository.loadOrderedSegments([ids.segment1, ids.segment2])
 
-    expect(segments.map((segment) => segment.index.epochId)).toEqual([
-      ids.epoch1,
-      ids.epoch2,
-    ])
+    expect(segments.map(segment => segment.index.epochId)).toEqual([ids.epoch1, ids.epoch2])
     expect(segments[1]!.index.samples[0]!.sourcePts).toBe(0n)
-    expect(segments[1]!.index.availableStartUs).toBe(
-      segments[0]!.index.availableEndUs,
-    )
+    expect(segments[1]!.index.availableStartUs).toBe(segments[0]!.index.availableEndUs)
   })
 
   it.each(['gap', 'overlap'] as const)(
     'rejects a canonical %s between persisted segments',
-    async (failure) => {
+    async failure => {
       const delta = failure === 'gap' ? 1n : -1n
       const nextStart = segment2CaptureStart + delta
       await db.dvrSegment.update({

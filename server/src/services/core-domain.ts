@@ -1,11 +1,6 @@
 import { db } from '@volleyball-monitoring/db'
-import { MatchStatus, RosterPosition, UserRole } from '@volleyball-monitoring/db/client'
-import type {
-  Match,
-  MatchSet,
-  Prisma,
-  Team,
-} from '@volleyball-monitoring/db/client'
+import { RosterPosition, UserRole } from '@volleyball-monitoring/db/client'
+import type { Match, MatchSet, Prisma, Team, MatchStatus } from '@volleyball-monitoring/db/client'
 import type { AuthenticatedUser } from '../graphql/context.js'
 import { domainError } from '../graphql/errors.js'
 
@@ -199,7 +194,7 @@ export async function createMatchSetup(
   requireSetupRole(actor)
   const setup = normalizeMatchSetup(input)
 
-  return db.$transaction(async (tx) => {
+  return db.$transaction(async tx => {
     const match = await tx.match.create({
       data: {
         scheduledAt: setup.scheduledAt,
@@ -232,9 +227,7 @@ export function listVisibleMatches(actor: AuthenticatedUser): Promise<Match[]> {
     orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
     where: {
       deletionRequestedAt: null,
-      ...(actor.role === UserRole.ADMIN
-        ? {}
-        : { members: { some: { userId: actor.id } } }),
+      ...(actor.role === UserRole.ADMIN ? {} : { members: { some: { userId: actor.id } } }),
     },
   })
 }
@@ -248,9 +241,7 @@ export function findVisibleMatch(
     where: {
       deletionRequestedAt: null,
       id: matchId,
-      ...(actor.role === UserRole.ADMIN
-        ? {}
-        : { members: { some: { userId: actor.id } } }),
+      ...(actor.role === UserRole.ADMIN ? {} : { members: { some: { userId: actor.id } } }),
     },
   })
 }
@@ -269,23 +260,36 @@ function operatorSetWhere(actor: AuthenticatedUser, setId: string): Prisma.Match
   }
 }
 
-export async function updateMatch(actor: AuthenticatedUser, input: UpdateMatchInput): Promise<Match> {
+export async function updateMatch(
+  actor: AuthenticatedUser,
+  input: UpdateMatchInput,
+): Promise<Match> {
   requireSetupRole(actor)
   const matchId = requireUuid(input.matchId, 'matchId')
   const title = requireText(input.title, 'title')
   const venue = input.venue == null ? null : normalizeText(input.venue) || null
   const scheduledAt = input.scheduledAt ?? null
-  if (scheduledAt && Number.isNaN(scheduledAt.getTime())) domainError('scheduledAt must be a valid DateTime', 'BAD_USER_INPUT')
+  if (scheduledAt && Number.isNaN(scheduledAt.getTime()))
+    domainError('scheduledAt must be a valid DateTime', 'BAD_USER_INPUT')
   const existing = await db.match.findFirst({
     select: { id: true },
     where: {
       deletionRequestedAt: null,
       id: matchId,
-      ...(actor.role === UserRole.ADMIN ? {} : { members: { some: { userId: actor.id, role: { in: [UserRole.ADMIN, UserRole.OPERATOR] } } } }),
+      ...(actor.role === UserRole.ADMIN
+        ? {}
+        : {
+            members: {
+              some: { userId: actor.id, role: { in: [UserRole.ADMIN, UserRole.OPERATOR] } },
+            },
+          }),
     },
   })
   if (!existing) domainError('Match was not found', 'NOT_FOUND')
-  return db.match.update({ data: { scheduledAt, status: input.status, title, venue }, where: { id: matchId } })
+  return db.match.update({
+    data: { scheduledAt, status: input.status, title, venue },
+    where: { id: matchId },
+  })
 }
 
 function clipSecondsToUs(value: number, field: string): bigint {
@@ -324,7 +328,7 @@ export async function startNextSet(
   requireSetupRole(actor)
   const matchId = requireUuid(input.matchId, 'matchId')
   const winningTeamId = requireUuid(input.winningTeamId, 'winningTeamId')
-  return db.$transaction(async (tx) => {
+  return db.$transaction(async tx => {
     await tx.$queryRaw<Array<{ locked: string }>>`
       SELECT pg_advisory_xact_lock(hashtextextended(${`match-set:${matchId}`}, 0))::text AS locked
     `
@@ -349,9 +353,14 @@ export async function startNextSet(
       select: { id: true },
       where: { setId: current.id, voidedAt: null, annotationStatus: { in: ['OPEN', 'READY'] } },
     })
-    if (openDraft) domainError('Finish or discard the editable segment before starting a new set', 'BAD_USER_INPUT')
+    if (openDraft)
+      domainError(
+        'Finish or discard the editable segment before starting a new set',
+        'BAD_USER_INPUT',
+      )
     const assignment = current.sideAssignments[0]
-    if (!assignment) domainError('Current set has no court-side assignment', 'INTERNAL_SERVER_ERROR')
+    if (!assignment)
+      domainError('Current set has no court-side assignment', 'INTERNAL_SERVER_ERROR')
     await tx.matchSet.update({
       data: { endedAt: new Date(), status: 'FINISHED', winningTeamId },
       where: { id: current.id },
@@ -378,9 +387,12 @@ export async function updateMatchRoster(
   requireSetupRole(actor)
   const matchId = requireUuid(input.matchId, 'matchId')
   const teamId = requireUuid(input.teamId, 'teamId')
-  const normalized = normalizeTeam({ name: 'roster', shortName: 'roster', roster: input.roster }, 'roster').roster
+  const normalized = normalizeTeam(
+    { name: 'roster', shortName: 'roster', roster: input.roster },
+    'roster',
+  ).roster
 
-  return db.$transaction(async (tx) => {
+  return db.$transaction(async tx => {
     await tx.$queryRaw<Array<{ locked: string }>>`
       SELECT pg_advisory_xact_lock(hashtextextended(${`match-roster:${matchId}:${teamId}`}, 0))::text AS locked
     `
@@ -402,7 +414,8 @@ export async function updateMatchRoster(
     for (const [index, row] of input.roster.entries()) {
       if (!row.id) continue
       const id = requireUuid(row.id, `roster[${index}].id`)
-      if (!byId.has(id)) domainError('Roster entry does not belong to this match team', 'BAD_USER_INPUT')
+      if (!byId.has(id))
+        domainError('Roster entry does not belong to this match team', 'BAD_USER_INPUT')
       if (requestedIds.has(id)) domainError('Roster contains duplicate entry IDs', 'BAD_USER_INPUT')
       requestedIds.add(id)
     }
@@ -422,11 +435,19 @@ export async function updateMatchRoster(
       const existingEntry = requested?.id ? byId.get(requested.id) : undefined
       if (existingEntry) {
         await tx.matchRosterEntry.update({
-          data: { active: true, displayNameSnapshot: row.name, jerseyNumber: row.jerseyNumber, position: requested?.position ?? existingEntry.position },
+          data: {
+            active: true,
+            displayNameSnapshot: row.name,
+            jerseyNumber: row.jerseyNumber,
+            position: requested?.position ?? existingEntry.position,
+          },
           where: { id: existingEntry.id },
         })
         if (existingEntry.playerId) {
-          await tx.player.update({ data: { name: row.name }, where: { id: existingEntry.playerId } })
+          await tx.player.update({
+            data: { name: row.name },
+            where: { id: existingEntry.playerId },
+          })
         }
         continue
       }
@@ -455,15 +476,14 @@ export async function swapCourtSides(
   if (actor.role !== UserRole.ADMIN && actor.role !== UserRole.OPERATOR) {
     domainError('Insufficient role', 'FORBIDDEN')
   }
-  if (!Number.isInteger(input.effectiveFromRallyOrdinal)
-    || input.effectiveFromRallyOrdinal < 1) {
+  if (!Number.isInteger(input.effectiveFromRallyOrdinal) || input.effectiveFromRallyOrdinal < 1) {
     domainError('effectiveFromRallyOrdinal must be a positive integer', 'BAD_USER_INPUT')
   }
 
   const setId = requireUuid(input.setId, 'setId')
   const expectedLeftTeamId = requireUuid(input.expectedLeftTeamId, 'expectedLeftTeamId')
   const expectedRightTeamId = requireUuid(input.expectedRightTeamId, 'expectedRightTeamId')
-  return db.$transaction(async (tx) => {
+  return db.$transaction(async tx => {
     await tx.$queryRaw<Array<{ locked: string }>>`
       SELECT pg_advisory_xact_lock(
         hashtextextended(${`court-side-assignment:${setId}`}, 0)
@@ -501,16 +521,26 @@ export async function swapCourtSides(
       where: { setId, voidedAt: null },
     })
     const updatesLatestDraft = Boolean(
-      latestRally
-      && input.effectiveFromRallyOrdinal === latestRally.ordinal
-      && latestRally.activeSubmissionId === null
-      && (latestRally.annotationStatus === 'OPEN' || latestRally.annotationStatus === 'READY'),
+      latestRally &&
+      input.effectiveFromRallyOrdinal === latestRally.ordinal &&
+      latestRally.activeSubmissionId === null &&
+      (latestRally.annotationStatus === 'OPEN' || latestRally.annotationStatus === 'READY'),
     )
-    if (latestRally && input.effectiveFromRallyOrdinal <= latestRally.ordinal && !updatesLatestDraft) {
-      domainError('Court-side changes must start after every existing rally in the set', 'BAD_USER_INPUT')
+    if (
+      latestRally &&
+      input.effectiveFromRallyOrdinal <= latestRally.ordinal &&
+      !updatesLatestDraft
+    ) {
+      domainError(
+        'Court-side changes must start after every existing rally in the set',
+        'BAD_USER_INPUT',
+      )
     }
     if (input.effectiveFromRallyOrdinal < current.effectiveFromRallyOrdinal) {
-      domainError('effectiveFromRallyOrdinal cannot precede the current assignment', 'BAD_USER_INPUT')
+      domainError(
+        'effectiveFromRallyOrdinal cannot precede the current assignment',
+        'BAD_USER_INPUT',
+      )
     }
     const changed = await tx.matchSet.updateMany({
       data: {
@@ -520,7 +550,8 @@ export async function swapCourtSides(
       },
       where: { id: matchSet.id, scoreRevision: matchSet.scoreRevision },
     })
-    if (changed.count !== 1) domainError('Set score changed while swapping court sides', 'BAD_USER_INPUT')
+    if (changed.count !== 1)
+      domainError('Set score changed while swapping court sides', 'BAD_USER_INPUT')
 
     let nextAssignmentId = current.id
     if (input.effectiveFromRallyOrdinal === current.effectiveFromRallyOrdinal) {
@@ -545,13 +576,14 @@ export async function swapCourtSides(
     }
 
     if (updatesLatestDraft && latestRally) {
-      const scoringTeamId = latestRally.scoreResolutionState === 'RESOLVED'
-        ? latestRally.scoringCourtSide === 'LEFT'
-          ? current.rightTeamId
-          : latestRally.scoringCourtSide === 'RIGHT'
-            ? current.leftTeamId
-            : null
-        : null
+      const scoringTeamId =
+        latestRally.scoreResolutionState === 'RESOLVED'
+          ? latestRally.scoringCourtSide === 'LEFT'
+            ? current.rightTeamId
+            : latestRally.scoringCourtSide === 'RIGHT'
+              ? current.leftTeamId
+              : null
+          : null
       const updatedDraft = await tx.rally.updateMany({
         data: {
           scoringTeamId,

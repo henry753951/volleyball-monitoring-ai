@@ -55,18 +55,20 @@ class CallbackClient:
                     retryable_status = (
                         isinstance(error, httpx.HTTPStatusError)
                         and error.response.status_code in {408, 425, 429}
-                        or isinstance(error, httpx.HTTPStatusError)
+                    ) or (
+                        isinstance(error, httpx.HTTPStatusError)
                         and error.response.status_code >= 500
                     )
-                    if (
-                        attempt >= len(self.retry_delays)
-                        or isinstance(error, httpx.HTTPStatusError) and not retryable_status
+                    if attempt >= len(self.retry_delays) or (
+                        isinstance(error, httpx.HTTPStatusError) and not retryable_status
                     ):
                         raise
                     await asyncio.sleep(self.retry_delays[attempt])
         raise RuntimeError("callback retry loop exited unexpectedly")
 
-    async def processing(self, *, progress: float | None = None, stage: str | None = None, message: str | None = None) -> httpx.Response:
+    async def processing(
+        self, *, progress: float | None = None, stage: str | None = None, message: str | None = None
+    ) -> httpx.Response:
         callback_id = str(uuid4())
         payload = {
             "schema_version": "2.0.0",
@@ -82,7 +84,9 @@ class CallbackClient:
             json={k: v for k, v in payload.items() if v is not None},
         )
 
-    async def failed(self, *, code: str, message: str, retryable: bool, details: dict | None = None) -> httpx.Response:
+    async def failed(
+        self, *, code: str, message: str, retryable: bool, details: dict | None = None
+    ) -> httpx.Response:
         callback_id = str(uuid4())
         payload = {
             "schema_version": "2.0.0",
@@ -96,7 +100,9 @@ class CallbackClient:
         return await self._post(callback_id, json=payload)
 
     async def completed(self, analysis_data: bytes | Path) -> httpx.Response:
-        analysis_data_bytes = analysis_data.read_bytes() if isinstance(analysis_data, Path) else analysis_data
+        analysis_data_bytes = (
+            analysis_data.read_bytes() if isinstance(analysis_data, Path) else analysis_data
+        )
         validate_analysis_data_bytes(analysis_data_bytes)
         callback_id = str(uuid4())
         metadata = {
@@ -109,6 +115,10 @@ class CallbackClient:
         }
         files = {
             "metadata": (None, json.dumps(metadata), "application/json"),
-            "analysis_data": ("analysis-data.fb", analysis_data_bytes, "application/vnd.volleyball.analysis-data+flatbuffers;version=1"),
+            "analysis_data": (
+                "analysis-data.fb",
+                analysis_data_bytes,
+                "application/vnd.volleyball.analysis-data+flatbuffers;version=1",
+            ),
         }
         return await self._post(callback_id, files=files)

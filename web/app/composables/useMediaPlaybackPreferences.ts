@@ -8,7 +8,10 @@ import {
 } from '../utils/mediaPlaybackPreferences'
 
 export function useMediaPlaybackPreferences() {
-  const bufferPreset = useState<MediaBufferPreset>('media-buffer-preset-v1', () => DEFAULT_MEDIA_BUFFER_PRESET)
+  const bufferPreset = useState<MediaBufferPreset>(
+    'media-buffer-preset-v1',
+    () => DEFAULT_MEDIA_BUFFER_PRESET,
+  )
   const initialized = useState('media-buffer-preset-v1-initialized', () => false)
 
   function initialize() {
@@ -26,9 +29,12 @@ export function useMediaPlaybackPreferences() {
   if (import.meta.client) initialize()
   onMounted(initialize)
 
-  watch(bufferPreset, (value) => {
+  watch(bufferPreset, value => {
     if (import.meta.client && initialized.value) {
-      localStorage.setItem(MEDIA_PLAYBACK_PREFERENCES_STORAGE_KEY, serializeMediaBufferPreset(value))
+      localStorage.setItem(
+        MEDIA_PLAYBACK_PREFERENCES_STORAGE_KEY,
+        serializeMediaBufferPreset(value),
+      )
     }
   })
 

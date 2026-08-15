@@ -25,18 +25,22 @@ export function useViewerState() {
       viewer.value = await useCoreDomain().viewer()
       checked.value = true
       return viewer.value
-    }
-    catch (cause) {
+    } catch (cause) {
       error.value = cause instanceof Error ? cause : new Error('無法驗證登入狀態')
       checked.value = true
       return null
-    }
-    finally {
+    } finally {
       pending.value = false
     }
   }
 
-  return { viewer: readonly(viewer), pending: readonly(pending), error: readonly(error), checked: readonly(checked), refresh }
+  return {
+    viewer: readonly(viewer),
+    pending: readonly(pending),
+    error: readonly(error),
+    checked: readonly(checked),
+    refresh,
+  }
 }
 
 export function useMatches() {
@@ -49,11 +53,9 @@ export function useMatches() {
     error.value = null
     try {
       matches.value = await useCoreDomain().matches()
-    }
-    catch (cause) {
+    } catch (cause) {
       error.value = cause instanceof Error ? cause : new Error('無法載入場次')
-    }
-    finally {
+    } finally {
       pending.value = false
     }
   }
@@ -70,12 +72,10 @@ export function useCreateMatchSetup() {
     error.value = null
     try {
       return await useCoreDomain().createMatchSetup(input)
-    }
-    catch (cause) {
+    } catch (cause) {
       error.value = cause instanceof Error ? cause : new Error('建立場次失敗')
       throw error.value
-    }
-    finally {
+    } finally {
       pending.value = false
     }
   }

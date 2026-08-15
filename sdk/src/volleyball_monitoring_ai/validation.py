@@ -15,15 +15,15 @@ def validate_passthrough(job: AIJobRequest, result: AnalysisDomainData) -> None:
     if mismatches:
         raise ValueError(f"PASSTHROUGH mismatch: {mismatches}")
 
-    human_events = [event for event in result.contact_events if event.anchor_origin == "human_anchor"]
+    human_events = [
+        event for event in result.contact_events if event.anchor_origin == "human_anchor"
+    ]
     if [event.source_key_point_id for event in human_events] != [
         point.key_point_id for point in job.key_points
     ]:
         raise ValueError("human contact events must preserve every input key point in order")
     if any(
-        event.source_key_point_id is not None
-        or event.marker_kind != "contact"
-        or event.is_terminal
+        event.source_key_point_id is not None or event.marker_kind != "contact" or event.is_terminal
         for event in result.contact_events
         if event.anchor_origin == "ai_detected"
     ):
@@ -32,6 +32,8 @@ def validate_passthrough(job: AIJobRequest, result: AnalysisDomainData) -> None:
 
     for point, event in pairs_to_validate:
         if (point.marker_kind, point.is_terminal, point.clip_frame_index) != (
-            event.marker_kind, event.is_terminal, event.anchor_frame_index
+            event.marker_kind,
+            event.is_terminal,
+            event.anchor_frame_index,
         ):
             raise ValueError(f"key point passthrough mismatch: {point.key_point_id}")

@@ -50,11 +50,7 @@ export interface SampleSnapResult {
   playerUs: bigint
 }
 
-export type MediaAssetKind =
-  | 'DVR_INIT'
-  | 'DVR_SEGMENT'
-  | 'SAMPLE_INDEX'
-  | 'TIMING_MANIFEST'
+export type MediaAssetKind = 'DVR_INIT' | 'DVR_SEGMENT' | 'SAMPLE_INDEX' | 'TIMING_MANIFEST'
 
 export interface MediaObjectReadRequest {
   bucket: string
@@ -66,9 +62,7 @@ export interface MediaObjectReadRequest {
   expectedKind: MediaAssetKind
 }
 
-export type MediaObjectReader = (
-  request: MediaObjectReadRequest,
-) => Promise<Uint8Array>
+export type MediaObjectReader = (request: MediaObjectReadRequest) => Promise<Uint8Array>
 
 export type PlaybackResourceKind = 'init' | 'media'
 
@@ -100,10 +94,11 @@ export function assertRollingPlaybackSelection(
   }
 
   const firstNext = next[0]!
-  const overlapStart = current.findIndex(segment => (
-    segment.captureStartUs === firstNext.captureStartUs
-    && segment.captureEndUs === firstNext.captureEndUs
-  ))
+  const overlapStart = current.findIndex(
+    segment =>
+      segment.captureStartUs === firstNext.captureStartUs &&
+      segment.captureEndUs === firstNext.captureEndUs,
+  )
   if (overlapStart < 0) {
     throw new MediaHttpError(409, 'MAPPING_STALE', 'Playback continuation lost its rolling overlap')
   }
@@ -113,9 +108,9 @@ export function assertRollingPlaybackSelection(
     const previous = current[overlapStart + index]!
     const replacement = next[index]!
     if (
-      previous.id !== replacement.id
-      || previous.captureStartUs !== replacement.captureStartUs
-      || previous.captureEndUs !== replacement.captureEndUs
+      previous.id !== replacement.id ||
+      previous.captureStartUs !== replacement.captureStartUs ||
+      previous.captureEndUs !== replacement.captureEndUs
     ) {
       throw new MediaHttpError(409, 'MAPPING_STALE', 'Playback continuation changed existing media')
     }
@@ -142,10 +137,7 @@ export class MediaHttpError extends Error {
   }
 }
 
-export function mediaErrorEnvelope(
-  error: MediaHttpError,
-  requestId: string,
-): MediaApiError {
+export function mediaErrorEnvelope(error: MediaHttpError, requestId: string): MediaApiError {
   return {
     schema_version: '1.0.0',
     code: error.code,
@@ -181,12 +173,12 @@ function assertCandidate(candidate: PlaybackSegmentCandidate): void {
     throw new MediaHttpError(409, 'MEDIA_NOT_READY', 'Invalid DVR segment identity')
   }
   if (
-    candidate.captureStartUs < 0n
-    || candidate.captureEndUs <= candidate.captureStartUs
-    || candidate.durationUs <= 0n
-    || candidate.durationUs !== candidate.captureEndUs - candidate.captureStartUs
-    || candidate.discontinuity < 0
-    || !Number.isSafeInteger(candidate.discontinuity)
+    candidate.captureStartUs < 0n ||
+    candidate.captureEndUs <= candidate.captureStartUs ||
+    candidate.durationUs <= 0n ||
+    candidate.durationUs !== candidate.captureEndUs - candidate.captureStartUs ||
+    candidate.discontinuity < 0 ||
+    !Number.isSafeInteger(candidate.discontinuity)
   ) {
     throw new MediaHttpError(409, 'MEDIA_NOT_READY', 'Invalid DVR segment timing')
   }
@@ -218,9 +210,9 @@ export function buildReadyPlaybackRuns(
     if (!candidate.ready || candidate.isGap) continue
     const previous = runs.at(-1)
     if (
-      previous
-      && previous.discontinuity === candidate.discontinuity
-      && previous.endUs === candidate.captureStartUs
+      previous &&
+      previous.discontinuity === candidate.discontinuity &&
+      previous.endUs === candidate.captureStartUs
     ) {
       previous.endUs = candidate.captureEndUs
       previous.segments.push({ ...candidate })
@@ -240,8 +232,9 @@ function targetUnavailableError(
   candidates: readonly PlaybackSegmentCandidate[],
   targetUs: bigint,
 ): MediaHttpError {
-  const containing = candidates.find((candidate) =>
-    candidate.captureStartUs <= targetUs && targetUs < candidate.captureEndUs)
+  const containing = candidates.find(
+    candidate => candidate.captureStartUs <= targetUs && targetUs < candidate.captureEndUs,
+  )
   if (containing?.isGap) {
     return new MediaHttpError(422, 'CAPTURE_GAP', 'Target is inside a capture gap')
   }
@@ -255,7 +248,7 @@ function runForTarget(
   runs: readonly ReadyPlaybackRun[],
   targetUs: bigint,
 ): ReadyPlaybackRun | null {
-  const exact = runs.find((run) => run.startUs <= targetUs && targetUs < run.endUs)
+  const exact = runs.find(run => run.startUs <= targetUs && targetUs < run.endUs)
   if (exact) return exact
   return null
 }
@@ -284,12 +277,14 @@ function segmentsForBounds(
   desiredStartUs: bigint,
   desiredEndUs: bigint,
 ): PlaybackSegmentCandidate[] {
-  const selected = run.segments.filter((segment) =>
-    segment.captureEndUs > desiredStartUs && segment.captureStartUs < desiredEndUs)
+  const selected = run.segments.filter(
+    segment => segment.captureEndUs > desiredStartUs && segment.captureStartUs < desiredEndUs,
+  )
   if (selected.length > 0) return selected
 
-  const containing = run.segments.find((segment) =>
-    segment.captureStartUs <= targetUs && targetUs < segment.captureEndUs)
+  const containing = run.segments.find(
+    segment => segment.captureStartUs <= targetUs && targetUs < segment.captureEndUs,
+  )
   if (containing) return [containing]
   if (targetUs === run.endUs) return [run.segments.at(-1)!]
   throw new MediaHttpError(422, 'CAPTURE_GAP', 'Target has no playable segment')
@@ -304,14 +299,7 @@ export function selectPlaybackWindow(input: {
   requestedForwardUs?: bigint
   limits: PlaybackWindowLimits
 }): PlaybackWindowSelection {
-  const {
-    candidates,
-    limits,
-    liveEdgeUs,
-    mode,
-    requestedBackUs,
-    requestedForwardUs,
-  } = input
+  const { candidates, limits, liveEdgeUs, mode, requestedBackUs, requestedForwardUs } = input
   for (const [name, value] of Object.entries(limits)) {
     requireNonNegative(value, name)
   }
@@ -322,28 +310,26 @@ export function selectPlaybackWindow(input: {
   }
   const timelineStartUs = runs[0]!.startUs
   const timelineEndUs = runs.at(-1)!.endUs
-  const targetUs = mode === 'live' && input.requestedTargetUs === null
-    ? (liveEdgeUs >= timelineStartUs && liveEdgeUs <= timelineEndUs
+  const targetUs =
+    mode === 'live' && input.requestedTargetUs === null
+      ? liveEdgeUs >= timelineStartUs && liveEdgeUs <= timelineEndUs
         ? liveEdgeUs
-        : timelineEndUs)
-    : input.requestedTargetUs
+        : timelineEndUs
+      : input.requestedTargetUs
   if (targetUs === null) {
     throw new MediaHttpError(400, 'BAD_REQUEST', 'Archive target is required')
   }
   requireNonNegative(targetUs, 'target_capture_time_us')
 
   let targetRun = runForTarget(runs, targetUs)
-  const targetHasKnownMediaState = candidates.some(candidate => (
-    candidate.captureStartUs <= targetUs && targetUs < candidate.captureEndUs
-  ))
+  const targetHasKnownMediaState = candidates.some(
+    candidate => candidate.captureStartUs <= targetUs && targetUs < candidate.captureEndUs,
+  )
   // The terminal edge is an exclusive boundary rather than a real sample.
   // Snap it through the final ready run only when no explicit gap/not-ready
   // segment begins at that same capture time.
-  if (
-    !targetRun
-    && !targetHasKnownMediaState
-    && targetUs === timelineEndUs
-  ) targetRun = runs.at(-1) ?? null
+  if (!targetRun && !targetHasKnownMediaState && targetUs === timelineEndUs)
+    targetRun = runs.at(-1) ?? null
   if (!targetRun) throw targetUnavailableError(candidates, targetUs)
   // A capture epoch/codec-init boundary is represented inside one HLS playlist
   // with EXT-X-DISCONTINUITY. Only an actual capture gap splits a playable span.
@@ -361,19 +347,11 @@ export function selectPlaybackWindow(input: {
     limits.maxForwardUs,
     'requested_forward_us',
   )
-  const desiredStartUs = targetUs - backUs > selectedRun.startUs
-    ? targetUs - backUs
-    : selectedRun.startUs
+  const desiredStartUs =
+    targetUs - backUs > selectedRun.startUs ? targetUs - backUs : selectedRun.startUs
   const uncappedEndUs = targetUs + forwardUs
-  const desiredEndUs = uncappedEndUs < selectedRun.endUs
-    ? uncappedEndUs
-    : selectedRun.endUs
-  const segments = segmentsForBounds(
-    selectedRun,
-    targetUs,
-    desiredStartUs,
-    desiredEndUs,
-  )
+  const desiredEndUs = uncappedEndUs < selectedRun.endUs ? uncappedEndUs : selectedRun.endUs
+  const segments = segmentsForBounds(selectedRun, targetUs, desiredStartUs, desiredEndUs)
   const windowStartUs = segments[0]!.captureStartUs
   const windowEndUs = segments.at(-1)!.captureEndUs
 
@@ -395,10 +373,10 @@ export function presentationOriginForSnap(
   snap: SampleSnapResult,
 ): bigint {
   if (
-    snap.captureUs < selection.windowStartUs
-    || snap.captureUs >= selection.windowEndUs
-    || snap.playerUs < 0n
-    || snap.playerUs > snap.captureUs
+    snap.captureUs < selection.windowStartUs ||
+    snap.captureUs >= selection.windowEndUs ||
+    snap.playerUs < 0n ||
+    snap.playerUs > snap.captureUs
   ) {
     throw new MediaHttpError(409, 'MEDIA_NOT_READY', 'Authoritative sample is outside the window')
   }
@@ -407,15 +385,16 @@ export function presentationOriginForSnap(
     throw new MediaHttpError(409, 'MEDIA_NOT_READY', 'Authoritative player mapping is invalid')
   }
   if (snap.playerUs > selection.windowEndUs - originUs) {
-    throw new MediaHttpError(409, 'MEDIA_NOT_READY', 'Authoritative player target exceeds the window')
+    throw new MediaHttpError(
+      409,
+      'MEDIA_NOT_READY',
+      'Authoritative player target exceeds the window',
+    )
   }
   return originUs
 }
 
-export function playbackResourceToken(
-  kind: PlaybackResourceKind,
-  dvrSegmentId: string,
-): string {
+export function playbackResourceToken(kind: PlaybackResourceKind, dvrSegmentId: string): string {
   if (!UUID.test(dvrSegmentId)) {
     throw new MediaHttpError(404, 'NOT_FOUND', 'Media resource not found')
   }
@@ -439,10 +418,7 @@ function formatDurationUs(durationUs: bigint): string {
     throw new MediaHttpError(409, 'MEDIA_NOT_READY', 'Segment duration is invalid')
   }
   const whole = durationUs / 1_000_000n
-  const fraction = (durationUs % 1_000_000n)
-    .toString()
-    .padStart(6, '0')
-    .replace(/0+$/, '')
+  const fraction = (durationUs % 1_000_000n).toString().padStart(6, '0').replace(/0+$/, '')
   return fraction.length === 0 ? whole.toString() : `${whole}.${fraction}`
 }
 
@@ -472,33 +448,27 @@ export function formatManifest(
   let previousDiscontinuity: number | null = null
   for (const segment of segments) {
     if (
-      !Number.isSafeInteger(segment.discontinuity)
-      || segment.discontinuity < 0
-      || (
-        previousDiscontinuity !== null
-        && segment.discontinuity !== previousDiscontinuity
-        && segment.discontinuity !== previousDiscontinuity + 1
-      )
+      !Number.isSafeInteger(segment.discontinuity) ||
+      segment.discontinuity < 0 ||
+      (previousDiscontinuity !== null &&
+        segment.discontinuity !== previousDiscontinuity &&
+        segment.discontinuity !== previousDiscontinuity + 1)
     ) {
       throw new MediaHttpError(409, 'MEDIA_NOT_READY', 'Playback discontinuity sequence is invalid')
     }
     if (!validSha256(segment.initFingerprint)) {
       throw new MediaHttpError(409, 'MEDIA_NOT_READY', 'Initialization media is unavailable')
     }
-    const startsDiscontinuity = previousDiscontinuity !== null
-      && segment.discontinuity !== previousDiscontinuity
-    if (
-      startsDiscontinuity
-    ) {
+    const startsDiscontinuity =
+      previousDiscontinuity !== null && segment.discontinuity !== previousDiscontinuity
+    if (startsDiscontinuity) {
       lines.push('#EXT-X-DISCONTINUITY')
     }
     // EXT-X-MAP remains in effect until another EXT-X-MAP or the end of the
     // playlist, including across EXT-X-DISCONTINUITY. Re-emit it only when
     // the initialization bytes actually change.
     if (segment.initFingerprint !== previousInitFingerprint) {
-      lines.push(
-        `#EXT-X-MAP:URI="${base}/${playbackResourceToken('init', segment.id)}"`,
-      )
+      lines.push(`#EXT-X-MAP:URI="${base}/${playbackResourceToken('init', segment.id)}"`)
       previousInitFingerprint = segment.initFingerprint
     }
     lines.push(

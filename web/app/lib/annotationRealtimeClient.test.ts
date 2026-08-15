@@ -2,7 +2,8 @@ import { parseAnnotationSoftLockIntent } from '@volleyball-monitoring/contracts'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createAnnotationRealtimeClient } from './annotationRealtimeClient'
 
-const roomId = 'match:84000000-0000-4000-8000-000000000001:capture:84000000-0000-4000-8000-000000000002'
+const roomId =
+  'match:84000000-0000-4000-8000-000000000001:capture:84000000-0000-4000-8000-000000000002'
 
 class FakeWebSocket extends EventTarget {
   static readonly OPEN = 1
@@ -13,7 +14,9 @@ class FakeWebSocket extends EventTarget {
     super()
     FakeWebSocket.instances.push(this)
   }
-  send(value: string) { this.sent.push(value) }
+  send(value: string) {
+    this.sent.push(value)
+  }
   close() {
     this.readyState = 3
     this.dispatchEvent(new Event('close'))
@@ -36,46 +39,77 @@ describe('annotation realtime soft-lock client', () => {
 
   it('replays edit intent after ready, refreshes it, and releases it explicitly', () => {
     const states: string[] = []
-    const client = createAnnotationRealtimeClient(roomId, { onState: state => states.push(state) })
+    const deviceSessionId = '84000000-0000-4000-8000-000000000003'
+    const client = createAnnotationRealtimeClient(
+      roomId,
+      { onState: state => states.push(state) },
+      undefined,
+      deviceSessionId,
+    )
     client.connect()
     const socket = FakeWebSocket.instances[0]!
     expect(socket.url).toContain(encodeURIComponent(roomId))
+    expect(socket.url).toContain(`device_session_id=${deviceSessionId}`)
     expect(client.setEditingKeyPoint('key-point-1')).toBe(false)
 
     socket.receive({
-      schema_version: '2.0.0', type: 'connection_ready', room_id: roomId, server_sequence: '0',
-      authenticated_user_id: 'user-1', device_session_id: 'device-1',
+      schema_version: '2.0.0',
+      type: 'connection_ready',
+      room_id: roomId,
+      server_sequence: '0',
+      authenticated_user_id: 'user-1',
+      device_session_id: 'device-1',
     })
     expect(client.ready()).toBe(true)
-    expect(parseAnnotationSoftLockIntent(JSON.parse(socket.sent[0]!)).editing_key_point_id).toBe('key-point-1')
+    expect(parseAnnotationSoftLockIntent(JSON.parse(socket.sent[0]!)).editing_key_point_id).toBe(
+      'key-point-1',
+    )
 
     vi.advanceTimersByTime(5_000)
-    expect(parseAnnotationSoftLockIntent(JSON.parse(socket.sent[1]!)).editing_key_point_id).toBe('key-point-1')
+    expect(parseAnnotationSoftLockIntent(JSON.parse(socket.sent[1]!)).editing_key_point_id).toBe(
+      'key-point-1',
+    )
     expect(client.setEditingKeyPoint(null)).toBe(true)
-    expect(parseAnnotationSoftLockIntent(JSON.parse(socket.sent[2]!)).editing_key_point_id).toBeNull()
+    expect(
+      parseAnnotationSoftLockIntent(JSON.parse(socket.sent[2]!)).editing_key_point_id,
+    ).toBeNull()
 
     client.disconnect()
-    expect(parseAnnotationSoftLockIntent(JSON.parse(socket.sent[3]!)).editing_key_point_id).toBeNull()
+    expect(
+      parseAnnotationSoftLockIntent(JSON.parse(socket.sent[3]!)).editing_key_point_id,
+    ).toBeNull()
     expect(states).toEqual(['connecting', 'ready', 'closed'])
   })
 
   it('reports WebSocket round-trip latency from the keepalive response', () => {
     const latency: Array<number | null> = []
-    const client = createAnnotationRealtimeClient(roomId, { onLatency: value => latency.push(value) })
+    const client = createAnnotationRealtimeClient(roomId, {
+      onLatency: value => latency.push(value),
+    })
     client.connect()
     const socket = FakeWebSocket.instances[0]!
 
     socket.receive({
-      schema_version: '2.0.0', type: 'connection_ready', room_id: roomId, server_sequence: '0',
-      authenticated_user_id: 'user-1', device_session_id: 'device-1',
+      schema_version: '2.0.0',
+      type: 'connection_ready',
+      room_id: roomId,
+      server_sequence: '0',
+      authenticated_user_id: 'user-1',
+      device_session_id: 'device-1',
     })
     vi.advanceTimersByTime(37)
     socket.receive({
-      schema_version: '2.0.0', type: 'presence_snapshot', room_id: roomId,
-      members: [{
-        device_session_id: 'device-1', user_id: 'user-1', display_name: 'Operator',
-        editing_key_point_id: null,
-      }],
+      schema_version: '2.0.0',
+      type: 'presence_snapshot',
+      room_id: roomId,
+      members: [
+        {
+          device_session_id: 'device-1',
+          user_id: 'user-1',
+          display_name: 'Operator',
+          editing_key_point_id: null,
+        },
+      ],
     })
 
     expect(latency).toEqual([null, 37])
@@ -89,8 +123,12 @@ describe('annotation realtime soft-lock client', () => {
     client.connect()
     const first = FakeWebSocket.instances[0]!
     first.receive({
-      schema_version: '2.0.0', type: 'connection_ready', room_id: roomId, server_sequence: '0',
-      authenticated_user_id: 'user-1', device_session_id: 'device-1',
+      schema_version: '2.0.0',
+      type: 'connection_ready',
+      room_id: roomId,
+      server_sequence: '0',
+      authenticated_user_id: 'user-1',
+      device_session_id: 'device-1',
     })
     client.setEditingKeyPoint('key-point-2')
 
@@ -101,11 +139,17 @@ describe('annotation realtime soft-lock client', () => {
     expect(FakeWebSocket.instances).toHaveLength(2)
     const second = FakeWebSocket.instances[1]!
     second.receive({
-      schema_version: '2.0.0', type: 'connection_ready', room_id: roomId, server_sequence: '1',
-      authenticated_user_id: 'user-1', device_session_id: 'device-2',
+      schema_version: '2.0.0',
+      type: 'connection_ready',
+      room_id: roomId,
+      server_sequence: '1',
+      authenticated_user_id: 'user-1',
+      device_session_id: 'device-2',
     })
     expect(client.ready()).toBe(true)
-    expect(parseAnnotationSoftLockIntent(JSON.parse(second.sent[0]!)).editing_key_point_id).toBe('key-point-2')
+    expect(parseAnnotationSoftLockIntent(JSON.parse(second.sent[0]!)).editing_key_point_id).toBe(
+      'key-point-2',
+    )
     expect(states).toEqual(['connecting', 'ready', 'reconnecting', 'ready'])
     client.disconnect()
   })

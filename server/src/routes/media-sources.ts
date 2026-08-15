@@ -8,19 +8,24 @@ import { UserRole } from '@volleyball-monitoring/db/client'
 import type { FastifyPluginAsync, FastifyRequest } from 'fastify'
 import { z } from 'zod'
 import type { AnnotationIdentity } from '../services/annotation-command.js'
-import {
-  failCaptureStartup,
-  startCapture,
-} from '../services/capture-processing.js'
+import { failCaptureStartup, startCapture } from '../services/capture-processing.js'
 import { scheduleMediaSourceWork, type MediaSourceWorkRequest } from '../media/media-source-work.js'
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
-const YOUTUBE_HOSTS = new Set(['youtube.com', 'www.youtube.com', 'm.youtube.com', 'youtu.be', 'www.youtu.be'])
-const YoutubeRequest = z.object({
-  match_id: z.string().regex(UUID),
-  source_label: z.string().trim().min(1).max(120).optional(),
-  source_url: z.string().trim().url().max(2_048),
-}).strict()
+const YOUTUBE_HOSTS = new Set([
+  'youtube.com',
+  'www.youtube.com',
+  'm.youtube.com',
+  'youtu.be',
+  'www.youtu.be',
+])
+const YoutubeRequest = z
+  .object({
+    match_id: z.string().regex(UUID),
+    source_label: z.string().trim().min(1).max(120).optional(),
+    source_url: z.string().trim().url().max(2_048),
+  })
+  .strict()
 type MediaSourceRouteDependencies = {
   authenticate(request: FastifyRequest): Promise<AnnotationIdentity | null>
   database: PrismaClient
@@ -38,8 +43,10 @@ function operator(identity: AnnotationIdentity | null) {
 
 function youtubeUrl(value: string): string {
   const url = new URL(value)
-  if (url.protocol !== 'https:' || !YOUTUBE_HOSTS.has(url.hostname.toLowerCase())) throw new TypeError('請輸入有效的 YouTube 網址')
-  if (!url.pathname || url.pathname === '/') throw new TypeError('請輸入完整的 YouTube 影片或直播網址')
+  if (url.protocol !== 'https:' || !YOUTUBE_HOSTS.has(url.hostname.toLowerCase()))
+    throw new TypeError('請輸入有效的 YouTube 網址')
+  if (!url.pathname || url.pathname === '/')
+    throw new TypeError('請輸入完整的 YouTube 影片或直播網址')
   url.hash = ''
   return url.toString()
 }
@@ -67,15 +74,22 @@ export function mediaSourceRoutes(dependencies: MediaSourceRouteDependencies): F
   const createCapture = dependencies.startCapture ?? startCapture
   const failCapture = dependencies.failCaptureStartup ?? failCaptureStartup
   const scheduleWork = dependencies.scheduleWork ?? scheduleMediaSourceWork
-  return async (app) => {
+  return async app => {
     app.post('/api/v1/media-sources/youtube', async (request, reply) => {
       const identity = operator(await dependencies.authenticate(request))
       if (!identity) return reply.status(401).send({ code: 'UNAUTHENTICATED' })
       const parsed = YoutubeRequest.safeParse(request.body)
-      if (!parsed.success) return reply.status(400).send({ code: 'BAD_USER_INPUT', message: 'YouTube 來源資料不完整' })
+      if (!parsed.success)
+        return reply.status(400).send({ code: 'BAD_USER_INPUT', message: 'YouTube 來源資料不完整' })
       let sourceUrl: string
-      try { sourceUrl = youtubeUrl(parsed.data.source_url) }
-      catch (error) { return reply.status(400).send({ code: 'BAD_USER_INPUT', message: error instanceof Error ? error.message : 'YouTube 網址無效' }) }
+      try {
+        sourceUrl = youtubeUrl(parsed.data.source_url)
+      } catch (error) {
+        return reply.status(400).send({
+          code: 'BAD_USER_INPUT',
+          message: error instanceof Error ? error.message : 'YouTube 網址無效',
+        })
+      }
 
       const path = ingestPath(parsed.data.match_id, 'youtube')
       const capture = await createCapture(dependencies.database, identity, {
@@ -91,10 +105,16 @@ export function mediaSourceRoutes(dependencies: MediaSourceRouteDependencies): F
           sourceKind: 'youtube',
           sourceUrl,
         })
-      }
-      catch (error) {
-        await failCapture(dependencies.database, capture.id, error instanceof Error ? error.message : 'MEDIA_SOURCE_START_FAILED').catch(() => undefined)
-        return reply.status(502).send({ code: 'SOURCE_START_FAILED', message: '無法啟動 YouTube 來源，場次已保留，可稍後重試。' })
+      } catch (error) {
+        await failCapture(
+          dependencies.database,
+          capture.id,
+          error instanceof Error ? error.message : 'MEDIA_SOURCE_START_FAILED',
+        ).catch(() => undefined)
+        return reply.status(502).send({
+          code: 'SOURCE_START_FAILED',
+          message: '無法啟動 YouTube 來源，場次已保留，可稍後重試。',
+        })
       }
       return reply.status(202).send(capturePayload(capture))
     })
@@ -123,16 +143,28 @@ export function mediaSourceRoutes(dependencies: MediaSourceRouteDependencies): F
             continue
           }
           originalFilename = part.filename
-          if (extname(part.filename).toLowerCase() !== '.mp4' || !['video/mp4', 'application/octet-stream'].includes(part.mimetype)) {
+          if (
+            extname(part.filename).toLowerCase() !== '.mp4' ||
+            !['video/mp4', 'application/octet-stream'].includes(part.mimetype)
+          ) {
             part.file.resume()
-            return reply.status(415).send({ code: 'UNSUPPORTED_MEDIA_TYPE', message: '目前僅支援 MP4 影片。' })
+            return reply
+              .status(415)
+              .send({ code: 'UNSUPPORTED_MEDIA_TYPE', message: '目前僅支援 MP4 影片。' })
           }
           receivedFile = true
           await pipeline(part.file, createWriteStream(stagingFile, { flags: 'wx' }))
-          if (part.file.truncated) return reply.status(413).send({ code: 'FILE_TOO_LARGE', message: '影片超過系統允許的上傳大小。' })
+          if (part.file.truncated)
+            return reply
+              .status(413)
+              .send({ code: 'FILE_TOO_LARGE', message: '影片超過系統允許的上傳大小。' })
         }
-        if (!UUID.test(matchId) || !receivedFile) return reply.status(400).send({ code: 'BAD_USER_INPUT', message: '請選擇場次與 MP4 影片。' })
-        if (sourceLabel.length > 120) return reply.status(400).send({ code: 'BAD_USER_INPUT', message: '來源名稱過長。' })
+        if (!UUID.test(matchId) || !receivedFile)
+          return reply
+            .status(400)
+            .send({ code: 'BAD_USER_INPUT', message: '請選擇場次與 MP4 影片。' })
+        if (sourceLabel.length > 120)
+          return reply.status(400).send({ code: 'BAD_USER_INPUT', message: '來源名稱過長。' })
 
         const path = ingestPath(matchId, 'local_mp4')
         const capture = await createCapture(dependencies.database, identity, {
@@ -155,15 +187,20 @@ export function mediaSourceRoutes(dependencies: MediaSourceRouteDependencies): F
             importKey,
             sourceKind: 'local_mp4',
           })
-        }
-        catch (error) {
-          await failCapture(dependencies.database, capture.id, error instanceof Error ? error.message : 'MEDIA_SOURCE_START_FAILED').catch(() => undefined)
+        } catch (error) {
+          await failCapture(
+            dependencies.database,
+            capture.id,
+            error instanceof Error ? error.message : 'MEDIA_SOURCE_START_FAILED',
+          ).catch(() => undefined)
           await rm(captureDirectory, { force: true, recursive: true })
-          return reply.status(502).send({ code: 'SOURCE_START_FAILED', message: '影片已接收，但媒體處理程序無法啟動；場次已保留，可稍後重試。' })
+          return reply.status(502).send({
+            code: 'SOURCE_START_FAILED',
+            message: '影片已接收，但媒體處理程序無法啟動；場次已保留，可稍後重試。',
+          })
         }
         return reply.status(202).send(capturePayload(capture))
-      }
-      finally {
+      } finally {
         await rm(stagingDirectory, { force: true, recursive: true }).catch(() => undefined)
       }
     })

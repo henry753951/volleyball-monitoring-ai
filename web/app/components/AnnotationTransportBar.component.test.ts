@@ -4,13 +4,14 @@ import AnnotationTransportBar from './AnnotationTransportBar.vue'
 
 vi.mock('motion-v', async () => {
   const { defineComponent, h } = await import('vue')
-  const passthrough = (name: string) => defineComponent({
-    name,
-    inheritAttrs: true,
-    setup(_, { attrs, slots }) {
-      return () => h('div', attrs, slots.default?.())
-    },
-  })
+  const passthrough = (name: string) =>
+    defineComponent({
+      name,
+      inheritAttrs: true,
+      setup(_, { attrs, slots }) {
+        return () => h('div', attrs, slots.default?.())
+      },
+    })
   return { AnimatePresence: passthrough('AnimatePresence'), Motion: passthrough('Motion') }
 })
 
@@ -71,7 +72,9 @@ describe('AnnotationTransportBar', () => {
   })
 
   it('keeps correction cancellation available for the selected correction when editing is blocked', async () => {
-    const wrapper = mount(AnnotationTransportBar, { props: { ...baseProps, clipSelected: true, correctionActive: true, editReady: false } })
+    const wrapper = mount(AnnotationTransportBar, {
+      props: { ...baseProps, clipSelected: true, correctionActive: true, editReady: false },
+    })
     const cancel = wrapper.get('[aria-label="取消修正片段"]')
     expect(cancel.attributes('disabled')).toBeUndefined()
     await cancel.trigger('click')
@@ -79,7 +82,9 @@ describe('AnnotationTransportBar', () => {
   })
 
   it('keeps deletion available for every selected clip even when annotation editing is blocked', async () => {
-    const wrapper = mount(AnnotationTransportBar, { props: { ...baseProps, clipSelected: true, editReady: false } })
+    const wrapper = mount(AnnotationTransportBar, {
+      props: { ...baseProps, clipSelected: true, editReady: false },
+    })
     const remove = wrapper.get('[aria-label="刪除所選片段"]')
     expect(remove.attributes('disabled')).toBeUndefined()
     await remove.trigger('click')
@@ -87,27 +92,42 @@ describe('AnnotationTransportBar', () => {
   })
 
   it('hides correction actions when its clip is not selected', () => {
-    const wrapper = mount(AnnotationTransportBar, { props: { ...baseProps, correctionActive: true } })
+    const wrapper = mount(AnnotationTransportBar, {
+      props: { ...baseProps, correctionActive: true },
+    })
     expect(wrapper.find('[aria-label="片段工具"]').exists()).toBe(false)
     expect(wrapper.find('[aria-label="取消修正片段"]').exists()).toBe(false)
   })
 
   it('provides a physical submit action for every selected draft', async () => {
-    const wrapper = mount(AnnotationTransportBar, { props: { ...baseProps, clipSelected: true, draftSelected: true, submitEnabled: true, submittedSelected: false } })
+    const wrapper = mount(AnnotationTransportBar, {
+      props: {
+        ...baseProps,
+        clipSelected: true,
+        draftSelected: true,
+        submitEnabled: true,
+        submittedSelected: false,
+      },
+    })
     await wrapper.get('[aria-label="送出片段"]').trigger('click')
     expect(wrapper.emitted('submit')).toHaveLength(1)
   })
 
   it('places submit before and apart from destructive correction actions', () => {
-    const wrapper = mount(AnnotationTransportBar, { props: {
-      ...baseProps,
-      clipSelected: true,
-      correctionActive: true,
-      draftSelected: true,
-      submitEnabled: true,
-      submittedSelected: false,
-    } })
-    const labels = wrapper.get('[aria-label="片段工具"]').findAll('button').map(button => button.attributes('aria-label'))
+    const wrapper = mount(AnnotationTransportBar, {
+      props: {
+        ...baseProps,
+        clipSelected: true,
+        correctionActive: true,
+        draftSelected: true,
+        submitEnabled: true,
+        submittedSelected: false,
+      },
+    })
+    const labels = wrapper
+      .get('[aria-label="片段工具"]')
+      .findAll('button')
+      .map(button => button.attributes('aria-label'))
 
     expect(labels).toEqual(['送出片段', '取消修正片段', '下載片段', '刪除所選片段'])
     expect(wrapper.find('.action-separator').exists()).toBe(true)
@@ -120,12 +140,14 @@ describe('AnnotationTransportBar', () => {
   })
 
   it('keeps the correction entry actionable while another annotation operation needs attention', async () => {
-    const wrapper = mount(AnnotationTransportBar, { props: {
-      ...baseProps,
-      clipSelected: true,
-      editReady: false,
-      correctionBlockReason: '標記狀態有衝突；按下後可先重新同步',
-    } })
+    const wrapper = mount(AnnotationTransportBar, {
+      props: {
+        ...baseProps,
+        clipSelected: true,
+        editReady: false,
+        correctionBlockReason: '標記狀態有衝突；按下後可先重新同步',
+      },
+    })
 
     const correction = wrapper.get('[aria-label="建立修正版草稿"]')
     expect(correction.attributes('disabled')).toBeUndefined()
@@ -134,11 +156,13 @@ describe('AnnotationTransportBar', () => {
   })
 
   it('shows an explicit loading state while a correction draft is being created', () => {
-    const wrapper = mount(AnnotationTransportBar, { props: {
-      ...baseProps,
-      clipSelected: true,
-      correctionCreating: true,
-    } })
+    const wrapper = mount(AnnotationTransportBar, {
+      props: {
+        ...baseProps,
+        clipSelected: true,
+        correctionCreating: true,
+      },
+    })
 
     const pending = wrapper.get('[aria-label="正在建立修正版草稿"]')
     expect(pending.attributes('disabled')).toBeDefined()
@@ -147,14 +171,16 @@ describe('AnnotationTransportBar', () => {
   })
 
   it('shows a durable waiting state instead of the previous completed result while submit awaits acknowledgement', () => {
-    const wrapper = mount(AnnotationTransportBar, { props: {
-      ...baseProps,
-      clipSelected: true,
-      draftSelected: true,
-      submitEnabled: false,
-      submittedSelected: true,
-      submissionPending: true,
-    } })
+    const wrapper = mount(AnnotationTransportBar, {
+      props: {
+        ...baseProps,
+        clipSelected: true,
+        draftSelected: true,
+        submitEnabled: false,
+        submittedSelected: true,
+        submissionPending: true,
+      },
+    })
 
     const pending = wrapper.get('[aria-label="等待伺服器確認送出"]')
     expect(pending.attributes('disabled')).toBeDefined()

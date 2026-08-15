@@ -1,7 +1,16 @@
-
-import type { ObservationSource, CursorStatus, PlaybackWindowDescriptor, PlaybackCursorInput } from '../lib/mediaModel'
+import type {
+  ObservationSource,
+  CursorStatus,
+  PlaybackWindowDescriptor,
+  PlaybackCursorInput,
+} from '../lib/mediaModel'
 import { isPlayerMediaTimeWithinWindow } from '../utils/playbackWindow'
-export type { ObservationSource, CursorStatus, PlaybackWindowDescriptor, PlaybackCursorInput } from '../lib/mediaModel'
+export type {
+  ObservationSource,
+  CursorStatus,
+  PlaybackWindowDescriptor,
+  PlaybackCursorInput,
+} from '../lib/mediaModel'
 
 interface VideoFrameMetadataSubset {
   mediaTime: number
@@ -31,11 +40,12 @@ export function usePlaybackCursor(
 
     lastObservationAt = performance.now()
     const playerMediaTimeUs = BigInt(Math.round(mediaTimeSeconds * 1_000_000))
-    cursorStatus.value = forcedGap || !isPlayerMediaTimeWithinWindow(playerMediaTimeUs, current)
-      ? 'gap'
-      : video.value?.seeking
-        ? 'seeking'
-        : 'ready'
+    cursorStatus.value =
+      forcedGap || !isPlayerMediaTimeWithinWindow(playerMediaTimeUs, current)
+        ? 'gap'
+        : video.value?.seeking
+          ? 'seeking'
+          : 'ready'
     cursor.value = {
       schema_version: '1.0.0',
       playback_window_id: current.playback_window_id,
@@ -71,13 +81,15 @@ export function usePlaybackCursor(
     cursorStatus.value = isGap ? 'gap' : 'stale'
   }
 
-
-  watch(() => descriptor.value?.playback_window_id ?? null, () => {
-    forcedGap = false
-    seekGeneration.value += 1
-    cursorStatus.value = 'stale'
-    cursor.value = null
-  })
+  watch(
+    () => descriptor.value?.playback_window_id ?? null,
+    () => {
+      forcedGap = false
+      seekGeneration.value += 1
+      cursorStatus.value = 'stale'
+      cursor.value = null
+    },
+  )
 
   onMounted(() => {
     const element = video.value
@@ -99,10 +111,10 @@ export function usePlaybackCursor(
       // A paused frame is still a valid annotation target. Only a playing video that
       // stops presenting frames becomes stale.
       if (
-        !element.paused
-        && !element.seeking
-        && cursorStatus.value === 'ready'
-        && performance.now() - lastObservationAt > 1_000
+        !element.paused &&
+        !element.seeking &&
+        cursorStatus.value === 'ready' &&
+        performance.now() - lastObservationAt > 1_000
       ) {
         cursorStatus.value = 'stale'
         if (cursor.value) cursor.value = { ...cursor.value, cursor_status: 'stale' }

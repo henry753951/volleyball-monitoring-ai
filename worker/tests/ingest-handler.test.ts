@@ -22,35 +22,56 @@ const sampleIndexAssetId = '10000000-0000-4000-8000-000000000004'
 const temporaryPaths: string[] = []
 
 it('derives quantized RTMP durations from adjacent PTS', () => {
-  const frames = [1890, 4860, 7920, 10890].map((pts) => ({ media_type: 'video' as const, pts: String(pts), pkt_duration: '3000', key_frame: 1 }))
-  expect(probeSamples(frames).map((sample) => sample.durationPts)).toEqual([2970n, 3060n, 2970n, 3000n])
+  const frames = [1890, 4860, 7920, 10890].map(pts => ({
+    media_type: 'video' as const,
+    pts: String(pts),
+    pkt_duration: '3000',
+    key_frame: 1,
+  }))
+  expect(probeSamples(frames).map(sample => sample.durationPts)).toEqual([
+    2970n,
+    3060n,
+    2970n,
+    3000n,
+  ])
 })
 it('rejects malformed adjacent PTS before deriving duration', () => {
-  expect(() => probeSamples([{ media_type: 'video', pts: '1890', pkt_duration: '3000' }, { media_type: 'video', pkt_duration: '3000' }])).toThrow()
+  expect(() =>
+    probeSamples([
+      { media_type: 'video', pts: '1890', pkt_duration: '3000' },
+      { media_type: 'video', pkt_duration: '3000' },
+    ]),
+  ).toThrow()
 })
 it('rejects malformed final packet duration deterministically', () => {
-  expect(() => probeSamples([
-    { media_type: 'video', pts: '1890', pkt_duration: 'not-a-duration' },
-  ])).toThrow('Finalized media sample timing is invalid.')
+  expect(() =>
+    probeSamples([{ media_type: 'video', pts: '1890', pkt_duration: 'not-a-duration' }]),
+  ).toThrow('Finalized media sample timing is invalid.')
 })
 it('derives a missing finalized fMP4 tail duration from the video stream end', () => {
-  expect(probeSamples([
-    { media_type: 'video', pts: '0', key_frame: 1 },
-    { media_type: 'video', pts: '1500', key_frame: 0 },
-  ], 3003n)).toEqual([
+  expect(
+    probeSamples(
+      [
+        { media_type: 'video', pts: '0', key_frame: 1 },
+        { media_type: 'video', pts: '1500', key_frame: 0 },
+      ],
+      3003n,
+    ),
+  ).toEqual([
     { sourcePts: 0n, durationPts: 1500n, keyframe: true },
     { sourcePts: 1500n, durationPts: 1503n, keyframe: false },
   ])
 })
 it('fails closed when packet duration conflicts with the video stream end', () => {
-  expect(() => probeSamples([
-    { media_type: 'video', pts: '0', pkt_duration: '1000', key_frame: 1 },
-  ], 1001n)).toThrow('Finalized media sample timing is invalid.')
+  expect(() =>
+    probeSamples([{ media_type: 'video', pts: '0', pkt_duration: '1000', key_frame: 1 }], 1001n),
+  ).toThrow('Finalized media sample timing is invalid.')
 })
 
 afterEach(async () => {
-  await Promise.all(temporaryPaths.splice(0).map((path) =>
-    rm(path, { force: true, recursive: true })))
+  await Promise.all(
+    temporaryPaths.splice(0).map(path => rm(path, { force: true, recursive: true })),
+  )
 })
 
 async function fixture() {
@@ -101,15 +122,14 @@ describe('repository-native finalized ingest handler', () => {
       dvrProgramId,
       dvrSegmentId,
       sampleIndexAssetId,
-      sampleIndexLocation: input.artifacts.find(
-        (artifact) => artifact.kind === 'sample-index',
-      )!.location,
+      sampleIndexLocation: input.artifacts.find(artifact => artifact.kind === 'sample-index')!
+        .location,
     })
     const repository = {
       async reserveUploading(input: FinalizedSegmentReservationInput) {
         events.push('reserve')
         reservationInputs.push(input)
-        locations.push(input.artifacts.map((artifact) => artifact.location.key))
+        locations.push(input.artifacts.map(artifact => artifact.location.key))
         return {
           disposition: reservationInputs.length === 1 ? 'RESERVED' : 'ALREADY_READY',
           reference: reference(input),
@@ -150,8 +170,12 @@ describe('repository-native finalized ingest handler', () => {
         return { fpsNum: 400, fpsDen: 1, timeBaseNum: 1, timeBaseDen: 1_000 }
       },
       store: {
-        async upload(artifact) { events.push(`upload:${artifact.kind}`) },
-        async verify(artifact) { events.push(`verify:${artifact.kind}`) },
+        async upload(artifact) {
+          events.push(`upload:${artifact.kind}`)
+        },
+        async verify(artifact) {
+          events.push(`verify:${artifact.kind}`)
+        },
       },
     } satisfies HandlerDeps
 
@@ -163,17 +187,31 @@ describe('repository-native finalized ingest handler', () => {
       { sourcePts: -2n, durationPts: 2n, keyframe: true },
       { sourcePts: 0n, durationPts: 3n, keyframe: false },
     ])
-    expect(reservationInputs[0]!.idempotencyKey).toBe(
-      reservationInputs[1]!.idempotencyKey,
-    )
+    expect(reservationInputs[0]!.idempotencyKey).toBe(reservationInputs[1]!.idempotencyKey)
     expect(locations[0]).toEqual(locations[1])
     expect(events).toEqual([
-      'source', 'profile', 'reserve', 'expectations',
-      'upload:init', 'upload:media', 'upload:sample-index',
-      'verify:init', 'verify:media', 'verify:sample-index', 'publish',
-      'source', 'profile', 'reserve', 'expectations',
-      'upload:init', 'upload:media', 'upload:sample-index',
-      'verify:init', 'verify:media', 'verify:sample-index', 'publish',
+      'source',
+      'profile',
+      'reserve',
+      'expectations',
+      'upload:init',
+      'upload:media',
+      'upload:sample-index',
+      'verify:init',
+      'verify:media',
+      'verify:sample-index',
+      'publish',
+      'source',
+      'profile',
+      'reserve',
+      'expectations',
+      'upload:init',
+      'upload:media',
+      'upload:sample-index',
+      'verify:init',
+      'verify:media',
+      'verify:sample-index',
+      'publish',
     ])
   })
 
@@ -189,8 +227,12 @@ describe('repository-native finalized ingest handler', () => {
           reserved = true
           throw new Error('must not reserve')
         },
-        async recordArtifactExpectations() { throw new Error('must not record') },
-        async publishReady() { throw new Error('must not publish') },
+        async recordArtifactExpectations() {
+          throw new Error('must not record')
+        },
+        async publishReady() {
+          throw new Error('must not publish')
+        },
       },
       probe: async () => ({
         frames: [{ media_type: 'video', pkt_duration: '2', key_frame: 1 }],
@@ -209,14 +251,16 @@ describe('repository-native finalized ingest handler', () => {
         timeBaseDen: 1_000,
       }),
       store: {
-        async upload() { throw new Error('must not upload') },
-        async verify() { throw new Error('must not verify') },
+        async upload() {
+          throw new Error('must not upload')
+        },
+        async verify() {
+          throw new Error('must not verify')
+        },
       },
     } as unknown as HandlerDeps
 
-    await expect(ingestEnvelope(envelope, deps)).rejects.toThrow(
-      'sample timing is invalid',
-    )
+    await expect(ingestEnvelope(envelope, deps)).rejects.toThrow('sample timing is invalid')
     expect(reserved).toBe(false)
     expect(readSource).toBe(false)
   })

@@ -1,5 +1,19 @@
 import { describe, expect, it } from 'vitest'
-import { clipRangeOverlaps, focusedTimelineView, formatTimelinePosition, formatTimelineScale, paddedClipRange, resolveSegmentSelection, rulerTicks, segmentAtCaptureTime, selectNonOverlappingRanges, timelineScaleForZoom, timelineViewForRange, timelineViewForScale, timelineZoomLimit } from './dvrTimeline'
+import {
+  clipRangeOverlaps,
+  focusedTimelineView,
+  formatTimelinePosition,
+  formatTimelineScale,
+  paddedClipRange,
+  resolveSegmentSelection,
+  rulerTicks,
+  segmentAtCaptureTime,
+  selectNonOverlappingRanges,
+  timelineScaleForZoom,
+  timelineViewForRange,
+  timelineViewForScale,
+  timelineZoomLimit,
+} from './dvrTimeline'
 
 describe('DVR timeline viewport', () => {
   it('keeps ruler labels relative to the full timeline origin while panning', () => {
@@ -32,7 +46,11 @@ describe('DVR timeline viewport', () => {
     expect(BigInt(detailView.endUs) - BigInt(detailView.startUs)).toBe(5_000_000n)
     expect(timelineScaleForZoom(bounds, defaultView.zoom)).toBeCloseTo(0.1)
     expect(timelineScaleForZoom(bounds, detailView.zoom)).toBe(60)
-    expect([formatTimelineScale(0.01), formatTimelineScale(0.1), formatTimelineScale(60)]).toEqual(['0.01×', '0.1×', '60×'])
+    expect([formatTimelineScale(0.01), formatTimelineScale(0.1), formatTimelineScale(60)]).toEqual([
+      '0.01×',
+      '0.1×',
+      '60×',
+    ])
   })
 
   it('preserves an absolute viewport when a progressive timeline grows', () => {
@@ -55,11 +73,14 @@ describe('DVR timeline viewport', () => {
   })
 
   it('never returns overlapping visual masks and lets the active range win', () => {
-    const visible = selectNonOverlappingRanges([
-      { id: 'old-revision', startCaptureTimeUs: '100', endCaptureTimeUs: '300' },
-      { id: 'next-rally', startCaptureTimeUs: '400', endCaptureTimeUs: '500' },
-      { id: 'duplicate-next', startCaptureTimeUs: '450', endCaptureTimeUs: '550' },
-    ], { startCaptureTimeUs: '150', endCaptureTimeUs: '350' })
+    const visible = selectNonOverlappingRanges(
+      [
+        { id: 'old-revision', startCaptureTimeUs: '100', endCaptureTimeUs: '300' },
+        { id: 'next-rally', startCaptureTimeUs: '400', endCaptureTimeUs: '500' },
+        { id: 'duplicate-next', startCaptureTimeUs: '450', endCaptureTimeUs: '550' },
+      ],
+      { startCaptureTimeUs: '150', endCaptureTimeUs: '350' },
+    )
     expect(visible.map(range => range.id)).toEqual(['next-rally'])
   })
 
@@ -78,11 +99,23 @@ describe('DVR timeline viewport', () => {
   it('rejects a moved key point when its padded clip would overlap another segment', () => {
     const range = paddedClipRange(['10000000', '16000000'], 3_000_000n, 3_000_000n)
     expect(range).toEqual({ startCaptureTimeUs: '7000000', endCaptureTimeUs: '19000000' })
-    expect(clipRangeOverlaps(range!, [{ id: 'other', startCaptureTimeUs: '18500000', endCaptureTimeUs: '22000000' }], 'current')).toBe(true)
-    expect(clipRangeOverlaps(range!, [{ id: 'current', startCaptureTimeUs: '18500000', endCaptureTimeUs: '22000000' }], 'current')).toBe(false)
+    expect(
+      clipRangeOverlaps(
+        range!,
+        [{ id: 'other', startCaptureTimeUs: '18500000', endCaptureTimeUs: '22000000' }],
+        'current',
+      ),
+    ).toBe(true)
+    expect(
+      clipRangeOverlaps(
+        range!,
+        [{ id: 'current', startCaptureTimeUs: '18500000', endCaptureTimeUs: '22000000' }],
+        'current',
+      ),
+    ).toBe(false)
   })
 })
 
 function capturePercent(startUs: string, endUs: string, targetUs: string) {
-  return Number((BigInt(targetUs) - BigInt(startUs)) * 100n / (BigInt(endUs) - BigInt(startUs)))
+  return Number(((BigInt(targetUs) - BigInt(startUs)) * 100n) / (BigInt(endUs) - BigInt(startUs)))
 }

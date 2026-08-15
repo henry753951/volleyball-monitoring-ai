@@ -58,7 +58,7 @@ const ARTIFACT_KIND_METADATA = 'x-amz-meta-artifact-kind'
 const CONTENT_TYPE_METADATA = 'content-type'
 const MAX_TIMEOUT_MS = 300_000
 
-const defaultClientFactory: MinioClientFactory = (options) => {
+const defaultClientFactory: MinioClientFactory = options => {
   const client = new Client(options)
   return {
     async statObject(bucket, key) {
@@ -79,10 +79,7 @@ type ValidatedMinioConfig = {
 
 function validateConfig(config: MinioObjectStoreConfig): ValidatedMinioConfig {
   if (typeof config.useTls !== 'boolean') {
-    throw new MinioObjectStoreError(
-      'INVALID_CONFIG',
-      'MinIO TLS flag must be boolean',
-    )
+    throw new MinioObjectStoreError('INVALID_CONFIG', 'MinIO TLS flag must be boolean')
   }
   if (
     !config.accessKey ||
@@ -90,30 +87,21 @@ function validateConfig(config: MinioObjectStoreConfig): ValidatedMinioConfig {
     config.accessKey.length > 128 ||
     config.secretKey.length > 256
   ) {
-    throw new MinioObjectStoreError(
-      'INVALID_CONFIG',
-      'MinIO credentials are invalid',
-    )
+    throw new MinioObjectStoreError('INVALID_CONFIG', 'MinIO credentials are invalid')
   }
   if (
     !Number.isInteger(config.operationTimeoutMs) ||
     config.operationTimeoutMs <= 0 ||
     config.operationTimeoutMs > MAX_TIMEOUT_MS
   ) {
-    throw new MinioObjectStoreError(
-      'INVALID_CONFIG',
-      'MinIO operation timeout is invalid',
-    )
+    throw new MinioObjectStoreError('INVALID_CONFIG', 'MinIO operation timeout is invalid')
   }
 
   let endpoint: URL
   try {
     endpoint = new URL(config.endpointUrl)
   } catch {
-    throw new MinioObjectStoreError(
-      'INVALID_CONFIG',
-      'MinIO endpoint URL is invalid',
-    )
+    throw new MinioObjectStoreError('INVALID_CONFIG', 'MinIO endpoint URL is invalid')
   }
   if (
     !['http:', 'https:'].includes(endpoint.protocol) ||
@@ -126,31 +114,18 @@ function validateConfig(config: MinioObjectStoreConfig): ValidatedMinioConfig {
     (config.useTls && endpoint.protocol !== 'https:') ||
     (!config.useTls && endpoint.protocol !== 'http:')
   ) {
-    throw new MinioObjectStoreError(
-      'INVALID_CONFIG',
-      'MinIO endpoint URL is invalid',
-    )
+    throw new MinioObjectStoreError('INVALID_CONFIG', 'MinIO endpoint URL is invalid')
   }
 
   let bucket: string
   try {
     bucket = validateBucketName(config.bucket)
   } catch {
-    throw new MinioObjectStoreError(
-      'INVALID_CONFIG',
-      'MinIO bucket is invalid',
-    )
+    throw new MinioObjectStoreError('INVALID_CONFIG', 'MinIO bucket is invalid')
   }
-  const port = endpoint.port
-    ? Number.parseInt(endpoint.port, 10)
-    : config.useTls
-      ? 443
-      : 80
+  const port = endpoint.port ? Number.parseInt(endpoint.port, 10) : config.useTls ? 443 : 80
   if (!Number.isInteger(port) || port <= 0 || port > 65_535) {
-    throw new MinioObjectStoreError(
-      'INVALID_CONFIG',
-      'MinIO endpoint port is invalid',
-    )
+    throw new MinioObjectStoreError('INVALID_CONFIG', 'MinIO endpoint port is invalid')
   }
 
   return {
@@ -174,20 +149,13 @@ function validateObjectKey(key: string): void {
     key.startsWith('/') ||
     key.includes('\\') ||
     key.includes('\0') ||
-    segments.some(
-      (segment) => !segment || segment === '.' || segment === '..',
-    )
+    segments.some(segment => !segment || segment === '.' || segment === '..')
   ) {
-    throw new MinioObjectStoreError(
-      'INVALID_ARTIFACT',
-      'object key is invalid',
-    )
+    throw new MinioObjectStoreError('INVALID_ARTIFACT', 'object key is invalid')
   }
 }
 
-function expectedMetadata(
-  artifact: ArtifactMetadata,
-): Readonly<Record<string, string>> {
+function expectedMetadata(artifact: ArtifactMetadata): Readonly<Record<string, string>> {
   return {
     'If-None-Match': '*',
     'Content-Type': artifact.contentType,
@@ -208,13 +176,8 @@ function metadataValue(
     : normalizedKey
   for (const [candidate, value] of Object.entries(metadata)) {
     const normalizedCandidate = candidate.toLowerCase()
-    if (
-      normalizedCandidate === normalizedKey ||
-      normalizedCandidate === bareKey
-    ) {
-      return typeof value === 'string' || typeof value === 'number'
-        ? String(value)
-        : undefined
+    if (normalizedCandidate === normalizedKey || normalizedCandidate === bareKey) {
+      return typeof value === 'string' || typeof value === 'number' ? String(value) : undefined
     }
   }
   return undefined
@@ -229,13 +192,10 @@ function assertStatMatches(
     Number.isSafeInteger(stat.size) &&
     stat.size >= 0 &&
     BigInt(stat.size) === artifact.byteLength &&
-    metadataValue(stat.metadata, CONTENT_TYPE_METADATA) ===
-      artifact.contentType &&
+    metadataValue(stat.metadata, CONTENT_TYPE_METADATA) === artifact.contentType &&
     metadataValue(stat.metadata, SHA256_METADATA) === artifact.sha256 &&
-    metadataValue(stat.metadata, BYTE_LENGTH_METADATA) ===
-      artifact.byteLength.toString() &&
-    metadataValue(stat.metadata, SCHEMA_VERSION_METADATA) ===
-      artifact.internalSchemaVersion &&
+    metadataValue(stat.metadata, BYTE_LENGTH_METADATA) === artifact.byteLength.toString() &&
+    metadataValue(stat.metadata, SCHEMA_VERSION_METADATA) === artifact.internalSchemaVersion &&
     metadataValue(stat.metadata, ARTIFACT_KIND_METADATA) === artifact.kind
   if (!matches) {
     throw new MinioObjectStoreError(
@@ -254,9 +214,7 @@ function errorCode(error: unknown): string | undefined {
 }
 
 function isMissingObject(error: unknown): boolean {
-  if (
-    ['NoSuchKey', 'NoSuchObject', 'NotFound'].includes(errorCode(error) ?? '')
-  ) {
+  if (['NoSuchKey', 'NoSuchObject', 'NotFound'].includes(errorCode(error) ?? '')) {
     return true
   }
   if (error === null || typeof error !== 'object') return false
@@ -269,20 +227,11 @@ function isPreconditionFailed(error: unknown): boolean {
   return Reflect.get(error, 'statusCode') === 412
 }
 
-async function withTimeout<T>(
-  operation: Promise<T>,
-  timeoutMs: number,
-): Promise<T> {
+async function withTimeout<T>(operation: Promise<T>, timeoutMs: number): Promise<T> {
   let timeout: ReturnType<typeof setTimeout> | undefined
   const timedOut = new Promise<never>((_resolve, reject) => {
     timeout = setTimeout(
-      () =>
-        reject(
-          new MinioObjectStoreError(
-            'TIMEOUT',
-            'MinIO operation timed out',
-          ),
-        ),
+      () => reject(new MinioObjectStoreError('TIMEOUT', 'MinIO operation timed out')),
       timeoutMs,
     )
   })
@@ -293,10 +242,7 @@ async function withTimeout<T>(
   }
 }
 
-function assertArtifact(
-  artifact: ArtifactMetadata,
-  configuredBucket: string,
-): void {
+function assertArtifact(artifact: ArtifactMetadata, configuredBucket: string): void {
   if (artifact.location.bucket !== configuredBucket) {
     throw new MinioObjectStoreError(
       'LOCATION_MISMATCH',
@@ -311,13 +257,9 @@ function assertArtifact(
     !['init', 'media', 'sample-index'].includes(artifact.kind) ||
     ((artifact.kind === 'init' || artifact.kind === 'media') &&
       artifact.contentType !== 'video/mp4') ||
-    (artifact.kind === 'sample-index' &&
-      artifact.contentType !== 'application/json')
+    (artifact.kind === 'sample-index' && artifact.contentType !== 'application/json')
   ) {
-    throw new MinioObjectStoreError(
-      'INVALID_ARTIFACT',
-      'artifact metadata is invalid',
-    )
+    throw new MinioObjectStoreError('INVALID_ARTIFACT', 'artifact metadata is invalid')
   }
 }
 
@@ -326,34 +268,22 @@ class MinioMediaObjectStore implements MediaObjectStore {
   readonly #bucket: string
   readonly #timeoutMs: number
 
-  constructor(
-    client: MinioClientLike,
-    bucket: string,
-    timeoutMs: number,
-  ) {
+  constructor(client: MinioClientLike, bucket: string, timeoutMs: number) {
     this.#client = client
     this.#bucket = bucket
     this.#timeoutMs = timeoutMs
   }
 
-  private async stat(
-    artifact: ArtifactMetadata,
-  ): Promise<MinioObjectStat | undefined> {
+  private async stat(artifact: ArtifactMetadata): Promise<MinioObjectStat | undefined> {
     try {
       return await withTimeout(
-        this.#client.statObject(
-          artifact.location.bucket,
-          artifact.location.key,
-        ),
+        this.#client.statObject(artifact.location.bucket, artifact.location.key),
         this.#timeoutMs,
       )
     } catch (error) {
       if (error instanceof MinioObjectStoreError) throw error
       if (isMissingObject(error)) return undefined
-      throw new MinioObjectStoreError(
-        'STAT_FAILED',
-        'MinIO stat operation failed',
-      )
+      throw new MinioObjectStoreError('STAT_FAILED', 'MinIO stat operation failed')
     }
   }
 
@@ -363,10 +293,7 @@ class MinioMediaObjectStore implements MediaObjectStore {
       BigInt(artifact.bytes.byteLength) !== artifact.byteLength ||
       sha256(artifact.bytes) !== artifact.sha256
     ) {
-      throw new MinioObjectStoreError(
-        'INVALID_ARTIFACT',
-        'artifact bytes do not match metadata',
-      )
+      throw new MinioObjectStoreError('INVALID_ARTIFACT', 'artifact bytes do not match metadata')
     }
 
     const existing = await this.stat(artifact)
@@ -394,10 +321,7 @@ class MinioMediaObjectStore implements MediaObjectStore {
           return
         }
       }
-      throw new MinioObjectStoreError(
-        'UPLOAD_FAILED',
-        'MinIO upload operation failed',
-      )
+      throw new MinioObjectStoreError('UPLOAD_FAILED', 'MinIO upload operation failed')
     }
   }
 
@@ -405,10 +329,7 @@ class MinioMediaObjectStore implements MediaObjectStore {
     assertArtifact(artifact, this.#bucket)
     const stat = await this.stat(artifact)
     if (!stat) {
-      throw new MinioObjectStoreError(
-        'OBJECT_MISSING',
-        'stored object is missing',
-      )
+      throw new MinioObjectStoreError('OBJECT_MISSING', 'stored object is missing')
     }
     assertStatMatches(stat, artifact, 'METADATA_MISMATCH')
   }
@@ -423,14 +344,7 @@ export function createMinioMediaObjectStore(
   try {
     client = clientFactory(validated.clientOptions)
   } catch {
-    throw new MinioObjectStoreError(
-      'INVALID_CONFIG',
-      'MinIO client initialization failed',
-    )
+    throw new MinioObjectStoreError('INVALID_CONFIG', 'MinIO client initialization failed')
   }
-  return new MinioMediaObjectStore(
-    client,
-    validated.bucket,
-    validated.timeoutMs,
-  )
+  return new MinioMediaObjectStore(client, validated.bucket, validated.timeoutMs)
 }

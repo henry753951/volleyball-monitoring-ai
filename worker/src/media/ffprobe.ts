@@ -1,11 +1,5 @@
-import {
-  spawn,
-  type ChildProcessWithoutNullStreams,
-} from 'node:child_process'
-import {
-  parseFfprobePayload,
-  type FfprobePayload,
-} from '@volleyball-monitoring/media/sample-index'
+import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
+import { parseFfprobePayload, type FfprobePayload } from '@volleyball-monitoring/media/sample-index'
 
 export type FfprobeErrorCode =
   | 'SPAWN_FAILED'
@@ -47,15 +41,11 @@ export type ProbeOptions = {
 }
 
 function spawnFailure(error: unknown): FfprobeError {
-  return new FfprobeError(
-    'SPAWN_FAILED',
-    error instanceof Error ? error.message : String(error),
-  )
+  return new FfprobeError('SPAWN_FAILED', error instanceof Error ? error.message : String(error))
 }
 
-export const createNodeProbeRunner = (
-  spawnImpl: SpawnLike = spawn,
-): ProbeRunner =>
+export const createNodeProbeRunner =
+  (spawnImpl: SpawnLike = spawn): ProbeRunner =>
   (executable, args, options) =>
     new Promise((resolve, reject) => {
       let child: ChildProcessWithoutNullStreams
@@ -71,6 +61,8 @@ export const createNodeProbeRunner = (
       let stdoutBytes = 0
       let stderrBytes = 0
       let settled = false
+      // The timer is assigned only after the early-abort check below.
+      // eslint-disable-next-line prefer-const
       let timeout: ReturnType<typeof setTimeout> | undefined
 
       const abort = () => {
@@ -112,9 +104,7 @@ export const createNodeProbeRunner = (
         const chunk = Buffer.from(data)
         const nextByteLength = byteLength + chunk.byteLength
         if (nextByteLength > options.maxOutputBytes) {
-          killAndReject(
-            new FfprobeError('OUTPUT_TOO_LARGE', overflowMessage),
-          )
+          killAndReject(new FfprobeError('OUTPUT_TOO_LARGE', overflowMessage))
           return nextByteLength
         }
         chunks.push(chunk)
@@ -122,25 +112,15 @@ export const createNodeProbeRunner = (
       }
 
       child.stdout.on('data', (data: string | Uint8Array) => {
-        stdoutBytes = append(
-          stdoutChunks,
-          stdoutBytes,
-          data,
-          'output too large',
-        )
+        stdoutBytes = append(stdoutChunks, stdoutBytes, data, 'output too large')
       })
       child.stderr.on('data', (data: string | Uint8Array) => {
-        stderrBytes = append(
-          stderrChunks,
-          stderrBytes,
-          data,
-          'stderr too large',
-        )
+        stderrBytes = append(stderrChunks, stderrBytes, data, 'stderr too large')
       })
-      child.on('error', (error) => {
+      child.on('error', error => {
         killAndReject(spawnFailure(error))
       })
-      child.on('close', (code) => {
+      child.on('close', code => {
         if (settled) return
         settled = true
         cleanup()

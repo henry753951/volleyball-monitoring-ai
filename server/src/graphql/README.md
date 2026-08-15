@@ -1,4 +1,3 @@
-
 # GraphQL implementation
 
 - Source of truth: Pothos code in this directory.

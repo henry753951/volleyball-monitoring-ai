@@ -9,6 +9,8 @@ export default defineConfig({
   },
   datasource: {
     // A fallback keeps `prisma generate` usable in contract-only CI.
-    url: process.env.DATABASE_URL ?? 'postgresql://volleyball:volleyball@localhost:5432/volleyball?schema=public',
+    url:
+      process.env.DATABASE_URL ??
+      'postgresql://volleyball:volleyball@localhost:5432/volleyball?schema=public',
   },
 })

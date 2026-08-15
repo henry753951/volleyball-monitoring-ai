@@ -30,15 +30,24 @@ export function useCoachSocket() {
       sendPing()
       pingTimer = setInterval(sendPing, 5_000)
     })
-    socket.addEventListener('message', (event) => {
+    socket.addEventListener('message', event => {
       try {
-        const value = JSON.parse(String(event.data)) as { type?: string; client_time_ms?: number; match_id?: string; reason?: string }
-        if (value.type === 'pong' && typeof value.client_time_ms === 'number') latencyMs.value = Math.max(0, Math.round(performance.now() - value.client_time_ms))
-        if (value.type === 'match_state_invalidated' && typeof value.match_id === 'string') {
-          window.dispatchEvent(new CustomEvent('vollyai:match-state-invalidated', { detail: value }))
+        const value = JSON.parse(String(event.data)) as {
+          type?: string
+          client_time_ms?: number
+          match_id?: string
+          reason?: string
         }
+        if (value.type === 'pong' && typeof value.client_time_ms === 'number')
+          latencyMs.value = Math.max(0, Math.round(performance.now() - value.client_time_ms))
+        if (value.type === 'match_state_invalidated' && typeof value.match_id === 'string') {
+          window.dispatchEvent(
+            new CustomEvent('vollyai:match-state-invalidated', { detail: value }),
+          )
+        }
+      } catch {
+        /* Ignore non-ping service messages. */
       }
-      catch { /* Ignore non-ping service messages. */ }
     })
     socket.addEventListener('close', () => {
       socket = null

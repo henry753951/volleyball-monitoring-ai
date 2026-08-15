@@ -19,7 +19,11 @@ import { mediaPlaybackRoutes } from './routes/media-playback.js'
 import { aiCallbackRoutesWithDependencies } from './routes/ai-callback.js'
 import { analysisMediaRoutesWithDependencies } from './routes/analysis-media.js'
 import { analysisReviewRoutesWithDependencies } from './routes/analysis-review.js'
-import { collectOperationsSnapshot, deleteInactiveAiWorker, operationsRoutes } from './routes/operations.js'
+import {
+  collectOperationsSnapshot,
+  deleteInactiveAiWorker,
+  operationsRoutes,
+} from './routes/operations.js'
 import { createHostStorageProbe } from './operations/host-storage.js'
 import { createKubernetesDeploymentProbe } from './operations/kubernetes-deployments.js'
 import { createMinioStorageProbe } from './operations/minio-storage.js'
@@ -33,7 +37,12 @@ import { aiProviderWebSocketRoutes } from './realtime/ai-provider-ws.js'
 import { authenticateDevelopmentAnnotationRequest } from './realtime/auth.js'
 import { createAnnotationCommandService } from './services/annotation-command.js'
 import { getAnnotationSnapshot } from './services/annotation-snapshot.js'
-import { createAiWorkerToken, deleteAiWorkerToken, rotateAiWorkerToken, setAiWorkerTokenEnabled } from './services/ai-worker-access.js'
+import {
+  createAiWorkerToken,
+  deleteAiWorkerToken,
+  rotateAiWorkerToken,
+  setAiWorkerTokenEnabled,
+} from './services/ai-worker-access.js'
 import { createMatchCleanupCoordinator } from './services/match-cleanup-coordinator.js'
 
 const app = Fastify({ logger: true })
@@ -45,12 +54,11 @@ const mediaObjectReader = createMinioObjectReaderFromEnv()
 if (!mediaObjectReader) {
   throw new Error('MinIO reader configuration is required for media playback and cursor resolution')
 }
-const timingManifestReader = createMinioObjectReaderFromEnv(
-  process.env,
-  'MINIO_RALLY_BUCKET',
-)
+const timingManifestReader = createMinioObjectReaderFromEnv(process.env, 'MINIO_RALLY_BUCKET')
 if (!timingManifestReader) {
-  throw new Error('MinIO rally artifact reader configuration is required for exact analysis coverage')
+  throw new Error(
+    'MinIO rally artifact reader configuration is required for exact analysis coverage',
+  )
 }
 const redis = redisUrl
   ? new Redis(redisUrl, { lazyConnect: true, connectTimeout: 1_000, maxRetriesPerRequest: 1 })
@@ -58,12 +66,16 @@ const redis = redisUrl
 const annotationPresence = redis
   ? createAnnotationPresenceService({
       redis,
-      displayName: async userId => (await db.user.findUnique({ where: { id: userId }, select: { displayName: true } }))?.displayName ?? null,
+      displayName: async userId =>
+        (await db.user.findUnique({ where: { id: userId }, select: { displayName: true } }))
+          ?.displayName ?? null,
     })
   : null
 const aiProgress = redis ? createAiProgressService(redis) : null
 const coachMatchEvents = new CoachMatchEventHub()
-configureCoachAnalyticsGraphQL(matchId => coachMatchEvents.publish(matchId, 'identity_mapping_updated'))
+configureCoachAnalyticsGraphQL(matchId =>
+  coachMatchEvents.publish(matchId, 'identity_mapping_updated'),
+)
 const hostStorageProbe = createHostStorageProbe(
   process.env.MEDIA_RECORDING_ROOT ?? '/var/lib/volleyball/media-recordings',
 )
@@ -75,12 +87,15 @@ const objectStorageProbe = createMinioStorageProbe(
 )
 const deploymentProbe = createKubernetesDeploymentProbe()
 const mediaObjectRemover = createMediaObjectRemoverFromEnv()
-const matchCleanupCoordinator = createMatchCleanupCoordinator({
-  database: db,
-  importRoot: process.env.MEDIA_IMPORT_ROOT ?? '/var/lib/volleyball/media-imports',
-  ...(mediaObjectRemover ? { objectRemover: mediaObjectRemover } : {}),
-  recordingRoot: process.env.MEDIA_RECORDING_ROOT ?? '/var/lib/volleyball/media-recordings',
-}, app.log)
+const matchCleanupCoordinator = createMatchCleanupCoordinator(
+  {
+    database: db,
+    importRoot: process.env.MEDIA_IMPORT_ROOT ?? '/var/lib/volleyball/media-imports',
+    ...(mediaObjectRemover ? { objectRemover: mediaObjectRemover } : {}),
+    recordingRoot: process.env.MEDIA_RECORDING_ROOT ?? '/var/lib/volleyball/media-recordings',
+  },
+  app.log,
+)
 
 const cursorDependencies = {
   now: () => new Date(),
@@ -91,9 +106,11 @@ const annotationCommands = createAnnotationCommandService({
   database: db,
   resolveCursor: (cursor, identity) => resolvePlaybackCursor(cursor, identity, cursorDependencies),
 })
-configureAnnotationGraphQL(annotationCommands, (matchId, reason) => coachMatchEvents.publish(matchId, reason))
+configureAnnotationGraphQL(annotationCommands, (matchId, reason) =>
+  coachMatchEvents.publish(matchId, reason),
+)
 
-redis?.on('error', (error) => app.log.warn({ error }, 'Redis readiness connection error'))
+redis?.on('error', error => app.log.warn({ error }, 'Redis readiness connection error'))
 
 const readinessProbes: ReadinessProbe[] = [
   {
@@ -106,12 +123,12 @@ const readinessProbes: ReadinessProbe[] = [
     name: 'redis',
     check: async () => {
       if (!redis) throw new Error('REDIS_URL is required')
-      if (await redis.ping() !== 'PONG') throw new Error('Redis did not return PONG')
+      if ((await redis.ping()) !== 'PONG') throw new Error('Redis did not return PONG')
     },
   },
   {
     name: 'minio',
-    check: async (signal) => {
+    check: async signal => {
       if (!minioEndpoint) throw new Error('MINIO_ENDPOINT is required')
       const response = await fetch(`${minioEndpoint}/minio/health/ready`, { signal })
       if (!response.ok) throw new Error(`MinIO readiness returned ${response.status}`)
@@ -119,8 +136,9 @@ const readinessProbes: ReadinessProbe[] = [
   },
   {
     name: 'ovenmediaengine',
-    check: async (signal) => {
-      if (!omeApiEndpoint || !omeApiToken) throw new Error('OME_API_URL and OME_API_ACCESS_TOKEN are required')
+    check: async signal => {
+      if (!omeApiEndpoint || !omeApiToken)
+        throw new Error('OME_API_URL and OME_API_ACCESS_TOKEN are required')
       const authorization = Buffer.from(omeApiToken).toString('base64')
       const response = await fetch(`${omeApiEndpoint}/v1/vhosts/default/apps/app/streams`, {
         headers: { authorization: `Basic ${authorization}` },
@@ -144,78 +162,96 @@ await app.register(multipart, {
   },
 })
 await app.register(websocket)
-await app.register(aiCallbackRoutesWithDependencies({
-  ...(aiProgress ? { progress: aiProgress } : {}),
-  onAnalysisStateChanged: matchId => coachMatchEvents.publish(matchId, 'analysis_state_updated'),
-}))
-await app.register(aiProviderWebSocketRoutes({ database: db, ...(aiProgress ? { progress: aiProgress } : {}) }))
+await app.register(
+  aiCallbackRoutesWithDependencies({
+    ...(aiProgress ? { progress: aiProgress } : {}),
+    onAnalysisStateChanged: matchId => coachMatchEvents.publish(matchId, 'analysis_state_updated'),
+  }),
+)
+await app.register(
+  aiProviderWebSocketRoutes({ database: db, ...(aiProgress ? { progress: aiProgress } : {}) }),
+)
 await app.register(analysisMediaRoutesWithDependencies({ timingManifestReader }))
-await app.register(analysisReviewRoutesWithDependencies({
-  onChanged: matchId => coachMatchEvents.publish(matchId, 'analysis_review_updated'),
-}))
-await app.register(mediaPlaybackRoutes({
-  objectReader: mediaObjectReader,
-  resolveSample: createPersistedSampleSnapResolver(db, mediaObjectReader),
-}))
+await app.register(
+  analysisReviewRoutesWithDependencies({
+    onChanged: matchId => coachMatchEvents.publish(matchId, 'analysis_review_updated'),
+  }),
+)
+await app.register(
+  mediaPlaybackRoutes({
+    objectReader: mediaObjectReader,
+    resolveSample: createPersistedSampleSnapResolver(db, mediaObjectReader),
+  }),
+)
 await app.register(mediaCursorRoutes({ objectReader: mediaObjectReader }))
-await app.register(mediaSourceRoutes({
-  authenticate: request => authenticateDevelopmentAnnotationRequest(request, db),
-  database: db,
-  importRoot: process.env.MEDIA_IMPORT_ROOT ?? '/var/lib/volleyball/media-imports',
-}))
-await app.register(operationsRoutes(
-  identity => collectOperationsSnapshot(
-    db,
-    identity,
-    hostStorageProbe,
-    objectStorageProbe,
-    deploymentProbe,
-  ),
-  {
+await app.register(
+  mediaSourceRoutes({
     authenticate: request => authenticateDevelopmentAnnotationRequest(request, db),
-    collectReadiness: () => evaluateReadiness(readinessProbes),
-    createAiWorkerToken: name => createAiWorkerToken(db, name),
-    deleteAiWorkerToken: tokenId => deleteAiWorkerToken(db, tokenId),
-    deleteAiWorker: workerId => deleteInactiveAiWorker(db, workerId),
-    rotateAiWorkerToken: tokenId => rotateAiWorkerToken(db, tokenId),
-    updateAiWorkerTokenState: (tokenId, enabled) => setAiWorkerTokenEnabled(db, tokenId, enabled),
-  },
-))
-await app.register(annotationWebSocketRoutes({
-  authenticate: (request) => authenticateDevelopmentAnnotationRequest(request, db),
-  ...(annotationPresence ? { presence: annotationPresence } : {}),
-  ...(aiProgress ? { progress: aiProgress } : {}),
-  service: annotationCommands,
-  snapshot: async (roomId, rallyId, identity) => {
-    const value = await getAnnotationSnapshot(db, {
-      roomId,
-      rallyId,
-      userId: identity.userId,
-      role: identity.role,
-    })
-    return value?.type === 'rally_snapshot' ? value : null
-  },
-}))
-await app.register(coachWebSocketRoutes({
-  authenticate: (request) => authenticateDevelopmentAnnotationRequest(request, db),
-  events: coachMatchEvents,
-}))
+    database: db,
+    importRoot: process.env.MEDIA_IMPORT_ROOT ?? '/var/lib/volleyball/media-imports',
+  }),
+)
+await app.register(
+  operationsRoutes(
+    identity =>
+      collectOperationsSnapshot(
+        db,
+        identity,
+        hostStorageProbe,
+        objectStorageProbe,
+        deploymentProbe,
+      ),
+    {
+      authenticate: request => authenticateDevelopmentAnnotationRequest(request, db),
+      collectReadiness: () => evaluateReadiness(readinessProbes),
+      createAiWorkerToken: name => createAiWorkerToken(db, name),
+      deleteAiWorkerToken: tokenId => deleteAiWorkerToken(db, tokenId),
+      deleteAiWorker: workerId => deleteInactiveAiWorker(db, workerId),
+      rotateAiWorkerToken: tokenId => rotateAiWorkerToken(db, tokenId),
+      updateAiWorkerTokenState: (tokenId, enabled) => setAiWorkerTokenEnabled(db, tokenId, enabled),
+    },
+  ),
+)
+await app.register(
+  annotationWebSocketRoutes({
+    authenticate: request => authenticateDevelopmentAnnotationRequest(request, db),
+    ...(annotationPresence ? { presence: annotationPresence } : {}),
+    ...(aiProgress ? { progress: aiProgress } : {}),
+    service: annotationCommands,
+    snapshot: async (roomId, rallyId, identity) => {
+      const value = await getAnnotationSnapshot(db, {
+        roomId,
+        rallyId,
+        userId: identity.userId,
+        role: identity.role,
+      })
+      return value?.type === 'rally_snapshot' ? value : null
+    },
+  }),
+)
+await app.register(
+  coachWebSocketRoutes({
+    authenticate: request => authenticateDevelopmentAnnotationRequest(request, db),
+    events: coachMatchEvents,
+  }),
+)
 
 const yoga = createYoga<{ req: FastifyRequest; reply: FastifyReply }>({
   schema,
   graphqlEndpoint: '/graphql',
   logging: {
-    debug: (...args) => args.forEach((arg) => app.log.debug(arg)),
-    info: (...args) => args.forEach((arg) => app.log.info(arg)),
-    warn: (...args) => args.forEach((arg) => app.log.warn(arg)),
-    error: (...args) => args.forEach((arg) => app.log.error(arg)),
+    debug: (...args) => args.forEach(arg => app.log.debug(arg)),
+    info: (...args) => args.forEach(arg => app.log.info(arg)),
+    warn: (...args) => args.forEach(arg => app.log.warn(arg)),
+    error: (...args) => args.forEach(arg => app.log.error(arg)),
   },
-  context: async ({ request, req, reply }) => createGraphQLContext({
-    request,
-    req,
-    reply,
-    timingManifestReader,
-  }),
+  context: async ({ request, req, reply }) =>
+    createGraphQLContext({
+      request,
+      req,
+      reply,
+      timingManifestReader,
+    }),
 })
 
 app.route({

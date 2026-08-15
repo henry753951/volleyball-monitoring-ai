@@ -26,12 +26,17 @@ const moduleLifecycle = (
 describe('workflow composition', () => {
   it('starts every module, stops in reverse, and disconnects once', async () => {
     const events: string[] = []
-    const composition = composeWorkflowLifecycles([
-      moduleLifecycle('clip', events),
-      moduleLifecycle('playback-cleanup', events),
-      moduleLifecycle('analysis-convergence', events),
-      moduleLifecycle('outbox', events),
-    ], async () => { events.push('disconnect') })
+    const composition = composeWorkflowLifecycles(
+      [
+        moduleLifecycle('clip', events),
+        moduleLifecycle('playback-cleanup', events),
+        moduleLifecycle('analysis-convergence', events),
+        moduleLifecycle('outbox', events),
+      ],
+      async () => {
+        events.push('disconnect')
+      },
+    )
 
     await composition.start()
     expect(composition.snapshot().map(module => module.state)).toEqual([
@@ -63,18 +68,18 @@ describe('workflow composition', () => {
 
   it('rolls back started modules and disconnects after a startup failure', async () => {
     const events: string[] = []
-    const composition = composeWorkflowLifecycles([
-      moduleLifecycle('clip', events),
-      moduleLifecycle('outbox', events, { startError: new Error('publisher unavailable') }),
-    ], async () => { events.push('disconnect') })
+    const composition = composeWorkflowLifecycles(
+      [
+        moduleLifecycle('clip', events),
+        moduleLifecycle('outbox', events, { startError: new Error('publisher unavailable') }),
+      ],
+      async () => {
+        events.push('disconnect')
+      },
+    )
 
     await expect(composition.start()).rejects.toThrow('publisher unavailable')
-    expect(events).toEqual([
-      'start:clip',
-      'start:outbox',
-      'stop:clip',
-      'disconnect',
-    ])
+    expect(events).toEqual(['start:clip', 'start:outbox', 'stop:clip', 'disconnect'])
     expect(composition.snapshot()).toMatchObject([
       { name: 'clip', state: 'stopped' },
       { name: 'outbox', state: 'failed', lastErrorName: 'Error' },
@@ -83,10 +88,15 @@ describe('workflow composition', () => {
 
   it('stops healthy siblings, disconnects, and aggregates shutdown failures', async () => {
     const events: string[] = []
-    const composition = composeWorkflowLifecycles([
-      moduleLifecycle('clip', events, { stopError: new Error('ffmpeg shutdown failed') }),
-      moduleLifecycle('playback-cleanup', events),
-    ], async () => { events.push('disconnect') })
+    const composition = composeWorkflowLifecycles(
+      [
+        moduleLifecycle('clip', events, { stopError: new Error('ffmpeg shutdown failed') }),
+        moduleLifecycle('playback-cleanup', events),
+      ],
+      async () => {
+        events.push('disconnect')
+      },
+    )
 
     await composition.start()
     await expect(composition.stop()).rejects.toThrow('workflow shutdown failed')

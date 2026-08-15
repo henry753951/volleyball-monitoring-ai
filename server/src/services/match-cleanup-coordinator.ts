@@ -35,21 +35,29 @@ export function createMatchCleanupCoordinator(
     timer = setTimeout(() => {
       timer = null
       inFlight = runNextPendingMatchCleanup(dependencies.database, dependencies)
-        .then((receipt) => {
+        .then(receipt => {
           if (receipt) {
-            logger.info({
-              matchId: receipt.matchId,
-              removedAssetCount: receipt.removedAssetCount,
-              removedBytes: receipt.removedBytes,
-            }, 'Background match cleanup completed')
+            logger.info(
+              {
+                matchId: receipt.matchId,
+                removedAssetCount: receipt.removedAssetCount,
+                removedBytes: receipt.removedBytes,
+              },
+              'Background match cleanup completed',
+            )
           }
           schedule(receipt ? 0 : idleDelayMs)
         })
-        .catch((error) => {
-          logger.error({ error }, 'Background match cleanup failed; the durable deletion marker will be retried')
+        .catch(error => {
+          logger.error(
+            { error },
+            'Background match cleanup failed; the durable deletion marker will be retried',
+          )
           schedule(retryDelayMs)
         })
-        .finally(() => { inFlight = null })
+        .finally(() => {
+          inFlight = null
+        })
     }, delayMs)
   }
 

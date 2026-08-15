@@ -103,14 +103,8 @@ function requireExactKeys(
 ): void {
   const keys = Object.keys(value).sort()
   const expected = [...allowed].sort()
-  if (
-    keys.length !== expected.length ||
-    keys.some((key, index) => key !== expected[index])
-  ) {
-    throw new SampleIndexError(
-      'INVALID_DOCUMENT',
-      `${scope} has unknown or missing fields`,
-    )
+  if (keys.length !== expected.length || keys.some((key, index) => key !== expected[index])) {
+    throw new SampleIndexError('INVALID_DOCUMENT', `${scope} has unknown or missing fields`)
   }
 }
 
@@ -149,16 +143,10 @@ function validateEpochOrigin(origin: CaptureEpochOrigin): void {
     throw new SampleIndexError('INVALID_FRAME', 'epoch id must be non-empty')
   }
   if (origin.timeBase.num <= 0n || origin.timeBase.den <= 0n) {
-    throw new SampleIndexError(
-      'INVALID_TIME_BASE',
-      'time base must be positive',
-    )
+    throw new SampleIndexError('INVALID_TIME_BASE', 'time base must be positive')
   }
   if (origin.captureTimeOriginUs < 0n || origin.captureFrameOrigin < 0n) {
-    throw new SampleIndexError(
-      'INVALID_FRAME',
-      'canonical origins must be nonnegative',
-    )
+    throw new SampleIndexError('INVALID_FRAME', 'canonical origins must be nonnegative')
   }
 }
 
@@ -178,53 +166,33 @@ function validateSampleSequence(
   let previous: IndexedSample | undefined
   for (const sample of samples) {
     if (typeof sample.keyframe !== 'boolean') {
-      throw new SampleIndexError(
-        'INVALID_FRAME',
-        'sample keyframe must be boolean',
-      )
+      throw new SampleIndexError('INVALID_FRAME', 'sample keyframe must be boolean')
     }
     if (sample.durationPts <= 0n) {
-      throw new SampleIndexError(
-        'INVALID_FRAME',
-        'sample duration must be positive',
-      )
+      throw new SampleIndexError('INVALID_FRAME', 'sample duration must be positive')
     }
     if (sample.captureTimeUs < 0n || sample.captureFrameIndex < 0n) {
-      throw new SampleIndexError(
-        'INVALID_FRAME',
-        'canonical sample values must be nonnegative',
-      )
+      throw new SampleIndexError('INVALID_FRAME', 'canonical sample values must be nonnegative')
     }
     if (previous) {
       const expectedPts = previous.sourcePts + previous.durationPts
       if (sample.sourcePts !== expectedPts) {
         throw new SampleIndexError(
           'NON_MONOTONIC',
-          sample.sourcePts < expectedPts
-            ? 'sample timing overlaps'
-            : 'sample timing has a hole',
+          sample.sourcePts < expectedPts ? 'sample timing overlaps' : 'sample timing has a hole',
         )
       }
       if (sample.captureFrameIndex !== previous.captureFrameIndex + 1n) {
-        throw new SampleIndexError(
-          'NON_MONOTONIC',
-          'capture frame indices must be contiguous',
-        )
+        throw new SampleIndexError('NON_MONOTONIC', 'capture frame indices must be contiguous')
       }
       if (sample.captureTimeUs <= previous.captureTimeUs) {
-        throw new SampleIndexError(
-          'NON_MONOTONIC',
-          'capture times must increase',
-        )
+        throw new SampleIndexError('NON_MONOTONIC', 'capture times must increase')
       }
     }
     if (origin) {
       const expectedCaptureTimeUs =
         origin.captureTimeOriginUs +
-        rescalePtsToUs(
-          sample.sourcePts - origin.sourcePtsOrigin,
-          origin.timeBase,
-        )
+        rescalePtsToUs(sample.sourcePts - origin.sourcePtsOrigin, origin.timeBase)
       if (sample.captureTimeUs !== expectedCaptureTimeUs) {
         throw new SampleIndexError(
           'INVALID_DOCUMENT',
@@ -232,19 +200,13 @@ function validateSampleSequence(
         )
       }
       if (sample.captureFrameIndex < origin.captureFrameOrigin) {
-        throw new SampleIndexError(
-          'INVALID_DOCUMENT',
-          'capture frame precedes the epoch origin',
-        )
+        throw new SampleIndexError('INVALID_DOCUMENT', 'capture frame precedes the epoch origin')
       }
     }
     previous = sample
   }
 
-  const finalDurationUs = rescalePtsToUs(
-    samples.at(-1)!.durationPts,
-    timeBase,
-  )
+  const finalDurationUs = rescalePtsToUs(samples.at(-1)!.durationPts, timeBase)
   if (finalDurationUs <= 0n) {
     throw new SampleIndexError(
       'INVALID_FRAME',
@@ -255,18 +217,12 @@ function validateSampleSequence(
 
 function epochRelativeEndUs(
   samples: readonly IndexedSample[],
-  origin: Pick<
-    CaptureEpochOrigin,
-    'sourcePtsOrigin' | 'captureTimeOriginUs' | 'timeBase'
-  >,
+  origin: Pick<CaptureEpochOrigin, 'sourcePtsOrigin' | 'captureTimeOriginUs' | 'timeBase'>,
 ): bigint {
   const last = samples.at(-1)!
   return (
     origin.captureTimeOriginUs +
-    rescalePtsToUs(
-      last.sourcePts + last.durationPts - origin.sourcePtsOrigin,
-      origin.timeBase,
-    )
+    rescalePtsToUs(last.sourcePts + last.durationPts - origin.sourcePtsOrigin, origin.timeBase)
   )
 }
 
@@ -275,23 +231,14 @@ function validateIndex(index: SampleIndex): void {
     throw new SampleIndexError('INVALID_FRAME', 'epoch id must be non-empty')
   }
   if (index.timeBase.num <= 0n || index.timeBase.den <= 0n) {
-    throw new SampleIndexError(
-      'INVALID_TIME_BASE',
-      'time base must be positive',
-    )
+    throw new SampleIndexError('INVALID_TIME_BASE', 'time base must be positive')
   }
   validateSampleSequence(index.samples, index.timeBase)
   if (index.availableStartUs !== index.samples[0]!.captureTimeUs) {
-    throw new SampleIndexError(
-      'INVALID_RANGE',
-      'available start must equal the first sample time',
-    )
+    throw new SampleIndexError('INVALID_RANGE', 'available start must equal the first sample time')
   }
   if (index.availableEndUs <= index.samples.at(-1)!.captureTimeUs) {
-    throw new SampleIndexError(
-      'INVALID_RANGE',
-      'available end must follow the last sample',
-    )
+    throw new SampleIndexError('INVALID_RANGE', 'available end must follow the last sample')
   }
 }
 
@@ -324,16 +271,10 @@ export function serializeSampleIndex(index: SampleIndex): SampleIndexDocument {
  * because it is intentionally stored in CaptureEpoch rather than duplicated
  * in every sample-index artifact.
  */
-export function parseSampleIndexDocument(
-  input: unknown,
-  origin: CaptureEpochOrigin,
-): SampleIndex {
+export function parseSampleIndexDocument(input: unknown, origin: CaptureEpochOrigin): SampleIndex {
   validateEpochOrigin(origin)
   if (!isRecord(input)) {
-    throw new SampleIndexError(
-      'INVALID_DOCUMENT',
-      'sample index document must be an object',
-    )
+    throw new SampleIndexError('INVALID_DOCUMENT', 'sample index document must be an object')
   }
   requireExactKeys(
     input,
@@ -341,28 +282,16 @@ export function parseSampleIndexDocument(
     'sample index document',
   )
   if (input.schemaVersion !== '1.0.0') {
-    throw new SampleIndexError(
-      'INVALID_DOCUMENT',
-      'unsupported sample index schema version',
-    )
+    throw new SampleIndexError('INVALID_DOCUMENT', 'unsupported sample index schema version')
   }
   if (typeof input.epochId !== 'string' || !input.epochId.trim()) {
-    throw new SampleIndexError(
-      'INVALID_DOCUMENT',
-      'epochId must be a non-empty string',
-    )
+    throw new SampleIndexError('INVALID_DOCUMENT', 'epochId must be a non-empty string')
   }
   if (input.epochId !== origin.epochId) {
-    throw new SampleIndexError(
-      'INVALID_DOCUMENT',
-      'document epoch does not match the epoch origin',
-    )
+    throw new SampleIndexError('INVALID_DOCUMENT', 'document epoch does not match the epoch origin')
   }
   if (!isRecord(input.timeBase)) {
-    throw new SampleIndexError(
-      'INVALID_DOCUMENT',
-      'timeBase must be an object',
-    )
+    throw new SampleIndexError('INVALID_DOCUMENT', 'timeBase must be an object')
   }
   requireExactKeys(input.timeBase, ['num', 'den'], 'timeBase')
   const timeBase = {
@@ -376,45 +305,24 @@ export function parseSampleIndexDocument(
     )
   }
   if (!Array.isArray(input.samples) || input.samples.length === 0) {
-    throw new SampleIndexError(
-      'EMPTY_INDEX',
-      'samples must be a non-empty array',
-    )
+    throw new SampleIndexError('EMPTY_INDEX', 'samples must be a non-empty array')
   }
 
   const samples: IndexedSample[] = input.samples.map((value, index) => {
     if (!isRecord(value)) {
-      throw new SampleIndexError(
-        'INVALID_DOCUMENT',
-        `samples[${index}] must be an object`,
-      )
+      throw new SampleIndexError('INVALID_DOCUMENT', `samples[${index}] must be an object`)
     }
     requireExactKeys(
       value,
-      [
-        'sourcePts',
-        'durationPts',
-        'captureTimeUs',
-        'captureFrameIndex',
-        'keyframe',
-      ],
+      ['sourcePts', 'durationPts', 'captureTimeUs', 'captureFrameIndex', 'keyframe'],
       `samples[${index}]`,
     )
     if (typeof value.keyframe !== 'boolean') {
-      throw new SampleIndexError(
-        'INVALID_DOCUMENT',
-        `samples[${index}].keyframe must be boolean`,
-      )
+      throw new SampleIndexError('INVALID_DOCUMENT', `samples[${index}].keyframe must be boolean`)
     }
     return {
-      sourcePts: parseSignedDecimal(
-        value.sourcePts,
-        `samples[${index}].sourcePts`,
-      ),
-      durationPts: parsePositiveDecimal(
-        value.durationPts,
-        `samples[${index}].durationPts`,
-      ),
+      sourcePts: parseSignedDecimal(value.sourcePts, `samples[${index}].sourcePts`),
+      durationPts: parsePositiveDecimal(value.durationPts, `samples[${index}].durationPts`),
       captureTimeUs: parseNonnegativeDecimal(
         value.captureTimeUs,
         `samples[${index}].captureTimeUs`,
@@ -439,10 +347,7 @@ export function parseSampleIndexDocument(
   return index
 }
 
-function parseFfprobeInteger(
-  value: string | undefined,
-  field: string,
-): bigint {
+function parseFfprobeInteger(value: string | undefined, field: string): bigint {
   if (value === undefined || !SIGNED_DECIMAL.test(value)) {
     throw new SampleIndexError('INVALID_FRAME', `invalid ${field}`)
   }
@@ -468,14 +373,9 @@ export function parseFfprobePayload(payload: FfprobePayload): {
   timeBase: Rational
   streamEndPtsExclusive?: bigint
 } {
-  const streams = (payload.streams ?? []).filter(
-    (stream) => stream.codec_type === 'video',
-  )
+  const streams = (payload.streams ?? []).filter(stream => stream.codec_type === 'video')
   if (streams.length !== 1) {
-    throw new SampleIndexError(
-      'INVALID_FRAME',
-      'expected exactly one video stream',
-    )
+    throw new SampleIndexError('INVALID_FRAME', 'expected exactly one video stream')
   }
   const timeBase = parseTimeBase(streams[0]!.time_base)
   const stream = streams[0]!
@@ -483,14 +383,19 @@ export function parseFfprobePayload(payload: FfprobePayload): {
   if (stream.start_pts !== undefined || stream.duration_ts !== undefined) {
     const startPts = parseFfprobeInteger(stream.start_pts, 'stream.start_pts')
     const durationPts = parseFfprobeInteger(stream.duration_ts, 'stream.duration_ts')
-    if (durationPts <= 0n) throw new SampleIndexError('INVALID_FRAME', 'stream.duration_ts must be positive')
+    if (durationPts <= 0n)
+      throw new SampleIndexError('INVALID_FRAME', 'stream.duration_ts must be positive')
     streamEndPtsExclusive = startPts + durationPts
   }
   const frames = [...(payload.frames ?? [])]
   if (frames.length === 0) {
     throw new SampleIndexError('EMPTY_INDEX', 'no frames')
   }
-  return { frames, timeBase, ...(streamEndPtsExclusive === undefined ? {} : { streamEndPtsExclusive }) }
+  return {
+    frames,
+    timeBase,
+    ...(streamEndPtsExclusive === undefined ? {} : { streamEndPtsExclusive }),
+  }
 }
 
 function roundNearestAway(numerator: bigint, denominator: bigint): bigint {
@@ -502,20 +407,11 @@ function roundNearestAway(numerator: bigint, denominator: bigint): bigint {
   return sign * (quotient + (remainder * 2n >= denominator ? 1n : 0n))
 }
 
-export function rescalePtsToUs(
-  deltaPts: bigint,
-  timeBase: Rational,
-): bigint {
+export function rescalePtsToUs(deltaPts: bigint, timeBase: Rational): bigint {
   if (timeBase.num <= 0n || timeBase.den <= 0n) {
-    throw new SampleIndexError(
-      'INVALID_TIME_BASE',
-      'time base must be positive',
-    )
+    throw new SampleIndexError('INVALID_TIME_BASE', 'time base must be positive')
   }
-  return roundNearestAway(
-    deltaPts * timeBase.num * 1_000_000n,
-    timeBase.den,
-  )
+  return roundNearestAway(deltaPts * timeBase.num * 1_000_000n, timeBase.den)
 }
 
 /** Build one strict index from an epoch-relative ffprobe sample table. */
@@ -533,27 +429,15 @@ export function buildSampleIndex(
     const sourcePts = parseFfprobeInteger(frame.pts, 'pts')
     const durationPts = parseFfprobeInteger(frame.pkt_duration, 'pkt_duration')
     if (durationPts <= 0n) {
-      throw new SampleIndexError(
-        'INVALID_FRAME',
-        'pkt_duration must be positive',
-      )
+      throw new SampleIndexError('INVALID_FRAME', 'pkt_duration must be positive')
     }
-    if (
-      frame.key_frame !== undefined &&
-      frame.key_frame !== 0 &&
-      frame.key_frame !== 1
-    ) {
-      throw new SampleIndexError(
-        'INVALID_FRAME',
-        'key_frame must be 0 or 1',
-      )
+    if (frame.key_frame !== undefined && frame.key_frame !== 0 && frame.key_frame !== 1) {
+      throw new SampleIndexError('INVALID_FRAME', 'key_frame must be 0 or 1')
     }
     if (previousEndPts !== undefined && sourcePts !== previousEndPts) {
       throw new SampleIndexError(
         'NON_MONOTONIC',
-        sourcePts < previousEndPts
-          ? 'sample timing overlaps'
-          : 'sample timing has a hole',
+        sourcePts < previousEndPts ? 'sample timing overlaps' : 'sample timing has a hole',
       )
     }
     samples.push({
@@ -561,10 +445,7 @@ export function buildSampleIndex(
       durationPts,
       captureTimeUs:
         origin.captureTimeOriginUs +
-        rescalePtsToUs(
-          sourcePts - origin.sourcePtsOrigin,
-          origin.timeBase,
-        ),
+        rescalePtsToUs(sourcePts - origin.sourcePtsOrigin, origin.timeBase),
       captureFrameIndex: frameIndex,
       keyframe: frame.key_frame === 1,
     })
@@ -610,10 +491,7 @@ export function buildAvailabilityRanges(
 
   for (const entry of indexes) {
     if (!entry.segmentId.trim()) {
-      throw new SampleIndexError(
-        'INVALID_RANGE',
-        'segment id must be non-empty',
-      )
+      throw new SampleIndexError('INVALID_RANGE', 'segment id must be non-empty')
     }
     if (segmentIds.has(entry.segmentId)) {
       throw new SampleIndexError('INVALID_RANGE', 'duplicate segment id')
@@ -624,19 +502,13 @@ export function buildAvailabilityRanges(
       entry.discontinuity < 0 ||
       entry.discontinuity > 2_147_483_647
     ) {
-      throw new SampleIndexError(
-        'INVALID_RANGE',
-        'invalid discontinuity sequence',
-      )
+      throw new SampleIndexError('INVALID_RANGE', 'invalid discontinuity sequence')
     }
     validateIndex(entry.index)
 
     if (!previous) {
       if (entry.discontinuity !== 0) {
-        throw new SampleIndexError(
-          'INVALID_RANGE',
-          'first discontinuity must be zero',
-        )
+        throw new SampleIndexError('INVALID_RANGE', 'first discontinuity must be zero')
       }
     } else {
       const previousLast = previous.index.samples.at(-1)!
@@ -645,10 +517,7 @@ export function buildAvailabilityRanges(
         entry.discontinuity < previous.discontinuity ||
         entry.discontinuity > previous.discontinuity + 1
       ) {
-        throw new SampleIndexError(
-          'INVALID_RANGE',
-          'discontinuity sequence regressed or skipped',
-        )
+        throw new SampleIndexError('INVALID_RANGE', 'discontinuity sequence regressed or skipped')
       }
       if (entry.index.availableStartUs < previous.index.availableEndUs) {
         const exactDuplicateMapping =
@@ -663,16 +532,11 @@ export function buildAvailabilityRanges(
         )
       }
       if (nextFirst.captureFrameIndex !== previousLast.captureFrameIndex + 1n) {
-        throw new SampleIndexError(
-          'INVALID_RANGE',
-          'segment frame indices must be contiguous',
-        )
+        throw new SampleIndexError('INVALID_RANGE', 'segment frame indices must be contiguous')
       }
 
-      const sameDiscontinuity =
-        entry.discontinuity === previous.discontinuity
-      const exactTouch =
-        entry.index.availableStartUs === previous.index.availableEndUs
+      const sameDiscontinuity = entry.discontinuity === previous.discontinuity
+      const exactTouch = entry.index.availableStartUs === previous.index.availableEndUs
       if (sameDiscontinuity) {
         if (!exactTouch) {
           throw new SampleIndexError(
@@ -687,10 +551,7 @@ export function buildAvailabilityRanges(
               'one capture epoch must keep a stable time base',
             )
           }
-          if (
-            nextFirst.sourcePts !==
-            previousLast.sourcePts + previousLast.durationPts
-          ) {
+          if (nextFirst.sourcePts !== previousLast.sourcePts + previousLast.durationPts) {
             throw new SampleIndexError(
               'INVALID_RANGE',
               'same-epoch segment source timing must be contiguous',

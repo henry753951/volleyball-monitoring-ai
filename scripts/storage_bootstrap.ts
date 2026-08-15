@@ -28,12 +28,17 @@ function positiveInteger(value: string | undefined, fallback: number, name: stri
   if (value === undefined || value.trim() === '') return fallback
   if (!/^\d+$/.test(value)) throw new Error(`${name} must be a positive integer`)
   const parsed = Number(value)
-  if (!Number.isSafeInteger(parsed) || parsed <= 0) throw new Error(`${name} must be a positive integer`)
+  if (!Number.isSafeInteger(parsed) || parsed <= 0)
+    throw new Error(`${name} must be a positive integer`)
   return parsed
 }
 
-export function parseBootstrapMode(value: string | undefined, nodeEnv = 'development'): StorageBootstrapMode {
-  const normalized = value?.trim().toLowerCase() || (nodeEnv === 'production' ? 'validate' : 'ensure')
+export function parseBootstrapMode(
+  value: string | undefined,
+  nodeEnv = 'development',
+): StorageBootstrapMode {
+  const normalized =
+    value?.trim().toLowerCase() || (nodeEnv === 'production' ? 'validate' : 'ensure')
   if (normalized !== 'ensure' && normalized !== 'validate') {
     throw new Error('OBJECT_STORAGE_BOOTSTRAP_MODE must be ensure or validate')
   }
@@ -42,7 +47,9 @@ export function parseBootstrapMode(value: string | undefined, nodeEnv = 'develop
 
 export function resolveHostMinioEndpoint(env: NodeJS.ProcessEnv): URL {
   const explicit = env.MINIO_BOOTSTRAP_ENDPOINT?.trim()
-  const endpoint = new URL(explicit || env.MINIO_ENDPOINT?.trim() || `http://127.0.0.1:${env.MINIO_HOST_PORT || '9000'}`)
+  const endpoint = new URL(
+    explicit || env.MINIO_ENDPOINT?.trim() || `http://127.0.0.1:${env.MINIO_HOST_PORT || '9000'}`,
+  )
   if (!explicit && endpoint.hostname === 'minio') {
     endpoint.hostname = '127.0.0.1'
     endpoint.port = env.MINIO_HOST_PORT?.trim() || endpoint.port || '9000'
@@ -54,7 +61,13 @@ export function resolveHostMinioEndpoint(env: NodeJS.ProcessEnv): URL {
 }
 
 export function storageBootstrapConfig(env: NodeJS.ProcessEnv): StorageBootstrapConfig {
-  const buckets = [...new Set(BUCKET_ENV_KEYS.map(key => env[key]?.trim()).filter((value): value is string => Boolean(value)))]
+  const buckets = [
+    ...new Set(
+      BUCKET_ENV_KEYS.map(key => env[key]?.trim()).filter((value): value is string =>
+        Boolean(value),
+      ),
+    ),
+  ]
   if (buckets.length !== BUCKET_ENV_KEYS.length) {
     throw new Error(`all object storage buckets are required: ${BUCKET_ENV_KEYS.join(', ')}`)
   }
@@ -64,7 +77,11 @@ export function storageBootstrapConfig(env: NodeJS.ProcessEnv): StorageBootstrap
   return {
     buckets,
     mode: parseBootstrapMode(env.OBJECT_STORAGE_BOOTSTRAP_MODE, env.NODE_ENV),
-    timeoutMs: positiveInteger(env.OBJECT_STORAGE_BOOTSTRAP_TIMEOUT_MS, 180_000, 'OBJECT_STORAGE_BOOTSTRAP_TIMEOUT_MS'),
+    timeoutMs: positiveInteger(
+      env.OBJECT_STORAGE_BOOTSTRAP_TIMEOUT_MS,
+      180_000,
+      'OBJECT_STORAGE_BOOTSTRAP_TIMEOUT_MS',
+    ),
   }
 }
 
@@ -74,15 +91,18 @@ function isAlreadyCreated(error: unknown): boolean {
   return code === 'BucketAlreadyOwnedByYou' || code === 'BucketAlreadyExists'
 }
 
-async function waitUntilReachable(client: StorageAdminClient, probeBucket: string, timeoutMs: number): Promise<void> {
+async function waitUntilReachable(
+  client: StorageAdminClient,
+  probeBucket: string,
+  timeoutMs: number,
+): Promise<void> {
   const deadline = Date.now() + timeoutMs
   let lastError: unknown
   do {
     try {
       await client.bucketExists(probeBucket)
       return
-    }
-    catch (error) {
+    } catch (error) {
       lastError = error
       await new Promise(resolveSleep => setTimeout(resolveSleep, 500))
     }
@@ -90,7 +110,10 @@ async function waitUntilReachable(client: StorageAdminClient, probeBucket: strin
   throw new Error(`object storage was not reachable within ${timeoutMs} ms`, { cause: lastError })
 }
 
-export async function bootstrapStorage(client: StorageAdminClient, config: StorageBootstrapConfig): Promise<string[]> {
+export async function bootstrapStorage(
+  client: StorageAdminClient,
+  config: StorageBootstrapConfig,
+): Promise<string[]> {
   await waitUntilReachable(client, config.buckets[0]!, config.timeoutMs)
   const missing: string[] = []
   for (const bucket of config.buckets) {
@@ -101,12 +124,12 @@ export async function bootstrapStorage(client: StorageAdminClient, config: Stora
     }
     try {
       await client.makeBucket(bucket)
-    }
-    catch (error) {
+    } catch (error) {
       if (!isAlreadyCreated(error) && !(await client.bucketExists(bucket))) throw error
     }
   }
-  if (missing.length > 0) throw new Error(`missing required object storage buckets: ${missing.join(', ')}`)
+  if (missing.length > 0)
+    throw new Error(`missing required object storage buckets: ${missing.join(', ')}`)
   return config.buckets
 }
 
@@ -114,7 +137,8 @@ export function createStorageAdminClient(env: NodeJS.ProcessEnv): StorageAdminCl
   const endpoint = resolveHostMinioEndpoint(env)
   const accessKey = env.MINIO_ACCESS_KEY?.trim()
   const secretKey = env.MINIO_SECRET_KEY?.trim()
-  if (!accessKey || !secretKey) throw new Error('MINIO_ACCESS_KEY and MINIO_SECRET_KEY are required')
+  if (!accessKey || !secretKey)
+    throw new Error('MINIO_ACCESS_KEY and MINIO_SECRET_KEY are required')
   return new Client({
     endPoint: endpoint.hostname,
     port: Number(endpoint.port || (endpoint.protocol === 'https:' ? 443 : 80)),
@@ -129,7 +153,9 @@ async function main(): Promise<void> {
   const config = storageBootstrapConfig(process.env)
   const endpoint = resolveHostMinioEndpoint(process.env)
   const buckets = await bootstrapStorage(createStorageAdminClient(process.env), config)
-  console.info(`object storage ${config.mode} complete at ${endpoint.origin}: ${buckets.join(', ')}`)
+  console.info(
+    `object storage ${config.mode} complete at ${endpoint.origin}: ${buckets.join(', ')}`,
+  )
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {

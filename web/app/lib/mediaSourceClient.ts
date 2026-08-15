@@ -16,8 +16,10 @@ export interface MediaSourceClientOptions {
 }
 
 async function responseError(response: Response): Promise<Error> {
-  const body = await response.json().catch(() => null) as { message?: unknown } | null
-  return new Error(typeof body?.message === 'string' ? body.message : `影音來源建立失敗 (${response.status})`)
+  const body = (await response.json().catch(() => null)) as { message?: unknown } | null
+  return new Error(
+    typeof body?.message === 'string' ? body.message : `影音來源建立失敗 (${response.status})`,
+  )
 }
 
 export function createMediaSourceClient(options: MediaSourceClientOptions = {}) {
@@ -28,8 +30,14 @@ export function createMediaSourceClient(options: MediaSourceClientOptions = {}) 
       if (source.kind === 'later') return null
       if (source.kind === 'youtube') {
         const response = await fetcher(`${baseUrl}/media-sources/youtube`, {
-          method: 'POST', credentials: 'include', headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ match_id: matchId, source_label: source.label || undefined, source_url: source.url }),
+          method: 'POST',
+          credentials: 'include',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            match_id: matchId,
+            source_label: source.label || undefined,
+            source_url: source.url,
+          }),
         })
         if (!response.ok) throw await responseError(response)
         return response.json()
@@ -38,7 +46,11 @@ export function createMediaSourceClient(options: MediaSourceClientOptions = {}) 
       body.append('match_id', matchId)
       if (source.label) body.append('source_label', source.label)
       body.append('file', source.file, source.file.name)
-      const response = await fetcher(`${baseUrl}/media-sources/upload`, { method: 'POST', credentials: 'include', body })
+      const response = await fetcher(`${baseUrl}/media-sources/upload`, {
+        method: 'POST',
+        credentials: 'include',
+        body,
+      })
       if (!response.ok) throw await responseError(response)
       return response.json()
     },

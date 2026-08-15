@@ -19,9 +19,10 @@ const execFileAsync = promisify(execFile)
 const repositoryRoot = resolve(process.cwd(), '..')
 const databasePackageRoot = resolve(repositoryRoot, 'packages/db')
 const originalDatabaseUrl = process.env.DATABASE_URL
-const sourceDatabaseUrl = process.env.TEST_DATABASE_URL
-  ?? originalDatabaseUrl
-  ?? 'postgresql://volleyball:volleyball@127.0.0.1:5433/volleyball?schema=public'
+const sourceDatabaseUrl =
+  process.env.TEST_DATABASE_URL ??
+  originalDatabaseUrl ??
+  'postgresql://volleyball:volleyball@127.0.0.1:5433/volleyball?schema=public'
 const databaseName = `capture_processing_${randomUUID().replaceAll('-', '')}`
 const maintenanceUrl = new URL(sourceDatabaseUrl)
 maintenanceUrl.pathname = '/postgres'
@@ -49,16 +50,37 @@ let createdDatabase = false
 async function createFailedRally(kind: 'clip' | 'ai') {
   const rallyId = randomUUID()
   const submissionId = randomUUID()
-  await db.rally.create({ data: {
-    id: rallyId, matchId: ids.match, setId: ids.set, dvrProgramId: ids.program, sideAssignmentId: ids.assignment,
-    ordinal: kind === 'clip' ? 1 : 2, annotationRevision: 2n, annotationStatus: 'SUBMITTED', processingStatus: 'FAILED',
-    scoreResolutionState: 'UNKNOWN',
-  } })
-  await db.rallySubmission.create({ data: {
-    id: submissionId, rallyId, annotationRevision: 1n, contentHash: `${kind}-${randomUUID()}`, status: 'ACTIVE',
-    scoreResolutionState: 'UNKNOWN', leftTeamId: ids.left, rightTeamId: ids.right, sideAssignmentId: ids.assignment,
-    clipPolicyVersion: 'clip-policy-v1', clipPreRollUs: 3_000_000n, clipPostRollUs: 3_000_000n, submittedByUserId: ids.operator,
-  } })
+  await db.rally.create({
+    data: {
+      id: rallyId,
+      matchId: ids.match,
+      setId: ids.set,
+      dvrProgramId: ids.program,
+      sideAssignmentId: ids.assignment,
+      ordinal: kind === 'clip' ? 1 : 2,
+      annotationRevision: 2n,
+      annotationStatus: 'SUBMITTED',
+      processingStatus: 'FAILED',
+      scoreResolutionState: 'UNKNOWN',
+    },
+  })
+  await db.rallySubmission.create({
+    data: {
+      id: submissionId,
+      rallyId,
+      annotationRevision: 1n,
+      contentHash: `${kind}-${randomUUID()}`,
+      status: 'ACTIVE',
+      scoreResolutionState: 'UNKNOWN',
+      leftTeamId: ids.left,
+      rightTeamId: ids.right,
+      sideAssignmentId: ids.assignment,
+      clipPolicyVersion: 'clip-policy-v1',
+      clipPreRollUs: 3_000_000n,
+      clipPostRollUs: 3_000_000n,
+      submittedByUserId: ids.operator,
+    },
+  })
   await db.rally.update({ where: { id: rallyId }, data: { activeSubmissionId: submissionId } })
   return { rallyId, submissionId }
 }
@@ -73,23 +95,70 @@ beforeAll(async () => {
     windowsHide: true,
   })
   db = (await import('@volleyball-monitoring/db')).db
-  await db.user.create({ data: { id: ids.operator, email: 'operator@capture.local', displayName: 'Operator' } })
-  await db.team.createMany({ data: [
-    { id: ids.left, name: 'Left', shortName: 'L' },
-    { id: ids.right, name: 'Right', shortName: 'R' },
-  ] })
-  await db.match.create({ data: { id: ids.match, title: 'Capture processing', members: { create: { userId: ids.operator, role: 'OPERATOR' } } } })
-  await db.matchTeam.createMany({ data: [{ matchId: ids.match, teamId: ids.left }, { matchId: ids.match, teamId: ids.right }] })
-  await db.matchSet.create({ data: { id: ids.set, matchId: ids.match, setNumber: 1, status: 'LIVE' } })
-  await db.courtSideAssignment.create({ data: { id: ids.assignment, setId: ids.set, effectiveFromRallyOrdinal: 1, leftTeamId: ids.left, rightTeamId: ids.right } })
-  await db.captureSession.create({ data: { id: ids.baseCapture, matchId: ids.match, sourceKind: 'fixture', ingestPath: 'fixture/base', status: 'FINISHED', health: 'OFFLINE' } })
-  await db.dvrProgram.create({ data: { id: ids.program, captureSessionId: ids.baseCapture, status: 'FINISHED', fpsNum: 60, fpsDen: 1, timeBaseNum: 1, timeBaseDen: 60_000 } })
+  await db.user.create({
+    data: { id: ids.operator, email: 'operator@capture.local', displayName: 'Operator' },
+  })
+  await db.team.createMany({
+    data: [
+      { id: ids.left, name: 'Left', shortName: 'L' },
+      { id: ids.right, name: 'Right', shortName: 'R' },
+    ],
+  })
+  await db.match.create({
+    data: {
+      id: ids.match,
+      title: 'Capture processing',
+      members: { create: { userId: ids.operator, role: 'OPERATOR' } },
+    },
+  })
+  await db.matchTeam.createMany({
+    data: [
+      { matchId: ids.match, teamId: ids.left },
+      { matchId: ids.match, teamId: ids.right },
+    ],
+  })
+  await db.matchSet.create({
+    data: { id: ids.set, matchId: ids.match, setNumber: 1, status: 'LIVE' },
+  })
+  await db.courtSideAssignment.create({
+    data: {
+      id: ids.assignment,
+      setId: ids.set,
+      effectiveFromRallyOrdinal: 1,
+      leftTeamId: ids.left,
+      rightTeamId: ids.right,
+    },
+  })
+  await db.captureSession.create({
+    data: {
+      id: ids.baseCapture,
+      matchId: ids.match,
+      sourceKind: 'fixture',
+      ingestPath: 'fixture/base',
+      status: 'FINISHED',
+      health: 'OFFLINE',
+    },
+  })
+  await db.dvrProgram.create({
+    data: {
+      id: ids.program,
+      captureSessionId: ids.baseCapture,
+      status: 'FINISHED',
+      fpsNum: 60,
+      fpsDen: 1,
+      timeBaseNum: 1,
+      timeBaseDen: 60_000,
+    },
+  })
 }, 120_000)
 
 afterAll(async () => {
   if (db) await db.$disconnect()
   if (createdDatabase) {
-    await maintenancePool.query('SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = $1 AND pid <> pg_backend_pid()', [databaseName])
+    await maintenancePool.query(
+      'SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = $1 AND pid <> pg_backend_pid()',
+      [databaseName],
+    )
     await maintenancePool.query(`DROP DATABASE "${databaseName}"`)
   }
   await maintenancePool.end()
@@ -100,22 +169,77 @@ afterAll(async () => {
 describe('capture lifecycle and processing retry', () => {
   it('starts and terminally stops an authorized OME ingest path', async () => {
     const capture = await startCapture(db, operator, {
-      matchId: ids.match, ingestPath: 'court/main', sourceKind: 'rtmp', sourceLabel: 'Main court', sourceConfigSecretRef: 'secret://capture/main',
+      matchId: ids.match,
+      ingestPath: 'court/main',
+      sourceKind: 'rtmp',
+      sourceLabel: 'Main court',
+      sourceConfigSecretRef: 'secret://capture/main',
     })
-    expect(capture).toMatchObject({ matchId: ids.match, ingestPath: 'court/main', status: 'STARTING', health: 'STARTING', timeline: null })
-    await expect(db.match.findUniqueOrThrow({ where: { id: ids.match } })).resolves.toMatchObject({ status: 'LIVE' })
-    const program = await db.dvrProgram.create({ data: { captureSessionId: capture.id, status: 'LIVE', liveEdgeUs: 9_000_000n, durationUs: 9_000_000n, fpsNum: 60, fpsDen: 1, timeBaseNum: 1, timeBaseDen: 60_000 } })
-    const epoch = await db.captureEpoch.create({ data: { captureSessionId: capture.id, sequenceIndex: 0, sourceTimeBaseNum: 1, sourceTimeBaseDen: 60_000, sourcePtsOrigin: 0n, captureTimeOriginUs: 0n, captureFrameOrigin: 0n, startedAtCaptureUs: 0n } })
+    expect(capture).toMatchObject({
+      matchId: ids.match,
+      ingestPath: 'court/main',
+      status: 'STARTING',
+      health: 'STARTING',
+      timeline: null,
+    })
+    await expect(db.match.findUniqueOrThrow({ where: { id: ids.match } })).resolves.toMatchObject({
+      status: 'LIVE',
+    })
+    const program = await db.dvrProgram.create({
+      data: {
+        captureSessionId: capture.id,
+        status: 'LIVE',
+        liveEdgeUs: 9_000_000n,
+        durationUs: 9_000_000n,
+        fpsNum: 60,
+        fpsDen: 1,
+        timeBaseNum: 1,
+        timeBaseDen: 60_000,
+      },
+    })
+    const epoch = await db.captureEpoch.create({
+      data: {
+        captureSessionId: capture.id,
+        sequenceIndex: 0,
+        sourceTimeBaseNum: 1,
+        sourceTimeBaseDen: 60_000,
+        sourcePtsOrigin: 0n,
+        captureTimeOriginUs: 0n,
+        captureFrameOrigin: 0n,
+        startedAtCaptureUs: 0n,
+      },
+    })
     const stopped = await stopCapture(db, operator, capture.id)
-    expect(stopped).toMatchObject({ status: 'FINISHED', health: 'OFFLINE', timeline: null, endedAt: expect.any(Date) })
-    await expect(db.dvrProgram.findUniqueOrThrow({ where: { id: program.id } })).resolves.toMatchObject({ status: 'FINISHED' })
-    await expect(db.captureEpoch.findUniqueOrThrow({ where: { id: epoch.id } })).resolves.toMatchObject({ endedAtCaptureUs: 9_000_000n })
+    expect(stopped).toMatchObject({
+      status: 'FINISHED',
+      health: 'OFFLINE',
+      timeline: null,
+      endedAt: expect.any(Date),
+    })
+    await expect(
+      db.dvrProgram.findUniqueOrThrow({ where: { id: program.id } }),
+    ).resolves.toMatchObject({ status: 'FINISHED' })
+    await expect(
+      db.captureEpoch.findUniqueOrThrow({ where: { id: epoch.id } }),
+    ).resolves.toMatchObject({ endedAtCaptureUs: 9_000_000n })
     await expect(db.outboxEvent.count({ where: { aggregateId: capture.id } })).resolves.toBe(2)
   })
 
   it('rejects unsafe paths and non-operator identities', async () => {
-    await expect(startCapture(db, operator, { matchId: ids.match, ingestPath: '../escape', sourceKind: 'rtmp' })).rejects.toMatchObject({ code: 'BAD_USER_INPUT' })
-    await expect(startCapture(db, { id: ids.operator, role: UserRole.COACH }, { matchId: ids.match, ingestPath: 'court/coach', sourceKind: 'rtmp' })).rejects.toBeInstanceOf(OperationalMutationError)
+    await expect(
+      startCapture(db, operator, {
+        matchId: ids.match,
+        ingestPath: '../escape',
+        sourceKind: 'rtmp',
+      }),
+    ).rejects.toMatchObject({ code: 'BAD_USER_INPUT' })
+    await expect(
+      startCapture(
+        db,
+        { id: ids.operator, role: UserRole.COACH },
+        { matchId: ids.match, ingestPath: 'court/coach', sourceKind: 'rtmp' },
+      ),
+    ).rejects.toBeInstanceOf(OperationalMutationError)
   })
 
   it('allows only one active media source per match', async () => {
@@ -165,17 +289,21 @@ describe('capture lifecycle and processing retry', () => {
       sourceKind: 'youtube_live',
       status: 'FINISHED',
     })
-    await expect(requestCaptureCompletion(db, capture.id, {
-      expectedSegments: 0,
-      sourceDurationUs: 9_055_000_000n,
-      sourceKind: 'youtube_live',
-    })).resolves.toMatchObject({ status: 'FINISHED' })
-    await expect(db.outboxEvent.count({
-      where: { dedupeKey: `capture-source-completed:${capture.id}` },
-    })).resolves.toBe(1)
+    await expect(
+      requestCaptureCompletion(db, capture.id, {
+        expectedSegments: 0,
+        sourceDurationUs: 9_055_000_000n,
+        sourceKind: 'youtube_live',
+      }),
+    ).resolves.toMatchObject({ status: 'FINISHED' })
+    await expect(
+      db.outboxEvent.count({
+        where: { dedupeKey: `capture-source-completed:${capture.id}` },
+      }),
+    ).resolves.toBe(1)
   })
 
-  it('keeps a sealed capture draining until READY coverage reaches its declared duration', async () => {
+  it('keeps a sealed capture draining until every expected segment is READY', async () => {
     const capture = await startCapture(db, operator, {
       ingestPath: `youtube-${randomUUID()}`,
       matchId: ids.match,
@@ -200,9 +328,11 @@ describe('capture lifecycle and processing retry', () => {
       completionExpectedSegments: 4,
       status: 'STOPPING',
     })
-    await expect(db.dvrProgram.findFirstOrThrow({
-      where: { captureSessionId: capture.id },
-    })).resolves.toMatchObject({ status: 'STOPPING' })
+    await expect(
+      db.dvrProgram.findFirstOrThrow({
+        where: { captureSessionId: capture.id },
+      }),
+    ).resolves.toMatchObject({ status: 'STOPPING' })
     const epoch = await db.captureEpoch.create({
       data: {
         captureFrameOrigin: 0n,
@@ -234,6 +364,31 @@ describe('capture lifecycle and processing retry', () => {
       where: { id: program.id },
     })
 
+    const durationCovered = await requestCaptureCompletion(db, capture.id, {
+      expectedSegments: 4,
+      sourceDurationUs: 2_000_000n,
+      sourceKind: 'youtube_vod',
+    })
+
+    expect(durationCovered).toMatchObject({ status: 'STOPPING', health: 'HEALTHY' })
+    await expect(
+      db.dvrProgram.findUniqueOrThrow({
+        where: { id: program.id },
+      }),
+    ).resolves.toMatchObject({ status: 'STOPPING' })
+
+    await db.dvrSegment.createMany({
+      data: [1n, 2n, 3n].map(sequenceNumber => ({
+        captureEndUs: 2_000_000n + sequenceNumber,
+        captureEpochId: epoch.id,
+        captureStartUs: 1_999_999n + sequenceNumber,
+        durationUs: 1n,
+        dvrProgramId: program.id,
+        frameCount: 1n,
+        readyAt: new Date(),
+        sequenceNumber,
+      })),
+    })
     const finished = await requestCaptureCompletion(db, capture.id, {
       expectedSegments: 4,
       sourceDurationUs: 2_000_000n,
@@ -241,12 +396,14 @@ describe('capture lifecycle and processing retry', () => {
     })
 
     expect(finished).toMatchObject({ status: 'FINISHED', health: 'OFFLINE' })
-    await expect(db.dvrProgram.findUniqueOrThrow({
-      where: { id: program.id },
-    })).resolves.toMatchObject({ status: 'FINISHED' })
+    await expect(
+      db.dvrProgram.findUniqueOrThrow({
+        where: { id: program.id },
+      }),
+    ).resolves.toMatchObject({ status: 'FINISHED' })
   })
 
-  it('finalizes when every missing recording is durably quarantined', async () => {
+  it('does not finalize when missing recordings are only quarantined', async () => {
     const capture = await startCapture(db, operator, {
       ingestPath: `youtube-${randomUUID()}`,
       matchId: ids.match,
@@ -264,52 +421,122 @@ describe('capture lifecycle and processing retry', () => {
         timeBaseNum: 1,
       },
     })
-    await db.mediaIngestFailure.createMany({ data: [
-      { captureSessionId: capture.id, code: 'PERMANENT_FAILURE', sourceJobId: randomUUID() },
-      { captureSessionId: capture.id, code: 'PERMANENT_FAILURE', sourceJobId: randomUUID() },
-    ] })
+    await db.mediaIngestFailure.createMany({
+      data: [
+        { captureSessionId: capture.id, code: 'PERMANENT_FAILURE', sourceJobId: randomUUID() },
+        { captureSessionId: capture.id, code: 'PERMANENT_FAILURE', sourceJobId: randomUUID() },
+      ],
+    })
 
-    const finished = await requestCaptureCompletion(db, capture.id, {
+    const draining = await requestCaptureCompletion(db, capture.id, {
       expectedSegments: 2,
       sourceDurationUs: null,
       sourceKind: 'youtube_vod',
     })
 
-    expect(finished).toMatchObject({ status: 'FINISHED', health: 'OFFLINE' })
-    await expect(db.dvrProgram.findUniqueOrThrow({ where: { id: program.id } }))
-      .resolves.toMatchObject({ status: 'FINISHED' })
+    expect(draining).toMatchObject({ status: 'STOPPING', health: 'HEALTHY' })
+    await expect(
+      db.dvrProgram.findUniqueOrThrow({ where: { id: program.id } }),
+    ).resolves.toMatchObject({ status: 'STOPPING' })
   })
 
   it('resets a terminal failed clip job without creating a second job', async () => {
     const target = await createFailedRally('clip')
-    const clip = await db.clipJob.create({ data: {
-      submissionId: target.submissionId, status: 'FAILED', idempotencyKey: `failed-clip:${target.submissionId}`,
-      canonicalizationProfileVersion: 'canonical-v1', requestedStartCaptureUs: 0n, requestedEndCaptureUs: 1n,
-      attemptCount: 5, maxAttempts: 5, errorCode: 'CLIP_GENERATION_FAILED', errorMessage: 'fixture',
-    } })
-    await expect(retryProcessing(db, operator, target.rallyId, 'x'.repeat(32))).resolves.toMatchObject({ retriedStage: 'clip', status: 'CLIP_QUEUED' })
-    await expect(db.clipJob.findUniqueOrThrow({ where: { id: clip.id } })).resolves.toMatchObject({ status: 'QUEUED', attemptCount: 0, errorCode: null, errorMessage: null })
-    await expect(db.clipJob.count({ where: { submissionId: target.submissionId } })).resolves.toBe(1)
+    const clip = await db.clipJob.create({
+      data: {
+        submissionId: target.submissionId,
+        status: 'FAILED',
+        idempotencyKey: `failed-clip:${target.submissionId}`,
+        canonicalizationProfileVersion: 'canonical-v1',
+        requestedStartCaptureUs: 0n,
+        requestedEndCaptureUs: 1n,
+        attemptCount: 5,
+        maxAttempts: 5,
+        errorCode: 'CLIP_GENERATION_FAILED',
+        errorMessage: 'fixture',
+      },
+    })
+    await expect(
+      retryProcessing(db, operator, target.rallyId, 'x'.repeat(32)),
+    ).resolves.toMatchObject({ retriedStage: 'clip', status: 'CLIP_QUEUED' })
+    await expect(db.clipJob.findUniqueOrThrow({ where: { id: clip.id } })).resolves.toMatchObject({
+      status: 'QUEUED',
+      attemptCount: 0,
+      errorCode: null,
+      errorMessage: null,
+    })
+    await expect(db.clipJob.count({ where: { submissionId: target.submissionId } })).resolves.toBe(
+      1,
+    )
   })
 
   it('supersedes a failed AI attempt and queues a new job with refreshed callback scope', async () => {
     const target = await createFailedRally('ai')
-    const clipAsset = await db.mediaAsset.create({ data: { kind: 'CANONICAL_CLIP', bucket: 'retry', objectKey: `${target.rallyId}.mp4`, contentType: 'video/mp4', byteLength: 10n, sha256: 'a'.repeat(64), state: 'READY', readyAt: new Date() } })
-    const clip = await db.clipJob.create({ data: {
-      submissionId: target.submissionId, status: 'COMPLETED', idempotencyKey: `completed-clip:${target.submissionId}`,
-      canonicalizationProfileVersion: 'canonical-v1', requestedStartCaptureUs: 0n, requestedEndCaptureUs: 1n, actualStartCaptureUs: 0n, actualEndCaptureUs: 1n, clipAssetId: clipAsset.id,
-    } })
-    const failed = await db.aiJob.create({ data: {
-      submissionId: target.submissionId, clipJobId: clip.id, status: 'FAILED', idempotencyKey: `failed-ai:${target.submissionId}`,
-      requestPayload: { ai_job_id: 'old-job', clip: { clip_asset_id: clipAsset.id, download_url: 'expired', download_url_expires_at: 'expired' }, callback: { token: '[redacted]' } },
-      requestPayloadHash: 'b'.repeat(64), jobSchemaVersion: '1.1.0', callbackTokenHash: 'c'.repeat(64), callbackTokenExpiresAt: new Date(0), attemptCount: 5, maxAttempts: 5,
-    } })
+    const clipAsset = await db.mediaAsset.create({
+      data: {
+        kind: 'CANONICAL_CLIP',
+        bucket: 'retry',
+        objectKey: `${target.rallyId}.mp4`,
+        contentType: 'video/mp4',
+        byteLength: 10n,
+        sha256: 'a'.repeat(64),
+        state: 'READY',
+        readyAt: new Date(),
+      },
+    })
+    const clip = await db.clipJob.create({
+      data: {
+        submissionId: target.submissionId,
+        status: 'COMPLETED',
+        idempotencyKey: `completed-clip:${target.submissionId}`,
+        canonicalizationProfileVersion: 'canonical-v1',
+        requestedStartCaptureUs: 0n,
+        requestedEndCaptureUs: 1n,
+        actualStartCaptureUs: 0n,
+        actualEndCaptureUs: 1n,
+        clipAssetId: clipAsset.id,
+      },
+    })
+    const failed = await db.aiJob.create({
+      data: {
+        submissionId: target.submissionId,
+        clipJobId: clip.id,
+        status: 'FAILED',
+        idempotencyKey: `failed-ai:${target.submissionId}`,
+        requestPayload: {
+          ai_job_id: 'old-job',
+          clip: {
+            clip_asset_id: clipAsset.id,
+            download_url: 'expired',
+            download_url_expires_at: 'expired',
+          },
+          callback: { token: '[redacted]' },
+        },
+        requestPayloadHash: 'b'.repeat(64),
+        jobSchemaVersion: '1.1.0',
+        callbackTokenHash: 'c'.repeat(64),
+        callbackTokenExpiresAt: new Date(0),
+        attemptCount: 5,
+        maxAttempts: 5,
+      },
+    })
     const state = await retryProcessing(db, operator, target.rallyId, 's'.repeat(32))
-    expect(state).toMatchObject({ retriedStage: 'ai', status: 'AI_QUEUED', submissionId: target.submissionId })
-    await expect(db.aiJob.findUniqueOrThrow({ where: { id: failed.id } })).resolves.toMatchObject({ status: 'SUPERSEDED' })
-    const queued = await db.aiJob.findFirstOrThrow({ where: { submissionId: target.submissionId, status: 'QUEUED' } })
+    expect(state).toMatchObject({
+      retriedStage: 'ai',
+      status: 'AI_QUEUED',
+      submissionId: target.submissionId,
+    })
+    await expect(db.aiJob.findUniqueOrThrow({ where: { id: failed.id } })).resolves.toMatchObject({
+      status: 'SUPERSEDED',
+    })
+    const queued = await db.aiJob.findFirstOrThrow({
+      where: { submissionId: target.submissionId, status: 'QUEUED' },
+    })
     expect(queued).toMatchObject({ attemptCount: 0, callbackTokenExpiresAt: expect.any(Date) })
-    expect(queued.requestPayload).toMatchObject({ ai_job_id: queued.id, clip: { clip_asset_id: clipAsset.id } })
+    expect(queued.requestPayload).toMatchObject({
+      ai_job_id: queued.id,
+      clip: { clip_asset_id: clipAsset.id },
+    })
     expect(JSON.stringify(queued.requestPayload)).not.toContain('download_url')
     expect(JSON.stringify(queued.requestPayload)).not.toContain('callback')
   })

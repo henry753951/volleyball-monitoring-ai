@@ -5,7 +5,12 @@ import IdentityReplacementDialog from './IdentityReplacementDialog.vue'
 import UiSelect from './ui/Select.vue'
 
 const NONE = '__unassigned__'
-const props = defineProps<{ matchId: string; analysisRunId: string; trackId: number; teamId: string | null }>()
+const props = defineProps<{
+  matchId: string
+  analysisRunId: string
+  trackId: number
+  teamId: string | null
+}>()
 const emit = defineEmits<{ changed: [] }>()
 const assignment = useIdentityAssignmentController({
   matchId: () => props.matchId,
@@ -15,35 +20,67 @@ const assignment = useIdentityAssignmentController({
   onChanged: () => emit('changed'),
 })
 const track = computed(() => assignment.view.model.track.byId(props.trackId))
-const status = computed(() => track.value ? assignment.view.model.track.status(track.value) : null)
-const options = computed(() => assignment.view.model.options.forTrack({ teamId: props.teamId, trackId: props.trackId }).map(option => ({
-  value: option.value || NONE,
-  label: option.value ? option.label : '未分配球員（清除綁定）',
-})))
+const status = computed(() =>
+  track.value ? assignment.view.model.track.status(track.value) : null,
+)
+const options = computed(() =>
+  assignment.view.model.options
+    .forTrack({ teamId: props.teamId, trackId: props.trackId })
+    .map(option => ({
+      value: option.value || NONE,
+      label: option.value ? option.label : '未分配球員（清除綁定）',
+    })),
+)
 const selected = computed({
   get: () => track.value?.roster_entry_id ?? NONE,
-  set: value => assignment.actions.requestAssignment({ trackId: props.trackId, rosterEntryId: value === NONE ? '' : value }),
+  set: value =>
+    assignment.actions.requestAssignment({
+      trackId: props.trackId,
+      rosterEntryId: value === NONE ? '' : value,
+    }),
 })
 </script>
 
 <template>
   <section class="track-identity-editor" aria-label="片段人物綁定">
     <header>
-      <div><UserRoundCheck :size="17" /><span><strong>人物綁定</strong><small>修改後會同步到標註端與其他教練畫面</small></span></div>
+      <div>
+        <UserRoundCheck :size="17" /><span
+          ><strong>人物綁定</strong><small>修改後會同步到標註端與其他教練畫面</small></span
+        >
+      </div>
       <span v-if="status" :data-tone="status.tone">{{ status.label }}</span>
     </header>
     <div class="track-identity-editor__control">
-      <UiSelect v-model="selected" :options="options" :disabled="assignment.view.busy" :aria-label="`指派 ID ${trackId} 的球員`" />
+      <UiSelect
+        v-model="selected"
+        :options="options"
+        :disabled="assignment.view.busy"
+        :aria-label="`指派 ID ${trackId} 的球員`"
+      />
       <LoaderCircle v-if="assignment.state.savingTrackId === trackId" class="spin" :size="16" />
     </div>
-    <div v-if="assignment.state.dialogs.correction" class="track-identity-editor__choice" role="dialog" aria-label="選擇球員修正方式">
+    <div
+      v-if="assignment.state.dialogs.correction"
+      class="track-identity-editor__choice"
+      role="dialog"
+      aria-label="選擇球員修正方式"
+    >
       <strong>如何套用「{{ assignment.state.dialogs.correction.playerName }}」？</strong>
-      <button type="button" @click="assignment.actions.applyCorrection('from_here')"><b>從這段起改正</b><small>之後的片段沿用此次修正</small></button>
-      <button type="button" @click="assignment.actions.applyCorrection('split_identity')"><b>這是不同的人</b><small>拆開後續辨識身分</small></button>
-      <button type="button" @click="assignment.actions.applyCorrection('clip_only')"><b>只修正這個片段</b><small>不影響之後的自動辨識</small></button>
+      <button type="button" @click="assignment.actions.applyCorrection('from_here')">
+        <b>從這段起改正</b><small>之後的片段沿用此次修正</small>
+      </button>
+      <button type="button" @click="assignment.actions.applyCorrection('split_identity')">
+        <b>這是不同的人</b><small>拆開後續辨識身分</small>
+      </button>
+      <button type="button" @click="assignment.actions.applyCorrection('clip_only')">
+        <b>只修正這個片段</b><small>不影響之後的自動辨識</small>
+      </button>
       <button type="button" class="cancel" @click="assignment.actions.closeCorrection">取消</button>
     </div>
-    <p v-if="assignment.state.error" class="track-identity-editor__error" role="alert"><CircleAlert :size="14" />{{ assignment.state.error }}</p>
+    <p v-if="assignment.state.error" class="track-identity-editor__error" role="alert">
+      <CircleAlert :size="14" />{{ assignment.state.error }}
+    </p>
     <IdentityReplacementDialog
       v-if="assignment.state.dialogs.replacement"
       :open="true"
@@ -59,5 +96,130 @@ const selected = computed({
 </template>
 
 <style scoped>
-.track-identity-editor{display:grid;gap:12px;padding-block:18px;border-block:1px solid #dfe4e8}.track-identity-editor>header{display:flex;align-items:center;justify-content:space-between;gap:18px}.track-identity-editor>header>div{display:flex;align-items:center;gap:9px}.track-identity-editor>header>div>span{display:grid;gap:2px}.track-identity-editor header strong{font-size:.76rem}.track-identity-editor header small{color:#77818b;font-size:.6rem}.track-identity-editor>header>span{padding:4px 7px;border-radius:6px;background:#edf1f4;color:#68727d;font-size:.58rem;font-weight:700}.track-identity-editor>header>span[data-tone="manual"],.track-identity-editor>header>span[data-tone="propagated"]{background:#e6f5ec;color:#237847}.track-identity-editor>header>span[data-tone="required"]{background:#fff3db;color:#8a5a08}.track-identity-editor__control{position:relative;max-width:420px}.track-identity-editor__control :deep(.ui-select__trigger){height:42px;border-color:#cdd4db;background:#fff;color:#20252b}.track-identity-editor__control>.spin{position:absolute;right:38px;top:13px;color:#237847}.track-identity-editor__choice{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;max-width:760px}.track-identity-editor__choice>strong{grid-column:1/-1;font-size:.68rem}.track-identity-editor__choice button{min-height:54px;display:grid;justify-items:start;gap:2px;padding:8px 10px;border:1px solid #d4dae0;border-radius:9px;background:#fff;text-align:left}.track-identity-editor__choice button:hover{border-color:#9ba8b4;background:#f5f7f9}.track-identity-editor__choice b{font-size:.65rem}.track-identity-editor__choice small{color:#7a848e;font-size:.56rem}.track-identity-editor__choice .cancel{min-height:34px;display:block;grid-column:1/-1;background:transparent;text-align:center}.track-identity-editor__error{display:flex;align-items:center;gap:6px;margin:0;color:#b4232c;font-size:.64rem}.spin{animation:spin .8s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}@media(max-width:760px){.track-identity-editor__choice{grid-template-columns:1fr}}@media(prefers-reduced-motion:reduce){.spin{animation:none}}
+.track-identity-editor {
+  display: grid;
+  gap: 12px;
+  padding-block: 18px;
+  border-block: 1px solid #dfe4e8;
+}
+.track-identity-editor > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+}
+.track-identity-editor > header > div {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+.track-identity-editor > header > div > span {
+  display: grid;
+  gap: 2px;
+}
+.track-identity-editor header strong {
+  font-size: 0.76rem;
+}
+.track-identity-editor header small {
+  color: #77818b;
+  font-size: 0.6rem;
+}
+.track-identity-editor > header > span {
+  padding: 4px 7px;
+  border-radius: 6px;
+  background: #edf1f4;
+  color: #68727d;
+  font-size: 0.58rem;
+  font-weight: 700;
+}
+.track-identity-editor > header > span[data-tone='manual'],
+.track-identity-editor > header > span[data-tone='propagated'] {
+  background: #e6f5ec;
+  color: #237847;
+}
+.track-identity-editor > header > span[data-tone='required'] {
+  background: #fff3db;
+  color: #8a5a08;
+}
+.track-identity-editor__control {
+  position: relative;
+  max-width: 420px;
+}
+.track-identity-editor__control :deep(.ui-select__trigger) {
+  height: 42px;
+  border-color: #cdd4db;
+  background: #fff;
+  color: #20252b;
+}
+.track-identity-editor__control > .spin {
+  position: absolute;
+  right: 38px;
+  top: 13px;
+  color: #237847;
+}
+.track-identity-editor__choice {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  max-width: 760px;
+}
+.track-identity-editor__choice > strong {
+  grid-column: 1/-1;
+  font-size: 0.68rem;
+}
+.track-identity-editor__choice button {
+  min-height: 54px;
+  display: grid;
+  justify-items: start;
+  gap: 2px;
+  padding: 8px 10px;
+  border: 1px solid #d4dae0;
+  border-radius: 9px;
+  background: #fff;
+  text-align: left;
+}
+.track-identity-editor__choice button:hover {
+  border-color: #9ba8b4;
+  background: #f5f7f9;
+}
+.track-identity-editor__choice b {
+  font-size: 0.65rem;
+}
+.track-identity-editor__choice small {
+  color: #7a848e;
+  font-size: 0.56rem;
+}
+.track-identity-editor__choice .cancel {
+  min-height: 34px;
+  display: block;
+  grid-column: 1/-1;
+  background: transparent;
+  text-align: center;
+}
+.track-identity-editor__error {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  color: #b4232c;
+  font-size: 0.64rem;
+}
+.spin {
+  animation: spin 0.8s linear infinite;
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (max-width: 760px) {
+  .track-identity-editor__choice {
+    grid-template-columns: 1fr;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .spin {
+    animation: none;
+  }
+}
 </style>

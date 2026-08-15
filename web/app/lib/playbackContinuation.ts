@@ -1,8 +1,4 @@
-export type PlaybackContinuationDecision =
-  | 'extend-window'
-  | 'idle'
-  | 'recover-buffer'
-  | 'terminal'
+export type PlaybackContinuationDecision = 'extend-window' | 'idle' | 'recover-buffer' | 'terminal'
 
 export function decidePlaybackContinuation(input: {
   availabilityComplete: boolean
@@ -15,16 +11,10 @@ export function decidePlaybackContinuation(input: {
   seekPreviewActive: boolean
   windowEndCaptureTimeUs: string
 }): PlaybackContinuationDecision {
-  if (
-    !input.playbackHasStarted
-    || input.seekPreviewActive
-    || input.paused && !input.ended
-  ) return 'idle'
+  if (!input.playbackHasStarted || input.seekPreviewActive || (input.paused && !input.ended))
+    return 'idle'
 
-  if (
-    !input.ended
-    && input.browserBufferedSeconds > input.refreshLeadSeconds
-  ) return 'idle'
+  if (!input.ended && input.browserBufferedSeconds > input.refreshLeadSeconds) return 'idle'
 
   const current = BigInt(input.currentCaptureTimeUs)
   const windowEnd = BigInt(input.windowEndCaptureTimeUs)

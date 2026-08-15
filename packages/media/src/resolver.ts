@@ -1,8 +1,4 @@
-import {
-  serializeSampleIndex,
-  type IndexedSample,
-  type SampleIndex,
-} from './sample-index'
+import { serializeSampleIndex, type IndexedSample, type SampleIndex } from './sample-index'
 
 export type IndexedSegment = {
   segmentId: string
@@ -28,10 +24,7 @@ export type StepResult = {
 }
 
 export type ResolveErrorCode =
-  | 'WINDOW_BOUNDARY'
-  | 'SAMPLE_NOT_FOUND'
-  | 'CAPTURE_GAP'
-  | 'INVALID_SEGMENT_SET'
+  'WINDOW_BOUNDARY' | 'SAMPLE_NOT_FOUND' | 'CAPTURE_GAP' | 'INVALID_SEGMENT_SET'
 
 export class ResolverError extends Error {
   constructor(
@@ -63,10 +56,7 @@ function invalidSegmentSet(message: string): never {
   throw new ResolverError('INVALID_SEGMENT_SET', message)
 }
 
-function boundaryFailure(
-  code: BoundaryFailureCode,
-  message: string,
-): never {
+function boundaryFailure(code: BoundaryFailureCode, message: string): never {
   throw new ResolverError(code, message)
 }
 
@@ -75,9 +65,7 @@ function validateIndex(segment: IndexedSegment): void {
     serializeSampleIndex(segment.index)
   } catch (error) {
     const detail = error instanceof Error ? error.message : 'unknown index error'
-    invalidSegmentSet(
-      `segment ${segment.segmentId} has an invalid sample index: ${detail}`,
-    )
+    invalidSegmentSet(`segment ${segment.segmentId} has an invalid sample index: ${detail}`)
   }
 }
 
@@ -140,14 +128,10 @@ function validateSegments(
     }
 
     if (previousSegment) {
-      if (
-        segment.index.availableStartUs < previousSegment.index.availableEndUs
-      ) {
+      if (segment.index.availableStartUs < previousSegment.index.availableEndUs) {
         invalidSegmentSet('segment ranges overlap or are out of order')
       }
-      if (
-        segment.index.availableStartUs > previousSegment.index.availableEndUs
-      ) {
+      if (segment.index.availableStartUs > previousSegment.index.availableEndUs) {
         boundaryFailure(
           unavailableBoundaryCode,
           unavailableBoundaryCode === 'SAMPLE_NOT_FOUND'
@@ -172,21 +156,16 @@ function validateSegments(
 
       if (previousSample) {
         if (sample.captureFrameIndex !== previousSample.captureFrameIndex + 1n) {
-          invalidSegmentSet(
-            'sample frame indices must be contiguous across segments',
-          )
+          invalidSegmentSet('sample frame indices must be contiguous across segments')
         }
         if (sample.captureTimeUs <= previousSample.captureTimeUs) {
           invalidSegmentSet('sample capture times must strictly increase')
         }
         if (
-          segment.index.epochId === previousSampleEpochId
-          && sample.sourcePts
-            !== previousSample.sourcePts + previousSample.durationPts
+          segment.index.epochId === previousSampleEpochId &&
+          sample.sourcePts !== previousSample.sourcePts + previousSample.durationPts
         ) {
-          invalidSegmentSet(
-            'sample source timing must be contiguous within one epoch',
-          )
+          invalidSegmentSet('sample source timing must be contiguous within one epoch')
         }
       }
 
@@ -237,17 +216,9 @@ export function resolveCanonicalTimeAcrossSegments(
   windowStartUs: bigint,
   windowEndUs: bigint,
 ): ResolveResult {
-  const locations = validateSegments(
-    segments,
-    windowStartUs,
-    windowEndUs,
-    'INVALID_SEGMENT_SET',
-  )
+  const locations = validateSegments(segments, windowStartUs, windowEndUs, 'INVALID_SEGMENT_SET')
   if (canonicalTimeUs < windowStartUs || canonicalTimeUs >= windowEndUs) {
-    throw new ResolverError(
-      'CAPTURE_GAP',
-      'target is outside ready contiguous range',
-    )
+    throw new ResolverError('CAPTURE_GAP', 'target is outside ready contiguous range')
   }
 
   let best: IndexedLocation | undefined
@@ -262,8 +233,7 @@ export function resolveCanonicalTimeAcrossSegments(
     if (
       bestDistance === undefined ||
       distance < bestDistance ||
-      (distance === bestDistance &&
-        captureTimeUs < best!.sample.captureTimeUs)
+      (distance === bestDistance && captureTimeUs < best!.sample.captureTimeUs)
     ) {
       best = location
       bestDistance = distance
@@ -306,12 +276,7 @@ export function frameStepAcrossSegments(
   windowStartUs: bigint,
   windowEndUs: bigint,
 ): StepResult {
-  const locations = validateSegments(
-    segments,
-    windowStartUs,
-    windowEndUs,
-    'SAMPLE_NOT_FOUND',
-  )
+  const locations = validateSegments(segments, windowStartUs, windowEndUs, 'SAMPLE_NOT_FOUND')
   const currentIndex = locations.findIndex(
     ({ sample }) => sample.captureFrameIndex === captureFrameIndex,
   )
@@ -319,14 +284,8 @@ export function frameStepAcrossSegments(
     throw new ResolverError('SAMPLE_NOT_FOUND', 'sample not found')
   }
   const current = locations[currentIndex]!
-  if (
-    current.sample.captureTimeUs < windowStartUs ||
-    current.sample.captureTimeUs >= windowEndUs
-  ) {
-    throw new ResolverError(
-      'SAMPLE_NOT_FOUND',
-      'current sample is outside playback window',
-    )
+  if (current.sample.captureTimeUs < windowStartUs || current.sample.captureTimeUs >= windowEndUs) {
+    throw new ResolverError('SAMPLE_NOT_FOUND', 'current sample is outside playback window')
   }
 
   const targetIndex = currentIndex + (direction === 'next' ? 1 : -1)
@@ -334,14 +293,8 @@ export function frameStepAcrossSegments(
   if (!target) {
     throw new ResolverError('SAMPLE_NOT_FOUND', 'no adjacent sample')
   }
-  if (
-    target.sample.captureTimeUs < windowStartUs ||
-    target.sample.captureTimeUs >= windowEndUs
-  ) {
-    throw new ResolverError(
-      'WINDOW_BOUNDARY',
-      'adjacent sample outside playback window',
-    )
+  if (target.sample.captureTimeUs < windowStartUs || target.sample.captureTimeUs >= windowEndUs) {
+    throw new ResolverError('WINDOW_BOUNDARY', 'adjacent sample outside playback window')
   }
   return {
     kind: 'frame_exact',

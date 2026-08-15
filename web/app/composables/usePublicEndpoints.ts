@@ -9,7 +9,11 @@ export function usePublicEndpoints() {
   const toWebSocketUrl = (path: string) => {
     if (import.meta.server) return path
     const localDevOrigin = (() => {
-      if (!import.meta.dev || window.location.protocol !== 'http:' || ['', '80'].includes(window.location.port)) {
+      if (
+        !import.meta.dev ||
+        window.location.protocol !== 'http:' ||
+        ['', '80'].includes(window.location.port)
+      ) {
         return window.location.origin
       }
       const configured = new URL(config.public.devBackendOrigin, window.location.origin)
@@ -24,7 +28,10 @@ export function usePublicEndpoints() {
   }
 
   return {
-    analysisReviewWsUrl: (analysisRunId: string) => toWebSocketUrl(`${config.public.analysisReviewWsPath.replace(/\/$/, '')}/${encodeURIComponent(analysisRunId)}`),
+    analysisReviewWsUrl: (analysisRunId: string) =>
+      toWebSocketUrl(
+        `${config.public.analysisReviewWsPath.replace(/\/$/, '')}/${encodeURIComponent(analysisRunId)}`,
+      ),
     graphqlUrl: computed(() => toHttpUrl(config.public.graphqlPath)),
     annotationWsUrl: computed(() => toWebSocketUrl(config.public.annotationWsPath)),
     coachWsUrl: computed(() => toWebSocketUrl(config.public.coachWsPath)),

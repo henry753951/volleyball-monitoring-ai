@@ -9,7 +9,7 @@ import {
 import type { PgBoss } from 'pg-boss'
 
 describe('media ingest failure quarantine', () => {
-  it('keeps the audit copy without leaving a strict FIFO poison job', async () => {
+  it('keeps the audit copy and preserves the strict FIFO failure sentinel', async () => {
     const envelope = {
       schemaVersion: '1.0.0',
       jobType: MEDIA_INGEST_QUEUE,
@@ -26,56 +26,79 @@ describe('media ingest failure quarantine', () => {
 
     const results = await quarantinePermanentMediaFailures(
       [{ id: envelope.epochCandidateId, data: envelope }],
-      [{
-        id: envelope.epochCandidateId,
-        status: 'deadletter',
-        output: { code: 'PERMANENT_FAILURE' },
-      }],
+      [
+        {
+          id: envelope.epochCandidateId,
+          status: 'deadletter',
+          output: { code: 'PERMANENT_FAILURE' },
+        },
+      ],
       async (_id, data) => {
         quarantined.push(data)
       },
-      async failure => { failures.push(failure) },
+      async failure => {
+        failures.push(failure)
+      },
     )
 
-    expect(results).toEqual([{
-      id: envelope.epochCandidateId,
-      status: 'completed',
-      output: { code: 'PERMANENT_FAILURE' },
-    }])
-    expect(quarantined).toEqual([expect.objectContaining({
-      captureSessionId: envelope.captureSessionId,
-      permanentFailure: { code: 'PERMANENT_FAILURE' },
-      sourceJobId: envelope.epochCandidateId,
-      sourceQueue: MEDIA_INGEST_QUEUE,
-    })])
-    expect(failures).toEqual([{
-      captureSessionId: envelope.captureSessionId,
-      code: 'PERMANENT_FAILURE',
-      sourceJobId: envelope.epochCandidateId,
-    }])
+    expect(results).toEqual([
+      {
+        id: envelope.epochCandidateId,
+        status: 'deadletter',
+        output: { code: 'PERMANENT_FAILURE' },
+      },
+    ])
+    expect(quarantined).toEqual([
+      expect.objectContaining({
+        captureSessionId: envelope.captureSessionId,
+        permanentFailure: { code: 'PERMANENT_FAILURE' },
+        sourceJobId: envelope.epochCandidateId,
+        sourceQueue: MEDIA_INGEST_QUEUE,
+      }),
+    ])
+    expect(failures).toEqual([
+      {
+        captureSessionId: envelope.captureSessionId,
+        code: 'PERMANENT_FAILURE',
+        sourceJobId: envelope.epochCandidateId,
+      },
+    ])
   })
 
   it('does not copy malformed source data into the quarantine record', async () => {
     const quarantined: Record<string, unknown>[] = []
     await quarantinePermanentMediaFailures(
-      [{ id: '10000000-0000-4000-8000-000000000099', data: {
-        candidate: '/private/camera/path',
-        token: 'do-not-leak-this-token',
-      } as unknown as MediaIngestEnvelope }],
-      [{
-        id: '10000000-0000-4000-8000-000000000099',
-        status: 'deadletter',
-        output: { code: 'INVALID_JOB' },
-      }],
-      async (_id, data) => { quarantined.push(data) },
-      async () => { throw new Error('malformed jobs must not be recorded') },
+      [
+        {
+          id: '10000000-0000-4000-8000-000000000099',
+          data: {
+            candidate: '/private/camera/path',
+            token: 'do-not-leak-this-token',
+          } as unknown as MediaIngestEnvelope,
+        },
+      ],
+      [
+        {
+          id: '10000000-0000-4000-8000-000000000099',
+          status: 'deadletter',
+          output: { code: 'INVALID_JOB' },
+        },
+      ],
+      async (_id, data) => {
+        quarantined.push(data)
+      },
+      async () => {
+        throw new Error('malformed jobs must not be recorded')
+      },
     )
 
-    expect(quarantined).toEqual([{
-      permanentFailure: { code: 'INVALID_JOB' },
-      sourceJobId: '10000000-0000-4000-8000-000000000099',
-      sourceQueue: MEDIA_INGEST_QUEUE,
-    }])
+    expect(quarantined).toEqual([
+      {
+        permanentFailure: { code: 'INVALID_JOB' },
+        sourceJobId: '10000000-0000-4000-8000-000000000099',
+        sourceQueue: MEDIA_INGEST_QUEUE,
+      },
+    ])
     expect(JSON.stringify(quarantined)).not.toContain('private')
     expect(JSON.stringify(quarantined)).not.toContain('do-not-leak')
   })
@@ -94,26 +117,31 @@ describe('media ingest failure quarantine', () => {
     } satisfies MediaIngestEnvelope
     const recorded: Record<string, unknown>[] = []
     const boss = {
-      findJobs: async () => [{
-        data: {
-          ...envelope,
-          permanentFailure: { code: 'PERMANENT_FAILURE' },
-          sourceJobId: envelope.epochCandidateId,
-          sourceQueue: MEDIA_INGEST_QUEUE,
+      findJobs: async () => [
+        {
+          data: {
+            ...envelope,
+            permanentFailure: { code: 'PERMANENT_FAILURE' },
+            sourceJobId: envelope.epochCandidateId,
+            sourceQueue: MEDIA_INGEST_QUEUE,
+          },
         },
-      }, { data: { token: 'not-an-envelope' } }],
+        { data: { token: 'not-an-envelope' } },
+      ],
     } as unknown as Pick<PgBoss, 'findJobs'>
 
-    await expect(reconcilePermanentMediaFailures(
-      boss,
-      `${MEDIA_INGEST_QUEUE}.dead-letter`,
-      async failure => { recorded.push(failure) },
-    )).resolves.toBe(1)
-    expect(recorded).toEqual([{
-      captureSessionId: envelope.captureSessionId,
-      code: 'PERMANENT_FAILURE',
-      sourceJobId: envelope.epochCandidateId,
-    }])
+    await expect(
+      reconcilePermanentMediaFailures(boss, `${MEDIA_INGEST_QUEUE}.dead-letter`, async failure => {
+        recorded.push(failure)
+      }),
+    ).resolves.toBe(1)
+    expect(recorded).toEqual([
+      {
+        captureSessionId: envelope.captureSessionId,
+        code: 'PERMANENT_FAILURE',
+        sourceJobId: envelope.epochCandidateId,
+      },
+    ])
   })
 })
 
@@ -127,9 +155,13 @@ describe('media ingest capture groups', () => {
         { singletonKey: 'capture-b', groupId: 'capture-b' },
         { singletonKey: 'capture-c', groupId: null },
       ],
-      update: async (_name: string, _data: unknown, options: {
-        singletonKey: string
-      }) => {
+      update: async (
+        _name: string,
+        _data: unknown,
+        options: {
+          singletonKey: string
+        },
+      ) => {
         updates.push(options.singletonKey)
         return { jobs: [options.singletonKey], updated: 1 }
       },

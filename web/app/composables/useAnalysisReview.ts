@@ -13,14 +13,28 @@ import {
   type RealtimeReconnectScheduler,
 } from '~/lib/realtimeReconnect'
 
-export type BallOverride = { state: 'position'; position: { x: number; y: number } } | { state: 'missing' }
+export type BallOverride =
+  { state: 'position'; position: { x: number; y: number } } | { state: 'missing' }
 
 function operationKey(operation: AnalysisReviewOperation) {
-  if (operation.op === 'set_ball_position' || operation.op === 'mark_ball_missing' || operation.op === 'clear_ball_override') return `ball:${operation.frame_index}`
-  if (operation.op === 'set_action' || operation.op === 'clear_action_override') return `action:${operation.frame_index}:${operation.track_id}`
-  if (operation.op === 'set_player_bbox' || operation.op === 'clear_player_bbox_override') return `bbox:${operation.frame_index}:${operation.track_id}`
-  if (operation.op === 'set_contact_actor' || operation.op === 'clear_contact_actor_override') return `actor:${operation.key_point_id}`
-  if (operation.op === 'add_contact' || operation.op === 'delete_contact' || operation.op === 'restore_contact') return `contact-edit:${operation.contact_id}`
+  if (
+    operation.op === 'set_ball_position' ||
+    operation.op === 'mark_ball_missing' ||
+    operation.op === 'clear_ball_override'
+  )
+    return `ball:${operation.frame_index}`
+  if (operation.op === 'set_action' || operation.op === 'clear_action_override')
+    return `action:${operation.frame_index}:${operation.track_id}`
+  if (operation.op === 'set_player_bbox' || operation.op === 'clear_player_bbox_override')
+    return `bbox:${operation.frame_index}:${operation.track_id}`
+  if (operation.op === 'set_contact_actor' || operation.op === 'clear_contact_actor_override')
+    return `actor:${operation.key_point_id}`
+  if (
+    operation.op === 'add_contact' ||
+    operation.op === 'delete_contact' ||
+    operation.op === 'restore_contact'
+  )
+    return `contact-edit:${operation.contact_id}`
   return `contact-time:${operation.key_point_id}`
 }
 
@@ -47,35 +61,75 @@ export function useAnalysisReview(analysisRunId: MaybeRefOrGetter<string | null>
   let generation = 0
   let flushing = false
 
-  function frameTrackKey(frameIndex: string | number, trackId: number) { return `${frameIndex}:${trackId}` }
+  function frameTrackKey(frameIndex: string | number, trackId: number) {
+    return `${frameIndex}:${trackId}`
+  }
 
   function replace(state: AnalysisReviewState) {
-    const balls = new Map(state.ball_corrections.map(item => [item.frame_index, item.state === 'position' ? { state: 'position' as const, position: item.frame_pos } : { state: 'missing' as const }]))
-    const actions = new Map(state.action_corrections.map(item => [frameTrackKey(item.frame_index, item.track_id), item.action]))
-    const bboxes = new Map(state.player_bbox_corrections.map(item => [frameTrackKey(item.frame_index, item.track_id), item.frame_bbox]))
-    const actors = new Map(state.contact_actor_corrections.map(item => [item.key_point_id, item.track_id]))
-    const contactTimes = new Map(state.contact_time_corrections.map(item => [item.key_point_id, Number(item.frame_index)]))
+    const balls = new Map(
+      state.ball_corrections.map(item => [
+        item.frame_index,
+        item.state === 'position'
+          ? { state: 'position' as const, position: item.frame_pos }
+          : { state: 'missing' as const },
+      ]),
+    )
+    const actions = new Map(
+      state.action_corrections.map(item => [
+        frameTrackKey(item.frame_index, item.track_id),
+        item.action,
+      ]),
+    )
+    const bboxes = new Map(
+      state.player_bbox_corrections.map(item => [
+        frameTrackKey(item.frame_index, item.track_id),
+        item.frame_bbox,
+      ]),
+    )
+    const actors = new Map(
+      state.contact_actor_corrections.map(item => [item.key_point_id, item.track_id]),
+    )
+    const contactTimes = new Map(
+      state.contact_time_corrections.map(item => [item.key_point_id, Number(item.frame_index)]),
+    )
     const edits = new Map(state.contact_edits.map(item => [item.contact_id, item]))
     // A remote invalidation may arrive while this client still has an unsent
     // optimistic edit. Reapply the compact local queue after replacing state.
     for (const operation of queued.values()) {
-      if (operation.op === 'set_ball_position') balls.set(operation.frame_index, { state: 'position', position: operation.frame_pos })
-      else if (operation.op === 'mark_ball_missing') balls.set(operation.frame_index, { state: 'missing' })
+      if (operation.op === 'set_ball_position')
+        balls.set(operation.frame_index, { state: 'position', position: operation.frame_pos })
+      else if (operation.op === 'mark_ball_missing')
+        balls.set(operation.frame_index, { state: 'missing' })
       else if (operation.op === 'clear_ball_override') balls.delete(operation.frame_index)
-      else if (operation.op === 'set_action') actions.set(frameTrackKey(operation.frame_index, operation.track_id), operation.action)
-      else if (operation.op === 'clear_action_override') actions.delete(frameTrackKey(operation.frame_index, operation.track_id))
-      else if (operation.op === 'set_player_bbox') bboxes.set(frameTrackKey(operation.frame_index, operation.track_id), operation.frame_bbox)
-      else if (operation.op === 'clear_player_bbox_override') bboxes.delete(frameTrackKey(operation.frame_index, operation.track_id))
-      else if (operation.op === 'set_contact_actor') actors.set(operation.key_point_id, operation.track_id)
-      else if (operation.op === 'clear_contact_actor_override') actors.delete(operation.key_point_id)
-      else if (operation.op === 'set_contact_time') contactTimes.set(operation.key_point_id, Number(operation.frame_index))
-      else if (operation.op === 'clear_contact_time_override') contactTimes.delete(operation.key_point_id)
-      else if (operation.op === 'add_contact') edits.set(operation.contact_id, { contact_id: operation.contact_id, base_key_point_id: null, frame_index: operation.frame_index, track_id: operation.track_id, deleted: false, revision: state.revision })
+      else if (operation.op === 'set_action')
+        actions.set(frameTrackKey(operation.frame_index, operation.track_id), operation.action)
+      else if (operation.op === 'clear_action_override')
+        actions.delete(frameTrackKey(operation.frame_index, operation.track_id))
+      else if (operation.op === 'set_player_bbox')
+        bboxes.set(frameTrackKey(operation.frame_index, operation.track_id), operation.frame_bbox)
+      else if (operation.op === 'clear_player_bbox_override')
+        bboxes.delete(frameTrackKey(operation.frame_index, operation.track_id))
+      else if (operation.op === 'set_contact_actor')
+        actors.set(operation.key_point_id, operation.track_id)
+      else if (operation.op === 'clear_contact_actor_override')
+        actors.delete(operation.key_point_id)
+      else if (operation.op === 'set_contact_time')
+        contactTimes.set(operation.key_point_id, Number(operation.frame_index))
+      else if (operation.op === 'clear_contact_time_override')
+        contactTimes.delete(operation.key_point_id)
+      else if (operation.op === 'add_contact')
+        edits.set(operation.contact_id, {
+          contact_id: operation.contact_id,
+          base_key_point_id: null,
+          frame_index: operation.frame_index,
+          track_id: operation.track_id,
+          deleted: false,
+          revision: state.revision,
+        })
       else if (operation.op === 'delete_contact') {
         const current = edits.get(operation.contact_id)
         if (current) edits.set(operation.contact_id, { ...current, deleted: true })
-      }
-      else if (operation.op === 'restore_contact') {
+      } else if (operation.op === 'restore_contact') {
         const current = edits.get(operation.contact_id)
         if (current) edits.set(operation.contact_id, { ...current, deleted: false })
       }
@@ -96,9 +150,11 @@ export function useAnalysisReview(analysisRunId: MaybeRefOrGetter<string | null>
   async function refresh(currentGeneration = generation) {
     const id = toValue(analysisRunId)
     if (!id) return
-    const response = await fetch(`/api/v1/analysis-runs/${encodeURIComponent(id)}/review`, { credentials: 'include' })
+    const response = await fetch(`/api/v1/analysis-runs/${encodeURIComponent(id)}/review`, {
+      credentials: 'include',
+    })
     if (!response.ok) throw new Error(`分析修正同步失敗 (${response.status})`)
-    const state = await response.json() as AnalysisReviewState
+    const state = (await response.json()) as AnalysisReviewState
     if (currentGeneration === generation && state.analysis_run_id === id) replace(state)
   }
 
@@ -116,8 +172,7 @@ export function useAnalysisReview(analysisRunId: MaybeRefOrGetter<string | null>
     try {
       nextSocket = new WebSocket(analysisReviewWsUrl(id))
       socket = nextSocket
-    }
-    catch (cause) {
+    } catch (cause) {
       error.value = cause instanceof Error ? cause : new Error('分析修正即時連線失敗')
       connection.value = 'offline'
       reconnect?.schedule()
@@ -129,13 +184,23 @@ export function useAnalysisReview(analysisRunId: MaybeRefOrGetter<string | null>
       connection.value = 'ready'
       if (error.value) void refresh(currentGeneration).catch(() => undefined)
     })
-    nextSocket.addEventListener('message', (event) => {
+    nextSocket.addEventListener('message', event => {
       if (currentGeneration !== generation) return
       let message: AnalysisReviewRevisionEvent
-      try { message = JSON.parse(String(event.data)) as AnalysisReviewRevisionEvent }
-      catch { return }
-      if (message.type !== 'analysis_review_revision' || message.analysis_run_id !== id || BigInt(message.revision) <= BigInt(revision.value)) return
-      void refresh(currentGeneration).catch(cause => { error.value = cause instanceof Error ? cause : new Error('分析修正同步失敗') })
+      try {
+        message = JSON.parse(String(event.data)) as AnalysisReviewRevisionEvent
+      } catch {
+        return
+      }
+      if (
+        message.type !== 'analysis_review_revision' ||
+        message.analysis_run_id !== id ||
+        BigInt(message.revision) <= BigInt(revision.value)
+      )
+        return
+      void refresh(currentGeneration).catch(cause => {
+        error.value = cause instanceof Error ? cause : new Error('分析修正同步失敗')
+      })
     })
     nextSocket.addEventListener('close', () => {
       if (currentGeneration !== generation || socket !== nextSocket) return
@@ -166,21 +231,24 @@ export function useAnalysisReview(analysisRunId: MaybeRefOrGetter<string | null>
         method: 'PATCH',
         credentials: 'include',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ schema_version: ANALYSIS_REVIEW_SCHEMA_VERSION, client_patch_id: crypto.randomUUID(), base_revision: revision.value, operations }),
+        body: JSON.stringify({
+          schema_version: ANALYSIS_REVIEW_SCHEMA_VERSION,
+          client_patch_id: crypto.randomUUID(),
+          base_revision: revision.value,
+          operations,
+        }),
       })
       if (!response.ok) throw new Error(`分析修正儲存失敗 (${response.status})`)
-      const result = await response.json() as { revision: string }
+      const result = (await response.json()) as { revision: string }
       revision.value = result.revision
       error.value = null
       dirtyCount.value = queued.size
-    }
-    catch (cause) {
+    } catch (cause) {
       operations.forEach(operation => queued.set(operationKey(operation), operation))
       dirtyCount.value = queued.size
       error.value = cause instanceof Error ? cause : new Error('分析修正儲存失敗')
       throw error.value
-    }
-    finally {
+    } finally {
       flushing = false
       pending.value = false
     }
@@ -202,42 +270,71 @@ export function useAnalysisReview(analysisRunId: MaybeRefOrGetter<string | null>
     if (!id || queued.size) throw new Error('請先套用目前修改')
     pending.value = true
     try {
-      const response = await fetch(`/api/v1/analysis-runs/${encodeURIComponent(id)}/review/${action}`, { method: 'POST', credentials: 'include' })
-      if (!response.ok) throw new Error(`${action === 'recalculate' ? '重新分析' : '審核發布'}失敗 (${response.status})`)
+      const response = await fetch(
+        `/api/v1/analysis-runs/${encodeURIComponent(id)}/review/${action}`,
+        { method: 'POST', credentials: 'include' },
+      )
+      if (!response.ok)
+        throw new Error(
+          `${action === 'recalculate' ? '重新分析' : '審核發布'}失敗 (${response.status})`,
+        )
       await refresh()
+    } finally {
+      pending.value = false
     }
-    finally { pending.value = false }
   }
 
   const recalculate = () => reviewAction('recalculate')
   const approve = () => reviewAction('approve')
 
   function setBallPosition(frameIndex: number, position: { x: number; y: number }) {
-    ballCorrections.value = new Map(ballCorrections.value).set(String(frameIndex), { state: 'position', position })
+    ballCorrections.value = new Map(ballCorrections.value).set(String(frameIndex), {
+      state: 'position',
+      position,
+    })
     queue({ op: 'set_ball_position', frame_index: String(frameIndex), frame_pos: position })
   }
   function markBallMissing(frameIndex: number) {
-    ballCorrections.value = new Map(ballCorrections.value).set(String(frameIndex), { state: 'missing' })
+    ballCorrections.value = new Map(ballCorrections.value).set(String(frameIndex), {
+      state: 'missing',
+    })
     queue({ op: 'mark_ball_missing', frame_index: String(frameIndex) })
   }
   function clearBallOverride(frameIndex: number) {
-    const next = new Map(ballCorrections.value); next.delete(String(frameIndex)); ballCorrections.value = next
+    const next = new Map(ballCorrections.value)
+    next.delete(String(frameIndex))
+    ballCorrections.value = next
     queue({ op: 'clear_ball_override', frame_index: String(frameIndex) })
   }
   function setAction(frameIndex: number, trackId: number, action: AnalysisReviewAction) {
-    actionCorrections.value = new Map(actionCorrections.value).set(frameTrackKey(frameIndex, trackId), action)
+    actionCorrections.value = new Map(actionCorrections.value).set(
+      frameTrackKey(frameIndex, trackId),
+      action,
+    )
     queue({ op: 'set_action', frame_index: String(frameIndex), track_id: trackId, action })
   }
   function clearActionOverride(frameIndex: number, trackId: number) {
-    const next = new Map(actionCorrections.value); next.delete(frameTrackKey(frameIndex, trackId)); actionCorrections.value = next
+    const next = new Map(actionCorrections.value)
+    next.delete(frameTrackKey(frameIndex, trackId))
+    actionCorrections.value = next
     queue({ op: 'clear_action_override', frame_index: String(frameIndex), track_id: trackId })
   }
   function setPlayerBBox(frameIndex: number, trackId: number, frameBBox: AnalysisFrameBBox) {
-    playerBBoxCorrections.value = new Map(playerBBoxCorrections.value).set(frameTrackKey(frameIndex, trackId), frameBBox)
-    queue({ op: 'set_player_bbox', frame_index: String(frameIndex), track_id: trackId, frame_bbox: frameBBox })
+    playerBBoxCorrections.value = new Map(playerBBoxCorrections.value).set(
+      frameTrackKey(frameIndex, trackId),
+      frameBBox,
+    )
+    queue({
+      op: 'set_player_bbox',
+      frame_index: String(frameIndex),
+      track_id: trackId,
+      frame_bbox: frameBBox,
+    })
   }
   function clearPlayerBBoxOverride(frameIndex: number, trackId: number) {
-    const next = new Map(playerBBoxCorrections.value); next.delete(frameTrackKey(frameIndex, trackId)); playerBBoxCorrections.value = next
+    const next = new Map(playerBBoxCorrections.value)
+    next.delete(frameTrackKey(frameIndex, trackId))
+    playerBBoxCorrections.value = next
     queue({ op: 'clear_player_bbox_override', frame_index: String(frameIndex), track_id: trackId })
   }
   function setContactActor(keyPointId: string, trackId: number | null) {
@@ -245,7 +342,9 @@ export function useAnalysisReview(analysisRunId: MaybeRefOrGetter<string | null>
     queue({ op: 'set_contact_actor', key_point_id: keyPointId, track_id: trackId })
   }
   function clearContactActorOverride(keyPointId: string) {
-    const next = new Map(contactActorCorrections.value); next.delete(keyPointId); contactActorCorrections.value = next
+    const next = new Map(contactActorCorrections.value)
+    next.delete(keyPointId)
+    contactActorCorrections.value = next
     queue({ op: 'clear_contact_actor_override', key_point_id: keyPointId })
   }
   function setContactTime(keyPointId: string, frameIndex: number) {
@@ -253,57 +352,91 @@ export function useAnalysisReview(analysisRunId: MaybeRefOrGetter<string | null>
     queue({ op: 'set_contact_time', key_point_id: keyPointId, frame_index: String(frameIndex) })
   }
   function clearContactTimeOverride(keyPointId: string) {
-    const next = new Map(contactTimeCorrections.value); next.delete(keyPointId); contactTimeCorrections.value = next
+    const next = new Map(contactTimeCorrections.value)
+    next.delete(keyPointId)
+    contactTimeCorrections.value = next
     queue({ op: 'clear_contact_time_override', key_point_id: keyPointId })
   }
   function addContact(frameIndex: number, trackId: number | null = null) {
     const contactId = crypto.randomUUID()
-    contactEdits.value = new Map(contactEdits.value).set(contactId, { contact_id: contactId, base_key_point_id: null, frame_index: String(frameIndex), track_id: trackId, deleted: false, revision: revision.value })
-    queue({ op: 'add_contact', contact_id: contactId, frame_index: String(frameIndex), track_id: trackId })
+    contactEdits.value = new Map(contactEdits.value).set(contactId, {
+      contact_id: contactId,
+      base_key_point_id: null,
+      frame_index: String(frameIndex),
+      track_id: trackId,
+      deleted: false,
+      revision: revision.value,
+    })
+    queue({
+      op: 'add_contact',
+      contact_id: contactId,
+      frame_index: String(frameIndex),
+      track_id: trackId,
+    })
     return contactId
   }
   function deleteContact(contactId: string, frameIndex: number) {
     const current = contactEdits.value.get(contactId)
-    contactEdits.value = new Map(contactEdits.value).set(contactId, current
-      ? { ...current, deleted: true }
-      : { contact_id: contactId, base_key_point_id: contactId, frame_index: String(frameIndex), track_id: null, deleted: true, revision: revision.value })
+    contactEdits.value = new Map(contactEdits.value).set(
+      contactId,
+      current
+        ? { ...current, deleted: true }
+        : {
+            contact_id: contactId,
+            base_key_point_id: contactId,
+            frame_index: String(frameIndex),
+            track_id: null,
+            deleted: true,
+            revision: revision.value,
+          },
+    )
     queue({ op: 'delete_contact', contact_id: contactId })
   }
   function restoreContact(contactId: string) {
     const current = contactEdits.value.get(contactId)
-    if (current) contactEdits.value = new Map(contactEdits.value).set(contactId, { ...current, deleted: false })
+    if (current)
+      contactEdits.value = new Map(contactEdits.value).set(contactId, {
+        ...current,
+        deleted: false,
+      })
     queue({ op: 'restore_contact', contact_id: contactId })
   }
 
-  watch(() => toValue(analysisRunId), async (id) => {
-    generation += 1
-    const currentGeneration = generation
-    reconnect?.dispose()
-    reconnect = null
-    socket?.close()
-    socket = null
-    queued.clear()
-    revision.value = '0'
-    ballCorrections.value = new Map()
-    actionCorrections.value = new Map()
-    playerBBoxCorrections.value = new Map()
-    contactActorCorrections.value = new Map()
-    contactTimeCorrections.value = new Map()
-    contactEdits.value = new Map()
-    dirtyCount.value = 0
-    status.value = 'editing'
-    computedRevision.value = null
-    approvedRevision.value = null
-    error.value = null
-    connection.value = id ? 'connecting' : 'idle'
-    if (!id) return
-    reconnect = createRealtimeReconnectScheduler(() => connect(currentGeneration))
-    try { await refresh(currentGeneration) }
-    catch (cause) {
-      if (currentGeneration === generation) error.value = cause instanceof Error ? cause : new Error('分析修正載入失敗')
-    }
-    if (currentGeneration === generation) connect(currentGeneration)
-  }, { immediate: true })
+  watch(
+    () => toValue(analysisRunId),
+    async id => {
+      generation += 1
+      const currentGeneration = generation
+      reconnect?.dispose()
+      reconnect = null
+      socket?.close()
+      socket = null
+      queued.clear()
+      revision.value = '0'
+      ballCorrections.value = new Map()
+      actionCorrections.value = new Map()
+      playerBBoxCorrections.value = new Map()
+      contactActorCorrections.value = new Map()
+      contactTimeCorrections.value = new Map()
+      contactEdits.value = new Map()
+      dirtyCount.value = 0
+      status.value = 'editing'
+      computedRevision.value = null
+      approvedRevision.value = null
+      error.value = null
+      connection.value = id ? 'connecting' : 'idle'
+      if (!id) return
+      reconnect = createRealtimeReconnectScheduler(() => connect(currentGeneration))
+      try {
+        await refresh(currentGeneration)
+      } catch (cause) {
+        if (currentGeneration === generation)
+          error.value = cause instanceof Error ? cause : new Error('分析修正載入失敗')
+      }
+      if (currentGeneration === generation) connect(currentGeneration)
+    },
+    { immediate: true },
+  )
 
   onBeforeUnmount(() => {
     generation += 1

@@ -1,7 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import type { Match } from './coreDomain'
 import type { RosterImportPayload } from './rosterPromptImport'
-import { buildRosterResearchPrompt, parseRosterImportPaste, ROSTER_IMPORT_SCHEMA } from './rosterPromptImport'
+import {
+  buildRosterResearchPrompt,
+  parseRosterImportPaste,
+  ROSTER_IMPORT_SCHEMA,
+} from './rosterPromptImport'
 
 const match = {
   id: '51278d81-5ec7-4a74-a399-ba4f53ca8758',
@@ -19,8 +23,16 @@ function payload(): RosterImportPayload {
     schema: ROSTER_IMPORT_SCHEMA,
     matchId: match.id,
     teams: [
-      { teamId: 'team-tpe', teamName: 'Chinese Taipei', players: [{ jerseyNumber: '7', name: 'Lin Player', position: 'OH' }] },
-      { teamId: 'team-pur', teamName: 'Puerto Rico', players: [{ jerseyNumber: '12', name: 'Ana Player', position: 'L' }] },
+      {
+        teamId: 'team-tpe',
+        teamName: 'Chinese Taipei',
+        players: [{ jerseyNumber: '7', name: 'Lin Player', position: 'OH' }],
+      },
+      {
+        teamId: 'team-pur',
+        teamName: 'Puerto Rico',
+        players: [{ jerseyNumber: '12', name: 'Ana Player', position: 'L' }],
+      },
     ],
   }
 }
@@ -40,12 +52,22 @@ describe('roster research prompt import', () => {
   it('accepts both raw JSON and a single JSON code fence', () => {
     const raw = JSON.stringify(payload())
     expect(parseRosterImportPaste(raw, match)).toEqual({ ok: true, value: payload() })
-    expect(parseRosterImportPaste(`\`\`\`json\n${raw}\n\`\`\``, match)).toEqual({ ok: true, value: payload() })
+    expect(parseRosterImportPaste(`\`\`\`json\n${raw}\n\`\`\``, match)).toEqual({
+      ok: true,
+      value: payload(),
+    })
   })
 
   it('rejects a roster for another match or an incomplete pair of teams', () => {
-    expect(parseRosterImportPaste(JSON.stringify({ ...payload(), matchId: 'another-match' }), match)).toMatchObject({ ok: false })
-    expect(parseRosterImportPaste(JSON.stringify({ ...payload(), teams: payload().teams.slice(0, 1) }), match)).toMatchObject({ ok: false })
+    expect(
+      parseRosterImportPaste(JSON.stringify({ ...payload(), matchId: 'another-match' }), match),
+    ).toMatchObject({ ok: false })
+    expect(
+      parseRosterImportPaste(
+        JSON.stringify({ ...payload(), teams: payload().teams.slice(0, 1) }),
+        match,
+      ),
+    ).toMatchObject({ ok: false })
   })
 
   it('rejects empty, duplicate, or structurally extended player rows', () => {
@@ -57,22 +79,31 @@ describe('roster research prompt import', () => {
     duplicate.teams[0]!.players.push({ jerseyNumber: '7', name: 'Another Player', position: 'MB' })
     expect(parseRosterImportPaste(JSON.stringify(duplicate), match)).toMatchObject({ ok: false })
 
-    const extended = payload() as unknown as { teams: Array<{ players: Array<Record<string, string>> }> }
+    const extended = payload() as unknown as {
+      teams: Array<{ players: Array<Record<string, string>> }>
+    }
     extended.teams[0]!.players[0]!.country = 'TW'
     expect(parseRosterImportPaste(JSON.stringify(extended), match)).toMatchObject({ ok: false })
   })
 
   it('rejects an unsupported or missing player position', () => {
-    const unsupported = payload() as unknown as { teams: Array<{ players: Array<Record<string, string>> }> }
+    const unsupported = payload() as unknown as {
+      teams: Array<{ players: Array<Record<string, string>> }>
+    }
     unsupported.teams[0]!.players[0]!.position = 'setter'
     expect(parseRosterImportPaste(JSON.stringify(unsupported), match)).toMatchObject({ ok: false })
 
-    const missing = payload() as unknown as { teams: Array<{ players: Array<Record<string, string>> }> }
+    const missing = payload() as unknown as {
+      teams: Array<{ players: Array<Record<string, string>> }>
+    }
     delete missing.teams[0]!.players[0]!.position
     expect(parseRosterImportPaste(JSON.stringify(missing), match)).toMatchObject({ ok: false })
   })
 
   it('leaves ordinary text paste recognizable as non-import content', () => {
-    expect(parseRosterImportPaste('王小明', match)).toEqual({ ok: false, reason: '貼上的內容不是有效 JSON。' })
+    expect(parseRosterImportPaste('王小明', match)).toEqual({
+      ok: false,
+      reason: '貼上的內容不是有效 JSON。',
+    })
   })
 })

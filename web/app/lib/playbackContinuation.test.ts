@@ -15,10 +15,12 @@ const base = {
 
 describe('playback continuation policy', () => {
   it('recovers HLS instead of extending when the mapped window still has headroom', () => {
-    expect(decidePlaybackContinuation({
-      ...base,
-      currentCaptureTimeUs: '1000000',
-    })).toBe('recover-buffer')
+    expect(
+      decidePlaybackContinuation({
+        ...base,
+        currentCaptureTimeUs: '1000000',
+      }),
+    ).toBe('recover-buffer')
   })
 
   it('extends only at the mapped frontier while the source can still grow', () => {
@@ -26,7 +28,9 @@ describe('playback continuation policy', () => {
   })
 
   it('stops cleanly at a completed source edge', () => {
-    expect(decidePlaybackContinuation({ ...base, availabilityComplete: true, ended: true })).toBe('terminal')
+    expect(decidePlaybackContinuation({ ...base, availabilityComplete: true, ended: true })).toBe(
+      'terminal',
+    )
   })
 
   it('does nothing while paused or while enough browser media is buffered', () => {

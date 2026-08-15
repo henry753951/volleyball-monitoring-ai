@@ -1,4 +1,3 @@
-
 # Public contracts
 
 This directory is owned by the main agent and the contracts/SDK worker. Consumers must not
@@ -9,7 +8,7 @@ invent fields outside these versioned files.
 - `media/playback-window-request.schema.json` / `playback-window-extend-request.schema.json` / `playback-window-descriptor.schema.json`: create and append to one bounded live/archive HLS window without changing its manifest identity.
 - `media/playback-cursor.schema.json` / `resolved-media-anchor.schema.json`: client observation and authoritative server result.
 - `media/frame-step-request.schema.json` / `canonical-frame-anchor.schema.json`: bounded, batched previous/next canonical sample stepping with one authoritative response.
-- `annotation/realtime.schema.json`: v3.0 uses canonical `START_RALLY`/`END_RALLY` boundaries. Z writes boundaries only; X creates optional manual contact key points. Score resolution no longer closes a Rally or gates submission.
+- `annotation/realtime.schema.json`: v3.0 uses canonical `START_RALLY`/`END_RALLY` boundaries. Z writes boundaries only; X creates optional manual contact key points in both OPEN and READY until Enter creates the immutable submission. Score resolution no longer closes a Rally or gates submission. Active ordinary drafts are device-session scoped; room broadcasts do not select another client's draft, and reconnect retries the same command id before refetch/rebase.
 - `ai/capabilities.schema.json`, `job.schema.json`, `job-accepted.schema.json`: provider handshake and immutable job submission.
 - `ai/analysis-data-domain.schema.json`: domain JSON embedded inside the sole `VAD1` AnalysisData FlatBuffer. It contains tracks, contacts, paths, summaries and versioned extensions.
 - `ai/fixed-roster-reid-v2.schema.json`: optional `AnalysisData.extensions.fixed_roster_reid` payload. It carries DINOv2, Sports OSNet, Official KPR and COCO-17-prompted KPR tracklet descriptors plus aliases and cannot-link evidence. Central owns exactly six team slots and selects Kernel Ridge parameters from earlier clips only.

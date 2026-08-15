@@ -14,16 +14,24 @@ export function segmentStartCaptureTimeUs(source: SegmentCaptureOrderSource): bi
   if (startBoundary) return startBoundary.captureTimeUs
   const legacyStart = source.keyPoints?.find(point => point.markerKind.toUpperCase() === 'SERVICE')
   if (legacyStart) return legacyStart.captureTimeUs
-  return source.keyPoints?.reduce<bigint | null>((earliest, point) =>
-    earliest === null || point.captureTimeUs < earliest ? point.captureTimeUs : earliest,
-  null) ?? null
+  return (
+    source.keyPoints?.reduce<bigint | null>(
+      (earliest, point) =>
+        earliest === null || point.captureTimeUs < earliest ? point.captureTimeUs : earliest,
+      null,
+    ) ?? null
+  )
 }
 
 export function compareRallyCaptureOrder(
   left: RallyDisplayOrderCandidate,
   right: RallyDisplayOrderCandidate,
 ): number {
-  if (left.startCaptureTimeUs !== null && right.startCaptureTimeUs !== null && left.startCaptureTimeUs !== right.startCaptureTimeUs) {
+  if (
+    left.startCaptureTimeUs !== null &&
+    right.startCaptureTimeUs !== null &&
+    left.startCaptureTimeUs !== right.startCaptureTimeUs
+  ) {
     return left.startCaptureTimeUs < right.startCaptureTimeUs ? -1 : 1
   }
   if (left.startCaptureTimeUs !== null && right.startCaptureTimeUs === null) return -1

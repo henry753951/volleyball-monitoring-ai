@@ -1,13 +1,12 @@
 import { describe, expect, it } from 'vitest'
-import {
-  createAiProgressService,
-  type AiProgressRedisLike,
-} from '../src/realtime/ai-progress.js'
+import { createAiProgressService, type AiProgressRedisLike } from '../src/realtime/ai-progress.js'
 
 class FakeSubscriber {
   listener: ((pattern: string, channel: string, message: string) => void) | null = null
 
-  async psubscribe() { return 1 }
+  async psubscribe() {
+    return 1
+  }
   on(_event: 'pmessage', listener: (pattern: string, channel: string, message: string) => void) {
     this.listener = listener
     return this
@@ -18,14 +17,17 @@ class FakeSubscriber {
 class FakeRedis implements AiProgressRedisLike {
   readonly subscriber = new FakeSubscriber()
 
-  duplicate() { return this.subscriber }
+  duplicate() {
+    return this.subscriber
+  }
   async publish(channel: string, message: string) {
     this.subscriber.listener?.('vmai:annotation:ai-progress:v1:*', channel, message)
     return 1
   }
 }
 
-const roomId = 'match:00000000-0000-4000-8000-000000000010:capture:00000000-0000-4000-8000-000000000110'
+const roomId =
+  'match:00000000-0000-4000-8000-000000000010:capture:00000000-0000-4000-8000-000000000110'
 
 describe('AI progress pubsub', () => {
   it('validates and delivers a room-scoped processing update', async () => {

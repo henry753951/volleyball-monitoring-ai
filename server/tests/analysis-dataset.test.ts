@@ -5,7 +5,6 @@ import {
   buildPersistedReidDatasetFiles,
   ML_DATASET_README,
   redactAiJobRequest,
-  sha256Bytes,
 } from '../src/media/analysis-dataset.js'
 
 const analysisData: AnalysisData = {
@@ -35,7 +34,10 @@ const analysisData: AnalysisData = {
   actionLabels: ['serve'],
   actionLabelIds: [0],
   actionConfidences: [254],
-  ballFramePositions: [{ x: 65_534, y: 0 }, { x: 0, y: 0 }],
+  ballFramePositions: [
+    { x: 65_534, y: 0 },
+    { x: 0, y: 0 },
+  ],
   ballFlags: [1, 0],
   ballConfidences: [254, 255],
   courtKeypointFrameOffsets: [0, 1, 1],
@@ -53,7 +55,12 @@ const analysisData: AnalysisData = {
 function rows(files: ReturnType<typeof buildAnalysisDataDatasetFiles>, path: string) {
   const file = files.find(item => item.path === path)
   if (!file) throw new Error(`missing ${path}`)
-  return file.bytes.toString('utf8').trim().split('\n').filter(Boolean).map(line => JSON.parse(line) as Record<string, unknown>)
+  return file.bytes
+    .toString('utf8')
+    .trim()
+    .split('\n')
+    .filter(Boolean)
+    .map(line => JSON.parse(line) as Record<string, unknown>)
 }
 
 function payload(files: ReturnType<typeof buildPersistedReidDatasetFiles>, path: string) {
@@ -85,12 +92,22 @@ describe('ML analysis dataset', () => {
       court_pos: { x: -0.25, y: 1.4 },
       confidence_quantized_u8: 127,
     })
-    expect(rows(files, 'predictions/actions.jsonl')).toEqual([expect.objectContaining({ label: 'serve', confidence: 1 })])
+    expect(rows(files, 'predictions/actions.jsonl')).toEqual([
+      expect.objectContaining({ label: 'serve', confidence: 1 }),
+    ])
     expect(rows(files, 'predictions/ball.jsonl')).toEqual([
       expect.objectContaining({ frame_index: '0', state: 'observed', frame_pos: { x: 1, y: 0 } }),
-      expect.objectContaining({ frame_index: '1', state: 'missing', frame_pos: null, confidence: null }),
+      expect.objectContaining({
+        frame_index: '1',
+        state: 'missing',
+        frame_pos: null,
+        confidence: null,
+      }),
     ])
-    expect(rows(files, 'predictions/court-keypoints.jsonl')[0]).toMatchObject({ keypoint_id: 4, frame_pos_quantized_u16: { x: 16_384, y: 32_767 } })
+    expect(rows(files, 'predictions/court-keypoints.jsonl')[0]).toMatchObject({
+      keypoint_id: 4,
+      frame_pos_quantized_u16: { x: 16_384, y: 32_767 },
+    })
   })
 
   it('redacts callback credentials without mutating ML inputs', () => {
@@ -108,15 +125,17 @@ describe('ML analysis dataset', () => {
   })
 
   it('rejects a timing table that cannot align one-to-one with AnalysisData frames', () => {
-    expect(() => buildAnalysisDataDatasetFiles(analysisData, {
-      captureEpochId: ['epoch'],
-      captureFrameIndex: [60n],
-      captureTimeUs: [1n],
-      captureEndUs: 2n,
-      clipTimeUs: [0n],
-      clipEndUs: 1n,
-      sourcePts: [30n],
-    })).toThrow('AnalysisData and timing frame counts differ')
+    expect(() =>
+      buildAnalysisDataDatasetFiles(analysisData, {
+        captureEpochId: ['epoch'],
+        captureFrameIndex: [60n],
+        captureTimeUs: [1n],
+        captureEndUs: 2n,
+        clipTimeUs: [0n],
+        clipEndUs: 1n,
+        sourcePts: [30n],
+      }),
+    ).toThrow('AnalysisData and timing frame counts differ')
   })
 
   it('exports reproducible persisted ReID labels without duplicating vectors or actor identities', () => {
@@ -170,70 +189,74 @@ describe('ML analysis dataset', () => {
       matchId: 'match-1',
       matchIdentityRevision: 8n,
       featureBankPath: 'reid/fixed-roster-tracklets.json',
-      observations: [{
-        id: 'observation-1',
-        analysisRunId: 'run-1',
-        trackId: 12,
-        matchId: 'match-1',
-        teamId: 'team-1',
-        reidIdentityId: 'gid-1',
-        modelNamespace: 'namespace-1',
-        modelName: 'sports-osnet',
-        modelCheckpointSha256: 'a'.repeat(64),
-        modelPreprocessVersion: 'roi-align-rgb-imagenet-v1',
-        modelDimension: 512,
-        modelDistance: 'cosine',
-        courtSide: 'LEFT',
-        provisionalGid: 'L1',
-        canonicalTrackId: 12,
-        isCanonicalTrack: true,
-        aliasTrackIds: [12],
-        medianCourtX: 0.25,
-        medianCourtY: 0.5,
-        descriptorRecipe: { name: 'nested-part-adaptation', version: '1.0.0' },
-        dinoDescriptor: new Uint8Array(384 * 4).fill(1),
-        osnetDescriptor: prototype,
-        kprDescriptor: new Uint8Array(4096 * 4).fill(2),
-        kprPromptDescriptor: new Uint8Array(4096 * 4).fill(3),
-        promptCoverage: 0.75,
-        selectedModalities: ['kpr_prompt'],
-        selectedKernel: 'linear',
-        selectedRegularization: 0.1,
-        firstFrame: 2n,
-        lastFrame: 42n,
-        sampleCount: 5,
-        meanQuality: 0.91,
-        prototype,
-        cannotLinkTrackIds: [13],
-        setNumber: 1,
-        rallyOrdinal: 2,
-        matchConfidence: 0.95,
-        identityRevision: 2n,
-        createdAt: new Date('2026-08-13T00:00:30.000Z'),
-        reidIdentity: identity,
-      }],
-      corrections: [{
-        id: 'correction-1',
-        matchId: 'match-1',
-        teamId: 'team-1',
-        analysisRunId: 'run-1',
-        trackId: 12,
-        sourceIdentityId: 'gid-1',
-        targetIdentityId: 'gid-2',
-        rosterEntryId: 'roster-1',
-        kind: 'SPLIT_IDENTITY',
-        identityRevision: 8n,
-        details: {
-          replaced_track_ids: [9],
-          reassociated_observation_ids: ['observation-2'],
-          token: 'must-not-export',
-          created_by_user_id: 'user-secret',
+      observations: [
+        {
+          id: 'observation-1',
+          analysisRunId: 'run-1',
+          trackId: 12,
+          matchId: 'match-1',
+          teamId: 'team-1',
+          reidIdentityId: 'gid-1',
+          modelNamespace: 'namespace-1',
+          modelName: 'sports-osnet',
+          modelCheckpointSha256: 'a'.repeat(64),
+          modelPreprocessVersion: 'roi-align-rgb-imagenet-v1',
+          modelDimension: 512,
+          modelDistance: 'cosine',
+          courtSide: 'LEFT',
+          provisionalGid: 'L1',
+          canonicalTrackId: 12,
+          isCanonicalTrack: true,
+          aliasTrackIds: [12],
+          medianCourtX: 0.25,
+          medianCourtY: 0.5,
+          descriptorRecipe: { name: 'nested-part-adaptation', version: '1.0.0' },
+          dinoDescriptor: new Uint8Array(384 * 4).fill(1),
+          osnetDescriptor: prototype,
+          kprDescriptor: new Uint8Array(4096 * 4).fill(2),
+          kprPromptDescriptor: new Uint8Array(4096 * 4).fill(3),
+          promptCoverage: 0.75,
+          selectedModalities: ['kpr_prompt'],
+          selectedKernel: 'linear',
+          selectedRegularization: 0.1,
+          firstFrame: 2n,
+          lastFrame: 42n,
+          sampleCount: 5,
+          meanQuality: 0.91,
+          prototype,
+          cannotLinkTrackIds: [13],
+          setNumber: 1,
+          rallyOrdinal: 2,
+          matchConfidence: 0.95,
+          identityRevision: 2n,
+          createdAt: new Date('2026-08-13T00:00:30.000Z'),
+          reidIdentity: identity,
         },
-        createdAt: new Date('2026-08-13T00:03:00.000Z'),
-        sourceIdentity: identity,
-        targetIdentity: { ...identity, id: 'gid-2', label: 'S2', slotIndex: 2 },
-        rosterEntry,
-      }],
+      ],
+      corrections: [
+        {
+          id: 'correction-1',
+          matchId: 'match-1',
+          teamId: 'team-1',
+          analysisRunId: 'run-1',
+          trackId: 12,
+          sourceIdentityId: 'gid-1',
+          targetIdentityId: 'gid-2',
+          rosterEntryId: 'roster-1',
+          kind: 'SPLIT_IDENTITY',
+          identityRevision: 8n,
+          details: {
+            replaced_track_ids: [9],
+            reassociated_observation_ids: ['observation-2'],
+            token: 'must-not-export',
+            created_by_user_id: 'user-secret',
+          },
+          createdAt: new Date('2026-08-13T00:03:00.000Z'),
+          sourceIdentity: identity,
+          targetIdentity: { ...identity, id: 'gid-2', label: 'S2', slotIndex: 2 },
+          rosterEntry,
+        },
+      ],
     })
 
     const observations = payload(files, 'reid/persisted-observations.jsonl')
@@ -259,7 +282,9 @@ describe('ML analysis dataset', () => {
       effective_binding: { id: 'binding-current', roster_entry: { player_name: 'Player One' } },
     })
 
-    const lineageText = files.find(item => item.path === 'reid/correction-lineage.jsonl')!.bytes.toString('utf8')
+    const lineageText = files
+      .find(item => item.path === 'reid/correction-lineage.jsonl')!
+      .bytes.toString('utf8')
     expect(JSON.parse(lineageText)).toMatchObject({
       snapshot_identity_revision: '8',
       identity_revision: '8',

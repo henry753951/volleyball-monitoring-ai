@@ -3,7 +3,6 @@ import json
 from pathlib import Path
 
 import pytest
-
 from volleyball_monitoring_ai import FixtureResultBuilder, OfflineRunner
 
 ROOT = Path(__file__).parents[2]
@@ -43,9 +42,7 @@ def test_offline_runner_accepts_standalone_key_point_file(tmp_path: Path) -> Non
     job_path = tmp_path / "ai-job.json"
     job_path.write_text(json.dumps(payload), encoding="utf-8")
     key_points_path = tmp_path / "keypoints.json"
-    key_points_path.write_text(
-        json.dumps({"key_points": payload["key_points"]}), encoding="utf-8"
-    )
+    key_points_path.write_text(json.dumps({"key_points": payload["key_points"]}), encoding="utf-8")
 
     job = OfflineRunner.load_job(job_path, key_points_path)
 

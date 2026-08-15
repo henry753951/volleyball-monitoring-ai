@@ -1,3 +1,7 @@
 {
-  "schema_version": "1.0.0", "code": "CAPTURE_GAP", "message": "Requested position is in a capture gap", "request_id": "req-001", "details": {"capture_time_us": "9007199254740992"}
+  "schema_version": "1.0.0",
+  "code": "CAPTURE_GAP",
+  "message": "Requested position is in a capture gap",
+  "request_id": "req-001",
+  "details": { "capture_time_us": "9007199254740992" }
 }

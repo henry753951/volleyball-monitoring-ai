@@ -19,16 +19,14 @@ export function annotationOutcomeLabel(input: {
     ? input.teams?.find(candidate => candidate.id === input.scoringTeamId)
     : null
   const teamLabel = team?.shortName || team?.name
-  const sideLabel = input.scoringCourtSide === 'left'
-    ? input.leftLabel
-    : input.scoringCourtSide === 'right'
-      ? input.rightLabel
-      : null
-  const sidePrefix = input.scoringCourtSide === 'left'
-    ? '左側'
-    : input.scoringCourtSide === 'right'
-      ? '右側'
-      : null
+  const sideLabel =
+    input.scoringCourtSide === 'left'
+      ? input.leftLabel
+      : input.scoringCourtSide === 'right'
+        ? input.rightLabel
+        : null
+  const sidePrefix =
+    input.scoringCourtSide === 'left' ? '左側' : input.scoringCourtSide === 'right' ? '右側' : null
   return sidePrefix
     ? `${sidePrefix} ${teamLabel || sideLabel || '隊伍'} 得分`
     : `${teamLabel || sideLabel || '得分隊'} 得分`

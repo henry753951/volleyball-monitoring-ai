@@ -77,10 +77,7 @@
     "rational": {
       "type": "object",
       "additionalProperties": false,
-      "required": [
-        "num",
-        "den"
-      ],
+      "required": ["num", "den"],
       "properties": {
         "num": {
           "type": "integer",
@@ -187,10 +184,7 @@
           "minimum": 0
         },
         "marker_kind": {
-          "enum": [
-            "service",
-            "contact"
-          ]
+          "enum": ["service", "contact"]
         },
         "is_terminal": {
           "type": "boolean"
@@ -222,29 +216,20 @@
         {
           "type": "object",
           "additionalProperties": false,
-          "required": [
-            "score_resolution",
-            "scoring_court_side"
-          ],
+          "required": ["score_resolution", "scoring_court_side"],
           "properties": {
             "score_resolution": {
               "const": "resolved"
             },
             "scoring_court_side": {
-              "enum": [
-                "left",
-                "right"
-              ]
+              "enum": ["left", "right"]
             }
           }
         },
         {
           "type": "object",
           "additionalProperties": false,
-          "required": [
-            "score_resolution",
-            "scoring_court_side"
-          ],
+          "required": ["score_resolution", "scoring_court_side"],
           "properties": {
             "score_resolution": {
               "const": "unknown"
@@ -268,11 +253,7 @@
     "callback": {
       "type": "object",
       "additionalProperties": false,
-      "required": [
-        "url",
-        "token",
-        "expires_at"
-      ],
+      "required": ["url", "token", "expires_at"],
       "properties": {
         "url": {
           "type": "string",
@@ -292,14 +273,23 @@
     "analysisDataArtifact": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["analysis_run_id", "download_url", "download_url_expires_at", "sha256", "byte_length", "content_type"],
+      "required": [
+        "analysis_run_id",
+        "download_url",
+        "download_url_expires_at",
+        "sha256",
+        "byte_length",
+        "content_type"
+      ],
       "properties": {
         "analysis_run_id": { "$ref": "#/$defs/id" },
         "download_url": { "type": "string", "format": "uri" },
         "download_url_expires_at": { "type": "string", "format": "date-time" },
         "sha256": { "$ref": "#/$defs/sha256" },
         "byte_length": { "$ref": "#/$defs/uint64" },
-        "content_type": { "const": "application/vnd.volleyball.analysis-data+flatbuffers;version=1" }
+        "content_type": {
+          "const": "application/vnd.volleyball.analysis-data+flatbuffers;version=1"
+        }
       }
     },
     "analysisPlan": {
@@ -319,7 +309,9 @@
             "contacts": { "enum": ["run", "reuse"] }
           }
         },
-        "source_analysis_data": { "oneOf": [{ "$ref": "#/$defs/analysisDataArtifact" }, { "type": "null" }] },
+        "source_analysis_data": {
+          "oneOf": [{ "$ref": "#/$defs/analysisDataArtifact" }, { "type": "null" }]
+        },
         "preserve_manual_corrections": { "const": true }
       },
       "allOf": [
@@ -330,24 +322,40 @@
               "source_analysis_data": { "type": "null" },
               "modules": {
                 "properties": {
-                  "court": { "const": "run" }, "tracking": { "const": "run" },
-                  "reid": { "const": "run" }, "contacts": { "const": "run" }
+                  "court": { "const": "run" },
+                  "tracking": { "const": "run" },
+                  "reid": { "const": "run" },
+                  "contacts": { "const": "run" }
                 }
               }
             }
           },
-          "else": { "properties": { "source_analysis_data": { "$ref": "#/$defs/analysisDataArtifact" } } }
+          "else": {
+            "properties": { "source_analysis_data": { "$ref": "#/$defs/analysisDataArtifact" } }
+          }
         }
       ]
     }
   },
-  "allOf": [{
-    "properties": {
-      "key_points": { "items": { "properties": { "marker_kind": { "const": "contact" }, "is_terminal": { "const": false } } } },
-      "boundaries": {
-        "prefixItems": [{ "properties": { "kind": { "const": "start" } } }, { "properties": { "kind": { "const": "end" } } }],
-        "items": false
+  "allOf": [
+    {
+      "properties": {
+        "key_points": {
+          "items": {
+            "properties": {
+              "marker_kind": { "const": "contact" },
+              "is_terminal": { "const": false }
+            }
+          }
+        },
+        "boundaries": {
+          "prefixItems": [
+            { "properties": { "kind": { "const": "start" } } },
+            { "properties": { "kind": { "const": "end" } } }
+          ],
+          "items": false
+        }
       }
     }
-  }]
+  ]
 }

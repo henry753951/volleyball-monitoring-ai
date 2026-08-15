@@ -51,9 +51,15 @@ export function createHostStorageProbe(path: string): HostStorageProbe {
         totalBytes: totalBytes.toString(),
         usedBytes: (totalBytes - freeBytes).toString(),
       }
-    }
-    catch {
-      return { available: false, freeBytes: '0', managedBytes: '0', path: target, totalBytes: '0', usedBytes: '0' }
+    } catch {
+      return {
+        available: false,
+        freeBytes: '0',
+        managedBytes: '0',
+        path: target,
+        totalBytes: '0',
+        usedBytes: '0',
+      }
     }
   }
 }

@@ -1,5 +1,25 @@
 # Progress
 
+## 2026-08-14 — Client-owned annotation drafts and resilient editing
+
+- Accepted ADR 0036 without changing Annotation Realtime `3.0.0`: ordinary OPEN／READY drafts are
+  device-session owned, each browser tab keeps its active Rally and outbox in `sessionStorage`, and
+  unrelated room broadcasts cannot replace its Z state or moving cursor edge.
+- The second Z now fixes only the END boundary. X creation, point move/delete and outcome editing
+  remain available in READY until Enter creates the immutable submission; overlapping editable
+  client drafts are allowed, while submit serializes the authoritative immutable-overlap check.
+- Reconnect first retries the original idempotency key, then refetches, detects already-converged
+  commands and rebases bounded conflicts automatically. A/D navigation is local, canonical-order,
+  latest-wins and selects the exact point; a peer draft reached through navigation stays read-only.
+- Fixed-roster assignment now defaults observation-less legacy tracks to clip-only manual
+  assignment, preserves the normal GID-aware modes when evidence exists, and maps backend failures
+  to Traditional Chinese instead of leaking `run fixed roster reid`.
+- Validation passed: Server/Web typechecks, GraphQL operation and contract validation, 59 focused
+  Server tests, 65 focused Web tests and the Impeccable detector. Headed Playwright on a real match
+  used two isolated browser sessions with distinct device/Rally IDs, verified Z→END→X, ordered A/D,
+  offline queued X auto-flush, reload restoration and the localized ReID panel. The two QA drafts
+  were voided through the annotation domain service afterward.
+
 ## 2026-08-12 — Durable S3 telemetry and completed-spool cleanup
 
 - MinIO capacity monitoring now supports the authenticated Prometheus v3 endpoint through an
@@ -612,11 +632,11 @@ Status: locally integrated and validated on `integration/phase-0-round-1`; GitHu
 - Used `integration/phase-0-round-1` as the local review/integration branch.
 - Used independent worktrees and branches for every subagent:
 
-| Workstream | Branch | Worktree | Reviewed source commits |
-| --- | --- | --- | --- |
-| Contracts / Python SDK | `feat/phase0-contract-fixtures` | `H:\Repos\volleyball-monitoring-ai-worktrees\contracts` | `b7ba9ee` |
-| Prisma / server / worker | `feat/phase0-media-readiness` | `H:\Repos\volleyball-monitoring-ai-worktrees\backend-media` | `a07e1ab`, `2cd54c1`, `cc37b70` |
-| Nuxt iPad PWA | `feat/phase0-web-contract-alignment` | `H:\Repos\volleyball-monitoring-ai-worktrees\web` | `27455f5` |
+| Workstream               | Branch                               | Worktree                                                    | Reviewed source commits         |
+| ------------------------ | ------------------------------------ | ----------------------------------------------------------- | ------------------------------- |
+| Contracts / Python SDK   | `feat/phase0-contract-fixtures`      | `H:\Repos\volleyball-monitoring-ai-worktrees\contracts`     | `b7ba9ee`                       |
+| Prisma / server / worker | `feat/phase0-media-readiness`        | `H:\Repos\volleyball-monitoring-ai-worktrees\backend-media` | `a07e1ab`, `2cd54c1`, `cc37b70` |
+| Nuxt iPad PWA            | `feat/phase0-web-contract-alignment` | `H:\Repos\volleyball-monitoring-ai-worktrees\web`           | `27455f5`                       |
 
 Subagents did not merge. The main agent reviewed their diffs, reran their tests, created the commits where requested, and locally merged the reviewed branches into the integration branch. A private remote was then created with the authenticated local GitHub CLI and all review branches were pushed before opening PR #1.
 
@@ -679,6 +699,7 @@ The Nuxt build emits a dependency-level Node `DEP0155` deprecation warning but c
 1. Use PR #1 as the integration-to-main review and merge record, and preserve the feature branches for workstream auditability.
 2. Implement the first small end-to-end slice around match/capture setup and an authoritative server-resolved playback window, including the first migration and DB integration tests.
 3. Keep annotation submission, clip creation and external AI dispatch as subsequent vertical slices, preserving the fixed keyboard/touch semantics and immutable `RallySubmission` boundary.
+
 # 2026-08-08 — Outbound AI SDK / WSS control plane / processing abort
 
 - Added versioned AI Provider Realtime `1.0.0` TypeScript types, strict parsers, JSON Schema and
@@ -832,6 +853,7 @@ The Nuxt build emits a dependency-level Node `DEP0155` deprecation warning but c
   and Python SDK 20 tests; root typecheck, production build, 486-file checksum/scaffold validation,
   44-model/27-enum Prisma structure validation and 258-file TypeScript/Vue syntax validation also
   passed. The only build output is dependency-level deprecation/plugin-timing warnings.
+
 # 2026-08-09 — Unified clip selection and frame analysis review
 
 - Removed the video-stage status tint. Draft, submitted, processing, AI-complete and mapped states

@@ -74,10 +74,7 @@ describe('playback window selection', () => {
     })
 
     expect(selection.targetUs).toBe(1_500_000n)
-    expect(selection.segments.map(value => value.id)).toEqual([
-      ids.second,
-      ids.third,
-    ])
+    expect(selection.segments.map(value => value.id)).toEqual([ids.second, ids.third])
   })
 
   it('crosses capture epochs inside one window but still stops at real gaps', () => {
@@ -103,11 +100,7 @@ describe('playback window selection', () => {
       requestedTargetUs: 1_500_000n,
     })
 
-    expect(selection.segments.map((value) => value.id)).toEqual([
-      ids.first,
-      ids.second,
-      ids.third,
-    ])
+    expect(selection.segments.map(value => value.id)).toEqual([ids.first, ids.second, ids.third])
     expect(selection.windowStartUs).toBe(0n)
     expect(selection.windowEndUs).toBe(3_000_000n)
     expect(selection.timelineStartUs).toBe(0n)
@@ -128,54 +121,64 @@ describe('playback window selection', () => {
     })
     const candidates = [segment(ids.first, 0n, 1_000_000n), gap, notReady]
 
-    expect(() => selectPlaybackWindow({
-      candidates,
-      limits,
-      liveEdgeUs: 1_000_000n,
-      mode: 'archive',
-      requestedTargetUs: 1_000_000n,
-    })).toThrowError(expect.objectContaining({ code: 'CAPTURE_GAP', status: 422 }))
-    expect(() => selectPlaybackWindow({
-      candidates,
-      limits,
-      liveEdgeUs: 1_000_000n,
-      mode: 'archive',
-      requestedTargetUs: 2_000_000n,
-    })).toThrowError(expect.objectContaining({ code: 'MEDIA_NOT_READY', status: 409 }))
+    expect(() =>
+      selectPlaybackWindow({
+        candidates,
+        limits,
+        liveEdgeUs: 1_000_000n,
+        mode: 'archive',
+        requestedTargetUs: 1_000_000n,
+      }),
+    ).toThrowError(expect.objectContaining({ code: 'CAPTURE_GAP', status: 422 }))
+    expect(() =>
+      selectPlaybackWindow({
+        candidates,
+        limits,
+        liveEdgeUs: 1_000_000n,
+        mode: 'archive',
+        requestedTargetUs: 2_000_000n,
+      }),
+    ).toThrowError(expect.objectContaining({ code: 'MEDIA_NOT_READY', status: 409 }))
   })
 
   it('fails closed on overlap, duplicate identity, and invalid duration', () => {
-    expect(() => buildReadyPlaybackRuns([
-      segment(ids.first, 0n, 2_000_000n),
-      segment(ids.second, 1_000_000n, 3_000_000n),
-    ])).toThrow('overlap')
-    expect(() => buildReadyPlaybackRuns([
-      segment(ids.first, 0n, 1_000_000n),
-      segment(ids.first, 1_000_000n, 2_000_000n),
-    ])).toThrow('Duplicate')
-    expect(() => buildReadyPlaybackRuns([
-      segment(ids.first, 0n, 1_000_000n, { durationUs: 999_999n }),
-    ])).toThrow('timing')
+    expect(() =>
+      buildReadyPlaybackRuns([
+        segment(ids.first, 0n, 2_000_000n),
+        segment(ids.second, 1_000_000n, 3_000_000n),
+      ]),
+    ).toThrow('overlap')
+    expect(() =>
+      buildReadyPlaybackRuns([
+        segment(ids.first, 0n, 1_000_000n),
+        segment(ids.first, 1_000_000n, 2_000_000n),
+      ]),
+    ).toThrow('Duplicate')
+    expect(() =>
+      buildReadyPlaybackRuns([segment(ids.first, 0n, 1_000_000n, { durationUs: 999_999n })]),
+    ).toThrow('timing')
   })
 
   it('uses only an authoritative snapped sample to derive presentation origin', () => {
     const selection = selectPlaybackWindow({
-      candidates: [
-        segment(ids.first, 9_007_199_254_740_992n, 9_007_199_255_740_992n),
-      ],
+      candidates: [segment(ids.first, 9_007_199_254_740_992n, 9_007_199_255_740_992n)],
       limits,
       liveEdgeUs: 9_007_199_255_740_992n,
       mode: 'archive',
       requestedTargetUs: 9_007_199_255_000_000n,
     })
-    expect(presentationOriginForSnap(selection, {
-      captureUs: 9_007_199_255_000_001n,
-      playerUs: 259_009n,
-    })).toBe(9_007_199_254_740_992n)
-    expect(() => presentationOriginForSnap(selection, {
-      captureUs: selection.windowEndUs,
-      playerUs: 0n,
-    })).toThrow('outside the window')
+    expect(
+      presentationOriginForSnap(selection, {
+        captureUs: 9_007_199_255_000_001n,
+        playerUs: 259_009n,
+      }),
+    ).toBe(9_007_199_254_740_992n)
+    expect(() =>
+      presentationOriginForSnap(selection, {
+        captureUs: selection.windowEndUs,
+        playerUs: 0n,
+      }),
+    ).toThrow('outside the window')
   })
 })
 
@@ -185,27 +188,53 @@ describe('playback manifest and wire views', () => {
       segment(ids.first, 0n, 1_000_000n),
       segment(ids.second, 1_000_000n, 2_000_000n),
     ]
-    expect(() => assertRollingPlaybackSelection(current, [
-      current[1]!,
-      segment(ids.third, 2_000_000n, 3_000_000n),
-    ])).not.toThrow()
+    expect(() =>
+      assertRollingPlaybackSelection(current, [
+        current[1]!,
+        segment(ids.third, 2_000_000n, 3_000_000n),
+      ]),
+    ).not.toThrow()
     expect(assertRollingPlaybackSelection(current, current)).toBe(false)
     expect(assertRollingPlaybackSelection(current, [current[1]!])).toBe(false)
-    expect(() => assertRollingPlaybackSelection(current, [
-      segment(ids.third, 1_000_000n, 2_000_000n),
-      segment(ids.later, 2_000_000n, 3_000_000n),
-    ])).toThrowError(expect.objectContaining({ code: 'MAPPING_STALE' }))
-    expect(() => assertRollingPlaybackSelection(current, [
-      segment(ids.third, 2_000_000n, 3_000_000n),
-    ])).toThrowError(expect.objectContaining({ code: 'MAPPING_STALE' }))
+    expect(() =>
+      assertRollingPlaybackSelection(current, [
+        segment(ids.third, 1_000_000n, 2_000_000n),
+        segment(ids.later, 2_000_000n, 3_000_000n),
+      ]),
+    ).toThrowError(expect.objectContaining({ code: 'MAPPING_STALE' }))
+    expect(() =>
+      assertRollingPlaybackSelection(current, [segment(ids.third, 2_000_000n, 3_000_000n)]),
+    ).toThrowError(expect.objectContaining({ code: 'MAPPING_STALE' }))
   })
 
   it('emits deterministic authorized init/media tokens and exact durations', () => {
-    const manifest = formatManifest(ids.window, [
-      { discontinuity: 0, durationUs: 1_001_001n, id: ids.first, initFingerprint: initFingerprints.a, sequenceNumber: 41n },
-      { discontinuity: 0, durationUs: 16_683n, id: ids.second, initFingerprint: initFingerprints.a, sequenceNumber: 42n },
-      { discontinuity: 1, durationUs: 2_000_000n, id: ids.third, initFingerprint: initFingerprints.a, sequenceNumber: 43n },
-    ], { endList: false })
+    const manifest = formatManifest(
+      ids.window,
+      [
+        {
+          discontinuity: 0,
+          durationUs: 1_001_001n,
+          id: ids.first,
+          initFingerprint: initFingerprints.a,
+          sequenceNumber: 41n,
+        },
+        {
+          discontinuity: 0,
+          durationUs: 16_683n,
+          id: ids.second,
+          initFingerprint: initFingerprints.a,
+          sequenceNumber: 42n,
+        },
+        {
+          discontinuity: 1,
+          durationUs: 2_000_000n,
+          id: ids.third,
+          initFingerprint: initFingerprints.a,
+          sequenceNumber: 43n,
+        },
+      ],
+      { endList: false },
+    )
 
     expect(manifest).toContain('#EXT-X-TARGETDURATION:2')
     expect(manifest).toContain('#EXT-X-MEDIA-SEQUENCE:41')
@@ -226,10 +255,26 @@ describe('playback manifest and wire views', () => {
   })
 
   it('re-emits initialization media only when its content changes', () => {
-    const manifest = formatManifest(ids.window, [
-      { discontinuity: 0, durationUs: 1_000_000n, id: ids.first, initFingerprint: initFingerprints.a, sequenceNumber: 41n },
-      { discontinuity: 0, durationUs: 1_000_000n, id: ids.second, initFingerprint: initFingerprints.b, sequenceNumber: 42n },
-    ], { endList: false })
+    const manifest = formatManifest(
+      ids.window,
+      [
+        {
+          discontinuity: 0,
+          durationUs: 1_000_000n,
+          id: ids.first,
+          initFingerprint: initFingerprints.a,
+          sequenceNumber: 41n,
+        },
+        {
+          discontinuity: 0,
+          durationUs: 1_000_000n,
+          id: ids.second,
+          initFingerprint: initFingerprints.b,
+          sequenceNumber: 42n,
+        },
+      ],
+      { endList: false },
+    )
 
     expect(manifest.match(/#EXT-X-MAP/g)).toHaveLength(2)
     expect(manifest).toContain(`/segments/init-${ids.first}`)
@@ -237,23 +282,67 @@ describe('playback manifest and wire views', () => {
   })
 
   it('preserves the absolute discontinuity sequence after a rolling prefix is dropped', () => {
-    const manifest = formatManifest(ids.window, [
-      { discontinuity: 4, durationUs: 1_000_000n, id: ids.second, initFingerprint: initFingerprints.a, sequenceNumber: 42n },
-      { discontinuity: 5, durationUs: 1_000_000n, id: ids.third, initFingerprint: initFingerprints.a, sequenceNumber: 43n },
-    ], { endList: false })
+    const manifest = formatManifest(
+      ids.window,
+      [
+        {
+          discontinuity: 4,
+          durationUs: 1_000_000n,
+          id: ids.second,
+          initFingerprint: initFingerprints.a,
+          sequenceNumber: 42n,
+        },
+        {
+          discontinuity: 5,
+          durationUs: 1_000_000n,
+          id: ids.third,
+          initFingerprint: initFingerprints.a,
+          sequenceNumber: 43n,
+        },
+      ],
+      { endList: false },
+    )
 
     expect(manifest).toContain('#EXT-X-DISCONTINUITY-SEQUENCE:4')
     expect(manifest.match(/#EXT-X-DISCONTINUITY\n/g)).toHaveLength(1)
-    expect(() => formatManifest(ids.window, [
-      { discontinuity: 4, durationUs: 1_000_000n, id: ids.second, initFingerprint: initFingerprints.a, sequenceNumber: 42n },
-      { discontinuity: 6, durationUs: 1_000_000n, id: ids.third, initFingerprint: initFingerprints.b, sequenceNumber: 43n },
-    ], { endList: false })).toThrow('discontinuity sequence')
+    expect(() =>
+      formatManifest(
+        ids.window,
+        [
+          {
+            discontinuity: 4,
+            durationUs: 1_000_000n,
+            id: ids.second,
+            initFingerprint: initFingerprints.a,
+            sequenceNumber: 42n,
+          },
+          {
+            discontinuity: 6,
+            durationUs: 1_000_000n,
+            id: ids.third,
+            initFingerprint: initFingerprints.b,
+            sequenceNumber: 43n,
+          },
+        ],
+        { endList: false },
+      ),
+    ).toThrow('discontinuity sequence')
   })
 
   it('seals a completed finite source playlist with ENDLIST', () => {
-    const manifest = formatManifest(ids.window, [
-      { discontinuity: 0, durationUs: 1_000_000n, id: ids.first, initFingerprint: initFingerprints.a, sequenceNumber: 0n },
-    ], { endList: true })
+    const manifest = formatManifest(
+      ids.window,
+      [
+        {
+          discontinuity: 0,
+          durationUs: 1_000_000n,
+          id: ids.first,
+          initFingerprint: initFingerprints.a,
+          sequenceNumber: 0n,
+        },
+      ],
+      { endList: true },
+    )
 
     expect(manifest).toContain('#EXT-X-PLAYLIST-TYPE:VOD')
     expect(manifest).toContain('#EXT-X-ENDLIST')

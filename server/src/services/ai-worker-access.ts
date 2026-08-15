@@ -24,7 +24,10 @@ export interface AiWorkerTokenSnapshot {
 }
 
 export class AiWorkerAccessError extends Error {
-  constructor(public readonly code: 'INVALID_NAME' | 'NOT_FOUND' | 'NAME_CONFLICT', message: string) {
+  constructor(
+    public readonly code: 'INVALID_NAME' | 'NOT_FOUND' | 'NAME_CONFLICT',
+    message: string,
+  ) {
     super(message)
   }
 }
@@ -42,7 +45,8 @@ function environmentToken(): string | undefined {
 
 function normalizeName(value: string): string {
   const name = value.trim().replace(/\s+/g, ' ')
-  if (!NAME_PATTERN.test(name)) throw new AiWorkerAccessError('INVALID_NAME', 'Token 名稱需為 3–64 個字元')
+  if (!NAME_PATTERN.test(name))
+    throw new AiWorkerAccessError('INVALID_NAME', 'Token 名稱需為 3–64 個字元')
   return name
 }
 
@@ -72,9 +76,13 @@ export async function getAiWorkerAccess(
 ): Promise<AiWorkerAccessSnapshot> {
   const onlineAfter = new Date(now.getTime() - 30_000)
   const [tokens, workerCount, onlineWorkerCount, activeJobCount] = await Promise.all([
-    database.aiWorkerAccessToken.findMany({ orderBy: [{ enabled: 'desc' }, { createdAt: 'desc' }] }),
+    database.aiWorkerAccessToken.findMany({
+      orderBy: [{ enabled: 'desc' }, { createdAt: 'desc' }],
+    }),
     database.aiProviderInstance.count(),
-    database.aiProviderInstance.count({ where: { disconnectedAt: null, lastSeenAt: { gte: onlineAfter } } }),
+    database.aiProviderInstance.count({
+      where: { disconnectedAt: null, lastSeenAt: { gte: onlineAfter } },
+    }),
     database.aiJob.count({ where: { status: { in: [...ACTIVE_JOB_STATUSES] } } }),
   ])
   return {
@@ -95,10 +103,7 @@ export async function getAiWorkerAccess(
   }
 }
 
-export async function createAiWorkerToken(
-  database: typeof DatabaseClient,
-  rawName: string,
-) {
+export async function createAiWorkerToken(database: typeof DatabaseClient, rawName: string) {
   const name = normalizeName(rawName)
   const token = freshToken()
   try {
@@ -111,8 +116,7 @@ export async function createAiWorkerToken(
       select: { id: true, name: true, tokenPrefix: true },
     })
     return { accessToken, token }
-  }
-  catch (error) {
+  } catch (error) {
     if (typeof error === 'object' && error && 'code' in error && error.code === 'P2002') {
       throw new AiWorkerAccessError('NAME_CONFLICT', '已有相同名稱的 Worker Token')
     }
@@ -123,7 +127,12 @@ export async function createAiWorkerToken(
 export async function rotateAiWorkerToken(database: typeof DatabaseClient, tokenId: string) {
   const token = freshToken()
   const updated = await database.aiWorkerAccessToken.updateMany({
-    data: { enabled: true, lastUsedAt: null, tokenHash: sha256(token), tokenPrefix: token.slice(0, 12) },
+    data: {
+      enabled: true,
+      lastUsedAt: null,
+      tokenHash: sha256(token),
+      tokenPrefix: token.slice(0, 12),
+    },
     where: { id: tokenId },
   })
   if (updated.count !== 1) throw new AiWorkerAccessError('NOT_FOUND', 'Worker Token 不存在')
@@ -135,7 +144,10 @@ export async function setAiWorkerTokenEnabled(
   tokenId: string,
   enabled: boolean,
 ) {
-  const updated = await database.aiWorkerAccessToken.updateMany({ data: { enabled }, where: { id: tokenId } })
+  const updated = await database.aiWorkerAccessToken.updateMany({
+    data: { enabled },
+    where: { id: tokenId },
+  })
   if (updated.count !== 1) throw new AiWorkerAccessError('NOT_FOUND', 'Worker Token 不存在')
   return { enabled, tokenId }
 }

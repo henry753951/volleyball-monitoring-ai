@@ -2,10 +2,7 @@ import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { isAbsolute, join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import {
-  normalizeSourceIdentity,
-  parseFinalizedRecording,
-} from '../src/media/finalized-recording'
+import { normalizeSourceIdentity, parseFinalizedRecording } from '../src/media/finalized-recording'
 
 const sandboxes: string[] = []
 
@@ -21,9 +18,7 @@ async function createSandbox(): Promise<{
 }
 
 afterEach(async () => {
-  await Promise.all(
-    sandboxes.splice(0).map((path) => rm(path, { recursive: true, force: true })),
-  )
+  await Promise.all(sandboxes.splice(0).map(path => rm(path, { recursive: true, force: true })))
 })
 
 describe('finalized recording discovery', () => {
@@ -94,12 +89,8 @@ describe('finalized recording discovery', () => {
   })
 
   it('normalizes separators while rejecting identity traversal', () => {
-    expect(normalizeSourceIdentity('nested\\segment-01.m4s')).toBe(
-      'nested/segment-01.m4s',
-    )
-    expect(() => normalizeSourceIdentity('../segment-01.m4s')).toThrow(
-      'invalid source identity',
-    )
+    expect(normalizeSourceIdentity('nested\\segment-01.m4s')).toBe('nested/segment-01.m4s')
+    expect(() => normalizeSourceIdentity('../segment-01.m4s')).toThrow('invalid source identity')
     expect(() => normalizeSourceIdentity('nested//segment-01.m4s')).toThrow(
       'invalid source identity',
     )

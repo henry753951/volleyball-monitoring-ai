@@ -35,8 +35,10 @@ export function createAnalysisIngestWorker(
         },
       },
     })
-    const candidate = candidates.find((run) => {
-      const active = run.submission.rally.activeSubmissionId === run.submissionId && run.submission.rally.voidedAt === null
+    const candidate = candidates.find(run => {
+      const active =
+        run.submission.rally.activeSubmissionId === run.submissionId &&
+        run.submission.rally.voidedAt === null
       const aiNeedsConvergence = !['COMPLETED', 'SUPERSEDED'].includes(run.aiJob.status)
       const rallyNeedsConvergence = active && run.submission.rally.processingStatus !== 'COMPLETED'
       return aiNeedsConvergence || rallyNeedsConvergence
@@ -46,7 +48,13 @@ export function createAnalysisIngestWorker(
     await database.$transaction([
       database.aiJob.updateMany({
         where: { id: candidate.aiJobId, status: { notIn: ['COMPLETED', 'SUPERSEDED'] } },
-        data: { status: 'COMPLETED', progress: 1, stage: 'completed', leasedUntil: null, completedAt: new Date() },
+        data: {
+          status: 'COMPLETED',
+          progress: 1,
+          stage: 'completed',
+          leasedUntil: null,
+          completedAt: new Date(),
+        },
       }),
       database.rally.updateMany({
         where: {
@@ -63,8 +71,11 @@ export function createAnalysisIngestWorker(
 
   return createPollingLifecycle(processNext, {
     ...(options.idleMs === undefined ? {} : { idleMs: options.idleMs }),
-    onError: (error) => {
-      console.error('analysis-ingest loop error', error instanceof Error ? error.name : 'UnknownError')
+    onError: error => {
+      console.error(
+        'analysis-ingest loop error',
+        error instanceof Error ? error.name : 'UnknownError',
+      )
       options.onError?.(error)
     },
     ...(options.disconnectOnStop === false ? {} : { disconnect: () => database.$disconnect() }),

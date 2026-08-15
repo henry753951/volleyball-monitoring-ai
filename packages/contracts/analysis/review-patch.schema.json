@@ -37,63 +37,142 @@
       "type": "object",
       "additionalProperties": false,
       "required": ["x", "y"],
-      "properties": { "x": { "type": "number", "minimum": 0 }, "y": { "type": "number", "minimum": 0 } }
+      "properties": {
+        "x": { "type": "number", "minimum": 0 },
+        "y": { "type": "number", "minimum": 0 }
+      }
     },
     "bbox": {
       "type": "object",
       "additionalProperties": false,
       "required": ["x1", "y1", "x2", "y2"],
       "properties": {
-        "x1": { "type": "number", "minimum": 0 }, "y1": { "type": "number", "minimum": 0 },
-        "x2": { "type": "number", "minimum": 0 }, "y2": { "type": "number", "minimum": 0 }
+        "x1": { "type": "number", "minimum": 0 },
+        "y1": { "type": "number", "minimum": 0 },
+        "x2": { "type": "number", "minimum": 0 },
+        "y2": { "type": "number", "minimum": 0 }
       }
     },
     "setBallPosition": {
-      "type": "object", "additionalProperties": false, "required": ["op", "frame_index", "frame_pos"],
-      "properties": { "op": { "const": "set_ball_position" }, "frame_index": { "$ref": "#/$defs/uint" }, "frame_pos": { "$ref": "#/$defs/point" } }
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["op", "frame_index", "frame_pos"],
+      "properties": {
+        "op": { "const": "set_ball_position" },
+        "frame_index": { "$ref": "#/$defs/uint" },
+        "frame_pos": { "$ref": "#/$defs/point" }
+      }
     },
     "frameOnly": {
-      "type": "object", "additionalProperties": false, "required": ["op", "frame_index"],
-      "properties": { "op": { "enum": ["mark_ball_missing", "clear_ball_override"] }, "frame_index": { "$ref": "#/$defs/uint" } }
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["op", "frame_index"],
+      "properties": {
+        "op": { "enum": ["mark_ball_missing", "clear_ball_override"] },
+        "frame_index": { "$ref": "#/$defs/uint" }
+      }
     },
     "setAction": {
-      "type": "object", "additionalProperties": false, "required": ["op", "frame_index", "track_id", "action"],
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["op", "frame_index", "track_id", "action"],
       "properties": {
-        "op": { "const": "set_action" }, "frame_index": { "$ref": "#/$defs/uint" }, "track_id": { "$ref": "#/$defs/trackId" },
-        "action": { "enum": ["Waiting", "Setting", "Digging", "Falling", "Spiking", "Blocking", "Jumping", "Moving", "Standing"] }
+        "op": { "const": "set_action" },
+        "frame_index": { "$ref": "#/$defs/uint" },
+        "track_id": { "$ref": "#/$defs/trackId" },
+        "action": {
+          "enum": [
+            "Waiting",
+            "Setting",
+            "Digging",
+            "Falling",
+            "Spiking",
+            "Blocking",
+            "Jumping",
+            "Moving",
+            "Standing"
+          ]
+        }
       }
     },
     "frameTrackOnly": {
-      "type": "object", "additionalProperties": false, "required": ["op", "frame_index", "track_id"],
-      "properties": { "op": { "enum": ["clear_action_override", "clear_player_bbox_override"] }, "frame_index": { "$ref": "#/$defs/uint" }, "track_id": { "$ref": "#/$defs/trackId" } }
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["op", "frame_index", "track_id"],
+      "properties": {
+        "op": { "enum": ["clear_action_override", "clear_player_bbox_override"] },
+        "frame_index": { "$ref": "#/$defs/uint" },
+        "track_id": { "$ref": "#/$defs/trackId" }
+      }
     },
     "setPlayerBBox": {
-      "type": "object", "additionalProperties": false, "required": ["op", "frame_index", "track_id", "frame_bbox"],
-      "properties": { "op": { "const": "set_player_bbox" }, "frame_index": { "$ref": "#/$defs/uint" }, "track_id": { "$ref": "#/$defs/trackId" }, "frame_bbox": { "$ref": "#/$defs/bbox" } }
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["op", "frame_index", "track_id", "frame_bbox"],
+      "properties": {
+        "op": { "const": "set_player_bbox" },
+        "frame_index": { "$ref": "#/$defs/uint" },
+        "track_id": { "$ref": "#/$defs/trackId" },
+        "frame_bbox": { "$ref": "#/$defs/bbox" }
+      }
     },
     "setContactActor": {
-      "type": "object", "additionalProperties": false, "required": ["op", "key_point_id", "track_id"],
-      "properties": { "op": { "const": "set_contact_actor" }, "key_point_id": { "type": "string", "format": "uuid" }, "track_id": { "oneOf": [{ "$ref": "#/$defs/trackId" }, { "type": "null" }] } }
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["op", "key_point_id", "track_id"],
+      "properties": {
+        "op": { "const": "set_contact_actor" },
+        "key_point_id": { "type": "string", "format": "uuid" },
+        "track_id": { "oneOf": [{ "$ref": "#/$defs/trackId" }, { "type": "null" }] }
+      }
     },
     "clearContactActor": {
-      "type": "object", "additionalProperties": false, "required": ["op", "key_point_id"],
-      "properties": { "op": { "const": "clear_contact_actor_override" }, "key_point_id": { "type": "string", "format": "uuid" } }
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["op", "key_point_id"],
+      "properties": {
+        "op": { "const": "clear_contact_actor_override" },
+        "key_point_id": { "type": "string", "format": "uuid" }
+      }
     },
     "setContactTime": {
-      "type": "object", "additionalProperties": false, "required": ["op", "key_point_id", "frame_index"],
-      "properties": { "op": { "const": "set_contact_time" }, "key_point_id": { "type": "string", "format": "uuid" }, "frame_index": { "$ref": "#/$defs/uint" } }
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["op", "key_point_id", "frame_index"],
+      "properties": {
+        "op": { "const": "set_contact_time" },
+        "key_point_id": { "type": "string", "format": "uuid" },
+        "frame_index": { "$ref": "#/$defs/uint" }
+      }
     },
     "clearContactTime": {
-      "type": "object", "additionalProperties": false, "required": ["op", "key_point_id"],
-      "properties": { "op": { "const": "clear_contact_time_override" }, "key_point_id": { "type": "string", "format": "uuid" } }
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["op", "key_point_id"],
+      "properties": {
+        "op": { "const": "clear_contact_time_override" },
+        "key_point_id": { "type": "string", "format": "uuid" }
+      }
     },
     "addContact": {
-      "type": "object", "additionalProperties": false, "required": ["op", "contact_id", "frame_index", "track_id"],
-      "properties": { "op": { "const": "add_contact" }, "contact_id": { "type": "string", "format": "uuid" }, "frame_index": { "$ref": "#/$defs/uint" }, "track_id": { "oneOf": [{ "$ref": "#/$defs/trackId" }, { "type": "null" }] } }
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["op", "contact_id", "frame_index", "track_id"],
+      "properties": {
+        "op": { "const": "add_contact" },
+        "contact_id": { "type": "string", "format": "uuid" },
+        "frame_index": { "$ref": "#/$defs/uint" },
+        "track_id": { "oneOf": [{ "$ref": "#/$defs/trackId" }, { "type": "null" }] }
+      }
     },
     "contactEditOnly": {
-      "type": "object", "additionalProperties": false, "required": ["op", "contact_id"],
-      "properties": { "op": { "enum": ["delete_contact", "restore_contact"] }, "contact_id": { "type": "string", "format": "uuid" } }
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["op", "contact_id"],
+      "properties": {
+        "op": { "enum": ["delete_contact", "restore_contact"] },
+        "contact_id": { "type": "string", "format": "uuid" }
+      }
     }
   }
 }

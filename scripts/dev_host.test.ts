@@ -31,7 +31,11 @@ describe('host development environment', () => {
     expect(environment.NUXT_PORT).toBe('13100')
     const processes = createDevelopmentProcesses(environment, true)
     expect(processes.find(process => process.name === 'web')?.command).toContain('13100')
-    expect(processes.find(process => process.name === 'web')?.environment).toEqual({ NUXT_IGNORE_LOCK: '1' })
-    expect(processes.find(process => process.name === 'worker-media')?.environment).toEqual({ WORKER_HEALTH_PORT: '4101' })
+    expect(processes.find(process => process.name === 'web')?.environment).toEqual({
+      NUXT_IGNORE_LOCK: '1',
+    })
+    expect(processes.find(process => process.name === 'worker-media')?.environment).toEqual({
+      WORKER_HEALTH_PORT: '4101',
+    })
   })
 })

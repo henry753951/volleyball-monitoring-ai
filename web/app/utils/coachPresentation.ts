@@ -18,9 +18,8 @@ export function playerParticipation(analytics: CoachMatchAnalytics, rosterEntryI
     if (track.roster_entry_id !== rosterEntryId) continue
     rallies.set(track.rally_id, track)
   }
-  return [...rallies.values()].sort((left, right) =>
-    right.set_number - left.set_number
-    || right.rally_ordinal - left.rally_ordinal,
+  return [...rallies.values()].sort(
+    (left, right) => right.set_number - left.set_number || right.rally_ordinal - left.rally_ordinal,
   )
 }
 
@@ -36,9 +35,10 @@ export function teamTracks(analytics: CoachMatchAnalytics, teamId: string) {
       .filter(player => player.team_id === teamId)
       .map(player => player.roster_entry_id),
   )
-  return analytics.tracks.filter(track =>
-    (track.roster_entry_id !== null && rosterIds.has(track.roster_entry_id))
-    || track.gid_team_id === teamId,
+  return analytics.tracks.filter(
+    track =>
+      (track.roster_entry_id !== null && rosterIds.has(track.roster_entry_id)) ||
+      track.gid_team_id === teamId,
   )
 }
 

@@ -9,7 +9,8 @@
     "dev:workflow": "bun --watch src/role-entry.ts workflow",
     "build": "tsc -p tsconfig.json",
     "start": "bun dist/index.js",
-    "lint": "tsc --noEmit",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
     "typecheck": "tsc --noEmit",
     "test": "vitest run --exclude 'dist/**'"
   },

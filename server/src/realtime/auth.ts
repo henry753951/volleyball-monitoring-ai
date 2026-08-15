@@ -12,6 +12,14 @@ function header(request: FastifyRequest, name: string): string | null {
   return typeof value === 'string' ? value : null
 }
 
+function queryParameter(request: FastifyRequest, name: string): string | null {
+  try {
+    return new URL(request.url, 'http://annotation.local').searchParams.get(name)
+  } catch {
+    return null
+  }
+}
+
 export async function ensureDevelopmentDeviceSession(
   database: PrismaClient,
   input: { userId: string; deviceSessionId?: string | null; userAgent?: string | null },
@@ -21,7 +29,10 @@ export async function ensureDevelopmentDeviceSession(
   }
   const id = input.deviceSessionId ?? process.env.DEV_DEVICE_SESSION_ID ?? randomUUID()
   if (!UUID.test(id)) throw new TypeError('Invalid development device session')
-  const existing = await database.deviceSession.findUnique({ select: { revokedAt: true, userId: true }, where: { id } })
+  const existing = await database.deviceSession.findUnique({
+    select: { revokedAt: true, userId: true },
+    where: { id },
+  })
   if (existing && existing.userId !== input.userId) {
     throw new TypeError('Development device session belongs to another user')
   }
@@ -52,9 +63,10 @@ export async function authenticateDevelopmentAnnotationRequest(
   }
   await database.user.upsert({
     create: {
-      displayName: header(request, 'x-dev-display-name')?.trim()
-        || process.env.DEV_USER_DISPLAY_NAME?.trim()
-        || 'Development User',
+      displayName:
+        header(request, 'x-dev-display-name')?.trim() ||
+        process.env.DEV_USER_DISPLAY_NAME?.trim() ||
+        'Development User',
       email: `${userId}@dev.volleyball.local`,
       id: userId,
     },
@@ -62,7 +74,11 @@ export async function authenticateDevelopmentAnnotationRequest(
     where: { id: userId },
   })
   const deviceSessionId = await ensureDevelopmentDeviceSession(database, {
-    deviceSessionId: header(request, 'x-dev-device-session-id'),
+    // Browsers cannot attach custom headers to a WebSocket handshake. This
+    // development-only hint keeps one tab's device identity stable across a
+    // reconnect; production authentication continues to own device sessions.
+    deviceSessionId:
+      header(request, 'x-dev-device-session-id') ?? queryParameter(request, 'device_session_id'),
     userAgent: header(request, 'user-agent'),
     userId,
   })

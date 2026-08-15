@@ -16,7 +16,7 @@ export const ANNOTATION_COMMAND_KINDS = [
   'SUBMIT_RALLY',
 ] as const
 
-export type AnnotationCommandKind = typeof ANNOTATION_COMMAND_KINDS[number]
+export type AnnotationCommandKind = (typeof ANNOTATION_COMMAND_KINDS)[number]
 
 export interface AnnotationPlaybackCursor {
   playback_window_id: string
@@ -50,20 +50,32 @@ export type CreateServiceKeyPointCommand = AnnotationCommandBase<
 export type AnnotationCommand =
   | AnnotationCommandBase<'START_RALLY', { playback_cursor: AnnotationPlaybackCursor }>
   | AnnotationCommandBase<'END_RALLY', { playback_cursor: AnnotationPlaybackCursor }>
-  | AnnotationCommandBase<'SET_RALLY_OUTCOME',
+  | AnnotationCommandBase<
+      'SET_RALLY_OUTCOME',
       | { score_resolution: 'resolved'; scoring_court_side: 'left' | 'right' }
       | { score_resolution: 'unknown'; scoring_court_side: null }
     >
   | CreateServiceKeyPointCommand
-  | AnnotationCommandBase<'CREATE_CONTACT_KEY_POINT', {
-      playback_cursor: AnnotationPlaybackCursor
-      terminal_outcome?: 'unknown'
-    }>
-  | AnnotationCommandBase<'CLOSE_RALLY',
-    | { target_key_point_id: string; score_resolution: 'resolved'; scoring_court_side: 'left' | 'right' }
-    | { target_key_point_id: string; score_resolution: 'unknown'; scoring_court_side: null }
-  >
-  | AnnotationCommandBase<'MOVE_KEY_POINT', { key_point_id: string; playback_cursor: AnnotationPlaybackCursor }>
+  | AnnotationCommandBase<
+      'CREATE_CONTACT_KEY_POINT',
+      {
+        playback_cursor: AnnotationPlaybackCursor
+        terminal_outcome?: 'unknown'
+      }
+    >
+  | AnnotationCommandBase<
+      'CLOSE_RALLY',
+      | {
+          target_key_point_id: string
+          score_resolution: 'resolved'
+          scoring_court_side: 'left' | 'right'
+        }
+      | { target_key_point_id: string; score_resolution: 'unknown'; scoring_court_side: null }
+    >
+  | AnnotationCommandBase<
+      'MOVE_KEY_POINT',
+      { key_point_id: string; playback_cursor: AnnotationPlaybackCursor }
+    >
   | AnnotationCommandBase<'DELETE_KEY_POINT', { key_point_id: string }>
   | AnnotationCommandBase<'REOPEN_RALLY', Record<string, never>>
   | AnnotationCommandBase<'VOID_RALLY', { reason: string }>
@@ -95,7 +107,10 @@ export interface AnnotationAckEffects {
   scoring_court_side?: 'left' | 'right' | null
 }
 
-interface AnnotationCommandAckBase<K extends AnnotationCommandKind, E extends AnnotationAckEffects> {
+interface AnnotationCommandAckBase<
+  K extends AnnotationCommandKind,
+  E extends AnnotationAckEffects,
+> {
   schema_version: '2.0.0' | '3.0.0'
   type: 'command_ack'
   command_id: string
@@ -119,18 +134,18 @@ export type AnnotationBoundaryAck = AnnotationCommandAckBase<
 
 export type AnnotationCloseRallyAck = AnnotationCommandAckBase<
   'CLOSE_RALLY',
-  | AnnotationAckEffects & {
+  | (AnnotationAckEffects & {
       terminal_key_point_id: string
       annotation_status: 'ready'
       score_resolution: 'resolved'
       scoring_court_side: 'left' | 'right'
-    }
-  | AnnotationAckEffects & {
+    })
+  | (AnnotationAckEffects & {
       terminal_key_point_id: string
       annotation_status: 'ready'
       score_resolution: 'unknown'
       scoring_court_side: null
-    }
+    })
 > & { resolved_anchor: null }
 
 export type AnnotationSubmitRallyAck = AnnotationCommandAckBase<
@@ -281,7 +296,12 @@ const SERVER_TYPES = new Set([
 ])
 
 function assertRealtime(input: unknown): Record<string, unknown> {
-  if (!validateRealtime(input) || typeof input !== 'object' || input === null || Array.isArray(input)) {
+  if (
+    !validateRealtime(input) ||
+    typeof input !== 'object' ||
+    input === null ||
+    Array.isArray(input)
+  ) {
     throw new TypeError(ajv.errorsText(validateRealtime.errors, { separator: '; ' }))
   }
   return input as Record<string, unknown>
@@ -301,7 +321,8 @@ export function parseAnnotationCommand(input: unknown): AnnotationCommand {
 
 export function parseAnnotationSoftLockIntent(input: unknown): AnnotationSoftLockIntent {
   const value = assertRealtime(input)
-  if (value.type !== 'soft_lock_intent') throw new TypeError('annotation message is not a soft-lock intent')
+  if (value.type !== 'soft_lock_intent')
+    throw new TypeError('annotation message is not a soft-lock intent')
   return value as unknown as AnnotationSoftLockIntent
 }
 

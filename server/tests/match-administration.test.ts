@@ -3,8 +3,10 @@ import type { PrismaClient } from '@volleyball-monitoring/db'
 import { UserRole } from '@volleyball-monitoring/db/client'
 import { describe, expect, it, vi } from 'vitest'
 
-process.env.DATABASE_URL ??= 'postgresql://volleyball:volleyball@127.0.0.1:5433/volleyball?schema=public'
-const { finalizeMatchDeletion, requestMatchDeletion } = await import('../src/services/match-administration.js')
+process.env.DATABASE_URL ??=
+  'postgresql://volleyball:volleyball@127.0.0.1:5433/volleyball?schema=public'
+const { finalizeMatchDeletion, requestMatchDeletion } =
+  await import('../src/services/match-administration.js')
 
 const matchId = '71000000-0000-4000-8000-000000000001'
 const captureId = '71000000-0000-4000-8000-000000000002'
@@ -27,7 +29,11 @@ function deletionTransaction() {
     playbackWindow: { deleteMany: remove() },
     pointAward: { deleteMany: remove() },
     rally: { deleteMany: remove(), findMany: vi.fn().mockResolvedValue([]) },
-    rallySubmission: { deleteMany: remove(), findMany: vi.fn().mockResolvedValue([]), updateMany: remove() },
+    rallySubmission: {
+      deleteMany: remove(),
+      findMany: vi.fn().mockResolvedValue([]),
+      updateMany: remove(),
+    },
     rallySubmissionBoundary: { deleteMany: remove() },
     rallySubmissionKeyPoint: { deleteMany: remove(), findMany: vi.fn().mockResolvedValue([]) },
     scoreLedgerEntry: { deleteMany: remove() },
@@ -37,21 +43,41 @@ function deletionTransaction() {
 
 describe('match administration', () => {
   it('deletes match-owned media while retaining shared object storage', async () => {
-    const uniqueAsset = { bucket: 'media', byteLength: 120n, id: 'asset-unique', objectKey: 'unique.m4s' }
-    const sharedAsset = { bucket: 'media', byteLength: 80n, id: 'asset-shared', objectKey: 'shared.m4s' }
+    const uniqueAsset = {
+      bucket: 'media',
+      byteLength: 120n,
+      id: 'asset-unique',
+      objectKey: 'unique.m4s',
+    }
+    const sharedAsset = {
+      bucket: 'media',
+      byteLength: 80n,
+      id: 'asset-shared',
+      objectKey: 'shared.m4s',
+    }
     const tx = deletionTransaction()
-    const mediaAssetFindMany = vi.fn()
+    const mediaAssetFindMany = vi
+      .fn()
       .mockResolvedValueOnce([uniqueAsset, sharedAsset])
       .mockResolvedValueOnce([uniqueAsset])
     const transaction = vi.fn(async (work: (client: typeof tx) => Promise<void>) => work(tx))
     const database = {
       $transaction: transaction,
-      match: { findFirst: vi.fn().mockResolvedValue({
-        captureSessions: [{ id: captureId, ingestPath: `capture/${captureId}`, sourceKind: 'youtube_vod', status: 'LIVE' }],
-        id: matchId,
-        matchTeams: [],
-        rosterEntries: [],
-      }) },
+      match: {
+        findFirst: vi.fn().mockResolvedValue({
+          captureSessions: [
+            {
+              id: captureId,
+              ingestPath: `capture/${captureId}`,
+              sourceKind: 'youtube_vod',
+              status: 'LIVE',
+            },
+          ],
+          id: matchId,
+          matchTeams: [],
+          rosterEntries: [],
+        }),
+      },
       mediaAsset: { findMany: mediaAssetFindMany },
       mediaSourceWork: { count: vi.fn().mockResolvedValue(0) },
     } as unknown as PrismaClient
@@ -69,23 +95,36 @@ describe('match administration', () => {
     })
 
     expect(stop).toHaveBeenCalledWith(database, captureId)
-    expect(database.mediaSourceWork.count).toHaveBeenCalledWith({ where: {
-      captureSessionId: { in: [captureId] },
-      OR: [
-        { status: { in: ['RUNNING', 'DRAINING'] } },
-        { attempts: { gt: 0 }, status: 'STOP_REQUESTED' },
-      ],
-    } })
+    expect(database.mediaSourceWork.count).toHaveBeenCalledWith({
+      where: {
+        captureSessionId: { in: [captureId] },
+        OR: [
+          { status: { in: ['RUNNING', 'DRAINING'] } },
+          { attempts: { gt: 0 }, status: 'STOP_REQUESTED' },
+        ],
+      },
+    })
     expect(tx.match.delete).toHaveBeenCalledWith({ where: { id: matchId } })
     expect(objectRemover).toHaveBeenCalledTimes(1)
     expect(objectRemover).toHaveBeenCalledWith(expect.objectContaining({ id: uniqueAsset.id }))
     expect(objectRemover).not.toHaveBeenCalledWith(expect.objectContaining({ id: sharedAsset.id }))
     expect(removePath).toHaveBeenCalledWith(resolve('/recordings', `capture/${captureId}`))
     expect(removePath).toHaveBeenCalledWith(resolve('/imports', captureId))
-    expect(stop.mock.invocationCallOrder[0]).toBeLessThan(objectRemover.mock.invocationCallOrder[0]!)
-    expect(objectRemover.mock.invocationCallOrder[0]).toBeLessThan(transaction.mock.invocationCallOrder[0]!)
-    expect(removePath.mock.invocationCallOrder[0]).toBeLessThan(transaction.mock.invocationCallOrder[0]!)
-    expect(result).toEqual({ cleanupWarnings: [], matchId, removedAssetCount: 1, removedBytes: '120' })
+    expect(stop.mock.invocationCallOrder[0]).toBeLessThan(
+      objectRemover.mock.invocationCallOrder[0]!,
+    )
+    expect(objectRemover.mock.invocationCallOrder[0]).toBeLessThan(
+      transaction.mock.invocationCallOrder[0]!,
+    )
+    expect(removePath.mock.invocationCallOrder[0]).toBeLessThan(
+      transaction.mock.invocationCallOrder[0]!,
+    )
+    expect(result).toEqual({
+      cleanupWarnings: [],
+      matchId,
+      removedAssetCount: 1,
+      removedBytes: '120',
+    })
   })
 
   it('keeps match data when required media cleanup fails', async () => {
@@ -93,25 +132,38 @@ describe('match administration', () => {
     const tx = deletionTransaction()
     const database = {
       $transaction: vi.fn(async (work: (client: typeof tx) => Promise<void>) => work(tx)),
-      match: { findFirst: vi.fn().mockResolvedValue({
-        captureSessions: [{ id: captureId, ingestPath: `capture/${captureId}`, sourceKind: 'youtube_live', status: 'LIVE' }],
-        id: matchId,
-        matchTeams: [],
-        rosterEntries: [],
-      }) },
-      mediaAsset: { findMany: vi.fn().mockResolvedValueOnce([asset]).mockResolvedValueOnce([asset]) },
+      match: {
+        findFirst: vi.fn().mockResolvedValue({
+          captureSessions: [
+            {
+              id: captureId,
+              ingestPath: `capture/${captureId}`,
+              sourceKind: 'youtube_live',
+              status: 'LIVE',
+            },
+          ],
+          id: matchId,
+          matchTeams: [],
+          rosterEntries: [],
+        }),
+      },
+      mediaAsset: {
+        findMany: vi.fn().mockResolvedValueOnce([asset]).mockResolvedValueOnce([asset]),
+      },
       mediaSourceWork: { count: vi.fn().mockResolvedValue(0) },
     } as unknown as PrismaClient
     const objectRemover = vi.fn().mockRejectedValue(new Error('storage unavailable'))
 
-    await expect(finalizeMatchDeletion(matchId, {
-      database,
-      importRoot: '/imports',
-      stopMediaSource: vi.fn().mockResolvedValue(undefined),
-      objectRemover,
-      recordingRoot: '/recordings',
-      removePath: vi.fn().mockResolvedValue(undefined),
-    })).rejects.toThrow('Media object cleanup failed; match was not deleted')
+    await expect(
+      finalizeMatchDeletion(matchId, {
+        database,
+        importRoot: '/imports',
+        stopMediaSource: vi.fn().mockResolvedValue(undefined),
+        objectRemover,
+        recordingRoot: '/recordings',
+        removePath: vi.fn().mockResolvedValue(undefined),
+      }),
+    ).rejects.toThrow('Media object cleanup failed; match was not deleted')
 
     expect(database.$transaction).not.toHaveBeenCalled()
     expect(tx.match.delete).not.toHaveBeenCalled()
@@ -125,9 +177,14 @@ describe('match administration', () => {
     tx.rallySubmission.findMany.mockResolvedValue([{ id: submissionId }])
     const database = {
       $transaction: vi.fn(async (work: (client: typeof tx) => Promise<void>) => work(tx)),
-      match: { findFirst: vi.fn().mockResolvedValue({
-        captureSessions: [], id: matchId, matchTeams: [], rosterEntries: [],
-      }) },
+      match: {
+        findFirst: vi.fn().mockResolvedValue({
+          captureSessions: [],
+          id: matchId,
+          matchTeams: [],
+          rosterEntries: [],
+        }),
+      },
       mediaAsset: { findMany: vi.fn().mockResolvedValue([]) },
       mediaSourceWork: { count: vi.fn().mockResolvedValue(0) },
     } as unknown as PrismaClient
@@ -142,8 +199,9 @@ describe('match administration', () => {
     expect(tx.rallySubmissionBoundary.deleteMany).toHaveBeenCalledWith({
       where: { submissionId: { in: [submissionId] } },
     })
-    expect(tx.rallySubmissionBoundary.deleteMany.mock.invocationCallOrder[0])
-      .toBeLessThan(tx.rallySubmission.deleteMany.mock.invocationCallOrder[0]!)
+    expect(tx.rallySubmissionBoundary.deleteMany.mock.invocationCallOrder[0]).toBeLessThan(
+      tx.rallySubmission.deleteMany.mock.invocationCallOrder[0]!,
+    )
   })
 
   it('cleans large object sets with bounded concurrency before deleting database rows', async () => {
@@ -158,12 +216,14 @@ describe('match administration', () => {
     const transaction = vi.fn(async (work: (client: typeof tx) => Promise<void>) => work(tx))
     const database = {
       $transaction: transaction,
-      match: { findFirst: vi.fn().mockResolvedValue({
-        captureSessions: [],
-        id: matchId,
-        matchTeams: [],
-        rosterEntries: [],
-      }) },
+      match: {
+        findFirst: vi.fn().mockResolvedValue({
+          captureSessions: [],
+          id: matchId,
+          matchTeams: [],
+          rosterEntries: [],
+        }),
+      },
       mediaAsset: { findMany: vi.fn().mockResolvedValueOnce(assets).mockResolvedValueOnce(assets) },
       mediaSourceWork: { count: vi.fn().mockResolvedValue(0) },
     } as unknown as PrismaClient
@@ -187,7 +247,9 @@ describe('match administration', () => {
     expect(objectRemover).toHaveBeenCalledTimes(assets.length)
     expect(maximumActive).toBeGreaterThan(1)
     expect(maximumActive).toBeLessThanOrEqual(8)
-    expect(objectRemover.mock.invocationCallOrder.at(-1)).toBeLessThan(transaction.mock.invocationCallOrder[0]!)
+    expect(objectRemover.mock.invocationCallOrder.at(-1)).toBeLessThan(
+      transaction.mock.invocationCallOrder[0]!,
+    )
   })
 
   it('marks deletion before requesting source shutdown and returns without media cleanup', async () => {
@@ -210,18 +272,27 @@ describe('match administration', () => {
       where: { id: matchId },
     })
     expect(stopMediaSource).toHaveBeenCalledWith(database, captureId)
-    expect(update.mock.invocationCallOrder[0]).toBeLessThan(stopMediaSource.mock.invocationCallOrder[0]!)
-    expect(result).toEqual({ cleanupWarnings: [], matchId, removedAssetCount: 0, removedBytes: '0' })
+    expect(update.mock.invocationCallOrder[0]).toBeLessThan(
+      stopMediaSource.mock.invocationCallOrder[0]!,
+    )
+    expect(result).toEqual({
+      cleanupWarnings: [],
+      matchId,
+      removedAssetCount: 0,
+      removedBytes: '0',
+    })
   })
 
   it('rejects non-operator deletion before reading match data', async () => {
     const findFirst = vi.fn()
     const database = { match: { findFirst } } as unknown as PrismaClient
-    await expect(requestMatchDeletion(
-      { id: '71000000-0000-4000-8000-000000000004', role: UserRole.COACH },
-      matchId,
-      { database },
-    )).rejects.toMatchObject({ extensions: { code: 'FORBIDDEN' } })
+    await expect(
+      requestMatchDeletion(
+        { id: '71000000-0000-4000-8000-000000000004', role: UserRole.COACH },
+        matchId,
+        { database },
+      ),
+    ).rejects.toMatchObject({ extensions: { code: 'FORBIDDEN' } })
     expect(findFirst).not.toHaveBeenCalled()
   })
 })

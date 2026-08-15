@@ -36,10 +36,7 @@
       "maxLength": 128
     },
     "mode": {
-      "enum": [
-        "live",
-        "archive"
-      ]
+      "enum": ["live", "archive"]
     },
     "mapping_version": {
       "type": "integer",

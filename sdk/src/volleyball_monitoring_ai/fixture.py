@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import copy
 from importlib.resources import files
+from itertools import pairwise
 from pathlib import Path
 from uuid import uuid4
 
@@ -23,7 +24,10 @@ class FixtureResultBuilder:
             "fixtures/normal-rally-analysis-data-domain.json"
         )
         if not fixture.is_file():
-            fixture = Path(__file__).resolve().parents[3] / "packages/contracts/fixtures/normal-rally/analysis-data-domain.json"
+            fixture = (
+                Path(__file__).resolve().parents[3]
+                / "packages/contracts/fixtures/normal-rally/analysis-data-domain.json"
+            )
         self._template = AnalysisDomainData.model_validate_json(fixture.read_text(encoding="utf-8"))
 
     def build(self, job: AIJobRequest) -> AnalysisDataBundle:
@@ -96,7 +100,7 @@ class FixtureResultBuilder:
 
         segment_templates = payload["path_segments"]
         segments: list[dict] = []
-        for index, (start, end) in enumerate(zip(events, events[1:], strict=False)):
+        for index, (start, end) in enumerate(pairwise(events)):
             template_index = min(index, max(len(segment_templates) - 1, 0))
             segment = copy.deepcopy(segment_templates[template_index]) if segment_templates else {}
             segment.update(

@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto'
-import { Prisma } from '@volleyball-monitoring/db/client'
+import type { Prisma } from '@volleyball-monitoring/db/client'
 
 type Tx = Prisma.TransactionClient
 
@@ -28,20 +28,25 @@ interface GeometryReuseInput {
 }
 
 const json = (value: unknown) => JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue
-const canonical = (value: unknown): string => Array.isArray(value)
-  ? `[${value.map(canonical).join(',')}]`
-  : value && typeof value === 'object'
-    ? `{${Object.keys(value as object).sort().map(key => `${JSON.stringify(key)}:${canonical((value as Record<string, unknown>)[key])}`).join(',')}}`
-    : JSON.stringify(value)
+const canonical = (value: unknown): string =>
+  Array.isArray(value)
+    ? `[${value.map(canonical).join(',')}]`
+    : value && typeof value === 'object'
+      ? `{${Object.keys(value as object)
+          .sort()
+          .map(
+            key => `${JSON.stringify(key)}:${canonical((value as Record<string, unknown>)[key])}`,
+          )
+          .join(',')}}`
+      : JSON.stringify(value)
 
-function rewritePayload(
-  value: unknown,
-  replacements: ReadonlyMap<string, string>,
-): unknown {
+function rewritePayload(value: unknown, replacements: ReadonlyMap<string, string>): unknown {
   if (typeof value === 'string') return replacements.get(value) ?? value
   if (Array.isArray(value)) return value.map(entry => rewritePayload(entry, replacements))
   if (value && typeof value === 'object') {
-    return Object.fromEntries(Object.entries(value).map(([key, entry]) => [key, rewritePayload(entry, replacements)]))
+    return Object.fromEntries(
+      Object.entries(value).map(([key, entry]) => [key, rewritePayload(entry, replacements)]),
+    )
   }
   return value
 }
@@ -107,7 +112,8 @@ export async function reuseCompletedSubmissionGeometry(
     if (!replacement) return false
     newIdByOldId.set(sourceBoundary.id, replacement.id)
   }
-  if (sourceClip.keyPointMappings.some(mapping => !newIdByOldId.has(mapping.submissionKeyPointId))) return false
+  if (sourceClip.keyPointMappings.some(mapping => !newIdByOldId.has(mapping.submissionKeyPointId)))
+    return false
 
   const now = new Date()
   const clipJobId = randomUUID()

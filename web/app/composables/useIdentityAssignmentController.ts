@@ -49,15 +49,32 @@ export function useIdentityAssignmentController(options: IdentityAssignmentContr
   const preferences = reactive({ replacementWarningEnabled: replacementWarning.enabled })
   let refreshGeneration = 0
 
-  const model = computed(() => createIdentityAssignmentModel({
-    analytics: state.analytics,
-    analysisRunId: toValue(options.analysisRunId),
-    currentFrame: options.currentFrame === undefined ? undefined : toValue(options.currentFrame),
-  }))
+  const model = computed(() =>
+    createIdentityAssignmentModel({
+      analytics: state.analytics,
+      analysisRunId: toValue(options.analysisRunId),
+      currentFrame: options.currentFrame === undefined ? undefined : toValue(options.currentFrame),
+    }),
+  )
   const view = reactive({
     model,
     busy: computed(() => state.loading || state.autoAssigning || state.savingTrackId !== null),
   })
+
+  function assignmentErrorMessage(cause: unknown) {
+    const code = cause && typeof cause === 'object' && 'code' in cause ? String(cause.code) : null
+    if (code === 'REID_OBSERVATION_NOT_FOUND')
+      return '這個 Local ID 沒有 ReID 資料；請使用「只修正這個 Local ID」，或先重新執行 ReID'
+    if (code === 'REID_IDENTITY_REQUIRED')
+      return '這個 Local ID 尚未連到固定名單槽位；請先執行 ReID，或只修正目前片段'
+    if (code === 'REID_TEAM_MISMATCH')
+      return 'ReID 槽位與所選球員隊伍不一致；請只修正目前片段或重新執行 ReID'
+    const message = cause instanceof Error ? cause.message : ''
+    if (/run fixed-roster reid|no fixed-roster reid observation/i.test(message)) {
+      return '這個 Local ID 尚無可沿用的 ReID 資料；請只修正目前片段或先重新執行 ReID'
+    }
+    return message || '儲存失敗'
+  }
 
   async function refresh() {
     const generation = ++refreshGeneration
@@ -72,13 +89,11 @@ export function useIdentityAssignmentController(options: IdentityAssignmentContr
     try {
       const analytics = await service.analytics(toValue(options.matchId))
       if (generation === refreshGeneration) state.analytics = analytics
-    }
-    catch (cause) {
+    } catch (cause) {
       if (generation === refreshGeneration) {
         state.error = cause instanceof Error ? cause.message : '無法載入球員指派'
       }
-    }
-    finally {
+    } finally {
       if (generation === refreshGeneration) state.loading = false
     }
   }
@@ -94,20 +109,19 @@ export function useIdentityAssignmentController(options: IdentityAssignmentContr
           analysisRunId,
           trackId: command.trackId,
           rosterEntryId: command.rosterEntryId,
-          identityMode: command.identityMode ?? 'from_here',
+          identityMode:
+            command.identityMode ??
+            (view.model.track.byId(command.trackId)?.gid_id ? 'from_here' : 'clip_only'),
         })
-      }
-      else {
+      } else {
         await service.clearTrackIdentity({ analysisRunId, trackId: command.trackId })
       }
       if (options.refreshAfterCommit) await refresh()
       options.onChanged?.()
       options.onCommitted?.()
-    }
-    catch (cause) {
-      state.error = cause instanceof Error ? cause.message : '儲存失敗'
-    }
-    finally {
+    } catch (cause) {
+      state.error = assignmentErrorMessage(cause)
+    } finally {
       state.savingTrackId = null
     }
   }
@@ -115,12 +129,14 @@ export function useIdentityAssignmentController(options: IdentityAssignmentContr
   function continueAssignment(command: IdentityAssignmentCommand) {
     const current = view.model.track.byId(command.trackId)
     const player = view.model.players.byRosterEntry(command.rosterEntryId)
-    if (command.scope !== 'gid'
-      && command.rosterEntryId
-      && current?.gid_id
-      && current.roster_entry_id
-      && current.roster_entry_id !== command.rosterEntryId
-      && player) {
+    if (
+      command.scope !== 'gid' &&
+      command.rosterEntryId &&
+      current?.gid_id &&
+      current.roster_entry_id &&
+      current.roster_entry_id !== command.rosterEntryId &&
+      player
+    ) {
       state.dialogs.correction = {
         trackId: command.trackId,
         rosterEntryId: command.rosterEntryId,
@@ -184,11 +200,9 @@ export function useIdentityAssignmentController(options: IdentityAssignmentContr
     try {
       await service.setTrackIdentityMappingComplete({ analysisRunId, completed })
       options.onChanged?.()
-    }
-    catch (cause) {
+    } catch (cause) {
       state.error = cause instanceof Error ? cause.message : '狀態更新失敗'
-    }
-    finally {
+    } finally {
       state.loading = false
     }
   }
@@ -202,28 +216,31 @@ export function useIdentityAssignmentController(options: IdentityAssignmentContr
     try {
       const response = await service.applyReidAutomaticAssignments({ analysisRunId })
       const result = response.applyReidAutomaticAssignments
-      state.automaticAssignmentResult = result.assigned_count > 0
-        ? `已自動套用 ${result.assigned_count} 個 Local ID${result.unresolved_count ? `，另有 ${result.unresolved_count} 個需人工確認` : ''}`
-        : result.unresolved_count > 0
-          ? `沒有可沿用的既有關聯，仍有 ${result.unresolved_count} 個 Local ID 需人工確認`
-          : '目前的 Local ID 都已完成分配'
+      state.automaticAssignmentResult =
+        result.assigned_count > 0
+          ? `已自動套用 ${result.assigned_count} 個 Local ID${result.unresolved_count ? `，另有 ${result.unresolved_count} 個需人工確認` : ''}`
+          : result.unresolved_count > 0
+            ? `沒有可沿用的既有關聯，仍有 ${result.unresolved_count} 個 Local ID 需人工確認`
+            : '目前的 Local ID 都已完成分配'
       if (options.refreshAfterCommit) await refresh()
       options.onChanged?.()
-    }
-    catch (cause) {
+    } catch (cause) {
       state.error = cause instanceof Error ? cause.message : 'ReID 自動分配失敗'
-    }
-    finally {
+    } finally {
       state.autoAssigning = false
     }
   }
 
-  watch([
-    () => toValue(options.matchId),
-    () => toValue(options.analysisRunId),
-    () => options.enabled === undefined ? true : toValue(options.enabled),
-    () => options.refreshKey === undefined ? null : toValue(options.refreshKey),
-  ], () => void refresh(), { immediate: true })
+  watch(
+    [
+      () => toValue(options.matchId),
+      () => toValue(options.analysisRunId),
+      () => (options.enabled === undefined ? true : toValue(options.enabled)),
+      () => (options.refreshKey === undefined ? null : toValue(options.refreshKey)),
+    ],
+    () => void refresh(),
+    { immediate: true },
+  )
 
   return {
     state,
@@ -237,8 +254,12 @@ export function useIdentityAssignmentController(options: IdentityAssignmentContr
       applyCorrection,
       applyAutomaticAssignments,
       setMappingCompleted,
-      closeReplacement: () => { state.dialogs.replacement = null },
-      closeCorrection: () => { state.dialogs.correction = null },
+      closeReplacement: () => {
+        state.dialogs.replacement = null
+      },
+      closeCorrection: () => {
+        state.dialogs.correction = null
+      },
     },
   }
 }

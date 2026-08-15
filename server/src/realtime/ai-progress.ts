@@ -38,8 +38,9 @@ export function createAiProgressService(redis: AiProgressRedisLike): AiProgressS
       const message = parseAnnotationServerMessage(JSON.parse(serialized))
       if (message.type !== 'rally_processing_update' || message.room_id !== roomId) return
       for (const listener of listeners.get(roomId) ?? []) listener(message)
+    } catch {
+      /* malformed ephemeral messages are dropped without touching domain state */
     }
-    catch { /* malformed ephemeral messages are dropped without touching domain state */ }
   })
 
   return {

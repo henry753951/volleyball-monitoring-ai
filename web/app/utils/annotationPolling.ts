@@ -15,5 +15,7 @@ export function captureNeedsPolling(status: string | null | undefined) {
 export function hasActiveRallyProcessing(
   rallies: ReadonlyArray<{ processing_status: string }> | null | undefined,
 ) {
-  return Boolean(rallies?.some(rally => ACTIVE_RALLY_PROCESSING_STATUSES.has(rally.processing_status)))
+  return Boolean(
+    rallies?.some(rally => ACTIVE_RALLY_PROCESSING_STATUSES.has(rally.processing_status)),
+  )
 }

@@ -4,27 +4,19 @@ import { resolve } from 'node:path'
 import { promisify } from 'node:util'
 import Fastify, { type FastifyInstance } from 'fastify'
 import { Pool } from 'pg'
-import {
-  afterAll,
-  beforeAll,
-  describe,
-  expect,
-  it,
-} from 'vitest'
+import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import type { db as databaseClient } from '@volleyball-monitoring/db'
-import type {
-  MediaIdentity,
-  MediaPlaybackDeps,
-} from '../src/routes/media-playback.js'
+import type { MediaIdentity, MediaPlaybackDeps } from '../src/routes/media-playback.js'
 import type { MediaObjectReadRequest } from '../src/media/playback-domain.js'
 
 const execFileAsync = promisify(execFile)
 const repositoryRoot = resolve(process.cwd(), '..')
 const databasePackageRoot = resolve(repositoryRoot, 'packages/db')
 const originalDatabaseUrl = process.env.DATABASE_URL
-const sourceDatabaseUrl = process.env.TEST_DATABASE_URL
-  ?? originalDatabaseUrl
-  ?? 'postgresql://volleyball:volleyball@127.0.0.1:5433/volleyball?schema=public'
+const sourceDatabaseUrl =
+  process.env.TEST_DATABASE_URL ??
+  originalDatabaseUrl ??
+  'postgresql://volleyball:volleyball@127.0.0.1:5433/volleyball?schema=public'
 const databaseName = `phase2media_${randomUUID().replaceAll('-', '')}`
 const maintenanceUrl = new URL(sourceDatabaseUrl)
 maintenanceUrl.pathname = '/postgres'
@@ -334,24 +326,20 @@ beforeAll(async () => {
   await maintenancePool.query(`CREATE DATABASE "${databaseName}"`)
   createdDatabase = true
   process.env.DATABASE_URL = isolatedDatabaseUrl.toString()
-  await execFileAsync(
-    'bun',
-    ['x', 'prisma', 'migrate', 'deploy', '--config', 'prisma.config.ts'],
-    {
-      cwd: databasePackageRoot,
-      env: { ...process.env, DATABASE_URL: isolatedDatabaseUrl.toString() },
-      windowsHide: true,
-    },
-  )
+  await execFileAsync('bun', ['x', 'prisma', 'migrate', 'deploy', '--config', 'prisma.config.ts'], {
+    cwd: databasePackageRoot,
+    env: { ...process.env, DATABASE_URL: isolatedDatabaseUrl.toString() },
+    windowsHide: true,
+  })
   const dbModule = await import('@volleyball-monitoring/db')
   const routeModule = await import('../src/routes/media-playback.js')
   db = dbModule.db
   await seedMediaFixture()
 
   const dependencies: MediaPlaybackDeps = {
-    authenticate: async (request) => {
+    authenticate: async request => {
       const key = request.headers['x-test-user']
-      return typeof key === 'string' ? identities[key] ?? null : null
+      return typeof key === 'string' ? (identities[key] ?? null) : null
     },
     limits: {
       defaultBackUs: 1_000_000n,
@@ -360,25 +348,23 @@ beforeAll(async () => {
       maxForwardUs: 2_000_000n,
     },
     now: () => now,
-    objectReader: async (request) => {
+    objectReader: async request => {
       reads.push(request)
       const bytes = objectBytes.get(objectMapKey(request))
       if (!bytes) throw new Error('missing test object')
       if (
-        BigInt(bytes.byteLength) !== request.expectedByteLength
-        || sha256(bytes) !== request.expectedSha256
+        BigInt(bytes.byteLength) !== request.expectedByteLength ||
+        sha256(bytes) !== request.expectedSha256
       ) {
         throw new Error('corrupt test object')
       }
       return bytes
     },
     resolveSample: async ({ segments, targetUs }) => ({
-      captureUs: targetUs === segments.at(-1)!.captureEndUs
-        ? targetUs - 1n
-        : targetUs,
-      playerUs: (targetUs === segments.at(-1)!.captureEndUs
-        ? targetUs - 1n
-        : targetUs) - segments[0]!.captureStartUs,
+      captureUs: targetUs === segments.at(-1)!.captureEndUs ? targetUs - 1n : targetUs,
+      playerUs:
+        (targetUs === segments.at(-1)!.captureEndUs ? targetUs - 1n : targetUs) -
+        segments[0]!.captureStartUs,
     }),
     windowTtlMs: 300_000,
   }
@@ -434,9 +420,11 @@ describe('Phase 2A playback-window HTTP', () => {
       has_more_after: true,
     })
     const windowId = String(descriptor.playback_window_id)
-    expect(await db.playbackWindowSegment.count({
-      where: { playbackWindowId: windowId },
-    })).toBe(2)
+    expect(
+      await db.playbackWindowSegment.count({
+        where: { playbackWindowId: windowId },
+      }),
+    ).toBe(2)
     const fetched = await app.inject({
       headers: authHeaders('operator'),
       method: 'GET',
@@ -444,14 +432,16 @@ describe('Phase 2A playback-window HTTP', () => {
     })
     expect(fetched.statusCode).toBe(200)
     expect(fetched.json()).toEqual(descriptor)
-    expect(await Promise.all([
-      db.rally.count(),
-      db.keyPoint.count(),
-      db.annotationOperation.count(),
-      db.rallySubmission.count(),
-      db.clipJob.count(),
-      db.aiJob.count(),
-    ])).toEqual(forbiddenBefore)
+    expect(
+      await Promise.all([
+        db.rally.count(),
+        db.keyPoint.count(),
+        db.annotationOperation.count(),
+        db.rallySubmission.count(),
+        db.clipJob.count(),
+        db.aiJob.count(),
+      ]),
+    ).toEqual(forbiddenBefore)
   })
 
   it('extends one stable manifest without replacing the playback window', async () => {
@@ -467,7 +457,11 @@ describe('Phase 2A playback-window HTTP', () => {
     })
     expect(created.statusCode).toBe(200)
     const original = created.json()
-    expect(await db.playbackWindowSegment.count({ where: { playbackWindowId: original.playback_window_id } })).toBe(1)
+    expect(
+      await db.playbackWindowSegment.count({
+        where: { playbackWindowId: original.playback_window_id },
+      }),
+    ).toBe(1)
 
     await db.playbackWindow.update({
       data: { expiresAt: new Date(now.getTime() + 30_000) },
@@ -491,9 +485,13 @@ describe('Phase 2A playback-window HTTP', () => {
       window_capture_end_us: original.window_capture_end_us,
     })
     expect(unchanged.json().expires_at).toBe(new Date(now.getTime() + 300_000).toISOString())
-    expect((await db.playbackWindow.findUniqueOrThrow({
-      where: { id: original.playback_window_id },
-    })).expiresAt).toEqual(new Date(now.getTime() + 300_000))
+    expect(
+      (
+        await db.playbackWindow.findUniqueOrThrow({
+          where: { id: original.playback_window_id },
+        })
+      ).expiresAt,
+    ).toEqual(new Date(now.getTime() + 300_000))
 
     const extended = await app.inject({
       headers: authHeaders('operator'),
@@ -513,7 +511,11 @@ describe('Phase 2A playback-window HTTP', () => {
       presentation_origin_capture_us: original.presentation_origin_capture_us,
       window_capture_end_us: (baseUs + 2_000_000n).toString(),
     })
-    expect(await db.playbackWindowSegment.count({ where: { playbackWindowId: original.playback_window_id } })).toBe(2)
+    expect(
+      await db.playbackWindowSegment.count({
+        where: { playbackWindowId: original.playback_window_id },
+      }),
+    ).toBe(2)
 
     const repeated = await app.inject({
       headers: authHeaders('operator'),
@@ -531,7 +533,11 @@ describe('Phase 2A playback-window HTTP', () => {
       mapping_version: original.mapping_version + 1,
       window_capture_end_us: (baseUs + 2_000_000n).toString(),
     })
-    expect(await db.playbackWindowSegment.count({ where: { playbackWindowId: original.playback_window_id } })).toBe(2)
+    expect(
+      await db.playbackWindowSegment.count({
+        where: { playbackWindowId: original.playback_window_id },
+      }),
+    ).toBe(2)
 
     const manifest = await app.inject({
       headers: authHeaders('operator'),
@@ -610,25 +616,41 @@ describe('Phase 2A playback-window HTTP', () => {
       url: '/api/v1/media/playback-windows',
     })
     const windowId = String(created.json().playback_window_id)
-    expect((await app.inject({
-      method: 'GET',
-      url: `/api/v1/media/playback-windows/${windowId}`,
-    })).statusCode).toBe(401)
-    expect((await app.inject({
-      headers: authHeaders('outsider'),
-      method: 'GET',
-      url: `/api/v1/media/playback-windows/${windowId}`,
-    })).statusCode).toBe(404)
-    expect((await app.inject({
-      headers: authHeaders('admin'),
-      method: 'GET',
-      url: `/api/v1/media/playback-windows/${windowId}`,
-    })).statusCode).toBe(200)
-    expect((await app.inject({
-      headers: authHeaders('operator'),
-      method: 'GET',
-      url: `/api/v1/media/playback-windows/${randomUUID()}`,
-    })).statusCode).toBe(404)
+    expect(
+      (
+        await app.inject({
+          method: 'GET',
+          url: `/api/v1/media/playback-windows/${windowId}`,
+        })
+      ).statusCode,
+    ).toBe(401)
+    expect(
+      (
+        await app.inject({
+          headers: authHeaders('outsider'),
+          method: 'GET',
+          url: `/api/v1/media/playback-windows/${windowId}`,
+        })
+      ).statusCode,
+    ).toBe(404)
+    expect(
+      (
+        await app.inject({
+          headers: authHeaders('admin'),
+          method: 'GET',
+          url: `/api/v1/media/playback-windows/${windowId}`,
+        })
+      ).statusCode,
+    ).toBe(200)
+    expect(
+      (
+        await app.inject({
+          headers: authHeaders('operator'),
+          method: 'GET',
+          url: `/api/v1/media/playback-windows/${randomUUID()}`,
+        })
+      ).statusCode,
+    ).toBe(404)
 
     await db.playbackWindow.create({
       data: {

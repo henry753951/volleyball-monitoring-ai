@@ -4,9 +4,10 @@ import { resolve } from 'node:path'
 import { Pool } from 'pg'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 
-const sourceDatabaseUrl = process.env.TEST_DATABASE_URL
-  ?? process.env.DATABASE_URL
-  ?? 'postgresql://volleyball:volleyball@127.0.0.1:5433/volleyball?schema=public'
+const sourceDatabaseUrl =
+  process.env.TEST_DATABASE_URL ??
+  process.env.DATABASE_URL ??
+  'postgresql://volleyball:volleyball@127.0.0.1:5433/volleyball?schema=public'
 const databaseName = `receipt_migration_${randomUUID().replaceAll('-', '')}`
 const maintenanceUrl = new URL(sourceDatabaseUrl)
 maintenanceUrl.pathname = '/postgres'
@@ -82,10 +83,13 @@ afterAll(async () => {
 
 describe('annotation receipt migration', () => {
   it('deploys over legacy accepted operations without fabricating receipts', async () => {
-    const migration = await readFile(resolve(
-      import.meta.dirname,
-      '../prisma/migrations/20260807180000_annotation_command_receipts/migration.sql',
-    ), 'utf8')
+    const migration = await readFile(
+      resolve(
+        import.meta.dirname,
+        '../prisma/migrations/20260807180000_annotation_command_receipts/migration.sql',
+      ),
+      'utf8',
+    )
     await database.query(migration)
     const operation = await database.query<{ receiptServerSequence: string | null }>(
       'SELECT "receiptServerSequence" FROM "AnnotationOperation" WHERE "id" = $1',

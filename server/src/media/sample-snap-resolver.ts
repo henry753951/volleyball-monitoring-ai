@@ -18,9 +18,7 @@ export type SampleSnapInput = {
   segments: readonly SampleSnapSegment[]
 }
 
-export type SampleSnapLoader = (
-  segmentIds: readonly string[],
-) => Promise<readonly IndexedSegment[]>
+export type SampleSnapLoader = (segmentIds: readonly string[]) => Promise<readonly IndexedSegment[]>
 
 export function createSampleSnapResolver(loader: SampleSnapLoader) {
   return async ({ targetUs, segments }: SampleSnapInput) => {
@@ -32,13 +30,11 @@ export function createSampleSnapResolver(loader: SampleSnapLoader) {
     if (targetUs < first.captureStartUs || targetUs > last.captureEndUs) {
       throw new Error('sample target is outside selected range')
     }
-    const resolverTargetUs = targetUs === last.captureEndUs
-      ? targetUs - 1n
-      : targetUs
-    const targetIndex = segments.findIndex(segment => (
-      segment.captureStartUs <= resolverTargetUs
-      && resolverTargetUs < segment.captureEndUs
-    ))
+    const resolverTargetUs = targetUs === last.captureEndUs ? targetUs - 1n : targetUs
+    const targetIndex = segments.findIndex(
+      segment =>
+        segment.captureStartUs <= resolverTargetUs && resolverTargetUs < segment.captureEndUs,
+    )
     if (targetIndex < 0) {
       throw new Error('sample target has no selected segment')
     }
@@ -53,18 +49,20 @@ export function createSampleSnapResolver(loader: SampleSnapLoader) {
     let neighborhoodEnd = targetIndex
     const previous = segments[targetIndex - 1]
     if (
-      previous
-      && previous.discontinuity === target.discontinuity
-      && previous.captureEndUs === target.captureStartUs
-    ) neighborhoodStart -= 1
+      previous &&
+      previous.discontinuity === target.discontinuity &&
+      previous.captureEndUs === target.captureStartUs
+    )
+      neighborhoodStart -= 1
     const next = segments[targetIndex + 1]
     if (
-      next
-      && next.discontinuity === target.discontinuity
-      && next.captureStartUs === target.captureEndUs
-    ) neighborhoodEnd += 1
+      next &&
+      next.discontinuity === target.discontinuity &&
+      next.captureStartUs === target.captureEndUs
+    )
+      neighborhoodEnd += 1
     const neighborhood = segments.slice(neighborhoodStart, neighborhoodEnd + 1)
-    const ids = neighborhood.map((segment) => segment.id)
+    const ids = neighborhood.map(segment => segment.id)
     const indexes = await loader(ids)
     if (indexes.length !== ids.length) {
       throw new Error('sample index segment count mismatch')
@@ -95,5 +93,5 @@ export function createPersistedSampleSnapResolver(
   objectReader: MediaObjectReader,
 ) {
   const repository = createSampleIndexRepository(database, objectReader)
-  return createSampleSnapResolver((ids) => repository.loadOrderedSegments(ids))
+  return createSampleSnapResolver(ids => repository.loadOrderedSegments(ids))
 }

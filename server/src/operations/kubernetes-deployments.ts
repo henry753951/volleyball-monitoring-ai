@@ -126,7 +126,11 @@ export function buildDeploymentSnapshot(
       const container = deployment.spec?.template?.spec?.containers?.[0]
       if (!name || !container?.image) return null
       const annotations = deployment.metadata?.annotations ?? {}
-      const matchingPods = pods.filter(pod => pod.metadata?.labels?.['app.kubernetes.io/name'] === annotations['vollyai.hsulab.net/pod-label'])
+      const matchingPods = pods.filter(
+        pod =>
+          pod.metadata?.labels?.['app.kubernetes.io/name'] ===
+          annotations['vollyai.hsulab.net/pod-label'],
+      )
       const desired = deployment.spec?.replicas ?? deployment.status?.replicas ?? 0
       const ready = deployment.status?.readyReplicas ?? 0
       const updated = deployment.status?.updatedReplicas ?? 0
@@ -146,7 +150,9 @@ export function buildDeploymentSnapshot(
         modelSha256: annotations['vollyai.hsulab.net/model-sha256'] ?? null,
         modelVersion: annotations['vollyai.hsulab.net/model-version'] ?? null,
         name: annotations['vollyai.hsulab.net/display-name'] ?? name,
-        nodeNames: [...new Set(matchingPods.flatMap(pod => pod.spec?.nodeName ? [pod.spec.nodeName] : []))],
+        nodeNames: [
+          ...new Set(matchingPods.flatMap(pod => (pod.spec?.nodeName ? [pod.spec.nodeName] : []))),
+        ],
         readyReplicas: ready,
         repositoryUrl: annotations['vollyai.hsulab.net/repository-url'] ?? null,
         requests: container.resources?.requests ?? {},
@@ -206,32 +212,38 @@ function kubernetesJson<T>(
   ca: Buffer,
 ): Promise<T> {
   return new Promise((resolve, reject) => {
-    const req = request({
-      ca,
-      headers: { authorization: `Bearer ${token}`, accept: 'application/json' },
-      host,
-      method: 'GET',
-      path,
-      port,
-      rejectUnauthorized: true,
-      timeout: 3_000,
-    }, (response) => {
-      const chunks: Buffer[] = []
-      response.on('data', chunk => chunks.push(Buffer.from(chunk)))
-      response.on('end', () => {
-        const body = Buffer.concat(chunks).toString('utf8')
-        if (!response.statusCode || response.statusCode < 200 || response.statusCode >= 300) {
-          reject(new Error(`Kubernetes API returned ${response.statusCode ?? 'unknown'}: ${body.slice(0, 200)}`))
-          return
-        }
-        try {
-          resolve(JSON.parse(body) as T)
-        }
-        catch (error) {
-          reject(error)
-        }
-      })
-    })
+    const req = request(
+      {
+        ca,
+        headers: { authorization: `Bearer ${token}`, accept: 'application/json' },
+        host,
+        method: 'GET',
+        path,
+        port,
+        rejectUnauthorized: true,
+        timeout: 3_000,
+      },
+      response => {
+        const chunks: Buffer[] = []
+        response.on('data', chunk => chunks.push(Buffer.from(chunk)))
+        response.on('end', () => {
+          const body = Buffer.concat(chunks).toString('utf8')
+          if (!response.statusCode || response.statusCode < 200 || response.statusCode >= 300) {
+            reject(
+              new Error(
+                `Kubernetes API returned ${response.statusCode ?? 'unknown'}: ${body.slice(0, 200)}`,
+              ),
+            )
+            return
+          }
+          try {
+            resolve(JSON.parse(body) as T)
+          } catch (error) {
+            reject(error)
+          }
+        })
+      },
+    )
     req.on('error', reject)
     req.on('timeout', () => req.destroy(new Error('Kubernetes API request timed out')))
     req.end()
@@ -252,7 +264,9 @@ export function createKubernetesDeploymentProbe(
         readFile(`${SERVICE_ACCOUNT_ROOT}/ca.crt`),
       ])
       const normalizedNamespace = namespace.trim()
-      const selector = encodeURIComponent(`app.kubernetes.io/part-of=${env.APP_KUBERNETES_PART_OF ?? DEFAULT_PART_OF}`)
+      const selector = encodeURIComponent(
+        `app.kubernetes.io/part-of=${env.APP_KUBERNETES_PART_OF ?? DEFAULT_PART_OF}`,
+      )
       const [deploymentList, podList] = await Promise.all([
         kubernetesJson<KubernetesList<KubernetesDeployment>>(
           host,
@@ -269,9 +283,12 @@ export function createKubernetesDeploymentProbe(
           ca,
         ),
       ])
-      return buildDeploymentSnapshot(normalizedNamespace, deploymentList.items ?? [], podList.items ?? [])
-    }
-    catch {
+      return buildDeploymentSnapshot(
+        normalizedNamespace,
+        deploymentList.items ?? [],
+        podList.items ?? [],
+      )
+    } catch {
       return environmentSnapshot(env)
     }
   }

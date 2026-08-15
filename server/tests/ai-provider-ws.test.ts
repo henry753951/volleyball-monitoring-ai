@@ -48,46 +48,67 @@ afterEach(async () => {
 
 describe('AI provider websocket startup', () => {
   it('accepts only providers that implement Job 3 and every AnalysisData module', () => {
-    expect(compatible({
-      ...hello.capabilities,
-      supported_job_schema_versions: ['3.0.0'],
-      supported_analysis_data_versions: [...hello.capabilities.supported_analysis_data_versions],
-      supported_analysis_modules: [...hello.capabilities.supported_analysis_modules],
-      action_taxonomies: [...hello.capabilities.action_taxonomies],
-    })).toBe(true)
-    expect(compatible({
-      ...hello.capabilities,
-      supports_selective_rerun: false,
-      supported_job_schema_versions: ['3.0.0'],
-      supported_analysis_data_versions: [...hello.capabilities.supported_analysis_data_versions],
-      supported_analysis_modules: [...hello.capabilities.supported_analysis_modules],
-      action_taxonomies: [...hello.capabilities.action_taxonomies],
-    })).toBe(true)
-    expect(compatible({
-      ...hello.capabilities,
-      supported_job_schema_versions: ['0.9.0'],
-      supported_analysis_data_versions: [...hello.capabilities.supported_analysis_data_versions],
-      supported_analysis_modules: [...hello.capabilities.supported_analysis_modules],
-      action_taxonomies: [...hello.capabilities.action_taxonomies],
-    })).toBe(false)
+    expect(
+      compatible({
+        ...hello.capabilities,
+        supported_job_schema_versions: ['3.0.0'],
+        supported_analysis_data_versions: [...hello.capabilities.supported_analysis_data_versions],
+        supported_analysis_modules: [...hello.capabilities.supported_analysis_modules],
+        action_taxonomies: [...hello.capabilities.action_taxonomies],
+      }),
+    ).toBe(true)
+    expect(
+      compatible({
+        ...hello.capabilities,
+        supports_selective_rerun: false,
+        supported_job_schema_versions: ['3.0.0'],
+        supported_analysis_data_versions: [...hello.capabilities.supported_analysis_data_versions],
+        supported_analysis_modules: [...hello.capabilities.supported_analysis_modules],
+        action_taxonomies: [...hello.capabilities.action_taxonomies],
+      }),
+    ).toBe(true)
+    expect(
+      compatible({
+        ...hello.capabilities,
+        supported_job_schema_versions: ['0.9.0'],
+        supported_analysis_data_versions: [...hello.capabilities.supported_analysis_data_versions],
+        supported_analysis_modules: [...hello.capabilities.supported_analysis_modules],
+        action_taxonomies: [...hello.capabilities.action_taxonomies],
+      }),
+    ).toBe(false)
   })
 
   it('does not let an expired queued or running lease occupy provider capacity', () => {
     const now = new Date('2026-08-10T00:00:00.000Z')
 
-    expect(isActiveProviderDelivery({
-      status: 'QUEUED',
-      leasedUntil: new Date(now.getTime() - 1),
-    }, now)).toBe(false)
-    expect(isActiveProviderDelivery({
-      status: 'QUEUED',
-      leasedUntil: new Date(now.getTime() + 1),
-    }, now)).toBe(true)
+    expect(
+      isActiveProviderDelivery(
+        {
+          status: 'QUEUED',
+          leasedUntil: new Date(now.getTime() - 1),
+        },
+        now,
+      ),
+    ).toBe(false)
+    expect(
+      isActiveProviderDelivery(
+        {
+          status: 'QUEUED',
+          leasedUntil: new Date(now.getTime() + 1),
+        },
+        now,
+      ),
+    ).toBe(true)
     expect(isActiveProviderDelivery({ status: 'RUNNING', leasedUntil: null }, now)).toBe(false)
-    expect(isActiveProviderDelivery({
-      status: 'RUNNING',
-      leasedUntil: new Date(now.getTime() + 1),
-    }, now)).toBe(true)
+    expect(
+      isActiveProviderDelivery(
+        {
+          status: 'RUNNING',
+          leasedUntil: new Date(now.getTime() + 1),
+        },
+        now,
+      ),
+    ).toBe(true)
   })
 
   it('requeues an expired running job so another Worker can resume it', async () => {
@@ -109,32 +130,39 @@ describe('AI provider websocket startup', () => {
     }
     const database = {
       aiJob: { findMany: async () => [expiredJob] },
-      $transaction: async (callback: (tx: unknown) => Promise<unknown>) => callback({
-        aiJob: { updateMany: updateJob },
-        rally: { updateMany: updateRally },
-      }),
+      $transaction: async (callback: (tx: unknown) => Promise<unknown>) =>
+        callback({
+          aiJob: { updateMany: updateJob },
+          rally: { updateMany: updateRally },
+        }),
     } as unknown as PrismaClient
 
     await expect(recoverExpiredRunningAiJobs(database, now)).resolves.toEqual([
       { job: expiredJob, terminal: false },
     ])
-    expect(updateJob).toHaveBeenCalledWith(expect.objectContaining({
-      data: expect.objectContaining({
-        deliveryId: null,
-        providerInstanceId: null,
-        stage: 'worker_lease_expired',
-        status: 'QUEUED',
+    expect(updateJob).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          deliveryId: null,
+          providerInstanceId: null,
+          stage: 'worker_lease_expired',
+          status: 'QUEUED',
+        }),
+        where: expect.objectContaining({ id: expiredJob.id, status: 'RUNNING' }),
       }),
-      where: expect.objectContaining({ id: expiredJob.id, status: 'RUNNING' }),
-    }))
-    expect(updateRally).toHaveBeenCalledWith(expect.objectContaining({
-      data: { processingStatus: 'AI_QUEUED' },
-    }))
+    )
+    expect(updateRally).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: { processingStatus: 'AI_QUEUED' },
+      }),
+    )
   })
 
   it('buffers an immediate provider hello while token authentication is pending', async () => {
     let releaseAuthentication!: () => void
-    const authGate = new Promise<void>(resolve => { releaseAuthentication = resolve })
+    const authGate = new Promise<void>(resolve => {
+      releaseAuthentication = resolve
+    })
     const updateProviderInstance = vi.fn(async () => ({ id: instanceId }))
     const database = {
       aiWorkerAccessToken: {
@@ -156,20 +184,21 @@ describe('AI provider websocket startup', () => {
 
     const app = Fastify({ logger: false })
     await app.register(websocket)
-    await app.register(aiProviderWebSocketRoutes({
-      database,
-      presign: async () => 'https://example.invalid/clip',
-      transportPingIntervalMs: 20,
-    }))
+    await app.register(
+      aiProviderWebSocketRoutes({
+        database,
+        presign: async () => 'https://example.invalid/clip',
+        transportPingIntervalMs: 20,
+      }),
+    )
     await app.listen({ host: '127.0.0.1', port: 0 })
     closeApp = () => app.close()
     const address = app.server.address()
     if (!address || typeof address === 'string') throw new Error('missing test listener')
 
-    const client = new WebSocket(
-      `ws://127.0.0.1:${address.port}/api/v1/ai/providers/ws`,
-      { headers: { authorization: `Bearer ${token}` } },
-    )
+    const client = new WebSocket(`ws://127.0.0.1:${address.port}/api/v1/ai/providers/ws`, {
+      headers: { authorization: `Bearer ${token}` },
+    })
     await new Promise<void>((resolve, reject) => {
       const timeout = setTimeout(() => reject(new Error('websocket open timeout')), 5_000)
       client.once('error', reject)
@@ -185,8 +214,11 @@ describe('AI provider websocket startup', () => {
       const timeout = setTimeout(() => reject(new Error('connection ready timeout')), 5_000)
       client.once('message', raw => {
         clearTimeout(timeout)
-        try { resolve(JSON.parse(raw.toString()) as Record<string, unknown>) }
-        catch (error) { reject(error) }
+        try {
+          resolve(JSON.parse(raw.toString()) as Record<string, unknown>)
+        } catch (error) {
+          reject(error)
+        }
       })
     })
     expect(ready).toMatchObject({
@@ -195,19 +227,25 @@ describe('AI provider websocket startup', () => {
       heartbeat_interval_seconds: 10,
       lease_seconds: 60,
     })
-    await vi.waitFor(() => {
-      expect(updateProviderInstance).toHaveBeenCalledWith(expect.objectContaining({
-        data: expect.objectContaining({ latencyMs: expect.any(Number), lastPongAt: expect.any(Date) }),
-        where: { id: instanceId },
-      }))
-    }, { timeout: 1_000 })
+    await vi.waitFor(
+      () => {
+        expect(updateProviderInstance).toHaveBeenCalledWith(
+          expect.objectContaining({
+            data: expect.objectContaining({
+              latencyMs: expect.any(Number),
+              lastPongAt: expect.any(Date),
+            }),
+            where: { id: instanceId },
+          }),
+        )
+      },
+      { timeout: 1_000 },
+    )
     client.close()
   })
 
   it('revokes a deleted token on heartbeat, requeues work, and removes the worker record', async () => {
-    const authenticate = vi.fn()
-      .mockResolvedValueOnce({ count: 1 })
-      .mockResolvedValue({ count: 0 })
+    const authenticate = vi.fn().mockResolvedValueOnce({ count: 1 }).mockResolvedValue({ count: 0 })
     const requeueJobs = vi.fn(async () => ({ count: 1 }))
     const requeueRallies = vi.fn(async () => ({ count: 1 }))
     const deleteProviderInstance = vi.fn(async () => ({ count: 1 }))
@@ -230,70 +268,79 @@ describe('AI provider websocket startup', () => {
         update: async () => ({ id: instanceId }),
       },
       aiJob: {
-        findMany: async (args: { where?: { providerInstanceId?: string } }) => (
-          args.where?.providerInstanceId === instanceId ? [activeJob] : []
-        ),
+        findMany: async (args: { where?: { providerInstanceId?: string } }) =>
+          args.where?.providerInstanceId === instanceId ? [activeJob] : [],
       },
       outboxEvent: { findMany: async () => [] },
       $queryRaw: async () => [],
-      $transaction: async (callback: (tx: unknown) => Promise<unknown>) => callback({
-        aiJob: { updateMany: requeueJobs },
-        aiProviderInstance: { deleteMany: deleteProviderInstance },
-        rally: { updateMany: requeueRallies },
-      }),
+      $transaction: async (callback: (tx: unknown) => Promise<unknown>) =>
+        callback({
+          aiJob: { updateMany: requeueJobs },
+          aiProviderInstance: { deleteMany: deleteProviderInstance },
+          rally: { updateMany: requeueRallies },
+        }),
     } as unknown as PrismaClient
 
     const app = Fastify({ logger: false })
     await app.register(websocket)
-    await app.register(aiProviderWebSocketRoutes({
-      database,
-      presign: async () => 'https://example.invalid/clip',
-      transportPingIntervalMs: 5_000,
-    }))
+    await app.register(
+      aiProviderWebSocketRoutes({
+        database,
+        presign: async () => 'https://example.invalid/clip',
+        transportPingIntervalMs: 5_000,
+      }),
+    )
     await app.listen({ host: '127.0.0.1', port: 0 })
     closeApp = () => app.close()
     const address = app.server.address()
     if (!address || typeof address === 'string') throw new Error('missing test listener')
 
-    const client = new WebSocket(
-      `ws://127.0.0.1:${address.port}/api/v1/ai/providers/ws`,
-      { headers: { authorization: `Bearer ${token}` } },
-    )
+    const client = new WebSocket(`ws://127.0.0.1:${address.port}/api/v1/ai/providers/ws`, {
+      headers: { authorization: `Bearer ${token}` },
+    })
     await new Promise<void>((resolve, reject) => {
       client.once('error', reject)
       client.once('open', resolve)
     })
-    const readyMessage = new Promise<Record<string, unknown>>((resolve) => {
+    const readyMessage = new Promise<Record<string, unknown>>(resolve => {
       client.once('message', raw => resolve(JSON.parse(raw.toString()) as Record<string, unknown>))
     })
     client.send(JSON.stringify(hello))
     await expect(readyMessage).resolves.toMatchObject({ type: 'connection_ready' })
 
-    const revokedMessage = new Promise<Record<string, unknown>>((resolve) => {
+    const revokedMessage = new Promise<Record<string, unknown>>(resolve => {
       client.once('message', raw => resolve(JSON.parse(raw.toString()) as Record<string, unknown>))
     })
-    client.send(JSON.stringify({
-      schema_version: '1.0.0',
-      type: 'heartbeat',
-      instance_id: hello.instance_id,
-      active_jobs: [],
-    }))
+    client.send(
+      JSON.stringify({
+        schema_version: '1.0.0',
+        type: 'heartbeat',
+        instance_id: hello.instance_id,
+        active_jobs: [],
+      }),
+    )
 
     await expect(revokedMessage).resolves.toMatchObject({
       type: 'protocol_error',
       code: 'AUTHORIZATION_REVOKED',
       retryable: false,
     })
-    await vi.waitFor(() => expect(deleteProviderInstance).toHaveBeenCalledWith({ where: { id: instanceId } }))
-    expect(requeueJobs).toHaveBeenCalledWith(expect.objectContaining({
-      data: expect.objectContaining({
-        deliveryId: null,
-        providerInstanceId: null,
-        status: 'QUEUED',
+    await vi.waitFor(() =>
+      expect(deleteProviderInstance).toHaveBeenCalledWith({ where: { id: instanceId } }),
+    )
+    expect(requeueJobs).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          deliveryId: null,
+          providerInstanceId: null,
+          status: 'QUEUED',
+        }),
       }),
-    }))
-    expect(requeueRallies).toHaveBeenCalledWith(expect.objectContaining({
-      data: { processingStatus: 'AI_QUEUED' },
-    }))
+    )
+    expect(requeueRallies).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: { processingStatus: 'AI_QUEUED' },
+      }),
+    )
   })
 })

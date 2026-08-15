@@ -77,10 +77,7 @@ export type ReservedArtifact = IngestArtifactReservation & {
   readyAt: Date | null
 }
 
-export type IngestReservationDisposition =
-  | 'RESERVED'
-  | 'RESUMED'
-  | 'ALREADY_READY'
+export type IngestReservationDisposition = 'RESERVED' | 'RESUMED' | 'ALREADY_READY'
 
 export type FinalizedSegmentReservation = {
   disposition: IngestReservationDisposition
@@ -197,7 +194,7 @@ function validateObjectLocation(location: IngestObjectLocation): void {
   if (
     location.key.startsWith('/') ||
     location.key.includes('\\') ||
-    location.key.split('/').some((part) => !part || part === '.' || part === '..')
+    location.key.split('/').some(part => !part || part === '.' || part === '..')
   ) {
     fail('INVALID_INPUT')
   }
@@ -293,10 +290,7 @@ function validateReference(reference: IngestReservationReference): void {
 }
 
 function sameProfile(
-  program: Pick<
-    Prisma.DvrProgramModel,
-    'fpsNum' | 'fpsDen' | 'timeBaseNum' | 'timeBaseDen'
-  >,
+  program: Pick<Prisma.DvrProgramModel, 'fpsNum' | 'fpsDen' | 'timeBaseNum' | 'timeBaseDen'>,
   profile: DvrProgramProfile,
 ): boolean {
   return (
@@ -379,7 +373,7 @@ function reservedArtifacts(
 ): ArtifactMap<ReservedArtifact> {
   const assets = segmentAssets(segment)
   return Object.fromEntries(
-    (['init', 'media', 'sample-index'] as const).map((kind) => [
+    (['init', 'media', 'sample-index'] as const).map(kind => [
       kind,
       {
         ...expected[kind],
@@ -501,10 +495,7 @@ function hasRetryCode(error: unknown, depth = 0): boolean {
   if (depth > 4 || !error || typeof error !== 'object') return false
   for (const name of ['code', 'originalCode', 'sqlState']) {
     const value = Reflect.get(error, name)
-    if (
-      typeof value === 'string' &&
-      ['P2034', '40001', '40P01'].includes(value)
-    ) {
+    if (typeof value === 'string' && ['P2034', '40001', '40P01'].includes(value)) {
       return true
     }
   }
@@ -553,9 +544,7 @@ async function findReadyPredecessor(
     where: {
       dvrProgramId,
       readyAt: { not: null },
-      ...(beforeSequence === undefined
-        ? {}
-        : { sequenceNumber: { lt: beforeSequence } }),
+      ...(beforeSequence === undefined ? {} : { sequenceNumber: { lt: beforeSequence } }),
     },
   })
 }
@@ -612,10 +601,7 @@ async function readReservation(
   tx: Tx,
   reference: IngestReservationReference,
 ): Promise<SegmentWithArtifacts> {
-  const segment = await findSegmentBySampleLocation(
-    tx,
-    reference.sampleIndexLocation,
-  )
+  const segment = await findSegmentBySampleLocation(tx, reference.sampleIndexLocation)
   if (!segment) return fail('RESERVATION_CONFLICT')
   assertReference(reference, segment)
   return segment
@@ -667,11 +653,9 @@ export class PrismaIngestRepository {
 
   constructor(client: PrismaClient, options: PrismaIngestRepositoryOptions = {}) {
     const plannerConfig = {
-      canonicalSessionOriginUs:
-        options.plannerConfig?.canonicalSessionOriginUs ?? 0n,
+      canonicalSessionOriginUs: options.plannerConfig?.canonicalSessionOriginUs ?? 0n,
       canonicalFrameOrigin: options.plannerConfig?.canonicalFrameOrigin ?? 0n,
-      timestampToleranceUs:
-        options.plannerConfig?.timestampToleranceUs ?? 250_000n,
+      timestampToleranceUs: options.plannerConfig?.timestampToleranceUs ?? 250_000n,
     }
     if (
       plannerConfig.canonicalSessionOriginUs < 0n ||
@@ -714,7 +698,7 @@ export class PrismaIngestRepository {
     input: FinalizedSegmentReservationInput,
   ): Promise<FinalizedSegmentReservation> {
     const requestedArtifacts = validateReservationInput(input)
-    return this.#transaction(async (tx) => {
+    return this.#transaction(async tx => {
       await advisoryLock(tx, input.captureSessionId)
       const session = await tx.captureSession.findUnique({
         where: { id: input.captureSessionId },
@@ -764,31 +748,22 @@ export class PrismaIngestRepository {
           select: { id: true },
           where: { dvrProgramId: program.id, readyAt: null },
         })
-        if (
-          replay.readyAt === null &&
-          (unready.length !== 1 || unready[0]!.id !== replay.id)
-        ) {
+        if (replay.readyAt === null && (unready.length !== 1 || unready[0]!.id !== replay.id)) {
           return fail('FIFO_BLOCKED')
         }
         if (
           replay.readyAt === null &&
-          await tx.dvrSegment.count({
+          (await tx.dvrSegment.count({
             where: {
               dvrProgramId: program.id,
               sequenceNumber: { gt: replay.sequenceNumber },
             },
-          }) !== 0
+          })) !== 0
         ) {
           return fail('FIFO_BLOCKED')
         }
-        const predecessor = await findReadyPredecessor(
-          tx,
-          program.id,
-          replay.sequenceNumber,
-        )
-        const expectedSequence = predecessor
-          ? predecessor.sequenceNumber + 1n
-          : 0n
+        const predecessor = await findReadyPredecessor(tx, program.id, replay.sequenceNumber)
+        const expectedSequence = predecessor ? predecessor.sequenceNumber + 1n : 0n
         const plan = planFrom(
           input,
           predecessor ? buildHead(predecessor) : null,
@@ -799,7 +774,7 @@ export class PrismaIngestRepository {
         const allReady =
           replay.readyAt !== null &&
           Object.values(assets).every(
-            (asset) =>
+            asset =>
               asset.state === 'READY' &&
               asset.readyAt !== null &&
               asset.byteLength !== null &&
@@ -810,7 +785,7 @@ export class PrismaIngestRepository {
         const allUploading =
           replay.readyAt === null &&
           Object.values(assets).every(
-            (asset) => asset.state === 'UPLOADING' && asset.readyAt === null,
+            asset => asset.state === 'UPLOADING' && asset.readyAt === null,
           )
         if (!allReady && !allUploading) return fail('RESERVATION_CONFLICT')
         return {
@@ -827,7 +802,7 @@ export class PrismaIngestRepository {
 
       const occupiedLocations = await tx.mediaAsset.count({
         where: {
-          OR: (['init', 'media', 'sample-index'] as const).map((kind) => ({
+          OR: (['init', 'media', 'sample-index'] as const).map(kind => ({
             bucket: requestedArtifacts[kind].location.bucket,
             objectKey: requestedArtifacts[kind].location.key,
           })),
@@ -835,9 +810,11 @@ export class PrismaIngestRepository {
       })
       if (occupiedLocations !== 0) return fail('ARTIFACT_CONFLICT')
 
-      if (await tx.dvrSegment.count({
-        where: { dvrProgramId: program.id, readyAt: null },
-      })) {
+      if (
+        await tx.dvrSegment.count({
+          where: { dvrProgramId: program.id, readyAt: null },
+        })
+      ) {
         return fail('FIFO_BLOCKED')
       }
       const lastSegment = await tx.dvrSegment.findFirst({
@@ -848,9 +825,7 @@ export class PrismaIngestRepository {
       if (lastSegment && (lastSegment.readyAt === null || lastSegment.isGap)) {
         return fail('TIMELINE_CONFLICT')
       }
-      const sequenceNumber = lastSegment
-        ? lastSegment.sequenceNumber + 1n
-        : 0n
+      const sequenceNumber = lastSegment ? lastSegment.sequenceNumber + 1n : 0n
       if (sequenceNumber < 0n || sequenceNumber > INT64_MAX) {
         return fail('TIMELINE_CONFLICT')
       }
@@ -945,12 +920,10 @@ export class PrismaIngestRepository {
     })
   }
 
-  async recordArtifactExpectations(
-    input: RecordArtifactExpectationsInput,
-  ): Promise<void> {
+  async recordArtifactExpectations(input: RecordArtifactExpectationsInput): Promise<void> {
     validateReference(input.reservation)
     const expected = artifactMap(input.artifacts, true)
-    await this.#transaction(async (tx) => {
+    await this.#transaction(async tx => {
       await advisoryLock(tx, input.reservation.captureSessionId)
       const segment = await readReservation(tx, input.reservation)
       const reservationMetadata = expected as ArtifactMap<IngestArtifactReservation>
@@ -968,14 +941,10 @@ export class PrismaIngestRepository {
       const assets = segmentAssets(segment)
       const allReady =
         segment.readyAt !== null &&
-        Object.values(assets).every(
-          (asset) => asset.state === 'READY' && asset.readyAt !== null,
-        )
+        Object.values(assets).every(asset => asset.state === 'READY' && asset.readyAt !== null)
       const allUploading =
         segment.readyAt === null &&
-        Object.values(assets).every(
-          (asset) => asset.state === 'UPLOADING' && asset.readyAt === null,
-        )
+        Object.values(assets).every(asset => asset.state === 'UPLOADING' && asset.readyAt === null)
       if (!allReady && !allUploading) return fail('ARTIFACT_CONFLICT')
       for (const kind of ['init', 'media', 'sample-index'] as const) {
         const asset = assets[kind]
@@ -1009,13 +978,10 @@ export class PrismaIngestRepository {
   async publishReady(input: PublishReadyInput): Promise<PublishReadyResult> {
     validateReference(input.reservation)
     const verified = artifactMap(input.verifiedArtifacts, true)
-    return this.#transaction(async (tx) => {
+    return this.#transaction(async tx => {
       await advisoryLock(tx, input.reservation.captureSessionId)
       const segment = await readReservation(tx, input.reservation)
-      assertArtifactRelationships(
-        segment,
-        verified as ArtifactMap<IngestArtifactReservation>,
-      )
+      assertArtifactRelationships(segment, verified as ArtifactMap<IngestArtifactReservation>)
       const assets = segmentAssets(segment)
       for (const kind of ['init', 'media', 'sample-index'] as const) {
         if (!sameExpectation(assets[kind], verified[kind])) {
@@ -1024,12 +990,10 @@ export class PrismaIngestRepository {
       }
       const allReady =
         segment.readyAt !== null &&
-        Object.values(assets).every(
-          (asset) => asset.state === 'READY' && asset.readyAt !== null,
-        )
+        Object.values(assets).every(asset => asset.state === 'READY' && asset.readyAt !== null)
       if (allReady) {
-        const timestamps = Object.values(assets).map((asset) => asset.readyAt!.getTime())
-        if (timestamps.some((value) => value !== segment.readyAt!.getTime())) {
+        const timestamps = Object.values(assets).map(asset => asset.readyAt!.getTime())
+        if (timestamps.some(value => value !== segment.readyAt!.getTime())) {
           return fail('RESERVATION_CONFLICT')
         }
         return {
@@ -1040,23 +1004,18 @@ export class PrismaIngestRepository {
       }
       if (
         segment.readyAt !== null ||
-        Object.values(assets).some(
-          (asset) => asset.state !== 'UPLOADING' || asset.readyAt !== null,
-        )
+        Object.values(assets).some(asset => asset.state !== 'UPLOADING' || asset.readyAt !== null)
       ) {
         return fail('RESERVATION_CONFLICT')
       }
       if (
-        await tx.dvrSegment.count({
+        (await tx.dvrSegment.count({
           where: {
             dvrProgramId: segment.dvrProgramId,
             id: { not: segment.id },
-            OR: [
-              { readyAt: null },
-              { sequenceNumber: { gt: segment.sequenceNumber } },
-            ],
+            OR: [{ readyAt: null }, { sequenceNumber: { gt: segment.sequenceNumber } }],
           },
-        }) !== 0
+        })) !== 0
       ) {
         return fail('FIFO_BLOCKED')
       }
@@ -1093,10 +1052,7 @@ export class PrismaIngestRepository {
         segment.sequenceNumber,
       )
       if (predecessor && predecessor.captureEpochId !== segment.captureEpochId) {
-        if (
-          predecessor.captureEpoch.sequenceIndex + 1 !==
-          segment.captureEpoch.sequenceIndex
-        ) {
+        if (predecessor.captureEpoch.sequenceIndex + 1 !== segment.captureEpoch.sequenceIndex) {
           return fail('TIMELINE_CONFLICT')
         }
         if (
@@ -1133,9 +1089,7 @@ export class PrismaIngestRepository {
       }
       const program = await tx.dvrProgram.update({
         data: {
-          status: segment.program.status === 'STARTING'
-            ? 'LIVE'
-            : segment.program.status,
+          status: segment.program.status === 'STARTING' ? 'LIVE' : segment.program.status,
           liveEdgeUs: segment.captureEndUs,
           durationUs: segment.captureEndUs - firstSegment.captureStartUs,
           playlistRevision: { increment: 1n },
@@ -1150,11 +1104,8 @@ export class PrismaIngestRepository {
         },
         where: { id: input.reservation.captureSessionId },
       })
-      if (
-        session.status === 'STOPPING'
-        && session.completionExpectedSegments !== null
-      ) {
-        const [readySegments, failedSegments, pendingSegments] = await Promise.all([
+      if (session.status === 'STOPPING' && session.completionExpectedSegments !== null) {
+        const [readySegments, pendingSegments] = await Promise.all([
           tx.dvrSegment.count({
             where: {
               dvrProgramId: segment.dvrProgramId,
@@ -1162,17 +1113,11 @@ export class PrismaIngestRepository {
               readyAt: { not: null },
             },
           }),
-          tx.mediaIngestFailure.count({
-            where: { captureSessionId: input.reservation.captureSessionId },
-          }),
           tx.dvrSegment.count({
             where: { dvrProgramId: segment.dvrProgramId, readyAt: null },
           }),
         ])
-        if (
-          readySegments + failedSegments >= session.completionExpectedSegments
-          && pendingSegments === 0
-        ) {
+        if (readySegments >= session.completionExpectedSegments && pendingSegments === 0) {
           const endedAt = this.#now()
           await tx.dvrProgram.update({
             data: { status: 'FINISHED' },

@@ -19,9 +19,10 @@ export function draftCommandAvailability(input: DraftCommandAvailabilityInput) {
       : { enabled: false, reason: '目前沒有可設定結果的片段' }
   }
 
-  if (input.state !== 'OPEN') return { enabled: false, reason: '尚未開始片段' }
+  if (!['OPEN', 'READY'].includes(input.state)) return { enabled: false, reason: '尚未開始片段' }
 
-  if (!input.canMark || !input.cursorCaptureTimeUs) return { enabled: false, reason: '游標尚未確認' }
+  if (!input.canMark || !input.cursorCaptureTimeUs)
+    return { enabled: false, reason: '游標尚未確認' }
   return { enabled: true, reason: '' }
 }
 
@@ -44,9 +45,15 @@ interface BoundaryCommandAvailabilityInput {
   segments: readonly AnnotationSegmentRange[]
 }
 
-function paddedRange(captureTimes: readonly string[], clipPreRollUs: bigint, clipPostRollUs: bigint) {
+function paddedRange(
+  captureTimes: readonly string[],
+  clipPreRollUs: bigint,
+  clipPostRollUs: bigint,
+) {
   if (!captureTimes.length) return null
-  const ordered = captureTimes.map(BigInt).sort((left, right) => left < right ? -1 : left > right ? 1 : 0)
+  const ordered = captureTimes
+    .map(BigInt)
+    .sort((left, right) => (left < right ? -1 : left > right ? 1 : 0))
   const requestedStart = ordered[0]! - clipPreRollUs
   const startCaptureTimeUs = requestedStart < 0n ? 0n : requestedStart
   const requestedEnd = ordered.at(-1)! + clipPostRollUs
@@ -61,9 +68,12 @@ function overlapsSegment(
   segments: readonly AnnotationSegmentRange[],
   excludedRallyId?: string | null,
 ) {
-  return segments.some(segment => segment.id !== excludedRallyId
-    && range.startCaptureTimeUs < BigInt(segment.endCaptureTimeUs)
-    && range.endCaptureTimeUs > BigInt(segment.startCaptureTimeUs))
+  return segments.some(
+    segment =>
+      segment.id !== excludedRallyId &&
+      range.startCaptureTimeUs < BigInt(segment.endCaptureTimeUs) &&
+      range.endCaptureTimeUs > BigInt(segment.startCaptureTimeUs),
+  )
 }
 
 export function boundaryCommandAvailability(input: BoundaryCommandAvailabilityInput) {

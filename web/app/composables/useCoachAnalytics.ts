@@ -16,13 +16,13 @@ export function useCoachAnalytics(
     if (refreshing.value) return
     refreshing.value = true
     try {
-      data.value = await createCoachDomainClient(createGraphQLTransport('/graphql')).analytics(toValue(matchId))
+      data.value = await createCoachDomainClient(createGraphQLTransport('/graphql')).analytics(
+        toValue(matchId),
+      )
       error.value = null
-    }
-    catch (cause) {
+    } catch (cause) {
       error.value = cause instanceof Error ? cause : new Error('無法同步分析資料')
-    }
-    finally {
+    } finally {
       pending.value = false
       refreshing.value = false
     }

@@ -30,14 +30,16 @@ export async function evaluateReadiness(
   probes: ReadinessProbe[],
   timeoutMs = 1_500,
 ): Promise<ReadinessResult> {
-  const entries = await Promise.all(probes.map(async (probe) => {
-    try {
-      await runProbe(probe, timeoutMs)
-      return [probe.name, 'ok'] as const
-    } catch {
-      return [probe.name, 'failed'] as const
-    }
-  }))
+  const entries = await Promise.all(
+    probes.map(async probe => {
+      try {
+        await runProbe(probe, timeoutMs)
+        return [probe.name, 'ok'] as const
+      } catch {
+        return [probe.name, 'failed'] as const
+      }
+    }),
+  )
   const checks = Object.fromEntries(entries) as Record<string, ReadinessCheckStatus>
 
   return {

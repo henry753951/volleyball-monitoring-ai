@@ -24,7 +24,9 @@ describe('VolleyballOverlayCanvas presentation timing', () => {
       callbacks.set(id, callback)
       return id
     })
-    globalThis.cancelAnimationFrame = vi.fn((id: number) => { callbacks.delete(id) })
+    globalThis.cancelAnimationFrame = vi.fn((id: number) => {
+      callbacks.delete(id)
+    })
     vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue({
       clearRect,
       setTransform: vi.fn(),
@@ -45,10 +47,23 @@ describe('VolleyballOverlayCanvas presentation timing', () => {
         frame: 0,
         videoWidth: 1920,
         videoHeight: 1080,
-        layers: { bbox: false, trackId: false, action: false, ball: false, trail: false, footprint: false, confidence: false, court: false, nextHit: false },
+        layers: {
+          bbox: false,
+          trackId: false,
+          action: false,
+          ball: false,
+          trail: false,
+          footprint: false,
+          confidence: false,
+          court: false,
+          nextHit: false,
+        },
       },
     })
-    vi.spyOn(wrapper.get('canvas').element, 'getBoundingClientRect').mockReturnValue({ width: 640, height: 360 } as DOMRect)
+    vi.spyOn(wrapper.get('canvas').element, 'getBoundingClientRect').mockReturnValue({
+      width: 640,
+      height: 360,
+    } as DOMRect)
 
     expect(requestAnimationFrame).toHaveBeenCalledTimes(1)
     callbacks.get(1)?.(0)

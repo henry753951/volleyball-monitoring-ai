@@ -6,9 +6,7 @@ const repositoryRoot = resolve(fileURLToPath(new URL('..', import.meta.url)))
 
 function hostPath(value: string | undefined, fallback: string): string {
   const configured = value?.trim() || fallback
-  return isAbsolute(configured)
-    ? configured
-    : resolve(repositoryRoot, 'infra', configured)
+  return isAbsolute(configured) ? configured : resolve(repositoryRoot, 'infra', configured)
 }
 
 export function createHostDevelopmentEnvironment(
@@ -26,7 +24,9 @@ export function createHostDevelopmentEnvironment(
   const importRoot = hostPath(source.MEDIA_IMPORT_HOST_PATH, resolve(dataRoot, 'media-imports'))
 
   return {
-    ...Object.fromEntries(Object.entries(source).filter((entry): entry is [string, string] => entry[1] !== undefined)),
+    ...Object.fromEntries(
+      Object.entries(source).filter((entry): entry is [string, string] => entry[1] !== undefined),
+    ),
     CALLBACK_PUBLIC_BASE_URL: `http://127.0.0.1:${serverPort}`,
     DATABASE_URL: `postgresql://volleyball:volleyball@127.0.0.1:${postgresPort}/volleyball?schema=public`,
     MEDIA_IMPORT_ROOT: importRoot,
@@ -62,13 +62,16 @@ async function waitForHostServices(environment: Record<string, string>): Promise
   const pending = new Set(targets)
   const deadline = Date.now() + 40_000
   while (pending.size > 0 && Date.now() < deadline) {
-    await Promise.all([...pending].map(async (target) => {
-      try {
-        const response = await fetch(target, { signal: AbortSignal.timeout(2_000) })
-        if (response.ok) pending.delete(target)
-      }
-      catch {}
-    }))
+    await Promise.all(
+      [...pending].map(async target => {
+        try {
+          const response = await fetch(target, { signal: AbortSignal.timeout(2_000) })
+          if (response.ok) pending.delete(target)
+        } catch {
+          // The readiness loop retries bounded connection failures until its deadline.
+        }
+      }),
+    )
     if (pending.size > 0) await Bun.sleep(250)
   }
   if (pending.size > 0) throw new Error(`host services not ready: ${[...pending].join(', ')}`)
@@ -80,13 +83,21 @@ export function createDevelopmentProcesses(
   smoke = false,
 ): DevelopmentProcess[] {
   return [
-    { name: 'server', command: ['bun', '--watch', 'src/index.ts'], cwd: resolve(repositoryRoot, 'server') },
+    {
+      name: 'server',
+      command: ['bun', '--watch', 'src/index.ts'],
+      cwd: resolve(repositoryRoot, 'server'),
+    },
     {
       name: 'web',
       command: [
         'node',
         resolve(repositoryRoot, 'node_modules', '@nuxt', 'cli', 'bin', 'nuxi.mjs'),
-        'dev', '--host', '0.0.0.0', '--port', environment.NUXT_PORT!,
+        'dev',
+        '--host',
+        '0.0.0.0',
+        '--port',
+        environment.NUXT_PORT!,
       ],
       cwd: resolve(repositoryRoot, 'web'),
       ...(smoke ? { environment: { NUXT_IGNORE_LOCK: '1' } } : {}),
@@ -114,7 +125,7 @@ async function main(): Promise<void> {
     mkdir(environment.MEDIA_IMPORT_ROOT!, { recursive: true }),
   ])
 
-  const children = createDevelopmentProcesses(environment, smokeMode).map((processDefinition) => {
+  const children = createDevelopmentProcesses(environment, smokeMode).map(processDefinition => {
     const child = Bun.spawn(processDefinition.command, {
       cwd: processDefinition.cwd,
       env: { ...environment, ...processDefinition.environment },
@@ -123,7 +134,9 @@ async function main(): Promise<void> {
       stderr: 'inherit',
     })
     console.log(`host process starting name=${processDefinition.name} pid=${child.pid}`)
-    void child.exited.then(code => console.log(`host process exited name=${processDefinition.name} code=${code}`))
+    void child.exited.then(code =>
+      console.log(`host process exited name=${processDefinition.name} code=${code}`),
+    )
     return { name: processDefinition.name, process: child }
   })
   let stopping = false
@@ -139,14 +152,14 @@ async function main(): Promise<void> {
   }
   process.once('SIGINT', requestShutdown)
   process.once('SIGTERM', requestShutdown)
-  const smoke = smokeMode
-    ? waitForHostServices(environment).finally(requestShutdown)
-    : undefined
+  const smoke = smokeMode ? waitForHostServices(environment).finally(requestShutdown) : undefined
 
-  const completed = await Promise.race(children.map(async child => ({
-    name: child.name,
-    exitCode: await child.process.exited,
-  })))
+  const completed = await Promise.race(
+    children.map(async child => ({
+      name: child.name,
+      exitCode: await child.process.exited,
+    })),
+  )
   stop()
   await Promise.allSettled(children.map(child => child.process.exited))
   process.off('SIGINT', requestShutdown)

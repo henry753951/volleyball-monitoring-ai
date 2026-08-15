@@ -9,11 +9,7 @@ import {
   type RetryableFailure,
   type UploadingRecord,
 } from '../src/media/ingest'
-import type {
-  ArtifactKind,
-  ArtifactMetadata,
-  MediaArtifact,
-} from '../src/media/artifacts'
+import type { ArtifactKind, ArtifactMetadata, MediaArtifact } from '../src/media/artifacts'
 import type { FinalizedRecording } from '../src/media/finalized-recording'
 import type { SampleIndex } from '../src/media/sample-index'
 
@@ -163,9 +159,9 @@ describe('ingestFinalizedSegment', () => {
   it('records, uploads, verifies, and publishes exactly three artifacts in order', async () => {
     const harness = createHarness()
 
-    await expect(
-      ingestFinalizedSegment(recording, harness.ports, sampleIndex),
-    ).resolves.toBe('published')
+    await expect(ingestFinalizedSegment(recording, harness.ports, sampleIndex)).resolves.toBe(
+      'published',
+    )
 
     expect(harness.order).toEqual([
       'artifact-source',
@@ -193,9 +189,7 @@ describe('ingestFinalizedSegment', () => {
     expect(uploading).not.toHaveProperty('trustedPath')
     expect(uploading).not.toHaveProperty('sourceIdentity')
     expect(uploading.artifacts).toEqual(harness.store.verifications)
-    expect(uploading.artifacts.every((artifact) => !('bytes' in artifact))).toBe(
-      true,
-    )
+    expect(uploading.artifacts.every(artifact => !('bytes' in artifact))).toBe(true)
 
     const transaction = harness.repository.readyTransactions[0]!
     expect(transaction.artifacts).toEqual(uploading.artifacts)
@@ -208,9 +202,9 @@ describe('ingestFinalizedSegment', () => {
   ] as const)('stops after a %s claim', async (claim, result) => {
     const harness = createHarness({ claims: [claim] })
 
-    await expect(
-      ingestFinalizedSegment(recording, harness.ports, sampleIndex),
-    ).resolves.toBe(result)
+    await expect(ingestFinalizedSegment(recording, harness.ports, sampleIndex)).resolves.toBe(
+      result,
+    )
 
     expect(harness.order).toEqual(['artifact-source', 'claim'])
     expect(harness.store.uploads).toHaveLength(0)
@@ -226,18 +220,16 @@ describe('ingestFinalizedSegment', () => {
   ] as const)('rejects invalid finalized recording input', async (value, message) => {
     const harness = createHarness()
 
-    await expect(
-      ingestFinalizedSegment(value, harness.ports, sampleIndex),
-    ).rejects.toThrow(message)
+    await expect(ingestFinalizedSegment(value, harness.ports, sampleIndex)).rejects.toThrow(message)
     expect(harness.order).toEqual([])
   })
 
   it('records artifact-source evidence without claiming or publishing', async () => {
     const harness = createHarness({ failSource: true })
 
-    await expect(
-      ingestFinalizedSegment(recording, harness.ports, sampleIndex),
-    ).resolves.toBe('retry')
+    await expect(ingestFinalizedSegment(recording, harness.ports, sampleIndex)).resolves.toBe(
+      'retry',
+    )
 
     expect(harness.order).toEqual(['artifact-source', 'mark-retryable'])
     expect(harness.repository.failures).toEqual([
@@ -260,9 +252,9 @@ describe('ingestFinalizedSegment', () => {
       }),
     }
 
-    await expect(
-      ingestFinalizedSegment(recording, harness.ports, sampleIndex),
-    ).resolves.toBe('retry')
+    await expect(ingestFinalizedSegment(recording, harness.ports, sampleIndex)).resolves.toBe(
+      'retry',
+    )
     expect(harness.repository.failures[0]).toMatchObject({
       stage: 'ARTIFACT_SOURCE',
       code: 'ARTIFACT_SOURCE_FAILED',
@@ -274,9 +266,9 @@ describe('ingestFinalizedSegment', () => {
   it('records claim failure evidence', async () => {
     const harness = createHarness({ failClaim: true })
 
-    await expect(
-      ingestFinalizedSegment(recording, harness.ports, sampleIndex),
-    ).resolves.toBe('retry')
+    await expect(ingestFinalizedSegment(recording, harness.ports, sampleIndex)).resolves.toBe(
+      'retry',
+    )
     expect(harness.repository.failures[0]).toMatchObject({
       stage: 'CLAIM',
       code: 'CLAIM_FAILED',
@@ -288,9 +280,9 @@ describe('ingestFinalizedSegment', () => {
   it('records uploading-metadata failure before object writes', async () => {
     const harness = createHarness({ failRecordUploading: true })
 
-    await expect(
-      ingestFinalizedSegment(recording, harness.ports, sampleIndex),
-    ).resolves.toBe('retry')
+    await expect(ingestFinalizedSegment(recording, harness.ports, sampleIndex)).resolves.toBe(
+      'retry',
+    )
     expect(harness.repository.failures[0]).toMatchObject({
       stage: 'RECORD_UPLOADING',
       code: 'RECORD_UPLOADING_FAILED',
@@ -307,9 +299,9 @@ describe('ingestFinalizedSegment', () => {
   ] as const)('records %s upload failure and never publishes ready', async (kind, stage) => {
     const harness = createHarness({ failUpload: kind })
 
-    await expect(
-      ingestFinalizedSegment(recording, harness.ports, sampleIndex),
-    ).resolves.toBe('retry')
+    await expect(ingestFinalizedSegment(recording, harness.ports, sampleIndex)).resolves.toBe(
+      'retry',
+    )
     expect(harness.repository.failures[0]).toMatchObject({
       stage,
       code: 'UPLOAD_FAILED',
@@ -326,9 +318,9 @@ describe('ingestFinalizedSegment', () => {
   ] as const)('records %s verification failure and never publishes ready', async (kind, stage) => {
     const harness = createHarness({ failVerify: kind })
 
-    await expect(
-      ingestFinalizedSegment(recording, harness.ports, sampleIndex),
-    ).resolves.toBe('retry')
+    await expect(ingestFinalizedSegment(recording, harness.ports, sampleIndex)).resolves.toBe(
+      'retry',
+    )
     expect(harness.store.uploads).toHaveLength(3)
     expect(harness.repository.failures[0]).toMatchObject({
       stage,
@@ -341,9 +333,9 @@ describe('ingestFinalizedSegment', () => {
   it('records publish failure without reporting ready', async () => {
     const harness = createHarness({ failPublish: true })
 
-    await expect(
-      ingestFinalizedSegment(recording, harness.ports, sampleIndex),
-    ).resolves.toBe('retry')
+    await expect(ingestFinalizedSegment(recording, harness.ports, sampleIndex)).resolves.toBe(
+      'retry',
+    )
     expect(harness.repository.failures[0]).toMatchObject({
       stage: 'PUBLISH_READY',
       code: 'PUBLISH_FAILED',
@@ -356,12 +348,12 @@ describe('ingestFinalizedSegment', () => {
   it('retries with the same digest and locations without duplicating ready state', async () => {
     const harness = createHarness({ claims: ['CLAIMED', 'ALREADY_READY'] })
 
-    await expect(
-      ingestFinalizedSegment(recording, harness.ports, sampleIndex),
-    ).resolves.toBe('published')
-    await expect(
-      ingestFinalizedSegment(recording, harness.ports, sampleIndex),
-    ).resolves.toBe('already_ready')
+    await expect(ingestFinalizedSegment(recording, harness.ports, sampleIndex)).resolves.toBe(
+      'published',
+    )
+    await expect(ingestFinalizedSegment(recording, harness.ports, sampleIndex)).resolves.toBe(
+      'already_ready',
+    )
 
     expect(harness.repository.claimKeys).toHaveLength(2)
     expect(harness.repository.claimKeys[1]).toBe(harness.repository.claimKeys[0])
@@ -374,10 +366,10 @@ describe('ingestFinalizedSegment', () => {
     const harness = createHarness()
     const repositoryMethods = Object.getOwnPropertyNames(
       Object.getPrototypeOf(harness.repository),
-    ).filter((name) => name !== 'constructor')
+    ).filter(name => name !== 'constructor')
     const objectStoreMethods = Object.getOwnPropertyNames(
       Object.getPrototypeOf(harness.store),
-    ).filter((name) => name !== 'constructor')
+    ).filter(name => name !== 'constructor')
 
     expect(repositoryMethods).toEqual([
       'claim',

@@ -15,8 +15,22 @@ const paths: ReplayPath[] = [
     render_state: 'complete',
     is_terminal_segment: false,
     quality_flags: [],
-    start_court_positions: [{ track_id: 8, basis: 'player_footprint_proxy', court_pos: { x: -.06, y: .24 }, confidence: null }],
-    end_court_positions: [{ track_id: 3, basis: 'player_footprint_proxy', court_pos: { x: .72, y: .64 }, confidence: null }],
+    start_court_positions: [
+      {
+        track_id: 8,
+        basis: 'player_footprint_proxy',
+        court_pos: { x: -0.06, y: 0.24 },
+        confidence: null,
+      },
+    ],
+    end_court_positions: [
+      {
+        track_id: 3,
+        basis: 'player_footprint_proxy',
+        court_pos: { x: 0.72, y: 0.64 },
+        confidence: null,
+      },
+    ],
   },
   {
     id: 'path-2',
@@ -28,8 +42,22 @@ const paths: ReplayPath[] = [
     render_state: 'complete',
     is_terminal_segment: true,
     quality_flags: [],
-    start_court_positions: [{ track_id: 3, basis: 'player_footprint_proxy', court_pos: { x: .72, y: .64 }, confidence: null }],
-    end_court_positions: [{ track_id: null, basis: 'terminal_projection', court_pos: { x: 1.04, y: .79 }, confidence: null }],
+    start_court_positions: [
+      {
+        track_id: 3,
+        basis: 'player_footprint_proxy',
+        court_pos: { x: 0.72, y: 0.64 },
+        confidence: null,
+      },
+    ],
+    end_court_positions: [
+      {
+        track_id: null,
+        basis: 'terminal_projection',
+        court_pos: { x: 1.04, y: 0.79 },
+        confidence: null,
+      },
+    ],
   },
 ]
 
@@ -42,9 +70,18 @@ const chunk: AnalysisFrameChunk = {
   frameCount: 1,
   frameOffsets: [0, 2],
   trackIds: [8, 12],
-  frameBboxes: [{ x1: 0, y1: 0, x2: 0, y2: 0 }, { x1: 0, y1: 0, x2: 0, y2: 0 }],
-  frameFootPositions: [{ x: 0, y: 0 }, { x: 0, y: 0 }],
-  courtPositions: [{ x: -.06, y: .24 }, { x: .4, y: .8 }],
+  frameBboxes: [
+    { x1: 0, y1: 0, x2: 0, y2: 0 },
+    { x1: 0, y1: 0, x2: 0, y2: 0 },
+  ],
+  frameFootPositions: [
+    { x: 0, y: 0 },
+    { x: 0, y: 0 },
+  ],
+  courtPositions: [
+    { x: -0.06, y: 0.24 },
+    { x: 0.4, y: 0.8 },
+  ],
   playerFlags: [ANALYSIS_PLAYER_FLAG.courtPosition, ANALYSIS_PLAYER_FLAG.courtPosition],
   playerConfidences: [-1, -1],
   actionLabelIds: [65535, 65535],

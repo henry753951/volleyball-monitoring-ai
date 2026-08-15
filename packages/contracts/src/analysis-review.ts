@@ -14,9 +14,17 @@ export const ANALYSIS_REVIEW_ACTIONS = [
   'Standing',
 ] as const
 
-export type AnalysisReviewAction = typeof ANALYSIS_REVIEW_ACTIONS[number]
-export interface AnalysisFramePoint { x: number; y: number }
-export interface AnalysisFrameBBox { x1: number; y1: number; x2: number; y2: number }
+export type AnalysisReviewAction = (typeof ANALYSIS_REVIEW_ACTIONS)[number]
+export interface AnalysisFramePoint {
+  x: number
+  y: number
+}
+export interface AnalysisFrameBBox {
+  x1: number
+  y1: number
+  x2: number
+  y2: number
+}
 
 export type AnalysisBallCorrection =
   | { frame_index: string; state: 'position'; frame_pos: AnalysisFramePoint; revision: string }
@@ -104,75 +112,101 @@ export interface AnalysisReviewRevisionEvent {
 
 const UINT = /^(0|[1-9][0-9]*)$/
 const UUID = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i
-const record = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value)
+const record = (value: unknown): value is Record<string, unknown> =>
+  typeof value === 'object' && value !== null && !Array.isArray(value)
 const validTrackId = (value: unknown) => Number.isSafeInteger(value) && Number(value) >= 0
 const validFrameIndex = (value: unknown) => typeof value === 'string' && UINT.test(value)
-const validPoint = (value: unknown): value is AnalysisFramePoint => record(value)
-  && typeof value.x === 'number'
-  && typeof value.y === 'number'
-  && Number.isFinite(value.x)
-  && Number.isFinite(value.y)
-  && value.x >= 0
-  && value.y >= 0
-const validBBox = (value: unknown): value is AnalysisFrameBBox => record(value)
-  && typeof value.x1 === 'number'
-  && typeof value.y1 === 'number'
-  && typeof value.x2 === 'number'
-  && typeof value.y2 === 'number'
-  && [value.x1, value.y1, value.x2, value.y2].every(item => Number.isFinite(item) && item >= 0)
-  && value.x2 > value.x1
-  && value.y2 > value.y1
+const validPoint = (value: unknown): value is AnalysisFramePoint =>
+  record(value) &&
+  typeof value.x === 'number' &&
+  typeof value.y === 'number' &&
+  Number.isFinite(value.x) &&
+  Number.isFinite(value.y) &&
+  value.x >= 0 &&
+  value.y >= 0
+const validBBox = (value: unknown): value is AnalysisFrameBBox =>
+  record(value) &&
+  typeof value.x1 === 'number' &&
+  typeof value.y1 === 'number' &&
+  typeof value.x2 === 'number' &&
+  typeof value.y2 === 'number' &&
+  [value.x1, value.y1, value.x2, value.y2].every(item => Number.isFinite(item) && item >= 0) &&
+  value.x2 > value.x1 &&
+  value.y2 > value.y1
 
 export function parseAnalysisReviewPatch(value: unknown): AnalysisReviewPatch {
-  if (!record(value)
-    || value.schema_version !== ANALYSIS_REVIEW_SCHEMA_VERSION
-    || typeof value.client_patch_id !== 'string'
-    || !UUID.test(value.client_patch_id)
-    || typeof value.base_revision !== 'string'
-    || !UINT.test(value.base_revision)
-    || !Array.isArray(value.operations)
-    || value.operations.length < 1
-    || value.operations.length > 32) throw new TypeError('invalid analysis review patch')
+  if (
+    !record(value) ||
+    value.schema_version !== ANALYSIS_REVIEW_SCHEMA_VERSION ||
+    typeof value.client_patch_id !== 'string' ||
+    !UUID.test(value.client_patch_id) ||
+    typeof value.base_revision !== 'string' ||
+    !UINT.test(value.base_revision) ||
+    !Array.isArray(value.operations) ||
+    value.operations.length < 1 ||
+    value.operations.length > 32
+  )
+    throw new TypeError('invalid analysis review patch')
 
   for (const operation of value.operations) {
-    if (!record(operation) || typeof operation.op !== 'string') throw new TypeError('invalid analysis review operation')
+    if (!record(operation) || typeof operation.op !== 'string')
+      throw new TypeError('invalid analysis review operation')
     if (operation.op === 'add_contact') {
-      if (typeof operation.contact_id !== 'string' || !UUID.test(operation.contact_id)
-        || !validFrameIndex(operation.frame_index)
-        || !(operation.track_id === null || validTrackId(operation.track_id))) throw new TypeError('invalid added contact')
+      if (
+        typeof operation.contact_id !== 'string' ||
+        !UUID.test(operation.contact_id) ||
+        !validFrameIndex(operation.frame_index) ||
+        !(operation.track_id === null || validTrackId(operation.track_id))
+      )
+        throw new TypeError('invalid added contact')
       continue
     }
     if (operation.op === 'delete_contact' || operation.op === 'restore_contact') {
-      if (typeof operation.contact_id !== 'string' || !UUID.test(operation.contact_id)) throw new TypeError('invalid contact edit')
+      if (typeof operation.contact_id !== 'string' || !UUID.test(operation.contact_id))
+        throw new TypeError('invalid contact edit')
       continue
     }
     if (operation.op === 'set_contact_actor') {
-      if (typeof operation.key_point_id !== 'string' || !UUID.test(operation.key_point_id)
-        || !(operation.track_id === null || validTrackId(operation.track_id))) throw new TypeError('invalid contact actor correction')
+      if (
+        typeof operation.key_point_id !== 'string' ||
+        !UUID.test(operation.key_point_id) ||
+        !(operation.track_id === null || validTrackId(operation.track_id))
+      )
+        throw new TypeError('invalid contact actor correction')
       continue
     }
     if (operation.op === 'clear_contact_actor_override') {
-      if (typeof operation.key_point_id !== 'string' || !UUID.test(operation.key_point_id)) throw new TypeError('invalid contact actor correction')
+      if (typeof operation.key_point_id !== 'string' || !UUID.test(operation.key_point_id))
+        throw new TypeError('invalid contact actor correction')
       continue
     }
     if (operation.op === 'set_contact_time') {
-      if (typeof operation.key_point_id !== 'string' || !UUID.test(operation.key_point_id)
-        || !validFrameIndex(operation.frame_index)) throw new TypeError('invalid contact time correction')
+      if (
+        typeof operation.key_point_id !== 'string' ||
+        !UUID.test(operation.key_point_id) ||
+        !validFrameIndex(operation.frame_index)
+      )
+        throw new TypeError('invalid contact time correction')
       continue
     }
     if (operation.op === 'clear_contact_time_override') {
-      if (typeof operation.key_point_id !== 'string' || !UUID.test(operation.key_point_id)) throw new TypeError('invalid contact time correction')
+      if (typeof operation.key_point_id !== 'string' || !UUID.test(operation.key_point_id))
+        throw new TypeError('invalid contact time correction')
       continue
     }
-    if (!validFrameIndex(operation.frame_index)) throw new TypeError('invalid analysis review operation')
+    if (!validFrameIndex(operation.frame_index))
+      throw new TypeError('invalid analysis review operation')
     if (operation.op === 'set_ball_position') {
       if (!validPoint(operation.frame_pos)) throw new TypeError('invalid ball position correction')
       continue
     }
     if (operation.op === 'mark_ball_missing' || operation.op === 'clear_ball_override') continue
     if (operation.op === 'set_action') {
-      if (!validTrackId(operation.track_id)
-        || !ANALYSIS_REVIEW_ACTIONS.includes(operation.action as AnalysisReviewAction)) throw new TypeError('invalid action correction')
+      if (
+        !validTrackId(operation.track_id) ||
+        !ANALYSIS_REVIEW_ACTIONS.includes(operation.action as AnalysisReviewAction)
+      )
+        throw new TypeError('invalid action correction')
       continue
     }
     if (operation.op === 'clear_action_override' || operation.op === 'clear_player_bbox_override') {
@@ -180,7 +214,8 @@ export function parseAnalysisReviewPatch(value: unknown): AnalysisReviewPatch {
       continue
     }
     if (operation.op === 'set_player_bbox') {
-      if (!validTrackId(operation.track_id) || !validBBox(operation.frame_bbox)) throw new TypeError('invalid player bbox correction')
+      if (!validTrackId(operation.track_id) || !validBBox(operation.frame_bbox))
+        throw new TypeError('invalid player bbox correction')
       continue
     }
     throw new TypeError('unsupported analysis review operation')

@@ -7,11 +7,7 @@ import {
 } from '@volleyball-monitoring/contracts'
 import { db } from '@volleyball-monitoring/db'
 import { UserRole } from '@volleyball-monitoring/db/client'
-import type {
-  FastifyPluginAsync,
-  FastifyReply,
-  FastifyRequest,
-} from 'fastify'
+import type { FastifyPluginAsync, FastifyReply, FastifyRequest } from 'fastify'
 import {
   MEDIA_INTERNAL_SCHEMA_VERSION,
   MediaHttpError,
@@ -83,13 +79,8 @@ function headerValue(request: FastifyRequest, name: string): string | null {
   return typeof value === 'string' ? value : null
 }
 
-async function defaultDevelopmentIdentity(
-  request: FastifyRequest,
-): Promise<MediaIdentity | null> {
-  if (
-    process.env.DEV_AUTH_ENABLED !== 'true'
-    || process.env.NODE_ENV === 'production'
-  ) {
+async function defaultDevelopmentIdentity(request: FastifyRequest): Promise<MediaIdentity | null> {
+  if (process.env.DEV_AUTH_ENABLED !== 'true' || process.env.NODE_ENV === 'production') {
     return null
   }
   const id = headerValue(request, 'x-dev-user-id') ?? process.env.DEV_USER_ID ?? null
@@ -105,9 +96,10 @@ async function defaultDevelopmentIdentity(
     where: { id },
     update: {},
     create: {
-      displayName: headerValue(request, 'x-dev-display-name')?.trim()
-        || process.env.DEV_USER_DISPLAY_NAME?.trim()
-        || 'Development User',
+      displayName:
+        headerValue(request, 'x-dev-display-name')?.trim() ||
+        process.env.DEV_USER_DISPLAY_NAME?.trim() ||
+        'Development User',
       email: `${id}@dev.volleyball.local`,
       id,
     },
@@ -120,21 +112,19 @@ function requestId(request: FastifyRequest): string {
   return value.length > 0 && value.length <= 128 ? value : randomUUID()
 }
 
-function sendMediaError(
-  request: FastifyRequest,
-  reply: FastifyReply,
-  error: unknown,
-) {
+function sendMediaError(request: FastifyRequest, reply: FastifyReply, error: unknown) {
   if (error instanceof MediaHttpError) {
-    return reply
-      .code(error.status)
-      .send(mediaErrorEnvelope(error, requestId(request)))
+    return reply.code(error.status).send(mediaErrorEnvelope(error, requestId(request)))
   }
   request.log.error({ err: error }, 'media playback request failed')
-  return reply.code(500).send(mediaErrorEnvelope(
-    new MediaHttpError(500, 'MEDIA_NOT_READY', 'Media request failed'),
-    requestId(request),
-  ))
+  return reply
+    .code(500)
+    .send(
+      mediaErrorEnvelope(
+        new MediaHttpError(500, 'MEDIA_NOT_READY', 'Media request failed'),
+        requestId(request),
+      ),
+    )
 }
 
 function parseUuid(value: string, resource: string): string {
@@ -188,17 +178,19 @@ function assetMetadataReady<Kind extends MediaAssetKind>(
   expectedContentType: string,
   expectedKind: Kind,
 ): asset is ReadyMediaAssetMetadata<Kind> {
-  return asset !== null
-    && asset.state === 'READY'
-    && asset.readyAt !== null
-    && asset.internalSchemaVersion === MEDIA_INTERNAL_SCHEMA_VERSION
-    && asset.bucket.length > 0
-    && asset.objectKey.length > 0
-    && asset.byteLength !== null
-    && asset.byteLength > 0n
-    && validSha256(asset.sha256)
-    && asset.contentType === expectedContentType
-    && asset.kind === expectedKind
+  return (
+    asset !== null &&
+    asset.state === 'READY' &&
+    asset.readyAt !== null &&
+    asset.internalSchemaVersion === MEDIA_INTERNAL_SCHEMA_VERSION &&
+    asset.bucket.length > 0 &&
+    asset.objectKey.length > 0 &&
+    asset.byteLength !== null &&
+    asset.byteLength > 0n &&
+    validSha256(asset.sha256) &&
+    asset.contentType === expectedContentType &&
+    asset.kind === expectedKind
+  )
 }
 
 async function loadProgramSegments(dvrProgramId: string) {
@@ -208,11 +200,7 @@ async function loadProgramSegments(dvrProgramId: string) {
       mediaAsset: true,
       sampleIndexAsset: true,
     },
-    orderBy: [
-      { captureStartUs: 'asc' },
-      { sequenceNumber: 'asc' },
-      { id: 'asc' },
-    ],
+    orderBy: [{ captureStartUs: 'asc' }, { sequenceNumber: 'asc' }, { id: 'asc' }],
     where: { dvrProgramId },
   })
 }
@@ -220,10 +208,12 @@ async function loadProgramSegments(dvrProgramId: string) {
 type ProgramSegmentRow = Awaited<ReturnType<typeof loadProgramSegments>>[number]
 
 function programSegmentReady(segment: ProgramSegmentRow): boolean {
-  return segment.readyAt !== null
-    && assetMetadataReady(segment.initAsset, 'video/mp4', 'DVR_INIT')
-    && assetMetadataReady(segment.mediaAsset, 'video/mp4', 'DVR_SEGMENT')
-    && assetMetadataReady(segment.sampleIndexAsset, 'application/json', 'SAMPLE_INDEX')
+  return (
+    segment.readyAt !== null &&
+    assetMetadataReady(segment.initAsset, 'video/mp4', 'DVR_INIT') &&
+    assetMetadataReady(segment.mediaAsset, 'video/mp4', 'DVR_SEGMENT') &&
+    assetMetadataReady(segment.sampleIndexAsset, 'application/json', 'SAMPLE_INDEX')
+  )
 }
 
 function toCandidate(segment: ProgramSegmentRow): PlaybackSegmentCandidate {
@@ -300,9 +290,7 @@ async function visibleWindowWithSegments(id: string, identity: MediaIdentity) {
 }
 
 type VisibleWindow = NonNullable<Awaited<ReturnType<typeof visibleWindow>>>
-type VisibleWindowWithSegments = NonNullable<
-  Awaited<ReturnType<typeof visibleWindowWithSegments>>
->
+type VisibleWindowWithSegments = NonNullable<Awaited<ReturnType<typeof visibleWindowWithSegments>>>
 
 function assertWindowActive(window: { expiresAt: Date }, now: Date): void {
   if (window.expiresAt <= now) {
@@ -344,18 +332,16 @@ function manifestEntries(window: VisibleWindowWithSegments) {
     }
     const segment = mapping.dvrSegment
     if (
-      segment.isGap
-      || segment.readyAt === null
-      || segment.durationUs !== segment.captureEndUs - segment.captureStartUs
-      || !assetMetadataReady(segment.initAsset, 'video/mp4', 'DVR_INIT')
-      || !assetMetadataReady(segment.mediaAsset, 'video/mp4', 'DVR_SEGMENT')
-      || segment.initAssetId === null
+      segment.isGap ||
+      segment.readyAt === null ||
+      segment.durationUs !== segment.captureEndUs - segment.captureStartUs ||
+      !assetMetadataReady(segment.initAsset, 'video/mp4', 'DVR_INIT') ||
+      !assetMetadataReady(segment.mediaAsset, 'video/mp4', 'DVR_SEGMENT') ||
+      segment.initAssetId === null
     ) {
       throw new MediaHttpError(409, 'MEDIA_NOT_READY', 'Playback media is not ready')
     }
-    if (
-      previousEndUs !== null && previousEndUs !== segment.captureStartUs
-    ) {
+    if (previousEndUs !== null && previousEndUs !== segment.captureStartUs) {
       throw new MediaHttpError(409, 'MEDIA_NOT_READY', 'Playback mapping crosses a capture gap')
     }
     previousEndUs = segment.captureEndUs
@@ -381,10 +367,7 @@ function manifestEntries(window: VisibleWindowWithSegments) {
   })
   const first = mappings[0]!.dvrSegment
   const last = mappings.at(-1)!.dvrSegment
-  if (
-    first.captureStartUs !== window.captureStartUs
-    || last.captureEndUs !== window.captureEndUs
-  ) {
+  if (first.captureStartUs !== window.captureStartUs || last.captureEndUs !== window.captureEndUs) {
     throw new MediaHttpError(409, 'MEDIA_NOT_READY', 'Playback mapping bounds are invalid')
   }
   return entries
@@ -434,20 +417,19 @@ async function createPlaybackWindow(
     mode: request.mode,
     ...(requestedBackUs === undefined ? {} : { requestedBackUs }),
     ...(requestedForwardUs === undefined ? {} : { requestedForwardUs }),
-    requestedTargetUs: request.target_capture_time_us === undefined
-      ? null
-      : BigInt(request.target_capture_time_us),
+    requestedTargetUs:
+      request.target_capture_time_us === undefined ? null : BigInt(request.target_capture_time_us),
   })
   if (!deps.resolveSample) {
     throw new MediaHttpError(409, 'MEDIA_NOT_READY', 'Sample index resolver unavailable')
   }
-  const selectedRows = new Map(rows.map((row) => [row.id, row]))
+  const selectedRows = new Map(rows.map(row => [row.id, row]))
   let snap: SampleSnapResult
   try {
     snap = await deps.resolveSample({
       captureSessionId: session.id,
       dvrProgramId: program.id,
-      segments: selection.segments.map((segment) => {
+      segments: selection.segments.map(segment => {
         const row = selectedRows.get(segment.id)
         if (!row || !row.sampleIndexAsset) {
           throw new MediaHttpError(409, 'MEDIA_NOT_READY', 'Sample index is unavailable')
@@ -475,28 +457,30 @@ async function createPlaybackWindow(
   )
   const id = randomUUID()
   try {
-    await db.$transaction((transaction) => transaction.playbackWindow.create({
-      data: {
-        captureEndUs: selection.windowEndUs,
-        captureSessionId: session.id,
-        captureStartUs: selection.windowStartUs,
-        createdByUserId: identity.id,
-        dvrProgramId: program.id,
-        expiresAt,
-        id,
-        mappingVersion: 1,
-        mode: request.mode === 'live' ? 'LIVE' : 'ARCHIVE',
-        presentationOriginCaptureUs,
-        segments: {
-          create: selection.segments.map((segment, sequenceIndex) => ({
-            dvrSegmentId: segment.id,
-            sequenceIndex,
-          })),
+    await db.$transaction(transaction =>
+      transaction.playbackWindow.create({
+        data: {
+          captureEndUs: selection.windowEndUs,
+          captureSessionId: session.id,
+          captureStartUs: selection.windowStartUs,
+          createdByUserId: identity.id,
+          dvrProgramId: program.id,
+          expiresAt,
+          id,
+          mappingVersion: 1,
+          mode: request.mode === 'live' ? 'LIVE' : 'ARCHIVE',
+          presentationOriginCaptureUs,
+          segments: {
+            create: selection.segments.map((segment, sequenceIndex) => ({
+              dvrSegmentId: segment.id,
+              sequenceIndex,
+            })),
+          },
+          targetPlayerMediaTimeUs: snap.playerUs,
+          timelineVersion: program.playlistRevision,
         },
-        targetPlayerMediaTimeUs: snap.playerUs,
-        timelineVersion: program.playlistRevision,
-      },
-    }))
+      }),
+    )
   } catch {
     throw new MediaHttpError(409, 'MEDIA_NOT_READY', 'Playback mapping could not be persisted')
   }
@@ -528,16 +512,21 @@ async function extendPlaybackWindow(
   assertWindowActive(current, requestNow)
   const ttlMs = playbackWindowTtlMs(deps)
   const renewalLeadMs = Math.min(60_000, Math.max(1_000, Math.floor(ttlMs / 2)))
-  const expiresAt = current.expiresAt.getTime() <= requestNow.getTime() + renewalLeadMs
-    ? new Date(requestNow.getTime() + ttlMs)
-    : current.expiresAt
+  const expiresAt =
+    current.expiresAt.getTime() <= requestNow.getTime() + renewalLeadMs
+      ? new Date(requestNow.getTime() + ttlMs)
+      : current.expiresAt
   if (current.segments.length === 0) {
     throw new MediaHttpError(409, 'MEDIA_NOT_READY', 'Playback window has no media')
   }
 
   const targetUs = BigInt(request.target_capture_time_us)
   if (targetUs < current.captureStartUs || targetUs > current.captureEndUs) {
-    throw new MediaHttpError(409, 'WINDOW_BOUNDARY', 'Continuation target is outside the current playback window')
+    throw new MediaHttpError(
+      409,
+      'WINDOW_BOUNDARY',
+      'Continuation target is outside the current playback window',
+    )
   }
   const rows = await loadProgramSegments(current.dvrProgramId)
   const requestedForwardUs = parseWireUint(request.requested_forward_us)
@@ -565,7 +554,11 @@ async function extendPlaybackWindow(
         where: { id: windowId, mappingVersion: current.mappingVersion },
       })
       if (renewed.count !== 1) {
-        throw new MediaHttpError(409, 'MAPPING_STALE', 'Playback window changed while renewing its lease')
+        throw new MediaHttpError(
+          409,
+          'MAPPING_STALE',
+          'Playback window changed while renewing its lease',
+        )
       }
     }
     return buildPlaybackDescriptor({
@@ -615,8 +608,7 @@ async function extendPlaybackWindow(
         where: { id: windowId },
       })
     })
-  }
-  catch (error) {
+  } catch (error) {
     if (error instanceof MediaHttpError) throw error
     throw new MediaHttpError(409, 'MEDIA_NOT_READY', 'Playback continuation could not be persisted')
   }
@@ -636,40 +628,33 @@ async function extendPlaybackWindow(
   })
 }
 
-function selectedAsset(
-  window: VisibleWindowWithSegments,
-  token: string,
-) {
+function selectedAsset(window: VisibleWindowWithSegments, token: string) {
   const resource = parsePlaybackResourceToken(token)
-  const mapping = window.segments.find((entry) =>
-    entry.dvrSegmentId.toLowerCase() === resource.dvrSegmentId)
+  const mapping = window.segments.find(
+    entry => entry.dvrSegmentId.toLowerCase() === resource.dvrSegmentId,
+  )
   if (!mapping) {
     throw new MediaHttpError(404, 'NOT_FOUND', 'Media resource not found')
   }
   if (mapping.dvrSegment.isGap || mapping.dvrSegment.readyAt === null) {
     throw new MediaHttpError(409, 'MEDIA_NOT_READY', 'Media resource is not ready')
   }
-  const asset = resource.kind === 'init'
-    ? mapping.dvrSegment.initAsset
-    : mapping.dvrSegment.mediaAsset
-  if (!assetMetadataReady(
-    asset,
-    'video/mp4',
-    resource.kind === 'init' ? 'DVR_INIT' : 'DVR_SEGMENT',
-  )) {
+  const asset =
+    resource.kind === 'init' ? mapping.dvrSegment.initAsset : mapping.dvrSegment.mediaAsset
+  if (
+    !assetMetadataReady(asset, 'video/mp4', resource.kind === 'init' ? 'DVR_INIT' : 'DVR_SEGMENT')
+  ) {
     throw new MediaHttpError(409, 'MEDIA_NOT_READY', 'Media resource is not ready')
   }
   return asset
 }
 
-export const mediaPlaybackRoutes = (
-  deps: MediaPlaybackDeps = {},
-): FastifyPluginAsync => async (app) => {
-  const now = deps.now ?? (() => new Date())
+export const mediaPlaybackRoutes =
+  (deps: MediaPlaybackDeps = {}): FastifyPluginAsync =>
+  async app => {
+    const now = deps.now ?? (() => new Date())
 
-  app.post<{ Body: unknown }>(
-    '/api/v1/media/playback-windows',
-    async (request, reply) => {
+    app.post<{ Body: unknown }>('/api/v1/media/playback-windows', async (request, reply) => {
       try {
         const identity = await authenticate(request, deps.authenticate)
         let body: PlaybackWindowRequest
@@ -682,106 +667,110 @@ export const mediaPlaybackRoutes = (
       } catch (error) {
         return sendMediaError(request, reply, error)
       }
-    },
-  )
+    })
 
-  app.get<{ Params: WindowParams }>(
-    '/api/v1/media/playback-windows/:windowId',
-    async (request, reply) => {
-      try {
-        const identity = await authenticate(request, deps.authenticate)
-        const id = parseUuid(request.params.windowId, 'Playback window')
-        const window = await visibleWindow(id, identity)
-        if (!window) {
-          throw new MediaHttpError(404, 'NOT_FOUND', 'Playback window not found')
-        }
-        assertWindowActive(window, now())
-        return reply.send(await descriptorForWindow(window))
-      } catch (error) {
-        return sendMediaError(request, reply, error)
-      }
-    },
-  )
-
-  app.post<{ Body: unknown; Params: WindowParams }>(
-    '/api/v1/media/playback-windows/:windowId/extend',
-    async (request, reply) => {
-      try {
-        const identity = await authenticate(request, deps.authenticate)
-        const id = parseUuid(request.params.windowId, 'Playback window')
-        let body: PlaybackWindowExtendRequest
-        try { body = parsePlaybackWindowExtendRequest(request.body) }
-        catch { throw new MediaHttpError(400, 'BAD_REQUEST', 'Invalid playback window extend request') }
-        return reply.send(await extendPlaybackWindow(id, body, identity, deps))
-      }
-      catch (error) {
-        return sendMediaError(request, reply, error)
-      }
-    },
-  )
-
-  app.get<{ Params: WindowParams }>(
-    '/api/v1/media/playback-windows/:windowId/manifest.m3u8',
-    async (request, reply) => {
-      try {
-        const identity = await authenticate(request, deps.authenticate)
-        const id = parseUuid(request.params.windowId, 'Playback window')
-        const window = await visibleWindowWithSegments(id, identity)
-        if (!window) {
-          throw new MediaHttpError(404, 'NOT_FOUND', 'Playback window not found')
-        }
-        assertWindowActive(window, now())
-        const bounds = timelineBounds((await loadProgramSegments(window.dvrProgramId)).map(toCandidate))
-        const terminal = window.mode === 'ARCHIVE'
-          || (window.dvrProgram.status === 'FINISHED' && window.captureEndUs >= bounds.endUs)
-        return reply
-          .type('application/vnd.apple.mpegurl')
-          .header('cache-control', 'no-store, must-revalidate')
-          .header('x-playback-mapping-version', String(window.mappingVersion))
-          .send(formatManifest(window.id, manifestEntries(window), { endList: terminal }))
-      } catch (error) {
-        return sendMediaError(request, reply, error)
-      }
-    },
-  )
-
-  app.get<{ Params: ResourceParams }>(
-    '/api/v1/media/playback-windows/:windowId/segments/:segmentId',
-    async (request, reply) => {
-      try {
-        const identity = await authenticate(request, deps.authenticate)
-        const id = parseUuid(request.params.windowId, 'Playback window')
-        const window = await visibleWindowWithSegments(id, identity)
-        if (!window) {
-          throw new MediaHttpError(404, 'NOT_FOUND', 'Media resource not found')
-        }
-        assertWindowActive(window, now())
-        const asset = selectedAsset(window, request.params.segmentId)
-        if (!deps.objectReader) {
-          throw new MediaHttpError(409, 'MEDIA_NOT_READY', 'Media object reader unavailable')
-        }
-        let bytes: Uint8Array
+    app.get<{ Params: WindowParams }>(
+      '/api/v1/media/playback-windows/:windowId',
+      async (request, reply) => {
         try {
-          bytes = await deps.objectReader({
-            bucket: asset.bucket,
-            expectedByteLength: asset.byteLength,
-            expectedContentType: asset.contentType,
-            expectedInternalSchemaVersion: asset.internalSchemaVersion,
-            expectedKind: asset.kind,
-            expectedSha256: asset.sha256,
-            key: asset.objectKey,
-          })
-        } catch {
-          throw new MediaHttpError(409, 'MEDIA_NOT_READY', 'Media object is unavailable')
+          const identity = await authenticate(request, deps.authenticate)
+          const id = parseUuid(request.params.windowId, 'Playback window')
+          const window = await visibleWindow(id, identity)
+          if (!window) {
+            throw new MediaHttpError(404, 'NOT_FOUND', 'Playback window not found')
+          }
+          assertWindowActive(window, now())
+          return reply.send(await descriptorForWindow(window))
+        } catch (error) {
+          return sendMediaError(request, reply, error)
         }
-        return reply
-          .header('cache-control', 'private, max-age=300, immutable')
-          .header('etag', `"${asset.sha256}"`)
-          .type(asset.contentType)
-          .send(Buffer.from(bytes))
-      } catch (error) {
-        return sendMediaError(request, reply, error)
-      }
-    },
-  )
-}
+      },
+    )
+
+    app.post<{ Body: unknown; Params: WindowParams }>(
+      '/api/v1/media/playback-windows/:windowId/extend',
+      async (request, reply) => {
+        try {
+          const identity = await authenticate(request, deps.authenticate)
+          const id = parseUuid(request.params.windowId, 'Playback window')
+          let body: PlaybackWindowExtendRequest
+          try {
+            body = parsePlaybackWindowExtendRequest(request.body)
+          } catch {
+            throw new MediaHttpError(400, 'BAD_REQUEST', 'Invalid playback window extend request')
+          }
+          return reply.send(await extendPlaybackWindow(id, body, identity, deps))
+        } catch (error) {
+          return sendMediaError(request, reply, error)
+        }
+      },
+    )
+
+    app.get<{ Params: WindowParams }>(
+      '/api/v1/media/playback-windows/:windowId/manifest.m3u8',
+      async (request, reply) => {
+        try {
+          const identity = await authenticate(request, deps.authenticate)
+          const id = parseUuid(request.params.windowId, 'Playback window')
+          const window = await visibleWindowWithSegments(id, identity)
+          if (!window) {
+            throw new MediaHttpError(404, 'NOT_FOUND', 'Playback window not found')
+          }
+          assertWindowActive(window, now())
+          const bounds = timelineBounds(
+            (await loadProgramSegments(window.dvrProgramId)).map(toCandidate),
+          )
+          const terminal =
+            window.mode === 'ARCHIVE' ||
+            (window.dvrProgram.status === 'FINISHED' && window.captureEndUs >= bounds.endUs)
+          return reply
+            .type('application/vnd.apple.mpegurl')
+            .header('cache-control', 'no-store, must-revalidate')
+            .header('x-playback-mapping-version', String(window.mappingVersion))
+            .send(formatManifest(window.id, manifestEntries(window), { endList: terminal }))
+        } catch (error) {
+          return sendMediaError(request, reply, error)
+        }
+      },
+    )
+
+    app.get<{ Params: ResourceParams }>(
+      '/api/v1/media/playback-windows/:windowId/segments/:segmentId',
+      async (request, reply) => {
+        try {
+          const identity = await authenticate(request, deps.authenticate)
+          const id = parseUuid(request.params.windowId, 'Playback window')
+          const window = await visibleWindowWithSegments(id, identity)
+          if (!window) {
+            throw new MediaHttpError(404, 'NOT_FOUND', 'Media resource not found')
+          }
+          assertWindowActive(window, now())
+          const asset = selectedAsset(window, request.params.segmentId)
+          if (!deps.objectReader) {
+            throw new MediaHttpError(409, 'MEDIA_NOT_READY', 'Media object reader unavailable')
+          }
+          let bytes: Uint8Array
+          try {
+            bytes = await deps.objectReader({
+              bucket: asset.bucket,
+              expectedByteLength: asset.byteLength,
+              expectedContentType: asset.contentType,
+              expectedInternalSchemaVersion: asset.internalSchemaVersion,
+              expectedKind: asset.kind,
+              expectedSha256: asset.sha256,
+              key: asset.objectKey,
+            })
+          } catch {
+            throw new MediaHttpError(409, 'MEDIA_NOT_READY', 'Media object is unavailable')
+          }
+          return reply
+            .header('cache-control', 'private, max-age=300, immutable')
+            .header('etag', `"${asset.sha256}"`)
+            .type(asset.contentType)
+            .send(Buffer.from(bytes))
+        } catch (error) {
+          return sendMediaError(request, reply, error)
+        }
+      },
+    )
+  }

@@ -12,7 +12,14 @@ export function createWorkflowMinio(): WorkflowMinio {
   const secretKey = process.env.MINIO_SECRET_KEY
   if (!accessKey || !secretKey) throw new Error('MinIO credentials are required')
   return {
-    client: new Client({ endPoint: endpoint.hostname, port: Number(endpoint.port || (endpoint.protocol === 'https:' ? 443 : 80)), useSSL: endpoint.protocol === 'https:', accessKey, secretKey, pathStyle: true }),
+    client: new Client({
+      endPoint: endpoint.hostname,
+      port: Number(endpoint.port || (endpoint.protocol === 'https:' ? 443 : 80)),
+      useSSL: endpoint.protocol === 'https:',
+      accessKey,
+      secretKey,
+      pathStyle: true,
+    }),
     rallyBucket: process.env.MINIO_RALLY_BUCKET ?? 'rally-media',
     analysisBucket: process.env.MINIO_ANALYSIS_BUCKET ?? 'analysis-artifacts',
   }
@@ -23,13 +30,18 @@ export async function appendVerifiedObject(
   asset: { bucket: string; objectKey: string; byteLength: bigint | null; sha256: string | null },
   destination: string,
 ): Promise<void> {
-  if (asset.byteLength === null || asset.sha256 === null) throw new Error('source media asset metadata is incomplete')
+  if (asset.byteLength === null || asset.sha256 === null)
+    throw new Error('source media asset metadata is incomplete')
   const source = await client.getObject(asset.bucket, asset.objectKey)
   const digest = createHash('sha256')
   let bytes = 0n
-  source.on('data', (chunk: Buffer) => { digest.update(chunk); bytes += BigInt(chunk.byteLength) })
+  source.on('data', (chunk: Buffer) => {
+    digest.update(chunk)
+    bytes += BigInt(chunk.byteLength)
+  })
   await pipeline(source, createWriteStream(destination, { flags: 'a' }))
-  if (bytes !== asset.byteLength || digest.digest('hex') !== asset.sha256) throw new Error('source media asset verification failed')
+  if (bytes !== asset.byteLength || digest.digest('hex') !== asset.sha256)
+    throw new Error('source media asset verification failed')
 }
 
 export async function readVerifiedObject(
@@ -37,8 +49,10 @@ export async function readVerifiedObject(
   asset: { bucket: string; objectKey: string; byteLength: bigint | null; sha256: string | null },
   maxBytes = 64n * 1024n * 1024n,
 ): Promise<Buffer> {
-  if (asset.byteLength === null || asset.sha256 === null) throw new Error('source media asset metadata is incomplete')
-  if (asset.byteLength < 0n || asset.byteLength > maxBytes) throw new Error('source media asset exceeds the bounded read limit')
+  if (asset.byteLength === null || asset.sha256 === null)
+    throw new Error('source media asset metadata is incomplete')
+  if (asset.byteLength < 0n || asset.byteLength > maxBytes)
+    throw new Error('source media asset exceeds the bounded read limit')
   const source = await client.getObject(asset.bucket, asset.objectKey)
   const digest = createHash('sha256')
   const chunks: Buffer[] = []
@@ -46,11 +60,13 @@ export async function readVerifiedObject(
   for await (const value of source) {
     const chunk = Buffer.from(value as Uint8Array)
     bytes += BigInt(chunk.byteLength)
-    if (bytes > maxBytes || bytes > asset.byteLength) throw new Error('source media asset exceeds its verified length')
+    if (bytes > maxBytes || bytes > asset.byteLength)
+      throw new Error('source media asset exceeds its verified length')
     digest.update(chunk)
     chunks.push(chunk)
   }
-  if (bytes !== asset.byteLength || digest.digest('hex') !== asset.sha256) throw new Error('source media asset verification failed')
+  if (bytes !== asset.byteLength || digest.digest('hex') !== asset.sha256)
+    throw new Error('source media asset verification failed')
   return Buffer.concat(chunks)
 }
 

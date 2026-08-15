@@ -55,10 +55,7 @@
     "source_time_base": {
       "type": "object",
       "additionalProperties": false,
-      "required": [
-        "num",
-        "den"
-      ],
+      "required": ["num", "den"],
       "properties": {
         "num": {
           "type": "integer",
@@ -98,11 +95,7 @@
       ]
     },
     "timing_precision": {
-      "enum": [
-        "frame_exact",
-        "pts_exact",
-        "estimated"
-      ]
+      "enum": ["frame_exact", "pts_exact", "estimated"]
     }
   }
 }

@@ -20,16 +20,17 @@ export default defineNuxtConfig({
       title: 'VollyAI',
       htmlAttrs: { lang: 'zh-Hant' },
       meta: [
-        { name: 'viewport', content: 'width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no' },
+        {
+          name: 'viewport',
+          content: 'width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no',
+        },
         { name: 'theme-color', content: '#fafaf9' },
         { name: 'apple-mobile-web-app-capable', content: 'yes' },
         { name: 'apple-mobile-web-app-status-bar-style', content: 'default' },
         { name: 'apple-mobile-web-app-title', content: 'VollyAI' },
         { name: 'format-detection', content: 'telephone=no' },
       ],
-      link: [
-        { rel: 'apple-touch-icon', sizes: '180x180', href: '/icons/apple-touch-icon.png' },
-      ],
+      link: [{ rel: 'apple-touch-icon', sizes: '180x180', href: '/icons/apple-touch-icon.png' }],
     },
   },
   runtimeConfig: {
@@ -38,7 +39,8 @@ export default defineNuxtConfig({
       // because an iPad reaches the host by LAN IP or DNS name.
       graphqlPath: process.env.NUXT_PUBLIC_GRAPHQL_PATH ?? '/graphql',
       annotationWsPath: process.env.NUXT_PUBLIC_ANNOTATION_WS_PATH ?? '/ws/annotations',
-      analysisReviewWsPath: process.env.NUXT_PUBLIC_ANALYSIS_REVIEW_WS_PATH ?? '/ws/analysis-reviews',
+      analysisReviewWsPath:
+        process.env.NUXT_PUBLIC_ANALYSIS_REVIEW_WS_PATH ?? '/ws/analysis-reviews',
       coachWsPath: process.env.NUXT_PUBLIC_COACH_WS_PATH ?? '/ws/coach',
       coachEmbedUrl: process.env.NUXT_PUBLIC_COACH_EMBED_URL ?? '',
       devBackendOrigin: developmentBackendOrigin,
@@ -53,7 +55,11 @@ export default defineNuxtConfig({
   },
   nitro: {
     devProxy: {
-      '/graphql': { target: `${developmentBackendOrigin}/graphql`, changeOrigin: true, secure: false },
+      '/graphql': {
+        target: `${developmentBackendOrigin}/graphql`,
+        changeOrigin: true,
+        secure: false,
+      },
       '/api': { target: `${developmentBackendOrigin}/api`, changeOrigin: true, secure: false },
       '/hls': { target: `${developmentBackendOrigin}/hls`, changeOrigin: true, secure: false },
       '/ome': { target: `${developmentBackendOrigin}/ome`, changeOrigin: true, secure: false },
@@ -77,7 +83,12 @@ export default defineNuxtConfig({
       icons: [
         { src: '/icons/pwa-192.png', sizes: '192x192', type: 'image/png' },
         { src: '/icons/pwa-512.png', sizes: '512x512', type: 'image/png' },
-        { src: '/icons/pwa-maskable-512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
+        {
+          src: '/icons/pwa-maskable-512.png',
+          sizes: '512x512',
+          type: 'image/png',
+          purpose: 'maskable',
+        },
       ],
     },
     workbox: {
@@ -85,7 +96,8 @@ export default defineNuxtConfig({
       globPatterns: ['**/*.{js,css,html,ico,png,svg,webmanifest}'],
       runtimeCaching: [
         {
-          urlPattern: ({ url }: { url: URL }) => url.pathname.startsWith('/api/v1/analysis-runs/') && url.pathname.endsWith('/review'),
+          urlPattern: ({ url }: { url: URL }) =>
+            url.pathname.startsWith('/api/v1/analysis-runs/') && url.pathname.endsWith('/review'),
           handler: 'NetworkOnly',
         },
         {
@@ -93,13 +105,17 @@ export default defineNuxtConfig({
           handler: 'NetworkOnly',
         },
         {
-          urlPattern: ({ url }: { url: URL }) => url.pathname.startsWith('/api/v1/media') || url.pathname.startsWith('/hls/'),
+          urlPattern: ({ url }: { url: URL }) =>
+            url.pathname.startsWith('/api/v1/media') || url.pathname.startsWith('/hls/'),
           handler: 'NetworkOnly',
         },
         {
           urlPattern: ({ url }: { url: URL }) => url.pathname.startsWith('/api/v1/analysis'),
           handler: 'NetworkFirst',
-          options: { cacheName: 'analysis-read-cache', expiration: { maxEntries: 64, maxAgeSeconds: 86400 } },
+          options: {
+            cacheName: 'analysis-read-cache',
+            expiration: { maxEntries: 64, maxAgeSeconds: 86400 },
+          },
         },
       ],
     },
