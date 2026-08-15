@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.7.1](https://github.com/henry753951/volleyball-monitoring-ai/compare/v0.7.0...v0.7.1) (2026-08-15)
+
+
+### Bug Fixes
+
+* **sdk:** stabilize provider heartbeat through proxies ([#82](https://github.com/henry753951/volleyball-monitoring-ai/issues/82)) ([f99ba36](https://github.com/henry753951/volleyball-monitoring-ai/commit/f99ba36e2a933008ca69cc0b0bad703cdf9b878f))
+
 ## [0.7.0](https://github.com/henry753951/volleyball-monitoring-ai/compare/v0.6.0...v0.7.0) (2026-08-15)
 
 
