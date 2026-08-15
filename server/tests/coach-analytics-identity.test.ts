@@ -7,33 +7,32 @@ import { applyReidAutomaticAssignments } from '../src/services/reid-automatic-as
 
 describe('coach track identity replacement', () => {
   it('uses the effective corrected contact actor in coach player totals', async () => {
-    const database = {
-      match: {
-        findFirst: vi.fn().mockResolvedValue({
-          id: 'match-1', title: 'Fixture', identityRevision: 0n, matchTeams: [],
-          rosterEntries: [
-            { id: 'roster-1', teamId: 'team-left', jerseyNumber: '1', position: null, displayNameSnapshot: 'One', player: null },
-            { id: 'roster-2', teamId: 'team-left', jerseyNumber: '2', position: null, displayNameSnapshot: 'Two', player: null },
-          ],
-          rallies: [{
-            id: 'rally-1', ordinal: 1, set: { setNumber: 1 },
-            activeSubmission: {
-              id: 'submission-1', scoreResolutionState: 'PENDING', scoringTeamId: null, leftTeamId: 'team-left', rightTeamId: 'team-right',
-              analysisRuns: [{
-                id: 'run-1', analysisVersion: 'v1', identityMappingCompletedAt: null,
-                tracks: [
-                  { trackId: 1, courtSide: 'LEFT', firstFrame: 0n, lastFrame: 10n, reidObservation: null, identityAssignments: [{ rosterEntryId: 'roster-1', source: 'MANUAL', confidence: null, identityRevision: null, reidIdentity: null }] },
-                  { trackId: 2, courtSide: 'LEFT', firstFrame: 0n, lastFrame: 10n, reidObservation: null, identityAssignments: [{ rosterEntryId: 'roster-2', source: 'MANUAL', confidence: null, identityRevision: null, reidIdentity: null }] },
-                ],
-                contactActorCorrections: [{ keyPointId: 'contact-1', trackId: 2 }],
-                contactTimeCorrections: [], contactEdits: [], actionCorrections: [],
-                contactEvents: [{ keyPointId: 'contact-1', anchorFrameIndex: 0n, resolvedFrameIndex: null, associationState: 'RESOLVED_SINGLE', qualityFlags: [], representativePositions: [], actors: [{ trackId: 1, action: null, courtX: null, courtY: null }] }],
-                segments: [],
-              }],
-            },
+    const findMatch = vi.fn().mockResolvedValue({
+      id: 'match-1', title: 'Fixture', identityRevision: 0n, matchTeams: [],
+      rosterEntries: [
+        { id: 'roster-1', teamId: 'team-left', jerseyNumber: '1', position: null, displayNameSnapshot: 'One', player: null },
+        { id: 'roster-2', teamId: 'team-left', jerseyNumber: '2', position: null, displayNameSnapshot: 'Two', player: null },
+      ],
+      rallies: [{
+        id: 'rally-1', ordinal: 1, set: { setNumber: 1 },
+        activeSubmission: {
+          id: 'submission-1', scoreResolutionState: 'PENDING', scoringTeamId: null, leftTeamId: 'team-left', rightTeamId: 'team-right',
+          analysisRuns: [{
+            id: 'run-1', analysisVersion: 'v1', identityMappingCompletedAt: null,
+            tracks: [
+              { trackId: 1, courtSide: 'LEFT', firstFrame: 0n, lastFrame: 10n, reidObservation: null, identityAssignments: [{ rosterEntryId: 'roster-1', source: 'MANUAL', confidence: null, identityRevision: null, reidIdentity: null }] },
+              { trackId: 2, courtSide: 'LEFT', firstFrame: 0n, lastFrame: 10n, reidObservation: null, identityAssignments: [{ rosterEntryId: 'roster-2', source: 'MANUAL', confidence: null, identityRevision: null, reidIdentity: null }] },
+            ],
+            contactActorCorrections: [{ keyPointId: 'contact-1', trackId: 2 }],
+            contactTimeCorrections: [], contactEdits: [], actionCorrections: [],
+            contactEvents: [{ keyPointId: 'contact-1', anchorFrameIndex: 0n, resolvedFrameIndex: null, associationState: 'RESOLVED_SINGLE', qualityFlags: [], representativePositions: [], actors: [{ trackId: 1, action: null, courtX: null, courtY: null }] }],
+            segments: [],
           }],
-        }),
-      },
+        },
+      }],
+    })
+    const database = {
+      match: { findFirst: findMatch },
     } as unknown as PrismaClient
 
     const analytics = await getCoachMatchAnalytics(database, { matchId: 'match-1', userId: 'coach-1', role: UserRole.ADMIN })
@@ -246,5 +245,30 @@ describe('coach track identity replacement', () => {
     }))
     expect(tx.reidPlayerBinding.create).not.toHaveBeenCalled()
     expect(tx.reidFeatureObservation.updateMany).not.toHaveBeenCalled()
+  })
+
+  it('allows a clip-only manual assignment when a legacy track has no ReID observation', async () => {
+    const tx = {
+      reidFeatureObservation: { findUnique: vi.fn().mockResolvedValue(null) },
+      match: { update: vi.fn().mockResolvedValue({ identityRevision: 10n }) },
+      trackIdentityAssignment: {
+        upsert: vi.fn().mockResolvedValue({
+          id: 'assignment-31', analysisRunId: 'run-1', trackId: 31,
+          rosterEntryId: 'roster-1', source: IdentitySource.MANUAL,
+        }),
+        deleteMany: vi.fn(),
+      },
+      reidCorrectionEvent: { create: vi.fn().mockResolvedValue({ id: 'correction-31' }) },
+      $queryRaw: vi.fn().mockResolvedValue([{ id: 'match-1' }]),
+    }
+
+    await expect(applyManualReidDecision(tx as never, {
+      matchId: 'match-1', teamId: 'team-left', analysisRunId: 'run-1', trackId: 31,
+      rosterEntryId: 'roster-1', userId: 'user-1',
+      position: { setNumber: 1, rallyOrdinal: 3 }, mode: 'clip_only', replacedTrackIds: [],
+    })).resolves.toMatchObject({ reidIdentityId: null, identityRevision: 10n })
+    expect(tx.trackIdentityAssignment.upsert).toHaveBeenCalledWith(expect.objectContaining({
+      create: expect.objectContaining({ reidIdentityId: null, trackId: 31 }),
+    }))
   })
 })

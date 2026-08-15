@@ -244,4 +244,33 @@ describe('AnnotationIdentityPanel ReID assignments', () => {
     expect(wrapper.emitted('changed')).toHaveLength(1)
     wrapper.unmount()
   })
+
+  it('uses a clip-only assignment for a Local ID without ReID and never exposes the backend English hint', async () => {
+    const fixture = analyticsFixture()
+    fixture.tracks[1] = {
+      ...fixture.tracks[1]!,
+      gid_id: null,
+      gid_team_id: null,
+      gid_slot_index: null,
+      gid_label: null,
+      reid_model: null,
+    }
+    coachClient.analytics.mockResolvedValue(fixture)
+    coachClient.assignTrackIdentity.mockRejectedValueOnce(new Error('Run fixed-roster ReID first'))
+    const wrapper = mountPanel()
+    await flushPromises()
+
+    wrapper.findAllComponents(UiPlayerCombobox)[1]!.vm.$emit('update:modelValue', 'roster-2')
+    await flushPromises()
+
+    expect(coachClient.assignTrackIdentity).toHaveBeenCalledWith({
+      analysisRunId: 'analysis-1',
+      trackId: 2,
+      rosterEntryId: 'roster-2',
+      identityMode: 'clip_only',
+    })
+    expect(wrapper.text()).toContain('尚無可沿用的 ReID 資料')
+    expect(wrapper.text()).not.toContain('Run fixed-roster ReID')
+    wrapper.unmount()
+  })
 })

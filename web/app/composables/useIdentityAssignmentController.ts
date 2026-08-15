@@ -59,6 +59,18 @@ export function useIdentityAssignmentController(options: IdentityAssignmentContr
     busy: computed(() => state.loading || state.autoAssigning || state.savingTrackId !== null),
   })
 
+  function assignmentErrorMessage(cause: unknown) {
+    const code = cause && typeof cause === 'object' && 'code' in cause ? String(cause.code) : null
+    if (code === 'REID_OBSERVATION_NOT_FOUND') return '這個 Local ID 沒有 ReID 資料；請使用「只修正這個 Local ID」，或先重新執行 ReID'
+    if (code === 'REID_IDENTITY_REQUIRED') return '這個 Local ID 尚未連到固定名單槽位；請先執行 ReID，或只修正目前片段'
+    if (code === 'REID_TEAM_MISMATCH') return 'ReID 槽位與所選球員隊伍不一致；請只修正目前片段或重新執行 ReID'
+    const message = cause instanceof Error ? cause.message : ''
+    if (/run fixed-roster reid|no fixed-roster reid observation/i.test(message)) {
+      return '這個 Local ID 尚無可沿用的 ReID 資料；請只修正目前片段或先重新執行 ReID'
+    }
+    return message || '儲存失敗'
+  }
+
   async function refresh() {
     const generation = ++refreshGeneration
     const enabled = options.enabled === undefined || toValue(options.enabled)
@@ -94,7 +106,8 @@ export function useIdentityAssignmentController(options: IdentityAssignmentContr
           analysisRunId,
           trackId: command.trackId,
           rosterEntryId: command.rosterEntryId,
-          identityMode: command.identityMode ?? 'from_here',
+          identityMode: command.identityMode
+            ?? (view.model.track.byId(command.trackId)?.gid_id ? 'from_here' : 'clip_only'),
         })
       }
       else {
@@ -105,7 +118,7 @@ export function useIdentityAssignmentController(options: IdentityAssignmentContr
       options.onCommitted?.()
     }
     catch (cause) {
-      state.error = cause instanceof Error ? cause.message : '儲存失敗'
+      state.error = assignmentErrorMessage(cause)
     }
     finally {
       state.savingTrackId = null

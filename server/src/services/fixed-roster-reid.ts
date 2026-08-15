@@ -739,8 +739,11 @@ export async function applyManualReidDecision(tx: TransactionClient, input: {
     where: { analysisRunId_trackId: { analysisRunId: input.analysisRunId, trackId: input.trackId } },
     include: { reidIdentity: true },
   })
-  if (!observation) {
-    throw new ReidIdentityDecisionError('REID_OBSERVATION_NOT_FOUND', 'This track has no fixed-roster ReID observation')
+  if (!observation && input.mode !== 'clip_only') {
+    throw new ReidIdentityDecisionError(
+      'REID_OBSERVATION_NOT_FOUND',
+      '這個 Local ID 沒有 fixed-roster ReID 資料；請改用「只修正這個 Local ID」，或先重新執行 ReID',
+    )
   }
   await tx.$queryRaw`SELECT id FROM "Match" WHERE id = ${input.matchId}::uuid FOR UPDATE`
   const match = await tx.match.update({
@@ -748,6 +751,61 @@ export async function applyManualReidDecision(tx: TransactionClient, input: {
     select: { identityRevision: true },
   })
   const revision = match.identityRevision
+  async function assignClipOnlyWithoutSlot(sourceIdentityId: string | null) {
+    const assignment = await tx.trackIdentityAssignment.upsert({
+      where: { analysisRunId_trackId: { analysisRunId: input.analysisRunId, trackId: input.trackId } },
+      create: {
+        analysisRunId: input.analysisRunId,
+        trackId: input.trackId,
+        rosterEntryId: input.rosterEntryId,
+        source: IdentitySource.MANUAL,
+        assignedByUserId: input.userId,
+        confidence: null,
+        reidIdentityId: null,
+        reidBindingId: null,
+        identityRevision: revision,
+      },
+      update: {
+        rosterEntryId: input.rosterEntryId,
+        source: IdentitySource.MANUAL,
+        assignedByUserId: input.userId,
+        confidence: null,
+        reidIdentityId: null,
+        reidBindingId: null,
+        identityRevision: revision,
+      },
+      select: { id: true, analysisRunId: true, trackId: true, rosterEntryId: true, source: true },
+    })
+    for (const replacedTrackId of input.replacedTrackIds) {
+      await tx.trackIdentityAssignment.deleteMany({
+        where: { analysisRunId: input.analysisRunId, trackId: replacedTrackId, rosterEntryId: input.rosterEntryId },
+      })
+    }
+    await tx.reidCorrectionEvent.create({ data: {
+      matchId: input.matchId,
+      teamId: input.teamId,
+      analysisRunId: input.analysisRunId,
+      trackId: input.trackId,
+      sourceIdentityId,
+      targetIdentityId: null,
+      rosterEntryId: input.rosterEntryId,
+      kind: 'CLIP_ONLY',
+      identityRevision: revision,
+      createdByUserId: input.userId,
+      details: {
+        assigned_local_track_ids: [input.trackId],
+        fixed_slot: null,
+        replaced_track_ids: input.replacedTrackIds,
+      },
+    } })
+    return {
+      bindingId: null,
+      reidIdentityId: null,
+      identityRevision: revision,
+      assignment,
+    }
+  }
+  if (!observation) return assignClipOnlyWithoutSlot(null)
   const existingPlayerSlot = await tx.reidPlayerBinding.findFirst({
     where: {
       rosterEntryId: input.rosterEntryId,
@@ -768,9 +826,12 @@ export async function applyManualReidDecision(tx: TransactionClient, input: {
     : null
   const targetIdentity = existingPlayerSlot?.reidIdentity ?? currentIdentity
   if (!targetIdentity) {
+    if (input.mode === 'clip_only') {
+      return assignClipOnlyWithoutSlot(observation.reidIdentityId)
+    }
     throw new ReidIdentityDecisionError(
       observation.reidIdentity ? 'REID_TEAM_MISMATCH' : 'REID_IDENTITY_REQUIRED',
-      'Run fixed-roster ReID first so this track can be assigned to one of the six team slots',
+      '這個 Local ID 尚未連到固定名單槽位；請先執行 ReID，或改用「只修正這個 Local ID」',
     )
   }
 
@@ -915,7 +976,7 @@ export async function applyManualReidDecision(tx: TransactionClient, input: {
     },
   } })
   if (!selectedAssignment) {
-    throw new ReidIdentityDecisionError('REID_ASSIGNMENT_FAILED', 'The selected track alias was not assigned')
+    throw new ReidIdentityDecisionError('REID_ASSIGNMENT_FAILED', '所選 Local ID 未能完成指派，請重新整理後再試')
   }
   return {
     bindingId: binding?.id ?? null,
