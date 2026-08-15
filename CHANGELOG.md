@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.7.0](https://github.com/henry753951/volleyball-monitoring-ai/compare/v0.6.0...v0.7.0) (2026-08-15)
+
+
+### Features
+
+* **reid:** add versioned evidence and provider work ([#80](https://github.com/henry753951/volleyball-monitoring-ai/issues/80)) ([f0815a3](https://github.com/henry753951/volleyball-monitoring-ai/commit/f0815a3119a9253ab767e4ba160ef6f0d677688f))
+
 ## [0.6.0](https://github.com/henry753951/volleyball-monitoring-ai/compare/v0.5.0...v0.6.0) (2026-08-15)
 
 
