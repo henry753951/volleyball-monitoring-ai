@@ -11,10 +11,10 @@ requires-python = ">=3.11"
 license = { text = "MIT" }
 authors = [{ name = "volleyball-monitoring-ai contributors" }]
 dependencies = [
-    "pydantic>=2.10,<3",
-    "httpx>=0.28,<1",
-    "flatbuffers>=25.9.23,<26",
-    "websockets>=14,<17",
+  "pydantic>=2.10,<3",
+  "httpx>=0.28,<1",
+  "flatbuffers>=25.9.23,<26",
+  "websockets>=14,<17",
 ]
 
 [project.optional-dependencies]
@@ -36,6 +36,4 @@ pythonpath = ["src"]
 asyncio_mode = "auto"
 
 [dependency-groups]
-dev = [
-    "ruff==0.15.22",
-]
+dev = ["ruff==0.15.22"]

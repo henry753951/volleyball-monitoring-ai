@@ -47,7 +47,8 @@ export interface OverlayFrameBBox {
   y2: number
 }
 export type OverlayBallOverride =
-  { state: 'position'; position: OverlayPoint } | { state: 'missing' }
+  | { state: 'position'; position: OverlayPoint }
+  | { state: 'missing' }
 
 export interface VolleyballOverlayRenderInput {
   context: CanvasRenderingContext2D

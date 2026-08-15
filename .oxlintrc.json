@@ -1,0 +1,46 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "categories": {
+    "correctness": "error"
+  },
+  "env": {
+    "browser": true,
+    "builtin": true,
+    "node": true
+  },
+  "ignorePatterns": [
+    ".artifacts/**",
+    ".codex-dev/**",
+    ".data/**",
+    ".nuxt/**",
+    ".output/**",
+    ".playwright-cli/**",
+    "coverage/**",
+    "dist/**",
+    "generated/**",
+    "node_modules/**",
+    "output/**",
+    "tmp/**",
+    "packages/contracts/flatbuffers/generated/**",
+    "web/app/gql/**"
+  ],
+  "options": {
+    "denyWarnings": true
+  },
+  "plugins": ["eslint", "oxc", "typescript", "vue"],
+  "overrides": [
+    {
+      "files": ["**/*.test.ts", "**/*.integration.test.ts", "scripts/**/*.ts"],
+      "rules": {
+        "typescript/no-explicit-any": "off",
+        "eslint/no-loss-of-precision": "off"
+      }
+    },
+    {
+      "files": ["server/src/media/minio-object-reader.ts"],
+      "rules": {
+        "eslint/no-control-regex": "off"
+      }
+    }
+  ]
+}

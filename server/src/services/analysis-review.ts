@@ -20,7 +20,11 @@ const WRITE_ROLES = new Set<UserRole>([
 export class AnalysisReviewError extends Error {
   constructor(
     public readonly code:
-      'FORBIDDEN' | 'NOT_FOUND' | 'FRAME_OUT_OF_RANGE' | 'TRACK_NOT_ACTIVE' | 'REVIEW_NOT_READY',
+      | 'FORBIDDEN'
+      | 'NOT_FOUND'
+      | 'FRAME_OUT_OF_RANGE'
+      | 'TRACK_NOT_ACTIVE'
+      | 'REVIEW_NOT_READY',
     message: string,
   ) {
     super(message)

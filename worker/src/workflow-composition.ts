@@ -18,7 +18,12 @@ export const workflowModuleNames = [
 
 export type WorkflowModuleName = (typeof workflowModuleNames)[number]
 export type WorkflowModuleState =
-  'idle' | 'starting' | 'running' | 'stopping' | 'stopped' | 'failed'
+  | 'idle'
+  | 'starting'
+  | 'running'
+  | 'stopping'
+  | 'stopped'
+  | 'failed'
 
 export type WorkflowModuleHealth = {
   name: WorkflowModuleName
@@ -167,7 +172,6 @@ export function createWorkflowComposition(
   connectionString: string,
 ): WorkflowComposition {
   // The reporter closures are created before the composition is assembled.
-  // eslint-disable-next-line prefer-const
   let composition: WorkflowComposition | undefined
   const report = (name: WorkflowModuleName) => (error: unknown) =>
     composition?.recordError(name, error)

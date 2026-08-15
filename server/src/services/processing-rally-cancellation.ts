@@ -12,7 +12,11 @@ const CANCELLABLE = new Set<ProcessingStatus>([
 ])
 
 export type ProcessingCancellationErrorCode =
-  'FORBIDDEN' | 'INVALID_PROCESSING_STATE' | 'NOT_FOUND' | 'SCORE_CONFLICT' | 'UNAUTHENTICATED'
+  | 'FORBIDDEN'
+  | 'INVALID_PROCESSING_STATE'
+  | 'NOT_FOUND'
+  | 'SCORE_CONFLICT'
+  | 'UNAUTHENTICATED'
 
 export class ProcessingCancellationError extends Error {
   constructor(

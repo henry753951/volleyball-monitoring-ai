@@ -153,7 +153,8 @@ export function useAuthoritativeDvrWindow(client: MediaClient) {
   async function step(
     direction: 'previous' | 'next',
     countOrFactory:
-      number | ((target: string) => Parameters<MediaClient['createPlaybackWindow']>[0]),
+      | number
+      | ((target: string) => Parameters<MediaClient['createPlaybackWindow']>[0]),
     maybeInputFactory?: (target: string) => Parameters<MediaClient['createPlaybackWindow']>[0],
   ) {
     const count = typeof countOrFactory === 'number' ? countOrFactory : 1

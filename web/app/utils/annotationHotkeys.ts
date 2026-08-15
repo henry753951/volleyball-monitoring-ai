@@ -9,10 +9,19 @@ import {
 } from '@tanstack/vue-hotkeys'
 
 export type AnnotationAction =
-  'service' | 'contact' | 'close_left' | 'close_right' | 'close_unknown' | 'submit'
+  | 'service'
+  | 'contact'
+  | 'close_left'
+  | 'close_right'
+  | 'close_unknown'
+  | 'submit'
 
 export type MediaAction =
-  'play_pause' | 'frame_previous' | 'frame_next' | 'key_point_previous' | 'key_point_next'
+  | 'play_pause'
+  | 'frame_previous'
+  | 'frame_next'
+  | 'key_point_previous'
+  | 'key_point_next'
 export type HotkeyCommand = AnnotationAction | MediaAction
 export type HotkeyCommandGroup = 'annotation' | 'media'
 export type HotkeyBindings = Record<HotkeyCommand, string>

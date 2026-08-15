@@ -1,19 +1,8 @@
 {
   "name": "@volleyball-monitoring/media",
+  "version": "0.1.0",
   "private": true,
   "type": "module",
-  "version": "0.1.0",
-  "scripts": {
-    "test": "vitest run",
-    "typecheck": "tsc --noEmit",
-    "lint": "eslint .",
-    "lint:fix": "eslint . --fix",
-    "build": "tsc -p tsconfig.json"
-  },
-  "devDependencies": {
-    "typescript": "^5.9.3",
-    "vitest": "^4.1.10"
-  },
   "exports": {
     ".": {
       "types": "./src/index.ts",
@@ -27,5 +16,16 @@
       "types": "./src/resolver.ts",
       "import": "./src/resolver.ts"
     }
+  },
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "lint": "oxlint .",
+    "lint:fix": "oxlint . --fix",
+    "build": "tsc -p tsconfig.json"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.10"
   }
 }

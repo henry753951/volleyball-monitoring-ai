@@ -14,7 +14,8 @@ import {
 } from '~/lib/realtimeReconnect'
 
 export type BallOverride =
-  { state: 'position'; position: { x: number; y: number } } | { state: 'missing' }
+  | { state: 'position'; position: { x: number; y: number } }
+  | { state: 'missing' }
 
 function operationKey(operation: AnalysisReviewOperation) {
   if (

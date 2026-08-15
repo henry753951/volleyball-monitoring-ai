@@ -17,7 +17,8 @@ export interface RosterImportPayload {
 }
 
 export type RosterImportParseResult =
-  { ok: true; value: RosterImportPayload } | { ok: false; reason: string }
+  | { ok: true; value: RosterImportPayload }
+  | { ok: false; reason: string }
 
 const MAX_PLAYERS_PER_TEAM = 60
 const TOP_LEVEL_KEYS = ['matchId', 'schema', 'teams']

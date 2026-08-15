@@ -45,7 +45,11 @@ export interface CaptureTimeline {
 }
 
 export type MediaErrorClassification =
-  'recreate_window' | 'recenter_retry' | 'retry_later' | 'block' | 'fatal'
+  | 'recreate_window'
+  | 'recenter_retry'
+  | 'retry_later'
+  | 'block'
+  | 'fatal'
 export class MediaApiError extends Error {
   readonly code: MediaErrorCode | 'UNKNOWN'
   readonly status: number

@@ -33,10 +33,12 @@ describe('match media source client', () => {
       file: new File(['video'], 'match.mp4', { type: 'video/mp4' }),
     })
     const init = fetcher.mock.calls[0]?.[1]
+    const body = init?.body
     expect(fetcher.mock.calls[0]?.[0]).toBe('/api/v1/media-sources/upload')
-    expect(init?.body).toBeInstanceOf(FormData)
+    expect(body).toBeInstanceOf(FormData)
     expect(init?.headers).toBeUndefined()
-    expect((init?.body as FormData).get('match_id')).toBe('match-2')
+    if (!(body instanceof FormData)) throw new TypeError('Expected upload request FormData.')
+    expect(body.get('match_id')).toBe('match-2')
   })
 
   it('does not issue a request when setup is deferred', async () => {
