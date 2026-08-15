@@ -1,5 +1,38 @@
 # Changelog
 
+## [0.6.0](https://github.com/henry753951/volleyball-monitoring-ai/compare/v0.5.0...v0.6.0) (2026-08-15)
+
+
+### Features
+
+* **annotation:** make drafts client-owned and resilient ([19ca0fd](https://github.com/henry753951/volleyball-monitoring-ai/commit/19ca0fd3ee05d6a1c9b9602355cd905238aaca0e))
+* consolidate v0.6.0 release changes ([6976c41](https://github.com/henry753951/volleyball-monitoring-ai/commit/6976c41eda8315f3452eac6ada286560be712496))
+
+
+### Bug Fixes
+
+* **coach:** restore completed replay analysis ([449696c](https://github.com/henry753951/volleyball-monitoring-ai/commit/449696c05dd3c787d336092e716230300bdbe509))
+* **media:** preserve incomplete ingest failures ([c388aa2](https://github.com/henry753951/volleyball-monitoring-ai/commit/c388aa23855a9303c44892127b06131968b6ec8f))
+* **reid:** support clip-only manual assignments ([177b851](https://github.com/henry753951/volleyball-monitoring-ai/commit/177b851db6805119eb6c367638b9b7f12092983f))
+* **web:** preserve typed imports and template handlers ([1fbe3a6](https://github.com/henry753951/volleyball-monitoring-ai/commit/1fbe3a6b2a19ebaae7a4c3599e782d0779ac5f42))
+
+
+### Tests
+
+* **worker:** preserve permanent ingest failure sentinel ([e3b0e83](https://github.com/henry753951/volleyball-monitoring-ai/commit/e3b0e836129e4222ee457cfc13da773e6a639df1))
+
+
+### Documentation
+
+* **agents:** map architecture and delivery workflow ([40de3b8](https://github.com/henry753951/volleyball-monitoring-ai/commit/40de3b8f7e90038887df49f8df421b417921ca0f))
+* **progress:** record resilient annotation editing ([2b7ee85](https://github.com/henry753951/volleyball-monitoring-ai/commit/2b7ee85e1ac99233cee3728b34b930c628aea7a3))
+
+
+### Maintenance
+
+* **checksums:** refresh repository manifest ([921c0df](https://github.com/henry753951/volleyball-monitoring-ai/commit/921c0dfabfd31f0d043ffd2c935d06b586e21c86))
+* **checksums:** refresh web fix manifest ([b1dd79c](https://github.com/henry753951/volleyball-monitoring-ai/commit/b1dd79cacf428dd76e2daaaa49f81c52117cbce0))
+
 ## [0.5.0](https://github.com/henry753951/volleyball-monitoring-ai/compare/v0.4.0...v0.5.0) (2026-08-14)
 
 
