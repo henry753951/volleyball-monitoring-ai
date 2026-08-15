@@ -1,0 +1,20 @@
+{
+  "schema_version": "1.0.0",
+  "provider_job_id": "provider-job-feature-001",
+  "evidence_set_id": "evidence-set-001",
+  "responses": [
+    {
+      "response_key": "tracklet-001:jersey-vlm:qwen-v1",
+      "tracklet_id": "tracklet-001",
+      "model_namespace": "jersey-vlm/qwen-v1",
+      "prompt_sha256": "8888888888888888888888888888888888888888888888888888888888888888",
+      "selected_frame_indices": ["120", "420"],
+      "raw_response": "{\"jersey_number\":11,\"confidence\":0.82}",
+      "raw_response_sha256": "741cf693b1cfcbc41d0ce7eceeac819edc5a937c89319cff5dc78c33744e98e0",
+      "candidate_numbers": [11],
+      "abstained": false,
+      "reason": null
+    }
+  ],
+  "content_sha256": "9999999999999999999999999999999999999999999999999999999999999999"
+}

@@ -154,6 +154,58 @@ enum JobStatus {
   SUPERSEDED
 }
 
+enum ProviderWorkKind {
+  ANALYSIS
+  REID_FEATURE_EXTRACTION
+  REID_ASSOCIATION
+  PERSON_POSE_EVIDENCE_REBUILD
+  IDENTITY_PREVIEW_GENERATION
+}
+
+enum ProviderArtifactDirection {
+  INPUT
+  OUTPUT
+}
+
+enum ReidEvidenceState {
+  UNVERIFIED
+  CONFIRMED
+  REJECTED
+  QUARANTINED
+}
+
+enum ReidEvidenceRole {
+  POSITIVE
+  NEGATIVE
+}
+
+enum ReidAssociationState {
+  RESOLVED
+  UNRESOLVED
+  NEEDS_REVIEW
+}
+
+enum ReidCorrectionDisplayScope {
+  CURRENT_CLIP
+  FROM_HERE
+  WHOLE_MATCH
+}
+
+enum ReidFutureEvidenceAction {
+  NONE
+  CONFIRM_TARGET
+  REJECT_SOURCE
+  REJECT_SOURCE_AND_CONFIRM_TARGET
+  QUARANTINE_SOURCE
+}
+
+enum ContactAssociationSource {
+  POSE_HAND
+  BBOX_ACTION
+  BBOX_SPATIAL
+  UNRESOLVED
+}
+
 enum ArtifactState {
   UPLOADING
   READY
@@ -171,6 +223,10 @@ enum MediaAssetKind {
   TIMING_MANIFEST
   ANALYSIS_DATA
   ANALYSIS_FRAME_CHUNK
+  PROVIDER_ARTIFACT
+  PERSON_POSE_EVIDENCE
+  REID_EVIDENCE
+  IDENTITY_PREVIEW
 }
 
 enum AssociationState {
@@ -230,24 +286,29 @@ enum AnalysisReviewStatus {
 }
 
 model User {
-  id                        String                     @id @default(uuid()) @db.Uuid
-  email                     String                     @unique
-  displayName               String
-  createdAt                 DateTime                   @default(now())
-  updatedAt                 DateTime                   @updatedAt
-  memberships               MatchMember[]
-  deviceSessions            DeviceSession[]
-  createdKeyPoints          KeyPoint[]                 @relation("KeyPointCreatedBy")
-  updatedKeyPoints          KeyPoint[]                 @relation("KeyPointUpdatedBy")
-  annotationOperations      AnnotationOperation[]
-  annotationReceipts        AnnotationCommandReceipt[]
-  submittedRevisions        RallySubmission[]          @relation("SubmissionSubmittedBy")
-  identityAssignments       TrackIdentityAssignment[]
-  reidPlayerBindings        ReidPlayerBinding[]        @relation("ReidBindingAssignedBy")
-  reidCorrectionEvents      ReidCorrectionEvent[]      @relation("ReidCorrectionCreatedBy")
-  completedIdentityMappings AnalysisRun[]              @relation("IdentityMappingCompletedBy")
-  approvedAnalysisReviews   AnalysisRun[]              @relation("AnalysisReviewApprovedBy")
-  playbackWindows           PlaybackWindow[]           @relation("PlaybackWindowCreatedBy")
+  id                           String                        @id @default(uuid()) @db.Uuid
+  email                        String                        @unique
+  displayName                  String
+  createdAt                    DateTime                      @default(now())
+  updatedAt                    DateTime                      @updatedAt
+  memberships                  MatchMember[]
+  deviceSessions               DeviceSession[]
+  createdKeyPoints             KeyPoint[]                    @relation("KeyPointCreatedBy")
+  updatedKeyPoints             KeyPoint[]                    @relation("KeyPointUpdatedBy")
+  annotationOperations         AnnotationOperation[]
+  annotationReceipts           AnnotationCommandReceipt[]
+  submittedRevisions           RallySubmission[]             @relation("SubmissionSubmittedBy")
+  identityAssignments          TrackIdentityAssignment[]
+  reidPlayerBindings           ReidPlayerBinding[]           @relation("ReidBindingAssignedBy")
+  reidCorrectionEvents         ReidCorrectionEvent[]         @relation("ReidCorrectionCreatedBy")
+  completedIdentityMappings    AnalysisRun[]                 @relation("IdentityMappingCompletedBy")
+  approvedAnalysisReviews      AnalysisRun[]                 @relation("AnalysisReviewApprovedBy")
+  playbackWindows              PlaybackWindow[]              @relation("PlaybackWindowCreatedBy")
+  reidMemberships              ReidEvidenceMembership[]      @relation("ReidMembershipCreatedBy")
+  reidIdentityCorrections      ReidIdentityCorrection[]      @relation("ReidIdentityCorrectionCreatedBy")
+  reidAssignmentRevisions      ReidAssignmentRevision[]      @relation("ReidAssignmentRevisionCreatedBy")
+  reidFeatureRebuildRequests   ReidFeatureRebuildRequest[]   @relation("ReidFeatureRebuildRequestedBy")
+  reidAssociationRerunRequests ReidAssociationRerunRequest[] @relation("ReidAssociationRerunRequestedBy")
 }
 
 model MatchMember {
@@ -275,26 +336,31 @@ model DeviceSession {
 }
 
 model Match {
-  id                  String                   @id @default(uuid()) @db.Uuid
-  title               String
-  venue               String?
-  status              MatchStatus              @default(PLANNED)
-  clipPreRollUs       BigInt                   @default(0)
-  clipPostRollUs      BigInt                   @default(0)
-  scheduledAt         DateTime?
-  deletionRequestedAt DateTime?
-  identityRevision    BigInt                   @default(0)
-  createdAt           DateTime                 @default(now())
-  updatedAt           DateTime                 @updatedAt
-  members             MatchMember[]
-  matchTeams          MatchTeam[]
-  sets                MatchSet[]
-  rosterEntries       MatchRosterEntry[]
-  captureSessions     CaptureSession[]
-  rallies             Rally[]
-  reidIdentities      ReidIdentity[]
-  reidObservations    ReidFeatureObservation[]
-  reidCorrections     ReidCorrectionEvent[]
+  id                      String                   @id @default(uuid()) @db.Uuid
+  title                   String
+  venue                   String?
+  status                  MatchStatus              @default(PLANNED)
+  clipPreRollUs           BigInt                   @default(0)
+  clipPostRollUs          BigInt                   @default(0)
+  scheduledAt             DateTime?
+  deletionRequestedAt     DateTime?
+  identityRevision        BigInt                   @default(0)
+  createdAt               DateTime                 @default(now())
+  updatedAt               DateTime                 @updatedAt
+  members                 MatchMember[]
+  matchTeams              MatchTeam[]
+  sets                    MatchSet[]
+  rosterEntries           MatchRosterEntry[]
+  captureSessions         CaptureSession[]
+  rallies                 Rally[]
+  reidIdentities          ReidIdentity[]
+  reidObservations        ReidFeatureObservation[]
+  reidCorrections         ReidCorrectionEvent[]
+  reidPersonClusters      ReidPersonCluster[]
+  reidBankSnapshots       ReidBankSnapshot[]
+  reidCannotLinks         ReidCannotLink[]
+  reidIdentityRepairs     ReidIdentityCorrection[]
+  reidAssignmentRevisions ReidAssignmentRevision[]
 
   @@index([deletionRequestedAt])
 }
@@ -319,6 +385,9 @@ model Team {
   reidIdentities       ReidIdentity[]
   reidObservations     ReidFeatureObservation[]
   reidCorrections      ReidCorrectionEvent[]
+  reidPersonClusters   ReidPersonCluster[]
+  reidBankSnapshots    ReidBankSnapshot[]
+  reidIdentityRepairs  ReidIdentityCorrection[]
 }
 
 model MatchTeam {
@@ -341,22 +410,27 @@ model Player {
 }
 
 model MatchRosterEntry {
-  id                  String                    @id @default(uuid()) @db.Uuid
-  matchId             String                    @db.Uuid
-  teamId              String                    @db.Uuid
-  playerId            String?                   @db.Uuid
-  jerseyNumber        String
-  position            RosterPosition            @default(UNSPECIFIED)
-  displayNameSnapshot String?
-  active              Boolean                   @default(true)
-  createdAt           DateTime                  @default(now())
-  updatedAt           DateTime                  @updatedAt
-  match               Match                     @relation(fields: [matchId], references: [id], onDelete: Cascade)
-  team                Team                      @relation(fields: [teamId], references: [id], onDelete: Restrict)
-  player              Player?                   @relation(fields: [playerId], references: [id], onDelete: SetNull)
-  identityAssignments TrackIdentityAssignment[]
-  reidBindings        ReidPlayerBinding[]
-  reidCorrections     ReidCorrectionEvent[]
+  id                       String                    @id @default(uuid()) @db.Uuid
+  matchId                  String                    @db.Uuid
+  teamId                   String                    @db.Uuid
+  playerId                 String?                   @db.Uuid
+  jerseyNumber             String
+  position                 RosterPosition            @default(UNSPECIFIED)
+  displayNameSnapshot      String?
+  active                   Boolean                   @default(true)
+  createdAt                DateTime                  @default(now())
+  updatedAt                DateTime                  @updatedAt
+  match                    Match                     @relation(fields: [matchId], references: [id], onDelete: Cascade)
+  team                     Team                      @relation(fields: [teamId], references: [id], onDelete: Restrict)
+  player                   Player?                   @relation(fields: [playerId], references: [id], onDelete: SetNull)
+  identityAssignments      TrackIdentityAssignment[]
+  reidBindings             ReidPlayerBinding[]
+  reidCorrections          ReidCorrectionEvent[]
+  reidMemberships          ReidEvidenceMembership[]
+  reidAssociationDecisions ReidAssociationDecision[]
+  reidIdentityRepairs      ReidIdentityCorrection[]
+  reidAssignmentRevisions  ReidAssignmentRevision[]
+  reidPersonCluster        ReidPersonCluster?
 
   @@index([matchId, teamId, jerseyNumber])
 }
@@ -506,26 +580,37 @@ model DvrProgram {
 }
 
 model MediaAsset {
-  id                     String               @id @default(uuid()) @db.Uuid
-  kind                   MediaAssetKind
-  bucket                 String
-  objectKey              String
-  contentType            String
-  byteLength             BigInt?
-  sha256                 String?
-  internalSchemaVersion  String?
-  state                  ArtifactState        @default(UPLOADING)
-  createdAt              DateTime             @default(now())
-  readyAt                DateTime?
-  deletedAt              DateTime?
-  dvrInitSegments        DvrSegment[]         @relation("DvrInitAsset")
-  dvrMediaSegments       DvrSegment[]         @relation("DvrMediaAsset")
-  dvrSampleIndexSegments DvrSegment[]         @relation("DvrSampleIndexAsset")
-  clipOutputs            ClipJob[]            @relation("ClipOutputAsset")
-  clipTimingManifests    ClipJob[]            @relation("ClipTimingAsset")
-  analysisDataRaw        AnalysisRun[]        @relation("AnalysisDataRaw")
-  analysisArtifacts      AnalysisArtifact[]
-  analysisFrameChunks    AnalysisFrameChunk[]
+  id                      String                       @id @default(uuid()) @db.Uuid
+  kind                    MediaAssetKind
+  bucket                  String
+  objectKey               String
+  contentType             String
+  byteLength              BigInt?
+  sha256                  String?
+  internalSchemaVersion   String?
+  state                   ArtifactState                @default(UPLOADING)
+  createdAt               DateTime                     @default(now())
+  readyAt                 DateTime?
+  deletedAt               DateTime?
+  dvrInitSegments         DvrSegment[]                 @relation("DvrInitAsset")
+  dvrMediaSegments        DvrSegment[]                 @relation("DvrMediaAsset")
+  dvrSampleIndexSegments  DvrSegment[]                 @relation("DvrSampleIndexAsset")
+  clipOutputs             ClipJob[]                    @relation("ClipOutputAsset")
+  clipTimingManifests     ClipJob[]                    @relation("ClipTimingAsset")
+  analysisDataRaw         AnalysisRun[]                @relation("AnalysisDataRaw")
+  analysisArtifacts       AnalysisArtifact[]
+  analysisFrameChunks     AnalysisFrameChunk[]
+  providerJobArtifacts    ProviderJobArtifact[]
+  analysisEvidenceBundles AnalysisEvidenceBundle[]     @relation("AnalysisEvidenceManifestAsset")
+  analysisEvidenceCrops   AnalysisEvidenceBundle[]     @relation("AnalysisEvidenceCropSourceAsset")
+  personPoseManifests     PersonPoseEvidenceManifest[] @relation("PersonPoseManifestAsset")
+  personPoseChunks        PersonPoseEvidenceChunk[]    @relation("PersonPoseChunkAsset")
+  reidDescriptorBundles   ReidEvidenceSet[]            @relation("ReidDescriptorBundleAsset")
+  reidFeatureResults      ReidEvidenceSet[]            @relation("ReidFeatureResultAsset")
+  reidJerseyVlmResponses  ReidJerseyVlmEvidence[]      @relation("ReidJerseyVlmResponseAsset")
+  reidBankManifests       ReidBankSnapshot[]           @relation("ReidBankManifestAsset")
+  reidAssociationResults  ReidAssociationRun[]         @relation("ReidAssociationResultAsset")
+  reidPreviewAssets       ReidIdentityPreview[]        @relation("ReidPreviewAsset")
 
   @@unique([bucket, objectKey])
   @@index([kind, state, createdAt])
@@ -931,21 +1016,22 @@ model AiWorkerAccessToken {
 }
 
 model AiProviderInstance {
-  id              String    @id @default(uuid()) @db.Uuid
-  instanceKey     String    @unique
+  id              String        @id @default(uuid()) @db.Uuid
+  instanceKey     String        @unique
   sdkVersion      String
   providerBuildId String
   capabilities    Json
   maxConcurrency  Int
   lastSeenAt      DateTime
-  connectedAt     DateTime  @default(now())
+  connectedAt     DateTime      @default(now())
   disconnectedAt  DateTime?
   latencyMs       Int?
   lastPingAt      DateTime?
   lastPongAt      DateTime?
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
   jobs            AiJob[]
+  providerJobs    ProviderJob[]
 
   @@index([lastSeenAt])
 }
@@ -1004,6 +1090,91 @@ model AiCallbackReceipt {
   aiJob              AiJob        @relation(fields: [aiJobId], references: [id], onDelete: Cascade)
 }
 
+model ProviderJob {
+  id                        String                     @id @default(uuid()) @db.Uuid
+  workKind                  ProviderWorkKind
+  status                    JobStatus                  @default(QUEUED)
+  idempotencyKey            String                     @unique
+  requestSchemaVersion      String
+  resultSchemaVersion       String
+  requestPayload            Json
+  requestPayloadHash        String
+  callbackTokenHash         String
+  callbackTokenExpiresAt    DateTime
+  providerInstanceId        String?                    @db.Uuid
+  analysisRunId             String?                    @db.Uuid
+  parentProviderJobId       String?                    @db.Uuid
+  deliveryId                String?                    @db.Uuid
+  providerExecutionId       String?
+  cancelRequestedAt         DateTime?
+  cancelAcknowledgedAt      DateTime?
+  attemptCount              Int                        @default(0)
+  maxAttempts               Int                        @default(5)
+  availableAt               DateTime                   @default(now())
+  leasedUntil               DateTime?
+  progress                  Float?
+  stage                     String?
+  errorCode                 String?
+  errorMessage              String?
+  acceptedAt                DateTime?
+  startedAt                 DateTime?
+  completedAt               DateTime?
+  lastCallbackAt            DateTime?
+  createdAt                 DateTime                   @default(now())
+  updatedAt                 DateTime                   @updatedAt
+  providerInstance          AiProviderInstance?        @relation(fields: [providerInstanceId], references: [id], onDelete: SetNull)
+  analysisRun               AnalysisRun?               @relation(fields: [analysisRunId], references: [id], onDelete: Restrict)
+  parentProviderJob         ProviderJob?               @relation("ProviderJobDependency", fields: [parentProviderJobId], references: [id], onDelete: Restrict)
+  childProviderJobs         ProviderJob[]              @relation("ProviderJobDependency")
+  artifacts                 ProviderJobArtifact[]
+  callbackReceipts          ProviderCallbackReceipt[]
+  reidEvidenceSet           ReidEvidenceSet?           @relation("ReidFeatureProviderJob")
+  reidAssociationRun        ReidAssociationRun?        @relation("ReidAssociationProviderJob")
+  reidIdentityPreview       ReidIdentityPreview?       @relation("ReidPreviewProviderJob")
+  reidFeatureRebuildRequest ReidFeatureRebuildRequest? @relation("ReidFeatureRebuildProviderJob")
+
+  @@index([workKind, status, availableAt])
+  @@index([providerInstanceId, status])
+  @@index([analysisRunId, workKind, createdAt])
+  @@index([parentProviderJobId])
+}
+
+model ProviderJobArtifact {
+  id            String                    @id @default(uuid()) @db.Uuid
+  providerJobId String                    @db.Uuid
+  mediaAssetId  String                    @db.Uuid
+  direction     ProviderArtifactDirection
+  artifactKind  String
+  ordinal       Int
+  required      Boolean                   @default(true)
+  schemaVersion String
+  sha256        String
+  byteLength    BigInt
+  contentType   String
+  createdAt     DateTime                  @default(now())
+  providerJob   ProviderJob               @relation(fields: [providerJobId], references: [id], onDelete: Cascade)
+  mediaAsset    MediaAsset                @relation(fields: [mediaAssetId], references: [id], onDelete: Restrict)
+
+  @@unique([providerJobId, direction, ordinal])
+  @@index([mediaAssetId])
+}
+
+model ProviderCallbackReceipt {
+  id                 String       @id @default(uuid()) @db.Uuid
+  providerJobId      String       @db.Uuid
+  callbackId         String       @unique
+  kind               CallbackKind
+  requestContentType String
+  requestMetadata    Json
+  payloadHash        String
+  responseStatus     Int
+  responseBody       Json
+  receivedAt         DateTime     @default(now())
+  providerJob        ProviderJob  @relation(fields: [providerJobId], references: [id], onDelete: Cascade)
+
+  @@index([providerJobId, receivedAt])
+}
+
 model OutboxEvent {
   id            String       @id @default(uuid()) @db.Uuid
   aggregateType String
@@ -1022,49 +1193,60 @@ model OutboxEvent {
 }
 
 model AnalysisRun {
-  id                               String                           @id @default(uuid()) @db.Uuid
-  aiJobId                          String                           @unique @db.Uuid
-  submissionId                     String                           @db.Uuid
-  analysisId                       String                           @unique
+  id                               String                                 @id @default(uuid()) @db.Uuid
+  aiJobId                          String                                 @unique @db.Uuid
+  submissionId                     String                                 @db.Uuid
+  analysisId                       String                                 @unique
   analysisVersion                  String
   analysisDataSchemaVersion        String
   inputClipSha256                  String
   producerName                     String
   producerBuildId                  String
   producerSdkVersion               String?
-  status                           JobStatus                        @default(RUNNING)
-  rawAnalysisDataAssetId           String?                          @db.Uuid
+  status                           JobStatus                              @default(RUNNING)
+  rawAnalysisDataAssetId           String?                                @db.Uuid
   summary                          Json?
-  createdAt                        DateTime                         @default(now())
+  createdAt                        DateTime                               @default(now())
   activatedAt                      DateTime?
   supersededAt                     DateTime?
   identityMappingCompletedAt       DateTime?
-  identityMappingCompletedByUserId String?                          @db.Uuid
-  reviewRevision                   BigInt                           @default(0)
-  reviewStatus                     AnalysisReviewStatus             @default(EDITING)
+  identityMappingCompletedByUserId String?                                @db.Uuid
+  reviewRevision                   BigInt                                 @default(0)
+  reviewStatus                     AnalysisReviewStatus                   @default(EDITING)
   reviewComputedRevision           BigInt?
   reviewComputedAt                 DateTime?
   reviewApprovedRevision           BigInt?
   reviewApprovedAt                 DateTime?
-  reviewApprovedByUserId           String?                          @db.Uuid
-  aiJob                            AiJob                            @relation(fields: [aiJobId], references: [id], onDelete: Restrict)
-  submission                       RallySubmission                  @relation(fields: [submissionId], references: [id], onDelete: Restrict)
-  rawAnalysisDataAsset             MediaAsset?                      @relation("AnalysisDataRaw", fields: [rawAnalysisDataAssetId], references: [id], onDelete: Restrict)
+  reviewApprovedByUserId           String?                                @db.Uuid
+  aiJob                            AiJob                                  @relation(fields: [aiJobId], references: [id], onDelete: Restrict)
+  submission                       RallySubmission                        @relation(fields: [submissionId], references: [id], onDelete: Restrict)
+  rawAnalysisDataAsset             MediaAsset?                            @relation("AnalysisDataRaw", fields: [rawAnalysisDataAssetId], references: [id], onDelete: Restrict)
   tracks                           AnalysisTrack[]
   contactEvents                    ContactEvent[]
   segments                         BallPathSegment[]
   artifacts                        AnalysisArtifact[]
   analysisDataManifest             AnalysisDataManifest?
-  identityMappingCompletedBy       User?                            @relation("IdentityMappingCompletedBy", fields: [identityMappingCompletedByUserId], references: [id], onDelete: SetNull)
-  reviewApprovedBy                 User?                            @relation("AnalysisReviewApprovedBy", fields: [reviewApprovedByUserId], references: [id], onDelete: SetNull)
+  identityMappingCompletedBy       User?                                  @relation("IdentityMappingCompletedBy", fields: [identityMappingCompletedByUserId], references: [id], onDelete: SetNull)
+  reviewApprovedBy                 User?                                  @relation("AnalysisReviewApprovedBy", fields: [reviewApprovedByUserId], references: [id], onDelete: SetNull)
   ballCorrections                  AnalysisBallCorrection[]
   actionCorrections                AnalysisActionCorrection[]
   playerBBoxCorrections            AnalysisPlayerBBoxCorrection[]
   contactActorCorrections          AnalysisContactActorCorrection[]
+  contactAssociationJobs           AnalysisContactAssociationJob[]
+  contactAssociationProjections    AnalysisContactAssociationProjection[]
   contactTimeCorrections           AnalysisContactTimeCorrection[]
   contactEdits                     AnalysisContactEdit[]
   reviewPatchReceipts              AnalysisReviewPatchReceipt[]
   reidCorrectionEvents             ReidCorrectionEvent[]
+  providerJobs                     ProviderJob[]
+  analysisEvidenceBundle           AnalysisEvidenceBundle?
+  personPoseEvidenceManifests      PersonPoseEvidenceManifest[]
+  reidEvidenceSets                 ReidEvidenceSet[]
+  reidIdentityCorrections          ReidIdentityCorrection[]
+  reidAssignmentRevisions          ReidAssignmentRevision[]
+  reidActiveProjections            ReidActiveProjection[]
+  reidFeatureRebuildRequests       ReidFeatureRebuildRequest[]
+  reidAssociationRerunRequests     ReidAssociationRerunRequest[]
 }
 
 model AnalysisBallCorrection {
@@ -1125,6 +1307,55 @@ model AnalysisContactTimeCorrection {
 
   @@id([analysisRunId, keyPointId])
   @@index([analysisRunId, revision])
+}
+
+model AnalysisContactAssociationJob {
+  id                 String                                @id @default(uuid()) @db.Uuid
+  analysisRunId      String                                @db.Uuid
+  keyPointId         String                                @db.Uuid
+  reviewRevision     BigInt
+  frameIndex         BigInt
+  algorithmNamespace String
+  status             JobStatus                             @default(QUEUED)
+  attemptCount       Int                                   @default(0)
+  maxAttempts        Int                                   @default(5)
+  availableAt        DateTime                              @default(now())
+  leasedUntil        DateTime?
+  startedAt          DateTime?
+  completedAt        DateTime?
+  errorCode          String?
+  errorMessage       String?
+  createdAt          DateTime                              @default(now())
+  analysisRun        AnalysisRun                           @relation(fields: [analysisRunId], references: [id], onDelete: Cascade)
+  projection         AnalysisContactAssociationProjection?
+
+  @@unique([analysisRunId, keyPointId, reviewRevision], map: "ContactAssociationJob_run_point_revision_key")
+  @@index([status, availableAt, createdAt])
+  @@index([analysisRunId, keyPointId, reviewRevision], map: "ContactAssociationJob_run_point_revision_idx")
+}
+
+model AnalysisContactAssociationProjection {
+  id                    String                        @id @default(uuid()) @db.Uuid
+  jobId                 String                        @unique @db.Uuid
+  analysisRunId         String                        @db.Uuid
+  keyPointId            String                        @db.Uuid
+  reviewRevision        BigInt
+  frameIndex            BigInt
+  observationFrameIndex BigInt?
+  trackId               Int?
+  source                ContactAssociationSource
+  confidence            Float?
+  algorithmNamespace    String
+  poseRecipeNamespace   String?
+  fallbackReason        String?
+  evidence              Json
+  createdAt             DateTime                      @default(now())
+  job                   AnalysisContactAssociationJob @relation(fields: [jobId], references: [id], onDelete: Restrict)
+  analysisRun           AnalysisRun                   @relation(fields: [analysisRunId], references: [id], onDelete: Cascade)
+
+  @@unique([analysisRunId, keyPointId, reviewRevision], map: "ContactAssociationProjection_run_point_revision_key")
+  @@index([analysisRunId, keyPointId, reviewRevision], map: "ContactAssociationProjection_run_point_revision_idx")
+  @@index([trackId])
 }
 
 model AnalysisContactEdit {
@@ -1389,6 +1620,7 @@ model ReidIdentity {
 
   @@unique([matchId, teamId, slotIndex])
   @@index([matchId, teamId, createdAt])
+  @@index([matchId, teamId, modelNamespace, createdAt])
 }
 
 model ReidFeatureObservation {
@@ -1489,4 +1721,458 @@ model ReidCorrectionEvent {
   @@index([analysisRunId, trackId])
   @@index([sourceIdentityId])
   @@index([targetIdentityId])
+}
+
+model AnalysisEvidenceBundle {
+  id                        String                       @id @default(uuid()) @db.Uuid
+  analysisRunId             String                       @unique @db.Uuid
+  schemaVersion             String
+  manifestAssetId           String                       @db.Uuid
+  cropSourceManifestAssetId String?                      @db.Uuid
+  contentSha256             String
+  canonicalFrameCount       BigInt
+  status                    ArtifactState                @default(UPLOADING)
+  createdAt                 DateTime                     @default(now())
+  readyAt                   DateTime?
+  analysisRun               AnalysisRun                  @relation(fields: [analysisRunId], references: [id], onDelete: Cascade)
+  manifestAsset             MediaAsset                   @relation("AnalysisEvidenceManifestAsset", fields: [manifestAssetId], references: [id], onDelete: Restrict)
+  cropSourceManifestAsset   MediaAsset?                  @relation("AnalysisEvidenceCropSourceAsset", fields: [cropSourceManifestAssetId], references: [id], onDelete: Restrict)
+  poseManifests             PersonPoseEvidenceManifest[]
+  reidEvidenceSets          ReidEvidenceSet[]
+
+  @@index([status, createdAt])
+  @@index([manifestAssetId])
+  @@index([cropSourceManifestAssetId])
+}
+
+model PersonPoseEvidenceManifest {
+  id                       String                    @id @default(uuid()) @db.Uuid
+  analysisRunId            String                    @db.Uuid
+  analysisEvidenceBundleId String                    @db.Uuid
+  recipeNamespace          String
+  schemaVersion            String
+  manifestAssetId          String                    @db.Uuid
+  contentSha256            String
+  canonicalFrameCount      BigInt
+  playerObservationCount   BigInt
+  poseObservationCount     BigInt
+  missingObservationCount  BigInt
+  status                   ArtifactState             @default(UPLOADING)
+  createdAt                DateTime                  @default(now())
+  readyAt                  DateTime?
+  analysisRun              AnalysisRun               @relation(fields: [analysisRunId], references: [id], onDelete: Cascade)
+  analysisEvidenceBundle   AnalysisEvidenceBundle    @relation(fields: [analysisEvidenceBundleId], references: [id], onDelete: Cascade)
+  manifestAsset            MediaAsset                @relation("PersonPoseManifestAsset", fields: [manifestAssetId], references: [id], onDelete: Restrict)
+  chunks                   PersonPoseEvidenceChunk[]
+
+  @@unique([analysisRunId, recipeNamespace])
+  @@index([analysisEvidenceBundleId])
+  @@index([status, createdAt])
+}
+
+model PersonPoseEvidenceChunk {
+  poseManifestId          String                     @db.Uuid
+  chunkIndex              Int
+  startFrameIndex         BigInt
+  endFrameIndex           BigInt
+  playerObservationCount  BigInt
+  poseObservationCount    BigInt
+  missingObservationCount BigInt
+  assetId                 String                     @db.Uuid
+  sha256                  String
+  byteLength              BigInt
+  createdAt               DateTime                   @default(now())
+  poseManifest            PersonPoseEvidenceManifest @relation(fields: [poseManifestId], references: [id], onDelete: Cascade)
+  asset                   MediaAsset                 @relation("PersonPoseChunkAsset", fields: [assetId], references: [id], onDelete: Restrict)
+
+  @@id([poseManifestId, chunkIndex])
+  @@index([poseManifestId, startFrameIndex])
+  @@index([assetId])
+}
+
+model ReidEvidenceSet {
+  id                        String                 @id @default(uuid()) @db.Uuid
+  analysisRunId             String                 @db.Uuid
+  analysisEvidenceBundleId  String                 @db.Uuid
+  providerJobId             String                 @unique @db.Uuid
+  schemaVersion             String
+  recipeNamespace           String
+  resultAssetId             String                 @db.Uuid
+  descriptorBundleAssetId   String                 @db.Uuid
+  contentSha256             String
+  resultStatus              String
+  unavailableEvidence       Json
+  status                    ArtifactState          @default(UPLOADING)
+  createdAt                 DateTime               @default(now())
+  readyAt                   DateTime?
+  supersededAt              DateTime?
+  supersededByEvidenceSetId String?                @db.Uuid
+  analysisRun               AnalysisRun            @relation(fields: [analysisRunId], references: [id], onDelete: Cascade)
+  analysisEvidenceBundle    AnalysisEvidenceBundle @relation(fields: [analysisEvidenceBundleId], references: [id], onDelete: Restrict)
+  providerJob               ProviderJob            @relation("ReidFeatureProviderJob", fields: [providerJobId], references: [id], onDelete: Restrict)
+  resultAsset               MediaAsset             @relation("ReidFeatureResultAsset", fields: [resultAssetId], references: [id], onDelete: Restrict)
+  descriptorBundleAsset     MediaAsset             @relation("ReidDescriptorBundleAsset", fields: [descriptorBundleAssetId], references: [id], onDelete: Restrict)
+  tracklets                 ReidTracklet[]
+  associationRuns           ReidAssociationRun[]
+  supersededByEvidenceSet   ReidEvidenceSet?       @relation("ReidEvidenceSetSupersession", fields: [supersededByEvidenceSetId], references: [id], onDelete: Restrict)
+  supersededEvidenceSets    ReidEvidenceSet[]      @relation("ReidEvidenceSetSupersession")
+
+  @@index([analysisRunId, recipeNamespace, createdAt])
+  @@index([analysisEvidenceBundleId])
+  @@index([resultAssetId])
+  @@index([status, createdAt])
+  @@index([analysisRunId, supersededAt, createdAt])
+  @@index([supersededByEvidenceSetId])
+}
+
+model ReidFeatureRebuildRequest {
+  id                String       @id @db.Uuid
+  analysisRunId     String       @db.Uuid
+  requestedByUserId String       @db.Uuid
+  providerJobId     String?      @unique @db.Uuid
+  status            JobStatus    @default(QUEUED)
+  reason            String?
+  errorMessage      String?
+  createdAt         DateTime     @default(now())
+  startedAt         DateTime?
+  completedAt       DateTime?
+  analysisRun       AnalysisRun  @relation(fields: [analysisRunId], references: [id], onDelete: Restrict)
+  requestedBy       User         @relation("ReidFeatureRebuildRequestedBy", fields: [requestedByUserId], references: [id], onDelete: Restrict)
+  providerJob       ProviderJob? @relation("ReidFeatureRebuildProviderJob", fields: [providerJobId], references: [id], onDelete: Restrict)
+
+  @@index([status, createdAt])
+  @@index([analysisRunId, createdAt])
+}
+
+model ReidAssociationRerunRequest {
+  id                String               @id @db.Uuid
+  analysisRunId     String               @db.Uuid
+  requestedByUserId String               @db.Uuid
+  status            JobStatus            @default(QUEUED)
+  reason            String?
+  errorMessage      String?
+  createdAt         DateTime             @default(now())
+  startedAt         DateTime?
+  completedAt       DateTime?
+  analysisRun       AnalysisRun          @relation(fields: [analysisRunId], references: [id], onDelete: Restrict)
+  requestedBy       User                 @relation("ReidAssociationRerunRequestedBy", fields: [requestedByUserId], references: [id], onDelete: Restrict)
+  associationRuns   ReidAssociationRun[]
+
+  @@index([status, createdAt])
+  @@index([analysisRunId, createdAt])
+}
+
+model ReidTracklet {
+  id                    String                    @id @default(uuid()) @db.Uuid
+  evidenceSetId         String                    @db.Uuid
+  canonicalTrackId      Int
+  trackIdAliases        Int[]
+  courtSide             TrackCourtSide
+  firstFrameIndex       BigInt
+  lastFrameIndex        BigInt
+  cannotLinkTrackletIds String[]
+  createdAt             DateTime                  @default(now())
+  evidenceSet           ReidEvidenceSet           @relation(fields: [evidenceSetId], references: [id], onDelete: Cascade)
+  vectors               ReidFeatureVector[]
+  jerseyVlmEvidence     ReidJerseyVlmEvidence?
+  memberships           ReidEvidenceMembership[]
+  leftCannotLinks       ReidCannotLink[]          @relation("ReidCannotLinkLeft")
+  rightCannotLinks      ReidCannotLink[]          @relation("ReidCannotLinkRight")
+  associationDecisions  ReidAssociationDecision[]
+  identityCorrections   ReidIdentityCorrection[]
+  assignmentRevisions   ReidAssignmentRevision[]
+  activeProjection      ReidActiveProjection?
+  previews              ReidIdentityPreview[]
+
+  @@unique([evidenceSetId, canonicalTrackId])
+  @@index([evidenceSetId, firstFrameIndex, lastFrameIndex])
+}
+
+model ReidFeatureVector {
+  id                 String               @id @default(uuid()) @db.Uuid
+  trackletId         String               @db.Uuid
+  modality           String
+  modelNamespace     String
+  dimension          Int
+  normalization      String
+  distance           String
+  byteOffset         BigInt
+  byteLength         BigInt
+  sha256             String
+  sourceFrameIndices BigInt[]
+  createdAt          DateTime             @default(now())
+  tracklet           ReidTracklet         @relation(fields: [trackletId], references: [id], onDelete: Cascade)
+  searchEmbedding    ReidSearchEmbedding?
+
+  @@unique([trackletId, modality, modelNamespace])
+  @@index([modelNamespace, modality, dimension])
+}
+
+model ReidSearchEmbedding {
+  featureVectorId String                @id @db.Uuid
+  modelNamespace  String
+  modality        String
+  dimension       Int
+  distance        String
+  embedding       Unsupported("vector")
+  createdAt       DateTime              @default(now())
+  featureVector   ReidFeatureVector     @relation(fields: [featureVectorId], references: [id], onDelete: Cascade)
+
+  @@index([modelNamespace, modality, dimension, distance])
+}
+
+model ReidJerseyVlmEvidence {
+  id                   String       @id @default(uuid()) @db.Uuid
+  trackletId           String       @unique @db.Uuid
+  modelNamespace       String
+  rawResponseAssetId   String       @db.Uuid
+  rawResponseKey       String
+  rawResponseSha256    String
+  candidateNumbers     Int[]
+  selectedFrameIndices BigInt[]
+  createdAt            DateTime     @default(now())
+  tracklet             ReidTracklet @relation(fields: [trackletId], references: [id], onDelete: Cascade)
+  rawResponseAsset     MediaAsset   @relation("ReidJerseyVlmResponseAsset", fields: [rawResponseAssetId], references: [id], onDelete: Restrict)
+
+  @@unique([rawResponseAssetId, rawResponseKey])
+  @@index([modelNamespace, createdAt])
+  @@index([rawResponseAssetId])
+}
+
+model ReidPersonCluster {
+  id                     String                    @id @default(uuid()) @db.Uuid
+  matchId                String                    @db.Uuid
+  teamId                 String?                   @db.Uuid
+  canonicalRosterEntryId String?                   @unique @db.Uuid
+  label                  String?
+  createdRevision        BigInt
+  supersededRevision     BigInt?
+  createdAt              DateTime                  @default(now())
+  match                  Match                     @relation(fields: [matchId], references: [id], onDelete: Cascade)
+  team                   Team?                     @relation(fields: [teamId], references: [id], onDelete: Restrict)
+  canonicalRosterEntry   MatchRosterEntry?         @relation(fields: [canonicalRosterEntryId], references: [id], onDelete: SetNull)
+  memberships            ReidEvidenceMembership[]
+  associationDecisions   ReidAssociationDecision[]
+  sourceCorrections      ReidIdentityCorrection[]  @relation("ReidIdentityCorrectionSourceCluster")
+  targetCorrections      ReidIdentityCorrection[]  @relation("ReidIdentityCorrectionTargetCluster")
+  assignmentRevisions    ReidAssignmentRevision[]
+
+  @@index([matchId, teamId, createdAt])
+  @@index([matchId, supersededRevision])
+}
+
+model ReidEvidenceMembership {
+  id                      String                   @id @default(uuid()) @db.Uuid
+  personClusterId         String                   @db.Uuid
+  trackletId              String                   @db.Uuid
+  rosterEntryId           String?                  @db.Uuid
+  evidenceState           ReidEvidenceState
+  evidenceRole            ReidEvidenceRole
+  weight                  Float
+  sourceRevision          BigInt
+  supersedesMembershipId  String?                  @db.Uuid
+  correctionId            String?                  @db.Uuid
+  createdByUserId         String?                  @db.Uuid
+  createdAt               DateTime                 @default(now())
+  personCluster           ReidPersonCluster        @relation(fields: [personClusterId], references: [id], onDelete: Cascade)
+  tracklet                ReidTracklet             @relation(fields: [trackletId], references: [id], onDelete: Restrict)
+  rosterEntry             MatchRosterEntry?        @relation(fields: [rosterEntryId], references: [id], onDelete: SetNull)
+  supersedesMembership    ReidEvidenceMembership?  @relation("ReidMembershipRevision", fields: [supersedesMembershipId], references: [id], onDelete: Restrict)
+  supersededByMemberships ReidEvidenceMembership[] @relation("ReidMembershipRevision")
+  correction              ReidIdentityCorrection?  @relation(fields: [correctionId], references: [id], onDelete: Restrict)
+  createdBy               User?                    @relation("ReidMembershipCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+
+  @@unique([personClusterId, trackletId, sourceRevision])
+  @@index([trackletId, sourceRevision])
+  @@index([personClusterId, evidenceState, evidenceRole, sourceRevision])
+  @@index([supersedesMembershipId])
+}
+
+model ReidCannotLink {
+  id              String       @id @default(uuid()) @db.Uuid
+  matchId         String       @db.Uuid
+  leftTrackletId  String       @db.Uuid
+  rightTrackletId String       @db.Uuid
+  reason          String
+  sourceRevision  BigInt
+  createdAt       DateTime     @default(now())
+  match           Match        @relation(fields: [matchId], references: [id], onDelete: Cascade)
+  leftTracklet    ReidTracklet @relation("ReidCannotLinkLeft", fields: [leftTrackletId], references: [id], onDelete: Cascade)
+  rightTracklet   ReidTracklet @relation("ReidCannotLinkRight", fields: [rightTrackletId], references: [id], onDelete: Cascade)
+
+  @@unique([matchId, leftTrackletId, rightTrackletId, sourceRevision])
+  @@index([rightTrackletId])
+}
+
+model ReidBankSnapshot {
+  id               String               @id @default(uuid()) @db.Uuid
+  matchId          String               @db.Uuid
+  teamId           String               @db.Uuid
+  revision         BigInt
+  asOfSetNumber    Int
+  asOfRallyOrdinal Int
+  schemaVersion    String
+  manifestAssetId  String               @db.Uuid
+  contentSha256    String
+  createdAt        DateTime             @default(now())
+  match            Match                @relation(fields: [matchId], references: [id], onDelete: Cascade)
+  team             Team                 @relation(fields: [teamId], references: [id], onDelete: Restrict)
+  manifestAsset    MediaAsset           @relation("ReidBankManifestAsset", fields: [manifestAssetId], references: [id], onDelete: Restrict)
+  associationRuns  ReidAssociationRun[]
+
+  @@unique([matchId, teamId, revision, asOfSetNumber, asOfRallyOrdinal])
+  @@index([matchId, teamId, asOfSetNumber, asOfRallyOrdinal])
+}
+
+model ReidAssociationRun {
+  id                String                       @id @default(uuid()) @db.Uuid
+  evidenceSetId     String                       @db.Uuid
+  bankSnapshotId    String                       @db.Uuid
+  providerJobId     String                       @unique @db.Uuid
+  schemaVersion     String
+  status            JobStatus                    @default(QUEUED)
+  shadowOnly        Boolean                      @default(true)
+  resultAssetId     String?                      @db.Uuid
+  contentSha256     String?
+  createdAt         DateTime                     @default(now())
+  completedAt       DateTime?
+  supersededAt      DateTime?
+  supersededByRunId String?                      @db.Uuid
+  rerunRequestId    String?                      @db.Uuid
+  evidenceSet       ReidEvidenceSet              @relation(fields: [evidenceSetId], references: [id], onDelete: Restrict)
+  bankSnapshot      ReidBankSnapshot             @relation(fields: [bankSnapshotId], references: [id], onDelete: Restrict)
+  providerJob       ProviderJob                  @relation("ReidAssociationProviderJob", fields: [providerJobId], references: [id], onDelete: Restrict)
+  resultAsset       MediaAsset?                  @relation("ReidAssociationResultAsset", fields: [resultAssetId], references: [id], onDelete: Restrict)
+  decisions         ReidAssociationDecision[]
+  supersededByRun   ReidAssociationRun?          @relation("ReidAssociationRunSupersession", fields: [supersededByRunId], references: [id], onDelete: Restrict)
+  supersededRuns    ReidAssociationRun[]         @relation("ReidAssociationRunSupersession")
+  rerunRequest      ReidAssociationRerunRequest? @relation(fields: [rerunRequestId], references: [id], onDelete: Restrict)
+
+  @@index([evidenceSetId, createdAt])
+  @@index([bankSnapshotId])
+  @@index([status, shadowOnly, createdAt])
+  @@index([evidenceSetId, supersededAt, createdAt])
+  @@index([supersededByRunId])
+  @@index([rerunRequestId])
+}
+
+model ReidAssociationDecision {
+  id                      String               @id @default(uuid()) @db.Uuid
+  associationRunId        String               @db.Uuid
+  trackletId              String               @db.Uuid
+  groupKey                String
+  associationState        ReidAssociationState
+  selectedPersonClusterId String?              @db.Uuid
+  selectedRosterEntryId   String?              @db.Uuid
+  confidence              Float?
+  candidates              Json
+  unresolvedReason        String?
+  createdAt               DateTime             @default(now())
+  associationRun          ReidAssociationRun   @relation(fields: [associationRunId], references: [id], onDelete: Cascade)
+  tracklet                ReidTracklet         @relation(fields: [trackletId], references: [id], onDelete: Restrict)
+  selectedPersonCluster   ReidPersonCluster?   @relation(fields: [selectedPersonClusterId], references: [id], onDelete: SetNull)
+  selectedRosterEntry     MatchRosterEntry?    @relation(fields: [selectedRosterEntryId], references: [id], onDelete: SetNull)
+
+  @@unique([associationRunId, trackletId])
+  @@index([trackletId, createdAt])
+  @@index([selectedPersonClusterId])
+}
+
+model ReidIdentityCorrection {
+  id                    String                     @id @default(uuid()) @db.Uuid
+  matchId               String                     @db.Uuid
+  teamId                String?                    @db.Uuid
+  analysisRunId         String                     @db.Uuid
+  trackletId            String                     @db.Uuid
+  sourcePersonClusterId String?                    @db.Uuid
+  targetPersonClusterId String?                    @db.Uuid
+  rosterEntryId         String?                    @db.Uuid
+  displayScope          ReidCorrectionDisplayScope
+  futureEvidenceAction  ReidFutureEvidenceAction
+  revision              BigInt
+  reason                String?
+  createdByUserId       String                     @db.Uuid
+  createdAt             DateTime                   @default(now())
+  match                 Match                      @relation(fields: [matchId], references: [id], onDelete: Cascade)
+  team                  Team?                      @relation(fields: [teamId], references: [id], onDelete: Restrict)
+  analysisRun           AnalysisRun                @relation(fields: [analysisRunId], references: [id], onDelete: Restrict)
+  tracklet              ReidTracklet               @relation(fields: [trackletId], references: [id], onDelete: Restrict)
+  sourcePersonCluster   ReidPersonCluster?         @relation("ReidIdentityCorrectionSourceCluster", fields: [sourcePersonClusterId], references: [id], onDelete: SetNull)
+  targetPersonCluster   ReidPersonCluster?         @relation("ReidIdentityCorrectionTargetCluster", fields: [targetPersonClusterId], references: [id], onDelete: SetNull)
+  rosterEntry           MatchRosterEntry?          @relation(fields: [rosterEntryId], references: [id], onDelete: SetNull)
+  createdBy             User                       @relation("ReidIdentityCorrectionCreatedBy", fields: [createdByUserId], references: [id], onDelete: Restrict)
+  memberships           ReidEvidenceMembership[]
+  assignmentRevisions   ReidAssignmentRevision[]
+
+  @@unique([matchId, revision])
+  @@index([analysisRunId, trackletId])
+  @@index([targetPersonClusterId])
+}
+
+model ReidAssignmentRevision {
+  id                        String                   @id @default(uuid()) @db.Uuid
+  matchId                   String                   @db.Uuid
+  analysisRunId             String                   @db.Uuid
+  trackletId                String                   @db.Uuid
+  personClusterId           String?                  @db.Uuid
+  rosterEntryId             String?                  @db.Uuid
+  correctionId              String?                  @db.Uuid
+  source                    IdentitySource
+  sourcePriority            Int
+  revision                  BigInt
+  effectiveFromSetNumber    Int
+  effectiveFromRallyOrdinal Int
+  supersedesRevisionId      String?                  @db.Uuid
+  createdByUserId           String?                  @db.Uuid
+  createdAt                 DateTime                 @default(now())
+  match                     Match                    @relation(fields: [matchId], references: [id], onDelete: Cascade)
+  analysisRun               AnalysisRun              @relation(fields: [analysisRunId], references: [id], onDelete: Restrict)
+  tracklet                  ReidTracklet             @relation(fields: [trackletId], references: [id], onDelete: Restrict)
+  personCluster             ReidPersonCluster?       @relation(fields: [personClusterId], references: [id], onDelete: SetNull)
+  rosterEntry               MatchRosterEntry?        @relation(fields: [rosterEntryId], references: [id], onDelete: SetNull)
+  correction                ReidIdentityCorrection?  @relation(fields: [correctionId], references: [id], onDelete: Restrict)
+  supersedesRevision        ReidAssignmentRevision?  @relation("ReidAssignmentRevisionChain", fields: [supersedesRevisionId], references: [id], onDelete: Restrict)
+  supersededByRevisions     ReidAssignmentRevision[] @relation("ReidAssignmentRevisionChain")
+  createdBy                 User?                    @relation("ReidAssignmentRevisionCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  activeProjection          ReidActiveProjection?
+
+  @@unique([matchId, revision])
+  @@index([analysisRunId, trackletId, revision])
+  @@index([supersedesRevisionId])
+}
+
+model ReidActiveProjection {
+  analysisRunId        String                 @db.Uuid
+  trackletId           String                 @unique @db.Uuid
+  assignmentRevisionId String                 @unique @db.Uuid
+  sourcePriority       Int
+  updatedAt            DateTime               @updatedAt
+  analysisRun          AnalysisRun            @relation(fields: [analysisRunId], references: [id], onDelete: Cascade)
+  tracklet             ReidTracklet           @relation(fields: [trackletId], references: [id], onDelete: Cascade)
+  assignmentRevision   ReidAssignmentRevision @relation(fields: [assignmentRevisionId], references: [id], onDelete: Restrict)
+
+  @@id([analysisRunId, trackletId])
+  @@index([analysisRunId, sourcePriority])
+}
+
+model ReidIdentityPreview {
+  id              String        @id @default(uuid()) @db.Uuid
+  trackletId      String        @db.Uuid
+  providerJobId   String?       @unique @db.Uuid
+  recipeNamespace String
+  mediaAssetId    String?       @db.Uuid
+  startFrameIndex BigInt
+  endFrameIndex   BigInt
+  frameCount      Int
+  contentSha256   String?
+  status          ArtifactState @default(UPLOADING)
+  createdAt       DateTime      @default(now())
+  readyAt         DateTime?
+  tracklet        ReidTracklet  @relation(fields: [trackletId], references: [id], onDelete: Cascade)
+  providerJob     ProviderJob?  @relation("ReidPreviewProviderJob", fields: [providerJobId], references: [id], onDelete: Restrict)
+  mediaAsset      MediaAsset?   @relation("ReidPreviewAsset", fields: [mediaAssetId], references: [id], onDelete: Restrict)
+
+  @@unique([trackletId, recipeNamespace])
+  @@index([status, createdAt])
+  @@index([mediaAssetId])
 }

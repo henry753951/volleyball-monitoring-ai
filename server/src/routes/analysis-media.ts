@@ -135,6 +135,62 @@ export function analysisMediaRoutesWithDependencies(dependencies: {
       },
     )
 
+    app.get<{ Params: { previewId: string } }>(
+      '/api/v1/reid/previews/:previewId',
+      async (request, reply) => {
+        if (!UUID.test(request.params.previewId))
+          return reply.status(404).send({ code: 'NOT_FOUND' })
+        const identity = await authenticateDevelopmentAnnotationRequest(request, db)
+        if (!identity) return reply.status(401).send({ code: 'UNAUTHENTICATED' })
+        const preview = await db.reidIdentityPreview.findFirst({
+          where: {
+            id: request.params.previewId,
+            status: ArtifactState.READY,
+            mediaAsset: { state: ArtifactState.READY, deletedAt: null },
+            tracklet: {
+              evidenceSet: {
+                analysisRun: {
+                  submission: {
+                    rally: {
+                      voidedAt: null,
+                      ...(identity.role === UserRole.ADMIN
+                        ? {}
+                        : { match: { members: { some: { userId: identity.userId } } } }),
+                    },
+                  },
+                },
+              },
+            },
+          },
+          select: {
+            contentSha256: true,
+            mediaAsset: {
+              select: {
+                bucket: true,
+                objectKey: true,
+                contentType: true,
+                byteLength: true,
+                sha256: true,
+              },
+            },
+          },
+        })
+        const asset = preview?.mediaAsset
+        if (
+          !asset?.byteLength ||
+          !asset.sha256 ||
+          asset.byteLength > BigInt(Number.MAX_SAFE_INTEGER)
+        )
+          return reply.status(404).send({ code: 'NOT_FOUND' })
+        return reply
+          .header('Cache-Control', 'private, max-age=31536000, immutable')
+          .header('Content-Length', asset.byteLength.toString())
+          .header('ETag', `"${asset.sha256}"`)
+          .type(asset.contentType)
+          .send(await storage.getObject(asset.bucket, asset.objectKey))
+      },
+    )
+
     app.get<{ Params: { analysisRunId: string } }>(
       '/api/v1/analysis-runs/:analysisRunId/dataset.zip',
       async (request, reply) => {

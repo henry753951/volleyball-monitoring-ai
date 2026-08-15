@@ -1,0 +1,86 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/OWNER/volleyball-monitoring-ai/packages/contracts/ai/provider-work-envelope/1.0.0",
+  "title": "Provider Work Envelope 1.0.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "provider_job_id",
+    "work_kind",
+    "request_schema_version",
+    "request_sha256",
+    "idempotency_key",
+    "input_artifacts",
+    "request",
+    "callback"
+  ],
+  "properties": {
+    "schema_version": { "const": "1.0.0" },
+    "provider_job_id": { "$ref": "#/$defs/id" },
+    "work_kind": { "$ref": "#/$defs/workKind" },
+    "request_schema_version": { "type": "string", "minLength": 1, "maxLength": 32 },
+    "request_sha256": { "$ref": "#/$defs/sha256" },
+    "idempotency_key": { "$ref": "#/$defs/id" },
+    "input_artifacts": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/artifact" }
+    },
+    "request": { "type": "object" },
+    "callback": { "$ref": "#/$defs/callback" }
+  },
+  "$defs": {
+    "id": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "uint64": { "type": "string", "pattern": "^[0-9]+$" },
+    "sha256": { "type": "string", "pattern": "^[A-Fa-f0-9]{64}$" },
+    "workKind": {
+      "enum": [
+        "ANALYSIS",
+        "REID_FEATURE_EXTRACTION",
+        "REID_ASSOCIATION",
+        "PERSON_POSE_EVIDENCE_REBUILD",
+        "IDENTITY_PREVIEW_GENERATION"
+      ]
+    },
+    "artifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "artifact_id",
+        "kind",
+        "schema_version",
+        "download_url",
+        "download_url_expires_at",
+        "sha256",
+        "byte_length",
+        "content_type"
+      ],
+      "properties": {
+        "artifact_id": { "$ref": "#/$defs/id" },
+        "kind": { "$ref": "#/$defs/id" },
+        "schema_version": { "type": "string", "minLength": 1, "maxLength": 32 },
+        "download_url": { "type": "string", "format": "uri" },
+        "download_url_expires_at": { "type": "string", "format": "date-time" },
+        "sha256": { "$ref": "#/$defs/sha256" },
+        "byte_length": { "$ref": "#/$defs/uint64" },
+        "content_type": { "type": "string", "minLength": 1, "maxLength": 128 }
+      }
+    },
+    "callback": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["url", "token", "expires_at", "accepted_result_kinds"],
+      "properties": {
+        "url": { "type": "string", "format": "uri" },
+        "token": { "type": "string", "minLength": 16 },
+        "expires_at": { "type": "string", "format": "date-time" },
+        "accepted_result_kinds": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/id" }
+        }
+      }
+    }
+  }
+}

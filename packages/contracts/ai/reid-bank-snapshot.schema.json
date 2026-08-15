@@ -1,0 +1,136 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/OWNER/volleyball-monitoring-ai/packages/contracts/ai/reid-bank-snapshot/1.1.0",
+  "title": "Eligible ReID Bank Snapshot 1.1.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "bank_snapshot_id",
+    "match_id",
+    "team_id",
+    "revision",
+    "as_of_position",
+    "clusters",
+    "evidence_artifacts",
+    "vectors",
+    "memberships",
+    "cannot_links",
+    "content_sha256"
+  ],
+  "properties": {
+    "schema_version": { "const": "1.1.0" },
+    "bank_snapshot_id": { "$ref": "#/$defs/id" },
+    "match_id": { "$ref": "#/$defs/id" },
+    "team_id": { "$ref": "#/$defs/id" },
+    "revision": { "$ref": "#/$defs/uint64" },
+    "as_of_position": { "$ref": "#/$defs/position" },
+    "clusters": { "type": "array", "items": { "$ref": "#/$defs/cluster" } },
+    "evidence_artifacts": { "type": "array", "items": { "$ref": "#/$defs/artifact" } },
+    "vectors": { "type": "array", "items": { "$ref": "#/$defs/vector" } },
+    "memberships": { "type": "array", "items": { "$ref": "#/$defs/membership" } },
+    "cannot_links": { "type": "array", "items": { "$ref": "#/$defs/cannotLink" } },
+    "content_sha256": { "$ref": "#/$defs/sha256" }
+  },
+  "$defs": {
+    "id": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "uint64": { "type": "string", "pattern": "^[0-9]+$" },
+    "sha256": { "type": "string", "pattern": "^[A-Fa-f0-9]{64}$" },
+    "position": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["set_number", "rally_ordinal"],
+      "properties": {
+        "set_number": { "type": "integer", "minimum": 1 },
+        "rally_ordinal": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "artifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["artifact_id", "sha256", "byte_length"],
+      "properties": {
+        "artifact_id": { "$ref": "#/$defs/id" },
+        "sha256": { "$ref": "#/$defs/sha256" },
+        "byte_length": { "$ref": "#/$defs/uint64" }
+      }
+    },
+    "cluster": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["person_cluster_id", "roster_entry_id"],
+      "properties": {
+        "person_cluster_id": { "$ref": "#/$defs/id" },
+        "roster_entry_id": { "oneOf": [{ "$ref": "#/$defs/id" }, { "type": "null" }] }
+      }
+    },
+    "vector": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "vector_id",
+        "artifact_id",
+        "modality",
+        "model_namespace",
+        "dimension",
+        "normalization",
+        "distance",
+        "byte_offset",
+        "byte_length",
+        "sha256"
+      ],
+      "properties": {
+        "vector_id": { "$ref": "#/$defs/id" },
+        "artifact_id": { "$ref": "#/$defs/id" },
+        "modality": { "enum": ["DINO", "OSNET", "KPR", "KPR_PROMPT"] },
+        "model_namespace": { "$ref": "#/$defs/id" },
+        "dimension": { "type": "integer", "minimum": 1, "maximum": 65536 },
+        "normalization": { "enum": ["NONE", "L2"] },
+        "distance": { "enum": ["COSINE", "EUCLIDEAN"] },
+        "byte_offset": { "$ref": "#/$defs/uint64" },
+        "byte_length": { "$ref": "#/$defs/uint64" },
+        "sha256": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "membership": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "membership_id",
+        "person_cluster_id",
+        "tracklet_id",
+        "vector_ids",
+        "evidence_state",
+        "evidence_role",
+        "weight",
+        "source_revision"
+      ],
+      "properties": {
+        "membership_id": { "$ref": "#/$defs/id" },
+        "person_cluster_id": { "$ref": "#/$defs/id" },
+        "tracklet_id": { "$ref": "#/$defs/id" },
+        "vector_ids": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/id" }
+        },
+        "evidence_state": { "const": "CONFIRMED" },
+        "evidence_role": { "enum": ["POSITIVE", "NEGATIVE"] },
+        "weight": { "type": "number", "exclusiveMinimum": 0, "maximum": 1 },
+        "source_revision": { "$ref": "#/$defs/uint64" },
+        "roster_entry_id": { "oneOf": [{ "$ref": "#/$defs/id" }, { "type": "null" }] }
+      }
+    },
+    "cannotLink": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["left_tracklet_id", "right_tracklet_id", "reason"],
+      "properties": {
+        "left_tracklet_id": { "$ref": "#/$defs/id" },
+        "right_tracklet_id": { "$ref": "#/$defs/id" },
+        "reason": { "enum": ["CO_VISIBILITY", "HUMAN_REJECTION", "ROSTER_CONSTRAINT"] }
+      }
+    }
+  }
+}

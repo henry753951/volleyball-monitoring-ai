@@ -1,0 +1,3 @@
+ALTER TABLE "ReidIdentityPreview"
+  ALTER COLUMN "mediaAssetId" DROP NOT NULL,
+  ALTER COLUMN "contentSha256" DROP NOT NULL;

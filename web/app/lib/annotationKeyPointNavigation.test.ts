@@ -30,4 +30,31 @@ describe('annotation key-point navigation', () => {
       })?.id,
     ).toBe('b')
   })
+
+  it('crosses rally boundaries using the globally ordered local point list', () => {
+    expect(
+      adjacentAnnotationKeyPoint(points, {
+        direction: 'previous',
+        selectedId: 'b',
+        referenceCaptureTimeUs: '999',
+      }),
+    ).toMatchObject({ id: 'a', rallyId: 'rally-a' })
+  })
+
+  it('stays at a global boundary instead of wrapping or seeking elsewhere', () => {
+    expect(
+      adjacentAnnotationKeyPoint(points, {
+        direction: 'previous',
+        selectedId: 'a',
+        referenceCaptureTimeUs: '999',
+      }),
+    ).toBeNull()
+    expect(
+      adjacentAnnotationKeyPoint(points, {
+        direction: 'next',
+        selectedId: 'c',
+        referenceCaptureTimeUs: '0',
+      }),
+    ).toBeNull()
+  })
 })

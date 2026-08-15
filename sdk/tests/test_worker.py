@@ -79,7 +79,7 @@ async def test_worker_accepts_job_and_obeys_abort(tmp_path: Path) -> None:
         hello = json.loads(await websocket.recv())
         observed.append(hello)
         assert hello["type"] == "provider_hello"
-        assert hello["sdk_version"] == "0.4.0"
+        assert hello["sdk_version"] == "0.5.0"
         await websocket.send(
             json.dumps(
                 {

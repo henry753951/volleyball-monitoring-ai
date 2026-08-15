@@ -2,17 +2,27 @@ import type { PrismaClient } from '@volleyball-monitoring/db'
 import type { PollingLifecycle } from './workflow/poller.js'
 import { createAnalysisIngestWorker } from './roles/analysis-ingest.js'
 import { createClipWorker } from './roles/clip-worker.js'
+import { createContactAssociationWorker } from './roles/contact-association-worker.js'
+import { createIdentityPreviewWorker } from './roles/identity-preview-worker.js'
 import {
   createOutboxPublisherWorker,
   createPgBossOutboxPublisher,
 } from './roles/outbox-publisher.js'
 import { createPlaybackPackagerWorker } from './roles/playback-packager.js'
+import { createProviderAnalysisMaterializerWorker } from './roles/provider-analysis-materializer.js'
+import { createReidAssociationWorker } from './roles/reid-association-worker.js'
+import { createReidFeatureWorker } from './roles/reid-feature-worker.js'
 import type { WorkerComponentHealth } from './runtime-health.js'
 
 export const workflowModuleNames = [
   'clip',
   'playback-cleanup',
   'analysis-convergence',
+  'provider-analysis-materializer',
+  'contact-association',
+  'reid-feature',
+  'reid-association',
+  'identity-preview',
   'outbox',
 ] as const
 
@@ -195,6 +205,41 @@ export function createWorkflowComposition(
         lifecycle: createAnalysisIngestWorker(database, {
           ...sharedOptions,
           onError: report('analysis-convergence'),
+        }),
+      },
+      {
+        name: 'provider-analysis-materializer',
+        lifecycle: createProviderAnalysisMaterializerWorker(database, {
+          ...sharedOptions,
+          onError: report('provider-analysis-materializer'),
+        }),
+      },
+      {
+        name: 'contact-association',
+        lifecycle: createContactAssociationWorker(database, {
+          ...sharedOptions,
+          onError: report('contact-association'),
+        }),
+      },
+      {
+        name: 'reid-feature',
+        lifecycle: createReidFeatureWorker(database, {
+          ...sharedOptions,
+          onError: report('reid-feature'),
+        }),
+      },
+      {
+        name: 'reid-association',
+        lifecycle: createReidAssociationWorker(database, {
+          ...sharedOptions,
+          onError: report('reid-association'),
+        }),
+      },
+      {
+        name: 'identity-preview',
+        lifecycle: createIdentityPreviewWorker(database, {
+          ...sharedOptions,
+          onError: report('identity-preview'),
         }),
       },
       {

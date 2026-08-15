@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/OWNER/volleyball-monitoring-ai/packages/contracts/ai/identity-preview-job/1.1.0",
+  "title": "Identity Preview Generation Job 1.1.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "provider_job_id",
+    "preview_id",
+    "analysis_run_id",
+    "tracklet_id",
+    "canonical_track_id",
+    "crop_source_manifest_artifact_id",
+    "pose_manifest_artifact_id",
+    "selected_frame_indices",
+    "recipe"
+  ],
+  "properties": {
+    "schema_version": { "const": "1.1.0" },
+    "provider_job_id": { "$ref": "#/$defs/id" },
+    "preview_id": { "$ref": "#/$defs/id" },
+    "analysis_run_id": { "$ref": "#/$defs/id" },
+    "tracklet_id": { "$ref": "#/$defs/id" },
+    "canonical_track_id": { "type": "integer", "minimum": 0 },
+    "crop_source_manifest_artifact_id": { "$ref": "#/$defs/id" },
+    "pose_manifest_artifact_id": { "$ref": "#/$defs/id" },
+    "selected_frame_indices": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 96,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/uint64" }
+    },
+    "recipe": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "namespace",
+        "output_format",
+        "target_width",
+        "crop_padding_ratio",
+        "frame_duration_ms"
+      ],
+      "properties": {
+        "namespace": { "$ref": "#/$defs/id" },
+        "output_format": { "enum": ["ANIMATED_WEBP", "MP4"] },
+        "target_width": { "type": "integer", "minimum": 96, "maximum": 1024 },
+        "crop_padding_ratio": { "type": "number", "minimum": 0, "maximum": 1 },
+        "frame_duration_ms": { "type": "integer", "minimum": 40, "maximum": 2000 }
+      }
+    }
+  },
+  "$defs": {
+    "id": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "uint64": { "type": "string", "pattern": "^(0|[1-9][0-9]*)$" }
+  }
+}

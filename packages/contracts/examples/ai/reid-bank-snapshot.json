@@ -1,0 +1,50 @@
+{
+  "schema_version": "1.1.0",
+  "bank_snapshot_id": "bank-snapshot-001",
+  "match_id": "match-001",
+  "team_id": "team-left-001",
+  "revision": "7",
+  "as_of_position": { "set_number": 1, "rally_ordinal": 4 },
+  "clusters": [
+    {
+      "person_cluster_id": "person-cluster-001",
+      "roster_entry_id": "roster-entry-011"
+    }
+  ],
+  "evidence_artifacts": [
+    {
+      "artifact_id": "descriptor-bundle-history-001",
+      "sha256": "7777777777777777777777777777777777777777777777777777777777777777",
+      "byte_length": "24000"
+    }
+  ],
+  "vectors": [
+    {
+      "vector_id": "history-vector-dino-001",
+      "artifact_id": "descriptor-bundle-history-001",
+      "modality": "DINO",
+      "model_namespace": "dinov2/vits14-reg/v1",
+      "dimension": 384,
+      "normalization": "L2",
+      "distance": "COSINE",
+      "byte_offset": "0",
+      "byte_length": "1536",
+      "sha256": "6666666666666666666666666666666666666666666666666666666666666666"
+    }
+  ],
+  "memberships": [
+    {
+      "membership_id": "membership-001",
+      "person_cluster_id": "person-cluster-001",
+      "tracklet_id": "history-tracklet-001",
+      "vector_ids": ["history-vector-dino-001"],
+      "evidence_state": "CONFIRMED",
+      "evidence_role": "POSITIVE",
+      "weight": 1,
+      "source_revision": "6",
+      "roster_entry_id": "roster-entry-011"
+    }
+  ],
+  "cannot_links": [],
+  "content_sha256": "8888888888888888888888888888888888888888888888888888888888888888"
+}

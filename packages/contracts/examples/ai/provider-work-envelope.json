@@ -1,0 +1,30 @@
+{
+  "schema_version": "1.0.0",
+  "provider_job_id": "provider-job-feature-001",
+  "work_kind": "REID_FEATURE_EXTRACTION",
+  "request_schema_version": "1.0.0",
+  "request_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "idempotency_key": "feature:evidence-set-001:recipe-v1",
+  "input_artifacts": [
+    {
+      "artifact_id": "analysis-evidence-001",
+      "kind": "ANALYSIS_EVIDENCE_MANIFEST",
+      "schema_version": "1.0.0",
+      "download_url": "https://media.example/signed/analysis-evidence-001.json",
+      "download_url_expires_at": "2026-08-15T12:00:00Z",
+      "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "byte_length": "4096",
+      "content_type": "application/json"
+    }
+  ],
+  "request": {
+    "schema_version": "1.0.0",
+    "provider_job_id": "provider-job-feature-001"
+  },
+  "callback": {
+    "url": "https://central.example/api/v1/provider-jobs/provider-job-feature-001/callback",
+    "token": "job-scoped-callback-token-001",
+    "expires_at": "2026-08-15T12:00:00Z",
+    "accepted_result_kinds": ["REID_FEATURE_RESULT", "REID_DESCRIPTOR_BUNDLE"]
+  }
+}

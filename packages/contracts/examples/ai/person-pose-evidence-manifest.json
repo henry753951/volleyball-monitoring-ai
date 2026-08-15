@@ -1,0 +1,36 @@
+{
+  "schema_version": "1.0.0",
+  "analysis_run_id": "analysis-run-001",
+  "clip_asset_id": "clip-asset-001",
+  "canonical_frame_count": "120",
+  "player_observation_count": "1080",
+  "pose_observation_count": "1068",
+  "missing_observation_count": "12",
+  "pose_recipe": {
+    "namespace": "pose/yolo-coco17/every-frame-v1",
+    "model_name": "yolo-person-pose",
+    "checkpoint_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+    "preprocess_version": "letterbox-v1",
+    "keypoint_layout": "COCO_17",
+    "coordinate_space": "NORMALIZED_VIDEO"
+  },
+  "chunks": [
+    {
+      "index": 0,
+      "start_frame_index": "0",
+      "end_frame_index": "119",
+      "player_observation_count": "1080",
+      "pose_observation_count": "1068",
+      "missing_observation_count": "12",
+      "artifact": {
+        "artifact_id": "pose-chunk-001",
+        "kind": "PERSON_POSE_EVIDENCE_CHUNK",
+        "schema_version": "1.0.0",
+        "sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "byte_length": "320000",
+        "content_type": "application/vnd.volleyball.person-pose-evidence+flatbuffers;version=1"
+      }
+    }
+  ],
+  "content_sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+}

@@ -8,7 +8,7 @@ import { applyAnalysisReviewPatch, readAnalysisReview } from '../src/services/an
 const analysisRunId = '85000000-0000-4000-8000-000000000002'
 const identity = { userId: '85000000-0000-4000-8000-000000000003', role: UserRole.OPERATOR }
 const patch: AnalysisReviewPatch = {
-  schema_version: '1.3.0',
+  schema_version: '1.4.0',
   client_patch_id: '85000000-0000-4000-8000-000000000001',
   base_revision: '2',
   operations: [
@@ -70,6 +70,7 @@ describe('analysis review corrections', () => {
         upsert: vi.fn().mockResolvedValue({}),
         deleteMany: vi.fn().mockResolvedValue({ count: 0 }),
       },
+      analysisContactAssociationJob: { createMany: vi.fn().mockResolvedValue({ count: 1 }) },
       analysisReviewPatchReceipt: {
         create: vi.fn().mockResolvedValue({}),
         findUnique: vi.fn().mockResolvedValue(null),
@@ -88,7 +89,7 @@ describe('analysis review corrections', () => {
     await expect(
       applyAnalysisReviewPatch(database, { analysisRunId, identity, patch }),
     ).resolves.toEqual({
-      schema_version: '1.3.0',
+      schema_version: '1.4.0',
       analysis_run_id: analysisRunId,
       revision: '3',
       duplicate: false,
@@ -99,6 +100,18 @@ describe('analysis review corrections', () => {
     expect(tx.analysisPlayerBBoxCorrection.upsert).toHaveBeenCalledOnce()
     expect(tx.analysisContactActorCorrection.upsert).toHaveBeenCalledOnce()
     expect(tx.analysisContactTimeCorrection.upsert).toHaveBeenCalledOnce()
+    expect(tx.analysisContactAssociationJob.createMany).toHaveBeenCalledWith({
+      data: [
+        {
+          analysisRunId,
+          keyPointId: '85000000-0000-4000-8000-000000000004',
+          reviewRevision: 3n,
+          frameIndex: 13n,
+          algorithmNamespace: 'contact-association/coco17-pose-first-v1',
+        },
+      ],
+      skipDuplicates: true,
+    })
     expect(tx.analysisReviewPatchReceipt.create).toHaveBeenCalledWith({
       data: { id: patch.client_patch_id, analysisRunId, revision: 3n },
     })
@@ -221,6 +234,26 @@ describe('analysis review corrections', () => {
             { keyPointId: '85000000-0000-4000-8000-000000000004', trackId: null, revision: 3n },
           ]),
       },
+      analysisContactAssociationJob: {
+        findMany: vi.fn().mockResolvedValue([
+          {
+            keyPointId: '85000000-0000-4000-8000-000000000004',
+            frameIndex: 13n,
+            reviewRevision: 3n,
+            algorithmNamespace: 'contact-association/coco17-pose-first-v1',
+            status: 'COMPLETED',
+            errorCode: null,
+            projection: {
+              trackId: 5,
+              observationFrameIndex: 13n,
+              source: 'POSE_HAND',
+              confidence: 0.9,
+              poseRecipeNamespace: 'person-pose/coco17-v1',
+              fallbackReason: null,
+            },
+          },
+        ]),
+      },
       analysisContactTimeCorrection: {
         findMany: vi
           .fn()
@@ -234,7 +267,22 @@ describe('analysis review corrections', () => {
       readAnalysisReview(database, { analysisRunId, afterRevision: 2n, identity }),
     ).resolves.toEqual(
       expect.objectContaining({
-        schema_version: '1.3.0',
+        schema_version: '1.4.0',
+        contact_actor_projections: [
+          {
+            key_point_id: '85000000-0000-4000-8000-000000000004',
+            frame_index: '13',
+            status: 'ready',
+            track_id: 5,
+            observation_frame_index: '13',
+            source: 'pose_hand',
+            confidence: 0.9,
+            algorithm_namespace: 'contact-association/coco17-pose-first-v1',
+            pose_recipe_namespace: 'person-pose/coco17-v1',
+            fallback_reason: null,
+            revision: '3',
+          },
+        ],
         ball_corrections: [{ frame_index: '12', state: 'missing', frame_pos: null, revision: '3' }],
         contact_actor_corrections: [
           { key_point_id: '85000000-0000-4000-8000-000000000004', track_id: null, revision: '3' },

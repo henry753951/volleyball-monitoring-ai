@@ -1,4 +1,4 @@
-export const ANALYSIS_REVIEW_SCHEMA_VERSION = '1.3.0' as const
+export const ANALYSIS_REVIEW_SCHEMA_VERSION = '1.4.0' as const
 
 export type AnalysisReviewStatus = 'editing' | 'ready' | 'approved'
 
@@ -56,6 +56,27 @@ export interface AnalysisContactTimeCorrection {
   revision: string
 }
 
+export type AnalysisContactActorProjectionStatus = 'pending' | 'running' | 'ready' | 'failed'
+export type AnalysisContactActorProjectionSource =
+  | 'pose_hand'
+  | 'bbox_action'
+  | 'bbox_spatial'
+  | 'unresolved'
+
+export interface AnalysisContactActorProjection {
+  key_point_id: string
+  frame_index: string
+  status: AnalysisContactActorProjectionStatus
+  track_id: number | null
+  observation_frame_index: string | null
+  source: AnalysisContactActorProjectionSource | null
+  confidence: number | null
+  algorithm_namespace: string
+  pose_recipe_namespace: string | null
+  fallback_reason: string | null
+  revision: string
+}
+
 export interface AnalysisContactEdit {
   contact_id: string
   base_key_point_id: string | null
@@ -76,6 +97,7 @@ export interface AnalysisReviewState {
   action_corrections: AnalysisActionCorrection[]
   player_bbox_corrections: AnalysisPlayerBBoxCorrection[]
   contact_actor_corrections: AnalysisContactActorCorrection[]
+  contact_actor_projections: AnalysisContactActorProjection[]
   contact_time_corrections: AnalysisContactTimeCorrection[]
   contact_edits: AnalysisContactEdit[]
 }

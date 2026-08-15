@@ -14,6 +14,10 @@ import {
   parseAnnotationSoftLockIntent,
   parseMediaApiError,
   parsePlaybackCursor,
+  parseProviderWorkCapabilities,
+  parseProviderWorkClientMessage,
+  parseProviderWorkEnvelope,
+  parseProviderWorkServerMessage,
   parseResolvedMediaAnchor,
 } from '../src/index'
 
@@ -130,6 +134,23 @@ describe('golden contract fixtures', () => {
       'examples/ai/provider-hello.json': 'ai/provider-realtime.schema.json',
       'examples/ai/job-offer.json': 'ai/provider-realtime.schema.json',
       'examples/ai/abort-job.json': 'ai/provider-realtime.schema.json',
+      'examples/ai/provider-capabilities-v3.json': 'ai/provider-capabilities-v3.schema.json',
+      'examples/ai/provider-work-envelope.json': 'ai/provider-work-envelope.schema.json',
+      'examples/ai/provider-work-hello.json': 'ai/provider-work-realtime.schema.json',
+      'examples/ai/provider-work-job-offer.json': 'ai/provider-work-realtime.schema.json',
+      'examples/ai/provider-work-callback-completed.json': 'ai/provider-work-callback.schema.json',
+      'examples/ai/person-pose-evidence-manifest.json':
+        'ai/person-pose-evidence-manifest.schema.json',
+      'examples/ai/analysis-evidence-manifest.json': 'ai/analysis-evidence-manifest.schema.json',
+      'examples/ai/reid-roster-snapshot.json': 'ai/reid-roster-snapshot.schema.json',
+      'examples/ai/reid-feature-job.json': 'ai/reid-feature-job.schema.json',
+      'examples/ai/reid-feature-result.json': 'ai/reid-feature-result.schema.json',
+      'examples/ai/reid-jersey-vlm-response.json': 'ai/reid-jersey-vlm-response.schema.json',
+      'examples/ai/reid-bank-snapshot.json': 'ai/reid-bank-snapshot.schema.json',
+      'examples/ai/reid-association-job.json': 'ai/reid-association-job.schema.json',
+      'examples/ai/reid-association-result.json': 'ai/reid-association-result.schema.json',
+      'examples/ai/identity-preview-job.json': 'ai/identity-preview-job.schema.json',
+      'examples/ai/identity-preview-result.json': 'ai/identity-preview-result.schema.json',
       'examples/ai/boundary-job.json': 'ai/job.schema.json',
       'examples/ai/fixed-roster-reid-v2.json': 'ai/fixed-roster-reid-v2.schema.json',
       'examples/analysis/review-patch.json': 'analysis/review-patch.schema.json',
@@ -199,6 +220,33 @@ describe('golden contract fixtures', () => {
         job: { schema_version: '1.0.0' },
       }),
     ).toThrow()
+  })
+
+  it('strictly parses capability-gated provider work without weakening legacy messages', () => {
+    const capabilities = load('examples/ai/provider-capabilities-v3.json')
+    const envelope = load('examples/ai/provider-work-envelope.json')
+    const hello = load('examples/ai/provider-work-hello.json')
+    const offer = load('examples/ai/provider-work-job-offer.json')
+    expect(parseProviderWorkCapabilities(capabilities).schema_version).toBe('3.0.0')
+    expect(parseProviderWorkEnvelope(envelope).work_kind).toBe('REID_FEATURE_EXTRACTION')
+    expect(parseProviderWorkClientMessage(hello).type).toBe('provider_hello')
+    expect(parseProviderWorkServerMessage(offer).type).toBe('job_offer')
+    expect(() =>
+      parseProviderWorkCapabilities({
+        ...capabilities,
+        work_capabilities: [...capabilities.work_capabilities, capabilities.work_capabilities[0]],
+      }),
+    ).toThrow()
+    expect(() =>
+      parseProviderWorkServerMessage({
+        ...offer,
+        work: { ...offer.work, provider_job_id: 'different-job' },
+      }),
+    ).toThrow()
+    expect(() => parseProviderWorkEnvelope({ ...envelope, callback_token: 'leak' })).toThrow()
+    expect(parseAIProviderClientMessage(load('examples/ai/provider-hello.json')).type).toBe(
+      'provider_hello',
+    )
   })
 
   it('accepts only the atomic v2 CLOSE_RALLY outcomes', () => {

@@ -1,0 +1,18 @@
+{
+  "schema_version": "1.1.0",
+  "provider_job_id": "provider-job-preview-001",
+  "preview_id": "preview-001",
+  "analysis_run_id": "analysis-run-001",
+  "tracklet_id": "tracklet-001",
+  "canonical_track_id": 17,
+  "crop_source_manifest_artifact_id": "crop-source-manifest-001",
+  "pose_manifest_artifact_id": "pose-manifest-001",
+  "selected_frame_indices": ["120", "132", "144", "156"],
+  "recipe": {
+    "namespace": "identity-preview/animated-webp/v1",
+    "output_format": "ANIMATED_WEBP",
+    "target_width": 256,
+    "crop_padding_ratio": 0.15,
+    "frame_duration_ms": 160
+  }
+}

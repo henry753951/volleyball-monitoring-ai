@@ -5,23 +5,41 @@ import pytest
 from volleyball_monitoring_ai import (
     AIJobRequest,
     AnalysisDomainData,
+    AnalysisEvidenceManifest,
     CanonicalFrameAnchor,
     FixedRosterReID,
     FrameStepRequest,
+    IdentityPreviewJobRequest,
+    IdentityPreviewResult,
     MediaApiError,
+    PersonPoseEvidenceManifest,
     PlaybackCursor,
     PlaybackWindowDescriptor,
     PlaybackWindowExtendRequest,
     PlaybackWindowRequest,
+    PlayerCropSourceManifest,
+    ProviderAnalysisJobRequest,
     ProviderCapabilities,
+    ProviderWorkCapabilities,
+    ProviderWorkEnvelope,
+    ReidAssociationJobRequest,
+    ReidAssociationResult,
+    ReidBankSnapshot,
+    ReidFeatureJobRequest,
+    ReidFeatureResult,
+    ReidJerseyVlmResponseBundle,
+    ReidRosterSnapshot,
     ResolvedMediaAnchor,
     build_analysis_data,
     build_empty_analysis_data,
+    parse_provider_work_client_message,
+    parse_provider_work_server_message,
     validate_passthrough,
 )
 from volleyball_monitoring_ai.analysis_data import _domain_json
 
 FIXTURES = Path(__file__).parents[2] / "packages" / "contracts" / "fixtures"
+AI_EXAMPLES = FIXTURES.parent / "examples" / "ai"
 
 
 @pytest.mark.parametrize(
@@ -70,6 +88,103 @@ def test_contract_versions_are_explicit() -> None:
     capabilities_path = FIXTURES.parents[0] / "examples" / "ai" / "capabilities.json"
     capabilities = ProviderCapabilities.model_validate_json(capabilities_path.read_text())
     assert capabilities.supported_job_schema_versions == ["3.0.0"]
+
+
+def test_provider_work_contracts_are_capability_gated_and_reproducible() -> None:
+    capabilities = ProviderWorkCapabilities.model_validate_json(
+        (AI_EXAMPLES / "provider-capabilities-v3.json").read_text()
+    )
+    envelope = ProviderWorkEnvelope.model_validate_json(
+        (AI_EXAMPLES / "provider-work-envelope.json").read_text()
+    )
+    hello = parse_provider_work_client_message(
+        json.loads((AI_EXAMPLES / "provider-work-hello.json").read_text())
+    )
+    offer = parse_provider_work_server_message(
+        json.loads((AI_EXAMPLES / "provider-work-job-offer.json").read_text())
+    )
+    analysis_job = ProviderAnalysisJobRequest.model_validate_json(
+        (AI_EXAMPLES / "provider-analysis-job.json").read_text()
+    )
+    assert capabilities.work_capabilities[0].work_kind == "ANALYSIS"
+    assert envelope.work_kind == "REID_FEATURE_EXTRACTION"
+    assert hello.type == "provider_hello"
+    assert offer.type == "job_offer"
+    assert offer.work.provider_job_id == offer.provider_job_id
+    assert analysis_job.modules.person_pose == "run"
+    assert not hasattr(analysis_job.modules, "reid")
+
+
+def test_pose_and_reid_artifact_models_validate_golden_examples() -> None:
+    pose = PersonPoseEvidenceManifest.model_validate_json(
+        (AI_EXAMPLES / "person-pose-evidence-manifest.json").read_text()
+    )
+    analysis = AnalysisEvidenceManifest.model_validate_json(
+        (AI_EXAMPLES / "analysis-evidence-manifest.json").read_text()
+    )
+    crop_source = PlayerCropSourceManifest.model_validate_json(
+        (AI_EXAMPLES / "player-crop-source-manifest.json").read_text()
+    )
+    feature_job = ReidFeatureJobRequest.model_validate_json(
+        (AI_EXAMPLES / "reid-feature-job.json").read_text()
+    )
+    roster = ReidRosterSnapshot.model_validate_json(
+        (AI_EXAMPLES / "reid-roster-snapshot.json").read_text()
+    )
+    feature_result = ReidFeatureResult.model_validate_json(
+        (AI_EXAMPLES / "reid-feature-result.json").read_text()
+    )
+    jersey_responses = ReidJerseyVlmResponseBundle.model_validate_json(
+        (AI_EXAMPLES / "reid-jersey-vlm-response.json").read_text()
+    )
+    bank = ReidBankSnapshot.model_validate_json(
+        (AI_EXAMPLES / "reid-bank-snapshot.json").read_text()
+    )
+    association_job = ReidAssociationJobRequest.model_validate_json(
+        (AI_EXAMPLES / "reid-association-job.json").read_text()
+    )
+    association_result = ReidAssociationResult.model_validate_json(
+        (AI_EXAMPLES / "reid-association-result.json").read_text()
+    )
+    preview_job = IdentityPreviewJobRequest.model_validate_json(
+        (AI_EXAMPLES / "identity-preview-job.json").read_text()
+    )
+    preview_result = IdentityPreviewResult.model_validate_json(
+        (AI_EXAMPLES / "identity-preview-result.json").read_text()
+    )
+    assert int(pose.pose_observation_count) + int(pose.missing_observation_count) == int(
+        pose.player_observation_count
+    )
+    assert analysis.pose_manifest_artifact.kind == "PERSON_POSE_EVIDENCE_MANIFEST"
+    assert crop_source.coordinate_space == "NORMALIZED_VIDEO"
+    assert feature_job.pose_recipe_namespace == "pose/yolo-coco17/every-frame-v1"
+    assert roster.match_id == feature_job.match_id
+    assert feature_result.tracklets[0].vectors[0].dimension == 384
+    assert jersey_responses.evidence_set_id == feature_result.evidence_set_id
+    assert bank.memberships[0].evidence_state == "CONFIRMED"
+    assert association_job.recipe.allow_abstention is True
+    assert association_result.decisions[0].association_state == "NEEDS_REVIEW"
+    assert preview_job.selected_frame_indices == ["120", "132", "144", "156"]
+    assert preview_result.frame_count == len(preview_result.source_frame_indices)
+
+
+def test_identity_preview_rejects_reordered_or_mismatched_frames() -> None:
+    request = json.loads((AI_EXAMPLES / "identity-preview-job.json").read_text())
+    request["selected_frame_indices"] = ["132", "120"]
+    with pytest.raises(ValueError, match="strictly increasing"):
+        IdentityPreviewJobRequest.model_validate(request)
+
+    result = json.loads((AI_EXAMPLES / "identity-preview-result.json").read_text())
+    result["frame_count"] = 3
+    with pytest.raises(ValueError, match="frame_count"):
+        IdentityPreviewResult.model_validate(result)
+
+
+def test_pose_manifest_rejects_partial_frame_coverage() -> None:
+    payload = json.loads((AI_EXAMPLES / "person-pose-evidence-manifest.json").read_text())
+    payload["canonical_frame_count"] = "121"
+    with pytest.raises(ValueError, match="every canonical frame"):
+        PersonPoseEvidenceManifest.model_validate(payload)
 
 
 def test_fixed_roster_reid_contract_is_versioned_and_bounded() -> None:

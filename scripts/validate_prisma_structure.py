@@ -65,6 +65,8 @@ scalar_types = {
     "DateTime",
     "Json",
     "Bytes",
+    # Prisma's escape hatch for database-native types such as pgvector.
+    "Unsupported",
 }
 known = set(models) | set(enums) | scalar_types
 for model_name, types in field_types.items():

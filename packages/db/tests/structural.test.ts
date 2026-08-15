@@ -22,7 +22,7 @@ describe('playback window persistence contract', () => {
     expect(schema).toMatch(
       /model PlaybackWindowSegment \{[\s\S]*sequenceIndex\s+Int[\s\S]*playbackWindow\s+PlaybackWindow[\s\S]*dvrSegment\s+DvrSegment/,
     )
-    expect(schema).toContain('internalSchemaVersion  String?')
+    expect(schema).toMatch(/internalSchemaVersion\s+String\?/)
     expect(schema).toContain('@@unique([playbackWindowId, sequenceIndex])')
     expect(schema).toContain('@@unique([playbackWindowId, dvrSegmentId])')
     expect(schema).toContain('@@index([captureSessionId, expiresAt])')

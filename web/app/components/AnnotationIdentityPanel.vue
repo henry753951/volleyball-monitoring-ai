@@ -1,9 +1,11 @@
 <script setup lang="ts">
 import {
   CircleHelp,
+  Database,
   ListTree,
   LoaderCircle,
   RotateCcw,
+  RefreshCw,
   ShieldCheck,
   Sparkles,
   UserRoundCheck,
@@ -29,7 +31,7 @@ const props = defineProps<{
   refreshToken?: number
 }>()
 const emit = defineEmits<{ changed: [] }>()
-const displayMode = ref<'local' | 'gid'>('local')
+const displayMode = ref<'local' | 'group'>('local')
 const assignment = useIdentityAssignmentController({
   matchId: () => props.matchId,
   analysisRunId: () => props.analysisRunId,
@@ -127,30 +129,56 @@ function toggleComplete() {
           <button
             type="button"
             role="tab"
-            :aria-selected="displayMode === 'gid'"
-            :class="{ active: displayMode === 'gid' }"
-            @click="displayMode = 'gid'"
+            :aria-selected="displayMode === 'group'"
+            :class="{ active: displayMode === 'group' }"
+            @click="displayMode = 'group'"
           >
-            <UsersRound :size="13" />GID 分派<b>{{ assignment.view.model.gidGroups.length }}</b>
+            <UsersRound :size="13" />人員群組<b>{{ assignment.view.model.gidGroups.length }}</b>
           </button>
         </div>
-        <button
-          type="button"
-          class="identity-auto"
-          :disabled="assignment.view.busy || !assignment.view.model.gidGroups.length"
-          @click="assignment.actions.applyAutomaticAssignments"
-        >
-          <LoaderCircle v-if="assignment.state.autoAssigning" class="spin" :size="13" /><Sparkles
-            v-else
-            :size="13"
-          />ReID 自動分配
-        </button>
+        <div class="identity-job-actions">
+          <button
+            type="button"
+            class="identity-auto"
+            :disabled="assignment.view.busy"
+            @click="assignment.actions.applyAutomaticAssignments"
+          >
+            <LoaderCircle v-if="assignment.state.autoAssigning" class="spin" :size="13" /><Sparkles
+              v-else
+              :size="13"
+            />套用既有關聯
+          </button>
+          <button
+            type="button"
+            class="identity-auto"
+            :disabled="assignment.state.reidJobAction !== null"
+            @click="assignment.actions.requestAssociationRerun"
+          >
+            <LoaderCircle
+              v-if="assignment.state.reidJobAction === 'association'"
+              class="spin"
+              :size="13"
+            /><RefreshCw v-else :size="13" />重新配對
+          </button>
+          <button
+            type="button"
+            class="identity-auto"
+            :disabled="assignment.state.reidJobAction !== null"
+            @click="assignment.actions.requestFeatureRebuild"
+          >
+            <LoaderCircle
+              v-if="assignment.state.reidJobAction === 'feature'"
+              class="spin"
+              :size="13"
+            /><Database v-else :size="13" />重新取特徵
+          </button>
+        </div>
       </div>
       <p class="mapping-hint">
         {{
           displayMode === 'local'
             ? '每個 Local ID 都保留獨立球員指派，可逐一修正辨識錯誤。'
-            : '一個 GID 可包含多個 Local ID；在此選擇球員會批次寫回每個 Local ID。'
+            : '人員群組可包含多個片段內 TID；群組只是關聯建議，人工球員指派永遠優先。'
         }}
       </p>
       <template v-if="displayMode === 'local'">
@@ -221,15 +249,15 @@ function toggleComplete() {
               aria-label="選擇球員修正方式"
             >
               <strong>要如何套用「{{ assignment.state.dialogs.correction.playerName }}」？</strong>
-              <p>這會決定同一 GID 的 Local ID 與後續片段是否一起沿用。</p>
+              <p>這會決定同一人員群組的 TID 與後續片段是否一起沿用。</p>
               <button type="button" @click="assignment.actions.applyCorrection('from_here')">
-                <b>依 GID 從這段起改正</b><small>同一 GID 的 Local ID 與後續片段一起套用</small>
+                <b>依人員群組從這段起改正</b><small>同一群組的 TID 與後續片段一起套用</small>
               </button>
               <button type="button" @click="assignment.actions.applyCorrection('split_identity')">
                 <b>這其實是不同的人</b><small>適合替補或辨識混人；只拆開這組 Local ID</small>
               </button>
               <button type="button" @click="assignment.actions.applyCorrection('clip_only')">
-                <b>只修正這個 Local ID</b><small>不改 GID 關聯，也不影響其他 Local ID</small>
+                <b>只修正這個 Local ID</b><small>不改人員群組，也不影響其他 Local ID</small>
               </button>
               <button type="button" class="cancel" @click="assignment.actions.closeCorrection">
                 取消
@@ -240,12 +268,12 @@ function toggleComplete() {
       </template>
       <template v-else>
         <p v-if="!gidGroups.length" class="identity-empty">
-          此片段尚無可用的 GID，請改用 Local 分派。
+          此片段尚無可用的人員群組，請改用 Local 分派。
         </p>
         <section v-for="group in gidGroups" :key="group.teamId ?? 'unknown'" class="gid-section">
           <header>
             <span>{{ group.label }}</span
-            ><b>{{ group.rows.length }}/6</b>
+            ><b>{{ group.rows.length }}</b>
           </header>
           <label v-for="row in group.rows" :key="row.gidId" class="gid-row">
             <code
@@ -304,7 +332,7 @@ function toggleComplete() {
         </section>
         <p v-if="assignment.view.model.ungroupedTrackCount" class="identity-required">
           <CircleHelp :size="13" />另有 {{ assignment.view.model.ungroupedTrackCount }} 個 Local ID
-          尚無 GID，請在 Local 分派中處理。
+          尚無人員群組，請在 Local 分派中處理。
         </p>
       </template>
       <p
@@ -313,6 +341,9 @@ function toggleComplete() {
         role="status"
       >
         {{ assignment.state.automaticAssignmentResult }}
+      </p>
+      <p v-if="assignment.state.reidJobResult" class="identity-auto-result" role="status">
+        {{ assignment.state.reidJobResult }}
       </p>
       <p v-if="!assignment.view.model.identityReady" class="identity-required">
         <CircleHelp :size="13" />仍有待指派球員，確認後即可完成。
@@ -647,6 +678,16 @@ function toggleComplete() {
   background: #1b2c25 !important;
   color: #aee6c8 !important;
   font-size: 0.61rem !important;
+}
+.identity-job-actions {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 5px;
+}
+.identity-job-actions .identity-auto {
+  min-width: 0;
+  padding-inline: 5px !important;
+  white-space: nowrap;
 }
 .identity-auto:disabled {
   opacity: 0.48;

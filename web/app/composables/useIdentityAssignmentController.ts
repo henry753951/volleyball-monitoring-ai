@@ -1,4 +1,4 @@
-import { computed, reactive, toValue, watch, type MaybeRefOrGetter } from 'vue'
+import { computed, onScopeDispose, reactive, toValue, watch, type MaybeRefOrGetter } from 'vue'
 import { useIdentityAssignmentService } from '~/composables/useIdentityAssignmentService'
 import { useIdentityReplacementWarning } from '~/composables/useIdentityReplacementWarning'
 import type { CoachMatchAnalytics } from '~/lib/coachDomain'
@@ -28,6 +28,8 @@ interface IdentityAssignmentState {
   savingTrackId: number | null
   error: string | null
   automaticAssignmentResult: string | null
+  reidJobAction: 'feature' | 'association' | null
+  reidJobResult: string | null
   dialogs: {
     replacement: IdentityReplacementRequest | null
     correction: IdentityCorrectionRequest | null
@@ -44,10 +46,14 @@ export function useIdentityAssignmentController(options: IdentityAssignmentContr
     savingTrackId: null,
     error: null,
     automaticAssignmentResult: null,
+    reidJobAction: null,
+    reidJobResult: null,
     dialogs: { replacement: null, correction: null },
   })
   const preferences = reactive({ replacementWarningEnabled: replacementWarning.enabled })
   let refreshGeneration = 0
+  let jobPollGeneration = 0
+  let jobPollTimer: ReturnType<typeof setTimeout> | null = null
 
   const model = computed(() =>
     createIdentityAssignmentModel({
@@ -63,6 +69,8 @@ export function useIdentityAssignmentController(options: IdentityAssignmentContr
 
   function assignmentErrorMessage(cause: unknown) {
     const code = cause && typeof cause === 'object' && 'code' in cause ? String(cause.code) : null
+    if (code === 'REID_EVIDENCE_PENDING')
+      return '新版 ReID evidence 尚在背景建立；目前仍會先保存此片段的球員指派'
     if (code === 'REID_OBSERVATION_NOT_FOUND')
       return '這個 Local ID 沒有 ReID 資料；請使用「只修正這個 Local ID」，或先重新執行 ReID'
     if (code === 'REID_IDENTITY_REQUIRED')
@@ -70,9 +78,8 @@ export function useIdentityAssignmentController(options: IdentityAssignmentContr
     if (code === 'REID_TEAM_MISMATCH')
       return 'ReID 槽位與所選球員隊伍不一致；請只修正目前片段或重新執行 ReID'
     const message = cause instanceof Error ? cause.message : ''
-    if (/run fixed-roster reid|no fixed-roster reid observation/i.test(message)) {
-      return '這個 Local ID 尚無可沿用的 ReID 資料；請只修正目前片段或先重新執行 ReID'
-    }
+    if (message.toLowerCase().includes('run fixed-roster reid'))
+      return '尚無可沿用的 ReID 資料；已保留這個片段的人工指派'
     return message || '儲存失敗'
   }
 
@@ -225,9 +232,90 @@ export function useIdentityAssignmentController(options: IdentityAssignmentContr
       if (options.refreshAfterCommit) await refresh()
       options.onChanged?.()
     } catch (cause) {
-      state.error = cause instanceof Error ? cause.message : 'ReID 自動分配失敗'
+      state.error = cause instanceof Error ? cause.message : '套用既有關聯失敗'
     } finally {
       state.autoAssigning = false
+    }
+  }
+
+  function stopJobPolling() {
+    jobPollGeneration += 1
+    if (jobPollTimer) clearTimeout(jobPollTimer)
+    jobPollTimer = null
+  }
+
+  async function pollReidJob(
+    kind: 'feature' | 'association',
+    requestId: string,
+    generation: number,
+  ) {
+    try {
+      const request =
+        kind === 'feature'
+          ? await service.reidFeatureRebuildRequest(requestId)
+          : await service.reidAssociationRerunRequest(requestId)
+      if (generation !== jobPollGeneration || !request) return
+      if (request.status === 'COMPLETED') {
+        state.reidJobAction = null
+        state.reidJobResult =
+          kind === 'feature'
+            ? '特徵 generation 已完成並安全切換；Pose 沒有重跑。'
+            : '重新配對已完成；人工指派仍保持優先。'
+        if (options.refreshAfterCommit) await refresh()
+        options.onChanged?.()
+        return
+      }
+      if (['FAILED', 'CANCELLED'].includes(request.status)) {
+        state.reidJobAction = null
+        state.error =
+          request.error_message || (kind === 'feature' ? '重新取特徵失敗' : '重新配對失敗')
+        return
+      }
+      state.reidJobResult =
+        request.status === 'RUNNING'
+          ? kind === 'feature'
+            ? '正在重新取特徵；可繼續進行人工指派。'
+            : '正在以既有 evidence 重新配對；可繼續進行人工指派。'
+          : '工作已排入佇列；可繼續進行人工指派。'
+      jobPollTimer = setTimeout(() => void pollReidJob(kind, requestId, generation), 2_000)
+    } catch {
+      if (generation !== jobPollGeneration) return
+      state.reidJobResult = '暫時無法取得背景工作狀態，系統會自動重試。'
+      jobPollTimer = setTimeout(() => void pollReidJob(kind, requestId, generation), 4_000)
+    }
+  }
+
+  async function requestReidJob(kind: 'feature' | 'association') {
+    const analysisRunId = toValue(options.analysisRunId)
+    if (!analysisRunId || state.reidJobAction) return
+    stopJobPolling()
+    state.reidJobAction = kind
+    state.reidJobResult = '正在建立背景工作…'
+    state.error = null
+    const requestId = crypto.randomUUID()
+    try {
+      if (kind === 'feature')
+        await service.requestReidFeatureRebuild({
+          requestId,
+          analysisRunId,
+          reason: 'operator requested feature rebuild from annotation identity panel',
+        })
+      else
+        await service.requestReidAssociationRerun({
+          requestId,
+          analysisRunId,
+          reason: 'operator requested association rerun from annotation identity panel',
+        })
+      const generation = jobPollGeneration
+      await pollReidJob(kind, requestId, generation)
+    } catch (cause) {
+      state.reidJobAction = null
+      state.error =
+        cause instanceof Error
+          ? cause.message
+          : kind === 'feature'
+            ? '重新取特徵失敗'
+            : '重新配對失敗'
     }
   }
 
@@ -241,6 +329,15 @@ export function useIdentityAssignmentController(options: IdentityAssignmentContr
     () => void refresh(),
     { immediate: true },
   )
+  watch(
+    () => toValue(options.analysisRunId),
+    () => {
+      stopJobPolling()
+      state.reidJobAction = null
+      state.reidJobResult = null
+    },
+  )
+  onScopeDispose(stopJobPolling)
 
   return {
     state,
@@ -253,6 +350,8 @@ export function useIdentityAssignmentController(options: IdentityAssignmentContr
       confirmReplacement,
       applyCorrection,
       applyAutomaticAssignments,
+      requestFeatureRebuild: () => requestReidJob('feature'),
+      requestAssociationRerun: () => requestReidJob('association'),
       setMappingCompleted,
       closeReplacement: () => {
         state.dialogs.replacement = null

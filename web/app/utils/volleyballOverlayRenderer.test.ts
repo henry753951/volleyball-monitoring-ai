@@ -135,8 +135,8 @@ describe('volleyball overlay geometry', () => {
   })
 
   it('renders the canonical TID and GID before the assigned player name', () => {
-    expect(overlayTrackIdentityLabel(7, 'L1', '#11 TEST')).toBe('T007  L1  #11 TEST')
-    expect(overlayTrackIdentityLabel(7, null, null)).toBe('T007  G---')
+    expect(overlayTrackIdentityLabel(7, 'L1', '#11 TEST')).toBe('T007  舊關聯 L1  #11 TEST')
+    expect(overlayTrackIdentityLabel(7, null, null)).toBe('T007  群組未定')
   })
 
   it('uses the last tracked ball when the contact frame is explicitly missing', () => {
@@ -193,6 +193,25 @@ describe('volleyball overlay geometry', () => {
         event,
       ),
     ).toBeNull()
+  })
+
+  it('uses the durable actor projection before client bbox fallback while preserving manual priority', () => {
+    const projected = {
+      ballCorrections: {},
+      chunk: null,
+      contactActorCorrections: {},
+      contactActorProjections: { [event.key_point_id]: 2 },
+      playerBBoxCorrections: {},
+      videoWidth: 1_000,
+      videoHeight: 500,
+    }
+    expect(resolveEffectiveContactActor(projected, event)).toBe(2)
+    expect(
+      resolveEffectiveContactActor(
+        { ...projected, contactActorCorrections: { [event.key_point_id]: 1 } },
+        event,
+      ),
+    ).toBe(1)
   })
 
   it('uses the sparse contact-time correction as the effective overlay frame', () => {

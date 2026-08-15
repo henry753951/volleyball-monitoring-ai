@@ -1,0 +1,17 @@
+{
+  "schema_version": "1.0.0",
+  "provider_job_id": "provider-job-feature-001",
+  "evidence_set_id": "evidence-set-001",
+  "analysis_run_id": "analysis-run-001",
+  "match_id": "match-001",
+  "analysis_evidence_artifact_id": "analysis-evidence-001",
+  "roster_snapshot_artifact_id": "roster-snapshot-001",
+  "pose_recipe_namespace": "pose/yolo-coco17/every-frame-v1",
+  "frame_selection_recipe_version": "reid-frame-selection-v1",
+  "requested_recipes": [
+    { "modality": "DINO", "model_namespace": "dinov2/vits14-reg/v1" },
+    { "modality": "OSNET", "model_namespace": "sports-osnet/x1/v1" },
+    { "modality": "KPR_PROMPT", "model_namespace": "kpr/coco17-prompt/v1" },
+    { "modality": "JERSEY_VLM", "model_namespace": "jersey-vlm/qwen-v1" }
+  ]
+}

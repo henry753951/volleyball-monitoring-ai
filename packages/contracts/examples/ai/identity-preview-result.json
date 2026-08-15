@@ -1,0 +1,22 @@
+{
+  "schema_version": "1.0.0",
+  "provider_job_id": "provider-job-preview-001",
+  "preview_id": "preview-001",
+  "tracklet_id": "tracklet-001",
+  "recipe_namespace": "identity-preview/animated-webp/v1",
+  "media_artifact": {
+    "artifact_id": "identity-preview-media-001",
+    "kind": "IDENTITY_PREVIEW",
+    "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "byte_length": "1048576",
+    "content_type": "image/webp"
+  },
+  "source_frame_indices": ["120", "132", "144", "156"],
+  "start_frame_index": "120",
+  "end_frame_index": "156",
+  "width": 256,
+  "height": 384,
+  "frame_count": 4,
+  "duration_ms": 640,
+  "content_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+}

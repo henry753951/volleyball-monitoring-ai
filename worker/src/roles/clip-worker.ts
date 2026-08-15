@@ -3,7 +3,13 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { PrismaClient } from '@volleyball-monitoring/db'
-import { JobStatus, MediaAssetKind, ProcessingStatus } from '@volleyball-monitoring/db/client'
+import {
+  JobStatus,
+  MediaAssetKind,
+  ProcessingStatus,
+  ProviderArtifactDirection,
+  ProviderWorkKind,
+} from '@volleyball-monitoring/db/client'
 import { parseSampleIndexDocument } from '@volleyball-monitoring/media/sample-index'
 import {
   buildCanonicalClipFfmpegArgs,
@@ -25,6 +31,7 @@ import { createPollingLifecycle } from '../workflow/poller.js'
 const runner = createNodeProbeRunner()
 const leaseMs = 5 * 60_000
 const AI_JOB_SCHEMA_VERSION = '3.0.0'
+const providerWorkV2Enabled = process.env.PROVIDER_WORK_V2_ENABLED !== 'false'
 
 async function runCommand(executable: string, args: string[], signal: AbortSignal) {
   const result = await runner(executable, args, {
@@ -495,6 +502,32 @@ export function createClipWorker(
             preserve_manual_corrections: true,
           },
         }
+        const providerJobId = randomUUID()
+        const providerPayload = {
+          schema_version: '1.0.0',
+          provider_job_id: providerJobId,
+          ai_job_id: aiJobId,
+          rally_submission_id: job.submissionId,
+          rally_id: job.submission.rallyId,
+          match_id: job.submission.rally.matchId,
+          annotation_revision: job.submission.annotationRevision.toString(),
+          clip: {
+            clip_asset_id: clipAsset.id,
+            video: manifest.video,
+          },
+          boundaries: aiBoundaries,
+          key_points: aiKeyPoints,
+          outcome: {
+            score_resolution: job.submission.scoreResolutionState.toLowerCase(),
+            scoring_court_side: job.submission.scoringCourtSide?.toLowerCase() ?? null,
+          },
+          modules: {
+            court: 'run',
+            tracking: 'run',
+            contacts: 'run',
+            person_pose: 'run',
+          },
+        }
         await tx.aiJob.create({
           data: {
             id: aiJobId,
@@ -506,8 +539,37 @@ export function createClipWorker(
             jobSchemaVersion,
             callbackTokenHash: sha256Hex(token),
             callbackTokenExpiresAt: expiresAt,
+            ...(providerWorkV2Enabled ? { status: JobStatus.SUPERSEDED } : {}),
           },
         })
+        if (providerWorkV2Enabled) {
+          await tx.providerJob.create({
+            data: {
+              id: providerJobId,
+              workKind: ProviderWorkKind.ANALYSIS,
+              idempotencyKey: `provider-analysis:${job.submissionId}:${job.id}`,
+              requestSchemaVersion: '1.0.0',
+              resultSchemaVersion: '1.0.0',
+              requestPayload: providerPayload,
+              requestPayloadHash: sha256Hex(stableJson(providerPayload)),
+              callbackTokenHash: sha256Hex(token),
+              callbackTokenExpiresAt: expiresAt,
+              artifacts: {
+                create: {
+                  mediaAssetId: clipAsset.id,
+                  direction: ProviderArtifactDirection.INPUT,
+                  artifactKind: 'CANONICAL_CLIP',
+                  ordinal: 0,
+                  required: true,
+                  schemaVersion: '1.0.0',
+                  sha256: clipUpload.sha256,
+                  byteLength: clipUpload.byteLength,
+                  contentType: 'video/mp4',
+                },
+              },
+            },
+          })
+        }
         await tx.rally.update({
           where: { id: job.submission.rallyId },
           data: { processingStatus: ProcessingStatus.AI_QUEUED },

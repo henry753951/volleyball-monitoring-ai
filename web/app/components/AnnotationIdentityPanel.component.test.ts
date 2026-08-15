@@ -10,6 +10,10 @@ const coachClient = vi.hoisted(() => ({
   assignTrackIdentity: vi.fn(),
   clearTrackIdentity: vi.fn(),
   applyReidAutomaticAssignments: vi.fn(),
+  requestReidFeatureRebuild: vi.fn(),
+  reidFeatureRebuildRequest: vi.fn(),
+  requestReidAssociationRerun: vi.fn(),
+  reidAssociationRerunRequest: vi.fn(),
   setTrackIdentityMappingComplete: vi.fn(),
 }))
 
@@ -160,16 +164,47 @@ beforeEach(() => {
       unresolved_count: 0,
     },
   })
+  coachClient.requestReidFeatureRebuild.mockResolvedValue({ status: 'QUEUED' })
+  coachClient.reidFeatureRebuildRequest.mockResolvedValue({ status: 'COMPLETED' })
+  coachClient.requestReidAssociationRerun.mockResolvedValue({ status: 'QUEUED' })
+  coachClient.reidAssociationRerunRequest.mockResolvedValue({ status: 'COMPLETED' })
 })
 
 describe('AnnotationIdentityPanel ReID assignments', () => {
+  it('keeps feature rebuild, association rerun, and existing-projection apply as separate actions', async () => {
+    const wrapper = mountPanel()
+    await flushPromises()
+
+    await wrapper
+      .findAll('button')
+      .find(button => button.text().includes('重新配對'))!
+      .trigger('click')
+    await flushPromises()
+    expect(coachClient.requestReidAssociationRerun).toHaveBeenCalledWith(
+      expect.objectContaining({ analysisRunId: 'analysis-1' }),
+    )
+    expect(wrapper.text()).toContain('重新配對已完成')
+
+    await wrapper
+      .findAll('button')
+      .find(button => button.text().includes('重新取特徵'))!
+      .trigger('click')
+    await flushPromises()
+    expect(coachClient.requestReidFeatureRebuild).toHaveBeenCalledWith(
+      expect.objectContaining({ analysisRunId: 'analysis-1' }),
+    )
+    expect(wrapper.text()).toContain('Pose 沒有重跑')
+    expect(wrapper.text()).toContain('套用既有關聯')
+    wrapper.unmount()
+  })
+
   it('shows GID confidence and the complete team roster, including bench players', async () => {
     const wrapper = mountPanel()
     await flushPromises()
 
     expect(wrapper.text()).toContain('沿用先前確認')
     expect(wrapper.text()).toContain('T001')
-    expect(wrapper.text()).toContain('L1')
+    expect(wrapper.text()).toContain('舊關聯 L1')
     expect(wrapper.text()).toContain('91%')
 
     const unassigned = wrapper.findAllComponents(UiPlayerCombobox)[1]!
@@ -182,7 +217,7 @@ describe('AnnotationIdentityPanel ReID assignments', () => {
   })
 
   it.each([
-    ['依 GID 從這段起改正', 'from_here'],
+    ['依人員群組從這段起改正', 'from_here'],
     ['這其實是不同的人', 'split_identity'],
     ['只修正這個 Local ID', 'clip_only'],
   ] as const)('sends %s corrections with identityMode=%s', async (buttonLabel, identityMode) => {
@@ -243,11 +278,11 @@ describe('AnnotationIdentityPanel ReID assignments', () => {
 
     const tabs = wrapper.findAll('[role="tab"]')
     expect(tabs.map(tab => tab.text())).toEqual(
-      expect.arrayContaining(['Local 分派2', 'GID 分派2']),
+      expect.arrayContaining(['Local 分派2', '人員群組2']),
     )
-    await tabs.find(tab => tab.text().includes('GID 分派'))!.trigger('click')
+    await tabs.find(tab => tab.text().includes('人員群組'))!.trigger('click')
 
-    expect(wrapper.text()).toContain('一個 GID 可包含多個 Local ID')
+    expect(wrapper.text()).toContain('人員群組可包含多個片段內 TID')
     const gidCombobox = wrapper.findAllComponents(UiPlayerCombobox)[1]!
     gidCombobox.vm.$emit('update:modelValue', 'roster-2')
     await flushPromises()

@@ -289,6 +289,21 @@ export function useAnnotationWorkstationModel(options: Options) {
     const endUs = BigInt(previewEnd) > startUs ? BigInt(previewEnd) : startUs
     const requestedStart = startUs > clipPreRollUs.value ? startUs - clipPreRollUs.value : 0n
     const requestedEnd = endUs + clipPostRollUs.value
+    // An OPEN draft may keep following the local playhead after the user seeks
+    // beyond a later Rally. Keep that local cursor independent, but cap the
+    // rendered clip preview at the first canonical segment that follows it.
+    // Peer editable drafts are deliberately excluded: only submitted/processing
+    // segments are stable enough to constrain another client's preview.
+    const nextCanonicalStart = timelineSegments.value.reduce<bigint | null>((next, segment) => {
+      if (segment.id === snapshot.rally_id || segment.status === 'draft') return next
+      const candidate = BigInt(segment.startCaptureTimeUs)
+      if (candidate <= requestedStart || (next !== null && candidate >= next)) return next
+      return candidate
+    }, null)
+    const canonicalEnd =
+      nextCanonicalStart !== null && requestedEnd > nextCanonicalStart
+        ? nextCanonicalStart
+        : requestedEnd
     const timelineStart = options.timeline.value?.availableRanges[0]?.startUs
     const timelineEnd = options.timeline.value?.availableRanges.at(-1)?.endUs
     return {
@@ -296,9 +311,9 @@ export function useAnnotationWorkstationModel(options: Options) {
         ? BigInt(timelineStart)
         : requestedStart
       ).toString(),
-      endCaptureTimeUs: (timelineEnd && requestedEnd > BigInt(timelineEnd)
+      endCaptureTimeUs: (timelineEnd && canonicalEnd > BigInt(timelineEnd)
         ? BigInt(timelineEnd)
-        : requestedEnd
+        : canonicalEnd
       ).toString(),
     }
   })

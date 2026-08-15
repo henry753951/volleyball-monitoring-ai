@@ -3,8 +3,10 @@ import type {
   PlaybackWindowDescriptor,
   PlaybackCursorInput,
 } from '../composables/usePlaybackCursor'
+import type { CanonicalFrameAnchor } from '../lib/mediaModel'
 import { useDvrPlayback } from '../composables/useDvrPlayback'
 import { captureTimeToPlayerSeconds, isCaptureTimeWithinWindow } from '../utils/playbackWindow'
+import { boundedPlayerMediaSeconds } from '../utils/playerMediaTime'
 import { mediaTimeRangesToCaptureRanges, type CanonicalMediaRange } from '../utils/mediaBuffer'
 import { resolveFrameFromRate, resolveFrameFromTimeline } from '../utils/overlayFrameTimeline'
 import type { ReplayContactEvent } from '../lib/coachDomain'
@@ -36,6 +38,7 @@ const props = withDefaults(
     actionCorrections?: Record<number, string>
     playerBboxCorrections?: Record<number, Record<number, OverlayFrameBBox>>
     contactActorCorrections?: Record<string, number | null>
+    contactActorProjections?: Record<string, number | null>
     contactTimeCorrections?: Record<string, number>
     identityLabels?: Record<number, string>
     overlayEvents?: ReplayContactEvent[]
@@ -70,6 +73,7 @@ const props = withDefaults(
     actionCorrections: () => ({}),
     playerBboxCorrections: () => ({}),
     contactActorCorrections: () => ({}),
+    contactActorProjections: () => ({}),
     contactTimeCorrections: () => ({}),
     identityLabels: () => ({}),
     overlayEvents: () => [],
@@ -202,6 +206,10 @@ watch(overlay.error, value => {
 
 let sourceGeneration = 0
 let previewGeneration = 0
+let pendingCanonicalFrame: Pick<
+  CanonicalFrameAnchor,
+  'playback_window_id' | 'mapping_version' | 'player_media_time_us'
+> | null = null
 function capturePresentedFrame(element: HTMLVideoElement) {
   if (
     element.readyState < HTMLMediaElement.HAVE_CURRENT_DATA ||
@@ -237,6 +245,7 @@ const attachDescriptor = async (descriptor: PlaybackWindowDescriptor | null) => 
   const generation = ++sourceGeneration
   previewGeneration += 1
   if (!descriptor) {
+    pendingCanonicalFrame = null
     playback.detach()
     retainedPreview.value = null
     publishBufferState()
@@ -244,6 +253,11 @@ const attachDescriptor = async (descriptor: PlaybackWindowDescriptor | null) => 
   }
   const element = video.value
   if (!element) return
+  if (
+    pendingCanonicalFrame &&
+    pendingCanonicalFrame.playback_window_id !== descriptor.playback_window_id
+  )
+    pendingCanonicalFrame = null
   const shouldResume = !element.paused && !element.ended
   const replacingPipeline =
     playback.activeWindow.value?.playback_window_id !== descriptor.playback_window_id
@@ -260,6 +274,7 @@ const attachDescriptor = async (descriptor: PlaybackWindowDescriptor | null) => 
   try {
     await playback.attach(descriptor)
     if (generation !== sourceGeneration) return
+    applyPendingCanonicalFrame()
     emit('ready', element)
     publishBufferState()
     if (shouldResume) await element.play().catch(() => undefined)
@@ -303,6 +318,36 @@ function seekCaptureTimeIfBuffered(targetCaptureTimeUs: string) {
 function previewCaptureTimeIfBuffered(targetCaptureTimeUs: string) {
   return seekCaptureTimeIfBuffered(targetCaptureTimeUs)
 }
+function applyPendingCanonicalFrame() {
+  const anchor = pendingCanonicalFrame
+  const descriptor = playback.activeWindow.value
+  const element = video.value
+  if (
+    !anchor ||
+    !descriptor ||
+    !element ||
+    anchor.playback_window_id !== descriptor.playback_window_id ||
+    anchor.mapping_version !== descriptor.mapping_version
+  )
+    return false
+  pendingCanonicalFrame = null
+  const generation = ++previewGeneration
+  retainedPreview.value = capturePresentedFrame(element) ?? retainedPreview.value
+  element.currentTime = boundedPlayerMediaSeconds(anchor.player_media_time_us)
+  void waitForPresentedFrame(element).then(() => {
+    if (generation === previewGeneration) retainedPreview.value = null
+  })
+  return true
+}
+function seekCanonicalFrame(
+  anchor: Pick<
+    CanonicalFrameAnchor,
+    'playback_window_id' | 'mapping_version' | 'player_media_time_us'
+  >,
+) {
+  pendingCanonicalFrame = anchor
+  return applyPendingCanonicalFrame()
+}
 function overlayFrameCaptureTime(frame: number) {
   const manifest = overlay.manifest.value
   if (!manifest || frame < 0) return null
@@ -325,6 +370,7 @@ defineExpose({
   overlayFrameCaptureTime,
   previewCaptureTimeIfBuffered,
   recoverPlayback,
+  seekCanonicalFrame,
   seekCaptureTimeIfBuffered,
   seekOverlayFrameIfBuffered,
 })
@@ -373,6 +419,7 @@ defineExpose({
       :action-corrections="actionCorrections"
       :player-bbox-corrections="playerBboxCorrections"
       :contact-actor-corrections="contactActorCorrections"
+      :contact-actor-projections="contactActorProjections"
       :contact-time-corrections="contactTimeCorrections"
       :identity-labels="identityLabels"
       :tracks="overlayTracks"

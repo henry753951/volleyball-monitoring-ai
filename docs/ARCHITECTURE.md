@@ -48,6 +48,15 @@ External AI provider
 
 ## Main flows
 
+Detailed operator flows, current ReID behavior, the audited VLM/pose branch, and the accepted
+annotation/ReID rearchitecture under implementation are maintained in
+[`ANNOTATION_WORKSTATION_USER_FLOWS_AND_REID_EVOLUTION.md`](./ANNOTATION_WORKSTATION_USER_FLOWS_AND_REID_EVOLUTION.md).
+The governing version/cutover decision is
+[`ADR 0037`](./adr/0037-versioned-reid-evidence-and-provider-work.md).
+The implemented job, evidence-generation, correction, rerun, preview, and later-clip bank behavior is
+documented in
+[`REID_EVIDENCE_AND_HUMAN_CORRECTION_GUIDE.md`](./REID_EVIDENCE_AND_HUMAN_CORRECTION_GUIDE.md).
+
 ### Annotation to analysis
 
 1. Web resolves a bounded playback window and sends revisioned annotation commands over the annotation socket.
@@ -67,6 +76,16 @@ External AI provider
 1. Coach queries select the latest completed analysis for an accessible immutable submission.
 2. Optional review corrections are projected as effective events without mutating raw inference.
 3. Web renders tracks, contacts, positions, heatmaps, and paths against the video/canonical court.
+
+### Player identity
+
+1. External AI results may include fixed-roster tracklet descriptors; Central currently associates
+   them with match/team slots during callback activation.
+2. Replay and analytics consume one effective Local/TID-to-roster assignment. GID/slot grouping is an
+   aid and never replaces that run-local mapping.
+3. Human decisions are forward-scoped or clip-local and preserve immutable AnalysisData. ReID is not
+   yet an independently rerunnable workflow stage; do not describe automatic binding projection as a
+   ReID rerun.
 
 ## Generated and synchronized files
 

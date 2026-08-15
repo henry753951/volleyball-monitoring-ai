@@ -34,7 +34,7 @@ services:
     restart: unless-stopped
 
   postgres:
-    image: postgres:17-alpine
+    image: pgvector/pgvector:0.8.6-pg17-bookworm
     environment:
       POSTGRES_USER: volleyball
       POSTGRES_PASSWORD: volleyball

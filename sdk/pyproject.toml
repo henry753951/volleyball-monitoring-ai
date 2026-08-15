@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "volleyball-monitoring-ai-sdk"
-version = "0.4.0"
+version = "0.5.0"
 description = "Outbound WebSocket worker SDK and wire contracts for external volleyball AI providers."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -27,6 +27,7 @@ packages = ["src/volleyball_monitoring_ai"]
 [tool.hatch.build.targets.wheel.force-include]
 "../packages/contracts/flatbuffers/analysis-data.fbs" = "volleyball_monitoring_ai/schemas/analysis-data.fbs"
 "../packages/contracts/flatbuffers/analysis-frame-chunk.fbs" = "volleyball_monitoring_ai/schemas/analysis-frame-chunk.fbs"
+"../packages/contracts/flatbuffers/person-pose-evidence.fbs" = "volleyball_monitoring_ai/schemas/person-pose-evidence.fbs"
 "../packages/contracts/fixtures/normal-rally/analysis-data-domain.json" = "volleyball_monitoring_ai/fixtures/normal-rally-analysis-data-domain.json"
 
 [tool.pytest.ini_options]

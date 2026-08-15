@@ -10,9 +10,9 @@ import { createMediaClient } from '~/lib/mediaClient'
 import { adjacentAnnotationKeyPoint } from '~/lib/annotationKeyPointNavigation'
 import {
   useAuthoritativeDvrWindow,
-  seekVideoToCanonicalFrame,
   authoritativeControlsEnabled,
 } from '~/composables/useAuthoritativeDvrWindow'
+import { createFrameNavigationGestureRouter } from '~/utils/frameNavigationGestureRouter'
 import {
   createCoreDomainClient,
   createGraphQLTransport,
@@ -31,7 +31,7 @@ import {
   boundaryCommandAvailability,
   draftCommandAvailability,
 } from '~/utils/annotationCommandAvailability'
-import type { PlaybackCursorInput } from '~/lib/mediaModel'
+import type { CanonicalFrameAnchor, PlaybackCursorInput } from '~/lib/mediaModel'
 import { createCoachDomainClient, type CoachRally, type CoachRallyReplay } from '~/lib/coachDomain'
 import { provideIdentityAssignmentService } from '~/composables/useIdentityAssignmentService'
 import {
@@ -73,6 +73,12 @@ const { profile: mediaBufferProfile } = useMediaPlaybackPreferences()
 const video = ref<HTMLVideoElement | null>(null)
 const overlayPlayer = ref<{
   recoverPlayback: () => boolean
+  seekCanonicalFrame: (
+    anchor: Pick<
+      CanonicalFrameAnchor,
+      'playback_window_id' | 'mapping_version' | 'player_media_time_us'
+    >,
+  ) => boolean
   seekCaptureTimeIfBuffered: (targetCaptureTimeUs: string) => boolean
   previewCaptureTimeIfBuffered: (targetCaptureTimeUs: string) => boolean
   overlayFrameCaptureTime: (frame: number) => string | null
@@ -298,14 +304,18 @@ let windowCreatePromise: ReturnType<typeof dvr.create> | null = null
 let windowCreateTarget: string | undefined
 let windowCreateMode: 'live' | 'archive' | undefined
 let keyPointNudgeTargetId: string | null = null
-let framePreviewTargetSeconds: number | null = null
+const framePreviewTargetSeconds = ref<number | null>(null)
+const framePreviewCaptureTimeUs = ref<string | null>(null)
 let framePreviewRaf: number | null = null
+let framePreviewSeekElement: HTMLVideoElement | null = null
+let framePreviewWindowKey = ''
 let estimatedFrameSeconds: number | null = null
 let framePreviewCalibrationGeneration = 0
 const framePreviewDurationByContext = new Map<string, number>()
 
 const frameNavigation = useCoalescedFrameNavigation({
   preview: previewFrameStep,
+  ready: frameStepReady,
   step: async (direction, count) => {
     if (!descriptor.value || !authoritativeAnchor.value) return null
     const previousCaptureUs = authoritativeAnchor.value.capture_time_us
@@ -316,7 +326,10 @@ const frameNavigation = useCoalescedFrameNavigation({
       mode: descriptor.value!.mode,
       target_capture_time_us: target,
     }))
-    if (!anchor) return null
+    if (!anchor) {
+      if (dvr.error.value) throw dvr.error.value
+      return null
+    }
     rememberFramePreviewDuration(
       previousCaptureUs,
       anchor.capture_time_us,
@@ -326,26 +339,22 @@ const frameNavigation = useCoalescedFrameNavigation({
     )
     return anchor
   },
-  apply: (anchor, direction) => {
-    const element = video.value
-    if (!element) return
-    const localSeconds = Number(BigInt(anchor.player_media_time_us)) / 1_000_000
-    if (!Number.isFinite(localSeconds) || localSeconds < 0 || localSeconds > 86_400)
-      throw new RangeError('frame-step returned an unbounded player time')
-    const preservesDirection =
-      direction === 'next'
-        ? localSeconds >= element.currentTime
-        : localSeconds <= element.currentTime
-    if (preservesDirection) seekVideoToCanonicalFrame(element, anchor)
+  apply: anchor => {
+    overlayPlayer.value?.seekCanonicalFrame(anchor)
   },
   onError: error => {
+    const anchor = authoritativeAnchor.value
+    if (anchor && 'player_media_time_us' in anchor) overlayPlayer.value?.seekCanonicalFrame(anchor)
     mediaError.value = error instanceof Error ? error.message : '逐幀請求失敗'
   },
   onSettled: () => {
-    framePreviewTargetSeconds = null
+    clearFramePreviewState()
+    frameGestureRouter.clear('player')
   },
   settleMs: 80,
+  heldFlushMs: 80,
   holdWatchdogMs: 650,
+  flushWhileHeld: true,
 })
 watch(
   currentFramePreviewContext,
@@ -358,7 +367,7 @@ const keyPointNavigation = useCoalescedFrameNavigation({
   preview: previewKeyPointNudge,
   step: performKeyPointNudge,
   apply: frame => {
-    if (video.value) seekVideoToCanonicalFrame(video.value, frame)
+    overlayPlayer.value?.seekCanonicalFrame(frame)
   },
   onError: error => {
     toast.error(error instanceof Error ? error.message : '擊球點微調失敗')
@@ -367,14 +376,29 @@ const keyPointNavigation = useCoalescedFrameNavigation({
     if (keyPointNudgeTargetId) clearKeyPointMovePreview(keyPointNudgeTargetId)
     keyPointNudgeTargetId = null
     releaseEditingIntent()
+    frameGestureRouter.clear('key-point')
   },
   settleMs: 90,
   holdWatchdogMs: 650,
+})
+const frameGestureRouter = createFrameNavigationGestureRouter({
+  player: frameNavigation,
+  'key-point': keyPointNavigation,
 })
 watchEffect(() => {
   frameQueueRunning.value = frameNavigation.running.value
   frameQueuePending.value = frameNavigation.active.value
 })
+watch(frameStepReady, ready => {
+  if (ready && frameNavigation.active.value) void frameNavigation.flush()
+})
+watch(
+  () => dvr.status.value,
+  status => {
+    if ((status === 'gap' || status === 'error') && frameNavigation.active.value)
+      frameNavigation.cancel()
+  },
+)
 
 const controls = computed(() =>
   ANNOTATION_COMMANDS.map(command => ({
@@ -726,6 +750,13 @@ const allPlayerBBoxCorrections = computed<Record<number, Record<number, Analysis
 const contactActorCorrections = computed<Record<string, number | null>>(() =>
   Object.fromEntries(analysisReview.contactActorCorrections.value),
 )
+const contactActorProjections = computed<Record<string, number | null>>(() =>
+  Object.fromEntries(
+    [...analysisReview.contactActorProjections.value]
+      .filter(([, projection]) => projection.status === 'ready')
+      .map(([keyPointId, projection]) => [keyPointId, projection.track_id]),
+  ),
+)
 const contactTimeCorrections = computed<Record<string, number>>(() =>
   Object.fromEntries(analysisReview.contactTimeCorrections.value),
 )
@@ -769,6 +800,7 @@ const analysisHitItems = computed(() =>
       .map(event => {
         const frameIndex = effectiveContactFrame(event.key_point_id, replayEventFrame(event))
         const manual = analysisReview.contactActorCorrections.value.has(event.key_point_id)
+        const projection = analysisReview.contactActorProjections.value.get(event.key_point_id)
         const position = overlayVideoSize.value
           ? resolveEffectiveHitPosition(
               {
@@ -783,14 +815,16 @@ const analysisHitItems = computed(() =>
           : null
         const trackId = manual
           ? (analysisReview.contactActorCorrections.value.get(event.key_point_id) ?? null)
-          : overlayVideoSize.value
-            ? resolveEventActorFromResult(
-                event,
-                position,
-                overlayVideoSize.value.width,
-                overlayVideoSize.value.height,
-              )
-            : ((event.actors[0] ?? event.candidates[0])?.track_id ?? null)
+          : projection?.status === 'ready'
+            ? projection.track_id
+            : overlayVideoSize.value
+              ? resolveEventActorFromResult(
+                  event,
+                  position,
+                  overlayVideoSize.value.width,
+                  overlayVideoSize.value.height,
+                )
+              : ((event.actors[0] ?? event.candidates[0])?.track_id ?? null)
         const exactBall = analysisReview.ballCorrections.value.get(String(frameIndex))
         return {
           keyPointId: event.key_point_id,
@@ -802,14 +836,22 @@ const analysisHitItems = computed(() =>
           timeAdjusted: analysisReview.contactTimeCorrections.value.has(event.key_point_id),
           actorTrackId: trackId,
           actorLabel:
-            trackId === null
-              ? '沒人打'
-              : (overlayIdentityLabels.value[trackId] ?? `Track ${trackId}`),
+            projection?.status === 'failed' && !manual
+              ? '關聯待重試'
+              : trackId === null
+                ? projection?.status === 'ready'
+                  ? '無法判定'
+                  : '沒人打'
+                : (overlayIdentityLabels.value[trackId] ?? `Track ${trackId}`),
           actorSource: manual
             ? trackId === null
               ? ('none' as const)
               : ('manual' as const)
-            : ('auto' as const),
+            : projection?.status === 'pending' || projection?.status === 'running'
+              ? ('pending' as const)
+              : projection?.status === 'failed'
+                ? ('failed' as const)
+                : ('auto' as const),
           ballLabel:
             exactBall?.state === 'position'
               ? '人工球點'
@@ -923,6 +965,8 @@ const liveTarget = computed(() =>
     : null,
 )
 const visualPlayhead = computed(() => {
+  if (frameNavigation.active.value && framePreviewCaptureTimeUs.value)
+    return framePreviewCaptureTimeUs.value
   const cursor = observedCursor.value
   const window = descriptor.value
   if (
@@ -1226,8 +1270,7 @@ function handleCursor(cursor: PlaybackCursorInput) {
   // not new commands that should race the canonical sample-index resolver.
   if (
     seekPreviewActive.value ||
-    frameQueueRunning.value ||
-    frameQueuePending.value ||
+    ((frameQueueRunning.value || frameQueuePending.value) && frameStepReady()) ||
     keyPointNavigation.active.value
   )
     return
@@ -2113,6 +2156,7 @@ function maintainPlaybackWindow() {
 }
 function handleVideoReady(element: HTMLVideoElement) {
   if (video.value !== element) {
+    clearFramePreviewState()
     detachVideoState(video.value)
     video.value = element
     element.addEventListener('play', updatePlaybackState)
@@ -2167,6 +2211,19 @@ function queueFrameStep(
   frameNavigation.enqueue(direction, count, input)
 }
 
+function frameStepReady() {
+  const window = descriptor.value
+  const anchor = authoritativeAnchor.value
+  return Boolean(
+    window &&
+    anchor &&
+    dvr.status.value === 'ready' &&
+    !dvr.busy.value &&
+    anchor.playback_window_id === window.playback_window_id &&
+    anchor.mapping_version === window.mapping_version,
+  )
+}
+
 function currentFramePreviewContext(): string {
   const window = descriptor.value
   const anchor = authoritativeAnchor.value
@@ -2199,7 +2256,7 @@ async function warmFramePreviewDuration() {
   const window = descriptor.value
   const anchor = authoritativeAnchor.value
   const context = currentFramePreviewContext()
-  framePreviewTargetSeconds = null
+  if (!frameNavigation.active.value) clearFramePreviewState()
   if (!window || !anchor || !context) {
     estimatedFrameSeconds = null
     return
@@ -2247,20 +2304,73 @@ function previewFrameStep(delta: number) {
   if (!element || !window) return
   if (!element.paused) element.pause()
   if (estimatedFrameSeconds === null) return
+  const windowKey = `${window.playback_window_id}:${window.mapping_version}`
+  if (framePreviewWindowKey !== windowKey) {
+    framePreviewWindowKey = windowKey
+    framePreviewTargetSeconds.value = null
+    framePreviewCaptureTimeUs.value = null
+  }
   const windowDuration =
     Number(BigInt(window.window_capture_end_us) - BigInt(window.presentation_origin_capture_us)) /
     1_000_000
   const mediaEnd = Number.isFinite(element.duration)
     ? Math.min(element.duration, windowDuration)
     : windowDuration
-  const base = framePreviewTargetSeconds ?? element.currentTime
-  framePreviewTargetSeconds = Math.max(0, Math.min(mediaEnd, base + delta * estimatedFrameSeconds))
+  const base = framePreviewTargetSeconds.value ?? element.currentTime
+  framePreviewTargetSeconds.value = Math.max(
+    0,
+    Math.min(mediaEnd, base + delta * estimatedFrameSeconds),
+  )
+  const previewCaptureTimeUs =
+    BigInt(window.presentation_origin_capture_us) +
+    BigInt(Math.round(framePreviewTargetSeconds.value * 1_000_000))
+  const captureStart = BigInt(window.window_capture_start_us)
+  const captureEnd = BigInt(window.window_capture_end_us)
+  framePreviewCaptureTimeUs.value = (
+    previewCaptureTimeUs < captureStart
+      ? captureStart
+      : previewCaptureTimeUs > captureEnd
+        ? captureEnd
+        : previewCaptureTimeUs
+  ).toString()
+  scheduleFramePreviewSeek()
+}
+
+function detachFramePreviewSeekListener() {
+  framePreviewSeekElement?.removeEventListener('seeked', handleFramePreviewSeeked)
+  framePreviewSeekElement = null
+}
+
+function handleFramePreviewSeeked() {
+  detachFramePreviewSeekListener()
+  scheduleFramePreviewSeek()
+}
+
+function scheduleFramePreviewSeek() {
   if (framePreviewRaf !== null) return
   framePreviewRaf = requestAnimationFrame(() => {
     framePreviewRaf = null
-    if (video.value && framePreviewTargetSeconds !== null)
-      video.value.currentTime = framePreviewTargetSeconds
+    const element = video.value
+    if (!element || framePreviewTargetSeconds.value === null) return
+    if (element.seeking) {
+      if (framePreviewSeekElement !== element) {
+        detachFramePreviewSeekListener()
+        framePreviewSeekElement = element
+        element.addEventListener('seeked', handleFramePreviewSeeked, { once: true })
+      }
+      return
+    }
+    element.currentTime = framePreviewTargetSeconds.value
   })
+}
+
+function clearFramePreviewState() {
+  framePreviewTargetSeconds.value = null
+  framePreviewCaptureTimeUs.value = null
+  framePreviewWindowKey = ''
+  if (framePreviewRaf !== null) cancelAnimationFrame(framePreviewRaf)
+  framePreviewRaf = null
+  detachFramePreviewSeekListener()
 }
 
 async function navigateKeyPoint(direction: 'previous' | 'next') {
@@ -2549,12 +2659,14 @@ function rememberTimelineViewport(viewport: TimelineViewport) {
 
 function dispatchHotkeyCommand(action: HotkeyCommand, event: KeyboardEvent) {
   const frameCount = event.ctrlKey ? 5 : 1
-  if ((action === 'frame_previous' || action === 'frame_next') && selectedEditableKeyPoint.value) {
-    void nudgeSelectedKeyPoint(
-      action === 'frame_next' ? 'next' : 'previous',
-      frameCount,
-      'keyboard',
+  if (action === 'frame_previous' || action === 'frame_next') {
+    const direction = action === 'frame_next' ? 'next' : 'previous'
+    const owner = frameGestureRouter.claim(
+      direction,
+      selectedEditableKeyPoint.value ? 'key-point' : 'player',
     )
+    if (owner === 'key-point') nudgeSelectedKeyPoint(direction, frameCount, 'keyboard')
+    else queueFrameStep(direction, frameCount, 'keyboard')
     return
   }
   if (action === 'play_pause' || action.startsWith('frame_') || action.startsWith('key_point_'))
@@ -2565,9 +2677,7 @@ function dispatchHotkeyCommand(action: HotkeyCommand, event: KeyboardEvent) {
 function releaseHotkeyCommand(action: HotkeyCommand) {
   if (action !== 'frame_previous' && action !== 'frame_next') return
   const direction = action === 'frame_next' ? 'next' : 'previous'
-  if (keyPointNudgeTargetId || keyPointNavigation.active.value)
-    keyPointNavigation.release(direction)
-  else frameNavigation.release(direction)
+  frameGestureRouter.release(direction)
 }
 
 async function retrySelectedProcessing() {
@@ -2592,28 +2702,38 @@ async function retrySelectedProcessing() {
 function commandEnabled(action: HotkeyCommand) {
   if (action === 'play_pause') return Boolean(descriptor.value)
   if (action.startsWith('key_point_')) return navigableKeyPoints.value.length > 0
-  if (action.startsWith('frame_') && selectedEditableKeyPoint.value) {
+  if (action === 'frame_previous' || action === 'frame_next') {
+    const direction = action === 'frame_next' ? 'next' : 'previous'
+    const owner = frameGestureRouter.ownerOf(direction)
+    if (owner === 'key-point' || (!owner && selectedEditableKeyPoint.value)) {
+      return Boolean(
+        selectedCapture.value &&
+        editableDraftState.value &&
+        commandReady.value &&
+        !pendingTimelineMove.value &&
+        (keyPointEditReady.value || keyPointNavigation.active.value),
+      )
+    }
     return Boolean(
-      selectedCapture.value &&
-      editableDraftState.value &&
-      commandReady.value &&
-      !pendingTimelineMove.value &&
-      keyPointEditReady.value,
+      descriptor.value &&
+      (frameNavigation.active.value || !['idle', 'gap', 'error'].includes(dvr.status.value)),
     )
   }
-  return action.startsWith('frame_')
-    ? Boolean(
-        descriptor.value &&
-        authoritativeAnchor.value &&
-        (cursorStatus.value === 'ready' || frameQueueRunning.value || frameQueuePending.value),
-      )
-    : controls.value.some(control => control.action === action && control.enabled)
+  return controls.value.some(control => control.action === action && control.enabled)
 }
 let lastBlockedHotkeyNotice = ''
 let lastBlockedHotkeyNoticeAt = 0
 function reportBlockedHotkey(action: HotkeyCommand) {
   const control = controls.value.find(item => item.action === action)
-  const reason = control?.reason || '目前狀態尚不能執行此操作'
+  const reason =
+    control?.reason ||
+    (action === 'frame_previous' || action === 'frame_next'
+      ? !descriptor.value
+        ? '播放器尚未載入可用影片'
+        : dvr.status.value === 'gap'
+          ? '目前位置沒有可用畫格'
+          : '播放視窗正在自動恢復，請稍候'
+      : '目前狀態尚不能執行此操作')
   const signature = `${action}:${reason}`
   const now = performance.now()
   if (signature === lastBlockedHotkeyNotice && now - lastBlockedHotkeyNoticeAt < 1_200) return
@@ -2729,7 +2849,8 @@ watch(editorSelectedAnalysisRunId, () => {
   trackPopover.open = false
 })
 watch([state, selectedKeyPointId], () => {
-  frameNavigation.cancel()
+  keyPointNavigation.cancel()
+  frameGestureRouter.clear('key-point')
   releaseEditingIntent()
 })
 watch(loadError, value => {
@@ -2820,8 +2941,16 @@ watch(
       })
   },
 )
+function releaseFrameNavigationGestures() {
+  frameGestureRouter.releaseAll()
+}
+function releaseFrameNavigationWhenHidden() {
+  if (document.visibilityState === 'hidden') releaseFrameNavigationGestures()
+}
 onMounted(() => {
   annotationScope.value?.focus({ preventScroll: true })
+  window.addEventListener('blur', releaseFrameNavigationGestures)
+  document.addEventListener('visibilitychange', releaseFrameNavigationWhenHidden)
   void loadMatch()
   timelineRefreshTimer = setInterval(() => {
     if (captureNeedsPolling(selectedCapture.value?.status)) void refreshSelectedCapture()
@@ -2836,8 +2965,11 @@ onBeforeUnmount(() => {
   if (timelineMoveTimeout) clearTimeout(timelineMoveTimeout)
   if (cursorResolveTimer) clearTimeout(cursorResolveTimer)
   if (seekPreviewTimer) clearTimeout(seekPreviewTimer)
+  window.removeEventListener('blur', releaseFrameNavigationGestures)
+  document.removeEventListener('visibilitychange', releaseFrameNavigationWhenHidden)
+  frameGestureRouter.releaseAll()
   frameNavigation.stop()
-  if (framePreviewRaf !== null) cancelAnimationFrame(framePreviewRaf)
+  clearFramePreviewState()
   keyPointNavigation.stop()
   if (continuationRetryTimer) clearTimeout(continuationRetryTimer)
   annotation.setEditingKeyPoint(null)
@@ -2908,6 +3040,7 @@ onBeforeUnmount(() => {
               :action-corrections="analysisOverlayActive ? currentActionCorrections : {}"
               :player-bbox-corrections="analysisOverlayActive ? allPlayerBBoxCorrections : {}"
               :contact-actor-corrections="analysisOverlayActive ? contactActorCorrections : {}"
+              :contact-actor-projections="analysisOverlayActive ? contactActorProjections : {}"
               :contact-time-corrections="analysisOverlayActive ? contactTimeCorrections : {}"
               :identity-labels="overlayIdentityLabels"
               :overlay-events="overlayEvents"

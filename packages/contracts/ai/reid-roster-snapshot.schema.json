@@ -1,0 +1,78 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/OWNER/volleyball-monitoring-ai/packages/contracts/ai/reid-roster-snapshot/1.0.0",
+  "title": "Immutable ReID Roster Snapshot 1.0.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "roster_snapshot_id",
+    "match_id",
+    "rally_submission_id",
+    "as_of_position",
+    "teams",
+    "content_sha256"
+  ],
+  "properties": {
+    "schema_version": { "const": "1.0.0" },
+    "roster_snapshot_id": { "$ref": "#/$defs/id" },
+    "match_id": { "$ref": "#/$defs/id" },
+    "rally_submission_id": { "$ref": "#/$defs/id" },
+    "as_of_position": { "$ref": "#/$defs/position" },
+    "teams": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 2,
+      "items": { "$ref": "#/$defs/team" }
+    },
+    "content_sha256": { "$ref": "#/$defs/sha256" }
+  },
+  "$defs": {
+    "id": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "sha256": { "type": "string", "pattern": "^[A-Fa-f0-9]{64}$" },
+    "position": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["set_number", "rally_ordinal"],
+      "properties": {
+        "set_number": { "type": "integer", "minimum": 1 },
+        "rally_ordinal": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "entry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "roster_entry_id",
+        "player_id",
+        "jersey_number",
+        "display_name",
+        "position",
+        "active"
+      ],
+      "properties": {
+        "roster_entry_id": { "$ref": "#/$defs/id" },
+        "player_id": { "oneOf": [{ "$ref": "#/$defs/id" }, { "type": "null" }] },
+        "jersey_number": { "type": "string", "minLength": 1, "maxLength": 32 },
+        "display_name": {
+          "oneOf": [{ "type": "string", "minLength": 1, "maxLength": 256 }, { "type": "null" }]
+        },
+        "position": { "enum": ["UNSPECIFIED", "OH", "MB", "OPP", "S", "L", "DS"] },
+        "active": { "type": "boolean" }
+      }
+    },
+    "team": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["team_id", "court_side", "entries"],
+      "properties": {
+        "team_id": { "$ref": "#/$defs/id" },
+        "court_side": { "enum": ["LEFT", "RIGHT"] },
+        "entries": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/entry" }
+        }
+      }
+    }
+  }
+}

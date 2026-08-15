@@ -235,6 +235,160 @@ describe('useAnnotationWorkstationModel timeline layers', () => {
     })
   })
 
+  it('caps an OPEN preview at the next canonical Rally start', () => {
+    const state = structuredClone(coachState)
+    const nextRally = state.match.rallies[0]!
+    nextRally.id = 'next-rally'
+    nextRally.submission.id = 'next-submission'
+    nextRally.submission.clip = {
+      id: 'next-clip',
+      status: 'completed',
+      start_capture_time_us: '4000000',
+      end_capture_time_us: '5000000',
+      duration_us: '1000000',
+    }
+    state.match.drafts = [
+      {
+        id: 'open-rally',
+        ordinal: 2,
+        display_ordinal: 2,
+        display_set_number: 1,
+        annotation_revision: '1',
+        annotation_status: 'open',
+        active_submission_id: null,
+        score_resolution: 'pending',
+        scoring_court_side: null,
+        scoring_team_id: null,
+        set_id: 'set',
+        set_number: 1,
+        key_points: [],
+        boundaries: [{ kind: 'start', capture_time_us: '2000000', capture_frame_index: '60' }],
+      },
+    ]
+    const openSnapshot: AnnotationRallySnapshot = {
+      schema_version: '3.0.0',
+      type: 'rally_snapshot',
+      room_id: 'room',
+      rally_id: 'open-rally',
+      revision: '1',
+      server_sequence: '4',
+      snapshot: {
+        annotation_status: 'open',
+        active_submission_id: null,
+        side_assignment_id: 'assignment',
+        score_resolution: 'pending',
+        scoring_court_side: null,
+        processing_status: 'idle',
+        boundaries: [
+          {
+            kind: 'start',
+            capture_time_us: '2000000',
+            capture_frame_index: '60',
+            timing_precision: 'frame_exact',
+          },
+        ],
+        key_points: [],
+      },
+    }
+    const model = useAnnotationWorkstationModel({
+      coachData: ref(state),
+      match: ref<Match | null>(null),
+      timeline: computed<CaptureTimeline | null>(() => null),
+      displayAnnotation: computed(() => openSnapshot),
+      confirmedAnnotation: shallowRef(openSnapshot),
+      state: computed(() => 'OPEN' as const),
+      selectedRallyId: computed(() => 'open-rally'),
+      selectedKeyPoint: computed<AnnotationKeyPoint | null>(() => null),
+      selectedTimelineItem: ref<TimelineSelectionItem>('mask'),
+      cursorRallyId: ref('open-rally'),
+      visualPlayhead: ref('7000000'),
+    })
+
+    expect(model.currentMaskRange.value).toMatchObject({
+      startCaptureTimeUs: '2000000',
+      endCaptureTimeUs: '4000000',
+    })
+  })
+
+  it('does not let a peer editable draft constrain the local OPEN preview', () => {
+    const state = structuredClone(coachState)
+    state.match.rallies = []
+    state.match.drafts = [
+      {
+        id: 'open-rally',
+        ordinal: 1,
+        display_ordinal: 1,
+        display_set_number: 1,
+        annotation_revision: '1',
+        annotation_status: 'open',
+        active_submission_id: null,
+        score_resolution: 'pending',
+        scoring_court_side: null,
+        scoring_team_id: null,
+        set_id: 'set',
+        set_number: 1,
+        key_points: [],
+        boundaries: [{ kind: 'start', capture_time_us: '2000000', capture_frame_index: '60' }],
+      },
+      {
+        id: 'peer-draft',
+        ordinal: 2,
+        display_ordinal: 2,
+        display_set_number: 1,
+        annotation_revision: '1',
+        annotation_status: 'open',
+        active_submission_id: null,
+        score_resolution: 'pending',
+        scoring_court_side: null,
+        scoring_team_id: null,
+        set_id: 'set',
+        set_number: 1,
+        key_points: [],
+        boundaries: [{ kind: 'start', capture_time_us: '4000000', capture_frame_index: '120' }],
+      },
+    ]
+    const openSnapshot: AnnotationRallySnapshot = {
+      schema_version: '3.0.0',
+      type: 'rally_snapshot',
+      room_id: 'room',
+      rally_id: 'open-rally',
+      revision: '1',
+      server_sequence: '4',
+      snapshot: {
+        annotation_status: 'open',
+        active_submission_id: null,
+        side_assignment_id: 'assignment',
+        score_resolution: 'pending',
+        scoring_court_side: null,
+        processing_status: 'idle',
+        boundaries: [
+          {
+            kind: 'start',
+            capture_time_us: '2000000',
+            capture_frame_index: '60',
+            timing_precision: 'frame_exact',
+          },
+        ],
+        key_points: [],
+      },
+    }
+    const model = useAnnotationWorkstationModel({
+      coachData: ref(state),
+      match: ref<Match | null>(null),
+      timeline: computed<CaptureTimeline | null>(() => null),
+      displayAnnotation: computed(() => openSnapshot),
+      confirmedAnnotation: shallowRef(openSnapshot),
+      state: computed(() => 'OPEN' as const),
+      selectedRallyId: computed(() => 'open-rally'),
+      selectedKeyPoint: computed<AnnotationKeyPoint | null>(() => null),
+      selectedTimelineItem: ref<TimelineSelectionItem>('mask'),
+      cursorRallyId: ref('open-rally'),
+      visualPlayhead: ref('7000000'),
+    })
+
+    expect(model.currentMaskRange.value?.endCaptureTimeUs).toBe('7000000')
+  })
+
   it('keeps the current submitted Rally analysis data for the independent result rail', () => {
     const model = useAnnotationWorkstationModel({
       coachData: ref(coachState),

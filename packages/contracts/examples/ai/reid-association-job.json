@@ -1,0 +1,19 @@
+{
+  "schema_version": "1.1.0",
+  "provider_job_id": "provider-job-association-001",
+  "association_run_id": "association-run-001",
+  "match_id": "match-001",
+  "evidence_set_id": "evidence-set-001",
+  "eligible_tracklet_ids": ["tracklet-001"],
+  "evidence_result_artifact_id": "reid-feature-result-001",
+  "bank_snapshot_id": "bank-snapshot-001",
+  "bank_snapshot_artifact_id": "bank-snapshot-artifact-001",
+  "roster_snapshot_artifact_id": "roster-snapshot-001",
+  "recipe": {
+    "namespace": "reid/nested-part-v2",
+    "candidate_modalities": ["DINO", "OSNET", "KPR_PROMPT", "JERSEY_VLM"],
+    "same_clip_grouping": true,
+    "allow_abstention": true,
+    "manual_assignment_precedence": true
+  }
+}

@@ -1,0 +1,43 @@
+{
+  "schema_version": "1.0.0",
+  "provider_job_id": "provider-analysis-001",
+  "ai_job_id": "ai-job-001",
+  "rally_submission_id": "submission-001",
+  "rally_id": "rally-001",
+  "match_id": "match-001",
+  "annotation_revision": "15",
+  "clip": {
+    "clip_asset_id": "clip-asset-001",
+    "video": {
+      "width": 1920,
+      "height": 1080,
+      "fps": { "num": 60000, "den": 1001 },
+      "time_base": { "num": 1, "den": 60000 },
+      "total_frames": "1079",
+      "duration_us": "18001333",
+      "has_audio": true
+    }
+  },
+  "key_points": [
+    {
+      "key_point_id": "contact-001",
+      "sequence_index": 0,
+      "marker_kind": "contact",
+      "is_terminal": false,
+      "clip_pts": "300300",
+      "clip_time_us": "5005000",
+      "clip_frame_index": "300"
+    }
+  ],
+  "boundaries": [
+    { "kind": "start", "clip_pts": "180180", "clip_time_us": "3003000", "clip_frame_index": "180" },
+    { "kind": "end", "clip_pts": "720720", "clip_time_us": "12012000", "clip_frame_index": "720" }
+  ],
+  "outcome": { "score_resolution": "pending", "scoring_court_side": null },
+  "modules": {
+    "court": "run",
+    "tracking": "run",
+    "contacts": "run",
+    "person_pose": "run"
+  }
+}

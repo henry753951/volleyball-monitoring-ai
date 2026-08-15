@@ -15,11 +15,12 @@
     "action_corrections",
     "player_bbox_corrections",
     "contact_actor_corrections",
+    "contact_actor_projections",
     "contact_time_corrections",
     "contact_edits"
   ],
   "properties": {
-    "schema_version": { "const": "1.3.0" },
+    "schema_version": { "const": "1.4.0" },
     "analysis_run_id": { "type": "string", "format": "uuid" },
     "revision": { "$ref": "#/$defs/uint" },
     "status": { "enum": ["editing", "ready", "approved"] },
@@ -29,6 +30,10 @@
     "action_corrections": { "type": "array", "items": { "$ref": "#/$defs/action" } },
     "player_bbox_corrections": { "type": "array", "items": { "$ref": "#/$defs/bboxCorrection" } },
     "contact_actor_corrections": { "type": "array", "items": { "$ref": "#/$defs/contactActor" } },
+    "contact_actor_projections": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/contactActorProjection" }
+    },
     "contact_time_corrections": { "type": "array", "items": { "$ref": "#/$defs/contactTime" } },
     "contact_edits": { "type": "array", "items": { "$ref": "#/$defs/contactEdit" } }
   },
@@ -132,6 +137,49 @@
       "properties": {
         "key_point_id": { "type": "string", "format": "uuid" },
         "frame_index": { "$ref": "#/$defs/uint" },
+        "revision": { "$ref": "#/$defs/revision" }
+      }
+    },
+    "contactActorProjection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "key_point_id",
+        "frame_index",
+        "status",
+        "track_id",
+        "observation_frame_index",
+        "source",
+        "confidence",
+        "algorithm_namespace",
+        "pose_recipe_namespace",
+        "fallback_reason",
+        "revision"
+      ],
+      "properties": {
+        "key_point_id": { "type": "string", "format": "uuid" },
+        "frame_index": { "$ref": "#/$defs/uint" },
+        "status": { "enum": ["pending", "running", "ready", "failed"] },
+        "track_id": { "oneOf": [{ "type": "integer", "minimum": 0 }, { "type": "null" }] },
+        "observation_frame_index": {
+          "oneOf": [{ "$ref": "#/$defs/uint" }, { "type": "null" }]
+        },
+        "source": {
+          "oneOf": [
+            { "enum": ["pose_hand", "bbox_action", "bbox_spatial", "unresolved"] },
+            { "type": "null" }
+          ]
+        },
+        "confidence": {
+          "oneOf": [{ "type": "number", "minimum": 0, "maximum": 1 }, { "type": "null" }]
+        },
+        "algorithm_namespace": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "pose_recipe_namespace": {
+          "oneOf": [{ "type": "string", "minLength": 1, "maxLength": 128 }, { "type": "null" }]
+        },
+        "fallback_reason": {
+          "oneOf": [{ "type": "string", "minLength": 1, "maxLength": 128 }, { "type": "null" }]
+        },
         "revision": { "$ref": "#/$defs/revision" }
       }
     },

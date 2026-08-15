@@ -104,6 +104,14 @@ async function loadCandidate(track: CoachMatchAnalytics['tracks'][number]) {
   const cached = previewCache.get(key)
   if (cached) return cached
   const promise = (async () => {
+    if (track.identity_preview_url)
+      return [
+        {
+          src: track.identity_preview_url,
+          setNumber: track.set_number,
+          rallyOrdinal: track.rally_ordinal,
+        },
+      ]
     const replay = await service.rallyReplay(track.rally_id)
     if (!replay?.clip) return []
     const seconds = previewFrameSeconds({

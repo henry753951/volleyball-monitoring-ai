@@ -6,7 +6,7 @@
   "additionalProperties": false,
   "required": ["schema_version", "type", "analysis_run_id", "revision"],
   "properties": {
-    "schema_version": { "const": "1.3.0" },
+    "schema_version": { "const": "1.4.0" },
     "type": { "const": "analysis_review_revision" },
     "analysis_run_id": { "type": "string", "format": "uuid" },
     "revision": { "type": "string", "pattern": "^(0|[1-9][0-9]*)$" }

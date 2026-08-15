@@ -9,13 +9,26 @@ export const CONTRACT_VERSIONS = {
   mediaApiError: '1.0.0',
   annotationRealtime: '3.0.0',
   aiCapabilities: '2.0.0',
+  providerWorkCapabilities: '3.0.0',
   aiJob: '3.0.0',
   aiJobAccepted: '1.0.0',
   aiCallback: '2.0.0',
-  aiProviderRealtime: '2.0.0',
+  aiProviderRealtime: '1.0.0',
+  providerWorkRealtime: '2.0.0',
+  providerWorkEnvelope: '1.0.0',
+  providerWorkCallback: '1.0.0',
+  reidFeatureJob: '1.0.0',
+  reidFeatureResult: '1.0.0',
+  reidAssociationJob: '1.1.0',
+  reidAssociationResult: '1.0.0',
+  reidBankSnapshot: '1.1.0',
+  identityPreviewJob: '1.1.0',
+  identityPreviewResult: '1.0.0',
+  analysisEvidenceManifest: '1.0.0',
+  personPoseEvidenceManifest: '1.0.0',
   providerAnalysisData: 'flatbuffers_analysis_data_v1',
   browserAnalysisFrameChunk: 'flatbuffers_analysis_frame_chunk_v1',
-  analysisReview: '1.3.0',
+  analysisReview: '1.4.0',
 } as const
 
 export type MediaMode = 'live' | 'archive'
@@ -363,3 +376,5 @@ export * from './annotation.js'
 export * from './ai-provider-realtime.js'
 export * from './analysis-data-flatbuffers.js'
 export * from './analysis-review.js'
+export * from './person-pose-evidence-flatbuffers.js'
+export * from './provider-work.js'
