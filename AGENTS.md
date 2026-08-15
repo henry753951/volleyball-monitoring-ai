@@ -1,20 +1,69 @@
-# Repository agent rules
+# Repository agent guide
 
-This repository implements the PC-first Nuxt annotation workstation, the landscape-first iPad PWA coach/replay surfaces, central GraphQL/REST/WebSocket server, media/clip workers, persistence, AI wire contracts and Python SDK. It does not implement AI models.
+This monorepo implements the PC-first Nuxt annotation workstation, landscape-first iPad coach/replay PWA, central Fastify/GraphQL/WebSocket server, media and workflow workers, persistence, wire contracts, and Python provider SDK. It does not contain AI model implementations.
 
-Before work, read `docs/SYSTEM_SPEC_V3_2.md`, `docs/MAIN_AGENT_PROMPT.md`, `packages/contracts/README.md`, fixtures and nearest tests.
+## Read before changing code
 
-Hard invariants:
-- Annotation/touch command semantics are fixed, while physical keyboard bindings are user-configurable. Defaults are Z segment START/END boundaries, X contact, Space play/pause, < resolved/left outcome, > resolved/right outcome, ? explicit unknown outcome, and Enter immutable submit; arrow keys default to frame controls. Z boundaries are not service/contact/landing events. Outcome commands never terminalize a contact, and READY submissions may retain `pending` outcome and zero manual contacts. The settings UI must provide conflict-safe recording and Restore Defaults. The compact touch deck remains Z, X, <, >, ?, and Settings, with no second end-rally control; Enter remains available from the keyboard registry.
-- Rally mask colors are gray editable draft, yellow submitted/processing, blue AI-complete, and green identity-mapping-complete. Submission and later states remain immutable; color never changes that boundary.
-- Browser cursor values are observations; backend playback-window/sample-index resolution creates authoritative capture epoch, PTS, capture time and frame.
-- Full DVR remains server-side and every browser surface lazy-loads bounded playback windows.
-- `RallySubmission` is immutable. Clip/AI/analysis reference the submission, never mutable draft rows.
-- GraphQL Yoga + Pothos code-first is the domain API source. REST serves media/AI callback/binary. A dedicated WebSocket carries annotation commands/revisions.
-- 64-bit time/PTS/byte values are PostgreSQL BIGINT, TypeScript bigint and decimal strings on wire.
-- `frame_pos`/`frame_bbox` are video coordinates. `court_pos` is produced by the external AI subsystem in the fixed canonical court model, may be outside 0..1 and must not be projected or clamped by central/frontend code.
-- Track IDs are analysis-run local. Action/confidence/group phase are optional and not hard-coded.
-- Do not send media or full overlays through GraphQL/subscriptions.
-- Local deployment uses Bun and Docker Compose behind Traefik. The annotation editor is PC-first; only coach/viewer display surfaces have an installable landscape-first iPad PWA acceptance requirement.
+Read these sources in order:
 
-A public contract change requires main-agent approval, ADR/version decision, fixture, SDK/server update and consumer migration. Do not claim validation that was not run.
+1. `docs/SYSTEM_SPEC_V3_2.md` for product and domain invariants.
+2. `docs/MAIN_AGENT_PROMPT.md` for delivery boundaries.
+3. `docs/ARCHITECTURE.md` for package ownership and data flow.
+4. The nearest nested `AGENTS.md`, relevant ADRs, fixtures, and tests.
+5. `packages/contracts/README.md` before changing any wire contract.
+
+Use `docs/DEVELOPMENT.md` for local commands and `docs/RELEASE.md` for version publishing. Record architecture decisions under `docs/adr/`; do not bury contract decisions only in implementation code.
+
+## Repository map
+
+- `web/`: Nuxt 4 annotation, control, coach, live, analytics, and replay surfaces.
+- `server/`: Fastify host, Pothos/Yoga GraphQL API, REST media routes, and dedicated realtime sockets.
+- `worker/`: durable media-indexer and workflow processing roles.
+- `packages/contracts/`: wire schemas, fixtures, validators, and generated GraphQL snapshot.
+- `packages/db/`: Prisma schema, migrations, generated client, and persistence helpers.
+- `packages/media/`: media timing, sample-index, and playback-resolution primitives.
+- `sdk/`: Python SDK for external AI providers.
+- `infra/`: local Docker Compose, Traefik, OME, and supporting services.
+- `scripts/`: validation, local lifecycle, checksum, and operational helpers.
+
+## Hard invariants
+
+- Annotation/touch semantics are fixed while physical keyboard bindings are configurable. Defaults: Z toggles segment START/END boundaries, X adds contact, Space plays/pauses, `<` resolves left, `>` resolves right, `?` records unknown, Enter immutably submits, and arrows control frames. Z boundaries are not service/contact/landing events. Outcome commands never terminalize contacts. READY may retain `pending` outcome and zero manual contacts.
+- The compact touch deck remains Z, X, `<`, `>`, `?`, and Settings. Keyboard recording must be conflict-safe and offer Restore Defaults.
+- Rally mask colors are gray editable draft, yellow submitted/processing, blue AI-complete, and green identity-mapping-complete. Submitted and later states are immutable.
+- Browser cursor values are observations. Backend playback-window/sample-index resolution creates authoritative capture epoch, PTS, capture time, and frame.
+- Full DVR stays server-side; browser surfaces lazy-load bounded playback windows.
+- `RallySubmission` is immutable. Clip, AI, and analysis records reference submissions, never mutable draft rows.
+- GraphQL Yoga + Pothos code-first is the domain API authority. REST serves media, AI callbacks, and binary payloads. Dedicated WebSockets carry annotation and review commands/revisions.
+- PostgreSQL BIGINT maps to TypeScript `bigint` and decimal strings on the wire.
+- `frame_pos` and `frame_bbox` are video coordinates. AI-owned `court_pos` uses the fixed canonical court, may be outside 0..1, and must never be clamped or reprojected by server/web code.
+- Track IDs are analysis-run-local. Action, confidence, and group phase are optional extensions.
+- Never send media or full overlays through GraphQL or subscriptions.
+- Local deployment uses Bun and Docker Compose behind Traefik. Only coach/viewer display surfaces carry the installable landscape-first iPad PWA requirement.
+
+## Change workflow
+
+- Protect dirty work and concurrent worktrees. Before integration, fetch/prune and inspect worktrees, branch ancestry, unique commits, and `origin/main...HEAD`.
+- Prefer codebase knowledge-graph discovery before text search. Use text search for literals, configuration, and non-code files.
+- Keep generated artifacts generated. Modify their source, run the documented generator, and commit source plus output together.
+- A public contract change requires an ADR/version decision, fixture coverage, server/SDK/consumer migration, and explicit main-agent approval.
+- Use Conventional Commits. Keep functional changes, formatting, generated output, and release metadata in reviewable commits.
+- Run formatting before linting; never run formatter and checker concurrently on the same files.
+- Do not claim a check, runtime state, deployment, or release that was not directly verified.
+
+## Required checks
+
+Use the smallest relevant checks while iterating, then run the release gate from `docs/RELEASE.md`. At minimum for merged source changes:
+
+```text
+bun run format:check
+bun run lint
+bun run typecheck
+bun run test
+bun run build
+bun run validate:all
+bun run graphql:schema:check
+git diff --check
+```
+
+After checksum-tracked changes, run `bun run checksums:refresh` and verify the staged diff again.
