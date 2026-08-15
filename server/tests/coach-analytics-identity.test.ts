@@ -35,7 +35,7 @@ describe('coach track identity replacement', () => {
       match: { findFirst: findMatch },
     } as unknown as PrismaClient
 
-    const analytics = await getCoachMatchAnalytics(database, { matchId: 'match-1', userId: 'coach-1', role: UserRole.ADMIN })
+    const analytics = await getCoachMatchAnalytics(database, { matchId: 'match-1', userId: 'coach-1', role: UserRole.COACH })
     expect(analytics?.players.map(player => [player.roster_entry_id, player.contact_count])).toEqual([
       ['roster-1', 0],
       ['roster-2', 1],
@@ -43,6 +43,19 @@ describe('coach track identity replacement', () => {
     expect(analytics?.tracks[0]).toMatchObject({
       identity_source: 'manual', identity_confidence: null, identity_revision: null, reid_model: null,
     })
+    expect(findMatch).toHaveBeenCalledWith(expect.objectContaining({
+      select: expect.objectContaining({
+        rallies: expect.objectContaining({
+          select: expect.objectContaining({
+            activeSubmission: expect.objectContaining({
+              select: expect.objectContaining({
+                analysisRuns: expect.objectContaining({ where: { status: JobStatus.COMPLETED } }),
+              }),
+            }),
+          }),
+        }),
+      }),
+    }))
   })
 
   it('only moves an occupied player off tracks whose frame ranges overlap', async () => {
