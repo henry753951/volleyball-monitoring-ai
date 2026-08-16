@@ -5,6 +5,9 @@ import {
 } from '@volleyball-monitoring/contracts'
 import type { PrismaClient } from '@volleyball-monitoring/db'
 import { AnalysisReviewStatus, JobStatus, UserRole } from '@volleyball-monitoring/db/client'
+import { CONTACT_ASSOCIATION_ALGORITHM } from '../domain/analysis/contact-association.js'
+
+export { CONTACT_ASSOCIATION_ALGORITHM } from '../domain/analysis/contact-association.js'
 
 interface ReviewIdentity {
   userId: string
@@ -16,7 +19,6 @@ const WRITE_ROLES = new Set<UserRole>([
   UserRole.ANNOTATOR,
   UserRole.COACH,
 ])
-export const CONTACT_ASSOCIATION_ALGORITHM = 'contact-association/coco17-pose-first-v1'
 
 export class AnalysisReviewError extends Error {
   constructor(
@@ -25,7 +27,8 @@ export class AnalysisReviewError extends Error {
       | 'NOT_FOUND'
       | 'FRAME_OUT_OF_RANGE'
       | 'TRACK_NOT_ACTIVE'
-      | 'REVIEW_NOT_READY',
+      | 'REVIEW_NOT_READY'
+      | 'DEPENDENCY_PENDING',
     message: string,
   ) {
     super(message)
@@ -741,6 +744,18 @@ export async function recalculateAnalysisReview(
     throw new AnalysisReviewError('FORBIDDEN', 'analysis review is read-only for this role')
   const run = await authorizedRun(database, input.analysisRunId, input.identity)
   if (!run) throw new AnalysisReviewError('NOT_FOUND', 'analysis review is unavailable')
+  const pendingAssociations = await database.analysisContactAssociationJob.count({
+    where: {
+      analysisRunId: input.analysisRunId,
+      reviewRevision: run.reviewRevision,
+      status: { in: [JobStatus.QUEUED, JobStatus.RUNNING] },
+    },
+  })
+  if (pendingAssociations > 0)
+    throw new AnalysisReviewError(
+      'DEPENDENCY_PENDING',
+      'contact associations are still being rebuilt from persisted frame evidence',
+    )
   const activeContacts =
     run.contactEvents.length +
     (run.contactEdits ?? []).filter(edit => !edit.baseKeyPointId && !edit.deleted).length -

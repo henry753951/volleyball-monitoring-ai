@@ -1,29 +1,45 @@
 <script setup lang="ts">
 import {
   Activity,
+  CheckCircle2,
   Clock3,
+  ClipboardCopy,
   Film,
   Gauge,
   HardDrive,
+  Layers3,
   RadioTower,
-  RotateCcw,
+  RefreshCw,
   TriangleAlert,
 } from 'lucide-vue-next'
+import { toast } from 'vue-sonner'
+import {
+  mediaAverageProcessingRate,
+  mediaDiagnostics,
+  mediaHeartbeat,
+  mediaPlayableProgress,
+  mediaPreparationProgress,
+  mediaWorkStage,
+} from '~/lib/mediaOperationsDiagnostics'
 import type { MatchMediaSnapshot, StreamSnapshot } from '~/lib/operationsMonitor'
 
 const props = defineProps<{
   matchTitle: string
   media: MatchMediaSnapshot | null
+  generatedAt: string | null
   open: boolean
+  refreshPending: boolean
   streams: readonly StreamSnapshot[]
 }>()
 
-defineEmits<{ close: [] }>()
+const emit = defineEmits<{ close: []; refresh: [] }>()
 
-const readyPercent = computed(() =>
-  props.media?.segmentCount
-    ? Math.min(100, (props.media.readySegmentCount / props.media.segmentCount) * 100)
-    : 0,
+const currentStream = computed(() => props.streams[0] ?? null)
+const currentStage = computed(() =>
+  currentStream.value ? mediaWorkStage(currentStream.value) : null,
+)
+const currentPlayableProgress = computed(() =>
+  currentStream.value ? mediaPlayableProgress(currentStream.value) : null,
 )
 
 function sourceName(stream: StreamSnapshot) {
@@ -51,17 +67,28 @@ function fps(stream: StreamSnapshot) {
   if (!program || !program.fps.denominator) return '—'
   return `${(program.fps.numerator / program.fps.denominator).toFixed(2)} fps`
 }
-function processingRate(stream: StreamSnapshot) {
-  const started = stream.startedAt ? Date.parse(stream.startedAt) : Number.NaN
-  const updated = Date.parse(stream.updatedAt)
-  const mediaSeconds = Number(BigInt(stream.program?.indexedDurationUs ?? '0')) / 1_000_000
-  const elapsedSeconds = (updated - started) / 1_000
-  if (!Number.isFinite(elapsedSeconds) || elapsedSeconds <= 0 || mediaSeconds <= 0) return null
-  return mediaSeconds / elapsedSeconds
-}
 function rateLabel(stream: StreamSnapshot) {
-  const rate = processingRate(stream)
-  return rate === null ? '—' : `${rate.toFixed(rate >= 10 ? 1 : 2)}×`
+  const rate = mediaAverageProcessingRate(stream)?.value
+  return rate == null ? '計算中' : `${rate.toFixed(rate >= 10 ? 1 : 2)}×`
+}
+function rateDetail(stream: StreamSnapshot) {
+  const rate = mediaAverageProcessingRate(stream)
+  if (!rate) return '第一個片段發布後計算'
+  const basis = rate.basis === 'prepared' ? '來源準備' : '可播放索引'
+  return rate.value < 1 ? `${basis}平均；低於即時速度` : `${basis}平均；高於即時速度`
+}
+function percentLabel(value: number | null) {
+  return value === null ? '計算中' : `${value.toFixed(value >= 10 ? 1 : 2)}%`
+}
+function preparationDetail(stream: StreamSnapshot) {
+  const progress = mediaPreparationProgress(stream)
+  if (progress === 100 && stream.sourceWork?.status === 'DRAINING') {
+    return '下載與切片完成；仍在建立可播放索引'
+  }
+  return progress === null ? '等待來源時長與第一個片段' : '依已發布片段的時間範圍計算'
+}
+function heartbeat(stream: StreamSnapshot) {
+  return mediaHeartbeat(stream, props.generatedAt ?? new Date().toISOString())
 }
 function updatedAt(value: string) {
   return new Intl.DateTimeFormat('zh-TW', {
@@ -76,6 +103,18 @@ function statusLabel(stream: StreamSnapshot) {
   if (stream.status === 'FAILED') return '處理失敗'
   if (stream.program?.status === 'READY') return '索引完成'
   return stream.status.toLowerCase() === 'finished' ? '已完成' : stream.status
+}
+
+async function copyDiagnostics(stream: StreamSnapshot) {
+  const generatedAt = props.generatedAt ?? new Date().toISOString()
+  try {
+    await navigator.clipboard.writeText(
+      JSON.stringify(mediaDiagnostics(stream, generatedAt), null, 2),
+    )
+    toast.success('已複製媒體診斷資訊')
+  } catch {
+    toast.error('無法複製診斷資訊，請確認瀏覽器剪貼簿權限')
+  }
 }
 </script>
 
@@ -102,9 +141,10 @@ function statusLabel(stream: StreamSnapshot) {
           </div>
           <div>
             <Activity :size="16" /><span
-              ><small>已索引</small
+              ><small>可播放片段</small
               ><strong
-                >{{ media?.readySegmentCount ?? 0 }} / {{ media?.segmentCount ?? 0 }}</strong
+                >{{ media?.readySegmentCount ?? 0 }} /
+                {{ currentStream?.completionExpectedSegments ?? media?.segmentCount ?? 0 }}</strong
               ></span
             >
           </div>
@@ -121,10 +161,34 @@ function statusLabel(stream: StreamSnapshot) {
           </div>
         </section>
 
-        <div class="index-progress" aria-label="整體 DVR 索引進度">
-          <span><i :style="{ width: `${readyPercent}%` }" /></span>
-          <small>{{ readyPercent.toFixed(1) }}%</small>
-        </div>
+        <section v-if="currentStream && currentStage" class="current-progress">
+          <header>
+            <div>
+              <span class="eyebrow">目前媒體工作</span>
+              <h3>{{ currentStage.label }}</h3>
+              <p>{{ currentStage.detail }}</p>
+            </div>
+            <button type="button" :disabled="refreshPending" @click="emit('refresh')">
+              <RefreshCw :size="14" :class="{ spinning: refreshPending }" />
+              {{ refreshPending ? '更新中' : '重新整理' }}
+            </button>
+          </header>
+          <div class="index-progress" aria-label="目前來源可播放進度">
+            <span :class="{ indeterminate: currentPlayableProgress === null }">
+              <i
+                :style="{
+                  width:
+                    currentPlayableProgress === null ? undefined : `${currentPlayableProgress}%`,
+                }"
+              />
+            </span>
+            <strong>{{ percentLabel(currentPlayableProgress) }}</strong>
+          </div>
+          <footer>
+            <span>可播放進度＝已驗證索引時長 ÷ 完整來源時長</span>
+            <span>只有來源與全部索引完成後才會顯示 100%</span>
+          </footer>
+        </section>
 
         <section class="stream-section">
           <header>
@@ -132,7 +196,8 @@ function statusLabel(stream: StreamSnapshot) {
               <h3>來源歷程</h3>
               <p>每場同時只使用一個來源；這裡保留更換與重新啟動的採集紀錄</p>
             </div>
-            <span>更新於伺服器快照</span>
+            <span v-if="generatedAt">伺服器快照 {{ updatedAt(generatedAt) }}</span>
+            <span v-else>等待伺服器快照</span>
           </header>
           <div v-if="streams.length" class="stream-list">
             <article v-for="stream in streams" :key="stream.captureSessionId">
@@ -148,30 +213,60 @@ function statusLabel(stream: StreamSnapshot) {
                   ><i />{{ stream.health === 'HEALTHY' ? '正常' : stream.health }}</span
                 >
               </div>
+              <div class="work-stage" :class="mediaWorkStage(stream).tone">
+                <span>
+                  <CheckCircle2 v-if="mediaWorkStage(stream).key === 'completed'" :size="15" />
+                  <TriangleAlert v-else-if="mediaWorkStage(stream).key === 'failed'" :size="15" />
+                  <Layers3 v-else :size="15" />
+                </span>
+                <div>
+                  <strong>{{ mediaWorkStage(stream).label }}</strong>
+                  <small>{{ mediaWorkStage(stream).detail }}</small>
+                </div>
+                <button type="button" title="複製診斷資訊" @click="copyDiagnostics(stream)">
+                  <ClipboardCopy :size="14" />複製診斷
+                </button>
+              </div>
               <dl>
                 <div>
-                  <dt><Gauge :size="13" />處理倍率</dt>
+                  <dt><Gauge :size="13" />端到端平均倍率</dt>
                   <dd>{{ rateLabel(stream) }}</dd>
+                  <small>{{ rateDetail(stream) }}</small>
                 </div>
                 <div>
-                  <dt><Activity :size="13" />影格率</dt>
-                  <dd>{{ fps(stream) }}</dd>
+                  <dt><Layers3 :size="13" />來源切片進度</dt>
+                  <dd>{{ percentLabel(mediaPreparationProgress(stream)) }}</dd>
+                  <small>{{ preparationDetail(stream) }}</small>
                 </div>
                 <div>
-                  <dt><Clock3 :size="13" />已索引時長</dt>
-                  <dd>{{ formatDuration(stream.program?.indexedDurationUs) }}</dd>
+                  <dt><Activity :size="13" />可播放進度</dt>
+                  <dd>{{ percentLabel(mediaPlayableProgress(stream)) }}</dd>
+                  <small>{{ formatDuration(stream.program?.indexedDurationUs) }} 已索引</small>
                 </div>
-                <div>
-                  <dt><RotateCcw :size="13" />時間軸 Epoch</dt>
-                  <dd>{{ stream.epochCount }}</dd>
+                <div :class="{ stalled: heartbeat(stream).stalled }">
+                  <dt><Clock3 :size="13" />Worker 活動</dt>
+                  <dd>{{ heartbeat(stream).stalled ? '可能停滯' : '有回應' }}</dd>
+                  <small>{{ heartbeat(stream).label }}</small>
                 </div>
               </dl>
               <div class="stream-detail">
                 <span
-                  >片段
+                  >工作 <b>{{ stream.sourceWork?.status ?? '尚未建立' }}</b></span
+                >
+                <span
+                  >嘗試 <b>{{ stream.sourceWork?.attempts ?? 0 }}</b></span
+                >
+                <span
+                  >來源時長 <b>{{ formatDuration(stream.sourceDurationUs ?? undefined) }}</b></span
+                >
+                <span
+                  >已發布片段 <b>{{ stream.sourceWork?.resumeSegmentIndex ?? 0 }}</b></span
+                >
+                <span
+                  >索引驗證
                   <b
                     >{{ stream.program?.readySegmentCount ?? 0 }} /
-                    {{ stream.program?.segmentCount ?? 0 }}</b
+                    {{ stream.program?.segmentCount ?? 0 }} 已建立</b
                   ></span
                 >
                 <span
@@ -192,7 +287,16 @@ function statusLabel(stream: StreamSnapshot) {
                   }}</b></span
                 >
                 <span
+                  >影格率 <b>{{ fps(stream) }}</b></span
+                >
+                <span
+                  >Epoch <b>{{ stream.epochCount }}</b></span
+                >
+                <span
                   >最後更新 <b>{{ updatedAt(stream.updatedAt) }}</b></span
+                >
+                <span v-if="stream.sourceWork?.lastErrorCode" class="error-code"
+                  >最近錯誤 <b>{{ stream.sourceWork.lastErrorCode }}</b></span
                 >
               </div>
             </article>
@@ -251,9 +355,71 @@ function statusLabel(stream: StreamSnapshot) {
 .stream-detail b.danger {
   color: #df7b77;
 }
+.current-progress {
+  display: grid;
+  gap: 14px;
+  padding: 16px;
+  border: 1px solid #292c31;
+  border-radius: 12px;
+  background: linear-gradient(135deg, #15181c, #111316);
+}
+.current-progress > header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+.current-progress .eyebrow {
+  color: #62c89a;
+  font-size: 0.47rem;
+  font-weight: 750;
+  letter-spacing: 0.08em;
+}
+.current-progress h3 {
+  margin: 5px 0 0;
+  font-size: 0.72rem;
+}
+.current-progress p {
+  margin: 5px 0 0;
+  color: #858991;
+  font-size: 0.52rem;
+  line-height: 1.5;
+}
+.current-progress button,
+.work-stage button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 30px;
+  padding: 0 10px;
+  border: 1px solid #34383f;
+  border-radius: 7px;
+  background: #1c1f24;
+  color: #c7cbd0;
+  font: inherit;
+  font-size: 0.49rem;
+  cursor: pointer;
+}
+.current-progress button:hover,
+.work-stage button:hover {
+  border-color: #4a5059;
+  background: #24282e;
+}
+.current-progress button:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
+.current-progress footer {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  color: #686d74;
+  font-size: 0.47rem;
+}
 .index-progress {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 48px;
+  grid-template-columns: minmax(0, 1fr) 62px;
   align-items: center;
   gap: 12px;
 }
@@ -267,11 +433,17 @@ function statusLabel(stream: StreamSnapshot) {
   display: block;
   height: 100%;
   background: #54c994;
+  transition: width 240ms ease;
 }
-.index-progress small {
-  color: #8b8f95;
-  font-size: 0.52rem;
+.index-progress > span.indeterminate i {
+  width: 34%;
+  animation: indeterminate-progress 1.2s ease-in-out infinite;
+}
+.index-progress strong {
+  color: #c8ccd1;
+  font-size: 0.56rem;
   font-variant-numeric: tabular-nums;
+  text-align: right;
 }
 .stream-section {
   overflow: hidden;
@@ -353,6 +525,44 @@ function statusLabel(stream: StreamSnapshot) {
 .health.failed i {
   background: #df706d;
 }
+.work-stage {
+  display: grid;
+  grid-template-columns: 30px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  margin-left: 44px;
+  padding: 10px 11px;
+  border: 1px solid #2c3036;
+  border-radius: 9px;
+  background: #171a1e;
+}
+.work-stage > span {
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  border-radius: 7px;
+  background: #252930;
+  color: #d3a85d;
+}
+.work-stage.good > span {
+  color: #55ca92;
+}
+.work-stage.danger > span {
+  color: #e07873;
+}
+.work-stage > div {
+  display: grid;
+  gap: 3px;
+}
+.work-stage strong {
+  font-size: 0.56rem;
+}
+.work-stage small {
+  color: #7c8188;
+  font-size: 0.48rem;
+  line-height: 1.45;
+}
 .stream-list dl {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -377,6 +587,17 @@ function statusLabel(stream: StreamSnapshot) {
   font-weight: 700;
   font-variant-numeric: tabular-nums;
 }
+.stream-list dl small {
+  margin-top: -2px;
+  color: #656a72;
+  font-size: 0.44rem;
+  line-height: 1.4;
+}
+.stream-list dl .stalled dt,
+.stream-list dl .stalled dd,
+.stream-list dl .stalled small {
+  color: #df7b77;
+}
 .stream-detail {
   display: flex;
   flex-wrap: wrap;
@@ -389,6 +610,10 @@ function statusLabel(stream: StreamSnapshot) {
   color: #aeb1b6;
   font-weight: 650;
   font-variant-numeric: tabular-nums;
+}
+.stream-detail .error-code,
+.stream-detail .error-code b {
+  color: #df7b77;
 }
 .empty-monitor {
   min-height: 180px;
@@ -417,8 +642,34 @@ function statusLabel(stream: StreamSnapshot) {
     gap: 12px;
   }
   .stream-detail,
-  .stream-list dl {
+  .stream-list dl,
+  .work-stage {
     padding-left: 0;
+    margin-left: 0;
+  }
+  .current-progress > header,
+  .current-progress footer {
+    align-items: stretch;
+    flex-direction: column;
+  }
+}
+@keyframes indeterminate-progress {
+  0% {
+    transform: translateX(-110%);
+  }
+  50% {
+    transform: translateX(100%);
+  }
+  100% {
+    transform: translateX(300%);
+  }
+}
+.spinning {
+  animation: spin 900ms linear infinite;
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
   }
 }
 </style>

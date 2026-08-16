@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Activity, BarChart3, ChevronRight, CircleAlert, UserRoundSearch } from 'lucide-vue-next'
+import { BarChart3, ChevronRight, CircleAlert, UserRoundSearch } from 'lucide-vue-next'
 import { rosterPositionLabel } from '~/lib/rosterPositions'
 import {
   actionColor,
@@ -14,10 +14,12 @@ import {
   teamParticipation,
   teamTracks,
 } from '~/utils/coachPresentation'
+import { provideIdentityAssignmentService } from '~/composables/useIdentityAssignmentService'
 
 type ViewMode = 'players' | 'tracks' | 'teams'
 
 const route = useRoute()
+provideIdentityAssignmentService()
 const matchId = computed(() => String(route.params.matchId))
 const analyticsState = useCoachAnalytics(matchId)
 const analytics = computed(() => analyticsState.data.value)
@@ -31,11 +33,14 @@ const selectedPlayerId = ref<string | null>(null)
 const selectedTrackKey = ref<string | null>(null)
 const selectedTeamId = ref<string | null>(null)
 const selectedActionKey = ref('all')
+const orderedPlayers = computed(() =>
+  (analytics.value?.teams ?? []).flatMap(team => playersForTeam(team.id)),
+)
 
 const selectedPlayer = computed(
   () =>
     analytics.value?.players.find(player => player.roster_entry_id === selectedPlayerId.value) ??
-    analytics.value?.players[0] ??
+    orderedPlayers.value[0] ??
     null,
 )
 const selectedPlayerTeam = computed(
@@ -134,19 +139,20 @@ const actionOptions = computed(() => {
     (left, right) => right.count - left.count || left.label.localeCompare(right.label, 'zh-Hant'),
   )
 })
-const actionSummaries = computed(() =>
-  actionOptions.value.map(option => {
-    const events = eventState.events.value.filter(event => event.actionKey === option.key)
-    return { ...option, outcome: actionOutcomeRate(events) }
-  }),
-)
 const filteredEvents = computed(() =>
   selectedActionKey.value === 'all'
     ? eventState.events.value
     : eventState.events.value.filter(event => event.actionKey === selectedActionKey.value),
 )
 const outcomeSummary = computed(() => actionOutcomeRate(filteredEvents.value))
-const selectedHeatmap = computed(() => filteredEvents.value.filter(event => event.courtPosition))
+const selectedRouteCount = computed(
+  () =>
+    filteredEvents.value.filter(event => event.routeStart !== null && event.routeEnd !== null)
+      .length,
+)
+const selectedLandingCount = computed(
+  () => filteredEvents.value.filter(event => event.routeEnd !== null).length,
+)
 const selectedActionLabel = computed(() =>
   selectedActionKey.value === 'all'
     ? '全部球種'
@@ -168,7 +174,7 @@ watch(
       !selectedPlayerId.value ||
       !value?.players.some(player => player.roster_entry_id === selectedPlayerId.value)
     )
-      selectedPlayerId.value = value?.players[0]?.roster_entry_id ?? null
+      selectedPlayerId.value = orderedPlayers.value[0]?.roster_entry_id ?? null
     if (!selectedTeamId.value || !value?.teams.some(team => team.id === selectedTeamId.value))
       selectedTeamId.value = value?.teams[0]?.id ?? null
     if (
@@ -195,6 +201,15 @@ function trackKey(track: { analysis_run_id: string; track_id: number }) {
 
 function playerBadge(player: NonNullable<typeof selectedPlayer.value>) {
   return `[${player.position === 'UNSPECIFIED' ? '—' : player.position}] ${player.jersey_number}`
+}
+
+function playersForTeam(teamId: string) {
+  return [...(analytics.value?.players.filter(player => player.team_id === teamId) ?? [])].sort(
+    (left, right) =>
+      Number(left.jersey_number) - Number(right.jersey_number) ||
+      left.jersey_number.localeCompare(right.jersey_number, 'zh-Hant', { numeric: true }) ||
+      left.name.localeCompare(right.name, 'zh-Hant'),
+  )
 }
 
 function trackLabel(track: NonNullable<typeof selectedLocalTrack.value>) {
@@ -240,6 +255,10 @@ function refreshAfterIdentityChange() {
   void eventState.refresh()
 }
 
+function openActionReplay(event: CoachPlayerActionEvent) {
+  void navigateTo(replayEventUrl(matchId.value, event))
+}
+
 const BALL_TYPE_LABELS: Record<string, string> = {
   serve: '發',
   receive: '接',
@@ -251,6 +270,10 @@ function compactActionCounts(counts: Record<string, number>) {
   return ['serve', 'receive', 'spike', 'contact']
     .map(key => ({ key, label: BALL_TYPE_LABELS[key]!, count: counts[key] ?? 0 }))
     .filter(item => item.count > 0)
+}
+
+function actionCount(counts: Record<string, number>) {
+  return Object.values(counts).reduce((sum, count) => sum + count, 0)
 }
 
 function teamActionCounts(teamId: string) {
@@ -286,23 +309,36 @@ function teamActionCounts(teamId: string) {
         <UiScrollArea class="entity-list__scroll">
           <div v-if="viewMode === 'players'">
             <section v-for="team in analytics.teams" :key="team.id" class="entity-list__group">
-              <h2>{{ team.name }}</h2>
+              <h2>
+                <span>{{ team.name }}</span>
+                <small>{{ playersForTeam(team.id).length }} 人</small>
+              </h2>
               <button
-                v-for="player in analytics.players.filter(item => item.team_id === team.id)"
+                v-for="player in playersForTeam(team.id)"
                 :key="player.roster_entry_id"
                 type="button"
+                class="entity-player-row"
                 :class="{ active: selectedPlayer?.roster_entry_id === player.roster_entry_id }"
                 @click="selectPlayer(player.roster_entry_id)"
               >
-                <span>{{ playerBadge(player) }}</span
-                ><b>{{ player.name }}</b
-                ><span class="entity-actions" aria-label="球種摘要">
+                <span class="entity-jersey">#{{ player.jersey_number }}</span>
+                <span class="entity-player-copy">
+                  <b>{{ player.name }}</b>
+                  <small>{{ rosterPositionLabel(player.position) }}</small>
+                </span>
+                <span class="entity-total">
+                  <b>{{ actionCount(player.action_counts) }}</b>
+                  <small>球路</small>
+                </span>
+                <span class="entity-actions" aria-label="球種摘要">
                   <i
                     v-for="item in compactActionCounts(player.action_counts)"
                     :key="item.key"
                     :style="{ '--action-color': actionColor(item.key) }"
                     >{{ item.label }} {{ item.count }}</i
-                  ><small v-if="!compactActionCounts(player.action_counts).length">0 球路</small>
+                  ><small v-if="!compactActionCounts(player.action_counts).length"
+                    >尚無人工球種</small
+                  >
                 </span>
               </button>
             </section>
@@ -378,139 +414,137 @@ function teamActionCounts(teamId: string) {
         class="entity-detail-scroll"
       >
         <main class="entity-detail">
-          <header class="entity-title">
-            <div v-if="viewMode === 'players' && selectedPlayer">
-              <span class="entity-badge">{{ playerBadge(selectedPlayer) }}</span>
-              <p>
-                {{ selectedPlayerTeam?.name }} · {{ rosterPositionLabel(selectedPlayer.position) }}
-              </p>
-              <h1>{{ selectedPlayer.name }}</h1>
-            </div>
-            <div v-else-if="viewMode === 'tracks' && selectedLocalTrack">
-              <span class="entity-badge local">{{ trackLabel(selectedLocalTrack) }}</span>
-              <p>
-                第 {{ selectedLocalTrack.set_number }} 局 · 回合
-                {{ selectedLocalTrack.rally_ordinal }} ·
-                {{
-                  selectedLocalTrack.court_side === 'left'
-                    ? '左側'
-                    : selectedLocalTrack.court_side === 'right'
-                      ? '右側'
-                      : '場側未知'
-                }}
-              </p>
-              <h1>{{ selectedMappedPlayer?.name ?? '未分配球員' }}</h1>
-            </div>
-            <div v-else-if="selectedTeam">
-              <span class="entity-badge team">{{ selectedTeam.shortName || 'TEAM' }}</span>
-              <p>隊伍完整統計 · {{ selectedTeamPlayers.length }} 名登錄球員</p>
-              <h1>{{ selectedTeam.name }}</h1>
-            </div>
-            <span
-              v-if="analyticsState.refreshing.value || eventState.pending.value"
-              class="entity-sync"
-              >同步中</span
-            >
-          </header>
+          <section class="entity-overview">
+            <header class="entity-title">
+              <div v-if="viewMode === 'players' && selectedPlayer">
+                <span class="entity-badge">{{ playerBadge(selectedPlayer) }}</span>
+                <p>
+                  {{ selectedPlayerTeam?.name }} ·
+                  {{ rosterPositionLabel(selectedPlayer.position) }}
+                </p>
+                <h1>{{ selectedPlayer.name }}</h1>
+              </div>
+              <div v-else-if="viewMode === 'tracks' && selectedLocalTrack">
+                <span class="entity-badge local">{{ trackLabel(selectedLocalTrack) }}</span>
+                <p>
+                  第 {{ selectedLocalTrack.set_number }} 局 · 回合
+                  {{ selectedLocalTrack.rally_ordinal }} ·
+                  {{
+                    selectedLocalTrack.court_side === 'left'
+                      ? '左側'
+                      : selectedLocalTrack.court_side === 'right'
+                        ? '右側'
+                        : '場側未知'
+                  }}
+                </p>
+                <h1>{{ selectedMappedPlayer?.name ?? '未分配球員' }}</h1>
+              </div>
+              <div v-else-if="selectedTeam">
+                <span class="entity-badge team">{{ selectedTeam.shortName || 'TEAM' }}</span>
+                <p>隊伍完整統計 · {{ selectedTeamPlayers.length }} 名登錄球員</p>
+                <h1>{{ selectedTeam.name }}</h1>
+              </div>
+            </header>
 
-          <dl class="entity-measures">
-            <template v-if="viewMode === 'players' && selectedPlayer">
-              <div>
-                <dt>分析擊球</dt>
-                <dd>{{ selectedPlayer.contact_count }}</dd>
-                <small>已綁定到此球員的事件</small>
-              </div>
-              <div>
-                <dt>佔已辨識擊球</dt>
-                <dd>{{ (selectedShare * 100).toFixed(1) }}%</dd>
-                <small
-                  >{{
-                    analytics.players.reduce((sum, player) => sum + player.contact_count, 0)
-                  }}
-                  個已辨識事件</small
-                >
-              </div>
-              <div>
-                <dt>參與回合</dt>
-                <dd>{{ selectedParticipation.length }}</dd>
-                <small>具有此球員軌跡的回合</small>
-              </div>
-              <div>
-                <dt>場次識別覆蓋</dt>
-                <dd>{{ (identityCoverage * 100).toFixed(1) }}%</dd>
-                <small
-                  >{{ analytics.metrics.identity_coverage?.sample_count ?? 0 }} 條球員軌跡</small
-                >
-              </div>
-            </template>
-            <template v-else-if="viewMode === 'tracks' && selectedLocalTrack">
-              <div>
-                <dt>人工球種事件</dt>
-                <dd>{{ eventState.events.value.length }}</dd>
-                <small>此片段 ID 關聯的人工標記</small>
-              </div>
-              <div>
-                <dt>球種</dt>
-                <dd>{{ actionOptions.length }}</dd>
-                <small>發球、接發、擊球與殺球</small>
-              </div>
-              <div>
-                <dt>出現範圍</dt>
-                <dd>
-                  {{
-                    Number(
-                      BigInt(selectedLocalTrack.last_frame_index) -
-                        BigInt(selectedLocalTrack.first_frame_index) +
-                        1n,
-                    )
-                  }}
-                </dd>
-                <small
-                  >frames {{ selectedLocalTrack.first_frame_index }}–{{
-                    selectedLocalTrack.last_frame_index
-                  }}</small
-                >
-              </div>
-              <div>
-                <dt>人物狀態</dt>
-                <dd class="mapping-state">{{ selectedMappedPlayer ? '已綁定' : '待分配' }}</dd>
-                <small>{{
-                  selectedMappedPlayer ? playerBadge(selectedMappedPlayer) : '等待人工選擇球員'
-                }}</small>
-              </div>
-            </template>
-            <template v-else-if="selectedTeam">
-              <div>
-                <dt>人工球種</dt>
-                <dd>{{ eventState.events.value.length }}</dd>
-                <small>含未分配片段 ID 的分析事件</small>
-              </div>
-              <div>
-                <dt>球種</dt>
-                <dd>{{ actionOptions.length }}</dd>
-                <small>隊伍所有人工球種分類</small>
-              </div>
-              <div>
-                <dt>參與回合</dt>
-                <dd>{{ selectedTeamParticipation }}</dd>
-                <small>含已辨識的匿名人物 ID</small>
-              </div>
-              <div>
-                <dt>已確認勝率</dt>
-                <dd>
-                  {{
-                    selectedTeamWinRate === null
-                      ? '—'
-                      : `${(selectedTeamWinRate * 100).toFixed(1)}%`
-                  }}
-                </dd>
-                <small
-                  >{{ selectedTeam.wins }} 勝 · {{ selectedTeam.losses }} 負 ·
-                  {{ selectedTeam.unknown }} 未知</small
-                >
-              </div>
-            </template>
-          </dl>
+            <dl class="entity-measures">
+              <template v-if="viewMode === 'players' && selectedPlayer">
+                <div>
+                  <dt>分析擊球</dt>
+                  <dd>{{ selectedPlayer.contact_count }}</dd>
+                  <small>已綁定到此球員的事件</small>
+                </div>
+                <div>
+                  <dt>佔已辨識擊球</dt>
+                  <dd>{{ (selectedShare * 100).toFixed(1) }}%</dd>
+                  <small
+                    >{{
+                      analytics.players.reduce((sum, player) => sum + player.contact_count, 0)
+                    }}
+                    個已辨識事件</small
+                  >
+                </div>
+                <div>
+                  <dt>參與回合</dt>
+                  <dd>{{ selectedParticipation.length }}</dd>
+                  <small>具有此球員軌跡的回合</small>
+                </div>
+                <div>
+                  <dt>場次識別覆蓋</dt>
+                  <dd>{{ (identityCoverage * 100).toFixed(1) }}%</dd>
+                  <small
+                    >{{ analytics.metrics.identity_coverage?.sample_count ?? 0 }} 條球員軌跡</small
+                  >
+                </div>
+              </template>
+              <template v-else-if="viewMode === 'tracks' && selectedLocalTrack">
+                <div>
+                  <dt>人工球種事件</dt>
+                  <dd>{{ eventState.events.value.length }}</dd>
+                  <small>此片段 ID 關聯的人工標記</small>
+                </div>
+                <div>
+                  <dt>球種</dt>
+                  <dd>{{ actionOptions.length }}</dd>
+                  <small>發球、接發、擊球與殺球</small>
+                </div>
+                <div>
+                  <dt>出現範圍</dt>
+                  <dd>
+                    {{
+                      Number(
+                        BigInt(selectedLocalTrack.last_frame_index) -
+                          BigInt(selectedLocalTrack.first_frame_index) +
+                          1n,
+                      )
+                    }}
+                  </dd>
+                  <small
+                    >frames {{ selectedLocalTrack.first_frame_index }}–{{
+                      selectedLocalTrack.last_frame_index
+                    }}</small
+                  >
+                </div>
+                <div>
+                  <dt>人物狀態</dt>
+                  <dd class="mapping-state">{{ selectedMappedPlayer ? '已綁定' : '待分配' }}</dd>
+                  <small>{{
+                    selectedMappedPlayer ? playerBadge(selectedMappedPlayer) : '等待人工選擇球員'
+                  }}</small>
+                </div>
+              </template>
+              <template v-else-if="selectedTeam">
+                <div>
+                  <dt>人工球種</dt>
+                  <dd>{{ eventState.events.value.length }}</dd>
+                  <small>含未分配片段 ID 的分析事件</small>
+                </div>
+                <div>
+                  <dt>球種</dt>
+                  <dd>{{ actionOptions.length }}</dd>
+                  <small>隊伍所有人工球種分類</small>
+                </div>
+                <div>
+                  <dt>參與回合</dt>
+                  <dd>{{ selectedTeamParticipation }}</dd>
+                  <small>含已辨識的匿名人物 ID</small>
+                </div>
+                <div>
+                  <dt>已確認勝率</dt>
+                  <dd>
+                    {{
+                      selectedTeamWinRate === null
+                        ? '—'
+                        : `${(selectedTeamWinRate * 100).toFixed(1)}%`
+                    }}
+                  </dd>
+                  <small
+                    >{{ selectedTeam.wins }} 勝 · {{ selectedTeam.losses }} 負 ·
+                    {{ selectedTeam.unknown }} 未知</small
+                  >
+                </div>
+              </template>
+            </dl>
+          </section>
 
           <CoachTrackIdentityEditor
             v-if="viewMode === 'tracks' && selectedLocalTrack"
@@ -523,11 +557,9 @@ function teamActionCounts(teamId: string) {
 
           <section class="action-workspace">
             <header class="action-toolbar">
-              <div>
-                <Activity :size="17" /><span
-                  ><strong>球路分析</strong
-                  ><small>以人工標記的球種、結果與球員關聯為準</small></span
-                >
+              <div class="action-heading">
+                <h2>球路與落點</h2>
+                <p>依人工球種篩選，查看移動路徑、落點熱區與判定結果</p>
               </div>
               <div class="action-filters" aria-label="球種篩選">
                 <button
@@ -535,7 +567,7 @@ function teamActionCounts(teamId: string) {
                   :class="{ active: selectedActionKey === 'all' }"
                   @click="selectedActionKey = 'all'"
                 >
-                  全部 <b>{{ eventState.events.value.length }}</b>
+                  全部球種 <b>{{ eventState.events.value.length }}</b>
                 </button>
                 <button
                   v-for="option in actionOptions"
@@ -550,63 +582,38 @@ function teamActionCounts(teamId: string) {
               </div>
             </header>
 
-            <div class="action-summary-grid" aria-label="各球種摘要">
-              <button
-                v-for="summary in actionSummaries"
-                :key="summary.key"
-                type="button"
-                :class="{ active: selectedActionKey === summary.key }"
-                @click="selectedActionKey = summary.key"
-              >
-                <i :style="{ background: actionColor(summary.key) }" />
-                <span
-                  ><strong>{{ summary.label }}</strong
-                  ><small>{{ summary.count }} 次標記</small></span
-                >
-                <b>{{
-                  summary.outcome.rate === null
-                    ? '—'
-                    : `${(summary.outcome.rate * 100).toFixed(0)}%`
-                }}</b>
-              </button>
-              <p v-if="!actionSummaries.length">尚無人工球種資料</p>
-            </div>
-
             <div class="action-overview">
-              <article class="action-heatmap">
-                <header>
-                  <strong>{{ selectedActionLabel }}位置</strong
-                  ><span>{{ selectedHeatmap.length }} 個座標樣本</span>
-                </header>
-                <div class="court-map" aria-label="球路落點熱圖">
-                  <i class="net" />
-                  <span
-                    v-for="event in selectedHeatmap"
-                    :key="event.id"
-                    :style="{
-                      left: `${Math.max(0, Math.min(100, event.courtPosition!.x * 100))}%`,
-                      top: `${Math.max(0, Math.min(100, event.courtPosition!.y * 100))}%`,
-                      '--action-color': actionColor(event.actionKey),
-                    }"
-                    :title="`第 ${event.setNumber} 局 · 回合 ${event.rallyOrdinal} · ${event.actionLabel}`"
-                  />
-                  <p v-if="!filteredEvents.length">目前沒有可用的人工球種資料</p>
-                  <p v-else-if="!selectedHeatmap.length">這個篩選沒有可用的場地位置</p>
+              <aside class="action-rate" aria-label="球路資料摘要">
+                <div class="action-rate__primary">
+                  <span>人工結果成功率</span>
+                  <strong>{{
+                    outcomeSummary.rate === null
+                      ? '—'
+                      : `${(outcomeSummary.rate * 100).toFixed(1)}%`
+                  }}</strong>
+                  <p>{{ outcomeSummary.won }} / {{ outcomeSummary.resolved }} 個已判定事件</p>
                 </div>
-              </article>
-              <aside class="action-rate">
-                <span>標記結果成功率</span>
-                <strong>{{
-                  outcomeSummary.rate === null ? '—' : `${(outcomeSummary.rate * 100).toFixed(1)}%`
-                }}</strong>
-                <p>{{ outcomeSummary.won }} / {{ outcomeSummary.resolved }} 個已判定事件</p>
+                <dl>
+                  <div>
+                    <dt>完整球路</dt>
+                    <dd>{{ selectedRouteCount }}</dd>
+                  </div>
+                  <div>
+                    <dt>有效落點</dt>
+                    <dd>{{ selectedLandingCount }}</dd>
+                  </div>
+                </dl>
                 <small
-                  >依人工填寫的得分、成功、失誤、失分或失敗計算。<template
-                    v-if="outcomeSummary.unknown"
-                    >另有 {{ outcomeSummary.unknown }} 筆結果未判定。</template
+                  >成功率僅計入人工判定的事件。<template v-if="outcomeSummary.unknown"
+                    >{{ outcomeSummary.unknown }} 筆尚未判定。</template
                   ></small
                 >
               </aside>
+              <CoachBallRouteMap
+                :events="filteredEvents"
+                :label="selectedActionLabel"
+                @select="openActionReplay"
+              />
             </div>
 
             <section class="action-records">
@@ -636,9 +643,13 @@ function teamActionCounts(teamId: string) {
                     <span class="action-record__outcome" :data-outcome="event.outcome">{{
                       outcomeLabel(event)
                     }}</span>
-                    <span v-if="event.actionConfidence !== null" class="action-record__confidence"
-                      >{{ Math.round(event.actionConfidence * 100) }}%</span
-                    >
+                    <span class="action-record__route-state">{{
+                      event.routeStart && event.routeEnd
+                        ? '起點 → 終點'
+                        : event.routeEnd
+                          ? '只有落點'
+                          : '尚無球路'
+                    }}</span>
                     <ChevronRight :size="17" />
                   </NuxtLink>
                 </div>
@@ -699,11 +710,19 @@ function teamActionCounts(teamId: string) {
                 type="button"
                 @click="openPlayer(player.roster_entry_id)"
               >
-                <span class="entity-badge">{{ playerBadge(player) }}</span>
-                <strong>{{ player.name }}</strong>
-                <span>{{ rosterPositionLabel(player.position) }}</span>
-                <b>{{ player.contact_count }} 擊球</b>
-                <small>{{ player.rally_count }} 回合</small>
+                <span class="team-player-jersey">#{{ player.jersey_number }}</span>
+                <span class="team-player-copy">
+                  <strong>{{ player.name }}</strong>
+                  <small>{{ rosterPositionLabel(player.position) }}</small>
+                </span>
+                <span class="team-player-metric">
+                  <b>{{ player.contact_count }}</b>
+                  <small>球路</small>
+                </span>
+                <span class="team-player-metric">
+                  <b>{{ player.rally_count }}</b>
+                  <small>回合</small>
+                </span>
                 <ChevronRight :size="17" />
               </button>
             </div>
@@ -726,7 +745,7 @@ function teamActionCounts(teamId: string) {
   height: 100%;
   min-height: 0;
   display: grid;
-  grid-template-columns: 300px minmax(0, 1fr);
+  grid-template-columns: clamp(272px, 25vw, 316px) minmax(0, 1fr);
   overflow: hidden;
   border-block: 1px solid #e0e5e9;
   background: #fbfcfd;
@@ -771,12 +790,23 @@ function teamActionCounts(teamId: string) {
   position: sticky;
   top: 0;
   z-index: 2;
+  min-height: 34px;
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 10px;
   margin: 0 9px 0 0;
-  padding: 12px 14px 7px;
+  padding: 10px 14px 7px;
   background: rgba(238, 241, 244, 0.94);
   color: #707985;
   font-size: 0.63rem;
   backdrop-filter: blur(12px);
+}
+.entity-list__group h2 small {
+  color: #929aa3;
+  font-size: 0.54rem;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
 }
 .entity-list__group > button {
   width: 100%;
@@ -816,10 +846,10 @@ function teamActionCounts(teamId: string) {
   font-variant-numeric: tabular-nums;
 }
 .entity-actions {
-  display: grid !important;
-  grid-template-columns: repeat(2, auto);
-  justify-content: end;
-  gap: 3px 5px;
+  display: flex !important;
+  flex-wrap: wrap;
+  justify-content: flex-start;
+  gap: 4px 7px;
   font-weight: 650 !important;
 }
 .entity-actions i {
@@ -832,10 +862,74 @@ function teamActionCounts(teamId: string) {
   white-space: nowrap;
 }
 .entity-actions small {
-  grid-column: 1 / -1;
   color: #858d97;
   font-size: 0.56rem;
   font-weight: 500;
+}
+.entity-player-row {
+  min-height: 76px !important;
+  grid-template-columns: 46px minmax(0, 1fr) auto !important;
+  grid-template-rows: auto auto;
+  gap: 4px 9px !important;
+  margin: 2px 8px 2px 0;
+  padding: 9px 12px 9px 10px !important;
+  border-radius: 0 12px 12px 0;
+}
+.entity-player-row.active {
+  box-shadow:
+    inset 3px 0 #0670df,
+    0 5px 16px rgb(37 54 72 / 8%) !important;
+}
+.entity-jersey {
+  width: 38px;
+  height: 38px;
+  display: grid;
+  grid-row: 1 / 3;
+  place-items: center;
+  align-self: center;
+  border-radius: 11px;
+  background: #dfe5ea;
+  color: #35414c;
+  font-size: 0.72rem !important;
+  font-weight: 800 !important;
+}
+.entity-player-row.active .entity-jersey {
+  background: #0b67c2;
+  color: #fff;
+}
+.entity-player-copy {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+.entity-player-copy b {
+  overflow: hidden;
+  font-size: 0.69rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.entity-player-copy small,
+.entity-total small {
+  color: #87909a;
+  font-size: 0.54rem;
+  font-weight: 560;
+}
+.entity-total {
+  display: grid;
+  justify-items: end;
+  gap: 1px;
+}
+.entity-total b {
+  color: #303944;
+  font-size: 0.82rem;
+  font-variant-numeric: tabular-nums;
+}
+.entity-player-row.active .entity-total b {
+  color: #075fbe;
+}
+.entity-player-row > .entity-actions {
+  grid-column: 2 / 4;
+  min-width: 0;
 }
 .entity-list__empty {
   padding: 22px 14px;
@@ -843,29 +937,49 @@ function teamActionCounts(teamId: string) {
   font-size: 0.68rem;
 }
 .entity-detail {
+  --detail-gutter: clamp(24px, 3.4vw, 52px);
+
   min-width: 0;
   min-height: 100%;
-  padding: clamp(25px, 3.6vw, 50px) clamp(28px, 4.5vw, 68px);
+  padding: 0 var(--detail-gutter) 48px;
   box-sizing: border-box;
+}
+.entity-overview {
+  display: grid;
+  grid-template-columns: minmax(270px, 0.9fr) minmax(0, 2fr);
+  align-items: stretch;
+  margin-inline: calc(var(--detail-gutter) * -1);
+  padding: 16px var(--detail-gutter);
+  border-bottom: 1px solid #e2e7eb;
+  background: #f4f7f9;
 }
 .entity-title {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
   gap: 20px;
+  padding-right: 26px;
 }
 .entity-title > div {
   min-width: 0;
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr);
+  grid-template-rows: auto auto;
+  align-items: center;
+  column-gap: 10px;
 }
 .entity-badge {
-  display: inline-flex;
-  min-height: 27px;
+  width: 44px;
+  height: 44px;
+  display: flex;
+  grid-row: 1 / 3;
   align-items: center;
-  padding: 0 8px;
-  border-radius: 7px;
+  justify-content: center;
+  padding: 0 6px;
+  border-radius: 13px;
   background: #17202a;
   color: #fff;
-  font-size: 0.68rem;
+  font-size: 0.72rem;
   font-weight: 780;
   font-variant-numeric: tabular-nums;
 }
@@ -874,33 +988,32 @@ function teamActionCounts(teamId: string) {
   color: #333a42;
 }
 .entity-title p {
-  margin: 13px 0 3px;
+  align-self: end;
+  margin: 0 0 3px;
   color: #737c87;
-  font-size: 0.7rem;
+  font-size: 0.66rem;
   font-weight: 620;
 }
 .entity-title h1 {
+  align-self: start;
   margin: 0;
-  font-size: clamp(2rem, 4vw, 3.45rem);
-  line-height: 1;
+  overflow: hidden;
+  font-size: clamp(1.45rem, 2.1vw, 1.95rem);
+  line-height: 1.08;
   letter-spacing: -0.035em;
-}
-.entity-sync {
-  color: #74808b;
-  font-size: 0.62rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .entity-measures {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
-  margin: clamp(28px, 4vw, 54px) 0 26px;
-  border-block: 1px solid #dfe4e8;
+  align-items: center;
+  gap: clamp(8px, 1.2vw, 18px);
+  margin: 0;
 }
 .entity-measures > div {
   min-width: 0;
-  padding: 18px;
-}
-.entity-measures > div + div {
-  border-left: 1px solid #e1e5e9;
+  padding: 6px 0;
 }
 .entity-measures dt {
   color: #68727e;
@@ -908,8 +1021,8 @@ function teamActionCounts(teamId: string) {
   font-weight: 650;
 }
 .entity-measures dd {
-  margin: 8px 0 5px;
-  font-size: clamp(1.55rem, 2.7vw, 2.45rem);
+  margin: 5px 0 3px;
+  font-size: clamp(1.4rem, 2vw, 1.8rem);
   font-weight: 720;
   line-height: 1;
   letter-spacing: -0.035em;
@@ -920,114 +1033,78 @@ function teamActionCounts(teamId: string) {
   letter-spacing: -0.01em;
 }
 .entity-measures small {
-  display: block;
+  display: none;
   color: #858d97;
   font-size: 0.58rem;
   line-height: 1.4;
 }
 .action-workspace {
-  margin-top: 34px;
+  margin-top: 24px;
 }
 .action-toolbar {
-  display: flex;
-  align-items: flex-end;
-  justify-content: space-between;
-  gap: 18px;
-  padding-bottom: 12px;
+  display: grid;
+  gap: 14px;
+  margin-inline: calc(var(--detail-gutter) * -1);
+  padding: 0 var(--detail-gutter);
   border-bottom: 1px solid #dfe4e8;
 }
-.action-toolbar > div:first-child {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.action-toolbar > div:first-child > span {
+.action-heading {
   display: grid;
-  gap: 2px;
+  gap: 4px;
 }
-.action-toolbar strong {
-  font-size: 0.78rem;
-}
-.action-toolbar small {
-  color: #7c858f;
-  font-size: 0.59rem;
-}
-.action-summary-grid {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(120px, 1fr));
-  gap: 8px;
-  padding: 16px 0 2px;
-}
-.action-summary-grid > button {
-  min-height: 66px;
-  display: grid;
-  grid-template-columns: 4px minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 10px;
-  padding: 10px 12px;
-  border: 1px solid #e0e5ea;
-  border-radius: 12px;
-  background: #fff;
-  color: #22282f;
-  text-align: left;
-}
-.action-summary-grid > button:hover,
-.action-summary-grid > button.active {
-  border-color: #a9cdf1;
-  background: #f3f8fd;
-}
-.action-summary-grid > button > i {
-  width: 4px;
-  height: 34px;
-  border-radius: 999px;
-}
-.action-summary-grid > button > span {
-  display: grid;
-  gap: 3px;
-}
-.action-summary-grid strong {
-  font-size: 0.7rem;
-}
-.action-summary-grid small {
-  color: #7a848e;
-  font-size: 0.57rem;
-}
-.action-summary-grid b {
-  font-size: 1rem;
-  font-variant-numeric: tabular-nums;
-}
-.action-summary-grid > p {
-  grid-column: 1 / -1;
+.action-heading h2 {
   margin: 0;
-  padding: 16px 0;
-  color: #7b858f;
-  font-size: 0.65rem;
+  color: #1d252d;
+  font-size: 1rem;
+  font-weight: 760;
+  line-height: 1.2;
+  letter-spacing: -0.02em;
+}
+.action-heading p {
+  margin: 0;
+  color: #7c858f;
+  font-size: 0.63rem;
+  line-height: 1.45;
 }
 .action-filters {
   display: flex;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-  gap: 4px;
+  max-width: 100%;
+  overflow-x: auto;
+  gap: 20px;
+  scrollbar-width: none;
+}
+.action-filters::-webkit-scrollbar {
+  display: none;
 }
 .action-filters button {
-  min-height: 34px;
+  position: relative;
+  min-height: 40px;
   display: inline-flex;
+  flex: 0 0 auto;
   align-items: center;
   gap: 6px;
-  padding: 0 9px;
+  padding: 0 2px;
   border: 0;
-  border-radius: 8px;
   background: transparent;
   color: #68727c;
-  font-size: 0.63rem;
-  font-weight: 690;
+  font-size: 0.66rem;
+  font-weight: 700;
 }
 .action-filters button:hover {
-  background: #eef2f5;
+  color: #202a34;
 }
 .action-filters button.active {
-  background: #e4ebf2;
-  color: #10161d;
+  color: #075fbe;
+}
+.action-filters button.active::after {
+  position: absolute;
+  right: 0;
+  bottom: -1px;
+  left: 0;
+  height: 2px;
+  border-radius: 2px 2px 0 0;
+  background: #0875dd;
+  content: '';
 }
 .action-filters i {
   width: 7px;
@@ -1035,107 +1112,87 @@ function teamActionCounts(teamId: string) {
   border-radius: 50%;
 }
 .action-filters b {
-  font-size: 0.57rem;
+  color: #8a949e;
+  font-size: 0.59rem;
   font-variant-numeric: tabular-nums;
+}
+.action-filters button.active b {
+  color: #4688ca;
 }
 .action-overview {
   display: grid;
-  grid-template-columns: minmax(0, 1.5fr) minmax(220px, 0.5fr);
-  gap: 24px;
-  padding: 26px 0;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 12px;
+  margin-inline: calc(var(--detail-gutter) * -1);
+  padding: 16px var(--detail-gutter) 26px;
   border-bottom: 1px solid #dfe4e8;
 }
-.action-heatmap > header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 10px;
-}
-.action-heatmap > header strong {
-  font-size: 0.72rem;
-}
-.action-heatmap > header span {
-  color: #7b858f;
-  font-size: 0.59rem;
-}
-.court-map {
-  position: relative;
-  aspect-ratio: 18/9;
-  overflow: hidden;
-  border: 1px solid #8496a3;
-  background: linear-gradient(90deg, #e8c88f 0 49.7%, #d3b276 49.7% 50.3%, #e8c88f 50.3%);
-}
-.court-map::before,
-.court-map::after {
-  position: absolute;
-  inset-block: 0;
-  width: 1px;
-  background: #ffffffbd;
-  content: '';
-}
-.court-map::before {
-  left: 16.666%;
-}
-.court-map::after {
-  right: 16.666%;
-}
-.court-map .net {
-  position: absolute;
-  z-index: 1;
-  inset-block: 0;
-  left: 50%;
-  width: 2px;
-  background: #f8fafc;
-}
-.court-map > span {
-  position: absolute;
-  z-index: 2;
-  width: 12px;
-  height: 12px;
-  transform: translate(-50%, -50%);
-  border: 2px solid #fff;
-  border-radius: 50%;
-  background: var(--action-color);
-  box-shadow: 0 2px 7px color-mix(in srgb, var(--action-color) 55%, transparent);
-}
-.court-map p {
-  position: absolute;
-  inset: 0;
-  display: grid;
-  place-items: center;
-  margin: 0;
-  color: #6d5c40;
-  font-size: 0.68rem;
-}
 .action-rate {
-  display: flex;
+  min-height: 76px;
+  display: grid;
   min-width: 0;
-  flex-direction: column;
-  justify-content: center;
-  padding-left: 24px;
-  border-left: 1px solid #e0e5e9;
+  grid-template-columns: minmax(190px, 0.9fr) auto minmax(210px, 1.2fr);
+  align-items: center;
+  gap: 22px;
+  padding: 12px 16px;
+  border: 1px solid #dfe5ea;
+  border-radius: 14px;
+  background: #f4f7f9;
 }
-.action-rate > span {
+.action-rate__primary {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: baseline;
+  gap: 2px 12px;
+}
+.action-rate__primary > span {
+  grid-column: 1 / -1;
   color: #6d7782;
   font-size: 0.66rem;
   font-weight: 680;
 }
-.action-rate > strong {
-  margin: 10px 0 4px;
-  font-size: clamp(2.2rem, 4.2vw, 4rem);
+.action-rate__primary > strong {
+  margin: 4px 0 0;
+  font-size: clamp(1.8rem, 3vw, 2.7rem);
   line-height: 1;
   letter-spacing: -0.045em;
   font-variant-numeric: tabular-nums;
 }
-.action-rate p {
+.action-rate__primary p {
   margin: 0;
   color: #414951;
-  font-size: 0.68rem;
+  font-size: 0.62rem;
+  white-space: nowrap;
+}
+.action-rate dl {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 20px;
+  margin: 0;
+  padding: 0 22px;
+  border-inline: 1px solid #dce2e7;
+}
+.action-rate dl > div {
+  display: grid;
+  gap: 4px;
+  min-width: 72px;
+  padding: 0;
+}
+.action-rate dt {
+  color: #75808a;
+  font-size: 0.56rem;
+}
+.action-rate dd {
+  margin: 0;
+  color: #26313b;
+  font-size: 1.2rem;
+  font-weight: 760;
+  font-variant-numeric: tabular-nums;
 }
 .action-rate small {
-  max-width: 34ch;
-  margin-top: 12px;
+  max-width: 42ch;
+  margin: 0;
   color: #7b858f;
   font-size: 0.59rem;
   line-height: 1.55;
@@ -1149,7 +1206,8 @@ function teamActionCounts(teamId: string) {
   align-items: end;
   justify-content: space-between;
   gap: 16px;
-  padding-bottom: 10px;
+  margin-inline: calc(var(--detail-gutter) * -1);
+  padding: 0 var(--detail-gutter) 10px;
   border-bottom: 1px solid #dfe4e8;
 }
 .action-records h2,
@@ -1174,7 +1232,7 @@ function teamActionCounts(teamId: string) {
 .action-records__list a {
   min-height: 58px;
   display: grid;
-  grid-template-columns: 4px minmax(180px, 1fr) 74px 100px 48px 18px;
+  grid-template-columns: 4px minmax(180px, 1fr) 74px 88px 82px 18px;
   align-items: center;
   gap: 12px;
   border-bottom: 1px solid #e4e7eb;
@@ -1197,9 +1255,12 @@ function teamActionCounts(teamId: string) {
   font-size: 0.71rem;
 }
 .action-record__identity span,
-.action-record__confidence {
+.action-record__route-state {
   color: #7c858f;
   font-size: 0.58rem;
+}
+.action-record__route-state {
+  white-space: nowrap;
 }
 .action-records time {
   font-size: 0.68rem;
@@ -1306,18 +1367,34 @@ function teamActionCounts(teamId: string) {
   .players-layout {
     grid-template-columns: 260px minmax(0, 1fr);
   }
-  .action-overview {
-    grid-template-columns: 1fr;
-  }
   .action-rate {
-    padding: 18px 0 0;
-    border-top: 1px solid #e0e5e9;
-    border-left: 0;
+    grid-template-columns: minmax(165px, 0.8fr) auto;
+    gap: 14px;
+  }
+  .action-rate > small {
+    grid-column: 1 / -1;
+    padding-top: 10px;
+    border-top: 1px solid #dce2e7;
+  }
+  .entity-overview {
+    grid-template-columns: minmax(180px, 0.65fr) minmax(0, 2fr);
+  }
+  .entity-title {
+    padding-right: 18px;
+  }
+  .entity-measures {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  .entity-measures > div:nth-child(3) {
+    border: 0;
+  }
+  .entity-measures > div:nth-child(4) {
+    border: 0;
   }
   .action-records__list a {
     grid-template-columns: 4px minmax(150px, 1fr) 65px 90px 18px;
   }
-  .action-record__confidence {
+  .action-record__route-state {
     display: none;
   }
 }
@@ -1326,10 +1403,19 @@ function teamActionCounts(teamId: string) {
     grid-template-columns: 220px minmax(0, 1fr);
   }
   .entity-detail {
-    padding: 22px;
+    --detail-gutter: 22px;
+
+    padding: 0 var(--detail-gutter) 48px;
+  }
+  .entity-overview {
+    grid-template-columns: 1fr;
+  }
+  .entity-title {
+    padding-right: 0;
   }
   .entity-measures {
-    grid-template-columns: repeat(2, 1fr);
+    border-top: 1px solid #dfe4e8;
+    border-left: 0;
   }
   .entity-measures > div:nth-child(3) {
     border-left: 0;
@@ -1349,7 +1435,7 @@ function teamActionCounts(teamId: string) {
     grid-template-columns: 4px minmax(130px, 1fr) 62px 18px;
   }
   .action-record__outcome,
-  .action-record__confidence {
+  .action-record__route-state {
     display: none;
   }
 }
@@ -1364,9 +1450,6 @@ function teamActionCounts(teamId: string) {
     backdrop-filter: none;
   }
 }
-.players-layout {
-  grid-template-columns: 316px minmax(0, 1fr);
-}
 .team-entities > button {
   grid-template-columns: 52px minmax(0, 1fr) auto;
 }
@@ -1380,7 +1463,8 @@ function teamActionCounts(teamId: string) {
   align-items: end;
   justify-content: space-between;
   gap: 16px;
-  padding-bottom: 10px;
+  margin-inline: calc(var(--detail-gutter) * -1);
+  padding: 0 var(--detail-gutter) 10px;
   border-bottom: 1px solid #dfe4e8;
 }
 .action-records h2,
@@ -1411,58 +1495,97 @@ function teamActionCounts(teamId: string) {
   color: #7b848f;
   font-size: 0.68rem;
 }
+.team-roster-summary__rows {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  padding-top: 14px;
+}
 .team-roster-summary__rows > button {
   width: 100%;
-  min-height: 58px;
+  min-height: 76px;
   display: grid;
-  grid-template-columns: 68px minmax(160px, 1fr) minmax(90px, 0.7fr) 82px 68px 18px;
+  grid-template-columns: 46px minmax(0, 1fr) auto auto 18px;
   align-items: center;
-  gap: 12px;
-  padding: 0;
-  border: 0;
-  border-bottom: 1px solid #e4e7eb;
-  background: transparent;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid #e0e5ea;
+  border-radius: 14px;
+  background: #fff;
   color: #20262c;
   text-align: left;
+  transition:
+    border-color 140ms ease,
+    background 140ms ease,
+    transform 140ms ease;
 }
 .team-roster-summary__rows > button:hover {
-  background: #f2f5f8;
+  border-color: #bfd1e0;
+  background: #f8fafc;
+  transform: translateY(-1px);
 }
-.team-roster-summary__rows > button > strong {
+.team-roster-summary__rows > button:focus-visible {
+  outline: 3px solid rgb(11 103 194 / 22%);
+  outline-offset: 2px;
+}
+.team-player-jersey {
+  width: 44px;
+  height: 44px;
+  display: grid;
+  place-items: center;
+  border-radius: 12px;
+  background: #17212b;
+  color: #fff;
   font-size: 0.72rem;
-}
-.team-roster-summary__rows > button > span:not(.entity-badge),
-.team-roster-summary__rows > button > small {
-  color: #7c858f;
-  font-size: 0.6rem;
-}
-.team-roster-summary__rows > button > b {
-  font-size: 0.68rem;
+  font-weight: 800;
   font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+}
+.team-player-copy {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+.team-player-copy strong {
+  overflow: hidden;
+  color: #1d252d;
+  font-size: 0.72rem;
+  font-weight: 720;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.team-player-copy small {
+  color: #7c858f;
+  font-size: 0.58rem;
+  line-height: 1.25;
+}
+.team-player-metric {
+  min-width: 34px;
+  display: grid;
+  justify-items: end;
+  gap: 2px;
+}
+.team-player-metric b {
+  color: #26313a;
+  font-size: 0.78rem;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+.team-player-metric small {
+  color: #8a939c;
+  font-size: 0.54rem;
+  white-space: nowrap;
 }
 .team-roster-summary__rows svg {
   color: #8b949d;
 }
-@media (max-width: 980px) {
-  .players-layout {
-    grid-template-columns: 272px minmax(0, 1fr);
-  }
-  .team-roster-summary__rows > button {
-    grid-template-columns: 68px minmax(130px, 1fr) 78px 68px 18px;
-  }
-  .team-roster-summary__rows > button > span:nth-child(3) {
-    display: none;
-  }
-}
 @media (max-width: 760px) {
-  .players-layout {
-    grid-template-columns: 232px minmax(0, 1fr);
+  .team-roster-summary__rows {
+    grid-template-columns: 1fr;
   }
   .team-roster-summary__rows > button {
-    grid-template-columns: 68px minmax(110px, 1fr) 68px 18px;
-  }
-  .team-roster-summary__rows > button > small {
-    display: none;
+    grid-template-columns: 46px minmax(0, 1fr) auto auto 18px;
   }
 }
 </style>

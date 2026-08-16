@@ -229,18 +229,10 @@ export function normalizeBallEventKeyPoints(input: {
       after: { sequence_index: receive.sequence_index, event: receive.event },
     })
   }
-  for (const point of points.slice(0, -1)) {
-    if (point.event.kind !== 'SPIKE' || point.event.result !== 'SUCCESS') continue
-    const before = { ...point.event }
-    point.event = { kind: 'SPIKE', result: 'FAILURE' }
-    repairs.push({
-      code: 'SPIKE_SUCCESS_DOWNGRADED',
-      key_point_id: point.key_point_id,
-      action: 'update',
-      before: { sequence_index: point.sequence_index, event: before },
-      after: { sequence_index: point.sequence_index, event: point.event },
-    })
-  }
+  // A later key point does not prove that an earlier spike failed. The later
+  // observation can be the ball landing, a block touch, or another automatic
+  // contact without an assigned actor. Preserve the operator's explicit spike
+  // result; rally outcome and actor/pose evidence can evaluate it separately.
 
   return { points, tombstoned_key_point_ids: tombstoned, repairs }
 }

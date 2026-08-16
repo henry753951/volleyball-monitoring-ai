@@ -20,6 +20,7 @@ const manifest = {
       capture_epoch_id: 'epoch',
       capture_frame_index: '100',
       source_pts: '300',
+      clip_pts: '0',
       clip_frame_index: '0',
       capture_time_us: '1000000',
       clip_time_us: '0',
@@ -28,6 +29,7 @@ const manifest = {
       capture_epoch_id: 'epoch',
       capture_frame_index: '101',
       source_pts: '301',
+      clip_pts: '1001',
       clip_frame_index: '1',
       capture_time_us: '1016683',
       clip_time_us: '16683',
@@ -36,6 +38,7 @@ const manifest = {
       capture_epoch_id: 'epoch',
       capture_frame_index: '102',
       source_pts: '302',
+      clip_pts: '3003',
       clip_frame_index: '2',
       capture_time_us: '1050050',
       clip_time_us: '50050',
@@ -80,6 +83,7 @@ describe('clip timing coverage', () => {
       captureFrameIndex: [100n, 101n, 102n],
       captureTimeUs: [1_000_000n, 1_016_683n, 1_050_050n],
       captureEndUs: 1_100_000n,
+      clipPts: [0n, 1001n, 3003n],
       clipTimeUs: [0n, 16_683n, 50_050n],
       clipEndUs: 100_000n,
       sourcePts: [300n, 301n, 302n],
@@ -92,6 +96,7 @@ describe('clip timing coverage', () => {
       captureFrameIndex: [100n, 101n, 102n],
       captureTimeUs: [1_000_000n, 1_016_683n, 1_050_050n],
       captureEndUs: 1_100_000n,
+      clipPts: [0n, 1001n, 3003n],
       clipTimeUs: [0n, 16_683n, 50_050n],
       clipEndUs: 100_000n,
       sourcePts: [300n, 301n, 302n],
@@ -106,6 +111,21 @@ describe('clip timing coverage', () => {
       startUs: 1_000_000n,
       endUs: 1_050_050n,
     })
+  })
+
+  it('preserves signed source PTS while keeping canonical clip PTS non-negative', () => {
+    const timeline = resolveClipFrameTimeline(
+      {
+        ...manifest,
+        frame_map: manifest.frame_map.map((frame, index) => ({
+          ...frame,
+          source_pts: String(index - 2),
+        })),
+      },
+      'clip-job-1',
+    )
+    expect(timeline.sourcePts).toEqual([-2n, -1n, 0n])
+    expect(timeline.clipPts).toEqual([0n, 1001n, 3003n])
   })
 
   it('uses the manifest range only when no track frame range exists', () => {
@@ -169,6 +189,7 @@ describe('clip timing coverage', () => {
       ),
     ).resolves.toEqual(
       expect.objectContaining({
+        clipPts: [0n, 1001n, 3003n],
         clipTimeUs: [0n, 16_683n, 50_050n],
       }),
     )

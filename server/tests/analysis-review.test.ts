@@ -3,7 +3,11 @@ import type { PrismaClient } from '@volleyball-monitoring/db'
 import { UserRole } from '@volleyball-monitoring/db/client'
 import { describe, expect, it, vi } from 'vitest'
 import type { AnalysisReviewError } from '../src/services/analysis-review.js'
-import { applyAnalysisReviewPatch, readAnalysisReview } from '../src/services/analysis-review.js'
+import {
+  applyAnalysisReviewPatch,
+  readAnalysisReview,
+  recalculateAnalysisReview,
+} from '../src/services/analysis-review.js'
 
 const analysisRunId = '85000000-0000-4000-8000-000000000002'
 const identity = { userId: '85000000-0000-4000-8000-000000000003', role: UserRole.OPERATOR }
@@ -115,6 +119,28 @@ describe('analysis review corrections', () => {
     expect(tx.analysisReviewPatchReceipt.create).toHaveBeenCalledWith({
       data: { id: patch.client_patch_id, analysisRunId, revision: 3n },
     })
+  })
+
+  it('waits for the changed contacts only before completing deterministic rebuild', async () => {
+    const database = {
+      analysisRun: {
+        findFirst: vi.fn().mockResolvedValue(authorizedRun()),
+        update: vi.fn(),
+      },
+      analysisContactAssociationJob: { count: vi.fn().mockResolvedValue(1) },
+    } as unknown as PrismaClient
+
+    await expect(recalculateAnalysisReview(database, { analysisRunId, identity })).rejects.toEqual(
+      expect.objectContaining<Partial<AnalysisReviewError>>({ code: 'DEPENDENCY_PENDING' }),
+    )
+    expect(database.analysisContactAssociationJob.count).toHaveBeenCalledWith({
+      where: {
+        analysisRunId,
+        reviewRevision: 2n,
+        status: { in: ['QUEUED', 'RUNNING'] },
+      },
+    })
+    expect(database.analysisRun.update).not.toHaveBeenCalled()
   })
 
   it('rejects action edits outside the selected track lifetime', async () => {

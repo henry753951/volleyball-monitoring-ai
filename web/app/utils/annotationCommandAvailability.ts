@@ -9,6 +9,8 @@ export interface DraftCommandAvailabilityInput {
   canMark: boolean
   cursorCaptureTimeUs: string | null
   serviceCaptureTimeUs: string | null
+  editableStartCaptureTimeUs?: string | null
+  editableEndCaptureTimeUs?: string | null
   confirmedLastKeyPointId: string | null
 }
 
@@ -23,6 +25,11 @@ export function draftCommandAvailability(input: DraftCommandAvailabilityInput) {
 
   if (!input.canMark || !input.cursorCaptureTimeUs)
     return { enabled: false, reason: '游標尚未確認' }
+  const cursor = BigInt(input.cursorCaptureTimeUs)
+  if (input.editableStartCaptureTimeUs && cursor < BigInt(input.editableStartCaptureTimeUs))
+    return { enabled: false, reason: '目前畫格不在可編輯片段內' }
+  if (input.editableEndCaptureTimeUs && cursor > BigInt(input.editableEndCaptureTimeUs))
+    return { enabled: false, reason: '目前畫格不在可編輯片段內' }
   return { enabled: true, reason: '' }
 }
 

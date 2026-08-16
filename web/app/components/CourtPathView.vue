@@ -449,6 +449,7 @@ const focusedDuration = computed(() => {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  flex-wrap: nowrap;
   gap: 8px;
   padding: 0 11px;
   box-sizing: border-box;
@@ -457,23 +458,37 @@ const focusedDuration = computed(() => {
   font-weight: 750;
 }
 .court-heading > div:first-child {
+  flex: 1 1 auto;
   min-width: 0;
+  overflow: hidden;
   display: flex;
   align-items: baseline;
   gap: 6px;
+  white-space: nowrap;
+}
+.court-heading > div:first-child > span {
+  flex: 0 0 auto;
+  white-space: nowrap;
 }
 .court-heading small {
+  min-width: 0;
+  overflow: hidden;
   color: #7f8a96;
   font-size: 0.6rem;
   font-weight: 600;
   font-variant-numeric: tabular-nums;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .court-legend {
+  flex: 0 0 auto;
   display: flex;
+  flex-wrap: nowrap;
   gap: 6px;
   color: #89939e;
   font-size: 0.54rem;
   font-weight: 650;
+  white-space: nowrap;
 }
 .court-legend span {
   display: inline-flex;

@@ -32,11 +32,66 @@ import { createWorkflowMinio, readVerifiedObject, type WorkflowMinio } from '../
 const MATERIALIZATION_LEASE_MS = 5 * 60_000
 const ANALYSIS_DATA_MAX_BYTES = 512n * 1024n * 1024n
 const JSON_ARTIFACT_MAX_BYTES = 16n * 1024n * 1024n
+export const SYSTEM_TRACK_METADATA_KEY = '__volleyball_system'
+export const OBSERVED_FRAME_RANGES_KEY = 'observed_frame_ranges_v1'
 const sha256 = (value: Uint8Array) => createHash('sha256').update(value).digest('hex')
 const json = (value: unknown) => JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   value !== null && typeof value === 'object' && !Array.isArray(value)
 const records = (value: unknown) => (Array.isArray(value) ? value.filter(isRecord) : [])
+
+export type ObservedFrameRange = { start: string; end: string }
+
+/**
+ * Build exact per-track frame presence from the canonical frame columns.
+ *
+ * AnalysisTrack.firstFrame/lastFrame are only bounds and are not sufficient
+ * for identity-conflict decisions: a tracker can keep a local id alive across
+ * missed detections. These ranges are persisted as system metadata so the
+ * coach assignment path can replace an assignment only when both local ids
+ * are actually present in at least one frame.
+ */
+export function buildObservedFrameRanges(
+  analysisData: Pick<AnalysisData, 'frameOffsets' | 'trackIds'>,
+): Map<number, ObservedFrameRange[]> {
+  const ranges = new Map<number, ObservedFrameRange[]>()
+  const lastFrameByTrack = new Map<number, number>()
+  for (let frameIndex = 0; frameIndex < analysisData.frameOffsets.length - 1; frameIndex += 1) {
+    const start = analysisData.frameOffsets[frameIndex]!
+    const end = analysisData.frameOffsets[frameIndex + 1]!
+    const present = new Set<number>()
+    for (let detectionIndex = start; detectionIndex < end; detectionIndex += 1) {
+      const trackId = analysisData.trackIds[detectionIndex]
+      if (trackId === undefined || present.has(trackId)) continue
+      present.add(trackId)
+      const trackRanges = ranges.get(trackId) ?? []
+      const previousFrame = lastFrameByTrack.get(trackId)
+      const current = trackRanges.at(-1)
+      if (current && previousFrame === frameIndex - 1) current.end = String(frameIndex)
+      else trackRanges.push({ start: String(frameIndex), end: String(frameIndex) })
+      ranges.set(trackId, trackRanges)
+      lastFrameByTrack.set(trackId, frameIndex)
+    }
+  }
+  return ranges
+}
+
+function trackMetadataWithObservedFrames(
+  metadata: unknown,
+  observedFrameRanges: ObservedFrameRange[],
+) {
+  const providerMetadata = isRecord(metadata) ? metadata : {}
+  const systemMetadata = isRecord(providerMetadata[SYSTEM_TRACK_METADATA_KEY])
+    ? providerMetadata[SYSTEM_TRACK_METADATA_KEY]
+    : {}
+  return {
+    ...providerMetadata,
+    [SYSTEM_TRACK_METADATA_KEY]: {
+      ...systemMetadata,
+      [OBSERVED_FRAME_RANGES_KEY]: observedFrameRanges,
+    },
+  }
+}
 
 const contractsRoot = new URL('../../../packages/contracts/ai/', import.meta.url)
 const analysisDataDomainSchema = JSON.parse(
@@ -357,6 +412,7 @@ export async function materializeProviderAnalysis(
     const bytes = Buffer.from(encodeAnalysisFrameChunk(chunk))
     return { chunk, bytes, sha256: sha256(bytes) }
   })
+  const observedFrameRanges = buildObservedFrameRanges(analysisData)
   for (const item of browserChunks) {
     const objectKey = `analysis/${job.submissionId}/${providerJob.id}/frame-chunks/${item.chunk.chunkIndex}.fb`
     await storage.client.putObject(
@@ -497,7 +553,12 @@ export async function materializeProviderAnalysis(
           firstFrame: BigInt(String(track.first_frame_index)),
           lastFrame: BigInt(String(track.last_frame_index)),
           meanConfidence: typeof track.mean_confidence === 'number' ? track.mean_confidence : null,
-          metadata: track.metadata === undefined ? Prisma.JsonNull : json(track.metadata),
+          metadata: json(
+            trackMetadataWithObservedFrames(
+              track.metadata,
+              observedFrameRanges.get(Number(track.track_id)) ?? [],
+            ),
+          ),
         })),
       })
 

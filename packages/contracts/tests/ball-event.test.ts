@@ -59,7 +59,7 @@ describe('normalizeBallEventKeyPoints', () => {
     ])
   })
 
-  it('repairs direct-point results when later keypoints prove play continued', () => {
+  it('repairs direct-point results without overriding an explicit spike decision', () => {
     const result = normalizeBallEventKeyPoints({
       points: [
         point('serve', 10, 0, { kind: 'SERVE', result: 'POINT_SCORED' }),
@@ -72,16 +72,13 @@ describe('normalizeBallEventKeyPoints', () => {
     expect(result.points.map(entry => entry.event.result)).toEqual([
       'SUCCESS',
       'ERROR',
-      'FAILURE',
+      'SUCCESS',
       null,
     ])
     expect(result.repairs.map(repair => repair.code)).toEqual(
-      expect.arrayContaining([
-        'SERVE_SUCCESS_INFERRED',
-        'RECEIVE_POINT_LOST_DOWNGRADED',
-        'SPIKE_SUCCESS_DOWNGRADED',
-      ]),
+      expect.arrayContaining(['SERVE_SUCCESS_INFERRED', 'RECEIVE_POINT_LOST_DOWNGRADED']),
     )
+    expect(result.repairs.map(repair => repair.code)).not.toContain('SPIKE_SUCCESS_DOWNGRADED')
   })
 })
 

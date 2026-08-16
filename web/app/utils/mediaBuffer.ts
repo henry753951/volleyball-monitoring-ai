@@ -5,6 +5,21 @@ export interface CanonicalMediaRange {
   endCaptureTimeUs: string
 }
 
+export function mediaTimeRangeContains(
+  ranges: Pick<TimeRanges, 'length' | 'start' | 'end'>,
+  targetSeconds: number,
+  toleranceSeconds = 0.001,
+) {
+  if (!Number.isFinite(targetSeconds) || targetSeconds < 0) return false
+  const tolerance = Math.max(0, toleranceSeconds)
+  for (let index = 0; index < ranges.length; index += 1) {
+    const start = ranges.start(index)
+    const end = ranges.end(index)
+    if (targetSeconds >= start - tolerance && targetSeconds < end + tolerance) return true
+  }
+  return false
+}
+
 export function mediaTimeRangesToCaptureRanges(
   ranges: TimeRanges,
   presentationOriginCaptureUs: string,

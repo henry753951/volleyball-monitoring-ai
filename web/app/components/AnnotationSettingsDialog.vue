@@ -18,41 +18,27 @@ import {
   type HotkeyCommandDefinition,
 } from '~/utils/annotationHotkeys'
 import { MEDIA_BUFFER_PROFILES, type MediaBufferPreset } from '~/utils/mediaPlaybackPreferences'
+import { useAnnotationWorkstationService } from '~/services/annotation-workstation/annotation-workstation.service'
 
 type SettingsPage = 'root' | 'media' | 'overlay' | 'clip' | 'hotkeys'
 type PageDirection = 'forward' | 'back'
 
-const props = withDefaults(
-  defineProps<{
-    open: boolean
-    initialPage?: SettingsPage
-    clipPreRollSeconds?: number
-    clipPostRollSeconds?: number
-    clipPolicySaving?: boolean
-    clipPolicyError?: string | null
-    overlayEnabled?: boolean
-  }>(),
-  {
-    initialPage: 'root',
-    clipPreRollSeconds: 3,
-    clipPostRollSeconds: 3,
-    clipPolicySaving: false,
-    clipPolicyError: null,
-    overlayEnabled: true,
-  },
-)
-const emit = defineEmits<{
-  close: []
-  updateClipPolicy: [preRollSeconds: number, postRollSeconds: number]
-  updateOverlayEnabled: [enabled: boolean]
-}>()
+const workstation = useAnnotationWorkstationService()
+if (!workstation.preferences) throw new Error('Annotation settings require workstation preferences')
+const preferences = workstation.preferences
+const open = preferences.settingsOpen
+const initialPage = preferences.settingsPage
+const clipPolicySaving = preferences.clipPolicySaving
+const clipPolicyError = preferences.clipPolicyError
+const overlayEnabled = preferences.overlayEnabled
+const model = workstation.annotation.model
 const { bindings, rebind, restoreDefaults } = useAnnotationHotkeys()
 const { bufferPreset, setBufferPreset } = useMediaPlaybackPreferences()
-const page = ref<SettingsPage>(props.initialPage)
+const page = ref<SettingsPage>(initialPage.value)
 const recording = ref<HotkeyCommand | null>(null)
 const recordingError = ref<string | null>(null)
-const clipPreRollSeconds = ref(props.clipPreRollSeconds)
-const clipPostRollSeconds = ref(props.clipPostRollSeconds)
+const clipPreRollSeconds = ref(model.clipPreRollSeconds.value)
+const clipPostRollSeconds = ref(model.clipPostRollSeconds.value)
 const clipValidationError = ref<string | null>(null)
 const pageDirection = ref<PageDirection>('forward')
 const commandGroups: ReadonlyArray<{
@@ -115,14 +101,14 @@ const recorder = useAnnotationHotkeyRecorder(() => ({
 }))
 
 watch(
-  () => [props.open, props.initialPage] as const,
+  () => [open.value, initialPage.value] as const,
   ([open, initialPage], previous) => {
     if (open && (!previous?.[0] || initialPage !== previous[1])) page.value = initialPage
   },
   { immediate: true },
 )
 watch(
-  () => [props.clipPreRollSeconds, props.clipPostRollSeconds] as const,
+  () => [model.clipPreRollSeconds.value, model.clipPostRollSeconds.value] as const,
   ([before, after]) => {
     clipPreRollSeconds.value = before
     clipPostRollSeconds.value = after
@@ -167,12 +153,12 @@ function saveClipPolicy() {
     return
   }
   clipValidationError.value = null
-  emit('updateClipPolicy', before, after)
+  void preferences.updateClipPolicy(before, after)
 }
 
 function close() {
   if (recorder.isRecording.value) recorder.cancelRecording()
-  emit('close')
+  preferences.close()
 }
 </script>
 
@@ -263,7 +249,7 @@ function close() {
                   <UiSwitch
                     :model-value="overlayEnabled"
                     aria-label="顯示 AI 疊圖"
-                    @update:model-value="$emit('updateOverlayEnabled', $event)"
+                    @update:model-value="preferences.setOverlayEnabled"
                   />
                 </div>
               </section>

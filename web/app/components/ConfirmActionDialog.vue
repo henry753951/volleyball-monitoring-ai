@@ -9,6 +9,7 @@ defineProps<{
   confirmLabel: string
   secondaryLabel?: string | null
   danger?: boolean
+  pending?: boolean
 }>()
 defineEmits<{ close: []; confirm: []; secondary: [] }>()
 </script>
@@ -18,15 +19,20 @@ defineEmits<{ close: []; confirm: []; secondary: [] }>()
     <DialogDescription class="confirm-message">{{ message }}</DialogDescription>
     <template #footer>
       <div class="confirm-actions" :class="{ stacked: secondaryLabel }">
-        <UiButton v-if="secondaryLabel" variant="default" @click="$emit('secondary')">{{
-          secondaryLabel
-        }}</UiButton>
+        <UiButton
+          v-if="secondaryLabel"
+          variant="default"
+          :disabled="pending"
+          @click="$emit('secondary')"
+          >{{ secondaryLabel }}</UiButton
+        >
         <UiButton
           :variant="danger ? 'destructive' : secondaryLabel ? 'outline' : 'default'"
+          :disabled="pending"
           @click="$emit('confirm')"
-          >{{ confirmLabel }}</UiButton
+          >{{ pending ? '處理中…' : confirmLabel }}</UiButton
         >
-        <UiButton variant="ghost" @click="$emit('close')">取消</UiButton>
+        <UiButton variant="ghost" :disabled="pending" @click="$emit('close')">取消</UiButton>
       </div>
     </template>
   </UiAnimatedModal>

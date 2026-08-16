@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { CircleHelp, LoaderCircle, ShieldCheck, UserRoundCog, X } from 'lucide-vue-next'
 import { computed } from 'vue'
-import { useIdentityAssignmentController } from '~/composables/useIdentityAssignmentController'
+import { useAnnotationWorkstationService } from '~/services/annotation-workstation/annotation-workstation.service'
 import IdentityReplacementDialog from './IdentityReplacementDialog.vue'
 import PlayerIdentityPreview from './PlayerIdentityPreview.vue'
 import UiPlayerCombobox from './ui/PlayerCombobox.vue'
@@ -13,22 +13,18 @@ const props = defineProps<{
   matchId: string
   analysisRunId: string | null
   trackId: number | null
-  currentFrame: number
   leftTeamId: string | null
   rightTeamId: string | null
   x: number
   y: number
 }>()
-const emit = defineEmits<{ close: []; changed: [] }>()
-const assignment = useIdentityAssignmentController({
-  matchId: () => props.matchId,
-  analysisRunId: () => props.analysisRunId,
-  currentFrame: () => props.currentFrame,
-  enabled: () => props.open && props.trackId !== null,
-  refreshKey: () => props.trackId,
-  onChanged: () => emit('changed'),
-  onCommitted: () => emit('close'),
-})
+const emit = defineEmits<{ close: [] }>()
+const workstation = useAnnotationWorkstationService()
+const assignment = workstation.identity!
+if (!assignment)
+  throw new Error(
+    'Identity assignment controller was not provided by the annotation route boundary',
+  )
 const presentation = computed(() => {
   const track = props.trackId === null ? null : assignment.view.model.track.byId(props.trackId)
   const teamId =
@@ -58,7 +54,17 @@ const presentation = computed(() => {
 })
 
 function handleOpenChange(open: boolean) {
+  if (open) assignment.actions.setInteractionSurface('popover')
   if (!open) emit('close')
+}
+
+function requestTrackAssignment(rosterEntryId: string | null) {
+  if (props.trackId === null) return
+  assignment.actions.setInteractionSurface('popover')
+  void workstation.actions.execute(rosterEntryId ? 'identity.assign' : 'identity.clear', {
+    trackId: props.trackId,
+    rosterEntryId,
+  })
 }
 </script>
 
@@ -111,12 +117,10 @@ function handleOpenChange(open: boolean) {
         ><UiPlayerCombobox
           :model-value="presentation.track?.roster_entry_id ?? ''"
           :options="presentation.options"
-          :disabled="assignment.view.busy"
+          :disabled="!workstation.actions.state('identity.assign').value.enabled"
           :preview-side="presentation.previewSide"
           :aria-label="`指派 ${presentation.tidLabel} ${presentation.gidLabel} 的球員`"
-          @update:model-value="
-            assignment.actions.requestAssignment({ trackId: trackId!, rosterEntryId: $event })
-          "
+          @update:model-value="requestTrackAssignment($event)"
         >
           <template #preview="{ option }"
             ><PlayerIdentityPreview
@@ -134,20 +138,31 @@ function handleOpenChange(open: boolean) {
         </UiPlayerCombobox>
       </div>
       <div
-        v-if="assignment.state.dialogs.correction"
+        v-if="
+          assignment.state.interactionSurface === 'popover' && assignment.state.dialogs.correction
+        "
         class="correction-choice"
         role="dialog"
         aria-label="選擇球員修正方式"
       >
         <strong>要如何套用「{{ assignment.state.dialogs.correction.playerName }}」？</strong>
         <p>選擇會影響後續片段是否沿用這次修正。</p>
-        <button type="button" @click="assignment.actions.applyCorrection('from_here')">
+        <button
+          type="button"
+          @click="workstation.actions.execute('identity.apply-correction', 'from_here')"
+        >
           <b>依 GID 從這段起改正</b><small>同一 GID 的 Local ID 與後續片段一起套用</small>
         </button>
-        <button type="button" @click="assignment.actions.applyCorrection('split_identity')">
+        <button
+          type="button"
+          @click="workstation.actions.execute('identity.apply-correction', 'split_identity')"
+        >
           <b>這其實是不同的人</b><small>適合替補或辨識混人；只拆開這組 Local ID</small>
         </button>
-        <button type="button" @click="assignment.actions.applyCorrection('clip_only')">
+        <button
+          type="button"
+          @click="workstation.actions.execute('identity.apply-correction', 'clip_only')"
+        >
           <b>只修正這個 Local ID</b><small>不改 GID 關聯，也不影響其他 Local ID</small>
         </button>
         <button type="button" class="cancel" @click="assignment.actions.closeCorrection">
@@ -163,7 +178,11 @@ function handleOpenChange(open: boolean) {
     </template>
   </UiPopover>
   <IdentityReplacementDialog
-    v-if="assignment.state.dialogs.replacement && trackId !== null"
+    v-if="
+      assignment.state.interactionSurface === 'popover' &&
+      assignment.state.dialogs.replacement &&
+      trackId !== null
+    "
     :open="true"
     :player-name="assignment.state.dialogs.replacement.playerName"
     :occupied-track-id="assignment.state.dialogs.replacement.occupiedTrackId"
@@ -171,7 +190,7 @@ function handleOpenChange(open: boolean) {
     :warning-enabled="assignment.preferences.replacementWarningEnabled"
     @update:warning-enabled="assignment.preferences.replacementWarningEnabled = $event"
     @close="assignment.actions.closeReplacement"
-    @confirm="assignment.actions.confirmReplacement"
+    @confirm="workstation.actions.execute('identity.confirm-replacement')"
   />
 </template>
 

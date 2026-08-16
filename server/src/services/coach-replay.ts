@@ -1,6 +1,7 @@
 import type { PrismaClient } from '@volleyball-monitoring/db'
 import type { Prisma } from '@volleyball-monitoring/db/client'
 import { JobStatus, UserRole } from '@volleyball-monitoring/db/client'
+import { resolveEffectiveContactFrame } from './effective-contact-frame.js'
 
 const replayClipSelect = {
   id: true,
@@ -275,6 +276,7 @@ export function projectReplayTrack(
 export function projectEffectiveReplayEvents(
   analysis: ReplayAnalysis,
   ballEvents: ReplayBallEvent[] = [],
+  submissionFrameByOrdinal: ReadonlyMap<number, bigint> = new Map(),
 ) {
   const timeByPoint = new Map(
     analysis.contactTimeCorrections.map(correction => [
@@ -309,11 +311,15 @@ export function projectEffectiveReplayEvents(
         ) ??
         ballEvents.find(item => item.ordinal === event.sequenceIndex + 1) ??
         null
-      const effectiveFrame =
-        timeByPoint.get(event.keyPointId) ?? event.resolvedFrameIndex ?? event.anchorFrameIndex
+      const submissionFrame = submissionFrameByOrdinal.get(
+        semantic?.ordinal ?? event.sequenceIndex + 1,
+      )
+      const effectiveFrame = submissionFrame ?? resolveEffectiveContactFrame(event, timeByPoint)
       const correctedTrackId = actorByPoint.get(event.keyPointId)
       const hasActorCorrection = actorByPoint.has(event.keyPointId)
-      const associationJob = latestAssociationByPoint.get(event.keyPointId)
+      const associationJob =
+        (semantic ? latestAssociationByPoint.get(semantic.submissionKeyPointId) : undefined) ??
+        latestAssociationByPoint.get(event.keyPointId)
       const associationProjection =
         associationJob?.status === JobStatus.COMPLETED ? associationJob.projection : null
       const semanticTrackId = semantic?.actorRosterEntryId
@@ -336,7 +342,7 @@ export function projectEffectiveReplayEvents(
                   .at(0)?.trackId ?? null)
               : null
       const matchedActor =
-        effectiveTrackId === null
+        effectiveTrackId === null || submissionFrame !== undefined
           ? null
           : event.actors.find(actor => actor.trackId === effectiveTrackId)
       const actors =
@@ -356,8 +362,10 @@ export function projectEffectiveReplayEvents(
             : [
                 {
                   track_id: effectiveTrackId,
-                  observation_frame_index: effectiveFrame.toString(),
-                  association_confidence: null,
+                  observation_frame_index:
+                    associationProjection?.observationFrameIndex?.toString() ??
+                    effectiveFrame.toString(),
+                  association_confidence: associationProjection?.confidence ?? null,
                   frame_bbox: null,
                   frame_foot_pos: null,
                   court_pos: null,
@@ -372,7 +380,10 @@ export function projectEffectiveReplayEvents(
         raw: event,
         effectiveFrame,
         wire: {
-          key_point_id: semantic?.submissionKeyPointId ?? event.keyPointId,
+          // Keep the immutable analysis-event id stable for review commands.
+          // Human ball-event semantics are attached separately and must never
+          // replace the contact id used by sparse corrections.
+          key_point_id: event.keyPointId,
           source_key_point_id: event.sourceKeyPointId,
           anchor_origin: event.anchorOrigin,
           detection_confidence: event.detectionConfidence,
@@ -424,13 +435,17 @@ export function projectEffectiveReplayEvents(
                 : null,
           },
           quality_flags:
-            hasActorCorrection || timeByPoint.has(event.keyPointId) || associationProjection
+            hasActorCorrection ||
+            timeByPoint.has(event.keyPointId) ||
+            submissionFrame !== undefined ||
+            associationProjection
               ? [
                   ...event.qualityFlags,
                   ...(hasActorCorrection || timeByPoint.has(event.keyPointId)
                     ? ['manual_review_effective']
                     : []),
                   ...(associationProjection ? ['contact_association_projection'] : []),
+                  ...(submissionFrame !== undefined ? ['submission_timing_projection'] : []),
                 ]
               : event.qualityFlags,
           actors,
@@ -610,8 +625,16 @@ export async function getCoachRallyReplay(
   )
   const analysis =
     activeAnalysis ?? submission.analysisSourceRun ?? submission.supersedes?.analysisRuns[0] ?? null
+  const sourceProjectionFrames = new Map(
+    activeAnalysis
+      ? []
+      : submission.keyPoints.flatMap(point => {
+          const mapping = mappingByPoint.get(point.id)
+          return mapping ? [[point.sequenceIndex + 1, mapping.clipFrameIndex] as const] : []
+        }),
+  )
   const effectiveEvents = analysis
-    ? projectEffectiveReplayEvents(analysis, submission.ballEvents)
+    ? projectEffectiveReplayEvents(analysis, submission.ballEvents, sourceProjectionFrames)
     : []
   const effectiveEventById = new Map(effectiveEvents.map(event => [event.raw.keyPointId, event]))
   return {

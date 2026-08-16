@@ -1,5 +1,22 @@
 export type PlaybackContinuationDecision = 'extend-window' | 'idle' | 'recover-buffer' | 'terminal'
 
+type AvailableCaptureRange = { startUs: string; endUs: string }
+
+export function nextPlayableRangeAfter(
+  captureTimeUs: string,
+  ranges: readonly AvailableCaptureRange[],
+) {
+  const cursor = BigInt(captureTimeUs)
+  const next = ranges.find(
+    range => BigInt(range.startUs) > cursor && BigInt(range.endUs) > BigInt(range.startUs),
+  )
+  if (!next) return null
+  return {
+    gapDurationUs: (BigInt(next.startUs) - cursor).toString(),
+    targetCaptureTimeUs: next.startUs,
+  }
+}
+
 export function decidePlaybackContinuation(input: {
   availabilityComplete: boolean
   browserBufferedSeconds: number

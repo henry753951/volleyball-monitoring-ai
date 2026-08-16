@@ -1,3 +1,4 @@
+import { onMounted, onUnmounted, ref, shallowRef, toValue, type MaybeRefOrGetter } from 'vue'
 import { createGraphQLTransport } from '~/lib/coreDomain'
 import { createCoachDomainClient, type CoachMatchState } from '~/lib/coachDomain'
 
@@ -12,22 +13,38 @@ export function useCoachMatchState(
   const lastUpdatedAt = ref<Date | null>(null)
   let interval: ReturnType<typeof setInterval> | undefined
   let invalidationTimer: ReturnType<typeof setTimeout> | undefined
+  let refreshPromise: Promise<void> | null = null
+  let refreshRequested = false
 
-  async function refresh() {
-    if (refreshing.value) return
+  async function runRefreshLoop() {
     refreshing.value = true
     try {
-      data.value = await createCoachDomainClient(createGraphQLTransport('/graphql')).matchState(
-        toValue(matchId),
-      )
-      error.value = null
-      lastUpdatedAt.value = new Date()
-    } catch (cause) {
-      error.value = cause instanceof Error ? cause : new Error('無法同步教練面板')
+      do {
+        refreshRequested = false
+        try {
+          data.value = await createCoachDomainClient(createGraphQLTransport('/graphql')).matchState(
+            toValue(matchId),
+          )
+          error.value = null
+          lastUpdatedAt.value = new Date()
+        } catch (cause) {
+          error.value = cause instanceof Error ? cause : new Error('無法同步教練面板')
+        }
+      } while (refreshRequested)
     } finally {
       pending.value = false
       refreshing.value = false
+      refreshPromise = null
     }
+  }
+
+  function refresh() {
+    if (refreshPromise) {
+      refreshRequested = true
+      return refreshPromise
+    }
+    refreshPromise = runRefreshLoop()
+    return refreshPromise
   }
 
   function handleInvalidation(event: Event) {

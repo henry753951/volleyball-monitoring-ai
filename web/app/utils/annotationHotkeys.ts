@@ -43,7 +43,7 @@ export const ANNOTATION_COMMANDS = [
     label: '片段開始 / 結束',
     description: '第一次按 Z 設定片段開始；再次按 Z 設定片段結束。Z 不代表發球或落點。',
   },
-  { action: 'contact', group: 'annotation', label: '擊球', description: '記錄目前畫面的擊球時刻' },
+  { action: 'contact', group: 'annotation', label: 'HIT', description: '記錄目前畫面的 HIT 時刻' },
   {
     action: 'spike',
     group: 'annotation',

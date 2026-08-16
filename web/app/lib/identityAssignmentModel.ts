@@ -57,18 +57,54 @@ function isEarlierTrack(candidate: IdentityTrack, current: IdentityTrack | undef
   )
 }
 
+function parsedObservedFrameRanges(track: IdentityTrack) {
+  if (!Array.isArray(track.observed_frame_ranges)) return null
+  const ranges = []
+  for (const range of track.observed_frame_ranges) {
+    if (!range || typeof range.start !== 'string' || typeof range.end !== 'string') return null
+    try {
+      const start = BigInt(range.start)
+      const end = BigInt(range.end)
+      if (start > end) return null
+      ranges.push({ start, end })
+    } catch {
+      return null
+    }
+  }
+  return ranges.sort((left, right) =>
+    left.start < right.start ? -1 : left.start > right.start ? 1 : 0,
+  )
+}
+
+function trackIsActive(track: IdentityTrack, frame: number | undefined) {
+  if (frame === undefined) return false
+  const exact = parsedObservedFrameRanges(track)
+  if (exact) {
+    const target = BigInt(Math.trunc(frame))
+    return exact.some(range => range.start <= target && target <= range.end)
+  }
+  return frame >= Number(track.first_frame_index) && frame <= Number(track.last_frame_index)
+}
+
+function tracksShareObservedFrame(left: IdentityTrack, right: IdentityTrack) {
+  const leftRanges = parsedObservedFrameRanges(left)
+  const rightRanges = parsedObservedFrameRanges(right)
+  if (!leftRanges || !rightRanges) return false
+  let rightIndex = 0
+  for (const leftRange of leftRanges) {
+    while (rightIndex < rightRanges.length && rightRanges[rightIndex]!.end < leftRange.start)
+      rightIndex += 1
+    if (rightIndex >= rightRanges.length) return false
+    if (rightRanges[rightIndex]!.start <= leftRange.end) return true
+  }
+  return false
+}
+
 export function createIdentityAssignmentModel(input: IdentityAssignmentModelInput) {
   const allTracks = input.analytics?.tracks ?? []
   const tracks = allTracks.filter(track => track.analysis_run_id === input.analysisRunId)
   const activeTrackIds = new Set(
-    tracks
-      .filter(
-        track =>
-          input.currentFrame !== undefined &&
-          input.currentFrame >= Number(track.first_frame_index) &&
-          input.currentFrame <= Number(track.last_frame_index),
-      )
-      .map(track => track.track_id),
+    tracks.filter(track => trackIsActive(track, input.currentFrame)).map(track => track.track_id),
   )
   const trackById = new Map(tracks.map(track => [track.track_id, track]))
   const players = input.analytics?.players ?? []
@@ -141,11 +177,12 @@ export function createIdentityAssignmentModel(input: IdentityAssignmentModelInpu
 
   function conflictForTracks(trackIds: number[], rosterEntryId: string) {
     const excluded = new Set(trackIds)
+    const selectedTracks = tracks.filter(track => excluded.has(track.track_id))
     return (
       tracks.find(
         track =>
           !excluded.has(track.track_id) &&
-          activeTrackIds.has(track.track_id) &&
+          selectedTracks.some(selected => tracksShareObservedFrame(selected, track)) &&
           track.roster_entry_id === rosterEntryId,
       ) ?? null
     )

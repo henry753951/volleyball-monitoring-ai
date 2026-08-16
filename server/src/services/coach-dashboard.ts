@@ -11,6 +11,7 @@ import {
   type ClipFrameTimeline,
 } from '../media/clip-timing-coverage.js'
 import type { MediaObjectReader } from '../media/playback-domain.js'
+import { resolveEffectiveContactFrame } from './effective-contact-frame.js'
 
 interface CoachDashboardDependencies {
   timingManifestReader?: MediaObjectReader
@@ -19,8 +20,10 @@ interface CoachDashboardDependencies {
 export function selectDisplayAnalysis<T extends { status: string }>(
   current: T | null | undefined,
   previous: T | null | undefined,
+  reused: T | null | undefined = null,
 ) {
   if (current?.status === 'COMPLETED') return { analysis: current, source: 'current' as const }
+  if (reused?.status === 'COMPLETED') return { analysis: reused, source: 'reused' as const }
   if (previous?.status === 'COMPLETED') return { analysis: previous, source: 'previous' as const }
   return { analysis: null, source: null }
 }
@@ -67,6 +70,7 @@ const dashboardAnalysisSelect = {
   contactEvents: {
     select: {
       anchorFrameIndex: true,
+      resolvedFrameIndex: true,
       anchorOrigin: true,
       detectionConfidence: true,
       keyPointId: true,
@@ -176,6 +180,7 @@ export async function getCoachMatchState(
                   isTerminal: true,
                   captureTimeUs: true,
                   captureFrameIndex: true,
+                  ballEvent: { select: { kind: true, result: true } },
                 },
               },
               boundaries: {
@@ -211,6 +216,7 @@ export async function getCoachMatchState(
                 take: 1,
                 select: dashboardAnalysisSelect,
               },
+              analysisSourceRun: { select: dashboardAnalysisSelect },
               supersedes: {
                 select: {
                   clipJobs: {
@@ -265,6 +271,7 @@ export async function getCoachMatchState(
           isTerminal: true,
           captureTimeUs: true,
           captureFrameIndex: true,
+          ballEvent: { select: { kind: true, result: true } },
         },
       },
       boundaries: {
@@ -307,6 +314,7 @@ export async function getCoachMatchState(
       const displayAnalysis = selectDisplayAnalysis(
         submission.analysisRuns[0],
         submission.supersedes?.analysisRuns[0],
+        submission.analysisSourceRun,
       )
       return [
         [
@@ -314,9 +322,9 @@ export async function getCoachMatchState(
           {
             analysis: displayAnalysis.analysis,
             clip:
-              displayAnalysis.source === 'current'
-                ? (submission.clipJobs[0] ?? null)
-                : (submission.supersedes?.clipJobs[0] ?? submission.clipJobs[0] ?? null),
+              displayAnalysis.source === 'previous'
+                ? (submission.supersedes?.clipJobs[0] ?? submission.clipJobs[0] ?? null)
+                : (submission.clipJobs[0] ?? submission.supersedes?.clipJobs[0] ?? null),
           },
         ] as const,
       ]
@@ -453,6 +461,9 @@ export async function getCoachMatchState(
           is_terminal: point.isTerminal,
           capture_time_us: point.captureTimeUs.toString(),
           capture_frame_index: point.captureFrameIndex.toString(),
+          ball_event: point.ballEvent
+            ? { kind: point.ballEvent.kind, result: point.ballEvent.result }
+            : null,
         })),
         boundaries: draft.boundaries.map(boundary => ({
           kind: boundary.kind.toLowerCase(),
@@ -499,6 +510,9 @@ export async function getCoachMatchState(
                     is_terminal: point.isTerminal,
                     capture_time_us: point.captureTimeUs.toString(),
                     capture_frame_index: point.captureFrameIndex.toString(),
+                    ball_event: point.ballEvent
+                      ? { kind: point.ballEvent.kind, result: point.ballEvent.result }
+                      : null,
                   })),
                   boundaries: rally.activeSubmission.boundaries.map(boundary => ({
                     kind: boundary.kind.toLowerCase(),
@@ -624,8 +638,7 @@ export async function getCoachMatchState(
                               : [
                                   {
                                     id: event.keyPointId,
-                                    frameIndex:
-                                      timeByContact.get(event.keyPointId) ?? event.anchorFrameIndex,
+                                    frameIndex: resolveEffectiveContactFrame(event, timeByContact),
                                     source:
                                       event.anchorOrigin === 'ai_detected'
                                         ? ('ai' as const)

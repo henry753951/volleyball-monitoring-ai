@@ -407,7 +407,10 @@ describe('useAnnotationWorkstationModel timeline layers', () => {
       {
         id: 'rally',
         outcomeLabel: '左側 L 得分',
-        points: [{ id: 'ai-contact', markerKind: 'contact', captureTimeUs: '1500000' }],
+        points: [
+          { id: 'service', markerKind: 'service', captureTimeUs: '1000000' },
+          { id: 'terminal', markerKind: 'contact', captureTimeUs: '2000000' },
+        ],
         analysis: {
           startCaptureTimeUs: '1100000',
           endCaptureTimeUs: '1900000',
@@ -626,6 +629,47 @@ describe('useAnnotationWorkstationModel timeline layers', () => {
     expect(model.timelineSegments.value).toContainEqual(
       expect.objectContaining({
         id: 'rally',
+        analysis: expect.objectContaining({ byteLength: '2048' }),
+      }),
+    )
+  })
+
+  it('keeps a superseded analysis rail but removes its immutable points from a new correction rally', () => {
+    const correctionState = structuredClone(coachState)
+    correctionState.match.drafts = [
+      {
+        id: 'correction-rally',
+        ordinal: 1,
+        display_ordinal: 1,
+        display_set_number: 1,
+        annotation_revision: '1',
+        annotation_status: 'open',
+        active_submission_id: 'submission',
+        set_id: 'set',
+        set_number: 1,
+        key_points: correctionState.match.rallies[0]!.submission.key_points,
+      },
+    ]
+    const correctionSnapshot = structuredClone(snapshot)
+    correctionSnapshot.rally_id = 'correction-rally'
+    correctionSnapshot.snapshot.annotation_status = 'open'
+    const model = useAnnotationWorkstationModel({
+      coachData: ref(correctionState),
+      match: ref<Match | null>(null),
+      timeline: computed<CaptureTimeline | null>(() => null),
+      displayAnnotation: computed(() => correctionSnapshot),
+      confirmedAnnotation: shallowRef(correctionSnapshot),
+      state: computed(() => 'OPEN' as const),
+      selectedRallyId: computed(() => 'correction-rally'),
+      selectedKeyPoint: computed<AnnotationKeyPoint | null>(() => null),
+      selectedTimelineItem: ref<TimelineSelectionItem>('mask'),
+      cursorRallyId: ref('correction-rally'),
+    })
+
+    expect(model.timelineSegments.value).toContainEqual(
+      expect.objectContaining({
+        id: 'rally',
+        points: [],
         analysis: expect.objectContaining({ byteLength: '2048' }),
       }),
     )

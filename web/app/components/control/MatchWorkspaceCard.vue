@@ -12,6 +12,7 @@ import {
 } from 'lucide-vue-next'
 import type { DeepReadonly } from 'vue'
 import type { Match } from '~/lib/coreDomain'
+import { mediaPlayableProgress } from '~/lib/mediaOperationsDiagnostics'
 import type { AiWorkSnapshot, MatchMediaSnapshot, StreamSnapshot } from '~/lib/operationsMonitor'
 
 const props = defineProps<{
@@ -48,9 +49,7 @@ const currentSource = computed(
 const liveSource = computed(() => currentSource.value)
 const latestJob = computed(() => props.jobs[0] ?? null)
 const indexedPercent = computed(() =>
-  props.media?.segmentCount
-    ? Math.min(100, (props.media.readySegmentCount / props.media.segmentCount) * 100)
-    : 0,
+  currentSource.value ? mediaPlayableProgress(currentSource.value) : null,
 )
 
 function sourceLabel(value: string) {
@@ -201,12 +200,17 @@ function formatBytes(value: string | undefined) {
         </div>
         <div v-else class="rail-empty">尚未設定影音來源</div>
         <div class="rail-progress">
-          <span><i :style="{ width: `${indexedPercent}%` }" /></span>
+          <span><i :style="{ width: `${indexedPercent ?? 0}%` }" /></span>
           <div>
             <strong
-              >{{ media?.readySegmentCount ?? 0 }} / {{ media?.segmentCount ?? 0 }} 段已索引</strong
+              >{{
+                indexedPercent === null ? '計算中' : `${indexedPercent.toFixed(1)}%`
+              }}
+              可播放</strong
             ><small
-              >{{ duration(media?.indexedDurationUs) }} · {{ formatBytes(media?.storedBytes)
+              >{{ media?.readySegmentCount ?? 0 }} /
+              {{ currentSource?.completionExpectedSegments ?? media?.segmentCount ?? 0 }} 片段 ·
+              {{ duration(media?.indexedDurationUs) }} · {{ formatBytes(media?.storedBytes)
               }}<template v-if="media?.gapSegmentCount">
                 · <em>{{ media.gapSegmentCount }} 中斷</em></template
               ></small

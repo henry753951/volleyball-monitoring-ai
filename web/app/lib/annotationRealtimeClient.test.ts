@@ -153,4 +153,39 @@ describe('annotation realtime soft-lock client', () => {
     expect(states).toEqual(['connecting', 'ready', 'reconnecting', 'ready'])
     client.disconnect()
   })
+
+  it('ignores late messages from a socket that was replaced during resync', () => {
+    const states: string[] = []
+    const client = createAnnotationRealtimeClient(roomId, { onState: state => states.push(state) })
+    client.connect()
+    const first = FakeWebSocket.instances[0]!
+
+    client.reconnect()
+    const second = FakeWebSocket.instances[1]!
+    first.receive({
+      schema_version: '2.0.0',
+      type: 'connection_ready',
+      room_id: roomId,
+      server_sequence: '0',
+      authenticated_user_id: 'user-1',
+      device_session_id: 'stale-device',
+    })
+
+    expect(client.ready()).toBe(false)
+    expect(second.sent).toEqual([])
+    expect(states).toEqual(['connecting', 'reconnecting'])
+    client.disconnect()
+  })
+
+  it('abandons a socket that never completes the room handshake and retries', () => {
+    const client = createAnnotationRealtimeClient(roomId)
+    client.connect()
+    const first = FakeWebSocket.instances[0]!
+
+    vi.advanceTimersByTime(12_000)
+    expect(first.readyState).toBe(3)
+    vi.advanceTimersByTime(1_000)
+    expect(FakeWebSocket.instances.length).toBeGreaterThanOrEqual(2)
+    client.disconnect()
+  })
 })

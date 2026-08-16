@@ -7,7 +7,11 @@ import type { CanonicalFrameAnchor } from '../lib/mediaModel'
 import { useDvrPlayback } from '../composables/useDvrPlayback'
 import { captureTimeToPlayerSeconds, isCaptureTimeWithinWindow } from '../utils/playbackWindow'
 import { boundedPlayerMediaSeconds } from '../utils/playerMediaTime'
-import { mediaTimeRangesToCaptureRanges, type CanonicalMediaRange } from '../utils/mediaBuffer'
+import {
+  mediaTimeRangeContains,
+  mediaTimeRangesToCaptureRanges,
+  type CanonicalMediaRange,
+} from '../utils/mediaBuffer'
 import { resolveFrameFromRate, resolveFrameFromTimeline } from '../utils/overlayFrameTimeline'
 import type { ReplayContactEvent } from '../lib/coachDomain'
 import type {
@@ -227,7 +231,7 @@ function capturePresentedFrame(element: HTMLVideoElement) {
     return null
   }
 }
-async function waitForPresentedFrame(element: HTMLVideoElement) {
+async function waitForPresentedFrame(element: HTMLVideoElement, expectedMediaTime?: number) {
   if (typeof element.requestVideoFrameCallback !== 'function') return
   await new Promise<void>(resolve => {
     let settled = false
@@ -237,8 +241,19 @@ async function waitForPresentedFrame(element: HTMLVideoElement) {
       clearTimeout(timeout)
       resolve()
     }
-    const timeout = setTimeout(finish, 1_500)
-    element.requestVideoFrameCallback(finish)
+    const inspect = (_now: number, metadata: VideoFrameCallbackMetadata) => {
+      if (settled) return
+      if (
+        expectedMediaTime === undefined ||
+        Math.abs(metadata.mediaTime - expectedMediaTime) <= 0.25
+      ) {
+        finish()
+        return
+      }
+      element.requestVideoFrameCallback(inspect)
+    }
+    const timeout = setTimeout(finish, 3_000)
+    element.requestVideoFrameCallback(inspect)
   })
 }
 const attachDescriptor = async (descriptor: PlaybackWindowDescriptor | null) => {
@@ -274,7 +289,7 @@ const attachDescriptor = async (descriptor: PlaybackWindowDescriptor | null) => 
   try {
     await playback.attach(descriptor)
     if (generation !== sourceGeneration) return
-    applyPendingCanonicalFrame()
+    applyPendingCanonicalFrame(replacingPipeline)
     emit('ready', element)
     publishBufferState()
     if (shouldResume) await element.play().catch(() => undefined)
@@ -307,18 +322,29 @@ function seekCaptureTimeIfBuffered(targetCaptureTimeUs: string) {
     !isCaptureTimeWithinWindow(target, descriptor)
   )
     return false
-  const generation = ++previewGeneration
-  retainedPreview.value = capturePresentedFrame(element)
-  element.currentTime = captureTimeToPlayerSeconds(target, descriptor)
-  void waitForPresentedFrame(element).then(() => {
-    if (generation === previewGeneration) retainedPreview.value = null
-  })
+  const targetPlayerSeconds = captureTimeToPlayerSeconds(target, descriptor)
+  if (!mediaTimeRangeContains(element.buffered, targetPlayerSeconds)) return false
+  previewGeneration += 1
+  retainedPreview.value = null
+  element.currentTime = targetPlayerSeconds
   return true
 }
 function previewCaptureTimeIfBuffered(targetCaptureTimeUs: string) {
   return seekCaptureTimeIfBuffered(targetCaptureTimeUs)
 }
-function applyPendingCanonicalFrame() {
+function previewPlayerMediaTime(targetPlayerSeconds: number) {
+  const element = video.value
+  if (!element || !Number.isFinite(targetPlayerSeconds)) return false
+  previewGeneration += 1
+  pendingCanonicalFrame = null
+  retainedPreview.value = null
+  if (!element.paused) element.pause()
+  element.currentTime = boundedPlayerMediaSeconds(
+    String(Math.round(targetPlayerSeconds * 1_000_000)),
+  )
+  return true
+}
+function applyPendingCanonicalFrame(preserveRetainedPreview = false) {
   const anchor = pendingCanonicalFrame
   const descriptor = playback.activeWindow.value
   const element = video.value
@@ -332,11 +358,14 @@ function applyPendingCanonicalFrame() {
     return false
   pendingCanonicalFrame = null
   const generation = ++previewGeneration
-  retainedPreview.value = capturePresentedFrame(element) ?? retainedPreview.value
+  if (preserveRetainedPreview)
+    retainedPreview.value = capturePresentedFrame(element) ?? retainedPreview.value
+  else retainedPreview.value = null
   element.currentTime = boundedPlayerMediaSeconds(anchor.player_media_time_us)
-  void waitForPresentedFrame(element).then(() => {
-    if (generation === previewGeneration) retainedPreview.value = null
-  })
+  if (preserveRetainedPreview)
+    void waitForPresentedFrame(element).then(() => {
+      if (generation === previewGeneration) retainedPreview.value = null
+    })
   return true
 }
 function seekCanonicalFrame(
@@ -368,6 +397,7 @@ function recoverPlayback() {
 }
 defineExpose({
   overlayFrameCaptureTime,
+  previewPlayerMediaTime,
   previewCaptureTimeIfBuffered,
   recoverPlayback,
   seekCanonicalFrame,

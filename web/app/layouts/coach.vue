@@ -17,7 +17,7 @@ const hasMatchContext = computed(() => Boolean(matchId.value) && matchId.value !
 const isReplay = computed(() => /^\/matches\/[^/]+\/replay\/[^/]+\/?$/.test(route.path))
 const matchTitle = useState('coach-shell-match-title', () => '')
 const rallyStatus = useCoachRallyStatus()
-const timelineOpen = useState('coach-replay-timeline-open', () => false)
+const timelineDetailsOpen = useState('coach-replay-timeline-details-open', () => false)
 const router = useRouter()
 const usesFixedViewport = computed(() =>
   /^\/matches\/[^/]+\/(?:live|rallies|players|stats|replay\/[^/]+)\/?$/.test(route.path),
@@ -151,12 +151,12 @@ watch(
       <button
         type="button"
         class="rally-status__timeline"
-        :class="{ active: timelineOpen }"
-        :aria-pressed="timelineOpen"
-        aria-label="擊球時間線"
-        @click="timelineOpen = !timelineOpen"
+        :class="{ active: timelineDetailsOpen }"
+        :aria-expanded="timelineDetailsOpen"
+        aria-label="詳細擊球紀錄"
+        @click="timelineDetailsOpen = true"
       >
-        <ListTree :size="18" /><span>{{ timelineOpen ? '收合時間線' : '擊球時間線' }}</span>
+        <ListTree :size="18" /><span>擊球明細</span>
       </button>
     </footer>
     <nav v-else-if="hasMatchContext" class="coach-tabs" aria-label="場次導覽">
@@ -361,42 +361,52 @@ body.coach-viewport-body {
   -webkit-backdrop-filter: blur(24px) saturate(180%);
 }
 .rally-status__nav {
-  min-height: 44px;
+  min-height: 40px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 3px;
+  gap: 5px;
   border: 0;
-  min-width: 108px;
-  border-radius: 9px;
+  min-width: 0;
+  padding: 0 11px;
+  border-radius: 10px;
   background: transparent;
   color: var(--coach-blue);
   font: inherit;
   font-size: 0.7rem;
-  font-weight: 700;
+  font-weight: 680;
+  transition:
+    background-color 120ms ease-out,
+    color 120ms ease-out,
+    transform 90ms ease-out;
 }
 .rally-status__nav + .rally-status__nav {
-  border-left: 1px solid #dce3ea;
-  border-top-left-radius: 0;
-  border-bottom-left-radius: 0;
-}
-.rally-status__nav:first-child {
-  border-top-right-radius: 0;
-  border-bottom-right-radius: 0;
+  border-left: 0;
 }
 .rally-status__nav-group {
   display: inline-flex;
-  padding: 3px;
-  border: 1px solid #dce3ea;
-  border-radius: 12px;
-  background: #fff9;
-  box-shadow: 0 2px 8px #17202b0b;
+  gap: 2px;
+  padding: 0;
 }
 .rally-status__nav:disabled {
-  background: #edf0f3;
+  background: transparent;
   color: #a9b0b8;
   cursor: not-allowed;
-  opacity: 0.58;
+  opacity: 0.62;
+}
+.rally-status__nav:hover:not(:disabled),
+.rally-status__timeline:hover {
+  background: #e8f2ff;
+  color: #045eaa;
+}
+.rally-status__nav:active:not(:disabled),
+.rally-status__timeline:active {
+  transform: scale(0.97);
+}
+.rally-status__nav:focus-visible,
+.rally-status__timeline:focus-visible {
+  outline: 3px solid #0670df3b;
+  outline-offset: 1px;
 }
 .rally-status__identity {
   min-width: 0;
@@ -404,20 +414,24 @@ body.coach-viewport-body {
   gap: 2px;
 }
 .rally-status__timeline {
-  min-width: 112px;
-  min-height: 44px;
+  min-width: 0;
+  min-height: 40px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 6px;
-  padding: 0 12px;
-  border: 1px solid #dce3ea;
-  border-radius: 11px;
-  background: #fff9;
+  padding: 0 11px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
   color: #56616d;
   font: inherit;
   font-size: 0.7rem;
-  font-weight: 700;
+  font-weight: 680;
+  transition:
+    background-color 120ms ease-out,
+    color 120ms ease-out,
+    transform 90ms ease-out;
 }
 .rally-status__timeline.active {
   border-color: #9dc8f3;
@@ -472,7 +486,8 @@ body.coach-viewport-body {
     gap: 8px;
   }
   .rally-status__nav {
-    min-width: 82px;
+    min-width: 0;
+    padding-inline: 8px;
   }
   .rally-status__timeline {
     min-width: 44px;

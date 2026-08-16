@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { decidePlaybackContinuation } from './playbackContinuation'
+import { decidePlaybackContinuation, nextPlayableRangeAfter } from './playbackContinuation'
 
 const base = {
   availabilityComplete: false,
@@ -36,5 +36,28 @@ describe('playback continuation policy', () => {
   it('does nothing while paused or while enough browser media is buffered', () => {
     expect(decidePlaybackContinuation({ ...base, paused: true })).toBe('idle')
     expect(decidePlaybackContinuation({ ...base, browserBufferedSeconds: 4 })).toBe('idle')
+  })
+})
+
+describe('nextPlayableRangeAfter', () => {
+  const ranges = [
+    { startUs: '0', endUs: '10000000' },
+    { startUs: '12500000', endUs: '20000000' },
+  ]
+
+  it('returns the first playable capture range after a real gap', () => {
+    expect(nextPlayableRangeAfter('10000000', ranges)).toEqual({
+      gapDurationUs: '2500000',
+      targetCaptureTimeUs: '12500000',
+    })
+  })
+
+  it('does not turn a contiguous range boundary into a gap', () => {
+    expect(
+      nextPlayableRangeAfter('10000000', [
+        { startUs: '0', endUs: '10000000' },
+        { startUs: '10000000', endUs: '20000000' },
+      ]),
+    ).toBeNull()
   })
 })

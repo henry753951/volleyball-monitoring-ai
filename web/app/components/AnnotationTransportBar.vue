@@ -22,13 +22,12 @@ import {
 import { AnimatePresence, Motion } from 'motion-v'
 import { computed, ref } from 'vue'
 import { formatTimelineScale } from '~/lib/dvrTimeline'
+import { useAnnotationWorkstationService } from '~/services/annotation-workstation/annotation-workstation.service'
+import type { WorkstationActionId } from '~/services/annotation-workstation/workstation-action.service'
 
 withDefaults(
   defineProps<{
     playing: boolean
-    playerReady: boolean
-    frameReady: boolean
-    frameMovePending: boolean
     timecode: string
     liveActive: boolean
     liveAvailable: boolean
@@ -38,22 +37,12 @@ withDefaults(
     contextDuration: string
     contextState: string
     processing?: AnnotationRallyProcessingUpdate | null
-    processingRetrying?: boolean
     correctionActive: boolean
     correctionBlockReason?: string | null
-    correctionCreating?: boolean
-    correctionCancelling?: boolean
     submissionPending?: boolean
     submittedSelected: boolean
     clipSelected: boolean
-    downloadAvailable?: boolean
     draftSelected: boolean
-    submitEnabled: boolean
-    navigable: boolean
-    selectedPoint: boolean
-    editable: boolean
-    editReady: boolean
-    pointDeleteEnabled: boolean
     muted: boolean
     playbackRate?: number
     timelineScale: number
@@ -67,41 +56,24 @@ withDefaults(
   }>(),
   {
     correctionBlockReason: null,
-    correctionCreating: false,
-    downloadAvailable: false,
     submissionPending: false,
     playbackRate: 1,
   },
 )
 
-const emit = defineEmits<{
-  playPause: []
-  framePrevious: []
-  frameNext: []
-  live: []
-  cancelCorrection: []
-  startCorrection: []
-  submit: []
-  retryProcessing: []
-  keyPointPrevious: []
-  keyPointNext: []
-  nudgePrevious: []
-  nudgeNext: []
-  deleteClip: []
-  downloadClip: []
-  deletePoint: []
-  toggleMute: []
-  setPlaybackRate: [rate: number]
-  resetTimelineZoom: []
-}>()
+const workstation = useAnnotationWorkstationService()
 
 const reducedMotion = usePreferredReducedMotion()
 const playbackMenuOpen = ref(false)
 const playbackRates = [0.5, 0.75, 1, 1.25, 1.5, 2] as const
 
 function choosePlaybackRate(rate: number) {
-  emit('setPlaybackRate', rate)
+  void workstation.actions.execute('media.set-rate', rate)
   playbackMenuOpen.value = false
+}
+
+function action(id: WorkstationActionId) {
+  return workstation.actions.state(id).value
 }
 const clipActionsContent = ref<HTMLElement | null>(null)
 const clipActionsWidth = ref(0)
@@ -144,8 +116,8 @@ const clipTransition = computed(() =>
         type="button"
         class="transport-button"
         :aria-label="playing ? '暫停' : '播放'"
-        :disabled="!playerReady"
-        @click="$emit('playPause')"
+        :disabled="!action('media.toggle-playback').enabled"
+        @click="workstation.actions.execute('media.toggle-playback')"
       >
         <Pause v-if="playing" :size="16" fill="currentColor" /><Play
           v-else
@@ -158,8 +130,8 @@ const clipTransition = computed(() =>
         type="button"
         class="transport-button"
         aria-label="前一幀"
-        :disabled="!frameReady || frameMovePending"
-        @click="$emit('framePrevious')"
+        :disabled="!action('media.frame-previous').enabled"
+        @click="workstation.actions.execute('media.frame-previous')"
       >
         <ChevronLeft :size="18" stroke-width="2.2" /></button
     ></UiTooltip>
@@ -168,8 +140,8 @@ const clipTransition = computed(() =>
         type="button"
         class="transport-button"
         aria-label="後一幀"
-        :disabled="!frameReady || frameMovePending"
-        @click="$emit('frameNext')"
+        :disabled="!action('media.frame-next').enabled"
+        @click="workstation.actions.execute('media.frame-next')"
       >
         <ChevronRight :size="18" stroke-width="2.2" /></button
     ></UiTooltip>
@@ -205,7 +177,7 @@ const clipTransition = computed(() =>
         type="button"
         class="live-badge"
         :class="{ active: liveActive }"
-        @click="$emit('live')"
+        @click="workstation.actions.execute('media.go-live')"
       >
         LIVE</button
       ><span v-else-if="terminalLabel" class="terminal-badge">{{ terminalLabel }}</span>
@@ -219,8 +191,8 @@ const clipTransition = computed(() =>
       <AnnotationProcessingBadge
         :label="contextState"
         :processing="processing"
-        :retrying="processingRetrying"
-        @retry="$emit('retryProcessing')"
+        :retrying="action('processing.retry').pending"
+        @retry="workstation.actions.execute('processing.retry')"
       />
     </div>
     <AnimatePresence :initial="false">
@@ -248,13 +220,17 @@ const clipTransition = computed(() =>
           >
           <UiTooltip
             v-else-if="draftSelected"
-            :content="submitEnabled ? '送出目前草稿並開始處理' : '片段尚未完成，或仍有操作正在同步'"
+            :content="
+              action('submission.submit').enabled
+                ? '送出目前草稿並開始處理'
+                : action('submission.submit').reason || '片段尚未完成，或仍有操作正在同步'
+            "
             ><button
               type="button"
               class="tool-button submit"
-              :disabled="!submitEnabled"
+              :disabled="!action('submission.submit').enabled"
               aria-label="送出片段"
-              @click="$emit('submit')"
+              @click="workstation.actions.execute('submission.submit')"
             >
               <Send :size="14" />送出
             </button></UiTooltip
@@ -265,7 +241,7 @@ const clipTransition = computed(() =>
             aria-hidden="true"
           />
           <UiTooltip
-            v-if="!submissionPending && correctionCreating"
+            v-if="!submissionPending && action('correction.create').pending"
             content="正在複製已送出的片段並切換到可編輯草稿"
             ><button
               type="button"
@@ -283,11 +259,13 @@ const clipTransition = computed(() =>
             ><button
               type="button"
               class="tool-button danger"
-              :disabled="correctionCancelling"
+              :disabled="action('correction.cancel').pending"
               aria-label="取消修正片段"
-              @click="$emit('cancelCorrection')"
+              @click="workstation.actions.execute('correction.cancel')"
             >
-              <XCircle :size="14" />{{ correctionCancelling ? '取消中' : '取消修正片段' }}
+              <XCircle :size="14" />{{
+                action('correction.cancel').pending ? '取消中' : '取消修正片段'
+              }}
             </button></UiTooltip
           >
           <UiTooltip
@@ -298,12 +276,12 @@ const clipTransition = computed(() =>
             ><button
               type="button"
               class="tool-button retry"
-              :disabled="processingRetrying"
+              :disabled="action('processing.retry').pending"
               aria-label="重新處理"
-              @click="$emit('retryProcessing')"
+              @click="workstation.actions.execute('processing.retry')"
             >
-              <RotateCcw :size="14" :class="{ spinning: processingRetrying }" />{{
-                processingRetrying ? '排程中' : '重新處理'
+              <RotateCcw :size="14" :class="{ spinning: action('processing.retry').pending }" />{{
+                action('processing.retry').pending ? '排程中' : '重新處理'
               }}
             </button></UiTooltip
           >
@@ -314,19 +292,23 @@ const clipTransition = computed(() =>
               type="button"
               class="tool-button"
               aria-label="建立修正版草稿"
-              @click="$emit('startCorrection')"
+              @click="workstation.actions.execute('correction.create')"
             >
               <RotateCcw :size="14" />建立修正版草稿
             </button></UiTooltip
           >
           <UiTooltip
-            :content="downloadAvailable ? '下載影片或包含分析資料的 ZIP' : '片段尚未產出可下載影片'"
+            :content="
+              action('clip.download').enabled
+                ? '下載影片或包含分析資料的 ZIP'
+                : action('clip.download').reason || '片段尚未產出可下載影片'
+            "
             ><button
               type="button"
               class="tool-button"
-              :disabled="!downloadAvailable"
+              :disabled="!action('clip.download').enabled"
               aria-label="下載片段"
-              @click="$emit('downloadClip')"
+              @click="workstation.actions.execute('clip.download')"
             >
               <Download :size="14" />下載片段
             </button></UiTooltip
@@ -336,7 +318,7 @@ const clipTransition = computed(() =>
               type="button"
               class="tool-button danger"
               aria-label="刪除所選片段"
-              @click="$emit('deleteClip')"
+              @click="workstation.actions.execute('segment.delete-processing')"
             >
               <Trash2 :size="14" />刪除所選片段
             </button></UiTooltip
@@ -350,9 +332,9 @@ const clipTransition = computed(() =>
         ><button
           type="button"
           class="tool-button icon-only"
-          :disabled="!navigable"
+          :disabled="!action('media.key-point-previous').enabled"
           aria-label="上一個擊球點"
-          @click="$emit('keyPointPrevious')"
+          @click="workstation.actions.execute('media.key-point-previous')"
         >
           <SkipBack :size="14" /></button
       ></UiTooltip>
@@ -360,9 +342,9 @@ const clipTransition = computed(() =>
         ><button
           type="button"
           class="tool-button icon-only"
-          :disabled="!navigable"
+          :disabled="!action('media.key-point-next').enabled"
           aria-label="下一個擊球點"
-          @click="$emit('keyPointNext')"
+          @click="workstation.actions.execute('media.key-point-next')"
         >
           <SkipForward :size="14" /></button
       ></UiTooltip>
@@ -370,9 +352,9 @@ const clipTransition = computed(() =>
         ><button
           type="button"
           class="tool-button icon-only"
-          :disabled="!editable || !selectedPoint || !editReady"
+          :disabled="!action('mark.move').enabled"
           aria-label="擊球點前移一幀"
-          @click="$emit('nudgePrevious')"
+          @click="workstation.actions.execute('mark.move', 'previous')"
         >
           <StepBack :size="14" /></button
       ></UiTooltip>
@@ -380,9 +362,9 @@ const clipTransition = computed(() =>
         ><button
           type="button"
           class="tool-button icon-only"
-          :disabled="!editable || !selectedPoint || !editReady"
+          :disabled="!action('mark.move').enabled"
           aria-label="擊球點後移一幀"
-          @click="$emit('nudgeNext')"
+          @click="workstation.actions.execute('mark.move', 'next')"
         >
           <StepForward :size="14" /></button
       ></UiTooltip>
@@ -390,9 +372,9 @@ const clipTransition = computed(() =>
         ><button
           type="button"
           class="tool-button danger"
-          :disabled="!pointDeleteEnabled || !editReady"
+          :disabled="!action('mark.delete').enabled"
           aria-label="刪除所選擊球點"
-          @click="$emit('deletePoint')"
+          @click="workstation.actions.execute('mark.delete')"
         >
           <Trash2 :size="14" />刪除擊球點
         </button></UiTooltip
@@ -404,7 +386,7 @@ const clipTransition = computed(() =>
           type="button"
           class="timeline-scale"
           :aria-label="`時間軸倍率 ${formatTimelineScale(timelineScale)}；按下恢復預設`"
-          @click="$emit('resetTimelineZoom')"
+          @click="workstation.actions.execute('timeline.reset-zoom')"
         >
           {{ formatTimelineScale(timelineScale) }}
         </button></UiTooltip
@@ -414,8 +396,8 @@ const clipTransition = computed(() =>
           type="button"
           class="transport-button mute"
           :aria-label="muted ? '開啟聲音' : '靜音'"
-          :disabled="!playerReady"
-          @click="$emit('toggleMute')"
+          :disabled="!action('media.toggle-playback').enabled"
+          @click="workstation.actions.execute('media.toggle-mute')"
         >
           <VolumeX v-if="muted" :size="16" /><Volume2 v-else :size="16" /></button
       ></UiTooltip>

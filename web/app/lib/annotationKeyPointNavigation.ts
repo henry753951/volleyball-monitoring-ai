@@ -5,6 +5,20 @@ export interface NavigableAnnotationKeyPoint {
   editable: boolean
 }
 
+export function isSupersededSourceSubmission(input: {
+  activeSubmissionId: string | null | undefined
+  currentRallyId: string | null | undefined
+  rallyId: string
+  submissionId: string
+}) {
+  return Boolean(
+    input.activeSubmissionId &&
+    input.currentRallyId &&
+    input.rallyId !== input.currentRallyId &&
+    input.submissionId === input.activeSubmissionId,
+  )
+}
+
 export function adjacentAnnotationKeyPoint(
   points: readonly NavigableAnnotationKeyPoint[],
   input: {

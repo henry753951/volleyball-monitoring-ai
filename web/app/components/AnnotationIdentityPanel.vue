@@ -12,7 +12,7 @@ import {
   UsersRound,
 } from 'lucide-vue-next'
 import { computed, ref } from 'vue'
-import { useIdentityAssignmentController } from '~/composables/useIdentityAssignmentController'
+import { useAnnotationWorkstationService } from '~/services/annotation-workstation/annotation-workstation.service'
 import type { CoachTeam } from '~/lib/coachDomain'
 import IdentityReplacementDialog from './IdentityReplacementDialog.vue'
 import PlayerIdentityPreview from './PlayerIdentityPreview.vue'
@@ -26,20 +26,15 @@ const props = defineProps<{
   rightTeamId: string | null
   teams: CoachTeam[]
   mappingCompleted: boolean
-  currentFrame?: number
   focusedTrackId?: number | null
-  refreshToken?: number
 }>()
-const emit = defineEmits<{ changed: [] }>()
 const displayMode = ref<'local' | 'group'>('local')
-const assignment = useIdentityAssignmentController({
-  matchId: () => props.matchId,
-  analysisRunId: () => props.analysisRunId,
-  currentFrame: () => props.currentFrame,
-  refreshKey: () => props.refreshToken,
-  refreshAfterCommit: true,
-  onChanged: () => emit('changed'),
-})
+const workstation = useAnnotationWorkstationService()
+const assignment = workstation.identity!
+if (!assignment)
+  throw new Error(
+    'Identity assignment controller was not provided by the annotation route boundary',
+  )
 
 const localGroups = computed(() =>
   [
@@ -104,7 +99,24 @@ const gidGroups = computed(() =>
 )
 
 function toggleComplete() {
-  void assignment.actions.setMappingCompleted(!props.mappingCompleted)
+  void workstation.actions.execute('identity.set-mapping-complete', !props.mappingCompleted)
+}
+
+function requestTrackAssignment(trackId: number, rosterEntryId: string | null) {
+  assignment.actions.setInteractionSurface('panel')
+  void workstation.actions.execute(rosterEntryId ? 'identity.assign' : 'identity.clear', {
+    trackId,
+    rosterEntryId,
+  })
+}
+
+function requestGroupAssignment(trackId: number, trackIds: number[], rosterEntryId: string | null) {
+  assignment.actions.setInteractionSurface('panel')
+  void workstation.actions.execute('identity.assign-gid', {
+    trackId,
+    trackIds,
+    rosterEntryId,
+  })
 }
 </script>
 
@@ -140,8 +152,9 @@ function toggleComplete() {
           <button
             type="button"
             class="identity-auto"
-            :disabled="assignment.view.busy"
-            @click="assignment.actions.applyAutomaticAssignments"
+            :disabled="!workstation.actions.state('identity.apply-automatic').value.enabled"
+            :title="workstation.actions.state('identity.apply-automatic').value.reason ?? undefined"
+            @click="workstation.actions.execute('identity.apply-automatic')"
           >
             <LoaderCircle v-if="assignment.state.autoAssigning" class="spin" :size="13" /><Sparkles
               v-else
@@ -151,8 +164,11 @@ function toggleComplete() {
           <button
             type="button"
             class="identity-auto"
-            :disabled="assignment.state.reidJobAction !== null"
-            @click="assignment.actions.requestAssociationRerun"
+            :disabled="!workstation.actions.state('identity.association-rerun').value.enabled"
+            :title="
+              workstation.actions.state('identity.association-rerun').value.reason ?? undefined
+            "
+            @click="workstation.actions.execute('identity.association-rerun')"
           >
             <LoaderCircle
               v-if="assignment.state.reidJobAction === 'association'"
@@ -163,8 +179,9 @@ function toggleComplete() {
           <button
             type="button"
             class="identity-auto"
-            :disabled="assignment.state.reidJobAction !== null"
-            @click="assignment.actions.requestFeatureRebuild"
+            :disabled="!workstation.actions.state('identity.feature-rebuild').value.enabled"
+            :title="workstation.actions.state('identity.feature-rebuild').value.reason ?? undefined"
+            @click="workstation.actions.execute('identity.feature-rebuild')"
           >
             <LoaderCircle
               v-if="assignment.state.reidJobAction === 'feature'"
@@ -209,14 +226,9 @@ function toggleComplete() {
                   <UiPlayerCombobox
                     :model-value="row.track.roster_entry_id ?? ''"
                     :options="row.options"
-                    :disabled="assignment.state.savingTrackId === row.track.track_id"
+                    :disabled="!workstation.actions.state('identity.assign').value.enabled"
                     :aria-label="`指派 ${row.tidLabel} ${row.gidLabel} 的球員`"
-                    @update:model-value="
-                      assignment.actions.requestAssignment({
-                        trackId: row.track.track_id,
-                        rosterEntryId: $event,
-                      })
-                    "
+                    @update:model-value="requestTrackAssignment(row.track.track_id, $event)"
                   >
                     <template #preview="{ option }"
                       ><PlayerIdentityPreview
@@ -243,20 +255,32 @@ function toggleComplete() {
               </span>
             </label>
             <div
-              v-if="assignment.state.dialogs.correction?.trackId === row.track.track_id"
+              v-if="
+                assignment.state.interactionSurface === 'panel' &&
+                assignment.state.dialogs.correction?.trackId === row.track.track_id
+              "
               class="identity-choice"
               role="dialog"
               aria-label="選擇球員修正方式"
             >
               <strong>要如何套用「{{ assignment.state.dialogs.correction.playerName }}」？</strong>
               <p>這會決定同一人員群組的 TID 與後續片段是否一起沿用。</p>
-              <button type="button" @click="assignment.actions.applyCorrection('from_here')">
+              <button
+                type="button"
+                @click="workstation.actions.execute('identity.apply-correction', 'from_here')"
+              >
                 <b>依人員群組從這段起改正</b><small>同一群組的 TID 與後續片段一起套用</small>
               </button>
-              <button type="button" @click="assignment.actions.applyCorrection('split_identity')">
+              <button
+                type="button"
+                @click="workstation.actions.execute('identity.apply-correction', 'split_identity')"
+              >
                 <b>這其實是不同的人</b><small>適合替補或辨識混人；只拆開這組 Local ID</small>
               </button>
-              <button type="button" @click="assignment.actions.applyCorrection('clip_only')">
+              <button
+                type="button"
+                @click="workstation.actions.execute('identity.apply-correction', 'clip_only')"
+              >
                 <b>只修正這個 Local ID</b><small>不改人員群組，也不影響其他 Local ID</small>
               </button>
               <button type="button" class="cancel" @click="assignment.actions.closeCorrection">
@@ -297,14 +321,10 @@ function toggleComplete() {
                 <UiPlayerCombobox
                   :model-value="row.rosterEntryId ?? ''"
                   :options="row.options"
-                  :disabled="assignment.state.savingTrackId === row.representativeTrackId"
+                  :disabled="!workstation.actions.state('identity.assign-gid').value.enabled"
                   :aria-label="`依 ${row.gidLabel} 批次指派 ${row.trackIds.length} 個 Local ID`"
                   @update:model-value="
-                    assignment.actions.requestGidAssignment({
-                      trackId: row.representativeTrackId,
-                      trackIds: row.trackIds,
-                      rosterEntryId: $event,
-                    })
+                    requestGroupAssignment(row.representativeTrackId, row.trackIds, $event)
                   "
                 >
                   <template #preview="{ option }"
@@ -352,10 +372,9 @@ function toggleComplete() {
         type="button"
         class="identity-complete"
         :class="{ completed: mappingCompleted }"
-        :disabled="
-          assignment.view.busy ||
-          !assignment.view.model.tracks.length ||
-          (!mappingCompleted && !assignment.view.model.identityReady)
+        :disabled="!workstation.actions.state('identity.set-mapping-complete').value.enabled"
+        :title="
+          workstation.actions.state('identity.set-mapping-complete').value.reason ?? undefined
         "
         @click="toggleComplete"
       >
@@ -372,7 +391,7 @@ function toggleComplete() {
       </p>
     </template>
     <IdentityReplacementDialog
-      v-if="assignment.state.dialogs.replacement"
+      v-if="assignment.state.interactionSurface === 'panel' && assignment.state.dialogs.replacement"
       :open="true"
       :player-name="assignment.state.dialogs.replacement.playerName"
       :occupied-track-id="assignment.state.dialogs.replacement.occupiedTrackId"
@@ -380,7 +399,7 @@ function toggleComplete() {
       :warning-enabled="assignment.preferences.replacementWarningEnabled"
       @update:warning-enabled="assignment.preferences.replacementWarningEnabled = $event"
       @close="assignment.actions.closeReplacement"
-      @confirm="assignment.actions.confirmReplacement"
+      @confirm="workstation.actions.execute('identity.confirm-replacement')"
     />
   </div>
 </template>

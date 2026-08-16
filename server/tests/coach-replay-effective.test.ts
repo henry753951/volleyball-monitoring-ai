@@ -248,7 +248,7 @@ describe('coach replay effective contact projection', () => {
 
     const [event] = projectEffectiveReplayEvents(analysis, semantics)
     expect(event?.wire).toMatchObject({
-      key_point_id: 'corrected-point',
+      key_point_id: 'source-point',
       association_state: 'resolved_single',
       actors: [{ track_id: 7 }],
       ball_event: {
@@ -357,6 +357,82 @@ describe('coach replay effective contact projection', () => {
       actors: [{ track_id: 7, association_confidence: 0.92 }],
       representative_court_positions: [{ track_id: 7 }],
       quality_flags: ['contact_association_projection'],
+    })
+  })
+
+  it('projects a correction submission onto its exact reused-clip frame and association', () => {
+    const analysis = {
+      tracks: [],
+      contactTimeCorrections: [],
+      contactActorCorrections: [],
+      contactAssociationJobs: [
+        {
+          keyPointId: 'corrected-point',
+          frameIndex: 42n,
+          status: JobStatus.COMPLETED,
+          projection: {
+            trackId: 9,
+            source: 'POSE_HAND',
+            confidence: 0.94,
+            observationFrameIndex: 42n,
+          },
+        },
+      ],
+      contactEdits: [],
+      analysisDataManifest: { fpsNum: 60, fpsDen: 1 },
+      contactEvents: [
+        {
+          keyPointId: 'source-point',
+          sourceKeyPointId: 'source-point',
+          anchorOrigin: 'human_anchor',
+          detectionConfidence: null,
+          detectionEvidence: null,
+          sequenceIndex: 0,
+          markerKind: 'CONTACT',
+          isTerminal: false,
+          anchorFrameIndex: 10n,
+          resolvedFrameIndex: 10n,
+          anchorTimeUs: 1_000n,
+          associationState: 'AMBIGUOUS',
+          ballState: 'OBSERVED',
+          ballFrameIndex: 10n,
+          ballFrameX: 100,
+          ballFrameY: 200,
+          qualityFlags: [],
+          actors: [],
+          candidates: [],
+          representativePositions: [],
+        },
+      ],
+    } as unknown as Parameters<typeof projectEffectiveReplayEvents>[0]
+    const semantics = [
+      {
+        submissionKeyPointId: 'corrected-point',
+        ordinal: 1,
+        kind: 'SERVE',
+        result: 'SUCCESS',
+        semanticSource: 'CORRECTION_COPY',
+        actorRosterEntryId: null,
+        actorRosterEntry: null,
+      },
+    ] as unknown as Parameters<typeof projectEffectiveReplayEvents>[1]
+
+    const [event] = projectEffectiveReplayEvents(analysis, semantics, new Map([[1, 42n]]))
+
+    expect(event?.wire).toMatchObject({
+      key_point_id: 'source-point',
+      resolved_frame_index: '42',
+      association_state: 'resolved_single',
+      actors: [
+        {
+          track_id: 9,
+          observation_frame_index: '42',
+          association_confidence: 0.94,
+          frame_bbox: null,
+          court_pos: null,
+        },
+      ],
+      quality_flags: ['contact_association_projection', 'submission_timing_projection'],
     })
   })
 })

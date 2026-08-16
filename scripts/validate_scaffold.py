@@ -147,8 +147,16 @@ assert (ROOT / "docs/SYSTEM_SPEC_V3_2.md").read_text(encoding="utf-8") == (
 ).read_text(encoding="utf-8")
 
 annotation_page = (ROOT / "web/app/pages/annotate/[matchId].vue").read_text(encoding="utf-8")
-annotation_room = (ROOT / "web/app/composables/useAnnotationRoom.ts").read_text(encoding="utf-8")
+annotation_room_composable = (ROOT / "web/app/composables/useAnnotationRoom.ts").read_text(
+    encoding="utf-8"
+)
+annotation_command_service = (
+    ROOT / "web/app/services/annotation-workstation/annotation-command.service.ts"
+).read_text(encoding="utf-8")
 hotkey_registry = (ROOT / "web/app/utils/annotationHotkeys.ts").read_text(encoding="utf-8")
+assert "createAnnotationRoomService" in annotation_room_composable, (
+    "annotation room composable must remain a thin service adapter"
+)
 for action in ["service", "contact", "close_left", "close_right", "close_unknown", "submit"]:
     assert action in hotkey_registry, f"annotation registry missing: {action}"
 
@@ -183,7 +191,9 @@ for forbidden_terminal_flow in ["kind: 'terminal'", "type: 'terminal'", "kind ==
         "standalone terminal key-point flow returned"
     )
 for v3_command in ["START_RALLY", "END_RALLY", "SET_RALLY_OUTCOME"]:
-    assert v3_command in annotation_room, f"annotation room missing v3 command: {v3_command}"
+    assert v3_command in annotation_command_service, (
+        f"annotation command service missing v3 command: {v3_command}"
+    )
 
 compose_source = (ROOT / "infra/compose.yaml").read_text(encoding="utf-8")
 compose_services = compose_source.split("\nservices:\n", 1)[1].split("\nvolumes:\n", 1)[0]

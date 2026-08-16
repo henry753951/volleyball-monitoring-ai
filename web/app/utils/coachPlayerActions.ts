@@ -3,6 +3,7 @@ import type {
   CoachRallyReplay,
   ReplayActor,
   ReplayContactEvent,
+  ReplayCourtPosition,
 } from '~/lib/coachDomain'
 
 export type CoachActionOutcome = 'won' | 'lost' | 'unknown'
@@ -19,7 +20,8 @@ export interface CoachPlayerActionEvent {
   actionLabel: string
   actionConfidence: number | null
   resultKey: NonNullable<ReplayContactEvent['ball_event']>['result']
-  courtPosition: { x: number; y: number } | null
+  routeStart: { x: number; y: number } | null
+  routeEnd: { x: number; y: number } | null
   outcome: CoachActionOutcome
 }
 
@@ -133,12 +135,13 @@ function actorForTrack(actors: ReplayActor[], trackId: number) {
   return actors.find(actor => actor.track_id === trackId) ?? null
 }
 
-function trackTeamId(replay: CoachRallyReplay, track: CoachMatchAnalytics['tracks'][number]) {
-  return track.court_side === 'left'
-    ? replay.rally.left_team.id
-    : track.court_side === 'right'
-      ? replay.rally.right_team.id
-      : null
+function routePosition(positions: ReplayCourtPosition[], actorTrackId: number) {
+  return (
+    positions.find(position => position.track_id === null) ??
+    positions.find(position => position.track_id === actorTrackId) ??
+    positions[0] ??
+    null
+  )
 }
 
 export function collectCoachActionEvents(
@@ -149,9 +152,6 @@ export function collectCoachActionEvents(
   for (const track of tracks) {
     const replay = replays.get(track.rally_id)
     if (!replay?.analysis) continue
-    const teamId = trackTeamId(replay, track)
-    const scoringTeamId = replay.rally.outcome.scoring_team?.id ?? null
-    const resolved = replay.rally.outcome.score_resolution === 'resolved' && Boolean(scoringTeamId)
     for (const event of replay.analysis.contact_events) {
       const semantic = event.ball_event
       if (!semantic) continue
@@ -161,10 +161,8 @@ export function collectCoachActionEvents(
       const path = replay.analysis.paths.find(
         item => item.start_key_point_id === event.key_point_id,
       )
-      const landing =
-        path?.end_court_positions.find(position => position.track_id === null) ??
-        path?.end_court_positions[0] ??
-        null
+      const routeStart = path ? routePosition(path.start_court_positions, track.track_id) : null
+      const routeEnd = path ? routePosition(path.end_court_positions, track.track_id) : null
       const semanticOutcome =
         semantic.result === 'point_scored' || semantic.result === 'success'
           ? 'won'
@@ -186,10 +184,9 @@ export function collectCoachActionEvents(
         actionLabel: ACTION_TRANSLATIONS[semantic.kind] ?? semantic.kind,
         actionConfidence: null,
         resultKey: semantic.result,
-        courtPosition: landing?.court_pos ?? actor?.court_pos ?? null,
-        outcome:
-          semanticOutcome ??
-          (!resolved || !teamId ? 'unknown' : scoringTeamId === teamId ? 'won' : 'lost'),
+        routeStart: routeStart?.court_pos ?? actor?.court_pos ?? null,
+        routeEnd: routeEnd?.court_pos ?? null,
+        outcome: semanticOutcome ?? 'unknown',
       })
     }
   }

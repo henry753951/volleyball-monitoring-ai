@@ -2407,7 +2407,7 @@ describe('durable service annotation command', () => {
     ])
   })
 
-  it('reuses completed clip and analysis evidence for an outcome-only correction', async () => {
+  it('reuses completed clip and analysis evidence for an exact-frame time correction', async () => {
     const rallyId = randomUUID()
     await service.apply(serviceCommand(randomUUID(), rallyId), identity)
     const draftPoint = await db.keyPoint.findFirstOrThrow({ where: { rallyId } })
@@ -2444,8 +2444,9 @@ describe('durable service annotation command', () => {
           bucket: 'reuse-test',
           objectKey: `${rallyId}.json`,
           contentType: 'application/json',
-          byteLength: 10n,
+          byteLength: 1n,
           sha256: 'b'.repeat(64),
+          internalSchemaVersion: '2.0.0',
           state: 'READY',
           readyAt: new Date(),
         },
@@ -2469,8 +2470,8 @@ describe('durable service annotation command', () => {
       where: { id: sourceClip.id },
       data: {
         status: 'COMPLETED',
-        actualStartCaptureUs: sourcePoint.captureTimeUs - 1n,
-        actualEndCaptureUs: sourcePoint.captureTimeUs + 1n,
+        actualStartCaptureUs: sourcePoint.captureTimeUs,
+        actualEndCaptureUs: sourcePoint.captureTimeUs + 2n,
         clipAssetId,
         timingManifestAssetId: timingAssetId,
         completedAt: new Date(),
@@ -2525,7 +2526,7 @@ describe('durable service annotation command', () => {
         analysisRunId: sourceAnalysis.id,
         keyPointId: sourcePoint.id,
         sequenceIndex: 0,
-        anchorFrameIndex: sourcePoint.captureFrameIndex,
+        anchorFrameIndex: 0n,
         anchorTimeUs: sourcePoint.captureTimeUs,
         markerKind: sourcePoint.markerKind,
         isTerminal: true,
@@ -2540,8 +2541,8 @@ describe('durable service annotation command', () => {
         sequenceIndex: 0,
         startKeyPointId: sourcePoint.id,
         endKeyPointId: sourcePoint.id,
-        startFrameIndex: sourcePoint.captureFrameIndex,
-        endFrameIndex: sourcePoint.captureFrameIndex,
+        startFrameIndex: 0n,
+        endFrameIndex: 0n,
         renderState: 'UNAVAILABLE',
         isTerminalSegment: true,
         qualityFlags: [],
@@ -2556,13 +2557,13 @@ describe('durable service annotation command', () => {
         videoHeight: 1080,
         fpsNum: 60,
         fpsDen: 1,
-        totalFrames: 1n,
+        totalFrames: 2n,
         chunkFrameCount: 60,
         chunks: {
           create: {
             chunkIndex: 0,
             startFrameIndex: 0n,
-            frameCount: 1,
+            frameCount: 2,
             assetId: analysisFrameAssetId,
             byteLength: 8n,
             sha256: 'c'.repeat(64),
@@ -2571,8 +2572,46 @@ describe('durable service annotation command', () => {
       },
     })
 
+    const timingManifest = new TextEncoder().encode(
+      JSON.stringify({
+        schema_version: '2.0.0',
+        clip_job_id: sourceClip.id,
+        actual_start_capture_us: sourcePoint.captureTimeUs.toString(),
+        actual_end_capture_us: (sourcePoint.captureTimeUs + 2n).toString(),
+        video: { duration_us: '2' },
+        frame_map: [
+          {
+            capture_epoch_id: sourcePoint.captureEpochId,
+            capture_frame_index: sourcePoint.captureFrameIndex.toString(),
+            source_pts: sourcePoint.sourcePts.toString(),
+            capture_time_us: sourcePoint.captureTimeUs.toString(),
+            clip_pts: '0',
+            clip_time_us: '0',
+            clip_frame_index: '0',
+          },
+          {
+            capture_epoch_id: sourcePoint.captureEpochId,
+            capture_frame_index: (sourcePoint.captureFrameIndex + 1n).toString(),
+            source_pts: (sourcePoint.sourcePts + 1n).toString(),
+            capture_time_us: (sourcePoint.captureTimeUs + 1n).toString(),
+            clip_pts: '1',
+            clip_time_us: '1',
+            clip_frame_index: '1',
+          },
+        ],
+      }),
+    )
+    await db.mediaAsset.update({
+      where: { id: timingAssetId },
+      data: { byteLength: BigInt(timingManifest.byteLength) },
+    })
+    const correctionService = createAnnotationCommandService({
+      database: db,
+      resolveCursor: async () => anchor,
+      timingManifestReader: async () => timingManifest,
+    })
     await createCorrectionDraft(db, sourceSubmission.id, identity)
-    await service.apply(
+    await correctionService.apply(
       parseAnnotationCommand({
         ...serviceCommand(randomUUID(), rallyId),
         base_revision: '4',
@@ -2581,8 +2620,22 @@ describe('durable service annotation command', () => {
       }),
       identity,
     )
-    await service.apply(closeCommand(randomUUID(), rallyId, draftPoint.id, '5', 'right'), identity)
-    const corrected = await service.apply(submitCommand(randomUUID(), rallyId, '6'), identity)
+    await db.keyPoint.update({
+      where: { id: draftPoint.id },
+      data: {
+        captureFrameIndex: sourcePoint.captureFrameIndex + 1n,
+        captureTimeUs: sourcePoint.captureTimeUs + 1n,
+        sourcePts: sourcePoint.sourcePts + 1n,
+      },
+    })
+    await correctionService.apply(
+      closeCommand(randomUUID(), rallyId, draftPoint.id, '5', 'right'),
+      identity,
+    )
+    const corrected = await correctionService.apply(
+      submitCommand(randomUUID(), rallyId, '6'),
+      identity,
+    )
     const correctedSubmissionId =
       corrected.type === 'command_ack' ? corrected.effects.submission_id : null
     const freshClip = await db.clipJob.findFirstOrThrow({
@@ -2594,6 +2647,9 @@ describe('durable service annotation command', () => {
       timingManifestAssetId: timingAssetId,
     })
     await expect(
+      db.clipKeyPointMapping.findFirstOrThrow({ where: { clipJobId: freshClip.id } }),
+    ).resolves.toMatchObject({ clipPts: 1n, clipTimeUs: 1n, clipFrameIndex: 1n })
+    await expect(
       db.aiJob.findFirst({ where: { submissionId: correctedSubmissionId! } }),
     ).resolves.toBeNull()
     await expect(
@@ -2602,6 +2658,14 @@ describe('durable service annotation command', () => {
     await expect(
       db.analysisRun.findFirst({ where: { submissionId: correctedSubmissionId! } }),
     ).resolves.toBeNull()
+    await expect(
+      db.analysisContactAssociationJob.findFirstOrThrow({
+        where: { analysisRunId: sourceAnalysis.id, frameIndex: 1n },
+      }),
+    ).resolves.toMatchObject({
+      status: 'QUEUED',
+      algorithmNamespace: expect.stringContaining('pose-first'),
+    })
     await expect(db.rally.findUniqueOrThrow({ where: { id: rallyId } })).resolves.toMatchObject({
       processingStatus: 'COMPLETED',
       activeSubmissionId: correctedSubmissionId,

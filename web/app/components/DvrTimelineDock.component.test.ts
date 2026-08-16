@@ -1,7 +1,35 @@
 import type { AnnotationRallySnapshot } from '@volleyball-monitoring/contracts'
-import { describe, expect, it } from 'vitest'
-import { mount } from '@vue/test-utils'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { config, mount } from '@vue/test-utils'
+import { annotationWorkstationServiceKey } from '~/services/annotation-workstation/annotation-workstation.service'
 import DvrTimelineDock from './DvrTimelineDock.vue'
+const playback = {
+  seek: vi.fn(),
+  previewSeek: vi.fn(),
+}
+const timelineSelection = {
+  clear: vi.fn(),
+  selectAnalysis: vi.fn(),
+  selectHistorical: vi.fn(),
+  selectKeyPoint: vi.fn(),
+  selectMask: vi.fn(),
+}
+const keyPointEditing = {
+  begin: vi.fn(),
+  cancel: vi.fn(),
+  move: vi.fn(),
+}
+config.global.provide = {
+  ...config.global.provide,
+  [annotationWorkstationServiceKey as symbol]: {
+    annotation: { keyPoints: keyPointEditing },
+    playback,
+    timeline: timelineSelection,
+  },
+}
+beforeEach(() => {
+  vi.clearAllMocks()
+})
 const timeline = {
   captureSessionId: 's',
   captureStartTimeUs: '1000',
@@ -51,14 +79,14 @@ describe('DvrTimelineDock mounted interactions', () => {
       value: () => ({ left: 0, width: 100 }),
     })
     await lane.trigger('pointerdown', { pointerId: 1, button: 0, clientX: 25 })
-    expect(w.emitted('seek')).toBeUndefined()
+    expect(playback.seek).not.toHaveBeenCalled()
     await lane.trigger('pointerup', { pointerId: 1, clientX: 25 })
-    expect(w.emitted('clearSelection')).toBeUndefined()
-    expect(w.emitted('seek')?.[0]).toEqual(['1750'])
+    expect(timelineSelection.clear).not.toHaveBeenCalled()
+    expect(playback.seek).toHaveBeenCalledWith('1750')
     await lane.trigger('pointerdown', { pointerId: 2, button: 0, clientX: 62 })
     await lane.trigger('pointerup', { pointerId: 2, clientX: 62 })
-    expect(w.emitted('clearSelection')).toBeUndefined()
-    expect(w.emitted('seek')).toHaveLength(1)
+    expect(timelineSelection.clear).not.toHaveBeenCalled()
+    expect(playback.seek).toHaveBeenCalledTimes(1)
   })
   it('commits one seek from the upper ruler without discarding manual selection', async () => {
     const w = mount(DvrTimelineDock, { props: { timeline, playhead: null } })
@@ -67,10 +95,10 @@ describe('DvrTimelineDock mounted interactions', () => {
       value: () => ({ left: 0, width: 100 }),
     })
     await ruler.trigger('pointerdown', { pointerId: 1, button: 0, clientX: 25 })
-    expect(w.emitted('seek')).toBeUndefined()
+    expect(playback.seek).not.toHaveBeenCalled()
     await ruler.trigger('pointerup', { pointerId: 1, clientX: 25 })
-    expect(w.emitted('clearSelection')).toBeUndefined()
-    expect(w.emitted('seek')?.[0]).toEqual(['1750'])
+    expect(timelineSelection.clear).not.toHaveBeenCalled()
+    expect(playback.seek).toHaveBeenCalledWith('1750')
   })
   it('clears a pinned segment from empty lane space without seeking', async () => {
     const w = mount(DvrTimelineDock, { props: { timeline, playhead: null } })
@@ -79,8 +107,8 @@ describe('DvrTimelineDock mounted interactions', () => {
       value: () => ({ left: 0, width: 100 }),
     })
     await lane.trigger('click', { clientX: 25 })
-    expect(w.emitted('clearSelection')).toHaveLength(1)
-    expect(w.emitted('seek')).toBeUndefined()
+    expect(timelineSelection.clear).toHaveBeenCalledTimes(1)
+    expect(playback.seek).not.toHaveBeenCalled()
   })
   it('uses Shift+wheel for zoom, plain wheel for pan, and reset restores the 0.1x default', async () => {
     const zoomTimeline = {
@@ -300,9 +328,9 @@ describe('DvrTimelineDock mounted interactions', () => {
     expect(w.find('.timeline-mask.historical small').text()).toBe('分析完成')
     expect(w.find('.analysis-rail').classes()).toContain('density-micro')
     expect(w.find('.analysis-rail').element.tagName).toBe('BUTTON')
-    expect(w.findAll('.historical-point')).toHaveLength(3)
+    expect(w.findAll('.keypoint-dot')).toHaveLength(3)
     expect(
-      w.findAll('.historical-point').every(point => point.classes().includes('density-micro')),
+      w.findAll('.keypoint-dot').every(point => point.classes().includes('density-micro')),
     ).toBe(true)
   })
   it('renders the Rally outcome on current and historical masks', () => {
@@ -380,11 +408,11 @@ describe('DvrTimelineDock mounted interactions', () => {
     expect(result.classes()).not.toContain('selected')
 
     await result.trigger('click')
-    expect(w.emitted('selectAnalysis')?.[0]).toEqual(['analyzed'])
-    expect(w.emitted('selectSegment')).toBeUndefined()
+    expect(timelineSelection.selectAnalysis).toHaveBeenCalledWith('analyzed')
+    expect(timelineSelection.selectHistorical).not.toHaveBeenCalled()
 
     await w.get('.lane-content').trigger('click')
-    expect(w.emitted('clearSelection')).toHaveLength(1)
+    expect(timelineSelection.clear).toHaveBeenCalledTimes(1)
   })
   it('keeps the current immutable Rally AI result rail when its duplicate segment mask is suppressed', async () => {
     const current = {
@@ -423,15 +451,16 @@ describe('DvrTimelineDock mounted interactions', () => {
 
     expect(w.findAll('.timeline-mask.historical')).toHaveLength(0)
     expect(w.find('.timeline-mask.current').exists()).toBe(true)
-    expect(w.findAll('.historical-point')).toHaveLength(1)
-    expect(w.get('.historical-point').attributes('aria-label')).toContain('回合 1 · contact')
+    expect(w.findAll('.keypoint-dot')).toHaveLength(1)
+    expect(w.get('.keypoint-dot').attributes('aria-label')).toContain('目前片段 · 發球')
+    expect(w.get('.keypoint-dot').attributes('aria-label')).not.toContain('ai-contact')
     expect(w.findAll('.analysis-rail')).toHaveLength(1)
     expect(w.find('.analysis-rail').attributes('aria-label')).toContain('開啟分析結果')
 
     await w.find('.analysis-rail').trigger('click')
-    expect(w.emitted('selectAnalysis')?.[0]).toEqual(['rally'])
+    expect(timelineSelection.selectAnalysis).toHaveBeenCalledWith('rally')
   })
-  it('drags the playhead once and keeps the optimistic target until cursor sync catches up', async () => {
+  it('moves the visible playhead to the requested target immediately while cursor sync catches up', async () => {
     const w = mount(DvrTimelineDock, { props: { timeline, playhead: '1750' } })
     const playhead = w.find('.playhead-handle')
     const lane = w.find('.lane-content')
@@ -442,10 +471,11 @@ describe('DvrTimelineDock mounted interactions', () => {
     Object.defineProperty(playhead.element, 'hasPointerCapture', { value: () => false })
     await playhead.trigger('pointerdown', { pointerId: 4, clientX: 25 })
     await playhead.trigger('pointermove', { pointerId: 4, clientX: 75 })
-    expect(w.emitted('seek')).toBeUndefined()
+    expect(playback.seek).not.toHaveBeenCalled()
     await playhead.trigger('pointerup', { pointerId: 4, clientX: 75 })
-    expect(w.emitted('seek')?.[0]).toEqual(['3250'])
+    expect(playback.seek).toHaveBeenCalledWith('3250')
     expect(w.find('.buffer-status').attributes('aria-valuenow')).toBe('3250')
+    expect(w.find('.pending-playhead').exists()).toBe(false)
     await w.setProps({ playhead: '1750' })
     expect(w.find('.buffer-status').attributes('aria-valuenow')).toBe('3250')
     await w.setProps({ playhead: '3250' })
@@ -460,11 +490,11 @@ describe('DvrTimelineDock mounted interactions', () => {
     Object.defineProperty(ruler.element, 'setPointerCapture', { value: () => undefined })
     Object.defineProperty(ruler.element, 'hasPointerCapture', { value: () => false })
     await ruler.trigger('pointerdown', { pointerId: 9, button: 0, clientX: 25 })
-    expect(w.emitted('seek')).toBeUndefined()
+    expect(playback.seek).not.toHaveBeenCalled()
     await ruler.trigger('pointermove', { pointerId: 9, clientX: 75 })
-    expect(w.emitted('preview')?.at(-1)).toEqual(['3250'])
+    expect(playback.previewSeek).toHaveBeenLastCalledWith('3250')
     await ruler.trigger('pointerup', { pointerId: 9, clientX: 75 })
-    expect(w.emitted('seek')?.at(-1)).toEqual(['3250'])
+    expect(playback.seek).toHaveBeenLastCalledWith('3250')
   })
   it('renders key points inside the single segment lane and double-click focuses its mask', async () => {
     const rangedAnnotation: AnnotationRallySnapshot = {
@@ -490,10 +520,10 @@ describe('DvrTimelineDock mounted interactions', () => {
     expect(w.findAll('.lane-row')).toHaveLength(1)
     expect(w.find('.clip-lane').findAll('.keypoint-dot')).toHaveLength(2)
     await w.find('.timeline-mask.current').trigger('dblclick')
-    expect(w.emitted('selectMask')).toBeTruthy()
-    expect(w.emitted('seek')?.at(-1)).toEqual(['1750'])
+    expect(timelineSelection.selectMask).toHaveBeenCalled()
+    expect(playback.seek).toHaveBeenLastCalledWith('1750')
   })
-  it('double-clicks a distant historical segment without snapping back to the old playhead', async () => {
+  it('moves the visible cursor immediately for a distant seek without a second pending line', async () => {
     const distantTimeline = {
       captureSessionId: 's',
       captureStartTimeUs: '0',
@@ -516,8 +546,9 @@ describe('DvrTimelineDock mounted interactions', () => {
       props: { timeline: distantTimeline, playhead: '1000000', segments: [segment] },
     })
     await w.find('.timeline-mask.historical').trigger('dblclick')
-    expect(w.emitted('seek')?.at(-1)).toEqual(['30000000'])
+    expect(playback.seek).toHaveBeenLastCalledWith('30000000')
     expect(w.find('.buffer-status').attributes('aria-valuenow')).toBe('30000000')
+    expect(w.find('.pending-playhead').exists()).toBe(false)
 
     await w.setProps({ playhead: '2000000' })
     expect(w.find('.buffer-status').attributes('aria-valuenow')).toBe('30000000')
@@ -542,8 +573,8 @@ describe('DvrTimelineDock mounted interactions', () => {
     expect(marker.attributes('title')).toContain('Remote Operator 正在調整（提示，不阻擋）')
     expect(marker.attributes('disabled')).toBeUndefined()
     await marker.trigger('click')
-    expect(w.emitted('select')?.[0]).toEqual(['point-1'])
-    expect(w.emitted('seek')?.[0]).toEqual(['1750'])
+    expect(timelineSelection.selectKeyPoint).toHaveBeenCalledWith('point-1')
+    expect(playback.seek).toHaveBeenCalledWith('1750')
   })
   it('previews a marker drag and emits a ready-range target with a non-blocking edit hint', async () => {
     const w = mount(DvrTimelineDock, {
@@ -558,10 +589,10 @@ describe('DvrTimelineDock mounted interactions', () => {
     await marker.trigger('pointermove', { pointerId: 7, clientX: 75 })
     expect(marker.classes()).toContain('point-dragging')
     await marker.trigger('pointerup', { pointerId: 7, clientX: 75 })
-    expect(w.emitted('editStart')?.[0]).toEqual(['point-1'])
-    expect(w.emitted('move')?.[0]).toEqual(['point-1', '3250'])
+    expect(keyPointEditing.begin).toHaveBeenCalledWith('point-1')
+    expect(keyPointEditing.move).toHaveBeenCalledWith('point-1', '3250')
     await marker.trigger('click')
-    expect(w.emitted('select')).toBeUndefined()
+    expect(timelineSelection.selectKeyPoint).not.toHaveBeenCalled()
   })
   it('keeps correction-draft service and contact markers editable', () => {
     const correction: AnnotationRallySnapshot = {

@@ -1,5 +1,8 @@
 import { randomUUID } from 'node:crypto'
 import type { Prisma } from '@volleyball-monitoring/db/client'
+import { CONTACT_ASSOCIATION_ALGORITHM } from '../analysis/contact-association.js'
+import { readClipFrameTimeline, timingManifestIdentity } from '../../media/clip-timing-coverage.js'
+import type { MediaObjectReader } from '../../media/playback-domain.js'
 
 type Tx = Prisma.TransactionClient
 
@@ -8,23 +11,44 @@ interface SubmissionKeyPointIdentity {
   sequenceIndex: number
 }
 
+interface SubmissionKeyPointAnchor extends SubmissionKeyPointIdentity {
+  actorRosterEntryId: string | null
+  captureEpochId: string
+  captureFrameIndex: bigint
+  captureTimeUs: bigint
+  sourcePts: bigint
+}
+
 interface SubmissionBoundaryIdentity {
   id: string
   kind: 'START' | 'END'
 }
 
 interface GeometryReuseInput {
-  annotationRevision: bigint
+  allowLegacyMappingCopy: boolean
   newBoundaries: SubmissionBoundaryIdentity[]
-  newKeyPoints: SubmissionKeyPointIdentity[]
+  newKeyPoints: SubmissionKeyPointAnchor[]
   newSubmissionId: string
-  outcome: {
-    resolution: 'RESOLVED' | 'UNKNOWN'
-    side: 'LEFT' | 'RIGHT' | null
-  }
   sourceBoundaries: SubmissionBoundaryIdentity[]
   sourceKeyPoints: SubmissionKeyPointIdentity[]
   sourceSubmissionId: string
+  timingManifestReader?: MediaObjectReader
+}
+
+interface ReusedKeyPointMapping {
+  submissionKeyPointId: string
+  clipPts: bigint
+  clipTimeUs: bigint
+  clipFrameIndex: bigint
+}
+
+function sourceFrameKey(point: {
+  captureEpochId: string
+  captureFrameIndex: bigint
+  captureTimeUs: bigint
+  sourcePts: bigint
+}) {
+  return `${point.captureEpochId}:${point.captureFrameIndex}:${point.captureTimeUs}:${point.sourcePts}`
 }
 
 /**
@@ -45,7 +69,19 @@ export async function reuseCompletedSubmissionGeometry(
       actualStartCaptureUs: { not: null },
       actualEndCaptureUs: { not: null },
     },
-    include: { keyPointMappings: true },
+    include: {
+      keyPointMappings: true,
+      timingManifest: {
+        select: {
+          bucket: true,
+          objectKey: true,
+          contentType: true,
+          byteLength: true,
+          sha256: true,
+          internalSchemaVersion: true,
+        },
+      },
+    },
     orderBy: [{ completedAt: 'desc' }, { id: 'desc' }],
   })
   if (!sourceClip) return false
@@ -54,17 +90,19 @@ export async function reuseCompletedSubmissionGeometry(
     where: { id: input.sourceSubmissionId },
     select: {
       analysisSourceRunId: true,
+      analysisSourceRun: { select: { id: true, reviewRevision: true } },
       analysisRuns: {
         where: { status: 'COMPLETED' },
         orderBy: [{ activatedAt: 'desc' }, { id: 'desc' }],
         take: 1,
-        select: { id: true },
+        select: { id: true, reviewRevision: true },
       },
     },
   })
   const analysisSourceRunId =
     sourceSubmission?.analysisRuns[0]?.id ?? sourceSubmission?.analysisSourceRunId ?? null
   if (!analysisSourceRunId) return false
+  const sourceAnalysis = sourceSubmission?.analysisRuns[0] ?? sourceSubmission?.analysisSourceRun
 
   const newBySequence = new Map(input.newKeyPoints.map(point => [point.sequenceIndex, point]))
   const newIdByOldId = new Map<string, string>()
@@ -79,8 +117,62 @@ export async function reuseCompletedSubmissionGeometry(
     if (!replacement) return false
     newIdByOldId.set(sourceBoundary.id, replacement.id)
   }
-  if (sourceClip.keyPointMappings.some(mapping => !newIdByOldId.has(mapping.submissionKeyPointId)))
-    return false
+
+  let reusedMappings: ReusedKeyPointMapping[]
+  if (input.allowLegacyMappingCopy) {
+    if (
+      sourceClip.keyPointMappings.some(mapping => !newIdByOldId.has(mapping.submissionKeyPointId))
+    )
+      return false
+    reusedMappings = sourceClip.keyPointMappings.map(mapping => ({
+      submissionKeyPointId: newIdByOldId.get(mapping.submissionKeyPointId)!,
+      clipPts: mapping.clipPts,
+      clipTimeUs: mapping.clipTimeUs,
+      clipFrameIndex: mapping.clipFrameIndex,
+    }))
+  } else {
+    if (!input.timingManifestReader || !sourceClip.timingManifest) return false
+    const timeline = await readClipFrameTimeline(
+      input.timingManifestReader,
+      sourceClip.timingManifest,
+      timingManifestIdentity(
+        sourceClip.id,
+        sourceClip.idempotencyKey,
+        sourceClip.timingManifest.objectKey,
+      ),
+    ).catch(() => null)
+    if (!timeline) return false
+    const frameBySource = new Map<string, number>()
+    for (let index = 0; index < timeline.captureTimeUs.length; index += 1) {
+      const key = sourceFrameKey({
+        captureEpochId: timeline.captureEpochId[index]!,
+        captureFrameIndex: timeline.captureFrameIndex[index]!,
+        captureTimeUs: timeline.captureTimeUs[index]!,
+        sourcePts: timeline.sourcePts[index]!,
+      })
+      if (frameBySource.has(key)) return false
+      frameBySource.set(key, index)
+    }
+    reusedMappings = input.newKeyPoints.flatMap(point => {
+      const index = frameBySource.get(sourceFrameKey(point))
+      return index === undefined
+        ? []
+        : [
+            {
+              submissionKeyPointId: point.id,
+              clipPts: timeline.clipPts[index]!,
+              clipTimeUs: timeline.clipTimeUs[index]!,
+              clipFrameIndex: BigInt(index),
+            },
+          ]
+    })
+    if (reusedMappings.length !== input.newKeyPoints.length) return false
+    if (
+      new Set(reusedMappings.map(mapping => mapping.clipFrameIndex.toString())).size !==
+      reusedMappings.length
+    )
+      return false
+  }
 
   const now = new Date()
   const clipJobId = randomUUID()
@@ -108,11 +200,11 @@ export async function reuseCompletedSubmissionGeometry(
       errorMessage: null,
     },
   })
-  if (sourceClip.keyPointMappings.length) {
+  if (reusedMappings.length) {
     await tx.clipKeyPointMapping.createMany({
-      data: sourceClip.keyPointMappings.map(mapping => ({
+      data: reusedMappings.map(mapping => ({
         clipJobId,
-        submissionKeyPointId: newIdByOldId.get(mapping.submissionKeyPointId)!,
+        submissionKeyPointId: mapping.submissionKeyPointId,
         clipPts: mapping.clipPts,
         clipTimeUs: mapping.clipTimeUs,
         clipFrameIndex: mapping.clipFrameIndex,
@@ -124,6 +216,29 @@ export async function reuseCompletedSubmissionGeometry(
     where: { id: input.newSubmissionId },
     data: { analysisSourceRunId },
   })
+
+  if (!input.allowLegacyMappingCopy && sourceAnalysis) {
+    const pointById = new Map(input.newKeyPoints.map(point => [point.id, point]))
+    const associationRows = reusedMappings.flatMap(mapping =>
+      pointById.get(mapping.submissionKeyPointId)?.actorRosterEntryId
+        ? []
+        : [
+            {
+              analysisRunId: sourceAnalysis.id,
+              keyPointId: mapping.submissionKeyPointId,
+              reviewRevision: sourceAnalysis.reviewRevision,
+              frameIndex: mapping.clipFrameIndex,
+              algorithmNamespace: CONTACT_ASSOCIATION_ALGORITHM,
+            },
+          ],
+    )
+    if (associationRows.length) {
+      await tx.analysisContactAssociationJob.createMany({
+        data: associationRows,
+        skipDuplicates: true,
+      })
+    }
+  }
 
   return true
 }

@@ -11,11 +11,27 @@ export interface StreamSnapshot {
   matchTitle: string
   sourceKind: string
   sourceLabel: string | null
+  sourceDurationUs: string | null
   status: string
   health: string
   startedAt: string | null
   updatedAt: string
+  completionExpectedSegments: number | null
+  completionRequestedAt: string | null
   epochCount: number
+  sourceWork: {
+    id: string
+    status: string
+    attempts: number
+    availableAt: string
+    leaseExpiresAt: string | null
+    lastHeartbeatAt: string | null
+    lastErrorCode: string | null
+    resumeSegmentIndex: number
+    resumeCaptureTimeUs: string
+    createdAt: string
+    updatedAt: string
+  } | null
   program: {
     id: string
     status: string

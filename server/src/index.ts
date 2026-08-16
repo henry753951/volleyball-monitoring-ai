@@ -105,6 +105,7 @@ const cursorDependencies = {
 const annotationCommands = createAnnotationCommandService({
   database: db,
   resolveCursor: (cursor, identity) => resolvePlaybackCursor(cursor, identity, cursorDependencies),
+  timingManifestReader,
 })
 configureAnnotationGraphQL(annotationCommands, (matchId, reason) =>
   coachMatchEvents.publish(matchId, reason),

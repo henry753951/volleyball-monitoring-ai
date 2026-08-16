@@ -7,6 +7,8 @@ import {
   CloudOff,
   Crosshair,
   LoaderCircle,
+  LockKeyhole,
+  PencilLine,
   Plus,
   RotateCcw,
   ScanSearch,
@@ -15,6 +17,8 @@ import {
   UserRoundCheck,
 } from 'lucide-vue-next'
 import { computed, ref } from 'vue'
+import { useAnnotationWorkstationService } from '~/services/annotation-workstation/annotation-workstation.service'
+import type { WorkstationActionId } from '~/services/annotation-workstation/workstation-action.service'
 
 type AnalysisPanelPage = 'root' | 'hits' | 'ball' | 'players'
 type PageDirection = 'forward' | 'back'
@@ -39,41 +43,36 @@ export interface RemovedAnalysisHitListItem {
 }
 
 const props = defineProps<{
-  analysisRunId: string | null
-  page: AnalysisPanelPage
   frameIndex: number
   ballOverride: 'position' | 'missing' | null
   ballPosition: { x: number; y: number } | null
-  selectedTrackId: number | null
   selectedTrackAction: string | null
-  selectedHitId: string | null
   hasActionOverride: boolean
   hasBboxOverride: boolean
   hits: AnalysisHitListItem[]
   removedHits: RemovedAnalysisHitListItem[]
-  saving: boolean
-  connection: 'idle' | 'connecting' | 'ready' | 'offline'
-  dirtyCount: number
-  reviewStatus: 'editing' | 'ready' | 'approved'
 }>()
 
-const emit = defineEmits<{
-  'update:page': [page: AnalysisPanelPage]
-  selectHit: [keyPointId: string]
-  adjustHitTime: [keyPointId: string, deltaFrames: number]
-  resetHitTime: [keyPointId: string]
-  addHit: []
-  deleteHit: [keyPointId: string]
-  restoreHit: [keyPointId: string]
-  apply: []
-  discard: []
-  recalculate: []
-  approve: []
-}>()
+const workstation = useAnnotationWorkstationService()
+const revision = workstation.analysis.revision
+const review = workstation.analysis.review
+if (!revision || !review)
+  throw new Error('Analysis services were not provided by the annotation route boundary')
+
+const page = revision.panelPage
+const analysisRunId = revision.analysisRunId
+const selectedTrackId = revision.selectedTrackId
+const selectedHitId = revision.selectedHitId
+const revisionMode = revision.revisionMode
+const dependenciesPending = revision.dependenciesPending
+const saving = review.pending
+const connection = review.connection
+const dirtyCount = review.dirtyCount
+const reviewStatus = review.status
 
 const pageDirection = ref<PageDirection>('forward')
 const selectedHit = computed(
-  () => props.hits.find(hit => hit.keyPointId === props.selectedHitId) ?? null,
+  () => props.hits.find(hit => hit.keyPointId === selectedHitId.value) ?? null,
 )
 const ballStateLabel = computed(() =>
   props.ballOverride === 'missing'
@@ -83,13 +82,17 @@ const ballStateLabel = computed(() =>
       : 'AI 自動',
 )
 const playerStateLabel = computed(() =>
-  props.selectedTrackId === null ? '尚未選取' : `Track ${props.selectedTrackId}`,
+  selectedTrackId.value === null ? '尚未選取' : `Track ${selectedTrackId.value}`,
 )
 
 function changePage(next: AnalysisPanelPage) {
-  if (next === props.page) return
+  if (next === page.value) return
   pageDirection.value = next === 'root' ? 'back' : 'forward'
-  emit('update:page', next)
+  page.value = next
+}
+
+function execute(actionId: WorkstationActionId, payload?: unknown) {
+  void workstation.actions.execute(actionId, payload)
 }
 </script>
 
@@ -106,40 +109,78 @@ function changePage(next: AnalysisPanelPage) {
           }}</span
         >
         <span class="save-state"
-          ><LoaderCircle v-if="saving" class="spin" :size="14" />{{
+          ><LoaderCircle v-if="saving" class="spin" :size="14" /><LockKeyhole
+            v-else-if="!revisionMode"
+            :size="13"
+          />{{
             saving
               ? '處理中'
-              : dirtyCount
-                ? `${dirtyCount} 項尚未套用`
-                : reviewStatus === 'approved'
-                  ? '已審核'
-                  : reviewStatus === 'ready'
-                    ? '可審核'
-                    : '編輯中'
+              : !revisionMode
+                ? '唯讀'
+                : dirtyCount
+                  ? `${dirtyCount} 項尚未套用`
+                  : reviewStatus === 'approved'
+                    ? '已審核'
+                    : reviewStatus === 'ready'
+                      ? '可審核'
+                      : '編輯中'
           }}</span
         >
       </header>
 
-      <div class="review-workflow" aria-label="分析審核流程">
-        <button type="button" :disabled="!dirtyCount || saving" @click="emit('apply')">
+      <div v-if="!revisionMode" class="review-workflow review-workflow--locked">
+        <button
+          type="button"
+          class="enter-revision"
+          :disabled="!workstation.actions.state('analysis.enter-revision').value.enabled"
+          :title="workstation.actions.state('analysis.enter-revision').value.reason ?? undefined"
+          @click="execute('analysis.enter-revision')"
+        >
+          <PencilLine :size="14" />進入修訂模式
+        </button>
+        <small>只有這個片段進入修訂後，才能修改擊球、球員、球點與動作。</small>
+      </div>
+      <div v-else class="review-workflow" aria-label="分析審核流程">
+        <button
+          type="button"
+          :disabled="!workstation.actions.state('analysis.apply').value.enabled"
+          :title="workstation.actions.state('analysis.apply').value.reason ?? undefined"
+          @click="execute('analysis.apply')"
+        >
           套用修改
         </button>
         <button
           type="button"
           class="quiet"
-          :disabled="!dirtyCount || saving"
-          @click="emit('discard')"
+          :disabled="!workstation.actions.state('analysis.discard').value.enabled"
+          :title="workstation.actions.state('analysis.discard').value.reason ?? undefined"
+          @click="execute('analysis.discard')"
         >
           <RotateCcw :size="13" />捨棄
         </button>
-        <button type="button" :disabled="dirtyCount > 0 || saving" @click="emit('recalculate')">
-          重新分析
+        <button
+          type="button"
+          :disabled="!workstation.actions.state('analysis.recalculate').value.enabled"
+          :title="workstation.actions.state('analysis.recalculate').value.reason ?? undefined"
+          @click="execute('analysis.recalculate')"
+        >
+          {{ dependenciesPending ? '等待擊球關聯更新…' : '重建結果（不跑 AI）' }}
+        </button>
+        <button
+          type="button"
+          class="quiet"
+          :disabled="!workstation.actions.state('analysis.exit-revision').value.enabled"
+          :title="workstation.actions.state('analysis.exit-revision').value.reason ?? undefined"
+          @click="execute('analysis.exit-revision')"
+        >
+          <LockKeyhole :size="13" />結束修訂
         </button>
         <button
           type="button"
           class="publish"
-          :disabled="dirtyCount > 0 || reviewStatus !== 'ready' || saving"
-          @click="emit('approve')"
+          :disabled="!workstation.actions.state('analysis.approve').value.enabled"
+          :title="workstation.actions.state('analysis.approve').value.reason ?? undefined"
+          @click="execute('analysis.approve')"
         >
           <Send :size="13" />審核發布
         </button>
@@ -202,7 +243,16 @@ function changePage(next: AnalysisPanelPage) {
               </header>
 
               <section v-if="page === 'hits'" class="hit-page">
-                <button type="button" class="add-hit" @click="emit('addHit')">
+                <button
+                  v-if="revisionMode"
+                  type="button"
+                  class="add-hit"
+                  :disabled="!workstation.actions.state('analysis.add-contact').value.enabled"
+                  :title="
+                    workstation.actions.state('analysis.add-contact').value.reason ?? undefined
+                  "
+                  @click="execute('analysis.add-contact')"
+                >
                   <Plus :size="14" />在目前畫格新增擊球點
                 </button>
                 <p v-if="!hits.length" class="empty-row">此分析沒有擊球事件。</p>
@@ -216,7 +266,7 @@ function changePage(next: AnalysisPanelPage) {
                       type="button"
                       class="hit-main"
                       :aria-current="selectedHitId === hit.keyPointId ? 'true' : undefined"
-                      @click="emit('selectHit', hit.keyPointId)"
+                      @click="execute('analysis.select-contact', hit.keyPointId)"
                     >
                       <i>{{ hit.sequenceIndex + 1 }}</i>
                       <span
@@ -247,7 +297,7 @@ function changePage(next: AnalysisPanelPage) {
                   </li>
                 </ol>
                 <div
-                  v-if="selectedHit && selectedHit.anchorSource !== 'human'"
+                  v-if="revisionMode && selectedHit && selectedHit.anchorSource !== 'human'"
                   class="hit-time-editor"
                   aria-label="微調擊球時間"
                 >
@@ -255,14 +305,24 @@ function changePage(next: AnalysisPanelPage) {
                   <button
                     type="button"
                     title="往前一格"
-                    @click="emit('adjustHitTime', selectedHit.keyPointId, -1)"
+                    @click="
+                      execute('analysis.adjust-contact-time', {
+                        keyPointId: selectedHit.keyPointId,
+                        deltaFrames: -1,
+                      })
+                    "
                   >
                     往前 1 格
                   </button>
                   <button
                     type="button"
                     title="往後一格"
-                    @click="emit('adjustHitTime', selectedHit.keyPointId, 1)"
+                    @click="
+                      execute('analysis.adjust-contact-time', {
+                        keyPointId: selectedHit.keyPointId,
+                        deltaFrames: 1,
+                      })
+                    "
                   >
                     +1 格
                   </button>
@@ -270,16 +330,16 @@ function changePage(next: AnalysisPanelPage) {
                     v-if="selectedHit.anchorSource === 'ai' && selectedHit.timeAdjusted"
                     type="button"
                     class="hit-time-editor__reset"
-                    @click="emit('resetHitTime', selectedHit.keyPointId)"
+                    @click="execute('analysis.reset-contact-time', selectedHit.keyPointId)"
                   >
                     恢復 AI
                   </button>
                 </div>
                 <button
-                  v-if="selectedHit"
+                  v-if="revisionMode && selectedHit"
                   type="button"
                   class="delete-hit"
-                  @click="emit('deleteHit', selectedHit.keyPointId)"
+                  @click="execute('analysis.delete-contact', selectedHit.keyPointId)"
                 >
                   <Trash2 :size="13" />刪除此擊球點
                 </button>
@@ -291,7 +351,8 @@ function changePage(next: AnalysisPanelPage) {
                     v-for="hit in removedHits"
                     :key="hit.keyPointId"
                     type="button"
-                    @click="emit('restoreHit', hit.keyPointId)"
+                    :disabled="!revisionMode"
+                    @click="execute('analysis.restore-contact', hit.keyPointId)"
                   >
                     <RotateCcw :size="12" /><span>{{ hit.label }}</span
                     ><small>Frame {{ hit.frameIndex }}</small>
@@ -303,7 +364,11 @@ function changePage(next: AnalysisPanelPage) {
                       ? '可逐格微調 AI 建議；修正後會重新建立事件順序與綁定。'
                       : '人工 X 碰撞可在時間線修改；片段開始與結束不是碰撞事件。'
                   }}
-                  播放器上的人工擊球者指派永遠優先。
+                  {{
+                    revisionMode
+                      ? '播放器上的人工擊球者指派永遠優先。'
+                      : '目前為唯讀；進入修訂模式才會開啟修改工具。'
+                  }}
                 </p>
               </section>
 
@@ -322,7 +387,13 @@ function changePage(next: AnalysisPanelPage) {
                     <dd>X {{ ballPosition.x.toFixed(1) }} · Y {{ ballPosition.y.toFixed(1) }}</dd>
                   </div>
                 </dl>
-                <p>修改工具已顯示在播放器上。點一下影片放置球心，也可標記此幀無球或恢復 AI。</p>
+                <p>
+                  {{
+                    revisionMode
+                      ? '修改工具已顯示在播放器上。點一下影片放置球心，也可標記此幀無球或恢復 AI。'
+                      : '目前為唯讀；進入修訂模式才會開啟播放器修改工具。'
+                  }}
+                </p>
               </section>
 
               <section v-else class="summary-page">
@@ -346,7 +417,13 @@ function changePage(next: AnalysisPanelPage) {
                     <dd>{{ hasBboxOverride ? '人工外框' : 'AI 自動' }}</dd>
                   </div>
                 </dl>
-                <p>選取球員後，使用播放器上的工具修改逐幀動作或重畫外框。</p>
+                <p>
+                  {{
+                    revisionMode
+                      ? '選取球員後，使用播放器上的工具修改逐幀動作或重畫外框。'
+                      : '目前為唯讀；進入修訂模式後才能修改動作或外框。'
+                  }}
+                </p>
               </section>
             </template>
           </div>
@@ -759,6 +836,19 @@ function changePage(next: AnalysisPanelPage) {
 .review-workflow button:disabled {
   opacity: 0.38;
 }
+.review-workflow--locked {
+  grid-template-columns: 1fr;
+}
+.review-workflow--locked small {
+  color: #8f99a3;
+  font-size: 0.56rem;
+  line-height: 1.45;
+}
+.review-workflow .enter-revision {
+  border-color: #416986;
+  background: #1f3443;
+  color: #d7eafa;
+}
 .review-workflow .publish {
   border-color: #34735c;
   background: #214c3e;
@@ -816,6 +906,10 @@ function changePage(next: AnalysisPanelPage) {
 }
 .removed-hits button:hover {
   background: #20272d;
+}
+.removed-hits button:disabled {
+  cursor: default;
+  opacity: 0.55;
 }
 .removed-hits button span,
 .removed-hits button small {

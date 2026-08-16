@@ -4,6 +4,7 @@ import {
   segmentStartCaptureTimeUs,
 } from '../src/domain/rally-display-order.js'
 import { selectDisplayAnalysis } from '../src/services/coach-dashboard.js'
+import { resolveEffectiveContactFrame } from '../src/services/effective-contact-frame.js'
 
 describe('coach dashboard analysis failover', () => {
   const previous = { id: 'previous', status: 'COMPLETED' }
@@ -23,11 +24,43 @@ describe('coach dashboard analysis failover', () => {
     })
   })
 
+  it('projects an explicitly reused analysis before walking predecessor history', () => {
+    const reused = { id: 'reused', status: 'COMPLETED' }
+    expect(
+      selectDisplayAnalysis({ id: 'replacement', status: 'RUNNING' }, previous, reused),
+    ).toEqual({
+      analysis: reused,
+      source: 'reused',
+    })
+  })
+
   it('does not expose an unfinished first analysis', () => {
     expect(selectDisplayAnalysis({ id: 'first', status: 'FAILED' }, null)).toEqual({
       analysis: null,
       source: null,
     })
+  })
+})
+
+describe('effective contact frame projection', () => {
+  const event = {
+    keyPointId: 'contact-1',
+    anchorFrameIndex: 72n,
+    resolvedFrameIndex: 75n,
+  }
+
+  it('uses the persisted resolved frame when no human correction exists', () => {
+    expect(resolveEffectiveContactFrame(event, new Map())).toBe(75n)
+  })
+
+  it('uses a human correction before the resolved and anchor frames', () => {
+    expect(resolveEffectiveContactFrame(event, new Map([['contact-1', 79n]]))).toBe(79n)
+  })
+
+  it('falls back to the original anchor when analysis has no resolved frame', () => {
+    expect(resolveEffectiveContactFrame({ ...event, resolvedFrameIndex: null }, new Map())).toBe(
+      72n,
+    )
   })
 })
 

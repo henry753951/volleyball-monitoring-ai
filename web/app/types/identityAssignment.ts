@@ -24,7 +24,7 @@ export interface IdentityCorrectionRequest {
 
 export interface IdentityAssignmentCommand {
   trackId: number
-  rosterEntryId: string
+  rosterEntryId: string | null
   identityMode?: IdentityMode
   scope?: 'local' | 'gid'
   trackIds?: number[]

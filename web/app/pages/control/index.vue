@@ -676,8 +676,11 @@ onBeforeUnmount(() => {
       :open="Boolean(mediaMonitorMatch)"
       :match-title="mediaMonitorMatch?.title ?? ''"
       :media="mediaMonitorMatch ? (matchMediaById.get(mediaMonitorMatch.id) ?? null) : null"
+      :generated-at="generatedAt"
+      :refresh-pending="monitor.pending.value"
       :streams="mediaMonitorMatch ? (streamsByMatch.get(mediaMonitorMatch.id) ?? []) : []"
       @close="mediaMonitorMatch = null"
+      @refresh="monitor.refresh"
     />
 
     <UiAnimatedModal

@@ -16,30 +16,23 @@ import {
   X,
 } from 'lucide-vue-next'
 import { AnimatePresence, Motion } from 'motion-v'
+import { useAnnotationWorkstationService } from '~/services/annotation-workstation/annotation-workstation.service'
 
 defineProps<{
   mode: 'ball' | 'bbox' | 'actor' | 'track' | null
   frameIndex: number
-  selectedTrackId: number | null
   selectedAction: string | null
   selectedHitLabel: string | null
-  hasBallOverride: boolean
-  hasBboxOverride: boolean
-  hasActorOverride: boolean
-  saving: boolean
 }>()
 
-const emit = defineEmits<{
-  close: []
-  markBallMissing: []
-  clearBall: []
-  startBBox: []
-  clearBBox: []
-  markNoActor: []
-  clearActor: []
-  setAction: [action: AnalysisReviewAction]
-  clearAction: []
-}>()
+const workstation = useAnnotationWorkstationService()
+const revision = workstation.analysis.revision
+const review = workstation.analysis.review
+if (!revision || !review)
+  throw new Error('Analysis services were not provided by the annotation route boundary')
+const selectedTrackId = revision.selectedTrackId
+const selectedHitId = revision.selectedHitId
+const saving = review.pending
 
 const reducedMotion = usePreferredReducedMotion()
 const initial = computed(() =>
@@ -64,8 +57,8 @@ const transition = computed(() => ({
 
 function handleAction(event: Event) {
   const value = (event.target as HTMLSelectElement).value
-  if (!value) emit('clearAction')
-  else emit('setAction', value as AnalysisReviewAction)
+  if (!value) void workstation.actions.execute('analysis.clear-action')
+  else void workstation.actions.execute('analysis.set-action', value as AnalysisReviewAction)
 }
 </script>
 
@@ -88,8 +81,24 @@ function handleAction(event: Event) {
             ><CircleDotDashed :size="15" /><b>球點</b><code>F{{ frameIndex }}</code></span
           >
           <span class="toolbox-instruction">點一下影片放置球心</span>
-          <button type="button" @click="emit('markBallMissing')"><Ban :size="14" />此幀無球</button>
-          <button type="button" :disabled="!hasBallOverride" @click="emit('clearBall')">
+          <button
+            type="button"
+            :disabled="!workstation.actions.state('analysis.mark-ball-missing').value.enabled"
+            :title="
+              workstation.actions.state('analysis.mark-ball-missing').value.reason ?? undefined
+            "
+            @click="workstation.actions.execute('analysis.mark-ball-missing')"
+          >
+            <Ban :size="14" />此幀無球
+          </button>
+          <button
+            type="button"
+            :disabled="!workstation.actions.state('analysis.clear-ball-override').value.enabled"
+            :title="
+              workstation.actions.state('analysis.clear-ball-override').value.reason ?? undefined
+            "
+            @click="workstation.actions.execute('analysis.clear-ball-override')"
+          >
             <RotateCcw :size="14" />恢復 AI
           </button>
         </template>
@@ -98,7 +107,14 @@ function handleAction(event: Event) {
             ><ScanLine :size="15" /><b>球員框</b><code>T{{ selectedTrackId }}</code></span
           >
           <span class="toolbox-instruction">在影片上拖曳新的外框</span>
-          <button type="button" :disabled="!hasBboxOverride" @click="emit('clearBBox')">
+          <button
+            type="button"
+            :disabled="!workstation.actions.state('analysis.clear-bbox-override').value.enabled"
+            :title="
+              workstation.actions.state('analysis.clear-bbox-override').value.reason ?? undefined
+            "
+            @click="workstation.actions.execute('analysis.clear-bbox-override')"
+          >
             <RotateCcw :size="14" />恢復 AI
           </button>
         </template>
@@ -107,10 +123,30 @@ function handleAction(event: Event) {
             ><MousePointer2 :size="15" /><b>{{ selectedHitLabel }}</b></span
           >
           <span class="toolbox-instruction">點擊畫面中的球員框</span>
-          <button type="button" @click="emit('markNoActor')">
+          <button
+            type="button"
+            :disabled="!workstation.actions.state('analysis.set-contact-no-actor').value.enabled"
+            :title="
+              workstation.actions.state('analysis.set-contact-no-actor').value.reason ?? undefined
+            "
+            @click="
+              selectedHitId &&
+              workstation.actions.execute('analysis.set-contact-no-actor', selectedHitId)
+            "
+          >
             <UserRoundX :size="14" />沒人打
           </button>
-          <button type="button" :disabled="!hasActorOverride" @click="emit('clearActor')">
+          <button
+            type="button"
+            :disabled="!workstation.actions.state('analysis.clear-contact-actor').value.enabled"
+            :title="
+              workstation.actions.state('analysis.clear-contact-actor').value.reason ?? undefined
+            "
+            @click="
+              selectedHitId &&
+              workstation.actions.execute('analysis.clear-contact-actor', selectedHitId)
+            "
+          >
             <RotateCcw :size="14" />恢復自動
           </button>
         </template>
@@ -132,13 +168,26 @@ function handleAction(event: Event) {
               </option>
             </select></label
           >
-          <button v-if="selectedTrackId !== null" type="button" @click="emit('startBBox')">
+          <button
+            v-if="selectedTrackId !== null"
+            type="button"
+            :disabled="!workstation.actions.state('analysis.toggle-bbox-relabel').value.enabled"
+            :title="
+              workstation.actions.state('analysis.toggle-bbox-relabel').value.reason ?? undefined
+            "
+            @click="workstation.actions.execute('analysis.toggle-bbox-relabel')"
+          >
             <ScanLine :size="14" />調整外框
           </button>
         </template>
         <LoaderCircle v-if="saving" class="spin" :size="14" aria-label="儲存中" />
         <Check v-else :size="14" class="saved" aria-label="已儲存" />
-        <button type="button" class="close" aria-label="關閉修改工具" @click="emit('close')">
+        <button
+          type="button"
+          class="close"
+          aria-label="關閉修改工具"
+          @click="revision.closeToolbox"
+        >
           <X :size="15" />
         </button>
       </Motion>
