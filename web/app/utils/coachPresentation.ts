@@ -1,5 +1,19 @@
 import type { CoachMatchAnalytics, CoachRally } from '~/lib/coachDomain'
 
+export function coachIdentityLabel(
+  name: string | null | undefined,
+  jerseyNumber: string | null | undefined,
+  fallback: string,
+) {
+  const normalizedName = name?.trim()
+  const normalizedJerseyNumber = jerseyNumber?.trim()
+  if (normalizedJerseyNumber && normalizedName)
+    return `#${normalizedJerseyNumber} ${normalizedName}`
+  if (normalizedName) return normalizedName
+  if (normalizedJerseyNumber) return `#${normalizedJerseyNumber}`
+  return fallback
+}
+
 export function coachRallyContactCount(rally: CoachRally) {
   return rally.submission.analysis?.contact_count ?? rally.submission.contact_count
 }

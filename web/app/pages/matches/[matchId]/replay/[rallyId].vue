@@ -18,7 +18,7 @@ import {
 } from '~/lib/coachDomain'
 import { createGraphQLTransport } from '~/lib/coreDomain'
 import { replayStartSeconds } from '~/utils/coachPlayerActions'
-import { coachRallyNeighbours } from '~/utils/coachPresentation'
+import { coachIdentityLabel, coachRallyNeighbours } from '~/utils/coachPresentation'
 import { resolveFrameFromRate, resolveFrameFromTimeline } from '~/utils/overlayFrameTimeline'
 import { resolveVideoContentRect } from '~/utils/volleyballOverlayRenderer'
 
@@ -113,7 +113,13 @@ const overlayTracks = computed(
     replay.value?.analysis?.tracks.map(track => ({
       trackId: track.track_id,
       courtSide: track.court_side,
-      label: track.identity?.name ?? null,
+      label: track.identity
+        ? coachIdentityLabel(
+            track.identity.name,
+            track.identity.jersey_number,
+            `ID ${track.track_id}`,
+          )
+        : null,
       gidLabel: track.global_identity?.label ?? null,
       jerseyNumber: track.identity?.jersey_number ?? null,
       position: track.identity?.position ?? null,
@@ -151,7 +157,13 @@ const scoringPlayerNames = computed(() => {
   const side = replay.value?.rally.outcome.scoring_court_side
   return analysis.tracks
     .filter(track => actorIds.has(track.track_id) && (!side || track.court_side === side))
-    .map(track => track.identity?.name ?? `ID ${track.track_id}`)
+    .map(track =>
+      coachIdentityLabel(
+        track.identity?.name,
+        track.identity?.jersey_number,
+        `ID ${track.track_id}`,
+      ),
+    )
     .filter((name, index, names) => names.indexOf(name) === index)
 })
 const scoringPlayerLabel = computed(() =>

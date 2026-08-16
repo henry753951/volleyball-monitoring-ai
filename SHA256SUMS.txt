@@ -620,7 +620,7 @@ ffda57a925b659c33ea87ab67aedd169120195cf27497ab8eceaf14dd7e56ba3  ./web/app/page
 69a0f7dd20a08ee17460b15c5d24c93b9150a59017c75e8ecc1b419f0a7cb9f3  ./web/app/pages/matches/[matchId]/paths.vue
 c0571a0bc341aa0aabcad014afb1a3ce8fdb4bff82c10e64dfd38e95121d0637  ./web/app/pages/matches/[matchId]/players.vue
 e0ee089b0ae66e2aa8909391d16d6d3b3df3deabe019fdb19f6caeeade2a56c6  ./web/app/pages/matches/[matchId]/rallies.vue
-51402acc464c8cb81ed6d794645518abf84c02f52b11813f7c5e1e4dd3aa445e  ./web/app/pages/matches/[matchId]/replay/[rallyId].vue
+c2cae0030876c176a0b6a3186a29039c24b4d4f6839f175a1ce94e49b98ad300  ./web/app/pages/matches/[matchId]/replay/[rallyId].vue
 293cbe12ac6b3af5f46b1d9a9ce9624f8dc165d90c2da546d5002ef544a28608  ./web/app/pages/matches/[matchId]/stats.vue
 2e48e20f20d642b83eaa3f196094f3a22ce0bae7049177587cc4f4c471bd7dfc  ./web/app/pages/matches/new.vue
 83277d142bfb929c18615ec93325fee399a2bad25a593c93d432dc2f3b21a676  ./web/app/pages/settings.vue
@@ -640,8 +640,8 @@ bfcee24272b6f1a9e4a5affb6a762472a3376fe5e40f1f570152381715bcd705  ./web/app/util
 38826534bde8d18a54d99aace301142c621c50512bc95b96a85867175a1957af  ./web/app/utils/coachMatchStatus.ts
 9d22b2534fd43f2490cd831e4d4bcf2ce11d8abf2dcf93048bf6185e86ec62f3  ./web/app/utils/coachPlayerActions.test.ts
 ef9520cdf0915911dda222f555b3aabf76ea436c7ce4503f1e56296afef38afc  ./web/app/utils/coachPlayerActions.ts
-aacd332eaeb4a8f6353924148a4a732508ebbbb4eda3a005b3a853a466792700  ./web/app/utils/coachPresentation.test.ts
-99898c34a627899acbdc5452f086a3642a1da6f5171c64896fb2eafddf4b3bca  ./web/app/utils/coachPresentation.ts
+7d28a8da4b559a29535e71c47631761428a318596e55a8b535b538cf8e4dc332  ./web/app/utils/coachPresentation.test.ts
+a243ce601ce3018b8d741c65bf0238ad310ca00128b4ee25241e877b8f24ee78  ./web/app/utils/coachPresentation.ts
 01e0755d9dd2853e8305a77c7409a517ef0aaa201bfe3ba4b4c9b365a1e90796  ./web/app/utils/frameNavigationGestureRouter.test.ts
 806fc215df3397ada36e42ff5d5686ebe595b2d18a29ea9e60e8cef2e6a04fe7  ./web/app/utils/frameNavigationGestureRouter.ts
 5ca9fd718f3ac008fb2108b6c6c9eb33f132c95983cc8e9632506e1540f2fbad  ./web/app/utils/framePreviewCalibration.test.ts

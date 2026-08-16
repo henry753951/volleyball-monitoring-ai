@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { CoachMatchAnalytics, CoachRally } from '~/lib/coachDomain'
 import {
+  coachIdentityLabel,
   coachRallyContactCount,
   coachRallyNeighbours,
   playerContactShare,
@@ -62,6 +63,13 @@ const analytics = {
 } as CoachMatchAnalytics
 
 describe('coach presentation values', () => {
+  it('shows a roster jersey beside the player name and keeps safe fallbacks', () => {
+    expect(coachIdentityLabel('林嘉偉', '18', 'ID 6')).toBe('#18 林嘉偉')
+    expect(coachIdentityLabel('林嘉偉', null, 'ID 6')).toBe('林嘉偉')
+    expect(coachIdentityLabel(null, '18', 'ID 6')).toBe('#18')
+    expect(coachIdentityLabel(null, null, 'ID 6')).toBe('ID 6')
+  })
+
   it('uses the completed analysis count instead of stale manual contacts', () => {
     expect(coachRallyContactCount(rally)).toBe(8)
   })
