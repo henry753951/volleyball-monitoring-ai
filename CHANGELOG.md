@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.8.1](https://github.com/henry753951/volleyball-monitoring-ai/compare/v0.8.0...v0.8.1) (2026-08-16)
+
+
+### Bug Fixes
+
+* **coach:** show jersey numbers in replay labels ([#86](https://github.com/henry753951/volleyball-monitoring-ai/issues/86)) ([f8b0de2](https://github.com/henry753951/volleyball-monitoring-ai/commit/f8b0de22b7b25854a6f1ec9cc3bc0ff9b161027c))
+
 ## [0.8.0](https://github.com/henry753951/volleyball-monitoring-ai/compare/v0.7.1...v0.8.0) (2026-08-16)
 
 
