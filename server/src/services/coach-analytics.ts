@@ -2,11 +2,10 @@ import type { PrismaClient } from '@volleyball-monitoring/db'
 import { JobStatus, Prisma, UserRole } from '@volleyball-monitoring/db/client'
 import { GraphQLError } from 'graphql'
 import {
-  applyManualReidDecision,
-  parseReidIdentityMode,
-  ReidIdentityDecisionError,
-} from './fixed-roster-reid.js'
-import { applyVersionedReidCorrection, ReidIdentityLedgerError } from './reid-identity-ledger.js'
+  applyVersionedReidCorrection,
+  parseReidCorrectionMode,
+  ReidIdentityLedgerError,
+} from './reid-identity-ledger.js'
 
 const quality = (entries: Iterable<string>) => {
   const counts: Record<string, number> = {}
@@ -28,21 +27,6 @@ const metric = (
   quality_breakdown: qualityBreakdown,
   feature_dependencies: featureDependencies,
 })
-const actionName = (value: unknown) =>
-  typeof value === 'string'
-    ? value
-    : value && typeof value === 'object' && 'label' in value && typeof value.label === 'string'
-      ? value.label
-      : null
-const actionCategory = (value: unknown) => {
-  const label = actionName(value)?.toLowerCase()
-  if (label === 'spiking') return 'attack'
-  if (label === 'setting') return 'set'
-  if (label === 'digging') return 'defense'
-  if (label === 'blocking') return 'block'
-  return label ? 'other' : null
-}
-
 const coachAnalysisRunSelect = {
   id: true,
   analysisVersion: true,
@@ -53,28 +37,6 @@ const coachAnalysisRunSelect = {
       courtSide: true,
       firstFrame: true,
       lastFrame: true,
-      identityAssignments: {
-        select: {
-          rosterEntryId: true,
-          source: true,
-          confidence: true,
-          identityRevision: true,
-          reidIdentity: { select: { id: true, teamId: true, label: true, slotIndex: true } },
-        },
-      },
-      reidObservation: {
-        select: {
-          matchConfidence: true,
-          identityRevision: true,
-          modelNamespace: true,
-          modelName: true,
-          modelCheckpointSha256: true,
-          modelPreprocessVersion: true,
-          modelDimension: true,
-          modelDistance: true,
-          reidIdentity: { select: { id: true, teamId: true, label: true, slotIndex: true } },
-        },
-      },
     },
   },
   reidEvidenceSets: {
@@ -85,6 +47,11 @@ const coachAnalysisRunSelect = {
       tracklets: {
         select: {
           canonicalTrackId: true,
+          associationDecisions: {
+            orderBy: { createdAt: 'desc' },
+            take: 1,
+            select: { confidence: true },
+          },
           activeProjection: {
             select: {
               assignmentRevision: {
@@ -228,14 +195,6 @@ export async function getCoachMatchAnalytics(
       ? [{ rally, run: rally.submission.analysisRuns[0] ?? rally.submission.analysisSourceRun! }]
       : [],
   )
-  const humanBallEvents = rallies.flatMap(rally =>
-    (rally.submission.ballEvents ?? []).map(event => ({
-      ...event,
-      rallyId: rally.id,
-      setNumber: rally.set.setNumber,
-      submission: rally.submission,
-    })),
-  )
   const events = analyzed.flatMap(entry => {
     const corrections = new Map(
       entry.run.contactActorCorrections.map(correction => [
@@ -374,6 +333,39 @@ export async function getCoachMatchAnalytics(
       Number(left.frameIndex - right.frameIndex),
     )
   })
+  const humanBallEvents = rallies.flatMap(rally => {
+    const effectiveEvents = events.filter(event => event.rallyId === rally.id)
+    if (!effectiveEvents.length)
+      return (rally.submission.ballEvents ?? []).map(event => ({
+        ...event,
+        rallyId: rally.id,
+        setNumber: rally.set.setNumber,
+        submission: rally.submission,
+      }))
+    return effectiveEvents.map((sourceEvent, index) => {
+      const explicit = rally.submission.ballEvents.find(event => event.ordinal === index + 1)
+      return {
+        ordinal: index + 1,
+        kind:
+          explicit?.kind ??
+          (index === 0
+            ? ('SERVE' as const)
+            : index === 1
+              ? ('RECEIVE' as const)
+              : ('CONTACT' as const)),
+        result:
+          explicit?.result ??
+          (index === 0 && effectiveEvents.length > 1 ? ('SUCCESS' as const) : null),
+        actorRosterEntryId: explicit?.actorRosterEntryId ?? null,
+        submissionKeyPoint: explicit?.submissionKeyPoint ?? {
+          captureTimeUs: sourceEvent.frameIndex,
+        },
+        rallyId: rally.id,
+        setNumber: rally.set.setNumber,
+        submission: rally.submission,
+      }
+    })
+  })
   const actors = events.flatMap(event =>
     event.actors.map(actor => ({ ...actor, runId: event.runId, rallyId: event.rallyId })),
   )
@@ -387,9 +379,11 @@ export async function getCoachMatchAnalytics(
   }> = []
   for (const entry of analyzed)
     for (const track of entry.run.tracks) {
-      const assignment = track.identityAssignments[0]
-      if (assignment)
-        trackAssignments.set(`${entry.run.id}:${track.trackId}`, assignment.rosterEntryId)
+      const tracklet = entry.run.reidEvidenceSets[0]?.tracklets.find(
+        candidate => candidate.canonicalTrackId === track.trackId,
+      )
+      const rosterEntryId = tracklet?.activeProjection?.assignmentRevision.rosterEntryId ?? null
+      if (rosterEntryId) trackAssignments.set(`${entry.run.id}:${track.trackId}`, rosterEntryId)
       else
         unassignedTracks.push({
           analysis_run_id: entry.run.id,
@@ -407,7 +401,6 @@ export async function getCoachMatchAnalytics(
     Array<{ x: number; y: number; rally_id: string; set_number: number; action: string | null }>
   >()
   const rosterById = new Map(match.rosterEntries.map(entry => [entry.id, entry]))
-  const humanEventRallyIds = new Set(humanBallEvents.map(event => event.rallyId))
   for (const event of humanBallEvents) {
     const analysis = analyzed.find(candidate => candidate.rally.id === event.rallyId)
     const sourceEvent = events.find(
@@ -443,40 +436,6 @@ export async function getCoachMatchAnalytics(
         y: flip ? 1 - position.courtY : position.courtY,
         rally_id: event.rallyId,
         set_number: event.setNumber,
-        action: category,
-      })
-      playerHeatmaps.set(rosterId, samples)
-    }
-  }
-  for (const actor of actors) {
-    if (humanEventRallyIds.has(actor.rallyId)) continue
-    const rosterId = trackAssignments.get(`${actor.runId}:${actor.trackId}`)
-    if (rosterId) playerContacts.set(rosterId, (playerContacts.get(rosterId) ?? 0) + 1)
-  }
-  for (const actor of actors) {
-    if (humanEventRallyIds.has(actor.rallyId)) continue
-    const rosterId = trackAssignments.get(`${actor.runId}:${actor.trackId}`)
-    if (!rosterId) continue
-    const entry = analyzed.find(candidate => candidate.run.id === actor.runId)
-    if (!entry) continue
-    const rallySet = playerRallies.get(rosterId) ?? new Set<string>()
-    rallySet.add(actor.rallyId)
-    playerRallies.set(rosterId, rallySet)
-    const category = actionCategory(actor.action)
-    if (category) {
-      const counts = playerActions.get(rosterId) ?? {}
-      counts[category] = (counts[category] ?? 0) + 1
-      playerActions.set(rosterId, counts)
-    }
-    if (actor.courtX !== null && actor.courtY !== null) {
-      const roster = rosterById.get(rosterId)
-      const flip = roster?.teamId === entry.rally.submission.rightTeamId
-      const samples = playerHeatmaps.get(rosterId) ?? []
-      samples.push({
-        x: flip ? 1 - actor.courtX : actor.courtX,
-        y: flip ? 1 - actor.courtY : actor.courtY,
-        rally_id: actor.rallyId,
-        set_number: entry.rally.set.setNumber,
         action: category,
       })
       playerHeatmaps.set(rosterId, samples)
@@ -643,15 +602,10 @@ export async function getCoachMatchAnalytics(
     })),
     tracks: analyzed.flatMap(entry =>
       entry.run.tracks.map(track => {
-        const assignment = track.identityAssignments[0]
-        const observation = track.reidObservation
-        const identity = assignment?.reidIdentity ?? observation?.reidIdentity ?? null
         const versionedTracklet = entry.run.reidEvidenceSets?.[0]?.tracklets.find(
           candidate => candidate.canonicalTrackId === track.trackId,
         )
         const versioned = versionedTracklet?.activeProjection?.assignmentRevision
-        const gidId = versioned?.personClusterId ?? identity?.id ?? null
-        const gidTeamId = versioned?.personCluster?.teamId ?? identity?.teamId ?? null
         return {
           analysis_run_id: entry.run.id,
           rally_id: entry.rally.id,
@@ -661,40 +615,21 @@ export async function getCoachMatchAnalytics(
           court_side: track.courtSide.toLowerCase(),
           first_frame_index: track.firstFrame.toString(),
           last_frame_index: track.lastFrame.toString(),
-          roster_entry_id: versioned?.rosterEntryId ?? assignment?.rosterEntryId ?? null,
-          gid_id: gidId,
-          gid_team_id: gidTeamId,
-          gid_slot_index: identity?.slotIndex ?? null,
+          roster_entry_id: versioned?.rosterEntryId ?? null,
+          gid_id: versioned?.personClusterId ?? null,
+          gid_team_id: versioned?.personCluster?.teamId ?? null,
+          gid_slot_index: null,
           gid_label: versioned?.personClusterId
             ? (versioned.personCluster?.label ?? `GID ${versioned.personClusterId.slice(0, 8)}`)
-            : identity
-              ? `${track.courtSide === 'LEFT' ? 'L' : track.courtSide === 'RIGHT' ? 'R' : 'G'}${identity.slotIndex}`
-              : null,
-          identity_source:
-            versioned?.source.toLowerCase() ??
-            assignment?.source.toLowerCase() ??
-            (observation ? 'ai' : null),
-          identity_confidence: assignment?.confidence ?? observation?.matchConfidence ?? null,
-          identity_revision:
-            versioned?.revision.toString() ??
-            (assignment?.identityRevision ?? observation?.identityRevision)?.toString() ??
-            null,
-          manual_required: versioned
-            ? versioned.rosterEntryId === null
-            : Boolean(observation && !assignment),
+            : null,
+          identity_source: versioned?.source.toLowerCase() ?? null,
+          identity_confidence: versionedTracklet?.associationDecisions[0]?.confidence ?? null,
+          identity_revision: versioned?.revision.toString() ?? null,
+          manual_required: Boolean(versionedTracklet && !versioned?.rosterEntryId),
           identity_preview_url: versionedTracklet?.previews[0]
             ? `/api/v1/reid/previews/${versionedTracklet.previews[0].id}`
             : null,
-          reid_model: observation
-            ? {
-                namespace: observation.modelNamespace,
-                name: observation.modelName,
-                checkpoint_sha256: observation.modelCheckpointSha256,
-                preprocess_version: observation.modelPreprocessVersion,
-                dimension: observation.modelDimension,
-                distance: observation.modelDistance,
-              }
-            : null,
+          reid_model: null,
           identity_mapping_completed: Boolean(entry.run.identityMappingCompletedAt),
         }
       }),
@@ -729,7 +664,7 @@ export async function assignTrackIdentity(
     throw new Error('FORBIDDEN')
   let identityMode
   try {
-    identityMode = parseReidIdentityMode(input.identityMode)
+    identityMode = parseReidCorrectionMode(input.identityMode)
   } catch {
     throw new GraphQLError('身分修正模式無效', { extensions: { code: 'BAD_USER_INPUT' } })
   }
@@ -823,50 +758,8 @@ export async function assignTrackIdentity(
         mode: identityMode,
       })
     } catch (error) {
-      if (error instanceof ReidIdentityLedgerError) {
-        if (error.code !== 'REID_EVIDENCE_PENDING')
-          throw new GraphQLError(error.message, { extensions: { code: error.code } })
-        let legacyDecision
-        try {
-          legacyDecision = await applyManualReidDecision(tx, {
-            matchId: roster.matchId,
-            teamId: roster.teamId,
-            analysisRunId: input.analysisRunId,
-            trackId: input.trackId,
-            rosterEntryId: input.rosterEntryId,
-            userId: input.userId,
-            position: {
-              setNumber: track.analysisRun.submission.rally.set.setNumber,
-              rallyOrdinal: track.analysisRun.submission.rally.ordinal,
-            },
-            mode: identityMode,
-            replacedTrackIds,
-          })
-        } catch (legacyError) {
-          if (legacyError instanceof ReidIdentityDecisionError)
-            throw new GraphQLError(legacyError.message, {
-              extensions: { code: legacyError.code },
-            })
-          throw legacyError
-        }
-        const assignment = legacyDecision.assignment
-        return {
-          schema_version: '1.0.0',
-          match_id: roster.matchId,
-          identity_mode: identityMode,
-          evidence_state: 'legacy',
-          identity_revision: legacyDecision.identityRevision.toString(),
-          gid_id: legacyDecision.reidIdentityId,
-          replaced_track_ids: replacedTrackIds,
-          assignment: {
-            id: assignment.id,
-            analysis_run_id: assignment.analysisRunId,
-            track_id: assignment.trackId,
-            roster_entry_id: assignment.rosterEntryId,
-            source: assignment.source.toLowerCase(),
-          },
-        }
-      }
+      if (error instanceof ReidIdentityLedgerError)
+        throw new GraphQLError(error.message, { extensions: { code: error.code } })
       throw error
     }
     const assignment = await tx.trackIdentityAssignment.findUniqueOrThrow({
@@ -933,7 +826,6 @@ export async function clearTrackIdentity(
             }),
           )
     if (!member) throw new Error('NOT_FOUND')
-    let evidenceState = 'versioned'
     try {
       await applyVersionedReidCorrection(tx, {
         analysisRunId: input.analysisRunId,
@@ -944,12 +836,9 @@ export async function clearTrackIdentity(
         reason: 'manual identity clear',
       })
     } catch (error) {
-      if (!(error instanceof ReidIdentityLedgerError) || error.code !== 'REID_EVIDENCE_PENDING')
-        throw error
-      evidenceState = 'pending'
-      await tx.trackIdentityAssignment.deleteMany({
-        where: { analysisRunId: input.analysisRunId, trackId: input.trackId },
-      })
+      if (error instanceof ReidIdentityLedgerError)
+        throw new GraphQLError(error.message, { extensions: { code: error.code } })
+      throw error
     }
     return {
       schema_version: '2.0.0',
@@ -957,7 +846,7 @@ export async function clearTrackIdentity(
       analysis_run_id: input.analysisRunId,
       track_id: input.trackId,
       roster_entry_id: null,
-      evidence_state: evidenceState,
+      evidence_state: 'versioned',
     }
   })
 }
@@ -1021,15 +910,30 @@ export async function setTrackIdentityMappingComplete(
           extensions: { code: 'ROSTER_TEAM_MISMATCH' },
         })
       }
-      const unassignedFeature = await tx.reidFeatureObservation.findFirst({
-        where: { analysisRunId: input.analysisRunId, track: { identityAssignments: { none: {} } } },
-        select: { trackId: true },
+      const evidenceSet = await tx.reidEvidenceSet.findFirst({
+        where: { analysisRunId: input.analysisRunId, status: 'READY' },
+        orderBy: { createdAt: 'desc' },
+        select: { id: true },
       })
-      if (unassignedFeature) {
+      if (!evidenceSet)
+        throw new GraphQLError('新版 ReID evidence 尚未完成', {
+          extensions: { code: 'REID_EVIDENCE_PENDING' },
+        })
+      const unassignedTracklet = await tx.reidTracklet.findFirst({
+        where: {
+          evidenceSetId: evidenceSet.id,
+          OR: [
+            { activeProjection: null },
+            { activeProjection: { assignmentRevision: { rosterEntryId: null } } },
+          ],
+        },
+        select: { canonicalTrackId: true },
+      })
+      if (unassignedTracklet) {
         throw new GraphQLError('仍有辨識到的球員軌跡尚未完成指派', {
           extensions: {
             code: 'REID_MANUAL_ASSIGNMENT_REQUIRED',
-            trackId: unassignedFeature.trackId,
+            trackId: unassignedTracklet.canonicalTrackId,
           },
         })
       }

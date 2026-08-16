@@ -683,7 +683,15 @@ export async function materializeProviderAnalysis(
     })
     await tx.aiJob.update({
       where: { id: aiJobId },
-      data: { progress: 1, stage: 'provider_materialized', lastCallbackAt: new Date() },
+      data: {
+        status: JobStatus.COMPLETED,
+        progress: 1,
+        stage: 'provider_materialized',
+        lastCallbackAt: new Date(),
+        completedAt: new Date(),
+        errorCode: null,
+        errorMessage: null,
+      },
     })
     await tx.rally.update({
       where: { id: job.submission.rallyId },
@@ -989,8 +997,10 @@ export function createProviderAnalysisMaterializerWorker(
             await tx.aiJob.update({
               where: { id: aiJobId },
               data: {
+                status: JobStatus.FAILED,
                 stage: 'provider_materialization_failed',
                 errorMessage: message.slice(0, 500),
+                completedAt: new Date(),
               },
             })
             await tx.rally.update({

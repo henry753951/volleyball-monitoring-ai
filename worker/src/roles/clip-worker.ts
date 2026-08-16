@@ -31,8 +31,6 @@ import { createPollingLifecycle } from '../workflow/poller.js'
 const runner = createNodeProbeRunner()
 const leaseMs = 5 * 60_000
 const AI_JOB_SCHEMA_VERSION = '3.0.0'
-const providerWorkV2Enabled = process.env.PROVIDER_WORK_V2_ENABLED !== 'false'
-
 async function runCommand(executable: string, args: string[], signal: AbortSignal) {
   const result = await runner(executable, args, {
     shell: false,
@@ -539,37 +537,36 @@ export function createClipWorker(
             jobSchemaVersion,
             callbackTokenHash: sha256Hex(token),
             callbackTokenExpiresAt: expiresAt,
-            ...(providerWorkV2Enabled ? { status: JobStatus.SUPERSEDED } : {}),
+            providerJobId,
+            status: JobStatus.SUPERSEDED,
           },
         })
-        if (providerWorkV2Enabled) {
-          await tx.providerJob.create({
-            data: {
-              id: providerJobId,
-              workKind: ProviderWorkKind.ANALYSIS,
-              idempotencyKey: `provider-analysis:${job.submissionId}:${job.id}`,
-              requestSchemaVersion: '1.0.0',
-              resultSchemaVersion: '1.0.0',
-              requestPayload: providerPayload,
-              requestPayloadHash: sha256Hex(stableJson(providerPayload)),
-              callbackTokenHash: sha256Hex(token),
-              callbackTokenExpiresAt: expiresAt,
-              artifacts: {
-                create: {
-                  mediaAssetId: clipAsset.id,
-                  direction: ProviderArtifactDirection.INPUT,
-                  artifactKind: 'CANONICAL_CLIP',
-                  ordinal: 0,
-                  required: true,
-                  schemaVersion: '1.0.0',
-                  sha256: clipUpload.sha256,
-                  byteLength: clipUpload.byteLength,
-                  contentType: 'video/mp4',
-                },
+        await tx.providerJob.create({
+          data: {
+            id: providerJobId,
+            workKind: ProviderWorkKind.ANALYSIS,
+            idempotencyKey: `provider-analysis:${job.submissionId}:${job.id}`,
+            requestSchemaVersion: '1.0.0',
+            resultSchemaVersion: '1.0.0',
+            requestPayload: providerPayload,
+            requestPayloadHash: sha256Hex(stableJson(providerPayload)),
+            callbackTokenHash: sha256Hex(token),
+            callbackTokenExpiresAt: expiresAt,
+            artifacts: {
+              create: {
+                mediaAssetId: clipAsset.id,
+                direction: ProviderArtifactDirection.INPUT,
+                artifactKind: 'CANONICAL_CLIP',
+                ordinal: 0,
+                required: true,
+                schemaVersion: '1.0.0',
+                sha256: clipUpload.sha256,
+                byteLength: clipUpload.byteLength,
+                contentType: 'video/mp4',
               },
             },
-          })
-        }
+          },
+        })
         await tx.rally.update({
           where: { id: job.submission.rallyId },
           data: { processingStatus: ProcessingStatus.AI_QUEUED },

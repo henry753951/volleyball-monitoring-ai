@@ -66,6 +66,15 @@ export function sameCanonicalTrackCoverage(prior: number[], rebuilt: number[]) {
   return priorTracks.length > 0 && canonicalJson(priorTracks) === canonicalJson(normalized(rebuilt))
 }
 
+export function reidFeatureIdempotencyKey(input: {
+  analysisRunId: string
+  recipeNamespace: string
+  evidenceContentSha256: string
+  rebuildRequestId?: string | null
+}) {
+  return `reid-feature:${sha256Hex(canonicalJson(input))}`
+}
+
 type FeatureArtifact = {
   artifactKind: string
   schemaVersion: string
@@ -796,9 +805,12 @@ export async function scheduleReidFeatureExtraction(
   )
   const requestedRecipes = DEFAULT_RECIPES.map(recipe => ({ ...recipe }))
   const recipeNamespace = featureRecipeNamespace(FRAME_SELECTION_RECIPE, requestedRecipes)
-  const idempotencyKey = rebuildRequest
-    ? `reid-feature:${run.id}:${recipeNamespace}:${candidate.contentSha256}:rebuild:${rebuildRequest.id}`
-    : `reid-feature:${run.id}:${recipeNamespace}:${candidate.contentSha256}`
+  const idempotencyKey = reidFeatureIdempotencyKey({
+    analysisRunId: run.id,
+    recipeNamespace,
+    evidenceContentSha256: candidate.contentSha256,
+    rebuildRequestId: rebuildRequest?.id ?? null,
+  })
   return database.$transaction(async tx => {
     if (rebuildRequest) {
       const claimed = await tx.reidFeatureRebuildRequest.updateMany({
@@ -835,14 +847,60 @@ export async function scheduleReidFeatureExtraction(
       throw new ReidFeatureMaterializationError('content-addressed roster asset mismatch', false)
     const providerJobId = randomUUID()
     const evidenceSetId = randomUUID()
+    const analysisManifestInput = {
+      id: randomUUID(),
+      mediaAsset: candidate.manifestAsset,
+      artifactKind: 'ANALYSIS_EVIDENCE_MANIFEST',
+      schemaVersion: candidate.schemaVersion,
+    }
+    const rosterInput = {
+      id: randomUUID(),
+      mediaAsset: rosterAsset,
+      artifactKind: 'REID_ROSTER_SNAPSHOT',
+      schemaVersion: '1.0.0',
+    }
+    const inputs = [
+      {
+        id: randomUUID(),
+        mediaAsset: clipAsset,
+        artifactKind: 'CANONICAL_CLIP',
+        schemaVersion: clipAsset.internalSchemaVersion ?? '1.0.0',
+      },
+      {
+        id: randomUUID(),
+        mediaAsset: rawAnalysisDataAsset,
+        artifactKind: 'ANALYSIS_DATA',
+        schemaVersion: run.analysisDataSchemaVersion,
+      },
+      analysisManifestInput,
+      {
+        id: randomUUID(),
+        mediaAsset: pose.manifestAsset,
+        artifactKind: 'PERSON_POSE_EVIDENCE_MANIFEST',
+        schemaVersion: pose.schemaVersion,
+      },
+      ...pose.chunks.map(chunk => ({
+        id: randomUUID(),
+        mediaAsset: chunk.asset,
+        artifactKind: 'PERSON_POSE_EVIDENCE_CHUNK',
+        schemaVersion: pose.schemaVersion,
+      })),
+      {
+        id: randomUUID(),
+        mediaAsset: cropSourceManifestAsset,
+        artifactKind: 'PLAYER_CROP_SOURCE_MANIFEST',
+        schemaVersion: '1.0.0',
+      },
+      rosterInput,
+    ]
     const request = {
       schema_version: '1.0.0',
       provider_job_id: providerJobId,
       evidence_set_id: evidenceSetId,
-      analysis_run_id: run.id,
+      analysis_run_id: run.analysisId,
       match_id: matchId,
-      analysis_evidence_artifact_id: candidate.manifestAssetId,
-      roster_snapshot_artifact_id: rosterAsset.id,
+      analysis_evidence_artifact_id: analysisManifestInput.id,
+      roster_snapshot_artifact_id: rosterInput.id,
       pose_recipe_namespace: pose.recipeNamespace,
       frame_selection_recipe_version: FRAME_SELECTION_RECIPE,
       requested_recipes: requestedRecipes,
@@ -850,43 +908,6 @@ export async function scheduleReidFeatureExtraction(
     if (!validateFeatureRequest(request))
       throw new ReidFeatureMaterializationError('generated ReID feature request is invalid', false)
     const token = randomBytes(32).toString('base64url')
-    const inputs = [
-      {
-        mediaAsset: clipAsset,
-        artifactKind: 'CANONICAL_CLIP',
-        schemaVersion: clipAsset.internalSchemaVersion ?? '1.0.0',
-      },
-      {
-        mediaAsset: rawAnalysisDataAsset,
-        artifactKind: 'ANALYSIS_DATA',
-        schemaVersion: run.analysisDataSchemaVersion,
-      },
-      {
-        mediaAsset: candidate.manifestAsset,
-        artifactKind: 'ANALYSIS_EVIDENCE_MANIFEST',
-        schemaVersion: candidate.schemaVersion,
-      },
-      {
-        mediaAsset: pose.manifestAsset,
-        artifactKind: 'PERSON_POSE_EVIDENCE_MANIFEST',
-        schemaVersion: pose.schemaVersion,
-      },
-      ...pose.chunks.map(chunk => ({
-        mediaAsset: chunk.asset,
-        artifactKind: 'PERSON_POSE_EVIDENCE_CHUNK',
-        schemaVersion: pose.schemaVersion,
-      })),
-      {
-        mediaAsset: cropSourceManifestAsset,
-        artifactKind: 'PLAYER_CROP_SOURCE_MANIFEST',
-        schemaVersion: '1.0.0',
-      },
-      {
-        mediaAsset: rosterAsset,
-        artifactKind: 'REID_ROSTER_SNAPSHOT',
-        schemaVersion: '1.0.0',
-      },
-    ]
     if (
       inputs.some(
         input =>
@@ -912,6 +933,7 @@ export async function scheduleReidFeatureExtraction(
         stage: 'feature_queued',
         artifacts: {
           create: inputs.map((input, ordinal) => ({
+            id: input.id,
             mediaAssetId: input.mediaAsset.id,
             direction: ProviderArtifactDirection.INPUT,
             artifactKind: input.artifactKind,

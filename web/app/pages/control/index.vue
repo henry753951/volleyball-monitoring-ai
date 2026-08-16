@@ -93,7 +93,7 @@ const view = computed<ControlView>(() => {
     : 'overview'
 })
 const viewMeta: Record<ControlView, { title: string; detail: string }> = {
-  overview: { title: '運行總覽', detail: '場次工作區與核心服務' },
+  overview: { title: '運行總覽', detail: '核心服務、工作佇列與儲存資源' },
   matches: {
     title: '場次工作區',
     detail: '每場賽事的媒體、DVR 與 AI 處理狀態',
@@ -113,6 +113,9 @@ const filteredMatches = computed(() => {
 })
 const database = computed(() => monitor.snapshot.value?.operations.database)
 const aiWorkers = computed(() => monitor.snapshot.value?.operations.aiWorkers ?? [])
+const onlineWorkerCount = computed(
+  () => aiWorkers.value.filter(worker => worker.status === 'online').length,
+)
 const aiWorkerAccess = computed(() => monitor.snapshot.value?.operations.aiWorkerAccess ?? null)
 const aiWorkerTokens = computed(() => aiWorkerAccess.value?.tokens ?? [])
 const aiWork = computed(() => monitor.snapshot.value?.operations.aiWork ?? [])
@@ -470,8 +473,10 @@ onBeforeUnmount(() => {
         </div>
         <dl>
           <div>
-            <dt>場次</dt>
-            <dd>{{ matchesState.matches.value.length }}</dd>
+            <dt>在線 Workers</dt>
+            <dd>
+              {{ onlineWorkerCount }}<small>/ {{ aiWorkers.length }}</small>
+            </dd>
           </div>
           <div>
             <dt>運行中輸入</dt>
@@ -501,28 +506,6 @@ onBeforeUnmount(() => {
           kind="temporary"
           :storage="hostStorage"
           :detail="hostStorage?.path ?? ''"
-        />
-      </div>
-      <div class="section-title">
-        <div>
-          <h2>場次工作區</h2>
-          <p>媒體與分析狀態均以場次為單位</p>
-        </div>
-        <NuxtLink :to="{ path: '/control', query: { view: 'matches' } }">管理全部</NuxtLink>
-      </div>
-      <div class="match-grid overview-matches">
-        <ControlMatchWorkspaceCard
-          v-for="match in matchesState.matches.value.slice(0, 2)"
-          :key="match.id"
-          :match="match"
-          :media="matchMediaById.get(match.id) ?? null"
-          :streams="streamsByMatch.get(match.id) ?? []"
-          :jobs="jobsByMatch.get(match.id) ?? []"
-          @media="openSource(match.id)"
-          @monitor="openMediaMonitor(match)"
-          @roster="openRoster(match.id)"
-          @edit="openEdit(match)"
-          @delete="openDelete(match)"
         />
       </div>
     </div>

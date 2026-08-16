@@ -138,8 +138,7 @@ describe('ML analysis dataset', () => {
     ).toThrow('AnalysisData and timing frame counts differ')
   })
 
-  it('exports reproducible persisted ReID labels without duplicating vectors or actor identities', () => {
-    const prototype = new Uint8Array(2_048).fill(7)
+  it('exports versioned ReID evidence, active projections, and correction lineage', () => {
     const rosterEntry = {
       id: 'roster-1',
       teamId: 'team-1',
@@ -151,86 +150,60 @@ describe('ML analysis dataset', () => {
       player: { id: 'player-1', name: 'Player One' },
       team: { id: 'team-1', name: 'Blue Team' },
     }
-    const identity = {
-      id: 'gid-1',
-      label: 'S1',
-      slotIndex: 1,
-      teamId: 'team-1',
-      modelNamespace: 'namespace-1',
-      createdRevision: 2n,
-      createdAt: new Date('2026-08-13T00:00:00.000Z'),
-      bindings: [
-        {
-          id: 'binding-current',
-          rosterEntryId: 'roster-1',
-          sourceObservationId: 'observation-0',
-          effectiveFromSetNumber: 1,
-          effectiveFromRallyOrdinal: 1,
-          source: 'MANUAL',
-          identityRevision: 3n,
-          createdAt: new Date('2026-08-13T00:01:00.000Z'),
-          rosterEntry,
-        },
-        {
-          id: 'binding-future',
-          rosterEntryId: null,
-          sourceObservationId: 'observation-future',
-          effectiveFromSetNumber: 2,
-          effectiveFromRallyOrdinal: 1,
-          source: 'MANUAL',
-          identityRevision: 8n,
-          createdAt: new Date('2026-08-13T00:02:00.000Z'),
-          rosterEntry: null,
-        },
-      ],
-    }
     const files = buildPersistedReidDatasetFiles({
       analysisRunId: 'run-1',
       matchId: 'match-1',
       matchIdentityRevision: 8n,
-      featureBankPath: 'reid/fixed-roster-tracklets.json',
-      observations: [
+      descriptorBundlePaths: {
+        'evidence-1': 'reid/evidence/evidence-1-descriptors.bin',
+      },
+      tracklets: [
         {
-          id: 'observation-1',
-          analysisRunId: 'run-1',
-          trackId: 12,
-          matchId: 'match-1',
-          teamId: 'team-1',
-          reidIdentityId: 'gid-1',
-          modelNamespace: 'namespace-1',
-          modelName: 'sports-osnet',
-          modelCheckpointSha256: 'a'.repeat(64),
-          modelPreprocessVersion: 'roi-align-rgb-imagenet-v1',
-          modelDimension: 512,
-          modelDistance: 'cosine',
-          courtSide: 'LEFT',
-          provisionalGid: 'L1',
+          id: 'tracklet-1',
+          evidenceSetId: 'evidence-1',
           canonicalTrackId: 12,
-          isCanonicalTrack: true,
-          aliasTrackIds: [12],
-          medianCourtX: 0.25,
-          medianCourtY: 0.5,
-          descriptorRecipe: { name: 'nested-part-adaptation', version: '1.0.0' },
-          dinoDescriptor: new Uint8Array(384 * 4).fill(1),
-          osnetDescriptor: prototype,
-          kprDescriptor: new Uint8Array(4096 * 4).fill(2),
-          kprPromptDescriptor: new Uint8Array(4096 * 4).fill(3),
-          promptCoverage: 0.75,
-          selectedModalities: ['kpr_prompt'],
-          selectedKernel: 'linear',
-          selectedRegularization: 0.1,
-          firstFrame: 2n,
-          lastFrame: 42n,
-          sampleCount: 5,
-          meanQuality: 0.91,
-          prototype,
-          cannotLinkTrackIds: [13],
-          setNumber: 1,
-          rallyOrdinal: 2,
-          matchConfidence: 0.95,
-          identityRevision: 2n,
+          trackIdAliases: [12, 19],
+          courtSide: 'LEFT',
+          firstFrameIndex: 2n,
+          lastFrameIndex: 42n,
+          cannotLinkTrackletIds: ['tracklet-2'],
           createdAt: new Date('2026-08-13T00:00:30.000Z'),
-          reidIdentity: identity,
+          evidenceSet: {
+            id: 'evidence-1',
+            schemaVersion: '1.0.0',
+            recipeNamespace: 'nested-part-v2',
+            contentSha256: 'a'.repeat(64),
+            status: 'READY',
+          },
+          vectors: [
+            {
+              id: 'vector-1',
+              modality: 'osnet',
+              modelNamespace: 'sports-osnet-v1',
+              dimension: 512,
+              normalization: 'l2',
+              distance: 'cosine',
+              byteOffset: 2_048n,
+              byteLength: 2_048n,
+              sha256: 'b'.repeat(64),
+              sourceFrameIndices: [2n, 12n, 42n],
+              createdAt: new Date('2026-08-13T00:00:31.000Z'),
+            },
+          ],
+          activeProjection: {
+            sourcePriority: 1_000,
+            assignmentRevision: {
+              id: 'assignment-8',
+              source: 'MANUAL',
+              revision: 8n,
+              effectiveFromSetNumber: 1,
+              effectiveFromRallyOrdinal: 2,
+              correctionId: 'correction-1',
+              createdAt: new Date('2026-08-13T00:03:00.000Z'),
+              personCluster: { id: 'cluster-2', teamId: 'team-1', label: 'P2' },
+              rosterEntry,
+            },
+          },
         },
       ],
       corrections: [
@@ -239,47 +212,50 @@ describe('ML analysis dataset', () => {
           matchId: 'match-1',
           teamId: 'team-1',
           analysisRunId: 'run-1',
-          trackId: 12,
-          sourceIdentityId: 'gid-1',
-          targetIdentityId: 'gid-2',
+          trackletId: 'tracklet-1',
+          sourcePersonClusterId: 'cluster-1',
+          targetPersonClusterId: 'cluster-2',
           rosterEntryId: 'roster-1',
-          kind: 'SPLIT_IDENTITY',
-          identityRevision: 8n,
-          details: {
-            replaced_track_ids: [9],
-            reassociated_observation_ids: ['observation-2'],
-            token: 'must-not-export',
-            created_by_user_id: 'user-secret',
-          },
+          displayScope: 'CURRENT_CLIP',
+          futureEvidenceAction: 'REJECT_SOURCE_AND_CONFIRM_TARGET',
+          revision: 8n,
+          reason: 'human review',
           createdAt: new Date('2026-08-13T00:03:00.000Z'),
-          sourceIdentity: identity,
-          targetIdentity: { ...identity, id: 'gid-2', label: 'S2', slotIndex: 2 },
+          sourcePersonCluster: { id: 'cluster-1', teamId: 'team-1', label: 'P1' },
+          targetPersonCluster: { id: 'cluster-2', teamId: 'team-1', label: 'P2' },
           rosterEntry,
         },
       ],
     })
 
-    const observations = payload(files, 'reid/persisted-observations.jsonl')
-    expect(observations).toMatchObject({
-      schema_version: '2.0.0',
+    const evidence = payload(files, 'reid/evidence-tracklets.jsonl')
+    expect(evidence).toMatchObject({
+      schema_version: '3.0.0',
       match_identity_revision: '8',
-      feature_vectors_are_stored_only_in: 'reid/fixed-roster-tracklets.json',
-      track_id: 12,
-      gid: { id: 'gid-1', label: 'S1', slot_index: 1, model_namespace: 'namespace-1' },
-      nested_part_adaptation: {
-        selected_modalities: ['kpr_prompt'],
-        selected_kernel: 'linear',
-        selected_regularization: 0.1,
-        feature_vector_ref: { path: 'reid/fixed-roster-tracklets.json', canonical_track_id: 12 },
-      },
+      canonical_track_id: 12,
+      evidence_set: { id: 'evidence-1', recipe_namespace: 'nested-part-v2' },
+      vectors: [
+        expect.objectContaining({
+          modality: 'osnet',
+          artifact_ref: {
+            path: 'reid/evidence/evidence-1-descriptors.bin',
+            byte_offset: '2048',
+            byte_length: '2048',
+            sha256: 'b'.repeat(64),
+          },
+        }),
+      ],
     })
-    expect(JSON.stringify(observations)).not.toContain('prototype":[')
 
-    const bindings = payload(files, 'reid/effective-bindings.jsonl')
-    expect(bindings).toMatchObject({
-      track_id: 12,
+    const projection = payload(files, 'reid/active-projections.jsonl')
+    expect(projection).toMatchObject({
+      canonical_track_id: 12,
       manual_assignment_required: false,
-      effective_binding: { id: 'binding-current', roster_entry: { player_name: 'Player One' } },
+      active_projection: {
+        person_cluster: { id: 'cluster-2', label: 'P2' },
+        roster_entry: { player_name: 'Player One' },
+        revision: '8',
+      },
     })
 
     const lineageText = files
@@ -287,12 +263,11 @@ describe('ML analysis dataset', () => {
       .bytes.toString('utf8')
     expect(JSON.parse(lineageText)).toMatchObject({
       snapshot_identity_revision: '8',
-      identity_revision: '8',
-      source_gid: { id: 'gid-1' },
-      target_gid: { id: 'gid-2' },
-      details: { replaced_track_ids: [9], reassociated_observation_ids: ['observation-2'] },
+      revision: '8',
+      source_person_cluster: { id: 'cluster-1' },
+      target_person_cluster: { id: 'cluster-2' },
+      future_evidence_action: 'reject_source_and_confirm_target',
     })
-    expect(lineageText).not.toContain('must-not-export')
     expect(lineageText).not.toContain('user-secret')
     expect(ML_DATASET_README).toContain('SHA-256')
   })

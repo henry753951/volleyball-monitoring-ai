@@ -44,7 +44,6 @@ invent fields outside these versioned files.
   canonical analysis track ID, the saved pose manifest, canonical crop-source evidence, and an
   explicit frame list; it never reruns pose or alters identity evidence.
 - `ai/analysis-data-domain.schema.json`: domain JSON embedded inside the sole `VAD1` AnalysisData FlatBuffer. It contains tracks, contacts, paths, summaries and versioned extensions.
-- `ai/fixed-roster-reid-v2.schema.json`: optional `AnalysisData.extensions.fixed_roster_reid` payload. It carries DINOv2, Sports OSNet, Official KPR and COCO-17-prompted KPR tracklet descriptors plus aliases and cannot-link evidence. Central owns exactly six team slots and selects Kernel Ridge parameters from earlier clips only.
 - `ai/callback.schema.json`: progress/failure/completed callback metadata.
 - `ai/provider-realtime.schema.json`: outbound AI worker control plane for hello, job offer, lease/resume, progress and abort. Media and AnalysisData bytes are forbidden on this channel.
 - `ai/analysis-data-manifest.schema.json`: central-to-web lazy AnalysisData frame manifest.

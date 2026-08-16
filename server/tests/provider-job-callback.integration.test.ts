@@ -72,7 +72,11 @@ async function createJob(
   })
 }
 
-function multipartBody(metadata: Record<string, unknown>, files: Record<string, Buffer>) {
+function multipartBody(
+  metadata: Record<string, unknown>,
+  files: Record<string, Buffer>,
+  contentTypes: Record<string, string> = {},
+) {
   const boundary = `vmai-${randomUUID()}`
   const parts: Buffer[] = [
     Buffer.from(
@@ -82,7 +86,7 @@ function multipartBody(metadata: Record<string, unknown>, files: Record<string, 
   for (const [name, data] of Object.entries(files)) {
     parts.push(
       Buffer.from(
-        `--${boundary}\r\nContent-Disposition: form-data; name="${name}"; filename="${name}.bin"\r\nContent-Type: application/octet-stream\r\n\r\n`,
+        `--${boundary}\r\nContent-Disposition: form-data; name="${name}"; filename="${name}.bin"\r\nContent-Type: ${contentTypes[name] ?? 'application/octet-stream'}\r\n\r\n`,
       ),
       data,
       Buffer.from('\r\n'),
@@ -274,6 +278,9 @@ describe('generic provider callback', () => {
       files[partName] = Buffer.from(`\x00\x00\x00\x00VPE1fixture-${index}`)
       kinds[partName] = 'PERSON_POSE_EVIDENCE_CHUNK'
     }
+    const contentTypes = {
+      pose_chunk_0000: 'application/vnd.volleyball.person-pose-evidence+flatbuffers;version=1',
+    }
     const metadata = {
       schema_version: '1.0.0',
       callback_id: 'provider-analysis-completed-one',
@@ -287,10 +294,11 @@ describe('generic provider callback', () => {
         schema_version: '1.0.0',
         sha256: sha256(data),
         byte_length: String(data.byteLength),
-        content_type: 'application/octet-stream',
+        content_type:
+          contentTypes[partName as keyof typeof contentTypes] ?? 'application/octet-stream',
       })),
     }
-    const multipart = multipartBody(metadata, files)
+    const multipart = multipartBody(metadata, files, contentTypes)
     const response = await app.inject({
       method: 'POST',
       url: `/api/v1/provider-jobs/${job.id}/callback`,
@@ -311,5 +319,62 @@ describe('generic provider callback', () => {
     await expect(
       db.providerJobArtifact.count({ where: { providerJobId: job.id, direction: 'OUTPUT' } }),
     ).resolves.toBe(44)
+  })
+
+  it('accepts identity preview result and animated media artifacts', async () => {
+    const job = await createJob('RUNNING', 'IDENTITY_PREVIEW_GENERATION')
+    const result = Buffer.from('{"schema_version":"1.0.0"}')
+    const preview = Buffer.from('RIFF-preview-WEBP')
+    const metadata = {
+      schema_version: '1.0.0',
+      callback_id: 'provider-identity-preview-completed-one',
+      provider_job_id: job.id,
+      work_kind: 'IDENTITY_PREVIEW_GENERATION',
+      kind: 'completed',
+      result_schema_version: '1.0.0',
+      artifacts: [
+        {
+          part_name: 'identity_preview_result',
+          kind: 'IDENTITY_PREVIEW_RESULT',
+          schema_version: '1.0.0',
+          sha256: sha256(result),
+          byte_length: String(result.byteLength),
+          content_type: 'application/json',
+        },
+        {
+          part_name: 'identity_preview',
+          kind: 'IDENTITY_PREVIEW',
+          schema_version: '1.0.0',
+          sha256: sha256(preview),
+          byte_length: String(preview.byteLength),
+          content_type: 'image/webp',
+        },
+      ],
+    }
+    const multipart = multipartBody(
+      metadata,
+      { identity_preview_result: result, identity_preview: preview },
+      { identity_preview_result: 'application/json', identity_preview: 'image/webp' },
+    )
+    const response = await app.inject({
+      method: 'POST',
+      url: `/api/v1/provider-jobs/${job.id}/callback`,
+      headers: {
+        authorization: `Bearer ${callbackToken}`,
+        'content-type': multipart.contentType,
+      },
+      payload: multipart.body,
+    })
+
+    expect(response.statusCode, response.body).toBe(200)
+    await expect(
+      db.providerJobArtifact.findMany({
+        where: { providerJobId: job.id, direction: 'OUTPUT' },
+        orderBy: { ordinal: 'asc' },
+      }),
+    ).resolves.toMatchObject([
+      { artifactKind: 'IDENTITY_PREVIEW_RESULT' },
+      { artifactKind: 'IDENTITY_PREVIEW' },
+    ])
   })
 })

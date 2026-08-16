@@ -20,6 +20,43 @@ const replayAnalysisSelect = {
   summary: true,
   reviewRevision: true,
   analysisDataManifest: { select: { fpsNum: true, fpsDen: true } },
+  reidEvidenceSets: {
+    where: { status: 'READY' },
+    orderBy: { createdAt: 'desc' },
+    take: 1,
+    select: {
+      tracklets: {
+        select: {
+          canonicalTrackId: true,
+          associationDecisions: {
+            orderBy: { createdAt: 'desc' },
+            take: 1,
+            select: { confidence: true },
+          },
+          activeProjection: {
+            select: {
+              assignmentRevision: {
+                select: {
+                  source: true,
+                  revision: true,
+                  personCluster: { select: { id: true, label: true } },
+                  rosterEntry: {
+                    select: {
+                      id: true,
+                      jerseyNumber: true,
+                      position: true,
+                      displayNameSnapshot: true,
+                      player: { select: { name: true } },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+  },
   tracks: {
     orderBy: { trackId: 'asc' },
     select: {
@@ -35,7 +72,6 @@ const replayAnalysisSelect = {
           source: true,
           confidence: true,
           identityRevision: true,
-          reidIdentity: { select: { id: true, label: true, slotIndex: true } },
           rosterEntry: {
             select: {
               id: true,
@@ -45,13 +81,6 @@ const replayAnalysisSelect = {
               player: { select: { name: true } },
             },
           },
-        },
-      },
-      reidObservation: {
-        select: {
-          matchConfidence: true,
-          identityRevision: true,
-          reidIdentity: { select: { id: true, label: true, slotIndex: true } },
         },
       },
     },
@@ -180,6 +209,7 @@ const replayBallEventSelect = {
 type ReplayAnalysis = Prisma.AnalysisRunGetPayload<{ select: typeof replayAnalysisSelect }>
 type ReplayEvent = ReplayAnalysis['contactEvents'][number]
 type ReplayTrack = ReplayAnalysis['tracks'][number]
+type ReplayVersionedTracklet = ReplayAnalysis['reidEvidenceSets'][number]['tracklets'][number]
 type ReplayBallEvent = Prisma.RallySubmissionBallEventGetPayload<{
   select: typeof replayBallEventSelect
 }>
@@ -206,10 +236,13 @@ function replayActor(actor: ReplayEvent['actors'][number]) {
   }
 }
 
-export function projectReplayTrack(track: ReplayTrack) {
-  const assignment = track.identityAssignments[0] ?? null
-  const rosterEntry = assignment?.rosterEntry ?? null
-  const globalIdentity = assignment?.reidIdentity ?? track.reidObservation?.reidIdentity ?? null
+export function projectReplayTrack(
+  track: ReplayTrack,
+  tracklet: ReplayVersionedTracklet | null = null,
+) {
+  const revision = tracklet?.activeProjection?.assignmentRevision ?? null
+  const rosterEntry = revision?.rosterEntry ?? null
+  const globalIdentity = revision?.personCluster ?? null
   return {
     track_id: track.trackId,
     court_side: track.courtSide.toLowerCase(),
@@ -219,12 +252,10 @@ export function projectReplayTrack(track: ReplayTrack) {
     global_identity: globalIdentity
       ? {
           id: globalIdentity.id,
-          label: `${track.courtSide === 'LEFT' ? 'L' : track.courtSide === 'RIGHT' ? 'R' : 'G'}${globalIdentity.slotIndex}`,
-          source: assignment?.source.toLowerCase() ?? 'ai',
-          confidence: assignment?.confidence ?? track.reidObservation?.matchConfidence ?? null,
-          identity_revision:
-            (assignment?.identityRevision ?? track.reidObservation?.identityRevision)?.toString() ??
-            null,
+          label: globalIdentity.label ?? `GID ${globalIdentity.id.slice(0, 8)}`,
+          source: revision?.source.toLowerCase() ?? 'ai',
+          confidence: tracklet?.associationDecisions[0]?.confidence ?? null,
+          identity_revision: revision?.revision.toString() ?? null,
         }
       : null,
     identity: rosterEntry
@@ -270,7 +301,14 @@ export function projectEffectiveReplayEvents(
   const baseEvents = analysis.contactEvents
     .filter(event => !deletedBasePoints.has(event.keyPointId))
     .map(event => {
-      const semantic = ballEvents.find(item => item.ordinal === event.sequenceIndex + 1) ?? null
+      const semantic =
+        ballEvents.find(
+          item =>
+            item.submissionKeyPointId === event.sourceKeyPointId ||
+            item.submissionKeyPointId === event.keyPointId,
+        ) ??
+        ballEvents.find(item => item.ordinal === event.sequenceIndex + 1) ??
+        null
       const effectiveFrame =
         timeByPoint.get(event.keyPointId) ?? event.resolvedFrameIndex ?? event.anchorFrameIndex
       const correctedTrackId = actorByPoint.get(event.keyPointId)
@@ -454,6 +492,7 @@ export function projectEffectiveReplayEvents(
           resolved_frame_index: edit.frameIndex.toString(),
           anchor_time_us: ((edit.frameIndex * 1_000_000n * fpsDen) / fpsNum).toString(),
           association_state: effectiveTrackId === null ? 'no_player' : 'resolved_single',
+          ball_event: null,
           ball: { state: 'missing', frame_index: null, frame_pos: null },
           quality_flags: [
             'manual_review_contact',
@@ -465,18 +504,27 @@ export function projectEffectiveReplayEvents(
         },
       }
     })
-  return [...baseEvents, ...manualEvents]
-    .sort((left, right) =>
-      left.effectiveFrame < right.effectiveFrame
-        ? -1
-        : left.effectiveFrame > right.effectiveFrame
-          ? 1
-          : left.wire.key_point_id.localeCompare(right.wire.key_point_id),
-    )
-    .map((event, sequenceIndex) => ({
-      ...event,
-      wire: { ...event.wire, sequence_index: sequenceIndex },
-    }))
+  const ordered = [...baseEvents, ...manualEvents].sort((left, right) =>
+    left.effectiveFrame < right.effectiveFrame
+      ? -1
+      : left.effectiveFrame > right.effectiveFrame
+        ? 1
+        : left.wire.key_point_id.localeCompare(right.wire.key_point_id),
+  )
+  return ordered.map((event, sequenceIndex) => ({
+    ...event,
+    wire: {
+      ...event.wire,
+      sequence_index: sequenceIndex,
+      ball_event: event.wire.ball_event ?? {
+        ordinal: sequenceIndex + 1,
+        kind: sequenceIndex === 0 ? 'serve' : sequenceIndex === 1 ? 'receive' : 'contact',
+        result: sequenceIndex === 0 && ordered.length > 1 ? 'success' : null,
+        semantic_source: 'system_default',
+        actor: null,
+      },
+    },
+  }))
 }
 
 export async function getCoachRallyReplay(
@@ -616,7 +664,14 @@ export async function getCoachRallyReplay(
           review_revision: analysis.reviewRevision.toString(),
           producer: { name: analysis.producerName, build_id: analysis.producerBuildId },
           summary: analysis.summary,
-          tracks: analysis.tracks.map(projectReplayTrack),
+          tracks: analysis.tracks.map(track =>
+            projectReplayTrack(
+              track,
+              analysis.reidEvidenceSets[0]?.tracklets.find(
+                tracklet => tracklet.canonicalTrackId === track.trackId,
+              ) ?? null,
+            ),
+          ),
           contact_events: effectiveEvents.map(event => event.wire),
           paths: analysis.segments.map(segment => {
             const startEvent = effectiveEventById.get(segment.startKeyPointId)

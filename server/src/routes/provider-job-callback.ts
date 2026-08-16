@@ -33,6 +33,7 @@ const json = (value: unknown) => JSON.parse(JSON.stringify(value)) as Prisma.Inp
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   value !== null && typeof value === 'object' && !Array.isArray(value)
 const sha256 = (value: string | Uint8Array) => createHash('sha256').update(value).digest('hex')
+const mediaTypeEssence = (value: string) => value.split(';', 1)[0]!.trim().toLowerCase()
 
 function reject(reply: FastifyReply, status: number, code: string, message: string) {
   return reply.status(status).send({ schema_version: '1.0.0', code, message })
@@ -296,6 +297,7 @@ export const providerJobCallbackRoutes =
                   await transaction.aiJob.update({
                     where: { id: linkedAiJobId },
                     data: {
+                      status: JobStatus.RUNNING,
                       progress: Number(metadata.progress),
                       stage:
                         typeof metadata.stage === 'string' ? metadata.stage : 'provider_running',
@@ -403,7 +405,8 @@ export const providerJobCallbackRoutes =
                   descriptor.sha256.toLowerCase() ||
                 uploadedByName.get(descriptor.part_name)!.bytes.toString() !==
                   descriptor.byte_length ||
-                uploadedByName.get(descriptor.part_name)!.contentType !== descriptor.content_type,
+                mediaTypeEssence(uploadedByName.get(descriptor.part_name)!.contentType) !==
+                  mediaTypeEssence(descriptor.content_type),
             )
           )
             return reject(
@@ -492,6 +495,7 @@ export const providerJobCallbackRoutes =
                 await transaction.aiJob.update({
                   where: { id: linkedAiJobId },
                   data: {
+                    status: JobStatus.RUNNING,
                     stage: 'provider_artifacts_ready',
                     progress: 1,
                     lastCallbackAt: now,

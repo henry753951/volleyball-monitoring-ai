@@ -44,6 +44,7 @@ withDefaults(defineProps<{ horizontal?: boolean }>(), { horizontal: false })
   height: auto;
 }
 .scroll-area :deep(.scroll-area__bar) {
+  z-index: 20;
   display: flex;
   touch-action: none;
   user-select: none;

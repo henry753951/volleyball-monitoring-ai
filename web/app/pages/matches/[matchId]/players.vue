@@ -134,6 +134,12 @@ const actionOptions = computed(() => {
     (left, right) => right.count - left.count || left.label.localeCompare(right.label, 'zh-Hant'),
   )
 })
+const actionSummaries = computed(() =>
+  actionOptions.value.map(option => {
+    const events = eventState.events.value.filter(event => event.actionKey === option.key)
+    return { ...option, outcome: actionOutcomeRate(events) }
+  }),
+)
 const filteredEvents = computed(() =>
   selectedActionKey.value === 'all'
     ? eventState.events.value
@@ -233,6 +239,27 @@ function refreshAfterIdentityChange() {
   void analyticsState.refresh()
   void eventState.refresh()
 }
+
+const BALL_TYPE_LABELS: Record<string, string> = {
+  serve: '發',
+  receive: '接',
+  spike: '殺',
+  contact: '擊',
+}
+
+function compactActionCounts(counts: Record<string, number>) {
+  return ['serve', 'receive', 'spike', 'contact']
+    .map(key => ({ key, label: BALL_TYPE_LABELS[key]!, count: counts[key] ?? 0 }))
+    .filter(item => item.count > 0)
+}
+
+function teamActionCounts(teamId: string) {
+  const counts: Record<string, number> = {}
+  for (const player of analytics.value?.players.filter(item => item.team_id === teamId) ?? [])
+    for (const [key, count] of Object.entries(player.action_counts))
+      counts[key] = (counts[key] ?? 0) + count
+  return compactActionCounts(counts)
+}
 </script>
 
 <template>
@@ -269,7 +296,14 @@ function refreshAfterIdentityChange() {
               >
                 <span>{{ playerBadge(player) }}</span
                 ><b>{{ player.name }}</b
-                ><small>{{ player.contact_count }} 擊球</small>
+                ><span class="entity-actions" aria-label="球種摘要">
+                  <i
+                    v-for="item in compactActionCounts(player.action_counts)"
+                    :key="item.key"
+                    :style="{ '--action-color': actionColor(item.key) }"
+                    >{{ item.label }} {{ item.count }}</i
+                  ><small v-if="!compactActionCounts(player.action_counts).length">0 球路</small>
+                </span>
               </button>
             </section>
             <p v-if="!analytics.players.length" class="entity-list__empty">尚無球員資料</p>
@@ -318,7 +352,16 @@ function refreshAfterIdentityChange() {
               >
                 <span>{{ team.shortName || 'TEAM' }}</span
                 ><b>{{ team.name }}</b
-                ><small>{{ teamParticipation(analytics, team.id) }} 回合</small>
+                ><span class="entity-actions" aria-label="隊伍球種摘要">
+                  <i
+                    v-for="item in teamActionCounts(team.id)"
+                    :key="item.key"
+                    :style="{ '--action-color': actionColor(item.key) }"
+                    >{{ item.label }} {{ item.count }}</i
+                  ><small v-if="!teamActionCounts(team.id).length"
+                    >{{ teamParticipation(analytics, team.id) }} 回合</small
+                  >
+                </span>
               </button>
             </section>
             <p v-if="!analytics.teams.length" class="entity-list__empty">尚無隊伍資料</p>
@@ -432,9 +475,7 @@ function refreshAfterIdentityChange() {
                 <dt>人物狀態</dt>
                 <dd class="mapping-state">{{ selectedMappedPlayer ? '已綁定' : '待分配' }}</dd>
                 <small>{{
-                  selectedMappedPlayer
-                    ? playerBadge(selectedMappedPlayer)
-                    : '仍保留此 local ID 的所有紀錄'
+                  selectedMappedPlayer ? playerBadge(selectedMappedPlayer) : '等待人工選擇球員'
                 }}</small>
               </div>
             </template>
@@ -508,6 +549,28 @@ function refreshAfterIdentityChange() {
                 </button>
               </div>
             </header>
+
+            <div class="action-summary-grid" aria-label="各球種摘要">
+              <button
+                v-for="summary in actionSummaries"
+                :key="summary.key"
+                type="button"
+                :class="{ active: selectedActionKey === summary.key }"
+                @click="selectedActionKey = summary.key"
+              >
+                <i :style="{ background: actionColor(summary.key) }" />
+                <span
+                  ><strong>{{ summary.label }}</strong
+                  ><small>{{ summary.count }} 次標記</small></span
+                >
+                <b>{{
+                  summary.outcome.rate === null
+                    ? '—'
+                    : `${(summary.outcome.rate * 100).toFixed(0)}%`
+                }}</b>
+              </button>
+              <p v-if="!actionSummaries.length">尚無人工球種資料</p>
+            </div>
 
             <div class="action-overview">
               <article class="action-heatmap">
@@ -708,7 +771,7 @@ function refreshAfterIdentityChange() {
   position: sticky;
   top: 0;
   z-index: 2;
-  margin: 0;
+  margin: 0 9px 0 0;
   padding: 12px 14px 7px;
   background: rgba(238, 241, 244, 0.94);
   color: #707985;
@@ -722,7 +785,7 @@ function refreshAfterIdentityChange() {
   grid-template-columns: 62px minmax(0, 1fr) auto;
   align-items: center;
   gap: 8px;
-  padding: 0 14px;
+  padding: 0 18px 0 14px;
   border: 0;
   background: transparent;
   color: #20242a;
@@ -751,6 +814,28 @@ function refreshAfterIdentityChange() {
   color: #858d97;
   font-size: 0.57rem;
   font-variant-numeric: tabular-nums;
+}
+.entity-actions {
+  display: grid !important;
+  grid-template-columns: repeat(2, auto);
+  justify-content: end;
+  gap: 3px 5px;
+  font-weight: 650 !important;
+}
+.entity-actions i {
+  padding-left: 5px;
+  border-left: 2px solid var(--action-color);
+  color: #64707b;
+  font-size: 0.53rem;
+  font-style: normal;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.entity-actions small {
+  grid-column: 1 / -1;
+  color: #858d97;
+  font-size: 0.56rem;
+  font-weight: 500;
 }
 .entity-list__empty {
   padding: 22px 14px;
@@ -866,6 +951,57 @@ function refreshAfterIdentityChange() {
 .action-toolbar small {
   color: #7c858f;
   font-size: 0.59rem;
+}
+.action-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(120px, 1fr));
+  gap: 8px;
+  padding: 16px 0 2px;
+}
+.action-summary-grid > button {
+  min-height: 66px;
+  display: grid;
+  grid-template-columns: 4px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid #e0e5ea;
+  border-radius: 12px;
+  background: #fff;
+  color: #22282f;
+  text-align: left;
+}
+.action-summary-grid > button:hover,
+.action-summary-grid > button.active {
+  border-color: #a9cdf1;
+  background: #f3f8fd;
+}
+.action-summary-grid > button > i {
+  width: 4px;
+  height: 34px;
+  border-radius: 999px;
+}
+.action-summary-grid > button > span {
+  display: grid;
+  gap: 3px;
+}
+.action-summary-grid strong {
+  font-size: 0.7rem;
+}
+.action-summary-grid small {
+  color: #7a848e;
+  font-size: 0.57rem;
+}
+.action-summary-grid b {
+  font-size: 1rem;
+  font-variant-numeric: tabular-nums;
+}
+.action-summary-grid > p {
+  grid-column: 1 / -1;
+  margin: 0;
+  padding: 16px 0;
+  color: #7b858f;
+  font-size: 0.65rem;
 }
 .action-filters {
   display: flex;

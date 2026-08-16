@@ -16,7 +16,8 @@
         "ANALYSIS",
         "REID_FEATURE_EXTRACTION",
         "REID_ASSOCIATION",
-        "PERSON_POSE_EVIDENCE_REBUILD"
+        "PERSON_POSE_EVIDENCE_REBUILD",
+        "IDENTITY_PREVIEW_GENERATION"
       ]
     },
     "base": {

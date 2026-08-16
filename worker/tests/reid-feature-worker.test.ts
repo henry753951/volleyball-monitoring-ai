@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import {
   pgvectorLiteralFromDescriptor,
   planReidFeatureRows,
+  reidFeatureIdempotencyKey,
   sameCanonicalTrackCoverage,
 } from '../src/roles/reid-feature-worker.js'
 
@@ -11,6 +12,18 @@ const trackletOne = '30000000-0000-4000-8000-000000000001'
 const trackletTwo = '30000000-0000-4000-8000-000000000002'
 const vectorOne = '30000000-0000-4000-8000-000000000003'
 const vectorTwo = '30000000-0000-4000-8000-000000000004'
+
+it('keeps feature idempotency keys within the Provider Work wire limit', () => {
+  const key = reidFeatureIdempotencyKey({
+    analysisRunId: 'a'.repeat(128),
+    recipeNamespace: 'recipe/'.repeat(32),
+    evidenceContentSha256: 'b'.repeat(64),
+    rebuildRequestId: 'c'.repeat(128),
+  })
+
+  expect(key).toHaveLength(77)
+  expect(key).toMatch(/^reid-feature:[a-f0-9]{64}$/)
+})
 
 function fixture() {
   const first = Buffer.alloc(8)

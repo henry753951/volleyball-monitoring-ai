@@ -51,7 +51,6 @@ const analysisStages = new Set([
   'player_tracking',
   'reidentification',
   'rtv4_x3d_tracking',
-  'reid_feature_bank',
   'writing_visual_v5_artifacts',
 ])
 const assignmentStages = new Set([
@@ -109,8 +108,6 @@ const detailDescription = computed(() => {
   if (stage.includes('tracking') || stage === 'player_tracking')
     return '正在辨識球場關鍵點並追蹤場上球員。'
   if (stage === 'court_projection') return '正在將畫面位置轉換到標準球場座標。'
-  if (stage === 'reid_feature_bank')
-    return '正在依場地側別建立固定六人 ReID 特徵；額外偵測不會中斷其他分析。'
   if (stage === 'court_reidentification' || stage === 'reidentification')
     return '正在合併跨畫格的球員身份。'
   if (stage === 'hit_association') return '正在將擊球標記與球員、球路事件建立關聯。'

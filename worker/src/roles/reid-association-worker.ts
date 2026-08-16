@@ -45,6 +45,15 @@ const validateAssociationResult = ajv.compile(
   JSON.parse(await readFile(new URL('reid-association-result.schema.json', contractsRoot), 'utf8')),
 )
 
+export function reidAssociationIdempotencyKey(input: {
+  evidenceSetId: string
+  teamId: string
+  bankContentSha256: string
+  rerunRequestId?: string | null
+}) {
+  return `reid-association:${sha256Hex(canonicalJson(input))}`
+}
+
 const json = (value: unknown) => JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue
 const records = (value: unknown) => (Array.isArray(value) ? value.filter(isRecord) : [])
 
@@ -496,9 +505,12 @@ export async function scheduleReidAssociation(
     throw new ReidAssociationMaterializationError('existing ReID bank artifact is not ready', true)
   const providerJobId = randomUUID()
   const associationRunId = randomUUID()
-  const idempotencyKey = rerunRequest
-    ? `reid-association:${evidenceSet.id}:${teamId}:${bank.content_sha256}:rerun:${rerunRequest.id}`
-    : `reid-association:${evidenceSet.id}:${teamId}:${bank.content_sha256}`
+  const idempotencyKey = reidAssociationIdempotencyKey({
+    evidenceSetId: evidenceSet.id,
+    teamId,
+    bankContentSha256: bank.content_sha256,
+    rerunRequestId: rerunRequest?.id ?? null,
+  })
   return database.$transaction(async tx => {
     if (await tx.providerJob.findUnique({ where: { idempotencyKey } })) return false
     const manifestAsset = existingSnapshot
@@ -518,6 +530,41 @@ export async function scheduleReidAssociation(
             readyAt: new Date(),
           },
         })
+    const evidenceResultInput = {
+      id: randomUUID(),
+      asset: evidenceSet.resultAsset,
+      kind: 'REID_FEATURE_RESULT',
+      version: '1.0.0',
+    }
+    const bankSnapshotInput = {
+      id: randomUUID(),
+      asset: manifestAsset,
+      kind: 'REID_BANK_SNAPSHOT',
+      version: '1.1.0',
+    }
+    const rosterSnapshotInput = {
+      id: randomUUID(),
+      asset: rosterArtifact,
+      kind: 'REID_ROSTER_SNAPSHOT',
+      version: '1.0.0',
+    }
+    const inputs = [
+      evidenceResultInput,
+      {
+        id: randomUUID(),
+        asset: evidenceSet.descriptorBundleAsset,
+        kind: 'REID_DESCRIPTOR_BUNDLE',
+        version: '1.0.0',
+      },
+      bankSnapshotInput,
+      rosterSnapshotInput,
+      ...[...artifactsById.values()].map(asset => ({
+        id: randomUUID(),
+        asset,
+        kind: 'REID_DESCRIPTOR_BUNDLE',
+        version: '1.0.0',
+      })),
+    ]
     const request = {
       schema_version: '1.1.0',
       provider_job_id: providerJobId,
@@ -525,10 +572,10 @@ export async function scheduleReidAssociation(
       match_id: matchId,
       evidence_set_id: evidenceSet.id,
       eligible_tracklet_ids: eligibleTrackletIds,
-      evidence_result_artifact_id: evidenceSet.resultAssetId,
+      evidence_result_artifact_id: evidenceResultInput.id,
       bank_snapshot_id: snapshotId,
-      bank_snapshot_artifact_id: manifestAsset.id,
-      roster_snapshot_artifact_id: rosterArtifact.id,
+      bank_snapshot_artifact_id: bankSnapshotInput.id,
+      roster_snapshot_artifact_id: rosterSnapshotInput.id,
       recipe: {
         namespace: ASSOCIATION_RECIPE,
         candidate_modalities: ['DINO', 'OSNET', 'KPR_PROMPT', 'JERSEY_VLM'],
@@ -542,21 +589,6 @@ export async function scheduleReidAssociation(
         'generated ReID association request is invalid',
         false,
       )
-    const inputs = [
-      { asset: evidenceSet.resultAsset, kind: 'REID_FEATURE_RESULT', version: '1.0.0' },
-      {
-        asset: evidenceSet.descriptorBundleAsset,
-        kind: 'REID_DESCRIPTOR_BUNDLE',
-        version: '1.0.0',
-      },
-      { asset: manifestAsset, kind: 'REID_BANK_SNAPSHOT', version: '1.1.0' },
-      { asset: rosterArtifact, kind: 'REID_ROSTER_SNAPSHOT', version: '1.0.0' },
-      ...[...artifactsById.values()].map(asset => ({
-        asset,
-        kind: 'REID_DESCRIPTOR_BUNDLE',
-        version: '1.0.0',
-      })),
-    ]
     if (
       inputs.some(
         input =>
@@ -597,6 +629,7 @@ export async function scheduleReidAssociation(
         stage: 'association_queued',
         artifacts: {
           create: inputs.map((input, ordinal) => ({
+            id: input.id,
             mediaAssetId: input.asset.id,
             direction: ProviderArtifactDirection.INPUT,
             artifactKind: input.kind,
@@ -911,8 +944,6 @@ export async function materializeReidAssociationResult(
                 selectedCandidate && typeof selectedCandidate.confidence === 'number'
                   ? selectedCandidate.confidence
                   : null,
-              reidIdentityId: null,
-              reidBindingId: null,
               identityRevision: revision,
             },
             create: {

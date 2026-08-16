@@ -110,16 +110,17 @@ const focusedLine = computed(
 )
 const focusedPath = computed(() => focusedLine.value?.path ?? null)
 const trackMetadata = computed(() => new Map(props.tracks.map(track => [track.trackId, track])))
-const focusedTrackIds = computed(
+const focusedEvent = computed(() => {
+  const path = focusedPath.value
+  return path
+    ? (props.events.find(event => event.key_point_id === path.start_key_point_id) ?? null)
+    : null
+})
+const focusedTrackId = computed(
   () =>
-    new Set([
-      ...(focusedPath.value?.start_court_positions ?? []).flatMap(position =>
-        position.track_id === null ? [] : [position.track_id],
-      ),
-      ...(focusedPath.value?.end_court_positions ?? []).flatMap(position =>
-        position.track_id === null ? [] : [position.track_id],
-      ),
-    ]),
+    focusedEvent.value?.ball_event?.actor?.track_id ??
+    focusedEvent.value?.actors[0]?.track_id ??
+    null,
 )
 
 const x = (value: number) => value * 100
@@ -206,7 +207,7 @@ const currentPlayers = computed(() => {
       !Number.isFinite(position.y)
     )
       continue
-    const hitter = focusedTrackIds.value.has(trackId)
+    const hitter = focusedTrackId.value === trackId
     if (!props.showOtherPlayers && !hitter) continue
     players.push({ trackId, x: x(position.y), y: y(position.x), hitter })
   }
@@ -231,6 +232,12 @@ function showPlayerLabel(trackId: number, hitter: boolean) {
 const pathEvent = (path: ReplayPath) =>
   props.events.find(event => event.key_point_id === path.start_key_point_id)
 
+function pathEventKind(path: ReplayPath) {
+  const event = pathEvent(path)
+  if (event?.ball_event?.kind) return event.ball_event.kind
+  return event?.sequence_index === 0 ? 'serve' : event?.sequence_index === 1 ? 'receive' : 'contact'
+}
+
 const ballEventColor = (kind: string) =>
   kind === 'serve'
     ? '#f4c66a'
@@ -241,13 +248,13 @@ const ballEventColor = (kind: string) =>
         : '#69b7ff'
 
 function pathColor(path: ReplayPath) {
-  return ballEventColor(pathEvent(path)?.ball_event?.kind ?? 'contact')
+  return ballEventColor(pathEventKind(path))
 }
 
 const actionLegend = computed(() => {
   const values = new Map<string, { key: string; label: string }>()
   for (const { path } of visiblePaths.value) {
-    const kind = pathEvent(path)?.ball_event?.kind ?? 'contact'
+    const kind = pathEventKind(path)
     const label =
       kind === 'serve' ? '發球' : kind === 'receive' ? '接發' : kind === 'spike' ? '殺球' : '擊球'
     values.set(kind, { key: kind, label })

@@ -16,7 +16,6 @@ import { createMediaObjectRemoverFromEnv } from './media/media-object-remover.js
 import { createSampleIndexRepository } from './media/sample-index-repository.js'
 import { createPersistedSampleSnapResolver } from './media/sample-snap-resolver.js'
 import { mediaPlaybackRoutes } from './routes/media-playback.js'
-import { aiCallbackRoutesWithDependencies } from './routes/ai-callback.js'
 import { providerJobCallbackRoutes } from './routes/provider-job-callback.js'
 import { analysisMediaRoutesWithDependencies } from './routes/analysis-media.js'
 import { analysisReviewRoutesWithDependencies } from './routes/analysis-review.js'
@@ -34,7 +33,6 @@ import { createAiProgressService } from './realtime/ai-progress.js'
 import { annotationWebSocketRoutes } from './realtime/annotation-ws.js'
 import { CoachMatchEventHub, coachWebSocketRoutes } from './realtime/coach-ws.js'
 import { configureCoachAnalyticsGraphQL } from './graphql/coach-analytics.js'
-import { aiProviderWebSocketRoutes } from './realtime/ai-provider-ws.js'
 import { providerWorkWebSocketRoutes } from './realtime/provider-work-ws.js'
 import { authenticateDevelopmentAnnotationRequest } from './realtime/auth.js'
 import { createAnnotationCommandService } from './services/annotation-command.js'
@@ -164,16 +162,7 @@ await app.register(multipart, {
   },
 })
 await app.register(websocket)
-await app.register(
-  aiCallbackRoutesWithDependencies({
-    ...(aiProgress ? { progress: aiProgress } : {}),
-    onAnalysisStateChanged: matchId => coachMatchEvents.publish(matchId, 'analysis_state_updated'),
-  }),
-)
 await app.register(providerJobCallbackRoutes({ database: db }))
-await app.register(
-  aiProviderWebSocketRoutes({ database: db, ...(aiProgress ? { progress: aiProgress } : {}) }),
-)
 await app.register(providerWorkWebSocketRoutes({ database: db }))
 await app.register(analysisMediaRoutesWithDependencies({ timingManifestReader }))
 await app.register(
