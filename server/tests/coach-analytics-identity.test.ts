@@ -10,6 +10,124 @@ import { applyManualReidDecision } from '../src/services/fixed-roster-reid.js'
 import { applyReidAutomaticAssignments } from '../src/services/reid-automatic-assignment.js'
 
 describe('coach track identity replacement', () => {
+  it('attributes a human ball event through the latest pose-first actor projection', async () => {
+    const findMatch = vi.fn().mockResolvedValue({
+      id: 'match-1',
+      title: 'Fixture',
+      identityRevision: 0n,
+      matchTeams: [],
+      rosterEntries: [
+        {
+          id: 'roster-7',
+          teamId: 'team-left',
+          jerseyNumber: '7',
+          position: null,
+          displayNameSnapshot: 'Seven',
+          player: null,
+        },
+      ],
+      rallies: [
+        {
+          id: 'rally-1',
+          ordinal: 1,
+          set: { setNumber: 1 },
+          activeSubmission: {
+            id: 'submission-1',
+            scoreResolutionState: 'PENDING',
+            scoringTeamId: null,
+            leftTeamId: 'team-left',
+            rightTeamId: 'team-right',
+            ballEvents: [
+              {
+                ordinal: 1,
+                kind: 'SERVE',
+                result: 'SUCCESS',
+                actorRosterEntryId: null,
+                submissionKeyPoint: { captureTimeUs: 1_000n },
+              },
+            ],
+            analysisRuns: [
+              {
+                id: 'run-1',
+                analysisVersion: 'v1',
+                identityMappingCompletedAt: null,
+                tracks: [
+                  {
+                    trackId: 7,
+                    courtSide: 'LEFT',
+                    firstFrame: 0n,
+                    lastFrame: 10n,
+                    reidObservation: null,
+                    identityAssignments: [
+                      {
+                        rosterEntryId: 'roster-7',
+                        source: 'MANUAL',
+                        confidence: null,
+                        identityRevision: null,
+                        reidIdentity: null,
+                      },
+                    ],
+                  },
+                ],
+                contactActorCorrections: [],
+                contactAssociationJobs: [
+                  {
+                    keyPointId: 'contact-1',
+                    status: JobStatus.COMPLETED,
+                    projection: {
+                      trackId: 7,
+                      confidence: 0.93,
+                      observationFrameIndex: 0n,
+                    },
+                  },
+                ],
+                contactTimeCorrections: [],
+                contactEdits: [],
+                actionCorrections: [],
+                contactEvents: [
+                  {
+                    keyPointId: 'contact-1',
+                    sequenceIndex: 0,
+                    anchorFrameIndex: 0n,
+                    resolvedFrameIndex: null,
+                    associationState: 'AMBIGUOUS',
+                    qualityFlags: [],
+                    representativePositions: [{ trackId: 7, courtX: 0.25, courtY: 0.75 }],
+                    actors: [
+                      {
+                        trackId: 7,
+                        associationConfidence: 0.4,
+                        action: null,
+                        courtX: 0.25,
+                        courtY: 0.75,
+                      },
+                    ],
+                  },
+                ],
+                segments: [],
+              },
+            ],
+            analysisSourceRun: null,
+          },
+        },
+      ],
+    })
+    const database = { match: { findFirst: findMatch } } as unknown as PrismaClient
+
+    const analytics = await getCoachMatchAnalytics(database, {
+      matchId: 'match-1',
+      userId: 'coach-1',
+      role: UserRole.COACH,
+    })
+
+    expect(analytics?.players[0]).toMatchObject({
+      roster_entry_id: 'roster-7',
+      contact_count: 1,
+      action_counts: { serve: 1 },
+      heatmap_samples: [{ x: 0.25, y: 0.75, action: 'serve' }],
+    })
+  })
+
   it('uses the effective corrected contact actor in coach player totals', async () => {
     const findMatch = vi.fn().mockResolvedValue({
       id: 'match-1',

@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto'
 import {
+  isBallEventResultValid,
   parseAnnotationCommandResponse,
   type AnnotationCommand,
   type AnnotationCommandRejected,
@@ -153,7 +154,11 @@ export async function submitRally(
     where: { id: command.rally_id },
     include: {
       boundaries: { orderBy: { kind: 'asc' } },
-      keyPoints: { where: { deletedAt: null }, orderBy: { sequenceIndex: 'asc' } },
+      keyPoints: {
+        where: { deletedAt: null },
+        orderBy: { sequenceIndex: 'asc' },
+        include: { ballEvent: true },
+      },
       operations: { orderBy: { resultRevision: 'asc' }, take: 1 },
       sideAssignment: true,
     },
@@ -204,7 +209,10 @@ export async function submitRally(
         where: { id: rally.activeSubmissionId },
         include: {
           boundaries: { orderBy: { kind: 'asc' } },
-          keyPoints: { orderBy: [{ sequenceIndex: 'asc' }, { id: 'asc' }] },
+          keyPoints: {
+            orderBy: [{ sequenceIndex: 'asc' }, { id: 'asc' }],
+            include: { ballEvent: true },
+          },
         },
       })
     : null
@@ -255,6 +263,61 @@ export async function submitRally(
       hash,
       reject(command, 'ANNOTATION_NOT_READY', 'Rally key-point integrity is invalid'),
     )
+  }
+  if (command.schema_version === '4.0.0') {
+    const invalidEvent = rally.keyPoints.find((point, index) => {
+      const event = point.ballEvent
+      if (!event) return true
+      const requiredKind = index === 0 ? 'SERVE' : index === 1 ? 'RECEIVE' : null
+      if (requiredKind ? event.kind !== requiredKind : !['CONTACT', 'SPIKE'].includes(event.kind)) {
+        return true
+      }
+      return !isBallEventResultValid(event.kind, event.result)
+    })
+    if (invalidEvent) {
+      return persist(
+        tx,
+        command,
+        identity,
+        hash,
+        reject(
+          command,
+          'BALL_EVENT_INTEGRITY_INVALID',
+          'Keypoint ball-event semantics require automatic correction before submission',
+        ),
+      )
+    }
+    const onlyEvent = rally.keyPoints.length === 1 ? rally.keyPoints[0]?.ballEvent : null
+    if (onlyEvent && !['POINT_SCORED', 'ERROR'].includes(onlyEvent.result ?? '')) {
+      return persist(
+        tx,
+        command,
+        identity,
+        hash,
+        reject(
+          command,
+          'SINGLE_POINT_SERVE_DECISION_REQUIRED',
+          'Choose whether the single serve scored or was an error before submission',
+        ),
+      )
+    }
+    const unresolved = rally.keyPoints.find(point => {
+      const event = point.ballEvent
+      return event && event.kind !== 'CONTACT' && event.result === null
+    })
+    if (unresolved) {
+      return persist(
+        tx,
+        command,
+        identity,
+        hash,
+        reject(
+          command,
+          'BALL_EVENT_RESULT_REQUIRED',
+          'Receive and spike results must be selected before submission',
+        ),
+      )
+    }
   }
   const clipStartAnchor = startBoundary ?? service!
   const clipEndAnchor = endBoundary ?? terminal!
@@ -414,6 +477,14 @@ export async function submitRally(
     capture_time_us: point.captureTimeUs.toString(),
     capture_frame_index: point.captureFrameIndex.toString(),
     timing_precision: point.timingPrecision,
+    ball_event: point.ballEvent
+      ? {
+          kind: point.ballEvent.kind,
+          result: point.ballEvent.result,
+          semantic_source: point.ballEvent.semanticSource,
+          actor_roster_entry_id: point.ballEvent.actorRosterEntryId,
+        }
+      : null,
   }))
   const boundarySnapshot = rally.boundaries.map(boundary => ({
     kind: boundary.kind,
@@ -507,9 +578,12 @@ export async function submitRally(
   const contentHash = createHash('sha256')
     .update(
       canonical({
-        schema_version: boundaryIntegrity
-          ? 'rally-submission-content-v2'
-          : 'rally-submission-content-v1',
+        schema_version:
+          command.schema_version === '4.0.0'
+            ? 'rally-submission-content-v3'
+            : boundaryIntegrity
+              ? 'rally-submission-content-v2'
+              : 'rally-submission-content-v1',
         boundaries: boundarySnapshot,
         key_points: snapshot,
         outcome: { resolution, side: side ?? null, scoring_team_id: scoringTeamId },
@@ -575,6 +649,26 @@ export async function submitRally(
     timingPrecision: point.timingPrecision,
   }))
   await tx.rallySubmissionKeyPoint.createMany({ data: rows })
+  const ballEventRows = rally.keyPoints.flatMap(point => {
+    const event = point.ballEvent
+    const submissionPoint = rows.find(row => row.sourceDraftKeyPointId === point.id)
+    if (!event || !submissionPoint) return []
+    return [
+      {
+        id: randomUUID(),
+        submissionId: submission.id,
+        submissionKeyPointId: submissionPoint.id,
+        ordinal: point.sequenceIndex + 1,
+        kind: event.kind,
+        result: event.result,
+        semanticSource: event.semanticSource,
+        actorRosterEntryId: event.actorRosterEntryId,
+      },
+    ]
+  })
+  if (ballEventRows.length > 0) {
+    await tx.rallySubmissionBallEvent.createMany({ data: ballEventRows })
+  }
   const boundaryRows = rally.boundaries.map(boundary => ({
     captureEpochId: boundary.captureEpochId,
     captureFrameIndex: boundary.captureFrameIndex,
@@ -674,9 +768,8 @@ export async function submitRally(
       where: { id: superseded.id },
       data: { status: 'SUPERSEDED' },
     })
-    // A correction always produces a fresh worker result. Keep the last
-    // completed analysis readable until that callback succeeds, and only
-    // retire unfinished source work immediately.
+    // Completed evidence can remain the explicit projection source for an
+    // identical-geometry correction. Only unfinished source work is retired.
     await Promise.all([
       tx.clipJob.updateMany({
         where: { submissionId: superseded.id, status: { not: 'COMPLETED' } },
@@ -701,7 +794,7 @@ export async function submitRally(
       annotationRevision: revision,
       annotationStatus: 'SUBMITTED',
       activeSubmissionId: submission.id,
-      processingStatus: clipReused ? 'AI_QUEUED' : 'CLIP_QUEUED',
+      processingStatus: clipReused ? 'COMPLETED' : 'CLIP_QUEUED',
       scoringTeamId,
       leftScoreBefore: scoreSnapshot.before?.left ?? null,
       rightScoreBefore: scoreSnapshot.before?.right ?? null,
@@ -764,7 +857,7 @@ export async function submitRally(
       aggregateId: rally.id,
       aggregateType: 'Rally',
       dedupeKey: `annotation-accepted:${receipt.serverSequence}`,
-      eventType: `annotation.command_accepted.v${command.schema_version.startsWith('3.') ? '3' : '2'}`,
+      eventType: `annotation.command_accepted.v${command.schema_version.split('.')[0]}`,
       payload: json(response),
     },
   })

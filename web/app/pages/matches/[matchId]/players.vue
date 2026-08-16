@@ -143,9 +143,9 @@ const outcomeSummary = computed(() => actionOutcomeRate(filteredEvents.value))
 const selectedHeatmap = computed(() => filteredEvents.value.filter(event => event.courtPosition))
 const selectedActionLabel = computed(() =>
   selectedActionKey.value === 'all'
-    ? '全部動作'
+    ? '全部球種'
     : (actionOptions.value.find(option => option.key === selectedActionKey.value)?.label ??
-      '所選動作'),
+      '所選球種'),
 )
 const analyticsErrorMessage = computed(() => {
   const message = analyticsState.error.value?.message
@@ -216,11 +216,17 @@ function openPlayer(playerId: string) {
 }
 
 function outcomeLabel(event: CoachPlayerActionEvent) {
-  return event.outcome === 'won'
-    ? '該回合得分'
-    : event.outcome === 'lost'
-      ? '對方得分'
-      : '結果未判定'
+  return event.resultKey === 'point_scored'
+    ? '得分'
+    : event.resultKey === 'success'
+      ? '成功'
+      : event.resultKey === 'error'
+        ? '失誤'
+        : event.resultKey === 'point_lost'
+          ? '失分'
+          : event.resultKey === 'failure'
+            ? '失敗'
+            : '未填結果'
 }
 
 function refreshAfterIdentityChange() {
@@ -396,14 +402,14 @@ function refreshAfterIdentityChange() {
             </template>
             <template v-else-if="viewMode === 'tracks' && selectedLocalTrack">
               <div>
-                <dt>動作事件</dt>
+                <dt>人工球種事件</dt>
                 <dd>{{ eventState.events.value.length }}</dd>
-                <small>此片段 ID 的模型動作</small>
+                <small>此片段 ID 關聯的人工標記</small>
               </div>
               <div>
-                <dt>動作種類</dt>
+                <dt>球種</dt>
                 <dd>{{ actionOptions.length }}</dd>
-                <small>依 provider label 動態產生</small>
+                <small>發球、接發、擊球與殺球</small>
               </div>
               <div>
                 <dt>出現範圍</dt>
@@ -434,14 +440,14 @@ function refreshAfterIdentityChange() {
             </template>
             <template v-else-if="selectedTeam">
               <div>
-                <dt>模型動作</dt>
+                <dt>人工球種</dt>
                 <dd>{{ eventState.events.value.length }}</dd>
                 <small>含未分配片段 ID 的分析事件</small>
               </div>
               <div>
-                <dt>動作種類</dt>
+                <dt>球種</dt>
                 <dd>{{ actionOptions.length }}</dd>
-                <small>隊伍所有可用動作分類</small>
+                <small>隊伍所有人工球種分類</small>
               </div>
               <div>
                 <dt>參與回合</dt>
@@ -478,11 +484,11 @@ function refreshAfterIdentityChange() {
             <header class="action-toolbar">
               <div>
                 <Activity :size="17" /><span
-                  ><strong>動作分析</strong
-                  ><small>依模型輸出動態分類；未知 label 會保留原名</small></span
+                  ><strong>球路分析</strong
+                  ><small>以人工標記的球種、結果與球員關聯為準</small></span
                 >
               </div>
-              <div class="action-filters" aria-label="動作篩選">
+              <div class="action-filters" aria-label="球種篩選">
                 <button
                   type="button"
                   :class="{ active: selectedActionKey === 'all' }"
@@ -509,7 +515,7 @@ function refreshAfterIdentityChange() {
                   <strong>{{ selectedActionLabel }}位置</strong
                   ><span>{{ selectedHeatmap.length }} 個座標樣本</span>
                 </header>
-                <div class="court-map" aria-label="動作位置熱圖">
+                <div class="court-map" aria-label="球路落點熱圖">
                   <i class="net" />
                   <span
                     v-for="event in selectedHeatmap"
@@ -521,18 +527,18 @@ function refreshAfterIdentityChange() {
                     }"
                     :title="`第 ${event.setNumber} 局 · 回合 ${event.rallyOrdinal} · ${event.actionLabel}`"
                   />
-                  <p v-if="!filteredEvents.length">目前沒有可用的動作資料</p>
+                  <p v-if="!filteredEvents.length">目前沒有可用的人工球種資料</p>
                   <p v-else-if="!selectedHeatmap.length">這個篩選沒有可用的場地位置</p>
                 </div>
               </article>
               <aside class="action-rate">
-                <span>動作後回合得分率</span>
+                <span>標記結果成功率</span>
                 <strong>{{
                   outcomeSummary.rate === null ? '—' : `${(outcomeSummary.rate * 100).toFixed(1)}%`
                 }}</strong>
                 <p>{{ outcomeSummary.won }} / {{ outcomeSummary.resolved }} 個已判定事件</p>
                 <small
-                  >這是該動作發生後的回合結果，不會把回合得分誤標成直接殺球成功。<template
+                  >依人工填寫的得分、成功、失誤、失分或失敗計算。<template
                     v-if="outcomeSummary.unknown"
                     >另有 {{ outcomeSummary.unknown }} 筆結果未判定。</template
                   ></small
@@ -543,8 +549,8 @@ function refreshAfterIdentityChange() {
             <section class="action-records">
               <header>
                 <div>
-                  <h2>動作時間軸</h2>
-                  <p>選擇紀錄會從事件前 5 秒進入 Replay</p>
+                  <h2>球種時間軸</h2>
+                  <p>選擇紀錄會從事件前 3 秒進入 Replay</p>
                 </div>
                 <span>{{ filteredEvents.length }} 筆</span>
               </header>
@@ -576,10 +582,10 @@ function refreshAfterIdentityChange() {
               </UiScrollArea>
               <div v-else class="action-records__empty">
                 <UserRoundSearch :size="20" /><strong>{{
-                  eventState.error.value ? '動作紀錄載入失敗' : '目前沒有符合的動作紀錄'
+                  eventState.error.value ? '球種紀錄載入失敗' : '目前沒有符合的球種紀錄'
                 }}</strong
                 ><span>{{
-                  eventState.error.value?.message ?? '模型尚未提供動作 label 時，不顯示推測資料。'
+                  eventState.error.value?.message ?? '尚未有人工作出球種標記，不顯示模型推測資料。'
                 }}</span>
               </div>
             </section>
@@ -617,7 +623,7 @@ function refreshAfterIdentityChange() {
             <header>
               <div>
                 <h2>球員分布</h2>
-                <p>點選球員可切換到個人動作、熱區與時間軸</p>
+                <p>點選球員可切換到個人球路、落點熱區與時間軸</p>
               </div>
               <span>{{ selectedTeamPlayers.length }} 人</span>
             </header>

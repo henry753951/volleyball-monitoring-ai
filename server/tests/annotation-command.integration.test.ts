@@ -57,6 +57,7 @@ const ids = {
   foreignEpoch: '82000000-0000-4000-8000-000000000019',
   plannedSet: '82000000-0000-4000-8000-000000000020',
   right: '82000000-0000-4000-8000-000000000010',
+  rosterLeft: '82000000-0000-4000-8000-000000000022',
   set: '82000000-0000-4000-8000-000000000011',
   window: '82000000-0000-4000-8000-000000000012',
 }
@@ -238,6 +239,15 @@ beforeAll(async () => {
       { matchId: ids.match, teamId: ids.left },
       { matchId: ids.match, teamId: ids.right },
     ],
+  })
+  await db.matchRosterEntry.create({
+    data: {
+      id: ids.rosterLeft,
+      matchId: ids.match,
+      teamId: ids.left,
+      jerseyNumber: '11',
+      displayNameSnapshot: 'Left Eleven',
+    },
   })
   await db.matchSet.create({
     data: { id: ids.set, matchId: ids.match, setNumber: 1, status: 'LIVE' },
@@ -456,6 +466,55 @@ afterAll(async () => {
 }, 120_000)
 
 describe('durable service annotation command', () => {
+  it('assigns or clears a human event actor without changing point timing', async () => {
+    const rallyId = randomUUID()
+    await service.apply(serviceCommand(randomUUID(), rallyId), identity)
+    const point = await db.keyPoint.findFirstOrThrow({ where: { rallyId, deletedAt: null } })
+
+    const assigned = await service.apply(
+      parseAnnotationCommand({
+        schema_version: '4.0.0',
+        command_id: randomUUID(),
+        room_id: roomId,
+        base_revision: '1',
+        rally_id: rallyId,
+        kind: 'SET_BALL_EVENT_ACTOR',
+        payload: { key_point_id: point.id, actor_roster_entry_id: ids.rosterLeft },
+      }),
+      identity,
+    )
+    expect(assigned).toMatchObject({
+      type: 'command_ack',
+      operation_kind: 'SET_BALL_EVENT_ACTOR',
+      result_revision: '2',
+    })
+    await expect(
+      db.keyPoint.findUniqueOrThrow({ where: { id: point.id }, include: { ballEvent: true } }),
+    ).resolves.toMatchObject({
+      captureTimeUs: point.captureTimeUs,
+      ballEvent: { actorRosterEntryId: ids.rosterLeft },
+    })
+
+    await expect(
+      service.apply(
+        parseAnnotationCommand({
+          schema_version: '4.0.0',
+          command_id: randomUUID(),
+          room_id: roomId,
+          base_revision: '2',
+          rally_id: rallyId,
+          kind: 'SET_BALL_EVENT_ACTOR',
+          payload: { key_point_id: point.id, actor_roster_entry_id: null },
+        }),
+        identity,
+      ),
+    ).resolves.toMatchObject({ operation_kind: 'SET_BALL_EVENT_ACTOR', result_revision: '3' })
+    await expect(
+      db.ballEventDraft.findUniqueOrThrow({ where: { keyPointId: point.id } }),
+    ).resolves.toMatchObject({ actorRosterEntryId: null })
+    await db.rally.delete({ where: { id: rallyId } })
+  })
+
   it('uses Z as start/end boundaries, allows zero contacts and submits with a pending score', async () => {
     const rallyId = randomUUID()
     const laterRallyId = randomUUID()
@@ -567,7 +626,7 @@ describe('durable service annotation command', () => {
     expect(persisted.activeSubmission?.clipJobs).toHaveLength(1)
   })
 
-  it('keeps an X outside the Z boundary interval and expands clip coverage to preserve its canonical PTS', async () => {
+  it('automatically tombstones an X outside the Z boundary interval and keeps clip coverage on the boundaries', async () => {
     const rallyId = randomUUID()
     const contactAnchor = {
       ...anchor,
@@ -627,22 +686,23 @@ describe('durable service annotation command', () => {
       db.match.findUniqueOrThrow({ where: { id: ids.match }, select: { clipPreRollUs: true } }),
       db.clipJob.findFirstOrThrow({ where: { submission: { rallyId } } }),
     ])
-    expect(clip.requestedStartCaptureUs).toBe(
-      BigInt(contactAnchor.capture_time_us) - match.clipPreRollUs,
-    )
+    expect(clip.requestedStartCaptureUs).toBe(BigInt(anchor.capture_time_us) - match.clipPreRollUs)
     await expect(
-      db.keyPoint.findMany({ where: { rallyId }, select: { markerKind: true, isTerminal: true } }),
-    ).resolves.toEqual([{ markerKind: 'CONTACT', isTerminal: false }])
+      db.keyPoint.findMany({
+        where: { rallyId },
+        select: { markerKind: true, isTerminal: true, deletedAt: true },
+      }),
+    ).resolves.toEqual([{ markerKind: 'CONTACT', isTerminal: false, deletedAt: expect.any(Date) }])
   })
 
   it('keeps X, move and delete editable after END while preserving READY', async () => {
     const rallyId = randomUUID()
     const contactAnchor = {
       ...anchor,
-      capture_frame_index: (BigInt(anchor.capture_frame_index) - 1n).toString(),
-      capture_time_us: (BigInt(anchor.capture_time_us) - 50n).toString(),
-      resolved_player_media_time_us: '1184',
-      source_pts: (BigInt(anchor.source_pts) - 1n).toString(),
+      capture_frame_index: BigInt(anchor.capture_frame_index).toString(),
+      capture_time_us: (BigInt(anchor.capture_time_us) + 25n).toString(),
+      resolved_player_media_time_us: '1259',
+      source_pts: BigInt(anchor.source_pts).toString(),
     }
     const endAnchor = {
       ...anchor,
@@ -654,7 +714,7 @@ describe('durable service annotation command', () => {
     const boundaryService = createAnnotationCommandService({
       database: db,
       resolveCursor: async cursor =>
-        cursor.player_media_time_us === '1184'
+        cursor.player_media_time_us === '1259'
           ? contactAnchor
           : cursor.player_media_time_us === '1284'
             ? endAnchor
@@ -676,7 +736,7 @@ describe('durable service annotation command', () => {
         payload: {
           playback_cursor: {
             ...contactCommand(randomUUID(), rallyId, '2').payload.playback_cursor,
-            player_media_time_us: '1184',
+            player_media_time_us: '1259',
           },
         },
       }),
@@ -2347,7 +2407,7 @@ describe('durable service annotation command', () => {
     ])
   })
 
-  it('reuses completed clip bytes but queues fresh AI for an outcome-only correction', async () => {
+  it('reuses completed clip and analysis evidence for an outcome-only correction', async () => {
     const rallyId = randomUUID()
     await service.apply(serviceCommand(randomUUID(), rallyId), identity)
     const draftPoint = await db.keyPoint.findFirstOrThrow({ where: { rallyId } })
@@ -2534,17 +2594,16 @@ describe('durable service annotation command', () => {
       timingManifestAssetId: timingAssetId,
     })
     await expect(
-      db.aiJob.findFirstOrThrow({ where: { submissionId: correctedSubmissionId! } }),
-    ).resolves.toMatchObject({
-      status: 'QUEUED',
-      stage: 'waiting_worker',
-      providerInstanceId: null,
-    })
+      db.aiJob.findFirst({ where: { submissionId: correctedSubmissionId! } }),
+    ).resolves.toBeNull()
+    await expect(
+      db.rallySubmission.findUniqueOrThrow({ where: { id: correctedSubmissionId! } }),
+    ).resolves.toMatchObject({ analysisSourceRunId: sourceAnalysis.id })
     await expect(
       db.analysisRun.findFirst({ where: { submissionId: correctedSubmissionId! } }),
     ).resolves.toBeNull()
     await expect(db.rally.findUniqueOrThrow({ where: { id: rallyId } })).resolves.toMatchObject({
-      processingStatus: 'AI_QUEUED',
+      processingStatus: 'COMPLETED',
       activeSubmissionId: correctedSubmissionId,
     })
     await expect(

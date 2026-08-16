@@ -180,6 +180,18 @@ export interface ReplayContactEvent {
   resolved_frame_index: string | null
   anchor_time_us: string
   association_state: string
+  ball_event?: {
+    ordinal: number
+    kind: 'serve' | 'receive' | 'contact' | 'spike'
+    result: 'point_scored' | 'success' | 'error' | 'point_lost' | 'failure' | null
+    semantic_source: 'human' | 'system_default' | 'automatic' | 'correction_copy'
+    actor: {
+      roster_entry_id: string
+      jersey_number: string
+      name: string
+      track_id: number | null
+    } | null
+  } | null
   ball: { state: string; frame_index: string | null; frame_pos: { x: number; y: number } | null }
   quality_flags: string[]
   actors: ReplayActor[]
@@ -213,7 +225,7 @@ export interface ReplayGlobalIdentity {
   identity_revision: string | null
 }
 export interface CoachRallyReplay {
-  schema_version: '1.0.0' | '1.1.0' | '1.2.0'
+  schema_version: '1.0.0' | '1.1.0' | '1.2.0' | '1.3.0'
   rally: {
     id: string
     match_id: string
@@ -273,9 +285,14 @@ export interface CoachMetric {
   feature_dependencies: string[]
 }
 export interface CoachMatchAnalytics {
-  schema_version: '1.0.0'
+  schema_version: '1.0.0' | '1.1.0'
   match: { id: string; title: string }
-  feature_availability: { identity: boolean; action: boolean; court_positions: boolean }
+  feature_availability: {
+    identity: boolean
+    action: boolean
+    ball_events?: boolean
+    court_positions: boolean
+  }
   metrics: Record<string, CoachMetric>
   teams: Array<CoachTeam & { wins: number; losses: number; unknown: number; sample_count: number }>
   sets: Array<{

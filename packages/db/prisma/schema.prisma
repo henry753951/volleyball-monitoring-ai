@@ -90,6 +90,28 @@ enum MarkerKind {
   CONTACT
 }
 
+enum BallEventKind {
+  SERVE
+  RECEIVE
+  CONTACT
+  SPIKE
+}
+
+enum BallEventResult {
+  POINT_SCORED
+  SUCCESS
+  ERROR
+  POINT_LOST
+  FAILURE
+}
+
+enum BallEventSemanticSource {
+  HUMAN
+  SYSTEM_DEFAULT
+  AUTOMATIC
+  CORRECTION_COPY
+}
+
 enum RallyBoundaryKind {
   START
   END
@@ -410,19 +432,19 @@ model Player {
 }
 
 model MatchRosterEntry {
-  id                       String                    @id @default(uuid()) @db.Uuid
-  matchId                  String                    @db.Uuid
-  teamId                   String                    @db.Uuid
-  playerId                 String?                   @db.Uuid
+  id                       String                     @id @default(uuid()) @db.Uuid
+  matchId                  String                     @db.Uuid
+  teamId                   String                     @db.Uuid
+  playerId                 String?                    @db.Uuid
   jerseyNumber             String
-  position                 RosterPosition            @default(UNSPECIFIED)
+  position                 RosterPosition             @default(UNSPECIFIED)
   displayNameSnapshot      String?
-  active                   Boolean                   @default(true)
-  createdAt                DateTime                  @default(now())
-  updatedAt                DateTime                  @updatedAt
-  match                    Match                     @relation(fields: [matchId], references: [id], onDelete: Cascade)
-  team                     Team                      @relation(fields: [teamId], references: [id], onDelete: Restrict)
-  player                   Player?                   @relation(fields: [playerId], references: [id], onDelete: SetNull)
+  active                   Boolean                    @default(true)
+  createdAt                DateTime                   @default(now())
+  updatedAt                DateTime                   @updatedAt
+  match                    Match                      @relation(fields: [matchId], references: [id], onDelete: Cascade)
+  team                     Team                       @relation(fields: [teamId], references: [id], onDelete: Restrict)
+  player                   Player?                    @relation(fields: [playerId], references: [id], onDelete: SetNull)
   identityAssignments      TrackIdentityAssignment[]
   reidBindings             ReidPlayerBinding[]
   reidCorrections          ReidCorrectionEvent[]
@@ -431,6 +453,8 @@ model MatchRosterEntry {
   reidIdentityRepairs      ReidIdentityCorrection[]
   reidAssignmentRevisions  ReidAssignmentRevision[]
   reidPersonCluster        ReidPersonCluster?
+  draftBallEvents          BallEventDraft[]           @relation("DraftBallEventActorRoster")
+  submissionBallEvents     RallySubmissionBallEvent[] @relation("SubmissionBallEventActorRoster")
 
   @@index([matchId, teamId, jerseyNumber])
 }
@@ -769,9 +793,28 @@ model KeyPoint {
   createdBy              User            @relation("KeyPointCreatedBy", fields: [createdByUserId], references: [id], onDelete: Restrict)
   updatedBy              User            @relation("KeyPointUpdatedBy", fields: [updatedByUserId], references: [id], onDelete: Restrict)
   deviceSession          DeviceSession   @relation(fields: [deviceSessionId], references: [id], onDelete: Restrict)
+  ballEvent              BallEventDraft?
 
   @@unique([rallyId, sequenceIndex])
   @@index([rallyId, captureTimeUs])
+}
+
+model BallEventDraft {
+  id                 String                  @id @default(uuid()) @db.Uuid
+  keyPointId         String                  @unique @db.Uuid
+  kind               BallEventKind
+  result             BallEventResult?
+  semanticSource     BallEventSemanticSource @default(SYSTEM_DEFAULT)
+  kindLocked         Boolean                 @default(false)
+  resultLocked       Boolean                 @default(false)
+  actorRosterEntryId String?                 @db.Uuid
+  createdAt          DateTime                @default(now())
+  updatedAt          DateTime                @updatedAt
+  keyPoint           KeyPoint                @relation(fields: [keyPointId], references: [id], onDelete: Cascade)
+  actorRosterEntry   MatchRosterEntry?       @relation("DraftBallEventActorRoster", fields: [actorRosterEntryId], references: [id], onDelete: SetNull)
+
+  @@index([kind, result])
+  @@index([actorRosterEntryId])
 }
 
 model AnnotationOperation {
@@ -816,18 +859,18 @@ model AnnotationCommandReceipt {
 }
 
 model RallySubmission {
-  id                        String                    @id @default(uuid()) @db.Uuid
-  rallyId                   String                    @db.Uuid
+  id                        String                     @id @default(uuid()) @db.Uuid
+  rallyId                   String                     @db.Uuid
   annotationRevision        BigInt
   contentHash               String
-  status                    SubmissionStatus          @default(ACTIVE)
+  status                    SubmissionStatus           @default(ACTIVE)
   scoreResolutionState      SubmissionScoreResolution
   scoringCourtSide          CourtSide?
-  scoringTeamId             String?                   @db.Uuid
-  leftTeamId                String                    @db.Uuid
-  rightTeamId               String                    @db.Uuid
-  sideAssignmentId          String                    @db.Uuid
-  sideAssignmentReversed    Boolean                   @default(false)
+  scoringTeamId             String?                    @db.Uuid
+  leftTeamId                String                     @db.Uuid
+  rightTeamId               String                     @db.Uuid
+  sideAssignmentId          String                     @db.Uuid
+  sideAssignmentReversed    Boolean                    @default(false)
   leftScoreBefore           Int?
   rightScoreBefore          Int?
   leftScoreAfter            Int?
@@ -837,33 +880,37 @@ model RallySubmission {
   clipPolicyVersion         String
   clipPreRollUs             BigInt
   clipPostRollUs            BigInt
-  serviceKeyPointId         String?                   @unique @db.Uuid
-  terminalKeyPointId        String?                   @unique @db.Uuid
-  submittedByUserId         String                    @db.Uuid
-  submittedAt               DateTime                  @default(now())
-  supersedesSubmissionId    String?                   @db.Uuid
-  rally                     Rally                     @relation("RallySubmissions", fields: [rallyId], references: [id], onDelete: Restrict)
-  activeForRally            Rally?                    @relation("ActiveSubmission")
-  scoringTeam               Team?                     @relation("SubmissionScoringTeam", fields: [scoringTeamId], references: [id], onDelete: Restrict)
-  leftTeam                  Team                      @relation("SubmissionLeftTeam", fields: [leftTeamId], references: [id], onDelete: Restrict)
-  rightTeam                 Team                      @relation("SubmissionRightTeam", fields: [rightTeamId], references: [id], onDelete: Restrict)
-  sideAssignment            CourtSideAssignment       @relation(fields: [sideAssignmentId], references: [id], onDelete: Restrict)
-  submittedBy               User                      @relation("SubmissionSubmittedBy", fields: [submittedByUserId], references: [id], onDelete: Restrict)
-  supersedes                RallySubmission?          @relation("SubmissionSupersession", fields: [supersedesSubmissionId], references: [id], onDelete: Restrict)
-  supersededBy              RallySubmission[]         @relation("SubmissionSupersession")
-  serviceKeyPoint           RallySubmissionKeyPoint?  @relation("SubmissionServiceKeyPoint", fields: [serviceKeyPointId], references: [id], onDelete: Restrict)
-  terminalKeyPoint          RallySubmissionKeyPoint?  @relation("SubmissionTerminalKeyPoint", fields: [terminalKeyPointId], references: [id], onDelete: Restrict)
-  keyPoints                 RallySubmissionKeyPoint[] @relation("SubmissionKeyPoints")
+  serviceKeyPointId         String?                    @unique @db.Uuid
+  terminalKeyPointId        String?                    @unique @db.Uuid
+  submittedByUserId         String                     @db.Uuid
+  submittedAt               DateTime                   @default(now())
+  supersedesSubmissionId    String?                    @db.Uuid
+  analysisSourceRunId       String?                    @db.Uuid
+  rally                     Rally                      @relation("RallySubmissions", fields: [rallyId], references: [id], onDelete: Restrict)
+  activeForRally            Rally?                     @relation("ActiveSubmission")
+  scoringTeam               Team?                      @relation("SubmissionScoringTeam", fields: [scoringTeamId], references: [id], onDelete: Restrict)
+  leftTeam                  Team                       @relation("SubmissionLeftTeam", fields: [leftTeamId], references: [id], onDelete: Restrict)
+  rightTeam                 Team                       @relation("SubmissionRightTeam", fields: [rightTeamId], references: [id], onDelete: Restrict)
+  sideAssignment            CourtSideAssignment        @relation(fields: [sideAssignmentId], references: [id], onDelete: Restrict)
+  submittedBy               User                       @relation("SubmissionSubmittedBy", fields: [submittedByUserId], references: [id], onDelete: Restrict)
+  supersedes                RallySubmission?           @relation("SubmissionSupersession", fields: [supersedesSubmissionId], references: [id], onDelete: Restrict)
+  supersededBy              RallySubmission[]          @relation("SubmissionSupersession")
+  analysisSourceRun         AnalysisRun?               @relation("SubmissionAnalysisProjection", fields: [analysisSourceRunId], references: [id], onDelete: Restrict)
+  serviceKeyPoint           RallySubmissionKeyPoint?   @relation("SubmissionServiceKeyPoint", fields: [serviceKeyPointId], references: [id], onDelete: Restrict)
+  terminalKeyPoint          RallySubmissionKeyPoint?   @relation("SubmissionTerminalKeyPoint", fields: [terminalKeyPointId], references: [id], onDelete: Restrict)
+  keyPoints                 RallySubmissionKeyPoint[]  @relation("SubmissionKeyPoints")
+  ballEvents                RallySubmissionBallEvent[]
   boundaries                RallySubmissionBoundary[]
   pointAward                PointAward?
   clipJobs                  ClipJob[]
   aiJobs                    AiJob[]
   analysisRuns              AnalysisRun[]
-  scoreLedgerEntries        ScoreLedgerEntry[]        @relation("ScoreLedgerSubmission")
-  supersessionLedgerEntries ScoreLedgerEntry[]        @relation("ScoreLedgerSupersededSubmission")
+  scoreLedgerEntries        ScoreLedgerEntry[]         @relation("ScoreLedgerSubmission")
+  supersessionLedgerEntries ScoreLedgerEntry[]         @relation("ScoreLedgerSupersededSubmission")
 
   @@unique([rallyId, annotationRevision])
   @@index([rallyId, contentHash])
+  @@index([analysisSourceRunId])
 }
 
 model RallySubmissionBoundary {
@@ -886,10 +933,10 @@ model RallySubmissionBoundary {
 }
 
 model RallySubmissionKeyPoint {
-  id                    String                @id @default(uuid()) @db.Uuid
-  submissionId          String                @db.Uuid
-  captureEpochId        String                @db.Uuid
-  sourceDraftKeyPointId String                @db.Uuid
+  id                    String                    @id @default(uuid()) @db.Uuid
+  submissionId          String                    @db.Uuid
+  captureEpochId        String                    @db.Uuid
+  sourceDraftKeyPointId String                    @db.Uuid
   sequenceIndex         Int
   markerKind            MarkerKind
   isTerminal            Boolean
@@ -897,15 +944,34 @@ model RallySubmissionKeyPoint {
   captureTimeUs         BigInt
   captureFrameIndex     BigInt
   timingPrecision       TimingPrecision
-  submission            RallySubmission       @relation("SubmissionKeyPoints", fields: [submissionId], references: [id], onDelete: Restrict)
-  serviceForSubmission  RallySubmission?      @relation("SubmissionServiceKeyPoint")
-  terminalForSubmission RallySubmission?      @relation("SubmissionTerminalKeyPoint")
-  captureEpoch          CaptureEpoch          @relation(fields: [captureEpochId], references: [id], onDelete: Restrict)
+  submission            RallySubmission           @relation("SubmissionKeyPoints", fields: [submissionId], references: [id], onDelete: Restrict)
+  serviceForSubmission  RallySubmission?          @relation("SubmissionServiceKeyPoint")
+  terminalForSubmission RallySubmission?          @relation("SubmissionTerminalKeyPoint")
+  captureEpoch          CaptureEpoch              @relation(fields: [captureEpochId], references: [id], onDelete: Restrict)
   clipMappings          ClipKeyPointMapping[]
   analysisContactEvents ContactEvent[]
+  ballEvent             RallySubmissionBallEvent?
 
   @@unique([submissionId, sequenceIndex])
   @@unique([submissionId, sourceDraftKeyPointId])
+}
+
+model RallySubmissionBallEvent {
+  id                   String                  @id @default(uuid()) @db.Uuid
+  submissionId         String                  @db.Uuid
+  submissionKeyPointId String                  @unique @db.Uuid
+  ordinal              Int
+  kind                 BallEventKind
+  result               BallEventResult?
+  semanticSource       BallEventSemanticSource
+  actorRosterEntryId   String?                 @db.Uuid
+  submission           RallySubmission         @relation(fields: [submissionId], references: [id], onDelete: Restrict)
+  submissionKeyPoint   RallySubmissionKeyPoint @relation(fields: [submissionKeyPointId], references: [id], onDelete: Restrict)
+  actorRosterEntry     MatchRosterEntry?       @relation("SubmissionBallEventActorRoster", fields: [actorRosterEntryId], references: [id], onDelete: Restrict)
+
+  @@unique([submissionId, ordinal])
+  @@index([submissionId, kind, result])
+  @@index([actorRosterEntryId])
 }
 
 model PointAward {
@@ -1247,6 +1313,7 @@ model AnalysisRun {
   reidActiveProjections            ReidActiveProjection[]
   reidFeatureRebuildRequests       ReidFeatureRebuildRequest[]
   reidAssociationRerunRequests     ReidAssociationRerunRequest[]
+  projectedSubmissions             RallySubmission[]                      @relation("SubmissionAnalysisProjection")
 }
 
 model AnalysisBallCorrection {

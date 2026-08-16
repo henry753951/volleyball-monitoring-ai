@@ -103,6 +103,25 @@ const replayAnalysisSelect = {
     },
   },
   contactActorCorrections: { select: { keyPointId: true, trackId: true } },
+  contactAssociationJobs: {
+    where: {
+      status: { in: [JobStatus.QUEUED, JobStatus.RUNNING, JobStatus.COMPLETED, JobStatus.FAILED] },
+    },
+    orderBy: [{ reviewRevision: 'desc' as const }, { createdAt: 'desc' as const }],
+    select: {
+      keyPointId: true,
+      frameIndex: true,
+      status: true,
+      projection: {
+        select: {
+          trackId: true,
+          source: true,
+          confidence: true,
+          observationFrameIndex: true,
+        },
+      },
+    },
+  },
   contactTimeCorrections: { select: { keyPointId: true, frameIndex: true } },
   contactEdits: {
     select: {
@@ -141,9 +160,29 @@ const replayAnalysisSelect = {
   },
 } satisfies Prisma.AnalysisRunSelect
 
+const replayBallEventSelect = {
+  submissionKeyPointId: true,
+  ordinal: true,
+  kind: true,
+  result: true,
+  semanticSource: true,
+  actorRosterEntryId: true,
+  actorRosterEntry: {
+    select: {
+      id: true,
+      jerseyNumber: true,
+      displayNameSnapshot: true,
+      player: { select: { name: true } },
+    },
+  },
+} satisfies Prisma.RallySubmissionBallEventSelect
+
 type ReplayAnalysis = Prisma.AnalysisRunGetPayload<{ select: typeof replayAnalysisSelect }>
 type ReplayEvent = ReplayAnalysis['contactEvents'][number]
 type ReplayTrack = ReplayAnalysis['tracks'][number]
+type ReplayBallEvent = Prisma.RallySubmissionBallEventGetPayload<{
+  select: typeof replayBallEventSelect
+}>
 
 function replayActor(actor: ReplayEvent['actors'][number]) {
   return {
@@ -202,7 +241,10 @@ export function projectReplayTrack(track: ReplayTrack) {
   }
 }
 
-export function projectEffectiveReplayEvents(analysis: ReplayAnalysis) {
+export function projectEffectiveReplayEvents(
+  analysis: ReplayAnalysis,
+  ballEvents: ReplayBallEvent[] = [],
+) {
   const timeByPoint = new Map(
     analysis.contactTimeCorrections.map(correction => [
       correction.keyPointId,
@@ -212,6 +254,13 @@ export function projectEffectiveReplayEvents(analysis: ReplayAnalysis) {
   const actorByPoint = new Map(
     analysis.contactActorCorrections.map(correction => [correction.keyPointId, correction.trackId]),
   )
+  const latestAssociationByPoint = new Map<
+    string,
+    ReplayAnalysis['contactAssociationJobs'][number]
+  >()
+  for (const job of analysis.contactAssociationJobs ?? [])
+    if (!latestAssociationByPoint.has(job.keyPointId))
+      latestAssociationByPoint.set(job.keyPointId, job)
   const contactEdits = analysis.contactEdits ?? []
   const deletedBasePoints = new Set(
     contactEdits
@@ -221,37 +270,71 @@ export function projectEffectiveReplayEvents(analysis: ReplayAnalysis) {
   const baseEvents = analysis.contactEvents
     .filter(event => !deletedBasePoints.has(event.keyPointId))
     .map(event => {
+      const semantic = ballEvents.find(item => item.ordinal === event.sequenceIndex + 1) ?? null
       const effectiveFrame =
         timeByPoint.get(event.keyPointId) ?? event.resolvedFrameIndex ?? event.anchorFrameIndex
       const correctedTrackId = actorByPoint.get(event.keyPointId)
       const hasActorCorrection = actorByPoint.has(event.keyPointId)
-      const actors = !hasActorCorrection
-        ? event.actors.map(replayActor)
-        : correctedTrackId === null
+      const associationJob = latestAssociationByPoint.get(event.keyPointId)
+      const associationProjection =
+        associationJob?.status === JobStatus.COMPLETED ? associationJob.projection : null
+      const semanticTrackId = semantic?.actorRosterEntryId
+        ? (analysis.tracks.find(
+            track => track.identityAssignments[0]?.rosterEntry?.id === semantic.actorRosterEntryId,
+          )?.trackId ?? null)
+        : null
+      const effectiveTrackId = semantic?.actorRosterEntryId
+        ? semanticTrackId
+        : hasActorCorrection
+          ? correctedTrackId
+          : associationProjection
+            ? associationProjection.trackId
+            : event.associationState === 'RESOLVED_SINGLE'
+              ? (event.actors
+                  .toSorted(
+                    (left, right) =>
+                      (right.associationConfidence ?? -1) - (left.associationConfidence ?? -1),
+                  )
+                  .at(0)?.trackId ?? null)
+              : null
+      const matchedActor =
+        effectiveTrackId === null
+          ? null
+          : event.actors.find(actor => actor.trackId === effectiveTrackId)
+      const actors =
+        effectiveTrackId === null
           ? []
-          : [
-              event.actors.find(actor => actor.trackId === correctedTrackId)
-                ? replayActor(event.actors.find(actor => actor.trackId === correctedTrackId)!)
-                : {
-                    track_id: correctedTrackId,
-                    observation_frame_index: effectiveFrame.toString(),
-                    association_confidence: null,
-                    frame_bbox: null,
-                    frame_foot_pos: null,
-                    court_pos: null,
-                    action: null,
-                  },
-            ]
-      const representativePositions = !hasActorCorrection
-        ? event.representativePositions
-        : correctedTrackId === null
-          ? []
-          : event.representativePositions.filter(position => position.trackId === correctedTrackId)
+          : matchedActor
+            ? [
+                {
+                  ...replayActor(matchedActor),
+                  observation_frame_index:
+                    associationProjection?.observationFrameIndex?.toString() ??
+                    matchedActor.observationFrameIndex.toString(),
+                  association_confidence:
+                    associationProjection?.confidence ?? matchedActor.associationConfidence,
+                },
+              ]
+            : [
+                {
+                  track_id: effectiveTrackId,
+                  observation_frame_index: effectiveFrame.toString(),
+                  association_confidence: null,
+                  frame_bbox: null,
+                  frame_foot_pos: null,
+                  court_pos: null,
+                  action: null,
+                },
+              ]
+      const representativePositions =
+        effectiveTrackId === null
+          ? event.representativePositions.filter(position => position.trackId === null)
+          : event.representativePositions.filter(position => position.trackId === effectiveTrackId)
       return {
         raw: event,
         effectiveFrame,
         wire: {
-          key_point_id: event.keyPointId,
+          key_point_id: semantic?.submissionKeyPointId ?? event.keyPointId,
           source_key_point_id: event.sourceKeyPointId,
           anchor_origin: event.anchorOrigin,
           detection_confidence: event.detectionConfidence,
@@ -262,11 +345,38 @@ export function projectEffectiveReplayEvents(analysis: ReplayAnalysis) {
           anchor_frame_index: event.anchorFrameIndex.toString(),
           resolved_frame_index: effectiveFrame.toString(),
           anchor_time_us: event.anchorTimeUs.toString(),
-          association_state: hasActorCorrection
-            ? correctedTrackId === null
+          association_state: semantic?.actorRosterEntryId
+            ? semanticTrackId === null
               ? 'no_player'
               : 'resolved_single'
-            : event.associationState.toLowerCase(),
+            : hasActorCorrection
+              ? correctedTrackId === null
+                ? 'no_player'
+                : 'resolved_single'
+              : effectiveTrackId === null
+                ? event.associationState === 'RESOLVED_SINGLE'
+                  ? 'no_player'
+                  : event.associationState.toLowerCase()
+                : 'resolved_single',
+          ball_event: semantic
+            ? {
+                ordinal: semantic.ordinal,
+                kind: semantic.kind.toLowerCase(),
+                result: semantic.result?.toLowerCase() ?? null,
+                semantic_source: semantic.semanticSource.toLowerCase(),
+                actor: semantic.actorRosterEntry
+                  ? {
+                      roster_entry_id: semantic.actorRosterEntry.id,
+                      jersey_number: semantic.actorRosterEntry.jerseyNumber,
+                      name:
+                        semantic.actorRosterEntry.displayNameSnapshot ??
+                        semantic.actorRosterEntry.player?.name ??
+                        `#${semantic.actorRosterEntry.jerseyNumber}`,
+                      track_id: semanticTrackId,
+                    }
+                  : null,
+              }
+            : null,
           ball: {
             state: event.ballState.toLowerCase(),
             frame_index: event.ballFrameIndex?.toString() ?? null,
@@ -276,17 +386,24 @@ export function projectEffectiveReplayEvents(analysis: ReplayAnalysis) {
                 : null,
           },
           quality_flags:
-            hasActorCorrection || timeByPoint.has(event.keyPointId)
-              ? [...event.qualityFlags, 'manual_review_effective']
+            hasActorCorrection || timeByPoint.has(event.keyPointId) || associationProjection
+              ? [
+                  ...event.qualityFlags,
+                  ...(hasActorCorrection || timeByPoint.has(event.keyPointId)
+                    ? ['manual_review_effective']
+                    : []),
+                  ...(associationProjection ? ['contact_association_projection'] : []),
+                ]
               : event.qualityFlags,
           actors,
-          candidates: hasActorCorrection
-            ? []
-            : event.candidates.map(candidate => ({
-                track_id: candidate.trackId,
-                rank: candidate.rank,
-                confidence: candidate.confidence,
-              })),
+          candidates:
+            hasActorCorrection || associationProjection
+              ? []
+              : event.candidates.map(candidate => ({
+                  track_id: candidate.trackId,
+                  rank: candidate.rank,
+                  confidence: candidate.confidence,
+                })),
           representative_court_positions: representativePositions.map(position => ({
             track_id: position.trackId,
             basis: position.basis,
@@ -301,14 +418,20 @@ export function projectEffectiveReplayEvents(analysis: ReplayAnalysis) {
   const manualEvents = contactEdits
     .filter(edit => !edit.baseKeyPointId && !edit.deleted)
     .map(edit => {
+      const associationJob = latestAssociationByPoint.get(edit.contactId)
+      const associationProjection =
+        associationJob?.status === JobStatus.COMPLETED ? associationJob.projection : null
+      const effectiveTrackId = edit.trackId ?? associationProjection?.trackId ?? null
       const actor =
-        edit.trackId === null
+        effectiveTrackId === null
           ? []
           : [
               {
-                track_id: edit.trackId,
-                observation_frame_index: edit.frameIndex.toString(),
-                association_confidence: null,
+                track_id: effectiveTrackId,
+                observation_frame_index:
+                  associationProjection?.observationFrameIndex?.toString() ??
+                  edit.frameIndex.toString(),
+                association_confidence: associationProjection?.confidence ?? null,
                 frame_bbox: null,
                 frame_foot_pos: null,
                 court_pos: null,
@@ -330,9 +453,12 @@ export function projectEffectiveReplayEvents(analysis: ReplayAnalysis) {
           anchor_frame_index: edit.frameIndex.toString(),
           resolved_frame_index: edit.frameIndex.toString(),
           anchor_time_us: ((edit.frameIndex * 1_000_000n * fpsDen) / fpsNum).toString(),
-          association_state: edit.trackId === null ? 'no_player' : 'resolved_single',
+          association_state: effectiveTrackId === null ? 'no_player' : 'resolved_single',
           ball: { state: 'missing', frame_index: null, frame_pos: null },
-          quality_flags: ['manual_review_contact'],
+          quality_flags: [
+            'manual_review_contact',
+            ...(associationProjection ? ['contact_association_projection'] : []),
+          ],
           actors: actor,
           candidates: [],
           representative_court_positions: [],
@@ -388,6 +514,10 @@ export async function getCoachRallyReplay(
             orderBy: { sequenceIndex: 'asc' },
             select: { id: true, sequenceIndex: true, markerKind: true, isTerminal: true },
           },
+          ballEvents: {
+            orderBy: { ordinal: 'asc' },
+            select: replayBallEventSelect,
+          },
           clipJobs: {
             where: { status: JobStatus.COMPLETED, clipAssetId: { not: null } },
             orderBy: { completedAt: 'desc' },
@@ -400,6 +530,7 @@ export async function getCoachRallyReplay(
             take: 1,
             select: replayAnalysisSelect,
           },
+          analysisSourceRun: { select: replayAnalysisSelect },
           supersedes: {
             select: {
               clipJobs: {
@@ -425,15 +556,18 @@ export async function getCoachRallyReplay(
   const activeAnalysis = submission.analysisRuns[0] ?? null
   const clip = activeAnalysis
     ? (submission.clipJobs[0] ?? null)
-    : (submission.supersedes?.clipJobs[0] ?? submission.clipJobs[0] ?? null)
+    : (submission.clipJobs[0] ?? submission.supersedes?.clipJobs[0] ?? null)
   const mappingByPoint = new Map(
     (clip?.keyPointMappings ?? []).map(mapping => [mapping.submissionKeyPointId, mapping]),
   )
-  const analysis = activeAnalysis ?? submission.supersedes?.analysisRuns[0] ?? null
-  const effectiveEvents = analysis ? projectEffectiveReplayEvents(analysis) : []
+  const analysis =
+    activeAnalysis ?? submission.analysisSourceRun ?? submission.supersedes?.analysisRuns[0] ?? null
+  const effectiveEvents = analysis
+    ? projectEffectiveReplayEvents(analysis, submission.ballEvents)
+    : []
   const effectiveEventById = new Map(effectiveEvents.map(event => [event.raw.keyPointId, event]))
   return {
-    schema_version: '1.2.0',
+    schema_version: '1.3.0',
     rally: {
       id: rally.id,
       match_id: rally.matchId,
@@ -492,8 +626,8 @@ export async function getCoachRallyReplay(
             return {
               id: segment.id,
               sequence_index: segment.sequenceIndex,
-              start_key_point_id: segment.startKeyPointId,
-              end_key_point_id: segment.endKeyPointId,
+              start_key_point_id: startEvent?.wire.key_point_id ?? segment.startKeyPointId,
+              end_key_point_id: endEvent?.wire.key_point_id ?? segment.endKeyPointId,
               start_frame_index:
                 startEvent?.effectiveFrame.toString() ??
                 segment.startFrameIndex?.toString() ??

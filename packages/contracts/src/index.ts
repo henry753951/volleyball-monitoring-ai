@@ -7,7 +7,8 @@ export const CONTRACT_VERSIONS = {
   mediaFrameStepRequest: '1.1.0',
   mediaCanonicalFrameAnchor: '1.0.0',
   mediaApiError: '1.0.0',
-  annotationRealtime: '3.0.0',
+  annotationRealtime: '4.0.0',
+  ballEvent: '1.0.0',
   aiCapabilities: '2.0.0',
   providerWorkCapabilities: '3.0.0',
   aiJob: '3.0.0',
@@ -373,6 +374,7 @@ export const parseMediaApiError = (input: unknown): MediaApiError =>
   })
 
 export * from './annotation.js'
+export * from './ball-event.js'
 export * from './ai-provider-realtime.js'
 export * from './analysis-data-flatbuffers.js'
 export * from './analysis-review.js'

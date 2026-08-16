@@ -32,7 +32,7 @@ export function useCoachTrackEvents(tracks: MaybeRefOrGetter<CoachMatchAnalytics
       )
     } catch (cause) {
       if (currentGeneration === generation)
-        error.value = cause instanceof Error ? cause : new Error('無法載入動作紀錄')
+        error.value = cause instanceof Error ? cause : new Error('無法載入人工球種紀錄')
     } finally {
       if (currentGeneration === generation) pending.value = false
     }

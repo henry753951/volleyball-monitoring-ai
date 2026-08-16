@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import type { CoachMatchAnalytics, CoachRally } from '~/lib/coachDomain'
 import {
   coachRallyContactCount,
+  coachRallyNeighbours,
   playerContactShare,
   playerParticipation,
   teamContactCount,
@@ -63,6 +64,27 @@ const analytics = {
 describe('coach presentation values', () => {
   it('uses the completed analysis count instead of stale manual contacts', () => {
     expect(coachRallyContactCount(rally)).toBe(8)
+  })
+
+  it('resolves previous and next rallies chronologically even when the API returns newest first', () => {
+    const rallies = [
+      { id: 'set-2-rally-1', set_number: 2, ordinal: 1 },
+      { id: 'set-1-rally-2', set_number: 1, ordinal: 2 },
+      { id: 'set-1-rally-1', set_number: 1, ordinal: 1 },
+    ] as CoachRally[]
+
+    expect(coachRallyNeighbours(rallies, 'set-1-rally-1')).toEqual({
+      previous: null,
+      next: 'set-1-rally-2',
+    })
+    expect(coachRallyNeighbours(rallies, 'set-1-rally-2')).toEqual({
+      previous: 'set-1-rally-1',
+      next: 'set-2-rally-1',
+    })
+    expect(coachRallyNeighbours(rallies, 'set-2-rally-1')).toEqual({
+      previous: 'set-1-rally-2',
+      next: null,
+    })
   })
 
   it('deduplicates player participation by rally and orders the newest first', () => {

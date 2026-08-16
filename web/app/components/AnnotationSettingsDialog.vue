@@ -1,5 +1,13 @@
 <script setup lang="ts">
-import { ChevronLeft, ChevronRight, Database, Keyboard, RotateCcw, Scissors } from 'lucide-vue-next'
+import {
+  ChevronLeft,
+  ChevronRight,
+  Database,
+  Eye,
+  Keyboard,
+  RotateCcw,
+  Scissors,
+} from 'lucide-vue-next'
 import UiButton from '~/components/ui/Button.vue'
 import {
   ANNOTATION_COMMANDS,
@@ -11,7 +19,7 @@ import {
 } from '~/utils/annotationHotkeys'
 import { MEDIA_BUFFER_PROFILES, type MediaBufferPreset } from '~/utils/mediaPlaybackPreferences'
 
-type SettingsPage = 'root' | 'media' | 'clip' | 'hotkeys'
+type SettingsPage = 'root' | 'media' | 'overlay' | 'clip' | 'hotkeys'
 type PageDirection = 'forward' | 'back'
 
 const props = withDefaults(
@@ -22,6 +30,7 @@ const props = withDefaults(
     clipPostRollSeconds?: number
     clipPolicySaving?: boolean
     clipPolicyError?: string | null
+    overlayEnabled?: boolean
   }>(),
   {
     initialPage: 'root',
@@ -29,11 +38,13 @@ const props = withDefaults(
     clipPostRollSeconds: 3,
     clipPolicySaving: false,
     clipPolicyError: null,
+    overlayEnabled: true,
   },
 )
 const emit = defineEmits<{
   close: []
   updateClipPolicy: [preRollSeconds: number, postRollSeconds: number]
+  updateOverlayEnabled: [enabled: boolean]
 }>()
 const { bindings, rebind, restoreDefaults } = useAnnotationHotkeys()
 const { bufferPreset, setBufferPreset } = useMediaPlaybackPreferences()
@@ -59,18 +70,22 @@ const modalTitle = computed(() =>
     ? '設定'
     : page.value === 'media'
       ? '媒體播放設定'
-      : page.value === 'clip'
-        ? '片段範圍'
-        : '按鍵設定',
+      : page.value === 'overlay'
+        ? '疊圖設定'
+        : page.value === 'clip'
+          ? '片段範圍'
+          : '按鍵設定',
 )
 const modalDescription = computed(() =>
   page.value === 'root'
     ? '調整此瀏覽器的標註工作站偏好'
     : page.value === 'media'
       ? '控制播放時保留的影音緩衝'
-      : page.value === 'clip'
-        ? '套用到本場尚未送出的標記與後續修正版草稿'
-        : '點選按鍵後直接輸入新的組合',
+      : page.value === 'overlay'
+        ? '控制標記畫面中的 AI 疊圖；不影響人工球種資料'
+        : page.value === 'clip'
+          ? '套用到本場尚未送出的標記與後續修正版草稿'
+          : '點選按鍵後直接輸入新的組合',
 )
 const modalHeight = computed<'medium' | 'tall'>(() =>
   page.value === 'hotkeys' ? 'tall' : 'medium',
@@ -191,6 +206,13 @@ function close() {
                 <span><strong>媒體播放設定</strong><small>瀏覽器緩衝與回放保留範圍</small></span>
                 <ChevronRight :size="17" />
               </UiButton>
+              <UiButton variant="ghost" class="settings-menu__item" @click="changePage('overlay')">
+                <span class="settings-menu__icon"><Eye :size="18" /></span>
+                <span
+                  ><strong>疊圖設定</strong><small>球員框、球與動作模型只供畫面輔助</small></span
+                >
+                <ChevronRight :size="17" />
+              </UiButton>
               <UiButton variant="ghost" class="settings-menu__item" @click="changePage('clip')">
                 <span class="settings-menu__icon"><Scissors :size="18" /></span>
                 <span><strong>片段範圍</strong><small>Z 標記範圍之外要額外保留的秒數</small></span>
@@ -226,6 +248,23 @@ function close() {
                     >
                     <i aria-hidden="true" />
                   </UiButton>
+                </div>
+              </section>
+            </div>
+
+            <div v-else-if="page === 'overlay'" class="settings-child">
+              <section class="buffer-settings">
+                <div class="buffer-settings__heading">
+                  <strong>分析疊圖</strong
+                  ><small>關閉時不下載或繪製 overlay；人工球種與時間點仍可照常編輯。</small>
+                </div>
+                <div class="settings-toggle-row">
+                  <span><strong>顯示 AI 疊圖</strong><small>只影響此瀏覽器</small></span>
+                  <UiSwitch
+                    :model-value="overlayEnabled"
+                    aria-label="顯示 AI 疊圖"
+                    @update:model-value="$emit('updateOverlayEnabled', $event)"
+                  />
                 </div>
               </section>
             </div>
@@ -400,6 +439,25 @@ function close() {
   display: grid;
   gap: 4px;
   padding: 4px 2px;
+}
+.settings-toggle-row {
+  min-height: 58px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 10px 12px;
+  border: 1px solid #3f3f46;
+  border-radius: 10px;
+  background: #18181b;
+}
+.settings-toggle-row > span {
+  display: grid;
+  gap: 3px;
+}
+.settings-toggle-row small {
+  color: #a1a1aa;
+  font-size: 0.62rem;
 }
 .buffer-presets {
   display: grid;

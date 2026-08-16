@@ -113,9 +113,8 @@ describe('CourtPathView', () => {
     const startBall = wrapper.findAll('.flight-ball circle').at(-1)!
     expect(Number(startBall.attributes('cx'))).toBeCloseTo(24)
     expect(Number(startBall.attributes('cy'))).toBeCloseTo(212)
-    expect(wrapper.text()).toContain('[OH] 8')
-    expect(wrapper.text()).toContain('[MB] 3')
-    expect(wrapper.text()).not.toContain('王小明')
+    expect(wrapper.text()).toContain('#8 王小明')
+    expect(wrapper.text()).toContain('#3 林大華')
     expect(wrapper.find('marker').exists()).toBe(false)
 
     await wrapper.setProps({ activeFrame: 420 })
@@ -156,7 +155,6 @@ describe('CourtPathView', () => {
       },
     })
 
-    expect(wrapper.text()).toContain('[?] 8')
-    expect(wrapper.text()).not.toContain('王小明')
+    expect(wrapper.text()).toContain('#8 王小明')
   })
 })

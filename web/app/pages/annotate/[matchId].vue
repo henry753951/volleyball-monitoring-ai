@@ -1,10 +1,14 @@
 <script setup lang="ts">
 import { useThrottleFn } from '@vueuse/core'
+import { Eye, EyeOff } from 'lucide-vue-next'
 import { toast } from 'vue-sonner'
-import type {
-  AnalysisFrameBBox,
-  AnalysisReviewAction,
-  AnnotationRallyProcessingUpdate,
+import {
+  decideBallEventShortcut,
+  type AnalysisFrameBBox,
+  type AnalysisReviewAction,
+  type AnnotationRallyProcessingUpdate,
+  type BallEventShortcut,
+  type BallEventValue,
 } from '@volleyball-monitoring/contracts'
 import { createMediaClient } from '~/lib/mediaClient'
 import { adjacentAnnotationKeyPoint } from '~/lib/annotationKeyPointNavigation'
@@ -86,6 +90,8 @@ const overlayPlayer = ref<{
 } | null>(null)
 const playing = ref(false)
 const muted = ref(false)
+const playbackRate = ref(1)
+const annotationOverlayEnabled = ref(true)
 const playerBufferedRanges = shallowRef<CanonicalMediaRange[]>([])
 const captureTarget = ref('')
 const mediaError = ref<string | null>(null)
@@ -166,7 +172,7 @@ const timelineDock = useTemplateRef<{ resetView: () => void }>('timelineDock')
 const timelineScale = ref(DEFAULT_TIMELINE_SCALE)
 const hotkeyTarget = computed(() => (import.meta.client ? document.body : annotationScope.value))
 const settingsOpen = ref(false)
-const settingsInitialPage = ref<'root' | 'media' | 'clip' | 'hotkeys'>('root')
+const settingsInitialPage = ref<'root' | 'media' | 'overlay' | 'clip' | 'hotkeys'>('root')
 const clipPolicySaving = ref(false)
 const clipPolicyError = ref<string | null>(null)
 const captureDialogOpen = ref(false)
@@ -180,6 +186,7 @@ const confirmAction = ref<
   | 'rally-delete'
   | 'correction'
   | 'correction-submit'
+  | 'single-serve'
   | 'next-left'
   | 'next-right'
   | 'swap-segment'
@@ -191,6 +198,7 @@ const confirmTitle = computed(() => {
   if (confirmAction.value === 'rally-delete') return '永久刪除片段'
   if (confirmAction.value === 'correction') return '建立修正版草稿'
   if (confirmAction.value === 'correction-submit') return '送出修正版'
+  if (confirmAction.value === 'single-serve') return '確認發球結果'
   if (confirmAction.value === 'ws-resync') return '重新同步標註狀態'
   if (confirmAction.value === 'swap-segment')
     return sideSwapAffectsDraft.value ? '對調目前片段左右' : '對調下一片段左右'
@@ -204,6 +212,8 @@ const confirmMessage = computed(() => {
     return '會保留片段範圍、得分與目前有效的擊球點，建立可編輯草稿。完成修改並送出時，再決定保留標記或交由 AI 重新產生。'
   if (confirmAction.value === 'correction-submit')
     return `草稿目前有 ${correctionDraftContactIds.value.length} 個擊球標記。清除後，AI 會依球路重新產生；保留後，這些標記會作為人工結果，不再加入自動擊球點。兩種方式都會重新執行球員辨識與分析。`
+  if (confirmAction.value === 'single-serve')
+    return '這個片段只有一個球點。請確認這次發球是直接得分，還是發球失誤；送出後會成為教練統計的正式結果。'
   if (confirmAction.value === 'ws-resync')
     return '有一筆本機操作已和伺服器最新狀態衝突。重新同步會捨棄尚未確認的操作，再載入最新片段；已由伺服器確認的標記不會被刪除。'
   if (confirmAction.value === 'swap-segment')
@@ -222,6 +232,7 @@ const confirmLabel = computed(() => {
   if (confirmAction.value === 'rally-delete') return '永久刪除'
   if (confirmAction.value === 'correction') return '建立草稿'
   if (confirmAction.value === 'correction-submit') return '清除並由 AI 重新標記'
+  if (confirmAction.value === 'single-serve') return '發球失誤'
   if (confirmAction.value === 'ws-resync') return '捨棄衝突並同步'
   if (confirmAction.value === 'swap-segment') return '對調左右'
   if (confirmAction.value === 'swap-rally') return '建立並套用修正'
@@ -416,6 +427,28 @@ const commandAvailabilityMap = computed(() =>
   ),
 )
 
+watch(annotation.lastAutoCorrections, repairs => {
+  if (!repairs.length) return
+  const counts = new Map<string, number>()
+  for (const repair of repairs) counts.set(repair.code, (counts.get(repair.code) ?? 0) + 1)
+  const descriptions = [
+    ['OUTSIDE_START_TOMBSTONED', '取消片段開始前的球點'],
+    ['OUTSIDE_END_TOMBSTONED', '取消片段結束後的球點'],
+    ['EVENT_KIND_NORMALIZED', '依球序調整球種'],
+    ['EVENT_RESULT_CLEARED', '清除不相容結果'],
+    ['SERVE_SUCCESS_INFERRED', '依後續球點確認發球成功'],
+    ['RECEIVE_POINT_LOST_DOWNGRADED', '將仍有後續球的接發失分改為失誤'],
+    ['SPIKE_SUCCESS_DOWNGRADED', '將非最後一球的殺球得分改為失敗'],
+    ['SEQUENCE_REINDEXED', '重新排列球點順序'],
+  ]
+    .flatMap(([code, label]) => {
+      const count = counts.get(code!) ?? 0
+      return count ? [`${label} ${count} 個`] : []
+    })
+    .join('；')
+  toast.info('已自動校正球點', { description: descriptions })
+})
+
 const selectedCapture = computed<CaptureSession | null>(() => {
   const sessions = (match.value?.captureSessions ?? [])
     .slice()
@@ -545,6 +578,16 @@ function compactTeamLabel(team: { name: string; shortName: string | null } | nul
 }
 const commandLeftTeamLabel = computed(() => compactTeamLabel(commandLeftTeam.value))
 const commandRightTeamLabel = computed(() => compactTeamLabel(commandRightTeam.value))
+const ballEventActorOptions = computed(() =>
+  (match.value?.rosterEntries ?? []).map(entry => {
+    const team = match.value?.teams.find(candidate => candidate.id === entry.teamId)
+    const teamLabel = team?.shortName?.trim() || team?.name.trim() || '未分隊'
+    return {
+      id: entry.id,
+      label: `${teamLabel} · #${entry.jerseyNumber} ${entry.name}`,
+    }
+  }),
+)
 function currentScoreForTeam(teamId: string | null) {
   if (!teamId || !currentSet.value) return 0
   if (teamId === leftTeamId.value) return currentSet.value.left_score
@@ -676,7 +719,9 @@ watch(
   },
   { immediate: true },
 )
-const overlayEvents = computed(() => overlayReplay.value?.analysis?.contact_events ?? [])
+const overlayEvents = computed(() =>
+  annotationOverlayEnabled.value ? (overlayReplay.value?.analysis?.contact_events ?? []) : [],
+)
 const overlayTracks = computed(
   () =>
     overlayReplay.value?.analysis?.tracks.map(track => ({
@@ -707,10 +752,15 @@ const overlayTeamLabels = computed(() => ({
 }))
 const analysisReview = useAnalysisReview(editorSelectedAnalysisRunId)
 const confirmSecondaryLabel = computed(() =>
-  confirmAction.value === 'correction-submit' ? '保留目前標記點' : null,
+  confirmAction.value === 'correction-submit'
+    ? '保留目前標記點'
+    : confirmAction.value === 'single-serve'
+      ? '發球得分'
+      : null,
 )
 const analysisOverlayActive = computed(() =>
   Boolean(
+    annotationOverlayEnabled.value &&
     editorSelectedAnalysisRunId.value &&
     editorSelectedAnalysisRunId.value === editorOverlayAnalysisRunId.value &&
     currentOverlayFrame.value >= 0,
@@ -1066,9 +1116,19 @@ const mediaEmptyLabel = computed(() => {
   if (playbackMode.value === 'progressive_vod') return '影片載入中'
   return '媒體緩衝中'
 })
-function openSettings(page: 'root' | 'media' | 'clip' | 'hotkeys' = 'root') {
+function openSettings(page: 'root' | 'media' | 'overlay' | 'clip' | 'hotkeys' = 'root') {
   settingsInitialPage.value = page
   settingsOpen.value = true
+}
+
+function setAnnotationOverlayEnabled(enabled: boolean) {
+  annotationOverlayEnabled.value = enabled
+  if (!import.meta.client) return
+  try {
+    localStorage.setItem('annotation.overlay.enabled', String(enabled))
+  } catch {
+    // Display preferences must never block annotation commands.
+  }
 }
 
 function previewKeyPointMove(keyPointId: string, captureTimeUs: string) {
@@ -1095,6 +1155,52 @@ function movedPointWouldOverlap(keyPointId: string, targetCaptureTimeUs: string)
     clipPostRollUs.value,
   )
   return !range || clipRangeOverlaps(range, protectedSegmentRanges.value, snapshot.rally_id)
+}
+
+function shortcutForAction(action: AnnotationAction): BallEventShortcut | null {
+  if (action === 'spike') return 'C'
+  if (action === 'receive_success') return 'V'
+  if (action === 'receive_error') return 'B'
+  return null
+}
+
+function ballEventCommandAvailability(action: AnnotationAction) {
+  const shortcut = shortcutForAction(action)
+  if (!shortcut) return null
+  const snapshot = displayAnnotation.value
+  if (!snapshot || !['open', 'ready'].includes(snapshot.snapshot.annotation_status))
+    return { enabled: false, reason: '尚未開始片段' }
+  if (!annotation.draftOwnedByClient.value)
+    return { enabled: false, reason: '此片段屬於另一個標註客戶端，只能檢視' }
+  if (!selectedKeyPointId.value && (!canMark.value || !visualPlayhead.value))
+    return { enabled: false, reason: '游標尚未確認' }
+  const decision = decideBallEventShortcut({
+    shortcut,
+    points: snapshot.snapshot.key_points.map(point => ({
+      key_point_id: point.key_point_id,
+      sequence_index: point.sequence_index,
+      capture_time_us: point.capture_time_us,
+      capture_frame_index: point.capture_frame_index,
+      event: point.ball_event ?? null,
+    })),
+    boundaries: snapshot.snapshot.boundaries,
+    selected_key_point_id: selectedKeyPointId.value,
+    candidate_anchor:
+      visualPlayhead.value && authoritativeAnchor.value?.capture_frame_index
+        ? {
+            capture_time_us: visualPlayhead.value,
+            capture_frame_index: authoritativeAnchor.value.capture_frame_index,
+          }
+        : null,
+  })
+  if (decision.allowed) return { enabled: true, reason: '' }
+  const reasons = {
+    NO_TARGET_POINT: '請先選擇擊球點，或等待目前畫格確認',
+    SPIKE_REQUIRES_THIRD_POINT: '殺球只能標在第三球以後',
+    RECEIVE_REQUIRES_SECOND_POINT: '接發只能標在第二球',
+    OUTSIDE_RALLY_BOUNDARY: '目前畫格不在片段範圍內',
+  } as const
+  return { enabled: false, reason: reasons[decision.reason] }
 }
 
 function commandAvailability(action: AnnotationAction) {
@@ -1140,6 +1246,8 @@ function commandAvailability(action: AnnotationAction) {
       segments: protectedSegmentRanges.value,
     })
   }
+  const ballEventAvailability = ballEventCommandAvailability(action)
+  if (ballEventAvailability) return ballEventAvailability
   return draftCommandAvailability({
     action,
     state: state.value,
@@ -1398,9 +1506,52 @@ function previewTimelineSeek(targetCaptureTimeUs: string | null) {
   overlayPlayer.value?.previewCaptureTimeIfBuffered(target)
 }
 
+function singleServeNeedsDecision() {
+  const points = displayAnnotation.value?.snapshot.key_points ?? []
+  if (points.length !== 1) return false
+  const event = points[0]?.ball_event
+  return event?.kind !== 'SERVE' || !['POINT_SCORED', 'ERROR'].includes(event.result ?? '')
+}
+
+async function setSelectedBallEvent(event: BallEventValue) {
+  const keyPointId = selectedKeyPointId.value
+  if (!keyPointId || !editableDraftState.value || !editReady.value) return
+  try {
+    await annotation.setBallEvent(keyPointId, event)
+  } catch (error) {
+    toast.error(error instanceof Error ? error.message : '球種更新失敗')
+  }
+}
+
+async function setSelectedBallEventActor(actorRosterEntryId: string | null) {
+  const keyPointId = selectedKeyPointId.value
+  if (!keyPointId || !editableDraftState.value || !editReady.value) return
+  try {
+    await annotation.setBallEventActor(keyPointId, actorRosterEntryId)
+  } catch (error) {
+    toast.error(error instanceof Error ? error.message : '球員關聯更新失敗')
+  }
+}
+
+async function applySingleServeDecision(result: 'POINT_SCORED' | 'ERROR') {
+  const point = displayAnnotation.value?.snapshot.key_points[0]
+  if (!point) return
+  confirmAction.value = null
+  try {
+    await annotation.setBallEvent(point.key_point_id, { kind: 'SERVE', result })
+    dispatchAnnotationAction('submit')
+  } catch (error) {
+    toast.error(error instanceof Error ? error.message : '無法更新發球結果')
+  }
+}
+
 function dispatchAnnotationAction(action: AnnotationAction) {
   const control = controls.value.find(item => item.action === action)
   if (!control?.enabled) return
+  if (action === 'submit' && singleServeNeedsDecision()) {
+    confirmAction.value = 'single-serve'
+    return
+  }
   if (action === 'submit' && displayedCorrectionDraft.value) {
     requestCorrectionSubmit()
     return
@@ -1416,6 +1567,7 @@ function dispatchAnnotationAction(action: AnnotationAction) {
             capture_frame_index: authoritativeAnchor.value?.capture_frame_index ?? null,
           }
         : undefined,
+      selectedKeyPointId.value,
     )
   } catch {
     /* the composable exposes the actionable error state */
@@ -2007,6 +2159,10 @@ function confirmPendingAction() {
     void submitSelectedCorrection('regenerate')
     return
   }
+  if (action === 'single-serve') {
+    void applySingleServeDecision('ERROR')
+    return
+  }
   if (action === 'swap-rally' && sideSwapRally) {
     void swapCompletedRallySides(sideSwapRally)
     return
@@ -2032,6 +2188,10 @@ function confirmSecondaryAction() {
   closeConfirmAction()
   if (action === 'correction-submit') {
     void submitSelectedCorrection('preserve')
+    return
+  }
+  if (action === 'single-serve') {
+    void applySingleServeDecision('POINT_SCORED')
   }
 }
 
@@ -2167,7 +2327,13 @@ function handleVideoReady(element: HTMLVideoElement) {
     element.addEventListener('waiting', maintainPlaybackWindow)
     element.addEventListener('ended', maintainPlaybackWindow)
   }
+  element.playbackRate = playbackRate.value
   updatePlaybackState()
+}
+function setPlaybackRate(rate: number) {
+  if (!Number.isFinite(rate) || rate < 0.25 || rate > 4) return
+  playbackRate.value = rate
+  if (video.value) video.value.playbackRate = rate
 }
 function handleBufferState(value: {
   buffered: CanonicalMediaRange[]
@@ -2948,6 +3114,13 @@ function releaseFrameNavigationWhenHidden() {
   if (document.visibilityState === 'hidden') releaseFrameNavigationGestures()
 }
 onMounted(() => {
+  try {
+    const storedOverlayEnabled = localStorage.getItem('annotation.overlay.enabled')
+    if (storedOverlayEnabled !== null)
+      annotationOverlayEnabled.value = storedOverlayEnabled !== 'false'
+  } catch {
+    // Keep the safe default when browser storage is unavailable.
+  }
   annotationScope.value?.focus({ preventScroll: true })
   window.addEventListener('blur', releaseFrameNavigationGestures)
   document.addEventListener('visibilitychange', releaseFrameNavigationWhenHidden)
@@ -3022,7 +3195,7 @@ onBeforeUnmount(() => {
                 !analysisOverlayActive ||
                 (inspectorTab !== 'mapping' && inspectorTab !== 'analysis')
               "
-              :analysis-run-id="editorOverlayAnalysisRunId"
+              :analysis-run-id="annotationOverlayEnabled ? editorOverlayAnalysisRunId : null"
               :overlay-capture-time-us="visualPlayhead"
               :overlay-clip-start-capture-time-us="editorOverlayClipStart"
               :overlay-interactive="
@@ -3097,6 +3270,18 @@ onBeforeUnmount(() => {
               <span>FRAME IDX</span>
               <code>{{ authoritativeAnchor?.capture_frame_index ?? '—' }}</code>
             </div>
+            <button
+              type="button"
+              class="viewer-overlay-toggle"
+              :class="{ active: annotationOverlayEnabled }"
+              :aria-pressed="annotationOverlayEnabled"
+              :title="annotationOverlayEnabled ? '關閉分析 Overlay' : '開啟分析 Overlay'"
+              @click="setAnnotationOverlayEnabled(!annotationOverlayEnabled)"
+            >
+              <Eye v-if="annotationOverlayEnabled" :size="14" />
+              <EyeOff v-else :size="14" />
+              <span>Overlay</span>
+            </button>
             <div v-if="!descriptor" class="stage-empty">
               <strong>{{ mediaEmptyLabel }}</strong
               ><button
@@ -3246,6 +3431,7 @@ onBeforeUnmount(() => {
         :edit-ready="keyPointEditReady"
         :point-delete-enabled="Boolean(selectedDeletablePoint)"
         :muted="muted"
+        :playback-rate="playbackRate"
         :timeline-scale="timelineScale"
         :shortcuts="{
           play: formatBindingForDisplay(bindings.play_pause),
@@ -3270,6 +3456,7 @@ onBeforeUnmount(() => {
         @download-clip="downloadDialogOpen = true"
         @delete-point="deleteSelectedKeyPoint"
         @toggle-mute="dispatchMediaAction('mute')"
+        @set-playback-rate="setPlaybackRate"
         @reset-timeline-zoom="resetTimelineZoom"
       />
       <DvrTimelineDock
@@ -3320,6 +3507,11 @@ onBeforeUnmount(() => {
         :last-key-point="Boolean(annotation.lastKeyPoint.value)"
         :command-ready="commandReady"
         :pending-command="annotation.pendingCount.value > 0"
+        :selected-key-point="Boolean(selectedKeyPointId)"
+        :selected-ball-event="selectedKeyPoint?.ball_event ?? null"
+        :selected-actor-id="selectedKeyPoint?.ball_event_actor_roster_entry_id ?? null"
+        :actor-options="ballEventActorOptions"
+        :event-edit-ready="editableDraftState && editReady"
         :availability="commandAvailabilityMap"
         :service-mode="
           state === 'OPEN' &&
@@ -3329,6 +3521,8 @@ onBeforeUnmount(() => {
             : 'start'
         "
         @action="dispatchAnnotationAction"
+        @set-ball-event="setSelectedBallEvent"
+        @set-ball-event-actor="setSelectedBallEventActor"
         @settings="openSettings('hotkeys')"
       />
     </footer>
@@ -3347,7 +3541,9 @@ onBeforeUnmount(() => {
       :clip-post-roll-seconds="clipPostRollSeconds"
       :clip-policy-saving="clipPolicySaving"
       :clip-policy-error="clipPolicyError"
+      :overlay-enabled="annotationOverlayEnabled"
       @update-clip-policy="updateClipPolicy"
+      @update-overlay-enabled="setAnnotationOverlayEnabled"
       @close="settingsOpen = false"
     />
     <LazyCaptureControlDialog
@@ -4541,6 +4737,28 @@ onBeforeUnmount(() => {
     Consolas,
     monospace;
   font-variant-numeric: tabular-nums;
+}
+.viewer-overlay-toggle {
+  position: absolute;
+  top: 44px;
+  left: 10px;
+  z-index: 7;
+  min-height: 28px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 8px;
+  border: 1px solid #ffffff2b !important;
+  border-radius: 6px !important;
+  background: #050709c2 !important;
+  color: #aab4bd !important;
+  font-size: 0.62rem;
+  font-weight: 700;
+}
+.viewer-overlay-toggle.active {
+  border-color: #47a6ff80 !important;
+  background: #0d2e49d9 !important;
+  color: #a9d8ff !important;
 }
 
 .segment-list-title {

@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/OWNER/volleyball-monitoring-ai/packages/contracts/annotation/realtime/3.0.0",
-  "title": "Annotation Realtime Protocol 3.0.0",
-  "description": "3.0.0 separates canonical START/END Rally boundaries from optional manual CONTACT key points. Legacy 2.x commands remain readable during migration.",
+  "$id": "https://github.com/OWNER/volleyball-monitoring-ai/packages/contracts/annotation/realtime/4.0.0",
+  "title": "Annotation Realtime Protocol 4.0.0",
+  "description": "4.0.0 adds human BallEvent semantics and deterministic automatic keypoint correction effects. Legacy 2.x/3.x messages remain readable during migration.",
   "allOf": [
     {
       "if": { "required": ["command_id"] },
@@ -21,6 +21,8 @@
     { "$ref": "#/$defs/create_contact_command" },
     { "$ref": "#/$defs/close_rally_command" },
     { "$ref": "#/$defs/move_key_point_command" },
+    { "$ref": "#/$defs/set_ball_event_command" },
+    { "$ref": "#/$defs/set_ball_event_actor_command" },
     { "$ref": "#/$defs/delete_key_point_command" },
     { "$ref": "#/$defs/reopen_rally_command" },
     { "$ref": "#/$defs/void_rally_command" },
@@ -59,6 +61,88 @@
     },
     "scoring_court_side": {
       "oneOf": [{ "enum": ["left", "right"] }, { "type": "null" }]
+    },
+    "ball_event_value": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "result"],
+          "properties": {
+            "kind": { "const": "SERVE" },
+            "result": {
+              "oneOf": [{ "enum": ["POINT_SCORED", "SUCCESS", "ERROR"] }, { "type": "null" }]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "result"],
+          "properties": {
+            "kind": { "const": "RECEIVE" },
+            "result": {
+              "oneOf": [{ "enum": ["SUCCESS", "ERROR", "POINT_LOST"] }, { "type": "null" }]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "result"],
+          "properties": {
+            "kind": { "const": "SPIKE" },
+            "result": {
+              "oneOf": [{ "enum": ["SUCCESS", "FAILURE"] }, { "type": "null" }]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "result"],
+          "properties": {
+            "kind": { "const": "CONTACT" },
+            "result": { "type": "null" }
+          }
+        }
+      ]
+    },
+    "ball_event_repair_state": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sequence_index", "event"],
+      "properties": {
+        "sequence_index": { "type": "integer", "minimum": 0 },
+        "event": {
+          "oneOf": [{ "$ref": "#/$defs/ball_event_value" }, { "type": "null" }]
+        }
+      }
+    },
+    "ball_event_repair": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "key_point_id", "action", "before", "after"],
+      "properties": {
+        "code": {
+          "enum": [
+            "OUTSIDE_START_TOMBSTONED",
+            "OUTSIDE_END_TOMBSTONED",
+            "EVENT_KIND_NORMALIZED",
+            "EVENT_RESULT_CLEARED",
+            "SERVE_SUCCESS_INFERRED",
+            "RECEIVE_POINT_LOST_DOWNGRADED",
+            "SPIKE_SUCCESS_DOWNGRADED",
+            "SEQUENCE_REINDEXED"
+          ]
+        },
+        "key_point_id": { "$ref": "#/$defs/identifier" },
+        "action": { "enum": ["tombstone", "update"] },
+        "before": { "$ref": "#/$defs/ball_event_repair_state" },
+        "after": {
+          "oneOf": [{ "$ref": "#/$defs/ball_event_repair_state" }, { "type": "null" }]
+        }
+      }
     },
     "resolved_outcome": {
       "type": "object",
@@ -127,7 +211,7 @@
         "payload"
       ],
       "properties": {
-        "schema_version": { "const": "3.0.0" },
+        "schema_version": { "enum": ["3.0.0", "4.0.0"] },
         "command_id": { "$ref": "#/$defs/identifier" },
         "room_id": { "$ref": "#/$defs/canonical_room_id" },
         "base_revision": { "$ref": "#/$defs/decimal_string" },
@@ -154,7 +238,7 @@
         "payload"
       ],
       "properties": {
-        "schema_version": { "const": "3.0.0" },
+        "schema_version": { "enum": ["3.0.0", "4.0.0"] },
         "command_id": { "$ref": "#/$defs/identifier" },
         "room_id": { "$ref": "#/$defs/canonical_room_id" },
         "base_revision": { "$ref": "#/$defs/decimal_string" },
@@ -181,7 +265,7 @@
         "payload"
       ],
       "properties": {
-        "schema_version": { "const": "3.0.0" },
+        "schema_version": { "enum": ["3.0.0", "4.0.0"] },
         "command_id": { "$ref": "#/$defs/identifier" },
         "room_id": { "$ref": "#/$defs/canonical_room_id" },
         "base_revision": { "$ref": "#/$defs/decimal_string" },
@@ -232,7 +316,7 @@
         "payload"
       ],
       "properties": {
-        "schema_version": { "enum": ["2.0.0", "3.0.0"] },
+        "schema_version": { "enum": ["2.0.0", "3.0.0", "4.0.0"] },
         "command_id": { "$ref": "#/$defs/identifier" },
         "room_id": { "$ref": "#/$defs/canonical_room_id" },
         "base_revision": { "$ref": "#/$defs/decimal_string" },
@@ -244,7 +328,8 @@
           "required": ["playback_cursor"],
           "properties": {
             "playback_cursor": { "$ref": "#/$defs/playback_cursor" },
-            "terminal_outcome": { "const": "unknown" }
+            "terminal_outcome": { "const": "unknown" },
+            "ball_event": { "$ref": "#/$defs/ball_event_value" }
           }
         }
       }
@@ -307,7 +392,7 @@
         "payload"
       ],
       "properties": {
-        "schema_version": { "enum": ["2.0.0", "3.0.0"] },
+        "schema_version": { "enum": ["2.0.0", "3.0.0", "4.0.0"] },
         "command_id": { "$ref": "#/$defs/identifier" },
         "room_id": { "$ref": "#/$defs/canonical_room_id" },
         "base_revision": { "$ref": "#/$defs/decimal_string" },
@@ -320,6 +405,68 @@
           "properties": {
             "key_point_id": { "$ref": "#/$defs/identifier" },
             "playback_cursor": { "$ref": "#/$defs/playback_cursor" }
+          }
+        }
+      }
+    },
+    "set_ball_event_command": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "command_id",
+        "room_id",
+        "base_revision",
+        "rally_id",
+        "kind",
+        "payload"
+      ],
+      "properties": {
+        "schema_version": { "const": "4.0.0" },
+        "command_id": { "$ref": "#/$defs/identifier" },
+        "room_id": { "$ref": "#/$defs/canonical_room_id" },
+        "base_revision": { "$ref": "#/$defs/decimal_string" },
+        "rally_id": { "$ref": "#/$defs/identifier" },
+        "kind": { "const": "SET_BALL_EVENT" },
+        "payload": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["key_point_id", "event"],
+          "properties": {
+            "key_point_id": { "$ref": "#/$defs/identifier" },
+            "event": { "$ref": "#/$defs/ball_event_value" }
+          }
+        }
+      }
+    },
+    "set_ball_event_actor_command": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "command_id",
+        "room_id",
+        "base_revision",
+        "rally_id",
+        "kind",
+        "payload"
+      ],
+      "properties": {
+        "schema_version": { "const": "4.0.0" },
+        "command_id": { "$ref": "#/$defs/identifier" },
+        "room_id": { "$ref": "#/$defs/canonical_room_id" },
+        "base_revision": { "$ref": "#/$defs/decimal_string" },
+        "rally_id": { "$ref": "#/$defs/identifier" },
+        "kind": { "const": "SET_BALL_EVENT_ACTOR" },
+        "payload": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["key_point_id", "actor_roster_entry_id"],
+          "properties": {
+            "key_point_id": { "$ref": "#/$defs/identifier" },
+            "actor_roster_entry_id": {
+              "oneOf": [{ "$ref": "#/$defs/identifier" }, { "type": "null" }]
+            }
           }
         }
       }
@@ -337,7 +484,7 @@
         "payload"
       ],
       "properties": {
-        "schema_version": { "enum": ["2.0.0", "3.0.0"] },
+        "schema_version": { "enum": ["2.0.0", "3.0.0", "4.0.0"] },
         "command_id": { "$ref": "#/$defs/identifier" },
         "room_id": { "$ref": "#/$defs/canonical_room_id" },
         "base_revision": { "$ref": "#/$defs/decimal_string" },
@@ -366,7 +513,7 @@
         "payload"
       ],
       "properties": {
-        "schema_version": { "enum": ["2.0.0", "3.0.0"] },
+        "schema_version": { "enum": ["2.0.0", "3.0.0", "4.0.0"] },
         "command_id": { "$ref": "#/$defs/identifier" },
         "room_id": { "$ref": "#/$defs/canonical_room_id" },
         "base_revision": { "$ref": "#/$defs/decimal_string" },
@@ -392,7 +539,7 @@
         "payload"
       ],
       "properties": {
-        "schema_version": { "enum": ["2.0.0", "3.0.0"] },
+        "schema_version": { "enum": ["2.0.0", "3.0.0", "4.0.0"] },
         "command_id": { "$ref": "#/$defs/identifier" },
         "room_id": { "$ref": "#/$defs/canonical_room_id" },
         "base_revision": { "$ref": "#/$defs/decimal_string" },
@@ -425,7 +572,7 @@
         "payload"
       ],
       "properties": {
-        "schema_version": { "enum": ["2.0.0", "3.0.0"] },
+        "schema_version": { "enum": ["2.0.0", "3.0.0", "4.0.0"] },
         "command_id": { "$ref": "#/$defs/identifier" },
         "room_id": { "$ref": "#/$defs/canonical_room_id" },
         "base_revision": { "$ref": "#/$defs/decimal_string" },
@@ -548,7 +695,11 @@
         },
         "annotation_status": { "$ref": "#/$defs/annotation_status" },
         "score_resolution": { "$ref": "#/$defs/score_resolution" },
-        "scoring_court_side": { "$ref": "#/$defs/scoring_court_side" }
+        "scoring_court_side": { "$ref": "#/$defs/scoring_court_side" },
+        "auto_corrections": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/ball_event_repair" }
+        }
       },
       "allOf": [
         {
@@ -596,7 +747,7 @@
         "effects"
       ],
       "properties": {
-        "schema_version": { "enum": ["2.0.0", "3.0.0"] },
+        "schema_version": { "enum": ["2.0.0", "3.0.0", "4.0.0"] },
         "type": { "const": "command_ack" },
         "command_id": { "$ref": "#/$defs/identifier" },
         "room_id": { "$ref": "#/$defs/canonical_room_id" },
@@ -610,6 +761,8 @@
             "CREATE_CONTACT_KEY_POINT",
             "CLOSE_RALLY",
             "MOVE_KEY_POINT",
+            "SET_BALL_EVENT",
+            "SET_BALL_EVENT_ACTOR",
             "DELETE_KEY_POINT",
             "REOPEN_RALLY",
             "VOID_RALLY",
@@ -724,7 +877,7 @@
         "snapshot_refetch_required"
       ],
       "properties": {
-        "schema_version": { "enum": ["2.0.0", "3.0.0"] },
+        "schema_version": { "enum": ["2.0.0", "3.0.0", "4.0.0"] },
         "type": { "const": "command_rejected" },
         "command_id": { "$ref": "#/$defs/identifier" },
         "room_id": { "$ref": "#/$defs/canonical_room_id" },
@@ -773,7 +926,11 @@
         "timing_precision": {
           "enum": ["frame_exact", "pts_exact", "estimated"]
         },
-        "possible_duplicate": { "type": "boolean" }
+        "possible_duplicate": { "type": "boolean" },
+        "ball_event": { "$ref": "#/$defs/ball_event_value" },
+        "ball_event_actor_roster_entry_id": {
+          "oneOf": [{ "$ref": "#/$defs/identifier" }, { "type": "null" }]
+        }
       }
     },
     "rally_boundary": {
@@ -910,14 +1067,35 @@
         "snapshot"
       ],
       "properties": {
-        "schema_version": { "enum": ["2.0.0", "3.0.0"] },
+        "schema_version": { "enum": ["2.0.0", "3.0.0", "4.0.0"] },
         "type": { "const": "rally_snapshot" },
         "room_id": { "$ref": "#/$defs/canonical_room_id" },
         "rally_id": { "$ref": "#/$defs/identifier" },
         "revision": { "$ref": "#/$defs/decimal_string" },
         "server_sequence": { "$ref": "#/$defs/decimal_string" },
         "snapshot": { "$ref": "#/$defs/rally_snapshot_body" }
-      }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": { "schema_version": { "const": "4.0.0" } },
+            "required": ["schema_version"]
+          },
+          "then": {
+            "properties": {
+              "snapshot": {
+                "properties": {
+                  "key_points": {
+                    "items": {
+                      "required": ["ball_event"]
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      ]
     },
     "presence_snapshot": {
       "type": "object",

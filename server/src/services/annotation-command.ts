@@ -19,6 +19,7 @@ import {
 import type { CursorMediaIdentity } from '../media/cursor-resolution.js'
 import { MediaHttpError } from '../media/playback-domain.js'
 import { submitRally } from '../domain/annotation/submission.js'
+import { normalizeDraftBallEvents } from '../domain/annotation/ball-event-normalization.js'
 
 const SERIALIZABLE_RETRIES = 3
 
@@ -150,27 +151,6 @@ async function nextTombstoneSequence(tx: Transaction, rallyId: string): Promise<
     where: { rallyId },
   })
   return Math.min(-1, (aggregate._min.sequenceIndex ?? 0) - 1)
-}
-
-async function rewriteActiveSequence(
-  tx: Transaction,
-  rallyId: string,
-  ordered: Array<{ id: string }>,
-): Promise<void> {
-  const aggregate = await tx.keyPoint.aggregate({
-    _min: { sequenceIndex: true },
-    where: { rallyId },
-  })
-  const temporaryBase = Math.min(-1, (aggregate._min.sequenceIndex ?? 0) - ordered.length - 1)
-  for (const [index, point] of ordered.entries()) {
-    await tx.keyPoint.update({
-      where: { id: point.id },
-      data: { sequenceIndex: temporaryBase - index },
-    })
-  }
-  for (const [sequenceIndex, point] of ordered.entries()) {
-    await tx.keyPoint.update({ where: { id: point.id }, data: { sequenceIndex } })
-  }
 }
 
 async function replay(
@@ -565,6 +545,13 @@ async function acceptService(
             | 'PTS_EXACT'
             | 'ESTIMATED',
           updatedByUserId: identity.userId,
+          ballEvent: {
+            create: {
+              kind: 'SERVE',
+              result: null,
+              semanticSource: 'SYSTEM_DEFAULT',
+            },
+          },
         },
       })
     }
@@ -582,7 +569,7 @@ async function acceptService(
       },
     })
     const response = parseAnnotationCommandResponse({
-      schema_version: command.kind === 'START_RALLY' ? '3.0.0' : '2.0.0',
+      schema_version: command.schema_version,
       type: 'command_ack',
       command_id: command.command_id,
       room_id: command.room_id,
@@ -640,7 +627,15 @@ type CloseCommand = Extract<AnnotationCommand, { kind: 'CLOSE_RALLY' }>
 type OutcomeCommand = Extract<AnnotationCommand, { kind: 'SET_RALLY_OUTCOME' }>
 type EditCommand = Extract<
   AnnotationCommand,
-  { kind: 'MOVE_KEY_POINT' | 'DELETE_KEY_POINT' | 'REOPEN_RALLY' | 'VOID_RALLY' }
+  {
+    kind:
+      | 'MOVE_KEY_POINT'
+      | 'SET_BALL_EVENT'
+      | 'SET_BALL_EVENT_ACTOR'
+      | 'DELETE_KEY_POINT'
+      | 'REOPEN_RALLY'
+      | 'VOID_RALLY'
+  }
 >
 
 function ordinaryDraftBelongsToDevice(
@@ -684,6 +679,7 @@ async function acceptContact(
             { captureFrameIndex: 'asc' },
             { sequenceIndex: 'asc' },
           ],
+          include: { ballEvent: true },
         },
         operations: { orderBy: { resultRevision: 'asc' }, take: 1 },
       },
@@ -871,9 +867,14 @@ async function acceptContact(
           rejected(command, 'ANNOTATION_NOT_READY', 'Rally end must be after its start boundary'),
         )
       }
+      const pointsInsideEnd = allPoints.filter(
+        point =>
+          point.captureTimeUs < resolvedTime ||
+          (point.captureTimeUs === resolvedTime && point.captureFrameIndex <= resolvedFrame),
+      )
       const proposedTimes = [
         ...rally.boundaries.map(boundary => boundary.captureTimeUs),
-        ...allPoints.map(point => point.captureTimeUs),
+        ...pointsInsideEnd.map(point => point.captureTimeUs),
         resolvedTime,
       ].sort((left, right) => (left < right ? -1 : left > right ? 1 : 0))
       const paddedStart = proposedTimes[0]! - authorizedMatch.clipPreRollUs
@@ -917,6 +918,7 @@ async function acceptContact(
           updatedByUserId: identity.userId,
         },
       })
+      const autoCorrections = await normalizeDraftBallEvents(tx, rally.id, identity.userId)
       const revision = rally.annotationRevision + 1n
       const scoreResolutionState =
         rally.scoreResolutionState === 'PENDING' ? 'UNKNOWN' : rally.scoreResolutionState
@@ -937,7 +939,7 @@ async function acceptContact(
       if (cas.count !== 1)
         throw new Prisma.PrismaClientKnownRequestError('Rally changed concurrently', {
           code: 'P2034',
-          clientVersion: 'annotation-v3',
+          clientVersion: 'annotation-v4',
         })
       const receipt = await tx.annotationCommandReceipt.create({
         data: {
@@ -953,7 +955,7 @@ async function acceptContact(
         },
       })
       const response = parseAnnotationCommandResponse({
-        schema_version: '3.0.0',
+        schema_version: command.schema_version,
         type: 'command_ack',
         command_id: command.command_id,
         room_id: command.room_id,
@@ -966,6 +968,7 @@ async function acceptContact(
           boundary_kind: 'end',
           score_resolution: scoreResolutionState.toLowerCase(),
           scoring_court_side: scoringCourtSide?.toLowerCase() ?? null,
+          ...(autoCorrections.length > 0 ? { auto_corrections: autoCorrections } : {}),
         },
         resolved_anchor: wireAnchor(anchor),
       })
@@ -992,7 +995,7 @@ async function acceptContact(
           aggregateId: command.rally_id,
           aggregateType: 'Rally',
           dedupeKey: `annotation-accepted:${receipt.serverSequence}`,
-          eventType: 'annotation.command_accepted.v3',
+          eventType: `annotation.command_accepted.v${command.schema_version.split('.')[0]}`,
           payload: jsonValue(response),
         },
       })
@@ -1096,8 +1099,22 @@ async function acceptContact(
           | 'ESTIMATED',
         updatedByUserId: identity.userId,
         possibleDuplicate,
+        ...(command.payload.ball_event
+          ? {
+              ballEvent: {
+                create: {
+                  kind: command.payload.ball_event.kind,
+                  result: command.payload.ball_event.result,
+                  semanticSource: 'HUMAN' as const,
+                  kindLocked: true,
+                  resultLocked: command.payload.ball_event.result !== null,
+                },
+              },
+            }
+          : {}),
       },
     })
+    const autoCorrections = await normalizeDraftBallEvents(tx, rally.id, identity.userId)
     const revision = rally.annotationRevision + 1n
     const cas = await tx.rally.updateMany({
       data: terminal
@@ -1154,12 +1171,14 @@ async function acceptContact(
             terminal_key_point_id: keyPointId,
             score_resolution: 'unknown',
             scoring_court_side: null,
+            ...(autoCorrections.length > 0 ? { auto_corrections: autoCorrections } : {}),
           }
         : {
             annotation_status: rally.annotationStatus.toLowerCase(),
             created_key_point_id: keyPointId,
             score_resolution: rally.scoreResolutionState.toLowerCase(),
             scoring_court_side: rally.scoringCourtSide?.toLowerCase() ?? null,
+            ...(autoCorrections.length > 0 ? { auto_corrections: autoCorrections } : {}),
           },
       resolved_anchor: wireAnchor(anchor),
     })
@@ -1186,7 +1205,7 @@ async function acceptContact(
         aggregateId: command.rally_id,
         aggregateType: 'Rally',
         dedupeKey: `annotation-accepted:${receipt.serverSequence}`,
-        eventType: `annotation.command_accepted.v${command.schema_version.startsWith('3.') ? '3' : '2'}`,
+        eventType: `annotation.command_accepted.v${command.schema_version.split('.')[0]}`,
         payload: jsonValue(response),
       },
     })
@@ -1666,7 +1685,11 @@ async function acceptDraftEdit(
       where: { id: command.rally_id },
       include: {
         boundaries: true,
-        keyPoints: { where: { deletedAt: null }, orderBy: { sequenceIndex: 'asc' } },
+        keyPoints: {
+          where: { deletedAt: null },
+          orderBy: { sequenceIndex: 'asc' },
+          include: { ballEvent: true },
+        },
         operations: { orderBy: { resultRevision: 'asc' }, take: 1 },
       },
     })
@@ -1741,6 +1764,7 @@ async function acceptDraftEdit(
       )
     const revision = rally.annotationRevision + 1n
     let effects: Record<string, unknown>
+    let autoCorrections: Awaited<ReturnType<typeof normalizeDraftBallEvents>> = []
     if (command.kind === 'REOPEN_RALLY') {
       const isCorrection = rally.activeSubmissionId !== null
       if (
@@ -1824,6 +1848,102 @@ async function acceptDraftEdit(
         data: { annotationRevision: revision, annotationStatus: 'VOIDED', voidedAt: new Date() },
       })
       effects = { annotation_status: 'voided' }
+    } else if (command.kind === 'SET_BALL_EVENT') {
+      if (!['OPEN', 'READY'].includes(rally.annotationStatus))
+        return persistRejection(
+          tx,
+          command,
+          identity,
+          hash,
+          rejected(command, 'RALLY_NOT_OPEN', 'Rally is not editable'),
+        )
+      const target = rally.keyPoints.find(point => point.id === command.payload.key_point_id)
+      if (!target)
+        return persistRejection(
+          tx,
+          command,
+          identity,
+          hash,
+          rejected(command, 'KEY_POINT_NOT_FOUND', 'Key point was not found'),
+        )
+      await tx.ballEventDraft.upsert({
+        where: { keyPointId: target.id },
+        create: {
+          keyPointId: target.id,
+          kind: command.payload.event.kind,
+          result: command.payload.event.result,
+          semanticSource: 'HUMAN',
+          kindLocked: true,
+          resultLocked: command.payload.event.result !== null,
+        },
+        update: {
+          kind: command.payload.event.kind,
+          result: command.payload.event.result,
+          semanticSource: 'HUMAN',
+          kindLocked: true,
+          resultLocked: command.payload.event.result !== null,
+        },
+      })
+      autoCorrections = await normalizeDraftBallEvents(tx, rally.id, identity.userId)
+      await tx.rally.update({ where: { id: rally.id }, data: { annotationRevision: revision } })
+      effects = {
+        annotation_status: rally.annotationStatus.toLowerCase(),
+        score_resolution: rally.scoreResolutionState.toLowerCase(),
+        scoring_court_side: rally.scoringCourtSide?.toLowerCase() ?? null,
+        ...(autoCorrections.length > 0 ? { auto_corrections: autoCorrections } : {}),
+      }
+    } else if (command.kind === 'SET_BALL_EVENT_ACTOR') {
+      if (!['OPEN', 'READY'].includes(rally.annotationStatus))
+        return persistRejection(
+          tx,
+          command,
+          identity,
+          hash,
+          rejected(command, 'RALLY_NOT_OPEN', 'Rally is not editable'),
+        )
+      const target = rally.keyPoints.find(point => point.id === command.payload.key_point_id)
+      if (!target)
+        return persistRejection(
+          tx,
+          command,
+          identity,
+          hash,
+          rejected(command, 'KEY_POINT_NOT_FOUND', 'Key point was not found'),
+        )
+      if (command.payload.actor_roster_entry_id) {
+        const actor = await tx.matchRosterEntry.findFirst({
+          where: {
+            id: command.payload.actor_roster_entry_id,
+            matchId: rally.matchId,
+            active: true,
+          },
+          select: { id: true },
+        })
+        if (!actor)
+          return persistRejection(
+            tx,
+            command,
+            identity,
+            hash,
+            rejected(
+              command,
+              'BALL_EVENT_ACTOR_NOT_IN_MATCH',
+              'Selected actor is not an active roster entry in this match',
+            ),
+          )
+      }
+      autoCorrections = await normalizeDraftBallEvents(tx, rally.id, identity.userId)
+      await tx.ballEventDraft.update({
+        where: { keyPointId: target.id },
+        data: { actorRosterEntryId: command.payload.actor_roster_entry_id },
+      })
+      await tx.rally.update({ where: { id: rally.id }, data: { annotationRevision: revision } })
+      effects = {
+        annotation_status: rally.annotationStatus.toLowerCase(),
+        score_resolution: rally.scoreResolutionState.toLowerCase(),
+        scoring_court_side: rally.scoringCourtSide?.toLowerCase() ?? null,
+        ...(autoCorrections.length > 0 ? { auto_corrections: autoCorrections } : {}),
+      }
     } else if (command.kind === 'DELETE_KEY_POINT') {
       if (!['OPEN', 'READY'].includes(rally.annotationStatus))
         return persistRejection(
@@ -1850,24 +1970,14 @@ async function acceptDraftEdit(
           updatedByUserId: identity.userId,
         },
       })
-      const active = rally.keyPoints.filter(point => point.id !== target.id)
-      await rewriteActiveSequence(tx, rally.id, active)
-      const remaining = active.filter(point => point.markerKind === 'CONTACT')
-      for (const point of remaining)
-        await tx.keyPoint.update({
-          where: { id: point.id },
-          data: {
-            possibleDuplicate:
-              remaining.filter(other => other.captureFrameIndex === point.captureFrameIndex)
-                .length > 1,
-          },
-        })
+      autoCorrections = await normalizeDraftBallEvents(tx, rally.id, identity.userId)
       await tx.rally.update({ where: { id: rally.id }, data: { annotationRevision: revision } })
       effects = {
         annotation_status: rally.annotationStatus.toLowerCase(),
         deleted_key_point_id: target.id,
         score_resolution: rally.scoreResolutionState.toLowerCase(),
         scoring_court_side: rally.scoringCourtSide?.toLowerCase() ?? null,
+        ...(autoCorrections.length > 0 ? { auto_corrections: autoCorrections } : {}),
       }
     } else {
       if (!['OPEN', 'READY'].includes(rally.annotationStatus) || !anchor)
@@ -1995,44 +2105,13 @@ async function acceptDraftEdit(
           updatedByUserId: identity.userId,
         },
       })
-      const ordered = rally.keyPoints
-        .map(point =>
-          point.id === target.id
-            ? { ...point, captureTimeUs: resolvedTime, captureFrameIndex: resolvedFrame }
-            : point,
-        )
-        .sort((left, right) =>
-          !isBoundaryDraft && left.markerKind === 'SERVICE'
-            ? -1
-            : !isBoundaryDraft && right.markerKind === 'SERVICE'
-              ? 1
-              : left.captureTimeUs < right.captureTimeUs
-                ? -1
-                : left.captureTimeUs > right.captureTimeUs
-                  ? 1
-                  : left.captureFrameIndex < right.captureFrameIndex
-                    ? -1
-                    : 1,
-        )
-      await rewriteActiveSequence(tx, rally.id, ordered)
-      for (const point of ordered)
-        await tx.keyPoint.update({
-          where: { id: point.id },
-          data: {
-            possibleDuplicate:
-              point.markerKind === 'CONTACT' &&
-              ordered.filter(
-                other =>
-                  other.markerKind === 'CONTACT' &&
-                  other.captureFrameIndex === point.captureFrameIndex,
-              ).length > 1,
-          },
-        })
+      autoCorrections = await normalizeDraftBallEvents(tx, rally.id, identity.userId)
       await tx.rally.update({ where: { id: rally.id }, data: { annotationRevision: revision } })
       effects = {
         annotation_status: rally.annotationStatus.toLowerCase(),
         score_resolution: rally.scoreResolutionState.toLowerCase(),
         scoring_court_side: rally.scoringCourtSide?.toLowerCase() ?? null,
+        ...(autoCorrections.length > 0 ? { auto_corrections: autoCorrections } : {}),
       }
     }
     const receipt = await tx.annotationCommandReceipt.create({
@@ -2083,7 +2162,7 @@ async function acceptDraftEdit(
         aggregateId: command.rally_id,
         aggregateType: 'Rally',
         dedupeKey: `annotation-accepted:${receipt.serverSequence}`,
-        eventType: `annotation.command_accepted.v${command.schema_version.startsWith('3.') ? '3' : '2'}`,
+        eventType: `annotation.command_accepted.v${command.schema_version.split('.')[0]}`,
         payload: jsonValue(response),
       },
     })
@@ -2190,6 +2269,8 @@ export function createAnnotationCommandService(
         return acceptDraftEdit(deps.database, room, command, identity, hash, anchor)
       }
       if (
+        command.kind === 'SET_BALL_EVENT' ||
+        command.kind === 'SET_BALL_EVENT_ACTOR' ||
         command.kind === 'DELETE_KEY_POINT' ||
         command.kind === 'REOPEN_RALLY' ||
         command.kind === 'VOID_RALLY'

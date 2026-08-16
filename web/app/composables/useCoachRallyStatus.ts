@@ -7,6 +7,8 @@ export interface CoachRallyStatus {
   activePath: number | null
   pathCount: number
   analysisState: 'ready' | 'mapped'
+  previousRallyId: string | null
+  nextRallyId: string | null
 }
 
 export function useCoachRallyStatus() {
