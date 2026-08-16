@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.8.0](https://github.com/henry753951/volleyball-monitoring-ai/compare/v0.7.1...v0.8.0) (2026-08-16)
+
+
+### Features
+
+* **annotation:** add human ball event workflow ([#84](https://github.com/henry753951/volleyball-monitoring-ai/issues/84)) ([6560e10](https://github.com/henry753951/volleyball-monitoring-ai/commit/6560e108f1a71b49f389998af4280ecc713c9419))
+
 ## [0.7.1](https://github.com/henry753951/volleyball-monitoring-ai/compare/v0.7.0...v0.7.1) (2026-08-15)
 
 
