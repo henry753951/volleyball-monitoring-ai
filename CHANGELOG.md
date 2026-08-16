@@ -1,5 +1,16 @@
 # Changelog
 
+## [1.0.0](https://github.com/henry753951/volleyball-monitoring-ai/compare/v0.8.1...v1.0.0) (2026-08-16)
+
+
+### ⚠ BREAKING CHANGES
+
+* remove the legacy fixed-roster ReID callbacks, schemas, services, and persistence model in favor of independent provider-work evidence and correction jobs.
+
+### Features
+
+* hard cut ReID and redesign coach replay ([#88](https://github.com/henry753951/volleyball-monitoring-ai/issues/88)) ([946f7a8](https://github.com/henry753951/volleyball-monitoring-ai/commit/946f7a8d2e79c3273e57962e43cfb3f93e2e0738))
+
 ## [0.8.1](https://github.com/henry753951/volleyball-monitoring-ai/compare/v0.8.0...v0.8.1) (2026-08-16)
 
 
