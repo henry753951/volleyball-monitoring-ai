@@ -12,9 +12,9 @@ b395c52a1ad69331d58e5d8b5be82f34bcd337996b1c81fa6ef77c05ea1cb8cf  ./.github/work
 f22760823f753cd2a7c3506d2ce452272684294de8749a9e75cde35b6fff65d1  ./.oxfmtrc.json
 3877de021c19f9c73b7e885f6f71ee388bfefc82e7c01c9db33b8dcee058b4e6  ./.oxlintrc.json
 89bca2bb5b1d934901dfb58af0bc8ddd248710746043c55e2dc4bd36053d4629  ./.release-please-config.json
-285310e9102457ac0661c2fabadbc8466c0c57712531420622c78b629e75a73c  ./.release-please-manifest.json
+2ae8018fa540b531f79940118826b9846a44a8e9db05eab71caa9923fdd04c56  ./.release-please-manifest.json
 b39c86e9cc0def9a192cabdab0205c75f904b0770ce1db62f3320a67b59661ab  ./AGENTS.md
-f60b71e96249dedc3c0c0b1357832f6bbc4ee923a5a90ad0a473c91318a7567d  ./CHANGELOG.md
+fda3d7494707f38344bcbcbadc7713cb3c674254caa1d21502edeada4b9be548  ./CHANGELOG.md
 7d8bce16c46787a57e6ec210e592fde913fef00f1fa4719828acebbf382940ac  ./CODEX_SOL_PROMPT.txt
 2a24c9293ee8102e1f876a99ca9c69fa27b3d4258dc15fa08e1b0d1bff31cd02  ./DELIVERY_MANIFEST.md
 45d518b12d3ece5b2000b9c8ab60b6088e1172863e98b68ddd5e83246c151f09  ./README.md
@@ -614,7 +614,7 @@ ffda57a925b659c33ea87ab67aedd169120195cf27497ab8eceaf14dd7e56ba3  ./web/app/page
 69a0f7dd20a08ee17460b15c5d24c93b9150a59017c75e8ecc1b419f0a7cb9f3  ./web/app/pages/matches/[matchId]/paths.vue
 36c61226650a655750ea25e3cb3e68296cdc16fc18080f6edf6f9317b278d8b7  ./web/app/pages/matches/[matchId]/players.vue
 e0ee089b0ae66e2aa8909391d16d6d3b3df3deabe019fdb19f6caeeade2a56c6  ./web/app/pages/matches/[matchId]/rallies.vue
-a47b00d98d931d735fa921e14882c4986064d2caba600fa4a8feb23cea18e6c8  ./web/app/pages/matches/[matchId]/replay/[rallyId].vue
+75d3912b450cd47aefe6c157345b90cd726b2a1131c42311d9141fa1ff7f5348  ./web/app/pages/matches/[matchId]/replay/[rallyId].vue
 293cbe12ac6b3af5f46b1d9a9ce9624f8dc165d90c2da546d5002ef544a28608  ./web/app/pages/matches/[matchId]/stats.vue
 2e48e20f20d642b83eaa3f196094f3a22ce0bae7049177587cc4f4c471bd7dfc  ./web/app/pages/matches/new.vue
 83277d142bfb929c18615ec93325fee399a2bad25a593c93d432dc2f3b21a676  ./web/app/pages/settings.vue
