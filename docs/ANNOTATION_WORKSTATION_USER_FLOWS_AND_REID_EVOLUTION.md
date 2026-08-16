@@ -1,7 +1,7 @@
 # Annotation, playback, coach replay, and ReID implementation guide
 
 Status: **accepted by the product owner; implementation baseline completed and locally verified; production rollout must be verified independently from live GitOps state**
-Last verified: 2026-08-16
+Last verified: 2026-08-17
 Implementation authority: **confirmed on 2026-08-15; ADR 0037 governs the implementation**
 
 This is the single planning document for the two connected workstreams requested by the product
@@ -32,6 +32,45 @@ Product and contract authorities still take precedence:
 - [`ADR 0039`](./adr/0039-reid-hard-cut-and-reprocessing.md), which makes ADR 0035 historical
 - [`ADR 0036`](./adr/0036-client-owned-annotation-drafts.md), which refines the multiplayer draft
   ownership rules introduced before it
+- [`ADR 0040`](./adr/0040-page-scoped-annotation-workstation-services.md), which defines the
+  page-scoped workstation facade, domain services, action manager, and strict UI injection boundary
+
+## Annotation workstation service architecture
+
+The annotation route now acts only as the composition root and browser-media adapter. It creates one
+page-scoped service graph and provides the same object to the command strip, transport bar, timeline,
+match inspector, settings, connection, analysis-review, and identity-assignment surfaces. A child
+component never creates a fallback annotation room or identity client.
+
+The runtime ownership map is:
+
+| User Flow                                                    | State and operation owner                      | UI responsibility                                             |
+| ------------------------------------------------------------ | ---------------------------------------------- | ------------------------------------------------------------- |
+| Z START/END, X contact, C spike, V/B receive, outcome, Enter | annotation command service and action manager  | render command state and execute the registered action id     |
+| READY editing, move/delete point, held arrow nudge           | key-point editing service                      | render projected time and forward pointer gestures            |
+| A/D and timeline selection                                   | timeline selection service                     | render the selected mask/point/analysis range                 |
+| submit, create/cancel/submit correction                      | annotation action and correction-flow services | display confirmation and progress                             |
+| delete Rally, next set, side swap, placement                 | segment management service                     | render segment rows and placement form                        |
+| reconnect, outbox conflict, failed processing retry          | sync-recovery service                          | display connection health and execute sync actions            |
+| analysis contact/ball/bbox/actor/action repair               | analysis review and revision services          | render sparse overrides and tools                             |
+| player/GID assignment, replacement warning, rerun jobs       | one identity assignment controller             | render panel or popover; claim the active interaction surface |
+| overlay preference and clip policy                           | workstation preferences service                | render settings fields                                        |
+| destructive or ambiguous decisions                           | confirmation service                           | render one locked dialog                                      |
+
+`WorkstationActionManager` is the only UI command registry. Each action has a stable id, resource
+locks, availability, pending state, disabled reason, and executor. Keyboard, touch, and visible
+buttons share those definitions. A disabled button and a blocked key therefore report the same
+reason, while the domain validator remains the final defensive check.
+
+Selection has three distinct sources: an explicit operator click, the cursor's Rally, and the local
+owned draft. Explicit selection wins until released; cursor selection is only a fallback; another
+operator's broadcast never changes either. Detail selection is tagged (`key-point`, analysis track,
+or analysis contact) so unrelated panels cannot interpret one numeric/string id as another kind.
+
+The route may retain DOM-only concerns—video/canvas refs, panel size, popover coordinates, and a form
+value before save. It must not retain a parallel pending command, active draft, key-point move,
+analysis patch, identity API client, or confirmation switch. See ADR 0040 for the complete invariant
+and service lifecycle.
 
 ## Evidence labels used in this document
 
@@ -52,7 +91,7 @@ offline strict same-team cross-clip Top-1 result of 104/137 (75.91%) for Nested 
 numbers must not be compared as if they were the same metric: the online denominator, eligible
 queries, clip distribution, roster seeds, and correction state have not yet been normalized.
 
-## Local verification snapshot (2026-08-16)
+## Local verification snapshot (2026-08-17)
 
 The implementation baseline has passed the following local gates; these results do not claim a
 deployment or improved field accuracy:
@@ -71,6 +110,14 @@ deployment or improved field accuracy:
   the identity panel exposes separately named apply/rematch/re-extract actions, the entire player
   Select opens, and a confirmed earlier player assignment renders its generated animated crop in a
   later-rally hover preview;
+- two consecutive correction drafts retained all five submitted ball events immediately, started with
+  no stale point selection, resolved the first A/D command from the visible playhead, allowed the
+  penultimate spike to remain `SUCCESS` while the terminal event remained a ground contact, and returned
+  from correction submission to `analysis complete` without a reload or duplicate timeline layer;
+- the second correction moved only the spike from canonical frame 109029 to 109028. PostgreSQL showed
+  the base `AiJob` count remained one, the immutable source `AnalysisRun` remained unchanged, the new
+  clip mapping completed from the saved timing manifest, and only five exact-frame pose-first contact
+  association jobs were added;
 - coach replay verification confirmed human ball semantics in the drawer, 3-second lead-in seek,
   staggered dense markers, visible video/court overlays, nine current player positions with exactly one
   `hitter`, and no duplicate lower Back control; and
@@ -383,13 +430,26 @@ flowchart LR
 
 ## User Flow 8: analysis review
 
-1. Select a completed AnalysisRun.
-2. Edit ball position/visibility, player bbox, action, contact actor/time, or add/delete/restore an
-   effective contact in a local optimistic review draft.
-3. **Apply** persists a sparse idempotent patch; raw AnalysisData and binary overlay remain unchanged.
-4. **Recalculate** rebuilds effective event order and downstream projections without GPU inference.
-5. **Approve** makes that reviewed revision available to coach/viewer surfaces.
-6. **Discard** drops unsaved local review changes.
+1. Select a completed AnalysisRun. It opens read-only.
+2. Explicitly enter **Revision mode** for that selected run. Only that run may expose mutation tools;
+   selecting and seeking contacts remain available while read-only.
+3. Edit ball position/visibility, player bbox, action, contact actor/time, or add/delete/restore an
+   effective contact in a local optimistic review draft. The analysis panel, overlay, and DVR rail use
+   the same effective-frame precedence: review correction, resolved analysis frame, then raw anchor.
+   Review commands always address the immutable analysis contact ID; attached human ball-event
+   semantics never replace that ID.
+4. **Apply** persists a sparse idempotent patch; raw AnalysisData and binary overlay remain unchanged.
+   The canonical match projection is refreshed immediately so every workstation rail shows the same
+   saved contact time.
+5. A contact-time or exact-frame evidence edit schedules only the affected contact-association jobs.
+   It does not create a provider AI job and does not rerun detector, tracker, pose, action, ball, or
+   ReID feature extraction.
+6. **Rebuild result (no AI)** waits for those affected contact jobs, then publishes the effective event
+   order and downstream read projections. A revision cannot become READY while its required contact
+   association is still queued or running.
+7. **Approve** makes that reviewed revision available to coach/viewer surfaces.
+8. **Discard** drops unsaved local review changes. Leaving Revision mode is blocked while unsaved
+   changes remain.
 
 Analysis review is separate from Rally correction: one changes derived interpretation, while the
 other creates a new immutable submission when boundaries or human annotation evidence must change.
@@ -476,7 +536,7 @@ Remaining limitations:
 10. “重新配對” reuses the selected evidence set and pose. “重新取特徵” creates a new evidence set from
     the same base pose/crops. “使用新的 Pose 模型重建證據” is a separate explicit expensive action.
 
-## Proposed User Flow 11: review pose-first hitter association
+## User Flow 11: review pose-first hitter association
 
 1. Base analysis persists person pose for every canonical frame/player observation, then evaluates
    pose-hand candidates at each human/AI contact and records its selected mode.
@@ -597,7 +657,11 @@ Confirmed useful ideas:
   evidence is weak.
 - Keep full VLM response, selected frames, rule, provenance, and quality flags for review.
 
-### What is not production-ready or not yet wired
+### Historical branch limitations before integration
+
+The bullets in this subsection describe the contributor branch as audited before ADR 0037 integration.
+They explain why the branch was refactored into the implemented Provider Work stages; they are not a
+description of the current mainline runtime.
 
 - The branch is not a provider worker job. It has no Provider Realtime offer, durable job state,
   callback, central ingestion, GraphQL mutation, retry, idempotency, migration, or UI integration.
@@ -619,7 +683,7 @@ Confirmed useful ideas:
 - Some close-up/replay tracklets violate the assumed clean main-camera input. Shot/replay quality
   flags must be retained rather than silently training the bank.
 
-### Integration decision proposed for confirmation
+### Accepted integration decision
 
 Do not merge the branch as one monolithic service. Port and test it by responsibility:
 
@@ -721,7 +785,7 @@ One atomic human decision should:
 If two tracks are swapped, the UI/domain operation should support an atomic two-track swap rather than
 temporarily assigning both overlapping tracks to one player.
 
-## Proposed human correction and continual-improvement flow
+## Accepted human correction and continual-improvement flow
 
 ### One correction, two independent scopes
 
@@ -730,7 +794,8 @@ Every correction request must explicitly contain both:
 1. **display/projection scope** — what effective assignments should change now; and
 2. **evidence scope** — how the selected evidence may influence later association.
 
-Proposed projection scopes:
+Accepted projection scopes (the current UI exposes the safe presets documented in User Flow 10; bulk
+and selected-run tools remain follow-up UI):
 
 - `CURRENT_LOCAL`: only one Local/TID in this AnalysisRun;
 - `CURRENT_TRACKLET`: every Local/TID alias in the selected canonical tracklet;
@@ -739,7 +804,7 @@ Proposed projection scopes:
 - `SELECTED_RUNS`: an explicit review set; and
 - `FUTURE_RECOMPUTE`: enqueue affected later association scopes without changing earlier clips.
 
-Proposed evidence actions:
+Accepted evidence actions:
 
 - `CONFIRM_AS_PERSON`: positive, trusted membership in the target person/roster bank;
 - `MOVE_TO_PERSON`: reject/close the wrong membership and confirm the target membership atomically;
@@ -787,7 +852,7 @@ still allowing the next clip in the same match to benefit from a correct human d
 
 ### Recompute activation policy
 
-The proposed default is:
+The accepted default is:
 
 - new association runs may automatically fill only previously unresolved, non-manual Local IDs when
   confidence/calibration gates pass;
@@ -802,7 +867,7 @@ The proposed default is:
 
 ### Core model decision
 
-The proposed target is the **hybrid identity model**:
+The implemented target is the **hybrid identity model**:
 
 - an unbounded match/team-scoped person cluster represents “these observations appear to be the same
   person” and may later bind to a real `MatchRosterEntry`;
@@ -972,9 +1037,10 @@ It crops or highlights frames from canonical media using persisted bbox/pose/tim
 rerun after bbox-review changes without GPU inference. Its failure never blocks analysis, ReID
 evidence, correction, or assignment.
 
-### Proposed durable entities
+### Implemented durable entities
 
-Names remain provisional until the ADR/schema pass, but their responsibilities are not:
+The ADR/schema pass is complete. These are the active persistence responsibilities; later migrations
+may rename an entity only with an explicit ADR and full contract/consumer migration:
 
 | Entity                       | Purpose and invariant                                                                                                                                                                                                  |
 | ---------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -1014,7 +1080,7 @@ A roster entry may be bound to more than one historical machine cluster after tr
 and a machine cluster may remain unbound while awaiting review. Merge/split later changes membership
 lineage, not raw evidence or Local/TIDs.
 
-### Proposed capability-gated provider cutover
+### Implemented capability-gated provider cutover
 
 ADR 0039 replaces the earlier staged compatibility proposal with an atomic hard cut. Central accepts
 only Provider Work Realtime 2, routes each job to a worker that advertises the exact
@@ -1051,9 +1117,10 @@ The contract/ADR pass must select exact version numbers and include schemas, fix
 validators, SDK models, worker client dispatch, server routing, callback consumers, golden malformed
 cases, and synchronized provider rollout.
 
-### Association recipe: proposed evidence priority
+### Accepted association evidence priority
 
-No single cue is authoritative. The proposed recipe uses:
+No single cue is authoritative. Named association recipes use the following priority and must declare
+which optional cues are unavailable or disabled:
 
 1. hard invalidation: co-visible observations cannot share one person;
 2. hard/authoritative context: match, team mapping from immutable side snapshot, and explicit human
@@ -1091,7 +1158,7 @@ every browser:
 7. Serve through an authorized bounded media endpoint with immutable caching; do not place binary
    preview data in GraphQL or WebSockets.
 
-Implementation ownership proposed here:
+Implemented ownership is:
 
 - base analysis owns immutable per-frame bbox/pose/crop-transform evidence and canonical timing;
 - ReID feature extraction owns contact sheets and model-input provenance; and
@@ -1108,14 +1175,13 @@ The identity panel must show:
 
 ## Pose-first hitter association
 
-### Current behavior
+### Current behavior and implemented cascade
 
-The engine currently searches for a nearby action candidate and tests an action-specific expanded
-player bbox against the ball. If no action candidate resolves, it searches nearby frames using a
-generic expanded bbox/ball IoU. This is useful fallback behavior but cannot tell whether the ball is
-near a player's hands or merely inside a large box.
-
-### Proposed cascade
+The engine first ranks compatible saved COCO-17 player poses by normalized ball-to-wrist/forearm
+distance in the bounded contact window. It accepts `pose_hand_nearest` only after the absolute-distance
+and runner-up-margin gates pass. Action-aware expanded bbox and generic nearby-frame bbox association
+remain explicit fallbacks; a terminal ground contact may remain playerless rather than inventing a
+hitter. Each result records the selected mode and pose fallback evidence.
 
 For every contact anchor/proposal, evaluate within one bounded canonical frame window:
 
@@ -1183,14 +1249,60 @@ pgvector does **not** replace:
 - active projection revisions;
 - evaluation and confidence calibration.
 
-Adopting it also requires a database image/extension decision, migrations, backup/restore validation,
-Prisma/raw-SQL integration, and performance tests. The current `postgres:17-alpine` environment does
-not provide it.
+The local database image is now `pgvector/pgvector:0.8.6-pg17-bookworm`. Migration
+`20260815235500_reid_pgvector_search` enables `vector`, creates `ReidSearchEmbedding`, and installs
+partial cosine HNSW indexes for 384-D DINO and 512-D OSNet search copies. Full immutable descriptor
+artifacts remain the reproducible source of truth; the pgvector rows are rebuildable retrieval indexes,
+not assignment authority. Backup/restore validation, production sizing, recall measurement, filtered
+query tuning, and index-maintenance cost remain release gates.
 
-## Proposed implementation and migration plan after approval
+## Verified implementation state (2026-08-17)
 
-Each phase has an explicit exit gate. Later phases may be prepared in parallel only after their public
-interfaces are accepted; production activation remains sequential.
+The following is current code and locally verified behavior, not a future proposal:
+
+| Capability                   | Current implementation                                                                                                                                                                                                                                                                                                                                                                                                 | Verification boundary                                                                                                                                                                                                                                                                                         |
+| ---------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Page-scoped annotation state | `annotation-workstation.service.ts` provides selection, playback, segment, key-point, correction, identity, review, recovery, feedback, preferences, and one action manager through the route boundary                                                                                                                                                                                                                 | Unit/integration suite plus real-browser key-point, A/D, correction-draft, reconnect, and overlay checks                                                                                                                                                                                                      |
+| Base evidence                | `ANALYSIS` emits analysis data, an evidence manifest, every-frame person-pose manifest/chunks, and a crop-source manifest                                                                                                                                                                                                                                                                                              | Contract fixtures, materializer tests, engine tests, strict model doctor; the verified rally accounted for all 328 canonical frames and all 3,657 player observations as 3,541 valid poses plus 116 explicit missing observations in three bounded chunks                                                     |
+| Feature rebuild              | `REID_FEATURE_EXTRACTION` consumes the saved pose/crop manifests and canonical clip and produces a new immutable feature result and descriptor bundle                                                                                                                                                                                                                                                                  | Local request `2fba0bb5-17a7-4da8-98ea-e70cf1feda95` completed on the multitask-v2 worker; its input ledger contained saved pose artifacts and its output ledger contained only ReID feature artifacts                                                                                                        |
+| Association rerun            | `REID_ASSOCIATION` consumes one feature result, descriptor bundle, exact bank snapshot, and roster snapshot; it does not rerun base analysis                                                                                                                                                                                                                                                                           | Local provider jobs completed independently after feature materialization                                                                                                                                                                                                                                     |
+| Identity preview             | `IDENTITY_PREVIEW_GENERATION` consumes canonical media plus saved pose/crop evidence and produces an animated preview/result per tracklet                                                                                                                                                                                                                                                                              | Local provider jobs completed independently; the selector now exposes only earlier identity-mapping-complete clips as confirmed history                                                                                                                                                                       |
+| Human correction             | The three UI scopes (`from_here`, `split_identity`, and `clip_only`) create correction and assignment revisions; learning modes reject bad source evidence and confirm corrected target evidence                                                                                                                                                                                                                       | Service/unit tests and GraphQL/domain integration tests                                                                                                                                                                                                                                                       |
+| Correction submission reuse  | With unchanged segment boundaries and contact count/order, a correction creates a new immutable submission and reuses the completed canonical clip plus `analysisSourceRunId`. Type, result, actor, and key-point timestamp edits create no new base AI job. Timestamp edits are remapped through the checksum-bound per-frame timing manifest, then only contact association is rebuilt from saved pose/bbox evidence | Two consecutive real-browser corrections retained all five points and completed without reload. The second moved only the spike to frame 109028; the base AI-job count stayed at one, the source analysis stayed unchanged, the reused clip mapping completed, and five pose-first association jobs completed |
+| Search index                 | pgvector stores dimensioned DINO/OSNet search copies behind namespace/modality filters and partial HNSW indexes                                                                                                                                                                                                                                                                                                        | Migration and repository validation; quality/recall calibration remains pending                                                                                                                                                                                                                               |
+| VLM                          | Capability-gated by `VOLLYAI_REID_VLM_ENABLED` and CLI enable/disable flags; disabled means no model load, artifact kind, or recipe namespace                                                                                                                                                                                                                                                                          | Local worker registered without VLM while all four non-VLM work kinds remained available                                                                                                                                                                                                                      |
+
+The local database may be reset, so request/job IDs above are verification receipts rather than durable
+product identifiers. Re-run the same checks through the public GraphQL/provider-work path after a reset;
+do not reproduce them with direct database writes.
+
+Key-point timestamp edits are now in the reuse class only when segment boundaries and contact
+count/order remain unchanged. The server reads the immutable timing manifest's complete `frame_map`,
+matches capture epoch/frame/time/source PTS exactly, writes a new submission-scoped clip mapping, and
+queues pose-first contact association against the saved analysis evidence. It never copies the previous
+point's frame mapping. Boundary edits or contact topology changes still schedule the required clip/base
+processing because they change evidence coverage or event structure; this fallback is deliberate rather
+than a UI limitation.
+
+## Implementation status and remaining calibration gates
+
+The numbered phases below are retained as the implementation/release checklist, not as a claim that the
+runtime still uses the pre-cutover design. Current status is:
+
+| Phase | Repository/local status                                                                                                                          | Still open before a production-quality claim                                       |
+| ----- | ------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------- |
+| 0     | ADR 0037/0039 and schema ownership are accepted                                                                                                  | Frozen representative accuracy baseline and normalized old/new evaluation          |
+| 1     | Generic capability-gated Provider Work, leases, retries, callbacks, and independent job kinds are implemented                                    | Production soak, failure injection, and capacity isolation evidence                |
+| 2     | Multitask-v2 analysis emits every-frame pose evidence and pose-first association; corrected timestamps reuse exact-frame evidence                | GPU throughput/storage measurements on representative long rallies                 |
+| 3     | Independent feature extraction and saved-pose reuse are implemented; VLM is an explicit disabled-by-default capability                           | Controlled VLM-on memory, latency, calibration, and accuracy evaluation            |
+| 4     | Versioned evidence sets, clusters, memberships, bank snapshots, association runs, active projections, and pgvector search copies are implemented | Retrieval recall/calibration and production backup/index-maintenance evidence      |
+| 5     | Append-only from-here, split-identity, and clip-only corrections are implemented and manual projection wins                                      | Bulk merge/quarantine/atomic swap UI and full Player-1/Player-2 acceptance fixture |
+| 6     | Identity panel, distinct job actions, whole-select interaction, and animated current/historical previews are implemented                         | Full candidate-provenance workspace, bulk review, and measured preview ranking     |
+| 7     | Legacy fixed-slot ReID runtime/contracts were removed by the local hard cut                                                                      | Coordinated production rollout and rollback/reconciliation rehearsal               |
+| 8     | Local source, database, worker, browser, and selected end-to-end gates are implemented                                                           | GitOps rollout verification and controlled field accuracy/operability report       |
+
+Each historical phase keeps its exit gate below so future agents can see the evidence still required.
+Production activation remains separate from source completion.
 
 ### Phase 0: accept architecture and establish reproducible baselines
 
@@ -1379,26 +1491,26 @@ Exit gate:
 
 ## Requirement-to-plan traceability audit
 
-This table is the completion audit for the planning objective. “Covered” means the requirement has a
-documented rule, target design, migration phase, and/or acceptance evidence. It does not mean that the
-corresponding runtime phase has passed its exit gate.
+This table distinguishes implemented architecture from calibration and deployment gates. “Implemented”
+means the code path and automated tests exist; it does not claim that accuracy thresholds or production
+capacity targets have passed.
 
-| Requested requirement                                                                       | Plan authority                                                              | Planning status         |
-| ------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------- | ----------------------- |
-| Consolidate all current playback and annotation User Flows                                  | User Flows 1-9; `ANNO-*` and `NAV-*` rules                                  | Covered                 |
-| Keep segment drafts/cursor/Z state client/tab independent                                   | `ANNO-001` through `ANNO-007`; User Flow 5                                  | Covered                 |
-| Recover automatically from reconnect, packet loss, stale replies, and lost acknowledgements | `ANNO-005/006`, `NAV-003/005/006`; Phase 1 transport exit gate              | Covered                 |
-| Prevent held frame navigation freeze/release-time jump and stale response jump-back         | `NAV-001` through `NAV-006`; User Flow 2                                    | Covered                 |
-| Allow a full ReID replacement instead of preserving fixed S1-S6 person identity             | Accepted core model decision; Phase 7 capability-gated cutover              | Accepted in ADR 0037    |
-| Make ReID a different durable worker job and permit worker/central transport changes        | `JOB-*`; provider capability/cutover design; Phases 1/3/4                   | Accepted in ADR 0037    |
-| Audit and integrate the other contributor's VLM + pose + appearance branch                  | External branch audit and integration table for commit `a9f2282`            | Covered                 |
-| Persist pose for every canonical frame so contact edits and ReID do not rerun pose          | `POSE-*`; `ANALYSIS` every-frame pose evidence; Phase 2                     | Accepted in ADR 0037    |
-| Use pose hand/wrist proximity first for hitter association, then bbox fallback              | `HIT-*`; Proposed User Flow 11; pose-first cascade and evaluation           | Accepted in ADR 0037    |
-| Support re-extraction, rematching, human intervention, and later learning                   | Proposed User Flow 10; Jobs 2/3; correction and continual-improvement flow  | Accepted in ADR 0037    |
-| Make the feature database correctable without rewriting prior clips                         | `REID-002/005/008/009/010`; membership/bank snapshots; P1/P2 example        | Accepted in ADR 0037    |
-| Produce dynamic cropped player previews                                                     | `REID-013`; proposed preview job and UI flow; Phase 6                       | Accepted in ADR 0037    |
-| Explain current system, problems, target design, migration, and acceptance without guessing | Current data flow, branch audit, confirmed risks, Phases 0-8, decision list | Covered                 |
-| Do not implement before plan confirmation                                                   | Historical approval boundary and implementation gate                        | Satisfied on 2026-08-15 |
+| Requested requirement                                                                       | Plan authority                                                              | Planning status                                  |
+| ------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------- | ------------------------------------------------ |
+| Consolidate all current playback and annotation User Flows                                  | User Flows 1-9; `ANNO-*` and `NAV-*` rules                                  | Covered                                          |
+| Keep segment drafts/cursor/Z state client/tab independent                                   | `ANNO-001` through `ANNO-007`; User Flow 5                                  | Covered                                          |
+| Recover automatically from reconnect, packet loss, stale replies, and lost acknowledgements | `ANNO-005/006`, `NAV-003/005/006`; Phase 1 transport exit gate              | Covered                                          |
+| Prevent held frame navigation freeze/release-time jump and stale response jump-back         | `NAV-001` through `NAV-006`; User Flow 2                                    | Covered                                          |
+| Allow a full ReID replacement instead of preserving fixed S1-S6 person identity             | Accepted core model decision; ADR 0037/0039 hard cut                        | Implemented; calibration pending                 |
+| Make ReID a different durable worker job and permit worker/central transport changes        | `JOB-*`; Provider Work jobs and capabilities                                | Implemented and locally exercised                |
+| Audit and integrate the other contributor's VLM + pose + appearance branch                  | External branch audit and integration table for commit `a9f2282`            | Covered                                          |
+| Persist pose for every canonical frame so contact edits and ReID do not rerun pose          | `POSE-*`; `ANALYSIS` every-frame pose evidence                              | Implemented and locally exercised                |
+| Use pose hand/wrist proximity first for hitter association, then bbox fallback              | `HIT-*`; User Flow 11; pose-first cascade and evaluation                    | Implemented; accuracy calibration pending        |
+| Support re-extraction, rematching, human intervention, and later learning                   | User Flow 10; independent jobs; correction ledger                           | Implemented; learning policy calibration pending |
+| Make the feature database correctable without rewriting prior clips                         | `REID-002/005/008/009/010`; memberships, bank snapshots, revisions          | Implemented                                      |
+| Produce dynamic cropped player previews                                                     | `REID-013`; preview job and confirmed-history UI                            | Implemented and locally exercised                |
+| Explain current system, problems, target design, migration, and acceptance without guessing | Current data flow, branch audit, confirmed risks, Phases 0-8, decision list | Covered                                          |
+| Do not implement before plan confirmation                                                   | Historical approval boundary and implementation gate                        | Satisfied on 2026-08-15                          |
 
 ## Accepted product-owner decisions
 
@@ -1416,13 +1528,14 @@ cutover consequences:
 4. Accept the VLM branch as a source of algorithms/tests to refactor, not a branch to merge unchanged.
 5. Accept explicit display scope + evidence action for every human correction and future matching that
    learns only from versioned eligible evidence.
-6. Accept the proposed activation policy: never overwrite manual assignments; automatically fill only
+6. Accept the activation policy: never overwrite manual assignments; automatically fill only
    unresolved high-confidence tracks; send changed/conflicting automatic results to review.
-7. Accept the proposed vector lifecycle: immutable full vector/evidence artifacts are stored in object
+7. Accept the vector lifecycle: immutable full vector/evidence artifacts are stored in object
    storage; PostgreSQL stores their metadata, membership/correction history, exact bank snapshot, run,
    and active projection. A later clip's `REID_ASSOCIATION` worker receives signed URLs and hashes for
-   that clip plus one immutable eligible-history bank snapshot. pgvector may later index measured
-   DINO/OSNet retrieval, but is neither the only vector copy nor an identity authority.
+   that clip plus one immutable eligible-history bank snapshot. pgvector now stores rebuildable compact
+   DINO/OSNet search copies behind dimension/namespace filters and partial HNSW indexes; it is neither
+   the only vector copy nor an identity authority, and its retrieval quality still requires calibration.
 8. Accept the ADR 0039 hard cut. Old workers receive no work; new workers advertise and receive only
    the new job kinds. Legacy ReID rows and exports are destructively removed, while retained canonical
    clips allow clean reprocessing.
@@ -1460,14 +1573,20 @@ plan now defines it as every canonical frame/player observation.
 ## Current implementation source map
 
 - Annotation page and User Flow orchestration: `web/app/pages/annotate/[matchId].vue`
-- Client-owned room/outbox: `web/app/composables/useAnnotationRoom.ts`
-- Command availability: `web/app/utils/annotationCommandAvailability.ts`
-- Frame navigation: `web/app/composables/useCoalescedFrameNavigation.ts`
+- Page-scoped service boundary and action manager:
+  `web/app/services/annotation-workstation/annotation-workstation.service.ts` and
+  `workstation-action.service.ts`
+- Client-owned room/outbox and recovery: `annotation-room.service.ts`, `sync-recovery.service.ts`,
+  and `web/app/lib/annotationRealtimeClient.ts`
+- Command availability and validation: `annotation-action.service.ts`, `key-point-editing.service.ts`,
+  `segment-management.service.ts`, and `web/app/utils/annotationCommandAvailability.ts`
+- Frame navigation and canonical selection: `coalesced-frame-navigation.service.ts`,
+  `timeline-selection.service.ts`, and `workstation-selection.service.ts`
 - Stable gesture ownership: `web/app/utils/frameNavigationGestureRouter.ts`
 - Player identity UI: `web/app/components/AnnotationIdentityPanel.vue`
 - Player preview: `web/app/components/PlayerIdentityPreview.vue`
-- Identity controller/model: `web/app/composables/useIdentityAssignmentController.ts` and
-  `web/app/lib/identityAssignmentModel.ts`
+- Identity controller/model: `web/app/services/annotation-workstation/identity-assignment-controller.service.ts`
+  and `web/app/lib/identityAssignmentModel.ts`
 - ReID correction ledger: `server/src/services/reid-identity-ledger.ts`
 - Versioned active projection: `server/src/services/reid-automatic-assignment.ts`
 - Identity GraphQL domain service: `server/src/services/coach-analytics.ts`

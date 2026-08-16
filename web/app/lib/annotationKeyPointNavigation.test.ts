@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   adjacentAnnotationKeyPoint,
+  isSupersededSourceSubmission,
   type NavigableAnnotationKeyPoint,
 } from './annotationKeyPointNavigation'
 
@@ -11,6 +12,25 @@ const points: NavigableAnnotationKeyPoint[] = [
 ]
 
 describe('annotation key-point navigation', () => {
+  it('identifies the immutable source points replaced by a correction draft', () => {
+    expect(
+      isSupersededSourceSubmission({
+        activeSubmissionId: 'submission-a',
+        currentRallyId: 'correction-rally',
+        rallyId: 'source-rally',
+        submissionId: 'submission-a',
+      }),
+    ).toBe(true)
+    expect(
+      isSupersededSourceSubmission({
+        activeSubmissionId: 'submission-a',
+        currentRallyId: 'source-rally',
+        rallyId: 'source-rally',
+        submissionId: 'submission-a',
+      }),
+    ).toBe(false)
+  })
+
   it('advances from its local selection instead of a cursor changed by async loading', () => {
     expect(
       adjacentAnnotationKeyPoint(points, {

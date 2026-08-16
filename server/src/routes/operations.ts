@@ -95,11 +95,27 @@ export interface StreamSnapshot {
   matchTitle: string
   sourceKind: string
   sourceLabel: string | null
+  sourceDurationUs: string | null
   status: string
   health: string
   startedAt: string | null
   updatedAt: string
+  completionExpectedSegments: number | null
+  completionRequestedAt: string | null
   epochCount: number
+  sourceWork: {
+    id: string
+    status: string
+    attempts: number
+    availableAt: string
+    leaseExpiresAt: string | null
+    lastHeartbeatAt: string | null
+    lastErrorCode: string | null
+    resumeSegmentIndex: number
+    resumeCaptureTimeUs: string
+    createdAt: string
+    updatedAt: string
+  } | null
   program: {
     id: string
     status: string
@@ -254,12 +270,30 @@ export async function collectOperationsSnapshot(
         matchId: true,
         sourceKind: true,
         sourceLabel: true,
+        sourceDurationUs: true,
         status: true,
         health: true,
         startedAt: true,
         updatedAt: true,
+        completionExpectedSegments: true,
+        completionRequestedAt: true,
         match: { select: { title: true } },
         _count: { select: { epochs: true } },
+        sourceWork: {
+          select: {
+            id: true,
+            status: true,
+            attempts: true,
+            availableAt: true,
+            leaseExpiresAt: true,
+            lastHeartbeatAt: true,
+            lastErrorCode: true,
+            resumeSegmentIndex: true,
+            resumeCaptureTimeUs: true,
+            createdAt: true,
+            updatedAt: true,
+          },
+        },
         programs: {
           orderBy: { updatedAt: 'desc' },
           take: 1,
@@ -503,11 +537,29 @@ export async function collectOperationsSnapshot(
         matchTitle: capture.match.title,
         sourceKind: capture.sourceKind,
         sourceLabel: capture.sourceLabel,
+        sourceDurationUs: capture.sourceDurationUs?.toString() ?? null,
         status: capture.status,
         health: capture.health,
         startedAt: capture.startedAt?.toISOString() ?? null,
         updatedAt: capture.updatedAt.toISOString(),
+        completionExpectedSegments: capture.completionExpectedSegments,
+        completionRequestedAt: capture.completionRequestedAt?.toISOString() ?? null,
         epochCount: capture._count.epochs,
+        sourceWork: capture.sourceWork
+          ? {
+              id: capture.sourceWork.id,
+              status: capture.sourceWork.status,
+              attempts: capture.sourceWork.attempts,
+              availableAt: capture.sourceWork.availableAt.toISOString(),
+              leaseExpiresAt: capture.sourceWork.leaseExpiresAt?.toISOString() ?? null,
+              lastHeartbeatAt: capture.sourceWork.lastHeartbeatAt?.toISOString() ?? null,
+              lastErrorCode: capture.sourceWork.lastErrorCode,
+              resumeSegmentIndex: capture.sourceWork.resumeSegmentIndex,
+              resumeCaptureTimeUs: capture.sourceWork.resumeCaptureTimeUs.toString(),
+              createdAt: capture.sourceWork.createdAt.toISOString(),
+              updatedAt: capture.sourceWork.updatedAt.toISOString(),
+            }
+          : null,
         program: program
           ? {
               id: program.id,

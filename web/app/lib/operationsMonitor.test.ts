@@ -42,11 +42,15 @@ describe('operations monitor client', () => {
       matchTitle: matchId,
       sourceKind: 'RTMP',
       sourceLabel: null,
+      sourceDurationUs: null,
       status: 'LIVE',
       health: 'HEALTHY',
       startedAt: null,
       updatedAt: '2026-08-08T00:00:00.000Z',
+      completionExpectedSegments: null,
+      completionRequestedAt: null,
       epochCount: 0,
+      sourceWork: null,
       program: null,
     })
     expect(

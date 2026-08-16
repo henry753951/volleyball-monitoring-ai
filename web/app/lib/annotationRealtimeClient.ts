@@ -37,6 +37,7 @@ export function createAnnotationRealtimeClient(
   let socket: WebSocket | null = null
   let stopped = false
   let softLockTimer: ReturnType<typeof setInterval> | null = null
+  let handshakeTimer: ReturnType<typeof setTimeout> | null = null
   let connectionReady = false
   let editingKeyPointId: string | null = null
   let heartbeatStartedAt: number | null = null
@@ -46,6 +47,7 @@ export function createAnnotationRealtimeClient(
     {
       resolve: (response: AnnotationCommandResponse) => void
       reject: (error: Error) => void
+      timer: ReturnType<typeof setTimeout>
     }
   >()
   const reconnectScheduler = createRealtimeReconnectScheduler(open)
@@ -60,8 +62,15 @@ export function createAnnotationRealtimeClient(
     handlers.onState?.(state)
   }
   const rejectPending = (error: Error) => {
-    for (const request of pending.values()) request.reject(error)
+    for (const request of pending.values()) {
+      clearTimeout(request.timer)
+      request.reject(error)
+    }
     pending.clear()
+  }
+  const clearHandshakeTimer = () => {
+    if (handshakeTimer) clearTimeout(handshakeTimer)
+    handshakeTimer = null
   }
   const clearSoftLockTimer = () => {
     if (softLockTimer) clearInterval(softLockTimer)
@@ -109,11 +118,18 @@ export function createAnnotationRealtimeClient(
       scheduleReconnect()
       return
     }
+    clearHandshakeTimer()
+    handshakeTimer = setTimeout(() => {
+      if (socket !== nextSocket || connectionReady || stopped) return
+      nextSocket.close(4001, 'annotation handshake timeout')
+    }, 12_000)
     nextSocket.addEventListener('message', event => {
+      if (socket !== nextSocket || stopped) return
       try {
         const message = parseAnnotationServerMessage(JSON.parse(String(event.data)))
         if (message.type === 'connection_ready') {
           connectionReady = true
+          clearHandshakeTimer()
           reconnectScheduler.connected()
           setState('ready')
           clearSoftLockTimer()
@@ -127,7 +143,9 @@ export function createAnnotationRealtimeClient(
           heartbeatStartedAt = null
         }
         if (message.type === 'command_ack' || message.type === 'command_rejected') {
-          pending.get(message.command_id)?.resolve(message)
+          const request = pending.get(message.command_id)
+          if (request) clearTimeout(request.timer)
+          request?.resolve(message)
           pending.delete(message.command_id)
         }
         handlers.onMessage?.(message)
@@ -136,11 +154,13 @@ export function createAnnotationRealtimeClient(
       }
     })
     nextSocket.addEventListener('error', () => {
+      if (socket !== nextSocket || stopped) return
       handlers.onError?.(new Error('Annotation WebSocket unavailable'))
     })
     nextSocket.addEventListener('close', () => {
       if (socket !== nextSocket) return
       connectionReady = false
+      clearHandshakeTimer()
       clearSoftLockTimer()
       rejectPending(new Error('Annotation connection closed before acknowledgement'))
       socket = null
@@ -158,6 +178,7 @@ export function createAnnotationRealtimeClient(
       stopped = true
       sendSoftLock(null)
       connectionReady = false
+      clearHandshakeTimer()
       clearSoftLockTimer()
       reconnectScheduler.dispose()
       rejectPending(new Error('Annotation client disconnected'))
@@ -168,6 +189,7 @@ export function createAnnotationRealtimeClient(
     reconnect() {
       if (stopped) return
       connectionReady = false
+      clearHandshakeTimer()
       clearSoftLockTimer()
       reconnectScheduler.connected()
       rejectPending(new Error('Annotation connection restarted before acknowledgement'))
@@ -190,7 +212,15 @@ export function createAnnotationRealtimeClient(
         return Promise.reject(new Error('Annotation command is already pending'))
       }
       return new Promise<AnnotationCommandResponse>((resolve, reject) => {
-        pending.set(command.command_id, { resolve, reject })
+        const currentSocket = socket
+        const timer = setTimeout(() => {
+          const request = pending.get(command.command_id)
+          if (!request) return
+          pending.delete(command.command_id)
+          request.reject(new Error('Annotation command acknowledgement timed out'))
+          if (socket === currentSocket) currentSocket?.close(4002, 'annotation ack timeout')
+        }, 12_000)
+        pending.set(command.command_id, { resolve, reject, timer })
         socket?.send(JSON.stringify(command))
       })
     },

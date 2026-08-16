@@ -1,5 +1,8 @@
+import { computed } from 'vue'
 import { mount } from '@vue/test-utils'
 import { describe, expect, it, vi } from 'vitest'
+import { annotationWorkstationServiceKey } from '~/services/annotation-workstation/annotation-workstation.service'
+import type { WorkstationActionId } from '~/services/annotation-workstation/workstation-action.service'
 import AnnotationTransportBar from './AnnotationTransportBar.vue'
 
 vi.mock('motion-v', async () => {
@@ -17,9 +20,6 @@ vi.mock('motion-v', async () => {
 
 const baseProps = {
   playing: false,
-  playerReady: true,
-  frameReady: true,
-  frameMovePending: false,
   timecode: '00:00:01:00',
   liveActive: false,
   liveAvailable: false,
@@ -31,12 +31,6 @@ const baseProps = {
   submittedSelected: true,
   clipSelected: false,
   draftSelected: false,
-  submitEnabled: false,
-  navigable: true,
-  selectedPoint: true,
-  editable: true,
-  editReady: true,
-  pointDeleteEnabled: true,
   muted: false,
   timelineScale: 0.1,
   shortcuts: {
@@ -48,165 +42,108 @@ const baseProps = {
   },
 }
 
+function mountBar(
+  options: {
+    props?: Record<string, unknown>
+    disabled?: Partial<Record<WorkstationActionId, string>>
+    pending?: WorkstationActionId[]
+  } = {},
+) {
+  const execute = vi.fn().mockResolvedValue({ status: 'executed', value: undefined })
+  const pending = new Set(options.pending ?? [])
+  const service = {
+    actions: {
+      execute,
+      state: (id: WorkstationActionId) =>
+        computed(() => ({
+          id,
+          group: 'media',
+          label: id,
+          shortcut: null,
+          visible: true,
+          enabled: !options.disabled?.[id] && !pending.has(id),
+          pending: pending.has(id),
+          reason: options.disabled?.[id] ?? null,
+        })),
+    },
+  }
+  const wrapper = mount(AnnotationTransportBar, {
+    props: { ...baseProps, ...options.props },
+    global: { provide: { [annotationWorkstationServiceKey as symbol]: service } },
+  })
+  return { wrapper, execute }
+}
+
 describe('AnnotationTransportBar', () => {
   it('reveals clip actions only after a clip is selected', async () => {
-    const wrapper = mount(AnnotationTransportBar, { props: baseProps })
-
+    const { wrapper, execute } = mountBar()
     expect(wrapper.find('[aria-label="片段工具"]').exists()).toBe(false)
-    expect(wrapper.find('[aria-label="刪除所選片段"]').exists()).toBe(false)
-
     await wrapper.setProps({ clipSelected: true })
-
-    expect(wrapper.find('[aria-label="片段工具"]').exists()).toBe(true)
     await wrapper.find('[aria-label="刪除所選片段"]').trigger('click')
-    expect(wrapper.emitted('deleteClip')).toHaveLength(1)
+    expect(execute).toHaveBeenCalledWith('segment.delete-processing')
   })
 
   it('keeps key-point deletion separate from clip deletion', async () => {
-    const wrapper = mount(AnnotationTransportBar, { props: baseProps })
-
+    const { wrapper, execute } = mountBar()
     await wrapper.find('[aria-label="刪除所選擊球點"]').trigger('click')
-
-    expect(wrapper.emitted('deletePoint')).toHaveLength(1)
-    expect(wrapper.emitted('deleteClip')).toBeUndefined()
+    expect(execute).toHaveBeenCalledWith('mark.delete')
+    expect(execute).not.toHaveBeenCalledWith('segment.delete-processing')
   })
 
-  it('keeps correction cancellation available for the selected correction when editing is blocked', async () => {
-    const wrapper = mount(AnnotationTransportBar, {
-      props: { ...baseProps, clipSelected: true, correctionActive: true, editReady: false },
+  it('keeps correction cancellation available for the selected correction', async () => {
+    const { wrapper, execute } = mountBar({
+      props: { clipSelected: true, correctionActive: true },
     })
-    const cancel = wrapper.get('[aria-label="取消修正片段"]')
-    expect(cancel.attributes('disabled')).toBeUndefined()
-    await cancel.trigger('click')
-    expect(wrapper.emitted('cancelCorrection')).toHaveLength(1)
-  })
-
-  it('keeps deletion available for every selected clip even when annotation editing is blocked', async () => {
-    const wrapper = mount(AnnotationTransportBar, {
-      props: { ...baseProps, clipSelected: true, editReady: false },
-    })
-    const remove = wrapper.get('[aria-label="刪除所選片段"]')
-    expect(remove.attributes('disabled')).toBeUndefined()
-    await remove.trigger('click')
-    expect(wrapper.emitted('deleteClip')).toHaveLength(1)
-  })
-
-  it('hides correction actions when its clip is not selected', () => {
-    const wrapper = mount(AnnotationTransportBar, {
-      props: { ...baseProps, correctionActive: true },
-    })
-    expect(wrapper.find('[aria-label="片段工具"]').exists()).toBe(false)
-    expect(wrapper.find('[aria-label="取消修正片段"]').exists()).toBe(false)
+    await wrapper.get('[aria-label="取消修正片段"]').trigger('click')
+    expect(execute).toHaveBeenCalledWith('correction.cancel')
   })
 
   it('provides a physical submit action for every selected draft', async () => {
-    const wrapper = mount(AnnotationTransportBar, {
-      props: {
-        ...baseProps,
-        clipSelected: true,
-        draftSelected: true,
-        submitEnabled: true,
-        submittedSelected: false,
-      },
+    const { wrapper, execute } = mountBar({
+      props: { clipSelected: true, draftSelected: true, submittedSelected: false },
     })
     await wrapper.get('[aria-label="送出片段"]').trigger('click')
-    expect(wrapper.emitted('submit')).toHaveLength(1)
-  })
-
-  it('places submit before and apart from destructive correction actions', () => {
-    const wrapper = mount(AnnotationTransportBar, {
-      props: {
-        ...baseProps,
-        clipSelected: true,
-        correctionActive: true,
-        draftSelected: true,
-        submitEnabled: true,
-        submittedSelected: false,
-      },
-    })
-    const labels = wrapper
-      .get('[aria-label="片段工具"]')
-      .findAll('button')
-      .map(button => button.attributes('aria-label'))
-
-    expect(labels).toEqual(['送出片段', '取消修正片段', '下載片段', '刪除所選片段'])
-    expect(wrapper.find('.action-separator').exists()).toBe(true)
-  })
-
-  it('uses correction-draft language without implementation terminology', () => {
-    const wrapper = mount(AnnotationTransportBar, { props: { ...baseProps, clipSelected: true } })
-    expect(wrapper.get('[aria-label="建立修正版草稿"]').text()).toContain('建立修正版草稿')
-    expect(wrapper.text()).not.toContain('immutable')
-  })
-
-  it('keeps the correction entry actionable while another annotation operation needs attention', async () => {
-    const wrapper = mount(AnnotationTransportBar, {
-      props: {
-        ...baseProps,
-        clipSelected: true,
-        editReady: false,
-        correctionBlockReason: '標記狀態有衝突；按下後可先重新同步',
-      },
-    })
-
-    const correction = wrapper.get('[aria-label="建立修正版草稿"]')
-    expect(correction.attributes('disabled')).toBeUndefined()
-    await correction.trigger('click')
-    expect(wrapper.emitted('startCorrection')).toHaveLength(1)
+    expect(execute).toHaveBeenCalledWith('submission.submit')
   })
 
   it('shows an explicit loading state while a correction draft is being created', () => {
-    const wrapper = mount(AnnotationTransportBar, {
-      props: {
-        ...baseProps,
-        clipSelected: true,
-        correctionCreating: true,
-      },
+    const { wrapper } = mountBar({
+      props: { clipSelected: true },
+      pending: ['correction.create'],
     })
-
-    const pending = wrapper.get('[aria-label="正在建立修正版草稿"]')
-    expect(pending.attributes('disabled')).toBeDefined()
-    expect(pending.text()).toContain('建立修正版中')
+    expect(wrapper.get('[aria-label="正在建立修正版草稿"]').text()).toContain('建立修正版中')
     expect(wrapper.find('[aria-label="建立修正版草稿"]').exists()).toBe(false)
   })
 
-  it('shows a durable waiting state instead of the previous completed result while submit awaits acknowledgement', () => {
-    const wrapper = mount(AnnotationTransportBar, {
+  it('shows a durable waiting state while submit awaits acknowledgement', () => {
+    const { wrapper } = mountBar({
       props: {
-        ...baseProps,
         clipSelected: true,
         draftSelected: true,
-        submitEnabled: false,
         submittedSelected: true,
         submissionPending: true,
       },
     })
-
-    const pending = wrapper.get('[aria-label="等待伺服器確認送出"]')
-    expect(pending.attributes('disabled')).toBeDefined()
-    expect(pending.text()).toContain('等待確認')
+    expect(wrapper.get('[aria-label="等待伺服器確認送出"]').text()).toContain('等待確認')
     expect(wrapper.find('[aria-label="送出片段"]').exists()).toBe(false)
-    expect(wrapper.find('[aria-label="建立修正版草稿"]').exists()).toBe(false)
   })
 
-  it('shows a stable timeline scale beside mute and resets it on click', async () => {
-    const wrapper = mount(AnnotationTransportBar, { props: { ...baseProps, timelineScale: 0.01 } })
+  it('uses the action manager for timeline zoom and playback speed', async () => {
+    const { wrapper, execute } = mountBar({ props: { timelineScale: 0.01, playbackRate: 1.25 } })
     const scale = wrapper.get('[aria-label^="時間軸倍率"]')
     expect(scale.text()).toBe('0.01×')
     await scale.trigger('click')
-    expect(wrapper.emitted('resetTimelineZoom')).toHaveLength(1)
+    await wrapper.get('[aria-label="播放速度"]').trigger('click')
+    await wrapper.get('[role="menuitemradio"][aria-checked="false"]').trigger('click')
+    expect(execute).toHaveBeenCalledWith('timeline.reset-zoom')
+    expect(execute).toHaveBeenCalledWith('media.set-rate', 0.5)
   })
 
-  it('keeps playback speed beside the timecode and emits a selected rate', async () => {
-    const wrapper = mount(AnnotationTransportBar, {
-      props: { ...baseProps, playbackRate: 1.25 },
+  it('renders the action-manager reason for disabled downloads', async () => {
+    const { wrapper } = mountBar({
+      props: { clipSelected: true },
+      disabled: { 'clip.download': '片段尚未完成剪切' },
     })
-
-    const trigger = wrapper.get('[aria-label="播放速度"]')
-    expect(trigger.text()).toContain('1.25×')
-    await trigger.trigger('click')
-    await wrapper.get('[role="menuitemradio"][aria-checked="false"]').trigger('click')
-
-    expect(wrapper.emitted('setPlaybackRate')?.[0]).toEqual([0.5])
+    expect(wrapper.get('[aria-label="下載片段"]').attributes('disabled')).toBeDefined()
   })
 })

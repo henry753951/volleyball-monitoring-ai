@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { Home, RadioTower, RefreshCw, Settings, UsersRound } from 'lucide-vue-next'
+import { useAnnotationWorkstationService } from '~/services/annotation-workstation/annotation-workstation.service'
 
 defineProps<{
   title: string
@@ -9,16 +10,15 @@ defineProps<{
   error: boolean
   connectionTitle: string
   resyncVisible: boolean
-  resyncing: boolean
 }>()
 
 defineEmits<{
   media: []
   connection: []
-  resync: []
   roster: []
-  settings: []
 }>()
+const workstation = useAnnotationWorkstationService()
+const resyncState = workstation.actions.state('sync.resync')
 </script>
 
 <template>
@@ -48,18 +48,19 @@ defineEmits<{
         v-if="resyncVisible"
         type="button"
         class="resync-button"
-        :disabled="resyncing"
-        @click="$emit('resync')"
+        :disabled="!resyncState.enabled"
+        :title="resyncState.reason ?? undefined"
+        @click="workstation.actions.execute('sync.resync')"
       >
-        <RefreshCw :size="13" :class="{ spinning: resyncing }" />
-        {{ resyncing ? '同步中' : '重新同步' }}
+        <RefreshCw :size="13" :class="{ spinning: resyncState.pending }" />
+        {{ resyncState.pending ? '同步中' : '重新同步' }}
       </button>
       <button
         type="button"
         class="settings-button"
         aria-label="設定"
         title="設定"
-        @click="$emit('settings')"
+        @click="workstation.actions.execute('visualization.open-settings', 'root')"
       >
         <Settings :size="16" />
       </button>

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   bufferedSecondsAhead,
   mediaTimeRangesToCaptureRanges,
+  mediaTimeRangeContains,
   playbackWindowSecondsAhead,
 } from './mediaBuffer'
 
@@ -37,6 +38,24 @@ describe('bufferedSecondsAhead', () => {
         currentTime: 9,
       }),
     ).toBe(0)
+  })
+})
+
+describe('mediaTimeRangeContains', () => {
+  it('accepts only media time that the browser actually holds', () => {
+    const buffered = ranges([
+      [0, 8],
+      [10, 24],
+    ])
+    expect(mediaTimeRangeContains(buffered, 7.5)).toBe(true)
+    expect(mediaTimeRangeContains(buffered, 9)).toBe(false)
+    expect(mediaTimeRangeContains(buffered, 18)).toBe(true)
+  })
+
+  it('allows only a sub-frame rounding tolerance at a range edge', () => {
+    const buffered = ranges([[10, 20]])
+    expect(mediaTimeRangeContains(buffered, 9.9995)).toBe(true)
+    expect(mediaTimeRangeContains(buffered, 9.9)).toBe(false)
   })
 })
 

@@ -63,9 +63,26 @@ export function usePlaybackCursor(
     if (!element) return
 
     if (typeof element.requestVideoFrameCallback === 'function') {
+      const scheduledSeekGeneration = seekGeneration.value
+      const scheduledWindow = descriptor.value
+        ? `${descriptor.value.playback_window_id}:${descriptor.value.mapping_version}`
+        : null
       callbackId = element.requestVideoFrameCallback((_now, metadata) => {
         const frame = metadata as VideoFrameMetadataSubset
-        publish(frame.mediaTime, 'request_video_frame_callback', frame.presentedFrames)
+        const currentWindow = descriptor.value
+          ? `${descriptor.value.playback_window_id}:${descriptor.value.mapping_version}`
+          : null
+        const scheduledObservationStillCurrent =
+          element === video.value &&
+          currentWindow === scheduledWindow &&
+          seekGeneration.value === scheduledSeekGeneration
+        const presentedCurrentTarget =
+          element === video.value &&
+          !element.seeking &&
+          currentWindow !== null &&
+          Math.abs(frame.mediaTime - element.currentTime) <= 0.25
+        if (scheduledObservationStillCurrent || presentedCurrentTarget)
+          publish(frame.mediaTime, 'request_video_frame_callback', frame.presentedFrames)
         scheduleVideoFrameCallback()
       })
       return
@@ -82,7 +99,10 @@ export function usePlaybackCursor(
   }
 
   watch(
-    () => descriptor.value?.playback_window_id ?? null,
+    () =>
+      descriptor.value
+        ? `${descriptor.value.playback_window_id}:${descriptor.value.mapping_version}`
+        : null,
     () => {
       forcedGap = false
       seekGeneration.value += 1
@@ -95,16 +115,19 @@ export function usePlaybackCursor(
     const element = video.value
     if (!element) return
 
-    element.addEventListener('seeking', () => {
+    const onSeeking = () => {
       seekGeneration.value += 1
       cursorStatus.value = 'seeking'
-    })
-    element.addEventListener('seeked', () => {
+    }
+    const onSeeked = () => {
       cursorStatus.value = 'stale'
-    })
-    element.addEventListener('emptied', () => {
+    }
+    const onEmptied = () => {
       cursorStatus.value = 'stale'
-    })
+    }
+    element.addEventListener('seeking', onSeeking)
+    element.addEventListener('seeked', onSeeked)
+    element.addEventListener('emptied', onEmptied)
 
     scheduleVideoFrameCallback()
     staleTimer = setInterval(() => {
@@ -120,6 +143,12 @@ export function usePlaybackCursor(
         if (cursor.value) cursor.value = { ...cursor.value, cursor_status: 'stale' }
       }
     }, 250)
+
+    onBeforeUnmount(() => {
+      element.removeEventListener('seeking', onSeeking)
+      element.removeEventListener('seeked', onSeeked)
+      element.removeEventListener('emptied', onEmptied)
+    })
   })
 
   onBeforeUnmount(() => {

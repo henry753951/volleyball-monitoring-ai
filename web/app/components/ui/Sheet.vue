@@ -59,7 +59,12 @@ const emit = defineEmits<{ 'update:open': [open: boolean] }>()
   inset: 0;
   background: #07111f42;
   backdrop-filter: blur(3px);
-  animation: ui-sheet-fade-in 220ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+.ui-sheet__overlay[data-state='open'] {
+  animation: ui-sheet-fade-in 220ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.ui-sheet__overlay[data-state='closed'] {
+  animation: ui-sheet-fade-out 180ms cubic-bezier(0.4, 0, 1, 1) both;
 }
 .ui-sheet {
   position: fixed;
@@ -79,12 +84,22 @@ const emit = defineEmits<{ 'update:open': [open: boolean] }>()
 .ui-sheet--right {
   right: 0;
   border-left: 1px solid #fff9;
-  animation: ui-sheet-in-right 320ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 .ui-sheet--left {
   left: 0;
   border-right: 1px solid #fff9;
-  animation: ui-sheet-in-left 320ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+.ui-sheet--right[data-state='open'] {
+  animation: ui-sheet-in-right 320ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.ui-sheet--right[data-state='closed'] {
+  animation: ui-sheet-out-right 220ms cubic-bezier(0.4, 0, 1, 1) both;
+}
+.ui-sheet--left[data-state='open'] {
+  animation: ui-sheet-in-left 320ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.ui-sheet--left[data-state='closed'] {
+  animation: ui-sheet-out-left 220ms cubic-bezier(0.4, 0, 1, 1) both;
 }
 .ui-sheet__header {
   display: flex;
@@ -148,9 +163,31 @@ const emit = defineEmits<{ 'update:open': [open: boolean] }>()
   from {
     opacity: 0;
   }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes ui-sheet-fade-out {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
 }
 @keyframes ui-sheet-in-right {
   from {
+    transform: translate3d(100%, 0, 0);
+  }
+  to {
+    transform: translate3d(0, 0, 0);
+  }
+}
+@keyframes ui-sheet-out-right {
+  from {
+    transform: translate3d(0, 0, 0);
+  }
+  to {
     transform: translate3d(100%, 0, 0);
   }
 }
@@ -158,11 +195,26 @@ const emit = defineEmits<{ 'update:open': [open: boolean] }>()
   from {
     transform: translate3d(-100%, 0, 0);
   }
+  to {
+    transform: translate3d(0, 0, 0);
+  }
+}
+@keyframes ui-sheet-out-left {
+  from {
+    transform: translate3d(0, 0, 0);
+  }
+  to {
+    transform: translate3d(-100%, 0, 0);
+  }
 }
 @media (prefers-reduced-motion: reduce) {
-  .ui-sheet__overlay,
-  .ui-sheet {
-    animation: ui-sheet-fade-in 160ms ease-out;
+  .ui-sheet__overlay[data-state='open'],
+  .ui-sheet[data-state='open'] {
+    animation: ui-sheet-fade-in 160ms ease-out both;
+  }
+  .ui-sheet__overlay[data-state='closed'],
+  .ui-sheet[data-state='closed'] {
+    animation: ui-sheet-fade-out 120ms ease-in both;
   }
 }
 @media (prefers-reduced-transparency: reduce) {

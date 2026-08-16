@@ -3,10 +3,32 @@ import { JobStatus, UserRole } from '@volleyball-monitoring/db/client'
 import { describe, expect, it, vi } from 'vitest'
 import {
   getCoachMatchAnalytics,
+  observedFrameRangesOverlap,
   setTrackIdentityMappingComplete,
 } from '../src/services/coach-analytics.js'
 
 describe('coach identity projections', () => {
+  it('only treats exact observed frame presence as a local-id conflict', () => {
+    expect(
+      observedFrameRangesOverlap(
+        { __volleyball_system: { observed_frame_ranges_v1: [{ start: '0', end: '10' }] } },
+        { __volleyball_system: { observed_frame_ranges_v1: [{ start: '11', end: '20' }] } },
+      ),
+    ).toBe(false)
+    expect(
+      observedFrameRangesOverlap(
+        { __volleyball_system: { observed_frame_ranges_v1: [{ start: '0', end: '10' }] } },
+        { __volleyball_system: { observed_frame_ranges_v1: [{ start: '10', end: '20' }] } },
+      ),
+    ).toBe(true)
+    expect(
+      observedFrameRangesOverlap(
+        { firstFrame: '0', lastFrame: '100' },
+        { firstFrame: '20', lastFrame: '30' },
+      ),
+    ).toBe(false)
+  })
+
   it('attributes a human ball event through the latest pose-first actor projection', async () => {
     const findMatch = vi.fn().mockResolvedValue({
       id: 'match-1',

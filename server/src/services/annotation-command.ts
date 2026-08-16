@@ -17,7 +17,7 @@ import {
   type AnnotationRoom,
 } from '../domain/annotation/room.js'
 import type { CursorMediaIdentity } from '../media/cursor-resolution.js'
-import { MediaHttpError } from '../media/playback-domain.js'
+import { MediaHttpError, type MediaObjectReader } from '../media/playback-domain.js'
 import { submitRally } from '../domain/annotation/submission.js'
 import { normalizeDraftBallEvents } from '../domain/annotation/ball-event-normalization.js'
 
@@ -26,6 +26,7 @@ const SERIALIZABLE_RETRIES = 3
 export interface AnnotationCommandServiceDependencies {
   database: PrismaClient
   beforeTransaction?: (command: AnnotationCommand) => Promise<void>
+  timingManifestReader?: MediaObjectReader
   resolveCursor: (
     cursor: PlaybackCursor,
     identity: CursorMediaIdentity,
@@ -2210,7 +2211,7 @@ export function createAnnotationCommandService(
           const existing = await replay(tx, command, hash)
           if (existing) return existing
           await rallyLock(tx, command.rally_id)
-          return submitRally(tx, room, command, identity, hash)
+          return submitRally(tx, room, command, identity, hash, deps.timingManifestReader)
         })
       }
       if (command.kind === 'CREATE_CONTACT_KEY_POINT' || command.kind === 'END_RALLY') {

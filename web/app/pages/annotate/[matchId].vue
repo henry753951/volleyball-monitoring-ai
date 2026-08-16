@@ -3,15 +3,11 @@ import { useThrottleFn } from '@vueuse/core'
 import { Eye, EyeOff } from 'lucide-vue-next'
 import { toast } from 'vue-sonner'
 import {
-  decideBallEventShortcut,
   type AnalysisFrameBBox,
-  type AnalysisReviewAction,
   type AnnotationRallyProcessingUpdate,
-  type BallEventShortcut,
-  type BallEventValue,
 } from '@volleyball-monitoring/contracts'
+import { isSupersededSourceSubmission } from '~/lib/annotationKeyPointNavigation'
 import { createMediaClient } from '~/lib/mediaClient'
-import { adjacentAnnotationKeyPoint } from '~/lib/annotationKeyPointNavigation'
 import {
   useAuthoritativeDvrWindow,
   authoritativeControlsEnabled,
@@ -20,7 +16,6 @@ import { createFrameNavigationGestureRouter } from '~/utils/frameNavigationGestu
 import {
   createCoreDomainClient,
   createGraphQLTransport,
-  GraphQLRequestError,
   type Match,
   type CaptureSession,
 } from '~/lib/coreDomain'
@@ -31,28 +26,21 @@ import {
   type HotkeyCommand,
   type MediaAction,
 } from '~/utils/annotationHotkeys'
-import {
-  boundaryCommandAvailability,
-  draftCommandAvailability,
-} from '~/utils/annotationCommandAvailability'
 import type { CanonicalFrameAnchor, PlaybackCursorInput } from '~/lib/mediaModel'
-import { createCoachDomainClient, type CoachRally, type CoachRallyReplay } from '~/lib/coachDomain'
+import { createCoachDomainClient, type CoachRallyReplay } from '~/lib/coachDomain'
 import { provideIdentityAssignmentService } from '~/composables/useIdentityAssignmentService'
 import {
   DEFAULT_TIMELINE_SCALE,
-  clipRangeOverlaps,
   formatTimelinePosition,
-  paddedClipRange,
-  resolveSegmentSelection,
+  readyAt,
   segmentAtCaptureTime,
   type TimelineViewport,
 } from '~/lib/dvrTimeline'
 import { useAnnotationWorkstationViewState } from '~/composables/useAnnotationWorkstationViewState'
 import { capturePlaybackMode, clampLiveEdgeTarget } from '~/lib/mediaTimeline'
-import { decidePlaybackContinuation } from '~/lib/playbackContinuation'
+import { decidePlaybackContinuation, nextPlayableRangeAfter } from '~/lib/playbackContinuation'
 import { bufferedSecondsAhead, type CanonicalMediaRange } from '~/utils/mediaBuffer'
 import { estimateFrameDurationSeconds } from '~/utils/framePreviewCalibration'
-import type { TimelineSelectionItem } from '~/utils/timelineSelection'
 import { captureNeedsPolling, hasActiveRallyProcessing } from '~/utils/annotationPolling'
 import {
   replayEventFrame,
@@ -60,6 +48,32 @@ import {
   resolveEventActorFromResult,
   type OverlayBallOverride,
 } from '~/utils/volleyballOverlayRenderer'
+import {
+  annotationWorkstationActionId,
+  createAnnotationActionService,
+} from '~/services/annotation-workstation/annotation-action.service'
+import {
+  createAnnotationWorkstationService,
+  provideAnnotationWorkstationService,
+} from '~/services/annotation-workstation/annotation-workstation.service'
+import {
+  createWorkstationActionManager,
+  type WorkstationActionId,
+} from '~/services/annotation-workstation/workstation-action.service'
+import { createWorkstationFeedbackService } from '~/services/annotation-workstation/workstation-feedback.service'
+import { createWorkstationSelectionService } from '~/services/annotation-workstation/workstation-selection.service'
+import { createTransportActionService } from '~/services/annotation-workstation/transport-action.service'
+import { createCorrectionFlowService } from '~/services/annotation-workstation/correction-flow.service'
+import { createAnalysisRevisionService } from '~/services/annotation-workstation/analysis-revision.service'
+import { createIdentityAssignmentControllerService } from '~/services/annotation-workstation/identity-assignment-controller.service'
+import { useIdentityReplacementWarning } from '~/composables/useIdentityReplacementWarning'
+import { createTimelineSelectionService } from '~/services/annotation-workstation/timeline-selection.service'
+import { createKeyPointEditingService } from '~/services/annotation-workstation/key-point-editing.service'
+import { createWorkstationConfirmationService } from '~/services/annotation-workstation/workstation-confirmation.service'
+import { createSegmentManagementService } from '~/services/annotation-workstation/segment-management.service'
+import { createSyncRecoveryService } from '~/services/annotation-workstation/sync-recovery.service'
+import { createWorkstationPreferencesService } from '~/services/annotation-workstation/workstation-preferences.service'
+import { mergeRallyProcessingUpdate } from '~/services/annotation-workstation/processing-state.service'
 
 definePageMeta({ layout: 'annotation' })
 const route = useRoute()
@@ -85,13 +99,13 @@ const overlayPlayer = ref<{
   ) => boolean
   seekCaptureTimeIfBuffered: (targetCaptureTimeUs: string) => boolean
   previewCaptureTimeIfBuffered: (targetCaptureTimeUs: string) => boolean
+  previewPlayerMediaTime: (targetPlayerSeconds: number) => boolean
   overlayFrameCaptureTime: (frame: number) => string | null
   seekOverlayFrameIfBuffered: (frame: number) => boolean
 } | null>(null)
 const playing = ref(false)
 const muted = ref(false)
 const playbackRate = ref(1)
-const annotationOverlayEnabled = ref(true)
 const playerBufferedRanges = shallowRef<CanonicalMediaRange[]>([])
 const captureTarget = ref('')
 const mediaError = ref<string | null>(null)
@@ -99,23 +113,56 @@ const authoritativeAnchor = computed(() => dvr.anchor.value)
 const observedCursor = shallowRef<PlaybackCursorInput | null>(null)
 const cursorStatus = ref<'ready' | 'stale' | 'seeking' | 'gap'>('stale')
 const annotation = useAnnotationRoom()
+const workstationFeedback = createWorkstationFeedbackService()
+const workstationActions = createWorkstationActionManager({ feedback: workstationFeedback })
+const workstationConfirmation = createWorkstationConfirmationService({
+  feedback: workstationFeedback,
+})
 const coach = useCoachMatchState(matchId, { refreshIntervalMs: 0 })
-const optimisticKeyPointMoves = shallowRef<Record<string, string>>({})
+const workstationPreferences = createWorkstationPreferencesService({
+  matchId,
+  core,
+  feedback: workstationFeedback,
+  refreshCoach: coach.refresh,
+  onMatchUpdated: updated => {
+    match.value = updated
+  },
+})
+const annotationOverlayEnabled = workstationPreferences.overlayEnabled
+const keyPointEditing = createKeyPointEditingService({
+  room: annotation,
+  dvr,
+  media,
+  feedback: workstationFeedback,
+  selectedCapture: () => selectedCapture.value,
+  descriptor: () => descriptor.value,
+  video: () => video.value,
+  overlay: () => overlayPlayer.value,
+  selectedKeyPointId: () => selectedKeyPointId.value,
+  selectKeyPoint: keyPointId => {
+    selectedKeyPointId.value = keyPointId
+  },
+  editable: () => editableDraftState.value,
+  commandReady: () => commandReady.value,
+  editReady: () => editReady.value,
+  estimatedFrameSeconds: () => estimatedFrameSeconds,
+  observedCursor: () => observedCursor.value,
+  setObservedCursor: cursor => {
+    observedCursor.value = cursor
+    settleOptimisticSeekFromCursor(cursor)
+  },
+  setCursorReady: () => {
+    cursorStatus.value = 'ready'
+  },
+  clipPreRollUs: () => clipPreRollUs.value,
+  clipPostRollUs: () => clipPostRollUs.value,
+  protectedSegments: () => protectedSegmentRanges.value,
+  prepareAuthoritativeSeek,
+  clearGestureOwner: () => frameGestureRouter.clear('key-point'),
+})
 const displayAnnotation = computed(() => {
   const source = annotation.viewSnapshot.value
-  if (!source || !Object.keys(optimisticKeyPointMoves.value).length) return source
-  const projected = structuredClone(source)
-  projected.snapshot.key_points = projected.snapshot.key_points.map(point => {
-    const captureTimeUs = optimisticKeyPointMoves.value[point.key_point_id]
-    return captureTimeUs
-      ? {
-          ...point,
-          capture_time_us: captureTimeUs,
-          timing_precision: 'estimated' as const,
-        }
-      : point
-  })
-  return projected
+  return keyPointEditing.projectSnapshot(source)
 })
 const state = annotation.viewState
 const editableDraftState = computed(
@@ -127,23 +174,60 @@ const correctionDraftContactIds = computed(
       .filter(point => point.marker_kind === 'contact')
       .map(point => point.key_point_id) ?? [],
 )
-const selectedKeyPointId = ref<string | null>(null)
-const navigationKeyPointId = ref<string | null>(null)
-let annotationPointNavigationGeneration = 0
-const selectedTimelineItem = ref<TimelineSelectionItem>(null)
+const cursorRallyId = ref<string | null>(null)
+const selectionRallyIds = computed<ReadonlySet<string>>(() => {
+  const ids = new Set<string>()
+  for (const rally of coach.data.value?.match.rallies ?? []) ids.add(rally.id)
+  for (const draft of coach.data.value?.match.drafts ?? []) ids.add(draft.id)
+  if (displayAnnotation.value?.rally_id) ids.add(displayAnnotation.value.rally_id)
+  return ids
+})
+const localDraftRallyId = computed(() =>
+  annotation.draftOwnedByClient.value &&
+  ['open', 'ready'].includes(displayAnnotation.value?.snapshot.annotation_status ?? '')
+    ? (displayAnnotation.value?.rally_id ?? null)
+    : null,
+)
+const workstationSelection = createWorkstationSelectionService({
+  localDraftRallyId,
+  cursorRallyId,
+  availableRallyIds: selectionRallyIds,
+})
+const selectedKeyPointId = computed<string | null>({
+  get: () =>
+    workstationSelection.detail.value.kind === 'key-point'
+      ? workstationSelection.detail.value.keyPointId
+      : null,
+  set: keyPointId => {
+    if (keyPointId) workstationSelection.selectKeyPoint(keyPointId)
+    else workstationSelection.clearDetail()
+  },
+})
+const timelineSelection = createTimelineSelectionService({
+  room: annotation,
+  selection: workstationSelection,
+  feedback: workstationFeedback,
+  cursorRallyId,
+  displayedRallyId: () => displayAnnotation.value?.rally_id ?? null,
+  selectedKeyPointId: () => selectedKeyPointId.value,
+  draftRallyIds: () => new Set(annotationDrafts.value.map(draft => draft.id)),
+  seek: seekTimeline,
+  openAnalysis: () => {
+    inspectorTab.value = 'analysis'
+  },
+})
+const selectedTimelineItem = timelineSelection.selectedItem
 const selectedKeyPoint = computed(
   () =>
-    annotation.snapshot.value?.snapshot.key_points.find(
+    displayAnnotation.value?.snapshot.key_points.find(
       point => point.key_point_id === selectedKeyPointId.value,
     ) ?? null,
 )
-const pendingTimelineMove = shallowRef<{
-  keyPointId: string
-  playbackWindowId: string | null
-} | null>(null)
+const pendingTimelineMove = keyPointEditing.pendingMove
 const frameQueueRunning = ref(false)
 const frameQueuePending = ref(false)
 const seekPreviewActive = ref(false)
+const optimisticSeekCaptureTimeUs = ref<string | null>(null)
 const canMark = computed(
   () =>
     !frameQueuePending.value &&
@@ -164,102 +248,70 @@ const editReady = computed(
     !pendingTimelineMove.value &&
     annotation.pendingCount.value === 0,
 )
-const keyPointEditReady = computed(() => editReady.value || keyPointNavigation.active.value)
+const keyPointEditReady = computed(() => editReady.value || keyPointEditing.navigation.active.value)
 const { bindings } = useAnnotationHotkeys()
 const annotationScope = useTemplateRef<HTMLElement>('annotationScope')
 const videoStage = useTemplateRef<HTMLElement>('videoStage')
 const timelineDock = useTemplateRef<{ resetView: () => void }>('timelineDock')
 const timelineScale = ref(DEFAULT_TIMELINE_SCALE)
 const hotkeyTarget = computed(() => (import.meta.client ? document.body : annotationScope.value))
-const settingsOpen = ref(false)
-const settingsInitialPage = ref<'root' | 'media' | 'overlay' | 'clip' | 'hotkeys'>('root')
-const clipPolicySaving = ref(false)
-const clipPolicyError = ref<string | null>(null)
 const captureDialogOpen = ref(false)
 const connectionDialogOpen = ref(false)
 const rosterDialogOpen = ref(false)
 const downloadDialogOpen = ref(false)
-const swapRallyTarget = ref<CoachRally | null>(null)
-const sideSwapPending = ref(false)
-const sideSwapAffectsDraft = ref(false)
-const confirmAction = ref<
-  | 'rally-delete'
-  | 'correction'
-  | 'correction-submit'
-  | 'single-serve'
-  | 'next-left'
-  | 'next-right'
-  | 'swap-segment'
-  | 'swap-rally'
-  | 'ws-resync'
-  | null
->(null)
-const confirmTitle = computed(() => {
-  if (confirmAction.value === 'rally-delete') return '永久刪除片段'
-  if (confirmAction.value === 'correction') return '建立修正版草稿'
-  if (confirmAction.value === 'correction-submit') return '送出修正版'
-  if (confirmAction.value === 'single-serve') return '確認發球結果'
-  if (confirmAction.value === 'ws-resync') return '重新同步標註狀態'
-  if (confirmAction.value === 'swap-segment')
-    return sideSwapAffectsDraft.value ? '對調目前片段左右' : '對調下一片段左右'
-  if (confirmAction.value === 'swap-rally') return '修正此片段的場地配置'
-  return '開啟新一局'
+const correctionFlow = createCorrectionFlowService({
+  room: annotation,
+  feedback: workstationFeedback,
+  selectedSubmissionId: () => selectedSubmittedRally.value?.submission.id ?? null,
+  pendingTimelineMove: () => Boolean(pendingTimelineMove.value),
+  selectedAnalysisRunId: () => editorSelectedAnalysisRunId.value,
+  loadedAnalysisRunId: () => analysisReview.loadedAnalysisRunId.value,
+  analysisDirtyCount: () => analysisReview.dirtyCount.value,
+  overlayContactCount: () => overlayEvents.value.length,
+  annotationState: () => state.value,
+  displayedCorrectionDraft: () => Boolean(displayedCorrectionDraft.value),
+  correctionContactIds: () => correctionDraftContactIds.value,
+  correctionActive: () => correctionActive.value,
+  correctionRallyId: () => correctionRallyId.value,
+  displayedRallyId: () => displayAnnotation.value?.rally_id ?? null,
+  selectRally: workstationSelection.selectRally,
+  setTimelineSelection: selection => {
+    selectedTimelineItem.value = selection
+  },
+  setKeyPointSelection: keyPointId => {
+    selectedKeyPointId.value = keyPointId
+  },
+  requestCreateConfirmation: submissionId => {
+    workstationConfirmation.open({
+      id: 'correction-create',
+      title: '建立修正版草稿',
+      message:
+        '會保留片段範圍、得分與目前有效的擊球點，建立可編輯草稿。完成修改並送出時，再決定保留標記或交由 AI 重新產生。',
+      confirmLabel: '建立草稿',
+      onConfirm: () => correctionFlow.create(submissionId),
+    })
+  },
+  requestSubmitConfirmation: () => {
+    workstationConfirmation.open({
+      id: 'correction-submit',
+      title: '送出修正版',
+      message: `草稿目前有 ${correctionDraftContactIds.value.length} 個擊球標記。清除後，系統會重新產生擊球點；保留後，這些標記會作為人工結果，不再加入自動擊球點。只調整球點時間、球種、結果或球員時會重用既有媒體與分析；改變片段邊界或球點數量時才重新處理必要工作。`,
+      confirmLabel: '清除並由 AI 重新標記',
+      secondaryLabel: '保留目前標記點',
+      onConfirm: () => correctionFlow.submit('regenerate'),
+      onSecondary: () => correctionFlow.submit('preserve'),
+    })
+  },
+  requestResync: () => syncRecovery.requestResync(),
+  refreshCoach: coach.refresh,
 })
-const confirmMessage = computed(() => {
-  if (confirmAction.value === 'rally-delete')
-    return '片段、裁切媒體與分析結果會永久刪除；若仍在處理，工作會先中止。此動作無法復原。'
-  if (confirmAction.value === 'correction')
-    return '會保留片段範圍、得分與目前有效的擊球點，建立可編輯草稿。完成修改並送出時，再決定保留標記或交由 AI 重新產生。'
-  if (confirmAction.value === 'correction-submit')
-    return `草稿目前有 ${correctionDraftContactIds.value.length} 個擊球標記。清除後，AI 會依球路重新產生；保留後，這些標記會作為人工結果，不再加入自動擊球點。兩種方式都會重新執行球員辨識與分析。`
-  if (confirmAction.value === 'single-serve')
-    return '這個片段只有一個球點。請確認這次發球是直接得分，還是發球失誤；送出後會成為教練統計的正式結果。'
-  if (confirmAction.value === 'ws-resync')
-    return '有一筆本機操作已和伺服器最新狀態衝突。重新同步會捨棄尚未確認的操作，再載入最新片段；已由伺服器確認的標記不會被刪除。'
-  if (confirmAction.value === 'swap-segment')
-    return sideSwapAffectsDraft.value
-      ? `將目前片段改為左側 ${rightTeam.value?.name ?? '右隊'}、右側 ${leftTeam.value?.name ?? '左隊'}；畫面上的隊名、比分歸屬、球員判斷與後續片段都會使用新的左右順序。`
-      : `下一個片段將從左側 ${rightTeam.value?.name ?? '右隊'}、右側 ${leftTeam.value?.name ?? '左隊'} 開始；畫面上的隊名、比分歸屬、球員判斷與後續片段都會使用新的左右順序。`
-  if (confirmAction.value === 'swap-rally') {
-    const submission = swapRallyTarget.value?.submission
-    const left = coach.data.value?.match.teams.find(team => team.id === submission?.left_team_id)
-    const right = coach.data.value?.match.teams.find(team => team.id === submission?.right_team_id)
-    return `將${left?.name ?? '此片段左側隊伍'}與${right?.name ?? '右側隊伍'}的名牌、得分歸屬及球員指派規則交換。既有球場座標、球路與追蹤框不翻轉；不符合新隊伍的手動球員指派會清除。系統會建立新的不可變修正版，原版本保留於歷程。`
-  }
-  return `${confirmAction.value === 'next-left' ? (leftTeam.value?.name ?? '左隊') : (rightTeam.value?.name ?? '右隊')}取得本局，比分歸零並開始下一局。`
-})
-const confirmLabel = computed(() => {
-  if (confirmAction.value === 'rally-delete') return '永久刪除'
-  if (confirmAction.value === 'correction') return '建立草稿'
-  if (confirmAction.value === 'correction-submit') return '清除並由 AI 重新標記'
-  if (confirmAction.value === 'single-serve') return '發球失誤'
-  if (confirmAction.value === 'ws-resync') return '捨棄衝突並同步'
-  if (confirmAction.value === 'swap-segment') return '對調左右'
-  if (confirmAction.value === 'swap-rally') return '建立並套用修正'
-  return '確認並開始'
-})
-const correctionSubmissionId = ref<string | null>(null)
-const correctionCreating = ref(false)
-const correctionSubmitting = ref(false)
-const correctionCancelling = ref(false)
-const annotationResyncing = ref(false)
-let correctionOperationGeneration = 0
-const processingRetrying = ref(false)
-const deleteRallyId = ref<string | null>(null)
-const rallyDeletePending = ref(false)
-const placementSaving = ref(false)
+const correctionCreating = correctionFlow.creating
+const correctionSubmitting = correctionFlow.submitting
+const correctionCancelling = correctionFlow.cancelling
 const matchInspector = useTemplateRef<{ closePlacement: () => void }>('matchInspector')
 const inspectorTab = ref<'match' | 'mapping' | 'analysis'>('match')
-const analysisPanelPage = ref<'root' | 'hits' | 'ball' | 'players'>('root')
-const pinnedRallyId = ref<string | null>(null)
-const cursorRallyId = ref<string | null>(null)
+const pinnedRallyId = workstationSelection.explicitRallyId
 const currentOverlayFrame = ref(-1)
-const ballRelabelEnabled = ref(false)
-const bboxRelabelEnabled = ref(false)
-const selectedOverlayTrackId = ref<number | null>(null)
-const selectedOverlayTrackAction = ref<string | null>(null)
-const selectedAnalysisHitId = ref<string | null>(null)
-const actorAssignmentMode = ref(false)
 const overlayVideoSize = shallowRef<{
   width: number
   height: number
@@ -273,18 +325,13 @@ const trackPopover = reactive({
 const mappingRefreshToken = ref(0)
 // An explicit click is sticky. Cursor-derived selection is only a fallback when
 // the operator has not selected a segment themselves.
-const selectedRallyId = computed(() =>
-  resolveSegmentSelection(pinnedRallyId.value, cursorRallyId.value),
-)
+const selectedRallyId = workstationSelection.activeRallyId
 const processingByRally = computed<Record<string, AnnotationRallyProcessingUpdate>>(() => {
   const merged: Record<string, AnnotationRallyProcessingUpdate> = {}
   for (const rally of coach.data.value?.match.rallies ?? [])
     merged[rally.id] = rally.submission.processing
   for (const [rallyId, update] of Object.entries(annotation.processing.value)) {
-    const current = merged[rallyId]
-    const currentAt = current?.updated_at ? Date.parse(current.updated_at) : 0
-    const updateAt = update.updated_at ? Date.parse(update.updated_at) : Number.MAX_SAFE_INTEGER
-    if (!current || updateAt >= currentAt) merged[rallyId] = update
+    merged[rallyId] = mergeRallyProcessingUpdate(merged[rallyId], update) ?? update
   }
   return merged
 })
@@ -292,12 +339,25 @@ const activeProcessing = computed(() => {
   const rallyId = selectedRallyId.value ?? displayAnnotation.value?.rally_id
   return rallyId ? (processingByRally.value[rallyId] ?? null) : null
 })
+const syncRecovery = createSyncRecoveryService({
+  room: annotation,
+  core,
+  actions: workstationActions,
+  confirmation: workstationConfirmation,
+  feedback: workstationFeedback,
+  selectedRallyId: () => selectedRallyId.value,
+  displayedRallyId: () => displayAnnotation.value?.rally_id ?? null,
+  activeProcessing: () => activeProcessing.value,
+  refreshCoach: coach.refresh,
+})
+const annotationResyncing = syncRecovery.resyncing
+const processingRetrying = syncRecovery.processingRetrying
 const notifiedProcessingFailures = new Set<string>()
 let processingFailureWatchReady = false
 let timelineRefreshTimer: ReturnType<typeof setInterval> | null = null
-let timelineMoveTimeout: ReturnType<typeof setTimeout> | null = null
 let cursorResolveTimer: ReturnType<typeof setTimeout> | null = null
 let seekPreviewTimer: ReturnType<typeof setTimeout> | null = null
+let optimisticSeekTimer: ReturnType<typeof setTimeout> | null = null
 let cursorResolveInFlight = false
 let pendingCursorResolve: PlaybackCursorInput | null = null
 let lastCursorResolveAt = 0
@@ -311,14 +371,19 @@ let continuationWindowId: string | null = null
 let continuationRequestedAt = 0
 let continuationRetryDelayMs = 500
 let continuationRetryTimer: ReturnType<typeof setTimeout> | null = null
+let gapTransition: {
+  sourceWindowId: string
+  targetWindowId: string | null
+  targetCaptureTimeUs: string
+  gapDurationUs: string
+  resumePlayback: boolean
+} | null = null
 let windowCreatePromise: ReturnType<typeof dvr.create> | null = null
 let windowCreateTarget: string | undefined
 let windowCreateMode: 'live' | 'archive' | undefined
-let keyPointNudgeTargetId: string | null = null
 const framePreviewTargetSeconds = ref<number | null>(null)
 const framePreviewCaptureTimeUs = ref<string | null>(null)
 let framePreviewRaf: number | null = null
-let framePreviewSeekElement: HTMLVideoElement | null = null
 let framePreviewWindowKey = ''
 let estimatedFrameSeconds: number | null = null
 let framePreviewCalibrationGeneration = 0
@@ -374,27 +439,9 @@ watch(
   },
   { immediate: true },
 )
-const keyPointNavigation = useCoalescedFrameNavigation({
-  preview: previewKeyPointNudge,
-  step: performKeyPointNudge,
-  apply: frame => {
-    overlayPlayer.value?.seekCanonicalFrame(frame)
-  },
-  onError: error => {
-    toast.error(error instanceof Error ? error.message : '擊球點微調失敗')
-  },
-  onSettled: () => {
-    if (keyPointNudgeTargetId) clearKeyPointMovePreview(keyPointNudgeTargetId)
-    keyPointNudgeTargetId = null
-    releaseEditingIntent()
-    frameGestureRouter.clear('key-point')
-  },
-  settleMs: 90,
-  holdWatchdogMs: 650,
-})
 const frameGestureRouter = createFrameNavigationGestureRouter({
   player: frameNavigation,
-  'key-point': keyPointNavigation,
+  'key-point': keyPointEditing.navigation,
 })
 watchEffect(() => {
   frameQueueRunning.value = frameNavigation.running.value
@@ -418,15 +465,6 @@ const controls = computed(() =>
     ...commandAvailability(command.action),
   })),
 )
-const commandAvailabilityMap = computed(() =>
-  Object.fromEntries(
-    controls.value.map(control => [
-      control.action,
-      { enabled: control.enabled, reason: control.reason },
-    ]),
-  ),
-)
-
 watch(annotation.lastAutoCorrections, repairs => {
   if (!repairs.length) return
   const counts = new Map<string, number>()
@@ -646,6 +684,29 @@ const clipSelected = computed(() =>
       selectedTimelineItem.value === 'point'),
   ),
 )
+const segmentManagement = createSegmentManagementService({
+  matchId,
+  core,
+  coach: coachDomain,
+  room: annotation,
+  selection: workstationSelection,
+  timeline: timelineSelection,
+  actions: workstationActions,
+  confirmation: workstationConfirmation,
+  feedback: workstationFeedback,
+  editReady: () => editReady.value,
+  currentSet: () => currentSet.value,
+  leftTeam: () => leftTeam.value,
+  rightTeam: () => rightTeam.value,
+  currentDraft: () => Boolean(currentOrdinaryDraft.value),
+  sideSwapEffectiveOrdinal: () => sideSwapEffectiveOrdinal.value,
+  selectedRallyId: () => selectedRallyId.value,
+  clipSelected: () => clipSelected.value,
+  teamById: teamId => coach.data.value?.match.teams.find(team => team.id === teamId) ?? null,
+  refreshMatch: () => loadMatch({ silent: true }),
+  refreshCoach: coach.refresh,
+  closePlacement: () => matchInspector.value?.closePlacement(),
+})
 const displayedCorrectionDraft = computed(() =>
   Boolean(
     ['OPEN', 'READY'].includes(state.value) &&
@@ -678,10 +739,11 @@ const correctionBlockReason = computed(() => {
 const editorSelectedAnalysisRunId = computed(() =>
   selectedCorrectionDraft.value ? null : selectedAnalysisRunId.value,
 )
-const editorOverlayAnalysisRunId = computed(() =>
-  selectedCorrectionDraft.value
-    ? null
-    : (activeOverlayAnalysisRunId.value ?? selectedAnalysisRunId.value),
+// A correction edits human annotation truth, not the predecessor analysis.
+// Keep that completed run available as a read-only overlay for visual context;
+// only the analysis editor itself is disabled until the correction is sent.
+const editorOverlayAnalysisRunId = computed(
+  () => activeOverlayAnalysisRunId.value ?? selectedAnalysisRunId.value,
 )
 const editorOverlayClipStart = computed(
   () =>
@@ -692,6 +754,9 @@ const editorOverlayClipStart = computed(
 )
 const editorMappingAvailable = computed(
   () => !selectedCorrectionDraft.value && mappingAvailable.value,
+)
+const editorMappingCompleted = computed(() =>
+  Boolean(selectedRally.value?.submission.analysis?.identity_mapping_completed),
 )
 const overlayReplay = shallowRef<CoachRallyReplay | null>(null)
 let overlayReplayGeneration = 0
@@ -751,12 +816,8 @@ const overlayTeamLabels = computed(() => ({
     '右隊',
 }))
 const analysisReview = useAnalysisReview(editorSelectedAnalysisRunId)
-const confirmSecondaryLabel = computed(() =>
-  confirmAction.value === 'correction-submit'
-    ? '保留目前標記點'
-    : confirmAction.value === 'single-serve'
-      ? '發球得分'
-      : null,
+const confirmSecondaryLabel = computed(
+  () => workstationConfirmation.current.value?.secondaryLabel ?? null,
 )
 const analysisOverlayActive = computed(() =>
   Boolean(
@@ -807,38 +868,13 @@ const contactActorProjections = computed<Record<string, number | null>>(() =>
       .map(([keyPointId, projection]) => [keyPointId, projection.track_id]),
   ),
 )
+const analysisDependenciesPending = computed(() =>
+  [...analysisReview.contactActorProjections.value.values()].some(
+    projection => projection.status === 'pending' || projection.status === 'running',
+  ),
+)
 const contactTimeCorrections = computed<Record<string, number>>(() =>
   Object.fromEntries(analysisReview.contactTimeCorrections.value),
-)
-const selectedOverlayAction = computed(() =>
-  selectedOverlayTrackId.value === null
-    ? null
-    : (currentActionCorrections.value[selectedOverlayTrackId.value] ??
-      selectedOverlayTrackAction.value),
-)
-const currentActionHasOverride = computed(
-  () =>
-    selectedOverlayTrackId.value !== null &&
-    analysisReview.actionCorrections.value.has(
-      `${currentOverlayFrame.value}:${selectedOverlayTrackId.value}`,
-    ),
-)
-const currentBBoxHasOverride = computed(
-  () =>
-    selectedOverlayTrackId.value !== null &&
-    analysisReview.playerBBoxCorrections.value.has(
-      `${currentOverlayFrame.value}:${selectedOverlayTrackId.value}`,
-    ),
-)
-const selectedAnalysisHit = computed(
-  () =>
-    overlayEvents.value.find(event => event.key_point_id === selectedAnalysisHitId.value) ?? null,
-)
-const selectedAnalysisHitHasOverride = computed(() =>
-  Boolean(
-    selectedAnalysisHitId.value &&
-    analysisReview.contactActorCorrections.value.has(selectedAnalysisHitId.value),
-  ),
 )
 function effectiveContactFrame(keyPointId: string, fallbackFrame: number) {
   return analysisReview.contactTimeCorrections.value.get(keyPointId) ?? fallbackFrame
@@ -956,42 +992,135 @@ const removedAnalysisHitItems = computed(() =>
     })
     .sort((left, right) => left.frameIndex - right.frameIndex),
 )
+const analysisRevision = createAnalysisRevisionService({
+  manager: workstationActions,
+  review: analysisReview,
+  feedback: workstationFeedback,
+  selectedAnalysisRunId: () => editorSelectedAnalysisRunId.value,
+  overlayActive: () => analysisOverlayActive.value,
+  currentFrame: currentOverlayFrame,
+  hits: () => analysisHitItems.value,
+  resolveHitFrame: keyPointId => {
+    const event = overlayEvents.value.find(candidate => candidate.key_point_id === keyPointId)
+    if (event) return effectiveContactFrame(keyPointId, replayEventFrame(event))
+    const manual = analysisReview.contactEdits.value.get(keyPointId)
+    return manual && !manual.deleted ? Number(manual.frame_index) : null
+  },
+  seekFrame: frameIndex => {
+    const captureTime = overlayPlayer.value?.overlayFrameCaptureTime(frameIndex)
+    if (captureTime) return seekTimeline(captureTime)
+    prepareAuthoritativeSeek()
+    overlayPlayer.value?.seekOverlayFrameIfBuffered(frameIndex)
+  },
+  refreshCoach: coach.refresh,
+  refreshOverlay: refreshOverlayReplay,
+  dependenciesPending: () => analysisDependenciesPending.value,
+  hasBallOverride: () => Boolean(currentBallOverride.value),
+  hasBBoxOverride: () => currentBBoxHasOverride.value,
+  hasActorOverride: () => selectedAnalysisHitHasOverride.value,
+  hasActionOverride: () => currentActionHasOverride.value,
+})
+const identityReplacementWarning = useIdentityReplacementWarning()
+const identityAssignment = createIdentityAssignmentControllerService(
+  {
+    matchId,
+    analysisRunId: editorSelectedAnalysisRunId,
+    currentFrame: currentOverlayFrame,
+    enabled: editorMappingAvailable,
+    refreshKey: mappingRefreshToken,
+    mappingCompleted: editorMappingCompleted,
+    refreshAfterCommit: true,
+    onChanged: handleMappingChanged,
+    onCommitted: () => {
+      trackPopover.open = false
+    },
+  },
+  coachDomain,
+  identityReplacementWarning.enabled,
+  workstationActions,
+)
+const analysisRevisionMode = analysisRevision.revisionMode
+const analysisPanelPage = analysisRevision.panelPage
+const ballRelabelEnabled = analysisRevision.ballRelabelEnabled
+const bboxRelabelEnabled = analysisRevision.bboxRelabelEnabled
+const actorAssignmentMode = analysisRevision.actorAssignmentMode
+const selectedOverlayTrackId = analysisRevision.selectedTrackId
+const selectedOverlayTrackAction = analysisRevision.selectedTrackAction
+const selectedAnalysisHitId = analysisRevision.selectedHitId
+const selectedOverlayAction = computed(() =>
+  selectedOverlayTrackId.value === null
+    ? null
+    : (currentActionCorrections.value[selectedOverlayTrackId.value] ??
+      selectedOverlayTrackAction.value),
+)
+const currentActionHasOverride = computed(
+  () =>
+    selectedOverlayTrackId.value !== null &&
+    analysisReview.actionCorrections.value.has(
+      `${currentOverlayFrame.value}:${selectedOverlayTrackId.value}`,
+    ),
+)
+const currentBBoxHasOverride = computed(
+  () =>
+    selectedOverlayTrackId.value !== null &&
+    analysisReview.playerBBoxCorrections.value.has(
+      `${currentOverlayFrame.value}:${selectedOverlayTrackId.value}`,
+    ),
+)
+const selectedAnalysisHit = computed(
+  () =>
+    overlayEvents.value.find(event => event.key_point_id === selectedAnalysisHitId.value) ?? null,
+)
+const selectedAnalysisHitHasOverride = computed(() =>
+  Boolean(
+    selectedAnalysisHitId.value &&
+    analysisReview.contactActorCorrections.value.has(selectedAnalysisHitId.value),
+  ),
+)
 const analysisToolboxMode = computed<'ball' | 'bbox' | 'actor' | 'track' | null>(() => {
-  if (!analysisOverlayActive.value || inspectorTab.value !== 'analysis') return null
+  if (
+    !analysisRevisionMode.value ||
+    !analysisOverlayActive.value ||
+    inspectorTab.value !== 'analysis'
+  )
+    return null
   if (analysisPanelPage.value === 'hits' && selectedAnalysisHitId.value) return 'actor'
   if (analysisPanelPage.value === 'ball') return 'ball'
   if (analysisPanelPage.value !== 'players') return null
   return bboxRelabelEnabled.value && selectedOverlayTrackId.value !== null ? 'bbox' : 'track'
 })
-watch(editorSelectedAnalysisRunId, () => {
-  analysisPanelPage.value = 'root'
-  ballRelabelEnabled.value = false
-  bboxRelabelEnabled.value = false
-  actorAssignmentMode.value = false
-  selectedOverlayTrackId.value = null
-  selectedAnalysisHitId.value = null
-})
-watch(overlayEvents, events => {
-  if (
-    selectedAnalysisHitId.value &&
-    events.some(event => event.key_point_id === selectedAnalysisHitId.value)
-  )
-    return
-  selectedAnalysisHitId.value = events[0]?.key_point_id ?? null
+watch(analysisHitItems, () => {
+  analysisRevision.reconcileHits()
 })
 watch(inspectorTab, tab => {
   if (tab === 'analysis') return
-  analysisPanelPage.value = 'root'
-  ballRelabelEnabled.value = false
-  bboxRelabelEnabled.value = false
-  actorAssignmentMode.value = false
+  analysisRevision.closePanel()
   if (tab !== 'mapping') trackPopover.open = false
 })
-watch(analysisPanelPage, page => {
-  ballRelabelEnabled.value = page === 'ball'
-  actorAssignmentMode.value = page === 'hits'
-  bboxRelabelEnabled.value = false
-  if (page !== 'players') selectedOverlayTrackId.value = null
+
+const displayedTimelineSegments = computed(() => {
+  const rallyId = selectedRallyId.value
+  if (!analysisRevisionMode.value || !rallyId) return timelineSegments.value
+  const points = analysisHitItems.value.flatMap(hit => {
+    const captureTimeUs = overlayPlayer.value?.overlayFrameCaptureTime(hit.frameIndex) ?? null
+    return captureTimeUs
+      ? [
+          {
+            id: hit.keyPointId,
+            markerKind: 'contact',
+            isTerminal: false,
+            captureTimeUs,
+          },
+        ]
+      : []
+  })
+  // Do not publish a partially mapped optimistic rail. Once the overlay timing
+  // manifest is ready every frame resolves; until then the canonical server rail
+  // remains visible.
+  if (points.length !== analysisHitItems.value.length) return timelineSegments.value
+  return timelineSegments.value.map(segment =>
+    segment.id === rallyId ? { ...segment, points } : segment,
+  )
 })
 const selectedHistoricalSegmentId = computed(() =>
   selectedCurrentMask.value ? null : selectedRallyId.value,
@@ -1017,6 +1146,11 @@ const liveTarget = computed(() =>
 const visualPlayhead = computed(() => {
   if (frameNavigation.active.value && framePreviewCaptureTimeUs.value)
     return framePreviewCaptureTimeUs.value
+  const selectedPointPreview = selectedKeyPointId.value
+    ? keyPointEditing.optimisticMoves.value[selectedKeyPointId.value]
+    : null
+  if (keyPointEditing.navigation.active.value && selectedPointPreview) return selectedPointPreview
+  if (optimisticSeekCaptureTimeUs.value) return optimisticSeekCaptureTimeUs.value
   const cursor = observedCursor.value
   const window = descriptor.value
   if (
@@ -1034,8 +1168,15 @@ const visualPlayhead = computed(() => {
 })
 const navigableKeyPoints = computed(() => {
   const currentRallyId = displayAnnotation.value?.rally_id ?? null
+  const activeSubmissionId = displayAnnotation.value?.snapshot.active_submission_id
   const submitted = submittedRallies.value.flatMap(rally =>
-    rally.id === currentRallyId
+    rally.id === currentRallyId ||
+    isSupersededSourceSubmission({
+      activeSubmissionId,
+      currentRallyId,
+      rallyId: rally.id,
+      submissionId: rally.submission.id,
+    })
       ? []
       : rally.submission.key_points.map(point => ({
           id: point.id,
@@ -1071,14 +1212,17 @@ const selectedEditableKeyPoint = computed(() =>
   ),
 )
 const defaultPlaybackTarget = computed(() => {
+  const availableRanges = timeline.value?.availableRanges ?? []
   const restoredCursor = restoredWorkstationState.value?.cursorCaptureTimeUs
-  if (restoredCursor) return restoredCursor
+  if (restoredCursor && readyAt(restoredCursor, availableRanges)) return restoredCursor
   if (liveCapture.value) return timelineEndTarget.value
 
-  const earliestKeyPoint = navigableKeyPoints.value[0]?.captureTimeUs
+  const earliestKeyPoint = navigableKeyPoints.value.find(point =>
+    readyAt(point.captureTimeUs, availableRanges),
+  )?.captureTimeUs
   if (earliestKeyPoint) return earliestKeyPoint
 
-  return timeline.value?.availableRanges[0]?.startUs ?? null
+  return availableRanges[0]?.startUs ?? null
 })
 const defaultPlaybackWindowMode = computed<'live' | 'archive'>(() =>
   restoredWorkstationState.value?.cursorCaptureTimeUs
@@ -1116,148 +1260,33 @@ const mediaEmptyLabel = computed(() => {
   if (playbackMode.value === 'progressive_vod') return '影片載入中'
   return '媒體緩衝中'
 })
-function openSettings(page: 'root' | 'media' | 'overlay' | 'clip' | 'hotkeys' = 'root') {
-  settingsInitialPage.value = page
-  settingsOpen.value = true
-}
-
-function setAnnotationOverlayEnabled(enabled: boolean) {
-  annotationOverlayEnabled.value = enabled
-  if (!import.meta.client) return
-  try {
-    localStorage.setItem('annotation.overlay.enabled', String(enabled))
-  } catch {
-    // Display preferences must never block annotation commands.
-  }
-}
-
-function previewKeyPointMove(keyPointId: string, captureTimeUs: string) {
-  optimisticKeyPointMoves.value = {
-    ...optimisticKeyPointMoves.value,
-    [keyPointId]: captureTimeUs,
-  }
-}
-
-function clearKeyPointMovePreview(keyPointId: string) {
-  const next = { ...optimisticKeyPointMoves.value }
-  Reflect.deleteProperty(next, keyPointId)
-  optimisticKeyPointMoves.value = next
-}
-
-function movedPointWouldOverlap(keyPointId: string, targetCaptureTimeUs: string) {
-  const snapshot = annotation.snapshot.value
-  if (!snapshot) return true
-  const range = paddedClipRange(
-    snapshot.snapshot.key_points.map(point =>
-      point.key_point_id === keyPointId ? targetCaptureTimeUs : point.capture_time_us,
-    ),
-    clipPreRollUs.value,
-    clipPostRollUs.value,
-  )
-  return !range || clipRangeOverlaps(range, protectedSegmentRanges.value, snapshot.rally_id)
-}
-
-function shortcutForAction(action: AnnotationAction): BallEventShortcut | null {
-  if (action === 'spike') return 'C'
-  if (action === 'receive_success') return 'V'
-  if (action === 'receive_error') return 'B'
-  return null
-}
-
-function ballEventCommandAvailability(action: AnnotationAction) {
-  const shortcut = shortcutForAction(action)
-  if (!shortcut) return null
-  const snapshot = displayAnnotation.value
-  if (!snapshot || !['open', 'ready'].includes(snapshot.snapshot.annotation_status))
-    return { enabled: false, reason: '尚未開始片段' }
-  if (!annotation.draftOwnedByClient.value)
-    return { enabled: false, reason: '此片段屬於另一個標註客戶端，只能檢視' }
-  if (!selectedKeyPointId.value && (!canMark.value || !visualPlayhead.value))
-    return { enabled: false, reason: '游標尚未確認' }
-  const decision = decideBallEventShortcut({
-    shortcut,
-    points: snapshot.snapshot.key_points.map(point => ({
-      key_point_id: point.key_point_id,
-      sequence_index: point.sequence_index,
-      capture_time_us: point.capture_time_us,
-      capture_frame_index: point.capture_frame_index,
-      event: point.ball_event ?? null,
-    })),
-    boundaries: snapshot.snapshot.boundaries,
-    selected_key_point_id: selectedKeyPointId.value,
-    candidate_anchor:
-      visualPlayhead.value && authoritativeAnchor.value?.capture_frame_index
-        ? {
-            capture_time_us: visualPlayhead.value,
-            capture_frame_index: authoritativeAnchor.value.capture_frame_index,
-          }
-        : null,
-  })
-  if (decision.allowed) return { enabled: true, reason: '' }
-  const reasons = {
-    NO_TARGET_POINT: '請先選擇擊球點，或等待目前畫格確認',
-    SPIKE_REQUIRES_THIRD_POINT: '殺球只能標在第三球以後',
-    RECEIVE_REQUIRES_SECOND_POINT: '接發只能標在第二球',
-    OUTSIDE_RALLY_BOUNDARY: '目前畫格不在片段範圍內',
-  } as const
-  return { enabled: false, reason: reasons[decision.reason] }
-}
+const annotationActions = createAnnotationActionService({
+  manager: workstationActions,
+  room: annotation,
+  commandReady,
+  state,
+  correctionActive,
+  canMark,
+  visualPlayhead,
+  authoritativeFrameIndex: computed(() => authoritativeAnchor.value?.capture_frame_index ?? null),
+  selectedKeyPointId,
+  displayAnnotation,
+  observedCursor,
+  clipPreRollUs,
+  clipPostRollUs,
+  protectedSegments: protectedSegmentRanges,
+  singleServeNeedsDecision,
+  requestSingleServeDecision,
+  correctionSubmitRequired: computed(() => Boolean(displayedCorrectionDraft.value)),
+  requestCorrectionSubmit,
+  eventEditReady: computed(() => editableDraftState.value && editReady.value),
+  submitReady: computed(
+    () => selectedEditableDraft.value && editReady.value && !correctionSubmitting.value,
+  ),
+})
 
 function commandAvailability(action: AnnotationAction) {
-  if (!commandReady.value)
-    return {
-      enabled: false,
-      reason: '標記狀態有衝突，請按上方「重新同步」',
-    }
-  const viewingOtherClientDraft =
-    (state.value === 'OPEN' || state.value === 'READY') && !annotation.draftOwnedByClient.value
-  if (viewingOtherClientDraft && action !== 'service')
-    return { enabled: false, reason: '此片段屬於另一個標註客戶端，只能檢視' }
-  if (action === 'submit')
-    return state.value === 'READY' || (state.value === 'OPEN' && correctionActive.value)
-      ? { enabled: true, reason: '' }
-      : { enabled: false, reason: '片段尚未完成' }
-  if (action === 'service') {
-    const localDraft = annotation.draftOwnedByClient.value
-    const startBoundary = localDraft
-      ? displayAnnotation.value?.snapshot.boundaries?.find(boundary => boundary.kind === 'start')
-      : undefined
-    const otherBoundaries = localDraft
-      ? (displayAnnotation.value?.snapshot.boundaries
-          ?.filter(boundary => boundary.kind !== 'start')
-          .map(boundary => boundary.capture_time_us) ?? [])
-      : []
-    return boundaryCommandAvailability({
-      state: localDraft ? state.value : 'IDLE',
-      activeSubmissionId: localDraft
-        ? displayAnnotation.value?.snapshot.active_submission_id
-        : null,
-      canMark: canMark.value,
-      cursorCaptureTimeUs: visualPlayhead.value,
-      currentRallyId: localDraft ? displayAnnotation.value?.rally_id : null,
-      startBoundaryCaptureTimeUs: startBoundary?.capture_time_us,
-      currentDraftCaptureTimes: [
-        ...(startBoundary ? [startBoundary.capture_time_us] : []),
-        ...(displayAnnotation.value?.snapshot.key_points.map(point => point.capture_time_us) ?? []),
-        ...otherBoundaries,
-      ],
-      clipPreRollUs: clipPreRollUs.value,
-      clipPostRollUs: clipPostRollUs.value,
-      segments: protectedSegmentRanges.value,
-    })
-  }
-  const ballEventAvailability = ballEventCommandAvailability(action)
-  if (ballEventAvailability) return ballEventAvailability
-  return draftCommandAvailability({
-    action,
-    state: state.value,
-    canMark: canMark.value,
-    cursorCaptureTimeUs: visualPlayhead.value,
-    serviceCaptureTimeUs:
-      displayAnnotation.value?.snapshot.boundaries?.find(boundary => boundary.kind === 'start')
-        ?.capture_time_us ?? null,
-    confirmedLastKeyPointId: annotation.lastKeyPoint.value?.key_point_id ?? null,
-  })
+  return annotationActions.availability(action)
 }
 
 function formatDuration(value?: string | null) {
@@ -1302,24 +1331,6 @@ async function refreshSelectedCapture() {
   }
 }
 
-async function updateClipPolicy(preRollSeconds: number, postRollSeconds: number) {
-  clipPolicySaving.value = true
-  clipPolicyError.value = null
-  try {
-    match.value = await core.updateMatchClipPolicy({
-      matchId,
-      preRollSeconds,
-      postRollSeconds,
-    })
-    await coach.refresh()
-    toast.success('片段範圍已更新')
-  } catch (error) {
-    clipPolicyError.value = error instanceof Error ? error.message : '片段範圍儲存失敗'
-  } finally {
-    clipPolicySaving.value = false
-  }
-}
-
 async function resolveLatestCursor() {
   cursorResolveTimer = null
   if (cursorResolveInFlight || !pendingCursorResolve) return
@@ -1331,28 +1342,7 @@ async function resolveLatestCursor() {
     const resolved = await dvr.resolve(cursor)
     if (resolved)
       lastResolvedCursorKey = `${cursor.playback_window_id}:${cursor.mapping_version}:${cursor.seek_generation}:${cursor.player_media_time_us}`
-    const timelineMove = pendingTimelineMove.value
-    if (resolved && timelineMove && timelineMove.playbackWindowId === cursor.playback_window_id) {
-      pendingTimelineMove.value = null
-      if (timelineMoveTimeout) clearTimeout(timelineMoveTimeout)
-      timelineMoveTimeout = null
-      try {
-        if (
-          editableDraftState.value &&
-          selectedKeyPointId.value === timelineMove.keyPointId &&
-          editReady.value
-        ) {
-          await annotation.edit('MOVE_KEY_POINT', {
-            keyPointId: timelineMove.keyPointId,
-            cursor,
-          })
-        }
-      } finally {
-        clearKeyPointMovePreview(timelineMove.keyPointId)
-        releaseEditingIntent()
-      }
-      return
-    }
+    if (await keyPointEditing.completeResolvedMove(cursor, resolved)) return
   } catch (error) {
     mediaError.value = error instanceof Error ? error.message : '游標解析失敗'
   } finally {
@@ -1373,13 +1363,14 @@ function handleCursor(cursor: PlaybackCursorInput) {
   const previousSeekGeneration = observedCursor.value?.seek_generation
   observedCursor.value = cursor
   cursorStatus.value = cursor.cursor_status
+  settleOptimisticSeekFromCursor(cursor)
   // Frame stepping owns the player position until its authoritative queue has
   // drained. Browser seek callbacks are observations of the optimistic preview,
   // not new commands that should race the canonical sample-index resolver.
   if (
     seekPreviewActive.value ||
     ((frameQueueRunning.value || frameQueuePending.value) && frameStepReady()) ||
-    keyPointNavigation.active.value
+    keyPointEditing.navigation.active.value
   )
     return
   if (cursor.cursor_status !== 'ready') {
@@ -1406,6 +1397,7 @@ function handleCursor(cursor: PlaybackCursorInput) {
 async function createWindow(
   target = captureTarget.value || undefined,
   requestedMode?: 'live' | 'archive',
+  forceNewWindow = false,
 ) {
   const mode = requestedMode ?? (target === liveTarget.value ? 'live' : 'archive')
   const safeTarget =
@@ -1414,6 +1406,7 @@ async function createWindow(
       : target
   const current = descriptor.value
   if (
+    !forceNewWindow &&
     current &&
     safeTarget &&
     current.capture_session_id === selectedCapture.value?.id &&
@@ -1469,17 +1462,50 @@ async function createWindow(
 }
 
 async function seekTimeline(targetCaptureTimeUs: string) {
+  gapTransition = null
   seekPreviewActive.value = false
   if (seekPreviewTimer) clearTimeout(seekPreviewTimer)
+  if (video.value && !video.value.paused) video.value.pause()
   prepareAuthoritativeSeek()
-  keyPointNavigation.cancel()
+  keyPointEditing.navigation.cancel()
   seekPreviewTimer = null
   const target = liveCapture.value
     ? clampLiveEdgeTarget(targetCaptureTimeUs, timeline.value?.availableRanges ?? [])
     : targetCaptureTimeUs
+  setOptimisticSeekTarget(target)
   captureTarget.value = target
   if (overlayPlayer.value?.seekCaptureTimeIfBuffered(target)) return
-  await createWindow(target)
+  const created = await createWindow(target, undefined, true)
+  if (!created && optimisticSeekCaptureTimeUs.value === target) clearOptimisticSeekTarget()
+}
+
+function setOptimisticSeekTarget(targetCaptureTimeUs: string) {
+  optimisticSeekCaptureTimeUs.value = targetCaptureTimeUs
+  if (optimisticSeekTimer) clearTimeout(optimisticSeekTimer)
+  optimisticSeekTimer = setTimeout(clearOptimisticSeekTarget, 12_000)
+}
+
+function clearOptimisticSeekTarget() {
+  optimisticSeekCaptureTimeUs.value = null
+  if (optimisticSeekTimer) clearTimeout(optimisticSeekTimer)
+  optimisticSeekTimer = null
+}
+
+function settleOptimisticSeekFromCursor(cursor: PlaybackCursorInput) {
+  const target = optimisticSeekCaptureTimeUs.value
+  const window = descriptor.value
+  if (
+    !target ||
+    cursor.cursor_status !== 'ready' ||
+    !window ||
+    cursor.playback_window_id !== window.playback_window_id ||
+    cursor.mapping_version !== window.mapping_version
+  )
+    return
+  const observed =
+    BigInt(window.presentation_origin_capture_us) + BigInt(cursor.player_media_time_us)
+  const difference = observed - BigInt(target)
+  if ((difference < 0n ? -difference : difference) <= 100_000n) clearOptimisticSeekTarget()
 }
 
 function prepareAuthoritativeSeek() {
@@ -1513,686 +1539,44 @@ function singleServeNeedsDecision() {
   return event?.kind !== 'SERVE' || !['POINT_SCORED', 'ERROR'].includes(event.result ?? '')
 }
 
-async function setSelectedBallEvent(event: BallEventValue) {
-  const keyPointId = selectedKeyPointId.value
-  if (!keyPointId || !editableDraftState.value || !editReady.value) return
-  try {
-    await annotation.setBallEvent(keyPointId, event)
-  } catch (error) {
-    toast.error(error instanceof Error ? error.message : '球種更新失敗')
-  }
-}
-
-async function setSelectedBallEventActor(actorRosterEntryId: string | null) {
-  const keyPointId = selectedKeyPointId.value
-  if (!keyPointId || !editableDraftState.value || !editReady.value) return
-  try {
-    await annotation.setBallEventActor(keyPointId, actorRosterEntryId)
-  } catch (error) {
-    toast.error(error instanceof Error ? error.message : '球員關聯更新失敗')
-  }
+function requestSingleServeDecision() {
+  workstationConfirmation.open({
+    id: 'single-serve-result',
+    title: '確認發球結果',
+    message:
+      '這個片段只有一個球點。請確認這次發球是直接得分，還是發球失誤；送出後會成為教練統計的正式結果。',
+    confirmLabel: '發球失誤',
+    secondaryLabel: '發球得分',
+    onConfirm: () => applySingleServeDecision('ERROR'),
+    onSecondary: () => applySingleServeDecision('POINT_SCORED'),
+  })
 }
 
 async function applySingleServeDecision(result: 'POINT_SCORED' | 'ERROR') {
   const point = displayAnnotation.value?.snapshot.key_points[0]
   if (!point) return
-  confirmAction.value = null
   try {
     await annotation.setBallEvent(point.key_point_id, { kind: 'SERVE', result })
-    dispatchAnnotationAction('submit')
+    void workstationActions.execute('submission.submit')
   } catch (error) {
     toast.error(error instanceof Error ? error.message : '無法更新發球結果')
   }
 }
 
-function dispatchAnnotationAction(action: AnnotationAction) {
-  const control = controls.value.find(item => item.action === action)
-  if (!control?.enabled) return
-  if (action === 'submit' && singleServeNeedsDecision()) {
-    confirmAction.value = 'single-serve'
-    return
-  }
-  if (action === 'submit' && displayedCorrectionDraft.value) {
-    requestCorrectionSubmit()
-    return
-  }
-  const captureTimeUs = visualPlayhead.value
-  try {
-    annotation.dispatch(
-      action,
-      observedCursor.value,
-      captureTimeUs
-        ? {
-            capture_time_us: captureTimeUs,
-            capture_frame_index: authoritativeAnchor.value?.capture_frame_index ?? null,
-          }
-        : undefined,
-      selectedKeyPointId.value,
-    )
-  } catch {
-    /* the composable exposes the actionable error state */
-  }
-}
-
-function editKeyPoint(kind: 'MOVE_KEY_POINT' | 'DELETE_KEY_POINT') {
-  if (!selectedKeyPointId.value || !editableDraftState.value || !editReady.value) return
-  if (kind === 'MOVE_KEY_POINT' && !canMark.value) return
-  if (kind === 'MOVE_KEY_POINT') annotation.setEditingKeyPoint(selectedKeyPointId.value)
-  void annotation
-    .edit(kind, {
-      keyPointId: selectedKeyPointId.value,
-      cursor: observedCursor.value,
-    })
-    .then(() => {
-      if (kind === 'DELETE_KEY_POINT')
-        selectedKeyPointId.value = annotation.lastKeyPoint.value?.key_point_id ?? null
-    })
-    .catch(() => undefined)
-    .finally(() => {
-      if (kind === 'MOVE_KEY_POINT') releaseEditingIntent()
-    })
-}
-
-function selectTimelineKeyPoint(keyPointId: string) {
-  annotationPointNavigationGeneration += 1
-  navigationKeyPointId.value = keyPointId
-  pinnedRallyId.value = displayAnnotation.value?.rally_id ?? null
-  selectedKeyPointId.value = keyPointId
-  selectedTimelineItem.value = 'point'
-}
-
-function selectTimelineMask() {
-  annotationPointNavigationGeneration += 1
-  navigationKeyPointId.value = null
-  pinnedRallyId.value = displayAnnotation.value?.rally_id ?? null
-  selectedTimelineItem.value = 'mask'
-  selectedKeyPointId.value = null
-}
-
-function clearTimelineSelection() {
-  annotationPointNavigationGeneration += 1
-  navigationKeyPointId.value = null
-  pinnedRallyId.value = null
-  selectedTimelineItem.value = cursorRallyId.value ? 'segment' : null
-  selectedKeyPointId.value = null
-}
-
-async function selectHistoricalSegment(segmentId: string, targetCaptureTimeUs: string) {
-  const draft = annotationDrafts.value.find(candidate => candidate.id === segmentId)
-  if (draft) {
-    await annotation.selectRally(draft.id)
-    pinnedRallyId.value = draft.id
-    selectedTimelineItem.value = 'mask'
-    selectedKeyPointId.value = null
-    if (targetCaptureTimeUs !== '0') await seekTimeline(targetCaptureTimeUs)
-    return
-  }
-  pinnedRallyId.value = segmentId
-  selectedTimelineItem.value = 'segment'
-  selectedKeyPointId.value = null
-}
-
-function selectTimelineAnalysis(segmentId: string) {
-  pinnedRallyId.value = segmentId
-  selectedTimelineItem.value = 'segment'
-  selectedKeyPointId.value = null
-  inspectorTab.value = 'analysis'
-}
-
-function selectRally(rally: CoachRally) {
-  pinnedRallyId.value = rally.id
-  selectedTimelineItem.value = 'segment'
-  selectedKeyPointId.value = null
-  if (rally.submission.clip) void seekTimeline(rally.submission.clip.start_capture_time_us)
-}
-
-function releaseEditingIntent() {
-  annotation.setEditingKeyPoint(null)
-}
-
-function beginTimelineKeyPointEdit(keyPointId: string) {
-  if (!editableDraftState.value || !editReady.value) return
-  selectTimelineKeyPoint(keyPointId)
-  annotation.setEditingKeyPoint(keyPointId)
-}
-
-function cancelTimelineKeyPointEdit(keyPointId: string) {
-  if (pendingTimelineMove.value?.keyPointId === keyPointId) return
-  releaseEditingIntent()
-}
-
-async function moveTimelineKeyPoint(keyPointId: string, targetCaptureTimeUs: string) {
-  if (!editableDraftState.value || !editReady.value || !selectedCapture.value) {
-    releaseEditingIntent()
-    return
-  }
-  if (movedPointWouldOverlap(keyPointId, targetCaptureTimeUs)) {
-    toast.error('移動後的片段範圍會與其他片段重疊')
-    releaseEditingIntent()
-    return
-  }
-  previewKeyPointMove(keyPointId, targetCaptureTimeUs)
-  selectedKeyPointId.value = keyPointId
-  annotation.setEditingKeyPoint(keyPointId)
-  pendingTimelineMove.value = { keyPointId, playbackWindowId: null }
-  try {
-    prepareAuthoritativeSeek()
-    if (descriptor.value && overlayPlayer.value?.seekCaptureTimeIfBuffered(targetCaptureTimeUs)) {
-      pendingTimelineMove.value = {
-        keyPointId,
-        playbackWindowId: descriptor.value.playback_window_id,
-      }
-      timelineMoveTimeout = setTimeout(() => {
-        if (pendingTimelineMove.value?.keyPointId !== keyPointId) return
-        pendingTimelineMove.value = null
-        timelineMoveTimeout = null
-        clearKeyPointMovePreview(keyPointId)
-        toast.error('無法解析拖曳位置，擊球點未變更')
-        releaseEditingIntent()
-      }, 8_000)
-      return
-    }
-    const created = await dvr.create({
-      schema_version: '1.0.0',
-      capture_session_id: selectedCapture.value.id,
-      mode: 'archive',
-      target_capture_time_us: targetCaptureTimeUs,
-    })
-    if (!created || pendingTimelineMove.value?.keyPointId !== keyPointId)
-      throw new Error('拖曳播放視窗已被較新的操作取代')
-    pendingTimelineMove.value = {
-      keyPointId,
-      playbackWindowId: created.playback_window_id,
-    }
-    timelineMoveTimeout = setTimeout(() => {
-      if (pendingTimelineMove.value?.keyPointId !== keyPointId) return
-      pendingTimelineMove.value = null
-      timelineMoveTimeout = null
-      clearKeyPointMovePreview(keyPointId)
-      toast.error('無法解析拖曳位置，擊球點未變更')
-      releaseEditingIntent()
-    }, 8_000)
-  } catch (error) {
-    pendingTimelineMove.value = null
-    if (timelineMoveTimeout) clearTimeout(timelineMoveTimeout)
-    timelineMoveTimeout = null
-    clearKeyPointMovePreview(keyPointId)
-    toast.error(error instanceof Error ? error.message : '拖曳擊球點失敗')
-    releaseEditingIntent()
-  }
-}
-
-function previewKeyPointNudge(delta: number) {
-  const keyPointId = keyPointNudgeTargetId
-  if (!keyPointId) return
-  const point = annotation.snapshot.value?.snapshot.key_points.find(
-    candidate => candidate.key_point_id === keyPointId,
-  )
-  if (!point || estimatedFrameSeconds === null) return
-  const estimatedFrameUs = BigInt(Math.max(1, Math.round(estimatedFrameSeconds * 1_000_000)))
-  const previewUs =
-    BigInt(optimisticKeyPointMoves.value[keyPointId] ?? point.capture_time_us) +
-    BigInt(delta) * estimatedFrameUs
-  if (previewUs >= 0n) {
-    const preview = previewUs.toString()
-    previewKeyPointMove(keyPointId, preview)
-    const window = descriptor.value
-    if (
-      video.value &&
-      window &&
-      previewUs >= BigInt(window.window_capture_start_us) &&
-      previewUs < BigInt(window.window_capture_end_us)
-    ) {
-      video.value.pause()
-      video.value.currentTime =
-        Number(previewUs - BigInt(window.presentation_origin_capture_us)) / 1_000_000
-    }
-  }
-}
-
-function nudgeSelectedKeyPoint(
-  direction: 'previous' | 'next',
-  count = 1,
-  input: 'keyboard' | 'button' = 'button',
-) {
-  const point = selectedKeyPoint.value
-  if (
-    !point ||
-    !selectedCapture.value ||
-    !editableDraftState.value ||
-    !commandReady.value ||
-    pendingTimelineMove.value ||
-    (!editReady.value && !keyPointNavigation.active.value)
-  )
-    return
-  if (keyPointNudgeTargetId && keyPointNudgeTargetId !== point.key_point_id) return
-  keyPointNudgeTargetId = point.key_point_id
-  annotation.setEditingKeyPoint(point.key_point_id)
-  keyPointNavigation.enqueue(direction, count, input)
-}
-
-async function performKeyPointNudge(direction: 'previous' | 'next', count: number) {
-  const keyPointId = keyPointNudgeTargetId
-  const point = annotation.snapshot.value?.snapshot.key_points.find(
-    candidate => candidate.key_point_id === keyPointId,
-  )
-  const capture = selectedCapture.value
-  if (!point || !capture || !editableDraftState.value) {
-    throw new Error('目前擊球點已無法編輯')
-  }
-  let window = descriptor.value
-  if (
-    !window ||
-    BigInt(point.capture_time_us) < BigInt(window.window_capture_start_us) ||
-    BigInt(point.capture_time_us) >= BigInt(window.window_capture_end_us)
-  ) {
-    window = await dvr.create({
-      schema_version: '1.0.0',
-      capture_session_id: capture.id,
-      mode: 'archive',
-      target_capture_time_us: point.capture_time_us,
-    })
-  }
-  if (!window) throw new Error('無法建立擊球點微調視窗')
-  const frame = await media.frameStep({
-    schema_version: '1.1.0',
-    capture_session_id: capture.id,
-    playback_window_id: window.playback_window_id,
-    mapping_version: window.mapping_version,
-    capture_frame_index: point.capture_frame_index,
-    direction,
-    count,
-  })
-  const cursor: PlaybackCursorInput = {
-    schema_version: '1.0.0',
-    playback_window_id: frame.playback_window_id,
-    mapping_version: frame.mapping_version,
-    player_media_time_us: frame.player_media_time_us,
-    observation_source: 'current_time_fallback',
-    presented_frames: null,
-    seek_generation: (observedCursor.value?.seek_generation ?? 0) + 1,
-    cursor_status: 'ready',
-  }
-  observedCursor.value = cursor
-  cursorStatus.value = 'ready'
-  const resolved = await dvr.resolve(cursor)
-  if (!resolved) throw new Error('伺服器無法解析微調畫格')
-  if (movedPointWouldOverlap(point.key_point_id, resolved.capture_time_us))
-    throw new Error('移動後的片段範圍會與其他片段重疊')
-  await annotation.edit('MOVE_KEY_POINT', {
-    keyPointId: point.key_point_id,
-    cursor,
-  })
-  return frame
-}
-
-function deleteSelectedKeyPoint() {
-  if (selectedDeletablePoint.value) editKeyPoint('DELETE_KEY_POINT')
-}
-
-function deleteSelectedClip() {
-  if (!clipSelected.value || !selectedRallyId.value) return
-  deleteRallyId.value = selectedRallyId.value
-  confirmAction.value = 'rally-delete'
-}
-
-function requestAnnotationResync() {
-  if (annotationResyncing.value) return
-  if (annotation.outboxNeedsConfirmation.value) {
-    confirmAction.value = 'ws-resync'
-    return
-  }
-  void performAnnotationResync(false)
-}
-
-async function performAnnotationResync(discardConflicts: boolean) {
-  if (annotationResyncing.value) return
-  annotationResyncing.value = true
-  try {
-    await annotation.resync({ discardConflicts })
-    toast.success(
-      annotation.connection.value === 'ready'
-        ? '標註狀態已重新同步'
-        : '已取得最新狀態，標註連線正在重新建立',
-    )
-  } catch (error) {
-    toast.error(error instanceof Error ? error.message : '無法重新同步標註狀態')
-  } finally {
-    annotationResyncing.value = false
-  }
-}
-
 function startCorrection() {
-  const submissionId = selectedSubmittedRally.value?.submission.id
-  if (!submissionId || correctionCreating.value) return
-  if (annotation.outboxNeedsConfirmation.value) {
-    toast.warning('先重新同步標註狀態，再建立修正版', {
-      action: { label: '重新同步', onClick: requestAnnotationResync },
-    })
-    return
-  }
-  if (annotation.pendingCount.value > 0 || annotation.busy.value || pendingTimelineMove.value) {
-    toast.info('前一筆標記操作仍在同步，完成後即可建立修正版')
-    return
-  }
-  if (
-    editorSelectedAnalysisRunId.value &&
-    analysisReview.loadedAnalysisRunId.value !== editorSelectedAnalysisRunId.value
-  ) {
-    toast.info('正在同步擊球點修改，請稍後再試')
-    return
-  }
-  if (analysisReview.dirtyCount.value > 0) {
-    toast.warning('請先套用或捨棄尚未儲存的分析修改')
-    return
-  }
-  correctionSubmissionId.value = submissionId
-  confirmAction.value = 'correction'
-}
-
-async function createSelectedCorrection(submissionId: string) {
-  if (correctionCreating.value) return
-  const correctionOperation = ++correctionOperationGeneration
-  correctionCreating.value = true
-  try {
-    const preserveAnalysisContacts = overlayEvents.value.length > 0
-    const draft = await annotation.createCorrection(submissionId, {
-      preserveAnalysisContacts,
-      regenerateAnalysisContacts: !preserveAnalysisContacts,
-    })
-    if (correctionOperation !== correctionOperationGeneration) return
-    const rallyId = draft?.rally_id
-    if (!rallyId) throw new Error('修正版已建立，但尚未取得片段狀態')
-
-    // Select the returned Rally directly. Depending on the dashboard refresh here
-    // made a successfully-created draft look like the old completed analysis.
-    pinnedRallyId.value = rallyId
-    const initialKeyPointId = annotation.lastKeyPoint.value?.key_point_id ?? null
-    selectedTimelineItem.value = initialKeyPointId ? 'point' : 'mask'
-    selectedKeyPointId.value = initialKeyPointId
-
-    if (state.value !== 'OPEN' && state.value !== 'READY') {
-      await annotation.selectRally(rallyId)
-    }
-    if (state.value !== 'OPEN' && state.value !== 'READY') {
-      throw new Error('修正版已建立，正在重新同步；請稍後再選取此片段')
-    }
-
-    await coach.refresh()
-    if (correctionOperation !== correctionOperationGeneration) return
-    toast.success('修正版草稿已建立；送出時可選擇保留或重新產生擊球點')
-  } catch (error) {
-    if (correctionOperation === correctionOperationGeneration) {
-      await coach.refresh().catch(() => undefined)
-      toast.error(error instanceof Error ? error.message : '無法建立修正版草稿')
-    }
-  } finally {
-    if (correctionOperation === correctionOperationGeneration) correctionCreating.value = false
-  }
+  correctionFlow.requestCreate()
 }
 
 function requestCorrectionSubmit() {
-  if (!displayedCorrectionDraft.value || correctionSubmitting.value) return
-  if (correctionDraftContactIds.value.length === 0) {
-    void submitSelectedCorrection('regenerate')
-    return
-  }
-  confirmAction.value = 'correction-submit'
-}
-
-async function submitSelectedCorrection(contactStrategy: 'regenerate' | 'preserve') {
-  if (correctionSubmitting.value) return
-  correctionSubmitting.value = true
-  try {
-    if (contactStrategy === 'regenerate') {
-      for (const keyPointId of [...correctionDraftContactIds.value]) {
-        await annotation.edit('DELETE_KEY_POINT', { keyPointId })
-      }
-    }
-    await annotation.submitCorrection()
-    selectedTimelineItem.value = 'segment'
-    selectedKeyPointId.value = null
-    await coach.refresh()
-    toast.success(
-      contactStrategy === 'preserve'
-        ? '修正版已送出；保留目前標記點並重新執行球員辨識與分析'
-        : '修正版已送出；AI 將重新產生擊球點並執行球員辨識',
-    )
-  } catch (error) {
-    toast.error(error instanceof Error ? error.message : '無法送出修正版')
-  } finally {
-    correctionSubmitting.value = false
-  }
+  correctionFlow.requestSubmit()
 }
 
 async function cancelCorrection() {
-  if (!correctionActive.value || correctionCancelling.value) return
-  const rallyId = correctionRallyId.value ?? displayAnnotation.value?.rally_id
-  if (!rallyId) return
-  correctionOperationGeneration++
-  correctionCancelling.value = true
-  try {
-    const restored = await annotation.cancelCorrection(rallyId)
-    pinnedRallyId.value = restored ? rallyId : null
-    selectedTimelineItem.value = restored ? 'segment' : null
-    selectedKeyPointId.value = null
-    await coach.refresh()
-    toast.success(restored ? '已取消修正，原送出版本維持有效' : '草稿已不存在，已清除本機殘留')
-  } catch (error) {
-    toast.error(error instanceof Error ? error.message : '無法取消修正版草稿，請重試')
-  } finally {
-    correctionCancelling.value = false
-  }
+  await correctionFlow.cancel()
 }
 
 function resetTimelineZoom() {
   timelineDock.value?.resetView()
-}
-
-function requestNextSet(side: 'left' | 'right') {
-  if (!currentSet.value || !editReady.value) return
-  confirmAction.value = side === 'left' ? 'next-left' : 'next-right'
-}
-
-function requestCurrentSideSwap() {
-  if (
-    !currentSet.value ||
-    !leftTeamId.value ||
-    !rightTeamId.value ||
-    !editReady.value ||
-    sideSwapPending.value
-  )
-    return
-  swapRallyTarget.value = null
-  sideSwapAffectsDraft.value = Boolean(currentOrdinaryDraft.value)
-  confirmAction.value = 'swap-segment'
-}
-
-function requestRallySideSwap(rally: CoachRally) {
-  if (
-    rally.submission.analysis?.status !== 'completed' ||
-    sideSwapPending.value ||
-    !editReady.value
-  )
-    return
-  swapRallyTarget.value = rally
-  confirmAction.value = 'swap-rally'
-}
-
-async function updateRallyPlacement(input: {
-  rallyId: string
-  setNumber: number
-  ordinal: number
-}) {
-  if (placementSaving.value) return
-  placementSaving.value = true
-  try {
-    const placement = await coachDomain.updateRallyPlacement(input)
-    await coach.refresh()
-    matchInspector.value?.closePlacement()
-    toast.success(`已調整為第 ${placement.displaySetNumber} 局 · 回合 ${placement.displayOrdinal}`)
-  } catch (error) {
-    toast.error(error instanceof Error ? error.message : '無法調整局與回合')
-  } finally {
-    placementSaving.value = false
-  }
-}
-
-function closeConfirmAction() {
-  confirmAction.value = null
-  correctionSubmissionId.value = null
-  deleteRallyId.value = null
-  swapRallyTarget.value = null
-  sideSwapAffectsDraft.value = false
-}
-
-function clearDeletedRallySelection(rallyId: string) {
-  annotation.forgetRally(rallyId)
-  if (pinnedRallyId.value === rallyId) pinnedRallyId.value = null
-  selectedTimelineItem.value = null
-  selectedKeyPointId.value = null
-}
-
-async function purgeRally(rallyId: string) {
-  if (rallyDeletePending.value) return
-  rallyDeletePending.value = true
-  try {
-    const receipt = await coachDomain.deleteRally(rallyId)
-    clearDeletedRallySelection(rallyId)
-    await Promise.all([loadMatch({ silent: true }), coach.refresh()])
-    toast.success(
-      receipt.abortedJobCount > 0 ? '片段已刪除，處理工作已中止' : '片段與分析資料已刪除',
-    )
-    for (const warning of receipt.cleanupWarnings) toast.warning(warning)
-  } catch (error) {
-    await Promise.all([loadMatch({ silent: true }), coach.refresh()])
-    if (error instanceof GraphQLRequestError && error.code === 'NOT_FOUND') {
-      clearDeletedRallySelection(rallyId)
-      toast.success('片段已刪除，已清除本機殘留')
-    } else {
-      toast.error(error instanceof Error ? error.message : '無法刪除片段')
-    }
-  } finally {
-    rallyDeletePending.value = false
-  }
-}
-
-async function swapCurrentCourtSides() {
-  const set = currentSet.value
-  const currentLeftTeamId = leftTeamId.value
-  const currentRightTeamId = rightTeamId.value
-  if (!set || !currentLeftTeamId || !currentRightTeamId || sideSwapPending.value) return
-  const affectsCurrentDraft = sideSwapAffectsDraft.value
-  sideSwapPending.value = true
-  try {
-    await core.swapCourtSides({
-      effectiveFromRallyOrdinal: sideSwapEffectiveOrdinal.value,
-      expectedLeftTeamId: currentLeftTeamId,
-      expectedRightTeamId: currentRightTeamId,
-      setId: set.id,
-    })
-    await Promise.all([loadMatch({ silent: true }), coach.refresh()])
-    toast.success(
-      affectsCurrentDraft ? '目前片段與後續片段的左右隊伍已對調' : '下一片段的左右隊伍已對調',
-    )
-  } catch (error) {
-    toast.error(error instanceof Error ? error.message : '無法對調片段左右隊伍')
-  } finally {
-    sideSwapPending.value = false
-    sideSwapAffectsDraft.value = false
-  }
-}
-
-async function swapCompletedRallySides(rally: CoachRally) {
-  if (sideSwapPending.value) return
-  const correctionOperation = ++correctionOperationGeneration
-  let draftCreated = false
-  sideSwapPending.value = true
-  try {
-    await annotation.createCorrection(rally.submission.id, {
-      reverseCourtSides: true,
-    })
-    draftCreated = true
-    if (correctionOperation !== correctionOperationGeneration) return
-    pinnedRallyId.value = rally.id
-    selectedTimelineItem.value = 'mask'
-    selectedKeyPointId.value = null
-    await annotation.submitCorrection()
-    if (correctionOperation !== correctionOperationGeneration) return
-    selectedTimelineItem.value = 'segment'
-    await Promise.all([loadMatch({ silent: true }), coach.refresh()])
-    toast.success('片段場地配置已修正，隊伍名牌與得分歸屬已更新')
-  } catch (error) {
-    await coach.refresh().catch(() => undefined)
-    toast.error(
-      `${error instanceof Error ? error.message : '無法修正片段場地配置'}${
-        draftCreated ? '；修正草稿仍保留，可取消修正以還原' : ''
-      }`,
-    )
-  } finally {
-    sideSwapPending.value = false
-  }
-}
-
-function confirmPendingAction() {
-  const action = confirmAction.value
-  const submissionId = correctionSubmissionId.value
-  const targetRallyId = deleteRallyId.value
-  const sideSwapRally = swapRallyTarget.value
-  confirmAction.value = null
-  correctionSubmissionId.value = null
-  deleteRallyId.value = null
-  swapRallyTarget.value = null
-  if (action === 'ws-resync') {
-    void performAnnotationResync(true)
-    return
-  }
-  if (action === 'rally-delete' && targetRallyId) {
-    void purgeRally(targetRallyId)
-    return
-  }
-  if (action === 'swap-segment') {
-    void swapCurrentCourtSides()
-    return
-  }
-  if (action === 'correction-submit') {
-    void submitSelectedCorrection('regenerate')
-    return
-  }
-  if (action === 'single-serve') {
-    void applySingleServeDecision('ERROR')
-    return
-  }
-  if (action === 'swap-rally' && sideSwapRally) {
-    void swapCompletedRallySides(sideSwapRally)
-    return
-  }
-  if (action === 'next-left' || action === 'next-right') {
-    const winningTeamId = action === 'next-left' ? leftTeamId.value : rightTeamId.value
-    if (!winningTeamId) return
-    void core
-      .startNextSet({ matchId, winningTeamId })
-      .then(async () => {
-        await Promise.all([loadMatch({ silent: true }), coach.refresh()])
-        toast.success('新一局已開始')
-      })
-      .catch(error => toast.error(error instanceof Error ? error.message : '無法開始新一局'))
-    return
-  }
-  if (!submissionId) return
-  void createSelectedCorrection(submissionId)
-}
-
-function confirmSecondaryAction() {
-  const action = confirmAction.value
-  closeConfirmAction()
-  if (action === 'correction-submit') {
-    void submitSelectedCorrection('preserve')
-    return
-  }
-  if (action === 'single-serve') {
-    void applySingleServeDecision('POINT_SCORED')
-  }
 }
 
 type PlayerAction = MediaAction | 'mute'
@@ -2228,10 +1612,51 @@ function retryableContinuationError(error: unknown) {
     'MAPPING_STALE',
   ].includes(code)
 }
+function skippedGapLabel(durationUs: string) {
+  const milliseconds = Number(BigInt(durationUs)) / 1_000
+  if (milliseconds < 1_000) return `${Math.max(1, Math.round(milliseconds))} 毫秒`
+  const seconds = milliseconds / 1_000
+  return `${seconds >= 10 ? seconds.toFixed(0) : seconds.toFixed(2)} 秒`
+}
+async function continueAcrossGap(input: {
+  sourceWindowId: string
+  mode: 'live' | 'archive'
+  targetCaptureTimeUs: string
+  gapDurationUs: string
+  element: HTMLVideoElement
+}) {
+  if (gapTransition || descriptor.value?.playback_window_id !== input.sourceWindowId) return
+  const transition = {
+    sourceWindowId: input.sourceWindowId,
+    targetWindowId: null as string | null,
+    targetCaptureTimeUs: input.targetCaptureTimeUs,
+    gapDurationUs: input.gapDurationUs,
+    resumePlayback: playbackHasStarted && (!input.element.paused || input.element.ended),
+  }
+  gapTransition = transition
+  prepareAuthoritativeSeek()
+  captureTarget.value = input.targetCaptureTimeUs
+  mediaError.value = null
+  const created = await createWindow(input.targetCaptureTimeUs, input.mode, true)
+  if (gapTransition !== transition) return
+  if (!created) {
+    gapTransition = null
+    mediaError.value ||= '無法載入媒體中斷後的下一個可播放位置'
+    return
+  }
+  transition.targetWindowId = created.playback_window_id
+}
 function maintainPlaybackWindow() {
   const element = video.value
   const window = descriptor.value
-  if (!element || !window || seekPreviewActive.value || playbackContinuationInFlight) return
+  if (
+    !element ||
+    !window ||
+    seekPreviewActive.value ||
+    playbackContinuationInFlight ||
+    gapTransition
+  )
+    return
   const leaseRenewalDue = Date.parse(window.expires_at) <= Date.now() + 60_000
   if (!playbackHasStarted && !leaseRenewalDue) return
   const observedCapture =
@@ -2239,13 +1664,30 @@ function maintainPlaybackWindow() {
     BigInt(Math.max(0, Math.round(element.currentTime * 1_000_000)))
   const windowEnd = BigInt(window.window_capture_end_us)
   const target = (observedCapture > windowEnd ? windowEnd : observedCapture).toString()
+  const browserHeadroom = bufferedSecondsAhead(element)
+  const nextRange = nextPlayableRangeAfter(
+    window.window_capture_end_us,
+    timeline.value?.availableRanges ?? [],
+  )
+  const exhaustedCurrentWindow =
+    element.ended || (windowEnd - BigInt(target) <= 100_000n && browserHeadroom <= 0.1)
+  if (nextRange && exhaustedCurrentWindow) {
+    void continueAcrossGap({
+      sourceWindowId: window.playback_window_id,
+      mode: 'archive',
+      targetCaptureTimeUs: nextRange.targetCaptureTimeUs,
+      gapDurationUs: nextRange.gapDurationUs,
+      element,
+    })
+    return
+  }
   const decision = leaseRenewalDue
     ? 'extend-window'
     : decidePlaybackContinuation({
         availabilityComplete:
           Boolean(timeline.value?.availabilityComplete) ||
           ['complete_vod', 'ended_live', 'failed'].includes(playbackMode.value),
-        browserBufferedSeconds: bufferedSecondsAhead(element),
+        browserBufferedSeconds: browserHeadroom,
         currentCaptureTimeUs: target,
         ended: element.ended,
         paused: element.paused,
@@ -2328,7 +1770,23 @@ function handleVideoReady(element: HTMLVideoElement) {
     element.addEventListener('ended', maintainPlaybackWindow)
   }
   element.playbackRate = playbackRate.value
+  const transition = gapTransition
+  if (
+    transition?.targetWindowId &&
+    descriptor.value?.playback_window_id === transition.targetWindowId
+  ) {
+    gapTransition = null
+    toast.info(`已自動略過 ${skippedGapLabel(transition.gapDurationUs)}媒體中斷`)
+    if (transition.resumePlayback)
+      void element.play().catch(error => {
+        mediaError.value = error instanceof Error ? error.message : '中斷後無法繼續播放'
+      })
+  }
   updatePlaybackState()
+}
+function handlePlaybackError(error: Error) {
+  gapTransition = null
+  mediaError.value = error.message
 }
 function setPlaybackRate(rate: number) {
   if (!Number.isFinite(rate) || rate < 0.25 || rate > 4) return
@@ -2366,7 +1824,13 @@ function dispatchMediaAction(
   if (action === 'frame_previous' || action === 'frame_next')
     queueFrameStep(action === 'frame_next' ? 'next' : 'previous', frameCount, input)
   if (action === 'key_point_previous' || action === 'key_point_next')
-    void navigateKeyPoint(action === 'key_point_next' ? 'next' : 'previous')
+    void timelineSelection.navigate(
+      action === 'key_point_next' ? 'next' : 'previous',
+      navigableKeyPoints.value,
+      selectedTimelineItem.value === 'point'
+        ? (selectedKeyPoint.value?.capture_time_us ?? visualPlayhead.value)
+        : visualPlayhead.value,
+    )
 }
 
 function queueFrameStep(
@@ -2374,6 +1838,7 @@ function queueFrameStep(
   count = 1,
   input: 'keyboard' | 'button' = 'button',
 ) {
+  clearOptimisticSeekTarget()
   frameNavigation.enqueue(direction, count, input)
 }
 
@@ -2502,31 +1967,14 @@ function previewFrameStep(delta: number) {
   scheduleFramePreviewSeek()
 }
 
-function detachFramePreviewSeekListener() {
-  framePreviewSeekElement?.removeEventListener('seeked', handleFramePreviewSeeked)
-  framePreviewSeekElement = null
-}
-
-function handleFramePreviewSeeked() {
-  detachFramePreviewSeekListener()
-  scheduleFramePreviewSeek()
-}
-
 function scheduleFramePreviewSeek() {
   if (framePreviewRaf !== null) return
   framePreviewRaf = requestAnimationFrame(() => {
     framePreviewRaf = null
     const element = video.value
     if (!element || framePreviewTargetSeconds.value === null) return
-    if (element.seeking) {
-      if (framePreviewSeekElement !== element) {
-        detachFramePreviewSeekListener()
-        framePreviewSeekElement = element
-        element.addEventListener('seeked', handleFramePreviewSeeked, { once: true })
-      }
-      return
-    }
-    element.currentTime = framePreviewTargetSeconds.value
+    if (!overlayPlayer.value?.previewPlayerMediaTime(framePreviewTargetSeconds.value))
+      element.currentTime = framePreviewTargetSeconds.value
   })
 }
 
@@ -2536,45 +1984,6 @@ function clearFramePreviewState() {
   framePreviewWindowKey = ''
   if (framePreviewRaf !== null) cancelAnimationFrame(framePreviewRaf)
   framePreviewRaf = null
-  detachFramePreviewSeekListener()
-}
-
-async function navigateKeyPoint(direction: 'previous' | 'next') {
-  const points = navigableKeyPoints.value
-  if (!points.length) return
-  const reference = selectedKeyPoint.value?.capture_time_us ?? visualPlayhead.value
-  const target = adjacentAnnotationKeyPoint(points, {
-    direction,
-    selectedId: navigationKeyPointId.value ?? selectedKeyPointId.value,
-    referenceCaptureTimeUs: reference,
-  })
-  if (!target) {
-    toast.info(direction === 'next' ? '已到最後一個擊球點' : '已到第一個擊球點')
-    return
-  }
-  const generation = ++annotationPointNavigationGeneration
-  navigationKeyPointId.value = target.id
-  if (target.rallyId === displayAnnotation.value?.rally_id) {
-    selectedKeyPointId.value = target.id
-    selectedTimelineItem.value = 'point'
-  } else if (target.rallyId && annotationDrafts.value.some(draft => draft.id === target.rallyId)) {
-    try {
-      const selected = await annotation.selectRally(target.rallyId)
-      if (generation !== annotationPointNavigationGeneration || !selected) return
-      pinnedRallyId.value = target.rallyId
-      selectedTimelineItem.value = 'point'
-      selectedKeyPointId.value = target.id
-    } catch (error) {
-      if (generation === annotationPointNavigationGeneration)
-        toast.error(error instanceof Error ? error.message : '無法載入擊球點')
-      return
-    }
-  } else {
-    pinnedRallyId.value = target.rallyId
-    selectedTimelineItem.value = 'point'
-    selectedKeyPointId.value = target.id
-  }
-  if (generation === annotationPointNavigationGeneration) await seekTimeline(target.captureTimeUs)
 }
 
 function handleOverlayFrame(frame: number) {
@@ -2586,19 +1995,11 @@ function handleOverlayVideo(value: { width: number; height: number } | null) {
 }
 
 function handleBallPosition(position: { x: number; y: number }) {
-  if (!analysisOverlayActive.value || !ballRelabelEnabled.value) return
-  analysisReview.setBallPosition(currentOverlayFrame.value, position)
+  analysisRevision.setBallPosition(position)
 }
 
 function handlePlayerBBox(selection: { trackId: number; frameBBox: AnalysisFrameBBox }) {
-  if (
-    !analysisOverlayActive.value ||
-    !bboxRelabelEnabled.value ||
-    selectedOverlayTrackId.value !== selection.trackId
-  )
-    return
-  analysisReview.setPlayerBBox(currentOverlayFrame.value, selection.trackId, selection.frameBBox)
-  bboxRelabelEnabled.value = false
+  analysisRevision.setPlayerBBox(selection)
 }
 
 function handleOverlayTrack(selection: {
@@ -2608,14 +2009,8 @@ function handleOverlayTrack(selection: {
   action: string | null
 }) {
   if (!analysisOverlayActive.value || ballRelabelEnabled.value || bboxRelabelEnabled.value) return
-  selectedOverlayTrackId.value = selection.trackId
-  selectedOverlayTrackAction.value = selection.action
-  if (inspectorTab.value === 'analysis') {
-    if (actorAssignmentMode.value && selectedAnalysisHitId.value) {
-      analysisReview.setContactActor(selectedAnalysisHitId.value, selection.trackId)
-    }
-    return
-  }
+  analysisRevision.selectTrack(selection.trackId, selection.action)
+  if (inspectorTab.value === 'analysis') return
   inspectorTab.value = 'mapping'
   trackPopover.open = true
   trackPopover.trackId = selection.trackId
@@ -2625,174 +2020,11 @@ function handleOverlayTrack(selection: {
   trackPopover.y = selection.clientY
 }
 
-function markBallMissing() {
-  if (!analysisOverlayActive.value) return
-  analysisReview.markBallMissing(currentOverlayFrame.value)
-}
-
-function clearBallOverride() {
-  if (!analysisOverlayActive.value) return
-  analysisReview.clearBallOverride(currentOverlayFrame.value)
-}
-
-function toggleBBoxRelabel() {
-  if (!analysisOverlayActive.value || selectedOverlayTrackId.value === null) return
-  bboxRelabelEnabled.value = !bboxRelabelEnabled.value
-  if (bboxRelabelEnabled.value) {
-    ballRelabelEnabled.value = false
-    actorAssignmentMode.value = false
-  }
-}
-
-function clearBBoxOverride() {
-  if (!analysisOverlayActive.value || selectedOverlayTrackId.value === null) return
-  analysisReview.clearPlayerBBoxOverride(currentOverlayFrame.value, selectedOverlayTrackId.value)
-}
-
-function setAnalysisAction(action: AnalysisReviewAction) {
-  if (!analysisOverlayActive.value || selectedOverlayTrackId.value === null) return
-  selectedOverlayTrackAction.value = action
-  analysisReview.setAction(currentOverlayFrame.value, selectedOverlayTrackId.value, action)
-}
-
-function clearAnalysisAction() {
-  if (!analysisOverlayActive.value || selectedOverlayTrackId.value === null) return
-  analysisReview.clearActionOverride(currentOverlayFrame.value, selectedOverlayTrackId.value)
-  selectedOverlayTrackAction.value = null
-}
-
-function selectAnalysisHit(keyPointId: string) {
-  const event = overlayEvents.value.find(candidate => candidate.key_point_id === keyPointId)
-  if (!event) {
-    const manual = analysisReview.contactEdits.value.get(keyPointId)
-    if (!manual || manual.deleted) return
-    selectedAnalysisHitId.value = keyPointId
-    const frameIndex = Number(manual.frame_index)
-    const captureTime = overlayPlayer.value?.overlayFrameCaptureTime(frameIndex)
-    if (captureTime) void seekTimeline(captureTime)
-    else {
-      prepareAuthoritativeSeek()
-      overlayPlayer.value?.seekOverlayFrameIfBuffered(frameIndex)
-    }
-    return
-  }
-  selectedAnalysisHitId.value = keyPointId
-  const frameIndex = effectiveContactFrame(keyPointId, replayEventFrame(event))
-  const captureTime = overlayPlayer.value?.overlayFrameCaptureTime(frameIndex)
-  if (captureTime) void seekTimeline(captureTime)
-  else {
-    prepareAuthoritativeSeek()
-    overlayPlayer.value?.seekOverlayFrameIfBuffered(frameIndex)
-  }
-}
-
-function adjustAnalysisHitTime(keyPointId: string, deltaFrames: number) {
-  const hitIndex = analysisHitItems.value.findIndex(hit => hit.keyPointId === keyPointId)
-  const hit = analysisHitItems.value[hitIndex]
-  if (!hit || hit.anchorSource === 'human') return
-  const currentFrame = hit.frameIndex
-  const nextFrame = currentFrame + deltaFrames
-  const previousFrame = analysisHitItems.value[hitIndex - 1]?.frameIndex ?? -1
-  const followingFrame = analysisHitItems.value[hitIndex + 1]?.frameIndex ?? Number.MAX_SAFE_INTEGER
-  if (nextFrame <= previousFrame || nextFrame >= followingFrame || nextFrame < 0) {
-    toast.warning('擊球點必須維持在前後事件之間')
-    return
-  }
-  analysisReview.setContactTime(keyPointId, nextFrame)
-  selectedAnalysisHitId.value = keyPointId
-  const captureTime = overlayPlayer.value?.overlayFrameCaptureTime(nextFrame)
-  if (captureTime) void seekTimeline(captureTime)
-  else {
-    prepareAuthoritativeSeek()
-    overlayPlayer.value?.seekOverlayFrameIfBuffered(nextFrame)
-  }
-}
-
-function resetAnalysisHitTime(keyPointId: string) {
-  analysisReview.clearContactTimeOverride(keyPointId)
-  selectAnalysisHit(keyPointId)
-}
-
-function markAnalysisHitNoActor(keyPointId: string) {
-  analysisReview.setContactActor(keyPointId, null)
-  selectedAnalysisHitId.value = keyPointId
-}
-
-function clearAnalysisHitActor(keyPointId: string) {
-  analysisReview.clearContactActorOverride(keyPointId)
-  selectedAnalysisHitId.value = keyPointId
-}
-
-function closeAnalysisToolbox() {
-  if (analysisToolboxMode.value === 'bbox') {
-    bboxRelabelEnabled.value = false
-    return
-  }
-  analysisPanelPage.value = 'root'
-}
-
 function handleMappingChanged() {
   trackPopover.open = false
   mappingRefreshToken.value += 1
   void coach.refresh()
   void refreshOverlayReplay()
-}
-
-function addAnalysisHit() {
-  if (!analysisOverlayActive.value) return
-  const id = analysisReview.addContact(currentOverlayFrame.value, selectedOverlayTrackId.value)
-  selectedAnalysisHitId.value = id
-  analysisPanelPage.value = 'hits'
-}
-
-function deleteAnalysisHit(keyPointId: string) {
-  const hit = analysisHitItems.value.find(candidate => candidate.keyPointId === keyPointId)
-  if (!hit) return
-  analysisReview.deleteContact(keyPointId, hit.frameIndex)
-  selectedAnalysisHitId.value = null
-}
-
-function restoreAnalysisHit(keyPointId: string) {
-  analysisReview.restoreContact(keyPointId)
-  selectedAnalysisHitId.value = keyPointId
-}
-
-async function applyAnalysisChanges() {
-  try {
-    await analysisReview.applyChanges()
-    toast.success('修改已套用')
-  } catch (cause) {
-    toast.error(cause instanceof Error ? cause.message : '修改套用失敗')
-  }
-}
-
-async function discardAnalysisChanges() {
-  try {
-    await analysisReview.discardChanges()
-    toast.info('已捨棄尚未套用的修改')
-  } catch (cause) {
-    toast.error(cause instanceof Error ? cause.message : '無法還原修改')
-  }
-}
-
-async function recalculateAnalysis() {
-  try {
-    await analysisReview.recalculate()
-    toast.success('統計與事件已重新分析')
-    await refreshOverlayReplay()
-  } catch (cause) {
-    toast.error(cause instanceof Error ? cause.message : '重新分析失敗')
-  }
-}
-
-async function approveAnalysis() {
-  try {
-    await analysisReview.approve()
-    toast.success('片段已審核，教練端現在可查看')
-    await coach.refresh()
-  } catch (cause) {
-    toast.error(cause instanceof Error ? cause.message : '審核發布失敗')
-  }
 }
 
 watch(coach.lastUpdatedAt, (updatedAt, previous) => {
@@ -2831,13 +2063,20 @@ function dispatchHotkeyCommand(action: HotkeyCommand, event: KeyboardEvent) {
       direction,
       selectedEditableKeyPoint.value ? 'key-point' : 'player',
     )
-    if (owner === 'key-point') nudgeSelectedKeyPoint(direction, frameCount, 'keyboard')
-    else queueFrameStep(direction, frameCount, 'keyboard')
+    if (owner === 'key-point')
+      void workstationActions.execute('mark.move', {
+        direction,
+        count: frameCount,
+        input: 'keyboard',
+      })
+    else
+      void workstationActions.execute(
+        direction === 'next' ? 'media.frame-next' : 'media.frame-previous',
+        { count: frameCount, input: 'keyboard' },
+      )
     return
   }
-  if (action === 'play_pause' || action.startsWith('frame_') || action.startsWith('key_point_'))
-    dispatchMediaAction(action as MediaAction, frameCount, 'keyboard')
-  else dispatchAnnotationAction(action as AnnotationAction)
+  void workstationActions.execute(workstationActionIdForHotkey(action))
 }
 
 function releaseHotkeyCommand(action: HotkeyCommand) {
@@ -2846,53 +2085,35 @@ function releaseHotkeyCommand(action: HotkeyCommand) {
   frameGestureRouter.release(direction)
 }
 
-async function retrySelectedProcessing() {
-  const rallyId = selectedRallyId.value ?? displayAnnotation.value?.rally_id
-  if (
-    !rallyId ||
-    processingRetrying.value ||
-    activeProcessing.value?.processing_status !== 'failed'
-  )
-    return
-  processingRetrying.value = true
-  try {
-    const result = await core.retryProcessing(rallyId)
-    await coach.refresh()
-    toast.success(result.retriedStage === 'clip' ? '已重新排程剪切片段' : '已重新排程 AI 分析')
-  } catch (error) {
-    toast.error(error instanceof Error ? error.message : '無法重新處理片段')
-  } finally {
-    processingRetrying.value = false
-  }
-}
 function commandEnabled(action: HotkeyCommand) {
-  if (action === 'play_pause') return Boolean(descriptor.value)
-  if (action.startsWith('key_point_')) return navigableKeyPoints.value.length > 0
   if (action === 'frame_previous' || action === 'frame_next') {
     const direction = action === 'frame_next' ? 'next' : 'previous'
     const owner = frameGestureRouter.ownerOf(direction)
-    if (owner === 'key-point' || (!owner && selectedEditableKeyPoint.value)) {
-      return Boolean(
-        selectedCapture.value &&
-        editableDraftState.value &&
-        commandReady.value &&
-        !pendingTimelineMove.value &&
-        (keyPointEditReady.value || keyPointNavigation.active.value),
-      )
-    }
-    return Boolean(
-      descriptor.value &&
-      (frameNavigation.active.value || !['idle', 'gap', 'error'].includes(dvr.status.value)),
-    )
+    const id =
+      owner === 'key-point' || (!owner && selectedEditableKeyPoint.value)
+        ? 'mark.move'
+        : direction === 'next'
+          ? 'media.frame-next'
+          : 'media.frame-previous'
+    return workstationActions.state(id).value.enabled
   }
-  return controls.value.some(control => control.action === action && control.enabled)
+  return workstationActions.state(workstationActionIdForHotkey(action)).value.enabled
+}
+
+function workstationActionIdForHotkey(action: HotkeyCommand): WorkstationActionId {
+  if (action === 'play_pause') return 'media.toggle-playback'
+  if (action === 'key_point_previous') return 'media.key-point-previous'
+  if (action === 'key_point_next') return 'media.key-point-next'
+  if (action === 'frame_previous') return 'media.frame-previous'
+  if (action === 'frame_next') return 'media.frame-next'
+  return annotationWorkstationActionId[action as AnnotationAction]
 }
 let lastBlockedHotkeyNotice = ''
 let lastBlockedHotkeyNoticeAt = 0
 function reportBlockedHotkey(action: HotkeyCommand) {
-  const control = controls.value.find(item => item.action === action)
+  const actionState = workstationActions.state(workstationActionIdForHotkey(action)).value
   const reason =
-    control?.reason ||
+    actionState.reason ||
     (action === 'frame_previous' || action === 'frame_next'
       ? !descriptor.value
         ? '播放器尚未載入可用影片'
@@ -2908,7 +2129,12 @@ function reportBlockedHotkey(action: HotkeyCommand) {
   toast.info(`${formatBindingForDisplay(bindings.value[action])} 暫時不能使用`, {
     description: reason,
     ...(syncNeedsAttention.value
-      ? { action: { label: '重新同步', onClick: requestAnnotationResync } }
+      ? {
+          action: {
+            label: '重新同步',
+            onClick: () => workstationActions.execute('sync.resync'),
+          },
+        }
       : {}),
   })
 }
@@ -2925,6 +2151,7 @@ watch(
   (captureId, previousCaptureId) => {
     if (captureId !== previousCaptureId) {
       playbackHasStarted = false
+      gapTransition = null
       continuationRetryDelayMs = 500
       playerBufferedRanges.value = []
       if (continuationRetryTimer) clearTimeout(continuationRetryTimer)
@@ -2957,15 +2184,8 @@ watch(
 watch(
   () => displayAnnotation.value?.rally_id,
   () => {
-    keyPointNavigation.cancel()
-    selectedKeyPointId.value = null
-    if (selectedTimelineItem.value === 'point') {
-      selectedTimelineItem.value = pinnedRallyId.value
-        ? 'mask'
-        : cursorRallyId.value
-          ? 'segment'
-          : null
-    }
+    keyPointEditing.navigation.cancel()
+    timelineSelection.clearPointForDisplayedRallyChange()
   },
   { flush: 'sync' },
 )
@@ -2991,17 +2211,14 @@ watch(
 watch(
   cursorRallyId,
   rallyId => {
-    if (pinnedRallyId.value) return
-    selectedTimelineItem.value = rallyId ? 'segment' : null
-    selectedKeyPointId.value = null
+    timelineSelection.followCursor(rallyId)
   },
   { immediate: true },
 )
 watch([submittedRallies, annotationDrafts], ([submitted, drafts]) => {
   if (!pinnedRallyId.value) return
   if ([...submitted, ...drafts].some(rally => rally.id === pinnedRallyId.value)) return
-  pinnedRallyId.value = null
-  selectedTimelineItem.value = cursorRallyId.value ? 'segment' : null
+  timelineSelection.clear()
 })
 watch(editorMappingAvailable, available => {
   if (!available && (inspectorTab.value === 'mapping' || inspectorTab.value === 'analysis'))
@@ -3015,9 +2232,9 @@ watch(editorSelectedAnalysisRunId, () => {
   trackPopover.open = false
 })
 watch([state, selectedKeyPointId], () => {
-  keyPointNavigation.cancel()
+  keyPointEditing.navigation.cancel()
   frameGestureRouter.clear('key-point')
-  releaseEditingIntent()
+  keyPointEditing.releaseEditingIntent()
 })
 watch(loadError, value => {
   if (value)
@@ -3107,6 +2324,115 @@ watch(
       })
   },
 )
+
+const transportActions = createTransportActionService({
+  manager: workstationActions,
+  playerReady: computed(() => Boolean(descriptor.value)),
+  frameReady: computed(() =>
+    Boolean(
+      descriptor.value &&
+      (frameNavigation.active.value || !['idle', 'gap', 'error'].includes(dvr.status.value)),
+    ),
+  ),
+  frameMovePending: computed(() => Boolean(pendingTimelineMove.value)),
+  liveAvailable: computed(() => Boolean(liveTarget.value)),
+  correctionCreateEnabled: computed(
+    () => Boolean(selectedSubmittedRally.value) && !selectedCorrectionDraft.value,
+  ),
+  correctionCreateReason: correctionBlockReason,
+  correctionCreating,
+  correctionCancelEnabled: selectedCorrectionDraft,
+  correctionCancelling,
+  processingRetryEnabled: computed(
+    () => activeProcessing.value?.processing_status === 'failed' && !processingRetrying.value,
+  ),
+  navigableKeyPoints: computed(() => navigableKeyPoints.value.length > 0),
+  pointMoveEnabled: computed(
+    () => Boolean(selectedKeyPoint.value) && editableDraftState.value && keyPointEditReady.value,
+  ),
+  pointDeleteEnabled: computed(() => Boolean(selectedDeletablePoint.value) && editReady.value),
+  clipDeleteEnabled: computed(() => Boolean(selectedSubmittedRally.value)),
+  clipDownloadEnabled: computed(() => Boolean(selectedSubmittedRally.value?.submission.clip)),
+  togglePlayback: () => dispatchMediaAction('play_pause'),
+  stepFrame: (direction, count = 1, input = 'button') => queueFrameStep(direction, count, input),
+  goLive: () => {
+    if (liveTarget.value) return createWindow(liveTarget.value, 'live').then(() => undefined)
+  },
+  startCorrection,
+  cancelCorrection,
+  retryProcessing: syncRecovery.retryProcessing,
+  navigateKeyPoint: direction =>
+    timelineSelection.navigate(
+      direction,
+      navigableKeyPoints.value,
+      selectedKeyPoint.value?.capture_time_us ?? visualPlayhead.value,
+    ),
+  movePoint: (direction, count = 1, input = 'button') => {
+    clearOptimisticSeekTarget()
+    keyPointEditing.nudge(direction, count, input)
+  },
+  deletePoint: keyPointEditing.deleteSelected,
+  deleteClip: segmentManagement.requestDelete,
+  downloadClip: () => {
+    downloadDialogOpen.value = true
+  },
+  toggleMute: () => dispatchMediaAction('mute'),
+  setPlaybackRate,
+  resetTimelineZoom,
+})
+
+const annotationWorkstationService = createAnnotationWorkstationService({
+  room: annotation,
+  model: workstation,
+  actions: workstationActions,
+  feedback: workstationFeedback,
+  keyPointEditing,
+  segments: segmentManagement,
+  sync: syncRecovery,
+  selection: workstationSelection,
+  timeline: timelineSelection,
+  analysisReview,
+  analysisRevision,
+  playback: {
+    togglePlayback: () => dispatchMediaAction('play_pause'),
+    stepFrame: (direction, count = 1, input = 'button') => queueFrameStep(direction, count, input),
+    releaseFrame: direction => frameNavigation.release(direction),
+    navigateKeyPoint: direction =>
+      timelineSelection.navigate(
+        direction,
+        navigableKeyPoints.value,
+        selectedKeyPoint.value?.capture_time_us ?? visualPlayhead.value,
+      ),
+    seek: seekTimeline,
+    previewSeek: previewTimelineSeek,
+    setRate: setPlaybackRate,
+  },
+  visualization: {
+    setOverlayEnabled: workstationPreferences.setOverlayEnabled,
+    openSettings: workstationPreferences.open,
+  },
+  identity: identityAssignment,
+  confirmation: workstationConfirmation,
+  preferences: workstationPreferences,
+})
+annotationWorkstationService.registerDisposable(annotationActions.dispose)
+annotationWorkstationService.registerDisposable(transportActions.dispose)
+annotationWorkstationService.registerDisposable(analysisRevision.dispose)
+annotationWorkstationService.registerDisposable(identityAssignment.dispose)
+annotationWorkstationService.registerDisposable(keyPointEditing.dispose)
+annotationWorkstationService.registerDisposable(segmentManagement.dispose)
+annotationWorkstationService.registerDisposable(syncRecovery.dispose)
+annotationWorkstationService.registerDisposable(
+  workstationFeedback.subscribe(message => {
+    const options = message.description ? { description: message.description } : undefined
+    if (message.level === 'success') toast.success(message.title, options)
+    else if (message.level === 'warning') toast.warning(message.title, options)
+    else if (message.level === 'error') toast.error(message.title, options)
+    else toast.info(message.title, options)
+  }),
+)
+provideAnnotationWorkstationService(annotationWorkstationService)
+
 function releaseFrameNavigationGestures() {
   frameGestureRouter.releaseAll()
 }
@@ -3114,13 +2440,6 @@ function releaseFrameNavigationWhenHidden() {
   if (document.visibilityState === 'hidden') releaseFrameNavigationGestures()
 }
 onMounted(() => {
-  try {
-    const storedOverlayEnabled = localStorage.getItem('annotation.overlay.enabled')
-    if (storedOverlayEnabled !== null)
-      annotationOverlayEnabled.value = storedOverlayEnabled !== 'false'
-  } catch {
-    // Keep the safe default when browser storage is unavailable.
-  }
   annotationScope.value?.focus({ preventScroll: true })
   window.addEventListener('blur', releaseFrameNavigationGestures)
   document.addEventListener('visibilitychange', releaseFrameNavigationWhenHidden)
@@ -3132,18 +2451,19 @@ onMounted(() => {
   }, 2_500)
 })
 onBeforeUnmount(() => {
+  gapTransition = null
+  annotationWorkstationService.dispose()
   if (selectedCaptureId.value && visualPlayhead.value)
     workstationViewState.rememberCursor(selectedCaptureId.value, visualPlayhead.value)
   if (timelineRefreshTimer) clearInterval(timelineRefreshTimer)
-  if (timelineMoveTimeout) clearTimeout(timelineMoveTimeout)
   if (cursorResolveTimer) clearTimeout(cursorResolveTimer)
   if (seekPreviewTimer) clearTimeout(seekPreviewTimer)
+  if (optimisticSeekTimer) clearTimeout(optimisticSeekTimer)
   window.removeEventListener('blur', releaseFrameNavigationGestures)
   document.removeEventListener('visibilitychange', releaseFrameNavigationWhenHidden)
   frameGestureRouter.releaseAll()
   frameNavigation.stop()
   clearFramePreviewState()
-  keyPointNavigation.stop()
   if (continuationRetryTimer) clearTimeout(continuationRetryTimer)
   annotation.setEditingKeyPoint(null)
   detachVideoState(video.value)
@@ -3155,7 +2475,7 @@ onBeforeUnmount(() => {
     ref="annotationScope"
     tabindex="-1"
     class="editor-shell"
-    @keydown.delete.prevent="deleteSelectedKeyPoint"
+    @keydown.delete.prevent="workstationActions.execute('mark.delete')"
     @pointerdown.capture="annotationScope?.focus({ preventScroll: true })"
   >
     <AnnotationWorkstationHeader
@@ -3174,12 +2494,9 @@ onBeforeUnmount(() => {
       "
       :connection-title="`${annotation.connection.value} · ${annotation.latencyMs.value ?? '—'} ms · ${selectedCapture?.health ?? 'unknown'}`"
       :resync-visible="syncNeedsAttention"
-      :resyncing="annotationResyncing"
       @media="captureDialogOpen = true"
       @connection="connectionDialogOpen = true"
-      @resync="requestAnnotationResync"
       @roster="rosterDialogOpen = true"
-      @settings="openSettings('root')"
     />
 
     <UiResizablePanelGroup id="annotation-workspace" class="editor-body">
@@ -3199,10 +2516,16 @@ onBeforeUnmount(() => {
               :overlay-capture-time-us="visualPlayhead"
               :overlay-clip-start-capture-time-us="editorOverlayClipStart"
               :overlay-interactive="
-                analysisOverlayActive && (inspectorTab === 'mapping' || inspectorTab === 'analysis')
+                analysisOverlayActive &&
+                (inspectorTab === 'mapping' ||
+                  (inspectorTab === 'analysis' && analysisRevisionMode))
               "
-              :ball-relabel="inspectorTab === 'analysis' && ballRelabelEnabled"
-              :bbox-relabel="inspectorTab === 'analysis' && bboxRelabelEnabled"
+              :ball-relabel="
+                analysisRevisionMode && inspectorTab === 'analysis' && ballRelabelEnabled
+              "
+              :bbox-relabel="
+                analysisRevisionMode && inspectorTab === 'analysis' && bboxRelabelEnabled
+              "
               :selected-track-id="
                 inspectorTab === 'analysis' || inspectorTab === 'mapping'
                   ? selectedOverlayTrackId
@@ -3239,32 +2562,16 @@ onBeforeUnmount(() => {
               @ball-position="handleBallPosition"
               @player-bbox="handlePlayerBBox"
               @track-select="handleOverlayTrack"
-              @toggle="dispatchMediaAction('play_pause')"
-              @error="mediaError = $event.message"
+              @toggle="workstationActions.execute('media.toggle-playback')"
+              @error="handlePlaybackError"
             />
             <AnnotationAnalysisToolbox
               :mode="analysisToolboxMode"
               :frame-index="currentOverlayFrame"
-              :selected-track-id="selectedOverlayTrackId"
               :selected-action="selectedOverlayAction"
               :selected-hit-label="
                 selectedAnalysisHit ? `第 ${selectedAnalysisHit.sequence_index + 1} 球` : null
               "
-              :has-ball-override="Boolean(currentBallOverride)"
-              :has-bbox-override="currentBBoxHasOverride"
-              :has-actor-override="selectedAnalysisHitHasOverride"
-              :saving="analysisReview.pending.value"
-              @close="closeAnalysisToolbox"
-              @mark-ball-missing="markBallMissing"
-              @clear-ball="clearBallOverride"
-              @start-bbox="toggleBBoxRelabel"
-              @clear-bbox="clearBBoxOverride"
-              @mark-no-actor="
-                selectedAnalysisHitId && markAnalysisHitNoActor(selectedAnalysisHitId)
-              "
-              @clear-actor="selectedAnalysisHitId && clearAnalysisHitActor(selectedAnalysisHitId)"
-              @set-action="setAnalysisAction"
-              @clear-action="clearAnalysisAction"
             />
             <div class="viewer-frame-index" aria-label="目前畫格索引">
               <span>FRAME IDX</span>
@@ -3276,7 +2583,12 @@ onBeforeUnmount(() => {
               :class="{ active: annotationOverlayEnabled }"
               :aria-pressed="annotationOverlayEnabled"
               :title="annotationOverlayEnabled ? '關閉分析 Overlay' : '開啟分析 Overlay'"
-              @click="setAnnotationOverlayEnabled(!annotationOverlayEnabled)"
+              @click="
+                workstationActions.execute(
+                  'visualization.toggle-overlay',
+                  !annotationOverlayEnabled,
+                )
+              "
             >
               <Eye v-if="annotationOverlayEnabled" :size="14" />
               <EyeOff v-else :size="14" />
@@ -3297,13 +2609,11 @@ onBeforeUnmount(() => {
               :match-id="matchId"
               :analysis-run-id="editorSelectedAnalysisRunId"
               :track-id="trackPopover.trackId"
-              :current-frame="currentOverlayFrame"
               :left-team-id="selectedSideLeftTeamId"
               :right-team-id="selectedSideRightTeamId"
               :x="trackPopover.x"
               :y="trackPopover.y"
               @close="trackPopover.open = false"
-              @changed="handleMappingChanged"
             />
           </div>
         </main>
@@ -3332,56 +2642,22 @@ onBeforeUnmount(() => {
           :rallies="visibleSubmittedRallies"
           :selected-rally-id="selectedRallyId"
           :analysis-run-id="editorSelectedAnalysisRunId"
-          :mapping-completed="
-            Boolean(selectedRally?.submission.analysis?.identity_mapping_completed)
-          "
-          :current-frame="currentOverlayFrame"
+          :mapping-completed="editorMappingCompleted"
           :set-numbers="coach.data.value?.match.sets.map(set => set.set_number) ?? [1]"
-          :placement-saving="placementSaving"
           :focused-track-id="selectedOverlayTrackId"
-          :mapping-refresh-token="mappingRefreshToken"
           :teams="coach.data.value?.match.teams ?? []"
-          :can-start-next-set="state !== 'OPEN' && editReady"
-          :can-swap-sides="Boolean(currentSet && leftTeamId && rightTeamId) && editReady"
-          :swap-affects-current-draft="Boolean(currentOrdinaryDraft)"
-          :side-swap-pending="sideSwapPending"
           :format-rally-duration="rally => formatDuration(rallyDisplayDuration(rally))"
-          @select-draft="selectHistoricalSegment"
-          @select-rally="selectRally"
-          @next-set="requestNextSet"
-          @swap-sides="requestCurrentSideSwap"
-          @swap-rally-sides="requestRallySideSwap"
-          @mapping-changed="handleMappingChanged"
-          @update-placement="updateRallyPlacement"
         >
           <template #analysis>
             <AnnotationAnalysisPanel
-              v-model:page="analysisPanelPage"
-              :analysis-run-id="editorSelectedAnalysisRunId"
               :frame-index="analysisOverlayActive ? currentOverlayFrame : -1"
               :ball-override="currentBallOverride?.state ?? null"
               :ball-position="currentBallPosition"
-              :selected-track-id="selectedOverlayTrackId"
               :selected-track-action="selectedOverlayAction"
-              :selected-hit-id="selectedAnalysisHitId"
               :has-action-override="currentActionHasOverride"
               :has-bbox-override="currentBBoxHasOverride"
               :hits="analysisHitItems"
               :removed-hits="removedAnalysisHitItems"
-              :saving="analysisReview.pending.value"
-              :connection="analysisReview.connection.value"
-              :dirty-count="analysisReview.dirtyCount.value"
-              :review-status="analysisReview.status.value"
-              @select-hit="selectAnalysisHit"
-              @adjust-hit-time="adjustAnalysisHitTime"
-              @reset-hit-time="resetAnalysisHitTime"
-              @add-hit="addAnalysisHit"
-              @delete-hit="deleteAnalysisHit"
-              @restore-hit="restoreAnalysisHit"
-              @apply="applyAnalysisChanges"
-              @discard="discardAnalysisChanges"
-              @recalculate="recalculateAnalysis"
-              @approve="approveAnalysis"
             />
           </template>
         </AnnotationMatchInspector>
@@ -3391,9 +2667,6 @@ onBeforeUnmount(() => {
     <footer class="timeline-footer">
       <AnnotationTransportBar
         :playing="playing"
-        :player-ready="Boolean(descriptor)"
-        :frame-ready="Boolean(authoritativeAnchor)"
-        :frame-move-pending="Boolean(pendingTimelineMove)"
         :timecode="displayTimecode"
         :live-active="playbackMode === 'active_live' && descriptor?.mode === 'live'"
         :live-available="Boolean(liveTarget)"
@@ -3409,27 +2682,12 @@ onBeforeUnmount(() => {
               : activeContextState
         "
         :processing="selectedSubmissionPending || correctionSubmitting ? null : activeProcessing"
-        :processing-retrying="processingRetrying"
         :correction-active="selectedCorrectionDraft"
         :correction-block-reason="correctionBlockReason"
-        :correction-creating="correctionCreating"
-        :correction-cancelling="correctionCancelling"
         :submission-pending="selectedSubmissionPending || correctionSubmitting"
         :submitted-selected="Boolean(selectedSubmittedRally) && !selectedCorrectionDraft"
         :clip-selected="clipSelected"
-        :download-available="Boolean(selectedSubmittedRally?.submission.clip)"
         :draft-selected="selectedEditableDraft"
-        :submit-enabled="
-          selectedEditableDraft &&
-          commandAvailability('submit').enabled &&
-          editReady &&
-          !correctionSubmitting
-        "
-        :navigable="navigableKeyPoints.length > 0"
-        :selected-point="Boolean(selectedKeyPoint)"
-        :editable="state === 'OPEN' || state === 'READY'"
-        :edit-ready="keyPointEditReady"
-        :point-delete-enabled="Boolean(selectedDeletablePoint)"
         :muted="muted"
         :playback-rate="playbackRate"
         :timeline-scale="timelineScale"
@@ -3440,24 +2698,6 @@ onBeforeUnmount(() => {
           previousPoint: formatBindingForDisplay(bindings.key_point_previous),
           nextPoint: formatBindingForDisplay(bindings.key_point_next),
         }"
-        @play-pause="dispatchMediaAction('play_pause')"
-        @frame-previous="dispatchMediaAction('frame_previous')"
-        @frame-next="dispatchMediaAction('frame_next')"
-        @live="liveTarget && createWindow(liveTarget, 'live')"
-        @cancel-correction="cancelCorrection"
-        @start-correction="startCorrection"
-        @submit="dispatchAnnotationAction('submit')"
-        @retry-processing="retrySelectedProcessing"
-        @key-point-previous="dispatchMediaAction('key_point_previous')"
-        @key-point-next="dispatchMediaAction('key_point_next')"
-        @nudge-previous="nudgeSelectedKeyPoint('previous')"
-        @nudge-next="nudgeSelectedKeyPoint('next')"
-        @delete-clip="deleteSelectedClip"
-        @download-clip="downloadDialogOpen = true"
-        @delete-point="deleteSelectedKeyPoint"
-        @toggle-mute="dispatchMediaAction('mute')"
-        @set-playback-rate="setPlaybackRate"
-        @reset-timeline-zoom="resetTimelineZoom"
       />
       <DvrTimelineDock
         ref="timelineDock"
@@ -3482,37 +2722,25 @@ onBeforeUnmount(() => {
         :current-mask-status="currentMaskStatus"
         :current-mask-label="currentMaskLabel"
         :current-mask-outcome="currentMaskOutcome"
-        :segments="timelineSegments"
+        :segments="displayedTimelineSegments"
         :selected-segment-id="selectedHistoricalSegmentId"
         :soft-locks="annotation.remoteEditorsByKeyPoint.value"
         @scale-change="timelineScale = $event"
         @view-change="rememberTimelineViewport"
-        @preview="previewTimelineSeek"
-        @seek="seekTimeline"
-        @clear-selection="clearTimelineSelection"
-        @select="selectTimelineKeyPoint"
-        @select-mask="selectTimelineMask"
-        @select-segment="selectHistoricalSegment"
-        @select-analysis="selectTimelineAnalysis"
-        @edit-start="beginTimelineKeyPointEdit"
-        @edit-cancel="cancelTimelineKeyPointEdit"
-        @move="moveTimelineKeyPoint"
-      />
+      >
+        <template #selected-point-editor>
+          <AnnotationSelectedKeyPointEditor
+            v-if="selectedKeyPoint"
+            :selected-ball-event="selectedKeyPoint.ball_event ?? null"
+            :selected-actor-id="selectedKeyPoint.ball_event_actor_roster_entry_id ?? null"
+            :actor-options="ballEventActorOptions"
+          />
+        </template>
+      </DvrTimelineDock>
       <AnnotationCommandStrip
         :bindings="bindings"
-        :state="state"
-        :can-mark="canMark"
         :left-team-label="commandLeftTeamLabel"
         :right-team-label="commandRightTeamLabel"
-        :last-key-point="Boolean(annotation.lastKeyPoint.value)"
-        :command-ready="commandReady"
-        :pending-command="annotation.pendingCount.value > 0"
-        :selected-key-point="Boolean(selectedKeyPointId)"
-        :selected-ball-event="selectedKeyPoint?.ball_event ?? null"
-        :selected-actor-id="selectedKeyPoint?.ball_event_actor_roster_entry_id ?? null"
-        :actor-options="ballEventActorOptions"
-        :event-edit-ready="editableDraftState && editReady"
-        :availability="commandAvailabilityMap"
         :service-mode="
           state === 'OPEN' &&
           annotation.draftOwnedByClient.value &&
@@ -3520,10 +2748,6 @@ onBeforeUnmount(() => {
             ? 'end'
             : 'start'
         "
-        @action="dispatchAnnotationAction"
-        @set-ball-event="setSelectedBallEvent"
-        @set-ball-event-actor="setSelectedBallEventActor"
-        @settings="openSettings('hotkeys')"
       />
     </footer>
     <ClipDownloadDialog
@@ -3534,18 +2758,7 @@ onBeforeUnmount(() => {
       @close="downloadDialogOpen = false"
     />
 
-    <LazyAnnotationSettingsDialog
-      :open="settingsOpen"
-      :initial-page="settingsInitialPage"
-      :clip-pre-roll-seconds="clipPreRollSeconds"
-      :clip-post-roll-seconds="clipPostRollSeconds"
-      :clip-policy-saving="clipPolicySaving"
-      :clip-policy-error="clipPolicyError"
-      :overlay-enabled="annotationOverlayEnabled"
-      @update-clip-policy="updateClipPolicy"
-      @update-overlay-enabled="setAnnotationOverlayEnabled"
-      @close="settingsOpen = false"
-    />
+    <LazyAnnotationSettingsDialog />
     <LazyCaptureControlDialog
       :open="captureDialogOpen"
       :match-id="matchId"
@@ -3562,9 +2775,7 @@ onBeforeUnmount(() => {
       :editors="annotation.presence.value.length"
       :needs-attention="syncNeedsAttention"
       :has-conflicts="annotation.outboxNeedsConfirmation.value"
-      :resyncing="annotationResyncing"
       @close="connectionDialogOpen = false"
-      @resync="requestAnnotationResync"
     />
     <LazyRosterEditorDialog
       v-if="match"
@@ -3574,15 +2785,16 @@ onBeforeUnmount(() => {
       @changed="loadMatch"
     />
     <LazyConfirmActionDialog
-      :open="Boolean(confirmAction)"
-      :title="confirmTitle"
-      :message="confirmMessage"
-      :confirm-label="confirmLabel"
+      :open="Boolean(workstationConfirmation.current.value)"
+      :title="workstationConfirmation.current.value?.title ?? ''"
+      :message="workstationConfirmation.current.value?.message ?? ''"
+      :confirm-label="workstationConfirmation.current.value?.confirmLabel ?? ''"
       :secondary-label="confirmSecondaryLabel"
-      :danger="confirmAction === 'rally-delete'"
-      @close="closeConfirmAction"
-      @confirm="confirmPendingAction"
-      @secondary="confirmSecondaryAction"
+      :danger="workstationConfirmation.current.value?.danger"
+      :pending="workstationConfirmation.pending.value"
+      @close="workstationConfirmation.close"
+      @confirm="workstationConfirmation.confirm"
+      @secondary="workstationConfirmation.secondary"
     />
   </section>
 </template>
@@ -3612,7 +2824,7 @@ onBeforeUnmount(() => {
   width: 100vw;
   height: 100dvh;
   display: grid;
-  grid-template-rows: 54px minmax(0, 1fr) 238px;
+  grid-template-rows: 54px minmax(0, 1fr) 300px;
   overflow: hidden;
   background: var(--surface-0);
   color: #edf1f4;
@@ -4033,7 +3245,7 @@ onBeforeUnmount(() => {
     display: none;
   }
   .timeline-footer {
-    grid-template-rows: 39px minmax(0, 1fr) 50px;
+    grid-template-rows: 39px minmax(0, 1fr) 64px;
   }
   .inspector {
     padding: 0;
@@ -4565,7 +3777,7 @@ onBeforeUnmount(() => {
   font-size: 0.67rem;
 }
 .timeline-footer {
-  grid-template-rows: 42px minmax(0, 1fr) 53px;
+  grid-template-rows: 42px minmax(0, 1fr) 64px;
 }
 .transport-bar {
   gap: 4px;
@@ -4657,7 +3869,7 @@ onBeforeUnmount(() => {
     grid-template-rows: 42px minmax(0, 1fr) 204px;
   }
   .timeline-footer {
-    grid-template-rows: 39px minmax(0, 1fr) 49px;
+    grid-template-rows: 39px minmax(0, 1fr) 64px;
   }
   .tool-button span {
     display: none;

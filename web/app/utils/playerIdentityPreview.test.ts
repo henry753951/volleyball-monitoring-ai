@@ -12,7 +12,7 @@ const track = (overrides: Record<string, unknown>) =>
     first_frame_index: '0',
     last_frame_index: '90',
     roster_entry_id: 'roster-1',
-    identity_mapping_completed: false,
+    identity_mapping_completed: true,
     ...overrides,
   }) as never
 
@@ -42,6 +42,29 @@ describe('player identity preview', () => {
       { analysisRunId: 'run-current', trackId: 1 },
     )
     expect(selected.map(item => item.rally_id)).toEqual(['rally-2', 'rally-1'])
+  })
+
+  it('does not present an unconfirmed automatic assignment as prior identity evidence', () => {
+    const selected = selectPlayerPreviewTracks(
+      [
+        track({
+          analysis_run_id: 'run-confirmed',
+          rally_id: 'rally-confirmed',
+          rally_ordinal: 1,
+        }),
+        track({
+          analysis_run_id: 'run-pending',
+          rally_id: 'rally-pending',
+          rally_ordinal: 2,
+          identity_mapping_completed: false,
+          identity_source: 'ai',
+        }),
+      ],
+      'roster-1',
+      { analysisRunId: 'run-current', trackId: 1 },
+    )
+
+    expect(selected.map(item => item.rally_id)).toEqual(['rally-confirmed'])
   })
 
   it('samples three stable points inside a tracked frame range', () => {

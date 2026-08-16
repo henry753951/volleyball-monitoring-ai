@@ -2,6 +2,7 @@ import type { AnalysisData } from '@volleyball-monitoring/contracts'
 import type { Prisma } from '@volleyball-monitoring/db/client'
 import { describe, expect, it, vi } from 'vitest'
 import {
+  buildObservedFrameRanges,
   ProviderAnalysisMaterializationError,
   registerProviderAnalysisEvidence,
   type ProviderAnalysisOutputArtifact,
@@ -90,6 +91,19 @@ function transaction() {
 }
 
 describe('provider analysis evidence materialization', () => {
+  it('records exact frame presence ranges instead of broad track bounds', () => {
+    const ranges = buildObservedFrameRanges({
+      frameOffsets: [0, 1, 2, 2, 3, 4, 4],
+      trackIds: [7, 7, 9, 7],
+    })
+
+    expect(ranges.get(7)).toEqual([
+      { start: '0', end: '1' },
+      { start: '4', end: '4' },
+    ])
+    expect(ranges.get(9)).toEqual([{ start: '3', end: '3' }])
+  })
+
   it('registers complete pose coverage and keeps the crop-source artifact addressable', async () => {
     const tx = transaction()
     await registerProviderAnalysisEvidence(tx as unknown as Prisma.TransactionClient, fixture())

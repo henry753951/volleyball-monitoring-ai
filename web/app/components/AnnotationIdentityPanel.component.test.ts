@@ -2,6 +2,9 @@ import { flushPromises, mount } from '@vue/test-utils'
 import { computed, onMounted, ref, shallowRef, watch } from 'vue'
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { CoachMatchAnalytics } from '~/lib/coachDomain'
+import { annotationWorkstationServiceKey } from '~/services/annotation-workstation/annotation-workstation.service'
+import { createIdentityAssignmentControllerService } from '~/services/annotation-workstation/identity-assignment-controller.service'
+import { createWorkstationActionManager } from '~/services/annotation-workstation/workstation-action.service'
 import IdentityReplacementDialog from './IdentityReplacementDialog.vue'
 import UiPlayerCombobox from './ui/PlayerCombobox.vue'
 
@@ -67,6 +70,7 @@ function analyticsFixture(): CoachMatchAnalytics {
         court_side: 'left',
         first_frame_index: '0',
         last_frame_index: '120',
+        observed_frame_ranges: [{ start: '0', end: '120' }],
         roster_entry_id: 'roster-1',
         identity_mapping_completed: false,
         gid_id: '2d9a44cc-21f2-4c02-a172-c4ca8aa00001',
@@ -92,6 +96,7 @@ function analyticsFixture(): CoachMatchAnalytics {
         court_side: 'left',
         first_frame_index: '0',
         last_frame_index: '120',
+        observed_frame_ranges: [{ start: '0', end: '120' }],
         roster_entry_id: null,
         identity_mapping_completed: false,
         gid_id: '2d9a44cc-21f2-4c02-a172-c4ca8aa00002',
@@ -122,6 +127,19 @@ function analyticsFixture(): CoachMatchAnalytics {
 }
 
 function mountPanel() {
+  const manager = createWorkstationActionManager()
+  const assignment = createIdentityAssignmentControllerService(
+    {
+      matchId: 'match-1',
+      analysisRunId: 'analysis-1',
+      currentFrame: 60,
+      refreshAfterCommit: true,
+      mappingCompleted: false,
+    },
+    coachClient as never,
+    replacementWarningEnabled,
+    manager,
+  )
   return mount(AnnotationIdentityPanel, {
     props: {
       matchId: 'match-1',
@@ -130,7 +148,11 @@ function mountPanel() {
       rightTeamId: 'team-right',
       teams,
       mappingCompleted: false,
-      currentFrame: 60,
+    },
+    global: {
+      provide: {
+        [annotationWorkstationServiceKey as symbol]: { identity: assignment, actions: manager },
+      },
     },
   })
 }
@@ -239,7 +261,6 @@ describe('AnnotationIdentityPanel ReID assignments', () => {
       rosterEntryId: 'roster-2',
       identityMode,
     })
-    expect(wrapper.emitted('changed')).toHaveLength(1)
 
     wrapper.unmount()
   })
@@ -307,7 +328,6 @@ describe('AnnotationIdentityPanel ReID assignments', () => {
       analysisRunId: 'analysis-1',
     })
     expect(wrapper.text()).toContain('已自動套用 1 個 Local ID')
-    expect(wrapper.emitted('changed')).toHaveLength(1)
     wrapper.unmount()
   })
 
@@ -334,7 +354,6 @@ describe('AnnotationIdentityPanel ReID assignments', () => {
       rosterEntryId: 'roster-2',
       identityMode: 'clip_only',
     })
-    expect(wrapper.emitted('changed')).toHaveLength(1)
     wrapper.unmount()
   })
 })

@@ -553,13 +553,6 @@ describe('annotation optimistic command queue', () => {
         annotation_status: 'ready',
         auto_corrections: [
           {
-            code: 'SPIKE_SUCCESS_DOWNGRADED',
-            key_point_id: 'spike',
-            action: 'update',
-            before: { sequence_index: 2, event: { kind: 'SPIKE', result: 'SUCCESS' } },
-            after: { sequence_index: 2, event: { kind: 'SPIKE', result: 'FAILURE' } },
-          },
-          {
             code: 'OUTSIDE_END_TOMBSTONED',
             key_point_id: 'outside',
             action: 'tombstone',
@@ -580,7 +573,7 @@ describe('annotation optimistic command queue', () => {
     ])
     expect(next?.snapshot.key_points[2]?.ball_event).toEqual({
       kind: 'SPIKE',
-      result: 'FAILURE',
+      result: 'SUCCESS',
     })
     expect(annotationCommandConverged(command, next)).toBe(true)
   })

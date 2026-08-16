@@ -1,28 +1,14 @@
 import { inject, provide, type InjectionKey } from 'vue'
-import { createCoachDomainClient } from '~/lib/coachDomain'
-import { createGraphQLTransport } from '~/lib/coreDomain'
+import {
+  createIdentityAssignmentService,
+  type IdentityAssignmentService,
+} from '~/services/annotation-workstation/identity-assignment.service'
 
-export type IdentityAssignmentService = Pick<
-  ReturnType<typeof createCoachDomainClient>,
-  | 'analytics'
-  | 'rallyReplay'
-  | 'assignTrackIdentity'
-  | 'clearTrackIdentity'
-  | 'applyReidAutomaticAssignments'
-  | 'requestReidFeatureRebuild'
-  | 'reidFeatureRebuildRequest'
-  | 'requestReidAssociationRerun'
-  | 'reidAssociationRerunRequest'
-  | 'setTrackIdentityMappingComplete'
->
+export { createIdentityAssignmentService, type IdentityAssignmentService }
 
 const identityAssignmentServiceKey: InjectionKey<IdentityAssignmentService> = Symbol(
   'identity-assignment-service',
 )
-
-export function createIdentityAssignmentService(): IdentityAssignmentService {
-  return createCoachDomainClient(createGraphQLTransport('/graphql'))
-}
 
 export function provideIdentityAssignmentService(
   service: IdentityAssignmentService = createIdentityAssignmentService(),
@@ -32,5 +18,8 @@ export function provideIdentityAssignmentService(
 }
 
 export function useIdentityAssignmentService() {
-  return inject(identityAssignmentServiceKey, null) ?? createIdentityAssignmentService()
+  const service = inject(identityAssignmentServiceKey, null)
+  if (!service)
+    throw new Error('Identity assignment service was not provided by the route boundary')
+  return service
 }

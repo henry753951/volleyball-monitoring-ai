@@ -10,6 +10,7 @@ import type { Prisma } from '@volleyball-monitoring/db/client'
 import { UserRole } from '@volleyball-monitoring/db/client'
 import type { AnnotationIdentity, AnnotationRoom } from './room.js'
 import { CLIP_CANONICALIZATION_PROFILE, CLIP_POLICY_VERSION } from '../../config/clip-policy.js'
+import type { MediaObjectReader } from '../../media/playback-domain.js'
 import { reuseCompletedSubmissionGeometry } from './submission-geometry-reuse.js'
 
 type Tx = Prisma.TransactionClient
@@ -103,6 +104,7 @@ export async function submitRally(
   command: SubmissionCommand,
   identity: AnnotationIdentity,
   hash: string,
+  timingManifestReader?: MediaObjectReader,
 ): Promise<AnnotationCommandResponse> {
   const device = await tx.deviceSession.findUnique({
     select: { revokedAt: true, userId: true },
@@ -494,7 +496,7 @@ export async function submitRally(
     capture_frame_index: boundary.captureFrameIndex.toString(),
     timing_precision: boundary.timingPrecision,
   }))
-  const geometryUnchanged =
+  const clipWindowUnchanged =
     superseded !== null &&
     superseded.clipPolicyVersion === CLIP_POLICY_VERSION &&
     superseded.clipPreRollUs === clipPreRollUs &&
@@ -511,8 +513,16 @@ export async function submitRally(
         boundary.captureFrameIndex === draft.captureFrameIndex &&
         boundary.timingPrecision === draft.timingPrecision
       )
-    }) &&
+    })
+  const contactTopologyUnchanged =
+    superseded !== null &&
     superseded.keyPoints.length === rally.keyPoints.length &&
+    superseded.keyPoints.every(
+      (point, index) => point.sequenceIndex === rally.keyPoints[index]?.sequenceIndex,
+    )
+  const geometryUnchanged =
+    clipWindowUnchanged &&
+    contactTopologyUnchanged &&
     superseded.keyPoints.every((point, index) => {
       const draft = rally.keyPoints[index]
       return (
@@ -738,16 +748,27 @@ export async function submitRally(
   }
 
   const clipReused =
-    superseded && geometryUnchanged && resolution !== 'PENDING'
+    superseded && clipWindowUnchanged && contactTopologyUnchanged && resolution !== 'PENDING'
       ? await reuseCompletedSubmissionGeometry(tx, {
-          annotationRevision: rally.annotationRevision,
+          allowLegacyMappingCopy: geometryUnchanged,
           newBoundaries: boundaryRows,
-          newKeyPoints: rows,
+          newKeyPoints: rows.map(row => {
+            const draft = rally.keyPoints.find(point => point.id === row.sourceDraftKeyPointId)!
+            return {
+              actorRosterEntryId: draft.ballEvent?.actorRosterEntryId ?? null,
+              captureEpochId: row.captureEpochId,
+              captureFrameIndex: row.captureFrameIndex,
+              captureTimeUs: row.captureTimeUs,
+              id: row.id,
+              sequenceIndex: row.sequenceIndex,
+              sourcePts: row.sourcePts,
+            }
+          }),
           newSubmissionId: submission.id,
-          outcome: { resolution, side },
           sourceBoundaries: superseded.boundaries,
           sourceKeyPoints: superseded.keyPoints,
           sourceSubmissionId: superseded.id,
+          ...(timingManifestReader ? { timingManifestReader } : {}),
         })
       : false
   if (!clipReused) {
@@ -870,6 +891,8 @@ export async function submitRally(
         eventType: 'rally.submission_superseded.v1',
         payload: json({
           clip_reused: clipReused,
+          clip_window_unchanged: clipWindowUnchanged,
+          contact_topology_unchanged: contactTopologyUnchanged,
           geometry_unchanged: geometryUnchanged,
           rally_id: rally.id,
           submission_id: submission.id,

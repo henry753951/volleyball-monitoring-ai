@@ -80,6 +80,14 @@ describe('coachPlayerActions', () => {
         paths: [
           {
             start_key_point_id: 'event-1',
+            start_court_positions: [
+              {
+                track_id: 8,
+                basis: 'player_footprint_proxy',
+                court_pos: { x: 1.08, y: -0.12 },
+                confidence: 0.81,
+              },
+            ],
             end_court_positions: [
               {
                 track_id: null,
@@ -101,7 +109,8 @@ describe('coachPlayerActions', () => {
         actionLabel: '接發',
         actionConfidence: null,
         resultKey: 'success',
-        courtPosition: { x: 0.4, y: 0.7 },
+        routeStart: { x: 1.08, y: -0.12 },
+        routeEnd: { x: 0.4, y: 0.7 },
         outcome: 'won',
       },
     ])
@@ -140,5 +149,53 @@ describe('coachPlayerActions', () => {
       },
     } as unknown as CoachRallyReplay
     expect(collectCoachActionEvents(tracks, new Map([['rally-1', replay]]))).toEqual([])
+  })
+
+  it('keeps a missing per-ball result unknown instead of borrowing the rally winner', () => {
+    const tracks = [
+      {
+        analysis_run_id: 'run-1',
+        track_id: 8,
+        rally_id: 'rally-1',
+        set_number: 1,
+        rally_ordinal: 2,
+        court_side: 'left',
+        first_frame_index: '0',
+        last_frame_index: '120',
+        roster_entry_id: null,
+        identity_mapping_completed: false,
+      },
+    ] as CoachMatchAnalytics['tracks']
+    const replay = {
+      rally: {
+        left_team: { id: 'team-left' },
+        right_team: { id: 'team-right' },
+        outcome: {
+          score_resolution: 'resolved',
+          scoring_team: { id: 'team-left' },
+        },
+      },
+      analysis: {
+        contact_events: [
+          {
+            key_point_id: 'event-1',
+            anchor_time_us: '1',
+            ball_event: {
+              ordinal: 1,
+              kind: 'spike',
+              result: null,
+              semantic_source: 'human',
+              actor: { roster_entry_id: 'roster-8', jersey_number: '8', name: 'P8', track_id: 8 },
+            },
+            actors: [{ track_id: 8, action: null, court_pos: { x: 0.2, y: 0.3 } }],
+          },
+        ],
+        paths: [],
+      },
+    } as unknown as CoachRallyReplay
+
+    const events = collectCoachActionEvents(tracks, new Map([['rally-1', replay]]))
+    expect(events[0]?.outcome).toBe('unknown')
+    expect(actionOutcomeRate(events)).toEqual({ won: 0, resolved: 0, unknown: 1, rate: null })
   })
 })

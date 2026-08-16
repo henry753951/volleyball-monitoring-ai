@@ -50,7 +50,7 @@ const overlayMode = ref<OverlayMode>('coach')
 const courtLabelMode = ref<'hitters' | 'all'>('hitters')
 const showOtherPlayers = ref(true)
 const showCourtLegend = ref(true)
-const timelineOpen = useState('coach-replay-timeline-open', () => false)
+const timelineDetailsOpen = useState('coach-replay-timeline-details-open', () => false)
 const rallyStatus = useCoachRallyStatus()
 const matchState = useCoachMatchState(matchId, { refreshIntervalMs: 0 })
 const mediaSize = reactive({ width: 0, height: 0 })
@@ -175,8 +175,14 @@ const scoringPlayerLabel = computed(() =>
       ? eventActorLabel(terminalEvent.value)
       : '尚無終點事件',
 )
+const timelineDuration = computed(() => {
+  const clipSeconds = Number(clipDurationUs.value) / 1_000_000
+  return clipSeconds > 0 ? clipSeconds : duration.value
+})
 const timelineProgress = computed(() =>
-  duration.value > 0 ? Math.max(0, Math.min(100, (currentTime.value / duration.value) * 100)) : 0,
+  timelineDuration.value > 0
+    ? Math.max(0, Math.min(100, (currentTime.value / timelineDuration.value) * 100))
+    : 0,
 )
 const timelineStyle = computed(() => ({ '--timeline-progress': `${timelineProgress.value}%` }))
 const activePathIndex = computed(() => {
@@ -316,10 +322,13 @@ function seekFrame(value: string | null) {
 }
 
 function pointPercent(event: ReplayContactEvent) {
-  if (clipDurationUs.value <= 0n) return 0
+  if (timelineDuration.value <= 0) return 0
   return Math.max(
     0,
-    Math.min(100, Number((BigInt(event.anchor_time_us) * 10_000n) / clipDurationUs.value) / 100),
+    Math.min(
+      100,
+      (Number(BigInt(event.anchor_time_us)) / (timelineDuration.value * 1_000_000)) * 100,
+    ),
   )
 }
 
@@ -758,12 +767,12 @@ onBeforeUnmount(() => {
                   </section>
                 </div>
               </UiPopover>
-              <UiTooltip :content="timelineOpen ? '收合擊球時間線' : '展開擊球時間線'"
+              <UiTooltip content="開啟詳細擊球紀錄"
                 ><button
                   type="button"
-                  aria-label="擊球時間線"
-                  :aria-pressed="timelineOpen"
-                  @click="timelineOpen = !timelineOpen"
+                  aria-label="開啟詳細擊球紀錄"
+                  :aria-expanded="timelineDetailsOpen"
+                  @click="timelineDetailsOpen = true"
                 >
                   <ListTree :size="19" /></button
               ></UiTooltip>
@@ -799,59 +808,61 @@ onBeforeUnmount(() => {
           />
         </div>
 
-        <Transition name="timeline-drawer">
-          <section v-if="timelineOpen" class="replay-timeline" aria-label="擊球時間線">
-            <header class="replay-timeline__labels">
-              <span><ListTree :size="17" /><strong>擊球時間線</strong></span>
-              <small>{{ formatClock(currentTime) }} / {{ formatClock(duration) }}</small>
-            </header>
-            <div class="replay-track" :style="timelineStyle">
-              <input
-                type="range"
-                min="0"
-                :max="Math.max(duration, 0.001)"
-                step=".001"
-                :value="currentTime"
-                aria-label="影片進度"
-                @input="handleSeekInput"
-              />
-              <button
-                v-for="event in timelineEvents"
-                :key="event.key_point_id"
-                type="button"
-                class="replay-point"
-                :class="{
-                  service: event.ball_event?.kind === 'serve',
-                  receive: event.ball_event?.kind === 'receive',
-                  spike: event.ball_event?.kind === 'spike',
-                }"
-                :style="{
-                  left: `${pointPercent(event)}%`,
-                  '--point-lane': event.sequence_index % 3,
-                }"
-                :aria-label="`${eventLabel(event)} · ${eventActorLabel(event)}`"
-                @click="seekEvent(event)"
-              />
-            </div>
-            <UiScrollArea class="replay-events-scroll">
-              <div class="replay-events">
-                <button
-                  v-for="event in timelineEvents"
-                  :key="`detail:${event.key_point_id}`"
-                  type="button"
-                  @click="seekEvent(event)"
-                >
-                  <span class="replay-events__ordinal">{{ event.sequence_index + 1 }}</span>
-                  <span class="replay-events__copy"
-                    ><strong>{{ eventLabel(event) }}</strong
-                    ><small>{{ eventTeamLabel(event) }} · {{ eventActorLabel(event) }}</small></span
-                  >
-                  <time>{{ formatClock(Number(BigInt(event.anchor_time_us)) / 1_000_000) }}</time>
-                </button>
-              </div>
-            </UiScrollArea>
-          </section>
-        </Transition>
+        <section class="replay-timeline" aria-label="擊球時間線">
+          <header class="replay-timeline__labels">
+            <span><ListTree :size="17" /><strong>擊球時間線</strong></span>
+            <small>{{ formatClock(currentTime) }} / {{ formatClock(timelineDuration) }}</small>
+          </header>
+          <div class="replay-track" :style="timelineStyle">
+            <input
+              type="range"
+              min="0"
+              :max="Math.max(timelineDuration, 0.001)"
+              step=".001"
+              :value="Math.min(currentTime, timelineDuration)"
+              aria-label="影片進度"
+              @input="handleSeekInput"
+            />
+            <button
+              v-for="event in timelineEvents"
+              :key="event.key_point_id"
+              type="button"
+              class="replay-point"
+              :class="{
+                service: event.ball_event?.kind === 'serve',
+                receive: event.ball_event?.kind === 'receive',
+                spike: event.ball_event?.kind === 'spike',
+              }"
+              :style="{
+                left: `${pointPercent(event)}%`,
+              }"
+              :aria-label="`${eventLabel(event)} · ${eventActorLabel(event)}`"
+              @click="seekEvent(event)"
+            />
+          </div>
+        </section>
+
+        <UiSheet
+          v-model:open="timelineDetailsOpen"
+          title="詳細擊球紀錄"
+          :description="`${timelineEvents.length} 次擊球 · 點擊紀錄可跳轉播放`"
+        >
+          <div class="replay-events replay-events-sheet">
+            <button
+              v-for="event in timelineEvents"
+              :key="`detail:${event.key_point_id}`"
+              type="button"
+              @click="seekEvent(event)"
+            >
+              <span class="replay-events__ordinal">{{ event.sequence_index + 1 }}</span>
+              <span class="replay-events__copy"
+                ><strong>{{ eventLabel(event) }}</strong
+                ><small>{{ eventTeamLabel(event) }} · {{ eventActorLabel(event) }}</small></span
+              >
+              <time>{{ formatClock(Number(BigInt(event.anchor_time_us)) / 1_000_000) }}</time>
+            </button>
+          </div>
+        </UiSheet>
       </section>
     </template>
   </section>
@@ -1086,14 +1097,10 @@ onBeforeUnmount(() => {
   color: #fff;
 }
 .replay-timeline {
-  height: 166px;
-  min-height: 0;
+  min-height: 94px;
   display: grid;
-  grid-template-columns: 120px minmax(0, 1fr);
-  grid-template-rows: 38px minmax(0, 1fr);
-  align-items: center;
-  gap: 0 16px;
-  padding: 8px 14px 10px;
+  gap: 8px;
+  padding: 10px 16px 12px;
   border: 1px solid #dfe4e9;
   border-radius: 14px;
   background: #fff;
@@ -1104,12 +1111,12 @@ onBeforeUnmount(() => {
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  grid-column: 1 / -1;
 }
 .replay-timeline__labels > span {
   display: inline-flex;
   align-items: center;
   gap: 6px;
+  white-space: nowrap;
 }
 .replay-timeline__labels strong {
   font-size: 0.72rem;
@@ -1121,13 +1128,7 @@ onBeforeUnmount(() => {
 }
 .replay-track {
   position: relative;
-  height: 52px;
-  align-self: start;
-  margin-top: 8px;
-}
-.replay-events-scroll {
-  width: 100%;
-  height: 104px;
+  height: 44px;
   min-width: 0;
 }
 .replay-events {
@@ -1135,8 +1136,14 @@ onBeforeUnmount(() => {
   gap: 7px;
   padding: 2px 12px 8px 0;
 }
+.replay-events-sheet {
+  display: grid;
+  gap: 8px;
+  padding: 0;
+}
 .replay-events > button {
-  min-width: 180px;
+  width: 100%;
+  min-width: 0;
   min-height: 62px;
   display: grid;
   grid-template-columns: 28px minmax(0, 1fr) auto;
@@ -1188,22 +1195,11 @@ onBeforeUnmount(() => {
 .replay-events time {
   font-variant-numeric: tabular-nums;
 }
-.timeline-drawer-enter-active,
-.timeline-drawer-leave-active {
-  transition:
-    opacity 150ms ease-out,
-    transform 220ms cubic-bezier(0.16, 1, 0.3, 1);
-}
-.timeline-drawer-enter-from,
-.timeline-drawer-leave-to {
-  opacity: 0;
-  transform: translateY(12px);
-}
 .replay-track::before {
   position: absolute;
   left: 0;
   right: 0;
-  top: 24px;
+  top: 20px;
   height: 4px;
   border-radius: 999px;
   background: linear-gradient(
@@ -1218,7 +1214,7 @@ onBeforeUnmount(() => {
   z-index: 2;
   inset: 0;
   width: 100%;
-  height: 52px;
+  height: 44px;
   margin: 0;
   opacity: 0.001;
   cursor: pointer;
@@ -1226,7 +1222,7 @@ onBeforeUnmount(() => {
 .replay-point {
   position: absolute;
   z-index: 3;
-  top: calc(3px + var(--point-lane, 0) * 16px);
+  top: 15px;
   width: 14px;
   height: 14px;
   padding: 0;
@@ -1416,7 +1412,6 @@ onBeforeUnmount(() => {
     grid-template-columns: minmax(0, 1fr) 180px;
   }
   .replay-timeline {
-    grid-template-columns: 84px minmax(0, 1fr);
     padding-inline: 10px;
   }
   .replay-transport {
@@ -1532,8 +1527,6 @@ onBeforeUnmount(() => {
   box-shadow: none !important;
 }
 .replay-timeline {
-  grid-template-columns: 116px minmax(0, 1fr);
-  gap: 16px;
   padding: 9px 18px;
   border: 0;
   border-radius: 0;

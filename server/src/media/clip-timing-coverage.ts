@@ -1,6 +1,7 @@
 import type { MediaObjectReader } from './playback-domain.js'
 
 const DECIMAL = /^(0|[1-9]\d*)$/
+const SIGNED_DECIMAL = /^-?(0|[1-9]\d*)$/
 
 export class ClipTimingManifestError extends Error {
   constructor(message: string) {
@@ -40,6 +41,7 @@ export interface ClipFrameTimeline {
   captureFrameIndex: bigint[]
   captureTimeUs: bigint[]
   captureEndUs: bigint
+  clipPts: bigint[]
   clipTimeUs: bigint[]
   clipEndUs: bigint
   sourcePts: bigint[]
@@ -55,6 +57,13 @@ function record(value: unknown): Record<string, unknown> {
 function decimal(value: unknown, field: string): bigint {
   if (typeof value !== 'string' || !DECIMAL.test(value)) {
     throw new ClipTimingManifestError(`${field} must be a decimal string`)
+  }
+  return BigInt(value)
+}
+
+function signedDecimal(value: unknown, field: string): bigint {
+  if (typeof value !== 'string' || !SIGNED_DECIMAL.test(value)) {
+    throw new ClipTimingManifestError(`${field} must be a signed decimal string`)
   }
   return BigInt(value)
 }
@@ -87,6 +96,7 @@ export function resolveClipFrameTimeline(
   const captureTimes: bigint[] = []
   const captureEpochIds: string[] = []
   const captureFrameIndexes: bigint[] = []
+  const clipPtsValues: bigint[] = []
   const clipTimes: bigint[] = []
   const sourcePtsValues: bigint[] = []
   for (const [index, value] of manifest.frame_map.entries()) {
@@ -100,7 +110,8 @@ export function resolveClipFrameTimeline(
       frame.capture_frame_index,
       `frame_map[${index}].capture_frame_index`,
     )
-    const sourcePts = decimal(frame.source_pts, `frame_map[${index}].source_pts`)
+    const sourcePts = signedDecimal(frame.source_pts, `frame_map[${index}].source_pts`)
+    const clipPts = decimal(frame.clip_pts, `frame_map[${index}].clip_pts`)
     const clipFrameIndex = decimal(frame.clip_frame_index, `frame_map[${index}].clip_frame_index`)
     const captureTimeUs = decimal(frame.capture_time_us, `frame_map[${index}].capture_time_us`)
     const clipTimeUs = decimal(frame.clip_time_us, `frame_map[${index}].clip_time_us`)
@@ -125,6 +136,7 @@ export function resolveClipFrameTimeline(
     captureEpochIds.push(frame.capture_epoch_id)
     captureFrameIndexes.push(captureFrameIndex)
     captureTimes.push(captureTimeUs)
+    clipPtsValues.push(clipPts)
     clipTimes.push(clipTimeUs)
     sourcePtsValues.push(sourcePts)
   }
@@ -134,6 +146,7 @@ export function resolveClipFrameTimeline(
     captureFrameIndex: captureFrameIndexes,
     captureTimeUs: captureTimes,
     captureEndUs: actualEndUs,
+    clipPts: clipPtsValues,
     clipTimeUs: clipTimes,
     clipEndUs,
     sourcePts: sourcePtsValues,

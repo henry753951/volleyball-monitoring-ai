@@ -3,6 +3,7 @@ import { Activity, RadioTower, RefreshCw, Server, TriangleAlert, UsersRound } fr
 import UiButton from '~/components/ui/Button.vue'
 import type { CaptureSession } from '~/lib/coreDomain'
 import type { PlaybackWindowDescriptor } from '~/lib/mediaModel'
+import { useAnnotationWorkstationService } from '~/services/annotation-workstation/annotation-workstation.service'
 
 defineProps<{
   open: boolean
@@ -13,9 +14,10 @@ defineProps<{
   editors: number
   needsAttention: boolean
   hasConflicts: boolean
-  resyncing: boolean
 }>()
-defineEmits<{ close: []; resync: [] }>()
+defineEmits<{ close: [] }>()
+const workstation = useAnnotationWorkstationService()
+const resyncState = workstation.actions.state('sync.resync')
 const label = (value: string) =>
   value.toLowerCase() === 'ready' ||
   value.toLowerCase() === 'live' ||
@@ -81,9 +83,12 @@ const label = (value: string) =>
     </div>
     <template #footer>
       <UiButton variant="ghost" @click="$emit('close')">關閉</UiButton>
-      <UiButton v-if="needsAttention" :disabled="resyncing" @click="$emit('resync')"
-        ><RefreshCw :size="14" :class="{ spinning: resyncing }" />{{
-          resyncing ? '同步中' : '重新同步'
+      <UiButton
+        v-if="needsAttention"
+        :disabled="!resyncState.enabled"
+        @click="workstation.actions.execute('sync.resync')"
+        ><RefreshCw :size="14" :class="{ spinning: resyncState.pending }" />{{
+          resyncState.pending ? '同步中' : '重新同步'
         }}</UiButton
       >
     </template>

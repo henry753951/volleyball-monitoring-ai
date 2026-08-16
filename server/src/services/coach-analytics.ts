@@ -27,6 +27,61 @@ const metric = (
   quality_breakdown: qualityBreakdown,
   feature_dependencies: featureDependencies,
 })
+
+const SYSTEM_TRACK_METADATA_KEY = '__volleyball_system'
+const OBSERVED_FRAME_RANGES_KEY = 'observed_frame_ranges_v1'
+type ObservedFrameRange = { start: bigint; end: bigint }
+
+function observedFrameRanges(metadata: unknown): ObservedFrameRange[] | null {
+  if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) return null
+  const system = (metadata as Record<string, unknown>)[SYSTEM_TRACK_METADATA_KEY]
+  if (!system || typeof system !== 'object' || Array.isArray(system)) return null
+  const raw = (system as Record<string, unknown>)[OBSERVED_FRAME_RANGES_KEY]
+  if (!Array.isArray(raw)) return null
+  const ranges: ObservedFrameRange[] = []
+  for (const item of raw) {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) return null
+    const start = (item as Record<string, unknown>).start
+    const end = (item as Record<string, unknown>).end
+    if (
+      typeof start !== 'string' ||
+      typeof end !== 'string' ||
+      !/^\d+$/.test(start) ||
+      !/^\d+$/.test(end)
+    )
+      return null
+    const startFrame = BigInt(start)
+    const endFrame = BigInt(end)
+    if (startFrame > endFrame) return null
+    ranges.push({ start: startFrame, end: endFrame })
+  }
+  return ranges.sort((left, right) =>
+    left.start < right.start ? -1 : left.start > right.start ? 1 : 0,
+  )
+}
+
+export function observedFrameRangesOverlap(leftMetadata: unknown, rightMetadata: unknown) {
+  const left = observedFrameRanges(leftMetadata)
+  const right = observedFrameRanges(rightMetadata)
+  // Missing exact presence is deliberately non-conflicting. A broad
+  // first/last interval must never silently unbind another Local ID.
+  if (!left || !right) return false
+  let rightIndex = 0
+  for (const leftRange of left) {
+    while (rightIndex < right.length && right[rightIndex]!.end < leftRange.start) rightIndex += 1
+    if (rightIndex >= right.length) return false
+    if (right[rightIndex]!.start <= leftRange.end) return true
+  }
+  return false
+}
+
+function observedFrameRangesForOutput(metadata: unknown) {
+  const ranges = observedFrameRanges(metadata)
+  return (
+    ranges?.map(range => ({ start: range.start.toString(), end: range.end.toString() })) ?? null
+  )
+}
+
 const coachAnalysisRunSelect = {
   id: true,
   analysisVersion: true,
@@ -37,6 +92,7 @@ const coachAnalysisRunSelect = {
       courtSide: true,
       firstFrame: true,
       lastFrame: true,
+      metadata: true,
     },
   },
   reidEvidenceSets: {
@@ -165,11 +221,22 @@ export async function getCoachMatchAnalytics(
               ballEvents: {
                 orderBy: { ordinal: 'asc' },
                 select: {
+                  submissionKeyPointId: true,
                   ordinal: true,
                   kind: true,
                   result: true,
                   actorRosterEntryId: true,
                   submissionKeyPoint: { select: { captureTimeUs: true } },
+                },
+              },
+              clipJobs: {
+                where: { status: JobStatus.COMPLETED },
+                orderBy: { completedAt: 'desc' },
+                take: 1,
+                select: {
+                  keyPointMappings: {
+                    select: { submissionKeyPointId: true, clipFrameIndex: true },
+                  },
                 },
               },
               analysisRuns: {
@@ -190,12 +257,21 @@ export async function getCoachMatchAnalytics(
   const rallies = match.rallies.flatMap(rally =>
     rally.activeSubmission ? [{ ...rally, submission: rally.activeSubmission }] : [],
   )
-  const analyzed = rallies.flatMap(rally =>
-    rally.submission.analysisRuns[0] || rally.submission.analysisSourceRun
-      ? [{ rally, run: rally.submission.analysisRuns[0] ?? rally.submission.analysisSourceRun! }]
-      : [],
-  )
+  const analyzed = rallies.flatMap(rally => {
+    const activeRun = rally.submission.analysisRuns[0] ?? null
+    const run = activeRun ?? rally.submission.analysisSourceRun
+    return run ? [{ rally, run, usesSourceAnalysis: activeRun === null }] : []
+  })
   const events = analyzed.flatMap(entry => {
+    const explicitByOrdinal = new Map(
+      entry.rally.submission.ballEvents.map(event => [event.ordinal, event]),
+    )
+    const submissionFrameByPoint = new Map(
+      entry.rally.submission.clipJobs?.[0]?.keyPointMappings.map(mapping => [
+        mapping.submissionKeyPointId,
+        mapping.clipFrameIndex,
+      ]) ?? [],
+    )
     const corrections = new Map(
       entry.run.contactActorCorrections.map(correction => [
         correction.keyPointId,
@@ -225,12 +301,19 @@ export async function getCoachMatchAnalytics(
     const baseEvents = entry.run.contactEvents
       .filter(event => !edits.get(event.keyPointId)?.deleted)
       .map(event => {
+        const explicit = explicitByOrdinal.get(event.sequenceIndex + 1)
+        const submissionFrame = entry.usesSourceAnalysis
+          ? submissionFrameByPoint.get(explicit?.submissionKeyPointId ?? '')
+          : undefined
         const correctedTrackId = corrections.get(event.keyPointId)
         const hasCorrection = corrections.has(event.keyPointId)
-        const associationJob = latestAssociationByPoint.get(event.keyPointId)
+        const associationJob =
+          (explicit ? latestAssociationByPoint.get(explicit.submissionKeyPointId) : undefined) ??
+          latestAssociationByPoint.get(event.keyPointId)
         const associationProjection =
           associationJob?.status === JobStatus.COMPLETED ? associationJob.projection : null
         const frameIndex =
+          submissionFrame ??
           timeCorrections.get(event.keyPointId) ??
           event.resolvedFrameIndex ??
           event.anchorFrameIndex
@@ -250,7 +333,9 @@ export async function getCoachMatchAnalytics(
           effectiveTrackId === null
             ? []
             : [
-                event.actors.find(actor => actor.trackId === effectiveTrackId) ?? {
+                (submissionFrame === undefined
+                  ? event.actors.find(actor => actor.trackId === effectiveTrackId)
+                  : undefined) ?? {
                   trackId: effectiveTrackId,
                   associationConfidence: associationProjection?.confidence ?? null,
                   action: null,
@@ -267,11 +352,13 @@ export async function getCoachMatchAnalytics(
           frameIndex,
           actors,
           representativePositions:
-            effectiveTrackId === null
-              ? event.representativePositions.filter(position => position.trackId === null)
-              : event.representativePositions.filter(
-                  position => position.trackId === effectiveTrackId,
-                ),
+            submissionFrame !== undefined
+              ? []
+              : effectiveTrackId === null
+                ? event.representativePositions.filter(position => position.trackId === null)
+                : event.representativePositions.filter(
+                    position => position.trackId === effectiveTrackId,
+                  ),
           associationState:
             hasCorrection || associationProjection
               ? effectiveTrackId === null
@@ -282,9 +369,11 @@ export async function getCoachMatchAnalytics(
                   ? ('NO_PLAYER' as const)
                   : event.associationState
                 : ('RESOLVED_SINGLE' as const),
-          qualityFlags: associationProjection
-            ? [...event.qualityFlags, 'contact_association_projection']
-            : event.qualityFlags,
+          qualityFlags: [
+            ...event.qualityFlags,
+            ...(associationProjection ? ['contact_association_projection'] : []),
+            ...(submissionFrame !== undefined ? ['submission_timing_projection'] : []),
+          ],
           runId: entry.run.id,
           rallyId: entry.rally.id,
         }
@@ -615,6 +704,7 @@ export async function getCoachMatchAnalytics(
           court_side: track.courtSide.toLowerCase(),
           first_frame_index: track.firstFrame.toString(),
           last_frame_index: track.lastFrame.toString(),
+          observed_frame_ranges: observedFrameRangesForOutput(track.metadata),
           roster_entry_id: versioned?.rosterEntryId ?? null,
           gid_id: versioned?.personClusterId ?? null,
           gid_team_id: versioned?.personCluster?.teamId ?? null,
@@ -636,13 +726,6 @@ export async function getCoachMatchAnalytics(
     ),
     unassigned_tracks: unassignedTracks,
   }
-}
-
-export function frameRangesOverlap(
-  left: { firstFrame: bigint; lastFrame: bigint },
-  right: { firstFrame: bigint; lastFrame: bigint },
-) {
-  return left.firstFrame <= right.lastFrame && right.firstFrame <= left.lastFrame
 }
 
 export async function assignTrackIdentity(
@@ -677,6 +760,7 @@ export async function assignTrackIdentity(
         courtSide: true,
         firstFrame: true,
         lastFrame: true,
+        metadata: true,
         analysisRun: {
           select: {
             submission: {
@@ -726,10 +810,13 @@ export async function assignTrackIdentity(
         rosterEntryId: input.rosterEntryId,
         trackId: { not: input.trackId },
       },
-      select: { trackId: true, track: { select: { firstFrame: true, lastFrame: true } } },
+      select: {
+        trackId: true,
+        track: { select: { firstFrame: true, lastFrame: true, metadata: true } },
+      },
     })
     const replacedTrackIds = occupied
-      .filter(item => frameRangesOverlap(track, item.track))
+      .filter(item => observedFrameRangesOverlap(track.metadata, item.track.metadata))
       .map(item => item.trackId)
     if (replacedTrackIds.length)
       await tx.trackIdentityAssignment.deleteMany({

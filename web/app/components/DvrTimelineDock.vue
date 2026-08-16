@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { AnnotationRallySnapshot } from '@volleyball-monitoring/contracts'
+import type { AnnotationRallySnapshot, BallEventValue } from '@volleyball-monitoring/contracts'
 import { Activity, Bot, CircleDotDashed, UserRound } from 'lucide-vue-next'
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import type { CaptureTimeline } from '~/lib/coreDomain'
@@ -22,6 +22,12 @@ import {
   selectNonOverlappingRanges,
   type TimelineViewport,
 } from '~/lib/dvrTimeline'
+import { useAnnotationWorkstationService } from '~/services/annotation-workstation/annotation-workstation.service'
+import {
+  BALL_EVENT_TONE_COLORS,
+  ballEventLabel,
+  ballEventTone,
+} from '~/utils/annotationBallEventPresentation'
 
 const props = defineProps<{
   timeline: CaptureTimeline | null
@@ -40,7 +46,13 @@ const props = defineProps<{
     startCaptureTimeUs: string
     endCaptureTimeUs: string
     status: 'draft' | 'idle' | 'failed' | 'processing' | 'analyzed' | 'mapped'
-    points?: Array<{ id: string; markerKind: string; isTerminal: boolean; captureTimeUs: string }>
+    points?: Array<{
+      id: string
+      markerKind: string
+      isTerminal: boolean
+      captureTimeUs: string
+      ballEvent?: BallEventValue | null
+    }>
     analysis?: {
       startCaptureTimeUs: string
       endCaptureTimeUs: string
@@ -62,19 +74,14 @@ const props = defineProps<{
 }>()
 
 const emit = defineEmits<{
-  seek: [target: string]
-  preview: [target: string | null]
-  select: [keyPointId: string]
-  selectMask: []
-  editStart: [keyPointId: string]
-  editCancel: [keyPointId: string]
-  move: [keyPointId: string, targetCaptureTimeUs: string]
-  selectSegment: [segmentId: string, targetCaptureTimeUs: string]
-  selectAnalysis: [segmentId: string]
-  clearSelection: []
   scaleChange: [scale: number]
   viewChange: [viewport: TimelineViewport]
 }>()
+const workstation = useAnnotationWorkstationService()
+if (!workstation.timeline || !workstation.annotation.keyPoints)
+  throw new Error('Timeline dock requires timeline and key-point workstation services')
+const timelineSelection = workstation.timeline
+const keyPointEditing = workstation.annotation.keyPoints
 const readyBounds = computed(() => timelineBounds(props.timeline?.availableRanges ?? []))
 const fullBounds = computed(() => {
   const timeline = props.timeline
@@ -218,14 +225,6 @@ const position = (time: string) =>
   viewBounds.value ? capturePercentBps(time, viewBounds.value) / 100 : 0
 const remoteEditors = (keyPointId: string) => props.softLocks?.[keyPointId] ?? []
 const isPendingPoint = (keyPointId: string) => keyPointId.startsWith('pending:')
-const historicalPointSegments = computed(() => {
-  const correctionRallyId =
-    props.annotation?.snapshot.active_submission_id &&
-    ['open', 'ready'].includes(props.annotation.snapshot.annotation_status)
-      ? props.annotation.rally_id
-      : null
-  return (props.segments ?? []).filter(segment => segment.id !== correctionRallyId)
-})
 const pointPosition = (keyPointId: string, captureTimeUs: string) =>
   position(
     pointDrag.value?.keyPointId === keyPointId
@@ -358,6 +357,70 @@ const displayAnalysisSegments = computed(() =>
     props.selectedSegmentId,
   ).map(segment => ({ segment, range: analysisRange(segment) })),
 )
+type TimelinePointItem = {
+  id: string
+  rallyId: string | null
+  segmentLabel: string
+  markerKind: string
+  isTerminal: boolean
+  captureTimeUs: string
+  ballEvent: BallEventValue | null
+  current: boolean
+  editable: boolean
+  density: string
+}
+const timelinePointItems = computed<TimelinePointItem[]>(() => {
+  const currentRallyId = props.annotation?.rally_id ?? null
+  const items: TimelinePointItem[] = []
+  const seen = new Set<string>()
+  for (const segment of displaySegments.value) {
+    if (segment.id === currentRallyId) continue
+    for (const point of segment.points ?? []) {
+      if (seen.has(point.id)) continue
+      seen.add(point.id)
+      items.push({
+        id: point.id,
+        rallyId: segment.id,
+        segmentLabel: segment.label,
+        markerKind: point.markerKind,
+        isTerminal: point.isTerminal,
+        captureTimeUs: point.captureTimeUs,
+        ballEvent: point.ballEvent ?? null,
+        current: false,
+        editable: false,
+        density: segmentDensityClass(segment),
+      })
+    }
+  }
+  for (const point of annotationPoints.value) {
+    if (seen.has(point.key_point_id)) continue
+    seen.add(point.key_point_id)
+    items.push({
+      id: point.key_point_id,
+      rallyId: currentRallyId,
+      segmentLabel: currentMaskLabel.value,
+      markerKind: point.marker_kind,
+      isTerminal: point.is_terminal,
+      captureTimeUs: point.capture_time_us,
+      ballEvent: point.ball_event ?? null,
+      current: true,
+      editable: Boolean(props.editable && !immutable.value && !isPendingPoint(point.key_point_id)),
+      density: currentMaskGeometry.value?.density ?? '',
+    })
+  }
+  return items.sort((left, right) => {
+    const difference = BigInt(left.captureTimeUs) - BigInt(right.captureTimeUs)
+    return difference < 0n ? -1 : difference > 0n ? 1 : left.id.localeCompare(right.id)
+  })
+})
+const selectedCurrentPoint = computed(() =>
+  timelinePointItems.value.find(point => point.current && point.id === props.selectedKeyPointId),
+)
+const selectedPointEditorLeft = computed(() => {
+  const point = selectedCurrentPoint.value
+  if (!point || !isVisible(point.captureTimeUs)) return null
+  return Math.max(14, Math.min(86, pointPosition(point.id, point.captureTimeUs)))
+})
 // Rally clips are guaranteed to be non-overlapping. Keep one generous visual lane
 // so the mask label remains readable instead of creating artificial parallel lanes.
 const maskTop = () => 8
@@ -524,11 +587,10 @@ function clearOptimisticPlayhead() {
   optimisticPlayheadTimer = null
 }
 function requestSeek(target: string) {
-  stablePlayhead.value = target
   optimisticPlayhead.value = target
   if (optimisticPlayheadTimer) clearTimeout(optimisticPlayheadTimer)
-  optimisticPlayheadTimer = setTimeout(clearOptimisticPlayhead, 5_000)
-  emit('seek', target)
+  optimisticPlayheadTimer = setTimeout(clearOptimisticPlayhead, 12_000)
+  void Promise.resolve(workstation.playback.seek(target)).catch(clearOptimisticPlayhead)
 }
 function animateView() {
   if (animationFrame !== null) return
@@ -653,7 +715,7 @@ function movePlayheadDrag(event: PointerEvent) {
   const target = pointerTarget(event.clientX, lane.getBoundingClientRect(), viewBounds.value)
   if (readyAt(target, props.timeline.availableRanges)) {
     drag.targetCaptureTimeUs = target
-    emit('preview', target)
+    workstation.playback.previewSeek(target)
   }
 }
 function endPlayheadDrag(event: PointerEvent) {
@@ -663,7 +725,7 @@ function endPlayheadDrag(event: PointerEvent) {
   if (element.hasPointerCapture?.(event.pointerId)) element.releasePointerCapture(event.pointerId)
   optimisticPlayhead.value = drag.targetCaptureTimeUs
   playheadDrag.value = null
-  emit('preview', null)
+  workstation.playback.previewSeek(null)
   if (!drag.committedAtStart || drag.targetCaptureTimeUs !== drag.startCaptureTimeUs)
     requestSeek(drag.targetCaptureTimeUs)
 }
@@ -671,7 +733,7 @@ function cancelPlayheadDrag(event: PointerEvent) {
   const drag = playheadDrag.value
   if (!drag || drag.pointerId !== event.pointerId) return
   playheadDrag.value = null
-  emit('preview', null)
+  workstation.playback.previewSeek(null)
 }
 function playheadDragLabel() {
   const target = playheadDrag.value?.targetCaptureTimeUs
@@ -695,7 +757,7 @@ function beginTimelineScrub(event: PointerEvent) {
   // Keep pointer movement entirely client-side. One canonical seek is emitted
   // only when the gesture commits on pointerup.
   optimisticPlayhead.value = target
-  emit('preview', target)
+  workstation.playback.previewSeek(target)
   playheadDrag.value = {
     pointerId: event.pointerId,
     startCaptureTimeUs: target,
@@ -714,15 +776,16 @@ function moveTimelineScrub(event: PointerEvent) {
   )
   if (!readyAt(target, props.timeline.availableRanges)) return
   drag.targetCaptureTimeUs = target
-  emit('preview', target)
+  workstation.playback.previewSeek(target)
 }
 function selectPoint(keyPointId: string, captureTimeUs: string) {
-  emit('select', keyPointId)
+  timelineSelection.selectKeyPoint(keyPointId)
   if (props.timeline && readyAt(captureTimeUs, props.timeline.availableRanges))
     requestSeek(captureTimeUs)
 }
-function selectHistoricalPoint(segmentId: string, captureTimeUs: string) {
-  emit('selectSegment', segmentId, captureTimeUs)
+async function selectHistoricalPoint(segmentId: string, keyPointId: string, captureTimeUs: string) {
+  await timelineSelection.selectHistorical(segmentId, captureTimeUs)
+  timelineSelection.selectKeyPoint(keyPointId)
   if (props.timeline && readyAt(captureTimeUs, props.timeline.availableRanges))
     requestSeek(captureTimeUs)
 }
@@ -750,7 +813,7 @@ function focusHistoricalSegment(segment: {
 }
 function focusCurrentMask() {
   if (!maskStart.value || !maskEnd.value) return
-  emit('selectMask')
+  timelineSelection.selectMask()
   focusRange(maskStart.value, maskEnd.value)
 }
 function beginPointDrag(event: PointerEvent, keyPointId: string, captureTimeUs: string) {
@@ -773,7 +836,7 @@ function movePointDrag(event: PointerEvent) {
   drag.moved = true
   if (!drag.announced) {
     drag.announced = true
-    emit('editStart', drag.keyPointId)
+    keyPointEditing.begin(drag.keyPointId)
   }
   const lane = (event.currentTarget as HTMLElement).parentElement
   if (!lane) return
@@ -792,13 +855,13 @@ function endPointDrag(event: PointerEvent) {
   pointDrag.value = null
   if (!drag.moved || !drag.announced) return
   suppressPointClick.value = drag.keyPointId
-  emit('move', drag.keyPointId, drag.targetCaptureTimeUs)
+  void keyPointEditing.move(drag.keyPointId, drag.targetCaptureTimeUs)
 }
 function cancelPointDrag(event: PointerEvent) {
   const drag = pointDrag.value
   if (!drag || drag.pointerId !== event.pointerId) return
   pointDrag.value = null
-  if (drag.announced) emit('editCancel', drag.keyPointId)
+  if (drag.announced) keyPointEditing.cancel(drag.keyPointId)
 }
 function clickPoint(keyPointId: string, captureTimeUs: string) {
   if (suppressPointClick.value === keyPointId) {
@@ -909,7 +972,7 @@ defineExpose({ resetView })
     </div>
     <div class="lane-row clip-lane">
       <span class="lane-label">片段</span>
-      <div class="lane-content" @click="emit('clearSelection')">
+      <div class="lane-content" @click="timelineSelection.clear()">
         <button
           v-for="segment in displaySegments"
           v-show="segmentVisible(segment)"
@@ -931,7 +994,7 @@ defineExpose({ resetView })
             width: `${segmentWidth(segment)}%`,
           }"
           :aria-label="`${segment.label} · ${segment.outcomeLabel ? `${segment.outcomeLabel} · ` : ''}${segment.stateLabel || segmentStatusLabel(segment.status)}`"
-          @click.stop="emit('selectSegment', segment.id, segment.startCaptureTimeUs)"
+          @click.stop="timelineSelection.selectHistorical(segment.id, segment.startCaptureTimeUs)"
           @dblclick.stop="focusHistoricalSegment(segment)"
         >
           <span>{{ segment.label }}</span
@@ -959,7 +1022,7 @@ defineExpose({ resetView })
             width: `${currentMaskGeometry.width}%`,
           }"
           :aria-label="`${currentMaskLabel} · ${currentMaskOutcome ? `${currentMaskOutcome} · ` : ''}${currentMaskStateLabel}`"
-          @click.stop="emit('selectMask')"
+          @click.stop="timelineSelection.selectMask()"
           @dblclick.stop="focusCurrentMask"
         >
           <span>{{ currentMaskLabel }}</span
@@ -980,7 +1043,7 @@ defineExpose({ resetView })
           :class="segmentDensityClass(item.range)"
           :style="{ left: `${segmentLeft(item.range)}%`, width: `${segmentWidth(item.range)}%` }"
           :aria-label="`${item.segment.label} · 開啟分析結果 · ${formatBytes(item.segment.analysis?.byteLength ?? '0')}`"
-          @click.stop="emit('selectAnalysis', item.segment.id)"
+          @click.stop="timelineSelection.selectAnalysis(item.segment.id)"
         >
           <Bot :size="11" /><span>{{ formatBytes(item.segment.analysis?.byteLength ?? '0') }}</span
           ><UserRound
@@ -995,68 +1058,64 @@ defineExpose({ resetView })
           />
         </button>
         <button
-          v-for="point in annotationPoints"
-          v-show="isVisible(point.capture_time_us)"
-          :key="point.key_point_id"
+          v-for="point in timelinePointItems"
+          v-show="isVisible(point.captureTimeUs)"
+          :key="`${point.rallyId ?? 'current'}:${point.id}`"
           data-timeline-interactive
           type="button"
           class="keypoint-dot"
           :class="[
+            `tone-${ballEventTone(point.ballEvent, { isTerminal: point.isTerminal, markerKind: point.markerKind })}`,
             {
-              service: point.marker_kind === 'service',
-              terminal: point.is_terminal,
-              pending: isPendingPoint(point.key_point_id),
-              locked: immutable || !editable || isPendingPoint(point.key_point_id),
-              editable: editable && !immutable && !isPendingPoint(point.key_point_id),
-              selected: selectedKeyPointId === point.key_point_id,
-              'soft-locked': remoteEditors(point.key_point_id).length,
-              'point-dragging': pointDrag?.keyPointId === point.key_point_id,
+              terminal: point.isTerminal,
+              pending: isPendingPoint(point.id),
+              locked: !point.editable,
+              editable: point.editable,
+              selected: selectedKeyPointId === point.id,
+              'soft-locked': remoteEditors(point.id).length,
+              'point-dragging': pointDrag?.keyPointId === point.id,
             },
-            currentMaskGeometry?.density,
+            point.density,
           ]"
           :style="{
-            left: `${pointPosition(point.key_point_id, point.capture_time_us)}%`,
+            '--point-color':
+              BALL_EVENT_TONE_COLORS[
+                ballEventTone(point.ballEvent, {
+                  isTerminal: point.isTerminal,
+                  markerKind: point.markerKind,
+                })
+              ],
+            left: `${pointPosition(point.id, point.captureTimeUs)}%`,
             top: `${pointTop()}px`,
           }"
-          :aria-label="`${point.marker_kind} marker at frame ${point.capture_frame_index}${isPendingPoint(point.key_point_id) ? '; syncing' : ''}${remoteEditors(point.key_point_id).length ? `; ${remoteEditors(point.key_point_id).join('、')} 正在調整` : ''}`"
-          :aria-pressed="selectedKeyPointId === point.key_point_id"
+          :aria-label="`${point.segmentLabel} · ${ballEventLabel(point.ballEvent, { isTerminal: point.isTerminal, markerKind: point.markerKind })}${isPendingPoint(point.id) ? ' · 等待同步' : ''}${remoteEditors(point.id).length ? ` · ${remoteEditors(point.id).join('、')} 正在調整` : ''}`"
+          :aria-pressed="selectedKeyPointId === point.id"
           :title="
-            isPendingPoint(point.key_point_id)
-              ? `${point.marker_kind} · 本機已標記，等待伺服器確認`
-              : `${point.marker_kind} · frame ${point.capture_frame_index}${editable && !immutable ? ' · 拖曳移動' : ''}${remoteEditors(point.key_point_id).length ? ` · ${remoteEditors(point.key_point_id).join('、')} 正在調整（提示，不阻擋）` : ''}`
+            isPendingPoint(point.id)
+              ? `${ballEventLabel(point.ballEvent, { isTerminal: point.isTerminal, markerKind: point.markerKind })} · 本機已標記，等待伺服器確認`
+              : `${ballEventLabel(point.ballEvent, { isTerminal: point.isTerminal, markerKind: point.markerKind })}${point.editable ? ' · 拖曳移動' : ''}${remoteEditors(point.id).length ? ` · ${remoteEditors(point.id).join('、')} 正在調整（提示，不阻擋）` : ''}`
           "
-          @pointerdown.stop="beginPointDrag($event, point.key_point_id, point.capture_time_us)"
+          @pointerdown.stop="point.current && beginPointDrag($event, point.id, point.captureTimeUs)"
           @pointermove.stop="movePointDrag"
           @pointerup.stop="endPointDrag"
           @pointercancel.stop="cancelPointDrag"
-          @click.stop="clickPoint(point.key_point_id, point.capture_time_us)"
+          @click.stop="
+            point.current
+              ? clickPoint(point.id, point.captureTimeUs)
+              : selectHistoricalPoint(point.rallyId!, point.id, point.captureTimeUs)
+          "
         />
+        <div
+          v-if="selectedPointEditorLeft !== null"
+          class="selected-point-editor-anchor"
+          :style="{ left: `${selectedPointEditorLeft}%` }"
+          @click.stop
+          @pointerdown.stop
+        >
+          <slot name="selected-point-editor" />
+        </div>
       </div>
     </div>
-    <template v-for="segment in historicalPointSegments" :key="`${segment.id}:points`"
-      ><button
-        v-for="point in segment.points ?? []"
-        v-show="isVisible(point.captureTimeUs)"
-        :key="point.id"
-        data-timeline-interactive
-        type="button"
-        class="keypoint-dot historical-point locked"
-        :class="[
-          {
-            service: point.markerKind === 'service',
-            terminal: point.isTerminal,
-            selected: selectedKeyPointId === point.id,
-          },
-          segmentDensityClass(segment),
-        ]"
-        :style="{
-          left: `calc(78px + (100% - 78px) * ${position(point.captureTimeUs) / 100})`,
-          top: `${34 + pointTop()}px`,
-        }"
-        :aria-label="`${segment.label} · ${point.markerKind}`"
-        :aria-pressed="selectedKeyPointId === point.id"
-        @click.stop="selectHistoricalPoint(segment.id, point.captureTimeUs)"
-    /></template>
     <div
       v-if="displayPlayhead && isVisible(displayPlayhead)"
       class="playhead"
@@ -1284,10 +1343,8 @@ defineExpose({ resetView })
   transform: translate(-50%, -50%);
   border: 2px solid #f4f7fa;
   border-radius: 50%;
-  background: #62a9ff;
-}
-.keypoint-dot.service {
-  background: #f5b84b;
+  background: var(--point-color, #62a9ff);
+  box-shadow: 0 0 7px color-mix(in srgb, var(--point-color, #62a9ff) 48%, transparent);
 }
 .keypoint-dot.terminal {
   border-radius: 2px;
@@ -1303,8 +1360,8 @@ defineExpose({ resetView })
 .keypoint-dot.selected {
   z-index: 5;
   box-shadow:
-    0 0 0 3px #62a9ff55,
-    0 0 12px #62a9ff;
+    0 0 0 3px color-mix(in srgb, var(--point-color, #62a9ff) 35%, transparent),
+    0 0 12px var(--point-color, #62a9ff);
 }
 .keypoint-dot.soft-locked {
   z-index: 5;
@@ -1440,9 +1497,6 @@ defineExpose({ resetView })
     monospace;
   white-space: nowrap;
 }
-.historical-point {
-  top: auto;
-}
 .buffer-status {
   height: 7px;
   cursor: col-resize;
@@ -1495,7 +1549,7 @@ defineExpose({ resetView })
   box-sizing: border-box;
   position: absolute;
   z-index: 3;
-  top: 99px;
+  top: 132px;
   height: 20px;
   min-width: 0;
   min-height: 20px;
@@ -1515,6 +1569,13 @@ defineExpose({ resetView })
   text-align: left;
   white-space: nowrap;
   cursor: pointer;
+}
+.selected-point-editor-anchor {
+  position: absolute;
+  z-index: 9;
+  top: 80px;
+  transform: translateX(-50%);
+  pointer-events: none;
 }
 .analysis-rail:hover {
   border-color: #71808d;

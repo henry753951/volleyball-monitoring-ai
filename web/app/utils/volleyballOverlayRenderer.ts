@@ -40,6 +40,10 @@ export interface OverlayPoint {
   x: number
   y: number
 }
+export interface OverlayTrailSample {
+  frame: number
+  point: OverlayPoint
+}
 export interface OverlayFrameBBox {
   x1: number
   y1: number
@@ -116,18 +120,33 @@ const TRACK_PALETTE = [
   '#bbf7d0',
 ] as const
 
-// The canonical 36-point volleyball court is a 5-row grid with two sidelines.
-// Keep this topology here so both the coach and annotator render the same
-// projected court markings without inventing geometry in the UI.
-const COURT_LINE_PATHS = [
-  [4, 18, 19, 5],
-  [3, 34, 35, 6],
-  [2, 32, 33, 7],
-  [1, 30, 31, 8],
-  [0, 29, 28, 9],
-  [4, 17, 16, 3, 15, 14, 2, 13, 12, 1, 11, 10, 0],
-  [5, 20, 21, 6, 22, 23, 7, 24, 25, 8, 26, 27, 9],
+// Court60 from volleyball_inference_sdk: ten semantic base anchors followed by
+// five ordered samples for each clockwise perimeter edge. Keeping the exact
+// provider topology is essential; interpreting these ids as the retired
+// Court36 layout produces the large criss-cross chords seen in the overlay.
+const COURT_DENSE_EDGE_BASE_PAIRS = [
+  [0, 1],
+  [1, 2],
+  [2, 3],
+  [3, 4],
+  [4, 5],
+  [5, 6],
+  [6, 7],
+  [7, 8],
+  [8, 9],
+  [9, 0],
 ] as const
+
+export const COURT_LINE_PATHS: ReadonlyArray<readonly number[]> = [
+  ...COURT_DENSE_EDGE_BASE_PAIRS.map(([first, second], edgeIndex) => [
+    first,
+    ...Array.from({ length: 5 }, (_, offset) => 10 + edgeIndex * 5 + offset),
+    second,
+  ]),
+  [1, 8],
+  [2, 7],
+  [3, 6],
+]
 
 export function resolveVideoContentRect(
   viewport: OverlayRect,
@@ -480,6 +499,24 @@ function drawCourtKeypoints(
   context.restore()
 }
 
+export function continuousBallTrailLinks(
+  samples: readonly OverlayTrailSample[],
+  content: Pick<OverlayRect, 'width' | 'height'>,
+) {
+  const diagonal = Math.max(1, Math.hypot(content.width, content.height))
+  const links: Array<{ from: OverlayTrailSample; to: OverlayTrailSample }> = []
+  for (let index = 1; index < samples.length; index += 1) {
+    const from = samples[index - 1]!
+    const to = samples[index]!
+    const frameGap = to.frame - from.frame
+    if (frameGap < 1 || frameGap > 2) continue
+    const distance = Math.hypot(to.point.x - from.point.x, to.point.y - from.point.y)
+    if (distance > diagonal * 0.14 * frameGap) continue
+    links.push({ from, to })
+  }
+  return links
+}
+
 function drawBallTrail(
   context: CanvasRenderingContext2D,
   input: VolleyballOverlayRenderInput,
@@ -487,12 +524,15 @@ function drawBallTrail(
   localFrame: number,
   content: OverlayRect,
 ) {
-  const points: OverlayPoint[] = []
+  const samples: OverlayTrailSample[] = []
   for (let frame = Math.max(0, localFrame - 18); frame <= localFrame; frame += 1) {
     const absoluteFrame = Number(chunk.startFrameIndex) + frame
     const correction = input.ballCorrections?.[absoluteFrame]
     if (correction?.state === 'position') {
-      points.push(framePoint(correction.position, content, input.videoWidth, input.videoHeight))
+      samples.push({
+        frame,
+        point: framePoint(correction.position, content, input.videoWidth, input.videoHeight),
+      })
       continue
     }
     if (
@@ -501,17 +541,19 @@ function drawBallTrail(
     )
       continue
     const position = chunk.ballFramePositions[frame]
-    if (position) points.push(quantizedPoint(position, content))
+    if (position) samples.push({ frame, point: quantizedPoint(position, content) })
   }
-  if (points.length < 2) return
+  const links = continuousBallTrailLinks(samples, content)
+  if (!links.length) return
   context.lineCap = 'round'
-  for (let index = 1; index < points.length; index += 1) {
-    const opacity = 0.08 + (0.6 * index) / points.length
+  for (let index = 0; index < links.length; index += 1) {
+    const link = links[index]!
+    const opacity = 0.08 + (0.6 * (index + 1)) / links.length
     context.beginPath()
-    context.moveTo(points[index - 1]!.x, points[index - 1]!.y)
-    context.lineTo(points[index]!.x, points[index]!.y)
+    context.moveTo(link.from.point.x, link.from.point.y)
+    context.lineTo(link.to.point.x, link.to.point.y)
     context.strokeStyle = `rgba(255, 211, 79, ${opacity})`
-    context.lineWidth = 1 + (3 * index) / points.length
+    context.lineWidth = 1 + (3 * (index + 1)) / links.length
     context.stroke()
   }
 }

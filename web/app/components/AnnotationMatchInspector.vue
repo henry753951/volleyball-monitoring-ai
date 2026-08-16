@@ -4,6 +4,7 @@ import { computed, ref } from 'vue'
 import type { CoachDraft, CoachRally, CoachTeam } from '~/lib/coachDomain'
 import { annotationOutcomeLabel } from '~/utils/annotationOutcome'
 import { deriveCoachDisplayOrdinals, segmentStartCaptureTimeUs } from '~/utils/rallyDisplayOrder'
+import { useAnnotationWorkstationService } from '~/services/annotation-workstation/annotation-workstation.service'
 
 type SegmentListItem =
   | {
@@ -46,28 +47,25 @@ const props = defineProps<{
   analysisRunId: string | null
   mappingCompleted: boolean
   teams: CoachTeam[]
-  canStartNextSet: boolean
-  canSwapSides: boolean
   formatRallyDuration: (rally: CoachRally) => string
-  currentFrame: number
   setNumbers: number[]
-  placementSaving?: boolean
   focusedTrackId?: number | null
-  mappingRefreshToken?: number
-  sideSwapPending?: boolean
-  swapAffectsCurrentDraft?: boolean
 }>()
 
 const emit = defineEmits<{
   'update:tab': [tab: 'match' | 'mapping' | 'analysis']
-  selectDraft: [id: string, captureTimeUs: string]
-  selectRally: [rally: CoachRally]
-  nextSet: [side: 'left' | 'right']
-  swapSides: []
-  swapRallySides: [rally: CoachRally]
-  mappingChanged: []
-  updatePlacement: [input: { rallyId: string; setNumber: number; ordinal: number }]
 }>()
+const workstation = useAnnotationWorkstationService()
+if (!workstation.segments || !workstation.timeline)
+  throw new Error('Match inspector requires segment and timeline workstation services')
+const segments = workstation.segments
+const timeline = workstation.timeline
+const placementSaving = segments.placementSaving
+const sideSwapPending = segments.sideSwapPending
+const swapAffectsCurrentDraft = segments.affectsCurrentDraft
+const nextSetState = workstation.actions.state('segment.start-next-set')
+const swapCurrentSidesState = workstation.actions.state('segment.swap-current-sides')
+const swapRallySidesState = workstation.actions.state('segment.swap-rally-sides')
 const total = computed(
   () => new Set([...props.drafts.map(item => item.id), ...props.rallies.map(item => item.id)]).size,
 )
@@ -149,8 +147,8 @@ function openPlacement(item: SegmentListItem) {
   placementOpen.value = true
 }
 function savePlacement() {
-  if (!placementRallyId.value || props.placementSaving) return
-  emit('updatePlacement', {
+  if (!placementRallyId.value || placementSaving.value) return
+  void workstation.actions.execute('segment.update-placement', {
     ordinal: placementOrdinal.value,
     rallyId: placementRallyId.value,
     setNumber: placementSetNumber.value,
@@ -158,8 +156,8 @@ function savePlacement() {
 }
 function selectItem(item: SegmentListItem) {
   if (item.kind === 'draft')
-    emit('selectDraft', item.id, item.draft.key_points[0]?.capture_time_us ?? '0')
-  else emit('selectRally', item.rally)
+    void timeline.selectHistorical(item.id, item.draft.key_points[0]?.capture_time_us ?? '0')
+  else timeline.selectRally(item.rally)
 }
 function rallyStateLabel(rally: CoachRally) {
   if (rally.processing_status === 'idle') return '待重新分析'
@@ -259,22 +257,25 @@ defineExpose({
           <UiButton
             variant="ghost"
             size="sm"
-            :disabled="!canSwapSides || sideSwapPending"
-            @click="emit('swapSides')"
+            :disabled="!swapCurrentSidesState.enabled"
+            :title="swapCurrentSidesState.reason ?? undefined"
+            @click="workstation.actions.execute('segment.swap-current-sides')"
             ><ArrowLeftRight :size="13" />{{ sideSwapPending ? '對調中' : '對調左右' }}</UiButton
           >
         </div>
         <div class="next-set-actions">
           <button
             type="button"
-            :disabled="!canStartNextSet || !currentLeftTeam"
-            @click="emit('nextSet', 'left')"
+            :disabled="!nextSetState.enabled || !currentLeftTeam"
+            :title="nextSetState.reason ?? undefined"
+            @click="workstation.actions.execute('segment.start-next-set', 'left')"
           >
             {{ teamLabel(currentLeftTeam, '左隊') }} 勝局</button
           ><button
             type="button"
-            :disabled="!canStartNextSet || !currentRightTeam"
-            @click="emit('nextSet', 'right')"
+            :disabled="!nextSetState.enabled || !currentRightTeam"
+            :title="nextSetState.reason ?? undefined"
+            @click="workstation.actions.execute('segment.start-next-set', 'right')"
           >
             {{ teamLabel(currentRightTeam, '右隊') }} 勝局
           </button>
@@ -362,9 +363,10 @@ defineExpose({
                     class="row-action"
                     aria-label="修正此片段的左右隊伍"
                     :disabled="
-                      sideSwapPending || item.rally.submission.analysis?.status !== 'completed'
+                      !swapRallySidesState.enabled ||
+                      item.rally.submission.analysis?.status !== 'completed'
                     "
-                    @click="emit('swapRallySides', item.rally)"
+                    @click="workstation.actions.execute('segment.swap-rally-sides', item.rally)"
                     ><ArrowLeftRight :size="14" /></UiButton
                 ></UiTooltip>
                 <UiTooltip content="編輯局與回合"
@@ -391,10 +393,7 @@ defineExpose({
             :right-team-id="rightTeamId"
             :teams="teams"
             :mapping-completed="mappingCompleted"
-            :current-frame="currentFrame"
             :focused-track-id="focusedTrackId"
-            :refresh-token="mappingRefreshToken"
-            @changed="emit('mappingChanged')"
           /></div
       ></UiScrollArea>
     </div>

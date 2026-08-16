@@ -1,5 +1,7 @@
 import { mount } from '@vue/test-utils'
-import { describe, expect, it } from 'vitest'
+import { computed, ref } from 'vue'
+import { describe, expect, it, vi } from 'vitest'
+import { annotationWorkstationServiceKey } from '~/services/annotation-workstation/annotation-workstation.service'
 import AnnotationMatchInspector from './AnnotationMatchInspector.vue'
 
 const teams = [
@@ -9,8 +11,27 @@ const teams = [
 
 describe('AnnotationMatchInspector outcomes', () => {
   it('shows resolved and explicitly unknown outcomes in the segment list', async () => {
+    const execute = vi.fn().mockResolvedValue({ status: 'executed' })
+    const timeline = {
+      selectHistorical: vi.fn(),
+      selectRally: vi.fn(),
+    }
     const wrapper = mount(AnnotationMatchInspector, {
       global: {
+        provide: {
+          [annotationWorkstationServiceKey as symbol]: {
+            actions: {
+              execute,
+              state: () => computed(() => ({ enabled: true, pending: false, reason: null })),
+            },
+            segments: {
+              affectsCurrentDraft: computed(() => false),
+              placementSaving: ref(false),
+              sideSwapPending: ref(false),
+            },
+            timeline,
+          },
+        },
         stubs: {
           UiAnimatedModal: {
             props: ['open'],
@@ -25,8 +46,6 @@ describe('AnnotationMatchInspector outcomes', () => {
       props: {
         analysisAvailable: false,
         analysisRunId: null,
-        canStartNextSet: false,
-        canSwapSides: true,
         currentFrame: -1,
         currentLeftTeam: teams[0]!,
         currentRightTeam: teams[1]!,
@@ -143,18 +162,21 @@ describe('AnnotationMatchInspector outcomes', () => {
     ])
 
     await wrapper.get('button[aria-label="修正此片段的左右隊伍"]').trigger('click')
-    expect(wrapper.emitted('swapRallySides')?.[0]?.[0]).toMatchObject({ id: 'rally' })
+    expect(execute).toHaveBeenCalledWith(
+      'segment.swap-rally-sides',
+      expect.objectContaining({ id: 'rally' }),
+    )
     const liveSwap = wrapper.findAll('button').find(button => button.text().includes('對調左右'))
     expect(liveSwap).toBeTruthy()
     await liveSwap!.trigger('click')
-    expect(wrapper.emitted('swapSides')).toHaveLength(1)
+    expect(execute).toHaveBeenCalledWith('segment.swap-current-sides')
 
     const placementButtons = wrapper.findAll('button[aria-label="編輯局與回合"]')
     await placementButtons[1]!.trigger('click')
     expect(wrapper.find('input[type="number"]').exists()).toBe(false)
     expect(wrapper.get('.placement-order strong').text()).toBe('第 2 回合')
     await wrapper.get('.placement-form').trigger('submit')
-    expect(wrapper.emitted('updatePlacement')?.at(-1)?.[0]).toEqual({
+    expect(execute).toHaveBeenCalledWith('segment.update-placement', {
       ordinal: 2,
       rallyId: 'draft',
       setNumber: 1,

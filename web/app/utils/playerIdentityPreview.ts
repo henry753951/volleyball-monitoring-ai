@@ -20,6 +20,7 @@ export function selectPlayerPreviewTracks(
     .filter(
       track =>
         track.roster_entry_id === rosterEntryId &&
+        track.identity_mapping_completed &&
         (!excluded?.analysisRunId || track.analysis_run_id !== excluded.analysisRunId) &&
         (!current ||
           track.set_number < current.set_number ||

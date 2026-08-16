@@ -1,4 +1,7 @@
-import type { AnnotationRallyProcessingUpdate } from '@volleyball-monitoring/contracts'
+import type {
+  AnnotationRallyProcessingUpdate,
+  BallEventValue,
+} from '@volleyball-monitoring/contracts'
 import type { GraphQLTransport, RosterPosition } from './coreDomain'
 
 export interface CoachTeam {
@@ -52,6 +55,7 @@ export interface CoachDraft {
     is_terminal: boolean
     capture_time_us: string
     capture_frame_index: string
+    ball_event?: BallEventValue | null
   }>
   boundaries?: Array<{
     kind: 'start' | 'end'
@@ -92,6 +96,7 @@ export interface CoachRally {
       is_terminal: boolean
       capture_time_us: string
       capture_frame_index: string
+      ball_event?: BallEventValue | null
     }>
     boundaries?: Array<{
       kind: 'start' | 'end'
@@ -339,6 +344,7 @@ export interface CoachMatchAnalytics {
     court_side: string
     first_frame_index: string
     last_frame_index: string
+    observed_frame_ranges?: Array<{ start: string; end: string }> | null
     roster_entry_id: string | null
     identity_mapping_completed: boolean
     gid_id?: string | null
