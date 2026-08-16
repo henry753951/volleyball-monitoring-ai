@@ -24,6 +24,7 @@ const labels: Record<string, string> = {
   complete_path_rate: '完整球路比例',
   identity_coverage: '球員識別覆蓋',
   action_samples: '動作分類樣本',
+  human_ball_event_samples: '人工球種樣本',
 }
 const dependencyLabels: Record<string, string> = {
   analysis_result: '分析結果',
@@ -32,10 +33,12 @@ const dependencyLabels: Record<string, string> = {
   immutable_submission: '已提交回合',
   manual_identity_mapping: '球員識別',
   provider_action_extension: '動作分類',
+  human_ball_event: '人工球種標記',
   resolved_outcome: '已確認賽果',
 }
 
 const capabilities = computed(() => [
+  { label: '人工球種', available: analytics.value?.feature_availability.ball_events ?? false },
   { label: '球員識別', available: analytics.value?.feature_availability.identity ?? false },
   { label: '球場座標', available: analytics.value?.feature_availability.court_positions ?? false },
   { label: '動作分類', available: analytics.value?.feature_availability.action ?? false },
@@ -69,7 +72,7 @@ function metricDependencies(metric: CoachMetric) {
         <header class="stats-heading">
           <div>
             <h1>分析總覽</h1>
-            <p>所有數字直接取自目前完成的分析結果，並保留樣本與缺值。</p>
+            <p>球種與結果以人工標記為準；AI 僅提供座標、追蹤與畫面疊圖。</p>
           </div>
           <div class="stats-capabilities" aria-label="分析能力">
             <span
@@ -106,7 +109,7 @@ function metricDependencies(metric: CoachMetric) {
               analytics.feature_availability.court_positions ? '場地資料完整' : '等待場地資料'
             }}</strong
             ><small>{{
-              analytics.feature_availability.action ? '含動作分類' : '僅顯示可驗證事件'
+              analytics.feature_availability.ball_events ? '含人工球種' : '等待人工球種標記'
             }}</small>
           </article>
         </section>
@@ -211,8 +214,8 @@ function metricDependencies(metric: CoachMetric) {
           </div>
         </section>
 
-        <p v-if="!analytics.feature_availability.action" class="stats-note">
-          目前分析沒有動作分類資料，因此不顯示 attack、serve 或 efficiency 等衍生指標。
+        <p v-if="!analytics.feature_availability.ball_events" class="stats-note">
+          目前沒有人工球種資料，因此不以動作模型推測發球、接發、殺球或成功率。
         </p>
       </div>
     </UiScrollArea>

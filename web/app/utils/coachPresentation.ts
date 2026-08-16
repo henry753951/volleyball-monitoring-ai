@@ -12,6 +12,21 @@ export function coachRallyTrackCount(rally: CoachRally) {
   return rally.submission.analysis?.track_count ?? 0
 }
 
+export function coachRallyNeighbours(rallies: CoachRally[], currentRallyId: string) {
+  const chronological = [...rallies].sort(
+    (left, right) => left.set_number - right.set_number || left.ordinal - right.ordinal,
+  )
+  const index = chronological.findIndex(rally => rally.id === currentRallyId)
+
+  return {
+    previous: index > 0 ? (chronological[index - 1]?.id ?? null) : null,
+    next:
+      index >= 0 && index < chronological.length - 1
+        ? (chronological[index + 1]?.id ?? null)
+        : null,
+  }
+}
+
 export function playerParticipation(analytics: CoachMatchAnalytics, rosterEntryId: string) {
   const rallies = new Map<string, CoachMatchAnalytics['tracks'][number]>()
   for (const track of analytics.tracks) {

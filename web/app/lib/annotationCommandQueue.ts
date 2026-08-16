@@ -1,4 +1,5 @@
 import {
+  normalizeBallEventKeyPoints,
   parseAnnotationCommand,
   type AnnotationCommand,
   type AnnotationCommandAck,
@@ -83,6 +84,35 @@ export function annotationCommandConverged(
       point => point.key_point_id === command.payload.key_point_id,
     )
   }
+  if (command.kind === 'SET_BALL_EVENT') {
+    const point = snapshot.snapshot.key_points.find(
+      candidate => candidate.key_point_id === command.payload.key_point_id,
+    )
+    const normalized = normalizeBallEventKeyPoints({
+      points: snapshot.snapshot.key_points.map(candidate => ({
+        key_point_id: candidate.key_point_id,
+        sequence_index: candidate.sequence_index,
+        capture_time_us: candidate.capture_time_us,
+        capture_frame_index: candidate.capture_frame_index,
+        event:
+          candidate.key_point_id === command.payload.key_point_id
+            ? command.payload.event
+            : (candidate.ball_event ?? null),
+      })),
+      boundaries: snapshot.snapshot.boundaries,
+    }).points.find(candidate => candidate.key_point_id === command.payload.key_point_id)
+    if (!point?.ball_event || !normalized) return false
+    return (
+      point.ball_event.kind === normalized.event.kind &&
+      point.ball_event.result === normalized.event.result
+    )
+  }
+  if (command.kind === 'SET_BALL_EVENT_ACTOR') {
+    const point = snapshot.snapshot.key_points.find(
+      candidate => candidate.key_point_id === command.payload.key_point_id,
+    )
+    return point?.ball_event_actor_roster_entry_id === command.payload.actor_roster_entry_id
+  }
   if (command.kind === 'REOPEN_RALLY') return state === 'open'
   if (command.kind === 'VOID_RALLY') return state === 'voided'
   if (command.kind === 'SUBMIT_RALLY') return state === 'submitted'
@@ -108,7 +138,33 @@ function pendingPoint(
     capture_frame_index: observation.capture_frame_index ?? '0',
     timing_precision: 'estimated',
     possible_duplicate: false,
+    ...(entry.command.kind === 'CREATE_CONTACT_KEY_POINT' && entry.command.payload.ball_event
+      ? { ball_event: entry.command.payload.ball_event }
+      : {}),
   }
+}
+
+function normalizeProjectedBallEvents(snapshot: AnnotationRallySnapshot) {
+  if (snapshot.schema_version !== '4.0.0') return snapshot
+  const normalization = normalizeBallEventKeyPoints({
+    points: snapshot.snapshot.key_points.map(point => ({
+      key_point_id: point.key_point_id,
+      sequence_index: point.sequence_index,
+      capture_time_us: point.capture_time_us,
+      capture_frame_index: point.capture_frame_index,
+      event: point.ball_event ?? null,
+    })),
+    boundaries: snapshot.snapshot.boundaries,
+  })
+  const currentById = new Map(
+    snapshot.snapshot.key_points.map(point => [point.key_point_id, point]),
+  )
+  snapshot.snapshot.key_points = normalization.points.map(point => ({
+    ...currentById.get(point.key_point_id)!,
+    sequence_index: point.sequence_index,
+    ball_event: point.event,
+  }))
+  return snapshot
 }
 
 function normalizeKeyPointOrder(points: AnnotationKeyPoint[]) {
@@ -157,7 +213,7 @@ export function projectAnnotationSnapshot(
       if ((!point && command.kind === 'CREATE_SERVICE_KEY_POINT') || !entry.observation || !roomId)
         continue
       projected = {
-        schema_version: command.kind === 'START_RALLY' ? '3.0.0' : '2.0.0',
+        schema_version: command.schema_version,
         type: 'rally_snapshot',
         room_id: roomId,
         rally_id: command.rally_id,
@@ -208,6 +264,16 @@ export function projectAnnotationSnapshot(
           projected.snapshot.scoring_court_side = null
         }
       }
+    } else if (command.kind === 'SET_BALL_EVENT') {
+      const point = projected.snapshot.key_points.find(
+        candidate => candidate.key_point_id === command.payload.key_point_id,
+      )
+      if (point) point.ball_event = command.payload.event
+    } else if (command.kind === 'SET_BALL_EVENT_ACTOR') {
+      const point = projected.snapshot.key_points.find(
+        candidate => candidate.key_point_id === command.payload.key_point_id,
+      )
+      if (point) point.ball_event_actor_roster_entry_id = command.payload.actor_roster_entry_id
     } else if (command.kind === 'SET_RALLY_OUTCOME') {
       projected.snapshot.score_resolution = command.payload.score_resolution
       projected.snapshot.scoring_court_side = command.payload.scoring_court_side
@@ -218,6 +284,7 @@ export function projectAnnotationSnapshot(
       projected.snapshot.score_resolution = command.payload.score_resolution
       projected.snapshot.scoring_court_side = command.payload.scoring_court_side
     } else if (command.kind === 'SUBMIT_RALLY') projected.snapshot.annotation_status = 'submitted'
+    normalizeProjectedBallEvents(projected)
   }
   return projected
 }
@@ -233,7 +300,7 @@ export function applyAnnotationAckLocally(
     ack.effects.boundary_kind === 'start'
   ) {
     return {
-      schema_version: '3.0.0',
+      schema_version: command.schema_version,
       type: 'rally_snapshot',
       room_id: command.room_id,
       rally_id: ack.rally_id,
@@ -297,6 +364,7 @@ export function applyAnnotationAckLocally(
   )
     return confirmed
   const next = structuredClone(confirmed)
+  if (command.schema_version === '4.0.0') next.schema_version = '4.0.0'
   next.revision = ack.result_revision
   next.server_sequence = ack.server_sequence
   if (ack.effects.annotation_status) next.snapshot.annotation_status = ack.effects.annotation_status
@@ -304,7 +372,7 @@ export function applyAnnotationAckLocally(
   if (ack.effects.scoring_court_side !== undefined)
     next.snapshot.scoring_court_side = ack.effects.scoring_court_side
   if (command.kind === 'END_RALLY' && ack.resolved_anchor && ack.effects.boundary_kind === 'end') {
-    next.schema_version = '3.0.0'
+    next.schema_version = command.schema_version === '4.0.0' ? '4.0.0' : '3.0.0'
     next.snapshot.boundaries = [
       ...(next.snapshot.boundaries ?? []).filter(boundary => boundary.kind !== 'end'),
       {
@@ -332,6 +400,7 @@ export function applyAnnotationAckLocally(
       possible_duplicate: next.snapshot.key_points.some(
         point => point.capture_frame_index === ack.resolved_anchor?.capture_frame_index,
       ),
+      ...(command.payload.ball_event ? { ball_event: command.payload.ball_event } : {}),
     })
   } else if (command.kind === 'CLOSE_RALLY') {
     const target = next.snapshot.key_points.at(-1)
@@ -353,6 +422,35 @@ export function applyAnnotationAckLocally(
     next.snapshot.key_points = normalizeKeyPointOrder(
       next.snapshot.key_points.filter(point => point.key_point_id !== command.payload.key_point_id),
     )
+  } else if (command.kind === 'SET_BALL_EVENT') {
+    const point = next.snapshot.key_points.find(
+      candidate => candidate.key_point_id === command.payload.key_point_id,
+    )
+    if (point) point.ball_event = command.payload.event
+  } else if (command.kind === 'SET_BALL_EVENT_ACTOR') {
+    const point = next.snapshot.key_points.find(
+      candidate => candidate.key_point_id === command.payload.key_point_id,
+    )
+    if (point) point.ball_event_actor_roster_entry_id = command.payload.actor_roster_entry_id
   }
-  return next
+  for (const repair of ack.effects.auto_corrections ?? []) {
+    if (repair.action === 'tombstone') {
+      next.snapshot.key_points = next.snapshot.key_points.filter(
+        point => point.key_point_id !== repair.key_point_id,
+      )
+      continue
+    }
+    const point = next.snapshot.key_points.find(
+      candidate => candidate.key_point_id === repair.key_point_id,
+    )
+    if (!point || !repair.after) continue
+    point.sequence_index = repair.after.sequence_index
+    if (repair.after.event) point.ball_event = repair.after.event
+  }
+  next.snapshot.key_points.sort(
+    (left, right) =>
+      left.sequence_index - right.sequence_index ||
+      left.key_point_id.localeCompare(right.key_point_id),
+  )
+  return normalizeProjectedBallEvents(next)
 }

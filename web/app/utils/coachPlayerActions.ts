@@ -1,4 +1,9 @@
-import type { CoachMatchAnalytics, CoachRallyReplay, ReplayActor } from '~/lib/coachDomain'
+import type {
+  CoachMatchAnalytics,
+  CoachRallyReplay,
+  ReplayActor,
+  ReplayContactEvent,
+} from '~/lib/coachDomain'
 
 export type CoachActionOutcome = 'won' | 'lost' | 'unknown'
 
@@ -13,6 +18,7 @@ export interface CoachPlayerActionEvent {
   actionKey: string
   actionLabel: string
   actionConfidence: number | null
+  resultKey: NonNullable<ReplayContactEvent['ball_event']>['result']
   courtPosition: { x: number; y: number } | null
   outcome: CoachActionOutcome
 }
@@ -37,6 +43,7 @@ const ACTION_TRANSLATIONS: Record<string, string> = {
   block: '攔網',
   blocking: '攔網',
   standing: '站立',
+  contact: '擊球',
 }
 
 const ACTION_COLORS = [
@@ -68,6 +75,7 @@ const KNOWN_ACTION_COLORS: Record<string, string> = {
   block: '#d05a91',
   blocking: '#d05a91',
   standing: '#8e8e93',
+  contact: '#69b7ff',
 }
 
 function actionRecord(value: unknown) {
@@ -107,7 +115,7 @@ export function actionColor(key: string) {
   return ACTION_COLORS[Math.abs(hash) % ACTION_COLORS.length]!
 }
 
-export function replayStartSeconds(anchorTimeUs: string, leadSeconds = 5) {
+export function replayStartSeconds(anchorTimeUs: string, leadSeconds = 3) {
   if (!/^\d+$/.test(anchorTimeUs) || !Number.isFinite(leadSeconds) || leadSeconds < 0) return 0
   const leadUs = BigInt(Math.round(leadSeconds * 1_000_000))
   const startUs = BigInt(anchorTimeUs) > leadUs ? BigInt(anchorTimeUs) - leadUs : 0n
@@ -145,10 +153,26 @@ export function collectCoachActionEvents(
     const scoringTeamId = replay.rally.outcome.scoring_team?.id ?? null
     const resolved = replay.rally.outcome.score_resolution === 'resolved' && Boolean(scoringTeamId)
     for (const event of replay.analysis.contact_events) {
+      const semantic = event.ball_event
+      if (!semantic) continue
+      const actorTrackId = semantic.actor?.track_id ?? event.actors[0]?.track_id ?? null
+      if (actorTrackId !== track.track_id) continue
       const actor = actorForTrack(event.actors, track.track_id)
-      if (!actor) continue
-      const name = actionName(actor.action)
-      if (!name) continue
+      const path = replay.analysis.paths.find(
+        item => item.start_key_point_id === event.key_point_id,
+      )
+      const landing =
+        path?.end_court_positions.find(position => position.track_id === null) ??
+        path?.end_court_positions[0] ??
+        null
+      const semanticOutcome =
+        semantic.result === 'point_scored' || semantic.result === 'success'
+          ? 'won'
+          : semantic.result === 'error' ||
+              semantic.result === 'point_lost' ||
+              semantic.result === 'failure'
+            ? 'lost'
+            : null
       const id = `${track.analysis_run_id}:${event.key_point_id}:${track.track_id}`
       records.set(id, {
         id,
@@ -158,11 +182,14 @@ export function collectCoachActionEvents(
         analysisRunId: track.analysis_run_id,
         trackId: track.track_id,
         anchorTimeUs: event.anchor_time_us,
-        actionKey: actionKey(name),
-        actionLabel: actionDisplayLabel(name),
-        actionConfidence: actionConfidence(actor.action),
-        courtPosition: actor.court_pos,
-        outcome: !resolved || !teamId ? 'unknown' : scoringTeamId === teamId ? 'won' : 'lost',
+        actionKey: semantic.kind,
+        actionLabel: ACTION_TRANSLATIONS[semantic.kind] ?? semantic.kind,
+        actionConfidence: null,
+        resultKey: semantic.result,
+        courtPosition: landing?.court_pos ?? actor?.court_pos ?? null,
+        outcome:
+          semanticOutcome ??
+          (!resolved || !teamId ? 'unknown' : scoringTeamId === teamId ? 'won' : 'lost'),
       })
     }
   }

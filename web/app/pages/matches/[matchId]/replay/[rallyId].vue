@@ -18,6 +18,7 @@ import {
 } from '~/lib/coachDomain'
 import { createGraphQLTransport } from '~/lib/coreDomain'
 import { replayStartSeconds } from '~/utils/coachPlayerActions'
+import { coachRallyNeighbours } from '~/utils/coachPresentation'
 import { resolveFrameFromRate, resolveFrameFromTimeline } from '~/utils/overlayFrameTimeline'
 import { resolveVideoContentRect } from '~/utils/volleyballOverlayRenderer'
 
@@ -25,6 +26,7 @@ type OverlayMode = 'off' | 'tracking' | 'coach' | 'tactical'
 type SafariVideo = HTMLVideoElement & { webkitEnterFullscreen?: () => void }
 
 const route = useRoute()
+const matchId = computed(() => String(route.params.matchId))
 const rallyId = computed(() => String(route.params.rallyId))
 const replay = shallowRef<CoachRallyReplay | null>(null)
 const pending = ref(true)
@@ -48,6 +50,7 @@ const courtLabelMode = ref<'hitters' | 'all'>('hitters')
 const showOtherPlayers = ref(true)
 const showCourtLegend = ref(true)
 const rallyStatus = useCoachRallyStatus()
+const matchState = useCoachMatchState(matchId, { refreshIntervalMs: 0 })
 const mediaSize = reactive({ width: 0, height: 0 })
 const overlayEnabled = computed(() => overlayMode.value !== 'off')
 const overlayLayers = reactive({
@@ -96,6 +99,9 @@ const totalClipFrames = computed(() => {
   )
 })
 const timelineEvents = computed(() => replay.value?.analysis?.contact_events ?? [])
+const adjacentRallies = computed(() =>
+  coachRallyNeighbours(matchState.data.value?.match.rallies ?? [], rallyId.value),
+)
 const leftTeamLabel = computed(
   () => replay.value?.rally.left_team.shortName || replay.value?.rally.left_team.name || '左隊',
 )
@@ -195,6 +201,13 @@ onMounted(async () => {
     mediaSize.width = rect.width
     mediaSize.height = rect.height
   })
+})
+
+async function loadReplay() {
+  pending.value = true
+  error.value = null
+  replay.value = null
+  initialEventSeekApplied = false
   try {
     replay.value = await createCoachDomainClient(createGraphQLTransport('/graphql')).rallyReplay(
       rallyId.value,
@@ -204,7 +217,9 @@ onMounted(async () => {
   } finally {
     pending.value = false
   }
-})
+}
+
+watch(rallyId, () => void loadReplay(), { immediate: true })
 
 function updateVideoState(presentedMediaTime?: number | Event) {
   const element = video.value
@@ -241,7 +256,7 @@ function handleLoadedMetadata() {
     : route.query.event_us
   if (typeof eventUs !== 'string' || !/^\d+$/.test(eventUs)) return
   initialEventSeekApplied = true
-  seekSeconds(replayStartSeconds(eventUs, 5))
+  seekSeconds(replayStartSeconds(eventUs, 3))
 }
 
 function scheduleVideoFrameCallback(element: HTMLVideoElement) {
@@ -301,11 +316,34 @@ function formatClock(value: number) {
 }
 
 function eventLabel(event: ReplayContactEvent) {
-  if (event.marker_kind === 'service') return '發球'
-  return event.is_terminal ? '最後觸球' : `第 ${event.sequence_index + 1} 次擊球`
+  const kind = event.ball_event?.kind
+  const label =
+    kind === 'serve'
+      ? '發球'
+      : kind === 'receive'
+        ? '接發'
+        : kind === 'spike'
+          ? '殺球'
+          : `第 ${event.sequence_index + 1} 次擊球`
+  const result = event.ball_event?.result
+  const resultLabel =
+    result === 'point_scored'
+      ? '得分'
+      : result === 'success'
+        ? '成功'
+        : result === 'error'
+          ? '失誤'
+          : result === 'point_lost'
+            ? '失分'
+            : result === 'failure'
+              ? '失敗'
+              : null
+  return resultLabel ? `${label} · ${resultLabel}` : label
 }
 
 function eventActorLabel(event: ReplayContactEvent) {
+  if (event.ball_event?.actor)
+    return `#${event.ball_event.actor.jersey_number} ${event.ball_event.actor.name}`
   const actorIds = (event.actors.length ? event.actors : event.candidates).map(
     actor => actor.track_id,
   )
@@ -437,6 +475,8 @@ watchEffect(() => {
     pathCount: value.analysis?.paths.length ?? 0,
     analysisState:
       tracks.length > 0 && tracks.every(track => Boolean(track.identity)) ? 'mapped' : 'ready',
+    previousRallyId: adjacentRallies.value.previous,
+    nextRallyId: adjacentRallies.value.next,
   }
 })
 onBeforeUnmount(() => {
@@ -600,10 +640,75 @@ onBeforeUnmount(() => {
                   </button>
                 </div>
               </UiPopover>
-              <UiTooltip content="顯示設定"
-                ><button type="button" aria-label="顯示設定" @click="displaySettingsOpen = true">
-                  <SlidersHorizontal :size="19" /></button
-              ></UiTooltip>
+              <UiPopover v-model:open="displaySettingsOpen" side="top" align="end">
+                <template #trigger>
+                  <button type="button" aria-label="顯示設定" :aria-expanded="displaySettingsOpen">
+                    <SlidersHorizontal :size="19" />
+                  </button>
+                </template>
+                <div
+                  class="grid max-h-[min(72vh,620px)] w-[min(440px,calc(100vw-24px))] gap-4 overflow-y-auto p-1"
+                  aria-label="顯示設定"
+                >
+                  <section class="settings-section">
+                    <header><strong>顯示模式</strong><span>切換影像與球路資訊密度</span></header>
+                    <div class="settings-modes">
+                      <button
+                        v-for="mode in overlayModes"
+                        :key="mode.id"
+                        type="button"
+                        :class="{ active: overlayMode === mode.id }"
+                        @click="selectOverlayMode(mode.id)"
+                      >
+                        {{ mode.label }}
+                      </button>
+                    </div>
+                  </section>
+                  <section class="settings-section">
+                    <header><strong>影像疊圖</strong><span>不改寫分析資料</span></header>
+                    <div class="settings-list">
+                      <label v-for="option in overlayLayerOptions" :key="option[0]"
+                        ><span>{{ option[1] }}</span
+                        ><UiSwitch
+                          v-model="overlayLayers[option[0]]"
+                          :disabled="overlayMode === 'off'"
+                          :aria-label="option[1]"
+                      /></label>
+                    </div>
+                  </section>
+                  <section class="settings-section">
+                    <header><strong>虛擬球場</strong><span>只高亮有效擊球者</span></header>
+                    <div class="settings-list">
+                      <label
+                        ><span>其他球員站位</span
+                        ><UiSwitch v-model="showOtherPlayers" aria-label="顯示其他球員站位"
+                      /></label>
+                      <label
+                        ><span>球路圖例</span
+                        ><UiSwitch v-model="showCourtLegend" aria-label="顯示球路圖例"
+                      /></label>
+                    </div>
+                    <div class="settings-segmented" role="group" aria-label="球員名條">
+                      <span>球員名條</span>
+                      <div>
+                        <button
+                          type="button"
+                          :class="{ active: courtLabelMode === 'hitters' }"
+                          @click="courtLabelMode = 'hitters'"
+                        >
+                          僅擊球者</button
+                        ><button
+                          type="button"
+                          :class="{ active: courtLabelMode === 'all' }"
+                          @click="courtLabelMode = 'all'"
+                        >
+                          全部
+                        </button>
+                      </div>
+                    </div>
+                  </section>
+                </div>
+              </UiPopover>
               <UiTooltip :content="isFullscreen ? '退出全螢幕' : '進入全螢幕'"
                 ><button
                   type="button"
@@ -656,7 +761,11 @@ onBeforeUnmount(() => {
               :key="event.key_point_id"
               type="button"
               class="replay-point"
-              :class="{ service: event.marker_kind === 'service', terminal: event.is_terminal }"
+              :class="{
+                service: event.ball_event?.kind === 'serve',
+                receive: event.ball_event?.kind === 'receive',
+                spike: event.ball_event?.kind === 'spike',
+              }"
               :style="{ left: `${pointPercent(event)}%` }"
               :aria-label="`${eventLabel(event)} · ${eventActorLabel(event)}`"
               :title="`${eventLabel(event)} · ${eventActorLabel(event)}`"
@@ -665,70 +774,6 @@ onBeforeUnmount(() => {
           </div>
         </section>
       </section>
-
-      <UiSheet
-        v-model:open="displaySettingsOpen"
-        title="顯示設定"
-        description="影像疊圖與虛擬球場各自控制，不會改寫分析資料。"
-      >
-        <section class="settings-section">
-          <header><strong>影像疊圖模式</strong><span>選擇適合目前判讀的資訊密度</span></header>
-          <div class="settings-modes">
-            <button
-              v-for="mode in overlayModes"
-              :key="mode.id"
-              type="button"
-              :class="{ active: overlayMode === mode.id }"
-              @click="selectOverlayMode(mode.id)"
-            >
-              {{ mode.label }}
-            </button>
-          </div>
-        </section>
-        <section class="settings-section">
-          <header><strong>影像顯示項目</strong><span>以同一份 frame overlay 顯示</span></header>
-          <div class="settings-list">
-            <label v-for="option in overlayLayerOptions" :key="option[0]"
-              ><span>{{ option[1] }}</span
-              ><UiSwitch
-                v-model="overlayLayers[option[0]]"
-                :disabled="overlayMode === 'off'"
-                :aria-label="option[1]"
-            /></label>
-          </div>
-        </section>
-        <section class="settings-section">
-          <header><strong>虛擬球場</strong><span>擊球者永遠高亮，其他站位保持半透明</span></header>
-          <div class="settings-list">
-            <label
-              ><span>顯示其他球員站位</span
-              ><UiSwitch v-model="showOtherPlayers" aria-label="顯示其他球員站位"
-            /></label>
-            <label
-              ><span>顯示球路圖例</span
-              ><UiSwitch v-model="showCourtLegend" aria-label="顯示球路圖例"
-            /></label>
-          </div>
-          <div class="settings-segmented" role="group" aria-label="球員名條">
-            <span>球員名條</span>
-            <div>
-              <button
-                type="button"
-                :class="{ active: courtLabelMode === 'hitters' }"
-                @click="courtLabelMode = 'hitters'"
-              >
-                僅擊球者</button
-              ><button
-                type="button"
-                :class="{ active: courtLabelMode === 'all' }"
-                @click="courtLabelMode = 'all'"
-              >
-                全部
-              </button>
-            </div>
-          </div>
-        </section>
-      </UiSheet>
     </template>
   </section>
 </template>
@@ -1018,6 +1063,12 @@ onBeforeUnmount(() => {
 }
 .replay-point.service {
   background: #f4c66a;
+}
+.replay-point.receive {
+  background: #63d4c8;
+}
+.replay-point.spike {
+  background: #ff7b72;
 }
 .replay-point.terminal {
   border-radius: 4px;

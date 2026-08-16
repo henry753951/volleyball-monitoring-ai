@@ -450,4 +450,171 @@ describe('annotation optimistic command queue', () => {
       sequence_index: 1,
     })
   })
+
+  it('projects v4 typed events and applies server auto-corrections without a refetch', () => {
+    const current: AnnotationRallySnapshot = {
+      ...structuredClone(snapshot),
+      schema_version: '4.0.0',
+      revision: '4',
+      snapshot: {
+        ...structuredClone(snapshot.snapshot),
+        boundaries: [
+          {
+            kind: 'start',
+            capture_time_us: '900',
+            capture_frame_index: '9',
+            timing_precision: 'frame_exact',
+          },
+          {
+            kind: 'end',
+            capture_time_us: '1400',
+            capture_frame_index: '14',
+            timing_precision: 'frame_exact',
+          },
+        ],
+        key_points: [
+          {
+            key_point_id: 'serve',
+            sequence_index: 0,
+            marker_kind: 'contact',
+            is_terminal: false,
+            capture_time_us: '1000',
+            capture_frame_index: '10',
+            timing_precision: 'frame_exact',
+            possible_duplicate: false,
+            ball_event: { kind: 'SERVE', result: 'SUCCESS' },
+          },
+          {
+            key_point_id: 'receive',
+            sequence_index: 1,
+            marker_kind: 'contact',
+            is_terminal: false,
+            capture_time_us: '1100',
+            capture_frame_index: '11',
+            timing_precision: 'frame_exact',
+            possible_duplicate: false,
+            ball_event: { kind: 'RECEIVE', result: 'SUCCESS' },
+          },
+          {
+            key_point_id: 'spike',
+            sequence_index: 2,
+            marker_kind: 'contact',
+            is_terminal: false,
+            capture_time_us: '1200',
+            capture_frame_index: '12',
+            timing_precision: 'frame_exact',
+            possible_duplicate: false,
+            ball_event: { kind: 'SPIKE', result: null },
+          },
+          {
+            key_point_id: 'late',
+            sequence_index: 3,
+            marker_kind: 'contact',
+            is_terminal: false,
+            capture_time_us: '1300',
+            capture_frame_index: '13',
+            timing_precision: 'frame_exact',
+            possible_duplicate: false,
+            ball_event: { kind: 'CONTACT', result: null },
+          },
+          {
+            key_point_id: 'outside',
+            sequence_index: 4,
+            marker_kind: 'contact',
+            is_terminal: false,
+            capture_time_us: '1500',
+            capture_frame_index: '15',
+            timing_precision: 'frame_exact',
+            possible_duplicate: false,
+            ball_event: { kind: 'CONTACT', result: null },
+          },
+        ],
+      },
+    }
+    const command: AnnotationCommand = {
+      schema_version: '4.0.0',
+      command_id: '00000000-0000-4000-8000-000000000040',
+      room_id: room,
+      base_revision: '4',
+      rally_id: rally,
+      kind: 'SET_BALL_EVENT',
+      payload: { key_point_id: 'spike', event: { kind: 'SPIKE', result: 'SUCCESS' } },
+    }
+    const ack = {
+      schema_version: '4.0.0',
+      type: 'command_ack',
+      command_id: command.command_id,
+      room_id: room,
+      rally_id: rally,
+      operation_kind: command.kind,
+      result_revision: '5',
+      server_sequence: '5',
+      effects: {
+        annotation_status: 'ready',
+        auto_corrections: [
+          {
+            code: 'SPIKE_SUCCESS_DOWNGRADED',
+            key_point_id: 'spike',
+            action: 'update',
+            before: { sequence_index: 2, event: { kind: 'SPIKE', result: 'SUCCESS' } },
+            after: { sequence_index: 2, event: { kind: 'SPIKE', result: 'FAILURE' } },
+          },
+          {
+            code: 'OUTSIDE_END_TOMBSTONED',
+            key_point_id: 'outside',
+            action: 'tombstone',
+            before: { sequence_index: 4, event: { kind: 'CONTACT', result: null } },
+            after: null,
+          },
+        ],
+      },
+      resolved_anchor: null,
+    } as AnnotationCommandAck
+
+    const next = applyAnnotationAckLocally(current, command, ack)
+    expect(next?.snapshot.key_points.map(point => point.key_point_id)).toEqual([
+      'serve',
+      'receive',
+      'spike',
+      'late',
+    ])
+    expect(next?.snapshot.key_points[2]?.ball_event).toEqual({
+      kind: 'SPIKE',
+      result: 'FAILURE',
+    })
+    expect(annotationCommandConverged(command, next)).toBe(true)
+  })
+
+  it('projects and converges a human actor assignment independently of event semantics', () => {
+    const current: AnnotationRallySnapshot = {
+      ...structuredClone(snapshot),
+      schema_version: '4.0.0',
+      snapshot: {
+        ...structuredClone(snapshot.snapshot),
+        key_points: [
+          {
+            ...structuredClone(snapshot.snapshot.key_points[0]!),
+            ball_event: { kind: 'SERVE', result: 'SUCCESS' },
+          },
+        ],
+      },
+    }
+    const command: AnnotationCommand = {
+      schema_version: '4.0.0',
+      command_id: '00000000-0000-4000-8000-000000000041',
+      room_id: room,
+      base_revision: '1',
+      rally_id: rally,
+      kind: 'SET_BALL_EVENT_ACTOR',
+      payload: { key_point_id: 'service', actor_roster_entry_id: 'roster-11' },
+    }
+    const entries = enqueueAnnotationCommand([], command, new Date())
+    const projected = projectAnnotationSnapshot(current, room, entries)
+
+    expect(projected?.snapshot.key_points[0]).toMatchObject({
+      ball_event: { kind: 'SERVE', result: 'SUCCESS' },
+      ball_event_actor_roster_entry_id: 'roster-11',
+    })
+    expect(annotationCommandConverged(command, projected)).toBe(true)
+  })
 })

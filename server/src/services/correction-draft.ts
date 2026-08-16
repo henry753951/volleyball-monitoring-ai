@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto'
 import type { PrismaClient } from '@volleyball-monitoring/db'
 import { Prisma, UserRole } from '@volleyball-monitoring/db/client'
+import { normalizeDraftBallEvents } from '../domain/annotation/ball-event-normalization.js'
 import { readClipFrameTimeline, timingManifestIdentity } from '../media/clip-timing-coverage.js'
 import type { MediaObjectReader } from '../media/playback-domain.js'
 
@@ -220,7 +221,10 @@ export async function createCorrectionDraft(
             where: { id: submissionId },
             include: {
               boundaries: true,
-              keyPoints: { orderBy: [{ sequenceIndex: 'asc' }, { id: 'asc' }] },
+              keyPoints: {
+                include: { ballEvent: true },
+                orderBy: [{ sequenceIndex: 'asc' }, { id: 'asc' }],
+              },
               rally: { include: { boundaries: true, keyPoints: true } },
             },
           })
@@ -447,6 +451,32 @@ export async function createCorrectionDraft(
                 },
               })
             }
+            if (point.ballEvent) {
+              await tx.ballEventDraft.upsert({
+                where: { keyPointId: point.sourceDraftKeyPointId },
+                create: {
+                  actorRosterEntryId: point.ballEvent.actorRosterEntryId,
+                  keyPointId: point.sourceDraftKeyPointId,
+                  kind: point.ballEvent.kind,
+                  kindLocked: true,
+                  result: point.ballEvent.result,
+                  resultLocked: point.ballEvent.result !== null,
+                  semanticSource: 'CORRECTION_COPY',
+                },
+                update: {
+                  actorRosterEntryId: point.ballEvent.actorRosterEntryId,
+                  kind: point.ballEvent.kind,
+                  kindLocked: true,
+                  result: point.ballEvent.result,
+                  resultLocked: point.ballEvent.result !== null,
+                  semanticSource: 'CORRECTION_COPY',
+                },
+              })
+            } else {
+              await tx.ballEventDraft.deleteMany({
+                where: { keyPointId: point.sourceDraftKeyPointId },
+              })
+            }
           }
 
           for (const point of rally.keyPoints) {
@@ -490,6 +520,8 @@ export async function createCorrectionDraft(
               })
             }
           }
+
+          await normalizeDraftBallEvents(tx, rally.id, identity.userId)
 
           const changed = await tx.rally.updateMany({
             where: {
@@ -604,11 +636,17 @@ export async function cancelCorrectionDraft(
             include: {
               activeSubmission: {
                 include: {
-                  keyPoints: { orderBy: [{ sequenceIndex: 'asc' }, { id: 'asc' }] },
+                  keyPoints: {
+                    include: { ballEvent: true },
+                    orderBy: [{ sequenceIndex: 'asc' }, { id: 'asc' }],
+                  },
                   supersedes: {
                     include: {
                       analysisRuns: { where: { status: 'COMPLETED' }, take: 1 },
-                      keyPoints: { orderBy: [{ sequenceIndex: 'asc' }, { id: 'asc' }] },
+                      keyPoints: {
+                        include: { ballEvent: true },
+                        orderBy: [{ sequenceIndex: 'asc' }, { id: 'asc' }],
+                      },
                     },
                   },
                 },
@@ -704,6 +742,32 @@ export async function cancelCorrectionDraft(
                   rallyId: rally.id,
                 },
               })
+            if (point.ballEvent) {
+              await tx.ballEventDraft.upsert({
+                where: { keyPointId: point.sourceDraftKeyPointId },
+                create: {
+                  actorRosterEntryId: point.ballEvent.actorRosterEntryId,
+                  keyPointId: point.sourceDraftKeyPointId,
+                  kind: point.ballEvent.kind,
+                  kindLocked: true,
+                  result: point.ballEvent.result,
+                  resultLocked: point.ballEvent.result !== null,
+                  semanticSource: 'CORRECTION_COPY',
+                },
+                update: {
+                  actorRosterEntryId: point.ballEvent.actorRosterEntryId,
+                  kind: point.ballEvent.kind,
+                  kindLocked: true,
+                  result: point.ballEvent.result,
+                  resultLocked: point.ballEvent.result !== null,
+                  semanticSource: 'CORRECTION_COPY',
+                },
+              })
+            } else {
+              await tx.ballEventDraft.deleteMany({
+                where: { keyPointId: point.sourceDraftKeyPointId },
+              })
+            }
           }
           for (const point of rally.keyPoints) {
             if (!snapshotIds.has(point.id))

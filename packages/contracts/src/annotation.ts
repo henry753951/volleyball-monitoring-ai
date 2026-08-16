@@ -1,6 +1,7 @@
 import Ajv2020, { type ValidateFunction } from 'ajv/dist/2020.js'
 import addFormats from 'ajv-formats'
 import realtimeSchema from '../annotation/realtime.schema.json'
+import type { BallEventRepair, BallEventValue } from './ball-event.js'
 
 export const ANNOTATION_COMMAND_KINDS = [
   'START_RALLY',
@@ -10,6 +11,8 @@ export const ANNOTATION_COMMAND_KINDS = [
   'CREATE_CONTACT_KEY_POINT',
   'CLOSE_RALLY',
   'MOVE_KEY_POINT',
+  'SET_BALL_EVENT',
+  'SET_BALL_EVENT_ACTOR',
   'DELETE_KEY_POINT',
   'REOPEN_RALLY',
   'VOID_RALLY',
@@ -30,10 +33,12 @@ export interface AnnotationPlaybackCursor {
 
 interface AnnotationCommandBase<K extends AnnotationCommandKind, P> {
   schema_version: K extends 'START_RALLY' | 'END_RALLY' | 'SET_RALLY_OUTCOME'
-    ? '3.0.0'
-    : K extends 'CREATE_SERVICE_KEY_POINT' | 'CLOSE_RALLY'
-      ? '2.0.0'
-      : '2.0.0' | '3.0.0'
+    ? '3.0.0' | '4.0.0'
+    : K extends 'SET_BALL_EVENT' | 'SET_BALL_EVENT_ACTOR'
+      ? '4.0.0'
+      : K extends 'CREATE_SERVICE_KEY_POINT' | 'CLOSE_RALLY'
+        ? '2.0.0'
+        : '2.0.0' | '3.0.0' | '4.0.0'
   command_id: string
   room_id: string
   base_revision: string
@@ -61,6 +66,7 @@ export type AnnotationCommand =
       {
         playback_cursor: AnnotationPlaybackCursor
         terminal_outcome?: 'unknown'
+        ball_event?: BallEventValue
       }
     >
   | AnnotationCommandBase<
@@ -75,6 +81,11 @@ export type AnnotationCommand =
   | AnnotationCommandBase<
       'MOVE_KEY_POINT',
       { key_point_id: string; playback_cursor: AnnotationPlaybackCursor }
+    >
+  | AnnotationCommandBase<'SET_BALL_EVENT', { key_point_id: string; event: BallEventValue }>
+  | AnnotationCommandBase<
+      'SET_BALL_EVENT_ACTOR',
+      { key_point_id: string; actor_roster_entry_id: string | null }
     >
   | AnnotationCommandBase<'DELETE_KEY_POINT', { key_point_id: string }>
   | AnnotationCommandBase<'REOPEN_RALLY', Record<string, never>>
@@ -105,13 +116,14 @@ export interface AnnotationAckEffects {
   annotation_status?: 'open' | 'ready' | 'submitted' | 'voided'
   score_resolution?: 'pending' | 'resolved' | 'unknown'
   scoring_court_side?: 'left' | 'right' | null
+  auto_corrections?: BallEventRepair[]
 }
 
 interface AnnotationCommandAckBase<
   K extends AnnotationCommandKind,
   E extends AnnotationAckEffects,
 > {
-  schema_version: '2.0.0' | '3.0.0'
+  schema_version: '2.0.0' | '3.0.0' | '4.0.0'
   type: 'command_ack'
   command_id: string
   room_id: string
@@ -154,7 +166,13 @@ export type AnnotationSubmitRallyAck = AnnotationCommandAckBase<
 > & { resolved_anchor: null }
 
 export type AnnotationOtherCommandAck = AnnotationCommandAckBase<
-  'SET_RALLY_OUTCOME' | 'MOVE_KEY_POINT' | 'DELETE_KEY_POINT' | 'REOPEN_RALLY' | 'VOID_RALLY',
+  | 'SET_RALLY_OUTCOME'
+  | 'MOVE_KEY_POINT'
+  | 'SET_BALL_EVENT'
+  | 'SET_BALL_EVENT_ACTOR'
+  | 'DELETE_KEY_POINT'
+  | 'REOPEN_RALLY'
+  | 'VOID_RALLY',
   AnnotationAckEffects
 > & { resolved_anchor?: AnnotationResolvedAnchor | null }
 
@@ -166,7 +184,7 @@ export type AnnotationCommandAck =
   | AnnotationOtherCommandAck
 
 export interface AnnotationCommandRejected {
-  schema_version: '2.0.0' | '3.0.0'
+  schema_version: '2.0.0' | '3.0.0' | '4.0.0'
   type: 'command_rejected'
   command_id: string
   room_id: string
@@ -207,6 +225,8 @@ export interface AnnotationKeyPoint {
   capture_frame_index: string
   timing_precision: 'frame_exact' | 'pts_exact' | 'estimated'
   possible_duplicate: boolean
+  ball_event?: BallEventValue
+  ball_event_actor_roster_entry_id?: string | null
 }
 
 export interface AnnotationRallyBoundary {
@@ -217,7 +237,7 @@ export interface AnnotationRallyBoundary {
 }
 
 export interface AnnotationRallySnapshot {
-  schema_version: '2.0.0' | '3.0.0'
+  schema_version: '2.0.0' | '3.0.0' | '4.0.0'
   type: 'rally_snapshot'
   room_id: string
   rally_id: string

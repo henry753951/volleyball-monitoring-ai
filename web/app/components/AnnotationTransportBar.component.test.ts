@@ -196,4 +196,17 @@ describe('AnnotationTransportBar', () => {
     await scale.trigger('click')
     expect(wrapper.emitted('resetTimelineZoom')).toHaveLength(1)
   })
+
+  it('keeps playback speed beside the timecode and emits a selected rate', async () => {
+    const wrapper = mount(AnnotationTransportBar, {
+      props: { ...baseProps, playbackRate: 1.25 },
+    })
+
+    const trigger = wrapper.get('[aria-label="播放速度"]')
+    expect(trigger.text()).toContain('1.25×')
+    await trigger.trigger('click')
+    await wrapper.get('[role="menuitemradio"][aria-checked="false"]').trigger('click')
+
+    expect(wrapper.emitted('setPlaybackRate')?.[0]).toEqual([0.5])
+  })
 })

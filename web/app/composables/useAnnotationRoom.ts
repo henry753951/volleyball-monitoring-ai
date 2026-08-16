@@ -1,4 +1,5 @@
 import {
+  decideBallEventShortcut,
   parseAnnotationCommand,
   parseAnnotationServerMessage,
   type AnnotationCommand,
@@ -6,6 +7,9 @@ import {
   type AnnotationPresenceSnapshot,
   type AnnotationRallyProcessingUpdate,
   type AnnotationRallySnapshot,
+  type BallEventRepair,
+  type BallEventShortcut,
+  type BallEventValue,
 } from '@volleyball-monitoring/contracts'
 import {
   createAnnotationRealtimeClient,
@@ -82,6 +86,7 @@ export function useAnnotationRoom() {
   const outbox = shallowRef<AnnotationOutboxEntry[]>([])
   const presence = shallowRef<AnnotationPresenceSnapshot['members']>([])
   const processing = shallowRef<Record<string, AnnotationRallyProcessingUpdate>>({})
+  const lastAutoCorrections = shallowRef<BallEventRepair[]>([])
   const transport = createGraphQLTransport('/graphql')
   const { annotationWsUrl } = usePublicEndpoints()
   let realtime: AnnotationRealtimeClient | null = null
@@ -383,6 +388,7 @@ export function useAnnotationRoom() {
         }
         replaceOutbox(resolveAnnotationOutboxEntry(outbox.value, rebased.command_id))
         error.value = null
+        lastAutoCorrections.value = response.effects.auto_corrections ?? []
         acceptSnapshot(applyAnnotationAckLocally(snapshot.value, rebased, response), {
           remember: true,
         })
@@ -451,6 +457,10 @@ export function useAnnotationRoom() {
   function buildCommand(
     action: AnnotationAction,
     cursor: PlaybackCursorInput | null,
+    options: {
+      observation?: AnnotationClientObservation
+      selectedKeyPointId?: string | null
+    } = {},
   ): AnnotationCommand {
     if (!roomId.value) throw new Error('Annotation room is not selected')
     const current = viewSnapshot.value
@@ -463,7 +473,7 @@ export function useAnnotationRoom() {
         annotationDraftOwnedByClient(current, rememberedRallyId())
       ) {
         return parseAnnotationCommand({
-          schema_version: '3.0.0',
+          schema_version: '4.0.0',
           command_id: crypto.randomUUID(),
           room_id: roomId.value,
           base_revision: current.revision,
@@ -473,7 +483,7 @@ export function useAnnotationRoom() {
         })
       }
       return parseAnnotationCommand({
-        schema_version: '3.0.0',
+        schema_version: '4.0.0',
         command_id: crypto.randomUUID(),
         room_id: roomId.value,
         base_revision: '0',
@@ -497,7 +507,7 @@ export function useAnnotationRoom() {
     const rallyId = current?.rally_id ?? pendingService?.rally_id
     if (!rallyId) throw new Error('目前沒有可操作的 Rally')
     const base = {
-      schema_version: '3.0.0',
+      schema_version: '4.0.0',
       command_id: crypto.randomUUID(),
       room_id: roomId.value,
       base_revision: current?.revision ?? '0',
@@ -512,19 +522,67 @@ export function useAnnotationRoom() {
         payload: { playback_cursor: annotationCursor(cursor) },
       })
     }
+    if (['spike', 'receive_success', 'receive_error'].includes(action)) {
+      const shortcut: BallEventShortcut =
+        action === 'spike' ? 'C' : action === 'receive_success' ? 'V' : 'B'
+      const observation = options.observation
+      const decision = decideBallEventShortcut({
+        shortcut,
+        points:
+          current?.snapshot.key_points.map(point => ({
+            key_point_id: point.key_point_id,
+            sequence_index: point.sequence_index,
+            capture_time_us: point.capture_time_us,
+            capture_frame_index: point.capture_frame_index,
+            event: point.ball_event ?? null,
+          })) ?? [],
+        boundaries: current?.snapshot.boundaries,
+        selected_key_point_id: options.selectedKeyPointId,
+        candidate_anchor:
+          observation?.capture_frame_index && observation.capture_time_us
+            ? {
+                capture_time_us: observation.capture_time_us,
+                capture_frame_index: observation.capture_frame_index,
+              }
+            : null,
+      })
+      if (!decision.allowed) {
+        const reasons = {
+          NO_TARGET_POINT: '請先選擇擊球點，或等待目前畫格確認',
+          SPIKE_REQUIRES_THIRD_POINT: '殺球只能標在第三球以後',
+          RECEIVE_REQUIRES_SECOND_POINT: '接發只能標在第二球',
+          OUTSIDE_RALLY_BOUNDARY: '目前畫格不在片段範圍內',
+        } as const
+        throw new Error(reasons[decision.reason])
+      }
+      if (decision.mode === 'update' && decision.key_point_id) {
+        return parseAnnotationCommand({
+          ...base,
+          kind: 'SET_BALL_EVENT',
+          payload: { key_point_id: decision.key_point_id, event: decision.event },
+        })
+      }
+      if (!cursor || cursor.cursor_status !== 'ready')
+        throw new Error('伺服器尚未取得可解析的播放游標')
+      return parseAnnotationCommand({
+        ...base,
+        kind: 'CREATE_CONTACT_KEY_POINT',
+        payload: { playback_cursor: annotationCursor(cursor), ball_event: decision.event },
+      })
+    }
     if (action === 'submit')
       return parseAnnotationCommand({ ...base, kind: 'SUBMIT_RALLY', payload: {} })
     if (action === 'close_unknown') {
       return parseAnnotationCommand({
         ...base,
-        schema_version: '3.0.0',
+        schema_version: '4.0.0',
         kind: 'SET_RALLY_OUTCOME',
         payload: { score_resolution: 'unknown', scoring_court_side: null },
       })
     }
     return parseAnnotationCommand({
       ...base,
-      schema_version: '3.0.0',
+      schema_version: '4.0.0',
       kind: 'SET_RALLY_OUTCOME',
       payload: {
         score_resolution: 'resolved',
@@ -541,7 +599,7 @@ export function useAnnotationRoom() {
     if (!annotationDraftOwnedByClient(snapshot.value, rememberedRallyId()))
       throw new Error('這個片段屬於另一個標註客戶端，只能檢視')
     const base = {
-      schema_version: '3.0.0',
+      schema_version: '4.0.0',
       command_id: crypto.randomUUID(),
       room_id: roomId.value,
       base_revision: snapshot.value.revision,
@@ -605,10 +663,14 @@ export function useAnnotationRoom() {
     action: AnnotationAction,
     cursor: PlaybackCursorInput | null,
     observation?: AnnotationClientObservation,
+    selectedKeyPointId?: string | null,
   ) {
     error.value = null
     try {
-      void sendCommand(buildCommand(action, cursor), observation)
+      void sendCommand(
+        buildCommand(action, cursor, { observation, selectedKeyPointId }),
+        observation,
+      )
     } catch (cause) {
       error.value = cause instanceof Error ? cause.message : '標註命令失敗'
       throw cause
@@ -628,6 +690,55 @@ export function useAnnotationRoom() {
       throw cause
     } finally {
       busy.value = false
+    }
+  }
+
+  async function setBallEvent(keyPointId: string, event: BallEventValue) {
+    if (!roomId.value || !snapshot.value) throw new Error('目前沒有可編輯的 Rally')
+    if (!annotationDraftOwnedByClient(snapshot.value, rememberedRallyId()))
+      throw new Error('這個片段屬於另一個標註客戶端，只能檢視')
+    error.value = null
+    try {
+      return await sendCommand(
+        parseAnnotationCommand({
+          schema_version: '4.0.0',
+          command_id: crypto.randomUUID(),
+          room_id: roomId.value,
+          base_revision: snapshot.value.revision,
+          rally_id: snapshot.value.rally_id,
+          kind: 'SET_BALL_EVENT',
+          payload: { key_point_id: keyPointId, event },
+        }),
+      )
+    } catch (cause) {
+      error.value = cause instanceof Error ? cause.message : '球種更新失敗'
+      throw cause
+    }
+  }
+
+  async function setBallEventActor(keyPointId: string, actorRosterEntryId: string | null) {
+    if (!roomId.value || !snapshot.value) throw new Error('目前沒有可編輯的 Rally')
+    if (!annotationDraftOwnedByClient(snapshot.value, rememberedRallyId()))
+      throw new Error('這個片段屬於另一個標註客戶端，只能檢視')
+    error.value = null
+    try {
+      return await sendCommand(
+        parseAnnotationCommand({
+          schema_version: '4.0.0',
+          command_id: crypto.randomUUID(),
+          room_id: roomId.value,
+          base_revision: snapshot.value.revision,
+          rally_id: snapshot.value.rally_id,
+          kind: 'SET_BALL_EVENT_ACTOR',
+          payload: {
+            key_point_id: keyPointId,
+            actor_roster_entry_id: actorRosterEntryId,
+          },
+        }),
+      )
+    } catch (cause) {
+      error.value = cause instanceof Error ? cause.message : '球員關聯更新失敗'
+      throw cause
     }
   }
 
@@ -766,6 +877,7 @@ export function useAnnotationRoom() {
     busy: readonly(busy),
     connection: readonly(connection),
     latencyMs: readonly(latencyMs),
+    lastAutoCorrections: shallowReadonly(lastAutoCorrections),
     connect,
     cancelCorrection,
     createCorrection,
@@ -785,6 +897,8 @@ export function useAnnotationRoom() {
     resync,
     selectRally,
     setEditingKeyPoint,
+    setBallEvent,
+    setBallEventActor,
     submitCorrection,
     discardPending,
     refreshActive,

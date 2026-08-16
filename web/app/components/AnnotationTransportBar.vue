@@ -5,6 +5,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Download,
+  Gauge,
   Pause,
   Play,
   RotateCcw,
@@ -54,6 +55,7 @@ withDefaults(
     editReady: boolean
     pointDeleteEnabled: boolean
     muted: boolean
+    playbackRate?: number
     timelineScale: number
     shortcuts: {
       play: string
@@ -68,10 +70,11 @@ withDefaults(
     correctionCreating: false,
     downloadAvailable: false,
     submissionPending: false,
+    playbackRate: 1,
   },
 )
 
-defineEmits<{
+const emit = defineEmits<{
   playPause: []
   framePrevious: []
   frameNext: []
@@ -88,10 +91,18 @@ defineEmits<{
   downloadClip: []
   deletePoint: []
   toggleMute: []
+  setPlaybackRate: [rate: number]
   resetTimelineZoom: []
 }>()
 
 const reducedMotion = usePreferredReducedMotion()
+const playbackMenuOpen = ref(false)
+const playbackRates = [0.5, 0.75, 1, 1.25, 1.5, 2] as const
+
+function choosePlaybackRate(rate: number) {
+  emit('setPlaybackRate', rate)
+  playbackMenuOpen.value = false
+}
 const clipActionsContent = ref<HTMLElement | null>(null)
 const clipActionsWidth = ref(0)
 
@@ -163,8 +174,33 @@ const clipTransition = computed(() =>
         <ChevronRight :size="18" stroke-width="2.2" /></button
     ></UiTooltip>
     <div class="transport-media-group">
-      <code class="timecode">{{ timecode }}</code
-      ><button
+      <code class="timecode">{{ timecode }}</code>
+      <UiPopover v-model:open="playbackMenuOpen" side="top" align="start">
+        <template #trigger>
+          <button
+            type="button"
+            class="playback-rate"
+            aria-label="播放速度"
+            :aria-expanded="playbackMenuOpen"
+          >
+            <Gauge :size="13" />{{ playbackRate }}×
+          </button>
+        </template>
+        <div class="playback-rate-menu" role="menu" aria-label="播放速度">
+          <button
+            v-for="rate in playbackRates"
+            :key="rate"
+            type="button"
+            role="menuitemradio"
+            :aria-checked="playbackRate === rate"
+            :class="{ active: playbackRate === rate }"
+            @click="choosePlaybackRate(rate)"
+          >
+            {{ rate }}×
+          </button>
+        </div>
+      </UiPopover>
+      <button
         v-if="liveAvailable"
         type="button"
         class="live-badge"
@@ -446,6 +482,37 @@ const clipTransition = computed(() =>
     700 0.7rem 'Cascadia Mono',
     Consolas,
     monospace;
+}
+.playback-rate {
+  min-height: 24px;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 0 7px;
+  border: 1px solid #343a41;
+  border-radius: 6px;
+  background: #18181b;
+  color: #d9dde2;
+  font-size: 0.62rem;
+  font-weight: 750;
+}
+.playback-rate-menu {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(52px, 1fr));
+  gap: 4px;
+}
+.playback-rate-menu button {
+  min-height: 36px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: #b9c1ca;
+  font-size: 0.68rem;
+  font-weight: 700;
+}
+.playback-rate-menu button.active {
+  background: #ffffff17;
+  color: #fff;
 }
 .live-badge {
   min-height: 22px;

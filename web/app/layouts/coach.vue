@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ChevronLeft, ExternalLink, Radio, RotateCcw, Users } from 'lucide-vue-next'
+import { ChevronLeft, ChevronRight, ExternalLink, Radio, RotateCcw, Users } from 'lucide-vue-next'
 
 const route = useRoute()
 const matchId = computed(() =>
@@ -9,6 +9,7 @@ const hasMatchContext = computed(() => Boolean(matchId.value) && matchId.value !
 const isReplay = computed(() => /^\/matches\/[^/]+\/replay\/[^/]+\/?$/.test(route.path))
 const matchTitle = useState('coach-shell-match-title', () => '')
 const rallyStatus = useCoachRallyStatus()
+const router = useRouter()
 const usesFixedViewport = computed(() =>
   /^\/matches\/[^/]+\/(?:live|rallies|players|stats|replay\/[^/]+)\/?$/.test(route.path),
 )
@@ -31,6 +32,11 @@ const backNavigation = computed(() => {
 function isNavActive(target: string) {
   if (target.endsWith('/players') && /^\/matches\/[^/]+\/stats\/?$/.test(route.path)) return true
   return route.path === target || route.path === `${target}/`
+}
+
+function navigateRally(rallyId: string | null) {
+  if (!rallyId) return
+  void router.push(`/matches/${matchId.value}/replay/${rallyId}`)
 }
 
 useHead({ bodyAttrs: { class: 'coach-viewport-body' } })
@@ -102,6 +108,15 @@ watch(
       <NuxtLink :to="`/matches/${matchId}/rallies`" class="rally-status__back"
         ><ChevronLeft :size="18" /><span>回合</span></NuxtLink
       >
+      <button
+        type="button"
+        class="rally-status__nav"
+        :disabled="!rallyStatus?.previousRallyId"
+        aria-label="上一回合"
+        @click="navigateRally(rallyStatus?.previousRallyId ?? null)"
+      >
+        <ChevronLeft :size="18" /><span>上一回合</span>
+      </button>
       <div class="rally-status__identity">
         <strong>{{
           rallyStatus
@@ -116,20 +131,15 @@ watch(
               : '同步中'
         }}</span>
       </div>
-      <dl v-if="rallyStatus">
-        <div>
-          <dt>時間</dt>
-          <dd>{{ rallyStatus.currentTime }} / {{ rallyStatus.duration }}</dd>
-        </div>
-        <div>
-          <dt>擊球</dt>
-          <dd>{{ rallyStatus.contactCount }}</dd>
-        </div>
-        <div>
-          <dt>球路</dt>
-          <dd>{{ rallyStatus.activePath ?? '—' }} / {{ rallyStatus.pathCount }}</dd>
-        </div>
-      </dl>
+      <button
+        type="button"
+        class="rally-status__nav rally-status__nav--next"
+        :disabled="!rallyStatus?.nextRallyId"
+        aria-label="下一回合"
+        @click="navigateRally(rallyStatus?.nextRallyId ?? null)"
+      >
+        <span>下一回合</span><ChevronRight :size="18" />
+      </button>
     </footer>
     <nav v-else-if="hasMatchContext" class="coach-tabs" aria-label="場次導覽">
       <NuxtLink
@@ -322,7 +332,7 @@ body.coach-viewport-body {
   z-index: 40;
   min-height: calc(58px + env(safe-area-inset-bottom));
   display: grid;
-  grid-template-columns: 84px minmax(190px, 1fr) auto;
+  grid-template-columns: 76px 116px minmax(190px, 1fr) 116px;
   align-items: center;
   gap: 14px;
   padding: 5px max(14px, env(safe-area-inset-right)) env(safe-area-inset-bottom)
@@ -331,6 +341,29 @@ body.coach-viewport-body {
   box-shadow: 0 -8px 28px #17202b0c;
   backdrop-filter: blur(24px) saturate(180%);
   -webkit-backdrop-filter: blur(24px) saturate(180%);
+}
+.rally-status__nav {
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  border: 0;
+  border-radius: 10px;
+  background: #0670df0c;
+  color: var(--coach-blue);
+  font: inherit;
+  font-size: 0.7rem;
+  font-weight: 700;
+}
+.rally-status__nav--next {
+  justify-self: end;
+}
+.rally-status__nav:disabled {
+  background: #edf0f3;
+  color: #a9b0b8;
+  cursor: not-allowed;
+  opacity: 0.58;
 }
 .rally-status__back {
   min-height: 44px;
@@ -391,7 +424,7 @@ body.coach-viewport-body {
     padding: 14px 12px;
   }
   .rally-status {
-    grid-template-columns: 62px minmax(120px, 1fr) auto;
+    grid-template-columns: 54px 96px minmax(120px, 1fr) 96px;
     gap: 8px;
   }
   .rally-status dl {

@@ -1,5 +1,5 @@
 import type { PrismaClient } from '@volleyball-monitoring/db'
-import { JobStatus, UserRole } from '@volleyball-monitoring/db/client'
+import { JobStatus, Prisma, UserRole } from '@volleyball-monitoring/db/client'
 import { GraphQLError } from 'graphql'
 import {
   applyManualReidDecision,
@@ -43,6 +43,117 @@ const actionCategory = (value: unknown) => {
   return label ? 'other' : null
 }
 
+const coachAnalysisRunSelect = {
+  id: true,
+  analysisVersion: true,
+  identityMappingCompletedAt: true,
+  tracks: {
+    select: {
+      trackId: true,
+      courtSide: true,
+      firstFrame: true,
+      lastFrame: true,
+      identityAssignments: {
+        select: {
+          rosterEntryId: true,
+          source: true,
+          confidence: true,
+          identityRevision: true,
+          reidIdentity: { select: { id: true, teamId: true, label: true, slotIndex: true } },
+        },
+      },
+      reidObservation: {
+        select: {
+          matchConfidence: true,
+          identityRevision: true,
+          modelNamespace: true,
+          modelName: true,
+          modelCheckpointSha256: true,
+          modelPreprocessVersion: true,
+          modelDimension: true,
+          modelDistance: true,
+          reidIdentity: { select: { id: true, teamId: true, label: true, slotIndex: true } },
+        },
+      },
+    },
+  },
+  reidEvidenceSets: {
+    where: { status: 'READY' },
+    orderBy: { createdAt: 'desc' },
+    take: 1,
+    select: {
+      tracklets: {
+        select: {
+          canonicalTrackId: true,
+          activeProjection: {
+            select: {
+              assignmentRevision: {
+                select: {
+                  personClusterId: true,
+                  rosterEntryId: true,
+                  source: true,
+                  revision: true,
+                  personCluster: { select: { teamId: true, label: true } },
+                },
+              },
+            },
+          },
+          previews: {
+            where: { status: 'READY' },
+            orderBy: { readyAt: 'desc' },
+            take: 1,
+            select: { id: true },
+          },
+        },
+      },
+    },
+  },
+  contactActorCorrections: { select: { keyPointId: true, trackId: true } },
+  contactAssociationJobs: {
+    where: {
+      status: { in: [JobStatus.QUEUED, JobStatus.RUNNING, JobStatus.COMPLETED, JobStatus.FAILED] },
+    },
+    orderBy: [{ reviewRevision: 'desc' as const }, { createdAt: 'desc' as const }],
+    select: {
+      keyPointId: true,
+      status: true,
+      projection: { select: { trackId: true, confidence: true, observationFrameIndex: true } },
+    },
+  },
+  contactTimeCorrections: { select: { keyPointId: true, frameIndex: true } },
+  contactEdits: {
+    select: {
+      contactId: true,
+      baseKeyPointId: true,
+      frameIndex: true,
+      trackId: true,
+      deleted: true,
+    },
+  },
+  actionCorrections: { select: { frameIndex: true, trackId: true, action: true } },
+  contactEvents: {
+    select: {
+      keyPointId: true,
+      sequenceIndex: true,
+      anchorFrameIndex: true,
+      resolvedFrameIndex: true,
+      associationState: true,
+      qualityFlags: true,
+      representativePositions: { select: { trackId: true, courtX: true, courtY: true } },
+      actors: {
+        select: {
+          trackId: true,
+          associationConfidence: true,
+          action: true,
+          courtX: true,
+          courtY: true,
+        },
+      },
+    },
+  },
+  segments: { select: { renderState: true } },
+} satisfies Prisma.AnalysisRunSelect
+
 export async function getCoachMatchAnalytics(
   database: PrismaClient,
   input: { matchId: string; userId: string; role: UserRole },
@@ -83,109 +194,24 @@ export async function getCoachMatchAnalytics(
               scoringTeamId: true,
               leftTeamId: true,
               rightTeamId: true,
+              analysisSourceRunId: true,
+              ballEvents: {
+                orderBy: { ordinal: 'asc' },
+                select: {
+                  ordinal: true,
+                  kind: true,
+                  result: true,
+                  actorRosterEntryId: true,
+                  submissionKeyPoint: { select: { captureTimeUs: true } },
+                },
+              },
               analysisRuns: {
                 where: { status: JobStatus.COMPLETED },
                 orderBy: { activatedAt: 'desc' },
                 take: 1,
-                select: {
-                  id: true,
-                  analysisVersion: true,
-                  identityMappingCompletedAt: true,
-                  tracks: {
-                    select: {
-                      trackId: true,
-                      courtSide: true,
-                      firstFrame: true,
-                      lastFrame: true,
-                      identityAssignments: {
-                        select: {
-                          rosterEntryId: true,
-                          source: true,
-                          confidence: true,
-                          identityRevision: true,
-                          reidIdentity: {
-                            select: { id: true, teamId: true, label: true, slotIndex: true },
-                          },
-                        },
-                      },
-                      reidObservation: {
-                        select: {
-                          matchConfidence: true,
-                          identityRevision: true,
-                          modelNamespace: true,
-                          modelName: true,
-                          modelCheckpointSha256: true,
-                          modelPreprocessVersion: true,
-                          modelDimension: true,
-                          modelDistance: true,
-                          reidIdentity: {
-                            select: { id: true, teamId: true, label: true, slotIndex: true },
-                          },
-                        },
-                      },
-                    },
-                  },
-                  reidEvidenceSets: {
-                    where: { status: 'READY' },
-                    orderBy: { createdAt: 'desc' },
-                    take: 1,
-                    select: {
-                      tracklets: {
-                        select: {
-                          canonicalTrackId: true,
-                          activeProjection: {
-                            select: {
-                              assignmentRevision: {
-                                select: {
-                                  personClusterId: true,
-                                  rosterEntryId: true,
-                                  source: true,
-                                  revision: true,
-                                  personCluster: {
-                                    select: { teamId: true, label: true },
-                                  },
-                                },
-                              },
-                            },
-                          },
-                          previews: {
-                            where: { status: 'READY' },
-                            orderBy: { readyAt: 'desc' },
-                            take: 1,
-                            select: { id: true },
-                          },
-                        },
-                      },
-                    },
-                  },
-                  contactActorCorrections: { select: { keyPointId: true, trackId: true } },
-                  contactTimeCorrections: { select: { keyPointId: true, frameIndex: true } },
-                  contactEdits: {
-                    select: {
-                      contactId: true,
-                      baseKeyPointId: true,
-                      frameIndex: true,
-                      trackId: true,
-                      deleted: true,
-                    },
-                  },
-                  actionCorrections: { select: { frameIndex: true, trackId: true, action: true } },
-                  contactEvents: {
-                    select: {
-                      keyPointId: true,
-                      anchorFrameIndex: true,
-                      resolvedFrameIndex: true,
-                      associationState: true,
-                      qualityFlags: true,
-                      representativePositions: { select: { courtX: true, courtY: true } },
-                      actors: {
-                        select: { trackId: true, action: true, courtX: true, courtY: true },
-                      },
-                    },
-                  },
-                  segments: { select: { renderState: true } },
-                },
+                select: coachAnalysisRunSelect,
               },
+              analysisSourceRun: { select: coachAnalysisRunSelect },
             },
           },
         },
@@ -198,7 +224,17 @@ export async function getCoachMatchAnalytics(
     rally.activeSubmission ? [{ ...rally, submission: rally.activeSubmission }] : [],
   )
   const analyzed = rallies.flatMap(rally =>
-    rally.submission.analysisRuns[0] ? [{ rally, run: rally.submission.analysisRuns[0] }] : [],
+    rally.submission.analysisRuns[0] || rally.submission.analysisSourceRun
+      ? [{ rally, run: rally.submission.analysisRuns[0] ?? rally.submission.analysisSourceRun! }]
+      : [],
+  )
+  const humanBallEvents = rallies.flatMap(rally =>
+    (rally.submission.ballEvents ?? []).map(event => ({
+      ...event,
+      rallyId: rally.id,
+      setNumber: rally.set.setNumber,
+      submission: rally.submission,
+    })),
   )
   const events = analyzed.flatMap(entry => {
     const corrections = new Map(
@@ -213,6 +249,13 @@ export async function getCoachMatchAnalytics(
         correction.frameIndex,
       ]),
     )
+    const latestAssociationByPoint = new Map<
+      string,
+      (typeof entry.run.contactAssociationJobs)[number]
+    >()
+    for (const job of entry.run.contactAssociationJobs ?? [])
+      if (!latestAssociationByPoint.has(job.keyPointId))
+        latestAssociationByPoint.set(job.keyPointId, job)
     const edits = new Map((entry.run.contactEdits ?? []).map(edit => [edit.contactId, edit]))
     const actionCorrections = new Map(
       (entry.run.actionCorrections ?? []).map(correction => [
@@ -225,17 +268,32 @@ export async function getCoachMatchAnalytics(
       .map(event => {
         const correctedTrackId = corrections.get(event.keyPointId)
         const hasCorrection = corrections.has(event.keyPointId)
+        const associationJob = latestAssociationByPoint.get(event.keyPointId)
+        const associationProjection =
+          associationJob?.status === JobStatus.COMPLETED ? associationJob.projection : null
         const frameIndex =
           timeCorrections.get(event.keyPointId) ??
           event.resolvedFrameIndex ??
           event.anchorFrameIndex
-        const selectedActors = !hasCorrection
-          ? event.actors
-          : correctedTrackId === null
+        const effectiveTrackId = hasCorrection
+          ? (correctedTrackId ?? null)
+          : associationProjection
+            ? associationProjection.trackId
+            : event.associationState === 'RESOLVED_SINGLE'
+              ? (event.actors
+                  .toSorted(
+                    (left, right) =>
+                      (right.associationConfidence ?? -1) - (left.associationConfidence ?? -1),
+                  )
+                  .at(0)?.trackId ?? null)
+              : null
+        const selectedActors =
+          effectiveTrackId === null
             ? []
             : [
-                event.actors.find(actor => actor.trackId === correctedTrackId) ?? {
-                  trackId: correctedTrackId,
+                event.actors.find(actor => actor.trackId === effectiveTrackId) ?? {
+                  trackId: effectiveTrackId,
+                  associationConfidence: associationProjection?.confidence ?? null,
                   action: null,
                   courtX: null,
                   courtY: null,
@@ -249,40 +307,69 @@ export async function getCoachMatchAnalytics(
           ...event,
           frameIndex,
           actors,
-          associationState: hasCorrection
-            ? correctedTrackId === null
-              ? ('NO_PLAYER' as const)
-              : ('RESOLVED_SINGLE' as const)
-            : event.associationState,
+          representativePositions:
+            effectiveTrackId === null
+              ? event.representativePositions.filter(position => position.trackId === null)
+              : event.representativePositions.filter(
+                  position => position.trackId === effectiveTrackId,
+                ),
+          associationState:
+            hasCorrection || associationProjection
+              ? effectiveTrackId === null
+                ? ('NO_PLAYER' as const)
+                : ('RESOLVED_SINGLE' as const)
+              : effectiveTrackId === null
+                ? event.associationState === 'RESOLVED_SINGLE'
+                  ? ('NO_PLAYER' as const)
+                  : event.associationState
+                : ('RESOLVED_SINGLE' as const),
+          qualityFlags: associationProjection
+            ? [...event.qualityFlags, 'contact_association_projection']
+            : event.qualityFlags,
           runId: entry.run.id,
           rallyId: entry.rally.id,
         }
       })
     const manualEvents = (entry.run.contactEdits ?? [])
       .filter(edit => !edit.baseKeyPointId && !edit.deleted)
-      .map(edit => ({
-        keyPointId: edit.contactId,
-        anchorFrameIndex: edit.frameIndex,
-        resolvedFrameIndex: edit.frameIndex,
-        frameIndex: edit.frameIndex,
-        associationState:
-          edit.trackId === null ? ('NO_PLAYER' as const) : ('RESOLVED_SINGLE' as const),
-        qualityFlags: ['manual_contact'],
-        representativePositions: [] as Array<{ courtX: number; courtY: number }>,
-        actors:
-          edit.trackId === null
-            ? []
-            : [
-                {
-                  trackId: edit.trackId,
-                  action: actionCorrections.get(`${edit.frameIndex}:${edit.trackId}`) ?? null,
-                  courtX: null,
-                  courtY: null,
-                },
-              ],
-        runId: entry.run.id,
-        rallyId: entry.rally.id,
-      }))
+      .map(edit => {
+        const associationJob = latestAssociationByPoint.get(edit.contactId)
+        const associationProjection =
+          associationJob?.status === JobStatus.COMPLETED ? associationJob.projection : null
+        const effectiveTrackId = edit.trackId ?? associationProjection?.trackId ?? null
+        return {
+          keyPointId: edit.contactId,
+          sequenceIndex: null,
+          anchorFrameIndex: edit.frameIndex,
+          resolvedFrameIndex: edit.frameIndex,
+          frameIndex: edit.frameIndex,
+          associationState:
+            effectiveTrackId === null ? ('NO_PLAYER' as const) : ('RESOLVED_SINGLE' as const),
+          qualityFlags: [
+            'manual_contact',
+            ...(associationProjection ? ['contact_association_projection'] : []),
+          ],
+          representativePositions: [] as Array<{
+            trackId: number | null
+            courtX: number
+            courtY: number
+          }>,
+          actors:
+            effectiveTrackId === null
+              ? []
+              : [
+                  {
+                    trackId: effectiveTrackId,
+                    associationConfidence: associationProjection?.confidence ?? null,
+                    action: actionCorrections.get(`${edit.frameIndex}:${effectiveTrackId}`) ?? null,
+                    courtX: null,
+                    courtY: null,
+                  },
+                ],
+          runId: entry.run.id,
+          rallyId: entry.rally.id,
+        }
+      })
     return [...baseEvents, ...manualEvents].sort((left, right) =>
       Number(left.frameIndex - right.frameIndex),
     )
@@ -320,11 +407,54 @@ export async function getCoachMatchAnalytics(
     Array<{ x: number; y: number; rally_id: string; set_number: number; action: string | null }>
   >()
   const rosterById = new Map(match.rosterEntries.map(entry => [entry.id, entry]))
+  const humanEventRallyIds = new Set(humanBallEvents.map(event => event.rallyId))
+  for (const event of humanBallEvents) {
+    const analysis = analyzed.find(candidate => candidate.rally.id === event.rallyId)
+    const sourceEvent = events.find(
+      candidate =>
+        candidate.rallyId === event.rallyId && candidate.sequenceIndex === event.ordinal - 1,
+    )
+    const inferredTrackId = sourceEvent?.actors[0]?.trackId ?? null
+    const rosterId =
+      event.actorRosterEntryId ??
+      (analysis && inferredTrackId !== null
+        ? (trackAssignments.get(`${analysis.run.id}:${inferredTrackId}`) ?? null)
+        : null)
+    if (!rosterId) continue
+    playerContacts.set(rosterId, (playerContacts.get(rosterId) ?? 0) + 1)
+    const rallySet = playerRallies.get(rosterId) ?? new Set<string>()
+    rallySet.add(event.rallyId)
+    playerRallies.set(rosterId, rallySet)
+    const counts = playerActions.get(rosterId) ?? {}
+    const category = event.kind.toLowerCase()
+    counts[category] = (counts[category] ?? 0) + 1
+    playerActions.set(rosterId, counts)
+    const actorPosition = sourceEvent?.actors[0]
+    const position =
+      actorPosition?.courtX != null && actorPosition?.courtY != null
+        ? { courtX: actorPosition.courtX, courtY: actorPosition.courtY }
+        : sourceEvent?.representativePositions[0]
+    if (position) {
+      const roster = rosterById.get(rosterId)
+      const flip = roster?.teamId === event.submission.rightTeamId
+      const samples = playerHeatmaps.get(rosterId) ?? []
+      samples.push({
+        x: flip ? 1 - position.courtX : position.courtX,
+        y: flip ? 1 - position.courtY : position.courtY,
+        rally_id: event.rallyId,
+        set_number: event.setNumber,
+        action: category,
+      })
+      playerHeatmaps.set(rosterId, samples)
+    }
+  }
   for (const actor of actors) {
+    if (humanEventRallyIds.has(actor.rallyId)) continue
     const rosterId = trackAssignments.get(`${actor.runId}:${actor.trackId}`)
     if (rosterId) playerContacts.set(rosterId, (playerContacts.get(rosterId) ?? 0) + 1)
   }
   for (const actor of actors) {
+    if (humanEventRallyIds.has(actor.rallyId)) continue
     const rosterId = trackAssignments.get(`${actor.runId}:${actor.trackId}`)
     if (!rosterId) continue
     const entry = analyzed.find(candidate => candidate.run.id === actor.runId)
@@ -370,15 +500,17 @@ export async function getCoachMatchAnalytics(
     .filter(path => path.renderState === 'COMPLETE').length
   const pathCount = analyzed.reduce((sum, entry) => sum + entry.run.segments.length, 0)
   const actionSamples = actors.filter(actor => actor.action !== null).length
+  const humanBallEventSamples = humanBallEvents.length
   const assignedTracks = Array.from(trackAssignments).length
   const totalTracks = analyzed.reduce((sum, entry) => sum + entry.run.tracks.length, 0)
   return {
-    schema_version: '1.0.0',
+    schema_version: '1.1.0',
     match: { id: match.id, title: match.title },
     identity_revision: match.identityRevision.toString(),
     feature_availability: {
       identity: assignedTracks > 0,
       action: actionSamples > 0,
+      ball_events: humanBallEventSamples > 0,
       court_positions: courtSamples > 0,
     },
     metrics: {
@@ -398,9 +530,24 @@ export async function getCoachMatchAnalytics(
         { resolved: resolvedRallies.length, unknown: unknownRallies },
         ['immutable_submission', 'resolved_outcome'],
       ),
-      contact_event_count: metric(events.length, events.length, 0, 0, associationQuality, [
-        'analysis_result',
-      ]),
+      contact_event_count: metric(
+        humanBallEventSamples || events.length,
+        humanBallEventSamples || events.length,
+        0,
+        0,
+        humanBallEventSamples
+          ? quality(humanBallEvents.map(event => event.kind.toLowerCase()))
+          : associationQuality,
+        [humanBallEventSamples ? 'human_ball_event' : 'analysis_result'],
+      ),
+      human_ball_event_samples: metric(
+        humanBallEventSamples,
+        humanBallEventSamples,
+        0,
+        0,
+        quality(humanBallEvents.map(event => event.kind.toLowerCase())),
+        ['human_ball_event'],
+      ),
       participant_event_count: metric(
         actors.length,
         actors.length,
@@ -476,7 +623,9 @@ export async function getCoachMatchAnalytics(
       ordinal: rally.ordinal,
       score_resolution: rally.submission.scoreResolutionState.toLowerCase(),
       scoring_team_id: rally.submission.scoringTeamId,
-      contact_count: events.filter(event => event.rallyId === rally.id).length,
+      contact_count:
+        humanBallEvents.filter(event => event.rallyId === rally.id).length ||
+        events.filter(event => event.rallyId === rally.id).length,
       replay_url: `/matches/${match.id}/replay/${rally.id}`,
     })),
     players: match.rosterEntries.map(entry => ({

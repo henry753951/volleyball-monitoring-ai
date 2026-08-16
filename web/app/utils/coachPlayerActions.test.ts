@@ -19,15 +19,15 @@ describe('coachPlayerActions', () => {
     expect(actionColor('spiking')).not.toBe(actionColor('digging'))
   })
 
-  it('opens replay five seconds before the event using decimal-string microseconds', () => {
-    expect(replayStartSeconds('12300000')).toBe(7.3)
+  it('opens replay three seconds before the event using decimal-string microseconds', () => {
+    expect(replayStartSeconds('12300000')).toBe(9.3)
     expect(replayStartSeconds('2500000')).toBe(0)
     expect(replayEventUrl('match-1', { rallyId: 'rally-1', anchorTimeUs: '12300000' })).toBe(
       '/matches/match-1/replay/rally-1?event_us=12300000',
     )
   })
 
-  it('collects mapped and local-track actions while keeping rally outcome semantics explicit', () => {
+  it('collects human ball events and uses their explicit result and landing position', () => {
     const tracks = [
       {
         analysis_run_id: 'run-1',
@@ -56,11 +56,36 @@ describe('coachPlayerActions', () => {
           {
             key_point_id: 'event-1',
             anchor_time_us: '8500000',
+            ball_event: {
+              ordinal: 2,
+              kind: 'receive',
+              result: 'success',
+              semantic_source: 'human',
+              actor: {
+                roster_entry_id: 'roster-8',
+                jersey_number: '8',
+                name: 'Player 8',
+                track_id: 8,
+              },
+            },
             actors: [
               {
                 track_id: 8,
                 action: { label: 'digging', confidence: 0.81 },
                 court_pos: { x: 1.08, y: -0.12 },
+              },
+            ],
+          },
+        ],
+        paths: [
+          {
+            start_key_point_id: 'event-1',
+            end_court_positions: [
+              {
+                track_id: null,
+                basis: 'ball_landing',
+                court_pos: { x: 0.4, y: 0.7 },
+                confidence: 0.8,
               },
             ],
           },
@@ -73,9 +98,10 @@ describe('coachPlayerActions', () => {
       {
         rallyId: 'rally-1',
         trackId: 8,
-        actionLabel: '接球',
-        actionConfidence: 0.81,
-        courtPosition: { x: 1.08, y: -0.12 },
+        actionLabel: '接發',
+        actionConfidence: null,
+        resultKey: 'success',
+        courtPosition: { x: 0.4, y: 0.7 },
         outcome: 'won',
       },
     ])

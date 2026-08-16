@@ -3,7 +3,6 @@ import { ANALYSIS_PLAYER_FLAG, type AnalysisFrameChunk } from '@volleyball-monit
 import { computed } from 'vue'
 import type { ReplayContactEvent, ReplayPath } from '~/lib/coachDomain'
 import type { RosterPosition } from '~/lib/coreDomain'
-import { actionColor, actionDisplayLabel, actionKey, actionName } from '~/utils/coachPlayerActions'
 
 interface CourtTrack {
   trackId: number
@@ -218,7 +217,7 @@ function trackLabel(trackId: number | null) {
   if (trackId === null) return '落點'
   const track = trackMetadata.value.get(trackId)
   if (!track?.jerseyNumber) return `ID ${trackId}`
-  return `[${track.position && track.position !== 'UNSPECIFIED' ? track.position : '?'}] ${track.jerseyNumber}`
+  return `#${track.jerseyNumber} ${track.label ?? `ID ${trackId}`}`
 }
 
 function labelWidth(label: string) {
@@ -229,34 +228,29 @@ function showPlayerLabel(trackId: number, hitter: boolean) {
   return hitter || props.playerLabelMode === 'all'
 }
 
-function pathAction(path: ReplayPath) {
-  const startEvent = props.events.find(event => event.key_point_id === path.start_key_point_id)
-  const startTrackId = path.start_court_positions[0]?.track_id
-  return (
-    startEvent?.actors.find(
-      actor =>
-        startTrackId === null || startTrackId === undefined || actor.track_id === startTrackId,
-    )?.action ?? null
-  )
-}
+const pathEvent = (path: ReplayPath) =>
+  props.events.find(event => event.key_point_id === path.start_key_point_id)
+
+const ballEventColor = (kind: string) =>
+  kind === 'serve'
+    ? '#f4c66a'
+    : kind === 'receive'
+      ? '#63d4c8'
+      : kind === 'spike'
+        ? '#ff7b72'
+        : '#69b7ff'
 
 function pathColor(path: ReplayPath) {
-  const action = pathAction(path)
-  if (actionName(action)) return actionColor(actionKey(action))
-  const startEvent = props.events.find(event => event.key_point_id === path.start_key_point_id)
-  if (startEvent?.marker_kind === 'service') return '#f4c66a'
-  if (path.is_terminal_segment) return '#ff7b72'
-  return '#69b7ff'
+  return ballEventColor(pathEvent(path)?.ball_event?.kind ?? 'contact')
 }
 
 const actionLegend = computed(() => {
   const values = new Map<string, { key: string; label: string }>()
   for (const { path } of visiblePaths.value) {
-    const action = pathAction(path)
-    const name = actionName(action)
-    if (!name) continue
-    const key = actionKey(action)
-    values.set(key, { key, label: actionDisplayLabel(action) })
+    const kind = pathEvent(path)?.ball_event?.kind ?? 'contact'
+    const label =
+      kind === 'serve' ? '發球' : kind === 'receive' ? '接發' : kind === 'spike' ? '殺球' : '擊球'
+    values.set(kind, { key: kind, label })
   }
   return [...values.values()].slice(0, 4)
 })
@@ -286,7 +280,7 @@ const focusedDuration = computed(() => {
           ><span
             v-for="item in actionLegend"
             :key="item.key"
-            :style="{ color: actionColor(item.key) }"
+            :style="{ color: ballEventColor(item.key) }"
             >{{ item.label }}</span
           ></template
         >

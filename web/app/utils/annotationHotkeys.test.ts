@@ -21,6 +21,9 @@ describe('annotation hotkey registry', () => {
     expect(ANNOTATION_COMMANDS.map(({ action }) => action)).toEqual([
       'service',
       'contact',
+      'spike',
+      'receive_success',
+      'receive_error',
       'close_left',
       'close_right',
       'close_unknown',
@@ -36,6 +39,9 @@ describe('annotation hotkey registry', () => {
     expect(DEFAULT_HOTKEY_BINDINGS).toEqual({
       service: 'Z',
       contact: 'X',
+      spike: 'C',
+      receive_success: 'V',
+      receive_error: 'B',
       close_left: '<',
       close_right: '>',
       close_unknown: '?',
@@ -58,7 +64,7 @@ describe('annotation hotkey registry', () => {
     expect(commandForBinding('Z', rebound.bindings)).toBeNull()
   })
 
-  it('restores all eleven defaults atomically, including playback and key-point navigation', () => {
+  it('restores every default atomically, including typed events and key-point navigation', () => {
     const edited = { ...restoreDefaultHotkeys(), service: 'S', frame_previous: 'J' }
     expect(edited).not.toEqual(DEFAULT_HOTKEY_BINDINGS)
     expect(restoreDefaultHotkeys()).toEqual(DEFAULT_HOTKEY_BINDINGS)
@@ -129,6 +135,9 @@ describe('hotkey preference persistence', () => {
       version: HOTKEY_PREFERENCES_VERSION,
       bindings: {
         ...legacy,
+        spike: 'Shift+C',
+        receive_success: 'V',
+        receive_error: 'Shift+B',
         play_pause: 'Space',
         frame_previous: 'ArrowLeft',
         frame_next: 'ArrowRight',

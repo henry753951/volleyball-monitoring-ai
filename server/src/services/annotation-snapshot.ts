@@ -37,13 +37,17 @@ async function loadAnnotationSnapshot(
     activeSubmission: {
       include: {
         boundaries: { orderBy: { kind: 'asc' as const } },
-        keyPoints: { orderBy: [{ sequenceIndex: 'asc' as const }, { id: 'asc' as const }] },
+        keyPoints: {
+          orderBy: [{ sequenceIndex: 'asc' as const }, { id: 'asc' as const }],
+          include: { ballEvent: true },
+        },
       },
     },
     boundaries: { orderBy: { kind: 'asc' as const } },
     keyPoints: {
       where: { deletedAt: null },
       orderBy: [{ sequenceIndex: 'asc' as const }, { id: 'asc' as const }],
+      include: { ballEvent: true },
     },
   }
 
@@ -97,14 +101,16 @@ async function loadAnnotationSnapshot(
           captureFrameIndex: point.captureFrameIndex,
           timingPrecision: point.timingPrecision,
           possibleDuplicate: false,
+          ballEvent: point.ballEvent,
         }))
       : rally.keyPoints
   const boundaries =
     (rally.annotationStatus === AnnotationStatus.SUBMITTED && rally.activeSubmission
       ? rally.activeSubmission.boundaries
       : rally.boundaries) ?? []
+  const ballEventComplete = keyPoints.every(point => point.ballEvent !== null)
   return parseAnnotationServerMessage({
-    schema_version: boundaries.length ? '3.0.0' : '2.0.0',
+    schema_version: boundaries.length ? (ballEventComplete ? '4.0.0' : '3.0.0') : '2.0.0',
     type: 'rally_snapshot',
     room_id: input.roomId,
     rally_id: rally.id,
@@ -136,6 +142,15 @@ async function loadAnnotationSnapshot(
         capture_frame_index: point.captureFrameIndex.toString(),
         timing_precision: point.timingPrecision.toLowerCase(),
         possible_duplicate: point.possibleDuplicate,
+        ...(point.ballEvent
+          ? {
+              ball_event: {
+                kind: point.ballEvent.kind,
+                result: point.ballEvent.result,
+              },
+              ball_event_actor_roster_entry_id: point.ballEvent.actorRosterEntryId,
+            }
+          : {}),
       })),
     },
   })
