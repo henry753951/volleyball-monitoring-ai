@@ -8,14 +8,36 @@ import { computed, ref } from 'vue'
 import { actionColor, type CoachPlayerActionEvent } from '~/utils/coachPlayerActions'
 
 type DisplayMode = 'routes' | 'landings'
+type SideScope = 'team' | 'player'
+
+export interface CoachRouteMapSideLabel {
+  name: string
+  scope: SideScope
+}
+
+type CoachRouteMapSideLabels = {
+  left: CoachRouteMapSideLabel
+  right: CoachRouteMapSideLabel
+}
+
+const DEFAULT_SIDE_LABELS: CoachRouteMapSideLabels = {
+  left: { name: '—', scope: 'team' },
+  right: { name: '—', scope: 'team' },
+}
+const SCOPE_LABELS: Record<SideScope, string> = {
+  team: '[隊伍方]',
+  player: '[選手方]',
+}
 
 const props = defineProps<{
   events: CoachPlayerActionEvent[]
   label: string
+  sideLabels?: CoachRouteMapSideLabels
 }>()
 const emit = defineEmits<{ select: [event: CoachPlayerActionEvent] }>()
 
 const displayMode = ref<DisplayMode>('routes')
+const sideLabels = computed(() => props.sideLabels ?? DEFAULT_SIDE_LABELS)
 const routeEvents = computed(() =>
   props.events.filter(event => event.routeStart !== null && event.routeEnd !== null),
 )
@@ -87,6 +109,18 @@ function openEvent(event: CoachPlayerActionEvent) {
               flood-opacity=".6"
             />
           </filter>
+          <marker
+            id="route-arrow"
+            viewBox="0 0 7 7"
+            ref-x="6.2"
+            ref-y="3.5"
+            marker-width="5.5"
+            marker-height="5.5"
+            orient="auto-start-reverse"
+            marker-units="userSpaceOnUse"
+          >
+            <path class="route-arrow" d="M 0 0 L 7 3.5 L 0 7 Z" />
+          </marker>
         </defs>
 
         <rect class="court-apron" x="-12" y="-8" width="204" height="106" rx="8" />
@@ -97,22 +131,43 @@ function openEvent(event: CoachPlayerActionEvent) {
           <line x1="60" y1="1" x2="60" y2="89" />
           <line x1="120" y1="1" x2="120" y2="89" />
         </g>
-        <text x="45" y="84" class="court-team-label">左側</text>
-        <text x="135" y="84" class="court-team-label">右側</text>
+        <g class="court-side-label" aria-hidden="true">
+          <text x="45" y="78" class="court-team-label court-side-name">
+            左側 · {{ sideLabels.left.name }}
+          </text>
+          <text x="45" y="84" class="court-team-label court-side-scope">
+            {{ SCOPE_LABELS[sideLabels.left.scope] }}
+          </text>
+          <text x="135" y="78" class="court-team-label court-side-name">
+            右側 · {{ sideLabels.right.name }}
+          </text>
+          <text x="135" y="84" class="court-team-label court-side-scope">
+            {{ SCOPE_LABELS[sideLabels.right.scope] }}
+          </text>
+        </g>
 
         <g v-if="displayMode === 'routes'" class="route-layer">
           <g
             v-for="(event, index) in routeEvents"
             :key="event.id"
             class="route-line"
-            role="link"
-            tabindex="0"
-            :aria-label="`第 ${event.setNumber} 局回合 ${event.rallyOrdinal} ${event.actionLabel}，前往回放`"
             :style="{ '--route-color': actionColor(event.actionKey) }"
-            @click="openEvent(event)"
-            @keydown.enter.space.prevent="openEvent(event)"
           >
-            <path :d="routeCurve(event, index)" />
+            <path
+              class="route-hit-target"
+              :d="routeCurve(event, index)"
+              role="button"
+              tabindex="0"
+              :aria-label="`第 ${event.setNumber} 局回合 ${event.rallyOrdinal} ${event.actionLabel}，開啟短回放`"
+              @click="openEvent(event)"
+              @keydown.enter.space.prevent="openEvent(event)"
+            />
+            <path class="route-path-base" :d="routeCurve(event, index)" />
+            <path
+              class="route-path-flow"
+              :d="routeCurve(event, index)"
+              marker-end="url(#route-arrow)"
+            />
             <circle
               v-if="event.routeStart"
               class="route-start"
@@ -150,9 +205,9 @@ function openEvent(event: CoachPlayerActionEvent) {
             v-for="event in landingEvents"
             :key="`point:${event.id}`"
             class="landing-point"
-            role="link"
+            role="button"
             tabindex="0"
-            :aria-label="`第 ${event.setNumber} 局回合 ${event.rallyOrdinal} ${event.actionLabel}落點，前往回放`"
+            :aria-label="`第 ${event.setNumber} 局回合 ${event.rallyOrdinal} ${event.actionLabel}落點，開啟短回放`"
             :style="{ '--route-color': actionColor(event.actionKey) }"
             :cx="courtX(event.routeEnd!.x)"
             :cy="courtY(event.routeEnd!.y)"
@@ -178,7 +233,7 @@ function openEvent(event: CoachPlayerActionEvent) {
     <footer class="route-map__legend">
       <span><i class="legend-start" />起點</span>
       <span><i class="legend-end" />終點／落點</span>
-      <span>虛線表示球的移動方向；場外座標會保留。</span>
+      <span>流動虛線由起點前往箭頭；場外座標會保留。</span>
     </footer>
   </article>
 </template>
@@ -262,7 +317,7 @@ function openEvent(event: CoachPlayerActionEvent) {
   color: #fff;
 }
 .route-map__modes button:focus-visible,
-.route-line:focus-visible,
+.route-hit-target:focus-visible,
 .landing-point:focus-visible {
   outline: 2px solid #72b7ff;
   outline-offset: 2px;
@@ -306,26 +361,65 @@ function openEvent(event: CoachPlayerActionEvent) {
   opacity: 0.52;
   text-anchor: middle;
 }
+.court-side-label {
+  pointer-events: none;
+}
+.court-side-name {
+  font-size: 4px;
+  opacity: 0.86;
+}
+.court-side-scope {
+  fill: #ffffff;
+  font-size: 3.4px;
+  letter-spacing: 0.25px;
+  opacity: 0.62;
+}
 .route-line,
 .landing-point {
   cursor: pointer;
   outline: none;
 }
-.route-line path {
+.route-hit-target {
+  fill: none;
+  stroke: transparent;
+  stroke-width: 14;
+  pointer-events: stroke;
+}
+.route-line .route-path-base,
+.route-line .route-path-flow {
   fill: none;
   stroke: var(--route-color);
-  stroke-width: 2;
   stroke-linecap: round;
-  stroke-dasharray: 5 4;
-  opacity: 0.5;
   transition:
     opacity 160ms ease-out,
     stroke-width 160ms ease-out;
 }
-.route-line:hover path,
-.route-line:focus-visible path {
-  stroke-width: 2.8;
+.route-line .route-path-base {
+  stroke-width: 2.1;
+  stroke-dasharray: 5 4;
+  opacity: 0.3;
+}
+.route-line .route-path-flow {
+  stroke-width: 2.5;
+  stroke-dasharray: 1.4 10;
+  opacity: 0.92;
+  animation: route-direction-flow 900ms linear infinite;
+}
+.route-line .route-path-flow + * {
+  pointer-events: none;
+}
+.route-line:hover .route-path-base,
+.route-hit-target:focus-visible ~ .route-path-base {
+  stroke-width: 3.2;
+  opacity: 0.62;
+}
+.route-line:hover .route-path-flow,
+.route-hit-target:focus-visible ~ .route-path-flow {
+  stroke-width: 3;
   opacity: 1;
+}
+.route-arrow {
+  fill: #f7fafc;
 }
 .route-line circle {
   fill: var(--route-color);
@@ -414,6 +508,11 @@ function openEvent(event: CoachPlayerActionEvent) {
   background: transparent;
   box-shadow: inset 0 0 0 1px #0d151c;
 }
+@keyframes route-direction-flow {
+  to {
+    stroke-dashoffset: -22.8;
+  }
+}
 @media (max-width: 820px) {
   .route-map__header {
     align-items: flex-start;
@@ -436,8 +535,13 @@ function openEvent(event: CoachPlayerActionEvent) {
   }
 }
 @media (prefers-reduced-motion: reduce) {
-  .route-line path {
+  .route-line .route-path-base,
+  .route-line .route-path-flow {
     transition: none;
+  }
+  .route-line .route-path-flow {
+    animation: none;
+    stroke-dasharray: 3 7;
   }
 }
 </style>

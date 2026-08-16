@@ -17,6 +17,8 @@ export type WorkstationActionId =
   | 'media.frame-next'
   | 'media.key-point-previous'
   | 'media.key-point-next'
+  | 'media.segment-previous'
+  | 'media.segment-next'
   | 'media.go-live'
   | 'media.toggle-mute'
   | 'media.set-rate'

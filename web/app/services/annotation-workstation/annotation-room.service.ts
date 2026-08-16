@@ -87,6 +87,7 @@ export function createAnnotationRoomService(annotationWsUrl: MaybeRefOrGetter<st
   let flushPromise: Promise<void> | null = null
   let rallySelectionGeneration = 0
   let deviceSessionHint: string | null = null
+  const rememberedRallyIdState = ref<string | null>(null)
 
   const state = computed<'IDLE' | 'OPEN' | 'READY' | 'SUBMITTED' | 'VOIDED'>(() => {
     const status = snapshot.value?.snapshot.annotation_status
@@ -128,11 +129,10 @@ export function createAnnotationRoomService(annotationWsUrl: MaybeRefOrGetter<st
     return roomId.value ? `${ACTIVE_RALLY_STORAGE_PREFIX}${roomId.value}` : null
   }
   function rememberedRallyId() {
-    const target = storage()
-    const key = activeRallyStorageKey()
-    return target && key ? target.getItem(key) : null
+    return rememberedRallyIdState.value
   }
   function rememberRallyId(rallyId: string | null) {
+    rememberedRallyIdState.value = rallyId
     const target = storage()
     const key = activeRallyStorageKey()
     if (!target || !key) return
@@ -405,6 +405,9 @@ export function createAnnotationRoomService(annotationWsUrl: MaybeRefOrGetter<st
     if (roomId.value === nextRoomId && realtime) return
     realtime?.disconnect()
     roomId.value = nextRoomId
+    const target = storage()
+    const key = activeRallyStorageKey()
+    rememberedRallyIdState.value = target && key ? target.getItem(key) : null
     snapshot.value = null
     presence.value = []
     processing.value = {}

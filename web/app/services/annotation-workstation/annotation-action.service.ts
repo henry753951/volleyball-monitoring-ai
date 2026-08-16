@@ -69,8 +69,8 @@ const labels: Record<AnnotationAction, string> = {
   service: '片段開始／結束',
   contact: 'HIT',
   spike: '殺球',
-  receive_success: '接發成功',
-  receive_error: '接發失敗',
+  receive_success: '接球成功',
+  receive_error: '接球失敗',
   close_left: '左側得分',
   close_right: '右側得分',
   close_unknown: '得分未知',
@@ -192,7 +192,7 @@ export function createAnnotationActionService(options: AnnotationActionServiceOp
     const reasons = {
       NO_TARGET_POINT: '請先選擇擊球點，或等待目前畫格確認',
       SPIKE_REQUIRES_THIRD_POINT: '殺球只能標在第三球以後',
-      RECEIVE_REQUIRES_SECOND_POINT: '接發只能標在第二球',
+      RECEIVE_REQUIRES_NON_SERVICE_POINT: '第一球固定是發球；接球只能標在第二球以後',
       OUTSIDE_RALLY_BOUNDARY: '目前畫格不在片段範圍內',
     } as const
     return { enabled: false, reason: reasons[decision.reason] }
@@ -204,14 +204,15 @@ export function createAnnotationActionService(options: AnnotationActionServiceOp
     }
     const state = toValue(options.state)
     const localDraft = toValue(options.room.draftOwnedByClient)
-    if ((state === 'OPEN' || state === 'READY') && !localDraft && action !== 'service') {
+    if ((state === 'OPEN' || state === 'READY') && !localDraft) {
       return { enabled: false, reason: '此片段屬於另一個標註客戶端，只能檢視' }
     }
     if (action === 'submit') {
-      return (state === 'READY' || (state === 'OPEN' && toValue(options.correctionActive))) &&
-        toValue(options.submitReady)
+      if (state !== 'READY' && !(state === 'OPEN' && toValue(options.correctionActive)))
+        return { enabled: false, reason: '片段尚未完成' }
+      return toValue(options.submitReady)
         ? { enabled: true, reason: '' }
-        : { enabled: false, reason: '片段尚未完成' }
+        : { enabled: false, reason: '等待目前修改同步完成' }
     }
     const snapshot = toValue(options.displayAnnotation)
     const visualPlayhead = toValue(options.visualPlayhead)

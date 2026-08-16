@@ -145,25 +145,37 @@ function requestTrackAssignment(rosterEntryId: string | null) {
         role="dialog"
         aria-label="選擇球員修正方式"
       >
-        <strong>要如何套用「{{ assignment.state.dialogs.correction.playerName }}」？</strong>
-        <p>選擇會影響後續片段是否沿用這次修正。</p>
+        <strong>為什麼要改成「{{ assignment.state.dialogs.correction.playerName }}」？</strong>
+        <p>
+          <template v-if="assignment.state.dialogs.correction.previousPlayerName">
+            目前整個 GID 綁定「{{ assignment.state.dialogs.correction.previousPlayerName }}」。
+          </template>
+          請確認是整個 GID 與球員配錯，還是只有這個 Local ID 被分到錯的 GID。
+        </p>
+        <p v-if="assignment.state.dialogs.correction.occupiedGidLabel" class="swap-warning">
+          「{{ assignment.state.dialogs.correction.playerName }}」目前由
+          {{ assignment.state.dialogs.correction.occupiedGidLabel }} 使用；選第一項會交換兩個 GID，
+          不會清掉另一邊的其他 Local。
+        </p>
         <button
           type="button"
           @click="workstation.actions.execute('identity.apply-correction', 'from_here')"
         >
-          <b>依 GID 從這段起改正</b><small>同一 GID 的 Local ID 與後續片段一起套用</small>
+          <b>GID 與球員配對錯了</b
+          ><small>從這段起重綁整個 GID；若該球員已有另一個 GID，兩邊球員綁定會原子交換</small>
         </button>
         <button
           type="button"
           @click="workstation.actions.execute('identity.apply-correction', 'split_identity')"
         >
-          <b>這其實是不同的人</b><small>適合替補或辨識混人；只拆開這組 Local ID</small>
+          <b>只有這個 Local ID 的 GID 判錯</b
+          ><small>把這個 Local 從原 GID 拆開，原 GID 的其他 Local 不變</small>
         </button>
         <button
           type="button"
           @click="workstation.actions.execute('identity.apply-correction', 'clip_only')"
         >
-          <b>只修正這個 Local ID</b><small>不改 GID 關聯，也不影響其他 Local ID</small>
+          <b>只改這個 Local 的顯示</b><small>不改 GID、不交換，也不讓這次修正進入後續特徵庫</small>
         </button>
         <button type="button" class="cancel" @click="assignment.actions.closeCorrection">
           取消
@@ -343,6 +355,13 @@ function requestTrackAssignment(rosterEntryId: string | null) {
   color: #aeb7bf;
   font-size: 0.56rem;
   line-height: 1.45;
+}
+.correction-choice p.swap-warning {
+  padding: 6px 7px;
+  border: 1px solid #6b572d;
+  border-radius: 6px;
+  background: #2c2518;
+  color: #f4cf82;
 }
 .correction-choice button {
   min-height: 42px !important;

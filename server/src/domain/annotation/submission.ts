@@ -1,6 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto'
 import {
-  isBallEventResultValid,
   parseAnnotationCommandResponse,
   type AnnotationCommand,
   type AnnotationCommandRejected,
@@ -9,6 +8,10 @@ import {
 import type { Prisma } from '@volleyball-monitoring/db/client'
 import { UserRole } from '@volleyball-monitoring/db/client'
 import type { AnnotationIdentity, AnnotationRoom } from './room.js'
+import {
+  isSubmissionBallEventValid,
+  unresolvedBallEventSubmissionMessage,
+} from './ball-event-submission-validation.js'
 import { CLIP_CANONICALIZATION_PROFILE, CLIP_POLICY_VERSION } from '../../config/clip-policy.js'
 import type { MediaObjectReader } from '../../media/playback-domain.js'
 import { reuseCompletedSubmissionGeometry } from './submission-geometry-reuse.js'
@@ -267,15 +270,9 @@ export async function submitRally(
     )
   }
   if (command.schema_version === '4.0.0') {
-    const invalidEvent = rally.keyPoints.find((point, index) => {
-      const event = point.ballEvent
-      if (!event) return true
-      const requiredKind = index === 0 ? 'SERVE' : index === 1 ? 'RECEIVE' : null
-      if (requiredKind ? event.kind !== requiredKind : !['CONTACT', 'SPIKE'].includes(event.kind)) {
-        return true
-      }
-      return !isBallEventResultValid(event.kind, event.result)
-    })
+    const invalidEvent = rally.keyPoints.find(
+      (_, index) => isSubmissionBallEventValid(rally.keyPoints, index) === false,
+    )
     if (invalidEvent) {
       return persist(
         tx,
@@ -303,21 +300,14 @@ export async function submitRally(
         ),
       )
     }
-    const unresolved = rally.keyPoints.find(point => {
-      const event = point.ballEvent
-      return event && event.kind !== 'CONTACT' && event.result === null
-    })
-    if (unresolved) {
+    const unresolvedMessage = unresolvedBallEventSubmissionMessage(rally.keyPoints)
+    if (unresolvedMessage) {
       return persist(
         tx,
         command,
         identity,
         hash,
-        reject(
-          command,
-          'BALL_EVENT_RESULT_REQUIRED',
-          'Receive and spike results must be selected before submission',
-        ),
+        reject(command, 'BALL_EVENT_RESULT_REQUIRED', unresolvedMessage),
       )
     }
   }

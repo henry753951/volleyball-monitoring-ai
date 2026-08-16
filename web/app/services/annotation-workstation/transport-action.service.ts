@@ -14,6 +14,7 @@ export interface TransportActionServiceOptions {
   correctionCancelling: MaybeRefOrGetter<boolean>
   processingRetryEnabled: MaybeRefOrGetter<boolean>
   navigableKeyPoints: MaybeRefOrGetter<boolean>
+  navigableSegments: MaybeRefOrGetter<boolean>
   pointMoveEnabled: MaybeRefOrGetter<boolean>
   pointDeleteEnabled: MaybeRefOrGetter<boolean>
   clipDeleteEnabled: MaybeRefOrGetter<boolean>
@@ -25,6 +26,7 @@ export interface TransportActionServiceOptions {
   cancelCorrection: () => void | Promise<void>
   retryProcessing: () => void | Promise<void>
   navigateKeyPoint: (direction: 'previous' | 'next') => void | Promise<void>
+  navigateSegment: (direction: 'previous' | 'next') => void | Promise<void>
   movePoint: (direction: 'previous' | 'next', count?: number, input?: 'keyboard' | 'button') => void
   deletePoint: () => void | Promise<void>
   deleteClip: () => void | Promise<void>
@@ -81,6 +83,18 @@ export function createTransportActionService(options: TransportActionServiceOpti
           reason: '目前沒有可導覽的球點',
         })),
         execute: () => options.navigateKeyPoint(direction),
+      }),
+    ),
+    ...(['previous', 'next'] as const).map(direction =>
+      options.manager.register({
+        id: direction === 'previous' ? 'media.segment-previous' : 'media.segment-next',
+        group: 'media',
+        label: direction === 'previous' ? '上一個片段' : '下一個片段',
+        availability: computed(() => ({
+          enabled: toValue(options.navigableSegments),
+          reason: '目前沒有可導覽的片段',
+        })),
+        execute: () => options.navigateSegment(direction),
       }),
     ),
     options.manager.register({

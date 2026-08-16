@@ -122,6 +122,7 @@ export function openDraftBlocksNewRally(
 ) {
   // A correction draft keeps an immutable active submission attached to the
   // Rally. The backend intentionally allows that draft to coexist with a new
-  // Rally; only an unsent, submission-less draft owns the new-service slot.
-  return state === 'OPEN' && !activeSubmissionId
+  // Rally; an unsent, submission-less draft owns the new-service slot until it
+  // is submitted, including after its END boundary moves it to READY.
+  return ['OPEN', 'READY'].includes(state) && !activeSubmissionId
 }

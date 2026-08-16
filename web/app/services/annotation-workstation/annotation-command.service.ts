@@ -168,7 +168,7 @@ export function createAnnotationCommandService(context: AnnotationCommandService
         const reasons = {
           NO_TARGET_POINT: '請先選擇擊球點，或等待目前畫格確認',
           SPIKE_REQUIRES_THIRD_POINT: '殺球只能標在第三球以後',
-          RECEIVE_REQUIRES_SECOND_POINT: '接發只能標在第二球',
+          RECEIVE_REQUIRES_NON_SERVICE_POINT: '第一球固定是發球；接球只能標在第二球以後',
           OUTSIDE_RALLY_BOUNDARY: '目前畫格不在片段範圍內',
         } as const
         throw new Error(reasons[decision.reason])

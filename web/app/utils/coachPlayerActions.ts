@@ -5,6 +5,7 @@ import type {
   ReplayContactEvent,
   ReplayCourtPosition,
 } from '~/lib/coachDomain'
+import { replayBallEventKindKey } from './replayBallEventPresentation'
 
 export type CoachActionOutcome = 'won' | 'lost' | 'unknown'
 
@@ -25,15 +26,25 @@ export interface CoachPlayerActionEvent {
   outcome: CoachActionOutcome
 }
 
+export type CoachBallType = 'hit' | 'spike' | 'serve' | 'serve_receive'
+
+const COACH_BALL_TYPE_LABELS: Record<CoachBallType, string> = {
+  hit: 'HIT',
+  spike: '殺球',
+  serve: '發球',
+  serve_receive: '接發',
+}
+
 const ACTION_TRANSLATIONS: Record<string, string> = {
   attack: '殺球',
   attacking: '殺球',
   spike: '殺球',
   spiking: '殺球',
-  reception: '接發',
-  receive: '接發',
-  receiving: '接發',
+  reception: '接球',
+  receive: '接球',
+  receiving: '接球',
   serve_receive: '接發',
+  spike_receive: '接殺',
   dig: '接球',
   digging: '接球',
   defense: '接球',
@@ -58,6 +69,7 @@ const ACTION_COLORS = [
   '#d05a91',
 ] as const
 const KNOWN_ACTION_COLORS: Record<string, string> = {
+  hit: '#69b7ff',
   attack: '#ff3b30',
   attacking: '#ff3b30',
   spike: '#ff3b30',
@@ -66,6 +78,7 @@ const KNOWN_ACTION_COLORS: Record<string, string> = {
   receive: '#007aff',
   receiving: '#007aff',
   serve_receive: '#007aff',
+  spike_receive: '#00a6a6',
   dig: '#00a6a6',
   digging: '#00a6a6',
   defense: '#00a6a6',
@@ -78,6 +91,22 @@ const KNOWN_ACTION_COLORS: Record<string, string> = {
   blocking: '#d05a91',
   standing: '#8e8e93',
   contact: '#69b7ff',
+}
+
+export function coachBallType(
+  events: ReplayContactEvent[],
+  event: ReplayContactEvent,
+): { key: CoachBallType; label: string } {
+  const semanticKey = replayBallEventKindKey(events, event)
+  const key: CoachBallType =
+    semanticKey === 'serve'
+      ? 'serve'
+      : semanticKey === 'spike'
+        ? 'spike'
+        : semanticKey === 'serve_receive'
+          ? 'serve_receive'
+          : 'hit'
+  return { key, label: COACH_BALL_TYPE_LABELS[key] }
 }
 
 function actionRecord(value: unknown) {
@@ -172,6 +201,7 @@ export function collectCoachActionEvents(
             ? 'lost'
             : null
       const id = `${track.analysis_run_id}:${event.key_point_id}:${track.track_id}`
+      const ballType = coachBallType(replay.analysis.contact_events, event)
       records.set(id, {
         id,
         rallyId: track.rally_id,
@@ -180,8 +210,8 @@ export function collectCoachActionEvents(
         analysisRunId: track.analysis_run_id,
         trackId: track.track_id,
         anchorTimeUs: event.anchor_time_us,
-        actionKey: semantic.kind,
-        actionLabel: ACTION_TRANSLATIONS[semantic.kind] ?? semantic.kind,
+        actionKey: ballType.key,
+        actionLabel: ballType.label,
         actionConfidence: null,
         resultKey: semantic.result,
         routeStart: routeStart?.court_pos ?? actor?.court_pos ?? null,

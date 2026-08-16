@@ -4,6 +4,7 @@ import { Prisma, UserRole } from '@volleyball-monitoring/db/client'
 import { normalizeDraftBallEvents } from '../domain/annotation/ball-event-normalization.js'
 import { readClipFrameTimeline, timingManifestIdentity } from '../media/clip-timing-coverage.js'
 import type { MediaObjectReader } from '../media/playback-domain.js'
+import { resolveEffectiveContactActorRosterEntryId } from './effective-contact-actor.js'
 
 const SERIALIZABLE_RETRIES = 3
 const CORRECTION_ROLES = new Set<UserRole>([UserRole.ADMIN, UserRole.OPERATOR, UserRole.ANNOTATOR])
@@ -220,6 +221,67 @@ export async function createCorrectionDraft(
           const submission = await tx.rallySubmission.findUnique({
             where: { id: submissionId },
             include: {
+              analysisRuns: {
+                where: { status: 'COMPLETED' },
+                orderBy: [{ activatedAt: 'desc' }, { createdAt: 'desc' }],
+                take: 1,
+                select: {
+                  contactEvents: {
+                    orderBy: { sequenceIndex: 'asc' },
+                    select: {
+                      keyPointId: true,
+                      sourceKeyPointId: true,
+                      sequenceIndex: true,
+                      associationState: true,
+                      actors: {
+                        select: {
+                          trackId: true,
+                          associationConfidence: true,
+                        },
+                      },
+                    },
+                  },
+                  contactActorCorrections: {
+                    select: { keyPointId: true, trackId: true },
+                  },
+                  contactAssociationJobs: {
+                    orderBy: [{ reviewRevision: 'desc' }, { createdAt: 'desc' }],
+                    select: {
+                      keyPointId: true,
+                      status: true,
+                      projection: { select: { trackId: true } },
+                    },
+                  },
+                  tracks: {
+                    select: {
+                      trackId: true,
+                      identityAssignments: {
+                        orderBy: { createdAt: 'desc' },
+                        take: 1,
+                        select: { rosterEntryId: true },
+                      },
+                    },
+                  },
+                  reidEvidenceSets: {
+                    where: { status: 'READY' },
+                    orderBy: { createdAt: 'desc' },
+                    take: 1,
+                    select: {
+                      tracklets: {
+                        select: {
+                          canonicalTrackId: true,
+                          trackIdAliases: true,
+                          activeProjection: {
+                            select: {
+                              assignmentRevision: { select: { rosterEntryId: true } },
+                            },
+                          },
+                        },
+                      },
+                    },
+                  },
+                },
+              },
               boundaries: true,
               keyPoints: {
                 include: { ballEvent: true },
@@ -231,6 +293,7 @@ export async function createCorrectionDraft(
           if (!submission) throw new CorrectionDraftError('NOT_FOUND', 'Submission was not found')
 
           const rally = submission.rally
+          const effectiveActorAnalysis = submission.analysisRuns[0] ?? null
           await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`annotation-rally:${rally.id}`}, 0))::text AS lock`
           await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`annotation-set:${rally.setId}`}, 0))::text AS lock`
 
@@ -452,10 +515,18 @@ export async function createCorrectionDraft(
               })
             }
             if (point.ballEvent) {
+              const actorRosterEntryId = resolveEffectiveContactActorRosterEntryId(
+                effectiveActorAnalysis,
+                {
+                  submissionKeyPointId: point.id,
+                  ordinal: point.sequenceIndex + 1,
+                  actorRosterEntryId: point.ballEvent.actorRosterEntryId,
+                },
+              )
               await tx.ballEventDraft.upsert({
                 where: { keyPointId: point.sourceDraftKeyPointId },
                 create: {
-                  actorRosterEntryId: point.ballEvent.actorRosterEntryId,
+                  actorRosterEntryId,
                   keyPointId: point.sourceDraftKeyPointId,
                   kind: point.ballEvent.kind,
                   kindLocked: true,
@@ -464,7 +535,7 @@ export async function createCorrectionDraft(
                   semanticSource: 'CORRECTION_COPY',
                 },
                 update: {
-                  actorRosterEntryId: point.ballEvent.actorRosterEntryId,
+                  actorRosterEntryId,
                   kind: point.ballEvent.kind,
                   kindLocked: true,
                   result: point.ballEvent.result,

@@ -39,6 +39,8 @@ const baseProps = {
     nextFrame: 'ArrowRight',
     previousPoint: 'Shift+ArrowLeft',
     nextPoint: 'Shift+ArrowRight',
+    previousSegment: 'Shift+A',
+    nextSegment: 'Shift+D',
   },
 }
 
@@ -88,6 +90,19 @@ describe('AnnotationTransportBar', () => {
     await wrapper.find('[aria-label="刪除所選擊球點"]').trigger('click')
     expect(execute).toHaveBeenCalledWith('mark.delete')
     expect(execute).not.toHaveBeenCalledWith('segment.delete-processing')
+  })
+
+  it('puts physical previous and next segment buttons in the context status bar', async () => {
+    const { wrapper, execute } = mountBar()
+
+    await wrapper.get('[aria-label="上一個片段"]').trigger('click')
+    await wrapper.get('[aria-label="下一個片段"]').trigger('click')
+
+    expect(execute).toHaveBeenNthCalledWith(1, 'media.segment-previous')
+    expect(execute).toHaveBeenNthCalledWith(2, 'media.segment-next')
+    expect(wrapper.get('[aria-label="片段導覽"]').element.parentElement?.className).toContain(
+      'transport-context',
+    )
   })
 
   it('keeps correction cancellation available for the selected correction', async () => {

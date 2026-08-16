@@ -14,6 +14,7 @@ import {
   restoreDefaultHotkeys,
   runtimeHotkeysForBinding,
   serializeHotkeyPreferences,
+  shiftedHotkeyBinding,
   toRuntimeHotkey,
   type HotkeyBindings,
   type HotkeyCommand,
@@ -83,7 +84,7 @@ export interface AnnotationHotkeyRuntimeOptions {
   blocked?: HotkeyCommandDispatcher
   release?: HotkeyCommandDispatcher
   enabled?: MaybeRefOrGetter<boolean>
-  commandEnabled?: (command: HotkeyCommand) => boolean
+  commandEnabled?: (command: HotkeyCommand, event?: KeyboardEvent) => boolean
   scopeBlocked?: () => boolean
 }
 
@@ -97,7 +98,7 @@ export function isModalHotkeyScopeActive(): boolean {
 export function createAnnotationHotkeyDefinitions(
   bindings: HotkeyBindings,
   dispatch: HotkeyCommandDispatcher,
-  commandEnabled: (command: HotkeyCommand) => boolean = () => true,
+  commandEnabled: (command: HotkeyCommand, event?: KeyboardEvent) => boolean = () => true,
   scopeBlocked: () => boolean = isModalHotkeyScopeActive,
   runtimeEnabled: () => boolean = () => true,
   blocked?: HotkeyCommandDispatcher,
@@ -114,7 +115,7 @@ export function createAnnotationHotkeyDefinitions(
           !runtimeEnabled()
         )
           return
-        if (!commandEnabled(command.action)) {
+        if (!commandEnabled(command.action, event)) {
           event.preventDefault()
           event.stopPropagation()
           blocked?.(command.action, event)
@@ -135,6 +136,12 @@ export function createAnnotationHotkeyDefinitions(
     })
     const runtimes = runtimeHotkeysForBinding(bindings[command.action])
     const definitions = runtimes.map(definition)
+    if (command.action === 'key_point_previous' || command.action === 'key_point_next') {
+      const shiftedBinding = shiftedHotkeyBinding(bindings[command.action])
+      if (shiftedBinding !== bindings[command.action]) {
+        definitions.push(definition(toRuntimeHotkey(shiftedBinding)))
+      }
+    }
     if (!repeatable) return definitions
     const runtime = toRuntimeHotkey(bindings[command.action])
     const accelerated =

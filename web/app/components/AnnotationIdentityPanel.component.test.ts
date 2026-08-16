@@ -226,22 +226,42 @@ describe('AnnotationIdentityPanel ReID assignments', () => {
 
     expect(wrapper.text()).toContain('沿用先前確認')
     expect(wrapper.text()).toContain('T001')
-    expect(wrapper.text()).toContain('群組未定')
+    expect(wrapper.text()).toContain('GID 2D9A44CC')
     expect(wrapper.text()).toContain('91%')
 
     const unassigned = wrapper.findAllComponents(UiPlayerCombobox)[1]!
     const options = unassigned.props('options')
     expect(options).toHaveLength(9)
     expect(options.map(option => option.label)).toContain('#18 Bench Player')
+    expect(options.find(option => option.label === '#18 Bench Player')).toMatchObject({
+      jerseyNumber: '18',
+      playerName: 'Bench Player',
+      position: 'DS',
+    })
     expect(unassigned.props('modelValue')).toBe('')
 
     wrapper.unmount()
   })
 
+  it('navigates from the Local row but does not navigate when the player selector is clicked', async () => {
+    const wrapper = mountPanel()
+    await flushPromises()
+
+    await wrapper.get('.identity-row').trigger('click')
+    expect(wrapper.emitted('select-track')).toEqual([
+      [{ trackId: 1, rallyId: 'rally-1', firstFrameIndex: '0' }],
+    ])
+    expect(wrapper.get('.identity-row').classes()).not.toContain('focused')
+
+    await wrapper.get('.identity-select').trigger('click')
+    expect(wrapper.emitted('select-track')).toHaveLength(1)
+    wrapper.unmount()
+  })
+
   it.each([
-    ['依人員群組從這段起改正', 'from_here'],
-    ['這其實是不同的人', 'split_identity'],
-    ['只修正這個 Local ID', 'clip_only'],
+    ['GID 與球員配對錯了', 'from_here'],
+    ['只有這個 Local ID 的 GID 判錯', 'split_identity'],
+    ['只改這個 Local 的顯示', 'clip_only'],
   ] as const)('sends %s corrections with identityMode=%s', async (buttonLabel, identityMode) => {
     const wrapper = mountPanel()
     await flushPromises()
@@ -303,7 +323,7 @@ describe('AnnotationIdentityPanel ReID assignments', () => {
     )
     await tabs.find(tab => tab.text().includes('人員群組'))!.trigger('click')
 
-    expect(wrapper.text()).toContain('人員群組可包含多個片段內 TID')
+    expect(wrapper.text()).toContain('群組代表跨片段的追蹤關聯')
     const gidCombobox = wrapper.findAllComponents(UiPlayerCombobox)[1]!
     gidCombobox.vm.$emit('update:modelValue', 'roster-2')
     await flushPromises()
@@ -331,7 +351,7 @@ describe('AnnotationIdentityPanel ReID assignments', () => {
     wrapper.unmount()
   })
 
-  it('uses a clip-only assignment for a Local ID without ReID evidence', async () => {
+  it('creates and confirms a forward GID binding for a Local ID without ReID evidence', async () => {
     const fixture = analyticsFixture()
     fixture.tracks[1] = {
       ...fixture.tracks[1]!,
@@ -352,7 +372,7 @@ describe('AnnotationIdentityPanel ReID assignments', () => {
       analysisRunId: 'analysis-1',
       trackId: 2,
       rosterEntryId: 'roster-2',
-      identityMode: 'clip_only',
+      identityMode: 'from_here',
     })
     wrapper.unmount()
   })

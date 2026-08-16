@@ -143,6 +143,44 @@ const coachState = {
 } as CoachMatchState
 
 describe('useAnnotationWorkstationModel timeline layers', () => {
+  it('only exposes a selected point as deletable while the displayed rally is an editable draft', () => {
+    const selectedKeyPoint = computed<AnnotationKeyPoint | null>(
+      () => snapshot.snapshot.key_points[1] ?? null,
+    )
+    const submittedModel = useAnnotationWorkstationModel({
+      coachData: ref(coachState),
+      match: ref<Match | null>(null),
+      timeline: computed<CaptureTimeline | null>(() => null),
+      displayAnnotation: computed(() => snapshot),
+      confirmedAnnotation: shallowRef(snapshot),
+      state: computed(() => 'SUBMITTED' as const),
+      selectedRallyId: computed(() => 'rally'),
+      selectedKeyPoint,
+      selectedTimelineItem: ref<TimelineSelectionItem>('point'),
+      cursorRallyId: ref('rally'),
+    })
+    expect(submittedModel.selectedDeletablePoint.value).toBe(false)
+
+    const correctionSnapshot = structuredClone(snapshot)
+    correctionSnapshot.snapshot.annotation_status = 'open'
+    correctionSnapshot.rally_id = 'correction-rally'
+    const correctionModel = useAnnotationWorkstationModel({
+      coachData: ref(coachState),
+      match: ref<Match | null>(null),
+      timeline: computed<CaptureTimeline | null>(() => null),
+      displayAnnotation: computed(() => correctionSnapshot),
+      confirmedAnnotation: shallowRef(correctionSnapshot),
+      state: computed(() => 'OPEN' as const),
+      selectedRallyId: computed(() => 'correction-rally'),
+      selectedKeyPoint: computed<AnnotationKeyPoint | null>(
+        () => correctionSnapshot.snapshot.key_points[1] ?? null,
+      ),
+      selectedTimelineItem: ref<TimelineSelectionItem>('point'),
+      cursorRallyId: ref('correction-rally'),
+    })
+    expect(correctionModel.selectedDeletablePoint.value).toBe(true)
+  })
+
   it('keeps an earlier READY boundary draft selectable after a new OPEN draft starts', () => {
     const state = structuredClone(coachState)
     state.match.rallies = []

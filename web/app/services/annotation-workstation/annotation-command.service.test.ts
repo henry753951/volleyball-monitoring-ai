@@ -107,7 +107,19 @@ describe('createAnnotationCommandService', () => {
   })
 
   it('uses the selected point for V/B and enforces ordinal constraints once', () => {
-    const commandService = service(snapshot())
+    const current = snapshot()
+    current.snapshot.key_points.push({
+      key_point_id: 'third',
+      sequence_index: 2,
+      marker_kind: 'contact',
+      is_terminal: false,
+      capture_time_us: '1300',
+      capture_frame_index: '13',
+      timing_precision: 'frame_exact',
+      possible_duplicate: false,
+      ball_event: { kind: 'CONTACT', result: null },
+    })
+    const commandService = service(current)
     expect(
       commandService.buildActionCommand('receive_success', cursor, {
         selectedKeyPointId: 'second',
@@ -122,6 +134,22 @@ describe('createAnnotationCommandService', () => {
     expect(() =>
       commandService.buildActionCommand('spike', cursor, { selectedKeyPointId: 'second' }),
     ).toThrow('殺球只能標在第三球以後')
+    expect(
+      commandService.buildActionCommand('receive_error', cursor, {
+        selectedKeyPointId: 'third',
+      }),
+    ).toMatchObject({
+      kind: 'SET_BALL_EVENT',
+      payload: {
+        key_point_id: 'third',
+        event: { kind: 'RECEIVE', result: 'ERROR' },
+      },
+    })
+    expect(() =>
+      commandService.buildActionCommand('receive_error', cursor, {
+        selectedKeyPointId: 'first',
+      }),
+    ).toThrow('第一球固定是發球；接球只能標在第二球以後')
   })
 
   it('rejects edits against a peer-owned draft', () => {

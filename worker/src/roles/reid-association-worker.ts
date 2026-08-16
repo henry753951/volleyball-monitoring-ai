@@ -339,19 +339,6 @@ export async function scheduleReidAssociation(
   if (!rosterArtifact || rosterArtifact.state !== ArtifactState.READY)
     throw new ReidAssociationMaterializationError('immutable roster snapshot is unavailable', true)
 
-  const rosterEntries = await database.matchRosterEntry.findMany({ where: { matchId, teamId } })
-  for (const entry of rosterEntries)
-    await database.reidPersonCluster.upsert({
-      where: { canonicalRosterEntryId: entry.id },
-      update: {},
-      create: {
-        matchId,
-        teamId,
-        canonicalRosterEntryId: entry.id,
-        label: entry.displayNameSnapshot ?? `#${entry.jerseyNumber}`,
-        createdRevision: 0n,
-      },
-    })
   const clusters = await database.reidPersonCluster.findMany({
     where: { matchId, teamId, supersededRevision: null },
   })

@@ -460,8 +460,9 @@ The identity panel is available for a completed AnalysisRun and has two views:
 
 - **Local assignment**: one player choice per run-local TID. This is the final effective mapping used
   by replay and analytics.
-- **Person-group assignment**: groups TIDs by the current versioned person-cluster proposal and
-  batch-writes effective assignments. Fixed L1–R6 relations no longer exist after the hard cut.
+- **Person-group assignment**: groups TIDs by the current versioned GID proposal and batch-writes
+  effective assignments. The six-player lineup is a soft co-visible capacity, not a permanent L1–R6
+  identity table.
 
 Current operator flow:
 
@@ -472,12 +473,12 @@ Current operator flow:
    is already assigned to an overlapping track.
 4. Choose one correction scope when a different player is selected:
 
-| UI option                            | Current implementation effect                                                                                   | Historical effect                             |
-| ------------------------------------ | --------------------------------------------------------------------------------------------------------------- | --------------------------------------------- |
-| `from_here` / 依人員群組從這段起改正 | Append current/future manual projections, reject the wrong source membership, and confirm the target membership | Earlier clips and raw evidence are unchanged  |
-| `split_identity` / 這其實是不同的人  | Correct only this clip's semantic track group and append source-negative/target-positive membership             | Earlier clips are unchanged                   |
-| `clip_only` / 只修正這個 Local ID    | Change only this effective clip projection and do not train the future bank                                     | Other clips and bank membership are unchanged |
-| Clear player relation                | Append a new effective projection instead of deleting raw evidence                                              | Earlier revisions remain auditable            |
+| UI option                            | Current implementation effect                                                                          | Historical effect                             |
+| ------------------------------------ | ------------------------------------------------------------------------------------------------------ | --------------------------------------------- |
+| `from_here` / GID 與球員配對錯了     | Keep the GID and rebind its player from here; if occupied, atomically swap both GID bindings           | Earlier clips and raw evidence are unchanged  |
+| `split_identity` / Local 的 GID 判錯 | Move only this Local evidence to the selected player's GID/new GID, subject to exact-frame cannot-link | Earlier clips are unchanged                   |
+| `clip_only` / 只改 Local 顯示        | Change only this effective Local projection; do not change GID or future bank                          | Other clips and bank membership are unchanged |
+| Clear player relation                | Append a new effective projection instead of deleting raw evidence                                     | Earlier revisions remain auditable            |
 
 5. “套用既有關聯” projects already-known active bindings onto unresolved Local IDs. It preserves manual
    assignments and reports assigned/unresolved counts.
@@ -520,9 +521,10 @@ Remaining limitations:
 3. When evidence is READY/PARTIAL, association is enqueued with an explicit bank and roster snapshot.
 4. The UI displays Local/TID, proposed person group, roster candidate, confidence/calibration, method,
    unresolved reason, current crop animation, and confirmed historical references.
-5. The implemented UI supports roster assignment, from-here correction, split-identity correction,
-   clip-only correction, clear/reopen, and three accurately named job actions. Bulk merge,
-   quarantine, and atomic swap remain follow-up UI work and are not claimed as complete.
+5. The implemented UI supports roster assignment, GID binding correction with occupied-GID atomic
+   swap, Local-only GID split with same-frame cannot-link validation, clip-only display correction,
+   clear/reopen, and three accurately named job actions. Bulk merge and quarantine remain follow-up
+   UI work and are not claimed as complete.
 6. The correction dialog explicitly shows:
    - which current/future effective assignments will change; and
    - whether this evidence is confirmed, moved, rejected, quarantined, or kept unverified for future

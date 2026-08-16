@@ -53,14 +53,14 @@ export const ANNOTATION_COMMANDS = [
   {
     action: 'receive_success',
     group: 'annotation',
-    label: '接發成功',
-    description: '選取第二球時改為接發成功；未選取時在第二球位置新增接發成功',
+    label: '接球成功',
+    description: '選取第二球以後的球點時改為接球成功；未選取時新增接球成功',
   },
   {
     action: 'receive_error',
     group: 'annotation',
-    label: '接發失誤',
-    description: '選取第二球時改為接發失誤；未選取時在第二球位置新增接發失誤',
+    label: '接球失敗',
+    description: '選取第二球以後的球點時改為接球失敗；未選取時新增接球失敗',
   },
   {
     action: 'close_left',
@@ -226,6 +226,12 @@ export function formatBindingForDisplay(
   options: FormatDisplayOptions = {},
 ): string {
   return formatForDisplay(binding, options)
+}
+
+export function shiftedHotkeyBinding(binding: string): string {
+  return binding.split('+').some(part => part.toLowerCase() === 'shift')
+    ? binding
+    : `Shift+${binding}`
 }
 
 function bindingMatchesOnEitherPlatform(left: string, right: string): boolean {

@@ -49,11 +49,11 @@ const props = defineProps<{
   teams: CoachTeam[]
   formatRallyDuration: (rally: CoachRally) => string
   setNumbers: number[]
-  focusedTrackId?: number | null
 }>()
 
 const emit = defineEmits<{
   'update:tab': [tab: 'match' | 'mapping' | 'analysis']
+  'select-track': [selection: { trackId: number; rallyId: string; firstFrameIndex: string }]
 }>()
 const workstation = useAnnotationWorkstationService()
 if (!workstation.segments || !workstation.timeline)
@@ -393,7 +393,7 @@ defineExpose({
             :right-team-id="rightTeamId"
             :teams="teams"
             :mapping-completed="mappingCompleted"
-            :focused-track-id="focusedTrackId"
+            @select-track="emit('select-track', $event)"
           /></div
       ></UiScrollArea>
     </div>

@@ -1993,6 +1993,98 @@ describe('durable service annotation command', () => {
     ])
   })
 
+  it('hydrates an unassigned correction key point from the completed actor mapping', async () => {
+    const rallyId = randomUUID()
+    await service.apply(serviceCommand(randomUUID(), rallyId), identity)
+    const draftPoint = await db.keyPoint.findFirstOrThrow({ where: { rallyId } })
+    await service.apply(
+      closeCommand(randomUUID(), rallyId, draftPoint.id, '1', 'unknown'),
+      identity,
+    )
+    const submitted = await service.apply(submitCommand(randomUUID(), rallyId, '2'), identity)
+    const submissionId = submitted.type === 'command_ack' ? submitted.effects.submission_id : null
+    expect(submissionId).toBeTruthy()
+
+    const sourceSubmission = await db.rallySubmission.findUniqueOrThrow({
+      where: { id: submissionId! },
+      include: { keyPoints: { include: { ballEvent: true } } },
+    })
+    const sourcePoint = sourceSubmission.keyPoints[0]!
+    expect(sourcePoint.ballEvent?.actorRosterEntryId).toBeNull()
+    const clip = await db.clipJob.findFirstOrThrow({ where: { submissionId: submissionId! } })
+    const aiJob = await db.aiJob.create({
+      data: {
+        submissionId: submissionId!,
+        clipJobId: clip.id,
+        status: 'COMPLETED',
+        idempotencyKey: `actor-sync:${rallyId}`,
+        requestPayload: { source: 'actor-sync-test' },
+        requestPayloadHash: 'a'.repeat(64),
+        jobSchemaVersion: '3.0.0',
+        callbackTokenHash: 'b'.repeat(64),
+        callbackTokenExpiresAt: new Date(),
+        completedAt: new Date(),
+      },
+    })
+    const analysis = await db.analysisRun.create({
+      data: {
+        aiJobId: aiJob.id,
+        submissionId: submissionId!,
+        analysisId: `actor-sync-${rallyId}`,
+        analysisVersion: 'actor-sync-v1',
+        analysisDataSchemaVersion: '1.0.0',
+        inputClipSha256: 'c'.repeat(64),
+        producerName: 'fixture',
+        producerBuildId: 'fixture',
+        status: 'COMPLETED',
+        activatedAt: new Date(),
+        tracks: {
+          create: {
+            trackId: 7,
+            courtSide: 'LEFT',
+            firstFrame: 0n,
+            lastFrame: 10n,
+            identityAssignments: {
+              create: {
+                rosterEntryId: ids.rosterLeft,
+                source: 'MANUAL',
+                assignedByUserId: ids.operator,
+              },
+            },
+          },
+        },
+      },
+    })
+    const analysisPointId = randomUUID()
+    await db.contactEvent.create({
+      data: {
+        analysisRunId: analysis.id,
+        keyPointId: analysisPointId,
+        sourceKeyPointId: sourcePoint.id,
+        sequenceIndex: 0,
+        anchorFrameIndex: 0n,
+        anchorTimeUs: sourcePoint.captureTimeUs,
+        markerKind: sourcePoint.markerKind,
+        isTerminal: sourcePoint.isTerminal,
+        associationState: 'RESOLVED_SINGLE',
+        ballState: 'MISSING',
+        qualityFlags: [],
+        actors: {
+          create: {
+            trackId: 7,
+            observationFrameIndex: 0n,
+            associationConfidence: 0.95,
+          },
+        },
+      },
+    })
+
+    await createCorrectionDraft(db, submissionId!, identity)
+    await expect(
+      db.ballEventDraft.findUniqueOrThrow({ where: { keyPointId: draftPoint.id } }),
+    ).resolves.toMatchObject({ actorRosterEntryId: ids.rosterLeft })
+  })
+
   it('opens a correction draft and applies winner/unknown changes through one CAS score ledger', async () => {
     const rallyId = randomUUID()
     await service.apply(serviceCommand(randomUUID(), rallyId), identity)

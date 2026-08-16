@@ -21,6 +21,7 @@ import { createGraphQLTransport } from '~/lib/coreDomain'
 import { replayStartSeconds } from '~/utils/coachPlayerActions'
 import { coachIdentityLabel, coachRallyNeighbours } from '~/utils/coachPresentation'
 import { resolveFrameFromRate, resolveFrameFromTimeline } from '~/utils/overlayFrameTimeline'
+import { replayBallEventLabel } from '~/utils/replayBallEventPresentation'
 import { resolveVideoContentRect } from '~/utils/volleyballOverlayRenderer'
 
 type OverlayMode = 'off' | 'tracking' | 'coach' | 'tactical'
@@ -339,31 +340,7 @@ function formatClock(value: number) {
 }
 
 function eventLabel(event: ReplayContactEvent) {
-  const kind =
-    event.ball_event?.kind ??
-    (event.sequence_index === 0 ? 'serve' : event.sequence_index === 1 ? 'receive' : 'contact')
-  const label =
-    kind === 'serve'
-      ? '發球'
-      : kind === 'receive'
-        ? '接發'
-        : kind === 'spike'
-          ? '殺球'
-          : `第 ${event.sequence_index + 1} 次擊球`
-  const result = event.ball_event?.result
-  const resultLabel =
-    result === 'point_scored'
-      ? '得分'
-      : result === 'success'
-        ? '成功'
-        : result === 'error'
-          ? '失誤'
-          : result === 'point_lost'
-            ? '失分'
-            : result === 'failure'
-              ? '失敗'
-              : null
-  return resultLabel ? `${label} · ${resultLabel}` : label
+  return replayBallEventLabel(timelineEvents.value, event)
 }
 
 function eventTeamLabel(event: ReplayContactEvent) {

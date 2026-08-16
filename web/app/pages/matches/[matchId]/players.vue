@@ -5,9 +5,9 @@ import {
   actionColor,
   actionOutcomeRate,
   formatActionTime,
-  replayEventUrl,
   type CoachPlayerActionEvent,
 } from '~/utils/coachPlayerActions'
+import type { CoachRouteMapSideLabel } from '~/components/CoachBallRouteMap.vue'
 import {
   playerContactShare,
   playerParticipation,
@@ -33,6 +33,7 @@ const selectedPlayerId = ref<string | null>(null)
 const selectedTrackKey = ref<string | null>(null)
 const selectedTeamId = ref<string | null>(null)
 const selectedActionKey = ref('all')
+const selectedActionEvent = shallowRef<CoachPlayerActionEvent | null>(null)
 const orderedPlayers = computed(() =>
   (analytics.value?.teams ?? []).flatMap(team => playersForTeam(team.id)),
 )
@@ -125,6 +126,72 @@ const selectedLocalTeamId = computed(() => {
       ? replay.rally.right_team.id
       : null
 })
+const selectedSideReplay = computed(() => {
+  for (const track of selectedTracks.value) {
+    const replay = eventState.replays.get(track.rally_id)
+    if (replay) return replay
+  }
+  return null
+})
+const selectedSubjectSide = computed<'left' | 'right' | null>(() => {
+  const track = selectedTracks.value.find(
+    candidate => candidate.court_side === 'left' || candidate.court_side === 'right',
+  )
+  return track?.court_side === 'left' || track?.court_side === 'right' ? track.court_side : null
+})
+const selectedSubjectTeamId = computed(() => {
+  if (viewMode.value === 'players') return selectedPlayerTeam.value?.id ?? null
+  if (viewMode.value === 'teams') return selectedTeam.value?.id ?? null
+
+  const track = selectedLocalTrack.value
+  const replay = selectedSideReplay.value
+  if (track?.court_side === 'left' && replay) return replay.rally.left_team.id
+  if (track?.court_side === 'right' && replay) return replay.rally.right_team.id
+  return selectedMappedPlayer.value?.team_id ?? null
+})
+const routeMapSideLabels = computed<{
+  left: CoachRouteMapSideLabel
+  right: CoachRouteMapSideLabel
+}>(() => {
+  const replay = selectedSideReplay.value
+  const subjectSide = selectedSubjectSide.value
+  const subjectIsPlayer = viewMode.value !== 'teams'
+  const subjectName =
+    viewMode.value === 'players' && selectedPlayer.value
+      ? `#${selectedPlayer.value.jersey_number} ${selectedPlayer.value.name}`
+      : viewMode.value === 'tracks' && selectedLocalTrack.value
+        ? trackLabel(selectedLocalTrack.value)
+        : (selectedTeam.value?.name ?? '—')
+  const subjectTeamId = selectedSubjectTeamId.value
+  const subjectTeamName =
+    viewMode.value === 'players'
+      ? selectedPlayerTeam.value?.name
+      : viewMode.value === 'teams'
+        ? selectedTeam.value?.name
+        : selectedMappedPlayer.value
+          ? (analytics.value?.teams.find(team => team.id === selectedMappedPlayer.value?.team_id)
+              ?.name ?? null)
+          : subjectTeamId
+            ? (analytics.value?.teams.find(team => team.id === subjectTeamId)?.name ?? null)
+            : null
+
+  function teamNameForSide(side: 'left' | 'right') {
+    const replayTeam = side === 'left' ? replay?.rally.left_team : replay?.rally.right_team
+    if (replayTeam?.name) return replayTeam.name
+    if (subjectSide === side && subjectTeamName) return subjectTeamName
+    return analytics.value?.teams.find(team => team.id !== subjectTeamId)?.name ?? '對手隊伍'
+  }
+
+  function labelForSide(side: 'left' | 'right'): CoachRouteMapSideLabel {
+    const isSelectedPlayerSide = subjectIsPlayer && subjectSide === side
+    return {
+      name: isSelectedPlayerSide ? subjectName : teamNameForSide(side),
+      scope: isSelectedPlayerSide ? 'player' : 'team',
+    }
+  }
+
+  return { left: labelForSide('left'), right: labelForSide('right') }
+})
 const actionOptions = computed(() => {
   const byKey = new Map<string, { key: string; label: string; count: number }>()
   for (const event of eventState.events.value) {
@@ -135,8 +202,9 @@ const actionOptions = computed(() => {
       count: (current?.count ?? 0) + 1,
     })
   }
+  const order = ['hit', 'spike', 'serve', 'serve_receive']
   return [...byKey.values()].sort(
-    (left, right) => right.count - left.count || left.label.localeCompare(right.label, 'zh-Hant'),
+    (left, right) => order.indexOf(left.key) - order.indexOf(right.key),
   )
 })
 const filteredEvents = computed(() =>
@@ -158,6 +226,11 @@ const selectedActionLabel = computed(() =>
     ? '全部球種'
     : (actionOptions.value.find(option => option.key === selectedActionKey.value)?.label ??
       '所選球種'),
+)
+const selectedActionReplay = computed(() =>
+  selectedActionEvent.value
+    ? (eventState.replays.get(selectedActionEvent.value.rallyId) ?? null)
+    : null,
 )
 const analyticsErrorMessage = computed(() => {
   const message = analyticsState.error.value?.message
@@ -256,7 +329,7 @@ function refreshAfterIdentityChange() {
 }
 
 function openActionReplay(event: CoachPlayerActionEvent) {
-  void navigateTo(replayEventUrl(matchId.value, event))
+  selectedActionEvent.value = event
 }
 
 const BALL_TYPE_LABELS: Record<string, string> = {
@@ -417,32 +490,47 @@ function teamActionCounts(teamId: string) {
           <section class="entity-overview">
             <header class="entity-title">
               <div v-if="viewMode === 'players' && selectedPlayer">
-                <span class="entity-badge">{{ playerBadge(selectedPlayer) }}</span>
-                <p>
-                  {{ selectedPlayerTeam?.name }} ·
-                  {{ rosterPositionLabel(selectedPlayer.position) }}
-                </p>
-                <h1>{{ selectedPlayer.name }}</h1>
+                <span class="entity-badge player">
+                  <small>{{
+                    selectedPlayer.position === 'UNSPECIFIED' ? '—' : selectedPlayer.position
+                  }}</small>
+                  <strong>#{{ selectedPlayer.jersey_number }}</strong>
+                </span>
+                <div class="entity-title__copy">
+                  <p class="entity-title__meta">
+                    <span class="entity-team-mark" aria-hidden="true" />
+                    <span>{{ selectedPlayerTeam?.name }}</span>
+                    <span class="entity-title__separator" aria-hidden="true">·</span>
+                    <span>{{ rosterPositionLabel(selectedPlayer.position) }}</span>
+                  </p>
+                  <h1>{{ selectedPlayer.name }}</h1>
+                </div>
               </div>
               <div v-else-if="viewMode === 'tracks' && selectedLocalTrack">
                 <span class="entity-badge local">{{ trackLabel(selectedLocalTrack) }}</span>
-                <p>
-                  第 {{ selectedLocalTrack.set_number }} 局 · 回合
-                  {{ selectedLocalTrack.rally_ordinal }} ·
-                  {{
-                    selectedLocalTrack.court_side === 'left'
-                      ? '左側'
-                      : selectedLocalTrack.court_side === 'right'
-                        ? '右側'
-                        : '場側未知'
-                  }}
-                </p>
-                <h1>{{ selectedMappedPlayer?.name ?? '未分配球員' }}</h1>
+                <div class="entity-title__copy">
+                  <p class="entity-title__meta">
+                    第 {{ selectedLocalTrack.set_number }} 局 · 回合
+                    {{ selectedLocalTrack.rally_ordinal }} ·
+                    {{
+                      selectedLocalTrack.court_side === 'left'
+                        ? '左側'
+                        : selectedLocalTrack.court_side === 'right'
+                          ? '右側'
+                          : '場側未知'
+                    }}
+                  </p>
+                  <h1>{{ selectedMappedPlayer?.name ?? '未分配球員' }}</h1>
+                </div>
               </div>
               <div v-else-if="selectedTeam">
                 <span class="entity-badge team">{{ selectedTeam.shortName || 'TEAM' }}</span>
-                <p>隊伍完整統計 · {{ selectedTeamPlayers.length }} 名登錄球員</p>
-                <h1>{{ selectedTeam.name }}</h1>
+                <div class="entity-title__copy">
+                  <p class="entity-title__meta">
+                    隊伍完整統計 · {{ selectedTeamPlayers.length }} 名登錄球員
+                  </p>
+                  <h1>{{ selectedTeam.name }}</h1>
+                </div>
               </div>
             </header>
 
@@ -559,7 +647,7 @@ function teamActionCounts(teamId: string) {
             <header class="action-toolbar">
               <div class="action-heading">
                 <h2>球路與落點</h2>
-                <p>依人工球種篩選，查看移動路徑、落點熱區與判定結果</p>
+                <p>依 HIT、殺球、發球與接發篩選，查看方向、落點與短回放</p>
               </div>
               <div class="action-filters" aria-label="球種篩選">
                 <button
@@ -612,6 +700,7 @@ function teamActionCounts(teamId: string) {
               <CoachBallRouteMap
                 :events="filteredEvents"
                 :label="selectedActionLabel"
+                :side-labels="routeMapSideLabels"
                 @select="openActionReplay"
               />
             </div>
@@ -620,16 +709,17 @@ function teamActionCounts(teamId: string) {
               <header>
                 <div>
                   <h2>球種時間軸</h2>
-                  <p>選擇紀錄會從事件前 3 秒進入 Replay</p>
+                  <p>點選紀錄會在目前頁面播放事件前 3 秒至後 2 秒</p>
                 </div>
                 <span>{{ filteredEvents.length }} 筆</span>
               </header>
               <UiScrollArea v-if="filteredEvents.length" class="action-records__scroll">
                 <div class="action-records__list">
-                  <NuxtLink
+                  <button
                     v-for="event in filteredEvents"
                     :key="event.id"
-                    :to="replayEventUrl(matchId, event)"
+                    type="button"
+                    @click="openActionReplay(event)"
                   >
                     <i :style="{ background: actionColor(event.actionKey) }" />
                     <div class="action-record__identity">
@@ -651,7 +741,7 @@ function teamActionCounts(teamId: string) {
                           : '尚無球路'
                     }}</span>
                     <ChevronRight :size="17" />
-                  </NuxtLink>
+                  </button>
                 </div>
               </UiScrollArea>
               <div v-else class="action-records__empty">
@@ -732,6 +822,12 @@ function teamActionCounts(teamId: string) {
       </UiScrollArea>
       <main v-else class="players-state">尚無可分析資料。</main>
     </div>
+    <CoachEventReplayDialog
+      :open="selectedActionEvent !== null"
+      :event="selectedActionEvent"
+      :replay="selectedActionReplay"
+      @close="selectedActionEvent = null"
+    />
   </section>
 </template>
 
@@ -756,14 +852,15 @@ function teamActionCounts(teamId: string) {
   grid-template-rows: 52px minmax(0, 1fr);
   overflow: hidden;
   border-right: 1px solid #dfe4e8;
-  background: #eef1f4;
+  background: #f3f6f9;
 }
 .entity-list > header {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 7px 10px;
-  border-bottom: 1px solid #dde2e7;
+  padding: 8px 12px;
+  border-bottom: 1px solid #dce3ea;
+  background: #f8fafc;
 }
 .entity-list > header > a {
   width: 36px;
@@ -790,21 +887,23 @@ function teamActionCounts(teamId: string) {
   position: sticky;
   top: 0;
   z-index: 2;
-  min-height: 34px;
+  min-height: 38px;
   display: flex;
   align-items: end;
   justify-content: space-between;
   gap: 10px;
-  margin: 0 9px 0 0;
-  padding: 10px 14px 7px;
-  background: rgba(238, 241, 244, 0.94);
-  color: #707985;
-  font-size: 0.63rem;
+  margin: 0 10px 0 0;
+  padding: 12px 14px 7px;
+  background: rgba(243, 246, 249, 0.94);
+  color: #5d6977;
+  font-size: 0.68rem;
+  font-weight: 760;
+  letter-spacing: -0.01em;
   backdrop-filter: blur(12px);
 }
 .entity-list__group h2 small {
-  color: #929aa3;
-  font-size: 0.54rem;
+  color: #8b98a6;
+  font-size: 0.58rem;
   font-weight: 650;
   font-variant-numeric: tabular-nums;
 }
@@ -823,6 +922,11 @@ function teamActionCounts(teamId: string) {
 }
 .entity-list__group > button:hover {
   background: #e5eaf0;
+}
+.entity-list__group > button:focus-visible,
+.entity-list > header > a:focus-visible {
+  outline: 2px solid #0875dd !important;
+  outline-offset: -2px;
 }
 .entity-list__group > button.active {
   background: #fff;
@@ -867,18 +971,18 @@ function teamActionCounts(teamId: string) {
   font-weight: 500;
 }
 .entity-player-row {
-  min-height: 76px !important;
+  min-height: 78px !important;
   grid-template-columns: 46px minmax(0, 1fr) auto !important;
   grid-template-rows: auto auto;
   gap: 4px 9px !important;
-  margin: 2px 8px 2px 0;
-  padding: 9px 12px 9px 10px !important;
+  margin: 2px 10px 2px 0;
+  padding: 10px 14px 10px 10px !important;
   border-radius: 0 12px 12px 0;
 }
 .entity-player-row.active {
   box-shadow:
-    inset 3px 0 #0670df,
-    0 5px 16px rgb(37 54 72 / 8%) !important;
+    inset 3px 0 #0875dd,
+    0 6px 18px rgb(37 54 72 / 9%) !important;
 }
 .entity-jersey {
   width: 38px;
@@ -887,14 +991,16 @@ function teamActionCounts(teamId: string) {
   grid-row: 1 / 3;
   place-items: center;
   align-self: center;
-  border-radius: 11px;
-  background: #dfe5ea;
-  color: #35414c;
+  border: 1px solid #d7e0e8;
+  border-radius: 12px;
+  background: #e7edf2;
+  color: #4b5b6b;
   font-size: 0.72rem !important;
   font-weight: 800 !important;
 }
 .entity-player-row.active .entity-jersey {
-  background: #0b67c2;
+  border-color: #0875dd;
+  background: #0875dd;
   color: #fff;
 }
 .entity-player-copy {
@@ -904,14 +1010,15 @@ function teamActionCounts(teamId: string) {
 }
 .entity-player-copy b {
   overflow: hidden;
-  font-size: 0.69rem;
+  color: #243241;
+  font-size: 0.75rem;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .entity-player-copy small,
 .entity-total small {
-  color: #87909a;
-  font-size: 0.54rem;
+  color: #7b8998;
+  font-size: 0.59rem;
   font-weight: 560;
 }
 .entity-total {
@@ -942,6 +1049,7 @@ function teamActionCounts(teamId: string) {
   min-width: 0;
   min-height: 100%;
   padding: 0 var(--detail-gutter) 48px;
+  background: #fff;
   box-sizing: border-box;
 }
 .entity-overview {
@@ -949,58 +1057,106 @@ function teamActionCounts(teamId: string) {
   grid-template-columns: minmax(270px, 0.9fr) minmax(0, 2fr);
   align-items: stretch;
   margin-inline: calc(var(--detail-gutter) * -1);
-  padding: 16px var(--detail-gutter);
-  border-bottom: 1px solid #e2e7eb;
-  background: #f4f7f9;
+  padding: 24px var(--detail-gutter) 22px;
+  border-bottom: 1px solid #dce5ed;
+  background: radial-gradient(circle at 8% 0%, #e8f2fc 0, transparent 36%), #f8fafc;
 }
 .entity-title {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 20px;
-  padding-right: 26px;
+  padding-right: 30px;
 }
 .entity-title > div {
   min-width: 0;
   display: grid;
-  grid-template-columns: 44px minmax(0, 1fr);
-  grid-template-rows: auto auto;
+  grid-template-columns: 70px minmax(0, 1fr);
   align-items: center;
-  column-gap: 10px;
+  gap: 14px;
+}
+.entity-title__copy {
+  min-width: 0;
+  display: grid;
+  align-content: center;
+  gap: 5px;
 }
 .entity-badge {
-  width: 44px;
-  height: 44px;
+  width: 64px;
+  height: 64px;
   display: flex;
-  grid-row: 1 / 3;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
-  padding: 0 6px;
-  border-radius: 13px;
-  background: #17202a;
+  gap: 1px;
+  padding: 0 7px;
+  border-radius: 18px;
+  background: #172333;
+  box-shadow: 0 8px 18px rgb(23 35 51 / 14%);
   color: #fff;
-  font-size: 0.72rem;
-  font-weight: 780;
   font-variant-numeric: tabular-nums;
+}
+.entity-badge.player small {
+  color: #a9bfd2;
+  font-size: 0.57rem;
+  font-weight: 760;
+  letter-spacing: 0.04em;
+  line-height: 1;
+}
+.entity-badge.player strong {
+  font-size: 1.45rem;
+  font-weight: 780;
+  line-height: 1.1;
+  letter-spacing: -0.04em;
 }
 .entity-badge.local {
   background: #e9edf1;
   color: #333a42;
+  font-size: 0.72rem;
+  font-weight: 780;
+}
+.entity-badge.team {
+  font-size: 0.72rem;
+  font-weight: 780;
 }
 .entity-title p {
-  align-self: end;
-  margin: 0 0 3px;
-  color: #737c87;
-  font-size: 0.66rem;
-  font-weight: 620;
+  margin: 0;
+  color: #68798b;
+  font-size: 0.72rem;
+  font-weight: 680;
+  line-height: 1.2;
+}
+.entity-title__meta {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+}
+.entity-title__meta > span:not(.entity-team-mark):not(.entity-title__separator) {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.entity-team-mark {
+  width: 7px;
+  height: 7px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: #0875dd;
+  box-shadow: 0 0 0 3px #0875dd1c;
+}
+.entity-title__separator {
+  color: #a2afbc;
 }
 .entity-title h1 {
-  align-self: start;
   margin: 0;
   overflow: hidden;
-  font-size: clamp(1.45rem, 2.1vw, 1.95rem);
-  line-height: 1.08;
-  letter-spacing: -0.035em;
+  color: #172333;
+  font-size: clamp(1.7rem, 2.8vw, 2.45rem);
+  font-weight: 760;
+  line-height: 1.02;
+  letter-spacing: -0.045em;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -1008,22 +1164,29 @@ function teamActionCounts(teamId: string) {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
   align-items: center;
-  gap: clamp(8px, 1.2vw, 18px);
+  gap: 0;
   margin: 0;
+  padding-left: 26px;
+  border-left: 1px solid #dce5ed;
 }
 .entity-measures > div {
   min-width: 0;
-  padding: 6px 0;
+  padding: 6px clamp(8px, 1.2vw, 18px);
+  border-right: 1px solid #e1e8ef;
+}
+.entity-measures > div:last-child {
+  border-right: 0;
 }
 .entity-measures dt {
-  color: #68727e;
-  font-size: 0.64rem;
+  color: #718194;
+  font-size: 0.62rem;
   font-weight: 650;
 }
 .entity-measures dd {
-  margin: 5px 0 3px;
-  font-size: clamp(1.4rem, 2vw, 1.8rem);
-  font-weight: 720;
+  margin: 6px 0 3px;
+  color: #172333;
+  font-size: clamp(1.45rem, 2vw, 1.9rem);
+  font-weight: 760;
   line-height: 1;
   letter-spacing: -0.035em;
   font-variant-numeric: tabular-nums;
@@ -1229,20 +1392,28 @@ function teamActionCounts(teamId: string) {
 .action-records__scroll {
   height: min(300px, 36dvh);
 }
-.action-records__list a {
+.action-records__list button {
+  width: 100%;
   min-height: 58px;
   display: grid;
   grid-template-columns: 4px minmax(180px, 1fr) 74px 88px 82px 18px;
   align-items: center;
   gap: 12px;
+  padding: 0;
+  border: 0;
   border-bottom: 1px solid #e4e7eb;
+  background: transparent;
   color: inherit;
-  text-decoration: none;
+  text-align: left;
 }
-.action-records__list a:hover {
+.action-records__list button:hover {
   background: #f2f5f8;
 }
-.action-records__list > a > i {
+.action-records__list button:focus-visible {
+  outline: 2px solid #0875dd;
+  outline-offset: -2px;
+}
+.action-records__list > button > i {
   width: 3px;
   height: 30px;
   border-radius: 2px;
@@ -1391,11 +1562,26 @@ function teamActionCounts(teamId: string) {
   .entity-measures > div:nth-child(4) {
     border: 0;
   }
-  .action-records__list a {
+  .action-records__list button {
     grid-template-columns: 4px minmax(150px, 1fr) 65px 90px 18px;
   }
   .action-record__route-state {
     display: none;
+  }
+}
+@media (max-width: 1360px) {
+  .entity-overview {
+    grid-template-columns: 1fr;
+    gap: 18px;
+  }
+  .entity-title {
+    padding-right: 0;
+  }
+  .entity-measures {
+    padding-top: 14px;
+    padding-left: 0;
+    border-top: 1px solid #dce5ed;
+    border-left: 0;
   }
 }
 @media (max-width: 760px) {
@@ -1431,7 +1617,7 @@ function teamActionCounts(teamId: string) {
   .action-filters {
     justify-content: flex-start;
   }
-  .action-records__list a {
+  .action-records__list button {
     grid-template-columns: 4px minmax(130px, 1fr) 62px 18px;
   }
   .action-record__outcome,

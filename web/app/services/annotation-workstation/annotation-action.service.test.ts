@@ -112,11 +112,29 @@ function setup() {
 
 describe('createAnnotationActionService', () => {
   it('shares the same C/V/B ordinal decision with buttons and hotkeys', () => {
-    const { manager } = setup()
+    const { manager, snapshot, selectedKeyPointId } = setup()
     expect(manager.state('mark.receive-success').value.enabled).toBe(true)
     expect(manager.state('mark.spike').value).toMatchObject({
       enabled: false,
       reason: '殺球只能標在第三球以後',
+    })
+    snapshot.value?.snapshot.key_points.push({
+      key_point_id: 'third',
+      sequence_index: 2,
+      marker_kind: 'contact',
+      is_terminal: false,
+      capture_time_us: '4000',
+      capture_frame_index: '40',
+      timing_precision: 'frame_exact',
+      possible_duplicate: false,
+      ball_event: { kind: 'CONTACT', result: null },
+    })
+    selectedKeyPointId.value = 'third'
+    expect(manager.state('mark.receive-success').value.enabled).toBe(true)
+    selectedKeyPointId.value = 'first'
+    expect(manager.state('mark.receive-success').value).toMatchObject({
+      enabled: false,
+      reason: '第一球固定是發球；接球只能標在第二球以後',
     })
   })
 
@@ -134,9 +152,22 @@ describe('createAnnotationActionService', () => {
   it('keeps peer drafts read-only for every non-boundary command', () => {
     const { manager, draftOwnedByClient } = setup()
     draftOwnedByClient.value = false
+    expect(manager.state('segment.toggle-boundary').value.enabled).toBe(false)
     expect(manager.state('mark.contact').value.enabled).toBe(false)
     expect(manager.state('outcome.left').value.enabled).toBe(false)
     expect(manager.state('submission.submit').value.enabled).toBe(false)
+  })
+
+  it('keeps READY outcome and submit editable while disabling another Z boundary', () => {
+    const { manager } = setup()
+    expect(manager.state('segment.toggle-boundary').value).toMatchObject({
+      enabled: false,
+      reason: '目前仍有正在編輯的片段',
+    })
+    expect(manager.state('outcome.left').value.enabled).toBe(true)
+    expect(manager.state('outcome.right').value.enabled).toBe(true)
+    expect(manager.state('outcome.unknown').value.enabled).toBe(true)
+    expect(manager.state('submission.submit').value.enabled).toBe(true)
   })
 
   it('blocks a new HIT outside the editable segment instead of dispatching it', async () => {

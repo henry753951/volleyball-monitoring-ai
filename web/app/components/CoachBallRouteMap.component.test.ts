@@ -27,10 +27,39 @@ describe('CoachBallRouteMap', () => {
     const wrapper = mount(CoachBallRouteMap, { props: { events, label: '殺球' } })
 
     expect(wrapper.findAll('.route-line')).toHaveLength(1)
-    expect(wrapper.find('.route-line path').attributes('d')).toContain('Q')
+    expect(wrapper.find('.route-path-base').attributes('d')).toContain('Q')
+    expect(wrapper.find('.route-path-flow').attributes('marker-end')).toBe('url(#route-arrow)')
     expect(Number(wrapper.find('.route-start').attributes('cx'))).toBeCloseTo(-10.8)
     expect(Number(wrapper.find('.route-end').attributes('cx'))).toBeCloseTo(187.2)
     expect(wrapper.text()).toContain('1 條完整球路 · 1 個落點')
+  })
+
+  it('labels the selected subject side separately from the opposing team side', () => {
+    const wrapper = mount(CoachBallRouteMap, {
+      props: {
+        events,
+        label: '殺球',
+        sideLabels: {
+          left: { name: '#3 Azhvan Namazi', scope: 'player' },
+          right: { name: 'Pakistan', scope: 'team' },
+        },
+      },
+    })
+
+    expect(wrapper.text()).toContain('左側 · #3 Azhvan Namazi')
+    expect(wrapper.text()).toContain('[選手方]')
+    expect(wrapper.text()).toContain('右側 · Pakistan')
+    expect(wrapper.text()).toContain('[隊伍方]')
+  })
+
+  it('opens the short replay from the route without navigating away', async () => {
+    const wrapper = mount(CoachBallRouteMap, { props: { events, label: '殺球' } })
+
+    await wrapper.get('.route-hit-target').trigger('click')
+
+    expect(wrapper.emitted('select')).toEqual([[events[0]]])
+    expect(wrapper.get('.route-hit-target').attributes('role')).toBe('button')
+    expect(wrapper.get('.route-hit-target').attributes('aria-label')).toContain('開啟短回放')
   })
 
   it('switches to a landing heatmap without clamping out-of-court coordinates', async () => {

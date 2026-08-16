@@ -576,6 +576,41 @@ describe('DvrTimelineDock mounted interactions', () => {
     expect(timelineSelection.selectKeyPoint).toHaveBeenCalledWith('point-1')
     expect(playback.seek).toHaveBeenCalledWith('1750')
   })
+  it('passes the historical marker segment when selecting a past key-point', async () => {
+    const historical = {
+      id: 'historical-point-segment',
+      label: '第 1 局 · 回合 2',
+      startCaptureTimeUs: '3000',
+      endCaptureTimeUs: '3900',
+      status: 'analyzed' as const,
+      points: [
+        {
+          id: 'historical-point',
+          markerKind: 'contact',
+          isTerminal: false,
+          captureTimeUs: '3500',
+        },
+      ],
+    }
+    const w = mount(DvrTimelineDock, {
+      props: { timeline, playhead: null, annotation, segments: [historical] },
+    })
+    const marker = w
+      .findAll('.keypoint-dot')
+      .find(point => point.attributes('aria-label')?.includes('第 1 局 · 回合 2'))
+    expect(marker).toBeDefined()
+
+    await marker!.trigger('click')
+
+    expect(timelineSelection.selectHistorical).toHaveBeenCalledWith(
+      'historical-point-segment',
+      '3500',
+    )
+    expect(timelineSelection.selectKeyPoint).toHaveBeenCalledWith(
+      'historical-point',
+      'historical-point-segment',
+    )
+  })
   it('previews a marker drag and emits a ready-range target with a non-blocking edit hint', async () => {
     const w = mount(DvrTimelineDock, {
       props: { timeline, playhead: null, annotation, editable: true },

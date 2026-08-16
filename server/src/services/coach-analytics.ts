@@ -815,9 +815,10 @@ export async function assignTrackIdentity(
         track: { select: { firstFrame: true, lastFrame: true, metadata: true } },
       },
     })
-    const replacedTrackIds = occupied
+    const conflictingTrackIds = occupied
       .filter(item => observedFrameRangesOverlap(track.metadata, item.track.metadata))
       .map(item => item.trackId)
+    const replacedTrackIds = identityMode === 'clip_only' ? conflictingTrackIds : []
     if (replacedTrackIds.length)
       await tx.trackIdentityAssignment.deleteMany({
         where: {
@@ -865,6 +866,7 @@ export async function assignTrackIdentity(
       identity_revision: decision.identityRevision.toString(),
       gid_id: decision.targetClusterId,
       replaced_track_ids: replacedTrackIds,
+      conflicting_track_ids: conflictingTrackIds,
       assignment: {
         id: assignment.id,
         analysis_run_id: assignment.analysisRunId,

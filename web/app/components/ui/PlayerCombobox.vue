@@ -89,10 +89,23 @@ function openFromAnchor() {
                   :data-tone="option.tone ?? 'default'"
                   :value="option.value === '' ? CLEAR_VALUE : option.value"
                 >
-                  <span class="player-combobox__copy"
-                    ><b>{{ option.label }}</b
-                    ><small v-if="option.description">{{ option.description }}</small></span
-                  >
+                  <span class="player-combobox__copy">
+                    <span v-if="option.playerName" class="player-combobox__player-line">
+                      <b class="player-combobox__jersey">#{{ option.jerseyNumber }}</b>
+                      <span
+                        v-if="option.position"
+                        class="player-combobox__position-badge"
+                        :title="option.position === 'UNSPECIFIED' ? '位置未設定' : option.position"
+                      >
+                        {{ option.position === 'UNSPECIFIED' ? '—' : option.position }}
+                      </span>
+                      <b class="player-combobox__name" :title="option.playerName">
+                        {{ option.playerName }}
+                      </b>
+                    </span>
+                    <b v-else class="player-combobox__fallback">{{ option.label }}</b>
+                    <small v-if="option.description">{{ option.description }}</small>
+                  </span>
                   <ComboboxItemIndicator class="player-combobox__indicator"
                     ><Check :size="14"
                   /></ComboboxItemIndicator>
@@ -136,12 +149,15 @@ function openFromAnchor() {
 .player-combobox__input {
   min-width: 0;
   flex: 1;
+  overflow: hidden;
   border: 0;
   outline: 0;
   background: transparent;
   color: #f4f4f5;
   font-size: 0.67rem;
   cursor: text;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .player-combobox__trigger {
   width: 22px !important;
@@ -208,11 +224,41 @@ function openFromAnchor() {
   color: #e2bd77;
 }
 .player-combobox__copy {
+  flex: 1 1 auto;
   min-width: 0;
   display: grid;
   gap: 2px;
+  overflow: hidden;
 }
-.player-combobox__copy b {
+.player-combobox__player-line {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+.player-combobox__jersey,
+.player-combobox__position-badge {
+  flex: none;
+}
+.player-combobox__jersey,
+.player-combobox__fallback {
+  color: inherit;
+  font-size: 0.68rem;
+  font-weight: 700;
+}
+.player-combobox__position-badge {
+  padding: 2px 4px;
+  border: 1px solid #3d5968;
+  border-radius: 4px;
+  background: #22333e;
+  color: #b9dcf0;
+  font-size: 0.49rem;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  line-height: 1;
+}
+.player-combobox__name {
+  min-width: 0;
   overflow: hidden;
   color: inherit;
   font-size: 0.68rem;
@@ -220,7 +266,12 @@ function openFromAnchor() {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.player-combobox__copy b {
+  color: inherit;
+}
 .player-combobox__copy small {
+  display: block;
+  min-width: 0;
   overflow: hidden;
   color: #a1a1aa;
   font-size: 0.55rem;

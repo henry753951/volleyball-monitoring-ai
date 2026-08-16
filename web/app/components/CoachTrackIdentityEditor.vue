@@ -66,15 +66,23 @@ const selected = computed({
       role="dialog"
       aria-label="選擇球員修正方式"
     >
-      <strong>如何套用「{{ assignment.state.dialogs.correction.playerName }}」？</strong>
+      <strong>為什麼要改成「{{ assignment.state.dialogs.correction.playerName }}」？</strong>
+      <p v-if="assignment.state.dialogs.correction.previousPlayerName">
+        目前整個 GID 綁定「{{ assignment.state.dialogs.correction.previousPlayerName }}」。
+      </p>
+      <p v-if="assignment.state.dialogs.correction.occupiedGidLabel">
+        所選球員目前屬於
+        {{ assignment.state.dialogs.correction.occupiedGidLabel }}；第一項會原子交換 兩個 GID
+        的球員綁定。
+      </p>
       <button type="button" @click="assignment.actions.applyCorrection('from_here')">
-        <b>從這段起改正</b><small>之後的片段沿用此次修正</small>
+        <b>GID 與球員配對錯了</b><small>整個 GID 重綁；必要時交換另一個 GID</small>
       </button>
       <button type="button" @click="assignment.actions.applyCorrection('split_identity')">
-        <b>這是不同的人</b><small>拆開後續辨識身分</small>
+        <b>只有這個 Local 的 GID 判錯</b><small>只拆目前 Local，原 GID 不變</small>
       </button>
       <button type="button" @click="assignment.actions.applyCorrection('clip_only')">
-        <b>只修正這個片段</b><small>不影響之後的自動辨識</small>
+        <b>只改目前顯示</b><small>不改 GID，也不進入後續特徵庫</small>
       </button>
       <button type="button" class="cancel" @click="assignment.actions.closeCorrection">取消</button>
     </div>
@@ -166,6 +174,12 @@ const selected = computed({
 .track-identity-editor__choice > strong {
   grid-column: 1/-1;
   font-size: 0.68rem;
+}
+.track-identity-editor__choice > p {
+  grid-column: 1/-1;
+  margin: 0;
+  color: #735b2a;
+  font-size: 0.6rem;
 }
 .track-identity-editor__choice button {
   min-height: 54px;

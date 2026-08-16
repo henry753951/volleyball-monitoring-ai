@@ -3,6 +3,7 @@ import { ANALYSIS_PLAYER_FLAG, type AnalysisFrameChunk } from '@volleyball-monit
 import { computed } from 'vue'
 import type { ReplayContactEvent, ReplayPath } from '~/lib/coachDomain'
 import type { RosterPosition } from '~/lib/coreDomain'
+import { actionColor, coachBallType } from '~/utils/coachPlayerActions'
 
 interface CourtTrack {
   trackId: number
@@ -232,32 +233,17 @@ function showPlayerLabel(trackId: number, hitter: boolean) {
 const pathEvent = (path: ReplayPath) =>
   props.events.find(event => event.key_point_id === path.start_key_point_id)
 
-function pathEventKind(path: ReplayPath) {
-  const event = pathEvent(path)
-  if (event?.ball_event?.kind) return event.ball_event.kind
-  return event?.sequence_index === 0 ? 'serve' : event?.sequence_index === 1 ? 'receive' : 'contact'
-}
-
-const ballEventColor = (kind: string) =>
-  kind === 'serve'
-    ? '#f4c66a'
-    : kind === 'receive'
-      ? '#63d4c8'
-      : kind === 'spike'
-        ? '#ff7b72'
-        : '#69b7ff'
-
 function pathColor(path: ReplayPath) {
-  return ballEventColor(pathEventKind(path))
+  const event = pathEvent(path)
+  return actionColor(event ? coachBallType(props.events, event).key : 'hit')
 }
 
 const actionLegend = computed(() => {
   const values = new Map<string, { key: string; label: string }>()
   for (const { path } of visiblePaths.value) {
-    const kind = pathEventKind(path)
-    const label =
-      kind === 'serve' ? '發球' : kind === 'receive' ? '接發' : kind === 'spike' ? '殺球' : '擊球'
-    values.set(kind, { key: kind, label })
+    const event = pathEvent(path)
+    const ballType = event ? coachBallType(props.events, event) : { key: 'hit', label: 'HIT' }
+    values.set(ballType.key, ballType)
   }
   return [...values.values()].slice(0, 4)
 })
@@ -287,7 +273,7 @@ const focusedDuration = computed(() => {
           ><span
             v-for="item in actionLegend"
             :key="item.key"
-            :style="{ color: ballEventColor(item.key) }"
+            :style="{ color: actionColor(item.key) }"
             >{{ item.label }}</span
           ></template
         >

@@ -365,6 +365,7 @@ type TimelinePointItem = {
   isTerminal: boolean
   captureTimeUs: string
   ballEvent: BallEventValue | null
+  previousBallEvent: BallEventValue | null
   current: boolean
   editable: boolean
   density: string
@@ -375,7 +376,11 @@ const timelinePointItems = computed<TimelinePointItem[]>(() => {
   const seen = new Set<string>()
   for (const segment of displaySegments.value) {
     if (segment.id === currentRallyId) continue
-    for (const point of segment.points ?? []) {
+    const orderedPoints = [...(segment.points ?? [])].sort((left, right) => {
+      const difference = BigInt(left.captureTimeUs) - BigInt(right.captureTimeUs)
+      return difference < 0n ? -1 : difference > 0n ? 1 : left.id.localeCompare(right.id)
+    })
+    for (const [index, point] of orderedPoints.entries()) {
       if (seen.has(point.id)) continue
       seen.add(point.id)
       items.push({
@@ -386,13 +391,23 @@ const timelinePointItems = computed<TimelinePointItem[]>(() => {
         isTerminal: point.isTerminal,
         captureTimeUs: point.captureTimeUs,
         ballEvent: point.ballEvent ?? null,
+        previousBallEvent: orderedPoints[index - 1]?.ballEvent ?? null,
         current: false,
         editable: false,
         density: segmentDensityClass(segment),
       })
     }
   }
-  for (const point of annotationPoints.value) {
+  const orderedCurrentPoints = [...annotationPoints.value].sort((left, right) => {
+    const difference = BigInt(left.capture_time_us) - BigInt(right.capture_time_us)
+    return difference < 0n
+      ? -1
+      : difference > 0n
+        ? 1
+        : left.sequence_index - right.sequence_index ||
+          left.key_point_id.localeCompare(right.key_point_id)
+  })
+  for (const [index, point] of orderedCurrentPoints.entries()) {
     if (seen.has(point.key_point_id)) continue
     seen.add(point.key_point_id)
     items.push({
@@ -403,6 +418,7 @@ const timelinePointItems = computed<TimelinePointItem[]>(() => {
       isTerminal: point.is_terminal,
       captureTimeUs: point.capture_time_us,
       ballEvent: point.ball_event ?? null,
+      previousBallEvent: orderedCurrentPoints[index - 1]?.ball_event ?? null,
       current: true,
       editable: Boolean(props.editable && !immutable.value && !isPendingPoint(point.key_point_id)),
       density: currentMaskGeometry.value?.density ?? '',
@@ -419,7 +435,10 @@ const selectedCurrentPoint = computed(() =>
 const selectedPointEditorLeft = computed(() => {
   const point = selectedCurrentPoint.value
   if (!point || !isVisible(point.captureTimeUs)) return null
-  return Math.max(14, Math.min(86, pointPosition(point.id, point.captureTimeUs)))
+  // Keep the editor anchored to the actual point. The surface allows it to
+  // overflow so a point near either edge does not appear to jump and stick to
+  // an artificial 14%/86% boundary.
+  return pointPosition(point.id, point.captureTimeUs)
 })
 // Rally clips are guaranteed to be non-overlapping. Keep one generous visual lane
 // so the mask label remains readable instead of creating artificial parallel lanes.
@@ -785,7 +804,7 @@ function selectPoint(keyPointId: string, captureTimeUs: string) {
 }
 async function selectHistoricalPoint(segmentId: string, keyPointId: string, captureTimeUs: string) {
   await timelineSelection.selectHistorical(segmentId, captureTimeUs)
-  timelineSelection.selectKeyPoint(keyPointId)
+  timelineSelection.selectKeyPoint(keyPointId, segmentId)
   if (props.timeline && readyAt(captureTimeUs, props.timeline.availableRanges))
     requestSeek(captureTimeUs)
 }
@@ -881,7 +900,7 @@ onBeforeUnmount(() => {
   if (animationFrame !== null) cancelAnimationFrame(animationFrame)
   if (optimisticPlayheadTimer) clearTimeout(optimisticPlayheadTimer)
 })
-defineExpose({ resetView })
+defineExpose({ focusRange, resetView })
 </script>
 
 <template>
@@ -1088,12 +1107,12 @@ defineExpose({ resetView })
             left: `${pointPosition(point.id, point.captureTimeUs)}%`,
             top: `${pointTop()}px`,
           }"
-          :aria-label="`${point.segmentLabel} · ${ballEventLabel(point.ballEvent, { isTerminal: point.isTerminal, markerKind: point.markerKind })}${isPendingPoint(point.id) ? ' · 等待同步' : ''}${remoteEditors(point.id).length ? ` · ${remoteEditors(point.id).join('、')} 正在調整` : ''}`"
+          :aria-label="`${point.segmentLabel} · ${ballEventLabel(point.ballEvent, { isTerminal: point.isTerminal, markerKind: point.markerKind, previousEvent: point.previousBallEvent })}${isPendingPoint(point.id) ? ' · 等待同步' : ''}${remoteEditors(point.id).length ? ` · ${remoteEditors(point.id).join('、')} 正在調整` : ''}`"
           :aria-pressed="selectedKeyPointId === point.id"
           :title="
             isPendingPoint(point.id)
-              ? `${ballEventLabel(point.ballEvent, { isTerminal: point.isTerminal, markerKind: point.markerKind })} · 本機已標記，等待伺服器確認`
-              : `${ballEventLabel(point.ballEvent, { isTerminal: point.isTerminal, markerKind: point.markerKind })}${point.editable ? ' · 拖曳移動' : ''}${remoteEditors(point.id).length ? ` · ${remoteEditors(point.id).join('、')} 正在調整（提示，不阻擋）` : ''}`
+              ? `${ballEventLabel(point.ballEvent, { isTerminal: point.isTerminal, markerKind: point.markerKind, previousEvent: point.previousBallEvent })} · 本機已標記，等待伺服器確認`
+              : `${ballEventLabel(point.ballEvent, { isTerminal: point.isTerminal, markerKind: point.markerKind, previousEvent: point.previousBallEvent })}${point.editable ? ' · 拖曳移動' : ''}${remoteEditors(point.id).length ? ` · ${remoteEditors(point.id).join('、')} 正在調整（提示，不阻擋）` : ''}`
           "
           @pointerdown.stop="point.current && beginPointDrag($event, point.id, point.captureTimeUs)"
           @pointermove.stop="movePointDrag"
@@ -1164,7 +1183,7 @@ defineExpose({ resetView })
   position: relative;
   min-height: 0;
   margin: 0 12px;
-  overflow: hidden;
+  overflow: visible;
   background: #0c0f12;
   touch-action: pan-y;
   user-select: none;
@@ -1278,7 +1297,7 @@ defineExpose({ resetView })
 .lane-content {
   position: absolute;
   inset: 0 0 0 78px;
-  overflow: hidden;
+  overflow: visible;
   cursor: default;
 }
 .timeline-mask {
@@ -1572,10 +1591,10 @@ defineExpose({ resetView })
 }
 .selected-point-editor-anchor {
   position: absolute;
-  z-index: 9;
+  z-index: 20;
   top: 80px;
   transform: translateX(-50%);
-  pointer-events: none;
+  pointer-events: auto;
 }
 .analysis-rail:hover {
   border-color: #71808d;

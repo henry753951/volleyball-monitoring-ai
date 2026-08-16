@@ -18,6 +18,21 @@ export interface BallEventValue {
   result: BallEventResult | null
 }
 
+export const RECEIVE_CONTEXTS = ['SERVE_RECEIVE', 'SPIKE_RECEIVE', 'RECEIVE'] as const
+export type ReceiveContext = (typeof RECEIVE_CONTEXTS)[number]
+
+/**
+ * RECEIVE is the persisted, generic human event. Its user-facing subtype is a
+ * deterministic projection of the immediately preceding ball event.
+ */
+export function receiveContextForPreviousEvent(
+  previousEvent: BallEventValue | null | undefined,
+): ReceiveContext {
+  if (previousEvent?.kind === 'SERVE') return 'SERVE_RECEIVE'
+  if (previousEvent?.kind === 'SPIKE') return 'SPIKE_RECEIVE'
+  return 'RECEIVE'
+}
+
 export interface BallEventRuleAnchor {
   capture_time_us: string
   capture_frame_index: string
@@ -67,7 +82,7 @@ export interface BallEventNormalization {
 export type BallEventShortcutReason =
   | 'NO_TARGET_POINT'
   | 'SPIKE_REQUIRES_THIRD_POINT'
-  | 'RECEIVE_REQUIRES_SECOND_POINT'
+  | 'RECEIVE_REQUIRES_NON_SERVICE_POINT'
   | 'OUTSIDE_RALLY_BOUNDARY'
 
 export type BallEventShortcutDecision =
@@ -124,7 +139,8 @@ export function isBallEventResultValid(
 function requiredKind(index: number, current: BallEventKind | null): BallEventKind {
   if (index === 0) return 'SERVE'
   if (index === 1) return 'RECEIVE'
-  return current === 'SPIKE' ? 'SPIKE' : 'CONTACT'
+  if (current === 'SPIKE' || current === 'RECEIVE') return current
+  return 'CONTACT'
 }
 
 export function normalizeBallEventKeyPoints(input: {
@@ -213,12 +229,13 @@ export function normalizeBallEventKeyPoints(input: {
       after: { sequence_index: serve.sequence_index, event: serve.event },
     })
   }
-  const receive = points[1]
-  if (
-    points.length > 2 &&
-    receive?.event.kind === 'RECEIVE' &&
-    receive.event.result === 'POINT_LOST'
-  ) {
+  for (const [index, receive] of points.entries()) {
+    if (
+      index >= points.length - 1 ||
+      receive.event.kind !== 'RECEIVE' ||
+      receive.event.result !== 'POINT_LOST'
+    )
+      continue
     const before = { ...receive.event }
     receive.event = { kind: 'RECEIVE', result: 'ERROR' }
     repairs.push({
@@ -310,13 +327,13 @@ export function decideBallEventShortcut(input: {
       reason: 'SPIKE_REQUIRES_THIRD_POINT',
     }
   }
-  if (input.shortcut !== 'C' && ordinal !== 2) {
+  if (input.shortcut !== 'C' && ordinal < 2) {
     return {
       allowed: false,
       mode,
       key_point_id: selectedId,
       ordinal,
-      reason: 'RECEIVE_REQUIRES_SECOND_POINT',
+      reason: 'RECEIVE_REQUIRES_NON_SERVICE_POINT',
     }
   }
 

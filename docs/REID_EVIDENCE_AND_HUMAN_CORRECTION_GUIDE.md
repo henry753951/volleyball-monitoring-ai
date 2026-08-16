@@ -1,7 +1,7 @@
 # ReID evidence, human correction, and rerun guide
 
 Status: implementation guide for the ADR 0037 baseline
-Last verified: 2026-08-16
+Last verified: 2026-08-17
 Applies to: Central server, workflow worker, provider SDK, analysis engine, database, and annotation UI
 
 This guide explains the implemented ReID architecture and operator behavior. It does not claim that
@@ -44,6 +44,38 @@ The important separation is:
 - a correction is an append-only human decision;
 - an active projection is the current effective answer used by UI/replay/analytics; and
 - a roster player is not a run-local TID, a legacy L1–R6 slot, or an association group.
+
+The operative identity chain is:
+
+```text
+multitask person detections
+  -> DeepEIOU Local ID (one AnalysisRun)
+  -> selective SAM3 rename only in ambiguous windows
+  -> GID / person cluster (match + team, many non-co-visible Local IDs)
+  -> revisioned player binding (optional, human-confirmable)
+```
+
+A Local ID changing after leave/re-entry is expected. Feature association may reconnect it to the
+same GID; if that GID already has a confirmed player binding, the new Local ID inherits the player.
+Weak evidence remains unresolved.
+
+## Soft six-player lineup behavior
+
+The six-player experiment is used as a prior, not copied as a forced L1–R6 table:
+
+- one team may have at most six **co-visible resolved GIDs**;
+- a seventh co-visible detection abstains;
+- a missed player is an absent slot, not a reason to shift identities;
+- an extra detection does not create or overwrite a player slot;
+- non-co-visible Local IDs may reuse the same GID after re-entry; and
+- substitutions/liberos may create more than six match-long GIDs.
+
+Court side uses a centre-line deadband and stable multi-frame majority. Short or drifting evidence is
+UNKNOWN and goes to review. Side never becomes a permanent person feature.
+
+The base worker defaults to upstream DeepEIOU with every-frame OSNet. Selective SAM3 is separately
+switchable and starts only for upstream ambiguity windows. Failure falls back to DeepEIOU and is
+recorded in analysis metadata; it does not rerun or invalidate saved every-frame pose.
 
 ## Durable job boundaries
 
@@ -97,11 +129,11 @@ moving implicit history.
 
 ## Human correction presets
 
-| UI preset        | Effective projection                                                                      | Future feature bank                                              | Earlier clips |
-| ---------------- | ----------------------------------------------------------------------------------------- | ---------------------------------------------------------------- | ------------- |
-| `from_here`      | append manual projection for the current semantic track and applicable known later tracks | append source-negative and target-positive confirmed memberships | unchanged     |
-| `split_identity` | append a manual projection for this clip's separated group                                | reject wrong source and confirm selected target evidence         | unchanged     |
-| `clip_only`      | append only this clip's manual projection                                                 | no membership change                                             | unchanged     |
+| UI preset        | Effective projection                                                           | Future feature bank                                                                      | Earlier clips |
+| ---------------- | ------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------- | ------------- |
+| `from_here`      | keep the GID and rebind its current/future player; atomically swap if occupied | confirm current evidence in the same GID; do not move features to a player-named cluster | unchanged     |
+| `split_identity` | move only this Local to the selected player's GID or a new GID                 | reject wrong source membership and confirm target membership                             | unchanged     |
+| `clip_only`      | append only this Local's effective player display                              | no GID binding or membership change                                                      | unchanged     |
 
 Manual assignment revisions use priority 1000; AI projections use priority 100. Association
 materialization checks the semantic canonical track across evidence generations, not only a new
@@ -116,11 +148,13 @@ transaction. Raw evidence is never edited.
 Suppose clip A correctly maps evidence to Player 1, while clip B was wrongly grouped with Player 1
 but should be Player 2.
 
-1. The operator selects Player 2 on B and chooses `from_here` or `split_identity`.
+1. If B belongs to the wrong GID, the operator selects Player 2 and chooses `split_identity`. If the
+   visual GID is correct but its roster label is wrong, choose `from_here`.
 2. A is earlier than the correction anchor, so its projection and history are not rewritten.
-3. B gets a new manual projection to Player 2.
-4. B's membership under Player 1 is superseded/rejected; a confirmed positive membership under
-   Player 2 is appended.
+3. `split_identity` gives B a new manual projection and moves its eligible evidence. `from_here`
+   keeps B's GID and changes only that GID's revisioned player binding.
+4. If Player 2 was already bound to another GID, `from_here` shows the occupied GID and atomically
+   swaps both bindings; it never silently unbinds the other GID's Local IDs.
 5. Already-analyzed clips after B whose bank revision is stale receive new association runs.
 6. A slow old-bank result is retained as history but fails the current revision check and cannot
    update the active projection.
@@ -190,6 +224,9 @@ failure never disables assignment.
 - UI: `web/app/components/AnnotationIdentityPanel.vue`,
   `web/app/components/PlayerIdentityPreview.vue`
 - provider engine: `H:/Repos/volleyball-analysis-engine/src/volleyball_analysis_engine/`
+- local tracker/SAM3 bridge:
+  `H:/Repos/volleyball-analysis-engine/src/volleyball_analysis_engine/local_tracking.py` and
+  `H:/Repos/volleyball-analysis-engine/scripts/run_selective_sam3.py`
 
 ## Remaining rollout and quality gates
 
@@ -199,7 +236,8 @@ The implementation alone does not prove:
 - real GPU latency, throughput, and memory with every-frame Pose plus VLM;
 - backup/restore and migration rehearsal on production-sized data;
 - browser behavior against a deployed capability-enabled provider; or
-- bulk merge, quarantine, atomic swap, and a complete side-by-side evidence review UI.
+- bulk merge, quarantine, calibrated lineup-state transitions, and a complete side-by-side evidence
+  review UI.
 
 Do not convert the reported “about 50%” observation into a new claim until legacy,
 appearance-only, VLM-only, and combined paths are measured on the same frozen protocol.

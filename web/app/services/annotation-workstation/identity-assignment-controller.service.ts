@@ -79,6 +79,8 @@ export function createIdentityAssignmentControllerService(
       return '新版 ReID evidence 尚在背景建立；目前仍會先保存此片段的球員指派'
     if (code === 'REID_TEAM_MISMATCH')
       return '這個 Local ID 的場側與所選球員隊伍不一致；請確認隊伍或只修正目前片段'
+    if (code === 'REID_GID_CANNOT_LINK')
+      return '這兩個人員群組曾在同一 frame 出現，不能合併；請選擇「GID 與球員配對錯了」來交換綁定'
     const message = cause instanceof Error ? cause.message : ''
     return message || '儲存失敗'
   }
@@ -116,9 +118,7 @@ export function createIdentityAssignmentControllerService(
           analysisRunId,
           trackId: command.trackId,
           rosterEntryId: command.rosterEntryId,
-          identityMode:
-            command.identityMode ??
-            (view.model.track.byId(command.trackId)?.gid_id ? 'from_here' : 'clip_only'),
+          identityMode: command.identityMode ?? 'from_here',
         })
       } else {
         await service.clearTrackIdentity({ analysisRunId, trackId: command.trackId })
@@ -145,10 +145,15 @@ export function createIdentityAssignmentControllerService(
       current.roster_entry_id !== command.rosterEntryId &&
       player
     ) {
+      const occupied = view.model.track.conflictFor(command.trackId, command.rosterEntryId)
+      const previousPlayer = view.model.players.byRosterEntry(current.roster_entry_id)
       state.dialogs.correction = {
         trackId: command.trackId,
         rosterEntryId: command.rosterEntryId,
         playerName: player.name,
+        previousPlayerName: previousPlayer?.name ?? null,
+        occupiedGidLabel: occupied ? view.model.track.gidLabel(occupied) : null,
+        occupiedTrackId: occupied?.track_id ?? null,
       }
       return
     }

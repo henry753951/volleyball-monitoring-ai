@@ -15,10 +15,16 @@ import { useAnnotationWorkstationService } from '~/services/annotation-workstati
 const props = withDefaults(
   defineProps<{
     selectedBallEvent?: BallEventValue | null
+    previousBallEvent?: BallEventValue | null
     selectedActorId?: string | null
     actorOptions?: ReadonlyArray<{ id: string; label: string }>
   }>(),
-  { selectedBallEvent: null, selectedActorId: null, actorOptions: () => [] },
+  {
+    selectedBallEvent: null,
+    previousBallEvent: null,
+    selectedActorId: null,
+    actorOptions: () => [],
+  },
 )
 
 const workstation = useAnnotationWorkstationService()
@@ -35,7 +41,7 @@ const resultOptions = computed<Array<{ result: BallEventResult; label: string }>
     return [
       { result: 'POINT_SCORED', label: '得分' },
       { result: 'SUCCESS', label: '成功' },
-      { result: 'ERROR', label: '失誤' },
+      { result: 'ERROR', label: '失敗' },
     ]
   if (props.selectedBallEvent?.kind === 'RECEIVE')
     return [
@@ -83,15 +89,19 @@ function chooseActor(actorRosterEntryId: string | null) {
           :disabled="!workstation.actions.state('mark.set-event').value.enabled"
           :title="
             workstation.actions.state('mark.set-event').value.reason ||
-            ballEventLabel(selectedBallEvent)
+            ballEventLabel(selectedBallEvent, { previousEvent: previousBallEvent })
           "
         >
           <span class="event-swatch" />
-          <span>{{ ballEventLabel(selectedBallEvent) }}</span>
+          <span>{{ ballEventLabel(selectedBallEvent, { previousEvent: previousBallEvent }) }}</span>
         </UiButton>
       </template>
       <div class="point-detail-options">
-        <strong>{{ ballEventKindLabel(selectedBallEvent) }}結果</strong>
+        <strong
+          >{{
+            ballEventKindLabel(selectedBallEvent, { previousEvent: previousBallEvent })
+          }}結果</strong
+        >
         <button
           v-for="option in resultOptions"
           :key="option.result"
@@ -106,7 +116,7 @@ function chooseActor(actorRosterEntryId: string | null) {
     </UiPopover>
     <UiButton v-else variant="secondary" class="point-detail-button event" disabled>
       <span class="event-swatch" />
-      <span>{{ ballEventLabel(selectedBallEvent) }}</span>
+      <span>{{ ballEventLabel(selectedBallEvent, { previousEvent: previousBallEvent }) }}</span>
     </UiButton>
 
     <UiPopover

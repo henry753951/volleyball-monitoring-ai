@@ -52,6 +52,8 @@ withDefaults(
       nextFrame: string
       previousPoint: string
       nextPoint: string
+      previousSegment: string
+      nextSegment: string
     }
   }>(),
   {
@@ -184,9 +186,33 @@ const clipTransition = computed(() =>
     </div>
     <i class="transport-separator" />
     <div class="transport-context">
-      <div>
+      <div class="transport-context__copy">
         <strong>{{ contextTitle }}</strong
         ><small>{{ contextHits }} 次擊球 · {{ contextDuration }}</small>
+      </div>
+      <div class="segment-navigation" role="group" aria-label="片段導覽">
+        <UiTooltip :content="`上一個片段 · ${shortcuts.previousSegment}`"
+          ><button
+            type="button"
+            class="segment-navigation__button"
+            :aria-keyshortcuts="shortcuts.previousSegment"
+            aria-label="上一個片段"
+            :disabled="!action('media.segment-previous').enabled"
+            @click="workstation.actions.execute('media.segment-previous')"
+          >
+            <ChevronLeft :size="15" stroke-width="2.4" /></button
+        ></UiTooltip>
+        <UiTooltip :content="`下一個片段 · ${shortcuts.nextSegment}`"
+          ><button
+            type="button"
+            class="segment-navigation__button"
+            :aria-keyshortcuts="shortcuts.nextSegment"
+            aria-label="下一個片段"
+            :disabled="!action('media.segment-next').enabled"
+            @click="workstation.actions.execute('media.segment-next')"
+          >
+            <ChevronRight :size="15" stroke-width="2.4" /></button
+        ></UiTooltip>
       </div>
       <AnnotationProcessingBadge
         :label="contextState"
@@ -537,12 +563,12 @@ const clipTransition = computed(() =>
   min-width: 150px;
   max-width: 340px;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) auto auto;
   align-items: center;
   gap: 10px;
   padding: 0 8px;
 }
-.transport-context > div {
+.transport-context__copy {
   min-width: 0;
   display: grid;
   gap: 1px;
@@ -559,6 +585,39 @@ const clipTransition = computed(() =>
 .transport-context small {
   color: #7f8a95;
   font-size: 0.56rem;
+}
+.segment-navigation {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+.segment-navigation__button {
+  width: 27px;
+  min-height: 27px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 1px solid #38424b;
+  border-radius: 6px;
+  background: #1a2229;
+  color: #c6d2dc;
+  transition:
+    background-color 0.16s ease,
+    border-color 0.16s ease,
+    color 0.16s ease,
+    transform 0.12s ease;
+}
+.segment-navigation__button:hover:not(:disabled) {
+  border-color: #62788b;
+  background: #27343e;
+  color: #fff;
+}
+.segment-navigation__button:active:not(:disabled) {
+  transform: scale(0.94);
+}
+.segment-navigation__button:focus-visible {
+  outline: 2px solid #fca5a5;
+  outline-offset: 2px;
 }
 .transport-context > span {
   padding: 3px 7px;

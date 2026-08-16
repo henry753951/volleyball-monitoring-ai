@@ -167,11 +167,11 @@ draft 在尚未完成輸入時允許 result 為 null；immutable submission 不�
 | 球種     | wire result                  | 中文顯示與規則             |
 | -------- | ---------------------------- | -------------------------- |
 | 發球     | POINT_SCORED、SUCCESS、ERROR | 得分、成功、失誤           |
-| 接發     | SUCCESS、ERROR、POINT_LOST   | 成功、失誤、失分           |
+| 接球     | SUCCESS、ERROR、POINT_LOST   | 成功、失敗、失分           |
 | 殺球     | SUCCESS、FAILURE             | 成功、失敗                 |
 | 一般擊球 | null                         | 沒有結果分類，不產生成功率 |
 
-接發的 ERROR 表示沒有成功傳到舉球員但球仍繼續；POINT_LOST 表示該次接發直接造成失分。V 固定設定 SUCCESS；B 快速設定 ERROR，POINT_LOST 由同組 UI 的明確選項設定，不以重複按 B 猜狀態。
+`RECEIVE` 是底層通用接球事件，不另外持久化接發或接殺 enum。顯示與統計依同一 canonical order 的前一球推導：前一球是 SERVE 顯示「接發」，前一球是 SPIKE 顯示「接殺」，其他情況顯示「接球」。ERROR 表示該次接球失敗但不直接宣告回合失分；POINT_LOST 表示該次接球直接造成失分。V 固定設定 SUCCESS；B 快速設定 ERROR，POINT_LOST 由同組 UI 的明確選項設定，不以重複按 B 猜狀態。
 
 殺球 SUCCESS 僅指該殺球直接得分；防守方接觸到該球後，即使攻方最後仍贏得回合，該殺球也屬 FAILURE。系統可以依球路與比分提出建議，但人工結果優先。
 
@@ -205,8 +205,8 @@ draft 在尚未完成輸入時允許 result 為 null；immutable submission 不�
 
 - X：新增人工事件。系統依事件序位提供預設球種，但使用者可改。
 - C：有選取時把該點改成 SPIKE；沒有選取時新增 SPIKE。目標 ordinal 為第一／第二點時禁止，UI 顯示具體原因，不連續噴出 toast。
-- V：有選取時把第二點改成 RECEIVE／SUCCESS；沒有選取時只在新點將成為第二點時新增 RECEIVE／SUCCESS。
-- B：有選取時把第二點改成 RECEIVE／ERROR；沒有選取時只在新點將成為第二點時新增 RECEIVE／ERROR。接發 POINT_LOST 由同組 UI 選擇。
+- V：有選取時把第二點以後的點改成 RECEIVE／SUCCESS；沒有選取時在新點將成為第二點以後時新增 RECEIVE／SUCCESS。
+- B：有選取時把第二點以後的點改成 RECEIVE／ERROR；沒有選取時在新點將成為第二點以後時新增 RECEIVE／ERROR。RECEIVE 的 POINT_LOST 由同組 UI 選擇。
 - A／D：在本地 canonical ordered event projection 中選擇上一／下一事件，不依遠端 arrival order。
 - Arrow：frame navigation。
 - Z：只負責 boundary，不是發球事件。
@@ -226,6 +226,7 @@ draft 在尚未完成輸入時允許 result 為 null；immutable submission 不�
 - 第一點預設 SERVE。
 - 第二點預設 RECEIVE。
 - 第三個以後 X 預設 CONTACT。
+- 第二點以後 V／B 可明確把任一點改為 RECEIVE；該 RECEIVE 的接發／接殺／接球分類不另存欄位，而是依前一球推導。
 - 第三個以後 C 明確建立 SPIKE。
 
 預設是可修改的初值，但序位限制是資料 invariant。若插入、刪除、移動或 Z 設定 END 造成序位／coverage 變化，共用驗證自動修正器必須產生 deterministic correction plan：
@@ -233,8 +234,8 @@ draft 在尚未完成輸入時允許 result 為 null；immutable submission 不�
 - END 之後或 START 之前的點改為 tombstone。
 - 第一點修正為 SERVE，第二點修正為 RECEIVE。
 - 移到第一／第二點的 SPIKE 自動改為對應合法球種並清除不相容 result。
-- 移出第二點的 RECEIVE 自動改為 CONTACT 並清除 receive result。
-- 保留每一項 before／after／reason，前端以單一彙整通知說明自動修正或取消了哪些點。
+- 第二點以後的 RECEIVE 保留為合法通用接球事件；只有移到第一點時才改為 SERVE 並清除不相容 result。
+- 保留每一項 before／after／reason，前端只對真正改變既有使用者資料的修復，以單一彙整通知說明修正或取消了哪些點；新球點第一次取得預設 kind 不顯示「已自動校正」。
 - 按鍵、按鈕 disabled 狀態與後端驗證使用同一套 rule engine，不允許出現 UI 可執行但 command 永遠被拒絕的漂移。
 
 ### 5.5 Event Inspector
@@ -841,15 +842,15 @@ AI action 可作為 overlay 或診斷 filter，但不是預設統計主軸。
 ### 決策 A：第一球／第二球與 V／B
 
 1. 第一／第二球是片段內第一／第二個有效 keypoint，包含人工與自動產生的點，但不包含 START／END boundary。
-2. V 是接發成功，B 是接發失誤。
+2. V 是接球成功，B 是接球失敗；底層皆為 RECEIVE，接發／接殺／接球由前一球推導。
 3. 有選取點時 C／V／B 修改該點；沒有選取點時新增帶對應球種／結果的點。
-4. C 只允許第三點以後；V／B 只允許第二點。
+4. C 只允許第三點以後；V／B 允許第二點以後，第一點固定為 SERVE。
 5. 插入、移動、刪除或 Z END 改變 coverage／ordinal 時，由共用驗證自動修正器 tombstone 或降級不合法點，並向使用者彙整通知。
 
 ### 決策 B：結果分類
 
 - 發球：POINT_SCORED／SUCCESS／ERROR。
-- 接發：SUCCESS／ERROR／POINT_LOST。
+- 接球（RECEIVE）：SUCCESS／ERROR／POINT_LOST；前一球為 SERVE／SPIKE／其他時分別顯示接發／接殺／接球。
 - 殺球：SUCCESS／FAILURE。
 - 一般擊球：不帶 result。
 - draft 可暫時未選結果；immutable submission 不保存 UNKNOWN。
@@ -905,7 +906,10 @@ AI action 可作為 overlay 或診斷 filter，但不是預設統計主軸。
 - Annotation Realtime `4.0.0`：typed contact、`SET_BALL_EVENT`、snapshot BallEvent 與 repair effects。
 - Prisma：`BallEventDraft`、`RallySubmissionBallEvent`、結果與球種的資料庫 CHECK，以及 immutable submission snapshot。
 - 共用純函式正規化器：canonical time/frame/order、boundary tombstone、ordinal reindex、球種／結果降級與穩定 repair code。
-- 標記 UI：X/C/V/B，同一球點群組；選取時修改，未選取時新增；不合法 ordinal 共用同一原因；READY 在 Enter 前仍可編輯。選取球點後可由同一個 event-detail 區指定或清除 active match-roster 球員。
+- 標記 UI：X/C/V/B，同一球點群組；選取時修改，未選取時新增；V/B 是第二點以後的通用接球成功／失敗；不合法 ordinal 共用同一原因；READY 在 Enter 前仍可編輯。選取球點後可由同一個 event-detail 區指定或清除 active match-roster 球員。
+- RECEIVE 顯示投影：前一球 SERVE → 接發、前一球 SPIKE → 接殺、其他 → 接球；時間軸、Inspector、教練回放與球員分析共用此規則。
+- 自動修正通知：伺服器仍保留完整 repair audit，但新球點第一次套用預設 kind 不提示；只有既有資料真的被改動或取消時才顯示彙整通知。
+- 送出阻擋：server 以中文列出每一個未標記結果的球序、脈絡球種與合法選項，不再回傳泛用英文錯誤。
 - 單一有效點送出：Dialog 強制選擇 `POINT_SCORED` 或 `ERROR`；server 也拒絕未決結果。
 - 修正版：kind／result 等幾何未變的修正沿用已完成的 clip 與 `analysisSourceRunId`，不建立新的重型 AI job；coach replay／analytics 可沿 lineage 讀舊 evidence。
 - 教練回放：人工 BallEvent kind/result/actor snapshot 為語意；只有 effective source actor 使用 hitter highlight；球路標籤顯示背號＋姓名；跳轉 lead 為 3 秒；上一／下一回合有 disabled state；顯示設定使用 Popover。

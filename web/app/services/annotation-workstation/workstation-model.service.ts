@@ -425,7 +425,11 @@ export function createAnnotationWorkstationModelService(
   const selectedDeletablePoint = computed(
     () =>
       options.selectedTimelineItem.value === 'point' &&
-      options.selectedKeyPoint.value?.marker_kind !== 'service',
+      options.selectedKeyPoint.value?.marker_kind !== 'service' &&
+      // Submitted/AI results are immutable. A point may only be removed from
+      // the currently displayed draft (ordinary draft or correction draft).
+      // The action wiring adds the local-owner and sync-readiness gates.
+      selectedEditableDraft.value,
   )
   const activeContextTitle = computed(() =>
     activeContextDraft.value
