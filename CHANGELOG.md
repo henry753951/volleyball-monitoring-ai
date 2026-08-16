@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.1.0](https://github.com/henry753951/volleyball-monitoring-ai/compare/v1.0.0...v1.1.0) (2026-08-16)
+
+
+### Features
+
+* **annotation:** rebuild editing and coach workflows ([039b7ed](https://github.com/henry753951/volleyball-monitoring-ai/commit/039b7ed0af0bbd62d35872c8e1111956aea9a181))
+* **annotation:** rebuild editing and coach workflows ([f93fda8](https://github.com/henry753951/volleyball-monitoring-ai/commit/f93fda87b9f9b7c92b65ef043718b998432807ab))
+
 ## [1.0.0](https://github.com/henry753951/volleyball-monitoring-ai/compare/v0.8.1...v1.0.0) (2026-08-16)
 
 
