@@ -74,24 +74,33 @@ describe('coach replay effective contact projection', () => {
   })
 
   it('keeps GID visible even before a roster player is assigned', () => {
-    const track = projectReplayTrack({
-      trackId: 7,
-      courtSide: 'LEFT',
-      firstFrame: 0n,
-      lastFrame: 120n,
-      meanConfidence: 0.9,
-      identityAssignments: [],
-      reidObservation: {
-        matchConfidence: 0.95,
-        identityRevision: 4n,
-        reidIdentity: { id: 'gid-1', label: 'S1', slotIndex: 1 },
-      },
-    } as never)
+    const track = projectReplayTrack(
+      {
+        trackId: 7,
+        courtSide: 'LEFT',
+        firstFrame: 0n,
+        lastFrame: 120n,
+        meanConfidence: 0.9,
+        identityAssignments: [],
+      } as never,
+      {
+        canonicalTrackId: 7,
+        associationDecisions: [{ confidence: 0.95 }],
+        activeProjection: {
+          assignmentRevision: {
+            source: 'AI',
+            revision: 4n,
+            personCluster: { id: 'gid-1', label: 'P1' },
+            rosterEntry: null,
+          },
+        },
+      } as never,
+    )
     expect(track).toMatchObject({
       track_id: 7,
       global_identity: {
         id: 'gid-1',
-        label: 'L1',
+        label: 'P1',
         source: 'ai',
         confidence: 0.95,
         identity_revision: '4',

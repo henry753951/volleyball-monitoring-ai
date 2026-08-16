@@ -71,15 +71,9 @@ export function useIdentityAssignmentController(options: IdentityAssignmentContr
     const code = cause && typeof cause === 'object' && 'code' in cause ? String(cause.code) : null
     if (code === 'REID_EVIDENCE_PENDING')
       return '新版 ReID evidence 尚在背景建立；目前仍會先保存此片段的球員指派'
-    if (code === 'REID_OBSERVATION_NOT_FOUND')
-      return '這個 Local ID 沒有 ReID 資料；請使用「只修正這個 Local ID」，或先重新執行 ReID'
-    if (code === 'REID_IDENTITY_REQUIRED')
-      return '這個 Local ID 尚未連到固定名單槽位；請先執行 ReID，或只修正目前片段'
     if (code === 'REID_TEAM_MISMATCH')
-      return 'ReID 槽位與所選球員隊伍不一致；請只修正目前片段或重新執行 ReID'
+      return '這個 Local ID 的場側與所選球員隊伍不一致；請確認隊伍或只修正目前片段'
     const message = cause instanceof Error ? cause.message : ''
-    if (message.toLowerCase().includes('run fixed-roster reid'))
-      return '尚無可沿用的 ReID 資料；已保留這個片段的人工指派'
     return message || '儲存失敗'
   }
 
@@ -232,7 +226,7 @@ export function useIdentityAssignmentController(options: IdentityAssignmentContr
       if (options.refreshAfterCommit) await refresh()
       options.onChanged?.()
     } catch (cause) {
-      state.error = cause instanceof Error ? cause.message : '套用既有關聯失敗'
+      state.error = cause instanceof Error ? cause.message : '套用最新配對失敗'
     } finally {
       state.autoAssigning = false
     }

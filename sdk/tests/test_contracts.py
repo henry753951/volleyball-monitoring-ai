@@ -7,7 +7,6 @@ from volleyball_monitoring_ai import (
     AnalysisDomainData,
     AnalysisEvidenceManifest,
     CanonicalFrameAnchor,
-    FixedRosterReID,
     FrameStepRequest,
     IdentityPreviewJobRequest,
     IdentityPreviewResult,
@@ -185,25 +184,6 @@ def test_pose_manifest_rejects_partial_frame_coverage() -> None:
     payload["canonical_frame_count"] = "121"
     with pytest.raises(ValueError, match="every canonical frame"):
         PersonPoseEvidenceManifest.model_validate(payload)
-
-
-def test_fixed_roster_reid_contract_is_versioned_and_bounded() -> None:
-    example = FIXTURES.parents[0] / "examples" / "ai" / "fixed-roster-reid-v2.json"
-    bank = FixedRosterReID.model_validate_json(example.read_text())
-    assert bank.slots_per_team == 6
-    assert bank.tracklets[0].track_ids == [7, 19]
-
-
-def test_fixed_roster_reid_rejects_invalid_aliases_or_asymmetric_constraints() -> None:
-    example = FIXTURES.parents[0] / "examples" / "ai" / "fixed-roster-reid-v2.json"
-    payload = json.loads(example.read_text())
-    payload["tracklets"][0]["track_ids"] = [19]
-    with pytest.raises(ValueError):
-        FixedRosterReID.model_validate(payload)
-    payload = json.loads(example.read_text())
-    payload["tracklets"][1]["cannot_link_canonical_track_ids"] = []
-    with pytest.raises(ValueError):
-        FixedRosterReID.model_validate(payload)
 
 
 def test_boundary_job_allows_zero_manual_contacts_and_pending_score() -> None:

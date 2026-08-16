@@ -146,7 +146,7 @@ function toggleComplete() {
             <LoaderCircle v-if="assignment.state.autoAssigning" class="spin" :size="13" /><Sparkles
               v-else
               :size="13"
-            />套用既有關聯
+            />套用最新配對
           </button>
           <button
             type="button"

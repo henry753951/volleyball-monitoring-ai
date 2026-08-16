@@ -169,15 +169,43 @@ export async function scheduleIdentityPreview(database: PrismaClient): Promise<b
     if (await tx.providerJob.findUnique({ where: { idempotencyKey } })) return false
     const providerJobId = randomUUID()
     const previewId = randomUUID()
+    const cropManifestInput = {
+      id: randomUUID(),
+      mediaAsset: cropAsset,
+      artifactKind: 'PLAYER_CROP_SOURCE_MANIFEST',
+      schemaVersion: '1.0.0',
+    }
+    const poseManifestInput = {
+      id: randomUUID(),
+      mediaAsset: pose.manifestAsset,
+      artifactKind: 'PERSON_POSE_EVIDENCE_MANIFEST',
+      schemaVersion: pose.schemaVersion,
+    }
+    const inputs = [
+      {
+        id: randomUUID(),
+        mediaAsset: clipAsset,
+        artifactKind: 'CANONICAL_CLIP',
+        schemaVersion: clipAsset.internalSchemaVersion ?? '1.0.0',
+      },
+      cropManifestInput,
+      poseManifestInput,
+      ...pose.chunks.map(chunk => ({
+        id: randomUUID(),
+        mediaAsset: chunk.asset,
+        artifactKind: 'PERSON_POSE_EVIDENCE_CHUNK',
+        schemaVersion: pose.schemaVersion,
+      })),
+    ]
     const request = {
       schema_version: '1.1.0',
       provider_job_id: providerJobId,
       preview_id: previewId,
-      analysis_run_id: candidate.evidenceSet.analysisRunId,
+      analysis_run_id: candidate.evidenceSet.analysisRun.analysisId,
       tracklet_id: candidate.id,
       canonical_track_id: candidate.canonicalTrackId,
-      crop_source_manifest_artifact_id: cropAsset.id,
-      pose_manifest_artifact_id: pose.manifestAssetId,
+      crop_source_manifest_artifact_id: cropManifestInput.id,
+      pose_manifest_artifact_id: poseManifestInput.id,
       selected_frame_indices: frames.map(String),
       recipe: {
         namespace: PREVIEW_RECIPE,
@@ -192,28 +220,6 @@ export async function scheduleIdentityPreview(database: PrismaClient): Promise<b
         'generated identity preview request is invalid',
         false,
       )
-    const inputs = [
-      {
-        mediaAsset: clipAsset,
-        artifactKind: 'CANONICAL_CLIP',
-        schemaVersion: clipAsset.internalSchemaVersion ?? '1.0.0',
-      },
-      {
-        mediaAsset: cropAsset,
-        artifactKind: 'PLAYER_CROP_SOURCE_MANIFEST',
-        schemaVersion: '1.0.0',
-      },
-      {
-        mediaAsset: pose.manifestAsset,
-        artifactKind: 'PERSON_POSE_EVIDENCE_MANIFEST',
-        schemaVersion: pose.schemaVersion,
-      },
-      ...pose.chunks.map(chunk => ({
-        mediaAsset: chunk.asset,
-        artifactKind: 'PERSON_POSE_EVIDENCE_CHUNK',
-        schemaVersion: pose.schemaVersion,
-      })),
-    ]
     if (
       inputs.some(
         input =>
@@ -243,6 +249,7 @@ export async function scheduleIdentityPreview(database: PrismaClient): Promise<b
         stage: 'preview_queued',
         artifacts: {
           create: inputs.map((input, ordinal) => ({
+            id: input.id,
             mediaAssetId: input.mediaAsset.id,
             direction: ProviderArtifactDirection.INPUT,
             artifactKind: input.artifactKind,
@@ -352,12 +359,12 @@ export async function materializeIdentityPreview(
     )
   const tracklet = await database.reidTracklet.findUnique({
     where: { id: String(request.tracklet_id) },
-    include: { evidenceSet: true },
+    include: { evidenceSet: { include: { analysisRun: { select: { analysisId: true } } } } },
   })
   if (
     !tracklet ||
     tracklet.canonicalTrackId !== request.canonical_track_id ||
-    tracklet.evidenceSet.analysisRunId !== request.analysis_run_id
+    tracklet.evidenceSet.analysisRun.analysisId !== request.analysis_run_id
   )
     throw new IdentityPreviewMaterializationError(
       'identity preview request does not match its tracklet',

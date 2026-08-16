@@ -1,6 +1,13 @@
-import { createHash, createHmac, randomUUID } from 'node:crypto'
+import { createHash, randomBytes, randomUUID } from 'node:crypto'
 import type { PrismaClient } from '@volleyball-monitoring/db'
-import { Prisma, UserRole } from '@volleyball-monitoring/db/client'
+import {
+  JobStatus,
+  Prisma,
+  ProcessingStatus,
+  ProviderArtifactDirection,
+  ProviderWorkKind,
+  UserRole,
+} from '@volleyball-monitoring/db/client'
 
 const OPERATOR_ROLES = new Set<UserRole>([UserRole.ADMIN, UserRole.OPERATOR])
 const CAPTURE_PATH = /^[A-Za-z0-9][A-Za-z0-9._/-]{0,190}$/
@@ -481,14 +488,6 @@ export async function stopCapture(
   )
 }
 
-function callbackToken(secret: string, aiJobId: string): string {
-  if (secret.length < 32)
-    throw new OperationalMutationError('NOT_RETRYABLE', 'AI callback retry secret is unavailable')
-  return createHmac('sha256', secret)
-    .update(`volleyball-ai-callback:${aiJobId}`)
-    .digest('base64url')
-}
-
 function retryPayload(value: Prisma.JsonValue, sourceAiJobId: string, nextAiJobId: string) {
   if (!value || Array.isArray(value) || typeof value !== 'object') {
     throw new OperationalMutationError('NOT_RETRYABLE', 'Stored AI request is invalid')
@@ -515,11 +514,44 @@ function retryPayload(value: Prisma.JsonValue, sourceAiJobId: string, nextAiJobI
   return replace(payload)
 }
 
+function providerRetryPayload(
+  value: Prisma.JsonValue | null,
+  input: {
+    sourceProviderJobId: string | null
+    sourceAiJobId: string
+    nextProviderJobId: string
+    nextAiJobId: string
+    fallback: Record<string, unknown>
+  },
+) {
+  const source =
+    value && !Array.isArray(value) && typeof value === 'object'
+      ? (value as Record<string, Prisma.JsonValue>)
+      : input.fallback
+  const replace = (entry: unknown): unknown => {
+    if (entry === input.sourceAiJobId) return input.nextAiJobId
+    if (input.sourceProviderJobId && entry === input.sourceProviderJobId)
+      return input.nextProviderJobId
+    if (Array.isArray(entry)) return entry.map(replace)
+    if (entry && typeof entry === 'object')
+      return Object.fromEntries(
+        Object.entries(entry).map(([key, nested]) => [key, replace(nested)]),
+      )
+    return entry
+  }
+  return {
+    ...(replace(source) as Record<string, unknown>),
+    schema_version: '1.0.0',
+    provider_job_id: input.nextProviderJobId,
+    ai_job_id: input.nextAiJobId,
+  }
+}
+
 export async function retryProcessing(
   database: PrismaClient,
   identity: { id: string; role: UserRole },
   rallyId: string,
-  callbackSecret: string,
+  _callbackSecret: string,
 ): Promise<ProcessingStateView> {
   return database.$transaction(
     async tx => {
@@ -527,7 +559,6 @@ export async function retryProcessing(
       const rally = await tx.rally.findFirst({
         where: {
           id: rallyId,
-          processingStatus: 'FAILED',
           activeSubmissionId: { not: null },
           ...(identity.role === UserRole.ADMIN
             ? {}
@@ -538,7 +569,10 @@ export async function retryProcessing(
             include: {
               aiJobs: { orderBy: [{ createdAt: 'desc' }, { id: 'desc' }] },
               analysisRuns: { orderBy: [{ createdAt: 'desc' }, { id: 'desc' }] },
-              clipJobs: { orderBy: [{ createdAt: 'desc' }, { id: 'desc' }] },
+              clipJobs: {
+                orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+                include: { clipAsset: true },
+              },
             },
           },
         },
@@ -547,7 +581,7 @@ export async function retryProcessing(
       if (!rally || !submission || submission.status !== 'ACTIVE') {
         throw new OperationalMutationError(
           'NOT_FOUND',
-          'Failed active Rally processing state was not found',
+          'Active Rally processing state was not found',
         )
       }
       const clip = submission.clipJobs[0]
@@ -591,49 +625,138 @@ export async function retryProcessing(
         }
       }
 
+      if (
+        rally.processingStatus === ProcessingStatus.CLIP_QUEUED ||
+        rally.processingStatus === ProcessingStatus.CLIPPING ||
+        rally.processingStatus === ProcessingStatus.AI_QUEUED ||
+        rally.processingStatus === ProcessingStatus.AI_PROCESSING
+      ) {
+        throw new OperationalMutationError('NOT_RETRYABLE', 'Rally processing is already active')
+      }
+
       const sourceAi = submission.aiJobs[0]
-      const failedAnalysis = submission.analysisRuns.find(run => run.status === 'FAILED')
-      if (!sourceAi || (sourceAi.status !== 'FAILED' && !failedAnalysis)) {
+      if (!sourceAi)
         throw new OperationalMutationError(
           'NOT_RETRYABLE',
-          'No failed clip or AI stage is retryable',
+          'No prior analysis request is available',
         )
-      }
-      if (clip?.status !== 'COMPLETED' || !clip.clipAssetId) {
+      if (
+        clip?.status !== 'COMPLETED' ||
+        !clip.clipAssetId ||
+        !clip.clipAsset?.sha256 ||
+        !clip.clipAsset.byteLength
+      ) {
         throw new OperationalMutationError(
           'NOT_RETRYABLE',
           'Canonical clip is not ready for AI retry',
         )
       }
       const aiJobId = randomUUID()
+      const providerJobId = randomUUID()
       const requestPayload = retryPayload(sourceAi.requestPayload, sourceAi.id, aiJobId)
-      const token = callbackToken(callbackSecret, aiJobId)
+      const requestRoot = requestPayload as Record<string, unknown>
+      const sourceProvider = await tx.providerJob.findFirst({
+        where: {
+          workKind: ProviderWorkKind.ANALYSIS,
+          artifacts: {
+            some: {
+              direction: ProviderArtifactDirection.INPUT,
+              mediaAssetId: clip.clipAssetId,
+            },
+          },
+        },
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      })
+      const requestClip =
+        requestRoot.clip && typeof requestRoot.clip === 'object' && !Array.isArray(requestRoot.clip)
+          ? (requestRoot.clip as Record<string, unknown>)
+          : {}
+      const providerPayload = providerRetryPayload(sourceProvider?.requestPayload ?? null, {
+        sourceProviderJobId: sourceProvider?.id ?? null,
+        sourceAiJobId: sourceAi.id,
+        nextProviderJobId: providerJobId,
+        nextAiJobId: aiJobId,
+        fallback: {
+          rally_submission_id: submission.id,
+          rally_id: rally.id,
+          match_id: rally.matchId,
+          annotation_revision: String(submission.annotationRevision),
+          clip: {
+            clip_asset_id: clip.clipAssetId,
+            video: requestClip.video,
+          },
+          boundaries: requestRoot.boundaries,
+          key_points: requestRoot.key_points,
+          outcome: requestRoot.outcome,
+          modules: {
+            court: 'run',
+            tracking: 'run',
+            contacts: 'run',
+            person_pose: 'run',
+          },
+        },
+      })
+      const token = randomBytes(32).toString('base64url')
+      const tokenHash = createHash('sha256').update(token).digest('hex')
+      const expiresAt = new Date(Date.now() + 30 * 60_000)
+      await tx.aiJob.update({
+        where: { id: sourceAi.id },
+        data: { status: JobStatus.SUPERSEDED, completedAt: new Date() },
+      })
       await tx.aiJob.create({
         data: {
           id: aiJobId,
           submissionId: submission.id,
           clipJobId: clip.id,
-          status: 'QUEUED',
-          idempotencyKey: `volleyball-analysis-engine:${submission.id}:${clip.id}:retry:${aiJobId}`,
+          status: JobStatus.QUEUED,
+          idempotencyKey: `analysis-envelope:${aiJobId}`,
           requestPayload: json(requestPayload),
           requestPayloadHash: createHash('sha256').update(canonical(requestPayload)).digest('hex'),
           jobSchemaVersion: sourceAi.jobSchemaVersion,
-          callbackTokenHash: createHash('sha256').update(token).digest('hex'),
-          callbackTokenExpiresAt: new Date(Date.now() + 24 * 60 * 60_000),
+          callbackTokenHash: tokenHash,
+          callbackTokenExpiresAt: expiresAt,
+          providerJobId,
           attemptCount: 0,
           maxAttempts: sourceAi.maxAttempts,
           availableAt: new Date(),
         },
       })
-      await tx.aiJob.update({
-        where: { id: sourceAi.id },
-        data: { status: 'SUPERSEDED', leasedUntil: null },
+      await tx.providerJob.create({
+        data: {
+          id: providerJobId,
+          workKind: ProviderWorkKind.ANALYSIS,
+          status: JobStatus.QUEUED,
+          idempotencyKey: `analysis-rerun:${providerJobId}`,
+          requestSchemaVersion: '1.0.0',
+          resultSchemaVersion: '1.0.0',
+          requestPayload: json(providerPayload),
+          requestPayloadHash: createHash('sha256').update(canonical(providerPayload)).digest('hex'),
+          callbackTokenHash: tokenHash,
+          callbackTokenExpiresAt: expiresAt,
+          stage: 'analysis_queued',
+          artifacts: {
+            create: {
+              mediaAssetId: clip.clipAssetId,
+              direction: ProviderArtifactDirection.INPUT,
+              artifactKind: 'CANONICAL_CLIP',
+              ordinal: 0,
+              required: true,
+              schemaVersion: clip.clipAsset.internalSchemaVersion ?? '1.0.0',
+              sha256: clip.clipAsset.sha256,
+              byteLength: clip.clipAsset.byteLength,
+              contentType: clip.clipAsset.contentType,
+            },
+          },
+        },
       })
       await tx.analysisRun.updateMany({
-        where: { submissionId: submission.id, status: 'FAILED' },
-        data: { status: 'SUPERSEDED', supersededAt: new Date() },
+        where: { submissionId: submission.id, status: JobStatus.FAILED },
+        data: { status: JobStatus.SUPERSEDED, supersededAt: new Date() },
       })
-      await tx.rally.update({ where: { id: rally.id }, data: { processingStatus: 'AI_QUEUED' } })
+      await tx.rally.update({
+        where: { id: rally.id },
+        data: { processingStatus: ProcessingStatus.AI_QUEUED },
+      })
       await tx.outboxEvent.create({
         data: {
           aggregateId: rally.id,
@@ -643,16 +766,17 @@ export async function retryProcessing(
           payload: json({
             ai_job_id: aiJobId,
             rally_id: rally.id,
-            stage: 'ai',
+            provider_job_id: providerJobId,
+            stage: 'provider_analysis',
             submission_id: submission.id,
-            supersedes_ai_job_id: sourceAi.id,
+            source_ai_job_id: sourceAi.id,
           }),
         },
       })
       return {
         rallyId: rally.id,
         submissionId: submission.id,
-        status: 'AI_QUEUED',
+        status: ProcessingStatus.AI_QUEUED,
         retriedStage: 'ai',
       }
     },

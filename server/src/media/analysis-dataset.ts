@@ -19,9 +19,9 @@ export interface GeneratedDatasetFile {
 }
 
 export const ML_DATASET_SCHEMA_VERSION = '1.3.0'
-export const REID_DATASET_SCHEMA_VERSION = '2.0.0'
+export const REID_DATASET_SCHEMA_VERSION = '3.0.0'
 
-interface ReidRosterEntrySnapshot {
+export interface ReidRosterEntrySnapshot {
   id: string
   teamId: string
   playerId: string | null
@@ -33,95 +33,74 @@ interface ReidRosterEntrySnapshot {
   team: { id: string; name: string }
 }
 
-interface ReidPlayerBindingSnapshot {
+export interface ReidFeatureVectorSnapshot {
   id: string
-  rosterEntryId: string | null
-  sourceObservationId: string | null
-  effectiveFromSetNumber: number
-  effectiveFromRallyOrdinal: number
-  source: string
-  identityRevision: bigint
+  modality: string
+  modelNamespace: string
+  dimension: number
+  normalization: string
+  distance: string
+  byteOffset: bigint
+  byteLength: bigint
+  sha256: string
+  sourceFrameIndices: bigint[]
   createdAt: Date
-  rosterEntry: ReidRosterEntrySnapshot | null
 }
 
-interface ReidIdentitySnapshot {
+export interface ReidTrackletSnapshot {
   id: string
-  label: string
-  slotIndex: number
-  teamId: string
-  modelNamespace: string
-  createdRevision: bigint
-  createdAt: Date
-  bindings: ReidPlayerBindingSnapshot[]
-}
-
-export interface ReidObservationSnapshot {
-  id: string
-  analysisRunId: string
-  trackId: number
-  matchId: string
-  teamId: string | null
-  reidIdentityId: string | null
-  modelNamespace: string
-  modelName: string
-  modelCheckpointSha256: string
-  modelPreprocessVersion: string
-  modelDimension: number
-  modelDistance: string
-  courtSide: string
-  provisionalGid: string
+  evidenceSetId: string
   canonicalTrackId: number
-  isCanonicalTrack: boolean
-  aliasTrackIds: number[]
-  medianCourtX: number | null
-  medianCourtY: number | null
-  descriptorRecipe: unknown
-  dinoDescriptor: Uint8Array | null
-  osnetDescriptor: Uint8Array | null
-  kprDescriptor: Uint8Array | null
-  kprPromptDescriptor: Uint8Array | null
-  promptCoverage: number
-  selectedModalities: string[]
-  selectedKernel: string
-  selectedRegularization: number
-  firstFrame: bigint
-  lastFrame: bigint
-  sampleCount: number
-  meanQuality: number
-  prototype: Uint8Array
-  cannotLinkTrackIds: number[]
-  setNumber: number
-  rallyOrdinal: number
-  matchConfidence: number | null
-  identityRevision: bigint
+  trackIdAliases: number[]
+  courtSide: string
+  firstFrameIndex: bigint
+  lastFrameIndex: bigint
+  cannotLinkTrackletIds: string[]
   createdAt: Date
-  reidIdentity: ReidIdentitySnapshot | null
-}
-
-interface ReidIdentityReference {
-  id: string
-  label: string
-  slotIndex: number
-  teamId: string
-  modelNamespace: string
+  vectors: ReidFeatureVectorSnapshot[]
+  evidenceSet: {
+    id: string
+    schemaVersion: string
+    recipeNamespace: string
+    contentSha256: string
+    status: string
+  }
+  activeProjection: {
+    sourcePriority: number
+    assignmentRevision: {
+      id: string
+      source: string
+      revision: bigint
+      effectiveFromSetNumber: number
+      effectiveFromRallyOrdinal: number
+      correctionId: string | null
+      createdAt: Date
+      personCluster: {
+        id: string
+        teamId: string | null
+        label: string | null
+      } | null
+      rosterEntry: ReidRosterEntrySnapshot | null
+    }
+  } | null
 }
 
 export interface ReidCorrectionSnapshot {
   id: string
   matchId: string
-  teamId: string
-  analysisRunId: string | null
-  trackId: number | null
-  sourceIdentityId: string | null
-  targetIdentityId: string | null
+  teamId: string | null
+  analysisRunId: string
+  trackletId: string
+  sourcePersonClusterId: string | null
+  targetPersonClusterId: string | null
   rosterEntryId: string | null
-  kind: string
-  identityRevision: bigint
-  details: unknown
+  displayScope: string
+  futureEvidenceAction: string
+  revision: bigint
+  reason: string | null
   createdAt: Date
-  sourceIdentity: ReidIdentityReference | null
-  targetIdentity: ReidIdentityReference | null
+  sourcePersonCluster: { id: string; teamId: string | null; label: string | null } | null
+  targetPersonCluster: { id: string; teamId: string | null; label: string | null } | null
   rosterEntry: ReidRosterEntrySnapshot | null
 }
 
@@ -145,14 +124,14 @@ export function sha256Bytes(bytes: Uint8Array): string {
   return createHash('sha256').update(bytes).digest('hex')
 }
 
-function reidIdentityReference(identity: ReidIdentityReference | null) {
-  return identity
+function personClusterReference(
+  cluster: { id: string; teamId: string | null; label: string | null } | null,
+) {
+  return cluster
     ? {
-        id: identity.id,
-        label: identity.label,
-        slot_index: identity.slotIndex,
-        team_id: identity.teamId,
-        model_namespace: identity.modelNamespace,
+        id: cluster.id,
+        team_id: cluster.teamId,
+        label: cluster.label,
       }
     : null
 }
@@ -172,161 +151,80 @@ function reidRosterEntry(entry: ReidRosterEntrySnapshot | null) {
     : null
 }
 
-function bindingAppliesAt(
-  binding: ReidPlayerBindingSnapshot,
-  observation: ReidObservationSnapshot,
-): boolean {
-  return (
-    binding.effectiveFromSetNumber < observation.setNumber ||
-    (binding.effectiveFromSetNumber === observation.setNumber &&
-      binding.effectiveFromRallyOrdinal <= observation.rallyOrdinal)
-  )
-}
-
 function compareBigint(left: bigint, right: bigint): number {
   return left < right ? -1 : left > right ? 1 : 0
-}
-
-function effectiveBinding(observation: ReidObservationSnapshot): ReidPlayerBindingSnapshot | null {
-  return (
-    [...(observation.reidIdentity?.bindings ?? [])]
-      .filter(binding => bindingAppliesAt(binding, observation))
-      .sort(
-        (left, right) =>
-          right.effectiveFromSetNumber - left.effectiveFromSetNumber ||
-          right.effectiveFromRallyOrdinal - left.effectiveFromRallyOrdinal ||
-          compareBigint(right.identityRevision, left.identityRevision) ||
-          right.createdAt.getTime() - left.createdAt.getTime(),
-      )[0] ?? null
-  )
-}
-
-function safeCorrectionDetails(value: unknown) {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
-  const record = value as Record<string, unknown>
-  const replacedTrackIds = Array.isArray(record.replaced_track_ids)
-    ? record.replaced_track_ids.filter(
-        (entry): entry is number => Number.isInteger(entry) && Number(entry) >= 0,
-      )
-    : []
-  const reassociatedObservationIds = Array.isArray(record.reassociated_observation_ids)
-    ? record.reassociated_observation_ids.filter(
-        (entry): entry is string => typeof entry === 'string',
-      )
-    : []
-  return {
-    replaced_track_ids: replacedTrackIds,
-    reassociated_observation_ids: reassociatedObservationIds,
-  }
 }
 
 export function buildPersistedReidDatasetFiles(input: {
   analysisRunId: string
   matchId: string
   matchIdentityRevision: bigint
-  observations: readonly ReidObservationSnapshot[]
+  tracklets: readonly ReidTrackletSnapshot[]
   corrections: readonly ReidCorrectionSnapshot[]
-  featureBankPath: string | null
+  descriptorBundlePaths: Readonly<Record<string, string>>
 }): GeneratedDatasetFile[] {
-  const observations = [...input.observations]
-    .sort((left, right) => left.trackId - right.trackId)
-    .map(observation => ({
-      id: observation.id,
-      analysis_run_id: observation.analysisRunId,
-      track_id: observation.trackId,
-      match_id: observation.matchId,
-      team_id: observation.teamId,
-      gid: reidIdentityReference(observation.reidIdentity),
-      provisional_gid: observation.provisionalGid,
-      fixed_slot: observation.reidIdentity?.slotIndex ?? null,
-      canonical_track_id: observation.canonicalTrackId,
-      is_canonical_track: observation.isCanonicalTrack,
-      alias_track_ids: observation.aliasTrackIds,
-      court_side: observation.courtSide.toLowerCase(),
+  const tracklets = [...input.tracklets]
+    .sort((left, right) => left.canonicalTrackId - right.canonicalTrackId)
+    .map(tracklet => ({
+      id: tracklet.id,
+      analysis_run_id: input.analysisRunId,
+      evidence_set: {
+        id: tracklet.evidenceSet.id,
+        schema_version: tracklet.evidenceSet.schemaVersion,
+        recipe_namespace: tracklet.evidenceSet.recipeNamespace,
+        content_sha256: tracklet.evidenceSet.contentSha256,
+        status: tracklet.evidenceSet.status.toLowerCase(),
+      },
+      canonical_track_id: tracklet.canonicalTrackId,
+      track_id_aliases: tracklet.trackIdAliases,
+      court_side: tracklet.courtSide.toLowerCase(),
       frame_range: {
-        first_frame_index: observation.firstFrame,
-        last_frame_index: observation.lastFrame,
+        first_frame_index: tracklet.firstFrameIndex,
+        last_frame_index: tracklet.lastFrameIndex,
       },
-      sample_count: observation.sampleCount,
-      mean_quality: observation.meanQuality,
-      prompt_coverage: observation.promptCoverage,
-      cannot_link_track_ids: observation.cannotLinkTrackIds,
-      canonical_position: {
-        set_number: observation.setNumber,
-        rally_ordinal: observation.rallyOrdinal,
-      },
-      match_confidence: observation.matchConfidence,
-      identity_revision: observation.identityRevision,
-      model: {
-        namespace: observation.modelNamespace,
-        name: observation.modelName,
-        checkpoint_sha256: observation.modelCheckpointSha256,
-        preprocess_version: observation.modelPreprocessVersion,
-        dimension: observation.modelDimension,
-        distance: observation.modelDistance,
-      },
-      nested_part_adaptation: {
-        descriptor_recipe: observation.descriptorRecipe,
-        selected_modalities: observation.selectedModalities,
-        selected_kernel: observation.selectedKernel,
-        selected_regularization: observation.selectedRegularization,
-        median_court_pos:
-          observation.medianCourtX === null || observation.medianCourtY === null
-            ? null
-            : [observation.medianCourtX, observation.medianCourtY],
-        descriptors: Object.fromEntries(
-          [
-            ['dino', observation.dinoDescriptor],
-            ['osnet', observation.osnetDescriptor],
-            ['kpr', observation.kprDescriptor],
-            ['kpr_prompt', observation.kprPromptDescriptor],
-          ].map(([name, bytes]) => [
-            name,
-            bytes instanceof Uint8Array
-              ? {
-                  encoding: 'float32_le',
-                  byte_length: bytes.byteLength,
-                  sha256: sha256Bytes(bytes),
-                }
-              : null,
-          ]),
-        ),
-        feature_vector_ref: input.featureBankPath
-          ? {
-              path: input.featureBankPath,
-              canonical_track_id: observation.canonicalTrackId,
-            }
-          : null,
-      },
-      created_at: observation.createdAt,
+      cannot_link_tracklet_ids: tracklet.cannotLinkTrackletIds,
+      vectors: tracklet.vectors.map(vector => ({
+        id: vector.id,
+        modality: vector.modality,
+        model_namespace: vector.modelNamespace,
+        dimension: vector.dimension,
+        normalization: vector.normalization,
+        distance: vector.distance,
+        artifact_ref: {
+          path: input.descriptorBundlePaths[tracklet.evidenceSetId] ?? null,
+          byte_offset: vector.byteOffset,
+          byte_length: vector.byteLength,
+          sha256: vector.sha256,
+        },
+        source_frame_indices: vector.sourceFrameIndices,
+        created_at: vector.createdAt,
+      })),
+      created_at: tracklet.createdAt,
     }))
 
-  const bindings = [...input.observations]
-    .sort((left, right) => left.trackId - right.trackId)
-    .map(observation => {
-      const binding = effectiveBinding(observation)
+  const projections = [...input.tracklets]
+    .sort((left, right) => left.canonicalTrackId - right.canonicalTrackId)
+    .map(tracklet => {
+      const projection = tracklet.activeProjection?.assignmentRevision ?? null
       return {
-        analysis_run_id: observation.analysisRunId,
-        track_id: observation.trackId,
-        gid: reidIdentityReference(observation.reidIdentity),
-        canonical_position: {
-          set_number: observation.setNumber,
-          rally_ordinal: observation.rallyOrdinal,
-        },
-        manual_assignment_required: !binding?.rosterEntryId,
-        effective_binding: binding
+        analysis_run_id: input.analysisRunId,
+        tracklet_id: tracklet.id,
+        canonical_track_id: tracklet.canonicalTrackId,
+        manual_assignment_required: !projection?.rosterEntry,
+        active_projection: projection
           ? {
-              id: binding.id,
-              roster_entry_id: binding.rosterEntryId,
-              source_observation_id: binding.sourceObservationId,
+              assignment_revision_id: projection.id,
+              person_cluster: personClusterReference(projection.personCluster),
+              roster_entry: reidRosterEntry(projection.rosterEntry),
+              source: projection.source.toLowerCase(),
+              source_priority: tracklet.activeProjection!.sourcePriority,
+              revision: projection.revision,
               effective_from: {
-                set_number: binding.effectiveFromSetNumber,
-                rally_ordinal: binding.effectiveFromRallyOrdinal,
+                set_number: projection.effectiveFromSetNumber,
+                rally_ordinal: projection.effectiveFromRallyOrdinal,
               },
-              source: binding.source,
-              identity_revision: binding.identityRevision,
-              roster_entry: reidRosterEntry(binding.rosterEntry),
-              created_at: binding.createdAt,
+              correction_id: projection.correctionId,
+              created_at: projection.createdAt,
             }
           : null,
       }
@@ -335,7 +233,7 @@ export function buildPersistedReidDatasetFiles(input: {
   const corrections = [...input.corrections]
     .sort(
       (left, right) =>
-        compareBigint(left.identityRevision, right.identityRevision) ||
+        compareBigint(left.revision, right.revision) ||
         left.createdAt.getTime() - right.createdAt.getTime(),
     )
     .map(correction => ({
@@ -343,45 +241,45 @@ export function buildPersistedReidDatasetFiles(input: {
       match_id: correction.matchId,
       team_id: correction.teamId,
       analysis_run_id: correction.analysisRunId,
-      track_id: correction.trackId,
-      kind: correction.kind,
-      identity_revision: correction.identityRevision,
-      source_gid: reidIdentityReference(correction.sourceIdentity),
-      target_gid: reidIdentityReference(correction.targetIdentity),
+      tracklet_id: correction.trackletId,
+      display_scope: correction.displayScope.toLowerCase(),
+      future_evidence_action: correction.futureEvidenceAction.toLowerCase(),
+      revision: correction.revision,
+      source_person_cluster: personClusterReference(correction.sourcePersonCluster),
+      target_person_cluster: personClusterReference(correction.targetPersonCluster),
       roster_entry_id: correction.rosterEntryId,
       roster_entry: reidRosterEntry(correction.rosterEntry),
-      details: safeCorrectionDetails(correction.details),
+      reason: correction.reason,
       created_at: correction.createdAt,
     }))
 
   return [
     {
-      path: 'reid/persisted-observations.jsonl',
+      path: 'reid/evidence-tracklets.jsonl',
       bytes: jsonLines(
-        observations.map(observation => ({
+        tracklets.map(tracklet => ({
           schema_version: REID_DATASET_SCHEMA_VERSION,
           match_identity_revision: input.matchIdentityRevision,
-          feature_vectors_are_stored_only_in: input.featureBankPath,
-          ...observation,
+          ...tracklet,
         })),
       ),
       contentType: 'application/x-ndjson',
       description:
-        'Persisted clip ReID observations, GID labels, model namespace, prototype checksums, and feature-bank references without duplicating vectors.',
+        'Immutable versioned ReID tracklets and checksummed descriptor byte-range references.',
     },
     {
-      path: 'reid/effective-bindings.jsonl',
+      path: 'reid/active-projections.jsonl',
       bytes: jsonLines(
-        bindings.map(binding => ({
+        projections.map(projection => ({
           schema_version: REID_DATASET_SCHEMA_VERSION,
           match_id: input.matchId,
           match_identity_revision: input.matchIdentityRevision,
-          ...binding,
+          ...projection,
         })),
       ),
       contentType: 'application/x-ndjson',
       description:
-        'Effective GID-to-roster labels at this clip canonical position, including explicit unresolved/manual-required rows.',
+        'Current versioned person-cluster and roster projection for each canonical tracklet.',
     },
     {
       path: 'reid/correction-lineage.jsonl',
@@ -394,7 +292,7 @@ export function buildPersistedReidDatasetFiles(input: {
       ),
       contentType: 'application/x-ndjson',
       description:
-        'Versioned match identity correction lineage without actor account identifiers or arbitrary sensitive detail fields.',
+        'Append-only human correction lineage and future-evidence policy without actor account identifiers.',
     },
   ]
 }
@@ -596,10 +494,10 @@ This archive is a versioned snapshot of one canonical rally clip and every AI ou
 - \`events/*.jsonl\`: contact ownership and ball-path records decoded from AnalysisData.
 - \`tables/frames.jsonl\`: joins every prediction to canonical frame, clip time, and capture time.
 - \`labels/*.jsonl\`: sparse human corrections and identity assignments; these override predictions at the same key.
-- \`reid/fixed-roster-tracklets.json\`: versioned four-stream Nested Part Adaptation descriptors, TID aliases, court evidence, and cannot-link constraints.
-- \`reid/persisted-observations.jsonl\`: central rows for each TID with its canonical TID, fixed team slot, selected modalities/kernel/regularization, descriptor checksums, and exact tracklet reference. It never duplicates feature vectors.
-- \`reid/effective-bindings.jsonl\`: GID-to-roster labels effective at this clip's set/rally position. Unresolved rows are retained with \`manual_assignment_required: true\`.
+- \`reid/evidence-tracklets.jsonl\`: immutable versioned tracklets with checksummed descriptor byte-range references; it never duplicates vector bytes.
+- \`reid/active-projections.jsonl\`: the current versioned person-cluster and roster projection for every canonical tracklet. Unresolved rows remain explicit.
 - \`reid/correction-lineage.jsonl\`: match-wide human identity correction lineage through the exported \`snapshot_identity_revision\`; actor account identifiers are intentionally omitted.
+- \`reid/evidence/*-descriptors.bin\` and \`*-result.json\`: immutable Provider Work evidence artifacts included by checksum when present.
 - \`analysis/database-view.json\`: normalized server-ingested events, tracks, paths, identities, and effective correction links.
 - \`analysis/timing-manifest.json\`: authoritative clip timing/PTS evidence.
 - \`manifest.json\`: dataset schema version plus SHA-256 and byte length for every included source and generated file. Verify these checksums before training.
@@ -612,5 +510,5 @@ Use \`frame_index\` as the primary join key. Do not infer frame timing from nomi
 
 ## Reproducibility boundary
 
-The archive includes the canonical clip, source/cut/timing metadata, authoritative AnalysisData, generated JSONL tables, human review state, fixed roster slots, current effective roster bindings, correction lineage, job/run metadata, and checksums. The authoritative AnalysisData embeds all four tracklet descriptors; \`reid/fixed-roster-tracklets.json\` is the exact extracted ML view. Generated observation, binding, correction, and label JSONL files reference descriptor checksums without duplicating vectors. Per-frame embeddings and transient GPU state are excluded.
+The archive includes the canonical clip, source/cut/timing metadata, authoritative AnalysisData, generated JSONL tables, human review state, immutable ReID evidence artifacts, current active projections, correction lineage, job/run metadata, and checksums. AnalysisData remains base-analysis evidence and does not embed cross-clip identity state. Generated tracklet, projection, correction, and label JSONL files reference artifact checksums without duplicating vectors. Transient GPU state is excluded.
 `

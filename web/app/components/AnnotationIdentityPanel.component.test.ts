@@ -194,7 +194,7 @@ describe('AnnotationIdentityPanel ReID assignments', () => {
       expect.objectContaining({ analysisRunId: 'analysis-1' }),
     )
     expect(wrapper.text()).toContain('Pose 沒有重跑')
-    expect(wrapper.text()).toContain('套用既有關聯')
+    expect(wrapper.text()).toContain('套用最新配對')
     wrapper.unmount()
   })
 
@@ -204,7 +204,7 @@ describe('AnnotationIdentityPanel ReID assignments', () => {
 
     expect(wrapper.text()).toContain('沿用先前確認')
     expect(wrapper.text()).toContain('T001')
-    expect(wrapper.text()).toContain('舊關聯 L1')
+    expect(wrapper.text()).toContain('群組未定')
     expect(wrapper.text()).toContain('91%')
 
     const unassigned = wrapper.findAllComponents(UiPlayerCombobox)[1]!
@@ -311,7 +311,7 @@ describe('AnnotationIdentityPanel ReID assignments', () => {
     wrapper.unmount()
   })
 
-  it('uses a clip-only assignment for a Local ID without ReID and never exposes the backend English hint', async () => {
+  it('uses a clip-only assignment for a Local ID without ReID evidence', async () => {
     const fixture = analyticsFixture()
     fixture.tracks[1] = {
       ...fixture.tracks[1]!,
@@ -322,7 +322,6 @@ describe('AnnotationIdentityPanel ReID assignments', () => {
       reid_model: null,
     }
     coachClient.analytics.mockResolvedValue(fixture)
-    coachClient.assignTrackIdentity.mockRejectedValueOnce(new Error('Run fixed-roster ReID first'))
     const wrapper = mountPanel()
     await flushPromises()
 
@@ -335,8 +334,7 @@ describe('AnnotationIdentityPanel ReID assignments', () => {
       rosterEntryId: 'roster-2',
       identityMode: 'clip_only',
     })
-    expect(wrapper.text()).toContain('尚無可沿用的 ReID 資料')
-    expect(wrapper.text()).not.toContain('Run fixed-roster ReID')
+    expect(wrapper.emitted('changed')).toHaveLength(1)
     wrapper.unmount()
   })
 })

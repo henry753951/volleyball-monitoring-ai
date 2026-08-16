@@ -439,6 +439,7 @@ export const providerWorkWebSocketRoutes =
             workKind: databaseWorkKind(message.work_kind),
             deliveryId: message.delivery_id,
             providerInstanceId: instanceId,
+            status: { in: [JobStatus.QUEUED, JobStatus.RUNNING] },
           }
           const job = await database.providerJob.findFirst({ where })
           if (!job) {

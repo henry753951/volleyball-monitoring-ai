@@ -67,10 +67,6 @@
         },
         "confidence": {
           "type": "boolean"
-        },
-        "fixed_roster_reid": {
-          "type": "boolean",
-          "default": false
         }
       }
     },

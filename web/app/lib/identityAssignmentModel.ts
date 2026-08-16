@@ -170,7 +170,7 @@ export function createIdentityAssignmentModel(input: IdentityAssignmentModelInpu
     }
 
     return [
-      { value: '', label: '清除球員關聯', description: '保留辨識身分，移除姓名綁定' },
+      { value: '', label: '清除球員指派', description: '此片段改為待人工確認' },
       ...playersForTeam(request.teamId).map(player => {
         const occupiedTrack = conflictForTracks(memberTrackIds, player.roster_entry_id)
         const previousTrack = previousByRoster.get(player.roster_entry_id)

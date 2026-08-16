@@ -79,13 +79,17 @@ documented in
 
 ### Player identity
 
-1. External AI results may include fixed-roster tracklet descriptors; Central currently associates
-   them with match/team slots during callback activation.
-2. Replay and analytics consume one effective Local/TID-to-roster assignment. GID/slot grouping is an
-   aid and never replaces that run-local mapping.
-3. Human decisions are forward-scoped or clip-local and preserve immutable AnalysisData. ReID is not
-   yet an independently rerunnable workflow stage; do not describe automatic binding projection as a
-   ReID rerun.
+1. Base analysis, ReID feature extraction, ReID association, and identity-preview generation are
+   separate durable Provider Work jobs. ReID failure never rolls back a completed AnalysisRun.
+2. Raw evidence artifacts are immutable. PostgreSQL stores versioned memberships, bank snapshots,
+   association decisions, corrections, and one effective Local/TID-to-roster projection per run.
+3. Association consumes an explicit current evidence set and immutable eligible-bank snapshot. It can
+   be rerun without detector, tracker, court, ball, action, or person-pose inference.
+4. Human decisions are clip-local or forward-scoped, override automatic projections, and preserve
+   earlier AnalysisData and association runs. Rejected/quarantined evidence is excluded from later
+   trusted banks.
+5. Provider artifact references use `ProviderJobArtifact.id`; immutable analysis dependencies use the
+   provider `analysis_id`, not Central's `AnalysisRun.id`.
 
 ## Generated and synchronized files
 

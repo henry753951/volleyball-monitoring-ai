@@ -2,7 +2,7 @@ import { ANALYSIS_PLAYER_FLAG, type AnalysisFrameChunk } from '@volleyball-monit
 import { mount } from '@vue/test-utils'
 import { describe, expect, it } from 'vitest'
 import CourtPathView from './CourtPathView.vue'
-import type { ReplayPath } from '~/lib/coachDomain'
+import type { ReplayContactEvent, ReplayPath } from '~/lib/coachDomain'
 
 const paths: ReplayPath[] = [
   {
@@ -61,6 +61,35 @@ const paths: ReplayPath[] = [
   },
 ]
 
+const events: ReplayContactEvent[] = [
+  {
+    key_point_id: 'kp-1',
+    sequence_index: 0,
+    marker_kind: 'contact',
+    is_terminal: false,
+    anchor_frame_index: '301',
+    resolved_frame_index: '301',
+    anchor_time_us: '0',
+    association_state: 'associated',
+    ball_event: null,
+    ball: { state: 'missing', frame_index: null, frame_pos: null },
+    quality_flags: [],
+    actors: [
+      {
+        track_id: 8,
+        observation_frame_index: '301',
+        association_confidence: 0.9,
+        frame_bbox: null,
+        frame_foot_pos: null,
+        court_pos: { x: -0.06, y: 0.24 },
+        action: null,
+      },
+    ],
+    candidates: [],
+    representative_court_positions: [],
+  },
+]
+
 const chunk: AnalysisFrameChunk = {
   schemaVersion: 1,
   analysisId: 'analysis',
@@ -100,6 +129,7 @@ describe('CourtPathView', () => {
     const wrapper = mount(CourtPathView, {
       props: {
         paths,
+        events,
         activeFrame: 301,
         playing: true,
         tracks: [
@@ -128,6 +158,7 @@ describe('CourtPathView', () => {
     const wrapper = mount(CourtPathView, {
       props: {
         paths,
+        events,
         activeFrame: 301,
         chunk,
         tracks: [
@@ -146,7 +177,7 @@ describe('CourtPathView', () => {
     expect(wrapper.text()).toContain('ID 12')
   })
 
-  it('keeps an explicit badge for mapped legacy roster entries without a position', () => {
+  it('keeps an explicit badge for mapped roster entries without a position', () => {
     const wrapper = mount(CourtPathView, {
       props: {
         paths,

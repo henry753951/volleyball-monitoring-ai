@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import {
   Gauge,
+  ListTree,
   Maximize2,
   Minimize2,
   Pause,
@@ -49,6 +50,7 @@ const overlayMode = ref<OverlayMode>('coach')
 const courtLabelMode = ref<'hitters' | 'all'>('hitters')
 const showOtherPlayers = ref(true)
 const showCourtLegend = ref(true)
+const timelineOpen = useState('coach-replay-timeline-open', () => false)
 const rallyStatus = useCoachRallyStatus()
 const matchState = useCoachMatchState(matchId, { refreshIntervalMs: 0 })
 const mediaSize = reactive({ width: 0, height: 0 })
@@ -328,7 +330,9 @@ function formatClock(value: number) {
 }
 
 function eventLabel(event: ReplayContactEvent) {
-  const kind = event.ball_event?.kind
+  const kind =
+    event.ball_event?.kind ??
+    (event.sequence_index === 0 ? 'serve' : event.sequence_index === 1 ? 'receive' : 'contact')
   const label =
     kind === 'serve'
       ? '發球'
@@ -351,6 +355,22 @@ function eventLabel(event: ReplayContactEvent) {
               ? '失敗'
               : null
   return resultLabel ? `${label} · ${resultLabel}` : label
+}
+
+function eventTeamLabel(event: ReplayContactEvent) {
+  const trackId =
+    event.ball_event?.actor?.track_id ?? event.actors[0]?.track_id ?? event.candidates[0]?.track_id
+  const side = overlayTracks.value.find(track => track.trackId === trackId)?.courtSide
+  return side === 'left'
+    ? leftTeamLabel.value
+    : side === 'right'
+      ? rightTeamLabel.value
+      : '隊伍待辨識'
+}
+
+function seekEvent(event: ReplayContactEvent) {
+  seekSeconds(replayStartSeconds(event.anchor_time_us, 3))
+  if (video.value) void video.value.play()
 }
 
 function eventActorLabel(event: ReplayContactEvent) {
@@ -587,6 +607,23 @@ onBeforeUnmount(() => {
                   :identity-labels="overlayIdentityLabels"
                 />
               </div>
+              <div
+                v-if="
+                  replay.analysis &&
+                  overlayEnabled &&
+                  (overlay.pending.value || overlay.error.value || !overlay.currentChunk.value)
+                "
+                class="replay-player__overlay-state"
+                :data-tone="overlay.error.value ? 'error' : 'muted'"
+              >
+                {{
+                  overlay.error.value
+                    ? '疊圖資料載入失敗'
+                    : overlay.pending.value
+                      ? '疊圖資料載入中'
+                      : '這個時間點沒有疊圖資料'
+                }}
+              </div>
               <button
                 v-if="!playing"
                 type="button"
@@ -721,6 +758,15 @@ onBeforeUnmount(() => {
                   </section>
                 </div>
               </UiPopover>
+              <UiTooltip :content="timelineOpen ? '收合擊球時間線' : '展開擊球時間線'"
+                ><button
+                  type="button"
+                  aria-label="擊球時間線"
+                  :aria-pressed="timelineOpen"
+                  @click="timelineOpen = !timelineOpen"
+                >
+                  <ListTree :size="19" /></button
+              ></UiTooltip>
               <UiTooltip :content="isFullscreen ? '退出全螢幕' : '進入全螢幕'"
                 ><button
                   type="button"
@@ -753,38 +799,59 @@ onBeforeUnmount(() => {
           />
         </div>
 
-        <section class="replay-timeline" aria-label="回合時間軸">
-          <div class="replay-timeline__labels">
-            <strong>回合時間軸</strong
-            ><span>{{ formatClock(currentTime) }} / {{ formatClock(duration) }}</span>
-          </div>
-          <div class="replay-track" :style="timelineStyle">
-            <input
-              type="range"
-              min="0"
-              :max="Math.max(duration, 0.001)"
-              step=".001"
-              :value="currentTime"
-              aria-label="影片進度"
-              @input="handleSeekInput"
-            />
-            <button
-              v-for="event in timelineEvents"
-              :key="event.key_point_id"
-              type="button"
-              class="replay-point"
-              :class="{
-                service: event.ball_event?.kind === 'serve',
-                receive: event.ball_event?.kind === 'receive',
-                spike: event.ball_event?.kind === 'spike',
-              }"
-              :style="{ left: `${pointPercent(event)}%` }"
-              :aria-label="`${eventLabel(event)} · ${eventActorLabel(event)}`"
-              :title="`${eventLabel(event)} · ${eventActorLabel(event)}`"
-              @click="seekTimeUs(event.anchor_time_us)"
-            />
-          </div>
-        </section>
+        <Transition name="timeline-drawer">
+          <section v-if="timelineOpen" class="replay-timeline" aria-label="擊球時間線">
+            <header class="replay-timeline__labels">
+              <span><ListTree :size="17" /><strong>擊球時間線</strong></span>
+              <small>{{ formatClock(currentTime) }} / {{ formatClock(duration) }}</small>
+            </header>
+            <div class="replay-track" :style="timelineStyle">
+              <input
+                type="range"
+                min="0"
+                :max="Math.max(duration, 0.001)"
+                step=".001"
+                :value="currentTime"
+                aria-label="影片進度"
+                @input="handleSeekInput"
+              />
+              <button
+                v-for="event in timelineEvents"
+                :key="event.key_point_id"
+                type="button"
+                class="replay-point"
+                :class="{
+                  service: event.ball_event?.kind === 'serve',
+                  receive: event.ball_event?.kind === 'receive',
+                  spike: event.ball_event?.kind === 'spike',
+                }"
+                :style="{
+                  left: `${pointPercent(event)}%`,
+                  '--point-lane': event.sequence_index % 3,
+                }"
+                :aria-label="`${eventLabel(event)} · ${eventActorLabel(event)}`"
+                @click="seekEvent(event)"
+              />
+            </div>
+            <UiScrollArea class="replay-events-scroll">
+              <div class="replay-events">
+                <button
+                  v-for="event in timelineEvents"
+                  :key="`detail:${event.key_point_id}`"
+                  type="button"
+                  @click="seekEvent(event)"
+                >
+                  <span class="replay-events__ordinal">{{ event.sequence_index + 1 }}</span>
+                  <span class="replay-events__copy"
+                    ><strong>{{ eventLabel(event) }}</strong
+                    ><small>{{ eventTeamLabel(event) }} · {{ eventActorLabel(event) }}</small></span
+                  >
+                  <time>{{ formatClock(Number(BigInt(event.anchor_time_us)) / 1_000_000) }}</time>
+                </button>
+              </div>
+            </UiScrollArea>
+          </section>
+        </Transition>
       </section>
     </template>
   </section>
@@ -865,7 +932,7 @@ onBeforeUnmount(() => {
 .replay-experience {
   min-height: 0;
   display: grid;
-  grid-template-rows: minmax(0, 1fr) 68px;
+  grid-template-rows: minmax(0, 1fr) auto;
   gap: 9px;
   overflow: hidden;
 }
@@ -922,6 +989,25 @@ onBeforeUnmount(() => {
   box-shadow:
     0 8px 28px #0006,
     0 0 0 3px #ffffff45;
+}
+.replay-player__overlay-state {
+  position: absolute;
+  z-index: 3;
+  top: 10px;
+  left: 10px;
+  padding: 5px 8px;
+  border: 1px solid #ffffff1f;
+  border-radius: 7px;
+  background: #080b10c7;
+  color: #d6dde5;
+  font-size: 0.6rem;
+  font-weight: 650;
+  pointer-events: none;
+  backdrop-filter: blur(12px);
+}
+.replay-player__overlay-state[data-tone='error'] {
+  border-color: #ff8b8170;
+  color: #ffb3ac;
 }
 .replay-player__empty {
   display: grid;
@@ -1000,38 +1086,124 @@ onBeforeUnmount(() => {
   color: #fff;
 }
 .replay-timeline {
+  height: 166px;
   min-height: 0;
   display: grid;
-  grid-template-columns: 108px minmax(0, 1fr);
+  grid-template-columns: 120px minmax(0, 1fr);
+  grid-template-rows: 38px minmax(0, 1fr);
   align-items: center;
-  gap: 14px;
-  padding: 10px 16px;
+  gap: 0 16px;
+  padding: 8px 14px 10px;
   border: 1px solid #dfe4e9;
   border-radius: 14px;
   background: #fff;
   box-shadow: 0 8px 24px #1822300a;
 }
 .replay-timeline__labels {
-  display: grid;
-  gap: 3px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  grid-column: 1 / -1;
+}
+.replay-timeline__labels > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
 }
 .replay-timeline__labels strong {
   font-size: 0.72rem;
 }
-.replay-timeline__labels span {
+.replay-timeline__labels small {
   color: #7c8590;
   font-size: 0.62rem;
   font-variant-numeric: tabular-nums;
 }
 .replay-track {
   position: relative;
+  height: 52px;
+  align-self: start;
+  margin-top: 8px;
+}
+.replay-events-scroll {
+  width: 100%;
+  height: 104px;
+  min-width: 0;
+}
+.replay-events {
+  display: flex;
+  gap: 7px;
+  padding: 2px 12px 8px 0;
+}
+.replay-events > button {
+  min-width: 180px;
+  min-height: 62px;
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid #e2e7ec;
+  border-radius: 11px;
+  background: #f8fafb;
+  color: #242a31;
+  text-align: left;
+}
+.replay-events > button:hover,
+.replay-events > button:focus-visible {
+  border-color: #9ec8f2;
+  background: #f2f8fe;
+  outline: none;
+}
+.replay-events__ordinal {
+  width: 28px;
   height: 28px;
+  display: grid;
+  place-items: center;
+  border-radius: 9px;
+  background: #e8eef5;
+  color: #526170;
+  font-size: 0.68rem;
+  font-weight: 760;
+}
+.replay-events__copy {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+.replay-events__copy strong,
+.replay-events__copy small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.replay-events__copy strong {
+  font-size: 0.68rem;
+}
+.replay-events__copy small,
+.replay-events time {
+  color: #737e89;
+  font-size: 0.56rem;
+}
+.replay-events time {
+  font-variant-numeric: tabular-nums;
+}
+.timeline-drawer-enter-active,
+.timeline-drawer-leave-active {
+  transition:
+    opacity 150ms ease-out,
+    transform 220ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+.timeline-drawer-enter-from,
+.timeline-drawer-leave-to {
+  opacity: 0;
+  transform: translateY(12px);
 }
 .replay-track::before {
   position: absolute;
   left: 0;
   right: 0;
-  top: 12px;
+  top: 24px;
   height: 4px;
   border-radius: 999px;
   background: linear-gradient(
@@ -1046,7 +1218,7 @@ onBeforeUnmount(() => {
   z-index: 2;
   inset: 0;
   width: 100%;
-  height: 28px;
+  height: 52px;
   margin: 0;
   opacity: 0.001;
   cursor: pointer;
@@ -1054,7 +1226,7 @@ onBeforeUnmount(() => {
 .replay-point {
   position: absolute;
   z-index: 3;
-  top: 7px;
+  top: calc(3px + var(--point-lane, 0) * 16px);
   width: 14px;
   height: 14px;
   padding: 0;
@@ -1068,8 +1240,8 @@ onBeforeUnmount(() => {
   position: absolute;
   left: 50%;
   top: 50%;
-  width: 44px;
-  height: 44px;
+  width: 26px;
+  height: 26px;
   transform: translate(-50%, -50%);
   content: '';
 }
@@ -1318,7 +1490,7 @@ onBeforeUnmount(() => {
   gap: 20px;
 }
 .replay-experience {
-  grid-template-rows: minmax(0, 1fr) 64px;
+  grid-template-rows: minmax(0, 1fr) auto;
   gap: 0;
 }
 .replay-grid {

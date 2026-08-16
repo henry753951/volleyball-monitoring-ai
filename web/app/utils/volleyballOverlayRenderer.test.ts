@@ -135,7 +135,7 @@ describe('volleyball overlay geometry', () => {
   })
 
   it('renders the canonical TID and GID before the assigned player name', () => {
-    expect(overlayTrackIdentityLabel(7, 'L1', '#11 TEST')).toBe('T007  舊關聯 L1  #11 TEST')
+    expect(overlayTrackIdentityLabel(7, 'L1', '#11 TEST')).toBe('T007  群組未定  #11 TEST')
     expect(overlayTrackIdentityLabel(7, null, null)).toBe('T007  群組未定')
   })
 

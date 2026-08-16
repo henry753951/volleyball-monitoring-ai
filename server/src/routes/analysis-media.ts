@@ -286,51 +286,63 @@ export function analysisMediaRoutesWithDependencies(dependencies: {
           })
         }
 
-        const [reidObservations, reidCorrections] = await Promise.all([
-          db.reidFeatureObservation.findMany({
-            where: { analysisRunId: run.id },
+        const [reidTracklets, reidCorrections] = await Promise.all([
+          db.reidTracklet.findMany({
+            where: {
+              evidenceSet: {
+                analysisRunId: run.id,
+                status: ArtifactState.READY,
+                supersededAt: null,
+              },
+            },
             include: {
-              reidIdentity: {
+              vectors: { orderBy: [{ modality: 'asc' }, { modelNamespace: 'asc' }] },
+              evidenceSet: {
+                select: {
+                  id: true,
+                  schemaVersion: true,
+                  recipeNamespace: true,
+                  contentSha256: true,
+                  status: true,
+                  descriptorBundleAsset: true,
+                  resultAsset: true,
+                },
+              },
+              activeProjection: {
                 include: {
-                  bindings: {
-                    include: { rosterEntry: { include: { player: true, team: true } } },
-                    orderBy: [
-                      { effectiveFromSetNumber: 'asc' },
-                      { effectiveFromRallyOrdinal: 'asc' },
-                      { identityRevision: 'asc' },
-                    ],
+                  assignmentRevision: {
+                    include: {
+                      personCluster: { select: { id: true, teamId: true, label: true } },
+                      rosterEntry: { include: { player: true, team: true } },
+                    },
                   },
                 },
               },
             },
-            orderBy: { trackId: 'asc' },
+            orderBy: { canonicalTrackId: 'asc' },
           }),
-          db.reidCorrectionEvent.findMany({
+          db.reidIdentityCorrection.findMany({
             where: { matchId: run.submission.rally.match.id },
             include: {
-              sourceIdentity: {
-                select: {
-                  id: true,
-                  label: true,
-                  slotIndex: true,
-                  teamId: true,
-                  modelNamespace: true,
-                },
-              },
-              targetIdentity: {
-                select: {
-                  id: true,
-                  label: true,
-                  slotIndex: true,
-                  teamId: true,
-                  modelNamespace: true,
-                },
-              },
+              sourcePersonCluster: { select: { id: true, teamId: true, label: true } },
+              targetPersonCluster: { select: { id: true, teamId: true, label: true } },
               rosterEntry: { include: { player: true, team: true } },
             },
-            orderBy: [{ identityRevision: 'asc' }, { createdAt: 'asc' }],
+            orderBy: [{ revision: 'asc' }, { createdAt: 'asc' }],
           }),
         ])
+
+        const evidenceSets = [
+          ...new Map(
+            reidTracklets.map(tracklet => [tracklet.evidenceSet.id, tracklet.evidenceSet]),
+          ).values(),
+        ]
+        const descriptorBundlePaths = Object.fromEntries(
+          evidenceSets.map(evidenceSet => [
+            evidenceSet.id,
+            `reid/evidence/${evidenceSet.id}-descriptors.bin`,
+          ]),
+        )
 
         const assets = [
           { name: 'video/clip.mp4', asset: run.aiJob.clipJob.clipAsset, store: true },
@@ -357,6 +369,18 @@ export function analysisMediaRoutesWithDependencies(dependencies: {
             asset: entry.asset,
             store: true,
           })),
+          ...evidenceSets.flatMap(evidenceSet => [
+            {
+              name: `reid/evidence/${evidenceSet.id}-result.json`,
+              asset: evidenceSet.resultAsset,
+              store: true,
+            },
+            {
+              name: descriptorBundlePaths[evidenceSet.id]!,
+              asset: evidenceSet.descriptorBundleAsset,
+              store: true,
+            },
+          ]),
         ].filter(
           entry => entry.asset.state === ArtifactState.READY && entry.asset.deletedAt === null,
         )
@@ -371,14 +395,6 @@ export function analysisMediaRoutesWithDependencies(dependencies: {
           512 * 1024 * 1024,
         )
         const analysisData = parseAnalysisData(analysisDataBytes)
-        const rawAnalysis = JSON.parse(analysisData.domainJson) as unknown
-        const rawExtensions =
-          isRecord(rawAnalysis) && isRecord(rawAnalysis.extensions) ? rawAnalysis.extensions : null
-        const reidFeatureBank =
-          rawExtensions && isRecord(rawExtensions.fixed_roster_reid)
-            ? rawExtensions.fixed_roster_reid
-            : null
-        const reidFeatureBankPath = reidFeatureBank ? 'reid/fixed-roster-tracklets.json' : null
         let timeline
         try {
           timeline = await readClipFrameTimeline(
@@ -449,8 +465,6 @@ export function analysisMediaRoutesWithDependencies(dependencies: {
             roster_entry_id: assignment.rosterEntryId,
             source: assignment.source,
             confidence: assignment.confidence,
-            reid_identity_id: assignment.reidIdentityId,
-            reid_binding_id: assignment.reidBindingId,
             identity_revision: assignment.identityRevision,
             assigned_at: assignment.createdAt,
             player: {
@@ -683,21 +697,10 @@ export function analysisMediaRoutesWithDependencies(dependencies: {
             analysisRunId: run.id,
             matchId: run.submission.rally.match.id,
             matchIdentityRevision: run.submission.rally.match.identityRevision,
-            observations: reidObservations,
+            tracklets: reidTracklets,
             corrections: reidCorrections,
-            featureBankPath: reidFeatureBankPath,
+            descriptorBundlePaths,
           }),
-          ...(reidFeatureBank
-            ? [
-                {
-                  path: reidFeatureBankPath!,
-                  bytes: jsonBytes(reidFeatureBank),
-                  contentType: 'application/json',
-                  description:
-                    'Versioned fixed-roster tracklets with DINOv2, Sports OSNet, Official KPR, prompted KPR, aliases, and co-visibility constraints.',
-                },
-              ]
-            : []),
           {
             path: 'analysis/database-view.json',
             bytes: jsonBytes({
@@ -745,12 +748,10 @@ export function analysisMediaRoutesWithDependencies(dependencies: {
             generated_label_files: generated
               .filter(entry => entry.path.startsWith('labels/') || entry.path.startsWith('reid/'))
               .map(entry => entry.path),
-            persisted_fixed_roster_reid: Boolean(reidFeatureBank),
-            persisted_reid_observation_count: reidObservations.length,
+            versioned_reid_evidence_set_count: evidenceSets.length,
+            versioned_reid_tracklet_count: reidTracklets.length,
             identity_correction_event_count: reidCorrections.length,
-            reid_feature_vector_locations: reidFeatureBankPath
-              ? ['analysis/analysis-data.vad1', reidFeatureBankPath]
-              : ['analysis/analysis-data.vad1'],
+            reid_feature_vector_locations: Object.values(descriptorBundlePaths),
             excluded_transient_worker_state: [
               'gpu_tensors',
               'feature_maps',

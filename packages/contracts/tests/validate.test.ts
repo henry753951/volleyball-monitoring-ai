@@ -152,7 +152,6 @@ describe('golden contract fixtures', () => {
       'examples/ai/identity-preview-job.json': 'ai/identity-preview-job.schema.json',
       'examples/ai/identity-preview-result.json': 'ai/identity-preview-result.schema.json',
       'examples/ai/boundary-job.json': 'ai/job.schema.json',
-      'examples/ai/fixed-roster-reid-v2.json': 'ai/fixed-roster-reid-v2.schema.json',
       'examples/analysis/review-patch.json': 'analysis/review-patch.schema.json',
       'examples/analysis/review-state.json': 'analysis/review-state.schema.json',
       'examples/analysis/review-revision-event.json': 'analysis/review-revision-event.schema.json',

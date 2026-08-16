@@ -282,13 +282,6 @@ enum IdentitySource {
   PROPAGATED
 }
 
-enum ReidCorrectionKind {
-  FROM_HERE
-  CLIP_ONLY
-  SPLIT_IDENTITY
-  MERGE_IDENTITY
-}
-
 enum CallbackKind {
   PROCESSING
   FAILED
@@ -321,8 +314,6 @@ model User {
   annotationReceipts           AnnotationCommandReceipt[]
   submittedRevisions           RallySubmission[]             @relation("SubmissionSubmittedBy")
   identityAssignments          TrackIdentityAssignment[]
-  reidPlayerBindings           ReidPlayerBinding[]           @relation("ReidBindingAssignedBy")
-  reidCorrectionEvents         ReidCorrectionEvent[]         @relation("ReidCorrectionCreatedBy")
   completedIdentityMappings    AnalysisRun[]                 @relation("IdentityMappingCompletedBy")
   approvedAnalysisReviews      AnalysisRun[]                 @relation("AnalysisReviewApprovedBy")
   playbackWindows              PlaybackWindow[]              @relation("PlaybackWindowCreatedBy")
@@ -375,9 +366,6 @@ model Match {
   rosterEntries           MatchRosterEntry[]
   captureSessions         CaptureSession[]
   rallies                 Rally[]
-  reidIdentities          ReidIdentity[]
-  reidObservations        ReidFeatureObservation[]
-  reidCorrections         ReidCorrectionEvent[]
   reidPersonClusters      ReidPersonCluster[]
   reidBankSnapshots       ReidBankSnapshot[]
   reidCannotLinks         ReidCannotLink[]
@@ -404,9 +392,6 @@ model Team {
   submissionWinners    RallySubmission[]        @relation("SubmissionScoringTeam")
   pointAwards          PointAward[]
   wonSets              MatchSet[]               @relation("SetWinningTeam")
-  reidIdentities       ReidIdentity[]
-  reidObservations     ReidFeatureObservation[]
-  reidCorrections      ReidCorrectionEvent[]
   reidPersonClusters   ReidPersonCluster[]
   reidBankSnapshots    ReidBankSnapshot[]
   reidIdentityRepairs  ReidIdentityCorrection[]
@@ -446,8 +431,6 @@ model MatchRosterEntry {
   team                     Team                       @relation(fields: [teamId], references: [id], onDelete: Restrict)
   player                   Player?                    @relation(fields: [playerId], references: [id], onDelete: SetNull)
   identityAssignments      TrackIdentityAssignment[]
-  reidBindings             ReidPlayerBinding[]
-  reidCorrections          ReidCorrectionEvent[]
   reidMemberships          ReidEvidenceMembership[]
   reidAssociationDecisions ReidAssociationDecision[]
   reidIdentityRepairs      ReidIdentityCorrection[]
@@ -1303,7 +1286,6 @@ model AnalysisRun {
   contactTimeCorrections           AnalysisContactTimeCorrection[]
   contactEdits                     AnalysisContactEdit[]
   reviewPatchReceipts              AnalysisReviewPatchReceipt[]
-  reidCorrectionEvents             ReidCorrectionEvent[]
   providerJobs                     ProviderJob[]
   analysisEvidenceBundle           AnalysisEvidenceBundle?
   personPoseEvidenceManifests      PersonPoseEvidenceManifest[]
@@ -1523,7 +1505,6 @@ model AnalysisTrack {
   actors              ContactEventActor[]
   candidates          ContactEventCandidate[]
   identityAssignments TrackIdentityAssignment[]
-  reidObservation     ReidFeatureObservation?
 
   @@id([analysisRunId, trackId])
 }
@@ -1641,153 +1622,20 @@ model BallPathSegmentPosition {
 }
 
 model TrackIdentityAssignment {
-  id               String             @id @default(uuid()) @db.Uuid
-  analysisRunId    String             @db.Uuid
+  id               String           @id @default(uuid()) @db.Uuid
+  analysisRunId    String           @db.Uuid
   trackId          Int
-  rosterEntryId    String             @db.Uuid
+  rosterEntryId    String           @db.Uuid
   source           IdentitySource
-  assignedByUserId String?            @db.Uuid
+  assignedByUserId String?          @db.Uuid
   confidence       Float?
-  reidIdentityId   String?            @db.Uuid
-  reidBindingId    String?            @db.Uuid
   identityRevision BigInt?
-  createdAt        DateTime           @default(now())
-  track            AnalysisTrack      @relation(fields: [analysisRunId, trackId], references: [analysisRunId, trackId], onDelete: Cascade)
-  rosterEntry      MatchRosterEntry   @relation(fields: [rosterEntryId], references: [id], onDelete: Restrict)
-  assignedBy       User?              @relation(fields: [assignedByUserId], references: [id], onDelete: SetNull)
-  reidIdentity     ReidIdentity?      @relation(fields: [reidIdentityId], references: [id], onDelete: SetNull)
-  reidBinding      ReidPlayerBinding? @relation("ReidAssignmentBinding", fields: [reidBindingId], references: [id], onDelete: SetNull)
+  createdAt        DateTime         @default(now())
+  track            AnalysisTrack    @relation(fields: [analysisRunId, trackId], references: [analysisRunId, trackId], onDelete: Cascade)
+  rosterEntry      MatchRosterEntry @relation(fields: [rosterEntryId], references: [id], onDelete: Restrict)
+  assignedBy       User?            @relation(fields: [assignedByUserId], references: [id], onDelete: SetNull)
 
   @@unique([analysisRunId, trackId])
-  @@index([reidIdentityId])
-  @@index([reidBindingId])
-}
-
-model ReidIdentity {
-  id                     String                    @id @default(uuid()) @db.Uuid
-  matchId                String                    @db.Uuid
-  teamId                 String                    @db.Uuid
-  modelNamespace         String
-  modelName              String
-  modelCheckpointSha256  String
-  modelPreprocessVersion String
-  modelDimension         Int
-  modelDistance          String
-  label                  String
-  slotIndex              Int
-  createdRevision        BigInt
-  createdAt              DateTime                  @default(now())
-  match                  Match                     @relation(fields: [matchId], references: [id], onDelete: Cascade)
-  team                   Team                      @relation(fields: [teamId], references: [id], onDelete: Restrict)
-  observations           ReidFeatureObservation[]
-  bindings               ReidPlayerBinding[]
-  trackAssignments       TrackIdentityAssignment[]
-  sourceCorrections      ReidCorrectionEvent[]     @relation("ReidCorrectionSource")
-  targetCorrections      ReidCorrectionEvent[]     @relation("ReidCorrectionTarget")
-
-  @@unique([matchId, teamId, slotIndex])
-  @@index([matchId, teamId, createdAt])
-  @@index([matchId, teamId, modelNamespace, createdAt])
-}
-
-model ReidFeatureObservation {
-  id                     String              @id @default(uuid()) @db.Uuid
-  analysisRunId          String              @db.Uuid
-  trackId                Int
-  matchId                String              @db.Uuid
-  teamId                 String?             @db.Uuid
-  reidIdentityId         String?             @db.Uuid
-  modelNamespace         String
-  modelName              String
-  modelCheckpointSha256  String
-  modelPreprocessVersion String
-  modelDimension         Int
-  modelDistance          String
-  courtSide              TrackCourtSide
-  provisionalGid         String
-  canonicalTrackId       Int
-  isCanonicalTrack       Boolean
-  aliasTrackIds          Int[]
-  medianCourtX           Float?
-  medianCourtY           Float?
-  descriptorRecipe       Json
-  dinoDescriptor         Bytes?
-  osnetDescriptor        Bytes?
-  kprDescriptor          Bytes?
-  kprPromptDescriptor    Bytes?
-  promptCoverage         Float
-  selectedModalities     String[]
-  selectedKernel         String
-  selectedRegularization Float
-  firstFrame             BigInt
-  lastFrame              BigInt
-  sampleCount            Int
-  meanQuality            Float
-  prototype              Bytes
-  cannotLinkTrackIds     Int[]
-  setNumber              Int
-  rallyOrdinal           Int
-  matchConfidence        Float?
-  identityRevision       BigInt
-  createdAt              DateTime            @default(now())
-  track                  AnalysisTrack       @relation(fields: [analysisRunId, trackId], references: [analysisRunId, trackId], onDelete: Cascade)
-  match                  Match               @relation(fields: [matchId], references: [id], onDelete: Cascade)
-  team                   Team?               @relation(fields: [teamId], references: [id], onDelete: Restrict)
-  reidIdentity           ReidIdentity?       @relation(fields: [reidIdentityId], references: [id], onDelete: SetNull)
-  bindings               ReidPlayerBinding[]
-
-  @@unique([analysisRunId, trackId])
-  @@index([matchId, teamId, modelNamespace, setNumber, rallyOrdinal])
-  @@index([reidIdentityId, setNumber, rallyOrdinal])
-}
-
-model ReidPlayerBinding {
-  id                        String                    @id @default(uuid()) @db.Uuid
-  reidIdentityId            String                    @db.Uuid
-  rosterEntryId             String?                   @db.Uuid
-  sourceObservationId       String?                   @db.Uuid
-  effectiveFromSetNumber    Int
-  effectiveFromRallyOrdinal Int
-  source                    IdentitySource            @default(MANUAL)
-  identityRevision          BigInt
-  assignedByUserId          String?                   @db.Uuid
-  createdAt                 DateTime                  @default(now())
-  reidIdentity              ReidIdentity              @relation(fields: [reidIdentityId], references: [id], onDelete: Cascade)
-  rosterEntry               MatchRosterEntry?         @relation(fields: [rosterEntryId], references: [id], onDelete: SetNull)
-  sourceObservation         ReidFeatureObservation?   @relation(fields: [sourceObservationId], references: [id], onDelete: SetNull)
-  assignedBy                User?                     @relation("ReidBindingAssignedBy", fields: [assignedByUserId], references: [id], onDelete: SetNull)
-  trackAssignments          TrackIdentityAssignment[] @relation("ReidAssignmentBinding")
-
-  @@index([reidIdentityId, effectiveFromSetNumber, effectiveFromRallyOrdinal, identityRevision])
-  @@index([rosterEntryId])
-}
-
-model ReidCorrectionEvent {
-  id               String             @id @default(uuid()) @db.Uuid
-  matchId          String             @db.Uuid
-  teamId           String             @db.Uuid
-  analysisRunId    String?            @db.Uuid
-  trackId          Int?
-  sourceIdentityId String?            @db.Uuid
-  targetIdentityId String?            @db.Uuid
-  rosterEntryId    String?            @db.Uuid
-  kind             ReidCorrectionKind
-  identityRevision BigInt
-  createdByUserId  String?            @db.Uuid
-  details          Json?
-  createdAt        DateTime           @default(now())
-  match            Match              @relation(fields: [matchId], references: [id], onDelete: Cascade)
-  team             Team               @relation(fields: [teamId], references: [id], onDelete: Restrict)
-  analysisRun      AnalysisRun?       @relation(fields: [analysisRunId], references: [id], onDelete: SetNull)
-  sourceIdentity   ReidIdentity?      @relation("ReidCorrectionSource", fields: [sourceIdentityId], references: [id], onDelete: SetNull)
-  targetIdentity   ReidIdentity?      @relation("ReidCorrectionTarget", fields: [targetIdentityId], references: [id], onDelete: SetNull)
-  rosterEntry      MatchRosterEntry?  @relation(fields: [rosterEntryId], references: [id], onDelete: SetNull)
-  createdBy        User?              @relation("ReidCorrectionCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
-
-  @@unique([matchId, identityRevision])
-  @@index([analysisRunId, trackId])
-  @@index([sourceIdentityId])
-  @@index([targetIdentityId])
 }
 
 model AnalysisEvidenceBundle {

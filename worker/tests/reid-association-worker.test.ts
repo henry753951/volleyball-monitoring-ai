@@ -3,12 +3,25 @@ import {
   hasReidAssociationRerun,
   hasReidAssociationRevision,
   planReidAssociationDecisions,
+  reidAssociationIdempotencyKey,
   ReidAssociationMaterializationError,
 } from '../src/roles/reid-association-worker.js'
 
 const TRACKLET_A = '20000000-0000-4000-8000-000000000001'
 const TRACKLET_B = '20000000-0000-4000-8000-000000000002'
 const PEER_SIDE_TRACKLET = '20000000-0000-4000-8000-000000000003'
+
+it('keeps association idempotency keys within the Provider Work wire limit', () => {
+  const key = reidAssociationIdempotencyKey({
+    evidenceSetId: 'a'.repeat(128),
+    teamId: 'b'.repeat(128),
+    bankContentSha256: 'c'.repeat(64),
+    rerunRequestId: 'd'.repeat(128),
+  })
+
+  expect(key).toHaveLength(81)
+  expect(key).toMatch(/^reid-association:[a-f0-9]{64}$/)
+})
 
 const decision = (trackletId: string) => ({
   tracklet_id: trackletId,

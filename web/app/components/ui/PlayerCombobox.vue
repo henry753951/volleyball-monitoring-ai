@@ -42,6 +42,10 @@ function emitValue(value: unknown) {
   const nextValue = String(value ?? '')
   emit('update:modelValue', nextValue === CLEAR_VALUE ? '' : nextValue)
 }
+
+function openFromAnchor() {
+  if (!props.disabled) open.value = true
+}
 </script>
 
 <template>
@@ -52,7 +56,7 @@ function emitValue(value: unknown) {
     @update:open="setOpen"
     @update:model-value="emitValue"
   >
-    <ComboboxAnchor class="player-combobox__anchor"
+    <ComboboxAnchor class="player-combobox__anchor" @click="openFromAnchor"
       ><Search :size="13" /><ComboboxInput
         class="player-combobox__input"
         :display-value="displayValue"
@@ -119,6 +123,7 @@ function emitValue(value: unknown) {
     border-color 140ms ease-out,
     background-color 140ms ease-out,
     box-shadow 140ms ease-out;
+  cursor: pointer;
 }
 .player-combobox__anchor:hover {
   border-color: #52525b;
@@ -136,6 +141,7 @@ function emitValue(value: unknown) {
   background: transparent;
   color: #f4f4f5;
   font-size: 0.67rem;
+  cursor: text;
 }
 .player-combobox__trigger {
   width: 22px !important;

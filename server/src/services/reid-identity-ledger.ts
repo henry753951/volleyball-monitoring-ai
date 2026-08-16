@@ -13,6 +13,12 @@ type Position = { setNumber: number; rallyOrdinal: number }
 
 export type ReidCorrectionMode = 'from_here' | 'split_identity' | 'clip_only'
 
+export function parseReidCorrectionMode(value: unknown): ReidCorrectionMode {
+  if (value === undefined || value === null || value === '') return 'from_here'
+  if (value === 'from_here' || value === 'clip_only' || value === 'split_identity') return value
+  throw new TypeError('identityMode must be from_here, clip_only or split_identity')
+}
+
 export function correctionPolicyForIdentityMode(mode: ReidCorrectionMode) {
   if (mode === 'from_here')
     return {
@@ -261,8 +267,6 @@ export async function applyVersionedReidCorrection(
           source: candidate.id === tracklet.id ? IdentitySource.MANUAL : IdentitySource.PROPAGATED,
           assignedByUserId: input.userId,
           confidence: 1,
-          reidIdentityId: null,
-          reidBindingId: null,
           identityRevision: assignmentRevision.revision,
         },
         create: {

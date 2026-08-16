@@ -136,14 +136,15 @@ result remains auditable but cannot update the active projection. Rebuilding fea
 forward semantic-track manual projections and supersedes eligible positive/negative memberships with
 rows for the new descriptor generation at a new identity revision. It never reruns Pose implicitly.
 
-`ReidIdentity`, fixed S1-S6 slot fitting, `ReidPlayerBinding`, and automatic in-callback propagation are
-legacy read/export paths only after cutover. Legacy automatic observations migrate as unverified
-evidence; validated manual Local/TID assignments may migrate as confirmed revisions with provenance.
+The migration-only compatibility strategy originally recorded here is superseded by ADR 0039. The
+product owner approved a destructive hard cut: fixed S1-S6 identities, bindings, observations, and
+callback propagation are deleted rather than migrated or kept as read/export paths.
 
 ### Capability-gated cutover
 
-Central may temporarily read Provider Realtime 1.0/Capabilities 2.0 and the new versions, but it sends
-each worker only a work kind/schema tuple that worker advertised. Rollout order is:
+ADR 0039 supersedes the temporary dual-reader rollout described below. The final runtime accepts only
+Provider Realtime 2 work and sends each worker only a work kind/schema tuple it advertised. The
+historical rollout sequence was:
 
 1. deploy new readers, contracts, and generic persistence;
 2. deploy capability-advertising workers;
@@ -152,9 +153,9 @@ each worker only a work kind/schema tuple that worker advertised. Rollout order 
 5. stop legacy fixed-slot callback fitting and automatic propagation; and
 6. remove obsolete runtime/UI paths after reconciliation and rollback-export verification.
 
-New production ReID writes use only the new architecture after activation; dual-write is not
-indefinite. Historical AnalysisData, descriptors, completed jobs, exports, and human decisions remain
-readable/exportable. Migration performs no destructive deletion.
+New production ReID writes and reads use only the new architecture. Historical base AnalysisData may
+remain as analysis evidence, but embedded fixed-roster extensions and legacy ReID tables are neither
+read nor exported.
 
 ## Public field ownership
 
