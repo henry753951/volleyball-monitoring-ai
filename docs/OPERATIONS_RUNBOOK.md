@@ -2,6 +2,9 @@
 
 This runbook covers the Docker Compose deployment in this repository. Run commands from the repository root. Load credentials from the ignored `.env`; never put MinIO credentials, callback tokens or database dumps in Git.
 
+For the HSULab single-node production-like k3s environment, use the
+[single-node k3s deployment runbook](K3S_SINGLE_NODE_DEPLOYMENT_RUNBOOK.md).
+
 ## Health and restart
 
 The full central stack uses the `app` profile. Provision or validate object-storage buckets before
