@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.3.0](https://github.com/henry753951/volleyball-monitoring-ai/compare/v1.2.0...v1.3.0) (2026-08-17)
+
+
+### Features
+
+* cap reid gids and bound rerun waits ([#94](https://github.com/henry753951/volleyball-monitoring-ai/issues/94)) ([f83471b](https://github.com/henry753951/volleyball-monitoring-ai/commit/f83471bd059f3fd5ec340b3dc2e9d61f89664698))
+
 ## [1.2.0](https://github.com/henry753951/volleyball-monitoring-ai/compare/v1.1.0...v1.2.0) (2026-08-17)
 
 
