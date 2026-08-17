@@ -60,6 +60,7 @@ const props = withDefaults(
     overlayLayers: () => ({
       bbox: true,
       trackId: true,
+      playerLabel: true,
       action: true,
       ball: true,
       trail: true,
@@ -454,6 +455,7 @@ defineExpose({
       :identity-labels="identityLabels"
       :tracks="overlayTracks"
       :team-labels="overlayTeamLabels"
+      @media-click="handleVideoClick"
       @ball-position="emit('ballPosition', $event)"
       @player-bbox="emit('playerBbox', $event)"
       @track-select="emit('trackSelect', $event)"

@@ -81,7 +81,7 @@ describe('AnnotationTransportBar', () => {
     const { wrapper, execute } = mountBar()
     expect(wrapper.find('[aria-label="片段工具"]').exists()).toBe(false)
     await wrapper.setProps({ clipSelected: true })
-    await wrapper.find('[aria-label="刪除所選片段"]').trigger('click')
+    await wrapper.find('[aria-label="刪除片段內容"]').trigger('click')
     expect(execute).toHaveBeenCalledWith('segment.delete-processing')
   })
 

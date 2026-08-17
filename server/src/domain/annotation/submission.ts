@@ -51,6 +51,8 @@ const reject = (
 function ordinaryDraftBelongsToDevice(
   rally: {
     activeSubmissionId: string | null
+    annotationStatus?: string
+    draftOwnerDeviceSessionId?: string | null
     boundaries: Array<{ kind: string; deviceSessionId: string }>
     keyPoints: Array<{ markerKind: string; deviceSessionId: string }>
     operations: Array<{ deviceSessionId: string }>
@@ -58,7 +60,9 @@ function ordinaryDraftBelongsToDevice(
   deviceSessionId: string,
 ) {
   if (rally.activeSubmissionId !== null) return true
+  if (rally.annotationStatus === 'READY') return true
   const owner =
+    rally.draftOwnerDeviceSessionId ??
     rally.boundaries.find(boundary => boundary.kind === 'START')?.deviceSessionId ??
     rally.keyPoints.find(point => point.markerKind === 'SERVICE')?.deviceSessionId ??
     rally.operations[0]?.deviceSessionId

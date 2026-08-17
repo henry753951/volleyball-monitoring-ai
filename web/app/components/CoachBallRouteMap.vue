@@ -5,14 +5,20 @@ import {
   Target as TargetIcon,
 } from 'lucide-vue-next'
 import { computed, ref } from 'vue'
-import { actionColor, type CoachPlayerActionEvent } from '~/utils/coachPlayerActions'
+import {
+  actionColor,
+  type CoachCourtSide,
+  type CoachPlayerActionEvent,
+} from '~/utils/coachPlayerActions'
 
 type DisplayMode = 'routes' | 'landings'
 type SideScope = 'team' | 'player'
+type TeamTone = 'blue' | 'red'
 
 export interface CoachRouteMapSideLabel {
-  name: string
-  scope: SideScope
+  teamShortName: string
+  tone?: TeamTone
+  scope: SideScope | null
 }
 
 type CoachRouteMapSideLabels = {
@@ -21,8 +27,8 @@ type CoachRouteMapSideLabels = {
 }
 
 const DEFAULT_SIDE_LABELS: CoachRouteMapSideLabels = {
-  left: { name: '—', scope: 'team' },
-  right: { name: '—', scope: 'team' },
+  left: { teamShortName: '—', scope: null },
+  right: { teamShortName: '—', scope: null },
 }
 const SCOPE_LABELS: Record<SideScope, string> = {
   team: '[隊伍方]',
@@ -33,6 +39,7 @@ const props = defineProps<{
   events: CoachPlayerActionEvent[]
   label: string
   sideLabels?: CoachRouteMapSideLabels
+  selectedSide?: 'left' | 'right' | null
 }>()
 const emit = defineEmits<{ select: [event: CoachPlayerActionEvent] }>()
 
@@ -43,14 +50,20 @@ const routeEvents = computed(() =>
 )
 const landingEvents = computed(() => props.events.filter(event => event.routeEnd !== null))
 
-const courtX = (value: number) => value * 180
+const courtX = (value: number, side: CoachCourtSide | null | undefined = props.selectedSide) =>
+  (side === 'right' ? 1 - value : value) * 180
 const courtY = (value: number) => (1 - value) * 90
+
+function eventSide(event: CoachPlayerActionEvent) {
+  return event.courtSide ?? props.selectedSide
+}
 
 function routeCurve(event: CoachPlayerActionEvent, index: number) {
   if (!event.routeStart || !event.routeEnd) return ''
-  const startX = courtX(event.routeStart.x)
+  const side = eventSide(event)
+  const startX = courtX(event.routeStart.x, side)
   const startY = courtY(event.routeStart.y)
-  const endX = courtX(event.routeEnd.x)
+  const endX = courtX(event.routeEnd.x, side)
   const endY = courtY(event.routeEnd.y)
   const distance = Math.max(1, Math.hypot(endX - startX, endY - startY))
   const bend = Math.min(12, Math.max(3, distance * 0.12)) * (index % 2 ? -1 : 1)
@@ -93,130 +106,170 @@ function openEvent(event: CoachPlayerActionEvent) {
     </header>
 
     <div class="route-map__canvas" :data-mode="displayMode">
-      <svg viewBox="-18 -14 216 118" role="img" :aria-label="`${label}球路與落點熱區`">
-        <defs>
-          <radialGradient id="landing-heat" cx="50%" cy="50%" r="50%">
-            <stop offset="0" stop-color="#ff4d2e" stop-opacity=".86" />
-            <stop offset=".42" stop-color="#ff8a36" stop-opacity=".42" />
-            <stop offset="1" stop-color="#ffbf69" stop-opacity="0" />
-          </radialGradient>
-          <filter id="route-shadow" x="-50%" y="-50%" width="200%" height="200%">
-            <feDropShadow
-              dx="0"
-              dy="1.2"
-              stdDeviation="1.3"
-              flood-color="#02070b"
-              flood-opacity=".6"
+      <div
+        class="court-stage"
+        role="group"
+        :aria-label="`場上隊伍：${sideLabels.left.teamShortName} 對 ${sideLabels.right.teamShortName}`"
+      >
+        <svg viewBox="-18 -14 216 118" role="img" :aria-label="`${label}球路與落點熱區`">
+          <defs>
+            <radialGradient id="landing-heat" cx="50%" cy="50%" r="50%">
+              <stop offset="0" stop-color="#ff4d2e" stop-opacity=".86" />
+              <stop offset=".42" stop-color="#ff8a36" stop-opacity=".42" />
+              <stop offset="1" stop-color="#ffbf69" stop-opacity="0" />
+            </radialGradient>
+            <filter id="route-shadow" x="-50%" y="-50%" width="200%" height="200%">
+              <feDropShadow
+                dx="0"
+                dy="1.2"
+                stdDeviation="1.3"
+                flood-color="#02070b"
+                flood-opacity=".6"
+              />
+            </filter>
+            <marker
+              id="route-arrow"
+              viewBox="0 0 7 7"
+              ref-x="6.2"
+              ref-y="3.5"
+              marker-width="5.5"
+              marker-height="5.5"
+              orient="auto-start-reverse"
+              marker-units="userSpaceOnUse"
+            >
+              <path class="route-arrow" d="M 0 0 L 7 3.5 L 0 7 Z" />
+            </marker>
+          </defs>
+
+          <g class="court-side-names" aria-hidden="true">
+            <text
+              x="1"
+              y="-10"
+              :class="[
+                'court-side-name',
+                'court-side-name--left',
+                sideLabels.left.tone ? `team-tone-${sideLabels.left.tone}` : null,
+              ]"
+            >
+              {{ sideLabels.left.teamShortName }}
+            </text>
+            <text
+              x="179"
+              y="-10"
+              :class="[
+                'court-side-name',
+                'court-side-name--right',
+                sideLabels.right.tone ? `team-tone-${sideLabels.right.tone}` : null,
+              ]"
+            >
+              {{ sideLabels.right.teamShortName }}
+            </text>
+          </g>
+          <rect class="court-apron" x="-12" y="-8" width="204" height="106" rx="8" />
+          <rect class="court-floor" x="0" y="0" width="180" height="90" rx="3" />
+          <g class="court-lines">
+            <rect x="1" y="1" width="178" height="88" rx="2" />
+            <line x1="90" y1="1" x2="90" y2="89" class="court-net" />
+            <line x1="60" y1="1" x2="60" y2="89" />
+            <line x1="120" y1="1" x2="120" y2="89" />
+          </g>
+          <g class="court-side-label" aria-hidden="true">
+            <text
+              v-if="sideLabels.left.scope"
+              x="45"
+              y="84"
+              :class="[
+                'court-side-scope',
+                sideLabels.left.tone ? `team-tone-${sideLabels.left.tone}` : null,
+              ]"
+            >
+              {{ SCOPE_LABELS[sideLabels.left.scope] }}
+            </text>
+            <text
+              v-if="sideLabels.right.scope"
+              x="135"
+              y="84"
+              :class="[
+                'court-side-scope',
+                sideLabels.right.tone ? `team-tone-${sideLabels.right.tone}` : null,
+              ]"
+            >
+              {{ SCOPE_LABELS[sideLabels.right.scope] }}
+            </text>
+          </g>
+
+          <g v-if="displayMode === 'routes'" class="route-layer">
+            <g
+              v-for="(event, index) in routeEvents"
+              :key="event.id"
+              class="route-line"
+              :style="{ '--route-color': actionColor(event.actionKey) }"
+            >
+              <path
+                class="route-path-flow"
+                :d="routeCurve(event, index)"
+                marker-end="url(#route-arrow)"
+                @click="openEvent(event)"
+              />
+              <circle
+                v-if="event.routeStart"
+                class="route-start"
+                :cx="courtX(event.routeStart.x, eventSide(event))"
+                :cy="courtY(event.routeStart.y)"
+                r="2.8"
+              />
+              <circle
+                v-if="event.routeEnd"
+                class="route-end-ring"
+                :cx="courtX(event.routeEnd.x, eventSide(event))"
+                :cy="courtY(event.routeEnd.y)"
+                r="4.2"
+              />
+              <circle
+                v-if="event.routeEnd"
+                class="route-end"
+                :cx="courtX(event.routeEnd.x, eventSide(event))"
+                :cy="courtY(event.routeEnd.y)"
+                r="2.2"
+              />
+              <path
+                class="route-hit-target"
+                :d="routeCurve(event, index)"
+                role="button"
+                tabindex="0"
+                :aria-label="`第 ${event.setNumber} 局回合 ${event.rallyOrdinal} ${event.actionLabel}，開啟短回放`"
+                @click="openEvent(event)"
+                @keydown.enter.space.prevent="openEvent(event)"
+              />
+            </g>
+          </g>
+
+          <g v-else class="landing-layer">
+            <circle
+              v-for="event in landingEvents"
+              :key="`heat:${event.id}`"
+              class="landing-heat"
+              :cx="courtX(event.routeEnd!.x, eventSide(event))"
+              :cy="courtY(event.routeEnd!.y)"
+              r="17"
             />
-          </filter>
-          <marker
-            id="route-arrow"
-            viewBox="0 0 7 7"
-            ref-x="6.2"
-            ref-y="3.5"
-            marker-width="5.5"
-            marker-height="5.5"
-            orient="auto-start-reverse"
-            marker-units="userSpaceOnUse"
-          >
-            <path class="route-arrow" d="M 0 0 L 7 3.5 L 0 7 Z" />
-          </marker>
-        </defs>
-
-        <rect class="court-apron" x="-12" y="-8" width="204" height="106" rx="8" />
-        <rect class="court-floor" x="0" y="0" width="180" height="90" rx="3" />
-        <g class="court-lines">
-          <rect x="1" y="1" width="178" height="88" rx="2" />
-          <line x1="90" y1="1" x2="90" y2="89" class="court-net" />
-          <line x1="60" y1="1" x2="60" y2="89" />
-          <line x1="120" y1="1" x2="120" y2="89" />
-        </g>
-        <g class="court-side-label" aria-hidden="true">
-          <text x="45" y="78" class="court-team-label court-side-name">
-            左側 · {{ sideLabels.left.name }}
-          </text>
-          <text x="45" y="84" class="court-team-label court-side-scope">
-            {{ SCOPE_LABELS[sideLabels.left.scope] }}
-          </text>
-          <text x="135" y="78" class="court-team-label court-side-name">
-            右側 · {{ sideLabels.right.name }}
-          </text>
-          <text x="135" y="84" class="court-team-label court-side-scope">
-            {{ SCOPE_LABELS[sideLabels.right.scope] }}
-          </text>
-        </g>
-
-        <g v-if="displayMode === 'routes'" class="route-layer">
-          <g
-            v-for="(event, index) in routeEvents"
-            :key="event.id"
-            class="route-line"
-            :style="{ '--route-color': actionColor(event.actionKey) }"
-          >
-            <path
-              class="route-hit-target"
-              :d="routeCurve(event, index)"
+            <circle
+              v-for="event in landingEvents"
+              :key="`point:${event.id}`"
+              class="landing-point"
               role="button"
               tabindex="0"
-              :aria-label="`第 ${event.setNumber} 局回合 ${event.rallyOrdinal} ${event.actionLabel}，開啟短回放`"
+              :aria-label="`第 ${event.setNumber} 局回合 ${event.rallyOrdinal} ${event.actionLabel}落點，開啟短回放`"
+              :style="{ '--route-color': actionColor(event.actionKey) }"
+              :cx="courtX(event.routeEnd!.x, eventSide(event))"
+              :cy="courtY(event.routeEnd!.y)"
+              r="2.3"
               @click="openEvent(event)"
               @keydown.enter.space.prevent="openEvent(event)"
             />
-            <path class="route-path-base" :d="routeCurve(event, index)" />
-            <path
-              class="route-path-flow"
-              :d="routeCurve(event, index)"
-              marker-end="url(#route-arrow)"
-            />
-            <circle
-              v-if="event.routeStart"
-              class="route-start"
-              :cx="courtX(event.routeStart.x)"
-              :cy="courtY(event.routeStart.y)"
-              r="2.8"
-            />
-            <circle
-              v-if="event.routeEnd"
-              class="route-end-ring"
-              :cx="courtX(event.routeEnd.x)"
-              :cy="courtY(event.routeEnd.y)"
-              r="4.2"
-            />
-            <circle
-              v-if="event.routeEnd"
-              class="route-end"
-              :cx="courtX(event.routeEnd.x)"
-              :cy="courtY(event.routeEnd.y)"
-              r="2.2"
-            />
           </g>
-        </g>
-
-        <g v-else class="landing-layer">
-          <circle
-            v-for="event in landingEvents"
-            :key="`heat:${event.id}`"
-            class="landing-heat"
-            :cx="courtX(event.routeEnd!.x)"
-            :cy="courtY(event.routeEnd!.y)"
-            r="17"
-          />
-          <circle
-            v-for="event in landingEvents"
-            :key="`point:${event.id}`"
-            class="landing-point"
-            role="button"
-            tabindex="0"
-            :aria-label="`第 ${event.setNumber} 局回合 ${event.rallyOrdinal} ${event.actionLabel}落點，開啟短回放`"
-            :style="{ '--route-color': actionColor(event.actionKey) }"
-            :cx="courtX(event.routeEnd!.x)"
-            :cy="courtY(event.routeEnd!.y)"
-            r="2.3"
-            @click="openEvent(event)"
-            @keydown.enter.space.prevent="openEvent(event)"
-          />
-        </g>
-      </svg>
+        </svg>
+      </div>
 
       <div v-if="displayMode === 'routes' && !routeEvents.length" class="route-map__empty">
         <RouteIcon :size="22" />
@@ -353,26 +406,41 @@ function openEvent(event: CoachPlayerActionEvent) {
   stroke-width: 1.8;
   opacity: 0.9;
 }
-.court-team-label {
-  fill: #dce9ed;
-  font-size: 4.5px;
-  font-weight: 720;
-  letter-spacing: 0.35px;
-  opacity: 0.52;
-  text-anchor: middle;
+.court-stage {
+  width: 100%;
+  display: block;
+}
+.court-side-names {
+  fill: #a8c0ca;
+  font-size: 4.3px;
+  font-weight: 780;
+  letter-spacing: 0.45px;
+  opacity: 0.9;
+}
+.court-side-name--left {
+  text-anchor: start;
+}
+.court-side-name--right {
+  text-anchor: end;
+}
+.court-side-name.team-tone-blue,
+.court-side-scope.team-tone-blue {
+  fill: #4da3ff;
+}
+.court-side-name.team-tone-red,
+.court-side-scope.team-tone-red {
+  fill: #ff7180;
 }
 .court-side-label {
   pointer-events: none;
 }
-.court-side-name {
-  font-size: 4px;
-  opacity: 0.86;
-}
 .court-side-scope {
-  fill: #ffffff;
-  font-size: 3.4px;
-  letter-spacing: 0.25px;
-  opacity: 0.62;
+  fill: #e8f6fa;
+  font-size: 3.8px;
+  font-weight: 760;
+  letter-spacing: 0.3px;
+  opacity: 0.82;
+  text-anchor: middle;
 }
 .route-line,
 .landing-point {
@@ -385,36 +453,24 @@ function openEvent(event: CoachPlayerActionEvent) {
   stroke-width: 14;
   pointer-events: stroke;
 }
-.route-line .route-path-base,
 .route-line .route-path-flow {
   fill: none;
   stroke: var(--route-color);
   stroke-linecap: round;
-  transition:
-    opacity 160ms ease-out,
-    stroke-width 160ms ease-out;
-}
-.route-line .route-path-base {
-  stroke-width: 2.1;
-  stroke-dasharray: 5 4;
-  opacity: 0.3;
-}
-.route-line .route-path-flow {
   stroke-width: 2.5;
   stroke-dasharray: 1.4 10;
   opacity: 0.92;
+  transition:
+    opacity 160ms ease-out,
+    stroke-width 160ms ease-out;
   animation: route-direction-flow 900ms linear infinite;
-}
-.route-line .route-path-flow + * {
   pointer-events: none;
 }
-.route-line:hover .route-path-base,
-.route-hit-target:focus-visible ~ .route-path-base {
-  stroke-width: 3.2;
-  opacity: 0.62;
+.route-line circle {
+  pointer-events: none;
 }
 .route-line:hover .route-path-flow,
-.route-hit-target:focus-visible ~ .route-path-flow {
+.route-line:focus-within .route-path-flow {
   stroke-width: 3;
   opacity: 1;
 }
@@ -535,11 +591,8 @@ function openEvent(event: CoachPlayerActionEvent) {
   }
 }
 @media (prefers-reduced-motion: reduce) {
-  .route-line .route-path-base,
   .route-line .route-path-flow {
     transition: none;
-  }
-  .route-line .route-path-flow {
     animation: none;
     stroke-dasharray: 3 7;
   }

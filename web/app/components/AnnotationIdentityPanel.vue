@@ -4,20 +4,18 @@ import {
   Database,
   ListTree,
   LoaderCircle,
-  RotateCcw,
   RefreshCw,
+  ScanText,
   ShieldCheck,
   Sparkles,
-  UserRoundCheck,
   UsersRound,
 } from 'lucide-vue-next'
 import { computed, ref } from 'vue'
 import { useAnnotationWorkstationService } from '~/services/annotation-workstation/annotation-workstation.service'
 import type { CoachTeam } from '~/lib/coachDomain'
-import IdentityReplacementDialog from './IdentityReplacementDialog.vue'
+import IdentityJerseySuggestionDialog from './IdentityJerseySuggestionDialog.vue'
 import PlayerIdentityPreview from './PlayerIdentityPreview.vue'
 import UiPlayerCombobox from './ui/PlayerCombobox.vue'
-import UiSwitch from './ui/Switch.vue'
 
 const props = defineProps<{
   matchId: string
@@ -25,7 +23,6 @@ const props = defineProps<{
   leftTeamId: string | null
   rightTeamId: string | null
   teams: CoachTeam[]
-  mappingCompleted: boolean
 }>()
 const emit = defineEmits<{
   'select-track': [selection: { trackId: number; rallyId: string; firstFrameIndex: string }]
@@ -37,6 +34,13 @@ if (!assignment)
   throw new Error(
     'Identity assignment controller was not provided by the annotation route boundary',
   )
+
+const assignmentCount = computed(
+  () => assignment.view.model.tracks.filter(track => track.roster_entry_id).length,
+)
+const manualCount = computed(
+  () => assignment.view.model.tracks.filter(track => track.identity_source === 'manual').length,
+)
 
 const localGroups = computed(() =>
   [
@@ -100,10 +104,6 @@ const gidGroups = computed(() =>
     .filter(group => group.rows.length > 0),
 )
 
-function toggleComplete() {
-  void workstation.actions.execute('identity.set-mapping-complete', !props.mappingCompleted)
-}
-
 function requestTrackAssignment(trackId: number, rosterEntryId: string | null) {
   assignment.actions.setInteractionSurface('panel')
   void workstation.actions.execute(rosterEntryId ? 'identity.assign' : 'identity.clear', {
@@ -165,19 +165,31 @@ function handleTrackRowKeydown(
             <UsersRound :size="13" />人員群組<b>{{ assignment.view.model.gidGroups.length }}</b>
           </button>
         </div>
-        <div class="identity-job-actions">
-          <button
-            type="button"
-            class="identity-auto"
-            :disabled="!workstation.actions.state('identity.apply-automatic').value.enabled"
-            :title="workstation.actions.state('identity.apply-automatic').value.reason ?? undefined"
-            @click="workstation.actions.execute('identity.apply-automatic')"
+        <div class="identity-progress" aria-label="球員指派進度">
+          <span
+            ><b>{{ assignmentCount }}</b> / {{ assignment.view.model.tracks.length }} 已指派</span
           >
-            <LoaderCircle v-if="assignment.state.autoAssigning" class="spin" :size="13" /><Sparkles
-              v-else
-              :size="13"
-            />套用最新配對
-          </button>
+          <small>{{ manualCount }} 筆人工確認 · 未標記不影響後續操作</small>
+        </div>
+        <button
+          type="button"
+          class="identity-jersey"
+          :disabled="!workstation.actions.state('identity.jersey-suggestions').value.enabled"
+          :title="
+            workstation.actions.state('identity.jersey-suggestions').value.reason ?? undefined
+          "
+          @click="workstation.actions.execute('identity.jersey-suggestions')"
+        >
+          <LoaderCircle
+            v-if="assignment.state.jerseySuggestionRequesting"
+            class="spin"
+            :size="15"
+          />
+          <ScanText v-else :size="15" />
+          <span><b>背號感知</b><small>產生差異建議，不會自動覆寫</small></span>
+          <Sparkles :size="13" />
+        </button>
+        <div class="identity-job-actions" aria-label="ReID 維護工具">
           <button
             type="button"
             class="identity-auto"
@@ -191,7 +203,7 @@ function handleTrackRowKeydown(
               v-if="assignment.state.reidJobAction === 'association'"
               class="spin"
               :size="13"
-            /><RefreshCw v-else :size="13" />重新配對
+            /><RefreshCw v-else :size="13" /><span>重新配對</span>
           </button>
           <button
             type="button"
@@ -204,7 +216,7 @@ function handleTrackRowKeydown(
               v-if="assignment.state.reidJobAction === 'feature'"
               class="spin"
               :size="13"
-            /><Database v-else :size="13" />重新取特徵
+            /><Database v-else :size="13" /><span>重新取特徵</span>
           </button>
         </div>
       </div>
@@ -320,10 +332,31 @@ function handleTrackRowKeydown(
                 type="button"
                 @click="workstation.actions.execute('identity.apply-correction', 'from_here')"
               >
-                <b>GID 與球員配對錯了</b
-                ><small>從這段起重綁整個 GID；已占用時原子交換兩個 GID 的球員</small>
+                <b>{{
+                  assignment.state.dialogs.correction.occupiedGidLabel
+                    ? '交換兩個 GID 的球員綁定'
+                    : '只重綁目前 GID'
+                }}</b
+                ><small>保留其他 GID；從這段起生效，過去片段不回寫</small>
               </button>
+              <template
+                v-for="candidate in assignment.state.dialogs.correction.swapCandidates"
+                :key="candidate.gidId"
+              >
+                <button
+                  v-if="!assignment.state.dialogs.correction.occupiedGidLabel"
+                  type="button"
+                  @click="workstation.actions.execute('identity.swap-gid-binding', candidate.gidId)"
+                >
+                  <b>與 {{ candidate.gidLabel }} 交換球員</b
+                  ><small
+                    >該 GID 最近出現在第 {{ candidate.setNumber }} 局 · 回合
+                    {{ candidate.rallyOrdinal }}；兩邊從目前片段起原子交換</small
+                  >
+                </button>
+              </template>
               <button
+                v-if="!assignment.state.dialogs.correction.occupiedGidLabel"
                 type="button"
                 @click="workstation.actions.execute('identity.apply-correction', 'split_identity')"
               >
@@ -424,41 +457,20 @@ function handleTrackRowKeydown(
       <p v-if="assignment.state.reidJobResult" class="identity-auto-result" role="status">
         {{ assignment.state.reidJobResult }}
       </p>
-      <p v-if="!assignment.view.model.identityReady" class="identity-required">
-        <CircleHelp :size="13" />仍有待指派球員，確認後即可完成。
+      <p v-if="assignment.state.jerseySuggestionResult" class="identity-auto-result" role="status">
+        {{ assignment.state.jerseySuggestionResult }}
       </p>
-      <button
-        type="button"
-        class="identity-complete"
-        :class="{ completed: mappingCompleted }"
-        :disabled="!workstation.actions.state('identity.set-mapping-complete').value.enabled"
-        :title="
-          workstation.actions.state('identity.set-mapping-complete').value.reason ?? undefined
-        "
-        @click="toggleComplete"
-      >
-        <RotateCcw v-if="mappingCompleted" :size="15" />
-        <UserRoundCheck v-else :size="15" />
-        {{ mappingCompleted ? '重新開放指派' : '完成球員指派' }}
-      </button>
-      <label class="replacement-preference"
-        ><span>球員已被使用時顯示取代提示</span
-        ><UiSwitch v-model="assignment.preferences.replacementWarningEnabled"
-      /></label>
       <p v-if="assignment.state.error" class="identity-error" role="alert">
         {{ assignment.state.error }}
       </p>
     </template>
-    <IdentityReplacementDialog
-      v-if="assignment.state.interactionSurface === 'panel' && assignment.state.dialogs.replacement"
-      :open="true"
-      :player-name="assignment.state.dialogs.replacement.playerName"
-      :occupied-track-id="assignment.state.dialogs.replacement.occupiedTrackId"
-      :target-track-id="assignment.state.dialogs.replacement.trackId"
-      :warning-enabled="assignment.preferences.replacementWarningEnabled"
-      @update:warning-enabled="assignment.preferences.replacementWarningEnabled = $event"
-      @close="assignment.actions.closeReplacement"
-      @confirm="workstation.actions.execute('identity.confirm-replacement')"
+    <IdentityJerseySuggestionDialog
+      v-if="assignment.state.jerseySuggestionRun"
+      :open="assignment.state.dialogs.jerseySuggestions"
+      :run="assignment.state.jerseySuggestionRun"
+      :applying-ids="assignment.state.jerseySuggestionApplyingIds"
+      @close="assignment.actions.closeJerseySuggestions"
+      @apply="workstation.actions.execute('identity.apply-jersey-suggestions', $event)"
     />
   </div>
 </template>
@@ -471,7 +483,7 @@ function handleTrackRowKeydown(
 }
 .identity-toolbar {
   display: grid;
-  gap: 10px;
+  gap: 8px;
 }
 .identity-view-switch {
   display: grid;
@@ -512,11 +524,9 @@ function handleTrackRowKeydown(
   font-variant-numeric: tabular-nums;
 }
 .identity-job-actions {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  display: flex;
+  justify-content: flex-end;
   gap: 6px;
-  padding-top: 8px;
-  border-top: 1px solid #252e35;
 }
 .identity-auto {
   min-height: 32px !important;
@@ -524,14 +534,68 @@ function handleTrackRowKeydown(
   align-items: center !important;
   justify-content: center !important;
   gap: 6px !important;
-  min-width: 0;
-  padding: 5px 6px !important;
+  min-width: 92px;
+  padding: 5px 9px !important;
   border: 1px solid transparent !important;
   border-radius: 6px !important;
   background: #20272d !important;
   color: #b9c5cc !important;
   font-size: 0.59rem !important;
   white-space: nowrap;
+}
+.identity-progress {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 1px 2px;
+  color: #b8c3ca;
+  font-size: 0.59rem;
+}
+.identity-progress b {
+  color: #f0f5f7;
+  font-size: 0.72rem;
+  font-variant-numeric: tabular-nums;
+}
+.identity-progress small {
+  color: #7f8b94;
+  font-size: 0.52rem;
+  text-align: right;
+}
+.identity-jersey {
+  min-height: 46px !important;
+  display: grid !important;
+  grid-template-columns: 18px minmax(0, 1fr) 16px;
+  align-items: center;
+  gap: 9px;
+  padding: 7px 10px !important;
+  border: 1px solid #386c52 !important;
+  border-radius: 8px !important;
+  background: #183026 !important;
+  color: #b9e8cf !important;
+  text-align: left;
+}
+.identity-jersey:hover:not(:disabled) {
+  border-color: #559d77 !important;
+  background: #1d3b2e !important;
+}
+.identity-jersey > span {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+.identity-jersey b {
+  font-size: 0.66rem;
+}
+.identity-jersey small {
+  overflow: hidden;
+  color: #8fbda4;
+  font-size: 0.52rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.identity-jersey:disabled {
+  opacity: 0.45;
 }
 .identity-auto:hover:not(:disabled) {
   border-color: #3b4852 !important;
@@ -757,32 +821,6 @@ function handleTrackRowKeydown(
   padding: 6px 8px !important;
   color: #e9c17f !important;
   font-size: 0.58rem !important;
-}
-.identity-complete {
-  min-height: 36px !important;
-  display: flex !important;
-  align-items: center !important;
-  justify-content: center !important;
-  gap: 7px;
-  border-color: #397253 !important;
-  background: #183527 !important;
-  color: #a9ebc8 !important;
-  font-size: 0.69rem;
-}
-.identity-complete.completed {
-  border-color: #59636d !important;
-  background: #20252b !important;
-  color: #d5dbe1 !important;
-}
-.replacement-preference {
-  min-height: 38px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 5px 2px;
-  color: #a1a1aa;
-  font-size: 0.59rem;
 }
 .identity-auto-result {
   margin: 0;

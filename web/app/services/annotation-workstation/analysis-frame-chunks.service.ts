@@ -138,6 +138,7 @@ export function createAnalysisFrameChunksService(
         if (!controller.signal.aborted && currentGeneration === generation)
           error.value = cause instanceof Error ? cause : new Error('AnalysisData manifest failed')
       } finally {
+        if (manifestController === controller) manifestController = null
         if (currentGeneration === generation) pending.value = false
       }
     },
@@ -175,7 +176,7 @@ export function createAnalysisFrameChunksService(
       if (!controller.signal.aborted && currentGeneration === generation)
         error.value = cause instanceof Error ? cause : new Error('AnalysisData chunk failed')
     } finally {
-      controllers.delete(meta.chunk_index)
+      if (controllers.get(meta.chunk_index) === controller) controllers.delete(meta.chunk_index)
     }
   }
 

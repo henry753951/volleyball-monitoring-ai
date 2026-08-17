@@ -24,6 +24,7 @@ import {
 } from '~/lib/annotationRealtimeClient'
 import {
   enqueueAnnotationCommand,
+  compactAnnotationOutbox,
   markAnnotationOutboxAttempted,
   readAnnotationOutbox,
   replaceAnnotationOutboxCommand,
@@ -37,6 +38,7 @@ import {
   applyAnnotationAckLocally,
   projectAnnotationSnapshot,
   rebaseQueuedAnnotationCommand,
+  shouldAdoptInspectedAnnotationSnapshot,
   shouldAcceptAnnotationBroadcast,
   type AnnotationClientObservation,
 } from '~/lib/annotationCommandQueue'
@@ -171,7 +173,17 @@ export function createAnnotationRoomService(annotationWsUrl: MaybeRefOrGetter<st
   }
   function loadOutbox() {
     const target = storage()
-    outbox.value = target && roomId.value ? readAnnotationOutbox(target, roomId.value) : []
+    outbox.value =
+      target && roomId.value
+        ? compactAnnotationOutbox(readAnnotationOutbox(target, roomId.value))
+        : []
+    if (target && roomId.value) {
+      try {
+        writeAnnotationOutbox(target, roomId.value, outbox.value)
+      } catch {
+        error.value = '無法整理本機待同步標註；請保持此頁開啟'
+      }
+    }
   }
   function discardPending() {
     replaceOutbox([])
@@ -234,7 +246,18 @@ export function createAnnotationRoomService(annotationWsUrl: MaybeRefOrGetter<st
     const generation = ++rallySelectionGeneration
     const next = await requestSnapshot(rallyId)
     if (generation !== rallySelectionGeneration) return null
-    acceptSnapshot(next)
+    // OPEN still belongs to the client that is placing its moving END boundary.
+    // READY has a fixed boundary and is shared durable work: explicitly selecting
+    // it makes it this tab's edit target without sharing cursor/selection state.
+    const current = viewSnapshot.value
+    const protectsLocalOpen = Boolean(
+      current &&
+      current.rally_id !== rallyId &&
+      current.snapshot.annotation_status === 'open' &&
+      annotationDraftOwnedByClient(current, rememberedRallyId()),
+    )
+    if (!protectsLocalOpen && shouldAdoptInspectedAnnotationSnapshot(next, rememberedRallyId()))
+      acceptSnapshot(next, { remember: next?.snapshot.annotation_status === 'ready' })
     return next
   }
 
@@ -299,7 +322,7 @@ export function createAnnotationRoomService(annotationWsUrl: MaybeRefOrGetter<st
       return false
     }
     if (latest) acceptSnapshot(latest, { remember: true })
-    if (annotationCommandConverged(entry.command, latest)) {
+    if (annotationCommandConverged(entry.command, latest, entry.observation)) {
       replaceOutbox(resolveAnnotationOutboxEntry(outbox.value, entry.command.command_id))
       error.value = null
       return true
@@ -315,6 +338,7 @@ export function createAnnotationRoomService(annotationWsUrl: MaybeRefOrGetter<st
         command_id: crypto.randomUUID(),
       } as AnnotationCommand,
       latest,
+      entry.observation,
     )
     if (!retry) {
       replaceOutbox(resolveAnnotationOutboxEntry(outbox.value, entry.command.command_id))
@@ -350,9 +374,9 @@ export function createAnnotationRoomService(annotationWsUrl: MaybeRefOrGetter<st
         }
         const rebased = queued.attempted_at
           ? queued.command
-          : rebaseQueuedAnnotationCommand(queued.command, snapshot.value)
+          : rebaseQueuedAnnotationCommand(queued.command, snapshot.value, queued.observation)
         if (!rebased) {
-          if (annotationCommandConverged(queued.command, snapshot.value)) {
+          if (annotationCommandConverged(queued.command, snapshot.value, queued.observation)) {
             replaceOutbox(resolveAnnotationOutboxEntry(outbox.value, queued.command.command_id))
             continue
           }

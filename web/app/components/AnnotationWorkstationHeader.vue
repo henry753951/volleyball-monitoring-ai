@@ -40,8 +40,8 @@ const resyncState = workstation.actions.state('sync.resync')
         :title="connectionTitle"
         @click="$emit('connection')"
       >
-        <i class="status-dot" :class="{ busy, error }" />
-        <span>{{ syncLabel }}</span>
+        <span class="status-dot" :class="{ busy, error }" aria-hidden="true" />
+        <span class="status-label">{{ syncLabel }}</span>
         <span class="latency">{{ latencyMs ?? '—' }} ms</span>
       </button>
       <button
@@ -148,6 +148,7 @@ const resyncState = workstation.actions.state('sync.resync')
   background: transparent;
   color: #aeb6bf;
   font-size: 0.66rem;
+  line-height: 1;
   white-space: nowrap;
   cursor: pointer;
 }
@@ -159,8 +160,12 @@ const resyncState = workstation.actions.state('sync.resync')
   width: 7px;
   height: 7px;
   flex: 0 0 auto;
+  display: block;
   border-radius: 50%;
   background: var(--green);
+}
+.status-label {
+  line-height: 1.2;
 }
 .status-dot.busy {
   background: var(--amber);

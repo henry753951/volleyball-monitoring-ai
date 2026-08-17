@@ -65,16 +65,6 @@ export const annotationWebSocketRoutes =
             if (!peers.size) roomSockets.delete(room.roomId)
           }
           socket.on('close', leaveRoom)
-          const ready = parseAnnotationServerMessage({
-            schema_version: '2.0.0',
-            type: 'connection_ready',
-            authenticated_user_id: identity.userId,
-            device_session_id: identity.deviceSessionId,
-            room_id: room.roomId,
-            server_sequence: (await deps.service.roomSequence(room.roomId)).toString(),
-          })
-          socket.send(JSON.stringify(ready))
-
           let heartbeat: ReturnType<typeof setInterval> | null = null
           let unsubscribePresence: (() => void) | null = null
           let unsubscribeProgress: (() => void) | null = null
@@ -101,10 +91,15 @@ export const annotationWebSocketRoutes =
           if (deps.presence) {
             try {
               presenceMember = await deps.presence.join(room.roomId, identity)
+              const presenceSnapshot = await deps.presence.snapshot(room.roomId)
+              await deps.service.recoverAbandonedDraft(
+                room.roomId,
+                identity,
+                presenceSnapshot.members.map(member => member.device_session_id),
+              )
               unsubscribePresence = await deps.presence.subscribe(room.roomId, () => {
                 void sendPresence().catch(() => undefined)
               })
-              await sendPresence()
               heartbeat = setInterval(() => {
                 if (deps.presence && presenceMember)
                   void deps.presence
@@ -117,6 +112,16 @@ export const annotationWebSocketRoutes =
               return
             }
           }
+          const ready = parseAnnotationServerMessage({
+            schema_version: '2.0.0',
+            type: 'connection_ready',
+            authenticated_user_id: identity.userId,
+            device_session_id: identity.deviceSessionId,
+            room_id: room.roomId,
+            server_sequence: (await deps.service.roomSequence(room.roomId)).toString(),
+          })
+          socket.send(JSON.stringify(ready))
+          await sendPresence()
           if (deps.progress) {
             try {
               unsubscribeProgress = await deps.progress.subscribe(room.roomId, message => {

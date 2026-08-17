@@ -2,11 +2,9 @@
 import { CircleHelp, LoaderCircle, ShieldCheck, UserRoundCog, X } from 'lucide-vue-next'
 import { computed } from 'vue'
 import { useAnnotationWorkstationService } from '~/services/annotation-workstation/annotation-workstation.service'
-import IdentityReplacementDialog from './IdentityReplacementDialog.vue'
 import PlayerIdentityPreview from './PlayerIdentityPreview.vue'
 import UiPlayerCombobox from './ui/PlayerCombobox.vue'
 import UiPopover from './ui/Popover.vue'
-import UiSwitch from './ui/Switch.vue'
 
 const props = defineProps<{
   open: boolean
@@ -161,10 +159,30 @@ function requestTrackAssignment(rosterEntryId: string | null) {
           type="button"
           @click="workstation.actions.execute('identity.apply-correction', 'from_here')"
         >
-          <b>GID 與球員配對錯了</b
-          ><small>從這段起重綁整個 GID；若該球員已有另一個 GID，兩邊球員綁定會原子交換</small>
+          <b>{{
+            assignment.state.dialogs.correction.occupiedGidLabel
+              ? '交換兩個 GID 的球員綁定'
+              : '只重綁目前 GID'
+          }}</b
+          ><small>保留其他 GID；從這段起生效，過去片段不回寫</small>
         </button>
+        <template
+          v-for="candidate in assignment.state.dialogs.correction.swapCandidates"
+          :key="candidate.gidId"
+        >
+          <button
+            v-if="!assignment.state.dialogs.correction.occupiedGidLabel"
+            type="button"
+            @click="assignment.actions.swapGidBinding(candidate.gidId)"
+          >
+            <b>與 {{ candidate.gidLabel }} 交換球員</b
+            ><small
+              >最近出現在第 {{ candidate.setNumber }} 局 · 回合 {{ candidate.rallyOrdinal }}</small
+            >
+          </button>
+        </template>
         <button
+          v-if="!assignment.state.dialogs.correction.occupiedGidLabel"
           type="button"
           @click="workstation.actions.execute('identity.apply-correction', 'split_identity')"
         >
@@ -182,28 +200,9 @@ function requestTrackAssignment(rosterEntryId: string | null) {
         </button>
       </div>
       <p v-if="!presentation.players.length" class="empty">目前沒有可指派的球員</p>
-      <label class="warning-preference"
-        ><span>球員已被使用時顯示取代提示</span
-        ><UiSwitch v-model="assignment.preferences.replacementWarningEnabled"
-      /></label>
       <p v-if="assignment.state.error" class="error">{{ assignment.state.error }}</p>
     </template>
   </UiPopover>
-  <IdentityReplacementDialog
-    v-if="
-      assignment.state.interactionSurface === 'popover' &&
-      assignment.state.dialogs.replacement &&
-      trackId !== null
-    "
-    :open="true"
-    :player-name="assignment.state.dialogs.replacement.playerName"
-    :occupied-track-id="assignment.state.dialogs.replacement.occupiedTrackId"
-    :target-track-id="trackId"
-    :warning-enabled="assignment.preferences.replacementWarningEnabled"
-    @update:warning-enabled="assignment.preferences.replacementWarningEnabled = $event"
-    @close="assignment.actions.closeReplacement"
-    @confirm="workstation.actions.execute('identity.confirm-replacement')"
-  />
 </template>
 
 <style>

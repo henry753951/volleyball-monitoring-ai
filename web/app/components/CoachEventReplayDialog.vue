@@ -60,9 +60,34 @@ function resetPlayback() {
   const element = video.value
   if (!element) return
   element.pause()
-  element.currentTime = windowStart.value
-  currentTime.value = windowStart.value
+  if (element.readyState >= HTMLMediaElement.HAVE_METADATA) {
+    element.currentTime = windowStart.value
+    currentTime.value = windowStart.value
+  } else {
+    currentTime.value = 0
+  }
   playing.value = false
+}
+
+async function autoplayPlayback() {
+  const element = video.value
+  if (!element) return
+  if (
+    element.readyState >= HTMLMediaElement.HAVE_METADATA &&
+    (element.currentTime < windowStart.value || element.currentTime >= windowEnd.value - 0.025)
+  )
+    element.currentTime = windowStart.value
+  try {
+    await element.play()
+  } catch {
+    // Browsers may block autoplay; the visible play control remains available.
+  }
+  updatePlayback()
+}
+
+function handleLoadedMetadata() {
+  resetPlayback()
+  void autoplayPlayback()
 }
 
 function updatePlayback() {
@@ -106,7 +131,10 @@ watch(
   async ([open]) => {
     if (!open) return
     await nextTick()
+    const element = video.value
+    if (!element || element.readyState < HTMLMediaElement.HAVE_METADATA) return
     resetPlayback()
+    void autoplayPlayback()
   },
 )
 </script>
@@ -129,7 +157,7 @@ watch(
           preload="metadata"
           :aria-label="`${event.actionLabel}短回放`"
           @click="togglePlayback"
-          @loadedmetadata="resetPlayback"
+          @loadedmetadata="handleLoadedMetadata"
           @timeupdate="updatePlayback"
           @play="updatePlayback"
           @pause="updatePlayback"
@@ -237,14 +265,14 @@ watch(
   position: absolute;
   top: 14px;
   left: 14px;
-  padding: 5px 9px;
-  border-radius: 7px;
-  background: rgb(4 8 12 / 78%);
-  box-shadow: inset 3px 0 var(--event-color);
+  padding: 0;
+  border: 0;
+  background: transparent;
   color: #fff;
   font-size: 0.72rem;
   font-weight: 760;
-  backdrop-filter: blur(10px);
+  letter-spacing: 0.01em;
+  text-shadow: 0 1px 3px rgb(0 0 0 / 72%);
 }
 .event-replay__controls {
   min-height: 66px;
@@ -376,8 +404,7 @@ watch(
   }
 }
 @media (prefers-reduced-transparency: reduce) {
-  .event-replay__center-play,
-  .event-replay__type {
+  .event-replay__center-play {
     background: #0c1218;
     backdrop-filter: none;
   }

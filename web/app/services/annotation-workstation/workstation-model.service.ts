@@ -44,8 +44,23 @@ export function createAnnotationWorkstationModelService(
     if (!currentRallyId || ['OPEN', 'READY'].includes(options.state.value)) return drafts
     // The realtime acknowledgement advances before the dashboard refresh. Do
     // not let its stale OPEN draft override the just-submitted rally state.
+    if (options.selectedRallyId.value !== currentRallyId) return drafts
     return drafts.filter(draft => draft.id !== currentRallyId)
   })
+  const correctionDraftRallyIds = computed(
+    () =>
+      new Set(
+        annotationDrafts.value.filter(draft => draft.active_submission_id).map(draft => draft.id),
+      ),
+  )
+  const correctionSourceSubmissionIds = computed(
+    () =>
+      new Set(
+        annotationDrafts.value.flatMap(draft =>
+          draft.active_submission_id ? [draft.active_submission_id] : [],
+        ),
+      ),
+  )
   const draftRallyIds = computed(() => new Set(annotationDrafts.value.map(draft => draft.id)))
   const visibleSubmittedRallies = computed(() =>
     submittedRallies.value.filter(rally => !draftRallyIds.value.has(rally.id)),
@@ -65,8 +80,10 @@ export function createAnnotationWorkstationModelService(
       ? null
       : (submittedRallies.value.find(rally => rally.id === options.selectedRallyId.value) ?? null),
   )
-  const selectedAnalysisRally = computed(
-    () => completedRallies.value.find(rally => rally.id === options.selectedRallyId.value) ?? null,
+  const selectedAnalysisRally = computed(() =>
+    selectedDraftRally.value
+      ? null
+      : (completedRallies.value.find(rally => rally.id === options.selectedRallyId.value) ?? null),
   )
   const selectedRally = computed(() =>
     selectedDraftRally.value ? null : selectedAnalysisRally.value,
@@ -173,19 +190,33 @@ export function createAnnotationWorkstationModelService(
     const currentRallyId = options.displayAnnotation.value?.rally_id
     const activeSubmissionId = options.displayAnnotation.value?.snapshot.active_submission_id
     const submitted = submittedRallies.value.flatMap(rally => {
+      // A correction draft with the same rally id fully replaces the submitted
+      // projection in the workstation. This must come from the dashboard draft
+      // collection so it also holds before the user selects the rally after F5.
+      if (correctionDraftRallyIds.value.has(rally.id)) return []
       const range = clipRangeForRally(rally)
-      // The editable draft owns the mask, while the last completed analysis stays
-      // available as an independent result rail until its replacement completes.
+      // The editable draft owns the mask. A predecessor analysis may still be
+      // present in the dashboard as a source projection, but it is not part of
+      // the active correction draft and must not be rendered as its result rail.
       if (!range) return []
       const analysis = rally.submission.analysis
       const failed = rally.processing_status === 'failed'
       const processingCompleted = rally.processing_status === 'completed'
-      const sourcePointsReplaced = isSupersededSourceSubmission({
-        activeSubmissionId,
-        currentRallyId,
-        rallyId: rally.id,
-        submissionId: rally.submission.id,
-      })
+      const sourcePointsReplaced =
+        isSupersededSourceSubmission({
+          activeSubmissionId,
+          currentRallyId,
+          rallyId: rally.id,
+          submissionId: rally.submission.id,
+        }) || correctionSourceSubmissionIds.value.has(rally.submission.id)
+      const analysisReplaced =
+        sourcePointsReplaced ||
+        Boolean(
+          activeSubmissionId &&
+          currentRallyId &&
+          rally.id === currentRallyId &&
+          ['OPEN', 'READY'].includes(options.state.value),
+        )
       return [
         {
           id: rally.id,
@@ -227,7 +258,7 @@ export function createAnnotationWorkstationModelService(
                   : ('analyzed' as const)
                 : ('processing' as const),
           analysis:
-            analysis?.status === 'completed'
+            !analysisReplaced && analysis?.status === 'completed'
               ? {
                   startCaptureTimeUs:
                     analysis.coverage_start_capture_time_us ?? range.startCaptureTimeUs,
@@ -246,7 +277,11 @@ export function createAnnotationWorkstationModelService(
       const range = draft.boundaries?.length
         ? clipRangeForPoints(draft.boundaries)
         : clipRangeForPoints(draft.key_points)
-      if (!range || draft.id === currentRallyId) return []
+      if (
+        !range ||
+        (draft.id === currentRallyId && ['OPEN', 'READY'].includes(options.state.value))
+      )
+        return []
       return [
         {
           id: draft.id,
@@ -272,6 +307,7 @@ export function createAnnotationWorkstationModelService(
             ballEvent: point.ball_event ?? null,
           })),
           status: 'draft' as const,
+          analysis: null,
         },
       ]
     })
@@ -401,9 +437,14 @@ export function createAnnotationWorkstationModelService(
     ),
   )
   const activeCorrectionDraft = computed(() => {
-    if (currentAnnotationDraft.value?.active_submission_id) return currentAnnotationDraft.value
     if (selectedDraftRally.value?.active_submission_id) return selectedDraftRally.value
-    return annotationDrafts.value.find(draft => Boolean(draft.active_submission_id)) ?? null
+    if (
+      currentAnnotationDraft.value?.active_submission_id &&
+      (!options.selectedRallyId.value ||
+        currentAnnotationDraft.value.id === options.selectedRallyId.value)
+    )
+      return currentAnnotationDraft.value
+    return null
   })
   const correctionActive = computed(() =>
     Boolean(

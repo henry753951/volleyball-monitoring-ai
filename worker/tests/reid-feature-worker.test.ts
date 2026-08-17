@@ -33,8 +33,6 @@ function fixture() {
   second.writeFloatLE(0.25, 0)
   second.writeFloatLE(0.75, 4)
   const descriptor = Buffer.concat([first, second])
-  const rawResponse = '{"jersey_number":11}'
-  const rawResponseSha = sha(rawResponse)
   const result = {
     tracklets: [
       {
@@ -59,13 +57,6 @@ function fixture() {
             source_frame_indices: ['4'],
           },
         ],
-        jersey_vlm: {
-          model_namespace: 'vlm/v1',
-          raw_response_key: 'tracklet-one-vlm',
-          raw_response_sha256: rawResponseSha,
-          candidate_numbers: [11],
-          selected_frame_indices: ['4'],
-        },
       },
       {
         tracklet_id: trackletTwo,
@@ -89,24 +80,10 @@ function fixture() {
             source_frame_indices: ['8'],
           },
         ],
-        jersey_vlm: null,
       },
     ],
   }
-  const jersey = {
-    responses: [
-      {
-        response_key: 'tracklet-one-vlm',
-        tracklet_id: trackletOne,
-        model_namespace: 'vlm/v1',
-        raw_response: rawResponse,
-        raw_response_sha256: rawResponseSha,
-        candidate_numbers: [11],
-        selected_frame_indices: ['4'],
-      },
-    ],
-  }
-  return { descriptor, result, jersey }
+  return { descriptor, result }
 }
 
 describe('ReID feature evidence materialization plan', () => {
@@ -116,12 +93,11 @@ describe('ReID feature evidence materialization plan', () => {
     expect(sameCanonicalTrackCoverage([], [])).toBe(false)
   })
 
-  it('verifies exact descriptor slices, saved VLM responses, and symmetric co-visibility', () => {
-    const { descriptor, result, jersey } = fixture()
-    const rows = planReidFeatureRows(result, descriptor, new Set([17, 18]), jersey)
+  it('verifies exact descriptor slices and symmetric co-visibility', () => {
+    const { descriptor, result } = fixture()
+    const rows = planReidFeatureRows(result, descriptor, new Set([17, 18]))
     expect(rows).toHaveLength(2)
     expect(rows[0]!.vectors[0]!.sourceFrameIndices).toEqual([4n])
-    expect(rows[0]!.jersey?.rawResponseKey).toBe('tracklet-one-vlm')
   })
 
   it('rejects descriptor corruption and one-sided cannot-links', () => {

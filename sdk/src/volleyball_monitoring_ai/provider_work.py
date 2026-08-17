@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from datetime import datetime
-from hashlib import sha256
 from itertools import pairwise
 from typing import Annotated, Any, Literal, TypeAlias
 
@@ -448,7 +447,7 @@ class PlayerCropSourceManifest(StrictModel):
 
 
 class ReidFeatureRecipe(StrictModel):
-    modality: Literal["DINO", "OSNET", "KPR", "KPR_PROMPT", "JERSEY_VLM"]
+    modality: DescriptorModality
     model_namespace: str = Field(min_length=1, max_length=128)
 
 
@@ -501,7 +500,7 @@ class ReidRosterSnapshot(StrictModel):
 
 
 class ReidFeatureJobRequest(StrictModel):
-    schema_version: Literal["1.0.0"]
+    schema_version: Literal["2.0.0"]
     provider_job_id: str = Field(min_length=1, max_length=128)
     evidence_set_id: str = Field(min_length=1, max_length=128)
     analysis_run_id: str = Field(min_length=1, max_length=128)
@@ -520,18 +519,22 @@ class ReidFeatureJobRequest(StrictModel):
         return self
 
 
+class ReidTeamOccupancyPrior(StrictModel):
+    expected_count: int = Field(ge=1, le=12)
+    enforcement: Literal["SOFT"]
+
+
 class ReidAssociationRecipe(StrictModel):
     namespace: str = Field(min_length=1, max_length=128)
-    candidate_modalities: list[Literal["DINO", "OSNET", "KPR", "KPR_PROMPT", "JERSEY_VLM"]] = Field(
-        min_length=1
-    )
+    candidate_modalities: list[DescriptorModality] = Field(min_length=1)
     same_clip_grouping: bool
-    allow_abstention: Literal[True]
+    allow_new_gid: Literal[True]
     manual_assignment_precedence: Literal[True]
+    team_occupancy_prior: ReidTeamOccupancyPrior
 
 
 class ReidAssociationJobRequest(StrictModel):
-    schema_version: Literal["1.1.0"]
+    schema_version: Literal["2.0.0"]
     provider_job_id: str = Field(min_length=1, max_length=128)
     association_run_id: str = Field(min_length=1, max_length=128)
     match_id: str = Field(min_length=1, max_length=128)
@@ -631,29 +634,6 @@ class ReidVectorReference(StrictModel):
         return self
 
 
-class JerseyVlmEvidence(StrictModel):
-    model_namespace: str = Field(min_length=1, max_length=128)
-    raw_response_key: str = Field(min_length=1, max_length=128)
-    raw_response_sha256: str = Field(pattern=r"^[A-Fa-f0-9]{64}$")
-    candidate_numbers: list[int]
-    selected_frame_indices: list[str]
-
-    @field_validator("candidate_numbers")
-    @classmethod
-    def validate_numbers(cls, value: list[int]) -> list[int]:
-        if any(number < 0 or number > 99 for number in value) or len(value) != len(set(value)):
-            raise ValueError("candidate_numbers must be unique values from 0 through 99")
-        return value
-
-    @field_validator("selected_frame_indices")
-    @classmethod
-    def validate_frames(cls, value: list[str]) -> list[str]:
-        frames = [_digits(item, "selected_frame_indices") for item in value]
-        if len(frames) != len(set(frames)):
-            raise ValueError("selected_frame_indices must be unique")
-        return frames
-
-
 class ReidTrackletEvidence(StrictModel):
     tracklet_id: str = Field(min_length=1, max_length=128)
     canonical_track_id: int = Field(ge=0)
@@ -663,7 +643,6 @@ class ReidTrackletEvidence(StrictModel):
     last_frame_index: str
     cannot_link_tracklet_ids: list[str]
     vectors: list[ReidVectorReference]
-    jersey_vlm: JerseyVlmEvidence | None = None
 
     @field_validator("first_frame_index", "last_frame_index")
     @classmethod
@@ -688,20 +667,19 @@ class ReidTrackletEvidence(StrictModel):
 
 class ReidFeatureUnavailableEvidence(StrictModel):
     tracklet_id: str = Field(min_length=1, max_length=128)
-    modality: Literal["DINO", "OSNET", "KPR", "KPR_PROMPT", "JERSEY_VLM"]
+    modality: DescriptorModality
     reason_code: str = Field(min_length=1, max_length=128)
     message: str = Field(min_length=1, max_length=1000)
 
 
 class ReidFeatureResult(StrictModel):
-    schema_version: Literal["1.0.0"]
+    schema_version: Literal["2.0.0"]
     provider_job_id: str = Field(min_length=1, max_length=128)
     evidence_set_id: str = Field(min_length=1, max_length=128)
     analysis_run_id: str = Field(min_length=1, max_length=128)
     match_id: str = Field(min_length=1, max_length=128)
     status: Literal["READY", "PARTIAL"]
     descriptor_artifact: ImmutableArtifactReference
-    jersey_vlm_response_artifact: ImmutableArtifactReference | None = None
     tracklets: list[ReidTrackletEvidence]
     unavailable_evidence: list[ReidFeatureUnavailableEvidence]
     content_sha256: str = Field(pattern=r"^[A-Fa-f0-9]{64}$")
@@ -710,70 +688,6 @@ class ReidFeatureResult(StrictModel):
     def artifact_shape(self) -> ReidFeatureResult:
         if self.descriptor_artifact.kind != "REID_DESCRIPTOR_BUNDLE":
             raise ValueError("descriptor artifact must be REID_DESCRIPTOR_BUNDLE")
-        has_jersey = any(tracklet.jersey_vlm is not None for tracklet in self.tracklets)
-        if has_jersey != (self.jersey_vlm_response_artifact is not None):
-            raise ValueError("jersey evidence requires exactly one raw response artifact")
-        if self.jersey_vlm_response_artifact is not None:
-            artifact = self.jersey_vlm_response_artifact
-            if artifact.kind != "JERSEY_VLM_RESPONSE":
-                raise ValueError("jersey response artifact must be JERSEY_VLM_RESPONSE")
-        return self
-
-
-class ReidJerseyVlmRawResponse(StrictModel):
-    response_key: str = Field(min_length=1, max_length=128)
-    tracklet_id: str = Field(min_length=1, max_length=128)
-    model_namespace: str = Field(min_length=1, max_length=128)
-    prompt_sha256: str = Field(pattern=r"^[A-Fa-f0-9]{64}$")
-    selected_frame_indices: list[str]
-    raw_response: str = Field(max_length=262144)
-    raw_response_sha256: str = Field(pattern=r"^[A-Fa-f0-9]{64}$")
-    candidate_numbers: list[int]
-    abstained: bool
-    reason: str | None = Field(default=None, min_length=1, max_length=1000)
-
-    @field_validator("selected_frame_indices")
-    @classmethod
-    def validate_frames(cls, value: list[str]) -> list[str]:
-        frames = [_digits(item, "selected_frame_indices") for item in value]
-        if len(frames) != len(set(frames)):
-            raise ValueError("selected_frame_indices must be unique")
-        return frames
-
-    @field_validator("candidate_numbers")
-    @classmethod
-    def validate_candidates(cls, value: list[int]) -> list[int]:
-        if any(number < 0 or number > 99 for number in value) or len(value) != len(set(value)):
-            raise ValueError("candidate_numbers must be unique values from 0 through 99")
-        return value
-
-    @model_validator(mode="after")
-    def response_hash_and_abstention(self) -> ReidJerseyVlmRawResponse:
-        if (
-            sha256(self.raw_response.encode("utf-8")).hexdigest()
-            != self.raw_response_sha256.lower()
-        ):
-            raise ValueError("raw_response_sha256 does not match the exact raw response text")
-        if self.abstained and self.candidate_numbers:
-            raise ValueError("an abstained VLM response cannot expose normalized candidates")
-        if not self.abstained and not self.candidate_numbers:
-            raise ValueError("a non-abstained VLM response requires at least one candidate")
-        return self
-
-
-class ReidJerseyVlmResponseBundle(StrictModel):
-    schema_version: Literal["1.0.0"]
-    provider_job_id: str = Field(min_length=1, max_length=128)
-    evidence_set_id: str = Field(min_length=1, max_length=128)
-    responses: list[ReidJerseyVlmRawResponse]
-    content_sha256: str = Field(pattern=r"^[A-Fa-f0-9]{64}$")
-
-    @model_validator(mode="after")
-    def unique_response_keys(self) -> ReidJerseyVlmResponseBundle:
-        keys = [response.response_key for response in self.responses]
-        tracklets = [response.tracklet_id for response in self.responses]
-        if len(keys) != len(set(keys)) or len(tracklets) != len(set(tracklets)):
-            raise ValueError("VLM response keys and tracklets must be unique")
         return self
 
 
@@ -874,16 +788,11 @@ class ReidBankSnapshot(StrictModel):
     def reference_integrity(self) -> ReidBankSnapshot:
         artifact_ids = [artifact.artifact_id for artifact in self.evidence_artifacts]
         cluster_ids = [cluster.person_cluster_id for cluster in self.clusters]
-        roster_ids = [
-            cluster.roster_entry_id for cluster in self.clusters if cluster.roster_entry_id
-        ]
         vector_ids = [vector.vector_id for vector in self.vectors]
         if len(artifact_ids) != len(set(artifact_ids)):
             raise ValueError("bank evidence artifact ids must be unique")
         if len(cluster_ids) != len(set(cluster_ids)):
             raise ValueError("bank person cluster ids must be unique")
-        if len(roster_ids) != len(set(roster_ids)):
-            raise ValueError("bank roster entries must map to at most one cluster")
         if len(vector_ids) != len(set(vector_ids)):
             raise ValueError("bank vector ids must be unique")
         if any(vector.artifact_id not in artifact_ids for vector in self.vectors):
@@ -899,7 +808,7 @@ class ReidBankSnapshot(StrictModel):
 
 
 class ReidAssociationScore(StrictModel):
-    component: Literal["DINO", "OSNET", "KPR", "KPR_PROMPT", "JERSEY_VLM", "CONSTRAINT"]
+    component: Literal["DINO", "OSNET", "KPR", "KPR_PROMPT", "CONSTRAINT"]
     value: float
     model_namespace: str = Field(min_length=1, max_length=128)
 
@@ -916,19 +825,25 @@ class ReidAssociationCandidate(StrictModel):
 class ReidAssociationDecision(StrictModel):
     tracklet_id: str = Field(min_length=1, max_length=128)
     group_key: str = Field(min_length=1, max_length=128)
-    association_state: Literal["RESOLVED", "UNRESOLVED", "NEEDS_REVIEW"]
+    action: Literal["MATCH_EXISTING_GID", "CREATE_NEW_GID"]
     selected_person_cluster_id: str | None = Field(default=None, min_length=1, max_length=128)
+    new_gid_group_key: str | None = Field(default=None, min_length=1, max_length=128)
     selected_roster_entry_id: str | None = Field(default=None, min_length=1, max_length=128)
+    confidence: float = Field(ge=0, le=1)
     candidates: list[ReidAssociationCandidate]
-    unresolved_reason: str | None = Field(default=None, max_length=1000)
+    rationale: str = Field(min_length=1, max_length=1000)
 
     @model_validator(mode="after")
     def decision_shape(self) -> ReidAssociationDecision:
-        if self.association_state == "RESOLVED":
-            if self.selected_person_cluster_id is None or self.unresolved_reason is not None:
-                raise ValueError("resolved association requires a selected cluster and no reason")
-        elif self.unresolved_reason is None:
-            raise ValueError("unresolved/review association requires a reason")
+        if self.action == "MATCH_EXISTING_GID":
+            if self.selected_person_cluster_id is None or self.new_gid_group_key is not None:
+                raise ValueError("existing-GID match requires only a selected cluster")
+        elif (
+            self.selected_person_cluster_id is not None
+            or self.selected_roster_entry_id is not None
+            or self.new_gid_group_key is None
+        ):
+            raise ValueError("new-GID creation requires only a new_gid_group_key")
         ranks = [candidate.rank for candidate in self.candidates]
         if ranks != list(range(1, len(ranks) + 1)):
             raise ValueError("association candidates must have contiguous rank order")
@@ -936,12 +851,12 @@ class ReidAssociationDecision(StrictModel):
 
 
 class ReidAssociationResult(StrictModel):
-    schema_version: Literal["1.0.0"]
+    schema_version: Literal["2.0.0"]
     provider_job_id: str = Field(min_length=1, max_length=128)
     association_run_id: str = Field(min_length=1, max_length=128)
     evidence_set_id: str = Field(min_length=1, max_length=128)
     bank_snapshot_id: str = Field(min_length=1, max_length=128)
-    status: Literal["COMPLETED", "NEEDS_REVIEW"]
+    status: Literal["COMPLETED"]
     decisions: list[ReidAssociationDecision]
     content_sha256: str = Field(pattern=r"^[A-Fa-f0-9]{64}$")
 

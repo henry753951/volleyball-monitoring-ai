@@ -36,33 +36,6 @@ export function correctionPolicyForIdentityMode(mode: ReidCorrectionMode) {
   }
 }
 
-export function planGidRosterBindingChange(input: {
-  sourceClusterId: string
-  sourceRosterEntryId: string | null
-  selectedRosterEntryId: string
-  occupiedClusterId: string | null
-}) {
-  const displacedClusterId =
-    input.occupiedClusterId && input.occupiedClusterId !== input.sourceClusterId
-      ? input.occupiedClusterId
-      : null
-  return {
-    source: {
-      personClusterId: input.sourceClusterId,
-      rosterEntryId: input.selectedRosterEntryId,
-    },
-    displaced: displacedClusterId
-      ? {
-          personClusterId: displacedClusterId,
-          rosterEntryId:
-            input.sourceRosterEntryId === input.selectedRosterEntryId
-              ? null
-              : input.sourceRosterEntryId,
-        }
-      : null,
-  }
-}
-
 export function positionInCorrectionScope(
   candidate: Position,
   anchor: Position,
@@ -97,7 +70,7 @@ export async function applyVersionedReidCorrection(
     rosterEntryId: string | null
     userId: string
     mode: ReidCorrectionMode
-    reason?: string | null
+    reason?: string | null | undefined
   },
 ) {
   const evidenceRepository = tx.reidEvidenceSet
@@ -183,15 +156,10 @@ export async function applyVersionedReidCorrection(
   let sourceCluster = sourcePersonClusterId
     ? await tx.reidPersonCluster.findUnique({ where: { id: sourcePersonClusterId } })
     : null
-  const occupiedCluster = roster
-    ? await tx.reidPersonCluster.findUnique({ where: { canonicalRosterEntryId: roster.id } })
-    : null
   let targetCluster = sourceCluster
-  let displacedCluster: typeof occupiedCluster = null
-  let displacedRosterEntryId: string | null = null
 
-  if (input.mode === 'from_here' && roster) {
-    if (!targetCluster) {
+  if (input.mode === 'from_here') {
+    if (!targetCluster && roster) {
       targetCluster = await tx.reidPersonCluster.create({
         data: {
           matchId,
@@ -203,67 +171,24 @@ export async function applyVersionedReidCorrection(
       })
       sourceCluster = targetCluster
     }
-    const binding = planGidRosterBindingChange({
-      sourceClusterId: targetCluster.id,
-      sourceRosterEntryId: targetCluster.canonicalRosterEntryId,
-      selectedRosterEntryId: roster.id,
-      occupiedClusterId: occupiedCluster?.id ?? null,
-    })
-    if (binding.displaced) {
-      displacedCluster = occupiedCluster
-      displacedRosterEntryId = binding.displaced.rosterEntryId
+    if (targetCluster)
       await tx.reidPersonCluster.update({
-        where: { id: binding.displaced.personClusterId },
-        data: { canonicalRosterEntryId: null },
-      })
-    }
-    await tx.reidPersonCluster.update({
-      where: { id: binding.source.personClusterId },
-      data: { canonicalRosterEntryId: binding.source.rosterEntryId, teamId: roster.teamId },
-    })
-    if (binding.displaced?.rosterEntryId)
-      await tx.reidPersonCluster.update({
-        where: { id: binding.displaced.personClusterId },
-        data: { canonicalRosterEntryId: binding.displaced.rosterEntryId },
+        where: { id: targetCluster.id },
+        data: {
+          canonicalRosterEntryId: roster?.id ?? null,
+          ...(roster ? { teamId: roster.teamId } : {}),
+        },
       })
   } else if (input.mode === 'split_identity' && roster) {
-    targetCluster = occupiedCluster
-    if (!targetCluster)
-      targetCluster = await tx.reidPersonCluster.create({
-        data: {
-          matchId,
-          teamId: roster.teamId,
-          canonicalRosterEntryId: roster.id,
-          label: null,
-          createdRevision: nextRevision(),
-        },
-      })
-    if (sourceCluster?.id !== targetCluster.id) {
-      const targetTracklets = await tx.reidEvidenceMembership.findMany({
-        where: {
-          personClusterId: targetCluster.id,
-          supersededByMemberships: { none: {} },
-        },
-        select: { trackletId: true },
-      })
-      const targetTrackletIds = [...new Set(targetTracklets.map(item => item.trackletId))]
-      const cannotLink = targetTrackletIds.length
-        ? await tx.reidCannotLink.findFirst({
-            where: {
-              OR: [
-                { leftTrackletId: tracklet.id, rightTrackletId: { in: targetTrackletIds } },
-                { rightTrackletId: tracklet.id, leftTrackletId: { in: targetTrackletIds } },
-              ],
-            },
-            select: { id: true },
-          })
-        : null
-      if (cannotLink)
-        throw new ReidIdentityLedgerError(
-          'REID_GID_CANNOT_LINK',
-          '這個 Local ID 與所選球員的人員群組曾在同一 frame 出現，不能合併；請改用 GID 配對交換',
-        )
-    }
+    targetCluster = await tx.reidPersonCluster.create({
+      data: {
+        matchId,
+        teamId: roster.teamId,
+        canonicalRosterEntryId: roster.id,
+        label: null,
+        createdRevision: nextRevision(),
+      },
+    })
   }
   const policy = correctionPolicyForIdentityMode(input.mode)
   const correction = await tx.reidIdentityCorrection.create({
@@ -280,14 +205,34 @@ export async function applyVersionedReidCorrection(
       revision: nextRevision(),
       reason:
         input.reason?.slice(0, 1_000) ??
-        (displacedCluster
-          ? `atomic GID roster swap with ${displacedCluster.id}`
-          : input.mode === 'from_here'
-            ? 'confirmed GID roster binding'
-            : null),
+        (input.mode === 'from_here' ? 'confirmed GID roster binding' : null),
       createdByUserId: input.userId,
     },
   })
+
+  if (
+    targetCluster &&
+    (input.mode === 'from_here' || (input.mode === 'split_identity' && roster))
+  ) {
+    const priorBinding = await tx.reidGidRosterBindingRevision.findFirst({
+      where: { personClusterId: targetCluster.id },
+      orderBy: [{ revision: 'desc' }, { createdAt: 'desc' }],
+    })
+    await tx.reidGidRosterBindingRevision.create({
+      data: {
+        matchId,
+        personClusterId: targetCluster.id,
+        rosterEntryId: roster?.id ?? null,
+        source: IdentitySource.MANUAL,
+        revision: nextRevision(),
+        effectiveFromSetNumber: position.setNumber,
+        effectiveFromRallyOrdinal: position.rallyOrdinal,
+        supersedesRevisionId: priorBinding?.id ?? null,
+        correctionId: correction.id,
+        createdByUserId: input.userId,
+      },
+    })
+  }
 
   const propagated =
     input.mode === 'from_here' && targetCluster
@@ -411,31 +356,6 @@ export async function applyVersionedReidCorrection(
       candidate.id !== tracklet.id,
     )
 
-  if (displacedCluster) {
-    const displacedTracklets = await tx.reidTracklet.findMany({
-      where: {
-        evidenceSet: { analysisRun: { submission: { rally: { matchId } } } },
-        activeProjection: {
-          assignmentRevision: { personClusterId: displacedCluster.id },
-        },
-      },
-      include: {
-        activeProjection: { include: { assignmentRevision: true } },
-        evidenceSet: {
-          include: {
-            analysisRun: {
-              include: {
-                submission: { include: { rally: { include: { set: true } } } },
-              },
-            },
-          },
-        },
-      },
-    })
-    for (const candidate of displacedTracklets)
-      await writeProjection(candidate, displacedCluster.id, displacedRosterEntryId, true)
-  }
-
   const supersedeEvidence = async (
     personClusterId: string,
     role: ReidEvidenceRole,
@@ -492,5 +412,224 @@ export async function applyVersionedReidCorrection(
     targetClusterId: targetCluster?.id ?? null,
     identityRevision: revision,
     assignmentRevisions: revisions,
+  }
+}
+
+export async function swapVersionedGidRosterBindings(
+  tx: TransactionClient,
+  input: {
+    analysisRunId: string
+    canonicalTrackId: number
+    targetPersonClusterId: string
+    userId: string
+    reason?: string | null | undefined
+  },
+) {
+  const evidenceSet = await tx.reidEvidenceSet.findFirst({
+    where: {
+      analysisRunId: input.analysisRunId,
+      status: ArtifactState.READY,
+      supersededAt: null,
+    },
+    orderBy: { createdAt: 'desc' },
+    select: { id: true },
+  })
+  if (!evidenceSet)
+    throw new ReidIdentityLedgerError('REID_EVIDENCE_PENDING', '此片段的 ReID evidence 尚未完成')
+  const sourceTracklet = await tx.reidTracklet.findUnique({
+    where: {
+      evidenceSetId_canonicalTrackId: {
+        evidenceSetId: evidenceSet.id,
+        canonicalTrackId: input.canonicalTrackId,
+      },
+    },
+    include: {
+      activeProjection: { include: { assignmentRevision: true } },
+      evidenceSet: {
+        include: {
+          analysisRun: {
+            include: { submission: { include: { rally: { include: { set: true } } } } },
+          },
+        },
+      },
+    },
+  })
+  const sourceClusterId = sourceTracklet?.activeProjection?.assignmentRevision.personClusterId
+  if (!sourceTracklet || !sourceClusterId)
+    throw new ReidIdentityLedgerError('REID_GID_NOT_FOUND', '目前 Local ID 尚未連到可交換的 GID')
+  if (sourceClusterId === input.targetPersonClusterId)
+    throw new ReidIdentityLedgerError('REID_GID_SAME_TARGET', '來源與目標是同一個 GID')
+  const [sourceCluster, targetCluster] = await Promise.all([
+    tx.reidPersonCluster.findUnique({ where: { id: sourceClusterId } }),
+    tx.reidPersonCluster.findUnique({ where: { id: input.targetPersonClusterId } }),
+  ])
+  const submission = sourceTracklet.evidenceSet.analysisRun.submission
+  const matchId = submission.rally.matchId
+  if (
+    !sourceCluster ||
+    !targetCluster ||
+    sourceCluster.matchId !== matchId ||
+    targetCluster.matchId !== matchId ||
+    (sourceCluster.teamId && targetCluster.teamId && sourceCluster.teamId !== targetCluster.teamId)
+  )
+    throw new ReidIdentityLedgerError('REID_GID_NOT_FOUND', '找不到同場同隊的目標 GID')
+  const position = {
+    setNumber: submission.rally.set.setNumber,
+    rallyOrdinal: submission.rally.ordinal,
+  }
+  await tx.$queryRaw`SELECT id FROM "Match" WHERE id = ${matchId}::uuid FOR UPDATE`
+  let revision = (
+    await tx.match.findUniqueOrThrow({
+      where: { id: matchId },
+      select: { identityRevision: true },
+    })
+  ).identityRevision
+  const nextRevision = () => (revision += 1n)
+  const correction = await tx.reidIdentityCorrection.create({
+    data: {
+      matchId,
+      teamId: sourceCluster.teamId ?? targetCluster.teamId,
+      analysisRunId: input.analysisRunId,
+      trackletId: sourceTracklet.id,
+      sourcePersonClusterId: sourceCluster.id,
+      targetPersonClusterId: targetCluster.id,
+      rosterEntryId: targetCluster.canonicalRosterEntryId,
+      displayScope: ReidCorrectionDisplayScope.FROM_HERE,
+      futureEvidenceAction: ReidFutureEvidenceAction.CONFIRM_TARGET,
+      revision: nextRevision(),
+      reason: input.reason?.slice(0, 1_000) ?? `atomic GID swap with ${targetCluster.id}`,
+      createdByUserId: input.userId,
+    },
+  })
+  const sourceRosterEntryId = sourceCluster.canonicalRosterEntryId
+  const targetRosterEntryId = targetCluster.canonicalRosterEntryId
+  await tx.reidPersonCluster.update({
+    where: { id: sourceCluster.id },
+    data: { canonicalRosterEntryId: targetRosterEntryId },
+  })
+  await tx.reidPersonCluster.update({
+    where: { id: targetCluster.id },
+    data: { canonicalRosterEntryId: sourceRosterEntryId },
+  })
+  for (const [cluster, rosterEntryId] of [
+    [sourceCluster, targetRosterEntryId],
+    [targetCluster, sourceRosterEntryId],
+  ] as const) {
+    const prior = await tx.reidGidRosterBindingRevision.findFirst({
+      where: { personClusterId: cluster.id },
+      orderBy: [{ revision: 'desc' }, { createdAt: 'desc' }],
+    })
+    await tx.reidGidRosterBindingRevision.create({
+      data: {
+        matchId,
+        personClusterId: cluster.id,
+        rosterEntryId,
+        source: IdentitySource.MANUAL,
+        revision: nextRevision(),
+        effectiveFromSetNumber: position.setNumber,
+        effectiveFromRallyOrdinal: position.rallyOrdinal,
+        supersedesRevisionId: prior?.id ?? null,
+        correctionId: correction.id,
+        createdByUserId: input.userId,
+      },
+    })
+  }
+  const affected = await tx.reidTracklet.findMany({
+    where: {
+      evidenceSet: { analysisRun: { submission: { rally: { matchId } } } },
+      activeProjection: {
+        assignmentRevision: { personClusterId: { in: [sourceCluster.id, targetCluster.id] } },
+      },
+    },
+    include: {
+      activeProjection: { include: { assignmentRevision: true } },
+      evidenceSet: {
+        include: {
+          analysisRun: {
+            include: { submission: { include: { rally: { include: { set: true } } } } },
+          },
+        },
+      },
+    },
+  })
+  for (const tracklet of affected) {
+    const candidatePosition = {
+      setNumber: tracklet.evidenceSet.analysisRun.submission.rally.set.setNumber,
+      rallyOrdinal: tracklet.evidenceSet.analysisRun.submission.rally.ordinal,
+    }
+    if (
+      !positionInCorrectionScope(candidatePosition, position, ReidCorrectionDisplayScope.FROM_HERE)
+    )
+      continue
+    const clusterId = tracklet.activeProjection!.assignmentRevision.personClusterId
+    const rosterEntryId = clusterId === sourceCluster.id ? targetRosterEntryId : sourceRosterEntryId
+    const assignment = await tx.reidAssignmentRevision.create({
+      data: {
+        matchId,
+        analysisRunId: tracklet.evidenceSet.analysisRunId,
+        trackletId: tracklet.id,
+        personClusterId: clusterId,
+        rosterEntryId,
+        correctionId: correction.id,
+        source:
+          tracklet.id === sourceTracklet.id ? IdentitySource.MANUAL : IdentitySource.PROPAGATED,
+        sourcePriority: 1_000,
+        revision: nextRevision(),
+        effectiveFromSetNumber: position.setNumber,
+        effectiveFromRallyOrdinal: position.rallyOrdinal,
+        supersedesRevisionId: tracklet.activeProjection?.assignmentRevisionId ?? null,
+        createdByUserId: input.userId,
+      },
+    })
+    await tx.reidActiveProjection.update({
+      where: { trackletId: tracklet.id },
+      data: {
+        analysisRunId: tracklet.evidenceSet.analysisRunId,
+        assignmentRevisionId: assignment.id,
+        sourcePriority: 1_000,
+      },
+    })
+    if (rosterEntryId)
+      await tx.trackIdentityAssignment.upsert({
+        where: {
+          analysisRunId_trackId: {
+            analysisRunId: tracklet.evidenceSet.analysisRunId,
+            trackId: tracklet.canonicalTrackId,
+          },
+        },
+        update: {
+          rosterEntryId,
+          source: IdentitySource.PROPAGATED,
+          assignedByUserId: input.userId,
+          confidence: 1,
+          identityRevision: assignment.revision,
+        },
+        create: {
+          analysisRunId: tracklet.evidenceSet.analysisRunId,
+          trackId: tracklet.canonicalTrackId,
+          rosterEntryId,
+          source: IdentitySource.PROPAGATED,
+          assignedByUserId: input.userId,
+          confidence: 1,
+          identityRevision: assignment.revision,
+        },
+      })
+    else
+      await tx.trackIdentityAssignment.deleteMany({
+        where: {
+          analysisRunId: tracklet.evidenceSet.analysisRunId,
+          trackId: tracklet.canonicalTrackId,
+        },
+      })
+  }
+  await tx.match.update({ where: { id: matchId }, data: { identityRevision: revision } })
+  return {
+    matchId,
+    correctionId: correction.id,
+    identityRevision: revision,
+    sourceClusterId: sourceCluster.id,
+    targetClusterId: targetCluster.id,
+    sourceRosterEntryId: targetRosterEntryId,
+    targetRosterEntryId: sourceRosterEntryId,
   }
 }

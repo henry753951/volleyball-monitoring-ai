@@ -167,10 +167,11 @@ export async function updateRallyDisplayPlacement(
   return result
 }
 
-export async function deleteRallyWithMedia(
+async function purgeRallyWithMedia(
   actor: AuthenticatedUser,
   rawRallyId: string,
   dependencies: RallyAdministrationDependencies,
+  preserveAsDraft: boolean,
 ): Promise<RallyDeleteReceipt> {
   const rallyId = requireUuid(rawRallyId, 'rallyId')
   const authorized = await authorizeRally(dependencies.database, actor, rallyId)
@@ -183,7 +184,61 @@ export async function deleteRallyWithMedia(
           id: true,
           matchId: true,
           setId: true,
+          dvrProgramId: true,
+          sideAssignmentId: true,
+          sideAssignmentReversed: true,
+          ordinal: true,
+          annotationRevision: true,
           displaySetNumber: true,
+          displayOrdinal: true,
+          boundaries: {
+            select: {
+              id: true,
+              kind: true,
+              captureEpochId: true,
+              sourcePts: true,
+              captureTimeUs: true,
+              captureFrameIndex: true,
+              timingPrecision: true,
+              originalPlaybackCursor: true,
+              snapDistanceUs: true,
+              createdByUserId: true,
+              updatedByUserId: true,
+              deviceSessionId: true,
+            },
+          },
+          keyPoints: {
+            where: { deletedAt: null },
+            orderBy: { sequenceIndex: 'asc' },
+            select: {
+              id: true,
+              captureEpochId: true,
+              sequenceIndex: true,
+              markerKind: true,
+              isTerminal: true,
+              sourcePts: true,
+              captureTimeUs: true,
+              captureFrameIndex: true,
+              timingPrecision: true,
+              originalPlaybackCursor: true,
+              snapDistanceUs: true,
+              possibleDuplicate: true,
+              createdByUserId: true,
+              updatedByUserId: true,
+              deviceSessionId: true,
+              ballEvent: {
+                select: {
+                  id: true,
+                  kind: true,
+                  result: true,
+                  semanticSource: true,
+                  kindLocked: true,
+                  resultLocked: true,
+                  actorRosterEntryId: true,
+                },
+              },
+            },
+          },
           submissions: { select: { id: true } },
         },
         where: { id: rallyId },
@@ -274,8 +329,13 @@ export async function deleteRallyWithMedia(
       }
 
       await tx.rally.update({ data: { activeSubmissionId: null }, where: { id: rally.id } })
-      if (analysisRunIds.length)
+      if (analysisRunIds.length) {
+        await tx.rallySubmission.updateMany({
+          data: { analysisSourceRunId: null },
+          where: { analysisSourceRunId: { in: analysisRunIds } },
+        })
         await tx.analysisRun.deleteMany({ where: { id: { in: analysisRunIds } } })
+      }
       if (aiJobs.length)
         await tx.aiJob.deleteMany({ where: { id: { in: aiJobs.map(job => job.id) } } })
       if (clipJobIds.length) await tx.clipJob.deleteMany({ where: { id: { in: clipJobIds } } })
@@ -290,6 +350,9 @@ export async function deleteRallyWithMedia(
           where: { id: { in: submissionIds } },
         })
         await tx.rallySubmissionBoundary.deleteMany({
+          where: { submissionId: { in: submissionIds } },
+        })
+        await tx.rallySubmissionBallEvent.deleteMany({
           where: { submissionId: { in: submissionIds } },
         })
         await tx.rallySubmissionKeyPoint.deleteMany({
@@ -312,6 +375,75 @@ export async function deleteRallyWithMedia(
             scoreRevision: { increment: 1 },
           },
           where: { id: set.id },
+        })
+      }
+      if (preserveAsDraft) {
+        await tx.rally.create({
+          data: {
+            id: rally.id,
+            matchId: rally.matchId,
+            setId: rally.setId,
+            dvrProgramId: rally.dvrProgramId,
+            sideAssignmentId: rally.sideAssignmentId,
+            sideAssignmentReversed: rally.sideAssignmentReversed,
+            ordinal: rally.ordinal,
+            displaySetNumber: rally.displaySetNumber,
+            displayOrdinal: rally.displayOrdinal,
+            annotationRevision: rally.annotationRevision + 1n,
+            annotationStatus: 'READY',
+            processingStatus: 'IDLE',
+            scoreResolutionState: 'PENDING',
+            boundaries: {
+              create: rally.boundaries.map(boundary => ({
+                id: boundary.id,
+                kind: boundary.kind,
+                captureEpochId: boundary.captureEpochId,
+                sourcePts: boundary.sourcePts,
+                captureTimeUs: boundary.captureTimeUs,
+                captureFrameIndex: boundary.captureFrameIndex,
+                timingPrecision: boundary.timingPrecision,
+                originalPlaybackCursor: json(boundary.originalPlaybackCursor),
+                snapDistanceUs: boundary.snapDistanceUs,
+                createdByUserId: boundary.createdByUserId,
+                updatedByUserId: boundary.updatedByUserId,
+                deviceSessionId: boundary.deviceSessionId,
+              })),
+            },
+            keyPoints: {
+              create: rally.keyPoints.map(point => ({
+                id: point.id,
+                captureEpochId: point.captureEpochId,
+                sequenceIndex: point.sequenceIndex,
+                markerKind: point.markerKind,
+                isTerminal: point.isTerminal,
+                sourcePts: point.sourcePts,
+                captureTimeUs: point.captureTimeUs,
+                captureFrameIndex: point.captureFrameIndex,
+                timingPrecision: point.timingPrecision,
+                originalPlaybackCursor: json(point.originalPlaybackCursor),
+                snapDistanceUs: point.snapDistanceUs,
+                possibleDuplicate: point.possibleDuplicate,
+                createdByUserId: point.createdByUserId,
+                updatedByUserId: point.updatedByUserId,
+                deviceSessionId: point.deviceSessionId,
+                ...(point.ballEvent
+                  ? {
+                      ballEvent: {
+                        create: {
+                          id: point.ballEvent.id,
+                          kind: point.ballEvent.kind,
+                          result: point.ballEvent.result,
+                          semanticSource: point.ballEvent.semanticSource,
+                          kindLocked: point.ballEvent.kindLocked,
+                          resultLocked: point.ballEvent.resultLocked,
+                          actorRosterEntryId: point.ballEvent.actorRosterEntryId,
+                        },
+                      },
+                    }
+                  : {}),
+              })),
+            },
+          },
         })
       }
       if (assets.length)
@@ -367,4 +499,20 @@ export async function deleteRallyWithMedia(
       .reduce((sum, asset) => sum + (asset.byteLength ?? 0n), 0n)
       .toString(),
   }
+}
+
+export function deleteRallyWithMedia(
+  actor: AuthenticatedUser,
+  rawRallyId: string,
+  dependencies: RallyAdministrationDependencies,
+) {
+  return purgeRallyWithMedia(actor, rawRallyId, dependencies, false)
+}
+
+export function deleteRallyAnalysisWithMedia(
+  actor: AuthenticatedUser,
+  rawRallyId: string,
+  dependencies: RallyAdministrationDependencies,
+) {
+  return purgeRallyWithMedia(actor, rawRallyId, dependencies, true)
 }

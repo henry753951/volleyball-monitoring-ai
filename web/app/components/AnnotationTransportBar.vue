@@ -339,14 +339,14 @@ const clipTransition = computed(() =>
               <Download :size="14" />下載片段
             </button></UiTooltip
           >
-          <UiTooltip content="永久刪除目前選取的片段"
+          <UiTooltip content="刪除片段內容"
             ><button
               type="button"
               class="tool-button danger"
-              aria-label="刪除所選片段"
+              aria-label="刪除片段內容"
               @click="workstation.actions.execute('segment.delete-processing')"
             >
-              <Trash2 :size="14" />刪除所選片段
+              <Trash2 :size="14" />刪除片段內容
             </button></UiTooltip
           >
         </div>

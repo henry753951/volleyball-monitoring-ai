@@ -204,16 +204,6 @@ export function createAnnotationActionService(options: AnnotationActionServiceOp
     }
     const state = toValue(options.state)
     const localDraft = toValue(options.room.draftOwnedByClient)
-    if ((state === 'OPEN' || state === 'READY') && !localDraft) {
-      return { enabled: false, reason: '此片段屬於另一個標註客戶端，只能檢視' }
-    }
-    if (action === 'submit') {
-      if (state !== 'READY' && !(state === 'OPEN' && toValue(options.correctionActive)))
-        return { enabled: false, reason: '片段尚未完成' }
-      return toValue(options.submitReady)
-        ? { enabled: true, reason: '' }
-        : { enabled: false, reason: '等待目前修改同步完成' }
-    }
     const snapshot = toValue(options.displayAnnotation)
     const visualPlayhead = toValue(options.visualPlayhead)
     if (action === 'service') {
@@ -241,6 +231,16 @@ export function createAnnotationActionService(options: AnnotationActionServiceOp
         clipPostRollUs: toValue(options.clipPostRollUs),
         segments: toValue(options.protectedSegments),
       })
+    }
+    if ((state === 'OPEN' || state === 'READY') && !localDraft) {
+      return { enabled: false, reason: '此片段屬於另一個標註客戶端，只能檢視' }
+    }
+    if (action === 'submit') {
+      if (state !== 'READY' && !(state === 'OPEN' && toValue(options.correctionActive)))
+        return { enabled: false, reason: '片段尚未完成' }
+      return toValue(options.submitReady)
+        ? { enabled: true, reason: '' }
+        : { enabled: false, reason: '等待目前修改同步完成' }
     }
     const ballEvent = ballEventAvailability(action)
     if (ballEvent) return ballEvent
@@ -296,7 +296,6 @@ export function createAnnotationActionService(options: AnnotationActionServiceOp
                 : 'marking',
         label: labels[action],
         shortcut: shortcuts[action],
-        resources: ['annotation-draft'],
         availability: computed(() => availability(action)),
         execute: () => execute(action),
       }),
@@ -305,7 +304,6 @@ export function createAnnotationActionService(options: AnnotationActionServiceOp
       id: 'mark.set-event',
       group: 'marking',
       label: '修改球點結果',
-      resources: ['annotation-draft'],
       availability: computed(() => ({
         enabled: Boolean(toValue(options.selectedKeyPointId)) && toValue(options.eventEditReady),
         reason: toValue(options.selectedKeyPointId) ? '等待目前修改完成' : '請先選擇球點',
@@ -316,7 +314,6 @@ export function createAnnotationActionService(options: AnnotationActionServiceOp
       id: 'mark.set-actor',
       group: 'marking',
       label: '修改擊球球員',
-      resources: ['annotation-draft'],
       availability: computed(() => ({
         enabled: Boolean(toValue(options.selectedKeyPointId)) && toValue(options.eventEditReady),
         reason: toValue(options.selectedKeyPointId) ? '等待目前修改完成' : '請先選擇球點',

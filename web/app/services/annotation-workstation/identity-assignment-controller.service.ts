@@ -1,12 +1,11 @@
-import { computed, reactive, toValue, watch, type MaybeRefOrGetter, type Ref } from 'vue'
+import { computed, reactive, toValue, watch, type MaybeRefOrGetter } from 'vue'
 import type { IdentityAssignmentService } from './identity-assignment.service'
-import type { CoachMatchAnalytics } from '~/lib/coachDomain'
+import type { CoachMatchAnalytics, ReidJerseySuggestionRun } from '~/lib/coachDomain'
 import { createIdentityAssignmentModel } from '~/lib/identityAssignmentModel'
 import type {
   IdentityAssignmentCommand,
   IdentityCorrectionRequest,
   IdentityMode,
-  IdentityReplacementRequest,
 } from '~/types/identityAssignment'
 import type { WorkstationActionManager } from './workstation-action.service'
 
@@ -16,7 +15,6 @@ export interface IdentityAssignmentControllerOptions {
   currentFrame?: MaybeRefOrGetter<number | undefined>
   enabled?: MaybeRefOrGetter<boolean>
   refreshKey?: MaybeRefOrGetter<unknown>
-  mappingCompleted?: MaybeRefOrGetter<boolean>
   refreshAfterCommit?: boolean
   onChanged?: () => void
   onCommitted?: () => void
@@ -31,17 +29,20 @@ interface IdentityAssignmentState {
   automaticAssignmentResult: string | null
   reidJobAction: 'feature' | 'association' | null
   reidJobResult: string | null
+  jerseySuggestionRun: ReidJerseySuggestionRun | null
+  jerseySuggestionRequesting: boolean
+  jerseySuggestionApplyingIds: string[]
+  jerseySuggestionResult: string | null
   interactionSurface: 'panel' | 'popover'
   dialogs: {
-    replacement: IdentityReplacementRequest | null
     correction: IdentityCorrectionRequest | null
+    jerseySuggestions: boolean
   }
 }
 
 export function createIdentityAssignmentControllerService(
   options: IdentityAssignmentControllerOptions,
   service: IdentityAssignmentService,
-  replacementWarningEnabled: Ref<boolean>,
   manager?: WorkstationActionManager,
 ) {
   const state = reactive<IdentityAssignmentState>({
@@ -53,13 +54,18 @@ export function createIdentityAssignmentControllerService(
     automaticAssignmentResult: null,
     reidJobAction: null,
     reidJobResult: null,
+    jerseySuggestionRun: null,
+    jerseySuggestionRequesting: false,
+    jerseySuggestionApplyingIds: [],
+    jerseySuggestionResult: null,
     interactionSurface: 'panel',
-    dialogs: { replacement: null, correction: null },
+    dialogs: { correction: null, jerseySuggestions: false },
   })
-  const preferences = reactive({ replacementWarningEnabled })
   let refreshGeneration = 0
   let jobPollGeneration = 0
   let jobPollTimer: ReturnType<typeof setTimeout> | null = null
+  let jerseyPollGeneration = 0
+  let jerseyPollTimer: ReturnType<typeof setTimeout> | null = null
 
   const model = computed(() =>
     createIdentityAssignmentModel({
@@ -137,16 +143,20 @@ export function createIdentityAssignmentControllerService(
     const current = view.model.track.byId(command.trackId)
     const rosterEntryId = command.rosterEntryId
     const player = rosterEntryId ? view.model.players.byRosterEntry(rosterEntryId) : null
+    const occupied = command.rosterEntryId
+      ? view.model.track.conflictFor(command.trackId, command.rosterEntryId)
+      : null
     if (
       command.scope !== 'gid' &&
       command.rosterEntryId &&
       current?.gid_id &&
-      current.roster_entry_id &&
-      current.roster_entry_id !== command.rosterEntryId &&
+      (occupied ||
+        (current.roster_entry_id && current.roster_entry_id !== command.rosterEntryId)) &&
       player
     ) {
-      const occupied = view.model.track.conflictFor(command.trackId, command.rosterEntryId)
-      const previousPlayer = view.model.players.byRosterEntry(current.roster_entry_id)
+      const previousPlayer = current.roster_entry_id
+        ? view.model.players.byRosterEntry(current.roster_entry_id)
+        : null
       state.dialogs.correction = {
         trackId: command.trackId,
         rosterEntryId: command.rosterEntryId,
@@ -154,6 +164,10 @@ export function createIdentityAssignmentControllerService(
         previousPlayerName: previousPlayer?.name ?? null,
         occupiedGidLabel: occupied ? view.model.track.gidLabel(occupied) : null,
         occupiedTrackId: occupied?.track_id ?? null,
+        swapCandidates: view.model.track.gidBindingsForRoster(
+          command.trackId,
+          command.rosterEntryId,
+        ),
       }
       return
     }
@@ -163,20 +177,6 @@ export function createIdentityAssignmentControllerService(
   function requestAssignment(command: IdentityAssignmentCommand) {
     const current = view.model.track.byId(command.trackId)
     if ((current?.roster_entry_id ?? '') === command.rosterEntryId) return
-    const rosterEntryId = command.rosterEntryId
-    const conflict = rosterEntryId
-      ? view.model.track.conflictFor(command.trackId, rosterEntryId)
-      : null
-    const player = rosterEntryId ? view.model.players.byRosterEntry(rosterEntryId) : null
-    if (rosterEntryId && conflict && preferences.replacementWarningEnabled && player) {
-      state.dialogs.replacement = {
-        trackId: command.trackId,
-        rosterEntryId,
-        playerName: player.name,
-        occupiedTrackId: conflict.track_id,
-      }
-      return
-    }
     continueAssignment(command)
   }
 
@@ -191,41 +191,161 @@ export function createIdentityAssignmentControllerService(
       scope: 'gid' as const,
       identityMode: 'from_here' as const,
     }
-    if (conflict && preferences.replacementWarningEnabled && player) {
-      state.dialogs.replacement = {
-        ...scopedCommand,
+    if (conflict && player) {
+      const current = view.model.track.byId(command.trackId)
+      state.dialogs.correction = {
+        trackId: command.trackId,
+        rosterEntryId,
         playerName: player.name,
+        previousPlayerName: current?.roster_entry_id
+          ? (view.model.players.byRosterEntry(current.roster_entry_id)?.name ?? null)
+          : null,
+        occupiedGidLabel: view.model.track.gidLabel(conflict),
         occupiedTrackId: conflict.track_id,
+        swapCandidates: view.model.track.gidBindingsForRoster(command.trackId, rosterEntryId),
       }
       return
     }
     void commit(scopedCommand)
   }
 
-  function confirmReplacement() {
-    const request = state.dialogs.replacement
-    state.dialogs.replacement = null
-    if (request) continueAssignment(request)
-  }
-
-  function applyCorrection(identityMode: IdentityMode) {
-    const request = state.dialogs.correction
-    state.dialogs.correction = null
-    if (request) void commit({ ...request, identityMode })
-  }
-
-  async function setMappingCompleted(completed: boolean) {
+  async function commitGidSwap(request: IdentityCorrectionRequest, targetPersonClusterId: string) {
     const analysisRunId = toValue(options.analysisRunId)
-    if (!analysisRunId || state.loading) return
-    state.loading = true
+    if (!analysisRunId) return
+    state.savingTrackId = request.trackId
     state.error = null
     try {
-      await service.setTrackIdentityMappingComplete({ analysisRunId, completed })
+      await service.swapTrackGidRosterBindings({
+        analysisRunId,
+        trackId: request.trackId,
+        targetPersonClusterId,
+        reason: `operator confirmed co-visible GID swap for Local ${request.trackId}`,
+      })
+      if (options.refreshAfterCommit) await refresh()
       options.onChanged?.()
+      options.onCommitted?.()
     } catch (cause) {
-      state.error = cause instanceof Error ? cause.message : '狀態更新失敗'
+      state.error = assignmentErrorMessage(cause)
     } finally {
-      state.loading = false
+      state.savingTrackId = null
+    }
+  }
+
+  async function applyCorrection(identityMode: IdentityMode) {
+    const request = state.dialogs.correction
+    state.dialogs.correction = null
+    if (!request) return
+    const occupiedTrack =
+      request.occupiedTrackId === null ? null : view.model.track.byId(request.occupiedTrackId)
+    if (identityMode === 'from_here' && occupiedTrack?.gid_id) {
+      await commitGidSwap(request, occupiedTrack.gid_id)
+      return
+    }
+    await commit({ ...request, identityMode })
+  }
+
+  async function swapGidBinding(targetPersonClusterId: string) {
+    const request = state.dialogs.correction
+    state.dialogs.correction = null
+    if (!request) return
+    await commitGidSwap(request, targetPersonClusterId)
+  }
+
+  function stopJerseyPolling() {
+    jerseyPollGeneration += 1
+    if (jerseyPollTimer) clearTimeout(jerseyPollTimer)
+    jerseyPollTimer = null
+  }
+
+  async function pollJerseySuggestions(runId: string, generation: number) {
+    try {
+      const run = await service.reidJerseySuggestionRun(runId)
+      if (generation !== jerseyPollGeneration || !run) return
+      state.jerseySuggestionRun = run
+      const completed = run.items.filter(item =>
+        ['COMPLETED', 'FAILED', 'CANCELLED'].includes(item.status),
+      ).length
+      if (run.status === 'COMPLETED') {
+        state.jerseySuggestionRequesting = false
+        state.jerseySuggestionResult = `背號感知完成 ${completed}/${run.items.length}；請檢查差異後再套用。`
+        state.dialogs.jerseySuggestions = true
+        return
+      }
+      if (['FAILED', 'CANCELLED'].includes(run.status)) {
+        state.jerseySuggestionRequesting = false
+        state.error = run.error_message || '背號感知未完成，未修改任何球員指派'
+        return
+      }
+      state.jerseySuggestionResult = `背號感知處理中 ${completed}/${run.items.length}；不影響目前的人工指派。`
+      jerseyPollTimer = setTimeout(() => void pollJerseySuggestions(runId, generation), 2_000)
+    } catch {
+      if (generation !== jerseyPollGeneration) return
+      state.jerseySuggestionResult = '暫時無法取得背號感知進度，系統會自動重試。'
+      jerseyPollTimer = setTimeout(() => void pollJerseySuggestions(runId, generation), 4_000)
+    }
+  }
+
+  async function requestJerseySuggestions() {
+    const analysisRunId = toValue(options.analysisRunId)
+    if (!analysisRunId || state.jerseySuggestionRequesting) return
+    stopJerseyPolling()
+    state.jerseySuggestionRequesting = true
+    state.jerseySuggestionRun = null
+    state.jerseySuggestionResult = '正在建立背號感知工作…'
+    state.error = null
+    const runId = crypto.randomUUID()
+    try {
+      await service.requestReidJerseySuggestions({ runId, analysisRunId })
+      const generation = jerseyPollGeneration
+      await pollJerseySuggestions(runId, generation)
+    } catch (cause) {
+      state.jerseySuggestionRequesting = false
+      state.error = cause instanceof Error ? cause.message : '無法啟動背號感知'
+    }
+  }
+
+  async function applyJerseySuggestions(suggestionIds: string[]) {
+    const run = state.jerseySuggestionRun
+    const pendingIds = [
+      ...new Set(
+        suggestionIds.filter(id =>
+          run?.items.some(
+            item =>
+              item.suggestion_id === id &&
+              item.changed &&
+              item.suggested_roster_entry_id &&
+              !item.applied_at,
+          ),
+        ),
+      ),
+    ]
+    if (!pendingIds.length) return
+    state.jerseySuggestionApplyingIds = pendingIds
+    state.error = null
+    let applied = 0
+    const failures: string[] = []
+    for (const suggestionId of pendingIds) {
+      try {
+        await service.applyReidJerseySuggestion(suggestionId)
+        applied += 1
+        const item = run?.items.find(candidate => candidate.suggestion_id === suggestionId)
+        if (item) item.applied_at = new Date().toISOString()
+      } catch (cause) {
+        const item = run?.items.find(candidate => candidate.suggestion_id === suggestionId)
+        failures.push(
+          `${item ? `Local ${item.track_id}` : suggestionId}: ${assignmentErrorMessage(cause)}`,
+        )
+      }
+    }
+    state.jerseySuggestionApplyingIds = []
+    state.jerseySuggestionResult = failures.length
+      ? `已套用 ${applied} 筆；${failures.length} 筆保留未變更，請回到 Local 列表人工確認。`
+      : `已套用 ${applied} 筆背號建議；其餘 Local ID 保持原狀。`
+    if (failures.length) state.error = failures.join('；')
+    if (options.refreshAfterCommit && applied) await refresh()
+    if (applied) {
+      options.onChanged?.()
+      options.onCommitted?.()
     }
   }
 
@@ -348,8 +468,14 @@ export function createIdentityAssignmentControllerService(
     () => toValue(options.analysisRunId),
     () => {
       stopJobPolling()
+      stopJerseyPolling()
       state.reidJobAction = null
       state.reidJobResult = null
+      state.jerseySuggestionRun = null
+      state.jerseySuggestionRequesting = false
+      state.jerseySuggestionApplyingIds = []
+      state.jerseySuggestionResult = null
+      state.dialogs.jerseySuggestions = false
     },
   )
   const unregisterActions = manager
@@ -436,34 +562,29 @@ export function createIdentityAssignmentControllerService(
           }),
           execute: () => requestReidJob('association'),
         }),
-        manager.register<boolean, void>({
-          id: 'identity.set-mapping-complete',
+        manager.register({
+          id: 'identity.jersey-suggestions',
           group: 'identity',
-          label: '更新球員指派狀態',
+          label: '背號感知',
+          availability: () => ({
+            enabled: Boolean(toValue(options.analysisRunId)) && !state.jerseySuggestionRequesting,
+            pending: state.jerseySuggestionRequesting,
+            reason: '請先選取具備影片、逐 frame Pose 與 ReID evidence 的分析片段',
+          }),
+          execute: requestJerseySuggestions,
+        }),
+        manager.register<string[], void>({
+          id: 'identity.apply-jersey-suggestions',
+          group: 'identity',
+          label: '套用選取的背號建議',
           resources: ['identity-write'],
           availability: () => ({
             enabled:
-              Boolean(toValue(options.analysisRunId)) &&
-              view.model.tracks.length > 0 &&
-              (Boolean(options.mappingCompleted && toValue(options.mappingCompleted)) ||
-                view.model.identityReady),
-            pending: state.loading,
-            reason: view.model.tracks.length
-              ? '仍有待指派球員，完成後才能鎖定球員關聯'
-              : '目前沒有可指派的球員追蹤',
+              state.dialogs.jerseySuggestions && state.jerseySuggestionApplyingIds.length === 0,
+            pending: state.jerseySuggestionApplyingIds.length > 0,
+            reason: '目前沒有可套用的背號建議',
           }),
-          execute: setMappingCompleted,
-        }),
-        manager.register({
-          id: 'identity.confirm-replacement',
-          group: 'identity',
-          label: '確認替換既有球員關聯',
-          resources: ['identity-write'],
-          availability: () => ({
-            enabled: state.dialogs.replacement !== null,
-            reason: '目前沒有待確認的球員替換',
-          }),
-          execute: confirmReplacement,
+          execute: applyJerseySuggestions,
         }),
         manager.register<IdentityMode, void>({
           id: 'identity.apply-correction',
@@ -476,37 +597,51 @@ export function createIdentityAssignmentControllerService(
           }),
           execute: applyCorrection,
         }),
+        manager.register<string, void>({
+          id: 'identity.swap-gid-binding',
+          group: 'identity',
+          label: '交換兩個 GID 的球員綁定',
+          resources: ['identity-write'],
+          availability: () => ({
+            enabled:
+              state.dialogs.correction !== null &&
+              state.dialogs.correction.swapCandidates.length > 0,
+            reason: '目前沒有可交換的既有 GID',
+          }),
+          execute: swapGidBinding,
+        }),
       ]
     : []
   function dispose() {
     stopRefreshWatch()
     stopAnalysisRunWatch()
     stopJobPolling()
+    stopJerseyPolling()
     unregisterActions.forEach(unregister => unregister())
   }
 
   return {
     state,
-    preferences,
     view,
     actions: {
       refresh,
       requestAssignment,
       requestGidAssignment,
-      confirmReplacement,
       applyCorrection,
+      swapGidBinding,
       applyAutomaticAssignments,
       requestFeatureRebuild: () => requestReidJob('feature'),
       requestAssociationRerun: () => requestReidJob('association'),
-      setMappingCompleted,
+      requestJerseySuggestions,
+      applyJerseySuggestions,
       setInteractionSurface: (surface: 'panel' | 'popover') => {
         state.interactionSurface = surface
       },
-      closeReplacement: () => {
-        state.dialogs.replacement = null
-      },
       closeCorrection: () => {
         state.dialogs.correction = null
+      },
+      closeJerseySuggestions: () => {
+        state.dialogs.jerseySuggestions = false
       },
     },
     dispose,

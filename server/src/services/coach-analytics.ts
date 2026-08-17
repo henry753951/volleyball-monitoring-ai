@@ -5,6 +5,7 @@ import {
   applyVersionedReidCorrection,
   parseReidCorrectionMode,
   ReidIdentityLedgerError,
+  swapVersionedGidRosterBindings,
 } from './reid-identity-ledger.js'
 
 const quality = (entries: Iterable<string>) => {
@@ -818,6 +819,16 @@ export async function assignTrackIdentity(
     const conflictingTrackIds = occupied
       .filter(item => observedFrameRangesOverlap(track.metadata, item.track.metadata))
       .map(item => item.trackId)
+    if (identityMode === 'from_here' && conflictingTrackIds.length)
+      throw new GraphQLError(
+        '所選球員已在相同 frame 綁定另一個 Local ID，請確認要交換 GID 或只覆寫本片段',
+        {
+          extensions: {
+            code: 'REID_GID_SWAP_CONFIRMATION_REQUIRED',
+            conflicting_track_ids: conflictingTrackIds,
+          },
+        },
+      )
     const replacedTrackIds = identityMode === 'clip_only' ? conflictingTrackIds : []
     if (replacedTrackIds.length)
       await tx.trackIdentityAssignment.deleteMany({
@@ -940,9 +951,16 @@ export async function clearTrackIdentity(
   })
 }
 
-export async function setTrackIdentityMappingComplete(
+export async function swapTrackGidRosterBindings(
   database: PrismaClient,
-  input: { analysisRunId: string; completed: boolean; userId: string; role: UserRole },
+  input: {
+    analysisRunId: string
+    trackId: number
+    targetPersonClusterId: string
+    reason?: string | null | undefined
+    userId: string
+    role: UserRole
+  },
 ) {
   if (
     input.role !== UserRole.ADMIN &&
@@ -950,96 +968,43 @@ export async function setTrackIdentityMappingComplete(
     input.role !== UserRole.COACH
   )
     throw new Error('FORBIDDEN')
-  return database.$transaction(async tx => {
-    const run = await tx.analysisRun.findUnique({
-      where: { id: input.analysisRunId },
-      select: {
-        id: true,
-        status: true,
-        submission: {
-          select: {
-            leftTeamId: true,
-            rightTeamId: true,
-            rally: { select: { matchId: true } },
-          },
-        },
+  const run = await database.analysisRun.findUnique({
+    where: { id: input.analysisRunId },
+    select: { submission: { select: { rally: { select: { matchId: true } } } } },
+  })
+  if (!run) throw new Error('NOT_FOUND')
+  if (input.role !== UserRole.ADMIN) {
+    const membership = await database.matchMember.findUnique({
+      where: {
+        matchId_userId: { matchId: run.submission.rally.matchId, userId: input.userId },
       },
+      select: { userId: true },
     })
-    if (!run || run.status !== JobStatus.COMPLETED) throw new Error('NOT_FOUND')
-    const matchId = run.submission.rally.matchId
-    const member =
-      input.role === UserRole.ADMIN
-        ? true
-        : Boolean(
-            await tx.matchMember.findUnique({
-              where: { matchId_userId: { matchId, userId: input.userId } },
-              select: { userId: true },
-            }),
-          )
-    if (!member) throw new Error('NOT_FOUND')
-    if (input.completed) {
-      const invalidAssignment = await tx.trackIdentityAssignment.findFirst({
-        select: { id: true },
-        where: {
-          analysisRunId: input.analysisRunId,
-          OR: [
-            {
-              track: { courtSide: 'LEFT' },
-              rosterEntry: { teamId: { not: run.submission.leftTeamId } },
-            },
-            {
-              track: { courtSide: 'RIGHT' },
-              rosterEntry: { teamId: { not: run.submission.rightTeamId } },
-            },
-          ],
-        },
-      })
-      if (invalidAssignment) {
-        throw new GraphQLError('仍有球員指派不符合此片段的場側隊伍', {
-          extensions: { code: 'ROSTER_TEAM_MISMATCH' },
-        })
-      }
-      const evidenceSet = await tx.reidEvidenceSet.findFirst({
-        where: { analysisRunId: input.analysisRunId, status: 'READY' },
-        orderBy: { createdAt: 'desc' },
-        select: { id: true },
-      })
-      if (!evidenceSet)
-        throw new GraphQLError('新版 ReID evidence 尚未完成', {
-          extensions: { code: 'REID_EVIDENCE_PENDING' },
-        })
-      const unassignedTracklet = await tx.reidTracklet.findFirst({
-        where: {
-          evidenceSetId: evidenceSet.id,
-          OR: [
-            { activeProjection: null },
-            { activeProjection: { assignmentRevision: { rosterEntryId: null } } },
-          ],
-        },
-        select: { canonicalTrackId: true },
-      })
-      if (unassignedTracklet) {
-        throw new GraphQLError('仍有辨識到的球員軌跡尚未完成指派', {
-          extensions: {
-            code: 'REID_MANUAL_ASSIGNMENT_REQUIRED',
-            trackId: unassignedTracklet.canonicalTrackId,
-          },
-        })
-      }
-    }
-    const updated = await tx.analysisRun.update({
-      where: { id: input.analysisRunId },
-      data: {
-        identityMappingCompletedAt: input.completed ? new Date() : null,
-        identityMappingCompletedByUserId: input.completed ? input.userId : null,
-      },
-      select: { id: true, identityMappingCompletedAt: true },
-    })
+    if (!membership) throw new Error('NOT_FOUND')
+  }
+  try {
+    const result = await database.$transaction(tx =>
+      swapVersionedGidRosterBindings(tx, {
+        analysisRunId: input.analysisRunId,
+        canonicalTrackId: input.trackId,
+        targetPersonClusterId: input.targetPersonClusterId,
+        userId: input.userId,
+        reason: input.reason,
+      }),
+    )
     return {
       schema_version: '1.0.0',
-      match_id: matchId,
-      analysis_run_id: updated.id,
-      completed: Boolean(updated.identityMappingCompletedAt),
+      match_id: result.matchId,
+      correction_id: result.correctionId,
+      identity_revision: result.identityRevision.toString(),
+      source_gid_id: result.sourceClusterId,
+      target_gid_id: result.targetClusterId,
+      source_roster_entry_id: result.sourceRosterEntryId,
+      target_roster_entry_id: result.targetRosterEntryId,
     }
-  })
+  } catch (error) {
+    if (error instanceof ReidIdentityLedgerError)
+      throw new GraphQLError(error.message, { extensions: { code: error.code } })
+    throw error
+  }
 }

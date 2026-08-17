@@ -26,7 +26,6 @@ from volleyball_monitoring_ai import (
     ReidBankSnapshot,
     ReidFeatureJobRequest,
     ReidFeatureResult,
-    ReidJerseyVlmResponseBundle,
     ReidRosterSnapshot,
     ResolvedMediaAnchor,
     build_analysis_data,
@@ -133,9 +132,6 @@ def test_pose_and_reid_artifact_models_validate_golden_examples() -> None:
     feature_result = ReidFeatureResult.model_validate_json(
         (AI_EXAMPLES / "reid-feature-result.json").read_text()
     )
-    jersey_responses = ReidJerseyVlmResponseBundle.model_validate_json(
-        (AI_EXAMPLES / "reid-jersey-vlm-response.json").read_text()
-    )
     bank = ReidBankSnapshot.model_validate_json(
         (AI_EXAMPLES / "reid-bank-snapshot.json").read_text()
     )
@@ -159,10 +155,9 @@ def test_pose_and_reid_artifact_models_validate_golden_examples() -> None:
     assert feature_job.pose_recipe_namespace == "pose/yolo-coco17/every-frame-v1"
     assert roster.match_id == feature_job.match_id
     assert feature_result.tracklets[0].vectors[0].dimension == 384
-    assert jersey_responses.evidence_set_id == feature_result.evidence_set_id
     assert bank.memberships[0].evidence_state == "CONFIRMED"
-    assert association_job.recipe.allow_abstention is True
-    assert association_result.decisions[0].association_state == "NEEDS_REVIEW"
+    assert association_job.recipe.allow_new_gid is True
+    assert association_result.decisions[0].action == "CREATE_NEW_GID"
     assert preview_job.selected_frame_indices == ["120", "132", "144", "156"]
     assert preview_result.frame_count == len(preview_result.source_frame_indices)
 

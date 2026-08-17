@@ -76,8 +76,14 @@ async function loadAnnotationSnapshot(
         matchId: room.matchId,
         program: { captureSessionId: room.captureSessionId },
         OR: [
-          { boundaries: { some: { deviceSessionId, kind: 'START' } } },
-          { keyPoints: { some: { deviceSessionId, markerKind: 'SERVICE' } } },
+          { draftOwnerDeviceSessionId: deviceSessionId },
+          {
+            draftOwnerDeviceSessionId: null,
+            OR: [
+              { boundaries: { some: { deviceSessionId, kind: 'START' } } },
+              { keyPoints: { some: { deviceSessionId, markerKind: 'SERVICE' } } },
+            ],
+          },
         ],
       },
       include: snapshotInclude,

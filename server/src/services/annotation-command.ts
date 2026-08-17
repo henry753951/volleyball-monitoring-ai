@@ -39,6 +39,11 @@ export interface AnnotationCommandService {
     identity: AnnotationIdentity,
   ): Promise<AnnotationCommandResponse>
   authorizeRoom(roomId: string, identity: AnnotationIdentity): Promise<AnnotationRoom | null>
+  recoverAbandonedDraft(
+    roomId: string,
+    identity: AnnotationIdentity,
+    activeDeviceSessionIds: readonly string[],
+  ): Promise<string | null>
   roomSequence(roomId: string): Promise<bigint>
 }
 
@@ -407,15 +412,25 @@ async function acceptService(
       select: { id: true },
       where: {
         activeSubmissionId: null,
-        annotationStatus: 'OPEN',
+        annotationStatus: { in: ['OPEN', 'READY'] },
         matchId: room.matchId,
         voidedAt: null,
         OR: [
-          { boundaries: { some: { deviceSessionId: identity.deviceSessionId, kind: 'START' } } },
+          { draftOwnerDeviceSessionId: identity.deviceSessionId },
           {
-            keyPoints: {
-              some: { deviceSessionId: identity.deviceSessionId, markerKind: 'SERVICE' },
-            },
+            draftOwnerDeviceSessionId: null,
+            OR: [
+              {
+                boundaries: {
+                  some: { deviceSessionId: identity.deviceSessionId, kind: 'START' },
+                },
+              },
+              {
+                keyPoints: {
+                  some: { deviceSessionId: identity.deviceSessionId, markerKind: 'SERVICE' },
+                },
+              },
+            ],
           },
         ],
       },
@@ -493,6 +508,7 @@ async function acceptService(
     await tx.rally.create({
       data: {
         annotationRevision: 1n,
+        draftOwnerDeviceSessionId: identity.deviceSessionId,
         dvrProgramId: playbackWindow.dvrProgramId,
         id: command.rally_id,
         matchId: room.matchId,
@@ -642,6 +658,8 @@ type EditCommand = Extract<
 function ordinaryDraftBelongsToDevice(
   rally: {
     activeSubmissionId: string | null
+    annotationStatus?: string
+    draftOwnerDeviceSessionId?: string | null
     boundaries?: Array<{ kind: string; deviceSessionId: string }>
     keyPoints?: Array<{ markerKind: string; deviceSessionId: string }>
     operations?: Array<{ deviceSessionId: string }>
@@ -649,11 +667,23 @@ function ordinaryDraftBelongsToDevice(
   deviceSessionId: string,
 ) {
   if (rally.activeSubmissionId !== null) return true
-  const owner =
+  if (rally.annotationStatus === 'READY') return true
+  return ordinaryDraftOwnerDeviceSessionId(rally) === deviceSessionId
+}
+
+function ordinaryDraftOwnerDeviceSessionId(rally: {
+  draftOwnerDeviceSessionId?: string | null
+  boundaries?: Array<{ kind: string; deviceSessionId: string }>
+  keyPoints?: Array<{ markerKind: string; deviceSessionId: string }>
+  operations?: Array<{ deviceSessionId: string }>
+}) {
+  return (
+    rally.draftOwnerDeviceSessionId ??
     rally.boundaries?.find(boundary => boundary.kind === 'START')?.deviceSessionId ??
     rally.keyPoints?.find(point => point.markerKind === 'SERVICE')?.deviceSessionId ??
-    rally.operations?.[0]?.deviceSessionId
-  return owner === deviceSessionId
+    rally.operations?.[0]?.deviceSessionId ??
+    null
+  )
 }
 
 async function acceptContact(
@@ -1055,6 +1085,120 @@ async function acceptContact(
         hash,
         rejected(command, 'ANNOTATION_NOT_READY', 'Rally end must be after the last key point'),
       )
+    const sameFrameContact = allPoints.find(
+      point =>
+        point.markerKind === 'CONTACT' &&
+        point.captureEpochId === anchor.capture_epoch_id &&
+        point.captureFrameIndex === captureFrame,
+    )
+    if (!terminal && sameFrameContact) {
+      const autoCorrections = command.payload.ball_event
+        ? await (async () => {
+            await tx.ballEventDraft.upsert({
+              where: { keyPointId: sameFrameContact.id },
+              create: {
+                keyPointId: sameFrameContact.id,
+                kind: command.payload.ball_event!.kind,
+                result: command.payload.ball_event!.result,
+                semanticSource: 'HUMAN',
+                kindLocked: true,
+                resultLocked: command.payload.ball_event!.result !== null,
+              },
+              update: {
+                kind: command.payload.ball_event!.kind,
+                result: command.payload.ball_event!.result,
+                semanticSource: 'HUMAN',
+                kindLocked: true,
+                resultLocked: command.payload.ball_event!.result !== null,
+              },
+            })
+            return normalizeDraftBallEvents(tx, rally.id, identity.userId)
+          })()
+        : []
+      const revision = command.payload.ball_event
+        ? rally.annotationRevision + 1n
+        : rally.annotationRevision
+      if (revision !== rally.annotationRevision) {
+        const cas = await tx.rally.updateMany({
+          data: { annotationRevision: revision },
+          where: {
+            id: rally.id,
+            annotationRevision: rally.annotationRevision,
+            annotationStatus: rally.annotationStatus,
+          },
+        })
+        if (cas.count !== 1)
+          return persistRejection(
+            tx,
+            command,
+            identity,
+            hash,
+            rejected(command, 'REVISION_CONFLICT', 'Rally revision is stale', {
+              actual: rally.annotationRevision.toString(),
+              expected: command.base_revision,
+            }),
+          )
+      }
+      const receipt = await tx.annotationCommandReceipt.create({
+        data: {
+          accepted: true,
+          commandId: command.command_id,
+          deviceSessionId: identity.deviceSessionId,
+          rallyId: command.rally_id,
+          requestHash: hash,
+          requestJson: jsonValue(command),
+          responseJson: {},
+          roomId: command.room_id,
+          userId: identity.userId,
+        },
+      })
+      const response = parseAnnotationCommandResponse({
+        schema_version: command.schema_version,
+        type: 'command_ack',
+        command_id: command.command_id,
+        room_id: command.room_id,
+        rally_id: command.rally_id,
+        operation_kind: command.kind,
+        result_revision: revision.toString(),
+        server_sequence: receipt.serverSequence.toString(),
+        effects: {
+          annotation_status: rally.annotationStatus.toLowerCase(),
+          created_key_point_id: sameFrameContact.id,
+          score_resolution: rally.scoreResolutionState.toLowerCase(),
+          scoring_court_side: rally.scoringCourtSide?.toLowerCase() ?? null,
+          ...(autoCorrections.length > 0 ? { auto_corrections: autoCorrections } : {}),
+        },
+        resolved_anchor: wireAnchor(anchor),
+      })
+      await tx.annotationCommandReceipt.update({
+        data: { responseJson: jsonValue(response) },
+        where: { serverSequence: receipt.serverSequence },
+      })
+      await tx.annotationOperation.create({
+        data: {
+          baseRevision: rally.annotationRevision,
+          clientMutationId: command.command_id,
+          deviceSessionId: identity.deviceSessionId,
+          operationKind: command.kind,
+          payload: jsonValue(command.payload),
+          payloadHash: hash,
+          rallyId: command.rally_id,
+          receiptServerSequence: receipt.serverSequence,
+          resultRevision: revision,
+          userId: identity.userId,
+        },
+      })
+      await tx.outboxEvent.create({
+        data: {
+          aggregateId: command.rally_id,
+          aggregateType: 'Rally',
+          dedupeKey: `annotation-accepted:${receipt.serverSequence}`,
+          eventType: `annotation.command_accepted.v${command.schema_version.split('.')[0]}`,
+          payload: jsonValue(response),
+        },
+      })
+      return response
+    }
     const firstContactIndex = servicePoint ? 1 : 0
     const foundIndex = allPoints.findIndex(
       point =>
@@ -1070,13 +1214,6 @@ async function acceptContact(
         data: { sequenceIndex: { increment: 1 } },
         where: { id: point.id },
       })
-    const equals = allPoints.filter(
-      point => point.markerKind === 'CONTACT' && point.captureFrameIndex === captureFrame,
-    )
-    const possibleDuplicate = equals.length > 0
-    for (const point of equals)
-      if (!point.possibleDuplicate)
-        await tx.keyPoint.update({ data: { possibleDuplicate: true }, where: { id: point.id } })
     const keyPointId = randomUUID()
     const sequenceIndex = insertion
     await tx.keyPoint.create({
@@ -1099,7 +1236,7 @@ async function acceptContact(
           | 'PTS_EXACT'
           | 'ESTIMATED',
         updatedByUserId: identity.userId,
-        possibleDuplicate,
+        possibleDuplicate: false,
         ...(command.payload.ball_event
           ? {
               ballEvent: {
@@ -2039,6 +2176,22 @@ async function acceptDraftEdit(
           hash,
           rejected(command, 'ANNOTATION_NOT_READY', 'Resolved playback state is no longer valid'),
         )
+      const occupied = rally.keyPoints.find(
+        point =>
+          point.id !== target.id &&
+          point.markerKind === 'CONTACT' &&
+          target.markerKind === 'CONTACT' &&
+          point.captureEpochId === anchor.capture_epoch_id &&
+          point.captureFrameIndex === resolvedFrame,
+      )
+      if (occupied)
+        return persistRejection(
+          tx,
+          command,
+          identity,
+          hash,
+          rejected(command, 'KEY_POINT_FRAME_OCCUPIED', '這個影格已經有球點，請移到其他影格'),
+        )
       const isBoundaryDraft = rally.boundaries.some(boundary => boundary.kind === 'START')
       if (!isBoundaryDraft) {
         const service = rally.keyPoints.find(point => point.markerKind === 'SERVICE')
@@ -2171,11 +2324,169 @@ async function acceptDraftEdit(
   })
 }
 
+async function recoverAbandonedDraft(
+  database: PrismaClient,
+  room: AnnotationRoom,
+  identity: AnnotationIdentity,
+  activeDeviceSessionIds: readonly string[],
+): Promise<string | null> {
+  const activeSessions = new Set(activeDeviceSessionIds)
+  return serializable(database, async tx => {
+    await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`annotation-draft-recovery:${room.roomId}`}, 0))::text AS lock`
+    const candidates = await tx.rally.findMany({
+      where: {
+        activeSubmissionId: null,
+        annotationStatus: { in: ['OPEN', 'READY'] },
+        matchId: room.matchId,
+        program: { captureSessionId: room.captureSessionId },
+        voidedAt: null,
+      },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      select: {
+        activeSubmissionId: true,
+        annotationRevision: true,
+        boundaries: {
+          where: { kind: 'START' },
+          select: { deviceSessionId: true, kind: true },
+          take: 1,
+        },
+        draftOwnerDeviceSessionId: true,
+        id: true,
+        keyPoints: {
+          where: { deletedAt: null, markerKind: 'SERVICE' },
+          orderBy: [{ sequenceIndex: 'asc' }, { id: 'asc' }],
+          select: { deviceSessionId: true, markerKind: true },
+          take: 1,
+        },
+        operations: {
+          orderBy: { resultRevision: 'asc' },
+          select: { deviceSessionId: true },
+          take: 1,
+        },
+      },
+    })
+    const owned = candidates.find(
+      candidate => ordinaryDraftOwnerDeviceSessionId(candidate) === identity.deviceSessionId,
+    )
+    if (owned) return owned.id
+
+    const ownerIds = [
+      ...new Set(
+        candidates
+          .map(candidate => ordinaryDraftOwnerDeviceSessionId(candidate))
+          .filter((value): value is string => Boolean(value)),
+      ),
+    ]
+    const ownerUsers = new Map(
+      (
+        await tx.deviceSession.findMany({
+          where: { id: { in: ownerIds } },
+          select: { id: true, userId: true },
+        })
+      ).map(owner => [owner.id, owner.userId]),
+    )
+    const recoverable = candidates.filter(candidate => {
+      const owner = ordinaryDraftOwnerDeviceSessionId(candidate)
+      return (
+        owner !== null && ownerUsers.get(owner) === identity.userId && !activeSessions.has(owner)
+      )
+    })
+    // Multiple abandoned drafts require an explicit operator choice; silently
+    // choosing one would reintroduce cursor/selection-driven ownership bugs.
+    if (recoverable.length !== 1) return null
+
+    const candidate = recoverable[0]!
+    await rallyLock(tx, candidate.id)
+    const current = await tx.rally.findUnique({
+      where: { id: candidate.id },
+      select: {
+        activeSubmissionId: true,
+        annotationRevision: true,
+        annotationStatus: true,
+        boundaries: {
+          where: { kind: 'START' },
+          select: { deviceSessionId: true, kind: true },
+          take: 1,
+        },
+        draftOwnerDeviceSessionId: true,
+        id: true,
+        keyPoints: {
+          where: { deletedAt: null, markerKind: 'SERVICE' },
+          orderBy: [{ sequenceIndex: 'asc' }, { id: 'asc' }],
+          select: { deviceSessionId: true, markerKind: true },
+          take: 1,
+        },
+        operations: {
+          orderBy: { resultRevision: 'asc' },
+          select: { deviceSessionId: true },
+          take: 1,
+        },
+      },
+    })
+    if (
+      !current ||
+      current.activeSubmissionId !== null ||
+      !['OPEN', 'READY'].includes(current.annotationStatus)
+    )
+      return null
+    const previousOwner = ordinaryDraftOwnerDeviceSessionId(current)
+    if (previousOwner === identity.deviceSessionId) return current.id
+    if (!previousOwner || activeSessions.has(previousOwner)) return null
+    const previousOwnerSession = await tx.deviceSession.findFirst({
+      where: { id: previousOwner, userId: identity.userId },
+      select: { id: true },
+    })
+    if (!previousOwnerSession) return null
+
+    const revision = current.annotationRevision + 1n
+    const payload = {
+      from_device_session_id: previousOwner,
+      to_device_session_id: identity.deviceSessionId,
+    }
+    const mutationId = `draft-owner-recovery:${current.id}:${identity.deviceSessionId}:${revision}`
+    await tx.rally.update({
+      where: { id: current.id },
+      data: {
+        annotationRevision: revision,
+        draftOwnerDeviceSessionId: identity.deviceSessionId,
+      },
+    })
+    await tx.annotationOperation.create({
+      data: {
+        baseRevision: current.annotationRevision,
+        clientMutationId: mutationId,
+        deviceSessionId: identity.deviceSessionId,
+        operationKind: 'RECOVER_DRAFT_OWNER',
+        payload: jsonValue(payload),
+        payloadHash: createHash('sha256').update(canonicalJson(payload)).digest('hex'),
+        rallyId: current.id,
+        resultRevision: revision,
+        userId: identity.userId,
+      },
+    })
+    await tx.outboxEvent.create({
+      data: {
+        aggregateId: current.id,
+        aggregateType: 'Rally',
+        dedupeKey: `annotation-draft-owner-recovered:${current.id}:${revision}`,
+        eventType: 'annotation.draft_owner_recovered.v1',
+        payload: jsonValue({ ...payload, rally_id: current.id, revision: revision.toString() }),
+      },
+    })
+    return current.id
+  })
+}
+
 export function createAnnotationCommandService(
   deps: AnnotationCommandServiceDependencies,
 ): AnnotationCommandService {
   return {
     authorizeRoom: (roomId, identity) => authorizeAnnotationRoom(deps.database, roomId, identity),
+    async recoverAbandonedDraft(roomId, identity, activeDeviceSessionIds) {
+      const room = await authorizeAnnotationRoom(deps.database, roomId, identity)
+      if (!room) return null
+      return recoverAbandonedDraft(deps.database, room, identity, activeDeviceSessionIds)
+    },
     async roomSequence(roomId) {
       const aggregate = await deps.database.annotationCommandReceipt.aggregate({
         _max: { serverSequence: true },

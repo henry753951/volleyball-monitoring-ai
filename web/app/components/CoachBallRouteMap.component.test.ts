@@ -18,6 +18,7 @@ const events: CoachPlayerActionEvent[] = [
     resultKey: 'point_scored',
     routeStart: { x: -0.06, y: 0.24 },
     routeEnd: { x: 1.04, y: 0.79 },
+    courtSide: 'left',
     outcome: 'won',
   },
 ]
@@ -27,7 +28,7 @@ describe('CoachBallRouteMap', () => {
     const wrapper = mount(CoachBallRouteMap, { props: { events, label: '殺球' } })
 
     expect(wrapper.findAll('.route-line')).toHaveLength(1)
-    expect(wrapper.find('.route-path-base').attributes('d')).toContain('Q')
+    expect(wrapper.findAll('.route-path-base')).toHaveLength(0)
     expect(wrapper.find('.route-path-flow').attributes('marker-end')).toBe('url(#route-arrow)')
     expect(Number(wrapper.find('.route-start').attributes('cx'))).toBeCloseTo(-10.8)
     expect(Number(wrapper.find('.route-end').attributes('cx'))).toBeCloseTo(187.2)
@@ -40,22 +41,24 @@ describe('CoachBallRouteMap', () => {
         events,
         label: '殺球',
         sideLabels: {
-          left: { name: '#3 Azhvan Namazi', scope: 'player' },
-          right: { name: 'Pakistan', scope: 'team' },
+          left: { teamShortName: 'IRI', scope: null },
+          right: { teamShortName: 'PAK', scope: 'player' },
         },
       },
     })
 
-    expect(wrapper.text()).toContain('左側 · #3 Azhvan Namazi')
+    expect(wrapper.findAll('.court-side-name')).toHaveLength(2)
+    expect(wrapper.text()).toContain('IRI')
+    expect(wrapper.text()).toContain('PAK')
+    expect(wrapper.findAll('.court-side-scope')).toHaveLength(1)
     expect(wrapper.text()).toContain('[選手方]')
-    expect(wrapper.text()).toContain('右側 · Pakistan')
-    expect(wrapper.text()).toContain('[隊伍方]')
+    expect(wrapper.text()).not.toContain('[隊伍方]')
   })
 
   it('opens the short replay from the route without navigating away', async () => {
     const wrapper = mount(CoachBallRouteMap, { props: { events, label: '殺球' } })
 
-    await wrapper.get('.route-hit-target').trigger('click')
+    await wrapper.get('.route-path-flow').trigger('click')
 
     expect(wrapper.emitted('select')).toEqual([[events[0]]])
     expect(wrapper.get('.route-hit-target').attributes('role')).toBe('button')
@@ -70,5 +73,22 @@ describe('CoachBallRouteMap', () => {
     expect(wrapper.findAll('.landing-heat')).toHaveLength(1)
     expect(Number(wrapper.find('.landing-point').attributes('cx'))).toBeGreaterThan(180)
     expect(wrapper.find('.route-map__canvas').attributes('data-mode')).toBe('landings')
+  })
+
+  it('mirrors route and landing coordinates per event side', async () => {
+    const wrapper = mount(CoachBallRouteMap, {
+      props: {
+        events: events.map(event => ({ ...event, courtSide: 'right' as const })),
+        label: '殺球',
+        selectedSide: 'left',
+      },
+    })
+
+    expect(Number(wrapper.find('.route-start').attributes('cx'))).toBeCloseTo(190.8)
+    expect(Number(wrapper.find('.route-end').attributes('cx'))).toBeCloseTo(-7.2)
+
+    await wrapper.get('button:nth-of-type(2)').trigger('click')
+
+    expect(Number(wrapper.find('.landing-point').attributes('cx'))).toBeCloseTo(-7.2)
   })
 })

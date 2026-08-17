@@ -4,6 +4,8 @@ import { createAnalysisIngestWorker } from './roles/analysis-ingest.js'
 import { createClipWorker } from './roles/clip-worker.js'
 import { createContactAssociationWorker } from './roles/contact-association-worker.js'
 import { createIdentityPreviewWorker } from './roles/identity-preview-worker.js'
+import { createHighlightExportWorker } from './roles/highlight-export-worker.js'
+import { createJerseySuggestionWorker } from './roles/jersey-suggestion-worker.js'
 import {
   createOutboxPublisherWorker,
   createPgBossOutboxPublisher,
@@ -23,6 +25,8 @@ export const workflowModuleNames = [
   'reid-feature',
   'reid-association',
   'identity-preview',
+  'highlight-export',
+  'jersey-suggestion',
   'outbox',
 ] as const
 
@@ -240,6 +244,20 @@ export function createWorkflowComposition(
         lifecycle: createIdentityPreviewWorker(database, {
           ...sharedOptions,
           onError: report('identity-preview'),
+        }),
+      },
+      {
+        name: 'highlight-export',
+        lifecycle: createHighlightExportWorker(database, {
+          ...sharedOptions,
+          onError: report('highlight-export'),
+        }),
+      },
+      {
+        name: 'jersey-suggestion',
+        lifecycle: createJerseySuggestionWorker(database, {
+          ...sharedOptions,
+          onError: report('jersey-suggestion'),
         }),
       },
       {

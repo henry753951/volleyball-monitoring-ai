@@ -194,6 +194,33 @@ export function createIdentityAssignmentModel(input: IdentityAssignmentModelInpu
     )
   }
 
+  function gidBindingsForRoster(trackId: number, rosterEntryId: string) {
+    const sourceGidId = trackById.get(trackId)?.gid_id ?? null
+    const candidates = new Map<string, IdentityTrack>()
+    for (const track of allTracks) {
+      if (!track.gid_id || track.gid_id === sourceGidId || track.roster_entry_id !== rosterEntryId)
+        continue
+      const prior = candidates.get(track.gid_id)
+      if (
+        !prior ||
+        track.set_number > prior.set_number ||
+        (track.set_number === prior.set_number && track.rally_ordinal > prior.rally_ordinal)
+      )
+        candidates.set(track.gid_id, track)
+    }
+    return [...candidates.values()]
+      .map(track => ({
+        gidId: track.gid_id!,
+        gidLabel: gidLabel(track),
+        representativeTrackId: track.track_id,
+        setNumber: track.set_number,
+        rallyOrdinal: track.rally_ordinal,
+      }))
+      .sort(
+        (left, right) => right.setNumber - left.setNumber || right.rallyOrdinal - left.rallyOrdinal,
+      )
+  }
+
   function optionsForTrack(request: TrackOptionRequest): PlayerComboboxOption[] {
     const current = trackById.get(request.trackId) ?? tracks[0]
     const memberTrackIds = request.trackIds ?? [request.trackId]
@@ -249,6 +276,7 @@ export function createIdentityAssignmentModel(input: IdentityAssignmentModelInpu
       byId: (trackId: number) => trackById.get(trackId) ?? null,
       conflictFor,
       conflictForTracks,
+      gidBindingsForRoster,
       status: identityStatus,
       gidLabel,
       gidCode,

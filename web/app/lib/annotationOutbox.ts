@@ -21,12 +21,71 @@ interface StorageLike {
 }
 
 const VERSION = 1
-const MAX_ENTRIES = 32
+const MAX_ENTRIES = 256
+const MAX_STORED_ENTRIES_TO_PARSE = 1024
 const PREFIX = 'volleyball-monitoring-ai:annotation-outbox:1:'
 const keyFor = (roomId: string) => `${PREFIX}${roomId}`
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
+}
+
+function coalescingKey(entry: AnnotationOutboxEntry) {
+  const command = entry.command
+  const prefix = `${command.rally_id}:${command.kind}`
+  if (command.kind === 'CREATE_CONTACT_KEY_POINT') {
+    const frame = entry.observation?.capture_frame_index
+    if (!frame) return null
+    const event = command.payload.ball_event
+    return `${prefix}:${frame}:${event?.kind ?? ''}:${event?.result ?? ''}:${command.payload.terminal_outcome ?? ''}`
+  }
+  if (command.kind === 'MOVE_KEY_POINT') return `${prefix}:${command.payload.key_point_id}`
+  if (command.kind === 'SET_BALL_EVENT') return `${prefix}:${command.payload.key_point_id}`
+  if (command.kind === 'SET_BALL_EVENT_ACTOR') return `${prefix}:${command.payload.key_point_id}`
+  if (command.kind === 'DELETE_KEY_POINT') return `${prefix}:${command.payload.key_point_id}`
+  if (
+    [
+      'START_RALLY',
+      'CREATE_SERVICE_KEY_POINT',
+      'END_RALLY',
+      'CLOSE_RALLY',
+      'SET_RALLY_OUTCOME',
+      'REOPEN_RALLY',
+      'VOID_RALLY',
+      'SUBMIT_RALLY',
+    ].includes(command.kind)
+  )
+    return prefix
+  return null
+}
+
+/**
+ * Keep the offline queue as a sequence of user intents, not raw key repeats.
+ * Latest-wins edits replace an older queued edit while identical same-frame
+ * contacts collapse to one command. Commands that exhausted reconciliation are
+ * discarded so a stale sessionStorage queue cannot brick the next page load.
+ */
+export function compactAnnotationOutbox(entries: readonly AnnotationOutboxEntry[]) {
+  const compacted: Array<AnnotationOutboxEntry | null> = []
+  const indexByKey = new Map<string, number>()
+  for (const entry of entries) {
+    if ((entry.retry_count ?? 0) >= 3) continue
+    const key = coalescingKey(entry)
+    if (!key) {
+      compacted.push(entry)
+      continue
+    }
+    const previousIndex = indexByKey.get(key)
+    if (previousIndex === undefined) {
+      indexByKey.set(key, compacted.length)
+      compacted.push(entry)
+      continue
+    }
+    compacted[previousIndex] = null
+    indexByKey.set(key, compacted.length)
+    compacted.push(entry)
+  }
+  return compacted.filter(entry => entry !== null)
 }
 
 export function readAnnotationOutbox(
@@ -38,7 +97,7 @@ export function readAnnotationOutbox(
   try {
     const value: unknown = JSON.parse(serialized)
     if (!isRecord(value) || value.version !== VERSION || !Array.isArray(value.entries)) return []
-    return value.entries.slice(0, MAX_ENTRIES).map(item => {
+    const parsed = value.entries.slice(-MAX_STORED_ENTRIES_TO_PARSE).map(item => {
       if (
         !isRecord(item) ||
         typeof item.queued_at !== 'string' ||
@@ -79,6 +138,7 @@ export function readAnnotationOutbox(
         ...(attempted_at ? { attempted_at } : {}),
       }
     })
+    return compactAnnotationOutbox(parsed).slice(-MAX_ENTRIES)
   } catch {
     return []
   }
@@ -105,12 +165,14 @@ export function enqueueAnnotationCommand(
   now = new Date(),
   metadata: Pick<AnnotationOutboxEntry, 'observation' | 'retry_count'> = {},
 ): AnnotationOutboxEntry[] {
-  if (entries.some(entry => entry.command.command_id === command.command_id)) return entries
-  if (entries.length >= MAX_ENTRIES) throw new Error('Annotation local outbox is full')
-  return [
+  if (entries.some(entry => entry.command.command_id === command.command_id)) return [...entries]
+  const compacted = compactAnnotationOutbox([
     ...entries,
     { command, queued_at: now.toISOString(), status: 'pending', reason: null, ...metadata },
-  ]
+  ])
+  if (compacted.length > MAX_ENTRIES)
+    throw new Error('本機待同步標註已達上限；請確認網路連線後再繼續')
+  return compacted
 }
 
 export function replaceAnnotationOutboxCommand(

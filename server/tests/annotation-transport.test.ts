@@ -153,6 +153,9 @@ function fakeService(seen: unknown[]): AnnotationCommandService {
         return null
       }
     },
+    async recoverAbandonedDraft() {
+      return null
+    },
     async roomSequence() {
       return 10n
     },

@@ -82,7 +82,6 @@ describe('AnnotationMatchInspector outcomes', () => {
         leftTeam: teams[0]!,
         leftTeamId: 'left',
         mappingAvailable: false,
-        mappingCompleted: false,
         matchId: 'match',
         rallies: [
           {

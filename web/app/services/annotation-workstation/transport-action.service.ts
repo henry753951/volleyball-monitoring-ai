@@ -165,7 +165,7 @@ export function createTransportActionService(options: TransportActionServiceOpti
     options.manager.register({
       id: 'segment.delete-processing',
       group: 'segment',
-      label: '刪除片段',
+      label: '刪除片段內容',
       resources: ['annotation-draft', 'rally-processing'],
       availability: computed(() => ({
         enabled: toValue(options.clipDeleteEnabled),

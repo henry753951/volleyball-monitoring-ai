@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ArrowLeftRight, Check, CircleHelp, Pencil, Trophy } from 'lucide-vue-next'
+import { ArrowLeftRight, Check, CircleHelp, Pencil, Trash2, Trophy } from 'lucide-vue-next'
 import { computed, ref } from 'vue'
 import type { CoachDraft, CoachRally, CoachTeam } from '~/lib/coachDomain'
 import { annotationOutcomeLabel } from '~/utils/annotationOutcome'
@@ -45,7 +45,6 @@ const props = defineProps<{
   rallies: CoachRally[]
   selectedRallyId: string | null
   analysisRunId: string | null
-  mappingCompleted: boolean
   teams: CoachTeam[]
   formatRallyDuration: (rally: CoachRally) => string
   setNumbers: number[]
@@ -68,6 +67,15 @@ const swapCurrentSidesState = workstation.actions.state('segment.swap-current-si
 const swapRallySidesState = workstation.actions.state('segment.swap-rally-sides')
 const total = computed(
   () => new Set([...props.drafts.map(item => item.id), ...props.rallies.map(item => item.id)]).size,
+)
+const correctionDraftIds = computed(
+  () => new Set(props.drafts.filter(draft => draft.active_submission_id).map(draft => draft.id)),
+)
+const resettableRallies = computed(() =>
+  props.rallies.filter(
+    rally =>
+      rally.submission.analysis?.status === 'completed' && !correctionDraftIds.value.has(rally.id),
+  ),
 )
 const placementOpen = ref(false)
 const placementRallyId = ref<string | null>(null)
@@ -282,7 +290,18 @@ defineExpose({
         </div>
       </div>
       <div class="segment-list-title">
-        <span>片段</span><b>{{ total }}</b>
+        <span>片段</span>
+        <div class="segment-title-actions">
+          <UiButton
+            v-if="resettableRallies.length"
+            variant="ghost"
+            size="sm"
+            :disabled="segments.deletePending.value"
+            :aria-label="`批次刪除 ${resettableRallies.length} 個分析`"
+            @click="segments.requestBatchAnalysisReset(resettableRallies)"
+            ><Trash2 :size="12" />批次刪除 {{ resettableRallies.length }}</UiButton
+          ><b>{{ total }}</b>
+        </div>
       </div>
       <UiScrollArea class="segment-scroll"
         ><div class="segment-list">
@@ -324,7 +343,14 @@ defineExpose({
                 >
                 <span class="segment-meta">
                   <small v-if="item.kind === 'draft'"
-                    >{{ item.draft.annotation_status === 'ready' ? '待送出' : '標記中' }} ·
+                    >{{
+                      item.draft.active_submission_id
+                        ? '修正版草稿'
+                        : item.draft.annotation_status === 'ready'
+                          ? '待送出'
+                          : '標記中'
+                    }}
+                    ·
                     {{
                       item.draft.key_points.filter(point => point.marker_kind === 'contact').length
                     }}
@@ -392,7 +418,6 @@ defineExpose({
             :left-team-id="leftTeamId"
             :right-team-id="rightTeamId"
             :teams="teams"
-            :mapping-completed="mappingCompleted"
             @select-track="emit('select-track', $event)"
           /></div
       ></UiScrollArea>
@@ -564,6 +589,17 @@ defineExpose({
   background: #293039;
   font-size: 0.6rem;
   text-align: center;
+}
+.segment-title-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.segment-title-actions :deep(button) {
+  min-height: 25px;
+  padding: 2px 6px;
+  color: #c7cdd3;
+  font-size: 0.58rem;
 }
 .segment-scroll,
 .mapping-scroll {

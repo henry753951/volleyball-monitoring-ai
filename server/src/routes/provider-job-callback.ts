@@ -115,8 +115,7 @@ function maximumCallbackFiles() {
 function mediaKind(artifactKind: string): MediaAssetKind {
   if (artifactKind === 'ANALYSIS_DATA') return MediaAssetKind.ANALYSIS_DATA
   if (artifactKind.startsWith('PERSON_POSE_')) return MediaAssetKind.PERSON_POSE_EVIDENCE
-  if (artifactKind.startsWith('REID_') || artifactKind === 'JERSEY_VLM_RESPONSE')
-    return MediaAssetKind.REID_EVIDENCE
+  if (artifactKind.startsWith('REID_')) return MediaAssetKind.REID_EVIDENCE
   if (artifactKind === 'IDENTITY_PREVIEW') return MediaAssetKind.IDENTITY_PREVIEW
   return MediaAssetKind.PROVIDER_ARTIFACT
 }

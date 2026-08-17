@@ -22,9 +22,11 @@ import { replayStartSeconds } from '~/utils/coachPlayerActions'
 import { coachIdentityLabel, coachRallyNeighbours } from '~/utils/coachPresentation'
 import { resolveFrameFromRate, resolveFrameFromTimeline } from '~/utils/overlayFrameTimeline'
 import { replayBallEventLabel } from '~/utils/replayBallEventPresentation'
+import { readOverlayPreferences, writeOverlayPreferences } from '~/utils/overlayPreferences'
 import { resolveVideoContentRect } from '~/utils/volleyballOverlayRenderer'
 
 type OverlayMode = 'off' | 'tracking' | 'coach' | 'tactical'
+type TeamTone = 'blue' | 'red'
 type SafariVideo = HTMLVideoElement & { webkitEnterFullscreen?: () => void }
 
 const route = useRoute()
@@ -47,7 +49,8 @@ const displaySettingsOpen = ref(false)
 const playbackMenuOpen = ref(false)
 const playbackRate = ref(1)
 const isFullscreen = ref(false)
-const overlayMode = ref<OverlayMode>('coach')
+const savedOverlayPreferences = readOverlayPreferences()
+const overlayMode = ref<OverlayMode>(savedOverlayPreferences.enabled ? 'coach' : 'off')
 const courtLabelMode = ref<'hitters' | 'all'>('hitters')
 const showOtherPlayers = ref(true)
 const showCourtLegend = ref(true)
@@ -57,15 +60,7 @@ const matchState = useCoachMatchState(matchId, { refreshIntervalMs: 0 })
 const mediaSize = reactive({ width: 0, height: 0 })
 const overlayEnabled = computed(() => overlayMode.value !== 'off')
 const overlayLayers = reactive({
-  bbox: true,
-  trackId: true,
-  action: true,
-  ball: true,
-  trail: true,
-  footprint: false,
-  confidence: false,
-  court: true,
-  nextHit: true,
+  ...savedOverlayPreferences.layers,
 })
 const overlay = useAnalysisFrameChunks(
   computed(() => replay.value?.analysis?.id ?? null),
@@ -80,7 +75,8 @@ const overlayModes = [
 ] as const
 const overlayLayerOptions = [
   ['bbox', '球員框'],
-  ['trackId', 'Track ID'],
+  ['playerLabel', '球員名條'],
+  ['trackId', 'Local TID（無背號時顯示）'],
   ['action', '動作'],
   ['ball', '球'],
   ['trail', '影像球軌跡'],
@@ -111,6 +107,17 @@ const leftTeamLabel = computed(
 const rightTeamLabel = computed(
   () => replay.value?.rally.right_team.shortName || replay.value?.rally.right_team.name || '右隊',
 )
+const replayTeamTones = computed<{ left: TeamTone | null; right: TeamTone | null }>(() => {
+  const teams = matchState.data.value?.match.teams ?? []
+  const toneForTeam = (teamId: string | undefined): TeamTone | null => {
+    const index = teams.findIndex(team => team.id === teamId)
+    return index === 0 ? 'blue' : index === 1 ? 'red' : null
+  }
+  return {
+    left: toneForTeam(replay.value?.rally.left_team.id),
+    right: toneForTeam(replay.value?.rally.right_team.id),
+  }
+})
 const overlayTracks = computed(
   () =>
     replay.value?.analysis?.tracks.map(track => ({
@@ -198,11 +205,18 @@ const activePathIndex = computed(() => {
   return index >= 0 ? index + 1 : null
 })
 const videoPresentationStyle = computed(() => {
-  const rect = resolveVideoContentRect(
-    { x: 0, y: 0, width: mediaSize.width, height: mediaSize.height },
-    videoWidth.value,
-    videoHeight.value,
-  )
+  const mediaElement = replayMedia.value
+  const mediaRect = mediaElement?.getBoundingClientRect()
+  const viewport =
+    mediaSize.width > 0 && mediaSize.height > 0
+      ? { x: 0, y: 0, width: mediaSize.width, height: mediaSize.height }
+      : {
+          x: 0,
+          y: 0,
+          width: mediaRect?.width ?? 0,
+          height: mediaRect?.height ?? 0,
+        }
+  const rect = resolveVideoContentRect(viewport, videoWidth.value, videoHeight.value)
   return {
     top: `${rect.y}px`,
     left: `${rect.x}px`,
@@ -213,30 +227,51 @@ const videoPresentationStyle = computed(() => {
 let videoFrameCallbackId: number | null = null
 let mediaObserver: ResizeObserver | null = null
 let initialEventSeekApplied = false
+let replayLoadGeneration = 0
+
+function syncMediaSize() {
+  const element = replayMedia.value
+  if (!element) return
+  const rect = element.getBoundingClientRect()
+  if (rect.width <= 0 || rect.height <= 0) return
+  mediaSize.width = rect.width
+  mediaSize.height = rect.height
+}
 
 onMounted(async () => {
   document.addEventListener('fullscreenchange', handleFullscreenChange)
-  mediaObserver = new ResizeObserver(entries => {
-    const rect = entries[0]?.contentRect
-    if (!rect) return
-    mediaSize.width = rect.width
-    mediaSize.height = rect.height
-  })
+  document.addEventListener('keydown', handleReplayKeydown)
+  mediaObserver = new ResizeObserver(() => syncMediaSize())
+  syncMediaSize()
 })
 
 async function loadReplay() {
+  const currentLoadGeneration = ++replayLoadGeneration
   pending.value = true
   error.value = null
   replay.value = null
   initialEventSeekApplied = false
+  displaySettingsOpen.value = false
+  playbackMenuOpen.value = false
+  playing.value = false
+  currentTime.value = 0
+  duration.value = 0
+  currentFrame.value = 0
+  videoWidth.value = 0
+  videoHeight.value = 0
+  mediaSize.width = 0
+  mediaSize.height = 0
   try {
-    replay.value = await createCoachDomainClient(createGraphQLTransport('/graphql')).rallyReplay(
-      rallyId.value,
-    )
+    const nextReplay = await createCoachDomainClient(
+      createGraphQLTransport('/graphql'),
+    ).rallyReplay(rallyId.value)
+    if (currentLoadGeneration !== replayLoadGeneration) return
+    replay.value = nextReplay
   } catch (cause) {
+    if (currentLoadGeneration !== replayLoadGeneration) return
     error.value = cause instanceof Error ? cause : new Error('無法載入回合')
   } finally {
-    pending.value = false
+    if (currentLoadGeneration === replayLoadGeneration) pending.value = false
   }
 }
 
@@ -246,6 +281,7 @@ function updateVideoState(presentedMediaTime?: number | Event) {
   const element = video.value
   const fps = replay.value?.clip?.fps
   if (!element) return
+  syncMediaSize()
   playing.value = !element.paused
   muted.value = element.muted
   currentTime.value = element.currentTime || 0
@@ -293,6 +329,23 @@ function togglePlayback() {
   if (!element) return
   if (element.paused) void element.play()
   else element.pause()
+}
+
+function handleReplayKeydown(event: KeyboardEvent) {
+  if (event.code !== 'Space' || event.repeat) return
+  const target = event.target
+  if (
+    target instanceof Element &&
+    (target.matches(
+      'a, button, input, textarea, select, summary, [contenteditable="true"], [role="button"], [role="slider"], [role="menuitem"], [role="tab"]',
+    ) ||
+      target.closest(
+        'a, button, input, textarea, select, summary, [contenteditable="true"], [role="button"], [role="slider"], [role="menuitem"], [role="tab"]',
+      ))
+  )
+    return
+  event.preventDefault()
+  togglePlayback()
 }
 
 function seekSeconds(value: number) {
@@ -371,57 +424,65 @@ function eventActorLabel(event: ReplayContactEvent) {
 
 function selectOverlayMode(mode: OverlayMode) {
   overlayMode.value = mode
+  if (mode === 'off') return
   Object.assign(
     overlayLayers,
-    mode === 'off'
+    mode === 'tracking'
       ? {
-          bbox: false,
-          trackId: false,
+          bbox: true,
+          trackId: true,
+          playerLabel: true,
           action: false,
-          ball: false,
-          trail: false,
+          ball: true,
+          trail: true,
           footprint: false,
           confidence: false,
           court: false,
           nextHit: false,
         }
-      : mode === 'tracking'
+      : mode === 'tactical'
         ? {
+            bbox: false,
+            trackId: false,
+            playerLabel: true,
+            action: false,
+            ball: true,
+            trail: true,
+            footprint: true,
+            confidence: false,
+            court: true,
+            nextHit: true,
+          }
+        : {
             bbox: true,
             trackId: true,
-            action: false,
+            playerLabel: true,
+            action: true,
             ball: true,
             trail: true,
             footprint: false,
             confidence: false,
-            court: false,
-            nextHit: false,
-          }
-        : mode === 'tactical'
-          ? {
-              bbox: false,
-              trackId: false,
-              action: false,
-              ball: true,
-              trail: true,
-              footprint: true,
-              confidence: false,
-              court: true,
-              nextHit: true,
-            }
-          : {
-              bbox: true,
-              trackId: true,
-              action: true,
-              ball: true,
-              trail: true,
-              footprint: false,
-              confidence: false,
-              court: true,
-              nextHit: true,
-            },
+            court: true,
+            nextHit: true,
+          },
   )
 }
+
+watch(
+  overlayLayers,
+  layers =>
+    writeOverlayPreferences({
+      enabled: overlayMode.value !== 'off',
+      layers: { ...layers },
+    }),
+  { deep: true },
+)
+watch(overlayMode, mode => {
+  writeOverlayPreferences({
+    enabled: mode !== 'off',
+    layers: { ...overlayLayers },
+  })
+})
 
 function toggleMute() {
   if (!video.value) return
@@ -468,9 +529,7 @@ watch(replayMedia, (element, previous) => {
   if (previous) mediaObserver?.unobserve(previous)
   if (!element) return
   mediaObserver?.observe(element)
-  const rect = element.getBoundingClientRect()
-  mediaSize.width = rect.width
-  mediaSize.height = rect.height
+  syncMediaSize()
 })
 watch(
   () => overlay.manifest.value,
@@ -499,6 +558,7 @@ watchEffect(() => {
 })
 onBeforeUnmount(() => {
   document.removeEventListener('fullscreenchange', handleFullscreenChange)
+  document.removeEventListener('keydown', handleReplayKeydown)
   mediaObserver?.disconnect()
   rallyStatus.value = null
   if (
@@ -507,11 +567,12 @@ onBeforeUnmount(() => {
     typeof video.value.cancelVideoFrameCallback === 'function'
   )
     video.value.cancelVideoFrameCallback(videoFrameCallbackId)
+  videoFrameCallbackId = null
 })
 </script>
 
 <template>
-  <section class="replay-workspace">
+  <section class="replay-workspace" aria-keyshortcuts="Space">
     <div v-if="pending" class="replay-loading" aria-busy="true" />
     <div v-else-if="error" class="replay-state" role="alert">
       <strong>回合載入失敗</strong><span>{{ error.message }}</span>
@@ -564,6 +625,7 @@ onBeforeUnmount(() => {
             <div v-if="replay.clip" ref="replayMedia" class="replay-player__media">
               <video
                 ref="video"
+                :key="rallyId"
                 :src="replay.clip.url"
                 playsinline
                 preload="metadata"
@@ -580,6 +642,7 @@ onBeforeUnmount(() => {
                 :style="videoPresentationStyle"
               >
                 <VolleyballOverlayCanvas
+                  :key="rallyId"
                   :events="replay.analysis.contact_events"
                   :frame="currentFrame"
                   :video-width="videoWidth"
@@ -675,16 +738,18 @@ onBeforeUnmount(() => {
                   </button>
                 </div>
               </UiPopover>
-              <UiPopover v-model:open="displaySettingsOpen" side="top" align="end">
+              <UiPopover
+                v-model:open="displaySettingsOpen"
+                side="top"
+                align="end"
+                content-class="replay-display-popover"
+              >
                 <template #trigger>
                   <button type="button" aria-label="顯示設定" :aria-expanded="displaySettingsOpen">
                     <SlidersHorizontal :size="19" />
                   </button>
                 </template>
-                <div
-                  class="grid max-h-[min(72vh,620px)] w-[min(440px,calc(100vw-24px))] gap-4 overflow-y-auto p-1"
-                  aria-label="顯示設定"
-                >
+                <div class="replay-display-settings grid gap-4 p-1" aria-label="顯示設定">
                   <section class="settings-section">
                     <header><strong>顯示模式</strong><span>切換影像與球路資訊密度</span></header>
                     <div class="settings-modes">
@@ -744,15 +809,6 @@ onBeforeUnmount(() => {
                   </section>
                 </div>
               </UiPopover>
-              <UiTooltip content="開啟詳細擊球紀錄"
-                ><button
-                  type="button"
-                  aria-label="開啟詳細擊球紀錄"
-                  :aria-expanded="timelineDetailsOpen"
-                  @click="timelineDetailsOpen = true"
-                >
-                  <ListTree :size="19" /></button
-              ></UiTooltip>
               <UiTooltip :content="isFullscreen ? '退出全螢幕' : '進入全螢幕'"
                 ><button
                   type="button"
@@ -768,6 +824,7 @@ onBeforeUnmount(() => {
           </section>
 
           <CourtPathView
+            :key="rallyId"
             class="replay-court"
             :paths="replay.analysis?.paths ?? []"
             :events="timelineEvents"
@@ -775,9 +832,11 @@ onBeforeUnmount(() => {
             :chunk="overlay.currentChunk.value"
             :left-team="leftTeamLabel"
             :right-team="rightTeamLabel"
+            :team-tones="replayTeamTones"
             :active-frame="currentFrame"
             :playing="playing"
             :show-other-players="showOtherPlayers"
+            :show-player-labels="overlayLayers.playerLabel"
             :player-label-mode="courtLabelMode"
             :show-legend="showCourtLegend"
             :fps="replay.clip?.fps ?? null"
@@ -1539,6 +1598,31 @@ onBeforeUnmount(() => {
 }
 .replay-experience:fullscreen .replay-timeline__labels span {
   color: #8e99a5;
+}
+:global(.replay-display-popover) {
+  box-sizing: border-box;
+  width: min(440px, calc(100vw - 24px));
+  max-width: calc(100vw - 24px);
+  max-height: calc(100vh - 24px);
+  max-height: calc(100dvh - 24px);
+  max-height: min(
+    calc(100dvh - 24px),
+    var(--reka-popover-content-available-height, calc(100dvh - 24px))
+  );
+  overflow: hidden;
+}
+.replay-display-settings {
+  width: 100%;
+  min-width: 0;
+  max-height: calc(100vh - 48px);
+  max-height: calc(100dvh - 48px);
+  max-height: min(
+    calc(100dvh - 48px),
+    calc(var(--reka-popover-content-available-height, 100dvh) - 18px)
+  );
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
 }
 @media (max-width: 900px) {
   .replay-grid {

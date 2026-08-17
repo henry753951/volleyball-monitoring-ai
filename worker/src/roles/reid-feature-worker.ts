@@ -37,7 +37,6 @@ const DEFAULT_RECIPES = [
   { modality: 'DINO', model_namespace: 'dinov2/vits14-reg/v1' },
   { modality: 'OSNET', model_namespace: 'sports-osnet/x1/v1' },
   { modality: 'KPR_PROMPT', model_namespace: 'kpr/coco17-prompt/v1' },
-  { modality: 'JERSEY_VLM', model_namespace: 'jersey-vlm/qwen-v1' },
 ] as const
 
 const contractsRoot = new URL('../../../packages/contracts/ai/', import.meta.url)
@@ -50,11 +49,6 @@ const validateFeatureResult = ajv.compile(
 )
 const validateRosterSnapshot = ajv.compile(
   JSON.parse(await readFile(new URL('reid-roster-snapshot.schema.json', contractsRoot), 'utf8')),
-)
-const validateJerseyResponses = ajv.compile(
-  JSON.parse(
-    await readFile(new URL('reid-jersey-vlm-response.schema.json', contractsRoot), 'utf8'),
-  ),
 )
 
 const json = (value: unknown) => JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue
@@ -232,20 +226,12 @@ type PlannedTracklet = {
   lastFrameIndex: bigint
   cannotLinkTrackletIds: string[]
   vectors: PlannedVector[]
-  jersey: null | {
-    modelNamespace: string
-    rawResponseKey: string
-    rawResponseSha256: string
-    candidateNumbers: number[]
-    selectedFrameIndices: bigint[]
-  }
 }
 
 export function planReidFeatureRows(
   result: Record<string, unknown>,
   descriptorBytes: Buffer,
   validTrackIds: Set<number>,
-  jerseyBundle: Record<string, unknown> | null,
 ): PlannedTracklet[] {
   const resultTracklets = records(result.tracklets)
   const trackletIds = new Set<string>()
@@ -312,19 +298,6 @@ export function planReidFeatureRows(
         sourceFrameIndices,
       }
     })
-    const jersey = isRecord(tracklet.jersey_vlm)
-      ? {
-          modelNamespace: String(tracklet.jersey_vlm.model_namespace),
-          rawResponseKey: String(tracklet.jersey_vlm.raw_response_key),
-          rawResponseSha256: String(tracklet.jersey_vlm.raw_response_sha256).toLowerCase(),
-          candidateNumbers: Array.isArray(tracklet.jersey_vlm.candidate_numbers)
-            ? tracklet.jersey_vlm.candidate_numbers.map(Number)
-            : [],
-          selectedFrameIndices: Array.isArray(tracklet.jersey_vlm.selected_frame_indices)
-            ? tracklet.jersey_vlm.selected_frame_indices.map(frame => BigInt(String(frame)))
-            : [],
-        }
-      : null
     return {
       id,
       canonicalTrackId,
@@ -336,7 +309,6 @@ export function planReidFeatureRows(
         ? tracklet.cannot_link_tracklet_ids.map(String)
         : [],
       vectors,
-      jersey,
     }
   })
 
@@ -354,35 +326,6 @@ export function planReidFeatureRows(
         throw new ReidFeatureMaterializationError('ReID cannot-links must be symmetric', false)
     }
 
-  const jerseyResponses = jerseyBundle ? records(jerseyBundle.responses) : []
-  const responseByKey = new Map(
-    jerseyResponses.map(response => [String(response.response_key), response]),
-  )
-  const usedKeys = new Set<string>()
-  for (const tracklet of planned) {
-    if (!tracklet.jersey) continue
-    const response = responseByKey.get(tracklet.jersey.rawResponseKey)
-    if (
-      !response ||
-      response.tracklet_id !== tracklet.id ||
-      response.model_namespace !== tracklet.jersey.modelNamespace ||
-      String(response.raw_response_sha256).toLowerCase() !== tracklet.jersey.rawResponseSha256 ||
-      canonicalJson(response.candidate_numbers) !==
-        canonicalJson(tracklet.jersey.candidateNumbers) ||
-      canonicalJson(response.selected_frame_indices) !==
-        canonicalJson(tracklet.jersey.selectedFrameIndices.map(String))
-    )
-      throw new ReidFeatureMaterializationError('VLM raw response linkage is invalid', false)
-    const raw = String(response.raw_response)
-    if (sha256Hex(raw) !== tracklet.jersey.rawResponseSha256)
-      throw new ReidFeatureMaterializationError('VLM raw response hash does not match', false)
-    usedKeys.add(tracklet.jersey.rawResponseKey)
-  }
-  if (usedKeys.size !== jerseyResponses.length)
-    throw new ReidFeatureMaterializationError(
-      'VLM raw response bundle has unreferenced entries',
-      false,
-    )
   return planned
 }
 
@@ -425,34 +368,6 @@ export async function materializeReidFeatureResult(
     materializationError(error, true)
   }
 
-  const jerseyReference = result.jersey_vlm_response_artifact
-  const jerseyArtifact = jerseyReference
-    ? referencedArtifact(providerJob.artifacts, jerseyReference, 'JERSEY_VLM_RESPONSE')
-    : null
-  if (
-    Boolean(jerseyArtifact) !==
-    Boolean(oneArtifact(providerJob.artifacts, 'JERSEY_VLM_RESPONSE', true))
-  )
-    throw new ReidFeatureMaterializationError('VLM response artifact shape is inconsistent', false)
-  const jerseyBundle = jerseyArtifact ? await readJsonArtifact(storage, jerseyArtifact) : null
-  if (jerseyBundle) {
-    if (!validateJerseyResponses(jerseyBundle))
-      throw new ReidFeatureMaterializationError(
-        'VLM response bundle failed schema validation',
-        false,
-      )
-    try {
-      verifiedSemanticContentSha(jerseyBundle, 'VLM response bundle')
-    } catch (error) {
-      materializationError(error)
-    }
-    if (
-      jerseyBundle.provider_job_id !== providerJob.id ||
-      jerseyBundle.evidence_set_id !== result.evidence_set_id
-    )
-      throw new ReidFeatureMaterializationError('VLM response bundle passthrough mismatch', false)
-  }
-
   const run = await database.analysisRun.findUnique({
     where: { id: providerJob.analysisRunId },
     include: { tracks: { select: { trackId: true } }, analysisEvidenceBundle: true },
@@ -464,7 +379,6 @@ export async function materializeReidFeatureResult(
     result,
     descriptorBytes,
     new Set(run.tracks.map(track => track.trackId)),
-    jerseyBundle,
   )
   const recipeNamespace = featureRecipeNamespace(
     String(request.frame_selection_recipe_version),
@@ -568,20 +482,6 @@ export async function materializeReidFeatureResult(
               sourceFrameIndices: vector.sourceFrameIndices,
             })),
           },
-          ...(tracklet.jersey && jerseyArtifact
-            ? {
-                jerseyVlmEvidence: {
-                  create: {
-                    modelNamespace: tracklet.jersey.modelNamespace,
-                    rawResponseAssetId: jerseyArtifact.mediaAsset.id,
-                    rawResponseKey: tracklet.jersey.rawResponseKey,
-                    rawResponseSha256: tracklet.jersey.rawResponseSha256,
-                    candidateNumbers: tracklet.jersey.candidateNumbers,
-                    selectedFrameIndices: tracklet.jersey.selectedFrameIndices,
-                  },
-                },
-              }
-            : {}),
         },
       })
       for (const vector of tracklet.vectors) {
@@ -894,7 +794,7 @@ export async function scheduleReidFeatureExtraction(
       rosterInput,
     ]
     const request = {
-      schema_version: '1.0.0',
+      schema_version: '2.0.0',
       provider_job_id: providerJobId,
       evidence_set_id: evidenceSetId,
       analysis_run_id: run.analysisId,
@@ -922,8 +822,8 @@ export async function scheduleReidFeatureExtraction(
         id: providerJobId,
         workKind: ProviderWorkKind.REID_FEATURE_EXTRACTION,
         idempotencyKey,
-        requestSchemaVersion: '1.0.0',
-        resultSchemaVersion: '1.0.0',
+        requestSchemaVersion: '2.0.0',
+        resultSchemaVersion: '2.0.0',
         requestPayload: json(request),
         requestPayloadHash: sha256Hex(canonicalJson(request)),
         callbackTokenHash: sha256Hex(token),

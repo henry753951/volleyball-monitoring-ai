@@ -47,7 +47,7 @@ export function acceptedProviderResultKinds(workKind: ContractProviderWorkKind):
         'PLAYER_CROP_SOURCE_MANIFEST',
       ]
     case 'REID_FEATURE_EXTRACTION':
-      return ['REID_FEATURE_RESULT', 'REID_DESCRIPTOR_BUNDLE', 'JERSEY_VLM_RESPONSE']
+      return ['REID_FEATURE_RESULT', 'REID_DESCRIPTOR_BUNDLE']
     case 'REID_ASSOCIATION':
       return ['REID_ASSOCIATION_RESULT']
     case 'PERSON_POSE_EVIDENCE_REBUILD':
@@ -75,9 +75,9 @@ export function providerResultShapeError(
         : 'Analysis result requires one data/evidence/pose/crop manifest and pose chunks'
     case 'REID_FEATURE_EXTRACTION':
       return exactlyOne('REID_FEATURE_RESULT', 'REID_DESCRIPTOR_BUNDLE') &&
-        count('JERSEY_VLM_RESPONSE') <= 1
+        artifactKinds.length === 2
         ? null
-        : 'ReID feature result requires one result, one descriptor bundle, and at most one VLM response bundle'
+        : 'ReID feature result requires exactly one result and one descriptor bundle'
     case 'REID_ASSOCIATION':
       return exactlyOne('REID_ASSOCIATION_RESULT') && artifactKinds.length === 1
         ? null

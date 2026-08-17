@@ -125,6 +125,7 @@ enum MatchStatus {
 type Mutation {
   applyAnnotationCommand(command: JSON!): JSON!
   applyReidAutomaticAssignments(analysisRunId: ID!): JSON!
+  applyReidJerseySuggestion(suggestionId: ID!): JSON!
   assignTrackIdentity(analysisRunId: ID!, identityMode: String, rosterEntryId: ID!, trackId: Int!): JSON!
   cancelCorrectionDraft(rallyId: ID!): Rally!
   clearTrackIdentity(analysisRunId: ID!, trackId: Int!): JSON!
@@ -133,14 +134,16 @@ type Mutation {
   deleteMatch(matchId: ID!): MatchDeleteReceipt!
   deleteProcessingRally(rallyId: ID!): Rally!
   deleteRally(rallyId: ID!): RallyDeleteReceipt!
+  deleteRallyAnalysis(rallyId: ID!): RallyDeleteReceipt!
   requestReidAssociationRerun(analysisRunId: ID!, reason: String, requestId: ID!): JSON!
   requestReidFeatureRebuild(analysisRunId: ID!, reason: String, requestId: ID!): JSON!
+  requestReidJerseySuggestions(analysisRunId: ID!, runId: ID!): JSON!
   retryProcessing(input: RetryProcessingInput!): ProcessingState!
-  setTrackIdentityMappingComplete(analysisRunId: ID!, completed: Boolean!): JSON!
   startCapture(input: StartCaptureInput!): CaptureSession!
   startNextSet(input: StartNextSetInput!): MatchSet!
   stopCapture(captureSessionId: ID!): CaptureSession!
   swapCourtSides(input: SwapCourtSidesInput!): MatchSet!
+  swapTrackGidRosterBindings(analysisRunId: ID!, reason: String, targetPersonClusterId: ID!, trackId: Int!): JSON!
   updateMatch(input: UpdateMatchInput!): Match!
   updateMatchClipPolicy(input: UpdateMatchClipPolicyInput!): Match!
   updateMatchRoster(input: UpdateMatchRosterInput!): Match!
@@ -185,6 +188,7 @@ type Query {
   matches: [Match!]!
   reidAssociationRerunRequest(requestId: ID!): JSON
   reidFeatureRebuildRequest(requestId: ID!): JSON
+  reidJerseySuggestionRun(runId: ID!): JSON
   viewer: Viewer!
 }
 

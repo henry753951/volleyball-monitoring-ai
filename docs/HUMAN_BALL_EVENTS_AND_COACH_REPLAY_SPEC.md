@@ -648,49 +648,20 @@ AI action 可作為 overlay 或診斷 filter，但不是預設統計主軸。
 
 ---
 
-## 13. VLM warm-up 與常駐設計
+## 13. 背號感知輔助（取代 Worker 內建 VLM）
 
-### 13.1 Provider lifecycle
+外部分析 Worker 不再載入或宣告 VLM capability。背號辨識改為中央系統中由操作者主動觸發的獨立工作：
 
-建議狀態：
+1. 從既有逐幀 pose 與 tracklet evidence 選出軀幹清楚的候選影格。
+2. 先依畫質建立候選池，再以可重現的隨機種子取最多 10 張並產生 montage。
+3. 以 OpenAI-compatible vision API 取得背號建議。
+4. 結果只進入差異預覽，不直接改寫 GID 或球員綁定。
+5. 操作者可逐項勾選套用；hover 時可查看既有預覽 GIF 與本次 montage。
 
-1. STARTING：載入程式與 runtime。
-2. LOADING_MODEL：載入 VLM weights。
-3. WARMING：以固定小樣本執行一次完整 preprocess＋generation。
-4. READY：成功且記憶體在安全門檻內，才 advertise capability。
-5. DEGRADED：模型仍在但 OOM／latency／health 異常，不接新 work。
-6. DRAINING：不接新 job，等待現有 job 完成。
+API key、base URL、model、timeout 與 token 上限由中央 Jersey Suggestion Worker 的環境變數設定。此工作不重跑 pose、追蹤或 ReID feature extraction，也不把模型輸出放進自動 ReID feature bank。
 
-模型在 READY 期間不 unload。若 process crash，由 supervisor 重啟並重新 warm-up；中央系統不能只看 process 存在。
-
-目前已交付的第一階段只有 capability 開關，不包含本節描述的 warm-up 狀態機。外部
-`volleyball-analysis-engine` Worker 的精確控制方式是：
-
-- 環境變數：`VOLLYAI_REID_VLM_ENABLED=false`（預設）或 `true`。
-- CLI：`volleyball-analysis worker --enable-reid-vlm`／`--disable-reid-vlm`。
-- 相容入口：`volleyball-analysis-worker` 也接受相同參數。
-- CLI 明確值優先於 env。
-- 關閉時不建立 `CandidateConstrainedJerseyVlm`、不宣告 `JERSEY_VLM_RESPONSE`，也不宣告 `jersey-vlm/qwen-v1` recipe。
-- `REID_FEATURE_EXTRACTION` 本身另由 `VOLLYAI_REID_FEATURE_ENABLED` 控制；VLM 開啟但 feature job 關閉時仍不載入 VLM。
-
-### 13.2 資源隔離
-
-- VLM Worker 與一般 analysis Worker 使用不同 capability queue。
-- VLM concurrency 預設 1。
-- 以實測 peak VRAM／RAM 設 reservation 與 admission threshold。
-- 目前 12 GB RTX 5070 不承載 BF16 8B VLM。
-- 建議先以 24 GB 以上獨立 GPU 做 BF16 8B 基準測試；實際最低值必須由 warm-up 與最壞 batch 的 peak measurement 決定。
-- 若測試 4-bit／8-bit quantization，必須另外評估準確率、latency、峰值 VRAM 與與其他工作共存情況。
-
-### 13.3 VLM 在真相鏈的位置
-
-- VLM 產生 jersey／identity evidence，不直接綁定永久 player truth。
-- 結果進入 REID feature／association job。
-- 低信心可 abstain，交由人工修正。
-- 人工修正更新 versioned feature bank 的正／負 membership 與 cannot-link。
-- 後續片段使用已確認 evidence；被判定錯誤的 feature 不得繼續污染 bank。
-
-詳細 ReID 設計仍以既有 ReID 文件為準，本文件只新增 warm-up 與人工球種整合。
+詳細資料生命週期、人工修正與污染隔離規則以
+`REID_EVIDENCE_AND_HUMAN_CORRECTION_GUIDE.md` 與 ADR 0044 為準。
 
 ---
 

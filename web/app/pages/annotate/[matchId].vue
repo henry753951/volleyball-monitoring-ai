@@ -68,7 +68,6 @@ import { createTransportActionService } from '~/services/annotation-workstation/
 import { createCorrectionFlowService } from '~/services/annotation-workstation/correction-flow.service'
 import { createAnalysisRevisionService } from '~/services/annotation-workstation/analysis-revision.service'
 import { createIdentityAssignmentControllerService } from '~/services/annotation-workstation/identity-assignment-controller.service'
-import { useIdentityReplacementWarning } from '~/composables/useIdentityReplacementWarning'
 import { createTimelineSelectionService } from '~/services/annotation-workstation/timeline-selection.service'
 import { createKeyPointEditingService } from '~/services/annotation-workstation/key-point-editing.service'
 import { createWorkstationConfirmationService } from '~/services/annotation-workstation/workstation-confirmation.service'
@@ -133,6 +132,7 @@ const workstationPreferences = createWorkstationPreferencesService({
   },
 })
 const annotationOverlayEnabled = workstationPreferences.overlayEnabled
+const annotationOverlayLayers = workstationPreferences.overlayLayers
 const keyPointEditing = createKeyPointEditingService({
   room: annotation,
   dvr,
@@ -148,7 +148,7 @@ const keyPointEditing = createKeyPointEditingService({
   },
   editable: () => editableDraftState.value,
   commandReady: () => commandReady.value,
-  editReady: () => editReady.value,
+  editReady: () => draftMutationReady.value,
   estimatedFrameSeconds: () => estimatedFrameSeconds,
   observedCursor: () => observedCursor.value,
   setObservedCursor: cursor => {
@@ -260,14 +260,13 @@ const canMark = computed(
     }),
 )
 const commandReady = computed(() => !annotation.outboxNeedsConfirmation.value)
-const editReady = computed(
-  () =>
-    commandReady.value &&
-    !annotation.busy.value &&
-    !pendingTimelineMove.value &&
-    annotation.pendingCount.value === 0,
+const draftMutationReady = computed(
+  () => commandReady.value && !annotation.busy.value && !pendingTimelineMove.value,
 )
-const keyPointEditReady = computed(() => editReady.value || keyPointEditing.navigation.active.value)
+const editReady = computed(() => draftMutationReady.value && annotation.pendingCount.value === 0)
+const keyPointEditReady = computed(
+  () => draftMutationReady.value || keyPointEditing.navigation.active.value,
+)
 const { bindings } = useAnnotationHotkeys()
 const annotationScope = useTemplateRef<HTMLElement>('annotationScope')
 const videoStage = useTemplateRef<HTMLElement>('videoStage')
@@ -702,6 +701,7 @@ const segmentManagement = createSegmentManagementService({
   currentDraft: () => Boolean(currentOrdinaryDraft.value),
   sideSwapEffectiveOrdinal: () => sideSwapEffectiveOrdinal.value,
   selectedRallyId: () => selectedRallyId.value,
+  selectedSubmissionId: () => selectedRally.value?.submission.id ?? null,
   clipSelected: () => clipSelected.value,
   teamById: teamId => coach.data.value?.match.teams.find(team => team.id === teamId) ?? null,
   refreshMatch: () => loadMatch({ silent: true }),
@@ -795,6 +795,7 @@ const overlayTracks = computed(
       courtSide: track.court_side,
       label: track.identity?.name ?? null,
       gidLabel: track.global_identity?.label ?? null,
+      jerseyNumber: track.identity?.jersey_number ?? null,
     })) ?? [],
 )
 const overlayIdentityLabels = computed(() =>
@@ -1021,7 +1022,6 @@ const analysisRevision = createAnalysisRevisionService({
   hasActorOverride: () => selectedAnalysisHitHasOverride.value,
   hasActionOverride: () => currentActionHasOverride.value,
 })
-const identityReplacementWarning = useIdentityReplacementWarning()
 const identityAssignment = createIdentityAssignmentControllerService(
   {
     matchId,
@@ -1029,7 +1029,6 @@ const identityAssignment = createIdentityAssignmentControllerService(
     currentFrame: currentOverlayFrame,
     enabled: editorMappingAvailable,
     refreshKey: mappingRefreshToken,
-    mappingCompleted: editorMappingCompleted,
     refreshAfterCommit: true,
     onChanged: handleMappingChanged,
     onCommitted: () => {
@@ -1037,7 +1036,6 @@ const identityAssignment = createIdentityAssignmentControllerService(
     },
   },
   coachDomain,
-  identityReplacementWarning.enabled,
   workstationActions,
 )
 const analysisRevisionMode = analysisRevision.revisionMode
@@ -1234,7 +1232,6 @@ const defaultPlaybackWindowMode = computed<'live' | 'archive'>(() =>
 )
 const syncNeedsAttention = computed(
   () =>
-    Boolean(annotation.error.value) ||
     annotation.outboxNeedsConfirmation.value ||
     ['reconnecting', 'closed'].includes(annotation.connection.value),
 )
@@ -1243,13 +1240,11 @@ const syncLabel = computed(() =>
     ? 'WS 重新同步中'
     : annotation.outboxNeedsConfirmation.value
       ? 'WS 需重新同步'
-      : annotation.error.value
-        ? 'WS 需注意'
-        : ['connecting', 'reconnecting'].includes(annotation.connection.value)
-          ? 'WS 連線中'
-          : annotation.connection.value === 'ready'
-            ? 'WS 正常'
-            : 'WS 離線',
+      : ['connecting', 'reconnecting'].includes(annotation.connection.value)
+        ? 'WS 連線中'
+        : annotation.connection.value === 'ready'
+          ? 'WS 正常'
+          : 'WS 離線',
 )
 const displayTimecode = computed(() =>
   formatTimelinePosition(visualPlayhead.value, timeline.value?.captureStartTimeUs),
@@ -1280,9 +1275,9 @@ const annotationActions = createAnnotationActionService({
   requestSingleServeDecision,
   correctionSubmitRequired: computed(() => Boolean(displayedCorrectionDraft.value)),
   requestCorrectionSubmit,
-  eventEditReady: computed(() => editableDraftState.value && editReady.value),
+  eventEditReady: computed(() => editableDraftState.value && draftMutationReady.value),
   submitReady: computed(
-    () => editableDraftState.value && editReady.value && !correctionSubmitting.value,
+    () => editableDraftState.value && draftMutationReady.value && !correctionSubmitting.value,
   ),
 })
 
@@ -2310,10 +2305,14 @@ watch(
   value => {
     if (value)
       toast.error(value, {
-        action: {
-          label: '重新同步',
-          onClick: () => void annotation.refreshActive(),
-        },
+        ...(syncNeedsAttention.value
+          ? {
+              action: {
+                label: '重新同步',
+                onClick: () => void workstationActions.execute('sync.resync'),
+              },
+            }
+          : {}),
       })
   },
 )
@@ -2412,9 +2411,10 @@ const transportActions = createTransportActionService({
     () => Boolean(selectedKeyPoint.value) && editableDraftState.value && keyPointEditReady.value,
   ),
   pointDeleteEnabled: computed(
-    () => Boolean(selectedDeletablePoint.value) && editableDraftState.value && editReady.value,
+    () =>
+      Boolean(selectedDeletablePoint.value) && editableDraftState.value && draftMutationReady.value,
   ),
-  clipDeleteEnabled: computed(() => Boolean(selectedSubmittedRally.value)),
+  clipDeleteEnabled: computed(() => clipSelected.value),
   clipDownloadEnabled: computed(() => Boolean(selectedSubmittedRally.value?.submission.clip)),
   togglePlayback: () => dispatchMediaAction('play_pause'),
   stepFrame: (direction, count = 1, input = 'button') => queueFrameStep(direction, count, input),
@@ -2556,7 +2556,6 @@ onBeforeUnmount(() => {
       "
       :error="
         Boolean(
-          annotation.error.value ||
           annotation.outboxNeedsConfirmation.value ||
           annotation.connection.value === 'closed',
         )
@@ -2611,17 +2610,7 @@ onBeforeUnmount(() => {
               :overlay-events="overlayEvents"
               :overlay-tracks="overlayTracks"
               :overlay-team-labels="overlayTeamLabels"
-              :overlay-layers="{
-                bbox: true,
-                trackId: true,
-                action: true,
-                ball: true,
-                trail: true,
-                footprint: true,
-                confidence: false,
-                court: true,
-                nextHit: true,
-              }"
+              :overlay-layers="annotationOverlayLayers"
               @cursor="handleCursor"
               @ready="handleVideoReady"
               @buffer-activity="maintainPlaybackWindow"
@@ -2711,7 +2700,6 @@ onBeforeUnmount(() => {
           :rallies="visibleSubmittedRallies"
           :selected-rally-id="selectedRallyId"
           :analysis-run-id="editorSelectedAnalysisRunId"
-          :mapping-completed="editorMappingCompleted"
           :set-numbers="coach.data.value?.match.sets.map(set => set.set_number) ?? [1]"
           :teams="coach.data.value?.match.teams ?? []"
           :format-rally-duration="rally => formatDuration(rallyDisplayDuration(rally))"
@@ -2788,7 +2776,7 @@ onBeforeUnmount(() => {
         "
         :buffered-ranges="playerBufferedRanges"
         :annotation="displayAnnotation"
-        :editable="editableDraftState && editReady && !pendingTimelineMove"
+        :editable="editableDraftState && draftMutationReady"
         :selected-key-point-id="selectedKeyPointId"
         :mask-selected="selectedCurrentMask"
         :mask-range="currentMaskRange"

@@ -12,15 +12,6 @@ export interface PlayerComboboxOption {
   tone?: 'default' | 'occupied' | 'suggested'
 }
 
-export interface IdentityReplacementRequest {
-  trackId: number
-  rosterEntryId: string
-  playerName: string
-  occupiedTrackId: number
-  scope?: 'local' | 'gid'
-  trackIds?: number[]
-}
-
 export interface IdentityCorrectionRequest {
   trackId: number
   rosterEntryId: string
@@ -28,6 +19,13 @@ export interface IdentityCorrectionRequest {
   previousPlayerName: string | null
   occupiedGidLabel: string | null
   occupiedTrackId: number | null
+  swapCandidates: Array<{
+    gidId: string
+    gidLabel: string
+    representativeTrackId: number
+    setNumber: number
+    rallyOrdinal: number
+  }>
 }
 
 export interface IdentityAssignmentCommand {

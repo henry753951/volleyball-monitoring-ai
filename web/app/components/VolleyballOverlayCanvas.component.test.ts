@@ -50,6 +50,7 @@ describe('VolleyballOverlayCanvas presentation timing', () => {
         layers: {
           bbox: false,
           trackId: false,
+          playerLabel: false,
           action: false,
           ball: false,
           trail: false,

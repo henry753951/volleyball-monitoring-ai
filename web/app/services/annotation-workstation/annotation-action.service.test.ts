@@ -69,6 +69,7 @@ function setup() {
   const setBallEventActor = vi.fn().mockResolvedValue(undefined)
   const draftOwnedByClient = ref(true)
   const visualPlayhead = ref('3500')
+  const state = ref<'IDLE' | 'OPEN' | 'READY' | 'SUBMITTED' | 'VOIDED'>('READY')
   const service = createAnnotationActionService({
     manager,
     room: {
@@ -79,7 +80,7 @@ function setup() {
       setBallEventActor,
     },
     commandReady: ref(true),
-    state: ref('READY'),
+    state,
     correctionActive: ref(false),
     canMark: ref(true),
     visualPlayhead,
@@ -106,6 +107,7 @@ function setup() {
     setBallEvent,
     setBallEventActor,
     draftOwnedByClient,
+    state,
     visualPlayhead,
   }
 }
@@ -149,10 +151,10 @@ describe('createAnnotationActionService', () => {
     )
   })
 
-  it('keeps peer drafts read-only for every non-boundary command', () => {
+  it('keeps peer drafts read-only without blocking this client from starting its own draft', () => {
     const { manager, draftOwnedByClient } = setup()
     draftOwnedByClient.value = false
-    expect(manager.state('segment.toggle-boundary').value.enabled).toBe(false)
+    expect(manager.state('segment.toggle-boundary').value.enabled).toBe(true)
     expect(manager.state('mark.contact').value.enabled).toBe(false)
     expect(manager.state('outcome.left').value.enabled).toBe(false)
     expect(manager.state('submission.submit').value.enabled).toBe(false)
@@ -168,6 +170,34 @@ describe('createAnnotationActionService', () => {
     expect(manager.state('outcome.right').value.enabled).toBe(true)
     expect(manager.state('outcome.unknown').value.enabled).toBe(true)
     expect(manager.state('submission.submit').value.enabled).toBe(true)
+  })
+
+  it('keeps Z, outcome and submit independent from key-point selection', () => {
+    const { manager, selectedKeyPointId } = setup()
+    const before = {
+      boundary: manager.state('segment.toggle-boundary').value,
+      left: manager.state('outcome.left').value,
+      submit: manager.state('submission.submit').value,
+    }
+    selectedKeyPointId.value = null
+    expect(manager.state('segment.toggle-boundary').value).toMatchObject(before.boundary)
+    expect(manager.state('outcome.left').value).toMatchObject(before.left)
+    expect(manager.state('submission.submit').value).toMatchObject(before.submit)
+  })
+
+  it('keeps OPEN Z available after selecting or clearing a key point', () => {
+    const { manager, selectedKeyPointId, snapshot, state } = setup()
+    state.value = 'OPEN'
+    snapshot.value!.snapshot.annotation_status = 'open'
+    snapshot.value!.snapshot.boundaries = (snapshot.value!.snapshot.boundaries ?? []).filter(
+      boundary => boundary.kind === 'start',
+    )
+
+    expect(manager.state('segment.toggle-boundary').value.enabled).toBe(true)
+    selectedKeyPointId.value = null
+    expect(manager.state('segment.toggle-boundary').value.enabled).toBe(true)
+    selectedKeyPointId.value = 'second'
+    expect(manager.state('segment.toggle-boundary').value.enabled).toBe(true)
   })
 
   it('blocks a new HIT outside the editable segment instead of dispatching it', async () => {
@@ -192,5 +222,26 @@ describe('createAnnotationActionService', () => {
       result: 'SUCCESS',
     })
     expect(setBallEventActor).toHaveBeenCalledWith('second', 'roster-11')
+  })
+
+  it('does not globally lock outcome or submission while a point update is awaiting ack', async () => {
+    const { manager, setBallEvent } = setup()
+    let release!: () => void
+    setBallEvent.mockImplementationOnce(
+      () =>
+        new Promise<void>(resolve => {
+          release = resolve
+        }),
+    )
+
+    const pending = manager.execute('mark.set-event', { kind: 'RECEIVE', result: 'SUCCESS' })
+    await Promise.resolve()
+
+    expect(manager.state('mark.set-event').value.pending).toBe(true)
+    expect(manager.state('outcome.left').value.enabled).toBe(true)
+    expect(manager.state('submission.submit').value.enabled).toBe(true)
+
+    release()
+    await pending
   })
 })

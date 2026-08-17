@@ -38,9 +38,28 @@ export function annotationDraftOwnedByClient(
   return snapshot.snapshot.active_submission_id != null || snapshot.rally_id === rememberedRallyId
 }
 
+/**
+ * OPEN is a client-local boundary workflow: inspecting another client's moving
+ * draft must never replace this tab's operational draft. READY has a fixed END
+ * boundary, so an operator explicitly selecting that unsubmitted draft may
+ * continue its durable point/outcome/submission work from this tab.
+ */
+export function shouldAdoptInspectedAnnotationSnapshot(
+  snapshot: AnnotationRallySnapshot | null,
+  rememberedRallyId: string | null,
+) {
+  if (!snapshot || !['open', 'ready'].includes(snapshot.snapshot.annotation_status)) return false
+  return (
+    snapshot.snapshot.annotation_status === 'ready' ||
+    snapshot.snapshot.active_submission_id != null ||
+    snapshot.rally_id === rememberedRallyId
+  )
+}
+
 export function rebaseQueuedAnnotationCommand(
   command: AnnotationCommand,
   snapshot: AnnotationRallySnapshot | null,
+  observation?: AnnotationClientObservation,
 ): AnnotationCommand | null {
   if (command.kind === 'START_RALLY') {
     return snapshot && stateOf(snapshot) === 'open' && !snapshot.snapshot.active_submission_id
@@ -51,6 +70,31 @@ export function rebaseQueuedAnnotationCommand(
     return snapshot && ['open', 'ready'].includes(stateOf(snapshot) ?? '') ? null : command
   }
   if (!snapshot || snapshot.rally_id !== command.rally_id) return null
+  if (command.kind === 'CREATE_CONTACT_KEY_POINT' && observation?.capture_frame_index) {
+    const existing = snapshot.snapshot.key_points.find(
+      point =>
+        point.marker_kind === 'contact' &&
+        point.capture_frame_index === observation.capture_frame_index,
+    )
+    if (existing) {
+      if (
+        command.payload.ball_event &&
+        (existing.ball_event?.kind !== command.payload.ball_event.kind ||
+          existing.ball_event?.result !== command.payload.ball_event.result)
+      ) {
+        return parseAnnotationCommand({
+          ...command,
+          base_revision: snapshot.revision,
+          kind: 'SET_BALL_EVENT',
+          payload: {
+            key_point_id: existing.key_point_id,
+            event: command.payload.ball_event,
+          },
+        })
+      }
+      return null
+    }
+  }
   const base = { ...command, base_revision: snapshot.revision }
   if (command.kind !== 'CLOSE_RALLY') return parseAnnotationCommand(base)
   const target = snapshot.snapshot.key_points.at(-1)
@@ -64,6 +108,7 @@ export function rebaseQueuedAnnotationCommand(
 export function annotationCommandConverged(
   command: AnnotationCommand,
   snapshot: AnnotationRallySnapshot | null,
+  observation?: AnnotationClientObservation,
 ) {
   if (!snapshot || snapshot.rally_id !== command.rally_id) return false
   const state = stateOf(snapshot)
@@ -72,6 +117,19 @@ export function annotationCommandConverged(
   }
   if (command.kind === 'END_RALLY') {
     return snapshot.snapshot.boundaries?.some(boundary => boundary.kind === 'end') === true
+  }
+  if (command.kind === 'CREATE_CONTACT_KEY_POINT') {
+    if (!observation?.capture_frame_index) return false
+    const existing = snapshot.snapshot.key_points.find(
+      point =>
+        point.marker_kind === 'contact' &&
+        point.capture_frame_index === observation.capture_frame_index,
+    )
+    if (!existing) return false
+    return command.payload.ball_event
+      ? existing.ball_event?.kind === command.payload.ball_event.kind &&
+          existing.ball_event?.result === command.payload.ball_event.result
+      : true
   }
   if (command.kind === 'SET_RALLY_OUTCOME') {
     return (
@@ -256,7 +314,14 @@ export function projectAnnotationSnapshot(
       projected.snapshot.annotation_status = 'ready'
     } else if (command.kind === 'CREATE_CONTACT_KEY_POINT') {
       const point = pendingPoint(entry, projected.snapshot.key_points.length)
-      if (point) {
+      const alreadyProjected = point
+        ? projected.snapshot.key_points.some(
+            candidate =>
+              candidate.marker_kind === 'contact' &&
+              candidate.capture_frame_index === point.capture_frame_index,
+          )
+        : false
+      if (point && !alreadyProjected) {
         projected.snapshot.key_points.push(point)
         if (command.payload.terminal_outcome === 'unknown') {
           projected.snapshot.annotation_status = 'ready'
@@ -387,21 +452,27 @@ export function applyAnnotationAckLocally(
     ack.resolved_anchor &&
     ack.effects.created_key_point_id
   ) {
-    next.snapshot.key_points.push({
-      key_point_id: ack.effects.created_key_point_id,
-      sequence_index: next.snapshot.key_points.length,
-      marker_kind: 'contact',
-      is_terminal:
-        command.payload.terminal_outcome === 'unknown' ||
-        ack.effects.terminal_key_point_id === ack.effects.created_key_point_id,
-      capture_time_us: ack.resolved_anchor.capture_time_us,
-      capture_frame_index: ack.resolved_anchor.capture_frame_index,
-      timing_precision: ack.resolved_anchor.timing_precision,
-      possible_duplicate: next.snapshot.key_points.some(
-        point => point.capture_frame_index === ack.resolved_anchor?.capture_frame_index,
-      ),
-      ...(command.payload.ball_event ? { ball_event: command.payload.ball_event } : {}),
-    })
+    const existing = next.snapshot.key_points.find(
+      point => point.key_point_id === ack.effects.created_key_point_id,
+    )
+    if (existing) {
+      if (command.payload.ball_event) existing.ball_event = command.payload.ball_event
+    } else
+      next.snapshot.key_points.push({
+        key_point_id: ack.effects.created_key_point_id,
+        sequence_index: next.snapshot.key_points.length,
+        marker_kind: 'contact',
+        is_terminal:
+          command.payload.terminal_outcome === 'unknown' ||
+          ack.effects.terminal_key_point_id === ack.effects.created_key_point_id,
+        capture_time_us: ack.resolved_anchor.capture_time_us,
+        capture_frame_index: ack.resolved_anchor.capture_frame_index,
+        timing_precision: ack.resolved_anchor.timing_precision,
+        possible_duplicate: next.snapshot.key_points.some(
+          point => point.capture_frame_index === ack.resolved_anchor?.capture_frame_index,
+        ),
+        ...(command.payload.ball_event ? { ball_event: command.payload.ball_event } : {}),
+      })
   } else if (command.kind === 'CLOSE_RALLY') {
     const target = next.snapshot.key_points.at(-1)
     if (target) target.is_terminal = true

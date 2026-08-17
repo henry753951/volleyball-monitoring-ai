@@ -5,7 +5,6 @@ import type { CoachMatchAnalytics } from '~/lib/coachDomain'
 import { annotationWorkstationServiceKey } from '~/services/annotation-workstation/annotation-workstation.service'
 import { createIdentityAssignmentControllerService } from '~/services/annotation-workstation/identity-assignment-controller.service'
 import { createWorkstationActionManager } from '~/services/annotation-workstation/workstation-action.service'
-import IdentityReplacementDialog from './IdentityReplacementDialog.vue'
 import UiPlayerCombobox from './ui/PlayerCombobox.vue'
 
 const coachClient = vi.hoisted(() => ({
@@ -17,7 +16,6 @@ const coachClient = vi.hoisted(() => ({
   reidFeatureRebuildRequest: vi.fn(),
   requestReidAssociationRerun: vi.fn(),
   reidAssociationRerunRequest: vi.fn(),
-  setTrackIdentityMappingComplete: vi.fn(),
 }))
 
 vi.mock('~/lib/coachDomain', () => ({
@@ -28,7 +26,6 @@ vi.mock('~/lib/coreDomain', () => ({
   createGraphQLTransport: () => ({}),
 }))
 
-const replacementWarningEnabled = ref(true)
 let AnnotationIdentityPanel: (typeof import('./AnnotationIdentityPanel.vue'))['default']
 
 const teams = [
@@ -134,10 +131,8 @@ function mountPanel() {
       analysisRunId: 'analysis-1',
       currentFrame: 60,
       refreshAfterCommit: true,
-      mappingCompleted: false,
     },
     coachClient as never,
-    replacementWarningEnabled,
     manager,
   )
   return mount(AnnotationIdentityPanel, {
@@ -147,7 +142,6 @@ function mountPanel() {
       leftTeamId: 'team-left',
       rightTeamId: 'team-right',
       teams,
-      mappingCompleted: false,
     },
     global: {
       provide: {
@@ -163,14 +157,11 @@ beforeAll(async () => {
   vi.stubGlobal('shallowRef', shallowRef)
   vi.stubGlobal('watch', watch)
   vi.stubGlobal('onMounted', onMounted)
-  vi.stubGlobal('useState', () => replacementWarningEnabled)
-  vi.stubGlobal('useIdentityReplacementWarning', () => ({ enabled: replacementWarningEnabled }))
   AnnotationIdentityPanel = (await import('./AnnotationIdentityPanel.vue')).default
 })
 
 beforeEach(() => {
   vi.clearAllMocks()
-  replacementWarningEnabled.value = true
   coachClient.analytics.mockResolvedValue(analyticsFixture())
   coachClient.assignTrackIdentity.mockResolvedValue({
     assignTrackIdentity: { schema_version: '1.0.0' },
@@ -282,34 +273,6 @@ describe('AnnotationIdentityPanel ReID assignments', () => {
       identityMode,
     })
 
-    wrapper.unmount()
-  })
-
-  it('uses the product dialog instead of a browser confirm when replacing an occupied player', async () => {
-    const browserConfirm = vi.spyOn(window, 'confirm')
-    const wrapper = mountPanel()
-    await flushPromises()
-
-    wrapper.findAllComponents(UiPlayerCombobox)[1]!.vm.$emit('update:modelValue', 'roster-1')
-    await flushPromises()
-
-    const dialog = wrapper.getComponent(IdentityReplacementDialog)
-    expect(dialog.props()).toMatchObject({
-      playerName: 'Player 1',
-      occupiedTrackId: 1,
-      targetTrackId: 2,
-    })
-    expect(browserConfirm).not.toHaveBeenCalled()
-    dialog.vm.$emit('confirm')
-    await flushPromises()
-
-    expect(coachClient.assignTrackIdentity).toHaveBeenCalledWith({
-      analysisRunId: 'analysis-1',
-      trackId: 2,
-      rosterEntryId: 'roster-1',
-      identityMode: 'from_here',
-    })
-    browserConfirm.mockRestore()
     wrapper.unmount()
   })
 

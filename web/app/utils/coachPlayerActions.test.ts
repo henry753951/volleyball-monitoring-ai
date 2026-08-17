@@ -129,6 +129,7 @@ describe('coachPlayerActions', () => {
         resultKey: 'success',
         routeStart: { x: 1.08, y: -0.12 },
         routeEnd: { x: 0.4, y: 0.7 },
+        courtSide: 'left',
         outcome: 'won',
       },
     ])

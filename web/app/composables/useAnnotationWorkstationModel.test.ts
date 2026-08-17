@@ -630,7 +630,7 @@ describe('useAnnotationWorkstationModel timeline layers', () => {
     expect(model.correctionRallyId.value).toBe('rally')
   })
 
-  it('keeps the previous completed analysis visible while its correction draft is OPEN', () => {
+  it('hides the predecessor analysis rail while its correction draft is OPEN', () => {
     const correctionState = structuredClone(coachState)
     correctionState.match.drafts = [
       {
@@ -662,17 +662,65 @@ describe('useAnnotationWorkstationModel timeline layers', () => {
     })
 
     expect(model.selectedEditableDraft.value).toBe(true)
-    expect(model.selectedAnalysisRunId.value).toBe('analysis')
-    expect(model.mappingAvailable.value).toBe(true)
-    expect(model.timelineSegments.value).toContainEqual(
-      expect.objectContaining({
+    expect(model.selectedAnalysisRunId.value).toBeNull()
+    expect(model.mappingAvailable.value).toBe(false)
+    expect(model.timelineSegments.value.every(segment => !segment.analysis)).toBe(true)
+  })
+
+  it('keeps every correction draft analysis hidden after reload before a rally is selected', () => {
+    const correctionState = structuredClone(coachState)
+    const secondRally = structuredClone(correctionState.match.rallies[0]!)
+    secondRally.id = 'rally-2'
+    secondRally.submission.id = 'submission-2'
+    correctionState.match.rallies.push(secondRally)
+    correctionState.match.drafts = [
+      {
         id: 'rally',
-        analysis: expect.objectContaining({ byteLength: '2048' }),
-      }),
+        ordinal: 1,
+        display_ordinal: 1,
+        display_set_number: 1,
+        annotation_revision: '4',
+        annotation_status: 'open',
+        active_submission_id: 'submission',
+        set_id: 'set',
+        set_number: 1,
+        key_points: correctionState.match.rallies[0]!.submission.key_points,
+      },
+      {
+        id: 'rally-2',
+        ordinal: 2,
+        display_ordinal: 2,
+        display_set_number: 1,
+        annotation_revision: '2',
+        annotation_status: 'open',
+        active_submission_id: 'submission-2',
+        set_id: 'set',
+        set_number: 1,
+        key_points: secondRally.submission.key_points,
+      },
+    ]
+    const reloadedSnapshot = structuredClone(snapshot)
+    reloadedSnapshot.snapshot.annotation_status = 'submitted'
+    const model = useAnnotationWorkstationModel({
+      coachData: ref(correctionState),
+      match: ref<Match | null>(null),
+      timeline: computed<CaptureTimeline | null>(() => null),
+      displayAnnotation: computed(() => reloadedSnapshot),
+      confirmedAnnotation: shallowRef(reloadedSnapshot),
+      state: computed(() => 'SUBMITTED' as const),
+      selectedRallyId: computed(() => null),
+      selectedKeyPoint: computed<AnnotationKeyPoint | null>(() => null),
+      selectedTimelineItem: ref<TimelineSelectionItem>(null),
+      cursorRallyId: ref(null),
+    })
+
+    expect(model.timelineSegments.value.filter(segment => segment.analysis)).toEqual([])
+    expect(model.timelineSegments.value.filter(segment => segment.status === 'draft')).toHaveLength(
+      2,
     )
   })
 
-  it('keeps a superseded analysis rail but removes its immutable points from a new correction rally', () => {
+  it('hides a superseded analysis rail and removes its immutable points from a new correction rally', () => {
     const correctionState = structuredClone(coachState)
     correctionState.match.drafts = [
       {
@@ -708,7 +756,7 @@ describe('useAnnotationWorkstationModel timeline layers', () => {
       expect.objectContaining({
         id: 'rally',
         points: [],
-        analysis: expect.objectContaining({ byteLength: '2048' }),
+        analysis: null,
       }),
     )
   })

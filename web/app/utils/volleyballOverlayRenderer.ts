@@ -7,13 +7,14 @@ import {
 } from '@volleyball-monitoring/contracts'
 import type { ReplayContactEvent } from '~/lib/coachDomain'
 import { actionColor, actionKey } from '~/utils/coachPlayerActions'
-import { formatReidPair } from '~/utils/reidIdentity'
+import { formatReidGroupCode, formatReidTrackId } from '~/utils/reidIdentity'
 
 export type VolleyballOverlayMode = 'off' | 'tracking' | 'coach' | 'tactical' | 'debug'
 
 export interface VolleyballOverlayLayers {
   bbox: boolean
   trackId: boolean
+  playerLabel: boolean
   action: boolean
   ball: boolean
   trail: boolean
@@ -28,6 +29,7 @@ export interface OverlayTrackMetadata {
   courtSide?: string | null
   label?: string | null
   gidLabel?: string | null
+  jerseyNumber?: string | null
 }
 
 export interface OverlayRect {
@@ -91,8 +93,8 @@ interface FrameDetection {
 
 const QUANTIZED_MAX = 65_535
 const UNKNOWN = '#91a0b2'
-const LEFT = '#22d3ee'
-const RIGHT = '#fb7185'
+const LEFT = '#2f80ed'
+const RIGHT = '#e55361'
 const BALL = '#ffd34f'
 // TID owns the tracking color. Keep the sequence fixed so a player does not
 // change color between frames, and use enough perceptually separated colors
@@ -255,12 +257,28 @@ function sideColor(side?: string | null) {
   return side === 'left' ? LEFT : side === 'right' ? RIGHT : UNKNOWN
 }
 
+export function overlayTrackGroupLabel(gidLabel?: string | null) {
+  const group = gidLabel
+    ?.trim()
+    .replace(/^群組\s*/u, '')
+    .replace(/^GID\s*/iu, '')
+    .trim()
+  if (group && !/^[LR][1-6]$/u.test(group)) return formatReidGroupCode(group)
+  return null
+}
+
 export function overlayTrackIdentityLabel(
   trackId: number,
   gidLabel?: string | null,
-  playerLabel?: string | null,
+  jerseyNumber?: string | null,
+  showTrackId = true,
 ) {
-  return [formatReidPair(trackId, gidLabel), playerLabel].filter(Boolean).join('  ')
+  const jersey = jerseyNumber?.trim()
+  if (jersey) return `#${jersey}`
+
+  const group = overlayTrackGroupLabel(gidLabel)
+  if (group) return group
+  return showTrackId ? formatReidTrackId(trackId) : ''
 }
 
 export function trackColor(trackId: number) {
@@ -353,7 +371,6 @@ function drawPlayerLabel(
   input: VolleyballOverlayRenderInput,
   track?: OverlayTrackMetadata,
 ) {
-  const identity = input.identityLabels?.[detection.trackId]
   const team =
     track?.courtSide === 'left'
       ? input.teamLabels?.left
@@ -366,9 +383,14 @@ function drawPlayerLabel(
     (detection.actionId === ANALYSIS_MISSING_ACTION_LABEL
       ? null
       : (input.actionLabels[detection.actionId] ?? null))
-  const primary = input.layers.trackId
-    ? overlayTrackIdentityLabel(detection.trackId, track?.gidLabel, identity)
-    : (identity ?? '')
+  const primary = input.layers.playerLabel
+    ? overlayTrackIdentityLabel(
+        detection.trackId,
+        track?.gidLabel,
+        track?.jerseyNumber,
+        input.layers.trackId,
+      )
+    : ''
   const confidence =
     input.layers.confidence && detection.confidence !== ANALYSIS_MISSING_CONFIDENCE
       ? `${Math.round((detection.confidence / 254) * 100)}%`
@@ -393,10 +415,29 @@ function drawPlayerLabel(
         input.viewport.x + input.viewport.width - badgeWidth - 3,
       ),
     )
+    if (![badgeX, badgeY, badgeWidth].every(Number.isFinite)) return
     roundedRect(context, badgeX, badgeY, badgeWidth, 16, 4)
-    context.fillStyle = 'rgba(7, 11, 16, .78)'
+    const nameplateGradient = context.createLinearGradient(
+      badgeX,
+      badgeY,
+      badgeX + badgeWidth,
+      badgeY + 16,
+    )
+    if (teamColor === LEFT) {
+      nameplateGradient.addColorStop(0, '#0b3b7db8')
+      nameplateGradient.addColorStop(0.56, '#1769d1b8')
+      nameplateGradient.addColorStop(1, '#45a6ffb8')
+    } else if (teamColor === RIGHT) {
+      nameplateGradient.addColorStop(0, '#762333b8')
+      nameplateGradient.addColorStop(0.56, '#bd394cb8')
+      nameplateGradient.addColorStop(1, '#e85c6bb8')
+    } else {
+      nameplateGradient.addColorStop(0, '#111820bf')
+      nameplateGradient.addColorStop(1, '#26313abf')
+    }
+    context.fillStyle = nameplateGradient
     context.fill()
-    context.strokeStyle = 'rgba(255,255,255,.12)'
+    context.strokeStyle = teamColor === UNKNOWN ? 'rgba(255,255,255,.16)' : `${teamColor}99`
     context.lineWidth = 1
     context.stroke()
     context.fillStyle = teamColor

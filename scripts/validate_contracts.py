@@ -103,7 +103,6 @@ def main() -> None:
         "examples/ai/reid-roster-snapshot.json": "ai/reid-roster-snapshot.schema.json",
         "examples/ai/reid-feature-job.json": "ai/reid-feature-job.schema.json",
         "examples/ai/reid-feature-result.json": "ai/reid-feature-result.schema.json",
-        "examples/ai/reid-jersey-vlm-response.json": "ai/reid-jersey-vlm-response.schema.json",
         "examples/ai/reid-bank-snapshot.json": "ai/reid-bank-snapshot.schema.json",
         "examples/ai/reid-association-job.json": "ai/reid-association-job.schema.json",
         "examples/ai/reid-association-result.json": "ai/reid-association-result.schema.json",

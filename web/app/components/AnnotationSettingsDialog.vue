@@ -19,6 +19,7 @@ import {
 } from '~/utils/annotationHotkeys'
 import { MEDIA_BUFFER_PROFILES, type MediaBufferPreset } from '~/utils/mediaPlaybackPreferences'
 import { useAnnotationWorkstationService } from '~/services/annotation-workstation/annotation-workstation.service'
+import type { VolleyballOverlayLayers } from '~/utils/volleyballOverlayRenderer'
 
 type SettingsPage = 'root' | 'media' | 'overlay' | 'clip' | 'hotkeys'
 type PageDirection = 'forward' | 'back'
@@ -31,6 +32,7 @@ const initialPage = preferences.settingsPage
 const clipPolicySaving = preferences.clipPolicySaving
 const clipPolicyError = preferences.clipPolicyError
 const overlayEnabled = preferences.overlayEnabled
+const overlayLayers = preferences.overlayLayers
 const model = workstation.annotation.model
 const { bindings, rebind, restoreDefaults } = useAnnotationHotkeys()
 const { bufferPreset, setBufferPreset } = useMediaPlaybackPreferences()
@@ -47,6 +49,18 @@ const commandGroups: ReadonlyArray<{
 }> = [
   { label: '標記', commands: ANNOTATION_COMMANDS },
   { label: '播放', commands: MEDIA_COMMANDS },
+]
+const overlayLayerOptions: ReadonlyArray<readonly [keyof VolleyballOverlayLayers, string]> = [
+  ['bbox', '球員框'],
+  ['playerLabel', '球員名條'],
+  ['trackId', 'Local TID（無背號時顯示）'],
+  ['action', '動作'],
+  ['ball', '球'],
+  ['trail', '球軌跡'],
+  ['nextHit', '下一擊提示'],
+  ['court', '場地指示器'],
+  ['footprint', '腳點'],
+  ['confidence', '信心值'],
 ]
 const mediaPresets = Object.entries(MEDIA_BUFFER_PROFILES) as Array<
   [MediaBufferPreset, (typeof MEDIA_BUFFER_PROFILES)[MediaBufferPreset]]
@@ -252,6 +266,16 @@ function close() {
                     @update:model-value="preferences.setOverlayEnabled"
                   />
                 </div>
+                <div class="settings-list settings-list--overlay" aria-label="疊圖顯示細項">
+                  <label v-for="option in overlayLayerOptions" :key="option[0]">
+                    <span>{{ option[1] }}</span>
+                    <UiSwitch
+                      :model-value="overlayLayers[option[0]]"
+                      :aria-label="option[1]"
+                      @update:model-value="value => preferences.setOverlayLayer(option[0], value)"
+                    />
+                  </label>
+                </div>
               </section>
             </div>
 
@@ -444,6 +468,24 @@ function close() {
 .settings-toggle-row small {
   color: #a1a1aa;
   font-size: 0.62rem;
+}
+.settings-list--overlay {
+  display: grid;
+  gap: 3px;
+  padding: 4px 2px 0;
+}
+.settings-list--overlay label {
+  min-height: 42px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 6px 10px;
+  border: 1px solid #2f3036;
+  border-radius: 8px;
+  background: #141416;
+  color: #e4e4e7;
+  font-size: 0.7rem;
 }
 .buffer-presets {
   display: grid;

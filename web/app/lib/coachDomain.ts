@@ -157,6 +157,42 @@ export interface ReidJobRequestState {
   error_message: string | null
 }
 
+export interface ReidJerseySuggestionItem {
+  suggestion_id: string
+  tracklet_id: string
+  track_id: number
+  gid_id: string | null
+  gid_label: string | null
+  status: 'QUEUED' | 'RUNNING' | 'COMPLETED' | 'FAILED' | 'CANCELLED'
+  current_roster_entry_id: string | null
+  current_jersey_number: string | null
+  current_player_name: string | null
+  suggested_roster_entry_id: string | null
+  suggested_jersey_number: string | null
+  suggested_player_name: string | null
+  confidence: number | null
+  alternatives: unknown
+  selected_frame_indices: string[]
+  montage_url: string | null
+  preview_url: string | null
+  changed: boolean
+  applied_at: string | null
+}
+
+export interface ReidJerseySuggestionRun {
+  schema_version: '1.0.0'
+  run_id: string
+  analysis_run_id: string
+  match_id: string
+  status: 'QUEUED' | 'RUNNING' | 'COMPLETED' | 'FAILED' | 'CANCELLED'
+  model_namespace: string | null
+  error_message: string | null
+  created_at: string
+  started_at: string | null
+  completed_at: string | null
+  items: ReidJerseySuggestionItem[]
+}
+
 export interface ReplayCourtPosition {
   track_id: number | null
   basis: string
@@ -393,6 +429,22 @@ export function createCoachDomainClient(transport: GraphQLTransport) {
       )
       return result.deleteRally
     },
+    async deleteRallyAnalysis(rallyId: string) {
+      const result = await transport.request<{
+        deleteRallyAnalysis: {
+          rallyId: string
+          matchId: string
+          abortedJobCount: number
+          removedAssetCount: number
+          removedBytes: string
+          cleanupWarnings: string[]
+        }
+      }>(
+        'mutation DeleteRallyAnalysis($rallyId: ID!) { deleteRallyAnalysis(rallyId: $rallyId) { rallyId matchId abortedJobCount removedAssetCount removedBytes cleanupWarnings } }',
+        { rallyId },
+      )
+      return result.deleteRallyAnalysis
+    },
     async updateRallyPlacement(input: { rallyId: string; setNumber: number; ordinal: number }) {
       const result = await transport.request<{
         updateRallyPlacement: {
@@ -494,13 +546,53 @@ export function createCoachDomainClient(transport: GraphQLTransport) {
       )
       return result.reidAssociationRerunRequest
     },
-    async setTrackIdentityMappingComplete(input: { analysisRunId: string; completed: boolean }) {
+    async swapTrackGidRosterBindings(input: {
+      analysisRunId: string
+      trackId: number
+      targetPersonClusterId: string
+      reason?: string
+    }) {
       return transport.request<{
-        setTrackIdentityMappingComplete: { schema_version: '1.0.0'; completed: boolean }
+        swapTrackGidRosterBindings: {
+          schema_version: '1.0.0'
+          match_id: string
+          correction_id: string
+          identity_revision: string
+        }
       }>(
-        'mutation SetTrackIdentityMappingComplete($analysisRunId: ID!, $completed: Boolean!) { setTrackIdentityMappingComplete(analysisRunId: $analysisRunId, completed: $completed) }',
+        'mutation SwapTrackGidRosterBindings($analysisRunId: ID!, $trackId: Int!, $targetPersonClusterId: ID!, $reason: String) { swapTrackGidRosterBindings(analysisRunId: $analysisRunId, trackId: $trackId, targetPersonClusterId: $targetPersonClusterId, reason: $reason) }',
         input,
       )
+    },
+    async requestReidJerseySuggestions(input: { runId: string; analysisRunId: string }) {
+      const result = await transport.request<{
+        requestReidJerseySuggestions: { run_id: string; match_id: string }
+      }>(
+        'mutation RequestReidJerseySuggestions($runId: ID!, $analysisRunId: ID!) { requestReidJerseySuggestions(runId: $runId, analysisRunId: $analysisRunId) }',
+        input,
+      )
+      return result.requestReidJerseySuggestions
+    },
+    async reidJerseySuggestionRun(runId: string) {
+      const result = await transport.request<{
+        reidJerseySuggestionRun: ReidJerseySuggestionRun | null
+      }>('query ReidJerseySuggestionRun($runId: ID!) { reidJerseySuggestionRun(runId: $runId) }', {
+        runId,
+      })
+      return result.reidJerseySuggestionRun
+    },
+    async applyReidJerseySuggestion(suggestionId: string) {
+      const result = await transport.request<{
+        applyReidJerseySuggestion: {
+          suggestion_id: string
+          match_id: string
+          applied: boolean
+        }
+      }>(
+        'mutation ApplyReidJerseySuggestion($suggestionId: ID!) { applyReidJerseySuggestion(suggestionId: $suggestionId) }',
+        { suggestionId },
+      )
+      return result.applyReidJerseySuggestion
     },
   }
 }

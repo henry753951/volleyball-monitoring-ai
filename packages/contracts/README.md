@@ -30,7 +30,7 @@ invent fields outside these versioned files.
   immutable AI output and exposes the latest durable pose-first actor projection independently from
   an explicit human actor override.
 - `ai/reid-roster-snapshot.schema.json`, `reid-feature-job.schema.json`,
-  `reid-feature-result.schema.json`, `reid-jersey-vlm-response.schema.json`,
+  `reid-feature-result.schema.json`,
   `reid-bank-snapshot.schema.json`, `reid-association-job.schema.json`, and
   `reid-association-result.schema.json`: independently rerunnable feature/association jobs with one
   explicit immutable roster input and eligible-history snapshot. Raw VLM responses remain a

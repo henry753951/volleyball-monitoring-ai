@@ -349,7 +349,8 @@ const displaySegments = computed(() =>
 )
 // Analysis coverage is an independent timeline layer. Do not derive it from
 // displaySegments: that list intentionally removes the current segment mask to
-// avoid painting it twice, but its AI result rail must remain visible.
+// avoid painting it twice. The model can omit a predecessor result while a
+// correction draft is active, so only segments with an analysis payload render.
 const displayAnalysisSegments = computed(() =>
   selectNonOverlappingRanges(
     (props.segments ?? []).filter(segment => Boolean(segment.analysis)),

@@ -1,5 +1,5 @@
 {
-  "schema_version": "1.0.0",
+  "schema_version": "2.0.0",
   "provider_job_id": "provider-job-feature-001",
   "evidence_set_id": "evidence-set-001",
   "analysis_run_id": "analysis-run-001",
@@ -11,7 +11,6 @@
   "requested_recipes": [
     { "modality": "DINO", "model_namespace": "dinov2/vits14-reg/v1" },
     { "modality": "OSNET", "model_namespace": "sports-osnet/x1/v1" },
-    { "modality": "KPR_PROMPT", "model_namespace": "kpr/coco17-prompt/v1" },
-    { "modality": "JERSEY_VLM", "model_namespace": "jersey-vlm/qwen-v1" }
+    { "modality": "KPR_PROMPT", "model_namespace": "kpr/coco17-prompt/v1" }
   ]
 }

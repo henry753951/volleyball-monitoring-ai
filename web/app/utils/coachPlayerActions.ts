@@ -8,6 +8,7 @@ import type {
 import { replayBallEventKindKey } from './replayBallEventPresentation'
 
 export type CoachActionOutcome = 'won' | 'lost' | 'unknown'
+export type CoachCourtSide = 'left' | 'right'
 
 export interface CoachPlayerActionEvent {
   id: string
@@ -23,6 +24,7 @@ export interface CoachPlayerActionEvent {
   resultKey: NonNullable<ReplayContactEvent['ball_event']>['result']
   routeStart: { x: number; y: number } | null
   routeEnd: { x: number; y: number } | null
+  courtSide: CoachCourtSide | null
   outcome: CoachActionOutcome
 }
 
@@ -173,6 +175,10 @@ function routePosition(positions: ReplayCourtPosition[], actorTrackId: number) {
   )
 }
 
+function normalizeCourtSide(value: string | null | undefined): CoachCourtSide | null {
+  return value === 'left' || value === 'right' ? value : null
+}
+
 export function collectCoachActionEvents(
   tracks: CoachMatchAnalytics['tracks'],
   replays: ReadonlyMap<string, CoachRallyReplay | null>,
@@ -181,6 +187,11 @@ export function collectCoachActionEvents(
   for (const track of tracks) {
     const replay = replays.get(track.rally_id)
     if (!replay?.analysis) continue
+    const courtSide =
+      normalizeCourtSide(track.court_side) ??
+      normalizeCourtSide(
+        replay.analysis.tracks.find(item => item.track_id === track.track_id)?.court_side,
+      )
     for (const event of replay.analysis.contact_events) {
       const semantic = event.ball_event
       if (!semantic) continue
@@ -216,6 +227,7 @@ export function collectCoachActionEvents(
         resultKey: semantic.result,
         routeStart: routeStart?.court_pos ?? actor?.court_pos ?? null,
         routeEnd: routeEnd?.court_pos ?? null,
+        courtSide,
         outcome: semanticOutcome ?? 'unknown',
       })
     }

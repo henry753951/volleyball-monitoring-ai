@@ -3,11 +3,12 @@ import {
   ANALYSIS_MISSING_ACTION_LABEL,
   type AnalysisFrameChunk,
 } from '@volleyball-monitoring/contracts'
-import { onMounted, onUnmounted, useTemplateRef, watch } from 'vue'
+import { computed, onMounted, onUnmounted, reactive, ref, useTemplateRef, watch } from 'vue'
 import type { ReplayContactEvent } from '~/lib/coachDomain'
 import {
   hitTestOverlayTrack,
   overlayCanvasPointToVideo,
+  overlayTrackGroupLabel,
   renderVolleyballOverlay,
   type OverlayTrackMetadata,
   type OverlayBallOverride,
@@ -63,6 +64,7 @@ const props = withDefaults(
 )
 
 const emit = defineEmits<{
+  mediaClick: []
   ballPosition: [position: { x: number; y: number }]
   playerBbox: [selection: { trackId: number; frameBBox: OverlayFrameBBox }]
   trackSelect: [
@@ -76,6 +78,24 @@ let scheduledFrame: number | null = null
 let dragStart: { x: number; y: number } | null = null
 let dragCurrent: { x: number; y: number } | null = null
 let suppressClick = false
+const hoveredTrackId = ref<number | null>(null)
+const hoverPoint = reactive({ x: 0, y: 0 })
+
+const hoveredTrack = computed(() =>
+  hoveredTrackId.value === null
+    ? null
+    : (props.tracks.find(track => track.trackId === hoveredTrackId.value) ?? null),
+)
+const hoveredIdentity = computed(() => {
+  if (hoveredTrackId.value === null) return null
+  const track = hoveredTrack.value
+  return {
+    name: props.identityLabels[hoveredTrackId.value] ?? track?.label ?? '未辨識球員',
+    jersey: track?.jerseyNumber ? `#${track.jerseyNumber}` : null,
+    gid: overlayTrackGroupLabel(track?.gidLabel),
+    tid: `T${String(hoveredTrackId.value).padStart(3, '0')}`,
+  }
+})
 
 function liveBBoxCorrections() {
   if (!dragStart || !dragCurrent || props.selectedTrackId === null)
@@ -156,7 +176,11 @@ function drawPresentedFrame() {
 }
 
 function handleClick(event: MouseEvent) {
-  if (!props.interactive || props.mode === 'off') return
+  if (!props.interactive) {
+    if (props.mode !== 'off') emit('mediaClick')
+    return
+  }
+  if (props.mode === 'off') return
   if (suppressClick) {
     suppressClick = false
     return
@@ -218,12 +242,43 @@ function handlePointerDown(event: PointerEvent) {
 }
 
 function handlePointerMove(event: PointerEvent) {
+  updateHoveredTrack(event)
   if (!dragStart || !props.bboxRelabel) return
   const position = pointerVideoPosition(event)
   if (!position) return
   dragCurrent = position
   suppressClick = true
   scheduleDraw()
+}
+
+function updateHoveredTrack(event: PointerEvent) {
+  if (props.mode === 'off') {
+    hoveredTrackId.value = null
+    return
+  }
+  const element = canvas.value
+  if (!element) return
+  const { rect, viewport: bounds } = viewport(element)
+  const point = { x: event.clientX - rect.left, y: event.clientY - rect.top }
+  const hit = hitTestOverlayTrack(
+    {
+      chunk: props.chunk,
+      frame: props.frame,
+      videoWidth: props.videoWidth,
+      videoHeight: props.videoHeight,
+      viewport: bounds,
+      playerBBoxCorrections: props.playerBboxCorrections,
+    },
+    point,
+  )
+  hoveredTrackId.value = hit?.trackId ?? null
+  if (!hit) return
+  hoverPoint.x = Math.max(8, Math.min(rect.width - 176, point.x + 10))
+  hoverPoint.y = Math.max(8, Math.min(rect.height - 72, point.y + 10))
+}
+
+function clearHoveredTrack() {
+  hoveredTrackId.value = null
 }
 
 function finishBBox(event: PointerEvent) {
@@ -289,30 +344,76 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <canvas
-    ref="canvas"
-    class="absolute inset-0 size-full"
-    :class="
-      interactive
-        ? ballRelabel || bboxRelabel
-          ? 'pointer-events-auto cursor-crosshair touch-none'
-          : 'pointer-events-auto cursor-pointer'
-        : 'pointer-events-none'
-    "
-    :aria-label="
-      interactive
-        ? ballRelabel
-          ? '點擊影片修改此幀球座標'
-          : bboxRelabel
-            ? '在影片上拖曳新的球員框'
-            : '點擊球員框選取追蹤球員'
-        : undefined
-    "
-    :aria-hidden="interactive ? undefined : true"
-    @pointerdown="handlePointerDown"
-    @pointermove="handlePointerMove"
-    @pointerup="finishBBox"
-    @pointercancel="finishBBox"
-    @click="handleClick"
-  />
+  <div class="relative size-full" @pointerleave="clearHoveredTrack">
+    <canvas
+      ref="canvas"
+      class="absolute inset-0 size-full"
+      :class="
+        interactive || mode !== 'off'
+          ? ballRelabel || bboxRelabel
+            ? 'pointer-events-auto cursor-crosshair touch-none'
+            : 'pointer-events-auto cursor-pointer'
+          : 'pointer-events-none'
+      "
+      :aria-label="
+        interactive
+          ? ballRelabel
+            ? '點擊影片修改此幀球座標'
+            : bboxRelabel
+              ? '在影片上拖曳新的球員框'
+              : '點擊球員框選取追蹤球員'
+          : undefined
+      "
+      :aria-hidden="interactive ? undefined : true"
+      @pointerdown="handlePointerDown"
+      @pointermove="handlePointerMove"
+      @pointerup="finishBBox"
+      @pointercancel="finishBBox"
+      @click="handleClick"
+    />
+    <div
+      v-if="hoveredIdentity"
+      class="overlay-track-tooltip"
+      :style="{ left: `${hoverPoint.x}px`, top: `${hoverPoint.y}px` }"
+      aria-hidden="true"
+    >
+      <strong>{{ hoveredIdentity.name }}</strong>
+      <span>{{
+        [hoveredIdentity.jersey, hoveredIdentity.gid, hoveredIdentity.tid]
+          .filter(Boolean)
+          .join(' · ')
+      }}</span>
+    </div>
+  </div>
 </template>
+
+<style scoped>
+.overlay-track-tooltip {
+  position: absolute;
+  z-index: 4;
+  display: grid;
+  max-width: min(240px, calc(100% - 16px));
+  gap: 3px;
+  padding: 7px 9px;
+  border: 1px solid #ffffff2b;
+  border-radius: 8px;
+  background: #0c1219d9;
+  box-shadow: 0 6px 18px #0005;
+  color: #f3f6f8;
+  font-size: 0.64rem;
+  line-height: 1.25;
+  pointer-events: none;
+  backdrop-filter: blur(8px);
+}
+.overlay-track-tooltip strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.overlay-track-tooltip span {
+  overflow: hidden;
+  color: #b9c5d0;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+</style>
