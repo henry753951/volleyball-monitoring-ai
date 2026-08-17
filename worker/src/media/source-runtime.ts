@@ -93,6 +93,15 @@ export function mediaSourceRetryDelay(
   return Math.min(30_000, 1_000 * 2 ** Math.max(0, attempts - 1))
 }
 
+export function mediaSourceCheckpointProgressed(
+  previousSegmentIndex: number,
+  previousCaptureTimeUs: bigint,
+  segmentIndex: number,
+  captureTimeUs: bigint,
+): boolean {
+  return segmentIndex > previousSegmentIndex && captureTimeUs > previousCaptureTimeUs
+}
+
 export class MediaSourceRuntime {
   readonly #active = new Map<string, ActiveSource>()
   readonly #owner: string
@@ -312,8 +321,27 @@ export class MediaSourceRuntime {
           `media-source live relay retry capture=${work.captureSessionId} code=${code}`,
         )
       },
-      resumed: (segmentIndex, captureTimeUs) =>
-        recordMediaSourceResume(this.options.database, work.id, segmentIndex, captureTimeUs),
+      resumed: async (segmentIndex, captureTimeUs) => {
+        const progressed = mediaSourceCheckpointProgressed(
+          work.resumeSegmentIndex,
+          work.resumeCaptureTimeUs,
+          segmentIndex,
+          captureTimeUs,
+        )
+        await recordMediaSourceResume(this.options.database, work.id, segmentIndex, captureTimeUs)
+        work.resumeSegmentIndex = segmentIndex
+        work.resumeCaptureTimeUs = captureTimeUs
+        if (progressed && !active.retryBudgetReset) {
+          active.relayErrorAt = null
+          active.relayErrorName = null
+          active.retryBudgetReset = true
+          work.attempts = 0
+          await recordMediaSourceRelayHealthy(this.options.database, work.id, this.#owner)
+          this.options.log?.(
+            `media-source checkpoint advanced capture=${work.captureSessionId} retry_budget_reset=true`,
+          )
+        }
+      },
     }
     try {
       const completion = await this.options.run(work, observer, active.controller.signal)
