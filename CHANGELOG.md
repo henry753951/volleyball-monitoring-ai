@@ -1,5 +1,24 @@
 # Changelog
 
+## [1.4.0](https://github.com/henry753951/volleyball-monitoring-ai/compare/v1.3.0...v1.4.0) (2026-08-17)
+
+
+### Features
+
+* **media:** stream growing captures through hot tier ([b1a6950](https://github.com/henry753951/volleyball-monitoring-ai/commit/b1a695036d20e51e3600e04d610bca8984af7b64))
+* **media:** stream growing captures through hot tier ([6c83ee5](https://github.com/henry753951/volleyball-monitoring-ai/commit/6c83ee5ee88d8db3e7941f75a68828f4f3db9fe6))
+* **media:** stream growing captures through hot tier ([#96](https://github.com/henry753951/volleyball-monitoring-ai/issues/96)) ([b1a6950](https://github.com/henry753951/volleyball-monitoring-ai/commit/b1a695036d20e51e3600e04d610bca8984af7b64))
+
+
+### Bug Fixes
+
+* **media:** keep rolling archive playback attached ([bd3c836](https://github.com/henry753951/volleyball-monitoring-ai/commit/bd3c836fc61cf88ad71e72411fca269a7c51e866))
+
+
+### Documentation
+
+* add single-node k3s operations runbook ([1b4d430](https://github.com/henry753951/volleyball-monitoring-ai/commit/1b4d430683c2f8a2a95cb58b997f465f03635a63))
+
 ## [1.3.0](https://github.com/henry753951/volleyball-monitoring-ai/compare/v1.2.0...v1.3.0) (2026-08-17)
 
 
