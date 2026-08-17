@@ -204,6 +204,34 @@ When investigating a specific source, also inspect its `MediaSourceWork`, `DvrPr
 READY `DvrSegment` records. Declared source duration or temporary spool files must not be counted as
 playable progress.
 
+### VOD checkpoint and retry recovery
+
+`MediaSourceWork.resumeCaptureTimeUs` is an absolute source checkpoint. One FFmpeg invocation must
+snapshot that value before it starts and add each relative segment end to the immutable snapshot.
+The observer is allowed to update the claimed work object after every durable segment, so reading
+the mutable value again inside the same invocation causes quadratic checkpoint growth and an invalid
+seek after restart.
+
+When repairing a checkpoint, do not assume every output named at a two-second interval has exactly
+two seconds of media. Stream-copy segmentation can only cut at keyframes. Sum the actual durations of
+the contiguous finalized MP4 files and keep `resumeSegmentIndex` equal to their contiguous count.
+Then verify the new FFmpeg process starts with `-ss` equal to that reconstructed duration and that two
+later database samples advance linearly.
+
+The console's end-to-end rate is cumulative from the original source start and intentionally includes
+earlier retries and downtime. Use two recent `resumeCaptureTimeUs` samples to measure current source
+speed; do not diagnose current network throughput from the cumulative number alone.
+
+For the public Iran vs Pakistan VOD tested on 2026-08-17, passing the supplied browser cookies caused
+Googlevideo range seeks to return HTTP 403. The verified runtime used
+`YOUTUBE_EXTRACTOR_ARGS=youtube:player_client=android_vr` without `YOUTUBE_COOKIES_FILE`. Keep the
+cookie Secret available for authentication failures, but enable it only after a seek probe succeeds.
+
+An unreleased worker hotfix may be pinned on the node through
+`/etc/volleyai/worker-image-override`. The automatic updater honors this immutable digest while still
+updating the other components. Remove that file only after the published release contains the
+checkpoint fix, then run `sudo /usr/local/sbin/volleyai-update --force`.
+
 The remaining minimum first-play latency is intentional: URL resolution, one finalized two-second
 segment and canonical sample indexing must finish before annotation. Declared duration, incomplete
 spool files and archive-pending receipts are not playable progress. If the timeline grows but the
