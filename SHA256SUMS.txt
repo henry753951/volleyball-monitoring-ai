@@ -424,7 +424,7 @@ acc167a11aa503485781d5fe61797eb02387964ccfba63d4a3771bed45ca2a66  ./server/src/r
 4b4b60d64ce5d48a7d709cc1f69c82d635cf9d2c827190505c128bc9e880b54e  ./server/src/routes/analysis-media.ts
 a1f90a781c2050e0184114dbf4844495dec3ed18b51f2e24662bb2b91ed7787f  ./server/src/routes/analysis-review.ts
 af6f72a17464a57d4e19838d4c9cce13b015babb1993790cbd00c267e5033d28  ./server/src/routes/coach-highlight-exports.ts
-8ad525fd7a8fc913f472d3ee3fb513a819709a336685827a516142fa6ac25491  ./server/src/routes/media-playback.ts
+83243b1a5c71122c75f11f605f1a21fd1038a9a6815953b98ffecb71167f5188  ./server/src/routes/media-playback.ts
 12bb9d03ccfa1bad14be3d12d408b6081d41b04e77f81a66e5c9593caa3147b8  ./server/src/routes/media-sources.ts
 11ceaa7ad9e7619cfa4243f787a7251fe0f1abca78f6bf5f06b5ae286f0c2ad0  ./server/src/routes/operations.ts
 6fafacbdfcd314c02386ac790c419023d34f96a0b3253b017879fb5017077f4a  ./server/src/routes/provider-job-callback.ts
@@ -476,7 +476,7 @@ d7cc2126a4e17ff0c2f3396b6a9b6559936557186f7f5066d97f21e43cadd7f3  ./server/tests
 772d0996ad9aa5f57b60040ba69dce25a442e221a14973c5883fcb898f89eb25  ./server/tests/match-administration.test.ts
 00b3957e93d587360fbf421969318ec9bebd79286ee28d6297c7ad1d72485477  ./server/tests/media-cursor.integration.test.ts
 ee59818fca1cb0a934cf7dcfd8e90d3e8639b1daf82330d482e77c9bff951d13  ./server/tests/media-cursor.unit.test.ts
-4b7404229f7bab3f265d548841ce955a8893ce02e35705e837ea4d6a17d52828  ./server/tests/media-playback.integration.test.ts
+251c556794dad150ef05f9f1aafe6ff69539269651d7bff3dd5f06d765c9ddab  ./server/tests/media-playback.integration.test.ts
 661f5526a564eed7876250cf2a0a852fff4c667832f7c5f4dd906b55caa52ed0  ./server/tests/media-playback.unit.test.ts
 2ffbfaa72a9810b7114eedb7a780b2f09da108f45046b01b3011f84f9011c166  ./server/tests/media-sources.unit.test.ts
 1a6fae78c7a685b45f724f21aadc9ac9da3982aa8432a7d94ee684b214a0d73f  ./server/tests/minio-object-reader.test.ts
@@ -594,7 +594,7 @@ cf6413b007a0431be7b71f1f8605471f4ae3b67e49cb45cceae18bab533667ab  ./web/app/comp
 01e40ca610ad2414469f0ce18bde6eb5f2077153b3a4bcca9ec9c17dc18c0463  ./web/app/composables/useCoalescedFrameNavigation.test.ts
 adcb3695e44269366cf5c0715545bdd90284cfe19c59ac2c3d626b77db6b4003  ./web/app/composables/useCoalescedFrameNavigation.ts
 9911d6d63e7df7bc149700501a781d4c7df9c724a288e49e2ff262628d49d964  ./web/app/composables/useCoreDomain.ts
-5779f04d6a4efabee3c0648ba1b1adf91b48840db577ca6dc276cdd0544a9ff3  ./web/app/composables/useDvrPlayback.test.ts
+02b6badd43aecfbcff8d78df586799b2a9d4a3e7f19d31691bd6f1db5193fdde  ./web/app/composables/useDvrPlayback.test.ts
 b2b61ede3eba8a777587a56506a3f52b022d29954c434c6583553b4efa557ac1  ./web/app/composables/useDvrPlayback.ts
 ccd5323131297c6132c3c975ca0824dab8aa1d1a3f988d3d3f68b3aa569d4c58  ./web/app/composables/useIdentityAssignmentController.ts
 1b258ae7f05db73de079c8d8d5a8cf219d811b262ef8ea1e194b2486f924e38e  ./web/app/composables/useIdentityAssignmentService.ts
@@ -669,7 +669,7 @@ b96226d384265ffccc2d57a041c6e64fb2d9368b19f83ad35d28880a48c327ab  ./web/app/serv
 7d616b2e0461da31b5efc2733ccad08cf5d8d295342f75d1bf7d186124d31480  ./web/app/services/annotation-workstation/coalesced-frame-navigation.service.ts
 2601c15ee3c0f494b07c29d68152e066d66da197547b8938ae7dbf50fb7025a1  ./web/app/services/annotation-workstation/correction-flow.service.test.ts
 9364c00ed8e3fe809f207309cba2bac02b8f16b81e76306161bbcfc4dac8f19f  ./web/app/services/annotation-workstation/correction-flow.service.ts
-dd2a1db6fdf15cc5de568052a6a19191582247ee854d85cc799d304d78500c46  ./web/app/services/annotation-workstation/dvr-playback.service.ts
+b4fc12d557f1ab5c7283c3927ca54da477739290d1903e5d4c6f83667daf048f  ./web/app/services/annotation-workstation/dvr-playback.service.ts
 0f5e390eef4bb06ec583cb65a942eb1dbd28c0ee6dd5ec4d42e9b22af3e049c1  ./web/app/services/annotation-workstation/identity-assignment-controller.service.ts
 d6959eda603a493d5403f8e934df0568fb89d92da746159f0ddde0fc8fcd956e  ./web/app/services/annotation-workstation/identity-assignment.service.ts
 dee3d5e96123c28d2b5c52b8c6c2806ef6aa51b946149ae7915a5b191dbc9fc3  ./web/app/services/annotation-workstation/key-point-editing.service.test.ts
