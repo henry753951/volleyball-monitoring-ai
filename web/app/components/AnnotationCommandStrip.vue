@@ -23,7 +23,7 @@ const props = withDefaults(
 const workstation = useAnnotationWorkstationService()
 const segmentCommand = ANNOTATION_COMMANDS.find(command => command.action === 'service')!
 const pointCommands = ANNOTATION_COMMANDS.filter(command =>
-  ['contact', 'spike', 'receive_success', 'receive_error'].includes(command.action),
+  ['contact', 'spike'].includes(command.action),
 )
 const outcomeCommands = ANNOTATION_COMMANDS.filter(command => command.action.startsWith('close_'))
 function reason(action: AnnotationAction) {
@@ -109,7 +109,7 @@ function label(action: AnnotationAction, fallback: string) {
   min-height: 64px;
   display: grid;
   grid-template-columns:
-    minmax(116px, 0.62fr) minmax(360px, 2.35fr) 1px minmax(300px, 1.9fr) 1px
+    minmax(116px, 0.62fr) minmax(220px, 1.35fr) 1px minmax(300px, 1.9fr) 1px
     minmax(110px, 0.65fr);
   gap: 8px;
   align-items: end;
@@ -136,7 +136,7 @@ function label(action: AnnotationAction, fallback: string) {
   min-width: 0;
 }
 .point-buttons {
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 .outcome-buttons {
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -177,7 +177,7 @@ function label(action: AnnotationAction, fallback: string) {
 @media (max-width: 1380px) {
   .command-strip {
     grid-template-columns:
-      minmax(110px, 0.62fr) minmax(340px, 2.25fr) 1px minmax(290px, 1.8fr)
+      minmax(110px, 0.62fr) minmax(210px, 1.25fr) 1px minmax(290px, 1.8fr)
       1px minmax(104px, 0.62fr);
   }
   .command-strip :deep(button span) {
@@ -205,12 +205,6 @@ function label(action: AnnotationAction, fallback: string) {
   border-color: #c65b78;
   background: #4a2130;
   color: #ffd4df;
-}
-.command-strip :deep(.command-receive_success),
-.command-strip :deep(.command-receive_error) {
-  border-color: #359f88;
-  background: #173d36;
-  color: #c8fff1;
 }
 .command-strip :deep(.command-outcome) {
   border-color: #3f3f46;

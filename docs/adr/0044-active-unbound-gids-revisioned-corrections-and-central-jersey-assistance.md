@@ -31,8 +31,9 @@ number to influence automatic association before a human saw the evidence.
 - A strong legal match uses an existing GID. Otherwise Central creates a new ACTIVE, UNBOUND GID.
 - UNBOUND means only that the GID has no roster-player binding. It is not a review, error, or blocked
   state and never prevents replay, annotation, analytics, or later identity work.
-- New automatic membership evidence is usable at a conservative weight. Human-confirmed membership
-  has higher weight. Activation and feature-bank trust are separate concepts.
+- New automatic membership evidence remains `UNVERIFIED`: it may drive the current active projection
+  but never enters a later eligible bank. Only a human-confirmed, vector-bearing `CONFIRMED`
+  membership is a bank seed. Activation and feature-bank trust are separate concepts.
 - Non-co-visibility only removes a hard cannot-link. It is never positive proof that two Local IDs are
   the same person.
 
@@ -62,6 +63,12 @@ Every command appends immutable revisions. Earlier raw evidence and earlier effe
 unchanged. Corrections supersede wrong memberships and cause later bank/adaptation snapshots and
 automatic associations to be rebuilt in chronological order. Court, detector, tracker, ball, action,
 and every-frame Pose are not rerun.
+
+An eligible bank is built only from actual vector-bearing confirmed memberships. A roster binding by
+itself is not evidence, and current or earlier automatic `UNVERIFIED` outputs cannot feed themselves
+back into another association run. A current-rally human confirmation may seed the remaining
+non-manual Locals in that rally. The immutable snapshot identity includes a derivation-policy version;
+changing seed eligibility creates a new version and never rewrites an existing snapshot artifact.
 
 GID roster binding is a revisioned relationship. `ReidPersonCluster.canonicalRosterEntryId` may be
 maintained as a current read projection, but it is not historical authority.

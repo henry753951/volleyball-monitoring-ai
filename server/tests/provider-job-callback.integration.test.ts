@@ -222,6 +222,70 @@ describe('generic provider callback', () => {
     expect(stored.size).toBeGreaterThanOrEqual(2)
   })
 
+  it('accepts concurrent identical completed callbacks without duplicating outputs', async () => {
+    const job = await createJob()
+    const result = Buffer.from('{"schema_version":"1.0.0"}')
+    const descriptors = Buffer.from('descriptor-bytes-concurrent')
+    const artifacts = [
+      {
+        part_name: 'reid_feature_result',
+        kind: 'REID_FEATURE_RESULT',
+        schema_version: '1.0.0',
+        sha256: sha256(result),
+        byte_length: String(result.byteLength),
+        content_type: 'application/octet-stream',
+      },
+      {
+        part_name: 'descriptor_bundle',
+        kind: 'REID_DESCRIPTOR_BUNDLE',
+        schema_version: '1.0.0',
+        sha256: sha256(descriptors),
+        byte_length: String(descriptors.byteLength),
+        content_type: 'application/octet-stream',
+      },
+    ]
+    const send = (callbackId: string) => {
+      const multipart = multipartBody(
+        {
+          schema_version: '1.0.0',
+          callback_id: callbackId,
+          provider_job_id: job.id,
+          work_kind: 'REID_FEATURE_EXTRACTION',
+          kind: 'completed',
+          result_schema_version: '1.0.0',
+          artifacts,
+        },
+        { reid_feature_result: result, descriptor_bundle: descriptors },
+      )
+      return app.inject({
+        method: 'POST',
+        url: `/api/v1/provider-jobs/${job.id}/callback`,
+        headers: {
+          authorization: `Bearer ${callbackToken}`,
+          'content-type': multipart.contentType,
+        },
+        payload: multipart.body,
+      })
+    }
+
+    const responses = await Promise.all([
+      send('provider-completed-concurrent-a'),
+      send('provider-completed-concurrent-b'),
+    ])
+    expect(responses.map(response => response.statusCode)).toEqual([200, 200])
+    await expect(
+      db.providerJobArtifact.count({
+        where: { providerJobId: job.id, direction: 'OUTPUT' },
+      }),
+    ).resolves.toBe(2)
+    await expect(
+      db.providerCallbackReceipt.count({ where: { providerJobId: job.id } }),
+    ).resolves.toBe(2)
+    await expect(
+      db.providerJob.findUniqueOrThrow({ where: { id: job.id } }),
+    ).resolves.toMatchObject({ status: 'COMPLETED', progress: 1 })
+  })
+
   it('rejects a completed callback when bytes do not match the manifest', async () => {
     const job = await createJob()
     const data = Buffer.from('actual')

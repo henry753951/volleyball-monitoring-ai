@@ -26,7 +26,9 @@ describe('AnnotationMatchInspector outcomes', () => {
             },
             segments: {
               affectsCurrentDraft: computed(() => false),
+              deletePending: ref(false),
               placementSaving: ref(false),
+              requestBatchAnalysisReset: vi.fn(),
               sideSwapPending: ref(false),
             },
             timeline,
@@ -49,6 +51,9 @@ describe('AnnotationMatchInspector outcomes', () => {
         currentFrame: -1,
         currentLeftTeam: teams[0]!,
         currentRightTeam: teams[1]!,
+        displayedOutcomeLabel: '右側 PUR 得分',
+        displayedOutcomeSide: 'right',
+        displayedRallyId: 'draft',
         drafts: [
           {
             id: 'draft',
@@ -138,7 +143,7 @@ describe('AnnotationMatchInspector outcomes', () => {
         rightSetWins: 0,
         rightTeam: teams[1]!,
         rightTeamId: 'right',
-        selectedRallyId: null,
+        selectedRallyId: 'draft',
         setNumber: 1,
         setNumbers: [1],
         tab: 'match',
@@ -148,9 +153,14 @@ describe('AnnotationMatchInspector outcomes', () => {
 
     expect(wrapper.findAll('.outcome-badge').map(badge => badge.text())).toEqual([
       '左側 TPE 得分',
-      '得分未知',
+      '右側 PUR 得分',
     ])
-    expect(wrapper.get('.outcome-badge.unknown').text()).toBe('得分未知')
+    expect(wrapper.find('.outcome-badge.unknown').exists()).toBe(false)
+    expect(wrapper.findAll('.score-at-rally').map(score => score.text())).toEqual([
+      '1 : 0',
+      '1 : 1',
+    ])
+    expect(wrapper.get('.set-divider b').text()).toBe('1 : 1')
     expect(wrapper.findAll('.segment-side-order').map(row => row.text())).toEqual([
       '左側 TPE · 右側 PUR',
       '左側 TPE · 右側 PUR',
@@ -159,6 +169,13 @@ describe('AnnotationMatchInspector outcomes', () => {
       expect.stringContaining('回合 1'),
       expect.stringContaining('回合 2'),
     ])
+    expect(wrapper.findAll('.segment-row')[0]!.classes()).not.toContain('active')
+    expect(wrapper.findAll('.segment-row')[1]!.classes()).toContain('active')
+
+    await wrapper.findAll('.segment-main')[0]!.trigger('click')
+    expect(timeline.selectRally).toHaveBeenCalledWith(expect.objectContaining({ id: 'rally' }))
+    await wrapper.findAll('.segment-main')[1]!.trigger('click')
+    expect(timeline.selectHistorical).toHaveBeenCalledWith('draft', '2')
 
     await wrapper.get('button[aria-label="修正此片段的左右隊伍"]').trigger('click')
     expect(execute).toHaveBeenCalledWith(

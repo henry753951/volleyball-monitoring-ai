@@ -25,7 +25,7 @@ export interface AnnotationActionRoomPort {
     cursor: PlaybackCursorInput | null,
     observation?: AnnotationClientObservation,
     selectedKeyPointId?: string | null,
-  ) => void
+  ) => Promise<unknown>
   setBallEvent: (keyPointId: string, event: BallEventValue) => Promise<unknown>
   setBallEventActor: (keyPointId: string, actorRosterEntryId: string | null) => Promise<unknown>
 }
@@ -45,8 +45,8 @@ export interface AnnotationActionServiceOptions {
   clipPreRollUs: MaybeRefOrGetter<bigint>
   clipPostRollUs: MaybeRefOrGetter<bigint>
   protectedSegments: MaybeRefOrGetter<readonly AnnotationSegmentRange[]>
-  singleServeNeedsDecision: () => boolean
-  requestSingleServeDecision: () => void
+  incompleteResultsNeedConfirmation: () => boolean
+  requestIncompleteResultsConfirmation: () => void
   correctionSubmitRequired: MaybeRefOrGetter<boolean>
   requestCorrectionSubmit: () => void
   eventEditReady: MaybeRefOrGetter<boolean>
@@ -57,8 +57,8 @@ export const annotationWorkstationActionId: Record<AnnotationAction, Workstation
   service: 'segment.toggle-boundary',
   contact: 'mark.contact',
   spike: 'mark.spike',
-  receive_success: 'mark.receive-success',
-  receive_error: 'mark.receive-error',
+  event_success: 'mark.event-success',
+  event_failure: 'mark.event-failure',
   close_left: 'outcome.left',
   close_right: 'outcome.right',
   close_unknown: 'outcome.unknown',
@@ -69,8 +69,8 @@ const labels: Record<AnnotationAction, string> = {
   service: '片段開始／結束',
   contact: 'HIT',
   spike: '殺球',
-  receive_success: '接球成功',
-  receive_error: '接球失敗',
+  event_success: '所選球點成功',
+  event_failure: '所選球點失敗',
   close_left: '左側得分',
   close_right: '右側得分',
   close_unknown: '得分未知',
@@ -81,8 +81,8 @@ const shortcuts: Partial<Record<AnnotationAction, string>> = {
   service: 'Z',
   contact: 'X',
   spike: 'C',
-  receive_success: 'V',
-  receive_error: 'B',
+  event_success: 'V',
+  event_failure: 'B',
   close_left: '<',
   close_right: '>',
   close_unknown: '?',
@@ -91,8 +91,6 @@ const shortcuts: Partial<Record<AnnotationAction, string>> = {
 
 function shortcutForAction(action: AnnotationAction): BallEventShortcut | null {
   if (action === 'spike') return 'C'
-  if (action === 'receive_success') return 'V'
-  if (action === 'receive_error') return 'B'
   return null
 }
 
@@ -192,10 +190,27 @@ export function createAnnotationActionService(options: AnnotationActionServiceOp
     const reasons = {
       NO_TARGET_POINT: '請先選擇擊球點，或等待目前畫格確認',
       SPIKE_REQUIRES_THIRD_POINT: '殺球只能標在第三球以後',
-      RECEIVE_REQUIRES_NON_SERVICE_POINT: '第一球固定是發球；接球只能標在第二球以後',
       OUTSIDE_RALLY_BOUNDARY: '目前畫格不在片段範圍內',
     } as const
     return { enabled: false, reason: reasons[decision.reason] }
+  }
+
+  function resultAvailability(action: AnnotationAction) {
+    if (action !== 'event_success' && action !== 'event_failure') return null
+    const snapshot = toValue(options.displayAnnotation)
+    const selectedId = toValue(options.selectedKeyPointId)
+    if (!snapshot || !['open', 'ready'].includes(snapshot.snapshot.annotation_status))
+      return { enabled: false, reason: '尚未開始可編輯片段' }
+    if (!toValue(options.room.draftOwnedByClient))
+      return { enabled: false, reason: '此片段屬於另一個標註客戶端，只能檢視' }
+    if (!selectedId) return { enabled: false, reason: '請先選擇球點' }
+    if (!toValue(options.eventEditReady)) return { enabled: false, reason: '等待目前修改完成' }
+    const event = snapshot.snapshot.key_points.find(
+      point => point.key_point_id === selectedId,
+    )?.ball_event
+    if (!event || event.kind === 'CONTACT')
+      return { enabled: false, reason: '請先將球點改為發球、接球或殺球' }
+    return { enabled: true, reason: '' }
   }
 
   function availability(action: AnnotationAction) {
@@ -210,6 +225,9 @@ export function createAnnotationActionService(options: AnnotationActionServiceOp
       const startBoundary = localDraft
         ? snapshot?.snapshot.boundaries?.find(boundary => boundary.kind === 'start')
         : undefined
+      const endBoundary = localDraft
+        ? snapshot?.snapshot.boundaries?.find(boundary => boundary.kind === 'end')
+        : undefined
       const otherBoundaries = localDraft
         ? (snapshot?.snapshot.boundaries
             ?.filter(boundary => boundary.kind !== 'start')
@@ -222,6 +240,7 @@ export function createAnnotationActionService(options: AnnotationActionServiceOp
         cursorCaptureTimeUs: visualPlayhead,
         currentRallyId: localDraft ? snapshot?.rally_id : null,
         startBoundaryCaptureTimeUs: startBoundary?.capture_time_us,
+        endBoundaryCaptureTimeUs: endBoundary?.capture_time_us,
         currentDraftCaptureTimes: [
           ...(startBoundary ? [startBoundary.capture_time_us] : []),
           ...(snapshot?.snapshot.key_points.map(point => point.capture_time_us) ?? []),
@@ -242,6 +261,8 @@ export function createAnnotationActionService(options: AnnotationActionServiceOp
         ? { enabled: true, reason: '' }
         : { enabled: false, reason: '等待目前修改同步完成' }
     }
+    const result = resultAvailability(action)
+    if (result) return result
     const ballEvent = ballEventAvailability(action)
     if (ballEvent) return ballEvent
     const range = editableRange(snapshot)
@@ -260,8 +281,8 @@ export function createAnnotationActionService(options: AnnotationActionServiceOp
   }
 
   function execute(action: AnnotationAction) {
-    if (action === 'submit' && options.singleServeNeedsDecision()) {
-      options.requestSingleServeDecision()
+    if (action === 'submit' && options.incompleteResultsNeedConfirmation()) {
+      options.requestIncompleteResultsConfirmation()
       return
     }
     if (action === 'submit' && toValue(options.correctionSubmitRequired)) {
@@ -269,7 +290,7 @@ export function createAnnotationActionService(options: AnnotationActionServiceOp
       return
     }
     const captureTimeUs = toValue(options.visualPlayhead)
-    options.room.dispatch(
+    return options.room.dispatch(
       action,
       toValue(options.observedCursor),
       captureTimeUs
@@ -296,6 +317,10 @@ export function createAnnotationActionService(options: AnnotationActionServiceOp
                 : 'marking',
         label: labels[action],
         shortcut: shortcuts[action],
+        resources:
+          action === 'event_success' || action === 'event_failure'
+            ? ['annotation-ball-event']
+            : undefined,
         availability: computed(() => availability(action)),
         execute: () => execute(action),
       }),
@@ -304,10 +329,18 @@ export function createAnnotationActionService(options: AnnotationActionServiceOp
       id: 'mark.set-event',
       group: 'marking',
       label: '修改球點結果',
-      availability: computed(() => ({
-        enabled: Boolean(toValue(options.selectedKeyPointId)) && toValue(options.eventEditReady),
-        reason: toValue(options.selectedKeyPointId) ? '等待目前修改完成' : '請先選擇球點',
-      })),
+      resources: ['annotation-ball-event'],
+      availability: computed(() => {
+        const snapshot = toValue(options.displayAnnotation)
+        if (!snapshot || !['open', 'ready'].includes(snapshot.snapshot.annotation_status))
+          return { enabled: false, reason: '尚未開始可編輯片段' }
+        if (!toValue(options.room.draftOwnedByClient))
+          return { enabled: false, reason: '此片段屬於另一個標註客戶端，只能檢視' }
+        if (!toValue(options.selectedKeyPointId)) return { enabled: false, reason: '請先選擇球點' }
+        return toValue(options.eventEditReady)
+          ? { enabled: true, reason: '' }
+          : { enabled: false, reason: '等待目前修改完成' }
+      }),
       execute: event => options.room.setBallEvent(toValue(options.selectedKeyPointId)!, event),
     }),
     options.manager.register<string | null, unknown>({

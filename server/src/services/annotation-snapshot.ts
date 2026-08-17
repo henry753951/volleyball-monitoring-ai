@@ -153,6 +153,7 @@ async function loadAnnotationSnapshot(
               ball_event: {
                 kind: point.ballEvent.kind,
                 result: point.ballEvent.result,
+                serve_style: point.ballEvent.serveStyle,
               },
               ball_event_actor_roster_entry_id: point.ballEvent.actorRosterEntryId,
             }

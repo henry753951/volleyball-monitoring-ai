@@ -162,7 +162,9 @@ export function annotationCommandConverged(
     if (!point?.ball_event || !normalized) return false
     return (
       point.ball_event.kind === normalized.event.kind &&
-      point.ball_event.result === normalized.event.result
+      point.ball_event.result === normalized.event.result &&
+      (point.ball_event.kind !== 'SERVE' ||
+        point.ball_event.serve_style === normalized.event.serve_style)
     )
   }
   if (command.kind === 'SET_BALL_EVENT_ACTOR') {

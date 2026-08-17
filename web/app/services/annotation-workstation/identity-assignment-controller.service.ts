@@ -82,7 +82,7 @@ export function createIdentityAssignmentControllerService(
   function assignmentErrorMessage(cause: unknown) {
     const code = cause && typeof cause === 'object' && 'code' in cause ? String(cause.code) : null
     if (code === 'REID_EVIDENCE_PENDING')
-      return '新版 ReID evidence 尚在背景建立；目前仍會先保存此片段的球員指派'
+      return 'ReID evidence 尚未完成，這次指派沒有收到保存確認，請重新整理後確認'
     if (code === 'REID_TEAM_MISMATCH')
       return '這個 Local ID 的場側與所選球員隊伍不一致；請確認隊伍或只修正目前片段'
     if (code === 'REID_GID_CANNOT_LINK')
@@ -120,14 +120,19 @@ export function createIdentityAssignmentControllerService(
     state.error = null
     try {
       if (command.rosterEntryId) {
-        await service.assignTrackIdentity({
+        const response = await service.assignTrackIdentity({
           analysisRunId,
           trackId: command.trackId,
           rosterEntryId: command.rosterEntryId,
           identityMode: command.identityMode ?? 'from_here',
         })
+        if (response.assignTrackIdentity.evidence_state === 'pending')
+          state.reidJobResult =
+            '球員指派已保存；ReID evidence 就緒後會轉為人工確認種子，並填補後續尚未人工確認的 Local'
+        else state.reidJobResult = '人工指派已確認，後續 ReID 只會填補未確認的 Local'
       } else {
         await service.clearTrackIdentity({ analysisRunId, trackId: command.trackId })
+        state.reidJobResult = '已清除這個 Local 的球員指派'
       }
       if (options.refreshAfterCommit) await refresh()
       options.onChanged?.()
@@ -394,8 +399,8 @@ export function createIdentityAssignmentControllerService(
         state.reidJobAction = null
         state.reidJobResult =
           kind === 'feature'
-            ? '特徵 generation 已完成並安全切換；Pose 沒有重跑。'
-            : '重新配對已完成；人工指派仍保持優先。'
+            ? '球員外觀資料已更新；人工指派不受影響。'
+            : '球員重新配對完成；人工指派不受影響。'
         if (options.refreshAfterCommit) await refresh()
         options.onChanged?.()
         return
@@ -403,15 +408,16 @@ export function createIdentityAssignmentControllerService(
       if (['FAILED', 'CANCELLED'].includes(request.status)) {
         state.reidJobAction = null
         state.error =
-          request.error_message || (kind === 'feature' ? '重新取特徵失敗' : '重新配對失敗')
+          request.error_message ||
+          (kind === 'feature' ? '重新分析球員外觀失敗' : '使用現有資料重新配對失敗')
         return
       }
       state.reidJobResult =
         request.status === 'RUNNING'
           ? kind === 'feature'
-            ? '正在重新取特徵；可繼續進行人工指派。'
-            : '正在以既有 evidence 重新配對；可繼續進行人工指派。'
-          : '工作已排入佇列；可繼續進行人工指派。'
+            ? '正在重新分析此片段的球員外觀；仍可繼續人工指派。'
+            : '正在使用現有資料重新配對球員；仍可繼續人工指派。'
+          : '球員辨識工作已排入佇列；仍可繼續人工指派。'
       jobPollTimer = setTimeout(() => void pollReidJob(kind, requestId, generation), 2_000)
     } catch {
       if (generation !== jobPollGeneration) return
@@ -425,7 +431,7 @@ export function createIdentityAssignmentControllerService(
     if (!analysisRunId || state.reidJobAction) return
     stopJobPolling()
     state.reidJobAction = kind
-    state.reidJobResult = '正在建立背景工作…'
+    state.reidJobResult = '正在準備球員辨識工作…'
     state.error = null
     const requestId = crypto.randomUUID()
     try {
@@ -449,8 +455,8 @@ export function createIdentityAssignmentControllerService(
         cause instanceof Error
           ? cause.message
           : kind === 'feature'
-            ? '重新取特徵失敗'
-            : '重新配對失敗'
+            ? '重新分析球員外觀失敗'
+            : '使用現有資料重新配對失敗'
     }
   }
 

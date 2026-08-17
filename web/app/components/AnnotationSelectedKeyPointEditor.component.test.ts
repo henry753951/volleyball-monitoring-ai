@@ -1,15 +1,20 @@
 import { computed } from 'vue'
+import type { BallEventValue } from '@volleyball-monitoring/contracts'
 import { mount } from '@vue/test-utils'
 import { describe, expect, it, vi } from 'vitest'
 import { annotationWorkstationServiceKey } from '~/services/annotation-workstation/annotation-workstation.service'
 import type { WorkstationActionId } from '~/services/annotation-workstation/workstation-action.service'
 import AnnotationSelectedKeyPointEditor from './AnnotationSelectedKeyPointEditor.vue'
 
-function mountEditor() {
+function mountEditor(
+  selectedBallEvent: BallEventValue = { kind: 'SPIKE', result: 'SUCCESS' },
+  selectedOrdinal = 3,
+) {
   const execute = vi.fn().mockResolvedValue({ status: 'executed', value: undefined })
   const wrapper = mount(AnnotationSelectedKeyPointEditor, {
     props: {
-      selectedBallEvent: { kind: 'SPIKE', result: 'SUCCESS' },
+      selectedBallEvent,
+      selectedOrdinal,
       selectedActorId: null,
       actorOptions: [{ id: 'roster-11', label: 'TPE · #11 王一' }],
     },
@@ -34,6 +39,7 @@ function mountEditor() {
       },
       stubs: {
         UiPopover: { template: '<div><slot name="trigger" /><slot /></div>' },
+        UiKbd: { template: '<kbd><slot /></kbd>' },
       },
     },
   })
@@ -50,6 +56,7 @@ describe('AnnotationSelectedKeyPointEditor', () => {
     expect(execute).toHaveBeenCalledWith('mark.set-event', {
       kind: 'SPIKE',
       result: 'FAILURE',
+      serve_style: null,
     })
     expect(execute).not.toHaveBeenCalledWith('mark.contact')
   })
@@ -60,5 +67,31 @@ describe('AnnotationSelectedKeyPointEditor', () => {
     expect(player).toBeDefined()
     await player!.trigger('click')
     expect(execute).toHaveBeenCalledWith('mark.set-actor', 'roster-11')
+  })
+
+  it('toggles the selected result off instead of forcing a value', async () => {
+    const { wrapper, execute } = mountEditor()
+    const success = wrapper.findAll('button').find(button => button.text().includes('成功'))
+    await success!.trigger('click')
+    expect(execute).toHaveBeenCalledWith('mark.set-event', {
+      kind: 'SPIKE',
+      result: null,
+      serve_style: null,
+    })
+  })
+
+  it('shows jump/standing serve controls and persists an explicit standing serve', async () => {
+    const { wrapper, execute } = mountEditor(
+      { kind: 'SERVE', result: null, serve_style: 'JUMP' },
+      1,
+    )
+    const standing = wrapper.findAll('button').find(button => button.text().includes('站發'))
+    expect(standing).toBeDefined()
+    await standing!.trigger('click')
+    expect(execute).toHaveBeenCalledWith('mark.set-event', {
+      kind: 'SERVE',
+      result: null,
+      serve_style: 'STANDING',
+    })
   })
 })

@@ -109,7 +109,7 @@ export function createSegmentManagementService(options: SegmentManagementService
       for (const warning of receipt.cleanupWarnings)
         options.feedback.notify({ level: 'warning', title: warning })
     } catch (cause) {
-      await options.refreshCoach().catch(() => undefined)
+      void options.refreshCoach().catch(() => undefined)
       throw error(cause, '無法刪除分析結果')
     } finally {
       deletePending.value = false
@@ -158,7 +158,7 @@ export function createSegmentManagementService(options: SegmentManagementService
     options.confirmation.open({
       id: 'rally-analysis-batch-reset',
       title: `刪除 ${targets.length} 個片段的分析`,
-      message: `確認後會永久刪除這 ${targets.length} 個片段的 submission、裁切檔與分析資料，再還原成待送出草稿；START／END、Keypoint、球種與擊球員覆寫都會保留。`,
+      message: `確認後會永久刪除這 ${targets.length} 個片段的 submission、裁切檔與分析資料，再還原成待送出草稿；START／END、Keypoint 與人工球種都會保留。`,
       confirmLabel: `刪除 ${targets.length} 個分析`,
       danger: true,
       onConfirm: () => resetAnalysisBatch(targets),
@@ -170,7 +170,7 @@ export function createSegmentManagementService(options: SegmentManagementService
       id: 'rally-analysis-delete',
       title: '刪除分析並保留標記',
       message:
-        '會永久刪除 submission、裁切檔與分析資料，片段則回到待送出狀態；START／END、Keypoint、球種與擊球員覆寫都會保留。',
+        '會永久刪除 submission、裁切檔與分析資料，片段則回到待送出狀態；START／END、Keypoint 與人工球種都會保留。',
       confirmLabel: '刪除分析，保留 Keypoint',
       danger: true,
       onConfirm: () => removeAnalysis(rallyId, submissionId, true),

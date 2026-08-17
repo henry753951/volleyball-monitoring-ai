@@ -443,7 +443,14 @@ export const providerWorkWebSocketRoutes =
           }
           const job = await database.providerJob.findFirst({ where })
           if (!job) {
-            protocolError('DELIVERY_MISMATCH', 'Provider message does not match an active delivery')
+            send({
+              schema_version: '2.0.0',
+              type: 'discard_job',
+              provider_job_id: message.provider_job_id,
+              work_kind: message.work_kind,
+              delivery_id: message.delivery_id,
+              reason: 'Central has no matching active delivery',
+            })
             return
           }
           const now = new Date()

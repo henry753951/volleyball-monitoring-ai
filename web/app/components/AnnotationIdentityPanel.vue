@@ -41,6 +41,12 @@ const assignmentCount = computed(
 const manualCount = computed(
   () => assignment.view.model.tracks.filter(track => track.identity_source === 'manual').length,
 )
+const pendingEvidenceCount = computed(
+  () =>
+    assignment.view.model.tracks.filter(
+      track => track.identity_source === 'manual' && track.identity_evidence_state === 'pending',
+    ).length,
+)
 
 const localGroups = computed(() =>
   [
@@ -169,7 +175,13 @@ function handleTrackRowKeydown(
           <span
             ><b>{{ assignmentCount }}</b> / {{ assignment.view.model.tracks.length }} 已指派</span
           >
-          <small>{{ manualCount }} 筆人工確認 · 未標記不影響後續操作</small>
+          <small>
+            {{ manualCount }} 筆人工指派
+            <template v-if="pendingEvidenceCount">
+              · {{ pendingEvidenceCount }} 筆等待 ReID</template
+            >
+            · 未標記不影響後續操作
+          </small>
         </div>
         <button
           type="button"
@@ -189,7 +201,11 @@ function handleTrackRowKeydown(
           <span><b>背號感知</b><small>產生差異建議，不會自動覆寫</small></span>
           <Sparkles :size="13" />
         </button>
-        <div class="identity-job-actions" aria-label="ReID 維護工具">
+        <div class="identity-job-heading">
+          <b>配對結果不準確？</b>
+          <small>重新辨識只會更新系統建議，不會覆蓋人工指派</small>
+        </div>
+        <div class="identity-job-actions" aria-label="重新辨識球員">
           <button
             type="button"
             class="identity-auto"
@@ -203,7 +219,11 @@ function handleTrackRowKeydown(
               v-if="assignment.state.reidJobAction === 'association'"
               class="spin"
               :size="13"
-            /><RefreshCw v-else :size="13" /><span>重新配對</span>
+            /><RefreshCw v-else :size="13" />
+            <span>
+              <b>用現有資料再配對</b>
+              <small>沿用目前球員外觀資料，速度較快</small>
+            </span>
           </button>
           <button
             type="button"
@@ -216,7 +236,11 @@ function handleTrackRowKeydown(
               v-if="assignment.state.reidJobAction === 'feature'"
               class="spin"
               :size="13"
-            /><Database v-else :size="13" /><span>重新取特徵</span>
+            /><Database v-else :size="13" />
+            <span>
+              <b>重新分析外觀再配對</b>
+              <small>重新分析此片段的球員外觀，耗時較久</small>
+            </span>
           </button>
         </div>
       </div>
@@ -524,24 +548,51 @@ function handleTrackRowKeydown(
   font-variant-numeric: tabular-nums;
 }
 .identity-job-actions {
-  display: flex;
-  justify-content: flex-end;
+  display: grid;
   gap: 6px;
 }
+.identity-job-heading {
+  display: grid;
+  gap: 2px;
+  padding: 3px 2px 0;
+}
+.identity-job-heading b {
+  color: #dce4e9;
+  font-size: 0.62rem;
+}
+.identity-job-heading small {
+  color: #85929c;
+  font-size: 0.52rem;
+  line-height: 1.4;
+}
 .identity-auto {
-  min-height: 32px !important;
-  display: flex !important;
+  min-height: 48px !important;
+  display: grid !important;
+  grid-template-columns: 17px minmax(0, 1fr);
   align-items: center !important;
-  justify-content: center !important;
-  gap: 6px !important;
-  min-width: 92px;
-  padding: 5px 9px !important;
+  gap: 9px !important;
+  width: 100%;
+  padding: 7px 10px !important;
   border: 1px solid transparent !important;
   border-radius: 6px !important;
   background: #20272d !important;
   color: #b9c5cc !important;
-  font-size: 0.59rem !important;
-  white-space: nowrap;
+  text-align: left;
+}
+.identity-auto > span {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+.identity-auto b {
+  color: #dce5ea;
+  font-size: 0.62rem;
+  line-height: 1.25;
+}
+.identity-auto small {
+  color: #8e9ba4;
+  font-size: 0.52rem;
+  line-height: 1.35;
 }
 .identity-progress {
   display: flex;

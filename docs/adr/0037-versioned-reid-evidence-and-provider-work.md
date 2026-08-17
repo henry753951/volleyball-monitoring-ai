@@ -100,6 +100,12 @@ WebSocket is control-plane only. Media, pose chunks, descriptors, bank bundles, 
 previews use independently authorized signed HTTP/object endpoints with checksums. Workers do not
 receive database credentials.
 
+Completed provider callbacks are idempotent under concurrency. Central serializes completion for one
+ProviderJob and compares the exact ordered output descriptors. Repeating the same descriptors records
+another receipt and remains `COMPLETED`; different descriptors are a
+`RESULT_ARTIFACT_CONFLICT`. A duplicate completed callback must never create duplicate output rows or
+turn an accepted completed job into `FAILED`.
+
 ### Vector storage and later clips
 
 - A content-addressed immutable ReID evidence artifact in managed object storage is the source of truth

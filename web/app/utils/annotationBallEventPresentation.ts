@@ -52,10 +52,7 @@ export function ballEventKindLabel(
 
 export function ballEventResultLabel(event: BallEventValue | null | undefined) {
   if (!event?.result) return null
-  if (event.result === 'POINT_SCORED') return '得分'
-  if (event.result === 'POINT_LOST') return '失分'
   if (event.result === 'SUCCESS') return '成功'
-  if (event.result === 'ERROR') return event.kind === 'RECEIVE' ? '失敗' : '失誤'
   return '失敗'
 }
 

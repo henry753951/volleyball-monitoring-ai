@@ -238,8 +238,14 @@ function labelWidth(label: string) {
   return Math.max(24, Math.min(54, label.length * 4 + 9))
 }
 
-function showPlayerLabel(trackId: number, hitter: boolean) {
-  return props.showPlayerLabels && (hitter || props.playerLabelMode === 'all')
+function showPlayerLabel() {
+  return props.showPlayerLabels && props.playerLabelMode === 'all'
+}
+
+function showEndpointLabel(trackId: number | null) {
+  if (!props.showPlayerLabels) return false
+  if (props.playerLabelMode === 'all') return true
+  return trackId !== null && trackId === focusedTrackId.value
 }
 
 const pathEvent = (path: ReplayPath) =>
@@ -295,7 +301,7 @@ const focusedDuration = computed(() => {
         >
       </div>
     </div>
-    <span class="court-team court-team--far" :class="`team-tone-${teamTones.right ?? 'blue'}`">{{
+    <span class="court-team court-team--far" :class="`team-tone-${teamTones.right ?? 'red'}`">{{
       rightTeam
     }}</span>
     <svg viewBox="-18 -20 136 240" role="img" aria-label="2D 球場同步球路">
@@ -335,7 +341,7 @@ const focusedDuration = computed(() => {
           <circle r="3" />
           <circle v-if="player.hitter" class="court-player__ring" r="5" />
           <g
-            v-if="showPlayerLabel(player.trackId, player.hitter)"
+            v-if="showPlayerLabel()"
             :class="['court-nameplate', `team-tone-${teamToneForTrack(player.trackId)}`]"
             transform="translate(0 -8)"
           >
@@ -386,6 +392,7 @@ const focusedDuration = computed(() => {
           class="court-endpoint-labels"
         >
           <g
+            v-if="showEndpointLabel(line.start.track_id)"
             :class="['court-endpoint-label', `team-tone-${teamToneForTrack(line.start.track_id)}`]"
             :transform="`translate(${x(line.start.court_pos.y)} ${y(line.start.court_pos.x) - 8})`"
           >
@@ -399,6 +406,7 @@ const focusedDuration = computed(() => {
             <text y="0" text-anchor="middle">{{ trackLabel(line.start.track_id) }}</text>
           </g>
           <g
+            v-if="showEndpointLabel(line.end.track_id)"
             :class="['court-endpoint-label', `team-tone-${teamToneForTrack(line.end.track_id)}`]"
             :transform="`translate(${x(line.end.court_pos.y)} ${y(line.end.court_pos.x) + 12})`"
           >
@@ -425,7 +433,7 @@ const focusedDuration = computed(() => {
         />
       </g>
     </svg>
-    <span class="court-team court-team--near" :class="`team-tone-${teamTones.left ?? 'red'}`">{{
+    <span class="court-team court-team--near" :class="`team-tone-${teamTones.left ?? 'blue'}`">{{
       leftTeam
     }}</span>
     <p v-if="!lines.length">尚無可顯示的球路資料</p>

@@ -1,5 +1,5 @@
 import type { PrismaClient } from '@volleyball-monitoring/db'
-import { JobStatus, Prisma, UserRole } from '@volleyball-monitoring/db/client'
+import { IdentitySource, JobStatus, Prisma, UserRole } from '@volleyball-monitoring/db/client'
 import { GraphQLError } from 'graphql'
 import {
   applyVersionedReidCorrection,
@@ -94,6 +94,16 @@ const coachAnalysisRunSelect = {
       firstFrame: true,
       lastFrame: true,
       metadata: true,
+      identityAssignments: {
+        take: 1,
+        select: {
+          rosterEntryId: true,
+          source: true,
+          confidence: true,
+          identityRevision: true,
+          pendingCorrectionMode: true,
+        },
+      },
     },
   },
   reidEvidenceSets: {
@@ -472,7 +482,10 @@ export async function getCoachMatchAnalytics(
       const tracklet = entry.run.reidEvidenceSets[0]?.tracklets.find(
         candidate => candidate.canonicalTrackId === track.trackId,
       )
-      const rosterEntryId = tracklet?.activeProjection?.assignmentRevision.rosterEntryId ?? null
+      const rosterEntryId =
+        tracklet?.activeProjection?.assignmentRevision.rosterEntryId ??
+        track.identityAssignments[0]?.rosterEntryId ??
+        null
       if (rosterEntryId) trackAssignments.set(`${entry.run.id}:${track.trackId}`, rosterEntryId)
       else
         unassignedTracks.push({
@@ -696,6 +709,9 @@ export async function getCoachMatchAnalytics(
           candidate => candidate.canonicalTrackId === track.trackId,
         )
         const versioned = versionedTracklet?.activeProjection?.assignmentRevision
+        const materialized = track.identityAssignments[0]
+        const effectiveRosterEntryId =
+          versioned?.rosterEntryId ?? materialized?.rosterEntryId ?? null
         return {
           analysis_run_id: entry.run.id,
           rally_id: entry.rally.id,
@@ -706,17 +722,27 @@ export async function getCoachMatchAnalytics(
           first_frame_index: track.firstFrame.toString(),
           last_frame_index: track.lastFrame.toString(),
           observed_frame_ranges: observedFrameRangesForOutput(track.metadata),
-          roster_entry_id: versioned?.rosterEntryId ?? null,
+          roster_entry_id: effectiveRosterEntryId,
           gid_id: versioned?.personClusterId ?? null,
           gid_team_id: versioned?.personCluster?.teamId ?? null,
           gid_slot_index: null,
           gid_label: versioned?.personClusterId
             ? (versioned.personCluster?.label ?? `GID ${versioned.personClusterId.slice(0, 8)}`)
             : null,
-          identity_source: versioned?.source.toLowerCase() ?? null,
-          identity_confidence: versionedTracklet?.associationDecisions[0]?.confidence ?? null,
-          identity_revision: versioned?.revision.toString() ?? null,
-          manual_required: Boolean(versionedTracklet && !versioned?.rosterEntryId),
+          identity_source:
+            versioned?.source.toLowerCase() ?? materialized?.source.toLowerCase() ?? null,
+          identity_confidence:
+            versionedTracklet?.associationDecisions[0]?.confidence ??
+            materialized?.confidence ??
+            null,
+          identity_revision:
+            versioned?.revision.toString() ?? materialized?.identityRevision?.toString() ?? null,
+          identity_evidence_state: versioned
+            ? 'ready'
+            : materialized?.pendingCorrectionMode
+              ? 'pending'
+              : 'unavailable',
+          manual_required: !effectiveRosterEntryId,
           identity_preview_url: versionedTracklet?.previews[0]
             ? `/api/v1/reid/previews/${versionedTracklet.previews[0].id}`
             : null,
@@ -838,7 +864,8 @@ export async function assignTrackIdentity(
           trackId: { in: replacedTrackIds },
         },
       })
-    let decision
+    let decision: Awaited<ReturnType<typeof applyVersionedReidCorrection>> | null = null
+    let evidenceState: 'ready' | 'pending' = 'ready'
     try {
       for (const replacedTrackId of replacedTrackIds)
         await applyVersionedReidCorrection(tx, {
@@ -857,9 +884,37 @@ export async function assignTrackIdentity(
         mode: identityMode,
       })
     } catch (error) {
-      if (error instanceof ReidIdentityLedgerError)
+      if (error instanceof ReidIdentityLedgerError && error.code === 'REID_EVIDENCE_PENDING') {
+        evidenceState = 'pending'
+        await tx.trackIdentityAssignment.upsert({
+          where: {
+            analysisRunId_trackId: {
+              analysisRunId: input.analysisRunId,
+              trackId: input.trackId,
+            },
+          },
+          update: {
+            rosterEntryId: input.rosterEntryId,
+            source: IdentitySource.MANUAL,
+            assignedByUserId: input.userId,
+            confidence: 1,
+            identityRevision: null,
+            pendingCorrectionMode: identityMode,
+          },
+          create: {
+            analysisRunId: input.analysisRunId,
+            trackId: input.trackId,
+            rosterEntryId: input.rosterEntryId,
+            source: IdentitySource.MANUAL,
+            assignedByUserId: input.userId,
+            confidence: 1,
+            identityRevision: null,
+            pendingCorrectionMode: identityMode,
+          },
+        })
+      } else if (error instanceof ReidIdentityLedgerError)
         throw new GraphQLError(error.message, { extensions: { code: error.code } })
-      throw error
+      else throw error
     }
     const assignment = await tx.trackIdentityAssignment.findUniqueOrThrow({
       where: {
@@ -873,9 +928,9 @@ export async function assignTrackIdentity(
       schema_version: '2.0.0',
       match_id: roster.matchId,
       identity_mode: identityMode,
-      evidence_state: 'versioned',
-      identity_revision: decision.identityRevision.toString(),
-      gid_id: decision.targetClusterId,
+      evidence_state: evidenceState,
+      identity_revision: decision?.identityRevision.toString() ?? null,
+      gid_id: decision?.targetClusterId ?? null,
       replaced_track_ids: replacedTrackIds,
       conflicting_track_ids: conflictingTrackIds,
       assignment: {
@@ -926,6 +981,7 @@ export async function clearTrackIdentity(
             }),
           )
     if (!member) throw new Error('NOT_FOUND')
+    let evidenceState: 'ready' | 'pending' = 'ready'
     try {
       await applyVersionedReidCorrection(tx, {
         analysisRunId: input.analysisRunId,
@@ -936,9 +992,14 @@ export async function clearTrackIdentity(
         reason: 'manual identity clear',
       })
     } catch (error) {
-      if (error instanceof ReidIdentityLedgerError)
+      if (error instanceof ReidIdentityLedgerError && error.code === 'REID_EVIDENCE_PENDING') {
+        evidenceState = 'pending'
+        await tx.trackIdentityAssignment.deleteMany({
+          where: { analysisRunId: input.analysisRunId, trackId: input.trackId },
+        })
+      } else if (error instanceof ReidIdentityLedgerError)
         throw new GraphQLError(error.message, { extensions: { code: error.code } })
-      throw error
+      else throw error
     }
     return {
       schema_version: '2.0.0',
@@ -946,7 +1007,7 @@ export async function clearTrackIdentity(
       analysis_run_id: input.analysisRunId,
       track_id: input.trackId,
       roster_entry_id: null,
-      evidence_state: 'versioned',
+      evidence_state: evidenceState,
     }
   })
 }

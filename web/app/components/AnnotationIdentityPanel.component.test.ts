@@ -184,30 +184,32 @@ beforeEach(() => {
 })
 
 describe('AnnotationIdentityPanel ReID assignments', () => {
-  it('keeps feature rebuild, association rerun, and existing-projection apply as separate actions', async () => {
+  it('keeps feature rebuild and association rerun as separate actions', async () => {
     const wrapper = mountPanel()
     await flushPromises()
 
     await wrapper
       .findAll('button')
-      .find(button => button.text().includes('重新配對'))!
+      .find(button => button.text().includes('用現有資料再配對'))!
       .trigger('click')
     await flushPromises()
     expect(coachClient.requestReidAssociationRerun).toHaveBeenCalledWith(
       expect.objectContaining({ analysisRunId: 'analysis-1' }),
     )
-    expect(wrapper.text()).toContain('重新配對已完成')
+    expect(wrapper.text()).toContain('球員重新配對完成')
 
     await wrapper
       .findAll('button')
-      .find(button => button.text().includes('重新取特徵'))!
+      .find(button => button.text().includes('重新分析外觀再配對'))!
       .trigger('click')
     await flushPromises()
     expect(coachClient.requestReidFeatureRebuild).toHaveBeenCalledWith(
       expect.objectContaining({ analysisRunId: 'analysis-1' }),
     )
-    expect(wrapper.text()).toContain('Pose 沒有重跑')
-    expect(wrapper.text()).toContain('套用最新配對')
+    expect(wrapper.text()).toContain('球員外觀資料已更新')
+    expect(wrapper.text()).toContain('不會覆蓋人工指派')
+    expect(wrapper.text()).toContain('速度較快')
+    expect(wrapper.text()).toContain('耗時較久')
     wrapper.unmount()
   })
 
@@ -250,7 +252,7 @@ describe('AnnotationIdentityPanel ReID assignments', () => {
   })
 
   it.each([
-    ['GID 與球員配對錯了', 'from_here'],
+    ['只重綁目前 GID', 'from_here'],
     ['只有這個 Local ID 的 GID 判錯', 'split_identity'],
     ['只改這個 Local 的顯示', 'clip_only'],
   ] as const)('sends %s corrections with identityMode=%s', async (buttonLabel, identityMode) => {
@@ -297,20 +299,6 @@ describe('AnnotationIdentityPanel ReID assignments', () => {
       rosterEntryId: 'roster-2',
       identityMode: 'from_here',
     })
-    wrapper.unmount()
-  })
-
-  it('manually reapplies prior GID bindings to local assignments', async () => {
-    const wrapper = mountPanel()
-    await flushPromises()
-
-    await wrapper.get('.identity-auto').trigger('click')
-    await flushPromises()
-
-    expect(coachClient.applyReidAutomaticAssignments).toHaveBeenCalledWith({
-      analysisRunId: 'analysis-1',
-    })
-    expect(wrapper.text()).toContain('已自動套用 1 個 Local ID')
     wrapper.unmount()
   })
 

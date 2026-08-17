@@ -330,10 +330,18 @@ class ProviderWorkerClient:
                 message.work_kind,
                 message.delivery_id,
                 message.reason,
+                acknowledge=message.type == "abort_job",
             )
-        elif isinstance(message, ProviderWorkProtocolError) and not message.retryable:
-            raise WorkerAuthorizationRevokedError(
-                f"server rejected provider protocol: {message.code}: {message.message}"
+        elif isinstance(message, ProviderWorkProtocolError):
+            if message.code == "AUTHORIZATION_REVOKED":
+                raise WorkerAuthorizationRevokedError(
+                    f"server rejected provider protocol: {message.code}: {message.message}"
+                )
+            LOGGER.warning(
+                "Central reported provider protocol error %s (retryable=%s): %s",
+                message.code,
+                message.retryable,
+                message.message,
             )
 
     async def _accept_offer(
@@ -458,21 +466,24 @@ class ProviderWorkerClient:
         work_kind: ProviderWorkKind,
         delivery_id: str,
         reason: str,
+        *,
+        acknowledge: bool = True,
     ) -> None:
         run = self._active.get(provider_job_id)
         if run is not None and run.context.delivery_id == delivery_id:
             run.context.cancellation.abort(reason)
             run.task.cancel()
-        await self._send(
-            ProviderWorkAbortAck(
-                schema_version="2.0.0",
-                type="abort_ack",
-                provider_job_id=provider_job_id,
-                work_kind=work_kind,
-                delivery_id=delivery_id,
-                acknowledged_at=datetime.now(UTC),
+        if acknowledge:
+            await self._send(
+                ProviderWorkAbortAck(
+                    schema_version="2.0.0",
+                    type="abort_ack",
+                    provider_job_id=provider_job_id,
+                    work_kind=work_kind,
+                    delivery_id=delivery_id,
+                    acknowledged_at=datetime.now(UTC),
+                )
             )
-        )
 
     async def _send(self, model: object) -> None:
         socket = self._socket

@@ -44,6 +44,9 @@ const props = defineProps<{
   drafts: CoachDraft[]
   rallies: CoachRally[]
   selectedRallyId: string | null
+  displayedRallyId: string | null
+  displayedOutcomeLabel: string | null
+  displayedOutcomeSide: 'left' | 'right' | null
   analysisRunId: string | null
   teams: CoachTeam[]
   formatRallyDuration: (rally: CoachRally) => string
@@ -126,25 +129,59 @@ const placementOrdinal = computed(() => {
   const index = ordered.findIndex(item => item.id === rallyId)
   return index < 0 ? 1 : index + 1
 })
-const groups = computed(() => {
-  const items = [...segmentItems.value].sort(
+const sortedSegmentItems = computed(() =>
+  [...segmentItems.value].sort(
     (left, right) =>
       left.setNumber - right.setNumber ||
       left.ordinal - right.ordinal ||
       left.id.localeCompare(right.id),
-  )
+  ),
+)
+function segmentOutcomeSide(item: SegmentListItem): 'left' | 'right' | null {
+  if (item.id === props.displayedRallyId) return props.displayedOutcomeSide
+  const source = item.kind === 'draft' ? item.draft : item.rally.submission
+  return source.score_resolution === 'resolved' &&
+    (source.scoring_court_side === 'left' || source.scoring_court_side === 'right')
+    ? source.scoring_court_side
+    : null
+}
+const segmentScores = computed(() => {
+  const latestBySet = new Map<number, { left: number; right: number }>()
+  const scores = new Map<string, { left: number; right: number }>()
+  for (const item of sortedSegmentItems.value) {
+    let score: { left: number; right: number }
+    if (item.kind === 'rally') {
+      score = {
+        left: item.rally.left_score_after,
+        right: item.rally.right_score_after,
+      }
+    } else {
+      const previous = latestBySet.get(item.setNumber) ?? { left: 0, right: 0 }
+      const scoringSide = segmentOutcomeSide(item)
+      score = {
+        left: previous.left + (scoringSide === 'left' ? 1 : 0),
+        right: previous.right + (scoringSide === 'right' ? 1 : 0),
+      }
+    }
+    latestBySet.set(item.setNumber, score)
+    scores.set(item.id, score)
+  }
+  return scores
+})
+const groups = computed(() => {
   const grouped = new Map<number, SegmentListItem[]>()
-  for (const item of items)
+  for (const item of sortedSegmentItems.value)
     grouped.set(item.setNumber, [...(grouped.get(item.setNumber) ?? []), item])
   return [...grouped.entries()].map(([number, setItems]) => {
-    const completed = [...setItems]
-      .reverse()
-      .find((item): item is Extract<SegmentListItem, { kind: 'rally' }> => item.kind === 'rally')
+    const latestScore = segmentScores.value.get(setItems.at(-1)?.id ?? '') ?? {
+      left: 0,
+      right: 0,
+    }
     return {
       items: setItems,
-      leftScore: completed?.rally.left_score_after ?? 0,
+      leftScore: latestScore.left,
       number,
-      rightScore: completed?.rally.right_score_after ?? 0,
+      rightScore: latestScore.right,
     }
   })
 })
@@ -190,6 +227,7 @@ function teamLabel(team: CoachTeam | null, fallback: string) {
   return team?.shortName || team?.name || fallback
 }
 function segmentOutcomeLabel(item: SegmentListItem) {
+  if (item.id === props.displayedRallyId) return props.displayedOutcomeLabel
   const source = item.kind === 'draft' ? item.draft : item.rally.submission
   const sides = segmentTeams(item)
   return annotationOutcomeLabel({
@@ -333,8 +371,9 @@ defineExpose({
                       "
                     />回合 {{ item.ordinal }}</strong
                   >
-                  <span v-if="item.kind === 'rally'" class="score-at-rally"
-                    >{{ item.rally.left_score_after }} : {{ item.rally.right_score_after }}</span
+                  <span class="score-at-rally"
+                    >{{ segmentScores.get(item.id)?.left ?? 0 }} :
+                    {{ segmentScores.get(item.id)?.right ?? 0 }}</span
                   >
                 </span>
                 <small class="segment-side-order"

@@ -15,9 +15,9 @@ describe('annotation ball-event presentation', () => {
     )
   })
 
-  it('uses failure for a receive error but keeps serve error as a fault', () => {
-    expect(ballEventLabel({ kind: 'RECEIVE', result: 'ERROR' })).toBe('接球 · 失敗')
-    expect(ballEventLabel({ kind: 'SERVE', result: 'ERROR' })).toBe('發球 · 失誤')
+  it('uses the same explicit failure result for every typed ball event', () => {
+    expect(ballEventLabel({ kind: 'RECEIVE', result: 'FAILURE' })).toBe('接球 · 失敗')
+    expect(ballEventLabel({ kind: 'SERVE', result: 'FAILURE' })).toBe('發球 · 失敗')
     expect(ballEventKindLabel({ kind: 'RECEIVE', result: null })).toBe('接球')
   })
 })

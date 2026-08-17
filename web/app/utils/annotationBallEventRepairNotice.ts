@@ -5,8 +5,10 @@ const REPAIR_LABELS: ReadonlyArray<readonly [BallEventRepair['code'], string]> =
   ['OUTSIDE_END_TOMBSTONED', '取消片段結束後的球點'],
   ['EVENT_KIND_NORMALIZED', '依球序調整球種'],
   ['EVENT_RESULT_CLEARED', '清除不相容結果'],
-  ['SERVE_SUCCESS_INFERRED', '依後續球點確認發球成功'],
-  ['RECEIVE_POINT_LOST_DOWNGRADED', '將仍有後續球的接球失分改為失敗'],
+  ['SERVE_STYLE_DEFAULTED', '將發球方式預設為跳發'],
+  ['SERVE_STYLE_CLEARED', '清除非發球球點的發球方式'],
+  ['SERVE_SUCCESS_INFERRED', '因已出現第三球，補上未填寫的發球成功'],
+  ['SECOND_POINT_RECEIVE_INFERRED', '因已出現第三球，將未編輯的第二球辨識為接發'],
   ['SPIKE_SUCCESS_DOWNGRADED', '將非最後一球的殺球得分改為失敗'],
   ['SEQUENCE_REINDEXED', '重新排列球點順序'],
 ]

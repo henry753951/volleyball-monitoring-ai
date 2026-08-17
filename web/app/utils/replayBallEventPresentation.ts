@@ -55,19 +55,6 @@ export function replayBallEventLabel(
 ) {
   const label = replayBallEventKindLabel(events, event)
   const result = event.ball_event?.result
-  const resultLabel =
-    result === 'point_scored'
-      ? '得分'
-      : result === 'success'
-        ? '成功'
-        : result === 'error'
-          ? event.ball_event?.kind === 'receive'
-            ? '失敗'
-            : '失誤'
-          : result === 'point_lost'
-            ? '失分'
-            : result === 'failure'
-              ? '失敗'
-              : null
+  const resultLabel = result === 'success' ? '成功' : result === 'failure' ? '失敗' : null
   return resultLabel ? `${label} · ${resultLabel}` : label
 }

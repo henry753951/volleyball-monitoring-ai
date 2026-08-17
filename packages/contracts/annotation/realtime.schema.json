@@ -71,7 +71,10 @@
           "properties": {
             "kind": { "const": "SERVE" },
             "result": {
-              "oneOf": [{ "enum": ["POINT_SCORED", "SUCCESS", "ERROR"] }, { "type": "null" }]
+              "oneOf": [{ "enum": ["SUCCESS", "FAILURE"] }, { "type": "null" }]
+            },
+            "serve_style": {
+              "oneOf": [{ "enum": ["JUMP", "STANDING"] }, { "type": "null" }]
             }
           }
         },
@@ -82,8 +85,9 @@
           "properties": {
             "kind": { "const": "RECEIVE" },
             "result": {
-              "oneOf": [{ "enum": ["SUCCESS", "ERROR", "POINT_LOST"] }, { "type": "null" }]
-            }
+              "oneOf": [{ "enum": ["SUCCESS", "FAILURE"] }, { "type": "null" }]
+            },
+            "serve_style": { "type": "null" }
           }
         },
         {
@@ -94,7 +98,8 @@
             "kind": { "const": "SPIKE" },
             "result": {
               "oneOf": [{ "enum": ["SUCCESS", "FAILURE"] }, { "type": "null" }]
-            }
+            },
+            "serve_style": { "type": "null" }
           }
         },
         {
@@ -103,7 +108,8 @@
           "required": ["kind", "result"],
           "properties": {
             "kind": { "const": "CONTACT" },
-            "result": { "type": "null" }
+            "result": { "type": "null" },
+            "serve_style": { "type": "null" }
           }
         }
       ]
@@ -130,8 +136,10 @@
             "OUTSIDE_END_TOMBSTONED",
             "EVENT_KIND_NORMALIZED",
             "EVENT_RESULT_CLEARED",
+            "SERVE_STYLE_DEFAULTED",
+            "SERVE_STYLE_CLEARED",
             "SERVE_SUCCESS_INFERRED",
-            "RECEIVE_POINT_LOST_DOWNGRADED",
+            "SECOND_POINT_RECEIVE_INFERRED",
             "SPIKE_SUCCESS_DOWNGRADED",
             "SEQUENCE_REINDEXED"
           ]

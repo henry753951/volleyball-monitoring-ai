@@ -107,17 +107,13 @@ const leftTeamLabel = computed(
 const rightTeamLabel = computed(
   () => replay.value?.rally.right_team.shortName || replay.value?.rally.right_team.name || '右隊',
 )
-const replayTeamTones = computed<{ left: TeamTone | null; right: TeamTone | null }>(() => {
-  const teams = matchState.data.value?.match.teams ?? []
-  const toneForTeam = (teamId: string | undefined): TeamTone | null => {
-    const index = teams.findIndex(team => team.id === teamId)
-    return index === 0 ? 'blue' : index === 1 ? 'red' : null
-  }
-  return {
-    left: toneForTeam(replay.value?.rally.left_team.id),
-    right: toneForTeam(replay.value?.rally.right_team.id),
-  }
-})
+// Keep the visual language tied to the rendered court side, not match roster
+// order. A match's team array is not a spatial ordering and can invert the
+// colors when the rally is viewed from the opposite side.
+const replayTeamTones = computed<{ left: TeamTone; right: TeamTone }>(() => ({
+  left: 'blue',
+  right: 'red',
+}))
 const overlayTracks = computed(
   () =>
     replay.value?.analysis?.tracks.map(track => ({

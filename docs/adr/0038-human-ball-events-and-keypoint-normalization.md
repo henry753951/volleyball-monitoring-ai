@@ -2,6 +2,9 @@
 
 Status: Accepted
 
+> Superseded in part by ADR 0046 for ordinal-2 inference, V/B semantics, serve style, and optional
+> submission results.
+
 Date: 2026-08-16
 
 ## Context

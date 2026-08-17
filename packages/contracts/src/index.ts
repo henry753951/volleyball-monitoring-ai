@@ -8,7 +8,7 @@ export const CONTRACT_VERSIONS = {
   mediaCanonicalFrameAnchor: '1.0.0',
   mediaApiError: '1.0.0',
   annotationRealtime: '4.0.0',
-  ballEvent: '1.0.0',
+  ballEvent: '2.0.0',
   aiCapabilities: '2.0.0',
   providerWorkCapabilities: '3.0.0',
   aiJob: '3.0.0',

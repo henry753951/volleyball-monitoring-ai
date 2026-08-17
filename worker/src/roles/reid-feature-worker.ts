@@ -1,6 +1,7 @@
 import { randomBytes, randomUUID } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
 import type { PrismaClient } from '@volleyball-monitoring/db'
+import { reconcilePendingReidAssignments } from '@volleyball-monitoring/db/reid-identity-ledger'
 import {
   ArtifactState,
   JobStatus,
@@ -591,6 +592,7 @@ export async function materializeReidFeatureResult(
           sourceRevision: 0n,
         })),
       })
+    await reconcilePendingReidAssignments(tx, { analysisRunId: run.id })
     await tx.providerJob.update({
       where: { id: providerJob.id },
       data: { stage: 'materialized', leasedUntil: null, errorCode: null, errorMessage: null },

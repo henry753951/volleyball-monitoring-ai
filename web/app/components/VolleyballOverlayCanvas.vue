@@ -344,7 +344,7 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="relative size-full" @pointerleave="clearHoveredTrack">
+  <div class="absolute inset-0 size-full" @pointerleave="clearHoveredTrack">
     <canvas
       ref="canvas"
       class="absolute inset-0 size-full"

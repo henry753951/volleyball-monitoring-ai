@@ -102,8 +102,31 @@ function beforePosition(
 }
 
 type AssociationRevisionRun = {
+  status: JobStatus
   rerunRequestId?: string | null
-  bankSnapshot: { teamId: string; revision: bigint }
+  bankSnapshot: { teamId: string; revision: bigint; derivationVersion: string }
+}
+
+const REID_BANK_DERIVATION_VERSION = 'human-confirmed-seed-v4'
+
+export function isReidBankSeedMembership(input: {
+  evidenceState: ReidEvidenceState
+  setNumber: number
+  rallyOrdinal: number
+  currentSetNumber: number
+  currentRallyOrdinal: number
+}) {
+  return (
+    input.evidenceState === ReidEvidenceState.CONFIRMED &&
+    (beforePosition(
+      input.setNumber,
+      input.rallyOrdinal,
+      input.currentSetNumber,
+      input.currentRallyOrdinal,
+    ) ||
+      (input.setNumber === input.currentSetNumber &&
+        input.rallyOrdinal === input.currentRallyOrdinal))
+  )
 }
 
 export function hasReidAssociationRevision(
@@ -112,7 +135,12 @@ export function hasReidAssociationRevision(
   revision: bigint,
 ) {
   return runs.some(
-    run => run.bankSnapshot.teamId === teamId && run.bankSnapshot.revision === revision,
+    run =>
+      run.status !== JobStatus.CANCELLED &&
+      run.status !== JobStatus.FAILED &&
+      run.bankSnapshot.teamId === teamId &&
+      run.bankSnapshot.revision === revision &&
+      run.bankSnapshot.derivationVersion === REID_BANK_DERIVATION_VERSION,
   )
 }
 
@@ -136,26 +164,33 @@ async function latestApplicableBankRevision(
   const [memberships, bindings] = await Promise.all([
     database.reidEvidenceMembership.findMany({
       where: {
-        evidenceState: { in: [ReidEvidenceState.CONFIRMED, ReidEvidenceState.UNVERIFIED] },
+        evidenceState: ReidEvidenceState.CONFIRMED,
         personCluster: { matchId, teamId, supersededRevision: null },
         supersededByMemberships: { none: {} },
+        tracklet: { vectors: { some: {} } },
+      },
+      select: {
+        personClusterId: true,
+        sourceRevision: true,
+        evidenceState: true,
         tracklet: {
-          evidenceSet: {
-            analysisRun: {
-              submission: {
-                rally: {
-                  matchId,
-                  OR: [
-                    { displaySetNumber: { lt: setNumber } },
-                    { displaySetNumber: setNumber, ordinal: { lt: rallyOrdinal } },
-                  ],
+          select: {
+            evidenceSet: {
+              select: {
+                analysisRun: {
+                  select: {
+                    submission: {
+                      select: {
+                        rally: { select: { matchId: true, displaySetNumber: true, ordinal: true } },
+                      },
+                    },
+                  },
                 },
               },
             },
           },
         },
       },
-      select: { sourceRevision: true },
     }),
     database.reidGidRosterBindingRevision.findMany({
       where: {
@@ -169,12 +204,33 @@ async function latestApplicableBankRevision(
           },
         ],
       },
-      select: { revision: true },
+      select: { personClusterId: true, revision: true },
     }),
   ])
+  const seedMemberships = memberships.filter(membership => {
+    const rally = membership.tracklet.evidenceSet.analysisRun.submission.rally
+    return (
+      rally.matchId === matchId &&
+      isReidBankSeedMembership({
+        evidenceState: membership.evidenceState,
+        setNumber: rally.displaySetNumber,
+        rallyOrdinal: rally.ordinal,
+        currentSetNumber: setNumber,
+        currentRallyOrdinal: rallyOrdinal,
+      })
+    )
+  })
+  return resolveReidBankRevision(seedMemberships, bindings)
+}
+
+export function resolveReidBankRevision(
+  memberships: { personClusterId: string; sourceRevision: bigint }[],
+  bindings: { personClusterId: string; revision: bigint }[],
+) {
+  const seedClusterIds = new Set(memberships.map(row => row.personClusterId))
   return [
     ...memberships.map(row => row.sourceRevision),
-    ...bindings.map(row => row.revision),
+    ...bindings.filter(row => seedClusterIds.has(row.personClusterId)).map(row => row.revision),
   ].reduce((maximum, revision) => (revision > maximum ? revision : maximum), 0n)
 }
 
@@ -413,7 +469,13 @@ export async function scheduleReidAssociation(
     include: {
       resultAsset: true,
       descriptorBundleAsset: true,
-      tracklets: { select: { id: true, courtSide: true } },
+      tracklets: {
+        select: {
+          id: true,
+          courtSide: true,
+          activeProjection: { select: { sourcePriority: true } },
+        },
+      },
       associationRuns: { include: { bankSnapshot: true } },
       providerJob: {
         include: {
@@ -458,7 +520,11 @@ export async function scheduleReidAssociation(
       { teamId: submission.rightTeamId, side: TrackCourtSide.RIGHT },
     ]) {
       const eligibleTrackletIds = evidenceSet.tracklets
-        .filter(tracklet => tracklet.courtSide === candidate.side)
+        .filter(
+          tracklet =>
+            tracklet.courtSide === candidate.side &&
+            (tracklet.activeProjection?.sourcePriority ?? 0) < 1_000,
+        )
         .map(tracklet => tracklet.id)
       if (eligibleTrackletIds.length === 0) continue
       const revision = await latestApplicableBankRevision(
@@ -477,7 +543,24 @@ export async function scheduleReidAssociation(
     }
     if (selected) break
   }
-  if (!selected) return activatedUnknownTracklets
+  if (!selected) {
+    if (rerunRequest) {
+      const incompleteRuns = await database.reidAssociationRun.count({
+        where: { rerunRequestId: rerunRequest.id, status: { not: JobStatus.COMPLETED } },
+      })
+      if (incompleteRuns === 0) {
+        await database.reidAssociationRerunRequest.updateMany({
+          where: {
+            id: rerunRequest.id,
+            status: { in: [JobStatus.QUEUED, JobStatus.RUNNING] },
+          },
+          data: { status: JobStatus.COMPLETED, completedAt: new Date(), errorMessage: null },
+        })
+        return true
+      }
+    }
+    return activatedUnknownTracklets
+  }
 
   const { evidenceSet, teamId, eligibleTrackletIds } = selected
   const submission = evidenceSet.analysisRun.submission
@@ -533,7 +616,7 @@ export async function scheduleReidAssociation(
   const memberships = (
     await database.reidEvidenceMembership.findMany({
       where: {
-        evidenceState: { in: [ReidEvidenceState.CONFIRMED, ReidEvidenceState.UNVERIFIED] },
+        evidenceState: ReidEvidenceState.CONFIRMED,
         personCluster: { matchId, teamId, supersededRevision: null },
         supersededByMemberships: { none: {} },
       },
@@ -554,9 +637,17 @@ export async function scheduleReidAssociation(
     })
   ).filter(membership => {
     const prior = membership.tracklet.evidenceSet.analysisRun.submission.rally
-    return beforePosition(prior.displaySetNumber, prior.ordinal, setNumber, rallyOrdinal)
+    return isReidBankSeedMembership({
+      evidenceState: membership.evidenceState,
+      setNumber: prior.displaySetNumber,
+      rallyOrdinal: prior.ordinal,
+      currentSetNumber: setNumber,
+      currentRallyOrdinal: rallyOrdinal,
+    })
   })
   const vectorMemberships = memberships.filter(membership => membership.tracklet.vectors.length > 0)
+  const vectorClusterIds = new Set(vectorMemberships.map(membership => membership.personClusterId))
+  const bankClusters = clusters.filter(cluster => vectorClusterIds.has(cluster.id))
   const historicalTrackletIds = [...new Set(vectorMemberships.map(item => item.trackletId))]
   const cannotLinks = historicalTrackletIds.length
     ? await database.reidCannotLink.findMany({
@@ -580,19 +671,24 @@ export async function scheduleReidAssociation(
     artifactsById.set(asset.id, asset)
     for (const vector of membership.tracklet.vectors) vectorsById.set(vector.id, vector)
   }
-  const revision = memberships.reduce(
-    (maximum, membership) =>
-      membership.sourceRevision > maximum ? membership.sourceRevision : maximum,
-    0n,
+  const revision = resolveReidBankRevision(
+    vectorMemberships,
+    bankClusters.flatMap(cluster =>
+      cluster.bindingRevisions.map(binding => ({
+        personClusterId: cluster.id,
+        revision: binding.revision,
+      })),
+    ),
   )
   const existingSnapshot = await database.reidBankSnapshot.findUnique({
     where: {
-      matchId_teamId_revision_asOfSetNumber_asOfRallyOrdinal: {
+      matchId_teamId_revision_asOfSetNumber_asOfRallyOrdinal_derivationVersion: {
         matchId,
         teamId,
         revision,
         asOfSetNumber: setNumber,
         asOfRallyOrdinal: rallyOrdinal,
+        derivationVersion: REID_BANK_DERIVATION_VERSION,
       },
     },
     include: { manifestAsset: true },
@@ -605,7 +701,7 @@ export async function scheduleReidAssociation(
     revision,
     setNumber,
     rallyOrdinal,
-    clusters: clusters.map(cluster => ({
+    clusters: bankClusters.map(cluster => ({
       personClusterId: cluster.id,
       rosterEntryId:
         cluster.bindingRevisions.length > 0
@@ -657,7 +753,8 @@ export async function scheduleReidAssociation(
     throw new ReidAssociationMaterializationError('generated ReID bank snapshot is invalid', false)
   if (existingSnapshot && existingSnapshot.contentSha256 !== bank.content_sha256)
     throw new ReidAssociationMaterializationError(
-      'existing ReID bank revision does not match current eligible evidence',
+      `existing ReID bank revision ${revision} does not match current eligible evidence ` +
+        `(stored=${existingSnapshot.contentSha256}, generated=${bank.content_sha256})`,
       false,
     )
   const bankBytes = Buffer.from(`${canonicalJson(bank)}\n`, 'utf8')
@@ -791,6 +888,7 @@ export async function scheduleReidAssociation(
           asOfSetNumber: setNumber,
           asOfRallyOrdinal: rallyOrdinal,
           schemaVersion: '1.1.0',
+          derivationVersion: REID_BANK_DERIVATION_VERSION,
           manifestAssetId: manifestAsset.id,
           contentSha256: bank.content_sha256,
         },

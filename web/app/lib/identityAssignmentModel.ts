@@ -39,6 +39,8 @@ export interface IdentityGidGroup {
 }
 
 function identityStatus(track: IdentityTrack): IdentityStatusView {
+  if (track.identity_source === 'manual' && track.identity_evidence_state === 'pending')
+    return { label: '人工已保存 · ReID 待建立', tone: 'manual' }
   if (track.identity_source === 'manual') return { label: '人工確認', tone: 'manual' }
   if (track.identity_source === 'propagated') return { label: '沿用先前確認', tone: 'propagated' }
   if (track.roster_entry_id) return { label: '系統建議', tone: 'suggested' }

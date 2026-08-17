@@ -68,6 +68,8 @@ function setup(options: { selectedSubmissionId?: string | null } = {}) {
     room,
     selection,
     timeline,
+    feedback,
+    refreshCoach,
   }
 }
 
@@ -100,14 +102,14 @@ describe('segment management service', () => {
     context.service.dispose()
   })
 
-  it('preserves reviewed keypoints and hitter overrides when requested', async () => {
+  it('preserves reviewed keypoints and manual ball events when requested', async () => {
     const context = setup({ selectedSubmissionId: 'submission-1' })
 
     context.service.requestDelete()
     await context.confirmation.secondary()
     expect(context.confirmation.current.value?.id).toBe('rally-analysis-delete')
     expect(context.confirmation.current.value?.title).toBe('刪除分析並保留標記')
-    expect(context.confirmation.current.value?.message).toContain('擊球員')
+    expect(context.confirmation.current.value?.message).toContain('人工球種')
     await context.confirmation.confirm()
 
     expect(context.coach.deleteRallyAnalysis).toHaveBeenCalledWith('rally-1')
@@ -128,6 +130,21 @@ describe('segment management service', () => {
     expect(context.coach.deleteRallyAnalysis).toHaveBeenCalledWith('rally-1')
     expect(context.room.createCorrection).not.toHaveBeenCalled()
     expect(context.coach.deleteRally).not.toHaveBeenCalled()
+    context.service.dispose()
+  })
+
+  it('unlocks a failed deletion even when the background refresh does not settle', async () => {
+    const context = setup({ selectedSubmissionId: 'submission-1' })
+    context.coach.deleteRallyAnalysis.mockRejectedValueOnce(new Error('analysis deletion failed'))
+    context.refreshCoach.mockImplementationOnce(() => new Promise(() => undefined))
+
+    context.service.requestDelete()
+    await context.confirmation.secondary()
+    await context.confirmation.confirm()
+
+    expect(context.confirmation.pending.value).toBe(false)
+    expect(context.confirmation.current.value?.id).toBe('rally-analysis-delete')
+    expect(context.feedback.messages.value.at(-1)?.title).toContain('analysis deletion failed')
     context.service.dispose()
   })
 

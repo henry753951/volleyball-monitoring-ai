@@ -172,6 +172,17 @@ const state = annotation.viewState
 const editableDraftState = computed(
   () => (state.value === 'OPEN' || state.value === 'READY') && annotation.draftOwnedByClient.value,
 )
+const hasActiveLocalSegment = computed(() => {
+  const snapshot = displayAnnotation.value?.snapshot
+  const boundaries = snapshot?.boundaries ?? []
+  return Boolean(
+    state.value === 'OPEN' &&
+    annotation.draftOwnedByClient.value &&
+    !snapshot?.active_submission_id &&
+    boundaries.some(boundary => boundary.kind === 'start') &&
+    !boundaries.some(boundary => boundary.kind === 'end'),
+  )
+})
 const correctionDraftContactIds = computed(
   () =>
     displayAnnotation.value?.snapshot.key_points
@@ -551,6 +562,8 @@ const {
   currentMaskStatus,
   currentMaskLabel,
   currentMaskOutcome,
+  currentMaskOutcomeSide,
+  currentMaskOutcomeTeamLabel,
   activeOverlayAnalysisRunId,
   activeOverlayClipStart,
   selectedEditableDraft,
@@ -1121,8 +1134,11 @@ const displayedTimelineSegments = computed(() => {
     segment.id === rallyId ? { ...segment, points } : segment,
   )
 })
+const timelineCurrentMaskSelected = computed(
+  () => Boolean(pinnedRallyId.value) && pinnedRallyId.value === displayAnnotation.value?.rally_id,
+)
 const selectedHistoricalSegmentId = computed(() =>
-  selectedCurrentMask.value ? null : selectedRallyId.value,
+  timelineCurrentMaskSelected.value ? null : pinnedRallyId.value,
 )
 const selectedCaptureId = computed(() => selectedCapture.value?.id ?? null)
 const playbackMode = computed(() =>
@@ -1271,8 +1287,8 @@ const annotationActions = createAnnotationActionService({
   clipPreRollUs,
   clipPostRollUs,
   protectedSegments: protectedSegmentRanges,
-  singleServeNeedsDecision,
-  requestSingleServeDecision,
+  incompleteResultsNeedConfirmation,
+  requestIncompleteResultsConfirmation,
   correctionSubmitRequired: computed(() => Boolean(displayedCorrectionDraft.value)),
   requestCorrectionSubmit,
   eventEditReady: computed(() => editableDraftState.value && draftMutationReady.value),
@@ -1528,35 +1544,48 @@ function previewTimelineSeek(targetCaptureTimeUs: string | null) {
   overlayPlayer.value?.previewCaptureTimeIfBuffered(target)
 }
 
-function singleServeNeedsDecision() {
-  const points = displayAnnotation.value?.snapshot.key_points ?? []
-  if (points.length !== 1) return false
-  const event = points[0]?.ball_event
-  return event?.kind !== 'SERVE' || !['POINT_SCORED', 'ERROR'].includes(event.result ?? '')
-}
+let skipIncompleteResultWarningOnce = false
 
-function requestSingleServeDecision() {
-  workstationConfirmation.open({
-    id: 'single-serve-result',
-    title: '確認發球結果',
-    message:
-      '這個片段只有一個球點。請確認這次發球是直接得分，還是發球失誤；送出後會成為教練統計的正式結果。',
-    confirmLabel: '發球失誤',
-    secondaryLabel: '發球得分',
-    onConfirm: () => applySingleServeDecision('ERROR'),
-    onSecondary: () => applySingleServeDecision('POINT_SCORED'),
+function incompleteBallEventResultLabels() {
+  const points = displayAnnotation.value?.snapshot.key_points ?? []
+  return points.flatMap((point, index) => {
+    const event = point.ball_event
+    if (!event || event.kind === 'CONTACT' || event.result !== null) return []
+    const label =
+      event.kind === 'SERVE'
+        ? '發球'
+        : event.kind === 'SPIKE'
+          ? '殺球'
+          : index > 0 && points[index - 1]?.ball_event?.kind === 'SERVE'
+            ? '接發'
+            : index > 0 && points[index - 1]?.ball_event?.kind === 'SPIKE'
+              ? '接殺'
+              : '接球'
+    return [`第 ${index + 1} 球「${label}」`]
   })
 }
 
-async function applySingleServeDecision(result: 'POINT_SCORED' | 'ERROR') {
-  const point = displayAnnotation.value?.snapshot.key_points[0]
-  if (!point) return
-  try {
-    await annotation.setBallEvent(point.key_point_id, { kind: 'SERVE', result })
-    void workstationActions.execute('submission.submit')
-  } catch (error) {
-    toast.error(error instanceof Error ? error.message : '無法更新發球結果')
+function incompleteResultsNeedConfirmation() {
+  if (skipIncompleteResultWarningOnce) {
+    skipIncompleteResultWarningOnce = false
+    return false
   }
+  return incompleteBallEventResultLabels().length > 0
+}
+
+function requestIncompleteResultsConfirmation() {
+  const labels = incompleteBallEventResultLabels()
+  if (!labels.length) return
+  workstationConfirmation.open({
+    id: 'incomplete-ball-event-results',
+    title: '仍有球點未標記結果',
+    message: `${labels.join('、')}尚未選擇成功或失敗。你可以返回時間軸補充，也可以保留空白直接送出。`,
+    confirmLabel: '仍然送出',
+    onConfirm: () => {
+      skipIncompleteResultWarningOnce = true
+      void workstationActions.execute('submission.submit')
+    },
+  })
 }
 
 function startCorrection() {
@@ -2556,8 +2585,7 @@ onBeforeUnmount(() => {
       "
       :error="
         Boolean(
-          annotation.outboxNeedsConfirmation.value ||
-          annotation.connection.value === 'closed',
+          annotation.outboxNeedsConfirmation.value || annotation.connection.value === 'closed',
         )
       "
       :connection-title="`${annotation.connection.value} · ${annotation.latencyMs.value ?? '—'} ms · ${selectedCapture?.health ?? 'unknown'}`"
@@ -2698,7 +2726,10 @@ onBeforeUnmount(() => {
           :right-team-id="selectedSideRightTeamId"
           :drafts="annotationDrafts"
           :rallies="visibleSubmittedRallies"
-          :selected-rally-id="selectedRallyId"
+          :selected-rally-id="pinnedRallyId"
+          :displayed-rally-id="displayAnnotation?.rally_id ?? null"
+          :displayed-outcome-label="currentMaskOutcome"
+          :displayed-outcome-side="currentMaskOutcomeSide"
           :analysis-run-id="editorSelectedAnalysisRunId"
           :set-numbers="coach.data.value?.match.sets.map(set => set.set_number) ?? [1]"
           :teams="coach.data.value?.match.teams ?? []"
@@ -2778,11 +2809,13 @@ onBeforeUnmount(() => {
         :annotation="displayAnnotation"
         :editable="editableDraftState && draftMutationReady"
         :selected-key-point-id="selectedKeyPointId"
-        :mask-selected="selectedCurrentMask"
+        :mask-selected="timelineCurrentMaskSelected"
         :mask-range="currentMaskRange"
         :current-mask-status="currentMaskStatus"
         :current-mask-label="currentMaskLabel"
         :current-mask-outcome="currentMaskOutcome"
+        :current-mask-outcome-side="currentMaskOutcomeSide"
+        :current-mask-outcome-team-label="currentMaskOutcomeTeamLabel"
         :segments="displayedTimelineSegments"
         :selected-segment-id="selectedHistoricalSegmentId"
         :soft-locks="annotation.remoteEditorsByKeyPoint.value"
@@ -2794,6 +2827,7 @@ onBeforeUnmount(() => {
             v-if="selectedKeyPoint"
             :selected-ball-event="selectedKeyPoint.ball_event ?? null"
             :previous-ball-event="selectedPreviousBallEvent"
+            :selected-ordinal="selectedKeyPoint.sequence_index + 1"
             :selected-actor-id="selectedKeyPoint.ball_event_actor_roster_entry_id ?? null"
             :actor-options="ballEventActorOptions"
           />
@@ -2803,13 +2837,7 @@ onBeforeUnmount(() => {
         :bindings="bindings"
         :left-team-label="commandLeftTeamLabel"
         :right-team-label="commandRightTeamLabel"
-        :service-mode="
-          state === 'OPEN' &&
-          annotation.draftOwnedByClient.value &&
-          !displayAnnotation?.snapshot.active_submission_id
-            ? 'end'
-            : 'start'
-        "
+        :service-mode="hasActiveLocalSegment ? 'end' : 'start'"
       />
     </footer>
     <ClipDownloadDialog

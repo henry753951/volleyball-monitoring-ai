@@ -58,10 +58,20 @@ describe('boundaryCommandAvailability', () => {
     })
   })
 
-  it('keeps Z disabled after END while the ordinary draft is READY', () => {
-    expect(boundaryCommandAvailability({ ...boundaryBase, state: 'READY' })).toEqual({
+  it('keeps Z locked after END while the ordinary draft is READY and unsubmitted', () => {
+    expect(boundaryCommandAvailability({ ...boundaryBase, state: 'READY' })).toMatchObject({
       enabled: false,
       reason: '目前仍有正在編輯的片段',
     })
+  })
+
+  it('keeps Z locked when an owned draft is missing its active START boundary', () => {
+    expect(
+      boundaryCommandAvailability({
+        ...boundaryBase,
+        state: 'OPEN',
+        startBoundaryCaptureTimeUs: null,
+      }),
+    ).toMatchObject({ enabled: false, reason: '目前仍有正在編輯的片段' })
   })
 })

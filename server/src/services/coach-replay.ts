@@ -195,6 +195,7 @@ const replayBallEventSelect = {
   ordinal: true,
   kind: true,
   result: true,
+  serveStyle: true,
   semanticSource: true,
   actorRosterEntryId: true,
   actorRosterEntry: {
@@ -412,6 +413,7 @@ export function projectEffectiveReplayEvents(
                 ordinal: semantic.ordinal,
                 kind: semantic.kind.toLowerCase(),
                 result: semantic.result?.toLowerCase() ?? null,
+                serve_style: semantic.serveStyle?.toLowerCase() ?? null,
                 semantic_source: semantic.semanticSource.toLowerCase(),
                 actor: semantic.actorRosterEntry
                   ? {

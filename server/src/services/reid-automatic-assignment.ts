@@ -1,5 +1,10 @@
 import type { PrismaClient } from '@volleyball-monitoring/db'
-import { ArtifactState, JobStatus, UserRole } from '@volleyball-monitoring/db/client'
+import {
+  ArtifactState,
+  IdentitySource,
+  JobStatus,
+  UserRole,
+} from '@volleyball-monitoring/db/client'
 
 const canManageIdentity = (role: UserRole) =>
   role === UserRole.ADMIN || role === UserRole.OPERATOR || role === UserRole.COACH
@@ -77,12 +82,14 @@ export async function applyReidAutomaticAssignments(
     await tx.trackIdentityAssignment.deleteMany({
       where: {
         analysisRunId: input.analysisRunId,
+        source: { not: IdentitySource.MANUAL },
         ...(trackIds.length > 0 ? { trackId: { notIn: trackIds } } : {}),
       },
     })
 
     let assignedCount = 0
     let alreadyAssignedCount = 0
+    let preservedManualCount = 0
     let unresolvedCount = 0
 
     for (const tracklet of evidence.tracklets) {
@@ -92,6 +99,7 @@ export async function applyReidAutomaticAssignments(
           where: {
             analysisRunId: input.analysisRunId,
             trackId: tracklet.canonicalTrackId,
+            source: { not: IdentitySource.MANUAL },
           },
         })
         unresolvedCount += 1
@@ -106,6 +114,10 @@ export async function applyReidAutomaticAssignments(
           },
         },
       })
+      if (existing?.source === IdentitySource.MANUAL) {
+        preservedManualCount += 1
+        continue
+      }
       if (
         existing?.rosterEntryId === revision.rosterEntryId &&
         existing.source === revision.source &&
@@ -130,6 +142,7 @@ export async function applyReidAutomaticAssignments(
           assignedByUserId: revision.createdByUserId,
           confidence: tracklet.associationDecisions[0]?.confidence ?? 1,
           identityRevision: revision.revision,
+          pendingCorrectionMode: null,
         },
         update: {
           rosterEntryId: revision.rosterEntryId,
@@ -137,6 +150,7 @@ export async function applyReidAutomaticAssignments(
           assignedByUserId: revision.createdByUserId,
           confidence: tracklet.associationDecisions[0]?.confidence ?? 1,
           identityRevision: revision.revision,
+          pendingCorrectionMode: null,
         },
       })
       assignedCount += 1
@@ -149,7 +163,7 @@ export async function applyReidAutomaticAssignments(
       evidence_state: 'ready',
       assigned_count: assignedCount,
       already_assigned_count: alreadyAssignedCount,
-      preserved_manual_count: 0,
+      preserved_manual_count: preservedManualCount,
       unresolved_count: unresolvedCount,
     }
   })

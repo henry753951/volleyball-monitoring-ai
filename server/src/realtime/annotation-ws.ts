@@ -1,5 +1,6 @@
 import {
   parseAnnotationCommand,
+  parseAnnotationCommandResponse,
   parseAnnotationServerMessage,
   parseAnnotationSoftLockIntent,
 } from '@volleyball-monitoring/contracts'
@@ -22,6 +23,33 @@ export interface AnnotationWebSocketDependencies {
     rallyId: string,
     identity: AnnotationIdentity,
   ) => Promise<AnnotationRallySnapshot | null>
+}
+
+function invalidCommandRejection(payload: unknown, roomId: string) {
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return null
+  const candidate = payload as Record<string, unknown>
+  if (
+    !['2.0.0', '3.0.0', '4.0.0'].includes(String(candidate.schema_version)) ||
+    typeof candidate.command_id !== 'string' ||
+    typeof candidate.room_id !== 'string' ||
+    typeof candidate.rally_id !== 'string' ||
+    candidate.room_id !== roomId
+  )
+    return null
+  try {
+    return parseAnnotationCommandResponse({
+      schema_version: candidate.schema_version,
+      type: 'command_rejected',
+      command_id: candidate.command_id,
+      room_id: candidate.room_id,
+      rally_id: candidate.rally_id,
+      code: 'INVALID_COMMAND',
+      message: '標註命令格式不相容，請重新整理頁面後再試一次',
+      snapshot_refetch_required: false,
+    })
+  } catch {
+    return null
+  }
 }
 
 export const annotationWebSocketRoutes =
@@ -170,7 +198,16 @@ export const annotationWebSocketRoutes =
               let command
               try {
                 command = parseAnnotationCommand(payload)
-              } catch {
+              } catch (cause) {
+                const rejection = invalidCommandRejection(payload, room.roomId)
+                if (rejection) {
+                  request.log.warn(
+                    { err: cause, annotation_command_id: rejection.command_id },
+                    'invalid annotation command rejected without disconnecting websocket',
+                  )
+                  socket.send(JSON.stringify(rejection))
+                  return
+                }
                 socket.close(1003, 'invalid annotation command')
                 return
               }

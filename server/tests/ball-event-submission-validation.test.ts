@@ -5,19 +5,19 @@ import {
 } from '../src/domain/annotation/ball-event-submission-validation.js'
 
 describe('ball-event submission validation', () => {
-  it('accepts generic RECEIVE after the second point', () => {
+  it('accepts manual CONTACT or RECEIVE at the second point', () => {
     const points = [
       { ballEvent: { kind: 'SERVE', result: 'SUCCESS' } },
       { ballEvent: { kind: 'RECEIVE', result: 'SUCCESS' } },
       { ballEvent: { kind: 'SPIKE', result: 'FAILURE' } },
-      { ballEvent: { kind: 'RECEIVE', result: 'ERROR' } },
+      { ballEvent: { kind: 'RECEIVE', result: 'FAILURE' } },
       { ballEvent: { kind: 'CONTACT', result: null } },
     ] as const
 
     expect(points.every((_, index) => isSubmissionBallEventValid(points, index))).toBe(true)
   })
 
-  it('names every unresolved contextual receive and spike in Chinese', () => {
+  it('names every optional unresolved contextual result in Chinese', () => {
     const points = [
       { ballEvent: { kind: 'SERVE', result: 'SUCCESS' } },
       { ballEvent: { kind: 'RECEIVE', result: null } },
@@ -28,10 +28,10 @@ describe('ball-event submission validation', () => {
     ] as const
 
     expect(unresolvedBallEventSubmissionMessage(points)).toBe(
-      '第 2 球「接發」尚未標記結果，請選擇成功、失敗或失分；' +
-        '第 3 球「殺球」尚未標記結果，請選擇成功或失敗；' +
-        '第 4 球「接殺」尚未標記結果，請選擇成功、失敗或失分；' +
-        '第 6 球「接球」尚未標記結果，請選擇成功、失敗或失分',
+      '第 2 球「接發」尚未標記成功或失敗；' +
+        '第 3 球「殺球」尚未標記成功或失敗；' +
+        '第 4 球「接殺」尚未標記成功或失敗；' +
+        '第 6 球「接球」尚未標記成功或失敗',
     )
   })
 })

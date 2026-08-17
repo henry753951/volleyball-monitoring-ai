@@ -73,6 +73,13 @@ const activePhaseKey = computed<PhaseKey>(() => {
     analysisStages.has(stage)
   )
     return 'analyze'
+  if (
+    status === 'ai_queued' &&
+    props.processing?.worker_instance_key &&
+    stage.length > 0 &&
+    !assignmentStages.has(stage)
+  )
+    return 'analyze'
   if (status === 'ai_queued' || assignmentStages.has(stage)) return 'assign'
   return 'clip'
 })

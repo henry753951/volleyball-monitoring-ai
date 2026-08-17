@@ -655,6 +655,7 @@ describe('annotation optimistic command queue', () => {
     expect(next?.snapshot.key_points[2]?.ball_event).toEqual({
       kind: 'SPIKE',
       result: 'SUCCESS',
+      serve_style: null,
     })
     expect(annotationCommandConverged(command, next)).toBe(true)
   })
@@ -690,5 +691,50 @@ describe('annotation optimistic command queue', () => {
       ball_event_actor_roster_entry_id: 'roster-11',
     })
     expect(annotationCommandConverged(command, projected)).toBe(true)
+  })
+
+  it('does not treat an unapplied B result or serve-style change as converged', () => {
+    const current: AnnotationRallySnapshot = {
+      ...structuredClone(snapshot),
+      schema_version: '4.0.0',
+      snapshot: {
+        ...structuredClone(snapshot.snapshot),
+        key_points: [
+          {
+            ...structuredClone(snapshot.snapshot.key_points[0]!),
+            ball_event: { kind: 'SERVE', result: 'SUCCESS', serve_style: 'JUMP' },
+          },
+        ],
+      },
+    }
+    const failure: AnnotationCommand = {
+      schema_version: '4.0.0',
+      command_id: '00000000-0000-4000-8000-000000000042',
+      room_id: room,
+      base_revision: '1',
+      rally_id: rally,
+      kind: 'SET_BALL_EVENT',
+      payload: {
+        key_point_id: 'service',
+        event: { kind: 'SERVE', result: 'FAILURE', serve_style: 'JUMP' },
+      },
+    }
+    const standing: AnnotationCommand = {
+      ...failure,
+      command_id: '00000000-0000-4000-8000-000000000043',
+      payload: {
+        key_point_id: 'service',
+        event: { kind: 'SERVE', result: 'SUCCESS', serve_style: 'STANDING' },
+      },
+    }
+
+    expect(annotationCommandConverged(failure, current)).toBe(false)
+    expect(annotationCommandConverged(standing, current)).toBe(false)
+    current.snapshot.key_points[0]!.ball_event = {
+      kind: 'SERVE',
+      result: 'FAILURE',
+      serve_style: 'JUMP',
+    }
+    expect(annotationCommandConverged(failure, current)).toBe(true)
   })
 })

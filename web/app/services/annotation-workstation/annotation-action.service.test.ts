@@ -91,8 +91,8 @@ function setup() {
     clipPreRollUs: ref(0n),
     clipPostRollUs: ref(0n),
     protectedSegments: ref([]),
-    singleServeNeedsDecision: () => false,
-    requestSingleServeDecision: vi.fn(),
+    incompleteResultsNeedConfirmation: () => false,
+    requestIncompleteResultsConfirmation: vi.fn(),
     correctionSubmitRequired: ref(false),
     requestCorrectionSubmit: vi.fn(),
     eventEditReady: ref(true),
@@ -113,9 +113,9 @@ function setup() {
 }
 
 describe('createAnnotationActionService', () => {
-  it('shares the same C/V/B ordinal decision with buttons and hotkeys', () => {
+  it('keeps C ordinal validation and enables V/B only for selected typed events', () => {
     const { manager, snapshot, selectedKeyPointId } = setup()
-    expect(manager.state('mark.receive-success').value.enabled).toBe(true)
+    expect(manager.state('mark.event-success').value.enabled).toBe(true)
     expect(manager.state('mark.spike').value).toMatchObject({
       enabled: false,
       reason: '殺球只能標在第三球以後',
@@ -132,19 +132,19 @@ describe('createAnnotationActionService', () => {
       ball_event: { kind: 'CONTACT', result: null },
     })
     selectedKeyPointId.value = 'third'
-    expect(manager.state('mark.receive-success').value.enabled).toBe(true)
-    selectedKeyPointId.value = 'first'
-    expect(manager.state('mark.receive-success').value).toMatchObject({
+    expect(manager.state('mark.event-success').value).toMatchObject({
       enabled: false,
-      reason: '第一球固定是發球；接球只能標在第二球以後',
+      reason: '請先將球點改為發球、接球或殺球',
     })
+    selectedKeyPointId.value = 'first'
+    expect(manager.state('mark.event-success').value.enabled).toBe(true)
   })
 
   it('dispatches through the action manager with the selected point and observation', async () => {
     const { manager, dispatch } = setup()
-    expect((await manager.execute('mark.receive-success')).status).toBe('executed')
+    expect((await manager.execute('mark.event-success')).status).toBe('executed')
     expect(dispatch).toHaveBeenCalledWith(
-      'receive_success',
+      'event_success',
       null,
       { capture_time_us: '3500', capture_frame_index: '35' },
       'second',
@@ -222,6 +222,47 @@ describe('createAnnotationActionService', () => {
       result: 'SUCCESS',
     })
     expect(setBallEventActor).toHaveBeenCalledWith('second', 'roster-11')
+  })
+
+  it('serializes V and B edits through one ball-event resource lock', async () => {
+    const { manager, dispatch } = setup()
+    let release!: () => void
+    dispatch.mockImplementationOnce(
+      () =>
+        new Promise<void>(resolve => {
+          release = resolve
+        }),
+    )
+
+    const success = manager.execute('mark.event-success')
+    await Promise.resolve()
+
+    expect(manager.state('mark.event-success').value.pending).toBe(true)
+    expect(manager.state('mark.event-failure').value).toMatchObject({
+      enabled: false,
+      pending: true,
+    })
+    expect((await manager.execute('mark.event-failure')).status).toBe('blocked')
+    expect(dispatch).toHaveBeenCalledTimes(1)
+
+    release()
+    await success
+    expect(manager.state('mark.event-failure').value.enabled).toBe(true)
+  })
+
+  it('keeps direct event edits locked to the owned editable draft', () => {
+    const { manager, draftOwnedByClient, snapshot } = setup()
+    draftOwnedByClient.value = false
+    expect(manager.state('mark.set-event').value).toMatchObject({
+      enabled: false,
+      reason: '此片段屬於另一個標註客戶端，只能檢視',
+    })
+    draftOwnedByClient.value = true
+    snapshot.value!.snapshot.annotation_status = 'submitted'
+    expect(manager.state('mark.set-event').value).toMatchObject({
+      enabled: false,
+      reason: '尚未開始可編輯片段',
+    })
   })
 
   it('does not globally lock outcome or submission while a point update is awaiting ack', async () => {

@@ -412,8 +412,11 @@ async function acceptService(
       select: { id: true },
       where: {
         activeSubmissionId: null,
+        // An ended READY draft is still the device's editable, unsubmitted
+        // work. It reserves the START/END toggle until submission or explicit
+        // deletion so Z cannot silently create a second local draft.
         annotationStatus: { in: ['OPEN', 'READY'] },
-        matchId: room.matchId,
+        setId: set.id,
         voidedAt: null,
         OR: [
           { draftOwnerDeviceSessionId: identity.deviceSessionId },
@@ -566,6 +569,7 @@ async function acceptService(
             create: {
               kind: 'SERVE',
               result: null,
+              serveStyle: 'JUMP',
               semanticSource: 'SYSTEM_DEFAULT',
             },
           },
@@ -1100,6 +1104,7 @@ async function acceptContact(
                 keyPointId: sameFrameContact.id,
                 kind: command.payload.ball_event!.kind,
                 result: command.payload.ball_event!.result,
+                serveStyle: command.payload.ball_event!.serve_style ?? null,
                 semanticSource: 'HUMAN',
                 kindLocked: true,
                 resultLocked: command.payload.ball_event!.result !== null,
@@ -1107,6 +1112,7 @@ async function acceptContact(
               update: {
                 kind: command.payload.ball_event!.kind,
                 result: command.payload.ball_event!.result,
+                serveStyle: command.payload.ball_event!.serve_style ?? null,
                 semanticSource: 'HUMAN',
                 kindLocked: true,
                 resultLocked: command.payload.ball_event!.result !== null,
@@ -1243,6 +1249,7 @@ async function acceptContact(
                 create: {
                   kind: command.payload.ball_event.kind,
                   result: command.payload.ball_event.result,
+                  serveStyle: command.payload.ball_event.serve_style ?? null,
                   semanticSource: 'HUMAN' as const,
                   kindLocked: true,
                   resultLocked: command.payload.ball_event.result !== null,
@@ -2010,6 +2017,7 @@ async function acceptDraftEdit(
           keyPointId: target.id,
           kind: command.payload.event.kind,
           result: command.payload.event.result,
+          serveStyle: command.payload.event.serve_style ?? null,
           semanticSource: 'HUMAN',
           kindLocked: true,
           resultLocked: command.payload.event.result !== null,
@@ -2017,9 +2025,15 @@ async function acceptDraftEdit(
         update: {
           kind: command.payload.event.kind,
           result: command.payload.event.result,
+          serveStyle: command.payload.event.serve_style ?? null,
           semanticSource: 'HUMAN',
+          // SET_BALL_EVENT is the operator's explicit classification, including
+          // confirming the current default value. Never let later inference
+          // replace that choice merely because the enum value did not change.
           kindLocked: true,
-          resultLocked: command.payload.event.result !== null,
+          resultLocked:
+            target.ballEvent?.resultLocked === true ||
+            target.ballEvent?.result !== command.payload.event.result,
         },
       })
       autoCorrections = await normalizeDraftBallEvents(tx, rally.id, identity.userId)

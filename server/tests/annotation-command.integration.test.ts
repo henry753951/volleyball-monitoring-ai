@@ -1517,6 +1517,174 @@ describe('durable service annotation command', () => {
     expect(await db.keyPoint.count({ where: { rallyId } })).toBe(2)
   })
 
+  it('infers serve success and second-point receive only after an untouched third point exists', async () => {
+    const rallyId = randomUUID()
+    const secondAnchor = {
+      ...anchor,
+      capture_time_us: (BigInt(anchor.capture_time_us) + 1_000_000n).toString(),
+      capture_frame_index: (BigInt(anchor.capture_frame_index) + 30n).toString(),
+      resolved_player_media_time_us: (
+        BigInt(anchor.resolved_player_media_time_us) + 1_000_000n
+      ).toString(),
+      source_pts: (BigInt(anchor.source_pts) + 60_000n).toString(),
+    }
+    const thirdAnchor = {
+      ...secondAnchor,
+      capture_time_us: (BigInt(anchor.capture_time_us) + 2_000_000n).toString(),
+      capture_frame_index: (BigInt(anchor.capture_frame_index) + 60n).toString(),
+      resolved_player_media_time_us: (
+        BigInt(anchor.resolved_player_media_time_us) + 2_000_000n
+      ).toString(),
+      source_pts: (BigInt(anchor.source_pts) + 120_000n).toString(),
+    }
+    await Promise.all([
+      db.playbackWindow.update({
+        data: { captureEndUs: BigInt(thirdAnchor.capture_time_us) + 1n },
+        where: { id: ids.window },
+      }),
+      db.dvrSegment.update({
+        data: {
+          captureEndUs: BigInt(thirdAnchor.capture_time_us) + 1n,
+          frameCount: 63n,
+        },
+        where: { id: ids.segment },
+      }),
+    ])
+    const secondService = createAnnotationCommandService({
+      database: db,
+      resolveCursor: async () => secondAnchor,
+    })
+    const thirdService = createAnnotationCommandService({
+      database: db,
+      resolveCursor: async () => thirdAnchor,
+    })
+
+    await service.apply(serviceCommand(randomUUID(), rallyId), identity)
+    await secondService.apply(contactCommand(randomUUID(), rallyId, '1'), identity)
+    const third = await thirdService.apply(contactCommand(randomUUID(), rallyId, '2'), identity)
+
+    expect(third).toMatchObject({
+      type: 'command_ack',
+      effects: {
+        auto_corrections: expect.arrayContaining([
+          expect.objectContaining({ code: 'SERVE_SUCCESS_INFERRED' }),
+          expect.objectContaining({ code: 'SECOND_POINT_RECEIVE_INFERRED' }),
+        ]),
+      },
+    })
+    const points = await db.keyPoint.findMany({
+      include: { ballEvent: true },
+      orderBy: { sequenceIndex: 'asc' },
+      where: { rallyId, deletedAt: null },
+    })
+    expect(points.map(point => point.ballEvent)).toMatchObject([
+      { kind: 'SERVE', result: 'SUCCESS', serveStyle: 'JUMP' },
+      { kind: 'RECEIVE', result: null, serveStyle: null },
+      { kind: 'CONTACT', result: null, serveStyle: null },
+    ])
+  })
+
+  it('does not overwrite explicit serve results or second-point classifications at the third point', async () => {
+    const rallyId = randomUUID()
+    const secondAnchor = {
+      ...anchor,
+      capture_time_us: (BigInt(anchor.capture_time_us) + 1_000_000n).toString(),
+      capture_frame_index: (BigInt(anchor.capture_frame_index) + 30n).toString(),
+      resolved_player_media_time_us: (
+        BigInt(anchor.resolved_player_media_time_us) + 1_000_000n
+      ).toString(),
+      source_pts: (BigInt(anchor.source_pts) + 60_000n).toString(),
+    }
+    const thirdAnchor = {
+      ...secondAnchor,
+      capture_time_us: (BigInt(anchor.capture_time_us) + 2_000_000n).toString(),
+      capture_frame_index: (BigInt(anchor.capture_frame_index) + 60n).toString(),
+      resolved_player_media_time_us: (
+        BigInt(anchor.resolved_player_media_time_us) + 2_000_000n
+      ).toString(),
+      source_pts: (BigInt(anchor.source_pts) + 120_000n).toString(),
+    }
+    await Promise.all([
+      db.playbackWindow.update({
+        data: { captureEndUs: BigInt(thirdAnchor.capture_time_us) + 1n },
+        where: { id: ids.window },
+      }),
+      db.dvrSegment.update({
+        data: {
+          captureEndUs: BigInt(thirdAnchor.capture_time_us) + 1n,
+          frameCount: 63n,
+        },
+        where: { id: ids.segment },
+      }),
+    ])
+    const secondService = createAnnotationCommandService({
+      database: db,
+      resolveCursor: async () => secondAnchor,
+    })
+    const thirdService = createAnnotationCommandService({
+      database: db,
+      resolveCursor: async () => thirdAnchor,
+    })
+
+    await service.apply(serviceCommand(randomUUID(), rallyId), identity)
+    await secondService.apply(contactCommand(randomUUID(), rallyId, '1'), identity)
+    const before = await db.keyPoint.findMany({
+      include: { ballEvent: true },
+      orderBy: { sequenceIndex: 'asc' },
+      where: { rallyId, deletedAt: null },
+    })
+    await service.apply(
+      parseAnnotationCommand({
+        schema_version: '4.0.0',
+        command_id: randomUUID(),
+        room_id: roomId,
+        base_revision: '2',
+        rally_id: rallyId,
+        kind: 'SET_BALL_EVENT',
+        payload: {
+          key_point_id: before[0]!.id,
+          event: { kind: 'SERVE', result: 'FAILURE', serve_style: 'JUMP' },
+        },
+      }),
+      identity,
+    )
+    await service.apply(
+      parseAnnotationCommand({
+        schema_version: '4.0.0',
+        command_id: randomUUID(),
+        room_id: roomId,
+        base_revision: '3',
+        rally_id: rallyId,
+        kind: 'SET_BALL_EVENT',
+        payload: {
+          key_point_id: before[1]!.id,
+          event: { kind: 'CONTACT', result: null, serve_style: null },
+        },
+      }),
+      identity,
+    )
+    const third = await thirdService.apply(contactCommand(randomUUID(), rallyId, '4'), identity)
+
+    expect(third).toMatchObject({ type: 'command_ack' })
+    if (third.type !== 'command_ack') throw new TypeError('Expected command acknowledgement')
+    expect(third.effects.auto_corrections ?? []).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ code: 'SERVE_SUCCESS_INFERRED' }),
+        expect.objectContaining({ code: 'SECOND_POINT_RECEIVE_INFERRED' }),
+      ]),
+    )
+    const points = await db.keyPoint.findMany({
+      include: { ballEvent: true },
+      orderBy: { sequenceIndex: 'asc' },
+      where: { rallyId, deletedAt: null },
+    })
+    expect(points.map(point => point.ballEvent)).toMatchObject([
+      { kind: 'SERVE', result: 'FAILURE', resultLocked: true },
+      { kind: 'CONTACT', result: null, kindLocked: true },
+      { kind: 'CONTACT', result: null },
+    ])
+  })
+
   it('moves, deletes, reopens and voids only the mutable Rally draft', async () => {
     const rallyId = randomUUID()
     await service.apply(serviceCommand(randomUUID(), rallyId), identity)

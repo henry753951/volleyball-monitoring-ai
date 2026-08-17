@@ -15,7 +15,7 @@ const events: CoachPlayerActionEvent[] = [
     actionKey: 'spike',
     actionLabel: '殺球',
     actionConfidence: null,
-    resultKey: 'point_scored',
+    resultKey: 'success',
     routeStart: { x: -0.06, y: 0.24 },
     routeEnd: { x: 1.04, y: 0.79 },
     courtSide: 'left',

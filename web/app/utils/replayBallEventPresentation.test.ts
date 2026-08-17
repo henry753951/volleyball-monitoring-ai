@@ -20,7 +20,7 @@ describe('replay ball-event presentation', () => {
       event(0, 'serve', 'success'),
       event(1, 'receive', 'success'),
       event(2, 'spike', 'failure'),
-      event(3, 'receive', 'error'),
+      event(3, 'receive', 'failure'),
       event(4, 'contact'),
       event(5, 'receive', 'success'),
     ]

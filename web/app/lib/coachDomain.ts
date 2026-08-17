@@ -224,7 +224,8 @@ export interface ReplayContactEvent {
   ball_event?: {
     ordinal: number
     kind: 'serve' | 'receive' | 'contact' | 'spike'
-    result: 'point_scored' | 'success' | 'error' | 'point_lost' | 'failure' | null
+    result: 'success' | 'failure' | null
+    serve_style?: 'jump' | 'standing' | null
     semantic_source: 'human' | 'system_default' | 'automatic' | 'correction_copy'
     actor: {
       roster_entry_id: string
@@ -390,6 +391,7 @@ export interface CoachMatchAnalytics {
     identity_source?: 'manual' | 'ai' | 'propagated' | null
     identity_confidence?: number | null
     identity_revision?: string | null
+    identity_evidence_state?: 'pending' | 'ready' | 'unavailable'
     manual_required?: boolean
     identity_preview_url?: string | null
     reid_model?: { name: string; checkpoint_sha256: string; preprocess_version: string } | null
@@ -479,7 +481,14 @@ export function createCoachDomainClient(transport: GraphQLTransport) {
       rosterEntryId: string
       identityMode?: 'from_here' | 'clip_only' | 'split_identity'
     }) {
-      return transport.request<{ assignTrackIdentity: { schema_version: '1.0.0' } }>(
+      return transport.request<{
+        assignTrackIdentity: {
+          schema_version: '2.0.0'
+          evidence_state: 'pending' | 'ready'
+          identity_revision: string | null
+          gid_id: string | null
+        }
+      }>(
         'mutation AssignTrackIdentity($analysisRunId: ID!, $trackId: Int!, $rosterEntryId: ID!, $identityMode: String) { assignTrackIdentity(analysisRunId: $analysisRunId, trackId: $trackId, rosterEntryId: $rosterEntryId, identityMode: $identityMode) }',
         input,
       )

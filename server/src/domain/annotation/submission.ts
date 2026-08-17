@@ -8,10 +8,7 @@ import {
 import type { Prisma } from '@volleyball-monitoring/db/client'
 import { UserRole } from '@volleyball-monitoring/db/client'
 import type { AnnotationIdentity, AnnotationRoom } from './room.js'
-import {
-  isSubmissionBallEventValid,
-  unresolvedBallEventSubmissionMessage,
-} from './ball-event-submission-validation.js'
+import { isSubmissionBallEventValid } from './ball-event-submission-validation.js'
 import { CLIP_CANONICALIZATION_PROFILE, CLIP_POLICY_VERSION } from '../../config/clip-policy.js'
 import type { MediaObjectReader } from '../../media/playback-domain.js'
 import { reuseCompletedSubmissionGeometry } from './submission-geometry-reuse.js'
@@ -290,30 +287,8 @@ export async function submitRally(
         ),
       )
     }
-    const onlyEvent = rally.keyPoints.length === 1 ? rally.keyPoints[0]?.ballEvent : null
-    if (onlyEvent && !['POINT_SCORED', 'ERROR'].includes(onlyEvent.result ?? '')) {
-      return persist(
-        tx,
-        command,
-        identity,
-        hash,
-        reject(
-          command,
-          'SINGLE_POINT_SERVE_DECISION_REQUIRED',
-          'Choose whether the single serve scored or was an error before submission',
-        ),
-      )
-    }
-    const unresolvedMessage = unresolvedBallEventSubmissionMessage(rally.keyPoints)
-    if (unresolvedMessage) {
-      return persist(
-        tx,
-        command,
-        identity,
-        hash,
-        reject(command, 'BALL_EVENT_RESULT_REQUIRED', unresolvedMessage),
-      )
-    }
+    // Human results are intentionally optional. The workstation warns before
+    // submission, but an operator may explicitly continue with nullable results.
   }
   const clipStartAnchor = startBoundary ?? service!
   const clipEndAnchor = endBoundary ?? terminal!
@@ -477,6 +452,7 @@ export async function submitRally(
       ? {
           kind: point.ballEvent.kind,
           result: point.ballEvent.result,
+          serve_style: point.ballEvent.serveStyle,
           semantic_source: point.ballEvent.semanticSource,
           actor_roster_entry_id: point.ballEvent.actorRosterEntryId,
         }
@@ -665,6 +641,7 @@ export async function submitRally(
         ordinal: point.sequenceIndex + 1,
         kind: event.kind,
         result: event.result,
+        serveStyle: event.serveStyle,
         semanticSource: event.semanticSource,
         actorRosterEntryId: event.actorRosterEntryId,
       },

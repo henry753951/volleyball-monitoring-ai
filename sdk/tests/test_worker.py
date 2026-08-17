@@ -18,6 +18,7 @@ from volleyball_monitoring_ai import (
     ProviderWorkCapabilities,
     ProviderWorkerClient,
     ProviderWorkerConfig,
+    WorkerAuthorizationRevokedError,
     WorkerConfig,
 )
 from websockets.asyncio.server import serve
@@ -87,6 +88,82 @@ async def test_provider_worker_uses_application_heartbeat_for_proxy_stability(
     assert observed_connect["ping_interval"] is None
     assert observed_connect["ping_timeout"] is None
     assert sent_messages[0]["type"] == "provider_hello"
+
+
+def provider_worker_client(tmp_path: Path) -> ProviderWorkerClient:
+    capabilities = ProviderWorkCapabilities.model_validate_json(
+        PROVIDER_WORK_CAPABILITIES.read_text()
+    )
+    return ProviderWorkerClient(
+        ProviderWorkerConfig(
+            server_ws_url="wss://central.example.test/api/v2/ai/providers/ws",
+            token="provider-token",
+            workspace=tmp_path,
+            provider_build_id=capabilities.provider_build_id,
+            capabilities=capabilities,
+            instance_id="provider-control-test",
+        )
+    )
+
+
+@pytest.mark.asyncio
+async def test_provider_discard_does_not_acknowledge_a_stale_delivery(tmp_path: Path) -> None:
+    client = provider_worker_client(tmp_path)
+
+    await client._handle_message(
+        json.dumps(
+            {
+                "schema_version": "2.0.0",
+                "type": "discard_job",
+                "provider_job_id": "30000000-0000-4000-8000-000000000001",
+                "work_kind": "ANALYSIS",
+                "delivery_id": "40000000-0000-4000-8000-000000000001",
+                "reason": "Central has no matching active delivery",
+            }
+        ),
+        {},
+    )
+
+    assert not client._stop.is_set()
+
+
+@pytest.mark.asyncio
+async def test_provider_delivery_mismatch_does_not_revoke_the_worker(tmp_path: Path) -> None:
+    client = provider_worker_client(tmp_path)
+
+    await client._handle_message(
+        json.dumps(
+            {
+                "schema_version": "2.0.0",
+                "type": "protocol_error",
+                "code": "DELIVERY_MISMATCH",
+                "message": "Provider message does not match an active delivery",
+                "retryable": False,
+            }
+        ),
+        {},
+    )
+
+    assert not client._stop.is_set()
+
+
+@pytest.mark.asyncio
+async def test_provider_authorization_revocation_still_stops_the_worker(tmp_path: Path) -> None:
+    client = provider_worker_client(tmp_path)
+
+    with pytest.raises(WorkerAuthorizationRevokedError):
+        await client._handle_message(
+            json.dumps(
+                {
+                    "schema_version": "2.0.0",
+                    "type": "protocol_error",
+                    "code": "AUTHORIZATION_REVOKED",
+                    "message": "worker token was deleted",
+                    "retryable": False,
+                }
+            ),
+            {},
+        )
 
 
 def job_with_clip(content: bytes) -> AIJobRequest:

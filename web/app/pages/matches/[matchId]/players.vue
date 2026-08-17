@@ -356,17 +356,11 @@ function openPlayer(playerId: string) {
 }
 
 function outcomeLabel(event: CoachPlayerActionEvent) {
-  return event.resultKey === 'point_scored'
-    ? '得分'
-    : event.resultKey === 'success'
-      ? '成功'
-      : event.resultKey === 'error'
-        ? '失誤'
-        : event.resultKey === 'point_lost'
-          ? '失分'
-          : event.resultKey === 'failure'
-            ? '失敗'
-            : '未填結果'
+  return event.resultKey === 'success'
+    ? '成功'
+    : event.resultKey === 'failure'
+      ? '失敗'
+      : '未填結果'
 }
 
 function refreshAfterIdentityChange() {

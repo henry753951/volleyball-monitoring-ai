@@ -46,6 +46,7 @@ interface BoundaryCommandAvailabilityInput {
   cursorCaptureTimeUs: string | null
   currentRallyId?: string | null
   startBoundaryCaptureTimeUs?: string | null
+  endBoundaryCaptureTimeUs?: string | null
   currentDraftCaptureTimes?: readonly string[]
   clipPreRollUs: bigint
   clipPostRollUs: bigint
@@ -88,8 +89,15 @@ export function boundaryCommandAvailability(input: BoundaryCommandAvailabilityIn
     return { enabled: false, reason: '播放游標尚未確認' }
   }
 
-  const isOrdinaryOpenDraft = input.state === 'OPEN' && !input.activeSubmissionId
-  if (isOrdinaryOpenDraft) {
+  // The client may own only one unsubmitted draft. OPEN with START and no END
+  // consumes Z as END; an ended READY draft keeps Z locked until it is
+  // submitted or explicitly deleted.
+  const isActiveLocalSegment =
+    input.state === 'OPEN' &&
+    !input.activeSubmissionId &&
+    Boolean(input.startBoundaryCaptureTimeUs) &&
+    !input.endBoundaryCaptureTimeUs
+  if (isActiveLocalSegment) {
     const startCaptureTimeUs = input.startBoundaryCaptureTimeUs
     if (!startCaptureTimeUs) return { enabled: false, reason: '目前片段缺少開始邊界' }
     if (BigInt(input.cursorCaptureTimeUs) <= BigInt(startCaptureTimeUs)) {
@@ -106,23 +114,13 @@ export function boundaryCommandAvailability(input: BoundaryCommandAvailabilityIn
     return { enabled: true, reason: '再次按 Z，以目前畫面作為片段結束' }
   }
 
-  if (openDraftBlocksNewRally(input.state, input.activeSubmissionId)) {
+  if (!input.activeSubmissionId && (input.state === 'OPEN' || input.state === 'READY')) {
     return { enabled: false, reason: '目前仍有正在編輯的片段' }
   }
+
   const range = paddedRange([input.cursorCaptureTimeUs], input.clipPreRollUs, input.clipPostRollUs)
   if (range && overlapsSegment(range, input.segments)) {
     return { enabled: false, reason: '目前位置位於既有片段內' }
   }
   return { enabled: true, reason: '' }
-}
-
-export function openDraftBlocksNewRally(
-  state: string,
-  activeSubmissionId: string | null | undefined,
-) {
-  // A correction draft keeps an immutable active submission attached to the
-  // Rally. The backend intentionally allows that draft to coexist with a new
-  // Rally; an unsent, submission-less draft owns the new-service slot until it
-  // is submitted, including after its END boundary moves it to READY.
-  return ['OPEN', 'READY'].includes(state) && !activeSubmissionId
 }

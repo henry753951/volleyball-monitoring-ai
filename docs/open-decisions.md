@@ -4,21 +4,22 @@ See section 27 of `MASTER_IMPLEMENTATION_SPEC.md`. Do not silently resolve these
 
 ## Resolved: human ball events and coach replay vNext
 
-Status: resolved by the product owner on 2026-08-16. The public-contract implementation may proceed.
+Status: resolved by the product owner on 2026-08-16 and amended on 2026-08-17 by
+[ADR 0046](./adr/0046-manual-ball-results-and-conservative-third-point-inference.md).
 
 The analysis, proposed defaults, implementation phases, and verified source map are in
 [`HUMAN_BALL_EVENTS_AND_COACH_REPLAY_SPEC.md`](./HUMAN_BALL_EVENTS_AND_COACH_REPLAY_SPEC.md).
 
 1. Event ordinal and hotkeys
    - First/second means the first and second valid keypoints in canonical time order, regardless of manual or automatic origin; boundaries are excluded.
-   - C/V/B modifies the selected point or creates a typed point when nothing is selected.
-   - C is valid from the third point; V is receive success and B is receive error, both valid only on the second point.
+   - X creates HIT; C modifies the selected point or creates SPIKE and is valid from the third point.
+   - V/B only toggles SUCCESS/FAILURE on a selected typed point. It never creates a point or changes its kind.
+   - A third point conservatively fills only untouched defaults: first-serve null result becomes SUCCESS and second CONTACT becomes RECEIVE; the receive result stays null.
    - A shared deterministic validator repairs invalid ordering/coverage and reports every automatic correction.
 2. Human result taxonomy
-   - Serve: POINT_SCORED, SUCCESS, ERROR.
-   - Receive: SUCCESS, ERROR, POINT_LOST.
-   - Spike: SUCCESS, FAILURE.
-   - Draft results may be unset; immutable submissions do not store UNKNOWN.
+   - Serve, receive, and spike share `SUCCESS | FAILURE | null`.
+   - Rally scoring remains a separate field; ball-event result does not encode the scoring side.
+   - Draft and immutable submissions may retain null after a Chinese warning and explicit continue action.
 3. Architecture and delivery
    - Human event kind/result is the coach analytics truth; model action is overlay-only.
    - Path geometry is a projection from stored evidence and remains unavailable when evidence is insufficient.

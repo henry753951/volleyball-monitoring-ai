@@ -106,7 +106,7 @@ describe('createAnnotationCommandService', () => {
     })
   })
 
-  it('uses the selected point for V/B and enforces ordinal constraints once', () => {
+  it('uses V/B only for the selected typed event and keeps C ordinal validation', () => {
     const current = snapshot()
     current.snapshot.key_points.push({
       key_point_id: 'third',
@@ -117,11 +117,11 @@ describe('createAnnotationCommandService', () => {
       capture_frame_index: '13',
       timing_precision: 'frame_exact',
       possible_duplicate: false,
-      ball_event: { kind: 'CONTACT', result: null },
+      ball_event: { kind: 'SPIKE', result: null },
     })
     const commandService = service(current)
     expect(
-      commandService.buildActionCommand('receive_success', cursor, {
+      commandService.buildActionCommand('event_success', cursor, {
         selectedKeyPointId: 'second',
       }),
     ).toMatchObject({
@@ -135,21 +135,19 @@ describe('createAnnotationCommandService', () => {
       commandService.buildActionCommand('spike', cursor, { selectedKeyPointId: 'second' }),
     ).toThrow('殺球只能標在第三球以後')
     expect(
-      commandService.buildActionCommand('receive_error', cursor, {
+      commandService.buildActionCommand('event_failure', cursor, {
         selectedKeyPointId: 'third',
       }),
     ).toMatchObject({
       kind: 'SET_BALL_EVENT',
       payload: {
         key_point_id: 'third',
-        event: { kind: 'RECEIVE', result: 'ERROR' },
+        event: { kind: 'SPIKE', result: 'FAILURE' },
       },
     })
     expect(() =>
-      commandService.buildActionCommand('receive_error', cursor, {
-        selectedKeyPointId: 'first',
-      }),
-    ).toThrow('第一球固定是發球；接球只能標在第二球以後')
+      commandService.buildActionCommand('event_failure', cursor, { selectedKeyPointId: null }),
+    ).toThrow('請先選擇要標記結果的球點')
   })
 
   it('rejects edits against a peer-owned draft', () => {

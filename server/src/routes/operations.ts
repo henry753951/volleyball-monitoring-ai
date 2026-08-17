@@ -193,6 +193,7 @@ export async function deleteInactiveAiWorker(
       id: workerId,
       OR: [{ disconnectedAt: { not: null } }, { lastSeenAt: { lt: staleBefore } }],
       jobs: { none: { status: { in: ['QUEUED', 'RUNNING'] } } },
+      providerJobs: { none: { status: { in: ['QUEUED', 'RUNNING'] } } },
     },
   })
   if (deleted.count === 1) {
@@ -240,6 +241,7 @@ export async function collectOperationsSnapshot(
     providerInstances,
     recentAiWork,
     activeAiJobs,
+    activeProviderJobs,
     aiWorkerAccess,
   ] = await Promise.all([
     database.rally.groupBy({
@@ -347,6 +349,15 @@ export async function collectOperationsSnapshot(
       },
       _count: { _all: true },
     }),
+    database.providerJob.groupBy({
+      by: ['providerInstanceId'],
+      where: {
+        providerInstanceId: { not: null },
+        deliveryId: { not: null },
+        status: { in: ['QUEUED', 'RUNNING'] },
+      },
+      _count: { _all: true },
+    }),
     getAiWorkerAccess(database),
   ])
   const programIds = captureSessions.flatMap(capture => capture.programs.map(program => program.id))
@@ -410,9 +421,13 @@ export async function collectOperationsSnapshot(
   const totalsByProgram = new Map(segmentTotals.map(item => [item.dvrProgramId, item]))
   const readyByProgram = new Map(readySegments.map(item => [item.dvrProgramId, item._count._all]))
   const gapsByProgram = new Map(gapSegments.map(item => [item.dvrProgramId, item._count._all]))
-  const activeJobsByWorker = new Map(
-    activeAiJobs.map(item => [item.providerInstanceId, item._count._all]),
-  )
+  const activeJobsByWorker = new Map<string | null, number>()
+  for (const item of [...activeAiJobs, ...activeProviderJobs]) {
+    activeJobsByWorker.set(
+      item.providerInstanceId,
+      (activeJobsByWorker.get(item.providerInstanceId) ?? 0) + item._count._all,
+    )
+  }
   const visibleMatchIds = new Set(captureSessions.map(capture => capture.matchId))
   const visibleMediaByteRows = mediaByteRows.filter(row => visibleMatchIds.has(row.matchId))
   const bytesByMatch = new Map(visibleMediaByteRows.map(row => [row.matchId, row.storedBytes]))

@@ -17,7 +17,8 @@ VLM、`NEEDS_REVIEW` 才能啟用 GID、以及「完成球員指派」門檻都�
 - GID 可不綁球員。只標多少就立即使用多少，沒有全部標完或完成鎖定按鈕。
 - 不同時間出現、沒有共存的 Local/GID 可以綁同一位 roster player。
 - 同一 frame 共存的 Local 不得投影為同一球員；衝突只能明確交換、拆分或 Local-only。
-- 自動 evidence 與人工確認 evidence 分級。自動 GID 可供後續低權重比對，但不是人工真值。
+- 自動 evidence 與人工確認 evidence 分級。自動 association 只形成 `UNVERIFIED` 建議與目前
+  projection，不得進入後續 eligible bank；只有人工確認的 `CONFIRMED` vector membership 才能成為種子。
 - 原始影片、tracking、Pose、crop、descriptor 不因人工修正而改寫。
 - 修正預設只影響修正點與之後；之前片段維持當時的投影與可稽核歷史。
 
@@ -66,10 +67,17 @@ flowchart LR
 4. 其餘一律回傳 `CREATE_NEW_GID`；不回傳 review gate，也不讓 Local 沒有 GID。
 5. 同片段、非共存且外觀非常接近的 Local 可共享同一個 new-GID group；Central 再次驗證
    cannot-link，Provider 不能繞過硬衝突。
-6. 自動 membership 寫成 `UNVERIFIED` 並以保守權重進 bank。人工確認後才升為
-   `CONFIRMED`/高權重。GID 的 active 狀態不依賴 evidence trust 狀態。
+6. 自動 membership 寫成 `UNVERIFIED`，可供目前 UI/投影顯示，但不得進 eligible bank、不得成為
+   後續片段的學習種子。人工確認後才建立 `CONFIRMED` vector membership，並進入下一個 immutable
+   bank snapshot。GID 的 active 狀態不依賴 evidence trust 狀態。
 7. 人工 projection priority 是 1000，自動是 100。舊 job、重跑或晚到 callback 都不能蓋掉
    人工修正。
+8. bank snapshot 只收錄實際含 vector 的 `CONFIRMED` membership。單獨的 GID-player binding、沒有
+   descriptor 的 pending assignment、或本次自動輸出都不能把 cluster 拉進 bank。相同
+   `identityRevision + team + derivationVersion` 對應同一份 immutable snapshot；篩選政策改變必須升級
+   `derivationVersion`，不得覆寫既有 artifact。
+9. 目前回合若已有人工確認 evidence，可用它填補同回合尚未人工確認的 Local；該人工 Local 自身會從
+   automatic eligible set 排除。較晚回合讀同一人工種子，強且合法才 `MATCH_EXISTING_GID`，否則建立新 GID。
 
 ### 2.3 六人與場側
 
@@ -101,11 +109,26 @@ detector、DeepEIOU、SAM3、court、ball、action 或 Pose。
 
 1. 使用者可用 Local view 或 GID view 操作。
 2. 點整個 Local row 跳到該 track 出現的回合；Select 保留球員預覽。
-3. 選擇球員後立即寫 revision，無需按「完成」。
+3. 選擇球員後立即保存，無需等待 GPU 或按「完成」。若 immutable ReID evidence 已就緒，直接寫
+   revision；若尚未就緒，先保存 `MANUAL + pendingCorrectionMode` 的人工種子，UI 顯示
+   `人工已保存 · ReID 待建立`，不把等待誤報成失敗。
 4. 未指派的 Local 保持 active unbound GID；replay、標註、其他已標資料照常可用。
-5. 面板只顯示 `已指派 X/Y` 與人工確認數，這是資訊，不是門檻。
+5. Feature worker 建立該片段的 evidence generation 後，在同一 durable transaction 將 pending 種子轉成
+   revisioned correction、`CONFIRMED POSITIVE` membership 與 priority 1000 projection，再為目前與之後
+   已有 evidence 的回合排入 association rerun。較晚才建立 evidence 的回合會在初次 association 讀到最新 bank。
+6. 自動 association 只填補未人工確認的 Local。`MANUAL` assignment（包含 pending）不得被 stale cleanup、
+   unresolved decision、重跑或晚到 callback 刪除或覆蓋；自動結果仍是 `UNVERIFIED`。
+7. 面板只顯示 `已指派 X/Y`、人工指派數與等待 ReID 數，這些是資訊，不是門檻。
 
-### 4.2 修正選項
+### 4.2 ReID 重跑與狀態
+
+- `重新配對` 是非阻塞工作：畫面顯示「正在以既有 evidence 重新配對」，但人工 Select 仍可立即保存。
+- 完成後顯示「重新配對已完成；人工指派仍保持優先」。自動結果只填未人工確認的 Local。
+- pending 人工種子在 evidence 建立前也算已保存；不得因重整、重跑、失敗 callback 或 stale cleanup 回到未指派。
+- Provider 對同一組 completed output 的並行/重送 callback 必須序列化並視為冪等成功；只有 artifact
+  descriptor 不同才回 `RESULT_ARTIFACT_CONFLICT`，不得把已完成 job 反轉成 failed。
+
+### 4.3 修正選項
 
 | UI 選項                    | Local→GID       | GID→player          | 目前 Local 顯示 | 後續 bank                     | 過去片段 |
 | -------------------------- | --------------- | ------------------- | --------------- | ----------------------------- | -------- |
@@ -114,7 +137,7 @@ detector、DeepEIOU、SAM3、court、ball、action 或 Pose。
 | 只有這個 Local 的 GID 判錯 | 建立/移到新 GID | 目標 GID 綁所選球員 | 改變            | reject 錯來源、confirm 新來源 | 不變     |
 | 只改這個 Local 顯示        | 不變            | 不變                | 改變            | 不納入學習                    | 不變     |
 
-### 4.3 同 frame 衝突
+### 4.4 同 frame 衝突
 
 若所選球員已被同 frame 的另一個 Local 使用：
 
@@ -124,7 +147,7 @@ detector、DeepEIOU、SAM3、court、ball、action 或 Pose。
 - 可選 Local-only，表示只修畫面投影且不餵給後續 bank。
 - Server 再做一次 cannot-link/同場驗證，不能只依賴前端 disabled 狀態。
 
-### 4.4 非共存與跨片段 GID
+### 4.5 非共存與跨片段 GID
 
 若另一個 GID 只在別的時間出現，兩個 GID 綁同一球員是合法情形；系統不能自動解除舊
 GID。當目前 GID 已綁其他球員且使用者選擇新球員時，UI 額外列出這位球員既有的 GID：
@@ -202,7 +225,8 @@ Select。API 429/5xx/timeout 依 lease/retry policy 重試；單一 Local 無可
 - persistence：`packages/db/prisma/schema.prisma` 與 `20260817140000*` migration
 - association materializer：`worker/src/roles/reid-association-worker.ts`
 - jersey job：`worker/src/roles/jersey-suggestion-worker.ts`
-- correction ledger：`server/src/services/reid-identity-ledger.ts`
+- correction ledger：`packages/db/src/reid-identity-ledger.ts`；server 只保留相容的 re-export，讓 feature
+  materializer 與 request path 共用同一套 revision/cannot-link 規則。
 - jersey API：`server/src/services/reid-jersey-suggestions.ts`
 - GraphQL：`server/src/graphql/coach-analytics.ts`
 - UI/controller：`web/app/components/AnnotationIdentityPanel.vue`、

@@ -204,13 +204,7 @@ export function collectCoachActionEvents(
       const routeStart = path ? routePosition(path.start_court_positions, track.track_id) : null
       const routeEnd = path ? routePosition(path.end_court_positions, track.track_id) : null
       const semanticOutcome =
-        semantic.result === 'point_scored' || semantic.result === 'success'
-          ? 'won'
-          : semantic.result === 'error' ||
-              semantic.result === 'point_lost' ||
-              semantic.result === 'failure'
-            ? 'lost'
-            : null
+        semantic.result === 'success' ? 'won' : semantic.result === 'failure' ? 'lost' : null
       const id = `${track.analysis_run_id}:${event.key_point_id}:${track.track_id}`
       const ballType = coachBallType(replay.analysis.contact_events, event)
       records.set(id, {

@@ -69,6 +69,7 @@ const ids = {
   resetClip: id('48'),
   resetAiJob: id('49'),
   resetAnalysis: id('50'),
+  resetProviderJob: id('51'),
 }
 
 beforeAll(async () => {
@@ -568,6 +569,23 @@ describe('rally administration', () => {
         status: 'COMPLETED',
       },
     })
+    await db.providerJob.create({
+      data: {
+        id: ids.resetProviderJob,
+        workKind: 'ANALYSIS',
+        status: 'RUNNING',
+        idempotencyKey: 'rally-admin-reset-provider',
+        requestSchemaVersion: '1.0.0',
+        resultSchemaVersion: '1.0.0',
+        requestPayload: {},
+        requestPayloadHash: '2'.repeat(64),
+        callbackTokenHash: '3'.repeat(64),
+        callbackTokenExpiresAt: new Date(Date.now() + 60_000),
+        providerInstanceId: ids.providerInstance,
+        analysisRunId: ids.resetAnalysis,
+        deliveryId: id('52'),
+      },
+    })
 
     await deleteRallyAnalysisWithMedia({ id: ids.actor, role: UserRole.OPERATOR }, ids.resetRally, {
       database: db,
@@ -590,6 +608,14 @@ describe('rally administration', () => {
       submissions: [],
     })
     expect(await db.analysisRun.findUnique({ where: { id: ids.resetAnalysis } })).toBeNull()
+    expect(
+      await db.providerJob.findUniqueOrThrow({ where: { id: ids.resetProviderJob } }),
+    ).toMatchObject({
+      analysisRunId: null,
+      status: 'CANCELLED',
+      errorCode: 'ANALYSIS_DELETED',
+      cancelRequestedAt: expect.any(Date),
+    })
     expect(await db.aiJob.findUnique({ where: { id: ids.resetAiJob } })).toBeNull()
     expect(await db.clipJob.findUnique({ where: { id: ids.resetClip } })).toBeNull()
   })

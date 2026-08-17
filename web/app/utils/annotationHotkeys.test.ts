@@ -22,8 +22,8 @@ describe('annotation hotkey registry', () => {
       'service',
       'contact',
       'spike',
-      'receive_success',
-      'receive_error',
+      'event_success',
+      'event_failure',
       'close_left',
       'close_right',
       'close_unknown',
@@ -40,8 +40,8 @@ describe('annotation hotkey registry', () => {
       service: 'Z',
       contact: 'X',
       spike: 'C',
-      receive_success: 'V',
-      receive_error: 'B',
+      event_success: 'V',
+      event_failure: 'B',
       close_left: '<',
       close_right: '>',
       close_unknown: '?',
@@ -114,7 +114,7 @@ describe('annotation hotkey registry', () => {
 })
 
 describe('hotkey preference persistence', () => {
-  it('round-trips the versioned v4 envelope', () => {
+  it('round-trips the current versioned envelope', () => {
     const bindings = { ...restoreDefaultHotkeys(), service: 'S' }
     expect(parseStoredHotkeyPreferences(serializeHotkeyPreferences(bindings))).toEqual({
       version: HOTKEY_PREFERENCES_VERSION,
@@ -136,8 +136,8 @@ describe('hotkey preference persistence', () => {
       bindings: {
         ...legacy,
         spike: 'Shift+C',
-        receive_success: 'V',
-        receive_error: 'Shift+B',
+        event_success: 'V',
+        event_failure: 'Shift+B',
         play_pause: 'Space',
         frame_previous: 'ArrowLeft',
         frame_next: 'ArrowRight',
@@ -167,6 +167,29 @@ describe('hotkey preference persistence', () => {
     expect(parseStoredHotkeyPreferences(JSON.stringify(previous))?.bindings).toEqual(
       DEFAULT_HOTKEY_BINDINGS,
     )
+  })
+
+  it('rejects the removed v6 receive-specific V/B settings', () => {
+    const previous = {
+      version: 6,
+      bindings: {
+        service: 'Z',
+        contact: 'X',
+        spike: 'C',
+        receive_success: 'V',
+        receive_error: 'B',
+        close_left: '<',
+        close_right: '>',
+        close_unknown: '?',
+        submit: 'Enter',
+        play_pause: 'Space',
+        frame_previous: 'ArrowLeft',
+        frame_next: 'ArrowRight',
+        key_point_previous: 'A',
+        key_point_next: 'D',
+      },
+    }
+    expect(parseStoredHotkeyPreferences(JSON.stringify(previous))).toBeNull()
   })
 
   it('accepts swapped bindings and rejects corrupt, duplicate or reserved stored records', () => {

@@ -529,7 +529,7 @@ export function createAnnotationRoomService(annotationWsUrl: MaybeRefOrGetter<st
     return realtime?.ready() ? flushQueuedCommand(command.command_id) : Promise.resolve()
   }
 
-  function dispatch(
+  async function dispatch(
     action: AnnotationAction,
     cursor: PlaybackCursorInput | null,
     observation?: AnnotationClientObservation,
@@ -537,7 +537,7 @@ export function createAnnotationRoomService(annotationWsUrl: MaybeRefOrGetter<st
   ) {
     error.value = null
     try {
-      void sendCommand(
+      return await sendCommand(
         buildCommand(action, cursor, { observation, selectedKeyPointId }),
         observation,
       )

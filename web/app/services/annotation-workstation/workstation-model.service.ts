@@ -2,7 +2,7 @@ import type { AnnotationKeyPoint, AnnotationRallySnapshot } from '@volleyball-mo
 import type { ComputedRef, Ref, ShallowRef } from 'vue'
 import { computed } from 'vue'
 import { isSupersededSourceSubmission } from '~/lib/annotationKeyPointNavigation'
-import type { CoachMatchState, CoachRally } from '~/lib/coachDomain'
+import type { CoachMatchState, CoachRally, CoachTeam } from '~/lib/coachDomain'
 import type { CaptureTimeline, Match } from '~/lib/coreDomain'
 import { annotationOutcomeLabel } from '~/utils/annotationOutcome'
 import { deriveCoachDisplayOrdinals } from '~/utils/rallyDisplayOrder'
@@ -18,6 +18,32 @@ function processingStateLabel(status: string) {
   if (status === 'ai_processing') return 'AI 分析中'
   if (status === 'artifact_ingesting') return '回傳結果中'
   return '處理中'
+}
+
+type TimelineOutcomeSide = 'left' | 'right'
+
+function timelineOutcomeMetadata(input: {
+  scoreResolution?: string | null
+  scoringCourtSide?: string | null
+  scoringTeamId?: string | null
+  leftTeamId?: string | null
+  rightTeamId?: string | null
+  teams?: readonly CoachTeam[]
+}) {
+  const side: TimelineOutcomeSide | null =
+    input.scoreResolution === 'resolved' &&
+    (input.scoringCourtSide === 'left' || input.scoringCourtSide === 'right')
+      ? input.scoringCourtSide
+      : null
+  if (!side) return { side: null, teamLabel: null }
+
+  const sideTeamId = side === 'left' ? input.leftTeamId : input.rightTeamId
+  const teamId = input.scoringTeamId ?? sideTeamId
+  const team = teamId ? input.teams?.find(candidate => candidate.id === teamId) : null
+  return {
+    side,
+    teamLabel: team?.shortName || team?.name || (side === 'left' ? '左隊' : '右隊'),
+  }
 }
 
 export interface AnnotationWorkstationModelOptions {
@@ -217,6 +243,14 @@ export function createAnnotationWorkstationModelService(
           rally.id === currentRallyId &&
           ['OPEN', 'READY'].includes(options.state.value),
         )
+      const outcome = timelineOutcomeMetadata({
+        scoreResolution: rally.submission.score_resolution,
+        scoringCourtSide: rally.submission.scoring_court_side,
+        scoringTeamId: rally.submission.scoring_team_id,
+        leftTeamId: rally.submission.left_team_id,
+        rightTeamId: rally.submission.right_team_id,
+        teams: options.coachData.value?.match.teams,
+      })
       return [
         {
           id: rally.id,
@@ -234,6 +268,8 @@ export function createAnnotationWorkstationModelService(
             scoringTeamId: rally.submission.scoring_team_id,
             teams: options.coachData.value?.match.teams,
           }),
+          outcomeSide: outcome.side,
+          outcomeTeamLabel: outcome.teamLabel,
           startCaptureTimeUs: range.startCaptureTimeUs,
           endCaptureTimeUs: range.endCaptureTimeUs,
           // Timeline key points are editorial truth. AI contacts belong to the
@@ -282,6 +318,14 @@ export function createAnnotationWorkstationModelService(
         (draft.id === currentRallyId && ['OPEN', 'READY'].includes(options.state.value))
       )
         return []
+      const outcome = timelineOutcomeMetadata({
+        scoreResolution: draft.score_resolution,
+        scoringCourtSide: draft.scoring_court_side,
+        scoringTeamId: draft.scoring_team_id,
+        leftTeamId: draft.left_team_id ?? leftTeamId.value,
+        rightTeamId: draft.right_team_id ?? rightTeamId.value,
+        teams: options.coachData.value?.match.teams,
+      })
       return [
         {
           id: draft.id,
@@ -297,6 +341,8 @@ export function createAnnotationWorkstationModelService(
             scoringTeamId: draft.scoring_team_id,
             teams: options.coachData.value?.match.teams,
           }),
+          outcomeSide: outcome.side,
+          outcomeTeamLabel: outcome.teamLabel,
           startCaptureTimeUs: range.startCaptureTimeUs,
           endCaptureTimeUs: range.endCaptureTimeUs,
           points: draft.key_points.map(point => ({
@@ -400,15 +446,49 @@ export function createAnnotationWorkstationModelService(
         ? `第 ${currentAnnotationRally.value.display_set_number} 局 · 回合 ${displayOrdinalFor(currentAnnotationRally.value.id)}`
         : null,
   )
+  const currentOutcomeSource = computed(
+    () => currentAnnotationDraft.value ?? currentAnnotationRally.value?.submission ?? null,
+  )
+  const currentOutcomeSideTeamIds = computed(() => ({
+    left: currentOutcomeSource.value?.left_team_id ?? leftTeamId.value,
+    right: currentOutcomeSource.value?.right_team_id ?? rightTeamId.value,
+  }))
+  const currentOutcomeScoringTeamId = computed(() => {
+    const snapshot = options.displayAnnotation.value?.snapshot
+    const source = currentOutcomeSource.value
+    if (!snapshot || !source) return null
+    return source?.score_resolution === snapshot?.score_resolution &&
+      source?.scoring_court_side === snapshot?.scoring_court_side
+      ? source.scoring_team_id
+      : null
+  })
   const currentMaskOutcome = computed(() => {
     const snapshot = options.displayAnnotation.value?.snapshot
+    const teams = options.coachData.value?.match.teams
+    const currentLeftTeam = teams?.find(team => team.id === currentOutcomeSideTeamIds.value.left)
+    const currentRightTeam = teams?.find(team => team.id === currentOutcomeSideTeamIds.value.right)
     return annotationOutcomeLabel({
       scoreResolution: snapshot?.score_resolution,
       scoringCourtSide: snapshot?.scoring_court_side,
-      leftLabel: leftTeam.value?.shortName ?? leftTeam.value?.name ?? '左隊',
-      rightLabel: rightTeam.value?.shortName ?? rightTeam.value?.name ?? '右隊',
+      scoringTeamId: currentOutcomeScoringTeamId.value,
+      teams,
+      leftLabel: currentLeftTeam?.shortName ?? currentLeftTeam?.name ?? '左隊',
+      rightLabel: currentRightTeam?.shortName ?? currentRightTeam?.name ?? '右隊',
     })
   })
+  const currentMaskOutcomeMetadata = computed(() => {
+    const snapshot = options.displayAnnotation.value?.snapshot
+    return timelineOutcomeMetadata({
+      scoreResolution: snapshot?.score_resolution,
+      scoringCourtSide: snapshot?.scoring_court_side,
+      scoringTeamId: currentOutcomeScoringTeamId.value,
+      leftTeamId: currentOutcomeSideTeamIds.value.left,
+      rightTeamId: currentOutcomeSideTeamIds.value.right,
+      teams: options.coachData.value?.match.teams,
+    })
+  })
+  const currentMaskOutcomeSide = computed(() => currentMaskOutcomeMetadata.value.side)
+  const currentMaskOutcomeTeamLabel = computed(() => currentMaskOutcomeMetadata.value.teamLabel)
   const cursorRally = computed(
     () => submittedRallies.value.find(rally => rally.id === options.cursorRallyId.value) ?? null,
   )
@@ -562,6 +642,8 @@ export function createAnnotationWorkstationModelService(
     currentMaskStatus,
     currentMaskLabel,
     currentMaskOutcome,
+    currentMaskOutcomeSide,
+    currentMaskOutcomeTeamLabel,
     activeOverlayAnalysisRunId,
     activeOverlayClipStart,
     currentAnnotationDraft,
