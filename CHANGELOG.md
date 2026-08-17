@@ -1,5 +1,15 @@
 # Changelog
 
+## [1.2.0](https://github.com/henry753951/volleyball-monitoring-ai/compare/v1.1.0...v1.2.0) (2026-08-17)
+
+
+### Features
+
+* checkpoint annotation, reid, and coach workflow updates ([acacc74](https://github.com/henry753951/volleyball-monitoring-ai/commit/acacc748882157f245deee64117f8d04cb4dc12c))
+* overhaul annotation and coach workflows ([8c10af0](https://github.com/henry753951/volleyball-monitoring-ai/commit/8c10af095acec81c9a6372c191e84f7214b0e722))
+* ship revisioned ReID and resilient annotation workflows ([32194b4](https://github.com/henry753951/volleyball-monitoring-ai/commit/32194b41f6be52f351bf1ca37bd861b56bf399c4))
+* ship revisioned ReID and resilient annotation workflows ([700e893](https://github.com/henry753951/volleyball-monitoring-ai/commit/700e893394f9617c3fd0ab1bddd5c6d81209cb8d))
+
 ## [1.1.0](https://github.com/henry753951/volleyball-monitoring-ai/compare/v1.0.0...v1.1.0) (2026-08-16)
 
 
