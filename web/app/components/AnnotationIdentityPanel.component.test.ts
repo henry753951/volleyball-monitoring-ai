@@ -177,10 +177,22 @@ beforeEach(() => {
       unresolved_count: 0,
     },
   })
-  coachClient.requestReidFeatureRebuild.mockResolvedValue({ status: 'QUEUED' })
-  coachClient.reidFeatureRebuildRequest.mockResolvedValue({ status: 'COMPLETED' })
-  coachClient.requestReidAssociationRerun.mockResolvedValue({ status: 'QUEUED' })
-  coachClient.reidAssociationRerunRequest.mockResolvedValue({ status: 'COMPLETED' })
+  coachClient.requestReidFeatureRebuild.mockResolvedValue({
+    request_id: 'feature-request',
+    status: 'QUEUED',
+  })
+  coachClient.reidFeatureRebuildRequest.mockResolvedValue({
+    request_id: 'feature-request',
+    status: 'COMPLETED',
+  })
+  coachClient.requestReidAssociationRerun.mockResolvedValue({
+    request_id: 'association-request',
+    status: 'QUEUED',
+  })
+  coachClient.reidAssociationRerunRequest.mockResolvedValue({
+    request_id: 'association-request',
+    status: 'COMPLETED',
+  })
 })
 
 describe('AnnotationIdentityPanel ReID assignments', () => {
@@ -196,6 +208,7 @@ describe('AnnotationIdentityPanel ReID assignments', () => {
     expect(coachClient.requestReidAssociationRerun).toHaveBeenCalledWith(
       expect.objectContaining({ analysisRunId: 'analysis-1' }),
     )
+    expect(coachClient.reidAssociationRerunRequest).toHaveBeenCalledWith('association-request')
     expect(wrapper.text()).toContain('球員重新配對完成')
 
     await wrapper
@@ -211,6 +224,31 @@ describe('AnnotationIdentityPanel ReID assignments', () => {
     expect(wrapper.text()).toContain('速度較快')
     expect(wrapper.text()).toContain('耗時較久')
     wrapper.unmount()
+  })
+
+  it('stops the foreground spinner when a background ReID request stays queued', async () => {
+    vi.useFakeTimers()
+    coachClient.reidAssociationRerunRequest.mockResolvedValue({
+      request_id: 'association-request',
+      status: 'QUEUED',
+    })
+    const wrapper = mountPanel()
+    await flushPromises()
+
+    await wrapper
+      .findAll('button')
+      .find(button => button.text().includes('用現有資料再配對'))!
+      .trigger('click')
+    await flushPromises()
+    expect(wrapper.find('.identity-auto .spin').exists()).toBe(true)
+
+    await vi.advanceTimersByTimeAsync(30_001)
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('已停止等待，不會一直佔用畫面')
+    expect(wrapper.find('.identity-auto .spin').exists()).toBe(false)
+    wrapper.unmount()
+    vi.useRealTimers()
   })
 
   it('shows GID confidence and the complete team roster, including bench players', async () => {

@@ -40,6 +40,8 @@ interface IdentityAssignmentState {
   }
 }
 
+const REID_JOB_FOREGROUND_WAIT_MS = 30_000
+
 export function createIdentityAssignmentControllerService(
   options: IdentityAssignmentControllerOptions,
   service: IdentityAssignmentService,
@@ -388,6 +390,7 @@ export function createIdentityAssignmentControllerService(
     kind: 'feature' | 'association',
     requestId: string,
     generation: number,
+    foregroundDeadline: number,
   ) {
     try {
       const request =
@@ -412,17 +415,37 @@ export function createIdentityAssignmentControllerService(
           (kind === 'feature' ? '重新分析球員外觀失敗' : '使用現有資料重新配對失敗')
         return
       }
+      if (Date.now() >= foregroundDeadline) {
+        state.reidJobAction = null
+        state.reidJobResult =
+          kind === 'feature'
+            ? '外觀分析仍在背景佇列；已停止等待，不影響人工指派。稍後可重新載入查看結果。'
+            : '重新配對仍在背景佇列；已停止等待，不會一直佔用畫面。稍後可重新載入查看結果。'
+        return
+      }
       state.reidJobResult =
         request.status === 'RUNNING'
           ? kind === 'feature'
             ? '正在重新分析此片段的球員外觀；仍可繼續人工指派。'
             : '正在使用現有資料重新配對球員；仍可繼續人工指派。'
           : '球員辨識工作已排入佇列；仍可繼續人工指派。'
-      jobPollTimer = setTimeout(() => void pollReidJob(kind, requestId, generation), 2_000)
+      jobPollTimer = setTimeout(
+        () => void pollReidJob(kind, requestId, generation, foregroundDeadline),
+        2_000,
+      )
     } catch {
       if (generation !== jobPollGeneration) return
+      if (Date.now() >= foregroundDeadline) {
+        state.reidJobAction = null
+        state.reidJobResult =
+          '背景工作狀態暫時無法取得；已停止等待，不會繼續轉圈。稍後可重新載入查看結果。'
+        return
+      }
       state.reidJobResult = '暫時無法取得背景工作狀態，系統會自動重試。'
-      jobPollTimer = setTimeout(() => void pollReidJob(kind, requestId, generation), 4_000)
+      jobPollTimer = setTimeout(
+        () => void pollReidJob(kind, requestId, generation, foregroundDeadline),
+        4_000,
+      )
     }
   }
 
@@ -435,20 +458,30 @@ export function createIdentityAssignmentControllerService(
     state.error = null
     const requestId = crypto.randomUUID()
     try {
+      let acceptedRequestId: string = requestId
       if (kind === 'feature')
-        await service.requestReidFeatureRebuild({
-          requestId,
-          analysisRunId,
-          reason: 'operator requested feature rebuild from annotation identity panel',
-        })
+        acceptedRequestId = (
+          await service.requestReidFeatureRebuild({
+            requestId,
+            analysisRunId,
+            reason: 'operator requested feature rebuild from annotation identity panel',
+          })
+        ).request_id
       else
-        await service.requestReidAssociationRerun({
-          requestId,
-          analysisRunId,
-          reason: 'operator requested association rerun from annotation identity panel',
-        })
+        acceptedRequestId = (
+          await service.requestReidAssociationRerun({
+            requestId,
+            analysisRunId,
+            reason: 'operator requested association rerun from annotation identity panel',
+          })
+        ).request_id
       const generation = jobPollGeneration
-      await pollReidJob(kind, requestId, generation)
+      await pollReidJob(
+        kind,
+        acceptedRequestId,
+        generation,
+        Date.now() + REID_JOB_FOREGROUND_WAIT_MS,
+      )
     } catch (cause) {
       state.reidJobAction = null
       state.error =

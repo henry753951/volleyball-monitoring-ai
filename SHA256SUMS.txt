@@ -24,8 +24,8 @@ e306667ef441d0bb093af3d7a309c61e54391747ad33d0d705d80b99bc8b82c2  ./CHANGELOG.md
 177e1be9647e5258c94b91bf0b67ff6e68b2c1e65d4fa4d8cd8bb0360c3b0efe  ./bun.lock
 8b74c55d8a5b3cb19a3895bceac26f25beadb50a911d93cde8adf129ecc68bf0  ./bunfig.toml
 c9a12d0a9f0f2a50a56abb479a9d254b28a5882011f820cfab40bcd17623c1ff  ./docs/ANNOTATION_INTERACTION_LOCK_MATRIX.md
-8717f744ce49be08137fb174af37febe19db1f0ef546291c3006c1a58a6e1f6a  ./docs/ANNOTATION_WORKSTATION_USER_FLOWS_AND_REID_EVOLUTION.md
-aaf8cbce90e6b4b10dec21d4360632dcd195306f2531f01a2c822af02a25e8a0  ./docs/ARCHITECTURE.md
+565ccbd6fc24b6af2e1c1462bfab6e0429bd65d5224233d635efa4a68487629c  ./docs/ANNOTATION_WORKSTATION_USER_FLOWS_AND_REID_EVOLUTION.md
+de8470c37662d002eb281c31edc592cd8d22a2df5a09ab681838a6b79ffd8cf6  ./docs/ARCHITECTURE.md
 5064ad78918aef6e8801cfdbe99056a87ffaa8d4629baa3e439e2441060bebed  ./docs/DEVELOPMENT.md
 34ecb7efd5ad308eecc226224d37f6e112f93008eaed95331a2ddaf7d2281f7f  ./docs/HUMAN_BALL_EVENTS_AND_COACH_REPLAY_SPEC.md
 8203b610a4f1b0ac35db3ca876d389df20e7114cee82a7c6b2bacc2152b88e2c  ./docs/IMPLEMENTATION_AUDIT.md
@@ -34,7 +34,7 @@ f9b9ad5995fb3a64625e2b6137ef80be10aca326f3798315836730e4c3f875d8  ./docs/MAIN_AG
 56a5070a04306d0e1f8fcf7b010bb161709cc732bc6babd9e6b89efe490fd0b8  ./docs/MASTER_IMPLEMENTATION_SPEC.md
 1921fe3d4a5752ed1b180fd15c2a8389ea2befd4089e11d5bad849a6e21feee8  ./docs/OPERATIONS_RUNBOOK.md
 e4e85bfa1b1e469512872db4e304b386740838e463ac79f9ad9c1ddf1ca4d8dd  ./docs/REFERENCE_EDITOR_AUDIT.md
-dd863c0eed93358b2d67cbc31816af341bc3edb1c5c7638295d1f21a61c9cd29  ./docs/REID_EVIDENCE_AND_HUMAN_CORRECTION_GUIDE.md
+63194fda6f8a2b4b6ae60da5b0885c1753f98cb0e9cbe77f5535fdb6e2f20f0b  ./docs/REID_EVIDENCE_AND_HUMAN_CORRECTION_GUIDE.md
 e13b88557c1b82b4203ac7ffec3e8cedf622c019a93ee8fca76a1c09a6117e24  ./docs/RELEASE.md
 56a5070a04306d0e1f8fcf7b010bb161709cc732bc6babd9e6b89efe490fd0b8  ./docs/SYSTEM_SPEC_V3_2.md
 af47e8e09928beadb589c5c4ca5fc48bc06d5572b0138cdaef6557d557737b63  ./docs/SYSTEM_SPEC_V3_2.pdf
@@ -84,9 +84,10 @@ bd98b6f98147a574f148efd205d8adecb66b6273323f3d43364e734b051fa38b  ./docs/adr/003
 9519080f8175afe5d84d7699d9926a956f1e12c0382dde338d7d09a2f41f7333  ./docs/adr/0041-exact-frame-correction-reuse.md
 5219c8d7948e2f2b4f8a9634af8da4ea2e76ad808085dbfe8a1cdeb931026f7a  ./docs/adr/0042-soft-lineup-gid-binding-and-selective-local-reid.md
 64111a8b4c8cb73e503752f6b1463eaa28f306b4ce41868c3c4b73db6bee157e  ./docs/adr/0043-contextual-receive-events-and-repair-notices.md
-7dd9299619cc3e3e8850ddb8da77d3d6b0872f6088506a45be2e4be12fa4b0a3  ./docs/adr/0044-active-unbound-gids-revisioned-corrections-and-central-jersey-assistance.md
+b786c228d02f92db28257e45156072835060b3c140b016bce93bd69e3d01b5e7  ./docs/adr/0044-active-unbound-gids-revisioned-corrections-and-central-jersey-assistance.md
 feadbb0c3edaf78ff06190a00c0449c995366958380321f5f9a4c841963b2ad1  ./docs/adr/0045-server-side-coach-highlight-exports.md
 5ffefa700d7937d0d28bbea255d171289d23f629d959c422712137a4de3a21a6  ./docs/adr/0046-manual-ball-results-and-conservative-third-point-inference.md
+91faedaf72ce29d7f9204cf81cb63edf0a02f7f33170df8e0a888d03c24b9ddf  ./docs/adr/0047-capped-team-gids-and-bounded-rerun-wait.md
 1471a871f7a25b384d246420a5ce8b2c3fcb45c3691e40e1807be5dd8a276dd9  ./docs/open-decisions.md
 ea371b3583374623c9e2f70b4c1844bd70f0b5f3433ee88846e7807df4e99caa  ./docs/progress.md
 a163ed77cd3cdba34d8c137786b4c165516bd66e723836fd6e85341c7e03f610  ./docs/requirements-matrix.md
@@ -445,7 +446,7 @@ ef704d25cdbf44b75131a8f96beec4633616115f10b3a874c9879895ec2e6119  ./server/src/s
 de75ad15a3c0fc9e95aebad72d15a60d4bea41bf217b143a2b5331c512d1e47a  ./server/src/services/processing-rally-cancellation.ts
 fe9c161a8c254e92b03662c850a86b90bc5d8ff21ad5b4d5602252846d112330  ./server/src/services/provider-jobs.ts
 7e986d335f4b39f6d0e12a50e851a2b706a7fb8c5df1b028b4211d031c2b308a  ./server/src/services/rally-administration.ts
-39216a9da21ce3a957c9e7ce83a494ec5fa84f7e79b421183909ca5b2dcb3b29  ./server/src/services/reid-association-rerun.ts
+b3dfdd7e6ec10f5f0647b3283acc82bd7c3e1879e9cf1a68d97866b2d2da6bec  ./server/src/services/reid-association-rerun.ts
 754a67cf89f64badd4e983c286af70599390ab0babc4896dedead34919c5e07e  ./server/src/services/reid-automatic-assignment.ts
 8810692b150e6b699f6cffddba4540cec8568d6625ab01713efd540d2127b33b  ./server/src/services/reid-feature-rebuild.ts
 ae50456b5bb2dbeb1fe3d5b7c23cd5b2f1f941c56f3164cc040413a27b4a775e  ./server/src/services/reid-identity-ledger.ts
@@ -485,6 +486,7 @@ ac9ad1bfc262db9e8712701e199ea75f12b717321e2bfe850db6f4d548a64cbf  ./server/tests
 036b2097f136c29da7ae7499aa68435ae83e05b1c8f0fa7fd2518a02d5b3607b  ./server/tests/provider-work-ws.test.ts
 ee243449bca6aff8b1c5585d0be6fa1e18f7837c1f107db9e7d14af69f476f0f  ./server/tests/rally-administration.integration.test.ts
 6f8b531951229a78651e06bf9feeef95222687d620eea7fc81c3e53e523088eb  ./server/tests/readiness.test.ts
+7c70a18703330d902b85bf7e8f4d80bc9e714d546b337d9bbb359f4edf456342  ./server/tests/reid-association-rerun.test.ts
 cc6f9229a0467a5adbb94897a994560603b5015f55757dcff2e36e4ddad38b2d  ./server/tests/reid-identity-ledger.test.ts
 3dcdcf57fb6a7be25e55415ba67c050902e011cda1fedc0b841a6cd449382fdd  ./server/tests/sample-index-repository.integration.test.ts
 e0be22452769991a6b1ca215dc1a2498a19b00b4b31aadf7c1886c008e4e4f03  ./server/tests/sample-snap-resolver.test.ts
@@ -503,7 +505,7 @@ d0195a8a1308641e58df14d7f374e94d8779560036353a1eaa439cff3dc32e81  ./web/app/comp
 b9f20cf62141d41a44787e268fcc856923c98d241267e929ac6f1348b69677fa  ./web/app/components/AnnotationCommandStrip.test.ts
 9503c12905a51b5782037a7d53061d1fbd81c0ddf7551d260131c209990ba3fb  ./web/app/components/AnnotationCommandStrip.vue
 e2d7c832bcdd9962125705eedcf6d19ce225032d71be33628f47b48a2191c02d  ./web/app/components/AnnotationConnectionDialog.vue
-d62d10289122d3c1bb1bf996610a8f06ff820f2ac1cb757b018aed5d64584a46  ./web/app/components/AnnotationIdentityPanel.component.test.ts
+b41e38bc24fd9666e0137e12f0e9f945941d20a067d6c882dcebbfac3aefe3ec  ./web/app/components/AnnotationIdentityPanel.component.test.ts
 4b0b59ec28c39a1a2f946fa32d2201f9f7c04eea3a7d54f2f793c875fdaaf398  ./web/app/components/AnnotationIdentityPanel.vue
 7e681efef861c6cb68a969af00ea7e31ca92e894b12926806122d6c57d2e2223  ./web/app/components/AnnotationMatchInspector.component.test.ts
 074484a4b71211bb47b99d2bf397c4d5f487faeeb2fe07d84b90bdd9dbe4d89b  ./web/app/components/AnnotationMatchInspector.vue
@@ -667,7 +669,7 @@ b96226d384265ffccc2d57a041c6e64fb2d9368b19f83ad35d28880a48c327ab  ./web/app/serv
 2601c15ee3c0f494b07c29d68152e066d66da197547b8938ae7dbf50fb7025a1  ./web/app/services/annotation-workstation/correction-flow.service.test.ts
 9364c00ed8e3fe809f207309cba2bac02b8f16b81e76306161bbcfc4dac8f19f  ./web/app/services/annotation-workstation/correction-flow.service.ts
 dd2a1db6fdf15cc5de568052a6a19191582247ee854d85cc799d304d78500c46  ./web/app/services/annotation-workstation/dvr-playback.service.ts
-b1f93daa1bbe51c2401f84454bbd2488684eeb78e6dad83bc87cb15e49f37108  ./web/app/services/annotation-workstation/identity-assignment-controller.service.ts
+0f5e390eef4bb06ec583cb65a942eb1dbd28c0ee6dd5ec4d42e9b22af3e049c1  ./web/app/services/annotation-workstation/identity-assignment-controller.service.ts
 d6959eda603a493d5403f8e934df0568fb89d92da746159f0ddde0fc8fcd956e  ./web/app/services/annotation-workstation/identity-assignment.service.ts
 dee3d5e96123c28d2b5c52b8c6c2806ef6aa51b946149ae7915a5b191dbc9fc3  ./web/app/services/annotation-workstation/key-point-editing.service.test.ts
 582306287b4381cad7d2f645bd26378ea1462b891e5b381bf07a248c43604d13  ./web/app/services/annotation-workstation/key-point-editing.service.ts
@@ -795,7 +797,7 @@ fcc50db29865f4346ebc3eeb4a8508df3fd5641dd060802bfa4a1c0989b27c7f  ./worker/src/r
 156a0252f44c02372cb6df55d33e1b1c62319eb70c4a36f2762b76777b64b1d9  ./worker/src/roles/outbox-publisher.ts
 c3a3cfe8c76f3bb5412e96e67e1f55c024376826c68f0433d03035cdd0c4374b  ./worker/src/roles/playback-packager.ts
 586884934a4c2de76dd0d1c8613fc06e1aa036c35d9feb06f39b6614d9c366df  ./worker/src/roles/provider-analysis-materializer.ts
-eb0cf6b8d000aee2cf20ffd77a5cf81e04cdd130cae75d380ae96417dfd098a7  ./worker/src/roles/reid-association-worker.ts
+8628a00d3cbf1c6d1b836a99a9fa904c6af1226225f442f167397ba6f3e14359  ./worker/src/roles/reid-association-worker.ts
 c2a5f56120d9bfa105f8ae14b5367542088725400fc3aea6c007ea76dff9be12  ./worker/src/roles/reid-feature-worker.ts
 d7a59f2700ed370d163f791f6e8dd815f0ebcd6dee63b178fedd1fdb0b0bfc73  ./worker/src/runtime-health.ts
 01bd54f0eab93c8a852ae693f77166097296c10611ab0ec51cbfe62e390dc419  ./worker/src/services/contact-actor-association.ts
@@ -830,8 +832,8 @@ b9cf9414f98539dfa7e723f03a3fd3e89ee006f95b165a7c312774c011523761  ./worker/tests
 d1d7daea44352999a0d33acc1e396a431c769c0dc1f97029b09e27dbc6dfe1f9  ./worker/tests/prisma-ingest-repository.integration.test.ts
 e2e4376e7a51da8664e5acc9e9b47e21102f47275612f8053ed87a3e7176aa72  ./worker/tests/provider-analysis-materializer.test.ts
 b6bfa38a3a17208e0dd392366184a369cff62ba41cc5271a90b1195a30019da5  ./worker/tests/reid-artifacts.test.ts
-115752a9f81ac1cfa6fdd85a29c714bf6ca8ac73d98df380b4fcc997cba60be9  ./worker/tests/reid-association-seed-policy.test.ts
-fd42ab87fac47cba1060bf0dbf233f37cb6b4999198f68c700a9c14b64809fea  ./worker/tests/reid-association-worker.test.ts
+6448d3e0e01a8856d7cac309ef4005ee85a1de51f5137395fcb5fcf9294cd904  ./worker/tests/reid-association-seed-policy.test.ts
+998a2122d702afe9a9d12734ac370f133d119c3859651551938ca59b90d6e00d  ./worker/tests/reid-association-worker.test.ts
 67829669a62b9df50a6fddb656d7022cbdb29f4cc819f51425b4e67662dcbb78  ./worker/tests/reid-feature-worker.test.ts
 71294ae25a9fe9530a17e039c7a11e64359f0be841dae963c5433f41e5c79c99  ./worker/tests/resolvers.test.ts
 17d706ad7805027bfc4dfc7eed1d68726fa9f328ab62d217a72f6a77f42cd4d0  ./worker/tests/runtime-health.test.ts
