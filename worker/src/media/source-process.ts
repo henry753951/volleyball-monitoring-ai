@@ -225,7 +225,12 @@ async function segmentInputs(
     await existingPrefix(destination, work.segmentBaseAt),
   )
   const startPublished = published
-  const seekSeconds = Number(work.resumeCaptureTimeUs) / 1_000_000
+  // Keep the base checkpoint immutable for this ffmpeg invocation. The runtime
+  // observer updates the shared work object after every durable segment; using
+  // that mutable value below would repeatedly add each relative segment end and
+  // make the persisted checkpoint grow quadratically.
+  const resumeCaptureTimeUs = work.resumeCaptureTimeUs
+  const seekSeconds = Number(resumeCaptureTimeUs) / 1_000_000
   const videoCodec =
     codec === 'h264' || codec.startsWith('avc')
       ? ['-c:v', 'copy']
@@ -294,7 +299,7 @@ async function segmentInputs(
         await copyFile(join(segments, name), temporary)
         await rename(temporary, target)
         published += 1
-        await observer.resumed(published, work.resumeCaptureTimeUs + relativeEndUs)
+        await observer.resumed(published, resumeCaptureTimeUs + relativeEndUs)
       }
       await new Promise(resolvePromise => setTimeout(resolvePromise, 100))
     }
@@ -316,7 +321,7 @@ async function segmentInputs(
       await copyFile(join(segments, name), temporary)
       await rename(temporary, target)
       published += 1
-      await observer.resumed(published, work.resumeCaptureTimeUs + relativeEndUs)
+      await observer.resumed(published, resumeCaptureTimeUs + relativeEndUs)
     }
     if (signal.aborted) throw abortError()
     if (code !== 0)

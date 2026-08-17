@@ -1,6 +1,9 @@
 import type { PrismaClient } from '@volleyball-monitoring/db'
 import { describe, expect, it } from 'vitest'
-import { mediaSourceRetryDelay } from '../src/media/source-runtime.js'
+import {
+  mediaSourceCheckpointProgressed,
+  mediaSourceRetryDelay,
+} from '../src/media/source-runtime.js'
 import {
   claimDrainingMediaSourceWork,
   claimMediaSourceWork,
@@ -44,6 +47,12 @@ describe('media source work scheduling', () => {
     expect(mediaSourceRetryDelay('YOUTUBE_UPCOMING', 100, 5)).toBe(30_000)
     expect(mediaSourceRetryDelay('MEDIA_COMMAND_FAILED', 4, 5)).toBe(8_000)
     expect(mediaSourceRetryDelay('MEDIA_COMMAND_FAILED', 5, 5)).toBeNull()
+  })
+
+  it('resets a bounded retry budget only after the durable VOD checkpoint advances', () => {
+    expect(mediaSourceCheckpointProgressed(182, 910_023_242n, 183, 915_023_242n)).toBe(true)
+    expect(mediaSourceCheckpointProgressed(182, 910_023_242n, 182, 910_023_242n)).toBe(false)
+    expect(mediaSourceCheckpointProgressed(182, 910_023_242n, 183, 910_023_242n)).toBe(false)
   })
 
   it('selects cleanup candidates only after every expected artifact is durable', async () => {
@@ -122,7 +131,7 @@ describe('recordMediaSourceRelayError', () => {
     ])
   })
 
-  it('resets the durable retry budget only after OME observes the source online', async () => {
+  it('resets the durable retry budget after independently observed source progress', async () => {
     const updates: unknown[] = []
     const database = {
       mediaSourceWork: {

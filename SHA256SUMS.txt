@@ -29,7 +29,7 @@ de8470c37662d002eb281c31edc592cd8d22a2df5a09ab681838a6b79ffd8cf6  ./docs/ARCHITE
 5064ad78918aef6e8801cfdbe99056a87ffaa8d4629baa3e439e2441060bebed  ./docs/DEVELOPMENT.md
 34ecb7efd5ad308eecc226224d37f6e112f93008eaed95331a2ddaf7d2281f7f  ./docs/HUMAN_BALL_EVENTS_AND_COACH_REPLAY_SPEC.md
 8203b610a4f1b0ac35db3ca876d389df20e7114cee82a7c6b2bacc2152b88e2c  ./docs/IMPLEMENTATION_AUDIT.md
-fda3c030b94d3b9f82cfe52676a13f31dcd609db370b5889dd1edcaa22b51482  ./docs/K3S_SINGLE_NODE_DEPLOYMENT_RUNBOOK.md
+086a3a9ea249f8f5beb9a6f4f3444f87505601688d3246702bc5a8a5f5c09872  ./docs/K3S_SINGLE_NODE_DEPLOYMENT_RUNBOOK.md
 e6c02ed30df0282dc72794bb100e206781a59343aaa404f1723f7140321d49f0  ./docs/LUNA_WORKER_SETUP_PROMPT.md
 f9b9ad5995fb3a64625e2b6137ef80be10aca326f3798315836730e4c3f875d8  ./docs/MAIN_AGENT_PROMPT.md
 56a5070a04306d0e1f8fcf7b010bb161709cc732bc6babd9e6b89efe490fd0b8  ./docs/MASTER_IMPLEMENTATION_SPEC.md
@@ -785,8 +785,8 @@ a6963dfcaa0edeedf2a38241497cde1767394cde679fd9d273fd0cc7631a389c  ./worker/src/m
 704a6ec9d1f3ad7a9a169d4c4570abca0df3722785cdc42b252d17005cc1016f  ./worker/src/media/resolvers.ts
 0ef8816759e32280799293409f84387132b38037509e84f70e17f56697cfc04d  ./worker/src/media/runtime-config.ts
 8f0a7c3f8c163da69d5c7be0980cadfedbc6515477416fe2f0a4cc7e8f3c4f3d  ./worker/src/media/sample-index.ts
-af5c09987bc33b92e5f94b7422d0e1c987b68b3811364cd805abd08de4e3f0d3  ./worker/src/media/source-process.ts
-b4bceb60ff91da18e45d5a36cfe5dbd7f84ba7a8d9fa9b9b78f77072b483c2a1  ./worker/src/media/source-runtime.ts
+3d8ec3e87e8383c3fce48b49833cb9366ac27a2aac2917dc193748b356b4290b  ./worker/src/media/source-process.ts
+2b0302c72c0bc848a266b4d67a34c42b3f7dd029484f24af6273e9b6da9f2a7c  ./worker/src/media/source-runtime.ts
 b394dce230d8bda754bd3381b0896f986934f03b9849a453ff229fb598c2d0a7  ./worker/src/media/source-work.ts
 e0055e5de69b1a90ddf83147a4379f8aaad8a9e0442e094795147b961f19ed37  ./worker/src/media/tiered-media-object-store.ts
 4b27e8aa77a6d9389034ee7992fa6ea0335241284e40735e99c27487a95cec67  ./worker/src/role-entry.ts
@@ -840,9 +840,9 @@ b6bfa38a3a17208e0dd392366184a369cff62ba41cc5271a90b1195a30019da5  ./worker/tests
 67829669a62b9df50a6fddb656d7022cbdb29f4cc819f51425b4e67662dcbb78  ./worker/tests/reid-feature-worker.test.ts
 71294ae25a9fe9530a17e039c7a11e64359f0be841dae963c5433f41e5c79c99  ./worker/tests/resolvers.test.ts
 17d706ad7805027bfc4dfc7eed1d68726fa9f328ab62d217a72f6a77f42cd4d0  ./worker/tests/runtime-health.test.ts
-8d6092395233a40270a384eccb94298948ab65974e30a89ea8fedf28f98307b7  ./worker/tests/source-process.test.ts
+6c4566af47b123f5c2c06aa1847e3ebf5ae8fce80ea1aa1e117d0fcd5f73be92  ./worker/tests/source-process.test.ts
 874f3358339702b24d6316137491ef442e6eb91add9dce7285f2b9511b993e4d  ./worker/tests/source-spool-cleanup.test.ts
-23a9e5fc657e402a0cace54753c9114e96e637a9e8d385f2e224be2bab9e3599  ./worker/tests/source-work.test.ts
+a543e3a9502114060cf01e2c0033e0e933640329117abeaa712be7c2ab995e32  ./worker/tests/source-work.test.ts
 ccbee74b054bcf5797d688a953f79e25e9a06475a9d7e5ab667ac71d651f0036  ./worker/tests/tiered-media-object-store.test.ts
 22e12a48428727df3b345bdea5a2e64d07ba1f18786c1cc0254be05d2b8f597a  ./worker/tests/worker-role.test.ts
 bf965cadbe608882bb633aab551c09a5649024541df8357ecf142fe1f2af27a2  ./worker/tests/workflow-composition.test.ts

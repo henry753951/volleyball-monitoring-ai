@@ -133,26 +133,30 @@ describe('media source process', () => {
         youtubeFormat: 'best',
         youtubeVodFormat: 'best',
       })
+      const work = {
+        attempts: 1,
+        captureSessionId: captureId,
+        id: '92000000-0000-4000-8000-000000000002',
+        importKey: `${captureId}/source.mp4`,
+        ingestPath: 'fixture-court',
+        resumeCaptureTimeUs: 0n,
+        resumeSegmentIndex: 0,
+        segmentBaseAt: new Date('2026-08-09T06:00:00.000Z'),
+        sourceKind: 'local_mp4',
+        sourceUrl: null,
+        status: 'RUNNING',
+      } as const
       const result = await run(
-        {
-          attempts: 1,
-          captureSessionId: captureId,
-          id: '92000000-0000-4000-8000-000000000002',
-          importKey: `${captureId}/source.mp4`,
-          ingestPath: 'fixture-court',
-          resumeCaptureTimeUs: 0n,
-          resumeSegmentIndex: 0,
-          segmentBaseAt: new Date('2026-08-09T06:00:00.000Z'),
-          sourceKind: 'local_mp4',
-          sourceUrl: null,
-          status: 'RUNNING',
-        },
+        work,
         {
           classified: async value => {
             classified.push(value)
           },
           resumed: async (segmentIndex, captureTimeUs) => {
             resumed.push({ captureTimeUs, segmentIndex })
+            // Match MediaSourceRuntime: durable checkpoint callbacks update the
+            // shared claimed-work object while the process is still publishing.
+            ;(work as { resumeCaptureTimeUs: bigint }).resumeCaptureTimeUs = captureTimeUs
           },
         },
         new AbortController().signal,
@@ -164,6 +168,7 @@ describe('media source process', () => {
       expect(classified).toHaveLength(1)
       expect(resumed.at(-1)?.segmentIndex).toBe(result.expectedSegments)
       expect(resumed.at(-1)?.captureTimeUs).toBeGreaterThanOrEqual(4_000_000n)
+      expect(resumed.at(-1)?.captureTimeUs).toBeLessThan(5_000_000n)
       expect(resumed.at(-1)?.captureTimeUs).not.toBe(BigInt(result.expectedSegments) * 2_000_000n)
       expect(files).toHaveLength(result.expectedSegments)
       expect(files.every(name => /^2026-08-09_06-00-\d{2}-\d{6}\.mp4$/.test(name))).toBe(true)
