@@ -45,7 +45,7 @@ describe('ReID association materialization boundary', () => {
         bankSnapshot: {
           teamId: 'team-a',
           revision: 7n,
-          derivationVersion: 'human-confirmed-seed-v4',
+          derivationVersion: 'active-history-capped-gid-v5',
         },
       },
       {
@@ -53,7 +53,7 @@ describe('ReID association materialization boundary', () => {
         bankSnapshot: {
           teamId: 'team-b',
           revision: 9n,
-          derivationVersion: 'human-confirmed-seed-v4',
+          derivationVersion: 'active-history-capped-gid-v5',
         },
       },
     ]
@@ -71,7 +71,7 @@ describe('ReID association materialization boundary', () => {
         bankSnapshot: {
           teamId: 'team-a',
           revision: 7n,
-          derivationVersion: 'human-confirmed-seed-v4',
+          derivationVersion: 'active-history-capped-gid-v5',
         },
       },
     ]

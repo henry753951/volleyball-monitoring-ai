@@ -47,7 +47,13 @@ export async function requestReidAssociationRerun(
   const run = await database.analysisRun.findUnique({
     where: { id: input.analysisRunId },
     select: {
-      submission: { select: { rally: { select: { matchId: true } } } },
+      submission: {
+        select: {
+          rally: {
+            select: { matchId: true, match: { select: { identityRevision: true } } },
+          },
+        },
+      },
       reidEvidenceSets: {
         where: { status: ArtifactState.READY, supersededAt: null, tracklets: { some: {} } },
         select: { id: true },
@@ -73,14 +79,66 @@ export async function requestReidAssociationRerun(
       })
     return { ...projection(existing), match_id: run.submission.rally.matchId }
   }
-  const created = await database.reidAssociationRerunRequest.create({
-    data: {
-      id: input.requestId,
+  // Only one foreground/background rerun may be active for an analysis run. Identity revisions can
+  // advance while an older provider job is still queued, so revision-only deduplication otherwise
+  // creates another spinner target and another provider job on every click.
+  const active = await database.reidAssociationRerunRequest.findFirst({
+    where: {
       analysisRunId: input.analysisRunId,
-      requestedByUserId: input.userId,
-      reason: input.reason?.trim().slice(0, 1_000) || null,
+      status: { in: [JobStatus.QUEUED, JobStatus.RUNNING] },
+    },
+    orderBy: { createdAt: 'desc' },
+  })
+  if (active) return { ...projection(active), match_id: run.submission.rally.matchId }
+  const requestedIdentityRevision = run.submission.rally.match.identityRevision
+  const sameRevision = await database.reidAssociationRerunRequest.findUnique({
+    where: {
+      analysisRunId_requestedIdentityRevision: {
+        analysisRunId: input.analysisRunId,
+        requestedIdentityRevision,
+      },
     },
   })
+  if (sameRevision) {
+    const reusable =
+      sameRevision.status === JobStatus.FAILED || sameRevision.status === JobStatus.CANCELLED
+        ? await database.reidAssociationRerunRequest.update({
+            where: { id: sameRevision.id },
+            data: {
+              status: JobStatus.QUEUED,
+              requestedByUserId: input.userId,
+              reason: input.reason?.trim().slice(0, 1_000) || null,
+              errorMessage: null,
+              startedAt: null,
+              completedAt: null,
+            },
+          })
+        : sameRevision
+    return { ...projection(reusable), match_id: run.submission.rally.matchId }
+  }
+  let created
+  try {
+    created = await database.reidAssociationRerunRequest.create({
+      data: {
+        id: input.requestId,
+        analysisRunId: input.analysisRunId,
+        requestedByUserId: input.userId,
+        requestedIdentityRevision,
+        reason: input.reason?.trim().slice(0, 1_000) || null,
+      },
+    })
+  } catch (error) {
+    if (!(error && typeof error === 'object' && 'code' in error && error.code === 'P2002'))
+      throw error
+    created = await database.reidAssociationRerunRequest.findUniqueOrThrow({
+      where: {
+        analysisRunId_requestedIdentityRevision: {
+          analysisRunId: input.analysisRunId,
+          requestedIdentityRevision,
+        },
+      },
+    })
+  }
   return { ...projection(created), match_id: run.submission.rally.matchId }
 }
 

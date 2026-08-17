@@ -107,7 +107,7 @@ type AssociationRevisionRun = {
   bankSnapshot: { teamId: string; revision: bigint; derivationVersion: string }
 }
 
-const REID_BANK_DERIVATION_VERSION = 'human-confirmed-seed-v4'
+const REID_BANK_DERIVATION_VERSION = 'active-history-capped-gid-v5'
 
 export function isReidBankSeedMembership(input: {
   evidenceState: ReidEvidenceState
@@ -116,17 +116,209 @@ export function isReidBankSeedMembership(input: {
   currentSetNumber: number
   currentRallyOrdinal: number
 }) {
+  const isPrior = beforePosition(
+    input.setNumber,
+    input.rallyOrdinal,
+    input.currentSetNumber,
+    input.currentRallyOrdinal,
+  )
+  if (input.evidenceState === ReidEvidenceState.UNVERIFIED) return isPrior
   return (
     input.evidenceState === ReidEvidenceState.CONFIRMED &&
-    (beforePosition(
-      input.setNumber,
-      input.rallyOrdinal,
-      input.currentSetNumber,
-      input.currentRallyOrdinal,
-    ) ||
+    (isPrior ||
       (input.setNumber === input.currentSetNumber &&
         input.rallyOrdinal === input.currentRallyOrdinal))
   )
+}
+
+export type CappedGidTracklet = {
+  id: string
+  firstFrameIndex: bigint
+  lastFrameIndex: bigint
+  cannotLinkTrackletIds: string[]
+}
+
+export type CappedGidDecision = Record<string, unknown> & {
+  tracklet_id: string
+  action: 'MATCH_EXISTING_GID' | 'CREATE_NEW_GID'
+  selected_person_cluster_id: string | null
+  selected_roster_entry_id: string | null
+  new_gid_group_key: string | null
+  confidence: number
+  candidates: Record<string, unknown>[]
+}
+
+export type CappedGidResolution = {
+  trackletId: string
+  personClusterKey: string
+  createGroupKey: string | null
+  rosterEntryId: string | null
+  confidence: number
+  providerAction: 'MATCH_EXISTING_GID' | 'CREATE_NEW_GID'
+}
+
+/**
+ * A range overlap by itself is not proof that two Local IDs were observed together because a
+ * tracklet may contain missed detections. Overflow capacity therefore requires the provider's
+ * symmetric CO_VISIBILITY cannot-link evidence as well as overlapping canonical-frame ranges.
+ * A clique is a set in which every Local ID is proven distinct from every other Local ID; interval
+ * pairwise overlap then guarantees that their inclusive presence ranges share a frame.
+ */
+export function maximumSameFrameTeamCount(tracklets: CappedGidTracklet[]) {
+  if (tracklets.length === 0) return 0
+  const neighbors = new Map(tracklets.map(tracklet => [tracklet.id, new Set<string>()]))
+  for (let leftIndex = 0; leftIndex < tracklets.length; leftIndex += 1) {
+    const left = tracklets[leftIndex]!
+    for (let rightIndex = leftIndex + 1; rightIndex < tracklets.length; rightIndex += 1) {
+      const right = tracklets[rightIndex]!
+      const rangesOverlap =
+        left.firstFrameIndex <= right.lastFrameIndex && right.firstFrameIndex <= left.lastFrameIndex
+      const coVisible =
+        left.cannotLinkTrackletIds.includes(right.id) &&
+        right.cannotLinkTrackletIds.includes(left.id)
+      if (!rangesOverlap || !coVisible) continue
+      neighbors.get(left.id)!.add(right.id)
+      neighbors.get(right.id)!.add(left.id)
+    }
+  }
+
+  let maximum = 1
+  const search = (cliqueSize: number, candidates: string[]) => {
+    if (cliqueSize + candidates.length <= maximum) return
+    while (candidates.length > 0) {
+      if (cliqueSize + candidates.length <= maximum) return
+      const candidate = candidates.shift()!
+      const nextSize = cliqueSize + 1
+      maximum = Math.max(maximum, nextSize)
+      search(
+        nextSize,
+        candidates.filter(id => neighbors.get(candidate)!.has(id)),
+      )
+    }
+  }
+  search(
+    0,
+    tracklets.map(tracklet => tracklet.id),
+  )
+  return maximum
+}
+
+/**
+ * Central is the final persistence gate for GIDs. Provider CREATE_NEW_GID responses are proposals:
+ * the first six team GIDs may be materialized, and an overflow slot is legal only when the current
+ * evidence proves that many same-team Local IDs on one canonical frame. Once the pool is full,
+ * candidate-ranked existing GIDs are reused in-memory and no new ReidPersonCluster row is created.
+ */
+export function planCappedGidResolutions(input: {
+  decisions: CappedGidDecision[]
+  tracklets: CappedGidTracklet[]
+  existingGids: Array<{ id: string; rosterEntryId: string | null }>
+  baselineCount?: number
+}) {
+  const baselineCount = input.baselineCount ?? 6
+  const allowedCount = Math.max(baselineCount, maximumSameFrameTeamCount(input.tracklets))
+  const existingPool = input.existingGids.slice(0, allowedCount)
+  const rosterByCluster = new Map(existingPool.map(gid => [gid.id, gid.rosterEntryId]))
+  const slotKeys = existingPool.map(gid => gid.id)
+  for (let index = existingPool.length; index < allowedCount; index += 1)
+    slotKeys.push(`__new_gid_slot_${index + 1}`)
+
+  const trackletsById = new Map(input.tracklets.map(tracklet => [tracklet.id, tracklet]))
+  const assignedTrackletsBySlot = new Map<string, string[]>()
+  const newSlotByProviderGroup = new Map<string, string>()
+  const resolutions = new Map<string, CappedGidResolution>()
+  const ordered = [...input.decisions].sort((left, right) => {
+    const leftTracklet = trackletsById.get(left.tracklet_id)
+    const rightTracklet = trackletsById.get(right.tracklet_id)
+    if (!leftTracklet || !rightTracklet) return left.tracklet_id.localeCompare(right.tracklet_id)
+    if (leftTracklet.firstFrameIndex !== rightTracklet.firstFrameIndex)
+      return leftTracklet.firstFrameIndex < rightTracklet.firstFrameIndex ? -1 : 1
+    return left.tracklet_id.localeCompare(right.tracklet_id)
+  })
+
+  for (const decision of ordered) {
+    const tracklet = trackletsById.get(decision.tracklet_id)
+    if (!tracklet)
+      throw new ReidAssociationMaterializationError(
+        'capped GID policy is missing an eligible tracklet',
+        false,
+      )
+    const candidates = [...decision.candidates].sort(
+      (left, right) =>
+        Number(left.rank ?? Number.MAX_SAFE_INTEGER) -
+        Number(right.rank ?? Number.MAX_SAFE_INTEGER),
+    )
+    const candidateByCluster = new Map(
+      candidates
+        .filter(candidate => typeof candidate.person_cluster_id === 'string')
+        .map(candidate => [String(candidate.person_cluster_id), candidate]),
+    )
+    const preferred: string[] = []
+    if (
+      decision.action === 'MATCH_EXISTING_GID' &&
+      decision.selected_person_cluster_id &&
+      slotKeys.includes(decision.selected_person_cluster_id)
+    )
+      preferred.push(decision.selected_person_cluster_id)
+    if (decision.action === 'CREATE_NEW_GID' && decision.new_gid_group_key) {
+      const existingNewSlot = newSlotByProviderGroup.get(decision.new_gid_group_key)
+      if (existingNewSlot) preferred.push(existingNewSlot)
+      else {
+        const availableNewSlot = slotKeys.find(
+          slot =>
+            slot.startsWith('__new_gid_slot_') &&
+            ![...newSlotByProviderGroup.values()].includes(slot),
+        )
+        if (availableNewSlot) {
+          newSlotByProviderGroup.set(decision.new_gid_group_key, availableNewSlot)
+          preferred.push(availableNewSlot)
+        }
+      }
+    }
+    preferred.push(
+      ...candidates.map(candidate => String(candidate.person_cluster_id ?? '')).filter(Boolean),
+    )
+    preferred.push(...slotKeys)
+
+    const selectedSlot = [...new Set(preferred)].find(slot => {
+      if (!slotKeys.includes(slot)) return false
+      const occupants = assignedTrackletsBySlot.get(slot) ?? []
+      return occupants.every(occupantId => {
+        const occupant = trackletsById.get(occupantId)
+        return !(
+          tracklet.cannotLinkTrackletIds.includes(occupantId) ||
+          occupant?.cannotLinkTrackletIds.includes(tracklet.id)
+        )
+      })
+    })
+    if (!selectedSlot)
+      throw new ReidAssociationMaterializationError(
+        `same-frame team occupancy requires more than ${allowedCount} GIDs`,
+        false,
+      )
+    const occupants = assignedTrackletsBySlot.get(selectedSlot) ?? []
+    occupants.push(tracklet.id)
+    assignedTrackletsBySlot.set(selectedSlot, occupants)
+    const selectedCandidate = candidateByCluster.get(selectedSlot)
+    resolutions.set(tracklet.id, {
+      trackletId: tracklet.id,
+      personClusterKey: selectedSlot,
+      createGroupKey: selectedSlot.startsWith('__new_gid_slot_') ? selectedSlot : null,
+      rosterEntryId: selectedSlot.startsWith('__new_gid_slot_')
+        ? null
+        : (rosterByCluster.get(selectedSlot) ??
+          (typeof selectedCandidate?.roster_entry_id === 'string'
+            ? selectedCandidate.roster_entry_id
+            : null)),
+      confidence:
+        typeof selectedCandidate?.confidence === 'number'
+          ? selectedCandidate.confidence
+          : decision.confidence,
+      providerAction: decision.action,
+    })
+  }
+
+  return { allowedCount, resolutions }
 }
 
 export function hasReidAssociationRevision(
@@ -150,7 +342,11 @@ export function hasReidAssociationRerun(
   rerunRequestId: string,
 ) {
   return runs.some(
-    run => run.rerunRequestId === rerunRequestId && run.bankSnapshot.teamId === teamId,
+    run =>
+      run.status !== JobStatus.CANCELLED &&
+      run.status !== JobStatus.FAILED &&
+      run.rerunRequestId === rerunRequestId &&
+      run.bankSnapshot.teamId === teamId,
   )
 }
 
@@ -164,7 +360,7 @@ async function latestApplicableBankRevision(
   const [memberships, bindings] = await Promise.all([
     database.reidEvidenceMembership.findMany({
       where: {
-        evidenceState: ReidEvidenceState.CONFIRMED,
+        evidenceState: { in: [ReidEvidenceState.CONFIRMED, ReidEvidenceState.UNVERIFIED] },
         personCluster: { matchId, teamId, supersededRevision: null },
         supersededByMemberships: { none: {} },
         tracklet: { vectors: { some: {} } },
@@ -242,99 +438,6 @@ function oneArtifact(artifacts: AssociationArtifact[], kind: string) {
       false,
     )
   return matches[0]!
-}
-
-async function activateUnknownSideTracklets(
-  database: PrismaClient,
-  input: {
-    evidenceSetId: string
-    analysisRunId: string
-    matchId: string
-    setNumber: number
-    rallyOrdinal: number
-  },
-) {
-  return database.$transaction(async tx => {
-    await tx.$queryRaw`SELECT id FROM "Match" WHERE id = ${input.matchId}::uuid FOR UPDATE`
-    const tracklets = await tx.reidTracklet.findMany({
-      where: {
-        evidenceSetId: input.evidenceSetId,
-        courtSide: TrackCourtSide.UNKNOWN,
-        activeProjection: { is: null },
-      },
-      select: { id: true },
-    })
-    if (tracklets.length === 0) return false
-    let revision = (
-      await tx.match.findUniqueOrThrow({
-        where: { id: input.matchId },
-        select: { identityRevision: true },
-      })
-    ).identityRevision
-    const nextRevision = () => (revision += 1n)
-    for (const tracklet of tracklets) {
-      const personClusterId = randomUUID()
-      await tx.reidPersonCluster.create({
-        data: {
-          id: personClusterId,
-          matchId: input.matchId,
-          teamId: null,
-          canonicalRosterEntryId: null,
-          label: `GID ${personClusterId.slice(0, 8)}`,
-          createdRevision: nextRevision(),
-        },
-      })
-      await tx.reidGidRosterBindingRevision.create({
-        data: {
-          matchId: input.matchId,
-          personClusterId,
-          rosterEntryId: null,
-          source: IdentitySource.AI,
-          revision: nextRevision(),
-          effectiveFromSetNumber: input.setNumber,
-          effectiveFromRallyOrdinal: input.rallyOrdinal,
-        },
-      })
-      await tx.reidEvidenceMembership.create({
-        data: {
-          personClusterId,
-          trackletId: tracklet.id,
-          rosterEntryId: null,
-          evidenceState: ReidEvidenceState.UNVERIFIED,
-          evidenceRole: ReidEvidenceRole.POSITIVE,
-          weight: 0.35,
-          sourceRevision: nextRevision(),
-        },
-      })
-      const assignment = await tx.reidAssignmentRevision.create({
-        data: {
-          matchId: input.matchId,
-          analysisRunId: input.analysisRunId,
-          trackletId: tracklet.id,
-          personClusterId,
-          rosterEntryId: null,
-          source: IdentitySource.AI,
-          sourcePriority: 100,
-          revision: nextRevision(),
-          effectiveFromSetNumber: input.setNumber,
-          effectiveFromRallyOrdinal: input.rallyOrdinal,
-        },
-      })
-      await tx.reidActiveProjection.create({
-        data: {
-          analysisRunId: input.analysisRunId,
-          trackletId: tracklet.id,
-          assignmentRevisionId: assignment.id,
-          sourcePriority: 100,
-        },
-      })
-    }
-    await tx.match.update({
-      where: { id: input.matchId },
-      data: { identityRevision: revision },
-    })
-    return true
-  })
 }
 
 async function readJsonArtifact(storage: WorkflowMinio, artifact: AssociationArtifact) {
@@ -454,10 +557,46 @@ export async function scheduleReidAssociation(
           'ReID association provider failed',
       },
     })
-  const rerunRequest = await database.reidAssociationRerunRequest.findFirst({
-    where: { status: { in: [JobStatus.QUEUED, JobStatus.RUNNING] } },
+  // A RUNNING request can legitimately wait on an external provider for minutes. Only select it
+  // again when one of its evidence-set teams has not been scheduled; otherwise it would starve the
+  // entire global poller while its already-created ProviderJob is in flight.
+  const queuedRerunRequest = await database.reidAssociationRerunRequest.findFirst({
+    where: { status: JobStatus.QUEUED },
     orderBy: { createdAt: 'asc' },
   })
+  const runningRerunRequests = queuedRerunRequest
+    ? []
+    : await database.reidAssociationRerunRequest.findMany({
+        where: { status: JobStatus.RUNNING },
+        orderBy: { createdAt: 'asc' },
+        take: 100,
+        include: {
+          associationRuns: { select: { bankSnapshot: { select: { teamId: true } } } },
+          analysisRun: {
+            select: {
+              submission: { select: { leftTeamId: true, rightTeamId: true } },
+              reidEvidenceSets: {
+                where: { status: ArtifactState.READY, supersededAt: null },
+                orderBy: { createdAt: 'desc' },
+                take: 1,
+                select: { tracklets: { select: { courtSide: true } } },
+              },
+            },
+          },
+        },
+      })
+  const actionableRunningRequest = runningRerunRequests.find(request => {
+    const evidenceSet = request.analysisRun.reidEvidenceSets[0]
+    if (!evidenceSet) return true
+    const scheduledTeams = new Set(request.associationRuns.map(run => run.bankSnapshot.teamId))
+    const expectedTeams = new Set<string>()
+    if (evidenceSet.tracklets.some(tracklet => tracklet.courtSide === TrackCourtSide.LEFT))
+      expectedTeams.add(request.analysisRun.submission.leftTeamId)
+    if (evidenceSet.tracklets.some(tracklet => tracklet.courtSide === TrackCourtSide.RIGHT))
+      expectedTeams.add(request.analysisRun.submission.rightTeamId)
+    return [...expectedTeams].some(teamId => !scheduledTeams.has(teamId))
+  })
+  const rerunRequest = queuedRerunRequest ?? actionableRunningRequest
   const candidates = await database.reidEvidenceSet.findMany({
     where: {
       status: ArtifactState.READY,
@@ -491,18 +630,6 @@ export async function scheduleReidAssociation(
       analysisRun: { include: { submission: { include: { rally: true } } } },
     },
   })
-  let activatedUnknownTracklets = false
-  for (const evidenceSet of candidates) {
-    const submission = evidenceSet.analysisRun.submission
-    activatedUnknownTracklets =
-      (await activateUnknownSideTracklets(database, {
-        evidenceSetId: evidenceSet.id,
-        analysisRunId: evidenceSet.analysisRunId,
-        matchId: submission.rally.matchId,
-        setNumber: submission.rally.displaySetNumber,
-        rallyOrdinal: submission.rally.ordinal,
-      })) || activatedUnknownTracklets
-  }
   let selected:
     | {
         evidenceSet: (typeof candidates)[number]
@@ -559,7 +686,7 @@ export async function scheduleReidAssociation(
         return true
       }
     }
-    return activatedUnknownTracklets
+    return false
   }
 
   const { evidenceSet, teamId, eligibleTrackletIds } = selected
@@ -616,7 +743,7 @@ export async function scheduleReidAssociation(
   const memberships = (
     await database.reidEvidenceMembership.findMany({
       where: {
-        evidenceState: ReidEvidenceState.CONFIRMED,
+        evidenceState: { in: [ReidEvidenceState.CONFIRMED, ReidEvidenceState.UNVERIFIED] },
         personCluster: { matchId, teamId, supersededRevision: null },
         supersededByMemberships: { none: {} },
       },
@@ -982,7 +1109,10 @@ export async function materializeReidAssociationResult(
   const { eligible, decisions } = planReidAssociationDecisions(request, result)
   const runContext = await database.reidAssociationRun.findUnique({
     where: { providerJobId: providerJob.id },
-    include: { bankSnapshot: { include: { manifestAsset: true } } },
+    include: {
+      bankSnapshot: { include: { manifestAsset: true } },
+      evidenceSet: { select: { analysisRunId: true } },
+    },
   })
   if (
     !runContext ||
@@ -1054,10 +1184,15 @@ export async function materializeReidAssociationResult(
         false,
       )
   }
-  const [eligibleTracklets, clusterCount, rosterCount] = await Promise.all([
+  const [eligibleTracklets, clusterCount, rosterCount, activeTeamGids] = await Promise.all([
     database.reidTracklet.findMany({
       where: { id: { in: [...eligible] } },
-      select: { id: true, cannotLinkTrackletIds: true },
+      select: {
+        id: true,
+        firstFrameIndex: true,
+        lastFrameIndex: true,
+        cannotLinkTrackletIds: true,
+      },
     }),
     database.reidPersonCluster.count({
       where: {
@@ -1074,6 +1209,54 @@ export async function materializeReidAssociationResult(
           in: decisions
             .map(decision => decision.selected_roster_entry_id)
             .filter((value): value is string => typeof value === 'string'),
+        },
+      },
+    }),
+    database.reidPersonCluster.findMany({
+      where: {
+        matchId: runContext.bankSnapshot.matchId,
+        teamId: runContext.bankSnapshot.teamId,
+        supersededRevision: null,
+      },
+      select: {
+        id: true,
+        canonicalRosterEntryId: true,
+        createdAt: true,
+        assignmentRevisions: {
+          where: {
+            analysisRunId: runContext.evidenceSet.analysisRunId,
+            activeProjection: { is: { analysisRunId: runContext.evidenceSet.analysisRunId } },
+          },
+          select: { sourcePriority: true },
+          take: 1,
+        },
+        memberships: {
+          where: {
+            evidenceState: ReidEvidenceState.CONFIRMED,
+            supersededByMemberships: { none: {} },
+          },
+          select: { id: true },
+          take: 1,
+        },
+        bindingRevisions: {
+          where: {
+            OR: [
+              { effectiveFromSetNumber: { lt: runContext.bankSnapshot.asOfSetNumber } },
+              {
+                effectiveFromSetNumber: runContext.bankSnapshot.asOfSetNumber,
+                effectiveFromRallyOrdinal: {
+                  lte: runContext.bankSnapshot.asOfRallyOrdinal,
+                },
+              },
+            ],
+          },
+          orderBy: [
+            { effectiveFromSetNumber: 'desc' },
+            { effectiveFromRallyOrdinal: 'desc' },
+            { revision: 'desc' },
+          ],
+          select: { rosterEntryId: true, source: true },
+          take: 1,
         },
       },
     }),
@@ -1097,33 +1280,35 @@ export async function materializeReidAssociationResult(
       'association result references unknown database rows',
       false,
     )
-  const trackletsByResolvedGid = new Map<string, string[]>()
-  for (const decision of decisions) {
-    const resolvedGidKey =
-      decision.action === 'MATCH_EXISTING_GID'
-        ? `existing:${String(decision.selected_person_cluster_id)}`
-        : `new:${String(decision.new_gid_group_key)}`
-    const rows = trackletsByResolvedGid.get(resolvedGidKey) ?? []
-    rows.push(String(decision.tracklet_id))
-    trackletsByResolvedGid.set(resolvedGidKey, rows)
-  }
-  const cannotLinksByTracklet = new Map(
-    eligibleTracklets.map(tracklet => [tracklet.id, new Set(tracklet.cannotLinkTrackletIds)]),
-  )
-  for (const trackletIds of trackletsByResolvedGid.values())
-    for (let leftIndex = 0; leftIndex < trackletIds.length; leftIndex += 1)
-      for (let rightIndex = leftIndex + 1; rightIndex < trackletIds.length; rightIndex += 1) {
-        const leftId = trackletIds[leftIndex]!
-        const rightId = trackletIds[rightIndex]!
-        if (
-          cannotLinksByTracklet.get(leftId)?.has(rightId) ||
-          cannotLinksByTracklet.get(rightId)?.has(leftId)
-        )
-          throw new ReidAssociationMaterializationError(
-            'co-visible tracklets cannot share the same resolved GID',
-            false,
-          )
-      }
+  const orderedTeamGids = activeTeamGids
+    .map(gid => ({
+      ...gid,
+      rosterEntryId: gid.bindingRevisions[0]?.rosterEntryId ?? gid.canonicalRosterEntryId,
+      currentPriority: gid.assignmentRevisions[0]?.sourcePriority ?? -1,
+      manuallyGrounded:
+        gid.memberships.length > 0 ||
+        gid.canonicalRosterEntryId !== null ||
+        gid.bindingRevisions[0]?.source === IdentitySource.MANUAL,
+    }))
+    .sort((left, right) => {
+      const leftCurrentManual = left.currentPriority >= 1_000
+      const rightCurrentManual = right.currentPriority >= 1_000
+      if (leftCurrentManual !== rightCurrentManual) return leftCurrentManual ? -1 : 1
+      const leftCurrent = left.currentPriority >= 0
+      const rightCurrent = right.currentPriority >= 0
+      if (leftCurrent !== rightCurrent) return leftCurrent ? -1 : 1
+      if (left.manuallyGrounded !== right.manuallyGrounded) return left.manuallyGrounded ? -1 : 1
+      const created = left.createdAt.getTime() - right.createdAt.getTime()
+      return created || left.id.localeCompare(right.id)
+    })
+  const gidPolicy = planCappedGidResolutions({
+    decisions: decisions as CappedGidDecision[],
+    tracklets: eligibleTracklets,
+    existingGids: orderedTeamGids.map(gid => ({
+      id: gid.id,
+      rosterEntryId: gid.rosterEntryId,
+    })),
+  })
   return database.$transaction(async tx => {
     const run = await tx.reidAssociationRun.findUnique({
       where: { providerJobId: providerJob.id },
@@ -1158,6 +1343,12 @@ export async function materializeReidAssociationResult(
       for (const decision of decisions) {
         const tracklet = tracklets.get(String(decision.tracklet_id))
         if (!tracklet) continue
+        const resolution = gidPolicy.resolutions.get(tracklet.id)
+        if (!resolution)
+          throw new ReidAssociationMaterializationError(
+            'capped GID policy did not resolve an eligible tracklet',
+            false,
+          )
         const active = await tx.reidActiveProjection.findFirst({
           where: {
             analysisRunId: run.evidenceSet.analysisRunId,
@@ -1172,18 +1363,13 @@ export async function materializeReidAssociationResult(
         if (active && active.sourcePriority >= 1_000) continue
         revision += 1n
         let personClusterId: string
-        let rosterEntryId: string | null
-        if (decision.action === 'MATCH_EXISTING_GID') {
-          personClusterId = String(decision.selected_person_cluster_id)
-          rosterEntryId =
-            typeof decision.selected_roster_entry_id === 'string'
-              ? decision.selected_roster_entry_id
-              : null
+        const rosterEntryId = resolution.rosterEntryId
+        if (resolution.createGroupKey === null) {
+          personClusterId = resolution.personClusterKey
         } else {
-          const groupKey = String(decision.new_gid_group_key)
+          const groupKey = resolution.createGroupKey
           const existingCreatedId = createdClusterByGroup.get(groupKey)
           personClusterId = existingCreatedId ?? randomUUID()
-          rosterEntryId = null
           if (!existingCreatedId) {
             createdClusterByGroup.set(groupKey, personClusterId)
             await tx.reidPersonCluster.create({
@@ -1223,7 +1409,7 @@ export async function materializeReidAssociationResult(
             rosterEntryId,
             evidenceState: ReidEvidenceState.UNVERIFIED,
             evidenceRole: ReidEvidenceRole.POSITIVE,
-            weight: Math.max(0.35, Math.min(0.75, 0.35 + Number(decision.confidence) * 0.4)),
+            weight: Math.max(0.35, Math.min(0.75, 0.35 + resolution.confidence * 0.4)),
             sourceRevision: revision,
             supersedesMembershipId: priorMembership?.id ?? null,
           },
@@ -1269,7 +1455,7 @@ export async function materializeReidAssociationResult(
               rosterEntryId: assignment.rosterEntryId,
               source: IdentitySource.AI,
               assignedByUserId: null,
-              confidence: Number(decision.confidence),
+              confidence: resolution.confidence,
               identityRevision: revision,
             },
             create: {
@@ -1277,7 +1463,7 @@ export async function materializeReidAssociationResult(
               trackId: tracklet.canonicalTrackId,
               rosterEntryId: assignment.rosterEntryId,
               source: IdentitySource.AI,
-              confidence: Number(decision.confidence),
+              confidence: resolution.confidence,
               identityRevision: revision,
             },
           })
@@ -1292,30 +1478,38 @@ export async function materializeReidAssociationResult(
       }
       await tx.match.update({ where: { id: matchId }, data: { identityRevision: revision } })
     }
-    for (const decision of decisions)
+    for (const decision of decisions) {
+      const resolution = gidPolicy.resolutions.get(String(decision.tracklet_id))
+      if (!resolution)
+        throw new ReidAssociationMaterializationError(
+          'capped GID policy did not resolve an association decision',
+          false,
+        )
       await tx.reidAssociationDecision.create({
         data: {
           associationRunId: run.id,
           trackletId: String(decision.tracklet_id),
           groupKey: String(decision.group_key),
-          decisionAction: String(decision.action),
-          newGidGroupKey:
-            typeof decision.new_gid_group_key === 'string' ? decision.new_gid_group_key : null,
+          decisionAction:
+            resolution.createGroupKey === null ? 'MATCH_EXISTING_GID' : 'CREATE_NEW_GID',
+          newGidGroupKey: resolution.createGroupKey,
           associationState: ReidAssociationState.RESOLVED,
           selectedPersonClusterId:
-            decision.action === 'CREATE_NEW_GID'
-              ? (createdClusterByGroup.get(String(decision.new_gid_group_key)) ?? null)
-              : String(decision.selected_person_cluster_id),
-          selectedRosterEntryId:
-            typeof decision.selected_roster_entry_id === 'string'
-              ? decision.selected_roster_entry_id
-              : null,
-          confidence: Number(decision.confidence),
+            resolution.createGroupKey === null
+              ? resolution.personClusterKey
+              : (createdClusterByGroup.get(resolution.createGroupKey) ?? null),
+          selectedRosterEntryId: resolution.rosterEntryId,
+          confidence: resolution.confidence,
           candidates: json(decision.candidates),
-          rationale: String(decision.rationale),
+          rationale:
+            resolution.providerAction === decision.action &&
+            (decision.action !== 'CREATE_NEW_GID' || resolution.createGroupKey !== null)
+              ? String(decision.rationale)
+              : `[central capped-GID policy; provider=${String(decision.action)}] ${String(decision.rationale)}`,
           unresolvedReason: null,
         },
       })
+    }
     await tx.reidAssociationRun.update({
       where: { id: run.id },
       data: {

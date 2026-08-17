@@ -4,15 +4,16 @@ Status: ADR 0044 的現行實作指南
 Last verified: 2026-08-17
 Applies to: Central server、workflow worker、provider SDK、analysis engine、database、annotation UI
 
-本文件是後續 agent 修改球員身分功能時的現行基準。舊的固定六槽、ReID worker 內嵌
+本文件是後續 agent 修改球員身分功能時的現行基準。ReID worker 內嵌
 VLM、`NEEDS_REVIEW` 才能啟用 GID、以及「完成球員指派」門檻都不是相容需求。架構決策
 以 [`ADR 0044`](./adr/0044-active-unbound-gids-revisioned-corrections-and-central-jersey-assistance.md)
+與 [`ADR 0047`](./adr/0047-capped-team-gids-and-bounded-rerun-wait.md)
 為準；完整標註與播放 User Flow 在
 [`ANNOTATION_WORKSTATION_USER_FLOWS_AND_REID_EVOLUTION.md`](./ANNOTATION_WORKSTATION_USER_FLOWS_AND_REID_EVOLUTION.md)。
 
 ## 1. 核心目標
 
-- 每個有效 Local ID 都有 active GID；辨識弱時建立 active、unbound GID，不卡 review。
+- 每隊持久化 GID 以六個為基線；辨識弱時先在本次配對陣列重用合法候選，不因片段碎裂持續新增 GID。
 - GID 是跨片段的視覺人物群組，不是球員、背號、左右場固定槽或同時在場六人之一。
 - GID 可不綁球員。只標多少就立即使用多少，沒有全部標完或完成鎖定按鈕。
 - 不同時間出現、沒有共存的 Local/GID 可以綁同一位 roster player。
@@ -64,12 +65,12 @@ flowchart LR
 1. Central 以一個 immutable evidence generation 與明確 bank revision 建立 job。
 2. Provider 只讀 DINO、OSNet、KPR/KPR Prompt、cannot-link、team 與 soft occupancy prior。
 3. 強且合法的候選回傳 `MATCH_EXISTING_GID`。
-4. 其餘一律回傳 `CREATE_NEW_GID`；不回傳 review gate，也不讓 Local 沒有 GID。
+4. Provider 可回傳 `CREATE_NEW_GID` 提案，但 Central 只有在六個基線尚未填滿，或本次 evidence
+   證明同一 frame 同隊超過六個 Local 時才持久化；否則在暫存配對陣列選擇最佳合法既有 GID。
 5. 同片段、非共存且外觀非常接近的 Local 可共享同一個 new-GID group；Central 再次驗證
    cannot-link，Provider 不能繞過硬衝突。
-6. 自動 membership 寫成 `UNVERIFIED`，可供目前 UI/投影顯示，但不得進 eligible bank、不得成為
-   後續片段的學習種子。人工確認後才建立 `CONFIRMED` vector membership，並進入下一個 immutable
-   bank snapshot。GID 的 active 狀態不依賴 evidence trust 狀態。
+6. 自動 membership 寫成低權重 `UNVERIFIED`，可供目前 UI/投影與較晚片段的候選匹配；不得回餵
+   同一回合自己的 association。人工確認後建立較高權威的 `CONFIRMED` vector membership。
 7. 人工 projection priority 是 1000，自動是 100。舊 job、重跑或晚到 callback 都不能蓋掉
    人工修正。
 8. bank snapshot 只收錄實際含 vector 的 `CONFIRMED` membership。單獨的 GID-player binding、沒有
@@ -81,14 +82,14 @@ flowchart LR
 
 ### 2.3 六人與場側
 
-六人只是一個 soft on-court occupancy prior：
+六人是 Central 的持久化 GID 基線上限：
 
-- 短暫辨識七人時，第七個有效 Local 仍建立 GID，不刪除、不偷用、不位移既有 GID。
+- 只有同一 canonical frame 同隊真的存在第七個有效 Local 時，才可建立第七個 GID。
 - 少辨識一人時只是少一個觀測，不做槽位補位。
-- 同 frame 共存是硬 cannot-link；六人數量不是硬限制。
+- 同 frame 共存是硬 cannot-link；不同時間累積的 track fragment 不得增加 GID 數量。
 - court side/team 取穩定時間聚合，短暫飄移不能改寫人物歷史。
-- `court_side=UNKNOWN` 不猜隊伍；Central 直接建立 team-null 的 active unbound GID，等人工指派時再確定隊伍。
-- match-long GID 數量可以大於六，包含替補、自由球員、false split 與待人工修正群組。
+- `court_side=UNKNOWN` 不猜隊伍，也不建立 team-null 持久 GID；等隊伍證據或人工指派後再處理。
+- match-long team GID 只有在已有 same-frame overflow evidence 時才可大於六。
 
 ## 3. Durable job 邊界
 
@@ -122,7 +123,10 @@ detector、DeepEIOU、SAM3、court、ball、action 或 Pose。
 
 ### 4.2 ReID 重跑與狀態
 
-- `重新配對` 是非阻塞工作：畫面顯示「正在以既有 evidence 重新配對」，但人工 Select 仍可立即保存。
+- `重新配對` 是非阻塞工作：畫面顯示「正在以既有 evidence 重新配對」，但人工 Select 仍可立即保存；
+  前景等待最多 30 秒，逾時即停止 spinner 並說明工作可能仍在背景進行。
+- 同一個 AnalysisRun 同時最多一筆 `QUEUED` 或 `RUNNING` 重新配對；重複點擊沿用伺服器回傳的
+  canonical request ID，不得堆疊另一筆背景工作。
 - 完成後顯示「重新配對已完成；人工指派仍保持優先」。自動結果只填未人工確認的 Local。
 - pending 人工種子在 evidence 建立前也算已保存；不得因重整、重跑、失敗 callback 或 stale cleanup 回到未指派。
 - Provider 對同一組 completed output 的並行/重送 callback 必須序列化並視為冪等成功；只有 artifact

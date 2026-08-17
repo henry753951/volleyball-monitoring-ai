@@ -2,14 +2,14 @@
 
 Status: **accepted by the product owner; implementation baseline completed and locally verified; production rollout must be verified independently from live GitOps state**
 Last verified: 2026-08-17
-Implementation authority: **confirmed on 2026-08-15; ADR 0037 governs the implementation**
+Implementation authority: **confirmed on 2026-08-17; ADR 0037 plus ADR 0047 govern the implementation**
 
 This is the single planning document for the two connected workstreams requested by the product
 owner:
 
 1. reliable, client-owned annotation, playback, frame navigation, and marking User Flows; and
 2. a complete ReID redesign with separate durable jobs, reusable person-pose evidence, active
-   unbound GIDs, versioned human corrections, rerunnable association, operator-triggered Central
+   capped team GIDs, versioned human corrections, rerunnable association, operator-triggered Central
    jersey suggestions, dynamic identity previews, and pose-first hitter association.
 
 It consolidates the prior workstation audit, current implementation findings, reported production
@@ -26,6 +26,8 @@ they are not compatibility requirements.
 [`ADR 0044`](./adr/0044-active-unbound-gids-revisioned-corrections-and-central-jersey-assistance.md)
 supersedes every ReID/VLM paragraph in this long-form audit that still mentions forced unresolved or
 review activation, a hard six-player capacity, Provider-owned jersey VLM, or a mapping-complete gate.
+[`ADR 0047`](./adr/0047-capped-team-gids-and-bounded-rerun-wait.md) then amends the GID persistence
+policy: six is the per-team baseline cap and only proven same-frame overflow may increase it.
 The concise current operational guide is
 [`REID_EVIDENCE_AND_HUMAN_CORRECTION_GUIDE.md`](./REID_EVIDENCE_AND_HUMAN_CORRECTION_GUIDE.md).
 
@@ -152,8 +154,8 @@ the coupled fixed-slot ReID path with a reproducible identity-evidence system in
 - association can be rerun without detector, tracker, court, ball, action, or pose inference;
 - human corrections preserve earlier clips, remove known-wrong evidence from future matching, and
   become positive/negative evidence for later clips;
-- every eligible Local receives a reproducible match/new-GID decision from an immutable input
-  snapshot; weak evidence creates an active unbound GID instead of blocking in review; and
+- every eligible team Local receives a reproducible capped-pool decision from an immutable input
+  snapshot; weak evidence reuses the best legal existing candidate after the six-GID pool is full; and
 - hitter association prefers reliable wrist/forearm-to-ball geometry and degrades to the existing
   action-aware bbox path when pose evidence is missing or ambiguous.
 
@@ -224,10 +226,10 @@ must not change these behaviors without an explicit ADR and product-owner approv
 | ---------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `REID-001` | AnalysisRun-local track IDs remain local and are never a cross-clip identity key.                                                                                                                                                 |
 | `REID-002` | Raw tracks, crops, pose, descriptors, and AnalysisData are immutable ReID evidence. Central jersey responses are separate suggestion evidence. Corrections change membership/projection, never raw evidence.                      |
-| `REID-003` | Person identity is match/team scoped and not capped at six. At-most-six simultaneous court constraints are separate from person identity.                                                                                         |
+| `REID-003` | GID identity is match/team scoped with a six-GID persistence baseline. GID seven or later requires immutable evidence of that many same-team Local IDs on one canonical frame.                                                    |
 | `REID-004` | Association consumes an explicit immutable evidence-set version and an explicit eligible-bank snapshot revision; it never reads a moving implicit history.                                                                        |
 | `REID-005` | `UNVERIFIED`, `CONFIRMED`, `REJECTED`, and `QUARANTINED` evidence states are first-class. Unverified automatic errors cannot silently become trusted training history.                                                            |
-| `REID-006` | Every eligible Local receives an active GID. Weak or conflicting appearance creates a new unbound GID; this is usable state, not a review/error gate and never forces a roster player.                                            |
+| `REID-006` | Provider `CREATE_NEW_GID` is only a proposal. Once the allowed pool is full, weak/conflicting appearance is matched against the in-memory candidate pool and does not create another persistent GID.                              |
 | `REID-007` | Manual effective assignments always override automatic projections, including after rerun.                                                                                                                                        |
 | `REID-008` | A correction has separate display scope and future-evidence scope. Fixing the visible player must not accidentally retain a known-wrong feature in that player's future bank.                                                     |
 | `REID-009` | A correction never rewrites an earlier approved clip by default. It creates a new bank snapshot and affects only explicitly selected current/future recompute scopes.                                                             |
@@ -434,6 +436,10 @@ flowchart LR
   AnalysisRun.
 - “套用既有關聯” only reapplies existing active projections. “重新配對” creates an explicit durable
   association rerun. “重新取特徵” creates a new evidence generation while reusing saved Pose.
+- The rerun foreground wait is bounded to 30 seconds. A queued/provider-waiting job may continue in
+  the background, but success, failure, cancellation, timeout, or repeated status errors all stop the spinner.
+- An AnalysisRun has at most one active association rerun. Repeated requests poll the canonical
+  server request ID instead of stacking another queued/provider-waiting job.
 - Clip/dataset download is initiated by the browser but streamed by the server.
 - Rally deletion is a privileged lifecycle action that cancels work and deletes dependent derived
   artifacts without mutating a surviving immutable submission.
@@ -471,8 +477,8 @@ The identity panel is available for a completed AnalysisRun and has two views:
 - **Local assignment**: one player choice per run-local TID. This is the final effective mapping used
   by replay and analytics.
 - **Person-group assignment**: groups TIDs by the current versioned GID proposal and batch-writes
-  effective assignments. The six-player lineup is a soft co-visible capacity, not a permanent L1–R6
-  identity table.
+  effective assignments. Central persists at most six team GIDs unless exact same-frame evidence
+  proves a larger simultaneous count; fragmented tracks are matched in memory against that pool.
 
 Current operator flow:
 
@@ -491,7 +497,7 @@ Current operator flow:
 | Clear player relation                | Append a new effective projection instead of deleting raw evidence                                     | Earlier revisions remain auditable            |
 
 5. Every saved assignment becomes useful immediately. The panel reports `已指派 X/Y` only as
-   progress; unassigned Local IDs retain active unbound GIDs and do not block any workflow.
+   progress; unassigned Local IDs do not block any workflow or force another persistent GID.
 6. There is no “完成球員指派” action or mapping-complete gate.
 
 ## Current player preview behavior
@@ -542,8 +548,8 @@ Remaining limitations:
    worker.
 8. The server creates a new bank snapshot and durable future rematch work. If the worker is offline,
    the UI says the correction is saved and rematch is pending.
-9. When a rematch completes, it may reconnect non-manual tracks or create new active unbound GIDs.
-   It cannot overwrite a manual assignment.
+9. When a rematch completes, it reconnects non-manual tracks to the capped pool. It may create an
+   overflow GID only with same-frame evidence and cannot overwrite a manual assignment.
 10. “重新配對” reuses the selected evidence set and pose. “重新取特徵” creates a new evidence set from
     the same base pose/crops. “使用新的 Pose 模型重建證據” is a separate explicit expensive action.
 
@@ -878,10 +884,10 @@ The accepted default is:
 
 ### Core model decision
 
-The implemented target is the **hybrid identity model**:
+The implemented target is the **capped hybrid identity model**:
 
-- an unbounded match/team-scoped person cluster represents “these observations appear to be the same
-  person” and may later bind to a real `MatchRosterEntry`;
+- a match/team-scoped GID represents “these observations appear to be the same person”, uses a
+  six-GID persistent baseline, and may later bind to a real `MatchRosterEntry`;
 - roster identity/jersey evidence is a binding and candidate signal, not the cluster primary key;
 - co-visibility, side/team, known lineup, and at-most-six active players are association constraints;
   they are not permanent person IDs; and
@@ -1061,7 +1067,7 @@ may rename an entity only with an explicit ADR and full contract/consumer migrat
 | `ReidEvidenceSet`            | One immutable output version for one AnalysisRun and extraction recipe. Multiple versions may coexist; one may be selected for association without deleting others.                                                    |
 | `ReidTrackletEvidence`       | Canonical local tracklet, aliases, frame range, quality, crop/pose manifest, cannot-links, jersey evidence, and descriptor references.                                                                                 |
 | `ReidFeatureVector`          | Per-modality vector with exact namespace, dimension, normalization, distance, content hash, storage representation, and source samples.                                                                                |
-| `ReidPersonCluster`          | Unbounded match/team-scoped appearance cluster; not a slot and not necessarily bound to a roster entry.                                                                                                                |
+| `ReidPersonCluster`          | Match/team-scoped appearance cluster from the capped persistent pool; not necessarily bound to a roster entry.                                                                                                         |
 | `ReidAssociationRun`         | Immutable recipe, scope, evidence IDs, bank snapshot, roster snapshot, input hash, status, metrics, and supersession lineage.                                                                                          |
 | `ReidAssociationDecision`    | Per-tracklet/group candidates, component scores, hard constraints, chosen cluster/roster binding, confidence/calibration version, and unresolved reason.                                                               |
 | `ReidEvidenceMembership`     | Versioned positive membership with `UNVERIFIED/CONFIRMED/REJECTED/QUARANTINED`, source, weight, valid revision range, and correction provenance. Raw evidence is never deleted.                                        |
@@ -1528,8 +1534,8 @@ capacity targets have passed.
 The product owner confirmed the following decisions on 2026-08-15; ADR 0037 records their version and
 cutover consequences:
 
-1. Accept the hybrid identity model: unbounded match/team person clusters plus separate simultaneous
-   court/lineup constraints; remove S1-S6 as active person identity.
+1. Accept the hybrid identity model and remove S1-S6 as named roster identity. Amended on 2026-08-17:
+   each team persists a six-GID baseline pool, with overflow allowed only by same-frame evidence.
 2. Accept person pose as reusable base-analysis evidence for every canonical frame/player
    observation. Moving a contact time then performs only exact-frame evidence recomputation; it never
    starts a hidden pose/model rerun. Frames with no bbox or failed pose keep an explicit missing reason

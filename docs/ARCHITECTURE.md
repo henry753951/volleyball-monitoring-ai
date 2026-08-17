@@ -53,6 +53,8 @@ annotation/ReID rearchitecture under implementation are maintained in
 [`ANNOTATION_WORKSTATION_USER_FLOWS_AND_REID_EVOLUTION.md`](./ANNOTATION_WORKSTATION_USER_FLOWS_AND_REID_EVOLUTION.md).
 The governing version/cutover decision is
 [`ADR 0037`](./adr/0037-versioned-reid-evidence-and-provider-work.md).
+The team-GID persistence cap and bounded rerun lifecycle are governed by
+[`ADR 0047`](./adr/0047-capped-team-gids-and-bounded-rerun-wait.md).
 The implemented job, evidence-generation, correction, rerun, preview, and later-clip bank behavior is
 documented in
 [`REID_EVIDENCE_AND_HUMAN_CORRECTION_GUIDE.md`](./REID_EVIDENCE_AND_HUMAN_CORRECTION_GUIDE.md).

@@ -4,6 +4,9 @@ Status: Accepted
 
 Date: 2026-08-17
 
+Amended by: ADR 0047 for the six-GID team persistence cap, prior automatic-history eligibility, and
+same-frame-only overflow creation.
+
 Supersedes: ADR 0042 sections "Soft six-player lineup prior" and "Human correction" where this
 record defines different activation or correction behavior.
 
