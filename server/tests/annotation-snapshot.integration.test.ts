@@ -104,17 +104,28 @@ describe('annotation snapshot authorization and wire safety', () => {
     expect(rallyWhere).toMatchObject({
       OR: [
         {
-          boundaries: {
-            some: { deviceSessionId: '81000000-0000-4000-8000-000000000010', kind: 'START' },
-          },
+          draftOwnerDeviceSessionId: '81000000-0000-4000-8000-000000000010',
         },
         {
-          keyPoints: {
-            some: {
-              deviceSessionId: '81000000-0000-4000-8000-000000000010',
-              markerKind: 'SERVICE',
+          draftOwnerDeviceSessionId: null,
+          OR: [
+            {
+              boundaries: {
+                some: {
+                  deviceSessionId: '81000000-0000-4000-8000-000000000010',
+                  kind: 'START',
+                },
+              },
             },
-          },
+            {
+              keyPoints: {
+                some: {
+                  deviceSessionId: '81000000-0000-4000-8000-000000000010',
+                  markerKind: 'SERVICE',
+                },
+              },
+            },
+          ],
         },
       ],
     })

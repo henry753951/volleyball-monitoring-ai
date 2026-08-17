@@ -4,7 +4,6 @@ import { describe, expect, it, vi } from 'vitest'
 import {
   getCoachMatchAnalytics,
   observedFrameRangesOverlap,
-  setTrackIdentityMappingComplete,
 } from '../src/services/coach-analytics.js'
 
 describe('coach identity projections', () => {
@@ -153,72 +152,6 @@ describe('coach identity projections', () => {
       gid_slot_index: null,
       roster_entry_id: 'roster-7',
       identity_source: 'manual',
-    })
-  })
-
-  it('does not mark mapping complete before versioned evidence exists', async () => {
-    const tx = {
-      analysisRun: {
-        findUnique: vi.fn().mockResolvedValue({
-          id: 'run-1',
-          status: JobStatus.COMPLETED,
-          submission: {
-            leftTeamId: 'team-left',
-            rightTeamId: 'team-right',
-            rally: { matchId: 'match-1' },
-          },
-        }),
-        update: vi.fn(),
-      },
-      trackIdentityAssignment: { findFirst: vi.fn().mockResolvedValue(null) },
-      reidEvidenceSet: { findFirst: vi.fn().mockResolvedValue(null) },
-    }
-    const database = {
-      $transaction: vi.fn(async (work: (client: typeof tx) => Promise<unknown>) => work(tx)),
-    } as unknown as PrismaClient
-
-    await expect(
-      setTrackIdentityMappingComplete(database, {
-        analysisRunId: 'run-1',
-        completed: true,
-        userId: 'admin-1',
-        role: UserRole.ADMIN,
-      }),
-    ).rejects.toMatchObject({ extensions: { code: 'REID_EVIDENCE_PENDING' } })
-    expect(tx.analysisRun.update).not.toHaveBeenCalled()
-  })
-
-  it('requires every versioned tracklet to have a roster projection', async () => {
-    const tx = {
-      analysisRun: {
-        findUnique: vi.fn().mockResolvedValue({
-          id: 'run-1',
-          status: JobStatus.COMPLETED,
-          submission: {
-            leftTeamId: 'team-left',
-            rightTeamId: 'team-right',
-            rally: { matchId: 'match-1' },
-          },
-        }),
-        update: vi.fn(),
-      },
-      trackIdentityAssignment: { findFirst: vi.fn().mockResolvedValue(null) },
-      reidEvidenceSet: { findFirst: vi.fn().mockResolvedValue({ id: 'evidence-1' }) },
-      reidTracklet: { findFirst: vi.fn().mockResolvedValue({ canonicalTrackId: 12 }) },
-    }
-    const database = {
-      $transaction: vi.fn(async (work: (client: typeof tx) => Promise<unknown>) => work(tx)),
-    } as unknown as PrismaClient
-
-    await expect(
-      setTrackIdentityMappingComplete(database, {
-        analysisRunId: 'run-1',
-        completed: true,
-        userId: 'admin-1',
-        role: UserRole.ADMIN,
-      }),
-    ).rejects.toMatchObject({
-      extensions: { code: 'REID_MANUAL_ASSIGNMENT_REQUIRED', trackId: 12 },
     })
   })
 })

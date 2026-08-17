@@ -19,6 +19,11 @@ interface TeamSummary {
   name: string
 }
 
+interface AnalysisResetTarget {
+  rallyId: string
+  submissionId: string
+}
+
 export interface SegmentManagementServiceOptions {
   matchId: string
   core: CoreDomainClient
@@ -36,6 +41,7 @@ export interface SegmentManagementServiceOptions {
   currentDraft: () => boolean
   sideSwapEffectiveOrdinal: () => number
   selectedRallyId: () => string | null
+  selectedSubmissionId: () => string | null
   clipSelected: () => boolean
   teamById: (teamId: string) => TeamSummary | null
   refreshMatch: () => Promise<void>
@@ -88,14 +94,106 @@ export function createSegmentManagementService(options: SegmentManagementService
     }
   }
 
+  async function removeAnalysis(rallyId: string, submissionId: string, preserveKeyPoints: boolean) {
+    if (deletePending.value) return
+    deletePending.value = true
+    try {
+      if (!preserveKeyPoints) {
+        throw new Error('目前只支援保留 Keypoint 的分析重設')
+      }
+      const receipt = await options.coach.deleteRallyAnalysis(rallyId)
+      options.room.forgetRally(rallyId)
+      await Promise.all([options.refreshMatch(), options.refreshCoach()])
+      await options.timeline.selectHistorical(rallyId, '0')
+      success('分析資料已刪除；片段已回到待送出狀態，START／END 與 Keypoint 已保留')
+      for (const warning of receipt.cleanupWarnings)
+        options.feedback.notify({ level: 'warning', title: warning })
+    } catch (cause) {
+      void options.refreshCoach().catch(() => undefined)
+      throw error(cause, '無法刪除分析結果')
+    } finally {
+      deletePending.value = false
+    }
+  }
+
+  async function resetAnalysisBatch(targets: readonly AnalysisResetTarget[]) {
+    if (deletePending.value) return
+    const uniqueTargets = [...new Map(targets.map(target => [target.rallyId, target])).values()]
+    if (!uniqueTargets.length) return
+    deletePending.value = true
+    const completed: AnalysisResetTarget[] = []
+    const failed: Array<{ target: AnalysisResetTarget; cause: unknown }> = []
+    try {
+      for (const target of uniqueTargets) {
+        try {
+          await options.coach.deleteRallyAnalysis(target.rallyId)
+          options.room.forgetRally(target.rallyId)
+          completed.push(target)
+        } catch (cause) {
+          failed.push({ cause, target })
+        }
+      }
+      await Promise.all([options.refreshMatch(), options.refreshCoach()])
+      const last = completed.at(-1)
+      if (last) {
+        await options.timeline.selectHistorical(last.rallyId, '0')
+        success(`已刪除 ${completed.length} 個片段的分析：START／END 與 Keypoint 已保留`)
+      }
+      if (failed.length) {
+        options.feedback.notify({
+          level: 'error',
+          title: `${failed.length} 個片段無法重設，請重新整理後再試`,
+        })
+      }
+    } finally {
+      deletePending.value = false
+    }
+  }
+
+  function requestBatchAnalysisReset(rallies: readonly CoachRally[]) {
+    const targets = rallies
+      .filter(rally => rally.submission.analysis?.status === 'completed')
+      .map(rally => ({ rallyId: rally.id, submissionId: rally.submission.id }))
+    if (!targets.length || deletePending.value) return
+    options.confirmation.open({
+      id: 'rally-analysis-batch-reset',
+      title: `刪除 ${targets.length} 個片段的分析`,
+      message: `確認後會永久刪除這 ${targets.length} 個片段的 submission、裁切檔與分析資料，再還原成待送出草稿；START／END、Keypoint 與人工球種都會保留。`,
+      confirmLabel: `刪除 ${targets.length} 個分析`,
+      danger: true,
+      onConfirm: () => resetAnalysisBatch(targets),
+    })
+  }
+
+  function requestAnalysisDelete(rallyId: string, submissionId: string) {
+    options.confirmation.open({
+      id: 'rally-analysis-delete',
+      title: '刪除分析並保留標記',
+      message:
+        '會永久刪除 submission、裁切檔與分析資料，片段則回到待送出狀態；START／END、Keypoint 與人工球種都會保留。',
+      confirmLabel: '刪除分析，保留 Keypoint',
+      danger: true,
+      onConfirm: () => removeAnalysis(rallyId, submissionId, true),
+    })
+  }
+
   function requestDelete() {
     const rallyId = options.selectedRallyId()
     if (!options.clipSelected() || !rallyId) return
+    const submissionId = options.selectedSubmissionId()
     options.confirmation.open({
       id: 'rally-delete',
-      title: '永久刪除片段',
-      message: '片段、裁切媒體與分析結果會永久刪除；若仍在處理，工作會先中止。此動作無法復原。',
-      confirmLabel: '永久刪除',
+      title: '刪除片段內容',
+      message: submissionId
+        ? '選擇要刪除的範圍。刪除整個片段會永久移除所有標記；只刪除分析則會保留 START／END 與 Keypoint，並回到待送出狀態。'
+        : '此片段與相關資料會永久刪除；若仍在處理，工作會先中止。此動作無法復原。',
+      confirmLabel: '刪除整個片段',
+      ...(submissionId
+        ? {
+            secondaryLabel: '刪除分析，保留 Keypoint',
+            onSecondary: () => requestAnalysisDelete(rallyId, submissionId),
+          }
+        : {}),
       danger: true,
       onConfirm: () => purge(rallyId),
     })
@@ -281,6 +379,9 @@ export function createSegmentManagementService(options: SegmentManagementService
     deletePending: readonly(deletePending),
     affectsCurrentDraft,
     requestDelete,
+    requestBatchAnalysisReset,
+    resetAnalysisBatch,
+    removeAnalysis,
     purge,
     requestNextSet,
     requestCurrentSideSwap,

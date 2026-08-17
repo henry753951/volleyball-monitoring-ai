@@ -6,6 +6,7 @@ function track(
   trackId: number,
   rosterEntryId: string | null,
   observedFrameRanges: Array<{ start: string; end: string }>,
+  evidenceState?: 'pending' | 'ready' | 'unavailable',
 ) {
   return {
     analysis_run_id: 'run-1',
@@ -26,6 +27,7 @@ function track(
     identity_source: rosterEntryId ? 'manual' : null,
     identity_confidence: null,
     identity_revision: null,
+    identity_evidence_state: evidenceState,
     manual_required: false,
     identity_preview_url: null,
     reid_model: null,
@@ -60,5 +62,11 @@ describe('identity assignment model', () => {
     )
 
     expect(model.track.conflictFor(1, 'roster-1')?.track_id).toBe(2)
+  })
+
+  it('distinguishes a saved manual seed from a versioned human confirmation', () => {
+    const model = modelWithTracks(track(1, 'roster-1', [{ start: '0', end: '10' }], 'pending'))
+
+    expect(model.track.status(model.tracks[0]!).label).toBe('人工已保存 · ReID 待建立')
   })
 })

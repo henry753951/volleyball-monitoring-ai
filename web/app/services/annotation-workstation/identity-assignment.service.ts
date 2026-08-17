@@ -12,7 +12,10 @@ export type IdentityAssignmentService = Pick<
   | 'reidFeatureRebuildRequest'
   | 'requestReidAssociationRerun'
   | 'reidAssociationRerunRequest'
-  | 'setTrackIdentityMappingComplete'
+  | 'swapTrackGidRosterBindings'
+  | 'requestReidJerseySuggestions'
+  | 'reidJerseySuggestionRun'
+  | 'applyReidJerseySuggestion'
 >
 
 export function createIdentityAssignmentService(): IdentityAssignmentService {

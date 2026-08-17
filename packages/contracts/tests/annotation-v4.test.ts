@@ -9,7 +9,7 @@ const uuid = (value: number) => `00000000-0000-4000-8000-${String(value).padStar
 const room = `match:${uuid(1)}:capture:${uuid(2)}`
 
 describe('annotation realtime v4 BallEvent contract', () => {
-  it('parses selected-point BallEvent changes with kind-specific results', () => {
+  it('parses selected-point BallEvent changes with unified results', () => {
     const command = {
       schema_version: '4.0.0',
       command_id: uuid(3),
@@ -19,7 +19,7 @@ describe('annotation realtime v4 BallEvent contract', () => {
       kind: 'SET_BALL_EVENT',
       payload: {
         key_point_id: uuid(5),
-        event: { kind: 'RECEIVE', result: 'POINT_LOST' },
+        event: { kind: 'RECEIVE', result: 'FAILURE' },
       },
     }
 

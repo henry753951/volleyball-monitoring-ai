@@ -1,10 +1,11 @@
 import type { PrismaClient } from '@volleyball-monitoring/db'
-import { JobStatus, Prisma, UserRole } from '@volleyball-monitoring/db/client'
+import { IdentitySource, JobStatus, Prisma, UserRole } from '@volleyball-monitoring/db/client'
 import { GraphQLError } from 'graphql'
 import {
   applyVersionedReidCorrection,
   parseReidCorrectionMode,
   ReidIdentityLedgerError,
+  swapVersionedGidRosterBindings,
 } from './reid-identity-ledger.js'
 
 const quality = (entries: Iterable<string>) => {
@@ -93,6 +94,16 @@ const coachAnalysisRunSelect = {
       firstFrame: true,
       lastFrame: true,
       metadata: true,
+      identityAssignments: {
+        take: 1,
+        select: {
+          rosterEntryId: true,
+          source: true,
+          confidence: true,
+          identityRevision: true,
+          pendingCorrectionMode: true,
+        },
+      },
     },
   },
   reidEvidenceSets: {
@@ -471,7 +482,10 @@ export async function getCoachMatchAnalytics(
       const tracklet = entry.run.reidEvidenceSets[0]?.tracklets.find(
         candidate => candidate.canonicalTrackId === track.trackId,
       )
-      const rosterEntryId = tracklet?.activeProjection?.assignmentRevision.rosterEntryId ?? null
+      const rosterEntryId =
+        tracklet?.activeProjection?.assignmentRevision.rosterEntryId ??
+        track.identityAssignments[0]?.rosterEntryId ??
+        null
       if (rosterEntryId) trackAssignments.set(`${entry.run.id}:${track.trackId}`, rosterEntryId)
       else
         unassignedTracks.push({
@@ -695,6 +709,9 @@ export async function getCoachMatchAnalytics(
           candidate => candidate.canonicalTrackId === track.trackId,
         )
         const versioned = versionedTracklet?.activeProjection?.assignmentRevision
+        const materialized = track.identityAssignments[0]
+        const effectiveRosterEntryId =
+          versioned?.rosterEntryId ?? materialized?.rosterEntryId ?? null
         return {
           analysis_run_id: entry.run.id,
           rally_id: entry.rally.id,
@@ -705,17 +722,27 @@ export async function getCoachMatchAnalytics(
           first_frame_index: track.firstFrame.toString(),
           last_frame_index: track.lastFrame.toString(),
           observed_frame_ranges: observedFrameRangesForOutput(track.metadata),
-          roster_entry_id: versioned?.rosterEntryId ?? null,
+          roster_entry_id: effectiveRosterEntryId,
           gid_id: versioned?.personClusterId ?? null,
           gid_team_id: versioned?.personCluster?.teamId ?? null,
           gid_slot_index: null,
           gid_label: versioned?.personClusterId
             ? (versioned.personCluster?.label ?? `GID ${versioned.personClusterId.slice(0, 8)}`)
             : null,
-          identity_source: versioned?.source.toLowerCase() ?? null,
-          identity_confidence: versionedTracklet?.associationDecisions[0]?.confidence ?? null,
-          identity_revision: versioned?.revision.toString() ?? null,
-          manual_required: Boolean(versionedTracklet && !versioned?.rosterEntryId),
+          identity_source:
+            versioned?.source.toLowerCase() ?? materialized?.source.toLowerCase() ?? null,
+          identity_confidence:
+            versionedTracklet?.associationDecisions[0]?.confidence ??
+            materialized?.confidence ??
+            null,
+          identity_revision:
+            versioned?.revision.toString() ?? materialized?.identityRevision?.toString() ?? null,
+          identity_evidence_state: versioned
+            ? 'ready'
+            : materialized?.pendingCorrectionMode
+              ? 'pending'
+              : 'unavailable',
+          manual_required: !effectiveRosterEntryId,
           identity_preview_url: versionedTracklet?.previews[0]
             ? `/api/v1/reid/previews/${versionedTracklet.previews[0].id}`
             : null,
@@ -815,9 +842,20 @@ export async function assignTrackIdentity(
         track: { select: { firstFrame: true, lastFrame: true, metadata: true } },
       },
     })
-    const replacedTrackIds = occupied
+    const conflictingTrackIds = occupied
       .filter(item => observedFrameRangesOverlap(track.metadata, item.track.metadata))
       .map(item => item.trackId)
+    if (identityMode === 'from_here' && conflictingTrackIds.length)
+      throw new GraphQLError(
+        '所選球員已在相同 frame 綁定另一個 Local ID，請確認要交換 GID 或只覆寫本片段',
+        {
+          extensions: {
+            code: 'REID_GID_SWAP_CONFIRMATION_REQUIRED',
+            conflicting_track_ids: conflictingTrackIds,
+          },
+        },
+      )
+    const replacedTrackIds = identityMode === 'clip_only' ? conflictingTrackIds : []
     if (replacedTrackIds.length)
       await tx.trackIdentityAssignment.deleteMany({
         where: {
@@ -826,7 +864,8 @@ export async function assignTrackIdentity(
           trackId: { in: replacedTrackIds },
         },
       })
-    let decision
+    let decision: Awaited<ReturnType<typeof applyVersionedReidCorrection>> | null = null
+    let evidenceState: 'ready' | 'pending' = 'ready'
     try {
       for (const replacedTrackId of replacedTrackIds)
         await applyVersionedReidCorrection(tx, {
@@ -845,9 +884,37 @@ export async function assignTrackIdentity(
         mode: identityMode,
       })
     } catch (error) {
-      if (error instanceof ReidIdentityLedgerError)
+      if (error instanceof ReidIdentityLedgerError && error.code === 'REID_EVIDENCE_PENDING') {
+        evidenceState = 'pending'
+        await tx.trackIdentityAssignment.upsert({
+          where: {
+            analysisRunId_trackId: {
+              analysisRunId: input.analysisRunId,
+              trackId: input.trackId,
+            },
+          },
+          update: {
+            rosterEntryId: input.rosterEntryId,
+            source: IdentitySource.MANUAL,
+            assignedByUserId: input.userId,
+            confidence: 1,
+            identityRevision: null,
+            pendingCorrectionMode: identityMode,
+          },
+          create: {
+            analysisRunId: input.analysisRunId,
+            trackId: input.trackId,
+            rosterEntryId: input.rosterEntryId,
+            source: IdentitySource.MANUAL,
+            assignedByUserId: input.userId,
+            confidence: 1,
+            identityRevision: null,
+            pendingCorrectionMode: identityMode,
+          },
+        })
+      } else if (error instanceof ReidIdentityLedgerError)
         throw new GraphQLError(error.message, { extensions: { code: error.code } })
-      throw error
+      else throw error
     }
     const assignment = await tx.trackIdentityAssignment.findUniqueOrThrow({
       where: {
@@ -861,10 +928,11 @@ export async function assignTrackIdentity(
       schema_version: '2.0.0',
       match_id: roster.matchId,
       identity_mode: identityMode,
-      evidence_state: 'versioned',
-      identity_revision: decision.identityRevision.toString(),
-      gid_id: decision.targetClusterId,
+      evidence_state: evidenceState,
+      identity_revision: decision?.identityRevision.toString() ?? null,
+      gid_id: decision?.targetClusterId ?? null,
       replaced_track_ids: replacedTrackIds,
+      conflicting_track_ids: conflictingTrackIds,
       assignment: {
         id: assignment.id,
         analysis_run_id: assignment.analysisRunId,
@@ -913,6 +981,7 @@ export async function clearTrackIdentity(
             }),
           )
     if (!member) throw new Error('NOT_FOUND')
+    let evidenceState: 'ready' | 'pending' = 'ready'
     try {
       await applyVersionedReidCorrection(tx, {
         analysisRunId: input.analysisRunId,
@@ -923,9 +992,14 @@ export async function clearTrackIdentity(
         reason: 'manual identity clear',
       })
     } catch (error) {
-      if (error instanceof ReidIdentityLedgerError)
+      if (error instanceof ReidIdentityLedgerError && error.code === 'REID_EVIDENCE_PENDING') {
+        evidenceState = 'pending'
+        await tx.trackIdentityAssignment.deleteMany({
+          where: { analysisRunId: input.analysisRunId, trackId: input.trackId },
+        })
+      } else if (error instanceof ReidIdentityLedgerError)
         throw new GraphQLError(error.message, { extensions: { code: error.code } })
-      throw error
+      else throw error
     }
     return {
       schema_version: '2.0.0',
@@ -933,14 +1007,21 @@ export async function clearTrackIdentity(
       analysis_run_id: input.analysisRunId,
       track_id: input.trackId,
       roster_entry_id: null,
-      evidence_state: 'versioned',
+      evidence_state: evidenceState,
     }
   })
 }
 
-export async function setTrackIdentityMappingComplete(
+export async function swapTrackGidRosterBindings(
   database: PrismaClient,
-  input: { analysisRunId: string; completed: boolean; userId: string; role: UserRole },
+  input: {
+    analysisRunId: string
+    trackId: number
+    targetPersonClusterId: string
+    reason?: string | null | undefined
+    userId: string
+    role: UserRole
+  },
 ) {
   if (
     input.role !== UserRole.ADMIN &&
@@ -948,96 +1029,43 @@ export async function setTrackIdentityMappingComplete(
     input.role !== UserRole.COACH
   )
     throw new Error('FORBIDDEN')
-  return database.$transaction(async tx => {
-    const run = await tx.analysisRun.findUnique({
-      where: { id: input.analysisRunId },
-      select: {
-        id: true,
-        status: true,
-        submission: {
-          select: {
-            leftTeamId: true,
-            rightTeamId: true,
-            rally: { select: { matchId: true } },
-          },
-        },
+  const run = await database.analysisRun.findUnique({
+    where: { id: input.analysisRunId },
+    select: { submission: { select: { rally: { select: { matchId: true } } } } },
+  })
+  if (!run) throw new Error('NOT_FOUND')
+  if (input.role !== UserRole.ADMIN) {
+    const membership = await database.matchMember.findUnique({
+      where: {
+        matchId_userId: { matchId: run.submission.rally.matchId, userId: input.userId },
       },
+      select: { userId: true },
     })
-    if (!run || run.status !== JobStatus.COMPLETED) throw new Error('NOT_FOUND')
-    const matchId = run.submission.rally.matchId
-    const member =
-      input.role === UserRole.ADMIN
-        ? true
-        : Boolean(
-            await tx.matchMember.findUnique({
-              where: { matchId_userId: { matchId, userId: input.userId } },
-              select: { userId: true },
-            }),
-          )
-    if (!member) throw new Error('NOT_FOUND')
-    if (input.completed) {
-      const invalidAssignment = await tx.trackIdentityAssignment.findFirst({
-        select: { id: true },
-        where: {
-          analysisRunId: input.analysisRunId,
-          OR: [
-            {
-              track: { courtSide: 'LEFT' },
-              rosterEntry: { teamId: { not: run.submission.leftTeamId } },
-            },
-            {
-              track: { courtSide: 'RIGHT' },
-              rosterEntry: { teamId: { not: run.submission.rightTeamId } },
-            },
-          ],
-        },
-      })
-      if (invalidAssignment) {
-        throw new GraphQLError('仍有球員指派不符合此片段的場側隊伍', {
-          extensions: { code: 'ROSTER_TEAM_MISMATCH' },
-        })
-      }
-      const evidenceSet = await tx.reidEvidenceSet.findFirst({
-        where: { analysisRunId: input.analysisRunId, status: 'READY' },
-        orderBy: { createdAt: 'desc' },
-        select: { id: true },
-      })
-      if (!evidenceSet)
-        throw new GraphQLError('新版 ReID evidence 尚未完成', {
-          extensions: { code: 'REID_EVIDENCE_PENDING' },
-        })
-      const unassignedTracklet = await tx.reidTracklet.findFirst({
-        where: {
-          evidenceSetId: evidenceSet.id,
-          OR: [
-            { activeProjection: null },
-            { activeProjection: { assignmentRevision: { rosterEntryId: null } } },
-          ],
-        },
-        select: { canonicalTrackId: true },
-      })
-      if (unassignedTracklet) {
-        throw new GraphQLError('仍有辨識到的球員軌跡尚未完成指派', {
-          extensions: {
-            code: 'REID_MANUAL_ASSIGNMENT_REQUIRED',
-            trackId: unassignedTracklet.canonicalTrackId,
-          },
-        })
-      }
-    }
-    const updated = await tx.analysisRun.update({
-      where: { id: input.analysisRunId },
-      data: {
-        identityMappingCompletedAt: input.completed ? new Date() : null,
-        identityMappingCompletedByUserId: input.completed ? input.userId : null,
-      },
-      select: { id: true, identityMappingCompletedAt: true },
-    })
+    if (!membership) throw new Error('NOT_FOUND')
+  }
+  try {
+    const result = await database.$transaction(tx =>
+      swapVersionedGidRosterBindings(tx, {
+        analysisRunId: input.analysisRunId,
+        canonicalTrackId: input.trackId,
+        targetPersonClusterId: input.targetPersonClusterId,
+        userId: input.userId,
+        reason: input.reason,
+      }),
+    )
     return {
       schema_version: '1.0.0',
-      match_id: matchId,
-      analysis_run_id: updated.id,
-      completed: Boolean(updated.identityMappingCompletedAt),
+      match_id: result.matchId,
+      correction_id: result.correctionId,
+      identity_revision: result.identityRevision.toString(),
+      source_gid_id: result.sourceClusterId,
+      target_gid_id: result.targetClusterId,
+      source_roster_entry_id: result.sourceRosterEntryId,
+      target_roster_entry_id: result.targetRosterEntryId,
     }
-  })
+  } catch (error) {
+    if (error instanceof ReidIdentityLedgerError)
+      throw new GraphQLError(error.message, { extensions: { code: error.code } })
+    throw error
+  }
 }

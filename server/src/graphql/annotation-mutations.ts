@@ -16,6 +16,7 @@ import {
 } from '../services/processing-rally-cancellation.js'
 import { createMediaObjectRemoverFromEnv } from '../media/media-object-remover.js'
 import {
+  deleteRallyAnalysisWithMedia,
   deleteRallyWithMedia,
   updateRallyDisplayPlacement,
 } from '../services/rally-administration.js'
@@ -199,6 +200,25 @@ builder.mutationField('deleteRally', t =>
         })
       }
       return deleteRallyWithMedia(context.user, args.rallyId, {
+        database: db,
+        ...(mediaObjectRemover ? { objectRemover: mediaObjectRemover } : {}),
+        ...(notifyMatchChanged ? { notifyMatchChanged } : {}),
+      })
+    },
+    type: RallyDeleteReceiptType,
+  }),
+)
+
+builder.mutationField('deleteRallyAnalysis', t =>
+  t.field({
+    args: { rallyId: t.arg.id({ required: true }) },
+    resolve: (_root, args, context) => {
+      if (!context.user) {
+        throw new GraphQLError('Authentication required', {
+          extensions: { code: 'UNAUTHENTICATED' },
+        })
+      }
+      return deleteRallyAnalysisWithMedia(context.user, args.rallyId, {
         database: db,
         ...(mediaObjectRemover ? { objectRemover: mediaObjectRemover } : {}),
         ...(notifyMatchChanged ? { notifyMatchChanged } : {}),

@@ -7,6 +7,7 @@ import type {
 import {
   annotationCommandConverged,
   annotationDraftOwnedByClient,
+  shouldAdoptInspectedAnnotationSnapshot,
   applyAnnotationAckLocally,
   projectAnnotationSnapshot,
   rebaseQueuedAnnotationCommand,
@@ -26,6 +27,7 @@ const cursor = {
   seek_generation: 1,
   cursor_status: 'ready' as const,
 }
+
 const contact = (id: string): AnnotationCommand => ({
   schema_version: '2.0.0',
   command_id: id,
@@ -98,6 +100,43 @@ const snapshot: AnnotationRallySnapshot = {
     ],
   },
 }
+
+describe('shouldAdoptInspectedAnnotationSnapshot', () => {
+  it('keeps another client moving OPEN draft separate from the operational draft', () => {
+    expect(shouldAdoptInspectedAnnotationSnapshot(snapshot, rally)).toBe(true)
+    expect(
+      shouldAdoptInspectedAnnotationSnapshot(snapshot, '00000000-0000-4000-8000-000000000099'),
+    ).toBe(false)
+  })
+
+  it('adopts an explicitly inspected READY draft so it remains editable before submission', () => {
+    const ready = structuredClone(snapshot)
+    ready.snapshot.annotation_status = 'ready'
+    ready.snapshot.boundaries = [
+      {
+        kind: 'start',
+        capture_time_us: '1000',
+        capture_frame_index: '10',
+        timing_precision: 'frame_exact',
+      },
+      {
+        kind: 'end',
+        capture_time_us: '2000',
+        capture_frame_index: '20',
+        timing_precision: 'frame_exact',
+      },
+    ]
+    expect(
+      shouldAdoptInspectedAnnotationSnapshot(ready, '00000000-0000-4000-8000-000000000099'),
+    ).toBe(true)
+  })
+
+  it('adopts correction drafts through their active submission lineage', () => {
+    const correction = structuredClone(snapshot)
+    correction.snapshot.active_submission_id = '00000000-0000-4000-8000-000000000088'
+    expect(shouldAdoptInspectedAnnotationSnapshot(correction, null)).toBe(true)
+  })
+})
 
 describe('annotation optimistic command queue', () => {
   it('does not let another client broadcast replace the local draft', () => {
@@ -219,6 +258,48 @@ describe('annotation optimistic command queue', () => {
       ['pending:00000000-0000-4000-8000-000000000004', '1100'],
       ['pending:00000000-0000-4000-8000-000000000005', '1200'],
     ])
+  })
+
+  it('projects and replays at most one contact for the same observed frame', () => {
+    const observation = { capture_time_us: '1100', capture_frame_index: '11' }
+    const first = enqueueAnnotationCommand(
+      [],
+      contact('00000000-0000-4000-8000-000000000040'),
+      new Date(),
+      { observation },
+    )
+    const entries = enqueueAnnotationCommand(
+      first,
+      contact('00000000-0000-4000-8000-000000000041'),
+      new Date(),
+      { observation },
+    )
+    expect(entries).toHaveLength(1)
+    expect(projectAnnotationSnapshot(snapshot, room, entries)?.snapshot.key_points).toHaveLength(2)
+
+    const confirmed = structuredClone(snapshot)
+    confirmed.snapshot.key_points.push({
+      key_point_id: 'contact-11',
+      sequence_index: 1,
+      marker_kind: 'contact',
+      is_terminal: false,
+      capture_time_us: '1100',
+      capture_frame_index: '11',
+      timing_precision: 'frame_exact',
+      possible_duplicate: false,
+    })
+    expect(annotationCommandConverged(entries[0]!.command, confirmed, observation)).toBe(true)
+    expect(rebaseQueuedAnnotationCommand(entries[0]!.command, confirmed, observation)).toBeNull()
+
+    const classified = {
+      ...contact('00000000-0000-4000-8000-000000000042'),
+      schema_version: '4.0.0',
+      payload: { playback_cursor: cursor, ball_event: { kind: 'SPIKE', result: null } },
+    } as AnnotationCommand
+    expect(rebaseQueuedAnnotationCommand(classified, confirmed, observation)).toMatchObject({
+      kind: 'SET_BALL_EVENT',
+      payload: { key_point_id: 'contact-11', event: { kind: 'SPIKE', result: null } },
+    })
   })
 
   it('rebases each queued command to the latest confirmed revision', () => {
@@ -574,6 +655,7 @@ describe('annotation optimistic command queue', () => {
     expect(next?.snapshot.key_points[2]?.ball_event).toEqual({
       kind: 'SPIKE',
       result: 'SUCCESS',
+      serve_style: null,
     })
     expect(annotationCommandConverged(command, next)).toBe(true)
   })
@@ -609,5 +691,50 @@ describe('annotation optimistic command queue', () => {
       ball_event_actor_roster_entry_id: 'roster-11',
     })
     expect(annotationCommandConverged(command, projected)).toBe(true)
+  })
+
+  it('does not treat an unapplied B result or serve-style change as converged', () => {
+    const current: AnnotationRallySnapshot = {
+      ...structuredClone(snapshot),
+      schema_version: '4.0.0',
+      snapshot: {
+        ...structuredClone(snapshot.snapshot),
+        key_points: [
+          {
+            ...structuredClone(snapshot.snapshot.key_points[0]!),
+            ball_event: { kind: 'SERVE', result: 'SUCCESS', serve_style: 'JUMP' },
+          },
+        ],
+      },
+    }
+    const failure: AnnotationCommand = {
+      schema_version: '4.0.0',
+      command_id: '00000000-0000-4000-8000-000000000042',
+      room_id: room,
+      base_revision: '1',
+      rally_id: rally,
+      kind: 'SET_BALL_EVENT',
+      payload: {
+        key_point_id: 'service',
+        event: { kind: 'SERVE', result: 'FAILURE', serve_style: 'JUMP' },
+      },
+    }
+    const standing: AnnotationCommand = {
+      ...failure,
+      command_id: '00000000-0000-4000-8000-000000000043',
+      payload: {
+        key_point_id: 'service',
+        event: { kind: 'SERVE', result: 'SUCCESS', serve_style: 'STANDING' },
+      },
+    }
+
+    expect(annotationCommandConverged(failure, current)).toBe(false)
+    expect(annotationCommandConverged(standing, current)).toBe(false)
+    current.snapshot.key_points[0]!.ball_event = {
+      kind: 'SERVE',
+      result: 'FAILURE',
+      serve_style: 'JUMP',
+    }
+    expect(annotationCommandConverged(failure, current)).toBe(true)
   })
 })

@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/OWNER/volleyball-monitoring-ai/packages/contracts/ai/reid-feature-job/1.0.0",
-  "title": "ReID Feature Extraction Job 1.0.0",
+  "$id": "https://github.com/OWNER/volleyball-monitoring-ai/packages/contracts/ai/reid-feature-job/2.0.0",
+  "title": "ReID Feature Extraction Job 2.0.0",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -17,7 +17,7 @@
     "requested_recipes"
   ],
   "properties": {
-    "schema_version": { "const": "1.0.0" },
+    "schema_version": { "const": "2.0.0" },
     "provider_job_id": { "$ref": "#/$defs/id" },
     "evidence_set_id": { "$ref": "#/$defs/id" },
     "analysis_run_id": { "$ref": "#/$defs/id" },
@@ -35,7 +35,7 @@
   },
   "$defs": {
     "id": { "type": "string", "minLength": 1, "maxLength": 128 },
-    "modality": { "enum": ["DINO", "OSNET", "KPR", "KPR_PROMPT", "JERSEY_VLM"] },
+    "modality": { "enum": ["DINO", "OSNET", "KPR", "KPR_PROMPT"] },
     "recipe": {
       "type": "object",
       "additionalProperties": false,

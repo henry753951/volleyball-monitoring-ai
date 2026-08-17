@@ -69,6 +69,17 @@ const mismatchCommand = parseAnnotationCommand({
   room_id: `match:${matchId.slice(0, -1)}4:capture:${captureId}`,
 })
 
+const failureCommand = parseAnnotationCommand({
+  ...command,
+  schema_version: '4.0.0',
+  command_id: '83000000-0000-4000-8000-000000000013',
+  kind: 'SET_BALL_EVENT',
+  payload: {
+    key_point_id: keyPointId,
+    event: { kind: 'RECEIVE', result: 'FAILURE' },
+  },
+})
+
 const response: AnnotationCommandResponse = parseAnnotationCommandResponse({
   schema_version: '2.0.0',
   type: 'command_ack',
@@ -143,6 +154,14 @@ function fakeService(seen: unknown[]): AnnotationCommandService {
           command_id: value.command_id,
           operation_kind: 'CREATE_CONTACT_KEY_POINT',
         })
+      if (value.kind === 'SET_BALL_EVENT')
+        return parseAnnotationCommandResponse({
+          ...response,
+          schema_version: value.schema_version,
+          command_id: value.command_id,
+          operation_kind: 'SET_BALL_EVENT',
+          resolved_anchor: null,
+        })
       return parseAnnotationCommandResponse({ ...response, command_id: value.command_id })
     },
     async authorizeRoom(value) {
@@ -152,6 +171,9 @@ function fakeService(seen: unknown[]): AnnotationCommandService {
       } catch {
         return null
       }
+    },
+    async recoverAbandonedDraft() {
+      return null
     },
     async roomSequence() {
       return 10n
@@ -419,6 +441,67 @@ describe('annotation transport adapters', () => {
       resolved_anchor: null,
     })
     expect(ack.effects).toMatchObject({ score_resolution: 'unknown' })
+    client.close()
+  })
+
+  it('round-trips a FAILURE ball-event edit without reconnecting', async () => {
+    const seen: unknown[] = []
+    const client = await openAnnotationSocket(seen)
+    const ackPromise = new Promise<AnnotationCommandAck>((resolve, reject) => {
+      const timeout = setTimeout(() => reject(new Error('websocket ack timeout')), 5_000)
+      client.addEventListener('message', event => {
+        const message = JSON.parse(String(event.data)) as AnnotationCommandAck
+        clearTimeout(timeout)
+        resolve(message)
+      })
+    })
+    client.send(JSON.stringify(failureCommand))
+    const ack = await ackPromise
+    expect(seen).toEqual([{ annotationIdentity: identity, value: failureCommand }])
+    expect(ack).toMatchObject({
+      type: 'command_ack',
+      command_id: failureCommand.command_id,
+      operation_kind: 'SET_BALL_EVENT',
+    })
+    expect(client.readyState).toBe(WebSocket.OPEN)
+    client.close()
+  })
+
+  it('rejects a schema-invalid durable command without disconnecting the socket', async () => {
+    const seen: unknown[] = []
+    const client = await openAnnotationSocket(seen)
+    const messages: Array<Record<string, unknown>> = []
+    const completed = new Promise<void>((resolve, reject) => {
+      const timeout = setTimeout(() => reject(new Error('websocket response timeout')), 5_000)
+      client.addEventListener('message', event => {
+        const message = JSON.parse(String(event.data)) as Record<string, unknown>
+        messages.push(message)
+        if (messages.length === 1) client.send(JSON.stringify(contactCommand))
+        if (messages.length === 2) {
+          clearTimeout(timeout)
+          resolve()
+        }
+      })
+    })
+    client.send(
+      JSON.stringify({
+        ...failureCommand,
+        payload: { key_point_id: keyPointId, event: { kind: 'RECEIVE', result: 'BROKEN' } },
+      }),
+    )
+    await completed
+    expect(messages[0]).toMatchObject({
+      type: 'command_rejected',
+      command_id: failureCommand.command_id,
+      code: 'INVALID_COMMAND',
+      snapshot_refetch_required: false,
+    })
+    expect(messages[1]).toMatchObject({
+      type: 'command_ack',
+      command_id: contactCommand.command_id,
+    })
+    expect(seen).toEqual([{ annotationIdentity: identity, value: contactCommand }])
+    expect(client.readyState).toBe(WebSocket.OPEN)
     client.close()
   })
 

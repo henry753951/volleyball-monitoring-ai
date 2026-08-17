@@ -80,19 +80,12 @@ export function selectIdentityPreviewFrames(input: {
   firstFrameIndex: bigint
   lastFrameIndex: bigint
   vectorFrameIndices: bigint[][]
-  jerseyFrameIndices: bigint[]
 }) {
   if (input.lastFrameIndex < input.firstFrameIndex)
     throw new TypeError('identity preview tracklet has inverted frame bounds')
   const withinBounds = (value: bigint) =>
     value >= input.firstFrameIndex && value <= input.lastFrameIndex
-  let candidates = [
-    ...new Set(
-      [...input.vectorFrameIndices.flat(), ...input.jerseyFrameIndices]
-        .filter(withinBounds)
-        .map(String),
-    ),
-  ]
+  let candidates = [...new Set(input.vectorFrameIndices.flat().filter(withinBounds).map(String))]
     .map(BigInt)
     .sort((left, right) => (left < right ? -1 : left > right ? 1 : 0))
   if (candidates.length === 0) {
@@ -128,7 +121,6 @@ export async function scheduleIdentityPreview(database: PrismaClient): Promise<b
     orderBy: { createdAt: 'asc' },
     include: {
       vectors: { select: { sourceFrameIndices: true } },
-      jerseyVlmEvidence: { select: { selectedFrameIndices: true } },
       evidenceSet: {
         include: {
           providerJob: true,
@@ -162,7 +154,6 @@ export async function scheduleIdentityPreview(database: PrismaClient): Promise<b
     firstFrameIndex: candidate.firstFrameIndex,
     lastFrameIndex: candidate.lastFrameIndex,
     vectorFrameIndices: candidate.vectors.map(vector => vector.sourceFrameIndices),
-    jerseyFrameIndices: candidate.jerseyVlmEvidence?.selectedFrameIndices ?? [],
   })
   const idempotencyKey = `identity-preview:${candidate.id}:${PREVIEW_RECIPE}`
   return database.$transaction(async tx => {

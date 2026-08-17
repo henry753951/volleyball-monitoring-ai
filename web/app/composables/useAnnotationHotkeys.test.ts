@@ -182,7 +182,9 @@ describe('annotation TanStack runtime adapter', () => {
     app.mount(root)
     await nextTick()
     const scope = root.children[0] as FakeElement
-    expect(getHotkeyManager().getRegistrationCount()).toBe(19)
+    expect(getHotkeyManager().getRegistrationCount()).toBe(
+      createAnnotationHotkeyDefinitions(bindings.value, () => {}).length,
+    )
 
     expect(keydown(scope, 'z', 'KeyZ').defaultPrevented).toBe(true)
     expect(calls).toEqual(['service'])
@@ -190,7 +192,9 @@ describe('annotation TanStack runtime adapter', () => {
 
     bindings.value = { ...bindings.value, service: 'S' }
     await nextTick()
-    expect(getHotkeyManager().getRegistrationCount()).toBe(19)
+    expect(getHotkeyManager().getRegistrationCount()).toBe(
+      createAnnotationHotkeyDefinitions(bindings.value, () => {}).length,
+    )
     keydown(scope, 'z', 'KeyZ')
     keydown(scope, 's', 'KeyS')
     expect(calls).toEqual(['service', 'service'])
@@ -278,8 +282,8 @@ describe('annotation TanStack runtime adapter', () => {
     app.unmount()
   })
 
-  it('accepts unshifted scoring punctuation and Ctrl frame acceleration', async () => {
-    const calls: Array<{ command: HotkeyCommand; ctrl: boolean }> = []
+  it('accepts unshifted scoring punctuation, Shift segment navigation, and Ctrl frame acceleration', async () => {
+    const calls: Array<{ command: HotkeyCommand; ctrl: boolean; shift: boolean }> = []
     const renderer = createFakeRenderer(document)
     const root = new FakeElement('root', document)
     const app = renderer.createApp(
@@ -292,6 +296,7 @@ describe('annotation TanStack runtime adapter', () => {
                 calls.push({
                   command,
                   ctrl: event.ctrlKey,
+                  shift: event.shiftKey,
                 }),
               ),
             {
@@ -318,13 +323,19 @@ describe('annotation TanStack runtime adapter', () => {
     keyup(scope, '.', 'Period')
     expect(keydown(scope, '/', 'Slash').defaultPrevented).toBe(true)
     keyup(scope, '/', 'Slash')
+    expect(keydown(scope, 'a', 'KeyA', { shiftKey: true }).defaultPrevented).toBe(true)
+    keyup(scope, 'a', 'KeyA')
+    expect(keydown(scope, 'd', 'KeyD', { shiftKey: true }).defaultPrevented).toBe(true)
+    keyup(scope, 'd', 'KeyD')
     expect(keydown(scope, 'ArrowLeft', 'ArrowLeft', { ctrlKey: true }).defaultPrevented).toBe(true)
 
     expect(calls).toEqual([
-      { command: 'close_left', ctrl: false },
-      { command: 'close_right', ctrl: false },
-      { command: 'close_unknown', ctrl: false },
-      { command: 'frame_previous', ctrl: true },
+      { command: 'close_left', ctrl: false, shift: false },
+      { command: 'close_right', ctrl: false, shift: false },
+      { command: 'close_unknown', ctrl: false, shift: false },
+      { command: 'key_point_previous', ctrl: false, shift: true },
+      { command: 'key_point_next', ctrl: false, shift: true },
+      { command: 'frame_previous', ctrl: true, shift: false },
     ])
     app.unmount()
   })

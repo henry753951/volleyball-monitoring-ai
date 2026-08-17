@@ -5,7 +5,6 @@ import type { CoachMatchAnalytics } from '~/lib/coachDomain'
 import { annotationWorkstationServiceKey } from '~/services/annotation-workstation/annotation-workstation.service'
 import { createIdentityAssignmentControllerService } from '~/services/annotation-workstation/identity-assignment-controller.service'
 import { createWorkstationActionManager } from '~/services/annotation-workstation/workstation-action.service'
-import IdentityReplacementDialog from './IdentityReplacementDialog.vue'
 import UiPlayerCombobox from './ui/PlayerCombobox.vue'
 
 const coachClient = vi.hoisted(() => ({
@@ -17,7 +16,6 @@ const coachClient = vi.hoisted(() => ({
   reidFeatureRebuildRequest: vi.fn(),
   requestReidAssociationRerun: vi.fn(),
   reidAssociationRerunRequest: vi.fn(),
-  setTrackIdentityMappingComplete: vi.fn(),
 }))
 
 vi.mock('~/lib/coachDomain', () => ({
@@ -28,7 +26,6 @@ vi.mock('~/lib/coreDomain', () => ({
   createGraphQLTransport: () => ({}),
 }))
 
-const replacementWarningEnabled = ref(true)
 let AnnotationIdentityPanel: (typeof import('./AnnotationIdentityPanel.vue'))['default']
 
 const teams = [
@@ -134,10 +131,8 @@ function mountPanel() {
       analysisRunId: 'analysis-1',
       currentFrame: 60,
       refreshAfterCommit: true,
-      mappingCompleted: false,
     },
     coachClient as never,
-    replacementWarningEnabled,
     manager,
   )
   return mount(AnnotationIdentityPanel, {
@@ -147,7 +142,6 @@ function mountPanel() {
       leftTeamId: 'team-left',
       rightTeamId: 'team-right',
       teams,
-      mappingCompleted: false,
     },
     global: {
       provide: {
@@ -163,14 +157,11 @@ beforeAll(async () => {
   vi.stubGlobal('shallowRef', shallowRef)
   vi.stubGlobal('watch', watch)
   vi.stubGlobal('onMounted', onMounted)
-  vi.stubGlobal('useState', () => replacementWarningEnabled)
-  vi.stubGlobal('useIdentityReplacementWarning', () => ({ enabled: replacementWarningEnabled }))
   AnnotationIdentityPanel = (await import('./AnnotationIdentityPanel.vue')).default
 })
 
 beforeEach(() => {
   vi.clearAllMocks()
-  replacementWarningEnabled.value = true
   coachClient.analytics.mockResolvedValue(analyticsFixture())
   coachClient.assignTrackIdentity.mockResolvedValue({
     assignTrackIdentity: { schema_version: '1.0.0' },
@@ -193,30 +184,32 @@ beforeEach(() => {
 })
 
 describe('AnnotationIdentityPanel ReID assignments', () => {
-  it('keeps feature rebuild, association rerun, and existing-projection apply as separate actions', async () => {
+  it('keeps feature rebuild and association rerun as separate actions', async () => {
     const wrapper = mountPanel()
     await flushPromises()
 
     await wrapper
       .findAll('button')
-      .find(button => button.text().includes('重新配對'))!
+      .find(button => button.text().includes('用現有資料再配對'))!
       .trigger('click')
     await flushPromises()
     expect(coachClient.requestReidAssociationRerun).toHaveBeenCalledWith(
       expect.objectContaining({ analysisRunId: 'analysis-1' }),
     )
-    expect(wrapper.text()).toContain('重新配對已完成')
+    expect(wrapper.text()).toContain('球員重新配對完成')
 
     await wrapper
       .findAll('button')
-      .find(button => button.text().includes('重新取特徵'))!
+      .find(button => button.text().includes('重新分析外觀再配對'))!
       .trigger('click')
     await flushPromises()
     expect(coachClient.requestReidFeatureRebuild).toHaveBeenCalledWith(
       expect.objectContaining({ analysisRunId: 'analysis-1' }),
     )
-    expect(wrapper.text()).toContain('Pose 沒有重跑')
-    expect(wrapper.text()).toContain('套用最新配對')
+    expect(wrapper.text()).toContain('球員外觀資料已更新')
+    expect(wrapper.text()).toContain('不會覆蓋人工指派')
+    expect(wrapper.text()).toContain('速度較快')
+    expect(wrapper.text()).toContain('耗時較久')
     wrapper.unmount()
   })
 
@@ -226,22 +219,42 @@ describe('AnnotationIdentityPanel ReID assignments', () => {
 
     expect(wrapper.text()).toContain('沿用先前確認')
     expect(wrapper.text()).toContain('T001')
-    expect(wrapper.text()).toContain('群組未定')
+    expect(wrapper.text()).toContain('GID 2D9A44CC')
     expect(wrapper.text()).toContain('91%')
 
     const unassigned = wrapper.findAllComponents(UiPlayerCombobox)[1]!
     const options = unassigned.props('options')
     expect(options).toHaveLength(9)
     expect(options.map(option => option.label)).toContain('#18 Bench Player')
+    expect(options.find(option => option.label === '#18 Bench Player')).toMatchObject({
+      jerseyNumber: '18',
+      playerName: 'Bench Player',
+      position: 'DS',
+    })
     expect(unassigned.props('modelValue')).toBe('')
 
     wrapper.unmount()
   })
 
+  it('navigates from the Local row but does not navigate when the player selector is clicked', async () => {
+    const wrapper = mountPanel()
+    await flushPromises()
+
+    await wrapper.get('.identity-row').trigger('click')
+    expect(wrapper.emitted('select-track')).toEqual([
+      [{ trackId: 1, rallyId: 'rally-1', firstFrameIndex: '0' }],
+    ])
+    expect(wrapper.get('.identity-row').classes()).not.toContain('focused')
+
+    await wrapper.get('.identity-select').trigger('click')
+    expect(wrapper.emitted('select-track')).toHaveLength(1)
+    wrapper.unmount()
+  })
+
   it.each([
-    ['依人員群組從這段起改正', 'from_here'],
-    ['這其實是不同的人', 'split_identity'],
-    ['只修正這個 Local ID', 'clip_only'],
+    ['只重綁目前 GID', 'from_here'],
+    ['只有這個 Local ID 的 GID 判錯', 'split_identity'],
+    ['只改這個 Local 的顯示', 'clip_only'],
   ] as const)('sends %s corrections with identityMode=%s', async (buttonLabel, identityMode) => {
     const wrapper = mountPanel()
     await flushPromises()
@@ -265,34 +278,6 @@ describe('AnnotationIdentityPanel ReID assignments', () => {
     wrapper.unmount()
   })
 
-  it('uses the product dialog instead of a browser confirm when replacing an occupied player', async () => {
-    const browserConfirm = vi.spyOn(window, 'confirm')
-    const wrapper = mountPanel()
-    await flushPromises()
-
-    wrapper.findAllComponents(UiPlayerCombobox)[1]!.vm.$emit('update:modelValue', 'roster-1')
-    await flushPromises()
-
-    const dialog = wrapper.getComponent(IdentityReplacementDialog)
-    expect(dialog.props()).toMatchObject({
-      playerName: 'Player 1',
-      occupiedTrackId: 1,
-      targetTrackId: 2,
-    })
-    expect(browserConfirm).not.toHaveBeenCalled()
-    dialog.vm.$emit('confirm')
-    await flushPromises()
-
-    expect(coachClient.assignTrackIdentity).toHaveBeenCalledWith({
-      analysisRunId: 'analysis-1',
-      trackId: 2,
-      rosterEntryId: 'roster-1',
-      identityMode: 'from_here',
-    })
-    browserConfirm.mockRestore()
-    wrapper.unmount()
-  })
-
   it('switches between Local and GID views without changing the local assignment payload', async () => {
     const wrapper = mountPanel()
     await flushPromises()
@@ -303,7 +288,7 @@ describe('AnnotationIdentityPanel ReID assignments', () => {
     )
     await tabs.find(tab => tab.text().includes('人員群組'))!.trigger('click')
 
-    expect(wrapper.text()).toContain('人員群組可包含多個片段內 TID')
+    expect(wrapper.text()).toContain('群組代表跨片段的追蹤關聯')
     const gidCombobox = wrapper.findAllComponents(UiPlayerCombobox)[1]!
     gidCombobox.vm.$emit('update:modelValue', 'roster-2')
     await flushPromises()
@@ -317,21 +302,7 @@ describe('AnnotationIdentityPanel ReID assignments', () => {
     wrapper.unmount()
   })
 
-  it('manually reapplies prior GID bindings to local assignments', async () => {
-    const wrapper = mountPanel()
-    await flushPromises()
-
-    await wrapper.get('.identity-auto').trigger('click')
-    await flushPromises()
-
-    expect(coachClient.applyReidAutomaticAssignments).toHaveBeenCalledWith({
-      analysisRunId: 'analysis-1',
-    })
-    expect(wrapper.text()).toContain('已自動套用 1 個 Local ID')
-    wrapper.unmount()
-  })
-
-  it('uses a clip-only assignment for a Local ID without ReID evidence', async () => {
+  it('creates and confirms a forward GID binding for a Local ID without ReID evidence', async () => {
     const fixture = analyticsFixture()
     fixture.tracks[1] = {
       ...fixture.tracks[1]!,
@@ -352,7 +323,7 @@ describe('AnnotationIdentityPanel ReID assignments', () => {
       analysisRunId: 'analysis-1',
       trackId: 2,
       rosterEntryId: 'roster-2',
-      identityMode: 'clip_only',
+      identityMode: 'from_here',
     })
     wrapper.unmount()
   })

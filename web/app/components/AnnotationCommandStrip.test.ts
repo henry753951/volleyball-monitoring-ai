@@ -18,8 +18,8 @@ const bindings = {
   service: 'Z',
   contact: 'X',
   spike: 'C',
-  receive_success: 'V',
-  receive_error: 'B',
+  event_success: 'V',
+  event_failure: 'B',
   close_left: '<',
   close_right: '>',
   close_unknown: '?',
@@ -63,14 +63,14 @@ function mountStrip(
 }
 
 describe('AnnotationCommandStrip', () => {
-  it('renders Z, X/C/V/B, rally outcomes and settings without a visible Enter action', () => {
+  it('renders Z, X/C, rally outcomes and settings without V/B or a visible Enter action', () => {
     const { wrapper } = mountStrip()
-    expect(wrapper.findAll('button')).toHaveLength(9)
+    expect(wrapper.findAll('button')).toHaveLength(7)
     expect(wrapper.text()).toContain('X')
     expect(wrapper.find('.command-contact').text()).toContain('HIT')
     expect(wrapper.text()).toContain('C')
-    expect(wrapper.text()).toContain('V')
-    expect(wrapper.text()).toContain('B')
+    expect(wrapper.text()).not.toContain('V')
+    expect(wrapper.text()).not.toContain('B')
     expect(wrapper.text()).not.toContain('Enter')
   })
 

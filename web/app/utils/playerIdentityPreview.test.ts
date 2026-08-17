@@ -67,6 +67,24 @@ describe('player identity preview', () => {
     expect(selected.map(item => item.rally_id)).toEqual(['rally-confirmed'])
   })
 
+  it('keeps a manually confirmed track usable before its whole run is mapped', () => {
+    const selected = selectPlayerPreviewTracks(
+      [
+        track({
+          analysis_run_id: 'run-manual',
+          rally_id: 'rally-manual',
+          rally_ordinal: 1,
+          identity_mapping_completed: false,
+          identity_source: 'manual',
+        }),
+      ],
+      'roster-1',
+      { analysisRunId: 'run-current', trackId: 1 },
+    )
+
+    expect(selected.map(item => item.rally_id)).toEqual(['rally-manual'])
+  })
+
   it('samples three stable points inside a tracked frame range', () => {
     expect(
       previewFrameSeconds({

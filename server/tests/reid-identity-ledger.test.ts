@@ -12,7 +12,7 @@ describe('versioned ReID correction policy', () => {
   it('defaults the user-facing correction to from-here without rewriting earlier clips', () => {
     expect(correctionPolicyForIdentityMode('from_here')).toEqual({
       displayScope: ReidCorrectionDisplayScope.FROM_HERE,
-      futureEvidenceAction: ReidFutureEvidenceAction.REJECT_SOURCE_AND_CONFIRM_TARGET,
+      futureEvidenceAction: ReidFutureEvidenceAction.CONFIRM_TARGET,
     })
     const anchor = { setNumber: 2, rallyOrdinal: 5 }
     expect(

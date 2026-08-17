@@ -1,12 +1,63 @@
 import { createHash, randomUUID } from 'node:crypto'
 import type { PrismaClient } from '@volleyball-monitoring/db'
-import { Prisma, UserRole } from '@volleyball-monitoring/db/client'
+import { Prisma, TimingPrecision, UserRole } from '@volleyball-monitoring/db/client'
 import { normalizeDraftBallEvents } from '../domain/annotation/ball-event-normalization.js'
 import { readClipFrameTimeline, timingManifestIdentity } from '../media/clip-timing-coverage.js'
 import type { MediaObjectReader } from '../media/playback-domain.js'
+import {
+  resolveEffectiveContactActorRosterEntryId,
+  type EffectiveContactActorAnalysis,
+} from './effective-contact-actor.js'
 
 const SERIALIZABLE_RETRIES = 3
 const CORRECTION_ROLES = new Set<UserRole>([UserRole.ADMIN, UserRole.OPERATOR, UserRole.ANNOTATOR])
+const EFFECTIVE_ACTOR_ANALYSIS_SELECT = {
+  contactEvents: {
+    orderBy: { sequenceIndex: 'asc' },
+    select: {
+      keyPointId: true,
+      sourceKeyPointId: true,
+      sequenceIndex: true,
+      associationState: true,
+      actors: { select: { trackId: true, associationConfidence: true } },
+    },
+  },
+  contactActorCorrections: { select: { keyPointId: true, trackId: true } },
+  contactAssociationJobs: {
+    orderBy: [{ reviewRevision: 'desc' }, { createdAt: 'desc' }],
+    select: {
+      keyPointId: true,
+      status: true,
+      projection: { select: { trackId: true } },
+    },
+  },
+  tracks: {
+    select: {
+      trackId: true,
+      identityAssignments: {
+        orderBy: { createdAt: 'desc' },
+        take: 1,
+        select: { rosterEntryId: true },
+      },
+    },
+  },
+  reidEvidenceSets: {
+    where: { status: 'READY' },
+    orderBy: { createdAt: 'desc' },
+    take: 1,
+    select: {
+      tracklets: {
+        select: {
+          canonicalTrackId: true,
+          trackIdAliases: true,
+          activeProjection: {
+            select: { assignmentRevision: { select: { rosterEntryId: true } } },
+          },
+        },
+      },
+    },
+  },
+} satisfies Prisma.AnalysisRunSelect
 
 export type CorrectionDraftErrorCode =
   | 'ACTIVE_RALLY_EXISTS'
@@ -68,23 +119,41 @@ interface PreservedContactAnchor {
   captureTimeUs: bigint
   contactId: string
   sourcePts: bigint
+  timingPrecision: TimingPrecision
+  timingSource: 'analysis_timing_manifest' | 'submission_keypoint_fallback'
+}
+
+interface SubmissionKeyPointAnchor {
+  captureEpochId: string
+  captureFrameIndex: bigint
+  captureTimeUs: bigint
+  id: string
+  sequenceIndex: number
+  sourcePts: bigint
+  timingPrecision: TimingPrecision
 }
 
 async function preservedContactAnchors(
   tx: Prisma.TransactionClient,
   submissionId: string,
+  analysisSourceRunId: string | null,
   reader: MediaObjectReader | undefined,
+  submissionKeyPoints: ReadonlyArray<SubmissionKeyPointAnchor>,
 ): Promise<PreservedContactAnchor[]> {
-  if (!reader)
-    throw new CorrectionDraftError(
-      'INVALID_SUBMISSION_STATE',
-      'Timing manifest access is required to preserve reviewed key points',
-    )
   const analysis = await tx.analysisRun.findFirst({
-    where: { submissionId, status: 'COMPLETED' },
+    where: analysisSourceRunId
+      ? { id: analysisSourceRunId, status: 'COMPLETED' }
+      : { submissionId, status: 'COMPLETED' },
     orderBy: [{ activatedAt: 'desc' }, { createdAt: 'desc' }],
     select: {
-      contactEvents: { select: { anchorFrameIndex: true, keyPointId: true } },
+      contactEvents: {
+        select: {
+          anchorFrameIndex: true,
+          keyPointId: true,
+          sequenceIndex: true,
+          sourceKeyPointId: true,
+        },
+      },
       contactTimeCorrections: { select: { frameIndex: true, keyPointId: true } },
       contactEdits: {
         select: { baseKeyPointId: true, contactId: true, deleted: true, frameIndex: true },
@@ -112,21 +181,17 @@ async function preservedContactAnchors(
     },
   })
   const clip = analysis?.aiJob.clipJob
-  if (!analysis || !clip?.timingManifest) {
+  if (!analysis) {
     throw new CorrectionDraftError(
       'INVALID_SUBMISSION_STATE',
       'Completed analysis timing is unavailable',
     )
   }
-  const timeline = await readClipFrameTimeline(
-    reader,
-    clip.timingManifest,
-    timingManifestIdentity(clip.id, clip.idempotencyKey, clip.timingManifest.objectKey),
-  )
   const timeById = new Map(
     analysis.contactTimeCorrections.map(item => [item.keyPointId, item.frameIndex]),
   )
   const editById = new Map(analysis.contactEdits.map(item => [item.contactId, item]))
+  const eventById = new Map(analysis.contactEvents.map(event => [event.keyPointId, event]))
   const effective = [
     ...analysis.contactEvents.flatMap(event => {
       if (editById.get(event.keyPointId)?.deleted) return []
@@ -134,6 +199,8 @@ async function preservedContactAnchors(
         {
           contactId: event.keyPointId,
           frameIndex: timeById.get(event.keyPointId) ?? event.anchorFrameIndex,
+          sequenceIndex: event.sequenceIndex,
+          sourceKeyPointId: event.sourceKeyPointId,
         },
       ]
     }),
@@ -143,6 +210,8 @@ async function preservedContactAnchors(
             {
               contactId: edit.contactId,
               frameIndex: timeById.get(edit.contactId) ?? edit.frameIndex,
+              sequenceIndex: Number.MAX_SAFE_INTEGER,
+              sourceKeyPointId: null,
             },
           ]
         : [],
@@ -162,6 +231,51 @@ async function preservedContactAnchors(
     )
   }
 
+  const submissionPointById = new Map(submissionKeyPoints.map(point => [point.id, point]))
+  const fallbackPointFor = (contact: (typeof effective)[number]) => {
+    const event = eventById.get(contact.contactId)
+    return (
+      (event?.sourceKeyPointId ? submissionPointById.get(event.sourceKeyPointId) : undefined) ??
+      submissionPointById.get(contact.contactId) ??
+      submissionKeyPoints.find(point => point.sequenceIndex === contact.sequenceIndex) ??
+      null
+    )
+  }
+
+  // Older completed analyses can exist without the clip timing-manifest
+  // relation. Their source key points still carry authoritative capture
+  // anchors, so preserve those rather than making the destructive action
+  // impossible. AI-only points or time edits that have no source anchor are
+  // intentionally omitted; automatic regeneration remains available for them.
+  if (!clip?.timingManifest || !reader) {
+    const fallback = effective.flatMap(contact => {
+      const point = fallbackPointFor(contact)
+      if (!point) return []
+      return [
+        {
+          captureEpochId: point.captureEpochId,
+          captureFrameIndex: point.captureFrameIndex,
+          captureTimeUs: point.captureTimeUs,
+          contactId: contact.contactId,
+          sourcePts: point.sourcePts,
+          timingPrecision: point.timingPrecision,
+          timingSource: 'submission_keypoint_fallback' as const,
+        },
+      ]
+    })
+    if (fallback.length > 0) return fallback
+    throw new CorrectionDraftError(
+      'INVALID_SUBMISSION_STATE',
+      'Reviewed key points have no canonical timing; choose automatic regeneration',
+    )
+  }
+
+  const timeline = await readClipFrameTimeline(
+    reader,
+    clip.timingManifest,
+    timingManifestIdentity(clip.id, clip.idempotencyKey, clip.timingManifest.objectKey),
+  )
+
   return effective.map(contact => {
     if (
       contact.frameIndex < 0n ||
@@ -180,6 +294,8 @@ async function preservedContactAnchors(
       captureTimeUs: timeline.captureTimeUs[index]!,
       contactId: contact.contactId,
       sourcePts: timeline.sourcePts[index]!,
+      timingPrecision: TimingPrecision.FRAME_EXACT,
+      timingSource: 'analysis_timing_manifest',
     }
   })
 }
@@ -220,6 +336,12 @@ export async function createCorrectionDraft(
           const submission = await tx.rallySubmission.findUnique({
             where: { id: submissionId },
             include: {
+              analysisRuns: {
+                where: { status: 'COMPLETED' },
+                orderBy: [{ activatedAt: 'desc' }, { createdAt: 'desc' }],
+                take: 1,
+                select: EFFECTIVE_ACTOR_ANALYSIS_SELECT,
+              },
               boundaries: true,
               keyPoints: {
                 include: { ballEvent: true },
@@ -231,6 +353,14 @@ export async function createCorrectionDraft(
           if (!submission) throw new CorrectionDraftError('NOT_FOUND', 'Submission was not found')
 
           const rally = submission.rally
+          const sourceActorAnalysis = submission.analysisSourceRunId
+            ? await tx.analysisRun.findFirst({
+                where: { id: submission.analysisSourceRunId, status: 'COMPLETED' },
+                select: EFFECTIVE_ACTOR_ANALYSIS_SELECT,
+              })
+            : null
+          const effectiveActorAnalysis: EffectiveContactActorAnalysis | null =
+            submission.analysisRuns[0] ?? sourceActorAnalysis
           await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`annotation-rally:${rally.id}`}, 0))::text AS lock`
           await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`annotation-set:${rally.setId}`}, 0))::text AS lock`
 
@@ -312,7 +442,13 @@ export async function createCorrectionDraft(
                 : effectiveRightTeamId
               : null
           const preservedContacts = options.preserveAnalysisContacts
-            ? await preservedContactAnchors(tx, submission.id, options.timingManifestReader)
+            ? await preservedContactAnchors(
+                tx,
+                submission.id,
+                submission.analysisSourceRunId,
+                options.timingManifestReader,
+                submission.keyPoints,
+              )
             : null
           const fallbackStart = submission.keyPoints[0]
           const fallbackEnd = submission.keyPoints.at(-1)
@@ -356,6 +492,10 @@ export async function createCorrectionDraft(
             )
           }
           const snapshotIds = new Set<string>()
+          const preservedDraftContactActors: Array<{
+            actorRosterEntryId: string | null
+            keyPointId: string
+          }> = []
           const temporaryBase = Math.min(
             -1,
             ...rally.keyPoints.map(point => point.sequenceIndex - rally.keyPoints.length - 1),
@@ -373,9 +513,20 @@ export async function createCorrectionDraft(
             })
           }
 
-          for (const point of preservedContacts ?? []) {
+          for (const [index, point] of (preservedContacts ?? []).entries()) {
             const id = randomUUID()
             snapshotIds.add(id)
+            preservedDraftContactActors.push({
+              actorRosterEntryId: resolveEffectiveContactActorRosterEntryId(
+                effectiveActorAnalysis,
+                {
+                  submissionKeyPointId: point.contactId,
+                  ordinal: index + 1,
+                  actorRosterEntryId: null,
+                },
+              ),
+              keyPointId: id,
+            })
             await tx.keyPoint.create({
               data: {
                 captureEpochId: point.captureEpochId,
@@ -388,7 +539,7 @@ export async function createCorrectionDraft(
                 isTerminal: false,
                 markerKind: 'CONTACT',
                 originalPlaybackCursor: json({
-                  source: 'reviewed_analysis_correction',
+                  source: point.timingSource,
                   analysis_contact_id: point.contactId,
                   submission_id: submission.id,
                 }),
@@ -397,7 +548,7 @@ export async function createCorrectionDraft(
                 sequenceIndex: snapshotIds.size - 1,
                 snapDistanceUs: null,
                 sourcePts: point.sourcePts,
-                timingPrecision: 'FRAME_EXACT',
+                timingPrecision: point.timingPrecision,
                 updatedByUserId: identity.userId,
               },
             })
@@ -452,22 +603,32 @@ export async function createCorrectionDraft(
               })
             }
             if (point.ballEvent) {
+              const actorRosterEntryId = resolveEffectiveContactActorRosterEntryId(
+                effectiveActorAnalysis,
+                {
+                  submissionKeyPointId: point.id,
+                  ordinal: point.sequenceIndex + 1,
+                  actorRosterEntryId: point.ballEvent.actorRosterEntryId,
+                },
+              )
               await tx.ballEventDraft.upsert({
                 where: { keyPointId: point.sourceDraftKeyPointId },
                 create: {
-                  actorRosterEntryId: point.ballEvent.actorRosterEntryId,
+                  actorRosterEntryId,
                   keyPointId: point.sourceDraftKeyPointId,
                   kind: point.ballEvent.kind,
                   kindLocked: true,
                   result: point.ballEvent.result,
+                  serveStyle: point.ballEvent.serveStyle,
                   resultLocked: point.ballEvent.result !== null,
                   semanticSource: 'CORRECTION_COPY',
                 },
                 update: {
-                  actorRosterEntryId: point.ballEvent.actorRosterEntryId,
+                  actorRosterEntryId,
                   kind: point.ballEvent.kind,
                   kindLocked: true,
                   result: point.ballEvent.result,
+                  serveStyle: point.ballEvent.serveStyle,
                   resultLocked: point.ballEvent.result !== null,
                   semanticSource: 'CORRECTION_COPY',
                 },
@@ -522,6 +683,12 @@ export async function createCorrectionDraft(
           }
 
           await normalizeDraftBallEvents(tx, rally.id, identity.userId)
+          for (const preserved of preservedDraftContactActors) {
+            await tx.ballEventDraft.updateMany({
+              where: { keyPointId: preserved.keyPointId },
+              data: { actorRosterEntryId: preserved.actorRosterEntryId },
+            })
+          }
 
           const changed = await tx.rally.updateMany({
             where: {
@@ -751,6 +918,7 @@ export async function cancelCorrectionDraft(
                   kind: point.ballEvent.kind,
                   kindLocked: true,
                   result: point.ballEvent.result,
+                  serveStyle: point.ballEvent.serveStyle,
                   resultLocked: point.ballEvent.result !== null,
                   semanticSource: 'CORRECTION_COPY',
                 },
@@ -759,6 +927,7 @@ export async function cancelCorrectionDraft(
                   kind: point.ballEvent.kind,
                   kindLocked: true,
                   result: point.ballEvent.result,
+                  serveStyle: point.ballEvent.serveStyle,
                   resultLocked: point.ballEvent.result !== null,
                   semanticSource: 'CORRECTION_COPY',
                 },

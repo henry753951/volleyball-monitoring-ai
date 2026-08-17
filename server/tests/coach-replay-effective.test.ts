@@ -234,7 +234,7 @@ describe('coach replay effective contact projection', () => {
         submissionKeyPointId: 'corrected-point',
         ordinal: 1,
         kind: 'SERVE',
-        result: 'POINT_SCORED',
+        result: 'SUCCESS',
         semanticSource: 'HUMAN',
         actorRosterEntryId: 'roster-11',
         actorRosterEntry: {
@@ -254,7 +254,7 @@ describe('coach replay effective contact projection', () => {
       ball_event: {
         ordinal: 1,
         kind: 'serve',
-        result: 'point_scored',
+        result: 'success',
         actor: { jersey_number: '11', name: '王小明', track_id: 7 },
       },
     })

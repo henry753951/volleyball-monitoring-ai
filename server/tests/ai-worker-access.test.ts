@@ -77,9 +77,10 @@ describe('AI worker access tokens', () => {
       aiWorkerAccessToken: { findMany: vi.fn(async () => []) },
       aiProviderInstance: { count: vi.fn().mockResolvedValueOnce(2).mockResolvedValueOnce(1) },
       aiJob: { count: vi.fn(async () => 3) },
+      providerJob: { count: vi.fn(async () => 2) },
     } as unknown as Parameters<typeof getAiWorkerAccess>[0]
     await expect(getAiWorkerAccess(database)).resolves.toMatchObject({
-      activeJobCount: 3,
+      activeJobCount: 5,
       authMode: 'unconfigured',
       name: 'volleyball-analysis-engine',
       onlineWorkerCount: 1,

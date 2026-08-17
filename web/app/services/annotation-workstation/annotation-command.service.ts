@@ -1,6 +1,7 @@
 import {
   decideBallEventShortcut,
   parseAnnotationCommand,
+  resultForBallEventChoice,
   type AnnotationCommand,
   type AnnotationRallySnapshot,
   type BallEventShortcut,
@@ -106,11 +107,14 @@ export function createAnnotationCommandService(context: AnnotationCommandService
     const current = context.viewSnapshot()
     if (action === 'service') {
       const playbackCursor = requireResolvedCursor(cursor)
-      if (
+      const boundaries = current?.snapshot.boundaries ?? []
+      const hasActiveLocalSegment =
         current?.snapshot.annotation_status === 'open' &&
         !current.snapshot.active_submission_id &&
-        annotationDraftOwnedByClient(current, context.rememberedRallyId())
-      ) {
+        annotationDraftOwnedByClient(current, context.rememberedRallyId()) &&
+        boundaries.some(boundary => boundary.kind === 'start') &&
+        !boundaries.some(boundary => boundary.kind === 'end')
+      if (hasActiveLocalSegment) {
         return parseAnnotationCommand({
           schema_version: '4.0.0',
           command_id: createId(),
@@ -140,9 +144,8 @@ export function createAnnotationCommandService(context: AnnotationCommandService
         payload: { playback_cursor: requireResolvedCursor(cursor) },
       })
     }
-    if (['spike', 'receive_success', 'receive_error'].includes(action)) {
-      const shortcut: BallEventShortcut =
-        action === 'spike' ? 'C' : action === 'receive_success' ? 'V' : 'B'
+    if (action === 'spike') {
+      const shortcut: BallEventShortcut = 'C'
       const observation = options.observation
       const decision = decideBallEventShortcut({
         shortcut,
@@ -168,7 +171,6 @@ export function createAnnotationCommandService(context: AnnotationCommandService
         const reasons = {
           NO_TARGET_POINT: '請先選擇擊球點，或等待目前畫格確認',
           SPIKE_REQUIRES_THIRD_POINT: '殺球只能標在第三球以後',
-          RECEIVE_REQUIRES_SECOND_POINT: '接發只能標在第二球',
           OUTSIDE_RALLY_BOUNDARY: '目前畫格不在片段範圍內',
         } as const
         throw new Error(reasons[decision.reason])
@@ -186,6 +188,29 @@ export function createAnnotationCommandService(context: AnnotationCommandService
         payload: {
           playback_cursor: requireResolvedCursor(cursor),
           ball_event: decision.event,
+        },
+      })
+    }
+    if (action === 'event_success' || action === 'event_failure') {
+      const keyPointId = options.selectedKeyPointId
+      if (!keyPointId) throw new Error('請先選擇要標記結果的球點')
+      const point = editable?.snapshot.key_points.find(item => item.key_point_id === keyPointId)
+      const event = point?.ball_event
+      if (!event) throw new Error('所選球點尚未建立球種資料')
+      if (event.kind === 'CONTACT') throw new Error('請先將球點改為發球、接球或殺球')
+      const nextResult = resultForBallEventChoice(
+        event.kind,
+        action === 'event_success' ? 'SUCCESS' : 'FAILURE',
+      )
+      return parseAnnotationCommand({
+        ...base,
+        kind: 'SET_BALL_EVENT',
+        payload: {
+          key_point_id: keyPointId,
+          event: {
+            ...event,
+            result: event.result === nextResult ? null : nextResult,
+          },
         },
       })
     }

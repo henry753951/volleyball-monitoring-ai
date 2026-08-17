@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { CircleAlert, LoaderCircle, UserRoundCheck } from 'lucide-vue-next'
 import { useIdentityAssignmentController } from '~/composables/useIdentityAssignmentController'
-import IdentityReplacementDialog from './IdentityReplacementDialog.vue'
 import UiSelect from './ui/Select.vue'
 
 const NONE = '__unassigned__'
@@ -66,32 +65,53 @@ const selected = computed({
       role="dialog"
       aria-label="選擇球員修正方式"
     >
-      <strong>如何套用「{{ assignment.state.dialogs.correction.playerName }}」？</strong>
+      <strong>為什麼要改成「{{ assignment.state.dialogs.correction.playerName }}」？</strong>
+      <p v-if="assignment.state.dialogs.correction.previousPlayerName">
+        目前整個 GID 綁定「{{ assignment.state.dialogs.correction.previousPlayerName }}」。
+      </p>
+      <p v-if="assignment.state.dialogs.correction.occupiedGidLabel">
+        所選球員目前屬於
+        {{ assignment.state.dialogs.correction.occupiedGidLabel }}；第一項會原子交換 兩個 GID
+        的球員綁定。
+      </p>
       <button type="button" @click="assignment.actions.applyCorrection('from_here')">
-        <b>從這段起改正</b><small>之後的片段沿用此次修正</small>
+        <b>{{
+          assignment.state.dialogs.correction.occupiedGidLabel
+            ? '交換兩個 GID 的球員綁定'
+            : '只重綁目前 GID'
+        }}</b
+        ><small>保留其他 GID；從這段起生效，不回寫過去片段</small>
       </button>
-      <button type="button" @click="assignment.actions.applyCorrection('split_identity')">
-        <b>這是不同的人</b><small>拆開後續辨識身分</small>
+      <template
+        v-for="candidate in assignment.state.dialogs.correction.swapCandidates"
+        :key="candidate.gidId"
+      >
+        <button
+          v-if="!assignment.state.dialogs.correction.occupiedGidLabel"
+          type="button"
+          @click="assignment.actions.swapGidBinding(candidate.gidId)"
+        >
+          <b>與 {{ candidate.gidLabel }} 交換球員</b
+          ><small
+            >最近出現在第 {{ candidate.setNumber }} 局 · 回合 {{ candidate.rallyOrdinal }}</small
+          >
+        </button>
+      </template>
+      <button
+        v-if="!assignment.state.dialogs.correction.occupiedGidLabel"
+        type="button"
+        @click="assignment.actions.applyCorrection('split_identity')"
+      >
+        <b>只有這個 Local 的 GID 判錯</b><small>只拆目前 Local，原 GID 不變</small>
       </button>
       <button type="button" @click="assignment.actions.applyCorrection('clip_only')">
-        <b>只修正這個片段</b><small>不影響之後的自動辨識</small>
+        <b>只改目前顯示</b><small>不改 GID，也不進入後續特徵庫</small>
       </button>
       <button type="button" class="cancel" @click="assignment.actions.closeCorrection">取消</button>
     </div>
     <p v-if="assignment.state.error" class="track-identity-editor__error" role="alert">
       <CircleAlert :size="14" />{{ assignment.state.error }}
     </p>
-    <IdentityReplacementDialog
-      v-if="assignment.state.dialogs.replacement"
-      :open="true"
-      :player-name="assignment.state.dialogs.replacement.playerName"
-      :occupied-track-id="assignment.state.dialogs.replacement.occupiedTrackId"
-      :target-track-id="assignment.state.dialogs.replacement.trackId"
-      :warning-enabled="assignment.preferences.replacementWarningEnabled"
-      @update:warning-enabled="assignment.preferences.replacementWarningEnabled = $event"
-      @close="assignment.actions.closeReplacement"
-      @confirm="assignment.actions.confirmReplacement"
-    />
   </section>
 </template>
 
@@ -166,6 +186,12 @@ const selected = computed({
 .track-identity-editor__choice > strong {
   grid-column: 1/-1;
   font-size: 0.68rem;
+}
+.track-identity-editor__choice > p {
+  grid-column: 1/-1;
+  margin: 0;
+  color: #735b2a;
+  font-size: 0.6rem;
 }
 .track-identity-editor__choice button {
   min-height: 54px;

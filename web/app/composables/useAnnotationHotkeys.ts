@@ -1,6 +1,9 @@
 import {
+  detectPlatform,
+  matchesKeyboardEvent,
+  normalizeRegisterableHotkey,
+  parseHotkey,
   useHotkeyRecorder,
-  useHotkeys,
   type HotkeyRecorderOptions,
   type UseHotkeyDefinition,
 } from '@tanstack/vue-hotkeys'
@@ -14,6 +17,7 @@ import {
   restoreDefaultHotkeys,
   runtimeHotkeysForBinding,
   serializeHotkeyPreferences,
+  shiftedHotkeyBinding,
   toRuntimeHotkey,
   type HotkeyBindings,
   type HotkeyCommand,
@@ -26,8 +30,8 @@ export function useAnnotationHotkeyRecorder(options: MaybeRefOrGetter<HotkeyReco
 }
 
 export function useAnnotationHotkeys() {
-  const bindings = useState<HotkeyBindings>('annotation-hotkeys-v5', restoreDefaultHotkeys)
-  const initialized = useState('annotation-hotkeys-v5-initialized', () => false)
+  const bindings = useState<HotkeyBindings>('annotation-hotkeys-v7', restoreDefaultHotkeys)
+  const initialized = useState('annotation-hotkeys-v7-initialized', () => false)
 
   onMounted(() => {
     if (initialized.value) return
@@ -83,7 +87,7 @@ export interface AnnotationHotkeyRuntimeOptions {
   blocked?: HotkeyCommandDispatcher
   release?: HotkeyCommandDispatcher
   enabled?: MaybeRefOrGetter<boolean>
-  commandEnabled?: (command: HotkeyCommand) => boolean
+  commandEnabled?: (command: HotkeyCommand, event?: KeyboardEvent) => boolean
   scopeBlocked?: () => boolean
 }
 
@@ -97,7 +101,7 @@ export function isModalHotkeyScopeActive(): boolean {
 export function createAnnotationHotkeyDefinitions(
   bindings: HotkeyBindings,
   dispatch: HotkeyCommandDispatcher,
-  commandEnabled: (command: HotkeyCommand) => boolean = () => true,
+  commandEnabled: (command: HotkeyCommand, event?: KeyboardEvent) => boolean = () => true,
   scopeBlocked: () => boolean = isModalHotkeyScopeActive,
   runtimeEnabled: () => boolean = () => true,
   blocked?: HotkeyCommandDispatcher,
@@ -107,14 +111,13 @@ export function createAnnotationHotkeyDefinitions(
     const definition = (hotkey: ReturnType<typeof toRuntimeHotkey>): UseHotkeyDefinition => ({
       hotkey,
       callback: event => {
-        if (
-          (event.repeat && !repeatable) ||
-          event.isComposing ||
-          scopeBlocked() ||
-          !runtimeEnabled()
-        )
+        if (event.isComposing || scopeBlocked() || !runtimeEnabled()) return
+        if (event.repeat && !repeatable) {
+          event.preventDefault()
+          event.stopPropagation()
           return
-        if (!commandEnabled(command.action)) {
+        }
+        if (!commandEnabled(command.action, event)) {
           event.preventDefault()
           event.stopPropagation()
           blocked?.(command.action, event)
@@ -135,6 +138,12 @@ export function createAnnotationHotkeyDefinitions(
     })
     const runtimes = runtimeHotkeysForBinding(bindings[command.action])
     const definitions = runtimes.map(definition)
+    if (command.action === 'key_point_previous' || command.action === 'key_point_next') {
+      const shiftedBinding = shiftedHotkeyBinding(bindings[command.action])
+      if (shiftedBinding !== bindings[command.action]) {
+        definitions.push(definition(toRuntimeHotkey(shiftedBinding)))
+      }
+    }
     if (!repeatable) return definitions
     const runtime = toRuntimeHotkey(bindings[command.action])
     const accelerated =
@@ -179,8 +188,36 @@ export function createAnnotationHotkeyReleaseDefinitions(
 }
 
 /**
- * The only application boundary that registers runtime hotkeys. TanStack owns
- * the target listeners, reactive re-registration and component-unmount cleanup.
+ * Resolve a hotkey definition at the capture boundary. This deliberately does
+ * not inspect focus or input-like targets: annotation commands are workstation
+ * controls and must remain available while a non-modal popover, combobox or
+ * selected-key-point editor owns focus.
+ */
+function dispatchCapturedDefinition(
+  definitions: readonly UseHotkeyDefinition[],
+  event: KeyboardEvent,
+  eventType: 'keydown' | 'keyup',
+) {
+  const platform = detectPlatform()
+  for (const definition of definitions) {
+    const definitionOptions = definition.options ? toValue(definition.options) : {}
+    if ((definitionOptions.eventType ?? 'keydown') !== eventType) continue
+    const hotkey = normalizeRegisterableHotkey(toValue(definition.hotkey), platform)
+    if (!matchesKeyboardEvent(event, hotkey, platform)) continue
+    definition.callback(event, {
+      hotkey,
+      parsedHotkey: parseHotkey(hotkey, platform),
+    })
+    return
+  }
+}
+
+/**
+ * The only application boundary that registers runtime annotation hotkeys.
+ * It listens on window capture so portalled popovers and focus-management
+ * primitives cannot consume X/Z/etc. before the workstation sees them.
+ * Modal dialogs still take precedence through scopeBlocked(), which keeps the
+ * shortcut recorder and text-entry dialogs usable.
  */
 export function useAnnotationHotkeyRuntime(options: AnnotationHotkeyRuntimeOptions): void {
   const { bindings } = useAnnotationHotkeys()
@@ -194,20 +231,6 @@ export function useAnnotationHotkeyRuntime(options: AnnotationHotkeyRuntimeOptio
       options.blocked,
     ),
   )
-
-  useHotkeys(definitions, {
-    target: options.target,
-    // This is the sole runtime registration boundary. Replacing a stale
-    // registration makes Nuxt HMR and route remounts atomic instead of leaving
-    // a dead handler that swallows the first key press.
-    conflictBehavior: 'replace',
-    ignoreInputs: true,
-    // The callback applies these only after modal-scope precedence is checked.
-    preventDefault: false,
-    requireReset: false,
-    stopPropagation: false,
-  })
-
   const releaseDefinitions = computed(() =>
     options.release
       ? createAnnotationHotkeyReleaseDefinitions(bindings.value, options.release, () =>
@@ -215,12 +238,28 @@ export function useAnnotationHotkeyRuntime(options: AnnotationHotkeyRuntimeOptio
         )
       : [],
   )
-  useHotkeys(releaseDefinitions, {
-    target: options.target,
-    conflictBehavior: 'allow',
-    ignoreInputs: true,
-    preventDefault: false,
-    requireReset: false,
-    stopPropagation: false,
+
+  function targetAvailable() {
+    return Boolean(toValue(options.target))
+  }
+
+  function handleKeydown(event: KeyboardEvent) {
+    if (!targetAvailable()) return
+    dispatchCapturedDefinition(definitions.value, event, 'keydown')
+  }
+
+  function handleKeyup(event: KeyboardEvent) {
+    if (!targetAvailable()) return
+    dispatchCapturedDefinition(releaseDefinitions.value, event, 'keyup')
+  }
+
+  onMounted(() => {
+    window.addEventListener('keydown', handleKeydown, true)
+    window.addEventListener('keyup', handleKeyup, true)
+  })
+
+  onBeforeUnmount(() => {
+    window.removeEventListener('keydown', handleKeydown, true)
+    window.removeEventListener('keyup', handleKeyup, true)
   })
 }

@@ -7,9 +7,15 @@ import { Prisma } from '@volleyball-monitoring/db/client'
 
 type Transaction = Prisma.TransactionClient
 
-function wireEvent(event: { kind: string; result: string | null } | null): BallEventValue | null {
+function wireEvent(
+  event: { kind: string; result: string | null; serveStyle: string | null } | null,
+): BallEventValue | null {
   if (!event) return null
-  return event as BallEventValue
+  return {
+    kind: event.kind,
+    result: event.result,
+    serve_style: event.serveStyle,
+  } as BallEventValue
 }
 
 export async function normalizeDraftBallEvents(
@@ -41,6 +47,7 @@ export async function normalizeDraftBallEvents(
             select: {
               kind: true,
               result: true,
+              serveStyle: true,
               semanticSource: true,
               kindLocked: true,
               resultLocked: true,
@@ -68,6 +75,39 @@ export async function normalizeDraftBallEvents(
   })
 
   const pointById = new Map(rally.keyPoints.map(point => [point.id, point]))
+  if (normalized.points.length >= 3) {
+    const serve = normalized.points[0]
+    const persistedServe = serve ? pointById.get(serve.key_point_id)?.ballEvent : null
+    if (serve && persistedServe && !persistedServe.resultLocked && serve.event.result === null) {
+      const before = { ...serve.event }
+      serve.event = { ...serve.event, result: 'SUCCESS' }
+      normalized.repairs.push({
+        code: 'SERVE_SUCCESS_INFERRED',
+        key_point_id: serve.key_point_id,
+        action: 'update',
+        before: { sequence_index: serve.sequence_index, event: before },
+        after: { sequence_index: serve.sequence_index, event: serve.event },
+      })
+    }
+    const second = normalized.points[1]
+    const persistedSecond = second ? pointById.get(second.key_point_id)?.ballEvent : null
+    if (
+      second &&
+      persistedSecond &&
+      !persistedSecond.kindLocked &&
+      second.event.kind === 'CONTACT'
+    ) {
+      const before = { ...second.event }
+      second.event = { kind: 'RECEIVE', result: null, serve_style: null }
+      normalized.repairs.push({
+        code: 'SECOND_POINT_RECEIVE_INFERRED',
+        key_point_id: second.key_point_id,
+        action: 'update',
+        before: { sequence_index: second.sequence_index, event: before },
+        after: { sequence_index: second.sequence_index, event: second.event },
+      })
+    }
+  }
   const aggregate = await tx.keyPoint.aggregate({
     _min: { sequenceIndex: true },
     where: { rallyId },
@@ -99,7 +139,8 @@ export async function normalizeDraftBallEvents(
     if (!previous) throw new TypeError('Normalized BallEvent references an unknown keypoint')
     const eventChanged =
       previous.ballEvent?.kind !== point.event.kind ||
-      previous.ballEvent?.result !== point.event.result
+      previous.ballEvent?.result !== point.event.result ||
+      previous.ballEvent?.serveStyle !== point.event.serve_style
     await tx.keyPoint.update({
       where: { id: point.key_point_id },
       data: { sequenceIndex: point.sequence_index, updatedByUserId },
@@ -110,6 +151,7 @@ export async function normalizeDraftBallEvents(
         keyPointId: point.key_point_id,
         kind: point.event.kind,
         result: point.event.result,
+        serveStyle: point.event.serve_style ?? null,
         semanticSource: 'SYSTEM_DEFAULT',
         kindLocked: false,
         resultLocked: false,
@@ -118,6 +160,7 @@ export async function normalizeDraftBallEvents(
         ? {
             kind: point.event.kind,
             result: point.event.result,
+            serveStyle: point.event.serve_style ?? null,
             semanticSource: 'SYSTEM_DEFAULT',
             kindLocked: false,
             resultLocked: false,
@@ -125,6 +168,7 @@ export async function normalizeDraftBallEvents(
         : {
             kind: point.event.kind,
             result: point.event.result,
+            serveStyle: point.event.serve_style ?? null,
           },
     })
   }

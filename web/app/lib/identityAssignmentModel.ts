@@ -1,6 +1,6 @@
 import type { CoachMatchAnalytics } from '~/lib/coachDomain'
 import type { PlayerComboboxOption } from '~/types/identityAssignment'
-import { formatReidGlobalId, formatReidTrackId } from '~/utils/reidIdentity'
+import { formatReidGlobalId, formatReidGroupCode, formatReidTrackId } from '~/utils/reidIdentity'
 
 export type IdentityTrack = CoachMatchAnalytics['tracks'][number]
 export type IdentityPlayer = CoachMatchAnalytics['players'][number]
@@ -25,6 +25,7 @@ export interface TrackOptionRequest {
 export interface IdentityGidGroup {
   gidId: string
   gidLabel: string
+  gidCode: string
   slotIndex: number | null
   teamId: string | null
   tracks: IdentityTrack[]
@@ -38,6 +39,8 @@ export interface IdentityGidGroup {
 }
 
 function identityStatus(track: IdentityTrack): IdentityStatusView {
+  if (track.identity_source === 'manual' && track.identity_evidence_state === 'pending')
+    return { label: '人工已保存 · ReID 待建立', tone: 'manual' }
   if (track.identity_source === 'manual') return { label: '人工確認', tone: 'manual' }
   if (track.identity_source === 'propagated') return { label: '沿用先前確認', tone: 'propagated' }
   if (track.roster_entry_id) return { label: '系統建議', tone: 'suggested' }
@@ -47,6 +50,10 @@ function identityStatus(track: IdentityTrack): IdentityStatusView {
 
 function gidLabel(track: IdentityTrack) {
   return formatReidGlobalId(track.gid_label)
+}
+
+function gidCode(track: IdentityTrack) {
+  return formatReidGroupCode(track.gid_id)
 }
 
 function isEarlierTrack(candidate: IdentityTrack, current: IdentityTrack | undefined) {
@@ -145,6 +152,7 @@ export function createIdentityAssignmentModel(input: IdentityAssignmentModelInpu
       return {
         gidId,
         gidLabel: gidLabel(groupedTracks[0]!),
+        gidCode: gidCode(groupedTracks[0]!),
         slotIndex: groupedTracks[0]!.gid_slot_index ?? null,
         teamId: groupedTracks[0]!.gid_team_id ?? null,
         tracks: groupedTracks,
@@ -164,7 +172,7 @@ export function createIdentityAssignmentModel(input: IdentityAssignmentModelInpu
         (left.teamId ?? '').localeCompare(right.teamId ?? '') ||
         (left.slotIndex ?? Number.MAX_SAFE_INTEGER) -
           (right.slotIndex ?? Number.MAX_SAFE_INTEGER) ||
-        left.gidLabel.localeCompare(right.gidLabel),
+        left.gidCode.localeCompare(right.gidCode),
     )
 
   function playersForTeam(teamId: string | null) {
@@ -186,6 +194,33 @@ export function createIdentityAssignmentModel(input: IdentityAssignmentModelInpu
           track.roster_entry_id === rosterEntryId,
       ) ?? null
     )
+  }
+
+  function gidBindingsForRoster(trackId: number, rosterEntryId: string) {
+    const sourceGidId = trackById.get(trackId)?.gid_id ?? null
+    const candidates = new Map<string, IdentityTrack>()
+    for (const track of allTracks) {
+      if (!track.gid_id || track.gid_id === sourceGidId || track.roster_entry_id !== rosterEntryId)
+        continue
+      const prior = candidates.get(track.gid_id)
+      if (
+        !prior ||
+        track.set_number > prior.set_number ||
+        (track.set_number === prior.set_number && track.rally_ordinal > prior.rally_ordinal)
+      )
+        candidates.set(track.gid_id, track)
+    }
+    return [...candidates.values()]
+      .map(track => ({
+        gidId: track.gid_id!,
+        gidLabel: gidLabel(track),
+        representativeTrackId: track.track_id,
+        setNumber: track.set_number,
+        rallyOrdinal: track.rally_ordinal,
+      }))
+      .sort(
+        (left, right) => right.setNumber - left.setNumber || right.rallyOrdinal - left.rallyOrdinal,
+      )
   }
 
   function optionsForTrack(request: TrackOptionRequest): PlayerComboboxOption[] {
@@ -214,6 +249,9 @@ export function createIdentityAssignmentModel(input: IdentityAssignmentModelInpu
         return {
           value: player.roster_entry_id,
           label: `#${player.jersey_number} ${player.name}`,
+          jerseyNumber: player.jersey_number,
+          playerName: player.name,
+          position: player.position,
           description: occupiedTrack
             ? `目前由 ${formatReidTrackId(occupiedTrack.track_id)} · ${gidLabel(occupiedTrack)} 使用，選擇後可取代`
             : previousTrack
@@ -240,8 +278,10 @@ export function createIdentityAssignmentModel(input: IdentityAssignmentModelInpu
       byId: (trackId: number) => trackById.get(trackId) ?? null,
       conflictFor,
       conflictForTracks,
+      gidBindingsForRoster,
       status: identityStatus,
       gidLabel,
+      gidCode,
       tidLabel: (track: IdentityTrack) => formatReidTrackId(track.track_id),
     },
     options: {

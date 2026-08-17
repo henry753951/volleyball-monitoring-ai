@@ -1,21 +1,34 @@
 export const BALL_EVENT_KINDS = ['SERVE', 'RECEIVE', 'CONTACT', 'SPIKE'] as const
 export type BallEventKind = (typeof BALL_EVENT_KINDS)[number]
 
-export const SERVE_RESULTS = ['POINT_SCORED', 'SUCCESS', 'ERROR'] as const
-export type ServeResult = (typeof SERVE_RESULTS)[number]
+export const SERVE_STYLES = ['JUMP', 'STANDING'] as const
+export type ServeStyle = (typeof SERVE_STYLES)[number]
 
-export const RECEIVE_RESULTS = ['SUCCESS', 'ERROR', 'POINT_LOST'] as const
-export type ReceiveResult = (typeof RECEIVE_RESULTS)[number]
-
-export const SPIKE_RESULTS = ['SUCCESS', 'FAILURE'] as const
-export type SpikeResult = (typeof SPIKE_RESULTS)[number]
-
-export type BallEventResult = ServeResult | ReceiveResult | SpikeResult
-export type BallEventShortcut = 'C' | 'V' | 'B'
+export const BALL_EVENT_RESULTS = ['SUCCESS', 'FAILURE'] as const
+export type BallEventResult = (typeof BALL_EVENT_RESULTS)[number]
+export type BallEventShortcut = 'C'
+export type BallEventResultChoice = 'SUCCESS' | 'FAILURE'
 
 export interface BallEventValue {
   kind: BallEventKind
   result: BallEventResult | null
+  /** Only meaningful for SERVE. Missing values normalize to JUMP. */
+  serve_style?: ServeStyle | null
+}
+
+export const RECEIVE_CONTEXTS = ['SERVE_RECEIVE', 'SPIKE_RECEIVE', 'RECEIVE'] as const
+export type ReceiveContext = (typeof RECEIVE_CONTEXTS)[number]
+
+/**
+ * RECEIVE is the persisted, generic human event. Its user-facing subtype is a
+ * deterministic projection of the immediately preceding ball event.
+ */
+export function receiveContextForPreviousEvent(
+  previousEvent: BallEventValue | null | undefined,
+): ReceiveContext {
+  if (previousEvent?.kind === 'SERVE') return 'SERVE_RECEIVE'
+  if (previousEvent?.kind === 'SPIKE') return 'SPIKE_RECEIVE'
+  return 'RECEIVE'
 }
 
 export interface BallEventRuleAnchor {
@@ -38,8 +51,10 @@ export const BALL_EVENT_REPAIR_CODES = [
   'OUTSIDE_END_TOMBSTONED',
   'EVENT_KIND_NORMALIZED',
   'EVENT_RESULT_CLEARED',
+  'SERVE_STYLE_DEFAULTED',
+  'SERVE_STYLE_CLEARED',
   'SERVE_SUCCESS_INFERRED',
-  'RECEIVE_POINT_LOST_DOWNGRADED',
+  'SECOND_POINT_RECEIVE_INFERRED',
   'SPIKE_SUCCESS_DOWNGRADED',
   'SEQUENCE_REINDEXED',
 ] as const
@@ -67,7 +82,6 @@ export interface BallEventNormalization {
 export type BallEventShortcutReason =
   | 'NO_TARGET_POINT'
   | 'SPIKE_REQUIRES_THIRD_POINT'
-  | 'RECEIVE_REQUIRES_SECOND_POINT'
   | 'OUTSIDE_RALLY_BOUNDARY'
 
 export type BallEventShortcutDecision =
@@ -115,16 +129,22 @@ export function isBallEventResultValid(
   result: BallEventResult | null,
 ): boolean {
   if (kind === 'CONTACT') return result === null
-  if (result === null) return true
-  if (kind === 'SERVE') return SERVE_RESULTS.includes(result as ServeResult)
-  if (kind === 'RECEIVE') return RECEIVE_RESULTS.includes(result as ReceiveResult)
-  return SPIKE_RESULTS.includes(result as SpikeResult)
+  return result === null || BALL_EVENT_RESULTS.includes(result)
 }
 
 function requiredKind(index: number, current: BallEventKind | null): BallEventKind {
   if (index === 0) return 'SERVE'
-  if (index === 1) return 'RECEIVE'
-  return current === 'SPIKE' ? 'SPIKE' : 'CONTACT'
+  if (index === 1 && current === 'SPIKE') return 'CONTACT'
+  if (current === 'SPIKE' || current === 'RECEIVE' || current === 'CONTACT') return current
+  return 'CONTACT'
+}
+
+export function resultForBallEventChoice(
+  kind: BallEventKind,
+  choice: BallEventResultChoice,
+): BallEventResult | null {
+  if (kind === 'CONTACT') return null
+  return choice
 }
 
 export function normalizeBallEventKeyPoints(input: {
@@ -160,7 +180,8 @@ export function normalizeBallEventKeyPoints(input: {
       point.event?.kind === kind && isBallEventResultValid(kind, point.event.result)
         ? point.event.result
         : null
-    const event: BallEventValue = { kind, result }
+    const serveStyle = kind === 'SERVE' ? (point.event?.serve_style ?? 'JUMP') : null
+    const event: BallEventValue = { kind, result, serve_style: serveStyle }
 
     if (point.event?.kind !== kind) {
       repairs.push({
@@ -173,6 +194,22 @@ export function normalizeBallEventKeyPoints(input: {
     } else if (point.event && point.event.result !== result) {
       repairs.push({
         code: 'EVENT_RESULT_CLEARED',
+        key_point_id: point.key_point_id,
+        action: 'update',
+        before: { sequence_index: point.sequence_index, event: point.event },
+        after: { sequence_index: index, event },
+      })
+    } else if (kind === 'SERVE' && point.event?.serve_style == null) {
+      repairs.push({
+        code: 'SERVE_STYLE_DEFAULTED',
+        key_point_id: point.key_point_id,
+        action: 'update',
+        before: { sequence_index: point.sequence_index, event: point.event },
+        after: { sequence_index: index, event },
+      })
+    } else if (kind !== 'SERVE' && point.event?.serve_style != null) {
+      repairs.push({
+        code: 'SERVE_STYLE_CLEARED',
         key_point_id: point.key_point_id,
         action: 'update',
         before: { sequence_index: point.sequence_index, event: point.event },
@@ -201,46 +238,11 @@ export function normalizeBallEventKeyPoints(input: {
     return { ...point, sequence_index: index, event }
   })
 
-  const serve = points[0]
-  if (points.length > 1 && serve?.event.kind === 'SERVE' && serve.event.result !== 'SUCCESS') {
-    const before = { ...serve.event }
-    serve.event = { kind: 'SERVE', result: 'SUCCESS' }
-    repairs.push({
-      code: 'SERVE_SUCCESS_INFERRED',
-      key_point_id: serve.key_point_id,
-      action: 'update',
-      before: { sequence_index: serve.sequence_index, event: before },
-      after: { sequence_index: serve.sequence_index, event: serve.event },
-    })
-  }
-  const receive = points[1]
-  if (
-    points.length > 2 &&
-    receive?.event.kind === 'RECEIVE' &&
-    receive.event.result === 'POINT_LOST'
-  ) {
-    const before = { ...receive.event }
-    receive.event = { kind: 'RECEIVE', result: 'ERROR' }
-    repairs.push({
-      code: 'RECEIVE_POINT_LOST_DOWNGRADED',
-      key_point_id: receive.key_point_id,
-      action: 'update',
-      before: { sequence_index: receive.sequence_index, event: before },
-      after: { sequence_index: receive.sequence_index, event: receive.event },
-    })
-  }
-  // A later key point does not prove that an earlier spike failed. The later
-  // observation can be the ball landing, a block touch, or another automatic
-  // contact without an assigned actor. Preserve the operator's explicit spike
-  // result; rally outcome and actor/pose evidence can evaluate it separately.
-
   return { points, tombstoned_key_point_ids: tombstoned, repairs }
 }
 
-function shortcutEvent(shortcut: BallEventShortcut): BallEventValue {
-  if (shortcut === 'C') return { kind: 'SPIKE', result: null }
-  if (shortcut === 'V') return { kind: 'RECEIVE', result: 'SUCCESS' }
-  return { kind: 'RECEIVE', result: 'ERROR' }
+function shortcutEvent(_shortcut: BallEventShortcut): BallEventValue {
+  return { kind: 'SPIKE', result: null, serve_style: null }
 }
 
 export function decideBallEventShortcut(input: {
@@ -310,16 +312,6 @@ export function decideBallEventShortcut(input: {
       reason: 'SPIKE_REQUIRES_THIRD_POINT',
     }
   }
-  if (input.shortcut !== 'C' && ordinal !== 2) {
-    return {
-      allowed: false,
-      mode,
-      key_point_id: selectedId,
-      ordinal,
-      reason: 'RECEIVE_REQUIRES_SECOND_POINT',
-    }
-  }
-
   return {
     allowed: true,
     mode,

@@ -4,6 +4,7 @@ import {
   adjacentAnnotationKeyPoint,
   type NavigableAnnotationKeyPoint,
 } from '~/lib/annotationKeyPointNavigation'
+import type { AnnotationSegmentRange } from '~/utils/annotationCommandAvailability'
 import type { TimelineSelectionItem } from '~/utils/timelineSelection'
 import type { createWorkstationSelectionService } from './workstation-selection.service'
 import type { WorkstationFeedbackService } from './workstation-feedback.service'
@@ -21,6 +22,7 @@ export interface TimelineSelectionServiceOptions {
   selectedKeyPointId: () => string | null
   draftRallyIds: () => ReadonlySet<string>
   seek: (captureTimeUs: string) => Promise<unknown>
+  focusSegment?: (segment: AnnotationSegmentRange) => void
   openAnalysis: () => void
 }
 
@@ -32,9 +34,9 @@ export function createTimelineSelectionService(options: TimelineSelectionService
     navigationGeneration += 1
   }
 
-  function selectKeyPoint(keyPointId: string) {
+  function selectKeyPoint(keyPointId: string, rallyId = options.displayedRallyId()) {
     navigationGeneration += 1
-    options.selection.selectRally(options.displayedRallyId())
+    options.selection.selectRally(rallyId)
     options.selection.selectKeyPoint(keyPointId)
     selectedItem.value = 'point'
   }
@@ -128,6 +130,68 @@ export function createTimelineSelectionService(options: TimelineSelectionService
     if (generation === navigationGeneration) await options.seek(target.captureTimeUs)
   }
 
+  async function navigateSegment(
+    direction: 'previous' | 'next',
+    segments: readonly AnnotationSegmentRange[],
+    referenceCaptureTimeUs: string | null,
+  ) {
+    if (!segments.length) return
+    const ordered = [...segments].sort((left, right) => {
+      const difference = BigInt(left.startCaptureTimeUs) - BigInt(right.startCaptureTimeUs)
+      return difference < 0n ? -1 : difference > 0n ? 1 : left.id.localeCompare(right.id)
+    })
+    const explicitRallyId = options.selection.explicitRallyId.value
+    const cursorRallyId = options.cursorRallyId.value
+    const currentIndex = [explicitRallyId, cursorRallyId]
+      .map(id => (id ? ordered.findIndex(segment => segment.id === id) : -1))
+      .find(index => index >= 0)
+
+    let target =
+      currentIndex === undefined
+        ? undefined
+        : ordered[currentIndex + (direction === 'next' ? 1 : -1)]
+    if (currentIndex === undefined) {
+      const reference = referenceCaptureTimeUs ? BigInt(referenceCaptureTimeUs) : null
+      target = reference
+        ? direction === 'next'
+          ? ordered.find(segment => BigInt(segment.startCaptureTimeUs) > reference)
+          : [...ordered].reverse().find(segment => BigInt(segment.startCaptureTimeUs) < reference)
+        : direction === 'next'
+          ? ordered[0]
+          : ordered.at(-1)
+    }
+
+    if (!target) {
+      options.feedback.notify({
+        level: 'info',
+        title: direction === 'next' ? '已到最後一個片段' : '已到第一個片段',
+      })
+      return
+    }
+
+    const generation = ++navigationGeneration
+    try {
+      if (options.draftRallyIds().has(target.id)) {
+        const selected = await options.room.selectRally(target.id)
+        if (generation !== navigationGeneration || !selected) return
+      }
+      if (generation !== navigationGeneration) return
+      options.selection.selectRally(target.id)
+      options.selection.clearDetail()
+      selectedItem.value = 'segment'
+      await options.seek(target.startCaptureTimeUs)
+      if (generation === navigationGeneration) options.focusSegment?.(target)
+    } catch (cause) {
+      if (generation === navigationGeneration) {
+        options.feedback.notify({
+          level: 'error',
+          title: '無法載入片段',
+          description: cause instanceof Error ? cause.message : undefined,
+        })
+      }
+    }
+  }
+
   function followCursor(rallyId: string | null) {
     if (options.selection.explicitRallyId.value) return
     selectedItem.value = rallyId ? 'segment' : null
@@ -156,6 +220,7 @@ export function createTimelineSelectionService(options: TimelineSelectionService
     selectAnalysis,
     selectRally,
     navigate,
+    navigateSegment,
     followCursor,
     clearPointForDisplayedRallyChange,
   }

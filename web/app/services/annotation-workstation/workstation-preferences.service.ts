@@ -1,11 +1,13 @@
 import { readonly, ref } from 'vue'
 import type { createCoreDomainClient } from '~/lib/coreDomain'
 import type { WorkstationFeedbackService } from './workstation-feedback.service'
+import { readOverlayPreferences, writeOverlayPreferences } from '~/utils/overlayPreferences'
+import type { VolleyballOverlayLayers } from '~/utils/volleyballOverlayRenderer'
 
 type CoreDomainClient = ReturnType<typeof createCoreDomainClient>
 export type WorkstationSettingsPage = 'root' | 'media' | 'overlay' | 'clip' | 'hotkeys'
 
-const OVERLAY_STORAGE_KEY = 'annotation.overlay.enabled'
+type OverlayLayerKey = keyof VolleyballOverlayLayers
 
 export function createWorkstationPreferencesService(options: {
   matchId: string
@@ -16,18 +18,16 @@ export function createWorkstationPreferencesService(options: {
 }) {
   const settingsOpen = ref(false)
   const settingsPage = ref<WorkstationSettingsPage>('root')
-  const overlayEnabled = ref(true)
+  const initialOverlayPreferences = readOverlayPreferences()
+  const overlayEnabled = ref(initialOverlayPreferences.enabled)
+  const overlayLayers = ref({ ...initialOverlayPreferences.layers })
   const clipPolicySaving = ref(false)
   const clipPolicyError = ref<string | null>(null)
 
   function restore() {
-    if (typeof localStorage === 'undefined') return
-    try {
-      const stored = localStorage.getItem(OVERLAY_STORAGE_KEY)
-      if (stored !== null) overlayEnabled.value = stored !== 'false'
-    } catch {
-      // Display preferences are optional and must not block annotation setup.
-    }
+    const preferences = readOverlayPreferences()
+    overlayEnabled.value = preferences.enabled
+    overlayLayers.value = { ...preferences.layers }
   }
 
   function open(page: WorkstationSettingsPage = 'root') {
@@ -41,12 +41,15 @@ export function createWorkstationPreferencesService(options: {
 
   function setOverlayEnabled(enabled: boolean) {
     overlayEnabled.value = enabled
-    if (typeof localStorage === 'undefined') return
-    try {
-      localStorage.setItem(OVERLAY_STORAGE_KEY, String(enabled))
-    } catch {
-      // Display preferences must never block annotation commands.
-    }
+    writeOverlayPreferences({ enabled, layers: { ...overlayLayers.value } })
+  }
+
+  function setOverlayLayer(key: OverlayLayerKey, enabled: boolean) {
+    overlayLayers.value[key] = enabled
+    writeOverlayPreferences({
+      enabled: overlayEnabled.value,
+      layers: { ...overlayLayers.value },
+    })
   }
 
   async function updateClipPolicy(preRollSeconds: number, postRollSeconds: number) {
@@ -75,11 +78,13 @@ export function createWorkstationPreferencesService(options: {
     settingsOpen: readonly(settingsOpen),
     settingsPage: readonly(settingsPage),
     overlayEnabled: readonly(overlayEnabled),
+    overlayLayers: readonly(overlayLayers),
     clipPolicySaving: readonly(clipPolicySaving),
     clipPolicyError: readonly(clipPolicyError),
     open,
     close,
     setOverlayEnabled,
+    setOverlayLayer,
     updateClipPolicy,
     restore,
   }

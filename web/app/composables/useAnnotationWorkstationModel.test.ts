@@ -143,6 +143,44 @@ const coachState = {
 } as CoachMatchState
 
 describe('useAnnotationWorkstationModel timeline layers', () => {
+  it('only exposes a selected point as deletable while the displayed rally is an editable draft', () => {
+    const selectedKeyPoint = computed<AnnotationKeyPoint | null>(
+      () => snapshot.snapshot.key_points[1] ?? null,
+    )
+    const submittedModel = useAnnotationWorkstationModel({
+      coachData: ref(coachState),
+      match: ref<Match | null>(null),
+      timeline: computed<CaptureTimeline | null>(() => null),
+      displayAnnotation: computed(() => snapshot),
+      confirmedAnnotation: shallowRef(snapshot),
+      state: computed(() => 'SUBMITTED' as const),
+      selectedRallyId: computed(() => 'rally'),
+      selectedKeyPoint,
+      selectedTimelineItem: ref<TimelineSelectionItem>('point'),
+      cursorRallyId: ref('rally'),
+    })
+    expect(submittedModel.selectedDeletablePoint.value).toBe(false)
+
+    const correctionSnapshot = structuredClone(snapshot)
+    correctionSnapshot.snapshot.annotation_status = 'open'
+    correctionSnapshot.rally_id = 'correction-rally'
+    const correctionModel = useAnnotationWorkstationModel({
+      coachData: ref(coachState),
+      match: ref<Match | null>(null),
+      timeline: computed<CaptureTimeline | null>(() => null),
+      displayAnnotation: computed(() => correctionSnapshot),
+      confirmedAnnotation: shallowRef(correctionSnapshot),
+      state: computed(() => 'OPEN' as const),
+      selectedRallyId: computed(() => 'correction-rally'),
+      selectedKeyPoint: computed<AnnotationKeyPoint | null>(
+        () => correctionSnapshot.snapshot.key_points[1] ?? null,
+      ),
+      selectedTimelineItem: ref<TimelineSelectionItem>('point'),
+      cursorRallyId: ref('correction-rally'),
+    })
+    expect(correctionModel.selectedDeletablePoint.value).toBe(true)
+  })
+
   it('keeps an earlier READY boundary draft selectable after a new OPEN draft starts', () => {
     const state = structuredClone(coachState)
     state.match.rallies = []
@@ -407,6 +445,8 @@ describe('useAnnotationWorkstationModel timeline layers', () => {
       {
         id: 'rally',
         outcomeLabel: '左側 L 得分',
+        outcomeSide: 'left',
+        outcomeTeamLabel: 'L',
         points: [
           { id: 'service', markerKind: 'service', captureTimeUs: '1000000' },
           { id: 'terminal', markerKind: 'contact', captureTimeUs: '2000000' },
@@ -419,6 +459,48 @@ describe('useAnnotationWorkstationModel timeline layers', () => {
       },
     ])
     expect(model.currentMaskOutcome.value).toBe('左側 L 得分')
+    expect(model.currentMaskOutcomeSide.value).toBe('left')
+    expect(model.currentMaskOutcomeTeamLabel.value).toBe('L')
+  })
+
+  it('uses the realtime outcome while coach data is still stale', () => {
+    const realtimeSnapshot = structuredClone(snapshot)
+    realtimeSnapshot.snapshot.scoring_court_side = 'right'
+    const model = useAnnotationWorkstationModel({
+      coachData: ref(coachState),
+      match: ref<Match | null>(null),
+      timeline: computed<CaptureTimeline | null>(() => null),
+      displayAnnotation: computed(() => realtimeSnapshot),
+      confirmedAnnotation: shallowRef(realtimeSnapshot),
+      state: computed(() => 'SUBMITTED' as const),
+      selectedRallyId: computed(() => 'rally'),
+      selectedKeyPoint: computed<AnnotationKeyPoint | null>(() => null),
+      selectedTimelineItem: ref<TimelineSelectionItem>('segment'),
+      cursorRallyId: ref('rally'),
+    })
+
+    expect(model.currentMaskOutcome.value).toBe('右側 R 得分')
+    expect(model.currentMaskOutcomeSide.value).toBe('right')
+    expect(model.currentMaskOutcomeTeamLabel.value).toBe('R')
+  })
+
+  it('keeps outcome presentation empty while the initial rally data is loading', () => {
+    const model = useAnnotationWorkstationModel({
+      coachData: ref<CoachMatchState | null>(null),
+      match: ref<Match | null>(null),
+      timeline: computed<CaptureTimeline | null>(() => null),
+      displayAnnotation: computed(() => null),
+      confirmedAnnotation: shallowRef(null),
+      state: computed(() => 'IDLE' as const),
+      selectedRallyId: computed(() => null),
+      selectedKeyPoint: computed<AnnotationKeyPoint | null>(() => null),
+      selectedTimelineItem: ref<TimelineSelectionItem>(null),
+      cursorRallyId: ref(null),
+    })
+
+    expect(model.currentMaskOutcome.value).toBeNull()
+    expect(model.currentMaskOutcomeSide.value).toBeNull()
+    expect(model.currentMaskOutcomeTeamLabel.value).toBeNull()
   })
 
   it('labels a hard-cut legacy result as awaiting a new analysis instead of processing', () => {
@@ -592,7 +674,7 @@ describe('useAnnotationWorkstationModel timeline layers', () => {
     expect(model.correctionRallyId.value).toBe('rally')
   })
 
-  it('keeps the previous completed analysis visible while its correction draft is OPEN', () => {
+  it('hides the predecessor analysis rail while its correction draft is OPEN', () => {
     const correctionState = structuredClone(coachState)
     correctionState.match.drafts = [
       {
@@ -624,17 +706,65 @@ describe('useAnnotationWorkstationModel timeline layers', () => {
     })
 
     expect(model.selectedEditableDraft.value).toBe(true)
-    expect(model.selectedAnalysisRunId.value).toBe('analysis')
-    expect(model.mappingAvailable.value).toBe(true)
-    expect(model.timelineSegments.value).toContainEqual(
-      expect.objectContaining({
+    expect(model.selectedAnalysisRunId.value).toBeNull()
+    expect(model.mappingAvailable.value).toBe(false)
+    expect(model.timelineSegments.value.every(segment => !segment.analysis)).toBe(true)
+  })
+
+  it('keeps every correction draft analysis hidden after reload before a rally is selected', () => {
+    const correctionState = structuredClone(coachState)
+    const secondRally = structuredClone(correctionState.match.rallies[0]!)
+    secondRally.id = 'rally-2'
+    secondRally.submission.id = 'submission-2'
+    correctionState.match.rallies.push(secondRally)
+    correctionState.match.drafts = [
+      {
         id: 'rally',
-        analysis: expect.objectContaining({ byteLength: '2048' }),
-      }),
+        ordinal: 1,
+        display_ordinal: 1,
+        display_set_number: 1,
+        annotation_revision: '4',
+        annotation_status: 'open',
+        active_submission_id: 'submission',
+        set_id: 'set',
+        set_number: 1,
+        key_points: correctionState.match.rallies[0]!.submission.key_points,
+      },
+      {
+        id: 'rally-2',
+        ordinal: 2,
+        display_ordinal: 2,
+        display_set_number: 1,
+        annotation_revision: '2',
+        annotation_status: 'open',
+        active_submission_id: 'submission-2',
+        set_id: 'set',
+        set_number: 1,
+        key_points: secondRally.submission.key_points,
+      },
+    ]
+    const reloadedSnapshot = structuredClone(snapshot)
+    reloadedSnapshot.snapshot.annotation_status = 'submitted'
+    const model = useAnnotationWorkstationModel({
+      coachData: ref(correctionState),
+      match: ref<Match | null>(null),
+      timeline: computed<CaptureTimeline | null>(() => null),
+      displayAnnotation: computed(() => reloadedSnapshot),
+      confirmedAnnotation: shallowRef(reloadedSnapshot),
+      state: computed(() => 'SUBMITTED' as const),
+      selectedRallyId: computed(() => null),
+      selectedKeyPoint: computed<AnnotationKeyPoint | null>(() => null),
+      selectedTimelineItem: ref<TimelineSelectionItem>(null),
+      cursorRallyId: ref(null),
+    })
+
+    expect(model.timelineSegments.value.filter(segment => segment.analysis)).toEqual([])
+    expect(model.timelineSegments.value.filter(segment => segment.status === 'draft')).toHaveLength(
+      2,
     )
   })
 
-  it('keeps a superseded analysis rail but removes its immutable points from a new correction rally', () => {
+  it('hides a superseded analysis rail and removes its immutable points from a new correction rally', () => {
     const correctionState = structuredClone(coachState)
     correctionState.match.drafts = [
       {
@@ -670,7 +800,7 @@ describe('useAnnotationWorkstationModel timeline layers', () => {
       expect.objectContaining({
         id: 'rally',
         points: [],
-        analysis: expect.objectContaining({ byteLength: '2048' }),
+        analysis: null,
       }),
     )
   })

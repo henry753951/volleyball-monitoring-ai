@@ -3,7 +3,7 @@ import {
   assignTrackIdentity,
   clearTrackIdentity,
   getCoachMatchAnalytics,
-  setTrackIdentityMappingComplete,
+  swapTrackGidRosterBindings,
 } from '../services/coach-analytics.js'
 import { applyReidAutomaticAssignments } from '../services/reid-automatic-assignment.js'
 import {
@@ -14,6 +14,11 @@ import {
   getReidFeatureRebuildRequest,
   requestReidFeatureRebuild,
 } from '../services/reid-feature-rebuild.js'
+import {
+  applyReidJerseySuggestion,
+  getReidJerseySuggestionRun,
+  requestReidJerseySuggestions,
+} from '../services/reid-jersey-suggestions.js'
 import { builder } from './builder.js'
 import { requireIdentity } from './errors.js'
 
@@ -94,18 +99,22 @@ builder.mutationField('applyReidAutomaticAssignments', t =>
     },
   }),
 )
-builder.mutationField('setTrackIdentityMappingComplete', t =>
+builder.mutationField('swapTrackGidRosterBindings', t =>
   t.field({
     args: {
       analysisRunId: t.arg.id({ required: true }),
-      completed: t.arg.boolean({ required: true }),
+      trackId: t.arg.int({ required: true }),
+      targetPersonClusterId: t.arg.id({ required: true }),
+      reason: t.arg.string(),
     },
     type: 'JSON',
     resolve: async (_root, args, context) => {
       const identity = requireIdentity(context)
-      const result = await setTrackIdentityMappingComplete(db, {
+      const result = await swapTrackGidRosterBindings(db, {
         analysisRunId: args.analysisRunId,
-        completed: args.completed,
+        trackId: args.trackId,
+        targetPersonClusterId: args.targetPersonClusterId,
+        reason: args.reason,
         userId: identity.id,
         role: identity.role,
       })
@@ -187,6 +196,60 @@ builder.queryField('reidAssociationRerunRequest', t =>
         requestId: args.requestId,
         role: identity.role,
       })
+    },
+  }),
+)
+
+builder.mutationField('requestReidJerseySuggestions', t =>
+  t.field({
+    args: {
+      runId: t.arg.id({ required: true }),
+      analysisRunId: t.arg.id({ required: true }),
+    },
+    type: 'JSON',
+    resolve: async (_root, args, context) => {
+      const identity = requireIdentity(context)
+      const result = await requestReidJerseySuggestions(db, {
+        runId: args.runId,
+        analysisRunId: args.analysisRunId,
+        userId: identity.id,
+        role: identity.role,
+      })
+      publishMatchInvalidation?.(result.match_id)
+      return result
+    },
+  }),
+)
+
+builder.queryField('reidJerseySuggestionRun', t =>
+  t.field({
+    args: { runId: t.arg.id({ required: true }) },
+    nullable: true,
+    type: 'JSON',
+    resolve: (_root, args, context) => {
+      const identity = requireIdentity(context)
+      return getReidJerseySuggestionRun(db, {
+        runId: args.runId,
+        userId: identity.id,
+        role: identity.role,
+      })
+    },
+  }),
+)
+
+builder.mutationField('applyReidJerseySuggestion', t =>
+  t.field({
+    args: { suggestionId: t.arg.id({ required: true }) },
+    type: 'JSON',
+    resolve: async (_root, args, context) => {
+      const identity = requireIdentity(context)
+      const result = await applyReidJerseySuggestion(db, {
+        suggestionId: args.suggestionId,
+        userId: identity.id,
+        role: identity.role,
+      })
+      publishMatchInvalidation?.(result.match_id)
+      return result
     },
   }),
 )

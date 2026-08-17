@@ -376,6 +376,7 @@ describe('operations routes', () => {
     expect(deleteMany).toHaveBeenCalledWith({
       where: expect.objectContaining({
         jobs: { none: { status: { in: ['QUEUED', 'RUNNING'] } } },
+        providerJobs: { none: { status: { in: ['QUEUED', 'RUNNING'] } } },
       }),
     })
   })

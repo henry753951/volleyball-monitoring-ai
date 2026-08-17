@@ -1,205 +1,234 @@
-# ReID evidence, human correction, and rerun guide
+# ReID、人工修正與背號感知操作指南
 
-Status: implementation guide for the ADR 0037 baseline
-Last verified: 2026-08-16
-Applies to: Central server, workflow worker, provider SDK, analysis engine, database, and annotation UI
+Status: ADR 0044 的現行實作指南
+Last verified: 2026-08-17
+Applies to: Central server、workflow worker、provider SDK、analysis engine、database、annotation UI
 
-This guide explains the implemented ReID architecture and operator behavior. It does not claim that
-the source is deployed, that a provider capability is enabled in production, or that field accuracy
-has improved. Capability rollout, real GPU measurements, migration rehearsal, and controlled
-accuracy evaluation remain separate gates.
+本文件是後續 agent 修改球員身分功能時的現行基準。舊的固定六槽、ReID worker 內嵌
+VLM、`NEEDS_REVIEW` 才能啟用 GID、以及「完成球員指派」門檻都不是相容需求。架構決策
+以 [`ADR 0044`](./adr/0044-active-unbound-gids-revisioned-corrections-and-central-jersey-assistance.md)
+為準；完整標註與播放 User Flow 在
+[`ANNOTATION_WORKSTATION_USER_FLOWS_AND_REID_EVOLUTION.md`](./ANNOTATION_WORKSTATION_USER_FLOWS_AND_REID_EVOLUTION.md)。
 
-The full playback/annotation User Flows and stable rule IDs are in
-[`ANNOTATION_WORKSTATION_USER_FLOWS_AND_REID_EVOLUTION.md`](./ANNOTATION_WORKSTATION_USER_FLOWS_AND_REID_EVOLUTION.md).
-The architectural authority is
-[`ADR 0037`](./adr/0037-versioned-reid-evidence-and-provider-work.md).
+## 1. 核心目標
 
-## The model in one picture
+- 每個有效 Local ID 都有 active GID；辨識弱時建立 active、unbound GID，不卡 review。
+- GID 是跨片段的視覺人物群組，不是球員、背號、左右場固定槽或同時在場六人之一。
+- GID 可不綁球員。只標多少就立即使用多少，沒有全部標完或完成鎖定按鈕。
+- 不同時間出現、沒有共存的 Local/GID 可以綁同一位 roster player。
+- 同一 frame 共存的 Local 不得投影為同一球員；衝突只能明確交換、拆分或 Local-only。
+- 自動 evidence 與人工確認 evidence 分級。自動 association 只形成 `UNVERIFIED` 建議與目前
+  projection，不得進入後續 eligible bank；只有人工確認的 `CONFIRMED` vector membership 才能成為種子。
+- 原始影片、tracking、Pose、crop、descriptor 不因人工修正而改寫。
+- 修正預設只影響修正點與之後；之前片段維持當時的投影與可稽核歷史。
+
+## 2. 資料與工作流程
 
 ```mermaid
 flowchart LR
-    Submission["Immutable RallySubmission"] --> Clip["Canonical clip"]
-    Clip --> Analysis["ANALYSIS job"]
-    Analysis --> AnalysisRun["AnalysisRun"]
-    Analysis --> Pose["Every-frame person Pose evidence"]
-    Analysis --> Crop["Crop-source manifest"]
-    Pose --> Feature["REID_FEATURE_EXTRACTION"]
+    Submission["Immutable RallySubmission"] --> Analysis["ANALYSIS"]
+    Analysis --> Run["AnalysisRun"]
+    Analysis --> Pose["Every-frame person Pose"]
+    Analysis --> Crop["Crop source manifest"]
+    Run --> Feature["REID_FEATURE_EXTRACTION v2"]
+    Pose --> Feature
     Crop --> Feature
-    Feature --> Evidence["Immutable ReidEvidenceSet generation"]
-    Evidence --> Preview["IDENTITY_PREVIEW_GENERATION"]
-    Evidence --> Association["REID_ASSOCIATION"]
-    Bank["Immutable eligible bank snapshot"] --> Association
-    Association --> Decision["Association decisions"]
-    Decision --> Projection["Active assignment projection"]
-    Human["Human correction ledger"] --> Projection
-    Human --> Membership["Positive / negative membership"]
-    Membership --> Bank
-    Human --> Future["Future clips only, by correction position"]
+    Feature --> Evidence["Immutable ReidEvidenceSet"]
+    Evidence --> Association["REID_ASSOCIATION v2"]
+    Bank["Revisioned eligible bank snapshot"] --> Association
+    Association --> Gid["Active GID projection"]
+    Gid --> Player["Optional revisioned roster binding"]
+    Human["Human correction ledger"] --> Gid
+    Human --> Player
+    Human --> Bank
+    Pose --> Jersey["Operator-triggered jersey suggestion"]
+    Crop --> Jersey
+    Jersey --> Diff["Human-reviewed diff"]
+    Diff --> Human
 ```
 
-The important separation is:
+### 2.1 Local、GID、Player 三層不可混用
 
-- raw media, Pose, crops, descriptors, and VLM responses are immutable evidence;
-- an association run is one reproducible interpretation of an explicit evidence set and bank;
-- a correction is an append-only human decision;
-- an active projection is the current effective answer used by UI/replay/analytics; and
-- a roster player is not a run-local TID, a legacy L1–R6 slot, or an association group.
+| 層級               | 範圍               | 會不會跨片段 | 是否必須存在                          | 權威資料                                |
+| ------------------ | ------------------ | ------------ | ------------------------------------- | --------------------------------------- |
+| Local/TID          | 單一 `AnalysisRun` | 否           | tracking 有人物時存在                 | `ReidTracklet` / raw AnalysisData       |
+| GID/person cluster | match + team       | 是           | 每個 eligible Local 必須有 active GID | membership + assignment revisions       |
+| roster player      | match roster       | 是           | 否                                    | revisioned GID binding / Local override |
 
-## Durable job boundaries
+`ReidPersonCluster.canonicalRosterEntryId` 是目前值的 read projection，不是歷史權威。
+歷史權威是 `ReidGidRosterBindingRevision`。同一位 roster player 可以出現在多個不共存 GID；
+資料庫不使用唯一索引禁止此狀況。
 
-| Job kind                      | Reads                                                                      | Writes                                                                                         | Does not do                                                             |
-| ----------------------------- | -------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------- |
-| `ANALYSIS`                    | canonical clip and immutable submission anchors                            | AnalysisData, analysis manifest, crop-source manifest, every-frame person-Pose manifest/chunks | activate ReID identity                                                  |
-| `REID_FEATURE_EXTRACTION`     | clip, AnalysisData, crop source, saved Pose, roster snapshot               | versioned descriptors, selected frames, VLM raw-response evidence, tracklets                   | rerun detector/tracker/court/ball/action/Pose or assign a roster player |
-| `REID_ASSOCIATION`            | one evidence generation, one exact eligible-bank snapshot, roster snapshot | candidates, confidence, resolved/review/unresolved decisions                                   | mutate evidence or overwrite manual projection                          |
-| `IDENTITY_PREVIEW_GENERATION` | clip, exact track ID, crop source, saved Pose, selected frames             | animated WebP decision aid                                                                     | load a Pose model or change identity                                    |
-| contact association           | changed contact frame plus saved Pose/ball/action/bbox evidence            | reviewed hitter projection and audit provenance                                                | rerun a vision model                                                    |
+### 2.2 自動 association
 
-Provider WebSocket messages are control-plane offers, leases, progress, and acknowledgements. Media
-and large artifacts use verified object-storage inputs and outputs. Each request has an explicit
-schema version, work kind, idempotency key, callback token, artifact hash, and capability
-requirement. Duplicate delivery and callback retry converge on the same durable job.
+1. Central 以一個 immutable evidence generation 與明確 bank revision 建立 job。
+2. Provider 只讀 DINO、OSNet、KPR/KPR Prompt、cannot-link、team 與 soft occupancy prior。
+3. 強且合法的候選回傳 `MATCH_EXISTING_GID`。
+4. 其餘一律回傳 `CREATE_NEW_GID`；不回傳 review gate，也不讓 Local 沒有 GID。
+5. 同片段、非共存且外觀非常接近的 Local 可共享同一個 new-GID group；Central 再次驗證
+   cannot-link，Provider 不能繞過硬衝突。
+6. 自動 membership 寫成 `UNVERIFIED`，可供目前 UI/投影顯示，但不得進 eligible bank、不得成為
+   後續片段的學習種子。人工確認後才建立 `CONFIRMED` vector membership，並進入下一個 immutable
+   bank snapshot。GID 的 active 狀態不依賴 evidence trust 狀態。
+7. 人工 projection priority 是 1000，自動是 100。舊 job、重跑或晚到 callback 都不能蓋掉
+   人工修正。
+8. bank snapshot 只收錄實際含 vector 的 `CONFIRMED` membership。單獨的 GID-player binding、沒有
+   descriptor 的 pending assignment、或本次自動輸出都不能把 cluster 拉進 bank。相同
+   `identityRevision + team + derivationVersion` 對應同一份 immutable snapshot；篩選政策改變必須升級
+   `derivationVersion`，不得覆寫既有 artifact。
+9. 目前回合若已有人工確認 evidence，可用它填補同回合尚未人工確認的 Local；該人工 Local 自身會從
+   automatic eligible set 排除。較晚回合讀同一人工種子，強且合法才 `MATCH_EXISTING_GID`，否則建立新 GID。
 
-## Every-frame Pose and hitter correction
+### 2.3 六人與場側
 
-Base analysis accounts for every canonical frame/player observation. A row either contains COCO-17
-person Pose with source bbox/crop transform/model namespace/confidence, or an explicit missing
-reason. Court layout keypoints remain a different evidence type.
+六人只是一個 soft on-court occupancy prior：
 
-When a user moves a contact time:
+- 短暫辨識七人時，第七個有效 Local 仍建立 GID，不刪除、不偷用、不位移既有 GID。
+- 少辨識一人時只是少一個觀測，不做槽位補位。
+- 同 frame 共存是硬 cannot-link；六人數量不是硬限制。
+- court side/team 取穩定時間聚合，短暫飄移不能改寫人物歷史。
+- `court_side=UNKNOWN` 不猜隊伍；Central 直接建立 team-null 的 active unbound GID，等人工指派時再確定隊伍。
+- match-long GID 數量可以大於六，包含替補、自由球員、false split 與待人工修正群組。
 
-1. the review revision records the new canonical frame;
-2. a local durable contact-association job reads that exact saved frame;
-3. reliable ball-to-wrist/forearm geometry is ranked first;
-4. ambiguous or missing Pose falls back to action-aware bbox, generic bbox, then unresolved;
-5. the projection records mode, scores, quality, and fallback reason; and
-6. no detector, tracker, Pose, feature, or association job is started.
+## 3. Durable job 邊界
 
-## Vector storage and later-clip history
+| 工作                          | 讀取                                | 寫入                                                                 | 絕不做                               |
+| ----------------------------- | ----------------------------------- | -------------------------------------------------------------------- | ------------------------------------ |
+| `ANALYSIS`                    | canonical clip、submission anchors  | AnalysisData、tracking、court、ball、every-frame Pose、crop manifest | 指派 roster player                   |
+| `REID_FEATURE_EXTRACTION v2`  | clip、AnalysisData、saved Pose/crop | descriptor bundle、tracklets、cannot-link                            | VLM、重跑 Pose、球員指派             |
+| `REID_ASSOCIATION v2`         | evidence set、exact bank snapshot   | match/new-GID decisions                                              | 修改 raw evidence、蓋人工 projection |
+| `IDENTITY_PREVIEW_GENERATION` | clip、track、saved Pose/crop        | animated preview                                                     | 載入 Pose 模型、修改身分             |
+| Central jersey suggestion     | clip、saved Pose、tracklet、roster  | montage、raw API response、suggestion/diff                           | 自動套用、改 ReID descriptor         |
 
-Authoritative descriptor bytes remain in content-addressed object-storage artifacts. PostgreSQL
-stores byte ranges, hashes, modality/model namespace, normalization/distance, source frames,
-membership, bank snapshots, corrections, runs, and active projections.
+重新取特徵只建立新的 evidence generation；重新配對只使用既有 generation。兩者都不重跑
+detector、DeepEIOU、SAM3、court、ball、action 或 Pose。
 
-The database image includes pgvector. Compact compatible descriptors are also materialized into
-`ReidSearchEmbedding`:
+## 4. 人工操作 User Flow
 
-- DINO 384-D and OSNet 512-D can use dimension-specific cosine HNSW expression indexes;
-- the complete artifact remains authoritative and reproducible;
-- 4096-D KPR/KPR Prompt descriptors are not forced into the 2,000-D `vector` HNSW limit; and
-- pgvector is retrieval infrastructure, not the person identity authority.
+### 4.1 一般指派
 
-For a later clip at `(set, rally)`, the bank builder selects only active confirmed memberships from
-strictly earlier positions for the same match/team. It writes one immutable snapshot containing
-cluster/roster candidates, vector-to-artifact byte ranges, positive/negative roles, weights, source
-revisions, and cannot-link constraints. The provider receives that snapshot by hash and never reads a
-moving implicit history.
+1. 使用者可用 Local view 或 GID view 操作。
+2. 點整個 Local row 跳到該 track 出現的回合；Select 保留球員預覽。
+3. 選擇球員後立即保存，無需等待 GPU 或按「完成」。若 immutable ReID evidence 已就緒，直接寫
+   revision；若尚未就緒，先保存 `MANUAL + pendingCorrectionMode` 的人工種子，UI 顯示
+   `人工已保存 · ReID 待建立`，不把等待誤報成失敗。
+4. 未指派的 Local 保持 active unbound GID；replay、標註、其他已標資料照常可用。
+5. Feature worker 建立該片段的 evidence generation 後，在同一 durable transaction 將 pending 種子轉成
+   revisioned correction、`CONFIRMED POSITIVE` membership 與 priority 1000 projection，再為目前與之後
+   已有 evidence 的回合排入 association rerun。較晚才建立 evidence 的回合會在初次 association 讀到最新 bank。
+6. 自動 association 只填補未人工確認的 Local。`MANUAL` assignment（包含 pending）不得被 stale cleanup、
+   unresolved decision、重跑或晚到 callback 刪除或覆蓋；自動結果仍是 `UNVERIFIED`。
+7. 面板只顯示 `已指派 X/Y`、人工指派數與等待 ReID 數，這些是資訊，不是門檻。
 
-## Human correction presets
+### 4.2 ReID 重跑與狀態
 
-| UI preset        | Effective projection                                                                      | Future feature bank                                              | Earlier clips |
-| ---------------- | ----------------------------------------------------------------------------------------- | ---------------------------------------------------------------- | ------------- |
-| `from_here`      | append manual projection for the current semantic track and applicable known later tracks | append source-negative and target-positive confirmed memberships | unchanged     |
-| `split_identity` | append a manual projection for this clip's separated group                                | reject wrong source and confirm selected target evidence         | unchanged     |
-| `clip_only`      | append only this clip's manual projection                                                 | no membership change                                             | unchanged     |
+- `重新配對` 是非阻塞工作：畫面顯示「正在以既有 evidence 重新配對」，但人工 Select 仍可立即保存。
+- 完成後顯示「重新配對已完成；人工指派仍保持優先」。自動結果只填未人工確認的 Local。
+- pending 人工種子在 evidence 建立前也算已保存；不得因重整、重跑、失敗 callback 或 stale cleanup 回到未指派。
+- Provider 對同一組 completed output 的並行/重送 callback 必須序列化並視為冪等成功；只有 artifact
+  descriptor 不同才回 `RESULT_ARTIFACT_CONFLICT`，不得把已完成 job 反轉成 failed。
 
-Manual assignment revisions use priority 1000; AI projections use priority 100. Association
-materialization checks the semantic canonical track across evidence generations, not only a new
-tracklet UUID. A late or rerun AI result therefore cannot overwrite a human result.
+### 4.3 修正選項
 
-Corrections lock and advance `Match.identityRevision`. They append `ReidIdentityCorrection`,
-`ReidAssignmentRevision`, `ReidEvidenceMembership`, and `ReidActiveProjection` changes in one
-transaction. Raw evidence is never edited.
+| UI 選項                    | Local→GID       | GID→player          | 目前 Local 顯示 | 後續 bank                     | 過去片段 |
+| -------------------------- | --------------- | ------------------- | --------------- | ----------------------------- | -------- |
+| 只重綁目前 GID             | 不變            | 從目前回合起改綁    | 改變            | 確認目前 GID evidence         | 不變     |
+| 與指定 GID 交換球員        | 不變            | 兩個 GID 原子交換   | 兩邊改變        | 各自沿用修正後標籤            | 不變     |
+| 只有這個 Local 的 GID 判錯 | 建立/移到新 GID | 目標 GID 綁所選球員 | 改變            | reject 錯來源、confirm 新來源 | 不變     |
+| 只改這個 Local 顯示        | 不變            | 不變                | 改變            | 不納入學習                    | 不變     |
 
-### Player 1 / Player 2 example
+### 4.4 同 frame 衝突
 
-Suppose clip A correctly maps evidence to Player 1, while clip B was wrongly grouped with Player 1
-but should be Player 2.
+若所選球員已被同 frame 的另一個 Local 使用：
 
-1. The operator selects Player 2 on B and chooses `from_here` or `split_identity`.
-2. A is earlier than the correction anchor, so its projection and history are not rewritten.
-3. B gets a new manual projection to Player 2.
-4. B's membership under Player 1 is superseded/rejected; a confirmed positive membership under
-   Player 2 is appended.
-5. Already-analyzed clips after B whose bank revision is stale receive new association runs.
-6. A slow old-bank result is retained as history but fails the current revision check and cannot
-   update the active projection.
-7. Future clips receive snapshots without the superseded wrong membership and with corrected
-   eligible evidence.
+- 不允許兩個共存 Local 綁同一球員。
+- UI 顯示目標 GID，預設選項是原子交換兩個 GID 的 roster binding。
+- 不提供「拆成另一個 GID 但仍綁同一球員」的矛盾操作。
+- 可選 Local-only，表示只修畫面投影且不餵給後續 bank。
+- Server 再做一次 cannot-link/同場驗證，不能只依賴前端 disabled 狀態。
 
-## Three different UI actions
+### 4.5 非共存與跨片段 GID
 
-### 套用既有關聯
+若另一個 GID 只在別的時間出現，兩個 GID 綁同一球員是合法情形；系統不能自動解除舊
+GID。當目前 GID 已綁其他球員且使用者選擇新球員時，UI 額外列出這位球員既有的 GID：
 
-No model work. It projects already-known active relationships onto unresolved Local/TIDs and
-preserves manual mappings.
+- 選「只重綁目前 GID」：保留其他 GID，允許同一球員有多個 false-split GID。
+- 選「與 GID X 交換」：明確執行跨片段 GID label swap。
+- 沒有明確選擇時不得猜測交換目標，因為同一球員可能合法擁有多個非共存 GID。
 
-### 重新配對
+## 5. 背號感知
 
-Creates an idempotent `ReidAssociationRerunRequest`. It reuses active feature evidence, saved Pose,
-and an exact immutable bank snapshot. Team sides are tracked independently. The request completes
-only after every side with eligible tracklets has a completed run.
+背號感知不是 ReID Provider Work，也不是 worker 常駐模型。它是使用者按下「背號感知」
+才建立的 Central durable job。
 
-### 重新取特徵
+### 5.1 取樣與 API
 
-Creates an idempotent `ReidFeatureRebuildRequest` and a new feature-extraction job. It reuses the
-canonical clip, AnalysisData, crop-source manifest, and saved every-frame Pose.
+1. 讀取該 `AnalysisRun` 已保存的 every-frame person Pose。
+2. 依 shoulders/hips confidence、bbox 面積與 torso 可見度產生品質分數。
+3. 每個 Local 取品質最高的 40 張候選池，再以 run/track/frame seed 做可重現的隨機排序。
+4. 最多取 10 張，依 Local bbox 裁切並拼成一張 montage。
+5. 呼叫 OpenAI-compatible `POST {BASE_URL}/chat/completions`，要求 JSON object。
+6. 模型只能從該隊 roster 背號中選擇或回 null；同背號在名單中不是唯一時不自動對應球員。
 
-The new generation activates only when it covers the same canonical track set as the current one.
-On activation:
+環境設定：
 
-- the old generation is marked superseded but retained;
-- manual projections are copied to matching canonical tracks;
-- active positive/negative memberships are superseded by rows pointing at the new descriptors and a
-  new identity revision; and
-- association/preview scheduling ignores superseded generations.
+```text
+JERSEY_VISION_API_KEY=
+JERSEY_VISION_BASE_URL=https://api.openai.com/v1
+JERSEY_VISION_MODEL=gpt-4.1-mini
+JERSEY_VISION_TIMEOUT_MS=120000
+JERSEY_VISION_MAX_TOKENS=300
+```
 
-If coverage differs or materialization fails, the current generation remains active. A failed
-rebuild cannot erase a working identity view.
+沒有 API key 時 job 明確失敗為 `JERSEY_VISION_NOT_CONFIGURED`，不影響 ReID、Pose 或人工
+Select。API 429/5xx/timeout 依 lease/retry policy 重試；單一 Local 無可用 torso frame 時只標記
+該 item 失敗。
 
-## Dynamic preview
+### 5.2 Diff review
 
-The preview request includes the canonical track ID and exact saved Pose manifest. Selected frames
-come from feature/VLM evidence with a bounded deterministic fallback. The engine validates manifests,
-crops the intended tracked person, and emits an animated WebP without loading Pose. An authenticated
-match-scoped route streams the result. Browser full-frame extraction remains a fallback, and preview
-failure never disables assignment.
+- job 完成後才自動開啟差異 dialog。
+- 每列顯示 Local/GID、目前球員、建議背號/球員、confidence 與是否可套用。
+- 預設勾選「有唯一 roster 對應且真的有差異」的項目；使用者可逐筆取消。
+- Hover 每列顯示既有 animated Local preview 與本次 top-10 montage。
+- 套用以 suggestion id 逐筆寫人工 `from_here` revision；未選、失敗、無唯一對應與已套用項目
+  都保持原狀。
+- 若建議遇到同 frame 人物衝突，該筆不覆寫，回到 Local 列表由使用者決定交換或 Local-only。
 
-## Recovery and no-stuck rules
+## 6. 向量、學習與錯誤特徵
 
-- Corrections commit synchronously and do not wait for an AI worker.
-- Feature and association rerun requests remain durable while workers are offline.
-- Provider/terminal materialization failure transitions the matching request to `FAILED`.
-- Lease expiry and retryable materialization return work to a retryable state.
-- UI polling failure shows a temporary state and retries; the player combobox stays editable.
-- Association uses the newest applicable bank revision; older network results cannot move the active
-  projection.
-- Evidence cutover occurs only after complete validation; prior artifacts remain auditable.
+- descriptor 原始 bytes 存 content-addressed object storage；PostgreSQL 保存 byte range、hash、
+  modality、model namespace、source frames 與 membership revision。
+- DINO 384-D、OSNet 512-D 可投影到 pgvector/HNSW；大型 KPR 向量仍以 artifact 為權威。
+- later-clip bank 是明確 immutable snapshot，不直接讀會變動的「目前資料庫全部向量」。
+- `UNVERIFIED` 自動 membership 可以低權重提供候選；人工正確指派建立 `CONFIRMED POSITIVE`。
+- GID/Local 修正對錯來源建立 superseding membership 與 negative/rejected evidence，使後續 snapshot
+  不再把錯特徵當該球員正樣本。
+- `clip_only` 只修 projection，不改 membership，適合畫面修正但證據不可靠的情形。
+- 大模型 fine-tune 不在 request path；NPA/小型 adaptation 必須綁定 exact snapshot、seed 與 recipe，
+  且只能使用 eligible confirmed/weighted evidence。
 
-## Source map
+## 7. 已知限制與防護
 
-- contracts: `packages/contracts/ai/` and `packages/contracts/examples/ai/`
-- persistence: `packages/db/prisma/schema.prisma` and `20260815*`/`20260816*` migrations
-- provider work: `server/src/realtime/provider-work-ws.ts`,
-  `server/src/routes/provider-job-callback.ts`, `server/src/services/provider-jobs.ts`
-- correction ledger: `server/src/services/reid-identity-ledger.ts`
-- rerun APIs: `server/src/services/reid-feature-rebuild.ts`,
-  `server/src/services/reid-association-rerun.ts`
-- workers: `worker/src/roles/reid-feature-worker.ts`,
-  `worker/src/roles/reid-association-worker.ts`, `worker/src/roles/identity-preview-worker.ts`
-- UI: `web/app/components/AnnotationIdentityPanel.vue`,
-  `web/app/components/PlayerIdentityPreview.vue`
-- provider engine: `H:/Repos/volleyball-analysis-engine/src/volleyball_analysis_engine/`
+- 非共存不等於同一人，只代表「可以比較/合併」，不是正證據。
+- 兩個真的不同的人若外觀相近仍可能錯 merge；same-frame cannot-link 能阻止最危險情形，人工
+  split/move 負責修復其餘情形。
+- 暫時超過六個偵測可能增加 unbound GID，這是可清理的 false split；不能為了維持六個而
+  造成 false merge 或遺失 Local。
+- `identity_mapping_completed` 是舊 read projection；新 UI/操作與下游不可依賴它。
+- 本改版不宣稱線上 ReID accuracy 已提升。必須用同一 frozen protocol 分別量測 same-clip、
+  cross-clip、false merge、fragmentation、人工修正率與後續 bank 汙染率。
 
-## Remaining rollout and quality gates
+## 8. Source map
 
-The implementation alone does not prove:
-
-- production cross-clip/same-clip accuracy or calibrated auto-activation thresholds;
-- real GPU latency, throughput, and memory with every-frame Pose plus VLM;
-- backup/restore and migration rehearsal on production-sized data;
-- browser behavior against a deployed capability-enabled provider; or
-- bulk merge, quarantine, atomic swap, and a complete side-by-side evidence review UI.
-
-Do not convert the reported “about 50%” observation into a new claim until legacy,
-appearance-only, VLM-only, and combined paths are measured on the same frozen protocol.
+- ADR：`docs/adr/0044-active-unbound-gids-revisioned-corrections-and-central-jersey-assistance.md`
+- contracts：`packages/contracts/ai/reid-feature-*`、`reid-association-*`
+- persistence：`packages/db/prisma/schema.prisma` 與 `20260817140000*` migration
+- association materializer：`worker/src/roles/reid-association-worker.ts`
+- jersey job：`worker/src/roles/jersey-suggestion-worker.ts`
+- correction ledger：`packages/db/src/reid-identity-ledger.ts`；server 只保留相容的 re-export，讓 feature
+  materializer 與 request path 共用同一套 revision/cannot-link 規則。
+- jersey API：`server/src/services/reid-jersey-suggestions.ts`
+- GraphQL：`server/src/graphql/coach-analytics.ts`
+- UI/controller：`web/app/components/AnnotationIdentityPanel.vue`、
+  `IdentityJerseySuggestionDialog.vue`、`identity-assignment-controller.service.ts`
+- external provider：`H:/Repos/volleyball-analysis-engine/src/volleyball_analysis_engine/`

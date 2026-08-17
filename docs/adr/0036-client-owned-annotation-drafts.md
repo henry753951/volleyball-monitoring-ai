@@ -15,8 +15,19 @@ creation and editing even though the submission had not yet become immutable.
 
 ## Decision
 
-- An ordinary draft is owned by the device session that created its START boundary (or legacy
-  service point). Each device may have one ordinary `OPEN` draft; other devices may create their own.
+- An ordinary draft stores its originating client explicitly in
+  `Rally.draftOwnerDeviceSessionId`. New drafts assign the device session that creates START;
+  migration backfills old rows from their START boundary (or legacy service point).
+- `OPEN` is client-owned because its END preview and Z state are still moving local work. A peer
+  inspection must stay read-only and must not replace that client's own OPEN draft.
+- `READY` has a fixed authoritative END boundary. Any authorized operator who explicitly selects the
+  unsubmitted READY draft may edit points, actors, ball events and outcome or submit it. Its cursor,
+  key-point selection and optimistic state remain tab-local; server revisions serialize durable
+  changes. Merely receiving a room broadcast never activates a READY draft in another tab.
+- A reconnecting device of the same authenticated user may atomically recover exactly one abandoned
+  `OPEN`/`READY` draft when its previous owner is absent from room presence. Recovery never steals
+  from an online owner, never crosses users, and refuses ambiguous multiple candidates. It increments
+  the Rally revision and records both an annotation operation and an outbox event.
 - Room broadcasts remain useful invalidations and collaboration signals, but a client activates only
   its own restored draft, an explicitly selected Rally, or a snapshot for the Rally it is already
   displaying. An unrelated broadcast never changes the local Z state machine.
@@ -46,6 +57,8 @@ Older clients continue to work; they merely do not expose READY contact editing.
 
 - A submitted Rally remains immutable and browser cursor observations remain non-authoritative.
 - Device ownership prevents accidental cross-client closure without sending cursor state through the
-  room. Explicit historical selection remains read-only unless the draft belongs to the client.
+  room. Explicitly selecting READY is the boundary between passive inspection and shared durable
+  editing. An abandoned owner can still be recovered during the WebSocket handshake before
+  `connection_ready`, so reconnecting tabs restore their default active draft without a manual pick.
 - A rejected overlap leaves the local READY draft intact and editable, so an operator can move the
   boundary/points or void it without reloading.

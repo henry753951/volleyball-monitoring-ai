@@ -125,6 +125,26 @@ const chunk: AnalysisFrameChunk = {
 }
 
 describe('CourtPathView', () => {
+  it('keeps a touch-sized hit target along every visible route', async () => {
+    const wrapper = mount(CourtPathView, {
+      props: {
+        paths,
+        events,
+        activeFrame: 301,
+      },
+    })
+
+    const curves = wrapper.findAll('.court-path__curve')
+    const hitTargets = wrapper.findAll('.court-path__hit-target')
+    expect(hitTargets).toHaveLength(curves.length)
+    expect(hitTargets[0]!.attributes('d')).toBe(curves[0]!.attributes('d'))
+    expect(wrapper.findAll('.court-team')[0]!.classes()).toContain('team-tone-red')
+    expect(wrapper.findAll('.court-team')[1]!.classes()).toContain('team-tone-blue')
+
+    await hitTargets[0]!.trigger('click')
+    expect(wrapper.emitted('seek')?.[0]).toEqual(['301'])
+  })
+
   it('moves the simulated ball from A to B using the active frame and switches on the next segment', async () => {
     const wrapper = mount(CourtPathView, {
       props: {
@@ -133,8 +153,8 @@ describe('CourtPathView', () => {
         activeFrame: 301,
         playing: true,
         tracks: [
-          { trackId: 8, label: '王小明', jerseyNumber: '8', position: 'OH' },
-          { trackId: 3, label: '林大華', jerseyNumber: '3', position: 'MB' },
+          { trackId: 8, courtSide: 'left', label: '王小明', jerseyNumber: '8', position: 'OH' },
+          { trackId: 3, courtSide: 'right', label: '林大華', jerseyNumber: '3', position: 'MB' },
         ],
         fps: { num: 60, den: 1 },
       },
@@ -143,8 +163,7 @@ describe('CourtPathView', () => {
     const startBall = wrapper.findAll('.flight-ball circle').at(-1)!
     expect(Number(startBall.attributes('cx'))).toBeCloseTo(24)
     expect(Number(startBall.attributes('cy'))).toBeCloseTo(212)
-    expect(wrapper.text()).toContain('#8 王小明')
-    expect(wrapper.text()).toContain('#3 林大華')
+    expect(wrapper.text()).toContain('#8')
     expect(wrapper.find('marker').exists()).toBe(false)
 
     await wrapper.setProps({ activeFrame: 420 })
@@ -162,8 +181,8 @@ describe('CourtPathView', () => {
         activeFrame: 301,
         chunk,
         tracks: [
-          { trackId: 8, label: '王小明', jerseyNumber: '8', position: 'OH' },
-          { trackId: 12, label: null },
+          { trackId: 8, courtSide: 'left', label: '王小明', jerseyNumber: '8', position: 'OH' },
+          { trackId: 12, courtSide: 'right', label: null },
         ],
         playerLabelMode: 'hitters',
       },
@@ -171,21 +190,29 @@ describe('CourtPathView', () => {
 
     expect(wrapper.findAll('.court-player')).toHaveLength(2)
     expect(wrapper.findAll('.court-player.hitter')).toHaveLength(1)
+    expect(wrapper.findAll('.court-player.team-tone-blue')).toHaveLength(1)
+    expect(wrapper.findAll('.court-player.team-tone-red')).toHaveLength(1)
+    expect(wrapper.findAll('.court-nameplate')).toHaveLength(0)
+    expect(wrapper.findAll('.court-endpoint-label')).toHaveLength(1)
+    expect(wrapper.text()).toContain('#8')
+    expect(wrapper.text()).not.toContain('#3')
     expect(wrapper.text()).not.toContain('ID 12')
 
     await wrapper.setProps({ playerLabelMode: 'all' })
-    expect(wrapper.text()).toContain('ID 12')
+    expect(wrapper.text()).toContain('T012')
+    expect(wrapper.findAll('.court-endpoint-label')).toHaveLength(2)
   })
 
   it('keeps an explicit badge for mapped roster entries without a position', () => {
     const wrapper = mount(CourtPathView, {
       props: {
         paths,
+        events,
         activeFrame: 301,
         tracks: [{ trackId: 8, label: '王小明', jerseyNumber: '8', position: 'UNSPECIFIED' }],
       },
     })
 
-    expect(wrapper.text()).toContain('#8 王小明')
+    expect(wrapper.text()).toContain('#8')
   })
 })

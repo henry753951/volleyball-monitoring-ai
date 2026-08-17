@@ -1,13 +1,18 @@
 <script setup lang="ts">
-import type { BallEventResult, BallEventValue } from '@volleyball-monitoring/contracts'
-import { Check, UserRoundCheck } from 'lucide-vue-next'
+import {
+  resultForBallEventChoice,
+  type BallEventKind,
+  type BallEventResultChoice,
+  type BallEventValue,
+  type ServeStyle,
+} from '@volleyball-monitoring/contracts'
+import { Check, ChevronDown, UserRoundCheck } from 'lucide-vue-next'
 import { computed, ref } from 'vue'
 import UiButton from '~/components/ui/Button.vue'
 import UiPopover from '~/components/ui/Popover.vue'
 import {
   BALL_EVENT_TONE_COLORS,
   ballEventKindLabel,
-  ballEventLabel,
   ballEventTone,
 } from '~/utils/annotationBallEventPresentation'
 import { useAnnotationWorkstationService } from '~/services/annotation-workstation/annotation-workstation.service'
@@ -15,14 +20,22 @@ import { useAnnotationWorkstationService } from '~/services/annotation-workstati
 const props = withDefaults(
   defineProps<{
     selectedBallEvent?: BallEventValue | null
+    previousBallEvent?: BallEventValue | null
+    selectedOrdinal?: number
     selectedActorId?: string | null
     actorOptions?: ReadonlyArray<{ id: string; label: string }>
   }>(),
-  { selectedBallEvent: null, selectedActorId: null, actorOptions: () => [] },
+  {
+    selectedBallEvent: null,
+    previousBallEvent: null,
+    selectedOrdinal: 1,
+    selectedActorId: null,
+    actorOptions: () => [],
+  },
 )
 
 const workstation = useAnnotationWorkstationService()
-const resultOpen = ref(false)
+const kindOpen = ref(false)
 const actorOpen = ref(false)
 const tone = computed(() => ballEventTone(props.selectedBallEvent))
 const accent = computed(() => BALL_EVENT_TONE_COLORS[tone.value])
@@ -30,32 +43,65 @@ const selectedActorLabel = computed(
   () =>
     props.actorOptions.find(option => option.id === props.selectedActorId)?.label ?? '未指定球員',
 )
-const resultOptions = computed<Array<{ result: BallEventResult; label: string }>>(() => {
-  if (props.selectedBallEvent?.kind === 'SERVE')
-    return [
-      { result: 'POINT_SCORED', label: '得分' },
-      { result: 'SUCCESS', label: '成功' },
-      { result: 'ERROR', label: '失誤' },
-    ]
-  if (props.selectedBallEvent?.kind === 'RECEIVE')
-    return [
-      { result: 'SUCCESS', label: '成功' },
-      { result: 'ERROR', label: '失誤' },
-      { result: 'POINT_LOST', label: '失分' },
-    ]
-  if (props.selectedBallEvent?.kind === 'SPIKE')
-    return [
-      { result: 'SUCCESS', label: '成功' },
-      { result: 'FAILURE', label: '失敗' },
-    ]
-  return []
+const kindOptions = computed<ReadonlyArray<{ kind: BallEventKind; label: string }>>(() => {
+  if (props.selectedOrdinal === 1) return [{ kind: 'SERVE', label: '發球' }]
+  return [
+    { kind: 'CONTACT', label: 'HIT' },
+    { kind: 'RECEIVE', label: '接球' },
+    ...(props.selectedOrdinal >= 3 ? [{ kind: 'SPIKE' as const, label: '殺球' }] : []),
+  ]
 })
+const resultEnabled = computed(() =>
+  Boolean(props.selectedBallEvent && props.selectedBallEvent.kind !== 'CONTACT'),
+)
+const eventEditState = computed(() => workstation.actions.state('mark.set-event').value)
 
-function chooseResult(result: BallEventResult) {
+function eventWith(patch: Partial<BallEventValue>): BallEventValue | null {
+  if (!props.selectedBallEvent) return null
+  const kind = patch.kind ?? props.selectedBallEvent.kind
+  const hasResult = Object.prototype.hasOwnProperty.call(patch, 'result')
+  const hasServeStyle = Object.prototype.hasOwnProperty.call(patch, 'serve_style')
+  return {
+    ...props.selectedBallEvent,
+    ...patch,
+    kind,
+    result:
+      patch.kind && patch.kind !== props.selectedBallEvent.kind
+        ? null
+        : hasResult
+          ? (patch.result ?? null)
+          : props.selectedBallEvent.result,
+    serve_style:
+      kind === 'SERVE'
+        ? hasServeStyle
+          ? (patch.serve_style ?? 'JUMP')
+          : (props.selectedBallEvent.serve_style ?? 'JUMP')
+        : null,
+  }
+}
+
+function chooseKind(kind: BallEventKind) {
+  const event = eventWith({ kind })
+  if (event) void workstation.actions.execute('mark.set-event', event)
+  kindOpen.value = false
+}
+
+function chooseResult(choice: BallEventResultChoice) {
+  const current = props.selectedBallEvent
+  if (!current || current.kind === 'CONTACT') return
+  const result = resultForBallEventChoice(current.kind, choice)
+  const event = eventWith({ result: current.result === result ? null : result })
+  if (event) void workstation.actions.execute('mark.set-event', event)
+}
+
+function chooseServeStyle(serveStyle: ServeStyle) {
+  const event = eventWith({ serve_style: serveStyle })
+  if (event) void workstation.actions.execute('mark.set-event', event)
+}
+
+function resultSelected(choice: BallEventResultChoice) {
   const event = props.selectedBallEvent
-  if (!event) return
-  void workstation.actions.execute('mark.set-event', { kind: event.kind, result })
-  resultOpen.value = false
+  return Boolean(event && event.result === resultForBallEventChoice(event.kind, choice))
 }
 
 function chooseActor(actorRosterEntryId: string | null) {
@@ -68,46 +114,78 @@ function chooseActor(actorRosterEntryId: string | null) {
   <div class="selected-point-editor" :style="{ '--point-accent': accent }">
     <i aria-hidden="true" />
     <UiPopover
-      v-if="resultOptions.length"
-      :open="resultOpen"
+      :open="kindOpen"
       side="bottom"
       align="start"
-      content-class="ball-event-result-popover"
-      aria-label="修改球點結果"
-      @update:open="resultOpen = $event"
+      content-class="ball-event-kind-popover"
+      aria-label="修改球種"
+      @update:open="kindOpen = $event"
     >
       <template #trigger>
         <UiButton
           variant="secondary"
-          class="point-detail-button event"
-          :disabled="!workstation.actions.state('mark.set-event').value.enabled"
-          :title="
-            workstation.actions.state('mark.set-event').value.reason ||
-            ballEventLabel(selectedBallEvent)
-          "
+          class="point-detail-button event-kind"
+          :disabled="!eventEditState.enabled"
+          :title="eventEditState.reason || '修改球種'"
         >
           <span class="event-swatch" />
-          <span>{{ ballEventLabel(selectedBallEvent) }}</span>
+          <span>{{
+            ballEventKindLabel(selectedBallEvent, { previousEvent: previousBallEvent })
+          }}</span>
+          <ChevronDown :size="12" />
         </UiButton>
       </template>
       <div class="point-detail-options">
-        <strong>{{ ballEventKindLabel(selectedBallEvent) }}結果</strong>
+        <strong>球種</strong>
         <button
-          v-for="option in resultOptions"
-          :key="option.result"
+          v-for="option in kindOptions"
+          :key="option.kind"
           type="button"
-          :aria-pressed="selectedBallEvent?.result === option.result"
-          @click="chooseResult(option.result)"
+          :aria-pressed="selectedBallEvent?.kind === option.kind"
+          @click="chooseKind(option.kind)"
         >
           <span>{{ option.label }}</span>
-          <Check v-if="selectedBallEvent?.result === option.result" :size="14" />
+          <Check v-if="selectedBallEvent?.kind === option.kind" :size="14" />
         </button>
       </div>
     </UiPopover>
-    <UiButton v-else variant="secondary" class="point-detail-button event" disabled>
-      <span class="event-swatch" />
-      <span>{{ ballEventLabel(selectedBallEvent) }}</span>
-    </UiButton>
+
+    <div v-if="selectedBallEvent?.kind === 'SERVE'" class="serve-style" aria-label="發球方式">
+      <button
+        v-for="option in [
+          ['JUMP', '跳發'],
+          ['STANDING', '站發'],
+        ] as const"
+        :key="option[0]"
+        type="button"
+        :aria-pressed="(selectedBallEvent.serve_style ?? 'JUMP') === option[0]"
+        :disabled="!eventEditState.enabled"
+        @click="chooseServeStyle(option[0])"
+      >
+        {{ option[1] }}
+      </button>
+    </div>
+
+    <div class="result-switch" aria-label="球點結果">
+      <button
+        v-for="option in [
+          ['SUCCESS', '成功', 'V'],
+          ['FAILURE', '失敗', 'B'],
+        ] as const"
+        :key="option[0]"
+        type="button"
+        :class="option[0].toLowerCase()"
+        :aria-pressed="resultSelected(option[0])"
+        :disabled="!resultEnabled || !eventEditState.enabled"
+        :title="
+          !resultEnabled ? 'HIT 不使用成功或失敗；請先選擇球種' : `按 ${option[2]} 標記${option[1]}`
+        "
+        @click="chooseResult(option[0])"
+      >
+        <UiKbd>{{ option[2] }}</UiKbd
+        ><span>{{ option[1] }}</span>
+      </button>
+    </div>
 
     <UiPopover
       :open="actorOpen"
@@ -152,41 +230,44 @@ function chooseActor(actorRosterEntryId: string | null) {
 <style scoped>
 .selected-point-editor {
   position: relative;
-  width: min(430px, calc(100vw - 190px));
-  height: 40px;
-  display: grid;
-  grid-template-columns: minmax(120px, 0.8fr) minmax(180px, 1.2fr);
-  gap: 5px;
+  width: min(680px, calc(100vw - 160px));
+  min-height: 42px;
+  display: flex;
+  align-items: stretch;
+  gap: 6px;
   padding: 4px;
-  border: 1px solid color-mix(in srgb, var(--point-accent) 45%, #343b43);
-  border-radius: 9px;
-  background: rgb(10 13 16 / 96%);
-  box-shadow: 0 8px 24px #0009;
+  border-radius: 10px;
+  background: rgb(10 13 16 / 97%);
+  box-shadow: 0 9px 28px #000a;
   pointer-events: auto;
 }
 .selected-point-editor > i {
   position: absolute;
   left: 50%;
-  top: -7px;
+  top: -6px;
   width: 11px;
   height: 11px;
   transform: translateX(-50%) rotate(45deg);
-  border-left: 1px solid var(--point-accent);
-  border-top: 1px solid var(--point-accent);
   background: #0a0d10;
 }
 .selected-point-editor :deep(.point-detail-button) {
   min-width: 0;
-  min-height: 30px;
+  min-height: 34px;
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 4px 8px;
+  padding: 5px 9px;
   border-color: #343b43;
   background: #171b20;
   color: #e8edf2;
 }
-.selected-point-editor :deep(.point-detail-button span:last-child) {
+.event-kind {
+  flex: 0 1 150px;
+}
+.actor {
+  flex: 1 1 190px;
+}
+.selected-point-editor :deep(.point-detail-button span) {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -198,6 +279,48 @@ function chooseActor(actorRosterEntryId: string | null) {
   border-radius: 50%;
   background: var(--point-accent);
   box-shadow: 0 0 8px color-mix(in srgb, var(--point-accent) 65%, transparent);
+}
+.serve-style,
+.result-switch {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(58px, 1fr);
+  gap: 3px;
+  padding: 3px;
+  border-radius: 8px;
+  background: #15191d;
+}
+.serve-style button,
+.result-switch button {
+  min-height: 30px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 4px 8px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #aeb5bd;
+  font-size: 0.7rem;
+  cursor: pointer;
+}
+.serve-style button[aria-pressed='true'] {
+  background: #3b2c12;
+  color: #ffd98a;
+}
+.result-switch .success[aria-pressed='true'] {
+  background: #16483b;
+  color: #b8ffe9;
+}
+.result-switch .failure[aria-pressed='true'] {
+  background: #50202d;
+  color: #ffd0dc;
+}
+.serve-style button:disabled,
+.result-switch button:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
 }
 .point-detail-options {
   display: grid;

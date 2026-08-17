@@ -1,17 +1,19 @@
 {
-  "schema_version": "1.0.0",
+  "schema_version": "2.0.0",
   "provider_job_id": "provider-job-association-001",
   "association_run_id": "association-run-001",
   "evidence_set_id": "evidence-set-001",
   "bank_snapshot_id": "bank-snapshot-001",
-  "status": "NEEDS_REVIEW",
+  "status": "COMPLETED",
   "decisions": [
     {
       "tracklet_id": "tracklet-001",
       "group_key": "current-group-001",
-      "association_state": "NEEDS_REVIEW",
+      "action": "CREATE_NEW_GID",
       "selected_person_cluster_id": null,
+      "new_gid_group_key": "new:left:current-group-001",
       "selected_roster_entry_id": null,
+      "confidence": 0.61,
       "candidates": [
         {
           "candidate_key": "candidate-001",
@@ -28,7 +30,7 @@
           ]
         }
       ],
-      "unresolved_reason": "candidate margin is below the activation threshold"
+      "rationale": "existing candidates were not reliable enough; create an active unbound GID"
     }
   ],
   "content_sha256": "9999999999999999999999999999999999999999999999999999999999999999"

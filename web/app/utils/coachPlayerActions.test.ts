@@ -5,6 +5,7 @@ import {
   actionColor,
   actionKey,
   actionOutcomeRate,
+  coachBallType,
   collectCoachActionEvents,
   replayEventUrl,
   replayStartSeconds,
@@ -25,6 +26,23 @@ describe('coachPlayerActions', () => {
     expect(replayEventUrl('match-1', { rallyId: 'rally-1', anchorTimeUs: '12300000' })).toBe(
       '/matches/match-1/replay/rally-1?event_us=12300000',
     )
+  })
+
+  it('groups coach ball types into the four human-facing categories', () => {
+    const events = [
+      { key_point_id: 'serve', ball_event: { ordinal: 1, kind: 'serve' } },
+      { key_point_id: 'receive', ball_event: { ordinal: 2, kind: 'receive' } },
+      { key_point_id: 'spike', ball_event: { ordinal: 3, kind: 'spike' } },
+      { key_point_id: 'contact', ball_event: { ordinal: 4, kind: 'contact' } },
+    ] as unknown as NonNullable<CoachRallyReplay['analysis']>['contact_events']
+
+    expect(coachBallType(events, events[0]!)).toEqual({ key: 'serve', label: '發球' })
+    expect(coachBallType(events, events[1]!)).toEqual({
+      key: 'serve_receive',
+      label: '接發',
+    })
+    expect(coachBallType(events, events[2]!)).toEqual({ key: 'spike', label: '殺球' })
+    expect(coachBallType(events, events[3]!)).toEqual({ key: 'hit', label: 'HIT' })
   })
 
   it('collects human ball events and uses their explicit result and landing position', () => {
@@ -106,11 +124,12 @@ describe('coachPlayerActions', () => {
       {
         rallyId: 'rally-1',
         trackId: 8,
-        actionLabel: '接發',
+        actionLabel: 'HIT',
         actionConfidence: null,
         resultKey: 'success',
         routeStart: { x: 1.08, y: -0.12 },
         routeEnd: { x: 0.4, y: 0.7 },
+        courtSide: 'left',
         outcome: 'won',
       },
     ])

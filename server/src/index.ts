@@ -18,6 +18,7 @@ import { createPersistedSampleSnapResolver } from './media/sample-snap-resolver.
 import { mediaPlaybackRoutes } from './routes/media-playback.js'
 import { providerJobCallbackRoutes } from './routes/provider-job-callback.js'
 import { analysisMediaRoutesWithDependencies } from './routes/analysis-media.js'
+import { coachHighlightExportRoutes } from './routes/coach-highlight-exports.js'
 import { analysisReviewRoutesWithDependencies } from './routes/analysis-review.js'
 import {
   collectOperationsSnapshot,
@@ -166,6 +167,7 @@ await app.register(websocket)
 await app.register(providerJobCallbackRoutes({ database: db }))
 await app.register(providerWorkWebSocketRoutes({ database: db }))
 await app.register(analysisMediaRoutesWithDependencies({ timingManifestReader }))
+await app.register(coachHighlightExportRoutes)
 await app.register(
   analysisReviewRoutesWithDependencies({
     onChanged: matchId => coachMatchEvents.publish(matchId, 'analysis_review_updated'),

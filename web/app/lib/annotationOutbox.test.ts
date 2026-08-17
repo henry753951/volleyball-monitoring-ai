@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import type { AnnotationCommand } from '@volleyball-monitoring/contracts'
 import {
   enqueueAnnotationCommand,
   markAnnotationOutboxAttempted,
@@ -82,6 +83,59 @@ describe('annotation local outbox', () => {
         ],
       }),
     )
+    expect(readAnnotationOutbox(storage, room)).toEqual([])
+  })
+  it('coalesces repeated same-frame contacts instead of filling persistent storage', () => {
+    const storage = new MemoryStorage()
+    let entries = [] as ReturnType<typeof enqueueAnnotationCommand>
+    for (let index = 0; index < 40; index += 1) {
+      entries = enqueueAnnotationCommand(
+        entries,
+        {
+          ...command,
+          command_id: crypto.randomUUID(),
+          base_revision: '1',
+          kind: 'CREATE_CONTACT_KEY_POINT',
+        } as AnnotationCommand,
+        new Date(`2026-08-17T00:00:${String(index).padStart(2, '0')}.000Z`),
+        { observation: { capture_time_us: '1000', capture_frame_index: '25' } },
+      )
+    }
+    expect(entries).toHaveLength(1)
+    writeAnnotationOutbox(storage, room, entries)
+    expect(readAnnotationOutbox(storage, room)).toHaveLength(1)
+  })
+
+  it('keeps only the latest V/B result intent for the same key point', () => {
+    const base = {
+      ...command,
+      schema_version: '4.0.0',
+      base_revision: '2',
+      kind: 'SET_BALL_EVENT',
+      payload: { key_point_id: 'point-2', event: { kind: 'RECEIVE', result: 'SUCCESS' } },
+    } as AnnotationCommand
+    const success = enqueueAnnotationCommand([], {
+      ...base,
+      command_id: '00000000-0000-4000-8000-000000000030',
+    } as AnnotationCommand)
+    const failure = enqueueAnnotationCommand(success, {
+      ...base,
+      command_id: '00000000-0000-4000-8000-000000000031',
+      payload: { key_point_id: 'point-2', event: { kind: 'RECEIVE', result: 'FAILURE' } },
+    } as AnnotationCommand)
+
+    expect(failure).toHaveLength(1)
+    expect(failure[0]?.command).toMatchObject({
+      command_id: '00000000-0000-4000-8000-000000000031',
+      payload: { event: { kind: 'RECEIVE', result: 'FAILURE' } },
+    })
+  })
+
+  it('drops commands that already exhausted automatic reconciliation on reload', () => {
+    const storage = new MemoryStorage()
+    writeAnnotationOutbox(storage, room, [
+      { ...enqueueAnnotationCommand([], command)[0]!, retry_count: 3 },
+    ])
     expect(readAnnotationOutbox(storage, room)).toEqual([])
   })
 })

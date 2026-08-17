@@ -75,18 +75,20 @@ export async function getAiWorkerAccess(
   now = new Date(),
 ): Promise<AiWorkerAccessSnapshot> {
   const onlineAfter = new Date(now.getTime() - 30_000)
-  const [tokens, workerCount, onlineWorkerCount, activeJobCount] = await Promise.all([
-    database.aiWorkerAccessToken.findMany({
-      orderBy: [{ enabled: 'desc' }, { createdAt: 'desc' }],
-    }),
-    database.aiProviderInstance.count(),
-    database.aiProviderInstance.count({
-      where: { disconnectedAt: null, lastSeenAt: { gte: onlineAfter } },
-    }),
-    database.aiJob.count({ where: { status: { in: [...ACTIVE_JOB_STATUSES] } } }),
-  ])
+  const [tokens, workerCount, onlineWorkerCount, activeAiJobCount, activeProviderJobCount] =
+    await Promise.all([
+      database.aiWorkerAccessToken.findMany({
+        orderBy: [{ enabled: 'desc' }, { createdAt: 'desc' }],
+      }),
+      database.aiProviderInstance.count(),
+      database.aiProviderInstance.count({
+        where: { disconnectedAt: null, lastSeenAt: { gte: onlineAfter } },
+      }),
+      database.aiJob.count({ where: { status: { in: [...ACTIVE_JOB_STATUSES] } } }),
+      database.providerJob.count({ where: { status: { in: [...ACTIVE_JOB_STATUSES] } } }),
+    ])
   return {
-    activeJobCount,
+    activeJobCount: activeAiJobCount + activeProviderJobCount,
     authMode: tokens.length > 0 ? 'managed' : environmentToken() ? 'environment' : 'unconfigured',
     name: 'volleyball-analysis-engine',
     onlineWorkerCount,

@@ -48,8 +48,12 @@ withDefaults(defineProps<{ horizontal?: boolean }>(), { horizontal: false })
   display: flex;
   touch-action: none;
   user-select: none;
+  pointer-events: auto;
   padding: 2px;
   transition: opacity 140ms ease;
+}
+.scroll-area :deep(.scroll-area__bar[data-state='hidden']) {
+  pointer-events: none;
 }
 .scroll-area :deep(.scroll-area__bar.vertical) {
   position: absolute;

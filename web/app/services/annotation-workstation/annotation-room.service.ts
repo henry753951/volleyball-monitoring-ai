@@ -24,6 +24,7 @@ import {
 } from '~/lib/annotationRealtimeClient'
 import {
   enqueueAnnotationCommand,
+  compactAnnotationOutbox,
   markAnnotationOutboxAttempted,
   readAnnotationOutbox,
   replaceAnnotationOutboxCommand,
@@ -37,6 +38,7 @@ import {
   applyAnnotationAckLocally,
   projectAnnotationSnapshot,
   rebaseQueuedAnnotationCommand,
+  shouldAdoptInspectedAnnotationSnapshot,
   shouldAcceptAnnotationBroadcast,
   type AnnotationClientObservation,
 } from '~/lib/annotationCommandQueue'
@@ -87,6 +89,7 @@ export function createAnnotationRoomService(annotationWsUrl: MaybeRefOrGetter<st
   let flushPromise: Promise<void> | null = null
   let rallySelectionGeneration = 0
   let deviceSessionHint: string | null = null
+  const rememberedRallyIdState = ref<string | null>(null)
 
   const state = computed<'IDLE' | 'OPEN' | 'READY' | 'SUBMITTED' | 'VOIDED'>(() => {
     const status = snapshot.value?.snapshot.annotation_status
@@ -128,11 +131,10 @@ export function createAnnotationRoomService(annotationWsUrl: MaybeRefOrGetter<st
     return roomId.value ? `${ACTIVE_RALLY_STORAGE_PREFIX}${roomId.value}` : null
   }
   function rememberedRallyId() {
-    const target = storage()
-    const key = activeRallyStorageKey()
-    return target && key ? target.getItem(key) : null
+    return rememberedRallyIdState.value
   }
   function rememberRallyId(rallyId: string | null) {
+    rememberedRallyIdState.value = rallyId
     const target = storage()
     const key = activeRallyStorageKey()
     if (!target || !key) return
@@ -171,7 +173,17 @@ export function createAnnotationRoomService(annotationWsUrl: MaybeRefOrGetter<st
   }
   function loadOutbox() {
     const target = storage()
-    outbox.value = target && roomId.value ? readAnnotationOutbox(target, roomId.value) : []
+    outbox.value =
+      target && roomId.value
+        ? compactAnnotationOutbox(readAnnotationOutbox(target, roomId.value))
+        : []
+    if (target && roomId.value) {
+      try {
+        writeAnnotationOutbox(target, roomId.value, outbox.value)
+      } catch {
+        error.value = '無法整理本機待同步標註；請保持此頁開啟'
+      }
+    }
   }
   function discardPending() {
     replaceOutbox([])
@@ -234,7 +246,18 @@ export function createAnnotationRoomService(annotationWsUrl: MaybeRefOrGetter<st
     const generation = ++rallySelectionGeneration
     const next = await requestSnapshot(rallyId)
     if (generation !== rallySelectionGeneration) return null
-    acceptSnapshot(next)
+    // OPEN still belongs to the client that is placing its moving END boundary.
+    // READY has a fixed boundary and is shared durable work: explicitly selecting
+    // it makes it this tab's edit target without sharing cursor/selection state.
+    const current = viewSnapshot.value
+    const protectsLocalOpen = Boolean(
+      current &&
+      current.rally_id !== rallyId &&
+      current.snapshot.annotation_status === 'open' &&
+      annotationDraftOwnedByClient(current, rememberedRallyId()),
+    )
+    if (!protectsLocalOpen && shouldAdoptInspectedAnnotationSnapshot(next, rememberedRallyId()))
+      acceptSnapshot(next, { remember: next?.snapshot.annotation_status === 'ready' })
     return next
   }
 
@@ -299,7 +322,7 @@ export function createAnnotationRoomService(annotationWsUrl: MaybeRefOrGetter<st
       return false
     }
     if (latest) acceptSnapshot(latest, { remember: true })
-    if (annotationCommandConverged(entry.command, latest)) {
+    if (annotationCommandConverged(entry.command, latest, entry.observation)) {
       replaceOutbox(resolveAnnotationOutboxEntry(outbox.value, entry.command.command_id))
       error.value = null
       return true
@@ -315,6 +338,7 @@ export function createAnnotationRoomService(annotationWsUrl: MaybeRefOrGetter<st
         command_id: crypto.randomUUID(),
       } as AnnotationCommand,
       latest,
+      entry.observation,
     )
     if (!retry) {
       replaceOutbox(resolveAnnotationOutboxEntry(outbox.value, entry.command.command_id))
@@ -350,9 +374,9 @@ export function createAnnotationRoomService(annotationWsUrl: MaybeRefOrGetter<st
         }
         const rebased = queued.attempted_at
           ? queued.command
-          : rebaseQueuedAnnotationCommand(queued.command, snapshot.value)
+          : rebaseQueuedAnnotationCommand(queued.command, snapshot.value, queued.observation)
         if (!rebased) {
-          if (annotationCommandConverged(queued.command, snapshot.value)) {
+          if (annotationCommandConverged(queued.command, snapshot.value, queued.observation)) {
             replaceOutbox(resolveAnnotationOutboxEntry(outbox.value, queued.command.command_id))
             continue
           }
@@ -405,6 +429,9 @@ export function createAnnotationRoomService(annotationWsUrl: MaybeRefOrGetter<st
     if (roomId.value === nextRoomId && realtime) return
     realtime?.disconnect()
     roomId.value = nextRoomId
+    const target = storage()
+    const key = activeRallyStorageKey()
+    rememberedRallyIdState.value = target && key ? target.getItem(key) : null
     snapshot.value = null
     presence.value = []
     processing.value = {}
@@ -502,7 +529,7 @@ export function createAnnotationRoomService(annotationWsUrl: MaybeRefOrGetter<st
     return realtime?.ready() ? flushQueuedCommand(command.command_id) : Promise.resolve()
   }
 
-  function dispatch(
+  async function dispatch(
     action: AnnotationAction,
     cursor: PlaybackCursorInput | null,
     observation?: AnnotationClientObservation,
@@ -510,7 +537,7 @@ export function createAnnotationRoomService(annotationWsUrl: MaybeRefOrGetter<st
   ) {
     error.value = null
     try {
-      void sendCommand(
+      return await sendCommand(
         buildCommand(action, cursor, { observation, selectedKeyPointId }),
         observation,
       )

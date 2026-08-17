@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { selectIdentityPreviewFrames } from '../src/roles/identity-preview-worker.js'
 
 describe('identity preview frame planning', () => {
-  it('uses chronological feature and VLM evidence frames within the immutable tracklet', () => {
+  it('uses chronological feature frames within the immutable tracklet', () => {
     expect(
       selectIdentityPreviewFrames({
         firstFrameIndex: 100n,
@@ -11,9 +11,8 @@ describe('identity preview frame planning', () => {
           [144n, 108n, 132n],
           [108n, 156n, 999n],
         ],
-        jerseyFrameIndices: [120n, 132n],
       }),
-    ).toEqual([108n, 120n, 132n, 144n, 156n])
+    ).toEqual([108n, 132n, 144n, 156n])
   })
 
   it('falls back to a bounded chronological sample instead of rerunning pose selection', () => {
@@ -21,7 +20,6 @@ describe('identity preview frame planning', () => {
       firstFrameIndex: 10n,
       lastFrameIndex: 109n,
       vectorFrameIndices: [],
-      jerseyFrameIndices: [],
     })
 
     expect(frames).toHaveLength(12)

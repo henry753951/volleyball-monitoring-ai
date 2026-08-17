@@ -1,3 +1,4 @@
+import { JobStatus } from '@volleyball-monitoring/db/client'
 import { describe, expect, it } from 'vitest'
 import {
   hasReidAssociationRerun,
@@ -26,9 +27,12 @@ it('keeps association idempotency keys within the Provider Work wire limit', () 
 const decision = (trackletId: string) => ({
   tracklet_id: trackletId,
   group_key: 'left-team',
+  action: 'CREATE_NEW_GID',
+  confidence: 0,
   association_state: 'UNRESOLVED',
   selected_person_cluster_id: null,
   selected_roster_entry_id: null,
+  new_gid_group_key: `left-team:${trackletId}`,
   candidates: [],
   unresolved_reason: 'no sufficient evidence',
 })
@@ -36,8 +40,22 @@ const decision = (trackletId: string) => ({
 describe('ReID association materialization boundary', () => {
   it('requires a new immutable run when a correction advances the bank revision', () => {
     const runs = [
-      { bankSnapshot: { teamId: 'team-a', revision: 7n } },
-      { bankSnapshot: { teamId: 'team-b', revision: 9n } },
+      {
+        status: JobStatus.COMPLETED,
+        bankSnapshot: {
+          teamId: 'team-a',
+          revision: 7n,
+          derivationVersion: 'human-confirmed-seed-v4',
+        },
+      },
+      {
+        status: JobStatus.COMPLETED,
+        bankSnapshot: {
+          teamId: 'team-b',
+          revision: 9n,
+          derivationVersion: 'human-confirmed-seed-v4',
+        },
+      },
     ]
 
     expect(hasReidAssociationRevision(runs, 'team-a', 7n)).toBe(true)
@@ -48,8 +66,13 @@ describe('ReID association materialization boundary', () => {
   it('deduplicates each team independently for an explicit rerun request', () => {
     const runs = [
       {
+        status: JobStatus.COMPLETED,
         rerunRequestId: 'request-1',
-        bankSnapshot: { teamId: 'team-a', revision: 7n },
+        bankSnapshot: {
+          teamId: 'team-a',
+          revision: 7n,
+          derivationVersion: 'human-confirmed-seed-v4',
+        },
       },
     ]
 

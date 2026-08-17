@@ -8,7 +8,14 @@
 
 範圍：標記工作站、修正版草稿、教練回放、球員／球隊／Local ID 分析、集合影片、Pose 衍生投影、VLM Provider
 
-實作狀態：第 16 節已確認。Annotation Realtime v4、BallEvent draft/submission、共用正規化器、C/V/B、單球發球決策、教練人工事件投影、Overlay／速度控制與 VLM capability 開關已進入程式；第 19 節列出已驗證範圍與仍待完成項目。
+實作狀態：第 16 節已確認。Annotation Realtime v4、BallEvent draft/submission、共用正規化器、C 球種快捷鍵、通用 V/B 成功失敗、跳發／站發、可略過的送出警告、教練人工事件投影、Overlay／速度控制與 VLM capability 開關已進入程式；第 19 節列出已驗證範圍與仍待完成項目。
+
+> 2026-08-17 修訂：以 [ADR 0046](./adr/0046-manual-ball-results-and-conservative-third-point-inference.md)
+> 取代本文件較早的 V/B、固定第二球接發與強制結果規則。V/B 現為所選球點的通用成功／失敗；
+> 結果可留空並在送出前警告；發球方式為跳發／站發且預設跳發；第三點出現後，僅對從未人工
+> 修改的第一、第二點分別推論發球成功與接發，第二點結果仍由人判斷。
+> 所有可填結果的球種在契約與資料庫統一使用 `SUCCESS | FAILURE | null`；得分方仍由回合
+> 結果獨立記錄，不再把球點結果當作直接得分欄位。
 
 ---
 
@@ -153,7 +160,7 @@
 建議新增獨立 BallEvent 領域：
 
 - event_kind：SERVE、RECEIVE、CONTACT、SPIKE。
-- result：依 event_kind 使用不同枚舉，不用一個含糊的 success boolean。
+- result：SERVE／RECEIVE／SPIKE 共用 `SUCCESS | FAILURE | null`；CONTACT 固定為 null。
 - event_time：權威 PTS／frame／capture time，由後端 playback resolver 建立。
 - actor_override：人工作出的球員或 Local ID 關聯。
 - ordinal：在確認「第一／第二球」定義後由 canonical ordered projection 產生。
@@ -162,16 +169,16 @@
 
 ### 4.3 已確認的結果語意
 
-draft 在尚未完成輸入時允許 result 為 null；immutable submission 不保存 UNKNOWN。已確認的 wire enum 與顯示語意如下：
+draft 與 immutable submission 都允許 result 為 null。null 表示操作者尚未判定，並非另一個 UNKNOWN enum。已確認的 wire enum 與顯示語意如下：
 
-| 球種     | wire result                  | 中文顯示與規則             |
-| -------- | ---------------------------- | -------------------------- |
-| 發球     | POINT_SCORED、SUCCESS、ERROR | 得分、成功、失誤           |
-| 接發     | SUCCESS、ERROR、POINT_LOST   | 成功、失誤、失分           |
-| 殺球     | SUCCESS、FAILURE             | 成功、失敗                 |
-| 一般擊球 | null                         | 沒有結果分類，不產生成功率 |
+| 球種     | wire result            | 中文顯示與規則                       |
+| -------- | ---------------------- | ------------------------------------ |
+| 發球     | SUCCESS、FAILURE、null | 成功、失敗、未判定；得分方由回合另存 |
+| 接球     | SUCCESS、FAILURE、null | 成功、失敗、未判定                   |
+| 殺球     | SUCCESS、FAILURE、null | 成功、失敗、未判定                   |
+| 一般擊球 | null                   | 沒有結果分類，不產生成功率           |
 
-接發的 ERROR 表示沒有成功傳到舉球員但球仍繼續；POINT_LOST 表示該次接發直接造成失分。V 固定設定 SUCCESS；B 快速設定 ERROR，POINT_LOST 由同組 UI 的明確選項設定，不以重複按 B 猜狀態。
+`RECEIVE` 是底層通用接球事件，不另外持久化接發或接殺 enum。顯示與統計依同一 canonical order 的前一球推導：前一球是 SERVE 顯示「接發」，前一球是 SPIKE 顯示「接殺」，其他情況顯示「接球」。V／B 只切換目前所選事件的 SUCCESS／FAILURE；沒有選取點時不新增點，也不更改球種。再次按下已選結果可清空為 null。
 
 殺球 SUCCESS 僅指該殺球直接得分；防守方接觸到該球後，即使攻方最後仍贏得回合，該殺球也屬 FAILURE。系統可以依球路與比分提出建議，但人工結果優先。
 
@@ -205,8 +212,8 @@ draft 在尚未完成輸入時允許 result 為 null；immutable submission 不�
 
 - X：新增人工事件。系統依事件序位提供預設球種，但使用者可改。
 - C：有選取時把該點改成 SPIKE；沒有選取時新增 SPIKE。目標 ordinal 為第一／第二點時禁止，UI 顯示具體原因，不連續噴出 toast。
-- V：有選取時把第二點改成 RECEIVE／SUCCESS；沒有選取時只在新點將成為第二點時新增 RECEIVE／SUCCESS。
-- B：有選取時把第二點改成 RECEIVE／ERROR；沒有選取時只在新點將成為第二點時新增 RECEIVE／ERROR。接發 POINT_LOST 由同組 UI 選擇。
+- V：有選取時把第二點以後的點改成 RECEIVE／SUCCESS；沒有選取時在新點將成為第二點以後時新增 RECEIVE／SUCCESS。
+- B：有選取時把第二點以後的點改成 RECEIVE／ERROR；沒有選取時在新點將成為第二點以後時新增 RECEIVE／ERROR。RECEIVE 的 POINT_LOST 由同組 UI 選擇。
 - A／D：在本地 canonical ordered event projection 中選擇上一／下一事件，不依遠端 arrival order。
 - Arrow：frame navigation。
 - Z：只負責 boundary，不是發球事件。
@@ -226,6 +233,7 @@ draft 在尚未完成輸入時允許 result 為 null；immutable submission 不�
 - 第一點預設 SERVE。
 - 第二點預設 RECEIVE。
 - 第三個以後 X 預設 CONTACT。
+- 第二點以後 V／B 可明確把任一點改為 RECEIVE；該 RECEIVE 的接發／接殺／接球分類不另存欄位，而是依前一球推導。
 - 第三個以後 C 明確建立 SPIKE。
 
 預設是可修改的初值，但序位限制是資料 invariant。若插入、刪除、移動或 Z 設定 END 造成序位／coverage 變化，共用驗證自動修正器必須產生 deterministic correction plan：
@@ -233,8 +241,8 @@ draft 在尚未完成輸入時允許 result 為 null；immutable submission 不�
 - END 之後或 START 之前的點改為 tombstone。
 - 第一點修正為 SERVE，第二點修正為 RECEIVE。
 - 移到第一／第二點的 SPIKE 自動改為對應合法球種並清除不相容 result。
-- 移出第二點的 RECEIVE 自動改為 CONTACT 並清除 receive result。
-- 保留每一項 before／after／reason，前端以單一彙整通知說明自動修正或取消了哪些點。
+- 第二點以後的 RECEIVE 保留為合法通用接球事件；只有移到第一點時才改為 SERVE 並清除不相容 result。
+- 保留每一項 before／after／reason，前端只對真正改變既有使用者資料的修復，以單一彙整通知說明修正或取消了哪些點；新球點第一次取得預設 kind 不顯示「已自動校正」。
 - 按鍵、按鈕 disabled 狀態與後端驗證使用同一套 rule engine，不允許出現 UI 可執行但 command 永遠被拒絕的漂移。
 
 ### 5.5 Event Inspector
@@ -251,19 +259,9 @@ draft 在尚未完成輸入時允許 result 為 null；immutable submission 不�
 
 每個欄位要分開儲存 provenance，避免人工只改 actor 卻使 event kind 又被系統重設。
 
-### 5.6 只有一個事件的送出檢查
+### 5.6 未判定結果的送出檢查
 
-當 submission 只含一個有效 keypoint 時，不區分人工或自動來源：
-
-1. 系統依發球方與得分方自動提出 POINT_SCORED 或 ERROR 建議；證據不足時不猜。
-2. 顯示 Dialog：「這球是發球得分，還是發球失誤？」
-3. 動作：
-   - 發球得分：標記 SERVE／POINT_SCORED 並送出。
-   - 發球失誤：標記 SERVE／ERROR 並送出。
-   - 返回編輯。
-4. Dialog 必須說明這會影響發球統計。
-
-如果唯一事件不是 SERVE，驗證自動修正器先產生可見修正計畫；Dialog 不保存 UNKNOWN。
+送出前若 SERVE／RECEIVE／SPIKE 仍有 null result，Dialog 以中文列出未判定的球序與球種，並提供「返回編輯」與「仍然送出」。不得因只有一個或兩個點就猜測發球成功／失敗；結果由人輸入，null 可進入 immutable submission，但統計必須明示未判定數量並排除於成功率分母。
 
 ### 5.7 送出後修正
 
@@ -647,49 +645,20 @@ AI action 可作為 overlay 或診斷 filter，但不是預設統計主軸。
 
 ---
 
-## 13. VLM warm-up 與常駐設計
+## 13. 背號感知輔助（取代 Worker 內建 VLM）
 
-### 13.1 Provider lifecycle
+外部分析 Worker 不再載入或宣告 VLM capability。背號辨識改為中央系統中由操作者主動觸發的獨立工作：
 
-建議狀態：
+1. 從既有逐幀 pose 與 tracklet evidence 選出軀幹清楚的候選影格。
+2. 先依畫質建立候選池，再以可重現的隨機種子取最多 10 張並產生 montage。
+3. 以 OpenAI-compatible vision API 取得背號建議。
+4. 結果只進入差異預覽，不直接改寫 GID 或球員綁定。
+5. 操作者可逐項勾選套用；hover 時可查看既有預覽 GIF 與本次 montage。
 
-1. STARTING：載入程式與 runtime。
-2. LOADING_MODEL：載入 VLM weights。
-3. WARMING：以固定小樣本執行一次完整 preprocess＋generation。
-4. READY：成功且記憶體在安全門檻內，才 advertise capability。
-5. DEGRADED：模型仍在但 OOM／latency／health 異常，不接新 work。
-6. DRAINING：不接新 job，等待現有 job 完成。
+API key、base URL、model、timeout 與 token 上限由中央 Jersey Suggestion Worker 的環境變數設定。此工作不重跑 pose、追蹤或 ReID feature extraction，也不把模型輸出放進自動 ReID feature bank。
 
-模型在 READY 期間不 unload。若 process crash，由 supervisor 重啟並重新 warm-up；中央系統不能只看 process 存在。
-
-目前已交付的第一階段只有 capability 開關，不包含本節描述的 warm-up 狀態機。外部
-`volleyball-analysis-engine` Worker 的精確控制方式是：
-
-- 環境變數：`VOLLYAI_REID_VLM_ENABLED=false`（預設）或 `true`。
-- CLI：`volleyball-analysis worker --enable-reid-vlm`／`--disable-reid-vlm`。
-- 相容入口：`volleyball-analysis-worker` 也接受相同參數。
-- CLI 明確值優先於 env。
-- 關閉時不建立 `CandidateConstrainedJerseyVlm`、不宣告 `JERSEY_VLM_RESPONSE`，也不宣告 `jersey-vlm/qwen-v1` recipe。
-- `REID_FEATURE_EXTRACTION` 本身另由 `VOLLYAI_REID_FEATURE_ENABLED` 控制；VLM 開啟但 feature job 關閉時仍不載入 VLM。
-
-### 13.2 資源隔離
-
-- VLM Worker 與一般 analysis Worker 使用不同 capability queue。
-- VLM concurrency 預設 1。
-- 以實測 peak VRAM／RAM 設 reservation 與 admission threshold。
-- 目前 12 GB RTX 5070 不承載 BF16 8B VLM。
-- 建議先以 24 GB 以上獨立 GPU 做 BF16 8B 基準測試；實際最低值必須由 warm-up 與最壞 batch 的 peak measurement 決定。
-- 若測試 4-bit／8-bit quantization，必須另外評估準確率、latency、峰值 VRAM 與與其他工作共存情況。
-
-### 13.3 VLM 在真相鏈的位置
-
-- VLM 產生 jersey／identity evidence，不直接綁定永久 player truth。
-- 結果進入 REID feature／association job。
-- 低信心可 abstain，交由人工修正。
-- 人工修正更新 versioned feature bank 的正／負 membership 與 cannot-link。
-- 後續片段使用已確認 evidence；被判定錯誤的 feature 不得繼續污染 bank。
-
-詳細 ReID 設計仍以既有 ReID 文件為準，本文件只新增 warm-up 與人工球種整合。
+詳細資料生命週期、人工修正與污染隔離規則以
+`REID_EVIDENCE_AND_HUMAN_CORRECTION_GUIDE.md` 與 ADR 0044 為準。
 
 ---
 
@@ -838,21 +807,21 @@ AI action 可作為 overlay 或診斷 filter，但不是預設統計主軸。
 
 產品 owner 已於 2026-08-16 確認以下規則，可開始資料庫與 public contract 實作。
 
-### 決策 A：第一球／第二球與 V／B
+### 決策 A：序位、自動補值與 V／B
 
 1. 第一／第二球是片段內第一／第二個有效 keypoint，包含人工與自動產生的點，但不包含 START／END boundary。
-2. V 是接發成功，B 是接發失誤。
-3. 有選取點時 C／V／B 修改該點；沒有選取點時新增帶對應球種／結果的點。
-4. C 只允許第三點以後；V／B 只允許第二點。
-5. 插入、移動、刪除或 Z END 改變 coverage／ordinal 時，由共用驗證自動修正器 tombstone 或降級不合法點，並向使用者彙整通知。
+2. 第一點固定為 SERVE，預設發球方式為 JUMP；第二點預設為 CONTACT，不能只因它是第二點就判定為接發。
+3. 第三點出現時，系統只補尚未被人工碰過的空白欄位：第一點空白 result 補 SUCCESS；第二點仍為預設 CONTACT 時改為 RECEIVE，但 result 保持 null。
+4. C 有選取點時改為 SPIKE、無選取點時新增 SPIKE；只允許第三點以後。V／B 僅修改已選點的 SUCCESS／FAILURE，不新增點、不改球種。
+5. 人工曾確認、改寫或清空的 kind／result 會設置欄位鎖；後續插入、移動、刪除、同步或自動補值不得覆寫。
+6. 插入、移動、刪除或 Z END 改變 coverage／ordinal 時，由共用驗證自動修正器 tombstone 或降級不合法點，並向使用者彙整通知。
 
 ### 決策 B：結果分類
 
-- 發球：POINT_SCORED／SUCCESS／ERROR。
-- 接發：SUCCESS／ERROR／POINT_LOST。
-- 殺球：SUCCESS／FAILURE。
+- 發球、接球（RECEIVE）、殺球：`SUCCESS | FAILURE | null`。
+- 接球前一球為 SERVE／SPIKE／其他時，分別顯示接發／接殺／接球。
 - 一般擊球：不帶 result。
-- draft 可暫時未選結果；immutable submission 不保存 UNKNOWN。
+- draft 與 immutable submission 均可保存 null；送出時警告但可繼續。
 
 ### 決策 C：交付與基礎設施方向
 
@@ -875,7 +844,7 @@ AI action 可作為 overlay 或診斷 filter，但不是預設統計主軸。
 6. 不因 event kind／result 修改而重跑重型 AI。
 7. 不把 candidates 畫成多個確定 hitter。
 8. 不把 rally winner 直接等同每一記 spike 的 success。
-9. 不把 unknown 隱藏在成功率分母之外。
+9. null 結果必須顯示未判定數量，且不得偷偷計入成功率分母。
 10. 不宣稱 VLM 可常駐或與其他工作共存，除非有實測 peak memory 與健康證據。
 11. 不宣稱部署完成，除非已驗證 GitOps revision、ready pods、image digest、node 與真實瀏覽器。
 
@@ -905,8 +874,11 @@ AI action 可作為 overlay 或診斷 filter，但不是預設統計主軸。
 - Annotation Realtime `4.0.0`：typed contact、`SET_BALL_EVENT`、snapshot BallEvent 與 repair effects。
 - Prisma：`BallEventDraft`、`RallySubmissionBallEvent`、結果與球種的資料庫 CHECK，以及 immutable submission snapshot。
 - 共用純函式正規化器：canonical time/frame/order、boundary tombstone、ordinal reindex、球種／結果降級與穩定 repair code。
-- 標記 UI：X/C/V/B，同一球點群組；選取時修改，未選取時新增；不合法 ordinal 共用同一原因；READY 在 Enter 前仍可編輯。選取球點後可由同一個 event-detail 區指定或清除 active match-roster 球員。
-- 單一有效點送出：Dialog 強制選擇 `POINT_SCORED` 或 `ERROR`；server 也拒絕未決結果。
+- 標記 UI：全域列只保留 X HIT 與 C 殺球；V/B 位於所選球點的浮動編輯器，切換通用成功／失敗且不新增點；發球可切換跳發／站發；不合法 ordinal 共用同一原因；READY 在 Enter 前仍可編輯。選取球點後可由同一區指定或清除 active match-roster 球員。
+- RECEIVE 顯示投影：前一球 SERVE → 接發、前一球 SPIKE → 接殺、其他 → 接球；時間軸、Inspector、教練回放與球員分析共用此規則。
+- 自動修正通知：伺服器仍保留完整 repair audit，但新球點第一次套用預設 kind 不提示；只有既有資料真的被改動或取消時才顯示彙整通知。
+- 送出提醒：UI 以中文列出每一個未標記結果的球序與球種；操作者可返回補標，也可確認仍然送出，server 接受 null 結果。
+- 保守自動補值：只有第三點存在時，才對未人工碰過的欄位補第一點 SUCCESS 與第二點 RECEIVE；第二點結果保持 null，兩點片段完全不推論。
 - 修正版：kind／result 等幾何未變的修正沿用已完成的 clip 與 `analysisSourceRunId`，不建立新的重型 AI job；coach replay／analytics 可沿 lineage 讀舊 evidence。
 - 教練回放：人工 BallEvent kind/result/actor snapshot 為語意；只有 effective source actor 使用 hitter highlight；球路標籤顯示背號＋姓名；跳轉 lead 為 3 秒；上一／下一回合有 disabled state；顯示設定使用 Popover。
 - 標記畫面：播放速度位於 timecode control；Overlay 同時提供畫面快捷開關與 Settings 開關，並保存為 browser preference。

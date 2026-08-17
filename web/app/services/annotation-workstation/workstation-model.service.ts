@@ -2,7 +2,7 @@ import type { AnnotationKeyPoint, AnnotationRallySnapshot } from '@volleyball-mo
 import type { ComputedRef, Ref, ShallowRef } from 'vue'
 import { computed } from 'vue'
 import { isSupersededSourceSubmission } from '~/lib/annotationKeyPointNavigation'
-import type { CoachMatchState, CoachRally } from '~/lib/coachDomain'
+import type { CoachMatchState, CoachRally, CoachTeam } from '~/lib/coachDomain'
 import type { CaptureTimeline, Match } from '~/lib/coreDomain'
 import { annotationOutcomeLabel } from '~/utils/annotationOutcome'
 import { deriveCoachDisplayOrdinals } from '~/utils/rallyDisplayOrder'
@@ -18,6 +18,32 @@ function processingStateLabel(status: string) {
   if (status === 'ai_processing') return 'AI 分析中'
   if (status === 'artifact_ingesting') return '回傳結果中'
   return '處理中'
+}
+
+type TimelineOutcomeSide = 'left' | 'right'
+
+function timelineOutcomeMetadata(input: {
+  scoreResolution?: string | null
+  scoringCourtSide?: string | null
+  scoringTeamId?: string | null
+  leftTeamId?: string | null
+  rightTeamId?: string | null
+  teams?: readonly CoachTeam[]
+}) {
+  const side: TimelineOutcomeSide | null =
+    input.scoreResolution === 'resolved' &&
+    (input.scoringCourtSide === 'left' || input.scoringCourtSide === 'right')
+      ? input.scoringCourtSide
+      : null
+  if (!side) return { side: null, teamLabel: null }
+
+  const sideTeamId = side === 'left' ? input.leftTeamId : input.rightTeamId
+  const teamId = input.scoringTeamId ?? sideTeamId
+  const team = teamId ? input.teams?.find(candidate => candidate.id === teamId) : null
+  return {
+    side,
+    teamLabel: team?.shortName || team?.name || (side === 'left' ? '左隊' : '右隊'),
+  }
 }
 
 export interface AnnotationWorkstationModelOptions {
@@ -44,8 +70,23 @@ export function createAnnotationWorkstationModelService(
     if (!currentRallyId || ['OPEN', 'READY'].includes(options.state.value)) return drafts
     // The realtime acknowledgement advances before the dashboard refresh. Do
     // not let its stale OPEN draft override the just-submitted rally state.
+    if (options.selectedRallyId.value !== currentRallyId) return drafts
     return drafts.filter(draft => draft.id !== currentRallyId)
   })
+  const correctionDraftRallyIds = computed(
+    () =>
+      new Set(
+        annotationDrafts.value.filter(draft => draft.active_submission_id).map(draft => draft.id),
+      ),
+  )
+  const correctionSourceSubmissionIds = computed(
+    () =>
+      new Set(
+        annotationDrafts.value.flatMap(draft =>
+          draft.active_submission_id ? [draft.active_submission_id] : [],
+        ),
+      ),
+  )
   const draftRallyIds = computed(() => new Set(annotationDrafts.value.map(draft => draft.id)))
   const visibleSubmittedRallies = computed(() =>
     submittedRallies.value.filter(rally => !draftRallyIds.value.has(rally.id)),
@@ -65,8 +106,10 @@ export function createAnnotationWorkstationModelService(
       ? null
       : (submittedRallies.value.find(rally => rally.id === options.selectedRallyId.value) ?? null),
   )
-  const selectedAnalysisRally = computed(
-    () => completedRallies.value.find(rally => rally.id === options.selectedRallyId.value) ?? null,
+  const selectedAnalysisRally = computed(() =>
+    selectedDraftRally.value
+      ? null
+      : (completedRallies.value.find(rally => rally.id === options.selectedRallyId.value) ?? null),
   )
   const selectedRally = computed(() =>
     selectedDraftRally.value ? null : selectedAnalysisRally.value,
@@ -173,18 +216,40 @@ export function createAnnotationWorkstationModelService(
     const currentRallyId = options.displayAnnotation.value?.rally_id
     const activeSubmissionId = options.displayAnnotation.value?.snapshot.active_submission_id
     const submitted = submittedRallies.value.flatMap(rally => {
+      // A correction draft with the same rally id fully replaces the submitted
+      // projection in the workstation. This must come from the dashboard draft
+      // collection so it also holds before the user selects the rally after F5.
+      if (correctionDraftRallyIds.value.has(rally.id)) return []
       const range = clipRangeForRally(rally)
-      // The editable draft owns the mask, while the last completed analysis stays
-      // available as an independent result rail until its replacement completes.
+      // The editable draft owns the mask. A predecessor analysis may still be
+      // present in the dashboard as a source projection, but it is not part of
+      // the active correction draft and must not be rendered as its result rail.
       if (!range) return []
       const analysis = rally.submission.analysis
       const failed = rally.processing_status === 'failed'
       const processingCompleted = rally.processing_status === 'completed'
-      const sourcePointsReplaced = isSupersededSourceSubmission({
-        activeSubmissionId,
-        currentRallyId,
-        rallyId: rally.id,
-        submissionId: rally.submission.id,
+      const sourcePointsReplaced =
+        isSupersededSourceSubmission({
+          activeSubmissionId,
+          currentRallyId,
+          rallyId: rally.id,
+          submissionId: rally.submission.id,
+        }) || correctionSourceSubmissionIds.value.has(rally.submission.id)
+      const analysisReplaced =
+        sourcePointsReplaced ||
+        Boolean(
+          activeSubmissionId &&
+          currentRallyId &&
+          rally.id === currentRallyId &&
+          ['OPEN', 'READY'].includes(options.state.value),
+        )
+      const outcome = timelineOutcomeMetadata({
+        scoreResolution: rally.submission.score_resolution,
+        scoringCourtSide: rally.submission.scoring_court_side,
+        scoringTeamId: rally.submission.scoring_team_id,
+        leftTeamId: rally.submission.left_team_id,
+        rightTeamId: rally.submission.right_team_id,
+        teams: options.coachData.value?.match.teams,
       })
       return [
         {
@@ -203,6 +268,8 @@ export function createAnnotationWorkstationModelService(
             scoringTeamId: rally.submission.scoring_team_id,
             teams: options.coachData.value?.match.teams,
           }),
+          outcomeSide: outcome.side,
+          outcomeTeamLabel: outcome.teamLabel,
           startCaptureTimeUs: range.startCaptureTimeUs,
           endCaptureTimeUs: range.endCaptureTimeUs,
           // Timeline key points are editorial truth. AI contacts belong to the
@@ -227,7 +294,7 @@ export function createAnnotationWorkstationModelService(
                   : ('analyzed' as const)
                 : ('processing' as const),
           analysis:
-            analysis?.status === 'completed'
+            !analysisReplaced && analysis?.status === 'completed'
               ? {
                   startCaptureTimeUs:
                     analysis.coverage_start_capture_time_us ?? range.startCaptureTimeUs,
@@ -246,7 +313,19 @@ export function createAnnotationWorkstationModelService(
       const range = draft.boundaries?.length
         ? clipRangeForPoints(draft.boundaries)
         : clipRangeForPoints(draft.key_points)
-      if (!range || draft.id === currentRallyId) return []
+      if (
+        !range ||
+        (draft.id === currentRallyId && ['OPEN', 'READY'].includes(options.state.value))
+      )
+        return []
+      const outcome = timelineOutcomeMetadata({
+        scoreResolution: draft.score_resolution,
+        scoringCourtSide: draft.scoring_court_side,
+        scoringTeamId: draft.scoring_team_id,
+        leftTeamId: draft.left_team_id ?? leftTeamId.value,
+        rightTeamId: draft.right_team_id ?? rightTeamId.value,
+        teams: options.coachData.value?.match.teams,
+      })
       return [
         {
           id: draft.id,
@@ -262,6 +341,8 @@ export function createAnnotationWorkstationModelService(
             scoringTeamId: draft.scoring_team_id,
             teams: options.coachData.value?.match.teams,
           }),
+          outcomeSide: outcome.side,
+          outcomeTeamLabel: outcome.teamLabel,
           startCaptureTimeUs: range.startCaptureTimeUs,
           endCaptureTimeUs: range.endCaptureTimeUs,
           points: draft.key_points.map(point => ({
@@ -272,6 +353,7 @@ export function createAnnotationWorkstationModelService(
             ballEvent: point.ball_event ?? null,
           })),
           status: 'draft' as const,
+          analysis: null,
         },
       ]
     })
@@ -364,15 +446,49 @@ export function createAnnotationWorkstationModelService(
         ? `第 ${currentAnnotationRally.value.display_set_number} 局 · 回合 ${displayOrdinalFor(currentAnnotationRally.value.id)}`
         : null,
   )
+  const currentOutcomeSource = computed(
+    () => currentAnnotationDraft.value ?? currentAnnotationRally.value?.submission ?? null,
+  )
+  const currentOutcomeSideTeamIds = computed(() => ({
+    left: currentOutcomeSource.value?.left_team_id ?? leftTeamId.value,
+    right: currentOutcomeSource.value?.right_team_id ?? rightTeamId.value,
+  }))
+  const currentOutcomeScoringTeamId = computed(() => {
+    const snapshot = options.displayAnnotation.value?.snapshot
+    const source = currentOutcomeSource.value
+    if (!snapshot || !source) return null
+    return source?.score_resolution === snapshot?.score_resolution &&
+      source?.scoring_court_side === snapshot?.scoring_court_side
+      ? source.scoring_team_id
+      : null
+  })
   const currentMaskOutcome = computed(() => {
     const snapshot = options.displayAnnotation.value?.snapshot
+    const teams = options.coachData.value?.match.teams
+    const currentLeftTeam = teams?.find(team => team.id === currentOutcomeSideTeamIds.value.left)
+    const currentRightTeam = teams?.find(team => team.id === currentOutcomeSideTeamIds.value.right)
     return annotationOutcomeLabel({
       scoreResolution: snapshot?.score_resolution,
       scoringCourtSide: snapshot?.scoring_court_side,
-      leftLabel: leftTeam.value?.shortName ?? leftTeam.value?.name ?? '左隊',
-      rightLabel: rightTeam.value?.shortName ?? rightTeam.value?.name ?? '右隊',
+      scoringTeamId: currentOutcomeScoringTeamId.value,
+      teams,
+      leftLabel: currentLeftTeam?.shortName ?? currentLeftTeam?.name ?? '左隊',
+      rightLabel: currentRightTeam?.shortName ?? currentRightTeam?.name ?? '右隊',
     })
   })
+  const currentMaskOutcomeMetadata = computed(() => {
+    const snapshot = options.displayAnnotation.value?.snapshot
+    return timelineOutcomeMetadata({
+      scoreResolution: snapshot?.score_resolution,
+      scoringCourtSide: snapshot?.scoring_court_side,
+      scoringTeamId: currentOutcomeScoringTeamId.value,
+      leftTeamId: currentOutcomeSideTeamIds.value.left,
+      rightTeamId: currentOutcomeSideTeamIds.value.right,
+      teams: options.coachData.value?.match.teams,
+    })
+  })
+  const currentMaskOutcomeSide = computed(() => currentMaskOutcomeMetadata.value.side)
+  const currentMaskOutcomeTeamLabel = computed(() => currentMaskOutcomeMetadata.value.teamLabel)
   const cursorRally = computed(
     () => submittedRallies.value.find(rally => rally.id === options.cursorRallyId.value) ?? null,
   )
@@ -401,9 +517,14 @@ export function createAnnotationWorkstationModelService(
     ),
   )
   const activeCorrectionDraft = computed(() => {
-    if (currentAnnotationDraft.value?.active_submission_id) return currentAnnotationDraft.value
     if (selectedDraftRally.value?.active_submission_id) return selectedDraftRally.value
-    return annotationDrafts.value.find(draft => Boolean(draft.active_submission_id)) ?? null
+    if (
+      currentAnnotationDraft.value?.active_submission_id &&
+      (!options.selectedRallyId.value ||
+        currentAnnotationDraft.value.id === options.selectedRallyId.value)
+    )
+      return currentAnnotationDraft.value
+    return null
   })
   const correctionActive = computed(() =>
     Boolean(
@@ -425,7 +546,11 @@ export function createAnnotationWorkstationModelService(
   const selectedDeletablePoint = computed(
     () =>
       options.selectedTimelineItem.value === 'point' &&
-      options.selectedKeyPoint.value?.marker_kind !== 'service',
+      options.selectedKeyPoint.value?.marker_kind !== 'service' &&
+      // Submitted/AI results are immutable. A point may only be removed from
+      // the currently displayed draft (ordinary draft or correction draft).
+      // The action wiring adds the local-owner and sync-readiness gates.
+      selectedEditableDraft.value,
   )
   const activeContextTitle = computed(() =>
     activeContextDraft.value
@@ -517,6 +642,8 @@ export function createAnnotationWorkstationModelService(
     currentMaskStatus,
     currentMaskLabel,
     currentMaskOutcome,
+    currentMaskOutcomeSide,
+    currentMaskOutcomeTeamLabel,
     activeOverlayAnalysisRunId,
     activeOverlayClipStart,
     currentAnnotationDraft,

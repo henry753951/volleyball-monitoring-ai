@@ -6,7 +6,8 @@
   "exports": {
     ".": "./src/index.ts",
     "./client": "./generated/client/client.ts",
-    "./pothos": "./generated/pothos.ts"
+    "./pothos": "./generated/pothos.ts",
+    "./reid-identity-ledger": "./src/reid-identity-ledger.ts"
   },
   "scripts": {
     "generate": "prisma generate --config prisma.config.ts",

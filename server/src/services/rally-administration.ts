@@ -1,5 +1,5 @@
 import type { PrismaClient } from '@volleyball-monitoring/db'
-import { Prisma, UserRole } from '@volleyball-monitoring/db/client'
+import { JobStatus, Prisma, UserRole } from '@volleyball-monitoring/db/client'
 import {
   deriveRallyDisplayOrdinals,
   segmentStartCaptureTimeUs,
@@ -53,6 +53,126 @@ type RallyPlacementRow = {
     boundaries: Array<{ captureTimeUs: bigint; kind: string }>
     keyPoints: Array<{ captureTimeUs: bigint; markerKind: string }>
   }
+}
+
+async function purgeAnalysisRunReidDependencies(
+  tx: Prisma.TransactionClient,
+  analysisRunIds: readonly string[],
+) {
+  if (!analysisRunIds.length) return
+
+  const evidenceSetIds = (
+    await tx.reidEvidenceSet.findMany({
+      select: { id: true },
+      where: { analysisRunId: { in: [...analysisRunIds] } },
+    })
+  ).map(row => row.id)
+  const trackletIds = evidenceSetIds.length
+    ? (
+        await tx.reidTracklet.findMany({
+          select: { id: true },
+          where: { evidenceSetId: { in: evidenceSetIds } },
+        })
+      ).map(row => row.id)
+    : []
+  const correctionIds = (
+    await tx.reidIdentityCorrection.findMany({
+      select: { id: true },
+      where: { analysisRunId: { in: [...analysisRunIds] } },
+    })
+  ).map(row => row.id)
+  const assignmentRevisionIds = (
+    await tx.reidAssignmentRevision.findMany({
+      select: { id: true },
+      where: { analysisRunId: { in: [...analysisRunIds] } },
+    })
+  ).map(row => row.id)
+  const membershipIds = trackletIds.length
+    ? (
+        await tx.reidEvidenceMembership.findMany({
+          select: { id: true },
+          where: { trackletId: { in: trackletIds } },
+        })
+      ).map(row => row.id)
+    : []
+  const associationRunIds = evidenceSetIds.length
+    ? (
+        await tx.reidAssociationRun.findMany({
+          select: { id: true },
+          where: { evidenceSetId: { in: evidenceSetIds } },
+        })
+      ).map(row => row.id)
+    : []
+
+  if (membershipIds.length) {
+    await tx.reidEvidenceMembership.updateMany({
+      data: { supersedesMembershipId: null },
+      where: { supersedesMembershipId: { in: membershipIds } },
+    })
+  }
+  if (assignmentRevisionIds.length) {
+    await tx.reidAssignmentRevision.updateMany({
+      data: { supersedesRevisionId: null },
+      where: { supersedesRevisionId: { in: assignmentRevisionIds } },
+    })
+  }
+  if (associationRunIds.length) {
+    await tx.reidAssociationRun.updateMany({
+      data: { supersededByRunId: null },
+      where: { supersededByRunId: { in: associationRunIds } },
+    })
+  }
+  if (evidenceSetIds.length) {
+    await tx.reidEvidenceSet.updateMany({
+      data: { supersededByEvidenceSetId: null },
+      where: { supersededByEvidenceSetId: { in: evidenceSetIds } },
+    })
+  }
+  if (correctionIds.length) {
+    await tx.reidGidRosterBindingRevision.updateMany({
+      data: { correctionId: null },
+      where: { correctionId: { in: correctionIds } },
+    })
+    await tx.reidEvidenceMembership.updateMany({
+      data: { correctionId: null },
+      where: {
+        correctionId: { in: correctionIds },
+        ...(membershipIds.length ? { id: { notIn: membershipIds } } : {}),
+      },
+    })
+    await tx.reidAssignmentRevision.updateMany({
+      data: { correctionId: null },
+      where: {
+        correctionId: { in: correctionIds },
+        ...(assignmentRevisionIds.length ? { id: { notIn: assignmentRevisionIds } } : {}),
+      },
+    })
+  }
+
+  await tx.reidActiveProjection.deleteMany({
+    where: { analysisRunId: { in: [...analysisRunIds] } },
+  })
+  await tx.reidJerseySuggestionRun.deleteMany({
+    where: { analysisRunId: { in: [...analysisRunIds] } },
+  })
+  if (associationRunIds.length)
+    await tx.reidAssociationRun.deleteMany({ where: { id: { in: associationRunIds } } })
+  await tx.reidAssociationRerunRequest.deleteMany({
+    where: { analysisRunId: { in: [...analysisRunIds] } },
+  })
+  if (membershipIds.length)
+    await tx.reidEvidenceMembership.deleteMany({ where: { id: { in: membershipIds } } })
+  if (assignmentRevisionIds.length)
+    await tx.reidAssignmentRevision.deleteMany({
+      where: { id: { in: assignmentRevisionIds } },
+    })
+  if (correctionIds.length)
+    await tx.reidIdentityCorrection.deleteMany({ where: { id: { in: correctionIds } } })
+  await tx.reidFeatureRebuildRequest.deleteMany({
+    where: { analysisRunId: { in: [...analysisRunIds] } },
+  })
+  if (evidenceSetIds.length)
+    await tx.reidEvidenceSet.deleteMany({ where: { id: { in: evidenceSetIds } } })
 }
 
 function json(value: unknown): Prisma.InputJsonValue {
@@ -167,10 +287,11 @@ export async function updateRallyDisplayPlacement(
   return result
 }
 
-export async function deleteRallyWithMedia(
+async function purgeRallyWithMedia(
   actor: AuthenticatedUser,
   rawRallyId: string,
   dependencies: RallyAdministrationDependencies,
+  preserveAsDraft: boolean,
 ): Promise<RallyDeleteReceipt> {
   const rallyId = requireUuid(rawRallyId, 'rallyId')
   const authorized = await authorizeRally(dependencies.database, actor, rallyId)
@@ -183,7 +304,62 @@ export async function deleteRallyWithMedia(
           id: true,
           matchId: true,
           setId: true,
+          dvrProgramId: true,
+          sideAssignmentId: true,
+          sideAssignmentReversed: true,
+          ordinal: true,
+          annotationRevision: true,
           displaySetNumber: true,
+          displayOrdinal: true,
+          boundaries: {
+            select: {
+              id: true,
+              kind: true,
+              captureEpochId: true,
+              sourcePts: true,
+              captureTimeUs: true,
+              captureFrameIndex: true,
+              timingPrecision: true,
+              originalPlaybackCursor: true,
+              snapDistanceUs: true,
+              createdByUserId: true,
+              updatedByUserId: true,
+              deviceSessionId: true,
+            },
+          },
+          keyPoints: {
+            where: { deletedAt: null },
+            orderBy: { sequenceIndex: 'asc' },
+            select: {
+              id: true,
+              captureEpochId: true,
+              sequenceIndex: true,
+              markerKind: true,
+              isTerminal: true,
+              sourcePts: true,
+              captureTimeUs: true,
+              captureFrameIndex: true,
+              timingPrecision: true,
+              originalPlaybackCursor: true,
+              snapDistanceUs: true,
+              possibleDuplicate: true,
+              createdByUserId: true,
+              updatedByUserId: true,
+              deviceSessionId: true,
+              ballEvent: {
+                select: {
+                  id: true,
+                  kind: true,
+                  result: true,
+                  serveStyle: true,
+                  semanticSource: true,
+                  kindLocked: true,
+                  resultLocked: true,
+                  actorRosterEntryId: true,
+                },
+              },
+            },
+          },
           submissions: { select: { id: true } },
         },
         where: { id: rallyId },
@@ -203,6 +379,11 @@ export async function deleteRallyWithMedia(
             {
               analysisFrameChunks: {
                 some: { manifest: { analysisRun: { submission: { rallyId } } } },
+              },
+            },
+            {
+              providerJobArtifacts: {
+                some: { providerJob: { analysisRun: { submission: { rallyId } } } },
               },
             },
           ],
@@ -230,6 +411,14 @@ export async function deleteRallyWithMedia(
               where: { submissionId: { in: submissionIds } },
             })
           ).map(run => run.id)
+        : []
+      const providerJobIds = analysisRunIds.length
+        ? (
+            await tx.providerJob.findMany({
+              select: { id: true },
+              where: { analysisRunId: { in: analysisRunIds } },
+            })
+          ).map(job => job.id)
         : []
       const ledgerEntries = submissionIds.length
         ? await tx.scoreLedgerEntry.findMany({
@@ -274,8 +463,34 @@ export async function deleteRallyWithMedia(
       }
 
       await tx.rally.update({ data: { activeSubmissionId: null }, where: { id: rally.id } })
-      if (analysisRunIds.length)
+      if (analysisRunIds.length) {
+        await tx.rallySubmission.updateMany({
+          data: { analysisSourceRunId: null },
+          where: { analysisSourceRunId: { in: analysisRunIds } },
+        })
+        const providerCancellationAt = new Date()
+        await tx.providerJob.updateMany({
+          data: {
+            callbackTokenExpiresAt: providerCancellationAt,
+            cancelRequestedAt: providerCancellationAt,
+            completedAt: providerCancellationAt,
+            errorCode: 'ANALYSIS_DELETED',
+            errorMessage: 'analysis deleted by annotator',
+            leasedUntil: null,
+            status: JobStatus.CANCELLED,
+          },
+          where: {
+            analysisRunId: { in: analysisRunIds },
+            status: { in: [JobStatus.QUEUED, JobStatus.RUNNING] },
+          },
+        })
+        await tx.providerJob.updateMany({
+          data: { analysisRunId: null },
+          where: { analysisRunId: { in: analysisRunIds } },
+        })
+        await purgeAnalysisRunReidDependencies(tx, analysisRunIds)
         await tx.analysisRun.deleteMany({ where: { id: { in: analysisRunIds } } })
+      }
       if (aiJobs.length)
         await tx.aiJob.deleteMany({ where: { id: { in: aiJobs.map(job => job.id) } } })
       if (clipJobIds.length) await tx.clipJob.deleteMany({ where: { id: { in: clipJobIds } } })
@@ -290,6 +505,9 @@ export async function deleteRallyWithMedia(
           where: { id: { in: submissionIds } },
         })
         await tx.rallySubmissionBoundary.deleteMany({
+          where: { submissionId: { in: submissionIds } },
+        })
+        await tx.rallySubmissionBallEvent.deleteMany({
           where: { submissionId: { in: submissionIds } },
         })
         await tx.rallySubmissionKeyPoint.deleteMany({
@@ -314,11 +532,91 @@ export async function deleteRallyWithMedia(
           where: { id: set.id },
         })
       }
-      if (assets.length)
+      if (preserveAsDraft) {
+        await tx.rally.create({
+          data: {
+            id: rally.id,
+            matchId: rally.matchId,
+            setId: rally.setId,
+            dvrProgramId: rally.dvrProgramId,
+            sideAssignmentId: rally.sideAssignmentId,
+            sideAssignmentReversed: rally.sideAssignmentReversed,
+            ordinal: rally.ordinal,
+            displaySetNumber: rally.displaySetNumber,
+            displayOrdinal: rally.displayOrdinal,
+            annotationRevision: rally.annotationRevision + 1n,
+            annotationStatus: 'READY',
+            processingStatus: 'IDLE',
+            scoreResolutionState: 'PENDING',
+            boundaries: {
+              create: rally.boundaries.map(boundary => ({
+                id: boundary.id,
+                kind: boundary.kind,
+                captureEpochId: boundary.captureEpochId,
+                sourcePts: boundary.sourcePts,
+                captureTimeUs: boundary.captureTimeUs,
+                captureFrameIndex: boundary.captureFrameIndex,
+                timingPrecision: boundary.timingPrecision,
+                originalPlaybackCursor: json(boundary.originalPlaybackCursor),
+                snapDistanceUs: boundary.snapDistanceUs,
+                createdByUserId: boundary.createdByUserId,
+                updatedByUserId: boundary.updatedByUserId,
+                deviceSessionId: boundary.deviceSessionId,
+              })),
+            },
+            keyPoints: {
+              create: rally.keyPoints.map(point => ({
+                id: point.id,
+                captureEpochId: point.captureEpochId,
+                sequenceIndex: point.sequenceIndex,
+                markerKind: point.markerKind,
+                isTerminal: point.isTerminal,
+                sourcePts: point.sourcePts,
+                captureTimeUs: point.captureTimeUs,
+                captureFrameIndex: point.captureFrameIndex,
+                timingPrecision: point.timingPrecision,
+                originalPlaybackCursor: json(point.originalPlaybackCursor),
+                snapDistanceUs: point.snapDistanceUs,
+                possibleDuplicate: point.possibleDuplicate,
+                createdByUserId: point.createdByUserId,
+                updatedByUserId: point.updatedByUserId,
+                deviceSessionId: point.deviceSessionId,
+                ...(point.ballEvent
+                  ? {
+                      ballEvent: {
+                        create: {
+                          id: point.ballEvent.id,
+                          kind: point.ballEvent.kind,
+                          result: point.ballEvent.result,
+                          serveStyle: point.ballEvent.serveStyle ?? null,
+                          semanticSource: point.ballEvent.semanticSource,
+                          kindLocked: point.ballEvent.kindLocked,
+                          resultLocked: point.ballEvent.resultLocked,
+                          actorRosterEntryId: point.ballEvent.actorRosterEntryId,
+                        },
+                      },
+                    }
+                  : {}),
+              })),
+            },
+          },
+        })
+      }
+      if (assets.length) {
+        const assetIds = assets.map(asset => asset.id)
+        if (providerJobIds.length)
+          await tx.providerJobArtifact.deleteMany({
+            where: {
+              mediaAssetId: { in: assetIds },
+              providerJobId: { in: providerJobIds },
+            },
+          })
         await tx.mediaAsset.deleteMany({
           where: {
-            id: { in: assets.map(asset => asset.id) },
+            id: { in: assetIds },
             analysisArtifacts: { none: {} },
+            analysisEvidenceBundles: { none: {} },
+            analysisEvidenceCrops: { none: {} },
             analysisDataRaw: { none: {} },
             clipOutputs: { none: {} },
             clipTimingManifests: { none: {} },
@@ -326,8 +624,19 @@ export async function deleteRallyWithMedia(
             dvrMediaSegments: { none: {} },
             dvrSampleIndexSegments: { none: {} },
             analysisFrameChunks: { none: {} },
+            highlightExportOutputs: { none: {} },
+            personPoseChunks: { none: {} },
+            personPoseManifests: { none: {} },
+            providerJobArtifacts: { none: {} },
+            reidAssociationResults: { none: {} },
+            reidBankManifests: { none: {} },
+            reidDescriptorBundles: { none: {} },
+            reidFeatureResults: { none: {} },
+            reidJerseyMontages: { none: {} },
+            reidPreviewAssets: { none: {} },
           },
         })
+      }
       return { abortedJobCount: activeAiJobs.length, assets, matchId: rally.matchId }
     },
     { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
@@ -367,4 +676,20 @@ export async function deleteRallyWithMedia(
       .reduce((sum, asset) => sum + (asset.byteLength ?? 0n), 0n)
       .toString(),
   }
+}
+
+export function deleteRallyWithMedia(
+  actor: AuthenticatedUser,
+  rawRallyId: string,
+  dependencies: RallyAdministrationDependencies,
+) {
+  return purgeRallyWithMedia(actor, rawRallyId, dependencies, false)
+}
+
+export function deleteRallyAnalysisWithMedia(
+  actor: AuthenticatedUser,
+  rawRallyId: string,
+  dependencies: RallyAdministrationDependencies,
+) {
+  return purgeRallyWithMedia(actor, rawRallyId, dependencies, true)
 }

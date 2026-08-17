@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ArrowLeftRight, Check, CircleHelp, Pencil, Trophy } from 'lucide-vue-next'
+import { ArrowLeftRight, Check, CircleHelp, Pencil, Trash2, Trophy } from 'lucide-vue-next'
 import { computed, ref } from 'vue'
 import type { CoachDraft, CoachRally, CoachTeam } from '~/lib/coachDomain'
 import { annotationOutcomeLabel } from '~/utils/annotationOutcome'
@@ -44,16 +44,18 @@ const props = defineProps<{
   drafts: CoachDraft[]
   rallies: CoachRally[]
   selectedRallyId: string | null
+  displayedRallyId: string | null
+  displayedOutcomeLabel: string | null
+  displayedOutcomeSide: 'left' | 'right' | null
   analysisRunId: string | null
-  mappingCompleted: boolean
   teams: CoachTeam[]
   formatRallyDuration: (rally: CoachRally) => string
   setNumbers: number[]
-  focusedTrackId?: number | null
 }>()
 
 const emit = defineEmits<{
   'update:tab': [tab: 'match' | 'mapping' | 'analysis']
+  'select-track': [selection: { trackId: number; rallyId: string; firstFrameIndex: string }]
 }>()
 const workstation = useAnnotationWorkstationService()
 if (!workstation.segments || !workstation.timeline)
@@ -68,6 +70,15 @@ const swapCurrentSidesState = workstation.actions.state('segment.swap-current-si
 const swapRallySidesState = workstation.actions.state('segment.swap-rally-sides')
 const total = computed(
   () => new Set([...props.drafts.map(item => item.id), ...props.rallies.map(item => item.id)]).size,
+)
+const correctionDraftIds = computed(
+  () => new Set(props.drafts.filter(draft => draft.active_submission_id).map(draft => draft.id)),
+)
+const resettableRallies = computed(() =>
+  props.rallies.filter(
+    rally =>
+      rally.submission.analysis?.status === 'completed' && !correctionDraftIds.value.has(rally.id),
+  ),
 )
 const placementOpen = ref(false)
 const placementRallyId = ref<string | null>(null)
@@ -118,25 +129,59 @@ const placementOrdinal = computed(() => {
   const index = ordered.findIndex(item => item.id === rallyId)
   return index < 0 ? 1 : index + 1
 })
-const groups = computed(() => {
-  const items = [...segmentItems.value].sort(
+const sortedSegmentItems = computed(() =>
+  [...segmentItems.value].sort(
     (left, right) =>
       left.setNumber - right.setNumber ||
       left.ordinal - right.ordinal ||
       left.id.localeCompare(right.id),
-  )
+  ),
+)
+function segmentOutcomeSide(item: SegmentListItem): 'left' | 'right' | null {
+  if (item.id === props.displayedRallyId) return props.displayedOutcomeSide
+  const source = item.kind === 'draft' ? item.draft : item.rally.submission
+  return source.score_resolution === 'resolved' &&
+    (source.scoring_court_side === 'left' || source.scoring_court_side === 'right')
+    ? source.scoring_court_side
+    : null
+}
+const segmentScores = computed(() => {
+  const latestBySet = new Map<number, { left: number; right: number }>()
+  const scores = new Map<string, { left: number; right: number }>()
+  for (const item of sortedSegmentItems.value) {
+    let score: { left: number; right: number }
+    if (item.kind === 'rally') {
+      score = {
+        left: item.rally.left_score_after,
+        right: item.rally.right_score_after,
+      }
+    } else {
+      const previous = latestBySet.get(item.setNumber) ?? { left: 0, right: 0 }
+      const scoringSide = segmentOutcomeSide(item)
+      score = {
+        left: previous.left + (scoringSide === 'left' ? 1 : 0),
+        right: previous.right + (scoringSide === 'right' ? 1 : 0),
+      }
+    }
+    latestBySet.set(item.setNumber, score)
+    scores.set(item.id, score)
+  }
+  return scores
+})
+const groups = computed(() => {
   const grouped = new Map<number, SegmentListItem[]>()
-  for (const item of items)
+  for (const item of sortedSegmentItems.value)
     grouped.set(item.setNumber, [...(grouped.get(item.setNumber) ?? []), item])
   return [...grouped.entries()].map(([number, setItems]) => {
-    const completed = [...setItems]
-      .reverse()
-      .find((item): item is Extract<SegmentListItem, { kind: 'rally' }> => item.kind === 'rally')
+    const latestScore = segmentScores.value.get(setItems.at(-1)?.id ?? '') ?? {
+      left: 0,
+      right: 0,
+    }
     return {
       items: setItems,
-      leftScore: completed?.rally.left_score_after ?? 0,
+      leftScore: latestScore.left,
       number,
-      rightScore: completed?.rally.right_score_after ?? 0,
+      rightScore: latestScore.right,
     }
   })
 })
@@ -182,6 +227,7 @@ function teamLabel(team: CoachTeam | null, fallback: string) {
   return team?.shortName || team?.name || fallback
 }
 function segmentOutcomeLabel(item: SegmentListItem) {
+  if (item.id === props.displayedRallyId) return props.displayedOutcomeLabel
   const source = item.kind === 'draft' ? item.draft : item.rally.submission
   const sides = segmentTeams(item)
   return annotationOutcomeLabel({
@@ -282,7 +328,18 @@ defineExpose({
         </div>
       </div>
       <div class="segment-list-title">
-        <span>片段</span><b>{{ total }}</b>
+        <span>片段</span>
+        <div class="segment-title-actions">
+          <UiButton
+            v-if="resettableRallies.length"
+            variant="ghost"
+            size="sm"
+            :disabled="segments.deletePending.value"
+            :aria-label="`批次刪除 ${resettableRallies.length} 個分析`"
+            @click="segments.requestBatchAnalysisReset(resettableRallies)"
+            ><Trash2 :size="12" />批次刪除 {{ resettableRallies.length }}</UiButton
+          ><b>{{ total }}</b>
+        </div>
       </div>
       <UiScrollArea class="segment-scroll"
         ><div class="segment-list">
@@ -314,8 +371,9 @@ defineExpose({
                       "
                     />回合 {{ item.ordinal }}</strong
                   >
-                  <span v-if="item.kind === 'rally'" class="score-at-rally"
-                    >{{ item.rally.left_score_after }} : {{ item.rally.right_score_after }}</span
+                  <span class="score-at-rally"
+                    >{{ segmentScores.get(item.id)?.left ?? 0 }} :
+                    {{ segmentScores.get(item.id)?.right ?? 0 }}</span
                   >
                 </span>
                 <small class="segment-side-order"
@@ -324,7 +382,14 @@ defineExpose({
                 >
                 <span class="segment-meta">
                   <small v-if="item.kind === 'draft'"
-                    >{{ item.draft.annotation_status === 'ready' ? '待送出' : '標記中' }} ·
+                    >{{
+                      item.draft.active_submission_id
+                        ? '修正版草稿'
+                        : item.draft.annotation_status === 'ready'
+                          ? '待送出'
+                          : '標記中'
+                    }}
+                    ·
                     {{
                       item.draft.key_points.filter(point => point.marker_kind === 'contact').length
                     }}
@@ -392,8 +457,7 @@ defineExpose({
             :left-team-id="leftTeamId"
             :right-team-id="rightTeamId"
             :teams="teams"
-            :mapping-completed="mappingCompleted"
-            :focused-track-id="focusedTrackId"
+            @select-track="emit('select-track', $event)"
           /></div
       ></UiScrollArea>
     </div>
@@ -564,6 +628,17 @@ defineExpose({
   background: #293039;
   font-size: 0.6rem;
   text-align: center;
+}
+.segment-title-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.segment-title-actions :deep(button) {
+  min-height: 25px;
+  padding: 2px 6px;
+  color: #c7cdd3;
+  font-size: 0.58rem;
 }
 .segment-scroll,
 .mapping-scroll {

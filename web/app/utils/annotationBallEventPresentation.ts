@@ -1,10 +1,14 @@
-import type { BallEventKind, BallEventValue } from '@volleyball-monitoring/contracts'
+import {
+  receiveContextForPreviousEvent,
+  type BallEventKind,
+  type BallEventValue,
+} from '@volleyball-monitoring/contracts'
 
 export type BallEventTone = 'serve' | 'receive' | 'hit' | 'spike' | 'ground'
 
 const KIND_LABELS: Record<BallEventKind, string> = {
   SERVE: '發球',
-  RECEIVE: '接發',
+  RECEIVE: '接球',
   CONTACT: 'HIT',
   SPIKE: '殺球',
 }
@@ -30,25 +34,35 @@ export function ballEventTone(
 
 export function ballEventKindLabel(
   event: BallEventValue | null | undefined,
-  options: { isTerminal?: boolean; markerKind?: string | null } = {},
+  options: {
+    isTerminal?: boolean
+    markerKind?: string | null
+    previousEvent?: BallEventValue | null
+  } = {},
 ) {
   if (options.isTerminal) return '落地'
+  if (event?.kind === 'RECEIVE') {
+    const context = receiveContextForPreviousEvent(options.previousEvent)
+    if (context === 'SERVE_RECEIVE') return '接發'
+    if (context === 'SPIKE_RECEIVE') return '接殺'
+  }
   if (event) return KIND_LABELS[event.kind]
   return options.markerKind === 'service' ? '發球' : 'HIT'
 }
 
 export function ballEventResultLabel(event: BallEventValue | null | undefined) {
   if (!event?.result) return null
-  if (event.result === 'POINT_SCORED') return '得分'
-  if (event.result === 'POINT_LOST') return '失分'
   if (event.result === 'SUCCESS') return '成功'
-  if (event.result === 'ERROR') return '失誤'
   return '失敗'
 }
 
 export function ballEventLabel(
   event: BallEventValue | null | undefined,
-  options: { isTerminal?: boolean; markerKind?: string | null } = {},
+  options: {
+    isTerminal?: boolean
+    markerKind?: string | null
+    previousEvent?: BallEventValue | null
+  } = {},
 ) {
   const kind = ballEventKindLabel(event, options)
   const result = ballEventResultLabel(event)

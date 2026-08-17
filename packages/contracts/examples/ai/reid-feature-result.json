@@ -1,5 +1,5 @@
 {
-  "schema_version": "1.0.0",
+  "schema_version": "2.0.0",
   "provider_job_id": "provider-job-feature-001",
   "evidence_set_id": "evidence-set-001",
   "analysis_run_id": "analysis-run-001",
@@ -12,14 +12,6 @@
     "sha256": "3333333333333333333333333333333333333333333333333333333333333333",
     "byte_length": "20000",
     "content_type": "application/vnd.volleyball.reid-descriptors+octet-stream;version=1"
-  },
-  "jersey_vlm_response_artifact": {
-    "artifact_id": "jersey-vlm-response-001",
-    "kind": "JERSEY_VLM_RESPONSE",
-    "schema_version": "1.0.0",
-    "sha256": "9999999999999999999999999999999999999999999999999999999999999999",
-    "byte_length": "1024",
-    "content_type": "application/vnd.volleyball.reid-jersey-vlm-responses+json;version=1"
   },
   "tracklets": [
     {
@@ -43,14 +35,7 @@
           "sha256": "4444444444444444444444444444444444444444444444444444444444444444",
           "source_frame_indices": ["120", "420", "720"]
         }
-      ],
-      "jersey_vlm": {
-        "model_namespace": "jersey-vlm/qwen-v1",
-        "raw_response_key": "tracklet-001:jersey-vlm:qwen-v1",
-        "raw_response_sha256": "741cf693b1cfcbc41d0ce7eceeac819edc5a937c89319cff5dc78c33744e98e0",
-        "candidate_numbers": [11],
-        "selected_frame_indices": ["120", "420"]
-      }
+      ]
     }
   ],
   "unavailable_evidence": [],

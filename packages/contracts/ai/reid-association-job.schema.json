@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/OWNER/volleyball-monitoring-ai/packages/contracts/ai/reid-association-job/1.1.0",
-  "title": "ReID Association Job 1.1.0",
+  "$id": "https://github.com/OWNER/volleyball-monitoring-ai/packages/contracts/ai/reid-association-job/2.0.0",
+  "title": "ReID Association Job 2.0.0",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -18,7 +18,7 @@
     "recipe"
   ],
   "properties": {
-    "schema_version": { "const": "1.1.0" },
+    "schema_version": { "const": "2.0.0" },
     "provider_job_id": { "$ref": "#/$defs/id" },
     "association_run_id": { "$ref": "#/$defs/id" },
     "match_id": { "$ref": "#/$defs/id" },
@@ -44,8 +44,9 @@
         "namespace",
         "candidate_modalities",
         "same_clip_grouping",
-        "allow_abstention",
-        "manual_assignment_precedence"
+        "allow_new_gid",
+        "manual_assignment_precedence",
+        "team_occupancy_prior"
       ],
       "properties": {
         "namespace": { "$ref": "#/$defs/id" },
@@ -53,11 +54,20 @@
           "type": "array",
           "minItems": 1,
           "uniqueItems": true,
-          "items": { "enum": ["DINO", "OSNET", "KPR", "KPR_PROMPT", "JERSEY_VLM"] }
+          "items": { "enum": ["DINO", "OSNET", "KPR", "KPR_PROMPT"] }
         },
         "same_clip_grouping": { "type": "boolean" },
-        "allow_abstention": { "const": true },
-        "manual_assignment_precedence": { "const": true }
+        "allow_new_gid": { "const": true },
+        "manual_assignment_precedence": { "const": true },
+        "team_occupancy_prior": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["expected_count", "enforcement"],
+          "properties": {
+            "expected_count": { "type": "integer", "minimum": 1, "maximum": 12 },
+            "enforcement": { "const": "SOFT" }
+          }
+        }
       }
     }
   }

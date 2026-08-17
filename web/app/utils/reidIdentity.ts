@@ -8,6 +8,12 @@ export function formatReidGlobalId(label?: string | null) {
   return label.startsWith('GID ') ? `群組 ${label.slice(4)}` : `群組 ${label}`
 }
 
+/** A GID is an association key, not a player's display name. */
+export function formatReidGroupCode(gidId?: string | null) {
+  if (!gidId) return '未分群'
+  return `GID ${gidId.replaceAll('-', '').slice(0, 8).toUpperCase()}`
+}
+
 export function formatReidPair(trackId: number, gidLabel?: string | null) {
   return `${formatReidTrackId(trackId)}  ${formatReidGlobalId(gidLabel)}`
 }

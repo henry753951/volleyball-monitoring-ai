@@ -97,11 +97,13 @@ enum BallEventKind {
   SPIKE
 }
 
+enum BallServeStyle {
+  JUMP
+  STANDING
+}
+
 enum BallEventResult {
-  POINT_SCORED
   SUCCESS
-  ERROR
-  POINT_LOST
   FAILURE
 }
 
@@ -249,6 +251,8 @@ enum MediaAssetKind {
   PERSON_POSE_EVIDENCE
   REID_EVIDENCE
   IDENTITY_PREVIEW
+  JERSEY_MONTAGE
+  HIGHLIGHT_REEL
 }
 
 enum AssociationState {
@@ -301,27 +305,31 @@ enum AnalysisReviewStatus {
 }
 
 model User {
-  id                           String                        @id @default(uuid()) @db.Uuid
-  email                        String                        @unique
+  id                           String                         @id @default(uuid()) @db.Uuid
+  email                        String                         @unique
   displayName                  String
-  createdAt                    DateTime                      @default(now())
-  updatedAt                    DateTime                      @updatedAt
+  createdAt                    DateTime                       @default(now())
+  updatedAt                    DateTime                       @updatedAt
   memberships                  MatchMember[]
   deviceSessions               DeviceSession[]
-  createdKeyPoints             KeyPoint[]                    @relation("KeyPointCreatedBy")
-  updatedKeyPoints             KeyPoint[]                    @relation("KeyPointUpdatedBy")
+  createdKeyPoints             KeyPoint[]                     @relation("KeyPointCreatedBy")
+  updatedKeyPoints             KeyPoint[]                     @relation("KeyPointUpdatedBy")
   annotationOperations         AnnotationOperation[]
   annotationReceipts           AnnotationCommandReceipt[]
-  submittedRevisions           RallySubmission[]             @relation("SubmissionSubmittedBy")
+  submittedRevisions           RallySubmission[]              @relation("SubmissionSubmittedBy")
   identityAssignments          TrackIdentityAssignment[]
-  completedIdentityMappings    AnalysisRun[]                 @relation("IdentityMappingCompletedBy")
-  approvedAnalysisReviews      AnalysisRun[]                 @relation("AnalysisReviewApprovedBy")
-  playbackWindows              PlaybackWindow[]              @relation("PlaybackWindowCreatedBy")
-  reidMemberships              ReidEvidenceMembership[]      @relation("ReidMembershipCreatedBy")
-  reidIdentityCorrections      ReidIdentityCorrection[]      @relation("ReidIdentityCorrectionCreatedBy")
-  reidAssignmentRevisions      ReidAssignmentRevision[]      @relation("ReidAssignmentRevisionCreatedBy")
-  reidFeatureRebuildRequests   ReidFeatureRebuildRequest[]   @relation("ReidFeatureRebuildRequestedBy")
-  reidAssociationRerunRequests ReidAssociationRerunRequest[] @relation("ReidAssociationRerunRequestedBy")
+  completedIdentityMappings    AnalysisRun[]                  @relation("IdentityMappingCompletedBy")
+  approvedAnalysisReviews      AnalysisRun[]                  @relation("AnalysisReviewApprovedBy")
+  playbackWindows              PlaybackWindow[]               @relation("PlaybackWindowCreatedBy")
+  reidMemberships              ReidEvidenceMembership[]       @relation("ReidMembershipCreatedBy")
+  reidIdentityCorrections      ReidIdentityCorrection[]       @relation("ReidIdentityCorrectionCreatedBy")
+  reidAssignmentRevisions      ReidAssignmentRevision[]       @relation("ReidAssignmentRevisionCreatedBy")
+  reidFeatureRebuildRequests   ReidFeatureRebuildRequest[]    @relation("ReidFeatureRebuildRequestedBy")
+  reidAssociationRerunRequests ReidAssociationRerunRequest[]  @relation("ReidAssociationRerunRequestedBy")
+  reidGidBindingRevisions      ReidGidRosterBindingRevision[] @relation("ReidGidBindingCreatedBy")
+  reidJerseySuggestionRuns     ReidJerseySuggestionRun[]      @relation("ReidJerseySuggestionRequestedBy")
+  appliedReidJerseySuggestions ReidJerseySuggestion[]         @relation("ReidJerseySuggestionAppliedBy")
+  requestedHighlightExports    CoachHighlightExportJob[]      @relation("CoachHighlightRequestedBy")
 }
 
 model MatchMember {
@@ -335,31 +343,32 @@ model MatchMember {
 }
 
 model DeviceSession {
-  id         String                     @id @default(uuid()) @db.Uuid
-  userId     String                     @db.Uuid
-  label      String?
-  userAgent  String?
-  createdAt  DateTime                   @default(now())
-  lastSeenAt DateTime                   @default(now())
-  revokedAt  DateTime?
-  user       User                       @relation(fields: [userId], references: [id], onDelete: Cascade)
-  keyPoints  KeyPoint[]
-  operations AnnotationOperation[]
-  receipts   AnnotationCommandReceipt[]
+  id           String                     @id @default(uuid()) @db.Uuid
+  userId       String                     @db.Uuid
+  label        String?
+  userAgent    String?
+  createdAt    DateTime                   @default(now())
+  lastSeenAt   DateTime                   @default(now())
+  revokedAt    DateTime?
+  user         User                       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  keyPoints    KeyPoint[]
+  operations   AnnotationOperation[]
+  receipts     AnnotationCommandReceipt[]
+  draftRallies Rally[]                    @relation("RallyDraftOwner")
 }
 
 model Match {
-  id                      String                   @id @default(uuid()) @db.Uuid
+  id                      String                         @id @default(uuid()) @db.Uuid
   title                   String
   venue                   String?
-  status                  MatchStatus              @default(PLANNED)
-  clipPreRollUs           BigInt                   @default(0)
-  clipPostRollUs          BigInt                   @default(0)
+  status                  MatchStatus                    @default(PLANNED)
+  clipPreRollUs           BigInt                         @default(0)
+  clipPostRollUs          BigInt                         @default(0)
   scheduledAt             DateTime?
   deletionRequestedAt     DateTime?
-  identityRevision        BigInt                   @default(0)
-  createdAt               DateTime                 @default(now())
-  updatedAt               DateTime                 @updatedAt
+  identityRevision        BigInt                         @default(0)
+  createdAt               DateTime                       @default(now())
+  updatedAt               DateTime                       @updatedAt
   members                 MatchMember[]
   matchTeams              MatchTeam[]
   sets                    MatchSet[]
@@ -371,6 +380,8 @@ model Match {
   reidCannotLinks         ReidCannotLink[]
   reidIdentityRepairs     ReidIdentityCorrection[]
   reidAssignmentRevisions ReidAssignmentRevision[]
+  reidGidBindingRevisions ReidGidRosterBindingRevision[]
+  highlightExports        CoachHighlightExportJob[]
 
   @@index([deletionRequestedAt])
 }
@@ -417,27 +428,29 @@ model Player {
 }
 
 model MatchRosterEntry {
-  id                       String                     @id @default(uuid()) @db.Uuid
-  matchId                  String                     @db.Uuid
-  teamId                   String                     @db.Uuid
-  playerId                 String?                    @db.Uuid
+  id                       String                         @id @default(uuid()) @db.Uuid
+  matchId                  String                         @db.Uuid
+  teamId                   String                         @db.Uuid
+  playerId                 String?                        @db.Uuid
   jerseyNumber             String
-  position                 RosterPosition             @default(UNSPECIFIED)
+  position                 RosterPosition                 @default(UNSPECIFIED)
   displayNameSnapshot      String?
-  active                   Boolean                    @default(true)
-  createdAt                DateTime                   @default(now())
-  updatedAt                DateTime                   @updatedAt
-  match                    Match                      @relation(fields: [matchId], references: [id], onDelete: Cascade)
-  team                     Team                       @relation(fields: [teamId], references: [id], onDelete: Restrict)
-  player                   Player?                    @relation(fields: [playerId], references: [id], onDelete: SetNull)
+  active                   Boolean                        @default(true)
+  createdAt                DateTime                       @default(now())
+  updatedAt                DateTime                       @updatedAt
+  match                    Match                          @relation(fields: [matchId], references: [id], onDelete: Cascade)
+  team                     Team                           @relation(fields: [teamId], references: [id], onDelete: Restrict)
+  player                   Player?                        @relation(fields: [playerId], references: [id], onDelete: SetNull)
   identityAssignments      TrackIdentityAssignment[]
   reidMemberships          ReidEvidenceMembership[]
   reidAssociationDecisions ReidAssociationDecision[]
   reidIdentityRepairs      ReidIdentityCorrection[]
   reidAssignmentRevisions  ReidAssignmentRevision[]
-  reidPersonCluster        ReidPersonCluster?
-  draftBallEvents          BallEventDraft[]           @relation("DraftBallEventActorRoster")
-  submissionBallEvents     RallySubmissionBallEvent[] @relation("SubmissionBallEventActorRoster")
+  reidPersonClusters       ReidPersonCluster[]
+  reidGidBindingRevisions  ReidGidRosterBindingRevision[]
+  reidJerseySuggestions    ReidJerseySuggestion[]
+  draftBallEvents          BallEventDraft[]               @relation("DraftBallEventActorRoster")
+  submissionBallEvents     RallySubmissionBallEvent[]     @relation("SubmissionBallEventActorRoster")
 
   @@index([matchId, teamId, jerseyNumber])
 }
@@ -614,10 +627,11 @@ model MediaAsset {
   personPoseChunks        PersonPoseEvidenceChunk[]    @relation("PersonPoseChunkAsset")
   reidDescriptorBundles   ReidEvidenceSet[]            @relation("ReidDescriptorBundleAsset")
   reidFeatureResults      ReidEvidenceSet[]            @relation("ReidFeatureResultAsset")
-  reidJerseyVlmResponses  ReidJerseyVlmEvidence[]      @relation("ReidJerseyVlmResponseAsset")
   reidBankManifests       ReidBankSnapshot[]           @relation("ReidBankManifestAsset")
   reidAssociationResults  ReidAssociationRun[]         @relation("ReidAssociationResultAsset")
   reidPreviewAssets       ReidIdentityPreview[]        @relation("ReidPreviewAsset")
+  reidJerseyMontages      ReidJerseySuggestion[]       @relation("ReidJerseySuggestionMontageAsset")
+  highlightExportOutputs  CoachHighlightExportJob[]    @relation("CoachHighlightOutputAsset")
 
   @@unique([bucket, objectKey])
   @@index([kind, state, createdAt])
@@ -689,42 +703,45 @@ model PlaybackWindowSegment {
 }
 
 model Rally {
-  id                     String                @id @default(uuid()) @db.Uuid
-  matchId                String                @db.Uuid
-  setId                  String                @db.Uuid
-  dvrProgramId           String                @db.Uuid
-  sideAssignmentId       String                @db.Uuid
-  sideAssignmentReversed Boolean               @default(false)
-  ordinal                Int
-  displaySetNumber       Int                   @default(1)
-  displayOrdinal         Int                   @default(1)
-  annotationRevision     BigInt                @default(0)
-  annotationStatus       AnnotationStatus      @default(OPEN)
-  processingStatus       ProcessingStatus      @default(IDLE)
-  scoreResolutionState   ScoreResolutionState  @default(PENDING)
-  scoringCourtSide       CourtSide?
-  scoringTeamId          String?               @db.Uuid
-  leftScoreBefore        Int?
-  rightScoreBefore       Int?
-  leftScoreAfter         Int?
-  rightScoreAfter        Int?
-  activeSubmissionId     String?               @unique @db.Uuid
-  createdAt              DateTime              @default(now())
-  updatedAt              DateTime              @updatedAt
-  voidedAt               DateTime?
-  match                  Match                 @relation(fields: [matchId], references: [id], onDelete: Cascade)
-  set                    MatchSet              @relation(fields: [setId], references: [id], onDelete: Restrict)
-  program                DvrProgram            @relation(fields: [dvrProgramId], references: [id], onDelete: Restrict)
-  sideAssignment         CourtSideAssignment   @relation(fields: [sideAssignmentId], references: [id], onDelete: Restrict)
-  scoringTeam            Team?                 @relation("RallyScoringTeam", fields: [scoringTeamId], references: [id], onDelete: Restrict)
-  activeSubmission       RallySubmission?      @relation("ActiveSubmission", fields: [activeSubmissionId], references: [id], onDelete: SetNull)
-  keyPoints              KeyPoint[]
-  boundaries             RallyBoundary[]
-  operations             AnnotationOperation[]
-  submissions            RallySubmission[]     @relation("RallySubmissions")
+  id                        String                @id @default(uuid()) @db.Uuid
+  matchId                   String                @db.Uuid
+  setId                     String                @db.Uuid
+  dvrProgramId              String                @db.Uuid
+  sideAssignmentId          String                @db.Uuid
+  sideAssignmentReversed    Boolean               @default(false)
+  ordinal                   Int
+  displaySetNumber          Int                   @default(1)
+  displayOrdinal            Int                   @default(1)
+  annotationRevision        BigInt                @default(0)
+  annotationStatus          AnnotationStatus      @default(OPEN)
+  processingStatus          ProcessingStatus      @default(IDLE)
+  scoreResolutionState      ScoreResolutionState  @default(PENDING)
+  scoringCourtSide          CourtSide?
+  scoringTeamId             String?               @db.Uuid
+  leftScoreBefore           Int?
+  rightScoreBefore          Int?
+  leftScoreAfter            Int?
+  rightScoreAfter           Int?
+  activeSubmissionId        String?               @unique @db.Uuid
+  draftOwnerDeviceSessionId String?               @db.Uuid
+  createdAt                 DateTime              @default(now())
+  updatedAt                 DateTime              @updatedAt
+  voidedAt                  DateTime?
+  match                     Match                 @relation(fields: [matchId], references: [id], onDelete: Cascade)
+  set                       MatchSet              @relation(fields: [setId], references: [id], onDelete: Restrict)
+  program                   DvrProgram            @relation(fields: [dvrProgramId], references: [id], onDelete: Restrict)
+  sideAssignment            CourtSideAssignment   @relation(fields: [sideAssignmentId], references: [id], onDelete: Restrict)
+  scoringTeam               Team?                 @relation("RallyScoringTeam", fields: [scoringTeamId], references: [id], onDelete: Restrict)
+  activeSubmission          RallySubmission?      @relation("ActiveSubmission", fields: [activeSubmissionId], references: [id], onDelete: SetNull)
+  draftOwnerDeviceSession   DeviceSession?        @relation("RallyDraftOwner", fields: [draftOwnerDeviceSessionId], references: [id], onDelete: SetNull)
+  keyPoints                 KeyPoint[]
+  boundaries                RallyBoundary[]
+  operations                AnnotationOperation[]
+  submissions               RallySubmission[]     @relation("RallySubmissions")
 
   @@unique([setId, ordinal])
   @@index([matchId, displaySetNumber, displayOrdinal])
+  @@index([draftOwnerDeviceSessionId, annotationStatus])
 }
 
 model RallyBoundary {
@@ -787,6 +804,7 @@ model BallEventDraft {
   keyPointId         String                  @unique @db.Uuid
   kind               BallEventKind
   result             BallEventResult?
+  serveStyle         BallServeStyle?
   semanticSource     BallEventSemanticSource @default(SYSTEM_DEFAULT)
   kindLocked         Boolean                 @default(false)
   resultLocked       Boolean                 @default(false)
@@ -946,6 +964,7 @@ model RallySubmissionBallEvent {
   ordinal              Int
   kind                 BallEventKind
   result               BallEventResult?
+  serveStyle           BallServeStyle?
   semanticSource       BallEventSemanticSource
   actorRosterEntryId   String?                 @db.Uuid
   submission           RallySubmission         @relation(fields: [submissionId], references: [id], onDelete: Restrict)
@@ -1036,6 +1055,36 @@ model ClipJob {
   aiJobs                         AiJob[]
 
   @@index([status, availableAt])
+}
+
+model CoachHighlightExportJob {
+  id                String      @id @default(uuid()) @db.Uuid
+  matchId           String      @db.Uuid
+  requestedByUserId String      @db.Uuid
+  status            JobStatus   @default(QUEUED)
+  idempotencyKey    String      @unique
+  schemaVersion     String      @default("1.0.0")
+  sourceFingerprint String?
+  requestPayload    Json
+  progress          Int         @default(0)
+  outputAssetId     String?     @db.Uuid
+  attemptCount      Int         @default(0)
+  maxAttempts       Int         @default(3)
+  availableAt       DateTime    @default(now())
+  leasedUntil       DateTime?
+  errorCode         String?
+  errorMessage      String?
+  startedAt         DateTime?
+  completedAt       DateTime?
+  createdAt         DateTime    @default(now())
+  updatedAt         DateTime    @updatedAt
+  match             Match       @relation(fields: [matchId], references: [id], onDelete: Cascade)
+  requestedBy       User        @relation("CoachHighlightRequestedBy", fields: [requestedByUserId], references: [id], onDelete: Restrict)
+  outputAsset       MediaAsset? @relation("CoachHighlightOutputAsset", fields: [outputAssetId], references: [id], onDelete: Restrict)
+
+  @@index([status, availableAt, createdAt])
+  @@index([matchId, createdAt])
+  @@index([requestedByUserId, sourceFingerprint, createdAt])
 }
 
 model ClipKeyPointMapping {
@@ -1295,6 +1344,7 @@ model AnalysisRun {
   reidActiveProjections            ReidActiveProjection[]
   reidFeatureRebuildRequests       ReidFeatureRebuildRequest[]
   reidAssociationRerunRequests     ReidAssociationRerunRequest[]
+  reidJerseySuggestionRuns         ReidJerseySuggestionRun[]
   projectedSubmissions             RallySubmission[]                      @relation("SubmissionAnalysisProjection")
 }
 
@@ -1622,18 +1672,19 @@ model BallPathSegmentPosition {
 }
 
 model TrackIdentityAssignment {
-  id               String           @id @default(uuid()) @db.Uuid
-  analysisRunId    String           @db.Uuid
-  trackId          Int
-  rosterEntryId    String           @db.Uuid
-  source           IdentitySource
-  assignedByUserId String?          @db.Uuid
-  confidence       Float?
-  identityRevision BigInt?
-  createdAt        DateTime         @default(now())
-  track            AnalysisTrack    @relation(fields: [analysisRunId, trackId], references: [analysisRunId, trackId], onDelete: Cascade)
-  rosterEntry      MatchRosterEntry @relation(fields: [rosterEntryId], references: [id], onDelete: Restrict)
-  assignedBy       User?            @relation(fields: [assignedByUserId], references: [id], onDelete: SetNull)
+  id                    String           @id @default(uuid()) @db.Uuid
+  analysisRunId         String           @db.Uuid
+  trackId               Int
+  rosterEntryId         String           @db.Uuid
+  source                IdentitySource
+  assignedByUserId      String?          @db.Uuid
+  confidence            Float?
+  identityRevision      BigInt?
+  pendingCorrectionMode String?
+  createdAt             DateTime         @default(now())
+  track                 AnalysisTrack    @relation(fields: [analysisRunId, trackId], references: [analysisRunId, trackId], onDelete: Cascade)
+  rosterEntry           MatchRosterEntry @relation(fields: [rosterEntryId], references: [id], onDelete: Restrict)
+  assignedBy            User?            @relation(fields: [assignedByUserId], references: [id], onDelete: SetNull)
 
   @@unique([analysisRunId, trackId])
 }
@@ -1760,19 +1811,21 @@ model ReidFeatureRebuildRequest {
 }
 
 model ReidAssociationRerunRequest {
-  id                String               @id @db.Uuid
-  analysisRunId     String               @db.Uuid
-  requestedByUserId String               @db.Uuid
-  status            JobStatus            @default(QUEUED)
-  reason            String?
-  errorMessage      String?
-  createdAt         DateTime             @default(now())
-  startedAt         DateTime?
-  completedAt       DateTime?
-  analysisRun       AnalysisRun          @relation(fields: [analysisRunId], references: [id], onDelete: Restrict)
-  requestedBy       User                 @relation("ReidAssociationRerunRequestedBy", fields: [requestedByUserId], references: [id], onDelete: Restrict)
-  associationRuns   ReidAssociationRun[]
+  id                        String               @id @db.Uuid
+  analysisRunId             String               @db.Uuid
+  requestedByUserId         String               @db.Uuid
+  requestedIdentityRevision BigInt?
+  status                    JobStatus            @default(QUEUED)
+  reason                    String?
+  errorMessage              String?
+  createdAt                 DateTime             @default(now())
+  startedAt                 DateTime?
+  completedAt               DateTime?
+  analysisRun               AnalysisRun          @relation(fields: [analysisRunId], references: [id], onDelete: Restrict)
+  requestedBy               User                 @relation("ReidAssociationRerunRequestedBy", fields: [requestedByUserId], references: [id], onDelete: Restrict)
+  associationRuns           ReidAssociationRun[]
 
+  @@unique([analysisRunId, requestedIdentityRevision])
   @@index([status, createdAt])
   @@index([analysisRunId, createdAt])
 }
@@ -1789,7 +1842,6 @@ model ReidTracklet {
   createdAt             DateTime                  @default(now())
   evidenceSet           ReidEvidenceSet           @relation(fields: [evidenceSetId], references: [id], onDelete: Cascade)
   vectors               ReidFeatureVector[]
-  jerseyVlmEvidence     ReidJerseyVlmEvidence?
   memberships           ReidEvidenceMembership[]
   leftCannotLinks       ReidCannotLink[]          @relation("ReidCannotLinkLeft")
   rightCannotLinks      ReidCannotLink[]          @relation("ReidCannotLinkRight")
@@ -1798,6 +1850,7 @@ model ReidTracklet {
   assignmentRevisions   ReidAssignmentRevision[]
   activeProjection      ReidActiveProjection?
   previews              ReidIdentityPreview[]
+  jerseySuggestions     ReidJerseySuggestion[]
 
   @@unique([evidenceSetId, canonicalTrackId])
   @@index([evidenceSetId, firstFrameIndex, lastFrameIndex])
@@ -1836,44 +1889,107 @@ model ReidSearchEmbedding {
   @@index([modelNamespace, modality, dimension, distance])
 }
 
-model ReidJerseyVlmEvidence {
-  id                   String       @id @default(uuid()) @db.Uuid
-  trackletId           String       @unique @db.Uuid
-  modelNamespace       String
-  rawResponseAssetId   String       @db.Uuid
-  rawResponseKey       String
-  rawResponseSha256    String
-  candidateNumbers     Int[]
-  selectedFrameIndices BigInt[]
-  createdAt            DateTime     @default(now())
-  tracklet             ReidTracklet @relation(fields: [trackletId], references: [id], onDelete: Cascade)
-  rawResponseAsset     MediaAsset   @relation("ReidJerseyVlmResponseAsset", fields: [rawResponseAssetId], references: [id], onDelete: Restrict)
-
-  @@unique([rawResponseAssetId, rawResponseKey])
-  @@index([modelNamespace, createdAt])
-  @@index([rawResponseAssetId])
-}
-
 model ReidPersonCluster {
-  id                     String                    @id @default(uuid()) @db.Uuid
-  matchId                String                    @db.Uuid
-  teamId                 String?                   @db.Uuid
-  canonicalRosterEntryId String?                   @unique @db.Uuid
+  id                     String                         @id @default(uuid()) @db.Uuid
+  matchId                String                         @db.Uuid
+  teamId                 String?                        @db.Uuid
+  canonicalRosterEntryId String?                        @db.Uuid
   label                  String?
   createdRevision        BigInt
   supersededRevision     BigInt?
-  createdAt              DateTime                  @default(now())
-  match                  Match                     @relation(fields: [matchId], references: [id], onDelete: Cascade)
-  team                   Team?                     @relation(fields: [teamId], references: [id], onDelete: Restrict)
-  canonicalRosterEntry   MatchRosterEntry?         @relation(fields: [canonicalRosterEntryId], references: [id], onDelete: SetNull)
+  createdAt              DateTime                       @default(now())
+  match                  Match                          @relation(fields: [matchId], references: [id], onDelete: Cascade)
+  team                   Team?                          @relation(fields: [teamId], references: [id], onDelete: Restrict)
+  canonicalRosterEntry   MatchRosterEntry?              @relation(fields: [canonicalRosterEntryId], references: [id], onDelete: SetNull)
   memberships            ReidEvidenceMembership[]
   associationDecisions   ReidAssociationDecision[]
-  sourceCorrections      ReidIdentityCorrection[]  @relation("ReidIdentityCorrectionSourceCluster")
-  targetCorrections      ReidIdentityCorrection[]  @relation("ReidIdentityCorrectionTargetCluster")
+  sourceCorrections      ReidIdentityCorrection[]       @relation("ReidIdentityCorrectionSourceCluster")
+  targetCorrections      ReidIdentityCorrection[]       @relation("ReidIdentityCorrectionTargetCluster")
   assignmentRevisions    ReidAssignmentRevision[]
+  bindingRevisions       ReidGidRosterBindingRevision[]
 
   @@index([matchId, teamId, createdAt])
   @@index([matchId, supersededRevision])
+  @@index([canonicalRosterEntryId])
+}
+
+model ReidGidRosterBindingRevision {
+  id                        String                         @id @default(uuid()) @db.Uuid
+  matchId                   String                         @db.Uuid
+  personClusterId           String                         @db.Uuid
+  rosterEntryId             String?                        @db.Uuid
+  source                    IdentitySource
+  revision                  BigInt
+  effectiveFromSetNumber    Int
+  effectiveFromRallyOrdinal Int
+  supersedesRevisionId      String?                        @db.Uuid
+  correctionId              String?                        @db.Uuid
+  createdByUserId           String?                        @db.Uuid
+  createdAt                 DateTime                       @default(now())
+  match                     Match                          @relation(fields: [matchId], references: [id], onDelete: Cascade)
+  personCluster             ReidPersonCluster              @relation(fields: [personClusterId], references: [id], onDelete: Cascade)
+  rosterEntry               MatchRosterEntry?              @relation(fields: [rosterEntryId], references: [id], onDelete: SetNull)
+  supersedesRevision        ReidGidRosterBindingRevision?  @relation("ReidGidBindingRevisionChain", fields: [supersedesRevisionId], references: [id], onDelete: Restrict)
+  supersededByRevisions     ReidGidRosterBindingRevision[] @relation("ReidGidBindingRevisionChain")
+  correction                ReidIdentityCorrection?        @relation(fields: [correctionId], references: [id], onDelete: Restrict)
+  createdBy                 User?                          @relation("ReidGidBindingCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+
+  @@unique([matchId, revision])
+  @@index([personClusterId, effectiveFromSetNumber, effectiveFromRallyOrdinal, revision])
+  @@index([rosterEntryId, effectiveFromSetNumber, effectiveFromRallyOrdinal])
+  @@index([supersedesRevisionId])
+}
+
+model ReidJerseySuggestionRun {
+  id                String                 @id @db.Uuid
+  analysisRunId     String                 @db.Uuid
+  requestedByUserId String                 @db.Uuid
+  status            JobStatus              @default(QUEUED)
+  modelNamespace    String?
+  errorMessage      String?
+  attemptCount      Int                    @default(0)
+  maxAttempts       Int                    @default(3)
+  availableAt       DateTime               @default(now())
+  leasedUntil       DateTime?
+  createdAt         DateTime               @default(now())
+  startedAt         DateTime?
+  completedAt       DateTime?
+  analysisRun       AnalysisRun            @relation(fields: [analysisRunId], references: [id], onDelete: Restrict)
+  requestedBy       User                   @relation("ReidJerseySuggestionRequestedBy", fields: [requestedByUserId], references: [id], onDelete: Restrict)
+  suggestions       ReidJerseySuggestion[]
+
+  @@index([analysisRunId, createdAt])
+  @@index([status, availableAt, createdAt])
+}
+
+model ReidJerseySuggestion {
+  id                     String                  @id @default(uuid()) @db.Uuid
+  runId                  String                  @db.Uuid
+  trackletId             String                  @db.Uuid
+  status                 JobStatus               @default(QUEUED)
+  selectedFrameIndices   BigInt[]
+  montageAssetId         String?                 @db.Uuid
+  suggestedJerseyNumber  String?
+  suggestedRosterEntryId String?                 @db.Uuid
+  confidence             Float?
+  alternatives           Json?
+  rawResponse            Json?
+  errorMessage           String?
+  appliedAt              DateTime?
+  appliedByUserId        String?                 @db.Uuid
+  createdAt              DateTime                @default(now())
+  startedAt              DateTime?
+  completedAt            DateTime?
+  run                    ReidJerseySuggestionRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+  tracklet               ReidTracklet            @relation(fields: [trackletId], references: [id], onDelete: Restrict)
+  montageAsset           MediaAsset?             @relation("ReidJerseySuggestionMontageAsset", fields: [montageAssetId], references: [id], onDelete: Restrict)
+  suggestedRosterEntry   MatchRosterEntry?       @relation(fields: [suggestedRosterEntryId], references: [id], onDelete: SetNull)
+  appliedBy              User?                   @relation("ReidJerseySuggestionAppliedBy", fields: [appliedByUserId], references: [id], onDelete: SetNull)
+
+  @@unique([runId, trackletId])
+  @@index([status, createdAt])
+  @@index([suggestedRosterEntryId])
+  @@index([montageAssetId])
 }
 
 model ReidEvidenceMembership {
@@ -1920,22 +2036,23 @@ model ReidCannotLink {
 }
 
 model ReidBankSnapshot {
-  id               String               @id @default(uuid()) @db.Uuid
-  matchId          String               @db.Uuid
-  teamId           String               @db.Uuid
-  revision         BigInt
-  asOfSetNumber    Int
-  asOfRallyOrdinal Int
-  schemaVersion    String
-  manifestAssetId  String               @db.Uuid
-  contentSha256    String
-  createdAt        DateTime             @default(now())
-  match            Match                @relation(fields: [matchId], references: [id], onDelete: Cascade)
-  team             Team                 @relation(fields: [teamId], references: [id], onDelete: Restrict)
-  manifestAsset    MediaAsset           @relation("ReidBankManifestAsset", fields: [manifestAssetId], references: [id], onDelete: Restrict)
-  associationRuns  ReidAssociationRun[]
+  id                String               @id @default(uuid()) @db.Uuid
+  matchId           String               @db.Uuid
+  teamId            String               @db.Uuid
+  revision          BigInt
+  asOfSetNumber     Int
+  asOfRallyOrdinal  Int
+  schemaVersion     String
+  derivationVersion String
+  manifestAssetId   String               @db.Uuid
+  contentSha256     String
+  createdAt         DateTime             @default(now())
+  match             Match                @relation(fields: [matchId], references: [id], onDelete: Cascade)
+  team              Team                 @relation(fields: [teamId], references: [id], onDelete: Restrict)
+  manifestAsset     MediaAsset           @relation("ReidBankManifestAsset", fields: [manifestAssetId], references: [id], onDelete: Restrict)
+  associationRuns   ReidAssociationRun[]
 
-  @@unique([matchId, teamId, revision, asOfSetNumber, asOfRallyOrdinal])
+  @@unique([matchId, teamId, revision, asOfSetNumber, asOfRallyOrdinal, derivationVersion])
   @@index([matchId, teamId, asOfSetNumber, asOfRallyOrdinal])
 }
 
@@ -1976,11 +2093,14 @@ model ReidAssociationDecision {
   associationRunId        String               @db.Uuid
   trackletId              String               @db.Uuid
   groupKey                String
+  decisionAction          String
+  newGidGroupKey          String?
   associationState        ReidAssociationState
   selectedPersonClusterId String?              @db.Uuid
   selectedRosterEntryId   String?              @db.Uuid
   confidence              Float?
   candidates              Json
+  rationale               String
   unresolvedReason        String?
   createdAt               DateTime             @default(now())
   associationRun          ReidAssociationRun   @relation(fields: [associationRunId], references: [id], onDelete: Cascade)
@@ -1994,30 +2114,31 @@ model ReidAssociationDecision {
 }
 
 model ReidIdentityCorrection {
-  id                    String                     @id @default(uuid()) @db.Uuid
-  matchId               String                     @db.Uuid
-  teamId                String?                    @db.Uuid
-  analysisRunId         String                     @db.Uuid
-  trackletId            String                     @db.Uuid
-  sourcePersonClusterId String?                    @db.Uuid
-  targetPersonClusterId String?                    @db.Uuid
-  rosterEntryId         String?                    @db.Uuid
+  id                    String                         @id @default(uuid()) @db.Uuid
+  matchId               String                         @db.Uuid
+  teamId                String?                        @db.Uuid
+  analysisRunId         String                         @db.Uuid
+  trackletId            String                         @db.Uuid
+  sourcePersonClusterId String?                        @db.Uuid
+  targetPersonClusterId String?                        @db.Uuid
+  rosterEntryId         String?                        @db.Uuid
   displayScope          ReidCorrectionDisplayScope
   futureEvidenceAction  ReidFutureEvidenceAction
   revision              BigInt
   reason                String?
-  createdByUserId       String                     @db.Uuid
-  createdAt             DateTime                   @default(now())
-  match                 Match                      @relation(fields: [matchId], references: [id], onDelete: Cascade)
-  team                  Team?                      @relation(fields: [teamId], references: [id], onDelete: Restrict)
-  analysisRun           AnalysisRun                @relation(fields: [analysisRunId], references: [id], onDelete: Restrict)
-  tracklet              ReidTracklet               @relation(fields: [trackletId], references: [id], onDelete: Restrict)
-  sourcePersonCluster   ReidPersonCluster?         @relation("ReidIdentityCorrectionSourceCluster", fields: [sourcePersonClusterId], references: [id], onDelete: SetNull)
-  targetPersonCluster   ReidPersonCluster?         @relation("ReidIdentityCorrectionTargetCluster", fields: [targetPersonClusterId], references: [id], onDelete: SetNull)
-  rosterEntry           MatchRosterEntry?          @relation(fields: [rosterEntryId], references: [id], onDelete: SetNull)
-  createdBy             User                       @relation("ReidIdentityCorrectionCreatedBy", fields: [createdByUserId], references: [id], onDelete: Restrict)
+  createdByUserId       String                         @db.Uuid
+  createdAt             DateTime                       @default(now())
+  match                 Match                          @relation(fields: [matchId], references: [id], onDelete: Cascade)
+  team                  Team?                          @relation(fields: [teamId], references: [id], onDelete: Restrict)
+  analysisRun           AnalysisRun                    @relation(fields: [analysisRunId], references: [id], onDelete: Restrict)
+  tracklet              ReidTracklet                   @relation(fields: [trackletId], references: [id], onDelete: Restrict)
+  sourcePersonCluster   ReidPersonCluster?             @relation("ReidIdentityCorrectionSourceCluster", fields: [sourcePersonClusterId], references: [id], onDelete: SetNull)
+  targetPersonCluster   ReidPersonCluster?             @relation("ReidIdentityCorrectionTargetCluster", fields: [targetPersonClusterId], references: [id], onDelete: SetNull)
+  rosterEntry           MatchRosterEntry?              @relation(fields: [rosterEntryId], references: [id], onDelete: SetNull)
+  createdBy             User                           @relation("ReidIdentityCorrectionCreatedBy", fields: [createdByUserId], references: [id], onDelete: Restrict)
   memberships           ReidEvidenceMembership[]
   assignmentRevisions   ReidAssignmentRevision[]
+  gidBindingRevisions   ReidGidRosterBindingRevision[]
 
   @@unique([matchId, revision])
   @@index([analysisRunId, trackletId])

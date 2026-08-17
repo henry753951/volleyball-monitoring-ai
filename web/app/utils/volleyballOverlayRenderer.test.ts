@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { continuousBallTrailLinks, COURT_LINE_PATHS } from './volleyballOverlayRenderer'
+import {
+  continuousBallTrailLinks,
+  COURT_LINE_PATHS,
+  overlayTrackIdentityLabel,
+} from './volleyballOverlayRenderer'
 
 describe('Court60 overlay topology', () => {
   it('uses the provider edge order instead of the retired Court36 paths', () => {
@@ -37,5 +41,13 @@ describe('continuousBallTrailLinks', () => {
       { width: 1000, height: 500 },
     )
     expect(links).toEqual([])
+  })
+})
+
+describe('overlayTrackIdentityLabel', () => {
+  it('prefers a jersey number and only falls back to GID or Local TID', () => {
+    expect(overlayTrackIdentityLabel(12, '9b17a6e9', '15')).toBe('#15')
+    expect(overlayTrackIdentityLabel(12, '9b17a6e9')).toBe('GID 9B17A6E9')
+    expect(overlayTrackIdentityLabel(12, null, null)).toBe('T012')
   })
 })

@@ -133,7 +133,7 @@ export type ProviderWorkServerMessage =
     }
 
 export interface ReidFeatureJobRequest extends Record<string, unknown> {
-  schema_version: '1.0.0'
+  schema_version: '2.0.0'
   provider_job_id: string
   evidence_set_id: string
   analysis_run_id: string
@@ -143,27 +143,32 @@ export interface ReidFeatureJobRequest extends Record<string, unknown> {
   pose_recipe_namespace: string
   frame_selection_recipe_version: string
   requested_recipes: Array<{
-    modality: 'DINO' | 'OSNET' | 'KPR' | 'KPR_PROMPT' | 'JERSEY_VLM'
+    modality: 'DINO' | 'OSNET' | 'KPR' | 'KPR_PROMPT'
     model_namespace: string
   }>
 }
 
 export interface ReidAssociationJobRequest extends Record<string, unknown> {
-  schema_version: '1.0.0'
+  schema_version: '2.0.0'
   provider_job_id: string
   association_run_id: string
   match_id: string
   evidence_set_id: string
+  eligible_tracklet_ids: string[]
   evidence_result_artifact_id: string
   bank_snapshot_id: string
   bank_snapshot_artifact_id: string
   roster_snapshot_artifact_id: string
   recipe: {
     namespace: string
-    candidate_modalities: string[]
+    candidate_modalities: Array<'DINO' | 'OSNET' | 'KPR' | 'KPR_PROMPT'>
     same_clip_grouping: boolean
-    allow_abstention: true
+    allow_new_gid: true
     manual_assignment_precedence: true
+    team_occupancy_prior: {
+      expected_count: number
+      enforcement: 'SOFT'
+    }
   }
 }
 

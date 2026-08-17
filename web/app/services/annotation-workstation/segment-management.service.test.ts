@@ -5,11 +5,12 @@ import { createWorkstationActionManager } from './workstation-action.service'
 import { createWorkstationConfirmationService } from './workstation-confirmation.service'
 import { createWorkstationFeedbackService } from './workstation-feedback.service'
 
-function setup() {
+function setup(options: { selectedSubmissionId?: string | null } = {}) {
   const feedback = createWorkstationFeedbackService()
   const actions = createWorkstationActionManager({ feedback })
   const confirmation = createWorkstationConfirmationService({ feedback })
   const coach = {
+    deleteRallyAnalysis: vi.fn().mockResolvedValue({ cleanupWarnings: [] }),
     deleteRally: vi.fn().mockResolvedValue({ abortedJobCount: 0, cleanupWarnings: [] }),
     updateRallyPlacement: vi.fn().mockResolvedValue({ displaySetNumber: 2, displayOrdinal: 3 }),
   }
@@ -51,6 +52,7 @@ function setup() {
     currentDraft: () => true,
     sideSwapEffectiveOrdinal: () => 5,
     selectedRallyId: () => 'rally-1',
+    selectedSubmissionId: () => options.selectedSubmissionId ?? null,
     clipSelected: () => true,
     teamById: id => ({ id, name: id }),
     refreshMatch,
@@ -66,20 +68,101 @@ function setup() {
     room,
     selection,
     timeline,
+    feedback,
+    refreshCoach,
   }
 }
 
 describe('segment management service', () => {
-  it('captures the selected rally in a confirmation before permanent deletion', async () => {
-    const context = setup()
+  it('offers whole-segment deletion and analysis-only deletion before changing data', async () => {
+    const context = setup({ selectedSubmissionId: 'submission-1' })
 
     context.service.requestDelete()
     expect(context.confirmation.current.value?.id).toBe('rally-delete')
+    expect(context.confirmation.current.value?.confirmLabel).toBe('刪除整個片段')
+    expect(context.confirmation.current.value?.secondaryLabel).toBe('刪除分析，保留 Keypoint')
     await context.confirmation.confirm()
 
     expect(context.coach.deleteRally).toHaveBeenCalledWith('rally-1')
     expect(context.room.forgetRally).toHaveBeenCalledWith('rally-1')
     expect(context.timeline.clear).toHaveBeenCalledOnce()
+    context.service.dispose()
+  })
+
+  it('allows a selected in-progress draft to delete the whole segment', async () => {
+    const context = setup()
+
+    context.service.requestDelete()
+    expect(context.confirmation.current.value?.id).toBe('rally-delete')
+    expect(context.confirmation.current.value?.title).toBe('刪除片段內容')
+    expect(context.confirmation.current.value?.secondaryLabel).toBeUndefined()
+    await context.confirmation.confirm()
+
+    expect(context.coach.deleteRally).toHaveBeenCalledWith('rally-1')
+    context.service.dispose()
+  })
+
+  it('preserves reviewed keypoints and manual ball events when requested', async () => {
+    const context = setup({ selectedSubmissionId: 'submission-1' })
+
+    context.service.requestDelete()
+    await context.confirmation.secondary()
+    expect(context.confirmation.current.value?.id).toBe('rally-analysis-delete')
+    expect(context.confirmation.current.value?.title).toBe('刪除分析並保留標記')
+    expect(context.confirmation.current.value?.message).toContain('人工球種')
+    await context.confirmation.confirm()
+
+    expect(context.coach.deleteRallyAnalysis).toHaveBeenCalledWith('rally-1')
+    expect(context.room.createCorrection).not.toHaveBeenCalled()
+    expect(context.coach.deleteRally).not.toHaveBeenCalled()
+    expect(context.timeline.selectHistorical).toHaveBeenCalledWith('rally-1', '0')
+    context.service.dispose()
+  })
+
+  it('only offers the keypoint-preserving analysis deletion path', async () => {
+    const context = setup({ selectedSubmissionId: 'submission-1' })
+
+    context.service.requestDelete()
+    await context.confirmation.secondary()
+    expect(context.confirmation.current.value?.secondaryLabel).toBeUndefined()
+    await context.confirmation.confirm()
+
+    expect(context.coach.deleteRallyAnalysis).toHaveBeenCalledWith('rally-1')
+    expect(context.room.createCorrection).not.toHaveBeenCalled()
+    expect(context.coach.deleteRally).not.toHaveBeenCalled()
+    context.service.dispose()
+  })
+
+  it('unlocks a failed deletion even when the background refresh does not settle', async () => {
+    const context = setup({ selectedSubmissionId: 'submission-1' })
+    context.coach.deleteRallyAnalysis.mockRejectedValueOnce(new Error('analysis deletion failed'))
+    context.refreshCoach.mockImplementationOnce(() => new Promise(() => undefined))
+
+    context.service.requestDelete()
+    await context.confirmation.secondary()
+    await context.confirmation.confirm()
+
+    expect(context.confirmation.pending.value).toBe(false)
+    expect(context.confirmation.current.value?.id).toBe('rally-analysis-delete')
+    expect(context.feedback.messages.value.at(-1)?.title).toContain('analysis deletion failed')
+    context.service.dispose()
+  })
+
+  it('deletes multiple completed analyses into keypoint-preserving ready drafts', async () => {
+    const context = setup()
+    const rallies = [
+      { id: 'rally-1', submission: { id: 'submission-1', analysis: { status: 'completed' } } },
+      { id: 'rally-2', submission: { id: 'submission-2', analysis: { status: 'completed' } } },
+    ]
+
+    context.service.requestBatchAnalysisReset(rallies as never)
+    expect(context.confirmation.current.value?.id).toBe('rally-analysis-batch-reset')
+    expect(context.confirmation.current.value?.confirmLabel).toBe('刪除 2 個分析')
+    await context.confirmation.confirm()
+
+    expect(context.coach.deleteRallyAnalysis).toHaveBeenNthCalledWith(1, 'rally-1')
+    expect(context.coach.deleteRallyAnalysis).toHaveBeenNthCalledWith(2, 'rally-2')
+    expect(context.timeline.selectHistorical).toHaveBeenCalledWith('rally-2', '0')
     context.service.dispose()
   })
 

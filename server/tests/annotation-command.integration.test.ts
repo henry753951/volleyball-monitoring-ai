@@ -553,7 +553,7 @@ describe('durable service annotation command', () => {
         captureFrameIndex: BigInt(anchor.capture_frame_index) + 10n,
         captureTimeUs: BigInt(anchor.capture_time_us) + 500n,
         createdByUserId: ids.operator,
-        deviceSessionId: ids.device,
+        deviceSessionId: ids.secondDevice,
         kind: 'START',
         originalPlaybackCursor: {},
         rallyId: laterRallyId,
@@ -783,7 +783,7 @@ describe('durable service annotation command', () => {
     })
   })
 
-  it('allows a new editable draft to overlap a READY draft before either is submitted', async () => {
+  it('rejects a new draft while the same device still owns a READY unsubmitted draft', async () => {
     const firstRallyId = randomUUID()
     const secondRallyId = randomUUID()
     const endAnchor = {
@@ -811,17 +811,159 @@ describe('durable service annotation command', () => {
         boundaryCommand(randomUUID(), secondRallyId, 'START_RALLY', '0', '1234'),
         identity,
       ),
-    ).resolves.toMatchObject({
-      type: 'command_ack',
-      operation_kind: 'START_RALLY',
-      result_revision: '1',
-    })
+    ).resolves.toMatchObject({ type: 'command_rejected', code: 'ACTIVE_RALLY_EXISTS' })
     await expect(
       db.rally.findUniqueOrThrow({ where: { id: firstRallyId } }),
     ).resolves.toMatchObject({ annotationStatus: 'READY' })
+    await expect(db.rally.findUnique({ where: { id: secondRallyId } })).resolves.toBeNull()
+  })
+
+  it('atomically recovers one abandoned READY draft for a new session of the same user', async () => {
+    const rallyId = randomUUID()
+    const endAnchor = {
+      ...anchor,
+      capture_frame_index: (BigInt(anchor.capture_frame_index) + 1n).toString(),
+      capture_time_us: (BigInt(anchor.capture_time_us) + 50n).toString(),
+      resolved_player_media_time_us: '1284',
+      source_pts: (BigInt(anchor.source_pts) + 1n).toString(),
+    }
+    const boundaryService = createAnnotationCommandService({
+      database: db,
+      resolveCursor: async cursor => (cursor.player_media_time_us === '1284' ? endAnchor : anchor),
+    })
+    await boundaryService.apply(
+      boundaryCommand(randomUUID(), rallyId, 'START_RALLY', '0', '1234'),
+      identity,
+    )
+    const endResponse = await boundaryService.apply(
+      boundaryCommand(randomUUID(), rallyId, 'END_RALLY', '1', '1284'),
+      identity,
+    )
+    if (endResponse.type === 'command_rejected')
+      throw new Error(`${endResponse.code}: ${endResponse.message}`)
     await expect(
-      db.rally.findUniqueOrThrow({ where: { id: secondRallyId } }),
-    ).resolves.toMatchObject({ annotationStatus: 'OPEN' })
+      db.rally.findUniqueOrThrow({
+        where: { id: rallyId },
+        select: { annotationRevision: true, annotationStatus: true },
+      }),
+    ).resolves.toEqual({ annotationRevision: 2n, annotationStatus: 'READY' })
+
+    await expect(
+      boundaryService.recoverAbandonedDraft(roomId, secondIdentity, [ids.secondDevice]),
+    ).resolves.toBe(rallyId)
+    await expect(
+      db.rally.findUniqueOrThrow({
+        where: { id: rallyId },
+        select: { annotationRevision: true, draftOwnerDeviceSessionId: true },
+      }),
+    ).resolves.toEqual({ annotationRevision: 3n, draftOwnerDeviceSessionId: ids.secondDevice })
+
+    await expect(
+      boundaryService.apply(
+        parseAnnotationCommand({
+          ...serviceCommand(randomUUID(), rallyId),
+          schema_version: '3.0.0',
+          base_revision: '3',
+          kind: 'SET_RALLY_OUTCOME',
+          payload: { score_resolution: 'resolved', scoring_court_side: 'left' },
+        }),
+        secondIdentity,
+      ),
+    ).resolves.toMatchObject({ type: 'command_ack', operation_kind: 'SET_RALLY_OUTCOME' })
+  })
+
+  it('never recovers a draft while its owner session is still present', async () => {
+    const rallyId = randomUUID()
+    const endAnchor = {
+      ...anchor,
+      capture_frame_index: (BigInt(anchor.capture_frame_index) + 1n).toString(),
+      capture_time_us: (BigInt(anchor.capture_time_us) + 50n).toString(),
+      resolved_player_media_time_us: '1284',
+      source_pts: (BigInt(anchor.source_pts) + 1n).toString(),
+    }
+    const boundaryService = createAnnotationCommandService({
+      database: db,
+      resolveCursor: async cursor => (cursor.player_media_time_us === '1284' ? endAnchor : anchor),
+    })
+    await boundaryService.apply(
+      boundaryCommand(randomUUID(), rallyId, 'START_RALLY', '0', '1234'),
+      identity,
+    )
+    await boundaryService.apply(
+      boundaryCommand(randomUUID(), rallyId, 'END_RALLY', '1', '1284'),
+      identity,
+    )
+
+    await expect(
+      boundaryService.recoverAbandonedDraft(roomId, secondIdentity, [ids.device, ids.secondDevice]),
+    ).resolves.toBeNull()
+    await expect(
+      db.rally.findUniqueOrThrow({
+        where: { id: rallyId },
+        select: { annotationRevision: true, draftOwnerDeviceSessionId: true },
+      }),
+    ).resolves.toEqual({ annotationRevision: 2n, draftOwnerDeviceSessionId: ids.device })
+  })
+
+  it('allows another authorized client to continue an explicitly selected READY draft', async () => {
+    const rallyId = randomUUID()
+    const endAnchor = {
+      ...anchor,
+      capture_frame_index: (BigInt(anchor.capture_frame_index) + 1n).toString(),
+      capture_time_us: (BigInt(anchor.capture_time_us) + 50n).toString(),
+      resolved_player_media_time_us: '1284',
+      source_pts: (BigInt(anchor.source_pts) + 1n).toString(),
+    }
+    const boundaryService = createAnnotationCommandService({
+      database: db,
+      resolveCursor: async cursor => (cursor.player_media_time_us === '1284' ? endAnchor : anchor),
+    })
+    await boundaryService.apply(
+      boundaryCommand(randomUUID(), rallyId, 'START_RALLY', '0', '1234'),
+      identity,
+    )
+    const endResponse = await boundaryService.apply(
+      boundaryCommand(randomUUID(), rallyId, 'END_RALLY', '1', '1284'),
+      identity,
+    )
+    if (endResponse.type === 'command_rejected')
+      throw new Error(`${endResponse.code}: ${endResponse.message}`)
+    await expect(
+      db.rally.findUniqueOrThrow({
+        where: { id: rallyId },
+        select: { annotationRevision: true, annotationStatus: true },
+      }),
+    ).resolves.toEqual({ annotationRevision: 2n, annotationStatus: 'READY' })
+
+    const response = await boundaryService.apply(
+      parseAnnotationCommand({
+        ...serviceCommand(randomUUID(), rallyId),
+        schema_version: '3.0.0',
+        base_revision: '2',
+        kind: 'SET_RALLY_OUTCOME',
+        payload: { score_resolution: 'resolved', scoring_court_side: 'right' },
+      }),
+      secondIdentity,
+    )
+    if (response.type === 'command_rejected')
+      throw new Error(`${response.code}: ${response.message}`)
+    expect(response).toMatchObject({ type: 'command_ack', operation_kind: 'SET_RALLY_OUTCOME' })
+    await expect(
+      db.rally.findUniqueOrThrow({
+        where: { id: rallyId },
+        select: {
+          annotationRevision: true,
+          draftOwnerDeviceSessionId: true,
+          scoreResolutionState: true,
+          scoringCourtSide: true,
+        },
+      }),
+    ).resolves.toEqual({
+      annotationRevision: 3n,
+      draftOwnerDeviceSessionId: ids.device,
+      scoreResolutionState: 'RESOLVED',
+      scoringCourtSide: 'RIGHT',
+    })
   })
 
   it('allows END to overlap another editable draft without coupling their states', async () => {
@@ -864,7 +1006,7 @@ describe('durable service annotation command', () => {
           captureFrameIndex: BigInt(anchor.capture_frame_index) + 1n,
           captureTimeUs: BigInt(anchor.capture_time_us) + 40n,
           createdByUserId: ids.operator,
-          deviceSessionId: ids.device,
+          deviceSessionId: ids.secondDevice,
           kind: 'START',
           originalPlaybackCursor: {},
           rallyId: otherRallyId,
@@ -878,7 +1020,7 @@ describe('durable service annotation command', () => {
           captureFrameIndex: BigInt(anchor.capture_frame_index) + 2n,
           captureTimeUs: BigInt(anchor.capture_time_us) + 80n,
           createdByUserId: ids.operator,
-          deviceSessionId: ids.device,
+          deviceSessionId: ids.secondDevice,
           kind: 'END',
           originalPlaybackCursor: {},
           rallyId: otherRallyId,
@@ -1090,7 +1232,7 @@ describe('durable service annotation command', () => {
     })
   })
 
-  it('keeps a closed unsubmitted rally while starting the next rally', async () => {
+  it('keeps a closed unsubmitted rally as the device active draft until submission', async () => {
     const readyRallyId = randomUUID()
     const nextRallyId = randomUUID()
     await expect(
@@ -1130,20 +1272,14 @@ describe('durable service annotation command', () => {
     })
     await expect(
       laterService.apply(serviceCommand(randomUUID(), nextRallyId), identity),
-    ).resolves.toMatchObject({
-      type: 'command_ack',
-      effects: { annotation_status: 'open' },
-    })
+    ).resolves.toMatchObject({ type: 'command_rejected', code: 'ACTIVE_RALLY_EXISTS' })
     await expect(
       db.rally.findMany({
         where: { id: { in: [readyRallyId, nextRallyId] } },
         orderBy: { ordinal: 'asc' },
         select: { id: true, annotationStatus: true },
       }),
-    ).resolves.toEqual([
-      { id: readyRallyId, annotationStatus: 'READY' },
-      { id: nextRallyId, annotationStatus: 'OPEN' },
-    ])
+    ).resolves.toEqual([{ id: readyRallyId, annotationStatus: 'READY' }])
   })
 
   it('allows only one active draft when different rally ids race for the same set', async () => {
@@ -1357,6 +1493,14 @@ describe('durable service annotation command', () => {
       operation_kind: 'CREATE_CONTACT_KEY_POINT',
       result_revision: '2',
     })
+    const firstKeyPointId = first.type === 'command_ack' ? first.effects.created_key_point_id : null
+    const duplicate = await service.apply(contactCommand(randomUUID(), rallyId, '2'), identity)
+    expect(duplicate).toMatchObject({
+      type: 'command_ack',
+      operation_kind: 'CREATE_CONTACT_KEY_POINT',
+      result_revision: '2',
+      effects: { created_key_point_id: firstKeyPointId },
+    })
     const replay = await service.apply(structuredClone(command), identity)
     const stored = await db.annotationCommandReceipt.findUniqueOrThrow({
       where: { commandId: command.command_id },
@@ -1371,6 +1515,174 @@ describe('durable service annotation command', () => {
       code: 'COMMAND_ID_REUSED',
     })
     expect(await db.keyPoint.count({ where: { rallyId } })).toBe(2)
+  })
+
+  it('infers serve success and second-point receive only after an untouched third point exists', async () => {
+    const rallyId = randomUUID()
+    const secondAnchor = {
+      ...anchor,
+      capture_time_us: (BigInt(anchor.capture_time_us) + 1_000_000n).toString(),
+      capture_frame_index: (BigInt(anchor.capture_frame_index) + 30n).toString(),
+      resolved_player_media_time_us: (
+        BigInt(anchor.resolved_player_media_time_us) + 1_000_000n
+      ).toString(),
+      source_pts: (BigInt(anchor.source_pts) + 60_000n).toString(),
+    }
+    const thirdAnchor = {
+      ...secondAnchor,
+      capture_time_us: (BigInt(anchor.capture_time_us) + 2_000_000n).toString(),
+      capture_frame_index: (BigInt(anchor.capture_frame_index) + 60n).toString(),
+      resolved_player_media_time_us: (
+        BigInt(anchor.resolved_player_media_time_us) + 2_000_000n
+      ).toString(),
+      source_pts: (BigInt(anchor.source_pts) + 120_000n).toString(),
+    }
+    await Promise.all([
+      db.playbackWindow.update({
+        data: { captureEndUs: BigInt(thirdAnchor.capture_time_us) + 1n },
+        where: { id: ids.window },
+      }),
+      db.dvrSegment.update({
+        data: {
+          captureEndUs: BigInt(thirdAnchor.capture_time_us) + 1n,
+          frameCount: 63n,
+        },
+        where: { id: ids.segment },
+      }),
+    ])
+    const secondService = createAnnotationCommandService({
+      database: db,
+      resolveCursor: async () => secondAnchor,
+    })
+    const thirdService = createAnnotationCommandService({
+      database: db,
+      resolveCursor: async () => thirdAnchor,
+    })
+
+    await service.apply(serviceCommand(randomUUID(), rallyId), identity)
+    await secondService.apply(contactCommand(randomUUID(), rallyId, '1'), identity)
+    const third = await thirdService.apply(contactCommand(randomUUID(), rallyId, '2'), identity)
+
+    expect(third).toMatchObject({
+      type: 'command_ack',
+      effects: {
+        auto_corrections: expect.arrayContaining([
+          expect.objectContaining({ code: 'SERVE_SUCCESS_INFERRED' }),
+          expect.objectContaining({ code: 'SECOND_POINT_RECEIVE_INFERRED' }),
+        ]),
+      },
+    })
+    const points = await db.keyPoint.findMany({
+      include: { ballEvent: true },
+      orderBy: { sequenceIndex: 'asc' },
+      where: { rallyId, deletedAt: null },
+    })
+    expect(points.map(point => point.ballEvent)).toMatchObject([
+      { kind: 'SERVE', result: 'SUCCESS', serveStyle: 'JUMP' },
+      { kind: 'RECEIVE', result: null, serveStyle: null },
+      { kind: 'CONTACT', result: null, serveStyle: null },
+    ])
+  })
+
+  it('does not overwrite explicit serve results or second-point classifications at the third point', async () => {
+    const rallyId = randomUUID()
+    const secondAnchor = {
+      ...anchor,
+      capture_time_us: (BigInt(anchor.capture_time_us) + 1_000_000n).toString(),
+      capture_frame_index: (BigInt(anchor.capture_frame_index) + 30n).toString(),
+      resolved_player_media_time_us: (
+        BigInt(anchor.resolved_player_media_time_us) + 1_000_000n
+      ).toString(),
+      source_pts: (BigInt(anchor.source_pts) + 60_000n).toString(),
+    }
+    const thirdAnchor = {
+      ...secondAnchor,
+      capture_time_us: (BigInt(anchor.capture_time_us) + 2_000_000n).toString(),
+      capture_frame_index: (BigInt(anchor.capture_frame_index) + 60n).toString(),
+      resolved_player_media_time_us: (
+        BigInt(anchor.resolved_player_media_time_us) + 2_000_000n
+      ).toString(),
+      source_pts: (BigInt(anchor.source_pts) + 120_000n).toString(),
+    }
+    await Promise.all([
+      db.playbackWindow.update({
+        data: { captureEndUs: BigInt(thirdAnchor.capture_time_us) + 1n },
+        where: { id: ids.window },
+      }),
+      db.dvrSegment.update({
+        data: {
+          captureEndUs: BigInt(thirdAnchor.capture_time_us) + 1n,
+          frameCount: 63n,
+        },
+        where: { id: ids.segment },
+      }),
+    ])
+    const secondService = createAnnotationCommandService({
+      database: db,
+      resolveCursor: async () => secondAnchor,
+    })
+    const thirdService = createAnnotationCommandService({
+      database: db,
+      resolveCursor: async () => thirdAnchor,
+    })
+
+    await service.apply(serviceCommand(randomUUID(), rallyId), identity)
+    await secondService.apply(contactCommand(randomUUID(), rallyId, '1'), identity)
+    const before = await db.keyPoint.findMany({
+      include: { ballEvent: true },
+      orderBy: { sequenceIndex: 'asc' },
+      where: { rallyId, deletedAt: null },
+    })
+    await service.apply(
+      parseAnnotationCommand({
+        schema_version: '4.0.0',
+        command_id: randomUUID(),
+        room_id: roomId,
+        base_revision: '2',
+        rally_id: rallyId,
+        kind: 'SET_BALL_EVENT',
+        payload: {
+          key_point_id: before[0]!.id,
+          event: { kind: 'SERVE', result: 'FAILURE', serve_style: 'JUMP' },
+        },
+      }),
+      identity,
+    )
+    await service.apply(
+      parseAnnotationCommand({
+        schema_version: '4.0.0',
+        command_id: randomUUID(),
+        room_id: roomId,
+        base_revision: '3',
+        rally_id: rallyId,
+        kind: 'SET_BALL_EVENT',
+        payload: {
+          key_point_id: before[1]!.id,
+          event: { kind: 'CONTACT', result: null, serve_style: null },
+        },
+      }),
+      identity,
+    )
+    const third = await thirdService.apply(contactCommand(randomUUID(), rallyId, '4'), identity)
+
+    expect(third).toMatchObject({ type: 'command_ack' })
+    if (third.type !== 'command_ack') throw new TypeError('Expected command acknowledgement')
+    expect(third.effects.auto_corrections ?? []).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ code: 'SERVE_SUCCESS_INFERRED' }),
+        expect.objectContaining({ code: 'SECOND_POINT_RECEIVE_INFERRED' }),
+      ]),
+    )
+    const points = await db.keyPoint.findMany({
+      include: { ballEvent: true },
+      orderBy: { sequenceIndex: 'asc' },
+      where: { rallyId, deletedAt: null },
+    })
+    expect(points.map(point => point.ballEvent)).toMatchObject([
+      { kind: 'SERVE', result: 'FAILURE', resultLocked: true },
+      { kind: 'CONTACT', result: null, kindLocked: true },
+      { kind: 'CONTACT', result: null },
+    ])
   })
 
   it('moves, deletes, reopens and voids only the mutable Rally draft', async () => {
@@ -1518,7 +1830,7 @@ describe('durable service annotation command', () => {
     })
   })
 
-  it('marks equal-frame contacts as possible duplicates and rejects stale mapping/anchor state', async () => {
+  it('coalesces equal-frame contacts and rejects stale mapping/anchor state', async () => {
     const rallyId = randomUUID()
     await service.apply(serviceCommand(randomUUID(), rallyId), identity)
     const first = await service.apply(contactCommand(randomUUID(), rallyId), identity)
@@ -1533,15 +1845,14 @@ describe('durable service annotation command', () => {
       }),
     ).resolves.toEqual([
       { markerKind: 'SERVICE', possibleDuplicate: false },
-      { markerKind: 'CONTACT', possibleDuplicate: true },
-      { markerKind: 'CONTACT', possibleDuplicate: true },
+      { markerKind: 'CONTACT', possibleDuplicate: false },
     ])
     const invalid = createAnnotationCommandService({
       database: db,
       resolveCursor: async () => ({ ...anchor, playback_window_id: randomUUID() }),
     })
     await expect(
-      invalid.apply(contactCommand(randomUUID(), rallyId, '3'), identity),
+      invalid.apply(contactCommand(randomUUID(), rallyId, '2'), identity),
     ).resolves.toMatchObject({ type: 'command_rejected', code: 'ANNOTATION_NOT_READY' })
   })
 
@@ -1573,7 +1884,7 @@ describe('durable service annotation command', () => {
     const middle = {
       ...anchor,
       capture_time_us: '9007199254741043',
-      capture_frame_index: '9007199254740995',
+      capture_frame_index: '9007199254740993',
       resolved_player_media_time_us: '1284',
     }
     const middleService = createAnnotationCommandService({
@@ -1991,6 +2302,242 @@ describe('durable service annotation command', () => {
       { id: submittedRallyId, annotationStatus: 'OPEN' },
       { id: openRallyId, annotationStatus: 'OPEN' },
     ])
+  })
+
+  it('hydrates an unassigned correction key point from the completed actor mapping', async () => {
+    const rallyId = randomUUID()
+    await service.apply(serviceCommand(randomUUID(), rallyId), identity)
+    const draftPoint = await db.keyPoint.findFirstOrThrow({ where: { rallyId } })
+    await service.apply(
+      closeCommand(randomUUID(), rallyId, draftPoint.id, '1', 'unknown'),
+      identity,
+    )
+    const submitted = await service.apply(submitCommand(randomUUID(), rallyId, '2'), identity)
+    const submissionId = submitted.type === 'command_ack' ? submitted.effects.submission_id : null
+    expect(submissionId).toBeTruthy()
+
+    const sourceSubmission = await db.rallySubmission.findUniqueOrThrow({
+      where: { id: submissionId! },
+      include: { keyPoints: { include: { ballEvent: true } } },
+    })
+    const sourcePoint = sourceSubmission.keyPoints[0]!
+    const startBoundaryId = randomUUID()
+    const endBoundaryId = randomUUID()
+    await db.rallyBoundary.createMany({
+      data: [
+        {
+          id: startBoundaryId,
+          rallyId,
+          kind: 'START',
+          captureEpochId: sourcePoint.captureEpochId,
+          sourcePts: sourcePoint.sourcePts - 1n,
+          captureTimeUs: sourcePoint.captureTimeUs - 1n,
+          captureFrameIndex: sourcePoint.captureFrameIndex - 1n,
+          timingPrecision: 'FRAME_EXACT',
+          originalPlaybackCursor: { source: 'actor-sync-test' },
+          createdByUserId: ids.operator,
+          updatedByUserId: ids.operator,
+          deviceSessionId: identity.deviceSessionId,
+        },
+        {
+          id: endBoundaryId,
+          rallyId,
+          kind: 'END',
+          captureEpochId: sourcePoint.captureEpochId,
+          sourcePts: sourcePoint.sourcePts + 1n,
+          captureTimeUs: sourcePoint.captureTimeUs + 1n,
+          captureFrameIndex: sourcePoint.captureFrameIndex + 1n,
+          timingPrecision: 'FRAME_EXACT',
+          originalPlaybackCursor: { source: 'actor-sync-test' },
+          createdByUserId: ids.operator,
+          updatedByUserId: ids.operator,
+          deviceSessionId: identity.deviceSessionId,
+        },
+      ],
+    })
+    await db.rallySubmissionBoundary.createMany({
+      data: [
+        {
+          submissionId: submissionId!,
+          sourceDraftBoundaryId: startBoundaryId,
+          kind: 'START',
+          captureEpochId: sourcePoint.captureEpochId,
+          sourcePts: sourcePoint.sourcePts - 1n,
+          captureTimeUs: sourcePoint.captureTimeUs - 1n,
+          captureFrameIndex: sourcePoint.captureFrameIndex - 1n,
+          timingPrecision: 'FRAME_EXACT',
+        },
+        {
+          submissionId: submissionId!,
+          sourceDraftBoundaryId: endBoundaryId,
+          kind: 'END',
+          captureEpochId: sourcePoint.captureEpochId,
+          sourcePts: sourcePoint.sourcePts + 1n,
+          captureTimeUs: sourcePoint.captureTimeUs + 1n,
+          captureFrameIndex: sourcePoint.captureFrameIndex + 1n,
+          timingPrecision: 'FRAME_EXACT',
+        },
+      ],
+    })
+    expect(sourcePoint.ballEvent?.actorRosterEntryId).toBeNull()
+    const clip = await db.clipJob.findFirstOrThrow({ where: { submissionId: submissionId! } })
+    const aiJob = await db.aiJob.create({
+      data: {
+        submissionId: submissionId!,
+        clipJobId: clip.id,
+        status: 'COMPLETED',
+        idempotencyKey: `actor-sync:${rallyId}`,
+        requestPayload: { source: 'actor-sync-test' },
+        requestPayloadHash: 'a'.repeat(64),
+        jobSchemaVersion: '3.0.0',
+        callbackTokenHash: 'b'.repeat(64),
+        callbackTokenExpiresAt: new Date(),
+        completedAt: new Date(),
+      },
+    })
+    const analysis = await db.analysisRun.create({
+      data: {
+        aiJobId: aiJob.id,
+        submissionId: submissionId!,
+        analysisId: `actor-sync-${rallyId}`,
+        analysisVersion: 'actor-sync-v1',
+        analysisDataSchemaVersion: '1.0.0',
+        inputClipSha256: 'c'.repeat(64),
+        producerName: 'fixture',
+        producerBuildId: 'fixture',
+        status: 'COMPLETED',
+        activatedAt: new Date(),
+        tracks: {
+          create: {
+            trackId: 7,
+            courtSide: 'LEFT',
+            firstFrame: 0n,
+            lastFrame: 10n,
+            identityAssignments: {
+              create: {
+                rosterEntryId: ids.rosterLeft,
+                source: 'MANUAL',
+                assignedByUserId: ids.operator,
+              },
+            },
+          },
+        },
+      },
+    })
+    const analysisPointId = randomUUID()
+    await db.contactEvent.create({
+      data: {
+        analysisRunId: analysis.id,
+        keyPointId: analysisPointId,
+        sourceKeyPointId: sourcePoint.id,
+        sequenceIndex: 0,
+        anchorFrameIndex: 0n,
+        anchorTimeUs: sourcePoint.captureTimeUs,
+        markerKind: sourcePoint.markerKind,
+        isTerminal: sourcePoint.isTerminal,
+        associationState: 'RESOLVED_SINGLE',
+        ballState: 'MISSING',
+        qualityFlags: [],
+        actors: {
+          create: {
+            trackId: 7,
+            observationFrameIndex: 0n,
+            associationConfidence: 0.95,
+          },
+        },
+      },
+    })
+    await db.analysisContactActorCorrection.create({
+      data: {
+        analysisRunId: analysis.id,
+        keyPointId: analysisPointId,
+        revision: 1n,
+        trackId: 7,
+        updatedByUserId: ids.operator,
+      },
+    })
+
+    await createCorrectionDraft(db, submissionId!, identity)
+    await expect(
+      db.ballEventDraft.findUniqueOrThrow({ where: { keyPointId: draftPoint.id } }),
+    ).resolves.toMatchObject({ actorRosterEntryId: ids.rosterLeft })
+
+    await cancelCorrectionDraft(db, rallyId, identity)
+    await createCorrectionDraft(db, submissionId!, identity, {
+      preserveAnalysisContacts: true,
+    })
+    const legacyPreservedPoint = await db.keyPoint.findFirstOrThrow({
+      where: { rallyId, deletedAt: null },
+      include: { ballEvent: true },
+    })
+    expect(legacyPreservedPoint.captureTimeUs).toBe(sourcePoint.captureTimeUs)
+    expect(legacyPreservedPoint.ballEvent).toMatchObject({ actorRosterEntryId: ids.rosterLeft })
+    await cancelCorrectionDraft(db, rallyId, identity)
+    const timingAssetId = randomUUID()
+    const timingManifest = new TextEncoder().encode(
+      JSON.stringify({
+        schema_version: '2.0.0',
+        clip_job_id: clip.id,
+        actual_start_capture_us: sourcePoint.captureTimeUs.toString(),
+        actual_end_capture_us: (sourcePoint.captureTimeUs + 2n).toString(),
+        video: { duration_us: '2' },
+        frame_map: [
+          {
+            capture_epoch_id: sourcePoint.captureEpochId,
+            capture_frame_index: sourcePoint.captureFrameIndex.toString(),
+            source_pts: sourcePoint.sourcePts.toString(),
+            capture_time_us: sourcePoint.captureTimeUs.toString(),
+            clip_pts: '0',
+            clip_time_us: '0',
+            clip_frame_index: '0',
+          },
+          {
+            capture_epoch_id: sourcePoint.captureEpochId,
+            capture_frame_index: (sourcePoint.captureFrameIndex + 1n).toString(),
+            source_pts: (sourcePoint.sourcePts + 1n).toString(),
+            capture_time_us: (sourcePoint.captureTimeUs + 1n).toString(),
+            clip_pts: '1',
+            clip_time_us: '1',
+            clip_frame_index: '1',
+          },
+        ],
+      }),
+    )
+    await db.mediaAsset.create({
+      data: {
+        id: timingAssetId,
+        kind: 'TIMING_MANIFEST',
+        bucket: 'actor-sync-test',
+        objectKey: `${rallyId}.json`,
+        contentType: 'application/json',
+        byteLength: BigInt(timingManifest.byteLength),
+        sha256: 'd'.repeat(64),
+        internalSchemaVersion: '2.0.0',
+        state: 'READY',
+        readyAt: new Date(),
+      },
+    })
+    await db.clipJob.update({
+      where: { id: clip.id },
+      data: {
+        actualStartCaptureUs: sourcePoint.captureTimeUs,
+        actualEndCaptureUs: sourcePoint.captureTimeUs + 2n,
+        completedAt: new Date(),
+        status: 'COMPLETED',
+        timingManifestAssetId: timingAssetId,
+      },
+    })
+
+    await createCorrectionDraft(db, submissionId!, identity, {
+      preserveAnalysisContacts: true,
+      timingManifestReader: async () => timingManifest,
+    })
+    const preservedPoint = await db.keyPoint.findFirstOrThrow({
+      where: { rallyId, deletedAt: null },
+      include: { ballEvent: true },
+    })
+    expect(preservedPoint.id).not.toBe(draftPoint.id)
+    expect(preservedPoint.ballEvent).toMatchObject({ actorRosterEntryId: ids.rosterLeft })
   })
 
   it('opens a correction draft and applies winner/unknown changes through one CAS score ledger', async () => {
@@ -2676,6 +3223,63 @@ describe('durable service annotation command', () => {
     await expect(
       db.analysisRun.findUniqueOrThrow({ where: { id: sourceAnalysis.id } }),
     ).resolves.toMatchObject({ status: 'COMPLETED', supersededAt: null })
+
+    const correctedSubmission = await db.rallySubmission.findUniqueOrThrow({
+      where: { id: correctedSubmissionId! },
+      include: {
+        boundaries: true,
+        keyPoints: { orderBy: { sequenceIndex: 'asc' } },
+      },
+    })
+    expect(correctedSubmission.analysisSourceRunId).toBe(sourceAnalysis.id)
+    let rallyBoundaries = await db.rallyBoundary.findMany({
+      where: { rallyId },
+      orderBy: { kind: 'asc' },
+    })
+    const correctedPoint = correctedSubmission.keyPoints[0]!
+    for (const kind of ['START', 'END'] as const) {
+      if (rallyBoundaries.some(boundary => boundary.kind === kind)) continue
+      const offset = kind === 'START' ? -1n : 1n
+      await db.rallyBoundary.create({
+        data: {
+          captureEpochId: correctedPoint.captureEpochId,
+          captureFrameIndex: correctedPoint.captureFrameIndex + offset,
+          captureTimeUs: correctedPoint.captureTimeUs + offset,
+          createdByUserId: ids.operator,
+          deviceSessionId: identity.deviceSessionId,
+          id: randomUUID(),
+          kind,
+          originalPlaybackCursor: { source: 'source-analysis-test' },
+          rallyId,
+          sourcePts: correctedPoint.sourcePts + offset,
+          timingPrecision: 'FRAME_EXACT',
+          updatedByUserId: ids.operator,
+        },
+      })
+    }
+    rallyBoundaries = await db.rallyBoundary.findMany({ where: { rallyId } })
+    await db.rallySubmissionBoundary.deleteMany({ where: { submissionId: correctedSubmission.id } })
+    await db.rallySubmissionBoundary.createMany({
+      data: rallyBoundaries.map(boundary => ({
+        submissionId: correctedSubmission.id,
+        sourceDraftBoundaryId: boundary.id,
+        kind: boundary.kind,
+        captureEpochId: boundary.captureEpochId,
+        sourcePts: boundary.sourcePts,
+        captureTimeUs: boundary.captureTimeUs,
+        captureFrameIndex: boundary.captureFrameIndex,
+        timingPrecision: boundary.timingPrecision,
+      })),
+    })
+    await createCorrectionDraft(db, correctedSubmission.id, identity, {
+      preserveAnalysisContacts: true,
+    })
+    const preservedFromSourceRun = await db.keyPoint.findFirstOrThrow({
+      where: { rallyId, deletedAt: null, markerKind: 'CONTACT' },
+    })
+    expect(preservedFromSourceRun.captureTimeUs).toBe(
+      correctedSubmission.keyPoints[0]!.captureTimeUs,
+    )
   })
 
   it('creates an editable correction and submits it unchanged without reopening', async () => {

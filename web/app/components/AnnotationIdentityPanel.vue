@@ -4,20 +4,18 @@ import {
   Database,
   ListTree,
   LoaderCircle,
-  RotateCcw,
   RefreshCw,
+  ScanText,
   ShieldCheck,
   Sparkles,
-  UserRoundCheck,
   UsersRound,
 } from 'lucide-vue-next'
 import { computed, ref } from 'vue'
 import { useAnnotationWorkstationService } from '~/services/annotation-workstation/annotation-workstation.service'
 import type { CoachTeam } from '~/lib/coachDomain'
-import IdentityReplacementDialog from './IdentityReplacementDialog.vue'
+import IdentityJerseySuggestionDialog from './IdentityJerseySuggestionDialog.vue'
 import PlayerIdentityPreview from './PlayerIdentityPreview.vue'
 import UiPlayerCombobox from './ui/PlayerCombobox.vue'
-import UiSwitch from './ui/Switch.vue'
 
 const props = defineProps<{
   matchId: string
@@ -25,8 +23,9 @@ const props = defineProps<{
   leftTeamId: string | null
   rightTeamId: string | null
   teams: CoachTeam[]
-  mappingCompleted: boolean
-  focusedTrackId?: number | null
+}>()
+const emit = defineEmits<{
+  'select-track': [selection: { trackId: number; rallyId: string; firstFrameIndex: string }]
 }>()
 const displayMode = ref<'local' | 'group'>('local')
 const workstation = useAnnotationWorkstationService()
@@ -35,6 +34,19 @@ if (!assignment)
   throw new Error(
     'Identity assignment controller was not provided by the annotation route boundary',
   )
+
+const assignmentCount = computed(
+  () => assignment.view.model.tracks.filter(track => track.roster_entry_id).length,
+)
+const manualCount = computed(
+  () => assignment.view.model.tracks.filter(track => track.identity_source === 'manual').length,
+)
+const pendingEvidenceCount = computed(
+  () =>
+    assignment.view.model.tracks.filter(
+      track => track.identity_source === 'manual' && track.identity_evidence_state === 'pending',
+    ).length,
+)
 
 const localGroups = computed(() =>
   [
@@ -58,7 +70,7 @@ const localGroups = computed(() =>
         active: assignment.view.model.activeTrackIds.has(track.track_id),
         status: assignment.view.model.track.status(track),
         tidLabel: assignment.view.model.track.tidLabel(track),
-        gidLabel: assignment.view.model.track.gidLabel(track),
+        gidCode: assignment.view.model.track.gidCode(track),
         options: assignment.view.model.options.forTrack({
           teamId: group.teamId,
           trackId: track.track_id,
@@ -98,10 +110,6 @@ const gidGroups = computed(() =>
     .filter(group => group.rows.length > 0),
 )
 
-function toggleComplete() {
-  void workstation.actions.execute('identity.set-mapping-complete', !props.mappingCompleted)
-}
-
 function requestTrackAssignment(trackId: number, rosterEntryId: string | null) {
   assignment.actions.setInteractionSurface('panel')
   void workstation.actions.execute(rosterEntryId ? 'identity.assign' : 'identity.clear', {
@@ -117,6 +125,21 @@ function requestGroupAssignment(trackId: number, trackIds: number[], rosterEntry
     trackIds,
     rosterEntryId,
   })
+}
+
+function selectTrack(trackId: number, rallyId: string, firstFrameIndex: string) {
+  emit('select-track', { trackId, rallyId, firstFrameIndex })
+}
+
+function handleTrackRowKeydown(
+  event: KeyboardEvent,
+  trackId: number,
+  rallyId: string,
+  firstFrameIndex: string,
+) {
+  if (event.key !== 'Enter' && event.key !== ' ') return
+  event.preventDefault()
+  selectTrack(trackId, rallyId, firstFrameIndex)
 }
 </script>
 
@@ -148,19 +171,41 @@ function requestGroupAssignment(trackId: number, trackIds: number[], rosterEntry
             <UsersRound :size="13" />人員群組<b>{{ assignment.view.model.gidGroups.length }}</b>
           </button>
         </div>
-        <div class="identity-job-actions">
-          <button
-            type="button"
-            class="identity-auto"
-            :disabled="!workstation.actions.state('identity.apply-automatic').value.enabled"
-            :title="workstation.actions.state('identity.apply-automatic').value.reason ?? undefined"
-            @click="workstation.actions.execute('identity.apply-automatic')"
+        <div class="identity-progress" aria-label="球員指派進度">
+          <span
+            ><b>{{ assignmentCount }}</b> / {{ assignment.view.model.tracks.length }} 已指派</span
           >
-            <LoaderCircle v-if="assignment.state.autoAssigning" class="spin" :size="13" /><Sparkles
-              v-else
-              :size="13"
-            />套用最新配對
-          </button>
+          <small>
+            {{ manualCount }} 筆人工指派
+            <template v-if="pendingEvidenceCount">
+              · {{ pendingEvidenceCount }} 筆等待 ReID</template
+            >
+            · 未標記不影響後續操作
+          </small>
+        </div>
+        <button
+          type="button"
+          class="identity-jersey"
+          :disabled="!workstation.actions.state('identity.jersey-suggestions').value.enabled"
+          :title="
+            workstation.actions.state('identity.jersey-suggestions').value.reason ?? undefined
+          "
+          @click="workstation.actions.execute('identity.jersey-suggestions')"
+        >
+          <LoaderCircle
+            v-if="assignment.state.jerseySuggestionRequesting"
+            class="spin"
+            :size="15"
+          />
+          <ScanText v-else :size="15" />
+          <span><b>背號感知</b><small>產生差異建議，不會自動覆寫</small></span>
+          <Sparkles :size="13" />
+        </button>
+        <div class="identity-job-heading">
+          <b>配對結果不準確？</b>
+          <small>重新辨識只會更新系統建議，不會覆蓋人工指派</small>
+        </div>
+        <div class="identity-job-actions" aria-label="重新辨識球員">
           <button
             type="button"
             class="identity-auto"
@@ -174,7 +219,11 @@ function requestGroupAssignment(trackId: number, trackIds: number[], rosterEntry
               v-if="assignment.state.reidJobAction === 'association'"
               class="spin"
               :size="13"
-            /><RefreshCw v-else :size="13" />重新配對
+            /><RefreshCw v-else :size="13" />
+            <span>
+              <b>用現有資料再配對</b>
+              <small>沿用目前球員外觀資料，速度較快</small>
+            </span>
           </button>
           <button
             type="button"
@@ -187,15 +236,19 @@ function requestGroupAssignment(trackId: number, trackIds: number[], rosterEntry
               v-if="assignment.state.reidJobAction === 'feature'"
               class="spin"
               :size="13"
-            /><Database v-else :size="13" />重新取特徵
+            /><Database v-else :size="13" />
+            <span>
+              <b>重新分析外觀再配對</b>
+              <small>重新分析此片段的球員外觀，耗時較久</small>
+            </span>
           </button>
         </div>
       </div>
       <p class="mapping-hint">
         {{
           displayMode === 'local'
-            ? '每個 Local ID 都保留獨立球員指派，可逐一修正辨識錯誤。'
-            : '人員群組可包含多個片段內 TID；群組只是關聯建議，人工球員指派永遠優先。'
+            ? '逐一確認每個 Local ID 的球員；點擊項目可回到它出現的回合。'
+            : '群組代表跨片段的追蹤關聯；球員指派會套用到群組中的 Local ID。'
         }}
       </p>
       <template v-if="displayMode === 'local'">
@@ -206,12 +259,32 @@ function requestGroupAssignment(trackId: number, trackIds: number[], rosterEntry
           </header>
           <p v-if="!group.rows.length">沒有追蹤球員</p>
           <template v-for="row in group.rows" :key="row.track.track_id">
-            <label :class="{ focused: focusedTrackId === row.track.track_id }">
-              <code
-                ><span>{{ row.tidLabel }}</span
-                ><i :class="{ active: row.active }">{{ row.active ? '畫面中' : '未出現' }}</i
-                ><small>{{ row.gidLabel }}</small></code
-              >
+            <div
+              class="identity-row"
+              role="button"
+              tabindex="0"
+              :aria-label="`跳到 ${row.tidLabel} 出現的回合`"
+              @click="
+                selectTrack(row.track.track_id, row.track.rally_id, row.track.first_frame_index)
+              "
+              @keydown="
+                handleTrackRowKeydown(
+                  $event,
+                  row.track.track_id,
+                  row.track.rally_id,
+                  row.track.first_frame_index,
+                )
+              "
+            >
+              <div class="identity-row__meta">
+                <div class="identity-row__idline">
+                  <code>{{ row.tidLabel }}</code>
+                  <span :class="['identity-presence', { active: row.active }]">
+                    {{ row.active ? '畫面中' : '未出現' }}
+                  </span>
+                </div>
+                <span class="identity-group-code">{{ row.gidCode }}</span>
+              </div>
               <span class="identity-control">
                 <span class="identity-state" :data-tone="row.status.tone"
                   ><ShieldCheck
@@ -222,12 +295,12 @@ function requestGroupAssignment(trackId: number, trackIds: number[], rosterEntry
                     >{{ Math.round(row.track.identity_confidence * 100) }}%</small
                   ></span
                 >
-                <span class="identity-select">
+                <span class="identity-select" @click.stop @keydown.stop>
                   <UiPlayerCombobox
                     :model-value="row.track.roster_entry_id ?? ''"
                     :options="row.options"
                     :disabled="!workstation.actions.state('identity.assign').value.enabled"
-                    :aria-label="`指派 ${row.tidLabel} ${row.gidLabel} 的球員`"
+                    :aria-label="`指派 ${row.tidLabel} ${row.gidCode} 的球員`"
                     @update:model-value="requestTrackAssignment(row.track.track_id, $event)"
                   >
                     <template #preview="{ option }"
@@ -253,7 +326,7 @@ function requestGroupAssignment(trackId: number, trackIds: number[], rosterEntry
                   />
                 </span>
               </span>
-            </label>
+            </div>
             <div
               v-if="
                 assignment.state.interactionSurface === 'panel' &&
@@ -263,25 +336,62 @@ function requestGroupAssignment(trackId: number, trackIds: number[], rosterEntry
               role="dialog"
               aria-label="選擇球員修正方式"
             >
-              <strong>要如何套用「{{ assignment.state.dialogs.correction.playerName }}」？</strong>
-              <p>這會決定同一人員群組的 TID 與後續片段是否一起沿用。</p>
+              <strong
+                >為什麼要改成「{{ assignment.state.dialogs.correction.playerName }}」？</strong
+              >
+              <p>
+                <template v-if="assignment.state.dialogs.correction.previousPlayerName">
+                  目前整個 GID 綁定「{{
+                    assignment.state.dialogs.correction.previousPlayerName
+                  }}」。
+                </template>
+                請區分整個 GID 配錯，或只有目前 Local ID 被分到錯的 GID。
+              </p>
+              <p v-if="assignment.state.dialogs.correction.occupiedGidLabel" class="swap-warning">
+                「{{ assignment.state.dialogs.correction.playerName }}」目前由
+                {{ assignment.state.dialogs.correction.occupiedGidLabel }}
+                使用；確認第一項會交換兩個 GID 的球員綁定，不會解除另一邊的其他 Local ID。
+              </p>
               <button
                 type="button"
                 @click="workstation.actions.execute('identity.apply-correction', 'from_here')"
               >
-                <b>依人員群組從這段起改正</b><small>同一群組的 TID 與後續片段一起套用</small>
+                <b>{{
+                  assignment.state.dialogs.correction.occupiedGidLabel
+                    ? '交換兩個 GID 的球員綁定'
+                    : '只重綁目前 GID'
+                }}</b
+                ><small>保留其他 GID；從這段起生效，過去片段不回寫</small>
               </button>
+              <template
+                v-for="candidate in assignment.state.dialogs.correction.swapCandidates"
+                :key="candidate.gidId"
+              >
+                <button
+                  v-if="!assignment.state.dialogs.correction.occupiedGidLabel"
+                  type="button"
+                  @click="workstation.actions.execute('identity.swap-gid-binding', candidate.gidId)"
+                >
+                  <b>與 {{ candidate.gidLabel }} 交換球員</b
+                  ><small
+                    >該 GID 最近出現在第 {{ candidate.setNumber }} 局 · 回合
+                    {{ candidate.rallyOrdinal }}；兩邊從目前片段起原子交換</small
+                  >
+                </button>
+              </template>
               <button
+                v-if="!assignment.state.dialogs.correction.occupiedGidLabel"
                 type="button"
                 @click="workstation.actions.execute('identity.apply-correction', 'split_identity')"
               >
-                <b>這其實是不同的人</b><small>適合替補或辨識混人；只拆開這組 Local ID</small>
+                <b>只有這個 Local ID 的 GID 判錯</b
+                ><small>只拆這個 Local；原 GID 的其他 Local 維持原球員</small>
               </button>
               <button
                 type="button"
                 @click="workstation.actions.execute('identity.apply-correction', 'clip_only')"
               >
-                <b>只修正這個 Local ID</b><small>不改人員群組，也不影響其他 Local ID</small>
+                <b>只改這個 Local 的顯示</b><small>不改 GID 關聯，也不把這次修正加入特徵庫</small>
               </button>
               <button type="button" class="cancel" @click="assignment.actions.closeCorrection">
                 取消
@@ -299,14 +409,20 @@ function requestGroupAssignment(trackId: number, trackIds: number[], rosterEntry
             <span>{{ group.label }}</span
             ><b>{{ group.rows.length }}</b>
           </header>
-          <label v-for="row in group.rows" :key="row.gidId" class="gid-row">
-            <code
-              ><span>{{ row.gidLabel }}</span
-              ><i :class="{ active: row.active }">{{ row.active ? '畫面中' : '未出現' }}</i
-              ><small class="gid-tids"
+          <div v-for="row in group.rows" :key="row.gidId" class="gid-row">
+            <div class="gid-identity">
+              <div class="gid-heading">
+                <strong>{{ row.gidCode }}</strong>
+                <span>{{ row.trackIds.length }} 個 Local ID</span>
+              </div>
+              <span v-if="row.rosterEntryId" class="gid-player">
+                球員 · {{ assignment.view.model.players.byRosterEntry(row.rosterEntryId)?.name }}
+              </span>
+              <span v-else class="gid-player unassigned">尚未指派球員</span>
+              <small class="gid-tids"
                 ><span v-for="tid in row.tidLabels" :key="tid">{{ tid }}</span></small
-              ></code
-            >
+              >
+            </div>
             <span class="identity-control">
               <span class="identity-state" :data-tone="row.status.tone"
                 ><ShieldCheck
@@ -322,7 +438,7 @@ function requestGroupAssignment(trackId: number, trackIds: number[], rosterEntry
                   :model-value="row.rosterEntryId ?? ''"
                   :options="row.options"
                   :disabled="!workstation.actions.state('identity.assign-gid').value.enabled"
-                  :aria-label="`依 ${row.gidLabel} 批次指派 ${row.trackIds.length} 個 Local ID`"
+                  :aria-label="`依 ${row.gidCode} 批次指派 ${row.trackIds.length} 個 Local ID`"
                   @update:model-value="
                     requestGroupAssignment(row.representativeTrackId, row.trackIds, $event)
                   "
@@ -348,7 +464,7 @@ function requestGroupAssignment(trackId: number, trackIds: number[], rosterEntry
                 />
               </span>
             </span>
-          </label>
+          </div>
         </section>
         <p v-if="assignment.view.model.ungroupedTrackCount" class="identity-required">
           <CircleHelp :size="13" />另有 {{ assignment.view.model.ungroupedTrackCount }} 個 Local ID
@@ -365,41 +481,20 @@ function requestGroupAssignment(trackId: number, trackIds: number[], rosterEntry
       <p v-if="assignment.state.reidJobResult" class="identity-auto-result" role="status">
         {{ assignment.state.reidJobResult }}
       </p>
-      <p v-if="!assignment.view.model.identityReady" class="identity-required">
-        <CircleHelp :size="13" />仍有待指派球員，確認後即可完成。
+      <p v-if="assignment.state.jerseySuggestionResult" class="identity-auto-result" role="status">
+        {{ assignment.state.jerseySuggestionResult }}
       </p>
-      <button
-        type="button"
-        class="identity-complete"
-        :class="{ completed: mappingCompleted }"
-        :disabled="!workstation.actions.state('identity.set-mapping-complete').value.enabled"
-        :title="
-          workstation.actions.state('identity.set-mapping-complete').value.reason ?? undefined
-        "
-        @click="toggleComplete"
-      >
-        <RotateCcw v-if="mappingCompleted" :size="15" />
-        <UserRoundCheck v-else :size="15" />
-        {{ mappingCompleted ? '重新開放指派' : '完成球員指派' }}
-      </button>
-      <label class="replacement-preference"
-        ><span>球員已被使用時顯示取代提示</span
-        ><UiSwitch v-model="assignment.preferences.replacementWarningEnabled"
-      /></label>
       <p v-if="assignment.state.error" class="identity-error" role="alert">
         {{ assignment.state.error }}
       </p>
     </template>
-    <IdentityReplacementDialog
-      v-if="assignment.state.interactionSurface === 'panel' && assignment.state.dialogs.replacement"
-      :open="true"
-      :player-name="assignment.state.dialogs.replacement.playerName"
-      :occupied-track-id="assignment.state.dialogs.replacement.occupiedTrackId"
-      :target-track-id="assignment.state.dialogs.replacement.trackId"
-      :warning-enabled="assignment.preferences.replacementWarningEnabled"
-      @update:warning-enabled="assignment.preferences.replacementWarningEnabled = $event"
-      @close="assignment.actions.closeReplacement"
-      @confirm="workstation.actions.execute('identity.confirm-replacement')"
+    <IdentityJerseySuggestionDialog
+      v-if="assignment.state.jerseySuggestionRun"
+      :open="assignment.state.dialogs.jerseySuggestions"
+      :run="assignment.state.jerseySuggestionRun"
+      :applying-ids="assignment.state.jerseySuggestionApplyingIds"
+      @close="assignment.actions.closeJerseySuggestions"
+      @apply="workstation.actions.execute('identity.apply-jersey-suggestions', $event)"
     />
   </div>
 </template>
@@ -407,36 +502,193 @@ function requestGroupAssignment(trackId: number, trackIds: number[], rosterEntry
 <style scoped>
 .identity-panel {
   display: grid;
-  gap: 14px;
+  gap: 16px;
+  color: #e2e8ed;
 }
-.mapping-hint {
-  margin: 0;
-  padding: 4px;
-  color: #8f99a3;
-  font-size: 0.58rem;
-  line-height: 1.5;
+.identity-toolbar {
+  display: grid;
+  gap: 8px;
 }
-.identity-panel section {
+.identity-view-switch {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid #2b343c;
+  border-radius: 9px;
+  background: #1a2025;
+}
+.identity-view-switch button {
+  min-height: 34px !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 6px !important;
+  padding: 5px 8px !important;
+  border: 0 !important;
+  border-radius: 6px !important;
+  background: transparent !important;
+  color: #8e9aa4 !important;
+  font-size: 0.62rem !important;
+  font-weight: 650;
+}
+.identity-view-switch button.active {
+  background: #35424c !important;
+  color: #f2f6f8 !important;
+}
+.identity-view-switch button:focus-visible,
+.identity-row:focus-visible {
+  outline: 2px solid #9fc7eb;
+  outline-offset: 1px;
+}
+.identity-view-switch b {
+  min-width: 19px;
+  color: inherit;
+  font-size: 0.55rem;
+  font-variant-numeric: tabular-nums;
+}
+.identity-job-actions {
+  display: grid;
+  gap: 6px;
+}
+.identity-job-heading {
+  display: grid;
+  gap: 2px;
+  padding: 3px 2px 0;
+}
+.identity-job-heading b {
+  color: #dce4e9;
+  font-size: 0.62rem;
+}
+.identity-job-heading small {
+  color: #85929c;
+  font-size: 0.52rem;
+  line-height: 1.4;
+}
+.identity-auto {
+  min-height: 48px !important;
+  display: grid !important;
+  grid-template-columns: 17px minmax(0, 1fr);
+  align-items: center !important;
+  gap: 9px !important;
+  width: 100%;
+  padding: 7px 10px !important;
+  border: 1px solid transparent !important;
+  border-radius: 6px !important;
+  background: #20272d !important;
+  color: #b9c5cc !important;
+  text-align: left;
+}
+.identity-auto > span {
+  min-width: 0;
   display: grid;
   gap: 2px;
 }
+.identity-auto b {
+  color: #dce5ea;
+  font-size: 0.62rem;
+  line-height: 1.25;
+}
+.identity-auto small {
+  color: #8e9ba4;
+  font-size: 0.52rem;
+  line-height: 1.35;
+}
+.identity-progress {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 1px 2px;
+  color: #b8c3ca;
+  font-size: 0.59rem;
+}
+.identity-progress b {
+  color: #f0f5f7;
+  font-size: 0.72rem;
+  font-variant-numeric: tabular-nums;
+}
+.identity-progress small {
+  color: #7f8b94;
+  font-size: 0.52rem;
+  text-align: right;
+}
+.identity-jersey {
+  min-height: 46px !important;
+  display: grid !important;
+  grid-template-columns: 18px minmax(0, 1fr) 16px;
+  align-items: center;
+  gap: 9px;
+  padding: 7px 10px !important;
+  border: 1px solid #386c52 !important;
+  border-radius: 8px !important;
+  background: #183026 !important;
+  color: #b9e8cf !important;
+  text-align: left;
+}
+.identity-jersey:hover:not(:disabled) {
+  border-color: #559d77 !important;
+  background: #1d3b2e !important;
+}
+.identity-jersey > span {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+.identity-jersey b {
+  font-size: 0.66rem;
+}
+.identity-jersey small {
+  overflow: hidden;
+  color: #8fbda4;
+  font-size: 0.52rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.identity-jersey:disabled {
+  opacity: 0.45;
+}
+.identity-auto:hover:not(:disabled) {
+  border-color: #3b4852 !important;
+  background: #283139 !important;
+  color: #ecf2f5 !important;
+}
+.identity-auto:focus-visible {
+  outline: 2px solid #9fc7eb;
+  outline-offset: 1px;
+}
+.identity-auto:disabled {
+  opacity: 0.48;
+}
+.mapping-hint {
+  margin: 0;
+  padding: 0 2px;
+  color: #9aa6b1;
+  font-size: 0.6rem;
+  line-height: 1.55;
+}
+.identity-panel section {
+  display: grid;
+  gap: 0;
+}
 .identity-panel section header {
-  height: 31px;
+  height: 32px;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  border-bottom: 1px solid #2c3238;
-  color: #d9dfe5;
-  font-size: 0.7rem;
+  border-bottom: 1px solid #303941;
+  color: #dce3e8;
+  font-size: 0.69rem;
   font-weight: 700;
 }
 .identity-panel section header b {
-  min-width: 20px;
+  min-width: 21px;
   padding: 2px 5px;
   border-radius: 999px;
-  background: #293039;
-  color: #aeb8c2;
-  font-size: 0.61rem;
+  background: #2a333b;
+  color: #b8c3cb;
+  font-size: 0.57rem;
+  font-variant-numeric: tabular-nums;
   text-align: center;
 }
 .identity-panel section > p,
@@ -446,20 +698,81 @@ function requestGroupAssignment(trackId: number, trackIds: number[], rosterEntry
   align-items: center;
   justify-content: center;
   gap: 7px;
-  color: #7f8994;
-  font-size: 0.68rem;
+  color: #7f8b96;
+  font-size: 0.66rem;
 }
-.identity-panel label {
-  min-height: 42px;
+.identity-row {
+  min-height: 68px;
   display: grid;
-  grid-template-columns: 78px minmax(0, 1fr);
+  grid-template-columns: 82px minmax(0, 1fr);
   align-items: center;
-  gap: 8px;
-  border-bottom: 1px solid #23292f;
+  gap: 10px;
+  padding: 7px 4px;
+  border-bottom: 1px solid #252d34;
+  cursor: pointer;
+  transition: background-color 140ms ease-out;
 }
-.identity-panel code {
-  color: #aab3bd;
-  font-size: 0.64rem;
+.identity-row:hover {
+  background: #171e23;
+}
+.identity-row__meta {
+  min-width: 0;
+  display: grid;
+  align-content: center;
+  gap: 5px;
+}
+.identity-row__idline {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+}
+.identity-row__idline code {
+  color: #edf2f5;
+  font-size: 0.7rem;
+  font-weight: 700;
+}
+.identity-presence {
+  color: #6f7b85;
+  font-size: 0.51rem;
+  white-space: nowrap;
+}
+.identity-presence.active {
+  color: #7bd5a0;
+}
+.identity-group-code {
+  overflow: hidden;
+  color: #85929c;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 0.53rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.identity-control {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  padding: 4px 0;
+}
+.identity-state {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: #a5b0b8;
+  font-size: 0.56rem;
+}
+.identity-state[data-tone='manual'],
+.identity-state[data-tone='propagated'] {
+  color: #91d9b1;
+}
+.identity-state[data-tone='required'] {
+  color: #e9c17f;
+}
+.identity-state small {
+  margin-left: auto;
+  color: inherit;
+  font-size: 0.52rem;
+  font-variant-numeric: tabular-nums;
 }
 .identity-select {
   position: relative;
@@ -467,131 +780,35 @@ function requestGroupAssignment(trackId: number, trackIds: number[], rosterEntry
   min-width: 0;
   align-items: center;
 }
+.identity-select :deep(.player-combobox__anchor) {
+  height: 36px;
+  border-color: #39444d;
+  border-radius: 7px;
+  background: #191f24;
+}
+.identity-select :deep(.player-combobox__anchor:hover) {
+  border-color: #56636d;
+  background: #20272d;
+}
+.identity-select :deep(.player-combobox__anchor:focus-within) {
+  border-color: #9fc7eb;
+  box-shadow: 0 0 0 2px #9fc7eb2b;
+}
 .identity-select > .spin {
   position: absolute;
   right: 9px;
   z-index: 2;
-  color: #52c88a;
+  color: #82d5a7;
   pointer-events: none;
-}
-.identity-complete {
-  min-height: 36px !important;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 7px;
-  border-color: #397253 !important;
-  background: #183527 !important;
-  color: #a9ebc8 !important;
-  font-size: 0.7rem;
-}
-.identity-complete.completed {
-  border-color: #59636d !important;
-  background: #20252b !important;
-  color: #d5dbe1 !important;
-}
-.identity-error {
-  margin: 0;
-  padding: 8px;
-  border: 1px solid #7f3e43;
-  border-radius: 6px;
-  background: #321a1d;
-  color: #ffb4b9;
-  font-size: 0.67rem;
-}
-.spin {
-  animation: spin 0.8s linear infinite;
-}
-@keyframes spin {
-  to {
-    transform: rotate(360deg);
-  }
-}
-@media (prefers-reduced-motion: reduce) {
-  .spin {
-    animation: none;
-  }
-}
-</style>
-<style scoped>
-.identity-panel label {
-  min-height: 46px;
-  grid-template-columns: 86px minmax(0, 1fr);
-  padding: 0 4px;
-}
-.identity-panel label.focused {
-  background: #202a32;
-  box-shadow: inset 2px 0 #9fc7eb;
-}
-.identity-panel code {
-  display: grid;
-  gap: 2px;
-}
-.identity-panel code i {
-  color: #68737e;
-  font-size: 0.5rem;
-  font-style: normal;
-}
-.identity-panel code i.active {
-  color: #72d8a0;
-}
-.replacement-preference {
-  min-height: 38px !important;
-  display: flex !important;
-  grid-template-columns: none !important;
-  align-items: center !important;
-  justify-content: space-between !important;
-  gap: 12px !important;
-  padding: 5px 2px !important;
-  color: #a1a1aa;
-  font-size: 0.59rem;
-}
-.identity-panel label {
-  min-height: 58px;
-  grid-template-columns: 70px minmax(0, 1fr);
-}
-.identity-panel code > span {
-  color: #e4e9ed;
-  font-size: 0.7rem;
-}
-.identity-panel code small {
-  overflow: hidden;
-  color: #76828d;
-  font-size: 0.5rem;
-  font-weight: 500;
-  text-overflow: ellipsis;
-}
-.identity-control {
-  display: grid;
-  gap: 4px;
-  min-width: 0;
-  padding: 5px 0;
-}
-.identity-state {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  color: #99a4ae;
-  font-size: 0.56rem;
-}
-.identity-state[data-tone='manual'],
-.identity-state[data-tone='propagated'] {
-  color: #8cddb1;
-}
-.identity-state[data-tone='required'] {
-  color: #f4c881;
-}
-.identity-state small {
-  margin-left: auto;
-  color: inherit;
-  font-size: 0.52rem;
 }
 .identity-choice {
   display: grid;
   gap: 6px;
-  padding: 10px 8px 12px;
-  border-bottom: 1px solid #38414a;
-  background: #171c20;
+  margin: 0 4px 8px 92px;
+  padding: 10px 9px 11px;
+  border: 1px solid #35414a;
+  border-radius: 8px;
+  background: #1a2126;
 }
 .identity-choice strong {
   color: #f2f5f7;
@@ -603,6 +820,14 @@ function requestGroupAssignment(trackId: number, trackIds: number[], rosterEntry
   margin: 0 0 2px !important;
   color: #aeb7bf !important;
   font-size: 0.58rem !important;
+  line-height: 1.45;
+}
+.identity-choice > p.swap-warning {
+  padding: 6px 7px;
+  border: 1px solid #6b572d;
+  border-radius: 6px;
+  background: #2c2518;
+  color: #f4cf82 !important;
 }
 .identity-choice button {
   min-height: 42px !important;
@@ -645,71 +870,8 @@ function requestGroupAssignment(trackId: number, trackIds: number[], rosterEntry
   gap: 6px !important;
   margin: 0 !important;
   padding: 6px 8px !important;
-  color: #f4c881 !important;
+  color: #e9c17f !important;
   font-size: 0.58rem !important;
-}
-.identity-toolbar {
-  display: grid;
-  gap: 7px;
-}
-.identity-view-switch {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  padding: 3px;
-  border: 1px solid #303840;
-  border-radius: 9px;
-  background: #151a1f;
-}
-.identity-view-switch button {
-  min-height: 32px !important;
-  display: flex !important;
-  align-items: center !important;
-  justify-content: center !important;
-  gap: 6px !important;
-  padding: 4px 8px !important;
-  border: 0 !important;
-  border-radius: 6px !important;
-  background: transparent !important;
-  color: #8f9aa4 !important;
-  font-size: 0.61rem !important;
-}
-.identity-view-switch button.active {
-  background: #28323a !important;
-  color: #eef3f6 !important;
-  box-shadow: 0 2px 8px #0005;
-}
-.identity-view-switch button:focus-visible {
-  outline: 2px solid #9fc7eb;
-  outline-offset: 1px;
-}
-.identity-view-switch b {
-  min-width: 18px;
-  color: inherit;
-  font-size: 0.53rem;
-}
-.identity-auto {
-  min-height: 34px !important;
-  display: flex !important;
-  align-items: center !important;
-  justify-content: center !important;
-  gap: 6px !important;
-  border-color: #3d6553 !important;
-  background: #1b2c25 !important;
-  color: #aee6c8 !important;
-  font-size: 0.61rem !important;
-}
-.identity-job-actions {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 5px;
-}
-.identity-job-actions .identity-auto {
-  min-width: 0;
-  padding-inline: 5px !important;
-  white-space: nowrap;
-}
-.identity-auto:disabled {
-  opacity: 0.48;
 }
 .identity-auto-result {
   margin: 0;
@@ -721,12 +883,49 @@ function requestGroupAssignment(trackId: number, trackIds: number[], rosterEntry
   font-size: 0.58rem;
   line-height: 1.45;
 }
-.gid-section header b {
-  min-width: 32px;
+.identity-error {
+  margin: 0;
+  padding: 8px;
+  border: 1px solid #7f3e43;
+  border-radius: 6px;
+  background: #321a1d;
+  color: #ffb4b9;
+  font-size: 0.67rem;
 }
-.identity-panel label.gid-row {
-  align-items: start;
-  padding-block: 5px;
+.gid-section header b {
+  min-width: 24px;
+}
+.gid-row {
+  display: grid;
+  gap: 9px;
+  padding: 12px 4px;
+  border-bottom: 1px solid #252d34;
+}
+.gid-identity {
+  min-width: 0;
+  display: grid;
+  gap: 5px;
+}
+.gid-heading {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+}
+.gid-heading strong {
+  color: #e8eef2;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 0.68rem;
+}
+.gid-heading span {
+  color: #7f8c96;
+  font-size: 0.53rem;
+}
+.gid-player {
+  color: #b7c5cd;
+  font-size: 0.61rem;
+}
+.gid-player.unassigned {
+  color: #d6b472;
 }
 .gid-tids {
   display: flex !important;
@@ -744,5 +943,21 @@ function requestGroupAssignment(trackId: number, trackIds: number[], rosterEntry
 }
 .gid-row .identity-control {
   width: 100%;
+  padding: 0;
+}
+.spin {
+  animation: spin 0.8s linear infinite;
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .identity-row,
+  .spin {
+    animation: none;
+    transition: none;
+  }
 }
 </style>

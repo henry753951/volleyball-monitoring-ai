@@ -7,6 +7,7 @@ import { UserRole } from '@volleyball-monitoring/db/client'
 import { Pool } from 'pg'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import {
+  deleteRallyAnalysisWithMedia,
   deleteRallyWithMedia,
   updateRallyDisplayPlacement,
 } from '../src/services/rally-administration.js'
@@ -57,6 +58,18 @@ const ids = {
   lateRally: id('25'),
   earlyBoundary: id('26'),
   lateBoundary: id('27'),
+  resetRally: id('40'),
+  resetStartBoundary: id('41'),
+  resetEndBoundary: id('42'),
+  resetKeyPoint: id('43'),
+  resetSubmission: id('44'),
+  resetSubmissionStart: id('45'),
+  resetSubmissionEnd: id('46'),
+  resetSubmissionKeyPoint: id('47'),
+  resetClip: id('48'),
+  resetAiJob: id('49'),
+  resetAnalysis: id('50'),
+  resetProviderJob: id('51'),
 }
 
 beforeAll(async () => {
@@ -388,6 +401,223 @@ describe('rally administration', () => {
     )
     expect(receipt).toMatchObject({ abortedJobCount: 0, removedAssetCount: 0 })
     expect(await db.rally.findUnique({ where: { id: ids.draftRally } })).toBeNull()
+  })
+
+  it('physically deletes submitted analysis and recreates the rally as a READY marked draft', async () => {
+    await db.deviceSession.upsert({
+      where: { id: id('23') },
+      create: { id: id('23'), userId: ids.actor },
+      update: {},
+    })
+    await db.rally.create({
+      data: {
+        id: ids.resetRally,
+        annotationRevision: 3n,
+        annotationStatus: 'SUBMITTED',
+        displayOrdinal: 2,
+        displaySetNumber: 1,
+        dvrProgramId: ids.program,
+        matchId: ids.match,
+        ordinal: 2,
+        processingStatus: 'COMPLETED',
+        scoreResolutionState: 'UNKNOWN',
+        setId: ids.set,
+        sideAssignmentId: ids.assignment,
+        boundaries: {
+          create: [
+            {
+              id: ids.resetStartBoundary,
+              kind: 'START',
+              captureEpochId: ids.captureEpoch,
+              sourcePts: 180_000n,
+              captureTimeUs: 3_000_000n,
+              captureFrameIndex: 180n,
+              timingPrecision: 'FRAME_EXACT',
+              originalPlaybackCursor: {},
+              createdByUserId: ids.actor,
+              updatedByUserId: ids.actor,
+              deviceSessionId: id('23'),
+            },
+            {
+              id: ids.resetEndBoundary,
+              kind: 'END',
+              captureEpochId: ids.captureEpoch,
+              sourcePts: 240_000n,
+              captureTimeUs: 4_000_000n,
+              captureFrameIndex: 240n,
+              timingPrecision: 'FRAME_EXACT',
+              originalPlaybackCursor: {},
+              createdByUserId: ids.actor,
+              updatedByUserId: ids.actor,
+              deviceSessionId: id('23'),
+            },
+          ],
+        },
+        keyPoints: {
+          create: {
+            id: ids.resetKeyPoint,
+            captureEpochId: ids.captureEpoch,
+            sequenceIndex: 0,
+            markerKind: 'CONTACT',
+            isTerminal: false,
+            sourcePts: 210_000n,
+            captureTimeUs: 3_500_000n,
+            captureFrameIndex: 210n,
+            timingPrecision: 'FRAME_EXACT',
+            originalPlaybackCursor: {},
+            createdByUserId: ids.actor,
+            updatedByUserId: ids.actor,
+            deviceSessionId: id('23'),
+            ballEvent: { create: { kind: 'SPIKE', semanticSource: 'HUMAN', kindLocked: true } },
+          },
+        },
+      },
+    })
+    await db.rallySubmission.create({
+      data: {
+        id: ids.resetSubmission,
+        annotationRevision: 3n,
+        clipPolicyVersion: 'v1',
+        clipPostRollUs: 3_000_000n,
+        clipPreRollUs: 3_000_000n,
+        contentHash: 'd'.repeat(64),
+        leftTeamId: ids.left,
+        rallyId: ids.resetRally,
+        rightTeamId: ids.right,
+        scoreResolutionState: 'UNKNOWN',
+        sideAssignmentId: ids.assignment,
+        submittedByUserId: ids.actor,
+        boundaries: {
+          create: [
+            {
+              id: ids.resetSubmissionStart,
+              kind: 'START',
+              sourceDraftBoundaryId: ids.resetStartBoundary,
+              captureEpochId: ids.captureEpoch,
+              sourcePts: 180_000n,
+              captureTimeUs: 3_000_000n,
+              captureFrameIndex: 180n,
+              timingPrecision: 'FRAME_EXACT',
+            },
+            {
+              id: ids.resetSubmissionEnd,
+              kind: 'END',
+              sourceDraftBoundaryId: ids.resetEndBoundary,
+              captureEpochId: ids.captureEpoch,
+              sourcePts: 240_000n,
+              captureTimeUs: 4_000_000n,
+              captureFrameIndex: 240n,
+              timingPrecision: 'FRAME_EXACT',
+            },
+          ],
+        },
+        keyPoints: {
+          create: {
+            id: ids.resetSubmissionKeyPoint,
+            sourceDraftKeyPointId: ids.resetKeyPoint,
+            captureEpochId: ids.captureEpoch,
+            sequenceIndex: 0,
+            markerKind: 'CONTACT',
+            isTerminal: false,
+            sourcePts: 210_000n,
+            captureTimeUs: 3_500_000n,
+            captureFrameIndex: 210n,
+            timingPrecision: 'FRAME_EXACT',
+          },
+        },
+      },
+    })
+    await db.rally.update({
+      data: { activeSubmissionId: ids.resetSubmission },
+      where: { id: ids.resetRally },
+    })
+    await db.clipJob.create({
+      data: {
+        canonicalizationProfileVersion: 'v1',
+        id: ids.resetClip,
+        idempotencyKey: 'rally-admin-reset-clip',
+        requestedEndCaptureUs: 4_000_000n,
+        requestedStartCaptureUs: 3_000_000n,
+        status: 'COMPLETED',
+        submissionId: ids.resetSubmission,
+      },
+    })
+    await db.aiJob.create({
+      data: {
+        callbackTokenExpiresAt: new Date(Date.now() + 60_000),
+        callbackTokenHash: 'e'.repeat(64),
+        clipJobId: ids.resetClip,
+        id: ids.resetAiJob,
+        idempotencyKey: 'rally-admin-reset-ai',
+        requestPayload: {},
+        requestPayloadHash: 'f'.repeat(64),
+        status: 'COMPLETED',
+        submissionId: ids.resetSubmission,
+      },
+    })
+    await db.analysisRun.create({
+      data: {
+        id: ids.resetAnalysis,
+        aiJobId: ids.resetAiJob,
+        submissionId: ids.resetSubmission,
+        analysisId: 'rally-admin-reset-analysis',
+        analysisVersion: 'v1',
+        analysisDataSchemaVersion: '1.0.0',
+        inputClipSha256: '1'.repeat(64),
+        producerName: 'fixture',
+        producerBuildId: 'fixture',
+        status: 'COMPLETED',
+      },
+    })
+    await db.providerJob.create({
+      data: {
+        id: ids.resetProviderJob,
+        workKind: 'ANALYSIS',
+        status: 'RUNNING',
+        idempotencyKey: 'rally-admin-reset-provider',
+        requestSchemaVersion: '1.0.0',
+        resultSchemaVersion: '1.0.0',
+        requestPayload: {},
+        requestPayloadHash: '2'.repeat(64),
+        callbackTokenHash: '3'.repeat(64),
+        callbackTokenExpiresAt: new Date(Date.now() + 60_000),
+        providerInstanceId: ids.providerInstance,
+        analysisRunId: ids.resetAnalysis,
+        deliveryId: id('52'),
+      },
+    })
+
+    await deleteRallyAnalysisWithMedia({ id: ids.actor, role: UserRole.OPERATOR }, ids.resetRally, {
+      database: db,
+    })
+
+    const resetDraft = await db.rally.findUniqueOrThrow({
+      where: { id: ids.resetRally },
+      include: {
+        boundaries: { orderBy: { captureTimeUs: 'asc' } },
+        keyPoints: { include: { ballEvent: true } },
+        submissions: true,
+      },
+    })
+    expect(resetDraft).toMatchObject({
+      activeSubmissionId: null,
+      annotationStatus: 'READY',
+      processingStatus: 'IDLE',
+      boundaries: [{ kind: 'START' }, { kind: 'END' }],
+      keyPoints: [{ markerKind: 'CONTACT', ballEvent: { kind: 'SPIKE' } }],
+      submissions: [],
+    })
+    expect(await db.analysisRun.findUnique({ where: { id: ids.resetAnalysis } })).toBeNull()
+    expect(
+      await db.providerJob.findUniqueOrThrow({ where: { id: ids.resetProviderJob } }),
+    ).toMatchObject({
+      analysisRunId: null,
+      status: 'CANCELLED',
+      errorCode: 'ANALYSIS_DELETED',
+      cancelRequestedAt: expect.any(Date),
+    })
+    expect(await db.aiJob.findUnique({ where: { id: ids.resetAiJob } })).toBeNull()
+    expect(await db.clipJob.findUnique({ where: { id: ids.resetClip } })).toBeNull()
   })
 
   it('aborts active work, purges dependencies, and removes unreferenced media', async () => {

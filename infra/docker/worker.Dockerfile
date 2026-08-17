@@ -18,7 +18,7 @@ RUN bun --cwd worker build
 FROM oven/bun:1.3.14-alpine
 ARG YT_DLP_VERSION=2026.7.4
 COPY --from=uv /uv /uvx /bin/
-RUN apk add --no-cache ca-certificates deno ffmpeg python3 \
+RUN apk add --no-cache ca-certificates deno ffmpeg font-noto-cjk python3 \
   && uv tool install "yt-dlp[default]==${YT_DLP_VERSION}"
 WORKDIR /app
 ENV NODE_ENV=production

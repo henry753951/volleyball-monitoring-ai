@@ -8,9 +8,9 @@ This is the single planning document for the two connected workstreams requested
 owner:
 
 1. reliable, client-owned annotation, playback, frame navigation, and marking User Flows; and
-2. a complete ReID redesign with separate durable jobs, reusable person-pose evidence, VLM/jersey
-   evidence, versioned human corrections, rerunnable association, dynamic identity previews, and
-   pose-first hitter association.
+2. a complete ReID redesign with separate durable jobs, reusable person-pose evidence, active
+   unbound GIDs, versioned human corrections, rerunnable association, operator-triggered Central
+   jersey suggestions, dynamic identity previews, and pose-first hitter association.
 
 It consolidates the prior workstation audit, current implementation findings, reported production
 failures, the external `volleyball-analysis-engine` branch audit, and the completed hard-cut migration.
@@ -23,6 +23,12 @@ records the destructive cutover and supersedes ADR 0035 for every active ReID re
 export, and worker path. Sections explicitly labeled historical describe why the cutover was required;
 they are not compatibility requirements.
 
+[`ADR 0044`](./adr/0044-active-unbound-gids-revisioned-corrections-and-central-jersey-assistance.md)
+supersedes every ReID/VLM paragraph in this long-form audit that still mentions forced unresolved or
+review activation, a hard six-player capacity, Provider-owned jersey VLM, or a mapping-complete gate.
+The concise current operational guide is
+[`REID_EVIDENCE_AND_HUMAN_CORRECTION_GUIDE.md`](./REID_EVIDENCE_AND_HUMAN_CORRECTION_GUIDE.md).
+
 Product and contract authorities still take precedence:
 
 - [`SYSTEM_SPEC_V3_2.md`](./SYSTEM_SPEC_V3_2.md)
@@ -34,6 +40,9 @@ Product and contract authorities still take precedence:
   ownership rules introduced before it
 - [`ADR 0040`](./adr/0040-page-scoped-annotation-workstation-services.md), which defines the
   page-scoped workstation facade, domain services, action manager, and strict UI injection boundary
+- [`ANNOTATION_INTERACTION_LOCK_MATRIX.md`](./ANNOTATION_INTERACTION_LOCK_MATRIX.md), which defines
+  the normative relationship between draft state, client ownership, selection, pending commands,
+  button availability, and server-side rejection rules
 
 ## Annotation workstation service architecture
 
@@ -138,12 +147,13 @@ the coupled fixed-slot ReID path with a reproducible identity-evidence system in
 - base analysis remains usable even when ReID fails;
 - person pose is inferred for every canonical frame/player observation in base analysis and persisted
   as reusable evidence, so contact-time edits and ReID attempts do not rerun pose;
-- appearance descriptors and VLM jersey readings can be regenerated independently;
+- appearance descriptors can be regenerated independently, while jersey readings are an optional
+  Central operator workflow that never enters Provider ReID evidence;
 - association can be rerun without detector, tracker, court, ball, action, or pose inference;
 - human corrections preserve earlier clips, remove known-wrong evidence from future matching, and
   become positive/negative evidence for later clips;
-- every automated decision can abstain, be reviewed, and be reproduced from an immutable input
-  snapshot; and
+- every eligible Local receives a reproducible match/new-GID decision from an immutable input
+  snapshot; weak evidence creates an active unbound GID instead of blocking in review; and
 - hitter association prefers reliable wrist/forearm-to-ball geometry and degrades to the existing
   action-aware bbox path when pose evidence is missing or ambiguous.
 
@@ -213,11 +223,11 @@ must not change these behaviors without an explicit ADR and product-owner approv
 | Rule ID    | Requirement                                                                                                                                                                                                                       |
 | ---------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `REID-001` | AnalysisRun-local track IDs remain local and are never a cross-clip identity key.                                                                                                                                                 |
-| `REID-002` | Raw tracks, crops, pose, descriptors, VLM responses, and AnalysisData are immutable evidence. Corrections change membership/projection, never raw evidence.                                                                       |
+| `REID-002` | Raw tracks, crops, pose, descriptors, and AnalysisData are immutable ReID evidence. Central jersey responses are separate suggestion evidence. Corrections change membership/projection, never raw evidence.                      |
 | `REID-003` | Person identity is match/team scoped and not capped at six. At-most-six simultaneous court constraints are separate from person identity.                                                                                         |
 | `REID-004` | Association consumes an explicit immutable evidence-set version and an explicit eligible-bank snapshot revision; it never reads a moving implicit history.                                                                        |
 | `REID-005` | `UNVERIFIED`, `CONFIRMED`, `REJECTED`, and `QUARANTINED` evidence states are first-class. Unverified automatic errors cannot silently become trusted training history.                                                            |
-| `REID-006` | Automated identity may return `UNRESOLVED` or `NEEDS_REVIEW`; abstention is preferable to a low-quality forced assignment.                                                                                                        |
+| `REID-006` | Every eligible Local receives an active GID. Weak or conflicting appearance creates a new unbound GID; this is usable state, not a review/error gate and never forces a roster player.                                            |
 | `REID-007` | Manual effective assignments always override automatic projections, including after rerun.                                                                                                                                        |
 | `REID-008` | A correction has separate display scope and future-evidence scope. Fixing the visible player must not accidentally retain a known-wrong feature in that player's future bank.                                                     |
 | `REID-009` | A correction never rewrites an earlier approved clip by default. It creates a new bank snapshot and affects only explicitly selected current/future recompute scopes.                                                             |
@@ -272,7 +282,7 @@ must not change these behaviors without an explicit ADR and product-owner approv
 | Submission            | Immutable snapshot created by Enter                                                 | A mutable draft row                                         |
 | AnalysisRun           | One imported, immutable AI result plus sparse review layers                         | A cross-run identity namespace                              |
 | Local ID / TID        | `track_id` local to one AnalysisRun                                                 | A player ID or cross-clip join key                          |
-| GID in the current UI | One fixed team slot S1-S6, displayed as L/R according to the clip side              | A permanent player or jersey number                         |
+| GID in the current UI | A match/team-scoped visual person cluster that may remain unbound                   | A fixed six-player slot, permanent roster player, or jersey |
 | Roster entry          | One selectable player in this match roster                                          | Appearance evidence by itself                               |
 | Feature observation   | Persisted descriptors and tracklet metadata for one run-local track                 | A human-confirmed identity                                  |
 | Player binding        | A slot-to-roster mapping effective from a set/rally position                        | Proof that all observations in the slot are the same person |
@@ -460,8 +470,9 @@ The identity panel is available for a completed AnalysisRun and has two views:
 
 - **Local assignment**: one player choice per run-local TID. This is the final effective mapping used
   by replay and analytics.
-- **Person-group assignment**: groups TIDs by the current versioned person-cluster proposal and
-  batch-writes effective assignments. Fixed L1–R6 relations no longer exist after the hard cut.
+- **Person-group assignment**: groups TIDs by the current versioned GID proposal and batch-writes
+  effective assignments. The six-player lineup is a soft co-visible capacity, not a permanent L1–R6
+  identity table.
 
 Current operator flow:
 
@@ -472,24 +483,23 @@ Current operator flow:
    is already assigned to an overlapping track.
 4. Choose one correction scope when a different player is selected:
 
-| UI option                            | Current implementation effect                                                                                   | Historical effect                             |
-| ------------------------------------ | --------------------------------------------------------------------------------------------------------------- | --------------------------------------------- |
-| `from_here` / 依人員群組從這段起改正 | Append current/future manual projections, reject the wrong source membership, and confirm the target membership | Earlier clips and raw evidence are unchanged  |
-| `split_identity` / 這其實是不同的人  | Correct only this clip's semantic track group and append source-negative/target-positive membership             | Earlier clips are unchanged                   |
-| `clip_only` / 只修正這個 Local ID    | Change only this effective clip projection and do not train the future bank                                     | Other clips and bank membership are unchanged |
-| Clear player relation                | Append a new effective projection instead of deleting raw evidence                                              | Earlier revisions remain auditable            |
+| UI option                            | Current implementation effect                                                                          | Historical effect                             |
+| ------------------------------------ | ------------------------------------------------------------------------------------------------------ | --------------------------------------------- |
+| `from_here` / GID 與球員配對錯了     | Keep the GID and rebind its player from here; if occupied, atomically swap both GID bindings           | Earlier clips and raw evidence are unchanged  |
+| `split_identity` / Local 的 GID 判錯 | Move only this Local evidence to the selected player's GID/new GID, subject to exact-frame cannot-link | Earlier clips are unchanged                   |
+| `clip_only` / 只改 Local 顯示        | Change only this effective Local projection; do not change GID or future bank                          | Other clips and bank membership are unchanged |
+| Clear player relation                | Append a new effective projection instead of deleting raw evidence                                     | Earlier revisions remain auditable            |
 
-5. “套用既有關聯” projects already-known active bindings onto unresolved Local IDs. It preserves manual
-   assignments and reports assigned/unresolved counts.
-6. “完成球員指派” validates team consistency and requires each ReID-observed track to have a Local
-   assignment. It records completion on this AnalysisRun and can be reopened.
+5. Every saved assignment becomes useful immediately. The panel reports `已指派 X/Y` only as
+   progress; unassigned Local IDs retain active unbound GIDs and do not block any workflow.
+6. There is no “完成球員指派” action or mapping-complete gate.
 
 ## Current player preview behavior
 
 `PlayerIdentityPreview` now prefers a centrally generated animated track crop:
 
 1. `IDENTITY_PREVIEW_GENERATION` receives the exact canonical track ID, saved crop manifest, saved
-   every-frame pose manifest/chunks, and selected feature/VLM frames.
+   every-frame pose manifest/chunks, and bounded feature-selected frames.
 2. The engine decodes the canonical clip sequentially, crops the exact saved bbox, letterboxes it,
    and emits a content-addressed animated WebP without loading a pose model.
 3. The authenticated server route checks match membership and streams the READY asset.
@@ -509,20 +519,21 @@ Remaining limitations:
    replay, and dataset artifacts do not wait for ReID.
 2. The segment shows independent identity stages:
 
-| Stage               | States                                                                  | User meaning                                                     |
-| ------------------- | ----------------------------------------------------------------------- | ---------------------------------------------------------------- |
-| Base analysis       | `QUEUED/RUNNING/COMPLETED/FAILED`                                       | Detector/tracker/court/ball/action/pose and normal AnalysisData. |
-| ReID evidence       | `NOT_REQUESTED/QUEUED/RUNNING/READY/PARTIAL/FAILED`                     | Descriptors, jersey/VLM evidence, crop/preview sources.          |
-| ReID association    | `NOT_REQUESTED/QUEUED/RUNNING/NEEDS_REVIEW/COMPLETED/FAILED/SUPERSEDED` | Person grouping/candidates for one immutable bank snapshot.      |
-| Identity projection | `UNMAPPED/PARTIAL/COMPLETE/REVIEW_REQUIRED`                             | Effective Local/TID roster assignments used by replay/analytics. |
-| Preview             | `PENDING/READY/FAILED/UNAVAILABLE`                                      | Optional decision aid; never an assignment gate.                 |
+| Stage               | States                                                     | User meaning                                                     |
+| ------------------- | ---------------------------------------------------------- | ---------------------------------------------------------------- |
+| Base analysis       | `QUEUED/RUNNING/COMPLETED/FAILED`                          | Detector/tracker/court/ball/action/pose and normal AnalysisData. |
+| ReID evidence       | `NOT_REQUESTED/QUEUED/RUNNING/READY/PARTIAL/FAILED`        | Descriptors and crop/preview sources.                            |
+| ReID association    | `NOT_REQUESTED/QUEUED/RUNNING/COMPLETED/FAILED/SUPERSEDED` | Existing-GID or active-new-GID decisions for one bank snapshot.  |
+| Identity projection | active GID plus optional roster binding                    | Partial Local/TID roster assignments used by replay/analytics.   |
+| Preview             | `PENDING/READY/FAILED/UNAVAILABLE`                         | Optional decision aid; never an assignment gate.                 |
 
 3. When evidence is READY/PARTIAL, association is enqueued with an explicit bank and roster snapshot.
 4. The UI displays Local/TID, proposed person group, roster candidate, confidence/calibration, method,
    unresolved reason, current crop animation, and confirmed historical references.
-5. The implemented UI supports roster assignment, from-here correction, split-identity correction,
-   clip-only correction, clear/reopen, and three accurately named job actions. Bulk merge,
-   quarantine, and atomic swap remain follow-up UI work and are not claimed as complete.
+5. The implemented UI supports roster assignment, GID binding correction with occupied-GID atomic
+   swap, Local-only GID split with same-frame cannot-link validation, clip-only display correction,
+   clear/reopen, and three accurately named job actions. Bulk merge and quarantine remain follow-up
+   UI work and are not claimed as complete.
 6. The correction dialog explicitly shows:
    - which current/future effective assignments will change; and
    - whether this evidence is confirmed, moved, rejected, quarantined, or kept unverified for future
@@ -531,8 +542,8 @@ Remaining limitations:
    worker.
 8. The server creates a new bank snapshot and durable future rematch work. If the worker is offline,
    the UI says the correction is saved and rematch is pending.
-9. When a rematch completes, it may fill unresolved non-manual tracks. A changed/conflicting automatic
-   assignment becomes a review task; it cannot overwrite a manual assignment.
+9. When a rematch completes, it may reconnect non-manual tracks or create new active unbound GIDs.
+   It cannot overwrite a manual assignment.
 10. “重新配對” reuses the selected evidence set and pose. “重新取特徵” creates a new evidence set from
     the same base pose/crops. “使用新的 Pose 模型重建證據” is a separate explicit expensive action.
 
@@ -564,14 +575,14 @@ cannot roll it back or hide it.
   person pose for every usable tracked-player observation. It does not emit or consume an embedded
   cross-clip identity payload.
 - Feature extraction receives the immutable base-analysis artifact plus its persisted pose artifact.
-  It may regenerate appearance/VLM evidence without detector, tracker, court, ball, action, or pose
-  inference.
+  It regenerates appearance evidence without detector, tracker, court, ball, action, pose inference,
+  or VLM.
 - Association receives a current evidence-set artifact and an immutable eligible-bank snapshot. It can
   be retried or rerun without changing either input.
 - Preview generation receives one tracklet/evidence reference and writes an animated crop artifact;
   it never establishes identity by itself.
-- `VLM_ENABLED=false` (or CLI `--no-vlm`) omits the VLM capability and keeps the model unloaded. The
-  five-rally local reprocessing verification used this mode.
+- Jersey recognition is not advertised by the external worker. Central starts it only after an
+  operator request and uses `JERSEY_VISION_*` OpenAI-compatible API configuration.
 
 ### Storage and later-clip reuse
 
@@ -1266,11 +1277,11 @@ The following is current code and locally verified behavior, not a future propos
 | Base evidence                | `ANALYSIS` emits analysis data, an evidence manifest, every-frame person-pose manifest/chunks, and a crop-source manifest                                                                                                                                                                                                                                                                                              | Contract fixtures, materializer tests, engine tests, strict model doctor; the verified rally accounted for all 328 canonical frames and all 3,657 player observations as 3,541 valid poses plus 116 explicit missing observations in three bounded chunks                                                     |
 | Feature rebuild              | `REID_FEATURE_EXTRACTION` consumes the saved pose/crop manifests and canonical clip and produces a new immutable feature result and descriptor bundle                                                                                                                                                                                                                                                                  | Local request `2fba0bb5-17a7-4da8-98ea-e70cf1feda95` completed on the multitask-v2 worker; its input ledger contained saved pose artifacts and its output ledger contained only ReID feature artifacts                                                                                                        |
 | Association rerun            | `REID_ASSOCIATION` consumes one feature result, descriptor bundle, exact bank snapshot, and roster snapshot; it does not rerun base analysis                                                                                                                                                                                                                                                                           | Local provider jobs completed independently after feature materialization                                                                                                                                                                                                                                     |
-| Identity preview             | `IDENTITY_PREVIEW_GENERATION` consumes canonical media plus saved pose/crop evidence and produces an animated preview/result per tracklet                                                                                                                                                                                                                                                                              | Local provider jobs completed independently; the selector now exposes only earlier identity-mapping-complete clips as confirmed history                                                                                                                                                                       |
+| Identity preview             | `IDENTITY_PREVIEW_GENERATION` consumes canonical media plus saved pose/crop evidence and produces an animated preview/result per tracklet                                                                                                                                                                                                                                                                              | Local provider jobs completed independently; human-confirmed revisions are preferred as historical references                                                                                                                                                                                                 |
 | Human correction             | The three UI scopes (`from_here`, `split_identity`, and `clip_only`) create correction and assignment revisions; learning modes reject bad source evidence and confirm corrected target evidence                                                                                                                                                                                                                       | Service/unit tests and GraphQL/domain integration tests                                                                                                                                                                                                                                                       |
 | Correction submission reuse  | With unchanged segment boundaries and contact count/order, a correction creates a new immutable submission and reuses the completed canonical clip plus `analysisSourceRunId`. Type, result, actor, and key-point timestamp edits create no new base AI job. Timestamp edits are remapped through the checksum-bound per-frame timing manifest, then only contact association is rebuilt from saved pose/bbox evidence | Two consecutive real-browser corrections retained all five points and completed without reload. The second moved only the spike to frame 109028; the base AI-job count stayed at one, the source analysis stayed unchanged, the reused clip mapping completed, and five pose-first association jobs completed |
 | Search index                 | pgvector stores dimensioned DINO/OSNet search copies behind namespace/modality filters and partial HNSW indexes                                                                                                                                                                                                                                                                                                        | Migration and repository validation; quality/recall calibration remains pending                                                                                                                                                                                                                               |
-| VLM                          | Capability-gated by `VOLLYAI_REID_VLM_ENABLED` and CLI enable/disable flags; disabled means no model load, artifact kind, or recipe namespace                                                                                                                                                                                                                                                                          | Local worker registered without VLM while all four non-VLM work kinds remained available                                                                                                                                                                                                                      |
+| Jersey suggestion            | Central durable job samples saved every-frame Pose/crops, builds one montage per Local, calls an OpenAI-compatible API, and returns a human-reviewed diff                                                                                                                                                                                                                                                              | It is absent from external ReID capability/contracts and never auto-writes identity                                                                                                                                                                                                                           |
 
 The local database may be reset, so request/job IDs above are verification receipts rather than durable
 product identifiers. Re-run the same checks through the public GraphQL/provider-work path after a reset;
@@ -1294,7 +1305,7 @@ runtime still uses the pre-cutover design. Current status is:
 | 0     | ADR 0037/0039 and schema ownership are accepted                                                                                                  | Frozen representative accuracy baseline and normalized old/new evaluation          |
 | 1     | Generic capability-gated Provider Work, leases, retries, callbacks, and independent job kinds are implemented                                    | Production soak, failure injection, and capacity isolation evidence                |
 | 2     | Multitask-v2 analysis emits every-frame pose evidence and pose-first association; corrected timestamps reuse exact-frame evidence                | GPU throughput/storage measurements on representative long rallies                 |
-| 3     | Independent feature extraction and saved-pose reuse are implemented; VLM is an explicit disabled-by-default capability                           | Controlled VLM-on memory, latency, calibration, and accuracy evaluation            |
+| 3     | Independent feature extraction and saved-pose reuse are implemented; external ReID contains no VLM                                               | Central jersey-API latency, cost, calibration, and failure evaluation              |
 | 4     | Versioned evidence sets, clusters, memberships, bank snapshots, association runs, active projections, and pgvector search copies are implemented | Retrieval recall/calibration and production backup/index-maintenance evidence      |
 | 5     | Append-only from-here, split-identity, and clip-only corrections are implemented and manual projection wins                                      | Bulk merge/quarantine/atomic swap UI and full Player-1/Player-2 acceptance fixture |
 | 6     | Identity panel, distinct job actions, whole-select interaction, and animated current/historical previews are implemented                         | Full candidate-provenance workspace, bulk review, and measured preview ranking     |

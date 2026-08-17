@@ -180,7 +180,7 @@ export async function getCoachMatchState(
                   isTerminal: true,
                   captureTimeUs: true,
                   captureFrameIndex: true,
-                  ballEvent: { select: { kind: true, result: true } },
+                  ballEvent: { select: { kind: true, result: true, serveStyle: true } },
                 },
               },
               boundaries: {
@@ -208,6 +208,7 @@ export async function getCoachMatchState(
                   startedAt: true,
                   completedAt: true,
                   updatedAt: true,
+                  providerJobId: true,
                   providerInstance: { select: { instanceKey: true, providerBuildId: true } },
                 },
               },
@@ -240,6 +241,31 @@ export async function getCoachMatchState(
     },
   })
   if (!match) return null
+  const providerJobIds = match.rallies.flatMap(
+    rally =>
+      rally.activeSubmission?.aiJobs.flatMap(job =>
+        job.providerJobId ? [job.providerJobId] : [],
+      ) ?? [],
+  )
+  const providerJobs =
+    providerJobIds.length === 0
+      ? []
+      : await database.providerJob.findMany({
+          where: { id: { in: providerJobIds } },
+          select: {
+            id: true,
+            status: true,
+            progress: true,
+            stage: true,
+            attemptCount: true,
+            maxAttempts: true,
+            errorCode: true,
+            errorMessage: true,
+            updatedAt: true,
+            providerInstance: { select: { instanceKey: true, providerBuildId: true } },
+          },
+        })
+  const providerJobById = new Map(providerJobs.map(job => [job.id, job]))
   const drafts = await database.rally.findMany({
     where: {
       matchId: match.id,
@@ -271,7 +297,7 @@ export async function getCoachMatchState(
           isTerminal: true,
           captureTimeUs: true,
           captureFrameIndex: true,
-          ballEvent: { select: { kind: true, result: true } },
+          ballEvent: { select: { kind: true, result: true, serveStyle: true } },
         },
       },
       boundaries: {
@@ -462,7 +488,11 @@ export async function getCoachMatchState(
           capture_time_us: point.captureTimeUs.toString(),
           capture_frame_index: point.captureFrameIndex.toString(),
           ball_event: point.ballEvent
-            ? { kind: point.ballEvent.kind, result: point.ballEvent.result }
+            ? {
+                kind: point.ballEvent.kind,
+                result: point.ballEvent.result,
+                serve_style: point.ballEvent.serveStyle,
+              }
             : null,
         })),
         boundaries: draft.boundaries.map(boundary => ({
@@ -511,7 +541,11 @@ export async function getCoachMatchState(
                     capture_time_us: point.captureTimeUs.toString(),
                     capture_frame_index: point.captureFrameIndex.toString(),
                     ball_event: point.ballEvent
-                      ? { kind: point.ballEvent.kind, result: point.ballEvent.result }
+                      ? {
+                          kind: point.ballEvent.kind,
+                          result: point.ballEvent.result,
+                          serve_style: point.ballEvent.serveStyle,
+                        }
                       : null,
                   })),
                   boundaries: rally.activeSubmission.boundaries.map(boundary => ({
@@ -541,10 +575,14 @@ export async function getCoachMatchState(
                   processing: (() => {
                     const clip = rally.activeSubmission.clipJobs[0] ?? null
                     const aiJob = rally.activeSubmission.aiJobs[0] ?? null
+                    const providerJob = aiJob?.providerJobId
+                      ? (providerJobById.get(aiJob.providerJobId) ?? null)
+                      : null
+                    const effectiveJob = providerJob ?? aiJob
                     const processingStatus = rally.processingStatus.toLowerCase()
                     const clipFailed = clip?.status === 'FAILED'
-                    const aiFailed = aiJob?.status === 'FAILED'
-                    const failedJob = aiFailed ? aiJob : clipFailed ? clip : null
+                    const aiFailed = effectiveJob?.status === 'FAILED'
+                    const failedJob = aiFailed ? effectiveJob : clipFailed ? clip : null
                     const failureSource = aiFailed ? 'ai' : clipFailed ? 'clip' : null
                     const stage =
                       processingStatus === 'completed'
@@ -554,9 +592,11 @@ export async function getCoachMatchState(
                           : processingStatus === 'ai_processing'
                             ? (aiJob?.stage ?? 'assigned')
                             : processingStatus === 'ai_queued'
-                              ? aiJob?.providerInstance
-                                ? 'assigned'
-                                : 'waiting_worker'
+                              ? providerJob?.status === 'RUNNING'
+                                ? (providerJob.stage ?? 'assigned')
+                                : effectiveJob?.providerInstance
+                                  ? 'assigned'
+                                  : 'waiting_worker'
                               : processingStatus === 'clip_queued' ||
                                   processingStatus === 'clipping'
                                 ? 'clipping'
@@ -571,9 +611,11 @@ export async function getCoachMatchState(
                           : processingStatus === 'ai_processing'
                             ? (aiJob?.progress ?? 0.12)
                             : processingStatus === 'ai_queued'
-                              ? aiJob?.providerInstance
-                                ? 0.12
-                                : 0.1
+                              ? providerJob?.status === 'RUNNING'
+                                ? (providerJob.progress ?? 0.12)
+                                : effectiveJob?.providerInstance
+                                  ? 0.12
+                                  : 0.1
                               : processingStatus === 'clip_queued' ||
                                   processingStatus === 'clipping'
                                 ? clip?.status === 'RUNNING'
@@ -590,12 +632,12 @@ export async function getCoachMatchState(
                       submission_id: rally.activeSubmission.id,
                       processing_status: processingStatus,
                       ai_job_id: aiJob?.id ?? null,
-                      worker_instance_key: aiJob?.providerInstance?.instanceKey ?? null,
-                      provider_build_id: aiJob?.providerInstance?.providerBuildId ?? null,
+                      worker_instance_key: effectiveJob?.providerInstance?.instanceKey ?? null,
+                      provider_build_id: effectiveJob?.providerInstance?.providerBuildId ?? null,
                       progress,
                       stage,
                       updated_at: (
-                        aiJob?.updatedAt ??
+                        effectiveJob?.updatedAt ??
                         clip?.updatedAt ??
                         rally.activeSubmission.submittedAt
                       ).toISOString(),

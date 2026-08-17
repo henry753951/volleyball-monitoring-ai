@@ -5,9 +5,9 @@ import {
   actionColor,
   actionOutcomeRate,
   formatActionTime,
-  replayEventUrl,
   type CoachPlayerActionEvent,
 } from '~/utils/coachPlayerActions'
+import type { CoachRouteMapSideLabel } from '~/components/CoachBallRouteMap.vue'
 import {
   playerContactShare,
   playerParticipation,
@@ -17,6 +17,7 @@ import {
 import { provideIdentityAssignmentService } from '~/composables/useIdentityAssignmentService'
 
 type ViewMode = 'players' | 'tracks' | 'teams'
+type TeamTone = 'blue' | 'red'
 
 const route = useRoute()
 provideIdentityAssignmentService()
@@ -33,6 +34,30 @@ const selectedPlayerId = ref<string | null>(null)
 const selectedTrackKey = ref<string | null>(null)
 const selectedTeamId = ref<string | null>(null)
 const selectedActionKey = ref('all')
+const selectedActionEvent = shallowRef<CoachPlayerActionEvent | null>(null)
+const detailScrollArea = ref<{ $el?: HTMLElement } | null>(null)
+const detailOverviewSentinel = ref<HTMLElement | null>(null)
+const detailOverviewStuck = ref(false)
+
+watchEffect(onCleanup => {
+  if (!import.meta.client) return
+
+  const scrollAreaRoot = detailScrollArea.value?.$el
+  const sentinel = detailOverviewSentinel.value
+  const viewport = scrollAreaRoot?.querySelector<HTMLElement>('.scroll-area__viewport')
+  if (!viewport || !sentinel) return
+
+  const observer = new IntersectionObserver(
+    ([entry]) => {
+      const stuck = !entry?.isIntersecting
+      if (detailOverviewStuck.value !== stuck) detailOverviewStuck.value = stuck
+    },
+    { root: viewport, threshold: 0.01 },
+  )
+  observer.observe(sentinel)
+  onCleanup(() => observer.disconnect())
+})
+
 const orderedPlayers = computed(() =>
   (analytics.value?.teams ?? []).flatMap(team => playersForTeam(team.id)),
 )
@@ -125,6 +150,74 @@ const selectedLocalTeamId = computed(() => {
       ? replay.rally.right_team.id
       : null
 })
+const selectedSideReplay = computed(() => {
+  for (const track of selectedTracks.value) {
+    const replay = eventState.replays.get(track.rally_id)
+    if (replay) return replay
+  }
+  return null
+})
+const selectedSubjectSide = computed<'left' | 'right' | null>(() => {
+  for (const track of selectedTracks.value) {
+    const directSide = track.court_side
+    if (directSide === 'left' || directSide === 'right') return directSide
+
+    const replay = eventState.replays.get(track.rally_id)
+    const replaySide = replay?.analysis?.tracks.find(
+      item => item.track_id === track.track_id,
+    )?.court_side
+    if (replaySide === 'left' || replaySide === 'right') return replaySide
+  }
+  return null
+})
+const selectedSubjectTeamId = computed(() => {
+  if (viewMode.value === 'players') return selectedPlayerTeam.value?.id ?? null
+  if (viewMode.value === 'teams') return selectedTeam.value?.id ?? null
+
+  const replay = selectedSideReplay.value
+  if (selectedSubjectSide.value === 'left' && replay) return replay.rally.left_team.id
+  if (selectedSubjectSide.value === 'right' && replay) return replay.rally.right_team.id
+  return selectedMappedPlayer.value?.team_id ?? null
+})
+const selectedOverviewTeamId = computed(() =>
+  viewMode.value === 'players'
+    ? selectedPlayerTeam.value?.id
+    : viewMode.value === 'teams'
+      ? selectedTeam.value?.id
+      : selectedSubjectTeamId.value,
+)
+const routeMapSideLabels = computed<{
+  left: CoachRouteMapSideLabel
+  right: CoachRouteMapSideLabel
+}>(() => {
+  const replay = selectedSideReplay.value
+  const subjectSide = selectedSubjectSide.value
+  const subjectScope = viewMode.value === 'teams' ? 'team' : 'player'
+  const subjectTeamId = selectedSubjectTeamId.value
+  const subjectTeam = analytics.value?.teams.find(team => team.id === subjectTeamId) ?? null
+  const opponentTeam = analytics.value?.teams.find(team => team.id !== subjectTeamId) ?? null
+
+  function teamForSide(side: 'left' | 'right') {
+    const replayTeam = side === 'left' ? replay?.rally.left_team : replay?.rally.right_team
+    if (side === subjectSide) return subjectTeam ?? replayTeam
+    if (replayTeam && replayTeam.id !== subjectTeamId) return replayTeam
+    return opponentTeam ?? replayTeam
+  }
+
+  function labelForSide(side: 'left' | 'right'): CoachRouteMapSideLabel {
+    const team = teamForSide(side)
+    return {
+      teamShortName: team?.shortName || team?.name || '—',
+      tone: teamTone(team?.id),
+      scope: subjectSide === side ? subjectScope : null,
+    }
+  }
+
+  const rawLabels = { left: labelForSide('left'), right: labelForSide('right') }
+  return selectedSubjectSide.value === 'right'
+    ? { left: rawLabels.right, right: rawLabels.left }
+    : rawLabels
+})
 const actionOptions = computed(() => {
   const byKey = new Map<string, { key: string; label: string; count: number }>()
   for (const event of eventState.events.value) {
@@ -135,8 +228,9 @@ const actionOptions = computed(() => {
       count: (current?.count ?? 0) + 1,
     })
   }
+  const order = ['hit', 'spike', 'serve', 'serve_receive']
   return [...byKey.values()].sort(
-    (left, right) => right.count - left.count || left.label.localeCompare(right.label, 'zh-Hant'),
+    (left, right) => order.indexOf(left.key) - order.indexOf(right.key),
   )
 })
 const filteredEvents = computed(() =>
@@ -158,6 +252,22 @@ const selectedActionLabel = computed(() =>
     ? '全部球種'
     : (actionOptions.value.find(option => option.key === selectedActionKey.value)?.label ??
       '所選球種'),
+)
+const highlightSubjectLabel = computed(() => {
+  if (viewMode.value === 'players' && selectedPlayer.value)
+    return `#${selectedPlayer.value.jersey_number} ${selectedPlayer.value.name}`
+  if (viewMode.value === 'tracks' && selectedLocalTrack.value) {
+    const identity = selectedMappedPlayer.value
+      ? `#${selectedMappedPlayer.value.jersey_number} ${selectedMappedPlayer.value.name}`
+      : '未分配球員'
+    return `${trackLabel(selectedLocalTrack.value)} · ${identity}`
+  }
+  return selectedTeam.value?.name ?? '隊伍'
+})
+const selectedActionReplay = computed(() =>
+  selectedActionEvent.value
+    ? (eventState.replays.get(selectedActionEvent.value.rallyId) ?? null)
+    : null,
 )
 const analyticsErrorMessage = computed(() => {
   const message = analyticsState.error.value?.message
@@ -199,6 +309,15 @@ function trackKey(track: { analysis_run_id: string; track_id: number }) {
   return `${track.analysis_run_id}:${track.track_id}`
 }
 
+function teamTone(teamId: string | null | undefined): TeamTone {
+  const index = analytics.value?.teams.findIndex(team => team.id === teamId) ?? -1
+  return index === 1 ? 'red' : 'blue'
+}
+
+function teamToneClass(teamId: string | null | undefined) {
+  return `team-tone-${teamTone(teamId)}`
+}
+
 function playerBadge(player: NonNullable<typeof selectedPlayer.value>) {
   return `[${player.position === 'UNSPECIFIED' ? '—' : player.position}] ${player.jersey_number}`
 }
@@ -237,17 +356,11 @@ function openPlayer(playerId: string) {
 }
 
 function outcomeLabel(event: CoachPlayerActionEvent) {
-  return event.resultKey === 'point_scored'
-    ? '得分'
-    : event.resultKey === 'success'
-      ? '成功'
-      : event.resultKey === 'error'
-        ? '失誤'
-        : event.resultKey === 'point_lost'
-          ? '失分'
-          : event.resultKey === 'failure'
-            ? '失敗'
-            : '未填結果'
+  return event.resultKey === 'success'
+    ? '成功'
+    : event.resultKey === 'failure'
+      ? '失敗'
+      : '未填結果'
 }
 
 function refreshAfterIdentityChange() {
@@ -256,7 +369,7 @@ function refreshAfterIdentityChange() {
 }
 
 function openActionReplay(event: CoachPlayerActionEvent) {
-  void navigateTo(replayEventUrl(matchId.value, event))
+  selectedActionEvent.value = event
 }
 
 const BALL_TYPE_LABELS: Record<string, string> = {
@@ -308,7 +421,11 @@ function teamActionCounts(teamId: string) {
         </header>
         <UiScrollArea class="entity-list__scroll">
           <div v-if="viewMode === 'players'">
-            <section v-for="team in analytics.teams" :key="team.id" class="entity-list__group">
+            <section
+              v-for="team in analytics.teams"
+              :key="team.id"
+              :class="['entity-list__group', teamToneClass(team.id)]"
+            >
               <h2>
                 <span>{{ team.name }}</span>
                 <small>{{ playersForTeam(team.id).length }} 人</small>
@@ -317,8 +434,11 @@ function teamActionCounts(teamId: string) {
                 v-for="player in playersForTeam(team.id)"
                 :key="player.roster_entry_id"
                 type="button"
-                class="entity-player-row"
-                :class="{ active: selectedPlayer?.roster_entry_id === player.roster_entry_id }"
+                :class="[
+                  'entity-player-row',
+                  teamToneClass(player.team_id),
+                  { active: selectedPlayer?.roster_entry_id === player.roster_entry_id },
+                ]"
                 @click="selectPlayer(player.roster_entry_id)"
               >
                 <span class="entity-jersey">#{{ player.jersey_number }}</span>
@@ -383,7 +503,7 @@ function teamActionCounts(teamId: string) {
                 v-for="team in analytics.teams"
                 :key="team.id"
                 type="button"
-                :class="{ active: selectedTeam?.id === team.id }"
+                :class="[teamToneClass(team.id), { active: selectedTeam?.id === team.id }]"
                 @click="selectTeam(team.id)"
               >
                 <span>{{ team.shortName || 'TEAM' }}</span
@@ -406,6 +526,7 @@ function teamActionCounts(teamId: string) {
       </aside>
 
       <UiScrollArea
+        ref="detailScrollArea"
         v-if="
           (viewMode === 'players' && selectedPlayer) ||
           (viewMode === 'tracks' && selectedLocalTrack) ||
@@ -414,35 +535,66 @@ function teamActionCounts(teamId: string) {
         class="entity-detail-scroll"
       >
         <main class="entity-detail">
-          <section class="entity-overview">
+          <span ref="detailOverviewSentinel" class="entity-overview-sentinel" aria-hidden="true" />
+          <section
+            :class="[
+              'entity-overview',
+              teamToneClass(selectedOverviewTeamId),
+              { 'is-stuck': detailOverviewStuck },
+            ]"
+          >
             <header class="entity-title">
               <div v-if="viewMode === 'players' && selectedPlayer">
-                <span class="entity-badge">{{ playerBadge(selectedPlayer) }}</span>
-                <p>
-                  {{ selectedPlayerTeam?.name }} ·
-                  {{ rosterPositionLabel(selectedPlayer.position) }}
-                </p>
-                <h1>{{ selectedPlayer.name }}</h1>
+                <span :class="['entity-badge', 'player', teamToneClass(selectedPlayerTeam?.id)]">
+                  <small>{{
+                    selectedPlayer.position === 'UNSPECIFIED' ? '—' : selectedPlayer.position
+                  }}</small>
+                  <strong>#{{ selectedPlayer.jersey_number }}</strong>
+                </span>
+                <div class="entity-title__copy">
+                  <p class="entity-title__meta">
+                    <span
+                      :class="['entity-team-mark', teamToneClass(selectedPlayerTeam?.id)]"
+                      aria-hidden="true"
+                    />
+                    <span>{{ selectedPlayerTeam?.name }}</span>
+                    <span class="entity-title__separator" aria-hidden="true">·</span>
+                    <span>{{ rosterPositionLabel(selectedPlayer.position) }}</span>
+                  </p>
+                  <h1 :title="selectedPlayer.name">{{ selectedPlayer.name }}</h1>
+                </div>
               </div>
               <div v-else-if="viewMode === 'tracks' && selectedLocalTrack">
-                <span class="entity-badge local">{{ trackLabel(selectedLocalTrack) }}</span>
-                <p>
-                  第 {{ selectedLocalTrack.set_number }} 局 · 回合
-                  {{ selectedLocalTrack.rally_ordinal }} ·
-                  {{
-                    selectedLocalTrack.court_side === 'left'
-                      ? '左側'
-                      : selectedLocalTrack.court_side === 'right'
-                        ? '右側'
-                        : '場側未知'
-                  }}
-                </p>
-                <h1>{{ selectedMappedPlayer?.name ?? '未分配球員' }}</h1>
+                <span :class="['entity-badge', 'local', teamToneClass(selectedSubjectTeamId)]">
+                  {{ trackLabel(selectedLocalTrack) }}
+                </span>
+                <div class="entity-title__copy">
+                  <p class="entity-title__meta">
+                    第 {{ selectedLocalTrack.set_number }} 局 · 回合
+                    {{ selectedLocalTrack.rally_ordinal }} ·
+                    {{
+                      selectedLocalTrack.court_side === 'left'
+                        ? '左側'
+                        : selectedLocalTrack.court_side === 'right'
+                          ? '右側'
+                          : '場側未知'
+                    }}
+                  </p>
+                  <h1 :title="selectedMappedPlayer?.name ?? '未分配球員'">
+                    {{ selectedMappedPlayer?.name ?? '未分配球員' }}
+                  </h1>
+                </div>
               </div>
               <div v-else-if="selectedTeam">
-                <span class="entity-badge team">{{ selectedTeam.shortName || 'TEAM' }}</span>
-                <p>隊伍完整統計 · {{ selectedTeamPlayers.length }} 名登錄球員</p>
-                <h1>{{ selectedTeam.name }}</h1>
+                <span :class="['entity-badge', 'team', teamToneClass(selectedTeam.id)]">
+                  {{ selectedTeam.shortName || 'TEAM' }}
+                </span>
+                <div class="entity-title__copy">
+                  <p class="entity-title__meta">
+                    隊伍完整統計 · {{ selectedTeamPlayers.length }} 名登錄球員
+                  </p>
+                  <h1 :title="selectedTeam.name">{{ selectedTeam.name }}</h1>
+                </div>
               </div>
             </header>
 
@@ -559,7 +711,7 @@ function teamActionCounts(teamId: string) {
             <header class="action-toolbar">
               <div class="action-heading">
                 <h2>球路與落點</h2>
-                <p>依人工球種篩選，查看移動路徑、落點熱區與判定結果</p>
+                <p>依 HIT、殺球、發球與接發篩選，查看方向、落點與短回放</p>
               </div>
               <div class="action-filters" aria-label="球種篩選">
                 <button
@@ -603,15 +755,20 @@ function teamActionCounts(teamId: string) {
                     <dd>{{ selectedLandingCount }}</dd>
                   </div>
                 </dl>
-                <small
-                  >成功率僅計入人工判定的事件。<template v-if="outcomeSummary.unknown"
-                    >{{ outcomeSummary.unknown }} 筆尚未判定。</template
-                  ></small
-                >
+                <CoachHighlightExport
+                  :match-id="matchId"
+                  :events="filteredEvents"
+                  :replays="eventState.replays"
+                  :subject-label="highlightSubjectLabel"
+                  :filter-label="selectedActionLabel"
+                  :loading="eventState.pending.value"
+                />
               </aside>
               <CoachBallRouteMap
                 :events="filteredEvents"
                 :label="selectedActionLabel"
+                :side-labels="routeMapSideLabels"
+                :selected-side="selectedSubjectSide"
                 @select="openActionReplay"
               />
             </div>
@@ -620,16 +777,17 @@ function teamActionCounts(teamId: string) {
               <header>
                 <div>
                   <h2>球種時間軸</h2>
-                  <p>選擇紀錄會從事件前 3 秒進入 Replay</p>
+                  <p>點選紀錄會在目前頁面播放事件前 3 秒至後 2 秒</p>
                 </div>
                 <span>{{ filteredEvents.length }} 筆</span>
               </header>
               <UiScrollArea v-if="filteredEvents.length" class="action-records__scroll">
                 <div class="action-records__list">
-                  <NuxtLink
+                  <button
                     v-for="event in filteredEvents"
                     :key="event.id"
-                    :to="replayEventUrl(matchId, event)"
+                    type="button"
+                    @click="openActionReplay(event)"
                   >
                     <i :style="{ background: actionColor(event.actionKey) }" />
                     <div class="action-record__identity">
@@ -651,7 +809,7 @@ function teamActionCounts(teamId: string) {
                           : '尚無球路'
                     }}</span>
                     <ChevronRight :size="17" />
-                  </NuxtLink>
+                  </button>
                 </div>
               </UiScrollArea>
               <div v-else class="action-records__empty">
@@ -732,6 +890,12 @@ function teamActionCounts(teamId: string) {
       </UiScrollArea>
       <main v-else class="players-state">尚無可分析資料。</main>
     </div>
+    <CoachEventReplayDialog
+      :open="selectedActionEvent !== null"
+      :event="selectedActionEvent"
+      :replay="selectedActionReplay"
+      @close="selectedActionEvent = null"
+    />
   </section>
 </template>
 
@@ -756,14 +920,15 @@ function teamActionCounts(teamId: string) {
   grid-template-rows: 52px minmax(0, 1fr);
   overflow: hidden;
   border-right: 1px solid #dfe4e8;
-  background: #eef1f4;
+  background: #f3f6f9;
 }
 .entity-list > header {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 7px 10px;
-  border-bottom: 1px solid #dde2e7;
+  padding: 8px 12px;
+  border-bottom: 1px solid #dce3ea;
+  background: #f8fafc;
 }
 .entity-list > header > a {
   width: 36px;
@@ -786,25 +951,30 @@ function teamActionCounts(teamId: string) {
   height: 100%;
   min-height: 0;
 }
+.entity-detail-scroll :deep(.scroll-area__viewport) {
+  overflow-anchor: none;
+}
 .entity-list__group h2 {
   position: sticky;
   top: 0;
   z-index: 2;
-  min-height: 34px;
+  min-height: 38px;
   display: flex;
   align-items: end;
   justify-content: space-between;
   gap: 10px;
-  margin: 0 9px 0 0;
-  padding: 10px 14px 7px;
-  background: rgba(238, 241, 244, 0.94);
-  color: #707985;
-  font-size: 0.63rem;
+  margin: 0 10px 0 0;
+  padding: 12px 14px 7px;
+  background: rgba(243, 246, 249, 0.94);
+  color: #5d6977;
+  font-size: 0.68rem;
+  font-weight: 760;
+  letter-spacing: -0.01em;
   backdrop-filter: blur(12px);
 }
 .entity-list__group h2 small {
-  color: #929aa3;
-  font-size: 0.54rem;
+  color: #8b98a6;
+  font-size: 0.58rem;
   font-weight: 650;
   font-variant-numeric: tabular-nums;
 }
@@ -824,10 +994,29 @@ function teamActionCounts(teamId: string) {
 .entity-list__group > button:hover {
   background: #e5eaf0;
 }
+.entity-list__group > button:focus-visible,
+.entity-list > header > a:focus-visible {
+  outline: 2px solid #0875dd !important;
+  outline-offset: -2px;
+}
 .entity-list__group > button.active {
   background: #fff;
   color: #075fbe;
   box-shadow: inset 3px 0 #0670df;
+}
+.entity-list__group.team-tone-blue > h2 {
+  color: #0b5fae;
+}
+.entity-list__group.team-tone-red > h2 {
+  color: #b42f42;
+}
+.entity-list__group > button.team-tone-blue.active {
+  color: #075fbe;
+  box-shadow: inset 3px 0 #0875dd;
+}
+.entity-list__group > button.team-tone-red.active {
+  color: #b42f42;
+  box-shadow: inset 3px 0 #d44859;
 }
 .entity-list__group > button > span {
   font-size: 0.67rem;
@@ -867,18 +1056,23 @@ function teamActionCounts(teamId: string) {
   font-weight: 500;
 }
 .entity-player-row {
-  min-height: 76px !important;
+  min-height: 78px !important;
   grid-template-columns: 46px minmax(0, 1fr) auto !important;
   grid-template-rows: auto auto;
   gap: 4px 9px !important;
-  margin: 2px 8px 2px 0;
-  padding: 9px 12px 9px 10px !important;
+  margin: 2px 10px 2px 0;
+  padding: 10px 14px 10px 10px !important;
   border-radius: 0 12px 12px 0;
 }
 .entity-player-row.active {
   box-shadow:
-    inset 3px 0 #0670df,
-    0 5px 16px rgb(37 54 72 / 8%) !important;
+    inset 3px 0 #0875dd,
+    0 6px 18px rgb(37 54 72 / 9%) !important;
+}
+.entity-player-row.team-tone-red.active {
+  box-shadow:
+    inset 3px 0 #d44859,
+    0 6px 18px rgb(117 31 47 / 11%) !important;
 }
 .entity-jersey {
   width: 38px;
@@ -887,15 +1081,21 @@ function teamActionCounts(teamId: string) {
   grid-row: 1 / 3;
   place-items: center;
   align-self: center;
-  border-radius: 11px;
-  background: #dfe5ea;
-  color: #35414c;
+  border: 1px solid #d7e0e8;
+  border-radius: 12px;
+  background: #e7edf2;
+  color: #4b5b6b;
   font-size: 0.72rem !important;
   font-weight: 800 !important;
 }
 .entity-player-row.active .entity-jersey {
-  background: #0b67c2;
+  border-color: #0875dd;
+  background: #0875dd;
   color: #fff;
+}
+.entity-player-row.team-tone-red.active .entity-jersey {
+  border-color: #d44859;
+  background: #d44859;
 }
 .entity-player-copy {
   min-width: 0;
@@ -904,14 +1104,15 @@ function teamActionCounts(teamId: string) {
 }
 .entity-player-copy b {
   overflow: hidden;
-  font-size: 0.69rem;
+  color: #243241;
+  font-size: 0.75rem;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .entity-player-copy small,
 .entity-total small {
-  color: #87909a;
-  font-size: 0.54rem;
+  color: #7b8998;
+  font-size: 0.59rem;
   font-weight: 560;
 }
 .entity-total {
@@ -924,8 +1125,11 @@ function teamActionCounts(teamId: string) {
   font-size: 0.82rem;
   font-variant-numeric: tabular-nums;
 }
-.entity-player-row.active .entity-total b {
+.entity-player-row.team-tone-blue.active .entity-total b {
   color: #075fbe;
+}
+.entity-player-row.team-tone-red.active .entity-total b {
+  color: #b42f42;
 }
 .entity-player-row > .entity-actions {
   grid-column: 2 / 4;
@@ -942,91 +1146,244 @@ function teamActionCounts(teamId: string) {
   min-width: 0;
   min-height: 100%;
   padding: 0 var(--detail-gutter) 48px;
+  background: #fff;
   box-sizing: border-box;
 }
+.entity-overview-sentinel {
+  width: 1px;
+  height: 1px;
+  display: block;
+  margin-bottom: -1px;
+  opacity: 0;
+  pointer-events: none;
+}
 .entity-overview {
+  --entity-overview-ease: cubic-bezier(0.22, 1, 0.36, 1);
+
+  position: sticky;
+  top: 0;
+  z-index: 8;
   display: grid;
-  grid-template-columns: minmax(270px, 0.9fr) minmax(0, 2fr);
+  grid-template-columns: minmax(360px, 1.15fr) minmax(0, 2fr);
   align-items: stretch;
   margin-inline: calc(var(--detail-gutter) * -1);
-  padding: 16px var(--detail-gutter);
-  border-bottom: 1px solid #e2e7eb;
-  background: #f4f7f9;
+  padding: 24px var(--detail-gutter) 22px;
+  border-bottom: 1px solid #dce5ed;
+  background: radial-gradient(circle at 8% 0%, #e8f2fc 0, transparent 36%), #f8fafc;
+  box-shadow: 0 0 0 transparent;
+  isolation: isolate;
+  transition:
+    grid-template-columns 220ms var(--entity-overview-ease),
+    gap 220ms var(--entity-overview-ease),
+    padding 220ms var(--entity-overview-ease),
+    border-color 180ms ease,
+    box-shadow 220ms var(--entity-overview-ease);
+}
+.entity-overview.team-tone-blue {
+  background: radial-gradient(circle at 8% 0%, #dceeff 0, transparent 36%), #f8fafc;
+}
+.entity-overview.team-tone-red {
+  background: radial-gradient(circle at 8% 0%, #ffe6e9 0, transparent 36%), #fffafb;
 }
 .entity-title {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 20px;
-  padding-right: 26px;
+  padding-right: 30px;
+  transition:
+    gap 220ms var(--entity-overview-ease),
+    padding 220ms var(--entity-overview-ease);
 }
 .entity-title > div {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  flex: 1 1 auto;
+  display: grid;
+  grid-template-columns: 58px minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+  transition:
+    grid-template-columns 220ms var(--entity-overview-ease),
+    gap 220ms var(--entity-overview-ease);
+}
+.entity-title__copy {
   min-width: 0;
   display: grid;
-  grid-template-columns: 44px minmax(0, 1fr);
-  grid-template-rows: auto auto;
-  align-items: center;
-  column-gap: 10px;
+  align-content: center;
+  gap: 5px;
+  transition: gap 220ms var(--entity-overview-ease);
 }
 .entity-badge {
-  width: 44px;
-  height: 44px;
+  width: 52px;
+  height: 52px;
   display: flex;
-  grid-row: 1 / 3;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
-  padding: 0 6px;
-  border-radius: 13px;
-  background: #17202a;
-  color: #fff;
-  font-size: 0.72rem;
-  font-weight: 780;
+  gap: 1px;
+  padding: 0 5px;
+  border: 1px solid #d8e2eb;
+  border-radius: 12px;
+  background: #edf2f6;
+  box-shadow: none;
+  color: #34485c;
   font-variant-numeric: tabular-nums;
+  transition:
+    width 220ms var(--entity-overview-ease),
+    height 220ms var(--entity-overview-ease),
+    padding 220ms var(--entity-overview-ease),
+    border-color 180ms ease,
+    border-radius 220ms var(--entity-overview-ease),
+    background-color 180ms ease,
+    color 180ms ease;
+}
+.entity-badge.player small {
+  color: currentColor;
+  font-size: 0.5rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  line-height: 1;
+  opacity: 0.68;
+}
+.entity-badge.player.team-tone-blue {
+  border-color: #c6dcf2;
+  background: #e8f3ff;
+  color: #0b5ea9;
+}
+.entity-badge.player.team-tone-red {
+  border-color: #f0cbd1;
+  background: #ffedf0;
+  color: #ae3044;
+}
+.entity-badge.player strong {
+  font-size: 1.2rem;
+  font-weight: 760;
+  line-height: 1.1;
+  letter-spacing: -0.04em;
+  transition: font-size 220ms var(--entity-overview-ease);
 }
 .entity-badge.local {
   background: #e9edf1;
   color: #333a42;
+  font-size: 0.72rem;
+  font-weight: 780;
+}
+.entity-badge.team {
+  font-size: 0.72rem;
+  font-weight: 780;
+}
+.entity-badge.team.team-tone-blue {
+  border-color: #c6dcf2;
+  background: #e8f3ff;
+  color: #0b5ea9;
+}
+.entity-badge.team.team-tone-red {
+  border-color: #f0cbd1;
+  background: #ffedf0;
+  color: #ae3044;
 }
 .entity-title p {
-  align-self: end;
-  margin: 0 0 3px;
-  color: #737c87;
-  font-size: 0.66rem;
-  font-weight: 620;
-}
-.entity-title h1 {
-  align-self: start;
   margin: 0;
+  color: #68798b;
+  font-size: 0.72rem;
+  font-weight: 680;
+  line-height: 1.2;
+  transition: font-size 220ms var(--entity-overview-ease);
+}
+.entity-title__meta {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+}
+.entity-title__meta > span:not(.entity-team-mark):not(.entity-title__separator) {
+  min-width: 0;
   overflow: hidden;
-  font-size: clamp(1.45rem, 2.1vw, 1.95rem);
-  line-height: 1.08;
-  letter-spacing: -0.035em;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.entity-team-mark {
+  width: 7px;
+  height: 7px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: #0875dd;
+  box-shadow: 0 0 0 3px #0875dd1c;
+}
+.entity-team-mark.team-tone-blue {
+  background: #0875dd;
+  box-shadow: 0 0 0 3px #0875dd1c;
+}
+.entity-team-mark.team-tone-red {
+  background: #d44859;
+  box-shadow: 0 0 0 3px #d448591c;
+}
+.entity-title__separator {
+  color: #a2afbc;
+}
+.entity-title h1 {
+  min-width: 0;
+  max-width: 100%;
+  margin: 0;
+  display: block;
+  overflow: hidden;
+  color: #172333;
+  font-size: clamp(1.15rem, 2vw, 1.65rem);
+  font-weight: 760;
+  line-height: 1.08;
+  letter-spacing: -0.03em;
+  overflow-wrap: normal;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  -webkit-line-clamp: 1;
+  transition:
+    font-size 220ms var(--entity-overview-ease),
+    line-height 220ms var(--entity-overview-ease),
+    letter-spacing 220ms var(--entity-overview-ease);
 }
 .entity-measures {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
   align-items: center;
-  gap: clamp(8px, 1.2vw, 18px);
+  gap: 0;
   margin: 0;
+  padding-left: 26px;
+  border-left: 1px solid #dce5ed;
+  transition:
+    grid-template-columns 220ms var(--entity-overview-ease),
+    padding 220ms var(--entity-overview-ease),
+    border-color 180ms ease;
 }
 .entity-measures > div {
   min-width: 0;
-  padding: 6px 0;
+  padding: 6px clamp(8px, 1.2vw, 18px);
+  border-right: 1px solid #e1e8ef;
+  transition:
+    padding 220ms var(--entity-overview-ease),
+    border-color 180ms ease;
+}
+.entity-measures > div:last-child {
+  border-right: 0;
 }
 .entity-measures dt {
-  color: #68727e;
-  font-size: 0.64rem;
+  color: #718194;
+  font-size: 0.62rem;
   font-weight: 650;
+  transition: font-size 220ms var(--entity-overview-ease);
 }
 .entity-measures dd {
-  margin: 5px 0 3px;
-  font-size: clamp(1.4rem, 2vw, 1.8rem);
-  font-weight: 720;
+  margin: 6px 0 3px;
+  color: #172333;
+  font-size: clamp(1.25rem, 2vw, 1.9rem);
+  font-weight: 760;
   line-height: 1;
   letter-spacing: -0.035em;
   font-variant-numeric: tabular-nums;
+  transition:
+    margin 220ms var(--entity-overview-ease),
+    font-size 220ms var(--entity-overview-ease);
 }
 .entity-measures dd.mapping-state {
   font-size: 1.25rem;
@@ -1131,9 +1488,9 @@ function teamActionCounts(teamId: string) {
   min-height: 76px;
   display: grid;
   min-width: 0;
-  grid-template-columns: minmax(190px, 0.9fr) auto minmax(210px, 1.2fr);
+  grid-template-columns: minmax(160px, 1fr) auto minmax(240px, 32rem);
   align-items: center;
-  gap: 22px;
+  gap: 18px;
   padding: 12px 16px;
   border: 1px solid #dfe5ea;
   border-radius: 14px;
@@ -1190,12 +1547,11 @@ function teamActionCounts(teamId: string) {
   font-weight: 760;
   font-variant-numeric: tabular-nums;
 }
-.action-rate small {
-  max-width: 42ch;
+.action-rate > :deep(.highlight-export) {
+  width: 100%;
+  max-width: 32rem;
   margin: 0;
-  color: #7b858f;
-  font-size: 0.59rem;
-  line-height: 1.55;
+  justify-self: end;
 }
 .action-records {
   padding-top: 26px;
@@ -1229,20 +1585,28 @@ function teamActionCounts(teamId: string) {
 .action-records__scroll {
   height: min(300px, 36dvh);
 }
-.action-records__list a {
+.action-records__list button {
+  width: 100%;
   min-height: 58px;
   display: grid;
   grid-template-columns: 4px minmax(180px, 1fr) 74px 88px 82px 18px;
   align-items: center;
   gap: 12px;
+  padding: 0;
+  border: 0;
   border-bottom: 1px solid #e4e7eb;
+  background: transparent;
   color: inherit;
-  text-decoration: none;
+  text-align: left;
 }
-.action-records__list a:hover {
+.action-records__list button:hover {
   background: #f2f5f8;
 }
-.action-records__list > a > i {
+.action-records__list button:focus-visible {
+  outline: 2px solid #0875dd;
+  outline-offset: -2px;
+}
+.action-records__list > button > i {
   width: 3px;
   height: 30px;
   border-radius: 2px;
@@ -1371,8 +1735,9 @@ function teamActionCounts(teamId: string) {
     grid-template-columns: minmax(165px, 0.8fr) auto;
     gap: 14px;
   }
-  .action-rate > small {
+  .action-rate > :deep(.highlight-export) {
     grid-column: 1 / -1;
+    max-width: none;
     padding-top: 10px;
     border-top: 1px solid #dce2e7;
   }
@@ -1391,11 +1756,26 @@ function teamActionCounts(teamId: string) {
   .entity-measures > div:nth-child(4) {
     border: 0;
   }
-  .action-records__list a {
+  .action-records__list button {
     grid-template-columns: 4px minmax(150px, 1fr) 65px 90px 18px;
   }
   .action-record__route-state {
     display: none;
+  }
+}
+@media (max-width: 1360px) {
+  .entity-overview {
+    grid-template-columns: 1fr;
+    gap: 18px;
+  }
+  .entity-title {
+    padding-right: 0;
+  }
+  .entity-measures {
+    padding-top: 14px;
+    padding-left: 0;
+    border-top: 1px solid #dce5ed;
+    border-left: 0;
   }
 }
 @media (max-width: 760px) {
@@ -1431,7 +1811,7 @@ function teamActionCounts(teamId: string) {
   .action-filters {
     justify-content: flex-start;
   }
-  .action-records__list a {
+  .action-records__list button {
     grid-template-columns: 4px minmax(130px, 1fr) 62px 18px;
   }
   .action-record__outcome,
@@ -1439,9 +1819,106 @@ function teamActionCounts(teamId: string) {
     display: none;
   }
 }
+.entity-overview.is-stuck {
+  grid-template-columns: minmax(240px, 0.9fr) minmax(0, 2fr);
+  align-items: center;
+  gap: 0;
+  padding-block: 7px;
+  border-bottom-color: transparent;
+  box-shadow: 0 5px 18px rgb(23 35 51 / 14%);
+}
+.entity-overview.is-stuck .entity-title {
+  padding-right: 16px;
+}
+.entity-overview.is-stuck .entity-title > div {
+  grid-template-columns: 36px minmax(0, 1fr);
+  gap: 7px;
+}
+.entity-overview.is-stuck .entity-title__copy {
+  gap: 2px;
+}
+.entity-overview.is-stuck .entity-badge {
+  width: 34px;
+  height: 34px;
+  padding-inline: 3px;
+  border-radius: 9px;
+  box-shadow: none;
+}
+.entity-overview.is-stuck .entity-badge.player small {
+  font-size: 0.38rem;
+}
+.entity-overview.is-stuck .entity-badge.player strong {
+  font-size: 0.88rem;
+}
+.entity-overview.is-stuck .entity-badge.local,
+.entity-overview.is-stuck .entity-badge.team {
+  font-size: 0.58rem;
+}
+.entity-overview.is-stuck .entity-title p {
+  font-size: 0.56rem;
+}
+.entity-overview.is-stuck .entity-title__meta {
+  gap: 5px;
+}
+.entity-overview.is-stuck .entity-team-mark {
+  width: 5px;
+  height: 5px;
+  box-shadow: none;
+}
+.entity-overview.is-stuck .entity-title h1 {
+  display: block;
+  font-size: clamp(0.95rem, 1.45vw, 1.18rem);
+  line-height: 1.08;
+  letter-spacing: -0.025em;
+  overflow-wrap: normal;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  -webkit-line-clamp: 1;
+}
+.entity-overview.is-stuck .entity-measures {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  padding: 0 0 0 12px;
+  border-top: 0;
+  border-left: 1px solid #dce5ed;
+}
+.entity-overview.is-stuck .entity-measures > div,
+.entity-overview.is-stuck .entity-measures > div:nth-child(3),
+.entity-overview.is-stuck .entity-measures > div:nth-child(4) {
+  padding: 2px clamp(6px, 1vw, 12px);
+  border-top: 0;
+  border-right: 1px solid #e1e8ef;
+}
+.entity-overview.is-stuck .entity-measures > div:last-child {
+  border-right: 0;
+}
+.entity-overview.is-stuck .entity-measures dt {
+  overflow: hidden;
+  font-size: 0.52rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.entity-overview.is-stuck .entity-measures dd,
+.entity-overview.is-stuck .entity-measures dd.mapping-state {
+  margin: 3px 0 0;
+  font-size: clamp(0.95rem, 1.55vw, 1.18rem);
+}
 @media (prefers-reduced-motion: reduce) {
   .players-loading {
     animation: none;
+  }
+  .entity-overview,
+  .entity-title,
+  .entity-title > div,
+  .entity-title__copy,
+  .entity-badge,
+  .entity-badge.player strong,
+  .entity-title p,
+  .entity-title h1,
+  .entity-measures,
+  .entity-measures > div,
+  .entity-measures dt,
+  .entity-measures dd {
+    transition: none;
   }
 }
 @media (prefers-reduced-transparency: reduce) {

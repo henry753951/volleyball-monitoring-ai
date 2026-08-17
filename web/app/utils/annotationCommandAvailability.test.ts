@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import { draftCommandAvailability } from './annotationCommandAvailability'
+import {
+  boundaryCommandAvailability,
+  draftCommandAvailability,
+} from './annotationCommandAvailability'
 
 const base = {
   action: 'contact' as const,
@@ -33,5 +36,42 @@ describe('draftCommandAvailability', () => {
         cursorCaptureTimeUs: '999',
       }),
     ).toEqual({ enabled: true, reason: '' })
+  })
+})
+
+describe('boundaryCommandAvailability', () => {
+  const boundaryBase = {
+    activeSubmissionId: null,
+    canMark: true,
+    cursorCaptureTimeUs: '150',
+    currentRallyId: 'draft',
+    startBoundaryCaptureTimeUs: '100',
+    currentDraftCaptureTimes: ['100', '140'],
+    clipPreRollUs: 0n,
+    clipPostRollUs: 0n,
+    segments: [],
+  }
+
+  it('allows Z to end an owned OPEN draft', () => {
+    expect(boundaryCommandAvailability({ ...boundaryBase, state: 'OPEN' })).toMatchObject({
+      enabled: true,
+    })
+  })
+
+  it('keeps Z locked after END while the ordinary draft is READY and unsubmitted', () => {
+    expect(boundaryCommandAvailability({ ...boundaryBase, state: 'READY' })).toMatchObject({
+      enabled: false,
+      reason: '目前仍有正在編輯的片段',
+    })
+  })
+
+  it('keeps Z locked when an owned draft is missing its active START boundary', () => {
+    expect(
+      boundaryCommandAvailability({
+        ...boundaryBase,
+        state: 'OPEN',
+        startBoundaryCaptureTimeUs: null,
+      }),
+    ).toMatchObject({ enabled: false, reason: '目前仍有正在編輯的片段' })
   })
 })

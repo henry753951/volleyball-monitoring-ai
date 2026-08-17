@@ -115,8 +115,7 @@ function maximumCallbackFiles() {
 function mediaKind(artifactKind: string): MediaAssetKind {
   if (artifactKind === 'ANALYSIS_DATA') return MediaAssetKind.ANALYSIS_DATA
   if (artifactKind.startsWith('PERSON_POSE_')) return MediaAssetKind.PERSON_POSE_EVIDENCE
-  if (artifactKind.startsWith('REID_') || artifactKind === 'JERSEY_VLM_RESPONSE')
-    return MediaAssetKind.REID_EVIDENCE
+  if (artifactKind.startsWith('REID_')) return MediaAssetKind.REID_EVIDENCE
   if (artifactKind === 'IDENTITY_PREVIEW') return MediaAssetKind.IDENTITY_PREVIEW
   return MediaAssetKind.PROVIDER_ARTIFACT
 }
@@ -431,7 +430,57 @@ export const providerJobCallbackRoutes =
             assets.push({ id, descriptor, objectKey, part })
           }
           const now = new Date()
-          await database.$transaction(async transaction => {
+          const commitOutcome = await database.$transaction(async transaction => {
+            await transaction.$queryRaw`SELECT id FROM "ProviderJob" WHERE id = ${providerJobId}::uuid FOR UPDATE`
+            const existingOutputs = await transaction.providerJobArtifact.findMany({
+              where: { providerJobId, direction: ProviderArtifactDirection.OUTPUT },
+              orderBy: { ordinal: 'asc' },
+            })
+            if (existingOutputs.length > 0) {
+              const matches =
+                existingOutputs.length === descriptors.length &&
+                existingOutputs.every((output, ordinal) => {
+                  const descriptor = descriptors[ordinal]
+                  return (
+                    descriptor !== undefined &&
+                    output.ordinal === ordinal &&
+                    output.artifactKind === descriptor.kind &&
+                    output.schemaVersion === descriptor.schema_version &&
+                    output.sha256.toLowerCase() === descriptor.sha256.toLowerCase() &&
+                    output.byteLength === BigInt(descriptor.byte_length) &&
+                    mediaTypeEssence(output.contentType) ===
+                      mediaTypeEssence(descriptor.content_type)
+                  )
+                })
+              if (!matches) return 'conflict' as const
+              await transaction.providerCallbackReceipt.create({
+                data: {
+                  providerJobId,
+                  callbackId,
+                  kind: CallbackKind.COMPLETED,
+                  requestContentType: contentType,
+                  requestMetadata: json(metadata),
+                  payloadHash,
+                  responseStatus: 200,
+                  responseBody: json(response),
+                },
+              })
+              await transaction.providerJob.update({
+                where: { id: providerJobId },
+                data: {
+                  status: JobStatus.COMPLETED,
+                  progress: 1,
+                  stage:
+                    job.workKind === ProviderWorkKind.ANALYSIS ? 'artifacts_ready' : 'completed',
+                  lastCallbackAt: now,
+                  completedAt: now,
+                  leasedUntil: null,
+                  errorCode: null,
+                  errorMessage: null,
+                },
+              })
+              return 'reused' as const
+            }
             for (const [ordinal, asset] of assets.entries()) {
               await transaction.mediaAsset.create({
                 data: {
@@ -527,8 +576,16 @@ export const providerJobCallbackRoutes =
                 })
               }
             }
+            return 'created' as const
           })
-          storedObjectKeys.length = 0
+          if (commitOutcome === 'conflict')
+            return reject(
+              reply,
+              409,
+              'RESULT_ARTIFACT_CONFLICT',
+              'Provider job already has a different completed artifact set',
+            )
+          if (commitOutcome === 'created') storedObjectKeys.length = 0
           return reply.send(response)
         } catch (error) {
           if (error instanceof Error && error.message === 'PAYLOAD_TOO_LARGE')

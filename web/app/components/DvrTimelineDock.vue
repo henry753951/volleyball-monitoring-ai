@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type { AnnotationRallySnapshot, BallEventValue } from '@volleyball-monitoring/contracts'
-import { Activity, Bot, CircleDotDashed, UserRound } from 'lucide-vue-next'
+import { Activity, Bot, CircleDotDashed, Trophy, UserRound } from 'lucide-vue-next'
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import type { CaptureTimeline } from '~/lib/coreDomain'
 import type { CapturePlaybackMode } from '~/lib/mediaTimeline'
@@ -43,6 +43,8 @@ const props = defineProps<{
     label: string
     stateLabel?: string
     outcomeLabel?: string | null
+    outcomeSide?: 'left' | 'right' | null
+    outcomeTeamLabel?: string | null
     startCaptureTimeUs: string
     endCaptureTimeUs: string
     status: 'draft' | 'idle' | 'failed' | 'processing' | 'analyzed' | 'mapped'
@@ -69,6 +71,8 @@ const props = defineProps<{
   currentMaskStatus?: 'idle' | 'failed' | 'processing' | 'analyzed' | 'mapped'
   currentMaskLabel?: string | null
   currentMaskOutcome?: string | null
+  currentMaskOutcomeSide?: 'left' | 'right' | null
+  currentMaskOutcomeTeamLabel?: string | null
   maskRange?: { startCaptureTimeUs: string; endCaptureTimeUs: string } | null
   restoredView?: TimelineViewport | null
 }>()
@@ -77,6 +81,10 @@ const emit = defineEmits<{
   scaleChange: [scale: number]
   viewChange: [viewport: TimelineViewport]
 }>()
+
+function outcomeSideBadge(side?: 'left' | 'right' | null) {
+  return side === 'left' ? 'L' : side === 'right' ? 'R' : '?'
+}
 const workstation = useAnnotationWorkstationService()
 if (!workstation.timeline || !workstation.annotation.keyPoints)
   throw new Error('Timeline dock requires timeline and key-point workstation services')
@@ -349,7 +357,8 @@ const displaySegments = computed(() =>
 )
 // Analysis coverage is an independent timeline layer. Do not derive it from
 // displaySegments: that list intentionally removes the current segment mask to
-// avoid painting it twice, but its AI result rail must remain visible.
+// avoid painting it twice. The model can omit a predecessor result while a
+// correction draft is active, so only segments with an analysis payload render.
 const displayAnalysisSegments = computed(() =>
   selectNonOverlappingRanges(
     (props.segments ?? []).filter(segment => Boolean(segment.analysis)),
@@ -365,6 +374,7 @@ type TimelinePointItem = {
   isTerminal: boolean
   captureTimeUs: string
   ballEvent: BallEventValue | null
+  previousBallEvent: BallEventValue | null
   current: boolean
   editable: boolean
   density: string
@@ -375,7 +385,11 @@ const timelinePointItems = computed<TimelinePointItem[]>(() => {
   const seen = new Set<string>()
   for (const segment of displaySegments.value) {
     if (segment.id === currentRallyId) continue
-    for (const point of segment.points ?? []) {
+    const orderedPoints = [...(segment.points ?? [])].sort((left, right) => {
+      const difference = BigInt(left.captureTimeUs) - BigInt(right.captureTimeUs)
+      return difference < 0n ? -1 : difference > 0n ? 1 : left.id.localeCompare(right.id)
+    })
+    for (const [index, point] of orderedPoints.entries()) {
       if (seen.has(point.id)) continue
       seen.add(point.id)
       items.push({
@@ -386,13 +400,23 @@ const timelinePointItems = computed<TimelinePointItem[]>(() => {
         isTerminal: point.isTerminal,
         captureTimeUs: point.captureTimeUs,
         ballEvent: point.ballEvent ?? null,
+        previousBallEvent: orderedPoints[index - 1]?.ballEvent ?? null,
         current: false,
         editable: false,
         density: segmentDensityClass(segment),
       })
     }
   }
-  for (const point of annotationPoints.value) {
+  const orderedCurrentPoints = [...annotationPoints.value].sort((left, right) => {
+    const difference = BigInt(left.capture_time_us) - BigInt(right.capture_time_us)
+    return difference < 0n
+      ? -1
+      : difference > 0n
+        ? 1
+        : left.sequence_index - right.sequence_index ||
+          left.key_point_id.localeCompare(right.key_point_id)
+  })
+  for (const [index, point] of orderedCurrentPoints.entries()) {
     if (seen.has(point.key_point_id)) continue
     seen.add(point.key_point_id)
     items.push({
@@ -403,6 +427,7 @@ const timelinePointItems = computed<TimelinePointItem[]>(() => {
       isTerminal: point.is_terminal,
       captureTimeUs: point.capture_time_us,
       ballEvent: point.ball_event ?? null,
+      previousBallEvent: orderedCurrentPoints[index - 1]?.ball_event ?? null,
       current: true,
       editable: Boolean(props.editable && !immutable.value && !isPendingPoint(point.key_point_id)),
       density: currentMaskGeometry.value?.density ?? '',
@@ -419,7 +444,10 @@ const selectedCurrentPoint = computed(() =>
 const selectedPointEditorLeft = computed(() => {
   const point = selectedCurrentPoint.value
   if (!point || !isVisible(point.captureTimeUs)) return null
-  return Math.max(14, Math.min(86, pointPosition(point.id, point.captureTimeUs)))
+  // Keep the editor anchored to the actual point. The surface allows it to
+  // overflow so a point near either edge does not appear to jump and stick to
+  // an artificial 14%/86% boundary.
+  return pointPosition(point.id, point.captureTimeUs)
 })
 // Rally clips are guaranteed to be non-overlapping. Keep one generous visual lane
 // so the mask label remains readable instead of creating artificial parallel lanes.
@@ -785,7 +813,7 @@ function selectPoint(keyPointId: string, captureTimeUs: string) {
 }
 async function selectHistoricalPoint(segmentId: string, keyPointId: string, captureTimeUs: string) {
   await timelineSelection.selectHistorical(segmentId, captureTimeUs)
-  timelineSelection.selectKeyPoint(keyPointId)
+  timelineSelection.selectKeyPoint(keyPointId, segmentId)
   if (props.timeline && readyAt(captureTimeUs, props.timeline.availableRanges))
     requestSeek(captureTimeUs)
 }
@@ -816,6 +844,29 @@ function focusCurrentMask() {
   timelineSelection.selectMask()
   focusRange(maskStart.value, maskEnd.value)
 }
+
+function focusDenseCurrentMaskForEditing() {
+  if (currentMaskGeometry.value?.density !== 'density-micro' || !maskStart.value || !maskEnd.value)
+    return
+  // At the full-match scale several contacts can occupy the same physical
+  // pixels. Expand only the viewport; preserving the playhead is important so
+  // selecting a draft never looks like a seek to an earlier rally.
+  focusRange(maskStart.value, maskEnd.value, null)
+}
+
+function selectCurrentMask() {
+  timelineSelection.selectMask()
+  focusDenseCurrentMaskForEditing()
+}
+
+watch(
+  () => props.selectedKeyPointId,
+  selectedKeyPointId => {
+    if (!selectedKeyPointId || selectedCurrentPoint.value?.id !== selectedKeyPointId) return
+    focusDenseCurrentMaskForEditing()
+  },
+  { flush: 'post' },
+)
 function beginPointDrag(event: PointerEvent, keyPointId: string, captureTimeUs: string) {
   if (!props.editable || immutable.value) return
   pointDrag.value = {
@@ -881,7 +932,7 @@ onBeforeUnmount(() => {
   if (animationFrame !== null) cancelAnimationFrame(animationFrame)
   if (optimisticPlayheadTimer) clearTimeout(optimisticPlayheadTimer)
 })
-defineExpose({ resetView })
+defineExpose({ focusRange, resetView })
 </script>
 
 <template>
@@ -983,10 +1034,7 @@ defineExpose({ resetView })
           :class="[
             segment.status,
             segmentDensityClass(segment),
-            {
-              selected: selectedSegmentId === segment.id,
-              'has-outcome': Boolean(segment.outcomeLabel),
-            },
+            { selected: selectedSegmentId === segment.id },
           ]"
           :style="{
             left: `${segmentLeft(segment)}%`,
@@ -994,6 +1042,7 @@ defineExpose({ resetView })
             width: `${segmentWidth(segment)}%`,
           }"
           :aria-label="`${segment.label} · ${segment.outcomeLabel ? `${segment.outcomeLabel} · ` : ''}${segment.stateLabel || segmentStatusLabel(segment.status)}`"
+          :aria-pressed="selectedSegmentId === segment.id"
           @click.stop="timelineSelection.selectHistorical(segment.id, segment.startCaptureTimeUs)"
           @dblclick.stop="focusHistoricalSegment(segment)"
         >
@@ -1001,9 +1050,19 @@ defineExpose({ resetView })
           ><strong
             v-if="segment.outcomeLabel"
             class="mask-outcome"
-            :class="{ unknown: segment.outcomeLabel === '得分未知' }"
-            >{{ segment.outcomeLabel }}</strong
-          ><small>{{ segment.stateLabel || segmentStatusLabel(segment.status) }}</small>
+            :class="{ unknown: !segment.outcomeSide }"
+            :aria-label="segment.outcomeLabel"
+            ><Trophy :size="15" :stroke-width="2.3" aria-hidden="true" /><span
+              class="outcome-team"
+              >{{ segment.outcomeTeamLabel ?? '未知' }}</span
+            ><span
+              class="outcome-side"
+              :class="segment.outcomeSide ?? 'unknown'"
+              aria-hidden="true"
+              >{{ outcomeSideBadge(segment.outcomeSide) }}</span
+            ></strong
+          >
+          <small>{{ segment.stateLabel || segmentStatusLabel(segment.status) }}</small>
         </button>
         <button
           v-if="currentMaskGeometry"
@@ -1011,27 +1070,34 @@ defineExpose({ resetView })
           data-timeline-interactive
           type="button"
           class="timeline-mask current"
-          :class="[
-            currentMaskTone,
-            currentMaskGeometry.density,
-            { selected: maskSelected, 'has-outcome': Boolean(currentMaskOutcome) },
-          ]"
+          :class="[currentMaskTone, currentMaskGeometry.density, { selected: maskSelected }]"
           :style="{
             left: `${currentMaskGeometry.left}%`,
             top: `${maskTop()}px`,
             width: `${currentMaskGeometry.width}%`,
           }"
           :aria-label="`${currentMaskLabel} · ${currentMaskOutcome ? `${currentMaskOutcome} · ` : ''}${currentMaskStateLabel}`"
-          @click.stop="timelineSelection.selectMask()"
+          :aria-pressed="maskSelected"
+          @click.stop="selectCurrentMask"
           @dblclick.stop="focusCurrentMask"
         >
           <span>{{ currentMaskLabel }}</span
           ><strong
             v-if="currentMaskOutcome"
             class="mask-outcome"
-            :class="{ unknown: currentMaskOutcome === '得分未知' }"
-            >{{ currentMaskOutcome }}</strong
-          ><small>{{ currentMaskStateLabel }}</small>
+            :class="{ unknown: !currentMaskOutcomeSide }"
+            :aria-label="currentMaskOutcome"
+            ><Trophy :size="15" :stroke-width="2.3" aria-hidden="true" /><span
+              class="outcome-team"
+              >{{ currentMaskOutcomeTeamLabel ?? '未知' }}</span
+            ><span
+              class="outcome-side"
+              :class="currentMaskOutcomeSide ?? 'unknown'"
+              aria-hidden="true"
+              >{{ outcomeSideBadge(currentMaskOutcomeSide) }}</span
+            ></strong
+          >
+          <small>{{ currentMaskStateLabel }}</small>
         </button>
         <button
           v-for="item in displayAnalysisSegments"
@@ -1088,12 +1154,12 @@ defineExpose({ resetView })
             left: `${pointPosition(point.id, point.captureTimeUs)}%`,
             top: `${pointTop()}px`,
           }"
-          :aria-label="`${point.segmentLabel} · ${ballEventLabel(point.ballEvent, { isTerminal: point.isTerminal, markerKind: point.markerKind })}${isPendingPoint(point.id) ? ' · 等待同步' : ''}${remoteEditors(point.id).length ? ` · ${remoteEditors(point.id).join('、')} 正在調整` : ''}`"
+          :aria-label="`${point.segmentLabel} · ${ballEventLabel(point.ballEvent, { isTerminal: point.isTerminal, markerKind: point.markerKind, previousEvent: point.previousBallEvent })}${isPendingPoint(point.id) ? ' · 等待同步' : ''}${remoteEditors(point.id).length ? ` · ${remoteEditors(point.id).join('、')} 正在調整` : ''}`"
           :aria-pressed="selectedKeyPointId === point.id"
           :title="
             isPendingPoint(point.id)
-              ? `${ballEventLabel(point.ballEvent, { isTerminal: point.isTerminal, markerKind: point.markerKind })} · 本機已標記，等待伺服器確認`
-              : `${ballEventLabel(point.ballEvent, { isTerminal: point.isTerminal, markerKind: point.markerKind })}${point.editable ? ' · 拖曳移動' : ''}${remoteEditors(point.id).length ? ` · ${remoteEditors(point.id).join('、')} 正在調整（提示，不阻擋）` : ''}`
+              ? `${ballEventLabel(point.ballEvent, { isTerminal: point.isTerminal, markerKind: point.markerKind, previousEvent: point.previousBallEvent })} · 本機已標記，等待伺服器確認`
+              : `${ballEventLabel(point.ballEvent, { isTerminal: point.isTerminal, markerKind: point.markerKind, previousEvent: point.previousBallEvent })}${point.editable ? ' · 拖曳移動' : ''}${remoteEditors(point.id).length ? ` · ${remoteEditors(point.id).join('、')} 正在調整（提示，不阻擋）` : ''}`
           "
           @pointerdown.stop="point.current && beginPointDrag($event, point.id, point.captureTimeUs)"
           @pointermove.stop="movePointDrag"
@@ -1164,7 +1230,7 @@ defineExpose({ resetView })
   position: relative;
   min-height: 0;
   margin: 0 12px;
-  overflow: hidden;
+  overflow: visible;
   background: #0c0f12;
   touch-action: pan-y;
   user-select: none;
@@ -1278,7 +1344,7 @@ defineExpose({ resetView })
 .lane-content {
   position: absolute;
   inset: 0 0 0 78px;
-  overflow: hidden;
+  overflow: visible;
   cursor: default;
 }
 .timeline-mask {
@@ -1505,21 +1571,18 @@ defineExpose({ resetView })
   height: 84px;
   padding: 8px 10px 44px;
 }
-.timeline-mask span,
+.timeline-mask > span,
 .timeline-mask small {
   display: block;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.timeline-mask.has-outcome span {
-  padding-right: 84px;
-}
 .timeline-mask small {
   position: absolute;
   right: 7px;
   bottom: 6px;
-  max-width: calc(100% - 14px);
+  max-width: 38%;
   color: currentColor;
   font-size: 0.55rem;
   font-weight: 650;
@@ -1527,29 +1590,72 @@ defineExpose({ resetView })
 }
 .mask-outcome {
   position: absolute;
-  right: 7px;
-  top: 7px;
-  max-width: calc(100% - 14px);
-  padding: 2px 6px;
+  left: 8px;
+  bottom: 6px;
+  max-width: 58%;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
   overflow: hidden;
-  border: 1px solid rgb(255 255 255 / 32%);
-  border-radius: 5px;
-  background: rgb(9 12 15 / 58%);
   color: #f4f7fa;
-  font-size: 0.52rem;
+  font-size: 0.58rem;
   font-weight: 750;
-  text-overflow: ellipsis;
   white-space: nowrap;
 }
+.mask-outcome > svg {
+  width: 15px;
+  height: 15px;
+  flex: none;
+  color: #f4c95d;
+  filter: drop-shadow(0 1px 2px rgb(0 0 0 / 60%));
+}
+.outcome-side {
+  width: 13px;
+  height: 13px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  border: 1px solid rgb(255 255 255 / 24%);
+  border-radius: 3px;
+  background: rgb(8 11 14 / 48%);
+  color: #e6eaf0;
+  font-size: 0.42rem;
+  font-weight: 800;
+  line-height: 1;
+}
+.outcome-side.left {
+  border-color: #63b3ff66;
+  background: rgb(21 52 78 / 72%);
+  color: #dceeff;
+}
+.outcome-side.right {
+  border-color: #a78bfa66;
+  background: rgb(48 38 75 / 72%);
+  color: #eee6ff;
+}
+.outcome-team {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 0.58rem;
+  font-weight: 750;
+  letter-spacing: 0.01em;
+}
 .mask-outcome.unknown {
-  border-style: dashed;
   color: #d4d9de;
+}
+.mask-outcome.unknown > svg {
+  color: #aeb6bf;
+}
+.outcome-side.unknown {
+  border-style: dashed;
+  color: #c5ccd3;
 }
 .analysis-rail {
   box-sizing: border-box;
   position: absolute;
   z-index: 3;
-  top: 132px;
+  top: 150px;
   height: 20px;
   min-width: 0;
   min-height: 20px;
@@ -1572,10 +1678,10 @@ defineExpose({ resetView })
 }
 .selected-point-editor-anchor {
   position: absolute;
-  z-index: 9;
-  top: 80px;
+  z-index: 20;
+  top: 100px;
   transform: translateX(-50%);
-  pointer-events: none;
+  pointer-events: auto;
 }
 .analysis-rail:hover {
   border-color: #71808d;
@@ -1633,8 +1739,11 @@ defineExpose({ resetView })
   transition: opacity 140ms cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 .timeline-mask.density-compact .mask-outcome {
-  opacity: 0;
-  pointer-events: none;
+  max-width: 36px;
+  gap: 2px;
+}
+.timeline-mask.density-compact .outcome-team {
+  display: none;
 }
 .timeline-mask.density-micro {
   padding-inline: 0;
@@ -1667,6 +1776,9 @@ defineExpose({ resetView })
   height: 7px;
   border-width: 1px;
   opacity: 0.88;
-  pointer-events: auto;
+  /* At full-match scale these hit targets overlap and the last DOM node wins.
+     Let the mask receive the first click and zoom without moving the playhead;
+     the individual points become interactive once they have physical space. */
+  pointer-events: none;
 }
 </style>

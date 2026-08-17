@@ -333,7 +333,66 @@ describe('DvrTimelineDock mounted interactions', () => {
       w.findAll('.keypoint-dot').every(point => point.classes().includes('density-micro')),
     ).toBe(true)
   })
-  it('renders the Rally outcome on current and historical masks', () => {
+  it('focuses a dense current mask before individual point editing without moving the playhead', async () => {
+    const longTimeline = {
+      ...timeline,
+      captureStartTimeUs: '0',
+      sourceEndCaptureTimeUs: '7200000000',
+      ingestFrontierCaptureTimeUs: '7200000000',
+      gapRanges: [],
+      availableRanges: [{ startUs: '0', endUs: '7200000000', discontinuity: 0 }],
+    }
+    const denseAnnotation: AnnotationRallySnapshot = {
+      ...annotation,
+      snapshot: {
+        ...annotation.snapshot,
+        key_points: [
+          {
+            ...annotation.snapshot.key_points[0]!,
+            capture_time_us: '30000000',
+          },
+          {
+            ...annotation.snapshot.key_points[0]!,
+            key_point_id: 'point-2',
+            sequence_index: 1,
+            marker_kind: 'contact',
+            capture_time_us: '34000000',
+          },
+          {
+            ...annotation.snapshot.key_points[0]!,
+            key_point_id: 'point-3',
+            sequence_index: 2,
+            marker_kind: 'contact',
+            capture_time_us: '38000000',
+          },
+        ],
+      },
+    }
+    const w = mount(DvrTimelineDock, {
+      props: {
+        timeline: longTimeline,
+        playhead: '36000000',
+        annotation: denseAnnotation,
+        editable: true,
+        maskRange: { startCaptureTimeUs: '30000000', endCaptureTimeUs: '38000000' },
+      },
+    })
+
+    expect(w.get('.timeline-mask.current').classes()).toContain('density-micro')
+    expect(
+      w.findAll('.keypoint-dot').every(point => point.classes().includes('density-micro')),
+    ).toBe(true)
+
+    await w.get('.timeline-mask.current').trigger('click')
+
+    expect(timelineSelection.selectMask).toHaveBeenCalledTimes(1)
+    expect(playback.seek).not.toHaveBeenCalled()
+    await vi.waitFor(() => {
+      expect(Number(w.emitted('scaleChange')?.at(-1)?.[0])).toBeGreaterThan(0.1)
+      expect(w.get('.timeline-mask.current').classes()).not.toContain('density-micro')
+    })
+  })
+  it('keeps compact side-and-team outcomes visible while the selection ring stays explicit', async () => {
     const readyAnnotation: AnnotationRallySnapshot = {
       ...annotation,
       snapshot: {
@@ -357,7 +416,9 @@ describe('DvrTimelineDock mounted interactions', () => {
     const historical = {
       id: 'historical-outcome',
       label: '第 1 局 · 回合 2',
-      outcomeLabel: '得分未知',
+      outcomeLabel: '左側 L 得分',
+      outcomeSide: 'left' as const,
+      outcomeTeamLabel: 'L',
       startCaptureTimeUs: '3100',
       endCaptureTimeUs: '3900',
       status: 'processing' as const,
@@ -367,15 +428,44 @@ describe('DvrTimelineDock mounted interactions', () => {
         timeline,
         playhead: null,
         annotation: readyAnnotation,
-        currentMaskOutcome: 'R 得分',
+        currentMaskOutcome: '右側 R 得分',
+        currentMaskOutcomeSide: 'right',
+        currentMaskOutcomeTeamLabel: 'R',
         segments: [historical],
       },
     })
 
-    expect(w.get('.timeline-mask.current .mask-outcome').text()).toBe('R 得分')
-    expect(w.get('.timeline-mask.current').attributes('aria-label')).toContain('R 得分')
-    expect(w.get('.timeline-mask.historical .mask-outcome').text()).toBe('得分未知')
-    expect(w.get('.timeline-mask.historical .mask-outcome').classes()).toContain('unknown')
+    expect(w.findAll('.mask-outcome')).toHaveLength(2)
+    expect(w.get('.timeline-mask.current .outcome-side').text()).toBe('R')
+    expect(w.get('.timeline-mask.current .outcome-team').text()).toBe('R')
+    const currentOutcome = w.get('.timeline-mask.current .mask-outcome')
+    expect(currentOutcome.get('svg').attributes('width')).toBe('15')
+    expect(currentOutcome.element.children[0]?.tagName).toBe('svg')
+    expect(currentOutcome.element.children[1]?.classList.contains('outcome-team')).toBe(true)
+    expect(currentOutcome.element.children[2]?.classList.contains('outcome-side')).toBe(true)
+    expect(w.get('.timeline-mask.historical .outcome-side').text()).toBe('L')
+    expect(w.get('.timeline-mask.historical .outcome-team').text()).toBe('L')
+    expect(w.get('.timeline-mask.current').classes()).not.toContain('selected')
+    expect(w.get('.timeline-mask.current').attributes('aria-pressed')).toBe('false')
+    expect(w.get('.timeline-mask.historical').classes()).not.toContain('selected')
+    expect(w.get('.timeline-mask.historical').attributes('aria-pressed')).toBe('false')
+
+    await w.setProps({ maskSelected: true })
+    expect(w.get('.timeline-mask.current .mask-outcome').attributes('aria-label')).toBe(
+      '右側 R 得分',
+    )
+    expect(w.get('.timeline-mask.current').attributes('aria-label')).toContain('右側 R 得分')
+    expect(w.get('.timeline-mask.current').classes()).toContain('selected')
+    expect(w.get('.timeline-mask.current').attributes('aria-pressed')).toBe('true')
+    expect(w.find('.timeline-mask.historical .mask-outcome').exists()).toBe(true)
+
+    await w.setProps({ maskSelected: false, selectedSegmentId: 'historical-outcome' })
+    expect(w.find('.timeline-mask.current .mask-outcome').exists()).toBe(true)
+    expect(w.get('.timeline-mask.historical .mask-outcome').attributes('aria-label')).toBe(
+      '左側 L 得分',
+    )
+    expect(w.get('.timeline-mask.historical').classes()).toContain('selected')
+    expect(w.get('.timeline-mask.historical').attributes('aria-pressed')).toBe('true')
   })
   it('opens the analysis tab through the parent segment without a second selection state', async () => {
     const analyzedSegment = {
@@ -575,6 +665,41 @@ describe('DvrTimelineDock mounted interactions', () => {
     await marker.trigger('click')
     expect(timelineSelection.selectKeyPoint).toHaveBeenCalledWith('point-1')
     expect(playback.seek).toHaveBeenCalledWith('1750')
+  })
+  it('passes the historical marker segment when selecting a past key-point', async () => {
+    const historical = {
+      id: 'historical-point-segment',
+      label: '第 1 局 · 回合 2',
+      startCaptureTimeUs: '3000',
+      endCaptureTimeUs: '3900',
+      status: 'analyzed' as const,
+      points: [
+        {
+          id: 'historical-point',
+          markerKind: 'contact',
+          isTerminal: false,
+          captureTimeUs: '3500',
+        },
+      ],
+    }
+    const w = mount(DvrTimelineDock, {
+      props: { timeline, playhead: null, annotation, segments: [historical] },
+    })
+    const marker = w
+      .findAll('.keypoint-dot')
+      .find(point => point.attributes('aria-label')?.includes('第 1 局 · 回合 2'))
+    expect(marker).toBeDefined()
+
+    await marker!.trigger('click')
+
+    expect(timelineSelection.selectHistorical).toHaveBeenCalledWith(
+      'historical-point-segment',
+      '3500',
+    )
+    expect(timelineSelection.selectKeyPoint).toHaveBeenCalledWith(
+      'historical-point',
+      'historical-point-segment',
+    )
   })
   it('previews a marker drag and emits a ready-range target with a non-blocking edit hint', async () => {
     const w = mount(DvrTimelineDock, {

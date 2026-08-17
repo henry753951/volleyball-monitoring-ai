@@ -8,7 +8,7 @@ invent fields outside these versioned files.
 - `media/playback-window-request.schema.json` / `playback-window-extend-request.schema.json` / `playback-window-descriptor.schema.json`: create and append to one bounded live/archive HLS window without changing its manifest identity.
 - `media/playback-cursor.schema.json` / `resolved-media-anchor.schema.json`: client observation and authoritative server result.
 - `media/frame-step-request.schema.json` / `canonical-frame-anchor.schema.json`: bounded, batched previous/next canonical sample stepping with one authoritative response.
-- `annotation/realtime.schema.json`: v4.0 keeps canonical `START_RALLY`/`END_RALLY` boundaries and adds human BallEvent kind/result/actor plus deterministic repair effects. Z writes boundaries only; X/C/V/B create or edit ordered ball events in both OPEN and READY until Enter creates the immutable submission. `SET_BALL_EVENT_ACTOR` assigns or clears an active match-roster actor without changing timing or invoking model work. Score resolution no longer closes a Rally or gates submission. Active ordinary drafts are device-session scoped; room broadcasts do not select another client's draft, and reconnect retries the same command id before refetch/rebase.
+- `annotation/realtime.schema.json`: v4.0 keeps canonical `START_RALLY`/`END_RALLY` boundaries and human BallEvent kind/result/actor plus deterministic repair effects. Z writes boundaries only; X creates CONTACT and C creates or edits a legal SPIKE. V/B only toggle success/failure on the selected typed event and never create a point or change its kind. Results remain nullable and may be submitted after an explicit UI warning. SERVE optionally carries JUMP/STANDING style and defaults to JUMP. A third point may infer an untouched second-point CONTACT as RECEIVE and an untouched empty serve as successful; persisted field locks prevent overwriting human edits. `SET_BALL_EVENT_ACTOR` assigns or clears an active match-roster actor without changing timing or invoking model work. Active ordinary drafts are device-session scoped; room broadcasts do not select another client's draft, and reconnect retries the same command id before refetch/rebase.
 - `ai/capabilities.schema.json`, `job.schema.json`, `job-accepted.schema.json`: provider handshake and immutable job submission.
 - `ai/provider-capabilities-v3.schema.json`, `provider-work-envelope.schema.json`, and
   `provider-work-realtime.schema.json`: capability-gated multi-work transport for `ANALYSIS`,
@@ -30,7 +30,7 @@ invent fields outside these versioned files.
   immutable AI output and exposes the latest durable pose-first actor projection independently from
   an explicit human actor override.
 - `ai/reid-roster-snapshot.schema.json`, `reid-feature-job.schema.json`,
-  `reid-feature-result.schema.json`, `reid-jersey-vlm-response.schema.json`,
+  `reid-feature-result.schema.json`,
   `reid-bank-snapshot.schema.json`, `reid-association-job.schema.json`, and
   `reid-association-result.schema.json`: independently rerunnable feature/association jobs with one
   explicit immutable roster input and eligible-history snapshot. Raw VLM responses remain a

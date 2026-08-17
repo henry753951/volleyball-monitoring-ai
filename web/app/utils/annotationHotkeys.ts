@@ -12,8 +12,8 @@ export type AnnotationAction =
   | 'service'
   | 'contact'
   | 'spike'
-  | 'receive_success'
-  | 'receive_error'
+  | 'event_success'
+  | 'event_failure'
   | 'close_left'
   | 'close_right'
   | 'close_unknown'
@@ -51,16 +51,16 @@ export const ANNOTATION_COMMANDS = [
     description: '選取第三球以後的點時改為殺球；未選取時在目前畫面新增殺球點',
   },
   {
-    action: 'receive_success',
+    action: 'event_success',
     group: 'annotation',
-    label: '接發成功',
-    description: '選取第二球時改為接發成功；未選取時在第二球位置新增接發成功',
+    label: '所選球點成功',
+    description: '將目前選取的發球、接球或殺球標記為成功；不會新增球點',
   },
   {
-    action: 'receive_error',
+    action: 'event_failure',
     group: 'annotation',
-    label: '接發失誤',
-    description: '選取第二球時改為接發失誤；未選取時在第二球位置新增接發失誤',
+    label: '所選球點失敗',
+    description: '將目前選取的發球、接球或殺球標記為失敗；不會新增球點',
   },
   {
     action: 'close_left',
@@ -120,21 +120,25 @@ export const HOTKEY_COMMANDS: ReadonlyArray<HotkeyCommandDefinition> = [
   ...ANNOTATION_COMMANDS,
   ...MEDIA_COMMANDS,
 ]
-const VERSION_SIX_ACTIONS = new Set<HotkeyCommand>(['spike', 'receive_success', 'receive_error'])
+const CURRENT_BALL_EVENT_ACTIONS = new Set<HotkeyCommand>([
+  'spike',
+  'event_success',
+  'event_failure',
+])
 const PRE_VERSION_SIX_ANNOTATION_COMMANDS = ANNOTATION_COMMANDS.filter(
-  command => !VERSION_SIX_ACTIONS.has(command.action),
+  command => !CURRENT_BALL_EVENT_ACTIONS.has(command.action),
 )
 
-export const HOTKEY_PREFERENCES_VERSION = 6 as const
-export const HOTKEY_PREFERENCES_STORAGE_KEY = 'volleyball-monitoring-ai:hotkeys:6'
+export const HOTKEY_PREFERENCES_VERSION = 7 as const
+export const HOTKEY_PREFERENCES_STORAGE_KEY = 'volleyball-monitoring-ai:hotkeys:7'
 export const LEGACY_ANNOTATION_HOTKEYS_STORAGE_KEY = 'volleyball-monitoring-ai:annotation-hotkeys:2'
 
 export const DEFAULT_HOTKEY_BINDINGS: Readonly<HotkeyBindings> = Object.freeze({
   service: 'Z',
   contact: 'X',
   spike: 'C',
-  receive_success: 'V',
-  receive_error: 'B',
+  event_success: 'V',
+  event_failure: 'B',
   close_left: '<',
   close_right: '>',
   close_unknown: '?',
@@ -226,6 +230,12 @@ export function formatBindingForDisplay(
   options: FormatDisplayOptions = {},
 ): string {
   return formatForDisplay(binding, options)
+}
+
+export function shiftedHotkeyBinding(binding: string): string {
+  return binding.split('+').some(part => part.toLowerCase() === 'shift')
+    ? binding
+    : `Shift+${binding}`
 }
 
 function bindingMatchesOnEitherPlatform(left: string, right: string): boolean {
@@ -343,18 +353,18 @@ function assignMigrationNavigationDefaults(bindings: HotkeyBindings) {
   return true
 }
 
-function assignVersionSixBallEventDefaults(bindings: HotkeyBindings) {
-  const candidates: Record<'spike' | 'receive_success' | 'receive_error', string[]> = {
+function assignCurrentBallEventDefaults(bindings: HotkeyBindings) {
+  const candidates: Record<'spike' | 'event_success' | 'event_failure', string[]> = {
     spike: ['C', 'Shift+C'],
-    receive_success: ['V', 'Shift+V'],
-    receive_error: ['B', 'Shift+B'],
+    event_success: ['V', 'Shift+V'],
+    event_failure: ['B', 'Shift+B'],
   }
-  for (const action of ['spike', 'receive_success', 'receive_error'] as const) {
+  for (const action of ['spike', 'event_success', 'event_failure'] as const) {
     const candidate = candidates[action].find(binding =>
       HOTKEY_COMMANDS.every(
         command =>
           command.action === action ||
-          VERSION_SIX_ACTIONS.has(command.action) ||
+          CURRENT_BALL_EVENT_ACTIONS.has(command.action) ||
           !bindingMatchesOnEitherPlatform(bindings[command.action], binding),
       ),
     )
@@ -369,7 +379,7 @@ function migrateLegacyBindings(value: unknown): HotkeyBindings | null {
   const bindings = normalizeBindingRecord(value, PRE_VERSION_SIX_ANNOTATION_COMMANDS)
   if (
     !bindings ||
-    !assignVersionSixBallEventDefaults(bindings) ||
+    !assignCurrentBallEventDefaults(bindings) ||
     !assignMigrationNavigationDefaults(bindings)
   )
     return null
@@ -382,7 +392,7 @@ function migrateVersionThree(value: unknown): HotkeyBindings | null {
   const bindings = restoreDefaultHotkeys()
   for (const command of HOTKEY_COMMANDS) {
     if (
-      VERSION_SIX_ACTIONS.has(command.action) ||
+      CURRENT_BALL_EVENT_ACTIONS.has(command.action) ||
       command.action === 'play_pause' ||
       command.action === 'key_point_previous' ||
       command.action === 'key_point_next'
@@ -395,7 +405,7 @@ function migrateVersionThree(value: unknown): HotkeyBindings | null {
     bindings[command.action] =
       command.action === 'contact' && normalized === 'Space' ? 'X' : normalized
   }
-  if (!assignVersionSixBallEventDefaults(bindings) || !assignMigrationNavigationDefaults(bindings))
+  if (!assignCurrentBallEventDefaults(bindings) || !assignMigrationNavigationDefaults(bindings))
     return null
   return normalizeBindingRecord(bindings, HOTKEY_COMMANDS)
 }
@@ -406,7 +416,7 @@ function migrateVersionFour(value: unknown): HotkeyBindings | null {
   const bindings = restoreDefaultHotkeys()
   for (const command of HOTKEY_COMMANDS) {
     if (
-      VERSION_SIX_ACTIONS.has(command.action) ||
+      CURRENT_BALL_EVENT_ACTIONS.has(command.action) ||
       command.action === 'key_point_previous' ||
       command.action === 'key_point_next'
     )
@@ -417,7 +427,7 @@ function migrateVersionFour(value: unknown): HotkeyBindings | null {
     if (!normalized || isBrowserReservedHotkey(normalized)) return null
     bindings[command.action] = normalized
   }
-  if (!assignVersionSixBallEventDefaults(bindings) || !assignMigrationNavigationDefaults(bindings))
+  if (!assignCurrentBallEventDefaults(bindings) || !assignMigrationNavigationDefaults(bindings))
     return null
   return normalizeBindingRecord(bindings, HOTKEY_COMMANDS)
 }
@@ -427,14 +437,14 @@ function migrateVersionFive(value: unknown): HotkeyBindings | null {
   const source = isRecord(value.bindings) ? value.bindings : value
   const bindings = restoreDefaultHotkeys()
   for (const command of HOTKEY_COMMANDS) {
-    if (VERSION_SIX_ACTIONS.has(command.action)) continue
+    if (CURRENT_BALL_EVENT_ACTIONS.has(command.action)) continue
     const raw = source[command.action]
     if (typeof raw !== 'string') return null
     const normalized = normalizeRecordedHotkey(raw)
     if (!normalized || isBrowserReservedHotkey(normalized)) return null
     bindings[command.action] = normalized
   }
-  if (!assignVersionSixBallEventDefaults(bindings)) return null
+  if (!assignCurrentBallEventDefaults(bindings)) return null
   return normalizeBindingRecord(bindings, HOTKEY_COMMANDS)
 }
 

@@ -1,5 +1,5 @@
 {
-  "schema_version": "1.1.0",
+  "schema_version": "2.0.0",
   "provider_job_id": "provider-job-association-001",
   "association_run_id": "association-run-001",
   "match_id": "match-001",
@@ -11,9 +11,13 @@
   "roster_snapshot_artifact_id": "roster-snapshot-001",
   "recipe": {
     "namespace": "reid/nested-part-v2",
-    "candidate_modalities": ["DINO", "OSNET", "KPR_PROMPT", "JERSEY_VLM"],
+    "candidate_modalities": ["DINO", "OSNET", "KPR_PROMPT"],
     "same_clip_grouping": true,
-    "allow_abstention": true,
-    "manual_assignment_precedence": true
+    "allow_new_gid": true,
+    "manual_assignment_precedence": true,
+    "team_occupancy_prior": {
+      "expected_count": 6,
+      "enforcement": "SOFT"
+    }
   }
 }
