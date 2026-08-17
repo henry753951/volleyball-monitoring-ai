@@ -447,9 +447,11 @@ export class MediaIndexerRuntime {
             size: metadata.size,
             stable,
           })
-          // Require two complete unchanged scan intervals. One interval is too
-          // easy to satisfy during a short writer or shared-volume stall.
-          if (stable < 2 || Date.now() - metadata.mtimeMs < 1_000) continue
+          // Require two unchanged scans even for atomically renamed source
+          // segments. At the 250 ms default this makes a finalized live/VOD
+          // fragment eligible in roughly 0.5-0.75 s while the bounded probe
+          // retry still fails closed on a recorder that was not truly done.
+          if (stable < 2 || Date.now() - metadata.mtimeMs < 500) continue
           await enqueueUnique(this.options.queue, item)
           enqueued += 1
         }
@@ -478,7 +480,7 @@ export class MediaIndexerRuntime {
       void this.scan().catch(() => {
         this.options.log?.('media-indexer periodic scan failed')
       })
-    }, this.options.intervalMs ?? 1_000)
+    }, this.options.intervalMs ?? 250)
   }
 
   async stop(): Promise<void> {

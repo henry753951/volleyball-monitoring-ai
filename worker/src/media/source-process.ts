@@ -14,7 +14,6 @@ export type MediaSourceProcessOptions = {
   youtubeExtractorArgs: string
   youtubeFormat: string
   youtubeLiveMaxConsecutiveFailures?: number
-  youtubeVodConcurrentFragments: number
   youtubeVodFormat: string
   ytDlpCommand?: string
   ffmpegCommand?: string
@@ -391,46 +390,44 @@ function youtubeArguments(options: MediaSourceProcessOptions): string[] {
 }
 
 export function buildYoutubeProbeArgs(url: string, options: MediaSourceProcessOptions): string[] {
-  return [
-    '--dump-single-json',
-    ...youtubeArguments(options),
-    '--format',
-    options.youtubeFormat,
-    url,
-  ]
+  return buildYoutubeProbeArgsForFormat(url, options, options.youtubeFormat)
 }
 
-export function buildYoutubeVodDownloadArgs(
+export function buildYoutubeVodProbeArgs(
   url: string,
-  output: string,
   options: MediaSourceProcessOptions,
 ): string[] {
-  return [
-    ...youtubeArguments(options),
-    '--abort-on-unavailable-fragments',
-    '--concurrent-fragments',
-    String(options.youtubeVodConcurrentFragments),
-    '--format',
-    options.youtubeVodFormat,
-    '--merge-output-format',
-    'mp4',
-    '--output',
-    output,
-    url,
-  ]
+  return buildYoutubeProbeArgsForFormat(url, options, options.youtubeVodFormat)
+}
+
+function buildYoutubeProbeArgsForFormat(
+  url: string,
+  options: MediaSourceProcessOptions,
+  format: string,
+): string[] {
+  return ['--dump-single-json', ...youtubeArguments(options), '--format', format, url]
 }
 
 async function probeYoutube(
   url: string,
   options: MediaSourceProcessOptions,
   signal: AbortSignal,
+  format: 'live' | 'vod' = 'live',
 ): Promise<YoutubeMetadata> {
   const result = await runProcess(
     options.ytDlpCommand ?? 'yt-dlp',
-    buildYoutubeProbeArgs(url, options),
+    format === 'vod' ? buildYoutubeVodProbeArgs(url, options) : buildYoutubeProbeArgs(url, options),
     signal,
   )
   return JSON.parse(result.stdout.toString('utf8')) as YoutubeMetadata
+}
+
+function youtubeVideoCodec(metadata: YoutubeMetadata): string {
+  return (
+    metadata.requested_formats?.find(format => format.vcodec && format.vcodec !== 'none')?.vcodec ??
+    metadata.vcodec ??
+    ''
+  ).toLowerCase()
 }
 
 function youtubeInputs(metadata: YoutubeMetadata): MediaInput[] {
@@ -548,37 +545,26 @@ export function createMediaSourceProcess(options: MediaSourceProcessOptions) {
         'YouTube media work has no source URL',
       )
     let metadata = await probeYoutube(work.sourceUrl, options, signal)
-    const durationUs = youtubeDuration(metadata)
+    let durationUs = youtubeDuration(metadata)
     if (classifyYoutubeSource(metadata) === 'youtube_vod') {
+      // Resolve fresh progressive URLs for every attempt and segment those
+      // inputs directly. Finalized fMP4 files become visible while the source
+      // is still downloading; retry seeks from the persisted checkpoint.
+      metadata = await probeYoutube(work.sourceUrl, options, signal, 'vod')
+      durationUs ??= youtubeDuration(metadata)
       await observer.classified({ sourceDurationUs: durationUs, sourceKind: 'youtube_vod' })
-      const workspace = safeChild(options.workRoot, `${work.id}-download`)
-      await rm(workspace, { force: true, recursive: true })
-      await mkdir(workspace, { recursive: true })
-      try {
-        await runProcess(
-          options.ytDlpCommand ?? 'yt-dlp',
-          buildYoutubeVodDownloadArgs(work.sourceUrl, join(workspace, 'source.%(ext)s'), options),
-          signal,
-          2 * 1024 * 1024,
-        )
-        const downloaded = (await readdir(workspace)).find(
-          name => name.startsWith('source.') && name.endsWith('.mp4'),
-        )
-        if (!downloaded)
-          throw new MediaSourceProcessError(
-            'YOUTUBE_DOWNLOAD_MISSING',
-            'YouTube download did not produce an MP4',
-          )
-        const path = join(workspace, downloaded)
-        const probe = await probeFile(path, options, signal)
-        const count = await segmentFile(work, path, options, observer, signal, probe.codec)
-        return {
-          expectedSegments: count,
-          sourceDurationUs: durationUs ?? probe.durationUs,
-          sourceKind: 'youtube_vod',
-        }
-      } finally {
-        await rm(workspace, { force: true, recursive: true }).catch(() => undefined)
+      const count = await segmentInputs(
+        work,
+        youtubeInputs(metadata),
+        options,
+        observer,
+        signal,
+        youtubeVideoCodec(metadata),
+      )
+      return {
+        expectedSegments: count,
+        sourceDurationUs: durationUs,
+        sourceKind: 'youtube_vod',
       }
     }
 

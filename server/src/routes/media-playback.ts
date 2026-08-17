@@ -720,9 +720,12 @@ export const mediaPlaybackRoutes =
           const bounds = timelineBounds(
             (await loadProgramSegments(window.dvrProgramId)).map(toCandidate),
           )
+          // Archive describes where the operator is viewing, not whether the
+          // bounded manifest can still grow. Keep one stable rolling playlist
+          // until the durable program is finished and this window reaches its
+          // end; hls.js can then append mapping revisions without reloading src.
           const terminal =
-            window.mode === 'ARCHIVE' ||
-            (window.dvrProgram.status === 'FINISHED' && window.captureEndUs >= bounds.endUs)
+            window.dvrProgram.status === 'FINISHED' && window.captureEndUs >= bounds.endUs
           return reply
             .type('application/vnd.apple.mpegurl')
             .header('cache-control', 'no-store, must-revalidate')

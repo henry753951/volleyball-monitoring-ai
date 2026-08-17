@@ -39,14 +39,11 @@ export function createDvrPlaybackService(
     if (!element) throw new Error('video element is not mounted')
 
     if (!requiresPlaybackPipelineReplacement(activeWindow.value, descriptor)) {
-      const mappingChanged = activeWindow.value?.mapping_version !== descriptor.mapping_version
       activeWindow.value = descriptor
-      // Archive manifests are sealed to stop playlist polling. When the same
-      // bounded window gains a mapping revision, reload that stable URL once.
-      if (mappingChanged && descriptor.mode === 'archive') {
-        hls?.loadSource(descriptor.manifest_url)
-      }
-      hls?.startLoad(Math.max(0, element.currentTime))
+      // Mapping revisions of one playback window only append a continuous tail
+      // to the stable manifest. hls.js/native HLS polls that URL and extends the
+      // existing buffer. Calling loadSource/startLoad here resets media state and
+      // can publish a transient currentTime=0 cursor back to the workstation.
       return
     }
 

@@ -11,7 +11,10 @@ import { schema } from './graphql/schema.js'
 import { evaluateReadiness, type ReadinessProbe } from './health/readiness.js'
 import { createPrismaCursorWindowStore, mediaCursorRoutes } from './media/cursor-routes.js'
 import { resolvePlaybackCursor } from './media/cursor-resolution.js'
-import { createMinioObjectReaderFromEnv } from './media/minio-object-reader.js'
+import {
+  createDvrObjectReaderFromEnv,
+  createMinioObjectReaderFromEnv,
+} from './media/minio-object-reader.js'
 import { createMediaObjectRemoverFromEnv } from './media/media-object-remover.js'
 import { createSampleIndexRepository } from './media/sample-index-repository.js'
 import { createPersistedSampleSnapResolver } from './media/sample-snap-resolver.js'
@@ -51,7 +54,7 @@ const redisUrl = process.env.REDIS_URL
 const minioEndpoint = process.env.MINIO_ENDPOINT?.replace(/\/+$/, '')
 const omeApiEndpoint = process.env.OME_API_URL?.replace(/\/+$/, '')
 const omeApiToken = process.env.OME_API_ACCESS_TOKEN?.trim()
-const mediaObjectReader = createMinioObjectReaderFromEnv()
+const mediaObjectReader = createDvrObjectReaderFromEnv()
 if (!mediaObjectReader) {
   throw new Error('MinIO reader configuration is required for media playback and cursor resolution')
 }

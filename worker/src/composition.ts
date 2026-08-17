@@ -1,6 +1,7 @@
 import { mediaIndexerConfig } from './media/runtime-config.js'
 import { createPgBossMediaRuntime, MediaIndexerRuntime } from './roles/media-indexer.js'
 import { createMinioMediaObjectStore } from './media/minio-object-store.js'
+import { createTieredMediaObjectStore } from './media/tiered-media-object-store.js'
 import { FinalizedFileArtifactSource } from './media/fmp4-artifact-source.js'
 import { PrismaIngestRepository } from './media/prisma-ingest-repository.js'
 import { ingestEnvelope } from './media/ingest-handler.js'
@@ -83,7 +84,7 @@ export async function createMediaComposition() {
   const { db } = await import('@volleyball-monitoring/db')
   const repository = new PrismaIngestRepository(db)
   const endpoint = new URL(config.MINIO_ENDPOINT)
-  const store = createMinioMediaObjectStore({
+  const archiveStore = createMinioMediaObjectStore({
     endpointUrl: config.MINIO_ENDPOINT,
     useTls: endpoint.protocol === 'https:',
     accessKey: config.MINIO_ACCESS_KEY,
@@ -91,6 +92,14 @@ export async function createMediaComposition() {
     bucket: config.MINIO_DVR_BUCKET,
     operationTimeoutMs: 30_000,
   })
+  const tieredStore = config.MEDIA_HOT_ROOT
+    ? createTieredMediaObjectStore({
+        root: config.MEDIA_HOT_ROOT,
+        archive: archiveStore,
+        archiveConcurrency: config.MEDIA_ARCHIVE_CONCURRENCY,
+      })
+    : null
+  const store = tieredStore ?? archiveStore
   const artifactSource = new FinalizedFileArtifactSource({
     maxInputBytes: 8_000_000_000n,
     maxInitBytes: 64_000_000n,
@@ -138,7 +147,6 @@ export async function createMediaComposition() {
       youtubeExtractorArgs: config.YOUTUBE_EXTRACTOR_ARGS,
       youtubeFormat: config.YOUTUBE_FORMAT,
       youtubeLiveMaxConsecutiveFailures: config.YOUTUBE_LIVE_MAX_CONSECUTIVE_FAILURES,
-      youtubeVodConcurrentFragments: config.YOUTUBE_VOD_CONCURRENT_FRAGMENTS,
       youtubeVodFormat: config.YOUTUBE_VOD_FORMAT,
       ytDlpCommand: config.YT_DLP_COMMAND,
     }),
@@ -212,17 +220,36 @@ export async function createMediaComposition() {
           lastErrorAt: omeSnapshot.lastErrorAt,
           lastErrorName: omeSnapshot.lastError,
         },
+        ...(tieredStore
+          ? [
+              {
+                name: 'media-archive',
+                critical: false,
+                status: tieredStore.snapshot.lastErrorAt
+                  ? ('degraded' as const)
+                  : ('healthy' as const),
+                activeWork: tieredStore.snapshot.pending,
+                failedJobs: tieredStore.snapshot.lastErrorAt ? 1 : 0,
+                backlog: tieredStore.snapshot.pending,
+                lastHeartbeatAt: tieredStore.snapshot.lastSuccessAt,
+                lastSuccessAt: tieredStore.snapshot.lastSuccessAt,
+                lastErrorAt: tieredStore.snapshot.lastErrorAt,
+                lastErrorName: tieredStore.snapshot.lastErrorAt ? 'MediaArchiveError' : null,
+              },
+            ]
+          : []),
       ]
     },
     async start() {
       if (started) throw new Error('media composition already started')
       try {
+        await tieredStore?.start()
         await indexer.start()
         await sources.start()
         await ome.start()
         started = true
       } catch (error) {
-        await Promise.allSettled([ome.stop(), sources.stop(), indexer.stop()])
+        await Promise.allSettled([ome.stop(), sources.stop(), indexer.stop(), tieredStore?.stop()])
         await db.$disconnect()
         throw error
       }
@@ -230,7 +257,12 @@ export async function createMediaComposition() {
     async stop() {
       if (!started) return
       started = false
-      const results = await Promise.allSettled([ome.stop(), sources.stop(), indexer.stop()])
+      const results = await Promise.allSettled([
+        ome.stop(),
+        sources.stop(),
+        indexer.stop(),
+        tieredStore?.stop(),
+      ])
       await db.$disconnect()
       const errors = results
         .filter(result => result.status === 'rejected')

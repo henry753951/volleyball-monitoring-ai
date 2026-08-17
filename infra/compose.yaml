@@ -138,11 +138,13 @@ services:
       - '${SERVER_DEV_BIND:-0.0.0.0}:${SERVER_DEV_PORT:-4000}:4000'
     environment:
       MEDIA_IMPORT_ROOT: /var/lib/volleyball/media-imports
+      MEDIA_HOT_ROOT: /var/lib/volleyball/media-hot
       MEDIA_RECORDING_ROOT: /recordings
       OME_API_ACCESS_TOKEN: ${OME_API_ACCESS_TOKEN:?OME_API_ACCESS_TOKEN is required}
       OME_API_URL: http://ovenmediaengine:8081
     volumes:
       - ${MEDIA_IMPORT_HOST_PATH:-${DEV_DATA_ROOT:-../.data/runtime}/media-imports}:/var/lib/volleyball/media-imports
+      - ${MEDIA_HOT_HOST_PATH:-${DEV_DATA_ROOT:-../.data/runtime}/media-hot}:/var/lib/volleyball/media-hot
       - ${MEDIA_SPOOL_HOST_PATH:-${DEV_DATA_ROOT:-../.data/runtime}/media-spool}:/recordings
     depends_on:
       postgres: { condition: service_healthy }
@@ -203,6 +205,8 @@ services:
       WORKER_HEALTH_PORT: 4101
       MEDIA_IMPORT_ROOT: /var/lib/volleyball/media-imports
       MEDIA_INGEST_BASE_URL: rtmp://ovenmediaengine:1935/app
+      MEDIA_HOT_ROOT: /var/lib/volleyball/media-hot
+      MEDIA_INDEXER_SCAN_INTERVAL_MS: ${MEDIA_INDEXER_SCAN_INTERVAL_MS:-250}
       MEDIA_SPOOL_DIR: /var/lib/volleyball/media-spool
       MEDIA_SOURCE_WORK_ROOT: /var/lib/volleyball/media-imports/.work
       OME_API_ACCESS_TOKEN: ${OME_API_ACCESS_TOKEN:?OME_API_ACCESS_TOKEN is required}
@@ -210,10 +214,10 @@ services:
       YOUTUBE_COOKIES_FILE: ${YOUTUBE_COOKIES_FILE:-}
       YOUTUBE_FORMAT: ${YOUTUBE_FORMAT:-best[protocol*=m3u8][height=1080][fps>=59][fps<=61][vcodec^=avc][acodec!=none]/bestvideo[height=1080][fps>=59][fps<=61][vcodec^=avc]+bestaudio[acodec^=mp4a]/bestvideo[height=1080][vcodec^=avc]+bestaudio[acodec^=mp4a]/best[height=1080][vcodec^=avc][acodec!=none]/best[protocol*=m3u8][height<=1080][vcodec^=avc][acodec!=none]/bestvideo[height<=1080][vcodec^=avc]+bestaudio[acodec^=mp4a]/best[height<=1080][vcodec^=avc][acodec!=none]}
       YOUTUBE_EXTRACTOR_ARGS: ${YOUTUBE_EXTRACTOR_ARGS:-youtube:player_client=default}
-      YOUTUBE_VOD_CONCURRENT_FRAGMENTS: ${YOUTUBE_VOD_CONCURRENT_FRAGMENTS:-4}
       YOUTUBE_VOD_FORMAT: ${YOUTUBE_VOD_FORMAT:-bestvideo[protocol^=http][height=1080][fps>=59][fps<=61][vcodec^=avc]+bestaudio[protocol^=http][acodec^=mp4a]/bestvideo[protocol^=http][height=1080][vcodec^=avc]+bestaudio[protocol^=http][acodec^=mp4a]/bestvideo[height=1080][vcodec^=avc]+bestaudio[acodec^=mp4a]/best[height=1080][vcodec^=avc][acodec!=none]/bestvideo[protocol^=http][height<=1080][vcodec^=avc]+bestaudio[protocol^=http][acodec^=mp4a]/bestvideo[height<=1080][vcodec^=avc]+bestaudio[acodec^=mp4a]/best[height<=1080][vcodec^=avc][acodec!=none]}
     volumes:
       - ${MEDIA_IMPORT_HOST_PATH:-${DEV_DATA_ROOT:-../.data/runtime}/media-imports}:/var/lib/volleyball/media-imports
+      - ${MEDIA_HOT_HOST_PATH:-${DEV_DATA_ROOT:-../.data/runtime}/media-hot}:/var/lib/volleyball/media-hot
       - ${MEDIA_SPOOL_HOST_PATH:-${DEV_DATA_ROOT:-../.data/runtime}/media-spool}:/var/lib/volleyball/media-spool
       - ${RUNTIME_SECRETS_HOST_PATH:-${DEV_DATA_ROOT:-../.data/runtime}/secrets}:/run/secrets:ro
     depends_on:
@@ -241,7 +245,9 @@ services:
     environment:
       WORKER_ROLE: workflow
       WORKER_HEALTH_PORT: 4102
-    volumes: []
+      MEDIA_HOT_ROOT: /var/lib/volleyball/media-hot
+    volumes:
+      - ${MEDIA_HOT_HOST_PATH:-${DEV_DATA_ROOT:-../.data/runtime}/media-hot}:/var/lib/volleyball/media-hot
 
   web:
     profiles: [app]
