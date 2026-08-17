@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto'
 import { createReadStream, createWriteStream } from 'node:fs'
 import { stat } from 'node:fs/promises'
+import { isAbsolute, relative, resolve } from 'node:path'
 import { pipeline } from 'node:stream/promises'
 import { Client } from 'minio'
 
@@ -25,6 +26,35 @@ export function createWorkflowMinio(): WorkflowMinio {
   }
 }
 
+async function hotObjectPath(asset: { bucket: string; objectKey: string }): Promise<string | null> {
+  const rootValue = process.env.MEDIA_HOT_ROOT?.trim()
+  if (!rootValue) return null
+  if (
+    !asset.bucket ||
+    asset.bucket.includes('/') ||
+    asset.bucket.includes('\\') ||
+    !asset.objectKey ||
+    asset.objectKey.startsWith('/') ||
+    asset.objectKey.includes('\\') ||
+    asset.objectKey.split('/').some(part => !part || part === '.' || part === '..')
+  ) {
+    throw new Error('source media asset location is invalid')
+  }
+  const root = resolve(rootValue)
+  const path = resolve(root, asset.bucket, ...asset.objectKey.split('/'))
+  const relation = relative(root, path)
+  if (!relation || relation.startsWith('..') || isAbsolute(relation)) {
+    throw new Error('source media asset escapes the hot storage root')
+  }
+  try {
+    const metadata = await stat(path)
+    return metadata.isFile() ? path : null
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null
+    throw error
+  }
+}
+
 export async function appendVerifiedObject(
   client: Client,
   asset: { bucket: string; objectKey: string; byteLength: bigint | null; sha256: string | null },
@@ -32,7 +62,10 @@ export async function appendVerifiedObject(
 ): Promise<void> {
   if (asset.byteLength === null || asset.sha256 === null)
     throw new Error('source media asset metadata is incomplete')
-  const source = await client.getObject(asset.bucket, asset.objectKey)
+  const hotPath = await hotObjectPath(asset)
+  const source = hotPath
+    ? createReadStream(hotPath)
+    : await client.getObject(asset.bucket, asset.objectKey)
   const digest = createHash('sha256')
   let bytes = 0n
   source.on('data', (chunk: Buffer) => {
@@ -53,7 +86,10 @@ export async function readVerifiedObject(
     throw new Error('source media asset metadata is incomplete')
   if (asset.byteLength < 0n || asset.byteLength > maxBytes)
     throw new Error('source media asset exceeds the bounded read limit')
-  const source = await client.getObject(asset.bucket, asset.objectKey)
+  const hotPath = await hotObjectPath(asset)
+  const source = hotPath
+    ? createReadStream(hotPath)
+    : await client.getObject(asset.bucket, asset.objectKey)
   const digest = createHash('sha256')
   const chunks: Buffer[] = []
   let bytes = 0n

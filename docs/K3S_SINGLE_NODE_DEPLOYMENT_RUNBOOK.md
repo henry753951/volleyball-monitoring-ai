@@ -145,15 +145,32 @@ sudo k3s kubectl -n volleyball-monitoring rollout status deployment/server --tim
 Validate the cluster-local metrics endpoint before testing through the public hostname. HTTP 200 and
 the `minio_cluster_health_capacity_usable_*_bytes` series prove that the capacity probe can work.
 
-## YouTube VOD ingest and the misleading slow-rate symptom
+## Growing VOD/live ingest and the misleading slow-rate symptom
 
-The current VOD path is not a streaming-to-playback path:
+VOD and live capture now share one growing canonical playback path:
 
-1. `worker-media` asks `yt-dlp` to download the complete selected video and audio streams.
-2. `yt-dlp` invokes FFmpeg to merge the complete inputs into MP4 using `-movflags +faststart`.
-3. The Worker then cuts the merged file into two-second fragmented-MP4 files.
-4. The recording monitor validates stable files, uploads objects to MinIO, and indexes them in strict
-   capture order.
+1. `worker-media` resolves fresh YouTube video/audio URLs. VOD inputs stream directly into the
+   checkpointed two-second fMP4 segmenter; there is no complete MP4 merge or `+faststart` pass.
+2. YouTube Live relays to OME, which finalizes the same two-second recording units.
+3. The indexer verifies canonical samples and atomically publishes READY artifacts to the shared
+   local hot tier.
+4. Server and workflow workers read the hot tier first. A bounded background queue mirrors the same
+   verified objects to MinIO through `http://minio:9000` and recovers pending receipts after restart.
+5. The browser keeps one rolling manifest URL and one hls.js/MSE pipeline. A mapping revision adds
+   READY tail segments without clearing `src`, restarting playback or seeking to zero.
+
+The single-node workloads must mount one persistent host directory at the same
+`MEDIA_HOT_ROOT` path:
+
+```text
+server          /var/lib/volleyball/media-hot
+worker-media    /var/lib/volleyball/media-hot
+worker-workflow /var/lib/volleyball/media-hot
+```
+
+Recommended runtime settings are `MEDIA_INDEXER_SCAN_INTERVAL_MS=250` and
+`MEDIA_ARCHIVE_CONCURRENCY=8`. Do not point `MINIO_ENDPOINT` at the Cloudflare hostname or public
+NodePort; workload-to-MinIO traffic stays cluster-local.
 
 The console rate is therefore published/indexed media duration divided by elapsed wall time. It is
 not the raw YouTube network throughput. During the 2026-08-17 investigation:
@@ -187,22 +204,15 @@ When investigating a specific source, also inspect its `MediaSourceWork`, `DvrPr
 READY `DvrSegment` records. Declared source duration or temporary spool files must not be counted as
 playable progress.
 
-### Recommended ingest redesign
+The remaining minimum first-play latency is intentional: URL resolution, one finalized two-second
+segment and canonical sample indexing must finish before annotation. Declared duration, incomplete
+spool files and archive-pending receipts are not playable progress. If the timeline grows but the
+player does not, verify that the same playback-window ID and manifest URL remain attached before
+restarting any workload.
 
-The durable fix is a separate change, not an operator timeout adjustment:
-
-- pipe the selected YouTube inputs directly into FFmpeg segmentation so completed fragments become
-  playable while later source data is still arriving;
-- avoid `+faststart` for a temporary ingest artifact, or remove the intermediate merged artifact;
-- persist a resumable source cache keyed by source identity and selected format so a Worker restart
-  does not redownload completed bytes;
-- expose explicit `PROBING`, `DOWNLOADING`, `MERGING`, `SEGMENTING`, `UPLOADING`, and `INDEXING`
-  stages with a stage-specific rate;
-- apply queue backpressure so segment discovery cannot create hundreds of jobs faster than strict
-  ordered indexing can consume them.
-
-Until that redesign lands, avoid forcing a `worker-media` rollout during a long VOD import unless the
-restart is required to recover a failed worker.
+The hot tier is a single-node optimization. A future multi-node rollout needs shared RWX storage or
+an explicit locality design; mounting different node-local directories under the same path is
+invalid. Until verified-object eviction is implemented, monitor both hot-root and MinIO capacity.
 
 ## Recovery and rollback
 

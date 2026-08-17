@@ -1,9 +1,13 @@
 import { createHash } from 'node:crypto'
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { Readable } from 'node:stream'
 import type { ClientOptions } from 'minio'
 import { describe, expect, it, vi } from 'vitest'
 import {
   MinioObjectReaderError,
+  createDvrObjectReaderFromEnv,
   createMinioObjectReader,
   createMinioObjectReaderFromEnv,
   type MinioObjectClient,
@@ -64,6 +68,26 @@ function rejectingClient(error: unknown): MinioObjectClient {
 }
 
 describe('MinIO object reader configuration', () => {
+  it('serves a verified hot DVR object without waiting for its MinIO mirror', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'vollyai-server-hot-reader-'))
+    try {
+      const bytes = Buffer.from('hot-dvr-media')
+      const path = join(root, bucket, 'sessions', 'segment-1.m4s')
+      await mkdir(join(root, bucket, 'sessions'), { recursive: true })
+      await writeFile(path, bytes)
+      const reader = createDvrObjectReaderFromEnv({
+        MEDIA_HOT_ROOT: root,
+        MINIO_ACCESS_KEY: accessKey,
+        MINIO_DVR_BUCKET: bucket,
+        MINIO_ENDPOINT: 'http://127.0.0.1:9000',
+        MINIO_SECRET_KEY: secretKey,
+      })
+      await expect(reader?.(requestFor(bytes))).resolves.toEqual(bytes)
+    } finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
   it('builds the official client options from a strict endpoint', () => {
     const { options } = createReader(
       {

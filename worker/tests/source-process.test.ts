@@ -6,7 +6,7 @@ import { promisify } from 'node:util'
 import { afterEach, describe, expect, it } from 'vitest'
 import {
   buildYoutubeProbeArgs,
-  buildYoutubeVodDownloadArgs,
+  buildYoutubeVodProbeArgs,
   classifyYoutubeSource,
   createMediaSourceProcess,
   nextLiveRelayFailureCount,
@@ -41,7 +41,6 @@ const youtubeOptions: MediaSourceProcessOptions = {
   youtubeCookiesFile: '/run/secrets/youtube.cookies.txt',
   youtubeExtractorArgs: 'youtube:player_client=default',
   youtubeFormat: 'live-format',
-  youtubeVodConcurrentFragments: 4,
   youtubeVodFormat: 'vod-format',
 }
 
@@ -69,13 +68,8 @@ describe('media source process', () => {
       'live-format',
       'https://youtu.be/example',
     ])
-    expect(
-      buildYoutubeVodDownloadArgs(
-        'https://youtu.be/example',
-        '/work/source.%(ext)s',
-        youtubeOptions,
-      ),
-    ).toEqual([
+    expect(buildYoutubeVodProbeArgs('https://youtu.be/example', youtubeOptions)).toEqual([
+      '--dump-single-json',
       '--no-playlist',
       '--no-progress',
       '--no-warnings',
@@ -83,15 +77,8 @@ describe('media source process', () => {
       '/run/secrets/youtube.cookies.txt',
       '--extractor-args',
       'youtube:player_client=default',
-      '--abort-on-unavailable-fragments',
-      '--concurrent-fragments',
-      '4',
       '--format',
       'vod-format',
-      '--merge-output-format',
-      'mp4',
-      '--output',
-      '/work/source.%(ext)s',
       'https://youtu.be/example',
     ])
   })
@@ -144,7 +131,6 @@ describe('media source process', () => {
         workRoot,
         youtubeExtractorArgs: 'youtube:player_client=android_vr',
         youtubeFormat: 'best',
-        youtubeVodConcurrentFragments: 4,
         youtubeVodFormat: 'best',
       })
       const result = await run(

@@ -1,5 +1,7 @@
 import { createHash } from 'node:crypto'
 import { Buffer } from 'node:buffer'
+import { readFile, stat } from 'node:fs/promises'
+import { isAbsolute, relative, resolve } from 'node:path'
 import type { Readable } from 'node:stream'
 import { Client, type ClientOptions } from 'minio'
 import type {
@@ -388,4 +390,58 @@ export function createMinioObjectReaderFromEnv(
     ...(operationTimeoutMs === undefined ? {} : { operationTimeoutMs }),
     secretKey: environment.MINIO_SECRET_KEY ?? '',
   })
+}
+
+function localObjectPath(rootValue: string, bucket: string, key: string): string {
+  validateObjectKey(key)
+  const root = resolve(rootValue)
+  const target = resolve(root, bucket, ...key.split('/'))
+  const relation = relative(root, target)
+  if (!relation || relation.startsWith('..') || isAbsolute(relation)) {
+    throw new MinioObjectReaderError('INVALID_REQUEST', 'Media object request is invalid')
+  }
+  return target
+}
+
+/**
+ * Read newly published DVR artifacts from the shared single-node hot tier and
+ * fall back to the archived MinIO object after the asynchronous mirror wins.
+ * The immutable database length/checksum is verified on both paths.
+ */
+export function createDvrObjectReaderFromEnv(
+  environment: NodeJS.ProcessEnv = process.env,
+): MediaObjectReader | undefined {
+  const archived = createMinioObjectReaderFromEnv(environment, 'MINIO_DVR_BUCKET')
+  const root = environment.MEDIA_HOT_ROOT?.trim()
+  if (!root) return archived
+  if (!archived) invalidConfig('MinIO reader configuration is required with the DVR hot tier')
+  const bucket = validateBucket(environment.MINIO_DVR_BUCKET ?? '')
+  const configuredMaximum = optionalPositiveInteger(environment.MINIO_READ_MAX_OBJECT_BYTES)
+  const maximum = configuredMaximum ?? DEFAULT_MAX_OBJECT_BYTES
+  return async request => {
+    const expectedLength = validateRequest(request, bucket, maximum)
+    const path = localObjectPath(root, request.bucket, request.key)
+    try {
+      const metadata = await stat(path)
+      if (!metadata.isFile() || metadata.size !== expectedLength) {
+        throw new MinioObjectReaderError(
+          'LENGTH_MISMATCH',
+          'Hot media object length did not match its expected value',
+        )
+      }
+      const bytes = await readFile(path)
+      if (
+        createHash('sha256').update(bytes).digest('hex') !== request.expectedSha256.toLowerCase()
+      ) {
+        throw new MinioObjectReaderError(
+          'CHECKSUM_MISMATCH',
+          'Hot media object checksum did not match its expected value',
+        )
+      }
+      return bytes
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return archived(request)
+      throw error
+    }
+  }
 }
