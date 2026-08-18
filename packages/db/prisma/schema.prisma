@@ -583,6 +583,7 @@ model CaptureEpoch {
   createdAt              DateTime                  @default(now())
   captureSession         CaptureSession            @relation(fields: [captureSessionId], references: [id], onDelete: Cascade)
   segments               DvrSegment[]
+  mediaExtents           MediaExtent[]
   keyPoints              KeyPoint[]
   submissionKeyPoints    RallySubmissionKeyPoint[]
   rallyBoundaries        RallyBoundary[]
@@ -709,29 +710,42 @@ model DvrSegment {
 }
 
 model MediaExtent {
-  id                String            @id @default(uuid()) @db.Uuid
-  captureSessionId  String            @db.Uuid
-  dvrProgramId      String            @db.Uuid
-  dvrSegmentId      String?           @unique @db.Uuid
-  sourceJobId       String?           @unique @db.Uuid
-  source            String
-  startUs           BigInt
-  endUs             BigInt
-  localPath         String?
-  bucket            String?
-  objectKey         String?
-  status            MediaExtentStatus @default(FINALIZED_LOCAL)
-  bytes             BigInt?
-  finalizedAt       DateTime?
-  catalogedAt       DateTime?
-  archiveVerifiedAt DateTime?
-  createdAt         DateTime          @default(now())
-  updatedAt         DateTime          @updatedAt
-  captureSession    CaptureSession    @relation(fields: [captureSessionId], references: [id], onDelete: Cascade)
-  dvrProgram        DvrProgram        @relation(fields: [dvrProgramId], references: [id], onDelete: Cascade)
-  dvrSegment        DvrSegment?       @relation(fields: [dvrSegmentId], references: [id], onDelete: SetNull)
+  id                       String            @id @default(uuid()) @db.Uuid
+  captureSessionId         String            @db.Uuid
+  dvrProgramId             String            @db.Uuid
+  dvrSegmentId             String?           @unique @db.Uuid
+  captureEpochId           String?           @db.Uuid
+  sourceJobId              String?           @unique @db.Uuid
+  source                   String
+  startUs                  BigInt
+  endUs                    BigInt
+  sourcePtsStart           BigInt?
+  sourcePtsEnd             BigInt?
+  firstFrameIndex          BigInt?
+  frameCount               BigInt?
+  localPath                String?
+  bucket                   String?
+  objectKey                String?
+  sampleIndexBucket        String?
+  sampleIndexObjectKey     String?
+  sampleIndexSha256        String?
+  sampleIndexBytes         BigInt?
+  sampleIndexSchemaVersion String?
+  status                   MediaExtentStatus @default(FINALIZED_LOCAL)
+  bytes                    BigInt?
+  finalizedAt              DateTime?
+  catalogedAt              DateTime?
+  archiveVerifiedAt        DateTime?
+  createdAt                DateTime          @default(now())
+  updatedAt                DateTime          @updatedAt
+  captureSession           CaptureSession    @relation(fields: [captureSessionId], references: [id], onDelete: Cascade)
+  dvrProgram               DvrProgram        @relation(fields: [dvrProgramId], references: [id], onDelete: Cascade)
+  dvrSegment               DvrSegment?       @relation(fields: [dvrSegmentId], references: [id], onDelete: SetNull)
+  captureEpoch             CaptureEpoch?     @relation(fields: [captureEpochId], references: [id], onDelete: Restrict)
 
   @@index([dvrProgramId, startUs, endUs])
+  @@index([captureSessionId, startUs, endUs])
+  @@index([captureEpochId])
   @@index([captureSessionId, status, createdAt])
   @@index([status, createdAt, id])
 }

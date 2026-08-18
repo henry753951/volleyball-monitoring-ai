@@ -492,18 +492,59 @@ describe('Prisma finalized media ingest repository', () => {
       captureSessionId,
       dvrProgramId: reservation.reference.dvrProgramId,
       dvrSegmentId: reservation.reference.dvrSegmentId,
+      captureEpochId: reservation.captureEpochId,
       sourceJobId,
       source: 'fixture',
       startUs: reservation.plan.segment.captureStartUs,
       endUs: reservation.plan.segment.captureEndUs,
+      sourcePtsStart: reservation.plan.segment.sourcePtsStart,
+      sourcePtsEnd: reservation.plan.segment.sourcePtsEndExclusive,
+      firstFrameIndex: reservation.plan.segment.firstFrameIndex,
+      frameCount: reservation.plan.segment.frameCount,
       localPath: extent.localPath,
       bucket: artifactExpectations.find(artifact => artifact.kind === 'media')!.location.bucket,
       objectKey: artifactExpectations.find(artifact => artifact.kind === 'media')!.location.key,
+      sampleIndexBucket: artifactExpectations.find(
+        artifact => artifact.kind === 'sample-index',
+      )!.location.bucket,
+      sampleIndexObjectKey: artifactExpectations.find(
+        artifact => artifact.kind === 'sample-index',
+      )!.location.key,
+      sampleIndexSha256: artifactExpectations.find(
+        artifact => artifact.kind === 'sample-index',
+      )!.sha256,
+      sampleIndexBytes: artifactExpectations.find(
+        artifact => artifact.kind === 'sample-index',
+      )!.byteLength,
+      sampleIndexSchemaVersion: artifactExpectations.find(
+        artifact => artifact.kind === 'sample-index',
+      )!.internalSchemaVersion,
       status: 'ARCHIVE_VERIFIED',
       bytes: artifactExpectations.find(artifact => artifact.kind === 'media')!.byteLength,
       finalizedAt,
       catalogedAt: fixedReadyAt,
       archiveVerifiedAt: fixedReadyAt,
+    })
+    await expect(
+      db.mediaExtent.update({
+        data: { captureEpochId: null },
+        where: { id: mediaExtent.id },
+      }),
+    ).rejects.toBeDefined()
+    await db.mediaExtent.update({
+      data: {
+        captureEpochId: null,
+        firstFrameIndex: null,
+        frameCount: null,
+        sampleIndexBucket: null,
+        sampleIndexBytes: null,
+        sampleIndexObjectKey: null,
+        sampleIndexSchemaVersion: null,
+        sampleIndexSha256: null,
+        sourcePtsEnd: null,
+        sourcePtsStart: null,
+      },
+      where: { id: mediaExtent.id },
     })
 
     const replay = await repository.reserveUploading(
@@ -537,6 +578,25 @@ describe('Prisma finalized media ingest repository', () => {
       db.dvrProgram.findUniqueOrThrow({ where: { id: program.id } }),
     ).resolves.toMatchObject({ playlistRevision: 1n })
     await expect(db.mediaExtent.count({ where: { sourceJobId } })).resolves.toBe(1)
+    await expect(
+      db.mediaExtent.findUniqueOrThrow({ where: { sourceJobId } }),
+    ).resolves.toMatchObject({
+      captureEpochId: reservation.captureEpochId,
+      firstFrameIndex: reservation.plan.segment.firstFrameIndex,
+      frameCount: reservation.plan.segment.frameCount,
+      sourcePtsEnd: reservation.plan.segment.sourcePtsEndExclusive,
+      sourcePtsStart: reservation.plan.segment.sourcePtsStart,
+    })
+    await db.dvrSegment.delete({ where: { id: reservation.reference.dvrSegmentId } })
+    await expect(
+      db.mediaExtent.findUniqueOrThrow({ where: { sourceJobId } }),
+    ).resolves.toMatchObject({
+      captureEpochId: reservation.captureEpochId,
+      dvrSegmentId: null,
+      sampleIndexObjectKey: artifactExpectations.find(
+        artifact => artifact.kind === 'sample-index',
+      )!.location.key,
+    })
   })
 
   it('publishes a draining reservation without resurrecting stopping lifecycle state', async () => {

@@ -318,25 +318,49 @@ async function catalogVerifiedExtent(
     captureTimeOriginUs: bigint
     dvrProgramId: string
     dvrSegmentId: string
+    sourcePtsStart: bigint | null
+    sourcePtsEnd: bigint | null
+    firstFrameIndex: bigint | null
+    frameCount: bigint
     source: string
     startUs: bigint
     endUs: bigint
     extent: NonNullable<PublishReadyInput['extent']>
     media: IngestArtifactExpectation
+    sampleIndex: IngestArtifactExpectation
     readyAt: Date
   },
 ): Promise<void> {
+  if (
+    input.sourcePtsStart === null ||
+    input.sourcePtsEnd === null ||
+    input.sourcePtsEnd <= input.sourcePtsStart ||
+    input.firstFrameIndex === null ||
+    input.frameCount <= 0n
+  ) {
+    return fail('TIMELINE_CONFLICT')
+  }
   const expected = {
     captureSessionId: input.captureSessionId,
     dvrProgramId: input.dvrProgramId,
     dvrSegmentId: input.dvrSegmentId,
+    captureEpochId: input.captureEpochId,
     sourceJobId: input.extent.sourceJobId,
     source: input.source,
     startUs: input.startUs,
     endUs: input.endUs,
+    sourcePtsStart: input.sourcePtsStart,
+    sourcePtsEnd: input.sourcePtsEnd,
+    firstFrameIndex: input.firstFrameIndex,
+    frameCount: input.frameCount,
     localPath: input.extent.localPath,
     bucket: input.media.location.bucket,
     objectKey: input.media.location.key,
+    sampleIndexBucket: input.sampleIndex.location.bucket,
+    sampleIndexObjectKey: input.sampleIndex.location.key,
+    sampleIndexSha256: input.sampleIndex.sha256,
+    sampleIndexBytes: input.sampleIndex.byteLength,
+    sampleIndexSchemaVersion: input.sampleIndex.internalSchemaVersion,
     bytes: input.media.byteLength,
     finalizedAt: input.extent.finalizedAt,
   }
@@ -349,6 +373,21 @@ async function catalogVerifiedExtent(
   if (matches.length > 1) return fail('RESERVATION_CONFLICT')
   const existing = matches[0]
   if (existing) {
+    const projectionValues = [
+      existing.captureEpochId,
+      existing.sourcePtsStart,
+      existing.sourcePtsEnd,
+      existing.firstFrameIndex,
+      existing.frameCount,
+      existing.sampleIndexBucket,
+      existing.sampleIndexObjectKey,
+      existing.sampleIndexSha256,
+      existing.sampleIndexBytes,
+      existing.sampleIndexSchemaVersion,
+    ] as const
+    const projectionIsEmpty = projectionValues.every(value => value === null)
+    const projectionIsComplete = projectionValues.every(value => value !== null)
+    if (!projectionIsEmpty && !projectionIsComplete) return fail('RESERVATION_CONFLICT')
     if (
       existing.captureSessionId !== expected.captureSessionId ||
       existing.dvrProgramId !== expected.dvrProgramId ||
@@ -357,6 +396,17 @@ async function catalogVerifiedExtent(
       existing.source !== expected.source ||
       existing.startUs !== expected.startUs ||
       existing.endUs !== expected.endUs ||
+      (projectionIsComplete &&
+        (existing.captureEpochId !== expected.captureEpochId ||
+          existing.sourcePtsStart !== expected.sourcePtsStart ||
+          existing.sourcePtsEnd !== expected.sourcePtsEnd ||
+          existing.firstFrameIndex !== expected.firstFrameIndex ||
+          existing.frameCount !== expected.frameCount ||
+          existing.sampleIndexBucket !== expected.sampleIndexBucket ||
+          existing.sampleIndexObjectKey !== expected.sampleIndexObjectKey ||
+          existing.sampleIndexSha256 !== expected.sampleIndexSha256 ||
+          existing.sampleIndexBytes !== expected.sampleIndexBytes ||
+          existing.sampleIndexSchemaVersion !== expected.sampleIndexSchemaVersion)) ||
       (existing.localPath !== null && existing.localPath !== expected.localPath) ||
       (existing.bucket !== null && existing.bucket !== expected.bucket) ||
       (existing.objectKey !== null && existing.objectKey !== expected.objectKey) ||
@@ -369,6 +419,7 @@ async function catalogVerifiedExtent(
     if (
       existing.status !== 'ARCHIVE_VERIFIED' ||
       existing.dvrSegmentId === null ||
+      projectionIsEmpty ||
       existing.sourceJobId === null ||
       existing.localPath === null ||
       existing.bucket === null ||
@@ -384,11 +435,21 @@ async function catalogVerifiedExtent(
           bucket: expected.bucket,
           bytes: expected.bytes,
           catalogedAt: existing.catalogedAt ?? input.readyAt,
+          captureEpochId: expected.captureEpochId,
           dvrSegmentId: expected.dvrSegmentId,
+          firstFrameIndex: expected.firstFrameIndex,
+          frameCount: expected.frameCount,
           finalizedAt: expected.finalizedAt,
           localPath: expected.localPath,
           objectKey: expected.objectKey,
+          sampleIndexBucket: expected.sampleIndexBucket,
+          sampleIndexBytes: expected.sampleIndexBytes,
+          sampleIndexObjectKey: expected.sampleIndexObjectKey,
+          sampleIndexSchemaVersion: expected.sampleIndexSchemaVersion,
+          sampleIndexSha256: expected.sampleIndexSha256,
           sourceJobId: expected.sourceJobId,
+          sourcePtsEnd: expected.sourcePtsEnd,
+          sourcePtsStart: expected.sourcePtsStart,
           status: 'ARCHIVE_VERIFIED',
         },
         where: { id: existing.id },
@@ -1228,11 +1289,16 @@ export class PrismaIngestRepository {
             captureTimeOriginUs: segment.captureEpoch.captureTimeOriginUs,
             dvrProgramId: segment.dvrProgramId,
             dvrSegmentId: segment.id,
+            sourcePtsStart: segment.sourcePtsStart,
+            sourcePtsEnd: segment.sourcePtsEnd,
+            firstFrameIndex: segment.firstFrameIndex,
+            frameCount: segment.frameCount,
             source: session.sourceKind,
             startUs: segment.captureStartUs,
             endUs: segment.captureEndUs,
             extent: input.extent,
             media: verified.media,
+            sampleIndex: verified['sample-index'],
             readyAt: segment.readyAt!,
           })
         }
@@ -1314,11 +1380,16 @@ export class PrismaIngestRepository {
           captureTimeOriginUs: segment.captureEpoch.captureTimeOriginUs,
           dvrProgramId: segment.dvrProgramId,
           dvrSegmentId: segment.id,
+          sourcePtsStart: segment.sourcePtsStart,
+          sourcePtsEnd: segment.sourcePtsEnd,
+          firstFrameIndex: segment.firstFrameIndex,
+          frameCount: segment.frameCount,
           source: session.sourceKind,
           startUs: segment.captureStartUs,
           endUs: segment.captureEndUs,
           extent: input.extent,
           media: verified.media,
+          sampleIndex: verified['sample-index'],
           readyAt,
         })
       }

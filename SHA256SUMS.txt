@@ -92,6 +92,7 @@ feadbb0c3edaf78ff06190a00c0449c995366958380321f5f9a4c841963b2ad1  ./docs/adr/004
 924a6163259355a6410a7f5e29c5bdc4988660f78a9250b637727146643adbef  ./docs/adr/0048-tiered-growing-media-playback.md
 5e58f746c1bf159bed1b5141ea7adc80bed60bacfde5f131131bde58539f6bd6  ./docs/adr/0049-ome-live-media-plane.md
 fca495aefbdc7df59f50dc6b72f9eaf4d6e57bab05ded85eb5cfa8d2fcbe8718  ./docs/adr/0050-coarse-ome-recording-extents.md
+1ddceb2ab54ec3fc498c9d6f3e45d7995b68616a7ca0a44285e00991182101c4  ./docs/adr/0051-media-extent-canonical-timing-projection.md
 1471a871f7a25b384d246420a5ce8b2c3fcb45c3691e40e1807be5dd8a276dd9  ./docs/open-decisions.md
 ea371b3583374623c9e2f70b4c1844bd70f0b5f3433ee88846e7807df4e99caa  ./docs/progress.md
 a163ed77cd3cdba34d8c137786b4c165516bd66e723836fd6e85341c7e03f610  ./docs/requirements-matrix.md
@@ -314,8 +315,9 @@ a64cb7ac1ff6f34567eadd3e8b7f4a4afffdae40d9406638d5083a9162fed122  ./packages/db/
 60242e9c7b82e8944d444406a3a2c84bd78c79c3e1b8bec8d6ceced5f8de9f6e  ./packages/db/prisma/migrations/20260818134500_media_extent_catalog/migration.sql
 e7b48946d3dd01965dce884b2ea5134b2ff891b1a15e15beb598d67c46b100e7  ./packages/db/prisma/migrations/20260818153000_live_presentation_anchor/migration.sql
 25e326c26b133d158540ac916477fb802e7d2df35fd48a46078ae86f2337adf2  ./packages/db/prisma/migrations/20260818154500_live_presentation_generation_identity/migration.sql
+8fd86589b796955baf83244c1fb0eaf28a4accc5d53361cc5d6bbae15500f24e  ./packages/db/prisma/migrations/20260818170000_media_extent_timing_projection/migration.sql
 99836963713b4f5b269ad49af0ed3d7b0b2e336115c2f92dc9ac683d139d0900  ./packages/db/prisma/migrations/migration_lock.toml
-e3303c7bea55799fb962a8dcece2748719213bc725d142ea9d5bc194eb7e0e3c  ./packages/db/prisma/schema.prisma
+57897526aa8c0776453ba6001b5e32174b6c4d9f361b40cd6011c91cdee697fe  ./packages/db/prisma/schema.prisma
 5ef707f36dc34ac8cf0157b9185a7583854ade621afd70421fccd84021776522  ./packages/db/prisma/seed.ts
 d062ec1d9a47d7a6d59c69835b3b63681dba1dc0890ab8a8f6c2de856c9abd1c  ./packages/db/src/index.ts
 37bb8eea2534dc6591bf13a09dbbf8974c1a956bb36f7366bbab7f2b9cf6699a  ./packages/db/src/reid-identity-ledger.ts
@@ -801,7 +803,7 @@ ff177164c9c4232b7a436a31438dd8f5ce9b302a3e2136819874d638316345c6  ./worker/src/m
 3fad8e3699a9e0c4cb9a6ed555e73645ac07b22e76ae6e3553e11ad53be418c6  ./worker/src/media/minio-object-store.ts
 9565822a34d49fc9c458b14193f74fbf591bf55e38922364f8e9e88aba3fb4f9  ./worker/src/media/ome-live-presentation.ts
 4bec8864d693955c92b97f289ee954212c3a37ca9f5a35eff8586415f423aded  ./worker/src/media/ome-monitor.ts
-f2e0c65386914e48106e18d247ae5c9c2f268e9409c2ed5f7d9a7f04e9919ae3  ./worker/src/media/prisma-ingest-repository.ts
+b613828fadafc7360349014387d05594aee5351b5b04c763d570174be4845c3d  ./worker/src/media/prisma-ingest-repository.ts
 50dbd5bf417004ec502f3725f3971878bbd2bad3ffc597d28a0e6f5106d1aae3  ./worker/src/media/resolver.ts
 704a6ec9d1f3ad7a9a169d4c4570abca0df3722785cdc42b252d17005cc1016f  ./worker/src/media/resolvers.ts
 c9fae1cde5e2f5f077de6d604add2896bea4a63ffba5ab6d5f512a6993d39ced  ./worker/src/media/runtime-config.ts
@@ -856,7 +858,7 @@ bb5761a22568fa7bb8a138226c8558626ebb0bf19b7762ae951c06188dc8cb33  ./worker/tests
 2888639f5aa9ec7961819da8376792572e46c00d116d0e6d59a48c7e3eb9a5ca  ./worker/tests/outbox-publisher.test.ts
 c6401e45fc1e14bb96ee206b03c17a9afef06de7b3c059dfe1511206bc3290fb  ./worker/tests/pg-boss.integration.test.ts
 b9cf9414f98539dfa7e723f03a3fd3e89ee006f95b165a7c312774c011523761  ./worker/tests/playback-packager.test.ts
-109103d347b1d7e3c58acf15313abc0d46ac94ad58e6922e97e94092430c32a5  ./worker/tests/prisma-ingest-repository.integration.test.ts
+3fcd01007b1862a35a61a806c58e0475702b8091971c467c3b9885b41137f83b  ./worker/tests/prisma-ingest-repository.integration.test.ts
 e2e4376e7a51da8664e5acc9e9b47e21102f47275612f8053ed87a3e7176aa72  ./worker/tests/provider-analysis-materializer.test.ts
 b6bfa38a3a17208e0dd392366184a369cff62ba41cc5271a90b1195a30019da5  ./worker/tests/reid-artifacts.test.ts
 6448d3e0e01a8856d7cac309ef4005ee85a1de51f5137395fcb5fcf9294cd904  ./worker/tests/reid-association-seed-policy.test.ts
