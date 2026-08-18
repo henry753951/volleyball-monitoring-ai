@@ -697,8 +697,8 @@ b7e3d14e2bcb6adda1d0d4be35e6f8f78e9e90349a0562879849fec856534837  ./web/app/serv
 b4fc12d557f1ab5c7283c3927ca54da477739290d1903e5d4c6f83667daf048f  ./web/app/services/annotation-workstation/dvr-playback.service.ts
 0f5e390eef4bb06ec583cb65a942eb1dbd28c0ee6dd5ec4d42e9b22af3e049c1  ./web/app/services/annotation-workstation/identity-assignment-controller.service.ts
 d6959eda603a493d5403f8e934df0568fb89d92da746159f0ddde0fc8fcd956e  ./web/app/services/annotation-workstation/identity-assignment.service.ts
-f6f878dffe382e3990ecd6bb640af8828ae035660464fcbda46f3c958323257b  ./web/app/services/annotation-workstation/key-point-editing.service.test.ts
-dc0a28c5c6e21e05be7c89251e54b45a209e8c7301bfbfd2f3987e8bfdf5cb28  ./web/app/services/annotation-workstation/key-point-editing.service.ts
+f3d94ad181ef09e084a95efe25566a74219fe7682367f11339db9e33cfefec8b  ./web/app/services/annotation-workstation/key-point-editing.service.test.ts
+15c2b86faab30660ca946bfc8c44577530dd3ea213dd6d410a0dc429381cd13d  ./web/app/services/annotation-workstation/key-point-editing.service.ts
 85541b810ac8d5aa0fb1928d24f738485d381dd51fb6a089c882baf1e09a9bee  ./web/app/services/annotation-workstation/ome-live-playback.service.test.ts
 84335ef06a5e524cc11fca67ee69f26e1df68d02a22e87179a539337962c130a  ./web/app/services/annotation-workstation/ome-live-playback.service.ts
 59f2b84939543415f6dd025e26118d0a2e01480d4735005b377fbe460303f7a6  ./web/app/services/annotation-workstation/processing-state.service.test.ts
