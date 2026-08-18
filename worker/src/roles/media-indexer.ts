@@ -404,7 +404,10 @@ export function createPgBossMediaRuntime(
           // Keep the fallback sub-second while retaining one worker per
           // capture; this improves long VOD drain without reordering media.
           pollingIntervalSeconds: 0.5,
-          notifyPollingIntervalSeconds: 1,
+          // A completed strict-FIFO job does not emit a fresh queue NOTIFY for
+          // the successor it unblocks. Use pg-boss's supported minimum here so
+          // long VOD drains do not pay a full idle second between segments.
+          notifyPollingIntervalSeconds: 0.5,
           perJobResults: true,
         } as const
         await boss.work<
