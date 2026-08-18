@@ -42,15 +42,25 @@
           <Name>app</Name>
           <Type>live</Type>
           <OutputProfiles>
+            <HardwareAcceleration>false</HardwareAcceleration>
             <OutputProfile>
-              <Name>source_passthrough</Name>
+              <Name>live_h264_30fps</Name>
               <OutputStreamName>${OriginStreamName}</OutputStreamName>
               <Playlist>
                 <Name>default</Name><FileName>master</FileName>
-                <Rendition><Name>source</Name><Video>bypass_video</Video><Audio>bypass_audio</Audio></Rendition>
+                <Rendition><Name>source</Name><Video>live_video</Video><Audio>bypass_audio</Audio></Rendition>
               </Playlist>
               <Encodes>
-                <Video><Name>bypass_video</Name><Bypass>true</Bypass></Video>
+                <Video>
+                  <Name>live_video</Name>
+                  <Codec>h264</Codec>
+                  <Bitrate>${env:OME_LIVE_VIDEO_BITRATE:3000000}</Bitrate>
+                  <Framerate>30</Framerate>
+                  <KeyFrameInterval>60</KeyFrameInterval>
+                  <BFrames>0</BFrames>
+                  <Profile>high</Profile>
+                  <Preset>fast</Preset>
+                </Video>
                 <Audio><Name>bypass_audio</Name><Bypass>true</Bypass></Audio>
               </Encodes>
             </OutputProfile>

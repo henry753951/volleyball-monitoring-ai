@@ -42,6 +42,14 @@ export interface CaptureTimelineView {
   sourceEndCaptureTimeUs: bigint | null
 }
 
+export interface LivePresentationAnchorView {
+  sequenceIndex: number
+  programDateTime: Date
+  captureTimeOriginUs: bigint
+  endedAt: Date | null
+  validatedAt: Date
+}
+
 export interface CaptureSessionView {
   id: string
   matchId: string
@@ -53,6 +61,7 @@ export interface CaptureSessionView {
   health: CaptureSessionRow['health']
   startedAt: Date | null
   endedAt: Date | null
+  livePresentationAnchors: LivePresentationAnchorView[]
   timeline: CaptureTimelineView | null
 }
 
@@ -327,6 +336,43 @@ export async function loadCaptureTimelines(
   return timelines
 }
 
+export async function loadValidatedLivePresentationAnchors(
+  sessionIds: string[],
+): Promise<Map<string, LivePresentationAnchorView[]>> {
+  const uniqueSessionIds = [...new Set(sessionIds)]
+  if (uniqueSessionIds.length === 0) return new Map()
+  const rows = await db.livePresentationAnchor.findMany({
+    orderBy: [{ captureSessionId: 'asc' }, { sequenceIndex: 'asc' }],
+    select: {
+      captureSessionId: true,
+      captureTimeOriginUs: true,
+      endedAt: true,
+      programDateTime: true,
+      sequenceIndex: true,
+      validatedAt: true,
+    },
+    where: {
+      captureSessionId: { in: uniqueSessionIds },
+      captureTimeOriginUs: { not: null },
+      validatedAt: { not: null },
+    },
+  })
+  const anchors = new Map<string, LivePresentationAnchorView[]>()
+  for (const row of rows) {
+    if (row.captureTimeOriginUs === null || row.validatedAt === null) continue
+    const sessionAnchors = anchors.get(row.captureSessionId) ?? []
+    sessionAnchors.push({
+      captureTimeOriginUs: row.captureTimeOriginUs,
+      endedAt: row.endedAt,
+      programDateTime: row.programDateTime,
+      sequenceIndex: row.sequenceIndex,
+      validatedAt: row.validatedAt,
+    })
+    anchors.set(row.captureSessionId, sessionAnchors)
+  }
+  return anchors
+}
+
 export async function listCaptureSessionsForMatch(matchId: string): Promise<CaptureSessionView[]> {
   const sessions = await db.captureSession.findMany({
     orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
@@ -337,11 +383,15 @@ export async function listCaptureSessionsForMatch(matchId: string): Promise<Capt
     sessions.map(session => session.id),
     sessionById,
   )
+  const livePresentationAnchors = await loadValidatedLivePresentationAnchors(
+    sessions.map(session => session.id),
+  )
   return sessions.map(session => ({
     endedAt: session.endedAt,
     health: session.health,
     id: session.id,
     ingestPath: session.ingestPath,
+    livePresentationAnchors: livePresentationAnchors.get(session.id) ?? [],
     matchId: session.matchId,
     sourceLabel: session.sourceLabel,
     sourceDurationUs: session.sourceDurationUs,

@@ -4,9 +4,11 @@ import {
   type AnnotationCommand,
   type AnnotationCommandRejected,
   type AnnotationCommandResponse,
+  type AnnotationOmeLivePlaybackCursor,
+  type AnnotationWindowPlaybackCursor,
   type AnnotationResolvedAnchor,
   type CreateServiceKeyPointCommand,
-  type PlaybackCursor,
+  type MediaPlaybackCursor,
   type ResolvedMediaAnchor,
 } from '@volleyball-monitoring/contracts'
 import type { PrismaClient } from '@volleyball-monitoring/db'
@@ -28,7 +30,7 @@ export interface AnnotationCommandServiceDependencies {
   beforeTransaction?: (command: AnnotationCommand) => Promise<void>
   timingManifestReader?: MediaObjectReader
   resolveCursor: (
-    cursor: PlaybackCursor,
+    cursor: MediaPlaybackCursor,
     identity: CursorMediaIdentity,
   ) => Promise<ResolvedMediaAnchor>
 }
@@ -126,8 +128,61 @@ function wireAnchor(anchor: ResolvedMediaAnchor): AnnotationResolvedAnchor {
 
 function toMediaCursor(command: {
   payload: { playback_cursor: CreateServiceKeyPointCommand['payload']['playback_cursor'] }
-}): PlaybackCursor {
-  return { schema_version: '1.0.0', ...command.payload.playback_cursor }
+}): MediaPlaybackCursor {
+  const cursor = command.payload.playback_cursor
+  return 'media_backend' in cursor
+    ? { schema_version: '2.0.0', ...cursor }
+    : { schema_version: '1.0.0', ...cursor }
+}
+
+function isOmeCursor(
+  cursor: CreateServiceKeyPointCommand['payload']['playback_cursor'],
+): cursor is AnnotationOmeLivePlaybackCursor {
+  return 'media_backend' in cursor && cursor.media_backend === 'ome_llhls'
+}
+
+async function resolvedOmeAnchorIsCurrent(
+  tx: Transaction,
+  cursor: AnnotationOmeLivePlaybackCursor,
+  anchor: ResolvedMediaAnchor,
+  captureSessionId: string,
+): Promise<boolean> {
+  if (
+    cursor.capture_session_id !== captureSessionId ||
+    anchor.capture_session_id !== captureSessionId ||
+    anchor.mapping_version !== cursor.presentation_anchor_sequence + 1
+  )
+    return false
+  const observedProgramDate = new Date(cursor.program_date_time)
+  if (Number.isNaN(observedProgramDate.getTime())) return false
+  const [presentation, resolvedEpoch] = await Promise.all([
+    tx.livePresentationAnchor.findFirst({
+      select: { programDateTime: true, sequenceIndex: true, streamInstanceId: true },
+      where: {
+        captureSessionId,
+        id: anchor.playback_window_id,
+        sequenceIndex: cursor.presentation_anchor_sequence,
+        validatedAt: { not: null },
+      },
+    }),
+    tx.captureEpoch.findFirst({
+      select: { id: true },
+      where: { captureSessionId, id: anchor.capture_epoch_id },
+    }),
+  ])
+  if (!presentation || !resolvedEpoch || observedProgramDate < presentation.programDateTime)
+    return false
+  const nextPresentation = await tx.livePresentationAnchor.findFirst({
+    orderBy: { sequenceIndex: 'asc' },
+    select: { programDateTime: true, streamInstanceId: true, validatedAt: true },
+    where: { captureSessionId, sequenceIndex: { gt: presentation.sequenceIndex } },
+  })
+  return !(
+    nextPresentation &&
+    observedProgramDate >= nextPresentation.programDateTime &&
+    (nextPresentation.streamInstanceId !== presentation.streamInstanceId ||
+      nextPresentation.validatedAt !== null)
+  )
 }
 
 function isRetryable(error: unknown): boolean {
@@ -333,6 +388,7 @@ async function acceptService(
     }
 
     const segmentId = anchor.dvr_segment_id
+    const omeCursor = isOmeCursor(command.payload.playback_cursor)
     const playbackWindowPromise =
       segmentId === null || segmentId === undefined
         ? Promise.resolve(null)
@@ -369,13 +425,20 @@ async function acceptService(
               id: anchor.playback_window_id,
             },
           })
-    const [playbackWindow, set, epoch] = await Promise.all([
+    const [playbackWindow, set, epoch, omeProgram] = await Promise.all([
       playbackWindowPromise,
       selectCurrentSet(tx, room.matchId),
       tx.captureEpoch.findFirst({
         select: { id: true },
         where: { captureSessionId: room.captureSessionId, id: anchor.capture_epoch_id },
       }),
+      omeCursor
+        ? tx.dvrProgram.findFirst({
+            orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+            select: { id: true },
+            where: { captureSessionId: room.captureSessionId },
+          })
+        : Promise.resolve(null),
     ])
     const mappedSegment =
       segmentId === null || segmentId === undefined
@@ -389,27 +452,40 @@ async function acceptService(
       mappedSegment?.firstFrameIndex !== undefined &&
       captureFrameIndex >= mappedSegment.firstFrameIndex &&
       captureFrameIndex < mappedSegment.firstFrameIndex + mappedSegment.frameCount
+    const omeAnchorValid = omeCursor
+      ? await resolvedOmeAnchorIsCurrent(
+          tx,
+          command.payload.playback_cursor as AnnotationOmeLivePlaybackCursor,
+          anchor,
+          room.captureSessionId,
+        )
+      : false
+    const legacyAnchorValid =
+      !omeCursor &&
+      playbackWindow !== null &&
+      mappedSegment !== null &&
+      playbackWindow.mappingVersion === anchor.mapping_version &&
+      (command.payload.playback_cursor as AnnotationWindowPlaybackCursor).playback_window_id ===
+        anchor.playback_window_id &&
+      (command.payload.playback_cursor as AnnotationWindowPlaybackCursor).mapping_version ===
+        anchor.mapping_version &&
+      mappedSegment.id === segmentId &&
+      mappedSegment.dvrProgramId === playbackWindow.dvrProgramId &&
+      mappedSegment.captureEpochId === anchor.capture_epoch_id &&
+      !mappedSegment.isGap &&
+      mappedSegment.readyAt !== null &&
+      mappedSegment.sampleIndexAssetId !== null &&
+      captureTimeUs >= playbackWindow.captureStartUs &&
+      captureTimeUs < playbackWindow.captureEndUs &&
+      captureTimeUs >= mappedSegment.captureStartUs &&
+      captureTimeUs < mappedSegment.captureEndUs &&
+      segmentContainsFrame &&
+      resolvedPlayerMediaTimeUs === captureTimeUs - playbackWindow.presentationOriginCaptureUs
     if (
-      !playbackWindow ||
       !set ||
       !epoch ||
-      !mappedSegment ||
       anchor.capture_session_id !== room.captureSessionId ||
-      playbackWindow.mappingVersion !== anchor.mapping_version ||
-      command.payload.playback_cursor.playback_window_id !== anchor.playback_window_id ||
-      command.payload.playback_cursor.mapping_version !== anchor.mapping_version ||
-      mappedSegment.id !== segmentId ||
-      mappedSegment.dvrProgramId !== playbackWindow.dvrProgramId ||
-      mappedSegment.captureEpochId !== anchor.capture_epoch_id ||
-      mappedSegment.isGap ||
-      mappedSegment.readyAt === null ||
-      mappedSegment.sampleIndexAssetId === null ||
-      captureTimeUs < playbackWindow.captureStartUs ||
-      captureTimeUs >= playbackWindow.captureEndUs ||
-      captureTimeUs < mappedSegment.captureStartUs ||
-      captureTimeUs >= mappedSegment.captureEndUs ||
-      !segmentContainsFrame ||
-      resolvedPlayerMediaTimeUs !== captureTimeUs - playbackWindow.presentationOriginCaptureUs
+      !(omeCursor ? omeAnchorValid && omeProgram : legacyAnchorValid)
     ) {
       return persistRejection(
         tx,
@@ -465,20 +541,14 @@ async function acceptService(
         ),
       )
     }
-    const proposedStart =
-      captureTimeUs > authorizedMatch.clipPreRollUs
-        ? captureTimeUs - authorizedMatch.clipPreRollUs
-        : 0n
-    const proposedEnd =
-      captureTimeUs + (authorizedMatch.clipPostRollUs > 0n ? authorizedMatch.clipPostRollUs : 1n)
-    const overlapsExisting = await clipRangeOverlapsExistingRally(
+    const proposedStart = captureTimeUs
+    const proposedEnd = captureTimeUs + 1n
+    const overlapsExisting = await annotationRangeOverlapsExistingRally(
       tx,
       room.matchId,
       room.captureSessionId,
       proposedStart,
       proposedEnd,
-      authorizedMatch.clipPreRollUs,
-      authorizedMatch.clipPostRollUs,
     )
     if (overlapsExisting) {
       return persistRejection(
@@ -527,7 +597,7 @@ async function acceptService(
       data: {
         annotationRevision: 1n,
         draftOwnerDeviceSessionId: identity.deviceSessionId,
-        dvrProgramId: playbackWindow.dvrProgramId,
+        dvrProgramId: omeCursor ? omeProgram!.id : playbackWindow!.dvrProgramId,
         id: command.rally_id,
         matchId: room.matchId,
         ordinal: internalOrdinal,
@@ -811,52 +881,54 @@ async function acceptContact(
           expected: command.base_revision,
         }),
       )
-    const mapping = anchor.dvr_segment_id
-      ? await tx.playbackWindow.findFirst({
-          where: {
-            id: anchor.playback_window_id,
-            captureSessionId: room.captureSessionId,
-            mappingVersion: anchor.mapping_version,
-            segments: {
-              some: {
-                dvrSegment: {
-                  id: anchor.dvr_segment_id,
-                  captureEpochId: anchor.capture_epoch_id,
-                  dvrProgramId: rally.dvrProgramId,
-                  isGap: false,
-                  readyAt: { not: null },
-                  sampleIndexAssetId: { not: null },
-                },
-              },
-            },
-          },
-          select: {
-            captureEndUs: true,
-            captureStartUs: true,
-            dvrProgramId: true,
-            mappingVersion: true,
-            presentationOriginCaptureUs: true,
-            segments: {
-              where: { dvrSegmentId: anchor.dvr_segment_id },
-              select: {
-                dvrSegment: {
-                  select: {
-                    captureEndUs: true,
-                    captureStartUs: true,
-                    firstFrameIndex: true,
-                    frameCount: true,
-                    captureEpochId: true,
-                    dvrProgramId: true,
-                    isGap: true,
-                    readyAt: true,
-                    sampleIndexAssetId: true,
+    const omeCursor = isOmeCursor(command.payload.playback_cursor)
+    const mapping =
+      anchor.dvr_segment_id && !omeCursor
+        ? await tx.playbackWindow.findFirst({
+            where: {
+              id: anchor.playback_window_id,
+              captureSessionId: room.captureSessionId,
+              mappingVersion: anchor.mapping_version,
+              segments: {
+                some: {
+                  dvrSegment: {
+                    id: anchor.dvr_segment_id,
+                    captureEpochId: anchor.capture_epoch_id,
+                    dvrProgramId: rally.dvrProgramId,
+                    isGap: false,
+                    readyAt: { not: null },
+                    sampleIndexAssetId: { not: null },
                   },
                 },
               },
             },
-          },
-        })
-      : null
+            select: {
+              captureEndUs: true,
+              captureStartUs: true,
+              dvrProgramId: true,
+              mappingVersion: true,
+              presentationOriginCaptureUs: true,
+              segments: {
+                where: { dvrSegmentId: anchor.dvr_segment_id },
+                select: {
+                  dvrSegment: {
+                    select: {
+                      captureEndUs: true,
+                      captureStartUs: true,
+                      firstFrameIndex: true,
+                      frameCount: true,
+                      captureEpochId: true,
+                      dvrProgramId: true,
+                      isGap: true,
+                      readyAt: true,
+                      sampleIndexAssetId: true,
+                    },
+                  },
+                },
+              },
+            },
+          })
+        : null
     const epoch = await tx.captureEpoch.findFirst({
       where: { id: anchor.capture_epoch_id, captureSessionId: room.captureSessionId },
     })
@@ -864,7 +936,16 @@ async function acceptContact(
     const resolvedTime = BigInt(anchor.capture_time_us)
     const resolvedFrame = BigInt(anchor.capture_frame_index)
     const playerTime = BigInt(anchor.resolved_player_media_time_us)
-    const valid =
+    const omeAnchorValid = omeCursor
+      ? await resolvedOmeAnchorIsCurrent(
+          tx,
+          command.payload.playback_cursor as AnnotationOmeLivePlaybackCursor,
+          anchor,
+          room.captureSessionId,
+        )
+      : false
+    const legacyAnchorValid =
+      !omeCursor &&
       anchor.capture_session_id === room.captureSessionId &&
       !!mapping &&
       !!segment &&
@@ -884,9 +965,11 @@ async function acceptContact(
       resolvedFrame >= segment.firstFrameIndex &&
       resolvedFrame < segment.firstFrameIndex + segment.frameCount &&
       playerTime === resolvedTime - mapping.presentationOriginCaptureUs &&
-      anchor.playback_window_id === command.payload.playback_cursor.playback_window_id &&
-      anchor.mapping_version === command.payload.playback_cursor.mapping_version
-    if (!valid)
+      anchor.playback_window_id ===
+        (command.payload.playback_cursor as AnnotationWindowPlaybackCursor).playback_window_id &&
+      anchor.mapping_version ===
+        (command.payload.playback_cursor as AnnotationWindowPlaybackCursor).mapping_version
+    if (!(omeCursor ? omeAnchorValid && !!epoch : legacyAnchorValid))
       return persistRejection(
         tx,
         command,
@@ -927,18 +1010,16 @@ async function acceptContact(
         ...pointsInsideEnd.map(point => point.captureTimeUs),
         resolvedTime,
       ].sort((left, right) => (left < right ? -1 : left > right ? 1 : 0))
-      const paddedStart = proposedTimes[0]! - authorizedMatch.clipPreRollUs
-      const proposedStart = paddedStart < 0n ? 0n : paddedStart
-      const proposedEnd = proposedTimes.at(-1)! + authorizedMatch.clipPostRollUs
+      const proposedStart = proposedTimes[0]!
+      const proposedLast = proposedTimes.at(-1)!
+      const proposedEnd = proposedLast > proposedStart ? proposedLast : proposedStart + 1n
       if (
-        await clipRangeOverlapsExistingRally(
+        await annotationRangeOverlapsExistingRally(
           tx,
           room.matchId,
           room.captureSessionId,
           proposedStart,
           proposedEnd,
-          authorizedMatch.clipPreRollUs,
-          authorizedMatch.clipPostRollUs,
           rally.id,
         )
       ) {
@@ -1754,14 +1835,12 @@ async function acceptOutcome(
   })
 }
 
-async function clipRangeOverlapsExistingRally(
+async function annotationRangeOverlapsExistingRally(
   tx: Transaction,
   matchId: string,
   captureSessionId: string,
   proposedStart: bigint,
   proposedEnd: bigint,
-  clipPreRollUs: bigint,
-  clipPostRollUs: bigint,
   excludedRallyId?: string,
 ) {
   const existingSegments = await tx.rally.findMany({
@@ -1776,18 +1855,6 @@ async function clipRangeOverlapsExistingRally(
       activeSubmission: {
         select: {
           boundaries: { orderBy: { captureTimeUs: 'asc' }, select: { captureTimeUs: true } },
-          clipPostRollUs: true,
-          clipPreRollUs: true,
-          clipJobs: {
-            orderBy: { createdAt: 'desc' },
-            select: {
-              actualEndCaptureUs: true,
-              actualStartCaptureUs: true,
-              requestedEndCaptureUs: true,
-              requestedStartCaptureUs: true,
-            },
-            take: 1,
-          },
           keyPoints: { orderBy: { sequenceIndex: 'asc' }, select: { captureTimeUs: true } },
         },
       },
@@ -1802,7 +1869,6 @@ async function clipRangeOverlapsExistingRally(
   return existingSegments.some(segment => {
     const editable = segment.annotationStatus === 'OPEN' || segment.annotationStatus === 'READY'
     const immutable = segment.activeSubmission
-    const clip = editable ? null : immutable?.clipJobs[0]
     const boundaries = editable ? segment.boundaries : (immutable?.boundaries ?? segment.boundaries)
     const keyPoints = editable ? segment.keyPoints : (immutable?.keyPoints ?? segment.keyPoints)
     const points = [...boundaries, ...keyPoints]
@@ -1816,21 +1882,10 @@ async function clipRangeOverlapsExistingRally(
     const first = points[0]
     const last = points.at(-1)
     if (!first || !last) return false
-    const paddingBefore = editable ? clipPreRollUs : (immutable?.clipPreRollUs ?? clipPreRollUs)
-    const paddingAfter = editable ? clipPostRollUs : (immutable?.clipPostRollUs ?? clipPostRollUs)
-    const paddedStart = first.captureTimeUs - paddingBefore
-    const start = clip
-      ? (clip.actualStartCaptureUs ?? clip.requestedStartCaptureUs)
-      : paddedStart < 0n
-        ? 0n
-        : paddedStart
-    // Editable drafts reserve only their currently known padded interval.
-    // This rejects duplicate work over the same Rally while still allowing
-    // authorized clients to annotate disjoint VOD ranges concurrently. END and
-    // point-move commands re-check the expanded interval under the set lock.
-    const end = clip
-      ? (clip.actualEndCaptureUs ?? clip.requestedEndCaptureUs)
-      : last.captureTimeUs + (paddingAfter > 0n ? paddingAfter : 1n)
+    // Annotation boundaries reserve the logical Rally only. Clip pre/post-roll
+    // may overlap adjacent rallies and belongs exclusively to clip rendering.
+    const start = first.captureTimeUs
+    const end = last.captureTimeUs > start ? last.captureTimeUs : start + 1n
     return proposedStart < end && proposedEnd > start
   })
 }
@@ -2171,40 +2226,57 @@ async function acceptDraftEdit(
           hash,
           rejected(command, 'KEY_POINT_NOT_FOUND', 'Key point was not found'),
         )
-      const mapping = anchor.dvr_segment_id
-        ? await tx.playbackWindow.findFirst({
-            where: {
-              id: anchor.playback_window_id,
-              captureSessionId: room.captureSessionId,
-              mappingVersion: anchor.mapping_version,
-              dvrProgramId: rally.dvrProgramId,
-              segments: {
-                some: {
-                  dvrSegment: {
-                    id: anchor.dvr_segment_id,
-                    captureEpochId: anchor.capture_epoch_id,
-                    dvrProgramId: rally.dvrProgramId,
-                    isGap: false,
-                    readyAt: { not: null },
-                    sampleIndexAssetId: { not: null },
+      const omeCursor = isOmeCursor(command.payload.playback_cursor)
+      const mapping =
+        anchor.dvr_segment_id && !omeCursor
+          ? await tx.playbackWindow.findFirst({
+              where: {
+                id: anchor.playback_window_id,
+                captureSessionId: room.captureSessionId,
+                mappingVersion: anchor.mapping_version,
+                dvrProgramId: rally.dvrProgramId,
+                segments: {
+                  some: {
+                    dvrSegment: {
+                      id: anchor.dvr_segment_id,
+                      captureEpochId: anchor.capture_epoch_id,
+                      dvrProgramId: rally.dvrProgramId,
+                      isGap: false,
+                      readyAt: { not: null },
+                      sampleIndexAssetId: { not: null },
+                    },
                   },
                 },
               },
-            },
-            select: { captureStartUs: true, captureEndUs: true, presentationOriginCaptureUs: true },
-          })
-        : null
+              select: {
+                captureStartUs: true,
+                captureEndUs: true,
+                presentationOriginCaptureUs: true,
+              },
+            })
+          : null
       const resolvedTime = BigInt(anchor.capture_time_us)
       const resolvedFrame = BigInt(anchor.capture_frame_index)
       const playerTime = BigInt(anchor.resolved_player_media_time_us)
-      if (
-        !mapping ||
-        resolvedTime < mapping.captureStartUs ||
-        resolvedTime >= mapping.captureEndUs ||
-        playerTime !== resolvedTime - mapping.presentationOriginCaptureUs ||
-        anchor.playback_window_id !== command.payload.playback_cursor.playback_window_id ||
-        anchor.mapping_version !== command.payload.playback_cursor.mapping_version
-      )
+      const omeAnchorValid = omeCursor
+        ? await resolvedOmeAnchorIsCurrent(
+            tx,
+            command.payload.playback_cursor as AnnotationOmeLivePlaybackCursor,
+            anchor,
+            room.captureSessionId,
+          )
+        : false
+      const legacyAnchorValid =
+        !omeCursor &&
+        !!mapping &&
+        resolvedTime >= mapping.captureStartUs &&
+        resolvedTime < mapping.captureEndUs &&
+        playerTime === resolvedTime - mapping.presentationOriginCaptureUs &&
+        anchor.playback_window_id ===
+          (command.payload.playback_cursor as AnnotationWindowPlaybackCursor).playback_window_id &&
+        anchor.mapping_version ===
+          (command.payload.playback_cursor as AnnotationWindowPlaybackCursor).mapping_version
+      if (!(omeCursor ? omeAnchorValid : legacyAnchorValid))
         return persistRejection(
           tx,
           command,
@@ -2252,18 +2324,16 @@ async function acceptDraftEdit(
         const proposedTimes = rally.keyPoints
           .map(point => (point.id === target.id ? resolvedTime : point.captureTimeUs))
           .sort((left, right) => (left < right ? -1 : left > right ? 1 : 0))
-        const paddedStart = proposedTimes[0]! - authorizedMatch.clipPreRollUs
-        const proposedStart = paddedStart < 0n ? 0n : paddedStart
-        const proposedEnd = proposedTimes.at(-1)! + authorizedMatch.clipPostRollUs
+        const proposedStart = proposedTimes[0]!
+        const proposedLast = proposedTimes.at(-1)!
+        const proposedEnd = proposedLast > proposedStart ? proposedLast : proposedStart + 1n
         if (
-          await clipRangeOverlapsExistingRally(
+          await annotationRangeOverlapsExistingRally(
             tx,
             room.matchId,
             room.captureSessionId,
             proposedStart,
             proposedEnd,
-            authorizedMatch.clipPreRollUs,
-            authorizedMatch.clipPostRollUs,
             rally.id,
           )
         ) {

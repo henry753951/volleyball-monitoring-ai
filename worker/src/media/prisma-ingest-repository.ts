@@ -19,6 +19,7 @@ const INT32_MAX = 2_147_483_647
 const INT64_MAX = 9_223_372_036_854_775_807n
 const LOCK_DOMAIN = 'volleyball-media-ingest-v1'
 const INTERNAL_SCHEMA_VERSION = '1.0.0' as const
+const OME_PROVISIONAL_EPOCH_REASON = 'OME_RECORDING_EXTENT_PROVISIONAL'
 
 export type IngestArtifactKind = 'init' | 'media' | 'sample-index'
 
@@ -313,6 +314,8 @@ async function catalogVerifiedExtent(
   tx: Tx,
   input: {
     captureSessionId: string
+    captureEpochId: string
+    captureTimeOriginUs: bigint
     dvrProgramId: string
     dvrSegmentId: string
     source: string
@@ -391,6 +394,7 @@ async function catalogVerifiedExtent(
         where: { id: existing.id },
       })
     }
+    await validateOmePresentationAnchor(tx, input)
     return
   }
   await tx.mediaExtent.create({
@@ -400,6 +404,66 @@ async function catalogVerifiedExtent(
       catalogedAt: input.readyAt,
       status: 'ARCHIVE_VERIFIED',
     },
+  })
+  await validateOmePresentationAnchor(tx, input)
+}
+
+export function omeRecordingStartTime(localPath: string): Date | null {
+  const match = localPath.replaceAll('\\', '/').match(/(?:^|\/)(\d{14})_\d+\.mp4$/i)
+  if (!match) return null
+  const stamp = match[1]!
+  const date = new Date(
+    Date.UTC(
+      Number(stamp.slice(0, 4)),
+      Number(stamp.slice(4, 6)) - 1,
+      Number(stamp.slice(6, 8)),
+      Number(stamp.slice(8, 10)),
+      Number(stamp.slice(10, 12)),
+      Number(stamp.slice(12, 14)),
+    ),
+  )
+  return Number.isNaN(date.getTime()) ? null : date
+}
+
+async function validateOmePresentationAnchor(
+  tx: Tx,
+  input: {
+    captureSessionId: string
+    captureEpochId: string
+    captureTimeOriginUs: bigint
+    extent: NonNullable<PublishReadyInput['extent']>
+    readyAt: Date
+  },
+): Promise<void> {
+  const recordingStartedAt = omeRecordingStartTime(input.extent.localPath)
+  if (!recordingStartedAt) return
+  // OME names FILE extents from the output-stream start wall clock while
+  // LL-HLS publishes the same first encoded frame with PROGRAM-DATE-TIME.
+  // The XML startTime has a publisher-specific delay and is deliberately not
+  // used as the canonical origin. A narrow wall-clock window only identifies
+  // the generation; canonical time comes from the durable CaptureEpoch.
+  const toleranceMs = 2_000
+  const candidates = await tx.livePresentationAnchor.findMany({
+    select: { id: true },
+    take: 2,
+    where: {
+      captureEpochId: null,
+      captureSessionId: input.captureSessionId,
+      programDateTime: {
+        gte: new Date(recordingStartedAt.getTime() - toleranceMs),
+        lte: new Date(recordingStartedAt.getTime() + toleranceMs),
+      },
+      validatedAt: null,
+    },
+  })
+  if (candidates.length !== 1) return
+  await tx.livePresentationAnchor.updateMany({
+    data: {
+      captureEpochId: input.captureEpochId,
+      captureTimeOriginUs: input.captureTimeOriginUs,
+      validatedAt: input.readyAt,
+    },
+    where: { captureEpochId: null, id: candidates[0]!.id, validatedAt: null },
   })
 }
 
@@ -948,33 +1012,68 @@ export class PrismaIngestRepository {
         orderBy: { sequenceIndex: 'desc' },
         where: { captureSessionId: input.captureSessionId },
       })
+      const provisionalEpochMatchesHead = Boolean(
+        currentHead &&
+        currentEpoch?.discontinuityReason === OME_PROVISIONAL_EPOCH_REASON &&
+        currentEpoch.sequenceIndex === currentHead.epochSequence + 1 &&
+        currentEpoch.sourcePtsOrigin === 0n &&
+        currentEpoch.captureTimeOriginUs === currentHead.lastCaptureEndUs &&
+        currentEpoch.captureFrameOrigin === currentHead.lastCaptureFrameIndex + 1n &&
+        currentEpoch.startedAtCaptureUs === currentHead.lastCaptureEndUs &&
+        currentEpoch.endedAtCaptureUs === null,
+      )
       if (
         (currentHead === null && currentEpoch !== null) ||
-        (currentHead !== null && currentEpoch?.id !== currentHead.epochId)
+        (currentHead !== null &&
+          currentEpoch?.id !== currentHead.epochId &&
+          !provisionalEpochMatchesHead)
       ) {
         return fail('TIMELINE_CONFLICT')
       }
-      const plan = planFrom(input, currentHead, this.#plannerConfig)
+      const planningInput = provisionalEpochMatchesHead
+        ? { ...input, newEpochId: currentEpoch!.id }
+        : input
+      const plan = planFrom(planningInput, currentHead, this.#plannerConfig)
       let epochId: string
       if (plan.epoch.disposition === 'CREATE_NEXT') {
-        if (await tx.captureEpoch.findUnique({ where: { id: input.newEpochId } })) {
-          return fail('RESERVATION_CONFLICT')
+        if (provisionalEpochMatchesHead) {
+          if (
+            !currentEpoch ||
+            currentEpoch.id !== plan.epoch.epochKey ||
+            currentEpoch.sequenceIndex !== plan.epoch.epochSequence ||
+            currentEpoch.sourceTimeBaseNum !== Number(plan.epoch.timeBase.num) ||
+            currentEpoch.sourceTimeBaseDen !== Number(plan.epoch.timeBase.den) ||
+            currentEpoch.sourcePtsOrigin !== plan.epoch.sourcePtsOrigin ||
+            currentEpoch.captureTimeOriginUs !== plan.epoch.captureTimeOriginUs ||
+            currentEpoch.captureFrameOrigin !== plan.epoch.captureFrameOrigin
+          ) {
+            return fail('TIMELINE_CONFLICT')
+          }
+          await tx.captureEpoch.update({
+            data: { discontinuityReason: persistedReason(plan.epoch.reasons) },
+            where: { id: currentEpoch.id },
+          })
+          epochId = currentEpoch.id
+        } else {
+          if (await tx.captureEpoch.findUnique({ where: { id: input.newEpochId } })) {
+            return fail('RESERVATION_CONFLICT')
+          }
+          const epoch = await tx.captureEpoch.create({
+            data: {
+              id: plan.epoch.epochKey,
+              captureSessionId: input.captureSessionId,
+              sequenceIndex: plan.epoch.epochSequence,
+              sourceTimeBaseNum: Number(plan.epoch.timeBase.num),
+              sourceTimeBaseDen: Number(plan.epoch.timeBase.den),
+              sourcePtsOrigin: plan.epoch.sourcePtsOrigin,
+              captureTimeOriginUs: plan.epoch.captureTimeOriginUs,
+              captureFrameOrigin: plan.epoch.captureFrameOrigin,
+              startedAtCaptureUs: plan.epoch.captureTimeOriginUs,
+              discontinuityReason: persistedReason(plan.epoch.reasons),
+            },
+          })
+          epochId = epoch.id
         }
-        const epoch = await tx.captureEpoch.create({
-          data: {
-            id: plan.epoch.epochKey,
-            captureSessionId: input.captureSessionId,
-            sequenceIndex: plan.epoch.epochSequence,
-            sourceTimeBaseNum: Number(plan.epoch.timeBase.num),
-            sourceTimeBaseDen: Number(plan.epoch.timeBase.den),
-            sourcePtsOrigin: plan.epoch.sourcePtsOrigin,
-            captureTimeOriginUs: plan.epoch.captureTimeOriginUs,
-            captureFrameOrigin: plan.epoch.captureFrameOrigin,
-            startedAtCaptureUs: plan.epoch.captureTimeOriginUs,
-            discontinuityReason: persistedReason(plan.epoch.reasons),
-          },
-        })
-        epochId = epoch.id
       } else {
         if (!currentEpoch || currentEpoch.id !== plan.epoch.epochKey) {
           return fail('TIMELINE_CONFLICT')
@@ -1125,6 +1224,8 @@ export class PrismaIngestRepository {
         if (input.extent) {
           await catalogVerifiedExtent(tx, {
             captureSessionId: input.reservation.captureSessionId,
+            captureEpochId: segment.captureEpochId,
+            captureTimeOriginUs: segment.captureEpoch.captureTimeOriginUs,
             dvrProgramId: segment.dvrProgramId,
             dvrSegmentId: segment.id,
             source: session.sourceKind,
@@ -1209,6 +1310,8 @@ export class PrismaIngestRepository {
       if (input.extent) {
         await catalogVerifiedExtent(tx, {
           captureSessionId: input.reservation.captureSessionId,
+          captureEpochId: segment.captureEpochId,
+          captureTimeOriginUs: segment.captureEpoch.captureTimeOriginUs,
           dvrProgramId: segment.dvrProgramId,
           dvrSegmentId: segment.id,
           source: session.sourceKind,

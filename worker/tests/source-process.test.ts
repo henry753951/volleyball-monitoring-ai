@@ -5,12 +5,17 @@ import { join } from 'node:path'
 import { promisify } from 'node:util'
 import { afterEach, describe, expect, it } from 'vitest'
 import {
+  buildMediaInputArgs,
   buildYoutubeProbeArgs,
   buildYoutubeVodProbeArgs,
   classifyYoutubeSource,
   createMediaSourceProcess,
+  latestFfmpegProgressUs,
   nextLiveRelayFailureCount,
+  preflightYoutubeInput,
+  reachedExpectedMediaEnd,
   type MediaSourceProcessOptions,
+  vodCompletionToleranceUs,
 } from '../src/media/source-process.js'
 
 const execFileAsync = promisify(execFile)
@@ -41,6 +46,7 @@ const youtubeOptions: MediaSourceProcessOptions = {
   youtubeCookiesFile: '/run/secrets/youtube.cookies.txt',
   youtubeExtractorArgs: 'youtube:player_client=default',
   youtubeFormat: 'live-format',
+  youtubeVodExtractorArgs: 'youtube:player_client=visionos',
   youtubeVodFormat: 'vod-format',
 }
 
@@ -76,11 +82,90 @@ describe('media source process', () => {
       '--cookies',
       '/run/secrets/youtube.cookies.txt',
       '--extractor-args',
-      'youtube:player_client=default',
+      'youtube:player_client=visionos',
       '--format',
       'vod-format',
       'https://youtu.be/example',
     ])
+  })
+
+  it('uses independent player-client policies for live and VOD resolution', () => {
+    const options = {
+      ...youtubeOptions,
+      youtubeLiveExtractorArgs: 'youtube:player_client=mweb',
+      youtubePotProviderUrl: 'http://bgutil-provider:4416',
+    }
+    expect(buildYoutubeProbeArgs('https://youtu.be/live', options)).toContain(
+      'youtube:player_client=mweb',
+    )
+    expect(buildYoutubeProbeArgs('https://youtu.be/live', options)).toContain(
+      'youtubepot-bgutilhttp:base_url=http://bgutil-provider:4416',
+    )
+    expect(buildYoutubeVodProbeArgs('https://youtu.be/vod', options)).toContain(
+      'youtube:player_client=visionos',
+    )
+  })
+
+  it('maps yt-dlp HTTP chunk metadata to bounded libavformat input options', () => {
+    expect(
+      buildMediaInputArgs(
+        {
+          httpChunkSize: 1_048_576,
+          httpHeaders: { 'User-Agent': 'fixture-agent' },
+          url: 'https://media.example/video',
+        },
+        false,
+        12.5,
+      ),
+    ).toEqual([
+      '-ss',
+      '12.500000',
+      '-request_size',
+      '1048576',
+      '-initial_request_size',
+      '1048576',
+      '-multiple_requests',
+      '1',
+      '-short_seek_size',
+      '1048576',
+      '-headers',
+      'User-Agent: fixture-agent\r\n',
+      '-i',
+      'https://media.example/video',
+    ])
+  })
+
+  it('preflights the first and next yt-dlp HTTP chunk without shrinking it', async () => {
+    const requestedRanges: string[] = []
+    const resolved = await preflightYoutubeInput(
+      { httpChunkSize: 8 * 1024 * 1024, url: 'https://media.example/audio' },
+      new AbortController().signal,
+      async (_url, init) => {
+        const range = new Headers(init?.headers).get('range') ?? ''
+        requestedRanges.push(range)
+        return new Response(null, { status: 206 })
+      },
+    )
+    expect(resolved.httpChunkSize).toBe(8 * 1024 * 1024)
+    expect(requestedRanges).toEqual(['bytes=0-65535', 'bytes=8388608-8454143'])
+  })
+
+  it('rejects a source URL whose next advertised chunk cannot be read', async () => {
+    let requestCount = 0
+    await expect(
+      preflightYoutubeInput(
+        { httpChunkSize: 10 * 1024 * 1024, url: 'https://media.example/video' },
+        new AbortController().signal,
+        async () => new Response(null, { status: ++requestCount === 1 ? 206 : 403 }),
+      ),
+    ).rejects.toMatchObject({ code: 'BAD_SOURCE_URL' })
+    expect(requestCount).toBe(2)
+  })
+
+  it('requires published VOD media to reach the declared duration within two segments or 5s', () => {
+    expect(vodCompletionToleranceUs()).toBe(5_000_000n)
+    expect(reachedExpectedMediaEnd(56_120_000n, 9_103_280_000n)).toBe(false)
+    expect(reachedExpectedMediaEnd(9_099_041_000n, 9_103_280_000n)).toBe(true)
   })
 
   it('bounds consecutive live relay failures and resets the budget on durable progress', () => {
@@ -88,6 +173,18 @@ describe('media source process', () => {
     expect(nextLiveRelayFailureCount(4, 0, 0)).toBe(5)
     expect(nextLiveRelayFailureCount(4, 3, 4)).toBe(0)
     expect(() => nextLiveRelayFailureCount(-1, 0, 0)).toThrow()
+  })
+
+  it('reads only advancing media timestamps from FFmpeg progress output', () => {
+    expect(latestFfmpegProgressUs('frame=1\nout_time_us=500000\nprogress=continue\n')).toBe(
+      500_000n,
+    )
+    expect(
+      latestFfmpegProgressUs(
+        'out_time_us=500000\nprogress=continue\nout_time_us=1500000\nprogress=continue\n',
+      ),
+    ).toBe(1_500_000n)
+    expect(latestFfmpegProgressUs('out_time_us=N/A\nprogress=continue\n')).toBeNull()
   })
 
   it.skipIf(!hasFfmpeg)(

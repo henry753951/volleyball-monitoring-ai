@@ -1770,7 +1770,7 @@ describe('durable service annotation command', () => {
     })
   })
 
-  it('rejects a key-point move whose padded clip would overlap another Rally', async () => {
+  it('allows clip handles to overlap when logical Rally ranges remain disjoint', async () => {
     await db.match.update({
       data: { clipPostRollUs: 3_000_000n, clipPreRollUs: 3_000_000n },
       where: { id: ids.match },
@@ -1822,12 +1822,12 @@ describe('durable service annotation command', () => {
       },
     })
     await expect(service.apply(move, identity)).resolves.toMatchObject({
-      type: 'command_rejected',
-      code: 'RALLY_RANGE_RESERVED',
-      message: '移動後的片段會與其他標註片段重疊；畫面已回復到伺服器狀態',
+      type: 'command_ack',
+      operation_kind: 'MOVE_KEY_POINT',
+      result_revision: '3',
     })
     await expect(db.rally.findUniqueOrThrow({ where: { id: rallyId } })).resolves.toMatchObject({
-      annotationRevision: 2n,
+      annotationRevision: 3n,
     })
     await db.match.update({
       data: { clipPostRollUs: 0n, clipPreRollUs: 0n },

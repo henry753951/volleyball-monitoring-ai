@@ -171,7 +171,12 @@ export async function createMediaComposition() {
       ...(config.YOUTUBE_COOKIES_FILE ? { youtubeCookiesFile: config.YOUTUBE_COOKIES_FILE } : {}),
       youtubeExtractorArgs: config.YOUTUBE_EXTRACTOR_ARGS,
       youtubeFormat: config.YOUTUBE_FORMAT,
+      youtubeLiveExtractorArgs: config.YOUTUBE_LIVE_EXTRACTOR_ARGS,
       youtubeLiveMaxConsecutiveFailures: config.YOUTUBE_LIVE_MAX_CONSECUTIVE_FAILURES,
+      ...(config.YOUTUBE_POT_PROVIDER_URL
+        ? { youtubePotProviderUrl: config.YOUTUBE_POT_PROVIDER_URL }
+        : {}),
+      youtubeVodExtractorArgs: config.YOUTUBE_VOD_EXTRACTOR_ARGS,
       youtubeVodFormat: config.YOUTUBE_VOD_FORMAT,
       ytDlpCommand: config.YT_DLP_COMMAND,
     }),
@@ -180,6 +185,7 @@ export async function createMediaComposition() {
     apiToken: config.OME_API_ACCESS_TOKEN,
     apiUrl: config.OME_API_URL,
     database: db,
+    llhlsBaseUrl: config.OME_LLHLS_URL,
     recordingRoot: config.MEDIA_SPOOL_DIR,
   })
   let started = false

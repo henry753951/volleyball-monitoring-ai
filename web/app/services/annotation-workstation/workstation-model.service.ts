@@ -199,6 +199,20 @@ export function createAnnotationWorkstationModelService(
       timelineEnd && requestedEnd > BigInt(timelineEnd) ? BigInt(timelineEnd) : requestedEnd
     return { startCaptureTimeUs: start.toString(), endCaptureTimeUs: end.toString() }
   }
+  function annotationRangeForPoints(points: ReadonlyArray<{ capture_time_us: string }>) {
+    if (!points.length) return null
+    let start = BigInt(points[0]!.capture_time_us)
+    let end = start
+    for (const point of points.slice(1)) {
+      const captureTimeUs = BigInt(point.capture_time_us)
+      if (captureTimeUs < start) start = captureTimeUs
+      if (captureTimeUs > end) end = captureTimeUs
+    }
+    return {
+      startCaptureTimeUs: start.toString(),
+      endCaptureTimeUs: (end > start ? end : start + 1n).toString(),
+    }
+  }
   function clipRangeForRally(rally: CoachRally) {
     return rally.submission.clip
       ? {
@@ -462,6 +476,33 @@ export function createAnnotationWorkstationModelService(
       ? [...timelineSegments.value, { id: currentId, ...currentMaskRange.value }]
       : timelineSegments.value
   })
+  const reservationSegmentRanges = computed(() => {
+    const ranges = new Map<
+      string,
+      { id: string; startCaptureTimeUs: string; endCaptureTimeUs: string }
+    >()
+    for (const rally of submittedRallies.value) {
+      const points = rally.submission.boundaries?.length
+        ? rally.submission.boundaries
+        : rally.submission.key_points
+      const range = annotationRangeForPoints(points)
+      if (range) ranges.set(rally.id, { id: rally.id, ...range })
+    }
+    for (const draft of annotationDrafts.value) {
+      const points = draft.boundaries?.length ? draft.boundaries : draft.key_points
+      const range = annotationRangeForPoints(points)
+      if (range) ranges.set(draft.id, { id: draft.id, ...range })
+    }
+    for (const peer of options.roomSnapshots?.value ?? []) {
+      if (!['open', 'ready'].includes(peer.snapshot.annotation_status)) continue
+      const points = peer.snapshot.boundaries?.length
+        ? peer.snapshot.boundaries
+        : peer.snapshot.key_points
+      const range = annotationRangeForPoints(points)
+      if (range) ranges.set(peer.rally_id, { id: peer.rally_id, ...range })
+    }
+    return [...ranges.values()]
+  })
   const currentAnnotationRally = computed(
     () =>
       submittedRallies.value.find(
@@ -685,6 +726,7 @@ export function createAnnotationWorkstationModelService(
     timelineSegments,
     currentMaskRange,
     selectableSegmentRanges,
+    reservationSegmentRanges,
     selectedCurrentMask,
     currentAnnotationRally,
     currentMaskStatus,

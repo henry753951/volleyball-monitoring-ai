@@ -118,6 +118,36 @@ describe('annotation realtime v4 BallEvent contract', () => {
     expect(() => parseAnnotationServerMessage(missing)).toThrow()
   })
 
+  it('keeps an OPEN draft reconnectable after the operator selects an outcome', () => {
+    expect(
+      parseAnnotationServerMessage({
+        schema_version: '4.0.0',
+        type: 'rally_snapshot',
+        room_id: room,
+        rally_id: uuid(4),
+        revision: '2',
+        server_sequence: '9',
+        snapshot: {
+          annotation_status: 'open',
+          side_assignment_id: uuid(6),
+          score_resolution: 'unknown',
+          scoring_court_side: null,
+          processing_status: 'idle',
+          active_submission_id: null,
+          boundaries: [
+            {
+              kind: 'start',
+              capture_time_us: '1000',
+              capture_frame_index: '25',
+              timing_precision: 'estimated',
+            },
+          ],
+          key_points: [],
+        },
+      }),
+    ).toMatchObject({ snapshot: { annotation_status: 'open', score_resolution: 'unknown' } })
+  })
+
   it('carries deterministic automatic corrections in acknowledgements', () => {
     const response = {
       schema_version: '4.0.0',

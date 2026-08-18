@@ -3,7 +3,11 @@ import { findVisibleMatch, listVisibleMatches } from '../services/core-domain.js
 import { builder } from './builder.js'
 import { domainError, requireIdentity } from './errors.js'
 import { CaptureSessionType, HealthType, MatchType, ViewerType } from './types.js'
-import { getVisibleCaptureSession, loadCaptureTimeline } from '../services/media-timeline.js'
+import {
+  getVisibleCaptureSession,
+  loadCaptureTimeline,
+  loadValidatedLivePresentationAnchors,
+} from '../services/media-timeline.js'
 
 builder.queryType({
   fields: t => ({
@@ -19,12 +23,16 @@ builder.queryType({
         const identity = requireIdentity(context)
         const session = await getVisibleCaptureSession(args.id, identity.id, identity.role)
         if (!session) return null
-        const timeline = await loadCaptureTimeline(session.id, session)
+        const [timeline, livePresentationAnchors] = await Promise.all([
+          loadCaptureTimeline(session.id, session),
+          loadValidatedLivePresentationAnchors([session.id]),
+        ])
         return {
           endedAt: session.endedAt,
           health: session.health,
           id: session.id,
           ingestPath: session.ingestPath,
+          livePresentationAnchors: livePresentationAnchors.get(session.id) ?? [],
           matchId: session.matchId,
           sourceDurationUs: session.sourceDurationUs,
           sourceKind: session.sourceKind,

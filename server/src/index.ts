@@ -11,6 +11,7 @@ import { schema } from './graphql/schema.js'
 import { evaluateReadiness, type ReadinessProbe } from './health/readiness.js'
 import { createPrismaCursorWindowStore, mediaCursorRoutes } from './media/cursor-routes.js'
 import { resolvePlaybackCursor } from './media/cursor-resolution.js'
+import { resolveOmeLivePlaybackCursor } from './media/ome-live-cursor-resolution.js'
 import {
   createDvrObjectReaderFromEnv,
   createDvrObjectStreamReaderFromEnv,
@@ -114,7 +115,10 @@ const cursorDependencies = {
 }
 const annotationCommands = createAnnotationCommandService({
   database: db,
-  resolveCursor: (cursor, identity) => resolvePlaybackCursor(cursor, identity, cursorDependencies),
+  resolveCursor: (cursor, identity) =>
+    cursor.schema_version === '2.0.0'
+      ? resolveOmeLivePlaybackCursor(cursor, identity, db, cursorDependencies.sampleIndexes)
+      : resolvePlaybackCursor(cursor, identity, cursorDependencies),
   timingManifestReader,
 })
 configureAnnotationGraphQL(annotationCommands, (matchId, reason) =>

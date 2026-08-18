@@ -115,6 +115,8 @@ async function loadAnnotationSnapshot(
       ? rally.activeSubmission.boundaries
       : rally.boundaries) ?? []
   const ballEventComplete = keyPoints.every(point => point.ballEvent !== null)
+  // OPEN drafts may already carry the operator's provisional outcome. The
+  // realtime contract must remain replayable before the END boundary exists.
   return parseAnnotationServerMessage({
     schema_version: boundaries.length ? (ballEventComplete ? '4.0.0' : '3.0.0') : '2.0.0',
     type: 'rally_snapshot',

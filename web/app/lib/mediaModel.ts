@@ -4,6 +4,7 @@ import {
   type FrameStepRequest,
   type MediaErrorCode,
   type MediaTimingPrecision,
+  type MediaPlaybackCursor,
   type PlaybackCursor,
   type PlaybackWindowDescriptor,
   type PlaybackWindowRequest,
@@ -25,7 +26,7 @@ export type MediaMode = PlaybackWindowRequest['mode']
 export type ObservationSource = PlaybackCursor['observation_source']
 export type CursorStatus = PlaybackCursor['cursor_status']
 export type TimingPrecision = MediaTimingPrecision
-export type PlaybackCursorInput = PlaybackCursor
+export type PlaybackCursorInput = MediaPlaybackCursor
 
 export interface CaptureTimelineRange {
   startUs: string

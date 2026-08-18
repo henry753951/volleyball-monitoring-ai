@@ -19,6 +19,7 @@ import {
   createGraphQLTransport,
   type Match,
   type CaptureSession,
+  type CaptureTimeline,
 } from '~/lib/coreDomain'
 import {
   ANNOTATION_COMMANDS,
@@ -85,6 +86,7 @@ import { captureTimeForIdentityTrackFrame } from '~/utils/identityTrackNavigatio
 import {
   liveMediaBackend,
   omeLiveManifestUrl,
+  projectOmeLiveTimelineRanges,
   type OmeLivePlaybackSource,
 } from '~/lib/omeLivePlayback'
 
@@ -123,12 +125,14 @@ const playing = ref(false)
 const muted = ref(false)
 const playbackRate = ref(1)
 const playerBufferedRanges = shallowRef<CanonicalMediaRange[]>([])
+const playerSeekableRanges = shallowRef<CanonicalMediaRange[]>([])
 const captureTarget = ref('')
 const mediaError = ref<string | null>(null)
 const omePlaybackFailed = ref(false)
 const omeObservedCaptureTimeUs = ref<string | null>(null)
 const omeAtLiveEdge = ref(false)
 const omeDirectPlaybackActive = ref(false)
+const omeCanonicalTimeValidated = ref(false)
 const authoritativeAnchor = computed(() => dvr.anchor.value)
 const observedCursor = shallowRef<PlaybackCursorInput | null>(null)
 const cursorStatus = ref<'ready' | 'stale' | 'seeking' | 'gap'>('stale')
@@ -280,18 +284,18 @@ const frameQueueRunning = ref(false)
 const frameQueuePending = ref(false)
 const seekPreviewActive = ref(false)
 const optimisticSeekCaptureTimeUs = ref<string | null>(null)
-const canMark = computed(
-  () =>
-    !omeDirectPlaybackActive.value &&
-    !frameQueuePending.value &&
-    !frameQueueRunning.value &&
-    authoritativeControlsEnabled({
-      cursorReady: cursorStatus.value === 'ready',
-      status: dvr.status.value,
-      busy: dvr.busy.value,
-      descriptor: descriptor.value,
-      anchor: authoritativeAnchor.value,
-    }),
+const canMark = computed(() =>
+  omeDirectPlaybackActive.value
+    ? omeCanonicalTimeValidated.value && cursorStatus.value === 'ready'
+    : !frameQueuePending.value &&
+      !frameQueueRunning.value &&
+      authoritativeControlsEnabled({
+        cursorReady: cursorStatus.value === 'ready',
+        status: dvr.status.value,
+        busy: dvr.busy.value,
+        descriptor: descriptor.value,
+        anchor: authoritativeAnchor.value,
+      }),
 )
 const commandReady = computed(() => !annotation.outboxNeedsConfirmation.value)
 const draftMutationReady = computed(
@@ -413,6 +417,7 @@ let captureRefreshInFlight = false
 let cursorResolveTimer: ReturnType<typeof setTimeout> | null = null
 let seekPreviewTimer: ReturnType<typeof setTimeout> | null = null
 let optimisticSeekTimer: ReturnType<typeof setTimeout> | null = null
+let omePlaybackRetryTimer: ReturnType<typeof setTimeout> | null = null
 let cursorResolveInFlight = false
 let pendingCursorResolve: PlaybackCursorInput | null = null
 let lastCursorResolveAt = 0
@@ -532,7 +537,10 @@ const selectedCapture = computed<CaptureSession | null>(() => {
       (a, b) =>
         Date.parse(b.startedAt ?? '') - Date.parse(a.startedAt ?? '') || a.id.localeCompare(b.id),
     )
+  const requestedCaptureId =
+    typeof route.query.capture === 'string' ? route.query.capture.toLowerCase() : null
   return (
+    sessions.find(session => session.id.toLowerCase() === requestedCaptureId) ??
     sessions.find(session =>
       ['STARTING', 'LIVE', 'STOPPING'].includes(session.status.toUpperCase()),
     ) ??
@@ -541,7 +549,22 @@ const selectedCapture = computed<CaptureSession | null>(() => {
     null
   )
 })
-const timeline = computed(() => selectedCapture.value?.timeline ?? null)
+const timeline = computed<CaptureTimeline | null>(() => {
+  const durable = selectedCapture.value?.timeline ?? null
+  if (!durable || !omeDirectPlaybackActive.value) return durable
+  const availableRanges = projectOmeLiveTimelineRanges(
+    durable.availableRanges,
+    playerSeekableRanges.value,
+    omeObservedCaptureTimeUs.value,
+  )
+  if (!availableRanges.length) return durable
+  return {
+    ...durable,
+    availableRanges,
+    captureStartTimeUs: availableRanges[0]!.startUs,
+    liveEdgeCaptureTimeUs: availableRanges.at(-1)!.endUs,
+  }
+})
 const restoredWorkstationState = computed(() => {
   const capture = selectedCapture.value
   if (!capture) return null
@@ -586,6 +609,7 @@ const {
   timelineSegments,
   currentMaskRange,
   selectableSegmentRanges,
+  reservationSegmentRanges,
   selectedCurrentMask,
   currentMaskStatus,
   currentMaskLabel,
@@ -606,14 +630,9 @@ const {
   displayRallyOrdinal,
   displaySetNumber,
 } = workstation
-const protectedSegmentRanges = computed(() =>
-  selectableSegmentRanges.value.filter(
-    segment =>
-      !('status' in segment) ||
-      segment.status !== 'draft' ||
-      ('reservedByPeer' in segment && segment.reservedByPeer),
-  ),
-)
+// Reservation conflicts use canonical rally boundaries. Clip pre/post-roll is
+// allowed to overlap and must not prevent an adjacent rally from ending.
+const protectedSegmentRanges = reservationSegmentRanges
 const selectedDraftForSides = computed(
   () => annotationDrafts.value.find(draft => draft.id === selectedRallyId.value) ?? null,
 )
@@ -1195,8 +1214,12 @@ const omeLiveSource = computed<OmeLivePlaybackSource | null>(() => {
   return {
     backend: 'ome_llhls',
     captureSessionId: capture.id,
-    liveEdgeCaptureTimeUs: timeline.value?.liveEdgeCaptureTimeUs ?? null,
     manifestUrl: omeLiveManifestUrl(publicEndpoints.liveHlsBaseUrl.value, capture.ingestPath),
+    presentationAnchors: (capture.livePresentationAnchors ?? []).map(anchor => ({
+      captureTimeOriginUs: anchor.captureTimeOriginUs,
+      programDateTime: anchor.programDateTime,
+      sequenceIndex: anchor.sequenceIndex,
+    })),
   }
 })
 watch(
@@ -1205,6 +1228,7 @@ watch(
     omeDirectPlaybackActive.value = Boolean(source)
     if (!source) {
       omeAtLiveEdge.value = false
+      omeCanonicalTimeValidated.value = false
       omeObservedCaptureTimeUs.value = null
     }
   },
@@ -1233,6 +1257,7 @@ const visualPlayhead = computed(() => {
   const window = descriptor.value
   if (
     !cursor ||
+    cursor.schema_version !== '1.0.0' ||
     !window ||
     cursor.playback_window_id !== window.playback_window_id ||
     cursor.mapping_version !== window.mapping_version
@@ -1477,6 +1502,7 @@ async function resolveLatestCursor() {
   if (cursorResolveInFlight || !pendingCursorResolve) return
   const cursor = pendingCursorResolve
   pendingCursorResolve = null
+  if (cursor.schema_version !== '1.0.0') return
   cursorResolveInFlight = true
   lastCursorResolveAt = performance.now()
   try {
@@ -1505,6 +1531,7 @@ function handleCursor(cursor: PlaybackCursorInput) {
   observedCursor.value = cursor
   cursorStatus.value = cursor.cursor_status
   settleOptimisticSeekFromCursor(cursor)
+  if (cursor.schema_version === '2.0.0') return
   // Frame stepping owns the player position until its authoritative queue has
   // drained. Browser seek callbacks are observations of the optimistic preview,
   // not new commands that should race the canonical sample-index resolver.
@@ -1642,6 +1669,7 @@ function settleOptimisticSeekFromCursor(cursor: PlaybackCursorInput) {
   const window = descriptor.value
   if (
     !target ||
+    cursor.schema_version !== '1.0.0' ||
     cursor.cursor_status !== 'ready' ||
     !window ||
     cursor.playback_window_id !== window.playback_window_id ||
@@ -1952,6 +1980,15 @@ function handleOmePlaybackError(error: Error) {
   gapTransition = null
   omePlaybackFailed.value = true
   mediaError.value = error.message
+  const failedCaptureId = selectedCaptureId.value
+  if (omePlaybackRetryTimer) clearTimeout(omePlaybackRetryTimer)
+  omePlaybackRetryTimer = setTimeout(() => {
+    omePlaybackRetryTimer = null
+    if (failedCaptureId && selectedCaptureId.value === failedCaptureId && liveCapture.value) {
+      mediaError.value = null
+      omePlaybackFailed.value = false
+    }
+  }, 15_000)
   toast.warning('OME 即時播放無法載入，已回退舊播放路徑', {
     description: error.message,
   })
@@ -1959,11 +1996,11 @@ function handleOmePlaybackError(error: Error) {
 function handleOmeLivePosition(value: {
   atLiveEdge: boolean
   captureTimeUs: string | null
-  mappingStatus: 'experimental' | 'unmapped'
+  mappingStatus: 'validated' | 'unmapped'
 }) {
   omeAtLiveEdge.value = value.atLiveEdge
-  omeObservedCaptureTimeUs.value =
-    value.mappingStatus === 'experimental' ? value.captureTimeUs : null
+  omeCanonicalTimeValidated.value = value.mappingStatus === 'validated'
+  omeObservedCaptureTimeUs.value = value.mappingStatus === 'validated' ? value.captureTimeUs : null
 }
 function setPlaybackRate(rate: number) {
   if (!Number.isFinite(rate) || rate < 0.25 || rate > 4) return
@@ -1972,11 +2009,13 @@ function setPlaybackRate(rate: number) {
 }
 function handleBufferState(value: {
   buffered: CanonicalMediaRange[]
+  seekable: CanonicalMediaRange[]
   mappingVersion: number | null
   playbackWindowId: string | null
 }) {
   if (omeDirectPlaybackActive.value) {
     playerBufferedRanges.value = value.buffered
+    playerSeekableRanges.value = value.seekable
     return
   }
   const window = descriptor.value
@@ -1986,6 +2025,7 @@ function handleBufferState(value: {
     value.mappingVersion === window.mapping_version
       ? value.buffered
       : []
+  playerSeekableRanges.value = []
 }
 function dispatchMediaAction(
   action: PlayerAction,
@@ -2353,7 +2393,9 @@ function reportBlockedHotkey(action: HotkeyCommand, event?: KeyboardEvent) {
     actionState.reason ||
     (action === 'frame_previous' || action === 'frame_next'
       ? omeDirectPlaybackActive.value
-        ? 'OME canonical time mapping 尚未驗證，暫停逐格與時間標記'
+        ? omeCanonicalTimeValidated.value
+          ? 'OME canonical time 已驗證；逐格與標記仍等待 authoritative cursor contract'
+          : 'OME canonical time mapping 尚未驗證，暫停逐格與時間標記'
         : !descriptor.value
           ? '播放器尚未載入可用影片'
           : dvr.status.value === 'gap'
@@ -2392,6 +2434,8 @@ watch(
   selectedCaptureId,
   (captureId, previousCaptureId) => {
     if (captureId !== previousCaptureId) {
+      if (omePlaybackRetryTimer) clearTimeout(omePlaybackRetryTimer)
+      omePlaybackRetryTimer = null
       omePlaybackFailed.value = false
       omeAtLiveEdge.value = false
       omeObservedCaptureTimeUs.value = null
@@ -2399,6 +2443,7 @@ watch(
       gapTransition = null
       continuationRetryDelayMs = 500
       playerBufferedRanges.value = []
+      playerSeekableRanges.value = []
       if (continuationRetryTimer) clearTimeout(continuationRetryTimer)
       continuationRetryTimer = null
       if (descriptor.value && descriptor.value.capture_session_id !== captureId) dvr.clear()
@@ -2721,6 +2766,7 @@ onBeforeUnmount(() => {
   if (cursorResolveTimer) clearTimeout(cursorResolveTimer)
   if (seekPreviewTimer) clearTimeout(seekPreviewTimer)
   if (optimisticSeekTimer) clearTimeout(optimisticSeekTimer)
+  if (omePlaybackRetryTimer) clearTimeout(omePlaybackRetryTimer)
   window.removeEventListener('blur', releaseFrameNavigationGestures)
   window.removeEventListener('online', resumeTimelineRefresh)
   document.removeEventListener('visibilitychange', handleWorkstationVisibilityChange)
@@ -2819,12 +2865,6 @@ onBeforeUnmount(() => {
               @toggle="workstationActions.execute('media.toggle-playback')"
               @error="handlePlaybackError"
             />
-            <div
-              v-if="omeDirectPlaybackActive"
-              class="pointer-events-none absolute left-3 top-3 z-30 rounded-md border border-amber-400/40 bg-black/75 px-3 py-2 text-xs font-medium text-amber-100 shadow-lg backdrop-blur"
-            >
-              OME Direct DVR 實驗中 · canonical time 尚未驗證，標記與逐格功能暫停
-            </div>
             <AnnotationAnalysisToolbox
               :mode="analysisToolboxMode"
               :frame-index="currentOverlayFrame"

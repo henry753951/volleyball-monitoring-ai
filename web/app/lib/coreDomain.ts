@@ -66,6 +66,13 @@ export interface CaptureTimeline {
   ingestFrontierCaptureTimeUs: string | null
   sourceEndCaptureTimeUs: string | null
 }
+export interface LivePresentationAnchor {
+  sequenceIndex: number
+  programDateTime: string
+  captureTimeOriginUs: string
+  endedAt: string | null
+  validatedAt: string
+}
 export interface CaptureSession {
   id: string
   ingestPath: string
@@ -77,6 +84,7 @@ export interface CaptureSession {
   health: string
   startedAt: string | null
   endedAt: string | null
+  livePresentationAnchors?: LivePresentationAnchor[]
   timeline: CaptureTimeline | null
 }
 export interface StartCaptureInput {
@@ -196,8 +204,8 @@ export interface CoreDomainClient {
 export const CORE_OPERATIONS = {
   viewer: `query Viewer { viewer { id role } }`,
   matches: `query Matches { matches { id title venue status scheduledAt clipPreRollUs clipPostRollUs teams { id name shortName } rosterEntries { id teamId name jerseyNumber position } sets { id setNumber status leftScore rightScore winningTeamId sideAssignments { id effectiveFromRallyOrdinal effectiveToRallyOrdinal leftTeamId rightTeamId } } captureSessions { id ingestPath matchId sourceKind sourceLabel sourceDurationUs status health startedAt endedAt } } }`,
-  match: `query Match($id: ID!) { match(id: $id) { id title venue status scheduledAt clipPreRollUs clipPostRollUs teams { id name shortName } rosterEntries { id teamId name jerseyNumber position } sets { id setNumber status leftScore rightScore winningTeamId sideAssignments { id effectiveFromRallyOrdinal effectiveToRallyOrdinal leftTeamId rightTeamId } } captureSessions { id ingestPath matchId sourceKind sourceLabel sourceDurationUs status health startedAt endedAt timeline { captureSessionId captureStartTimeUs liveEdgeCaptureTimeUs timelineVersion availabilityComplete ingestFrontierCaptureTimeUs sourceEndCaptureTimeUs availableRanges { startUs endUs discontinuity } gapRanges { startUs endUs discontinuity } } } } }`,
-  captureSession: `query CaptureSession($id: ID!) { captureSession(id: $id) { id ingestPath matchId sourceKind sourceLabel sourceDurationUs status health startedAt endedAt timeline { captureSessionId captureStartTimeUs liveEdgeCaptureTimeUs timelineVersion availabilityComplete ingestFrontierCaptureTimeUs sourceEndCaptureTimeUs availableRanges { startUs endUs discontinuity } gapRanges { startUs endUs discontinuity } } } }`,
+  match: `query Match($id: ID!) { match(id: $id) { id title venue status scheduledAt clipPreRollUs clipPostRollUs teams { id name shortName } rosterEntries { id teamId name jerseyNumber position } sets { id setNumber status leftScore rightScore winningTeamId sideAssignments { id effectiveFromRallyOrdinal effectiveToRallyOrdinal leftTeamId rightTeamId } } captureSessions { id ingestPath matchId sourceKind sourceLabel sourceDurationUs status health startedAt endedAt livePresentationAnchors { sequenceIndex programDateTime captureTimeOriginUs endedAt validatedAt } timeline { captureSessionId captureStartTimeUs liveEdgeCaptureTimeUs timelineVersion availabilityComplete ingestFrontierCaptureTimeUs sourceEndCaptureTimeUs availableRanges { startUs endUs discontinuity } gapRanges { startUs endUs discontinuity } } } } }`,
+  captureSession: `query CaptureSession($id: ID!) { captureSession(id: $id) { id ingestPath matchId sourceKind sourceLabel sourceDurationUs status health startedAt endedAt livePresentationAnchors { sequenceIndex programDateTime captureTimeOriginUs endedAt validatedAt } timeline { captureSessionId captureStartTimeUs liveEdgeCaptureTimeUs timelineVersion availabilityComplete ingestFrontierCaptureTimeUs sourceEndCaptureTimeUs availableRanges { startUs endUs discontinuity } gapRanges { startUs endUs discontinuity } } } }`,
   createMatchSetup: `mutation CreateMatchSetup($input: CreateMatchSetupInput!) { createMatchSetup(input: $input) { id title venue status scheduledAt clipPreRollUs clipPostRollUs teams { id name shortName } rosterEntries { id teamId name jerseyNumber position } sets { id setNumber status leftScore rightScore winningTeamId sideAssignments { id effectiveFromRallyOrdinal effectiveToRallyOrdinal leftTeamId rightTeamId } } } }`,
   deleteMatch: `mutation DeleteMatch($matchId: ID!) { deleteMatch(matchId: $matchId) { matchId removedAssetCount removedBytes cleanupWarnings } }`,
   updateMatch: `mutation UpdateMatch($input: UpdateMatchInput!) { updateMatch(input: $input) { id title venue status scheduledAt clipPreRollUs clipPostRollUs teams { id name shortName } rosterEntries { id teamId name jerseyNumber position } sets { id setNumber status leftScore rightScore winningTeamId sideAssignments { id effectiveFromRallyOrdinal effectiveToRallyOrdinal leftTeamId rightTeamId } } } }`,

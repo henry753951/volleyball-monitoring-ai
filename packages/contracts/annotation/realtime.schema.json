@@ -174,37 +174,62 @@
       "oneOf": [{ "$ref": "#/$defs/resolved_outcome" }, { "$ref": "#/$defs/unknown_outcome" }]
     },
     "playback_cursor": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "playback_window_id",
-        "mapping_version",
-        "player_media_time_us",
-        "observation_source",
-        "seek_generation",
-        "cursor_status"
-      ],
-      "properties": {
-        "playback_window_id": { "$ref": "#/$defs/identifier" },
-        "mapping_version": {
-          "type": "integer",
-          "minimum": 1
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "playback_window_id",
+            "mapping_version",
+            "player_media_time_us",
+            "observation_source",
+            "seek_generation",
+            "cursor_status"
+          ],
+          "properties": {
+            "playback_window_id": { "$ref": "#/$defs/identifier" },
+            "mapping_version": { "type": "integer", "minimum": 1 },
+            "player_media_time_us": { "$ref": "#/$defs/decimal_string" },
+            "observation_source": {
+              "enum": ["request_video_frame_callback", "current_time_fallback"]
+            },
+            "presented_frames": {
+              "oneOf": [{ "$ref": "#/$defs/decimal_string" }, { "type": "null" }]
+            },
+            "seek_generation": { "type": "integer", "minimum": 0 },
+            "cursor_status": { "enum": ["ready", "seeking", "stale", "gap"] }
+          }
         },
-        "player_media_time_us": { "$ref": "#/$defs/decimal_string" },
-        "observation_source": {
-          "enum": ["request_video_frame_callback", "current_time_fallback"]
-        },
-        "presented_frames": {
-          "oneOf": [{ "$ref": "#/$defs/decimal_string" }, { "type": "null" }]
-        },
-        "seek_generation": {
-          "type": "integer",
-          "minimum": 0
-        },
-        "cursor_status": {
-          "enum": ["ready", "seeking", "stale", "gap"]
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "media_backend",
+            "capture_session_id",
+            "presentation_anchor_sequence",
+            "program_date_time",
+            "player_media_time_us",
+            "observation_source",
+            "seek_generation",
+            "cursor_status"
+          ],
+          "properties": {
+            "media_backend": { "const": "ome_llhls" },
+            "capture_session_id": { "$ref": "#/$defs/identifier" },
+            "presentation_anchor_sequence": { "type": "integer", "minimum": 0 },
+            "program_date_time": { "type": "string", "format": "date-time" },
+            "player_media_time_us": { "$ref": "#/$defs/decimal_string" },
+            "observation_source": {
+              "enum": ["request_video_frame_callback", "current_time_fallback"]
+            },
+            "presented_frames": {
+              "oneOf": [{ "$ref": "#/$defs/decimal_string" }, { "type": "null" }]
+            },
+            "seek_generation": { "type": "integer", "minimum": 0 },
+            "cursor_status": { "enum": ["ready", "seeking", "stale", "gap"] }
+          }
         }
-      }
+      ]
     },
     "start_rally_command": {
       "type": "object",
@@ -1005,8 +1030,7 @@
           },
           "then": {
             "properties": {
-              "score_resolution": { "const": "pending" },
-              "scoring_court_side": { "type": "null" }
+              "score_resolution": { "enum": ["pending", "resolved", "unknown"] }
             }
           }
         },

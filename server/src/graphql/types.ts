@@ -26,6 +26,7 @@ import { domainError } from './errors.js'
 import {
   listCaptureSessionsForMatch,
   type CaptureSessionView,
+  type LivePresentationAnchorView,
   type CaptureTimelineRangeView,
   type CaptureTimelineView,
 } from '../services/media-timeline.js'
@@ -346,6 +347,31 @@ CaptureTimelineType.implement({
   }),
 })
 
+export const LivePresentationAnchorType =
+  builder.objectRef<LivePresentationAnchorView>('LivePresentationAnchor')
+LivePresentationAnchorType.implement({
+  fields: t => ({
+    captureTimeOriginUs: t.field({
+      type: 'BigInt',
+      resolve: anchor => anchor.captureTimeOriginUs,
+    }),
+    endedAt: t.field({
+      nullable: true,
+      type: 'DateTime',
+      resolve: anchor => anchor.endedAt,
+    }),
+    programDateTime: t.field({
+      type: 'DateTime',
+      resolve: anchor => anchor.programDateTime,
+    }),
+    sequenceIndex: t.exposeInt('sequenceIndex'),
+    validatedAt: t.field({
+      type: 'DateTime',
+      resolve: anchor => anchor.validatedAt,
+    }),
+  }),
+})
+
 CaptureSessionType.implement({
   fields: t => ({
     endedAt: t.field({
@@ -356,6 +382,10 @@ CaptureSessionType.implement({
     health: t.field({ type: SourceHealthType, resolve: session => session.health }),
     id: t.exposeID('id'),
     ingestPath: t.exposeString('ingestPath'),
+    livePresentationAnchors: t.field({
+      type: [LivePresentationAnchorType],
+      resolve: session => session.livePresentationAnchors,
+    }),
     matchId: t.exposeID('matchId'),
     sourceLabel: t.exposeString('sourceLabel', { nullable: true }),
     sourceDurationUs: t.field({

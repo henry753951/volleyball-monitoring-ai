@@ -1,55 +1,61 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/OWNER/volleyball-monitoring-ai/packages/contracts/media/playback-cursor/1.0.0",
-  "title": "Browser Playback Cursor 1.0.0",
-  "type": "object",
-  "additionalProperties": false,
-  "required": [
-    "schema_version",
-    "playback_window_id",
-    "mapping_version",
-    "player_media_time_us",
-    "observation_source",
-    "seek_generation",
-    "cursor_status"
-  ],
-  "properties": {
-    "schema_version": {
-      "const": "1.0.0"
-    },
-    "playback_window_id": {
-      "type": "string",
-      "minLength": 1,
-      "maxLength": 128
-    },
-    "mapping_version": {
-      "type": "integer",
-      "minimum": 1
-    },
-    "player_media_time_us": {
-      "type": "string",
-      "pattern": "^[0-9]+$"
-    },
-    "observation_source": {
-      "enum": ["request_video_frame_callback", "current_time_fallback"]
-    },
-    "presented_frames": {
-      "oneOf": [
-        {
-          "type": "string",
-          "pattern": "^[0-9]+$"
+  "$id": "https://github.com/OWNER/volleyball-monitoring-ai/packages/contracts/media/playback-cursor/2.0.0",
+  "title": "Browser Playback Cursor 1.x or 2.0.0",
+  "oneOf": [
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "playback_window_id",
+        "mapping_version",
+        "player_media_time_us",
+        "observation_source",
+        "seek_generation",
+        "cursor_status"
+      ],
+      "properties": {
+        "schema_version": { "const": "1.0.0" },
+        "playback_window_id": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "mapping_version": { "type": "integer", "minimum": 1 },
+        "player_media_time_us": { "type": "string", "pattern": "^[0-9]+$" },
+        "observation_source": { "enum": ["request_video_frame_callback", "current_time_fallback"] },
+        "presented_frames": {
+          "oneOf": [{ "type": "string", "pattern": "^[0-9]+$" }, { "type": "null" }]
         },
-        {
-          "type": "null"
-        }
-      ]
+        "seek_generation": { "type": "integer", "minimum": 0 },
+        "cursor_status": { "enum": ["ready", "seeking", "stale", "gap"] }
+      }
     },
-    "seek_generation": {
-      "type": "integer",
-      "minimum": 0
-    },
-    "cursor_status": {
-      "enum": ["ready", "seeking", "stale", "gap"]
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "media_backend",
+        "capture_session_id",
+        "presentation_anchor_sequence",
+        "program_date_time",
+        "player_media_time_us",
+        "observation_source",
+        "seek_generation",
+        "cursor_status"
+      ],
+      "properties": {
+        "schema_version": { "const": "2.0.0" },
+        "media_backend": { "const": "ome_llhls" },
+        "capture_session_id": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "presentation_anchor_sequence": { "type": "integer", "minimum": 0 },
+        "program_date_time": { "type": "string", "format": "date-time" },
+        "player_media_time_us": { "type": "string", "pattern": "^[0-9]+$" },
+        "observation_source": { "enum": ["request_video_frame_callback", "current_time_fallback"] },
+        "presented_frames": {
+          "oneOf": [{ "type": "string", "pattern": "^[0-9]+$" }, { "type": "null" }]
+        },
+        "seek_generation": { "type": "integer", "minimum": 0 },
+        "cursor_status": { "enum": ["ready", "seeking", "stale", "gap"] }
+      }
     }
-  }
+  ]
 }

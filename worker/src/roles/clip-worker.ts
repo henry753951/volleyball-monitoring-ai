@@ -282,32 +282,40 @@ export function createClipWorker(
       )
       const mappings = job.submission.keyPoints.map(point => {
         const ordinal = selection.keyPointOrdinals.get(point.id)
+        const sourceSample = selection.resolvedKeyPointSamples.get(point.id)
         if (ordinal === undefined)
           throw new Error(`immutable key point ${point.id} has no selected source frame`)
+        if (!sourceSample)
+          throw new Error(`immutable key point ${point.id} has no resolved source sample`)
         return {
           submissionKeyPointId: point.id,
           sequenceIndex: point.sequenceIndex,
           markerKind: point.markerKind.toLowerCase(),
           isTerminal: point.isTerminal,
-          captureEpochId: point.captureEpochId,
-          sourcePts: point.sourcePts,
-          captureTimeUs: point.captureTimeUs,
-          captureFrameIndex: point.captureFrameIndex,
+          captureEpochId: sourceSample.captureEpochId,
+          sourcePts: sourceSample.sourcePts,
+          captureTimeUs: sourceSample.captureTimeUs,
+          captureFrameIndex: sourceSample.captureFrameIndex,
           ...mapClipKeyPoint(point.id, ordinal, video),
         }
       })
       const boundaryMappings = job.submission.boundaries.map(boundary => {
         const ordinal = selection.keyPointOrdinals.get(boundary.id)
+        const sourceSample = selection.resolvedKeyPointSamples.get(boundary.id)
         if (ordinal === undefined)
           throw new Error(
             `immutable ${boundary.kind.toLowerCase()} boundary ${boundary.id} has no selected source frame`,
           )
+        if (!sourceSample)
+          throw new Error(
+            `immutable ${boundary.kind.toLowerCase()} boundary ${boundary.id} has no resolved source sample`,
+          )
         return {
           kind: boundary.kind.toLowerCase() as 'start' | 'end',
-          captureEpochId: boundary.captureEpochId,
-          sourcePts: boundary.sourcePts,
-          captureTimeUs: boundary.captureTimeUs,
-          captureFrameIndex: boundary.captureFrameIndex,
+          captureEpochId: sourceSample.captureEpochId,
+          sourcePts: sourceSample.sourcePts,
+          captureTimeUs: sourceSample.captureTimeUs,
+          captureFrameIndex: sourceSample.captureFrameIndex,
           ...mapClipKeyPoint(boundary.id, ordinal, video),
         }
       })

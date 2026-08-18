@@ -146,6 +146,7 @@ describe('key-point editing service', () => {
       playbackWindowId: 'window-1',
     })
     const cursor = {
+      schema_version: '1.0.0',
       playback_window_id: 'window-1',
       mapping_version: 1,
       player_media_time_us: '1250000',

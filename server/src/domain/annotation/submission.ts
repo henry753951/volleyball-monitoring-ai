@@ -66,25 +66,10 @@ function ordinaryDraftBelongsToDevice(
   return owner === deviceSessionId
 }
 
-function immutableSubmissionRange(submission: {
+function immutableSubmissionAnnotationRange(submission: {
   boundaries: Array<{ captureTimeUs: bigint }>
   keyPoints: Array<{ captureTimeUs: bigint }>
-  clipPreRollUs: bigint
-  clipPostRollUs: bigint
-  clipJobs: Array<{
-    actualStartCaptureUs: bigint | null
-    actualEndCaptureUs: bigint | null
-    requestedStartCaptureUs: bigint
-    requestedEndCaptureUs: bigint
-  }>
 }) {
-  const clip = submission.clipJobs[0]
-  if (clip) {
-    return {
-      start: clip.actualStartCaptureUs ?? clip.requestedStartCaptureUs,
-      end: clip.actualEndCaptureUs ?? clip.requestedEndCaptureUs,
-    }
-  }
   const anchors = [...submission.boundaries, ...submission.keyPoints].sort((left, right) =>
     left.captureTimeUs < right.captureTimeUs
       ? -1
@@ -95,10 +80,9 @@ function immutableSubmissionRange(submission: {
   const first = anchors[0]
   const last = anchors.at(-1)
   if (!first || !last) return null
-  const paddedStart = first.captureTimeUs - submission.clipPreRollUs
   return {
-    start: paddedStart < 0n ? 0n : paddedStart,
-    end: last.captureTimeUs + submission.clipPostRollUs,
+    start: first.captureTimeUs,
+    end: last.captureTimeUs > first.captureTimeUs ? last.captureTimeUs : first.captureTimeUs + 1n,
   }
 }
 
@@ -513,6 +497,11 @@ export async function submitRally(
       ? 0n
       : coverageStartAnchor.captureTimeUs - clipPreRollUs
   const requestedEnd = coverageEndAnchor.captureTimeUs + clipPostRollUs
+  const annotationStart = coverageStartAnchor.captureTimeUs
+  const annotationEnd =
+    coverageEndAnchor.captureTimeUs > annotationStart
+      ? coverageEndAnchor.captureTimeUs
+      : annotationStart + 1n
   const immutableSubmissions = await tx.rallySubmission.findMany({
     where: {
       status: 'ACTIVE',
@@ -520,24 +509,12 @@ export async function submitRally(
     },
     select: {
       boundaries: { select: { captureTimeUs: true } },
-      clipPostRollUs: true,
-      clipPreRollUs: true,
-      clipJobs: {
-        orderBy: { createdAt: 'desc' },
-        select: {
-          actualEndCaptureUs: true,
-          actualStartCaptureUs: true,
-          requestedEndCaptureUs: true,
-          requestedStartCaptureUs: true,
-        },
-        take: 1,
-      },
       keyPoints: { select: { captureTimeUs: true } },
     },
   })
   const overlapsImmutableSubmission = immutableSubmissions.some(submission => {
-    const range = immutableSubmissionRange(submission)
-    return range !== null && requestedStart < range.end && requestedEnd > range.start
+    const range = immutableSubmissionAnnotationRange(submission)
+    return range !== null && annotationStart < range.end && annotationEnd > range.start
   })
   if (overlapsImmutableSubmission) {
     return persist(

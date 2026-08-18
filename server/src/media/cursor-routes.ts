@@ -227,7 +227,10 @@ export const mediaCursorRoutes =
         const identity = await authenticate(request, deps.authenticate, database)
         let body: PlaybackCursor
         try {
-          body = parsePlaybackCursor(request.body)
+          const parsed = parsePlaybackCursor(request.body)
+          if (parsed.schema_version !== '1.0.0')
+            throw new TypeError('OME cursors are resolved by the annotation service')
+          body = parsed
         } catch {
           throw new MediaHttpError(400, 'BAD_REQUEST', 'Invalid playback cursor')
         }

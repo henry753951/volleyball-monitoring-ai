@@ -82,8 +82,12 @@ builder.mutationType({
     }),
     startCapture: t.field({
       args: { input: t.arg({ required: true, type: StartCaptureInputType }) },
-      resolve: (_root, args, context) =>
-        operational(() => startCapture(db, requireIdentity(context), args.input)),
+      resolve: async (_root, args, context) => {
+        const started = await operational(() =>
+          startCapture(db, requireIdentity(context), args.input),
+        )
+        return { ...started, livePresentationAnchors: [], timeline: null }
+      },
       type: CaptureSessionType,
     }),
     stopCapture: t.field({
@@ -95,7 +99,7 @@ builder.mutationType({
         if (['youtube', 'youtube_live', 'youtube_vod', 'local_mp4'].includes(stopped.sourceKind)) {
           await requestMediaSourceStop(db, stopped.id)
         }
-        return stopped
+        return { ...stopped, livePresentationAnchors: [] }
       },
       type: CaptureSessionType,
     }),

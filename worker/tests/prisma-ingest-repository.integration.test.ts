@@ -344,6 +344,49 @@ describe('Prisma finalized media ingest repository', () => {
     })
   })
 
+  it('adopts a live provisional epoch when the matching OME extent is finalized', async () => {
+    const { captureSessionId } = await createSession()
+    const firstInput = reservationInput(captureSessionId, 'provisional-first', {
+      samples: samples(0n),
+    })
+    const first = await repository.reserveUploading(firstInput)
+    await prepareAndPublish(first)
+
+    const provisionalId = randomUUID()
+    const provisionalFrameOrigin =
+      first.plan.segment.firstFrameIndex + BigInt(first.plan.segment.sampleIndex.samples.length)
+    await db.captureEpoch.create({
+      data: {
+        id: provisionalId,
+        captureSessionId,
+        sequenceIndex: first.plan.epoch.epochSequence + 1,
+        sourceTimeBaseNum: 1,
+        sourceTimeBaseDen: 90_000,
+        sourcePtsOrigin: 0n,
+        captureTimeOriginUs: first.plan.segment.captureEndUs,
+        captureFrameOrigin: provisionalFrameOrigin,
+        startedAtCaptureUs: first.plan.segment.captureEndUs,
+        discontinuityReason: 'OME_RECORDING_EXTENT_PROVISIONAL',
+      },
+    })
+
+    const finalizedInput = reservationInput(captureSessionId, 'provisional-finalized', {
+      newEpochId: randomUUID(),
+      samples: samples(0n),
+      sourceOrder: firstInput.sourceOrder + 1n,
+      timestampDiscontinuity: false,
+    })
+    const finalized = await repository.reserveUploading(finalizedInput)
+
+    expect(finalized.createdNewEpoch).toBe(true)
+    expect(finalized.captureEpochId).toBe(provisionalId)
+    expect(finalized.sampleIndex.epochId).toBe(provisionalId)
+    expect(finalized.plan.segment.captureStartUs).toBe(first.plan.segment.captureEndUs)
+    expect(finalized.plan.segment.firstFrameIndex).toBe(provisionalFrameOrigin)
+    const adopted = await db.captureEpoch.findUniqueOrThrow({ where: { id: provisionalId } })
+    expect(adopted.discontinuityReason).not.toBe('OME_RECORDING_EXTENT_PROVISIONAL')
+  })
+
   it('rejects an invalid source time base without creating persistence rows', async () => {
     const { captureSessionId } = await createSession()
     const input = reservationInput(captureSessionId, 'invalid-time-base', {

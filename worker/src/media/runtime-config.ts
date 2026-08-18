@@ -22,6 +22,7 @@ const MediaIndexerEnvironment = z.object({
   MINIO_DVR_BUCKET: z.string().min(3),
   OME_API_ACCESS_TOKEN: z.string().min(32),
   OME_API_URL: z.string().url(),
+  OME_LLHLS_URL: z.string().url().default('http://127.0.0.1:3333'),
   MEDIA_INDEXER_SCAN_INTERVAL_MS: z.coerce.number().int().min(5_000).max(300_000).default(30_000),
   MEDIA_INDEXER_ACTIVE_POLL_INTERVAL_MS: z.coerce.number().int().min(250).max(10_000).default(500),
   MEDIA_SOURCE_CONCURRENCY: z.coerce.number().int().min(1).max(8).default(2),
@@ -32,7 +33,13 @@ const MediaIndexerEnvironment = z.object({
   ),
   YOUTUBE_EXTRACTOR_ARGS: z.string().min(1).default('youtube:player_client=default'),
   YOUTUBE_FORMAT: z.string().min(1).default(YOUTUBE_PROBE_FORMAT),
+  YOUTUBE_LIVE_EXTRACTOR_ARGS: z.string().min(1).default('youtube:player_client=mweb'),
   YOUTUBE_LIVE_MAX_CONSECUTIVE_FAILURES: z.coerce.number().int().min(1).max(100).default(5),
+  YOUTUBE_POT_PROVIDER_URL: z.preprocess(
+    value => (typeof value === 'string' && value.trim() === '' ? undefined : value),
+    z.string().url().optional(),
+  ),
+  YOUTUBE_VOD_EXTRACTOR_ARGS: z.string().min(1).default('youtube:player_client=visionos'),
   YOUTUBE_VOD_FORMAT: z.string().min(1).default(YOUTUBE_VOD_FORMAT),
   YT_DLP_COMMAND: z.string().min(1).default('yt-dlp'),
 })

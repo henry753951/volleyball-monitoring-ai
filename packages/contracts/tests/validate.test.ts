@@ -62,6 +62,13 @@ describe('golden contract fixtures', () => {
         cursor_status: 'ready',
       }),
     ).toThrow()
+    expect(parsePlaybackCursor(load('examples/media/playback-cursor-ome-live.json'))).toMatchObject(
+      {
+        media_backend: 'ome_llhls',
+        presentation_anchor_sequence: 7,
+        schema_version: '2.0.0',
+      },
+    )
     const anchor = load('examples/media/resolved-media-anchor.json')
     delete anchor.snap_distance_us
     expect(parseResolvedMediaAnchor(anchor).snap_distance_us).toBeUndefined()
@@ -113,6 +120,7 @@ describe('golden contract fixtures', () => {
       'examples/media/playback-window-descriptor.json':
         'media/playback-window-descriptor.schema.json',
       'examples/media/playback-cursor.json': 'media/playback-cursor.schema.json',
+      'examples/media/playback-cursor-ome-live.json': 'media/playback-cursor.schema.json',
       'examples/media/resolved-media-anchor.json': 'media/resolved-media-anchor.schema.json',
       'examples/media/playback-window-descriptor-live.json':
         'media/playback-window-descriptor.schema.json',
@@ -126,6 +134,7 @@ describe('golden contract fixtures', () => {
       'examples/annotation/close-rally-right.json': 'annotation/realtime.schema.json',
       'examples/annotation/close-rally-unknown.json': 'annotation/realtime.schema.json',
       'examples/annotation/close-rally-ack.json': 'annotation/realtime.schema.json',
+      'examples/annotation/create-service-ome-live.json': 'annotation/realtime.schema.json',
       'examples/annotation/close-rally-target-conflict.json': 'annotation/realtime.schema.json',
       'examples/annotation/submit.json': 'annotation/realtime.schema.json',
       'examples/ai/capabilities.json': 'ai/capabilities.schema.json',

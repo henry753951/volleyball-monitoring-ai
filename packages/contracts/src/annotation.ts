@@ -21,7 +21,7 @@ export const ANNOTATION_COMMAND_KINDS = [
 
 export type AnnotationCommandKind = (typeof ANNOTATION_COMMAND_KINDS)[number]
 
-export interface AnnotationPlaybackCursor {
+export interface AnnotationWindowPlaybackCursor {
   playback_window_id: string
   mapping_version: number
   player_media_time_us: string
@@ -30,6 +30,22 @@ export interface AnnotationPlaybackCursor {
   seek_generation: number
   cursor_status: 'ready' | 'seeking' | 'stale' | 'gap'
 }
+
+export interface AnnotationOmeLivePlaybackCursor {
+  media_backend: 'ome_llhls'
+  capture_session_id: string
+  presentation_anchor_sequence: number
+  program_date_time: string
+  player_media_time_us: string
+  observation_source: 'request_video_frame_callback' | 'current_time_fallback'
+  presented_frames?: string | null
+  seek_generation: number
+  cursor_status: 'ready' | 'seeking' | 'stale' | 'gap'
+}
+
+export type AnnotationPlaybackCursor =
+  | AnnotationWindowPlaybackCursor
+  | AnnotationOmeLivePlaybackCursor
 
 interface AnnotationCommandBase<K extends AnnotationCommandKind, P> {
   schema_version: K extends 'START_RALLY' | 'END_RALLY' | 'SET_RALLY_OUTCOME'

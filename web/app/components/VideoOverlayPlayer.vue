@@ -8,7 +8,8 @@ import { useDvrPlayback } from '../composables/useDvrPlayback'
 import { createOmeLivePlaybackService } from '../services/annotation-workstation/ome-live-playback.service'
 import {
   omePlayerSecondsForCaptureTime,
-  omePresentationOriginCaptureUs,
+  omePresentationAnchorForPlayingDate,
+  omePresentationOriginFromPlayingDate,
   type OmeLivePlaybackSource,
 } from '../lib/omeLivePlayback'
 import { captureTimeToPlayerSeconds, isCaptureTimeWithinWindow } from '../utils/playbackWindow'
@@ -101,7 +102,7 @@ const emit = defineEmits<{
     value: {
       atLiveEdge: boolean
       captureTimeUs: string | null
-      mappingStatus: 'experimental' | 'unmapped'
+      mappingStatus: 'validated' | 'unmapped'
     },
   ]
   ready: [HTMLVideoElement]
@@ -131,13 +132,15 @@ const retainedPreview = ref<string | null>(null)
 const descriptorRef = computed(() => props.descriptor ?? null)
 const liveSourceRef = computed(() => props.liveSource ?? null)
 const { cursor } = usePlaybackCursor(video, descriptorRef)
+const omeSeekGeneration = ref(0)
 function livePresentationOriginCaptureUs() {
   const element = video.value
   const source = liveSourceRef.value
-  if (!element || !source || element.seekable.length === 0) return null
-  return omePresentationOriginCaptureUs(
-    source.liveEdgeCaptureTimeUs,
-    element.seekable.end(element.seekable.length - 1),
+  if (!element || !source) return null
+  return omePresentationOriginFromPlayingDate(
+    source.presentationAnchors,
+    omePlayback.playingDate(),
+    element.currentTime,
   )
 }
 function publishBufferState() {
@@ -499,6 +502,25 @@ function publishLivePosition() {
   if (!element || !liveSourceRef.value || element.seekable.length === 0) return
   const seekableEnd = element.seekable.end(element.seekable.length - 1)
   const origin = livePresentationOriginCaptureUs()
+  const playingDate = omePlayback.playingDate()
+  const anchor = omePresentationAnchorForPlayingDate(
+    liveSourceRef.value.presentationAnchors,
+    playingDate,
+  )
+  if (origin && anchor && playingDate) {
+    emit('cursor', {
+      schema_version: '2.0.0',
+      media_backend: 'ome_llhls',
+      capture_session_id: liveSourceRef.value.captureSessionId,
+      presentation_anchor_sequence: anchor.sequenceIndex,
+      program_date_time: playingDate.toISOString(),
+      player_media_time_us: BigInt(Math.round(element.currentTime * 1_000_000)).toString(),
+      observation_source: 'current_time_fallback',
+      presented_frames: null,
+      seek_generation: omeSeekGeneration.value,
+      cursor_status: element.seeking ? 'seeking' : 'ready',
+    })
+  }
   emit('livePosition', {
     atLiveEdge: seekableEnd - element.currentTime <= 3,
     captureTimeUs: origin
@@ -506,8 +528,13 @@ function publishLivePosition() {
           BigInt(origin) + BigInt(Math.max(0, Math.round(element.currentTime * 1_000_000)))
         ).toString()
       : null,
-    mappingStatus: origin ? 'experimental' : 'unmapped',
+    mappingStatus: origin ? 'validated' : 'unmapped',
   })
+}
+function handleLiveSeeking() {
+  if (!liveSourceRef.value) return
+  omeSeekGeneration.value += 1
+  publishLivePosition()
 }
 defineExpose({
   overlayFrameCaptureTime,
@@ -540,6 +567,8 @@ defineExpose({
       @durationchange="publishBufferState"
       @emptied="publishBufferState"
       @timeupdate="publishLivePosition"
+      @seeking="handleLiveSeeking"
+      @seeked="publishLivePosition"
       @click="handleVideoClick"
     />
     <img

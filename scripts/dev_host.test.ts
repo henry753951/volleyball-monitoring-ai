@@ -14,6 +14,7 @@ describe('host development environment', () => {
       REDIS_HOST_PORT: '16380',
       MINIO_HOST_PORT: '19000',
       OME_API_HOST_PORT: '18081',
+      OME_LLHLS_HOST_PORT: '13333',
       OME_RTMP_HOST_PORT: '11935',
       DEV_DATA_ROOT: 'F:\\vollyai-dev-data',
       SERVER_DEV_PORT: '14000',
@@ -26,6 +27,7 @@ describe('host development environment', () => {
     expect(environment.MEDIA_SPOOL_DIR).toBe('F:\\vollyai-dev-data\\media-spool')
     expect(environment.MEDIA_IMPORT_ROOT).toBe('F:\\vollyai-dev-data\\media-imports')
     expect(environment.OME_API_URL).toBe('http://127.0.0.1:18081')
+    expect(environment.OME_LLHLS_URL).toBe('http://127.0.0.1:13333')
     expect(environment.MEDIA_INGEST_BASE_URL).toBe('rtmp://127.0.0.1:11935/app')
     expect(environment.NUXT_DEV_BACKEND_ORIGIN).toBe('http://127.0.0.1:14000')
     expect(environment.NUXT_PORT).toBe('13100')

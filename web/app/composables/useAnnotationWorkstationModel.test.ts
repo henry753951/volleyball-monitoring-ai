@@ -143,6 +143,38 @@ const coachState = {
 } as CoachMatchState
 
 describe('useAnnotationWorkstationModel timeline layers', () => {
+  it('keeps reservation ranges independent from overlapping clip handles', () => {
+    const state = structuredClone(coachState)
+    state.match.clip_pre_roll_us = '5000000'
+    state.match.clip_post_roll_us = '5000000'
+    state.match.rallies[0]!.submission.clip = {
+      id: 'clip',
+      status: 'completed',
+      start_capture_time_us: '0',
+      end_capture_time_us: '7000000',
+      duration_us: '7000000',
+    }
+    const model = useAnnotationWorkstationModel({
+      coachData: ref(state),
+      match: ref<Match | null>(null),
+      timeline: computed<CaptureTimeline | null>(() => null),
+      displayAnnotation: computed<AnnotationRallySnapshot | null>(() => null),
+      confirmedAnnotation: shallowRef<AnnotationRallySnapshot | null>(null),
+      state: computed(() => 'IDLE' as const),
+      selectedRallyId: computed(() => null),
+      selectedKeyPoint: computed<AnnotationKeyPoint | null>(() => null),
+      selectedTimelineItem: ref<TimelineSelectionItem>(null),
+      cursorRallyId: ref(null),
+    })
+
+    expect(model.timelineSegments.value[0]).toEqual(
+      expect.objectContaining({ startCaptureTimeUs: '0', endCaptureTimeUs: '7000000' }),
+    )
+    expect(model.reservationSegmentRanges.value).toEqual([
+      { id: 'rally', startCaptureTimeUs: '1000000', endCaptureTimeUs: '2000000' },
+    ])
+  })
+
   it('projects room-wide peer drafts as read-only reserved ranges before dashboard refresh', () => {
     const peerSnapshot = structuredClone(snapshot)
     peerSnapshot.rally_id = 'peer-rally'
