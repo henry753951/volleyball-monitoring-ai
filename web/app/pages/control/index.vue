@@ -22,6 +22,7 @@ import { toast } from 'vue-sonner'
 import type { DeepReadonly } from 'vue'
 import MediaDvrMonitorDialog from '~/components/control/MediaDvrMonitorDialog.vue'
 import StorageMeter from '~/components/control/StorageMeter.vue'
+import YoutubeAuthCard from '~/components/YoutubeAuthCard.vue'
 import type { Match } from '~/lib/coreDomain'
 import type { CreateMatchWithMediaInput } from '~/lib/mediaSourceClient'
 import { createMediaSourceClient } from '~/lib/mediaSourceClient'
@@ -502,6 +503,7 @@ onBeforeUnmount(() => {
           </div>
         </dl>
       </section>
+      <YoutubeAuthCard class="control-youtube-auth" />
       <div class="storage-overview">
         <StorageMeter
           label="S3 物件儲存"
@@ -840,6 +842,9 @@ onBeforeUnmount(() => {
   width: min(100%, 1500px);
   margin: auto;
   padding: 18px 24px 40px;
+}
+.control-youtube-auth {
+  margin-top: 14px;
 }
 .ops-command {
   display: grid;

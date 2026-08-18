@@ -319,6 +319,88 @@ export function mediaSourceRoutes(dependencies: MediaSourceRouteDependencies): F
       }
     })
 
+    app.delete('/api/v1/media-sources/:capture_session_id', async (request, reply) => {
+      const identity = operator(await dependencies.authenticate(request))
+      if (!identity) return reply.status(401).send({ code: 'UNAUTHENTICATED' })
+      const params = z
+        .object({ capture_session_id: z.string().regex(UUID) })
+        .safeParse(request.params)
+      if (!params.success) return reply.status(404).send({ code: 'NOT_FOUND' })
+
+      try {
+        const result = await dependencies.database.$transaction(async tx => {
+          await tx.$queryRaw`
+            SELECT pg_advisory_xact_lock(
+              hashtextextended(CAST(${`capture-media:${params.data.capture_session_id}`} AS text), 0)
+            )::text AS lock
+          `
+          const capture = await tx.captureSession.findFirst({
+            select: { id: true, status: true, sourceKind: true },
+            where: {
+              id: params.data.capture_session_id,
+              match: {
+                deletionRequestedAt: null,
+                ...(identity.role === UserRole.ADMIN
+                  ? {}
+                  : {
+                      members: {
+                        some: {
+                          userId: identity.id,
+                          role: { in: [UserRole.ADMIN, UserRole.OPERATOR] },
+                        },
+                      },
+                    }),
+              },
+            },
+          })
+          if (!capture) return null
+
+          const work = await tx.mediaSourceWork.findUnique({
+            select: { status: true },
+            where: { captureSessionId: capture.id },
+          })
+          if (
+            ['STARTING', 'LIVE', 'STOPPING'].includes(capture.status) ||
+            ['REQUESTED', 'RUNNING', 'DRAINING', 'STOP_REQUESTED'].includes(work?.status ?? '')
+          ) {
+            throw new Error('MEDIA_SOURCE_ACTIVE')
+          }
+
+          const programs = await tx.dvrProgram.findMany({
+            select: { id: true },
+            where: { captureSessionId: capture.id },
+          })
+          const programIds = programs.map(program => program.id)
+          const [segmentCount, extentCount, rallyCount] = programIds.length
+            ? await Promise.all([
+                tx.dvrSegment.count({ where: { dvrProgramId: { in: programIds } } }),
+                tx.mediaExtent.count({ where: { captureSessionId: capture.id } }),
+                tx.rally.count({ where: { dvrProgramId: { in: programIds } } }),
+              ])
+            : [0, 0, 0]
+          if (segmentCount || extentCount || rallyCount) throw new Error('MEDIA_DATA_PRESENT')
+
+          await tx.outboxEvent.deleteMany({ where: { aggregateId: capture.id } })
+          await tx.playbackWindow.deleteMany({ where: { captureSessionId: capture.id } })
+          await tx.dvrProgram.deleteMany({ where: { captureSessionId: capture.id } })
+          await tx.captureEpoch.deleteMany({ where: { captureSessionId: capture.id } })
+          await tx.captureSession.delete({ where: { id: capture.id } })
+          return { capture_session_id: capture.id, cleared: true, source_kind: capture.sourceKind }
+        })
+        if (!result) return reply.status(404).send({ code: 'NOT_FOUND' })
+        return reply.status(200).send(result)
+      } catch (error) {
+        if (error instanceof Error && error.message === 'MEDIA_SOURCE_ACTIVE')
+          return reply.status(409).send({ code: 'MEDIA_SOURCE_ACTIVE' })
+        if (error instanceof Error && error.message === 'MEDIA_DATA_PRESENT')
+          return reply.status(409).send({
+            code: 'MEDIA_DATA_PRESENT',
+            message: '這個來源已有媒體或標註資料，為避免誤刪只能保留；請用重新載入或刪除整個場次。',
+          })
+        throw error
+      }
+    })
+
     app.post('/api/v1/media-sources/rtmp', async (request, reply) => {
       const identity = operator(await dependencies.authenticate(request))
       if (!identity) return reply.status(401).send({ code: 'UNAUTHENTICATED' })

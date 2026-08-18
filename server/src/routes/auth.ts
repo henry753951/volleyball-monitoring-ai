@@ -5,7 +5,7 @@ import {
   appAuthConfigured,
   appSessionCookie,
   authenticateAnnotationRequest,
-  clearAppSessionCookie,
+  clearAppSessionCookies,
   createAppSession,
   verifyAppCredentials,
 } from '../realtime/auth.js'
@@ -72,7 +72,7 @@ export const authRoutes =
       }
       return reply
         .header('cache-control', 'no-store')
-        .header('set-cookie', clearAppSessionCookie())
+        .header('set-cookie', clearAppSessionCookies())
         .send({ authenticated: false })
     })
   }

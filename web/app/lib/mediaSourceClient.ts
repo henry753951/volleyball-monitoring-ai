@@ -157,5 +157,24 @@ export function createMediaSourceClient(options: MediaSourceClientOptions = {}) 
       if (!response.ok) throw await responseError(response)
       return (await response.json()) as { attempt: number }
     },
+    async forceReloadYoutubeSource(captureSessionId: string): Promise<{ attempt: number }> {
+      // The existing retry primitive already guarantees a fresh browser-cookie
+      // read and resolver run. Keep one server-side retry path so the worker's
+      // checkpoint and idempotency rules remain unchanged.
+      const response = await fetcher(
+        `${baseUrl}/media-sources/youtube/${encodeURIComponent(captureSessionId)}/retry`,
+        { method: 'POST', credentials: 'include' },
+      )
+      if (!response.ok) throw await responseError(response)
+      return (await response.json()) as { attempt: number }
+    },
+    async clearMediaSource(captureSessionId: string): Promise<{ cleared: boolean }> {
+      const response = await fetcher(
+        `${baseUrl}/media-sources/${encodeURIComponent(captureSessionId)}`,
+        { method: 'DELETE', credentials: 'include' },
+      )
+      if (!response.ok) throw await responseError(response)
+      return (await response.json()) as { cleared: boolean }
+    },
   }
 }
