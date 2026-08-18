@@ -108,7 +108,7 @@ beacab3d8c35cecf4eba50c8d05027491627eaa01e9f3ac9cb21d3fc4579070e  ./infra/ome/Se
 e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  ./infra/traefik/certs/.gitkeep
 e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  ./infra/traefik/dynamic/.gitkeep
 466682f524e17b80f04aba5b8da1d08baf33874bae32b8b3a402b89e99e2b882  ./infra/traefik/traefik.yml
-591874467e58525b0c8e8100259d5f2d7d4ec345717e3bbd505ff0bab0364f90  ./package.json
+cf99600ccc4afcc96a13923e81b1c15e9f654576593535ca732bbe4cbf42b5f3  ./package.json
 1bd344d8ee58de8869bbb79c3ee44bf6e8324430413189848f80de0a15cabe87  ./packages/contracts/AGENTS.md
 c7a6bbb12e6f6e45d7811e397bed59e54f31168c619e4ae142a84cc4f09dffa6  ./packages/contracts/README.md
 ea23eab7b18f4490d42dbbc313cd3be64f8324af3f267ccdc235769c84bef49c  ./packages/contracts/ai/analysis-data-domain.schema.json
