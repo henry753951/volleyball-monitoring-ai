@@ -82,7 +82,9 @@ export function createMediaIndexerLifecycle(ports: MediaIndexerLifecyclePorts) {
 export async function createMediaComposition() {
   const config = mediaIndexerConfig()
   const { db } = await import('@volleyball-monitoring/db')
-  const repository = new PrismaIngestRepository(db)
+  const repository = new PrismaIngestRepository(db, {
+    liveArchiveBackend: config.LIVE_ARCHIVE_BACKEND,
+  })
   const endpoint = new URL(config.MINIO_ENDPOINT)
   const archiveStore = createMinioMediaObjectStore({
     endpointUrl: config.MINIO_ENDPOINT,

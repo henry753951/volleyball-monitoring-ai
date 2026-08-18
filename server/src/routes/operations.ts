@@ -132,6 +132,22 @@ export interface StreamSnapshot {
   } | null
 }
 
+const LIVE_CAPTURE_SOURCE_KINDS = new Set([
+  'live',
+  'rtmp',
+  'rtsp',
+  'srt',
+  'webrtc',
+  'whip',
+  'youtube_live',
+  'hls_live',
+])
+
+function isLiveCaptureSourceKind(sourceKind: string): boolean {
+  const normalized = sourceKind.trim().toLowerCase().replaceAll('-', '_')
+  return LIVE_CAPTURE_SOURCE_KINDS.has(normalized) || normalized.endsWith('_live')
+}
+
 export interface OperationsDashboardSnapshot {
   readiness: ReadinessResult
   operations: OperationsSnapshot
@@ -361,9 +377,9 @@ export async function collectOperationsSnapshot(
     getAiWorkerAccess(database),
   ])
   const programIds = captureSessions.flatMap(capture => capture.programs.map(program => program.id))
-  const [segmentTotals, readySegments, gapSegments] =
+  const [segmentTotals, readySegments, gapSegments, extentRows] =
     programIds.length === 0
-      ? ([[], [], []] as const)
+      ? ([[], [], [], []] as const)
       : await Promise.all([
           database.dvrSegment.groupBy({
             by: ['dvrProgramId'],
@@ -381,6 +397,18 @@ export async function collectOperationsSnapshot(
             where: { dvrProgramId: { in: programIds }, isGap: true },
             _count: { _all: true },
           }),
+          database.mediaExtent.findMany({
+            orderBy: [{ dvrProgramId: 'asc' }, { startUs: 'asc' }, { id: 'asc' }],
+            select: {
+              dvrProgramId: true,
+              startUs: true,
+              endUs: true,
+              frameCount: true,
+              status: true,
+              archiveVerifiedAt: true,
+            },
+            where: { dvrProgramId: { in: programIds } },
+          }),
         ])
   const [mediaByteRows, hostStorage, objectStorage, deployment] = await Promise.all([
     database.$queryRaw<Array<{ matchId: string; storedBytes: bigint }>>`
@@ -394,9 +422,26 @@ export async function collectOperationsSnapshot(
         UNION SELECT DISTINCT r."matchId", aa."assetId" FROM "AnalysisArtifact" aa JOIN "AnalysisRun" ar ON ar.id = aa."analysisRunId" JOIN "RallySubmission" rs ON rs.id = ar."submissionId" JOIN "Rally" r ON r.id = rs."rallyId"
         UNION SELECT DISTINCT r."matchId", oc."assetId" FROM "AnalysisFrameChunk" oc JOIN "AnalysisRun" ar ON ar.id = oc."analysisRunId" JOIN "RallySubmission" rs ON rs.id = ar."submissionId" JOIN "Rally" r ON r.id = rs."rallyId"
       )
-      SELECT am."matchId", COALESCE(SUM(ma."byteLength"), 0)::bigint AS "storedBytes"
-      FROM asset_match am JOIN "MediaAsset" ma ON ma.id = am."assetId"
-      WHERE am."assetId" IS NOT NULL GROUP BY am."matchId"
+      , stored_by_match AS (
+        SELECT am."matchId", COALESCE(SUM(ma."byteLength"), 0)::bigint AS "storedBytes"
+        FROM asset_match am JOIN "MediaAsset" ma ON ma.id = am."assetId"
+        WHERE am."assetId" IS NOT NULL GROUP BY am."matchId"
+        UNION ALL
+        SELECT
+          capture."matchId",
+          COALESCE(SUM(extent."bytes" + extent."initBytes" + extent."sampleIndexBytes"), 0)::bigint
+        FROM "MediaExtent" extent
+        JOIN "CaptureSession" capture ON capture.id = extent."captureSessionId"
+        WHERE extent."dvrSegmentId" IS NULL
+          AND extent."status" = 'ARCHIVE_VERIFIED'
+          AND extent."bytes" IS NOT NULL
+          AND extent."initBytes" IS NOT NULL
+          AND extent."sampleIndexBytes" IS NOT NULL
+        GROUP BY capture."matchId"
+      )
+      SELECT "matchId", SUM("storedBytes")::bigint AS "storedBytes"
+      FROM stored_by_match
+      GROUP BY "matchId"
     `,
     hostStorageProbe?.() ??
       Promise.resolve({
@@ -421,6 +466,23 @@ export async function collectOperationsSnapshot(
   const totalsByProgram = new Map(segmentTotals.map(item => [item.dvrProgramId, item]))
   const readyByProgram = new Map(readySegments.map(item => [item.dvrProgramId, item._count._all]))
   const gapsByProgram = new Map(gapSegments.map(item => [item.dvrProgramId, item._count._all]))
+  const extentsByProgram = new Map<
+    string,
+    { count: number; ready: number; frameCount: bigint; durationUs: bigint }
+  >()
+  for (const extent of extentRows) {
+    const total = extentsByProgram.get(extent.dvrProgramId) ?? {
+      count: 0,
+      ready: 0,
+      frameCount: 0n,
+      durationUs: 0n,
+    }
+    total.count += 1
+    total.frameCount += extent.frameCount ?? 0n
+    total.durationUs += extent.endUs - extent.startUs
+    if (extent.status === 'ARCHIVE_VERIFIED' && extent.archiveVerifiedAt) total.ready += 1
+    extentsByProgram.set(extent.dvrProgramId, total)
+  }
   const activeJobsByWorker = new Map<string | null, number>()
   for (const item of [...activeAiJobs, ...activeProviderJobs]) {
     activeJobsByWorker.set(
@@ -437,7 +499,9 @@ export async function collectOperationsSnapshot(
   const matchMedia = new Map<string, MatchMediaSnapshot>()
   for (const capture of captureSessions) {
     const program = capture.programs[0]
+    const useExtents = isLiveCaptureSourceKind(capture.sourceKind)
     const totals = program ? totalsByProgram.get(program.id) : undefined
+    const extentTotals = program ? extentsByProgram.get(program.id) : undefined
     const current = matchMedia.get(capture.matchId) ?? {
       activeCaptureCount: 0,
       captureCount: 0,
@@ -452,11 +516,16 @@ export async function collectOperationsSnapshot(
     current.captureCount += 1
     if (['STARTING', 'LIVE', 'STOPPING'].includes(capture.status)) current.activeCaptureCount += 1
     if (capture.status === 'FAILED') current.failedCaptureCount += 1
-    current.segmentCount += totals?._count._all ?? 0
-    current.readySegmentCount += program ? (readyByProgram.get(program.id) ?? 0) : 0
-    current.gapSegmentCount += program ? (gapsByProgram.get(program.id) ?? 0) : 0
+    current.segmentCount += useExtents ? (extentTotals?.count ?? 0) : (totals?._count._all ?? 0)
+    current.readySegmentCount += useExtents
+      ? (extentTotals?.ready ?? 0)
+      : program
+        ? (readyByProgram.get(program.id) ?? 0)
+        : 0
+    current.gapSegmentCount += useExtents ? 0 : program ? (gapsByProgram.get(program.id) ?? 0) : 0
     current.indexedDurationUs = (
-      BigInt(current.indexedDurationUs) + (totals?._sum.durationUs ?? 0n)
+      BigInt(current.indexedDurationUs) +
+      (useExtents ? (extentTotals?.durationUs ?? 0n) : (totals?._sum.durationUs ?? 0n))
     ).toString()
     matchMedia.set(capture.matchId, current)
   }
@@ -546,6 +615,8 @@ export async function collectOperationsSnapshot(
     streams: captureSessions.map(capture => {
       const program = capture.programs[0]
       const totals = program ? totalsByProgram.get(program.id) : undefined
+      const extentTotals = program ? extentsByProgram.get(program.id) : undefined
+      const useExtents = isLiveCaptureSourceKind(capture.sourceKind)
       return {
         captureSessionId: capture.id,
         matchId: capture.matchId,
@@ -584,11 +655,19 @@ export async function collectOperationsSnapshot(
               durationUs: program.durationUs.toString(),
               fps: { numerator: program.fpsNum, denominator: program.fpsDen },
               timeBase: { numerator: program.timeBaseNum, denominator: program.timeBaseDen },
-              segmentCount: totals?._count._all ?? 0,
-              readySegmentCount: readyByProgram.get(program.id) ?? 0,
-              gapSegmentCount: gapsByProgram.get(program.id) ?? 0,
-              frameCount: (totals?._sum.frameCount ?? 0n).toString(),
-              indexedDurationUs: (totals?._sum.durationUs ?? 0n).toString(),
+              segmentCount: useExtents ? (extentTotals?.count ?? 0) : (totals?._count._all ?? 0),
+              readySegmentCount: useExtents
+                ? (extentTotals?.ready ?? 0)
+                : (readyByProgram.get(program.id) ?? 0),
+              gapSegmentCount: useExtents ? 0 : (gapsByProgram.get(program.id) ?? 0),
+              frameCount: (useExtents
+                ? (extentTotals?.frameCount ?? 0n)
+                : (totals?._sum.frameCount ?? 0n)
+              ).toString(),
+              indexedDurationUs: (useExtents
+                ? (extentTotals?.durationUs ?? 0n)
+                : (totals?._sum.durationUs ?? 0n)
+              ).toString(),
             }
           : null,
       }

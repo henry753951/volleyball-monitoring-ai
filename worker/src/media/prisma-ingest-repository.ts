@@ -20,6 +20,16 @@ const INT64_MAX = 9_223_372_036_854_775_807n
 const LOCK_DOMAIN = 'volleyball-media-ingest-v1'
 const INTERNAL_SCHEMA_VERSION = '1.0.0' as const
 const OME_PROVISIONAL_EPOCH_REASON = 'OME_RECORDING_EXTENT_PROVISIONAL'
+const LIVE_CAPTURE_SOURCE_KINDS = new Set([
+  'live',
+  'rtmp',
+  'rtsp',
+  'srt',
+  'webrtc',
+  'whip',
+  'youtube_live',
+  'hls_live',
+])
 
 export type IngestArtifactKind = 'init' | 'media' | 'sample-index'
 
@@ -62,6 +72,11 @@ export type FinalizedSegmentReservationInput = {
   timestampDiscontinuity: boolean
   explicitGapBeforeUs?: bigint
   artifacts: readonly IngestArtifactReservation[]
+  extent?: {
+    sourceJobId: string
+    localPath: string
+    finalizedAt: Date
+  }
 }
 
 export type IngestReservationReference = {
@@ -70,6 +85,8 @@ export type IngestReservationReference = {
   dvrSegmentId: string
   sampleIndexAssetId: string
   sampleIndexLocation: IngestObjectLocation
+  mediaExtentId?: string
+  captureEpochId?: string
 }
 
 export type ReservedArtifact = IngestArtifactReservation & {
@@ -153,6 +170,7 @@ export type PrismaIngestRepositoryOptions = {
   plannerConfig?: Partial<CaptureEpochPlannerConfig>
   maxTransactionAttempts?: number
   now?: () => Date
+  liveArchiveBackend?: 'legacy' | 'media_extent'
 }
 
 type Tx = Prisma.TransactionClient
@@ -169,6 +187,14 @@ const artifactIncludes = {
 type SegmentWithArtifacts = Prisma.DvrSegmentGetPayload<{
   include: typeof artifactIncludes
 }>
+
+const extentIncludes = { captureEpoch: true, dvrProgram: true } as const
+type ExtentWithEpoch = Prisma.MediaExtentGetPayload<{ include: typeof extentIncludes }>
+
+function isLiveCaptureSourceKind(sourceKind: string): boolean {
+  const normalized = sourceKind.trim().toLowerCase().replaceAll('-', '_')
+  return LIVE_CAPTURE_SOURCE_KINDS.has(normalized) || normalized.endsWith('_live')
+}
 
 function fail(code: PrismaIngestRepositoryErrorCode): never {
   throw new PrismaIngestRepositoryError(code)
@@ -284,6 +310,7 @@ function validateReservationInput(input: FinalizedSegmentReservationInput) {
   ) {
     fail('INVALID_INPUT')
   }
+  if (input.extent) validateExtentPublication(input.extent)
   return artifactMap(input.artifacts, false)
 }
 
@@ -293,6 +320,11 @@ function validateReference(reference: IngestReservationReference): void {
   requireUuid(reference.dvrSegmentId)
   requireUuid(reference.sampleIndexAssetId)
   validateObjectLocation(reference.sampleIndexLocation)
+  if (reference.mediaExtentId) {
+    requireUuid(reference.mediaExtentId)
+    if (!reference.captureEpochId) fail('INVALID_INPUT')
+    requireUuid(reference.captureEpochId)
+  }
 }
 
 function validateExtentPublication(extent: NonNullable<PublishReadyInput['extent']>): void {
@@ -671,6 +703,24 @@ function reservedArtifacts(
   ) as ArtifactMap<ReservedArtifact>
 }
 
+function extentReservedArtifacts(
+  extent: ExtentWithEpoch,
+  expected: ArtifactMap<IngestArtifactReservation>,
+): ArtifactMap<ReservedArtifact> {
+  const ready = extent.status === 'ARCHIVE_VERIFIED' && extent.archiveVerifiedAt !== null
+  return Object.fromEntries(
+    (['init', 'media', 'sample-index'] as const).map(kind => [
+      kind,
+      {
+        ...expected[kind],
+        id: `${extent.id}:${kind}`,
+        state: ready ? ('READY' as const) : ('UPLOADING' as const),
+        readyAt: ready ? extent.archiveVerifiedAt : null,
+      },
+    ]),
+  ) as ArtifactMap<ReservedArtifact>
+}
+
 function assertSegmentMatchesPlan(
   segment: SegmentWithArtifacts,
   plan: PlanNextCaptureSegmentResult,
@@ -763,6 +813,72 @@ function buildHead(segment: SegmentWithArtifacts): PersistedCaptureHead {
     lastSourcePtsEndExclusive: segment.sourcePtsEnd,
     lastCaptureEndUs: segment.captureEndUs,
     lastCaptureFrameIndex: segment.firstFrameIndex + segment.frameCount - 1n,
+  }
+}
+
+function buildExtentHead(extent: ExtentWithEpoch): PersistedCaptureHead {
+  if (
+    extent.status !== 'ARCHIVE_VERIFIED' ||
+    extent.archiveVerifiedAt === null ||
+    !extent.captureEpoch ||
+    extent.sequenceNumber === null ||
+    extent.discontinuitySequence === null ||
+    extent.sourcePtsEnd === null ||
+    extent.firstFrameIndex === null ||
+    extent.frameCount === null ||
+    extent.frameCount <= 0n ||
+    extent.sampleIndexObjectKey === null
+  ) {
+    return fail('TIMELINE_CONFLICT')
+  }
+  return {
+    epochId: extent.captureEpoch.id,
+    epochSequence: extent.captureEpoch.sequenceIndex,
+    discontinuity: extent.discontinuitySequence,
+    timeBase: {
+      num: BigInt(extent.captureEpoch.sourceTimeBaseNum),
+      den: BigInt(extent.captureEpoch.sourceTimeBaseDen),
+    },
+    sourcePtsOrigin: extent.captureEpoch.sourcePtsOrigin,
+    captureTimeOriginUs: extent.captureEpoch.captureTimeOriginUs,
+    captureFrameOrigin: extent.captureEpoch.captureFrameOrigin,
+    lastSourcePtsEndExclusive: extent.sourcePtsEnd,
+    lastCaptureEndUs: extent.endUs,
+    lastCaptureFrameIndex: extent.firstFrameIndex + extent.frameCount - 1n,
+  }
+}
+
+function assertExtentMatchesPlan(
+  extent: ExtentWithEpoch,
+  plan: PlanNextCaptureSegmentResult,
+  sequenceNumber: bigint,
+  requireProjection: boolean,
+): void {
+  const planned = plan.segment
+  if (
+    extent.sequenceNumber !== sequenceNumber ||
+    extent.discontinuitySequence !== planned.discontinuitySequence ||
+    extent.startUs !== planned.captureStartUs ||
+    extent.endUs !== planned.captureEndUs
+  ) {
+    fail('TIMELINE_CONFLICT')
+  }
+  if (!requireProjection) return
+  if (
+    extent.captureEpochId !== plan.epoch.epochKey ||
+    extent.sourcePtsStart !== planned.sourcePtsStart ||
+    extent.sourcePtsEnd !== planned.sourcePtsEndExclusive ||
+    extent.firstFrameIndex !== planned.firstFrameIndex ||
+    extent.frameCount !== planned.frameCount ||
+    !extent.captureEpoch ||
+    extent.captureEpoch.sequenceIndex !== plan.epoch.epochSequence ||
+    extent.captureEpoch.sourceTimeBaseNum !== Number(plan.epoch.timeBase.num) ||
+    extent.captureEpoch.sourceTimeBaseDen !== Number(plan.epoch.timeBase.den) ||
+    extent.captureEpoch.sourcePtsOrigin !== plan.epoch.sourcePtsOrigin ||
+    extent.captureEpoch.captureTimeOriginUs !== plan.epoch.captureTimeOriginUs ||
+    extent.captureEpoch.captureFrameOrigin !== plan.epoch.captureFrameOrigin
+  ) {
+    fail('TIMELINE_CONFLICT')
   }
 }
 
@@ -936,6 +1052,7 @@ export class PrismaIngestRepository {
   readonly #plannerConfig: CaptureEpochPlannerConfig
   readonly #maxTransactionAttempts: number
   readonly #now: () => Date
+  readonly #liveArchiveBackend: 'legacy' | 'media_extent'
 
   constructor(client: PrismaClient, options: PrismaIngestRepositoryOptions = {}) {
     const plannerConfig = {
@@ -958,6 +1075,7 @@ export class PrismaIngestRepository {
     this.#plannerConfig = plannerConfig
     this.#maxTransactionAttempts = attempts
     this.#now = options.now ?? (() => new Date())
+    this.#liveArchiveBackend = options.liveArchiveBackend ?? 'media_extent'
   }
 
   async #transaction<T>(operation: (tx: Tx) => Promise<T>): Promise<T> {
@@ -980,6 +1098,248 @@ export class PrismaIngestRepository {
     return fail('TRANSACTION_RETRY_EXHAUSTED')
   }
 
+  async #reserveExtentUploading(
+    tx: Tx,
+    input: FinalizedSegmentReservationInput,
+    requestedArtifacts: ArtifactMap<IngestArtifactReservation>,
+    session: { sourceKind: string },
+  ): Promise<FinalizedSegmentReservation> {
+    if (!input.extent) return fail('INVALID_INPUT')
+    const programs = await tx.dvrProgram.findMany({
+      orderBy: { createdAt: 'asc' },
+      where: { captureSessionId: input.captureSessionId },
+    })
+    if (programs.length > 1) return fail('PROGRAM_CONFLICT')
+    let program = programs[0]
+    if (program && !sameProfile(program, input.programProfile)) return fail('PROGRAM_CONFLICT')
+    if (program && !['STARTING', 'LIVE', 'STOPPING'].includes(program.status))
+      return fail('PROGRAM_CONFLICT')
+    if (!program) {
+      program = await tx.dvrProgram.create({
+        data: {
+          captureSessionId: input.captureSessionId,
+          fpsNum: input.programProfile.fpsNum,
+          fpsDen: input.programProfile.fpsDen,
+          timeBaseNum: input.programProfile.timeBaseNum,
+          timeBaseDen: input.programProfile.timeBaseDen,
+        },
+      })
+    }
+
+    const replay = await tx.mediaExtent.findUnique({
+      include: extentIncludes,
+      where: { sourceJobId: input.extent.sourceJobId },
+    })
+    if (replay) {
+      if (
+        replay.captureSessionId !== input.captureSessionId ||
+        replay.dvrProgramId !== program.id ||
+        replay.localPath !== input.extent.localPath ||
+        replay.finalizedAt?.getTime() !== input.extent.finalizedAt.getTime() ||
+        replay.sequenceNumber === null ||
+        replay.discontinuitySequence === null
+      ) {
+        return fail('RESERVATION_CONFLICT')
+      }
+      const pending = await tx.mediaExtent.findMany({
+        select: { id: true },
+        where: { dvrProgramId: program.id, status: { not: 'ARCHIVE_VERIFIED' } },
+      })
+      if (
+        replay.status !== 'ARCHIVE_VERIFIED' &&
+        (pending.length !== 1 || pending[0]!.id !== replay.id)
+      ) {
+        return fail('FIFO_BLOCKED')
+      }
+      const predecessor = await tx.mediaExtent.findFirst({
+        include: extentIncludes,
+        orderBy: { sequenceNumber: 'desc' },
+        where: {
+          dvrProgramId: program.id,
+          sequenceNumber: { lt: replay.sequenceNumber },
+          status: 'ARCHIVE_VERIFIED',
+        },
+      })
+      const plan = planFrom(
+        input,
+        predecessor ? buildExtentHead(predecessor) : null,
+        this.#plannerConfig,
+      )
+      assertExtentMatchesPlan(
+        replay,
+        plan,
+        predecessor?.sequenceNumber === null || predecessor?.sequenceNumber === undefined
+          ? 0n
+          : predecessor.sequenceNumber + 1n,
+        replay.status !== 'FINALIZED_LOCAL',
+      )
+      if (
+        replay.bucket !== requestedArtifacts.media.location.bucket ||
+        replay.objectKey !== requestedArtifacts.media.location.key ||
+        (replay.initBucket !== null &&
+          (replay.initBucket !== requestedArtifacts.init.location.bucket ||
+            replay.initObjectKey !== requestedArtifacts.init.location.key)) ||
+        (replay.sampleIndexBucket !== null &&
+          (replay.sampleIndexBucket !== requestedArtifacts['sample-index'].location.bucket ||
+            replay.sampleIndexObjectKey !== requestedArtifacts['sample-index'].location.key))
+      ) {
+        return fail('ARTIFACT_CONFLICT')
+      }
+      const epochId = replay.captureEpochId ?? plan.epoch.epochKey
+      return {
+        disposition: replay.status === 'ARCHIVE_VERIFIED' ? 'ALREADY_READY' : 'RESUMED',
+        reference: {
+          captureSessionId: input.captureSessionId,
+          dvrProgramId: program.id,
+          dvrSegmentId: replay.id,
+          sampleIndexAssetId: replay.id,
+          sampleIndexLocation: requestedArtifacts['sample-index'].location,
+          mediaExtentId: replay.id,
+          captureEpochId: epochId,
+        },
+        captureEpochId: epochId,
+        sequenceNumber: replay.sequenceNumber,
+        createdNewEpoch: plan.epoch.disposition === 'CREATE_NEXT',
+        plan,
+        sampleIndex: plan.segment.sampleIndex,
+        artifacts: extentReservedArtifacts(replay, requestedArtifacts),
+      }
+    }
+
+    if (
+      (await tx.mediaExtent.count({
+        where: { dvrProgramId: program.id, status: { not: 'ARCHIVE_VERIFIED' } },
+      })) !== 0
+    ) {
+      return fail('FIFO_BLOCKED')
+    }
+    const locations = (['init', 'media', 'sample-index'] as const).map(
+      kind => requestedArtifacts[kind].location,
+    )
+    const [occupiedAssets, occupiedExtents] = await Promise.all([
+      tx.mediaAsset.count({
+        where: {
+          OR: locations.map(location => ({ bucket: location.bucket, objectKey: location.key })),
+        },
+      }),
+      tx.mediaExtent.count({
+        where: {
+          OR: locations.flatMap(location => [
+            { bucket: location.bucket, objectKey: location.key },
+            { initBucket: location.bucket, initObjectKey: location.key },
+            { sampleIndexBucket: location.bucket, sampleIndexObjectKey: location.key },
+          ]),
+        },
+      }),
+    ])
+    if (occupiedAssets !== 0 || occupiedExtents !== 0) return fail('ARTIFACT_CONFLICT')
+
+    const lastExtent = await tx.mediaExtent.findFirst({
+      include: extentIncludes,
+      orderBy: { sequenceNumber: 'desc' },
+      where: { dvrProgramId: program.id, status: 'ARCHIVE_VERIFIED' },
+    })
+    const sequenceNumber =
+      lastExtent?.sequenceNumber === null || !lastExtent ? 0n : lastExtent.sequenceNumber + 1n
+    if (sequenceNumber < 0n || sequenceNumber > INT64_MAX) return fail('TIMELINE_CONFLICT')
+    const currentHead = lastExtent ? buildExtentHead(lastExtent) : null
+    const currentEpoch = await tx.captureEpoch.findFirst({
+      orderBy: { sequenceIndex: 'desc' },
+      where: { captureSessionId: input.captureSessionId },
+    })
+    const provisionalEpochMatchesHead = Boolean(
+      currentHead &&
+      currentEpoch?.discontinuityReason === OME_PROVISIONAL_EPOCH_REASON &&
+      currentEpoch.sequenceIndex === currentHead.epochSequence + 1 &&
+      currentEpoch.sourcePtsOrigin === 0n &&
+      currentEpoch.captureTimeOriginUs === currentHead.lastCaptureEndUs &&
+      currentEpoch.captureFrameOrigin === currentHead.lastCaptureFrameIndex + 1n &&
+      currentEpoch.startedAtCaptureUs === currentHead.lastCaptureEndUs &&
+      currentEpoch.endedAtCaptureUs === null,
+    )
+    if (
+      (currentHead === null && currentEpoch !== null) ||
+      (currentHead !== null &&
+        currentEpoch?.id !== currentHead.epochId &&
+        !provisionalEpochMatchesHead)
+    ) {
+      return fail('TIMELINE_CONFLICT')
+    }
+    const planningInput = provisionalEpochMatchesHead
+      ? { ...input, newEpochId: currentEpoch!.id }
+      : input
+    const plan = planFrom(planningInput, currentHead, this.#plannerConfig)
+    let epochId: string
+    if (plan.epoch.disposition === 'CREATE_NEXT') {
+      if (provisionalEpochMatchesHead) {
+        if (!currentEpoch || currentEpoch.id !== plan.epoch.epochKey)
+          return fail('TIMELINE_CONFLICT')
+        await tx.captureEpoch.update({
+          data: { discontinuityReason: persistedReason(plan.epoch.reasons) },
+          where: { id: currentEpoch.id },
+        })
+        epochId = currentEpoch.id
+      } else {
+        if (await tx.captureEpoch.findUnique({ where: { id: input.newEpochId } }))
+          return fail('RESERVATION_CONFLICT')
+        const epoch = await tx.captureEpoch.create({
+          data: {
+            id: plan.epoch.epochKey,
+            captureSessionId: input.captureSessionId,
+            sequenceIndex: plan.epoch.epochSequence,
+            sourceTimeBaseNum: Number(plan.epoch.timeBase.num),
+            sourceTimeBaseDen: Number(plan.epoch.timeBase.den),
+            sourcePtsOrigin: plan.epoch.sourcePtsOrigin,
+            captureTimeOriginUs: plan.epoch.captureTimeOriginUs,
+            captureFrameOrigin: plan.epoch.captureFrameOrigin,
+            startedAtCaptureUs: plan.epoch.captureTimeOriginUs,
+            discontinuityReason: persistedReason(plan.epoch.reasons),
+          },
+        })
+        epochId = epoch.id
+      }
+    } else {
+      if (!currentEpoch || currentEpoch.id !== plan.epoch.epochKey) return fail('TIMELINE_CONFLICT')
+      epochId = currentEpoch.id
+    }
+    const created = await tx.mediaExtent.create({
+      data: {
+        captureSessionId: input.captureSessionId,
+        dvrProgramId: program.id,
+        sourceJobId: input.extent.sourceJobId,
+        source: session.sourceKind,
+        startUs: plan.segment.captureStartUs,
+        endUs: plan.segment.captureEndUs,
+        sequenceNumber,
+        discontinuitySequence: plan.segment.discontinuitySequence,
+        localPath: input.extent.localPath,
+        finalizedAt: input.extent.finalizedAt,
+        bucket: requestedArtifacts.media.location.bucket,
+        objectKey: requestedArtifacts.media.location.key,
+        status: 'FINALIZED_LOCAL',
+      },
+      include: extentIncludes,
+    })
+    return {
+      disposition: 'RESERVED',
+      reference: {
+        captureSessionId: input.captureSessionId,
+        dvrProgramId: program.id,
+        dvrSegmentId: created.id,
+        sampleIndexAssetId: created.id,
+        sampleIndexLocation: requestedArtifacts['sample-index'].location,
+        mediaExtentId: created.id,
+        captureEpochId: epochId,
+      },
+      captureEpochId: epochId,
+      sequenceNumber,
+      createdNewEpoch: plan.epoch.disposition === 'CREATE_NEXT',
+      plan,
+      sampleIndex: plan.segment.sampleIndex,
+      artifacts: extentReservedArtifacts(created, requestedArtifacts),
+    }
+  }
+
   async reserveUploading(
     input: FinalizedSegmentReservationInput,
   ): Promise<FinalizedSegmentReservation> {
@@ -992,6 +1352,12 @@ export class PrismaIngestRepository {
       if (!session) return fail('SESSION_NOT_FOUND')
       if (!['STARTING', 'LIVE', 'STOPPING'].includes(session.status)) {
         return fail('SESSION_TERMINAL')
+      }
+      if (
+        this.#liveArchiveBackend === 'media_extent' &&
+        isLiveCaptureSourceKind(session.sourceKind)
+      ) {
+        return this.#reserveExtentUploading(tx, input, requestedArtifacts, session)
       }
 
       const programs = await tx.dvrProgram.findMany({
@@ -1241,11 +1607,140 @@ export class PrismaIngestRepository {
     })
   }
 
+  async #readExtentReservation(
+    tx: Tx,
+    reference: IngestReservationReference,
+  ): Promise<ExtentWithEpoch> {
+    if (!reference.mediaExtentId || !reference.captureEpochId) return fail('RESERVATION_CONFLICT')
+    const extent = await tx.mediaExtent.findUnique({
+      include: extentIncludes,
+      where: { id: reference.mediaExtentId },
+    })
+    if (
+      !extent ||
+      extent.id !== reference.dvrSegmentId ||
+      extent.id !== reference.sampleIndexAssetId ||
+      extent.captureSessionId !== reference.captureSessionId ||
+      extent.dvrProgramId !== reference.dvrProgramId
+    ) {
+      return fail('RESERVATION_CONFLICT')
+    }
+    return extent
+  }
+
+  async #recordExtentArtifactExpectations(
+    tx: Tx,
+    input: RecordArtifactExpectationsInput,
+    expected: ArtifactMap<IngestArtifactExpectation>,
+  ): Promise<void> {
+    const extent = await this.#readExtentReservation(tx, input.reservation)
+    const epoch = await tx.captureEpoch.findUnique({
+      where: { id: input.reservation.captureEpochId! },
+    })
+    if (!epoch || epoch.captureSessionId !== input.reservation.captureSessionId)
+      return fail('RESERVATION_CONFLICT')
+    let index: SampleIndex
+    try {
+      index = parseSampleIndexDocument(input.sampleIndexDocument, {
+        epochId: epoch.id,
+        sourcePtsOrigin: epoch.sourcePtsOrigin,
+        captureTimeOriginUs: epoch.captureTimeOriginUs,
+        captureFrameOrigin: epoch.captureFrameOrigin,
+        timeBase: {
+          num: BigInt(epoch.sourceTimeBaseNum),
+          den: BigInt(epoch.sourceTimeBaseDen),
+        },
+      })
+    } catch {
+      return fail('ARTIFACT_CONFLICT')
+    }
+    const first = index.samples[0]!
+    const last = index.samples.at(-1)!
+    if (
+      extent.startUs !== index.availableStartUs ||
+      extent.endUs !== index.availableEndUs ||
+      expected.media.location.bucket !== extent.bucket ||
+      expected.media.location.key !== extent.objectKey ||
+      !sameLocation(
+        {
+          bucket: expected['sample-index'].location.bucket,
+          objectKey: expected['sample-index'].location.key,
+        },
+        input.reservation.sampleIndexLocation,
+      )
+    ) {
+      return fail('ARTIFACT_CONFLICT')
+    }
+    const canonicalDocument = serializeSampleIndex(index)
+    const indexBytes = Buffer.from(JSON.stringify(canonicalDocument), 'utf8')
+    if (
+      expected['sample-index'].byteLength !== BigInt(indexBytes.byteLength) ||
+      expected['sample-index'].sha256 !== sha256(indexBytes)
+    ) {
+      return fail('ARTIFACT_CONFLICT')
+    }
+    const projection = {
+      captureEpochId: epoch.id,
+      sourcePtsStart: first.sourcePts,
+      sourcePtsEnd: last.sourcePts + last.durationPts,
+      firstFrameIndex: first.captureFrameIndex,
+      frameCount: BigInt(index.samples.length),
+      sampleIndexBucket: expected['sample-index'].location.bucket,
+      sampleIndexObjectKey: expected['sample-index'].location.key,
+      sampleIndexSha256: expected['sample-index'].sha256,
+      sampleIndexBytes: expected['sample-index'].byteLength,
+      sampleIndexSchemaVersion: expected['sample-index'].internalSchemaVersion,
+      mediaSha256: expected.media.sha256,
+      mediaSchemaVersion: expected.media.internalSchemaVersion,
+      initBucket: expected.init.location.bucket,
+      initObjectKey: expected.init.location.key,
+      initSha256: expected.init.sha256,
+      initBytes: expected.init.byteLength,
+      initSchemaVersion: expected.init.internalSchemaVersion,
+      bytes: expected.media.byteLength,
+    }
+    const existingValues = [
+      extent.captureEpochId,
+      extent.sourcePtsStart,
+      extent.sourcePtsEnd,
+      extent.firstFrameIndex,
+      extent.frameCount,
+      extent.sampleIndexBucket,
+      extent.sampleIndexObjectKey,
+      extent.sampleIndexSha256,
+      extent.sampleIndexBytes,
+      extent.sampleIndexSchemaVersion,
+      extent.mediaSha256,
+      extent.mediaSchemaVersion,
+      extent.initBucket,
+      extent.initObjectKey,
+      extent.initSha256,
+      extent.initBytes,
+      extent.initSchemaVersion,
+      extent.bytes,
+    ]
+    const empty = existingValues.every(value => value === null)
+    if (!empty) {
+      for (const [key, value] of Object.entries(projection)) {
+        if (Reflect.get(extent, key) !== value) return fail('ARTIFACT_CONFLICT')
+      }
+      return
+    }
+    if (extent.status !== 'FINALIZED_LOCAL') return fail('RESERVATION_CONFLICT')
+    await tx.mediaExtent.update({
+      data: { ...projection, catalogedAt: this.#now(), status: 'ARCHIVE_PENDING' },
+      where: { id: extent.id },
+    })
+  }
+
   async recordArtifactExpectations(input: RecordArtifactExpectationsInput): Promise<void> {
     validateReference(input.reservation)
     const expected = artifactMap(input.artifacts, true)
     await this.#transaction(async tx => {
       await advisoryLock(tx, input.reservation.captureSessionId)
+      if (input.reservation.mediaExtentId) {
+        return this.#recordExtentArtifactExpectations(tx, input, expected)
+      }
       const segment = await readReservation(tx, input.reservation)
       const reservationMetadata = expected as ArtifactMap<IngestArtifactReservation>
       assertArtifactRelationships(segment, reservationMetadata)
@@ -1296,12 +1791,214 @@ export class PrismaIngestRepository {
     })
   }
 
+  async #publishExtentReady(
+    tx: Tx,
+    input: PublishReadyInput,
+    verified: ArtifactMap<IngestArtifactExpectation>,
+  ): Promise<PublishReadyResult> {
+    if (!input.extent) return fail('INVALID_INPUT')
+    const extent = await this.#readExtentReservation(tx, input.reservation)
+    if (
+      extent.sourceJobId !== input.extent.sourceJobId ||
+      extent.localPath !== input.extent.localPath ||
+      extent.finalizedAt?.getTime() !== input.extent.finalizedAt.getTime() ||
+      !extent.captureEpoch ||
+      extent.captureEpochId !== input.reservation.captureEpochId ||
+      extent.sequenceNumber === null ||
+      extent.discontinuitySequence === null ||
+      extent.sourcePtsStart === null ||
+      extent.sourcePtsEnd === null ||
+      extent.firstFrameIndex === null ||
+      extent.frameCount === null
+    ) {
+      return fail('RESERVATION_CONFLICT')
+    }
+    const expectedProjection = {
+      media: {
+        bucket: extent.bucket,
+        key: extent.objectKey,
+        sha256: extent.mediaSha256,
+        bytes: extent.bytes,
+        schema: extent.mediaSchemaVersion,
+      },
+      init: {
+        bucket: extent.initBucket,
+        key: extent.initObjectKey,
+        sha256: extent.initSha256,
+        bytes: extent.initBytes,
+        schema: extent.initSchemaVersion,
+      },
+      'sample-index': {
+        bucket: extent.sampleIndexBucket,
+        key: extent.sampleIndexObjectKey,
+        sha256: extent.sampleIndexSha256,
+        bytes: extent.sampleIndexBytes,
+        schema: extent.sampleIndexSchemaVersion,
+      },
+    } as const
+    for (const kind of ['init', 'media', 'sample-index'] as const) {
+      const projection = expectedProjection[kind]
+      const artifact = verified[kind]
+      if (
+        projection.bucket !== artifact.location.bucket ||
+        projection.key !== artifact.location.key ||
+        projection.sha256 !== artifact.sha256 ||
+        projection.bytes !== artifact.byteLength ||
+        projection.schema !== artifact.internalSchemaVersion
+      ) {
+        return fail('EXPECTATIONS_REQUIRED')
+      }
+    }
+    const program = await tx.dvrProgram.findUnique({ where: { id: extent.dvrProgramId } })
+    const session = await tx.captureSession.findUnique({
+      select: {
+        completionExpectedSegments: true,
+        sourceDurationUs: true,
+        startedAt: true,
+        status: true,
+      },
+      where: { id: extent.captureSessionId },
+    })
+    if (!program || !session) return fail('SESSION_NOT_FOUND')
+    if (extent.status === 'ARCHIVE_VERIFIED') {
+      if (!extent.archiveVerifiedAt) return fail('RESERVATION_CONFLICT')
+      return {
+        disposition: 'ALREADY_READY',
+        readyAt: extent.archiveVerifiedAt,
+        playlistRevision: program.playlistRevision,
+      }
+    }
+    if (extent.status !== 'ARCHIVE_PENDING') return fail('EXPECTATIONS_REQUIRED')
+    if (
+      (await tx.mediaExtent.count({
+        where: {
+          dvrProgramId: extent.dvrProgramId,
+          id: { not: extent.id },
+          OR: [
+            { status: { not: 'ARCHIVE_VERIFIED' } },
+            { sequenceNumber: { gt: extent.sequenceNumber } },
+          ],
+        },
+      })) !== 0
+    ) {
+      return fail('FIFO_BLOCKED')
+    }
+    if (program.playlistRevision === INT64_MAX) return fail('REVISION_EXHAUSTED')
+    if (!['STARTING', 'LIVE', 'STOPPING'].includes(session.status)) return fail('SESSION_TERMINAL')
+    const firstExtent = await tx.mediaExtent.findFirst({
+      orderBy: { sequenceNumber: 'asc' },
+      select: { startUs: true },
+      where: { dvrProgramId: extent.dvrProgramId },
+    })
+    if (!firstExtent || extent.endUs <= firstExtent.startUs) return fail('TIMELINE_CONFLICT')
+    const predecessor = await tx.mediaExtent.findFirst({
+      include: extentIncludes,
+      orderBy: { sequenceNumber: 'desc' },
+      where: {
+        dvrProgramId: extent.dvrProgramId,
+        sequenceNumber: { lt: extent.sequenceNumber },
+        status: 'ARCHIVE_VERIFIED',
+      },
+    })
+    const readyAt = this.#now()
+    if (!(readyAt instanceof Date) || Number.isNaN(readyAt.getTime())) return fail('INVALID_INPUT')
+    await tx.mediaExtent.update({
+      data: {
+        archiveVerifiedAt: readyAt,
+        catalogedAt: extent.catalogedAt ?? readyAt,
+        status: 'ARCHIVE_VERIFIED',
+      },
+      where: { id: extent.id },
+    })
+    await validateOmePresentationAnchor(tx, {
+      captureSessionId: extent.captureSessionId,
+      captureEpochId: extent.captureEpochId,
+      captureTimeOriginUs: extent.captureEpoch.captureTimeOriginUs,
+      extent: input.extent,
+      readyAt,
+    })
+    if (
+      predecessor?.captureEpochId &&
+      predecessor.captureEpochId !== extent.captureEpochId &&
+      predecessor.captureEpoch?.endedAtCaptureUs === null
+    ) {
+      await tx.captureEpoch.update({
+        data: { endedAtCaptureUs: extent.startUs },
+        where: { id: predecessor.captureEpochId },
+      })
+    }
+    const updatedProgram = await tx.dvrProgram.update({
+      data: {
+        status: program.status === 'STARTING' ? 'LIVE' : program.status,
+        liveEdgeUs: extent.endUs,
+        durationUs: extent.endUs - firstExtent.startUs,
+        playlistRevision: { increment: 1n },
+      },
+      where: { id: extent.dvrProgramId },
+    })
+    await tx.captureSession.update({
+      data: {
+        status: session.status === 'STARTING' ? 'LIVE' : session.status,
+        health: 'HEALTHY',
+        startedAt: session.startedAt ?? readyAt,
+      },
+      where: { id: extent.captureSessionId },
+    })
+    if (session.status === 'STOPPING' && session.completionExpectedSegments !== null) {
+      const [readyExtents, pendingExtents] = await Promise.all([
+        tx.mediaExtent.count({
+          where: { dvrProgramId: extent.dvrProgramId, status: 'ARCHIVE_VERIFIED' },
+        }),
+        tx.mediaExtent.count({
+          where: { dvrProgramId: extent.dvrProgramId, status: { not: 'ARCHIVE_VERIFIED' } },
+        }),
+      ])
+      if (readyExtents >= session.completionExpectedSegments && pendingExtents === 0) {
+        const endedAt = this.#now()
+        await tx.dvrProgram.update({
+          data: { status: 'FINISHED' },
+          where: { id: extent.dvrProgramId },
+        })
+        await tx.captureEpoch.updateMany({
+          data: { endedAtCaptureUs: extent.endUs },
+          where: { captureSessionId: extent.captureSessionId, endedAtCaptureUs: null },
+        })
+        await tx.captureSession.update({
+          data: {
+            endedAt,
+            health: 'OFFLINE',
+            sourceDurationUs: session.sourceDurationUs ?? updatedProgram.durationUs,
+            status: 'FINISHED',
+          },
+          where: { id: extent.captureSessionId },
+        })
+        await tx.outboxEvent.create({
+          data: {
+            aggregateId: extent.captureSessionId,
+            aggregateType: 'CaptureSession',
+            dedupeKey: `capture-source-completed:${extent.captureSessionId}`,
+            eventType: 'capture.source_completed.v1',
+            payload: {
+              capture_session_id: extent.captureSessionId,
+              ended_at: endedAt.toISOString(),
+              final_capture_time_us: extent.endUs.toString(),
+            },
+          },
+        })
+      }
+    }
+    return { disposition: 'PUBLISHED', readyAt, playlistRevision: updatedProgram.playlistRevision }
+  }
+
   async publishReady(input: PublishReadyInput): Promise<PublishReadyResult> {
     validateReference(input.reservation)
     if (input.extent) validateExtentPublication(input.extent)
     const verified = artifactMap(input.verifiedArtifacts, true)
     return this.#transaction(async tx => {
       await advisoryLock(tx, input.reservation.captureSessionId)
+      if (input.reservation.mediaExtentId) {
+        return this.#publishExtentReady(tx, input, verified)
+      }
       const segment = await readReservation(tx, input.reservation)
       assertArtifactRelationships(segment, verified as ArtifactMap<IngestArtifactReservation>)
       const assets = segmentAssets(segment)

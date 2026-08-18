@@ -56,6 +56,7 @@ let identityIndex = 1
 
 async function createSession(
   status: 'STARTING' | 'LIVE' | 'STOPPING' | 'FINISHED' | 'FAILED' = 'STARTING',
+  sourceKind = 'fixture',
 ) {
   const index = identityIndex++
   const matchId = uuidFor(index * 10)
@@ -65,7 +66,7 @@ async function createSession(
     data: {
       id: captureSessionId,
       matchId,
-      sourceKind: 'fixture',
+      sourceKind,
       ingestPath: `/fixture/${captureSessionId}`,
       status,
       health: 'STARTING',
@@ -613,6 +614,56 @@ describe('Prisma finalized media ingest repository', () => {
       dvrSegmentId: null,
       sampleIndexObjectKey: artifactExpectations.find(artifact => artifact.kind === 'sample-index')!
         .location.key,
+    })
+  })
+
+  it('publishes live recordings directly through MediaExtent without legacy media rows', async () => {
+    const { captureSessionId } = await createSession('STARTING', 'youtube_live')
+    const sourceJobId = randomUUID()
+    const extentPublication = {
+      sourceJobId,
+      localPath: 'live/20260818120000_0.mp4',
+      finalizedAt: new Date('2026-08-18T12:01:00.000Z'),
+    }
+    const reservation = await repository.reserveUploading(
+      reservationInput(captureSessionId, 'extent-only-live', { extent: extentPublication }),
+    )
+    expect(reservation.reference.mediaExtentId).toBeTruthy()
+    await expect(
+      Promise.all([
+        db.dvrSegment.count({ where: { dvrProgramId: reservation.reference.dvrProgramId } }),
+        db.mediaAsset.count({
+          where: {
+            OR: Object.values(reservation.artifacts).map(artifact => ({
+              bucket: artifact.location.bucket,
+              objectKey: artifact.location.key,
+            })),
+          },
+        }),
+      ]),
+    ).resolves.toEqual([0, 0])
+
+    const artifactExpectations = expectations(reservation)
+    await repository.recordArtifactExpectations({
+      reservation: reservation.reference,
+      artifacts: artifactExpectations,
+      sampleIndexDocument: serializeSampleIndex(reservation.sampleIndex),
+    })
+    const published = await repository.publishReady({
+      reservation: reservation.reference,
+      verifiedArtifacts: artifactExpectations,
+      extent: extentPublication,
+    })
+    expect(published).toMatchObject({ disposition: 'PUBLISHED', playlistRevision: 1n })
+    await expect(
+      db.mediaExtent.findUniqueOrThrow({ where: { id: reservation.reference.mediaExtentId } }),
+    ).resolves.toMatchObject({
+      dvrSegmentId: null,
+      sourceJobId,
+      source: 'youtube_live',
+      status: 'ARCHIVE_VERIFIED',
+      captureEpochId: reservation.captureEpochId,
+      sequenceNumber: 0n,
     })
   })
 
