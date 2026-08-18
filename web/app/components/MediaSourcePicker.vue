@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Check, FileVideo2, Link2, Upload, Youtube } from 'lucide-vue-next'
+import { Check, FileVideo2, Link2, Radio, Upload, Youtube } from 'lucide-vue-next'
 import type { MatchMediaSourceDraft } from '~/lib/mediaSourceClient'
 
 const model = defineModel<MatchMediaSourceDraft>({ required: true })
@@ -20,11 +20,13 @@ const label = computed({
   set: value => {
     if (model.value.kind === 'youtube') model.value = { ...model.value, label: value }
     if (model.value.kind === 'local_mp4') model.value = { ...model.value, label: value }
+    if (model.value.kind === 'rtmp') model.value = { ...model.value, label: value }
   },
 })
 function select(kind: MatchMediaSourceDraft['kind']) {
   if (kind === 'youtube') model.value = { kind, label: '', url: '' }
   else if (kind === 'local_mp4') model.value = { kind, label: '', file: new File([], '') }
+  else if (kind === 'rtmp') model.value = { kind, label: '' }
   else model.value = { kind }
 }
 function choose(file: File | undefined) {
@@ -66,6 +68,11 @@ function formatSize(bytes: number) {
       >
         <FileVideo2 :size="18" /><span><strong>MP4 檔案</strong><small>從電腦上傳</small></span
         ><Check v-if="model.kind === 'local_mp4'" :size="15" />
+      </button>
+      <button type="button" :class="{ active: model.kind === 'rtmp' }" @click="select('rtmp')">
+        <Radio :size="18" /><span
+          ><strong>RTMP 推流</strong><small>提供伺服器連結與 Key</small></span
+        ><Check v-if="model.kind === 'rtmp'" :size="15" />
       </button>
       <button type="button" :class="{ active: model.kind === 'later' }" @click="select('later')">
         <Link2 :size="18" /><span><strong>稍後設定</strong><small>先建立場次</small></span
@@ -121,6 +128,22 @@ function formatSize(bytes: number) {
         ><input v-model="label" maxlength="120" placeholder="完整賽事影片" autocomplete="off"
       /></label>
     </div>
+
+    <div v-else-if="model.kind === 'rtmp'" class="source-fields rtmp-fields">
+      <div class="rtmp-note">
+        <Radio :size="21" />
+        <p>
+          <strong>建立後取得專屬 RTMP 連結與串流 Key</strong
+          ><small
+            >將它貼到 OBS、手機或攝影機的推流設定；影片會直接進入 OME 的 Live DVR 與錄影。</small
+          >
+        </p>
+      </div>
+      <label
+        ><span>來源名稱（選填）</span
+        ><input v-model="label" maxlength="120" placeholder="場館攝影機" autocomplete="off"
+      /></label>
+    </div>
   </section>
 </template>
 
@@ -131,7 +154,7 @@ function formatSize(bytes: number) {
 }
 .source-tabs {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 9px;
 }
 .source-tabs button {
@@ -178,6 +201,29 @@ function formatSize(bytes: number) {
   padding: 15px;
   border-radius: 12px;
   background: #111418;
+}
+.rtmp-fields {
+  grid-template-columns: 1.4fr 1fr;
+}
+.rtmp-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 11px;
+  color: #aeb4ba;
+  font-size: 0.68rem;
+  line-height: 1.5;
+}
+.rtmp-note p {
+  display: grid;
+  gap: 5px;
+  margin: 0;
+}
+.rtmp-note strong {
+  color: #f3f4f5;
+  font-size: 0.72rem;
+}
+.rtmp-note small {
+  color: #858d95;
 }
 .source-fields label {
   display: grid;

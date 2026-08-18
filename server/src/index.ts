@@ -34,6 +34,7 @@ import { createHostStorageProbe } from './operations/host-storage.js'
 import { createKubernetesDeploymentProbe } from './operations/kubernetes-deployments.js'
 import { createMinioStorageProbe } from './operations/minio-storage.js'
 import { mediaSourceRoutes } from './routes/media-sources.js'
+import { authRoutes } from './routes/auth.js'
 import { createAnnotationPresenceService } from './realtime/annotation-presence.js'
 import { createAnnotationSnapshotEventService } from './realtime/annotation-events.js'
 import { createAiProgressService } from './realtime/ai-progress.js'
@@ -41,7 +42,7 @@ import { annotationWebSocketRoutes } from './realtime/annotation-ws.js'
 import { CoachMatchEventHub, coachWebSocketRoutes } from './realtime/coach-ws.js'
 import { configureCoachAnalyticsGraphQL } from './graphql/coach-analytics.js'
 import { providerWorkWebSocketRoutes } from './realtime/provider-work-ws.js'
-import { authenticateDevelopmentAnnotationRequest } from './realtime/auth.js'
+import { authenticateAnnotationRequest } from './realtime/auth.js'
 import { createAnnotationCommandService } from './services/annotation-command.js'
 import { getAnnotationSnapshot } from './services/annotation-snapshot.js'
 import {
@@ -179,6 +180,7 @@ await app.register(multipart, {
 await app.register(websocket)
 await app.register(providerJobCallbackRoutes({ database: db }))
 await app.register(providerWorkWebSocketRoutes({ database: db }))
+await app.register(authRoutes({ database: db }))
 await app.register(analysisMediaRoutesWithDependencies({ timingManifestReader }))
 await app.register(coachHighlightExportRoutes)
 await app.register(
@@ -188,15 +190,28 @@ await app.register(
 )
 await app.register(
   mediaPlaybackRoutes({
+    authenticate: async request => {
+      const identity = await authenticateAnnotationRequest(request, db)
+      return identity ? { id: identity.userId, role: identity.role } : null
+    },
     objectReader: mediaObjectReader,
     objectStreamReader: mediaObjectStreamReader,
     resolveSample: createPersistedSampleSnapResolver(db, mediaObjectReader),
   }),
 )
-await app.register(mediaCursorRoutes({ objectReader: mediaObjectReader }))
+await app.register(
+  mediaCursorRoutes({
+    authenticate: async request => {
+      const identity = await authenticateAnnotationRequest(request, db)
+      return identity ? { id: identity.userId, role: identity.role } : null
+    },
+    database: db,
+    objectReader: mediaObjectReader,
+  }),
+)
 await app.register(
   mediaSourceRoutes({
-    authenticate: request => authenticateDevelopmentAnnotationRequest(request, db),
+    authenticate: request => authenticateAnnotationRequest(request, db),
     database: db,
     importRoot: process.env.MEDIA_IMPORT_ROOT ?? '/var/lib/volleyball/media-imports',
   }),
@@ -212,7 +227,7 @@ await app.register(
         deploymentProbe,
       ),
     {
-      authenticate: request => authenticateDevelopmentAnnotationRequest(request, db),
+      authenticate: request => authenticateAnnotationRequest(request, db),
       collectReadiness: () => evaluateReadiness(readinessProbes),
       createAiWorkerToken: name => createAiWorkerToken(db, name),
       deleteAiWorkerToken: tokenId => deleteAiWorkerToken(db, tokenId),
@@ -224,7 +239,7 @@ await app.register(
 )
 await app.register(
   annotationWebSocketRoutes({
-    authenticate: request => authenticateDevelopmentAnnotationRequest(request, db),
+    authenticate: request => authenticateAnnotationRequest(request, db),
     ...(annotationEvents ? { events: annotationEvents } : {}),
     ...(annotationPresence ? { presence: annotationPresence } : {}),
     ...(aiProgress ? { progress: aiProgress } : {}),
@@ -242,7 +257,7 @@ await app.register(
 )
 await app.register(
   coachWebSocketRoutes({
-    authenticate: request => authenticateDevelopmentAnnotationRequest(request, db),
+    authenticate: request => authenticateAnnotationRequest(request, db),
     events: coachMatchEvents,
   }),
 )

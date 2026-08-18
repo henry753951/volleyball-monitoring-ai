@@ -8,5 +8,8 @@ export default defineNuxtRouteMiddleware(async to => {
   if (state.viewer.value) return
   const error = state.error.value
   const code = error instanceof GraphQLRequestError ? error.code : undefined
-  return navigateTo({ path: '/', query: { auth: authRedirectQuery(code ? { code } : null) } })
+  return navigateTo({
+    path: '/login',
+    query: { auth: authRedirectQuery(code ? { code } : null), redirect: to.fullPath },
+  })
 })

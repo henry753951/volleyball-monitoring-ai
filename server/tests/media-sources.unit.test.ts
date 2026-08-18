@@ -104,6 +104,58 @@ describe('match media source routes', () => {
     }
   })
 
+  it('creates an OME RTMP source with a generated stream key', async () => {
+    const scheduleWork = vi.fn(async () => undefined)
+    const createCapture = vi.fn(async (_db, _identity, input) => capture(input))
+    const app = Fastify({ logger: false })
+    await app.register(multipart)
+    await app.register(
+      mediaSourceRoutes({
+        authenticate: async () => ({
+          userId: 'operator-1',
+          deviceSessionId: 'test-session',
+          role: UserRole.OPERATOR,
+        }),
+        database: {} as PrismaClient,
+        importRoot: 'C:/tmp/vollyai-media-source-test',
+        rtmpPublicUrl: 'rtmp://encoder.example:2035/app',
+        scheduleWork,
+        startCapture: createCapture as unknown as typeof startCapture,
+      }),
+    )
+    try {
+      const response = await app.inject({
+        method: 'POST',
+        payload: { match_id: matchId, source_label: '場館攝影機' },
+        url: '/api/v1/media-sources/rtmp',
+      })
+      expect(response.statusCode).toBe(202)
+      const body = response.json() as {
+        rtmp: { publish_url: string; rtmp_url: string; stream_key: string }
+      }
+      expect(body.rtmp.rtmp_url).toBe('rtmp://encoder.example:2035/app')
+      expect(body.rtmp.publish_url).toBe(
+        `rtmp://encoder.example:2035/app/${encodeURIComponent(body.rtmp.stream_key)}`,
+      )
+      expect(body.rtmp.stream_key).toMatch(/^[A-Za-z0-9_-]{32}$/)
+      expect(createCapture).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ role: UserRole.OPERATOR }),
+        expect.objectContaining({
+          ingestPath: body.rtmp.stream_key,
+          sourceConfigSecretRef: `media-source://rtmp/${body.rtmp.stream_key}`,
+          sourceKind: 'rtmp',
+        }),
+      )
+      expect(scheduleWork).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ captureSessionId: captureId, sourceKind: 'rtmp' }),
+      )
+    } finally {
+      await app.close()
+    }
+  })
+
   it('passes a shared-root-relative import key to the durable media worker', async () => {
     const importRoot = await mkdtemp(join(tmpdir(), 'vollyai-media-upload-'))
     const scheduleWork = vi.fn(async () => undefined)

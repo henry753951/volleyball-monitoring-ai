@@ -34,11 +34,18 @@ export function useViewerState() {
     }
   }
 
+  const clear = () => {
+    viewer.value = null
+    checked.value = true
+    error.value = null
+  }
+
   return {
     viewer: readonly(viewer),
     pending: readonly(pending),
     error: readonly(error),
     checked: readonly(checked),
+    clear,
     refresh,
   }
 }

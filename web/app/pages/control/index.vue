@@ -246,6 +246,10 @@ async function openRoster(matchId: string) {
   rosterMatch.value = await core.match(matchId)
   rosterDialogOpen.value = true
 }
+async function refreshSource() {
+  await matchesState.refresh()
+  if (sourceMatch.value) sourceMatch.value = await core.match(sourceMatch.value.id)
+}
 function openEdit(match: DeepReadonly<Match>) {
   editMatch.value = match
   editError.value = null
@@ -330,10 +334,12 @@ function closeCreate() {
 }
 async function submit(input: CreateMatchWithMediaInput) {
   try {
-    if (!createdMatchId.value) createdMatchId.value = (await setup.create(input.match)).id
-    await mediaSources.create(createdMatchId.value, input.media)
+    const matchId = createdMatchId.value ?? (await setup.create(input.match)).id
+    createdMatchId.value = matchId
+    const result = await mediaSources.create(matchId, input.media)
     closeCreate()
     await Promise.all([matchesState.refresh(), monitor.refresh()])
+    if (result?.rtmp) await openSource(matchId)
   } catch (error) {
     createError.value = error instanceof Error ? error : new Error('場次建立失敗')
   }
@@ -425,6 +431,8 @@ onMounted(async () => {
   await matchesState.refresh()
   const requestedMatch = typeof route.query.match === 'string' ? route.query.match : null
   if (requestedMatch) await openRoster(requestedMatch)
+  const requestedSource = typeof route.query.source === 'string' ? route.query.source : null
+  if (requestedSource) await openSource(requestedSource)
 })
 onBeforeUnmount(() => {
   if (revokedWorkerRefreshTimer) clearTimeout(revokedWorkerRefreshTimer)
@@ -630,7 +638,7 @@ onBeforeUnmount(() => {
       :match-id="sourceMatch.id"
       :captures="sourceMatch.captureSessions ?? []"
       @close="sourceDialogOpen = false"
-      @changed="matchesState.refresh"
+      @changed="refreshSource"
     />
     <LazyRosterEditorDialog
       v-if="rosterMatch"

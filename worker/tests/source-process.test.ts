@@ -55,6 +55,47 @@ const youtubeOptions: MediaSourceProcessOptions = {
 }
 
 describe('media source process', () => {
+  it('waits for an external RTMP source without spawning a relay process', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'vollyai-rtmp-source-'))
+    temporaryPaths.push(root)
+    const controller = new AbortController()
+    const classified: unknown[] = []
+    const run = createMediaSourceProcess({
+      ...youtubeOptions,
+      recordingRoot: root,
+      sourceOnline: async () => false,
+    })
+    const promise = run(
+      {
+        id: '92000000-0000-4000-8000-000000000010',
+        captureSessionId: '92000000-0000-4000-8000-000000000011',
+        sourceKind: 'rtmp',
+        sourceUrl: null,
+        importKey: null,
+        attempts: 1,
+        status: 'RUNNING',
+        segmentBaseAt: new Date('2026-08-19T00:00:00.000Z'),
+        resumeSegmentIndex: 0,
+        resumeCaptureTimeUs: 0n,
+        ingestPath: 'rtmp-test-stream',
+      },
+      {
+        classified: async value => {
+          classified.push(value)
+        },
+        resumed: async () => undefined,
+      },
+      controller.signal,
+    )
+    setTimeout(() => controller.abort(), 20)
+    await expect(promise).resolves.toMatchObject({
+      expectedSegments: 0,
+      sourceKind: 'rtmp',
+      sourceDurationUs: null,
+    })
+    expect(classified).toEqual([])
+  })
+
   it('routes completed live broadcasts through the VOD pipeline', () => {
     expect(classifyYoutubeSource({ is_live: false, live_status: 'was_live' })).toBe('youtube_vod')
     expect(classifyYoutubeSource({ is_live: false, live_status: 'not_live' })).toBe('youtube_vod')
@@ -97,6 +138,19 @@ describe('media source process', () => {
     expect(buildYoutubeVodProbeArgs('https://youtu.be/example', options)).toContain(
       '/run/secrets/youtube.cookies.txt',
     )
+  })
+
+  it('uses the persistent Chromium session in preference to static cookies', () => {
+    const options = {
+      ...youtubeOptions,
+      youtubeCookiesFromBrowser: 'chromium+basictext:/var/lib/youtube-browser/.config/chromium/',
+      youtubeVodUseCookies: true,
+    }
+    const args = buildYoutubeVodProbeArgs('https://youtu.be/example', options)
+    expect(args).toContain('--cookies-from-browser')
+    expect(args).toContain('chromium+basictext:/var/lib/youtube-browser/.config/chromium/')
+    expect(args).not.toContain('--cookies')
+    expect(args).not.toContain('/run/secrets/youtube.cookies.txt')
   })
 
   it('uses independent player-client policies for live and VOD resolution', () => {

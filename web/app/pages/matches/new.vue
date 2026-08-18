@@ -9,8 +9,12 @@ const error = shallowRef<Error | null>(null)
 async function submit(input: CreateMatchWithMediaInput) {
   try {
     const match = await setup.create(input.match)
-    await mediaSources.create(match.id, input.media)
-    await router.push(`/annotate/${match.id}`)
+    const result = await mediaSources.create(match.id, input.media)
+    await router.push(
+      result?.rtmp
+        ? `/control?view=matches&source=${encodeURIComponent(match.id)}`
+        : `/annotate/${match.id}`,
+    )
   } catch (cause) {
     error.value = cause instanceof Error ? cause : new Error('場次建立失敗')
   }

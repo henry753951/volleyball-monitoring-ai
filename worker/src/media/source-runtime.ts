@@ -14,6 +14,7 @@ import {
   recordMediaSourceClassification,
   recordMediaSourceRelayError,
   recordMediaSourceRelayHealthy,
+  recordMediaSourceResolution,
   recordMediaSourceResume,
   releaseMediaSourceLease,
   requestMediaSourceCompletion,
@@ -341,6 +342,12 @@ export class MediaSourceRuntime {
             `media-source checkpoint advanced capture=${work.captureSessionId} retry_budget_reset=true`,
           )
         }
+      },
+      resolved: async metadata => {
+        await recordMediaSourceResolution(this.options.database, work.id, this.#owner, metadata)
+        this.options.log?.(
+          `media-source resolved capture=${work.captureSessionId} cookie_revision=${metadata.cookieRevision ?? 'none'} player_client=${metadata.playerClient ?? 'unknown'} formats=${metadata.selectedFormatIds.join(',') || 'unknown'}`,
+        )
       },
     }
     try {

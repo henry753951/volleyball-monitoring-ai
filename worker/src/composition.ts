@@ -11,6 +11,7 @@ import { MediaSourceRuntime } from './media/source-runtime.js'
 import { recordPermanentMediaIngestFailure } from './media/source-work.js'
 import { OmeMonitorRuntime } from './media/ome-monitor.js'
 import type { WorkerComponentHealth } from './runtime-health.js'
+import { createYoutubeAuthProbe } from './media/youtube-auth.js'
 
 export interface MediaIndexerLifecyclePorts {
   queue: { start(): Promise<void>; stop(): Promise<void> }
@@ -128,6 +129,15 @@ export async function createMediaComposition() {
   const queue = createPgBossMediaRuntime(config.DATABASE_URL, processJob, failure =>
     recordPermanentMediaIngestFailure(db, failure),
   )
+  const authProbe = createYoutubeAuthProbe({
+    browserHealthUrl: config.YOUTUBE_BROWSER_HEALTH_URL,
+    cookiesFromBrowser: config.YOUTUBE_COOKIES_FROM_BROWSER,
+    extractorArgs: config.YOUTUBE_VOD_EXTRACTOR_ARGS,
+    potProviderUrl: config.YOUTUBE_POT_PROVIDER_URL,
+    statusFile: config.YOUTUBE_AUTH_STATUS_FILE,
+    testUrl: config.YOUTUBE_AUTH_TEST_URL,
+    ytDlpCommand: config.YT_DLP_COMMAND,
+  })
   const scanner = new MediaIndexerRuntime({
     activePollIntervalMs: config.MEDIA_INDEXER_ACTIVE_POLL_INTERVAL_MS,
     spoolRoot: config.MEDIA_SPOOL_DIR,
@@ -172,6 +182,9 @@ export async function createMediaComposition() {
       recordingExtentSeconds: config.MEDIA_RECORDING_EXTENT_SECONDS,
       workRoot: config.MEDIA_SOURCE_WORK_ROOT,
       ...(config.YOUTUBE_COOKIES_FILE ? { youtubeCookiesFile: config.YOUTUBE_COOKIES_FILE } : {}),
+      ...(config.YOUTUBE_COOKIES_FROM_BROWSER
+        ? { youtubeCookiesFromBrowser: config.YOUTUBE_COOKIES_FROM_BROWSER }
+        : {}),
       youtubeExtractorArgs: config.YOUTUBE_EXTRACTOR_ARGS,
       youtubeFormat: config.YOUTUBE_FORMAT,
       youtubeLiveExtractorArgs: config.YOUTUBE_LIVE_EXTRACTOR_ARGS,
@@ -183,6 +196,20 @@ export async function createMediaComposition() {
       youtubeVodFormat: config.YOUTUBE_VOD_FORMAT,
       youtubeVodUseCookies: config.YOUTUBE_VOD_USE_COOKIES,
       ytDlpCommand: config.YT_DLP_COMMAND,
+      ...(config.YOUTUBE_COOKIES_FROM_BROWSER
+        ? {
+            youtubeAuthSnapshot: () => authProbe.snapshot(),
+          }
+        : {}),
+      sourceOnline: async captureSessionId =>
+        Boolean(
+          (
+            await db.captureSession.findUnique({
+              select: { sourceOnline: true },
+              where: { id: captureSessionId },
+            })
+          )?.sourceOnline,
+        ),
     }),
   })
   const ome = new OmeMonitorRuntime({
@@ -194,6 +221,7 @@ export async function createMediaComposition() {
   })
   let started = false
   return {
+    youtubeAuth: authProbe,
     get snapshot() {
       return { indexer: scanner.snapshot, mediaSources: sources.snapshot, ome: ome.snapshot }
     },

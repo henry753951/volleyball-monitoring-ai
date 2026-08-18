@@ -1,5 +1,11 @@
 export function isProtectedPath(path: string): boolean {
-  return path === '/settings' || path.startsWith('/matches/') || path.startsWith('/annotate/')
+  return (
+    path === '/settings' ||
+    path === '/control' ||
+    path.startsWith('/control/') ||
+    path.startsWith('/matches/') ||
+    path.startsWith('/annotate/')
+  )
 }
 
 export type ViewerBoundaryState = 'loading' | 'authenticated' | 'unauthenticated' | 'error'

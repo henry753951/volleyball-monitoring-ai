@@ -4,6 +4,7 @@ import { authRedirectQuery, classifyViewerState, isProtectedPath } from './authB
 describe('auth boundary paths', () => {
   it('protects match, annotation and settings routes without looping the public home', () => {
     expect(isProtectedPath('/')).toBe(false)
+    expect(isProtectedPath('/control')).toBe(true)
     expect(isProtectedPath('/matches/new')).toBe(true)
     expect(isProtectedPath('/matches/real-id/live')).toBe(true)
     expect(isProtectedPath('/annotate/real-id')).toBe(true)

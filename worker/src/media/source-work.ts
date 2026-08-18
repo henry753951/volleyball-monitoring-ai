@@ -1,9 +1,11 @@
 import type { PrismaClient } from '@volleyball-monitoring/db'
+import type { Prisma } from '@volleyball-monitoring/db/client'
+import type { YoutubeResolutionMetadata } from './source-process.js'
 
 export type ClaimedMediaSourceWork = {
   id: string
   captureSessionId: string
-  sourceKind: 'youtube' | 'local_mp4'
+  sourceKind: 'youtube' | 'local_mp4' | 'rtmp'
   sourceUrl: string | null
   importKey: string | null
   attempts: number
@@ -19,7 +21,7 @@ export type ClaimedMediaSourceWork = {
 export type SourceCompletion = {
   expectedSegments: number
   sourceDurationUs: bigint | null
-  sourceKind: 'youtube' | 'youtube_live' | 'youtube_vod' | 'local_mp4'
+  sourceKind: 'youtube' | 'youtube_live' | 'youtube_vod' | 'local_mp4' | 'rtmp'
 }
 
 export type MediaSourceWorkState = {
@@ -384,6 +386,19 @@ export async function recordMediaSourceRelayHealthy(
 ): Promise<number> {
   const result = await database.mediaSourceWork.updateMany({
     data: { attempts: 0, lastErrorCode: null },
+    where: { id: workId, leaseOwner: owner, status: 'RUNNING' },
+  })
+  return result.count
+}
+
+export async function recordMediaSourceResolution(
+  database: PrismaClient,
+  workId: string,
+  owner: string,
+  metadata: YoutubeResolutionMetadata,
+): Promise<number> {
+  const result = await database.mediaSourceWork.updateMany({
+    data: { authMetadata: metadata as unknown as Prisma.InputJsonValue },
     where: { id: workId, leaseOwner: owner, status: 'RUNNING' },
   })
   return result.count

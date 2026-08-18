@@ -557,6 +557,7 @@ model MediaSourceWork {
   leaseExpiresAt      DateTime?
   lastHeartbeatAt     DateTime?
   lastErrorCode       String?
+  authMetadata        Json?
   segmentBaseAt       DateTime              @default(now())
   resumeSegmentIndex  Int                   @default(0)
   resumeCaptureTimeUs BigInt                @default(0)

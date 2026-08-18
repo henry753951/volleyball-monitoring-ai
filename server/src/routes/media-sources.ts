@@ -2,7 +2,7 @@ import { createWriteStream } from 'node:fs'
 import { mkdir, rename, rm } from 'node:fs/promises'
 import { basename, extname, join, resolve } from 'node:path'
 import { pipeline } from 'node:stream/promises'
-import { randomUUID } from 'node:crypto'
+import { randomBytes, randomUUID } from 'node:crypto'
 import type { PrismaClient } from '@volleyball-monitoring/db'
 import { UserRole } from '@volleyball-monitoring/db/client'
 import type { FastifyPluginAsync, FastifyRequest } from 'fastify'
@@ -26,6 +26,12 @@ const YoutubeRequest = z
     source_url: z.string().trim().url().max(2_048),
   })
   .strict()
+const RtmpRequest = z
+  .object({
+    match_id: z.string().regex(UUID),
+    source_label: z.string().trim().min(1).max(120).optional(),
+  })
+  .strict()
 type MediaSourceRouteDependencies = {
   authenticate(request: FastifyRequest): Promise<AnnotationIdentity | null>
   database: PrismaClient
@@ -33,6 +39,28 @@ type MediaSourceRouteDependencies = {
   scheduleWork?: (database: PrismaClient, request: MediaSourceWorkRequest) => Promise<unknown>
   startCapture?: typeof startCapture
   failCaptureStartup?: typeof failCaptureStartup
+  rtmpPublicUrl?: string
+}
+
+async function youtubeAuthWorkerRequest(path: string, method: 'GET' | 'POST' = 'GET') {
+  const base = process.env.YOUTUBE_AUTH_WORKER_URL
+  if (!base) throw new Error('YOUTUBE_AUTH_WORKER_URL is not configured')
+  const headers: Record<string, string> = {}
+  if (process.env.YOUTUBE_AUTH_PROBE_TOKEN) {
+    headers['x-youtube-auth-token'] = process.env.YOUTUBE_AUTH_PROBE_TOKEN
+  }
+  const response = await fetch(new URL(path, `${base.replace(/\/$/, '')}/`), {
+    method,
+    headers,
+  })
+  const body = await response.json().catch(() => null)
+  if (!response.ok)
+    throw new Error(
+      typeof body?.message === 'string'
+        ? body.message
+        : `YouTube auth service unavailable (${response.status})`,
+    )
+  return body
 }
 
 function operator(identity: AnnotationIdentity | null) {
@@ -55,6 +83,27 @@ function ingestPath(matchId: string, kind: 'youtube' | 'local_mp4') {
   return `${kind}-${matchId}-${randomUUID()}`
 }
 
+function rtmpPublicBase(value: string): string {
+  const url = new URL(value)
+  if (url.protocol !== 'rtmp:' || !url.hostname || url.search || url.hash)
+    throw new TypeError('OME_RTMP_PUBLIC_URL must be an rtmp:// URL')
+  url.pathname = url.pathname.replace(/\/+$/, '')
+  if (!url.pathname) url.pathname = '/app'
+  return url.toString().replace(/\/+$/, '')
+}
+
+function rtmpStreamKey(): string {
+  return randomBytes(24).toString('base64url')
+}
+
+function rtmpCredentials(streamKey: string, publicBase: string) {
+  return {
+    rtmp_url: publicBase,
+    publish_url: `${publicBase}/${encodeURIComponent(streamKey)}`,
+    stream_key: streamKey,
+  }
+}
+
 function capturePayload(capture: Awaited<ReturnType<typeof startCapture>>) {
   return {
     capture_session: {
@@ -74,7 +123,40 @@ export function mediaSourceRoutes(dependencies: MediaSourceRouteDependencies): F
   const createCapture = dependencies.startCapture ?? startCapture
   const failCapture = dependencies.failCaptureStartup ?? failCaptureStartup
   const scheduleWork = dependencies.scheduleWork ?? scheduleMediaSourceWork
+  const publicRtmpBase = rtmpPublicBase(
+    dependencies.rtmpPublicUrl ?? process.env.OME_RTMP_PUBLIC_URL ?? 'rtmp://localhost:2035/app',
+  )
   return async app => {
+    app.get('/api/v1/media-sources/youtube-auth/status', async (request, reply) => {
+      const identity = operator(await dependencies.authenticate(request))
+      if (!identity) return reply.status(401).send({ code: 'UNAUTHENTICATED' })
+      try {
+        return reply
+          .header('cache-control', 'no-store')
+          .send(await youtubeAuthWorkerRequest('/internal/youtube-auth/status'))
+      } catch (error) {
+        return reply.status(503).send({
+          code: 'YOUTUBE_AUTH_UNAVAILABLE',
+          message: error instanceof Error ? error.message : 'YouTube 登入狀態無法取得',
+        })
+      }
+    })
+
+    app.post('/api/v1/media-sources/youtube-auth/refresh', async (request, reply) => {
+      const identity = operator(await dependencies.authenticate(request))
+      if (!identity) return reply.status(401).send({ code: 'UNAUTHENTICATED' })
+      try {
+        return reply
+          .header('cache-control', 'no-store')
+          .send(await youtubeAuthWorkerRequest('/internal/youtube-auth/refresh', 'POST'))
+      } catch (error) {
+        return reply.status(503).send({
+          code: 'YOUTUBE_AUTH_UNAVAILABLE',
+          message: error instanceof Error ? error.message : 'YouTube Cookie 檢查失敗',
+        })
+      }
+    })
+
     app.post('/api/v1/media-sources/youtube', async (request, reply) => {
       const identity = operator(await dependencies.authenticate(request))
       if (!identity) return reply.status(401).send({ code: 'UNAUTHENTICATED' })
@@ -117,6 +199,195 @@ export function mediaSourceRoutes(dependencies: MediaSourceRouteDependencies): F
         })
       }
       return reply.status(202).send(capturePayload(capture))
+    })
+
+    app.get('/api/v1/media-sources/youtube/:capture_session_id/auth', async (request, reply) => {
+      const identity = operator(await dependencies.authenticate(request))
+      if (!identity) return reply.status(401).send({ code: 'UNAUTHENTICATED' })
+      const params = z
+        .object({ capture_session_id: z.string().regex(UUID) })
+        .safeParse(request.params)
+      if (!params.success) return reply.status(404).send({ code: 'NOT_FOUND' })
+      const capture = await dependencies.database.captureSession.findFirst({
+        select: { id: true },
+        where: {
+          id: params.data.capture_session_id,
+          sourceKind: { in: ['youtube', 'youtube_live', 'youtube_vod'] },
+          match: {
+            deletionRequestedAt: null,
+            ...(identity.role === UserRole.ADMIN
+              ? {}
+              : {
+                  members: {
+                    some: {
+                      userId: identity.id,
+                      role: { in: [UserRole.ADMIN, UserRole.OPERATOR] },
+                    },
+                  },
+                }),
+          },
+        },
+      })
+      if (!capture) return reply.status(404).send({ code: 'NOT_FOUND' })
+      const work = await dependencies.database.mediaSourceWork.findUnique({
+        select: { attempts: true, authMetadata: true, lastErrorCode: true, status: true },
+        where: { captureSessionId: capture.id },
+      })
+      if (!work) return reply.status(404).send({ code: 'NOT_FOUND' })
+      return reply.header('cache-control', 'no-store').send({
+        capture_session_id: capture.id,
+        attempt: work.attempts,
+        status: work.status.toLowerCase(),
+        last_error: work.lastErrorCode,
+        auth: work.authMetadata,
+      })
+    })
+
+    app.post('/api/v1/media-sources/youtube/:capture_session_id/retry', async (request, reply) => {
+      const identity = operator(await dependencies.authenticate(request))
+      if (!identity) return reply.status(401).send({ code: 'UNAUTHENTICATED' })
+      const params = z
+        .object({ capture_session_id: z.string().regex(UUID) })
+        .safeParse(request.params)
+      if (!params.success) return reply.status(404).send({ code: 'NOT_FOUND' })
+      try {
+        const result = await dependencies.database.$transaction(async tx => {
+          await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`capture-media:${params.data.capture_session_id}`}, 0))::text AS lock`
+          const capture = await tx.captureSession.findFirst({
+            select: { id: true, status: true },
+            where: {
+              id: params.data.capture_session_id,
+              sourceKind: { in: ['youtube', 'youtube_live', 'youtube_vod'] },
+              match: {
+                deletionRequestedAt: null,
+                ...(identity.role === UserRole.ADMIN
+                  ? {}
+                  : {
+                      members: {
+                        some: {
+                          userId: identity.id,
+                          role: { in: [UserRole.ADMIN, UserRole.OPERATOR] },
+                        },
+                      },
+                    }),
+              },
+            },
+          })
+          const work = capture
+            ? await tx.mediaSourceWork.findUnique({ where: { captureSessionId: capture.id } })
+            : null
+          if (!capture || !work) return null
+          if (['RUNNING', 'DRAINING'].includes(work.status))
+            throw new Error('YOUTUBE_SOURCE_ACTIVE')
+          if (work.status === 'COMPLETED' || capture.status === 'FINISHED')
+            throw new Error('YOUTUBE_SOURCE_COMPLETED')
+          await tx.mediaSourceWork.update({
+            data: {
+              availableAt: new Date(),
+              lastErrorCode: null,
+              leaseExpiresAt: null,
+              leaseOwner: null,
+              status: 'REQUESTED',
+            },
+            where: { id: work.id },
+          })
+          await tx.captureSession.update({
+            data: {
+              completionExpectedSegments: null,
+              completionRequestedAt: null,
+              endedAt: null,
+              health: 'STARTING',
+              sourceOnline: false,
+              status: 'STARTING',
+            },
+            where: { id: capture.id },
+          })
+          await tx.dvrProgram.updateMany({
+            data: { status: 'STARTING' },
+            where: { captureSessionId: capture.id, status: 'FAILED' },
+          })
+          return { attempt: work.attempts + 1, capture_session_id: capture.id }
+        })
+        if (!result) return reply.status(404).send({ code: 'NOT_FOUND' })
+        return reply.status(202).send({ ...result, fresh_resolve: true })
+      } catch (error) {
+        if (error instanceof Error && error.message === 'YOUTUBE_SOURCE_ACTIVE')
+          return reply.status(409).send({ code: 'YOUTUBE_SOURCE_ACTIVE' })
+        if (error instanceof Error && error.message === 'YOUTUBE_SOURCE_COMPLETED')
+          return reply.status(409).send({ code: 'YOUTUBE_SOURCE_COMPLETED' })
+        throw error
+      }
+    })
+
+    app.post('/api/v1/media-sources/rtmp', async (request, reply) => {
+      const identity = operator(await dependencies.authenticate(request))
+      if (!identity) return reply.status(401).send({ code: 'UNAUTHENTICATED' })
+      const parsed = RtmpRequest.safeParse(request.body)
+      if (!parsed.success)
+        return reply.status(400).send({ code: 'BAD_USER_INPUT', message: 'RTMP 來源資料不完整' })
+
+      const streamKey = rtmpStreamKey()
+      const capture = await createCapture(dependencies.database, identity, {
+        ingestPath: streamKey,
+        matchId: parsed.data.match_id,
+        sourceConfigSecretRef: `media-source://rtmp/${streamKey}`,
+        sourceKind: 'rtmp',
+        sourceLabel: parsed.data.source_label ?? 'RTMP 直播',
+      })
+      try {
+        await scheduleWork(dependencies.database, {
+          captureSessionId: capture.id,
+          sourceKind: 'rtmp',
+        })
+      } catch (error) {
+        await failCapture(
+          dependencies.database,
+          capture.id,
+          error instanceof Error ? error.message : 'MEDIA_SOURCE_START_FAILED',
+        ).catch(() => undefined)
+        return reply.status(502).send({
+          code: 'SOURCE_START_FAILED',
+          message: 'RTMP 來源已建立，但媒體處理程序無法啟動；場次已保留，可稍後重試。',
+        })
+      }
+      return reply.status(202).send({
+        ...capturePayload(capture),
+        rtmp: rtmpCredentials(streamKey, publicRtmpBase),
+      })
+    })
+
+    app.get('/api/v1/media-sources/rtmp/:capture_session_id', async (request, reply) => {
+      const identity = operator(await dependencies.authenticate(request))
+      if (!identity) return reply.status(401).send({ code: 'UNAUTHENTICATED' })
+      const params = z
+        .object({ capture_session_id: z.string().regex(UUID) })
+        .safeParse(request.params)
+      if (!params.success) return reply.status(404).send({ code: 'NOT_FOUND' })
+      const capture = await dependencies.database.captureSession.findFirst({
+        select: { id: true, ingestPath: true },
+        where: {
+          id: params.data.capture_session_id,
+          sourceKind: 'rtmp',
+          match: {
+            deletionRequestedAt: null,
+            ...(identity.role === UserRole.ADMIN
+              ? {}
+              : {
+                  members: {
+                    some: {
+                      userId: identity.id,
+                      role: { in: [UserRole.ADMIN, UserRole.OPERATOR] },
+                    },
+                  },
+                }),
+          },
+        },
+      })
+      if (!capture) return reply.status(404).send({ code: 'NOT_FOUND' })
+      return reply.send({
+        capture_session_id: capture.id,
+        rtmp: rtmpCredentials(capture.ingestPath, publicRtmpBase),
+      })
     })
 
     app.post('/api/v1/media-sources/upload', async (request, reply) => {
