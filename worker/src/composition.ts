@@ -167,6 +167,7 @@ export async function createMediaComposition() {
       importRoot: config.MEDIA_IMPORT_ROOT,
       ingestBaseUrl: config.MEDIA_INGEST_BASE_URL,
       recordingRoot: config.MEDIA_SPOOL_DIR,
+      recordingExtentSeconds: config.MEDIA_RECORDING_EXTENT_SECONDS,
       workRoot: config.MEDIA_SOURCE_WORK_ROOT,
       ...(config.YOUTUBE_COOKIES_FILE ? { youtubeCookiesFile: config.YOUTUBE_COOKIES_FILE } : {}),
       youtubeExtractorArgs: config.YOUTUBE_EXTRACTOR_ARGS,

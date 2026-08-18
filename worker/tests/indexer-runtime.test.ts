@@ -169,6 +169,7 @@ describe('media indexer runtime kernel', () => {
     })
     expect(config.YOUTUBE_FORMAT).toContain('best[protocol*=m3u8][height<=1080]')
     expect(config.YOUTUBE_VOD_FORMAT).toContain('bestvideo[protocol^=http][height<=1080]')
+    expect(config.MEDIA_RECORDING_EXTENT_SECONDS).toBe(60)
     expect(() =>
       mediaIndexerConfig({
         DATABASE_URL: 'not-a-url',

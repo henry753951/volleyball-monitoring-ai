@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process'
-import { mkdtemp, readdir, rm } from 'node:fs/promises'
+import { mkdtemp, readFile, readdir, rename, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
@@ -13,7 +13,10 @@ import {
   latestFfmpegProgressUs,
   nextLiveRelayFailureCount,
   preflightYoutubeInput,
+  recordingExtentFilename,
+  recordingExtentSeconds,
   reachedExpectedMediaEnd,
+  segmentListTiming,
   type MediaSourceProcessOptions,
   vodCompletionToleranceUs,
 } from '../src/media/source-process.js'
@@ -168,6 +171,27 @@ describe('media source process', () => {
     expect(reachedExpectedMediaEnd(9_099_041_000n, 9_103_280_000n)).toBe(true)
   })
 
+  it('keeps physical recording extents coarse without widening completion tolerance', () => {
+    expect(recordingExtentSeconds(youtubeOptions)).toBe(60)
+    expect(recordingExtentSeconds({ ...youtubeOptions, recordingExtentSeconds: 120 })).toBe(120)
+    expect(() => recordingExtentSeconds({ ...youtubeOptions, recordingExtentSeconds: 14 })).toThrow(
+      'between 15 and 300 seconds',
+    )
+    expect(vodCompletionToleranceUs()).toBe(5_000_000n)
+  })
+
+  it('uses FFmpeg CSV timing for extent names instead of segment index guesses', () => {
+    expect(
+      segmentListTiming(
+        '"C:\\work\\segment,000000004.mp4",5.123456,65.654321\r\n',
+        'segment,000000004.mp4',
+      ),
+    ).toEqual({ startUs: 5_123_456n, endUs: 65_654_321n })
+    expect(recordingExtentFilename(new Date('2026-08-09T06:00:00.250Z'), 5_123_456n)).toBe(
+      '2026-08-09_06-00-05-373456.mp4',
+    )
+  })
+
   it('bounds consecutive live relay failures and resets the budget on durable progress', () => {
     expect(nextLiveRelayFailureCount(0, 0, 0)).toBe(1)
     expect(nextLiveRelayFailureCount(4, 0, 0)).toBe(5)
@@ -255,15 +279,120 @@ describe('media source process', () => {
         new AbortController().signal,
       )
 
-      const files = await readdir(join(recordingRoot, 'fixture-court'))
+      const files = (await readdir(join(recordingRoot, 'fixture-court'))).filter(name =>
+        name.endsWith('.mp4'),
+      )
       expect(result).toMatchObject({ sourceKind: 'local_mp4' })
-      expect(result.expectedSegments).toBeGreaterThanOrEqual(2)
+      expect(result.expectedSegments).toBe(1)
       expect(classified).toHaveLength(1)
       expect(resumed.at(-1)?.segmentIndex).toBe(result.expectedSegments)
       expect(resumed.at(-1)?.captureTimeUs).toBeGreaterThanOrEqual(4_000_000n)
       expect(resumed.at(-1)?.captureTimeUs).not.toBe(BigInt(result.expectedSegments) * 2_000_000n)
       expect(files).toHaveLength(result.expectedSegments)
       expect(files.every(name => /^2026-08-09_06-00-\d{2}-\d{6}\.mp4$/.test(name))).toBe(true)
+      expect(
+        JSON.parse(
+          await readFile(
+            join(recordingRoot, 'fixture-court', '.source-checkpoint-v1.json'),
+            'utf8',
+          ),
+        ),
+      ).toMatchObject({ schemaVersion: 1, segmentIndex: 1 })
+    },
+  )
+
+  it.skipIf(!hasFfmpeg)(
+    'recovers a finalized extent when the database checkpoint acknowledgement fails',
+    async () => {
+      const root = await mkdtemp(join(tmpdir(), 'vollyai-source-checkpoint-'))
+      temporaryPaths.push(root)
+      const importRoot = join(root, 'imports')
+      const recordingRoot = join(root, 'recordings')
+      const captureId = '93000000-0000-4000-8000-000000000001'
+      const { mkdir } = await import('node:fs/promises')
+      await mkdir(join(importRoot, captureId), { recursive: true })
+      const input = join(importRoot, captureId, 'source.mp4')
+      await execFileAsync('ffmpeg', [
+        '-hide_banner',
+        '-loglevel',
+        'error',
+        '-f',
+        'lavfi',
+        '-i',
+        'testsrc2=size=160x90:rate=30',
+        '-t',
+        '1.1',
+        '-c:v',
+        'libx264',
+        '-g',
+        '30',
+        '-pix_fmt',
+        'yuv420p',
+        '-an',
+        '-y',
+        input,
+      ])
+      const run = createMediaSourceProcess({
+        importRoot,
+        ingestBaseUrl: 'rtmp://127.0.0.1:1935/app',
+        recordingRoot,
+        workRoot: join(root, 'unused-work-root'),
+        youtubeExtractorArgs: 'youtube:player_client=default',
+        youtubeFormat: 'best',
+        youtubeVodFormat: 'best',
+      })
+      const work = {
+        attempts: 1,
+        captureSessionId: captureId,
+        id: '93000000-0000-4000-8000-000000000002',
+        importKey: `${captureId}/source.mp4`,
+        ingestPath: 'checkpoint-court',
+        resumeCaptureTimeUs: 0n,
+        resumeSegmentIndex: 0,
+        segmentBaseAt: new Date('2026-08-09T07:00:00.000Z'),
+        sourceKind: 'local_mp4',
+        sourceUrl: null,
+        status: 'RUNNING' as const,
+      }
+      await expect(
+        run(
+          work,
+          {
+            classified: async () => undefined,
+            resumed: async () => {
+              throw new Error('simulated database outage')
+            },
+          },
+          new AbortController().signal,
+        ),
+      ).rejects.toThrow('simulated database outage')
+
+      const checkpointDirectory = join(recordingRoot, 'checkpoint-court')
+      await rename(
+        join(checkpointDirectory, '.source-checkpoint-v1.json'),
+        join(checkpointDirectory, '.source-checkpoint-v1.pending.json'),
+      )
+
+      const recovered: Array<{ segmentIndex: number; captureTimeUs: bigint }> = []
+      const result = await run(
+        work,
+        {
+          classified: async () => undefined,
+          resumed: async (segmentIndex, captureTimeUs) => {
+            recovered.push({ segmentIndex, captureTimeUs })
+          },
+        },
+        new AbortController().signal,
+      )
+      expect(result.expectedSegments).toBe(1)
+      expect(recovered).toHaveLength(1)
+      expect(recovered[0]?.segmentIndex).toBe(1)
+      expect(recovered[0]?.captureTimeUs).toBeGreaterThanOrEqual(1_000_000n)
+      expect(
+        (await readdir(join(recordingRoot, 'checkpoint-court'))).filter(name =>
+          name.endsWith('.mp4'),
+        ),
+      ).toHaveLength(1)
     },
   )
 })

@@ -27,6 +27,7 @@ const MediaIndexerEnvironment = z.object({
   MEDIA_INDEXER_ACTIVE_POLL_INTERVAL_MS: z.coerce.number().int().min(250).max(10_000).default(500),
   MEDIA_SOURCE_CONCURRENCY: z.coerce.number().int().min(1).max(8).default(2),
   MEDIA_SOURCE_POLL_INTERVAL_MS: z.coerce.number().int().min(100).max(10_000).default(250),
+  MEDIA_RECORDING_EXTENT_SECONDS: z.coerce.number().int().min(15).max(300).default(60),
   YOUTUBE_COOKIES_FILE: z.preprocess(
     value => (typeof value === 'string' && value.trim() === '' ? undefined : value),
     z.string().trim().min(1).optional(),

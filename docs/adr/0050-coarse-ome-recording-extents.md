@@ -25,6 +25,8 @@ configuration that silently disables splitting is worse than an explicit reviewe
 
 - Keep LL-HLS `ChunkDuration=0.5` and `SegmentDuration=2`.
 - Set the automatic FILE publisher `SegmentInterval` to 60,000 ms with timestamp continuity.
+- Use the same 60-second default for local-file and YouTube VOD rolling recording extents. This is
+  independently configurable from LL-HLS and remains bounded to 15–300 seconds.
 - Treat `recording.xml` as the primary finalized-extent metadata.
 - Poll only DB-known active capture directories every 500 ms; this is bounded by active captures and
   does not recursively walk historical spool data.
@@ -37,6 +39,10 @@ configuration that silently disables splitting is worse than an explicit reviewe
 - Key catalog publication by both the finalized-file job ID and the transitional `DvrSegment` ID.
   Redelivery must converge on one row, preserve the first catalog/archive timestamps, and reject
   conflicting immutable source, timeline, or object metadata.
+- Name VOD/import extents from FFmpeg's CSV start timestamp rather than `segment index × 2s`.
+- Stage VOD/import extents below the destination recording directory and atomically rename finalized
+  media on the same filesystem. Persist a destination-local checkpoint before acknowledging progress
+  to PostgreSQL; a pending checkpoint reconciles the narrow crash window around the media rename.
 
 Docker Desktop bind-mount verification found that recursive inotify watchers can start successfully
 yet receive no event when another container writes the mounted directory. The bounded active-capture
@@ -80,6 +86,9 @@ presentation anchor maps media time to canonical `captureTimeUs` across reconnec
 - Live playback latency and DVR granularity are unchanged.
 - Existing DvrSegment/MediaAsset publication remains a transitional VOD/archive consumer, but runs at
   extent frequency rather than LL-HLS frequency.
+- A long VOD now pays probe/hash/archive/catalog work approximately once per physical extent instead
+  of once per playback-sized fragment. The completion invariant remains within five seconds and is
+  deliberately not widened to two physical extents.
 - New archive-verified publications are discoverable through `MediaExtent` without making either the
   catalog or PostgreSQL part of the Live video-byte path.
 - A deployment does not depend on recursive watch delivery; the bounded active-capture poll is the
