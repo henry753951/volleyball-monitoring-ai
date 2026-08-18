@@ -47,7 +47,6 @@ interface AnnotationRoomState {
 }
 
 const REPLAY_BATCH_SIZE = 512
-const REPLAY_BATCHES_ON_CONNECT = 16
 const REPLAY_BATCHES_ON_RECONCILE = 4
 
 function invalidCommandRejection(payload: unknown, roomId: string) {
@@ -159,18 +158,16 @@ export const annotationWebSocketRoutes =
       afterSequence: bigint,
       identity: AnnotationIdentity,
       deliver: (snapshot: AnnotationRallySnapshot) => void,
-      maxBatches: number,
+      maxBatches: number | null,
     ) => {
       let cursor = afterSequence
       let current = afterSequence
       let hasMore = false
-      for (let batch = 0; batch < maxBatches; batch += 1) {
+      const changedRallyIds = new Set<string>()
+      for (let batch = 0; maxBatches === null || batch < maxBatches; batch += 1) {
         const changes = await deps.service.roomChangesAfter(roomId, cursor, REPLAY_BATCH_SIZE)
         current = changes.currentSequence
-        for (const rallyId of changes.rallyIds) {
-          const snapshot = await loadSnapshot(roomId, rallyId, identity)
-          if (snapshot) deliver(snapshot)
-        }
+        for (const rallyId of changes.rallyIds) changedRallyIds.add(rallyId)
         hasMore = changes.hasMore
         if (changes.throughSequence <= cursor || !changes.hasMore) {
           cursor = changes.throughSequence
@@ -178,20 +175,21 @@ export const annotationWebSocketRoutes =
         }
         cursor = changes.throughSequence
       }
+      for (const rallyId of changedRallyIds) {
+        const snapshot = await loadSnapshot(roomId, rallyId, identity)
+        if (snapshot) deliver(snapshot)
+      }
       return { current, cursor, hasMore }
     }
 
     const reconcileRoom = async (roomId: string, state: AnnotationRoomState) => {
-      if (state.reconciling || !state.peers.size) return
+      if (state.reconciling || !state.peers.size || !deps.snapshot) return
       state.reconciling = true
       try {
         const current = await deps.service.roomSequence(roomId)
         if (current <= state.lastSequence) return
         const representative = state.peers.values().next().value as AnnotationPeer | undefined
-        if (!representative || !deps.snapshot) {
-          state.lastSequence = current
-          return
-        }
+        if (!representative) return
         const replay = await replayChanges(
           roomId,
           state.lastSequence,
@@ -340,15 +338,17 @@ export const annotationWebSocketRoutes =
                 resumeSequence,
                 identity,
                 snapshot => sendSnapshot(peer, snapshot),
-                REPLAY_BATCHES_ON_CONNECT,
+                null,
               )
               readySequence = replay.cursor
             } catch (cause) {
               request.log.warn(
                 { err: cause, room_id: room.roomId },
-                'annotation reconnect replay failed; background reconciliation will retry',
+                'annotation reconnect replay failed',
               )
-              if (resumeSequence < readySequence) readySequence = resumeSequence
+              await cleanupPresence()
+              socket.close(1011, 'annotation reconnect replay failed')
+              return
             }
           }
           if (deps.snapshot) {
@@ -363,6 +363,9 @@ export const annotationWebSocketRoutes =
                 { err: cause, room_id: room.roomId },
                 'active annotation room projection failed to load',
               )
+              await cleanupPresence()
+              socket.close(1011, 'active annotation room projection unavailable')
+              return
             }
           }
           if (roomWasEmpty && readySequence > state.lastSequence)

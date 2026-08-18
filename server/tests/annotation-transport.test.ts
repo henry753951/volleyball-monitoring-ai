@@ -511,6 +511,105 @@ describe('annotation transport adapters', () => {
     expect(messages[1]).toMatchObject({ server_sequence: '11' })
   })
 
+  it('finishes every durable replay page before connection_ready', async () => {
+    const replayPages = 17
+    const finalSequence = BigInt(replayPages * 512)
+    const seenAfter: bigint[] = []
+    const service: AnnotationCommandService = {
+      ...fakeService([]),
+      async roomChangesAfter(_roomId, afterSequence) {
+        seenAfter.push(afterSequence)
+        const throughSequence =
+          afterSequence + 512n < finalSequence ? afterSequence + 512n : finalSequence
+        return {
+          currentSequence: finalSequence,
+          hasMore: throughSequence < finalSequence,
+          rallyIds: [],
+          throughSequence,
+        }
+      },
+      async roomSequence() {
+        return finalSequence
+      },
+    }
+    const app = Fastify({ logger: false })
+    await app.register(websocket)
+    await app.register(
+      annotationWebSocketRoutes({
+        authenticate: async () => identity,
+        reconcileIntervalMs: 60_000,
+        service,
+        snapshot: async () => null,
+      }),
+    )
+    await app.listen({ host: '127.0.0.1', port: 0 })
+    closeApp = () => app.close()
+    const address = app.server.address()
+    if (!address || typeof address === 'string') throw new Error('missing test listener')
+
+    const client = new WebSocket(
+      `ws://127.0.0.1:${address.port}/ws/annotations?room_id=${encodeURIComponent(roomId)}&last_server_sequence=0`,
+    )
+    const ready = await new Promise<Record<string, unknown>>((resolve, reject) => {
+      const timeout = setTimeout(() => reject(new Error('websocket replay timeout')), 5_000)
+      client.addEventListener('error', () => reject(new Error('websocket error')))
+      client.addEventListener('message', event => {
+        const message = JSON.parse(String(event.data)) as Record<string, unknown>
+        if (message.type !== 'connection_ready') return
+        clearTimeout(timeout)
+        resolve(message)
+      })
+    })
+    client.close()
+    expect(seenAfter).toHaveLength(replayPages)
+    expect(seenAfter.at(-1)).toBe(finalSequence - 512n)
+    expect(ready).toMatchObject({ server_sequence: finalSequence.toString() })
+  })
+
+  it('closes instead of claiming ready when durable replay fails', async () => {
+    const service: AnnotationCommandService = {
+      ...fakeService([]),
+      async roomChangesAfter() {
+        throw new Error('database unavailable')
+      },
+      async roomSequence() {
+        return 11n
+      },
+    }
+    const app = Fastify({ logger: false })
+    await app.register(websocket)
+    await app.register(
+      annotationWebSocketRoutes({
+        authenticate: async () => identity,
+        reconcileIntervalMs: 60_000,
+        service,
+        snapshot: async () => null,
+      }),
+    )
+    await app.listen({ host: '127.0.0.1', port: 0 })
+    closeApp = () => app.close()
+    const address = app.server.address()
+    if (!address || typeof address === 'string') throw new Error('missing test listener')
+
+    const client = new WebSocket(
+      `ws://127.0.0.1:${address.port}/ws/annotations?room_id=${encodeURIComponent(roomId)}&last_server_sequence=7`,
+    )
+    const messages: Array<Record<string, unknown>> = []
+    const closeEvent = await new Promise<CloseEvent>((resolve, reject) => {
+      const timeout = setTimeout(() => reject(new Error('websocket close timeout')), 5_000)
+      client.addEventListener('message', event => {
+        messages.push(JSON.parse(String(event.data)) as Record<string, unknown>)
+      })
+      client.addEventListener('error', () => undefined)
+      client.addEventListener('close', event => {
+        clearTimeout(timeout)
+        resolve(event)
+      })
+    })
+    expect(closeEvent.code).toBe(1011)
+    expect(messages).toEqual([])
+  })
+
   it('round-trips a strict contact command after connection_ready', async () => {
     const seen: unknown[] = []
     const client = await openAnnotationSocket(seen)

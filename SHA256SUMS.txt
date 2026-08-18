@@ -420,7 +420,7 @@ c84bb919df78ba2635709943ce14b14c9a5a53138dda8f4d96bdd442463da55a  ./server/src/r
 372ff7678b9b4382fa92f8d308e6ff5eee9800f6db50ad92786ca8c6ff3159de  ./server/src/realtime/ai-progress.ts
 79e5b9897d88b20a9e59c40e09cb36d80a6c9340449637346b3d75b0c3215feb  ./server/src/realtime/annotation-events.ts
 9b099f643f7c6a06c5c1666272e3629f8d00ad6dd366e906e97f7fa476afc19a  ./server/src/realtime/annotation-presence.ts
-4b95af784227a44543294151a7f5bfc34767cb73ab62c79706f24403dc36af49  ./server/src/realtime/annotation-ws.ts
+44d421e964d33c9cd90f87656b7def8870761bf775da04fb5dd89e21cf9999c7  ./server/src/realtime/annotation-ws.ts
 6fcf65b4e358865cbf7a292ae8f56f22c1df8a54971f1326c7a1153e972f768a  ./server/src/realtime/auth.ts
 acc167a11aa503485781d5fe61797eb02387964ccfba63d4a3771bed45ca2a66  ./server/src/realtime/coach-ws.ts
 1af769be0dfa91969c31d0919aac81fba24fb3d7c38f3ea17c24fc3bd1ba2693  ./server/src/realtime/provider-work-ws.ts
@@ -467,7 +467,7 @@ ae50456b5bb2dbeb1fe3d5b7c23cd5b2f1f941c56f3164cc040413a27b4a775e  ./server/src/s
 73660879dc7b429654906cb70f77deaca362d5c18be27788d8666f5ad54055b8  ./server/tests/annotation-presence.test.ts
 79cf0ceb6f6d2cc2e6b44330cc0d67bbd9dfb7530db18aed431c15409e317c82  ./server/tests/annotation-snapshot.integration.test.ts
 7f2270ea86b801f85f37d5046587405ddc8c3ce70704d5c0f33e9677fa69d0ed  ./server/tests/annotation-state.test.ts
-0ec971c21f43565516a7c74e7cd0e786bd3a713def2cb3f1daddb36fabe275b0  ./server/tests/annotation-transport.test.ts
+ee3555395004e2e019ef67e78a3102d4ac62346c10ba6c67727e70edc63b76eb  ./server/tests/annotation-transport.test.ts
 d1200dd557e08188c87a867980ead67bc85f7866c5b014ff08dd820027ddb5ea  ./server/tests/ball-event-submission-validation.test.ts
 7ecf057e1fcbf04385ebecaf6b996f00eee3751b6794970e49b7e7800b55cf2a  ./server/tests/capture-processing.integration.test.ts
 e1eecdd39240ae7680aa875e8376c86ce2e54c51691cc9b475f1fd7468482cd7  ./server/tests/clip-timing-coverage.test.ts
