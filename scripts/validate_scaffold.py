@@ -209,6 +209,7 @@ expected_services = {
     "web",
     "worker-media",
     "worker-workflow",
+    "youtube-browser",
 }
 assert service_names == expected_services, (
     f"Compose service allowlist mismatch: {sorted(service_names)}"

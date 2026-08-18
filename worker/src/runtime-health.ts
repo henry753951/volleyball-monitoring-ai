@@ -1,5 +1,6 @@
 import type { WorkerRole } from './worker-role.js'
 import { createServer } from 'node:http'
+import type { YoutubeAuthStatus } from './media/youtube-auth.js'
 
 export type WorkerComponentStatus = 'healthy' | 'degraded' | 'unhealthy'
 
@@ -43,9 +44,48 @@ export async function startWorkerHealthServer(options: {
   role: WorkerRole
   port: number
   snapshot: () => WorkerComponentHealth[]
+  youtubeAuth?: {
+    status: YoutubeAuthStatus
+    snapshot(): Promise<Pick<YoutubeAuthStatus, 'revision' | 'profileUpdatedAt' | 'lastReadAt'>>
+    refresh(): Promise<YoutubeAuthStatus>
+  }
+  youtubeAuthToken?: string
 }) {
   const server = createServer((request, response) => {
     response.setHeader('content-type', 'application/json; charset=utf-8')
+    const authPath =
+      request.url === '/internal/youtube-auth/status' ||
+      request.url === '/internal/youtube-auth/refresh'
+    if (authPath) {
+      const expected = options.youtubeAuthToken ?? process.env.YOUTUBE_AUTH_PROBE_TOKEN
+      if (expected && request.headers['x-youtube-auth-token'] !== expected) {
+        response.statusCode = 401
+        response.end(JSON.stringify({ error: 'unauthorized' }))
+        return
+      }
+      if (!options.youtubeAuth) {
+        response.statusCode = 503
+        response.end(JSON.stringify({ error: 'youtube_auth_unavailable' }))
+        return
+      }
+      void (async () => {
+        const value =
+          request.url === '/internal/youtube-auth/refresh'
+            ? await options.youtubeAuth!.refresh()
+            : { ...options.youtubeAuth!.status, ...(await options.youtubeAuth!.snapshot()) }
+        response.statusCode = 200
+        response.end(JSON.stringify(value))
+      })().catch(error => {
+        response.statusCode = 502
+        response.end(
+          JSON.stringify({
+            error: 'youtube_auth_probe_failed',
+            message: String(error).slice(-240),
+          }),
+        )
+      })
+      return
+    }
     if (request.url === '/health/live') {
       response.statusCode = 200
       response.end(JSON.stringify({ role: options.role, status: 'ok' }))

@@ -2,6 +2,7 @@ import { spawn, type ChildProcess } from 'node:child_process'
 import { mkdir, readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { isAbsolute, join, relative, resolve } from 'node:path'
 import type { ClaimedMediaSourceWork, SourceCompletion } from './source-work.js'
+import type { YoutubeAuthSnapshot } from './youtube-auth.js'
 
 type ProcessResult = { stderr: Buffer; stdout: Buffer }
 
@@ -11,6 +12,7 @@ export type MediaSourceProcessOptions = {
   recordingRoot: string
   workRoot: string
   youtubeCookiesFile?: string
+  youtubeCookiesFromBrowser?: string
   youtubeVodUseCookies?: boolean
   youtubeExtractorArgs: string
   youtubeFormat: string
@@ -23,6 +25,8 @@ export type MediaSourceProcessOptions = {
   ffmpegCommand?: string
   ffprobeCommand?: string
   recordingExtentSeconds?: number
+  sourceOnline?: (captureSessionId: string) => Promise<boolean>
+  youtubeAuthSnapshot?: () => Promise<YoutubeAuthSnapshot>
 }
 
 type MediaInput = {
@@ -36,6 +40,7 @@ const DEFAULT_RECORDING_EXTENT_SECONDS = 60
 const VOD_COMPLETION_MIN_TOLERANCE_US = 5_000_000n
 const YOUTUBE_PREFLIGHT_RANGE_BYTES = 64 * 1024
 const LIVE_RELAY_PROGRESS_TIMEOUT_MS = 20_000
+const RTMP_SOURCE_POLL_MS = 500
 const LOCAL_CHECKPOINT_FILE = '.source-checkpoint-v1.json'
 const LOCAL_PENDING_CHECKPOINT_FILE = '.source-checkpoint-v1.pending.json'
 
@@ -43,6 +48,7 @@ export type MediaSourceProcessObserver = {
   classified(value: Pick<SourceCompletion, 'sourceDurationUs' | 'sourceKind'>): Promise<void>
   retrying?(code: string): Promise<void>
   resumed(segmentIndex: number, captureTimeUs: bigint): Promise<void>
+  resolved?(value: YoutubeResolutionMetadata): Promise<void>
 }
 
 export class MediaSourceProcessError extends Error {
@@ -585,6 +591,7 @@ type YoutubeMetadata = {
   is_live?: boolean
   live_status?: string
   requested_formats?: Array<{
+    format_id?: string
     acodec?: string
     downloader_options?: { http_chunk_size?: number | string }
     http_headers?: Record<string, string>
@@ -595,6 +602,16 @@ type YoutubeMetadata = {
   http_headers?: Record<string, string>
   url?: string
   vcodec?: string
+  format_id?: string
+}
+
+export type YoutubeResolutionMetadata = {
+  cookieRevision: string | null
+  cookieReadAt: string | null
+  resolverStartedAt: string
+  resolverFinishedAt: string
+  playerClient: string | null
+  selectedFormatIds: string[]
 }
 
 function youtubeDuration(metadata: YoutubeMetadata): bigint | null {
@@ -624,9 +641,11 @@ function youtubeArguments(
     '--no-playlist',
     '--no-progress',
     '--no-warnings',
-    ...(includeCookies && options.youtubeCookiesFile
-      ? ['--cookies', options.youtubeCookiesFile]
-      : []),
+    ...(includeCookies && options.youtubeCookiesFromBrowser
+      ? ['--cookies-from-browser', options.youtubeCookiesFromBrowser]
+      : includeCookies && options.youtubeCookiesFile
+        ? ['--cookies', options.youtubeCookiesFile]
+        : []),
     '--extractor-args',
     extractorArgs,
     ...(options.youtubePotProviderUrl
@@ -686,6 +705,35 @@ async function probeYoutube(
     signal,
   )
   return JSON.parse(result.stdout.toString('utf8')) as YoutubeMetadata
+}
+
+function youtubePlayerClient(extractorArgs: string): string | null {
+  const match = extractorArgs.match(/(?:^|,)player_client=([^,]+)/)
+  return match?.[1] ?? null
+}
+
+async function notifyYoutubeResolution(
+  observer: MediaSourceProcessObserver,
+  options: MediaSourceProcessOptions,
+  metadata: YoutubeMetadata,
+  extractorArgs: string,
+  startedAt: string,
+): Promise<void> {
+  if (!observer.resolved) return
+  const snapshot = await options.youtubeAuthSnapshot?.()
+  const formats =
+    metadata.requested_formats
+      ?.map(value => value.format_id)
+      .filter((value): value is string => Boolean(value)) ??
+    (metadata.format_id ? [metadata.format_id] : [])
+  await observer.resolved({
+    cookieRevision: snapshot?.revision ?? null,
+    cookieReadAt: snapshot?.lastReadAt ?? null,
+    resolverStartedAt: startedAt,
+    resolverFinishedAt: new Date().toISOString(),
+    playerClient: youtubePlayerClient(extractorArgs),
+    selectedFormatIds: formats,
+  })
 }
 
 function youtubeVideoCodec(metadata: YoutubeMetadata): string {
@@ -790,6 +838,42 @@ async function stableRecordingCount(root: string, signal: AbortSignal): Promise<
   )
 }
 
+async function waitForRtmpRecording(
+  work: ClaimedMediaSourceWork,
+  options: MediaSourceProcessOptions,
+  observer: MediaSourceProcessObserver,
+  signal: AbortSignal,
+): Promise<SourceCompletion> {
+  const directory = safeChild(options.recordingRoot, work.ingestPath)
+  await mkdir(directory, { recursive: true })
+  let sawSource = false
+  let classified = false
+  while (!signal.aborted) {
+    const recordingCount = await countMediaSourceRecordings(options.recordingRoot, work.ingestPath)
+    const hasOnlineProbe = Boolean(options.sourceOnline)
+    const online = options.sourceOnline
+      ? await options.sourceOnline(work.captureSessionId)
+      : recordingCount > 0
+    if (online || (!hasOnlineProbe && recordingCount > 0)) {
+      sawSource = true
+      if (!classified) {
+        await observer.classified({ sourceDurationUs: null, sourceKind: 'rtmp' })
+        classified = true
+      }
+    }
+    if (sawSource && !online) {
+      const expectedSegments = await stableRecordingCount(directory, signal)
+      return { expectedSegments, sourceDurationUs: null, sourceKind: 'rtmp' }
+    }
+    await new Promise(resolvePromise => setTimeout(resolvePromise, RTMP_SOURCE_POLL_MS))
+  }
+  return {
+    expectedSegments: await countMediaSourceRecordings(options.recordingRoot, work.ingestPath),
+    sourceDurationUs: null,
+    sourceKind: 'rtmp',
+  }
+}
+
 export async function countMediaSourceRecordings(
   recordingRoot: string,
   ingestPath: string,
@@ -847,18 +931,34 @@ export function createMediaSourceProcess(options: MediaSourceProcessOptions) {
       }
     }
 
+    if (work.sourceKind === 'rtmp') return waitForRtmpRecording(work, options, observer, signal)
+
     if (!work.sourceUrl)
       throw new MediaSourceProcessError(
         'SOURCE_URL_MISSING',
         'YouTube media work has no source URL',
       )
-    let metadata = await probeYoutube(work.sourceUrl, options, signal)
+    const resolveYoutube = async (resolveFormat: 'live' | 'vod') => {
+      const resolverStartedAt = new Date().toISOString()
+      const metadata = await probeYoutube(work.sourceUrl!, options, signal, resolveFormat)
+      await notifyYoutubeResolution(
+        observer,
+        options,
+        metadata,
+        resolveFormat === 'vod'
+          ? (options.youtubeVodExtractorArgs ?? options.youtubeExtractorArgs)
+          : (options.youtubeLiveExtractorArgs ?? options.youtubeExtractorArgs),
+        resolverStartedAt,
+      )
+      return metadata
+    }
+    let metadata = await resolveYoutube('live')
     let durationUs = youtubeDuration(metadata)
     if (classifyYoutubeSource(metadata) === 'youtube_vod') {
       // Resolve fresh progressive URLs for every attempt and segment those
       // inputs directly. Finalized fMP4 files become visible while the source
       // is still downloading; retry seeks from the persisted checkpoint.
-      metadata = await probeYoutube(work.sourceUrl, options, signal, 'vod')
+      metadata = await resolveYoutube('vod')
       durationUs ??= youtubeDuration(metadata)
       await observer.classified({ sourceDurationUs: durationUs, sourceKind: 'youtube_vod' })
       const inputs = await Promise.all(
@@ -956,7 +1056,7 @@ export function createMediaSourceProcess(options: MediaSourceProcessOptions) {
         }
         await new Promise(resolvePromise => setTimeout(resolvePromise, 1_000))
       }
-      if (!signal.aborted) metadata = await probeYoutube(work.sourceUrl, options, signal)
+      if (!signal.aborted) metadata = await resolveYoutube('live')
     }
     const directory = safeChild(options.recordingRoot, work.ingestPath)
     const count = await stableRecordingCount(directory, signal)

@@ -33,11 +33,27 @@ const MediaIndexerEnvironment = z.object({
     value => (typeof value === 'string' && value.trim() === '' ? undefined : value),
     z.string().trim().min(1).optional(),
   ),
+  YOUTUBE_COOKIES_FROM_BROWSER: z.preprocess(
+    value => (typeof value === 'string' && value.trim() === '' ? undefined : value),
+    z.string().trim().min(1).optional(),
+  ),
   YOUTUBE_EXTRACTOR_ARGS: z.string().min(1).default('youtube:player_client=mweb'),
   YOUTUBE_FORMAT: z.string().min(1).default(YOUTUBE_PROBE_FORMAT),
   YOUTUBE_LIVE_EXTRACTOR_ARGS: z.string().min(1).default('youtube:player_client=mweb'),
   YOUTUBE_LIVE_MAX_CONSECUTIVE_FAILURES: z.coerce.number().int().min(1).max(100).default(5),
   YOUTUBE_POT_PROVIDER_URL: z.preprocess(
+    value => (typeof value === 'string' && value.trim() === '' ? undefined : value),
+    z.string().url().optional(),
+  ),
+  YOUTUBE_BROWSER_HEALTH_URL: z.preprocess(
+    value => (typeof value === 'string' && value.trim() === '' ? undefined : value),
+    z.string().url().optional(),
+  ),
+  YOUTUBE_AUTH_STATUS_FILE: z.preprocess(
+    value => (typeof value === 'string' && value.trim() === '' ? undefined : value),
+    z.string().trim().min(1).optional(),
+  ),
+  YOUTUBE_AUTH_TEST_URL: z.preprocess(
     value => (typeof value === 'string' && value.trim() === '' ? undefined : value),
     z.string().url().optional(),
   ),

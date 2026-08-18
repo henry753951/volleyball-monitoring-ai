@@ -24,6 +24,39 @@ services:
     logging: *default-logging
     restart: unless-stopped
 
+  youtube-browser:
+    profiles: [app]
+    image: lscr.io/linuxserver/chromium:latest
+    environment:
+      PUID: 1000
+      PGID: 1000
+      TZ: Asia/Taipei
+      SUBFOLDER: /youtube-browser/
+      CHROME_CLI: https://www.youtube.com/
+    shm_size: 1gb
+    expose: ['3000', '3001']
+    volumes:
+      - youtube-browser-config:/config
+    depends_on:
+      server: { condition: service_healthy }
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=volleyball-edge
+      - traefik.http.routers.youtube-browser.rule=PathPrefix(`/youtube-browser/`)
+      - traefik.http.routers.youtube-browser.entrypoints=websecure
+      - traefik.http.routers.youtube-browser.tls=true
+      - traefik.http.routers.youtube-browser.priority=180
+      - traefik.http.routers.youtube-browser.middlewares=youtube-browser-auth
+      - traefik.http.middlewares.youtube-browser-auth.forwardauth.address=http://server:4000/api/v1/auth/forward-auth
+      - traefik.http.middlewares.youtube-browser-auth.forwardauth.trustForwardHeader=false
+      - traefik.http.services.youtube-browser.loadbalancer.server.port=3001
+      - traefik.http.services.youtube-browser.loadbalancer.server.scheme=https
+      - traefik.http.services.youtube-browser.loadbalancer.serversTransport=youtube-browser-tls@docker
+      - traefik.http.serversTransports.youtube-browser-tls.insecureSkipVerify=true
+    networks: [internal, edge]
+    logging: *default-logging
+    restart: unless-stopped
+
   traefik:
     image: traefik:v3.7.9
     command: ['--configFile=/etc/traefik/traefik.yml']
@@ -150,6 +183,7 @@ services:
       MEDIA_HOT_ROOT: /var/lib/volleyball/media-hot
       MEDIA_RECORDING_ROOT: /recordings
       OME_API_ACCESS_TOKEN: ${OME_API_ACCESS_TOKEN:?OME_API_ACCESS_TOKEN is required}
+      OME_RTMP_PUBLIC_URL: ${OME_RTMP_PUBLIC_URL:-rtmp://rtmp-volley-ai.hsulab.net:2035/app}
       OME_API_URL: http://ovenmediaengine:8081
     volumes:
       - ${MEDIA_IMPORT_HOST_PATH:-${DEV_DATA_ROOT:-../.data/runtime}/media-imports}:/var/lib/volleyball/media-imports
@@ -225,6 +259,12 @@ services:
       OME_API_URL: http://ovenmediaengine:8081
       OME_LLHLS_URL: http://ovenmediaengine:3333
       YOUTUBE_COOKIES_FILE: ${YOUTUBE_COOKIES_FILE:-}
+      YOUTUBE_COOKIES_FROM_BROWSER: ${YOUTUBE_COOKIES_FROM_BROWSER:-chromium+basictext:/var/lib/youtube-browser/.config/chromium/}
+      YOUTUBE_BROWSER_HEALTH_URL: ${YOUTUBE_BROWSER_HEALTH_URL:-http://youtube-browser:3000/}
+      YOUTUBE_AUTH_STATUS_FILE: ${YOUTUBE_AUTH_STATUS_FILE:-/var/lib/volleyball/media-spool/.youtube-auth-status.json}
+      YOUTUBE_AUTH_TEST_URL: ${YOUTUBE_AUTH_TEST_URL:-}
+      YOUTUBE_AUTH_PROBE_TOKEN: ${YOUTUBE_AUTH_PROBE_TOKEN:-}
+      YOUTUBE_AUTH_WORKER_URL: http://worker-media:4101
       YOUTUBE_FORMAT: ${YOUTUBE_FORMAT:-best[protocol*=m3u8][height=1080][fps>=59][fps<=61][vcodec^=avc][acodec!=none]/bestvideo[height=1080][fps>=59][fps<=61][vcodec^=avc]+bestaudio[acodec^=mp4a]/bestvideo[height=1080][vcodec^=avc]+bestaudio[acodec^=mp4a]/best[height=1080][vcodec^=avc][acodec!=none]/best[protocol*=m3u8][height<=1080][vcodec^=avc][acodec!=none]/bestvideo[height<=1080][vcodec^=avc]+bestaudio[acodec^=mp4a]/best[height<=1080][vcodec^=avc][acodec!=none]}
       YOUTUBE_EXTRACTOR_ARGS: ${YOUTUBE_EXTRACTOR_ARGS:-youtube:player_client=mweb}
       YOUTUBE_LIVE_EXTRACTOR_ARGS: ${YOUTUBE_LIVE_EXTRACTOR_ARGS:-youtube:player_client=mweb}
@@ -237,8 +277,10 @@ services:
       - ${MEDIA_HOT_HOST_PATH:-${DEV_DATA_ROOT:-../.data/runtime}/media-hot}:/var/lib/volleyball/media-hot
       - ${MEDIA_SPOOL_HOST_PATH:-${DEV_DATA_ROOT:-../.data/runtime}/media-spool}:/var/lib/volleyball/media-spool
       - ${RUNTIME_SECRETS_HOST_PATH:-${DEV_DATA_ROOT:-../.data/runtime}/secrets}:/run/secrets:ro
+      - youtube-browser-config:/var/lib/youtube-browser:ro
     depends_on:
       bgutil-provider: { condition: service_started }
+      youtube-browser: { condition: service_started }
       postgres: { condition: service_healthy }
       redis: { condition: service_healthy }
       minio: { condition: service_healthy }
@@ -310,3 +352,4 @@ volumes:
   redis-data: {}
   ome-dvr: {}
   ome-logs: {}
+  youtube-browser-config: {}

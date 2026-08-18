@@ -2,7 +2,7 @@ import type { PrismaClient } from '@volleyball-monitoring/db'
 
 export type MediaSourceWorkRequest = {
   captureSessionId: string
-  sourceKind: 'youtube' | 'local_mp4'
+  sourceKind: 'youtube' | 'local_mp4' | 'rtmp'
   sourceUrl?: string
   importKey?: string
 }

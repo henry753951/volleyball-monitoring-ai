@@ -12,6 +12,8 @@
       </p>
     </div>
 
+    <YoutubeAuthCard />
+
     <div class="rounded-2xl border border-stone-200 bg-white p-5 shadow-sm">
       <h2 class="font-semibold">連線狀態</h2>
       <p class="mt-2 text-sm text-stone-600">

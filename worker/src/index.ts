@@ -24,6 +24,7 @@ try {
           role: validatedRole,
           port: Number(process.env.WORKER_HEALTH_PORT ?? 4101),
           snapshot: () => composition.healthSnapshot(),
+          youtubeAuth: composition.youtubeAuth,
         })
       },
       stop: async () => {

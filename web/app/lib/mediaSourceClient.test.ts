@@ -41,6 +41,32 @@ describe('match media source client', () => {
     expect(body.get('match_id')).toBe('match-2')
   })
 
+  it('creates an RTMP source with JSON and returns its credentials', async () => {
+    const fetcher = vi.fn<typeof fetch>(
+      async () =>
+        new Response(
+          JSON.stringify({
+            rtmp: {
+              publish_url: 'rtmp://encoder/app/key',
+              rtmp_url: 'rtmp://encoder/app',
+              stream_key: 'key',
+            },
+          }),
+          { status: 202 },
+        ),
+    )
+    const response = await createMediaSourceClient({ fetcher }).create('match-rtmp', {
+      kind: 'rtmp',
+      label: '場館攝影機',
+    })
+    expect(response?.rtmp?.stream_key).toBe('key')
+    expect(fetcher.mock.calls[0]?.[0]).toBe('/api/v1/media-sources/rtmp')
+    expect(JSON.parse(String(fetcher.mock.calls[0]?.[1]?.body))).toEqual({
+      match_id: 'match-rtmp',
+      source_label: '場館攝影機',
+    })
+  })
+
   it('does not issue a request when setup is deferred', async () => {
     const fetcher = vi.fn<typeof fetch>()
     await expect(

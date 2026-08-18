@@ -90,7 +90,7 @@ watch(
           <strong>{{ matchTitle || (hasMatchContext ? '場次' : '教練檢視') }}</strong>
         </div>
         <div class="coach-toolbar__actions">
-          <WsPingBadge /><a
+          <WsPingBadge /><AuthSessionButton /><a
             v-if="!hasMatchContext"
             href="/control"
             target="_blank"

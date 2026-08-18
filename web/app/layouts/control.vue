@@ -67,6 +67,7 @@ const activeView = computed(() => {
 
       <div class="control-rail__footer">
         <span class="control-environment"><i />本機工作環境</span>
+        <AuthSessionButton />
         <NuxtLink to="/" target="_blank"
           ><Home :size="15" /><span>教練端</span><ExternalLink :size="12"
         /></NuxtLink>
