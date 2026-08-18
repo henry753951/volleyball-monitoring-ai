@@ -66,6 +66,7 @@ export interface KeyPointEditingServiceOptions {
  */
 export function createKeyPointEditingService(options: KeyPointEditingServiceOptions) {
   const optimisticMoves = shallowRef<Record<string, string>>({})
+  const optimisticFrameIndices = shallowRef<Record<string, string>>({})
   const pendingMove = shallowRef<{
     keyPointId: string
     playbackWindowId: string | null
@@ -73,6 +74,10 @@ export function createKeyPointEditingService(options: KeyPointEditingServiceOpti
   const timeoutMs = options.timeoutMs ?? 8_000
   let moveTimeout: ReturnType<typeof setTimeout> | null = null
   let nudgeTargetId: string | null = null
+  // A nudge may be split into multiple frameStep requests while the previous
+  // request is still resolving. Keep the last resolved frame as the next
+  // request's base instead of rereading the stale authoritative snapshot.
+  let nudgeRequestFrameIndex: bigint | null = null
 
   function notifyError(cause: unknown, fallback: string) {
     options.feedback.notify({
@@ -86,8 +91,14 @@ export function createKeyPointEditingService(options: KeyPointEditingServiceOpti
     const projected = structuredClone(source)
     projected.snapshot.key_points = projected.snapshot.key_points.map(point => {
       const captureTimeUs = optimisticMoves.value[point.key_point_id]
-      return captureTimeUs
-        ? { ...point, capture_time_us: captureTimeUs, timing_precision: 'estimated' as const }
+      const captureFrameIndex = optimisticFrameIndices.value[point.key_point_id]
+      return captureTimeUs || captureFrameIndex
+        ? {
+            ...point,
+            ...(captureTimeUs ? { capture_time_us: captureTimeUs } : {}),
+            ...(captureFrameIndex ? { capture_frame_index: captureFrameIndex } : {}),
+            timing_precision: 'estimated' as const,
+          }
         : point
     })
     return projected
@@ -101,6 +112,9 @@ export function createKeyPointEditingService(options: KeyPointEditingServiceOpti
     const next = { ...optimisticMoves.value }
     Reflect.deleteProperty(next, keyPointId)
     optimisticMoves.value = next
+    const nextFrameIndices = { ...optimisticFrameIndices.value }
+    Reflect.deleteProperty(nextFrameIndices, keyPointId)
+    optimisticFrameIndices.value = nextFrameIndices
   }
 
   function releaseEditingIntent() {
@@ -275,9 +289,16 @@ export function createKeyPointEditingService(options: KeyPointEditingServiceOpti
     const previewUs =
       BigInt(optimisticMoves.value[nudgeTargetId] ?? point.capture_time_us) +
       BigInt(delta) * estimatedFrameUs
-    if (previewUs < 0n) return
+    const previewFrameIndex =
+      BigInt(optimisticFrameIndices.value[nudgeTargetId] ?? point.capture_frame_index) +
+      BigInt(delta)
+    if (previewUs < 0n || previewFrameIndex < 0n) return
     const captureTimeUs = previewUs.toString()
     preview(nudgeTargetId, captureTimeUs)
+    optimisticFrameIndices.value = {
+      ...optimisticFrameIndices.value,
+      [nudgeTargetId]: previewFrameIndex.toString(),
+    }
     const descriptor = options.descriptor()
     const video = options.video()
     if (
@@ -316,15 +337,17 @@ export function createKeyPointEditingService(options: KeyPointEditingServiceOpti
       })
     }
     if (!descriptor) throw new Error('無法建立擊球點微調視窗')
+    const requestFrameIndex = nudgeRequestFrameIndex ?? BigInt(point.capture_frame_index)
     const frame = await options.media.frameStep({
       schema_version: '1.1.0',
       capture_session_id: capture.id,
       playback_window_id: descriptor.playback_window_id,
       mapping_version: descriptor.mapping_version,
-      capture_frame_index: point.capture_frame_index,
+      capture_frame_index: requestFrameIndex.toString(),
       direction,
       count,
     })
+    nudgeRequestFrameIndex = BigInt(frame.capture_frame_index)
     const cursor: PlaybackCursorInput = {
       schema_version: '1.0.0',
       playback_window_id: frame.playback_window_id,
@@ -362,6 +385,7 @@ export function createKeyPointEditingService(options: KeyPointEditingServiceOpti
     onSettled: () => {
       if (nudgeTargetId) clearPreview(nudgeTargetId)
       nudgeTargetId = null
+      nudgeRequestFrameIndex = null
       releaseEditingIntent()
       options.clearGestureOwner()
     },
@@ -391,6 +415,7 @@ export function createKeyPointEditingService(options: KeyPointEditingServiceOpti
       return
     if (nudgeTargetId && nudgeTargetId !== point.key_point_id) return
     nudgeTargetId = point.key_point_id
+    if (nudgeRequestFrameIndex === null) nudgeRequestFrameIndex = BigInt(point.capture_frame_index)
     options.room.setEditingKeyPoint(point.key_point_id)
     navigation.enqueue(direction, count, input)
   }

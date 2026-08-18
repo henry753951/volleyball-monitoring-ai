@@ -23,13 +23,25 @@ function snapshot() {
 function setup() {
   const roomSnapshot = shallowRef(snapshot())
   const edit = vi.fn().mockResolvedValue(undefined)
-  const frameStep = vi.fn().mockResolvedValue({
-    playback_window_id: 'window-1',
-    mapping_version: 1,
-    player_media_time_us: '1040000',
-    capture_time_us: '1040000',
-    capture_frame_index: '26',
-  })
+  const frameStep = vi
+    .fn()
+    .mockImplementation(
+      async (request: {
+        capture_frame_index: string
+        direction: 'previous' | 'next'
+        count: number
+      }) => {
+        const base = Number(request.capture_frame_index)
+        const target = base + (request.direction === 'next' ? request.count : -request.count)
+        return {
+          playback_window_id: 'window-1',
+          mapping_version: 1,
+          player_media_time_us: String(target * 40_000),
+          capture_time_us: String(target * 40_000),
+          capture_frame_index: String(target),
+        }
+      },
+    )
   const resolve = vi.fn().mockResolvedValue({ capture_time_us: '1040000' })
   const room = {
     snapshot: roomSnapshot,
@@ -186,5 +198,40 @@ describe('key-point editing service', () => {
     service.navigation.release('next')
     await vi.runAllTimersAsync()
     service.dispose()
+  })
+
+  it('uses the last resolved frame as the base for a queued rapid nudge', async () => {
+    vi.useFakeTimers()
+    const context = setup()
+    let resolveFirst!: (value: unknown) => void
+    const firstStep = new Promise(resolve => {
+      resolveFirst = resolve
+    })
+    context.frameStep.mockImplementationOnce(() => firstStep)
+
+    context.service.nudge('next', 1, 'keyboard')
+    await vi.advanceTimersByTimeAsync(80)
+    expect(context.frameStep).toHaveBeenCalledWith(
+      expect.objectContaining({ capture_frame_index: '25', count: 1 }),
+    )
+
+    context.service.navigation.release('next')
+    context.service.nudge('next', 1, 'keyboard')
+    context.service.navigation.release('next')
+    resolveFirst({
+      playback_window_id: 'window-1',
+      mapping_version: 1,
+      player_media_time_us: '1040000',
+      capture_time_us: '1040000',
+      capture_frame_index: '26',
+    })
+    await vi.advanceTimersByTimeAsync(0)
+    await vi.runAllTimersAsync()
+
+    expect(context.frameStep).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({ capture_frame_index: '26', count: 1 }),
+    )
+    context.service.dispose()
   })
 })
