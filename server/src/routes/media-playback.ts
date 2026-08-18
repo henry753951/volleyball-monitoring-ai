@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto'
+import type { Readable } from 'node:stream'
 import {
   parsePlaybackWindowExtendRequest,
   parsePlaybackWindowRequest,
@@ -944,16 +945,6 @@ export const mediaPlaybackRoutes =
           const responseLength = range
             ? range.endExclusive - range.start
             : asset.byteLength
-          if (range) {
-            reply
-              .code(206)
-              .header(
-                'content-range',
-                `bytes ${range.start}-${range.endExclusive - 1n}/${asset.byteLength}`,
-              )
-          }
-          reply.header('content-length', responseLength.toString()).type(asset.contentType)
-
           const readRequest = {
             bucket: asset.bucket,
             expectedByteLength: asset.byteLength,
@@ -963,23 +954,34 @@ export const mediaPlaybackRoutes =
             expectedSha256: asset.sha256,
             key: asset.objectKey,
           }
+          let responseBody: Readable | Uint8Array
           try {
             if (deps.objectStreamReader) {
-              return reply.send(await deps.objectStreamReader(readRequest, range))
+              responseBody = await deps.objectStreamReader(readRequest, range)
+            } else {
+              if (!deps.objectReader) {
+                throw new MediaHttpError(409, 'MEDIA_NOT_READY', 'Media object reader unavailable')
+              }
+              const bytes = sharedBuffer(await deps.objectReader(readRequest))
+              responseBody =
+                range === undefined
+                  ? bytes
+                  : bytes.subarray(Number(range.start), Number(range.endExclusive))
             }
-            if (!deps.objectReader) {
-              throw new MediaHttpError(409, 'MEDIA_NOT_READY', 'Media object reader unavailable')
-            }
-            const bytes = sharedBuffer(await deps.objectReader(readRequest))
-            const payload =
-              range === undefined
-                ? bytes
-                : bytes.subarray(Number(range.start), Number(range.endExclusive))
-            return reply.send(payload)
           } catch (error) {
             if (error instanceof MediaHttpError) throw error
             throw new MediaHttpError(409, 'MEDIA_NOT_READY', 'Media object is unavailable')
           }
+          if (range) {
+            reply
+              .code(206)
+              .header(
+                'content-range',
+                `bytes ${range.start}-${range.endExclusive - 1n}/${asset.byteLength}`,
+              )
+          }
+          reply.header('content-length', responseLength.toString()).type(asset.contentType)
+          return reply.send(responseBody)
         } catch (error) {
           return sendMediaError(request, reply, error)
         }
