@@ -1,5 +1,23 @@
 # Changelog
 
+## [1.7.0](https://github.com/henry753951/volleyball-monitoring-ai/compare/v1.6.0...v1.7.0) (2026-08-18)
+
+
+### Features
+
+* **control:** add YouTube auth and media recovery actions ([f13af31](https://github.com/henry753951/volleyball-monitoring-ai/commit/f13af31c6dc4d629908cf32142bc39a90704f020))
+
+
+### Bug Fixes
+
+* **auth:** make logout reset the browser session ([e7e41ef](https://github.com/henry753951/volleyball-monitoring-ai/commit/e7e41ef1343edb6ac68af393ccef7ee3b94c7050))
+* **auth:** restore logout and expose media recovery controls ([8c3421f](https://github.com/henry753951/volleyball-monitoring-ai/commit/8c3421fb32ccf9d843d0f1a9537f200476eaa651))
+
+
+### Maintenance
+
+* refresh checksums ([4278374](https://github.com/henry753951/volleyball-monitoring-ai/commit/42783741336a371c13741ec9e5275b8e6a443239))
+
 ## [1.6.0](https://github.com/henry753951/volleyball-monitoring-ai/compare/v1.5.3...v1.6.0) (2026-08-18)
 
 
