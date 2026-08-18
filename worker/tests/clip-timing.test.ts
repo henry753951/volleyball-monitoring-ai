@@ -81,6 +81,44 @@ describe('canonical clip timing', () => {
     ).toThrow('has no exact source sample')
   })
 
+  it('resolves an estimated live observation to the finalized recording sample by canonical frame', () => {
+    const source = segment([33_000n, 34_000n, 33_000n])
+    const selected = selectCanonicalClipRange([source], 0n, source.captureEndUs, [
+      {
+        id: 'estimated-live-point',
+        captureEpochId: 'provisional-or-legacy-epoch',
+        sourcePts: 33_333n,
+        captureTimeUs: 33_333n,
+        captureFrameIndex: 1n,
+        timingPrecision: 'ESTIMATED',
+      },
+    ])
+
+    expect(selected.keyPointOrdinals.get('estimated-live-point')).toBe(1)
+    expect(selected.resolvedKeyPointSamples.get('estimated-live-point')).toMatchObject({
+      captureEpochId: source.captureEpochId,
+      sourcePts: 33_000n,
+      captureTimeUs: 33_000n,
+      captureFrameIndex: 1n,
+    })
+  })
+
+  it('rejects an estimated frame whose canonical timestamp is more than one sample away', () => {
+    const source = segment([33_000n, 34_000n])
+    expect(() =>
+      selectCanonicalClipRange([source], 0n, source.captureEndUs, [
+        {
+          id: 'bad-estimated-point',
+          captureEpochId: 'provisional-epoch',
+          sourcePts: 0n,
+          captureTimeUs: 100_000n,
+          captureFrameIndex: 1n,
+          timingPrecision: 'ESTIMATED',
+        },
+      ]),
+    ).toThrow('has no exact source sample')
+  })
+
   it('includes an immutable end boundary at the exact requested end with zero post-roll', () => {
     const source = segment([33_366n, 33_367n, 33_366n])
     const endBoundary = source.index.samples[2]!

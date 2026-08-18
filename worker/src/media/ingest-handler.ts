@@ -206,6 +206,11 @@ export async function ingestEnvelope(
       ? {}
       : { explicitGapBeforeUs: BigInt(envelope.explicitGapBeforeUs) }),
     artifacts: reservations,
+    extent: {
+      sourceJobId: envelope.epochCandidateId,
+      localPath: recording.sourceIdentity,
+      finalizedAt: new Date(Number(recording.mtimeNs / 1_000_000n)),
+    },
   }
   const reservation = await deps.repository.reserveUploading(reservationInput)
   const authoritative = buildArtifactPlan(deps.bucket, recording, source, reservation.sampleIndex)
@@ -226,5 +231,6 @@ export async function ingestEnvelope(
   await deps.repository.publishReady({
     reservation: reservation.reference,
     verifiedArtifacts: expected,
+    extent: reservationInput.extent!,
   })
 }

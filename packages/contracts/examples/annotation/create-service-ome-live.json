@@ -1,0 +1,21 @@
+{
+  "schema_version": "2.0.0",
+  "command_id": "82000000-0000-4000-8000-000000000001",
+  "room_id": "match:82000000-0000-4000-8000-000000000002:capture:81000000-0000-4000-8000-000000000003",
+  "base_revision": "0",
+  "rally_id": "82000000-0000-4000-8000-000000000004",
+  "kind": "CREATE_SERVICE_KEY_POINT",
+  "payload": {
+    "playback_cursor": {
+      "media_backend": "ome_llhls",
+      "capture_session_id": "81000000-0000-4000-8000-000000000003",
+      "presentation_anchor_sequence": 7,
+      "program_date_time": "2026-08-18T07:21:24.957Z",
+      "player_media_time_us": "20000000",
+      "observation_source": "current_time_fallback",
+      "presented_frames": null,
+      "seek_generation": 1,
+      "cursor_status": "ready"
+    }
+  }
+}

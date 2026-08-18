@@ -121,7 +121,46 @@ async function querySegments(database: PrismaClient, segmentIds: readonly string
   })
 }
 
+async function queryExtents(database: PrismaClient, extentIds: readonly string[]) {
+  return database.mediaExtent.findMany({
+    select: {
+      captureEpoch: {
+        select: {
+          captureFrameOrigin: true,
+          captureSessionId: true,
+          captureTimeOriginUs: true,
+          endedAtCaptureUs: true,
+          id: true,
+          sequenceIndex: true,
+          sourcePtsOrigin: true,
+          sourceTimeBaseDen: true,
+          sourceTimeBaseNum: true,
+          startedAtCaptureUs: true,
+        },
+      },
+      captureEpochId: true,
+      captureSessionId: true,
+      dvrProgramId: true,
+      endUs: true,
+      firstFrameIndex: true,
+      frameCount: true,
+      id: true,
+      sampleIndexBucket: true,
+      sampleIndexBytes: true,
+      sampleIndexObjectKey: true,
+      sampleIndexSchemaVersion: true,
+      sampleIndexSha256: true,
+      sourcePtsEnd: true,
+      sourcePtsStart: true,
+      startUs: true,
+      status: true,
+    },
+    where: { id: { in: [...extentIds] } },
+  })
+}
+
 type SegmentRow = Awaited<ReturnType<typeof querySegments>>[number]
+type ExtentRow = Awaited<ReturnType<typeof queryExtents>>[number]
 
 function orderedRows(rows: readonly SegmentRow[], segmentIds: readonly string[]): SegmentRow[] {
   const rowsById = new Map<string, SegmentRow>()
@@ -315,6 +354,137 @@ function validateResolvedSegmentSet(segments: readonly IndexedSegment[]): void {
   }
 }
 
+function orderedExtentRows(rows: readonly ExtentRow[], extentIds: readonly string[]): ExtentRow[] {
+  const rowsById = new Map(rows.map(row => [row.id, row]))
+  if (rowsById.size !== rows.length || rowsById.size !== extentIds.length) {
+    repositoryFailure('SEGMENT_NOT_FOUND', 'A requested sample index extent was not found')
+  }
+  return extentIds.map(extentId => {
+    const row = rowsById.get(extentId)
+    if (!row)
+      repositoryFailure('SEGMENT_NOT_FOUND', 'A requested sample index extent was not found')
+    return row
+  })
+}
+
+function validateExtentRow(row: ExtentRow): void {
+  if (
+    row.status !== 'ARCHIVE_VERIFIED' ||
+    row.captureEpoch === null ||
+    row.captureEpochId === null ||
+    row.captureEpochId !== row.captureEpoch.id ||
+    row.captureEpoch.captureSessionId !== row.captureSessionId ||
+    row.captureEpoch.sourceTimeBaseNum <= 0 ||
+    row.captureEpoch.sourceTimeBaseDen <= 0 ||
+    row.captureEpoch.startedAtCaptureUs !== row.captureEpoch.captureTimeOriginUs ||
+    row.startUs < row.captureEpoch.startedAtCaptureUs ||
+    (row.captureEpoch.endedAtCaptureUs !== null && row.endUs > row.captureEpoch.endedAtCaptureUs) ||
+    row.startUs < 0n ||
+    row.endUs <= row.startUs ||
+    row.sourcePtsStart === null ||
+    row.sourcePtsEnd === null ||
+    row.sourcePtsEnd <= row.sourcePtsStart ||
+    row.firstFrameIndex === null ||
+    row.frameCount === null ||
+    row.frameCount <= 0n
+  ) {
+    repositoryFailure('INVALID_SEGMENT_METADATA', 'Persisted sample index extent is invalid')
+  }
+}
+
+function extentSampleIndexReadRequest(row: ExtentRow): MediaObjectReadRequest {
+  if (
+    row.sampleIndexBucket === null ||
+    row.sampleIndexBucket.length === 0 ||
+    row.sampleIndexBucket.trim() !== row.sampleIndexBucket ||
+    row.sampleIndexObjectKey === null ||
+    row.sampleIndexObjectKey.length === 0 ||
+    row.sampleIndexObjectKey.trim() !== row.sampleIndexObjectKey ||
+    row.sampleIndexBytes === null ||
+    row.sampleIndexBytes <= 0n ||
+    !validSha256(row.sampleIndexSha256) ||
+    row.sampleIndexSchemaVersion !== MEDIA_INTERNAL_SCHEMA_VERSION
+  ) {
+    repositoryFailure('SAMPLE_INDEX_ASSET_NOT_READY', 'An extent sample index is not ready')
+  }
+  return {
+    bucket: row.sampleIndexBucket,
+    expectedByteLength: row.sampleIndexBytes,
+    expectedContentType: JSON_CONTENT_TYPE,
+    expectedInternalSchemaVersion: MEDIA_INTERNAL_SCHEMA_VERSION,
+    expectedKind: 'SAMPLE_INDEX',
+    expectedSha256: row.sampleIndexSha256,
+    key: row.sampleIndexObjectKey,
+  }
+}
+
+function parseExtentDocument(row: ExtentRow, document: unknown): SampleIndex {
+  if (!row.captureEpoch)
+    repositoryFailure('INVALID_SEGMENT_METADATA', 'Extent epoch is unavailable')
+  try {
+    return parseSampleIndexDocument(document, {
+      captureFrameOrigin: row.captureEpoch.captureFrameOrigin,
+      captureTimeOriginUs: row.captureEpoch.captureTimeOriginUs,
+      epochId: row.captureEpoch.id,
+      sourcePtsOrigin: row.captureEpoch.sourcePtsOrigin,
+      timeBase: {
+        den: BigInt(row.captureEpoch.sourceTimeBaseDen),
+        num: BigInt(row.captureEpoch.sourceTimeBaseNum),
+      },
+    })
+  } catch {
+    repositoryFailure('INVALID_DOCUMENT', 'Extent sample index document is invalid')
+  }
+}
+
+function validateIndexAgainstExtent(row: ExtentRow, index: SampleIndex): void {
+  const first = index.samples[0]!
+  const last = index.samples.at(-1)!
+  if (
+    row.sourcePtsStart === null ||
+    row.sourcePtsEnd === null ||
+    row.firstFrameIndex === null ||
+    row.frameCount === null ||
+    index.availableStartUs !== row.startUs ||
+    index.availableEndUs !== row.endUs ||
+    BigInt(index.samples.length) !== row.frameCount ||
+    first.captureFrameIndex !== row.firstFrameIndex ||
+    first.sourcePts !== row.sourcePtsStart ||
+    last.sourcePts + last.durationPts !== row.sourcePtsEnd
+  ) {
+    repositoryFailure(
+      'SEGMENT_INDEX_MISMATCH',
+      'Sample index does not match persisted extent metadata',
+    )
+  }
+}
+
+function validateOrderedExtents(rows: readonly ExtentRow[]): void {
+  const first = rows[0]!
+  const locations = new Set<string>()
+  let previous: ExtentRow | undefined
+  for (const row of rows) {
+    validateExtentRow(row)
+    if (row.dvrProgramId !== first.dvrProgramId) {
+      repositoryFailure('INVALID_SEGMENT_SET', 'Sample index extents cross a media boundary')
+    }
+    const location = `${row.sampleIndexBucket ?? ''}\0${row.sampleIndexObjectKey ?? ''}`
+    if (locations.has(location)) {
+      repositoryFailure('INVALID_SEGMENT_METADATA', 'Persisted extent sample index is duplicated')
+    }
+    locations.add(location)
+    if (
+      previous &&
+      (row.startUs !== previous.endUs ||
+        row.captureEpoch!.sequenceIndex < previous.captureEpoch!.sequenceIndex ||
+        row.captureEpoch!.sequenceIndex > previous.captureEpoch!.sequenceIndex + 1)
+    ) {
+      repositoryFailure('INVALID_SEGMENT_SET', 'Sample index extents are not contiguous')
+    }
+    previous = row
+  }
+}
+
 export class SampleIndexRepository {
   constructor(
     private readonly database: PrismaClient,
@@ -352,6 +522,35 @@ export class SampleIndexRepository {
 
     validateResolvedSegmentSet(segments)
     return segments
+  }
+
+  async loadOrderedExtents(extentIds: readonly string[]): Promise<readonly IndexedSegment[]> {
+    const normalizedIds = validateSegmentIds(extentIds)
+    let rows: Awaited<ReturnType<typeof queryExtents>>
+    try {
+      rows = await queryExtents(this.database, normalizedIds)
+    } catch {
+      repositoryFailure('DATABASE_READ_FAILED', 'Extent sample index metadata could not be read')
+    }
+    const ordered = orderedExtentRows(rows, normalizedIds)
+    validateOrderedExtents(ordered)
+
+    const extents: IndexedSegment[] = []
+    for (const row of ordered) {
+      const request = extentSampleIndexReadRequest(row)
+      let bytes: Uint8Array
+      try {
+        bytes = await this.objectReader(request)
+      } catch {
+        repositoryFailure('OBJECT_READ_FAILED', 'Extent sample index object could not be read')
+      }
+      const index = parseExtentDocument(row, decodeDocument(bytes))
+      validateIndexAgainstExtent(row, index)
+      extents.push({ index, segmentId: row.id })
+    }
+
+    validateResolvedSegmentSet(extents)
+    return extents
   }
 }
 

@@ -199,6 +199,7 @@ compose_source = (ROOT / "infra/compose.yaml").read_text(encoding="utf-8")
 compose_services = compose_source.split("\nservices:\n", 1)[1].split("\nvolumes:\n", 1)[0]
 service_names = set(re.findall(r"^  ([a-z0-9-]+):(?:\s.*)?$", compose_services, flags=re.MULTILINE))
 expected_services = {
+    "bgutil-provider",
     "traefik",
     "postgres",
     "redis",

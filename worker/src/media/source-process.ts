@@ -1,5 +1,5 @@
 import { spawn, type ChildProcess } from 'node:child_process'
-import { copyFile, mkdir, readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { isAbsolute, join, relative, resolve } from 'node:path'
 import type { ClaimedMediaSourceWork, SourceCompletion } from './source-work.js'
 
@@ -13,17 +13,30 @@ export type MediaSourceProcessOptions = {
   youtubeCookiesFile?: string
   youtubeExtractorArgs: string
   youtubeFormat: string
+  youtubeLiveExtractorArgs?: string
   youtubeLiveMaxConsecutiveFailures?: number
+  youtubePotProviderUrl?: string
+  youtubeVodExtractorArgs?: string
   youtubeVodFormat: string
   ytDlpCommand?: string
   ffmpegCommand?: string
   ffprobeCommand?: string
+  recordingExtentSeconds?: number
 }
 
 type MediaInput = {
   httpHeaders?: Record<string, string>
+  httpChunkSize?: number
   url: string
 }
+
+const MEDIA_SEGMENT_DURATION_US = 2_000_000n
+const DEFAULT_RECORDING_EXTENT_SECONDS = 60
+const VOD_COMPLETION_MIN_TOLERANCE_US = 5_000_000n
+const YOUTUBE_PREFLIGHT_RANGE_BYTES = 64 * 1024
+const LIVE_RELAY_PROGRESS_TIMEOUT_MS = 20_000
+const LOCAL_CHECKPOINT_FILE = '.source-checkpoint-v1.json'
+const LOCAL_PENDING_CHECKPOINT_FILE = '.source-checkpoint-v1.pending.json'
 
 export type MediaSourceProcessObserver = {
   classified(value: Pick<SourceCompletion, 'sourceDurationUs' | 'sourceKind'>): Promise<void>
@@ -53,24 +66,56 @@ function boundedMessage(value: Buffer): string {
     .trim()
 }
 
+export function latestFfmpegProgressUs(value: string): bigint | null {
+  let latest: bigint | null = null
+  for (const match of value.matchAll(/^out_time_us=(\d+)$/gm)) latest = BigInt(match[1]!)
+  return latest
+}
+
 async function runProcess(
   command: string,
   args: string[],
   signal: AbortSignal,
   maxOutputBytes = 16 * 1024 * 1024,
+  mediaProgressTimeoutMs = 0,
 ): Promise<ProcessResult> {
   if (signal.aborted) throw abortError()
   const child = spawn(command, args, { stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true })
   const stdout: Buffer[] = []
   const stderr: Buffer[] = []
   let outputBytes = 0
+  let mediaProgressTimer: ReturnType<typeof setTimeout> | null = null
+  let mediaProgressText = ''
+  let mediaProgressUs = -1n
+  let mediaStalled = false
+  const armMediaProgressTimer = () => {
+    if (mediaProgressTimer) clearTimeout(mediaProgressTimer)
+    if (mediaProgressTimeoutMs <= 0) return
+    mediaProgressTimer = setTimeout(() => {
+      mediaStalled = true
+      child.kill('SIGKILL')
+    }, mediaProgressTimeoutMs)
+  }
   const collect = (target: Buffer[], chunk: Buffer) => {
     outputBytes += chunk.length
     if (outputBytes > maxOutputBytes) child.kill('SIGKILL')
     else target.push(chunk)
   }
-  child.stdout?.on('data', chunk => collect(stdout, Buffer.from(chunk)))
+  child.stdout?.on('data', chunk => {
+    const value = Buffer.from(chunk)
+    if (mediaProgressTimeoutMs <= 0) {
+      collect(stdout, value)
+      return
+    }
+    mediaProgressText = `${mediaProgressText}${value.toString('utf8')}`.slice(-4_096)
+    const progressUs = latestFfmpegProgressUs(mediaProgressText)
+    if (progressUs !== null && progressUs > mediaProgressUs) {
+      mediaProgressUs = progressUs
+      armMediaProgressTimer()
+    }
+  })
   child.stderr?.on('data', chunk => collect(stderr, Buffer.from(chunk)))
+  armMediaProgressTimer()
   const abort = () => child.kill('SIGTERM')
   signal.addEventListener('abort', abort, { once: true })
   try {
@@ -80,6 +125,11 @@ async function runProcess(
     })
     if (signal.aborted) throw abortError()
     const result = { stderr: Buffer.concat(stderr), stdout: Buffer.concat(stdout) }
+    if (mediaStalled)
+      throw new MediaSourceProcessError(
+        'MEDIA_SOURCE_STALLED',
+        `Media source made no timestamp progress for ${mediaProgressTimeoutMs} ms`,
+      )
     if (outputBytes > maxOutputBytes)
       throw new MediaSourceProcessError(
         'PROCESS_OUTPUT_LIMIT',
@@ -92,6 +142,7 @@ async function runProcess(
       )
     return result
   } finally {
+    if (mediaProgressTimer) clearTimeout(mediaProgressTimer)
     signal.removeEventListener('abort', abort)
   }
 }
@@ -108,43 +159,155 @@ function safeChild(rootValue: string, childValue: string): string {
   return target
 }
 
-function timestampName(base: Date, index: number): string {
-  const value = new Date(base.getTime() + index * 2_000)
-  const date = value.toISOString().slice(0, 19).replace('T', '_').replaceAll(':', '-')
-  return `${date}-${String(value.getUTCMilliseconds() * 1_000).padStart(6, '0')}.mp4`
-}
-
-async function existingPrefix(destination: string, base: Date): Promise<number> {
-  let index = 0
-  while (true) {
-    try {
-      const metadata = await stat(join(destination, timestampName(base, index)))
-      if (!metadata.isFile() || metadata.size <= 0) return index
-      index += 1
-    } catch {
-      return index
-    }
+export function recordingExtentSeconds(options: MediaSourceProcessOptions): number {
+  const value = options.recordingExtentSeconds ?? DEFAULT_RECORDING_EXTENT_SECONDS
+  if (!Number.isInteger(value) || value < 15 || value > 300) {
+    throw new MediaSourceProcessError(
+      'INVALID_RECORDING_EXTENT',
+      'Recording extent must be an integer between 15 and 300 seconds',
+    )
   }
+  return value
 }
 
-function segmentListEndTimeUs(content: string, segmentName: string): bigint | null {
+export function recordingExtentFilename(base: Date, captureStartUs: bigint): string {
+  if (!Number.isFinite(base.getTime()) || captureStartUs < 0n) {
+    throw new MediaSourceProcessError('INVALID_RECORDING_TIME', 'Recording time is invalid')
+  }
+  const timestampUs = BigInt(base.getTime()) * 1_000n + captureStartUs
+  const value = new Date(Number(timestampUs / 1_000n))
+  const date = value.toISOString().slice(0, 19).replace('T', '_').replaceAll(':', '-')
+  const micros = timestampUs % 1_000_000n
+  return `${date}-${micros.toString().padStart(6, '0')}.mp4`
+}
+
+export type SegmentListTiming = {
+  startUs: bigint
+  endUs: bigint
+}
+
+export function segmentListTiming(content: string, segmentName: string): SegmentListTiming | null {
   for (const line of content.split(/\r?\n/)) {
     if (!line.trim()) continue
     const fields = line.split(',')
     if (fields.length < 3) continue
-    const end = Number(fields.pop())
-    fields.pop()
+    const end = Number(fields.pop()!)
+    const start = Number(fields.pop()!)
     const rawPath = fields.join(',').trim().replace(/^"|"$/g, '').replaceAll('\\', '/')
     if (!rawPath.endsWith(`/${segmentName}`) && rawPath !== segmentName) continue
-    if (!Number.isFinite(end) || end <= 0) return null
-    return BigInt(Math.round(end * 1_000_000))
+    if (!Number.isFinite(start) || !Number.isFinite(end) || start < 0 || end <= start) return null
+    return {
+      startUs: BigInt(Math.round(start * 1_000_000)),
+      endUs: BigInt(Math.round(end * 1_000_000)),
+    }
   }
   return null
 }
 
-async function segmentEndTimeUs(listPath: string, segmentName: string): Promise<bigint | null> {
+async function readSegmentTiming(
+  listPath: string,
+  segmentName: string,
+): Promise<SegmentListTiming | null> {
   const content = await readFile(listPath, 'utf8').catch(() => '')
-  return segmentListEndTimeUs(content, segmentName)
+  return segmentListTiming(content, segmentName)
+}
+
+type LocalRecordingCheckpoint = {
+  schemaVersion: 1
+  segmentIndex: number
+  captureTimeUs: string
+  targetName: string
+}
+
+function parseLocalCheckpoint(value: unknown): LocalRecordingCheckpoint | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+  const candidate = value as Record<string, unknown>
+  if (
+    candidate.schemaVersion !== 1 ||
+    !Number.isSafeInteger(candidate.segmentIndex) ||
+    Number(candidate.segmentIndex) < 1 ||
+    typeof candidate.captureTimeUs !== 'string' ||
+    !/^[1-9][0-9]*$/.test(candidate.captureTimeUs) ||
+    typeof candidate.targetName !== 'string' ||
+    !/^\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}-\d{6}\.mp4$/.test(candidate.targetName)
+  ) {
+    return null
+  }
+  return candidate as LocalRecordingCheckpoint
+}
+
+async function readLocalCheckpoint(path: string): Promise<LocalRecordingCheckpoint | null> {
+  try {
+    const checkpoint = parseLocalCheckpoint(JSON.parse(await readFile(path, 'utf8')))
+    if (!checkpoint) throw new Error('invalid checkpoint payload')
+    return checkpoint
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null
+    throw new MediaSourceProcessError(
+      'MEDIA_CHECKPOINT_INVALID',
+      'Recording checkpoint is unreadable',
+    )
+  }
+}
+
+async function writeJsonAtomic(path: string, value: LocalRecordingCheckpoint): Promise<void> {
+  const temporary = `${path}.tmp`
+  await writeFile(temporary, `${JSON.stringify(value)}\n`, { flag: 'w' })
+  await rename(temporary, path)
+}
+
+async function recoverLocalCheckpoint(
+  destination: string,
+): Promise<LocalRecordingCheckpoint | null> {
+  const checkpointPath = join(destination, LOCAL_CHECKPOINT_FILE)
+  const pendingPath = join(destination, LOCAL_PENDING_CHECKPOINT_FILE)
+  let committed = await readLocalCheckpoint(checkpointPath)
+  const pending = await readLocalCheckpoint(pendingPath)
+  if (!pending) return committed
+  const target = join(destination, pending.targetName)
+  const metadata = await stat(target).catch(() => null)
+  if (metadata?.isFile() && metadata.size > 0) {
+    if (
+      committed &&
+      (pending.segmentIndex < committed.segmentIndex ||
+        BigInt(pending.captureTimeUs) < BigInt(committed.captureTimeUs))
+    ) {
+      throw new MediaSourceProcessError(
+        'MEDIA_CHECKPOINT_CONFLICT',
+        'Pending recording checkpoint regresses committed progress',
+      )
+    }
+    await writeJsonAtomic(checkpointPath, pending)
+    committed = pending
+  }
+  await rm(pendingPath, { force: true })
+  return committed
+}
+
+function mergeCheckpoint(
+  work: ClaimedMediaSourceWork,
+  local: LocalRecordingCheckpoint | null,
+): { segmentIndex: number; captureTimeUs: bigint } {
+  if (!local) {
+    return {
+      segmentIndex: work.resumeSegmentIndex,
+      captureTimeUs: work.resumeCaptureTimeUs,
+    }
+  }
+  const localCaptureTimeUs = BigInt(local.captureTimeUs)
+  const localAhead =
+    local.segmentIndex >= work.resumeSegmentIndex && localCaptureTimeUs >= work.resumeCaptureTimeUs
+  const databaseAhead =
+    local.segmentIndex <= work.resumeSegmentIndex && localCaptureTimeUs <= work.resumeCaptureTimeUs
+  if (!localAhead && !databaseAhead) {
+    throw new MediaSourceProcessError(
+      'MEDIA_CHECKPOINT_CONFLICT',
+      'Recording checkpoint and database progress disagree',
+    )
+  }
+  return localAhead
+    ? { segmentIndex: local.segmentIndex, captureTimeUs: localCaptureTimeUs }
+    : { segmentIndex: work.resumeSegmentIndex, captureTimeUs: work.resumeCaptureTimeUs }
 }
 
 async function probeFile(
@@ -186,17 +349,52 @@ async function waitForChild(child: ChildProcess): Promise<number> {
   })
 }
 
-function mediaInputArgs(input: MediaInput, realtime: boolean, seekSeconds: number): string[] {
+export function buildMediaInputArgs(
+  input: MediaInput,
+  realtime: boolean,
+  seekSeconds: number,
+): string[] {
   const headers = Object.entries(input.httpHeaders ?? {})
     .map(([name, value]) => `${name}: ${value}\r\n`)
     .join('')
+  const chunkSize = input.httpChunkSize
   return [
     ...(seekSeconds > 0 ? ['-ss', seekSeconds.toFixed(6)] : []),
+    ...(chunkSize
+      ? [
+          '-request_size',
+          String(chunkSize),
+          '-initial_request_size',
+          String(chunkSize),
+          '-multiple_requests',
+          '1',
+          '-short_seek_size',
+          String(chunkSize),
+        ]
+      : []),
     ...(headers ? ['-headers', headers] : []),
     ...(realtime ? ['-re'] : []),
     '-i',
     input.url,
   ]
+}
+
+export function vodCompletionToleranceUs(segmentDurationUs = MEDIA_SEGMENT_DURATION_US): bigint {
+  const twoSegmentsUs = segmentDurationUs * 2n
+  return twoSegmentsUs > VOD_COMPLETION_MIN_TOLERANCE_US
+    ? twoSegmentsUs
+    : VOD_COMPLETION_MIN_TOLERANCE_US
+}
+
+export function reachedExpectedMediaEnd(
+  publishedCaptureTimeUs: bigint,
+  expectedDurationUs: bigint | null,
+  segmentDurationUs = MEDIA_SEGMENT_DURATION_US,
+): boolean {
+  return (
+    expectedDurationUs === null ||
+    publishedCaptureTimeUs + vodCompletionToleranceUs(segmentDurationUs) >= expectedDurationUs
+  )
 }
 
 async function segmentInputs(
@@ -206,6 +404,7 @@ async function segmentInputs(
   observer: MediaSourceProcessObserver,
   signal: AbortSignal,
   codec: string,
+  expectedDurationUs: bigint | null = null,
   realtime = false,
 ): Promise<number> {
   if (inputs.length < 1 || inputs.length > 2)
@@ -214,29 +413,40 @@ async function segmentInputs(
       'Media source returned an unsupported input layout',
     )
   const destination = safeChild(options.recordingRoot, work.ingestPath)
-  const workspace = safeChild(options.workRoot, work.id)
+  // Keep staging on the recording filesystem. A finalized extent can then be
+  // published with one atomic rename instead of a full cross-directory copy.
+  const workspace = safeChild(destination, `.source-work/${work.id}`)
   const segments = join(workspace, 'segments')
   const segmentList = join(workspace, 'segments.csv')
   await mkdir(destination, { recursive: true })
+  const localCheckpoint = await recoverLocalCheckpoint(destination)
+  const resume = mergeCheckpoint(work, localCheckpoint)
+  if (
+    resume.segmentIndex > work.resumeSegmentIndex ||
+    resume.captureTimeUs > work.resumeCaptureTimeUs
+  ) {
+    await observer.resumed(resume.segmentIndex, resume.captureTimeUs)
+  }
+  if (
+    resume.segmentIndex > 0 &&
+    expectedDurationUs !== null &&
+    reachedExpectedMediaEnd(resume.captureTimeUs, expectedDurationUs)
+  ) {
+    return resume.segmentIndex
+  }
   await rm(workspace, { force: true, recursive: true })
   await mkdir(segments, { recursive: true })
-  let published = Math.max(
-    work.resumeSegmentIndex,
-    await existingPrefix(destination, work.segmentBaseAt),
-  )
+  let published = resume.segmentIndex
   const startPublished = published
-  // Keep the base checkpoint immutable for this ffmpeg invocation. The runtime
-  // observer updates the shared work object after every durable segment; using
-  // that mutable value below would repeatedly add each relative segment end and
-  // make the persisted checkpoint grow quadratically.
-  const resumeCaptureTimeUs = work.resumeCaptureTimeUs
-  const seekSeconds = Number(resumeCaptureTimeUs) / 1_000_000
+  let publishedCaptureTimeUs = resume.captureTimeUs
+  const seekSeconds = Number(resume.captureTimeUs) / 1_000_000
+  const extentSeconds = recordingExtentSeconds(options)
   const videoCodec =
     codec === 'h264' || codec.startsWith('avc')
       ? ['-c:v', 'copy']
       : ['-c:v', 'libx264', '-preset', 'veryfast', '-pix_fmt', 'yuv420p']
   const args = ['-nostdin', '-hide_banner', '-loglevel', 'warning']
-  for (const input of inputs) args.push(...mediaInputArgs(input, realtime, seekSeconds))
+  for (const input of inputs) args.push(...buildMediaInputArgs(input, realtime, seekSeconds))
   args.push(
     '-map',
     '0:v:0',
@@ -248,7 +458,7 @@ async function segmentInputs(
     '-f',
     'segment',
     '-segment_time',
-    '2',
+    String(extentSeconds),
     '-reset_timestamps',
     '1',
     '-segment_format',
@@ -267,8 +477,10 @@ async function segmentInputs(
     stdio: ['ignore', 'ignore', 'pipe'],
     windowsHide: true,
   })
-  const stderr: Buffer[] = []
-  child.stderr?.on('data', chunk => stderr.push(Buffer.from(chunk)))
+  let stderrTail = Buffer.alloc(0)
+  child.stderr?.on('data', chunk => {
+    stderrTail = Buffer.concat([stderrTail, Buffer.from(chunk)]).subarray(-16 * 1024)
+  })
   const abort = () => child.kill('SIGTERM')
   signal.addEventListener('abort', abort, { once: true })
   let returnCode: number | null = null
@@ -283,54 +495,62 @@ async function segmentInputs(
       returnCode = -1
       return -1
     })
+  const publishNext = async (): Promise<boolean> => {
+    if (signal.aborted) return false
+    const name = `segment-${String(published).padStart(9, '0')}.mp4`
+    const timing = await readSegmentTiming(segmentList, name)
+    if (!timing) return false
+    const source = join(segments, name)
+    const metadata = await stat(source).catch(() => null)
+    if (!metadata?.isFile() || metadata.size <= 0) return false
+    const absoluteStartUs = resume.captureTimeUs + timing.startUs
+    const absoluteEndUs = resume.captureTimeUs + timing.endUs
+    const targetName = recordingExtentFilename(work.segmentBaseAt, absoluteStartUs)
+    const target = join(destination, targetName)
+    const targetMetadata = await stat(target).catch(() => null)
+    if (targetMetadata) {
+      throw new MediaSourceProcessError(
+        'MEDIA_EXTENT_COLLISION',
+        `Recording extent ${targetName} already exists`,
+      )
+    }
+    const checkpoint: LocalRecordingCheckpoint = {
+      schemaVersion: 1,
+      segmentIndex: published + 1,
+      captureTimeUs: absoluteEndUs.toString(),
+      targetName,
+    }
+    const pendingPath = join(destination, LOCAL_PENDING_CHECKPOINT_FILE)
+    await writeJsonAtomic(pendingPath, checkpoint)
+    await rename(source, target)
+    await writeJsonAtomic(join(destination, LOCAL_CHECKPOINT_FILE), checkpoint)
+    await rm(pendingPath, { force: true })
+    published = checkpoint.segmentIndex
+    publishedCaptureTimeUs = absoluteEndUs
+    await observer.resumed(published, publishedCaptureTimeUs)
+    return true
+  }
   try {
     while (returnCode === null) {
-      const files = (await readdir(segments))
-        .filter(name => /^segment-\d{9}\.mp4$/.test(name))
-        .sort()
-      const publishable = files.slice(0, Math.max(0, files.length - 1))
-      for (const name of publishable) {
-        const index = Number(name.slice(8, 17))
-        if (index !== published) continue
-        const relativeEndUs = await segmentEndTimeUs(segmentList, name)
-        if (relativeEndUs === null) continue
-        const target = join(destination, timestampName(work.segmentBaseAt, index))
-        const temporary = `${target}.part`
-        await copyFile(join(segments, name), temporary)
-        await rename(temporary, target)
-        published += 1
-        await observer.resumed(published, resumeCaptureTimeUs + relativeEndUs)
-      }
+      while (await publishNext()) continue
       await new Promise(resolvePromise => setTimeout(resolvePromise, 100))
     }
     const code = await closed
     if (processError) throw processError
-    const files = (await readdir(segments)).filter(name => /^segment-\d{9}\.mp4$/.test(name)).sort()
-    const publishable = signal.aborted ? files.slice(0, Math.max(0, files.length - 1)) : files
-    for (const name of publishable) {
-      const index = Number(name.slice(8, 17))
-      if (index !== published) continue
-      const relativeEndUs = await segmentEndTimeUs(segmentList, name)
-      if (relativeEndUs === null)
-        throw new MediaSourceProcessError(
-          'MEDIA_SEGMENT_TIMING_MISSING',
-          `Missing timing for ${name}`,
-        )
-      const target = join(destination, timestampName(work.segmentBaseAt, index))
-      const temporary = `${target}.part`
-      await copyFile(join(segments, name), temporary)
-      await rename(temporary, target)
-      published += 1
-      await observer.resumed(published, resumeCaptureTimeUs + relativeEndUs)
-    }
+    while (await publishNext()) continue
     if (signal.aborted) throw abortError()
     if (code !== 0)
       throw new MediaSourceProcessError(
         'MEDIA_SEGMENT_FAILED',
-        boundedMessage(Buffer.concat(stderr)) || `ffmpeg exited ${code}`,
+        boundedMessage(stderrTail) || `ffmpeg exited ${code}`,
       )
     if (published === startPublished)
       throw new MediaSourceProcessError('MEDIA_EMPTY', 'Media source produced no segments')
+    if (!reachedExpectedMediaEnd(publishedCaptureTimeUs, expectedDurationUs))
+      throw new MediaSourceProcessError(
+        'MEDIA_SOURCE_INCOMPLETE',
+        `Media source stopped at ${publishedCaptureTimeUs} before ${expectedDurationUs}`,
+      )
     return published
   } finally {
     signal.removeEventListener('abort', abort)
@@ -345,8 +565,17 @@ async function segmentFile(
   observer: MediaSourceProcessObserver,
   signal: AbortSignal,
   codec: string,
+  expectedDurationUs: bigint | null,
 ): Promise<number> {
-  return segmentInputs(work, [{ url: mediaPath }], options, observer, signal, codec)
+  return segmentInputs(
+    work,
+    [{ url: mediaPath }],
+    options,
+    observer,
+    signal,
+    codec,
+    expectedDurationUs,
+  )
 }
 
 type YoutubeMetadata = {
@@ -356,10 +585,12 @@ type YoutubeMetadata = {
   live_status?: string
   requested_formats?: Array<{
     acodec?: string
+    downloader_options?: { http_chunk_size?: number | string }
     http_headers?: Record<string, string>
     url?: string
     vcodec?: string
   }>
+  downloader_options?: { http_chunk_size?: number | string }
   http_headers?: Record<string, string>
   url?: string
   vcodec?: string
@@ -383,34 +614,54 @@ export function classifyYoutubeSource(metadata: {
   return youtubeIsLive(metadata) ? 'youtube_live' : 'youtube_vod'
 }
 
-function youtubeArguments(options: MediaSourceProcessOptions): string[] {
+function youtubeArguments(options: MediaSourceProcessOptions, extractorArgs: string): string[] {
   return [
     '--no-playlist',
     '--no-progress',
     '--no-warnings',
     ...(options.youtubeCookiesFile ? ['--cookies', options.youtubeCookiesFile] : []),
     '--extractor-args',
-    options.youtubeExtractorArgs,
+    extractorArgs,
+    ...(options.youtubePotProviderUrl
+      ? ['--extractor-args', `youtubepot-bgutilhttp:base_url=${options.youtubePotProviderUrl}`]
+      : []),
   ]
 }
 
 export function buildYoutubeProbeArgs(url: string, options: MediaSourceProcessOptions): string[] {
-  return buildYoutubeProbeArgsForFormat(url, options, options.youtubeFormat)
+  return buildYoutubeProbeArgsForFormat(
+    url,
+    options,
+    options.youtubeFormat,
+    options.youtubeLiveExtractorArgs ?? options.youtubeExtractorArgs,
+  )
 }
 
 export function buildYoutubeVodProbeArgs(
   url: string,
   options: MediaSourceProcessOptions,
 ): string[] {
-  return buildYoutubeProbeArgsForFormat(url, options, options.youtubeVodFormat)
+  return buildYoutubeProbeArgsForFormat(
+    url,
+    options,
+    options.youtubeVodFormat,
+    options.youtubeVodExtractorArgs ?? options.youtubeExtractorArgs,
+  )
 }
 
 function buildYoutubeProbeArgsForFormat(
   url: string,
   options: MediaSourceProcessOptions,
   format: string,
+  extractorArgs: string,
 ): string[] {
-  return ['--dump-single-json', ...youtubeArguments(options), '--format', format, url]
+  return [
+    '--dump-single-json',
+    ...youtubeArguments(options, extractorArgs),
+    '--format',
+    format,
+    url,
+  ]
 }
 
 async function probeYoutube(
@@ -443,10 +694,44 @@ function youtubeInputs(metadata: YoutubeMetadata): MediaInput[] {
         'YOUTUBE_INPUT_MISSING',
         'YouTube did not provide a playable input URL',
       )
-    return input.http_headers
-      ? { httpHeaders: input.http_headers, url: input.url }
-      : { url: input.url }
+    const chunkSize = Number(input.downloader_options?.http_chunk_size)
+    return {
+      ...(input.http_headers ? { httpHeaders: input.http_headers } : {}),
+      ...(Number.isSafeInteger(chunkSize) && chunkSize > 0 ? { httpChunkSize: chunkSize } : {}),
+      url: input.url,
+    }
   })
+}
+
+export async function preflightYoutubeInput(
+  input: MediaInput,
+  signal: AbortSignal,
+  request: typeof fetch = fetch,
+): Promise<MediaInput> {
+  if (!input.httpChunkSize) return input
+  const rangeStarts = [0, input.httpChunkSize]
+  for (const start of rangeStarts) {
+    const headers = new Headers(input.httpHeaders)
+    headers.set('accept-encoding', 'identity')
+    headers.set('range', `bytes=${start}-${start + YOUTUBE_PREFLIGHT_RANGE_BYTES - 1}`)
+    let response: Response
+    try {
+      response = await request(input.url, { headers, redirect: 'follow', signal })
+    } catch (error) {
+      if (signal.aborted) throw error
+      throw new MediaSourceProcessError(
+        'BAD_SOURCE_URL',
+        `YouTube media URL failed bounded range preflight at offset ${start}`,
+      )
+    }
+    await response.body?.cancel().catch(() => undefined)
+    if (response.status !== 206)
+      throw new MediaSourceProcessError(
+        'BAD_SOURCE_URL',
+        `YouTube media URL returned HTTP ${response.status} during bounded range preflight at offset ${start}`,
+      )
+  }
+  return input
 }
 
 export function nextLiveRelayFailureCount(
@@ -536,7 +821,15 @@ export function createMediaSourceProcess(options: MediaSourceProcessOptions) {
       const path = safeChild(options.importRoot, work.importKey)
       const probe = await probeFile(path, options, signal)
       await observer.classified({ sourceDurationUs: probe.durationUs, sourceKind: 'local_mp4' })
-      const count = await segmentFile(work, path, options, observer, signal, probe.codec)
+      const count = await segmentFile(
+        work,
+        path,
+        options,
+        observer,
+        signal,
+        probe.codec,
+        probe.durationUs,
+      )
       return {
         expectedSegments: count,
         sourceDurationUs: probe.durationUs,
@@ -558,13 +851,17 @@ export function createMediaSourceProcess(options: MediaSourceProcessOptions) {
       metadata = await probeYoutube(work.sourceUrl, options, signal, 'vod')
       durationUs ??= youtubeDuration(metadata)
       await observer.classified({ sourceDurationUs: durationUs, sourceKind: 'youtube_vod' })
+      const inputs = await Promise.all(
+        youtubeInputs(metadata).map(input => preflightYoutubeInput(input, signal)),
+      )
       const count = await segmentInputs(
         work,
-        youtubeInputs(metadata),
+        inputs,
         options,
         observer,
         signal,
         youtubeVideoCodec(metadata),
+        durationUs,
       )
       return {
         expectedSegments: count,
@@ -594,8 +891,17 @@ export function createMediaSourceProcess(options: MediaSourceProcessOptions) {
           'YOUTUBE_INPUT_COUNT',
           'YouTube returned an unsupported input layout',
         )
-      const args = ['-nostdin', '-hide_banner', '-loglevel', 'warning']
-      for (const input of inputs) args.push(...mediaInputArgs(input, true, 0))
+      const args = [
+        '-nostdin',
+        '-hide_banner',
+        '-loglevel',
+        'warning',
+        '-progress',
+        'pipe:1',
+        '-stats_period',
+        '1',
+      ]
+      for (const input of inputs) args.push(...buildMediaInputArgs(input, true, 0))
       args.push(
         '-map',
         '0:v:0',
@@ -610,7 +916,13 @@ export function createMediaSourceProcess(options: MediaSourceProcessOptions) {
         `${options.ingestBaseUrl.replace(/\/+$/, '')}/${work.ingestPath}`,
       )
       try {
-        await runProcess(options.ffmpegCommand ?? 'ffmpeg', args, signal, 2 * 1024 * 1024)
+        await runProcess(
+          options.ffmpegCommand ?? 'ffmpeg',
+          args,
+          signal,
+          2 * 1024 * 1024,
+          LIVE_RELAY_PROGRESS_TIMEOUT_MS,
+        )
       } catch (error) {
         if (signal.aborted) break
         const currentRecordingCount = await countMediaSourceRecordings(

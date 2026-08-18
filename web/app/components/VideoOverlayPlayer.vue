@@ -5,6 +5,13 @@ import type {
 } from '../composables/usePlaybackCursor'
 import type { CanonicalFrameAnchor } from '../lib/mediaModel'
 import { useDvrPlayback } from '../composables/useDvrPlayback'
+import { createOmeLivePlaybackService } from '../services/annotation-workstation/ome-live-playback.service'
+import {
+  omePlayerSecondsForCaptureTime,
+  omePresentationAnchorForPlayingDate,
+  omePresentationOriginFromPlayingDate,
+  type OmeLivePlaybackSource,
+} from '../lib/omeLivePlayback'
 import { captureTimeToPlayerSeconds, isCaptureTimeWithinWindow } from '../utils/playbackWindow'
 import { boundedPlayerMediaSeconds } from '../utils/playerMediaTime'
 import {
@@ -25,6 +32,7 @@ import type {
 const props = withDefaults(
   defineProps<{
     descriptor?: PlaybackWindowDescriptor | null
+    liveSource?: OmeLivePlaybackSource | null
     controls?: boolean
     toggleOnClick?: boolean
     analysisRunId?: string | null
@@ -51,6 +59,7 @@ const props = withDefaults(
   }>(),
   {
     controls: true,
+    liveSource: null,
     toggleOnClick: false,
     analysisRunId: null,
     overlayFrame: -1,
@@ -88,6 +97,14 @@ const props = withDefaults(
 )
 const emit = defineEmits<{
   cursor: [value: PlaybackCursorInput]
+  liveError: [value: Error]
+  livePosition: [
+    value: {
+      atLiveEdge: boolean
+      captureTimeUs: string | null
+      mappingStatus: 'validated' | 'unmapped'
+    },
+  ]
   ready: [HTMLVideoElement]
   bufferActivity: []
   bufferState: [
@@ -113,9 +130,37 @@ const emit = defineEmits<{
 const video = ref<HTMLVideoElement | null>(null)
 const retainedPreview = ref<string | null>(null)
 const descriptorRef = computed(() => props.descriptor ?? null)
+const liveSourceRef = computed(() => props.liveSource ?? null)
 const { cursor } = usePlaybackCursor(video, descriptorRef)
+const omeSeekGeneration = ref(0)
+function livePresentationOriginCaptureUs() {
+  const element = video.value
+  const source = liveSourceRef.value
+  if (!element || !source) return null
+  return omePresentationOriginFromPlayingDate(
+    source.presentationAnchors,
+    omePlayback.playingDate(),
+    element.currentTime,
+  )
+}
 function publishBufferState() {
   const element = video.value
+  const liveSource = liveSourceRef.value
+  if (element && liveSource) {
+    const presentationOriginCaptureUs = livePresentationOriginCaptureUs()
+    emit('bufferState', {
+      buffered: presentationOriginCaptureUs
+        ? mediaTimeRangesToCaptureRanges(element.buffered, presentationOriginCaptureUs)
+        : [],
+      mappingVersion: null,
+      playbackWindowId: null,
+      presentationOriginCaptureUs,
+      seekable: presentationOriginCaptureUs
+        ? mediaTimeRangesToCaptureRanges(element.seekable, presentationOriginCaptureUs)
+        : [],
+    })
+    return
+  }
   const descriptor = descriptorRef.value
   if (!element || !descriptor) {
     emit('bufferState', {
@@ -147,6 +192,13 @@ const playback = useDvrPlayback(video, {
     emit('bufferActivity')
   },
   onError: error => emit('error', error),
+})
+const omePlayback = createOmeLivePlaybackService(video, useMediaPlaybackPreferences().profile, {
+  onBufferActivity: () => {
+    publishBufferState()
+    emit('bufferActivity')
+  },
+  onError: error => emit('liveError', error),
 })
 const resolvedOverlayFrame = ref(props.overlayFrame)
 const overlay = useAnalysisFrameChunks(
@@ -203,7 +255,7 @@ watch(
 )
 
 watch(cursor, value => {
-  if (value) emit('cursor', value)
+  if (value && !liveSourceRef.value) emit('cursor', value)
 })
 watch(overlay.error, value => {
   if (value) emit('error', value)
@@ -301,9 +353,36 @@ const attachDescriptor = async (descriptor: PlaybackWindowDescriptor | null) => 
     emit('error', error instanceof Error ? error : new Error('Media manifest failed to load'))
   }
 }
+const attachLiveSource = async (source: OmeLivePlaybackSource) => {
+  const generation = ++sourceGeneration
+  previewGeneration += 1
+  pendingCanonicalFrame = null
+  if (playback.activeWindow.value) playback.detach()
+  const element = video.value
+  if (!element) return
+  const replacingPipeline =
+    omePlayback.activeSource.value?.captureSessionId !== source.captureSessionId
+  if (replacingPipeline) retainedPreview.value = capturePresentedFrame(element)
+  try {
+    await omePlayback.attach(source)
+    if (generation !== sourceGeneration) return
+    emit('ready', element)
+    publishBufferState()
+    if (replacingPipeline) await waitForPresentedFrame(element)
+    if (generation === sourceGeneration && replacingPipeline) retainedPreview.value = null
+  } catch (error) {
+    if (generation !== sourceGeneration) return
+    emit('liveError', error instanceof Error ? error : new Error('OME LL-HLS failed to load'))
+  }
+}
 watch(
-  [() => props.descriptor, video],
-  ([descriptor]) => {
+  [() => props.descriptor, () => props.liveSource, video],
+  ([descriptor, liveSource]) => {
+    if (liveSource) {
+      void attachLiveSource(liveSource)
+      return
+    }
+    if (omePlayback.activeSource.value) omePlayback.detach()
     void attachDescriptor(descriptor ?? null)
   },
   { immediate: true },
@@ -313,8 +392,19 @@ function handleVideoClick() {
   if (props.toggleOnClick) emit('toggle')
 }
 function seekCaptureTimeIfBuffered(targetCaptureTimeUs: string) {
-  const descriptor = playback.activeWindow.value
+  const liveSource = liveSourceRef.value
   const element = video.value
+  if (liveSource && element) {
+    const origin = livePresentationOriginCaptureUs()
+    if (!origin) return false
+    const targetPlayerSeconds = omePlayerSecondsForCaptureTime(targetCaptureTimeUs, origin)
+    if (!mediaTimeRangeContains(element.seekable, targetPlayerSeconds)) return false
+    previewGeneration += 1
+    retainedPreview.value = null
+    element.currentTime = targetPlayerSeconds
+    return true
+  }
+  const descriptor = playback.activeWindow.value
   const target = BigInt(targetCaptureTimeUs)
   if (
     !descriptor ||
@@ -375,6 +465,7 @@ function seekCanonicalFrame(
     'playback_window_id' | 'mapping_version' | 'player_media_time_us'
   >,
 ) {
+  if (liveSourceRef.value) return false
   pendingCanonicalFrame = anchor
   return applyPendingCanonicalFrame()
 }
@@ -394,7 +485,56 @@ function seekOverlayFrameIfBuffered(frame: number) {
   return captureTime ? seekCaptureTimeIfBuffered(captureTime) : false
 }
 function recoverPlayback() {
-  return playback.recover()
+  return liveSourceRef.value ? omePlayback.recover() : playback.recover()
+}
+function seekLiveEdge() {
+  const element = video.value
+  if (!liveSourceRef.value || !element || element.seekable.length === 0) return false
+  const lastRange = element.seekable.length - 1
+  element.currentTime = Math.max(
+    element.seekable.start(lastRange),
+    element.seekable.end(lastRange) - 0.5,
+  )
+  return true
+}
+function publishLivePosition() {
+  const element = video.value
+  if (!element || !liveSourceRef.value || element.seekable.length === 0) return
+  const seekableEnd = element.seekable.end(element.seekable.length - 1)
+  const origin = livePresentationOriginCaptureUs()
+  const playingDate = omePlayback.playingDate()
+  const anchor = omePresentationAnchorForPlayingDate(
+    liveSourceRef.value.presentationAnchors,
+    playingDate,
+  )
+  if (origin && anchor && playingDate) {
+    emit('cursor', {
+      schema_version: '2.0.0',
+      media_backend: 'ome_llhls',
+      capture_session_id: liveSourceRef.value.captureSessionId,
+      presentation_anchor_sequence: anchor.sequenceIndex,
+      program_date_time: playingDate.toISOString(),
+      player_media_time_us: BigInt(Math.round(element.currentTime * 1_000_000)).toString(),
+      observation_source: 'current_time_fallback',
+      presented_frames: null,
+      seek_generation: omeSeekGeneration.value,
+      cursor_status: element.seeking ? 'seeking' : 'ready',
+    })
+  }
+  emit('livePosition', {
+    atLiveEdge: seekableEnd - element.currentTime <= 3,
+    captureTimeUs: origin
+      ? (
+          BigInt(origin) + BigInt(Math.max(0, Math.round(element.currentTime * 1_000_000)))
+        ).toString()
+      : null,
+    mappingStatus: origin ? 'validated' : 'unmapped',
+  })
+}
+function handleLiveSeeking() {
+  if (!liveSourceRef.value) return
+  omeSeekGeneration.value += 1
+  publishLivePosition()
 }
 defineExpose({
   overlayFrameCaptureTime,
@@ -403,6 +543,7 @@ defineExpose({
   recoverPlayback,
   seekCanonicalFrame,
   seekCaptureTimeIfBuffered,
+  seekLiveEdge,
   seekOverlayFrameIfBuffered,
 })
 
@@ -411,7 +552,10 @@ defineExpose({
 </script>
 
 <template>
-  <div class="relative size-full overflow-hidden rounded-xl bg-black">
+  <div
+    class="relative size-full overflow-hidden rounded-xl bg-black"
+    :data-media-backend="liveSource ? 'ome_llhls' : 'legacy_playback_window'"
+  >
     <video
       ref="video"
       class="block size-full object-contain"
@@ -422,6 +566,9 @@ defineExpose({
       @loadeddata="publishBufferState"
       @durationchange="publishBufferState"
       @emptied="publishBufferState"
+      @timeupdate="publishLivePosition"
+      @seeking="handleLiveSeeking"
+      @seeked="publishLivePosition"
       @click="handleVideoClick"
     />
     <img

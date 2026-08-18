@@ -61,6 +61,7 @@ describe('VolleyballOverlayCanvas presentation timing', () => {
         },
       },
     })
+    expect(wrapper.classes()).toEqual(expect.arrayContaining(['absolute', 'inset-0', 'size-full']))
     vi.spyOn(wrapper.get('canvas').element, 'getBoundingClientRect').mockReturnValue({
       width: 640,
       height: 360,

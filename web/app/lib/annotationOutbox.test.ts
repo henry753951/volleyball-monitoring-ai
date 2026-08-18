@@ -5,6 +5,7 @@ import {
   markAnnotationOutboxAttempted,
   readAnnotationOutbox,
   requireAnnotationOutboxConfirmation,
+  resolveAnnotationOutboxKeyPointReference,
   resolveAnnotationOutboxEntry,
   writeAnnotationOutbox,
 } from './annotationOutbox'
@@ -137,5 +138,40 @@ describe('annotation local outbox', () => {
       { ...enqueueAnnotationCommand([], command)[0]!, retry_count: 3 },
     ])
     expect(readAnnotationOutbox(storage, room)).toEqual([])
+  })
+
+  it('rewrites commands queued against an optimistic key point after create acknowledgement', () => {
+    const pendingId = 'pending:00000000-0000-4000-8000-000000000050'
+    const common = {
+      schema_version: '4.0.0' as const,
+      room_id: room,
+      base_revision: '2',
+      rally_id: command.rally_id,
+    }
+    const entries = [
+      {
+        ...enqueueAnnotationCommand([], {
+          ...common,
+          command_id: '00000000-0000-4000-8000-000000000051',
+          kind: 'SET_BALL_EVENT',
+          payload: { key_point_id: pendingId, event: { kind: 'SPIKE', result: 'SUCCESS' } },
+        } as AnnotationCommand)[0]!,
+        attempted_at: '2026-08-18T00:00:00.000Z',
+      },
+      enqueueAnnotationCommand([], {
+        ...common,
+        command_id: '00000000-0000-4000-8000-000000000052',
+        kind: 'DELETE_KEY_POINT',
+        payload: { key_point_id: pendingId },
+      } as AnnotationCommand)[0]!,
+    ]
+
+    const resolved = resolveAnnotationOutboxKeyPointReference(entries, pendingId, 'canonical-50')
+
+    expect(resolved.map(entry => entry.command.payload)).toEqual([
+      { key_point_id: 'canonical-50', event: { kind: 'SPIKE', result: 'SUCCESS' } },
+      { key_point_id: 'canonical-50' },
+    ])
+    expect(resolved[0]?.attempted_at).toBeUndefined()
   })
 })

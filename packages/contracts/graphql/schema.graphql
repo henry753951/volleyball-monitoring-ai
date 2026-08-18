@@ -12,6 +12,8 @@ type CaptureSession {
   endedAt: DateTime
   health: SourceHealth!
   id: ID!
+  ingestPath: String!
+  livePresentationAnchors: [LivePresentationAnchor!]!
   matchId: ID!
   sourceDurationUs: BigInt
   sourceKind: String!
@@ -75,6 +77,14 @@ type Health {
 }
 
 scalar JSON
+
+type LivePresentationAnchor {
+  captureTimeOriginUs: BigInt!
+  endedAt: DateTime
+  programDateTime: DateTime!
+  sequenceIndex: Int!
+  validatedAt: DateTime!
+}
 
 type Match {
   captureSessions: [CaptureSession!]!

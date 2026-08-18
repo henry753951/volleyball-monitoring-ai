@@ -19,6 +19,7 @@ import {
   createGraphQLTransport,
   type Match,
   type CaptureSession,
+  type CaptureTimeline,
 } from '~/lib/coreDomain'
 import {
   ANNOTATION_COMMANDS,
@@ -43,7 +44,12 @@ import { capturePlaybackMode, clampLiveEdgeTarget } from '~/lib/mediaTimeline'
 import { decidePlaybackContinuation, nextPlayableRangeAfter } from '~/lib/playbackContinuation'
 import { bufferedSecondsAhead, type CanonicalMediaRange } from '~/utils/mediaBuffer'
 import { estimateFrameDurationSeconds } from '~/utils/framePreviewCalibration'
-import { captureNeedsPolling, hasActiveRallyProcessing } from '~/utils/annotationPolling'
+import {
+  captureNeedsPolling,
+  hasActiveRallyProcessing,
+  nextCapturePollDelay,
+  type CapturePollOutcome,
+} from '~/utils/annotationPolling'
 import {
   replayEventFrame,
   resolveEffectiveHitPosition,
@@ -77,6 +83,12 @@ import { createWorkstationPreferencesService } from '~/services/annotation-works
 import { mergeRallyProcessingUpdate } from '~/services/annotation-workstation/processing-state.service'
 import { ballEventRepairNotice } from '~/utils/annotationBallEventRepairNotice'
 import { captureTimeForIdentityTrackFrame } from '~/utils/identityTrackNavigation'
+import {
+  liveMediaBackend,
+  omeLiveManifestUrl,
+  projectOmeLiveTimelineRanges,
+  type OmeLivePlaybackSource,
+} from '~/lib/omeLivePlayback'
 
 definePageMeta({ layout: 'annotation' })
 const route = useRoute()
@@ -85,6 +97,8 @@ const workstationViewState = useAnnotationWorkstationViewState(matchId)
 const match = ref<Match | null>(null)
 const loadError = ref<string | null>(null)
 const media = createMediaClient()
+const publicEndpoints = usePublicEndpoints()
+const runtimeConfig = useRuntimeConfig()
 const core = createCoreDomainClient(createGraphQLTransport('/graphql'))
 const coachDomain = createCoachDomainClient(createGraphQLTransport('/graphql'))
 provideIdentityAssignmentService(coachDomain)
@@ -105,13 +119,20 @@ const overlayPlayer = ref<{
   previewPlayerMediaTime: (targetPlayerSeconds: number) => boolean
   overlayFrameCaptureTime: (frame: number) => string | null
   seekOverlayFrameIfBuffered: (frame: number) => boolean
+  seekLiveEdge: () => boolean
 } | null>(null)
 const playing = ref(false)
 const muted = ref(false)
 const playbackRate = ref(1)
 const playerBufferedRanges = shallowRef<CanonicalMediaRange[]>([])
+const playerSeekableRanges = shallowRef<CanonicalMediaRange[]>([])
 const captureTarget = ref('')
 const mediaError = ref<string | null>(null)
+const omePlaybackFailed = ref(false)
+const omeObservedCaptureTimeUs = ref<string | null>(null)
+const omeAtLiveEdge = ref(false)
+const omeDirectPlaybackActive = ref(false)
+const omeCanonicalTimeValidated = ref(false)
 const authoritativeAnchor = computed(() => dvr.anchor.value)
 const observedCursor = shallowRef<PlaybackCursorInput | null>(null)
 const cursorStatus = ref<'ready' | 'stale' | 'seeking' | 'gap'>('stale')
@@ -226,6 +247,11 @@ const selectedKeyPointId = computed<string | null>({
     else workstationSelection.clearDetail()
   },
 })
+watch(annotation.resolvedKeyPointIds, aliases => {
+  const selected = selectedKeyPointId.value
+  const resolved = selected ? aliases[selected] : null
+  if (resolved) selectedKeyPointId.value = resolved
+})
 const timelineSelection = createTimelineSelectionService({
   room: annotation,
   selection: workstationSelection,
@@ -258,23 +284,26 @@ const frameQueueRunning = ref(false)
 const frameQueuePending = ref(false)
 const seekPreviewActive = ref(false)
 const optimisticSeekCaptureTimeUs = ref<string | null>(null)
-const canMark = computed(
-  () =>
-    !frameQueuePending.value &&
-    !frameQueueRunning.value &&
-    authoritativeControlsEnabled({
-      cursorReady: cursorStatus.value === 'ready',
-      status: dvr.status.value,
-      busy: dvr.busy.value,
-      descriptor: descriptor.value,
-      anchor: authoritativeAnchor.value,
-    }),
+const canMark = computed(() =>
+  omeDirectPlaybackActive.value
+    ? omeCanonicalTimeValidated.value && cursorStatus.value === 'ready'
+    : !frameQueuePending.value &&
+      !frameQueueRunning.value &&
+      authoritativeControlsEnabled({
+        cursorReady: cursorStatus.value === 'ready',
+        status: dvr.status.value,
+        busy: dvr.busy.value,
+        descriptor: descriptor.value,
+        anchor: authoritativeAnchor.value,
+      }),
 )
 const commandReady = computed(() => !annotation.outboxNeedsConfirmation.value)
 const draftMutationReady = computed(
   () => commandReady.value && !annotation.busy.value && !pendingTimelineMove.value,
 )
-const editReady = computed(() => draftMutationReady.value && annotation.pendingCount.value === 0)
+// Annotation mutations are optimistic and ordered by the durable local outbox.
+// Do not turn ordinary network latency into a workstation-wide edit lock.
+const editReady = computed(() => draftMutationReady.value)
 const keyPointEditReady = computed(
   () => draftMutationReady.value || keyPointEditing.navigation.active.value,
 )
@@ -364,7 +393,7 @@ const processingByRally = computed<Record<string, AnnotationRallyProcessingUpdat
   return merged
 })
 const activeProcessing = computed(() => {
-  const rallyId = selectedRallyId.value ?? displayAnnotation.value?.rally_id
+  const rallyId = selectedRallyId.value
   return rallyId ? (processingByRally.value[rallyId] ?? null) : null
 })
 const syncRecovery = createSyncRecoveryService({
@@ -382,10 +411,13 @@ const annotationResyncing = syncRecovery.resyncing
 const processingRetrying = syncRecovery.processingRetrying
 const notifiedProcessingFailures = new Set<string>()
 let processingFailureWatchReady = false
-let timelineRefreshTimer: ReturnType<typeof setInterval> | null = null
+let timelineRefreshTimer: ReturnType<typeof setTimeout> | null = null
+let timelinePollDelayMs = 1_000
+let captureRefreshInFlight = false
 let cursorResolveTimer: ReturnType<typeof setTimeout> | null = null
 let seekPreviewTimer: ReturnType<typeof setTimeout> | null = null
 let optimisticSeekTimer: ReturnType<typeof setTimeout> | null = null
+let omePlaybackRetryTimer: ReturnType<typeof setTimeout> | null = null
 let cursorResolveInFlight = false
 let pendingCursorResolve: PlaybackCursorInput | null = null
 let lastCursorResolveAt = 0
@@ -505,7 +537,10 @@ const selectedCapture = computed<CaptureSession | null>(() => {
       (a, b) =>
         Date.parse(b.startedAt ?? '') - Date.parse(a.startedAt ?? '') || a.id.localeCompare(b.id),
     )
+  const requestedCaptureId =
+    typeof route.query.capture === 'string' ? route.query.capture.toLowerCase() : null
   return (
+    sessions.find(session => session.id.toLowerCase() === requestedCaptureId) ??
     sessions.find(session =>
       ['STARTING', 'LIVE', 'STOPPING'].includes(session.status.toUpperCase()),
     ) ??
@@ -514,7 +549,22 @@ const selectedCapture = computed<CaptureSession | null>(() => {
     null
   )
 })
-const timeline = computed(() => selectedCapture.value?.timeline ?? null)
+const timeline = computed<CaptureTimeline | null>(() => {
+  const durable = selectedCapture.value?.timeline ?? null
+  if (!durable || !omeDirectPlaybackActive.value) return durable
+  const availableRanges = projectOmeLiveTimelineRanges(
+    durable.availableRanges,
+    playerSeekableRanges.value,
+    omeObservedCaptureTimeUs.value,
+  )
+  if (!availableRanges.length) return durable
+  return {
+    ...durable,
+    availableRanges,
+    captureStartTimeUs: availableRanges[0]!.startUs,
+    liveEdgeCaptureTimeUs: availableRanges.at(-1)!.endUs,
+  }
+})
 const restoredWorkstationState = computed(() => {
   const capture = selectedCapture.value
   if (!capture) return null
@@ -530,6 +580,7 @@ const workstation = useAnnotationWorkstationModel({
   timeline,
   displayAnnotation,
   confirmedAnnotation: annotation.snapshot,
+  roomSnapshots: annotation.activeRoomSnapshots,
   state,
   selectedRallyId,
   selectedKeyPoint,
@@ -558,6 +609,7 @@ const {
   timelineSegments,
   currentMaskRange,
   selectableSegmentRanges,
+  reservationSegmentRanges,
   selectedCurrentMask,
   currentMaskStatus,
   currentMaskLabel,
@@ -578,11 +630,9 @@ const {
   displayRallyOrdinal,
   displaySetNumber,
 } = workstation
-const protectedSegmentRanges = computed(() =>
-  selectableSegmentRanges.value.filter(
-    segment => !('status' in segment) || segment.status !== 'draft',
-  ),
-)
+// Reservation conflicts use canonical rally boundaries. Clip pre/post-roll is
+// allowed to overlap and must not prevent an adjacent rally from ending.
+const protectedSegmentRanges = reservationSegmentRanges
 const selectedDraftForSides = computed(
   () => annotationDrafts.value.find(draft => draft.id === selectedRallyId.value) ?? null,
 )
@@ -735,7 +785,7 @@ const selectedCorrectionDraft = computed(() =>
   ),
 )
 const selectedSubmissionPending = computed(() => {
-  const rallyId = selectedRallyId.value ?? displayAnnotation.value?.rally_id
+  const rallyId = selectedRallyId.value
   if (!rallyId) return false
   return annotation.pendingCommands.value.some(
     entry =>
@@ -1135,10 +1185,12 @@ const displayedTimelineSegments = computed(() => {
   )
 })
 const timelineCurrentMaskSelected = computed(
-  () => Boolean(pinnedRallyId.value) && pinnedRallyId.value === displayAnnotation.value?.rally_id,
+  () =>
+    selectedRallyId.value !== null &&
+    selectedRallyId.value === (displayAnnotation.value?.rally_id ?? null),
 )
 const selectedHistoricalSegmentId = computed(() =>
-  timelineCurrentMaskSelected.value ? null : pinnedRallyId.value,
+  timelineCurrentMaskSelected.value ? null : selectedRallyId.value,
 )
 const selectedCaptureId = computed(() => selectedCapture.value?.id ?? null)
 const playbackMode = computed(() =>
@@ -1149,6 +1201,41 @@ const playbackMode = computed(() =>
   }),
 )
 const liveCapture = computed(() => playbackMode.value === 'active_live')
+const configuredLiveMediaBackend = computed(() =>
+  liveMediaBackend(runtimeConfig.public.liveMediaBackend),
+)
+const omeLiveSource = computed<OmeLivePlaybackSource | null>(() => {
+  const capture = selectedCapture.value
+  if (
+    configuredLiveMediaBackend.value !== 'ome_experiment' ||
+    !liveCapture.value ||
+    !capture?.ingestPath ||
+    omePlaybackFailed.value
+  )
+    return null
+  return {
+    backend: 'ome_llhls',
+    captureSessionId: capture.id,
+    manifestUrl: omeLiveManifestUrl(publicEndpoints.liveHlsBaseUrl.value, capture.ingestPath),
+    presentationAnchors: (capture.livePresentationAnchors ?? []).map(anchor => ({
+      captureTimeOriginUs: anchor.captureTimeOriginUs,
+      programDateTime: anchor.programDateTime,
+      sequenceIndex: anchor.sequenceIndex,
+    })),
+  }
+})
+watch(
+  omeLiveSource,
+  source => {
+    omeDirectPlaybackActive.value = Boolean(source)
+    if (!source) {
+      omeAtLiveEdge.value = false
+      omeCanonicalTimeValidated.value = false
+      omeObservedCaptureTimeUs.value = null
+    }
+  },
+  { immediate: true },
+)
 const timelineEndTarget = computed(
   () =>
     timeline.value?.liveEdgeCaptureTimeUs ?? timeline.value?.availableRanges.at(-1)?.endUs ?? null,
@@ -1159,6 +1246,8 @@ const liveTarget = computed(() =>
     : null,
 )
 const visualPlayhead = computed(() => {
+  if (omeDirectPlaybackActive.value && omeObservedCaptureTimeUs.value)
+    return omeObservedCaptureTimeUs.value
   if (frameNavigation.active.value && framePreviewCaptureTimeUs.value)
     return framePreviewCaptureTimeUs.value
   const selectedPointPreview = selectedKeyPointId.value
@@ -1170,6 +1259,7 @@ const visualPlayhead = computed(() => {
   const window = descriptor.value
   if (
     !cursor ||
+    cursor.schema_version !== '1.0.0' ||
     !window ||
     cursor.playback_window_id !== window.playback_window_id ||
     cursor.mapping_version !== window.mapping_version
@@ -1326,21 +1416,87 @@ async function loadMatch(options: { silent?: boolean } = {}) {
   }
 }
 
-async function refreshSelectedCapture() {
+async function refreshSelectedCapture(): Promise<CapturePollOutcome> {
   const captureId = selectedCaptureId.value
-  if (!captureId || document.visibilityState !== 'visible') return
+  if (!captureId || document.visibilityState !== 'visible' || captureRefreshInFlight)
+    return 'skipped'
+  captureRefreshInFlight = true
   try {
+    const previous = selectedCapture.value
     const capture = await core.captureSession(captureId)
-    if (!capture || !match.value?.captureSessions) return
+    if (!capture || !match.value?.captureSessions) return 'failed'
+    const changed =
+      previous?.status !== capture.status ||
+      previous?.health !== capture.health ||
+      previous?.timeline?.timelineVersion !== capture.timeline?.timelineVersion ||
+      previous?.timeline?.liveEdgeCaptureTimeUs !== capture.timeline?.liveEdgeCaptureTimeUs ||
+      previous?.timeline?.ingestFrontierCaptureTimeUs !==
+        capture.timeline?.ingestFrontierCaptureTimeUs ||
+      previous?.timeline?.availabilityComplete !== capture.timeline?.availabilityComplete
     match.value = {
       ...match.value,
       captureSessions: match.value.captureSessions.map(current =>
         current.id === capture.id ? capture : current,
       ),
     }
+    return changed ? 'changed' : 'unchanged'
   } catch {
-    /* The existing descriptor remains usable; retry on the next media tick. */
+    // Keep the existing descriptor usable. A self-scheduling poller backs off
+    // instead of stacking requests while the network is degraded.
+    return 'failed'
+  } finally {
+    captureRefreshInFlight = false
   }
+}
+
+function scheduleTimelineRefresh(delayMs = timelinePollDelayMs, replace = false) {
+  if (timelineRefreshTimer) {
+    if (!replace) return
+    clearTimeout(timelineRefreshTimer)
+  }
+  timelineRefreshTimer = setTimeout(
+    () => {
+      timelineRefreshTimer = null
+      void runTimelineRefreshCycle()
+    },
+    Math.max(0, delayMs),
+  )
+}
+
+async function runTimelineRefreshCycle() {
+  const online = navigator.onLine
+  if (document.visibilityState !== 'visible' || !online) {
+    timelinePollDelayMs = nextCapturePollDelay(timelinePollDelayMs, 'skipped', online)
+    scheduleTimelineRefresh()
+    return
+  }
+
+  maintainPlaybackWindow()
+  const captureActive = captureNeedsPolling(selectedCapture.value?.status)
+  const processingActive = hasActiveRallyProcessing(coach.data.value?.match.rallies)
+  const capturePromise = captureActive
+    ? refreshSelectedCapture()
+    : Promise.resolve<CapturePollOutcome>('skipped')
+  const coachPromise = processingActive
+    ? Promise.resolve(coach.refresh()).then(
+        () => false,
+        () => true,
+      )
+    : Promise.resolve(false)
+  const [captureOutcome, coachFailed] = await Promise.all([capturePromise, coachPromise])
+  const outcome: CapturePollOutcome = coachFailed
+    ? 'failed'
+    : captureOutcome === 'skipped' && processingActive
+      ? 'unchanged'
+      : captureOutcome
+  timelinePollDelayMs = nextCapturePollDelay(timelinePollDelayMs, outcome, true)
+  scheduleTimelineRefresh()
+}
+
+function resumeTimelineRefresh() {
+  if (document.visibilityState !== 'visible' || !navigator.onLine) return
+  timelinePollDelayMs = 1_000
+  scheduleTimelineRefresh(0, true)
 }
 
 async function resolveLatestCursor() {
@@ -1348,6 +1504,7 @@ async function resolveLatestCursor() {
   if (cursorResolveInFlight || !pendingCursorResolve) return
   const cursor = pendingCursorResolve
   pendingCursorResolve = null
+  if (cursor.schema_version !== '1.0.0') return
   cursorResolveInFlight = true
   lastCursorResolveAt = performance.now()
   try {
@@ -1376,6 +1533,7 @@ function handleCursor(cursor: PlaybackCursorInput) {
   observedCursor.value = cursor
   cursorStatus.value = cursor.cursor_status
   settleOptimisticSeekFromCursor(cursor)
+  if (cursor.schema_version === '2.0.0') return
   // Frame stepping owns the player position until its authoritative queue has
   // drained. Browser seek callbacks are observations of the optimistic preview,
   // not new commands that should race the canonical sample-index resolver.
@@ -1487,6 +1645,11 @@ async function seekTimeline(targetCaptureTimeUs: string) {
   setOptimisticSeekTarget(target)
   captureTarget.value = target
   if (overlayPlayer.value?.seekCaptureTimeIfBuffered(target)) return
+  if (omeDirectPlaybackActive.value) {
+    if (optimisticSeekCaptureTimeUs.value === target) clearOptimisticSeekTarget()
+    mediaError.value = '目前位置不在 OME DVR 可用範圍內'
+    return
+  }
   const created = await createWindow(target, undefined, true)
   if (!created && optimisticSeekCaptureTimeUs.value === target) clearOptimisticSeekTarget()
 }
@@ -1508,6 +1671,7 @@ function settleOptimisticSeekFromCursor(cursor: PlaybackCursorInput) {
   const window = descriptor.value
   if (
     !target ||
+    cursor.schema_version !== '1.0.0' ||
     cursor.cursor_status !== 'ready' ||
     !window ||
     cursor.playback_window_id !== window.playback_window_id ||
@@ -1672,6 +1836,7 @@ async function continueAcrossGap(input: {
   transition.targetWindowId = created.playback_window_id
 }
 function maintainPlaybackWindow() {
+  if (omeDirectPlaybackActive.value) return
   const element = video.value
   const window = descriptor.value
   if (
@@ -1813,6 +1978,32 @@ function handlePlaybackError(error: Error) {
   gapTransition = null
   mediaError.value = error.message
 }
+function handleOmePlaybackError(error: Error) {
+  gapTransition = null
+  omePlaybackFailed.value = true
+  mediaError.value = error.message
+  const failedCaptureId = selectedCaptureId.value
+  if (omePlaybackRetryTimer) clearTimeout(omePlaybackRetryTimer)
+  omePlaybackRetryTimer = setTimeout(() => {
+    omePlaybackRetryTimer = null
+    if (failedCaptureId && selectedCaptureId.value === failedCaptureId && liveCapture.value) {
+      mediaError.value = null
+      omePlaybackFailed.value = false
+    }
+  }, 15_000)
+  toast.warning('OME 即時播放無法載入，已回退舊播放路徑', {
+    description: error.message,
+  })
+}
+function handleOmeLivePosition(value: {
+  atLiveEdge: boolean
+  captureTimeUs: string | null
+  mappingStatus: 'validated' | 'unmapped'
+}) {
+  omeAtLiveEdge.value = value.atLiveEdge
+  omeCanonicalTimeValidated.value = value.mappingStatus === 'validated'
+  omeObservedCaptureTimeUs.value = value.mappingStatus === 'validated' ? value.captureTimeUs : null
+}
 function setPlaybackRate(rate: number) {
   if (!Number.isFinite(rate) || rate < 0.25 || rate > 4) return
   playbackRate.value = rate
@@ -1820,9 +2011,15 @@ function setPlaybackRate(rate: number) {
 }
 function handleBufferState(value: {
   buffered: CanonicalMediaRange[]
+  seekable: CanonicalMediaRange[]
   mappingVersion: number | null
   playbackWindowId: string | null
 }) {
+  if (omeDirectPlaybackActive.value) {
+    playerBufferedRanges.value = value.buffered
+    playerSeekableRanges.value = value.seekable
+    return
+  }
   const window = descriptor.value
   playerBufferedRanges.value =
     window &&
@@ -1830,6 +2027,7 @@ function handleBufferState(value: {
     value.mappingVersion === window.mapping_version
       ? value.buffered
       : []
+  playerSeekableRanges.value = []
 }
 function dispatchMediaAction(
   action: PlayerAction,
@@ -2196,11 +2394,15 @@ function reportBlockedHotkey(action: HotkeyCommand, event?: KeyboardEvent) {
   const reason =
     actionState.reason ||
     (action === 'frame_previous' || action === 'frame_next'
-      ? !descriptor.value
-        ? '播放器尚未載入可用影片'
-        : dvr.status.value === 'gap'
-          ? '目前位置沒有可用畫格'
-          : '播放視窗正在自動恢復，請稍候'
+      ? omeDirectPlaybackActive.value
+        ? omeCanonicalTimeValidated.value
+          ? 'OME canonical time 已驗證；逐格與標記仍等待 authoritative cursor contract'
+          : 'OME canonical time mapping 尚未驗證，暫停逐格與時間標記'
+        : !descriptor.value
+          ? '播放器尚未載入可用影片'
+          : dvr.status.value === 'gap'
+            ? '目前位置沒有可用畫格'
+            : '播放視窗正在自動恢復，請稍候'
       : '目前狀態尚不能執行此操作')
   const signature = `${action}:${reason}`
   const now = performance.now()
@@ -2234,10 +2436,16 @@ watch(
   selectedCaptureId,
   (captureId, previousCaptureId) => {
     if (captureId !== previousCaptureId) {
+      if (omePlaybackRetryTimer) clearTimeout(omePlaybackRetryTimer)
+      omePlaybackRetryTimer = null
+      omePlaybackFailed.value = false
+      omeAtLiveEdge.value = false
+      omeObservedCaptureTimeUs.value = null
       playbackHasStarted = false
       gapTransition = null
       continuationRetryDelayMs = 500
       playerBufferedRanges.value = []
+      playerSeekableRanges.value = []
       if (continuationRetryTimer) clearTimeout(continuationRetryTimer)
       continuationRetryTimer = null
       if (descriptor.value && descriptor.value.capture_session_id !== captureId) dvr.clear()
@@ -2248,9 +2456,10 @@ watch(
   { immediate: true },
 )
 watch(
-  [selectedCaptureId, defaultPlaybackTarget, defaultPlaybackWindowMode],
-  ([captureId, target, mode]) => {
+  [selectedCaptureId, defaultPlaybackTarget, defaultPlaybackWindowMode, omeLiveSource],
+  ([captureId, target, mode, liveSource]) => {
     if (
+      liveSource ||
       !captureId ||
       !target ||
       dvr.busy.value ||
@@ -2363,9 +2572,7 @@ watch(
     const failures = Object.values(updates).filter(update => update.processing_status === 'failed')
     for (const update of failures) {
       const signature = `${update.submission_id}:${update.updated_at ?? ''}`
-      const shouldNotify =
-        processingFailureWatchReady ||
-        update.rally_id === (selectedRallyId.value ?? displayAnnotation.value?.rally_id)
+      const shouldNotify = processingFailureWatchReady || update.rally_id === selectedRallyId.value
       if (notifiedProcessingFailures.has(signature)) continue
       notifiedProcessingFailures.add(signature)
       if (!shouldNotify) continue
@@ -2415,7 +2622,7 @@ watch(
 
 const transportActions = createTransportActionService({
   manager: workstationActions,
-  playerReady: computed(() => Boolean(descriptor.value)),
+  playerReady: computed(() => Boolean(descriptor.value || omeDirectPlaybackActive.value)),
   frameReady: computed(() =>
     Boolean(
       descriptor.value &&
@@ -2423,7 +2630,7 @@ const transportActions = createTransportActionService({
     ),
   ),
   frameMovePending: computed(() => Boolean(pendingTimelineMove.value)),
-  liveAvailable: computed(() => Boolean(liveTarget.value)),
+  liveAvailable: computed(() => Boolean(liveTarget.value || omeDirectPlaybackActive.value)),
   correctionCreateEnabled: computed(
     () => Boolean(selectedSubmittedRally.value) && !selectedCorrectionDraft.value,
   ),
@@ -2448,6 +2655,10 @@ const transportActions = createTransportActionService({
   togglePlayback: () => dispatchMediaAction('play_pause'),
   stepFrame: (direction, count = 1, input = 'button') => queueFrameStep(direction, count, input),
   goLive: () => {
+    if (omeDirectPlaybackActive.value) {
+      overlayPlayer.value?.seekLiveEdge()
+      return
+    }
     if (liveTarget.value) return createWindow(liveTarget.value, 'live').then(() => undefined)
   },
   startCorrection,
@@ -2534,31 +2745,31 @@ provideAnnotationWorkstationService(annotationWorkstationService)
 function releaseFrameNavigationGestures() {
   frameGestureRouter.releaseAll()
 }
-function releaseFrameNavigationWhenHidden() {
+function handleWorkstationVisibilityChange() {
   if (document.visibilityState === 'hidden') releaseFrameNavigationGestures()
+  else resumeTimelineRefresh()
 }
 onMounted(() => {
   annotationScope.value?.focus({ preventScroll: true })
   window.addEventListener('blur', releaseFrameNavigationGestures)
-  document.addEventListener('visibilitychange', releaseFrameNavigationWhenHidden)
-  void loadMatch()
-  timelineRefreshTimer = setInterval(() => {
-    if (captureNeedsPolling(selectedCapture.value?.status)) void refreshSelectedCapture()
-    if (hasActiveRallyProcessing(coach.data.value?.match.rallies)) void coach.refresh()
-    maintainPlaybackWindow()
-  }, 2_500)
+  window.addEventListener('online', resumeTimelineRefresh)
+  document.addEventListener('visibilitychange', handleWorkstationVisibilityChange)
+  void loadMatch().finally(resumeTimelineRefresh)
+  scheduleTimelineRefresh(2_500)
 })
 onBeforeUnmount(() => {
   gapTransition = null
   annotationWorkstationService.dispose()
   if (selectedCaptureId.value && visualPlayhead.value)
     workstationViewState.rememberCursor(selectedCaptureId.value, visualPlayhead.value)
-  if (timelineRefreshTimer) clearInterval(timelineRefreshTimer)
+  if (timelineRefreshTimer) clearTimeout(timelineRefreshTimer)
   if (cursorResolveTimer) clearTimeout(cursorResolveTimer)
   if (seekPreviewTimer) clearTimeout(seekPreviewTimer)
   if (optimisticSeekTimer) clearTimeout(optimisticSeekTimer)
+  if (omePlaybackRetryTimer) clearTimeout(omePlaybackRetryTimer)
   window.removeEventListener('blur', releaseFrameNavigationGestures)
-  document.removeEventListener('visibilitychange', releaseFrameNavigationWhenHidden)
+  window.removeEventListener('online', resumeTimelineRefresh)
+  document.removeEventListener('visibilitychange', handleWorkstationVisibilityChange)
   frameGestureRouter.releaseAll()
   frameNavigation.stop()
   clearFramePreviewState()
@@ -2602,7 +2813,8 @@ onBeforeUnmount(() => {
             <VideoOverlayPlayer
               ref="overlayPlayer"
               class="video-overlay-player"
-              :descriptor="descriptor"
+              :descriptor="omeLiveSource ? null : descriptor"
+              :live-source="omeLiveSource"
               :controls="false"
               :toggle-on-click="
                 !analysisOverlayActive ||
@@ -2640,6 +2852,8 @@ onBeforeUnmount(() => {
               :overlay-team-labels="overlayTeamLabels"
               :overlay-layers="annotationOverlayLayers"
               @cursor="handleCursor"
+              @live-error="handleOmePlaybackError"
+              @live-position="handleOmeLivePosition"
               @ready="handleVideoReady"
               @buffer-activity="maintainPlaybackWindow"
               @buffer-state="handleBufferState"
@@ -2726,7 +2940,7 @@ onBeforeUnmount(() => {
           :right-team-id="selectedSideRightTeamId"
           :drafts="annotationDrafts"
           :rallies="visibleSubmittedRallies"
-          :selected-rally-id="pinnedRallyId"
+          :selected-rally-id="selectedRallyId"
           :displayed-rally-id="displayAnnotation?.rally_id ?? null"
           :displayed-outcome-label="currentMaskOutcome"
           :displayed-outcome-side="currentMaskOutcomeSide"
@@ -2756,8 +2970,12 @@ onBeforeUnmount(() => {
       <AnnotationTransportBar
         :playing="playing"
         :timecode="displayTimecode"
-        :live-active="playbackMode === 'active_live' && descriptor?.mode === 'live'"
-        :live-available="Boolean(liveTarget)"
+        :live-active="
+          omeDirectPlaybackActive
+            ? omeAtLiveEdge
+            : playbackMode === 'active_live' && descriptor?.mode === 'live'
+        "
+        :live-available="Boolean(liveTarget || omeDirectPlaybackActive)"
         :terminal-label="playbackMode === 'ended_live' ? 'END' : null"
         :context-title="activeContextTitle"
         :context-hits="activeContextHits"

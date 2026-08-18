@@ -61,4 +61,20 @@ describe('createWorkstationSelectionService', () => {
 
     expect(selection.activeRallyId.value).toBe('rally-b')
   })
+
+  it('does not keep a local draft selected when the cursor leaves every segment', () => {
+    const cursorRallyId = ref<string | null>('rally-a')
+    const selection = createWorkstationSelectionService({
+      localDraftRallyId: ref('draft-local'),
+      cursorRallyId,
+      availableRallyIds: ref<ReadonlySet<string>>(new Set(['draft-local', 'rally-a'])),
+    })
+
+    expect(selection.activeRallyId.value).toBe('rally-a')
+
+    cursorRallyId.value = null
+
+    expect(selection.segment.value).toEqual({ kind: 'none' })
+    expect(selection.activeRallyId.value).toBeNull()
+  })
 })

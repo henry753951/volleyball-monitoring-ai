@@ -89,6 +89,19 @@ export interface PlaybackCursor {
   seek_generation: number
   cursor_status: 'ready' | 'seeking' | 'stale' | 'gap'
 }
+export interface OmeLivePlaybackCursor {
+  schema_version: '2.0.0'
+  media_backend: 'ome_llhls'
+  capture_session_id: string
+  presentation_anchor_sequence: number
+  program_date_time: string
+  player_media_time_us: string
+  observation_source: 'request_video_frame_callback' | 'current_time_fallback'
+  presented_frames?: string | null
+  seek_generation: number
+  cursor_status: 'ready' | 'seeking' | 'stale' | 'gap'
+}
+export type MediaPlaybackCursor = PlaybackCursor | OmeLivePlaybackCursor
 export interface ResolvedMediaAnchor {
   schema_version: '1.0.0'
   playback_window_id: string
@@ -257,8 +270,47 @@ export const parsePlaybackWindowDescriptor = (input: unknown): PlaybackWindowDes
     boolField(v, 'has_more_before')
     boolField(v, 'has_more_after')
   })
-export const parsePlaybackCursor = (input: unknown): PlaybackCursor =>
+export const parsePlaybackCursor = (input: unknown): MediaPlaybackCursor =>
   parse(input, v => {
+    if (v.schema_version === '2.0.0') {
+      exact(
+        v,
+        [
+          'schema_version',
+          'media_backend',
+          'capture_session_id',
+          'presentation_anchor_sequence',
+          'program_date_time',
+          'player_media_time_us',
+          'observation_source',
+          'seek_generation',
+          'cursor_status',
+        ],
+        ['presented_frames'],
+      )
+      if (
+        v.media_backend !== 'ome_llhls' ||
+        !['request_video_frame_callback', 'current_time_fallback'].includes(
+          String(v.observation_source),
+        ) ||
+        !['ready', 'seeking', 'stale', 'gap'].includes(String(v.cursor_status))
+      )
+        throw new TypeError('invalid cursor')
+      idField(v, 'capture_session_id')
+      nonNegativeIntField(v, 'presentation_anchor_sequence')
+      stringField(v, 'program_date_time')
+      if (
+        !String(v.program_date_time).includes('T') ||
+        Number.isNaN(Date.parse(String(v.program_date_time)))
+      )
+        throw new TypeError('invalid program_date_time')
+      nonNegativeIntField(v, 'seek_generation')
+      uintField(v, 'player_media_time_us')
+      optionalField(v, 'presented_frames', () => {
+        if (v.presented_frames !== null) uintField(v, 'presented_frames')
+      })
+      return
+    }
     exact(
       v,
       [

@@ -19,3 +19,18 @@ export function hasActiveRallyProcessing(
     rallies?.some(rally => ACTIVE_RALLY_PROCESSING_STATUSES.has(rally.processing_status)),
   )
 }
+
+export type CapturePollOutcome = 'changed' | 'unchanged' | 'failed' | 'skipped'
+
+export function nextCapturePollDelay(
+  currentDelayMs: number,
+  outcome: CapturePollOutcome,
+  online = true,
+): number {
+  if (!online || outcome === 'skipped') return 5_000
+  if (outcome === 'changed') return 1_000
+  if (outcome === 'failed') {
+    return Math.min(15_000, Math.max(2_500, Math.round(currentDelayMs * 1.8)))
+  }
+  return Math.min(5_000, Math.max(2_500, Math.round(currentDelayMs * 1.35)))
+}

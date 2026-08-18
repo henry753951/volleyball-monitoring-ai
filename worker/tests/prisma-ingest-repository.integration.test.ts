@@ -56,6 +56,7 @@ let identityIndex = 1
 
 async function createSession(
   status: 'STARTING' | 'LIVE' | 'STOPPING' | 'FINISHED' | 'FAILED' = 'STARTING',
+  sourceKind = 'fixture',
 ) {
   const index = identityIndex++
   const matchId = uuidFor(index * 10)
@@ -65,7 +66,7 @@ async function createSession(
     data: {
       id: captureSessionId,
       matchId,
-      sourceKind: 'fixture',
+      sourceKind,
       ingestPath: `/fixture/${captureSessionId}`,
       status,
       health: 'STARTING',
@@ -344,6 +345,49 @@ describe('Prisma finalized media ingest repository', () => {
     })
   })
 
+  it('adopts a live provisional epoch when the matching OME extent is finalized', async () => {
+    const { captureSessionId } = await createSession()
+    const firstInput = reservationInput(captureSessionId, 'provisional-first', {
+      samples: samples(0n),
+    })
+    const first = await repository.reserveUploading(firstInput)
+    await prepareAndPublish(first)
+
+    const provisionalId = randomUUID()
+    const provisionalFrameOrigin =
+      first.plan.segment.firstFrameIndex + BigInt(first.plan.segment.sampleIndex.samples.length)
+    await db.captureEpoch.create({
+      data: {
+        id: provisionalId,
+        captureSessionId,
+        sequenceIndex: first.plan.epoch.epochSequence + 1,
+        sourceTimeBaseNum: 1,
+        sourceTimeBaseDen: 90_000,
+        sourcePtsOrigin: 0n,
+        captureTimeOriginUs: first.plan.segment.captureEndUs,
+        captureFrameOrigin: provisionalFrameOrigin,
+        startedAtCaptureUs: first.plan.segment.captureEndUs,
+        discontinuityReason: 'OME_RECORDING_EXTENT_PROVISIONAL',
+      },
+    })
+
+    const finalizedInput = reservationInput(captureSessionId, 'provisional-finalized', {
+      newEpochId: randomUUID(),
+      samples: samples(0n),
+      sourceOrder: firstInput.sourceOrder + 1n,
+      timestampDiscontinuity: false,
+    })
+    const finalized = await repository.reserveUploading(finalizedInput)
+
+    expect(finalized.createdNewEpoch).toBe(true)
+    expect(finalized.captureEpochId).toBe(provisionalId)
+    expect(finalized.sampleIndex.epochId).toBe(provisionalId)
+    expect(finalized.plan.segment.captureStartUs).toBe(first.plan.segment.captureEndUs)
+    expect(finalized.plan.segment.firstFrameIndex).toBe(provisionalFrameOrigin)
+    const adopted = await db.captureEpoch.findUniqueOrThrow({ where: { id: provisionalId } })
+    expect(adopted.discontinuityReason).not.toBe('OME_RECORDING_EXTENT_PROVISIONAL')
+  })
+
   it('rejects an invalid source time base without creating persistence rows', async () => {
     const { captureSessionId } = await createSession()
     const input = reservationInput(captureSessionId, 'invalid-time-base', {
@@ -384,6 +428,13 @@ describe('Prisma finalized media ingest repository', () => {
 
   it('records exact expectations idempotently and publishes all readiness exactly once', async () => {
     const { captureSessionId } = await createSession()
+    const sourceJobId = randomUUID()
+    const finalizedAt = new Date('2026-08-07T07:59:55.000Z')
+    const extent = {
+      sourceJobId,
+      localPath: 'ome/fixture-publish-once.mp4',
+      finalizedAt,
+    }
     const reservation = await repository.reserveUploading(
       reservationInput(captureSessionId, 'publish-once'),
     )
@@ -407,18 +458,22 @@ describe('Prisma finalized media ingest repository', () => {
     const published = await repository.publishReady({
       reservation: reservation.reference,
       verifiedArtifacts: artifactExpectations,
+      extent,
     })
     expect(published).toEqual({
       disposition: 'PUBLISHED',
       readyAt: fixedReadyAt,
       playlistRevision: 1n,
     })
-    const [segment, program, session, readyAssets] = await Promise.all([
+    const [segment, program, session, readyAssets, mediaExtent] = await Promise.all([
       db.dvrSegment.findUniqueOrThrow({ where: { id: reservation.reference.dvrSegmentId } }),
       db.dvrProgram.findUniqueOrThrow({ where: { id: reservation.reference.dvrProgramId } }),
       db.captureSession.findUniqueOrThrow({ where: { id: captureSessionId } }),
       db.mediaAsset.findMany({
         where: { id: { in: Object.values(reservation.artifacts).map(value => value.id) } },
+      }),
+      db.mediaExtent.findUniqueOrThrow({
+        where: { dvrSegmentId: reservation.reference.dvrSegmentId },
       }),
     ])
     expect(segment.readyAt).toEqual(fixedReadyAt)
@@ -434,6 +489,80 @@ describe('Prisma finalized media ingest repository', () => {
       playlistRevision: 1n,
     })
     expect(session).toMatchObject({ status: 'LIVE', health: 'HEALTHY', startedAt: fixedReadyAt })
+    expect(mediaExtent).toMatchObject({
+      captureSessionId,
+      dvrProgramId: reservation.reference.dvrProgramId,
+      dvrSegmentId: reservation.reference.dvrSegmentId,
+      captureEpochId: reservation.captureEpochId,
+      sequenceNumber: reservation.sequenceNumber,
+      discontinuitySequence: reservation.plan.segment.discontinuitySequence,
+      sourceJobId,
+      source: 'fixture',
+      startUs: reservation.plan.segment.captureStartUs,
+      endUs: reservation.plan.segment.captureEndUs,
+      sourcePtsStart: reservation.plan.segment.sourcePtsStart,
+      sourcePtsEnd: reservation.plan.segment.sourcePtsEndExclusive,
+      firstFrameIndex: reservation.plan.segment.firstFrameIndex,
+      frameCount: reservation.plan.segment.frameCount,
+      localPath: extent.localPath,
+      bucket: artifactExpectations.find(artifact => artifact.kind === 'media')!.location.bucket,
+      objectKey: artifactExpectations.find(artifact => artifact.kind === 'media')!.location.key,
+      mediaSha256: artifactExpectations.find(artifact => artifact.kind === 'media')!.sha256,
+      mediaSchemaVersion: artifactExpectations.find(artifact => artifact.kind === 'media')!
+        .internalSchemaVersion,
+      initBucket: artifactExpectations.find(artifact => artifact.kind === 'init')!.location.bucket,
+      initObjectKey: artifactExpectations.find(artifact => artifact.kind === 'init')!.location.key,
+      initSha256: artifactExpectations.find(artifact => artifact.kind === 'init')!.sha256,
+      initBytes: artifactExpectations.find(artifact => artifact.kind === 'init')!.byteLength,
+      initSchemaVersion: artifactExpectations.find(artifact => artifact.kind === 'init')!
+        .internalSchemaVersion,
+      sampleIndexBucket: artifactExpectations.find(artifact => artifact.kind === 'sample-index')!
+        .location.bucket,
+      sampleIndexObjectKey: artifactExpectations.find(artifact => artifact.kind === 'sample-index')!
+        .location.key,
+      sampleIndexSha256: artifactExpectations.find(artifact => artifact.kind === 'sample-index')!
+        .sha256,
+      sampleIndexBytes: artifactExpectations.find(artifact => artifact.kind === 'sample-index')!
+        .byteLength,
+      sampleIndexSchemaVersion: artifactExpectations.find(
+        artifact => artifact.kind === 'sample-index',
+      )!.internalSchemaVersion,
+      status: 'ARCHIVE_VERIFIED',
+      bytes: artifactExpectations.find(artifact => artifact.kind === 'media')!.byteLength,
+      finalizedAt,
+      catalogedAt: fixedReadyAt,
+      archiveVerifiedAt: fixedReadyAt,
+    })
+    await expect(
+      db.mediaExtent.update({
+        data: { captureEpochId: null },
+        where: { id: mediaExtent.id },
+      }),
+    ).rejects.toBeDefined()
+    await db.mediaExtent.update({
+      data: {
+        captureEpochId: null,
+        sequenceNumber: null,
+        discontinuitySequence: null,
+        initBucket: null,
+        initBytes: null,
+        initObjectKey: null,
+        initSchemaVersion: null,
+        initSha256: null,
+        mediaSchemaVersion: null,
+        mediaSha256: null,
+        firstFrameIndex: null,
+        frameCount: null,
+        sampleIndexBucket: null,
+        sampleIndexBytes: null,
+        sampleIndexObjectKey: null,
+        sampleIndexSchemaVersion: null,
+        sampleIndexSha256: null,
+        sourcePtsEnd: null,
+        sourcePtsStart: null,
+      },
+      where: { id: mediaExtent.id },
+    })
 
     const replay = await repository.reserveUploading(
       reservationInput(captureSessionId, 'publish-once', {
@@ -455,6 +584,7 @@ describe('Prisma finalized media ingest repository', () => {
     const redelivery = await repository.publishReady({
       reservation: reservation.reference,
       verifiedArtifacts: artifactExpectations,
+      extent,
     })
     expect(redelivery).toEqual({
       disposition: 'ALREADY_READY',
@@ -464,6 +594,77 @@ describe('Prisma finalized media ingest repository', () => {
     await expect(
       db.dvrProgram.findUniqueOrThrow({ where: { id: program.id } }),
     ).resolves.toMatchObject({ playlistRevision: 1n })
+    await expect(db.mediaExtent.count({ where: { sourceJobId } })).resolves.toBe(1)
+    await expect(
+      db.mediaExtent.findUniqueOrThrow({ where: { sourceJobId } }),
+    ).resolves.toMatchObject({
+      captureEpochId: reservation.captureEpochId,
+      sequenceNumber: reservation.sequenceNumber,
+      discontinuitySequence: reservation.plan.segment.discontinuitySequence,
+      firstFrameIndex: reservation.plan.segment.firstFrameIndex,
+      frameCount: reservation.plan.segment.frameCount,
+      sourcePtsEnd: reservation.plan.segment.sourcePtsEndExclusive,
+      sourcePtsStart: reservation.plan.segment.sourcePtsStart,
+    })
+    await db.dvrSegment.delete({ where: { id: reservation.reference.dvrSegmentId } })
+    await expect(
+      db.mediaExtent.findUniqueOrThrow({ where: { sourceJobId } }),
+    ).resolves.toMatchObject({
+      captureEpochId: reservation.captureEpochId,
+      dvrSegmentId: null,
+      sampleIndexObjectKey: artifactExpectations.find(artifact => artifact.kind === 'sample-index')!
+        .location.key,
+    })
+  })
+
+  it('publishes live recordings directly through MediaExtent without legacy media rows', async () => {
+    const { captureSessionId } = await createSession('STARTING', 'youtube_live')
+    const sourceJobId = randomUUID()
+    const extentPublication = {
+      sourceJobId,
+      localPath: 'live/20260818120000_0.mp4',
+      finalizedAt: new Date('2026-08-18T12:01:00.000Z'),
+    }
+    const reservation = await repository.reserveUploading(
+      reservationInput(captureSessionId, 'extent-only-live', { extent: extentPublication }),
+    )
+    expect(reservation.reference.mediaExtentId).toBeTruthy()
+    await expect(
+      Promise.all([
+        db.dvrSegment.count({ where: { dvrProgramId: reservation.reference.dvrProgramId } }),
+        db.mediaAsset.count({
+          where: {
+            OR: Object.values(reservation.artifacts).map(artifact => ({
+              bucket: artifact.location.bucket,
+              objectKey: artifact.location.key,
+            })),
+          },
+        }),
+      ]),
+    ).resolves.toEqual([0, 0])
+
+    const artifactExpectations = expectations(reservation)
+    await repository.recordArtifactExpectations({
+      reservation: reservation.reference,
+      artifacts: artifactExpectations,
+      sampleIndexDocument: serializeSampleIndex(reservation.sampleIndex),
+    })
+    const published = await repository.publishReady({
+      reservation: reservation.reference,
+      verifiedArtifacts: artifactExpectations,
+      extent: extentPublication,
+    })
+    expect(published).toMatchObject({ disposition: 'PUBLISHED', playlistRevision: 1n })
+    await expect(
+      db.mediaExtent.findUniqueOrThrow({ where: { id: reservation.reference.mediaExtentId } }),
+    ).resolves.toMatchObject({
+      dvrSegmentId: null,
+      sourceJobId,
+      source: 'youtube_live',
+      status: 'ARCHIVE_VERIFIED',
+      captureEpochId: reservation.captureEpochId,
+      sequenceNumber: 0n,
+    })
   })
 
   it('publishes a draining reservation without resurrecting stopping lifecycle state', async () => {

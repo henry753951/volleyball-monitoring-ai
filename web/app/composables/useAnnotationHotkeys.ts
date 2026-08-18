@@ -88,13 +88,73 @@ export interface AnnotationHotkeyRuntimeOptions {
   release?: HotkeyCommandDispatcher
   enabled?: MaybeRefOrGetter<boolean>
   commandEnabled?: (command: HotkeyCommand, event?: KeyboardEvent) => boolean
-  scopeBlocked?: () => boolean
+  scopeBlocked?: (event?: KeyboardEvent) => boolean
 }
 
-export function isModalHotkeyScopeActive(): boolean {
+const WORKSTATION_HOTKEY_SURFACE_SELECTOR = '[data-annotation-hotkey-surface="workstation"]'
+
+function closest(target: EventTarget | null, selector: string) {
+  if (!target || typeof target !== 'object') return null
+  const element = target as { closest?: (value: string) => Element | null }
+  return element.closest?.(selector) ?? null
+}
+
+export function isModalHotkeyScopeActive(event?: KeyboardEvent): boolean {
   if (typeof document === 'undefined' || typeof document.querySelector !== 'function') return false
-  return Boolean(
-    document.querySelector('dialog[open], [role="dialog"][aria-modal="true"], [aria-modal="true"]'),
+  // Inline workstation editors are not modal dialogs. Keep the complete
+  // annotation keyboard active even when one of their buttons owns focus or a
+  // portal leaves another transient dialog mounted in the document.
+  if (
+    closest(event?.target ?? null, WORKSTATION_HOTKEY_SURFACE_SELECTOR) ||
+    closest(document.activeElement, WORKSTATION_HOTKEY_SURFACE_SELECTOR)
+  )
+    return false
+  // Only an actually active modal owns the workstation keyboard. A number of
+  // popover libraries keep hidden/closing aria-modal nodes mounted in a portal;
+  // treating any such node as global state silently drops Z/X/C/V.
+  if (document.querySelector('dialog[open], [data-annotation-hotkeys-block="true"]')) return true
+  const active = document.activeElement as
+    | (Element & { closest?: (selector: string) => Element | null })
+    | null
+  return Boolean(active?.closest?.('dialog[open], [role="dialog"][aria-modal="true"]'))
+}
+
+function isEditableKeyboardTarget(target: EventTarget | null) {
+  if (!target || typeof target !== 'object') return false
+  const element = target as {
+    tagName?: string
+    isContentEditable?: boolean
+    closest?: (selector: string) => Element | null
+  }
+  const tagName = element.tagName?.toUpperCase()
+  return (
+    tagName === 'INPUT' ||
+    tagName === 'TEXTAREA' ||
+    tagName === 'SELECT' ||
+    Boolean(element.isContentEditable) ||
+    Boolean(element.closest?.('[contenteditable="true"]'))
+  )
+}
+
+function shouldIgnoreComposingEvent(event: KeyboardEvent) {
+  return event.isComposing && isEditableKeyboardTarget(event.target)
+}
+
+function matchesPhysicalKeyboardEvent(event: KeyboardEvent, hotkey: string) {
+  const parts = hotkey.split('+')
+  const key = parts.at(-1) ?? ''
+  const modifiers = new Set(parts.slice(0, -1))
+  const expectedCode = /^[A-Z]$/i.test(key)
+    ? `Key${key.toUpperCase()}`
+    : /^\d$/.test(key)
+      ? `Digit${key}`
+      : key
+  if (event.code !== expectedCode) return false
+  return (
+    event.ctrlKey === modifiers.has('Control') &&
+    event.altKey === modifiers.has('Alt') &&
+    event.shiftKey === modifiers.has('Shift') &&
+    event.metaKey === modifiers.has('Meta')
   )
 }
 
@@ -102,7 +162,7 @@ export function createAnnotationHotkeyDefinitions(
   bindings: HotkeyBindings,
   dispatch: HotkeyCommandDispatcher,
   commandEnabled: (command: HotkeyCommand, event?: KeyboardEvent) => boolean = () => true,
-  scopeBlocked: () => boolean = isModalHotkeyScopeActive,
+  scopeBlocked: (event?: KeyboardEvent) => boolean = isModalHotkeyScopeActive,
   runtimeEnabled: () => boolean = () => true,
   blocked?: HotkeyCommandDispatcher,
 ): Array<UseHotkeyDefinition> {
@@ -111,7 +171,7 @@ export function createAnnotationHotkeyDefinitions(
     const definition = (hotkey: ReturnType<typeof toRuntimeHotkey>): UseHotkeyDefinition => ({
       hotkey,
       callback: event => {
-        if (event.isComposing || scopeBlocked() || !runtimeEnabled()) return
+        if (shouldIgnoreComposingEvent(event) || scopeBlocked(event) || !runtimeEnabled()) return
         if (event.repeat && !repeatable) {
           event.preventDefault()
           event.stopPropagation()
@@ -164,7 +224,7 @@ export function createAnnotationHotkeyReleaseDefinitions(
     ): UseHotkeyDefinition => ({
       hotkey,
       callback: event => {
-        if (event.isComposing || !runtimeEnabled()) return
+        if (shouldIgnoreComposingEvent(event) || !runtimeEnabled()) return
         event.preventDefault()
         event.stopPropagation()
         release(command.action, event)
@@ -203,7 +263,11 @@ function dispatchCapturedDefinition(
     const definitionOptions = definition.options ? toValue(definition.options) : {}
     if ((definitionOptions.eventType ?? 'keydown') !== eventType) continue
     const hotkey = normalizeRegisterableHotkey(toValue(definition.hotkey), platform)
-    if (!matchesKeyboardEvent(event, hotkey, platform)) continue
+    if (
+      !matchesKeyboardEvent(event, hotkey, platform) &&
+      !(typeof hotkey === 'string' && matchesPhysicalKeyboardEvent(event, hotkey))
+    )
+      continue
     definition.callback(event, {
       hotkey,
       parsedHotkey: parseHotkey(hotkey, platform),

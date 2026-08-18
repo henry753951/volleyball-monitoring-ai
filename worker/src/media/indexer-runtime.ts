@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { readdir, realpath, stat } from 'node:fs/promises'
+import { readFile, readdir, realpath, stat } from 'node:fs/promises'
 import { dirname, extname, relative, resolve, sep } from 'node:path'
 import { z } from 'zod'
 
@@ -240,6 +240,194 @@ export async function scanSpool(
       if (leftOrder !== rightOrder) return leftOrder < rightOrder ? -1 : 1
       return left.candidate.localeCompare(right.candidate)
     })
+}
+
+function withinRoot(root: string, path: string): boolean {
+  const child = relative(root, path)
+  return Boolean(child) && child !== '..' && !child.startsWith(`..${sep}`)
+}
+
+async function sourceRestartForCandidate(
+  trustedRoot: string,
+  candidate: string,
+  candidateOrder: bigint,
+): Promise<boolean> {
+  const ingestPath = dirname(candidate).replaceAll('\\', '/')
+  const directory = resolve(trustedRoot, ingestPath)
+  const entries = await readdir(directory, { withFileTypes: true })
+  const mediaOrders = entries
+    .filter(entry => entry.isFile() && SUPPORTED_EXTENSIONS.has(extname(entry.name).toLowerCase()))
+    .flatMap(entry => {
+      try {
+        return [BigInt(sourceOrderFromCandidate(`${ingestPath}/${entry.name}`))]
+      } catch {
+        return []
+      }
+    })
+  for (const entry of entries) {
+    if (!entry.isFile() || !SOURCE_RESTART_MARKER.test(entry.name)) continue
+    let markerOrder: bigint
+    try {
+      markerOrder = BigInt(sourceOrderFromRestartMarker(`${ingestPath}/${entry.name}`))
+    } catch {
+      continue
+    }
+    const firstAfterMarker = mediaOrders
+      .filter(order => order > markerOrder)
+      .sort((left, right) => (left < right ? -1 : left > right ? 1 : 0))[0]
+    if (firstAfterMarker === candidateOrder) return true
+  }
+  return false
+}
+
+/** Resolve one finalized media event without walking unrelated capture directories. */
+export async function scanSpoolCandidate(
+  root: string,
+  candidateValue: string,
+  resolveCapture: (ingestPath: string) => Promise<string | null>,
+): Promise<MediaIngestEnvelope | null> {
+  const candidate = canonicalCandidate(candidateValue.replaceAll(sep, '/'))
+  const trustedRoot = await realpath(root)
+  let trustedPath: string
+  try {
+    trustedPath = await realpath(resolve(trustedRoot, candidate))
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null
+    throw error
+  }
+  if (!withinRoot(trustedRoot, trustedPath)) return null
+  const metadata = await stat(trustedPath, { bigint: true })
+  if (!metadata.isFile() || metadata.size === 0n) return null
+  const separator = candidate.lastIndexOf('/')
+  if (separator <= 0) return null
+  const ingestPath = candidate.slice(0, separator)
+  let sourceOrder: string
+  try {
+    sourceOrder = sourceOrderFromCandidate(candidate)
+  } catch {
+    return null
+  }
+  const captureSessionId = await resolveCapture(ingestPath)
+  if (!captureSessionId || !UUID.test(captureSessionId)) return null
+  return createEnvelope({
+    schemaVersion: '1.0.0',
+    jobType: MEDIA_INGEST_QUEUE,
+    captureSessionId,
+    candidate,
+    sourceOrder,
+    sourceRestart: await sourceRestartForCandidate(trustedRoot, candidate, BigInt(sourceOrder)),
+    timestampDiscontinuity: false,
+    explicitGapBeforeUs: null,
+  })
+}
+
+export type ActiveCaptureDirectory = {
+  captureSessionId: string
+  ingestPath: string
+}
+
+/** Poll one known active capture directory without recursively walking the spool root. */
+export async function scanActiveCaptureDirectory(
+  root: string,
+  capture: ActiveCaptureDirectory,
+): Promise<MediaIngestEnvelope[]> {
+  if (!UUID.test(capture.captureSessionId)) throw new Error('invalid capture session id')
+  const ingestPath = capture.ingestPath.replaceAll('\\', '/')
+  if (
+    !ingestPath ||
+    ingestPath.startsWith('/') ||
+    ingestPath.split('/').some(part => !part || part === '.' || part === '..')
+  ) {
+    throw new Error('invalid capture ingest path')
+  }
+  const trustedRoot = await realpath(root)
+  let trustedDirectory: string
+  try {
+    trustedDirectory = await realpath(resolve(trustedRoot, ingestPath))
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return []
+    throw error
+  }
+  if (!withinRoot(trustedRoot, trustedDirectory)) return []
+  const entries = await readdir(trustedDirectory, { withFileTypes: true })
+  const media = entries
+    .filter(entry => entry.isFile() && SUPPORTED_EXTENSIONS.has(extname(entry.name).toLowerCase()))
+    .flatMap(entry => {
+      const candidate = `${ingestPath}/${entry.name}`
+      try {
+        return [{ candidate, sourceOrder: BigInt(sourceOrderFromCandidate(candidate)) }]
+      } catch {
+        return []
+      }
+    })
+    .sort((left, right) =>
+      left.sourceOrder < right.sourceOrder ? -1 : left.sourceOrder > right.sourceOrder ? 1 : 0,
+    )
+  const restartCandidates = new Set<string>()
+  for (const entry of entries) {
+    if (!entry.isFile() || !SOURCE_RESTART_MARKER.test(entry.name)) continue
+    let markerOrder: bigint
+    try {
+      markerOrder = BigInt(sourceOrderFromRestartMarker(`${ingestPath}/${entry.name}`))
+    } catch {
+      continue
+    }
+    const first = media.find(item => item.sourceOrder > markerOrder)
+    if (first) restartCandidates.add(first.candidate)
+  }
+  return media.map(item =>
+    createEnvelope({
+      schemaVersion: '1.0.0',
+      jobType: MEDIA_INGEST_QUEUE,
+      captureSessionId: capture.captureSessionId,
+      candidate: item.candidate,
+      sourceOrder: item.sourceOrder.toString(),
+      sourceRestart: restartCandidates.has(item.candidate),
+      timestampDiscontinuity: false,
+      explicitGapBeforeUs: null,
+    }),
+  )
+}
+
+/** Read OME's finalized extent metadata; paths outside that recording directory are ignored. */
+export async function recordingInfoCandidates(
+  root: string,
+  infoPathValue: string,
+): Promise<string[]> {
+  const normalized = infoPathValue.replaceAll(sep, '/')
+  if (
+    !normalized ||
+    normalized.includes('\\') ||
+    normalized.startsWith('/') ||
+    normalized.split('/').some(part => !part || part === '.' || part === '..') ||
+    normalized.split('/').at(-1)?.toLowerCase() !== 'recording.xml'
+  ) {
+    return []
+  }
+  const trustedRoot = await realpath(root)
+  let trustedInfoPath: string
+  try {
+    trustedInfoPath = await realpath(resolve(trustedRoot, normalized))
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return []
+    throw error
+  }
+  if (!withinRoot(trustedRoot, trustedInfoPath)) return []
+  const ingestPath = dirname(normalized).replaceAll('\\', '/')
+  const xml = await readFile(trustedInfoPath, 'utf8')
+  const candidates = new Set<string>()
+  for (const match of xml.matchAll(/<filePath>\s*<!\[CDATA\[([^\]]+)\]\]>\s*<\/filePath>/g)) {
+    const raw = match[1]?.replace(/^\/+/, '')
+    if (!raw) continue
+    let candidate: string
+    try {
+      candidate = canonicalCandidate(raw)
+    } catch {
+      continue
+    }
+    if (dirname(candidate).replaceAll('\\', '/') === ingestPath) candidates.add(candidate)
+  }
+  return [...candidates]
 }
 
 export type IngestQueue = {

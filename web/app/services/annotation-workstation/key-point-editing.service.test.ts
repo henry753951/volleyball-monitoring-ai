@@ -146,6 +146,7 @@ describe('key-point editing service', () => {
       playbackWindowId: 'window-1',
     })
     const cursor = {
+      schema_version: '1.0.0',
       playback_window_id: 'window-1',
       mapping_version: 1,
       player_media_time_us: '1250000',
@@ -158,6 +159,10 @@ describe('key-point editing service', () => {
     expect(room.edit).toHaveBeenCalledWith('MOVE_KEY_POINT', {
       keyPointId: 'point-1',
       cursor,
+      observation: {
+        capture_time_us: '1250000',
+        capture_frame_index: undefined,
+      },
     })
     expect(service.pendingMove.value).toBeNull()
     service.dispose()

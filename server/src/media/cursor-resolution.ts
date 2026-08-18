@@ -62,6 +62,7 @@ export interface CursorWindowStore {
 
 export interface CursorSampleIndexLoader {
   loadOrderedSegments(segmentIds: readonly string[]): Promise<readonly IndexedSegment[]>
+  loadOrderedExtents?(extentIds: readonly string[]): Promise<readonly IndexedSegment[]>
 }
 
 export interface CursorResolutionDependencies {

@@ -82,7 +82,9 @@ export function createMediaIndexerLifecycle(ports: MediaIndexerLifecyclePorts) {
 export async function createMediaComposition() {
   const config = mediaIndexerConfig()
   const { db } = await import('@volleyball-monitoring/db')
-  const repository = new PrismaIngestRepository(db)
+  const repository = new PrismaIngestRepository(db, {
+    liveArchiveBackend: config.LIVE_ARCHIVE_BACKEND,
+  })
   const endpoint = new URL(config.MINIO_ENDPOINT)
   const archiveStore = createMinioMediaObjectStore({
     endpointUrl: config.MINIO_ENDPOINT,
@@ -127,9 +129,34 @@ export async function createMediaComposition() {
     recordPermanentMediaIngestFailure(db, failure),
   )
   const scanner = new MediaIndexerRuntime({
+    activePollIntervalMs: config.MEDIA_INDEXER_ACTIVE_POLL_INTERVAL_MS,
     spoolRoot: config.MEDIA_SPOOL_DIR,
     queue: { send: (_name, payload) => queue.send(payload) },
-    resolveCapture: path => resolveCaptureSession(db, path),
+    listActiveCaptures: () =>
+      db.captureSession
+        .findMany({
+          orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+          select: { id: true, ingestPath: true },
+          where: {
+            ingestFailures: { none: {} },
+            status: { in: ['STARTING', 'LIVE', 'STOPPING'] },
+          },
+        })
+        .then(captures =>
+          captures.map(capture => ({
+            captureSessionId: capture.id,
+            ingestPath: capture.ingestPath,
+          })),
+        ),
+    resolveCapture: async path => {
+      const captureSessionId = await resolveCaptureSession(db, path)
+      if (!captureSessionId) return null
+      const failure = await db.mediaIngestFailure.findFirst({
+        select: { sourceJobId: true },
+        where: { captureSessionId },
+      })
+      return failure ? null : captureSessionId
+    },
     intervalMs: config.MEDIA_INDEXER_SCAN_INTERVAL_MS,
   })
   const indexer = createMediaIndexerLifecycle({ queue, scanner, disconnect: async () => undefined })
@@ -142,11 +169,17 @@ export async function createMediaComposition() {
       importRoot: config.MEDIA_IMPORT_ROOT,
       ingestBaseUrl: config.MEDIA_INGEST_BASE_URL,
       recordingRoot: config.MEDIA_SPOOL_DIR,
+      recordingExtentSeconds: config.MEDIA_RECORDING_EXTENT_SECONDS,
       workRoot: config.MEDIA_SOURCE_WORK_ROOT,
       ...(config.YOUTUBE_COOKIES_FILE ? { youtubeCookiesFile: config.YOUTUBE_COOKIES_FILE } : {}),
       youtubeExtractorArgs: config.YOUTUBE_EXTRACTOR_ARGS,
       youtubeFormat: config.YOUTUBE_FORMAT,
+      youtubeLiveExtractorArgs: config.YOUTUBE_LIVE_EXTRACTOR_ARGS,
       youtubeLiveMaxConsecutiveFailures: config.YOUTUBE_LIVE_MAX_CONSECUTIVE_FAILURES,
+      ...(config.YOUTUBE_POT_PROVIDER_URL
+        ? { youtubePotProviderUrl: config.YOUTUBE_POT_PROVIDER_URL }
+        : {}),
+      youtubeVodExtractorArgs: config.YOUTUBE_VOD_EXTRACTOR_ARGS,
       youtubeVodFormat: config.YOUTUBE_VOD_FORMAT,
       ytDlpCommand: config.YT_DLP_COMMAND,
     }),
@@ -155,6 +188,7 @@ export async function createMediaComposition() {
     apiToken: config.OME_API_ACCESS_TOKEN,
     apiUrl: config.OME_API_URL,
     database: db,
+    llhlsBaseUrl: config.OME_LLHLS_URL,
     recordingRoot: config.MEDIA_SPOOL_DIR,
   })
   let started = false

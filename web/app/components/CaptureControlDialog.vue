@@ -95,8 +95,9 @@ async function start() {
   try {
     await mediaSources.create(props.matchId, source.value)
     emit('changed')
-    toast.success('影音來源已加入')
     resetSource()
+    emit('close')
+    toast.success('影音來源已加入')
   } catch (cause) {
     error.value = cause instanceof Error ? cause.message : '無法加入影音來源'
     toast.error(error.value)

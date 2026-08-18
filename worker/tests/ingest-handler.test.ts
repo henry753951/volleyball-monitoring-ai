@@ -13,6 +13,7 @@ import type {
   FinalizedSegmentReservation,
   FinalizedSegmentReservationInput,
   IngestReservationReference,
+  PublishReadyInput,
 } from '../src/media/prisma-ingest-repository.js'
 
 const captureSessionId = '10000000-0000-4000-8000-000000000001'
@@ -115,6 +116,7 @@ describe('repository-native finalized ingest handler', () => {
     const { spoolRoot, envelope } = await fixture()
     const events: string[] = []
     const reservationInputs: FinalizedSegmentReservationInput[] = []
+    const publishInputs: PublishReadyInput[] = []
     const locations: string[][] = []
     const index = authoritativeIndex(envelope.epochCandidateId)
     const reference = (input: FinalizedSegmentReservationInput): IngestReservationReference => ({
@@ -142,8 +144,9 @@ describe('repository-native finalized ingest handler', () => {
         events.push('expectations')
         expect(input.sampleIndexDocument).toEqual(serializeSampleIndex(index))
       },
-      async publishReady() {
+      async publishReady(input: PublishReadyInput) {
         events.push('publish')
+        publishInputs.push(input)
         return {
           disposition: 'PUBLISHED' as const,
           readyAt: new Date('2026-08-07T06:30:00.000Z'),
@@ -189,6 +192,16 @@ describe('repository-native finalized ingest handler', () => {
     ])
     expect(reservationInputs[0]!.idempotencyKey).toBe(reservationInputs[1]!.idempotencyKey)
     expect(locations[0]).toEqual(locations[1])
+    expect(publishInputs).toHaveLength(2)
+    for (const input of publishInputs) {
+      expect(input.extent).toMatchObject({
+        sourceJobId: envelope.epochCandidateId,
+        localPath: envelope.candidate,
+      })
+      expect(input.extent?.finalizedAt).toBeInstanceOf(Date)
+      expect(Number.isNaN(input.extent!.finalizedAt.getTime())).toBe(false)
+    }
+    expect(publishInputs[0]!.extent!.finalizedAt).toEqual(publishInputs[1]!.extent!.finalizedAt)
     expect(events).toEqual([
       'source',
       'profile',

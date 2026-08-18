@@ -36,6 +36,19 @@ export interface AnnotationEditCommandOptions {
 }
 
 function resolvedCursor(cursor: PlaybackCursorInput) {
+  if (cursor.schema_version === '2.0.0') {
+    return {
+      media_backend: cursor.media_backend,
+      capture_session_id: cursor.capture_session_id,
+      presentation_anchor_sequence: cursor.presentation_anchor_sequence,
+      program_date_time: cursor.program_date_time,
+      player_media_time_us: cursor.player_media_time_us,
+      observation_source: cursor.observation_source,
+      presented_frames: cursor.presented_frames ?? null,
+      seek_generation: cursor.seek_generation,
+      cursor_status: cursor.cursor_status,
+    }
+  }
   return {
     playback_window_id: cursor.playback_window_id,
     mapping_version: cursor.mapping_version,

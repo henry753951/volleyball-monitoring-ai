@@ -16,6 +16,14 @@ networks:
     internal: true
 
 services:
+  bgutil-provider:
+    profiles: [app]
+    image: brainicism/bgutil-ytdlp-pot-provider:1.3.1@sha256:1aaa43a0ca72dfca6a6d2129a0fb4a23465c25adb1b043f8aff829a20825646b
+    expose: ['4416']
+    networks: [internal]
+    logging: *default-logging
+    restart: unless-stopped
+
   traefik:
     image: traefik:v3.7.9
     command: ['--configFile=/etc/traefik/traefik.yml']
@@ -102,6 +110,7 @@ services:
       - ome-logs:/var/log/ovenmediaengine
     ports:
       - '${OME_RTMP_HOST_PORT:-2035}:1935'
+      - '127.0.0.1:${OME_LLHLS_HOST_PORT:-3333}:3333'
       - '9999:9999/udp'
       - '127.0.0.1:${OME_API_HOST_PORT:-8081}:8081'
     healthcheck:
@@ -206,14 +215,21 @@ services:
       MEDIA_IMPORT_ROOT: /var/lib/volleyball/media-imports
       MEDIA_INGEST_BASE_URL: rtmp://ovenmediaengine:1935/app
       MEDIA_HOT_ROOT: /var/lib/volleyball/media-hot
-      MEDIA_INDEXER_SCAN_INTERVAL_MS: ${MEDIA_INDEXER_SCAN_INTERVAL_MS:-250}
+      MEDIA_INDEXER_ACTIVE_POLL_INTERVAL_MS: ${MEDIA_INDEXER_ACTIVE_POLL_INTERVAL_MS:-500}
+      MEDIA_INDEXER_SCAN_INTERVAL_MS: ${MEDIA_INDEXER_SCAN_INTERVAL_MS:-30000}
+      MEDIA_RECORDING_EXTENT_SECONDS: ${MEDIA_RECORDING_EXTENT_SECONDS:-60}
+      LIVE_ARCHIVE_BACKEND: ${LIVE_ARCHIVE_BACKEND:-media_extent}
       MEDIA_SPOOL_DIR: /var/lib/volleyball/media-spool
       MEDIA_SOURCE_WORK_ROOT: /var/lib/volleyball/media-imports/.work
       OME_API_ACCESS_TOKEN: ${OME_API_ACCESS_TOKEN:?OME_API_ACCESS_TOKEN is required}
       OME_API_URL: http://ovenmediaengine:8081
+      OME_LLHLS_URL: http://ovenmediaengine:3333
       YOUTUBE_COOKIES_FILE: ${YOUTUBE_COOKIES_FILE:-}
       YOUTUBE_FORMAT: ${YOUTUBE_FORMAT:-best[protocol*=m3u8][height=1080][fps>=59][fps<=61][vcodec^=avc][acodec!=none]/bestvideo[height=1080][fps>=59][fps<=61][vcodec^=avc]+bestaudio[acodec^=mp4a]/bestvideo[height=1080][vcodec^=avc]+bestaudio[acodec^=mp4a]/best[height=1080][vcodec^=avc][acodec!=none]/best[protocol*=m3u8][height<=1080][vcodec^=avc][acodec!=none]/bestvideo[height<=1080][vcodec^=avc]+bestaudio[acodec^=mp4a]/best[height<=1080][vcodec^=avc][acodec!=none]}
       YOUTUBE_EXTRACTOR_ARGS: ${YOUTUBE_EXTRACTOR_ARGS:-youtube:player_client=default}
+      YOUTUBE_LIVE_EXTRACTOR_ARGS: ${YOUTUBE_LIVE_EXTRACTOR_ARGS:-youtube:player_client=mweb}
+      YOUTUBE_POT_PROVIDER_URL: http://bgutil-provider:4416
+      YOUTUBE_VOD_EXTRACTOR_ARGS: ${YOUTUBE_VOD_EXTRACTOR_ARGS:-youtube:player_client=visionos}
       YOUTUBE_VOD_FORMAT: ${YOUTUBE_VOD_FORMAT:-bestvideo[protocol^=http][height=1080][fps>=59][fps<=61][vcodec^=avc]+bestaudio[protocol^=http][acodec^=mp4a]/bestvideo[protocol^=http][height=1080][vcodec^=avc]+bestaudio[protocol^=http][acodec^=mp4a]/bestvideo[height=1080][vcodec^=avc]+bestaudio[acodec^=mp4a]/best[height=1080][vcodec^=avc][acodec!=none]/bestvideo[protocol^=http][height<=1080][vcodec^=avc]+bestaudio[protocol^=http][acodec^=mp4a]/bestvideo[height<=1080][vcodec^=avc]+bestaudio[acodec^=mp4a]/best[height<=1080][vcodec^=avc][acodec!=none]}
     volumes:
       - ${MEDIA_IMPORT_HOST_PATH:-${DEV_DATA_ROOT:-../.data/runtime}/media-imports}:/var/lib/volleyball/media-imports
@@ -221,6 +237,7 @@ services:
       - ${MEDIA_SPOOL_HOST_PATH:-${DEV_DATA_ROOT:-../.data/runtime}/media-spool}:/var/lib/volleyball/media-spool
       - ${RUNTIME_SECRETS_HOST_PATH:-${DEV_DATA_ROOT:-../.data/runtime}/secrets}:/run/secrets:ro
     depends_on:
+      bgutil-provider: { condition: service_started }
       postgres: { condition: service_healthy }
       redis: { condition: service_healthy }
       minio: { condition: service_healthy }

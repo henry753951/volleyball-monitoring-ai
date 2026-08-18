@@ -74,6 +74,14 @@ enum MediaSourceWorkStatus {
   FAILED
 }
 
+enum MediaExtentStatus {
+  WRITING
+  FINALIZED_LOCAL
+  CATALOGED
+  ARCHIVE_PENDING
+  ARCHIVE_VERIFIED
+}
+
 enum CourtSide {
   LEFT
   RIGHT
@@ -497,29 +505,33 @@ model CourtSideAssignment {
 }
 
 model CaptureSession {
-  id                         String               @id @default(uuid()) @db.Uuid
-  matchId                    String               @db.Uuid
+  id                         String                   @id @default(uuid()) @db.Uuid
+  matchId                    String                   @db.Uuid
   sourceKind                 String
   sourceLabel                String?
   sourceConfigSecretRef      String?
   sourceDurationUs           BigInt?
-  ingestPath                 String               @unique
-  status                     CaptureStatus        @default(STARTING)
-  health                     SourceHealth         @default(STARTING)
-  sourceOnline               Boolean              @default(false)
+  ingestPath                 String                   @unique
+  status                     CaptureStatus            @default(STARTING)
+  health                     SourceHealth             @default(STARTING)
+  sourceOnline               Boolean                  @default(false)
   sourceObservedAt           DateTime?
   startedAt                  DateTime?
   endedAt                    DateTime?
   completionExpectedSegments Int?
   completionRequestedAt      DateTime?
-  createdAt                  DateTime             @default(now())
-  updatedAt                  DateTime             @updatedAt
-  match                      Match                @relation(fields: [matchId], references: [id], onDelete: Cascade)
+  createdAt                  DateTime                 @default(now())
+  updatedAt                  DateTime                 @updatedAt
+  match                      Match                    @relation(fields: [matchId], references: [id], onDelete: Cascade)
   programs                   DvrProgram[]
   epochs                     CaptureEpoch[]
   playbackWindows            PlaybackWindow[]
   sourceWork                 MediaSourceWork?
   ingestFailures             MediaIngestFailure[]
+  mediaExtents               MediaExtent[]
+  livePresentationAnchors    LivePresentationAnchor[]
+
+  @@index([matchId, createdAt, id])
 }
 
 model MediaIngestFailure {
@@ -557,27 +569,52 @@ model MediaSourceWork {
 }
 
 model CaptureEpoch {
-  id                   String                    @id @default(uuid()) @db.Uuid
-  captureSessionId     String                    @db.Uuid
-  sequenceIndex        Int
-  sourceTimeBaseNum    Int
-  sourceTimeBaseDen    Int
-  sourcePtsOrigin      BigInt
-  captureTimeOriginUs  BigInt
-  captureFrameOrigin   BigInt
-  startedAtCaptureUs   BigInt
-  endedAtCaptureUs     BigInt?
-  discontinuityReason  String?
-  createdAt            DateTime                  @default(now())
-  captureSession       CaptureSession            @relation(fields: [captureSessionId], references: [id], onDelete: Cascade)
-  segments             DvrSegment[]
-  keyPoints            KeyPoint[]
-  submissionKeyPoints  RallySubmissionKeyPoint[]
-  rallyBoundaries      RallyBoundary[]
-  submissionBoundaries RallySubmissionBoundary[]
+  id                     String                    @id @default(uuid()) @db.Uuid
+  captureSessionId       String                    @db.Uuid
+  sequenceIndex          Int
+  sourceTimeBaseNum      Int
+  sourceTimeBaseDen      Int
+  sourcePtsOrigin        BigInt
+  captureTimeOriginUs    BigInt
+  captureFrameOrigin     BigInt
+  startedAtCaptureUs     BigInt
+  endedAtCaptureUs       BigInt?
+  discontinuityReason    String?
+  createdAt              DateTime                  @default(now())
+  captureSession         CaptureSession            @relation(fields: [captureSessionId], references: [id], onDelete: Cascade)
+  segments               DvrSegment[]
+  mediaExtents           MediaExtent[]
+  keyPoints              KeyPoint[]
+  submissionKeyPoints    RallySubmissionKeyPoint[]
+  rallyBoundaries        RallyBoundary[]
+  submissionBoundaries   RallySubmissionBoundary[]
+  livePresentationAnchor LivePresentationAnchor?
 
   @@unique([captureSessionId, sequenceIndex])
   @@index([captureSessionId, startedAtCaptureUs, endedAtCaptureUs])
+}
+
+model LivePresentationAnchor {
+  id                  String         @id @default(uuid()) @db.Uuid
+  captureSessionId    String         @db.Uuid
+  captureEpochId      String?        @unique @db.Uuid
+  sequenceIndex       Int
+  streamInstanceId    String
+  programDateTime     DateTime
+  firstMediaSequence  BigInt
+  captureTimeOriginUs BigInt?
+  observedAt          DateTime
+  endedAt             DateTime?
+  validatedAt         DateTime?
+  createdAt           DateTime       @default(now())
+  updatedAt           DateTime       @updatedAt
+  captureSession      CaptureSession @relation(fields: [captureSessionId], references: [id], onDelete: Cascade)
+  captureEpoch        CaptureEpoch?  @relation(fields: [captureEpochId], references: [id], onDelete: SetNull)
+
+  @@unique([captureSessionId, sequenceIndex])
+  @@unique([captureSessionId, streamInstanceId, programDateTime])
+  @@index([captureSessionId, endedAt, sequenceIndex])
+  @@index([captureSessionId, programDateTime])
 }
 
 model DvrProgram {
@@ -597,6 +634,9 @@ model DvrProgram {
   segments         DvrSegment[]
   rallies          Rally[]
   playbackWindows  PlaybackWindow[]
+  mediaExtents     MediaExtent[]
+
+  @@index([captureSessionId, createdAt, id])
 }
 
 model MediaAsset {
@@ -662,9 +702,62 @@ model DvrSegment {
   mediaAsset             MediaAsset?             @relation("DvrMediaAsset", fields: [mediaAssetId], references: [id], onDelete: Restrict)
   sampleIndexAsset       MediaAsset?             @relation("DvrSampleIndexAsset", fields: [sampleIndexAssetId], references: [id], onDelete: Restrict)
   playbackWindowSegments PlaybackWindowSegment[]
+  mediaExtent            MediaExtent?
 
   @@unique([dvrProgramId, sequenceNumber])
   @@index([dvrProgramId, captureStartUs, captureEndUs])
+  @@index([dvrProgramId, captureEndUs, captureStartUs])
+}
+
+model MediaExtent {
+  id                       String            @id @default(uuid()) @db.Uuid
+  captureSessionId         String            @db.Uuid
+  dvrProgramId             String            @db.Uuid
+  dvrSegmentId             String?           @unique @db.Uuid
+  captureEpochId           String?           @db.Uuid
+  sequenceNumber           BigInt?
+  discontinuitySequence    Int?
+  sourceJobId              String?           @unique @db.Uuid
+  source                   String
+  startUs                  BigInt
+  endUs                    BigInt
+  sourcePtsStart           BigInt?
+  sourcePtsEnd             BigInt?
+  firstFrameIndex          BigInt?
+  frameCount               BigInt?
+  localPath                String?
+  bucket                   String?
+  objectKey                String?
+  mediaSha256              String?
+  mediaSchemaVersion       String?
+  initBucket               String?
+  initObjectKey            String?
+  initSha256               String?
+  initBytes                BigInt?
+  initSchemaVersion        String?
+  sampleIndexBucket        String?
+  sampleIndexObjectKey     String?
+  sampleIndexSha256        String?
+  sampleIndexBytes         BigInt?
+  sampleIndexSchemaVersion String?
+  status                   MediaExtentStatus @default(FINALIZED_LOCAL)
+  bytes                    BigInt?
+  finalizedAt              DateTime?
+  catalogedAt              DateTime?
+  archiveVerifiedAt        DateTime?
+  createdAt                DateTime          @default(now())
+  updatedAt                DateTime          @updatedAt
+  captureSession           CaptureSession    @relation(fields: [captureSessionId], references: [id], onDelete: Cascade)
+  dvrProgram               DvrProgram        @relation(fields: [dvrProgramId], references: [id], onDelete: Cascade)
+  dvrSegment               DvrSegment?       @relation(fields: [dvrSegmentId], references: [id], onDelete: SetNull)
+  captureEpoch             CaptureEpoch?     @relation(fields: [captureEpochId], references: [id], onDelete: Restrict)
+
+  @@index([dvrProgramId, startUs, endUs])
+  @@index([captureSessionId, startUs, endUs])
+  @@index([captureEpochId])
+  @@index([dvrProgramId, discontinuitySequence, sequenceNumber])
+  @@index([captureSessionId, status, createdAt])
+  @@index([status, createdAt, id])
 }
 
 model PlaybackWindow {
@@ -687,6 +780,7 @@ model PlaybackWindow {
   segments                    PlaybackWindowSegment[]
 
   @@index([captureSessionId, expiresAt])
+  @@index([expiresAt, id])
   @@index([dvrProgramId, captureStartUs, captureEndUs])
 }
 

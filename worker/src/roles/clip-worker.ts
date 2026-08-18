@@ -18,6 +18,7 @@ import {
   selectCanonicalClipRange,
   type OutputProbePayload,
 } from '../media/clip-timing.js'
+import { resolveClipSources } from '../media/clip-source.js'
 import { createNodeProbeRunner } from '../media/ffprobe.js'
 import { callbackToken, sha256Hex, stableJson } from '../workflow/crypto.js'
 import {
@@ -31,6 +32,7 @@ import { createPollingLifecycle } from '../workflow/poller.js'
 const runner = createNodeProbeRunner()
 const leaseMs = 5 * 60_000
 const AI_JOB_SCHEMA_VERSION = '3.0.0'
+
 async function runCommand(executable: string, args: string[], signal: AbortSignal) {
   const result = await runner(executable, args, {
     shell: false,
@@ -173,46 +175,16 @@ export function createClipWorker(
         },
       })
       const program = job.submission.rally.program
-      const candidates = await database.dvrSegment.findMany({
-        where: {
-          dvrProgramId: program.id,
-          isGap: false,
-          readyAt: { not: null },
-          captureStartUs: { lt: job.requestedEndCaptureUs },
-          captureEndUs: { gt: job.requestedStartCaptureUs },
-        },
-        orderBy: { sequenceNumber: 'asc' },
-        include: { initAsset: true, mediaAsset: true, sampleIndexAsset: true, captureEpoch: true },
-      })
       const firstPoint =
         job.submission.boundaries.find(boundary => boundary.kind === 'START') ??
         job.submission.keyPoints[0]
-      const anchorSegment = firstPoint
-        ? candidates.find(
-            segment =>
-              firstPoint.captureTimeUs >= segment.captureStartUs &&
-              firstPoint.captureTimeUs < segment.captureEndUs,
-          )
-        : null
-      const segments = anchorSegment
-        ? candidates.filter(
-            segment => segment.discontinuitySequence === anchorSegment.discontinuitySequence,
-          )
-        : []
-      if (
-        !segments.length ||
-        segments.some(
-          segment => !segment.initAsset || !segment.mediaAsset || !segment.sampleIndexAsset,
-        )
-      )
-        throw new Error('requested DVR range is not ready')
-      for (let index = 1; index < segments.length; index += 1) {
-        if (
-          segments[index]!.discontinuitySequence !== segments[0]!.discontinuitySequence ||
-          segments[index]!.captureStartUs > segments[index - 1]!.captureEndUs
-        )
-          throw new Error('canonical clip cannot cross a gap or discontinuity')
-      }
+      const segments = await resolveClipSources(database, {
+        dvrProgramId: program.id,
+        captureSessionId: program.captureSessionId,
+        requestedStartCaptureUs: job.requestedStartCaptureUs,
+        requestedEndCaptureUs: job.requestedEndCaptureUs,
+        anchorCaptureTimeUs: firstPoint?.captureTimeUs ?? null,
+      })
       const indexedSegments = await Promise.all(
         segments.map(async segment => {
           const document = JSON.parse(
@@ -282,32 +254,40 @@ export function createClipWorker(
       )
       const mappings = job.submission.keyPoints.map(point => {
         const ordinal = selection.keyPointOrdinals.get(point.id)
+        const sourceSample = selection.resolvedKeyPointSamples.get(point.id)
         if (ordinal === undefined)
           throw new Error(`immutable key point ${point.id} has no selected source frame`)
+        if (!sourceSample)
+          throw new Error(`immutable key point ${point.id} has no resolved source sample`)
         return {
           submissionKeyPointId: point.id,
           sequenceIndex: point.sequenceIndex,
           markerKind: point.markerKind.toLowerCase(),
           isTerminal: point.isTerminal,
-          captureEpochId: point.captureEpochId,
-          sourcePts: point.sourcePts,
-          captureTimeUs: point.captureTimeUs,
-          captureFrameIndex: point.captureFrameIndex,
+          captureEpochId: sourceSample.captureEpochId,
+          sourcePts: sourceSample.sourcePts,
+          captureTimeUs: sourceSample.captureTimeUs,
+          captureFrameIndex: sourceSample.captureFrameIndex,
           ...mapClipKeyPoint(point.id, ordinal, video),
         }
       })
       const boundaryMappings = job.submission.boundaries.map(boundary => {
         const ordinal = selection.keyPointOrdinals.get(boundary.id)
+        const sourceSample = selection.resolvedKeyPointSamples.get(boundary.id)
         if (ordinal === undefined)
           throw new Error(
             `immutable ${boundary.kind.toLowerCase()} boundary ${boundary.id} has no selected source frame`,
           )
+        if (!sourceSample)
+          throw new Error(
+            `immutable ${boundary.kind.toLowerCase()} boundary ${boundary.id} has no resolved source sample`,
+          )
         return {
           kind: boundary.kind.toLowerCase() as 'start' | 'end',
-          captureEpochId: boundary.captureEpochId,
-          sourcePts: boundary.sourcePts,
-          captureTimeUs: boundary.captureTimeUs,
-          captureFrameIndex: boundary.captureFrameIndex,
+          captureEpochId: sourceSample.captureEpochId,
+          sourcePts: sourceSample.sourcePts,
+          captureTimeUs: sourceSample.captureTimeUs,
+          captureFrameIndex: sourceSample.captureFrameIndex,
           ...mapClipKeyPoint(boundary.id, ordinal, video),
         }
       })

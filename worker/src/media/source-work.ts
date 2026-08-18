@@ -32,11 +32,27 @@ export type CompletedMediaSpoolCandidate = {
   ingestPath: string
 }
 
+const LIVE_CAPTURE_SOURCE_KINDS = new Set([
+  'live',
+  'rtmp',
+  'rtsp',
+  'srt',
+  'webrtc',
+  'whip',
+  'youtube_live',
+  'hls_live',
+])
+
+export function isLiveCaptureSourceKind(sourceKind: string): boolean {
+  const normalized = sourceKind.trim().toLowerCase().replaceAll('-', '_')
+  return LIVE_CAPTURE_SOURCE_KINDS.has(normalized) || normalized.endsWith('_live')
+}
+
 export async function listCompletedMediaSpoolCandidates(
   database: PrismaClient,
 ): Promise<CompletedMediaSpoolCandidate[]> {
   return database.$queryRaw<CompletedMediaSpoolCandidate[]>`
-    WITH segment_counts AS (
+    WITH legacy_counts AS (
       SELECT
         program."captureSessionId",
         COUNT(segment."id") FILTER (WHERE segment."isGap" = FALSE)::int AS "segmentCount",
@@ -56,18 +72,41 @@ export async function listCompletedMediaSpoolCandidates(
       LEFT JOIN "MediaAsset" media ON media."id" = segment."mediaAssetId"
       LEFT JOIN "MediaAsset" sample ON sample."id" = segment."sampleIndexAssetId"
       GROUP BY program."captureSessionId"
+    ), extent_counts AS (
+      SELECT
+        extent."captureSessionId",
+        COUNT(extent."id")::int AS "extentCount",
+        COUNT(extent."id") FILTER (
+          WHERE extent."status" = 'ARCHIVE_VERIFIED'
+            AND extent."archiveVerifiedAt" IS NOT NULL
+            AND extent."bucket" IS NOT NULL
+            AND extent."objectKey" IS NOT NULL
+            AND extent."bytes" IS NOT NULL
+            AND extent."captureEpochId" IS NOT NULL
+            AND extent."sampleIndexObjectKey" IS NOT NULL
+        )::int AS "readyExtentCount"
+      FROM "MediaExtent" extent
+      GROUP BY extent."captureSessionId"
     )
     SELECT
       work."id" AS "workId",
       capture."ingestPath"
     FROM "MediaSourceWork" work
     JOIN "CaptureSession" capture ON capture."id" = work."captureSessionId"
-    LEFT JOIN segment_counts counts ON counts."captureSessionId" = capture."id"
+    LEFT JOIN legacy_counts legacy ON legacy."captureSessionId" = capture."id"
+    LEFT JOIN extent_counts extents ON extents."captureSessionId" = capture."id"
     WHERE work."status" = 'COMPLETED'
       AND capture."status" = 'FINISHED'
       AND capture."completionExpectedSegments" IS NOT NULL
-      AND COALESCE(counts."segmentCount", 0) = capture."completionExpectedSegments"
-      AND COALESCE(counts."readySegmentCount", 0) = capture."completionExpectedSegments"
+      AND CASE
+        WHEN LOWER(REPLACE(capture."sourceKind", '-', '_')) IN (
+          'live', 'rtmp', 'rtsp', 'srt', 'webrtc', 'whip', 'youtube_live', 'hls_live'
+        ) OR RIGHT(LOWER(REPLACE(capture."sourceKind", '-', '_')), 5) = '_live'
+        THEN COALESCE(extents."extentCount", 0) = capture."completionExpectedSegments"
+          AND COALESCE(extents."readyExtentCount", 0) = capture."completionExpectedSegments"
+        ELSE COALESCE(legacy."segmentCount", 0) = capture."completionExpectedSegments"
+          AND COALESCE(legacy."readySegmentCount", 0) = capture."completionExpectedSegments"
+      END
       AND NOT EXISTS (
         SELECT 1 FROM "MediaIngestFailure" failure
         WHERE failure."captureSessionId" = capture."id"
@@ -432,13 +471,35 @@ export async function finalizeMediaSourceIfDrained(
       const program = capture.programs[0] ?? null
       if (capture.completionExpectedSegments > 0 && !program) return false
       if (program) {
-        const [readySegments, pendingSegments] = await Promise.all([
-          tx.dvrSegment.count({
-            where: { dvrProgramId: program.id, isGap: false, readyAt: { not: null } },
-          }),
-          tx.dvrSegment.count({ where: { dvrProgramId: program.id, readyAt: null } }),
-        ])
-        if (readySegments < capture.completionExpectedSegments || pendingSegments > 0) return false
+        if (isLiveCaptureSourceKind(capture.sourceKind)) {
+          const [readyExtents, pendingExtents] = await Promise.all([
+            tx.mediaExtent.count({
+              where: {
+                dvrProgramId: program.id,
+                status: 'ARCHIVE_VERIFIED',
+                archiveVerifiedAt: { not: null },
+                bucket: { not: null },
+                objectKey: { not: null },
+                bytes: { not: null },
+                captureEpochId: { not: null },
+                sampleIndexObjectKey: { not: null },
+              },
+            }),
+            tx.mediaExtent.count({
+              where: { dvrProgramId: program.id, status: { not: 'ARCHIVE_VERIFIED' } },
+            }),
+          ])
+          if (readyExtents < capture.completionExpectedSegments || pendingExtents > 0) return false
+        } else {
+          const [readySegments, pendingSegments] = await Promise.all([
+            tx.dvrSegment.count({
+              where: { dvrProgramId: program.id, isGap: false, readyAt: { not: null } },
+            }),
+            tx.dvrSegment.count({ where: { dvrProgramId: program.id, readyAt: null } }),
+          ])
+          if (readySegments < capture.completionExpectedSegments || pendingSegments > 0)
+            return false
+        }
       }
       const endedAt = new Date()
       const endCaptureUs = program?.liveEdgeUs ?? null

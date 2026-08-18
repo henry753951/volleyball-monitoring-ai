@@ -5,6 +5,7 @@ import { normalizeRecordedHotkey, restoreDefaultHotkeys } from '../utils/annotat
 import {
   createAnnotationHotkeyDefinitions,
   createAnnotationHotkeyReleaseDefinitions,
+  isModalHotkeyScopeActive,
 } from './useAnnotationHotkeys'
 import type { HotkeyBindings, HotkeyCommand } from '../utils/annotationHotkeys'
 
@@ -21,6 +22,7 @@ class FakeNode extends EventTarget {
 
 class FakeElement extends FakeNode {
   isContentEditable = false
+  workstationHotkeySurface = false
   ownerDocument: FakeDocument
   tagName: string
 
@@ -28,6 +30,13 @@ class FakeElement extends FakeNode {
     super()
     this.tagName = tagName.toUpperCase()
     this.ownerDocument = ownerDocument
+  }
+
+  closest(selector: string): FakeElement | null {
+    return selector === '[data-annotation-hotkey-surface="workstation"]' &&
+      this.workstationHotkeySurface
+      ? this
+      : null
   }
 }
 
@@ -280,6 +289,22 @@ describe('annotation TanStack runtime adapter', () => {
     expect(keydown(scope, 'x', 'KeyX').defaultPrevented).toBe(true)
     expect(calls).toEqual(['contact'])
     app.unmount()
+  })
+
+  it('does not let an inline key-point editor disable the workstation hotkeys', () => {
+    document.modalOpen = true
+    expect(
+      isModalHotkeyScopeActive(new FakeKeyboardEvent('z', 'KeyZ') as unknown as KeyboardEvent),
+    ).toBe(true)
+
+    const editorButton = new FakeElement('button', document)
+    editorButton.workstationHotkeySurface = true
+    const event = new FakeKeyboardEvent('z', 'KeyZ')
+    Object.defineProperty(event, 'target', { value: editorButton })
+    expect(isModalHotkeyScopeActive(event as unknown as KeyboardEvent)).toBe(false)
+
+    document.activeElement = editorButton
+    expect(isModalHotkeyScopeActive()).toBe(false)
   })
 
   it('accepts unshifted scoring punctuation, Shift segment navigation, and Ctrl frame acceleration', async () => {

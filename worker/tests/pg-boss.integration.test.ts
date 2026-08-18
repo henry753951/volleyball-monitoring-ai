@@ -126,6 +126,44 @@ integration('pg-boss media runtime integration', () => {
     }
   })
 
+  it('quarantines failed-key successors without starving an independent capture', async () => {
+    const failedCapture = '00000000-0000-4000-8000-0000000000d1'
+    const independentCapture = '00000000-0000-4000-8000-0000000000d2'
+    const runtime = createPgBossMediaRuntime(isolatedDatabaseUrl, async item => {
+      if (item.captureSessionId === failedCapture) {
+        throw new PermanentMediaIngestError('PERMANENT_FAILURE')
+      }
+    })
+    await runtime.start()
+
+    try {
+      const failedId = requireJobId(await runtime.send(envelope(failedCapture, '1')))
+      const successorId = requireJobId(
+        await runtime.send(envelope(failedCapture, '2', '00000000-0000-4000-8000-0000000000d3')),
+      )
+      const independentId = requireJobId(
+        await runtime.send(
+          envelope(independentCapture, '1', '00000000-0000-4000-8000-0000000000d4'),
+        ),
+      )
+
+      await eventually(async () => {
+        const [failed, successor, independent] = await Promise.all([
+          runtime.boss.getJobById(MEDIA_INGEST_QUEUE, failedId),
+          runtime.boss.getJobById(MEDIA_INGEST_QUEUE, successorId),
+          runtime.boss.getJobById(MEDIA_INGEST_QUEUE, independentId),
+        ])
+        return failed?.state === 'failed' &&
+          successor?.state === 'cancelled' &&
+          independent?.state === 'completed'
+          ? true
+          : null
+      })
+    } finally {
+      await runtime.stop()
+    }
+  })
+
   it('keeps same-capture jobs FIFO while accepting an independent capture', async () => {
     const order: string[] = []
     let releaseFirst!: () => void

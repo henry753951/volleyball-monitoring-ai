@@ -36,10 +36,11 @@ export function createWorkstationSelectionService(options: WorkstationSelectionS
         ? { kind: 'local-draft', rallyId: cursorRally }
         : { kind: 'timeline', rallyId: cursorRally, source: 'cursor' }
     }
-    const localDraft = toValue(options.localDraftRallyId)
-    return localDraft && available.has(localDraft)
-      ? { kind: 'local-draft', rallyId: localDraft }
-      : { kind: 'none' }
+    // A draft can remain displayed for editing, but it is not the selected
+    // segment when the cursor is outside every segment. Keeping it here made
+    // the toolbar and worker status report a stale rally after the cursor left
+    // its range.
+    return { kind: 'none' }
   })
 
   const activeRallyId = computed(() =>

@@ -25,6 +25,7 @@ export interface ClipKeyPointAnchor {
   sourcePts: bigint
   captureTimeUs: bigint
   captureFrameIndex: bigint
+  timingPrecision?: 'FRAME_EXACT' | 'PTS_EXACT' | 'ESTIMATED'
 }
 
 export interface SelectedClipSourceSample extends IndexedSample {
@@ -42,6 +43,7 @@ export interface SelectedClipRange {
   durationUs: bigint
   sourceSamples: readonly SelectedClipSourceSample[]
   keyPointOrdinals: ReadonlyMap<string, number>
+  resolvedKeyPointSamples: ReadonlyMap<string, SelectedClipSourceSample>
 }
 
 export interface OutputProbePayload extends FfprobePayload {
@@ -180,16 +182,41 @@ export function selectCanonicalClipRange(
   const first = sourceSamples[0]!
   const last = sourceSamples.at(-1)!
   const keyPointOrdinals = new Map<string, number>()
+  const resolvedKeyPointSamples = new Map<string, SelectedClipSourceSample>()
   for (const point of keyPoints) {
-    const ordinal = sourceSamples.findIndex(
+    let ordinal = sourceSamples.findIndex(
       sample =>
         point.captureEpochId === sample.captureEpochId &&
         point.sourcePts === sample.sourcePts &&
         point.captureTimeUs === sample.captureTimeUs &&
         point.captureFrameIndex === sample.captureFrameIndex,
     )
+
+    // OME annotations may be created while the current recording extent is
+    // still being written. At that point the browser has a canonical program
+    // frame but the exact recording PTS cadence is not available until the
+    // finalized sample index is published. Keep the immutable observation,
+    // then resolve it to the one finalized source sample with the same global
+    // capture frame. This also repairs the capture-epoch identity for legacy
+    // estimated observations created before provisional epochs were adopted.
+    if (ordinal < 0 && point.timingPrecision === 'ESTIMATED') {
+      const matchingFrameOrdinals = sourceSamples.flatMap((sample, index) =>
+        sample.captureFrameIndex === point.captureFrameIndex ? [index] : [],
+      )
+      if (matchingFrameOrdinals.length === 1) {
+        const candidateOrdinal = matchingFrameOrdinals[0]!
+        const candidate = sourceSamples[candidateOrdinal]!
+        const captureDeltaUs =
+          candidate.captureTimeUs >= point.captureTimeUs
+            ? candidate.captureTimeUs - point.captureTimeUs
+            : point.captureTimeUs - candidate.captureTimeUs
+        const candidateDurationUs = rescalePtsToUs(candidate.durationPts, timeBase)
+        if (captureDeltaUs <= candidateDurationUs) ordinal = candidateOrdinal
+      }
+    }
     if (ordinal < 0) throw new Error(`immutable key point ${point.id} has no exact source sample`)
     keyPointOrdinals.set(point.id, ordinal)
+    resolvedKeyPointSamples.set(point.id, sourceSamples[ordinal]!)
   }
 
   return {
@@ -203,6 +230,7 @@ export function selectCanonicalClipRange(
     durationUs: sampleEndCaptureUs(last, timeBase) - first.captureTimeUs,
     sourceSamples,
     keyPointOrdinals,
+    resolvedKeyPointSamples,
   }
 }
 

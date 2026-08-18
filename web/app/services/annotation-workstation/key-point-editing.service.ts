@@ -145,14 +145,21 @@ export function createKeyPointEditingService(options: KeyPointEditingServiceOpti
   async function editSelected(kind: 'MOVE_KEY_POINT' | 'DELETE_KEY_POINT') {
     const keyPointId = options.selectedKeyPointId()
     if (!keyPointId || !options.editable() || !options.editReady()) return
+    const points = options.room.viewSnapshot.value?.snapshot.key_points ?? []
+    const selectedIndex = points.findIndex(point => point.key_point_id === keyPointId)
+    const nextSelection =
+      selectedIndex >= 0
+        ? (points[selectedIndex + 1]?.key_point_id ??
+          points[selectedIndex - 1]?.key_point_id ??
+          null)
+        : null
     if (kind === 'MOVE_KEY_POINT') options.room.setEditingKeyPoint(keyPointId)
     try {
       await options.room.edit(kind, {
         keyPointId,
         cursor: options.observedCursor(),
       })
-      if (kind === 'DELETE_KEY_POINT')
-        options.selectKeyPoint(options.room.lastKeyPoint.value?.key_point_id ?? null)
+      if (kind === 'DELETE_KEY_POINT') options.selectKeyPoint(nextSelection)
     } catch {
       // Annotation room owns command failure and recovery feedback.
     } finally {
@@ -226,7 +233,12 @@ export function createKeyPointEditingService(options: KeyPointEditingServiceOpti
     resolved: ResolvedMediaAnchor | null,
   ) {
     const current = pendingMove.value
-    if (!resolved || !current || current.playbackWindowId !== cursor.playback_window_id)
+    if (
+      cursor.schema_version !== '1.0.0' ||
+      !resolved ||
+      !current ||
+      current.playbackWindowId !== cursor.playback_window_id
+    )
       return false
     pendingMove.value = null
     clearMoveTimeout()
@@ -239,6 +251,10 @@ export function createKeyPointEditingService(options: KeyPointEditingServiceOpti
         await options.room.edit('MOVE_KEY_POINT', {
           keyPointId: current.keyPointId,
           cursor,
+          observation: {
+            capture_time_us: resolved.capture_time_us,
+            capture_frame_index: resolved.capture_frame_index,
+          },
         })
       }
     } finally {
@@ -325,7 +341,14 @@ export function createKeyPointEditingService(options: KeyPointEditingServiceOpti
     if (!resolved) throw new Error('伺服器無法解析微調畫格')
     if (wouldOverlap(point.key_point_id, resolved.capture_time_us))
       throw new Error('移動後的片段範圍會與其他片段重疊')
-    await options.room.edit('MOVE_KEY_POINT', { keyPointId: point.key_point_id, cursor })
+    await options.room.edit('MOVE_KEY_POINT', {
+      keyPointId: point.key_point_id,
+      cursor,
+      observation: {
+        capture_time_us: resolved.capture_time_us,
+        capture_frame_index: resolved.capture_frame_index,
+      },
+    })
     return frame
   }
 

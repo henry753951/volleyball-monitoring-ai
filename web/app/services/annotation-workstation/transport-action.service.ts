@@ -56,8 +56,11 @@ export function createTransportActionService(options: TransportActionServiceOpti
           group: 'media',
           label: direction === 'previous' ? '上一幀' : '下一幀',
           availability: computed(() => ({
-            enabled: toValue(options.frameReady) && !toValue(options.frameMovePending),
-            reason: toValue(options.frameMovePending) ? '擊球點正在同步' : '目前沒有可用畫格',
+            // Frame navigation owns a coalescing queue. Keep accepting button
+            // input while an earlier request is in flight so rapid clicks are
+            // accumulated instead of being dropped by the action manager.
+            enabled: toValue(options.frameReady),
+            reason: '目前沒有可用畫格',
           })),
           execute: payload => options.stepFrame(direction, payload?.count, payload?.input),
         },

@@ -8,11 +8,14 @@ import { describe, expect, it, vi } from 'vitest'
 import {
   MinioObjectReaderError,
   createDvrObjectReaderFromEnv,
+  createDvrObjectStreamReaderFromEnv,
   createMinioObjectReader,
   createMinioObjectReaderFromEnv,
+  createMinioObjectStreamReader,
+  createMinioObjectStreamReaderFromEnv,
   type MinioObjectClient,
 } from '../src/media/minio-object-reader.js'
-import type { MediaObjectReadRequest } from '../src/media/playback-domain.js'
+import type { MediaObjectByteRange, MediaObjectReadRequest } from '../src/media/playback-domain.js'
 
 const accessKey = 'test-access-key'
 const secretKey = 'test-secret-key'
@@ -61,6 +64,37 @@ function createReader(
   return { options, reader }
 }
 
+function createStreamReader(
+  client: MinioObjectClient,
+  overrides: Partial<Parameters<typeof createMinioObjectStreamReader>[0]> = {},
+) {
+  let options: ClientOptions | undefined
+  const reader = createMinioObjectStreamReader(
+    {
+      accessKey,
+      bucket,
+      endpoint: 'http://127.0.0.1:9000',
+      maxObjectBytes: 1024,
+      operationTimeoutMs: 1000,
+      secretKey,
+      ...overrides,
+    },
+    value => {
+      options = value
+      return client
+    },
+  )
+  return { options, reader }
+}
+
+async function readStream(stream: Readable): Promise<Buffer> {
+  const chunks: Buffer[] = []
+  for await (const chunk of stream) {
+    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk as Uint8Array))
+  }
+  return Buffer.concat(chunks)
+}
+
 function rejectingClient(error: unknown): MinioObjectClient {
   return {
     getObject: () => Promise.reject(error),
@@ -83,6 +117,29 @@ describe('MinIO object reader configuration', () => {
         MINIO_SECRET_KEY: secretKey,
       })
       await expect(reader?.(requestFor(bytes))).resolves.toEqual(bytes)
+    } finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
+  it('streams a hot DVR byte range without buffering or waiting for its MinIO mirror', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'vollyai-server-hot-stream-'))
+    try {
+      const bytes = Buffer.from('hot-dvr-media')
+      const path = join(root, bucket, 'sessions', 'segment-1.m4s')
+      await mkdir(join(root, bucket, 'sessions'), { recursive: true })
+      await writeFile(path, bytes)
+      const reader = createDvrObjectStreamReaderFromEnv({
+        MEDIA_HOT_ROOT: root,
+        MINIO_ACCESS_KEY: accessKey,
+        MINIO_DVR_BUCKET: bucket,
+        MINIO_ENDPOINT: 'http://127.0.0.1:9000',
+        MINIO_SECRET_KEY: secretKey,
+      })
+      const range: MediaObjectByteRange = { start: 4n, endExclusive: 11n }
+      const stream = await reader?.(requestFor(bytes), range)
+      expect(stream).toBeDefined()
+      await expect(readStream(stream!)).resolves.toEqual(bytes.subarray(4, 11))
     } finally {
       await rm(root, { force: true, recursive: true })
     }
@@ -164,6 +221,58 @@ describe('MinIO object reader configuration', () => {
         'MINIO_RALLY_BUCKET',
       ),
     ).toBeTypeOf('function')
+    expect(
+      createMinioObjectStreamReaderFromEnv({
+        MINIO_ENDPOINT: 'http://127.0.0.1:9000',
+        MINIO_ACCESS_KEY: accessKey,
+        MINIO_SECRET_KEY: secretKey,
+        MINIO_DVR_BUCKET: bucket,
+      }),
+    ).toBeTypeOf('function')
+  })
+})
+
+describe('MinIO streaming object reads', () => {
+  it('uses MinIO partial reads and forwards only the requested bytes', async () => {
+    const expected = Buffer.from('0123456789')
+    const getObject = vi.fn(async () => Readable.from([expected]))
+    const getPartialObject = vi.fn(
+      async (_bucket: string, _key: string, offset: number, length: number) =>
+        Readable.from([expected.subarray(offset, offset + length)]),
+    )
+    const { reader } = createStreamReader({ getObject, getPartialObject })
+    const range: MediaObjectByteRange = { start: 2n, endExclusive: 7n }
+
+    await expect(readStream(await reader(requestFor(expected), range))).resolves.toEqual(
+      Buffer.from('23456'),
+    )
+    expect(getPartialObject).toHaveBeenCalledOnce()
+    expect(getPartialObject).toHaveBeenCalledWith(bucket, 'sessions/segment-1.m4s', 2, 5)
+    expect(getObject).not.toHaveBeenCalled()
+  })
+
+  it('validates streamed length without accumulating the object', async () => {
+    const expected = Buffer.from('expected')
+    const { reader } = createStreamReader({
+      getObject: async () => Readable.from([expected.subarray(0, 3)]),
+    })
+    const stream = await reader(requestFor(expected))
+    await expect(readStream(stream)).rejects.toMatchObject({
+      code: 'LENGTH_MISMATCH',
+      message: 'Media object length did not match its expected value',
+    })
+  })
+
+  it('rejects an invalid range before contacting object storage', async () => {
+    const expected = Buffer.from('expected')
+    const getObject = vi.fn(async () => Readable.from([expected]))
+    const getPartialObject = vi.fn(async () => Readable.from([expected]))
+    const { reader } = createStreamReader({ getObject, getPartialObject })
+    await expect(
+      reader(requestFor(expected), { start: 4n, endExclusive: 99n }),
+    ).rejects.toMatchObject({ code: 'INVALID_REQUEST' })
+    expect(getObject).not.toHaveBeenCalled()
+    expect(getPartialObject).not.toHaveBeenCalled()
   })
 })
 

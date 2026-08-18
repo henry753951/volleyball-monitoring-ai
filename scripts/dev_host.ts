@@ -16,6 +16,7 @@ export function createHostDevelopmentEnvironment(
   const redisPort = source.REDIS_HOST_PORT ?? '16379'
   const minioPort = source.MINIO_HOST_PORT ?? '9000'
   const omeApiPort = source.OME_API_HOST_PORT ?? '8081'
+  const omeLlhlsPort = source.OME_LLHLS_HOST_PORT ?? '3333'
   const omeRtmpPort = source.OME_RTMP_HOST_PORT ?? '2035'
   const serverPort = source.SERVER_DEV_PORT ?? '4000'
   const webPort = source.WEB_DEV_PORT ?? '3100'
@@ -38,6 +39,7 @@ export function createHostDevelopmentEnvironment(
     NUXT_DEV_BACKEND_ORIGIN: `http://127.0.0.1:${serverPort}`,
     NUXT_PORT: webPort,
     OME_API_URL: `http://127.0.0.1:${omeApiPort}`,
+    OME_LLHLS_URL: `http://127.0.0.1:${omeLlhlsPort}`,
     PORT: serverPort,
     REDIS_URL: `redis://127.0.0.1:${redisPort}/0`,
     WORKER_MEDIA_HEALTH_PORT: source.WORKER_MEDIA_HEALTH_PORT ?? '4101',

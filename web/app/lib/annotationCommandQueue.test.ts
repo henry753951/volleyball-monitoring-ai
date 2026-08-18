@@ -260,6 +260,58 @@ describe('annotation optimistic command queue', () => {
     ])
   })
 
+  it('projects move and delete edits immediately while their acknowledgements are pending', () => {
+    const current = structuredClone(snapshot)
+    current.snapshot.key_points.push({
+      key_point_id: 'contact-1',
+      sequence_index: 1,
+      marker_kind: 'contact',
+      is_terminal: false,
+      capture_time_us: '1200',
+      capture_frame_index: '12',
+      timing_precision: 'frame_exact',
+      possible_duplicate: false,
+    })
+    const moved = enqueueAnnotationCommand(
+      [],
+      {
+        schema_version: '2.0.0',
+        command_id: '00000000-0000-4000-8000-000000000060',
+        room_id: room,
+        base_revision: '1',
+        rally_id: rally,
+        kind: 'MOVE_KEY_POINT',
+        payload: { key_point_id: 'contact-1', playback_cursor: cursor },
+      },
+      new Date(),
+      { observation: { capture_time_us: '1500', capture_frame_index: '15' } },
+    )
+    const withDelete = enqueueAnnotationCommand(moved, {
+      schema_version: '2.0.0',
+      command_id: '00000000-0000-4000-8000-000000000061',
+      room_id: room,
+      base_revision: '1',
+      rally_id: rally,
+      kind: 'DELETE_KEY_POINT',
+      payload: { key_point_id: 'service' },
+    })
+
+    expect(projectAnnotationSnapshot(current, room, moved)?.snapshot.key_points).toEqual([
+      expect.objectContaining({ key_point_id: 'service' }),
+      expect.objectContaining({
+        key_point_id: 'contact-1',
+        capture_time_us: '1500',
+        capture_frame_index: '15',
+        timing_precision: 'estimated',
+      }),
+    ])
+    expect(
+      projectAnnotationSnapshot(current, room, withDelete)?.snapshot.key_points.map(
+        point => point.key_point_id,
+      ),
+    ).toEqual(['contact-1'])
+  })
+
   it('projects and replays at most one contact for the same observed frame', () => {
     const observation = { capture_time_us: '1100', capture_frame_index: '11' }
     const first = enqueueAnnotationCommand(
@@ -342,6 +394,33 @@ describe('annotation optimistic command queue', () => {
     expect(annotationCommandConverged(end('00000000-0000-4000-8000-000000000034'), ready)).toBe(
       true,
     )
+  })
+
+  it('recognizes a MOVE whose acknowledgement was lost after the canonical anchor committed', () => {
+    const moved = structuredClone(snapshot)
+    moved.snapshot.key_points[0]!.capture_time_us = '1250'
+    moved.snapshot.key_points[0]!.capture_frame_index = '13'
+    const command: AnnotationCommand = {
+      schema_version: '2.0.0',
+      command_id: '00000000-0000-4000-8000-000000000035',
+      room_id: room,
+      base_revision: '1',
+      rally_id: rally,
+      kind: 'MOVE_KEY_POINT',
+      payload: { key_point_id: 'service', playback_cursor: cursor },
+    }
+    expect(
+      annotationCommandConverged(command, moved, {
+        capture_time_us: '1250',
+        capture_frame_index: '13',
+      }),
+    ).toBe(true)
+    expect(
+      annotationCommandConverged(command, moved, {
+        capture_time_us: '1250',
+        capture_frame_index: '12',
+      }),
+    ).toBe(false)
   })
 
   it('replaces a pending point with the canonical ACK anchor', () => {
