@@ -10,6 +10,7 @@ const authEnvKeys = [
   'APP_AUTH_PASSWORD',
   'APP_AUTH_SESSION_SECRET',
   'APP_AUTH_USER_ID',
+  'APP_AUTH_COOKIE_NAME',
   'APP_AUTH_COOKIE_SECURE',
 ] as const
 const originalAuthEnv = new Map(authEnvKeys.map(key => [key, process.env[key]]))
@@ -97,6 +98,9 @@ describe('application authentication routes', () => {
       })
       expect(logout.statusCode).toBe(200)
       expect(String(logout.headers['set-cookie'])).toContain('Max-Age=0')
+      expect(String(logout.headers['set-cookie'])).toContain(
+        'Expires=Thu, 01 Jan 1970 00:00:00 GMT',
+      )
 
       const revoked = await app.inject({
         headers: { cookie: cookie.split(';')[0] },
@@ -104,6 +108,40 @@ describe('application authentication routes', () => {
         url: '/api/v1/auth/session',
       })
       expect(revoked.json()).toMatchObject({ authenticated: false, user: null })
+    } finally {
+      await app.close()
+    }
+  })
+
+  it('expires both a configured cookie name and the legacy default cookie name', async () => {
+    setAuthEnv({
+      APP_AUTH_COOKIE_NAME: 'volley_app_session',
+      APP_AUTH_COOKIE_SECURE: 'false',
+      APP_AUTH_ENABLED: 'true',
+      APP_AUTH_PASSWORD: 'test-password',
+      APP_AUTH_SESSION_SECRET: 'test-session-secret',
+      APP_AUTH_USER_ID: userId,
+      APP_AUTH_USERNAME: 'volley-ai',
+    })
+
+    const app = Fastify({ logger: false })
+    await app.register(authRoutes({ database: fakeDatabase() }))
+    try {
+      const login = await app.inject({
+        method: 'POST',
+        payload: { password: 'test-password', username: 'volley-ai' },
+        url: '/api/v1/auth/login',
+      })
+      const cookie = String(login.headers['set-cookie']).split(';')[0]
+      const logout = await app.inject({
+        headers: { cookie },
+        method: 'POST',
+        url: '/api/v1/auth/logout',
+      })
+      const cleared = String(logout.headers['set-cookie'])
+      expect(cleared).toContain('volley_app_session=')
+      expect(cleared).toContain('volley_session=')
+      expect(cleared).toContain('Max-Age=0')
     } finally {
       await app.close()
     }

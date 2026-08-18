@@ -4,6 +4,7 @@ import 'vue-sonner/style.css'
 
 const route = useRoute()
 const layoutName = computed(() => {
+  if (route.path === '/login') return 'auth'
   if (route.path.startsWith('/annotate/')) return 'annotation'
   if (route.path === '/control' || route.path.startsWith('/control/')) return 'control'
   return 'coach'

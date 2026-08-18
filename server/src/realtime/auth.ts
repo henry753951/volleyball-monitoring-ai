@@ -161,9 +161,40 @@ export function clearAppSessionCookie(): string {
   const config = appAuthConfig()
   const cookieName =
     config?.cookieName || process.env.APP_AUTH_COOKIE_NAME || DEFAULT_APP_AUTH_COOKIE
-  const attributes = [`${cookieName}=`, 'Path=/', 'HttpOnly', 'Max-Age=0', 'SameSite=Lax']
+  const attributes = [
+    `${cookieName}=`,
+    'Path=/',
+    'HttpOnly',
+    'Max-Age=0',
+    'Expires=Thu, 01 Jan 1970 00:00:00 GMT',
+    'SameSite=Lax',
+  ]
   if (config?.secureCookie) attributes.push('Secure')
   return attributes.join('; ')
+}
+
+/**
+ * Clear the configured cookie and the original default name. The latter is
+ * important after a cookie-name change: browsers keep both host cookies and
+ * will continue sending the old one until it is explicitly expired.
+ */
+export function clearAppSessionCookies(): string[] {
+  const config = appAuthConfig()
+  const configuredName =
+    config?.cookieName || process.env.APP_AUTH_COOKIE_NAME || DEFAULT_APP_AUTH_COOKIE
+  const names = new Set([configuredName, DEFAULT_APP_AUTH_COOKIE])
+  return [...names].map(cookieName => {
+    const attributes = [
+      `${cookieName}=`,
+      'Path=/',
+      'HttpOnly',
+      'Max-Age=0',
+      'Expires=Thu, 01 Jan 1970 00:00:00 GMT',
+      'SameSite=Lax',
+    ]
+    if (config?.secureCookie) attributes.push('Secure')
+    return attributes.join('; ')
+  })
 }
 
 export async function createAppSession(

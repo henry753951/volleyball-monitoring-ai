@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { LoaderCircle, LogIn } from 'lucide-vue-next'
+import { LoaderCircle } from 'lucide-vue-next'
 
 const route = useRoute()
 const viewerState = useViewerState()
@@ -14,6 +14,7 @@ const redirectTarget = computed(() => {
 })
 
 onMounted(async () => {
+  if (route.query.logged_out === '1') return
   if (await viewerState.refresh()) await navigateTo(redirectTarget.value)
 })
 
@@ -41,10 +42,11 @@ async function submit() {
 <template>
   <main class="login-page">
     <section class="login-card" aria-labelledby="login-title">
-      <div class="login-brand"><span>V</span><small>VOLLYAI</small></div>
-      <p class="login-eyebrow">OPERATIONS WORKSPACE</p>
-      <h1 id="login-title">登入 VollyAI</h1>
-      <p class="login-description">使用主帳號進入標註工作區與控制台。</p>
+      <div class="login-brand">VollyAI</div>
+      <div class="login-heading">
+        <h1 id="login-title">登入</h1>
+        <p class="login-description">使用主帳號進入工作區。</p>
+      </div>
       <form class="login-form" @submit.prevent="submit">
         <label>
           <span>帳號</span>
@@ -57,7 +59,6 @@ async function submit() {
         <p v-if="error" class="login-error" role="alert">{{ error }}</p>
         <button :disabled="pending" type="submit">
           <LoaderCircle v-if="pending" class="spin" :size="16" />
-          <LogIn v-else :size="16" />
           {{ pending ? '登入中…' : '登入' }}
         </button>
       </form>
@@ -67,84 +68,63 @@ async function submit() {
 
 <style scoped>
 .login-page {
-  min-height: 100dvh;
+  min-height: 100%;
+  box-sizing: border-box;
   display: grid;
   place-items: center;
-  padding: 24px;
-  background: radial-gradient(circle at 50% 0, #20365e 0, #101826 40%, #080b12 100%);
-  color: #f7f9fc;
-  font-family: 'Segoe UI Variable Text', system-ui, sans-serif;
+  padding: 32px 20px;
+  background: #fff;
 }
 .login-card {
-  width: min(100%, 400px);
-  padding: 34px;
-  border: 1px solid #ffffff1a;
-  border-radius: 22px;
-  background: #111827e8;
-  box-shadow: 0 24px 80px #0008;
+  width: min(100%, 360px);
 }
 .login-brand {
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  color: #9cbcff;
-  font-size: 0.76rem;
-  font-weight: 800;
-  letter-spacing: 0.14em;
+  margin-bottom: 64px;
+  color: #17191c;
+  font-size: 1.15rem;
+  font-weight: 700;
+  letter-spacing: -0.03em;
 }
-.login-brand span {
-  width: 28px;
-  height: 28px;
-  display: grid;
-  place-items: center;
-  border: 1px solid #8eb4ff66;
-  border-radius: 9px;
-  background: #26477c;
-  color: white;
-  letter-spacing: 0;
-}
-.login-eyebrow {
-  margin: 44px 0 8px;
-  color: #7596c8;
-  font-size: 0.65rem;
-  font-weight: 750;
-  letter-spacing: 0.14em;
+.login-heading {
+  margin-bottom: 32px;
 }
 h1 {
   margin: 0;
-  font-size: 1.8rem;
-  letter-spacing: -0.04em;
+  color: #17191c;
+  font-size: 1.75rem;
+  letter-spacing: -0.03em;
 }
 .login-description {
-  margin: 9px 0 28px;
-  color: #a9b5ca;
-  font-size: 0.86rem;
+  margin: 8px 0 0;
+  color: #68707c;
+  font-size: 0.9rem;
 }
 .login-form {
   display: grid;
-  gap: 16px;
+  gap: 18px;
 }
 .login-form label {
   display: grid;
-  gap: 7px;
-  color: #c6d2e5;
-  font-size: 0.75rem;
-  font-weight: 650;
+  gap: 8px;
+  color: #30343a;
+  font-size: 0.82rem;
+  font-weight: 600;
 }
 .login-form input {
   width: 100%;
   box-sizing: border-box;
-  padding: 12px 13px;
-  border: 1px solid #ffffff1f;
-  border-radius: 10px;
+  min-height: 44px;
+  padding: 10px 12px;
+  border: 1px solid #d4d8de;
+  border-radius: 6px;
   outline: none;
-  background: #0a1020;
-  color: #f7f9fc;
+  background: #fff;
+  color: #17191c;
   font: inherit;
 }
 .login-form input:focus {
-  border-color: #79a6ff;
-  box-shadow: 0 0 0 3px #79a6ff26;
+  border-color: #1769e0;
+  box-shadow: 0 0 0 3px #1769e01f;
 }
 .login-form button {
   min-height: 44px;
@@ -152,23 +132,30 @@ h1 {
   align-items: center;
   justify-content: center;
   gap: 8px;
-  margin-top: 6px;
+  margin-top: 4px;
   border: 0;
-  border-radius: 10px;
-  background: #4c8dff;
+  border-radius: 6px;
+  background: #1769e0;
   color: white;
   cursor: pointer;
   font: inherit;
-  font-weight: 750;
+  font-weight: 650;
+}
+.login-form button:hover:not(:disabled) {
+  background: #0f59c6;
+}
+.login-form button:focus-visible {
+  outline: 2px solid #1769e0;
+  outline-offset: 3px;
 }
 .login-form button:disabled {
   cursor: wait;
-  opacity: 0.65;
+  opacity: 0.55;
 }
 .login-error {
   margin: 0;
-  color: #ffb4b4;
-  font-size: 0.78rem;
+  color: #b42318;
+  font-size: 0.82rem;
 }
 .spin {
   animation: spin 0.8s linear infinite;
@@ -179,8 +166,8 @@ h1 {
   }
 }
 @media (max-width: 520px) {
-  .login-card {
-    padding: 26px;
+  .login-brand {
+    margin-bottom: 48px;
   }
 }
 </style>

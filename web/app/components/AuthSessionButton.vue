@@ -10,7 +10,10 @@ async function logout() {
   } finally {
     viewerState.clear()
     pending.value = false
-    await navigateTo({ path: '/login', query: { redirect: useRoute().fullPath } })
+    // Do not carry the protected page into the login screen. If a browser
+    // still has a legacy cookie, login's session probe would otherwise send
+    // the user straight back to the page they just tried to leave.
+    await navigateTo({ path: '/login', query: { logged_out: '1' } })
   }
 }
 </script>
