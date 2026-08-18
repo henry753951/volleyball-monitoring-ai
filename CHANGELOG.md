@@ -1,5 +1,61 @@
 # Changelog
 
+## [1.5.0](https://github.com/henry753951/volleyball-monitoring-ai/compare/v1.4.1...v1.5.0) (2026-08-18)
+
+
+### Features
+
+* **media:** add coarse media extent catalog ([42f4a7c](https://github.com/henry753951/volleyball-monitoring-ai/commit/42f4a7c72d26e031bf4e4dfeea2a4807cb19fb1a))
+* **media:** add OME direct live playback experiment ([ccad4ee](https://github.com/henry753951/volleyball-monitoring-ai/commit/ccad4ee84604507a4218d5739445330522e9fc74))
+* **media:** adopt OME direct live playback and extent archives ([3c7f286](https://github.com/henry753951/volleyball-monitoring-ai/commit/3c7f286be4f9f0c958e26e338efda5e72bd08460))
+* **media:** build canonical clips from extents ([29552f0](https://github.com/henry753951/volleyball-monitoring-ai/commit/29552f090ee1dcf03556dc4f8b31da9386623387))
+* **media:** harden canonical live and VOD playback ([f8d4485](https://github.com/henry753951/volleyball-monitoring-ai/commit/f8d44858fdf5ac5ea2f1d67b79b652e87ffe99fe))
+* **media:** project canonical timing onto extents ([1468af1](https://github.com/henry753951/volleyball-monitoring-ai/commit/1468af15ebdd2cb977cce8b2ab6e5e3cc2ebfe93))
+* **media:** resolve OME cursors from extents ([49ad8fe](https://github.com/henry753951/volleyball-monitoring-ai/commit/49ad8fea6db40dca1fbb9e0d6e1815afdabfba44))
+
+
+### Bug Fixes
+
+* **annotation:** reserve active rally ranges across clients ([5a86379](https://github.com/henry753951/volleyball-monitoring-ai/commit/5a86379b8e365bd50166f8d8623db14f162f5bb7))
+* **annotation:** scope rally reservations to capture rooms ([aa2e17a](https://github.com/henry753951/volleyball-monitoring-ai/commit/aa2e17a4fe55bb098dc0c688068b70c311d9c932))
+* **media:** preserve transient ingest retries on restart ([b913867](https://github.com/henry753951/volleyball-monitoring-ai/commit/b91386740520b13c64ce6bd974f644c1719af512))
+* **playback:** reject unreadable media before streaming ([e5eb2d7](https://github.com/henry753951/volleyball-monitoring-ai/commit/e5eb2d745741affc1f806f698b215514e4bcedc8))
+* **realtime:** replay durable annotation state across reconnects ([58c377c](https://github.com/henry753951/volleyball-monitoring-ai/commit/58c377c9f932ca09884355bed4cb387e236e5613))
+* **realtime:** require complete reconnect replay ([9f0860a](https://github.com/henry753951/volleyball-monitoring-ai/commit/9f0860a082b31d1aa58b4c70ffb42bc59c55923b))
+* **server:** narrow cached timeline projection ([c30f293](https://github.com/henry753951/volleyball-monitoring-ai/commit/c30f29305572cc9ebfc94c249d779739e07077d9))
+* **test:** run workspace vitest scripts ([c658730](https://github.com/henry753951/volleyball-monitoring-ai/commit/c65873007723be886017140f123ca90944e73a02))
+* **web:** converge moved annotations after lost ACK ([0aaba20](https://github.com/henry753951/volleyball-monitoring-ai/commit/0aaba2092aa6de752a12354ec39388b9c945f894))
+* **web:** keep annotation controls responsive and cursor-local ([cfa56d0](https://github.com/henry753951/volleyball-monitoring-ai/commit/cfa56d00b3723e716cceeaceb103159ff325094d))
+* **web:** make annotation input optimistic and non-blocking ([cc1329e](https://github.com/henry753951/volleyball-monitoring-ai/commit/cc1329e4c9ab5514db8a85f06413cbe519c64bc6))
+
+
+### Performance
+
+* **media:** decouple OME recording extents ([bf82525](https://github.com/henry753951/volleyball-monitoring-ai/commit/bf82525858b76e630790ed00842aec868e4f4b6b))
+* **media:** reduce strict FIFO drain latency ([93ae084](https://github.com/henry753951/volleyball-monitoring-ai/commit/93ae0841d5c2daac58a22d3bd2dc6c53e78a9e36))
+* **media:** use coarse resumable recording extents ([d84f6fb](https://github.com/henry753951/volleyball-monitoring-ai/commit/d84f6fbb97ae83590c102e28164f45801522143f))
+* **playback:** bound window queries and append mappings ([ce29311](https://github.com/henry753951/volleyball-monitoring-ai/commit/ce2931172e2ab0a54c552dcd6835b5b72ca0f927))
+* **playback:** stream indexed media resources ([318d6d2](https://github.com/henry753951/volleyball-monitoring-ai/commit/318d6d2060ea5d89971db618036b792a90e99015))
+* **timeline:** cache incremental media projections ([d57d589](https://github.com/henry753951/volleyball-monitoring-ai/commit/d57d58909e67a3710773fa98b300c4f5b4c4b824))
+
+
+### Refactoring
+
+* **media:** make live archives extent-native ([357d5ee](https://github.com/henry753951/volleyball-monitoring-ai/commit/357d5eec9022abae82506f1470eecf8f04af8c88))
+
+
+### Tests
+
+* align optimistic annotation timeline expectations ([6ff316d](https://github.com/henry753951/volleyball-monitoring-ai/commit/6ff316d1793c2ca6fbdbb5fafd3422b6aa39602f))
+
+
+### Maintenance
+
+* refresh release checksums ([3f65f7d](https://github.com/henry753951/volleyball-monitoring-ai/commit/3f65f7da1b2bf0d51d2e83f8588ab399ee95a5fb))
+* refresh release checksums ([87d0a12](https://github.com/henry753951/volleyball-monitoring-ai/commit/87d0a1247f6add68ecb2ffe1d64fdc84dcd1b8b9))
+* refresh release checksums ([25ecb6b](https://github.com/henry753951/volleyball-monitoring-ai/commit/25ecb6bc6a60fd1049e0dadcca988301c4ce19b3))
+* refresh release checksums ([f2617bc](https://github.com/henry753951/volleyball-monitoring-ai/commit/f2617bcb55e49436a7361c4ee380b1f897a526cc))
+
 ## [1.4.1](https://github.com/henry753951/volleyball-monitoring-ai/compare/v1.4.0...v1.4.1) (2026-08-17)
 
 
