@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.5.2](https://github.com/henry753951/volleyball-monitoring-ai/compare/v1.5.1...v1.5.2) (2026-08-18)
+
+
+### Bug Fixes
+
+* **worker:** ship bounded-range FFmpeg build ([20d0593](https://github.com/henry753951/volleyball-monitoring-ai/commit/20d0593fea85c6e5c2839f10095e8ce1769eb31c))
+
+
+### Maintenance
+
+* refresh release checksums ([f9a4b72](https://github.com/henry753951/volleyball-monitoring-ai/commit/f9a4b725f48fea818009e0fb46d682cae7915efc))
+
 ## [1.5.1](https://github.com/henry753951/volleyball-monitoring-ai/compare/v1.5.0...v1.5.1) (2026-08-18)
 
 
