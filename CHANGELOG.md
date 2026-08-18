@@ -5,7 +5,6 @@
 
 ### Bug Fixes
 
-* **worker:** ship bounded-range FFmpeg build ([80ee4db](https://github.com/henry753951/volleyball-monitoring-ai/commit/80ee4dba6d526bbd4491af2964e56cee25685f13))
 * **worker:** ship bounded-range FFmpeg build ([20d0593](https://github.com/henry753951/volleyball-monitoring-ai/commit/20d0593fea85c6e5c2839f10095e8ce1769eb31c))
 
 
