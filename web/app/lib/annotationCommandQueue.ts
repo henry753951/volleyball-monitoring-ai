@@ -341,6 +341,26 @@ export function projectAnnotationSnapshot(
         candidate => candidate.key_point_id === command.payload.key_point_id,
       )
       if (point) point.ball_event_actor_roster_entry_id = command.payload.actor_roster_entry_id
+    } else if (command.kind === 'MOVE_KEY_POINT' && entry.observation) {
+      projected.snapshot.key_points = normalizeKeyPointOrder(
+        projected.snapshot.key_points.map(point =>
+          point.key_point_id === command.payload.key_point_id
+            ? {
+                ...point,
+                capture_time_us: entry.observation!.capture_time_us,
+                capture_frame_index:
+                  entry.observation!.capture_frame_index ?? point.capture_frame_index,
+                timing_precision: 'estimated' as const,
+              }
+            : point,
+        ),
+      )
+    } else if (command.kind === 'DELETE_KEY_POINT') {
+      projected.snapshot.key_points = normalizeKeyPointOrder(
+        projected.snapshot.key_points.filter(
+          point => point.key_point_id !== command.payload.key_point_id,
+        ),
+      )
     } else if (command.kind === 'SET_RALLY_OUTCOME') {
       projected.snapshot.score_resolution = command.payload.score_resolution
       projected.snapshot.scoring_court_side = command.payload.scoring_court_side
@@ -350,6 +370,12 @@ export function projectAnnotationSnapshot(
       projected.snapshot.annotation_status = 'ready'
       projected.snapshot.score_resolution = command.payload.score_resolution
       projected.snapshot.scoring_court_side = command.payload.scoring_court_side
+    } else if (command.kind === 'REOPEN_RALLY') {
+      projected.snapshot.annotation_status = 'open'
+      const target = projected.snapshot.key_points.at(-1)
+      if (target) target.is_terminal = false
+    } else if (command.kind === 'VOID_RALLY') {
+      projected.snapshot.annotation_status = 'voided'
     } else if (command.kind === 'SUBMIT_RALLY') projected.snapshot.annotation_status = 'submitted'
     normalizeProjectedBallEvents(projected)
   }

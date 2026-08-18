@@ -226,6 +226,11 @@ const selectedKeyPointId = computed<string | null>({
     else workstationSelection.clearDetail()
   },
 })
+watch(annotation.resolvedKeyPointIds, aliases => {
+  const selected = selectedKeyPointId.value
+  const resolved = selected ? aliases[selected] : null
+  if (resolved) selectedKeyPointId.value = resolved
+})
 const timelineSelection = createTimelineSelectionService({
   room: annotation,
   selection: workstationSelection,
@@ -274,7 +279,9 @@ const commandReady = computed(() => !annotation.outboxNeedsConfirmation.value)
 const draftMutationReady = computed(
   () => commandReady.value && !annotation.busy.value && !pendingTimelineMove.value,
 )
-const editReady = computed(() => draftMutationReady.value && annotation.pendingCount.value === 0)
+// Annotation mutations are optimistic and ordered by the durable local outbox.
+// Do not turn ordinary network latency into a workstation-wide edit lock.
+const editReady = computed(() => draftMutationReady.value)
 const keyPointEditReady = computed(
   () => draftMutationReady.value || keyPointEditing.navigation.active.value,
 )

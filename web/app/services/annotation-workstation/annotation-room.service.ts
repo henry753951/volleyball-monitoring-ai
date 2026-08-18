@@ -28,6 +28,7 @@ import {
   markAnnotationOutboxAttempted,
   readAnnotationOutbox,
   replaceAnnotationOutboxCommand,
+  resolveAnnotationOutboxKeyPointReference,
   resolveAnnotationOutboxEntry,
   writeAnnotationOutbox,
   type AnnotationOutboxEntry,
@@ -84,9 +85,11 @@ export function createAnnotationRoomService(annotationWsUrl: MaybeRefOrGetter<st
   const presence = shallowRef<AnnotationPresenceSnapshot['members']>([])
   const processing = shallowRef<Record<string, AnnotationRallyProcessingUpdate>>({})
   const lastAutoCorrections = shallowRef<BallEventRepair[]>([])
+  const resolvedKeyPointIds = shallowRef<Record<string, string>>({})
   const transport = createGraphQLTransport('/graphql')
   let realtime: AnnotationRealtimeClient | null = null
   let flushPromise: Promise<void> | null = null
+  let flushScheduled = false
   let rallySelectionGeneration = 0
   let deviceSessionHint: string | null = null
   const rememberedRallyIdState = ref<string | null>(null)
@@ -412,7 +415,23 @@ export function createAnnotationRoomService(annotationWsUrl: MaybeRefOrGetter<st
           error.value = response.message ?? '標註命令被拒絕'
           continue
         }
-        replaceOutbox(resolveAnnotationOutboxEntry(outbox.value, rebased.command_id))
+        let remaining = resolveAnnotationOutboxEntry(outbox.value, rebased.command_id)
+        if (
+          (rebased.kind === 'CREATE_SERVICE_KEY_POINT' ||
+            rebased.kind === 'CREATE_CONTACT_KEY_POINT') &&
+          response.effects.created_key_point_id
+        ) {
+          resolvedKeyPointIds.value = {
+            ...resolvedKeyPointIds.value,
+            [`pending:${rebased.command_id}`]: response.effects.created_key_point_id,
+          }
+          remaining = resolveAnnotationOutboxKeyPointReference(
+            remaining,
+            `pending:${rebased.command_id}`,
+            response.effects.created_key_point_id,
+          )
+        }
+        replaceOutbox(remaining)
         error.value = null
         lastAutoCorrections.value = response.effects.auto_corrections ?? []
         acceptSnapshot(applyAnnotationAckLocally(snapshot.value, rebased, response), {
@@ -435,6 +454,7 @@ export function createAnnotationRoomService(annotationWsUrl: MaybeRefOrGetter<st
     snapshot.value = null
     presence.value = []
     processing.value = {}
+    resolvedKeyPointIds.value = {}
     selfDeviceSessionId.value = null
     error.value = null
     loadOutbox()
@@ -459,7 +479,8 @@ export function createAnnotationRoomService(annotationWsUrl: MaybeRefOrGetter<st
         onMessage: message => {
           if (message.type === 'connection_ready') {
             selfDeviceSessionId.value = message.device_session_id
-            void refreshActive().then(() => flushOutbox())
+            scheduleOutboxFlush()
+            void refreshActive().then(() => scheduleOutboxFlush())
           }
           if (message.type === 'rally_snapshot') acceptBroadcastSnapshot(message)
           if (message.type === 'presence_snapshot') presence.value = message.members
@@ -517,6 +538,18 @@ export function createAnnotationRoomService(annotationWsUrl: MaybeRefOrGetter<st
     }
   }
 
+  function scheduleOutboxFlush(commandId?: string) {
+    if (flushScheduled) return
+    flushScheduled = true
+    queueMicrotask(() => {
+      flushScheduled = false
+      const task = commandId ? flushQueuedCommand(commandId) : flushOutbox()
+      void task.catch(cause => {
+        error.value = cause instanceof Error ? cause.message : '背景同步標註失敗'
+      })
+    })
+  }
+
   function sendCommand(command: AnnotationCommand, observation?: AnnotationClientObservation) {
     if (command.kind === 'START_RALLY' || command.kind === 'CREATE_SERVICE_KEY_POINT') {
       rememberRallyId(command.rally_id)
@@ -526,7 +559,8 @@ export function createAnnotationRoomService(annotationWsUrl: MaybeRefOrGetter<st
         ...(observation ? { observation } : {}),
       }),
     )
-    return realtime?.ready() ? flushQueuedCommand(command.command_id) : Promise.resolve()
+    if (realtime?.ready()) scheduleOutboxFlush(command.command_id)
+    return Promise.resolve()
   }
 
   async function dispatch(
@@ -549,17 +583,19 @@ export function createAnnotationRoomService(annotationWsUrl: MaybeRefOrGetter<st
 
   async function edit(
     kind: 'MOVE_KEY_POINT' | 'DELETE_KEY_POINT' | 'REOPEN_RALLY' | 'VOID_RALLY',
-    options: { keyPointId?: string; cursor?: PlaybackCursorInput | null; reason?: string } = {},
+    options: {
+      keyPointId?: string
+      cursor?: PlaybackCursorInput | null
+      reason?: string
+      observation?: AnnotationClientObservation
+    } = {},
   ) {
-    busy.value = true
     error.value = null
     try {
-      return await sendCommand(buildEditCommand(kind, options))
+      return await sendCommand(buildEditCommand(kind, options), options.observation)
     } catch (cause) {
       error.value = cause instanceof Error ? cause.message : '標註編輯失敗'
       throw cause
-    } finally {
-      busy.value = false
     }
   }
 
@@ -620,15 +656,12 @@ export function createAnnotationRoomService(annotationWsUrl: MaybeRefOrGetter<st
   async function submitCorrection() {
     if (state.value !== 'OPEN' && state.value !== 'READY')
       throw new Error('目前沒有可送出的修正草稿')
-    busy.value = true
     error.value = null
     try {
       return await sendCommand(buildCommand('submit', null))
     } catch (cause) {
       error.value = cause instanceof Error ? cause.message : '無法送出修正草稿'
       throw cause
-    } finally {
-      busy.value = false
     }
   }
 
@@ -733,6 +766,7 @@ export function createAnnotationRoomService(annotationWsUrl: MaybeRefOrGetter<st
     lastKeyPoint,
     outboxNeedsConfirmation,
     pendingCommands: shallowReadonly(outbox),
+    resolvedKeyPointIds: shallowReadonly(resolvedKeyPointIds),
     pendingCount,
     presence: shallowReadonly(presence),
     processing: shallowReadonly(processing),

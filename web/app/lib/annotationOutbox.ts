@@ -187,6 +187,49 @@ export function replaceAnnotationOutboxCommand(
   )
 }
 
+/**
+ * Commands may be queued against an optimistic key point before the CREATE
+ * command receives its durable id. The outbox is strictly ordered, so rewrite
+ * those dependencies as soon as the create acknowledgement arrives and keep
+ * flushing without making the operator wait for a network round trip.
+ */
+export function resolveAnnotationOutboxKeyPointReference(
+  entries: AnnotationOutboxEntry[],
+  pendingKeyPointId: string,
+  resolvedKeyPointId: string,
+) {
+  return entries.map(entry => {
+    const { command } = entry
+    switch (command.kind) {
+      case 'MOVE_KEY_POINT':
+      case 'SET_BALL_EVENT':
+      case 'SET_BALL_EVENT_ACTOR':
+      case 'DELETE_KEY_POINT':
+        if (command.payload.key_point_id !== pendingKeyPointId) return entry
+        return {
+          ...entry,
+          attempted_at: undefined,
+          command: parseAnnotationCommand({
+            ...command,
+            payload: { ...command.payload, key_point_id: resolvedKeyPointId },
+          }),
+        }
+      case 'CLOSE_RALLY':
+        if (command.payload.target_key_point_id !== pendingKeyPointId) return entry
+        return {
+          ...entry,
+          attempted_at: undefined,
+          command: parseAnnotationCommand({
+            ...command,
+            payload: { ...command.payload, target_key_point_id: resolvedKeyPointId },
+          }),
+        }
+      default:
+        return entry
+    }
+  })
+}
+
 export function markAnnotationOutboxAttempted(
   entries: AnnotationOutboxEntry[],
   commandId: string,
