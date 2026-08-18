@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, rm, utimes, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { JobWithMetadata } from 'pg-boss'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { mediaIndexerConfig } from '../src/media/runtime-config.js'
 import {
   MediaIndexerRuntime,
@@ -12,7 +12,10 @@ import {
   epochCandidateId,
   mediaIngestQueueOptions,
   processMediaIngestJobs,
+  recordingInfoCandidates,
+  scanActiveCaptureDirectory,
   scanSpool,
+  scanSpoolCandidate,
   sourceOrderFromCandidate,
   sourceOrderFromRestartMarker,
 } from '../src/roles/media-indexer.js'
@@ -113,6 +116,35 @@ describe('media indexer runtime kernel', () => {
     expect(BigInt(scanned[0]!.sourceOrder)).toBeLessThan(BigInt(scanned[1]!.sourceOrder))
   })
 
+  it('resolves one finalized event and reads OME recording metadata without a root walk', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'volleyball-indexer-event-'))
+    temporaryPaths.push(root)
+    await mkdir(join(root, 'court-a'))
+    const first = 'court-a/20260807063002_0.mp4'
+    const second = 'court-a/20260807063102_1.mp4'
+    await writeFile(join(root, first), Buffer.from('first'))
+    await writeFile(join(root, second), Buffer.from('second'))
+    await writeFile(
+      join(root, 'court-a', 'recording.xml'),
+      `<files><file><filePath><![CDATA[/other/escape.mp4]]></filePath></file><file><filePath><![CDATA[/${first}]]></filePath></file><file><filePath><![CDATA[/${second}]]></filePath></file></files>`,
+    )
+
+    await expect(scanSpoolCandidate(root, first, async () => session)).resolves.toMatchObject({
+      candidate: first,
+      captureSessionId: session,
+    })
+    await expect(recordingInfoCandidates(root, 'court-a/recording.xml')).resolves.toEqual([
+      first,
+      second,
+    ])
+    await expect(
+      scanActiveCaptureDirectory(root, { captureSessionId: session, ingestPath: 'court-a' }),
+    ).resolves.toEqual([
+      expect.objectContaining({ candidate: first, captureSessionId: session }),
+      expect.objectContaining({ candidate: second, captureSessionId: session }),
+    ])
+  })
+
   it('validates the composed media worker environment', () => {
     const config = mediaIndexerConfig({
       DATABASE_URL: 'postgresql://postgres:postgres@postgres:5432/volleyball',
@@ -128,7 +160,8 @@ describe('media indexer runtime kernel', () => {
       OME_API_URL: 'http://ovenmediaengine:8081',
     })
     expect(config).toMatchObject({
-      MEDIA_INDEXER_SCAN_INTERVAL_MS: 250,
+      MEDIA_INDEXER_SCAN_INTERVAL_MS: 30_000,
+      MEDIA_INDEXER_ACTIVE_POLL_INTERVAL_MS: 500,
       MEDIA_SOURCE_CONCURRENCY: 2,
       MEDIA_SOURCE_POLL_INTERVAL_MS: 250,
       YOUTUBE_EXTRACTOR_ARGS: 'youtube:player_client=default',
@@ -284,5 +317,38 @@ describe('media indexer runtime kernel', () => {
     expect(sent).toHaveLength(0)
     await runtime.scan()
     expect(sent).toHaveLength(1)
+  })
+
+  it('uses filesystem events as the finalized-media fast path', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'volleyball-indexer-watch-'))
+    temporaryPaths.push(root)
+    await mkdir(join(root, 'court-a'))
+    const candidate = 'court-a/2026-08-07_06-30-01-123456.mp4'
+    const sent: unknown[] = []
+    let listener: ((eventType: string, filename: string | null) => void) | undefined
+    const runtime = new MediaIndexerRuntime({
+      intervalMs: 300_000,
+      spoolRoot: root,
+      queue: {
+        send: async (_name, value) => {
+          sent.push(value)
+          return 'job-id'
+        },
+      },
+      resolveCapture: async () => session,
+      watchSpool: (_root, value) => {
+        listener = value
+        return { close: () => undefined, on: () => undefined } as never
+      },
+    })
+    await runtime.start()
+    await writeFile(join(root, candidate), Buffer.from('sealed'))
+    const old = new Date(Date.now() - 2_000)
+    await utimes(join(root, candidate), old, old)
+    listener?.('rename', candidate)
+
+    await vi.waitFor(() => expect(sent).toHaveLength(1), { timeout: 2_000, interval: 50 })
+    expect(runtime.snapshot.watching).toBe(true)
+    await runtime.stop()
   })
 })

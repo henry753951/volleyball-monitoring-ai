@@ -22,7 +22,8 @@ const MediaIndexerEnvironment = z.object({
   MINIO_DVR_BUCKET: z.string().min(3),
   OME_API_ACCESS_TOKEN: z.string().min(32),
   OME_API_URL: z.string().url(),
-  MEDIA_INDEXER_SCAN_INTERVAL_MS: z.coerce.number().int().min(250).max(300_000).default(250),
+  MEDIA_INDEXER_SCAN_INTERVAL_MS: z.coerce.number().int().min(5_000).max(300_000).default(30_000),
+  MEDIA_INDEXER_ACTIVE_POLL_INTERVAL_MS: z.coerce.number().int().min(250).max(10_000).default(500),
   MEDIA_SOURCE_CONCURRENCY: z.coerce.number().int().min(1).max(8).default(2),
   MEDIA_SOURCE_POLL_INTERVAL_MS: z.coerce.number().int().min(100).max(10_000).default(250),
   YOUTUBE_COOKIES_FILE: z.preprocess(

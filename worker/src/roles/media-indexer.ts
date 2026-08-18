@@ -1,11 +1,16 @@
+import { watch, type FSWatcher } from 'node:fs'
 import { stat } from 'node:fs/promises'
-import { join } from 'node:path'
+import { extname, join } from 'node:path'
 import { PgBoss, type JobResult, type JobWithMetadata, type QueueResult } from 'pg-boss'
 import {
   MEDIA_INGEST_QUEUE,
   MediaIngestEnvelope,
   enqueueUnique,
+  recordingInfoCandidates,
+  scanActiveCaptureDirectory,
   scanSpool,
+  scanSpoolCandidate,
+  type ActiveCaptureDirectory,
   type IngestQueue,
 } from '../media/indexer-runtime.js'
 
@@ -16,7 +21,10 @@ export {
   createEnvelope,
   enqueueUnique,
   epochCandidateId,
+  recordingInfoCandidates,
+  scanActiveCaptureDirectory,
   scanSpool,
+  scanSpoolCandidate,
   sourceOrderFromCandidate,
   sourceOrderFromRestartMarker,
 } from '../media/indexer-runtime.js'
@@ -179,11 +187,14 @@ export async function processMediaIngestJobs(
 
 type PermanentMediaIngestResult = JobResult<PermanentMediaIngestOutput>
 
+type QuarantineSuccessors = (captureSessionId: string) => Promise<void>
+
 export async function quarantinePermanentMediaFailures(
   jobs: Pick<JobWithMetadata<MediaIngestEnvelope>, 'id' | 'data'>[],
   results: PermanentMediaIngestResult[],
   sendDeadLetter: (id: string, data: Record<string, unknown>) => Promise<unknown>,
   recordFailure: RecordPermanentMediaIngestFailure,
+  quarantineSuccessors: QuarantineSuccessors = async () => undefined,
 ): Promise<PermanentMediaIngestResult[]> {
   const jobsById = new Map(jobs.map(job => [job.id, job]))
   return Promise.all(
@@ -204,13 +215,38 @@ export async function quarantinePermanentMediaFailures(
           code: result.output?.causeCode ?? result.output?.code ?? 'PERMANENT_FAILURE',
           sourceJobId: job.id,
         })
+        await quarantineSuccessors(parsed.data.captureSessionId)
       }
-      // Preserve the terminal failure in key_strict_fifo. Releasing this source
-      // sentinel would silently skip media and let the capture look complete.
-      // Other capture keys remain independent and continue draining normally.
+      // Preserve the terminal failure in key_strict_fifo, but cancel queued
+      // successors for this key. Leaving them in CREATED makes pg-boss select
+      // the oldest quarantined successor repeatedly; activating it conflicts
+      // with the failed-key sentinel and can starve unrelated capture keys.
       return result
     }),
   )
+}
+
+type QuarantineBoss = Pick<PgBoss, 'cancel' | 'findJobs' | 'getBlockedKeys'>
+
+export async function quarantineBlockedCaptureJobs(
+  boss: QuarantineBoss,
+  captureSessionId?: string,
+): Promise<number> {
+  const keys = captureSessionId ? [captureSessionId] : await boss.getBlockedKeys(MEDIA_INGEST_QUEUE)
+  let cancelled = 0
+  for (const key of keys) {
+    const queued = await boss.findJobs<MediaIngestEnvelope>(MEDIA_INGEST_QUEUE, {
+      key,
+      queued: true,
+    })
+    if (queued.length === 0) continue
+    await boss.cancel(
+      MEDIA_INGEST_QUEUE,
+      queued.map(job => job.id),
+    )
+    cancelled += queued.length
+  }
+  return cancelled
 }
 
 function failureFromDeadLetter(value: unknown): PermanentMediaIngestFailure | null {
@@ -342,6 +378,7 @@ export function createPgBossMediaRuntime(
           throw new Error('Media ingest queue configuration conflicts with runtime policy.')
         }
         await reconcilePermanentMediaFailures(boss, deadLetter, recordFailure)
+        await quarantineBlockedCaptureJobs(boss)
         await assignQueuedIngestGroups(boss)
 
         const workOptions = {
@@ -373,6 +410,9 @@ export function createPgBossMediaRuntime(
             await processMediaIngestJobs(jobs, processJob),
             (id, data) => boss.send(deadLetter, data, { singletonKey: id }),
             recordFailure,
+            async captureSessionId => {
+              await quarantineBlockedCaptureJobs(boss, captureSessionId)
+            },
           ),
         )
       } catch (error) {
@@ -399,13 +439,35 @@ export type MediaIndexerOptions = {
   queue: IngestQueue
   resolveCapture: (ingestPath: string) => Promise<string | null>
   intervalMs?: number
+  activePollIntervalMs?: number
+  listActiveCaptures?: () => Promise<ActiveCaptureDirectory[]>
+  watchSpool?: (
+    root: string,
+    listener: (eventType: string, filename: string | null) => void,
+  ) => Pick<FSWatcher, 'close' | 'on'>
   log?: (message: string) => void
+}
+
+const FAST_SCAN_DELAYS_MS = [0, 300, 850] as const
+
+export function isIndexerMediaEvent(filename: string): boolean {
+  return ['.mp4', '.m4s', '.fmp4'].includes(extname(filename).toLowerCase())
+}
+
+export function isIndexerRecordingInfoEvent(filename: string): boolean {
+  return filename.replaceAll('\\', '/').split('/').at(-1)?.toLowerCase() === 'recording.xml'
 }
 
 export class MediaIndexerRuntime {
   #timer: ReturnType<typeof setInterval> | undefined
+  #activeTimer: ReturnType<typeof setInterval> | undefined
+  #activeScanPromise: Promise<void> | undefined
   #scanPromise: Promise<void> | undefined
   #observations = new Map<string, { mtimeMs: number; size: number; stable: number }>()
+  #enqueued = new Set<string>()
+  #enqueueing = new Set<string>()
+  #fastScanTimers = new Set<ReturnType<typeof setTimeout>>()
+  #watcher: Pick<FSWatcher, 'close' | 'on'> | undefined
   #stopped = false
   #failedCount = 0
   #lastErrorAt: string | null = null
@@ -424,7 +486,39 @@ export class MediaIndexerRuntime {
       lastHeartbeatAt: this.#lastHeartbeatAt,
       lastSuccessAt: this.#lastSuccessAt,
       running: !this.#stopped,
+      watching: this.#watcher !== undefined,
     }
+  }
+
+  async #observe(item: MediaIngestEnvelope): Promise<boolean> {
+    if (this.#enqueued.has(item.candidate) || this.#enqueueing.has(item.candidate)) return false
+    const metadata = await stat(join(this.options.spoolRoot, item.candidate))
+    const prior = this.#observations.get(item.candidate)
+    const stable =
+      prior && prior.size === metadata.size && prior.mtimeMs === metadata.mtimeMs
+        ? prior.stable + 1
+        : 0
+    this.#observations.set(item.candidate, {
+      mtimeMs: metadata.mtimeMs,
+      size: metadata.size,
+      stable,
+    })
+    if (stable < 2 || Date.now() - metadata.mtimeMs < 500) return false
+    if (this.#enqueued.has(item.candidate) || this.#enqueueing.has(item.candidate)) return false
+    this.#enqueueing.add(item.candidate)
+    try {
+      await enqueueUnique(this.options.queue, item)
+      this.#enqueued.add(item.candidate)
+      return true
+    } finally {
+      this.#enqueueing.delete(item.candidate)
+    }
+  }
+
+  #trackFailure(error: unknown): void {
+    this.#failedCount += 1
+    this.#lastErrorAt = new Date().toISOString()
+    this.#lastErrorName = error instanceof Error ? error.name : 'UnknownError'
   }
 
   async scan(): Promise<void> {
@@ -436,24 +530,10 @@ export class MediaIndexerRuntime {
         const present = new Set(items.map(item => item.candidate))
         let enqueued = 0
         for (const item of items) {
-          const metadata = await stat(join(this.options.spoolRoot, item.candidate))
-          const prior = this.#observations.get(item.candidate)
-          const stable =
-            prior && prior.size === metadata.size && prior.mtimeMs === metadata.mtimeMs
-              ? prior.stable + 1
-              : 0
-          this.#observations.set(item.candidate, {
-            mtimeMs: metadata.mtimeMs,
-            size: metadata.size,
-            stable,
-          })
           // Require two unchanged scans even for atomically renamed source
-          // segments. At the 250 ms default this makes a finalized live/VOD
-          // fragment eligible in roughly 0.5-0.75 s while the bounded probe
-          // retry still fails closed on a recorder that was not truly done.
-          if (stable < 2 || Date.now() - metadata.mtimeMs < 500) continue
-          await enqueueUnique(this.options.queue, item)
-          enqueued += 1
+          // extents. Event-driven bursts make a finalized file eligible in
+          // roughly 0.85 s; reconciliation keeps the same fail-closed rule.
+          if (await this.#observe(item)) enqueued += 1
         }
         for (const candidate of this.#observations.keys()) {
           if (!present.has(candidate)) this.#observations.delete(candidate)
@@ -462,9 +542,7 @@ export class MediaIndexerRuntime {
         this.#lastSuccessAt = new Date().toISOString()
       })
       .catch(error => {
-        this.#failedCount += 1
-        this.#lastErrorAt = new Date().toISOString()
-        this.#lastErrorName = error instanceof Error ? error.name : 'UnknownError'
+        this.#trackFailure(error)
         throw error
       })
       .finally(() => {
@@ -473,21 +551,137 @@ export class MediaIndexerRuntime {
     return this.#scanPromise
   }
 
+  async #scanCandidate(candidate: string): Promise<void> {
+    if (this.#stopped || this.#enqueued.has(candidate)) return
+    const item = await scanSpoolCandidate(
+      this.options.spoolRoot,
+      candidate,
+      this.options.resolveCapture,
+    )
+    if (!item) return
+    if (await this.#observe(item)) {
+      this.options.log?.(`media-indexer event enqueued candidate=${item.candidate}`)
+      this.#lastSuccessAt = new Date().toISOString()
+    }
+  }
+
+  async scanActiveCaptures(): Promise<void> {
+    if (this.#stopped || !this.options.listActiveCaptures) return
+    if (this.#activeScanPromise) return this.#activeScanPromise
+    this.#lastHeartbeatAt = new Date().toISOString()
+    this.#activeScanPromise = this.options
+      .listActiveCaptures()
+      .then(async captures => {
+        let enqueued = 0
+        for (const capture of captures) {
+          const items = await scanActiveCaptureDirectory(this.options.spoolRoot, capture)
+          for (const item of items) if (await this.#observe(item)) enqueued += 1
+        }
+        if (enqueued > 0) this.options.log?.(`media-indexer active poll enqueued=${enqueued}`)
+        this.#lastSuccessAt = new Date().toISOString()
+      })
+      .catch(error => {
+        this.#trackFailure(error)
+        throw error
+      })
+      .finally(() => {
+        this.#activeScanPromise = undefined
+      })
+    return this.#activeScanPromise
+  }
+
+  #schedule(operation: () => Promise<void>, delayMs: number): void {
+    const timer = setTimeout(() => {
+      this.#fastScanTimers.delete(timer)
+      if (this.#stopped) return
+      void operation().catch(error => {
+        this.#trackFailure(error)
+        this.options.log?.(`media-indexer event scan failed: ${this.#lastErrorName}`)
+      })
+    }, delayMs)
+    this.#fastScanTimers.add(timer)
+  }
+
+  #scheduleCandidateBurst(candidate: string): void {
+    for (const delay of FAST_SCAN_DELAYS_MS)
+      this.#schedule(() => this.#scanCandidate(candidate), delay)
+  }
+
+  #scheduleReconciliationBurst(): void {
+    for (const delay of FAST_SCAN_DELAYS_MS) this.#schedule(() => this.scan(), delay)
+  }
+
+  #handleWatchEvent(filename: string | null): void {
+    if (!filename) {
+      this.#scheduleReconciliationBurst()
+      return
+    }
+    const normalized = filename.replaceAll('\\', '/')
+    if (isIndexerMediaEvent(normalized)) {
+      this.#scheduleCandidateBurst(normalized)
+      return
+    }
+    if (isIndexerRecordingInfoEvent(normalized)) {
+      this.#schedule(async () => {
+        const candidates = await recordingInfoCandidates(this.options.spoolRoot, normalized)
+        for (const candidate of candidates) this.#scheduleCandidateBurst(candidate)
+      }, 100)
+    }
+  }
+
+  #startWatcher(): void {
+    try {
+      const createWatcher =
+        this.options.watchSpool ??
+        ((root: string, listener: (eventType: string, filename: string | null) => void) =>
+          watch(root, { recursive: true, encoding: 'utf8' }, listener))
+      this.#watcher = createWatcher(this.options.spoolRoot, (_eventType, filename) =>
+        this.#handleWatchEvent(filename),
+      )
+      this.#watcher.on('error', error => {
+        this.#trackFailure(error)
+        this.options.log?.(`media-indexer watch degraded: ${this.#lastErrorName}`)
+        this.#watcher?.close()
+        this.#watcher = undefined
+      })
+    } catch (error) {
+      this.#trackFailure(error)
+      this.options.log?.(`media-indexer watch unavailable; reconciliation remains active`)
+    }
+  }
+
   async start(): Promise<void> {
     this.#stopped = false
+    this.#startWatcher()
+    this.#scheduleReconciliationBurst()
     await this.scan()
+    if (this.options.listActiveCaptures) {
+      await this.scanActiveCaptures()
+      this.#activeTimer = setInterval(() => {
+        void this.scanActiveCaptures().catch(() => {
+          this.options.log?.('media-indexer active capture poll failed')
+        })
+      }, this.options.activePollIntervalMs ?? 500)
+    }
     this.#timer = setInterval(() => {
-      void this.scan().catch(() => {
-        this.options.log?.('media-indexer periodic scan failed')
-      })
-    }, this.options.intervalMs ?? 250)
+      this.#scheduleReconciliationBurst()
+    }, this.options.intervalMs ?? 30_000)
   }
 
   async stop(): Promise<void> {
     this.#stopped = true
     if (this.#timer) clearInterval(this.#timer)
+    if (this.#activeTimer) clearInterval(this.#activeTimer)
     if (this.#scanPromise) await this.#scanPromise
+    if (this.#activeScanPromise) await this.#activeScanPromise
+    this.#watcher?.close()
+    for (const timer of this.#fastScanTimers) clearTimeout(timer)
     this.#timer = undefined
+    this.#activeTimer = undefined
+    this.#watcher = undefined
+    this.#fastScanTimers.clear()
     this.#observations.clear()
+    this.#enqueued.clear()
+    this.#enqueueing.clear()
   }
 }

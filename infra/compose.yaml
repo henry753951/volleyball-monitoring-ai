@@ -207,7 +207,8 @@ services:
       MEDIA_IMPORT_ROOT: /var/lib/volleyball/media-imports
       MEDIA_INGEST_BASE_URL: rtmp://ovenmediaengine:1935/app
       MEDIA_HOT_ROOT: /var/lib/volleyball/media-hot
-      MEDIA_INDEXER_SCAN_INTERVAL_MS: ${MEDIA_INDEXER_SCAN_INTERVAL_MS:-250}
+      MEDIA_INDEXER_ACTIVE_POLL_INTERVAL_MS: ${MEDIA_INDEXER_ACTIVE_POLL_INTERVAL_MS:-500}
+      MEDIA_INDEXER_SCAN_INTERVAL_MS: ${MEDIA_INDEXER_SCAN_INTERVAL_MS:-30000}
       MEDIA_SPOOL_DIR: /var/lib/volleyball/media-spool
       MEDIA_SOURCE_WORK_ROOT: /var/lib/volleyball/media-imports/.work
       OME_API_ACCESS_TOKEN: ${OME_API_ACCESS_TOKEN:?OME_API_ACCESS_TOKEN is required}

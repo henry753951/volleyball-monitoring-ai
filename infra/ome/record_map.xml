@@ -5,7 +5,8 @@
     <StreamName>*</StreamName>
     <FilePath>/${Stream}/${StartTime:YYYYMMDDhhmmss}_${Sequence}.mp4</FilePath>
     <InfoPath>/${Stream}/recording.xml</InfoPath>
-    <SegmentInterval>2000</SegmentInterval>
+    <!-- LL-HLS remains 2s; durable recording extents are intentionally coarser. -->
+    <SegmentInterval>60000</SegmentInterval>
     <SegmentRule>continuity</SegmentRule>
   </Record>
 </RecordInfo>

@@ -127,9 +127,34 @@ export async function createMediaComposition() {
     recordPermanentMediaIngestFailure(db, failure),
   )
   const scanner = new MediaIndexerRuntime({
+    activePollIntervalMs: config.MEDIA_INDEXER_ACTIVE_POLL_INTERVAL_MS,
     spoolRoot: config.MEDIA_SPOOL_DIR,
     queue: { send: (_name, payload) => queue.send(payload) },
-    resolveCapture: path => resolveCaptureSession(db, path),
+    listActiveCaptures: () =>
+      db.captureSession
+        .findMany({
+          orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+          select: { id: true, ingestPath: true },
+          where: {
+            ingestFailures: { none: {} },
+            status: { in: ['STARTING', 'LIVE', 'STOPPING'] },
+          },
+        })
+        .then(captures =>
+          captures.map(capture => ({
+            captureSessionId: capture.id,
+            ingestPath: capture.ingestPath,
+          })),
+        ),
+    resolveCapture: async path => {
+      const captureSessionId = await resolveCaptureSession(db, path)
+      if (!captureSessionId) return null
+      const failure = await db.mediaIngestFailure.findFirst({
+        select: { sourceJobId: true },
+        where: { captureSessionId },
+      })
+      return failure ? null : captureSessionId
+    },
     intervalMs: config.MEDIA_INDEXER_SCAN_INTERVAL_MS,
   })
   const indexer = createMediaIndexerLifecycle({ queue, scanner, disconnect: async () => undefined })
