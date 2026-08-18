@@ -162,12 +162,13 @@ async function loadProgramProjection(program: TimelineProgramRow): Promise<Timel
     select: { captureEndUs: true, sequenceNumber: true },
     where: { dvrProgramId: program.id },
   })
-  let projection = await readCachedProjection(program)
+  const cachedProjection = await readCachedProjection(program)
   const rebuild =
-    projection === null ||
-    projectionNeedsRebuild(projection, program, latestSegment?.sequenceNumber ?? null)
-
-  if (rebuild) projection = emptyTimelineProjection(program.id, program.playlistRevision)
+    cachedProjection === null ||
+    projectionNeedsRebuild(cachedProjection, program, latestSegment?.sequenceNumber ?? null)
+  let projection = rebuild
+    ? emptyTimelineProjection(program.id, program.playlistRevision)
+    : cachedProjection
   const hasUnobservedTail =
     latestSegment !== null &&
     (projection.observedSequence === null ||
