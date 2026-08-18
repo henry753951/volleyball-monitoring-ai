@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.5.3](https://github.com/henry753951/volleyball-monitoring-ai/compare/v1.5.2...v1.5.3) (2026-08-18)
+
+
+### Bug Fixes
+
+* **worker:** scope cookie opt-out to public VOD ([b22848a](https://github.com/henry753951/volleyball-monitoring-ai/commit/b22848aaa48568f81afd07f0b155b341c6bfe9ff))
+* **worker:** use mweb EJS and bgutil for YouTube VOD ([4a3103d](https://github.com/henry753951/volleyball-monitoring-ai/commit/4a3103df69d234691869aa2f03e8285a291d3f6e))
+* **worker:** use mweb EJS and bgutil for YouTube VOD ([a4f4eb5](https://github.com/henry753951/volleyball-monitoring-ai/commit/a4f4eb59f9dbf5b95ebede62e06a252163db0afc))
+
+
+### Maintenance
+
+* refresh release checksums ([c6c1db8](https://github.com/henry753951/volleyball-monitoring-ai/commit/c6c1db88d8b066d8e8714361c97e76506b7cb4a9))
+
 ## [1.5.2](https://github.com/henry753951/volleyball-monitoring-ai/compare/v1.5.1...v1.5.2) (2026-08-18)
 
 
