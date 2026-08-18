@@ -669,6 +669,7 @@ model DvrSegment {
 
   @@unique([dvrProgramId, sequenceNumber])
   @@index([dvrProgramId, captureStartUs, captureEndUs])
+  @@index([dvrProgramId, captureEndUs, captureStartUs])
 }
 
 model PlaybackWindow {
@@ -691,6 +692,7 @@ model PlaybackWindow {
   segments                    PlaybackWindowSegment[]
 
   @@index([captureSessionId, expiresAt])
+  @@index([expiresAt, id])
   @@index([dvrProgramId, captureStartUs, captureEndUs])
 }
 

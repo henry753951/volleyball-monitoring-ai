@@ -473,6 +473,9 @@ describe('Phase 2A playback-window HTTP', () => {
         where: { playbackWindowId: original.playback_window_id },
       }),
     ).toBe(1)
+    const originalMapping = await db.playbackWindowSegment.findFirstOrThrow({
+      where: { playbackWindowId: original.playback_window_id },
+    })
 
     await db.playbackWindow.update({
       data: { expiresAt: new Date(now.getTime() + 30_000) },
@@ -522,11 +525,17 @@ describe('Phase 2A playback-window HTTP', () => {
       presentation_origin_capture_us: original.presentation_origin_capture_us,
       window_capture_end_us: (baseUs + 2_000_000n).toString(),
     })
-    expect(
-      await db.playbackWindowSegment.count({
-        where: { playbackWindowId: original.playback_window_id },
-      }),
-    ).toBe(2)
+    const extendedMappings = await db.playbackWindowSegment.findMany({
+      orderBy: { sequenceIndex: 'asc' },
+      where: { playbackWindowId: original.playback_window_id },
+    })
+    expect(extendedMappings).toHaveLength(2)
+    expect(extendedMappings[0]).toMatchObject({
+      id: originalMapping.id,
+      dvrSegmentId: originalMapping.dvrSegmentId,
+      sequenceIndex: originalMapping.sequenceIndex,
+    })
+    expect(extendedMappings[1]?.sequenceIndex).toBe(originalMapping.sequenceIndex + 1)
 
     const repeated = await app.inject({
       headers: authHeaders('operator'),

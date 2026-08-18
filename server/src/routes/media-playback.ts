@@ -13,7 +13,6 @@ import {
   MediaHttpError,
   assertRollingPlaybackSelection,
   buildPlaybackDescriptor,
-  buildReadyPlaybackRuns,
   formatManifest,
   mediaErrorEnvelope,
   parsePlaybackResourceToken,
@@ -244,28 +243,46 @@ function assetMetadataReady<Kind extends MediaAssetKind>(
   )
 }
 
-async function loadProgramSegments(dvrProgramId: string) {
-  return db.dvrSegment.findMany({
-    include: {
-      initAsset: true,
-      mediaAsset: true,
-      sampleIndexAsset: true,
-    },
+const MAX_SELECTION_SEGMENTS = 4_096
+const INT64_MAX = 9_223_372_036_854_775_807n
+
+async function loadProgramSegmentsAround(
+  dvrProgramId: string,
+  targetUs: bigint,
+  limits: PlaybackWindowLimits,
+) {
+  const rawStartUs = targetUs > limits.maxBackUs ? targetUs - limits.maxBackUs : 0n
+  const queryStartUs = rawStartUs > 0n ? rawStartUs - 1n : 0n
+  const rawEndUs = targetUs + limits.maxForwardUs
+  const queryEndUs = rawEndUs >= INT64_MAX ? INT64_MAX : rawEndUs + 1n
+  const rows = await db.dvrSegment.findMany({
     orderBy: [{ captureStartUs: 'asc' }, { sequenceNumber: 'asc' }, { id: 'asc' }],
-    where: { dvrProgramId },
+    select: {
+      captureEndUs: true,
+      captureStartUs: true,
+      discontinuitySequence: true,
+      durationUs: true,
+      id: true,
+      initAssetId: true,
+      isGap: true,
+      mediaAssetId: true,
+      readyAt: true,
+      sequenceNumber: true,
+    },
+    take: MAX_SELECTION_SEGMENTS + 1,
+    where: {
+      captureEndUs: { gt: queryStartUs },
+      captureStartUs: { lt: queryEndUs },
+      dvrProgramId,
+    },
   })
+  if (rows.length > MAX_SELECTION_SEGMENTS) {
+    throw new MediaHttpError(409, 'MEDIA_NOT_READY', 'Playback selection contains too many segments')
+  }
+  return rows
 }
 
-type ProgramSegmentRow = Awaited<ReturnType<typeof loadProgramSegments>>[number]
-
-function programSegmentReady(segment: ProgramSegmentRow): boolean {
-  return (
-    segment.readyAt !== null &&
-    assetMetadataReady(segment.initAsset, 'video/mp4', 'DVR_INIT') &&
-    assetMetadataReady(segment.mediaAsset, 'video/mp4', 'DVR_SEGMENT') &&
-    assetMetadataReady(segment.sampleIndexAsset, 'application/json', 'SAMPLE_INDEX')
-  )
-}
+type ProgramSegmentRow = Awaited<ReturnType<typeof loadProgramSegmentsAround>>[number]
 
 function toCandidate(segment: ProgramSegmentRow): PlaybackSegmentCandidate {
   return {
@@ -277,8 +294,84 @@ function toCandidate(segment: ProgramSegmentRow): PlaybackSegmentCandidate {
     initAssetId: segment.initAssetId,
     isGap: segment.isGap,
     mediaAssetId: segment.mediaAssetId,
-    ready: programSegmentReady(segment),
+    // READY publication updates segment.readyAt, all immutable assets, and the
+    // program revision in one transaction. Avoid joining init/media assets for
+    // every candidate in the requested time span.
+    ready: segment.readyAt !== null,
   }
+}
+
+async function loadProgramTimelineBounds(program: { id: string; liveEdgeUs: bigint }) {
+  const firstReady = await db.dvrSegment.findFirst({
+    orderBy: [{ captureStartUs: 'asc' }, { sequenceNumber: 'asc' }],
+    select: { captureStartUs: true },
+    where: { dvrProgramId: program.id, isGap: false, readyAt: { not: null } },
+  })
+  if (!firstReady || program.liveEdgeUs <= firstReady.captureStartUs) {
+    throw new MediaHttpError(409, 'MEDIA_NOT_READY', 'No playable media is ready')
+  }
+  return { endUs: program.liveEdgeUs, startUs: firstReady.captureStartUs }
+}
+
+function assertTargetHasSelectionContext(
+  candidates: readonly PlaybackSegmentCandidate[],
+  targetUs: bigint,
+  bounds: { startUs: bigint; endUs: bigint },
+): void {
+  const lookupUs = targetUs === bounds.endUs && targetUs > 0n ? targetUs - 1n : targetUs
+  const containing = candidates.find(
+    candidate => candidate.captureStartUs <= lookupUs && lookupUs < candidate.captureEndUs,
+  )
+  if (containing?.isGap) {
+    throw new MediaHttpError(422, 'CAPTURE_GAP', 'Target is inside a capture gap')
+  }
+  if (containing && !containing.ready) {
+    throw new MediaHttpError(409, 'MEDIA_NOT_READY', 'Target media is not ready')
+  }
+  if (targetUs < bounds.startUs || targetUs > bounds.endUs || !candidates.some(row => row.ready)) {
+    throw new MediaHttpError(422, 'CAPTURE_GAP', 'Target is outside available media')
+  }
+}
+
+async function selectProgramWindow(input: {
+  program: { id: string; durationUs: bigint; liveEdgeUs: bigint }
+  mode: 'live' | 'archive'
+  requestedTargetUs: bigint | null
+  requestedBackUs?: bigint
+  requestedForwardUs?: bigint
+  limits: PlaybackWindowLimits
+}) {
+  const bounds = await loadProgramTimelineBounds(input.program)
+  const targetUs =
+    input.mode === 'live' && input.requestedTargetUs === null
+      ? input.program.liveEdgeUs
+      : input.requestedTargetUs
+  if (targetUs === null) {
+    throw new MediaHttpError(400, 'BAD_REQUEST', 'Archive target is required')
+  }
+  if (targetUs < 0n || targetUs > INT64_MAX) {
+    throw new MediaHttpError(400, 'BAD_REQUEST', 'target_capture_time_us is out of range')
+  }
+  for (const [name, value] of Object.entries(input.limits)) {
+    if (value < 0n || value > INT64_MAX) {
+      throw new MediaHttpError(500, 'MEDIA_NOT_READY', `${name} is out of range`)
+    }
+  }
+  const rows = await loadProgramSegmentsAround(input.program.id, targetUs, input.limits)
+  const candidates = rows.map(toCandidate)
+  assertTargetHasSelectionContext(candidates, targetUs, bounds)
+  const local = selectPlaybackWindow({
+    candidates,
+    limits: input.limits,
+    liveEdgeUs: input.program.liveEdgeUs,
+    mode: input.mode,
+    ...(input.requestedBackUs === undefined ? {} : { requestedBackUs: input.requestedBackUs }),
+    ...(input.requestedForwardUs === undefined
+      ? {}
+      : { requestedForwardUs: input.requestedForwardUs }),
+    requestedTargetUs: targetUs,
+  })
+  return { ...local, timelineEndUs: bounds.endUs, timelineStartUs: bounds.startUs }
 }
 
 async function visibleCaptureSession(id: string, identity: MediaIdentity) {
@@ -363,22 +456,15 @@ async function authenticate(
   return identity
 }
 
-function timelineBounds(candidates: readonly PlaybackSegmentCandidate[]) {
-  const runs = buildReadyPlaybackRuns(candidates)
-  if (runs.length === 0) {
-    throw new MediaHttpError(409, 'MEDIA_NOT_READY', 'No playable media is ready')
-  }
-  return { startUs: runs[0]!.startUs, endUs: runs.at(-1)!.endUs }
-}
-
 function manifestEntries(window: VisibleWindowWithSegments) {
   const mappings = window.segments
   if (mappings.length === 0) {
     throw new MediaHttpError(409, 'MEDIA_NOT_READY', 'Playback window has no media')
   }
   let previousEndUs: bigint | null = null
+  const firstMappingIndex = mappings[0]!.sequenceIndex
   const entries = mappings.map((mapping, index) => {
-    if (mapping.sequenceIndex !== index) {
+    if (mapping.sequenceIndex !== firstMappingIndex + index) {
       throw new MediaHttpError(409, 'MEDIA_NOT_READY', 'Playback mapping order is invalid')
     }
     const segment = mapping.dvrSegment
@@ -425,8 +511,7 @@ function manifestEntries(window: VisibleWindowWithSegments) {
 }
 
 async function descriptorForWindow(window: VisibleWindow) {
-  const candidates = (await loadProgramSegments(window.dvrProgramId)).map(toCandidate)
-  const bounds = timelineBounds(candidates)
+  const bounds = await loadProgramTimelineBounds(window.dvrProgram)
   return buildPlaybackDescriptor({
     captureEndUs: window.captureEndUs,
     captureSessionId: window.captureSessionId,
@@ -457,15 +542,12 @@ async function createPlaybackWindow(
   if (!program) {
     throw new MediaHttpError(409, 'MEDIA_NOT_READY', 'Media is not ready')
   }
-  const rows = await loadProgramSegments(program.id)
-  const candidates = rows.map(toCandidate)
   const requestedBackUs = parseWireUint(request.requested_back_us)
   const requestedForwardUs = parseWireUint(request.requested_forward_us)
-  const selection = selectPlaybackWindow({
-    candidates,
+  const selection = await selectProgramWindow({
     limits: resolvedLimits(deps.limits),
-    liveEdgeUs: program.liveEdgeUs,
     mode: request.mode,
+    program,
     ...(requestedBackUs === undefined ? {} : { requestedBackUs }),
     ...(requestedForwardUs === undefined ? {} : { requestedForwardUs }),
     requestedTargetUs:
@@ -474,7 +556,11 @@ async function createPlaybackWindow(
   if (!deps.resolveSample) {
     throw new MediaHttpError(409, 'MEDIA_NOT_READY', 'Sample index resolver unavailable')
   }
-  const selectedRows = new Map(rows.map(row => [row.id, row]))
+  const sampleIndexRows = await db.dvrSegment.findMany({
+    select: { id: true, sampleIndexAsset: true },
+    where: { dvrProgramId: program.id, id: { in: selection.segments.map(segment => segment.id) } },
+  })
+  const selectedRows = new Map(sampleIndexRows.map(row => [row.id, row]))
   let snap: SampleSnapResult
   try {
     snap = await deps.resolveSample({
@@ -482,7 +568,10 @@ async function createPlaybackWindow(
       dvrProgramId: program.id,
       segments: selection.segments.map(segment => {
         const row = selectedRows.get(segment.id)
-        if (!row || !row.sampleIndexAsset) {
+        if (
+          !row ||
+          !assetMetadataReady(row.sampleIndexAsset, 'application/json', 'SAMPLE_INDEX')
+        ) {
           throw new MediaHttpError(409, 'MEDIA_NOT_READY', 'Sample index is unavailable')
         }
         return {
@@ -579,13 +668,11 @@ async function extendPlaybackWindow(
       'Continuation target is outside the current playback window',
     )
   }
-  const rows = await loadProgramSegments(current.dvrProgramId)
   const requestedForwardUs = parseWireUint(request.requested_forward_us)
-  const selection = selectPlaybackWindow({
-    candidates: rows.map(toCandidate),
+  const selection = await selectProgramWindow({
     limits: resolvedLimits(deps.limits),
-    liveEdgeUs: current.dvrProgram.liveEdgeUs,
     mode: current.mode === 'LIVE' ? 'live' : 'archive',
+    program: current.dvrProgram,
     requestedBackUs: targetUs - current.captureStartUs,
     ...(requestedForwardUs === undefined ? {} : { requestedForwardUs }),
     requestedTargetUs: targetUs,
@@ -633,6 +720,14 @@ async function extendPlaybackWindow(
   }
 
   const mappingVersion = current.mappingVersion + 1
+  const selectedIds = new Set(selection.segments.map(segment => segment.id))
+  const currentIds = new Set(current.segments.map(mapping => mapping.dvrSegment.id))
+  const droppedMappingIds = current.segments
+    .filter(mapping => !selectedIds.has(mapping.dvrSegment.id))
+    .map(mapping => mapping.id)
+  const appendedSegments = selection.segments.filter(segment => !currentIds.has(segment.id))
+  const nextSequenceIndex =
+    Math.max(...current.segments.map(mapping => mapping.sequenceIndex)) + 1
   try {
     await db.$transaction(async transaction => {
       await transaction.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`playback-window:${windowId}`}, 0))::text AS lock`
@@ -640,7 +735,20 @@ async function extendPlaybackWindow(
       if (!latest || latest.mappingVersion !== current.mappingVersion) {
         throw new MediaHttpError(409, 'MAPPING_STALE', 'Playback window was extended concurrently')
       }
-      await transaction.playbackWindowSegment.deleteMany({ where: { playbackWindowId: windowId } })
+      if (droppedMappingIds.length) {
+        await transaction.playbackWindowSegment.deleteMany({
+          where: { id: { in: droppedMappingIds }, playbackWindowId: windowId },
+        })
+      }
+      if (appendedSegments.length) {
+        await transaction.playbackWindowSegment.createMany({
+          data: appendedSegments.map((segment, offset) => ({
+            dvrSegmentId: segment.id,
+            playbackWindowId: windowId,
+            sequenceIndex: nextSequenceIndex + offset,
+          })),
+        })
+      }
       await transaction.playbackWindow.update({
         data: {
           captureStartUs: selection.windowStartUs,
@@ -649,12 +757,6 @@ async function extendPlaybackWindow(
           expiresAt,
           targetPlayerMediaTimeUs,
           timelineVersion: current.dvrProgram.playlistRevision,
-          segments: {
-            create: selection.segments.map((segment, sequenceIndex) => ({
-              dvrSegmentId: segment.id,
-              sequenceIndex,
-            })),
-          },
         },
         where: { id: windowId },
       })
@@ -800,15 +902,11 @@ export const mediaPlaybackRoutes =
             throw new MediaHttpError(404, 'NOT_FOUND', 'Playback window not found')
           }
           assertWindowActive(window, now())
-          const bounds = timelineBounds(
-            (await loadProgramSegments(window.dvrProgramId)).map(toCandidate),
-          )
-          // Archive describes where the operator is viewing, not whether the
-          // bounded manifest can still grow. Keep one stable rolling playlist
-          // until the durable program is finished and this window reaches its
-          // end; hls.js can then append mapping revisions without reloading src.
+          // DvrProgram.liveEdgeUs is advanced in the same transaction that
+          // publishes a READY segment, so terminal detection is O(1).
           const terminal =
-            window.dvrProgram.status === 'FINISHED' && window.captureEndUs >= bounds.endUs
+            window.dvrProgram.status === 'FINISHED' &&
+            window.captureEndUs >= window.dvrProgram.liveEdgeUs
           return reply
             .type('application/vnd.apple.mpegurl')
             .header('cache-control', 'no-store, must-revalidate')
