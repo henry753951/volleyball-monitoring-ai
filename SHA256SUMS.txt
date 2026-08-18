@@ -425,7 +425,7 @@ c6eedcf30e338a8bc530abd0dd574de6f679427c97d283bcbd252f7ba20aecc6  ./server/src/m
 de3172f2db1d72230d3230b45f28784331b27a3266efc3bacdc09edfb1397a05  ./server/src/media/ome-live-cursor-resolution.ts
 22e3492dfd5ab47a34257c271af12072e96023a2ac668e2e691d4f721b2f07c4  ./server/src/media/overlay-analysis-id.ts
 e34526ba73c7b4866dd745c219b0d78906451fea1b20b7ce3a2c9c7d6b8ee512  ./server/src/media/playback-domain.ts
-2fcf779a095a181d48ae6ade16451040ada04ee8190e7fd460b12af94ca87384  ./server/src/media/sample-index-repository.ts
+6cf8643b4d80793d6bfd277464031fc349b655e205a833714f6293b34716d6d5  ./server/src/media/sample-index-repository.ts
 844e222f8be125ed9e22889549c70ce965c740e52a8162364a159ae59cf0011d  ./server/src/media/sample-snap-resolver.ts
 8a3d78896eaef13ad4394b75b6e4cb095d2c1f0e45d41df40748d582b2c72fbc  ./server/src/operations/host-storage.ts
 ccad68cef83ed4a9ed8ee6967081bbfd3d3e95419e79a36d1bf0b2468a5674f7  ./server/src/operations/kubernetes-deployments.ts
@@ -434,7 +434,7 @@ c84bb919df78ba2635709943ce14b14c9a5a53138dda8f4d96bdd442463da55a  ./server/src/r
 372ff7678b9b4382fa92f8d308e6ff5eee9800f6db50ad92786ca8c6ff3159de  ./server/src/realtime/ai-progress.ts
 79e5b9897d88b20a9e59c40e09cb36d80a6c9340449637346b3d75b0c3215feb  ./server/src/realtime/annotation-events.ts
 9b099f643f7c6a06c5c1666272e3629f8d00ad6dd366e906e97f7fa476afc19a  ./server/src/realtime/annotation-presence.ts
-44d421e964d33c9cd90f87656b7def8870761bf775da04fb5dd89e21cf9999c7  ./server/src/realtime/annotation-ws.ts
+5d6267b0745f98060c196120c4dd04f630bea5cd3cf2ed08f6b81e2fd19b392f  ./server/src/realtime/annotation-ws.ts
 6fcf65b4e358865cbf7a292ae8f56f22c1df8a54971f1326c7a1153e972f768a  ./server/src/realtime/auth.ts
 acc167a11aa503485781d5fe61797eb02387964ccfba63d4a3771bed45ca2a66  ./server/src/realtime/coach-ws.ts
 1af769be0dfa91969c31d0919aac81fba24fb3d7c38f3ea17c24fc3bd1ba2693  ./server/src/realtime/provider-work-ws.ts
@@ -442,7 +442,7 @@ acc167a11aa503485781d5fe61797eb02387964ccfba63d4a3771bed45ca2a66  ./server/src/r
 4b4b60d64ce5d48a7d709cc1f69c82d635cf9d2c827190505c128bc9e880b54e  ./server/src/routes/analysis-media.ts
 a1f90a781c2050e0184114dbf4844495dec3ed18b51f2e24662bb2b91ed7787f  ./server/src/routes/analysis-review.ts
 af6f72a17464a57d4e19838d4c9cce13b015babb1993790cbd00c267e5033d28  ./server/src/routes/coach-highlight-exports.ts
-31b6a43d1a17db151109b6b95ad84c3ff4404ea7371bf71938e8882511c27035  ./server/src/routes/media-playback.ts
+6e3a88f7311d466dbf147c6c741bbdf5d17bf0b857b2cf1f4b2cf7418c42f28c  ./server/src/routes/media-playback.ts
 12bb9d03ccfa1bad14be3d12d408b6081d41b04e77f81a66e5c9593caa3147b8  ./server/src/routes/media-sources.ts
 700a3130241f7f36130092abbbb68081155ec6aff068f3b3da6df154bd1e9fb9  ./server/src/routes/operations.ts
 6fafacbdfcd314c02386ac790c419023d34f96a0b3253b017879fb5017077f4a  ./server/src/routes/provider-job-callback.ts
@@ -461,7 +461,7 @@ ef704d25cdbf44b75131a8f96beec4633616115f10b3a874c9879895ec2e6119  ./server/src/s
 71765f8b7c5cfa77ba9f694ddd9923cae4b6ab7b2a50bb84e80693a40f17480e  ./server/src/services/effective-contact-frame.ts
 7709f26dd0c310f5f645ad875b3261f31ea2da19a17f0e10ed101723ca144800  ./server/src/services/match-administration.ts
 6b7479ad485856f1192ff4e866b9372b9b3912058f74da1125ad5cd3586469c0  ./server/src/services/match-cleanup-coordinator.ts
-2b6b6a1c6d53917f783e856984a8903e563da2f6e0a936407c7263c1da3b9263  ./server/src/services/media-timeline-projection.ts
+c160208635fbeb92a922da8d08d138d6f2394bd1d46825bcba5847ef3681d28e  ./server/src/services/media-timeline-projection.ts
 007e431d3e55c73db99fbb58badd23fdd3b39a69104ffab91f077744c8d1bb18  ./server/src/services/media-timeline.ts
 de75ad15a3c0fc9e95aebad72d15a60d4bea41bf217b143a2b5331c512d1e47a  ./server/src/services/processing-rally-cancellation.ts
 fe9c161a8c254e92b03662c850a86b90bc5d8ff21ad5b4d5602252846d112330  ./server/src/services/provider-jobs.ts
@@ -496,11 +496,11 @@ d7cc2126a4e17ff0c2f3396b6a9b6559936557186f7f5066d97f21e43cadd7f3  ./server/tests
 772d0996ad9aa5f57b60040ba69dce25a442e221a14973c5883fcb898f89eb25  ./server/tests/match-administration.test.ts
 00b3957e93d587360fbf421969318ec9bebd79286ee28d6297c7ad1d72485477  ./server/tests/media-cursor.integration.test.ts
 ee59818fca1cb0a934cf7dcfd8e90d3e8639b1daf82330d482e77c9bff951d13  ./server/tests/media-cursor.unit.test.ts
-75a3032571983266ea6941b558fe3d1a635876f863609d0ac85ef2ca261730e6  ./server/tests/media-playback.integration.test.ts
+ad721a3af9a72735d535ce93d752ec26970d5836adeabd6af60351d9ddea547e  ./server/tests/media-playback.integration.test.ts
 661f5526a564eed7876250cf2a0a852fff4c667832f7c5f4dd906b55caa52ed0  ./server/tests/media-playback.unit.test.ts
 2ffbfaa72a9810b7114eedb7a780b2f09da108f45046b01b3011f84f9011c166  ./server/tests/media-sources.unit.test.ts
 2fb5e93379e0aa73e909929e12a781ba92507a63a7b865ea4d576740261aacc3  ./server/tests/media-timeline-projection.test.ts
-a098cd10d6c8f5855df66a088804862b110d825d1b323201bb0268d0ecc8469d  ./server/tests/minio-object-reader.test.ts
+2e28f79ef454003e7722a28050eff429df4723968f2cc6ab29c5f9f744fcda89  ./server/tests/minio-object-reader.test.ts
 96061849568156454f87a28a99eb7c273f7078effc2a711d26031a61f802aabe  ./server/tests/minio-storage.test.ts
 0ff2dd7fcccfc269aa18154af1f29265149dfe6ad02429484cac6b8d72fc4ead  ./server/tests/ome-live-cursor-resolution.test.ts
 1f42c6d213563e1330ab386c6a6149da802a346bf9c241abf2e4f6351b13e3cd  ./server/tests/operations.test.ts
@@ -541,7 +541,7 @@ f628ffddf4fedbc18d0ac5414028a94f19ee92d12a435458150107d14512157c  ./web/app/comp
 8913254fa26134440f49cadc9f3de71b8d7b0390c5882611a99cbc1e190563e7  ./web/app/components/AnnotationTransportBar.component.test.ts
 6ab6522c22ce23fa140375b810bffa57d1cce1ea61c6537cf09463434aeb2490  ./web/app/components/AnnotationTransportBar.vue
 9be6f16c52302d5fa9206bba8a1d87eafbce6283424fc7c19769928b46b10af1  ./web/app/components/AnnotationWorkstationHeader.vue
-4cd0bb8930503ba379427aee9e72d96bf9ce2e6ba5f45d5c98d078a4a317ce65  ./web/app/components/CaptureControlDialog.component.test.ts
+3ff045bdb729356650abda4deb0d5de96533817d6b831a7481a91ae7f41d2d38  ./web/app/components/CaptureControlDialog.component.test.ts
 91c6591d2e7a9cd46ed239effe5e0f89fdcee4441f79b757234c34627a724b5e  ./web/app/components/CaptureControlDialog.vue
 e58e564652b1e81206444c0f426239a09641f5ec95de64255a7f7fb46cedd350  ./web/app/components/ClipDownloadDialog.component.test.ts
 e8a1ef7506d1db6e108e48db64e5b1b16416be2fab034b8ff326624e360d7634  ./web/app/components/ClipDownloadDialog.vue
@@ -687,7 +687,7 @@ b4faef41868e822a1f2e7edae45c854e40f9376da20ba8994dcc29d75223e5f8  ./web/app/serv
 f1fe0abf6b2f95664d074435c1376beeea3a7bd5e4c29da618b0fb30d7b538e8  ./web/app/services/annotation-workstation/annotation-action.service.ts
 b7e3d14e2bcb6adda1d0d4be35e6f8f78e9e90349a0562879849fec856534837  ./web/app/services/annotation-workstation/annotation-command.service.test.ts
 6f6cf6e0ba6120784636b3329cde8fbc62357d173156bdb0cab0ae9e64befea3  ./web/app/services/annotation-workstation/annotation-command.service.ts
-45bd75ac4b11e084d47a0beaf35ce3979a246f8ab0a1871c48d1d835c9d006be  ./web/app/services/annotation-workstation/annotation-room.service.ts
+00595eaa502ba9c2ae02bd0cb245add01ba42263d2aec1da82cd46cdb6f52e36  ./web/app/services/annotation-workstation/annotation-room.service.ts
 3dc9a08aff409f5fbfb3ce7279ee626f7d5e254dc82886ae5541129db95fcb29  ./web/app/services/annotation-workstation/annotation-workstation.service.test.ts
 394e7504ec0084dffd438c84bd8eccc60745063284e083a438bd331e8329e5ab  ./web/app/services/annotation-workstation/annotation-workstation.service.ts
 83603bbd6bd02902a1b94e5558190e108a17ebf7d296ba022d4f91a91d33a2d5  ./web/app/services/annotation-workstation/authoritative-dvr-window.service.ts

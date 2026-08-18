@@ -361,7 +361,8 @@ function orderedExtentRows(rows: readonly ExtentRow[], extentIds: readonly strin
   }
   return extentIds.map(extentId => {
     const row = rowsById.get(extentId)
-    if (!row) repositoryFailure('SEGMENT_NOT_FOUND', 'A requested sample index extent was not found')
+    if (!row)
+      repositoryFailure('SEGMENT_NOT_FOUND', 'A requested sample index extent was not found')
     return row
   })
 }
@@ -418,7 +419,8 @@ function extentSampleIndexReadRequest(row: ExtentRow): MediaObjectReadRequest {
 }
 
 function parseExtentDocument(row: ExtentRow, document: unknown): SampleIndex {
-  if (!row.captureEpoch) repositoryFailure('INVALID_SEGMENT_METADATA', 'Extent epoch is unavailable')
+  if (!row.captureEpoch)
+    repositoryFailure('INVALID_SEGMENT_METADATA', 'Extent epoch is unavailable')
   try {
     return parseSampleIndexDocument(document, {
       captureFrameOrigin: row.captureEpoch.captureFrameOrigin,
@@ -450,7 +452,10 @@ function validateIndexAgainstExtent(row: ExtentRow, index: SampleIndex): void {
     first.sourcePts !== row.sourcePtsStart ||
     last.sourcePts + last.durationPts !== row.sourcePtsEnd
   ) {
-    repositoryFailure('SEGMENT_INDEX_MISMATCH', 'Sample index does not match persisted extent metadata')
+    repositoryFailure(
+      'SEGMENT_INDEX_MISMATCH',
+      'Sample index does not match persisted extent metadata',
+    )
   }
 }
 

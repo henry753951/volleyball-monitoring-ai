@@ -39,7 +39,7 @@ describe('CaptureControlDialog', () => {
           MediaSourcePicker: {
             emits: ['update:modelValue'],
             template:
-              '<button data-test="source" @click="$emit(\'update:modelValue\', { kind: \'youtube\', label: \'\', url: \'https://www.youtube.com/watch?v=test\' })">source</button>',
+              "<button data-test=\"source\" @click=\"$emit('update:modelValue', { kind: 'youtube', label: '', url: 'https://www.youtube.com/watch?v=test' })\">source</button>",
           },
           UiAnimatedModal: {
             props: ['open'],

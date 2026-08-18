@@ -8,10 +8,7 @@ import { Pool } from 'pg'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import type { db as databaseClient } from '@volleyball-monitoring/db'
 import type { MediaIdentity, MediaPlaybackDeps } from '../src/routes/media-playback.js'
-import type {
-  MediaObjectByteRange,
-  MediaObjectReadRequest,
-} from '../src/media/playback-domain.js'
+import type { MediaObjectByteRange, MediaObjectReadRequest } from '../src/media/playback-domain.js'
 
 const execFileAsync = promisify(execFile)
 const repositoryRoot = resolve(process.cwd(), '..')

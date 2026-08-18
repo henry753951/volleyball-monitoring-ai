@@ -109,11 +109,7 @@ export const annotationWebSocketRoutes =
         serverSequence: BigInt(snapshot.server_sequence),
       }
       const prior = peer.sentSnapshots.get(snapshot.rally_id)
-      if (
-        prior &&
-        next.revision <= prior.revision &&
-        next.serverSequence <= prior.serverSequence
-      )
+      if (prior && next.revision <= prior.revision && next.serverSequence <= prior.serverSequence)
         return
       peer.sentSnapshots.set(snapshot.rally_id, next)
       peer.socket.send(JSON.stringify(snapshot))
@@ -127,7 +123,11 @@ export const annotationWebSocketRoutes =
       for (const peer of state.peers) sendSnapshot(peer, snapshot)
     }
 
-    const loadActiveRallyIds = (room: { roomId: string; matchId: string; captureSessionId: string }) => {
+    const loadActiveRallyIds = (room: {
+      roomId: string
+      matchId: string
+      captureSessionId: string
+    }) => {
       const existing = activeRallyLoads.get(room.roomId)
       if (existing) return existing
       const pending = deps.service.activeRoomRallyIds(room).finally(() => {
@@ -137,11 +137,7 @@ export const annotationWebSocketRoutes =
       return pending
     }
 
-    const loadSnapshot = (
-      roomId: string,
-      rallyId: string,
-      identity: AnnotationIdentity,
-    ) => {
+    const loadSnapshot = (roomId: string, rallyId: string, identity: AnnotationIdentity) => {
       if (!deps.snapshot) return Promise.resolve(null)
       const key = `${roomId}:${rallyId}`
       const existing = snapshotLoads.get(key)
@@ -221,266 +217,261 @@ export const annotationWebSocketRoutes =
         last_server_sequence?: string
         room_id?: string
       }
-    }>(
-      '/ws/annotations',
-      { websocket: true },
-      (socket, request) => {
-        void (async () => {
-          const roomId = request.query.room_id
-          if (!roomId) {
-            socket.close(1008, 'room_id is required')
-            return
-          }
-          let resumeSequence: bigint | null
+    }>('/ws/annotations', { websocket: true }, (socket, request) => {
+      void (async () => {
+        const roomId = request.query.room_id
+        if (!roomId) {
+          socket.close(1008, 'room_id is required')
+          return
+        }
+        let resumeSequence: bigint | null
+        try {
+          resumeSequence = parseResumeSequence(request.query.last_server_sequence)
+        } catch {
+          socket.close(1008, 'last_server_sequence is invalid')
+          return
+        }
+        let identity: AnnotationIdentity | null
+        try {
+          identity = await deps.authenticate(request)
+        } catch {
+          socket.close(1008, 'authentication failed')
+          return
+        }
+        if (!identity) {
+          socket.close(1008, 'authentication required')
+          return
+        }
+        const room = await deps.service.authorizeRoom(roomId, identity)
+        if (!room || room.roomId !== roomId.toLowerCase()) {
+          socket.close(1008, 'annotation room not found')
+          return
+        }
+
+        const state = roomState(room.roomId)
+        const roomWasEmpty = state.peers.size === 0
+        const peer: AnnotationPeer = { identity, sentSnapshots: new Map(), socket }
+        state.peers.add(peer)
+        const leaveRoom = () => {
+          state.peers.delete(peer)
+          if (!state.peers.size) rooms.delete(room.roomId)
+        }
+        socket.on('close', leaveRoom)
+
+        let heartbeat: ReturnType<typeof setInterval> | null = null
+        let unsubscribeEvents: (() => void) | null = null
+        let unsubscribePresence: (() => void) | null = null
+        let unsubscribeProgress: (() => void) | null = null
+        let presenceMember: Awaited<ReturnType<AnnotationPresenceService['join']>> | null = null
+        let presenceCleaned = false
+        const sendPresence = async () => {
+          if (!deps.presence || socket.readyState !== 1) return
+          socket.send(JSON.stringify(await deps.presence.snapshot(room.roomId)))
+        }
+        const cleanupPresence = async () => {
+          if (presenceCleaned) return
+          presenceCleaned = true
+          if (heartbeat) clearInterval(heartbeat)
+          unsubscribeEvents?.()
+          unsubscribePresence?.()
+          unsubscribeProgress?.()
+          if (deps.presence && presenceMember)
+            await deps.presence
+              .leave(room.roomId, presenceMember.device_session_id)
+              .catch(() => undefined)
+        }
+        socket.on('close', () => {
+          void cleanupPresence()
+        })
+
+        if (deps.events) {
           try {
-            resumeSequence = parseResumeSequence(request.query.last_server_sequence)
+            unsubscribeEvents = await deps.events.subscribe(room.roomId, snapshot => {
+              const sequence = BigInt(snapshot.server_sequence)
+              if (sequence > state.lastSequence) state.lastSequence = sequence
+              sendSnapshot(peer, snapshot)
+            })
           } catch {
-            socket.close(1008, 'last_server_sequence is invalid')
+            await cleanupPresence()
+            socket.close(1011, 'annotation event stream unavailable')
             return
           }
-          let identity: AnnotationIdentity | null
+        }
+
+        if (deps.presence) {
           try {
-            identity = await deps.authenticate(request)
+            presenceMember = await deps.presence.join(room.roomId, identity)
+            const presenceSnapshot = await deps.presence.snapshot(room.roomId)
+            await deps.service.recoverAbandonedDraft(
+              room.roomId,
+              identity,
+              presenceSnapshot.members.map(member => member.device_session_id),
+            )
+            unsubscribePresence = await deps.presence.subscribe(room.roomId, () => {
+              void sendPresence().catch(() => undefined)
+            })
+            heartbeat = setInterval(() => {
+              if (deps.presence && presenceMember)
+                void deps.presence
+                  .touch(room.roomId, presenceMember)
+                  .catch(() => socket.close(1011, 'presence heartbeat failed'))
+            }, 10_000)
           } catch {
-            socket.close(1008, 'authentication failed')
+            await cleanupPresence()
+            socket.close(1011, 'presence unavailable')
             return
           }
-          if (!identity) {
-            socket.close(1008, 'authentication required')
+        }
+
+        let readySequence = await deps.service.roomSequence(room.roomId)
+        if (resumeSequence !== null && deps.snapshot) {
+          try {
+            const replay = await replayChanges(
+              room.roomId,
+              resumeSequence,
+              identity,
+              snapshot => sendSnapshot(peer, snapshot),
+              null,
+            )
+            readySequence = replay.cursor
+          } catch (cause) {
+            request.log.warn(
+              { err: cause, room_id: room.roomId },
+              'annotation reconnect replay failed',
+            )
+            await cleanupPresence()
+            socket.close(1011, 'annotation reconnect replay failed')
             return
           }
-          const room = await deps.service.authorizeRoom(roomId, identity)
-          if (!room || room.roomId !== roomId.toLowerCase()) {
-            socket.close(1008, 'annotation room not found')
+        }
+        if (deps.snapshot) {
+          try {
+            const activeRallyIds = await loadActiveRallyIds(room)
+            for (const rallyId of activeRallyIds) {
+              const activeSnapshot = await loadSnapshot(room.roomId, rallyId, identity)
+              if (activeSnapshot) sendSnapshot(peer, activeSnapshot)
+            }
+          } catch (cause) {
+            request.log.warn(
+              { err: cause, room_id: room.roomId },
+              'active annotation room projection failed to load',
+            )
+            await cleanupPresence()
+            socket.close(1011, 'active annotation room projection unavailable')
             return
           }
-
-          const state = roomState(room.roomId)
-          const roomWasEmpty = state.peers.size === 0
-          const peer: AnnotationPeer = { identity, sentSnapshots: new Map(), socket }
-          state.peers.add(peer)
-          const leaveRoom = () => {
-            state.peers.delete(peer)
-            if (!state.peers.size) rooms.delete(room.roomId)
+        }
+        if (roomWasEmpty && readySequence > state.lastSequence) state.lastSequence = readySequence
+        const ready = parseAnnotationServerMessage({
+          schema_version: '2.0.0',
+          type: 'connection_ready',
+          authenticated_user_id: identity.userId,
+          device_session_id: identity.deviceSessionId,
+          room_id: room.roomId,
+          server_sequence: readySequence.toString(),
+        })
+        socket.send(JSON.stringify(ready))
+        await sendPresence()
+        if (deps.progress) {
+          try {
+            unsubscribeProgress = await deps.progress.subscribe(room.roomId, message => {
+              if (socket.readyState === 1) socket.send(JSON.stringify(message))
+            })
+          } catch {
+            await cleanupPresence()
+            socket.close(1011, 'AI progress stream unavailable')
+            return
           }
-          socket.on('close', leaveRoom)
+        }
 
-          let heartbeat: ReturnType<typeof setInterval> | null = null
-          let unsubscribeEvents: (() => void) | null = null
-          let unsubscribePresence: (() => void) | null = null
-          let unsubscribeProgress: (() => void) | null = null
-          let presenceMember: Awaited<ReturnType<AnnotationPresenceService['join']>> | null = null
-          let presenceCleaned = false
-          const sendPresence = async () => {
-            if (!deps.presence || socket.readyState !== 1) return
-            socket.send(JSON.stringify(await deps.presence.snapshot(room.roomId)))
-          }
-          const cleanupPresence = async () => {
-            if (presenceCleaned) return
-            presenceCleaned = true
-            if (heartbeat) clearInterval(heartbeat)
-            unsubscribeEvents?.()
-            unsubscribePresence?.()
-            unsubscribeProgress?.()
-            if (deps.presence && presenceMember)
-              await deps.presence
-                .leave(room.roomId, presenceMember.device_session_id)
-                .catch(() => undefined)
-          }
-          socket.on('close', () => {
-            void cleanupPresence()
-          })
-
-          if (deps.events) {
+        socket.on('message', raw => {
+          void (async () => {
+            let payload: unknown
             try {
-              unsubscribeEvents = await deps.events.subscribe(room.roomId, snapshot => {
-                const sequence = BigInt(snapshot.server_sequence)
-                if (sequence > state.lastSequence) state.lastSequence = sequence
-                sendSnapshot(peer, snapshot)
-              })
+              payload = JSON.parse(raw.toString())
             } catch {
-              await cleanupPresence()
-              socket.close(1011, 'annotation event stream unavailable')
+              socket.close(1003, 'invalid annotation message')
               return
             }
-          }
-
-          if (deps.presence) {
             try {
-              presenceMember = await deps.presence.join(room.roomId, identity)
-              const presenceSnapshot = await deps.presence.snapshot(room.roomId)
-              await deps.service.recoverAbandonedDraft(
-                room.roomId,
-                identity,
-                presenceSnapshot.members.map(member => member.device_session_id),
-              )
-              unsubscribePresence = await deps.presence.subscribe(room.roomId, () => {
-                void sendPresence().catch(() => undefined)
-              })
-              heartbeat = setInterval(() => {
-                if (deps.presence && presenceMember)
-                  void deps.presence
-                    .touch(room.roomId, presenceMember)
-                    .catch(() => socket.close(1011, 'presence heartbeat failed'))
-              }, 10_000)
-            } catch {
-              await cleanupPresence()
-              socket.close(1011, 'presence unavailable')
-              return
-            }
-          }
-
-          let readySequence = await deps.service.roomSequence(room.roomId)
-          if (resumeSequence !== null && deps.snapshot) {
-            try {
-              const replay = await replayChanges(
-                room.roomId,
-                resumeSequence,
-                identity,
-                snapshot => sendSnapshot(peer, snapshot),
-                null,
-              )
-              readySequence = replay.cursor
-            } catch (cause) {
-              request.log.warn(
-                { err: cause, room_id: room.roomId },
-                'annotation reconnect replay failed',
-              )
-              await cleanupPresence()
-              socket.close(1011, 'annotation reconnect replay failed')
-              return
-            }
-          }
-          if (deps.snapshot) {
-            try {
-              const activeRallyIds = await loadActiveRallyIds(room)
-              for (const rallyId of activeRallyIds) {
-                const activeSnapshot = await loadSnapshot(room.roomId, rallyId, identity)
-                if (activeSnapshot) sendSnapshot(peer, activeSnapshot)
+              const intent = parseAnnotationSoftLockIntent(payload)
+              if (intent.room_id !== room.roomId) {
+                socket.close(1008, 'soft-lock room mismatch')
+                return
               }
-            } catch (cause) {
-              request.log.warn(
-                { err: cause, room_id: room.roomId },
-                'active annotation room projection failed to load',
-              )
-              await cleanupPresence()
-              socket.close(1011, 'active annotation room projection unavailable')
-              return
-            }
-          }
-          if (roomWasEmpty && readySequence > state.lastSequence)
-            state.lastSequence = readySequence
-          const ready = parseAnnotationServerMessage({
-            schema_version: '2.0.0',
-            type: 'connection_ready',
-            authenticated_user_id: identity.userId,
-            device_session_id: identity.deviceSessionId,
-            room_id: room.roomId,
-            server_sequence: readySequence.toString(),
-          })
-          socket.send(JSON.stringify(ready))
-          await sendPresence()
-          if (deps.progress) {
-            try {
-              unsubscribeProgress = await deps.progress.subscribe(room.roomId, message => {
-                if (socket.readyState === 1) socket.send(JSON.stringify(message))
-              })
-            } catch {
-              await cleanupPresence()
-              socket.close(1011, 'AI progress stream unavailable')
-              return
-            }
-          }
-
-          socket.on('message', raw => {
-            void (async () => {
-              let payload: unknown
-              try {
-                payload = JSON.parse(raw.toString())
-              } catch {
-                socket.close(1003, 'invalid annotation message')
+              if (!deps.presence || !presenceMember) {
+                socket.close(1011, 'soft-lock presence unavailable')
                 return
               }
               try {
-                const intent = parseAnnotationSoftLockIntent(payload)
-                if (intent.room_id !== room.roomId) {
-                  socket.close(1008, 'soft-lock room mismatch')
-                  return
-                }
-                if (!deps.presence || !presenceMember) {
-                  socket.close(1011, 'soft-lock presence unavailable')
-                  return
-                }
-                try {
-                  presenceMember = await deps.presence.setEditing(
-                    room.roomId,
-                    presenceMember,
-                    intent.editing_key_point_id,
-                  )
-                  // The origin gets a direct heartbeat response. Room-wide fan-out
-                  // only occurs when the semantic edit target actually changes.
-                  await sendPresence()
-                  return
-                } catch {
-                  socket.close(1011, 'soft-lock update failed')
-                  return
-                }
-              } catch {
-                /* not a soft-lock intent; continue with the durable command parser */
-              }
-              let command
-              try {
-                command = parseAnnotationCommand(payload)
-              } catch (cause) {
-                const rejection = invalidCommandRejection(payload, room.roomId)
-                if (rejection) {
-                  request.log.warn(
-                    { err: cause, annotation_command_id: rejection.command_id },
-                    'invalid annotation command rejected without disconnecting websocket',
-                  )
-                  socket.send(JSON.stringify(rejection))
-                  return
-                }
-                socket.close(1003, 'invalid annotation command')
-                return
-              }
-              if (command.room_id !== room.roomId) {
-                socket.close(1008, 'command room mismatch')
-                return
-              }
-              try {
-                const response = await deps.service.apply(command, identity)
-                const responsePayload = JSON.stringify(response)
-                if (response.type === 'command_ack') {
-                  socket.send(responsePayload)
-                  const snapshot = await loadSnapshot(room.roomId, response.rally_id, identity)
-                  if (snapshot) {
-                    if (deps.events) {
-                      await deps.events.publish(snapshot).catch(cause => {
-                        request.log.warn(
-                          { err: cause, room_id: room.roomId },
-                          'Redis annotation fan-out failed; using local delivery and DB reconciliation',
-                        )
-                        broadcastSnapshot(snapshot)
-                      })
-                    } else broadcastSnapshot(snapshot)
-                  }
-                } else socket.send(responsePayload)
-              } catch (cause) {
-                request.log.error(
-                  {
-                    err: cause,
-                    annotation_command_id: command.command_id,
-                    annotation_command_kind: command.kind,
-                    rally_id: command.rally_id,
-                  },
-                  'annotation command failed',
+                presenceMember = await deps.presence.setEditing(
+                  room.roomId,
+                  presenceMember,
+                  intent.editing_key_point_id,
                 )
-                socket.close(1011, 'annotation command failed')
+                // The origin gets a direct heartbeat response. Room-wide fan-out
+                // only occurs when the semantic edit target actually changes.
+                await sendPresence()
+                return
+              } catch {
+                socket.close(1011, 'soft-lock update failed')
+                return
               }
-            })()
-          })
-        })()
-      },
-    )
+            } catch {
+              /* not a soft-lock intent; continue with the durable command parser */
+            }
+            let command
+            try {
+              command = parseAnnotationCommand(payload)
+            } catch (cause) {
+              const rejection = invalidCommandRejection(payload, room.roomId)
+              if (rejection) {
+                request.log.warn(
+                  { err: cause, annotation_command_id: rejection.command_id },
+                  'invalid annotation command rejected without disconnecting websocket',
+                )
+                socket.send(JSON.stringify(rejection))
+                return
+              }
+              socket.close(1003, 'invalid annotation command')
+              return
+            }
+            if (command.room_id !== room.roomId) {
+              socket.close(1008, 'command room mismatch')
+              return
+            }
+            try {
+              const response = await deps.service.apply(command, identity)
+              const responsePayload = JSON.stringify(response)
+              if (response.type === 'command_ack') {
+                socket.send(responsePayload)
+                const snapshot = await loadSnapshot(room.roomId, response.rally_id, identity)
+                if (snapshot) {
+                  if (deps.events) {
+                    await deps.events.publish(snapshot).catch(cause => {
+                      request.log.warn(
+                        { err: cause, room_id: room.roomId },
+                        'Redis annotation fan-out failed; using local delivery and DB reconciliation',
+                      )
+                      broadcastSnapshot(snapshot)
+                    })
+                  } else broadcastSnapshot(snapshot)
+                }
+              } else socket.send(responsePayload)
+            } catch (cause) {
+              request.log.error(
+                {
+                  err: cause,
+                  annotation_command_id: command.command_id,
+                  annotation_command_kind: command.kind,
+                  rally_id: command.rally_id,
+                },
+                'annotation command failed',
+              )
+              socket.close(1011, 'annotation command failed')
+            }
+          })()
+        })
+      })()
+    })
   }

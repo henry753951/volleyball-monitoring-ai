@@ -51,11 +51,7 @@ function maximum(left: bigint | null, right: bigint): bigint {
 
 function appendRange(ranges: TimelineProjectionRange[], next: TimelineProjectionRange): void {
   const previous = ranges.at(-1)
-  if (
-    previous &&
-    previous.discontinuity === next.discontinuity &&
-    previous.endUs >= next.startUs
-  ) {
+  if (previous && previous.discontinuity === next.discontinuity && previous.endUs >= next.startUs) {
     previous.endUs = maximum(previous.endUs, next.endUs)
     return
   }

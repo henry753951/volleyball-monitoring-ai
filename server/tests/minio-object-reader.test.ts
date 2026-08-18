@@ -15,10 +15,7 @@ import {
   createMinioObjectStreamReaderFromEnv,
   type MinioObjectClient,
 } from '../src/media/minio-object-reader.js'
-import type {
-  MediaObjectByteRange,
-  MediaObjectReadRequest,
-} from '../src/media/playback-domain.js'
+import type { MediaObjectByteRange, MediaObjectReadRequest } from '../src/media/playback-domain.js'
 
 const accessKey = 'test-access-key'
 const secretKey = 'test-secret-key'

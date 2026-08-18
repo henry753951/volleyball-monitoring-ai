@@ -97,7 +97,10 @@ function invalidRange(byteLength: bigint): never {
 }
 
 /** Parse one RFC 9110 byte range into a half-open interval. */
-function parseByteRange(value: string | null, byteLength: bigint): MediaObjectByteRange | undefined {
+function parseByteRange(
+  value: string | null,
+  byteLength: bigint,
+): MediaObjectByteRange | undefined {
   if (value === null) return undefined
   const match = /^bytes=(\d*)-(\d*)$/i.exec(value.trim())
   if (!match || byteLength <= 0n || (match[1] === '' && match[2] === '')) {
@@ -278,7 +281,11 @@ async function loadProgramSegmentsAround(
     },
   })
   if (rows.length > MAX_SELECTION_SEGMENTS) {
-    throw new MediaHttpError(409, 'MEDIA_NOT_READY', 'Playback selection contains too many segments')
+    throw new MediaHttpError(
+      409,
+      'MEDIA_NOT_READY',
+      'Playback selection contains too many segments',
+    )
   }
   return rows
 }
@@ -569,10 +576,7 @@ async function createPlaybackWindow(
       dvrProgramId: program.id,
       segments: selection.segments.map(segment => {
         const row = selectedRows.get(segment.id)
-        if (
-          !row ||
-          !assetMetadataReady(row.sampleIndexAsset, 'application/json', 'SAMPLE_INDEX')
-        ) {
+        if (!row || !assetMetadataReady(row.sampleIndexAsset, 'application/json', 'SAMPLE_INDEX')) {
           throw new MediaHttpError(409, 'MEDIA_NOT_READY', 'Sample index is unavailable')
         }
         return {
@@ -727,8 +731,7 @@ async function extendPlaybackWindow(
     .filter(mapping => !selectedIds.has(mapping.dvrSegment.id))
     .map(mapping => mapping.id)
   const appendedSegments = selection.segments.filter(segment => !currentIds.has(segment.id))
-  const nextSequenceIndex =
-    Math.max(...current.segments.map(mapping => mapping.sequenceIndex)) + 1
+  const nextSequenceIndex = Math.max(...current.segments.map(mapping => mapping.sequenceIndex)) + 1
   try {
     await db.$transaction(async transaction => {
       await transaction.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`playback-window:${windowId}`}, 0))::text AS lock`
@@ -782,11 +785,7 @@ async function extendPlaybackWindow(
   })
 }
 
-async function selectedWindowAsset(
-  windowId: string,
-  token: string,
-  identity: MediaIdentity,
-) {
+async function selectedWindowAsset(windowId: string, token: string, identity: MediaIdentity) {
   const resource = parsePlaybackResourceToken(token)
   const mapping = await db.playbackWindowSegment.findFirst({
     select: {
@@ -942,9 +941,7 @@ export const mediaPlaybackRoutes =
           }
 
           const range = parseByteRange(headerValue(request, 'range'), asset.byteLength)
-          const responseLength = range
-            ? range.endExclusive - range.start
-            : asset.byteLength
+          const responseLength = range ? range.endExclusive - range.start : asset.byteLength
           const readRequest = {
             bucket: asset.bucket,
             expectedByteLength: asset.byteLength,

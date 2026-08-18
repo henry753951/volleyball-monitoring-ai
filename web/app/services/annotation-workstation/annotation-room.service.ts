@@ -229,8 +229,7 @@ export function createAnnotationRoomService(annotationWsUrl: MaybeRefOrGetter<st
     )
       return
     const updated = { ...roomSnapshots.value }
-    if (['open', 'ready'].includes(next.snapshot.annotation_status))
-      updated[next.rally_id] = next
+    if (['open', 'ready'].includes(next.snapshot.annotation_status)) updated[next.rally_id] = next
     else Reflect.deleteProperty(updated, next.rally_id)
     roomSnapshots.value = updated
   }
