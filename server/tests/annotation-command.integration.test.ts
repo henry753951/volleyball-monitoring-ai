@@ -966,7 +966,7 @@ describe('durable service annotation command', () => {
     })
   })
 
-  it('allows END to overlap another editable draft without coupling their states', async () => {
+  it('rejects END when its padded range overlaps another editable draft', async () => {
     const currentRallyId = randomUUID()
     const otherRallyId = randomUUID()
     const endAnchor = {
@@ -1047,16 +1047,19 @@ describe('durable service annotation command', () => {
         identity,
       ),
     ).resolves.toMatchObject({
-      type: 'command_ack',
-      operation_kind: 'END_RALLY',
-      effects: { annotation_status: 'ready' },
+      type: 'command_rejected',
+      code: 'RALLY_RANGE_RESERVED',
     })
     await expect(
       db.rally.findUniqueOrThrow({ where: { id: currentRallyId }, include: { boundaries: true } }),
     ).resolves.toMatchObject({
-      annotationStatus: 'READY',
-      annotationRevision: 2n,
+      annotationStatus: 'OPEN',
+      annotationRevision: 1n,
+      boundaries: [expect.objectContaining({ kind: 'START' })],
     })
+    await expect(
+      db.rally.findUniqueOrThrow({ where: { id: otherRallyId } }),
+    ).resolves.toMatchObject({ annotationStatus: 'READY', annotationRevision: 1n })
   })
 
   it('atomically creates revision one, seq-zero service, receipt, operation and outbox only', async () => {
@@ -1154,24 +1157,20 @@ describe('durable service annotation command', () => {
     ).resolves.toMatchObject({ accepted: false })
   })
 
-  it('keeps simultaneous OPEN drafts independent across device sessions', async () => {
+  it('rejects overlapping OPEN drafts across device sessions', async () => {
     const first = serviceCommand(randomUUID(), randomUUID())
     const second = serviceCommand(randomUUID(), randomUUID())
     await expect(service.apply(first, identity)).resolves.toMatchObject({ type: 'command_ack' })
     await expect(service.apply(second, secondIdentity)).resolves.toMatchObject({
-      type: 'command_ack',
+      type: 'command_rejected',
+      code: 'RALLY_RANGE_RESERVED',
     })
     await expect(
       db.rally.findMany({
         where: { id: { in: [first.rally_id, second.rally_id] } },
         select: { id: true, annotationStatus: true },
       }),
-    ).resolves.toEqual(
-      expect.arrayContaining([
-        { id: first.rally_id, annotationStatus: 'OPEN' },
-        { id: second.rally_id, annotationStatus: 'OPEN' },
-      ]),
-    )
+    ).resolves.toEqual([{ id: first.rally_id, annotationStatus: 'OPEN' }])
 
     await expect(
       service.apply(contactCommand(randomUUID(), first.rally_id, '1'), secondIdentity),
@@ -1181,10 +1180,8 @@ describe('durable service annotation command', () => {
     })
   })
 
-  it('serializes overlapping device drafts at immutable submit', async () => {
-    const firstRallyId = randomUUID()
-    const secondRallyId = randomUUID()
-    const endAnchor = {
+  it('allows disjoint OPEN drafts across device sessions', async () => {
+    const laterAnchor = {
       ...anchor,
       capture_frame_index: (BigInt(anchor.capture_frame_index) + 1n).toString(),
       capture_time_us: (BigInt(anchor.capture_time_us) + 50n).toString(),
@@ -1193,43 +1190,51 @@ describe('durable service annotation command', () => {
     }
     const boundaryService = createAnnotationCommandService({
       database: db,
-      resolveCursor: async cursor => (cursor.player_media_time_us === '1284' ? endAnchor : anchor),
+      resolveCursor: async cursor =>
+        cursor.player_media_time_us === '1284' ? laterAnchor : anchor,
     })
-    await boundaryService.apply(
-      boundaryCommand(randomUUID(), firstRallyId, 'START_RALLY', '0', '1234'),
-      identity,
-    )
-    await boundaryService.apply(
-      boundaryCommand(randomUUID(), secondRallyId, 'START_RALLY', '0', '1234'),
-      secondIdentity,
-    )
-    await boundaryService.apply(
-      boundaryCommand(randomUUID(), firstRallyId, 'END_RALLY', '1', '1284'),
-      identity,
-    )
-    await boundaryService.apply(
-      boundaryCommand(randomUUID(), secondRallyId, 'END_RALLY', '1', '1284'),
-      secondIdentity,
-    )
+    const firstRallyId = randomUUID()
+    const secondRallyId = randomUUID()
 
     await expect(
-      boundaryService.apply(submitCommand(randomUUID(), firstRallyId, '2'), identity),
-    ).resolves.toMatchObject({
-      type: 'command_ack',
-      effects: { annotation_status: 'submitted' },
-    })
+      boundaryService.apply(
+        boundaryCommand(randomUUID(), firstRallyId, 'START_RALLY', '0', '1234'),
+        identity,
+      ),
+    ).resolves.toMatchObject({ type: 'command_ack', operation_kind: 'START_RALLY' })
     await expect(
-      boundaryService.apply(submitCommand(randomUUID(), secondRallyId, '2'), secondIdentity),
-    ).resolves.toMatchObject({
-      type: 'command_rejected',
-      code: 'RALLY_OVERLAP',
-    })
+      boundaryService.apply(
+        boundaryCommand(randomUUID(), secondRallyId, 'START_RALLY', '0', '1284'),
+        secondIdentity,
+      ),
+    ).resolves.toMatchObject({ type: 'command_ack', operation_kind: 'START_RALLY' })
     await expect(
-      db.rally.findUniqueOrThrow({ where: { id: secondRallyId } }),
-    ).resolves.toMatchObject({
-      annotationStatus: 'READY',
-      activeSubmissionId: null,
-    })
+      db.rally.count({ where: { id: { in: [firstRallyId, secondRallyId] } } }),
+    ).resolves.toBe(2)
+  })
+
+  it('serializes concurrent overlapping starts under the set allocation lock', async () => {
+    const first = serviceCommand(randomUUID(), randomUUID())
+    const second = serviceCommand(randomUUID(), randomUUID())
+    const responses = await Promise.all([
+      service.apply(first, identity),
+      service.apply(second, secondIdentity),
+    ])
+
+    expect(responses.filter(value => value.type === 'command_ack')).toHaveLength(1)
+    expect(
+      responses.filter(
+        value => value.type === 'command_rejected' && value.code === 'RALLY_RANGE_RESERVED',
+      ),
+    ).toHaveLength(1)
+    await expect(
+      db.rally.count({ where: { id: { in: [first.rally_id, second.rally_id] } } }),
+    ).resolves.toBe(1)
+    await expect(
+      db.annotationCommandReceipt.count({
+        where: { commandId: { in: [first.command_id, second.command_id] } },
+      }),
+    ).resolves.toBe(2)
   })
 
   it('keeps a closed unsubmitted rally as the device active draft until submission', async () => {
@@ -1818,8 +1823,8 @@ describe('durable service annotation command', () => {
     })
     await expect(service.apply(move, identity)).resolves.toMatchObject({
       type: 'command_rejected',
-      code: 'ANNOTATION_NOT_READY',
-      message: 'Moving the key point would overlap another Rally clip',
+      code: 'RALLY_RANGE_RESERVED',
+      message: '移動後的片段會與其他標註片段重疊；畫面已回復到伺服器狀態',
     })
     await expect(db.rally.findUniqueOrThrow({ where: { id: rallyId } })).resolves.toMatchObject({
       annotationRevision: 2n,

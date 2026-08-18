@@ -87,6 +87,8 @@ export const annotationWebSocketRoutes =
   (deps: AnnotationWebSocketDependencies): FastifyPluginAsync =>
   async app => {
     const rooms = new Map<string, AnnotationRoomState>()
+    const activeRallyLoads = new Map<string, Promise<string[]>>()
+    const snapshotLoads = new Map<string, Promise<AnnotationRallySnapshot | null>>()
     const reconcileIntervalMs = Math.max(500, deps.reconcileIntervalMs ?? 2_000)
 
     const roomState = (roomId: string) => {
@@ -126,6 +128,32 @@ export const annotationWebSocketRoutes =
       for (const peer of state.peers) sendSnapshot(peer, snapshot)
     }
 
+    const loadActiveRallyIds = (room: { roomId: string; matchId: string; captureSessionId: string }) => {
+      const existing = activeRallyLoads.get(room.roomId)
+      if (existing) return existing
+      const pending = deps.service.activeRoomRallyIds(room).finally(() => {
+        if (activeRallyLoads.get(room.roomId) === pending) activeRallyLoads.delete(room.roomId)
+      })
+      activeRallyLoads.set(room.roomId, pending)
+      return pending
+    }
+
+    const loadSnapshot = (
+      roomId: string,
+      rallyId: string,
+      identity: AnnotationIdentity,
+    ) => {
+      if (!deps.snapshot) return Promise.resolve(null)
+      const key = `${roomId}:${rallyId}`
+      const existing = snapshotLoads.get(key)
+      if (existing) return existing
+      const pending = deps.snapshot(roomId, rallyId, identity).finally(() => {
+        if (snapshotLoads.get(key) === pending) snapshotLoads.delete(key)
+      })
+      snapshotLoads.set(key, pending)
+      return pending
+    }
+
     const replayChanges = async (
       roomId: string,
       afterSequence: bigint,
@@ -140,7 +168,7 @@ export const annotationWebSocketRoutes =
         const changes = await deps.service.roomChangesAfter(roomId, cursor, REPLAY_BATCH_SIZE)
         current = changes.currentSequence
         for (const rallyId of changes.rallyIds) {
-          const snapshot = await deps.snapshot?.(roomId, rallyId, identity)
+          const snapshot = await loadSnapshot(roomId, rallyId, identity)
           if (snapshot) deliver(snapshot)
         }
         hasMore = changes.hasMore
@@ -185,6 +213,8 @@ export const annotationWebSocketRoutes =
     reconcileTimer.unref?.()
     app.addHook('onClose', async () => {
       clearInterval(reconcileTimer)
+      activeRallyLoads.clear()
+      snapshotLoads.clear()
       rooms.clear()
     })
 
@@ -321,6 +351,20 @@ export const annotationWebSocketRoutes =
               if (resumeSequence < readySequence) readySequence = resumeSequence
             }
           }
+          if (deps.snapshot) {
+            try {
+              const activeRallyIds = await loadActiveRallyIds(room)
+              for (const rallyId of activeRallyIds) {
+                const activeSnapshot = await loadSnapshot(room.roomId, rallyId, identity)
+                if (activeSnapshot) sendSnapshot(peer, activeSnapshot)
+              }
+            } catch (cause) {
+              request.log.warn(
+                { err: cause, room_id: room.roomId },
+                'active annotation room projection failed to load',
+              )
+            }
+          }
           if (roomWasEmpty && readySequence > state.lastSequence)
             state.lastSequence = readySequence
           const ready = parseAnnotationServerMessage({
@@ -406,7 +450,7 @@ export const annotationWebSocketRoutes =
                 const responsePayload = JSON.stringify(response)
                 if (response.type === 'command_ack') {
                   socket.send(responsePayload)
-                  const snapshot = await deps.snapshot?.(room.roomId, response.rally_id, identity)
+                  const snapshot = await loadSnapshot(room.roomId, response.rally_id, identity)
                   if (snapshot) {
                     if (deps.events) {
                       await deps.events.publish(snapshot).catch(cause => {

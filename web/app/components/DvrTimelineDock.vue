@@ -47,6 +47,7 @@ const props = defineProps<{
     outcomeTeamLabel?: string | null
     startCaptureTimeUs: string
     endCaptureTimeUs: string
+    reservedByPeer?: boolean
     status: 'draft' | 'idle' | 'failed' | 'processing' | 'analyzed' | 'mapped'
     points?: Array<{
       id: string
@@ -1034,7 +1035,10 @@ defineExpose({ focusRange, resetView })
           :class="[
             segment.status,
             segmentDensityClass(segment),
-            { selected: selectedSegmentId === segment.id },
+            {
+              'peer-reservation': segment.reservedByPeer,
+              selected: selectedSegmentId === segment.id,
+            },
           ]"
           :style="{
             left: `${segmentLeft(segment)}%`,
@@ -1369,6 +1373,9 @@ defineExpose({ focusRange, resetView })
 }
 .timeline-mask.draft {
   pointer-events: auto;
+}
+.timeline-mask.peer-reservation {
+  border-style: dashed;
 }
 .timeline-mask.processing {
   border-color: #aa7c22;

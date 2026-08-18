@@ -41,6 +41,7 @@ export interface AnnotationRoomChanges {
 }
 
 export interface AnnotationCommandService {
+  activeRoomRallyIds(room: AnnotationRoom): Promise<string[]>
   apply(
     command: AnnotationCommand,
     identity: AnnotationIdentity,
@@ -485,8 +486,8 @@ async function acceptService(
         hash,
         rejected(
           command,
-          'ANNOTATION_NOT_READY',
-          'The configured clip range would overlap an existing segment',
+          'RALLY_RANGE_RESERVED',
+          '這個時間範圍已由其他標註片段占用；畫面已回復到伺服器狀態',
         ),
       )
     }
@@ -943,7 +944,11 @@ async function acceptContact(
           command,
           identity,
           hash,
-          rejected(command, 'ANNOTATION_NOT_READY', 'Rally end would overlap another segment'),
+          rejected(
+            command,
+            'RALLY_RANGE_RESERVED',
+            '結束位置會與其他標註片段重疊；畫面已回復到伺服器狀態',
+          ),
         )
       }
       await tx.rallyBoundary.create({
@@ -1790,16 +1795,12 @@ async function clipRangeOverlapsExistingRally(
     },
   })
   return existingSegments.some(segment => {
-    // Other clients may keep overlapping editable drafts. Only the active,
-    // immutable submission is a canonical clip conflict. Keep the fallback for
-    // legacy non-editable rows created before activeSubmissionId was mandatory.
+    const editable = segment.annotationStatus === 'OPEN' || segment.annotationStatus === 'READY'
     const immutable = segment.activeSubmission
-    if (!immutable && (segment.annotationStatus === 'OPEN' || segment.annotationStatus === 'READY'))
-      return false
-    const clip = immutable?.clipJobs[0]
-    const points = immutable
-      ? [...immutable.boundaries, ...immutable.keyPoints]
-      : [...segment.boundaries, ...segment.keyPoints]
+    const clip = editable ? null : immutable?.clipJobs[0]
+    const boundaries = editable ? segment.boundaries : (immutable?.boundaries ?? segment.boundaries)
+    const keyPoints = editable ? segment.keyPoints : (immutable?.keyPoints ?? segment.keyPoints)
+    const points = [...boundaries, ...keyPoints]
     points.sort((left, right) =>
       left.captureTimeUs < right.captureTimeUs
         ? -1
@@ -1810,17 +1811,21 @@ async function clipRangeOverlapsExistingRally(
     const first = points[0]
     const last = points.at(-1)
     if (!first || !last) return false
-    const paddingBefore = immutable?.clipPreRollUs ?? clipPreRollUs
-    const paddingAfter = immutable?.clipPostRollUs ?? clipPostRollUs
+    const paddingBefore = editable ? clipPreRollUs : (immutable?.clipPreRollUs ?? clipPreRollUs)
+    const paddingAfter = editable ? clipPostRollUs : (immutable?.clipPostRollUs ?? clipPostRollUs)
     const paddedStart = first.captureTimeUs - paddingBefore
     const start = clip
       ? (clip.actualStartCaptureUs ?? clip.requestedStartCaptureUs)
       : paddedStart < 0n
         ? 0n
         : paddedStart
+    // Editable drafts reserve only their currently known padded interval.
+    // This rejects duplicate work over the same Rally while still allowing
+    // authorized clients to annotate disjoint VOD ranges concurrently. END and
+    // point-move commands re-check the expanded interval under the set lock.
     const end = clip
       ? (clip.actualEndCaptureUs ?? clip.requestedEndCaptureUs)
-      : last.captureTimeUs + paddingAfter
+      : last.captureTimeUs + (paddingAfter > 0n ? paddingAfter : 1n)
     return proposedStart < end && proposedEnd > start
   })
 }
@@ -2263,8 +2268,8 @@ async function acceptDraftEdit(
             hash,
             rejected(
               command,
-              'ANNOTATION_NOT_READY',
-              'Moving the key point would overlap another Rally clip',
+              'RALLY_RANGE_RESERVED',
+              '移動後的片段會與其他標註片段重疊；畫面已回復到伺服器狀態',
             ),
           )
         }
@@ -2507,6 +2512,19 @@ export function createAnnotationCommandService(
   deps: AnnotationCommandServiceDependencies,
 ): AnnotationCommandService {
   return {
+    async activeRoomRallyIds(room) {
+      const rallies = await deps.database.rally.findMany({
+        orderBy: [{ updatedAt: 'asc' }, { id: 'asc' }],
+        select: { id: true },
+        where: {
+          annotationStatus: { in: ['OPEN', 'READY'] },
+          matchId: room.matchId,
+          program: { captureSessionId: room.captureSessionId },
+          voidedAt: null,
+        },
+      })
+      return rallies.map(rally => rally.id)
+    },
     authorizeRoom: (roomId, identity) => authorizeAnnotationRoom(deps.database, roomId, identity),
     async recoverAbandonedDraft(roomId, identity, activeDeviceSessionIds) {
       const room = await authorizeAnnotationRoom(deps.database, roomId, identity)

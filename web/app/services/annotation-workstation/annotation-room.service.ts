@@ -76,6 +76,7 @@ function asSnapshot(value: unknown): AnnotationRallySnapshot | null {
 
 export function createAnnotationRoomService(annotationWsUrl: MaybeRefOrGetter<string>) {
   const snapshot = shallowRef<AnnotationRallySnapshot | null>(null)
+  const roomSnapshots = shallowRef<Record<string, AnnotationRallySnapshot>>({})
   const connection = ref<AnnotationConnectionState>('closed')
   const latencyMs = ref<number | null>(null)
   const busy = ref(false)
@@ -101,6 +102,7 @@ export function createAnnotationRoomService(annotationWsUrl: MaybeRefOrGetter<st
   })
   const lastKeyPoint = computed(() => snapshot.value?.snapshot.key_points.at(-1) ?? null)
   const pendingCount = computed(() => outbox.value.length)
+  const activeRoomSnapshots = computed(() => Object.values(roomSnapshots.value))
   const viewSnapshot = computed(() =>
     projectAnnotationSnapshot(snapshot.value, roomId.value, outbox.value),
   )
@@ -217,11 +219,35 @@ export function createAnnotationRoomService(annotationWsUrl: MaybeRefOrGetter<st
     void refreshActive()
   }
 
+  function rememberRoomSnapshot(next: AnnotationRallySnapshot) {
+    const current = roomSnapshots.value[next.rally_id]
+    if (
+      current &&
+      (BigInt(next.server_sequence) < BigInt(current.server_sequence) ||
+        (next.server_sequence === current.server_sequence &&
+          BigInt(next.revision) < BigInt(current.revision)))
+    )
+      return
+    const updated = { ...roomSnapshots.value }
+    if (['open', 'ready'].includes(next.snapshot.annotation_status))
+      updated[next.rally_id] = next
+    else Reflect.deleteProperty(updated, next.rally_id)
+    roomSnapshots.value = updated
+  }
+
+  function removeRoomSnapshot(rallyId: string) {
+    if (!roomSnapshots.value[rallyId]) return
+    const updated = { ...roomSnapshots.value }
+    Reflect.deleteProperty(updated, rallyId)
+    roomSnapshots.value = updated
+  }
+
   function acceptSnapshot(
     next: AnnotationRallySnapshot | null,
     options: { remember?: boolean } = {},
   ) {
     if (!next) return
+    rememberRoomSnapshot(next)
     const current = snapshot.value
     if (
       current &&
@@ -238,6 +264,7 @@ export function createAnnotationRoomService(annotationWsUrl: MaybeRefOrGetter<st
   }
 
   function acceptBroadcastSnapshot(next: AnnotationRallySnapshot) {
+    rememberRoomSnapshot(next)
     const currentRallyId = snapshot.value?.rally_id
     const pendingRally = outbox.value.some(entry => entry.command.rally_id === next.rally_id)
     const restoredRally = rememberedRallyId() === next.rally_id
@@ -434,7 +461,18 @@ export function createAnnotationRoomService(annotationWsUrl: MaybeRefOrGetter<st
             if (!(await reconcileQueuedCommand(currentEntry))) return
             continue
           }
-          replaceOutbox(resolveAnnotationOutboxEntry(outbox.value, rebased.command_id))
+          const rejectedNewRally =
+            rebased.kind === 'START_RALLY' || rebased.kind === 'CREATE_SERVICE_KEY_POINT'
+          replaceOutbox(
+            rejectedNewRally
+              ? outbox.value.filter(entry => entry.command.rally_id !== rebased.rally_id)
+              : resolveAnnotationOutboxEntry(outbox.value, rebased.command_id),
+          )
+          if (rejectedNewRally) {
+            removeRoomSnapshot(rebased.rally_id)
+            if (snapshot.value?.rally_id === rebased.rally_id) snapshot.value = null
+            if (rememberedRallyId() === rebased.rally_id) rememberRallyId(null)
+          }
           error.value = response.message ?? '標註命令被拒絕'
           continue
         }
@@ -475,6 +513,7 @@ export function createAnnotationRoomService(annotationWsUrl: MaybeRefOrGetter<st
     const key = activeRallyStorageKey()
     rememberedRallyIdState.value = target && key ? target.getItem(key) : null
     snapshot.value = null
+    roomSnapshots.value = {}
     presence.value = []
     processing.value = {}
     resolvedKeyPointIds.value = {}
@@ -764,6 +803,8 @@ export function createAnnotationRoomService(annotationWsUrl: MaybeRefOrGetter<st
     // `Rally was not found` after the deletion already succeeded.
     replaceOutbox(outbox.value.filter(entry => entry.command.rally_id !== rallyId))
     if (snapshot.value?.rally_id === rallyId) snapshot.value = null
+    removeRoomSnapshot(rallyId)
+    if (rememberedRallyId() === rallyId) rememberRallyId(null)
     const remaining = { ...processing.value }
     Reflect.deleteProperty(remaining, rallyId)
     processing.value = remaining
@@ -775,6 +816,7 @@ export function createAnnotationRoomService(annotationWsUrl: MaybeRefOrGetter<st
   }
 
   return {
+    activeRoomSnapshots,
     busy: readonly(busy),
     connection: readonly(connection),
     latencyMs: readonly(latencyMs),

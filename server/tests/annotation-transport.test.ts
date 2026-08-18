@@ -133,6 +133,9 @@ const rallySnapshot = parseAnnotationServerMessage({
 
 function fakeService(seen: unknown[]): AnnotationCommandService {
   return {
+    async activeRoomRallyIds() {
+      return []
+    },
     async apply(value, annotationIdentity) {
       seen.push({ annotationIdentity, value })
       if (value.kind === 'CLOSE_RALLY')
@@ -405,6 +408,54 @@ describe('annotation transport adapters', () => {
     expect(messages[1]).toEqual(response)
     expect(messages[2]).toEqual(rallySnapshot)
     expect(seen).toEqual([{ annotationIdentity: identity, value: command }])
+  })
+
+  it('sends every active room rally snapshot before connection_ready', async () => {
+    const activeLoads: string[] = []
+    const service: AnnotationCommandService = {
+      ...fakeService([]),
+      async activeRoomRallyIds(room) {
+        activeLoads.push(room.roomId)
+        return [rallyId]
+      },
+      async roomSequence() {
+        return 11n
+      },
+    }
+    const app = Fastify({ logger: false })
+    await app.register(websocket)
+    await app.register(
+      annotationWebSocketRoutes({
+        authenticate: async () => identity,
+        reconcileIntervalMs: 60_000,
+        service,
+        snapshot: async () => (rallySnapshot.type === 'rally_snapshot' ? rallySnapshot : null),
+      }),
+    )
+    await app.listen({ host: '127.0.0.1', port: 0 })
+    closeApp = () => app.close()
+    const address = app.server.address()
+    if (!address || typeof address === 'string') throw new Error('missing test listener')
+
+    const client = new WebSocket(
+      `ws://127.0.0.1:${address.port}/ws/annotations?room_id=${encodeURIComponent(roomId)}`,
+    )
+    const messages: Array<Record<string, unknown>> = []
+    await new Promise<void>((resolve, reject) => {
+      const timeout = setTimeout(() => reject(new Error('websocket projection timeout')), 5_000)
+      client.addEventListener('error', () => reject(new Error('websocket error')))
+      client.addEventListener('message', event => {
+        messages.push(JSON.parse(String(event.data)) as Record<string, unknown>)
+        if (messages.some(message => message.type === 'connection_ready')) {
+          clearTimeout(timeout)
+          resolve()
+        }
+      })
+    })
+    client.close()
+    expect(activeLoads).toEqual([roomId])
+    expect(messages.map(message => message.type)).toEqual(['rally_snapshot', 'connection_ready'])
+    expect(messages[1]).toMatchObject({ server_sequence: '11' })
   })
 
   it('replays committed rally snapshots after the client resume sequence before ready', async () => {

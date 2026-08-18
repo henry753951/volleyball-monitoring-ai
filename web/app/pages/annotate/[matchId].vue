@@ -537,6 +537,7 @@ const workstation = useAnnotationWorkstationModel({
   timeline,
   displayAnnotation,
   confirmedAnnotation: annotation.snapshot,
+  roomSnapshots: annotation.activeRoomSnapshots,
   state,
   selectedRallyId,
   selectedKeyPoint,
@@ -587,7 +588,10 @@ const {
 } = workstation
 const protectedSegmentRanges = computed(() =>
   selectableSegmentRanges.value.filter(
-    segment => !('status' in segment) || segment.status !== 'draft',
+    segment =>
+      !('status' in segment) ||
+      segment.status !== 'draft' ||
+      ('reservedByPeer' in segment && segment.reservedByPeer),
   ),
 )
 const selectedDraftForSides = computed(

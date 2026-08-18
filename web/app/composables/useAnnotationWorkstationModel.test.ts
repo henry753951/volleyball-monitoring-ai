@@ -143,6 +143,49 @@ const coachState = {
 } as CoachMatchState
 
 describe('useAnnotationWorkstationModel timeline layers', () => {
+  it('projects room-wide peer drafts as read-only reserved ranges before dashboard refresh', () => {
+    const peerSnapshot = structuredClone(snapshot)
+    peerSnapshot.rally_id = 'peer-rally'
+    peerSnapshot.revision = '1'
+    peerSnapshot.server_sequence = '9'
+    peerSnapshot.snapshot.annotation_status = 'open'
+    peerSnapshot.snapshot.active_submission_id = null
+    peerSnapshot.snapshot.boundaries = [
+      {
+        kind: 'start',
+        capture_time_us: '3000000',
+        capture_frame_index: '90',
+        timing_precision: 'frame_exact',
+      },
+    ]
+    peerSnapshot.snapshot.key_points = []
+    const model = useAnnotationWorkstationModel({
+      coachData: ref(coachState),
+      match: ref<Match | null>(null),
+      timeline: computed<CaptureTimeline | null>(() => null),
+      displayAnnotation: computed<AnnotationRallySnapshot | null>(() => null),
+      confirmedAnnotation: shallowRef<AnnotationRallySnapshot | null>(null),
+      roomSnapshots: computed(() => [peerSnapshot]),
+      state: computed(() => 'IDLE' as const),
+      selectedRallyId: computed(() => null),
+      selectedKeyPoint: computed<AnnotationKeyPoint | null>(() => null),
+      selectedTimelineItem: ref<TimelineSelectionItem>(null),
+      cursorRallyId: ref(null),
+    })
+
+    expect(model.annotationDrafts.value).toEqual([])
+    expect(model.timelineSegments.value).toContainEqual(
+      expect.objectContaining({
+        id: 'peer-rally',
+        reservedByPeer: true,
+        startCaptureTimeUs: '3000000',
+        endCaptureTimeUs: '3000001',
+        stateLabel: '其他標註者標記中',
+        status: 'draft',
+      }),
+    )
+  })
+
   it('only exposes a selected point as deletable while the displayed rally is an editable draft', () => {
     const selectedKeyPoint = computed<AnnotationKeyPoint | null>(
       () => snapshot.snapshot.key_points[1] ?? null,

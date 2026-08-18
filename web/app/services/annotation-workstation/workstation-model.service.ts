@@ -52,6 +52,7 @@ export interface AnnotationWorkstationModelOptions {
   timeline: ComputedRef<CaptureTimeline | null>
   displayAnnotation: ComputedRef<AnnotationRallySnapshot | null>
   confirmedAnnotation: ShallowRef<AnnotationRallySnapshot | null>
+  roomSnapshots?: ComputedRef<readonly AnnotationRallySnapshot[]>
   state: ComputedRef<WorkstationState>
   selectedRallyId: ComputedRef<string | null>
   selectedKeyPoint: ComputedRef<AnnotationKeyPoint | null>
@@ -182,7 +183,10 @@ export function createAnnotationWorkstationModelService(
       return difference < 0n ? -1 : difference > 0n ? 1 : 0
     })
     const requestedStart = BigInt(ordered[0]!.capture_time_us) - clipPreRollUs.value
-    const requestedEnd = BigInt(ordered.at(-1)!.capture_time_us) + clipPostRollUs.value
+    const requestedEndCandidate =
+      BigInt(ordered.at(-1)!.capture_time_us) + clipPostRollUs.value
+    const requestedEnd =
+      requestedEndCandidate > requestedStart ? requestedEndCandidate : requestedStart + 1n
     const timelineStart = options.timeline.value?.availableRanges[0]?.startUs
     const timelineEnd = options.timeline.value?.availableRanges.at(-1)?.endUs
     const start =
@@ -284,6 +288,7 @@ export function createAnnotationWorkstationModelService(
                 captureTimeUs: point.capture_time_us,
                 ballEvent: point.ball_event ?? null,
               })),
+          reservedByPeer: false,
           status: failed
             ? ('failed' as const)
             : rally.processing_status === 'idle'
@@ -352,12 +357,55 @@ export function createAnnotationWorkstationModelService(
             captureTimeUs: point.capture_time_us,
             ballEvent: point.ball_event ?? null,
           })),
+          reservedByPeer: false,
           status: 'draft' as const,
           analysis: null,
         },
       ]
     })
-    return [...submitted, ...drafts]
+    const knownRallyIds = new Set([
+      ...submittedRallies.value.map(rally => rally.id),
+      ...annotationDrafts.value.map(draft => draft.id),
+      ...(currentRallyId ? [currentRallyId] : []),
+    ])
+    const peerDrafts = (options.roomSnapshots?.value ?? []).flatMap(peer => {
+      if (
+        knownRallyIds.has(peer.rally_id) ||
+        !['open', 'ready'].includes(peer.snapshot.annotation_status)
+      )
+        return []
+      const anchors = peer.snapshot.boundaries?.length
+        ? peer.snapshot.boundaries
+        : peer.snapshot.key_points
+      const range = clipRangeForPoints(anchors)
+      if (!range) return []
+      return [
+        {
+          id: peer.rally_id,
+          label: '其他標註者片段',
+          stateLabel:
+            peer.snapshot.annotation_status === 'ready'
+              ? '其他標註者待送出'
+              : '其他標註者標記中',
+          outcomeLabel: null,
+          outcomeSide: null,
+          outcomeTeamLabel: null,
+          startCaptureTimeUs: range.startCaptureTimeUs,
+          endCaptureTimeUs: range.endCaptureTimeUs,
+          points: peer.snapshot.key_points.map(point => ({
+            id: point.key_point_id,
+            markerKind: point.marker_kind,
+            isTerminal: point.is_terminal,
+            captureTimeUs: point.capture_time_us,
+            ballEvent: point.ball_event ?? null,
+          })),
+          reservedByPeer: true,
+          status: 'draft' as const,
+          analysis: null,
+        },
+      ]
+    })
+    return [...submitted, ...drafts, ...peerDrafts]
   })
   const currentMaskRange = computed(() => {
     const snapshot = options.displayAnnotation.value
