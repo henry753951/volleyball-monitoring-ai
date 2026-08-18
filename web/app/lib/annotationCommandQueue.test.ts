@@ -396,6 +396,33 @@ describe('annotation optimistic command queue', () => {
     )
   })
 
+  it('recognizes a MOVE whose acknowledgement was lost after the canonical anchor committed', () => {
+    const moved = structuredClone(snapshot)
+    moved.snapshot.key_points[0]!.capture_time_us = '1250'
+    moved.snapshot.key_points[0]!.capture_frame_index = '13'
+    const command: AnnotationCommand = {
+      schema_version: '2.0.0',
+      command_id: '00000000-0000-4000-8000-000000000035',
+      room_id: room,
+      base_revision: '1',
+      rally_id: rally,
+      kind: 'MOVE_KEY_POINT',
+      payload: { key_point_id: 'service', playback_cursor: cursor },
+    }
+    expect(
+      annotationCommandConverged(command, moved, {
+        capture_time_us: '1250',
+        capture_frame_index: '13',
+      }),
+    ).toBe(true)
+    expect(
+      annotationCommandConverged(command, moved, {
+        capture_time_us: '1250',
+        capture_frame_index: '12',
+      }),
+    ).toBe(false)
+  })
+
   it('replaces a pending point with the canonical ACK anchor', () => {
     const command = contact('00000000-0000-4000-8000-000000000004')
     const ack = {

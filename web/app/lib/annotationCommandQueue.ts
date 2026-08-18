@@ -118,6 +118,17 @@ export function annotationCommandConverged(
   if (command.kind === 'END_RALLY') {
     return snapshot.snapshot.boundaries?.some(boundary => boundary.kind === 'end') === true
   }
+  if (command.kind === 'MOVE_KEY_POINT') {
+    if (!observation) return false
+    const point = snapshot.snapshot.key_points.find(
+      candidate => candidate.key_point_id === command.payload.key_point_id,
+    )
+    return (
+      point?.capture_time_us === observation.capture_time_us &&
+      (observation.capture_frame_index === null ||
+        point.capture_frame_index === observation.capture_frame_index)
+    )
+  }
   if (command.kind === 'CREATE_CONTACT_KEY_POINT') {
     if (!observation?.capture_frame_index) return false
     const existing = snapshot.snapshot.key_points.find(
