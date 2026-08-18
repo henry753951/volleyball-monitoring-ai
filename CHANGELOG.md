@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.5.1](https://github.com/henry753951/volleyball-monitoring-ai/compare/v1.5.0...v1.5.1) (2026-08-18)
+
+
+### Bug Fixes
+
+* **web:** preserve rapid key-point frame nudges ([cd9e465](https://github.com/henry753951/volleyball-monitoring-ai/commit/cd9e46582b9a97e07f87e571aee03d9c9cf89735))
+* **web:** preserve rapid key-point frame nudges ([1f79181](https://github.com/henry753951/volleyball-monitoring-ai/commit/1f7918169d55e8aeeb4f5fe4ff2f322d0690b2f8))
+
+
+### Maintenance
+
+* refresh release checksums ([0063d05](https://github.com/henry753951/volleyball-monitoring-ai/commit/0063d05f0ca05dc15f31bc2e5265403c63a2e8da))
+
 ## [1.5.0](https://github.com/henry753951/volleyball-monitoring-ai/compare/v1.4.1...v1.5.0) (2026-08-18)
 
 
