@@ -429,6 +429,7 @@ async function acceptService(
         // work. It reserves the START/END toggle until submission or explicit
         // deletion so Z cannot silently create a second local draft.
         annotationStatus: { in: ['OPEN', 'READY'] },
+        program: { captureSessionId: room.captureSessionId },
         setId: set.id,
         voidedAt: null,
         OR: [
@@ -473,6 +474,7 @@ async function acceptService(
     const overlapsExisting = await clipRangeOverlapsExistingRally(
       tx,
       room.matchId,
+      room.captureSessionId,
       proposedStart,
       proposedEnd,
       authorizedMatch.clipPreRollUs,
@@ -932,6 +934,7 @@ async function acceptContact(
         await clipRangeOverlapsExistingRally(
           tx,
           room.matchId,
+          room.captureSessionId,
           proposedStart,
           proposedEnd,
           authorizedMatch.clipPreRollUs,
@@ -1754,6 +1757,7 @@ async function acceptOutcome(
 async function clipRangeOverlapsExistingRally(
   tx: Transaction,
   matchId: string,
+  captureSessionId: string,
   proposedStart: bigint,
   proposedEnd: bigint,
   clipPreRollUs: bigint,
@@ -1763,6 +1767,7 @@ async function clipRangeOverlapsExistingRally(
   const existingSegments = await tx.rally.findMany({
     where: {
       matchId,
+      program: { captureSessionId },
       voidedAt: null,
       ...(excludedRallyId ? { id: { not: excludedRallyId } } : {}),
     },
@@ -2254,6 +2259,7 @@ async function acceptDraftEdit(
           await clipRangeOverlapsExistingRally(
             tx,
             room.matchId,
+            room.captureSessionId,
             proposedStart,
             proposedEnd,
             authorizedMatch.clipPreRollUs,
