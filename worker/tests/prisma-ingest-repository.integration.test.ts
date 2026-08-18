@@ -493,6 +493,8 @@ describe('Prisma finalized media ingest repository', () => {
       dvrProgramId: reservation.reference.dvrProgramId,
       dvrSegmentId: reservation.reference.dvrSegmentId,
       captureEpochId: reservation.captureEpochId,
+      sequenceNumber: reservation.sequenceNumber,
+      discontinuitySequence: reservation.plan.segment.discontinuitySequence,
       sourceJobId,
       source: 'fixture',
       startUs: reservation.plan.segment.captureStartUs,
@@ -504,18 +506,23 @@ describe('Prisma finalized media ingest repository', () => {
       localPath: extent.localPath,
       bucket: artifactExpectations.find(artifact => artifact.kind === 'media')!.location.bucket,
       objectKey: artifactExpectations.find(artifact => artifact.kind === 'media')!.location.key,
-      sampleIndexBucket: artifactExpectations.find(
-        artifact => artifact.kind === 'sample-index',
-      )!.location.bucket,
-      sampleIndexObjectKey: artifactExpectations.find(
-        artifact => artifact.kind === 'sample-index',
-      )!.location.key,
-      sampleIndexSha256: artifactExpectations.find(
-        artifact => artifact.kind === 'sample-index',
-      )!.sha256,
-      sampleIndexBytes: artifactExpectations.find(
-        artifact => artifact.kind === 'sample-index',
-      )!.byteLength,
+      mediaSha256: artifactExpectations.find(artifact => artifact.kind === 'media')!.sha256,
+      mediaSchemaVersion: artifactExpectations.find(artifact => artifact.kind === 'media')!
+        .internalSchemaVersion,
+      initBucket: artifactExpectations.find(artifact => artifact.kind === 'init')!.location.bucket,
+      initObjectKey: artifactExpectations.find(artifact => artifact.kind === 'init')!.location.key,
+      initSha256: artifactExpectations.find(artifact => artifact.kind === 'init')!.sha256,
+      initBytes: artifactExpectations.find(artifact => artifact.kind === 'init')!.byteLength,
+      initSchemaVersion: artifactExpectations.find(artifact => artifact.kind === 'init')!
+        .internalSchemaVersion,
+      sampleIndexBucket: artifactExpectations.find(artifact => artifact.kind === 'sample-index')!
+        .location.bucket,
+      sampleIndexObjectKey: artifactExpectations.find(artifact => artifact.kind === 'sample-index')!
+        .location.key,
+      sampleIndexSha256: artifactExpectations.find(artifact => artifact.kind === 'sample-index')!
+        .sha256,
+      sampleIndexBytes: artifactExpectations.find(artifact => artifact.kind === 'sample-index')!
+        .byteLength,
       sampleIndexSchemaVersion: artifactExpectations.find(
         artifact => artifact.kind === 'sample-index',
       )!.internalSchemaVersion,
@@ -534,6 +541,15 @@ describe('Prisma finalized media ingest repository', () => {
     await db.mediaExtent.update({
       data: {
         captureEpochId: null,
+        sequenceNumber: null,
+        discontinuitySequence: null,
+        initBucket: null,
+        initBytes: null,
+        initObjectKey: null,
+        initSchemaVersion: null,
+        initSha256: null,
+        mediaSchemaVersion: null,
+        mediaSha256: null,
         firstFrameIndex: null,
         frameCount: null,
         sampleIndexBucket: null,
@@ -582,6 +598,8 @@ describe('Prisma finalized media ingest repository', () => {
       db.mediaExtent.findUniqueOrThrow({ where: { sourceJobId } }),
     ).resolves.toMatchObject({
       captureEpochId: reservation.captureEpochId,
+      sequenceNumber: reservation.sequenceNumber,
+      discontinuitySequence: reservation.plan.segment.discontinuitySequence,
       firstFrameIndex: reservation.plan.segment.firstFrameIndex,
       frameCount: reservation.plan.segment.frameCount,
       sourcePtsEnd: reservation.plan.segment.sourcePtsEndExclusive,
@@ -593,9 +611,8 @@ describe('Prisma finalized media ingest repository', () => {
     ).resolves.toMatchObject({
       captureEpochId: reservation.captureEpochId,
       dvrSegmentId: null,
-      sampleIndexObjectKey: artifactExpectations.find(
-        artifact => artifact.kind === 'sample-index',
-      )!.location.key,
+      sampleIndexObjectKey: artifactExpectations.find(artifact => artifact.kind === 'sample-index')!
+        .location.key,
     })
   })
 

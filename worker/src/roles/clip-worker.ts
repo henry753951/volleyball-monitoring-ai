@@ -18,6 +18,7 @@ import {
   selectCanonicalClipRange,
   type OutputProbePayload,
 } from '../media/clip-timing.js'
+import { resolveClipSources } from '../media/clip-source.js'
 import { createNodeProbeRunner } from '../media/ffprobe.js'
 import { callbackToken, sha256Hex, stableJson } from '../workflow/crypto.js'
 import {
@@ -31,6 +32,7 @@ import { createPollingLifecycle } from '../workflow/poller.js'
 const runner = createNodeProbeRunner()
 const leaseMs = 5 * 60_000
 const AI_JOB_SCHEMA_VERSION = '3.0.0'
+
 async function runCommand(executable: string, args: string[], signal: AbortSignal) {
   const result = await runner(executable, args, {
     shell: false,
@@ -173,46 +175,16 @@ export function createClipWorker(
         },
       })
       const program = job.submission.rally.program
-      const candidates = await database.dvrSegment.findMany({
-        where: {
-          dvrProgramId: program.id,
-          isGap: false,
-          readyAt: { not: null },
-          captureStartUs: { lt: job.requestedEndCaptureUs },
-          captureEndUs: { gt: job.requestedStartCaptureUs },
-        },
-        orderBy: { sequenceNumber: 'asc' },
-        include: { initAsset: true, mediaAsset: true, sampleIndexAsset: true, captureEpoch: true },
-      })
       const firstPoint =
         job.submission.boundaries.find(boundary => boundary.kind === 'START') ??
         job.submission.keyPoints[0]
-      const anchorSegment = firstPoint
-        ? candidates.find(
-            segment =>
-              firstPoint.captureTimeUs >= segment.captureStartUs &&
-              firstPoint.captureTimeUs < segment.captureEndUs,
-          )
-        : null
-      const segments = anchorSegment
-        ? candidates.filter(
-            segment => segment.discontinuitySequence === anchorSegment.discontinuitySequence,
-          )
-        : []
-      if (
-        !segments.length ||
-        segments.some(
-          segment => !segment.initAsset || !segment.mediaAsset || !segment.sampleIndexAsset,
-        )
-      )
-        throw new Error('requested DVR range is not ready')
-      for (let index = 1; index < segments.length; index += 1) {
-        if (
-          segments[index]!.discontinuitySequence !== segments[0]!.discontinuitySequence ||
-          segments[index]!.captureStartUs > segments[index - 1]!.captureEndUs
-        )
-          throw new Error('canonical clip cannot cross a gap or discontinuity')
-      }
+      const segments = await resolveClipSources(database, {
+        dvrProgramId: program.id,
+        captureSessionId: program.captureSessionId,
+        requestedStartCaptureUs: job.requestedStartCaptureUs,
+        requestedEndCaptureUs: job.requestedEndCaptureUs,
+        anchorCaptureTimeUs: firstPoint?.captureTimeUs ?? null,
+      })
       const indexedSegments = await Promise.all(
         segments.map(async segment => {
           const document = JSON.parse(

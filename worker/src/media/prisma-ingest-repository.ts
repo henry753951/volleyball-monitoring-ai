@@ -318,6 +318,8 @@ async function catalogVerifiedExtent(
     captureTimeOriginUs: bigint
     dvrProgramId: string
     dvrSegmentId: string
+    sequenceNumber: bigint
+    discontinuitySequence: number
     sourcePtsStart: bigint | null
     sourcePtsEnd: bigint | null
     firstFrameIndex: bigint | null
@@ -326,6 +328,7 @@ async function catalogVerifiedExtent(
     startUs: bigint
     endUs: bigint
     extent: NonNullable<PublishReadyInput['extent']>
+    init: IngestArtifactExpectation
     media: IngestArtifactExpectation
     sampleIndex: IngestArtifactExpectation
     readyAt: Date
@@ -345,6 +348,8 @@ async function catalogVerifiedExtent(
     dvrProgramId: input.dvrProgramId,
     dvrSegmentId: input.dvrSegmentId,
     captureEpochId: input.captureEpochId,
+    sequenceNumber: input.sequenceNumber,
+    discontinuitySequence: input.discontinuitySequence,
     sourceJobId: input.extent.sourceJobId,
     source: input.source,
     startUs: input.startUs,
@@ -356,6 +361,13 @@ async function catalogVerifiedExtent(
     localPath: input.extent.localPath,
     bucket: input.media.location.bucket,
     objectKey: input.media.location.key,
+    mediaSha256: input.media.sha256,
+    mediaSchemaVersion: input.media.internalSchemaVersion,
+    initBucket: input.init.location.bucket,
+    initObjectKey: input.init.location.key,
+    initSha256: input.init.sha256,
+    initBytes: input.init.byteLength,
+    initSchemaVersion: input.init.internalSchemaVersion,
     sampleIndexBucket: input.sampleIndex.location.bucket,
     sampleIndexObjectKey: input.sampleIndex.location.key,
     sampleIndexSha256: input.sampleIndex.sha256,
@@ -373,8 +385,23 @@ async function catalogVerifiedExtent(
   if (matches.length > 1) return fail('RESERVATION_CONFLICT')
   const existing = matches[0]
   if (existing) {
+    const archiveProjectionValues = [
+      existing.mediaSha256,
+      existing.mediaSchemaVersion,
+      existing.initBucket,
+      existing.initObjectKey,
+      existing.initSha256,
+      existing.initBytes,
+      existing.initSchemaVersion,
+    ] as const
+    const archiveProjectionIsEmpty = archiveProjectionValues.every(value => value === null)
+    const archiveProjectionIsComplete = archiveProjectionValues.every(value => value !== null)
+    if (!archiveProjectionIsEmpty && !archiveProjectionIsComplete)
+      return fail('RESERVATION_CONFLICT')
     const projectionValues = [
       existing.captureEpochId,
+      existing.sequenceNumber,
+      existing.discontinuitySequence,
       existing.sourcePtsStart,
       existing.sourcePtsEnd,
       existing.firstFrameIndex,
@@ -398,6 +425,8 @@ async function catalogVerifiedExtent(
       existing.endUs !== expected.endUs ||
       (projectionIsComplete &&
         (existing.captureEpochId !== expected.captureEpochId ||
+          existing.sequenceNumber !== expected.sequenceNumber ||
+          existing.discontinuitySequence !== expected.discontinuitySequence ||
           existing.sourcePtsStart !== expected.sourcePtsStart ||
           existing.sourcePtsEnd !== expected.sourcePtsEnd ||
           existing.firstFrameIndex !== expected.firstFrameIndex ||
@@ -410,6 +439,14 @@ async function catalogVerifiedExtent(
       (existing.localPath !== null && existing.localPath !== expected.localPath) ||
       (existing.bucket !== null && existing.bucket !== expected.bucket) ||
       (existing.objectKey !== null && existing.objectKey !== expected.objectKey) ||
+      (archiveProjectionIsComplete &&
+        (existing.mediaSha256 !== expected.mediaSha256 ||
+          existing.mediaSchemaVersion !== expected.mediaSchemaVersion ||
+          existing.initBucket !== expected.initBucket ||
+          existing.initObjectKey !== expected.initObjectKey ||
+          existing.initSha256 !== expected.initSha256 ||
+          existing.initBytes !== expected.initBytes ||
+          existing.initSchemaVersion !== expected.initSchemaVersion)) ||
       (existing.bytes !== null && existing.bytes !== expected.bytes) ||
       (existing.finalizedAt !== null &&
         existing.finalizedAt.getTime() !== expected.finalizedAt.getTime())
@@ -420,6 +457,7 @@ async function catalogVerifiedExtent(
       existing.status !== 'ARCHIVE_VERIFIED' ||
       existing.dvrSegmentId === null ||
       projectionIsEmpty ||
+      archiveProjectionIsEmpty ||
       existing.sourceJobId === null ||
       existing.localPath === null ||
       existing.bucket === null ||
@@ -436,12 +474,21 @@ async function catalogVerifiedExtent(
           bytes: expected.bytes,
           catalogedAt: existing.catalogedAt ?? input.readyAt,
           captureEpochId: expected.captureEpochId,
+          sequenceNumber: expected.sequenceNumber,
+          discontinuitySequence: expected.discontinuitySequence,
           dvrSegmentId: expected.dvrSegmentId,
           firstFrameIndex: expected.firstFrameIndex,
           frameCount: expected.frameCount,
           finalizedAt: expected.finalizedAt,
           localPath: expected.localPath,
           objectKey: expected.objectKey,
+          mediaSchemaVersion: expected.mediaSchemaVersion,
+          mediaSha256: expected.mediaSha256,
+          initBucket: expected.initBucket,
+          initBytes: expected.initBytes,
+          initObjectKey: expected.initObjectKey,
+          initSchemaVersion: expected.initSchemaVersion,
+          initSha256: expected.initSha256,
           sampleIndexBucket: expected.sampleIndexBucket,
           sampleIndexBytes: expected.sampleIndexBytes,
           sampleIndexObjectKey: expected.sampleIndexObjectKey,
@@ -1289,6 +1336,8 @@ export class PrismaIngestRepository {
             captureTimeOriginUs: segment.captureEpoch.captureTimeOriginUs,
             dvrProgramId: segment.dvrProgramId,
             dvrSegmentId: segment.id,
+            sequenceNumber: segment.sequenceNumber,
+            discontinuitySequence: segment.discontinuitySequence,
             sourcePtsStart: segment.sourcePtsStart,
             sourcePtsEnd: segment.sourcePtsEnd,
             firstFrameIndex: segment.firstFrameIndex,
@@ -1297,6 +1346,7 @@ export class PrismaIngestRepository {
             startUs: segment.captureStartUs,
             endUs: segment.captureEndUs,
             extent: input.extent,
+            init: verified.init,
             media: verified.media,
             sampleIndex: verified['sample-index'],
             readyAt: segment.readyAt!,
@@ -1380,6 +1430,8 @@ export class PrismaIngestRepository {
           captureTimeOriginUs: segment.captureEpoch.captureTimeOriginUs,
           dvrProgramId: segment.dvrProgramId,
           dvrSegmentId: segment.id,
+          sequenceNumber: segment.sequenceNumber,
+          discontinuitySequence: segment.discontinuitySequence,
           sourcePtsStart: segment.sourcePtsStart,
           sourcePtsEnd: segment.sourcePtsEnd,
           firstFrameIndex: segment.firstFrameIndex,
@@ -1388,6 +1440,7 @@ export class PrismaIngestRepository {
           startUs: segment.captureStartUs,
           endUs: segment.captureEndUs,
           extent: input.extent,
+          init: verified.init,
           media: verified.media,
           sampleIndex: verified['sample-index'],
           readyAt,

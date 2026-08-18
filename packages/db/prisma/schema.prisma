@@ -715,6 +715,8 @@ model MediaExtent {
   dvrProgramId             String            @db.Uuid
   dvrSegmentId             String?           @unique @db.Uuid
   captureEpochId           String?           @db.Uuid
+  sequenceNumber           BigInt?
+  discontinuitySequence    Int?
   sourceJobId              String?           @unique @db.Uuid
   source                   String
   startUs                  BigInt
@@ -726,6 +728,13 @@ model MediaExtent {
   localPath                String?
   bucket                   String?
   objectKey                String?
+  mediaSha256              String?
+  mediaSchemaVersion       String?
+  initBucket               String?
+  initObjectKey            String?
+  initSha256               String?
+  initBytes                BigInt?
+  initSchemaVersion        String?
   sampleIndexBucket        String?
   sampleIndexObjectKey     String?
   sampleIndexSha256        String?
@@ -746,6 +755,7 @@ model MediaExtent {
   @@index([dvrProgramId, startUs, endUs])
   @@index([captureSessionId, startUs, endUs])
   @@index([captureEpochId])
+  @@index([dvrProgramId, discontinuitySequence, sequenceNumber])
   @@index([captureSessionId, status, createdAt])
   @@index([status, createdAt, id])
 }
