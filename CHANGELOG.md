@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.4.1](https://github.com/henry753951/volleyball-monitoring-ai/compare/v1.4.0...v1.4.1) (2026-08-17)
+
+
+### Bug Fixes
+
+* **worker:** recover long VOD ingestion from transient failures ([3733d9c](https://github.com/henry753951/volleyball-monitoring-ai/commit/3733d9c3c508e4f7dc6727f7d7b4f1498ea455eb))
+
 ## [1.4.0](https://github.com/henry753951/volleyball-monitoring-ai/compare/v1.3.0...v1.4.0) (2026-08-17)
 
 
