@@ -435,7 +435,7 @@ af6f72a17464a57d4e19838d4c9cce13b015babb1993790cbd00c267e5033d28  ./server/src/r
 29dc8ee62da32da243cba2f0c90575ba5e1cea4c36a2d392ab96360c6c926812  ./server/src/services/README.md
 9a262b14dbab8a1dcee1edb4d71b211ff9f1920c331af88abf58288c965abee7  ./server/src/services/ai-worker-access.ts
 2f394d4695e25dbbdef20290628bf6be00c09b41191bdcacc89adc56acbb61e7  ./server/src/services/analysis-review.ts
-6bd4bf11ad54947abbd31de30b187ae53b0e8a9cc8bd7e07c37fdcd7c053e31f  ./server/src/services/annotation-command.ts
+8ee3033cab03bd6eeba6e14211cbedfca68a7067ab1e5c601def2c65b68abc7e  ./server/src/services/annotation-command.ts
 8b50f93b7fa2c2fd68a155921ecccc90928757f6cdc83c5f343547ff9a756843  ./server/src/services/annotation-snapshot.ts
 fbc6d5d8d9cb99af507f5915b9ecd17b0413519abab4f1ad78da78b72d5a1fb3  ./server/src/services/capture-processing.ts
 d7aea4bb1132e90806b3ab2bd69d8a0b1f6425626a7704c1ca090b08cbaa98b7  ./server/src/services/coach-analytics.ts
