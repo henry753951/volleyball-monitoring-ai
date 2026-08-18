@@ -82,6 +82,11 @@ import { createWorkstationPreferencesService } from '~/services/annotation-works
 import { mergeRallyProcessingUpdate } from '~/services/annotation-workstation/processing-state.service'
 import { ballEventRepairNotice } from '~/utils/annotationBallEventRepairNotice'
 import { captureTimeForIdentityTrackFrame } from '~/utils/identityTrackNavigation'
+import {
+  liveMediaBackend,
+  omeLiveManifestUrl,
+  type OmeLivePlaybackSource,
+} from '~/lib/omeLivePlayback'
 
 definePageMeta({ layout: 'annotation' })
 const route = useRoute()
@@ -90,6 +95,8 @@ const workstationViewState = useAnnotationWorkstationViewState(matchId)
 const match = ref<Match | null>(null)
 const loadError = ref<string | null>(null)
 const media = createMediaClient()
+const publicEndpoints = usePublicEndpoints()
+const runtimeConfig = useRuntimeConfig()
 const core = createCoreDomainClient(createGraphQLTransport('/graphql'))
 const coachDomain = createCoachDomainClient(createGraphQLTransport('/graphql'))
 provideIdentityAssignmentService(coachDomain)
@@ -110,6 +117,7 @@ const overlayPlayer = ref<{
   previewPlayerMediaTime: (targetPlayerSeconds: number) => boolean
   overlayFrameCaptureTime: (frame: number) => string | null
   seekOverlayFrameIfBuffered: (frame: number) => boolean
+  seekLiveEdge: () => boolean
 } | null>(null)
 const playing = ref(false)
 const muted = ref(false)
@@ -117,6 +125,10 @@ const playbackRate = ref(1)
 const playerBufferedRanges = shallowRef<CanonicalMediaRange[]>([])
 const captureTarget = ref('')
 const mediaError = ref<string | null>(null)
+const omePlaybackFailed = ref(false)
+const omeObservedCaptureTimeUs = ref<string | null>(null)
+const omeAtLiveEdge = ref(false)
+const omeDirectPlaybackActive = ref(false)
 const authoritativeAnchor = computed(() => dvr.anchor.value)
 const observedCursor = shallowRef<PlaybackCursorInput | null>(null)
 const cursorStatus = ref<'ready' | 'stale' | 'seeking' | 'gap'>('stale')
@@ -270,6 +282,7 @@ const seekPreviewActive = ref(false)
 const optimisticSeekCaptureTimeUs = ref<string | null>(null)
 const canMark = computed(
   () =>
+    !omeDirectPlaybackActive.value &&
     !frameQueuePending.value &&
     !frameQueueRunning.value &&
     authoritativeControlsEnabled({
@@ -1167,6 +1180,36 @@ const playbackMode = computed(() =>
   }),
 )
 const liveCapture = computed(() => playbackMode.value === 'active_live')
+const configuredLiveMediaBackend = computed(() =>
+  liveMediaBackend(runtimeConfig.public.liveMediaBackend),
+)
+const omeLiveSource = computed<OmeLivePlaybackSource | null>(() => {
+  const capture = selectedCapture.value
+  if (
+    configuredLiveMediaBackend.value !== 'ome_experiment' ||
+    !liveCapture.value ||
+    !capture?.ingestPath ||
+    omePlaybackFailed.value
+  )
+    return null
+  return {
+    backend: 'ome_llhls',
+    captureSessionId: capture.id,
+    liveEdgeCaptureTimeUs: timeline.value?.liveEdgeCaptureTimeUs ?? null,
+    manifestUrl: omeLiveManifestUrl(publicEndpoints.liveHlsBaseUrl.value, capture.ingestPath),
+  }
+})
+watch(
+  omeLiveSource,
+  source => {
+    omeDirectPlaybackActive.value = Boolean(source)
+    if (!source) {
+      omeAtLiveEdge.value = false
+      omeObservedCaptureTimeUs.value = null
+    }
+  },
+  { immediate: true },
+)
 const timelineEndTarget = computed(
   () =>
     timeline.value?.liveEdgeCaptureTimeUs ?? timeline.value?.availableRanges.at(-1)?.endUs ?? null,
@@ -1177,6 +1220,8 @@ const liveTarget = computed(() =>
     : null,
 )
 const visualPlayhead = computed(() => {
+  if (omeDirectPlaybackActive.value && omeObservedCaptureTimeUs.value)
+    return omeObservedCaptureTimeUs.value
   if (frameNavigation.active.value && framePreviewCaptureTimeUs.value)
     return framePreviewCaptureTimeUs.value
   const selectedPointPreview = selectedKeyPointId.value
@@ -1382,10 +1427,13 @@ function scheduleTimelineRefresh(delayMs = timelinePollDelayMs, replace = false)
     if (!replace) return
     clearTimeout(timelineRefreshTimer)
   }
-  timelineRefreshTimer = setTimeout(() => {
-    timelineRefreshTimer = null
-    void runTimelineRefreshCycle()
-  }, Math.max(0, delayMs))
+  timelineRefreshTimer = setTimeout(
+    () => {
+      timelineRefreshTimer = null
+      void runTimelineRefreshCycle()
+    },
+    Math.max(0, delayMs),
+  )
 }
 
 async function runTimelineRefreshCycle() {
@@ -1568,6 +1616,11 @@ async function seekTimeline(targetCaptureTimeUs: string) {
   setOptimisticSeekTarget(target)
   captureTarget.value = target
   if (overlayPlayer.value?.seekCaptureTimeIfBuffered(target)) return
+  if (omeDirectPlaybackActive.value) {
+    if (optimisticSeekCaptureTimeUs.value === target) clearOptimisticSeekTarget()
+    mediaError.value = '目前位置不在 OME DVR 可用範圍內'
+    return
+  }
   const created = await createWindow(target, undefined, true)
   if (!created && optimisticSeekCaptureTimeUs.value === target) clearOptimisticSeekTarget()
 }
@@ -1753,6 +1806,7 @@ async function continueAcrossGap(input: {
   transition.targetWindowId = created.playback_window_id
 }
 function maintainPlaybackWindow() {
+  if (omeDirectPlaybackActive.value) return
   const element = video.value
   const window = descriptor.value
   if (
@@ -1894,6 +1948,23 @@ function handlePlaybackError(error: Error) {
   gapTransition = null
   mediaError.value = error.message
 }
+function handleOmePlaybackError(error: Error) {
+  gapTransition = null
+  omePlaybackFailed.value = true
+  mediaError.value = error.message
+  toast.warning('OME 即時播放無法載入，已回退舊播放路徑', {
+    description: error.message,
+  })
+}
+function handleOmeLivePosition(value: {
+  atLiveEdge: boolean
+  captureTimeUs: string | null
+  mappingStatus: 'experimental' | 'unmapped'
+}) {
+  omeAtLiveEdge.value = value.atLiveEdge
+  omeObservedCaptureTimeUs.value =
+    value.mappingStatus === 'experimental' ? value.captureTimeUs : null
+}
 function setPlaybackRate(rate: number) {
   if (!Number.isFinite(rate) || rate < 0.25 || rate > 4) return
   playbackRate.value = rate
@@ -1904,6 +1975,10 @@ function handleBufferState(value: {
   mappingVersion: number | null
   playbackWindowId: string | null
 }) {
+  if (omeDirectPlaybackActive.value) {
+    playerBufferedRanges.value = value.buffered
+    return
+  }
   const window = descriptor.value
   playerBufferedRanges.value =
     window &&
@@ -2277,11 +2352,13 @@ function reportBlockedHotkey(action: HotkeyCommand, event?: KeyboardEvent) {
   const reason =
     actionState.reason ||
     (action === 'frame_previous' || action === 'frame_next'
-      ? !descriptor.value
-        ? '播放器尚未載入可用影片'
-        : dvr.status.value === 'gap'
-          ? '目前位置沒有可用畫格'
-          : '播放視窗正在自動恢復，請稍候'
+      ? omeDirectPlaybackActive.value
+        ? 'OME canonical time mapping 尚未驗證，暫停逐格與時間標記'
+        : !descriptor.value
+          ? '播放器尚未載入可用影片'
+          : dvr.status.value === 'gap'
+            ? '目前位置沒有可用畫格'
+            : '播放視窗正在自動恢復，請稍候'
       : '目前狀態尚不能執行此操作')
   const signature = `${action}:${reason}`
   const now = performance.now()
@@ -2315,6 +2392,9 @@ watch(
   selectedCaptureId,
   (captureId, previousCaptureId) => {
     if (captureId !== previousCaptureId) {
+      omePlaybackFailed.value = false
+      omeAtLiveEdge.value = false
+      omeObservedCaptureTimeUs.value = null
       playbackHasStarted = false
       gapTransition = null
       continuationRetryDelayMs = 500
@@ -2329,9 +2409,10 @@ watch(
   { immediate: true },
 )
 watch(
-  [selectedCaptureId, defaultPlaybackTarget, defaultPlaybackWindowMode],
-  ([captureId, target, mode]) => {
+  [selectedCaptureId, defaultPlaybackTarget, defaultPlaybackWindowMode, omeLiveSource],
+  ([captureId, target, mode, liveSource]) => {
     if (
+      liveSource ||
       !captureId ||
       !target ||
       dvr.busy.value ||
@@ -2496,7 +2577,7 @@ watch(
 
 const transportActions = createTransportActionService({
   manager: workstationActions,
-  playerReady: computed(() => Boolean(descriptor.value)),
+  playerReady: computed(() => Boolean(descriptor.value || omeDirectPlaybackActive.value)),
   frameReady: computed(() =>
     Boolean(
       descriptor.value &&
@@ -2504,7 +2585,7 @@ const transportActions = createTransportActionService({
     ),
   ),
   frameMovePending: computed(() => Boolean(pendingTimelineMove.value)),
-  liveAvailable: computed(() => Boolean(liveTarget.value)),
+  liveAvailable: computed(() => Boolean(liveTarget.value || omeDirectPlaybackActive.value)),
   correctionCreateEnabled: computed(
     () => Boolean(selectedSubmittedRally.value) && !selectedCorrectionDraft.value,
   ),
@@ -2529,6 +2610,10 @@ const transportActions = createTransportActionService({
   togglePlayback: () => dispatchMediaAction('play_pause'),
   stepFrame: (direction, count = 1, input = 'button') => queueFrameStep(direction, count, input),
   goLive: () => {
+    if (omeDirectPlaybackActive.value) {
+      overlayPlayer.value?.seekLiveEdge()
+      return
+    }
     if (liveTarget.value) return createWindow(liveTarget.value, 'live').then(() => undefined)
   },
   startCorrection,
@@ -2682,7 +2767,8 @@ onBeforeUnmount(() => {
             <VideoOverlayPlayer
               ref="overlayPlayer"
               class="video-overlay-player"
-              :descriptor="descriptor"
+              :descriptor="omeLiveSource ? null : descriptor"
+              :live-source="omeLiveSource"
               :controls="false"
               :toggle-on-click="
                 !analysisOverlayActive ||
@@ -2720,6 +2806,8 @@ onBeforeUnmount(() => {
               :overlay-team-labels="overlayTeamLabels"
               :overlay-layers="annotationOverlayLayers"
               @cursor="handleCursor"
+              @live-error="handleOmePlaybackError"
+              @live-position="handleOmeLivePosition"
               @ready="handleVideoReady"
               @buffer-activity="maintainPlaybackWindow"
               @buffer-state="handleBufferState"
@@ -2731,6 +2819,12 @@ onBeforeUnmount(() => {
               @toggle="workstationActions.execute('media.toggle-playback')"
               @error="handlePlaybackError"
             />
+            <div
+              v-if="omeDirectPlaybackActive"
+              class="pointer-events-none absolute left-3 top-3 z-30 rounded-md border border-amber-400/40 bg-black/75 px-3 py-2 text-xs font-medium text-amber-100 shadow-lg backdrop-blur"
+            >
+              OME Direct DVR 實驗中 · canonical time 尚未驗證，標記與逐格功能暫停
+            </div>
             <AnnotationAnalysisToolbox
               :mode="analysisToolboxMode"
               :frame-index="currentOverlayFrame"
@@ -2836,8 +2930,12 @@ onBeforeUnmount(() => {
       <AnnotationTransportBar
         :playing="playing"
         :timecode="displayTimecode"
-        :live-active="playbackMode === 'active_live' && descriptor?.mode === 'live'"
-        :live-available="Boolean(liveTarget)"
+        :live-active="
+          omeDirectPlaybackActive
+            ? omeAtLiveEdge
+            : playbackMode === 'active_live' && descriptor?.mode === 'live'
+        "
+        :live-available="Boolean(liveTarget || omeDirectPlaybackActive)"
         :terminal-label="playbackMode === 'ended_live' ? 'END' : null"
         :context-title="activeContextTitle"
         :context-hits="activeContextHits"

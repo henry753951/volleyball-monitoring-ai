@@ -102,6 +102,7 @@ services:
       - ome-logs:/var/log/ovenmediaengine
     ports:
       - '${OME_RTMP_HOST_PORT:-2035}:1935'
+      - '127.0.0.1:${OME_LLHLS_HOST_PORT:-3333}:3333'
       - '9999:9999/udp'
       - '127.0.0.1:${OME_API_HOST_PORT:-8081}:8081'
     healthcheck:

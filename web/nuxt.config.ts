@@ -46,6 +46,8 @@ export default defineNuxtConfig({
       devBackendOrigin: developmentBackendOrigin,
       restBasePath: process.env.NUXT_PUBLIC_REST_BASE_PATH ?? '/api/v1',
       liveHlsBasePath: process.env.NUXT_PUBLIC_LIVE_HLS_BASE_PATH ?? '/hls',
+      liveMediaBackend:
+        process.env.NUXT_PUBLIC_LIVE_MEDIA_BACKEND ?? process.env.LIVE_MEDIA_BACKEND ?? 'legacy',
     },
   },
   routeRules: {
@@ -106,7 +108,9 @@ export default defineNuxtConfig({
         },
         {
           urlPattern: ({ url }: { url: URL }) =>
-            url.pathname.startsWith('/api/v1/media') || url.pathname.startsWith('/hls/'),
+            url.pathname.startsWith('/api/v1/media') ||
+            url.pathname.startsWith('/hls/') ||
+            url.pathname.startsWith('/ome/'),
           handler: 'NetworkOnly',
         },
         {

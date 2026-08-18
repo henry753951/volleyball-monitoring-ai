@@ -355,6 +355,7 @@ CaptureSessionType.implement({
     }),
     health: t.field({ type: SourceHealthType, resolve: session => session.health }),
     id: t.exposeID('id'),
+    ingestPath: t.exposeString('ingestPath'),
     matchId: t.exposeID('matchId'),
     sourceLabel: t.exposeString('sourceLabel', { nullable: true }),
     sourceDurationUs: t.field({

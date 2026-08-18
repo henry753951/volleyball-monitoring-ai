@@ -5,6 +5,7 @@ import { coachMatchStatus } from './coachMatchStatus'
 function capture(overrides: Partial<CaptureSession>): CaptureSession {
   return {
     id: 'capture-1',
+    ingestPath: 'youtube-live-capture-1',
     matchId: 'match-1',
     sourceKind: 'youtube_live',
     sourceLabel: null,

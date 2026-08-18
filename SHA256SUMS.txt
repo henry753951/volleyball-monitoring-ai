@@ -4,7 +4,7 @@ a60955c8ffbec8a3999078369e0e57af39528b53f1bbbcb2593d25d2add1ea05  ./.codex/agent
 301580df4adbbcc2e9ff480855e7675ea4ee84c41844976ea258371cdade2b36  ./.codex/config.toml
 e7a6df94ed9f318be53b29c5b7da58c0b45f6446357bed618b7de96fc2bdd156  ./.dockerignore
 8e1c9a78d4dedcde12bb3cd6279ce83942819d1cd178f1d9d731ef3a62606ac7  ./.editorconfig
-dbeeadfa3eaa0e7df6aeee73b13a1e79c791ecac1b337d32088c9d38dc9e3394  ./.env.example
+856697cfbc32fe23ca879715d51ba48f1f38354f6da561f41aa50cae2dfcc2f6  ./.env.example
 6a9ebfdcf42bb25ff6dadf3fa8abac16b386ee7e412f3fcd91562628b79633de  ./.gitattributes
 cd39db1f3bda461a8e630df37cd329861e58ce3ab115c84dd5a3d2cb5086116b  ./.github/workflows/ci.yml
 b395c52a1ad69331d58e5d8b5be82f34bcd337996b1c81fa6ef77c05ea1cb8cf  ./.github/workflows/release.yml
@@ -90,13 +90,14 @@ feadbb0c3edaf78ff06190a00c0449c995366958380321f5f9a4c841963b2ad1  ./docs/adr/004
 5ffefa700d7937d0d28bbea255d171289d23f629d959c422712137a4de3a21a6  ./docs/adr/0046-manual-ball-results-and-conservative-third-point-inference.md
 91faedaf72ce29d7f9204cf81cb63edf0a02f7f33170df8e0a888d03c24b9ddf  ./docs/adr/0047-capped-team-gids-and-bounded-rerun-wait.md
 924a6163259355a6410a7f5e29c5bdc4988660f78a9250b637727146643adbef  ./docs/adr/0048-tiered-growing-media-playback.md
+9b074b287a8d9c13d36ff93327464f58bfcb650d7521e3f94d9c3885e329c46e  ./docs/adr/0049-ome-live-media-plane.md
 1471a871f7a25b384d246420a5ce8b2c3fcb45c3691e40e1807be5dd8a276dd9  ./docs/open-decisions.md
 ea371b3583374623c9e2f70b4c1844bd70f0b5f3433ee88846e7807df4e99caa  ./docs/progress.md
 a163ed77cd3cdba34d8c137786b4c165516bd66e723836fd6e85341c7e03f610  ./docs/requirements-matrix.md
 10940b28350d7ae0caa70de80165f86386b598e964f9b7d563211ec5a6478833  ./docs/runtime-topology-inventory.md
 e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  ./examples/__init__.py
 9dc0ba1ce97347e0b4f0138b34a2d34090d07fa68a67480c2b72ef8e7d90ebad  ./infra/compose.host-dev.yaml
-1d2805587bc39a6a5147640d07d44ec3e82ec427f909d65d86f06afcc83fbae9  ./infra/compose.yaml
+d5d3e028f3cafb230a907d08ae4408721dcce3f31eab7387d3509142ff723a25  ./infra/compose.yaml
 53cbbca3d1f27abc42227fa5241fe071e2bf8ba302fa91194f802c7e7dc57c77  ./infra/docker/server.Dockerfile
 818ad0a9ef3bf445375da1e99858c7b2c1acff9f6f91402e3d2f4aaf770ef0e6  ./infra/docker/web.Dockerfile
 116dbf0cb56946fb72a4dfa2d24730d60e8836597f85c0254082073b59f049f5  ./infra/docker/worker.Dockerfile
@@ -217,7 +218,7 @@ c65c8364a35975f5ebb9e229e931ab8a1295d5e670ddbcc4da2fb5b9468b4970  ./packages/con
 f0bc667e45925aaefc6f108f357b77eedfbe3ff3f1ac702d39872dbb904e0283  ./packages/contracts/graphql/operations/stop-capture.graphql
 b2cd35474789cc011b5c6b12a8bec5b995e8b65b0e62a17dfc8a516a87c12294  ./packages/contracts/graphql/operations/update-match-clip-policy.graphql
 f197462d46a85cd246e4fbb5b714204a508ef457f214ab25212f47ff23ef9fef  ./packages/contracts/graphql/operations/update-match.graphql
-b792274c0f507ba342528909faeb0c8a30ae96b12e76737abe5ae99ff06568a9  ./packages/contracts/graphql/schema.graphql
+0c10e7757d7d425494cb4ed031ee035a4405cdf8264e8e3efbc0b952a476e4c3  ./packages/contracts/graphql/schema.graphql
 54f85f9e30ff227045f70b42e1a432a7043c989906c731bd1f6e3bc178caf826  ./packages/contracts/media/canonical-frame-anchor.schema.json
 8db3ed989befa9cc578f3773af3f28e8252b05f27bb6957de2d66a192146cd93  ./packages/contracts/media/frame-step-request.schema.json
 1d17aa0e216504d94fc8132c838d7a15c3ee8d741d85cb63324d8ec2eb25f966  ./packages/contracts/media/media-api-error.schema.json
@@ -397,9 +398,9 @@ c83e96aa06f061a990024ce31249bd4395425b3a3a7d642104d98a37612c460c  ./server/src/g
 f1d8f9547c0af9b492552ebde25e57e6f6e0cd39c3a939361322a651a2345cc6  ./server/src/graphql/export-schema.ts
 b3713ba8a03b71c778c327a64bbdbca51e66e647c417acf45ff2cb609f4e7fd6  ./server/src/graphql/inputs.ts
 a7effb8db5ead05fbbf126360d7e3313c0d89388c0996469c745a839e3ff5a41  ./server/src/graphql/mutations.ts
-e203024b2a5b9813546a280230408515582143dd97f7c222cebfa60762d7db50  ./server/src/graphql/queries.ts
+f02b6918820a2ae56656ff6613ea5507ba7e751ffea01ac2acc8219a3329de0f  ./server/src/graphql/queries.ts
 daf55fad91c822857be170cd3d76c6a9170e2ae6df3e9524f6640818f43f310f  ./server/src/graphql/schema.ts
-c664765c15c046c90895efbaa627d01ff99d9db0d99580d0164a1ef64572cbc4  ./server/src/graphql/types.ts
+e29d7d78273e099d74becc92c967b96c3d71ff7dd4cc01d51ef62a5550e0da99  ./server/src/graphql/types.ts
 ea136aaa6ba07c90b6058404e8e75532dd97cef5078c0c63ea26f7d3b207e642  ./server/src/health/readiness.ts
 0b91c3b4003b86f1104165da117ab305c71eb9a110e2478b750e285ef0f77812  ./server/src/index.ts
 3e66f3f7eaa2cc0ed051739c2d0347dd7499accd54d8be51453dca6ed379d4ac  ./server/src/media/analysis-dataset.ts
@@ -448,7 +449,7 @@ ef704d25cdbf44b75131a8f96beec4633616115f10b3a874c9879895ec2e6119  ./server/src/s
 7709f26dd0c310f5f645ad875b3261f31ea2da19a17f0e10ed101723ca144800  ./server/src/services/match-administration.ts
 6b7479ad485856f1192ff4e866b9372b9b3912058f74da1125ad5cd3586469c0  ./server/src/services/match-cleanup-coordinator.ts
 2b6b6a1c6d53917f783e856984a8903e563da2f6e0a936407c7263c1da3b9263  ./server/src/services/media-timeline-projection.ts
-55ef6d6e6d7f397a270900ec5743e97d63b270e08e2a98ef9bd13a979bea7dc2  ./server/src/services/media-timeline.ts
+600ee198c4eb351f4aa119d9589693484e197768ced5d2c291f443faf975e405  ./server/src/services/media-timeline.ts
 de75ad15a3c0fc9e95aebad72d15a60d4bea41bf217b143a2b5331c512d1e47a  ./server/src/services/processing-rally-cancellation.ts
 fe9c161a8c254e92b03662c850a86b90bc5d8ff21ad5b4d5602252846d112330  ./server/src/services/provider-jobs.ts
 7e986d335f4b39f6d0e12a50e851a2b706a7fb8c5df1b028b4211d031c2b308a  ./server/src/services/rally-administration.ts
@@ -548,7 +549,7 @@ fbd7173a045eace7a7a4f6d20bc38ae57f8b40fa4b6a73cd0e2b6e392362f635  ./web/app/comp
 659967c62b06f93420a954862c905308d3b1ae5dca5bdd0ef578f02e5dcd65b2  ./web/app/components/PwaInstallBanner.vue
 53ca7e4d8276dd37db7a5fa678f99c0d1d02ba4cc8b7fb7e00324f578094e5e2  ./web/app/components/RosterEditorDialog.vue
 aa67a11a5a3828537100a1d9707bcd7c88a1275d587f37fb5b500e4abe6a7ba6  ./web/app/components/TeamSetupCard.vue
-abb8ebecf784d9bce396b74e6a4c9ff423d8bfc9778fc5d1ded62cc5e1cd298c  ./web/app/components/VideoOverlayPlayer.vue
+79c2c61ac6ed87026221e75b7e9f052e9831c573a8f20049c0870457b0a4235c  ./web/app/components/VideoOverlayPlayer.vue
 b30b11c16b6a0e4b5df57bf203de8f211315d75002677351b8be91c9cabd18f6  ./web/app/components/VolleyballOverlayCanvas.component.test.ts
 9df10f41b64c7d6da4f81a26a3b1fe06415efe59296d8f7af74ce4313a78e42e  ./web/app/components/VolleyballOverlayCanvas.vue
 96769c60b8cfe8b81ee7a4b1b5ee8024b0a31c2753ed7e9a5880637e34805be5  ./web/app/components/WsPingBadge.vue
@@ -623,7 +624,7 @@ d6ff7d006c6abcdd0aa18d4fe4727d0a913127afd969f6198b5b69e6468d4044  ./web/app/lib/
 00c759de4d3747f29e9fb45728d22034b0c749871559b2b15158aad039b8c9ce  ./web/app/lib/annotationRealtimeClient.ts
 f4e3ea24f92f9d5146c8887732b181e775fadea4139d1ada0d69d388a8d8fb48  ./web/app/lib/coachDomain.ts
 b30652d38e7361693dfad2103c4b1cb55dfada88dcf29ef2f57bdaff89c5e408  ./web/app/lib/coreDomain.test.ts
-fa44d07584f6a1871d3accdd149821214904e49a104e31c52c7e6e3dd8d95cc8  ./web/app/lib/coreDomain.ts
+ebff0a89b6d13ce667445e16f19b193abbaa0ef8debd0a932f7b482d744c8db0  ./web/app/lib/coreDomain.ts
 b1a47619705f1feb5dac05a8ec43ff2200144452af4285133a2832ad4acf1a0f  ./web/app/lib/dvrTimeline.test.ts
 a990de4c89d47f8135f7763fa2a49a47e822d7283fe5f2818180ff8e07a04f33  ./web/app/lib/dvrTimeline.ts
 103072456f2b8868f66804995b1480c1ec1bd18f8870d5d0cd8690a7e80f4403  ./web/app/lib/identityAssignmentModel.test.ts
@@ -636,6 +637,8 @@ adb8dca256284f61ef8e8db8b7994d61155123469769b30a2766b6256d8f8eea  ./web/app/lib/
 577c0096e5f7dc4ab4b5efbfea10e2c8bfbec7f113260e93b6dc7a65882e7a1e  ./web/app/lib/mediaSourceClient.ts
 18b258c4825a77a8b19f65cfc0ae11d80f9c551a637b32364f9e1dc2ddfbefe2  ./web/app/lib/mediaTimeline.test.ts
 2704180192ee83b8b2351e7dce419d256cd03fa7a56bbc35c066047cfa3816dc  ./web/app/lib/mediaTimeline.ts
+b121d29c9397b91e89d129227ac048c84bac1e86da647573ae36522bbd11a0c8  ./web/app/lib/omeLivePlayback.test.ts
+d06dd03153c5164778d63561d28443b6d7236342e6379856a7f9d449ada930b3  ./web/app/lib/omeLivePlayback.ts
 781a903cc405388873d4b241b71604e95a48d12fa80b22f167bd11c115154fcb  ./web/app/lib/operationsMonitor.test.ts
 7f4c7398e95212193bf2a1c3b8a2e6ac83a28ee6da65f2f0aa70b341f3787ac5  ./web/app/lib/operationsMonitor.ts
 8f7c769027512420953f076901462f712a916a4c9518f8f1e23d263268682a69  ./web/app/lib/playbackContinuation.test.ts
@@ -648,7 +651,7 @@ d414d774f9b4f8b5a49be463ee8de0bcf284e3b84d96cb54d270d4be558038e9  ./web/app/lib/
 ea6147e9664833abf6ae1dc8bcffbdded5c976a7dd2b9b4a680dcc3a7c9c8df4  ./web/app/lib/rosterPromptImport.test.ts
 4e07c8e910ce029b61dcbe1110e7be3538b6ef9598340fc8468d33efe5760d7b  ./web/app/lib/rosterPromptImport.ts
 6b34e17a7ea1f30099ed336cca7b5e9d27fd750bff911ce05b3131cead6d89e5  ./web/app/middleware/auth.global.ts
-1084cd5f12778b388df0ff725374a4f33860442a76e6ecb59c77a3dfad591975  ./web/app/pages/annotate/[matchId].vue
+d735ec33ec669906dc3d3355151d821fa0660e2d2e6bc4100d7f338329bed7af  ./web/app/pages/annotate/[matchId].vue
 a2bda984770bb4ebdfa16c6968e5a03529972af10e0bfb6a491c9e4417bbe1e5  ./web/app/pages/control/index.vue
 de575899c27987ea0f5beae095022624fb5ee6cc2fef2b1b15c47ff5e97aeea5  ./web/app/pages/control/jobs.vue
 ffda57a925b659c33ea87ab67aedd169120195cf27497ab8eceaf14dd7e56ba3  ./web/app/pages/index.vue
@@ -681,6 +684,8 @@ b4fc12d557f1ab5c7283c3927ca54da477739290d1903e5d4c6f83667daf048f  ./web/app/serv
 d6959eda603a493d5403f8e934df0568fb89d92da746159f0ddde0fc8fcd956e  ./web/app/services/annotation-workstation/identity-assignment.service.ts
 20cbb11e3db3febeab266d19b0ee9a620a28144ef0d51c1c62c6220206b9cfd7  ./web/app/services/annotation-workstation/key-point-editing.service.test.ts
 30582598e97093c9c498cd4688b37a003d7112cc732c7c5afe045f65c29db634  ./web/app/services/annotation-workstation/key-point-editing.service.ts
+7cb96d400309dfacb9647315552ff39aaab4345f846c158d399be2513eefc514  ./web/app/services/annotation-workstation/ome-live-playback.service.test.ts
+61da84b11c73ee248048df65ae8477d8e043cda7ceb2f3306e6f0b6cd27c888f  ./web/app/services/annotation-workstation/ome-live-playback.service.ts
 59f2b84939543415f6dd025e26118d0a2e01480d4735005b377fbe460303f7a6  ./web/app/services/annotation-workstation/processing-state.service.test.ts
 39495eeec85f5f3114dbb22629439c7235bd38b511b784afe99784533443a342  ./web/app/services/annotation-workstation/processing-state.service.ts
 97145d642739e57591b7e27dff5ca5832a9d313d0870ace04f84f409b1cc9b6a  ./web/app/services/annotation-workstation/segment-management.service.test.ts
@@ -720,7 +725,7 @@ dfa6443d315d265256d9b68f2612eb69084211435c2f0d80df401f2c5394d237  ./web/app/util
 e383191e37886535a59d45862c396d9e7a917f9c0c3ca174969b2c7ca49e0305  ./web/app/utils/coachEventReplay.ts
 a721e1dc62ca9b6275a528b66ae489ea74e20d862043a6a2bef25799f7f7b6b4  ./web/app/utils/coachHighlightFingerprint.test.ts
 8253abe50997d36a1b67e0bfad509e80427fa22229a7a09cfba581c826015d75  ./web/app/utils/coachHighlightFingerprint.ts
-bfcee24272b6f1a9e4a5affb6a762472a3376fe5e40f1f570152381715bcd705  ./web/app/utils/coachMatchStatus.test.ts
+603f179664737ade0961fb3e6ce6f7c050c5f7d719b3cb51241c29b9f1a71c09  ./web/app/utils/coachMatchStatus.test.ts
 38826534bde8d18a54d99aace301142c621c50512bc95b96a85867175a1957af  ./web/app/utils/coachMatchStatus.ts
 8e2449c7d8fe221a14307d7a24c496c3579eb65bc9a8c69c4019915eaff7e6ee  ./web/app/utils/coachPlayerActions.test.ts
 74c8e325068d2ac4f3aeb0ddf2216b7de831ef3b51c4e4a19607c314ee18f189  ./web/app/utils/coachPlayerActions.ts
@@ -761,7 +766,7 @@ d8ad05b95351b7802161728b8252077db7b36e4d5f766ffb59dfbb4efcf57150  ./web/app/util
 45fb02725a46c853b5471b4b9b3a5ebce74bad959a9b315023ff6d608b094a9e  ./web/codegen.ts
 473afc31d9e54a60a0f1b294d44401d0e62e18c7d73940352b40bd5e353faa0d  ./web/graphql/README.md
 0b83eda11270d137a0bde40b291f2a991dbd2b801b79d0804e3ac2b460244604  ./web/graphql/health.graphql
-dd44e4d7e97301b965efb3e1f6d515a50c50fdc951fd31f7ac2962fe1dd92b00  ./web/nuxt.config.ts
+ea429f544efa40f73aca700af3643033af702cfdabbba46cf5ea5ba11fd1b91e  ./web/nuxt.config.ts
 8ad5b59a3a24895f4ab2cfbd6790eedb88de7cb988150bee24e980c13d99e8a2  ./web/package.json
 7bc2feec35658553dd2f74ad65155017648b9d465f417f52712cb504aff1bf59  ./web/public/icons/apple-touch-icon.png
 2399c0f8bc6d3c0aa47c91a56f81b6844208fd3a125196f5ff0d2f340d2987f2  ./web/public/icons/pwa-192.png

@@ -45,6 +45,7 @@ export interface CaptureTimelineView {
 export interface CaptureSessionView {
   id: string
   matchId: string
+  ingestPath: string
   sourceLabel: string | null
   sourceKind: string
   sourceDurationUs: bigint | null
@@ -115,9 +116,14 @@ async function withinBudget<T>(promise: Promise<T>, milliseconds: number): Promi
   }
 }
 
-async function readCachedProjection(program: TimelineProgramRow): Promise<TimelineProjection | null> {
+async function readCachedProjection(
+  program: TimelineProgramRow,
+): Promise<TimelineProjection | null> {
   if (!timelineRedis) return null
-  const serialized = await withinBudget(timelineRedis.get(redisKey(program.id)), REDIS_READ_BUDGET_MS)
+  const serialized = await withinBudget(
+    timelineRedis.get(redisKey(program.id)),
+    REDIS_READ_BUDGET_MS,
+  )
   if (!serialized) return null
   try {
     const projection = parseTimelineProjection(serialized)
@@ -335,6 +341,7 @@ export async function listCaptureSessionsForMatch(matchId: string): Promise<Capt
     endedAt: session.endedAt,
     health: session.health,
     id: session.id,
+    ingestPath: session.ingestPath,
     matchId: session.matchId,
     sourceLabel: session.sourceLabel,
     sourceDurationUs: session.sourceDurationUs,

@@ -24,6 +24,7 @@ builder.queryType({
           endedAt: session.endedAt,
           health: session.health,
           id: session.id,
+          ingestPath: session.ingestPath,
           matchId: session.matchId,
           sourceDurationUs: session.sourceDurationUs,
           sourceKind: session.sourceKind,

@@ -12,6 +12,7 @@ type CaptureSession {
   endedAt: DateTime
   health: SourceHealth!
   id: ID!
+  ingestPath: String!
   matchId: ID!
   sourceDurationUs: BigInt
   sourceKind: String!
