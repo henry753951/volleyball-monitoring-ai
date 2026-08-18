@@ -104,7 +104,7 @@ e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  ./examples/__i
 ddd83b1db997ff4be48ea7b1c0fe89fe5882b95c429dafadc3f37e94f1c352ad  ./infra/compose.yaml
 53cbbca3d1f27abc42227fa5241fe071e2bf8ba302fa91194f802c7e7dc57c77  ./infra/docker/server.Dockerfile
 818ad0a9ef3bf445375da1e99858c7b2c1acff9f6f91402e3d2f4aaf770ef0e6  ./infra/docker/web.Dockerfile
-bac0449b5614e4acee4bb89f305d066d6e730cf460e346388083678f324e1fac  ./infra/docker/worker.Dockerfile
+30439ffd58a73f0aceae3cd06e5d761ae6b9e9d7f3b5d5945e0d963a73ecaa2d  ./infra/docker/worker.Dockerfile
 4fe8e62a7d6dad42c145d4ad9fa7d28f09a25abd521ed2a14036a883f5405a14  ./infra/k8s/README.md
 e7436805e695fe58489ee89300dea10c93a32340aab125e6c5533d6d4907a8e6  ./infra/ome/Logger.xml
 4b39d8daeb91f5284bc27b7df9bb11ccf039579bc369ee12f57fd0d9c73beb0b  ./infra/ome/Server.xml
