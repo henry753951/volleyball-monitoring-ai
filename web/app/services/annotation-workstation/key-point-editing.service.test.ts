@@ -158,6 +158,10 @@ describe('key-point editing service', () => {
     expect(room.edit).toHaveBeenCalledWith('MOVE_KEY_POINT', {
       keyPointId: 'point-1',
       cursor,
+      observation: {
+        capture_time_us: '1250000',
+        capture_frame_index: undefined,
+      },
     })
     expect(service.pendingMove.value).toBeNull()
     service.dispose()

@@ -559,15 +559,12 @@ describe('Phase 1B GraphQL schema', () => {
             availabilityComplete: false,
             timelineVersion: '9007199254740993',
             captureStartTimeUs: '9007199254740992',
-            liveEdgeCaptureTimeUs: '9007199254741592',
+            liveEdgeCaptureTimeUs: '9007199254741192',
             ingestFrontierCaptureTimeUs: '9007199254741592',
             sourceEndCaptureTimeUs: null,
-            gapRanges: [
-              { startUs: '9007199254741392', endUs: '9007199254741492', discontinuity: 0 },
-            ],
+            gapRanges: [],
             availableRanges: [
               { startUs: '9007199254740992', endUs: '9007199254741192', discontinuity: 0 },
-              { startUs: '9007199254741492', endUs: '9007199254741592', discontinuity: 1 },
             ],
           },
         },
