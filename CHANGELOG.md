@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.6.0](https://github.com/henry753951/volleyball-monitoring-ai/compare/v1.5.3...v1.6.0) (2026-08-18)
+
+
+### Features
+
+* **youtube:** use persistent chromium browser session ([#108](https://github.com/henry753951/volleyball-monitoring-ai/issues/108)) ([70ddd46](https://github.com/henry753951/volleyball-monitoring-ai/commit/70ddd4622c519c9f748361d1cf3098a54a171392))
+
 ## [1.5.3](https://github.com/henry753951/volleyball-monitoring-ai/compare/v1.5.2...v1.5.3) (2026-08-18)
 
 
