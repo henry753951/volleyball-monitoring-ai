@@ -222,10 +222,14 @@ The console's end-to-end rate is cumulative from the original source start and i
 earlier retries and downtime. Use two recent `resumeCaptureTimeUs` samples to measure current source
 speed; do not diagnose current network throughput from the cumulative number alone.
 
-For the public Iran vs Pakistan VOD tested on 2026-08-17, passing the supplied browser cookies caused
-Googlevideo range seeks to return HTTP 403. The verified runtime used
-`YOUTUBE_EXTRACTOR_ARGS=youtube:player_client=android_vr` without `YOUTUBE_COOKIES_FILE`. Keep the
-cookie Secret available for authentication failures, but enable it only after a seek probe succeeds.
+For public YouTube VOD, the primary resolver policy is `mweb` with the external bgutil HTTP provider
+and the bundled EJS runtime:
+`YOUTUBE_VOD_EXTRACTOR_ARGS=youtube:player_client=mweb`,
+`YOUTUBE_POT_PROVIDER_URL=http://bgutil-provider:4416`, and
+`YOUTUBE_VOD_USE_COOKIES=false`.
+Verify the resolver's verbose output contains `yt_dlp_ejs`, the selected Deno runtime, and
+`bgutil:http-1.3.1 (external)`. Keep the cookie Secret available for authenticated-content or
+explicit recovery, but do not pass it to public VOD by default.
 
 An unreleased worker hotfix may be pinned on the node through
 `/etc/volleyai/worker-image-override`. The automatic updater honors this immutable digest while still
