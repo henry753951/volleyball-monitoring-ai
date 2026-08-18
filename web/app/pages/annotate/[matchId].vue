@@ -43,7 +43,12 @@ import { capturePlaybackMode, clampLiveEdgeTarget } from '~/lib/mediaTimeline'
 import { decidePlaybackContinuation, nextPlayableRangeAfter } from '~/lib/playbackContinuation'
 import { bufferedSecondsAhead, type CanonicalMediaRange } from '~/utils/mediaBuffer'
 import { estimateFrameDurationSeconds } from '~/utils/framePreviewCalibration'
-import { captureNeedsPolling, hasActiveRallyProcessing } from '~/utils/annotationPolling'
+import {
+  captureNeedsPolling,
+  hasActiveRallyProcessing,
+  nextCapturePollDelay,
+  type CapturePollOutcome,
+} from '~/utils/annotationPolling'
 import {
   replayEventFrame,
   resolveEffectiveHitPosition,
@@ -389,7 +394,9 @@ const annotationResyncing = syncRecovery.resyncing
 const processingRetrying = syncRecovery.processingRetrying
 const notifiedProcessingFailures = new Set<string>()
 let processingFailureWatchReady = false
-let timelineRefreshTimer: ReturnType<typeof setInterval> | null = null
+let timelineRefreshTimer: ReturnType<typeof setTimeout> | null = null
+let timelinePollDelayMs = 1_000
+let captureRefreshInFlight = false
 let cursorResolveTimer: ReturnType<typeof setTimeout> | null = null
 let seekPreviewTimer: ReturnType<typeof setTimeout> | null = null
 let optimisticSeekTimer: ReturnType<typeof setTimeout> | null = null
@@ -1337,21 +1344,84 @@ async function loadMatch(options: { silent?: boolean } = {}) {
   }
 }
 
-async function refreshSelectedCapture() {
+async function refreshSelectedCapture(): Promise<CapturePollOutcome> {
   const captureId = selectedCaptureId.value
-  if (!captureId || document.visibilityState !== 'visible') return
+  if (!captureId || document.visibilityState !== 'visible' || captureRefreshInFlight)
+    return 'skipped'
+  captureRefreshInFlight = true
   try {
+    const previous = selectedCapture.value
     const capture = await core.captureSession(captureId)
-    if (!capture || !match.value?.captureSessions) return
+    if (!capture || !match.value?.captureSessions) return 'failed'
+    const changed =
+      previous?.status !== capture.status ||
+      previous?.health !== capture.health ||
+      previous?.timeline?.timelineVersion !== capture.timeline?.timelineVersion ||
+      previous?.timeline?.liveEdgeCaptureTimeUs !== capture.timeline?.liveEdgeCaptureTimeUs ||
+      previous?.timeline?.ingestFrontierCaptureTimeUs !==
+        capture.timeline?.ingestFrontierCaptureTimeUs ||
+      previous?.timeline?.availabilityComplete !== capture.timeline?.availabilityComplete
     match.value = {
       ...match.value,
       captureSessions: match.value.captureSessions.map(current =>
         current.id === capture.id ? capture : current,
       ),
     }
+    return changed ? 'changed' : 'unchanged'
   } catch {
-    /* The existing descriptor remains usable; retry on the next media tick. */
+    // Keep the existing descriptor usable. A self-scheduling poller backs off
+    // instead of stacking requests while the network is degraded.
+    return 'failed'
+  } finally {
+    captureRefreshInFlight = false
   }
+}
+
+function scheduleTimelineRefresh(delayMs = timelinePollDelayMs, replace = false) {
+  if (timelineRefreshTimer) {
+    if (!replace) return
+    clearTimeout(timelineRefreshTimer)
+  }
+  timelineRefreshTimer = setTimeout(() => {
+    timelineRefreshTimer = null
+    void runTimelineRefreshCycle()
+  }, Math.max(0, delayMs))
+}
+
+async function runTimelineRefreshCycle() {
+  const online = navigator.onLine
+  if (document.visibilityState !== 'visible' || !online) {
+    timelinePollDelayMs = nextCapturePollDelay(timelinePollDelayMs, 'skipped', online)
+    scheduleTimelineRefresh()
+    return
+  }
+
+  maintainPlaybackWindow()
+  const captureActive = captureNeedsPolling(selectedCapture.value?.status)
+  const processingActive = hasActiveRallyProcessing(coach.data.value?.match.rallies)
+  const capturePromise = captureActive
+    ? refreshSelectedCapture()
+    : Promise.resolve<CapturePollOutcome>('skipped')
+  const coachPromise = processingActive
+    ? Promise.resolve(coach.refresh()).then(
+        () => false,
+        () => true,
+      )
+    : Promise.resolve(false)
+  const [captureOutcome, coachFailed] = await Promise.all([capturePromise, coachPromise])
+  const outcome: CapturePollOutcome = coachFailed
+    ? 'failed'
+    : captureOutcome === 'skipped' && processingActive
+      ? 'unchanged'
+      : captureOutcome
+  timelinePollDelayMs = nextCapturePollDelay(timelinePollDelayMs, outcome, true)
+  scheduleTimelineRefresh()
+}
+
+function resumeTimelineRefresh() {
+  if (document.visibilityState !== 'visible' || !navigator.onLine) return
+  timelinePollDelayMs = 1_000
+  scheduleTimelineRefresh(0, true)
 }
 
 async function resolveLatestCursor() {
@@ -2545,31 +2615,30 @@ provideAnnotationWorkstationService(annotationWorkstationService)
 function releaseFrameNavigationGestures() {
   frameGestureRouter.releaseAll()
 }
-function releaseFrameNavigationWhenHidden() {
+function handleWorkstationVisibilityChange() {
   if (document.visibilityState === 'hidden') releaseFrameNavigationGestures()
+  else resumeTimelineRefresh()
 }
 onMounted(() => {
   annotationScope.value?.focus({ preventScroll: true })
   window.addEventListener('blur', releaseFrameNavigationGestures)
-  document.addEventListener('visibilitychange', releaseFrameNavigationWhenHidden)
-  void loadMatch()
-  timelineRefreshTimer = setInterval(() => {
-    if (captureNeedsPolling(selectedCapture.value?.status)) void refreshSelectedCapture()
-    if (hasActiveRallyProcessing(coach.data.value?.match.rallies)) void coach.refresh()
-    maintainPlaybackWindow()
-  }, 2_500)
+  window.addEventListener('online', resumeTimelineRefresh)
+  document.addEventListener('visibilitychange', handleWorkstationVisibilityChange)
+  void loadMatch().finally(resumeTimelineRefresh)
+  scheduleTimelineRefresh(2_500)
 })
 onBeforeUnmount(() => {
   gapTransition = null
   annotationWorkstationService.dispose()
   if (selectedCaptureId.value && visualPlayhead.value)
     workstationViewState.rememberCursor(selectedCaptureId.value, visualPlayhead.value)
-  if (timelineRefreshTimer) clearInterval(timelineRefreshTimer)
+  if (timelineRefreshTimer) clearTimeout(timelineRefreshTimer)
   if (cursorResolveTimer) clearTimeout(cursorResolveTimer)
   if (seekPreviewTimer) clearTimeout(seekPreviewTimer)
   if (optimisticSeekTimer) clearTimeout(optimisticSeekTimer)
   window.removeEventListener('blur', releaseFrameNavigationGestures)
-  document.removeEventListener('visibilitychange', releaseFrameNavigationWhenHidden)
+  window.removeEventListener('online', resumeTimelineRefresh)
+  document.removeEventListener('visibilitychange', handleWorkstationVisibilityChange)
   frameGestureRouter.releaseAll()
   frameNavigation.stop()
   clearFramePreviewState()

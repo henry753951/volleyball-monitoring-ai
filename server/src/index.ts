@@ -50,6 +50,7 @@ import {
   setAiWorkerTokenEnabled,
 } from './services/ai-worker-access.js'
 import { createMatchCleanupCoordinator } from './services/match-cleanup-coordinator.js'
+import { configureMediaTimelineCache } from './services/media-timeline.js'
 
 const app = Fastify({ logger: true })
 const redisUrl = process.env.REDIS_URL
@@ -70,6 +71,7 @@ if (!timingManifestReader) {
 const redis = redisUrl
   ? new Redis(redisUrl, { lazyConnect: true, connectTimeout: 1_000, maxRetriesPerRequest: 1 })
   : null
+configureMediaTimelineCache(redis)
 const annotationPresence = redis
   ? createAnnotationPresenceService({
       redis,

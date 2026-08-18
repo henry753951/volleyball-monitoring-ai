@@ -520,6 +520,8 @@ model CaptureSession {
   playbackWindows            PlaybackWindow[]
   sourceWork                 MediaSourceWork?
   ingestFailures             MediaIngestFailure[]
+
+  @@index([matchId, createdAt, id])
 }
 
 model MediaIngestFailure {
@@ -597,6 +599,8 @@ model DvrProgram {
   segments         DvrSegment[]
   rallies          Rally[]
   playbackWindows  PlaybackWindow[]
+
+  @@index([captureSessionId, createdAt, id])
 }
 
 model MediaAsset {

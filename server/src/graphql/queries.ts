@@ -19,7 +19,7 @@ builder.queryType({
         const identity = requireIdentity(context)
         const session = await getVisibleCaptureSession(args.id, identity.id, identity.role)
         if (!session) return null
-        const timeline = await loadCaptureTimeline(session.id)
+        const timeline = await loadCaptureTimeline(session.id, session)
         return {
           endedAt: session.endedAt,
           health: session.health,
