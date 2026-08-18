@@ -157,6 +157,75 @@ export async function resolveOmeLivePlaybackCursor(
     anchor.captureTimeOriginUs +
     BigInt((observedProgramDate.getTime() - anchor.programDateTime.getTime()) * 1_000)
 
+  const coveringExtents = await database.mediaExtent.findMany({
+    include: { captureEpoch: true, dvrProgram: true },
+    take: 2,
+    where: {
+      archiveVerifiedAt: { not: null },
+      captureEpochId: { not: null },
+      captureSessionId: anchor.captureSessionId,
+      endUs: { gt: targetCaptureTimeUs },
+      firstFrameIndex: { not: null },
+      frameCount: { not: null },
+      sampleIndexBucket: { not: null },
+      sampleIndexBytes: { not: null },
+      sampleIndexObjectKey: { not: null },
+      sampleIndexSchemaVersion: { not: null },
+      sampleIndexSha256: { not: null },
+      sourcePtsEnd: { not: null },
+      sourcePtsStart: { not: null },
+      startUs: { lte: targetCaptureTimeUs },
+      status: 'ARCHIVE_VERIFIED',
+    },
+  })
+  if (coveringExtents.length > 1)
+    throw new MediaHttpError(409, 'MEDIA_NOT_READY', 'OME extent mapping is ambiguous')
+  const coveringExtent = coveringExtents[0]
+  if (coveringExtent && coveringExtent.captureEpoch && sampleIndexes?.loadOrderedExtents) {
+    let indexed: readonly IndexedSegment[]
+    try {
+      indexed = await sampleIndexes.loadOrderedExtents([coveringExtent.id])
+    } catch {
+      throw new MediaHttpError(409, 'MEDIA_NOT_READY', 'OME extent sample index is unavailable')
+    }
+    if (indexed.length !== 1 || indexed[0]?.segmentId !== coveringExtent.id)
+      throw new MediaHttpError(409, 'MEDIA_NOT_READY', 'OME extent sample index mapping is invalid')
+    let exact: ReturnType<typeof resolveCanonicalTimeAcrossSegments>
+    try {
+      exact = resolveCanonicalTimeAcrossSegments(
+        indexed,
+        targetCaptureTimeUs,
+        coveringExtent.startUs,
+        coveringExtent.endUs,
+      )
+    } catch {
+      throw new MediaHttpError(422, 'CAPTURE_GAP', 'Cursor is outside available OME media')
+    }
+    const timeBase = indexed[0]!.index.timeBase
+    if (
+      timeBase.num <= 0n ||
+      timeBase.den <= 0n ||
+      timeBase.num > BigInt(Number.MAX_SAFE_INTEGER) ||
+      timeBase.den > BigInt(Number.MAX_SAFE_INTEGER)
+    )
+      throw new MediaHttpError(409, 'MEDIA_NOT_READY', 'OME sample time base is invalid')
+    return parseResolvedMediaAnchor({
+      schema_version: '1.0.0',
+      playback_window_id: anchor.id,
+      capture_session_id: anchor.captureSessionId,
+      capture_epoch_id: exact.epochId,
+      dvr_segment_id: null,
+      source_pts: exact.sample.sourcePts,
+      source_time_base: { den: Number(timeBase.den), num: Number(timeBase.num) },
+      capture_time_us: exact.sample.captureTimeUs,
+      capture_frame_index: exact.sample.captureFrameIndex,
+      resolved_player_media_time_us: cursor.player_media_time_us,
+      mapping_version: anchor.sequenceIndex + 1,
+      snap_distance_us: exact.snapDistanceUs,
+      timing_precision: exact.kind,
+    })
+  }
+
   // FILE recording creates a new CaptureEpoch for every physical extent because
   // OME resets each file's PTS to zero. The presentation anchor validates the
   // wall-clock -> canonical capture mapping, but it must not pin all later

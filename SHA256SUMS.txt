@@ -413,15 +413,15 @@ ea136aaa6ba07c90b6058404e8e75532dd97cef5078c0c63ea26f7d3b207e642  ./server/src/h
 c52721e79755df1585059dffea012fdad5708a50bade8c489089af067182186f  ./server/src/index.ts
 3e66f3f7eaa2cc0ed051739c2d0347dd7499accd54d8be51453dca6ed379d4ac  ./server/src/media/analysis-dataset.ts
 c6eedcf30e338a8bc530abd0dd574de6f679427c97d283bcbd252f7ba20aecc6  ./server/src/media/clip-timing-coverage.ts
-aba9f866787c7e29182e302cb49178766ba4cd3cf62d1e0244f4df9273db4ec2  ./server/src/media/cursor-resolution.ts
+1cf2d106aee115e9a764c24285d478364a4470f5978c6e038e3f3946ae0b3d01  ./server/src/media/cursor-resolution.ts
 3974b275b76ef9c534518ca7914487e02170e4232cc022236e0a617ab8a957bf  ./server/src/media/cursor-routes.ts
 743c32047328c0dcc9d1f2f83eea7ae15f6e088259dedb05ae055d95ae0fb920  ./server/src/media/media-object-remover.ts
 8d45f41437fcbc4b6d18a40a7be75f60de955757c47c80318e0346e3636e2c5d  ./server/src/media/media-source-work.ts
 1a8077c775f4c0c616a90b3e12932a3583d1856d9dbeacbb4ffe5319129d6e3c  ./server/src/media/minio-object-reader.ts
-ee7f2bb862dcdb62881cad481cdb4676c9fad50a3d4b41eccad750e0717465ec  ./server/src/media/ome-live-cursor-resolution.ts
+de3172f2db1d72230d3230b45f28784331b27a3266efc3bacdc09edfb1397a05  ./server/src/media/ome-live-cursor-resolution.ts
 22e3492dfd5ab47a34257c271af12072e96023a2ac668e2e691d4f721b2f07c4  ./server/src/media/overlay-analysis-id.ts
 e34526ba73c7b4866dd745c219b0d78906451fea1b20b7ce3a2c9c7d6b8ee512  ./server/src/media/playback-domain.ts
-c44042f76b532a8355b259e7c456bf12cd3ea21e484b0efe54153b3c85716cd9  ./server/src/media/sample-index-repository.ts
+2fcf779a095a181d48ae6ade16451040ada04ee8190e7fd460b12af94ca87384  ./server/src/media/sample-index-repository.ts
 844e222f8be125ed9e22889549c70ce965c740e52a8162364a159ae59cf0011d  ./server/src/media/sample-snap-resolver.ts
 8a3d78896eaef13ad4394b75b6e4cb095d2c1f0e45d41df40748d582b2c72fbc  ./server/src/operations/host-storage.ts
 ccad68cef83ed4a9ed8ee6967081bbfd3d3e95419e79a36d1bf0b2468a5674f7  ./server/src/operations/kubernetes-deployments.ts
@@ -507,7 +507,7 @@ ee243449bca6aff8b1c5585d0be6fa1e18f7837c1f107db9e7d14af69f476f0f  ./server/tests
 6f8b531951229a78651e06bf9feeef95222687d620eea7fc81c3e53e523088eb  ./server/tests/readiness.test.ts
 7c70a18703330d902b85bf7e8f4d80bc9e714d546b337d9bbb359f4edf456342  ./server/tests/reid-association-rerun.test.ts
 cc6f9229a0467a5adbb94897a994560603b5015f55757dcff2e36e4ddad38b2d  ./server/tests/reid-identity-ledger.test.ts
-3dcdcf57fb6a7be25e55415ba67c050902e011cda1fedc0b841a6cd449382fdd  ./server/tests/sample-index-repository.integration.test.ts
+1f0bc83ccb1f8a5ed4fcd4fe459a5a783d29e1d125ab0de134fda237f180661f  ./server/tests/sample-index-repository.integration.test.ts
 e0be22452769991a6b1ca215dc1a2498a19b00b4b31aadf7c1886c008e4e4f03  ./server/tests/sample-snap-resolver.test.ts
 b7983f31cf486e0ea1f7c29c7336d6cca8d96319ff1ce83f2f1c0a0bc0bb3d65  ./server/tsconfig.json
 31e0dc4f866210bba1c6428f30a6c105a1db8f6330c008584c5a0292456988ce  ./server/tsconfig.test.json

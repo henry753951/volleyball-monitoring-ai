@@ -36,6 +36,8 @@ const ids = {
   asset2: '41000000-0000-4000-8000-000000000032',
   epoch1: '41000000-0000-4000-8000-000000000012',
   epoch2: '41000000-0000-4000-8000-000000000014',
+  extent1: '41000000-0000-4000-8000-000000000041',
+  extent2: '41000000-0000-4000-8000-000000000042',
   match: '41000000-0000-4000-8000-000000000010',
   program1: '41000000-0000-4000-8000-000000000013',
   program2: '41000000-0000-4000-8000-000000000015',
@@ -293,6 +295,54 @@ async function seedFixture(): Promise<void> {
       },
     ],
   })
+  await db.mediaExtent.createMany({
+    data: [
+      {
+        archiveVerifiedAt: now,
+        captureEpochId: ids.epoch1,
+        captureSessionId: ids.session,
+        catalogedAt: now,
+        dvrProgramId: ids.program1,
+        endUs: segment1CaptureEnd,
+        firstFrameIndex: captureFrameOrigin,
+        frameCount: 2n,
+        id: ids.extent1,
+        sampleIndexBucket: bucket,
+        sampleIndexBytes: BigInt(baselineBytes.asset1.byteLength),
+        sampleIndexObjectKey: keys.asset1,
+        sampleIndexSchemaVersion: '1.0.0',
+        sampleIndexSha256: sha256(baselineBytes.asset1),
+        source: 'fixture',
+        sourceJobId: '41000000-0000-4000-8000-000000000051',
+        sourcePtsEnd: segment1SourceEnd,
+        sourcePtsStart: segment1SourceStart,
+        startUs: segment1CaptureStart,
+        status: 'ARCHIVE_VERIFIED',
+      },
+      {
+        archiveVerifiedAt: now,
+        captureEpochId: ids.epoch1,
+        captureSessionId: ids.session,
+        catalogedAt: now,
+        dvrProgramId: ids.program1,
+        endUs: segment2CaptureEnd,
+        firstFrameIndex: captureFrameOrigin + 2n,
+        frameCount: 2n,
+        id: ids.extent2,
+        sampleIndexBucket: bucket,
+        sampleIndexBytes: BigInt(baselineBytes.asset2.byteLength),
+        sampleIndexObjectKey: keys.asset2,
+        sampleIndexSchemaVersion: '1.0.0',
+        sampleIndexSha256: sha256(baselineBytes.asset2),
+        source: 'fixture',
+        sourceJobId: '41000000-0000-4000-8000-000000000052',
+        sourcePtsEnd: segment2SourceEnd,
+        sourcePtsStart: segment2SourceStart,
+        startUs: segment2CaptureStart,
+        status: 'ARCHIVE_VERIFIED',
+      },
+    ],
+  })
 }
 
 async function resetFixture(): Promise<void> {
@@ -486,6 +536,17 @@ afterAll(async () => {
 }, 120_000)
 
 describe('persisted sample index repository', () => {
+  it('loads exact sample indexes from extents without a DvrSegment relation', async () => {
+    const segmentReads = vi.spyOn(db.dvrSegment, 'findMany')
+    const extents = await repository.loadOrderedExtents([ids.extent1, ids.extent2])
+
+    expect(segmentReads).not.toHaveBeenCalled()
+    segmentReads.mockRestore()
+    expect(extents.map(extent => extent.segmentId)).toEqual([ids.extent1, ids.extent2])
+    expect(extents[0]!.index.samples[0]!.sourcePts).toBe(segment1SourceStart)
+    expect(extents[1]!.index.samples.at(-1)!.captureFrameIndex).toBe(captureFrameOrigin + 3n)
+  })
+
   it('loads two touching segments in caller order with exact reads and no writes', async () => {
     const countsBefore = await rowCounts()
     const findMany = vi.spyOn(db.dvrSegment, 'findMany')
