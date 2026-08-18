@@ -226,10 +226,12 @@ services:
       OME_LLHLS_URL: http://ovenmediaengine:3333
       YOUTUBE_COOKIES_FILE: ${YOUTUBE_COOKIES_FILE:-}
       YOUTUBE_FORMAT: ${YOUTUBE_FORMAT:-best[protocol*=m3u8][height=1080][fps>=59][fps<=61][vcodec^=avc][acodec!=none]/bestvideo[height=1080][fps>=59][fps<=61][vcodec^=avc]+bestaudio[acodec^=mp4a]/bestvideo[height=1080][vcodec^=avc]+bestaudio[acodec^=mp4a]/best[height=1080][vcodec^=avc][acodec!=none]/best[protocol*=m3u8][height<=1080][vcodec^=avc][acodec!=none]/bestvideo[height<=1080][vcodec^=avc]+bestaudio[acodec^=mp4a]/best[height<=1080][vcodec^=avc][acodec!=none]}
-      YOUTUBE_EXTRACTOR_ARGS: ${YOUTUBE_EXTRACTOR_ARGS:-youtube:player_client=default}
+      YOUTUBE_EXTRACTOR_ARGS: ${YOUTUBE_EXTRACTOR_ARGS:-youtube:player_client=mweb}
       YOUTUBE_LIVE_EXTRACTOR_ARGS: ${YOUTUBE_LIVE_EXTRACTOR_ARGS:-youtube:player_client=mweb}
+      YOUTUBE_JS_RUNTIME: ${YOUTUBE_JS_RUNTIME:-deno}
       YOUTUBE_POT_PROVIDER_URL: http://bgutil-provider:4416
-      YOUTUBE_VOD_EXTRACTOR_ARGS: ${YOUTUBE_VOD_EXTRACTOR_ARGS:-youtube:player_client=visionos}
+      YOUTUBE_USE_COOKIES: ${YOUTUBE_USE_COOKIES:-false}
+      YOUTUBE_VOD_EXTRACTOR_ARGS: ${YOUTUBE_VOD_EXTRACTOR_ARGS:-youtube:player_client=mweb}
       YOUTUBE_VOD_FORMAT: ${YOUTUBE_VOD_FORMAT:-bestvideo[protocol^=http][height=1080][fps>=59][fps<=61][vcodec^=avc]+bestaudio[protocol^=http][acodec^=mp4a]/bestvideo[protocol^=http][height=1080][vcodec^=avc]+bestaudio[protocol^=http][acodec^=mp4a]/bestvideo[height=1080][vcodec^=avc]+bestaudio[acodec^=mp4a]/best[height=1080][vcodec^=avc][acodec!=none]/bestvideo[protocol^=http][height<=1080][vcodec^=avc]+bestaudio[protocol^=http][acodec^=mp4a]/bestvideo[height<=1080][vcodec^=avc]+bestaudio[acodec^=mp4a]/best[height<=1080][vcodec^=avc][acodec!=none]}
     volumes:
       - ${MEDIA_IMPORT_HOST_PATH:-${DEV_DATA_ROOT:-../.data/runtime}/media-imports}:/var/lib/volleyball/media-imports

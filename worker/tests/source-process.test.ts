@@ -47,9 +47,9 @@ const youtubeOptions: MediaSourceProcessOptions = {
   recordingRoot: '/recordings',
   workRoot: '/work',
   youtubeCookiesFile: '/run/secrets/youtube.cookies.txt',
-  youtubeExtractorArgs: 'youtube:player_client=default',
+  youtubeExtractorArgs: 'youtube:player_client=mweb',
   youtubeFormat: 'live-format',
-  youtubeVodExtractorArgs: 'youtube:player_client=visionos',
+  youtubeVodExtractorArgs: 'youtube:player_client=mweb',
   youtubeVodFormat: 'vod-format',
 }
 
@@ -63,16 +63,16 @@ describe('media source process', () => {
     )
   })
 
-  it('builds separate probe and VOD arguments without exposing cookie contents', () => {
+  it('builds public probes with mweb, EJS and no cookies by default', () => {
     expect(buildYoutubeProbeArgs('https://youtu.be/example', youtubeOptions)).toEqual([
       '--dump-single-json',
       '--no-playlist',
       '--no-progress',
       '--no-warnings',
-      '--cookies',
-      '/run/secrets/youtube.cookies.txt',
+      '--js-runtimes',
+      'deno',
       '--extractor-args',
-      'youtube:player_client=default',
+      'youtube:player_client=mweb',
       '--format',
       'live-format',
       'https://youtu.be/example',
@@ -82,14 +82,22 @@ describe('media source process', () => {
       '--no-playlist',
       '--no-progress',
       '--no-warnings',
-      '--cookies',
-      '/run/secrets/youtube.cookies.txt',
+      '--js-runtimes',
+      'deno',
       '--extractor-args',
-      'youtube:player_client=visionos',
+      'youtube:player_client=mweb',
       '--format',
       'vod-format',
       'https://youtu.be/example',
     ])
+  })
+
+  it('allows cookies only as an explicit fallback', () => {
+    const options = { ...youtubeOptions, youtubeUseCookies: true }
+    expect(buildYoutubeVodProbeArgs('https://youtu.be/example', options)).toContain('--cookies')
+    expect(buildYoutubeVodProbeArgs('https://youtu.be/example', options)).toContain(
+      '/run/secrets/youtube.cookies.txt',
+    )
   })
 
   it('uses independent player-client policies for live and VOD resolution', () => {
@@ -105,7 +113,10 @@ describe('media source process', () => {
       'youtubepot-bgutilhttp:base_url=http://bgutil-provider:4416',
     )
     expect(buildYoutubeVodProbeArgs('https://youtu.be/vod', options)).toContain(
-      'youtube:player_client=visionos',
+      'youtube:player_client=mweb',
+    )
+    expect(buildYoutubeVodProbeArgs('https://youtu.be/vod', options)).toContain(
+      'youtubepot-bgutilhttp:base_url=http://bgutil-provider:4416',
     )
   })
 

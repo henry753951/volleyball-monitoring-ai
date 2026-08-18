@@ -172,6 +172,8 @@ export async function createMediaComposition() {
       recordingExtentSeconds: config.MEDIA_RECORDING_EXTENT_SECONDS,
       workRoot: config.MEDIA_SOURCE_WORK_ROOT,
       ...(config.YOUTUBE_COOKIES_FILE ? { youtubeCookiesFile: config.YOUTUBE_COOKIES_FILE } : {}),
+      youtubeJsRuntime: config.YOUTUBE_JS_RUNTIME,
+      youtubeUseCookies: config.YOUTUBE_USE_COOKIES,
       youtubeExtractorArgs: config.YOUTUBE_EXTRACTOR_ARGS,
       youtubeFormat: config.YOUTUBE_FORMAT,
       youtubeLiveExtractorArgs: config.YOUTUBE_LIVE_EXTRACTOR_ARGS,

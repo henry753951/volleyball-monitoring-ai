@@ -11,6 +11,8 @@ export type MediaSourceProcessOptions = {
   recordingRoot: string
   workRoot: string
   youtubeCookiesFile?: string
+  youtubeJsRuntime?: 'deno' | 'node'
+  youtubeUseCookies?: boolean
   youtubeExtractorArgs: string
   youtubeFormat: string
   youtubeLiveExtractorArgs?: string
@@ -619,7 +621,11 @@ function youtubeArguments(options: MediaSourceProcessOptions, extractorArgs: str
     '--no-playlist',
     '--no-progress',
     '--no-warnings',
-    ...(options.youtubeCookiesFile ? ['--cookies', options.youtubeCookiesFile] : []),
+    '--js-runtimes',
+    options.youtubeJsRuntime ?? 'deno',
+    ...(options.youtubeUseCookies && options.youtubeCookiesFile
+      ? ['--cookies', options.youtubeCookiesFile]
+      : []),
     '--extractor-args',
     extractorArgs,
     ...(options.youtubePotProviderUrl

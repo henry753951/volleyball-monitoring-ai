@@ -33,15 +33,20 @@ const MediaIndexerEnvironment = z.object({
     value => (typeof value === 'string' && value.trim() === '' ? undefined : value),
     z.string().trim().min(1).optional(),
   ),
-  YOUTUBE_EXTRACTOR_ARGS: z.string().min(1).default('youtube:player_client=default'),
+  YOUTUBE_EXTRACTOR_ARGS: z.string().min(1).default('youtube:player_client=mweb'),
   YOUTUBE_FORMAT: z.string().min(1).default(YOUTUBE_PROBE_FORMAT),
   YOUTUBE_LIVE_EXTRACTOR_ARGS: z.string().min(1).default('youtube:player_client=mweb'),
   YOUTUBE_LIVE_MAX_CONSECUTIVE_FAILURES: z.coerce.number().int().min(1).max(100).default(5),
+  YOUTUBE_JS_RUNTIME: z.enum(['deno', 'node']).default('deno'),
   YOUTUBE_POT_PROVIDER_URL: z.preprocess(
     value => (typeof value === 'string' && value.trim() === '' ? undefined : value),
     z.string().url().optional(),
   ),
-  YOUTUBE_VOD_EXTRACTOR_ARGS: z.string().min(1).default('youtube:player_client=visionos'),
+  YOUTUBE_USE_COOKIES: z
+    .enum(['true', 'false'])
+    .default('false')
+    .transform(value => value === 'true'),
+  YOUTUBE_VOD_EXTRACTOR_ARGS: z.string().min(1).default('youtube:player_client=mweb'),
   YOUTUBE_VOD_FORMAT: z.string().min(1).default(YOUTUBE_VOD_FORMAT),
   YT_DLP_COMMAND: z.string().min(1).default('yt-dlp'),
 })
