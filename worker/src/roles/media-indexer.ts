@@ -226,27 +226,22 @@ export async function quarantinePermanentMediaFailures(
   )
 }
 
-type QuarantineBoss = Pick<PgBoss, 'cancel' | 'findJobs' | 'getBlockedKeys'>
+type QuarantineBoss = Pick<PgBoss, 'cancel' | 'findJobs'>
 
 export async function quarantineBlockedCaptureJobs(
   boss: QuarantineBoss,
-  captureSessionId?: string,
+  captureSessionId: string,
 ): Promise<number> {
-  const keys = captureSessionId ? [captureSessionId] : await boss.getBlockedKeys(MEDIA_INGEST_QUEUE)
-  let cancelled = 0
-  for (const key of keys) {
-    const queued = await boss.findJobs<MediaIngestEnvelope>(MEDIA_INGEST_QUEUE, {
-      key,
-      queued: true,
-    })
-    if (queued.length === 0) continue
-    await boss.cancel(
-      MEDIA_INGEST_QUEUE,
-      queued.map(job => job.id),
-    )
-    cancelled += queued.length
-  }
-  return cancelled
+  const queued = await boss.findJobs<MediaIngestEnvelope>(MEDIA_INGEST_QUEUE, {
+    key: captureSessionId,
+    queued: true,
+  })
+  if (queued.length === 0) return 0
+  await boss.cancel(
+    MEDIA_INGEST_QUEUE,
+    queued.map(job => job.id),
+  )
+  return queued.length
 }
 
 function failureFromDeadLetter(value: unknown): PermanentMediaIngestFailure | null {
@@ -294,14 +289,20 @@ export async function reconcilePermanentMediaFailures(
   boss: DeadLetterBoss,
   deadLetter: string,
   recordFailure: RecordPermanentMediaIngestFailure,
+  quarantineSuccessors: QuarantineSuccessors = async () => undefined,
 ): Promise<number> {
   const jobs = await boss.findJobs<Record<string, unknown>>(deadLetter)
+  const captureSessionIds = new Set<string>()
   let recorded = 0
   for (const job of jobs) {
     const failure = failureFromDeadLetter(job.data)
     if (!failure) continue
     await recordFailure(failure)
+    captureSessionIds.add(failure.captureSessionId)
     recorded += 1
+  }
+  for (const captureSessionId of captureSessionIds) {
+    await quarantineSuccessors(captureSessionId)
   }
   return recorded
 }
@@ -377,8 +378,14 @@ export function createPgBossMediaRuntime(
         if (!persisted || !queueMatches(persisted)) {
           throw new Error('Media ingest queue configuration conflicts with runtime policy.')
         }
-        await reconcilePermanentMediaFailures(boss, deadLetter, recordFailure)
-        await quarantineBlockedCaptureJobs(boss)
+        await reconcilePermanentMediaFailures(
+          boss,
+          deadLetter,
+          recordFailure,
+          async captureSessionId => {
+            await quarantineBlockedCaptureJobs(boss, captureSessionId)
+          },
+        )
         await assignQueuedIngestGroups(boss)
 
         const workOptions = {

@@ -808,7 +808,7 @@ cd223367ea1d5f731e73a2b292e0cffc05c46bee5099ccf6475865bbffd7b759  ./worker/src/r
 d626bd62d4e744e53324a4084ee1fe51fa47bcfa26f06bb12ff5153ad44a68d5  ./worker/src/roles/highlight-export-worker.ts
 4791df925d60c43b3e4740ba3d3e5e3b118900efc4f9e4e0c9680ac855a49888  ./worker/src/roles/identity-preview-worker.ts
 ba726d175f69cc4a95968b49daca3d534f4abe1205afbe012556669bb029768d  ./worker/src/roles/jersey-suggestion-worker.ts
-11b16ddf1fea402d3509eef55dc808537de9a353b2929d48bfba2be60e0b5015  ./worker/src/roles/media-indexer.ts
+31fc60bbb5dee98bbaf4b7f9796abb4bee646d957fe2bf340e791e694fc51bfd  ./worker/src/roles/media-indexer.ts
 156a0252f44c02372cb6df55d33e1b1c62319eb70c4a36f2762b76777b64b1d9  ./worker/src/roles/outbox-publisher.ts
 c3a3cfe8c76f3bb5412e96e67e1f55c024376826c68f0433d03035cdd0c4374b  ./worker/src/roles/playback-packager.ts
 586884934a4c2de76dd0d1c8613fc06e1aa036c35d9feb06f39b6614d9c366df  ./worker/src/roles/provider-analysis-materializer.ts
@@ -838,7 +838,7 @@ fc41a9ff34fe316f01ea3bfd788e10db7361d08a1b273fcf2bcd39f7dfd74c10  ./worker/tests
 74e08ffd4c72168400ebd14d3ca64717087a9ada05a4fe059bd1ee96f62d4446  ./worker/tests/ingest-handler.test.ts
 0d9c4b0bcc02ebf9f937a6da4a60b4a0a2bed23d84a174a760bd6489ff50fc96  ./worker/tests/ingest.test.ts
 50c92f6053445e2e63e82c74c3906d2d4c378665aeac104ad8286afe00253c2e  ./worker/tests/lifecycle.test.ts
-60efe606108c108340a768021403972b468f6a39071f980afd791258fd12e819  ./worker/tests/media-indexer.test.ts
+b2019562126c58d8c9b101d99a979e13aabea09082c0cbb47f8b0a333b755e69  ./worker/tests/media-indexer.test.ts
 5c0fb448757fc09d33fce0dc6d93ebe679286dccf468b7a97b615e1061392009  ./worker/tests/media-resolver.test.ts
 44dbd5ef5b7e1d7c1fa34bf3d3418edabe8d1de17d324d107a9d565fe8c772d9  ./worker/tests/minio-object-store.test.ts
 2888639f5aa9ec7961819da8376792572e46c00d116d0e6d59a48c7e3eb9a5ca  ./worker/tests/outbox-publisher.test.ts

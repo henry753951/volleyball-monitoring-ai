@@ -122,6 +122,7 @@ describe('media ingest failure quarantine', () => {
       explicitGapBeforeUs: null,
     } satisfies MediaIngestEnvelope
     const recorded: Record<string, unknown>[] = []
+    const quarantinedCaptureIds: string[] = []
     const boss = {
       findJobs: async () => [
         {
@@ -137,9 +138,16 @@ describe('media ingest failure quarantine', () => {
     } as unknown as Pick<PgBoss, 'findJobs'>
 
     await expect(
-      reconcilePermanentMediaFailures(boss, `${MEDIA_INGEST_QUEUE}.dead-letter`, async failure => {
-        recorded.push(failure)
-      }),
+      reconcilePermanentMediaFailures(
+        boss,
+        `${MEDIA_INGEST_QUEUE}.dead-letter`,
+        async failure => {
+          recorded.push(failure)
+        },
+        async captureSessionId => {
+          quarantinedCaptureIds.push(captureSessionId)
+        },
+      ),
     ).resolves.toBe(1)
     expect(recorded).toEqual([
       {
@@ -148,6 +156,7 @@ describe('media ingest failure quarantine', () => {
         sourceJobId: envelope.epochCandidateId,
       },
     ])
+    expect(quarantinedCaptureIds).toEqual([envelope.captureSessionId])
   })
 })
 
@@ -155,16 +164,15 @@ describe('media ingest capture groups', () => {
   it('cancels queued successors for permanently failed capture keys', async () => {
     const cancelled: string[][] = []
     const boss = {
-      getBlockedKeys: async () => ['capture-a', 'capture-b'],
       findJobs: async (_name: string, options: { key?: string }) =>
         options.key === 'capture-a' ? [{ id: 'job-a-2' }, { id: 'job-a-3' }] : [],
       cancel: async (_name: string, ids: string | string[]) => {
         cancelled.push(Array.isArray(ids) ? ids : [ids])
         return {}
       },
-    } as unknown as Pick<PgBoss, 'cancel' | 'findJobs' | 'getBlockedKeys'>
+    } as unknown as Pick<PgBoss, 'cancel' | 'findJobs'>
 
-    await expect(quarantineBlockedCaptureJobs(boss)).resolves.toBe(2)
+    await expect(quarantineBlockedCaptureJobs(boss, 'capture-a')).resolves.toBe(2)
     expect(cancelled).toEqual([['job-a-2', 'job-a-3']])
   })
 
