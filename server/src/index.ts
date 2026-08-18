@@ -13,6 +13,7 @@ import { createPrismaCursorWindowStore, mediaCursorRoutes } from './media/cursor
 import { resolvePlaybackCursor } from './media/cursor-resolution.js'
 import {
   createDvrObjectReaderFromEnv,
+  createDvrObjectStreamReaderFromEnv,
   createMinioObjectReaderFromEnv,
 } from './media/minio-object-reader.js'
 import { createMediaObjectRemoverFromEnv } from './media/media-object-remover.js'
@@ -56,7 +57,8 @@ const minioEndpoint = process.env.MINIO_ENDPOINT?.replace(/\/+$/, '')
 const omeApiEndpoint = process.env.OME_API_URL?.replace(/\/+$/, '')
 const omeApiToken = process.env.OME_API_ACCESS_TOKEN?.trim()
 const mediaObjectReader = createDvrObjectReaderFromEnv()
-if (!mediaObjectReader) {
+const mediaObjectStreamReader = createDvrObjectStreamReaderFromEnv()
+if (!mediaObjectReader || !mediaObjectStreamReader) {
   throw new Error('MinIO reader configuration is required for media playback and cursor resolution')
 }
 const timingManifestReader = createMinioObjectReaderFromEnv(process.env, 'MINIO_RALLY_BUCKET')
@@ -181,6 +183,7 @@ await app.register(
 await app.register(
   mediaPlaybackRoutes({
     objectReader: mediaObjectReader,
+    objectStreamReader: mediaObjectStreamReader,
     resolveSample: createPersistedSampleSnapResolver(db, mediaObjectReader),
   }),
 )

@@ -23,7 +23,9 @@ import {
   type PlaybackSegmentCandidate,
   type PlaybackWindowLimits,
   type MediaAssetKind,
+  type MediaObjectByteRange,
   type MediaObjectReader,
+  type MediaObjectStreamReader,
   type SampleSnapResult,
 } from '../media/playback-domain.js'
 
@@ -64,6 +66,7 @@ export interface MediaPlaybackDeps {
     }[]
   }) => Promise<SampleSnapResult>
   objectReader?: MediaObjectReader
+  objectStreamReader?: MediaObjectStreamReader
 }
 
 interface WindowParams {
@@ -77,6 +80,50 @@ interface ResourceParams extends WindowParams {
 function headerValue(request: FastifyRequest, name: string): string | null {
   const value = request.headers[name]
   return typeof value === 'string' ? value : null
+}
+
+function etagMatches(ifNoneMatch: string | null, etag: string): boolean {
+  if (ifNoneMatch === null) return false
+  return ifNoneMatch
+    .split(',')
+    .map(value => value.trim())
+    .some(value => value === '*' || value === etag || value === `W/${etag}`)
+}
+
+function invalidRange(byteLength: bigint): never {
+  throw new MediaHttpError(416, 'BAD_REQUEST', 'Requested media byte range is invalid', {
+    resource_byte_length: byteLength.toString(),
+  })
+}
+
+/** Parse one RFC 9110 byte range into a half-open interval. */
+function parseByteRange(value: string | null, byteLength: bigint): MediaObjectByteRange | undefined {
+  if (value === null) return undefined
+  const match = /^bytes=(\d*)-(\d*)$/i.exec(value.trim())
+  if (!match || byteLength <= 0n || (match[1] === '' && match[2] === '')) {
+    return invalidRange(byteLength)
+  }
+
+  if (match[1] === '') {
+    const suffixLength = BigInt(match[2]!)
+    if (suffixLength <= 0n) return invalidRange(byteLength)
+    return {
+      start: suffixLength >= byteLength ? 0n : byteLength - suffixLength,
+      endExclusive: byteLength,
+    }
+  }
+
+  const start = BigInt(match[1]!)
+  if (start >= byteLength) return invalidRange(byteLength)
+  if (match[2] === '') return { start, endExclusive: byteLength }
+
+  const requestedEndInclusive = BigInt(match[2]!)
+  if (requestedEndInclusive < start) return invalidRange(byteLength)
+  return {
+    start,
+    endExclusive:
+      requestedEndInclusive >= byteLength - 1n ? byteLength : requestedEndInclusive + 1n,
+  }
 }
 
 async function defaultDevelopmentIdentity(request: FastifyRequest): Promise<MediaIdentity | null> {
@@ -114,6 +161,10 @@ function requestId(request: FastifyRequest): string {
 
 function sendMediaError(request: FastifyRequest, reply: FastifyReply, error: unknown) {
   if (error instanceof MediaHttpError) {
+    if (error.status === 416) {
+      const byteLength = error.details?.resource_byte_length
+      if (typeof byteLength === 'string') reply.header('content-range', `bytes */${byteLength}`)
+    }
     return reply.code(error.status).send(mediaErrorEnvelope(error, requestId(request)))
   }
   request.log.error({ err: error }, 'media playback request failed')
@@ -628,11 +679,38 @@ async function extendPlaybackWindow(
   })
 }
 
-function selectedAsset(window: VisibleWindowWithSegments, token: string) {
+async function selectedWindowAsset(
+  windowId: string,
+  token: string,
+  identity: MediaIdentity,
+) {
   const resource = parsePlaybackResourceToken(token)
-  const mapping = window.segments.find(
-    entry => entry.dvrSegmentId.toLowerCase() === resource.dvrSegmentId,
-  )
+  const mapping = await db.playbackWindowSegment.findFirst({
+    select: {
+      dvrSegment: {
+        select: {
+          initAsset: true,
+          isGap: true,
+          mediaAsset: true,
+          readyAt: true,
+        },
+      },
+      playbackWindow: { select: { expiresAt: true } },
+    },
+    where: {
+      dvrSegmentId: resource.dvrSegmentId,
+      playbackWindowId: windowId,
+      ...(identity.role === UserRole.ADMIN
+        ? {}
+        : {
+            playbackWindow: {
+              captureSession: {
+                match: { members: { some: { userId: identity.id } } },
+              },
+            },
+          }),
+    },
+  })
   if (!mapping) {
     throw new MediaHttpError(404, 'NOT_FOUND', 'Media resource not found')
   }
@@ -646,7 +724,12 @@ function selectedAsset(window: VisibleWindowWithSegments, token: string) {
   ) {
     throw new MediaHttpError(409, 'MEDIA_NOT_READY', 'Media resource is not ready')
   }
-  return asset
+  return { asset, expiresAt: mapping.playbackWindow.expiresAt }
+}
+
+function sharedBuffer(bytes: Uint8Array): Buffer {
+  if (Buffer.isBuffer(bytes)) return bytes
+  return Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength)
 }
 
 export const mediaPlaybackRoutes =
@@ -743,34 +826,62 @@ export const mediaPlaybackRoutes =
         try {
           const identity = await authenticate(request, deps.authenticate)
           const id = parseUuid(request.params.windowId, 'Playback window')
-          const window = await visibleWindowWithSegments(id, identity)
-          if (!window) {
-            throw new MediaHttpError(404, 'NOT_FOUND', 'Media resource not found')
+          const { asset, expiresAt } = await selectedWindowAsset(
+            id,
+            request.params.segmentId,
+            identity,
+          )
+          assertWindowActive({ expiresAt }, now())
+
+          const etag = `"${asset.sha256}"`
+          reply
+            .header('accept-ranges', 'bytes')
+            .header('cache-control', 'private, max-age=300, immutable')
+            .header('etag', etag)
+          if (etagMatches(headerValue(request, 'if-none-match'), etag)) {
+            return reply.code(304).send()
           }
-          assertWindowActive(window, now())
-          const asset = selectedAsset(window, request.params.segmentId)
-          if (!deps.objectReader) {
-            throw new MediaHttpError(409, 'MEDIA_NOT_READY', 'Media object reader unavailable')
+
+          const range = parseByteRange(headerValue(request, 'range'), asset.byteLength)
+          const responseLength = range
+            ? range.endExclusive - range.start
+            : asset.byteLength
+          if (range) {
+            reply
+              .code(206)
+              .header(
+                'content-range',
+                `bytes ${range.start}-${range.endExclusive - 1n}/${asset.byteLength}`,
+              )
           }
-          let bytes: Uint8Array
+          reply.header('content-length', responseLength.toString()).type(asset.contentType)
+
+          const readRequest = {
+            bucket: asset.bucket,
+            expectedByteLength: asset.byteLength,
+            expectedContentType: asset.contentType,
+            expectedInternalSchemaVersion: asset.internalSchemaVersion,
+            expectedKind: asset.kind,
+            expectedSha256: asset.sha256,
+            key: asset.objectKey,
+          }
           try {
-            bytes = await deps.objectReader({
-              bucket: asset.bucket,
-              expectedByteLength: asset.byteLength,
-              expectedContentType: asset.contentType,
-              expectedInternalSchemaVersion: asset.internalSchemaVersion,
-              expectedKind: asset.kind,
-              expectedSha256: asset.sha256,
-              key: asset.objectKey,
-            })
-          } catch {
+            if (deps.objectStreamReader) {
+              return reply.send(await deps.objectStreamReader(readRequest, range))
+            }
+            if (!deps.objectReader) {
+              throw new MediaHttpError(409, 'MEDIA_NOT_READY', 'Media object reader unavailable')
+            }
+            const bytes = sharedBuffer(await deps.objectReader(readRequest))
+            const payload =
+              range === undefined
+                ? bytes
+                : bytes.subarray(Number(range.start), Number(range.endExclusive))
+            return reply.send(payload)
+          } catch (error) {
+            if (error instanceof MediaHttpError) throw error
             throw new MediaHttpError(409, 'MEDIA_NOT_READY', 'Media object is unavailable')
           }
-          return reply
-            .header('cache-control', 'private, max-age=300, immutable')
-            .header('etag', `"${asset.sha256}"`)
-            .type(asset.contentType)
-            .send(Buffer.from(bytes))
         } catch (error) {
           return sendMediaError(request, reply, error)
         }

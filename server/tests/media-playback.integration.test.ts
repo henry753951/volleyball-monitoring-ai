@@ -1,13 +1,17 @@
 import { execFile } from 'node:child_process'
 import { createHash, randomUUID } from 'node:crypto'
 import { resolve } from 'node:path'
+import { Readable } from 'node:stream'
 import { promisify } from 'node:util'
 import Fastify, { type FastifyInstance } from 'fastify'
 import { Pool } from 'pg'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import type { db as databaseClient } from '@volleyball-monitoring/db'
 import type { MediaIdentity, MediaPlaybackDeps } from '../src/routes/media-playback.js'
-import type { MediaObjectReadRequest } from '../src/media/playback-domain.js'
+import type {
+  MediaObjectByteRange,
+  MediaObjectReadRequest,
+} from '../src/media/playback-domain.js'
 
 const execFileAsync = promisify(execFile)
 const repositoryRoot = resolve(process.cwd(), '..')
@@ -53,7 +57,10 @@ const ids = {
 const baseUs = 9_007_199_254_740_992n
 const now = new Date('2026-08-07T04:00:00.000Z')
 const objectBytes = new Map<string, Uint8Array>()
-const reads: MediaObjectReadRequest[] = []
+const streamReads: {
+  request: MediaObjectReadRequest
+  range: MediaObjectByteRange | null
+}[] = []
 const identities: Record<string, MediaIdentity> = {
   admin: { id: ids.admin, role: 'ADMIN' },
   operator: { id: ids.operator, role: 'OPERATOR' },
@@ -348,8 +355,8 @@ beforeAll(async () => {
       maxForwardUs: 2_000_000n,
     },
     now: () => now,
-    objectReader: async request => {
-      reads.push(request)
+    objectStreamReader: async (request, range) => {
+      streamReads.push({ request, range: range ?? null })
       const bytes = objectBytes.get(objectMapKey(request))
       if (!bytes) throw new Error('missing test object')
       if (
@@ -358,7 +365,11 @@ beforeAll(async () => {
       ) {
         throw new Error('corrupt test object')
       }
-      return bytes
+      const payload =
+        range === undefined
+          ? bytes
+          : bytes.subarray(Number(range.start), Number(range.endExclusive))
+      return Readable.from([payload])
     },
     resolveSample: async ({ segments, targetUs }) => ({
       captureUs: targetUs === segments.at(-1)!.captureEndUs ? targetUs - 1n : targetUs,
@@ -551,7 +562,7 @@ describe('Phase 2A playback-window HTTP', () => {
     expect(manifest.body).not.toContain('#EXT-X-ENDLIST')
   })
 
-  it('serves a bounded manifest and verified init/media bytes through opaque tokens', async () => {
+  it('serves indexed media as streams with range and conditional request support', async () => {
     const created = await app.inject({
       headers: authHeaders('operator'),
       method: 'POST',
@@ -571,7 +582,7 @@ describe('Phase 2A playback-window HTTP', () => {
     expect(manifest.body).toContain(`/segments/media-${ids.segment2}`)
     expect(manifest.body).not.toMatch(/fixture\/|objectKey|minio/i)
 
-    reads.length = 0
+    streamReads.length = 0
     const init = await app.inject({
       headers: authHeaders('operator'),
       method: 'GET',
@@ -583,27 +594,78 @@ describe('Phase 2A playback-window HTTP', () => {
       url: `/api/v1/media/playback-windows/${windowId}/segments/media-${ids.segment2}`,
     })
     expect(init.statusCode).toBe(200)
+    expect(init.headers['accept-ranges']).toBe('bytes')
+    expect(init.headers['content-length']).toBe('10')
     expect(init.rawPayload).toEqual(Buffer.from('init-bytes'))
     expect(media.statusCode).toBe(200)
     expect(media.rawPayload).toEqual(Buffer.from('media-two'))
-    expect(reads).toEqual([
+
+    const mediaEtag = `"${sha256(Buffer.from('media-two'))}"`
+    expect(media.headers.etag).toBe(mediaEtag)
+    const partial = await app.inject({
+      headers: { ...authHeaders('operator'), range: 'bytes=2-5' },
+      method: 'GET',
+      url: `/api/v1/media/playback-windows/${windowId}/segments/media-${ids.segment2}`,
+    })
+    expect(partial.statusCode).toBe(206)
+    expect(partial.headers['content-range']).toBe('bytes 2-5/9')
+    expect(partial.headers['content-length']).toBe('4')
+    expect(partial.rawPayload).toEqual(Buffer.from('dia-'))
+
+    const readsBeforeConditional = streamReads.length
+    const notModified = await app.inject({
+      headers: { ...authHeaders('operator'), 'if-none-match': mediaEtag },
+      method: 'GET',
+      url: `/api/v1/media/playback-windows/${windowId}/segments/media-${ids.segment2}`,
+    })
+    expect(notModified.statusCode).toBe(304)
+    expect(notModified.rawPayload).toHaveLength(0)
+    expect(streamReads).toHaveLength(readsBeforeConditional)
+
+    const unsatisfied = await app.inject({
+      headers: { ...authHeaders('operator'), range: 'bytes=99-' },
+      method: 'GET',
+      url: `/api/v1/media/playback-windows/${windowId}/segments/media-${ids.segment2}`,
+    })
+    expect(unsatisfied.statusCode).toBe(416)
+    expect(unsatisfied.headers['content-range']).toBe('bytes */9')
+    expect(errorBody(unsatisfied).code).toBe('BAD_REQUEST')
+    expect(streamReads).toEqual([
       {
-        bucket: 'dvr-media',
-        expectedByteLength: 10n,
-        expectedContentType: 'video/mp4',
-        expectedInternalSchemaVersion: '1.0.0',
-        expectedKind: 'DVR_INIT',
-        expectedSha256: sha256(Buffer.from('init-bytes')),
-        key: 'fixture/init.mp4',
+        range: null,
+        request: {
+          bucket: 'dvr-media',
+          expectedByteLength: 10n,
+          expectedContentType: 'video/mp4',
+          expectedInternalSchemaVersion: '1.0.0',
+          expectedKind: 'DVR_INIT',
+          expectedSha256: sha256(Buffer.from('init-bytes')),
+          key: 'fixture/init.mp4',
+        },
       },
       {
-        bucket: 'dvr-media',
-        expectedByteLength: 9n,
-        expectedContentType: 'video/mp4',
-        expectedInternalSchemaVersion: '1.0.0',
-        expectedKind: 'DVR_SEGMENT',
-        expectedSha256: sha256(Buffer.from('media-two')),
-        key: 'fixture/two.m4s',
+        range: null,
+        request: {
+          bucket: 'dvr-media',
+          expectedByteLength: 9n,
+          expectedContentType: 'video/mp4',
+          expectedInternalSchemaVersion: '1.0.0',
+          expectedKind: 'DVR_SEGMENT',
+          expectedSha256: sha256(Buffer.from('media-two')),
+          key: 'fixture/two.m4s',
+        },
+      },
+      {
+        range: { start: 2n, endExclusive: 6n },
+        request: {
+          bucket: 'dvr-media',
+          expectedByteLength: 9n,
+          expectedContentType: 'video/mp4',
+          expectedInternalSchemaVersion: '1.0.0',
+          expectedKind: 'DVR_SEGMENT',
+          expectedSha256: sha256(Buffer.from('media-two')),
+          key: 'fixture/two.m4s',
+        },
       },
     ])
   })

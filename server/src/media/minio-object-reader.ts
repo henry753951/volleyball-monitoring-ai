@@ -1,13 +1,15 @@
 import { createHash } from 'node:crypto'
 import { Buffer } from 'node:buffer'
-import { readFile, stat } from 'node:fs/promises'
+import { open, readFile, stat } from 'node:fs/promises'
 import { isAbsolute, relative, resolve } from 'node:path'
-import type { Readable } from 'node:stream'
+import { Transform, type Readable } from 'node:stream'
 import { Client, type ClientOptions } from 'minio'
 import type {
   MediaAssetKind,
+  MediaObjectByteRange,
   MediaObjectReader,
   MediaObjectReadRequest,
+  MediaObjectStreamReader,
 } from './playback-domain.js'
 
 export type MinioObjectReaderErrorCode =
@@ -42,6 +44,7 @@ export interface MinioObjectReaderConfig {
 
 export interface MinioObjectClient {
   getObject(bucket: string, key: string): Promise<Readable>
+  getPartialObject?(bucket: string, key: string, offset: number, length: number): Promise<Readable>
 }
 
 export type MinioObjectClientFactory = (options: ClientOptions) => MinioObjectClient
@@ -77,6 +80,9 @@ const defaultClientFactory: MinioObjectClientFactory = options => {
   return {
     getObject(bucket, key) {
       return client.getObject(bucket, key)
+    },
+    getPartialObject(bucket, key, offset, length) {
+      return client.getPartialObject(bucket, key, offset, length)
     },
   }
 }
@@ -217,6 +223,26 @@ function validateRequest(
   return Number(request.expectedByteLength)
 }
 
+interface ValidatedByteRange {
+  start: number
+  endExclusive: number
+  length: number
+}
+
+function validateByteRange(
+  range: MediaObjectByteRange | undefined,
+  expectedByteLength: number,
+): ValidatedByteRange | undefined {
+  if (range === undefined) return undefined
+  const expected = BigInt(expectedByteLength)
+  if (range.start < 0n || range.endExclusive <= range.start || range.endExclusive > expected) {
+    throw new MinioObjectReaderError('INVALID_REQUEST', 'Media object byte range is invalid')
+  }
+  const start = Number(range.start)
+  const endExclusive = Number(range.endExclusive)
+  return { start, endExclusive, length: endExclusive - start }
+}
+
 function errorCode(error: unknown): string | undefined {
   if (error === null || typeof error !== 'object') return undefined
   const value = Reflect.get(error, 'code')
@@ -235,10 +261,17 @@ async function getObjectStream(
   client: MinioObjectClient,
   request: MediaObjectReadRequest,
   timeoutMs: number,
+  range?: ValidatedByteRange,
 ): Promise<Readable> {
   let timeout: ReturnType<typeof setTimeout> | undefined
   let timedOut = false
-  const operation = Promise.resolve().then(() => client.getObject(request.bucket, request.key))
+  const operation = Promise.resolve().then(() => {
+    if (range === undefined) return client.getObject(request.bucket, request.key)
+    if (!client.getPartialObject) {
+      throw new MinioObjectReaderError('READ_FAILED', 'Media object read failed')
+    }
+    return client.getPartialObject(request.bucket, request.key, range.start, range.length)
+  })
   const timeoutPromise = new Promise<never>((_resolve, reject) => {
     timeout = setTimeout(() => {
       timedOut = true
@@ -265,8 +298,100 @@ async function getObjectStream(
 
 function chunkBytes(chunk: unknown): Buffer {
   if (typeof chunk === 'string') return Buffer.from(chunk)
-  if (chunk instanceof Uint8Array) return Buffer.from(chunk)
+  if (Buffer.isBuffer(chunk)) return chunk
+  if (chunk instanceof Uint8Array) {
+    return Buffer.from(chunk.buffer, chunk.byteOffset, chunk.byteLength)
+  }
   throw new MinioObjectReaderError('STREAM_FAILED', 'Media object stream failed')
+}
+
+/**
+ * Validate byte count while forwarding chunks without accumulating the object
+ * in the Node heap. The timer is an inactivity timeout and is refreshed on
+ * every chunk so a large transfer is not killed merely for taking longer than
+ * one fixed request deadline.
+ */
+function createLengthCheckedStream(
+  source: Readable,
+  expectedByteLength: number,
+  inactivityTimeoutMs: number,
+): Readable {
+  let received = 0
+  let timeout: ReturnType<typeof setTimeout> | undefined
+  let terminal = false
+
+  const clearInactivityTimeout = () => {
+    if (timeout !== undefined) clearTimeout(timeout)
+    timeout = undefined
+  }
+  const validator = new Transform({
+    transform(chunk, _encoding, callback) {
+      try {
+        const bytes = chunkBytes(chunk)
+        received += bytes.byteLength
+        if (received > expectedByteLength) {
+          source.destroy()
+          callback(
+            new MinioObjectReaderError(
+              'OBJECT_TOO_LARGE',
+              'Media object exceeded its expected size',
+            ),
+          )
+          return
+        }
+        armInactivityTimeout()
+        callback(null, bytes)
+      } catch (error) {
+        source.destroy()
+        callback(
+          error instanceof MinioObjectReaderError
+            ? error
+            : new MinioObjectReaderError('STREAM_FAILED', 'Media object stream failed'),
+        )
+      }
+    },
+    flush(callback) {
+      if (received !== expectedByteLength) {
+        callback(
+          new MinioObjectReaderError(
+            'LENGTH_MISMATCH',
+            'Media object length did not match its expected value',
+          ),
+        )
+        return
+      }
+      callback()
+    },
+  })
+
+  const fail = (error: MinioObjectReaderError) => {
+    if (terminal || validator.destroyed) return
+    terminal = true
+    clearInactivityTimeout()
+    validator.destroy(error)
+    source.destroy()
+  }
+  function armInactivityTimeout() {
+    clearInactivityTimeout()
+    timeout = setTimeout(
+      () => fail(new MinioObjectReaderError('TIMEOUT', 'Media object read timed out')),
+      inactivityTimeoutMs,
+    )
+  }
+
+  source.once('error', () =>
+    fail(new MinioObjectReaderError('STREAM_FAILED', 'Media object stream failed')),
+  )
+  validator.once('close', () => {
+    terminal = true
+    clearInactivityTimeout()
+    if (!source.destroyed) source.destroy()
+  })
+  validator.once('end', clearInactivityTimeout)
+  validator.once('error', clearInactivityTimeout)
+  armInactivityTimeout()
+  source.pipe(validator)
+  return validator
 }
 
 async function consumeStream(
@@ -360,16 +485,69 @@ export function createMinioObjectReader(
   return request => reader.read(request)
 }
 
+class MinioMediaObjectStreamReader {
+  constructor(
+    private readonly client: MinioObjectClient,
+    private readonly bucket: string,
+    private readonly maxObjectBytes: number,
+    private readonly operationTimeoutMs: number,
+  ) {}
+
+  async read(request: MediaObjectReadRequest, range?: MediaObjectByteRange): Promise<Readable> {
+    const expectedByteLength = validateRequest(request, this.bucket, this.maxObjectBytes)
+    const validatedRange = validateByteRange(range, expectedByteLength)
+    const stream = await getObjectStream(
+      this.client,
+      request,
+      this.operationTimeoutMs,
+      validatedRange,
+    )
+    return createLengthCheckedStream(
+      stream,
+      validatedRange?.length ?? expectedByteLength,
+      this.operationTimeoutMs,
+    )
+  }
+}
+
+/**
+ * Stream immutable media directly to Fastify. Ingest/archive publication has
+ * already bound the object to its SHA-256; the hot HTTP path validates request
+ * metadata and byte count but deliberately avoids hashing the whole object on
+ * every viewer request.
+ */
+export function createMinioObjectStreamReader(
+  config: MinioObjectReaderConfig,
+  clientFactory: MinioObjectClientFactory = defaultClientFactory,
+): MediaObjectStreamReader {
+  const validated = validateConfig(config)
+  let client: MinioObjectClient
+  try {
+    client = clientFactory(validated.clientOptions)
+  } catch {
+    throw new MinioObjectReaderError('INVALID_CONFIG', 'MinIO client initialization failed')
+  }
+  const reader = new MinioMediaObjectStreamReader(
+    client,
+    validated.bucket,
+    validated.maxObjectBytes,
+    validated.operationTimeoutMs,
+  )
+  return (request, range) => reader.read(request, range)
+}
+
 function optionalPositiveInteger(value: string | undefined): number | undefined {
   if (value === undefined) return undefined
   if (!/^\d+$/.test(value)) invalidConfig('MinIO reader numeric setting is invalid')
   return Number(value)
 }
 
-export function createMinioObjectReaderFromEnv(
-  environment: NodeJS.ProcessEnv = process.env,
-  bucketVariable: 'MINIO_DVR_BUCKET' | 'MINIO_RALLY_BUCKET' = 'MINIO_DVR_BUCKET',
-): MediaObjectReader | undefined {
+type MinioBucketVariable = 'MINIO_DVR_BUCKET' | 'MINIO_RALLY_BUCKET'
+
+function objectReaderConfigFromEnv(
+  environment: NodeJS.ProcessEnv,
+  bucketVariable: MinioBucketVariable,
+): MinioObjectReaderConfig | undefined {
   const required = [
     environment.MINIO_ENDPOINT,
     environment.MINIO_ACCESS_KEY,
@@ -382,14 +560,30 @@ export function createMinioObjectReaderFromEnv(
   }
   const maxObjectBytes = optionalPositiveInteger(environment.MINIO_READ_MAX_OBJECT_BYTES)
   const operationTimeoutMs = optionalPositiveInteger(environment.MINIO_READ_TIMEOUT_MS)
-  return createMinioObjectReader({
+  return {
     accessKey: environment.MINIO_ACCESS_KEY ?? '',
     bucket: environment[bucketVariable] ?? '',
     endpoint: environment.MINIO_ENDPOINT ?? '',
     ...(maxObjectBytes === undefined ? {} : { maxObjectBytes }),
     ...(operationTimeoutMs === undefined ? {} : { operationTimeoutMs }),
     secretKey: environment.MINIO_SECRET_KEY ?? '',
-  })
+  }
+}
+
+export function createMinioObjectReaderFromEnv(
+  environment: NodeJS.ProcessEnv = process.env,
+  bucketVariable: MinioBucketVariable = 'MINIO_DVR_BUCKET',
+): MediaObjectReader | undefined {
+  const config = objectReaderConfigFromEnv(environment, bucketVariable)
+  return config === undefined ? undefined : createMinioObjectReader(config)
+}
+
+export function createMinioObjectStreamReaderFromEnv(
+  environment: NodeJS.ProcessEnv = process.env,
+  bucketVariable: MinioBucketVariable = 'MINIO_DVR_BUCKET',
+): MediaObjectStreamReader | undefined {
+  const config = objectReaderConfigFromEnv(environment, bucketVariable)
+  return config === undefined ? undefined : createMinioObjectStreamReader(config)
 }
 
 function localObjectPath(rootValue: string, bucket: string, key: string): string {
@@ -441,6 +635,62 @@ export function createDvrObjectReaderFromEnv(
       return bytes
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === 'ENOENT') return archived(request)
+      throw error
+    }
+  }
+}
+
+/**
+ * Stream the local hot copy when present and use MinIO range reads after the
+ * archive mirror wins. The database length and local stat protect immutable
+ * object boundaries without a full read/hash on every playback request.
+ */
+export function createDvrObjectStreamReaderFromEnv(
+  environment: NodeJS.ProcessEnv = process.env,
+): MediaObjectStreamReader | undefined {
+  const archived = createMinioObjectStreamReaderFromEnv(environment, 'MINIO_DVR_BUCKET')
+  const root = environment.MEDIA_HOT_ROOT?.trim()
+  if (!root) return archived
+  if (!archived) invalidConfig('MinIO reader configuration is required with the DVR hot tier')
+  const bucket = validateBucket(environment.MINIO_DVR_BUCKET ?? '')
+  const configuredMaximum = optionalPositiveInteger(environment.MINIO_READ_MAX_OBJECT_BYTES)
+  const maximum = configuredMaximum ?? DEFAULT_MAX_OBJECT_BYTES
+  const configuredTimeout = optionalPositiveInteger(environment.MINIO_READ_TIMEOUT_MS)
+  const inactivityTimeoutMs = configuredTimeout ?? DEFAULT_OPERATION_TIMEOUT_MS
+  return async (request, range) => {
+    const expectedLength = validateRequest(request, bucket, maximum)
+    const validatedRange = validateByteRange(range, expectedLength)
+    const path = localObjectPath(root, request.bucket, request.key)
+    try {
+      const file = await open(path, 'r')
+      try {
+        const metadata = await file.stat()
+        if (!metadata.isFile() || metadata.size !== expectedLength) {
+          throw new MinioObjectReaderError(
+            'LENGTH_MISMATCH',
+            'Hot media object length did not match its expected value',
+          )
+        }
+        const source = file.createReadStream(
+          validatedRange === undefined
+            ? { autoClose: true }
+            : {
+                autoClose: true,
+                start: validatedRange.start,
+                end: validatedRange.endExclusive - 1,
+              },
+        )
+        return createLengthCheckedStream(
+          source,
+          validatedRange?.length ?? expectedLength,
+          inactivityTimeoutMs,
+        )
+      } catch (error) {
+        await file.close().catch(() => undefined)
+        throw error
+      }
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return archived(request, range)
       throw error
     }
   }

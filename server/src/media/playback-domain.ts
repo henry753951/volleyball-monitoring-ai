@@ -1,3 +1,4 @@
+import type { Readable } from 'node:stream'
 import type {
   MediaApiError,
   MediaErrorCode,
@@ -63,6 +64,21 @@ export interface MediaObjectReadRequest {
 }
 
 export type MediaObjectReader = (request: MediaObjectReadRequest) => Promise<Uint8Array>
+
+export interface MediaObjectByteRange {
+  start: bigint
+  endExclusive: bigint
+}
+
+/**
+ * Streaming playback reads keep large immutable media objects out of the Node
+ * heap. A byte range is half-open so it maps directly to file offsets and
+ * MinIO's offset/length API without inclusive-end arithmetic at call sites.
+ */
+export type MediaObjectStreamReader = (
+  request: MediaObjectReadRequest,
+  range?: MediaObjectByteRange,
+) => Promise<Readable>
 
 export type PlaybackResourceKind = 'init' | 'media'
 
