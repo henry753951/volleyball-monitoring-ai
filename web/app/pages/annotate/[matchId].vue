@@ -393,7 +393,7 @@ const processingByRally = computed<Record<string, AnnotationRallyProcessingUpdat
   return merged
 })
 const activeProcessing = computed(() => {
-  const rallyId = selectedRallyId.value ?? displayAnnotation.value?.rally_id
+  const rallyId = selectedRallyId.value
   return rallyId ? (processingByRally.value[rallyId] ?? null) : null
 })
 const syncRecovery = createSyncRecoveryService({
@@ -785,7 +785,7 @@ const selectedCorrectionDraft = computed(() =>
   ),
 )
 const selectedSubmissionPending = computed(() => {
-  const rallyId = selectedRallyId.value ?? displayAnnotation.value?.rally_id
+  const rallyId = selectedRallyId.value
   if (!rallyId) return false
   return annotation.pendingCommands.value.some(
     entry =>
@@ -1185,10 +1185,12 @@ const displayedTimelineSegments = computed(() => {
   )
 })
 const timelineCurrentMaskSelected = computed(
-  () => Boolean(pinnedRallyId.value) && pinnedRallyId.value === displayAnnotation.value?.rally_id,
+  () =>
+    selectedRallyId.value !== null &&
+    selectedRallyId.value === (displayAnnotation.value?.rally_id ?? null),
 )
 const selectedHistoricalSegmentId = computed(() =>
-  timelineCurrentMaskSelected.value ? null : pinnedRallyId.value,
+  timelineCurrentMaskSelected.value ? null : selectedRallyId.value,
 )
 const selectedCaptureId = computed(() => selectedCapture.value?.id ?? null)
 const playbackMode = computed(() =>
@@ -2570,9 +2572,7 @@ watch(
     const failures = Object.values(updates).filter(update => update.processing_status === 'failed')
     for (const update of failures) {
       const signature = `${update.submission_id}:${update.updated_at ?? ''}`
-      const shouldNotify =
-        processingFailureWatchReady ||
-        update.rally_id === (selectedRallyId.value ?? displayAnnotation.value?.rally_id)
+      const shouldNotify = processingFailureWatchReady || update.rally_id === selectedRallyId.value
       if (notifiedProcessingFailures.has(signature)) continue
       notifiedProcessingFailures.add(signature)
       if (!shouldNotify) continue
@@ -2940,7 +2940,7 @@ onBeforeUnmount(() => {
           :right-team-id="selectedSideRightTeamId"
           :drafts="annotationDrafts"
           :rallies="visibleSubmittedRallies"
-          :selected-rally-id="pinnedRallyId"
+          :selected-rally-id="selectedRallyId"
           :displayed-rally-id="displayAnnotation?.rally_id ?? null"
           :displayed-outcome-label="currentMaskOutcome"
           :displayed-outcome-side="currentMaskOutcomeSide"

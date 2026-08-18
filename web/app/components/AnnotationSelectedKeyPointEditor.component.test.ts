@@ -49,6 +49,9 @@ function mountEditor(
 describe('AnnotationSelectedKeyPointEditor', () => {
   it('uses the selected event tone and edits its result without creating another point', async () => {
     const { wrapper, execute } = mountEditor()
+    expect(wrapper.get('.selected-point-editor').attributes('data-annotation-hotkey-surface')).toBe(
+      'workstation',
+    )
     expect(wrapper.get('.selected-point-editor').attributes('style')).toContain('#f06f8f')
     const failure = wrapper.findAll('button').find(button => button.text().includes('失敗'))
     expect(failure).toBeDefined()

@@ -88,11 +88,27 @@ export interface AnnotationHotkeyRuntimeOptions {
   release?: HotkeyCommandDispatcher
   enabled?: MaybeRefOrGetter<boolean>
   commandEnabled?: (command: HotkeyCommand, event?: KeyboardEvent) => boolean
-  scopeBlocked?: () => boolean
+  scopeBlocked?: (event?: KeyboardEvent) => boolean
 }
 
-export function isModalHotkeyScopeActive(): boolean {
+const WORKSTATION_HOTKEY_SURFACE_SELECTOR = '[data-annotation-hotkey-surface="workstation"]'
+
+function closest(target: EventTarget | null, selector: string) {
+  if (!target || typeof target !== 'object') return null
+  const element = target as { closest?: (value: string) => Element | null }
+  return element.closest?.(selector) ?? null
+}
+
+export function isModalHotkeyScopeActive(event?: KeyboardEvent): boolean {
   if (typeof document === 'undefined' || typeof document.querySelector !== 'function') return false
+  // Inline workstation editors are not modal dialogs. Keep the complete
+  // annotation keyboard active even when one of their buttons owns focus or a
+  // portal leaves another transient dialog mounted in the document.
+  if (
+    closest(event?.target ?? null, WORKSTATION_HOTKEY_SURFACE_SELECTOR) ||
+    closest(document.activeElement, WORKSTATION_HOTKEY_SURFACE_SELECTOR)
+  )
+    return false
   // Only an actually active modal owns the workstation keyboard. A number of
   // popover libraries keep hidden/closing aria-modal nodes mounted in a portal;
   // treating any such node as global state silently drops Z/X/C/V.
@@ -146,7 +162,7 @@ export function createAnnotationHotkeyDefinitions(
   bindings: HotkeyBindings,
   dispatch: HotkeyCommandDispatcher,
   commandEnabled: (command: HotkeyCommand, event?: KeyboardEvent) => boolean = () => true,
-  scopeBlocked: () => boolean = isModalHotkeyScopeActive,
+  scopeBlocked: (event?: KeyboardEvent) => boolean = isModalHotkeyScopeActive,
   runtimeEnabled: () => boolean = () => true,
   blocked?: HotkeyCommandDispatcher,
 ): Array<UseHotkeyDefinition> {
@@ -155,7 +171,7 @@ export function createAnnotationHotkeyDefinitions(
     const definition = (hotkey: ReturnType<typeof toRuntimeHotkey>): UseHotkeyDefinition => ({
       hotkey,
       callback: event => {
-        if (shouldIgnoreComposingEvent(event) || scopeBlocked() || !runtimeEnabled()) return
+        if (shouldIgnoreComposingEvent(event) || scopeBlocked(event) || !runtimeEnabled()) return
         if (event.repeat && !repeatable) {
           event.preventDefault()
           event.stopPropagation()

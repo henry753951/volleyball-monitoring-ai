@@ -183,8 +183,7 @@ export function createAnnotationWorkstationModelService(
       return difference < 0n ? -1 : difference > 0n ? 1 : 0
     })
     const requestedStart = BigInt(ordered[0]!.capture_time_us) - clipPreRollUs.value
-    const requestedEndCandidate =
-      BigInt(ordered.at(-1)!.capture_time_us) + clipPostRollUs.value
+    const requestedEndCandidate = BigInt(ordered.at(-1)!.capture_time_us) + clipPostRollUs.value
     const requestedEnd =
       requestedEndCandidate > requestedStart ? requestedEndCandidate : requestedStart + 1n
     const timelineStart = options.timeline.value?.availableRanges[0]?.startUs
@@ -398,9 +397,7 @@ export function createAnnotationWorkstationModelService(
           id: peer.rally_id,
           label: '其他標註者片段',
           stateLabel:
-            peer.snapshot.annotation_status === 'ready'
-              ? '其他標註者待送出'
-              : '其他標註者標記中',
+            peer.snapshot.annotation_status === 'ready' ? '其他標註者待送出' : '其他標註者標記中',
           outcomeLabel: null,
           outcomeSide: null,
           outcomeTeamLabel: null,
@@ -592,7 +589,9 @@ export function createAnnotationWorkstationModelService(
   )
   const activeContextRally = computed(() => selectedSubmittedRally.value)
   const selectedCurrentMask = computed(
-    () => options.selectedRallyId.value === options.displayAnnotation.value?.rally_id,
+    () =>
+      options.selectedRallyId.value !== null &&
+      options.selectedRallyId.value === (options.displayAnnotation.value?.rally_id ?? null),
   )
   const activeContextDraft = computed(
     () =>

@@ -745,6 +745,8 @@ describe('useAnnotationWorkstationModel timeline layers', () => {
     })
 
     expect(model.selectedCurrentMask.value).toBe(false)
+    expect(model.activeContextTitle.value).toBe('游標未落在片段內')
+    expect(model.activeContextState.value).toBe('—')
     expect(model.correctionActive.value).toBe(true)
     expect(model.correctionRallyId.value).toBe('rally')
   })

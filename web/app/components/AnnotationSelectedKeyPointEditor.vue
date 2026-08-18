@@ -111,7 +111,11 @@ function chooseActor(actorRosterEntryId: string | null) {
 </script>
 
 <template>
-  <div class="selected-point-editor" :style="{ '--point-accent': accent }">
+  <div
+    class="selected-point-editor"
+    data-annotation-hotkey-surface="workstation"
+    :style="{ '--point-accent': accent }"
+  >
     <i aria-hidden="true" />
     <UiPopover
       :open="kindOpen"
