@@ -32,6 +32,11 @@ configuration that silently disables splitting is worse than an explicit reviewe
   metadata.
 - Run a full spool reconciliation every 30 seconds for startup, missed events, and crash recovery.
 - Keep two unchanged observations plus a 500 ms age gate before queueing any finalized file.
+- Add an additive `MediaExtent` catalog. New worker publications dual-write one extent row at the
+  same transaction boundary that marks the legacy segment and archived media object READY.
+- Key catalog publication by both the finalized-file job ID and the transitional `DvrSegment` ID.
+  Redelivery must converge on one row, preserve the first catalog/archive timestamps, and reject
+  conflicting immutable source, timeline, or object metadata.
 
 Docker Desktop bind-mount verification found that recursive inotify watchers can start successfully
 yet receive no event when another container writes the mounted directory. The bounded active-capture
@@ -54,6 +59,12 @@ Thirty- and 120-second alternatives remain deployment experiments. Changing the 
 explicit configuration change and an OME restart until recording ownership moves to the OME Recording
 REST API, whose request contract can carry an interval per recording task.
 
+The catalog migration intentionally does not backfill existing `DvrSegment` rows. Most historical
+rows represent two-second logical playback segments; copying them one-for-one would manufacture a
+fine-grained catalog, increase migration lock/runtime risk, and defeat the physical-extent model. New
+publications populate `MediaExtent`; a future reconciliation job may import actual finalized
+recording files from OME metadata when historical coarse extents are needed.
+
 ## Canonical timeline finding
 
 The LL-HLS media playlists contain `EXT-X-PROGRAM-DATE-TIME` for each segment. `recording.xml`
@@ -69,7 +80,10 @@ presentation anchor maps media time to canonical `captureTimeUs` across reconnec
 - Live playback latency and DVR granularity are unchanged.
 - Existing DvrSegment/MediaAsset publication remains a transitional VOD/archive consumer, but runs at
   extent frequency rather than LL-HLS frequency.
+- New archive-verified publications are discoverable through `MediaExtent` without making either the
+  catalog or PostgreSQL part of the Live video-byte path.
 - A deployment does not depend on recursive watch delivery; the bounded active-capture poll is the
   normal fallback and root reconciliation repairs missed or orphaned state.
 - One quarantined capture cannot stall catalog publication for other capture keys.
-- OME REST recording ownership and a coarse `MediaExtent` catalog remain follow-up migrations.
+- OME REST recording ownership and removal of the legacy per-extent DvrSegment/MediaAsset dual-write
+  remain follow-up migrations.

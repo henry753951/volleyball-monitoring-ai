@@ -99,6 +99,11 @@ export type RecordArtifactExpectationsInput = {
 export type PublishReadyInput = {
   reservation: IngestReservationReference
   verifiedArtifacts: readonly IngestArtifactExpectation[]
+  extent?: {
+    sourceJobId: string
+    localPath: string
+    finalizedAt: Date
+  }
 }
 
 export type PublishReadyResult = {
@@ -287,6 +292,115 @@ function validateReference(reference: IngestReservationReference): void {
   requireUuid(reference.dvrSegmentId)
   requireUuid(reference.sampleIndexAssetId)
   validateObjectLocation(reference.sampleIndexLocation)
+}
+
+function validateExtentPublication(extent: NonNullable<PublishReadyInput['extent']>): void {
+  requireUuid(extent.sourceJobId)
+  if (
+    !extent.localPath ||
+    extent.localPath.includes('\0') ||
+    extent.localPath.startsWith('/') ||
+    extent.localPath.includes('\\') ||
+    extent.localPath.split('/').some(part => !part || part === '.' || part === '..') ||
+    !(extent.finalizedAt instanceof Date) ||
+    Number.isNaN(extent.finalizedAt.getTime())
+  ) {
+    fail('INVALID_INPUT')
+  }
+}
+
+async function catalogVerifiedExtent(
+  tx: Tx,
+  input: {
+    captureSessionId: string
+    dvrProgramId: string
+    dvrSegmentId: string
+    source: string
+    startUs: bigint
+    endUs: bigint
+    extent: NonNullable<PublishReadyInput['extent']>
+    media: IngestArtifactExpectation
+    readyAt: Date
+  },
+): Promise<void> {
+  const expected = {
+    captureSessionId: input.captureSessionId,
+    dvrProgramId: input.dvrProgramId,
+    dvrSegmentId: input.dvrSegmentId,
+    sourceJobId: input.extent.sourceJobId,
+    source: input.source,
+    startUs: input.startUs,
+    endUs: input.endUs,
+    localPath: input.extent.localPath,
+    bucket: input.media.location.bucket,
+    objectKey: input.media.location.key,
+    bytes: input.media.byteLength,
+    finalizedAt: input.extent.finalizedAt,
+  }
+  const matches = await tx.mediaExtent.findMany({
+    take: 2,
+    where: {
+      OR: [{ dvrSegmentId: input.dvrSegmentId }, { sourceJobId: input.extent.sourceJobId }],
+    },
+  })
+  if (matches.length > 1) return fail('RESERVATION_CONFLICT')
+  const existing = matches[0]
+  if (existing) {
+    if (
+      existing.captureSessionId !== expected.captureSessionId ||
+      existing.dvrProgramId !== expected.dvrProgramId ||
+      (existing.dvrSegmentId !== null && existing.dvrSegmentId !== expected.dvrSegmentId) ||
+      (existing.sourceJobId !== null && existing.sourceJobId !== expected.sourceJobId) ||
+      existing.source !== expected.source ||
+      existing.startUs !== expected.startUs ||
+      existing.endUs !== expected.endUs ||
+      (existing.localPath !== null && existing.localPath !== expected.localPath) ||
+      (existing.bucket !== null && existing.bucket !== expected.bucket) ||
+      (existing.objectKey !== null && existing.objectKey !== expected.objectKey) ||
+      (existing.bytes !== null && existing.bytes !== expected.bytes) ||
+      (existing.finalizedAt !== null &&
+        existing.finalizedAt.getTime() !== expected.finalizedAt.getTime())
+    ) {
+      return fail('RESERVATION_CONFLICT')
+    }
+    if (
+      existing.status !== 'ARCHIVE_VERIFIED' ||
+      existing.dvrSegmentId === null ||
+      existing.sourceJobId === null ||
+      existing.localPath === null ||
+      existing.bucket === null ||
+      existing.objectKey === null ||
+      existing.bytes === null ||
+      existing.finalizedAt === null ||
+      existing.catalogedAt === null ||
+      existing.archiveVerifiedAt === null
+    ) {
+      await tx.mediaExtent.update({
+        data: {
+          archiveVerifiedAt: existing.archiveVerifiedAt ?? input.readyAt,
+          bucket: expected.bucket,
+          bytes: expected.bytes,
+          catalogedAt: existing.catalogedAt ?? input.readyAt,
+          dvrSegmentId: expected.dvrSegmentId,
+          finalizedAt: expected.finalizedAt,
+          localPath: expected.localPath,
+          objectKey: expected.objectKey,
+          sourceJobId: expected.sourceJobId,
+          status: 'ARCHIVE_VERIFIED',
+        },
+        where: { id: existing.id },
+      })
+    }
+    return
+  }
+  await tx.mediaExtent.create({
+    data: {
+      ...expected,
+      archiveVerifiedAt: input.readyAt,
+      catalogedAt: input.readyAt,
+      status: 'ARCHIVE_VERIFIED',
+    },
+  })
 }
 
 function sameProfile(
@@ -977,6 +1091,7 @@ export class PrismaIngestRepository {
 
   async publishReady(input: PublishReadyInput): Promise<PublishReadyResult> {
     validateReference(input.reservation)
+    if (input.extent) validateExtentPublication(input.extent)
     const verified = artifactMap(input.verifiedArtifacts, true)
     return this.#transaction(async tx => {
       await advisoryLock(tx, input.reservation.captureSessionId)
@@ -988,6 +1103,17 @@ export class PrismaIngestRepository {
           return fail('EXPECTATIONS_REQUIRED')
         }
       }
+      const session = await tx.captureSession.findUnique({
+        select: {
+          completionExpectedSegments: true,
+          sourceDurationUs: true,
+          sourceKind: true,
+          startedAt: true,
+          status: true,
+        },
+        where: { id: input.reservation.captureSessionId },
+      })
+      if (!session) return fail('SESSION_NOT_FOUND')
       const allReady =
         segment.readyAt !== null &&
         Object.values(assets).every(asset => asset.state === 'READY' && asset.readyAt !== null)
@@ -995,6 +1121,19 @@ export class PrismaIngestRepository {
         const timestamps = Object.values(assets).map(asset => asset.readyAt!.getTime())
         if (timestamps.some(value => value !== segment.readyAt!.getTime())) {
           return fail('RESERVATION_CONFLICT')
+        }
+        if (input.extent) {
+          await catalogVerifiedExtent(tx, {
+            captureSessionId: input.reservation.captureSessionId,
+            dvrProgramId: segment.dvrProgramId,
+            dvrSegmentId: segment.id,
+            source: session.sourceKind,
+            startUs: segment.captureStartUs,
+            endUs: segment.captureEndUs,
+            extent: input.extent,
+            media: verified.media,
+            readyAt: segment.readyAt!,
+          })
         }
         return {
           disposition: 'ALREADY_READY',
@@ -1033,16 +1172,6 @@ export class PrismaIngestRepository {
       if (segment.captureEpoch.endedAtCaptureUs !== null) {
         return fail('TIMELINE_CONFLICT')
       }
-      const session = await tx.captureSession.findUnique({
-        select: {
-          completionExpectedSegments: true,
-          sourceDurationUs: true,
-          startedAt: true,
-          status: true,
-        },
-        where: { id: input.reservation.captureSessionId },
-      })
-      if (!session) return fail('SESSION_NOT_FOUND')
       if (!['STARTING', 'LIVE', 'STOPPING'].includes(session.status)) {
         return fail('SESSION_TERMINAL')
       }
@@ -1077,6 +1206,19 @@ export class PrismaIngestRepository {
         data: { readyAt },
         where: { id: segment.id },
       })
+      if (input.extent) {
+        await catalogVerifiedExtent(tx, {
+          captureSessionId: input.reservation.captureSessionId,
+          dvrProgramId: segment.dvrProgramId,
+          dvrSegmentId: segment.id,
+          source: session.sourceKind,
+          startUs: segment.captureStartUs,
+          endUs: segment.captureEndUs,
+          extent: input.extent,
+          media: verified.media,
+          readyAt,
+        })
+      }
       if (
         predecessor &&
         predecessor.captureEpochId !== segment.captureEpochId &&

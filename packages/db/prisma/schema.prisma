@@ -74,6 +74,14 @@ enum MediaSourceWorkStatus {
   FAILED
 }
 
+enum MediaExtentStatus {
+  WRITING
+  FINALIZED_LOCAL
+  CATALOGED
+  ARCHIVE_PENDING
+  ARCHIVE_VERIFIED
+}
+
 enum CourtSide {
   LEFT
   RIGHT
@@ -520,6 +528,7 @@ model CaptureSession {
   playbackWindows            PlaybackWindow[]
   sourceWork                 MediaSourceWork?
   ingestFailures             MediaIngestFailure[]
+  mediaExtents               MediaExtent[]
 
   @@index([matchId, createdAt, id])
 }
@@ -599,6 +608,7 @@ model DvrProgram {
   segments         DvrSegment[]
   rallies          Rally[]
   playbackWindows  PlaybackWindow[]
+  mediaExtents     MediaExtent[]
 
   @@index([captureSessionId, createdAt, id])
 }
@@ -666,10 +676,39 @@ model DvrSegment {
   mediaAsset             MediaAsset?             @relation("DvrMediaAsset", fields: [mediaAssetId], references: [id], onDelete: Restrict)
   sampleIndexAsset       MediaAsset?             @relation("DvrSampleIndexAsset", fields: [sampleIndexAssetId], references: [id], onDelete: Restrict)
   playbackWindowSegments PlaybackWindowSegment[]
+  mediaExtent            MediaExtent?
 
   @@unique([dvrProgramId, sequenceNumber])
   @@index([dvrProgramId, captureStartUs, captureEndUs])
   @@index([dvrProgramId, captureEndUs, captureStartUs])
+}
+
+model MediaExtent {
+  id                String            @id @default(uuid()) @db.Uuid
+  captureSessionId  String            @db.Uuid
+  dvrProgramId      String            @db.Uuid
+  dvrSegmentId      String?           @unique @db.Uuid
+  sourceJobId       String?           @unique @db.Uuid
+  source            String
+  startUs           BigInt
+  endUs             BigInt
+  localPath         String?
+  bucket            String?
+  objectKey         String?
+  status            MediaExtentStatus @default(FINALIZED_LOCAL)
+  bytes             BigInt?
+  finalizedAt       DateTime?
+  catalogedAt       DateTime?
+  archiveVerifiedAt DateTime?
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+  captureSession    CaptureSession    @relation(fields: [captureSessionId], references: [id], onDelete: Cascade)
+  dvrProgram        DvrProgram        @relation(fields: [dvrProgramId], references: [id], onDelete: Cascade)
+  dvrSegment        DvrSegment?       @relation(fields: [dvrSegmentId], references: [id], onDelete: SetNull)
+
+  @@index([dvrProgramId, startUs, endUs])
+  @@index([captureSessionId, status, createdAt])
+  @@index([status, createdAt, id])
 }
 
 model PlaybackWindow {

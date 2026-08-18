@@ -384,6 +384,13 @@ describe('Prisma finalized media ingest repository', () => {
 
   it('records exact expectations idempotently and publishes all readiness exactly once', async () => {
     const { captureSessionId } = await createSession()
+    const sourceJobId = randomUUID()
+    const finalizedAt = new Date('2026-08-07T07:59:55.000Z')
+    const extent = {
+      sourceJobId,
+      localPath: 'ome/fixture-publish-once.mp4',
+      finalizedAt,
+    }
     const reservation = await repository.reserveUploading(
       reservationInput(captureSessionId, 'publish-once'),
     )
@@ -407,18 +414,22 @@ describe('Prisma finalized media ingest repository', () => {
     const published = await repository.publishReady({
       reservation: reservation.reference,
       verifiedArtifacts: artifactExpectations,
+      extent,
     })
     expect(published).toEqual({
       disposition: 'PUBLISHED',
       readyAt: fixedReadyAt,
       playlistRevision: 1n,
     })
-    const [segment, program, session, readyAssets] = await Promise.all([
+    const [segment, program, session, readyAssets, mediaExtent] = await Promise.all([
       db.dvrSegment.findUniqueOrThrow({ where: { id: reservation.reference.dvrSegmentId } }),
       db.dvrProgram.findUniqueOrThrow({ where: { id: reservation.reference.dvrProgramId } }),
       db.captureSession.findUniqueOrThrow({ where: { id: captureSessionId } }),
       db.mediaAsset.findMany({
         where: { id: { in: Object.values(reservation.artifacts).map(value => value.id) } },
+      }),
+      db.mediaExtent.findUniqueOrThrow({
+        where: { dvrSegmentId: reservation.reference.dvrSegmentId },
       }),
     ])
     expect(segment.readyAt).toEqual(fixedReadyAt)
@@ -434,6 +445,23 @@ describe('Prisma finalized media ingest repository', () => {
       playlistRevision: 1n,
     })
     expect(session).toMatchObject({ status: 'LIVE', health: 'HEALTHY', startedAt: fixedReadyAt })
+    expect(mediaExtent).toMatchObject({
+      captureSessionId,
+      dvrProgramId: reservation.reference.dvrProgramId,
+      dvrSegmentId: reservation.reference.dvrSegmentId,
+      sourceJobId,
+      source: 'fixture',
+      startUs: reservation.plan.segment.captureStartUs,
+      endUs: reservation.plan.segment.captureEndUs,
+      localPath: extent.localPath,
+      bucket: artifactExpectations.find(artifact => artifact.kind === 'media')!.location.bucket,
+      objectKey: artifactExpectations.find(artifact => artifact.kind === 'media')!.location.key,
+      status: 'ARCHIVE_VERIFIED',
+      bytes: artifactExpectations.find(artifact => artifact.kind === 'media')!.byteLength,
+      finalizedAt,
+      catalogedAt: fixedReadyAt,
+      archiveVerifiedAt: fixedReadyAt,
+    })
 
     const replay = await repository.reserveUploading(
       reservationInput(captureSessionId, 'publish-once', {
@@ -455,6 +483,7 @@ describe('Prisma finalized media ingest repository', () => {
     const redelivery = await repository.publishReady({
       reservation: reservation.reference,
       verifiedArtifacts: artifactExpectations,
+      extent,
     })
     expect(redelivery).toEqual({
       disposition: 'ALREADY_READY',
@@ -464,6 +493,7 @@ describe('Prisma finalized media ingest repository', () => {
     await expect(
       db.dvrProgram.findUniqueOrThrow({ where: { id: program.id } }),
     ).resolves.toMatchObject({ playlistRevision: 1n })
+    await expect(db.mediaExtent.count({ where: { sourceJobId } })).resolves.toBe(1)
   })
 
   it('publishes a draining reservation without resurrecting stopping lifecycle state', async () => {

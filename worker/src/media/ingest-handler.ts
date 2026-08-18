@@ -226,5 +226,10 @@ export async function ingestEnvelope(
   await deps.repository.publishReady({
     reservation: reservation.reference,
     verifiedArtifacts: expected,
+    extent: {
+      sourceJobId: envelope.epochCandidateId,
+      localPath: recording.sourceIdentity,
+      finalizedAt: new Date(Number(recording.mtimeNs / 1_000_000n)),
+    },
   })
 }
