@@ -166,8 +166,7 @@ describe('media indexer runtime kernel', () => {
       MEDIA_SOURCE_POLL_INTERVAL_MS: 250,
       YOUTUBE_EXTRACTOR_ARGS: 'youtube:player_client=mweb',
       YOUTUBE_LIVE_MAX_CONSECUTIVE_FAILURES: 5,
-      YOUTUBE_JS_RUNTIME: 'deno',
-      YOUTUBE_USE_COOKIES: false,
+      YOUTUBE_VOD_USE_COOKIES: false,
     })
     expect(config.YOUTUBE_FORMAT).toContain('best[protocol*=m3u8][height<=1080]')
     expect(config.YOUTUBE_VOD_FORMAT).toContain('bestvideo[protocol^=http][height<=1080]')

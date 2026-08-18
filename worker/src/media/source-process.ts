@@ -11,8 +11,7 @@ export type MediaSourceProcessOptions = {
   recordingRoot: string
   workRoot: string
   youtubeCookiesFile?: string
-  youtubeJsRuntime?: 'deno' | 'node'
-  youtubeUseCookies?: boolean
+  youtubeVodUseCookies?: boolean
   youtubeExtractorArgs: string
   youtubeFormat: string
   youtubeLiveExtractorArgs?: string
@@ -616,14 +615,16 @@ export function classifyYoutubeSource(metadata: {
   return youtubeIsLive(metadata) ? 'youtube_live' : 'youtube_vod'
 }
 
-function youtubeArguments(options: MediaSourceProcessOptions, extractorArgs: string): string[] {
+function youtubeArguments(
+  options: MediaSourceProcessOptions,
+  extractorArgs: string,
+  includeCookies = true,
+): string[] {
   return [
     '--no-playlist',
     '--no-progress',
     '--no-warnings',
-    '--js-runtimes',
-    options.youtubeJsRuntime ?? 'deno',
-    ...(options.youtubeUseCookies && options.youtubeCookiesFile
+    ...(includeCookies && options.youtubeCookiesFile
       ? ['--cookies', options.youtubeCookiesFile]
       : []),
     '--extractor-args',
@@ -640,6 +641,7 @@ export function buildYoutubeProbeArgs(url: string, options: MediaSourceProcessOp
     options,
     options.youtubeFormat,
     options.youtubeLiveExtractorArgs ?? options.youtubeExtractorArgs,
+    true,
   )
 }
 
@@ -652,6 +654,7 @@ export function buildYoutubeVodProbeArgs(
     options,
     options.youtubeVodFormat,
     options.youtubeVodExtractorArgs ?? options.youtubeExtractorArgs,
+    options.youtubeVodUseCookies ?? false,
   )
 }
 
@@ -660,10 +663,11 @@ function buildYoutubeProbeArgsForFormat(
   options: MediaSourceProcessOptions,
   format: string,
   extractorArgs: string,
+  includeCookies: boolean,
 ): string[] {
   return [
     '--dump-single-json',
-    ...youtubeArguments(options, extractorArgs),
+    ...youtubeArguments(options, extractorArgs, includeCookies),
     '--format',
     format,
     url,

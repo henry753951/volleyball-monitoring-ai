@@ -51,6 +51,7 @@ const youtubeOptions: MediaSourceProcessOptions = {
   youtubeFormat: 'live-format',
   youtubeVodExtractorArgs: 'youtube:player_client=mweb',
   youtubeVodFormat: 'vod-format',
+  youtubeVodUseCookies: false,
 }
 
 describe('media source process', () => {
@@ -63,14 +64,14 @@ describe('media source process', () => {
     )
   })
 
-  it('builds public probes with mweb, EJS and no cookies by default', () => {
+  it('keeps shared cookies for classification but disables them for public VOD', () => {
     expect(buildYoutubeProbeArgs('https://youtu.be/example', youtubeOptions)).toEqual([
       '--dump-single-json',
       '--no-playlist',
       '--no-progress',
       '--no-warnings',
-      '--js-runtimes',
-      'deno',
+      '--cookies',
+      '/run/secrets/youtube.cookies.txt',
       '--extractor-args',
       'youtube:player_client=mweb',
       '--format',
@@ -82,8 +83,6 @@ describe('media source process', () => {
       '--no-playlist',
       '--no-progress',
       '--no-warnings',
-      '--js-runtimes',
-      'deno',
       '--extractor-args',
       'youtube:player_client=mweb',
       '--format',
@@ -92,8 +91,8 @@ describe('media source process', () => {
     ])
   })
 
-  it('allows cookies only as an explicit fallback', () => {
-    const options = { ...youtubeOptions, youtubeUseCookies: true }
+  it('allows VOD cookies only as an explicit fallback', () => {
+    const options = { ...youtubeOptions, youtubeVodUseCookies: true }
     expect(buildYoutubeVodProbeArgs('https://youtu.be/example', options)).toContain('--cookies')
     expect(buildYoutubeVodProbeArgs('https://youtu.be/example', options)).toContain(
       '/run/secrets/youtube.cookies.txt',

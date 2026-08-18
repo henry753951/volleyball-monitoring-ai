@@ -225,8 +225,8 @@ speed; do not diagnose current network throughput from the cumulative number alo
 For public YouTube VOD, the primary resolver policy is `mweb` with the external bgutil HTTP provider
 and the bundled EJS runtime:
 `YOUTUBE_VOD_EXTRACTOR_ARGS=youtube:player_client=mweb`,
-`YOUTUBE_POT_PROVIDER_URL=http://bgutil-provider:4416`,
-`YOUTUBE_JS_RUNTIME=deno`, and `YOUTUBE_USE_COOKIES=false`.
+`YOUTUBE_POT_PROVIDER_URL=http://bgutil-provider:4416`, and
+`YOUTUBE_VOD_USE_COOKIES=false`.
 Verify the resolver's verbose output contains `yt_dlp_ejs`, the selected Deno runtime, and
 `bgutil:http-1.3.1 (external)`. Keep the cookie Secret available for authenticated-content or
 explicit recovery, but do not pass it to public VOD by default.
