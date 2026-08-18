@@ -17,6 +17,8 @@ interface AnnotationRealtimeHandlers {
   onState?: (state: AnnotationConnectionState) => void
   onLatency?: (latencyMs: number | null) => void
   onError?: (error: Error) => void
+  onServerSequence?: (serverSequence: string) => void
+  resumeFromServerSequence?: () => string | null
 }
 
 export interface AnnotationRealtimeClient {
@@ -107,6 +109,9 @@ export function createAnnotationRealtimeClient(
     const url = new URL(endpoint ?? `${protocol}//${window.location.host}/ws/annotations`)
     url.searchParams.set('room_id', roomId)
     if (deviceSessionId) url.searchParams.set('device_session_id', deviceSessionId)
+    const resumeSequence = handlers.resumeFromServerSequence?.()
+    if (resumeSequence && /^\d+$/.test(resumeSequence))
+      url.searchParams.set('last_server_sequence', resumeSequence)
     let nextSocket: WebSocket
     try {
       nextSocket = new WebSocket(url.toString())
@@ -127,6 +132,12 @@ export function createAnnotationRealtimeClient(
       if (socket !== nextSocket || stopped) return
       try {
         const message = parseAnnotationServerMessage(JSON.parse(String(event.data)))
+        if (
+          message.type === 'connection_ready' ||
+          message.type === 'command_ack' ||
+          message.type === 'rally_snapshot'
+        )
+          handlers.onServerSequence?.(message.server_sequence)
         if (message.type === 'connection_ready') {
           connectionReady = true
           clearHandshakeTimer()

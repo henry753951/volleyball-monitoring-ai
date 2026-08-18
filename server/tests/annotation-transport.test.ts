@@ -175,6 +175,14 @@ function fakeService(seen: unknown[]): AnnotationCommandService {
     async recoverAbandonedDraft() {
       return null
     },
+    async roomChangesAfter(_roomId, afterSequence) {
+      return {
+        currentSequence: 10n,
+        hasMore: false,
+        rallyIds: [],
+        throughSequence: afterSequence > 10n ? 10n : afterSequence,
+      }
+    },
     async roomSequence() {
       return 10n
     },
@@ -397,6 +405,59 @@ describe('annotation transport adapters', () => {
     expect(messages[1]).toEqual(response)
     expect(messages[2]).toEqual(rallySnapshot)
     expect(seen).toEqual([{ annotationIdentity: identity, value: command }])
+  })
+
+  it('replays committed rally snapshots after the client resume sequence before ready', async () => {
+    const seenAfter: bigint[] = []
+    const service: AnnotationCommandService = {
+      ...fakeService([]),
+      async roomChangesAfter(_roomId, afterSequence) {
+        seenAfter.push(afterSequence)
+        return {
+          currentSequence: 11n,
+          hasMore: false,
+          rallyIds: [rallyId],
+          throughSequence: 11n,
+        }
+      },
+      async roomSequence() {
+        return 11n
+      },
+    }
+    const app = Fastify({ logger: false })
+    await app.register(websocket)
+    await app.register(
+      annotationWebSocketRoutes({
+        authenticate: async () => identity,
+        reconcileIntervalMs: 60_000,
+        service,
+        snapshot: async () => (rallySnapshot.type === 'rally_snapshot' ? rallySnapshot : null),
+      }),
+    )
+    await app.listen({ host: '127.0.0.1', port: 0 })
+    closeApp = () => app.close()
+    const address = app.server.address()
+    if (!address || typeof address === 'string') throw new Error('missing test listener')
+
+    const client = new WebSocket(
+      `ws://127.0.0.1:${address.port}/ws/annotations?room_id=${encodeURIComponent(roomId)}&last_server_sequence=7`,
+    )
+    const messages: Array<Record<string, unknown>> = []
+    await new Promise<void>((resolve, reject) => {
+      const timeout = setTimeout(() => reject(new Error('websocket replay timeout')), 5_000)
+      client.addEventListener('error', () => reject(new Error('websocket error')))
+      client.addEventListener('message', event => {
+        messages.push(JSON.parse(String(event.data)) as Record<string, unknown>)
+        if (messages.some(message => message.type === 'connection_ready')) {
+          clearTimeout(timeout)
+          resolve()
+        }
+      })
+    })
+    client.close()
+    expect(seenAfter).toEqual([7n])
+    expect(messages.map(message => message.type)).toEqual(['rally_snapshot', 'connection_ready'])
+    expect(messages[1]).toMatchObject({ server_sequence: '11' })
   })
 
   it('round-trips a strict contact command after connection_ready', async () => {

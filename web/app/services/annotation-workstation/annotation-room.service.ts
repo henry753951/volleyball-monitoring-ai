@@ -65,6 +65,7 @@ const DELETE_PROCESSING_RALLY = `mutation DeleteProcessingRally($rallyId: ID!) {
 }`
 const DEVICE_SESSION_STORAGE_KEY = 'vollyai.annotation-device-session.v1'
 const ACTIVE_RALLY_STORAGE_PREFIX = 'vollyai.annotation-active-rally.v1:'
+const SERVER_SEQUENCE_STORAGE_PREFIX = 'vollyai.annotation-server-sequence.v1:'
 
 function asSnapshot(value: unknown): AnnotationRallySnapshot | null {
   if (value === null) return null
@@ -132,6 +133,28 @@ export function createAnnotationRoomService(annotationWsUrl: MaybeRefOrGetter<st
   }
   function activeRallyStorageKey() {
     return roomId.value ? `${ACTIVE_RALLY_STORAGE_PREFIX}${roomId.value}` : null
+  }
+  function serverSequenceStorageKey(targetRoomId = roomId.value) {
+    return targetRoomId ? `${SERVER_SEQUENCE_STORAGE_PREFIX}${targetRoomId}` : null
+  }
+  function readServerSequence(targetRoomId = roomId.value) {
+    const target = storage()
+    const key = serverSequenceStorageKey(targetRoomId)
+    const value = target && key ? target.getItem(key) : null
+    return value && /^\d+$/.test(value) ? value : null
+  }
+  function recordServerSequence(value: string, targetRoomId = roomId.value) {
+    if (!/^\d+$/.test(value)) return
+    const target = storage()
+    const key = serverSequenceStorageKey(targetRoomId)
+    if (!target || !key) return
+    const current = readServerSequence(targetRoomId)
+    if (current !== null && BigInt(value) <= BigInt(current)) return
+    try {
+      target.setItem(key, value)
+    } catch {
+      /* durable commands remain recoverable from the local outbox */
+    }
   }
   function rememberedRallyId() {
     return rememberedRallyIdState.value
@@ -476,6 +499,8 @@ export function createAnnotationRoomService(annotationWsUrl: MaybeRefOrGetter<st
           )
             error.value = cause.message
         },
+        resumeFromServerSequence: () => readServerSequence(nextRoomId),
+        onServerSequence: value => recordServerSequence(value, nextRoomId),
         onMessage: message => {
           if (message.type === 'connection_ready') {
             selfDeviceSessionId.value = message.device_session_id

@@ -4,19 +4,22 @@ import {
   parseAnnotationServerMessage,
   parseAnnotationSoftLockIntent,
 } from '@volleyball-monitoring/contracts'
-import type { FastifyPluginAsync, FastifyRequest } from 'fastify'
 import type { AnnotationRallySnapshot } from '@volleyball-monitoring/contracts'
+import type { FastifyPluginAsync, FastifyRequest } from 'fastify'
 import type {
   AnnotationCommandService,
   AnnotationIdentity,
 } from '../services/annotation-command.js'
+import type { AnnotationSnapshotEventService } from './annotation-events.js'
 import type { AnnotationPresenceService } from './annotation-presence.js'
 import type { AiProgressService } from './ai-progress.js'
 
 export interface AnnotationWebSocketDependencies {
   authenticate: (request: FastifyRequest) => Promise<AnnotationIdentity | null>
+  events?: AnnotationSnapshotEventService
   presence?: AnnotationPresenceService
   progress?: AiProgressService
+  reconcileIntervalMs?: number
   service: AnnotationCommandService
   snapshot?: (
     roomId: string,
@@ -24,6 +27,28 @@ export interface AnnotationWebSocketDependencies {
     identity: AnnotationIdentity,
   ) => Promise<AnnotationRallySnapshot | null>
 }
+
+interface AnnotationSocketLike {
+  readyState: number
+  close(code?: number, reason?: string): void
+  send(payload: string): void
+}
+
+interface AnnotationPeer {
+  identity: AnnotationIdentity
+  sentSnapshots: Map<string, { revision: bigint; serverSequence: bigint }>
+  socket: AnnotationSocketLike
+}
+
+interface AnnotationRoomState {
+  lastSequence: bigint
+  peers: Set<AnnotationPeer>
+  reconciling: boolean
+}
+
+const REPLAY_BATCH_SIZE = 512
+const REPLAY_BATCHES_ON_CONNECT = 16
+const REPLAY_BATCHES_ON_RECONCILE = 4
 
 function invalidCommandRejection(payload: unknown, roomId: string) {
   if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return null
@@ -52,14 +77,123 @@ function invalidCommandRejection(payload: unknown, roomId: string) {
   }
 }
 
+function parseResumeSequence(value: string | undefined): bigint | null {
+  if (value === undefined) return null
+  if (!/^\d+$/.test(value)) throw new TypeError('last_server_sequence must be a decimal bigint')
+  return BigInt(value)
+}
+
 export const annotationWebSocketRoutes =
   (deps: AnnotationWebSocketDependencies): FastifyPluginAsync =>
   async app => {
-    const roomSockets = new Map<
-      string,
-      Set<{ readyState: number; send: (payload: string) => void }>
-    >()
-    app.get<{ Querystring: { room_id?: string } }>(
+    const rooms = new Map<string, AnnotationRoomState>()
+    const reconcileIntervalMs = Math.max(500, deps.reconcileIntervalMs ?? 2_000)
+
+    const roomState = (roomId: string) => {
+      const existing = rooms.get(roomId)
+      if (existing) return existing
+      const created: AnnotationRoomState = {
+        lastSequence: 0n,
+        peers: new Set(),
+        reconciling: false,
+      }
+      rooms.set(roomId, created)
+      return created
+    }
+
+    const sendSnapshot = (peer: AnnotationPeer, snapshot: AnnotationRallySnapshot) => {
+      if (peer.socket.readyState !== 1) return
+      const next = {
+        revision: BigInt(snapshot.revision),
+        serverSequence: BigInt(snapshot.server_sequence),
+      }
+      const prior = peer.sentSnapshots.get(snapshot.rally_id)
+      if (
+        prior &&
+        next.revision <= prior.revision &&
+        next.serverSequence <= prior.serverSequence
+      )
+        return
+      peer.sentSnapshots.set(snapshot.rally_id, next)
+      peer.socket.send(JSON.stringify(snapshot))
+    }
+
+    const broadcastSnapshot = (snapshot: AnnotationRallySnapshot) => {
+      const state = rooms.get(snapshot.room_id)
+      if (!state) return
+      const sequence = BigInt(snapshot.server_sequence)
+      if (sequence > state.lastSequence) state.lastSequence = sequence
+      for (const peer of state.peers) sendSnapshot(peer, snapshot)
+    }
+
+    const replayChanges = async (
+      roomId: string,
+      afterSequence: bigint,
+      identity: AnnotationIdentity,
+      deliver: (snapshot: AnnotationRallySnapshot) => void,
+      maxBatches: number,
+    ) => {
+      let cursor = afterSequence
+      let current = afterSequence
+      let hasMore = false
+      for (let batch = 0; batch < maxBatches; batch += 1) {
+        const changes = await deps.service.roomChangesAfter(roomId, cursor, REPLAY_BATCH_SIZE)
+        current = changes.currentSequence
+        for (const rallyId of changes.rallyIds) {
+          const snapshot = await deps.snapshot?.(roomId, rallyId, identity)
+          if (snapshot) deliver(snapshot)
+        }
+        hasMore = changes.hasMore
+        if (changes.throughSequence <= cursor || !changes.hasMore) {
+          cursor = changes.throughSequence
+          break
+        }
+        cursor = changes.throughSequence
+      }
+      return { current, cursor, hasMore }
+    }
+
+    const reconcileRoom = async (roomId: string, state: AnnotationRoomState) => {
+      if (state.reconciling || !state.peers.size) return
+      state.reconciling = true
+      try {
+        const current = await deps.service.roomSequence(roomId)
+        if (current <= state.lastSequence) return
+        const representative = state.peers.values().next().value as AnnotationPeer | undefined
+        if (!representative || !deps.snapshot) {
+          state.lastSequence = current
+          return
+        }
+        const replay = await replayChanges(
+          roomId,
+          state.lastSequence,
+          representative.identity,
+          broadcastSnapshot,
+          REPLAY_BATCHES_ON_RECONCILE,
+        )
+        if (replay.cursor > state.lastSequence) state.lastSequence = replay.cursor
+      } catch (cause) {
+        app.log.warn({ err: cause, room_id: roomId }, 'annotation room reconciliation failed')
+      } finally {
+        state.reconciling = false
+      }
+    }
+
+    const reconcileTimer = setInterval(() => {
+      for (const [roomId, state] of rooms) void reconcileRoom(roomId, state)
+    }, reconcileIntervalMs)
+    reconcileTimer.unref?.()
+    app.addHook('onClose', async () => {
+      clearInterval(reconcileTimer)
+      rooms.clear()
+    })
+
+    app.get<{
+      Querystring: {
+        last_server_sequence?: string
+        room_id?: string
+      }
+    }>(
       '/ws/annotations',
       { websocket: true },
       (socket, request) => {
@@ -67,6 +201,13 @@ export const annotationWebSocketRoutes =
           const roomId = request.query.room_id
           if (!roomId) {
             socket.close(1008, 'room_id is required')
+            return
+          }
+          let resumeSequence: bigint | null
+          try {
+            resumeSequence = parseResumeSequence(request.query.last_server_sequence)
+          } catch {
+            socket.close(1008, 'last_server_sequence is invalid')
             return
           }
           let identity: AnnotationIdentity | null
@@ -85,15 +226,19 @@ export const annotationWebSocketRoutes =
             socket.close(1008, 'annotation room not found')
             return
           }
-          const peers = roomSockets.get(room.roomId) ?? new Set()
-          peers.add(socket)
-          roomSockets.set(room.roomId, peers)
+
+          const state = roomState(room.roomId)
+          const roomWasEmpty = state.peers.size === 0
+          const peer: AnnotationPeer = { identity, sentSnapshots: new Map(), socket }
+          state.peers.add(peer)
           const leaveRoom = () => {
-            peers.delete(socket)
-            if (!peers.size) roomSockets.delete(room.roomId)
+            state.peers.delete(peer)
+            if (!state.peers.size) rooms.delete(room.roomId)
           }
           socket.on('close', leaveRoom)
+
           let heartbeat: ReturnType<typeof setInterval> | null = null
+          let unsubscribeEvents: (() => void) | null = null
           let unsubscribePresence: (() => void) | null = null
           let unsubscribeProgress: (() => void) | null = null
           let presenceMember: Awaited<ReturnType<AnnotationPresenceService['join']>> | null = null
@@ -106,6 +251,7 @@ export const annotationWebSocketRoutes =
             if (presenceCleaned) return
             presenceCleaned = true
             if (heartbeat) clearInterval(heartbeat)
+            unsubscribeEvents?.()
             unsubscribePresence?.()
             unsubscribeProgress?.()
             if (deps.presence && presenceMember)
@@ -116,6 +262,21 @@ export const annotationWebSocketRoutes =
           socket.on('close', () => {
             void cleanupPresence()
           })
+
+          if (deps.events) {
+            try {
+              unsubscribeEvents = await deps.events.subscribe(room.roomId, snapshot => {
+                const sequence = BigInt(snapshot.server_sequence)
+                if (sequence > state.lastSequence) state.lastSequence = sequence
+                sendSnapshot(peer, snapshot)
+              })
+            } catch {
+              await cleanupPresence()
+              socket.close(1011, 'annotation event stream unavailable')
+              return
+            }
+          }
+
           if (deps.presence) {
             try {
               presenceMember = await deps.presence.join(room.roomId, identity)
@@ -140,13 +301,35 @@ export const annotationWebSocketRoutes =
               return
             }
           }
+
+          let readySequence = await deps.service.roomSequence(room.roomId)
+          if (resumeSequence !== null && deps.snapshot) {
+            try {
+              const replay = await replayChanges(
+                room.roomId,
+                resumeSequence,
+                identity,
+                snapshot => sendSnapshot(peer, snapshot),
+                REPLAY_BATCHES_ON_CONNECT,
+              )
+              readySequence = replay.cursor
+            } catch (cause) {
+              request.log.warn(
+                { err: cause, room_id: room.roomId },
+                'annotation reconnect replay failed; background reconciliation will retry',
+              )
+              if (resumeSequence < readySequence) readySequence = resumeSequence
+            }
+          }
+          if (roomWasEmpty && readySequence > state.lastSequence)
+            state.lastSequence = readySequence
           const ready = parseAnnotationServerMessage({
             schema_version: '2.0.0',
             type: 'connection_ready',
             authenticated_user_id: identity.userId,
             device_session_id: identity.deviceSessionId,
             room_id: room.roomId,
-            server_sequence: (await deps.service.roomSequence(room.roomId)).toString(),
+            server_sequence: readySequence.toString(),
           })
           socket.send(JSON.stringify(ready))
           await sendPresence()
@@ -187,6 +370,9 @@ export const annotationWebSocketRoutes =
                     presenceMember,
                     intent.editing_key_point_id,
                   )
+                  // The origin gets a direct heartbeat response. Room-wide fan-out
+                  // only occurs when the semantic edit target actually changes.
+                  await sendPresence()
                   return
                 } catch {
                   socket.close(1011, 'soft-lock update failed')
@@ -217,19 +403,22 @@ export const annotationWebSocketRoutes =
               }
               try {
                 const response = await deps.service.apply(command, identity)
-                const payload = JSON.stringify(response)
+                const responsePayload = JSON.stringify(response)
                 if (response.type === 'command_ack') {
-                  // The originator needs the command-specific ACK. Peers only need
-                  // the committed room snapshot, which avoids redundant messages.
-                  socket.send(payload)
+                  socket.send(responsePayload)
                   const snapshot = await deps.snapshot?.(room.roomId, response.rally_id, identity)
                   if (snapshot) {
-                    const snapshotPayload = JSON.stringify(snapshot)
-                    for (const peer of roomSockets.get(room.roomId) ?? []) {
-                      if (peer.readyState === 1) peer.send(snapshotPayload)
-                    }
+                    if (deps.events) {
+                      await deps.events.publish(snapshot).catch(cause => {
+                        request.log.warn(
+                          { err: cause, room_id: room.roomId },
+                          'Redis annotation fan-out failed; using local delivery and DB reconciliation',
+                        )
+                        broadcastSnapshot(snapshot)
+                      })
+                    } else broadcastSnapshot(snapshot)
                   }
-                } else socket.send(payload)
+                } else socket.send(responsePayload)
               } catch (cause) {
                 request.log.error(
                   {

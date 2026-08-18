@@ -37,6 +37,28 @@ describe('annotation realtime soft-lock client', () => {
     vi.unstubAllGlobals()
   })
 
+  it('resumes from the last durable server sequence and reports monotonic progress', () => {
+    const sequences: string[] = []
+    const client = createAnnotationRealtimeClient(roomId, {
+      onServerSequence: value => sequences.push(value),
+      resumeFromServerSequence: () => '42',
+    })
+    client.connect()
+    const socket = FakeWebSocket.instances[0]!
+    expect(socket.url).toContain('last_server_sequence=42')
+
+    socket.receive({
+      schema_version: '2.0.0',
+      type: 'connection_ready',
+      room_id: roomId,
+      server_sequence: '44',
+      authenticated_user_id: 'user-1',
+      device_session_id: 'device-1',
+    })
+    expect(sequences).toEqual(['44'])
+    client.disconnect()
+  })
+
   it('replays edit intent after ready, refreshes it, and releases it explicitly', () => {
     const states: string[] = []
     const deviceSessionId = '84000000-0000-4000-8000-000000000003'

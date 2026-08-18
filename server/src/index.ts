@@ -33,6 +33,7 @@ import { createKubernetesDeploymentProbe } from './operations/kubernetes-deploym
 import { createMinioStorageProbe } from './operations/minio-storage.js'
 import { mediaSourceRoutes } from './routes/media-sources.js'
 import { createAnnotationPresenceService } from './realtime/annotation-presence.js'
+import { createAnnotationSnapshotEventService } from './realtime/annotation-events.js'
 import { createAiProgressService } from './realtime/ai-progress.js'
 import { annotationWebSocketRoutes } from './realtime/annotation-ws.js'
 import { CoachMatchEventHub, coachWebSocketRoutes } from './realtime/coach-ws.js'
@@ -76,6 +77,7 @@ const annotationPresence = redis
     })
   : null
 const aiProgress = redis ? createAiProgressService(redis) : null
+const annotationEvents = redis ? createAnnotationSnapshotEventService(redis) : null
 const coachMatchEvents = new CoachMatchEventHub()
 configureCoachAnalyticsGraphQL(matchId =>
   coachMatchEvents.publish(matchId, 'identity_mapping_updated'),
@@ -214,6 +216,7 @@ await app.register(
 await app.register(
   annotationWebSocketRoutes({
     authenticate: request => authenticateDevelopmentAnnotationRequest(request, db),
+    ...(annotationEvents ? { events: annotationEvents } : {}),
     ...(annotationPresence ? { presence: annotationPresence } : {}),
     ...(aiProgress ? { progress: aiProgress } : {}),
     service: annotationCommands,
@@ -273,6 +276,7 @@ app.get('/health/ready', async (_req, reply) => {
 const port = Number(process.env.PORT ?? 4000)
 app.addHook('onClose', async () => {
   await matchCleanupCoordinator.stop()
+  annotationEvents?.close()
   annotationPresence?.close()
   aiProgress?.close()
   redis?.disconnect()

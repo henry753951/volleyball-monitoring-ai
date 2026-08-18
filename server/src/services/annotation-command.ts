@@ -33,6 +33,13 @@ export interface AnnotationCommandServiceDependencies {
   ) => Promise<ResolvedMediaAnchor>
 }
 
+export interface AnnotationRoomChanges {
+  currentSequence: bigint
+  hasMore: boolean
+  rallyIds: string[]
+  throughSequence: bigint
+}
+
 export interface AnnotationCommandService {
   apply(
     command: AnnotationCommand,
@@ -44,6 +51,11 @@ export interface AnnotationCommandService {
     identity: AnnotationIdentity,
     activeDeviceSessionIds: readonly string[],
   ): Promise<string | null>
+  roomChangesAfter(
+    roomId: string,
+    afterSequence: bigint,
+    limit?: number,
+  ): Promise<AnnotationRoomChanges>
   roomSequence(roomId: string): Promise<bigint>
 }
 
@@ -2500,6 +2512,33 @@ export function createAnnotationCommandService(
       const room = await authorizeAnnotationRoom(deps.database, roomId, identity)
       if (!room) return null
       return recoverAbandonedDraft(deps.database, room, identity, activeDeviceSessionIds)
+    },
+    async roomChangesAfter(roomId, afterSequence, requestedLimit = 512) {
+      const limit = Math.max(1, Math.min(2_048, Math.trunc(requestedLimit)))
+      const receipts = await deps.database.annotationCommandReceipt.findMany({
+        orderBy: { serverSequence: 'asc' },
+        select: { accepted: true, rallyId: true, serverSequence: true },
+        take: limit + 1,
+        where: { roomId, serverSequence: { gt: afterSequence } },
+      })
+      const delivered = receipts.slice(0, limit)
+      const aggregate = await deps.database.annotationCommandReceipt.aggregate({
+        _max: { serverSequence: true },
+        where: { roomId },
+      })
+      const currentSequence = aggregate._max.serverSequence ?? 0n
+      const throughSequence =
+        delivered.at(-1)?.serverSequence ??
+        (afterSequence > currentSequence ? currentSequence : afterSequence)
+      const rallyIds = [
+        ...new Set(delivered.filter(receipt => receipt.accepted).map(receipt => receipt.rallyId)),
+      ]
+      return {
+        currentSequence,
+        hasMore: receipts.length > limit || throughSequence < currentSequence,
+        rallyIds,
+        throughSequence,
+      }
     },
     async roomSequence(roomId) {
       const aggregate = await deps.database.annotationCommandReceipt.aggregate({

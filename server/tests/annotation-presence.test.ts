@@ -89,6 +89,8 @@ describe('annotation Redis presence', () => {
     const member = await presence.join(roomId, { userId: 'user-1', deviceSessionId: 'device-1' })
     const editing = await presence.setEditing(roomId, member, 'key-point-1')
     expect((await presence.snapshot(roomId)).members[0]?.editing_key_point_id).toBe('key-point-1')
+    await presence.setEditing(roomId, editing, 'key-point-1')
+    expect(changes).toBe(2)
     await presence.touch(roomId, editing)
     expect((await presence.snapshot(roomId)).members[0]?.editing_key_point_id).toBe('key-point-1')
 
