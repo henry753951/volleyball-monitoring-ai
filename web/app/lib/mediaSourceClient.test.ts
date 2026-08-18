@@ -74,4 +74,26 @@ describe('match media source client', () => {
     ).resolves.toBeNull()
     expect(fetcher).not.toHaveBeenCalled()
   })
+
+  it('force reloads a YouTube source through the fresh-resolve retry endpoint', async () => {
+    const fetcher = vi.fn<typeof fetch>(
+      async () => new Response(JSON.stringify({ attempt: 3 }), { status: 202 }),
+    )
+    await expect(
+      createMediaSourceClient({ fetcher }).forceReloadYoutubeSource('capture-1'),
+    ).resolves.toEqual({ attempt: 3 })
+    expect(fetcher.mock.calls[0]?.[0]).toBe('/api/v1/media-sources/youtube/capture-1/retry')
+    expect(fetcher.mock.calls[0]?.[1]).toMatchObject({ method: 'POST', credentials: 'include' })
+  })
+
+  it('clears a failed media source task through the scoped delete endpoint', async () => {
+    const fetcher = vi.fn<typeof fetch>(
+      async () => new Response(JSON.stringify({ cleared: true }), { status: 200 }),
+    )
+    await expect(
+      createMediaSourceClient({ fetcher }).clearMediaSource('capture-1'),
+    ).resolves.toEqual({ cleared: true })
+    expect(fetcher.mock.calls[0]?.[0]).toBe('/api/v1/media-sources/capture-1')
+    expect(fetcher.mock.calls[0]?.[1]).toMatchObject({ method: 'DELETE', credentials: 'include' })
+  })
 })

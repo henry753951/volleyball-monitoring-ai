@@ -8,8 +8,11 @@ import {
   Gauge,
   HardDrive,
   Layers3,
+  LoaderCircle,
   RadioTower,
   RefreshCw,
+  RotateCw,
+  Trash2,
   TriangleAlert,
 } from 'lucide-vue-next'
 import { toast } from 'vue-sonner'
@@ -22,6 +25,7 @@ import {
   mediaWorkStage,
 } from '~/lib/mediaOperationsDiagnostics'
 import type { MatchMediaSnapshot, StreamSnapshot } from '~/lib/operationsMonitor'
+import { createMediaSourceClient } from '~/lib/mediaSourceClient'
 
 const props = defineProps<{
   matchTitle: string
@@ -41,6 +45,9 @@ const currentStage = computed(() =>
 const currentPlayableProgress = computed(() =>
   currentStream.value ? mediaPlayableProgress(currentStream.value) : null,
 )
+const mediaSources = createMediaSourceClient()
+const reloadingId = ref<string | null>(null)
+const clearingId = ref<string | null>(null)
 
 function sourceName(stream: StreamSnapshot) {
   return stream.sourceLabel?.trim() || stream.sourceKind.replaceAll('_', ' ')
@@ -103,6 +110,49 @@ function statusLabel(stream: StreamSnapshot) {
   if (stream.status === 'FAILED') return '處理失敗'
   if (stream.program?.status === 'READY') return '索引完成'
   return stream.status.toLowerCase() === 'finished' ? '已完成' : stream.status
+}
+
+function isYoutube(stream: StreamSnapshot) {
+  return stream.sourceKind.trim().toLowerCase().startsWith('youtube')
+}
+
+function canReload(stream: StreamSnapshot) {
+  return (
+    isYoutube(stream) &&
+    stream.status === 'FAILED' &&
+    Boolean(stream.sourceWork) &&
+    !reloadingId.value &&
+    !clearingId.value
+  )
+}
+
+async function forceReload(stream: StreamSnapshot) {
+  if (!canReload(stream)) return
+  reloadingId.value = stream.captureSessionId
+  try {
+    const result = await mediaSources.forceReloadYoutubeSource(stream.captureSessionId)
+    emit('refresh')
+    toast.success(`已強制重新載入，將使用最新 Cookie 重新解析（第 ${result.attempt} 次）`)
+  } catch (cause) {
+    toast.error(cause instanceof Error ? cause.message : '媒體重新載入失敗')
+  } finally {
+    reloadingId.value = null
+  }
+}
+
+async function clearTask(stream: StreamSnapshot) {
+  if (stream.status !== 'FAILED' || !stream.sourceWork || clearingId.value) return
+  if (!window.confirm('只清除這個失敗的媒體任務？已有媒體或標註資料時系統會拒絕刪除。')) return
+  clearingId.value = stream.captureSessionId
+  try {
+    await mediaSources.clearMediaSource(stream.captureSessionId)
+    emit('refresh')
+    toast.success('失敗媒體任務已清除')
+  } catch (cause) {
+    toast.error(cause instanceof Error ? cause.message : '媒體任務清除失敗')
+  } finally {
+    clearingId.value = null
+  }
 }
 
 async function copyDiagnostics(stream: StreamSnapshot) {
@@ -212,6 +262,29 @@ async function copyDiagnostics(stream: StreamSnapshot) {
                 <span class="health" :class="stream.health.toLowerCase()"
                   ><i />{{ stream.health === 'HEALTHY' ? '正常' : stream.health }}</span
                 >
+              </div>
+              <div v-if="isYoutube(stream) && stream.status === 'FAILED'" class="stream-actions">
+                <button type="button" :disabled="!canReload(stream)" @click="forceReload(stream)">
+                  <LoaderCircle
+                    v-if="reloadingId === stream.captureSessionId"
+                    :size="13"
+                    class="spinning"
+                  /><RotateCw v-else :size="13" />
+                  {{ reloadingId === stream.captureSessionId ? '重新載入中…' : '強制重新載入' }}
+                </button>
+                <button
+                  type="button"
+                  class="danger-action"
+                  :disabled="Boolean(clearingId)"
+                  @click="clearTask(stream)"
+                >
+                  <LoaderCircle
+                    v-if="clearingId === stream.captureSessionId"
+                    :size="13"
+                    class="spinning"
+                  /><Trash2 v-else :size="13" />
+                  {{ clearingId === stream.captureSessionId ? '清除中…' : '清除任務' }}
+                </button>
               </div>
               <div class="work-stage" :class="mediaWorkStage(stream).tone">
                 <span>
@@ -505,6 +578,39 @@ async function copyDiagnostics(stream: StreamSnapshot) {
   color: #767a80;
   font-size: 0.5rem;
 }
+.stream-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin-left: 44px;
+}
+.stream-actions button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 29px;
+  padding: 0 9px;
+  border: 1px solid #34383f;
+  border-radius: 7px;
+  background: #1c1f24;
+  color: #c7cbd0;
+  font: inherit;
+  font-size: 0.49rem;
+  cursor: pointer;
+}
+.stream-actions button:hover:not(:disabled) {
+  border-color: #4a5059;
+  background: #24282e;
+}
+.stream-actions button:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
+.stream-actions .danger-action {
+  border-color: #5a363a;
+  color: #e2a09d;
+}
 .health {
   display: flex;
   align-items: center;
@@ -643,7 +749,8 @@ async function copyDiagnostics(stream: StreamSnapshot) {
   }
   .stream-detail,
   .stream-list dl,
-  .work-stage {
+  .work-stage,
+  .stream-actions {
     padding-left: 0;
     margin-left: 0;
   }

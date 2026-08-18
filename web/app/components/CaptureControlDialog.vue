@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { CircleAlert, LoaderCircle, Square } from 'lucide-vue-next'
+import { CircleAlert, LoaderCircle, Square, Trash2 } from 'lucide-vue-next'
 import { toast } from 'vue-sonner'
 import UiButton from '~/components/ui/Button.vue'
 import YoutubeAuthCard from '~/components/YoutubeAuthCard.vue'
@@ -23,6 +23,7 @@ const captureToStop = shallowRef<CaptureSession | null>(null)
 const error = ref<string | null>(null)
 const rtmpCredentials = shallowRef<RtmpSourceCredentials | null>(null)
 const retryingId = ref<string | null>(null)
+const clearingId = ref<string | null>(null)
 
 const activeCapture = computed(
   () =>
@@ -169,13 +170,28 @@ async function retryYoutube(capture: CaptureSession) {
   if (retryingId.value) return
   retryingId.value = capture.id
   try {
-    const result = await mediaSources.retryYoutubeSource(capture.id)
+    const result = await mediaSources.forceReloadYoutubeSource(capture.id)
     emit('changed')
-    toast.success(`已重新排入 YouTube 來源（第 ${result.attempt} 次嘗試）`)
+    toast.success(`已強制重新載入 YouTube（使用最新 Cookie，第 ${result.attempt} 次嘗試）`)
   } catch (cause) {
-    toast.error(cause instanceof Error ? cause.message : 'YouTube 來源重試失敗')
+    toast.error(cause instanceof Error ? cause.message : 'YouTube 來源重新載入失敗')
   } finally {
     retryingId.value = null
+  }
+}
+
+async function clearYoutube(capture: CaptureSession) {
+  if (clearingId.value) return
+  if (!window.confirm('只清除這個失敗的媒體任務？已有媒體或標註資料時系統會拒絕刪除。')) return
+  clearingId.value = capture.id
+  try {
+    await mediaSources.clearMediaSource(capture.id)
+    emit('changed')
+    toast.success('失敗媒體任務已清除')
+  } catch (cause) {
+    toast.error(cause instanceof Error ? cause.message : '媒體任務清除失敗')
+  } finally {
+    clearingId.value = null
   }
 }
 </script>
@@ -259,11 +275,21 @@ async function retryYoutube(capture: CaptureSession) {
             <UiButton
               variant="ghost"
               size="sm"
-              :disabled="Boolean(retryingId)"
+              :disabled="Boolean(retryingId) || Boolean(clearingId)"
               @click="retryYoutube(failedYoutubeCapture)"
             >
               <LoaderCircle v-if="retryingId === failedYoutubeCapture.id" class="spin" :size="13" />
-              {{ retryingId === failedYoutubeCapture.id ? '重試中…' : '重試下載' }}
+              {{ retryingId === failedYoutubeCapture.id ? '重新載入中…' : '強制重新載入' }}
+            </UiButton>
+            <UiButton
+              variant="ghost"
+              size="sm"
+              :disabled="Boolean(retryingId) || Boolean(clearingId)"
+              @click="clearYoutube(failedYoutubeCapture)"
+            >
+              <LoaderCircle v-if="clearingId === failedYoutubeCapture.id" class="spin" :size="13" />
+              <Trash2 v-else :size="13" />
+              {{ clearingId === failedYoutubeCapture.id ? '清除中…' : '清除任務' }}
             </UiButton>
           </div>
         </section>
