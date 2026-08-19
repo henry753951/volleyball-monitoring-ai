@@ -462,7 +462,7 @@ fbc6d5d8d9cb99af507f5915b9ecd17b0413519abab4f1ad78da78b72d5a1fb3  ./server/src/s
 d7aea4bb1132e90806b3ab2bd69d8a0b1f6425626a7704c1ca090b08cbaa98b7  ./server/src/services/coach-analytics.ts
 8879a8867a06aca737037987a366e910df023791bd715cf4e300509a20879f8b  ./server/src/services/coach-dashboard.ts
 e1abb715be66a38d29161f592db6e72e817158c43aa8e51f18ab421f8f58a5f6  ./server/src/services/coach-replay.ts
-91fae382ae88263e1e9a975d9680a2b7ed2654ccdbce2479b074b360a5703d0d  ./server/src/services/core-domain.ts
+f8f7344bbc4f77eb5731e4b51eb5d3b7eda767c7ae4cce44ffec09baebeaf8d6  ./server/src/services/core-domain.ts
 9d0aa531c137cd421dd6a0a98643474e6296ffbd96bc4fce9bc300e92e182c0d  ./server/src/services/correction-draft.ts
 13d54b2d5fb999b10bd02e18a3bb43217392ba7f763031a6de42106a1bd53c33  ./server/src/services/effective-contact-actor.ts
 71765f8b7c5cfa77ba9f694ddd9923cae4b6ab7b2a50bb84e80693a40f17480e  ./server/src/services/effective-contact-frame.ts
@@ -677,7 +677,7 @@ d414d774f9b4f8b5a49be463ee8de0bcf284e3b84d96cb54d270d4be558038e9  ./web/app/lib/
 ea6147e9664833abf6ae1dc8bcffbdded5c976a7dd2b9b4a680dcc3a7c9c8df4  ./web/app/lib/rosterPromptImport.test.ts
 4e07c8e910ce029b61dcbe1110e7be3538b6ef9598340fc8468d33efe5760d7b  ./web/app/lib/rosterPromptImport.ts
 440fc13e62d9078c3a3742f76760e310c7d5d8534d7c1164eb585146c7748ef4  ./web/app/middleware/auth.global.ts
-de403b61d2286f092aa10ac58ff0b614f86d568d6999858f534976bb9b564f8c  ./web/app/pages/annotate/[matchId].vue
+cebedaa72f9a3f17808a79c4fd2e7750119e92fe926d978075ce096505c87881  ./web/app/pages/annotate/[matchId].vue
 b6f8b2f155ef7538f6f9746dbd47408fe9fa206804948886b940ac273e878bdf  ./web/app/pages/control/index.vue
 de575899c27987ea0f5beae095022624fb5ee6cc2fef2b1b15c47ff5e97aeea5  ./web/app/pages/control/jobs.vue
 ffda57a925b659c33ea87ab67aedd169120195cf27497ab8eceaf14dd7e56ba3  ./web/app/pages/index.vue
@@ -715,8 +715,8 @@ e6f272d0c80ffac400de361b8408d6bc0b64e0bdc4dc4601d50a8db8c2eb8709  ./web/app/serv
 927a48d9779fdc02104302d9b25b5b3621a3f2c024a697e217054e8467c357d3  ./web/app/services/annotation-workstation/ome-live-playback.service.ts
 59f2b84939543415f6dd025e26118d0a2e01480d4735005b377fbe460303f7a6  ./web/app/services/annotation-workstation/processing-state.service.test.ts
 39495eeec85f5f3114dbb22629439c7235bd38b511b784afe99784533443a342  ./web/app/services/annotation-workstation/processing-state.service.ts
-4e0947f0707fce6aeff3289858e5123536328237fdd4816afe5039fb69864737  ./web/app/services/annotation-workstation/segment-management.service.test.ts
-e4547f6636f1cc5cd8da90cae3fa3dabcb0d070d3d8b725df9a2e90902a70639  ./web/app/services/annotation-workstation/segment-management.service.ts
+fffa4d925f5b43722b446cf34bf88bbac25dca3224584f28ea540b38a079b8bd  ./web/app/services/annotation-workstation/segment-management.service.test.ts
+f3de68ef6a9123de55ec45228f7bdcc785f70c50b4e4b323e4b78bae558c9b2c  ./web/app/services/annotation-workstation/segment-management.service.ts
 0f05ab3376878c719dd2705ffcb257deac643816765b99e69c76c179fe9cb52d  ./web/app/services/annotation-workstation/sync-recovery.service.test.ts
 da524a8db30806b29d211439ff6984bee35eca9baab3ff2acf6bad92e699850e  ./web/app/services/annotation-workstation/sync-recovery.service.ts
 60869d15c0cae7a43c4d1cd31d4e11cf4e8f695acddfe6bdb09d7c10d74e7fa4  ./web/app/services/annotation-workstation/timeline-selection.service.test.ts
