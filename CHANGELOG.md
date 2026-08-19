@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.8.0](https://github.com/henry753951/volleyball-monitoring-ai/compare/v1.7.6...v1.8.0) (2026-08-19)
+
+
+### Features
+
+* **annotation:** improve collaborative cursor and rally controls ([e440a37](https://github.com/henry753951/volleyball-monitoring-ai/commit/e440a3705796d98e411c86029793f7fe2c5abe9e))
+* **annotation:** improve collaborative cursor and rally controls ([f1faf04](https://github.com/henry753951/volleyball-monitoring-ai/commit/f1faf04d3dce8c42fe973b7c8e969a30d8d116c9))
+
 ## [1.7.6](https://github.com/henry753951/volleyball-monitoring-ai/compare/v1.7.5...v1.7.6) (2026-08-19)
 
 
