@@ -408,9 +408,11 @@ export const annotationWebSocketRoutes =
                   room.roomId,
                   presenceMember,
                   intent.editing_key_point_id,
+                  intent.cursor_capture_time_us,
+                  intent.cursor_status,
                 )
                 // The origin gets a direct heartbeat response. Room-wide fan-out
-                // only occurs when the semantic edit target actually changes.
+                // occurs when the edit target or canonical cursor changes.
                 await sendPresence()
                 return
               } catch {

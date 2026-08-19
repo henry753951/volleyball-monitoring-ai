@@ -106,4 +106,32 @@ describe('annotation Redis presence', () => {
     expect(changes).toBe(4)
     presence.close()
   })
+
+  it('publishes a canonical playback cursor without changing the edit hint', async () => {
+    const roomId =
+      'match:00000000-0000-4000-8000-000000000001:capture:00000000-0000-4000-8000-000000000002'
+    const redis = new MemoryRedis()
+    const presence = createAnnotationPresenceService({
+      redis,
+      displayName: async () => 'Operator One',
+    })
+    const member = await presence.join(roomId, { userId: 'user-1', deviceSessionId: 'device-1' })
+    const updated = await presence.setEditing(roomId, member, null, '1234567', 'ready')
+    expect(updated.editing_key_point_id).toBeNull()
+    expect((await presence.snapshot(roomId)).members[0]).toMatchObject({
+      cursor_capture_time_us: '1234567',
+      cursor_status: 'ready',
+    })
+    await presence.touch(roomId, updated)
+    expect((await presence.snapshot(roomId)).members[0]).toMatchObject({
+      cursor_capture_time_us: '1234567',
+      cursor_status: 'ready',
+    })
+    await presence.setEditing(roomId, updated, null, null, null)
+    expect((await presence.snapshot(roomId)).members[0]).toMatchObject({
+      cursor_capture_time_us: null,
+      cursor_status: null,
+    })
+    presence.close()
+  })
 })

@@ -89,9 +89,9 @@ export function boundaryCommandAvailability(input: BoundaryCommandAvailabilityIn
     return { enabled: false, reason: '播放游標尚未確認' }
   }
 
-  // The client may own only one unsubmitted draft. OPEN with START and no END
-  // consumes Z as END; an ended READY draft keeps Z locked until it is
-  // submitted or explicitly deleted.
+  // OPEN with START and no END consumes Z as END. Once that draft has an END,
+  // Z may start another non-overlapping draft; the existing READY draft stays
+  // durable and can be selected and submitted later.
   const isActiveLocalSegment =
     input.state === 'OPEN' &&
     !input.activeSubmissionId &&
@@ -114,7 +114,13 @@ export function boundaryCommandAvailability(input: BoundaryCommandAvailabilityIn
     return { enabled: true, reason: '再次按 Z，以目前畫面作為片段結束' }
   }
 
-  if (!input.activeSubmissionId && (input.state === 'OPEN' || input.state === 'READY')) {
+  if (input.state === 'OPEN' && !input.startBoundaryCaptureTimeUs) {
+    return { enabled: false, reason: '目前仍有正在編輯的片段' }
+  }
+
+  // A correction draft still owns the workstation until it is submitted. A
+  // normal READY draft, however, is allowed to coexist with later drafts.
+  if (input.activeSubmissionId && (input.state === 'OPEN' || input.state === 'READY')) {
     return { enabled: false, reason: '目前仍有正在編輯的片段' }
   }
 

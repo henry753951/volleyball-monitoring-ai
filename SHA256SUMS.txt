@@ -145,7 +145,7 @@ fd453395d385726a7c00925d3e0a1767bfa73bb7bf4f91ab8ad89dd898f1b978  ./packages/con
 3a68cc22b0698f4773d8de4ecf5a5ff994c5f07dc6d10fbbf70bfb370318933c  ./packages/contracts/analysis/review-patch.schema.json
 8360e1e2449472ff72af6f04c2e982f9ddcd3a493b73f6ceaf487dbd76392474  ./packages/contracts/analysis/review-revision-event.schema.json
 a235f5820b7a31ea52b25b73c89d9656d37a87f269475ce26430e2b4b25ac7d2  ./packages/contracts/analysis/review-state.schema.json
-3d8b717c42f03438071658260929af9910f1ccf2d144f70958722cba21751a61  ./packages/contracts/annotation/realtime.schema.json
+6b04c7133f3792045de466aa71d9466d877e88b524d20c43d062798a96134f25  ./packages/contracts/annotation/realtime.schema.json
 90a9d8aea71f4594135ae44af76920e9b999fd86440a52c0fe7701e36a2d2c7c  ./packages/contracts/examples/ai/abort-job.json
 d0595dfb85da9424ac327b677155050b2aba6154e30f0090f7d4bb9fdb61309e  ./packages/contracts/examples/ai/analysis-data-manifest.json
 69160b2ced24d7e4eace6ffcff4acaa8f6f6a5a8525adaf03c6c1078393507c7  ./packages/contracts/examples/ai/analysis-evidence-manifest.json
@@ -242,7 +242,7 @@ db855965fb2e18f28c0e1eae6eee4a8ea15156a5ecbbf5241f56b659ce1d2edb  ./packages/con
 d0e036a73b300e00558f9dcf63f17121418f159a1d5cb9d3792620325866f7bd  ./packages/contracts/src/ai-provider-realtime.ts
 eb324292f665793301a24920876dd3e21e1647c05fd190f1e4e30341145347cb  ./packages/contracts/src/analysis-data-flatbuffers.ts
 cfc75e1c95bd2d464ecbc64aad31203d75f9a03e6c109a9a9af04f36f8d93b7c  ./packages/contracts/src/analysis-review.ts
-3b5a483cb9da5ab262c42b348c80df5867c1201902e4c211285e1df7db5c614d  ./packages/contracts/src/annotation.ts
+662ec79ca0ce95d47761b366cbfbd2d65a3553db72f5ed320b8ea75fc6ffe2b9  ./packages/contracts/src/annotation.ts
 3949b854f74cdcb43d273197a8b308c5f34392f1746c7e4960c72ee518d26c5a  ./packages/contracts/src/ball-event.ts
 c7d35a2d220a737b96a5aefeed27df5d5e85f66f4743d45f197e651c56254011  ./packages/contracts/src/index.ts
 aa99a1d36f8d6a2c22441fcb9dbd8f1273aa720d8c7f240943ca4c627f2ddb87  ./packages/contracts/src/person-pose-evidence-flatbuffers.ts
@@ -251,7 +251,7 @@ d695d9beb49c6fd0976e8ec04b8ece4d08fb230f831858c5e9b6de6e41d58b95  ./packages/con
 ed432575f2a64f55e3c3f9d5397600baa667d186962b68ca46fe5b8e2601f61f  ./packages/contracts/tests/annotation-v4.test.ts
 bd7a902d0fd38125b288fbb375d16b81fe47401143437ba7653d4a4338e5cdf4  ./packages/contracts/tests/ball-event.test.ts
 4ab03cd48cd8e652a320797d91716427c4abe72891f77a79caea9b360457c96d  ./packages/contracts/tests/person-pose-evidence-flatbuffers.test.ts
-98ab2bcd0803699c249174f755c274cb64c2d9aa1a2c099fb07e2871cef8c62b  ./packages/contracts/tests/validate.test.ts
+208bd18d5231e14d16579a9ec1909a2399bc6280fcbeb76b917599ea89262784  ./packages/contracts/tests/validate.test.ts
 5a36f1bdeb6fb570710b2599eff55453bcf288de28e192935655d8860a562204  ./packages/contracts/tsconfig.json
 82aa7085cee562da19fb6906c18572620365c4d819f2fec3b73bdb49642a27ca  ./packages/db/README.md
 aac40e55874152bd6282423a37e6512877608914cb626c667e63d8d5a66a4275  ./packages/db/package.json
@@ -362,6 +362,7 @@ a3d7023f331fe9ad204b883cca1ca28d3340001971d6f00ec772605205bdeee7  ./scripts/vali
 48a725b6b565e010b0f4118909a13f2b66d8ff59bc62cf6d7d6f5b9c4650f1ff  ./scripts/validate_typescript_syntax.mjs
 0b54af4b4e94f408ecc0b15e11f261b4ebbec19160159195162f47bdc5f2e4d5  ./scripts/verify-e2e.sh
 bfec609ac139272edb37077220cf07c581ae5d45feafe585ee91678340e37ea3  ./scripts/verify_media_reconnect.ts
+015326277fe10f40be228fef9bf95d3a052bcdd835b66f373f5612639ecca0a4  ./scripts/volleyball-cluster-health.py
 5c78a93c3bc555b08917118da6f6669b433a238ca80426bbb708769116023227  ./sdk/AGENTS.md
 7722ea3b7817021665b49e07292ba9210a5ab2b598e15b849a7d8a8fec585c36  ./sdk/README.md
 f56a5e745a3ea43b0f240264b58b706e5c7f48a014f9136af07d077218ebf750  ./sdk/examples/fixture_worker.py
@@ -437,8 +438,8 @@ ccad68cef83ed4a9ed8ee6967081bbfd3d3e95419e79a36d1bf0b2468a5674f7  ./server/src/o
 c84bb919df78ba2635709943ce14b14c9a5a53138dda8f4d96bdd442463da55a  ./server/src/realtime/README.md
 372ff7678b9b4382fa92f8d308e6ff5eee9800f6db50ad92786ca8c6ff3159de  ./server/src/realtime/ai-progress.ts
 79e5b9897d88b20a9e59c40e09cb36d80a6c9340449637346b3d75b0c3215feb  ./server/src/realtime/annotation-events.ts
-9b099f643f7c6a06c5c1666272e3629f8d00ad6dd366e906e97f7fa476afc19a  ./server/src/realtime/annotation-presence.ts
-5d6267b0745f98060c196120c4dd04f630bea5cd3cf2ed08f6b81e2fd19b392f  ./server/src/realtime/annotation-ws.ts
+c5301667eab3d90386c7b21ab3e55a8f3e5c577b18d32851ec01cfd90f0120c6  ./server/src/realtime/annotation-presence.ts
+5051f71d5afe384e6a93f6eaafabde3c0c18080eb6cc0c9f349938f76c437aa2  ./server/src/realtime/annotation-ws.ts
 f0cc42abce7873f97593d6de8e0521ae7df404857d579866d55611d0c68bda54  ./server/src/realtime/auth.ts
 acc167a11aa503485781d5fe61797eb02387964ccfba63d4a3771bed45ca2a66  ./server/src/realtime/coach-ws.ts
 1af769be0dfa91969c31d0919aac81fba24fb3d7c38f3ea17c24fc3bd1ba2693  ./server/src/realtime/provider-work-ws.ts
@@ -454,7 +455,7 @@ af6f72a17464a57d4e19838d4c9cce13b015babb1993790cbd00c267e5033d28  ./server/src/r
 29dc8ee62da32da243cba2f0c90575ba5e1cea4c36a2d392ab96360c6c926812  ./server/src/services/README.md
 9a262b14dbab8a1dcee1edb4d71b211ff9f1920c331af88abf58288c965abee7  ./server/src/services/ai-worker-access.ts
 2f394d4695e25dbbdef20290628bf6be00c09b41191bdcacc89adc56acbb61e7  ./server/src/services/analysis-review.ts
-2a2cc21032bd424be35e4f786286c0e17c3b1f85bcb516fb346c8a2292030006  ./server/src/services/annotation-command.ts
+27aadbb9566f38698aff44dac4ae9a92eeedb451d09e7e1df1460e0681b6a9bf  ./server/src/services/annotation-command.ts
 46ade9235a91cf2f9cf5e748e9d9a0a0a6e35b7e53e5e8aab822f12f9041aef9  ./server/src/services/annotation-snapshot.ts
 fbc6d5d8d9cb99af507f5915b9ecd17b0413519abab4f1ad78da78b72d5a1fb3  ./server/src/services/capture-processing.ts
 d7aea4bb1132e90806b3ab2bd69d8a0b1f6425626a7704c1ca090b08cbaa98b7  ./server/src/services/coach-analytics.ts
@@ -481,9 +482,9 @@ ae50456b5bb2dbeb1fe3d5b7c23cd5b2f1f941c56f3164cc040413a27b4a775e  ./server/src/s
 8dc15db2c9c27a94bd99ba9c2a1ba28e19578153ba04ab796180f93ab74fda54  ./server/tests/analysis-dataset.test.ts
 9a4eac8d609bd66f147de6e6d11fed0b4b713aea8b49abbe3160e6b1050d7cd1  ./server/tests/analysis-media.test.ts
 8f2965b23c194930309b37a80fcc883007001fe13ce4cbd3ad0647fa42e4327b  ./server/tests/analysis-review.test.ts
-206c9342751ef26c47670bc561e7ce26cda1755481a61bd0fb984f32c0f492d7  ./server/tests/annotation-command.integration.test.ts
+59fb396d9a0d31c05b2644be34bbb817433f21a0922e5e87e2f17565c1679c0d  ./server/tests/annotation-command.integration.test.ts
 86e26e8809c0a1f1891ccebfcbc095427fc421d1ca53de250b0d3cfecab5067c  ./server/tests/annotation-events.test.ts
-73660879dc7b429654906cb70f77deaca362d5c18be27788d8666f5ad54055b8  ./server/tests/annotation-presence.test.ts
+1f3dda21976614784c4c4af6ff72f5868c605b6791d3fcad42fd9df4b6578fe3  ./server/tests/annotation-presence.test.ts
 79cf0ceb6f6d2cc2e6b44330cc0d67bbd9dfb7530db18aed431c15409e317c82  ./server/tests/annotation-snapshot.integration.test.ts
 7f2270ea86b801f85f37d5046587405ddc8c3ce70704d5c0f33e9677fa69d0ed  ./server/tests/annotation-state.test.ts
 ee3555395004e2e019ef67e78a3102d4ac62346c10ba6c67727e70edc63b76eb  ./server/tests/annotation-transport.test.ts
@@ -562,7 +563,7 @@ ba3109f41a696d3e7ba6c2fabcad2800edfc17c6798a833b843fcdb6a25e7a8f  ./web/app/comp
 8c99bffd942a404daf89bd4418c2f6c55e9d2e3a6b59b8043e25fd7bb7685a1b  ./web/app/components/CourtPathView.vue
 ced7c09f075fd625771283adf0b3ed99f89a36adb440ca236ac53f4f11eb4663  ./web/app/components/DvrTimelineDock.component.test.ts
 bc918147fb8c0e58aaab12d291d007d08899c6ff9ae4ec4e612e36dd8f9bbd85  ./web/app/components/DvrTimelineDock.test.ts
-64c1ba0f8c91219545743c88f4570f1c296062564aeaaf4701b06fcdc4a058c5  ./web/app/components/DvrTimelineDock.vue
+cfa65c69d269b4aebc863e738a5c9cf40768e9d03fb86f929ad175e6de5da976  ./web/app/components/DvrTimelineDock.vue
 f2800b91f3c29d3de13cac5026d02f521ae86fcd740665e15b41edaedd8cdcb2  ./web/app/components/IdentityJerseySuggestionDialog.vue
 0cfe9d89fa453bd808ec96b21dc0164ca04efabc0b40ef742dd3349664e224b5  ./web/app/components/LandscapeGuard.vue
 a4f1803da41c7d217566d8e5ab4f2b30c4ba2c176c46e0132fe3e8cdbf24ccde  ./web/app/components/MatchSetupForm.vue
@@ -571,7 +572,7 @@ d1f423bdf39311f859bdbad531462c87c959f6a3d27f5496dc8a75fcde320858  ./web/app/comp
 659967c62b06f93420a954862c905308d3b1ae5dca5bdd0ef578f02e5dcd65b2  ./web/app/components/PwaInstallBanner.vue
 53ca7e4d8276dd37db7a5fa678f99c0d1d02ba4cc8b7fb7e00324f578094e5e2  ./web/app/components/RosterEditorDialog.vue
 aa67a11a5a3828537100a1d9707bcd7c88a1275d587f37fb5b500e4abe6a7ba6  ./web/app/components/TeamSetupCard.vue
-a50f1651c40a8b39cb5f97abba099fbc354786501d9f92c635c03a51ba423d0e  ./web/app/components/VideoOverlayPlayer.vue
+5ba97cd5307a1b0550bb63c2b82d1ada8c432811d4984f7b90d20115d6cd1d01  ./web/app/components/VideoOverlayPlayer.vue
 1037196bef1c004ba35d388b9900831b70410ef68c25625f47460ac2dfac1e54  ./web/app/components/VolleyballOverlayCanvas.component.test.ts
 9df10f41b64c7d6da4f81a26a3b1fe06415efe59296d8f7af74ce4313a78e42e  ./web/app/components/VolleyballOverlayCanvas.vue
 96769c60b8cfe8b81ee7a4b1b5ee8024b0a31c2753ed7e9a5880637e34805be5  ./web/app/components/WsPingBadge.vue
@@ -631,7 +632,7 @@ ccd5323131297c6132c3c975ca0824dab8aa1d1a3f988d3d3f68b3aa569d4c58  ./web/app/comp
 1b258ae7f05db73de079c8d8d5a8cf219d811b262ef8ea1e194b2486f924e38e  ./web/app/composables/useIdentityAssignmentService.ts
 debc6ca8559f37bb572b4328fa82fe4f4a84e082674781c100544fe19fbc6246  ./web/app/composables/useMediaPlaybackPreferences.ts
 d561f93ece6d4ac340f3f97009f32bac96ef35880a8c452ff2701291a47a6757  ./web/app/composables/useOperationsMonitor.ts
-93ab9debfe0f15688af3439549418985ad24d1a0da83e573af208ff6336876a3  ./web/app/composables/usePlaybackCursor.ts
+c0f89ba72bedfa7e344dacfb50a6c354d10ac548db60ebcef628bca720ba1cec  ./web/app/composables/usePlaybackCursor.ts
 c3cce8f0679f8db9f1794a241044325aa5d6c9d67a70ef06bfe8e91b352c0f60  ./web/app/composables/usePublicEndpoints.ts
 d0efd072e39bb5c7979ccf95061f62811d565883764dce352e07e2a2cb3aebf2  ./web/app/layouts/annotation.vue
 41e5166ec6a1495c55763fd9d7139c4ddc3aea7898f82e6cb9dc1fd005dc3a78  ./web/app/layouts/auth.vue
@@ -644,8 +645,8 @@ d6ff7d006c6abcdd0aa18d4fe4727d0a913127afd969f6198b5b69e6468d4044  ./web/app/lib/
 9070a2870a56712822c7a762f4bf736ee5ef6dfe11e2487a57ad1fc76a813863  ./web/app/lib/annotationKeyPointNavigation.ts
 6c0fce41697521e1a4585f6f27ab5ffe2f0c4c01b295a71ab34654b8ccbb0506  ./web/app/lib/annotationOutbox.test.ts
 8dea95fe8138b9f1ebf0e5b961fb368a72d38e48e453fdba8b83aed26c91f134  ./web/app/lib/annotationOutbox.ts
-505b9e15d990e06bb35890c326107d38156f15144a4fde71def50832a9cc413f  ./web/app/lib/annotationRealtimeClient.test.ts
-00c759de4d3747f29e9fb45728d22034b0c749871559b2b15158aad039b8c9ce  ./web/app/lib/annotationRealtimeClient.ts
+92e69f350d17d522dfae0f0814d2a62dafebf2dca3bc0caef2b2395a720cc7ca  ./web/app/lib/annotationRealtimeClient.test.ts
+0a6ced68b05ccf8c255fe01375147ba7a0e5a97e574a859485f9d0ecc302f4b6  ./web/app/lib/annotationRealtimeClient.ts
 f4e3ea24f92f9d5146c8887732b181e775fadea4139d1ada0d69d388a8d8fb48  ./web/app/lib/coachDomain.ts
 b30652d38e7361693dfad2103c4b1cb55dfada88dcf29ef2f57bdaff89c5e408  ./web/app/lib/coreDomain.test.ts
 8de7a3ba8741cf8190485ff1921fcf27a5d6d29cb7fa720b659de23f48e9de50  ./web/app/lib/coreDomain.ts
@@ -675,7 +676,7 @@ d414d774f9b4f8b5a49be463ee8de0bcf284e3b84d96cb54d270d4be558038e9  ./web/app/lib/
 ea6147e9664833abf6ae1dc8bcffbdded5c976a7dd2b9b4a680dcc3a7c9c8df4  ./web/app/lib/rosterPromptImport.test.ts
 4e07c8e910ce029b61dcbe1110e7be3538b6ef9598340fc8468d33efe5760d7b  ./web/app/lib/rosterPromptImport.ts
 440fc13e62d9078c3a3742f76760e310c7d5d8534d7c1164eb585146c7748ef4  ./web/app/middleware/auth.global.ts
-97763010bb5a1553b52935b909450ecfeeb03129d9919e4ea107c0c250364f02  ./web/app/pages/annotate/[matchId].vue
+95f7bba6616c4455799f10ff4b624865a09d5a71b44476d14a2727462755d40e  ./web/app/pages/annotate/[matchId].vue
 b6f8b2f155ef7538f6f9746dbd47408fe9fa206804948886b940ac273e878bdf  ./web/app/pages/control/index.vue
 de575899c27987ea0f5beae095022624fb5ee6cc2fef2b1b15c47ff5e97aeea5  ./web/app/pages/control/jobs.vue
 ffda57a925b659c33ea87ab67aedd169120195cf27497ab8eceaf14dd7e56ba3  ./web/app/pages/index.vue
@@ -693,11 +694,11 @@ b4faef41868e822a1f2e7edae45c854e40f9376da20ba8994dcc29d75223e5f8  ./web/app/serv
 7a65bdeb7841f638fa7507643b3e8bce64f3c1208a0ec7b97c35f90ef45d8b55  ./web/app/services/annotation-workstation/analysis-review.service.ts
 404c00c385044c167713ca99994cf2d2f37eb5ca84552bdc28555445f8d97a22  ./web/app/services/annotation-workstation/analysis-revision.service.test.ts
 5559fb41b0078eb34c1d182639ec51970a68749bd11e88bde2dc0b8e546167a8  ./web/app/services/annotation-workstation/analysis-revision.service.ts
-26af24f3d07f84e6f7babe9ae90329d1998f7f33396f903ba317b931e229c041  ./web/app/services/annotation-workstation/annotation-action.service.test.ts
+687fa02f0d951656cff4f912bd5f000e4d4eaaa94c7182b87fc0e647488e8ae8  ./web/app/services/annotation-workstation/annotation-action.service.test.ts
 f1fe0abf6b2f95664d074435c1376beeea3a7bd5e4c29da618b0fb30d7b538e8  ./web/app/services/annotation-workstation/annotation-action.service.ts
 b7e3d14e2bcb6adda1d0d4be35e6f8f78e9e90349a0562879849fec856534837  ./web/app/services/annotation-workstation/annotation-command.service.test.ts
 6f6cf6e0ba6120784636b3329cde8fbc62357d173156bdb0cab0ae9e64befea3  ./web/app/services/annotation-workstation/annotation-command.service.ts
-00595eaa502ba9c2ae02bd0cb245add01ba42263d2aec1da82cd46cdb6f52e36  ./web/app/services/annotation-workstation/annotation-room.service.ts
+889d9131f193f3170ec2739ea79db5f9dd37fc5caef377d479530c243fc74e12  ./web/app/services/annotation-workstation/annotation-room.service.ts
 3dc9a08aff409f5fbfb3ce7279ee626f7d5e254dc82886ae5541129db95fcb29  ./web/app/services/annotation-workstation/annotation-workstation.service.test.ts
 394e7504ec0084dffd438c84bd8eccc60745063284e083a438bd331e8329e5ab  ./web/app/services/annotation-workstation/annotation-workstation.service.ts
 83603bbd6bd02902a1b94e5558190e108a17ebf7d296ba022d4f91a91d33a2d5  ./web/app/services/annotation-workstation/authoritative-dvr-window.service.ts
@@ -737,8 +738,8 @@ d22a14497729598baa464b27572854763250d379efb44f427658df5c1fe22aa4  ./web/app/util
 78b79524bafbb5263496d394adfa80220094771dd4b6a6f98b5590f20823f0d4  ./web/app/utils/annotationBallEventPresentation.ts
 097e33691539e5833e4c9de0c372e433684a97e32eba8ac7f74aba0b86733b0c  ./web/app/utils/annotationBallEventRepairNotice.test.ts
 f793708df5e7d0cc8b70dd9f737b525cc3d7733209cf4ba6df1ca99612755331  ./web/app/utils/annotationBallEventRepairNotice.ts
-d911406c2487a40c5d8c65e8793d599fccfdbbd09b20326600a0f38eca074330  ./web/app/utils/annotationCommandAvailability.test.ts
-dd87fd52b5fa0b2bdddfcc3a4ffcedcb0517998762d84da363d8d09a8ef6169e  ./web/app/utils/annotationCommandAvailability.ts
+63aacf3c5017dd4fad8f23cf792fc02f117847d50148a6c1e1e47ceabf8f22e0  ./web/app/utils/annotationCommandAvailability.test.ts
+12ea8bad0a89e47abec83406fc96e00f4cb1d37183980acd66fc2e14a7d23da4  ./web/app/utils/annotationCommandAvailability.ts
 40f1a0659cc522399f8378729ad0d02f515da475cdef238d0051ebf6390b9c0f  ./web/app/utils/annotationHotkeys.test.ts
 82527dfb76b98a97b5408904c5ea0e91e1262574d643f7cfb8e5fb846393c456  ./web/app/utils/annotationHotkeys.ts
 9bf25662959d6b0e7a68ab2f841b717d581c118593a2bf4d5d6688d951f61a81  ./web/app/utils/annotationOutcome.test.ts

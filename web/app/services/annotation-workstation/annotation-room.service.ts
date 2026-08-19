@@ -19,6 +19,7 @@ import {
 } from 'vue'
 import {
   createAnnotationRealtimeClient,
+  type AnnotationCursorStatus,
   type AnnotationConnectionState,
   type AnnotationRealtimeClient,
 } from '~/lib/annotationRealtimeClient'
@@ -127,6 +128,21 @@ export function createAnnotationRoomService(annotationWsUrl: MaybeRefOrGetter<st
     }
     return editors
   })
+  const remoteCursors = computed(() =>
+    presence.value.flatMap(member => {
+      if (member.device_session_id === selfDeviceSessionId.value) return []
+      const captureTimeUs = member.cursor_capture_time_us
+      if (!captureTimeUs || !/^\d+$/.test(captureTimeUs)) return []
+      return [
+        {
+          deviceSessionId: member.device_session_id,
+          displayName: member.display_name,
+          captureTimeUs,
+          status: member.cursor_status ?? 'ready',
+        },
+      ]
+    }),
+  )
 
   // sessionStorage survives reloads while keeping separate tabs, cursors and
   // pending commands independent from one another.
@@ -796,6 +812,10 @@ export function createAnnotationRoomService(annotationWsUrl: MaybeRefOrGetter<st
     realtime?.setEditingKeyPoint(keyPointId)
   }
 
+  function setPlaybackCursor(captureTimeUs: string | null, status: AnnotationCursorStatus) {
+    realtime?.setPlaybackCursor(captureTimeUs, status)
+  }
+
   function forgetRally(rallyId: string) {
     // A hard-deleted Rally must not retain offline commands. Otherwise a later
     // reconnect can replay them against the deleted id and surface a misleading
@@ -837,9 +857,11 @@ export function createAnnotationRoomService(annotationWsUrl: MaybeRefOrGetter<st
     presence: shallowReadonly(presence),
     processing: shallowReadonly(processing),
     remoteEditorsByKeyPoint,
+    remoteCursors,
     resync,
     selectRally,
     setEditingKeyPoint,
+    setPlaybackCursor,
     setBallEvent,
     setBallEventActor,
     submitCorrection,

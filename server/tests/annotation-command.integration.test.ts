@@ -783,7 +783,7 @@ describe('durable service annotation command', () => {
     })
   })
 
-  it('rejects a new draft while the same device still owns a READY unsubmitted draft', async () => {
+  it('rejects a new draft when its START overlaps the same device READY draft', async () => {
     const firstRallyId = randomUUID()
     const secondRallyId = randomUUID()
     const endAnchor = {
@@ -811,7 +811,7 @@ describe('durable service annotation command', () => {
         boundaryCommand(randomUUID(), secondRallyId, 'START_RALLY', '0', '1234'),
         identity,
       ),
-    ).resolves.toMatchObject({ type: 'command_rejected', code: 'ACTIVE_RALLY_EXISTS' })
+    ).resolves.toMatchObject({ type: 'command_rejected', code: 'RALLY_RANGE_RESERVED' })
     await expect(
       db.rally.findUniqueOrThrow({ where: { id: firstRallyId } }),
     ).resolves.toMatchObject({ annotationStatus: 'READY' })
@@ -1141,13 +1141,13 @@ describe('durable service annotation command', () => {
     await expect(db.annotationCommandReceipt.count({ where: { rallyId } })).resolves.toBe(2)
   })
 
-  it('durably rejects a sequential second active draft in the same set', async () => {
+  it('durably rejects a sequential overlapping draft in the same set', async () => {
     const first = serviceCommand(randomUUID(), randomUUID())
     const second = serviceCommand(randomUUID(), randomUUID())
     await expect(service.apply(first, identity)).resolves.toMatchObject({ type: 'command_ack' })
     await expect(service.apply(second, identity)).resolves.toMatchObject({
       type: 'command_rejected',
-      code: 'ACTIVE_RALLY_EXISTS',
+      code: 'RALLY_RANGE_RESERVED',
     })
     await expect(
       db.rally.count({ where: { id: { in: [first.rally_id, second.rally_id] } } }),
@@ -1237,7 +1237,7 @@ describe('durable service annotation command', () => {
     ).resolves.toBe(2)
   })
 
-  it('keeps a closed unsubmitted rally as the device active draft until submission', async () => {
+  it('allows a later non-overlapping rally while an earlier draft is READY', async () => {
     const readyRallyId = randomUUID()
     const nextRallyId = randomUUID()
     await expect(
@@ -1276,18 +1276,24 @@ describe('durable service annotation command', () => {
       resolveCursor: async () => laterAnchor,
     })
     await expect(
-      laterService.apply(serviceCommand(randomUUID(), nextRallyId), identity),
-    ).resolves.toMatchObject({ type: 'command_rejected', code: 'ACTIVE_RALLY_EXISTS' })
+      laterService.apply(
+        boundaryCommand(randomUUID(), nextRallyId, 'START_RALLY', '0', '1234'),
+        identity,
+      ),
+    ).resolves.toMatchObject({ type: 'command_ack', operation_kind: 'START_RALLY' })
     await expect(
       db.rally.findMany({
         where: { id: { in: [readyRallyId, nextRallyId] } },
         orderBy: { ordinal: 'asc' },
         select: { id: true, annotationStatus: true },
       }),
-    ).resolves.toEqual([{ id: readyRallyId, annotationStatus: 'READY' }])
+    ).resolves.toEqual([
+      { id: readyRallyId, annotationStatus: 'READY' },
+      { id: nextRallyId, annotationStatus: 'OPEN' },
+    ])
   })
 
-  it('allows only one active draft when different rally ids race for the same set', async () => {
+  it('allows only one overlapping draft when different rally ids race for the same set', async () => {
     const commands = [
       serviceCommand(randomUUID(), randomUUID()),
       serviceCommand(randomUUID(), randomUUID()),
@@ -1296,7 +1302,7 @@ describe('durable service annotation command', () => {
     expect(responses.filter(value => value.type === 'command_ack')).toHaveLength(1)
     expect(
       responses.filter(
-        value => value.type === 'command_rejected' && value.code === 'ACTIVE_RALLY_EXISTS',
+        value => value.type === 'command_rejected' && value.code === 'RALLY_RANGE_RESERVED',
       ),
     ).toHaveLength(1)
     const rallies = await db.rally.findMany({

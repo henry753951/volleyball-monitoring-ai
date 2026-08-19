@@ -628,6 +628,12 @@
         "room_id": { "$ref": "#/$defs/canonical_room_id" },
         "editing_key_point_id": {
           "oneOf": [{ "$ref": "#/$defs/identifier" }, { "type": "null" }]
+        },
+        "cursor_capture_time_us": {
+          "oneOf": [{ "$ref": "#/$defs/decimal_string" }, { "type": "null" }]
+        },
+        "cursor_status": {
+          "enum": ["ready", "seeking", "stale", "gap", null]
         }
       }
     },
@@ -1149,6 +1155,12 @@
               "display_name": { "type": "string" },
               "editing_key_point_id": {
                 "oneOf": [{ "$ref": "#/$defs/identifier" }, { "type": "null" }]
+              },
+              "cursor_capture_time_us": {
+                "oneOf": [{ "$ref": "#/$defs/decimal_string" }, { "type": "null" }]
+              },
+              "cursor_status": {
+                "enum": ["ready", "seeking", "stale", "gap", null]
               }
             }
           }

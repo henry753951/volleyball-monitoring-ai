@@ -15,6 +15,7 @@ import {
   timelineViewForScale,
   focusedTimelineView,
   capturePercentBps,
+  formatTimelinePosition,
   rulerTicks,
   pointerTarget,
   readyAt,
@@ -38,6 +39,12 @@ const props = defineProps<{
   selectedKeyPointId?: string | null
   maskSelected?: boolean
   softLocks?: Record<string, string[]>
+  remoteCursors?: Array<{
+    deviceSessionId: string
+    displayName: string
+    captureTimeUs: string
+    status: 'ready' | 'seeking' | 'stale' | 'gap'
+  }>
   segments?: Array<{
     id: string
     label: string
@@ -1187,6 +1194,18 @@ defineExpose({ focusRange, resetView })
       </div>
     </div>
     <div
+      v-for="cursor in remoteCursors"
+      v-show="isVisible(cursor.captureTimeUs)"
+      :key="`remote-cursor-${cursor.deviceSessionId}`"
+      class="remote-cursor"
+      :class="cursor.status"
+      :style="{ left: `calc(78px + (100% - 78px) * ${position(cursor.captureTimeUs) / 100})` }"
+      :title="`${cursor.displayName} · ${formatTimelinePosition(cursor.captureTimeUs, timelineOriginUs ?? undefined)}`"
+      aria-hidden="true"
+    >
+      <span>{{ cursor.displayName }}</span>
+    </div>
+    <div
       v-if="displayPlayhead && isVisible(displayPlayhead)"
       class="playhead"
       :class="{ dragging: playheadDrag }"
@@ -1456,6 +1475,49 @@ defineExpose({ focusRange, resetView })
   pointer-events: auto;
   cursor: col-resize;
   touch-action: none;
+}
+.remote-cursor {
+  position: absolute;
+  z-index: 6;
+  top: 0;
+  bottom: 0;
+  width: 18px;
+  margin-left: -9px;
+  pointer-events: none;
+}
+.remote-cursor::before {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  border-left: 1px dashed #fff;
+  content: '';
+  opacity: 0.9;
+}
+.remote-cursor span {
+  position: absolute;
+  top: 1px;
+  left: 50%;
+  max-width: 120px;
+  padding: 2px 5px;
+  transform: translateX(-50%);
+  overflow: hidden;
+  border: 1px solid rgb(255 255 255 / 28%);
+  border-radius: 3px;
+  background: rgb(8 10 12 / 88%);
+  color: #fff;
+  font-size: 0.52rem;
+  font-weight: 700;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.remote-cursor.seeking {
+  opacity: 0.72;
+}
+.remote-cursor.stale,
+.remote-cursor.gap {
+  opacity: 0.42;
 }
 .playhead::before {
   position: absolute;

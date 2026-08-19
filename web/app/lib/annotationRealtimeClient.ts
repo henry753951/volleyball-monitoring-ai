@@ -11,6 +11,7 @@ import {
 } from './realtimeReconnect'
 
 export type AnnotationConnectionState = 'connecting' | 'ready' | 'reconnecting' | 'closed'
+export type AnnotationCursorStatus = 'ready' | 'seeking' | 'stale' | 'gap' | null
 
 interface AnnotationRealtimeHandlers {
   onMessage?: (message: AnnotationServerMessage) => void
@@ -27,6 +28,7 @@ export interface AnnotationRealtimeClient {
   reconnect(): void
   send(command: AnnotationCommand): Promise<AnnotationCommandResponse>
   setEditingKeyPoint(keyPointId: string | null): boolean
+  setPlaybackCursor(captureTimeUs: string | null, status: AnnotationCursorStatus): boolean
   ready(): boolean
 }
 
@@ -39,9 +41,12 @@ export function createAnnotationRealtimeClient(
   let socket: WebSocket | null = null
   let stopped = false
   let softLockTimer: ReturnType<typeof setInterval> | null = null
+  let cursorPresenceTimer: ReturnType<typeof setInterval> | null = null
   let handshakeTimer: ReturnType<typeof setTimeout> | null = null
   let connectionReady = false
   let editingKeyPointId: string | null = null
+  let cursorCaptureTimeUs: string | null = null
+  let cursorStatus: AnnotationCursorStatus = null
   let heartbeatStartedAt: number | null = null
   let currentState: AnnotationConnectionState = 'closed'
   const pending = new Map<
@@ -78,17 +83,33 @@ export function createAnnotationRealtimeClient(
     if (softLockTimer) clearInterval(softLockTimer)
     softLockTimer = null
   }
-  const sendSoftLock = (keyPointId = editingKeyPointId) => {
+  const clearCursorPresenceTimer = () => {
+    if (cursorPresenceTimer) clearInterval(cursorPresenceTimer)
+    cursorPresenceTimer = null
+  }
+  const sendSoftLock = (
+    keyPointId = editingKeyPointId,
+    nextCursorCaptureTimeUs = cursorCaptureTimeUs,
+    nextCursorStatus = cursorStatus,
+  ) => {
     if (!connectionReady || socket?.readyState !== WebSocket.OPEN) return false
     const intent = parseAnnotationSoftLockIntent({
       schema_version: '2.1.0',
       type: 'soft_lock_intent',
       room_id: roomId,
       editing_key_point_id: keyPointId,
+      cursor_capture_time_us: nextCursorCaptureTimeUs,
+      cursor_status: nextCursorStatus,
     })
     heartbeatStartedAt = performance.now()
     socket.send(JSON.stringify(intent))
     return true
+  }
+  const ensureCursorPresenceTimer = () => {
+    if (cursorPresenceTimer || cursorCaptureTimeUs === null) return
+    cursorPresenceTimer = setInterval(() => {
+      sendSoftLock()
+    }, 750)
   }
 
   function scheduleReconnect() {
@@ -148,6 +169,7 @@ export function createAnnotationRealtimeClient(
           softLockTimer = setInterval(() => {
             sendSoftLock()
           }, 5_000)
+          ensureCursorPresenceTimer()
         }
         if (message.type === 'presence_snapshot' && heartbeatStartedAt !== null) {
           handlers.onLatency?.(Math.max(0, Math.round(performance.now() - heartbeatStartedAt)))
@@ -187,10 +209,11 @@ export function createAnnotationRealtimeClient(
     },
     disconnect() {
       stopped = true
-      sendSoftLock(null)
+      sendSoftLock(null, null, null)
       connectionReady = false
       clearHandshakeTimer()
       clearSoftLockTimer()
+      clearCursorPresenceTimer()
       reconnectScheduler.dispose()
       rejectPending(new Error('Annotation client disconnected'))
       socket?.close(1000, 'client unmounted')
@@ -202,6 +225,7 @@ export function createAnnotationRealtimeClient(
       connectionReady = false
       clearHandshakeTimer()
       clearSoftLockTimer()
+      clearCursorPresenceTimer()
       reconnectScheduler.connected()
       rejectPending(new Error('Annotation connection restarted before acknowledgement'))
       const previousSocket = socket
@@ -213,6 +237,13 @@ export function createAnnotationRealtimeClient(
     ready: () => connectionReady && socket?.readyState === WebSocket.OPEN,
     setEditingKeyPoint(keyPointId) {
       editingKeyPointId = keyPointId
+      return sendSoftLock()
+    },
+    setPlaybackCursor(captureTimeUs, status) {
+      cursorCaptureTimeUs = captureTimeUs
+      cursorStatus = status
+      if (captureTimeUs === null) clearCursorPresenceTimer()
+      else ensureCursorPresenceTimer()
       return sendSoftLock()
     },
     send(command) {
