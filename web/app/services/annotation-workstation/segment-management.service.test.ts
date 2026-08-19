@@ -111,6 +111,18 @@ describe('segment management service', () => {
     context.service.dispose()
   })
 
+  it('can force-delete an unselected peer draft by its row id', async () => {
+    const context = setup()
+    context.service.requestDelete('peer-rally', null)
+
+    expect(context.confirmation.current.value?.id).toBe('rally-delete')
+    await context.confirmation.confirm()
+
+    expect(context.coach.deleteRally).toHaveBeenCalledWith('peer-rally')
+    expect(context.room.forgetRally).toHaveBeenCalledWith('peer-rally')
+    context.service.dispose()
+  })
+
   it('preserves reviewed keypoints and manual ball events when requested', async () => {
     const context = setup({ selectedSubmissionId: 'submission-1' })
 
@@ -191,16 +203,19 @@ describe('segment management service', () => {
     context.service.dispose()
   })
 
-  it('offers a safe undo for the latest set winner marker', async () => {
+  it('offers a targeted delete for a set winner marker without moving rallies', async () => {
     const context = setup()
 
-    const result = await context.actions.execute('segment.reopen-last-set')
+    const result = await context.actions.execute('segment.reopen-last-set', 'set-1')
     expect(result.status).toBe('executed')
-    expect(context.confirmation.current.value?.id).toBe('reopen-last-set')
-    expect(context.confirmation.current.value?.message).toContain('下一局已經新增標註')
+    expect(context.confirmation.current.value?.id).toBe('clear-set-winner-set-1')
+    expect(context.confirmation.current.value?.message).toContain('回合、比分、START／END')
     await context.confirmation.confirm()
 
-    expect(context.core.reopenLastSet).toHaveBeenCalledWith({ matchId: 'match-1' })
+    expect(context.core.reopenLastSet).toHaveBeenCalledWith({
+      matchId: 'match-1',
+      setId: 'set-1',
+    })
     context.service.dispose()
   })
 

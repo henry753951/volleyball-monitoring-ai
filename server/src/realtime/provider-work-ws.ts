@@ -41,10 +41,24 @@ function bearer(header: string | undefined) {
   return match?.[1] ?? null
 }
 
-function createMinioSigner() {
-  const endpoint = new URL(
-    process.env.MINIO_PUBLIC_ENDPOINT ?? process.env.MINIO_ENDPOINT ?? 'http://minio:9000',
+/**
+ * Provider work is delivered to an AI worker, not to a browser. Prefer the
+ * cluster-local endpoint for the signed URL so an in-cluster provider does
+ * not have to traverse Cloudflare or an external storage ingress. The public
+ * endpoint remains an explicit opt-in for providers that really run outside
+ * the cluster.
+ */
+export function providerStorageEndpoint(environment: NodeJS.ProcessEnv = process.env) {
+  return (
+    environment.MINIO_PROVIDER_ENDPOINT?.trim() ||
+    environment.MINIO_ENDPOINT?.trim() ||
+    environment.MINIO_PUBLIC_ENDPOINT?.trim() ||
+    'http://minio:9000'
   )
+}
+
+function createMinioSigner() {
+  const endpoint = new URL(providerStorageEndpoint())
   const accessKey = process.env.MINIO_ACCESS_KEY
   const secretKey = process.env.MINIO_SECRET_KEY
   if (!accessKey || !secretKey)

@@ -6,6 +6,7 @@ import type { CoachMatchState, CoachRally, CoachTeam } from '~/lib/coachDomain'
 import type { CaptureTimeline, Match } from '~/lib/coreDomain'
 import { annotationOutcomeLabel } from '~/utils/annotationOutcome'
 import { deriveCoachDisplayOrdinals } from '~/utils/rallyDisplayOrder'
+import { deriveSetDisplayProjection } from '~/utils/setDisplayProjection'
 import type { TimelineSelectionItem } from '~/utils/timelineSelection'
 
 type WorkstationState = 'IDLE' | 'OPEN' | 'READY' | 'SUBMITTED' | 'VOIDED'
@@ -92,8 +93,17 @@ export function createAnnotationWorkstationModelService(
   const visibleSubmittedRallies = computed(() =>
     submittedRallies.value.filter(rally => !draftRallyIds.value.has(rally.id)),
   )
+  const setDisplayProjection = computed(() =>
+    deriveSetDisplayProjection(options.coachData.value?.match.sets ?? []),
+  )
+  const effectiveSetNumberFor = (rawSetNumber: number) =>
+    setDisplayProjection.value.rawToEffective.get(rawSetNumber) ?? rawSetNumber
   const displayOrdinals = computed(() =>
-    deriveCoachDisplayOrdinals(annotationDrafts.value, submittedRallies.value),
+    deriveCoachDisplayOrdinals(
+      annotationDrafts.value,
+      submittedRallies.value,
+      effectiveSetNumberFor,
+    ),
   )
   const displayOrdinalFor = (rallyId: string) => displayOrdinals.value.get(rallyId) ?? 1
   const completedRallies = computed(() =>
@@ -271,7 +281,7 @@ export function createAnnotationWorkstationModelService(
       return [
         {
           id: rally.id,
-          label: `第 ${rally.display_set_number} 局 · 回合 ${displayOrdinalFor(rally.id)}`,
+          label: `第 ${effectiveSetNumberFor(rally.display_set_number)} 局 · 回合 ${displayOrdinalFor(rally.id)}`,
           stateLabel: failed
             ? '處理失敗'
             : processingCompleted && analysis?.status === 'completed'
@@ -347,7 +357,7 @@ export function createAnnotationWorkstationModelService(
       return [
         {
           id: draft.id,
-          label: `第 ${draft.display_set_number} 局 · 回合 ${displayOrdinalFor(draft.id)}`,
+          label: `第 ${effectiveSetNumberFor(draft.display_set_number)} 局 · 回合 ${displayOrdinalFor(draft.id)}`,
           stateLabel: draft.active_submission_id
             ? '修正版草稿'
             : draft.annotation_status === 'ready'
@@ -527,9 +537,9 @@ export function createAnnotationWorkstationModelService(
   )
   const currentMaskLabel = computed(() =>
     currentAnnotationDraft.value
-      ? `第 ${currentAnnotationDraft.value.display_set_number} 局 · 回合 ${displayOrdinalFor(currentAnnotationDraft.value.id)}`
+      ? `第 ${effectiveSetNumberFor(currentAnnotationDraft.value.display_set_number)} 局 · 回合 ${displayOrdinalFor(currentAnnotationDraft.value.id)}`
       : currentAnnotationRally.value
-        ? `第 ${currentAnnotationRally.value.display_set_number} 局 · 回合 ${displayOrdinalFor(currentAnnotationRally.value.id)}`
+        ? `第 ${effectiveSetNumberFor(currentAnnotationRally.value.display_set_number)} 局 · 回合 ${displayOrdinalFor(currentAnnotationRally.value.id)}`
         : null,
   )
   const currentOutcomeSource = computed(
@@ -642,9 +652,9 @@ export function createAnnotationWorkstationModelService(
   )
   const activeContextTitle = computed(() =>
     activeContextDraft.value
-      ? `第 ${activeContextDraft.value.display_set_number} 局 · 回合 ${displayOrdinalFor(activeContextDraft.value.id)}`
+      ? `第 ${effectiveSetNumberFor(activeContextDraft.value.display_set_number)} 局 · 回合 ${displayOrdinalFor(activeContextDraft.value.id)}`
       : activeContextRally.value
-        ? `第 ${activeContextRally.value.display_set_number} 局 · 回合 ${displayOrdinalFor(activeContextRally.value.id)}`
+        ? `第 ${effectiveSetNumberFor(activeContextRally.value.display_set_number)} 局 · 回合 ${displayOrdinalFor(activeContextRally.value.id)}`
         : '游標未落在片段內',
   )
   const activeContextHits = computed(
@@ -693,10 +703,13 @@ export function createAnnotationWorkstationModelService(
   )
   const displaySetNumber = computed(
     () =>
-      activeContextRally.value?.display_set_number ??
-      activeContextDraft.value?.display_set_number ??
-      currentSet.value?.set_number ??
-      1,
+      (activeContextRally.value
+        ? effectiveSetNumberFor(activeContextRally.value.display_set_number)
+        : activeContextDraft.value
+          ? effectiveSetNumberFor(activeContextDraft.value.display_set_number)
+          : currentSet.value
+            ? effectiveSetNumberFor(currentSet.value.set_number)
+            : null) ?? 1,
   )
 
   return {

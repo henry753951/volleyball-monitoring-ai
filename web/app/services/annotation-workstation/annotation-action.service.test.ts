@@ -151,13 +151,13 @@ describe('createAnnotationActionService', () => {
     )
   })
 
-  it('keeps peer drafts read-only without blocking this client from starting its own draft', () => {
+  it('keeps peer drafts editable without blocking normal draft actions', () => {
     const { manager, draftOwnedByClient } = setup()
     draftOwnedByClient.value = false
     expect(manager.state('segment.toggle-boundary').value.enabled).toBe(true)
-    expect(manager.state('mark.contact').value.enabled).toBe(false)
-    expect(manager.state('outcome.left').value.enabled).toBe(false)
-    expect(manager.state('submission.submit').value.enabled).toBe(false)
+    expect(manager.state('mark.contact').value.enabled).toBe(true)
+    expect(manager.state('outcome.left').value.enabled).toBe(true)
+    expect(manager.state('submission.submit').value.enabled).toBe(true)
   })
 
   it('keeps READY outcome and submit editable while allowing another non-overlapping Z boundary', () => {
@@ -247,15 +247,15 @@ describe('createAnnotationActionService', () => {
     expect(manager.state('mark.event-failure').value.enabled).toBe(true)
   })
 
-  it('keeps direct event edits locked to the owned editable draft', () => {
+  it('keeps direct event edits available on any editable draft', () => {
     const { manager, draftOwnedByClient, snapshot } = setup()
     draftOwnedByClient.value = false
-    expect(manager.state('mark.set-event').value).toMatchObject({
-      enabled: false,
-      reason: '此片段屬於另一個標註客戶端，只能檢視',
-    })
+    expect(manager.state('mark.set-event').value.enabled).toBe(true)
     draftOwnedByClient.value = true
-    snapshot.value!.snapshot.annotation_status = 'submitted'
+    snapshot.value = {
+      ...snapshot.value!,
+      snapshot: { ...snapshot.value!.snapshot, annotation_status: 'submitted' },
+    }
     expect(manager.state('mark.set-event').value).toMatchObject({
       enabled: false,
       reason: '尚未開始可編輯片段',

@@ -49,7 +49,7 @@ withDefaults(defineProps<{ horizontal?: boolean }>(), { horizontal: false })
   touch-action: none;
   user-select: none;
   pointer-events: auto;
-  padding: 2px;
+  padding: 0;
   transition: opacity 140ms ease;
 }
 .scroll-area :deep(.scroll-area__bar[data-state='hidden']) {
@@ -60,14 +60,14 @@ withDefaults(defineProps<{ horizontal?: boolean }>(), { horizontal: false })
   top: 0;
   right: 0;
   bottom: 0;
-  width: 9px;
+  width: 5px;
 }
 .scroll-area :deep(.scroll-area__bar.horizontal) {
   position: absolute;
   right: 0;
   bottom: 0;
   left: 0;
-  height: 9px;
+  height: 5px;
   flex-direction: column;
 }
 .scroll-area :deep(.scroll-area__thumb) {
@@ -81,9 +81,7 @@ withDefaults(defineProps<{ horizontal?: boolean }>(), { horizontal: false })
   top: 50%;
   left: 50%;
   width: 100%;
-  min-width: 44px;
   height: 100%;
-  min-height: 44px;
   transform: translate(-50%, -50%);
   content: '';
 }

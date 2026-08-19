@@ -1157,7 +1157,7 @@ describe('durable service annotation command', () => {
     ).resolves.toMatchObject({ accepted: false })
   })
 
-  it('rejects overlapping OPEN drafts across device sessions', async () => {
+  it('allows another device to edit an existing OPEN draft', async () => {
     const first = serviceCommand(randomUUID(), randomUUID())
     const second = serviceCommand(randomUUID(), randomUUID())
     await expect(service.apply(first, identity)).resolves.toMatchObject({ type: 'command_ack' })
@@ -1175,8 +1175,8 @@ describe('durable service annotation command', () => {
     await expect(
       service.apply(contactCommand(randomUUID(), first.rally_id, '1'), secondIdentity),
     ).resolves.toMatchObject({
-      type: 'command_rejected',
-      code: 'RALLY_OWNED_BY_OTHER_CLIENT',
+      type: 'command_ack',
+      operation_kind: 'CREATE_CONTACT_KEY_POINT',
     })
   })
 

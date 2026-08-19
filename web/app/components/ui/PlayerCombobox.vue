@@ -76,43 +76,52 @@ function openFromAnchor() {
         <div class="player-combobox__layout">
           <ComboboxViewport class="player-combobox__viewport">
             <ComboboxEmpty class="player-combobox__empty">找不到球員</ComboboxEmpty>
-            <UiHoverCard
-              v-for="option in options"
-              :key="option.value"
-              :side="previewSide"
-              :disabled="!option.value || !$slots.preview"
-              content-class="player-hover-card"
-            >
-              <template #trigger>
-                <ComboboxItem
-                  class="player-combobox__item"
-                  :data-tone="option.tone ?? 'default'"
-                  :value="option.value === '' ? CLEAR_VALUE : option.value"
-                >
-                  <span class="player-combobox__copy">
-                    <span v-if="option.playerName" class="player-combobox__player-line">
-                      <b class="player-combobox__jersey">#{{ option.jerseyNumber }}</b>
-                      <span
-                        v-if="option.position"
-                        class="player-combobox__position-badge"
-                        :title="option.position === 'UNSPECIFIED' ? '位置未設定' : option.position"
-                      >
-                        {{ option.position === 'UNSPECIFIED' ? '—' : option.position }}
+            <template v-for="(option, index) in options" :key="option.value">
+              <div
+                v-if="option.teamLabel && option.teamLabel !== options[index - 1]?.teamLabel"
+                class="player-combobox__group"
+                role="presentation"
+              >
+                {{ option.teamLabel }}
+              </div>
+              <UiHoverCard
+                :side="previewSide"
+                :disabled="!option.value || !$slots.preview"
+                content-class="player-hover-card"
+              >
+                <template #trigger>
+                  <ComboboxItem
+                    class="player-combobox__item"
+                    :data-tone="option.tone ?? 'default'"
+                    :value="option.value === '' ? CLEAR_VALUE : option.value"
+                  >
+                    <span class="player-combobox__copy">
+                      <span v-if="option.playerName" class="player-combobox__player-line">
+                        <b class="player-combobox__jersey">#{{ option.jerseyNumber }}</b>
+                        <span
+                          v-if="option.position"
+                          class="player-combobox__position-badge"
+                          :title="
+                            option.position === 'UNSPECIFIED' ? '位置未設定' : option.position
+                          "
+                        >
+                          {{ option.position === 'UNSPECIFIED' ? '—' : option.position }}
+                        </span>
+                        <b class="player-combobox__name" :title="option.playerName">
+                          {{ option.playerName }}
+                        </b>
                       </span>
-                      <b class="player-combobox__name" :title="option.playerName">
-                        {{ option.playerName }}
-                      </b>
+                      <b v-else class="player-combobox__fallback">{{ option.label }}</b>
+                      <small v-if="option.description">{{ option.description }}</small>
                     </span>
-                    <b v-else class="player-combobox__fallback">{{ option.label }}</b>
-                    <small v-if="option.description">{{ option.description }}</small>
-                  </span>
-                  <ComboboxItemIndicator class="player-combobox__indicator"
-                    ><Check :size="14"
-                  /></ComboboxItemIndicator>
-                </ComboboxItem>
-              </template>
-              <slot name="preview" :option="option" />
-            </UiHoverCard>
+                    <ComboboxItemIndicator class="player-combobox__indicator"
+                      ><Check :size="14"
+                    /></ComboboxItemIndicator>
+                  </ComboboxItem>
+                </template>
+                <slot name="preview" :option="option" />
+              </UiHoverCard>
+            </template>
           </ComboboxViewport>
         </div>
       </ComboboxContent>
@@ -201,6 +210,16 @@ function openFromAnchor() {
   color: #a1a1aa;
   font-size: 0.67rem;
   text-align: center;
+}
+.player-combobox__group {
+  padding: 7px 9px 4px;
+  border-top: 1px solid #2f3338;
+  color: #a9c9e2;
+  font-size: 0.56rem;
+  font-weight: 800;
+}
+.player-combobox__group:first-of-type {
+  border-top: 0;
 }
 .player-combobox__item {
   min-height: 44px;

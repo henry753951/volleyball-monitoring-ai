@@ -196,15 +196,12 @@ const displayAnnotation = computed(() => {
   return keyPointEditing.projectSnapshot(source)
 })
 const state = annotation.viewState
-const editableDraftState = computed(
-  () => (state.value === 'OPEN' || state.value === 'READY') && annotation.draftOwnedByClient.value,
-)
+const editableDraftState = computed(() => state.value === 'OPEN' || state.value === 'READY')
 const hasActiveLocalSegment = computed(() => {
   const snapshot = displayAnnotation.value?.snapshot
   const boundaries = snapshot?.boundaries ?? []
   return Boolean(
     state.value === 'OPEN' &&
-    annotation.draftOwnedByClient.value &&
     !snapshot?.active_submission_id &&
     boundaries.some(boundary => boundary.kind === 'start') &&
     !boundaries.some(boundary => boundary.kind === 'end'),
@@ -225,7 +222,6 @@ const selectionRallyIds = computed<ReadonlySet<string>>(() => {
   return ids
 })
 const localDraftRallyId = computed(() =>
-  annotation.draftOwnedByClient.value &&
   ['open', 'ready'].includes(displayAnnotation.value?.snapshot.annotation_status ?? '')
     ? (displayAnnotation.value?.rally_id ?? null)
     : null,
@@ -704,16 +700,31 @@ function compactTeamLabel(team: { name: string; shortName: string | null } | nul
 }
 const commandLeftTeamLabel = computed(() => compactTeamLabel(commandLeftTeam.value))
 const commandRightTeamLabel = computed(() => compactTeamLabel(commandRightTeam.value))
-const ballEventActorOptions = computed(() =>
-  (match.value?.rosterEntries ?? []).map(entry => {
-    const team = match.value?.teams.find(candidate => candidate.id === entry.teamId)
-    const teamLabel = team?.shortName?.trim() || team?.name.trim() || '未分隊'
-    return {
-      id: entry.id,
-      label: `${teamLabel} · #${entry.jerseyNumber} ${entry.name}`,
-    }
-  }),
-)
+const ballEventActorOptions = computed(() => {
+  const teams = match.value?.teams ?? []
+  const teamOrder = new Map(teams.map((team, index) => [team.id, index]))
+  return (match.value?.rosterEntries ?? [])
+    .map(entry => {
+      const team = teams.find(candidate => candidate.id === entry.teamId)
+      const teamLabel = team?.shortName?.trim() || team?.name.trim() || '未分隊'
+      return {
+        id: entry.id,
+        label: `${teamLabel} · #${entry.jerseyNumber} ${entry.name}`,
+        teamId: entry.teamId,
+        teamLabel,
+        jerseyNumber: entry.jerseyNumber,
+        playerName: entry.name,
+        position: entry.position,
+      }
+    })
+    .sort(
+      (left, right) =>
+        (teamOrder.get(left.teamId) ?? Number.MAX_SAFE_INTEGER) -
+          (teamOrder.get(right.teamId) ?? Number.MAX_SAFE_INTEGER) ||
+        Number.parseInt(left.jerseyNumber, 10) - Number.parseInt(right.jerseyNumber, 10) ||
+        left.playerName.localeCompare(right.playerName, undefined, { sensitivity: 'base' }),
+    )
+})
 const selectedSideLeftSetWins = computed(
   () =>
     coach.data.value?.match.sets.filter(
@@ -734,9 +745,7 @@ const canReopenLastSet = computed(() => {
   const sets = [...(coach.data.value?.match.sets ?? [])].sort(
     (left, right) => right.set_number - left.set_number,
   )
-  const latest = sets[0]
-  if (!latest || latest.status !== 'live' || latest.set_number <= 1) return false
-  return sets.some(set => set.set_number === latest.set_number - 1 && Boolean(set.winning_team_id))
+  return sets.some(set => set.status.toLowerCase() === 'finished' && Boolean(set.winning_team_id))
 })
 const nextRallyOrdinal = computed(() => {
   const setId = currentSet.value?.id

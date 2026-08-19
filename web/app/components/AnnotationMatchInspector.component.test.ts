@@ -12,6 +12,7 @@ const teams = [
 describe('AnnotationMatchInspector outcomes', () => {
   it('shows resolved and explicitly unknown outcomes in the segment list', async () => {
     const execute = vi.fn().mockResolvedValue({ status: 'executed' })
+    const requestDelete = vi.fn()
     const timeline = {
       selectHistorical: vi.fn(),
       selectRally: vi.fn(),
@@ -29,6 +30,7 @@ describe('AnnotationMatchInspector outcomes', () => {
               deletePending: ref(false),
               placementSaving: ref(false),
               requestBatchAnalysisReset: vi.fn(),
+              requestDelete,
               sideSwapPending: ref(false),
             },
             timeline,
@@ -147,7 +149,7 @@ describe('AnnotationMatchInspector outcomes', () => {
         rightTeamId: 'right',
         selectedRallyId: 'draft',
         setNumber: 1,
-        setResults: [{ set_number: 1, winning_team_id: 'right' }],
+        setResults: [{ id: 'set', set_number: 1, winning_team_id: 'right' }],
         setNumbers: [1],
         tab: 'match',
         teams,
@@ -170,8 +172,10 @@ describe('AnnotationMatchInspector outcomes', () => {
     expect(removeSetWinner.attributes('aria-label')).toBe('刪除第 1 局勝局標記')
     await removeSetWinner.trigger('click')
     expect(execute).toHaveBeenCalledWith('segment.reopen-last-set')
+    await wrapper.get('.row-action-danger').trigger('click')
+    expect(requestDelete).toHaveBeenCalledWith('draft', null)
     await wrapper.setProps({
-      setResults: [{ set_number: 1, winning_team_id: 'right', status: 'live' }],
+      setResults: [{ id: 'set', set_number: 1, winning_team_id: 'right', status: 'live' }],
     })
     expect(wrapper.find('.set-result-marker').exists()).toBe(false)
     expect(wrapper.findAll('.segment-side-order').map(row => row.text())).toEqual([

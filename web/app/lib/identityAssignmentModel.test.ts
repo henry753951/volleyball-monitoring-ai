@@ -69,4 +69,52 @@ describe('identity assignment model', () => {
 
     expect(model.track.status(model.tracks[0]!).label).toBe('人工已保存 · ReID 待建立')
   })
+
+  it('groups all popover players by team and sorts each team by jersey number', () => {
+    const model = createIdentityAssignmentModel({
+      analytics: {
+        tracks: [track(1, null, [{ start: '0', end: '10' }])],
+        teams: [
+          { id: 'team-a', name: 'Alpha', shortName: 'A' },
+          { id: 'team-b', name: 'Beta', shortName: 'B' },
+        ],
+        players: [
+          {
+            roster_entry_id: 'a-10',
+            team_id: 'team-a',
+            jersey_number: '10',
+            position: 'OH',
+            name: 'A10',
+          },
+          {
+            roster_entry_id: 'b-1',
+            team_id: 'team-b',
+            jersey_number: '1',
+            position: 'S',
+            name: 'B1',
+          },
+          {
+            roster_entry_id: 'a-2',
+            team_id: 'team-a',
+            jersey_number: '2',
+            position: 'L',
+            name: 'A2',
+          },
+        ],
+      } as unknown as CoachMatchAnalytics,
+      analysisRunId: 'run-1',
+      currentFrame: 10,
+    })
+
+    expect(
+      model.options
+        .forTrack({ teamId: null, trackId: 1 })
+        .map(option => [option.teamLabel, option.label]),
+    ).toEqual([
+      [undefined, '清除球員指派'],
+      ['A', '#2 A2'],
+      ['A', '#10 A10'],
+      ['B', '#1 B1'],
+    ])
+  })
 })

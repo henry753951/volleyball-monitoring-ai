@@ -8,6 +8,8 @@ export interface PlayerComboboxOption {
   jerseyNumber?: string
   playerName?: string
   position?: RosterPosition
+  teamId?: string
+  teamLabel?: string
   description?: string
   tone?: 'default' | 'occupied' | 'suggested'
 }

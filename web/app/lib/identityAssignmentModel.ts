@@ -107,6 +107,16 @@ function tracksShareObservedFrame(left: IdentityTrack, right: IdentityTrack) {
   return false
 }
 
+function compareJerseyNumber(left: string, right: string) {
+  const leftNumber = Number.parseInt(left, 10)
+  const rightNumber = Number.parseInt(right, 10)
+  const leftNumeric = Number.isFinite(leftNumber)
+  const rightNumeric = Number.isFinite(rightNumber)
+  if (leftNumeric && rightNumeric && leftNumber !== rightNumber) return leftNumber - rightNumber
+  if (leftNumeric !== rightNumeric) return leftNumeric ? -1 : 1
+  return left.localeCompare(right, undefined, { numeric: true, sensitivity: 'base' })
+}
+
 export function createIdentityAssignmentModel(input: IdentityAssignmentModelInput) {
   const allTracks = input.analytics?.tracks ?? []
   const tracks = allTracks.filter(track => track.analysis_run_id === input.analysisRunId)
@@ -116,6 +126,11 @@ export function createIdentityAssignmentModel(input: IdentityAssignmentModelInpu
   const trackById = new Map(tracks.map(track => [track.track_id, track]))
   const players = input.analytics?.players ?? []
   const playerByRosterEntry = new Map(players.map(player => [player.roster_entry_id, player]))
+  const teamOrder = new Map((input.analytics?.teams ?? []).map((team, index) => [team.id, index]))
+  const playerTeamLabel = (teamId: string) => {
+    const team = input.analytics?.teams?.find(candidate => candidate.id === teamId)
+    return team?.shortName?.trim() || team?.name?.trim() || '未分隊'
+  }
 
   const gidGroups = [
     ...tracks.reduce((groups, track) => {
@@ -176,7 +191,15 @@ export function createIdentityAssignmentModel(input: IdentityAssignmentModelInpu
     )
 
   function playersForTeam(teamId: string | null) {
-    return players.filter(player => !teamId || player.team_id === teamId)
+    return players
+      .filter(player => !teamId || player.team_id === teamId)
+      .sort(
+        (left, right) =>
+          (teamId ? 0 : (teamOrder.get(left.team_id) ?? Number.MAX_SAFE_INTEGER)) -
+            (teamId ? 0 : (teamOrder.get(right.team_id) ?? Number.MAX_SAFE_INTEGER)) ||
+          compareJerseyNumber(left.jersey_number, right.jersey_number) ||
+          left.name.localeCompare(right.name, undefined, { sensitivity: 'base' }),
+      )
   }
 
   function conflictFor(trackId: number, rosterEntryId: string) {
@@ -252,6 +275,8 @@ export function createIdentityAssignmentModel(input: IdentityAssignmentModelInpu
           jerseyNumber: player.jersey_number,
           playerName: player.name,
           position: player.position,
+          teamId: player.team_id,
+          teamLabel: request.teamId === null ? playerTeamLabel(player.team_id) : undefined,
           description: occupiedTrack
             ? `目前由 ${formatReidTrackId(occupiedTrack.track_id)} · ${gidLabel(occupiedTrack)} 使用，選擇後可取代`
             : previousTrack
