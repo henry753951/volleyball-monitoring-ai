@@ -53,6 +53,8 @@ export interface SegmentManagementServiceOptions {
   currentDraft: () => boolean
   sideSwapEffectiveOrdinal: () => number
   sideSwapTarget: () => SideSwapTarget | null
+  effectiveSetNumberFor?: (rawSetNumber: number) => number
+  currentEffectiveSetNumber?: () => number | null
   displayOrdinalFor?: (rallyId: string) => number
   selectedRallyId: () => string | null
   selectedSubmissionId: () => string | null
@@ -103,7 +105,10 @@ export function createSegmentManagementService(options: SegmentManagementService
     // marker is removed, so it must not disable a valid current-set target.
     if (target.setId === current.id) return true
     if (target.displaySetNumber !== undefined && current.set_number !== undefined)
-      return target.displaySetNumber === current.set_number
+      return (
+        (options.effectiveSetNumberFor?.(target.displaySetNumber) ?? target.displaySetNumber) ===
+        (options.currentEffectiveSetNumber?.() ?? current.set_number)
+      )
     return false
   }
 
