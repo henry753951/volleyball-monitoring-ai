@@ -106,6 +106,7 @@ describe('rolling HLS attachment', () => {
       currentTime: 0,
       ended: false,
       load: vi.fn(),
+      pause: vi.fn(),
       paused: true,
       removeAttribute: vi.fn(),
     } as unknown as HTMLVideoElement
@@ -123,5 +124,29 @@ describe('rolling HLS attachment', () => {
     expect(element.currentTime).toBe(37)
     expect(hls.loadSource).not.toHaveBeenCalled()
     expect(hls.startLoad).not.toHaveBeenCalled()
+  })
+
+  it('pauses the current media before recovering an exhausted buffer', async () => {
+    const pause = vi.fn()
+    const element = {
+      buffered: { length: 1, start: () => 0, end: () => 120 },
+      canPlayType: () => '',
+      currentTime: 37,
+      ended: false,
+      load: vi.fn(),
+      pause,
+      paused: false,
+      removeAttribute: vi.fn(),
+    } as unknown as HTMLVideoElement
+    const service = createDvrPlaybackService(ref(element), MEDIA_BUFFER_PROFILES.balanced)
+
+    await service.attach(descriptor(1))
+    const hls = hlsInstances[0]!
+    hls.startLoad.mockClear()
+    pause.mockClear()
+
+    expect(service.recover()).toBe(true)
+    expect(pause).toHaveBeenCalledOnce()
+    expect(hls.startLoad).toHaveBeenCalledWith(37)
   })
 })
