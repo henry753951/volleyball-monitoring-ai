@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.8.1](https://github.com/henry753951/volleyball-monitoring-ai/compare/v1.8.0...v1.8.1) (2026-08-19)
+
+
+### Bug Fixes
+
+* stabilize annotation playback and HLS recovery ([f300faa](https://github.com/henry753951/volleyball-monitoring-ai/commit/f300faa37c4737023ce4f906cd97e01ef236ea4d))
+
 ## [1.8.0](https://github.com/henry753951/volleyball-monitoring-ai/compare/v1.7.6...v1.8.0) (2026-08-19)
 
 
