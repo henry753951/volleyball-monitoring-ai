@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.7.5](https://github.com/henry753951/volleyball-monitoring-ai/compare/v1.7.4...v1.7.5) (2026-08-19)
+
+
+### Bug Fixes
+
+* **web:** apply YouTube auth card tone ([3ebc0bb](https://github.com/henry753951/volleyball-monitoring-ai/commit/3ebc0bb6dea1f08198f68ad956043ab7cd469b30))
+
 ## [1.7.4](https://github.com/henry753951/volleyball-monitoring-ai/compare/v1.7.3...v1.7.4) (2026-08-19)
 
 
