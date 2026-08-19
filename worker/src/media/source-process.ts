@@ -33,6 +33,7 @@ export type MediaSourceProcessOptions = {
 type MediaInput = {
   httpHeaders?: Record<string, string>
   httpChunkSize?: number
+  mediaKind?: 'video' | 'audio' | 'other'
   url: string
 }
 
@@ -619,13 +620,32 @@ type YoutubeMetadata = {
   format_id?: string
 }
 
-export type YoutubeResolutionMetadata = {
+export type YoutubeRangeProbe = {
+  kind: 'video' | 'audio' | 'other'
+  offsetBytes: number
+  chunkSizeBytes: number | null
+  status: number | null
+}
+
+export type YoutubePreflightMetadata = {
+  result: 'passed' | 'rejected'
+  ranges: YoutubeRangeProbe[]
+}
+
+export type YoutubeResolutionSnapshot = {
   cookieRevision: string | null
   cookieReadAt: string | null
   resolverStartedAt: string
   resolverFinishedAt: string
   playerClient: string | null
   selectedFormatIds: string[]
+  httpChunkSize: number | null
+  preflight?: YoutubePreflightMetadata
+  failureCode?: string
+}
+
+export type YoutubeResolutionMetadata = YoutubeResolutionSnapshot & {
+  resolutionHistory?: YoutubeResolutionSnapshot[]
 }
 
 function youtubeDuration(metadata: YoutubeMetadata): bigint | null {
@@ -738,22 +758,25 @@ async function notifyYoutubeResolution(
   metadata: YoutubeMetadata,
   extractorArgs: string,
   startedAt: string,
-): Promise<void> {
-  if (!observer.resolved) return
+  persist = true,
+): Promise<YoutubeResolutionMetadata> {
   const snapshot = await options.youtubeAuthSnapshot?.()
   const formats =
     metadata.requested_formats
       ?.map(value => value.format_id)
       .filter((value): value is string => Boolean(value)) ??
     (metadata.format_id ? [metadata.format_id] : [])
-  await observer.resolved({
+  const resolution: YoutubeResolutionMetadata = {
     cookieRevision: snapshot?.revision ?? null,
     cookieReadAt: snapshot?.lastReadAt ?? null,
     resolverStartedAt: startedAt,
     resolverFinishedAt: new Date().toISOString(),
     playerClient: youtubePlayerClient(extractorArgs),
     selectedFormatIds: formats,
-  })
+    httpChunkSize: null,
+  }
+  if (persist) await observer.resolved?.(resolution)
+  return resolution
 }
 
 function youtubeVideoCodec(metadata: YoutubeMetadata): string {
@@ -773,21 +796,46 @@ function youtubeInputs(metadata: YoutubeMetadata): MediaInput[] {
         'YouTube did not provide a playable input URL',
       )
     const chunkSize = Number(input.downloader_options?.http_chunk_size)
+    const mediaKind =
+      input.vcodec && input.vcodec !== 'none' ? 'video' : input.acodec ? 'audio' : 'other'
     return {
       ...(input.http_headers ? { httpHeaders: input.http_headers } : {}),
       ...(Number.isSafeInteger(chunkSize) && chunkSize > 0 ? { httpChunkSize: chunkSize } : {}),
+      mediaKind,
       url: input.url,
     }
   })
+}
+
+function preflightFailureCode(error: unknown, phase: 'primary' | 'fallback'): string | undefined {
+  if (!(error instanceof MediaSourceProcessError)) return undefined
+  if (error.httpStatus !== 403 && error.httpStatus !== 410) return undefined
+  return phase === 'primary' ? 'YOUTUBE_PRIMARY_GVS_REJECTED' : 'YOUTUBE_FALLBACK_GVS_REJECTED'
+}
+
+function rangeProbeErrorCode(error: unknown, phase: 'primary' | 'fallback'): string {
+  return (
+    preflightFailureCode(error, phase) ??
+    (phase === 'primary' ? 'BAD_SOURCE_URL' : 'YOUTUBE_FALLBACK_NOT_EMBEDDABLE')
+  )
+}
+
+export function classifyYoutubeVodPreflightFailure(
+  error: unknown,
+  phase: 'primary' | 'fallback',
+): string {
+  return rangeProbeErrorCode(error, phase)
 }
 
 export async function preflightYoutubeInput(
   input: MediaInput,
   signal: AbortSignal,
   request: typeof fetch = fetch,
+  onProbe?: (probe: YoutubeRangeProbe) => void,
 ): Promise<MediaInput> {
   if (!input.httpChunkSize) return input
   const rangeStarts = [0, input.httpChunkSize]
+  let firstFailure: MediaSourceProcessError | null = null
   for (const start of rangeStarts) {
     const headers = new Headers(input.httpHeaders)
     headers.set('accept-encoding', 'identity')
@@ -797,19 +845,33 @@ export async function preflightYoutubeInput(
       response = await request(input.url, { headers, redirect: 'follow', signal })
     } catch (error) {
       if (signal.aborted) throw error
-      throw new MediaSourceProcessError(
+      onProbe?.({
+        kind: input.mediaKind ?? 'other',
+        offsetBytes: start,
+        chunkSizeBytes: input.httpChunkSize ?? null,
+        status: null,
+      })
+      firstFailure ??= new MediaSourceProcessError(
         'BAD_SOURCE_URL',
         `YouTube media URL failed bounded range preflight at offset ${start}`,
       )
+      continue
     }
     await response.body?.cancel().catch(() => undefined)
+    onProbe?.({
+      kind: input.mediaKind ?? 'other',
+      offsetBytes: start,
+      chunkSizeBytes: input.httpChunkSize ?? null,
+      status: response.status,
+    })
     if (response.status !== 206)
-      throw new MediaSourceProcessError(
+      firstFailure ??= new MediaSourceProcessError(
         'BAD_SOURCE_URL',
         `YouTube media URL returned HTTP ${response.status} during bounded range preflight at offset ${start}`,
         response.status,
       )
   }
+  if (firstFailure) throw firstFailure
   return input
 }
 
@@ -962,6 +1024,7 @@ export function createMediaSourceProcess(options: MediaSourceProcessOptions) {
     const resolveYoutube = async (
       resolveFormat: 'live' | 'vod',
       extractorArgsOverride?: string,
+      persistResolution = true,
     ) => {
       const resolverStartedAt = new Date().toISOString()
       const extractorArgs =
@@ -977,37 +1040,93 @@ export function createMediaSourceProcess(options: MediaSourceProcessOptions) {
         resolveFormat,
         extractorArgsOverride,
       )
-      await notifyYoutubeResolution(observer, options, metadata, extractorArgs, resolverStartedAt)
-      return metadata
+      const resolution = await notifyYoutubeResolution(
+        observer,
+        options,
+        metadata,
+        extractorArgs,
+        resolverStartedAt,
+        persistResolution,
+      )
+      return { metadata, resolution }
     }
-    let metadata = await resolveYoutube('live')
+    let metadata = (await resolveYoutube('live')).metadata
     let durationUs = youtubeDuration(metadata)
     if (classifyYoutubeSource(metadata) === 'youtube_vod') {
       // Resolve fresh progressive URLs for every attempt and segment those
       // inputs directly. Finalized fMP4 files become visible while the source
       // is still downloading; retry seeks from the persisted checkpoint.
       const primaryExtractorArgs = options.youtubeVodExtractorArgs ?? options.youtubeExtractorArgs
-      metadata = await resolveYoutube('vod', primaryExtractorArgs)
+      let resolved = await resolveYoutube('vod', primaryExtractorArgs, false)
+      metadata = resolved.metadata
       durationUs ??= youtubeDuration(metadata)
+      const runVodPreflight = async (candidate: typeof resolved) => {
+        const probes: YoutubeRangeProbe[] = []
+        const inputs = youtubeInputs(candidate.metadata)
+        try {
+          const checked = await Promise.all(
+            inputs.map(input =>
+              preflightYoutubeInput(input, signal, fetch, probe => probes.push(probe)),
+            ),
+          )
+          await observer.resolved?.({
+            ...candidate.resolution,
+            httpChunkSize: checked.find(input => input.httpChunkSize)?.httpChunkSize ?? null,
+            preflight: { result: 'passed', ranges: probes },
+          })
+          return checked
+        } catch (error) {
+          await observer.resolved?.({
+            ...candidate.resolution,
+            httpChunkSize: inputs.find(input => input.httpChunkSize)?.httpChunkSize ?? null,
+            preflight: { result: 'rejected', ranges: probes },
+          })
+          throw error
+        }
+      }
       let inputs: MediaInput[]
       try {
-        inputs = await Promise.all(
-          youtubeInputs(metadata).map(input => preflightYoutubeInput(input, signal)),
-        )
+        inputs = await runVodPreflight(resolved)
       } catch (error) {
+        const primaryFailureCode = rangeProbeErrorCode(error, 'primary')
+        await observer.resolved?.({ ...resolved.resolution, failureCode: primaryFailureCode })
         const fallbackExtractorArgs = options.youtubeVodFallbackExtractorArgs
         if (!shouldRetryYoutubeVodWithFallback(error, primaryExtractorArgs, fallbackExtractorArgs))
           throw error
-        metadata = await resolveYoutube('vod', fallbackExtractorArgs)
-        if (classifyYoutubeSource(metadata) !== 'youtube_vod')
+        try {
+          resolved = await resolveYoutube('vod', fallbackExtractorArgs, false)
+          metadata = resolved.metadata
+          if (classifyYoutubeSource(metadata) !== 'youtube_vod')
+            throw new MediaSourceProcessError(
+              'YOUTUBE_FALLBACK_NOT_EMBEDDABLE',
+              'YouTube VOD fallback resolved to a live source',
+            )
+        } catch (fallbackError) {
+          if (signal.aborted) throw fallbackError
           throw new MediaSourceProcessError(
-            'YOUTUBE_FALLBACK_NOT_VOD',
-            'YouTube VOD fallback resolved to a live source',
+            'YOUTUBE_FALLBACK_NOT_EMBEDDABLE',
+            `YouTube VOD fallback could not resolve an embeddable source: ${fallbackError instanceof Error ? fallbackError.message : 'unknown error'}`,
           )
+        }
         durationUs ??= youtubeDuration(metadata)
-        inputs = await Promise.all(
-          youtubeInputs(metadata).map(input => preflightYoutubeInput(input, signal)),
-        )
+        try {
+          inputs = await runVodPreflight(resolved)
+        } catch (fallbackError) {
+          const fallbackCode = rangeProbeErrorCode(fallbackError, 'fallback')
+          await observer.resolved?.({ ...resolved.resolution, failureCode: fallbackCode })
+          if (fallbackCode === 'YOUTUBE_FALLBACK_GVS_REJECTED')
+            throw new MediaSourceProcessError(
+              fallbackCode,
+              `YouTube VOD fallback GVS rejected its bounded range request (${fallbackError instanceof MediaSourceProcessError ? fallbackError.httpStatus : 'unknown'})`,
+              fallbackError instanceof MediaSourceProcessError
+                ? fallbackError.httpStatus
+                : undefined,
+            )
+          throw new MediaSourceProcessError(
+            'YOUTUBE_FALLBACK_NOT_EMBEDDABLE',
+            `YouTube VOD fallback did not provide a playable input: ${fallbackError instanceof Error ? fallbackError.message : 'unknown error'}`,
+          )
+        }
       }
       await observer.classified({ sourceDurationUs: durationUs, sourceKind: 'youtube_vod' })
       const count = await segmentInputs(
@@ -1102,7 +1221,7 @@ export function createMediaSourceProcess(options: MediaSourceProcessOptions) {
         }
         await new Promise(resolvePromise => setTimeout(resolvePromise, 1_000))
       }
-      if (!signal.aborted) metadata = await resolveYoutube('live')
+      if (!signal.aborted) metadata = (await resolveYoutube('live')).metadata
     }
     const directory = safeChild(options.recordingRoot, work.ingestPath)
     const count = await stableRecordingCount(directory, signal)

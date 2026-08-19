@@ -9,6 +9,7 @@ import {
   buildYoutubeProbeArgs,
   buildYoutubeVodProbeArgs,
   classifyYoutubeSource,
+  classifyYoutubeVodPreflightFailure,
   createMediaSourceProcess,
   latestFfmpegProgressUs,
   MediaSourceProcessError,
@@ -268,6 +269,34 @@ describe('media source process', () => {
       ),
     ).rejects.toMatchObject({ code: 'BAD_SOURCE_URL', httpStatus: 403 })
     expect(requestCount).toBe(2)
+  })
+
+  it('records both bounded ranges so primary and fallback failures remain diagnosable', async () => {
+    const probes: Array<{ offsetBytes: number; status: number | null }> = []
+    await expect(
+      preflightYoutubeInput(
+        { httpChunkSize: 10 * 1024 * 1024, mediaKind: 'video', url: 'https://media.example/video' },
+        new AbortController().signal,
+        async () => new Response(null, { status: 403 }),
+        probe => probes.push({ offsetBytes: probe.offsetBytes, status: probe.status }),
+      ),
+    ).rejects.toMatchObject({ httpStatus: 403 })
+    expect(probes).toEqual([
+      { offsetBytes: 0, status: 403 },
+      { offsetBytes: 10 * 1024 * 1024, status: 403 },
+    ])
+    expect(
+      classifyYoutubeVodPreflightFailure(
+        new MediaSourceProcessError('BAD_SOURCE_URL', 'primary', 403),
+        'primary',
+      ),
+    ).toBe('YOUTUBE_PRIMARY_GVS_REJECTED')
+    expect(
+      classifyYoutubeVodPreflightFailure(
+        new MediaSourceProcessError('BAD_SOURCE_URL', 'fallback', 403),
+        'fallback',
+      ),
+    ).toBe('YOUTUBE_FALLBACK_GVS_REJECTED')
   })
 
   it('requires published VOD media to reach the declared duration within two segments or 5s', () => {

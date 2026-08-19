@@ -503,7 +503,7 @@ onBeforeUnmount(() => {
           </div>
         </dl>
       </section>
-      <YoutubeAuthCard class="control-youtube-auth" />
+      <YoutubeAuthCard class="control-youtube-auth" tone="dark" />
       <div class="storage-overview">
         <StorageMeter
           label="S3 物件儲存"

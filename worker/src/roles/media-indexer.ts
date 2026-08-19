@@ -394,7 +394,7 @@ export function createPgBossMediaRuntime(
           // local workers may therefore drain independent captures in parallel
           // without reordering segments within a capture.
           localConcurrency: LOCAL_INGEST_CONCURRENCY,
-          groupConcurrency: 1,
+          groupConcurrency: LOCAL_INGEST_CONCURRENCY,
           includeMetadata: true,
           orderByCreatedOn: true,
           heartbeatRefreshSeconds: 20,

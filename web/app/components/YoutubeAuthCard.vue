@@ -5,7 +5,10 @@ import { onMounted } from 'vue'
 import UiButton from '~/components/ui/Button.vue'
 import { createMediaSourceClient, type YoutubeAuthStatus } from '~/lib/mediaSourceClient'
 
-const props = withDefaults(defineProps<{ compact?: boolean }>(), { compact: false })
+const props = withDefaults(defineProps<{ compact?: boolean; tone?: 'light' | 'dark' }>(), {
+  compact: false,
+  tone: 'light',
+})
 const mediaSources = createMediaSourceClient()
 const status = ref<YoutubeAuthStatus | null>(null)
 const pending = ref(false)
@@ -49,7 +52,11 @@ onMounted(() => void load())
 </script>
 
 <template>
-  <section class="youtube-auth-card" :class="{ compact }" aria-labelledby="youtube-auth-title">
+  <section
+    class="youtube-auth-card"
+    :class="[{ compact }, `youtube-auth-card--${tone}`]"
+    aria-labelledby="youtube-auth-title"
+  >
     <div class="youtube-auth-card__heading">
       <div>
         <span class="eyebrow">YouTube 帳號</span>
@@ -59,12 +66,24 @@ onMounted(() => void load())
         sessionLabel
       }}</span>
     </div>
-    <div class="youtube-auth-card__grid">
-      <span>Browser</span><strong>{{ browserLabel }}</strong> <span>Cookie revision</span
-      ><strong>{{ status?.revision ?? '—' }}</strong> <span>Profile updated</span
-      ><strong>{{ formatDate(status?.profileUpdatedAt) }}</strong> <span>Last read</span
-      ><strong>{{ formatDate(status?.lastReadAt) }}</strong>
-    </div>
+    <dl class="youtube-auth-card__grid">
+      <div>
+        <dt>Browser</dt>
+        <dd>{{ browserLabel }}</dd>
+      </div>
+      <div>
+        <dt>Cookie revision</dt>
+        <dd>{{ status?.revision ?? '—' }}</dd>
+      </div>
+      <div>
+        <dt>Profile updated</dt>
+        <dd>{{ formatDate(status?.profileUpdatedAt) }}</dd>
+      </div>
+      <div>
+        <dt>Last read</dt>
+        <dd>{{ formatDate(status?.lastReadAt) }}</dd>
+      </div>
+    </dl>
     <p v-if="error || status?.lastError" class="youtube-auth-card__error">
       {{ error || status?.lastError }}
     </p>
@@ -88,6 +107,13 @@ onMounted(() => void load())
   padding: 1.25rem;
   box-shadow: 0 2px 10px rgb(28 25 23 / 0.04);
 }
+.youtube-auth-card--dark {
+  border-color: #303033;
+  border-radius: 12px;
+  background: #1c1c1d;
+  color: #f2f2f4;
+  box-shadow: none;
+}
 .youtube-auth-card__heading,
 .youtube-auth-card__actions {
   display: flex;
@@ -100,11 +126,17 @@ onMounted(() => void load())
   font-size: 1.05rem;
   font-weight: 700;
 }
+.youtube-auth-card--dark .youtube-auth-card__heading h2 {
+  color: #f2f2f4;
+}
 .eyebrow {
   color: rgb(120 113 108);
   font-size: 0.7rem;
   letter-spacing: 0.12em;
   text-transform: uppercase;
+}
+.youtube-auth-card--dark .eyebrow {
+  color: #929296;
 }
 .status-pill {
   border-radius: 999px;
@@ -120,22 +152,44 @@ onMounted(() => void load())
 .youtube-auth-card__grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 0.55rem 0.9rem;
+  gap: 0;
   margin-top: 1rem;
   font-size: 0.8rem;
 }
-.youtube-auth-card__grid span {
+.youtube-auth-card__grid > div {
+  display: grid;
+  grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr);
+  gap: 0.9rem;
+  padding: 0.55rem 0;
+  border-top: 1px solid rgb(231 229 228 / 0.8);
+}
+.youtube-auth-card__grid dt {
   color: rgb(120 113 108);
 }
-.youtube-auth-card__grid strong {
+.youtube-auth-card__grid dd {
+  margin: 0;
+  color: rgb(41 37 36);
+  font-weight: 650;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.youtube-auth-card--dark .youtube-auth-card__grid > div {
+  border-top-color: #303033;
+}
+.youtube-auth-card--dark .youtube-auth-card__grid dt {
+  color: #929296;
+}
+.youtube-auth-card--dark .youtube-auth-card__grid dd {
+  color: #e4e4e7;
 }
 .youtube-auth-card__error {
   margin-top: 0.75rem;
   color: rgb(185 28 28);
   font-size: 0.8rem;
+}
+.youtube-auth-card--dark .youtube-auth-card__error {
+  color: #e58d89;
 }
 .youtube-auth-card__actions {
   justify-content: flex-start;
@@ -145,12 +199,20 @@ onMounted(() => void load())
 .compact {
   box-shadow: none;
 }
+.youtube-auth-card--dark .youtube-auth-card__actions {
+  padding-top: 0.25rem;
+}
 .spin {
   animation: spin 1s linear infinite;
 }
 @keyframes spin {
   to {
     transform: rotate(360deg);
+  }
+}
+@media (max-width: 560px) {
+  .youtube-auth-card__grid {
+    grid-template-columns: 1fr;
   }
 }
 </style>

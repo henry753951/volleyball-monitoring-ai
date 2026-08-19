@@ -22,7 +22,11 @@ import {
   type ClaimedMediaSourceWork,
   type SourceCompletion,
 } from './source-work.js'
-import { countMediaSourceRecordings, type MediaSourceProcessObserver } from './source-process.js'
+import {
+  countMediaSourceRecordings,
+  type MediaSourceProcessObserver,
+  type YoutubeResolutionSnapshot,
+} from './source-process.js'
 
 export type MediaSourceRunner = (
   work: ClaimedMediaSourceWork,
@@ -304,7 +308,8 @@ export class MediaSourceRuntime {
     const { work } = active
     const state: {
       classification: Pick<SourceCompletion, 'sourceDurationUs' | 'sourceKind'> | null
-    } = { classification: null }
+      resolutionHistory: YoutubeResolutionSnapshot[]
+    } = { classification: null, resolutionHistory: [] }
     const observer: MediaSourceProcessObserver = {
       classified: async value => {
         state.classification = value
@@ -344,7 +349,11 @@ export class MediaSourceRuntime {
         }
       },
       resolved: async metadata => {
-        await recordMediaSourceResolution(this.options.database, work.id, this.#owner, metadata)
+        state.resolutionHistory = [...state.resolutionHistory, metadata].slice(-12)
+        await recordMediaSourceResolution(this.options.database, work.id, this.#owner, {
+          ...metadata,
+          resolutionHistory: state.resolutionHistory,
+        })
         this.options.log?.(
           `media-source resolved capture=${work.captureSessionId} cookie_revision=${metadata.cookieRevision ?? 'none'} player_client=${metadata.playerClient ?? 'unknown'} formats=${metadata.selectedFormatIds.join(',') || 'unknown'}`,
         )
