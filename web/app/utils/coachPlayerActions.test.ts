@@ -170,6 +170,55 @@ describe('coachPlayerActions', () => {
     expect(collectCoachActionEvents(tracks, new Map([['rally-1', replay]]))).toEqual([])
   })
 
+  it('shows a manually marked player contact even without provider ball semantics', () => {
+    const tracks = [
+      {
+        analysis_run_id: 'run-1',
+        track_id: 8,
+        rally_id: 'rally-1',
+        set_number: 1,
+        rally_ordinal: 2,
+        court_side: 'left',
+        first_frame_index: '0',
+        last_frame_index: '120',
+        roster_entry_id: null,
+        identity_mapping_completed: false,
+      },
+    ] as CoachMatchAnalytics['tracks']
+    const replay = {
+      rally: {
+        left_team: { id: 'left' },
+        right_team: { id: 'right' },
+        outcome: { score_resolution: 'unknown', scoring_team: null },
+      },
+      analysis: {
+        contact_events: [
+          {
+            key_point_id: 'event-1',
+            anchor_time_us: '8500000',
+            anchor_origin: 'review_manual',
+            quality_flags: ['manual_review_contact'],
+            ball_event: null,
+            actors: [{ track_id: 8, action: null, court_pos: { x: 0.2, y: 0.3 } }],
+          },
+        ],
+        paths: [],
+      },
+    } as unknown as CoachRallyReplay
+
+    expect(collectCoachActionEvents(tracks, new Map([['rally-1', replay]]))).toMatchObject([
+      {
+        rallyId: 'rally-1',
+        trackId: 8,
+        actionKey: 'hit',
+        actionLabel: 'HIT',
+        resultKey: null,
+        routeStart: { x: 0.2, y: 0.3 },
+        outcome: 'unknown',
+      },
+    ])
+  })
+
   it('keeps a missing per-ball result unknown instead of borrowing the rally winner', () => {
     const tracks = [
       {

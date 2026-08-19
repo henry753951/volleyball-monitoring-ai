@@ -53,6 +53,7 @@ export interface SegmentManagementServiceOptions {
   currentDraft: () => boolean
   sideSwapEffectiveOrdinal: () => number
   sideSwapTarget: () => SideSwapTarget | null
+  displayOrdinalFor?: (rallyId: string) => number
   selectedRallyId: () => string | null
   selectedSubmissionId: () => string | null
   clipSelected: () => boolean
@@ -97,9 +98,13 @@ export function createSegmentManagementService(options: SegmentManagementService
   function isCurrentSetWinnerTarget(target: SideSwapTarget | null) {
     const current = options.currentSet()
     if (!current || !target?.rallyId) return false
+    // The set id is the authoritative server identity. The display number is
+    // a client projection and can intentionally merge raw sets after a winner
+    // marker is removed, so it must not disable a valid current-set target.
+    if (target.setId === current.id) return true
     if (target.displaySetNumber !== undefined && current.set_number !== undefined)
       return target.displaySetNumber === current.set_number
-    return target.setId === current.id
+    return false
   }
 
   function success(title: string) {
@@ -350,12 +355,12 @@ export function createSegmentManagementService(options: SegmentManagementService
       expectedLeftTeamId: rally.submission.left_team_id,
       expectedRightTeamId: rally.submission.right_team_id,
       isDraft: false,
-      label: `第 ${rally.display_ordinal} 回合起`,
+      label: `第 ${options.displayOrdinalFor?.(rally.id) ?? rally.display_ordinal} 回合起`,
       setId: rally.set_id,
     }
     options.confirmation.open({
       id: 'swap-rally-sides',
-      title: `從第 ${rally.display_ordinal} 回合起對調左右`,
+      title: `從第 ${options.displayOrdinalFor?.(rally.id) ?? rally.display_ordinal} 回合起對調左右`,
       message:
         '選取回合與之後的所有回合都會套用新的左右隊伍。這不會改動原始 PTS、球點或追蹤座標；之後仍可從其他回合再次切換。',
       confirmLabel: '對調左右',

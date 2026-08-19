@@ -538,8 +538,8 @@ b9f20cf62141d41a44787e268fcc856923c98d241267e929ac6f1348b69677fa  ./web/app/comp
 e2d7c832bcdd9962125705eedcf6d19ce225032d71be33628f47b48a2191c02d  ./web/app/components/AnnotationConnectionDialog.vue
 b41e38bc24fd9666e0137e12f0e9f945941d20a067d6c882dcebbfac3aefe3ec  ./web/app/components/AnnotationIdentityPanel.component.test.ts
 4b0b59ec28c39a1a2f946fa32d2201f9f7c04eea3a7d54f2f793c875fdaaf398  ./web/app/components/AnnotationIdentityPanel.vue
-88648248294c47a4cf9070fee747019c76d356f8c6333e610195873f618da6c7  ./web/app/components/AnnotationMatchInspector.component.test.ts
-814355350545c0c54c5b1cac1517194c142f1b4a28bc4389c5563d3c20887aa8  ./web/app/components/AnnotationMatchInspector.vue
+84c1bf5fed1cea4fe69867782950dde5c42d3045b94e1955e235c4d1cadff64e  ./web/app/components/AnnotationMatchInspector.component.test.ts
+4c0fe8effeeefda913183b847af72d563d85f73a11f567ffd923ba7bbbd9693e  ./web/app/components/AnnotationMatchInspector.vue
 258289343d2a577d772d9db4ae043a2f19f71d8f37491c2d75b585233a5bcadc  ./web/app/components/AnnotationProcessingBadge.component.test.ts
 62032705802c8b0bfe4f154c2c8aa1bc441a04ea114f9515bed6c272fd5f369e  ./web/app/components/AnnotationProcessingBadge.vue
 f83a1be4cf678e3590d9c3007e7fec507c44629028935e49c208731886660a94  ./web/app/components/AnnotationSelectedKeyPointEditor.component.test.ts
@@ -677,7 +677,7 @@ d414d774f9b4f8b5a49be463ee8de0bcf284e3b84d96cb54d270d4be558038e9  ./web/app/lib/
 ea6147e9664833abf6ae1dc8bcffbdded5c976a7dd2b9b4a680dcc3a7c9c8df4  ./web/app/lib/rosterPromptImport.test.ts
 4e07c8e910ce029b61dcbe1110e7be3538b6ef9598340fc8468d33efe5760d7b  ./web/app/lib/rosterPromptImport.ts
 440fc13e62d9078c3a3742f76760e310c7d5d8534d7c1164eb585146c7748ef4  ./web/app/middleware/auth.global.ts
-609eb1eab19b1227cd4099d2a08775e4d1ceba4a6bb09402b7f05860baaa6e7d  ./web/app/pages/annotate/[matchId].vue
+de403b61d2286f092aa10ac58ff0b614f86d568d6999858f534976bb9b564f8c  ./web/app/pages/annotate/[matchId].vue
 b6f8b2f155ef7538f6f9746dbd47408fe9fa206804948886b940ac273e878bdf  ./web/app/pages/control/index.vue
 de575899c27987ea0f5beae095022624fb5ee6cc2fef2b1b15c47ff5e97aeea5  ./web/app/pages/control/jobs.vue
 ffda57a925b659c33ea87ab67aedd169120195cf27497ab8eceaf14dd7e56ba3  ./web/app/pages/index.vue
@@ -715,8 +715,8 @@ e6f272d0c80ffac400de361b8408d6bc0b64e0bdc4dc4601d50a8db8c2eb8709  ./web/app/serv
 927a48d9779fdc02104302d9b25b5b3621a3f2c024a697e217054e8467c357d3  ./web/app/services/annotation-workstation/ome-live-playback.service.ts
 59f2b84939543415f6dd025e26118d0a2e01480d4735005b377fbe460303f7a6  ./web/app/services/annotation-workstation/processing-state.service.test.ts
 39495eeec85f5f3114dbb22629439c7235bd38b511b784afe99784533443a342  ./web/app/services/annotation-workstation/processing-state.service.ts
-fa5abfa6e52458451b27aea890c16578703f39261611d5b7fce74d8b022c7e3b  ./web/app/services/annotation-workstation/segment-management.service.test.ts
-d7b01f15ebcde65ab0f1c600fa6369dabd2aaa4628babb2050369b272997fdf3  ./web/app/services/annotation-workstation/segment-management.service.ts
+4e0947f0707fce6aeff3289858e5123536328237fdd4816afe5039fb69864737  ./web/app/services/annotation-workstation/segment-management.service.test.ts
+e4547f6636f1cc5cd8da90cae3fa3dabcb0d070d3d8b725df9a2e90902a70639  ./web/app/services/annotation-workstation/segment-management.service.ts
 0f05ab3376878c719dd2705ffcb257deac643816765b99e69c76c179fe9cb52d  ./web/app/services/annotation-workstation/sync-recovery.service.test.ts
 da524a8db30806b29d211439ff6984bee35eca9baab3ff2acf6bad92e699850e  ./web/app/services/annotation-workstation/sync-recovery.service.ts
 60869d15c0cae7a43c4d1cd31d4e11cf4e8f695acddfe6bdb09d7c10d74e7fa4  ./web/app/services/annotation-workstation/timeline-selection.service.test.ts
@@ -755,8 +755,8 @@ a721e1dc62ca9b6275a528b66ae489ea74e20d862043a6a2bef25799f7f7b6b4  ./web/app/util
 8253abe50997d36a1b67e0bfad509e80427fa22229a7a09cfba581c826015d75  ./web/app/utils/coachHighlightFingerprint.ts
 603f179664737ade0961fb3e6ce6f7c050c5f7d719b3cb51241c29b9f1a71c09  ./web/app/utils/coachMatchStatus.test.ts
 38826534bde8d18a54d99aace301142c621c50512bc95b96a85867175a1957af  ./web/app/utils/coachMatchStatus.ts
-8e2449c7d8fe221a14307d7a24c496c3579eb65bc9a8c69c4019915eaff7e6ee  ./web/app/utils/coachPlayerActions.test.ts
-74c8e325068d2ac4f3aeb0ddf2216b7de831ef3b51c4e4a19607c314ee18f189  ./web/app/utils/coachPlayerActions.ts
+c6a74a13d008eb443fe477eb7e7722681e4924bd1491590072251da19c97f5bb  ./web/app/utils/coachPlayerActions.test.ts
+ca5426193180535528532a5f063742fc2d803b44c4a1807176c317b34e37bebf  ./web/app/utils/coachPlayerActions.ts
 7d28a8da4b559a29535e71c47631761428a318596e55a8b535b538cf8e4dc332  ./web/app/utils/coachPresentation.test.ts
 a243ce601ce3018b8d741c65bf0238ad310ca00128b4ee25241e877b8f24ee78  ./web/app/utils/coachPresentation.ts
 01e0755d9dd2853e8305a77c7409a517ef0aaa201bfe3ba4b4c9b365a1e90796  ./web/app/utils/frameNavigationGestureRouter.test.ts

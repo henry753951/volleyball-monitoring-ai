@@ -318,6 +318,10 @@ const draftMutationReady = computed(
 // Annotation mutations are optimistic and ordered by the durable local outbox.
 // Do not turn ordinary network latency into a workstation-wide edit lock.
 const editReady = computed(() => draftMutationReady.value)
+// Set boundaries and court-side metadata do not depend on the media cursor.
+// A slow seek must not disable a winner/side-swap operation whose target is
+// already selected; the server still validates the selected rally atomically.
+const metadataMutationReady = computed(() => commandReady.value && !annotation.busy.value)
 const keyPointEditReady = computed(
   () => draftMutationReady.value || keyPointEditing.navigation.active.value,
 )
@@ -810,7 +814,7 @@ const selectedSideSwapTarget = computed<SideSwapTarget | null>(() => {
       expectedRightTeamId: selectedDraft.right_team_id,
       displaySetNumber: selectedDraft.display_set_number,
       isDraft: true,
-      label: `第 ${selectedDraft.display_ordinal} 回合起`,
+      label: `第 ${displayOrdinalFor(selectedDraft.id)} 回合起`,
       setId: selectedDraft.set_id,
     }
   }
@@ -826,7 +830,7 @@ const selectedSideSwapTarget = computed<SideSwapTarget | null>(() => {
       expectedRightTeamId: selectedRally.submission.right_team_id,
       displaySetNumber: selectedRally.display_set_number,
       isDraft: false,
-      label: `第 ${selectedRally.display_ordinal} 回合起`,
+      label: `第 ${displayOrdinalFor(selectedRally.id)} 回合起`,
       setId: selectedRally.set_id,
     }
   }
@@ -839,7 +843,7 @@ const selectedSideSwapTarget = computed<SideSwapTarget | null>(() => {
       expectedRightTeamId: currentDraft.right_team_id,
       displaySetNumber: currentDraft.display_set_number,
       isDraft: true,
-      label: `第 ${currentDraft.display_ordinal} 回合起`,
+      label: `第 ${displayOrdinalFor(currentDraft.id)} 回合起`,
       setId: currentDraft.set_id,
     }
   }
@@ -875,7 +879,7 @@ const segmentManagement = createSegmentManagementService({
   actions: workstationActions,
   confirmation: workstationConfirmation,
   feedback: workstationFeedback,
-  editReady: () => editReady.value,
+  editReady: () => metadataMutationReady.value,
   canReopenLastSet: () => canReopenLastSet.value,
   currentSet: () => currentSet.value,
   leftTeam: () => leftTeam.value,
@@ -883,6 +887,7 @@ const segmentManagement = createSegmentManagementService({
   currentDraft: () => Boolean(currentOrdinaryDraft.value),
   sideSwapEffectiveOrdinal: () => sideSwapEffectiveOrdinal.value,
   sideSwapTarget: () => selectedSideSwapTarget.value,
+  displayOrdinalFor,
   selectedRallyId: () => selectedRallyId.value,
   selectedSubmissionId: () => selectedRally.value?.submission.id ?? null,
   clipSelected: () => clipSelected.value,

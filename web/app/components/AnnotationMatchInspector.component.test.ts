@@ -41,7 +41,7 @@ describe('AnnotationMatchInspector outcomes', () => {
             props: ['open'],
             template: '<div v-if="open"><slot /><slot name="footer" /></div>',
           },
-          AnnotationIdentityPanel: true,
+          AnnotationIdentityPanel: { template: '<div />' },
           UiButton: { template: '<button><slot /></button>' },
           UiScrollArea: { template: '<div><slot /></div>' },
           UiTooltip: { template: '<span><slot /></span>' },
@@ -217,5 +217,114 @@ describe('AnnotationMatchInspector outcomes', () => {
       rallyId: 'draft',
       setNumber: 1,
     })
+  })
+
+  it('orders merged raw sets by capture time instead of raw set number', async () => {
+    const timeline = { selectHistorical: vi.fn(), selectRally: vi.fn() }
+    const mountInspector = (rallies: any[]) =>
+      mount(AnnotationMatchInspector, {
+        global: {
+          provide: {
+            [annotationWorkstationServiceKey as symbol]: {
+              actions: {
+                execute: vi.fn(),
+                state: () => computed(() => ({ enabled: true, pending: false, reason: null })),
+              },
+              segments: {
+                affectsCurrentDraft: computed(() => false),
+                deletePending: ref(false),
+                placementSaving: ref(false),
+                requestBatchAnalysisReset: vi.fn(),
+                requestDelete: vi.fn(),
+                sideSwapPending: ref(false),
+              },
+              timeline,
+            },
+          },
+          stubs: {
+            UiAnimatedModal: { props: ['open'], template: '<div v-if="open"><slot /></div>' },
+            AnnotationIdentityPanel: { template: '<div />' },
+            UiButton: { template: '<button><slot /></button>' },
+            UiScrollArea: { template: '<div><slot /></div>' },
+            UiTooltip: { template: '<span><slot /></span>' },
+          },
+        },
+        props: {
+          analysisAvailable: false,
+          analysisRunId: null,
+          contextRallyId: null,
+          currentLeftTeam: teams[0]!,
+          currentRightTeam: teams[1]!,
+          displayedOutcomeLabel: null,
+          displayedOutcomeSide: null,
+          displayedRallyId: null,
+          drafts: [],
+          formatRallyDuration: () => '1.0 秒',
+          leftSetWins: 0,
+          leftTeam: teams[0]!,
+          leftTeamId: 'left',
+          mappingAvailable: false,
+          matchId: 'match',
+          rallyOrdinal: 1,
+          rallies,
+          rightSetWins: 0,
+          rightTeam: teams[1]!,
+          rightTeamId: 'right',
+          selectedRallyId: null,
+          setNumber: 1,
+          setNumbers: [1, 2, 3],
+          setResults: [
+            { id: 'set-1', set_number: 1, winning_team_id: null },
+            { id: 'set-3', set_number: 3, winning_team_id: null },
+          ],
+          tab: 'match',
+          teams,
+        },
+      })
+
+    const rally = (id: string, rawSet: number, ordinal: number, time: string) => ({
+      id,
+      ordinal,
+      display_ordinal: ordinal,
+      display_set_number: rawSet,
+      annotation_revision: '1',
+      processing_status: 'completed',
+      scoring_court_side: null,
+      scoring_team_id: null,
+      set_id: `set-${rawSet}`,
+      set_number: rawSet,
+      left_score_after: 0,
+      right_score_after: 0,
+      winner_side: null,
+      submission: {
+        id: `submission-${id}`,
+        supersedes_submission_id: null,
+        submitted_at: '',
+        score_resolution: 'unknown',
+        scoring_court_side: null,
+        scoring_team_id: null,
+        side_assignment_id: `assignment-${rawSet}`,
+        side_assignment_reversed: false,
+        left_team_id: 'left',
+        right_team_id: 'right',
+        contact_count: 0,
+        boundaries: [{ kind: 'start', capture_time_us: time, capture_frame_index: '0' }],
+        key_points: [],
+        clip: null,
+        processing: {} as never,
+        analysis: null,
+      },
+    })
+
+    const wrapper = mountInspector([
+      rally('late', 1, 2, '2000'),
+      rally('orphan-first', 3, 1, '1000'),
+    ])
+
+    expect(wrapper.findAll('.segment-main').map(row => row.text())).toEqual([
+      expect.stringContaining('回合 1'),
+      expect.stringContaining('回合 2'),
+    ])
+    expect(wrapper.findAll('.segment-main')[0]!.text()).toContain('回合 1')
   })
 })
