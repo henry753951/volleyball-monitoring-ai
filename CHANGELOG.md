@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.9.2](https://github.com/henry753951/volleyball-monitoring-ai/compare/v1.9.1...v1.9.2) (2026-08-19)
+
+
+### Bug Fixes
+
+* **annotation:** allow winner actions across merged sets ([71df6b7](https://github.com/henry753951/volleyball-monitoring-ai/commit/71df6b7a8c3f7df609cd5c09f335d5f7f7f9cc95))
+* **annotation:** allow winner actions across merged sets ([f5cb61c](https://github.com/henry753951/volleyball-monitoring-ai/commit/f5cb61cc469c4bdd2a49137eb5ca0b23dd52c34e))
+* **coach:** unify analysis projections and worker status ([4ec340a](https://github.com/henry753951/volleyball-monitoring-ai/commit/4ec340a8ce7cde62adcb32f8b80545e6f96823b2))
+
+
+### Maintenance
+
+* refresh release checksums ([edffbae](https://github.com/henry753951/volleyball-monitoring-ai/commit/edffbaebbecec82411b3850e1269dbc258edfc64))
+
 ## [1.9.1](https://github.com/henry753951/volleyball-monitoring-ai/compare/v1.9.0...v1.9.1) (2026-08-19)
 
 
