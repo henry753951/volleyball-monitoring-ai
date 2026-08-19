@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.7.4](https://github.com/henry753951/volleyball-monitoring-ai/compare/v1.7.3...v1.7.4) (2026-08-19)
+
+
+### Bug Fixes
+
+* **media:** expose YouTube resolution diagnostics ([9eaf656](https://github.com/henry753951/volleyball-monitoring-ai/commit/9eaf6565e33290b571baf5fb7d11a55a58aa9f20))
+
 ## [1.7.3](https://github.com/henry753951/volleyball-monitoring-ai/compare/v1.7.0...v1.7.3) (2026-08-19)
 
 
