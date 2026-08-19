@@ -836,7 +836,7 @@ cd223367ea1d5f731e73a2b292e0cffc05c46bee5099ccf6475865bbffd7b759  ./worker/src/r
 d626bd62d4e744e53324a4084ee1fe51fa47bcfa26f06bb12ff5153ad44a68d5  ./worker/src/roles/highlight-export-worker.ts
 4791df925d60c43b3e4740ba3d3e5e3b118900efc4f9e4e0c9680ac855a49888  ./worker/src/roles/identity-preview-worker.ts
 ba726d175f69cc4a95968b49daca3d534f4abe1205afbe012556669bb029768d  ./worker/src/roles/jersey-suggestion-worker.ts
-5585b4b35ad226a1da56d1a898b9a2bb34e3e60af499dd8d18a6d2e476331da6  ./worker/src/roles/media-indexer.ts
+d88f840e2c7e9df8737fddb160fb7466a80b13c045cb188d6de4ada2cd4ed078  ./worker/src/roles/media-indexer.ts
 156a0252f44c02372cb6df55d33e1b1c62319eb70c4a36f2762b76777b64b1d9  ./worker/src/roles/outbox-publisher.ts
 c3a3cfe8c76f3bb5412e96e67e1f55c024376826c68f0433d03035cdd0c4374b  ./worker/src/roles/playback-packager.ts
 586884934a4c2de76dd0d1c8613fc06e1aa036c35d9feb06f39b6614d9c366df  ./worker/src/roles/provider-analysis-materializer.ts

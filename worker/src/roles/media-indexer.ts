@@ -405,11 +405,12 @@ export function createPgBossMediaRuntime(
 
         const workOptions = {
           batchSize: 1,
-          // Keep one active job per capture group so a capture's segments stay
-          // FIFO; localConcurrency still lets independent capture groups drain
-          // in parallel once their group IDs are assigned.
+          // Keep one active job per capture group on this worker so a capture's
+          // segments stay FIFO; localConcurrency still lets independent groups
+          // drain in parallel. The media role is a single worker deployment, so
+          // this avoids the global group limit starving unrelated captures.
           localConcurrency: LOCAL_INGEST_CONCURRENCY,
-          groupConcurrency: 1,
+          localGroupConcurrency: 1,
           includeMetadata: true,
           orderByCreatedOn: true,
           heartbeatRefreshSeconds: 20,
