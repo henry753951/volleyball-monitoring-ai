@@ -108,4 +108,14 @@ describe('match media source client', () => {
     expect(fetcher.mock.calls[0]?.[0]).toBe('/api/v1/media-sources/capture-2/retry')
     expect(fetcher.mock.calls[0]?.[1]).toMatchObject({ method: 'POST', credentials: 'include' })
   })
+
+  it('requeues failed YouTube sources through the deployed YouTube retry endpoint', async () => {
+    const fetcher = vi.fn<typeof fetch>(
+      async () => new Response(JSON.stringify({ attempt: 5 }), { status: 202 }),
+    )
+    await expect(
+      createMediaSourceClient({ fetcher }).retryMediaSource('capture-3', 'youtube_vod'),
+    ).resolves.toEqual({ attempt: 5 })
+    expect(fetcher.mock.calls[0]?.[0]).toBe('/api/v1/media-sources/youtube/capture-3/retry')
+  })
 })
