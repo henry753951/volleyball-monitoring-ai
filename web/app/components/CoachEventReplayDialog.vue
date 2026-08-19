@@ -14,6 +14,7 @@ const props = defineProps<{
   open: boolean
   event: CoachPlayerActionEvent | null
   replay: { readonly clip: Readonly<ReplayClip> | null } | null
+  loading?: boolean
 }>()
 const emit = defineEmits<{ close: [] }>()
 
@@ -210,6 +211,11 @@ watch(
           <span class="event-replay__event-label" :style="{ left: `${eventPosition}%` }">擊球</span>
         </div>
         <time>{{ relativeClock(currentTime) }} / {{ relativeClock(windowEnd) }}</time>
+      </div>
+
+      <div v-else-if="loading" class="event-replay__empty">
+        <strong>正在載入短片</strong>
+        <span>正在取得這個球路所屬回合的短回放，請稍候。</span>
       </div>
 
       <div v-else class="event-replay__empty">

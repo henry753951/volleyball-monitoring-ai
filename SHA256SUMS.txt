@@ -557,7 +557,7 @@ e58e564652b1e81206444c0f426239a09641f5ec95de64255a7f7fb46cedd350  ./web/app/comp
 e8a1ef7506d1db6e108e48db64e5b1b16416be2fab034b8ff326624e360d7634  ./web/app/components/ClipDownloadDialog.vue
 28018e3901182d1837a23f06f3d2ab32910a13d0324c107c2b63222fe0e58b64  ./web/app/components/CoachBallRouteMap.component.test.ts
 64e8ced65897b2aab11a867c07b88fa19a09832b161173bd01c7144e78aac814  ./web/app/components/CoachBallRouteMap.vue
-88ef65efc94d882532963a28a333c01c70b2f691acded8282c382c3440b6c2f8  ./web/app/components/CoachEventReplayDialog.vue
+adc9d5969a72e07778d90008b87d46278d33b0e6eca0f20fd606a6bd17ee396c  ./web/app/components/CoachEventReplayDialog.vue
 cbfb6f44d91e7d47965647dee2ef8347533d05ad10014631d1dfd3dcb1c792a9  ./web/app/components/CoachHighlightExport.vue
 51fab1de62997d579da78a7e0f7ff73580eb4c661e2fdadd699292590db45fd2  ./web/app/components/CoachTrackIdentityEditor.vue
 ba3109f41a696d3e7ba6c2fabcad2800edfc17c6798a833b843fcdb6a25e7a8f  ./web/app/components/ConfirmActionDialog.vue
@@ -624,7 +624,7 @@ c41de989523889b691ff59a9491855022a64ee03a4e977cca68b579b922c3bf4  ./web/app/comp
 85dccf76f3bc3b4e58ed642e55408973e6a24d952627d2835621dd3d398cd168  ./web/app/composables/useCoachMatchState.ts
 cf6413b007a0431be7b71f1f8605471f4ae3b67e49cb45cceae18bab533667ab  ./web/app/composables/useCoachRallyStatus.ts
 104f44424043cf260c45b93b434a1e4a6a0ffefa69553bd1d97dd9807d2a76a3  ./web/app/composables/useCoachSocket.ts
-4a9cbb78aaa3d9cd29ba4bce6f467dc93e01b0b746c2cf6be0418f6fe044c553  ./web/app/composables/useCoachTrackEvents.ts
+d8c87f8758b2ca1bf5b4f5f69a69aeb1a0d360fe2ccecc035b754f779b26506a  ./web/app/composables/useCoachTrackEvents.ts
 01e40ca610ad2414469f0ce18bde6eb5f2077153b3a4bcca9ec9c17dc18c0463  ./web/app/composables/useCoalescedFrameNavigation.test.ts
 adcb3695e44269366cf5c0715545bdd90284cfe19c59ac2c3d626b77db6b4003  ./web/app/composables/useCoalescedFrameNavigation.ts
 050f4734d2654b13cdf32068d2455515dd8fa47915c5101bb1476143ed669598  ./web/app/composables/useCoreDomain.ts
@@ -686,7 +686,7 @@ ffda57a925b659c33ea87ab67aedd169120195cf27497ab8eceaf14dd7e56ba3  ./web/app/page
 69a0f7dd20a08ee17460b15c5d24c93b9150a59017c75e8ecc1b419f0a7cb9f3  ./web/app/pages/matches/[matchId]/history.vue
 2764816feabb4428ce23f4d9dd2a199a18256b9758a3ac95a4da67c8099f0f83  ./web/app/pages/matches/[matchId]/live.vue
 69a0f7dd20a08ee17460b15c5d24c93b9150a59017c75e8ecc1b419f0a7cb9f3  ./web/app/pages/matches/[matchId]/paths.vue
-9ffeed4e1075aa1bbd38e7015c32ea3b355b860a30e2ddefc6918f3af5ac73ef  ./web/app/pages/matches/[matchId]/players.vue
+766d2cc2a483d0b6355ca7e2160bc2307f2c23ce16c79d54bf4c7854c2faeadd  ./web/app/pages/matches/[matchId]/players.vue
 7a4705fcc23f050218b15132d0e7f6be0904977396072a74beed0162fd6822a6  ./web/app/pages/matches/[matchId]/rallies.vue
 1605dc9158ee7b05acf2d261aa2dbd59d670b829b9b5d92ce398cf06cb3d9582  ./web/app/pages/matches/[matchId]/replay/[rallyId].vue
 293cbe12ac6b3af5f46b1d9a9ce9624f8dc165d90c2da546d5002ef544a28608  ./web/app/pages/matches/[matchId]/stats.vue
