@@ -58,10 +58,10 @@ describe('boundaryCommandAvailability', () => {
     })
   })
 
-  it('keeps Z locked after END while the ordinary draft is READY and unsubmitted', () => {
+  it('allows a non-overlapping START after an ordinary draft is READY and unsubmitted', () => {
     expect(boundaryCommandAvailability({ ...boundaryBase, state: 'READY' })).toMatchObject({
-      enabled: false,
-      reason: '目前仍有正在編輯的片段',
+      enabled: true,
+      reason: '',
     })
   })
 

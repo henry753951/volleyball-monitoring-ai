@@ -280,6 +280,8 @@ export interface AnnotationPresenceSnapshot {
     device_session_id: string
     display_name: string
     editing_key_point_id?: string | null
+    cursor_capture_time_us?: string | null
+    cursor_status?: 'ready' | 'seeking' | 'stale' | 'gap' | null
   }>
 }
 
@@ -288,6 +290,8 @@ export interface AnnotationSoftLockIntent {
   type: 'soft_lock_intent'
   room_id: string
   editing_key_point_id: string | null
+  cursor_capture_time_us?: string | null
+  cursor_status?: 'ready' | 'seeking' | 'stale' | 'gap' | null
 }
 
 export interface AnnotationRallyProcessingUpdate {

@@ -160,12 +160,9 @@ describe('createAnnotationActionService', () => {
     expect(manager.state('submission.submit').value.enabled).toBe(false)
   })
 
-  it('keeps READY outcome and submit editable while disabling another Z boundary', () => {
+  it('keeps READY outcome and submit editable while allowing another non-overlapping Z boundary', () => {
     const { manager } = setup()
-    expect(manager.state('segment.toggle-boundary').value).toMatchObject({
-      enabled: false,
-      reason: '目前仍有正在編輯的片段',
-    })
+    expect(manager.state('segment.toggle-boundary').value.enabled).toBe(true)
     expect(manager.state('outcome.left').value.enabled).toBe(true)
     expect(manager.state('outcome.right').value.enabled).toBe(true)
     expect(manager.state('outcome.unknown').value.enabled).toBe(true)

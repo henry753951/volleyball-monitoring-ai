@@ -33,6 +33,8 @@ export interface AnnotationPresenceService {
     roomId: string,
     member: PresenceMember,
     keyPointId: string | null,
+    cursorCaptureTimeUs?: string | null,
+    cursorStatus?: PresenceMember['cursor_status'],
   ): Promise<PresenceMember>
   leave(roomId: string, deviceSessionId: string): Promise<void>
   snapshot(roomId: string): Promise<AnnotationPresenceSnapshot>
@@ -121,6 +123,8 @@ export function createAnnotationPresenceService(deps: {
         device_session_id: identity.deviceSessionId,
         display_name: (await deps.displayName(identity.userId)) ?? identity.userId,
         editing_key_point_id: null,
+        cursor_capture_time_us: null,
+        cursor_status: null,
       }
       await store(roomId, member, null)
       await publish(roomId)
@@ -129,6 +133,8 @@ export function createAnnotationPresenceService(deps: {
     async touch(roomId, member) {
       let editingExpiresAt: string | null = null
       let editingKeyPointId: string | null = null
+      let cursorCaptureTimeUs = member.cursor_capture_time_us ?? null
+      let cursorStatus = member.cursor_status ?? null
       try {
         const stored = await readStored(roomId, member.device_session_id)
         if (
@@ -140,13 +146,38 @@ export function createAnnotationPresenceService(deps: {
           editingKeyPointId = stored.editing_key_point_id
           editingExpiresAt = stored.editing_expires_at
         }
+        if (
+          stored &&
+          typeof stored.cursor_capture_time_us === 'string' &&
+          /^\d+$/.test(stored.cursor_capture_time_us)
+        )
+          cursorCaptureTimeUs = stored.cursor_capture_time_us
+        if (
+          stored &&
+          (stored.cursor_status === 'ready' ||
+            stored.cursor_status === 'seeking' ||
+            stored.cursor_status === 'stale' ||
+            stored.cursor_status === 'gap')
+        )
+          cursorStatus = stored.cursor_status
       } catch {
         /* a heartbeat may safely clear an unreadable ephemeral hint */
       }
-      await store(roomId, { ...member, editing_key_point_id: editingKeyPointId }, editingExpiresAt)
+      await store(
+        roomId,
+        {
+          ...member,
+          editing_key_point_id: editingKeyPointId,
+          cursor_capture_time_us: cursorCaptureTimeUs,
+          cursor_status: cursorStatus,
+        },
+        editingExpiresAt,
+      )
     },
-    async setEditing(roomId, member, keyPointId) {
+    async setEditing(roomId, member, keyPointId, cursorCaptureTimeUs, cursorStatus) {
       let previousKeyPointId: string | null = null
+      let previousCursorCaptureTimeUs = member.cursor_capture_time_us ?? null
+      let previousCursorStatus = member.cursor_status ?? null
       let previousReadable = true
       try {
         const stored = await readStored(roomId, member.device_session_id)
@@ -157,19 +188,45 @@ export function createAnnotationPresenceService(deps: {
           Date.parse(stored.editing_expires_at) > now().getTime()
         )
           previousKeyPointId = stored.editing_key_point_id
+        if (
+          stored &&
+          typeof stored.cursor_capture_time_us === 'string' &&
+          /^\d+$/.test(stored.cursor_capture_time_us)
+        )
+          previousCursorCaptureTimeUs = stored.cursor_capture_time_us
+        if (
+          stored &&
+          (stored.cursor_status === 'ready' ||
+            stored.cursor_status === 'seeking' ||
+            stored.cursor_status === 'stale' ||
+            stored.cursor_status === 'gap')
+        )
+          previousCursorStatus = stored.cursor_status
       } catch {
         previousReadable = false
       }
-      const updated = { ...member, editing_key_point_id: keyPointId }
+      const updated = {
+        ...member,
+        editing_key_point_id: keyPointId,
+        cursor_capture_time_us:
+          cursorCaptureTimeUs === undefined ? previousCursorCaptureTimeUs : cursorCaptureTimeUs,
+        cursor_status: cursorStatus === undefined ? previousCursorStatus : cursorStatus,
+      }
       const editingExpiresAt = keyPointId
         ? new Date(now().getTime() + SOFT_LOCK_TTL_MS).toISOString()
         : null
       await store(roomId, updated, editingExpiresAt)
       scheduleLockExpiry(roomId, member.device_session_id, editingExpiresAt)
       // A five-second soft-lock refresh must not fan out to all room clients.
-      // Publish only when the visible edit target changes; the origin receives
-      // its own direct heartbeat response from the WebSocket route.
-      if (!previousReadable || previousKeyPointId !== keyPointId) await publish(roomId)
+      // Publish when the visible edit target or canonical playback cursor
+      // changes; the origin receives its own direct heartbeat response too.
+      if (
+        !previousReadable ||
+        previousKeyPointId !== keyPointId ||
+        previousCursorCaptureTimeUs !== updated.cursor_capture_time_us ||
+        previousCursorStatus !== updated.cursor_status
+      )
+        await publish(roomId)
       return updated
     },
     async leave(roomId, deviceSessionId) {
@@ -212,11 +269,27 @@ export function createAnnotationPresenceService(deps: {
               editingActive && typeof value.editing_key_point_id === 'string'
                 ? value.editing_key_point_id
                 : null
+            const cursorCaptureTimeUs =
+              typeof value.cursor_capture_time_us === 'string' &&
+              /^\d+$/.test(value.cursor_capture_time_us)
+                ? value.cursor_capture_time_us
+                : null
+            const cursorStatus =
+              value.cursor_status === 'ready' ||
+              value.cursor_status === 'seeking' ||
+              value.cursor_status === 'stale' ||
+              value.cursor_status === 'gap'
+                ? value.cursor_status
+                : cursorCaptureTimeUs
+                  ? 'ready'
+                  : null
             members.push({
               user_id: value.user_id,
               device_session_id: value.device_session_id,
               display_name: value.display_name,
               editing_key_point_id: editingKeyPointId,
+              cursor_capture_time_us: cursorCaptureTimeUs,
+              cursor_status: cursorStatus,
             })
           } catch {
             expired.push(deviceSessionId)

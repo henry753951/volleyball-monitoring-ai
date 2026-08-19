@@ -58,6 +58,12 @@ export function usePlaybackCursor(
     }
   }
 
+  const publishCurrentTime = () => {
+    const element = video.value
+    if (!element) return
+    publish(element.currentTime, 'current_time_fallback', undefined)
+  }
+
   const scheduleVideoFrameCallback = () => {
     const element = video.value
     if (!element) return
@@ -87,10 +93,6 @@ export function usePlaybackCursor(
       })
       return
     }
-
-    fallbackTimer = setInterval(() => {
-      publish(element.currentTime, 'current_time_fallback', undefined)
-    }, 100)
   }
 
   const markGap = (isGap: boolean) => {
@@ -118,18 +120,60 @@ export function usePlaybackCursor(
     const onSeeking = () => {
       seekGeneration.value += 1
       cursorStatus.value = 'seeking'
+      publishCurrentTime()
     }
     const onSeeked = () => {
-      cursorStatus.value = 'stale'
+      // requestVideoFrameCallback is not guaranteed to fire for a paused
+      // seek. Publish the settled media time immediately so a legal paused
+      // frame can be marked without first pressing Play.
+      publishCurrentTime()
     }
     const onEmptied = () => {
       cursorStatus.value = 'stale'
     }
+    const onStableMediaState = () => {
+      // The frame callback loop advances while playing, but browsers may stop
+      // presenting callbacks while paused. Media events are the authoritative
+      // fallback for the current paused/loaded position.
+      publishCurrentTime()
+    }
     element.addEventListener('seeking', onSeeking)
     element.addEventListener('seeked', onSeeked)
     element.addEventListener('emptied', onEmptied)
+    element.addEventListener('pause', onStableMediaState)
+    element.addEventListener('loadedmetadata', onStableMediaState)
+    element.addEventListener('loadeddata', onStableMediaState)
+    element.addEventListener('canplay', onStableMediaState)
+    element.addEventListener('timeupdate', onStableMediaState)
 
     scheduleVideoFrameCallback()
+    const hasVideoFrameCallback = typeof element.requestVideoFrameCallback === 'function'
+    // requestVideoFrameCallback can stop producing callbacks while a browser is
+    // paused, seeking, or waiting on an MSE append. Keep a small watchdog so a
+    // settled currentTime can still become the annotation cursor without asking
+    // the operator to press Play again.
+    fallbackTimer = setInterval(
+      () => {
+        const currentMediaTimeUs = Number.isFinite(element.currentTime)
+          ? BigInt(Math.round(element.currentTime * 1_000_000))
+          : null
+        const observedMediaTimeUs =
+          cursor.value?.schema_version === '1.0.0'
+            ? BigInt(cursor.value.player_media_time_us)
+            : null
+        const mediaTimeChanged =
+          currentMediaTimeUs !== null &&
+          (observedMediaTimeUs === null || currentMediaTimeUs !== observedMediaTimeUs)
+        if (
+          !hasVideoFrameCallback ||
+          element.paused ||
+          element.seeking ||
+          (performance.now() - lastObservationAt > 350 && mediaTimeChanged)
+        )
+          publishCurrentTime()
+      },
+      hasVideoFrameCallback ? 250 : 100,
+    )
     staleTimer = setInterval(() => {
       // A paused frame is still a valid annotation target. Only a playing video that
       // stops presenting frames becomes stale.
@@ -148,6 +192,11 @@ export function usePlaybackCursor(
       element.removeEventListener('seeking', onSeeking)
       element.removeEventListener('seeked', onSeeked)
       element.removeEventListener('emptied', onEmptied)
+      element.removeEventListener('pause', onStableMediaState)
+      element.removeEventListener('loadedmetadata', onStableMediaState)
+      element.removeEventListener('loadeddata', onStableMediaState)
+      element.removeEventListener('canplay', onStableMediaState)
+      element.removeEventListener('timeupdate', onStableMediaState)
     })
   })
 
@@ -165,5 +214,6 @@ export function usePlaybackCursor(
     cursorStatus: readonly(cursorStatus),
     canCreateKeyPoint: computed(() => cursor.value?.cursor_status === 'ready'),
     markGap,
+    refresh: publishCurrentTime,
   }
 }

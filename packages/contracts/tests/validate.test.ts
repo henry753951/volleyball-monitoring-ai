@@ -410,7 +410,15 @@ describe('golden contract fixtures', () => {
       {
         ...common,
         type: 'presence_snapshot',
-        members: [{ user_id: uuid(3), device_session_id: uuid(4), display_name: 'Operator' }],
+        members: [
+          {
+            user_id: uuid(3),
+            device_session_id: uuid(4),
+            display_name: 'Operator',
+            cursor_capture_time_us: '1234567',
+            cursor_status: 'ready',
+          },
+        ],
       },
       {
         ...common,
@@ -431,6 +439,12 @@ describe('golden contract fixtures', () => {
     const intent = load('examples/annotation/soft-lock-intent.json')
     expect(parseAnnotationSoftLockIntent(intent)).toEqual(intent)
     expect(parseAnnotationRealtimeMessage(intent)).toEqual(intent)
+    const cursorIntent = {
+      ...intent,
+      cursor_capture_time_us: '1234567',
+      cursor_status: 'seeking',
+    }
+    expect(parseAnnotationSoftLockIntent(cursorIntent)).toEqual(cursorIntent)
     expect(() => parseAnnotationCommand(intent)).toThrow()
     expect(() => parseAnnotationSoftLockIntent({ ...intent, editing_key_point_id: '' })).toThrow()
     expect(() => parseAnnotationSoftLockIntent({ ...intent, unexpected: true })).toThrow()

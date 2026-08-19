@@ -497,50 +497,10 @@ async function acceptService(
     }
 
     await setAllocationLock(tx, set.id)
-    const activeDraft = await tx.rally.findFirst({
-      select: { id: true },
-      where: {
-        activeSubmissionId: null,
-        // An ended READY draft is still the device's editable, unsubmitted
-        // work. It reserves the START/END toggle until submission or explicit
-        // deletion so Z cannot silently create a second local draft.
-        annotationStatus: { in: ['OPEN', 'READY'] },
-        program: { captureSessionId: room.captureSessionId },
-        setId: set.id,
-        voidedAt: null,
-        OR: [
-          { draftOwnerDeviceSessionId: identity.deviceSessionId },
-          {
-            draftOwnerDeviceSessionId: null,
-            OR: [
-              {
-                boundaries: {
-                  some: { deviceSessionId: identity.deviceSessionId, kind: 'START' },
-                },
-              },
-              {
-                keyPoints: {
-                  some: { deviceSessionId: identity.deviceSessionId, markerKind: 'SERVICE' },
-                },
-              },
-            ],
-          },
-        ],
-      },
-    })
-    if (activeDraft) {
-      return persistRejection(
-        tx,
-        command,
-        identity,
-        hash,
-        rejected(
-          command,
-          'ACTIVE_RALLY_EXISTS',
-          'The current set already has an editable rally draft',
-        ),
-      )
-    }
+    // A device may keep more than one non-overlapping READY draft while it
+    // continues marking. Range reservation below is the authoritative guard
+    // for both same-device and cross-device conflicts; keeping a single
+    // active-draft guard here made an ended local draft block every later Z.
     const proposedStart = captureTimeUs
     const proposedEnd = captureTimeUs + 1n
     const overlapsExisting = await annotationRangeOverlapsExistingRally(

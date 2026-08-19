@@ -131,7 +131,7 @@ const video = ref<HTMLVideoElement | null>(null)
 const retainedPreview = ref<string | null>(null)
 const descriptorRef = computed(() => props.descriptor ?? null)
 const liveSourceRef = computed(() => props.liveSource ?? null)
-const { cursor } = usePlaybackCursor(video, descriptorRef)
+const { cursor, refresh: refreshCursor } = usePlaybackCursor(video, descriptorRef)
 const omeSeekGeneration = ref(0)
 function livePresentationOriginCaptureUs() {
   const element = video.value
@@ -343,6 +343,7 @@ const attachDescriptor = async (descriptor: PlaybackWindowDescriptor | null) => 
     await playback.attach(descriptor)
     if (generation !== sourceGeneration) return
     applyPendingCanonicalFrame(replacingPipeline)
+    refreshCursor()
     emit('ready', element)
     publishBufferState()
     if (shouldResume) await element.play().catch(() => undefined)
@@ -402,6 +403,7 @@ function seekCaptureTimeIfBuffered(targetCaptureTimeUs: string) {
     previewGeneration += 1
     retainedPreview.value = null
     element.currentTime = targetPlayerSeconds
+    refreshCursor()
     return true
   }
   const descriptor = playback.activeWindow.value
@@ -418,6 +420,7 @@ function seekCaptureTimeIfBuffered(targetCaptureTimeUs: string) {
   previewGeneration += 1
   retainedPreview.value = null
   element.currentTime = targetPlayerSeconds
+  refreshCursor()
   return true
 }
 function previewCaptureTimeIfBuffered(targetCaptureTimeUs: string) {
@@ -433,6 +436,7 @@ function previewPlayerMediaTime(targetPlayerSeconds: number) {
   element.currentTime = boundedPlayerMediaSeconds(
     String(Math.round(targetPlayerSeconds * 1_000_000)),
   )
+  refreshCursor()
   return true
 }
 function applyPendingCanonicalFrame(preserveRetainedPreview = false) {
@@ -453,6 +457,7 @@ function applyPendingCanonicalFrame(preserveRetainedPreview = false) {
     retainedPreview.value = capturePresentedFrame(element) ?? retainedPreview.value
   else retainedPreview.value = null
   element.currentTime = boundedPlayerMediaSeconds(anchor.player_media_time_us)
+  refreshCursor()
   if (preserveRetainedPreview)
     void waitForPresentedFrame(element).then(() => {
       if (generation === previewGeneration) retainedPreview.value = null
@@ -495,6 +500,7 @@ function seekLiveEdge() {
     element.seekable.start(lastRange),
     element.seekable.end(lastRange) - 0.5,
   )
+  refreshCursor()
   return true
 }
 function publishLivePosition() {
@@ -542,6 +548,7 @@ defineExpose({
   previewCaptureTimeIfBuffered,
   recoverPlayback,
   seekCanonicalFrame,
+  refreshCursor,
   seekCaptureTimeIfBuffered,
   seekLiveEdge,
   seekOverlayFrameIfBuffered,

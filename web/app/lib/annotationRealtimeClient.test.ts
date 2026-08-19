@@ -139,6 +139,32 @@ describe('annotation realtime soft-lock client', () => {
     expect(latency.at(-1)).toBeNull()
   })
 
+  it('sends the canonical playback cursor through presence heartbeats', () => {
+    const client = createAnnotationRealtimeClient(roomId)
+    client.connect()
+    const socket = FakeWebSocket.instances[0]!
+    socket.receive({
+      schema_version: '2.0.0',
+      type: 'connection_ready',
+      room_id: roomId,
+      server_sequence: '0',
+      authenticated_user_id: 'user-1',
+      device_session_id: 'device-1',
+    })
+
+    expect(client.setPlaybackCursor('1234567', 'ready')).toBe(true)
+    expect(parseAnnotationSoftLockIntent(JSON.parse(socket.sent[1]!))).toMatchObject({
+      cursor_capture_time_us: '1234567',
+      cursor_status: 'ready',
+    })
+    vi.advanceTimersByTime(750)
+    expect(parseAnnotationSoftLockIntent(JSON.parse(socket.sent[2]!))).toMatchObject({
+      cursor_capture_time_us: '1234567',
+      cursor_status: 'ready',
+    })
+    client.disconnect()
+  })
+
   it('restarts the socket immediately and restores the current edit intent', () => {
     const states: string[] = []
     const client = createAnnotationRealtimeClient(roomId, { onState: state => states.push(state) })

@@ -9,10 +9,7 @@ import {
 } from '@volleyball-monitoring/contracts'
 import { isSupersededSourceSubmission } from '~/lib/annotationKeyPointNavigation'
 import { createMediaClient } from '~/lib/mediaClient'
-import {
-  useAuthoritativeDvrWindow,
-  authoritativeControlsEnabled,
-} from '~/composables/useAuthoritativeDvrWindow'
+import { useAuthoritativeDvrWindow } from '~/composables/useAuthoritativeDvrWindow'
 import { createFrameNavigationGestureRouter } from '~/utils/frameNavigationGestureRouter'
 import {
   createCoreDomainClient,
@@ -289,19 +286,32 @@ const frameQueueRunning = ref(false)
 const frameQueuePending = ref(false)
 const seekPreviewActive = ref(false)
 const optimisticSeekCaptureTimeUs = ref<string | null>(null)
-const canMark = computed(() =>
-  omeDirectPlaybackActive.value
-    ? omeCanonicalTimeValidated.value && cursorStatus.value === 'ready'
-    : !frameQueuePending.value &&
-      !frameQueueRunning.value &&
-      authoritativeControlsEnabled({
-        cursorReady: cursorStatus.value === 'ready',
-        status: dvr.status.value,
-        busy: dvr.busy.value,
-        descriptor: descriptor.value,
-        anchor: authoritativeAnchor.value,
-      }),
-)
+const legacyCursorMatchesWindow = computed(() => {
+  const cursor = observedCursor.value
+  const window = descriptor.value
+  return Boolean(
+    cursor &&
+    cursor.schema_version === '1.0.0' &&
+    cursor.cursor_status === 'ready' &&
+    window &&
+    cursor.playback_window_id === window.playback_window_id &&
+    cursor.mapping_version === window.mapping_version,
+  )
+})
+const canMark = computed(() => {
+  if (omeDirectPlaybackActive.value)
+    return omeCanonicalTimeValidated.value && cursorStatus.value === 'ready'
+  // The browser cursor is enough to submit an annotation. The server resolves
+  // that cursor authoritatively when the command arrives; waiting for the
+  // separate background anchor request made a legal paused frame look disabled.
+  return (
+    !frameQueuePending.value &&
+    !frameQueueRunning.value &&
+    dvr.status.value === 'ready' &&
+    !dvr.busy.value &&
+    legacyCursorMatchesWindow.value
+  )
+})
 const commandReady = computed(() => !annotation.outboxNeedsConfirmation.value)
 const draftMutationReady = computed(
   () => commandReady.value && !annotation.busy.value && !pendingTimelineMove.value,
@@ -1542,12 +1552,49 @@ function scheduleCursorResolve(force = false) {
 
 function handleCursor(cursor: PlaybackCursorInput) {
   // A frame callback from an old or alternate buffered range must not move the
-  // canonical playhead while the requested range is still loading.
-  if (playbackBuffering.value) return
+  // canonical playhead while the requested range is still loading. A
+  // current-time observation is safe when it belongs to the active window and
+  // the video is already at the requested target; this covers both paused seeks
+  // and browsers that continue playback without issuing a frame callback.
+  const element = video.value
+  const window = descriptor.value
+  const currentTimeObservationWhileBuffering = (() => {
+    if (cursor.schema_version === '2.0.0')
+      return Boolean(
+        omeDirectPlaybackActive.value &&
+        element &&
+        !element.seeking &&
+        cursor.cursor_status === 'ready',
+      )
+    if (
+      !element ||
+      element.seeking ||
+      cursor.schema_version !== '1.0.0' ||
+      cursor.observation_source !== 'current_time_fallback' ||
+      cursor.cursor_status !== 'ready' ||
+      !window ||
+      cursor.playback_window_id !== window.playback_window_id ||
+      cursor.mapping_version !== window.mapping_version
+    )
+      return false
+    if (!bufferingTargetCaptureTimeUs) return true
+    const observedCaptureTimeUs =
+      BigInt(window.presentation_origin_capture_us) + BigInt(cursor.player_media_time_us)
+    const difference = observedCaptureTimeUs - BigInt(bufferingTargetCaptureTimeUs)
+    return (difference < 0n ? -difference : difference) <= 100_000n
+  })()
+  if (playbackBuffering.value && !currentTimeObservationWhileBuffering) return
   const previousSeekGeneration = observedCursor.value?.seek_generation
   observedCursor.value = cursor
   cursorStatus.value = cursor.cursor_status
   settleOptimisticSeekFromCursor(cursor)
+  const remoteCaptureTimeUs =
+    cursor.cursor_status === 'gap'
+      ? null
+      : cursor.schema_version === '2.0.0'
+        ? omeObservedCaptureTimeUs.value
+        : visualPlayhead.value
+  publishRemoteCursor(remoteCaptureTimeUs, cursor.cursor_status)
   if (cursor.schema_version === '2.0.0') return
   // Frame stepping owns the player position until its authoritative queue has
   // drained. Browser seek callbacks are observations of the optimistic preview,
@@ -1578,6 +1625,15 @@ function handleCursor(cursor: PlaybackCursorInput) {
   pendingCursorResolve = cursor
   scheduleCursorResolve(true)
 }
+
+const publishRemoteCursor = useThrottleFn(
+  (captureTimeUs: string | null, status: 'ready' | 'seeking' | 'stale' | 'gap') => {
+    annotation.setPlaybackCursor(captureTimeUs, status)
+  },
+  750,
+  true,
+  true,
+)
 
 async function createWindow(
   target = captureTarget.value || undefined,
@@ -1659,7 +1715,13 @@ async function seekTimeline(targetCaptureTimeUs: string) {
     : targetCaptureTimeUs
   setOptimisticSeekTarget(target)
   captureTarget.value = target
-  if (overlayPlayer.value?.seekCaptureTimeIfBuffered(target)) return
+  if (overlayPlayer.value?.seekCaptureTimeIfBuffered(target)) {
+    // A seek that stays inside the current MSE buffer does not replace the
+    // playback window, so no later ready event is guaranteed to clear a stale
+    // loading gate from an earlier wait/seek.
+    clearPlaybackBuffering()
+    return
+  }
   markPlaybackBuffering(false, target)
   if (omeDirectPlaybackActive.value) {
     clearPlaybackBuffering()
@@ -1818,7 +1880,13 @@ function clearPlaybackBuffering() {
 function finishPlaybackBufferingIfReady() {
   const element = video.value
   if (!playbackBuffering.value || !element || element.seeking) return
-  if (!mediaTimeRangeContains(element.buffered, element.currentTime)) return
+  // `canplay`/readyState is a valid readiness signal even when Chromium has
+  // not exposed the MSE range through `buffered` yet. Waiting exclusively for
+  // that range leaves the loading overlay stuck after the first playable frame.
+  const hasPlayableData =
+    mediaTimeRangeContains(element.buffered, element.currentTime) ||
+    element.readyState >= HTMLMediaElement.HAVE_FUTURE_DATA
+  if (!hasPlayableData) return
   const window = descriptor.value
   if (bufferingTargetCaptureTimeUs && window) {
     const currentCaptureTimeUs =
@@ -1860,6 +1928,9 @@ function detachVideoState(element: HTMLVideoElement | null) {
   element?.removeEventListener('play', updatePlaybackState)
   element?.removeEventListener('playing', handleVideoPlaying)
   element?.removeEventListener('pause', updatePlaybackState)
+  element?.removeEventListener('canplay', handleVideoCanPlay)
+  element?.removeEventListener('loadeddata', handleVideoCanPlay)
+  element?.removeEventListener('durationchange', handleVideoCanPlay)
   element?.removeEventListener('volumechange', updatePlaybackState)
   element?.removeEventListener('timeupdate', maintainPlaybackWindow)
   element?.removeEventListener('progress', maintainPlaybackWindow)
@@ -2047,6 +2118,9 @@ function handleVideoReady(element: HTMLVideoElement) {
     element.addEventListener('play', updatePlaybackState)
     element.addEventListener('playing', handleVideoPlaying)
     element.addEventListener('pause', updatePlaybackState)
+    element.addEventListener('canplay', handleVideoCanPlay)
+    element.addEventListener('loadeddata', handleVideoCanPlay)
+    element.addEventListener('durationchange', handleVideoCanPlay)
     element.addEventListener('volumechange', updatePlaybackState)
     element.addEventListener('timeupdate', maintainPlaybackWindow)
     element.addEventListener('progress', maintainPlaybackWindow)
@@ -2064,6 +2138,9 @@ function handleVideoReady(element: HTMLVideoElement) {
   }
   finishPlaybackBufferingIfReady()
   updatePlaybackState()
+}
+function handleVideoCanPlay() {
+  finishPlaybackBufferingIfReady()
 }
 function handlePlaybackError(error: Error) {
   gapTransition = null
@@ -2096,6 +2173,10 @@ function handleOmeLivePosition(value: {
   omeAtLiveEdge.value = value.atLiveEdge
   omeCanonicalTimeValidated.value = value.mappingStatus === 'validated'
   omeObservedCaptureTimeUs.value = value.mappingStatus === 'validated' ? value.captureTimeUs : null
+  publishRemoteCursor(
+    value.mappingStatus === 'validated' ? value.captureTimeUs : null,
+    value.mappingStatus === 'validated' ? (observedCursor.value?.cursor_status ?? 'ready') : 'gap',
+  )
 }
 function setPlaybackRate(rate: number) {
   if (!Number.isFinite(rate) || rate < 0.25 || rate > 4) return
@@ -2531,6 +2612,7 @@ watch(
   selectedCaptureId,
   (captureId, previousCaptureId) => {
     if (captureId !== previousCaptureId) {
+      annotation.setPlaybackCursor(null, 'stale')
       if (omePlaybackRetryTimer) clearTimeout(omePlaybackRetryTimer)
       omePlaybackRetryTimer = null
       omePlaybackFailed.value = false
@@ -2855,6 +2937,7 @@ onMounted(() => {
 })
 onBeforeUnmount(() => {
   gapTransition = null
+  annotation.setPlaybackCursor(null, null)
   annotationWorkstationService.dispose()
   if (selectedCaptureId.value && visualPlayhead.value)
     workstationViewState.rememberCursor(selectedCaptureId.value, visualPlayhead.value)
@@ -3119,6 +3202,7 @@ onBeforeUnmount(() => {
         ref="timelineDock"
         :timeline="timeline"
         :playhead="visualPlayhead"
+        :remote-cursors="annotation.remoteCursors.value"
         :playback-mode="playbackMode"
         :restored-view="restoredWorkstationState?.timelineViewport ?? null"
         :buffered-window="
