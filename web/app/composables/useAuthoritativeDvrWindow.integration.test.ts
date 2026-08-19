@@ -235,6 +235,50 @@ describe('authoritative DVR controller integration', () => {
       h.stop()
     },
   )
+  it('recreates a window for mapping-invalid MEDIA_NOT_READY and retries frame step', async () => {
+    vi.useFakeTimers()
+    try {
+      const h = harness()
+      h.fake.createPlaybackWindow = vi.fn().mockResolvedValue(descriptor('a'))
+      await h.dvr.create({
+        schema_version: '1.0.0',
+        capture_session_id: 's',
+        mode: 'archive',
+        target_capture_time_us: '1',
+      })
+      h.fake.resolveCursor = vi.fn().mockResolvedValue(anchor('1', '44'))
+      await h.dvr.resolve({} as never)
+      h.fake.frameStep = vi
+        .fn()
+        .mockRejectedValueOnce(
+          new MediaApiError('MEDIA_NOT_READY', 'Playback window mapping is invalid', 503),
+        )
+        .mockRejectedValueOnce(
+          new MediaApiError('MEDIA_NOT_READY', 'Playback window mapping is invalid', 503),
+        )
+        .mockRejectedValueOnce(
+          new MediaApiError('MEDIA_NOT_READY', 'Playback window mapping is invalid', 503),
+        )
+        .mockRejectedValueOnce(
+          new MediaApiError('MEDIA_NOT_READY', 'Playback window mapping is invalid', 503),
+        )
+        .mockResolvedValue(anchor('2'))
+
+      const pending = h.dvr.step('next', target => ({
+        schema_version: '1.0.0',
+        capture_session_id: 's',
+        mode: 'archive',
+        target_capture_time_us: target,
+      }))
+      await vi.runAllTimersAsync()
+      await expect(pending).resolves.toMatchObject({ capture_frame_index: '2' })
+      expect(h.fake.createPlaybackWindow).toHaveBeenCalledTimes(2)
+      expect(h.fake.frameStep).toHaveBeenCalledTimes(5)
+      h.stop()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
   it('stops after the second recoverable frame-step failure', async () => {
     const h = harness()
     h.fake.createPlaybackWindow = vi.fn().mockResolvedValue(descriptor('a'))

@@ -6,7 +6,7 @@ import {
   type BallEventValue,
   type ServeStyle,
 } from '@volleyball-monitoring/contracts'
-import { Check, ChevronDown, UserRoundCheck } from 'lucide-vue-next'
+import { Check, ChevronDown, LocateFixed, Pin, UserRoundCheck } from 'lucide-vue-next'
 import { computed, ref } from 'vue'
 import UiButton from '~/components/ui/Button.vue'
 import UiPopover from '~/components/ui/Popover.vue'
@@ -24,6 +24,7 @@ const props = withDefaults(
     selectedOrdinal?: number
     selectedActorId?: string | null
     actorOptions?: ReadonlyArray<{ id: string; label: string }>
+    positionMode?: 'follow' | 'pinned'
   }>(),
   {
     selectedBallEvent: null,
@@ -31,8 +32,12 @@ const props = withDefaults(
     selectedOrdinal: 1,
     selectedActorId: null,
     actorOptions: () => [],
+    positionMode: 'follow',
   },
 )
+const emit = defineEmits<{
+  'update:positionMode': [mode: 'follow' | 'pinned']
+}>()
 
 const workstation = useAnnotationWorkstationService()
 const kindOpen = ref(false)
@@ -113,9 +118,32 @@ function chooseActor(actorRosterEntryId: string | null) {
 <template>
   <div
     class="selected-point-editor"
+    :class="{ pinned: positionMode === 'pinned' }"
     data-annotation-hotkey-surface="workstation"
     :style="{ '--point-accent': accent }"
   >
+    <div class="point-editor-position" role="group" aria-label="編輯器位置">
+      <button
+        type="button"
+        :class="{ active: positionMode === 'follow' }"
+        :aria-pressed="positionMode === 'follow'"
+        title="跟隨選取球點"
+        @click="emit('update:positionMode', 'follow')"
+      >
+        <LocateFixed :size="13" />
+        <span>跟隨</span>
+      </button>
+      <button
+        type="button"
+        :class="{ active: positionMode === 'pinned' }"
+        :aria-pressed="positionMode === 'pinned'"
+        title="固定在時間軸下方"
+        @click="emit('update:positionMode', 'pinned')"
+      >
+        <Pin :size="13" />
+        <span>釘選</span>
+      </button>
+    </div>
     <i aria-hidden="true" />
     <UiPopover
       :open="kindOpen"
@@ -253,6 +281,38 @@ function chooseActor(actorRosterEntryId: string | null) {
   height: 11px;
   transform: translateX(-50%) rotate(45deg);
   background: #0a0d10;
+}
+.point-editor-position {
+  display: grid;
+  grid-auto-flow: row;
+  grid-auto-rows: minmax(20px, 1fr);
+  gap: 2px;
+  flex: none;
+  padding: 2px;
+  border-radius: 7px;
+  background: #15191d;
+}
+.point-editor-position button {
+  min-width: 48px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  padding: 3px 5px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: #88929d;
+  font-size: 0.62rem;
+  cursor: pointer;
+}
+.point-editor-position button.active,
+.point-editor-position button:hover {
+  background: #2b3945;
+  color: #e8f2fb;
+}
+.selected-point-editor.pinned > i {
+  display: none;
 }
 .selected-point-editor :deep(.point-detail-button) {
   min-width: 0;

@@ -51,6 +51,7 @@ const playbackRate = ref(1)
 const isFullscreen = ref(false)
 const savedOverlayPreferences = readOverlayPreferences()
 const overlayMode = ref<OverlayMode>(savedOverlayPreferences.enabled ? 'coach' : 'off')
+const analysisDownloadsEnabled = ref(savedOverlayPreferences.analysisDownloadsEnabled)
 const courtLabelMode = ref<'hitters' | 'all'>('hitters')
 const showOtherPlayers = ref(true)
 const showCourtLegend = ref(true)
@@ -65,7 +66,9 @@ const overlayLayers = reactive({
 const overlay = useAnalysisFrameChunks(
   computed(() => replay.value?.analysis?.id ?? null),
   currentFrame,
-  computed(() => Boolean(replay.value?.analysis)),
+  computed(
+    () => Boolean(replay.value?.analysis) && overlayEnabled.value && analysisDownloadsEnabled.value,
+  ),
 )
 const overlayModes = [
   { id: 'off', label: '關閉' },
@@ -469,6 +472,7 @@ watch(
   layers =>
     writeOverlayPreferences({
       enabled: overlayMode.value !== 'off',
+      analysisDownloadsEnabled: analysisDownloadsEnabled.value,
       layers: { ...layers },
     }),
   { deep: true },
@@ -476,6 +480,14 @@ watch(
 watch(overlayMode, mode => {
   writeOverlayPreferences({
     enabled: mode !== 'off',
+    analysisDownloadsEnabled: analysisDownloadsEnabled.value,
+    layers: { ...overlayLayers },
+  })
+})
+watch(analysisDownloadsEnabled, enabled => {
+  writeOverlayPreferences({
+    enabled: overlayMode.value !== 'off',
+    analysisDownloadsEnabled: enabled,
     layers: { ...overlayLayers },
   })
 })
@@ -633,7 +645,7 @@ onBeforeUnmount(() => {
                 @volumechange="updateVideoState"
               />
               <div
-                v-if="replay.analysis && overlayEnabled"
+                v-if="replay.analysis && overlayEnabled && analysisDownloadsEnabled"
                 class="replay-player__overlay-plane"
                 :style="videoPresentationStyle"
               >
@@ -656,6 +668,7 @@ onBeforeUnmount(() => {
                 v-if="
                   replay.analysis &&
                   overlayEnabled &&
+                  analysisDownloadsEnabled &&
                   (overlay.pending.value || overlay.error.value || !overlay.currentChunk.value)
                 "
                 class="replay-player__overlay-state"
@@ -758,6 +771,17 @@ onBeforeUnmount(() => {
                       >
                         {{ mode.label }}
                       </button>
+                    </div>
+                  </section>
+                  <section class="settings-section">
+                    <header>
+                      <strong>AI 分析資料</strong><span>關閉可省流量，不會刪除分析</span>
+                    </header>
+                    <div class="settings-list">
+                      <label
+                        ><span>下載 AI 分析資料</span
+                        ><UiSwitch v-model="analysisDownloadsEnabled" aria-label="下載 AI 分析資料"
+                      /></label>
                     </div>
                   </section>
                   <section class="settings-section">

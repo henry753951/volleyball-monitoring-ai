@@ -58,6 +58,12 @@ describe('boundaryCommandAvailability', () => {
     })
   })
 
+  it('keeps Z available during a short stale-cursor transport transition', () => {
+    expect(
+      boundaryCommandAvailability({ ...boundaryBase, state: 'OPEN', canMark: false }),
+    ).toMatchObject({ enabled: true })
+  })
+
   it('allows a non-overlapping START after an ordinary draft is READY and unsubmitted', () => {
     expect(boundaryCommandAvailability({ ...boundaryBase, state: 'READY' })).toMatchObject({
       enabled: true,

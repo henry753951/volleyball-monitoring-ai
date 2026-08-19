@@ -17,6 +17,7 @@ export const DEFAULT_OVERLAY_LAYERS: VolleyballOverlayLayers = {
 
 export interface OverlayPreferences {
   enabled: boolean
+  analysisDownloadsEnabled: boolean
   layers: VolleyballOverlayLayers
 }
 
@@ -31,6 +32,7 @@ function readBoolean(value: unknown, fallback: boolean) {
 export function defaultOverlayPreferences(): OverlayPreferences {
   return {
     enabled: true,
+    analysisDownloadsEnabled: true,
     layers: { ...DEFAULT_OVERLAY_LAYERS },
   }
 }
@@ -50,6 +52,10 @@ export function readOverlayPreferences(): OverlayPreferences {
     defaults.enabled = readBoolean(
       parsed.enabled,
       legacyEnabled === null ? defaults.enabled : legacyEnabled !== 'false',
+    )
+    defaults.analysisDownloadsEnabled = readBoolean(
+      parsed.analysisDownloadsEnabled,
+      defaults.analysisDownloadsEnabled,
     )
     for (const key of Object.keys(defaults.layers) as Array<keyof VolleyballOverlayLayers>)
       defaults.layers[key] = readBoolean(storedLayers[key], defaults.layers[key])

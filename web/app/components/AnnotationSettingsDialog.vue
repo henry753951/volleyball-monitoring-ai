@@ -33,6 +33,7 @@ const initialPage = preferences.settingsPage
 const clipPolicySaving = preferences.clipPolicySaving
 const clipPolicyError = preferences.clipPolicyError
 const overlayEnabled = preferences.overlayEnabled
+const analysisDownloadsEnabled = preferences.analysisDownloadsEnabled
 const overlayLayers = preferences.overlayLayers
 const model = workstation.annotation.model
 const { bindings, rebind, restoreDefaults } = useAnnotationHotkeys()
@@ -295,6 +296,17 @@ function savePresenceNickname() {
                     :model-value="overlayEnabled"
                     aria-label="顯示 AI 疊圖"
                     @update:model-value="preferences.setOverlayEnabled"
+                  />
+                </div>
+                <div class="settings-toggle-row">
+                  <span
+                    ><strong>下載 AI 分析資料</strong
+                    ><small>關閉可省流量；不影響人工標記與球點編輯</small></span
+                  >
+                  <UiSwitch
+                    :model-value="analysisDownloadsEnabled"
+                    aria-label="下載 AI 分析資料"
+                    @update:model-value="preferences.setAnalysisDownloadsEnabled"
                   />
                 </div>
                 <div class="settings-list settings-list--overlay" aria-label="疊圖顯示細項">

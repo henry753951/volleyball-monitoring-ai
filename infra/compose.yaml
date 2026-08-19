@@ -182,6 +182,7 @@ services:
       MEDIA_IMPORT_ROOT: /var/lib/volleyball/media-imports
       MEDIA_HOT_ROOT: /var/lib/volleyball/media-hot
       MEDIA_RECORDING_ROOT: /recordings
+      MINIO_READ_TIMEOUT_MS: ${MINIO_READ_TIMEOUT_MS:-60000}
       OME_API_ACCESS_TOKEN: ${OME_API_ACCESS_TOKEN:?OME_API_ACCESS_TOKEN is required}
       OME_RTMP_PUBLIC_URL: ${OME_RTMP_PUBLIC_URL:-rtmp://rtmp-volley-ai.hsulab.net:2035/app}
       OME_API_URL: http://ovenmediaengine:8081
