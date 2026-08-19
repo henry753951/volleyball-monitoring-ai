@@ -195,6 +195,17 @@ const startNextSetMutation = /* GraphQL */ `
   }
 `
 
+const reopenLastSetMutation = /* GraphQL */ `
+  mutation ReopenLastSet($input: ReopenLastSetInput!) {
+    reopenLastSet(input: $input) {
+      id
+      setNumber
+      status
+      winningTeamId
+    }
+  }
+`
+
 const updateMatchMutation = /* GraphQL */ `
   mutation UpdateMatch($input: UpdateMatchInput!) {
     updateMatch(input: $input) {
@@ -1156,5 +1167,19 @@ describe('match setup, visibility, and court-side history', () => {
       status: 'FINISHED',
       winningTeamId: leftTeamId,
     })
+
+    const reopened = await execute(reopenLastSetMutation, contextFor(operatorUser), {
+      input: { matchId },
+    })
+    expect(reopened.errors).toBeUndefined()
+    expect(reopened.data?.reopenLastSet).toMatchObject({
+      id: setId,
+      setNumber: 1,
+      status: 'LIVE',
+      winningTeamId: null,
+    })
+    await expect(
+      db.matchSet.findUnique({ where: { matchId_setNumber: { matchId, setNumber: 2 } } }),
+    ).resolves.toBeNull()
   })
 })

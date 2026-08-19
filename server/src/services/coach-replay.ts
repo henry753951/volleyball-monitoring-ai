@@ -1,6 +1,10 @@
 import type { PrismaClient } from '@volleyball-monitoring/db'
 import type { Prisma } from '@volleyball-monitoring/db/client'
 import { JobStatus, UserRole } from '@volleyball-monitoring/db/client'
+import {
+  deriveRallyDisplayOrdinals,
+  segmentStartCaptureTimeUs,
+} from '../domain/rally-display-order.js'
 import { resolveEffectiveContactFrame } from './effective-contact-frame.js'
 
 const replayClipSelect = {
@@ -561,7 +565,16 @@ export async function getCoachRallyReplay(
       id: true,
       matchId: true,
       ordinal: true,
+      displaySetNumber: true,
       processingStatus: true,
+      scoringTeamId: true,
+      sideAssignmentReversed: true,
+      sideAssignment: {
+        select: {
+          leftTeam: { select: { id: true, name: true, shortName: true } },
+          rightTeam: { select: { id: true, name: true, shortName: true } },
+        },
+      },
       set: { select: { id: true, setNumber: true } },
       program: { select: { fpsNum: true, fpsDen: true } },
       activeSubmission: {
@@ -618,6 +631,62 @@ export async function getCoachRallyReplay(
   })
   const submission = rally?.activeSubmission
   if (!rally || !submission) return null
+  const displayRows =
+    typeof (database.rally as unknown as { findMany?: unknown }).findMany === 'function'
+      ? await database.rally.findMany({
+          where: { activeSubmissionId: { not: null }, matchId: rally.matchId, voidedAt: null },
+          select: {
+            id: true,
+            displaySetNumber: true,
+            boundaries: {
+              where: { kind: 'START' },
+              select: { captureTimeUs: true, kind: true },
+            },
+            keyPoints: {
+              where: { deletedAt: null },
+              select: { captureTimeUs: true, markerKind: true },
+            },
+            activeSubmission: {
+              select: {
+                boundaries: {
+                  where: { kind: 'START' },
+                  select: { captureTimeUs: true, kind: true },
+                },
+                keyPoints: {
+                  select: { captureTimeUs: true, markerKind: true },
+                },
+              },
+            },
+          },
+        })
+      : []
+  const displayOrdinal = deriveRallyDisplayOrdinals(
+    displayRows.map(row => ({
+      displaySetNumber: row.displaySetNumber,
+      id: row.id,
+      startCaptureTimeUs:
+        segmentStartCaptureTimeUs(row) ?? segmentStartCaptureTimeUs(row.activeSubmission ?? {}),
+    })),
+  ).get(rally.id)
+  const effectiveLeftTeam = rally.sideAssignmentReversed
+    ? submission.rightTeam
+    : (rally.sideAssignment?.leftTeam ?? submission.leftTeam)
+  const effectiveRightTeam = rally.sideAssignmentReversed
+    ? submission.leftTeam
+    : (rally.sideAssignment?.rightTeam ?? submission.rightTeam)
+  const scoringTeamId = rally.scoringTeamId ?? submission.scoringTeam?.id ?? null
+  const effectiveScoringTeam =
+    scoringTeamId === effectiveLeftTeam.id
+      ? effectiveLeftTeam
+      : scoringTeamId === effectiveRightTeam.id
+        ? effectiveRightTeam
+        : submission.scoringTeam
+  const effectiveScoringCourtSide =
+    scoringTeamId === effectiveLeftTeam.id
+      ? 'left'
+      : scoringTeamId === effectiveRightTeam.id
+        ? 'right'
+        : (submission.scoringCourtSide?.toLowerCase() ?? null)
   const activeAnalysis = submission.analysisRuns[0] ?? null
   const clip = activeAnalysis
     ? (submission.clipJobs[0] ?? null)
@@ -645,15 +714,17 @@ export async function getCoachRallyReplay(
       id: rally.id,
       match_id: rally.matchId,
       ordinal: rally.ordinal,
+      display_ordinal: displayOrdinal ?? rally.ordinal,
+      display_set_number: rally.displaySetNumber,
       processing_status: rally.processingStatus.toLowerCase(),
       set: { id: rally.set.id, number: rally.set.setNumber },
       outcome: {
         score_resolution: submission.scoreResolutionState.toLowerCase(),
-        scoring_court_side: submission.scoringCourtSide?.toLowerCase() ?? null,
-        scoring_team: submission.scoringTeam,
+        scoring_court_side: effectiveScoringCourtSide,
+        scoring_team: effectiveScoringTeam,
       },
-      left_team: submission.leftTeam,
-      right_team: submission.rightTeam,
+      left_team: effectiveLeftTeam,
+      right_team: effectiveRightTeam,
     },
     submission: {
       id: submission.id,

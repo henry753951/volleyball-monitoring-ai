@@ -4,6 +4,7 @@ import {
   updateMatchRoster,
   updateMatchClipPolicy,
   startNextSet,
+  reopenLastSet,
   updateMatch,
 } from '../services/core-domain.js'
 import { db } from '@volleyball-monitoring/db'
@@ -23,6 +24,7 @@ import {
   UpdateMatchRosterInputType,
   UpdateMatchClipPolicyInputType,
   StartNextSetInputType,
+  ReopenLastSetInputType,
   UpdateMatchInputType,
 } from './inputs.js'
 import {
@@ -127,6 +129,11 @@ builder.mutationType({
     startNextSet: t.field({
       args: { input: t.arg({ required: true, type: StartNextSetInputType }) },
       resolve: (_root, args, context) => startNextSet(requireIdentity(context), args.input),
+      type: MatchSetType,
+    }),
+    reopenLastSet: t.field({
+      args: { input: t.arg({ required: true, type: ReopenLastSetInputType }) },
+      resolve: (_root, args, context) => reopenLastSet(requireIdentity(context), args.input),
       type: MatchSetType,
     }),
   }),

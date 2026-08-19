@@ -65,6 +65,9 @@ const DELETE_PROCESSING_RALLY = `mutation DeleteProcessingRally($rallyId: ID!) {
   deleteProcessingRally(rallyId: $rallyId) { id processingStatus voidedAt }
 }`
 const DEVICE_SESSION_STORAGE_KEY = 'vollyai.annotation-device-session.v1'
+const PRESENCE_NICKNAME_STORAGE_KEY = 'vollyai.annotation-presence-nickname.v1'
+const DEFAULT_PRESENCE_NICKNAME = '標記者'
+const MAX_PRESENCE_NICKNAME_LENGTH = 24
 const ACTIVE_RALLY_STORAGE_PREFIX = 'vollyai.annotation-active-rally.v1:'
 const SERVER_SEQUENCE_STORAGE_PREFIX = 'vollyai.annotation-server-sequence.v1:'
 
@@ -86,6 +89,7 @@ export function createAnnotationRoomService(annotationWsUrl: MaybeRefOrGetter<st
   const selfDeviceSessionId = ref<string | null>(null)
   const outbox = shallowRef<AnnotationOutboxEntry[]>([])
   const presence = shallowRef<AnnotationPresenceSnapshot['members']>([])
+  const presenceNickname = ref(DEFAULT_PRESENCE_NICKNAME)
   const processing = shallowRef<Record<string, AnnotationRallyProcessingUpdate>>({})
   const lastAutoCorrections = shallowRef<BallEventRepair[]>([])
   const resolvedKeyPointIds = shallowRef<Record<string, string>>({})
@@ -204,6 +208,34 @@ export function createAnnotationRoomService(annotationWsUrl: MaybeRefOrGetter<st
       /* this tab still keeps the in-memory identity */
     }
     return deviceSessionHint
+  }
+  function normalizePresenceNickname(value: string) {
+    const normalized = Array.from(value)
+      .filter(character => {
+        const codePoint = character.codePointAt(0) ?? 0
+        return codePoint >= 0x20 && codePoint !== 0x7f
+      })
+      .join('')
+      .trim()
+      .replace(/\s+/gu, ' ')
+    return Array.from(normalized).slice(0, MAX_PRESENCE_NICKNAME_LENGTH).join('')
+  }
+  function loadPresenceNickname() {
+    const stored = storage()?.getItem(PRESENCE_NICKNAME_STORAGE_KEY)
+    presenceNickname.value = normalizePresenceNickname(stored ?? '') || DEFAULT_PRESENCE_NICKNAME
+    return presenceNickname.value
+  }
+  function setPresenceNickname(value: string) {
+    const next = normalizePresenceNickname(value) || DEFAULT_PRESENCE_NICKNAME
+    const changed = presenceNickname.value !== next
+    presenceNickname.value = next
+    try {
+      storage()?.setItem(PRESENCE_NICKNAME_STORAGE_KEY, next)
+    } catch {
+      /* the in-memory nickname still applies to this connection */
+    }
+    if (changed) realtime?.reconnect()
+    return next
   }
   function replaceOutbox(entries: AnnotationOutboxEntry[]) {
     outbox.value = entries
@@ -535,6 +567,7 @@ export function createAnnotationRoomService(annotationWsUrl: MaybeRefOrGetter<st
     selfDeviceSessionId.value = null
     error.value = null
     loadOutbox()
+    loadPresenceNickname()
     realtime = createAnnotationRealtimeClient(
       nextRoomId,
       {
@@ -554,6 +587,7 @@ export function createAnnotationRoomService(annotationWsUrl: MaybeRefOrGetter<st
             error.value = cause.message
         },
         resumeFromServerSequence: () => readServerSequence(nextRoomId),
+        presenceNickname: () => presenceNickname.value,
         onServerSequence: value => recordServerSequence(value, nextRoomId),
         onMessage: message => {
           if (message.type === 'connection_ready') {
@@ -855,6 +889,7 @@ export function createAnnotationRoomService(annotationWsUrl: MaybeRefOrGetter<st
     resolvedKeyPointIds: shallowReadonly(resolvedKeyPointIds),
     pendingCount,
     presence: shallowReadonly(presence),
+    presenceNickname: readonly(presenceNickname),
     processing: shallowReadonly(processing),
     remoteEditorsByKeyPoint,
     remoteCursors,
@@ -862,6 +897,7 @@ export function createAnnotationRoomService(annotationWsUrl: MaybeRefOrGetter<st
     selectRally,
     setEditingKeyPoint,
     setPlaybackCursor,
+    setPresenceNickname,
     setBallEvent,
     setBallEventActor,
     submitCorrection,

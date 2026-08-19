@@ -59,6 +59,17 @@ describe('annotation realtime soft-lock client', () => {
     client.disconnect()
   })
 
+  it('includes the current per-window nickname in the WebSocket handshake', () => {
+    const client = createAnnotationRealtimeClient(roomId, {
+      presenceNickname: () => '主畫面',
+    })
+    client.connect()
+    expect(FakeWebSocket.instances[0]!.url).toContain(
+      'presence_nickname=%E4%B8%BB%E7%95%AB%E9%9D%A2',
+    )
+    client.disconnect()
+  })
+
   it('replays edit intent after ready, refreshes it, and releases it explicitly', () => {
     const states: string[] = []
     const deviceSessionId = '84000000-0000-4000-8000-000000000003'

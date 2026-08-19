@@ -26,7 +26,11 @@ export interface PresenceRedisLike {
 export interface AnnotationPresenceService {
   join(
     roomId: string,
-    identity: { userId: string; deviceSessionId: string },
+    identity: {
+      userId: string
+      deviceSessionId: string
+      presenceNickname?: string | null
+    },
   ): Promise<PresenceMember>
   touch(roomId: string, member: PresenceMember): Promise<void>
   setEditing(
@@ -46,9 +50,26 @@ const HASH_PREFIX = 'vmai:annotation:presence:v2:'
 const CHANNEL_PREFIX = 'vmai:annotation:presence:events:'
 const PRESENCE_TTL_MS = 30_000
 const SOFT_LOCK_TTL_MS = 12_000
+const DEFAULT_PRESENCE_NICKNAME = '標記者'
+const MAX_PRESENCE_NICKNAME_LENGTH = 24
 const keyFor = (roomId: string) => `${HASH_PREFIX}${roomId}`
 const channelFor = (roomId: string) => `${CHANNEL_PREFIX}${roomId}`
 const lockTimerKey = (roomId: string, deviceSessionId: string) => `${roomId}:${deviceSessionId}`
+
+function normalizePresenceNickname(value: string | null | undefined): string | null {
+  const normalized = value
+    ? Array.from(value)
+        .filter(character => {
+          const codePoint = character.codePointAt(0) ?? 0
+          return codePoint >= 0x20 && codePoint !== 0x7f
+        })
+        .join('')
+        .trim()
+        .replace(/\s+/gu, ' ')
+    : ''
+  if (!normalized) return null
+  return Array.from(normalized).slice(0, MAX_PRESENCE_NICKNAME_LENGTH).join('')
+}
 
 export function createAnnotationPresenceService(deps: {
   redis: PresenceRedisLike
@@ -121,7 +142,10 @@ export function createAnnotationPresenceService(deps: {
       const member: PresenceMember = {
         user_id: identity.userId,
         device_session_id: identity.deviceSessionId,
-        display_name: (await deps.displayName(identity.userId)) ?? identity.userId,
+        display_name:
+          normalizePresenceNickname(identity.presenceNickname) ??
+          (await deps.displayName(identity.userId)) ??
+          DEFAULT_PRESENCE_NICKNAME,
         editing_key_point_id: null,
         cursor_capture_time_us: null,
         cursor_status: null,

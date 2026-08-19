@@ -272,6 +272,8 @@ export interface CoachRallyReplay {
     id: string
     match_id: string
     ordinal: number
+    display_ordinal: number
+    display_set_number: number
     processing_status: string
     set: { id: string; number: number }
     outcome: {

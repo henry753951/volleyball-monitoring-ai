@@ -539,8 +539,8 @@ watchEffect(() => {
   }
   const tracks = value.analysis?.tracks ?? []
   rallyStatus.value = {
-    setNumber: value.rally.set.number,
-    rallyOrdinal: value.rally.ordinal,
+    setNumber: value.rally.display_set_number,
+    rallyOrdinal: value.rally.display_ordinal,
     currentTime: formatClock(currentTime.value),
     duration: formatClock(duration.value),
     contactCount: timelineEvents.value.length,
@@ -577,8 +577,8 @@ onBeforeUnmount(() => {
     <template v-else>
       <header class="replay-header">
         <div class="replay-header__identity">
-          <span>第 {{ replay.rally.set.number }} 局</span
-          ><strong>回合 {{ replay.rally.ordinal }}</strong>
+          <span>第 {{ replay.rally.display_set_number }} 局</span
+          ><strong>回合 {{ replay.rally.display_ordinal }}</strong>
         </div>
         <div class="replay-header__outcome">
           <div>

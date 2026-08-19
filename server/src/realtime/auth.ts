@@ -250,6 +250,38 @@ function queryParameter(request: AnnotationAuthRequestLike, name: string): strin
   }
 }
 
+async function ensureAuthenticatedDeviceSession(
+  database: PrismaClient,
+  input: {
+    deviceSessionId: string
+    userAgent?: string | null
+    userId: string
+  },
+): Promise<string> {
+  if (!UUID.test(input.deviceSessionId)) throw new TypeError('Invalid device session')
+  const existing = await database.deviceSession.findUnique({
+    select: { revokedAt: true, userId: true },
+    where: { id: input.deviceSessionId },
+  })
+  if (existing?.userId !== undefined && existing.userId !== input.userId)
+    throw new TypeError('Device session belongs to another user')
+  if (existing?.revokedAt) throw new TypeError('Device session is revoked')
+  await database.deviceSession.upsert({
+    create: {
+      id: input.deviceSessionId,
+      label: 'Annotation browser window',
+      userAgent: input.userAgent ?? null,
+      userId: input.userId,
+    },
+    update: {
+      lastSeenAt: new Date(),
+      userAgent: input.userAgent ?? null,
+    },
+    where: { id: input.deviceSessionId },
+  })
+  return input.deviceSessionId
+}
+
 async function authenticateAppSession(
   request: AnnotationAuthRequestLike,
   database: PrismaClient,
@@ -265,11 +297,25 @@ async function authenticateAppSession(
     where: { id: payload.sid },
   })
   if (!device || device.revokedAt || device.userId !== config.userId) return null
-  await database.deviceSession.update({
-    where: { id: payload.sid },
-    data: { lastSeenAt: new Date() },
-  })
-  return { deviceSessionId: payload.sid, role: UserRole.ADMIN, userId: config.userId }
+  const requestedDeviceSessionId = queryParameter(request, 'device_session_id')
+  let deviceSessionId = payload.sid
+  if (requestedDeviceSessionId !== null) {
+    try {
+      deviceSessionId = await ensureAuthenticatedDeviceSession(database, {
+        deviceSessionId: requestedDeviceSessionId,
+        userAgent: header(request, 'user-agent'),
+        userId: config.userId,
+      })
+    } catch {
+      return null
+    }
+  } else {
+    await database.deviceSession.update({
+      where: { id: payload.sid },
+      data: { lastSeenAt: new Date() },
+    })
+  }
+  return { deviceSessionId, role: UserRole.ADMIN, userId: config.userId }
 }
 
 export async function ensureDevelopmentDeviceSession(

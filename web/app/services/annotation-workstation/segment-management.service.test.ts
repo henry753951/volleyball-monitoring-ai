@@ -1,11 +1,17 @@
 import { ref } from 'vue'
 import { describe, expect, it, vi } from 'vitest'
-import { createSegmentManagementService } from './segment-management.service'
+import { createSegmentManagementService, type SideSwapTarget } from './segment-management.service'
 import { createWorkstationActionManager } from './workstation-action.service'
 import { createWorkstationConfirmationService } from './workstation-confirmation.service'
 import { createWorkstationFeedbackService } from './workstation-feedback.service'
 
-function setup(options: { selectedSubmissionId?: string | null } = {}) {
+function setup(
+  options: {
+    currentSet?: { id: string; set_number?: number }
+    selectedSubmissionId?: string | null
+    sideSwapTarget?: SideSwapTarget | null
+  } = {},
+) {
   const feedback = createWorkstationFeedbackService()
   const actions = createWorkstationActionManager({ feedback })
   const confirmation = createWorkstationConfirmationService({ feedback })
@@ -15,6 +21,7 @@ function setup(options: { selectedSubmissionId?: string | null } = {}) {
     updateRallyPlacement: vi.fn().mockResolvedValue({ displaySetNumber: 2, displayOrdinal: 3 }),
   }
   const core = {
+    reopenLastSet: vi.fn().mockResolvedValue(undefined),
     startNextSet: vi.fn().mockResolvedValue(undefined),
     swapCourtSides: vi.fn().mockResolvedValue(undefined),
   }
@@ -46,11 +53,13 @@ function setup(options: { selectedSubmissionId?: string | null } = {}) {
     confirmation,
     feedback,
     editReady: () => true,
-    currentSet: () => ({ id: 'set-1' }),
+    canReopenLastSet: () => true,
+    currentSet: () => options.currentSet ?? ({ id: 'set-1' } as const),
     leftTeam: () => ({ id: 'left', name: 'Left' }),
     rightTeam: () => ({ id: 'right', name: 'Right' }),
     currentDraft: () => true,
     sideSwapEffectiveOrdinal: () => 5,
+    sideSwapTarget: () => options.sideSwapTarget ?? null,
     selectedRallyId: () => 'rally-1',
     selectedSubmissionId: () => options.selectedSubmissionId ?? null,
     clipSelected: () => true,
@@ -175,9 +184,44 @@ describe('segment management service', () => {
     await context.confirmation.confirm()
 
     expect(context.core.startNextSet).toHaveBeenCalledWith({
+      effectiveFromRallyId: 'rally-1',
       matchId: 'match-1',
       winningTeamId: 'right',
     })
+    context.service.dispose()
+  })
+
+  it('offers a safe undo for the latest set winner marker', async () => {
+    const context = setup()
+
+    const result = await context.actions.execute('segment.reopen-last-set')
+    expect(result.status).toBe('executed')
+    expect(context.confirmation.current.value?.id).toBe('reopen-last-set')
+    expect(context.confirmation.current.value?.message).toContain('下一局已經新增標註')
+    await context.confirmation.confirm()
+
+    expect(context.core.reopenLastSet).toHaveBeenCalledWith({ matchId: 'match-1' })
+    context.service.dispose()
+  })
+
+  it('blocks a winner action when the selected rally belongs to an older display set', async () => {
+    const context = setup({
+      currentSet: { id: 'set-4', set_number: 4 },
+      sideSwapTarget: {
+        displaySetNumber: 1,
+        effectiveFromRallyOrdinal: 5,
+        expectedLeftTeamId: 'left',
+        expectedRightTeamId: 'right',
+        isDraft: false,
+        label: '第 5 回合起',
+        rallyId: 'rally-1',
+        setId: 'set-1',
+      },
+    })
+
+    const result = await context.actions.execute('segment.start-next-set', 'right')
+    expect(result.status).toBe('blocked')
+    expect(context.core.startNextSet).not.toHaveBeenCalled()
     context.service.dispose()
   })
 
@@ -187,13 +231,67 @@ describe('segment management service', () => {
     await context.actions.execute('segment.swap-current-sides')
     await context.confirmation.confirm()
 
-    expect(context.core.swapCourtSides).toHaveBeenCalledWith({
-      effectiveFromRallyOrdinal: 5,
-      expectedLeftTeamId: 'left',
-      expectedRightTeamId: 'right',
-      setId: 'set-1',
-    })
+    expect(context.core.swapCourtSides).toHaveBeenCalledWith(
+      expect.objectContaining({
+        effectiveFromRallyOrdinal: 5,
+        expectedLeftTeamId: 'left',
+        expectedRightTeamId: 'right',
+        setId: 'set-1',
+      }),
+    )
     expect(context.service.sideSwapPending.value).toBe(false)
+    context.service.dispose()
+  })
+
+  it('uses a selected rally as the suffix-swap target', async () => {
+    const target: SideSwapTarget = {
+      effectiveFromRallyOrdinal: 12,
+      expectedLeftTeamId: 'team-a',
+      expectedRightTeamId: 'team-b',
+      isDraft: false,
+      label: '第 7 回合起',
+      setId: 'set-2',
+    }
+    const context = setup({ sideSwapTarget: target })
+
+    await context.actions.execute('segment.swap-current-sides')
+    await context.confirmation.confirm()
+
+    expect(context.core.swapCourtSides).toHaveBeenCalledWith({
+      effectiveFromRallyOrdinal: target.effectiveFromRallyOrdinal,
+      expectedLeftTeamId: target.expectedLeftTeamId,
+      expectedRightTeamId: target.expectedRightTeamId,
+      setId: target.setId,
+    })
+    context.service.dispose()
+  })
+
+  it('keeps both side-swap entry points locked while confirmation or mutation is active', async () => {
+    const context = setup()
+    let releaseMutation!: () => void
+    context.core.swapCourtSides.mockImplementationOnce(
+      () =>
+        new Promise<void>(resolve => {
+          releaseMutation = resolve
+        }),
+    )
+
+    await context.actions.execute('segment.swap-current-sides')
+    expect(context.actions.state('segment.swap-rally-sides').value.enabled).toBe(false)
+    context.confirmation.close()
+    expect(context.actions.state('segment.swap-rally-sides').value.enabled).toBe(true)
+
+    await context.actions.execute('segment.swap-current-sides')
+    const confirmation = context.confirmation.confirm()
+    await Promise.resolve()
+    expect(context.service.sideSwapPending.value).toBe(true)
+    expect(context.actions.state('segment.swap-current-sides').value.enabled).toBe(false)
+    expect(context.actions.state('segment.swap-rally-sides').value.enabled).toBe(false)
+
+    releaseMutation()
+    await confirmation
+    expect(context.service.sideSwapPending.value).toBe(false)
+    expect(context.actions.state('segment.swap-current-sides').value.enabled).toBe(true)
     context.service.dispose()
   })
 })
