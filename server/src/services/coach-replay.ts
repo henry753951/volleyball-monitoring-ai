@@ -283,6 +283,16 @@ export function projectEffectiveReplayEvents(
   ballEvents: ReplayBallEvent[] = [],
   submissionFrameByOrdinal: ReadonlyMap<number, bigint> = new Map(),
 ) {
+  const reidTracklets = analysis.reidEvidenceSets?.[0]?.tracklets ?? []
+  const rosterEntryTrackIds = new Map<string, number>()
+  for (const track of analysis.tracks ?? []) {
+    const tracklet = reidTracklets.find(item => item.canonicalTrackId === track.trackId)
+    const rosterEntryId =
+      tracklet?.activeProjection?.assignmentRevision?.rosterEntry?.id ??
+      track.identityAssignments[0]?.rosterEntry?.id ??
+      null
+    if (rosterEntryId) rosterEntryTrackIds.set(rosterEntryId, track.trackId)
+  }
   const timeByPoint = new Map(
     analysis.contactTimeCorrections.map(correction => [
       correction.keyPointId,
@@ -328,14 +338,16 @@ export function projectEffectiveReplayEvents(
       const associationProjection =
         associationJob?.status === JobStatus.COMPLETED ? associationJob.projection : null
       const semanticTrackId = semantic?.actorRosterEntryId
-        ? (analysis.tracks.find(
-            track => track.identityAssignments[0]?.rosterEntry?.id === semantic.actorRosterEntryId,
-          )?.trackId ?? null)
+        ? (rosterEntryTrackIds.get(semantic.actorRosterEntryId) ?? null)
         : null
-      const effectiveTrackId = semantic?.actorRosterEntryId
-        ? semanticTrackId
-        : hasActorCorrection
-          ? correctedTrackId
+      // A keypoint's explicit player ownership is the canonical source for
+      // replay. Never replace it with a pose/bbox association merely because
+      // that association has a higher confidence or was created later.
+      const hasExplicitKeypointOwner = hasActorCorrection || Boolean(semantic?.actorRosterEntryId)
+      const effectiveTrackId = hasActorCorrection
+        ? correctedTrackId
+        : semantic?.actorRosterEntryId
+          ? semanticTrackId
           : associationProjection
             ? associationProjection.trackId
             : event.associationState === 'RESOLVED_SINGLE'
@@ -399,12 +411,9 @@ export function projectEffectiveReplayEvents(
           anchor_frame_index: event.anchorFrameIndex.toString(),
           resolved_frame_index: effectiveFrame.toString(),
           anchor_time_us: event.anchorTimeUs.toString(),
-          association_state: semantic?.actorRosterEntryId
-            ? semanticTrackId === null
-              ? 'no_player'
-              : 'resolved_single'
-            : hasActorCorrection
-              ? correctedTrackId === null
+          association_state:
+            hasExplicitKeypointOwner || associationProjection
+              ? effectiveTrackId === null
                 ? 'no_player'
                 : 'resolved_single'
               : effectiveTrackId === null
@@ -427,7 +436,7 @@ export function projectEffectiveReplayEvents(
                         semantic.actorRosterEntry.displayNameSnapshot ??
                         semantic.actorRosterEntry.player?.name ??
                         `#${semantic.actorRosterEntry.jerseyNumber}`,
-                      track_id: semanticTrackId,
+                      track_id: effectiveTrackId,
                     }
                   : null,
               }
@@ -456,7 +465,7 @@ export function projectEffectiveReplayEvents(
               : event.qualityFlags,
           actors,
           candidates:
-            hasActorCorrection || associationProjection
+            hasExplicitKeypointOwner || associationProjection
               ? []
               : event.candidates.map(candidate => ({
                   track_id: candidate.trackId,

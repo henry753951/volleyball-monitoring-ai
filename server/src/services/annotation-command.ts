@@ -704,22 +704,6 @@ type EditCommand = Extract<
   }
 >
 
-function ordinaryDraftBelongsToDevice(
-  rally: {
-    activeSubmissionId: string | null
-    annotationStatus?: string
-    draftOwnerDeviceSessionId?: string | null
-    boundaries?: Array<{ kind: string; deviceSessionId: string }>
-    keyPoints?: Array<{ markerKind: string; deviceSessionId: string }>
-    operations?: Array<{ deviceSessionId: string }>
-  },
-  deviceSessionId: string,
-) {
-  if (rally.activeSubmissionId !== null) return true
-  if (rally.annotationStatus === 'READY') return true
-  return ordinaryDraftOwnerDeviceSessionId(rally) === deviceSessionId
-}
-
 function ordinaryDraftOwnerDeviceSessionId(rally: {
   draftOwnerDeviceSessionId?: string | null
   boundaries?: Array<{ kind: string; deviceSessionId: string }>
@@ -820,14 +804,6 @@ async function acceptContact(
         identity,
         hash,
         rejected(command, 'RALLY_NOT_OPEN', 'Rally is not an editable draft'),
-      )
-    if (!ordinaryDraftBelongsToDevice(rally, identity.deviceSessionId))
-      return persistRejection(
-        tx,
-        command,
-        identity,
-        hash,
-        rejected(command, 'RALLY_OWNED_BY_OTHER_CLIENT', '這個片段屬於另一個標註客戶端'),
       )
     await setAllocationLock(tx, rally.setId)
     if (command.base_revision !== rally.annotationRevision.toString())
@@ -1487,14 +1463,6 @@ async function acceptClose(
         hash,
         rejected(command, 'RALLY_NOT_FOUND', 'Rally was not found'),
       )
-    if (!ordinaryDraftBelongsToDevice(rally, identity.deviceSessionId))
-      return persistRejection(
-        tx,
-        command,
-        identity,
-        hash,
-        rejected(command, 'RALLY_OWNED_BY_OTHER_CLIENT', '這個片段屬於另一個標註客戶端'),
-      )
     await setAllocationLock(tx, rally.setId)
     if (!['OPEN', 'READY'].includes(rally.annotationStatus))
       return persistRejection(
@@ -1692,14 +1660,6 @@ async function acceptOutcome(
         identity,
         hash,
         rejected(command, 'RALLY_NOT_OPEN', 'Rally outcome is not editable'),
-      )
-    if (!ordinaryDraftBelongsToDevice(rally, identity.deviceSessionId))
-      return persistRejection(
-        tx,
-        command,
-        identity,
-        hash,
-        rejected(command, 'RALLY_OWNED_BY_OTHER_CLIENT', '這個片段屬於另一個標註客戶端'),
       )
     if (command.base_revision !== rally.annotationRevision.toString())
       return persistRejection(
@@ -1911,14 +1871,6 @@ async function acceptDraftEdit(
         identity,
         hash,
         rejected(command, 'ROOM_AUTHORIZATION_STALE', 'Rally authorization changed before commit'),
-      )
-    if (!ordinaryDraftBelongsToDevice(rally, identity.deviceSessionId))
-      return persistRejection(
-        tx,
-        command,
-        identity,
-        hash,
-        rejected(command, 'RALLY_OWNED_BY_OTHER_CLIENT', '這個片段屬於另一個標註客戶端'),
       )
     await setAllocationLock(tx, rally.setId)
     if (rally.annotationRevision.toString() !== command.base_revision)

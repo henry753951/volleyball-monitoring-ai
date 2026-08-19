@@ -4,6 +4,7 @@ import { computed, ref } from 'vue'
 import type { CoachDraft, CoachRally, CoachTeam } from '~/lib/coachDomain'
 import { annotationOutcomeLabel } from '~/utils/annotationOutcome'
 import { deriveCoachDisplayOrdinals, segmentStartCaptureTimeUs } from '~/utils/rallyDisplayOrder'
+import { deriveSetDisplayProjection } from '~/utils/setDisplayProjection'
 import { useAnnotationWorkstationService } from '~/services/annotation-workstation/annotation-workstation.service'
 
 type SegmentListItem =
@@ -11,6 +12,7 @@ type SegmentListItem =
       kind: 'draft'
       id: string
       setNumber: number
+      effectiveSetNumber: number
       ordinal: number
       startCaptureTimeUs: bigint | null
       draft: CoachDraft
@@ -19,6 +21,7 @@ type SegmentListItem =
       kind: 'rally'
       id: string
       setNumber: number
+      effectiveSetNumber: number
       ordinal: number
       startCaptureTimeUs: bigint | null
       rally: CoachRally
@@ -37,6 +40,7 @@ const props = defineProps<{
   rightSetWins: number
   setNumber: number
   setResults?: Array<{
+    id: string
     set_number: number
     winning_team_id: string | null
     status?: string
@@ -70,7 +74,6 @@ const placementSaving = segments.placementSaving
 const sideSwapPending = segments.sideSwapPending
 const sideSwapTarget = segments.sideSwapTarget
 const nextSetState = workstation.actions.state('segment.start-next-set')
-const reopenLastSetState = workstation.actions.state('segment.reopen-last-set')
 const swapCurrentSidesState = workstation.actions.state('segment.swap-current-sides')
 const swapRallySidesState = workstation.actions.state('segment.swap-rally-sides')
 const total = computed(
@@ -101,27 +104,40 @@ function compareSegmentCaptureOrder(left: SegmentListItem, right: SegmentListIte
   if (left.startCaptureTimeUs === null && right.startCaptureTimeUs !== null) return 1
   return left.id.localeCompare(right.id)
 }
-const displayOrdinals = computed(() => deriveCoachDisplayOrdinals(props.drafts, props.rallies))
+const setDisplayProjection = computed(() => deriveSetDisplayProjection(props.setResults ?? []))
+function effectiveSetNumberFor(rawSetNumber: number) {
+  return setDisplayProjection.value.rawToEffective.get(rawSetNumber) ?? rawSetNumber
+}
+const displayOrdinals = computed(() =>
+  deriveCoachDisplayOrdinals(props.drafts, props.rallies, effectiveSetNumberFor),
+)
+const displayedSetNumber = computed(() => effectiveSetNumberFor(props.setNumber))
 const segmentItems = computed<SegmentListItem[]>(() => {
   const itemsById = new Map<string, SegmentListItem>()
-  for (const rally of props.rallies)
+  for (const rally of props.rallies) {
+    const setNumber = rally.display_set_number
     itemsById.set(rally.id, {
       id: rally.id,
       kind: 'rally' as const,
       ordinal: displayOrdinals.value.get(rally.id) ?? 1,
       rally,
-      setNumber: rally.display_set_number,
+      setNumber,
+      effectiveSetNumber: effectiveSetNumberFor(setNumber),
       startCaptureTimeUs: segmentStartCaptureTimeUs(rally.submission),
     })
-  for (const draft of props.drafts)
+  }
+  for (const draft of props.drafts) {
+    const setNumber = draft.display_set_number
     itemsById.set(draft.id, {
       draft,
       id: draft.id,
       kind: 'draft' as const,
       ordinal: displayOrdinals.value.get(draft.id) ?? 1,
-      setNumber: draft.display_set_number,
+      setNumber,
+      effectiveSetNumber: effectiveSetNumberFor(setNumber),
       startCaptureTimeUs: segmentStartCaptureTimeUs(draft),
     })
+  }
   return [...itemsById.values()]
 })
 const placementOrdinal = computed(() => {
@@ -137,6 +153,7 @@ const placementOrdinal = computed(() => {
 const sortedSegmentItems = computed(() =>
   [...segmentItems.value].sort(
     (left, right) =>
+      left.effectiveSetNumber - right.effectiveSetNumber ||
       left.setNumber - right.setNumber ||
       left.ordinal - right.ordinal ||
       left.id.localeCompare(right.id),
@@ -156,9 +173,9 @@ const sideSwapBoundaryIds = computed(() => {
     const sides = segmentSideIds(item)
     if (!sides.left || !sides.right) continue
     const sideOrder = `${sides.left}:${sides.right}`
-    const previousSideOrder = previousSideOrderBySet.get(item.setNumber)
+    const previousSideOrder = previousSideOrderBySet.get(item.effectiveSetNumber)
     if (previousSideOrder && previousSideOrder !== sideOrder) boundaryIds.add(item.id)
-    previousSideOrderBySet.set(item.setNumber, sideOrder)
+    previousSideOrderBySet.set(item.effectiveSetNumber, sideOrder)
   }
   return boundaryIds
 })
@@ -181,10 +198,10 @@ const segmentScores = computed(() => {
   const scores = new Map<string, { left: number; right: number }>()
   for (const item of sortedSegmentItems.value) {
     const sides = segmentSideIds(item)
-    const teamScores = teamScoresBySet.get(item.setNumber) ?? new Map<string, number>()
+    const teamScores = teamScoresBySet.get(item.effectiveSetNumber) ?? new Map<string, number>()
     const scoringTeamId = segmentScoringTeamId(item)
     if (scoringTeamId) teamScores.set(scoringTeamId, (teamScores.get(scoringTeamId) ?? 0) + 1)
-    teamScoresBySet.set(item.setNumber, teamScores)
+    teamScoresBySet.set(item.effectiveSetNumber, teamScores)
     scores.set(item.id, {
       left: sides.left ? (teamScores.get(sides.left) ?? 0) : 0,
       right: sides.right ? (teamScores.get(sides.right) ?? 0) : 0,
@@ -200,7 +217,7 @@ const displayedScore = computed(() => {
     : null
   if (selectedScore) return selectedScore
   const currentSetItems = sortedSegmentItems.value.filter(
-    item => item.setNumber === props.setNumber,
+    item => item.effectiveSetNumber === displayedSetNumber.value,
   )
   return (
     (currentSetItems.length ? segmentScores.value.get(currentSetItems.at(-1)?.id ?? '') : null) ?? {
@@ -222,9 +239,10 @@ const actionRightTeam = computed(
 const winningTeamBySet = computed(
   () =>
     new Map(
-      (props.setResults ?? [])
-        .filter(result => result.status === undefined || result.status.toLowerCase() === 'finished')
-        .map(result => [result.set_number, result.winning_team_id]),
+      [...setDisplayProjection.value.winnerByEffective].map(([setNumber, winner]) => [
+        setNumber,
+        winner.teamId,
+      ]),
     ),
 )
 function winningTeamLabel(setNumber: number) {
@@ -232,16 +250,10 @@ function winningTeamLabel(setNumber: number) {
   if (!winnerId) return null
   return teamLabel(props.teams.find(team => team.id === winnerId) ?? null, '隊伍')
 }
-const latestWinnerSetNumber = computed(() => {
-  const setNumbers = [...winningTeamBySet.value.entries()]
-    .filter(([, winningTeamId]) => Boolean(winningTeamId))
-    .map(([setNumber]) => setNumber)
-  return setNumbers.length ? Math.max(...setNumbers) : null
-})
 const groups = computed(() => {
   const grouped = new Map<number, SegmentListItem[]>()
   for (const item of sortedSegmentItems.value)
-    grouped.set(item.setNumber, [...(grouped.get(item.setNumber) ?? []), item])
+    grouped.set(item.effectiveSetNumber, [...(grouped.get(item.effectiveSetNumber) ?? []), item])
   return [...grouped.entries()].map(([number, setItems]) => {
     const latestScore = segmentScores.value.get(setItems.at(-1)?.id ?? '') ?? {
       left: 0,
@@ -252,6 +264,11 @@ const groups = computed(() => {
       leftScore: latestScore.left,
       number,
       rightScore: latestScore.right,
+      setId:
+        setDisplayProjection.value.winnerByEffective.get(number)?.setId ??
+        (setItems[0]?.kind === 'draft'
+          ? setItems[0].draft.set_id
+          : (setItems[0]?.rally.set_id ?? null)),
     }
   })
 })
@@ -346,7 +363,7 @@ defineExpose({
     <div v-if="tab === 'match'" class="match-inspector">
       <div class="score-summary">
         <div class="set-scoreline">
-          <span>第 {{ setNumber }} 局 · 回合 {{ rallyOrdinal }}</span>
+          <span>第 {{ displayedSetNumber }} 局 · 回合 {{ rallyOrdinal }}</span>
         </div>
         <div class="score-board">
           <div class="score-team left">
@@ -526,6 +543,22 @@ defineExpose({
                       @click="openPlacement(item)"
                       ><Pencil :size="13" /></UiButton
                   ></UiTooltip>
+                  <UiTooltip
+                    v-if="
+                      item.kind === 'draft' &&
+                      !item.draft.active_submission_id &&
+                      ['open', 'ready'].includes(item.draft.annotation_status.toLowerCase())
+                    "
+                    content="強制刪除未結束片段"
+                    ><UiButton
+                      variant="ghost"
+                      size="icon-sm"
+                      class="row-action row-action-danger"
+                      aria-label="強制刪除未結束片段"
+                      :disabled="segments.deletePending.value"
+                      @click.stop="segments.requestDelete(item.id, null)"
+                      ><Trash2 :size="13" /></UiButton
+                  ></UiTooltip>
                 </div>
               </div>
             </template>
@@ -538,22 +571,10 @@ defineExpose({
               <Trophy :size="13" aria-hidden="true" />
               <strong>第 {{ group.number }} 局 · {{ winningTeamLabel(group.number) }} 勝</strong>
               <small>下一回合：新局 · 0 : 0</small>
-              <UiTooltip v-if="group.number === latestWinnerSetNumber" content="刪除這個勝局標記">
-                <UiButton
-                  variant="ghost"
-                  size="icon-sm"
-                  class="set-result-marker__remove"
-                  :disabled="!reopenLastSetState.enabled"
-                  :title="reopenLastSetState.reason ?? '刪除這個勝局標記'"
-                  :aria-label="`刪除第 ${group.number} 局勝局標記`"
-                  @click="workstation.actions.execute('segment.reopen-last-set')"
-                >
-                  <Trash2 :size="12" aria-hidden="true" />
-                </UiButton>
-              </UiTooltip>
             </div>
-          </section></div
-      ></UiScrollArea>
+          </section>
+        </div></UiScrollArea
+      >
     </div>
     <div v-else-if="tab === 'mapping'" class="mapping-inspector">
       <UiScrollArea class="mapping-scroll"
@@ -980,27 +1001,6 @@ defineExpose({
   color: #b6a36b !important;
   font-size: 0.54rem;
 }
-.set-result-marker__remove {
-  flex: none;
-  width: 24px !important;
-  min-height: 24px !important;
-  display: grid !important;
-  place-items: center;
-  margin-left: 2px;
-  padding: 0 !important;
-  border: 1px solid #66533a !important;
-  border-radius: 5px !important;
-  background: transparent !important;
-  color: #f0d99a !important;
-}
-.set-result-marker__remove:hover:not(:disabled) {
-  background: #3a3020 !important;
-  color: #fff1bd !important;
-}
-.set-result-marker__remove:disabled {
-  cursor: not-allowed;
-  opacity: 0.45;
-}
 .segment-row {
   min-height: 82px;
   display: grid;
@@ -1089,6 +1089,9 @@ defineExpose({
 }
 .row-action {
   color: #aab2bb !important;
+}
+.row-action-danger {
+  color: #e68b8b !important;
 }
 .placement-form {
   display: grid;

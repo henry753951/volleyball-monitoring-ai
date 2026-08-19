@@ -235,6 +235,7 @@ type RallyPlacement {
 
 input ReopenLastSetInput {
   matchId: ID!
+  setId: ID
 }
 
 input RetryProcessingInput {

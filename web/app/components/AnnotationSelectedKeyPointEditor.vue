@@ -7,9 +7,12 @@ import {
   type ServeStyle,
 } from '@volleyball-monitoring/contracts'
 import { Check, ChevronDown, LocateFixed, Pin, UserRoundCheck } from 'lucide-vue-next'
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import UiButton from '~/components/ui/Button.vue'
 import UiPopover from '~/components/ui/Popover.vue'
+import UiScrollArea from '~/components/ui/ScrollArea.vue'
+import UiTabs from '~/components/ui/Tabs.vue'
+import type { RosterPosition } from '~/lib/coreDomain'
 import {
   BALL_EVENT_TONE_COLORS,
   ballEventKindLabel,
@@ -17,13 +20,23 @@ import {
 } from '~/utils/annotationBallEventPresentation'
 import { useAnnotationWorkstationService } from '~/services/annotation-workstation/annotation-workstation.service'
 
+type ActorOption = {
+  id: string
+  label: string
+  teamId?: string
+  teamLabel?: string
+  jerseyNumber?: string
+  playerName?: string
+  position?: RosterPosition
+}
+
 const props = withDefaults(
   defineProps<{
     selectedBallEvent?: BallEventValue | null
     previousBallEvent?: BallEventValue | null
     selectedOrdinal?: number
     selectedActorId?: string | null
-    actorOptions?: ReadonlyArray<{ id: string; label: string }>
+    actorOptions?: ReadonlyArray<ActorOption>
     positionMode?: 'follow' | 'pinned'
   }>(),
   {
@@ -42,12 +55,49 @@ const emit = defineEmits<{
 const workstation = useAnnotationWorkstationService()
 const kindOpen = ref(false)
 const actorOpen = ref(false)
+const actorTeamId = ref('')
 const tone = computed(() => ballEventTone(props.selectedBallEvent))
 const accent = computed(() => BALL_EVENT_TONE_COLORS[tone.value])
 const selectedActorLabel = computed(
   () =>
     props.actorOptions.find(option => option.id === props.selectedActorId)?.label ?? '未指定球員',
 )
+const actorTeamTabs = computed(() => {
+  const seen = new Set<string>()
+  return props.actorOptions.reduce<Array<{ value: string; label: string; count: number }>>(
+    (tabs, option) => {
+      if (!option.teamId || seen.has(option.teamId)) return tabs
+      seen.add(option.teamId)
+      tabs.push({
+        value: option.teamId,
+        label: option.teamLabel ?? '未分隊',
+        count: props.actorOptions.filter(candidate => candidate.teamId === option.teamId).length,
+      })
+      return tabs
+    },
+    [],
+  )
+})
+const visibleActorOptions = computed(() => {
+  const options = actorTeamId.value
+    ? props.actorOptions.filter(option => option.teamId === actorTeamId.value)
+    : props.actorOptions
+  return [...options].sort((left, right) => {
+    const leftNumber = Number.parseInt(left.jerseyNumber ?? '', 10)
+    const rightNumber = Number.parseInt(right.jerseyNumber ?? '', 10)
+    const leftNumeric = Number.isFinite(leftNumber)
+    const rightNumeric = Number.isFinite(rightNumber)
+    if (leftNumeric && rightNumeric && leftNumber !== rightNumber) return leftNumber - rightNumber
+    if (leftNumeric !== rightNumeric) return leftNumeric ? -1 : 1
+    return (left.playerName ?? left.label).localeCompare(
+      right.playerName ?? right.label,
+      undefined,
+      {
+        sensitivity: 'base',
+      },
+    )
+  })
+})
 const kindOptions = computed<ReadonlyArray<{ kind: BallEventKind; label: string }>>(() => {
   if (props.selectedOrdinal === 1) return [{ kind: 'SERVE', label: '發球' }]
   return [
@@ -113,6 +163,29 @@ function chooseActor(actorRosterEntryId: string | null) {
   void workstation.actions.execute('mark.set-actor', actorRosterEntryId)
   actorOpen.value = false
 }
+
+function setActorOpen(open: boolean) {
+  actorOpen.value = open
+  if (!open) return
+  const selectedTeamId = props.actorOptions.find(
+    option => option.id === props.selectedActorId,
+  )?.teamId
+  actorTeamId.value = selectedTeamId ?? actorTeamTabs.value[0]?.value ?? ''
+}
+
+function positionLabel(position: RosterPosition | undefined) {
+  return position && position !== 'UNSPECIFIED' ? position : '—'
+}
+
+watch(
+  actorTeamTabs,
+  tabs => {
+    if (!tabs.some(tab => tab.value === actorTeamId.value)) {
+      actorTeamId.value = tabs[0]?.value ?? ''
+    }
+  },
+  { immediate: true },
+)
 </script>
 
 <template>
@@ -225,7 +298,7 @@ function chooseActor(actorRosterEntryId: string | null) {
       align="end"
       content-class="ball-event-actor-popover"
       aria-label="修改擊球球員"
-      @update:open="actorOpen = $event"
+      @update:open="setActorOpen"
     >
       <template #trigger>
         <UiButton
@@ -240,20 +313,52 @@ function chooseActor(actorRosterEntryId: string | null) {
       </template>
       <div class="point-detail-options actor-options">
         <strong>擊球球員</strong>
-        <button type="button" :aria-pressed="selectedActorId === null" @click="chooseActor(null)">
+        <button
+          type="button"
+          class="actor-clear-option"
+          :aria-pressed="selectedActorId === null"
+          @click="chooseActor(null)"
+        >
           <span>未指定／使用 Pose 關聯</span>
           <Check v-if="selectedActorId === null" :size="14" />
         </button>
-        <button
-          v-for="option in actorOptions"
-          :key="option.id"
-          type="button"
-          :aria-pressed="selectedActorId === option.id"
-          @click="chooseActor(option.id)"
-        >
-          <span>{{ option.label }}</span>
-          <Check v-if="selectedActorId === option.id" :size="14" />
-        </button>
+        <UiTabs
+          v-if="actorTeamTabs.length"
+          v-model="actorTeamId"
+          class="actor-team-tabs"
+          :options="actorTeamTabs"
+          aria-label="選擇球隊"
+        />
+        <UiScrollArea class="actor-options-scroll">
+          <div class="actor-option-list">
+            <button
+              v-for="option in visibleActorOptions"
+              :key="option.id"
+              type="button"
+              class="actor-option"
+              :aria-pressed="selectedActorId === option.id"
+              @click="chooseActor(option.id)"
+            >
+              <span class="actor-option__copy">
+                <span class="actor-option__identity">
+                  <b class="actor-option__jersey">#{{ option.jerseyNumber ?? '—' }}</b>
+                  <b class="actor-option__name">{{ option.playerName ?? option.label }}</b>
+                  <span
+                    v-if="option.position"
+                    class="actor-option__position-badge"
+                    :title="option.position === 'UNSPECIFIED' ? '位置未設定' : option.position"
+                  >
+                    {{ positionLabel(option.position) }}
+                  </span>
+                </span>
+              </span>
+              <Check v-if="selectedActorId === option.id" :size="14" />
+            </button>
+            <span v-if="!visibleActorOptions.length" class="actor-options-empty"
+              >目前隊伍沒有球員</span
+            >
+          </div>
+        </UiScrollArea>
       </div>
     </UiPopover>
   </div>
@@ -368,6 +473,11 @@ function chooseActor(actorRosterEntryId: string | null) {
   color: #aeb5bd;
   font-size: 0.7rem;
   cursor: pointer;
+  white-space: nowrap;
+}
+.result-switch button > span {
+  flex: none;
+  white-space: nowrap;
 }
 .serve-style button[aria-pressed='true'] {
   background: #3b2c12;
@@ -416,7 +526,113 @@ function chooseActor(actorRosterEntryId: string | null) {
 }
 .actor-options {
   width: min(320px, 75vw);
-  max-height: 360px;
-  overflow: auto;
+  gap: 7px;
+}
+.actor-options > strong {
+  padding-bottom: 2px;
+}
+.actor-clear-option {
+  min-height: 38px !important;
+  border: 1px solid #343b43 !important;
+  background: #20252b !important;
+  color: #e8edf2 !important;
+}
+.actor-clear-option[aria-pressed='true'] {
+  border-color: #5f7382 !important;
+  background: #2b3945 !important;
+}
+.actor-team-tabs {
+  width: 100%;
+  overflow-x: auto;
+}
+.actor-team-tabs :deep(.ui-tabs__list) {
+  width: 100%;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  border-color: #343b43;
+  background: #15191d;
+}
+.actor-team-tabs :deep(.ui-tabs__trigger) {
+  min-width: 0;
+  min-height: 32px;
+  justify-content: center;
+  padding-inline: 7px;
+  color: #9da8b2;
+}
+.actor-team-tabs :deep(.ui-tabs__trigger:hover) {
+  color: #e8edf2;
+}
+.actor-team-tabs :deep(.ui-tabs__trigger[data-state='active']) {
+  background: #2b3945;
+  color: #e8f2fb;
+  box-shadow: none;
+}
+.actor-team-tabs :deep(.ui-tabs__trigger small) {
+  color: #7f9bb0;
+}
+.actor-options-scroll {
+  height: min(320px, 46vh);
+  min-height: 0;
+}
+.actor-option-list {
+  display: grid;
+  gap: 3px;
+  padding-right: 4px;
+}
+.actor-option {
+  min-height: 42px !important;
+  gap: 7px !important;
+  border: 1px solid transparent !important;
+  background: transparent !important;
+  color: #d4dbe1 !important;
+}
+.actor-option:hover,
+.actor-option[aria-pressed='true'] {
+  border-color: #3d5968 !important;
+  background: #22333e !important;
+  color: #f4f8fb !important;
+}
+.actor-option__copy {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+}
+.actor-option__identity {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.actor-option__jersey,
+.actor-option__position-badge {
+  flex: none;
+}
+.actor-option__jersey {
+  color: #9cc8e8;
+  font-size: 0.68rem;
+  font-variant-numeric: tabular-nums;
+}
+.actor-option__name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.actor-option__position-badge {
+  padding: 2px 5px;
+  border: 1px solid #3d5968;
+  border-radius: 4px;
+  background: #1d2b34;
+  color: #b9dcf0;
+  font-size: 0.53rem;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  line-height: 1;
+}
+.actor-options-empty {
+  padding: 20px 8px;
+  color: #8f9aa4;
+  font-size: 0.68rem;
+  text-align: center;
 }
 </style>

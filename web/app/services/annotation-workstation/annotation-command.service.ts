@@ -7,10 +7,7 @@ import {
   type BallEventShortcut,
   type BallEventValue,
 } from '@volleyball-monitoring/contracts'
-import {
-  annotationDraftOwnedByClient,
-  type AnnotationClientObservation,
-} from '~/lib/annotationCommandQueue'
+import { type AnnotationClientObservation } from '~/lib/annotationCommandQueue'
 import type { AnnotationOutboxEntry } from '~/lib/annotationOutbox'
 import type { PlaybackCursorInput } from '~/lib/mediaModel'
 import type { AnnotationAction } from '~/utils/annotationHotkeys'
@@ -76,20 +73,9 @@ export function createAnnotationCommandService(context: AnnotationCommandService
     return roomId
   }
 
-  function assertClientOwned(snapshot: AnnotationRallySnapshot | null) {
-    if (
-      snapshot &&
-      ['open', 'ready'].includes(snapshot.snapshot.annotation_status) &&
-      !annotationDraftOwnedByClient(snapshot, context.rememberedRallyId())
-    ) {
-      throw new Error('這個片段屬於另一個標註客戶端，只能檢視')
-    }
-  }
-
   function actionBase() {
     const roomId = requireRoomId()
     const current = context.viewSnapshot()
-    assertClientOwned(current)
     const pendingStart = context
       .outbox()
       .find(
@@ -124,7 +110,6 @@ export function createAnnotationCommandService(context: AnnotationCommandService
       const hasActiveLocalSegment =
         current?.snapshot.annotation_status === 'open' &&
         !current.snapshot.active_submission_id &&
-        annotationDraftOwnedByClient(current, context.rememberedRallyId()) &&
         boundaries.some(boundary => boundary.kind === 'start') &&
         !boundaries.some(boundary => boundary.kind === 'end')
       if (hasActiveLocalSegment) {
@@ -254,7 +239,6 @@ export function createAnnotationCommandService(context: AnnotationCommandService
     const roomId = requireRoomId()
     const snapshot = context.confirmedSnapshot()
     if (!snapshot) throw new Error('目前沒有可編輯的 Rally')
-    assertClientOwned(snapshot)
     const base = {
       schema_version: '4.0.0',
       command_id: createId(),
@@ -292,7 +276,6 @@ export function createAnnotationCommandService(context: AnnotationCommandService
     const roomId = requireRoomId()
     const snapshot = context.confirmedSnapshot()
     if (!snapshot) throw new Error('目前沒有可編輯的 Rally')
-    assertClientOwned(snapshot)
     return parseAnnotationCommand({
       schema_version: '4.0.0',
       command_id: createId(),
@@ -308,7 +291,6 @@ export function createAnnotationCommandService(context: AnnotationCommandService
     const roomId = requireRoomId()
     const snapshot = context.confirmedSnapshot()
     if (!snapshot) throw new Error('目前沒有可編輯的 Rally')
-    assertClientOwned(snapshot)
     return parseAnnotationCommand({
       schema_version: '4.0.0',
       command_id: createId(),

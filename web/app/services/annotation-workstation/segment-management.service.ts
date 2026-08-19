@@ -223,10 +223,11 @@ export function createSegmentManagementService(options: SegmentManagementService
     })
   }
 
-  function requestDelete() {
-    const rallyId = options.selectedRallyId()
-    if (!options.clipSelected() || !rallyId) return
-    const submissionId = options.selectedSubmissionId()
+  function requestDelete(targetRallyId?: string, targetSubmissionId?: string | null) {
+    const rallyId = targetRallyId ?? options.selectedRallyId()
+    if (!rallyId || (!targetRallyId && !options.clipSelected())) return
+    const submissionId =
+      targetSubmissionId === undefined ? options.selectedSubmissionId() : targetSubmissionId
     options.confirmation.open({
       id: 'rally-delete',
       title: '刪除片段內容',
@@ -268,36 +269,39 @@ export function createSegmentManagementService(options: SegmentManagementService
     options.confirmation.open({
       id: `next-set-${side}`,
       title: '開啟新一局',
-      message: `目前選取的${target?.label ?? '回合'}會被標記為本局最後一回合，由${team.name}勝局。下一個回合起插入新局，後續比分會從 0 : 0 重新計算；這不會改動影片 PTS 或原始標註。若標錯，可從局結果標記撤銷最近一次勝局。`,
+      message: `目前選取的${target?.label ?? '回合'}會標記為本局最後一回合，由${team.name}勝局。下一個回合起比分從 0 : 0 重新計算；這不會改動影片 PTS 或原始標註。若標錯，可直接刪除該局勝局結果。`,
       confirmLabel: '確認並開始',
       onConfirm: () => startNextSet(team.id, target),
     })
   }
 
-  async function reopenLastSet() {
+  async function reopenLastSet(setId?: string, setNumber?: number) {
     if (reopenLastSetPending.value) return
     reopenLastSetPending.value = true
     try {
-      await options.core.reopenLastSet({ matchId: options.matchId })
+      await options.core.reopenLastSet({
+        matchId: options.matchId,
+        ...(setId ? { setId } : {}),
+      })
       await Promise.all([options.refreshMatch(), options.refreshCoach()])
-      success('已撤銷最近勝局標記，後續回合已回到上一局')
+      success(setNumber ? `已刪除第 ${setNumber} 局勝局結果` : '已刪除最近勝局結果')
     } catch (cause) {
-      throw error(cause, '無法撤銷最近勝局標記')
+      throw error(cause, '無法刪除勝局結果')
     } finally {
       reopenLastSetPending.value = false
     }
   }
 
-  function requestReopenLastSet() {
+  function requestReopenLastSet(setId?: string, setNumber?: number) {
     if (!options.canReopenLastSet() || !options.editReady() || reopenLastSetPending.value) return
+    const targetLabel = setNumber ? `第 ${setNumber} 局` : '最近一局'
     options.confirmation.open({
-      id: 'reopen-last-set',
-      title: '撤銷最近勝局標記',
-      message:
-        '會移除最近一局的勝局結果，並把下一局尚未開始的後續回合放回上一局；如果下一局已經新增標註或比分資料，系統會拒絕撤銷，以免覆蓋內容。',
-      confirmLabel: '撤銷勝局標記',
+      id: setId ? `clear-set-winner-${setId}` : 'reopen-last-set',
+      title: `刪除${targetLabel}勝局結果`,
+      message: `${targetLabel}只會移除左／右勝利結果；回合、比分、START／END、球點、座標與分析資料都會保留。`,
+      confirmLabel: '刪除勝局結果',
       danger: true,
-      onConfirm: reopenLastSet,
+      onConfirm: () => reopenLastSet(setId, setNumber),
     })
   }
 
@@ -397,13 +401,13 @@ export function createSegmentManagementService(options: SegmentManagementService
     options.actions.register({
       id: 'segment.reopen-last-set',
       group: 'segment',
-      label: '撤銷最近勝局標記',
+      label: '刪除勝局結果',
       availability: computed(() => ({
         enabled: options.canReopenLastSet() && options.editReady() && !reopenLastSetPending.value,
         pending: reopenLastSetPending.value,
-        reason: '目前沒有可撤銷的最近勝局標記',
+        reason: '目前沒有可刪除的勝局結果',
       })),
-      execute: requestReopenLastSet,
+      execute: (setId?: string) => requestReopenLastSet(setId),
     }),
     options.actions.register({
       id: 'segment.swap-current-sides',

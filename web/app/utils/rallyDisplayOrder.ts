@@ -38,6 +38,7 @@ function compareCaptureOrder(left: DisplayOrderCandidate, right: DisplayOrderCan
 export function deriveCoachDisplayOrdinals(
   drafts: ReadonlyArray<CoachDraft>,
   rallies: ReadonlyArray<CoachRally>,
+  displaySetNumberFor: (rawSetNumber: number) => number = rawSetNumber => rawSetNumber,
 ): Map<string, number> {
   const byId = new Map<string, DisplayOrderCandidate>()
   for (const rally of rallies) {
@@ -58,9 +59,11 @@ export function deriveCoachDisplayOrdinals(
   }
   const result = new Map<string, number>()
   const candidates = [...byId.values()]
-  for (const setNumber of new Set(candidates.map(candidate => candidate.setNumber))) {
+  for (const setNumber of new Set(
+    candidates.map(candidate => displaySetNumberFor(candidate.setNumber)),
+  )) {
     candidates
-      .filter(candidate => candidate.setNumber === setNumber)
+      .filter(candidate => displaySetNumberFor(candidate.setNumber) === setNumber)
       .sort(compareCaptureOrder)
       .forEach((candidate, index) => result.set(candidate.id, index + 1))
   }

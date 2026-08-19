@@ -154,9 +154,6 @@ export function createAnnotationActionService(options: AnnotationActionServiceOp
     if (!snapshot || !['open', 'ready'].includes(snapshot.snapshot.annotation_status)) {
       return { enabled: false, reason: '尚未開始片段' }
     }
-    if (!toValue(options.room.draftOwnedByClient)) {
-      return { enabled: false, reason: '此片段屬於另一個標註客戶端，只能檢視' }
-    }
     const selectedKeyPointId = toValue(options.selectedKeyPointId)
     const visualPlayhead = toValue(options.visualPlayhead)
     if (!selectedKeyPointId && (!toValue(options.canMark) || !visualPlayhead)) {
@@ -201,8 +198,6 @@ export function createAnnotationActionService(options: AnnotationActionServiceOp
     const selectedId = toValue(options.selectedKeyPointId)
     if (!snapshot || !['open', 'ready'].includes(snapshot.snapshot.annotation_status))
       return { enabled: false, reason: '尚未開始可編輯片段' }
-    if (!toValue(options.room.draftOwnedByClient))
-      return { enabled: false, reason: '此片段屬於另一個標註客戶端，只能檢視' }
     if (!selectedId) return { enabled: false, reason: '請先選擇球點' }
     if (!toValue(options.eventEditReady)) return { enabled: false, reason: '等待目前修改完成' }
     const event = snapshot.snapshot.key_points.find(
@@ -218,27 +213,23 @@ export function createAnnotationActionService(options: AnnotationActionServiceOp
       return { enabled: false, reason: '標記狀態有衝突，請按上方「重新同步」' }
     }
     const state = toValue(options.state)
-    const localDraft = toValue(options.room.draftOwnedByClient)
     const snapshot = toValue(options.displayAnnotation)
     const visualPlayhead = toValue(options.visualPlayhead)
     if (action === 'service') {
-      const startBoundary = localDraft
-        ? snapshot?.snapshot.boundaries?.find(boundary => boundary.kind === 'start')
-        : undefined
-      const endBoundary = localDraft
-        ? snapshot?.snapshot.boundaries?.find(boundary => boundary.kind === 'end')
-        : undefined
-      const otherBoundaries = localDraft
-        ? (snapshot?.snapshot.boundaries
-            ?.filter(boundary => boundary.kind !== 'start')
-            .map(boundary => boundary.capture_time_us) ?? [])
-        : []
+      const startBoundary = snapshot?.snapshot.boundaries?.find(
+        boundary => boundary.kind === 'start',
+      )
+      const endBoundary = snapshot?.snapshot.boundaries?.find(boundary => boundary.kind === 'end')
+      const otherBoundaries =
+        snapshot?.snapshot.boundaries
+          ?.filter(boundary => boundary.kind !== 'start')
+          .map(boundary => boundary.capture_time_us) ?? []
       return boundaryCommandAvailability({
-        state: localDraft ? state : 'IDLE',
-        activeSubmissionId: localDraft ? snapshot?.snapshot.active_submission_id : null,
+        state,
+        activeSubmissionId: snapshot?.snapshot.active_submission_id,
         canMark: toValue(options.canMark),
         cursorCaptureTimeUs: visualPlayhead,
-        currentRallyId: localDraft ? snapshot?.rally_id : null,
+        currentRallyId: snapshot?.rally_id ?? null,
         startBoundaryCaptureTimeUs: startBoundary?.capture_time_us,
         endBoundaryCaptureTimeUs: endBoundary?.capture_time_us,
         currentDraftCaptureTimes: [
@@ -250,9 +241,6 @@ export function createAnnotationActionService(options: AnnotationActionServiceOp
         clipPostRollUs: toValue(options.clipPostRollUs),
         segments: toValue(options.protectedSegments),
       })
-    }
-    if ((state === 'OPEN' || state === 'READY') && !localDraft) {
-      return { enabled: false, reason: '此片段屬於另一個標註客戶端，只能檢視' }
     }
     if (action === 'submit') {
       if (state !== 'READY' && !(state === 'OPEN' && toValue(options.correctionActive)))
@@ -334,8 +322,6 @@ export function createAnnotationActionService(options: AnnotationActionServiceOp
         const snapshot = toValue(options.displayAnnotation)
         if (!snapshot || !['open', 'ready'].includes(snapshot.snapshot.annotation_status))
           return { enabled: false, reason: '尚未開始可編輯片段' }
-        if (!toValue(options.room.draftOwnedByClient))
-          return { enabled: false, reason: '此片段屬於另一個標註客戶端，只能檢視' }
         if (!toValue(options.selectedKeyPointId)) return { enabled: false, reason: '請先選擇球點' }
         return toValue(options.eventEditReady)
           ? { enabled: true, reason: '' }
@@ -348,8 +334,19 @@ export function createAnnotationActionService(options: AnnotationActionServiceOp
       group: 'marking',
       label: '修改擊球球員',
       availability: computed(() => ({
-        enabled: Boolean(toValue(options.selectedKeyPointId)) && toValue(options.eventEditReady),
-        reason: toValue(options.selectedKeyPointId) ? '等待目前修改完成' : '請先選擇球點',
+        enabled:
+          ['open', 'ready'].includes(
+            toValue(options.displayAnnotation)?.snapshot.annotation_status ?? '',
+          ) &&
+          Boolean(toValue(options.selectedKeyPointId)) &&
+          toValue(options.eventEditReady),
+        reason: !['open', 'ready'].includes(
+          toValue(options.displayAnnotation)?.snapshot.annotation_status ?? '',
+        )
+          ? '尚未開始可編輯片段'
+          : toValue(options.selectedKeyPointId)
+            ? '等待目前修改完成'
+            : '請先選擇球點',
       })),
       execute: actorRosterEntryId =>
         options.room.setBallEventActor(toValue(options.selectedKeyPointId)!, actorRosterEntryId),

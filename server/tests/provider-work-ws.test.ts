@@ -3,6 +3,7 @@ import type { PrismaClient } from '@volleyball-monitoring/db'
 import { JobStatus } from '@volleyball-monitoring/db/client'
 import { describe, expect, it, vi } from 'vitest'
 import {
+  providerStorageEndpoint,
   providerCapabilityMatchesJob,
   recoverExpiredProviderJobs,
 } from '../src/realtime/provider-work-ws.js'
@@ -19,6 +20,25 @@ const capability: ProviderWorkCapability = {
 }
 
 describe('Provider Work v2 scheduling', () => {
+  it('uses the provider-reachable endpoint before the browser-facing public endpoint', () => {
+    expect(
+      providerStorageEndpoint({
+        MINIO_PROVIDER_ENDPOINT: 'http://minio-provider:9000',
+        MINIO_ENDPOINT: 'http://minio:9000',
+        MINIO_PUBLIC_ENDPOINT: 'https://storage.example.test',
+      }),
+    ).toBe('http://minio-provider:9000')
+    expect(
+      providerStorageEndpoint({
+        MINIO_ENDPOINT: 'http://minio:9000',
+        MINIO_PUBLIC_ENDPOINT: 'https://storage.example.test',
+      }),
+    ).toBe('http://minio:9000')
+    expect(providerStorageEndpoint({ MINIO_PUBLIC_ENDPOINT: 'https://storage.example.test' })).toBe(
+      'https://storage.example.test',
+    )
+  })
+
   it('requires every required input artifact to be supported', () => {
     expect(
       providerCapabilityMatchesJob(capability, {

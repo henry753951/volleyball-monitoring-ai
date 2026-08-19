@@ -1169,17 +1169,17 @@ describe('match setup, visibility, and court-side history', () => {
     })
 
     const reopened = await execute(reopenLastSetMutation, contextFor(operatorUser), {
-      input: { matchId },
+      input: { matchId, setId },
     })
     expect(reopened.errors).toBeUndefined()
     expect(reopened.data?.reopenLastSet).toMatchObject({
       id: setId,
       setNumber: 1,
-      status: 'LIVE',
+      status: 'FINISHED',
       winningTeamId: null,
     })
     await expect(
       db.matchSet.findUnique({ where: { matchId_setNumber: { matchId, setNumber: 2 } } }),
-    ).resolves.toBeNull()
+    ).resolves.toMatchObject({ status: 'LIVE', winningTeamId: null })
   })
 })

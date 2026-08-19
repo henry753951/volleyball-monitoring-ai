@@ -42,7 +42,12 @@ const ariaLabel = computed(() =>
       <ChevronDown :size="14" aria-hidden="true" />
     </SelectTrigger>
     <SelectPortal>
-      <SelectContent class="ui-select__content" position="popper" :side-offset="5">
+      <SelectContent
+        class="ui-select__content"
+        position="popper"
+        :side-offset="5"
+        :collision-padding="12"
+      >
         <SelectViewport class="ui-select__viewport">
           <SelectItem
             v-for="option in props.options"
@@ -92,8 +97,10 @@ const ariaLabel = computed(() =>
   opacity: 0.5;
 }
 .ui-select__content {
-  z-index: 100;
+  /* SelectPortal renders under body; keep it above Dialog/Sheet surfaces. */
+  z-index: 1300;
   min-width: var(--reka-select-trigger-width);
+  max-height: min(320px, calc(100dvh - 32px));
   overflow: hidden;
   border: 1px solid #3f3f46;
   border-radius: 10px;
@@ -102,6 +109,8 @@ const ariaLabel = computed(() =>
   box-shadow: 0 14px 32px #0009;
 }
 .ui-select__viewport {
+  max-height: inherit;
+  overflow-y: auto;
   padding: 5px;
 }
 .ui-select__item {

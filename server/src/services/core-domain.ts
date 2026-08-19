@@ -68,6 +68,7 @@ export interface StartNextSetInput {
 
 export interface ReopenLastSetInput {
   matchId: string
+  setId?: string | null | undefined
 }
 
 interface NormalizedRosterSetup {
@@ -401,7 +402,7 @@ export async function startNextSet(
       const boundaryOrdinal = displayOrdinals.get(effectiveFromRallyId)
       if (!boundaryOrdinal)
         domainError(
-          '選取回合不在目前局；請先選取目前局的回合。若前一個勝局標錯，請先撤銷最近勝局標記。',
+          '選取回合不在目前局；請先選取目前局的回合。若勝局標錯，可直接刪除該勝局結果。',
           'BAD_USER_INPUT',
         )
       const suffixIds = placementRows
@@ -439,6 +440,7 @@ export async function reopenLastSet(
 ): Promise<MatchSet> {
   requireSetupRole(actor)
   const matchId = requireUuid(input.matchId, 'matchId')
+  const setId = input.setId ? requireUuid(input.setId, 'setId') : null
   return db.$transaction(async tx => {
     await tx.$queryRaw<Array<{ locked: string }>>`
       SELECT pg_advisory_xact_lock(hashtextextended(${`match-set:${matchId}`}, 0))::text AS locked
@@ -454,46 +456,22 @@ export async function reopenLastSet(
     })
     if (!match) domainError('Match not found', 'NOT_FOUND')
 
-    const current = await tx.matchSet.findFirst({
-      orderBy: [{ setNumber: 'desc' }, { id: 'desc' }],
-      where: { matchId, status: 'LIVE' },
-    })
-    if (!current || current.setNumber <= 1)
-      domainError('No reversible set winner marker found', 'BAD_USER_INPUT')
+    const winnerMarker = setId
+      ? await tx.matchSet.findFirst({
+          where: { id: setId, matchId, winningTeamId: { not: null } },
+        })
+      : await tx.matchSet.findFirst({
+          orderBy: [{ setNumber: 'desc' }, { id: 'desc' }],
+          where: { matchId, winningTeamId: { not: null } },
+        })
+    if (!winnerMarker) domainError('Set winner marker not found', 'BAD_USER_INPUT')
 
-    const previous = await tx.matchSet.findUnique({
-      where: { matchId_setNumber: { matchId, setNumber: current.setNumber - 1 } },
+    // A winner is an independent result marker. Clearing it must never
+    // rewrite set placement or remove any rally, point, or annotation data.
+    return tx.matchSet.update({
+      data: { winningTeamId: null },
+      where: { id: winnerMarker.id },
     })
-    if (!previous || previous.status !== 'FINISHED' || !previous.winningTeamId)
-      domainError('Previous set has no winner marker to reopen', 'BAD_USER_INPUT')
-
-    const [currentRallyCount, currentPointAwardCount, currentLedgerCount] = await Promise.all([
-      tx.rally.count({ where: { setId: current.id, voidedAt: null } }),
-      tx.pointAward.count({ where: { setId: current.id } }),
-      tx.scoreLedgerEntry.count({ where: { setId: current.id } }),
-    ])
-    if (currentRallyCount || currentPointAwardCount || currentLedgerCount) {
-      domainError(
-        '下一局已有新的標註或比分資料，為避免覆蓋內容，無法撤銷勝局標記',
-        'BAD_USER_INPUT',
-      )
-    }
-
-    await tx.rally.updateMany({
-      data: { displaySetNumber: previous.setNumber },
-      where: {
-        displaySetNumber: current.setNumber,
-        matchId,
-        setId: previous.id,
-        voidedAt: null,
-      },
-    })
-    await tx.matchSet.update({
-      data: { endedAt: null, status: 'LIVE', winningTeamId: null },
-      where: { id: previous.id },
-    })
-    await tx.matchSet.delete({ where: { id: current.id } })
-    return tx.matchSet.findUniqueOrThrow({ where: { id: previous.id } })
   })
 }
 

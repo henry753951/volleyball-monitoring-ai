@@ -81,13 +81,13 @@ function service(current: AnnotationRallySnapshot | null, remembered = rallyId) 
 }
 
 describe('createAnnotationCommandService', () => {
-  it('treats Z as END only for this client owned open draft', () => {
+  it('treats Z as END for the selected open draft regardless of editor', () => {
     const command = service(snapshot()).buildActionCommand('service', cursor)
     expect(command.kind).toBe('END_RALLY')
 
     const peerCommand = service(snapshot(), 'peer-rally').buildActionCommand('service', cursor)
-    expect(peerCommand.kind).toBe('START_RALLY')
-    expect(peerCommand.rally_id).not.toBe(rallyId)
+    expect(peerCommand.kind).toBe('END_RALLY')
+    expect(peerCommand.rally_id).toBe(rallyId)
   })
 
   it('keeps READY drafts editable for contacts and ball-event changes', () => {
@@ -150,11 +150,14 @@ describe('createAnnotationCommandService', () => {
     ).toThrow('請先選擇要標記結果的球點')
   })
 
-  it('rejects edits against a peer-owned draft', () => {
-    expect(() =>
+  it('allows edits against a peer-owned editable draft', () => {
+    expect(
       service(snapshot(), 'peer-rally').buildEditCommand('DELETE_KEY_POINT', {
         keyPointId: 'second',
       }),
-    ).toThrow('只能檢視')
+    ).toMatchObject({
+      kind: 'DELETE_KEY_POINT',
+      rally_id: rallyId,
+    })
   })
 })

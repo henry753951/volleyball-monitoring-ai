@@ -166,6 +166,7 @@ export interface StartNextSetInput {
 
 export interface ReopenLastSetInput {
   matchId: string
+  setId?: string | null
 }
 
 export interface GraphQLErrorLike {

@@ -108,6 +108,7 @@ export const ReopenLastSetInputType = builder.inputRef<ReopenLastSetInput>('Reop
 ReopenLastSetInputType.implement({
   fields: t => ({
     matchId: t.id({ required: true }),
+    setId: t.id(),
   }),
 })
 

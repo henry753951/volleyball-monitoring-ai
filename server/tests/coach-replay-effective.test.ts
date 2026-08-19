@@ -260,6 +260,126 @@ describe('coach replay effective contact projection', () => {
     })
   })
 
+  it('keeps keypoint player ownership ahead of pose association and resolves it through ReID', () => {
+    const analysis = {
+      tracks: [
+        { trackId: 4, identityAssignments: [] },
+        { trackId: 7, identityAssignments: [] },
+      ],
+      reidEvidenceSets: [
+        {
+          tracklets: [
+            {
+              canonicalTrackId: 7,
+              activeProjection: {
+                assignmentRevision: { rosterEntry: { id: 'roster-11' } },
+              },
+            },
+          ],
+        },
+      ],
+      contactTimeCorrections: [],
+      contactActorCorrections: [],
+      contactAssociationJobs: [
+        {
+          keyPointId: 'contact-1',
+          frameIndex: 14n,
+          status: JobStatus.COMPLETED,
+          projection: {
+            trackId: 4,
+            source: 'POSE_HAND',
+            confidence: 0.99,
+            observationFrameIndex: 14n,
+          },
+        },
+      ],
+      contactEdits: [],
+      analysisDataManifest: { fpsNum: 60, fpsDen: 1 },
+      contactEvents: [
+        {
+          keyPointId: 'contact-1',
+          sourceKeyPointId: null,
+          anchorOrigin: 'human_anchor',
+          detectionConfidence: null,
+          detectionEvidence: null,
+          sequenceIndex: 0,
+          markerKind: 'CONTACT',
+          isTerminal: false,
+          anchorFrameIndex: 14n,
+          resolvedFrameIndex: 14n,
+          anchorTimeUs: 1_000n,
+          associationState: 'AMBIGUOUS',
+          ballState: 'OBSERVED',
+          ballFrameIndex: 14n,
+          ballFrameX: 100,
+          ballFrameY: 200,
+          qualityFlags: [],
+          actors: [
+            {
+              trackId: 4,
+              observationFrameIndex: 14n,
+              associationConfidence: 0.99,
+              frameX1: 1,
+              frameY1: 2,
+              frameX2: 3,
+              frameY2: 4,
+              frameFootX: 2,
+              frameFootY: 4,
+              courtX: 0.2,
+              courtY: 0.4,
+              action: null,
+            },
+            {
+              trackId: 7,
+              observationFrameIndex: 14n,
+              associationConfidence: 0.75,
+              frameX1: 5,
+              frameY1: 6,
+              frameX2: 7,
+              frameY2: 8,
+              frameFootX: 6,
+              frameFootY: 8,
+              courtX: 0.6,
+              courtY: 0.8,
+              action: null,
+            },
+          ],
+          candidates: [],
+          representativePositions: [
+            { trackId: 4, basis: 'ACTOR_FOOT', courtX: 0.2, courtY: 0.4, confidence: 0.99 },
+            { trackId: 7, basis: 'ACTOR_FOOT', courtX: 0.6, courtY: 0.8, confidence: 0.75 },
+          ],
+        },
+      ],
+    } as unknown as Parameters<typeof projectEffectiveReplayEvents>[0]
+    const semantics = [
+      {
+        submissionKeyPointId: 'contact-1',
+        ordinal: 1,
+        kind: 'SERVE',
+        result: 'SUCCESS',
+        semanticSource: 'HUMAN',
+        actorRosterEntryId: 'roster-11',
+        actorRosterEntry: {
+          id: 'roster-11',
+          jerseyNumber: '11',
+          displayNameSnapshot: '王小明',
+          player: null,
+        },
+      },
+    ] as unknown as Parameters<typeof projectEffectiveReplayEvents>[1]
+
+    const [event] = projectEffectiveReplayEvents(analysis, semantics)
+
+    expect(event?.wire).toMatchObject({
+      association_state: 'resolved_single',
+      actors: [{ track_id: 7 }],
+      representative_court_positions: [{ track_id: 7 }],
+      ball_event: { actor: { track_id: 7 } },
+      quality_flags: ['contact_association_projection'],
+    })
+  })
+
   it('uses only the latest completed pose-first actor projection for an ambiguous contact', () => {
     const analysis = {
       tracks: [],

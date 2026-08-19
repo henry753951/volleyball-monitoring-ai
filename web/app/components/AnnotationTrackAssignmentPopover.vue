@@ -34,7 +34,7 @@ const presentation = computed(() => {
   return {
     track,
     team: assignment.state.analytics?.teams.find(item => item.id === teamId) ?? null,
-    players: assignment.view.model.players.forTeam(teamId),
+    players: assignment.view.model.players.forTeam(null),
     status: track
       ? assignment.view.model.track.status(track)
       : { label: '無辨識資料', tone: 'muted' as const },
@@ -43,7 +43,7 @@ const presentation = computed(() => {
     options:
       props.trackId === null
         ? []
-        : assignment.view.model.options.forTrack({ teamId, trackId: props.trackId }),
+        : assignment.view.model.options.forTrack({ teamId: null, trackId: props.trackId }),
     previewSide:
       import.meta.client && props.x < window.innerWidth / 2
         ? ('right' as const)
