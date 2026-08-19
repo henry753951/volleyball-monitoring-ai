@@ -836,7 +836,7 @@ cd223367ea1d5f731e73a2b292e0cffc05c46bee5099ccf6475865bbffd7b759  ./worker/src/r
 d626bd62d4e744e53324a4084ee1fe51fa47bcfa26f06bb12ff5153ad44a68d5  ./worker/src/roles/highlight-export-worker.ts
 4791df925d60c43b3e4740ba3d3e5e3b118900efc4f9e4e0c9680ac855a49888  ./worker/src/roles/identity-preview-worker.ts
 ba726d175f69cc4a95968b49daca3d534f4abe1205afbe012556669bb029768d  ./worker/src/roles/jersey-suggestion-worker.ts
-429098f7664ecd7367a61507a9cc6179710335b1829773f256d0afaf4373b4e5  ./worker/src/roles/media-indexer.ts
+5585b4b35ad226a1da56d1a898b9a2bb34e3e60af499dd8d18a6d2e476331da6  ./worker/src/roles/media-indexer.ts
 156a0252f44c02372cb6df55d33e1b1c62319eb70c4a36f2762b76777b64b1d9  ./worker/src/roles/outbox-publisher.ts
 c3a3cfe8c76f3bb5412e96e67e1f55c024376826c68f0433d03035cdd0c4374b  ./worker/src/roles/playback-packager.ts
 586884934a4c2de76dd0d1c8613fc06e1aa036c35d9feb06f39b6614d9c366df  ./worker/src/roles/provider-analysis-materializer.ts
@@ -867,7 +867,7 @@ ae486e8d367a97e37256bd0d74446b65d699d137284798ae32c77250be40d851  ./worker/tests
 b8be05aa2e1ef1f4d34c573dab7a88a809b576ccc8a743fed9178838066b0ad5  ./worker/tests/ingest-handler.test.ts
 0d9c4b0bcc02ebf9f937a6da4a60b4a0a2bed23d84a174a760bd6489ff50fc96  ./worker/tests/ingest.test.ts
 50c92f6053445e2e63e82c74c3906d2d4c378665aeac104ad8286afe00253c2e  ./worker/tests/lifecycle.test.ts
-b2019562126c58d8c9b101d99a979e13aabea09082c0cbb47f8b0a333b755e69  ./worker/tests/media-indexer.test.ts
+641cf6c9d35ea48576d960d14917b9e0499dc01a7aedaedaec84a4997cafbf57  ./worker/tests/media-indexer.test.ts
 5c0fb448757fc09d33fce0dc6d93ebe679286dccf468b7a97b615e1061392009  ./worker/tests/media-resolver.test.ts
 44dbd5ef5b7e1d7c1fa34bf3d3418edabe8d1de17d324d107a9d565fe8c772d9  ./worker/tests/minio-object-store.test.ts
 3a0834657661a7d504a8309e1d44535f0826713c693bbadb8c1a121fc6d1db67  ./worker/tests/ome-live-presentation.test.ts
