@@ -134,7 +134,18 @@ const selectedTracks = computed(() => {
   if (viewMode.value === 'teams') return selectedTeamTracks.value
   return selectedLocalTrack.value ? [selectedLocalTrack.value] : []
 })
-const eventState = useCoachTrackEvents(selectedTracks, () => analytics.value?.action_events ?? [])
+const selectedEventRosterEntryIds = computed(() => {
+  if (viewMode.value === 'players')
+    return selectedPlayer.value ? [selectedPlayer.value.roster_entry_id] : []
+  if (viewMode.value === 'teams')
+    return selectedTeam.value ? selectedTeamPlayers.value.map(player => player.roster_entry_id) : []
+  return []
+})
+const eventState = useCoachTrackEvents(
+  selectedTracks,
+  () => analytics.value?.action_events ?? [],
+  selectedEventRosterEntryIds,
+)
 const selectedReplay = computed(() =>
   selectedLocalTrack.value
     ? (eventState.replays.get(selectedLocalTrack.value.rally_id) ?? null)
@@ -155,6 +166,10 @@ const selectedSideReplay = computed(() => {
     const replay = eventState.replays.get(track.rally_id)
     if (replay) return replay
   }
+  for (const event of eventState.events.value) {
+    const replay = eventState.replays.get(event.rallyId)
+    if (replay) return replay
+  }
   return null
 })
 const selectedSubjectSide = computed<'left' | 'right' | null>(() => {
@@ -168,6 +183,10 @@ const selectedSubjectSide = computed<'left' | 'right' | null>(() => {
     )?.court_side
     if (replaySide === 'left' || replaySide === 'right') return replaySide
   }
+  const canonicalSide = eventState.events.value.find(
+    event => event.courtSide === 'left' || event.courtSide === 'right',
+  )?.courtSide
+  if (canonicalSide === 'left' || canonicalSide === 'right') return canonicalSide
   return null
 })
 const selectedSubjectTeamId = computed(() => {
@@ -273,6 +292,9 @@ const selectedActionReplay = computed(() =>
     ? (eventState.replays.get(selectedActionEvent.value.rallyId) ?? null)
     : null,
 )
+const selectedActionReplayLoading = computed(() =>
+  selectedActionEvent.value ? eventState.isReplayLoading(selectedActionEvent.value.rallyId) : false,
+)
 const analyticsErrorMessage = computed(() => {
   const message = analyticsState.error.value?.message
   if (!message) return ''
@@ -342,16 +364,19 @@ function trackLabel(track: NonNullable<typeof selectedLocalTrack.value>) {
 function selectPlayer(playerId: string) {
   selectedPlayerId.value = playerId
   selectedActionKey.value = 'all'
+  selectedActionEvent.value = null
 }
 
 function selectTrack(key: string) {
   selectedTrackKey.value = key
   selectedActionKey.value = 'all'
+  selectedActionEvent.value = null
 }
 
 function selectTeam(teamId: string) {
   selectedTeamId.value = teamId
   selectedActionKey.value = 'all'
+  selectedActionEvent.value = null
 }
 
 function openPlayer(playerId: string) {
@@ -374,6 +399,7 @@ function refreshAfterIdentityChange() {
 
 function openActionReplay(event: CoachPlayerActionEvent) {
   selectedActionEvent.value = event
+  void eventState.loadReplay(event.rallyId)
 }
 
 const BALL_TYPE_LABELS: Record<string, string> = {
@@ -903,6 +929,7 @@ function teamActionCounts(teamId: string) {
       :open="selectedActionEvent !== null"
       :event="selectedActionEvent"
       :replay="selectedActionReplay"
+      :loading="selectedActionReplayLoading"
       @close="selectedActionEvent = null"
     />
   </section>
