@@ -1,6 +1,6 @@
 # Changelog
 
-## [1.7.1](https://github.com/henry753951/volleyball-monitoring-ai/compare/v1.7.0...v1.7.1) (2026-08-19)
+## [1.7.3](https://github.com/henry753951/volleyball-monitoring-ai/compare/v1.7.0...v1.7.3) (2026-08-19)
 
 
 ### Bug Fixes
