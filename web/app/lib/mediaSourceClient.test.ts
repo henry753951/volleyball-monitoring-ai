@@ -96,4 +96,16 @@ describe('match media source client', () => {
     expect(fetcher.mock.calls[0]?.[0]).toBe('/api/v1/media-sources/capture-1')
     expect(fetcher.mock.calls[0]?.[1]).toMatchObject({ method: 'DELETE', credentials: 'include' })
   })
+
+  it('requeues any failed media source through the generic retry endpoint', async () => {
+    const fetcher = vi.fn<typeof fetch>(
+      async () =>
+        new Response(JSON.stringify({ attempt: 4, source_kind: 'local_mp4' }), { status: 202 }),
+    )
+    await expect(
+      createMediaSourceClient({ fetcher }).retryMediaSource('capture-2'),
+    ).resolves.toEqual({ attempt: 4, source_kind: 'local_mp4' })
+    expect(fetcher.mock.calls[0]?.[0]).toBe('/api/v1/media-sources/capture-2/retry')
+    expect(fetcher.mock.calls[0]?.[1]).toMatchObject({ method: 'POST', credentials: 'include' })
+  })
 })

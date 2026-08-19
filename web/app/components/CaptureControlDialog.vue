@@ -31,13 +31,8 @@ const activeCapture = computed(
       ['STARTING', 'LIVE', 'STOPPING'].includes(capture.status.toUpperCase()),
     ) ?? null,
 )
-const failedYoutubeCapture = computed(
-  () =>
-    props.captures.find(
-      capture =>
-        capture.sourceKind.trim().toLowerCase() === 'youtube' &&
-        capture.status.toUpperCase() === 'FAILED',
-    ) ?? null,
+const failedCaptures = computed(() =>
+  props.captures.filter(capture => capture.status.toUpperCase() === 'FAILED'),
 )
 const captureToStopName = computed(() =>
   captureToStop.value ? sourceName(captureToStop.value) : '目前來源',
@@ -166,21 +161,29 @@ async function confirmStop() {
   }
 }
 
-async function retryYoutube(capture: CaptureSession) {
+function isYoutube(capture: CaptureSession) {
+  return capture.sourceKind.trim().toLowerCase().startsWith('youtube')
+}
+
+async function retrySource(capture: CaptureSession) {
   if (retryingId.value) return
   retryingId.value = capture.id
   try {
-    const result = await mediaSources.forceReloadYoutubeSource(capture.id)
+    const result = await mediaSources.retryMediaSource(capture.id)
     emit('changed')
-    toast.success(`已強制重新載入 YouTube（使用最新 Cookie，第 ${result.attempt} 次嘗試）`)
+    toast.success(
+      isYoutube(capture)
+        ? `已強制重新載入 YouTube（使用最新 Cookie，第 ${result.attempt} 次嘗試）`
+        : `已重新排入媒體處理（第 ${result.attempt} 次嘗試）`,
+    )
   } catch (cause) {
-    toast.error(cause instanceof Error ? cause.message : 'YouTube 來源重新載入失敗')
+    toast.error(cause instanceof Error ? cause.message : '媒體來源重新處理失敗')
   } finally {
     retryingId.value = null
   }
 }
 
-async function clearYoutube(capture: CaptureSession) {
+async function clearSource(capture: CaptureSession) {
   if (clearingId.value) return
   if (!window.confirm('只清除這個失敗的媒體任務？已有媒體或標註資料時系統會拒絕刪除。')) return
   clearingId.value = capture.id
@@ -263,33 +266,45 @@ async function clearYoutube(capture: CaptureSession) {
               </div></label
             >
           </div>
-          <div v-if="failedYoutubeCapture" class="source-row source-row--failed">
+          <div
+            v-for="capture in failedCaptures"
+            :key="capture.id"
+            class="source-row source-row--failed"
+          >
             <div class="source-copy">
-              <div class="source-name">
-                <CircleAlert :size="14" />{{ sourceName(failedYoutubeCapture) }}
-              </div>
-              <span class="source-status"
-                >YouTube 來源失敗，可使用目前 Browser session 重新解析</span
-              >
+              <div class="source-name"><CircleAlert :size="14" />{{ sourceName(capture) }}</div>
+              <span class="source-status">
+                {{
+                  isYoutube(capture)
+                    ? 'YouTube 來源失敗，可使用目前 Browser session 重新解析'
+                    : '來源處理失敗，可重新排入處理或清除任務'
+                }}
+              </span>
             </div>
             <UiButton
               variant="ghost"
               size="sm"
               :disabled="Boolean(retryingId) || Boolean(clearingId)"
-              @click="retryYoutube(failedYoutubeCapture)"
+              @click="retrySource(capture)"
             >
-              <LoaderCircle v-if="retryingId === failedYoutubeCapture.id" class="spin" :size="13" />
-              {{ retryingId === failedYoutubeCapture.id ? '重新載入中…' : '強制重新載入' }}
+              <LoaderCircle v-if="retryingId === capture.id" class="spin" :size="13" />
+              {{
+                retryingId === capture.id
+                  ? '重新處理中…'
+                  : isYoutube(capture)
+                    ? '強制重新載入'
+                    : '重新處理'
+              }}
             </UiButton>
             <UiButton
               variant="ghost"
               size="sm"
               :disabled="Boolean(retryingId) || Boolean(clearingId)"
-              @click="clearYoutube(failedYoutubeCapture)"
+              @click="clearSource(capture)"
             >
-              <LoaderCircle v-if="clearingId === failedYoutubeCapture.id" class="spin" :size="13" />
+              <LoaderCircle v-if="clearingId === capture.id" class="spin" :size="13" />
               <Trash2 v-else :size="13" />
-              {{ clearingId === failedYoutubeCapture.id ? '清除中…' : '清除任務' }}
+              {{ clearingId === capture.id ? '清除中…' : '清除任務' }}
             </UiButton>
           </div>
         </section>

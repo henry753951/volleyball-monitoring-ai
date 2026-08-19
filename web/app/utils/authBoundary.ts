@@ -1,11 +1,8 @@
 export function isProtectedPath(path: string): boolean {
-  return (
-    path === '/settings' ||
-    path === '/control' ||
-    path.startsWith('/control/') ||
-    path.startsWith('/matches/') ||
-    path.startsWith('/annotate/')
-  )
+  // The coach surface is the product entry point, not a public landing page.
+  // Keep only the login route public so a stale session cannot leave users on
+  // a partially rendered, unauthenticated coach screen.
+  return path !== '/login'
 }
 
 export type ViewerBoundaryState = 'loading' | 'authenticated' | 'unauthenticated' | 'error'

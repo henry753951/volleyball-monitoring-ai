@@ -168,6 +168,16 @@ export function createMediaSourceClient(options: MediaSourceClientOptions = {}) 
       if (!response.ok) throw await responseError(response)
       return (await response.json()) as { attempt: number }
     },
+    async retryMediaSource(
+      captureSessionId: string,
+    ): Promise<{ attempt: number; source_kind?: string }> {
+      const response = await fetcher(
+        `${baseUrl}/media-sources/${encodeURIComponent(captureSessionId)}/retry`,
+        { method: 'POST', credentials: 'include' },
+      )
+      if (!response.ok) throw await responseError(response)
+      return (await response.json()) as { attempt: number; source_kind?: string }
+    },
     async clearMediaSource(captureSessionId: string): Promise<{ cleared: boolean }> {
       const response = await fetcher(
         `${baseUrl}/media-sources/${encodeURIComponent(captureSessionId)}`,

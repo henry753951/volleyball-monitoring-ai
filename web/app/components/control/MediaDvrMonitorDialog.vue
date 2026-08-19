@@ -118,7 +118,6 @@ function isYoutube(stream: StreamSnapshot) {
 
 function canReload(stream: StreamSnapshot) {
   return (
-    isYoutube(stream) &&
     stream.status === 'FAILED' &&
     Boolean(stream.sourceWork) &&
     !reloadingId.value &&
@@ -130,9 +129,13 @@ async function forceReload(stream: StreamSnapshot) {
   if (!canReload(stream)) return
   reloadingId.value = stream.captureSessionId
   try {
-    const result = await mediaSources.forceReloadYoutubeSource(stream.captureSessionId)
+    const result = await mediaSources.retryMediaSource(stream.captureSessionId)
     emit('refresh')
-    toast.success(`已強制重新載入，將使用最新 Cookie 重新解析（第 ${result.attempt} 次）`)
+    toast.success(
+      isYoutube(stream)
+        ? `已強制重新載入，將使用最新 Cookie 重新解析（第 ${result.attempt} 次）`
+        : `已重新排入媒體處理（第 ${result.attempt} 次）`,
+    )
   } catch (cause) {
     toast.error(cause instanceof Error ? cause.message : '媒體重新載入失敗')
   } finally {
@@ -263,14 +266,20 @@ async function copyDiagnostics(stream: StreamSnapshot) {
                   ><i />{{ stream.health === 'HEALTHY' ? '正常' : stream.health }}</span
                 >
               </div>
-              <div v-if="isYoutube(stream) && stream.status === 'FAILED'" class="stream-actions">
+              <div v-if="stream.status === 'FAILED' && stream.sourceWork" class="stream-actions">
                 <button type="button" :disabled="!canReload(stream)" @click="forceReload(stream)">
                   <LoaderCircle
                     v-if="reloadingId === stream.captureSessionId"
                     :size="13"
                     class="spinning"
                   /><RotateCw v-else :size="13" />
-                  {{ reloadingId === stream.captureSessionId ? '重新載入中…' : '強制重新載入' }}
+                  {{
+                    reloadingId === stream.captureSessionId
+                      ? '重新處理中…'
+                      : isYoutube(stream)
+                        ? '強制重新載入'
+                        : '重新處理'
+                  }}
                 </button>
                 <button
                   type="button"
