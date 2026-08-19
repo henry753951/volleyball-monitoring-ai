@@ -168,7 +168,10 @@ describe('AnnotationMatchInspector outcomes', () => {
     expect(wrapper.get('.set-divider b').text()).toBe('1 : 1')
     expect(wrapper.get('.score-board').text().replace(/\s+/g, '')).toContain('1:1')
     expect(wrapper.get('.set-result-marker').text()).toContain('第 1 局 · PUR 勝')
-    expect(wrapper.find('.set-result-marker__remove').exists()).toBe(false)
+    const removeSetWinner = wrapper.get('.set-result-marker__remove')
+    expect(removeSetWinner.attributes('aria-label')).toBe('刪除第 1 局勝局標記')
+    await removeSetWinner.trigger('click')
+    expect(execute).toHaveBeenCalledWith('segment.reopen-last-set')
     await wrapper.get('.row-action-danger').trigger('click')
     expect(requestDelete).toHaveBeenCalledWith('draft', null)
     await wrapper.setProps({

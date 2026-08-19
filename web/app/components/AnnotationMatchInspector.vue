@@ -74,6 +74,7 @@ const placementSaving = segments.placementSaving
 const sideSwapPending = segments.sideSwapPending
 const sideSwapTarget = segments.sideSwapTarget
 const nextSetState = workstation.actions.state('segment.start-next-set')
+const reopenLastSetState = workstation.actions.state('segment.reopen-last-set')
 const swapCurrentSidesState = workstation.actions.state('segment.swap-current-sides')
 const swapRallySidesState = workstation.actions.state('segment.swap-rally-sides')
 const total = computed(
@@ -250,6 +251,12 @@ function winningTeamLabel(setNumber: number) {
   if (!winnerId) return null
   return teamLabel(props.teams.find(team => team.id === winnerId) ?? null, '隊伍')
 }
+const latestWinnerSetNumber = computed(() => {
+  const setNumbers = [...winningTeamBySet.value.entries()]
+    .filter(([, winningTeamId]) => Boolean(winningTeamId))
+    .map(([setNumber]) => setNumber)
+  return setNumbers.length ? Math.max(...setNumbers) : null
+})
 const groups = computed(() => {
   const grouped = new Map<number, SegmentListItem[]>()
   for (const item of sortedSegmentItems.value)
@@ -571,10 +578,22 @@ defineExpose({
               <Trophy :size="13" aria-hidden="true" />
               <strong>第 {{ group.number }} 局 · {{ winningTeamLabel(group.number) }} 勝</strong>
               <small>下一回合：新局 · 0 : 0</small>
+              <UiTooltip v-if="group.number === latestWinnerSetNumber" content="刪除這個勝局標記">
+                <UiButton
+                  variant="ghost"
+                  size="icon-sm"
+                  class="set-result-marker__remove"
+                  :disabled="!reopenLastSetState.enabled"
+                  :title="reopenLastSetState.reason ?? '刪除這個勝局標記'"
+                  :aria-label="`刪除第 ${group.number} 局勝局標記`"
+                  @click="workstation.actions.execute('segment.reopen-last-set')"
+                >
+                  <Trash2 :size="12" aria-hidden="true" />
+                </UiButton>
+              </UiTooltip>
             </div>
-          </section>
-        </div></UiScrollArea
-      >
+          </section></div
+      ></UiScrollArea>
     </div>
     <div v-else-if="tab === 'mapping'" class="mapping-inspector">
       <UiScrollArea class="mapping-scroll"
@@ -1000,6 +1019,27 @@ defineExpose({
   margin-left: auto;
   color: #b6a36b !important;
   font-size: 0.54rem;
+}
+.set-result-marker__remove {
+  flex: none;
+  width: 24px !important;
+  min-height: 24px !important;
+  display: grid !important;
+  place-items: center;
+  margin-left: 2px;
+  padding: 0 !important;
+  border: 1px solid #66533a !important;
+  border-radius: 5px !important;
+  background: transparent !important;
+  color: #f0d99a !important;
+}
+.set-result-marker__remove:hover:not(:disabled) {
+  background: #3a3020 !important;
+  color: #fff1bd !important;
+}
+.set-result-marker__remove:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
 }
 .segment-row {
   min-height: 82px;
