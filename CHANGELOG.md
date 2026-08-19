@@ -1,5 +1,24 @@
 # Changelog
 
+## [1.7.3](https://github.com/henry753951/volleyball-monitoring-ai/compare/v1.7.0...v1.7.3) (2026-08-19)
+
+
+### Bug Fixes
+
+* **media:** make failed source recovery actionable ([71b2098](https://github.com/henry753951/volleyball-monitoring-ai/commit/71b20980a742811f58a6c25c62c3a2b663dfcaf7))
+* **media:** make failed source recovery actionable ([0dbb06e](https://github.com/henry753951/volleyball-monitoring-ai/commit/0dbb06edc25c84507d178a8787837f6d919a07ac))
+* **media:** recover VOD after GVS range rejection ([2c2d3fd](https://github.com/henry753951/volleyball-monitoring-ai/commit/2c2d3fd58a37feed0823058a4c08143f31435da4))
+* **media:** retry VOD after explicit GVS range rejection ([03823c2](https://github.com/henry753951/volleyball-monitoring-ai/commit/03823c22ce3e21f3ae7cd9e0bc5fc5370647677b))
+* **media:** route youtube retries through youtube endpoint ([3c788f4](https://github.com/henry753951/volleyball-monitoring-ai/commit/3c788f448af95617445c93deb7dfcf736b599696))
+* **media:** route youtube retries through youtube endpoint ([3c788f4](https://github.com/henry753951/volleyball-monitoring-ai/commit/3c788f448af95617445c93deb7dfcf736b599696))
+* **media:** route youtube retries through youtube endpoint ([3e1c723](https://github.com/henry753951/volleyball-monitoring-ai/commit/3e1c7238f94f0c68c91eb96330dd585ae05f824e))
+* **web:** pause playback during DVR buffer recovery ([bafc20a](https://github.com/henry753951/volleyball-monitoring-ai/commit/bafc20a83b84baa0ba4a214c880c86069018e55c))
+
+
+### Maintenance
+
+* refresh checksums for media retry fix ([7878a82](https://github.com/henry753951/volleyball-monitoring-ai/commit/7878a8225641da0807b45d20b36abee062ca3afa))
+
 ## [1.7.0](https://github.com/henry753951/volleyball-monitoring-ai/compare/v1.6.0...v1.7.0) (2026-08-18)
 
 
