@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.9.3](https://github.com/henry753951/volleyball-monitoring-ai/compare/v1.9.2...v1.9.3) (2026-08-19)
+
+
+### Bug Fixes
+
+* **coach:** load canonical event replays ([a8de674](https://github.com/henry753951/volleyball-monitoring-ai/commit/a8de674b506173c2786b8394f08b009dbedb43e9))
+* **coach:** load canonical event replays ([4388783](https://github.com/henry753951/volleyball-monitoring-ai/commit/4388783b7cf808cee1295e7befba5efde2dd6e19))
+
 ## [1.9.2](https://github.com/henry753951/volleyball-monitoring-ai/compare/v1.9.1...v1.9.2) (2026-08-19)
 
 
