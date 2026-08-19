@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.9.0](https://github.com/henry753951/volleyball-monitoring-ai/compare/v1.8.1...v1.9.0) (2026-08-19)
+
+
+### Features
+
+* **annotation:** ship collaborative marking and playback controls ([d66aee7](https://github.com/henry753951/volleyball-monitoring-ai/commit/d66aee740a701e632c4fea3c609a435de28c59ed))
+* **annotation:** ship collaborative marking and playback controls ([03b1128](https://github.com/henry753951/volleyball-monitoring-ai/commit/03b1128618da36c5bff6f365055bded50fef46fb))
+
 ## [1.8.1](https://github.com/henry753951/volleyball-monitoring-ai/compare/v1.8.0...v1.8.1) (2026-08-19)
 
 
