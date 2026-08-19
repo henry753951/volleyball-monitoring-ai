@@ -575,7 +575,7 @@ a50f1651c40a8b39cb5f97abba099fbc354786501d9f92c635c03a51ba423d0e  ./web/app/comp
 1037196bef1c004ba35d388b9900831b70410ef68c25625f47460ac2dfac1e54  ./web/app/components/VolleyballOverlayCanvas.component.test.ts
 9df10f41b64c7d6da4f81a26a3b1fe06415efe59296d8f7af74ce4313a78e42e  ./web/app/components/VolleyballOverlayCanvas.vue
 96769c60b8cfe8b81ee7a4b1b5ee8024b0a31c2753ed7e9a5880637e34805be5  ./web/app/components/WsPingBadge.vue
-7a3321a246ea548c7d2c27c57dfc4013e0581dbdd6971f8cbe34aab0e7d06d44  ./web/app/components/YoutubeAuthCard.vue
+54b857fbe6d4496f80f514fddc93067f4aa6adf33d474008b814190af927e4d7  ./web/app/components/YoutubeAuthCard.vue
 c1d6be38037847da174b7f5b084d98967ec5026e310314b4f0bc0c7c8d2952d7  ./web/app/components/control/AiWorkerConsole.vue
 a8c416ca6a2defe4d831711978f7eb8e7db137bcdda2c7aa1671abc005c81139  ./web/app/components/control/AiWorkerDeleteDialog.vue
 47cea9776327ea230e4f4fbab3d5bf1a0c9ceec5c4df04868451fa828b830fe7  ./web/app/components/control/AiWorkerTokenDeleteDialog.vue

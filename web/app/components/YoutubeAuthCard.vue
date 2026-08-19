@@ -9,6 +9,8 @@ const props = withDefaults(defineProps<{ compact?: boolean; tone?: 'light' | 'da
   compact: false,
   tone: 'light',
 })
+const compact = computed(() => props.compact)
+const tone = computed(() => props.tone)
 const mediaSources = createMediaSourceClient()
 const status = ref<YoutubeAuthStatus | null>(null)
 const pending = ref(false)
