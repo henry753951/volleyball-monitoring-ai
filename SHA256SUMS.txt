@@ -549,7 +549,7 @@ f628ffddf4fedbc18d0ac5414028a94f19ee92d12a435458150107d14512157c  ./web/app/comp
 9be6f16c52302d5fa9206bba8a1d87eafbce6283424fc7c19769928b46b10af1  ./web/app/components/AnnotationWorkstationHeader.vue
 da8771b444ef1a9f2fc7b5ee68fb4597514e98cc2394d4a0fb4f3cb71c042e2e  ./web/app/components/AuthSessionButton.vue
 3ff045bdb729356650abda4deb0d5de96533817d6b831a7481a91ae7f41d2d38  ./web/app/components/CaptureControlDialog.component.test.ts
-c8a469d64bd5359e1b0f4d33db121a1c326a4be24bf46f505b73b8e1396ef1cb  ./web/app/components/CaptureControlDialog.vue
+294976f9de3d8cd46f94d15fb7f5a9c542b3512d2128c9cfbf24f4267f2f36e5  ./web/app/components/CaptureControlDialog.vue
 e58e564652b1e81206444c0f426239a09641f5ec95de64255a7f7fb46cedd350  ./web/app/components/ClipDownloadDialog.component.test.ts
 e8a1ef7506d1db6e108e48db64e5b1b16416be2fab034b8ff326624e360d7634  ./web/app/components/ClipDownloadDialog.vue
 28018e3901182d1837a23f06f3d2ab32910a13d0324c107c2b63222fe0e58b64  ./web/app/components/CoachBallRouteMap.component.test.ts
@@ -583,7 +583,7 @@ a8c416ca6a2defe4d831711978f7eb8e7db137bcdda2c7aa1671abc005c81139  ./web/app/comp
 b5c339c4475d959048391d498665fccd44471a77c90c0cefb0b233fbf4082573  ./web/app/components/control/MatchDeleteDialog.vue
 49bdf5b32ba9808d7bdb3b303e70c19e0a36484bff5b10a6e68873db67655a59  ./web/app/components/control/MatchEditorDialog.vue
 52fb5d5aee5f76d9b50934acc26bd10a7608ba4aeeb21f0c83ef29f90be68ee8  ./web/app/components/control/MatchWorkspaceCard.vue
-73a4136f966e1f9b8c80f0780f229420ebca09db513f0d5ec2945639540d954b  ./web/app/components/control/MediaDvrMonitorDialog.vue
+73b9fd56b5275d37263515ae96fc171e23c36335a5eaaaf31ea70996dfccd460  ./web/app/components/control/MediaDvrMonitorDialog.vue
 3d5992e955e8c434bb5fa99245be6c6a18d9cb0bb4d9292bd668e1964e9d8b70  ./web/app/components/control/StorageMeter.component.test.ts
 5934bc8e3c916252084c98ec3931e6597dc5b1753295b0d288957acaee23e5f8  ./web/app/components/control/StorageMeter.vue
 278aed5b3677a03effd7c6d08ed87408de19af46ca92ecc8023a6470b8673ab0  ./web/app/components/ui/AnimatedModal.vue
@@ -657,8 +657,8 @@ a990de4c89d47f8135f7763fa2a49a47e822d7283fe5f2818180ff8e07a04f33  ./web/app/lib/
 a7418adc21794c12c2ae79233ea861f208dcda3a475b98a826cb01afc3df4841  ./web/app/lib/mediaClient.ts
 059fdec5bfca463b6021d12a64d3737c619de114c510d86329a4add411293e77  ./web/app/lib/mediaModel.ts
 adb8dca256284f61ef8e8db8b7994d61155123469769b30a2766b6256d8f8eea  ./web/app/lib/mediaOperationsDiagnostics.ts
-cd4cef1c3a2f1a884ba8947ddd457520ba4b165045517094ec5e42591f8b89e3  ./web/app/lib/mediaSourceClient.test.ts
-d91720410cd724f5c6ece337999c2725995ae306b8da9fc2fedd2fbc2f3f0441  ./web/app/lib/mediaSourceClient.ts
+44963f832dd270af9d60e562019f8406220d56c86bfd6bdd2a127f25989df1ad  ./web/app/lib/mediaSourceClient.test.ts
+e1dfe6cc04c828952a16986e054bc69d81471acceda46d2880fab186bbc91d0f  ./web/app/lib/mediaSourceClient.ts
 18b258c4825a77a8b19f65cfc0ae11d80f9c551a637b32364f9e1dc2ddfbefe2  ./web/app/lib/mediaTimeline.test.ts
 2704180192ee83b8b2351e7dce419d256cd03fa7a56bbc35c066047cfa3816dc  ./web/app/lib/mediaTimeline.ts
 10c5d4632c73e31121216cf7e041083384912ad00cfcaf1e3ab130e0289ce7da  ./web/app/lib/omeLivePlayback.test.ts

@@ -169,7 +169,7 @@ async function retrySource(capture: CaptureSession) {
   if (retryingId.value) return
   retryingId.value = capture.id
   try {
-    const result = await mediaSources.retryMediaSource(capture.id)
+    const result = await mediaSources.retryMediaSource(capture.id, capture.sourceKind)
     emit('changed')
     toast.success(
       isYoutube(capture)

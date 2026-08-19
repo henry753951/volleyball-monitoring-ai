@@ -129,7 +129,7 @@ async function forceReload(stream: StreamSnapshot) {
   if (!canReload(stream)) return
   reloadingId.value = stream.captureSessionId
   try {
-    const result = await mediaSources.retryMediaSource(stream.captureSessionId)
+    const result = await mediaSources.retryMediaSource(stream.captureSessionId, stream.sourceKind)
     emit('refresh')
     toast.success(
       isYoutube(stream)
