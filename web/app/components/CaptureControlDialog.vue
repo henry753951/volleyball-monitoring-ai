@@ -309,7 +309,7 @@ async function clearSource(capture: CaptureSession) {
           </div>
         </section>
 
-        <YoutubeAuthCard compact />
+        <YoutubeAuthCard compact tone="dark" />
 
         <section
           v-if="!activeCapture && !rtmpCredentials"

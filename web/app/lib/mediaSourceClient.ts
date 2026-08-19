@@ -58,6 +58,36 @@ export interface YoutubeSourceAuthMetadata {
     resolverFinishedAt?: string
     playerClient?: string | null
     selectedFormatIds?: string[]
+    httpChunkSize?: number | null
+    preflight?: {
+      result: 'passed' | 'rejected'
+      ranges: Array<{
+        kind: 'video' | 'audio' | 'other'
+        offsetBytes: number
+        chunkSizeBytes: number | null
+        status: number | null
+      }>
+    }
+    failureCode?: string
+    resolutionHistory?: Array<{
+      cookieRevision: string | null
+      cookieReadAt: string | null
+      resolverStartedAt: string
+      resolverFinishedAt: string
+      playerClient: string | null
+      selectedFormatIds: string[]
+      httpChunkSize: number | null
+      preflight?: {
+        result: 'passed' | 'rejected'
+        ranges: Array<{
+          kind: 'video' | 'audio' | 'other'
+          offsetBytes: number
+          chunkSizeBytes: number | null
+          status: number | null
+        }>
+      }
+      failureCode?: string
+    }>
   } | null
 }
 

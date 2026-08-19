@@ -25,7 +25,7 @@ import {
   mediaWorkStage,
 } from '~/lib/mediaOperationsDiagnostics'
 import type { MatchMediaSnapshot, StreamSnapshot } from '~/lib/operationsMonitor'
-import { createMediaSourceClient } from '~/lib/mediaSourceClient'
+import { createMediaSourceClient, type YoutubeSourceAuthMetadata } from '~/lib/mediaSourceClient'
 
 const props = defineProps<{
   matchTitle: string
@@ -48,6 +48,7 @@ const currentPlayableProgress = computed(() =>
 const mediaSources = createMediaSourceClient()
 const reloadingId = ref<string | null>(null)
 const clearingId = ref<string | null>(null)
+const youtubeAuth = ref<YoutubeSourceAuthMetadata | null>(null)
 
 function sourceName(stream: StreamSnapshot) {
   return stream.sourceLabel?.trim() || stream.sourceKind.replaceAll('_', ' ')
@@ -115,6 +116,46 @@ function statusLabel(stream: StreamSnapshot) {
 function isYoutube(stream: StreamSnapshot) {
   return stream.sourceKind.trim().toLowerCase().startsWith('youtube')
 }
+
+const youtubeAttempts = computed(() => {
+  if (!youtubeAuth.value?.auth) return []
+  const history = youtubeAuth.value.auth.resolutionHistory ?? []
+  return history.filter(attempt => attempt.preflight || attempt.failureCode)
+})
+
+function rangeOffsetLabel(offsetBytes: number) {
+  if (offsetBytes === 0) return 'Range 0'
+  return `Range ${Math.round(offsetBytes / 1024 / 1024)} MiB`
+}
+
+function finalTime(stream: StreamSnapshot) {
+  return formatDuration(stream.program?.indexedDurationUs ?? stream.sourceDurationUs ?? undefined)
+}
+
+function extentContinuity(stream: StreamSnapshot) {
+  const count = stream.sourceWork?.resumeSegmentIndex ?? 0
+  if (!count) return '尚無已提交 extent'
+  return stream.program?.gapSegmentCount ? `1 → ${count}，有 gap` : `1 → ${count}，連續`
+}
+
+async function loadYoutubeDiagnostics() {
+  const stream = currentStream.value
+  if (!props.open || !stream || !isYoutube(stream)) {
+    youtubeAuth.value = null
+    return
+  }
+  try {
+    youtubeAuth.value = await mediaSources.youtubeSourceAuth(stream.captureSessionId)
+  } catch {
+    youtubeAuth.value = null
+  }
+}
+
+watch(
+  () => [props.open, props.generatedAt, props.streams[0]?.captureSessionId] as const,
+  () => void loadYoutubeDiagnostics(),
+  { immediate: true },
+)
 
 function canReload(stream: StreamSnapshot) {
   return (
@@ -241,6 +282,77 @@ async function copyDiagnostics(stream: StreamSnapshot) {
             <span>可播放進度＝已驗證索引時長 ÷ 完整來源時長</span>
             <span>只有來源與全部索引完成後才會顯示 100%</span>
           </footer>
+        </section>
+
+        <section
+          v-if="currentStream && isYoutube(currentStream) && youtubeAttempts.length"
+          class="youtube-diagnostics"
+          aria-labelledby="youtube-diagnostics-title"
+        >
+          <header>
+            <div>
+              <span class="eyebrow">YouTube HTTP diagnostics</span>
+              <h3 id="youtube-diagnostics-title">解析與 bounded Range</h3>
+            </div>
+            <span>不顯示 signed URL 或 Cookie</span>
+          </header>
+          <div class="youtube-attempts">
+            <article
+              v-for="(attempt, index) in youtubeAttempts"
+              :key="`${index}-${attempt.resolverFinishedAt}`"
+            >
+              <div class="youtube-attempt__heading">
+                <strong>{{ attempt.playerClient ?? 'unknown client' }}</strong>
+                <span :class="attempt.preflight?.result === 'passed' ? 'pass' : 'fail'">
+                  {{
+                    attempt.preflight?.result === 'passed'
+                      ? 'Range passed'
+                      : (attempt.failureCode ?? 'rejected')
+                  }}
+                </span>
+              </div>
+              <div class="youtube-ranges">
+                <span
+                  v-for="probe in attempt.preflight?.ranges ?? []"
+                  :key="`${probe.kind}-${probe.offsetBytes}`"
+                >
+                  {{ probe.kind }} · {{ rangeOffsetLabel(probe.offsetBytes) }}
+                  <b :class="probe.status === 206 ? 'pass' : 'fail'">{{ probe.status ?? 'ERR' }}</b>
+                </span>
+                <span v-if="!attempt.preflight?.ranges.length" class="muted">尚無 Range 回應</span>
+              </div>
+              <small>
+                chunk
+                {{
+                  attempt.httpChunkSize
+                    ? `${Math.round(attempt.httpChunkSize / 1024 / 1024)} MiB`
+                    : '—'
+                }}
+                · formats {{ attempt.selectedFormatIds.join('+') || '—' }}
+              </small>
+            </article>
+          </div>
+          <dl v-if="currentStream" class="youtube-runtime-checks">
+            <div>
+              <dt>FFmpeg / ingest</dt>
+              <dd>{{ currentStream.sourceWork?.status ?? '—' }}</dd>
+            </div>
+            <div>
+              <dt>Extents</dt>
+              <dd>{{ extentContinuity(currentStream) }}</dd>
+            </div>
+            <div>
+              <dt>Final time</dt>
+              <dd>
+                {{ finalTime(currentStream) }} /
+                {{ formatDuration(currentStream.sourceDurationUs ?? undefined) }}
+              </dd>
+            </div>
+            <div>
+              <dt>Job</dt>
+              <dd>{{ statusLabel(currentStream) }}</dd>
+            </div>
+          </dl>
         </section>
 
         <section class="stream-section">
@@ -515,7 +627,6 @@ async function copyDiagnostics(stream: StreamSnapshot) {
   display: block;
   height: 100%;
   background: #54c994;
-  transition: width 240ms ease;
 }
 .index-progress > span.indeterminate i {
   width: 34%;
@@ -526,6 +637,115 @@ async function copyDiagnostics(stream: StreamSnapshot) {
   font-size: 0.56rem;
   font-variant-numeric: tabular-nums;
   text-align: right;
+}
+.youtube-diagnostics {
+  display: grid;
+  gap: 12px;
+  padding: 15px 16px;
+  border: 1px solid #292c31;
+  border-radius: 12px;
+  background: #111316;
+}
+.youtube-diagnostics > header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+.youtube-diagnostics h3 {
+  margin: 5px 0 0;
+  font-size: 0.72rem;
+}
+.youtube-diagnostics > header > span {
+  color: #70747a;
+  font-size: 0.48rem;
+}
+.youtube-diagnostics .eyebrow {
+  color: #7e8791;
+  font-size: 0.47rem;
+  letter-spacing: 0.08em;
+}
+.youtube-attempts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+.youtube-attempts article {
+  display: grid;
+  gap: 8px;
+  padding: 10px 11px;
+  border: 1px solid #292c31;
+  border-radius: 8px;
+  background: #181a1e;
+}
+.youtube-attempt__heading,
+.youtube-ranges,
+.youtube-runtime-checks > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.youtube-attempt__heading strong {
+  color: #e4e6e9;
+  font-size: 0.58rem;
+}
+.youtube-attempt__heading span,
+.youtube-ranges b {
+  font-size: 0.48rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.youtube-attempt__heading .pass,
+.youtube-ranges .pass {
+  color: #55ca92;
+}
+.youtube-attempt__heading .fail,
+.youtube-ranges .fail {
+  color: #e07873;
+}
+.youtube-ranges {
+  align-items: flex-start;
+  flex-direction: column;
+  color: #969ba2;
+  font-size: 0.5rem;
+}
+.youtube-ranges span {
+  display: flex;
+  justify-content: space-between;
+  width: 100%;
+  gap: 12px;
+}
+.youtube-attempts small {
+  color: #70757c;
+  font-size: 0.46rem;
+}
+.youtube-runtime-checks {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0;
+}
+.youtube-runtime-checks > div {
+  align-items: flex-start;
+  flex-direction: column;
+  gap: 4px;
+  padding-top: 8px;
+  border-top: 1px solid #292c31;
+}
+.youtube-runtime-checks dt {
+  color: #74787e;
+  font-size: 0.49rem;
+}
+.youtube-runtime-checks dd {
+  margin: 0;
+  color: #dfe1e4;
+  font-size: 0.57rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.muted {
+  color: #70757c;
 }
 .stream-section {
   overflow: hidden;
@@ -764,9 +984,14 @@ async function copyDiagnostics(stream: StreamSnapshot) {
     margin-left: 0;
   }
   .current-progress > header,
-  .current-progress footer {
+  .current-progress footer,
+  .youtube-diagnostics > header {
     align-items: stretch;
     flex-direction: column;
+  }
+  .youtube-attempts,
+  .youtube-runtime-checks {
+    grid-template-columns: 1fr;
   }
 }
 @keyframes indeterminate-progress {
