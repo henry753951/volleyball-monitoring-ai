@@ -160,11 +160,13 @@ export function createOmeLivePlaybackService(
               if (!data.fatal) return
               if (fatalRecoveries < 2 && data.type === HlsRuntime.ErrorTypes.NETWORK_ERROR) {
                 fatalRecoveries += 1
+                if (!element.paused && !element.ended) element.pause()
                 attemptHls.startLoad(-1)
                 return
               }
               if (fatalRecoveries < 2 && data.type === HlsRuntime.ErrorTypes.MEDIA_ERROR) {
                 fatalRecoveries += 1
+                if (!element.paused && !element.ended) element.pause()
                 attemptHls.recoverMediaError()
                 return
               }
@@ -279,6 +281,7 @@ export function createOmeLivePlaybackService(
   const recover = () => {
     const element = video.value
     if (!element || !activeSource.value || !hls) return false
+    if (!element.paused && !element.ended) element.pause()
     hls.startLoad(element.currentTime > 0 ? element.currentTime : -1)
     return true
   }

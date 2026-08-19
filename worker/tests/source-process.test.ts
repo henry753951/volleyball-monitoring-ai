@@ -11,12 +11,14 @@ import {
   classifyYoutubeSource,
   createMediaSourceProcess,
   latestFfmpegProgressUs,
+  MediaSourceProcessError,
   nextLiveRelayFailureCount,
   preflightYoutubeInput,
   recordingExtentFilename,
   recordingExtentSeconds,
   reachedExpectedMediaEnd,
   segmentListTiming,
+  shouldRetryYoutubeVodWithFallback,
   type MediaSourceProcessOptions,
   vodCompletionToleranceUs,
 } from '../src/media/source-process.js'
@@ -50,6 +52,7 @@ const youtubeOptions: MediaSourceProcessOptions = {
   youtubeExtractorArgs: 'youtube:player_client=mweb',
   youtubeFormat: 'live-format',
   youtubeVodExtractorArgs: 'youtube:player_client=mweb',
+  youtubeVodFallbackExtractorArgs: 'youtube:player_client=web_embedded',
   youtubeVodFormat: 'vod-format',
   youtubeVodUseCookies: false,
 }
@@ -171,6 +174,44 @@ describe('media source process', () => {
     expect(buildYoutubeVodProbeArgs('https://youtu.be/vod', options)).toContain(
       'youtubepot-bgutilhttp:base_url=http://bgutil-provider:4416',
     )
+    expect(
+      buildYoutubeVodProbeArgs(
+        'https://youtu.be/vod',
+        options,
+        'youtube:player_client=web_embedded',
+      ),
+    ).toContain('youtube:player_client=web_embedded')
+  })
+
+  it('only retries a VOD preflight 403 or 410 with a different configured client', () => {
+    expect(
+      shouldRetryYoutubeVodWithFallback(
+        new MediaSourceProcessError('BAD_SOURCE_URL', 'forbidden', 403),
+        'youtube:player_client=mweb',
+        'youtube:player_client=web_embedded',
+      ),
+    ).toBe(true)
+    expect(
+      shouldRetryYoutubeVodWithFallback(
+        new MediaSourceProcessError('BAD_SOURCE_URL', 'gone', 410),
+        'youtube:player_client=mweb',
+        'youtube:player_client=web_embedded',
+      ),
+    ).toBe(true)
+    expect(
+      shouldRetryYoutubeVodWithFallback(
+        new MediaSourceProcessError('BAD_SOURCE_URL', 'server error', 500),
+        'youtube:player_client=mweb',
+        'youtube:player_client=web_embedded',
+      ),
+    ).toBe(false)
+    expect(
+      shouldRetryYoutubeVodWithFallback(
+        new MediaSourceProcessError('BAD_SOURCE_URL', 'same client', 403),
+        'youtube:player_client=mweb',
+        'youtube:player_client=mweb',
+      ),
+    ).toBe(false)
   })
 
   it('maps yt-dlp HTTP chunk metadata to bounded libavformat input options', () => {
@@ -225,7 +266,7 @@ describe('media source process', () => {
         new AbortController().signal,
         async () => new Response(null, { status: ++requestCount === 1 ? 206 : 403 }),
       ),
-    ).rejects.toMatchObject({ code: 'BAD_SOURCE_URL' })
+    ).rejects.toMatchObject({ code: 'BAD_SOURCE_URL', httpStatus: 403 })
     expect(requestCount).toBe(2)
   })
 

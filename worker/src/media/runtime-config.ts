@@ -62,6 +62,10 @@ const MediaIndexerEnvironment = z.object({
     .default('false')
     .transform(value => value === 'true'),
   YOUTUBE_VOD_EXTRACTOR_ARGS: z.string().min(1).default('youtube:player_client=mweb'),
+  YOUTUBE_VOD_FALLBACK_EXTRACTOR_ARGS: z
+    .string()
+    .min(1)
+    .default('youtube:player_client=web_embedded'),
   YOUTUBE_VOD_FORMAT: z.string().min(1).default(YOUTUBE_VOD_FORMAT),
   YT_DLP_COMMAND: z.string().min(1).default('yt-dlp'),
 })

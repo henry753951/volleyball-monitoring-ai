@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { useThrottleFn } from '@vueuse/core'
-import { Eye, EyeOff } from 'lucide-vue-next'
+import { Eye, EyeOff, LoaderCircle } from 'lucide-vue-next'
 import { toast } from 'vue-sonner'
 import {
   type AnalysisFrameBBox,
@@ -42,7 +42,11 @@ import {
 import { useAnnotationWorkstationViewState } from '~/composables/useAnnotationWorkstationViewState'
 import { capturePlaybackMode, clampLiveEdgeTarget } from '~/lib/mediaTimeline'
 import { decidePlaybackContinuation, nextPlayableRangeAfter } from '~/lib/playbackContinuation'
-import { bufferedSecondsAhead, type CanonicalMediaRange } from '~/utils/mediaBuffer'
+import {
+  bufferedSecondsAhead,
+  mediaTimeRangeContains,
+  type CanonicalMediaRange,
+} from '~/utils/mediaBuffer'
 import { estimateFrameDurationSeconds } from '~/utils/framePreviewCalibration'
 import {
   captureNeedsPolling,
@@ -128,6 +132,7 @@ const playerBufferedRanges = shallowRef<CanonicalMediaRange[]>([])
 const playerSeekableRanges = shallowRef<CanonicalMediaRange[]>([])
 const captureTarget = ref('')
 const mediaError = ref<string | null>(null)
+const playbackBuffering = ref(false)
 const omePlaybackFailed = ref(false)
 const omeObservedCaptureTimeUs = ref<string | null>(null)
 const omeAtLiveEdge = ref(false)
@@ -369,6 +374,11 @@ const matchInspector = useTemplateRef<{ closePlacement: () => void }>('matchInsp
 const inspectorTab = ref<'match' | 'mapping' | 'analysis'>('match')
 const pinnedRallyId = workstationSelection.explicitRallyId
 const currentOverlayFrame = ref(-1)
+const displayFrameIndex = computed(() =>
+  currentOverlayFrame.value >= 0
+    ? String(currentOverlayFrame.value)
+    : (authoritativeAnchor.value?.capture_frame_index ?? '—'),
+)
 const overlayVideoSize = shallowRef<{
   width: number
   height: number
@@ -427,6 +437,8 @@ let matchRefreshInFlight = false
 let windowRecoveryInFlight = false
 let playbackContinuationInFlight = false
 let playbackHasStarted = false
+let resumeAfterBuffering = false
+let bufferingTargetCaptureTimeUs: string | null = null
 let continuationWindowId: string | null = null
 let continuationRequestedAt = 0
 let continuationRetryDelayMs = 500
@@ -1529,6 +1541,9 @@ function scheduleCursorResolve(force = false) {
 }
 
 function handleCursor(cursor: PlaybackCursorInput) {
+  // A frame callback from an old or alternate buffered range must not move the
+  // canonical playhead while the requested range is still loading.
+  if (playbackBuffering.value) return
   const previousSeekGeneration = observedCursor.value?.seek_generation
   observedCursor.value = cursor
   cursorStatus.value = cursor.cursor_status
@@ -1645,13 +1660,18 @@ async function seekTimeline(targetCaptureTimeUs: string) {
   setOptimisticSeekTarget(target)
   captureTarget.value = target
   if (overlayPlayer.value?.seekCaptureTimeIfBuffered(target)) return
+  markPlaybackBuffering(false, target)
   if (omeDirectPlaybackActive.value) {
+    clearPlaybackBuffering()
     if (optimisticSeekCaptureTimeUs.value === target) clearOptimisticSeekTarget()
     mediaError.value = '目前位置不在 OME DVR 可用範圍內'
     return
   }
   const created = await createWindow(target, undefined, true)
-  if (!created && optimisticSeekCaptureTimeUs.value === target) clearOptimisticSeekTarget()
+  if (!created) {
+    clearPlaybackBuffering()
+    if (optimisticSeekCaptureTimeUs.value === target) clearOptimisticSeekTarget()
+  }
 }
 
 function setOptimisticSeekTarget(targetCaptureTimeUs: string) {
@@ -1771,17 +1791,79 @@ function resetTimelineZoom() {
 type PlayerAction = MediaAction | 'mute'
 function updatePlaybackState() {
   playing.value = Boolean(video.value && !video.value.paused)
+  if (playing.value && playbackBuffering.value) {
+    // Do not allow a manual play click or a browser auto-resume to bypass the
+    // buffer gate and continue an old range while the requested range loads.
+    video.value?.pause()
+    playing.value = false
+    return
+  }
   if (playing.value) playbackHasStarted = true
   muted.value = Boolean(video.value?.muted)
   if (playing.value) maintainPlaybackWindow()
 }
+function markPlaybackBuffering(resumePlayback: boolean, targetCaptureTimeUs: string | null = null) {
+  const wasBuffering = playbackBuffering.value
+  playbackBuffering.value = true
+  cursorStatus.value = 'stale'
+  if (targetCaptureTimeUs !== null || !wasBuffering)
+    bufferingTargetCaptureTimeUs = targetCaptureTimeUs
+  if (resumePlayback) resumeAfterBuffering = true
+}
+function clearPlaybackBuffering() {
+  playbackBuffering.value = false
+  resumeAfterBuffering = false
+  bufferingTargetCaptureTimeUs = null
+}
+function finishPlaybackBufferingIfReady() {
+  const element = video.value
+  if (!playbackBuffering.value || !element || element.seeking) return
+  if (!mediaTimeRangeContains(element.buffered, element.currentTime)) return
+  const window = descriptor.value
+  if (bufferingTargetCaptureTimeUs && window) {
+    const currentCaptureTimeUs =
+      BigInt(window.presentation_origin_capture_us) +
+      BigInt(Math.round(element.currentTime * 1_000_000))
+    const target = BigInt(bufferingTargetCaptureTimeUs)
+    const distance = currentCaptureTimeUs - target
+    if ((distance < 0n ? -distance : distance) > 100_000n) return
+  }
+  const shouldResume = resumeAfterBuffering
+  clearPlaybackBuffering()
+  if (shouldResume && !element.ended)
+    void element.play().catch(error => {
+      mediaError.value = error instanceof Error ? error.message : '載入後無法繼續播放'
+    })
+}
+function handleVideoPlaying() {
+  if (playbackBuffering.value) {
+    finishPlaybackBufferingIfReady()
+    if (playbackBuffering.value) {
+      video.value?.pause()
+      return
+    }
+  }
+  updatePlaybackState()
+}
+function handleVideoWaiting() {
+  const element = video.value
+  const shouldResume = Boolean(element && !element.paused && !element.ended)
+  markPlaybackBuffering(shouldResume)
+  // Keep the element unpaused long enough for continuation policy to choose
+  // recover-buffer vs extend-window. recoverPlayback() then pauses it before
+  // any old buffered range can continue playing.
+  maintainPlaybackWindow()
+  if (omeDirectPlaybackActive.value) overlayPlayer.value?.recoverPlayback()
+  if (shouldResume && element && !element.paused) element.pause()
+}
 function detachVideoState(element: HTMLVideoElement | null) {
   element?.removeEventListener('play', updatePlaybackState)
+  element?.removeEventListener('playing', handleVideoPlaying)
   element?.removeEventListener('pause', updatePlaybackState)
   element?.removeEventListener('volumechange', updatePlaybackState)
   element?.removeEventListener('timeupdate', maintainPlaybackWindow)
   element?.removeEventListener('progress', maintainPlaybackWindow)
-  element?.removeEventListener('waiting', maintainPlaybackWindow)
+  element?.removeEventListener('waiting', handleVideoWaiting)
   element?.removeEventListener('ended', maintainPlaybackWindow)
 }
 function schedulePlaybackContinuation(delayMs = continuationRetryDelayMs) {
@@ -1823,6 +1905,8 @@ async function continueAcrossGap(input: {
     resumePlayback: playbackHasStarted && (!input.element.paused || input.element.ended),
   }
   gapTransition = transition
+  markPlaybackBuffering(transition.resumePlayback, input.targetCaptureTimeUs)
+  if (transition.resumePlayback) input.element.pause()
   prepareAuthoritativeSeek()
   captureTarget.value = input.targetCaptureTimeUs
   mediaError.value = null
@@ -1830,6 +1914,7 @@ async function continueAcrossGap(input: {
   if (gapTransition !== transition) return
   if (!created) {
     gapTransition = null
+    clearPlaybackBuffering()
     mediaError.value ||= '無法載入媒體中斷後的下一個可播放位置'
     return
   }
@@ -1855,6 +1940,9 @@ function maintainPlaybackWindow() {
   const windowEnd = BigInt(window.window_capture_end_us)
   const target = (observedCapture > windowEnd ? windowEnd : observedCapture).toString()
   const browserHeadroom = bufferedSecondsAhead(element)
+  if (!element.paused && !mediaTimeRangeContains(element.buffered, element.currentTime)) {
+    markPlaybackBuffering(true)
+  }
   const nextRange = nextPlayableRangeAfter(
     window.window_capture_end_us,
     timeline.value?.availableRanges ?? [],
@@ -1886,7 +1974,11 @@ function maintainPlaybackWindow() {
         seekPreviewActive: seekPreviewActive.value,
         windowEndCaptureTimeUs: window.window_capture_end_us,
       })
-  if (decision === 'idle' || decision === 'terminal') return
+  if (decision === 'idle') return
+  if (decision === 'terminal') {
+    clearPlaybackBuffering()
+    return
+  }
   if (performance.now() - continuationRequestedAt < 500) {
     schedulePlaybackContinuation(500)
     return
@@ -1894,6 +1986,7 @@ function maintainPlaybackWindow() {
   continuationRequestedAt = performance.now()
   if (decision === 'recover-buffer') {
     overlayPlayer.value?.recoverPlayback()
+    if (!element.paused) element.pause()
     schedulePlaybackContinuation(650)
     return
   }
@@ -1952,11 +2045,12 @@ function handleVideoReady(element: HTMLVideoElement) {
     detachVideoState(video.value)
     video.value = element
     element.addEventListener('play', updatePlaybackState)
+    element.addEventListener('playing', handleVideoPlaying)
     element.addEventListener('pause', updatePlaybackState)
     element.addEventListener('volumechange', updatePlaybackState)
     element.addEventListener('timeupdate', maintainPlaybackWindow)
     element.addEventListener('progress', maintainPlaybackWindow)
-    element.addEventListener('waiting', maintainPlaybackWindow)
+    element.addEventListener('waiting', handleVideoWaiting)
     element.addEventListener('ended', maintainPlaybackWindow)
   }
   element.playbackRate = playbackRate.value
@@ -1967,19 +2061,18 @@ function handleVideoReady(element: HTMLVideoElement) {
   ) {
     gapTransition = null
     toast.info(`已自動略過 ${skippedGapLabel(transition.gapDurationUs)}媒體中斷`)
-    if (transition.resumePlayback)
-      void element.play().catch(error => {
-        mediaError.value = error instanceof Error ? error.message : '中斷後無法繼續播放'
-      })
   }
+  finishPlaybackBufferingIfReady()
   updatePlaybackState()
 }
 function handlePlaybackError(error: Error) {
   gapTransition = null
+  clearPlaybackBuffering()
   mediaError.value = error.message
 }
 function handleOmePlaybackError(error: Error) {
   gapTransition = null
+  clearPlaybackBuffering()
   omePlaybackFailed.value = true
   mediaError.value = error.message
   const failedCaptureId = selectedCaptureId.value
@@ -2018,6 +2111,7 @@ function handleBufferState(value: {
   if (omeDirectPlaybackActive.value) {
     playerBufferedRanges.value = value.buffered
     playerSeekableRanges.value = value.seekable
+    finishPlaybackBufferingIfReady()
     return
   }
   const window = descriptor.value
@@ -2028,6 +2122,7 @@ function handleBufferState(value: {
       ? value.buffered
       : []
   playerSeekableRanges.value = []
+  finishPlaybackBufferingIfReady()
 }
 function dispatchMediaAction(
   action: PlayerAction,
@@ -2442,6 +2537,7 @@ watch(
       omeAtLiveEdge.value = false
       omeObservedCaptureTimeUs.value = null
       playbackHasStarted = false
+      clearPlaybackBuffering()
       gapTransition = null
       continuationRetryDelayMs = 500
       playerBufferedRanges.value = []
@@ -2865,6 +2961,16 @@ onBeforeUnmount(() => {
               @toggle="workstationActions.execute('media.toggle-playback')"
               @error="handlePlaybackError"
             />
+            <div
+              v-if="playbackBuffering"
+              class="viewer-buffering"
+              role="status"
+              aria-live="polite"
+              aria-label="影片讀取中"
+            >
+              <LoaderCircle :size="16" aria-hidden="true" />
+              <span>影片讀取中</span>
+            </div>
             <AnnotationAnalysisToolbox
               :mode="analysisToolboxMode"
               :frame-index="currentOverlayFrame"
@@ -2875,7 +2981,7 @@ onBeforeUnmount(() => {
             />
             <div class="viewer-frame-index" aria-label="目前畫格索引">
               <span>FRAME IDX</span>
-              <code>{{ authoritativeAnchor?.capture_frame_index ?? '—' }}</code>
+              <code>{{ displayFrameIndex }}</code>
             </div>
             <button
               type="button"
@@ -3305,6 +3411,32 @@ onBeforeUnmount(() => {
 .stage-empty span {
   color: var(--muted);
   font-size: 0.75rem;
+}
+.viewer-buffering {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  z-index: 8;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 8px 11px;
+  border: 1px solid #856424;
+  border-radius: 6px;
+  background: #302611ee;
+  color: #ffd987;
+  font-size: 0.72rem;
+  font-weight: 700;
+  pointer-events: none;
+  transform: translate(-50%, -50%);
+}
+.viewer-buffering svg {
+  animation: viewer-buffering-spin 1s linear infinite;
+}
+@keyframes viewer-buffering-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 .stage-error,
 .global-error,

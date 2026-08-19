@@ -87,6 +87,7 @@ function videoElement(overrides: Partial<HTMLVideoElement> = {}) {
     currentTime: 0,
     ended: false,
     load: vi.fn(),
+    pause: vi.fn(),
     paused: true,
     play: vi.fn().mockResolvedValue(undefined),
     removeAttribute: vi.fn(),
@@ -179,6 +180,21 @@ describe('OME live playback pipeline', () => {
     await service.attach(source())
 
     expect(element.play).toHaveBeenCalledOnce()
+  })
+
+  it('pauses the current frame before recovering the live buffer', async () => {
+    const pause = vi.fn()
+    const element = videoElement({ paused: false, currentTime: 12, pause })
+    const service = createOmeLivePlaybackService(ref(element), MEDIA_BUFFER_PROFILES.balanced)
+
+    await service.attach(source())
+    const hls = hlsInstances[0]!
+    hls.startLoad.mockClear()
+    pause.mockClear()
+
+    expect(service.recover()).toBe(true)
+    expect(pause).toHaveBeenCalledOnce()
+    expect(hls.startLoad).toHaveBeenCalledWith(12)
   })
 
   it('reloads the master manifest when a restarted OME stream invalidates the old rendition', async () => {

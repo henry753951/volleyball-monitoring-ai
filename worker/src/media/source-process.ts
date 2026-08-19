@@ -20,6 +20,7 @@ export type MediaSourceProcessOptions = {
   youtubeLiveMaxConsecutiveFailures?: number
   youtubePotProviderUrl?: string
   youtubeVodExtractorArgs?: string
+  youtubeVodFallbackExtractorArgs?: string
   youtubeVodFormat: string
   ytDlpCommand?: string
   ffmpegCommand?: string
@@ -55,10 +56,23 @@ export class MediaSourceProcessError extends Error {
   constructor(
     public readonly code: string,
     message: string,
+    public readonly httpStatus?: number,
   ) {
     super(message)
     this.name = 'MediaSourceProcessError'
   }
+}
+
+export function shouldRetryYoutubeVodWithFallback(
+  error: unknown,
+  primaryExtractorArgs: string,
+  fallbackExtractorArgs?: string,
+): boolean {
+  return (
+    error instanceof MediaSourceProcessError &&
+    (error.httpStatus === 403 || error.httpStatus === 410) &&
+    Boolean(fallbackExtractorArgs && fallbackExtractorArgs !== primaryExtractorArgs)
+  )
 }
 
 function abortError(): Error {
@@ -667,12 +681,13 @@ export function buildYoutubeProbeArgs(url: string, options: MediaSourceProcessOp
 export function buildYoutubeVodProbeArgs(
   url: string,
   options: MediaSourceProcessOptions,
+  extractorArgs = options.youtubeVodExtractorArgs ?? options.youtubeExtractorArgs,
 ): string[] {
   return buildYoutubeProbeArgsForFormat(
     url,
     options,
     options.youtubeVodFormat,
-    options.youtubeVodExtractorArgs ?? options.youtubeExtractorArgs,
+    extractorArgs,
     options.youtubeVodUseCookies ?? false,
   )
 }
@@ -698,12 +713,17 @@ async function probeYoutube(
   options: MediaSourceProcessOptions,
   signal: AbortSignal,
   format: 'live' | 'vod' = 'live',
+  extractorArgsOverride?: string,
 ): Promise<YoutubeMetadata> {
-  const result = await runProcess(
-    options.ytDlpCommand ?? 'yt-dlp',
-    format === 'vod' ? buildYoutubeVodProbeArgs(url, options) : buildYoutubeProbeArgs(url, options),
-    signal,
-  )
+  const args =
+    format === 'vod'
+      ? buildYoutubeVodProbeArgs(
+          url,
+          options,
+          extractorArgsOverride ?? options.youtubeVodExtractorArgs ?? options.youtubeExtractorArgs,
+        )
+      : buildYoutubeProbeArgs(url, options)
+  const result = await runProcess(options.ytDlpCommand ?? 'yt-dlp', args, signal)
   return JSON.parse(result.stdout.toString('utf8')) as YoutubeMetadata
 }
 
@@ -787,6 +807,7 @@ export async function preflightYoutubeInput(
       throw new MediaSourceProcessError(
         'BAD_SOURCE_URL',
         `YouTube media URL returned HTTP ${response.status} during bounded range preflight at offset ${start}`,
+        response.status,
       )
   }
   return input
@@ -938,18 +959,25 @@ export function createMediaSourceProcess(options: MediaSourceProcessOptions) {
         'SOURCE_URL_MISSING',
         'YouTube media work has no source URL',
       )
-    const resolveYoutube = async (resolveFormat: 'live' | 'vod') => {
+    const resolveYoutube = async (
+      resolveFormat: 'live' | 'vod',
+      extractorArgsOverride?: string,
+    ) => {
       const resolverStartedAt = new Date().toISOString()
-      const metadata = await probeYoutube(work.sourceUrl!, options, signal, resolveFormat)
-      await notifyYoutubeResolution(
-        observer,
-        options,
-        metadata,
+      const extractorArgs =
         resolveFormat === 'vod'
-          ? (options.youtubeVodExtractorArgs ?? options.youtubeExtractorArgs)
-          : (options.youtubeLiveExtractorArgs ?? options.youtubeExtractorArgs),
-        resolverStartedAt,
+          ? (extractorArgsOverride ??
+            options.youtubeVodExtractorArgs ??
+            options.youtubeExtractorArgs)
+          : (options.youtubeLiveExtractorArgs ?? options.youtubeExtractorArgs)
+      const metadata = await probeYoutube(
+        work.sourceUrl!,
+        options,
+        signal,
+        resolveFormat,
+        extractorArgsOverride,
       )
+      await notifyYoutubeResolution(observer, options, metadata, extractorArgs, resolverStartedAt)
       return metadata
     }
     let metadata = await resolveYoutube('live')
@@ -958,12 +986,30 @@ export function createMediaSourceProcess(options: MediaSourceProcessOptions) {
       // Resolve fresh progressive URLs for every attempt and segment those
       // inputs directly. Finalized fMP4 files become visible while the source
       // is still downloading; retry seeks from the persisted checkpoint.
-      metadata = await resolveYoutube('vod')
+      const primaryExtractorArgs = options.youtubeVodExtractorArgs ?? options.youtubeExtractorArgs
+      metadata = await resolveYoutube('vod', primaryExtractorArgs)
       durationUs ??= youtubeDuration(metadata)
+      let inputs: MediaInput[]
+      try {
+        inputs = await Promise.all(
+          youtubeInputs(metadata).map(input => preflightYoutubeInput(input, signal)),
+        )
+      } catch (error) {
+        const fallbackExtractorArgs = options.youtubeVodFallbackExtractorArgs
+        if (!shouldRetryYoutubeVodWithFallback(error, primaryExtractorArgs, fallbackExtractorArgs))
+          throw error
+        metadata = await resolveYoutube('vod', fallbackExtractorArgs)
+        if (classifyYoutubeSource(metadata) !== 'youtube_vod')
+          throw new MediaSourceProcessError(
+            'YOUTUBE_FALLBACK_NOT_VOD',
+            'YouTube VOD fallback resolved to a live source',
+          )
+        durationUs ??= youtubeDuration(metadata)
+        inputs = await Promise.all(
+          youtubeInputs(metadata).map(input => preflightYoutubeInput(input, signal)),
+        )
+      }
       await observer.classified({ sourceDurationUs: durationUs, sourceKind: 'youtube_vod' })
-      const inputs = await Promise.all(
-        youtubeInputs(metadata).map(input => preflightYoutubeInput(input, signal)),
-      )
       const count = await segmentInputs(
         work,
         inputs,

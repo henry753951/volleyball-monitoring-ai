@@ -104,7 +104,7 @@ a163ed77cd3cdba34d8c137786b4c165516bd66e723836fd6e85341c7e03f610  ./docs/require
 10940b28350d7ae0caa70de80165f86386b598e964f9b7d563211ec5a6478833  ./docs/runtime-topology-inventory.md
 e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  ./examples/__init__.py
 9dc0ba1ce97347e0b4f0138b34a2d34090d07fa68a67480c2b72ef8e7d90ebad  ./infra/compose.host-dev.yaml
-36c908e03911ee1a1fa0734cf8db728fd8e91c62c1470837d0cd24832bd02171  ./infra/compose.yaml
+42db0dbaabca41cab95f03097d353bc6740ff105de51395c64dc8e15bfbca470  ./infra/compose.yaml
 53cbbca3d1f27abc42227fa5241fe071e2bf8ba302fa91194f802c7e7dc57c77  ./infra/docker/server.Dockerfile
 818ad0a9ef3bf445375da1e99858c7b2c1acff9f6f91402e3d2f4aaf770ef0e6  ./infra/docker/web.Dockerfile
 30439ffd58a73f0aceae3cd06e5d761ae6b9e9d7f3b5d5945e0d963a73ecaa2d  ./infra/docker/worker.Dockerfile
@@ -625,7 +625,7 @@ cf6413b007a0431be7b71f1f8605471f4ae3b67e49cb45cceae18bab533667ab  ./web/app/comp
 01e40ca610ad2414469f0ce18bde6eb5f2077153b3a4bcca9ec9c17dc18c0463  ./web/app/composables/useCoalescedFrameNavigation.test.ts
 adcb3695e44269366cf5c0715545bdd90284cfe19c59ac2c3d626b77db6b4003  ./web/app/composables/useCoalescedFrameNavigation.ts
 050f4734d2654b13cdf32068d2455515dd8fa47915c5101bb1476143ed669598  ./web/app/composables/useCoreDomain.ts
-02b6badd43aecfbcff8d78df586799b2a9d4a3e7f19d31691bd6f1db5193fdde  ./web/app/composables/useDvrPlayback.test.ts
+73cbfb67f8590090632d9bc96ac35d43f03242c94f3078d63f789289c8cc8378  ./web/app/composables/useDvrPlayback.test.ts
 b2b61ede3eba8a777587a56506a3f52b022d29954c434c6583553b4efa557ac1  ./web/app/composables/useDvrPlayback.ts
 ccd5323131297c6132c3c975ca0824dab8aa1d1a3f988d3d3f68b3aa569d4c58  ./web/app/composables/useIdentityAssignmentController.ts
 1b258ae7f05db73de079c8d8d5a8cf219d811b262ef8ea1e194b2486f924e38e  ./web/app/composables/useIdentityAssignmentService.ts
@@ -675,7 +675,7 @@ d414d774f9b4f8b5a49be463ee8de0bcf284e3b84d96cb54d270d4be558038e9  ./web/app/lib/
 ea6147e9664833abf6ae1dc8bcffbdded5c976a7dd2b9b4a680dcc3a7c9c8df4  ./web/app/lib/rosterPromptImport.test.ts
 4e07c8e910ce029b61dcbe1110e7be3538b6ef9598340fc8468d33efe5760d7b  ./web/app/lib/rosterPromptImport.ts
 440fc13e62d9078c3a3742f76760e310c7d5d8534d7c1164eb585146c7748ef4  ./web/app/middleware/auth.global.ts
-782e24caf139e725566fe3c6908d49e6735d3ca981229550beba8c1145f18e9c  ./web/app/pages/annotate/[matchId].vue
+97763010bb5a1553b52935b909450ecfeeb03129d9919e4ea107c0c250364f02  ./web/app/pages/annotate/[matchId].vue
 bf38c1147f5115fcaea26ac65e7e469cace75534b8641db56fc29d0b04259fb4  ./web/app/pages/control/index.vue
 de575899c27987ea0f5beae095022624fb5ee6cc2fef2b1b15c47ff5e97aeea5  ./web/app/pages/control/jobs.vue
 ffda57a925b659c33ea87ab67aedd169120195cf27497ab8eceaf14dd7e56ba3  ./web/app/pages/index.vue
@@ -704,13 +704,13 @@ b7e3d14e2bcb6adda1d0d4be35e6f8f78e9e90349a0562879849fec856534837  ./web/app/serv
 7d616b2e0461da31b5efc2733ccad08cf5d8d295342f75d1bf7d186124d31480  ./web/app/services/annotation-workstation/coalesced-frame-navigation.service.ts
 2601c15ee3c0f494b07c29d68152e066d66da197547b8938ae7dbf50fb7025a1  ./web/app/services/annotation-workstation/correction-flow.service.test.ts
 9364c00ed8e3fe809f207309cba2bac02b8f16b81e76306161bbcfc4dac8f19f  ./web/app/services/annotation-workstation/correction-flow.service.ts
-b4fc12d557f1ab5c7283c3927ca54da477739290d1903e5d4c6f83667daf048f  ./web/app/services/annotation-workstation/dvr-playback.service.ts
+502473f815c829e259d9231bf7923c7dfd5375ef965261747e25c75375bd5558  ./web/app/services/annotation-workstation/dvr-playback.service.ts
 0f5e390eef4bb06ec583cb65a942eb1dbd28c0ee6dd5ec4d42e9b22af3e049c1  ./web/app/services/annotation-workstation/identity-assignment-controller.service.ts
 d6959eda603a493d5403f8e934df0568fb89d92da746159f0ddde0fc8fcd956e  ./web/app/services/annotation-workstation/identity-assignment.service.ts
 f3d94ad181ef09e084a95efe25566a74219fe7682367f11339db9e33cfefec8b  ./web/app/services/annotation-workstation/key-point-editing.service.test.ts
 15c2b86faab30660ca946bfc8c44577530dd3ea213dd6d410a0dc429381cd13d  ./web/app/services/annotation-workstation/key-point-editing.service.ts
-85541b810ac8d5aa0fb1928d24f738485d381dd51fb6a089c882baf1e09a9bee  ./web/app/services/annotation-workstation/ome-live-playback.service.test.ts
-84335ef06a5e524cc11fca67ee69f26e1df68d02a22e87179a539337962c130a  ./web/app/services/annotation-workstation/ome-live-playback.service.ts
+e6f272d0c80ffac400de361b8408d6bc0b64e0bdc4dc4601d50a8db8c2eb8709  ./web/app/services/annotation-workstation/ome-live-playback.service.test.ts
+927a48d9779fdc02104302d9b25b5b3621a3f2c024a697e217054e8467c357d3  ./web/app/services/annotation-workstation/ome-live-playback.service.ts
 59f2b84939543415f6dd025e26118d0a2e01480d4735005b377fbe460303f7a6  ./web/app/services/annotation-workstation/processing-state.service.test.ts
 39495eeec85f5f3114dbb22629439c7235bd38b511b784afe99784533443a342  ./web/app/services/annotation-workstation/processing-state.service.ts
 97145d642739e57591b7e27dff5ca5832a9d313d0870ace04f84f409b1cc9b6a  ./web/app/services/annotation-workstation/segment-management.service.test.ts
@@ -804,7 +804,7 @@ a450dd947a7ca22cef3a6ebc5709f53f330011f46dd0a014d28012b85e521bf1  ./web/vitest.c
 164310b5dd83a1d620e4bed87d848dbec20b110975f6690cb4644d4cae6f50e5  ./worker/AGENTS.md
 2db69a4b2de34d306c9ffa0e6aa165acbcb12d187078364caa268dd6869c48b9  ./worker/README.md
 2f975caa4aacf956d5f3c99b646d29eaa27e0e434b87ec1f7ee10f4373a1de6b  ./worker/package.json
-988c0dae17ce60002d34bf5a5bf7305ad9fcc498058ae6983494a54d7b699298  ./worker/src/composition.ts
+5c590e824b7bb4d249129d57e69e16514ede02362c48023b54ddaa3b5b36e2ff  ./worker/src/composition.ts
 2101739a08a3538ae93bbcb25a64f27538c07fc41c1eb7762849b1732901462f  ./worker/src/index.ts
 bdb83690f22acbaaeba3142d41157b9f1acb6624b5cbfdf776630ce393d396c9  ./worker/src/lifecycle.ts
 431302fadd45da7ab43baee5a6be687d642a9780fccf7006833f67189214feee  ./worker/src/media/artifacts.ts
@@ -822,9 +822,9 @@ e75f131f82dfa0e724513ba087fea89e97507dfe36396d8c29305b905776aced  ./worker/src/m
 191cd4e1a86cd534abe54c6b6a60d44d308beafb30af38f48e0631e017cdcde1  ./worker/src/media/prisma-ingest-repository.ts
 50dbd5bf417004ec502f3725f3971878bbd2bad3ffc597d28a0e6f5106d1aae3  ./worker/src/media/resolver.ts
 704a6ec9d1f3ad7a9a169d4c4570abca0df3722785cdc42b252d17005cc1016f  ./worker/src/media/resolvers.ts
-2e8f82d4de6baf3774c34cde67a6401b52685a33bd193c66dc1e01c8d8a56a6f  ./worker/src/media/runtime-config.ts
+12122a45254941e4ff707b99902bf2dc6b43b0f12045c3e94fe4e479c7e966f5  ./worker/src/media/runtime-config.ts
 8f0a7c3f8c163da69d5c7be0980cadfedbc6515477416fe2f0a4cc7e8f3c4f3d  ./worker/src/media/sample-index.ts
-32e7d2cecc3aa77dc64a361cd2aedc264c2fecdd34e787af25b485a52a5a25f1  ./worker/src/media/source-process.ts
+701904057bea3ff4889978380717a24ea234b75306f816d2739a87e39e5acfda  ./worker/src/media/source-process.ts
 014a3cad520b1e87e1671f2c84c7f7c2081375f833dfdb50c0db9199e8a74081  ./worker/src/media/source-runtime.ts
 35845355b62d5de1dd0feed57d13ca53bf82415226620de338f1f6277906ba88  ./worker/src/media/source-work.ts
 e0055e5de69b1a90ddf83147a4379f8aaad8a9e0442e094795147b961f19ed37  ./worker/src/media/tiered-media-object-store.ts
@@ -884,7 +884,7 @@ b6bfa38a3a17208e0dd392366184a369cff62ba41cc5271a90b1195a30019da5  ./worker/tests
 67829669a62b9df50a6fddb656d7022cbdb29f4cc819f51425b4e67662dcbb78  ./worker/tests/reid-feature-worker.test.ts
 71294ae25a9fe9530a17e039c7a11e64359f0be841dae963c5433f41e5c79c99  ./worker/tests/resolvers.test.ts
 17d706ad7805027bfc4dfc7eed1d68726fa9f328ab62d217a72f6a77f42cd4d0  ./worker/tests/runtime-health.test.ts
-33b2c8b9089dc4f1231c43d0f6996c1d34da66aefd30ff0a5b970ad24014b7b8  ./worker/tests/source-process.test.ts
+c624530a5bd1599bb5c59425f71c6aa04fcf0ce4419c8059f9802b114cd3a1f1  ./worker/tests/source-process.test.ts
 874f3358339702b24d6316137491ef442e6eb91add9dce7285f2b9511b993e4d  ./worker/tests/source-spool-cleanup.test.ts
 a543e3a9502114060cf01e2c0033e0e933640329117abeaa712be7c2ab995e32  ./worker/tests/source-work.test.ts
 ccbee74b054bcf5797d688a953f79e25e9a06475a9d7e5ab667ac71d651f0036  ./worker/tests/tiered-media-object-store.test.ts

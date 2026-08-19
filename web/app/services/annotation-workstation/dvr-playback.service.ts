@@ -99,11 +99,13 @@ export function createDvrPlaybackService(
           if (currentGeneration !== generation || !data.fatal) return
           if (fatalRecoveries < 2 && data.type === HlsRuntime.ErrorTypes.NETWORK_ERROR) {
             fatalRecoveries += 1
+            if (!element.paused && !element.ended) element.pause()
             nextHls.startLoad(Math.max(0, element.currentTime))
             return
           }
           if (fatalRecoveries < 2 && data.type === HlsRuntime.ErrorTypes.MEDIA_ERROR) {
             fatalRecoveries += 1
+            if (!element.paused && !element.ended) element.pause()
             nextHls.recoverMediaError()
             return
           }
@@ -198,6 +200,10 @@ export function createDvrPlaybackService(
   const recover = () => {
     const element = video.value
     if (!element || !activeWindow.value || !hls) return false
+    // A recovery must never leave the old MSE frame running while the loader
+    // looks for the requested range. Otherwise hls.js/browser gap handling can
+    // continue from a different buffered range and desynchronise the cursor.
+    if (!element.paused && !element.ended) element.pause()
     hls.startLoad(Math.max(0, element.currentTime))
     return true
   }

@@ -193,6 +193,7 @@ export async function createMediaComposition() {
         ? { youtubePotProviderUrl: config.YOUTUBE_POT_PROVIDER_URL }
         : {}),
       youtubeVodExtractorArgs: config.YOUTUBE_VOD_EXTRACTOR_ARGS,
+      youtubeVodFallbackExtractorArgs: config.YOUTUBE_VOD_FALLBACK_EXTRACTOR_ARGS,
       youtubeVodFormat: config.YOUTUBE_VOD_FORMAT,
       youtubeVodUseCookies: config.YOUTUBE_VOD_USE_COOKIES,
       ytDlpCommand: config.YT_DLP_COMMAND,

@@ -271,6 +271,7 @@ services:
       YOUTUBE_POT_PROVIDER_URL: http://bgutil-provider:4416
       YOUTUBE_VOD_USE_COOKIES: ${YOUTUBE_VOD_USE_COOKIES:-false}
       YOUTUBE_VOD_EXTRACTOR_ARGS: ${YOUTUBE_VOD_EXTRACTOR_ARGS:-youtube:player_client=mweb}
+      YOUTUBE_VOD_FALLBACK_EXTRACTOR_ARGS: ${YOUTUBE_VOD_FALLBACK_EXTRACTOR_ARGS:-youtube:player_client=web_embedded}
       YOUTUBE_VOD_FORMAT: ${YOUTUBE_VOD_FORMAT:-bestvideo[protocol^=http][height=1080][fps>=59][fps<=61][vcodec^=avc]+bestaudio[protocol^=http][acodec^=mp4a]/bestvideo[protocol^=http][height=1080][vcodec^=avc]+bestaudio[protocol^=http][acodec^=mp4a]/bestvideo[height=1080][vcodec^=avc]+bestaudio[acodec^=mp4a]/best[height=1080][vcodec^=avc][acodec!=none]/bestvideo[protocol^=http][height<=1080][vcodec^=avc]+bestaudio[protocol^=http][acodec^=mp4a]/bestvideo[height<=1080][vcodec^=avc]+bestaudio[acodec^=mp4a]/best[height<=1080][vcodec^=avc][acodec!=none]}
     volumes:
       - ${MEDIA_IMPORT_HOST_PATH:-${DEV_DATA_ROOT:-../.data/runtime}/media-imports}:/var/lib/volleyball/media-imports
