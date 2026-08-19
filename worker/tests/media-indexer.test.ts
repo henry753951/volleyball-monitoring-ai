@@ -3,6 +3,7 @@ import {
   assignQueuedIngestGroups,
   MEDIA_INGEST_QUEUE,
   quarantineBlockedCaptureJobs,
+  quarantineFailedIngestGroups,
   quarantinePermanentMediaFailures,
   reconcilePermanentMediaFailures,
   type MediaIngestEnvelope,
@@ -199,5 +200,27 @@ describe('media ingest capture groups', () => {
 
     await expect(assignQueuedIngestGroups(boss)).resolves.toBe(2)
     expect(updates).toEqual(['capture-a', 'capture-c'])
+  })
+
+  it('cancels queued jobs behind a failed capture after restart', async () => {
+    const cancelled: string[][] = []
+    const boss = {
+      findJobs: async (_name: string, options?: { key?: string }) =>
+        options?.key === 'capture-a'
+          ? [{ id: 'job-a-2' }]
+          : options
+            ? []
+            : [
+                { state: 'failed', singletonKey: 'capture-a' },
+                { state: 'created', singletonKey: 'capture-a' },
+              ],
+      cancel: async (_name: string, ids: string | string[]) => {
+        cancelled.push(Array.isArray(ids) ? ids : [ids])
+        return {}
+      },
+    } as unknown as Pick<PgBoss, 'cancel' | 'findJobs'>
+
+    await expect(quarantineFailedIngestGroups(boss)).resolves.toBe(1)
+    expect(cancelled).toEqual([['job-a-2']])
   })
 })
