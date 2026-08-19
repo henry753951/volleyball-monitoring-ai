@@ -8,6 +8,8 @@ import { createWorkstationFeedbackService } from './workstation-feedback.service
 function setup(
   options: {
     currentSet?: { id: string; set_number?: number }
+    effectiveSetNumberFor?: (rawSetNumber: number) => number
+    currentEffectiveSetNumber?: number | null
     selectedSubmissionId?: string | null
     sideSwapTarget?: SideSwapTarget | null
   } = {},
@@ -60,6 +62,9 @@ function setup(
     currentDraft: () => true,
     sideSwapEffectiveOrdinal: () => 5,
     sideSwapTarget: () => options.sideSwapTarget ?? null,
+    effectiveSetNumberFor: options.effectiveSetNumberFor ?? (rawSetNumber => rawSetNumber),
+    currentEffectiveSetNumber: () =>
+      options.currentEffectiveSetNumber ?? options.currentSet?.set_number ?? 1,
     displayOrdinalFor: () => 106,
     selectedRallyId: () => 'rally-1',
     selectedSubmissionId: () => options.selectedSubmissionId ?? null,
@@ -256,6 +261,33 @@ describe('segment management service', () => {
       },
     })
 
+    const result = await context.actions.execute('segment.start-next-set', 'right')
+    expect(result.status).toBe('executed')
+    await context.confirmation.confirm()
+    expect(context.core.startNextSet).toHaveBeenCalledWith({
+      effectiveFromRallyId: 'rally-1',
+      matchId: 'match-1',
+      winningTeamId: 'right',
+    })
+    context.service.dispose()
+  })
+
+  it('allows a winner action inside a logical set merged from raw sets', async () => {
+    const context = setup({
+      currentSet: { id: 'set-4', set_number: 4 },
+      currentEffectiveSetNumber: 1,
+      effectiveSetNumberFor: rawSetNumber => (rawSetNumber <= 4 ? 1 : rawSetNumber),
+      sideSwapTarget: {
+        displaySetNumber: 1,
+        effectiveFromRallyOrdinal: 46,
+        expectedLeftTeamId: 'left',
+        expectedRightTeamId: 'right',
+        isDraft: false,
+        label: '第 46 回合起',
+        rallyId: 'rally-1',
+        setId: 'set-2',
+      },
+    })
     const result = await context.actions.execute('segment.start-next-set', 'right')
     expect(result.status).toBe('executed')
     await context.confirmation.confirm()

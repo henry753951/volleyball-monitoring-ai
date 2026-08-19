@@ -12,6 +12,12 @@ import {
 } from '../media/clip-timing-coverage.js'
 import type { MediaObjectReader } from '../media/playback-domain.js'
 import { resolveEffectiveContactFrame } from './effective-contact-frame.js'
+import { deriveEffectiveSetNumberMap } from './set-display-projection.js'
+
+export {
+  deriveEffectiveSetNumberMap,
+  type SetDisplayProjectionInput,
+} from './set-display-projection.js'
 
 interface CoachDashboardDependencies {
   timingManifestReader?: MediaObjectReader
@@ -309,6 +315,9 @@ export async function getCoachMatchState(
       },
     },
   })
+  const effectiveSetNumberByRawSetNumber = deriveEffectiveSetNumberMap(match.sets)
+  const effectiveSetNumberFor = (displaySetNumber: number) =>
+    effectiveSetNumberByRawSetNumber.get(displaySetNumber) ?? displaySetNumber
   // The set is persisted because it is an editorial decision. The ordinal is
   // a view over capture order and must never depend on a stale database value.
   // A correction draft replaces the same rally's submitted geometry while it
@@ -320,7 +329,7 @@ export async function getCoachMatchState(
         [
           rally.id,
           {
-            displaySetNumber: rally.displaySetNumber,
+            displaySetNumber: effectiveSetNumberFor(rally.displaySetNumber),
             id: rally.id,
             startCaptureTimeUs: segmentStartCaptureTimeUs(rally.activeSubmission),
           },
@@ -330,7 +339,7 @@ export async function getCoachMatchState(
   )
   for (const draft of drafts) {
     displayOrderByRallyId.set(draft.id, {
-      displaySetNumber: draft.displaySetNumber,
+      displaySetNumber: effectiveSetNumberFor(draft.displaySetNumber),
       id: draft.id,
       startCaptureTimeUs: segmentStartCaptureTimeUs(draft),
     })
@@ -434,11 +443,13 @@ export async function getCoachMatchState(
   >()
   for (const rally of [...match.rallies].sort(
     (left, right) =>
-      left.displaySetNumber - right.displaySetNumber ||
+      effectiveSetNumberFor(left.displaySetNumber) -
+        effectiveSetNumberFor(right.displaySetNumber) ||
       (displayOrdinalByRallyId.get(left.id) ?? 1) - (displayOrdinalByRallyId.get(right.id) ?? 1) ||
       left.id.localeCompare(right.id),
   )) {
-    const teamScore = scoreByDisplaySet.get(rally.displaySetNumber) ?? new Map<string, number>()
+    const effectiveSetNumber = effectiveSetNumberFor(rally.displaySetNumber)
+    const teamScore = scoreByDisplaySet.get(effectiveSetNumber) ?? new Map<string, number>()
     const submission = rally.activeSubmission
     const projection = rallyProjection(rally)
     const scoringTeamId = projection.scoringTeamId
@@ -453,7 +464,7 @@ export async function getCoachMatchState(
     if (submission?.scoreResolutionState === 'RESOLVED' && scoringTeamId) {
       teamScore.set(scoringTeamId, (teamScore.get(scoringTeamId) ?? 0) + 1)
     }
-    scoreByDisplaySet.set(rally.displaySetNumber, teamScore)
+    scoreByDisplaySet.set(effectiveSetNumber, teamScore)
     runningScoreByRallyId.set(rally.id, {
       left: submission ? (teamScore.get(projection.leftTeamId) ?? 0) : 0,
       right: submission ? (teamScore.get(projection.rightTeamId) ?? 0) : 0,
@@ -461,7 +472,8 @@ export async function getCoachMatchState(
     })
   }
   const dynamicSetScore = (set: (typeof match.sets)[number]) => {
-    const teamScores = scoreByDisplaySet.get(set.setNumber) ?? new Map<string, number>()
+    const teamScores =
+      scoreByDisplaySet.get(effectiveSetNumberFor(set.setNumber)) ?? new Map<string, number>()
     const assignment = set.sideAssignments[0]
     return {
       left: assignment ? (teamScores.get(assignment.leftTeamId) ?? 0) : 0,

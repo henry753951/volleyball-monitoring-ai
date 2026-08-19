@@ -366,8 +366,30 @@ export async function startNextSet(
     if (!assignment)
       domainError('Current set has no court-side assignment', 'INTERNAL_SERVER_ERROR')
     if (effectiveFromRallyId) {
+      // A removed winner is a logical merge, not a physical rollback. Older
+      // raw MatchSet rows can therefore be FINISHED without a winner while
+      // their rallies are still displayed as one current set. Resolve the
+      // whole winner-less raw range before applying the new boundary.
+      const previousWinner = await tx.matchSet.findFirst({
+        orderBy: [{ setNumber: 'desc' }, { id: 'desc' }],
+        where: { matchId, winningTeamId: { not: null } },
+        select: { setNumber: true },
+      })
+      const logicalSetStart = (previousWinner?.setNumber ?? 0) + 1
+      const logicalSetRows = await tx.matchSet.findMany({
+        orderBy: [{ setNumber: 'asc' }, { id: 'asc' }],
+        where: {
+          matchId,
+          setNumber: { gte: logicalSetStart, lte: current.setNumber },
+        },
+        select: { id: true },
+      })
       const placementRows = await tx.rally.findMany({
-        where: { matchId, displaySetNumber: current.setNumber, voidedAt: null },
+        where: {
+          matchId,
+          setId: { in: logicalSetRows.map(row => row.id) },
+          voidedAt: null,
+        },
         select: {
           id: true,
           boundaries: {

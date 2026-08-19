@@ -222,6 +222,7 @@ export const providerWorkWebSocketRoutes =
         let capabilities: ProviderWorkCapabilities | null = null
         let ticking = false
         let lastHeartbeatAt = Date.now()
+        let lastTransportPingAt: number | null = null
         const committedSent = new Set<string>()
         const abortSent = new Set<string>()
         const send = (message: ProviderWorkServerMessage) => {
@@ -229,6 +230,33 @@ export const providerWorkWebSocketRoutes =
         }
         const protocolError = (code: string, message: string, retryable = false) =>
           send({ schema_version: '2.0.0', type: 'protocol_error', code, message, retryable })
+
+        const transportPingTimer = setInterval(() => {
+          if (socket.readyState !== 1) return
+          const sentAt = Date.now()
+          lastTransportPingAt = sentAt
+          socket.ping()
+          if (instanceId)
+            void database.aiProviderInstance
+              .updateMany({
+                where: { id: instanceId },
+                data: { lastPingAt: new Date(sentAt) },
+              })
+              .catch(error => app.log.warn({ error }, 'Provider transport ping timestamp failed'))
+        }, heartbeatIntervalSeconds * 1_000)
+
+        socket.on('pong', () => {
+          if (!instanceId) return
+          const receivedAt = Date.now()
+          const latencyMs =
+            lastTransportPingAt === null ? null : Math.max(0, receivedAt - lastTransportPingAt)
+          void database.aiProviderInstance
+            .updateMany({
+              where: { id: instanceId },
+              data: { lastPongAt: new Date(receivedAt), latencyMs },
+            })
+            .catch(error => app.log.warn({ error }, 'Provider transport pong timestamp failed'))
+        })
 
         const activeMatches = async (active: ProviderActiveWork) => {
           if (!instanceId) return null
@@ -641,6 +669,7 @@ export const providerWorkWebSocketRoutes =
         )
         socket.once('close', () => {
           clearInterval(timer)
+          clearInterval(transportPingTimer)
           if (instanceId)
             void database.aiProviderInstance.updateMany({
               where: { id: instanceId },

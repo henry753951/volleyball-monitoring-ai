@@ -134,7 +134,7 @@ const selectedTracks = computed(() => {
   if (viewMode.value === 'teams') return selectedTeamTracks.value
   return selectedLocalTrack.value ? [selectedLocalTrack.value] : []
 })
-const eventState = useCoachTrackEvents(selectedTracks)
+const eventState = useCoachTrackEvents(selectedTracks, () => analytics.value?.action_events ?? [])
 const selectedReplay = computed(() =>
   selectedLocalTrack.value
     ? (eventState.replays.get(selectedLocalTrack.value.rally_id) ?? null)
@@ -238,6 +238,10 @@ const filteredEvents = computed(() =>
     ? eventState.events.value
     : eventState.events.value.filter(event => event.actionKey === selectedActionKey.value),
 )
+watch(filteredEvents, value => {
+  if (selectedActionEvent.value && !value.some(event => event.id === selectedActionEvent.value?.id))
+    selectedActionEvent.value = null
+})
 const outcomeSummary = computed(() => actionOutcomeRate(filteredEvents.value))
 const selectedRouteCount = computed(
   () =>
@@ -769,6 +773,7 @@ function teamActionCounts(teamId: string) {
                 :label="selectedActionLabel"
                 :side-labels="routeMapSideLabels"
                 :selected-side="selectedSubjectSide"
+                :selected-event-id="selectedActionEvent?.id ?? null"
                 @select="openActionReplay"
               />
             </div>
@@ -787,6 +792,10 @@ function teamActionCounts(teamId: string) {
                     v-for="event in filteredEvents"
                     :key="event.id"
                     type="button"
+                    :class="{
+                      'is-selected': selectedActionEvent?.id === event.id,
+                      'is-faded': selectedActionEvent && selectedActionEvent.id !== event.id,
+                    }"
                     @click="openActionReplay(event)"
                   >
                     <i :style="{ background: actionColor(event.actionKey) }" />
@@ -1601,6 +1610,13 @@ function teamActionCounts(teamId: string) {
 }
 .action-records__list button:hover {
   background: #f2f5f8;
+}
+.action-records__list button.is-selected {
+  background: #e9f3ff;
+  box-shadow: inset 3px 0 0 #0875dd;
+}
+.action-records__list button.is-faded {
+  opacity: 0.42;
 }
 .action-records__list button:focus-visible {
   outline: 2px solid #0875dd;

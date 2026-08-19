@@ -1,12 +1,16 @@
 <script setup lang="ts">
 import { AlertTriangle, ArrowUpRight, CircleDot, RefreshCw } from 'lucide-vue-next'
-import { activeAiWorkForDashboard } from '~/lib/operationsMonitor'
+import { activeAiWorkForDashboard, activeProviderWorkForDashboard } from '~/lib/operationsMonitor'
 
 definePageMeta({ layout: 'control' })
 
 const monitor = useOperationsMonitor()
 const jobs = computed(() => monitor.snapshot.value?.operations.aiWork ?? [])
+const providerWork = computed(() => monitor.snapshot.value?.operations.providerWork ?? [])
 const activeCount = computed(() => activeAiWorkForDashboard(jobs.value).length)
+const activeProviderCount = computed(
+  () => activeProviderWorkForDashboard(providerWork.value).length,
+)
 const generatedAt = computed(() => monitor.snapshot.value?.operations.generatedAt ?? null)
 
 function statusLabel(value: string) {
@@ -36,6 +40,16 @@ function stageLabel(value: string | null) {
     reidentification: '身份合併',
   }
   return labels[value] ?? value.replaceAll('_', ' ')
+}
+
+function workKindLabel(value: string) {
+  const labels: Record<string, string> = {
+    ANALYSIS: '分析推論',
+    IDENTITY_PREVIEW_GENERATION: '身份預覽',
+    REID_ASSOCIATION: 'ReID 關聯',
+    REID_FEATURE_EXTRACTION: 'ReID 特徵',
+  }
+  return labels[value.toUpperCase()] ?? value.replaceAll('_', ' ')
 }
 
 function formatTime(value: string | null) {
@@ -89,9 +103,11 @@ function progress(job: { progress: number | null; status: string }) {
     <div class="jobs-content">
       <div class="jobs-summary">
         <div>
-          <strong>近期作業</strong><span>{{ jobs.length }} 筆紀錄</span>
+          <strong>Worker queue</strong><span>{{ providerWork.length }} 筆實際工作</span>
         </div>
-        <div class="active-summary"><i />{{ activeCount }} 筆處理中</div>
+        <div class="active-summary">
+          <i />{{ activeProviderCount }} 筆處理中 · AI lifecycle {{ activeCount }} 筆
+        </div>
       </div>
 
       <div class="job-history" role="table" aria-label="AI 作業紀錄">
@@ -104,11 +120,48 @@ function progress(job: { progress: number | null; status: string }) {
           <span aria-hidden="true" />
         </div>
 
-        <div v-if="!jobs.length && !monitor.pending.value" class="job-history__empty">
+        <div
+          v-if="!providerWork.length && !jobs.length && !monitor.pending.value"
+          class="job-history__empty"
+        >
           <CircleDot :size="19" />
-          <strong>目前沒有 AI 作業紀錄</strong>
-          <span>送出片段後，處理狀態會出現在這裡。</span>
+          <strong>目前沒有 Worker 作業</strong>
+          <span>送出片段後，實際 provider queue 會出現在這裡。</span>
         </div>
+
+        <div
+          v-for="job in providerWork"
+          :key="`provider:${job.id}`"
+          class="job-row job-row--provider"
+          role="row"
+        >
+          <div class="job-identity" role="cell">
+            <strong>{{ job.matchTitle ?? '系統工作' }}</strong>
+            <span
+              >{{ workKindLabel(job.workKind) }} ·
+              {{ job.rallyId ? `回合 ${job.rallyId.slice(0, 8)}` : '未綁定回合' }}</span
+            >
+          </div>
+          <span class="job-state" :class="job.status.toLowerCase()" role="cell"
+            ><i />{{ statusLabel(job.status) }}</span
+          >
+          <span class="job-worker" role="cell">{{ job.workerInstanceKey || '等待分配' }}</span>
+          <div class="job-progress" role="cell">
+            <span><i :style="{ width: `${progress(job)}%` }" /></span>
+            <b>{{ progress(job) }}%</b>
+          </div>
+          <time :datetime="job.updatedAt" role="cell">{{ formatTime(job.updatedAt) }}</time>
+          <NuxtLink
+            v-if="job.matchId"
+            :to="`/annotate/${job.matchId}`"
+            :aria-label="`開啟 ${job.matchTitle ?? '場次'}`"
+            role="cell"
+            ><ArrowUpRight :size="15"
+          /></NuxtLink>
+          <span v-else aria-hidden="true" />
+        </div>
+
+        <div v-if="jobs.length" class="queue-subheading">AI lifecycle（提交與分析狀態）</div>
 
         <div v-for="job in jobs" :key="job.id" class="job-row" role="row">
           <div class="job-identity" role="cell">
@@ -284,6 +337,16 @@ function progress(job: { progress: number | null; status: string }) {
   min-height: 38px;
   color: #858589;
   font-size: 0.52rem;
+}
+.queue-subheading {
+  padding: 13px 0 8px;
+  border-top: 1px solid #303033;
+  color: #858589;
+  font-size: 0.52rem;
+  letter-spacing: 0.04em;
+}
+.job-row--provider {
+  background: #191f1d;
 }
 .job-row {
   min-height: 68px;

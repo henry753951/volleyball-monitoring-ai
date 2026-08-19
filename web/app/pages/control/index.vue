@@ -120,6 +120,7 @@ const onlineWorkerCount = computed(
 const aiWorkerAccess = computed(() => monitor.snapshot.value?.operations.aiWorkerAccess ?? null)
 const aiWorkerTokens = computed(() => aiWorkerAccess.value?.tokens ?? [])
 const aiWork = computed(() => monitor.snapshot.value?.operations.aiWork ?? [])
+const providerWork = computed(() => monitor.snapshot.value?.operations.providerWork ?? [])
 const deployment = computed(() => monitor.snapshot.value?.operations.deployment ?? null)
 const activeAiWork = computed(() => activeAiWorkForDashboard(aiWork.value))
 const visibleMatchIds = computed(() => new Set(matchesState.matches.value.map(match => match.id)))
@@ -609,6 +610,7 @@ onBeforeUnmount(() => {
         :tokens="aiWorkerTokens"
         :workers="aiWorkers"
         :work="aiWork"
+        :provider-work="providerWork"
         @copy="copy"
         @create-token="openTokenCreate"
         @delete-token="openTokenDelete"

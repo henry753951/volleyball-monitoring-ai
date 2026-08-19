@@ -5,6 +5,7 @@ import {
   coachRallyPathCount,
   coachRallyTrackCount,
 } from '~/utils/coachPresentation'
+import { deriveSetDisplayProjection } from '~/utils/setDisplayProjection'
 
 const route = useRoute()
 const matchId = computed(() => String(route.params.matchId))
@@ -15,17 +16,35 @@ const teamById = computed(() => new Map((match.value?.teams ?? []).map(team => [
 const completedRallies = computed(() =>
   (match.value?.rallies ?? []).filter(rally => rally.submission.analysis?.status === 'completed'),
 )
+const setProjection = computed(() =>
+  deriveSetDisplayProjection(
+    (match.value?.sets ?? []).map(set => ({
+      id: set.id,
+      set_number: set.set_number,
+      winning_team_id: set.winning_team_id,
+      status: set.status,
+    })),
+  ),
+)
+const displaySetNumberFor = (setNumber: number) =>
+  setProjection.value.rawToEffective.get(setNumber) ?? setNumber
 const setTabs = computed(() => [
   { value: 'all', label: '全部', count: completedRallies.value.length },
-  ...(match.value?.sets ?? []).map(set => ({
-    value: String(set.set_number),
-    label: `第 ${set.set_number} 局`,
-    count: completedRallies.value.filter(rally => rally.set_number === set.set_number).length,
-  })),
+  ...[...new Set((match.value?.sets ?? []).map(set => displaySetNumberFor(set.set_number)))].map(
+    setNumber => ({
+      value: String(setNumber),
+      label: `第 ${setNumber} 局`,
+      count: completedRallies.value.filter(
+        rally => displaySetNumberFor(rally.set_number) === setNumber,
+      ).length,
+    }),
+  ),
 ])
 const rallies = computed(() =>
   completedRallies.value.filter(
-    rally => selectedSet.value === 'all' || rally.set_number === Number(selectedSet.value),
+    rally =>
+      selectedSet.value === 'all' ||
+      displaySetNumberFor(rally.set_number) === Number(selectedSet.value),
   ),
 )
 
@@ -79,7 +98,7 @@ function submittedTime(value: string) {
             <div class="rally-primary">
               <strong>回合 {{ rally.ordinal }}</strong>
               <small
-                >第 {{ rally.set_number }} 局 ·
+                >第 {{ displaySetNumberFor(rally.set_number) }} 局 ·
                 {{ submittedTime(rally.submission.submitted_at) }}</small
               >
             </div>

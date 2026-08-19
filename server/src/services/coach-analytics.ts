@@ -7,6 +7,7 @@ import {
   ReidIdentityLedgerError,
   swapVersionedGidRosterBindings,
 } from './reid-identity-ledger.js'
+import { deriveEffectiveSetNumberMap } from './set-display-projection.js'
 
 const quality = (entries: Iterable<string>) => {
   const counts: Record<string, number> = {}
@@ -171,6 +172,7 @@ const coachAnalysisRunSelect = {
       sequenceIndex: true,
       anchorFrameIndex: true,
       resolvedFrameIndex: true,
+      anchorTimeUs: true,
       associationState: true,
       qualityFlags: true,
       representativePositions: { select: { trackId: true, courtX: true, courtY: true } },
@@ -185,7 +187,16 @@ const coachAnalysisRunSelect = {
       },
     },
   },
-  segments: { select: { renderState: true } },
+  segments: {
+    select: {
+      renderState: true,
+      startKeyPointId: true,
+      endKeyPointId: true,
+      positions: {
+        select: { endpoint: true, trackId: true, courtX: true, courtY: true },
+      },
+    },
+  },
 } satisfies Prisma.AnalysisRunSelect
 
 export async function getCoachMatchAnalytics(
@@ -201,6 +212,10 @@ export async function getCoachMatchAnalytics(
       id: true,
       title: true,
       identityRevision: true,
+      sets: {
+        orderBy: { setNumber: 'asc' },
+        select: { setNumber: true, status: true, winningTeamId: true },
+      },
       matchTeams: { select: { team: { select: { id: true, name: true, shortName: true } } } },
       rosterEntries: {
         where: { active: true },
@@ -264,6 +279,9 @@ export async function getCoachMatchAnalytics(
     },
   })
   if (!match) return null
+  const effectiveSetNumberByRawSetNumber = deriveEffectiveSetNumberMap(match.sets)
+  const effectiveSetNumberFor = (rawSetNumber: number) =>
+    effectiveSetNumberByRawSetNumber.get(rawSetNumber) ?? rawSetNumber
   const teams = match.matchTeams.map(entry => entry.team)
   const rallies = match.rallies.flatMap(rally =>
     rally.activeSubmission ? [{ ...rally, submission: rally.activeSubmission }] : [],
@@ -439,7 +457,7 @@ export async function getCoachMatchAnalytics(
       return (rally.submission.ballEvents ?? []).map(event => ({
         ...event,
         rallyId: rally.id,
-        setNumber: rally.set.setNumber,
+        setNumber: effectiveSetNumberFor(rally.set.setNumber),
         submission: rally.submission,
       }))
     return effectiveEvents.map((sourceEvent, index) => {
@@ -457,11 +475,12 @@ export async function getCoachMatchAnalytics(
           explicit?.result ??
           (index === 0 && effectiveEvents.length > 1 ? ('SUCCESS' as const) : null),
         actorRosterEntryId: explicit?.actorRosterEntryId ?? null,
+        submissionKeyPointId: explicit?.submissionKeyPointId ?? null,
         submissionKeyPoint: explicit?.submissionKeyPoint ?? {
           captureTimeUs: sourceEvent.frameIndex,
         },
         rallyId: rally.id,
-        setNumber: rally.set.setNumber,
+        setNumber: effectiveSetNumberFor(rally.set.setNumber),
         submission: rally.submission,
       }
     })
@@ -492,10 +511,77 @@ export async function getCoachMatchAnalytics(
           analysis_run_id: entry.run.id,
           track_id: track.trackId,
           rally_id: entry.rally.id,
-          set_number: entry.rally.set.setNumber,
+          set_number: effectiveSetNumberFor(entry.rally.set.setNumber),
           rally_ordinal: entry.rally.ordinal,
         })
     }
+  const rallyById = new Map(rallies.map(rally => [rally.id, rally]))
+  const pathPosition = (
+    positions: Array<{ trackId: number | null; courtX: number; courtY: number }>,
+    trackId: number | null,
+  ) =>
+    positions.find(position => position.trackId === trackId) ??
+    positions.find(position => position.trackId === null) ??
+    positions[0] ??
+    null
+  const actionEvents = humanBallEvents.map(event => {
+    const rally = rallyById.get(event.rallyId)
+    const analysis = analyzed.find(candidate => candidate.rally.id === event.rallyId)
+    const sourceEvent = events.find(
+      candidate =>
+        candidate.rallyId === event.rallyId && candidate.sequenceIndex === event.ordinal - 1,
+    )
+    const inferredTrackId = sourceEvent?.actors[0]?.trackId ?? null
+    const rosterEntryId =
+      event.actorRosterEntryId ??
+      (analysis && inferredTrackId !== null
+        ? (trackAssignments.get(`${analysis.run.id}:${inferredTrackId}`) ?? null)
+        : null)
+    const trackId = sourceEvent?.actors[0]?.trackId ?? null
+    const submissionKeyPointId = event.submissionKeyPointId ?? null
+    const path = analysis?.run.segments.find(segment =>
+      [sourceEvent?.keyPointId, submissionKeyPointId].includes(segment.startKeyPointId),
+    )
+    const startPosition = path
+      ? pathPosition(
+          path.positions.filter(position => position.endpoint === 'START'),
+          trackId,
+        )
+      : null
+    const endPosition = path
+      ? pathPosition(
+          path.positions.filter(position => position.endpoint === 'END'),
+          trackId,
+        )
+      : null
+    const actionKey = event.kind.toLowerCase() === 'contact' ? 'hit' : event.kind.toLowerCase()
+    const sourceAnchorTimeUs =
+      sourceEvent && 'anchorTimeUs' in sourceEvent ? sourceEvent.anchorTimeUs : null
+    return {
+      id: `ball:${event.rallyId}:${event.ordinal}`,
+      rally_id: event.rallyId,
+      set_number: effectiveSetNumberFor(event.setNumber),
+      rally_ordinal: rally?.ordinal ?? 0,
+      analysis_run_id: analysis?.run.id ?? null,
+      track_id: trackId,
+      roster_entry_id: rosterEntryId,
+      anchor_time_us:
+        sourceAnchorTimeUs?.toString() ?? event.submissionKeyPoint.captureTimeUs.toString(),
+      action_key: actionKey,
+      action_label: actionKey === 'hit' ? 'HIT' : actionKey.toUpperCase(),
+      action_confidence: sourceEvent?.actors[0]?.associationConfidence ?? null,
+      result_key: event.result?.toLowerCase() ?? null,
+      route_start: startPosition ? { x: startPosition.courtX, y: startPosition.courtY } : null,
+      route_end: endPosition ? { x: endPosition.courtX, y: endPosition.courtY } : null,
+      court_side:
+        analysis && trackId !== null
+          ? (analysis.run.tracks
+              .find(track => track.trackId === trackId)
+              ?.courtSide.toLowerCase() ?? null)
+          : null,
+      outcome: event.result === 'SUCCESS' ? 'won' : event.result === 'FAILURE' ? 'lost' : 'unknown',
+    }
+  })
   const playerContacts = new Map<string, number>()
   const playerRallies = new Map<string, Set<string>>()
   const playerActions = new Map<string, Record<string, number>>()
@@ -538,7 +624,7 @@ export async function getCoachMatchAnalytics(
         x: flip ? 1 - position.courtX : position.courtX,
         y: flip ? 1 - position.courtY : position.courtY,
         rally_id: event.rallyId,
-        set_number: event.setNumber,
+        set_number: effectiveSetNumberFor(event.setNumber),
         action: category,
       })
       playerHeatmaps.set(rosterId, samples)
@@ -662,26 +748,31 @@ export async function getCoachMatchAnalytics(
         sample_count: resolvedRallies.length,
       }
     }),
-    sets: [...new Set(rallies.map(rally => rally.set.setNumber))].map(setNumber => {
-      const items = rallies.filter(rally => rally.set.setNumber === setNumber)
-      return {
-        set_number: setNumber,
-        rally_count: items.length,
-        resolved_count: items.filter(rally => rally.submission.scoreResolutionState === 'RESOLVED')
-          .length,
-        unknown_count: items.filter(rally => rally.submission.scoreResolutionState !== 'RESOLVED')
-          .length,
-        team_points: Object.fromEntries(
-          teams.map(team => [
-            team.id,
-            items.filter(rally => rally.submission.scoringTeamId === team.id).length,
-          ]),
-        ),
-      }
-    }),
+    sets: [...new Set(rallies.map(rally => effectiveSetNumberFor(rally.set.setNumber)))].map(
+      setNumber => {
+        const items = rallies.filter(
+          rally => effectiveSetNumberFor(rally.set.setNumber) === setNumber,
+        )
+        return {
+          set_number: setNumber,
+          rally_count: items.length,
+          resolved_count: items.filter(
+            rally => rally.submission.scoreResolutionState === 'RESOLVED',
+          ).length,
+          unknown_count: items.filter(rally => rally.submission.scoreResolutionState !== 'RESOLVED')
+            .length,
+          team_points: Object.fromEntries(
+            teams.map(team => [
+              team.id,
+              items.filter(rally => rally.submission.scoringTeamId === team.id).length,
+            ]),
+          ),
+        }
+      },
+    ),
     rallies: rallies.map(rally => ({
       id: rally.id,
-      set_number: rally.set.setNumber,
+      set_number: effectiveSetNumberFor(rally.set.setNumber),
       ordinal: rally.ordinal,
       score_resolution: rally.submission.scoreResolutionState.toLowerCase(),
       scoring_team_id: rally.submission.scoringTeamId,
@@ -715,7 +806,7 @@ export async function getCoachMatchAnalytics(
         return {
           analysis_run_id: entry.run.id,
           rally_id: entry.rally.id,
-          set_number: entry.rally.set.setNumber,
+          set_number: effectiveSetNumberFor(entry.rally.set.setNumber),
           rally_ordinal: entry.rally.ordinal,
           track_id: track.trackId,
           court_side: track.courtSide.toLowerCase(),
@@ -752,6 +843,7 @@ export async function getCoachMatchAnalytics(
       }),
     ),
     unassigned_tracks: unassignedTracks,
+    action_events: actionEvents,
   }
 }
 

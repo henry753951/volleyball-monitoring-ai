@@ -15,6 +15,7 @@ import type {
   AiWorkerSnapshot,
   AiWorkerTokenSnapshot,
   AiWorkSnapshot,
+  ProviderWorkSnapshot,
 } from '~/lib/operationsMonitor'
 
 const props = defineProps<{
@@ -23,6 +24,7 @@ const props = defineProps<{
   tokens: readonly DeepReadonly<AiWorkerTokenSnapshot>[]
   workers: readonly DeepReadonly<AiWorkerSnapshot>[]
   work: readonly DeepReadonly<AiWorkSnapshot>[]
+  providerWork: readonly DeepReadonly<ProviderWorkSnapshot>[]
 }>()
 
 const emit = defineEmits<{
@@ -57,6 +59,26 @@ function currentWork(worker: DeepReadonly<AiWorkerSnapshot>) {
         ['QUEUED', 'RUNNING'].includes(job.status.toUpperCase()),
     ) ?? null
   )
+}
+
+function currentProviderWork(worker: DeepReadonly<AiWorkerSnapshot>) {
+  return (
+    props.providerWork.find(
+      job =>
+        job.workerInstanceKey === worker.instanceKey &&
+        ['QUEUED', 'RUNNING'].includes(job.status.toUpperCase()),
+    ) ?? null
+  )
+}
+
+function workKindLabel(value: string) {
+  const labels: Record<string, string> = {
+    ANALYSIS: '分析推論',
+    IDENTITY_PREVIEW_GENERATION: '身份預覽',
+    REID_ASSOCIATION: 'ReID 關聯',
+    REID_FEATURE_EXTRACTION: 'ReID 特徵',
+  }
+  return labels[value.toUpperCase()] ?? value.replaceAll('_', ' ')
 }
 
 function relativeTime(value: string | null) {
@@ -194,7 +216,12 @@ function relativeTime(value: string | null) {
             <small v-if="worker.accelerator" class="worker-hardware"
               >{{ worker.accelerator }} · 模型 {{ worker.modelVersion ?? '未標示' }}</small
             >
-            <small v-if="currentWork(worker)" class="worker-current"
+            <small v-if="currentProviderWork(worker)" class="worker-current"
+              >目前：{{ workKindLabel(currentProviderWork(worker)!.workKind) }} ·
+              {{ currentProviderWork(worker)?.matchTitle ?? '系統工作' }} ·
+              {{ currentProviderWork(worker)?.stage ?? currentProviderWork(worker)?.status }}</small
+            >
+            <small v-else-if="currentWork(worker)" class="worker-current"
               >目前：{{ currentWork(worker)?.matchTitle }} ·
               {{ currentWork(worker)?.stage ?? currentWork(worker)?.status }}</small
             >
@@ -206,7 +233,10 @@ function relativeTime(value: string | null) {
           </div>
           <div class="worker-latency">
             <strong>{{ worker.latencyMs === null ? '—' : `${worker.latencyMs} ms` }}</strong
-            ><small>RTT · pong {{ relativeTime(worker.lastPongAt) }}</small>
+            ><small
+              >RTT · ping {{ relativeTime(worker.lastPingAt) }} · pong
+              {{ relativeTime(worker.lastPongAt) }}</small
+            >
           </div>
           <span class="worker-state" :class="worker.status"
             ><i />{{
