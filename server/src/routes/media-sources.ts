@@ -4,7 +4,7 @@ import { basename, extname, join, resolve } from 'node:path'
 import { pipeline } from 'node:stream/promises'
 import { randomBytes, randomUUID } from 'node:crypto'
 import type { PrismaClient } from '@volleyball-monitoring/db'
-import { UserRole } from '@volleyball-monitoring/db/client'
+import { Prisma, UserRole } from '@volleyball-monitoring/db/client'
 import type { FastifyPluginAsync, FastifyRequest } from 'fastify'
 import { z } from 'zod'
 import type { AnnotationIdentity } from '../services/annotation-command.js'
@@ -36,6 +36,7 @@ type MediaSourceRouteDependencies = {
   authenticate(request: FastifyRequest): Promise<AnnotationIdentity | null>
   database: PrismaClient
   importRoot: string
+  recordingRoot?: string
   scheduleWork?: (database: PrismaClient, request: MediaSourceWorkRequest) => Promise<unknown>
   startCapture?: typeof startCapture
   failCaptureStartup?: typeof failCaptureStartup
@@ -120,6 +121,7 @@ function capturePayload(capture: Awaited<ReturnType<typeof startCapture>>) {
 
 export function mediaSourceRoutes(dependencies: MediaSourceRouteDependencies): FastifyPluginAsync {
   const importRoot = resolve(dependencies.importRoot)
+  const recordingRoot = dependencies.recordingRoot ? resolve(dependencies.recordingRoot) : null
   const createCapture = dependencies.startCapture ?? startCapture
   const failCapture = dependencies.failCaptureStartup ?? failCaptureStartup
   const scheduleWork = dependencies.scheduleWork ?? scheduleMediaSourceWork
@@ -127,6 +129,81 @@ export function mediaSourceRoutes(dependencies: MediaSourceRouteDependencies): F
     dependencies.rtmpPublicUrl ?? process.env.OME_RTMP_PUBLIC_URL ?? 'rtmp://localhost:2035/app',
   )
   return async app => {
+    const retrySource = async (
+      captureSessionId: string,
+      identity: { id: string; role: UserRole },
+      allowedSourceKinds?: string[],
+    ) =>
+      dependencies.database.$transaction(async tx => {
+        await tx.$queryRaw`
+          SELECT pg_advisory_xact_lock(
+            hashtextextended(CAST(${`capture-media:${captureSessionId}`} AS text), 0)
+          )::text AS lock
+        `
+        const capture = await tx.captureSession.findFirst({
+          select: { id: true, status: true, sourceKind: true },
+          where: {
+            id: captureSessionId,
+            ...(allowedSourceKinds ? { sourceKind: { in: allowedSourceKinds } } : {}),
+            match: {
+              deletionRequestedAt: null,
+              ...(identity.role === UserRole.ADMIN
+                ? {}
+                : {
+                    members: {
+                      some: {
+                        userId: identity.id,
+                        role: { in: [UserRole.ADMIN, UserRole.OPERATOR] },
+                      },
+                    },
+                  }),
+            },
+          },
+        })
+        const work = capture
+          ? await tx.mediaSourceWork.findUnique({ where: { captureSessionId: capture.id } })
+          : null
+        if (!capture || !work) return null
+        if (['RUNNING', 'DRAINING', 'STOP_REQUESTED'].includes(work.status))
+          throw new Error('MEDIA_SOURCE_ACTIVE')
+        if (work.status === 'COMPLETED' || capture.status === 'FINISHED')
+          throw new Error('MEDIA_SOURCE_COMPLETED')
+
+        await tx.mediaSourceWork.update({
+          data: {
+            availableAt: new Date(),
+            authMetadata: Prisma.JsonNull,
+            lastErrorCode: null,
+            lastHeartbeatAt: null,
+            leaseExpiresAt: null,
+            leaseOwner: null,
+            status: 'REQUESTED',
+          },
+          where: { id: work.id },
+        })
+        await tx.captureSession.update({
+          data: {
+            completionExpectedSegments: null,
+            completionRequestedAt: null,
+            endedAt: null,
+            health: 'STARTING',
+            sourceOnline: false,
+            startedAt: null,
+            status: 'STARTING',
+          },
+          where: { id: capture.id },
+        })
+        await tx.dvrProgram.updateMany({
+          data: { status: 'STARTING' },
+          where: { captureSessionId: capture.id, status: 'FAILED' },
+        })
+        return {
+          attempt: work.attempts + 1,
+          capture_session_id: capture.id,
+          source_kind: capture.sourceKind,
+        }
+      })
+
     app.get('/api/v1/media-sources/youtube-auth/status', async (request, reply) => {
       const identity = operator(await dependencies.authenticate(request))
       if (!identity) return reply.status(401).send({ code: 'UNAUTHENTICATED' })
@@ -251,70 +328,38 @@ export function mediaSourceRoutes(dependencies: MediaSourceRouteDependencies): F
         .safeParse(request.params)
       if (!params.success) return reply.status(404).send({ code: 'NOT_FOUND' })
       try {
-        const result = await dependencies.database.$transaction(async tx => {
-          await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`capture-media:${params.data.capture_session_id}`}, 0))::text AS lock`
-          const capture = await tx.captureSession.findFirst({
-            select: { id: true, status: true },
-            where: {
-              id: params.data.capture_session_id,
-              sourceKind: { in: ['youtube', 'youtube_live', 'youtube_vod'] },
-              match: {
-                deletionRequestedAt: null,
-                ...(identity.role === UserRole.ADMIN
-                  ? {}
-                  : {
-                      members: {
-                        some: {
-                          userId: identity.id,
-                          role: { in: [UserRole.ADMIN, UserRole.OPERATOR] },
-                        },
-                      },
-                    }),
-              },
-            },
-          })
-          const work = capture
-            ? await tx.mediaSourceWork.findUnique({ where: { captureSessionId: capture.id } })
-            : null
-          if (!capture || !work) return null
-          if (['RUNNING', 'DRAINING'].includes(work.status))
-            throw new Error('YOUTUBE_SOURCE_ACTIVE')
-          if (work.status === 'COMPLETED' || capture.status === 'FINISHED')
-            throw new Error('YOUTUBE_SOURCE_COMPLETED')
-          await tx.mediaSourceWork.update({
-            data: {
-              availableAt: new Date(),
-              lastErrorCode: null,
-              leaseExpiresAt: null,
-              leaseOwner: null,
-              status: 'REQUESTED',
-            },
-            where: { id: work.id },
-          })
-          await tx.captureSession.update({
-            data: {
-              completionExpectedSegments: null,
-              completionRequestedAt: null,
-              endedAt: null,
-              health: 'STARTING',
-              sourceOnline: false,
-              status: 'STARTING',
-            },
-            where: { id: capture.id },
-          })
-          await tx.dvrProgram.updateMany({
-            data: { status: 'STARTING' },
-            where: { captureSessionId: capture.id, status: 'FAILED' },
-          })
-          return { attempt: work.attempts + 1, capture_session_id: capture.id }
-        })
+        const result = await retrySource(params.data.capture_session_id, identity, [
+          'youtube',
+          'youtube_live',
+          'youtube_vod',
+        ])
         if (!result) return reply.status(404).send({ code: 'NOT_FOUND' })
         return reply.status(202).send({ ...result, fresh_resolve: true })
       } catch (error) {
-        if (error instanceof Error && error.message === 'YOUTUBE_SOURCE_ACTIVE')
-          return reply.status(409).send({ code: 'YOUTUBE_SOURCE_ACTIVE' })
-        if (error instanceof Error && error.message === 'YOUTUBE_SOURCE_COMPLETED')
-          return reply.status(409).send({ code: 'YOUTUBE_SOURCE_COMPLETED' })
+        if (error instanceof Error && error.message === 'MEDIA_SOURCE_ACTIVE')
+          return reply.status(409).send({ code: 'MEDIA_SOURCE_ACTIVE' })
+        if (error instanceof Error && error.message === 'MEDIA_SOURCE_COMPLETED')
+          return reply.status(409).send({ code: 'MEDIA_SOURCE_COMPLETED' })
+        throw error
+      }
+    })
+
+    app.post('/api/v1/media-sources/:capture_session_id/retry', async (request, reply) => {
+      const identity = operator(await dependencies.authenticate(request))
+      if (!identity) return reply.status(401).send({ code: 'UNAUTHENTICATED' })
+      const params = z
+        .object({ capture_session_id: z.string().regex(UUID) })
+        .safeParse(request.params)
+      if (!params.success) return reply.status(404).send({ code: 'NOT_FOUND' })
+      try {
+        const result = await retrySource(params.data.capture_session_id, identity)
+        if (!result) return reply.status(404).send({ code: 'NOT_FOUND' })
+        return reply.status(202).send({ ...result, fresh_resolve: true })
+      } catch (error) {
+        if (error instanceof Error && error.message === 'MEDIA_SOURCE_ACTIVE')
+          return reply.status(409).send({ code: 'MEDIA_SOURCE_ACTIVE' })
+        if (error instanceof Error && error.message === 'MEDIA_SOURCE_COMPLETED')
+          return reply.status(409).send({ code: 'MEDIA_SOURCE_COMPLETED' })
         throw error
       }
     })
@@ -335,7 +380,7 @@ export function mediaSourceRoutes(dependencies: MediaSourceRouteDependencies): F
             )::text AS lock
           `
           const capture = await tx.captureSession.findFirst({
-            select: { id: true, status: true, sourceKind: true },
+            select: { id: true, ingestPath: true, status: true, sourceKind: true },
             where: {
               id: params.data.capture_session_id,
               match: {
@@ -385,9 +430,21 @@ export function mediaSourceRoutes(dependencies: MediaSourceRouteDependencies): F
           await tx.dvrProgram.deleteMany({ where: { captureSessionId: capture.id } })
           await tx.captureEpoch.deleteMany({ where: { captureSessionId: capture.id } })
           await tx.captureSession.delete({ where: { id: capture.id } })
-          return { capture_session_id: capture.id, cleared: true, source_kind: capture.sourceKind }
+          return {
+            capture_session_id: capture.id,
+            cleared: true,
+            ingest_path: capture.ingestPath,
+            source_kind: capture.sourceKind,
+          }
         })
         if (!result) return reply.status(404).send({ code: 'NOT_FOUND' })
+        const cleanupPaths = [join(importRoot, result.capture_session_id)]
+        if (recordingRoot) cleanupPaths.push(join(recordingRoot, result.ingest_path))
+        await Promise.all(
+          cleanupPaths.map(path =>
+            rm(path, { force: true, recursive: true }).catch(() => undefined),
+          ),
+        )
         return reply.status(200).send(result)
       } catch (error) {
         if (error instanceof Error && error.message === 'MEDIA_SOURCE_ACTIVE')

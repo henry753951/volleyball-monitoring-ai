@@ -418,7 +418,7 @@ b3713ba8a03b71c778c327a64bbdbca51e66e647c417acf45ff2cb609f4e7fd6  ./server/src/g
 daf55fad91c822857be170cd3d76c6a9170e2ae6df3e9524f6640818f43f310f  ./server/src/graphql/schema.ts
 119bf1c8d1f330c5d8bb2eb48305d226272777138e5bffe24cdf09b1b9cfc502  ./server/src/graphql/types.ts
 ea136aaa6ba07c90b6058404e8e75532dd97cef5078c0c63ea26f7d3b207e642  ./server/src/health/readiness.ts
-defa485e99b177cc0a5a9ea9a2981ee1a618cbef51beca87989bee7c4c26e0a2  ./server/src/index.ts
+cc7eb19bb6363a140a0fc81e97868dd986a18fd7b2fcf3ecf824c5e39f5d9246  ./server/src/index.ts
 3e66f3f7eaa2cc0ed051739c2d0347dd7499accd54d8be51453dca6ed379d4ac  ./server/src/media/analysis-dataset.ts
 c6eedcf30e338a8bc530abd0dd574de6f679427c97d283bcbd252f7ba20aecc6  ./server/src/media/clip-timing-coverage.ts
 1cf2d106aee115e9a764c24285d478364a4470f5978c6e038e3f3946ae0b3d01  ./server/src/media/cursor-resolution.ts
@@ -448,7 +448,7 @@ a1f90a781c2050e0184114dbf4844495dec3ed18b51f2e24662bb2b91ed7787f  ./server/src/r
 023e3cdb191bbc1059849911fae0f43c29db1a50329c2844903248b69b0a4f88  ./server/src/routes/auth.ts
 af6f72a17464a57d4e19838d4c9cce13b015babb1993790cbd00c267e5033d28  ./server/src/routes/coach-highlight-exports.ts
 6e3a88f7311d466dbf147c6c741bbdf5d17bf0b857b2cf1f4b2cf7418c42f28c  ./server/src/routes/media-playback.ts
-c5871d22369a4b5221917693d4a9d0f3fab957beda86ec701bf8963793b83bfe  ./server/src/routes/media-sources.ts
+3f50473c7b472ab6647e2a484e3f9fb83541d5f723f9504973d465cf37eb67ce  ./server/src/routes/media-sources.ts
 700a3130241f7f36130092abbbb68081155ec6aff068f3b3da6df154bd1e9fb9  ./server/src/routes/operations.ts
 6fafacbdfcd314c02386ac790c419023d34f96a0b3253b017879fb5017077f4a  ./server/src/routes/provider-job-callback.ts
 29dc8ee62da32da243cba2f0c90575ba5e1cea4c36a2d392ab96360c6c926812  ./server/src/services/README.md
@@ -549,7 +549,7 @@ f628ffddf4fedbc18d0ac5414028a94f19ee92d12a435458150107d14512157c  ./web/app/comp
 9be6f16c52302d5fa9206bba8a1d87eafbce6283424fc7c19769928b46b10af1  ./web/app/components/AnnotationWorkstationHeader.vue
 da8771b444ef1a9f2fc7b5ee68fb4597514e98cc2394d4a0fb4f3cb71c042e2e  ./web/app/components/AuthSessionButton.vue
 3ff045bdb729356650abda4deb0d5de96533817d6b831a7481a91ae7f41d2d38  ./web/app/components/CaptureControlDialog.component.test.ts
-9c61ff273edec81956f0c6c2997c7e4e0a3fe611799c47f4e223265d30280cce  ./web/app/components/CaptureControlDialog.vue
+c8a469d64bd5359e1b0f4d33db121a1c326a4be24bf46f505b73b8e1396ef1cb  ./web/app/components/CaptureControlDialog.vue
 e58e564652b1e81206444c0f426239a09641f5ec95de64255a7f7fb46cedd350  ./web/app/components/ClipDownloadDialog.component.test.ts
 e8a1ef7506d1db6e108e48db64e5b1b16416be2fab034b8ff326624e360d7634  ./web/app/components/ClipDownloadDialog.vue
 28018e3901182d1837a23f06f3d2ab32910a13d0324c107c2b63222fe0e58b64  ./web/app/components/CoachBallRouteMap.component.test.ts
@@ -583,7 +583,7 @@ a8c416ca6a2defe4d831711978f7eb8e7db137bcdda2c7aa1671abc005c81139  ./web/app/comp
 b5c339c4475d959048391d498665fccd44471a77c90c0cefb0b233fbf4082573  ./web/app/components/control/MatchDeleteDialog.vue
 49bdf5b32ba9808d7bdb3b303e70c19e0a36484bff5b10a6e68873db67655a59  ./web/app/components/control/MatchEditorDialog.vue
 52fb5d5aee5f76d9b50934acc26bd10a7608ba4aeeb21f0c83ef29f90be68ee8  ./web/app/components/control/MatchWorkspaceCard.vue
-2ceacdef8a128585b9f88a4c5b254db89e9950ee42c64bb4253fd636b6b804d8  ./web/app/components/control/MediaDvrMonitorDialog.vue
+73a4136f966e1f9b8c80f0780f229420ebca09db513f0d5ec2945639540d954b  ./web/app/components/control/MediaDvrMonitorDialog.vue
 3d5992e955e8c434bb5fa99245be6c6a18d9cb0bb4d9292bd668e1964e9d8b70  ./web/app/components/control/StorageMeter.component.test.ts
 5934bc8e3c916252084c98ec3931e6597dc5b1753295b0d288957acaee23e5f8  ./web/app/components/control/StorageMeter.vue
 278aed5b3677a03effd7c6d08ed87408de19af46ca92ecc8023a6470b8673ab0  ./web/app/components/ui/AnimatedModal.vue
@@ -657,8 +657,8 @@ a990de4c89d47f8135f7763fa2a49a47e822d7283fe5f2818180ff8e07a04f33  ./web/app/lib/
 a7418adc21794c12c2ae79233ea861f208dcda3a475b98a826cb01afc3df4841  ./web/app/lib/mediaClient.ts
 059fdec5bfca463b6021d12a64d3737c619de114c510d86329a4add411293e77  ./web/app/lib/mediaModel.ts
 adb8dca256284f61ef8e8db8b7994d61155123469769b30a2766b6256d8f8eea  ./web/app/lib/mediaOperationsDiagnostics.ts
-00c9e852bd623c499022c329609f25ee6a819ef10fadb410c3ad7de809233aa4  ./web/app/lib/mediaSourceClient.test.ts
-8f0fa723d60aaf4b1f08439c80f9ce154f42ae78a8cffe803339484e05f38e03  ./web/app/lib/mediaSourceClient.ts
+cd4cef1c3a2f1a884ba8947ddd457520ba4b165045517094ec5e42591f8b89e3  ./web/app/lib/mediaSourceClient.test.ts
+d91720410cd724f5c6ece337999c2725995ae306b8da9fc2fedd2fbc2f3f0441  ./web/app/lib/mediaSourceClient.ts
 18b258c4825a77a8b19f65cfc0ae11d80f9c551a637b32364f9e1dc2ddfbefe2  ./web/app/lib/mediaTimeline.test.ts
 2704180192ee83b8b2351e7dce419d256cd03fa7a56bbc35c066047cfa3816dc  ./web/app/lib/mediaTimeline.ts
 10c5d4632c73e31121216cf7e041083384912ad00cfcaf1e3ab130e0289ce7da  ./web/app/lib/omeLivePlayback.test.ts
@@ -745,8 +745,8 @@ dd87fd52b5fa0b2bdddfcc3a4ffcedcb0517998762d84da363d8d09a8ef6169e  ./web/app/util
 1131ac21bf2c48bacdcbd8374c897823148ab31c01d5f7d7f0e4afd3b32eecf7  ./web/app/utils/annotationOutcome.ts
 20caf2b7d687c1457d3f1890ae34ce51d2afb5a2cbd2d14e9d909a2601d2186d  ./web/app/utils/annotationPolling.test.ts
 838a214d6f27e1a8b256a50c481f4e130d8cd86f93e141eac16bb0aee96a6534  ./web/app/utils/annotationPolling.ts
-e6a1a342abcf207928aa7c71c947175a0a67b1167765b569331be6e9cb08a7f2  ./web/app/utils/authBoundary.test.ts
-e7e4f574901fa35416299cf9607a15e742daa3f1c4817110a0660f642775d6e7  ./web/app/utils/authBoundary.ts
+f4b34d16a8a9f00b4a9d48109bd5e49872b8f7fe3aa392a36fec7f4ca75d5971  ./web/app/utils/authBoundary.test.ts
+9228dbaaa10445c562ad615c8786d0a1a301f8cd6d4c794910453b7344f38872  ./web/app/utils/authBoundary.ts
 dfa6443d315d265256d9b68f2612eb69084211435c2f0d80df401f2c5394d237  ./web/app/utils/coachEventReplay.test.ts
 e383191e37886535a59d45862c396d9e7a917f9c0c3ca174969b2c7ca49e0305  ./web/app/utils/coachEventReplay.ts
 a721e1dc62ca9b6275a528b66ae489ea74e20d862043a6a2bef25799f7f7b6b4  ./web/app/utils/coachHighlightFingerprint.test.ts

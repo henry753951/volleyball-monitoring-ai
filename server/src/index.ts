@@ -214,6 +214,7 @@ await app.register(
     authenticate: request => authenticateAnnotationRequest(request, db),
     database: db,
     importRoot: process.env.MEDIA_IMPORT_ROOT ?? '/var/lib/volleyball/media-imports',
+    recordingRoot: process.env.MEDIA_RECORDING_ROOT ?? '/var/lib/volleyball/media-recordings',
   }),
 )
 await app.register(
