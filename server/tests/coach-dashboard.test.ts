@@ -3,7 +3,10 @@ import {
   deriveRallyDisplayOrdinals,
   segmentStartCaptureTimeUs,
 } from '../src/domain/rally-display-order.js'
-import { selectDisplayAnalysis } from '../src/services/coach-dashboard.js'
+import {
+  deriveEffectiveSetNumberMap,
+  selectDisplayAnalysis,
+} from '../src/services/coach-dashboard.js'
 import { resolveEffectiveContactFrame } from '../src/services/effective-contact-frame.js'
 
 describe('coach dashboard analysis failover', () => {
@@ -85,5 +88,28 @@ describe('derived rally display order', () => {
       later: 2,
       'only-in-set-two': 1,
     })
+  })
+})
+
+describe('effective set projection', () => {
+  it('merges raw sets after their winner markers are cleared', () => {
+    const projection = deriveEffectiveSetNumberMap([
+      { setNumber: 1, status: 'FINISHED', winningTeamId: null },
+      { setNumber: 2, status: 'FINISHED', winningTeamId: null },
+      { setNumber: 3, status: 'FINISHED', winningTeamId: null },
+      { setNumber: 4, status: 'LIVE', winningTeamId: null },
+    ])
+
+    expect(Object.fromEntries(projection)).toEqual({ 1: 1, 2: 1, 3: 1, 4: 1 })
+  })
+
+  it('starts the next logical set only after a durable winner marker', () => {
+    const projection = deriveEffectiveSetNumberMap([
+      { setNumber: 1, status: 'FINISHED', winningTeamId: 'team-a' },
+      { setNumber: 2, status: 'FINISHED', winningTeamId: null },
+      { setNumber: 3, status: 'LIVE', winningTeamId: null },
+    ])
+
+    expect(Object.fromEntries(projection)).toEqual({ 1: 1, 2: 2, 3: 2 })
   })
 })

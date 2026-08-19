@@ -405,6 +405,24 @@ export interface CoachMatchAnalytics {
     set_number: number
     rally_ordinal: number
   }>
+  action_events?: Array<{
+    id: string
+    rally_id: string
+    set_number: number
+    rally_ordinal: number
+    analysis_run_id: string | null
+    track_id: number | null
+    roster_entry_id: string | null
+    anchor_time_us: string
+    action_key: string
+    action_label: string
+    action_confidence: number | null
+    result_key: string | null
+    route_start: { x: number; y: number } | null
+    route_end: { x: number; y: number } | null
+    court_side: string | null
+    outcome: 'won' | 'lost' | 'unknown'
+  }>
 }
 const COACH_MATCH_STATE = `query CoachMatchState($matchId: ID!) { coachMatchState(matchId: $matchId) }`
 

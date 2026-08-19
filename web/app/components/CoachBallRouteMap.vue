@@ -40,6 +40,7 @@ const props = defineProps<{
   label: string
   sideLabels?: CoachRouteMapSideLabels
   selectedSide?: 'left' | 'right' | null
+  selectedEventId?: string | null
 }>()
 const emit = defineEmits<{ select: [event: CoachPlayerActionEvent] }>()
 
@@ -202,7 +203,13 @@ function openEvent(event: CoachPlayerActionEvent) {
             <g
               v-for="(event, index) in routeEvents"
               :key="event.id"
-              class="route-line"
+              :class="[
+                'route-line',
+                {
+                  selected: !props.selectedEventId || props.selectedEventId === event.id,
+                  faded: props.selectedEventId && props.selectedEventId !== event.id,
+                },
+              ]"
               :style="{ '--route-color': actionColor(event.actionKey) }"
             >
               <path
@@ -248,7 +255,10 @@ function openEvent(event: CoachPlayerActionEvent) {
             <circle
               v-for="event in landingEvents"
               :key="`heat:${event.id}`"
-              class="landing-heat"
+              :class="[
+                'landing-heat',
+                { faded: props.selectedEventId && props.selectedEventId !== event.id },
+              ]"
               :cx="courtX(event.routeEnd!.x, eventSide(event))"
               :cy="courtY(event.routeEnd!.y)"
               r="17"
@@ -256,7 +266,13 @@ function openEvent(event: CoachPlayerActionEvent) {
             <circle
               v-for="event in landingEvents"
               :key="`point:${event.id}`"
-              class="landing-point"
+              :class="[
+                'landing-point',
+                {
+                  selected: !props.selectedEventId || props.selectedEventId === event.id,
+                  faded: props.selectedEventId && props.selectedEventId !== event.id,
+                },
+              ]"
               role="button"
               tabindex="0"
               :aria-label="`第 ${event.setNumber} 局回合 ${event.rallyOrdinal} ${event.actionLabel}落點，開啟短回放`"
@@ -465,6 +481,23 @@ function openEvent(event: CoachPlayerActionEvent) {
     stroke-width 160ms ease-out;
   animation: route-direction-flow 900ms linear infinite;
   pointer-events: none;
+}
+.route-line.faded,
+.landing-point.faded,
+.landing-heat.faded {
+  opacity: 0.12;
+  filter: grayscale(0.8);
+  transition:
+    opacity 160ms ease-out,
+    filter 160ms ease-out;
+}
+.route-line.selected .route-path-flow {
+  stroke-width: 3.8;
+  opacity: 1;
+}
+.landing-point.selected {
+  stroke-width: 1.4;
+  r: 3.1;
 }
 .route-line circle {
   pointer-events: none;

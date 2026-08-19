@@ -68,6 +68,7 @@ const snapshot: OperationsSnapshot = {
     ],
   },
   aiWork: [],
+  providerWork: [],
   deployment: {
     available: true,
     components: [],

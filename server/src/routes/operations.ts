@@ -35,6 +35,7 @@ export interface OperationsSnapshot {
   aiWorkers: AiWorkerSnapshot[]
   aiWorkerAccess: AiWorkerAccessSnapshot
   aiWork: AiWorkSnapshot[]
+  providerWork: ProviderWorkSnapshot[]
   deployment: DeploymentSnapshot
   hostStorage: HostStorageSnapshot
   objectStorage: HostStorageSnapshot
@@ -81,6 +82,20 @@ export interface AiWorkSnapshot {
   matchId: string
   matchTitle: string
   rallyId: string
+  status: string
+  progress: number | null
+  stage: string | null
+  workerInstanceKey: string | null
+  createdAt: string
+  updatedAt: string
+}
+
+export interface ProviderWorkSnapshot {
+  id: string
+  workKind: string
+  matchId: string | null
+  matchTitle: string | null
+  rallyId: string | null
   status: string
   progress: number | null
   stage: string | null
@@ -256,6 +271,7 @@ export async function collectOperationsSnapshot(
     captureSessions,
     providerInstances,
     recentAiWork,
+    recentProviderWork,
     activeAiJobs,
     activeProviderJobs,
     aiWorkerAccess,
@@ -350,6 +366,34 @@ export async function collectOperationsSnapshot(
               select: {
                 id: true,
                 match: { select: { id: true, title: true } },
+              },
+            },
+          },
+        },
+      },
+    }),
+    database.providerJob.findMany({
+      orderBy: { updatedAt: 'desc' },
+      take: 64,
+      select: {
+        id: true,
+        workKind: true,
+        status: true,
+        progress: true,
+        stage: true,
+        createdAt: true,
+        updatedAt: true,
+        providerInstance: { select: { instanceKey: true } },
+        analysisRun: {
+          select: {
+            submission: {
+              select: {
+                rally: {
+                  select: {
+                    id: true,
+                    match: { select: { id: true, title: true } },
+                  },
+                },
               },
             },
           },
@@ -601,6 +645,19 @@ export async function collectOperationsSnapshot(
       matchId: job.submission.rally.match.id,
       matchTitle: job.submission.rally.match.title,
       rallyId: job.submission.rally.id,
+      status: job.status,
+      progress: job.progress,
+      stage: job.stage,
+      workerInstanceKey: job.providerInstance?.instanceKey ?? null,
+      createdAt: job.createdAt.toISOString(),
+      updatedAt: job.updatedAt.toISOString(),
+    })),
+    providerWork: recentProviderWork.map(job => ({
+      id: job.id,
+      workKind: job.workKind,
+      matchId: job.analysisRun?.submission.rally.match.id ?? null,
+      matchTitle: job.analysisRun?.submission.rally.match.title ?? null,
+      rallyId: job.analysisRun?.submission.rally.id ?? null,
       status: job.status,
       progress: job.progress,
       stage: job.stage,

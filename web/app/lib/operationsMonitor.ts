@@ -136,9 +136,27 @@ export interface AiWorkSnapshot {
   updatedAt: string
 }
 
+export interface ProviderWorkSnapshot {
+  id: string
+  workKind: string
+  matchId: string | null
+  matchTitle: string | null
+  rallyId: string | null
+  status: string
+  progress: number | null
+  stage: string | null
+  workerInstanceKey: string | null
+  createdAt: string
+  updatedAt: string
+}
+
 const ACTIVE_AI_WORK_STATUSES = new Set(['QUEUED', 'RUNNING'])
 
 export function activeAiWorkForDashboard(items: readonly AiWorkSnapshot[]) {
+  return items.filter(item => ACTIVE_AI_WORK_STATUSES.has(item.status.toUpperCase()))
+}
+
+export function activeProviderWorkForDashboard(items: readonly ProviderWorkSnapshot[]) {
   return items.filter(item => ACTIVE_AI_WORK_STATUSES.has(item.status.toUpperCase()))
 }
 
@@ -189,6 +207,7 @@ export interface OperationsDashboardSnapshot {
     aiWorkers: AiWorkerSnapshot[]
     aiWorkerAccess: AiWorkerAccessSnapshot
     aiWork: AiWorkSnapshot[]
+    providerWork: ProviderWorkSnapshot[]
     deployment: DeploymentSnapshot
     hostStorage: HostStorageSnapshot
     objectStorage: HostStorageSnapshot

@@ -3,6 +3,7 @@ import type { PlaybackWindowDescriptor } from '@volleyball-monitoring/contracts'
 import { ExternalLink, Radio, RotateCcw, X } from 'lucide-vue-next'
 import { createMediaClient } from '~/lib/mediaClient'
 import { coachRallyContactCount } from '~/utils/coachPresentation'
+import { deriveSetDisplayProjection } from '~/utils/setDisplayProjection'
 import { youtubeEmbedUrl } from '~/utils/youtubeEmbed'
 
 const route = useRoute()
@@ -10,6 +11,18 @@ const config = useRuntimeConfig()
 const matchId = computed(() => String(route.params.matchId))
 const coach = useCoachMatchState(matchId)
 const match = computed(() => coach.data.value?.match ?? null)
+const setProjection = computed(() =>
+  deriveSetDisplayProjection(
+    (match.value?.sets ?? []).map(set => ({
+      id: set.id,
+      set_number: set.set_number,
+      winning_team_id: set.winning_team_id,
+      status: set.status,
+    })),
+  ),
+)
+const displaySetNumberFor = (setNumber: number) =>
+  setProjection.value.rawToEffective.get(setNumber) ?? setNumber
 const activeSet = computed(
   () =>
     match.value?.sets.find(set => set.status.toLowerCase() === 'live') ??
@@ -37,7 +50,7 @@ const activeSetScore = computed(() => {
   const scores = new Map<string, number>()
   for (const rally of match.value?.rallies ?? []) {
     if (
-      rally.display_set_number !== set.set_number ||
+      displaySetNumberFor(rally.set_number) !== displaySetNumberFor(set.set_number) ||
       rally.submission.score_resolution !== 'resolved'
     )
       continue
@@ -125,7 +138,8 @@ function handleDvrError(error: Error) {
           ><b>{{ activeSetScore.left }}</b>
         </div>
         <div class="score-ribbon__set">
-          <span>第 {{ activeSet?.set_number ?? 1 }} 局</span><i><Radio :size="12" />LIVE</i>
+          <span>第 {{ displaySetNumberFor(activeSet?.set_number ?? 1) }} 局</span
+          ><i><Radio :size="12" />LIVE</i>
         </div>
         <div class="score-ribbon__team score-ribbon__team--right">
           <b>{{ activeSetScore.right }}</b
@@ -171,7 +185,7 @@ function handleDvrError(error: Error) {
                   <NuxtLink :to="`/matches/${matchId}/replay/${rally.id}`">
                     <span
                       ><b>回合 {{ rally.display_ordinal }}</b
-                      ><small>第 {{ rally.display_set_number }} 局</small></span
+                      ><small>第 {{ displaySetNumberFor(rally.set_number) }} 局</small></span
                     >
                     <span class="live-feed__result"
                       ><strong>{{
@@ -196,7 +210,7 @@ function handleDvrError(error: Error) {
       <div>
         <strong>新回合已完成</strong
         ><span
-          >第 {{ announcedRally.display_set_number }} 局 · #{{
+          >第 {{ displaySetNumberFor(announcedRally.set_number) }} 局 · #{{
             announcedRally.display_ordinal
           }}</span
         >
