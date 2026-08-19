@@ -549,7 +549,7 @@ f628ffddf4fedbc18d0ac5414028a94f19ee92d12a435458150107d14512157c  ./web/app/comp
 9be6f16c52302d5fa9206bba8a1d87eafbce6283424fc7c19769928b46b10af1  ./web/app/components/AnnotationWorkstationHeader.vue
 da8771b444ef1a9f2fc7b5ee68fb4597514e98cc2394d4a0fb4f3cb71c042e2e  ./web/app/components/AuthSessionButton.vue
 3ff045bdb729356650abda4deb0d5de96533817d6b831a7481a91ae7f41d2d38  ./web/app/components/CaptureControlDialog.component.test.ts
-294976f9de3d8cd46f94d15fb7f5a9c542b3512d2128c9cfbf24f4267f2f36e5  ./web/app/components/CaptureControlDialog.vue
+f549bda3ae6f2a2475812c61afad7ec7e6d0a866112e341b499e1d8289bab779  ./web/app/components/CaptureControlDialog.vue
 e58e564652b1e81206444c0f426239a09641f5ec95de64255a7f7fb46cedd350  ./web/app/components/ClipDownloadDialog.component.test.ts
 e8a1ef7506d1db6e108e48db64e5b1b16416be2fab034b8ff326624e360d7634  ./web/app/components/ClipDownloadDialog.vue
 28018e3901182d1837a23f06f3d2ab32910a13d0324c107c2b63222fe0e58b64  ./web/app/components/CoachBallRouteMap.component.test.ts
@@ -575,7 +575,7 @@ a50f1651c40a8b39cb5f97abba099fbc354786501d9f92c635c03a51ba423d0e  ./web/app/comp
 1037196bef1c004ba35d388b9900831b70410ef68c25625f47460ac2dfac1e54  ./web/app/components/VolleyballOverlayCanvas.component.test.ts
 9df10f41b64c7d6da4f81a26a3b1fe06415efe59296d8f7af74ce4313a78e42e  ./web/app/components/VolleyballOverlayCanvas.vue
 96769c60b8cfe8b81ee7a4b1b5ee8024b0a31c2753ed7e9a5880637e34805be5  ./web/app/components/WsPingBadge.vue
-e93bac1b4eed5d8f6367b54ae510df7f49d8e0f58658a47d3fd63d44eb570c28  ./web/app/components/YoutubeAuthCard.vue
+7a3321a246ea548c7d2c27c57dfc4013e0581dbdd6971f8cbe34aab0e7d06d44  ./web/app/components/YoutubeAuthCard.vue
 c1d6be38037847da174b7f5b084d98967ec5026e310314b4f0bc0c7c8d2952d7  ./web/app/components/control/AiWorkerConsole.vue
 a8c416ca6a2defe4d831711978f7eb8e7db137bcdda2c7aa1671abc005c81139  ./web/app/components/control/AiWorkerDeleteDialog.vue
 47cea9776327ea230e4f4fbab3d5bf1a0c9ceec5c4df04868451fa828b830fe7  ./web/app/components/control/AiWorkerTokenDeleteDialog.vue
@@ -583,7 +583,7 @@ a8c416ca6a2defe4d831711978f7eb8e7db137bcdda2c7aa1671abc005c81139  ./web/app/comp
 b5c339c4475d959048391d498665fccd44471a77c90c0cefb0b233fbf4082573  ./web/app/components/control/MatchDeleteDialog.vue
 49bdf5b32ba9808d7bdb3b303e70c19e0a36484bff5b10a6e68873db67655a59  ./web/app/components/control/MatchEditorDialog.vue
 52fb5d5aee5f76d9b50934acc26bd10a7608ba4aeeb21f0c83ef29f90be68ee8  ./web/app/components/control/MatchWorkspaceCard.vue
-73b9fd56b5275d37263515ae96fc171e23c36335a5eaaaf31ea70996dfccd460  ./web/app/components/control/MediaDvrMonitorDialog.vue
+70d532b2e962507f9d98554e7a7e9ab5afafc9b03709c144b1a57c4c099c2526  ./web/app/components/control/MediaDvrMonitorDialog.vue
 3d5992e955e8c434bb5fa99245be6c6a18d9cb0bb4d9292bd668e1964e9d8b70  ./web/app/components/control/StorageMeter.component.test.ts
 5934bc8e3c916252084c98ec3931e6597dc5b1753295b0d288957acaee23e5f8  ./web/app/components/control/StorageMeter.vue
 278aed5b3677a03effd7c6d08ed87408de19af46ca92ecc8023a6470b8673ab0  ./web/app/components/ui/AnimatedModal.vue
@@ -658,7 +658,7 @@ a7418adc21794c12c2ae79233ea861f208dcda3a475b98a826cb01afc3df4841  ./web/app/lib/
 059fdec5bfca463b6021d12a64d3737c619de114c510d86329a4add411293e77  ./web/app/lib/mediaModel.ts
 adb8dca256284f61ef8e8db8b7994d61155123469769b30a2766b6256d8f8eea  ./web/app/lib/mediaOperationsDiagnostics.ts
 44963f832dd270af9d60e562019f8406220d56c86bfd6bdd2a127f25989df1ad  ./web/app/lib/mediaSourceClient.test.ts
-e1dfe6cc04c828952a16986e054bc69d81471acceda46d2880fab186bbc91d0f  ./web/app/lib/mediaSourceClient.ts
+0a160c37c310273d28d9cce10b3dacde4a697ef115e7b01ac19cf83d051bec77  ./web/app/lib/mediaSourceClient.ts
 18b258c4825a77a8b19f65cfc0ae11d80f9c551a637b32364f9e1dc2ddfbefe2  ./web/app/lib/mediaTimeline.test.ts
 2704180192ee83b8b2351e7dce419d256cd03fa7a56bbc35c066047cfa3816dc  ./web/app/lib/mediaTimeline.ts
 10c5d4632c73e31121216cf7e041083384912ad00cfcaf1e3ab130e0289ce7da  ./web/app/lib/omeLivePlayback.test.ts
@@ -676,7 +676,7 @@ ea6147e9664833abf6ae1dc8bcffbdded5c976a7dd2b9b4a680dcc3a7c9c8df4  ./web/app/lib/
 4e07c8e910ce029b61dcbe1110e7be3538b6ef9598340fc8468d33efe5760d7b  ./web/app/lib/rosterPromptImport.ts
 440fc13e62d9078c3a3742f76760e310c7d5d8534d7c1164eb585146c7748ef4  ./web/app/middleware/auth.global.ts
 97763010bb5a1553b52935b909450ecfeeb03129d9919e4ea107c0c250364f02  ./web/app/pages/annotate/[matchId].vue
-bf38c1147f5115fcaea26ac65e7e469cace75534b8641db56fc29d0b04259fb4  ./web/app/pages/control/index.vue
+b6f8b2f155ef7538f6f9746dbd47408fe9fa206804948886b940ac273e878bdf  ./web/app/pages/control/index.vue
 de575899c27987ea0f5beae095022624fb5ee6cc2fef2b1b15c47ff5e97aeea5  ./web/app/pages/control/jobs.vue
 ffda57a925b659c33ea87ab67aedd169120195cf27497ab8eceaf14dd7e56ba3  ./web/app/pages/index.vue
 52d37cadffee9243161feeb92cb416ce44e5f16f9a6208b601dd00a168ba8d70  ./web/app/pages/login.vue
@@ -824,8 +824,8 @@ e75f131f82dfa0e724513ba087fea89e97507dfe36396d8c29305b905776aced  ./worker/src/m
 704a6ec9d1f3ad7a9a169d4c4570abca0df3722785cdc42b252d17005cc1016f  ./worker/src/media/resolvers.ts
 12122a45254941e4ff707b99902bf2dc6b43b0f12045c3e94fe4e479c7e966f5  ./worker/src/media/runtime-config.ts
 8f0a7c3f8c163da69d5c7be0980cadfedbc6515477416fe2f0a4cc7e8f3c4f3d  ./worker/src/media/sample-index.ts
-701904057bea3ff4889978380717a24ea234b75306f816d2739a87e39e5acfda  ./worker/src/media/source-process.ts
-014a3cad520b1e87e1671f2c84c7f7c2081375f833dfdb50c0db9199e8a74081  ./worker/src/media/source-runtime.ts
+24e243585c322db5a252bc36cb72e51f6840fa9882be4f94057b44828058734a  ./worker/src/media/source-process.ts
+5f123b9ae6aba746b4a4bbd2afea2e1c790dfc8ad9583b431d524bd8202595c7  ./worker/src/media/source-runtime.ts
 35845355b62d5de1dd0feed57d13ca53bf82415226620de338f1f6277906ba88  ./worker/src/media/source-work.ts
 e0055e5de69b1a90ddf83147a4379f8aaad8a9e0442e094795147b961f19ed37  ./worker/src/media/tiered-media-object-store.ts
 2b1ebd934b05da1bfde4c817d1fc3ae92664577adc3c6028d846d60079da629f  ./worker/src/media/youtube-auth.ts
@@ -836,7 +836,7 @@ cd223367ea1d5f731e73a2b292e0cffc05c46bee5099ccf6475865bbffd7b759  ./worker/src/r
 d626bd62d4e744e53324a4084ee1fe51fa47bcfa26f06bb12ff5153ad44a68d5  ./worker/src/roles/highlight-export-worker.ts
 4791df925d60c43b3e4740ba3d3e5e3b118900efc4f9e4e0c9680ac855a49888  ./worker/src/roles/identity-preview-worker.ts
 ba726d175f69cc4a95968b49daca3d534f4abe1205afbe012556669bb029768d  ./worker/src/roles/jersey-suggestion-worker.ts
-207f1a6f0c6a180aca4468818a1885a485593b48eabea8e771ce293103475442  ./worker/src/roles/media-indexer.ts
+429098f7664ecd7367a61507a9cc6179710335b1829773f256d0afaf4373b4e5  ./worker/src/roles/media-indexer.ts
 156a0252f44c02372cb6df55d33e1b1c62319eb70c4a36f2762b76777b64b1d9  ./worker/src/roles/outbox-publisher.ts
 c3a3cfe8c76f3bb5412e96e67e1f55c024376826c68f0433d03035cdd0c4374b  ./worker/src/roles/playback-packager.ts
 586884934a4c2de76dd0d1c8613fc06e1aa036c35d9feb06f39b6614d9c366df  ./worker/src/roles/provider-analysis-materializer.ts
@@ -884,7 +884,7 @@ b6bfa38a3a17208e0dd392366184a369cff62ba41cc5271a90b1195a30019da5  ./worker/tests
 67829669a62b9df50a6fddb656d7022cbdb29f4cc819f51425b4e67662dcbb78  ./worker/tests/reid-feature-worker.test.ts
 71294ae25a9fe9530a17e039c7a11e64359f0be841dae963c5433f41e5c79c99  ./worker/tests/resolvers.test.ts
 17d706ad7805027bfc4dfc7eed1d68726fa9f328ab62d217a72f6a77f42cd4d0  ./worker/tests/runtime-health.test.ts
-c624530a5bd1599bb5c59425f71c6aa04fcf0ce4419c8059f9802b114cd3a1f1  ./worker/tests/source-process.test.ts
+a2a50ada9aa715a2acc0b39db5d678b766f80d4439e2080522d9456f5dba6de5  ./worker/tests/source-process.test.ts
 874f3358339702b24d6316137491ef442e6eb91add9dce7285f2b9511b993e4d  ./worker/tests/source-spool-cleanup.test.ts
 a543e3a9502114060cf01e2c0033e0e933640329117abeaa712be7c2ab995e32  ./worker/tests/source-work.test.ts
 ccbee74b054bcf5797d688a953f79e25e9a06475a9d7e5ab667ac71d651f0036  ./worker/tests/tiered-media-object-store.test.ts
