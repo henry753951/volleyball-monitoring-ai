@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.9.1](https://github.com/henry753951/volleyball-monitoring-ai/compare/v1.9.0...v1.9.1) (2026-08-19)
+
+
+### Bug Fixes
+
+* **annotation:** restore merged rally and coach projections ([34735ed](https://github.com/henry753951/volleyball-monitoring-ai/commit/34735ed705e0d906331ccc5bd4841b0ee0364407))
+* **annotation:** restore merged rally and coach projections ([928d8d0](https://github.com/henry753951/volleyball-monitoring-ai/commit/928d8d084e462922a3276797f8a0bc44766438aa))
+
 ## [1.9.0](https://github.com/henry753951/volleyball-monitoring-ai/compare/v1.8.1...v1.9.0) (2026-08-19)
 
 
