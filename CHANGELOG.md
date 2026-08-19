@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.7.6](https://github.com/henry753951/volleyball-monitoring-ai/compare/v1.7.5...v1.7.6) (2026-08-19)
+
+
+### Bug Fixes
+
+* **annotation:** stabilize cursor and realtime draft state ([cfb1a7c](https://github.com/henry753951/volleyball-monitoring-ai/commit/cfb1a7cbaca343843599c649aaa9a3b0aad3eef8))
+* **annotation:** stabilize cursor and realtime draft state ([48653b5](https://github.com/henry753951/volleyball-monitoring-ai/commit/48653b56ebb66533ae3cd9d68dc6bb566efe20d4))
+* **annotation:** stabilize cursor and realtime draft state ([#120](https://github.com/henry753951/volleyball-monitoring-ai/issues/120)) ([cfb1a7c](https://github.com/henry753951/volleyball-monitoring-ai/commit/cfb1a7cbaca343843599c649aaa9a3b0aad3eef8))
+
 ## [1.7.5](https://github.com/henry753951/volleyball-monitoring-ai/compare/v1.7.4...v1.7.5) (2026-08-19)
 
 
