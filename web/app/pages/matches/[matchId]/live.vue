@@ -30,6 +30,27 @@ const rightTeam = computed(
     match.value?.teams[1] ??
     null,
 )
+const activeSetScore = computed(() => {
+  const set = activeSet.value
+  if (!set) return { left: 0, right: 0 }
+
+  const scores = new Map<string, number>()
+  for (const rally of match.value?.rallies ?? []) {
+    if (
+      rally.display_set_number !== set.set_number ||
+      rally.submission.score_resolution !== 'resolved'
+    )
+      continue
+    const scoringTeamId = rally.scoring_team_id ?? rally.submission.scoring_team_id
+    if (!scoringTeamId) continue
+    scores.set(scoringTeamId, (scores.get(scoringTeamId) ?? 0) + 1)
+  }
+
+  return {
+    left: scores.get(set.side_assignment?.left_team_id ?? '') ?? 0,
+    right: scores.get(set.side_assignment?.right_team_id ?? '') ?? 0,
+  }
+})
 const activeCapture = computed(
   () =>
     match.value?.captures.find(
@@ -81,8 +102,7 @@ watch(
 )
 
 function scoreLabel() {
-  const set = activeSet.value
-  return `${leftTeam.value?.shortName || leftTeam.value?.name || '左隊'} ${set?.left_score ?? 0} 比 ${set?.right_score ?? 0} ${rightTeam.value?.shortName || rightTeam.value?.name || '右隊'}`
+  return `${leftTeam.value?.shortName || leftTeam.value?.name || '左隊'} ${activeSetScore.value.left} 比 ${activeSetScore.value.right} ${rightTeam.value?.shortName || rightTeam.value?.name || '右隊'}`
 }
 
 function handleDvrError(error: Error) {
@@ -102,13 +122,13 @@ function handleDvrError(error: Error) {
       <div class="score-ribbon">
         <div class="score-ribbon__team">
           <span>{{ leftTeam?.name || '左隊' }}</span
-          ><b>{{ activeSet?.left_score ?? 0 }}</b>
+          ><b>{{ activeSetScore.left }}</b>
         </div>
         <div class="score-ribbon__set">
           <span>第 {{ activeSet?.set_number ?? 1 }} 局</span><i><Radio :size="12" />LIVE</i>
         </div>
         <div class="score-ribbon__team score-ribbon__team--right">
-          <b>{{ activeSet?.right_score ?? 0 }}</b
+          <b>{{ activeSetScore.right }}</b
           ><span>{{ rightTeam?.name || '右隊' }}</span>
         </div>
       </div>
@@ -150,8 +170,8 @@ function handleDvrError(error: Error) {
                 <li v-for="rally in match.rallies" :key="rally.id">
                   <NuxtLink :to="`/matches/${matchId}/replay/${rally.id}`">
                     <span
-                      ><b>回合 {{ rally.ordinal }}</b
-                      ><small>第 {{ rally.set_number }} 局</small></span
+                      ><b>回合 {{ rally.display_ordinal }}</b
+                      ><small>第 {{ rally.display_set_number }} 局</small></span
                     >
                     <span class="live-feed__result"
                       ><strong>{{
@@ -175,7 +195,11 @@ function handleDvrError(error: Error) {
       <RotateCcw :size="18" />
       <div>
         <strong>新回合已完成</strong
-        ><span>第 {{ announcedRally.set_number }} 局 · #{{ announcedRally.ordinal }}</span>
+        ><span
+          >第 {{ announcedRally.display_set_number }} 局 · #{{
+            announcedRally.display_ordinal
+          }}</span
+        >
       </div>
       <NuxtLink :to="`/matches/${matchId}/replay/${announcedRally.id}`">查看</NuxtLink>
       <button type="button" aria-label="關閉通知" @click="announcedRally = null">

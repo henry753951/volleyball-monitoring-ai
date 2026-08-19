@@ -840,6 +840,10 @@ function focusRange(
   animateView()
   if (seekTarget) requestSeek(seekTarget)
 }
+function focusCursor(captureTimeUs: string) {
+  if (!fullBounds.value) return
+  focusRange(captureTimeUs, captureTimeUs, captureTimeUs)
+}
 function focusHistoricalSegment(segment: {
   id: string
   startCaptureTimeUs: string
@@ -940,7 +944,7 @@ onBeforeUnmount(() => {
   if (animationFrame !== null) cancelAnimationFrame(animationFrame)
   if (optimisticPlayheadTimer) clearTimeout(optimisticPlayheadTimer)
 })
-defineExpose({ focusRange, resetView })
+defineExpose({ focusCursor, focusRange, resetView })
 </script>
 
 <template>

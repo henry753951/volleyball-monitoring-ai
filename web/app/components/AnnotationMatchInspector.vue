@@ -33,14 +33,18 @@ const props = defineProps<{
   rightTeam: CoachTeam | null
   currentLeftTeam: CoachTeam | null
   currentRightTeam: CoachTeam | null
-  leftScore: number
-  rightScore: number
   leftSetWins: number
   rightSetWins: number
   setNumber: number
+  setResults?: Array<{
+    set_number: number
+    winning_team_id: string | null
+    status?: string
+  }>
   rallyOrdinal: number | string
   leftTeamId: string | null
   rightTeamId: string | null
+  contextRallyId: string | null
   drafts: CoachDraft[]
   rallies: CoachRally[]
   selectedRallyId: string | null
@@ -64,7 +68,7 @@ const segments = workstation.segments
 const timeline = workstation.timeline
 const placementSaving = segments.placementSaving
 const sideSwapPending = segments.sideSwapPending
-const swapAffectsCurrentDraft = segments.affectsCurrentDraft
+const sideSwapTarget = segments.sideSwapTarget
 const nextSetState = workstation.actions.state('segment.start-next-set')
 const swapCurrentSidesState = workstation.actions.state('segment.swap-current-sides')
 const swapRallySidesState = workstation.actions.state('segment.swap-rally-sides')
@@ -137,37 +141,96 @@ const sortedSegmentItems = computed(() =>
       left.id.localeCompare(right.id),
   ),
 )
-function segmentOutcomeSide(item: SegmentListItem): 'left' | 'right' | null {
-  if (item.id === props.displayedRallyId) return props.displayedOutcomeSide
+function segmentSideIds(item: SegmentListItem) {
   const source = item.kind === 'draft' ? item.draft : item.rally.submission
-  return source.score_resolution === 'resolved' &&
-    (source.scoring_court_side === 'left' || source.scoring_court_side === 'right')
-    ? source.scoring_court_side
-    : null
+  return {
+    left: source.left_team_id ?? props.leftTeamId,
+    right: source.right_team_id ?? props.rightTeamId,
+  }
+}
+const sideSwapBoundaryIds = computed(() => {
+  const previousSideOrderBySet = new Map<number, string>()
+  const boundaryIds = new Set<string>()
+  for (const item of sortedSegmentItems.value) {
+    const sides = segmentSideIds(item)
+    if (!sides.left || !sides.right) continue
+    const sideOrder = `${sides.left}:${sides.right}`
+    const previousSideOrder = previousSideOrderBySet.get(item.setNumber)
+    if (previousSideOrder && previousSideOrder !== sideOrder) boundaryIds.add(item.id)
+    previousSideOrderBySet.set(item.setNumber, sideOrder)
+  }
+  return boundaryIds
+})
+function segmentScoringTeamId(item: SegmentListItem) {
+  const sides = segmentSideIds(item)
+  if (!sides.left || !sides.right) return null
+  if (item.id === props.displayedRallyId && props.displayedOutcomeSide) {
+    return props.displayedOutcomeSide === 'left' ? sides.left : sides.right
+  }
+  const source = item.kind === 'draft' ? item.draft : item.rally.submission
+  if (source.score_resolution !== 'resolved') return null
+  if (source.scoring_team_id === sides.left || source.scoring_team_id === sides.right)
+    return source.scoring_team_id
+  if (source.scoring_court_side === 'left') return sides.left
+  if (source.scoring_court_side === 'right') return sides.right
+  return null
 }
 const segmentScores = computed(() => {
-  const latestBySet = new Map<number, { left: number; right: number }>()
+  const teamScoresBySet = new Map<number, Map<string, number>>()
   const scores = new Map<string, { left: number; right: number }>()
   for (const item of sortedSegmentItems.value) {
-    let score: { left: number; right: number }
-    if (item.kind === 'rally') {
-      score = {
-        left: item.rally.left_score_after,
-        right: item.rally.right_score_after,
-      }
-    } else {
-      const previous = latestBySet.get(item.setNumber) ?? { left: 0, right: 0 }
-      const scoringSide = segmentOutcomeSide(item)
-      score = {
-        left: previous.left + (scoringSide === 'left' ? 1 : 0),
-        right: previous.right + (scoringSide === 'right' ? 1 : 0),
-      }
-    }
-    latestBySet.set(item.setNumber, score)
-    scores.set(item.id, score)
+    const sides = segmentSideIds(item)
+    const teamScores = teamScoresBySet.get(item.setNumber) ?? new Map<string, number>()
+    const scoringTeamId = segmentScoringTeamId(item)
+    if (scoringTeamId) teamScores.set(scoringTeamId, (teamScores.get(scoringTeamId) ?? 0) + 1)
+    teamScoresBySet.set(item.setNumber, teamScores)
+    scores.set(item.id, {
+      left: sides.left ? (teamScores.get(sides.left) ?? 0) : 0,
+      right: sides.right ? (teamScores.get(sides.right) ?? 0) : 0,
+    })
   }
   return scores
 })
+const displayedScore = computed(() => {
+  const contextScore = props.contextRallyId ? segmentScores.value.get(props.contextRallyId) : null
+  if (contextScore) return contextScore
+  const selectedScore = props.selectedRallyId
+    ? segmentScores.value.get(props.selectedRallyId)
+    : null
+  if (selectedScore) return selectedScore
+  const currentSetItems = sortedSegmentItems.value.filter(
+    item => item.setNumber === props.setNumber,
+  )
+  return (
+    (currentSetItems.length ? segmentScores.value.get(currentSetItems.at(-1)?.id ?? '') : null) ?? {
+      left: 0,
+      right: 0,
+    }
+  )
+})
+const actionLeftTeam = computed(
+  () =>
+    props.teams.find(team => team.id === sideSwapTarget?.value?.expectedLeftTeamId) ??
+    props.currentLeftTeam,
+)
+const actionRightTeam = computed(
+  () =>
+    props.teams.find(team => team.id === sideSwapTarget?.value?.expectedRightTeamId) ??
+    props.currentRightTeam,
+)
+const winningTeamBySet = computed(
+  () =>
+    new Map(
+      (props.setResults ?? [])
+        .filter(result => result.status === undefined || result.status.toLowerCase() === 'finished')
+        .map(result => [result.set_number, result.winning_team_id]),
+    ),
+)
+function winningTeamLabel(setNumber: number) {
+  const winnerId = winningTeamBySet.value.get(setNumber)
+  if (!winnerId) return null
+  return teamLabel(props.teams.find(team => team.id === winnerId) ?? null, '隊伍')
+}
 const groups = computed(() => {
   const grouped = new Map<number, SegmentListItem[]>()
   for (const item of sortedSegmentItems.value)
@@ -215,9 +278,7 @@ function rallyStateLabel(rally: CoachRally) {
   return rally.submission.analysis?.status === 'completed' ? '分析完成' : '處理中'
 }
 function segmentTeams(item: SegmentListItem) {
-  const source = item.kind === 'draft' ? item.draft : item.rally.submission
-  const leftTeamId = source.left_team_id ?? props.leftTeamId
-  const rightTeamId = source.right_team_id ?? props.rightTeamId
+  const { left: leftTeamId, right: rightTeamId } = segmentSideIds(item)
   return {
     left: props.teams.find(team => team.id === leftTeamId) ?? null,
     right: props.teams.find(team => team.id === rightTeamId) ?? null,
@@ -285,15 +346,15 @@ defineExpose({
             <span>{{ leftTeam?.shortName || leftTeam?.name || '左隊' }}</span
             ><small :aria-label="`左隊勝局 ${leftSetWins}`">{{ leftSetWins }}</small>
           </div>
-          <b>{{ leftScore }}</b
-          ><i>:</i><b>{{ rightScore }}</b>
+          <b>{{ displayedScore.left }}</b
+          ><i>:</i><b>{{ displayedScore.right }}</b>
           <div class="score-team right">
             <span>{{ rightTeam?.shortName || rightTeam?.name || '右隊' }}</span
             ><small :aria-label="`右隊勝局 ${rightSetWins}`">{{ rightSetWins }}</small>
           </div>
         </div>
         <div class="court-side-row">
-          <span>{{ swapAffectsCurrentDraft ? '目前片段左右' : '下一片段左右' }}</span>
+          <span>{{ sideSwapTarget?.label ?? '換場起點' }}</span>
           <div>
             <b>左側 {{ teamLabel(currentLeftTeam, '隊伍') }}</b
             ><ArrowLeftRight :size="13" aria-hidden="true" /><b
@@ -312,19 +373,27 @@ defineExpose({
         <div class="next-set-actions">
           <button
             type="button"
-            :disabled="!nextSetState.enabled || !currentLeftTeam"
+            :disabled="!nextSetState.enabled || !actionLeftTeam"
             :title="nextSetState.reason ?? undefined"
             @click="workstation.actions.execute('segment.start-next-set', 'left')"
           >
-            {{ teamLabel(currentLeftTeam, '左隊') }} 勝局</button
+            {{ teamLabel(actionLeftTeam, '左隊') }} 勝局</button
           ><button
             type="button"
-            :disabled="!nextSetState.enabled || !currentRightTeam"
+            :disabled="!nextSetState.enabled || !actionRightTeam"
             :title="nextSetState.reason ?? undefined"
             @click="workstation.actions.execute('segment.start-next-set', 'right')"
           >
-            {{ teamLabel(currentRightTeam, '右隊') }} 勝局
+            {{ teamLabel(actionRightTeam, '右隊') }} 勝局
           </button>
+        </div>
+        <div class="set-boundary-help" role="note" aria-label="局與換場規則">
+          <div class="set-boundary-help__row">
+            <b>勝局</b><span>目前回合結束本局；下一回合從 0 : 0 開始</span>
+          </div>
+          <div class="set-boundary-help__row">
+            <b>換場</b><span>從目前回合起，左右隊伍反轉</span>
+          </div>
         </div>
       </div>
       <div class="segment-list-title">
@@ -348,105 +417,124 @@ defineExpose({
               <span>第 {{ group.number }} 局</span
               ><b>{{ group.leftScore }} : {{ group.rightScore }}</b>
             </header>
-            <div
-              v-for="item in group.items"
-              :key="item.id"
-              class="segment-row"
-              :class="{ active: selectedRallyId === item.id }"
-            >
-              <button type="button" class="segment-main" @click="selectItem(item)">
-                <span class="segment-heading">
-                  <strong
-                    ><i
-                      :class="
-                        item.kind === 'draft'
-                          ? 'draft'
-                          : {
-                              failed: item.rally.processing_status === 'failed',
-                              processing:
-                                item.rally.processing_status !== 'failed' &&
-                                item.rally.submission.analysis?.status !== 'completed',
-                              mapped: item.rally.submission.analysis?.identity_mapping_completed,
-                            }
-                      "
-                    />回合 {{ item.ordinal }}</strong
-                  >
-                  <span class="score-at-rally"
-                    >{{ segmentScores.get(item.id)?.left ?? 0 }} :
-                    {{ segmentScores.get(item.id)?.right ?? 0 }}</span
+            <template v-for="item in group.items" :key="item.id">
+              <div
+                v-if="sideSwapBoundaryIds.has(item.id)"
+                class="side-swap-marker"
+                role="separator"
+                :aria-label="`第 ${item.ordinal} 回合起換場`"
+              >
+                <span class="side-swap-marker__icon" aria-hidden="true"
+                  ><ArrowLeftRight :size="12"
+                /></span>
+                <span class="side-swap-marker__copy">
+                  <strong>第 {{ item.ordinal }} 回合起換場</strong>
+                  <small
+                    >左側 {{ teamLabel(segmentTeams(item).left, '隊伍') }} · 右側
+                    {{ teamLabel(segmentTeams(item).right, '隊伍') }}</small
                   >
                 </span>
-                <small class="segment-side-order"
-                  >左側 {{ teamLabel(segmentTeams(item).left, '隊伍') }} · 右側
-                  {{ teamLabel(segmentTeams(item).right, '隊伍') }}</small
-                >
-                <span class="segment-meta">
-                  <small v-if="item.kind === 'draft'"
-                    >{{
-                      item.draft.active_submission_id
-                        ? '修正版草稿'
-                        : item.draft.annotation_status === 'ready'
-                          ? '待送出'
-                          : '標記中'
-                    }}
-                    ·
-                    {{
-                      item.draft.key_points.filter(point => point.marker_kind === 'contact').length
-                    }}
-                    次擊球</small
-                  >
-                  <small v-else
-                    >{{ rallyStateLabel(item.rally) }} · {{ formatRallyDuration(item.rally) }} ·
-                    {{
-                      item.rally.submission.analysis?.contact_count ??
-                      item.rally.submission.contact_count
-                    }}
-                    次擊球</small
-                  >
-                  <span
-                    v-if="segmentOutcomeLabel(item)"
-                    class="outcome-badge"
-                    :class="{ unknown: segmentOutcomeLabel(item) === '得分未知' }"
-                    ><CircleHelp
-                      v-if="segmentOutcomeLabel(item) === '得分未知'"
-                      :size="11"
-                    /><Trophy v-else :size="11" />{{ segmentOutcomeLabel(item) }}</span
-                  >
-                </span>
-              </button>
-              <div class="segment-actions">
-                <UiTooltip
-                  v-if="item.kind === 'rally'"
-                  :content="
-                    item.rally.submission.analysis?.status === 'completed'
-                      ? '對調此片段的左右隊伍'
-                      : '分析完成後可修正此片段左右'
-                  "
-                  ><UiButton
-                    variant="ghost"
-                    size="icon-sm"
-                    class="row-action"
-                    aria-label="修正此片段的左右隊伍"
-                    :disabled="
-                      !swapRallySidesState.enabled ||
-                      item.rally.submission.analysis?.status !== 'completed'
-                    "
-                    @click="workstation.actions.execute('segment.swap-rally-sides', item.rally)"
-                    ><ArrowLeftRight :size="14" /></UiButton
-                ></UiTooltip>
-                <UiTooltip content="編輯局與回合"
-                  ><UiButton
-                    variant="ghost"
-                    size="icon-sm"
-                    class="row-action"
-                    aria-label="編輯局與回合"
-                    @click="openPlacement(item)"
-                    ><Pencil :size="13" /></UiButton
-                ></UiTooltip>
               </div>
+              <div class="segment-row" :class="{ active: selectedRallyId === item.id }">
+                <button type="button" class="segment-main" @click="selectItem(item)">
+                  <span class="segment-heading">
+                    <strong
+                      ><i
+                        :class="
+                          item.kind === 'draft'
+                            ? 'draft'
+                            : {
+                                failed: item.rally.processing_status === 'failed',
+                                processing:
+                                  item.rally.processing_status !== 'failed' &&
+                                  item.rally.submission.analysis?.status !== 'completed',
+                                mapped: item.rally.submission.analysis?.identity_mapping_completed,
+                              }
+                        "
+                      />回合 {{ item.ordinal }}</strong
+                    >
+                    <span class="score-at-rally"
+                      >{{ segmentScores.get(item.id)?.left ?? 0 }} :
+                      {{ segmentScores.get(item.id)?.right ?? 0 }}</span
+                    >
+                  </span>
+                  <small class="segment-side-order"
+                    >左側 {{ teamLabel(segmentTeams(item).left, '隊伍') }} · 右側
+                    {{ teamLabel(segmentTeams(item).right, '隊伍') }}</small
+                  >
+                  <span class="segment-meta">
+                    <small v-if="item.kind === 'draft'"
+                      >{{
+                        item.draft.active_submission_id
+                          ? '修正版草稿'
+                          : item.draft.annotation_status === 'ready'
+                            ? '待送出'
+                            : '標記中'
+                      }}
+                      ·
+                      {{
+                        item.draft.key_points.filter(point => point.marker_kind === 'contact')
+                          .length
+                      }}
+                      次擊球</small
+                    >
+                    <small v-else
+                      >{{ rallyStateLabel(item.rally) }} · {{ formatRallyDuration(item.rally) }} ·
+                      {{
+                        item.rally.submission.analysis?.contact_count ??
+                        item.rally.submission.contact_count
+                      }}
+                      次擊球</small
+                    >
+                    <span
+                      v-if="segmentOutcomeLabel(item)"
+                      class="outcome-badge"
+                      :class="{ unknown: segmentOutcomeLabel(item) === '得分未知' }"
+                      ><CircleHelp
+                        v-if="segmentOutcomeLabel(item) === '得分未知'"
+                        :size="11"
+                      /><Trophy v-else :size="11" />{{ segmentOutcomeLabel(item) }}</span
+                    >
+                  </span>
+                </button>
+                <div class="segment-actions">
+                  <UiTooltip
+                    v-if="item.kind === 'rally'"
+                    content="從此回合起對調左右隊伍，包含之後所有回合"
+                    ><UiButton
+                      variant="ghost"
+                      size="icon-sm"
+                      class="row-action"
+                      aria-label="從此回合起對調左右隊伍"
+                      :disabled="!swapRallySidesState.enabled"
+                      @click="workstation.actions.execute('segment.swap-rally-sides', item.rally)"
+                      ><ArrowLeftRight :size="14" /></UiButton
+                  ></UiTooltip>
+                  <UiTooltip content="編輯局與回合"
+                    ><UiButton
+                      variant="ghost"
+                      size="icon-sm"
+                      class="row-action"
+                      aria-label="編輯局與回合"
+                      @click="openPlacement(item)"
+                      ><Pencil :size="13" /></UiButton
+                  ></UiTooltip>
+                </div>
+              </div>
+            </template>
+            <div
+              v-if="winningTeamLabel(group.number)"
+              class="set-result-marker"
+              role="status"
+              :aria-label="`第 ${group.number} 局 ${winningTeamLabel(group.number)} 勝`"
+            >
+              <Trophy :size="13" aria-hidden="true" />
+              <strong>第 {{ group.number }} 局 · {{ winningTeamLabel(group.number) }} 勝</strong>
+              <small>下一回合：新局 · 0 : 0</small>
             </div>
-          </section></div
-      ></UiScrollArea>
+          </section>
+        </div></UiScrollArea
+      >
     </div>
     <div v-else-if="tab === 'mapping'" class="mapping-inspector">
       <UiScrollArea class="mapping-scroll"
@@ -469,7 +557,7 @@ defineExpose({
     <UiAnimatedModal
       :open="placementOpen"
       title="調整片段所屬局"
-      description="只儲存片段屬於哪一局；回合編號會依片段在時間軸的位置即時計算，不改動 PTS、送出內容或分析結果。"
+      description="重新選擇局數，回合編號會自動重算。"
       width="compact"
       @close="placementOpen = false"
     >
@@ -610,6 +698,25 @@ defineExpose({
   background: #181b1f;
   color: #aeb6be;
   font-size: 0.58rem;
+}
+.set-boundary-help {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding: 0 8px 7px;
+  color: #8f99a3;
+  font-size: 0.55rem;
+  line-height: 1.45;
+}
+.set-boundary-help__row {
+  display: grid;
+  grid-template-columns: 32px minmax(0, 1fr);
+  gap: 5px;
+  align-items: baseline;
+}
+.set-boundary-help__row b {
+  color: #e1e6eb;
+  font-size: 0.56rem;
 }
 .segment-list-title {
   height: 34px;
@@ -793,6 +900,74 @@ defineExpose({
 .set-divider b {
   color: #f1f3f5;
   font-variant-numeric: tabular-nums;
+}
+.side-swap-marker {
+  min-height: 36px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 10px;
+  border-top: 1px solid #34505e;
+  border-bottom: 1px solid #34505e;
+  background: #152229;
+  color: #a9cddd;
+}
+.side-swap-marker__icon {
+  width: 22px;
+  height: 22px;
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid #4b7b90;
+  border-radius: 6px;
+  background: #1b3541;
+  color: #8dd1ed;
+}
+.side-swap-marker__copy {
+  min-width: 0;
+  display: grid;
+  gap: 1px;
+}
+.side-swap-marker__copy strong {
+  color: #d8f1fb;
+  font-size: 0.62rem;
+  font-weight: 750;
+}
+.side-swap-marker__copy small {
+  overflow: hidden;
+  color: #91b4c3 !important;
+  font-size: 0.56rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.set-result-marker {
+  min-height: 32px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-bottom: 1px solid #4c432b;
+  background: #242018;
+  color: #e5c978;
+}
+.set-result-marker strong {
+  color: #f5e5ad;
+  font-size: 0.6rem;
+  font-weight: 750;
+}
+.set-result-marker small {
+  margin-left: auto;
+  color: #b6a36b !important;
+  font-size: 0.54rem;
+}
+.set-result-marker__undo {
+  flex: none;
+  min-height: 24px !important;
+  padding: 2px 6px !important;
+  border: 1px solid #66533a !important;
+  color: #f0d99a !important;
+  font-size: 0.54rem !important;
 }
 .segment-row {
   min-height: 82px;

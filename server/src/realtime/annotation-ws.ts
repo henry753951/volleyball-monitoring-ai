@@ -82,6 +82,14 @@ function parseResumeSequence(value: string | undefined): bigint | null {
   return BigInt(value)
 }
 
+function queryParameter(request: FastifyRequest, name: string): string | null {
+  try {
+    return new URL(request.url ?? '/', 'http://annotation.local').searchParams.get(name)
+  } catch {
+    return null
+  }
+}
+
 export const annotationWebSocketRoutes =
   (deps: AnnotationWebSocketDependencies): FastifyPluginAsync =>
   async app => {
@@ -300,7 +308,10 @@ export const annotationWebSocketRoutes =
 
         if (deps.presence) {
           try {
-            presenceMember = await deps.presence.join(room.roomId, identity)
+            presenceMember = await deps.presence.join(room.roomId, {
+              ...identity,
+              presenceNickname: queryParameter(request, 'presence_nickname'),
+            })
             const presenceSnapshot = await deps.presence.snapshot(room.roomId)
             await deps.service.recoverAbandonedDraft(
               room.roomId,

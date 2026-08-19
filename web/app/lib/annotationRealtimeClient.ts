@@ -20,6 +20,7 @@ interface AnnotationRealtimeHandlers {
   onError?: (error: Error) => void
   onServerSequence?: (serverSequence: string) => void
   resumeFromServerSequence?: () => string | null
+  presenceNickname?: () => string | null
 }
 
 export interface AnnotationRealtimeClient {
@@ -130,6 +131,8 @@ export function createAnnotationRealtimeClient(
     const url = new URL(endpoint ?? `${protocol}//${window.location.host}/ws/annotations`)
     url.searchParams.set('room_id', roomId)
     if (deviceSessionId) url.searchParams.set('device_session_id', deviceSessionId)
+    const presenceNickname = handlers.presenceNickname?.()?.trim()
+    if (presenceNickname) url.searchParams.set('presence_nickname', presenceNickname)
     const resumeSequence = handlers.resumeFromServerSequence?.()
     if (resumeSequence && /^\d+$/.test(resumeSequence))
       url.searchParams.set('last_server_sequence', resumeSequence)

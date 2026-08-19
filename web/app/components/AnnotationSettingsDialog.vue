@@ -27,6 +27,7 @@ type PageDirection = 'forward' | 'back'
 const workstation = useAnnotationWorkstationService()
 if (!workstation.preferences) throw new Error('Annotation settings require workstation preferences')
 const preferences = workstation.preferences
+const room = workstation.annotation.room
 const open = preferences.settingsOpen
 const initialPage = preferences.settingsPage
 const clipPolicySaving = preferences.clipPolicySaving
@@ -41,6 +42,8 @@ const recording = ref<HotkeyCommand | null>(null)
 const recordingError = ref<string | null>(null)
 const clipPreRollSeconds = ref(model.clipPreRollSeconds.value)
 const clipPostRollSeconds = ref(model.clipPostRollSeconds.value)
+const presenceNickname = room.presenceNickname
+const presenceNicknameDraft = ref(presenceNickname.value)
 const clipValidationError = ref<string | null>(null)
 const pageDirection = ref<PageDirection>('forward')
 const commandGroups: ReadonlyArray<{
@@ -129,6 +132,13 @@ watch(
   },
   { immediate: true },
 )
+watch(
+  presenceNickname,
+  value => {
+    presenceNicknameDraft.value = value
+  },
+  { immediate: true },
+)
 
 function beginRecording(action: HotkeyCommand) {
   if (recorder.isRecording.value) recorder.cancelRecording()
@@ -173,6 +183,10 @@ function saveClipPolicy() {
 function close() {
   if (recorder.isRecording.value) recorder.cancelRecording()
   preferences.close()
+}
+
+function savePresenceNickname() {
+  presenceNicknameDraft.value = room.setPresenceNickname(presenceNicknameDraft.value)
 }
 </script>
 
@@ -224,6 +238,23 @@ function close() {
                 <ChevronRight :size="17" />
               </UiButton>
             </div>
+            <section v-if="page === 'root'" class="presence-settings">
+              <label for="presence-nickname">標記者暱稱</label>
+              <small>顯示在其他瀏覽器視窗的游標與編輯提示上</small>
+              <div class="presence-settings__control">
+                <input
+                  id="presence-nickname"
+                  v-model="presenceNicknameDraft"
+                  maxlength="24"
+                  autocomplete="off"
+                  @blur="savePresenceNickname"
+                  @keydown.enter.prevent="savePresenceNickname"
+                />
+                <UiButton variant="secondary" size="sm" @click="savePresenceNickname"
+                  >套用</UiButton
+                >
+              </div>
+            </section>
 
             <div v-else-if="page === 'media'" class="settings-child">
               <section class="buffer-settings">
@@ -400,6 +431,44 @@ function close() {
   display: grid;
   gap: 6px;
   padding: 12px 18px 18px 12px;
+}
+.presence-settings {
+  display: grid;
+  gap: 5px;
+  margin: 0 18px 18px 12px;
+  padding: 12px;
+  border: 1px solid #2f3036;
+  border-radius: 10px;
+  background: #141416;
+}
+.presence-settings label {
+  color: #e4e4e7;
+  font-size: 0.74rem;
+  font-weight: 700;
+}
+.presence-settings small {
+  color: #a1a1aa;
+  font-size: 0.63rem;
+}
+.presence-settings__control {
+  display: flex;
+  gap: 8px;
+  margin-top: 4px;
+}
+.presence-settings input {
+  min-width: 0;
+  flex: 1;
+  border: 1px solid #3f3f46;
+  border-radius: 7px;
+  background: #09090b;
+  color: #fafafa;
+  padding: 7px 9px;
+  font: inherit;
+  font-size: 0.72rem;
+}
+.presence-settings input:focus {
+  outline: 2px solid #60a5fa;
+  outline-offset: 1px;
 }
 .settings-menu__item {
   width: 100%;

@@ -145,6 +145,7 @@ type Mutation {
   deleteProcessingRally(rallyId: ID!): Rally!
   deleteRally(rallyId: ID!): RallyDeleteReceipt!
   deleteRallyAnalysis(rallyId: ID!): RallyDeleteReceipt!
+  reopenLastSet(input: ReopenLastSetInput!): MatchSet!
   requestReidAssociationRerun(analysisRunId: ID!, reason: String, requestId: ID!): JSON!
   requestReidFeatureRebuild(analysisRunId: ID!, reason: String, requestId: ID!): JSON!
   requestReidJerseySuggestions(analysisRunId: ID!, runId: ID!): JSON!
@@ -232,6 +233,10 @@ type RallyPlacement {
   rallyId: ID!
 }
 
+input ReopenLastSetInput {
+  matchId: ID!
+}
+
 input RetryProcessingInput {
   rallyId: ID!
 }
@@ -287,6 +292,7 @@ input StartCaptureInput {
 }
 
 input StartNextSetInput {
+  effectiveFromRallyId: ID
   matchId: ID!
   winningTeamId: ID!
 }

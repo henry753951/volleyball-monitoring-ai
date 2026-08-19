@@ -2,6 +2,7 @@ import Fastify from 'fastify'
 import type { PrismaClient } from '@volleyball-monitoring/db'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { authRoutes } from '../src/routes/auth.js'
+import { authenticateAnnotationRequest, createAppSession } from '../src/realtime/auth.js'
 
 const userId = '00000000-0000-4000-8000-000000000002'
 const authEnvKeys = [
@@ -35,6 +36,24 @@ function fakeDatabase() {
         async ({ where }: { where: { id: string } }) => sessions.get(where.id) ?? null,
       ),
       update: vi.fn(async ({ where }: { where: { id: string } }) => sessions.get(where.id) ?? null),
+      upsert: vi.fn(
+        async ({
+          where,
+          create,
+          update,
+        }: {
+          where: { id: string }
+          create: { id: string; userId: string }
+          update: { userAgent?: string | null }
+        }) => {
+          const existing = sessions.get(where.id)
+          if (existing) return existing
+          const session = { revokedAt: null, userId: create.userId }
+          sessions.set(create.id, session)
+          void update
+          return session
+        },
+      ),
       updateMany: vi.fn(async ({ where }: { where: { id: string; userId: string } }) => {
         const session = sessions.get(where.id)
         if (!session || session.userId !== where.userId || session.revokedAt) return { count: 0 }
@@ -169,5 +188,32 @@ describe('application authentication routes', () => {
     } finally {
       await app.close()
     }
+  })
+
+  it('accepts a distinct authenticated device session for each browser window', async () => {
+    setAuthEnv({
+      APP_AUTH_ENABLED: 'true',
+      APP_AUTH_PASSWORD: 'test-password',
+      APP_AUTH_SESSION_SECRET: 'test-session-secret',
+      APP_AUTH_USER_ID: userId,
+      APP_AUTH_USERNAME: 'volley-ai',
+    })
+    const database = fakeDatabase()
+    const session = await createAppSession(database)
+    const windowDeviceSessionId = '00000000-0000-4000-8000-000000000003'
+    const identity = await authenticateAnnotationRequest(
+      {
+        headers: new Headers({
+          cookie: `volley_session=${session.token}`,
+          'user-agent': 'test-browser',
+        }),
+        url: `/ws/annotations?device_session_id=${windowDeviceSessionId}`,
+      },
+      database,
+    )
+    expect(identity).toMatchObject({
+      deviceSessionId: windowDeviceSessionId,
+      userId,
+    })
   })
 })

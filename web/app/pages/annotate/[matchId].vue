@@ -78,7 +78,10 @@ import { createIdentityAssignmentControllerService } from '~/services/annotation
 import { createTimelineSelectionService } from '~/services/annotation-workstation/timeline-selection.service'
 import { createKeyPointEditingService } from '~/services/annotation-workstation/key-point-editing.service'
 import { createWorkstationConfirmationService } from '~/services/annotation-workstation/workstation-confirmation.service'
-import { createSegmentManagementService } from '~/services/annotation-workstation/segment-management.service'
+import {
+  createSegmentManagementService,
+  type SideSwapTarget,
+} from '~/services/annotation-workstation/segment-management.service'
 import { createSyncRecoveryService } from '~/services/annotation-workstation/sync-recovery.service'
 import { createWorkstationPreferencesService } from '~/services/annotation-workstation/workstation-preferences.service'
 import { mergeRallyProcessingUpdate } from '~/services/annotation-workstation/processing-state.service'
@@ -232,6 +235,7 @@ const timelineDock = useTemplateRef<{
     endCaptureTimeUs: string,
     seekTarget?: string | null,
   ) => void
+  focusCursor: (captureTimeUs: string) => void
   resetView: () => void
 }>('timelineDock')
 const workstationSelection = createWorkstationSelectionService({
@@ -711,33 +715,30 @@ const ballEventActorOptions = computed(() =>
     }
   }),
 )
-function currentScoreForTeam(teamId: string | null) {
-  if (!teamId || !currentSet.value) return 0
-  if (teamId === leftTeamId.value) return currentSet.value.left_score
-  if (teamId === rightTeamId.value) return currentSet.value.right_score
-  return 0
-}
-const selectedSideLeftScore = computed(
-  () =>
-    selectedSubmittedRally.value?.left_score_after ??
-    currentScoreForTeam(selectedSideLeftTeamId.value),
-)
-const selectedSideRightScore = computed(
-  () =>
-    selectedSubmittedRally.value?.right_score_after ??
-    currentScoreForTeam(selectedSideRightTeamId.value),
-)
 const selectedSideLeftSetWins = computed(
   () =>
-    coach.data.value?.match.sets.filter(set => set.winning_team_id === selectedSideLeftTeamId.value)
-      .length ?? 0,
+    coach.data.value?.match.sets.filter(
+      set =>
+        set.status.toLowerCase() === 'finished' &&
+        set.winning_team_id === selectedSideLeftTeamId.value,
+    ).length ?? 0,
 )
 const selectedSideRightSetWins = computed(
   () =>
     coach.data.value?.match.sets.filter(
-      set => set.winning_team_id === selectedSideRightTeamId.value,
+      set =>
+        set.status.toLowerCase() === 'finished' &&
+        set.winning_team_id === selectedSideRightTeamId.value,
     ).length ?? 0,
 )
+const canReopenLastSet = computed(() => {
+  const sets = [...(coach.data.value?.match.sets ?? [])].sort(
+    (left, right) => right.set_number - left.set_number,
+  )
+  const latest = sets[0]
+  if (!latest || latest.status !== 'live' || latest.set_number <= 1) return false
+  return sets.some(set => set.set_number === latest.set_number - 1 && Boolean(set.winning_team_id))
+})
 const nextRallyOrdinal = computed(() => {
   const setId = currentSet.value?.id
   if (!setId) return 1
@@ -761,6 +762,93 @@ const currentOrdinaryDraft = computed(
 const sideSwapEffectiveOrdinal = computed(
   () => currentOrdinaryDraft.value?.ordinal ?? nextRallyOrdinal.value,
 )
+const operationContextRallyId = computed(() => {
+  const explicitId = workstationSelection.explicitRallyId.value
+  if (explicitId) return explicitId
+  const ordered = [...selectableSegmentRanges.value].sort((left, right) => {
+    const difference = BigInt(left.startCaptureTimeUs) - BigInt(right.startCaptureTimeUs)
+    return difference < 0n ? -1 : difference > 0n ? 1 : left.id.localeCompare(right.id)
+  })
+  const cursor = visualPlayhead.value ? BigInt(visualPlayhead.value) : null
+  const cursorIndex = cursorRallyId.value
+    ? ordered.findIndex(item => item.id === cursorRallyId.value)
+    : cursor === null
+      ? -1
+      : ordered.reduce(
+          (last, item, index) => (BigInt(item.startCaptureTimeUs) <= cursor ? index : last),
+          -1,
+        )
+  return cursorIndex > 0 ? (ordered[cursorIndex - 1]?.id ?? null) : (ordered[0]?.id ?? null)
+})
+const operationContextRally = computed(() => {
+  const rallyId = operationContextRallyId.value
+  if (!rallyId) return null
+  return (
+    annotationDrafts.value.find(draft => draft.id === rallyId) ??
+    submittedRallies.value.find(rally => rally.id === rallyId) ??
+    null
+  )
+})
+const selectedSideSwapTarget = computed<SideSwapTarget | null>(() => {
+  const selectedDraft =
+    operationContextRally.value && 'active_submission_id' in operationContextRally.value
+      ? operationContextRally.value
+      : null
+  if (selectedDraft?.set_id && selectedDraft.left_team_id && selectedDraft.right_team_id) {
+    return {
+      rallyId: selectedDraft.id,
+      effectiveFromRallyOrdinal: selectedDraft.ordinal,
+      expectedLeftTeamId: selectedDraft.left_team_id,
+      expectedRightTeamId: selectedDraft.right_team_id,
+      displaySetNumber: selectedDraft.display_set_number,
+      isDraft: true,
+      label: `第 ${selectedDraft.display_ordinal} 回合起`,
+      setId: selectedDraft.set_id,
+    }
+  }
+  const selectedRally =
+    operationContextRally.value && 'submission' in operationContextRally.value
+      ? operationContextRally.value
+      : null
+  if (selectedRally) {
+    return {
+      rallyId: selectedRally.id,
+      effectiveFromRallyOrdinal: selectedRally.ordinal,
+      expectedLeftTeamId: selectedRally.submission.left_team_id,
+      expectedRightTeamId: selectedRally.submission.right_team_id,
+      displaySetNumber: selectedRally.display_set_number,
+      isDraft: false,
+      label: `第 ${selectedRally.display_ordinal} 回合起`,
+      setId: selectedRally.set_id,
+    }
+  }
+  const currentDraft = currentOrdinaryDraft.value
+  if (currentDraft?.set_id && currentDraft.left_team_id && currentDraft.right_team_id) {
+    return {
+      rallyId: currentDraft.id,
+      effectiveFromRallyOrdinal: currentDraft.ordinal,
+      expectedLeftTeamId: currentDraft.left_team_id,
+      expectedRightTeamId: currentDraft.right_team_id,
+      displaySetNumber: currentDraft.display_set_number,
+      isDraft: true,
+      label: `第 ${currentDraft.display_ordinal} 回合起`,
+      setId: currentDraft.set_id,
+    }
+  }
+  if (currentSet.value?.id && leftTeamId.value && rightTeamId.value) {
+    return {
+      rallyId: null,
+      effectiveFromRallyOrdinal: sideSwapEffectiveOrdinal.value,
+      expectedLeftTeamId: leftTeamId.value,
+      expectedRightTeamId: rightTeamId.value,
+      displaySetNumber: currentSet.value.set_number,
+      isDraft: false,
+      label: `第 ${sideSwapEffectiveOrdinal.value} 回合起`,
+      setId: currentSet.value.id,
+    }
+  }
+  return null
+})
 const clipSelected = computed(() =>
   Boolean(
     selectedRallyId.value &&
@@ -780,11 +868,13 @@ const segmentManagement = createSegmentManagementService({
   confirmation: workstationConfirmation,
   feedback: workstationFeedback,
   editReady: () => editReady.value,
+  canReopenLastSet: () => canReopenLastSet.value,
   currentSet: () => currentSet.value,
   leftTeam: () => leftTeam.value,
   rightTeam: () => rightTeam.value,
   currentDraft: () => Boolean(currentOrdinaryDraft.value),
   sideSwapEffectiveOrdinal: () => sideSwapEffectiveOrdinal.value,
+  sideSwapTarget: () => selectedSideSwapTarget.value,
   selectedRallyId: () => selectedRallyId.value,
   selectedSubmissionId: () => selectedRally.value?.submission.id ?? null,
   clipSelected: () => clipSelected.value,
@@ -854,6 +944,10 @@ async function refreshOverlayReplay() {
     overlayReplay.value = null
     return
   }
+  // Never keep the previous rally's track metadata visible while the new
+  // replay is loading. The selected rally's side projection remains available
+  // as the temporary label fallback below.
+  overlayReplay.value = null
   try {
     const replay = await coachDomain.rallyReplay(rallyId)
     const replayAnalysisId = replay?.analysis?.id ?? null
@@ -892,14 +986,14 @@ const overlayTeamLabels = computed(() => ({
   left:
     overlayReplay.value?.rally.left_team.shortName ||
     overlayReplay.value?.rally.left_team.name ||
-    leftTeam.value?.shortName ||
-    leftTeam.value?.name ||
+    selectedSideLeftTeam.value?.shortName ||
+    selectedSideLeftTeam.value?.name ||
     '左隊',
   right:
     overlayReplay.value?.rally.right_team.shortName ||
     overlayReplay.value?.rally.right_team.name ||
-    rightTeam.value?.shortName ||
-    rightTeam.value?.name ||
+    selectedSideRightTeam.value?.shortName ||
+    selectedSideRightTeam.value?.name ||
     '右隊',
 }))
 const analysisReview = useAnalysisReview(editorSelectedAnalysisRunId)
@@ -1848,6 +1942,10 @@ async function cancelCorrection() {
 
 function resetTimelineZoom() {
   timelineDock.value?.resetView()
+}
+function focusTimelineCursor() {
+  const cursor = visualPlayhead.value
+  if (cursor) timelineDock.value?.focusCursor(cursor)
 }
 
 type PlayerAction = MediaAction | 'mute'
@@ -3119,14 +3217,14 @@ onBeforeUnmount(() => {
           :right-team="selectedSideRightTeam"
           :current-left-team="leftTeam"
           :current-right-team="rightTeam"
-          :left-score="selectedSideLeftScore"
-          :right-score="selectedSideRightScore"
           :left-set-wins="selectedSideLeftSetWins"
           :right-set-wins="selectedSideRightSetWins"
           :set-number="displaySetNumber"
+          :set-results="coach.data.value?.match.sets ?? []"
           :rally-ordinal="displayRallyOrdinal"
           :left-team-id="selectedSideLeftTeamId"
           :right-team-id="selectedSideRightTeamId"
+          :context-rally-id="operationContextRallyId"
           :drafts="annotationDrafts"
           :rallies="visibleSubmittedRallies"
           :selected-rally-id="selectedRallyId"
@@ -3159,6 +3257,7 @@ onBeforeUnmount(() => {
       <AnnotationTransportBar
         :playing="playing"
         :timecode="displayTimecode"
+        :cursor-available="Boolean(visualPlayhead)"
         :live-active="
           omeDirectPlaybackActive
             ? omeAtLiveEdge
@@ -3197,6 +3296,7 @@ onBeforeUnmount(() => {
           ),
           nextSegment: formatBindingForDisplay(shiftedHotkeyBinding(bindings.key_point_next)),
         }"
+        @focus-cursor="focusTimelineCursor"
       />
       <DvrTimelineDock
         ref="timelineDock"

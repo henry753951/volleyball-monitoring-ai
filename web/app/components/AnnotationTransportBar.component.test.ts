@@ -33,6 +33,7 @@ const baseProps = {
   draftSelected: false,
   muted: false,
   timelineScale: 0.1,
+  cursorAvailable: true,
   shortcuts: {
     play: 'Space',
     previousFrame: 'ArrowLeft',
@@ -160,5 +161,11 @@ describe('AnnotationTransportBar', () => {
       disabled: { 'clip.download': '片段尚未完成剪切' },
     })
     expect(wrapper.get('[aria-label="下載片段"]').attributes('disabled')).toBeDefined()
+  })
+
+  it('emits a cursor-focus request when the PTS indicator is clicked', async () => {
+    const { wrapper } = mountBar()
+    await wrapper.get('[aria-label="回到目前 PTS 游標並置中時間軸"]').trigger('click')
+    expect(wrapper.emitted('focus-cursor')).toHaveLength(1)
   })
 })

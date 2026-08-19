@@ -46,6 +46,7 @@ withDefaults(
     muted: boolean
     playbackRate?: number
     timelineScale: number
+    cursorAvailable: boolean
     shortcuts: {
       play: string
       previousFrame: string
@@ -62,6 +63,10 @@ withDefaults(
     playbackRate: 1,
   },
 )
+
+const emit = defineEmits<{
+  'focus-cursor': []
+}>()
 
 const workstation = useAnnotationWorkstationService()
 
@@ -148,7 +153,16 @@ const clipTransition = computed(() =>
         <ChevronRight :size="18" stroke-width="2.2" /></button
     ></UiTooltip>
     <div class="transport-media-group">
-      <code class="timecode">{{ timecode }}</code>
+      <button
+        type="button"
+        class="timecode timecode-button"
+        :disabled="!cursorAvailable"
+        aria-label="回到目前 PTS 游標並置中時間軸"
+        title="回到目前 PTS 游標並置中時間軸"
+        @click="emit('focus-cursor')"
+      >
+        {{ timecode }}
+      </button>
       <UiPopover v-model:open="playbackMenuOpen" side="top" align="start">
         <template #trigger>
           <button
@@ -490,6 +504,13 @@ const clipTransition = computed(() =>
     700 0.7rem 'Cascadia Mono',
     Consolas,
     monospace;
+}
+.timecode-button {
+  min-height: 24px;
+  padding: 0 2px;
+  border: 0;
+  background: transparent;
+  text-align: left;
 }
 .playback-rate {
   min-height: 24px;

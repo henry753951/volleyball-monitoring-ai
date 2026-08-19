@@ -51,8 +51,9 @@ describe('AnnotationMatchInspector outcomes', () => {
         currentFrame: -1,
         currentLeftTeam: teams[0]!,
         currentRightTeam: teams[1]!,
-        displayedOutcomeLabel: '右側 PUR 得分',
-        displayedOutcomeSide: 'right',
+        contextRallyId: 'draft',
+        displayedOutcomeLabel: '左側 PUR 得分',
+        displayedOutcomeSide: 'left',
         displayedRallyId: 'draft',
         drafts: [
           {
@@ -66,6 +67,9 @@ describe('AnnotationMatchInspector outcomes', () => {
             score_resolution: 'unknown',
             scoring_court_side: null,
             scoring_team_id: null,
+            side_assignment_id: 'assignment-swapped',
+            left_team_id: 'right',
+            right_team_id: 'left',
             set_id: 'set',
             set_number: 1,
             boundaries: [{ kind: 'start', capture_time_us: '2000000', capture_frame_index: '120' }],
@@ -82,7 +86,6 @@ describe('AnnotationMatchInspector outcomes', () => {
           },
         ],
         formatRallyDuration: () => '1.0 秒',
-        leftScore: 1,
         leftSetWins: 0,
         leftTeam: teams[0]!,
         leftTeamId: 'left',
@@ -139,12 +142,12 @@ describe('AnnotationMatchInspector outcomes', () => {
           },
         ],
         rallyOrdinal: 2,
-        rightScore: 0,
         rightSetWins: 0,
         rightTeam: teams[1]!,
         rightTeamId: 'right',
         selectedRallyId: 'draft',
         setNumber: 1,
+        setResults: [{ set_number: 1, winning_team_id: 'right' }],
         setNumbers: [1],
         tab: 'match',
         teams,
@@ -153,7 +156,7 @@ describe('AnnotationMatchInspector outcomes', () => {
 
     expect(wrapper.findAll('.outcome-badge').map(badge => badge.text())).toEqual([
       '左側 TPE 得分',
-      '右側 PUR 得分',
+      '左側 PUR 得分',
     ])
     expect(wrapper.find('.outcome-badge.unknown').exists()).toBe(false)
     expect(wrapper.findAll('.score-at-rally').map(score => score.text())).toEqual([
@@ -161,9 +164,18 @@ describe('AnnotationMatchInspector outcomes', () => {
       '1 : 1',
     ])
     expect(wrapper.get('.set-divider b').text()).toBe('1 : 1')
+    expect(wrapper.get('.score-board').text().replace(/\s+/g, '')).toContain('1:1')
+    expect(wrapper.get('.set-result-marker').text()).toContain('第 1 局 · PUR 勝')
+    await wrapper.setProps({
+      setResults: [{ set_number: 1, winning_team_id: 'right', status: 'live' }],
+    })
+    expect(wrapper.find('.set-result-marker').exists()).toBe(false)
     expect(wrapper.findAll('.segment-side-order').map(row => row.text())).toEqual([
       '左側 TPE · 右側 PUR',
-      '左側 TPE · 右側 PUR',
+      '左側 PUR · 右側 TPE',
+    ])
+    expect(wrapper.findAll('.side-swap-marker').map(marker => marker.text())).toEqual([
+      '第 2 回合起換場左側 PUR · 右側 TPE',
     ])
     expect(wrapper.findAll('.segment-main').map(row => row.text())).toEqual([
       expect.stringContaining('回合 1'),
@@ -177,7 +189,7 @@ describe('AnnotationMatchInspector outcomes', () => {
     await wrapper.findAll('.segment-main')[1]!.trigger('click')
     expect(timeline.selectHistorical).toHaveBeenCalledWith('draft', '2')
 
-    await wrapper.get('button[aria-label="修正此片段的左右隊伍"]').trigger('click')
+    await wrapper.get('button[aria-label="從此回合起對調左右隊伍"]').trigger('click')
     expect(execute).toHaveBeenCalledWith(
       'segment.swap-rally-sides',
       expect.objectContaining({ id: 'rally' }),

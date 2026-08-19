@@ -3,6 +3,10 @@ import { RosterPosition, UserRole } from '@volleyball-monitoring/db/client'
 import type { Match, MatchSet, Prisma, Team, MatchStatus } from '@volleyball-monitoring/db/client'
 import type { AuthenticatedUser } from '../graphql/context.js'
 import { domainError } from '../graphql/errors.js'
+import {
+  deriveRallyDisplayOrdinals,
+  segmentStartCaptureTimeUs,
+} from '../domain/rally-display-order.js'
 
 const UUID = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i
 
@@ -57,8 +61,13 @@ export interface UpdateMatchInput {
 }
 
 export interface StartNextSetInput {
+  effectiveFromRallyId?: string | null | undefined
   matchId: string
   winningTeamId: string
+}
+
+export interface ReopenLastSetInput {
+  matchId: string
 }
 
 interface NormalizedRosterSetup {
@@ -328,6 +337,9 @@ export async function startNextSet(
   requireSetupRole(actor)
   const matchId = requireUuid(input.matchId, 'matchId')
   const winningTeamId = requireUuid(input.winningTeamId, 'winningTeamId')
+  const effectiveFromRallyId = input.effectiveFromRallyId
+    ? requireUuid(input.effectiveFromRallyId, 'effectiveFromRallyId')
+    : null
   return db.$transaction(async tx => {
     await tx.$queryRaw<Array<{ locked: string }>>`
       SELECT pg_advisory_xact_lock(hashtextextended(${`match-set:${matchId}`}, 0))::text AS locked
@@ -349,18 +361,59 @@ export async function startNextSet(
       include: { sideAssignments: { orderBy: { effectiveFromRallyOrdinal: 'desc' }, take: 1 } },
     })
     if (!current) domainError('Current set not found', 'NOT_FOUND')
-    const openDraft = await tx.rally.findFirst({
-      select: { id: true },
-      where: { setId: current.id, voidedAt: null, annotationStatus: { in: ['OPEN', 'READY'] } },
-    })
-    if (openDraft)
-      domainError(
-        'Finish or discard the editable segment before starting a new set',
-        'BAD_USER_INPUT',
-      )
     const assignment = current.sideAssignments[0]
     if (!assignment)
       domainError('Current set has no court-side assignment', 'INTERNAL_SERVER_ERROR')
+    if (effectiveFromRallyId) {
+      const placementRows = await tx.rally.findMany({
+        where: { matchId, displaySetNumber: current.setNumber, voidedAt: null },
+        select: {
+          id: true,
+          boundaries: {
+            where: { kind: 'START' },
+            select: { captureTimeUs: true, kind: true },
+          },
+          keyPoints: {
+            where: { deletedAt: null },
+            select: { captureTimeUs: true, markerKind: true },
+          },
+          activeSubmission: {
+            select: {
+              boundaries: {
+                where: { kind: 'START' },
+                select: { captureTimeUs: true, kind: true },
+              },
+              keyPoints: {
+                select: { captureTimeUs: true, markerKind: true },
+              },
+            },
+          },
+        },
+      })
+      const displayOrdinals = deriveRallyDisplayOrdinals(
+        placementRows.map(row => ({
+          displaySetNumber: current.setNumber,
+          id: row.id,
+          startCaptureTimeUs:
+            segmentStartCaptureTimeUs(row) ?? segmentStartCaptureTimeUs(row.activeSubmission ?? {}),
+        })),
+      )
+      const boundaryOrdinal = displayOrdinals.get(effectiveFromRallyId)
+      if (!boundaryOrdinal)
+        domainError(
+          '選取回合不在目前局；請先選取目前局的回合。若前一個勝局標錯，請先撤銷最近勝局標記。',
+          'BAD_USER_INPUT',
+        )
+      const suffixIds = placementRows
+        .filter(row => (displayOrdinals.get(row.id) ?? 0) > boundaryOrdinal)
+        .map(row => row.id)
+      if (suffixIds.length) {
+        await tx.rally.updateMany({
+          data: { displaySetNumber: current.setNumber + 1 },
+          where: { id: { in: suffixIds } },
+        })
+      }
+    }
     await tx.matchSet.update({
       data: { endedAt: new Date(), status: 'FINISHED', winningTeamId },
       where: { id: current.id },
@@ -377,6 +430,70 @@ export async function startNextSet(
       },
     })
     return next
+  })
+}
+
+export async function reopenLastSet(
+  actor: AuthenticatedUser,
+  input: ReopenLastSetInput,
+): Promise<MatchSet> {
+  requireSetupRole(actor)
+  const matchId = requireUuid(input.matchId, 'matchId')
+  return db.$transaction(async tx => {
+    await tx.$queryRaw<Array<{ locked: string }>>`
+      SELECT pg_advisory_xact_lock(hashtextextended(${`match-set:${matchId}`}, 0))::text AS locked
+    `
+    const match = await tx.match.findFirst({
+      where: {
+        deletionRequestedAt: null,
+        id: matchId,
+        ...(actor.role === UserRole.ADMIN
+          ? {}
+          : { members: { some: { role: UserRole.OPERATOR, userId: actor.id } } }),
+      },
+    })
+    if (!match) domainError('Match not found', 'NOT_FOUND')
+
+    const current = await tx.matchSet.findFirst({
+      orderBy: [{ setNumber: 'desc' }, { id: 'desc' }],
+      where: { matchId, status: 'LIVE' },
+    })
+    if (!current || current.setNumber <= 1)
+      domainError('No reversible set winner marker found', 'BAD_USER_INPUT')
+
+    const previous = await tx.matchSet.findUnique({
+      where: { matchId_setNumber: { matchId, setNumber: current.setNumber - 1 } },
+    })
+    if (!previous || previous.status !== 'FINISHED' || !previous.winningTeamId)
+      domainError('Previous set has no winner marker to reopen', 'BAD_USER_INPUT')
+
+    const [currentRallyCount, currentPointAwardCount, currentLedgerCount] = await Promise.all([
+      tx.rally.count({ where: { setId: current.id, voidedAt: null } }),
+      tx.pointAward.count({ where: { setId: current.id } }),
+      tx.scoreLedgerEntry.count({ where: { setId: current.id } }),
+    ])
+    if (currentRallyCount || currentPointAwardCount || currentLedgerCount) {
+      domainError(
+        '下一局已有新的標註或比分資料，為避免覆蓋內容，無法撤銷勝局標記',
+        'BAD_USER_INPUT',
+      )
+    }
+
+    await tx.rally.updateMany({
+      data: { displaySetNumber: previous.setNumber },
+      where: {
+        displaySetNumber: current.setNumber,
+        matchId,
+        setId: previous.id,
+        voidedAt: null,
+      },
+    })
+    await tx.matchSet.update({
+      data: { endedAt: null, status: 'LIVE', winningTeamId: null },
+      where: { id: previous.id },
+    })
+    await tx.matchSet.delete({ where: { id: current.id } })
+    return tx.matchSet.findUniqueOrThrow({ where: { id: previous.id } })
   })
 }
 
@@ -498,107 +615,154 @@ export async function swapCourtSides(
       domainError('Set not found', 'NOT_FOUND')
     }
 
-    const current = await tx.courtSideAssignment.findFirst({
-      orderBy: { effectiveFromRallyOrdinal: 'desc' },
-      where: { effectiveToRallyOrdinal: null, setId },
+    const assignments = await tx.courtSideAssignment.findMany({
+      orderBy: { effectiveFromRallyOrdinal: 'asc' },
+      where: { setId },
     })
-    if (!current) {
+    const target = assignments.find(
+      assignment =>
+        assignment.effectiveFromRallyOrdinal <= input.effectiveFromRallyOrdinal &&
+        (assignment.effectiveToRallyOrdinal === null ||
+          assignment.effectiveToRallyOrdinal >= input.effectiveFromRallyOrdinal),
+    )
+    const current = assignments.find(assignment => assignment.effectiveToRallyOrdinal === null)
+    if (!target || !current) {
       domainError('Set has no current court-side assignment', 'INTERNAL_SERVER_ERROR')
     }
-    if (current.leftTeamId !== expectedLeftTeamId || current.rightTeamId !== expectedRightTeamId) {
+    if (target.leftTeamId !== expectedLeftTeamId || target.rightTeamId !== expectedRightTeamId) {
       domainError('Court-side assignment changed; refresh before swapping again', 'BAD_USER_INPUT')
     }
-    const latestRally = await tx.rally.findFirst({
-      orderBy: [{ ordinal: 'desc' }, { id: 'desc' }],
+
+    const affectedRallies = await tx.rally.findMany({
       select: {
-        activeSubmissionId: true,
-        annotationStatus: true,
         id: true,
         ordinal: true,
         scoreResolutionState: true,
         scoringCourtSide: true,
+        sideAssignmentReversed: true,
       },
-      where: { setId, voidedAt: null },
+      where: { setId, ordinal: { gte: input.effectiveFromRallyOrdinal }, voidedAt: null },
     })
-    const updatesLatestDraft = Boolean(
-      latestRally &&
-      input.effectiveFromRallyOrdinal === latestRally.ordinal &&
-      latestRally.activeSubmissionId === null &&
-      (latestRally.annotationStatus === 'OPEN' || latestRally.annotationStatus === 'READY'),
+
+    const assignmentFor = <T extends (typeof assignments)[number]>(
+      rows: readonly T[],
+      ordinal: number,
+    ) =>
+      rows.find(
+        assignment =>
+          assignment.effectiveFromRallyOrdinal <= ordinal &&
+          (assignment.effectiveToRallyOrdinal === null ||
+            assignment.effectiveToRallyOrdinal >= ordinal),
+      )
+    const effectiveTeams = (assignment: (typeof assignments)[number], reversed: boolean) =>
+      reversed
+        ? { leftTeamId: assignment.rightTeamId, rightTeamId: assignment.leftTeamId }
+        : { leftTeamId: assignment.leftTeamId, rightTeamId: assignment.rightTeamId }
+    const scoringTeamFor = (
+      assignment: (typeof assignments)[number] | undefined,
+      reversed: boolean,
+      scoringCourtSide: 'LEFT' | 'RIGHT' | null,
+    ) => {
+      if (!assignment || !scoringCourtSide) return null
+      const teams = effectiveTeams(assignment, reversed)
+      return scoringCourtSide === 'LEFT' ? teams.leftTeamId : teams.rightTeamId
+    }
+
+    const assignmentAtTarget = assignments.find(
+      assignment => assignment.effectiveFromRallyOrdinal === input.effectiveFromRallyOrdinal,
     )
-    if (
-      latestRally &&
-      input.effectiveFromRallyOrdinal <= latestRally.ordinal &&
-      !updatesLatestDraft
-    ) {
-      domainError(
-        'Court-side changes must start after every existing rally in the set',
-        'BAD_USER_INPUT',
-      )
+    if (assignmentAtTarget) {
+      for (const assignment of assignments.filter(
+        entry => entry.effectiveFromRallyOrdinal >= input.effectiveFromRallyOrdinal,
+      )) {
+        await tx.courtSideAssignment.update({
+          data: { leftTeamId: assignment.rightTeamId, rightTeamId: assignment.leftTeamId },
+          where: { id: assignment.id },
+        })
+      }
+    } else {
+      await tx.courtSideAssignment.update({
+        data: { effectiveToRallyOrdinal: input.effectiveFromRallyOrdinal - 1 },
+        where: { id: target.id },
+      })
+      await tx.courtSideAssignment.create({
+        data: {
+          effectiveFromRallyOrdinal: input.effectiveFromRallyOrdinal,
+          effectiveToRallyOrdinal: target.effectiveToRallyOrdinal,
+          leftTeamId: target.rightTeamId,
+          rightTeamId: target.leftTeamId,
+          setId,
+        },
+      })
+      for (const assignment of assignments.filter(
+        entry => entry.effectiveFromRallyOrdinal > input.effectiveFromRallyOrdinal,
+      )) {
+        await tx.courtSideAssignment.update({
+          data: { leftTeamId: assignment.rightTeamId, rightTeamId: assignment.leftTeamId },
+          where: { id: assignment.id },
+        })
+      }
     }
-    if (input.effectiveFromRallyOrdinal < current.effectiveFromRallyOrdinal) {
-      domainError(
-        'effectiveFromRallyOrdinal cannot precede the current assignment',
-        'BAD_USER_INPUT',
-      )
+
+    const nextAssignments = await tx.courtSideAssignment.findMany({
+      orderBy: { effectiveFromRallyOrdinal: 'asc' },
+      where: { setId },
+    })
+    const nextCurrent = nextAssignments.find(
+      assignment => assignment.effectiveToRallyOrdinal === null,
+    )
+    if (!nextCurrent) {
+      domainError('Set has no current court-side assignment', 'INTERNAL_SERVER_ERROR')
     }
+
+    const scoreByTeam = new Map<string, number>([
+      [current.leftTeamId, matchSet.leftScore],
+      [current.rightTeamId, matchSet.rightScore],
+    ])
+    for (const rally of affectedRallies) {
+      const beforeAssignment = assignmentFor(assignments, rally.ordinal)
+      const afterAssignment = assignmentFor(nextAssignments, rally.ordinal)
+      if (!afterAssignment) {
+        domainError('Rally has no court-side assignment at its ordinal', 'INTERNAL_SERVER_ERROR')
+      }
+      const beforeScoringTeam = scoringTeamFor(
+        beforeAssignment,
+        rally.sideAssignmentReversed,
+        rally.scoringCourtSide,
+      )
+      const afterScoringTeam = scoringTeamFor(
+        afterAssignment,
+        rally.sideAssignmentReversed,
+        rally.scoringCourtSide,
+      )
+      if (
+        rally.scoreResolutionState === 'RESOLVED' &&
+        beforeScoringTeam &&
+        afterScoringTeam &&
+        beforeScoringTeam !== afterScoringTeam
+      ) {
+        scoreByTeam.set(beforeScoringTeam, (scoreByTeam.get(beforeScoringTeam) ?? 0) - 1)
+        scoreByTeam.set(afterScoringTeam, (scoreByTeam.get(afterScoringTeam) ?? 0) + 1)
+      }
+      await tx.rally.update({
+        data: {
+          scoringTeamId: afterScoringTeam,
+          sideAssignmentId: afterAssignment.id,
+        },
+        where: { id: rally.id },
+      })
+    }
+
     const changed = await tx.matchSet.updateMany({
       data: {
-        leftScore: matchSet.rightScore,
-        rightScore: matchSet.leftScore,
+        leftScore: scoreByTeam.get(nextCurrent.leftTeamId) ?? 0,
+        rightScore: scoreByTeam.get(nextCurrent.rightTeamId) ?? 0,
         scoreRevision: { increment: 1 },
       },
       where: { id: matchSet.id, scoreRevision: matchSet.scoreRevision },
     })
-    if (changed.count !== 1)
+    if (changed.count !== 1) {
       domainError('Set score changed while swapping court sides', 'BAD_USER_INPUT')
-
-    let nextAssignmentId = current.id
-    if (input.effectiveFromRallyOrdinal === current.effectiveFromRallyOrdinal) {
-      await tx.courtSideAssignment.update({
-        data: { leftTeamId: current.rightTeamId, rightTeamId: current.leftTeamId },
-        where: { id: current.id },
-      })
-    } else {
-      await tx.courtSideAssignment.update({
-        data: { effectiveToRallyOrdinal: input.effectiveFromRallyOrdinal - 1 },
-        where: { id: current.id },
-      })
-      const nextAssignment = await tx.courtSideAssignment.create({
-        data: {
-          effectiveFromRallyOrdinal: input.effectiveFromRallyOrdinal,
-          leftTeamId: current.rightTeamId,
-          rightTeamId: current.leftTeamId,
-          setId,
-        },
-      })
-      nextAssignmentId = nextAssignment.id
-    }
-
-    if (updatesLatestDraft && latestRally) {
-      const scoringTeamId =
-        latestRally.scoreResolutionState === 'RESOLVED'
-          ? latestRally.scoringCourtSide === 'LEFT'
-            ? current.rightTeamId
-            : latestRally.scoringCourtSide === 'RIGHT'
-              ? current.leftTeamId
-              : null
-          : null
-      const updatedDraft = await tx.rally.updateMany({
-        data: {
-          scoringTeamId,
-          sideAssignmentId: nextAssignmentId,
-          sideAssignmentReversed: false,
-        },
-        where: {
-          activeSubmissionId: null,
-          annotationStatus: { in: ['OPEN', 'READY'] },
-          id: latestRally.id,
-        },
-      })
-      if (updatedDraft.count !== 1) {
-        domainError('The editable rally changed while swapping court sides', 'BAD_USER_INPUT')
-      }
     }
     return tx.matchSet.findUniqueOrThrow({ where: { id: matchSet.id } })
   })

@@ -29,6 +29,7 @@ export type WorkstationActionId =
   | 'segment.void'
   | 'segment.delete-processing'
   | 'segment.start-next-set'
+  | 'segment.reopen-last-set'
   | 'segment.swap-current-sides'
   | 'segment.swap-rally-sides'
   | 'segment.update-placement'

@@ -8,6 +8,7 @@ import type {
   UpdateMatchRosterInput,
   UpdateMatchClipPolicyInput,
   StartNextSetInput,
+  ReopenLastSetInput,
   UpdateMatchInput,
 } from '../services/core-domain.js'
 import type { StartCaptureInput } from '../services/capture-processing.js'
@@ -97,8 +98,16 @@ UpdateMatchClipPolicyInputType.implement({
 export const StartNextSetInputType = builder.inputRef<StartNextSetInput>('StartNextSetInput')
 StartNextSetInputType.implement({
   fields: t => ({
+    effectiveFromRallyId: t.id(),
     matchId: t.id({ required: true }),
     winningTeamId: t.id({ required: true }),
+  }),
+})
+
+export const ReopenLastSetInputType = builder.inputRef<ReopenLastSetInput>('ReopenLastSetInput')
+ReopenLastSetInputType.implement({
+  fields: t => ({
+    matchId: t.id({ required: true }),
   }),
 })
 

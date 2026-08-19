@@ -72,6 +72,27 @@ describe('annotation Redis presence', () => {
     presence.close()
   })
 
+  it('uses a sanitized per-window nickname without changing the account identity', async () => {
+    const roomId =
+      'match:00000000-0000-4000-8000-000000000001:capture:00000000-0000-4000-8000-000000000002'
+    const presence = createAnnotationPresenceService({
+      redis: new MemoryRedis(),
+      displayName: async () => 'Root account',
+    })
+
+    const member = await presence.join(roomId, {
+      userId: 'user-1',
+      deviceSessionId: 'device-window-1',
+      presenceNickname: '  視窗一\n  ',
+    })
+    expect(member).toMatchObject({
+      user_id: 'user-1',
+      device_session_id: 'device-window-1',
+      display_name: '視窗一',
+    })
+    presence.close()
+  })
+
   it('publishes a short edit hint, preserves it across presence touch, and expires it without removing the member', async () => {
     const roomId =
       'match:00000000-0000-4000-8000-000000000001:capture:00000000-0000-4000-8000-000000000002'

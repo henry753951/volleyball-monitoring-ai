@@ -159,8 +159,13 @@ export interface UpdateMatchClipPolicyInput {
 }
 
 export interface StartNextSetInput {
+  effectiveFromRallyId?: string | null
   matchId: string
   winningTeamId: string
+}
+
+export interface ReopenLastSetInput {
+  matchId: string
 }
 
 export interface GraphQLErrorLike {
@@ -199,6 +204,7 @@ export interface CoreDomainClient {
   retryProcessing(rallyId: string): Promise<ProcessingState>
   updateMatchClipPolicy(input: UpdateMatchClipPolicyInput): Promise<Match>
   startNextSet(input: StartNextSetInput): Promise<MatchSet>
+  reopenLastSet(input: ReopenLastSetInput): Promise<MatchSet>
 }
 
 export const CORE_OPERATIONS = {
@@ -216,6 +222,7 @@ export const CORE_OPERATIONS = {
   retryProcessing: `mutation RetryProcessing($input: RetryProcessingInput!) { retryProcessing(input: $input) { rallyId submissionId status retriedStage } }`,
   updateMatchClipPolicy: `mutation UpdateMatchClipPolicy($input: UpdateMatchClipPolicyInput!) { updateMatchClipPolicy(input: $input) { id title venue status scheduledAt clipPreRollUs clipPostRollUs teams { id name shortName } rosterEntries { id teamId name jerseyNumber position } sets { id setNumber status leftScore rightScore winningTeamId sideAssignments { id effectiveFromRallyOrdinal effectiveToRallyOrdinal leftTeamId rightTeamId } } } }`,
   startNextSet: `mutation StartNextSet($input: StartNextSetInput!) { startNextSet(input: $input) { id setNumber status leftScore rightScore winningTeamId sideAssignments { id effectiveFromRallyOrdinal effectiveToRallyOrdinal leftTeamId rightTeamId } } }`,
+  reopenLastSet: `mutation ReopenLastSet($input: ReopenLastSetInput!) { reopenLastSet(input: $input) { id setNumber status leftScore rightScore winningTeamId sideAssignments { id effectiveFromRallyOrdinal effectiveToRallyOrdinal leftTeamId rightTeamId } } }`,
 } as const
 
 export function createGraphQLTransport(
@@ -332,6 +339,13 @@ export function createCoreDomainClient(transport: GraphQLTransport): CoreDomainC
         { input },
       )
       return result.startNextSet
+    },
+    async reopenLastSet(input) {
+      const result = await transport.request<{ reopenLastSet: MatchSet }>(
+        CORE_OPERATIONS.reopenLastSet,
+        { input },
+      )
+      return result.reopenLastSet
     },
   }
 }

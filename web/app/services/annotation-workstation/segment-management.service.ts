@@ -24,6 +24,17 @@ interface AnalysisResetTarget {
   submissionId: string
 }
 
+export interface SideSwapTarget {
+  rallyId?: string | null
+  displaySetNumber?: number
+  setId: string
+  effectiveFromRallyOrdinal: number
+  expectedLeftTeamId: string
+  expectedRightTeamId: string
+  label: string
+  isDraft: boolean
+}
+
 export interface SegmentManagementServiceOptions {
   matchId: string
   core: CoreDomainClient
@@ -35,11 +46,13 @@ export interface SegmentManagementServiceOptions {
   confirmation: WorkstationConfirmationService
   feedback: WorkstationFeedbackService
   editReady: () => boolean
-  currentSet: () => { id: string } | null
+  canReopenLastSet: () => boolean
+  currentSet: () => { id: string; set_number?: number } | null
   leftTeam: () => TeamSummary | null
   rightTeam: () => TeamSummary | null
   currentDraft: () => boolean
   sideSwapEffectiveOrdinal: () => number
+  sideSwapTarget: () => SideSwapTarget | null
   selectedRallyId: () => string | null
   selectedSubmissionId: () => string | null
   clipSelected: () => boolean
@@ -51,10 +64,43 @@ export interface SegmentManagementServiceOptions {
 
 export function createSegmentManagementService(options: SegmentManagementServiceOptions) {
   const sideSwapPending = ref(false)
+  const sideSwapConfirmationPending = ref(false)
+  const reopenLastSetPending = ref(false)
   const placementSaving = ref(false)
   const deletePending = ref(false)
   const affectsCurrentDraft = computed(options.currentDraft)
-  let sideSwapOperationGeneration = 0
+  const sideSwapLocked = computed(() => sideSwapPending.value || sideSwapConfirmationPending.value)
+
+  const resolvedSideSwapTarget = computed(
+    () =>
+      options.sideSwapTarget() ??
+      (() => {
+        const set = options.currentSet()
+        const left = options.leftTeam()
+        const right = options.rightTeam()
+        if (!set || !left || !right) return null
+        return {
+          rallyId: options.selectedRallyId(),
+          effectiveFromRallyOrdinal: options.sideSwapEffectiveOrdinal(),
+          expectedLeftTeamId: left.id,
+          expectedRightTeamId: right.id,
+          isDraft: options.currentDraft(),
+          label: options.currentDraft()
+            ? '目前片段起'
+            : `第 ${options.sideSwapEffectiveOrdinal()} 回合起`,
+          setId: set.id,
+          displaySetNumber: set.set_number,
+        }
+      })(),
+  )
+
+  function isCurrentSetWinnerTarget(target: SideSwapTarget | null) {
+    const current = options.currentSet()
+    if (!current || !target?.rallyId) return false
+    if (target.displaySetNumber !== undefined && current.set_number !== undefined)
+      return target.displaySetNumber === current.set_number
+    return target.setId === current.id
+  }
 
   function success(title: string) {
     options.feedback.notify({ level: 'success', title })
@@ -199,42 +245,74 @@ export function createSegmentManagementService(options: SegmentManagementService
     })
   }
 
-  async function startNextSet(winningTeamId: string) {
-    await options.core.startNextSet({ matchId: options.matchId, winningTeamId })
+  async function startNextSet(winningTeamId: string, target: SideSwapTarget | null) {
+    await options.core.startNextSet({
+      effectiveFromRallyId: target?.rallyId ?? null,
+      matchId: options.matchId,
+      winningTeamId,
+    })
     await Promise.all([options.refreshMatch(), options.refreshCoach()])
-    success('新一局已開始')
+    success('已標記本局最後回合，下一回合起進入新局')
   }
 
   function requestNextSet(side: 'left' | 'right') {
-    if (!options.currentSet() || !options.editReady()) return
-    const team = side === 'left' ? options.leftTeam() : options.rightTeam()
+    if (!options.editReady()) return
+    const target = resolvedSideSwapTarget.value
+    if (!isCurrentSetWinnerTarget(target)) return
+    const teamId =
+      side === 'left'
+        ? (target?.expectedLeftTeamId ?? options.leftTeam()?.id)
+        : (target?.expectedRightTeamId ?? options.rightTeam()?.id)
+    const team = teamId ? options.teamById(teamId) : null
     if (!team) return
     options.confirmation.open({
       id: `next-set-${side}`,
       title: '開啟新一局',
-      message: `${team.name}取得本局，比分歸零並開始下一局。`,
+      message: `目前選取的${target?.label ?? '回合'}會被標記為本局最後一回合，由${team.name}勝局。下一個回合起插入新局，後續比分會從 0 : 0 重新計算；這不會改動影片 PTS 或原始標註。若標錯，可從局結果標記撤銷最近一次勝局。`,
       confirmLabel: '確認並開始',
-      onConfirm: () => startNextSet(team.id),
+      onConfirm: () => startNextSet(team.id, target),
     })
   }
 
-  async function swapCurrentCourtSides(affectsCurrentDraft: boolean) {
-    const set = options.currentSet()
-    const left = options.leftTeam()
-    const right = options.rightTeam()
-    if (!set || !left || !right || sideSwapPending.value) return
+  async function reopenLastSet() {
+    if (reopenLastSetPending.value) return
+    reopenLastSetPending.value = true
+    try {
+      await options.core.reopenLastSet({ matchId: options.matchId })
+      await Promise.all([options.refreshMatch(), options.refreshCoach()])
+      success('已撤銷最近勝局標記，後續回合已回到上一局')
+    } catch (cause) {
+      throw error(cause, '無法撤銷最近勝局標記')
+    } finally {
+      reopenLastSetPending.value = false
+    }
+  }
+
+  function requestReopenLastSet() {
+    if (!options.canReopenLastSet() || !options.editReady() || reopenLastSetPending.value) return
+    options.confirmation.open({
+      id: 'reopen-last-set',
+      title: '撤銷最近勝局標記',
+      message:
+        '會移除最近一局的勝局結果，並把下一局尚未開始的後續回合放回上一局；如果下一局已經新增標註或比分資料，系統會拒絕撤銷，以免覆蓋內容。',
+      confirmLabel: '撤銷勝局標記',
+      danger: true,
+      onConfirm: reopenLastSet,
+    })
+  }
+
+  async function swapCurrentCourtSides(target = resolvedSideSwapTarget.value, confirmed = false) {
+    if (!target || sideSwapPending.value || (sideSwapLocked.value && !confirmed)) return
     sideSwapPending.value = true
     try {
       await options.core.swapCourtSides({
-        effectiveFromRallyOrdinal: options.sideSwapEffectiveOrdinal(),
-        expectedLeftTeamId: left.id,
-        expectedRightTeamId: right.id,
-        setId: set.id,
+        effectiveFromRallyOrdinal: target.effectiveFromRallyOrdinal,
+        expectedLeftTeamId: target.expectedLeftTeamId,
+        expectedRightTeamId: target.expectedRightTeamId,
+        setId: target.setId,
       })
       await Promise.all([options.refreshMatch(), options.refreshCoach()])
-      success(
-        affectsCurrentDraft ? '目前片段與後續片段的左右隊伍已對調' : '下一片段的左右隊伍已對調',
-      )
+      success(`${target.label}包含後續片段的左右隊伍已對調`)
     } catch (cause) {
       throw error(cause, '無法對調片段左右隊伍')
     } finally {
@@ -243,65 +321,46 @@ export function createSegmentManagementService(options: SegmentManagementService
   }
 
   function requestCurrentSideSwap() {
-    const set = options.currentSet()
-    const left = options.leftTeam()
-    const right = options.rightTeam()
-    if (!set || !left || !right || !options.editReady() || sideSwapPending.value) return
-    const affectsCurrentDraft = options.currentDraft()
+    const target = resolvedSideSwapTarget.value
+    if (!target || !options.editReady() || sideSwapLocked.value) return
+    sideSwapConfirmationPending.value = true
     options.confirmation.open({
       id: 'swap-segment-sides',
-      title: affectsCurrentDraft ? '對調目前片段左右' : '對調下一片段左右',
-      message: affectsCurrentDraft
-        ? `將目前片段改為左側 ${right.name}、右側 ${left.name}；畫面上的隊名、比分歸屬、球員判斷與後續片段都會使用新的左右順序。`
-        : `下一個片段將從左側 ${right.name}、右側 ${left.name} 開始；畫面上的隊名、比分歸屬、球員判斷與後續片段都會使用新的左右順序。`,
+      title: `從${target.label}對調左右`,
+      message:
+        '這會建立新的場地左右邊界：選取回合與之後的所有回合都套用反轉後的左右隊伍。之後仍可在另一個回合再次對調，且不會改動 PTS、球點或追蹤座標。',
       confirmLabel: '對調左右',
-      onConfirm: () => swapCurrentCourtSides(affectsCurrentDraft),
+      onClose: () => {
+        sideSwapConfirmationPending.value = false
+      },
+      onConfirm: () => {
+        return swapCurrentCourtSides(target, true)
+      },
     })
   }
 
-  async function swapCompletedRallySides(rally: CoachRally) {
-    if (sideSwapPending.value) return
-    const operation = ++sideSwapOperationGeneration
-    let draftCreated = false
-    sideSwapPending.value = true
-    try {
-      await options.room.createCorrection(rally.submission.id, { reverseCourtSides: true })
-      draftCreated = true
-      if (operation !== sideSwapOperationGeneration) return
-      options.selection.selectRally(rally.id)
-      options.timeline.selectMask(rally.id)
-      await options.room.submitCorrection()
-      if (operation !== sideSwapOperationGeneration) return
-      await options.timeline.selectHistorical(rally.id, '0')
-      await Promise.all([options.refreshMatch(), options.refreshCoach()])
-      success('片段場地配置已修正，隊伍名牌與得分歸屬已更新')
-    } catch (cause) {
-      await options.refreshCoach().catch(() => undefined)
-      throw new Error(
-        `${cause instanceof Error ? cause.message : '無法修正片段場地配置'}${
-          draftCreated ? '；修正草稿仍保留，可取消修正以還原' : ''
-        }`,
-      )
-    } finally {
-      sideSwapPending.value = false
-    }
-  }
-
   function requestRallySideSwap(rally: CoachRally) {
-    if (
-      rally.submission.analysis?.status !== 'completed' ||
-      sideSwapPending.value ||
-      !options.editReady()
-    )
-      return
-    const left = options.teamById(rally.submission.left_team_id)
-    const right = options.teamById(rally.submission.right_team_id)
+    if (sideSwapLocked.value || !options.editReady()) return
+    const target: SideSwapTarget = {
+      effectiveFromRallyOrdinal: rally.ordinal,
+      expectedLeftTeamId: rally.submission.left_team_id,
+      expectedRightTeamId: rally.submission.right_team_id,
+      isDraft: false,
+      label: `第 ${rally.display_ordinal} 回合起`,
+      setId: rally.set_id,
+    }
     options.confirmation.open({
       id: 'swap-rally-sides',
-      title: '修正此片段的場地配置',
-      message: `將${left?.name ?? '此片段左側隊伍'}與${right?.name ?? '右側隊伍'}的名牌、得分歸屬及球員指派規則交換。既有球場座標、球路與追蹤框不翻轉；不符合新隊伍的手動球員指派會清除。系統會建立新的不可變修正版，原版本保留於歷程。`,
-      confirmLabel: '建立並套用修正',
-      onConfirm: () => swapCompletedRallySides(rally),
+      title: `從第 ${rally.display_ordinal} 回合起對調左右`,
+      message:
+        '選取回合與之後的所有回合都會套用新的左右隊伍。這不會改動原始 PTS、球點或追蹤座標；之後仍可從其他回合再次切換。',
+      confirmLabel: '對調左右',
+      onClose: () => {
+        sideSwapConfirmationPending.value = false
+      },
+      onConfirm: () => {
+        return swapCurrentCourtSides(target, true)
+      },
     })
   }
 
@@ -329,22 +388,32 @@ export function createSegmentManagementService(options: SegmentManagementService
       group: 'segment',
       label: '開啟新一局',
       availability: computed(() => ({
-        enabled: Boolean(options.currentSet()) && options.editReady(),
+        enabled: isCurrentSetWinnerTarget(resolvedSideSwapTarget.value) && options.editReady(),
         pending: false,
-        reason: '目前無法開啟新一局',
+        reason: '請先選取目前這一局的回合，再標記勝局',
       })),
       execute: requestNextSet,
+    }),
+    options.actions.register({
+      id: 'segment.reopen-last-set',
+      group: 'segment',
+      label: '撤銷最近勝局標記',
+      availability: computed(() => ({
+        enabled: options.canReopenLastSet() && options.editReady() && !reopenLastSetPending.value,
+        pending: reopenLastSetPending.value,
+        reason: '目前沒有可撤銷的最近勝局標記',
+      })),
+      execute: requestReopenLastSet,
     }),
     options.actions.register({
       id: 'segment.swap-current-sides',
       group: 'segment',
       label: '對調片段左右',
+      resources: ['court-side-swap'],
       availability: computed(() => ({
         enabled:
-          Boolean(options.currentSet() && options.leftTeam() && options.rightTeam()) &&
-          options.editReady() &&
-          !sideSwapPending.value,
-        pending: sideSwapPending.value,
+          Boolean(resolvedSideSwapTarget.value) && options.editReady() && !sideSwapLocked.value,
+        pending: sideSwapLocked.value,
         reason: '目前無法對調片段左右',
       })),
       execute: requestCurrentSideSwap,
@@ -352,10 +421,11 @@ export function createSegmentManagementService(options: SegmentManagementService
     options.actions.register<CoachRally, void>({
       id: 'segment.swap-rally-sides',
       group: 'segment',
-      label: '修正片段場地配置',
+      label: '從此回合起對調左右',
+      resources: ['court-side-swap'],
       availability: computed(() => ({
-        enabled: options.editReady() && !sideSwapPending.value,
-        pending: sideSwapPending.value,
+        enabled: options.editReady() && !sideSwapLocked.value,
+        pending: sideSwapLocked.value,
         reason: '目前無法修正片段場地配置',
       })),
       execute: requestRallySideSwap,
@@ -375,15 +445,18 @@ export function createSegmentManagementService(options: SegmentManagementService
 
   return {
     sideSwapPending: readonly(sideSwapPending),
+    reopenLastSetPending: readonly(reopenLastSetPending),
     placementSaving: readonly(placementSaving),
     deletePending: readonly(deletePending),
     affectsCurrentDraft,
+    sideSwapTarget: resolvedSideSwapTarget,
     requestDelete,
     requestBatchAnalysisReset,
     resetAnalysisBatch,
     removeAnalysis,
     purge,
     requestNextSet,
+    requestReopenLastSet,
     requestCurrentSideSwap,
     requestRallySideSwap,
     updatePlacement,
