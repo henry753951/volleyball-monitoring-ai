@@ -103,6 +103,7 @@ function compareSegmentCaptureOrder(left: SegmentListItem, right: SegmentListIte
   }
   if (left.startCaptureTimeUs !== null && right.startCaptureTimeUs === null) return -1
   if (left.startCaptureTimeUs === null && right.startCaptureTimeUs !== null) return 1
+  if (left.ordinal !== right.ordinal) return left.ordinal - right.ordinal
   return left.id.localeCompare(right.id)
 }
 const setDisplayProjection = computed(() => deriveSetDisplayProjection(props.setResults ?? []))
@@ -154,10 +155,7 @@ const placementOrdinal = computed(() => {
 const sortedSegmentItems = computed(() =>
   [...segmentItems.value].sort(
     (left, right) =>
-      left.effectiveSetNumber - right.effectiveSetNumber ||
-      left.setNumber - right.setNumber ||
-      left.ordinal - right.ordinal ||
-      left.id.localeCompare(right.id),
+      left.effectiveSetNumber - right.effectiveSetNumber || compareSegmentCaptureOrder(left, right),
   ),
 )
 function segmentSideIds(item: SegmentListItem) {

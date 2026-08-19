@@ -194,8 +194,15 @@ export function collectCoachActionEvents(
       )
     for (const event of replay.analysis.contact_events) {
       const semantic = event.ball_event
-      if (!semantic) continue
-      const actorTrackId = semantic.actor?.track_id ?? event.actors[0]?.track_id ?? null
+      const isManualContact =
+        event.anchor_origin === 'review_manual' ||
+        (event.quality_flags?.includes('manual_review_contact') ?? false)
+      // Provider events without ball semantics are not player actions. Human
+      // keypoint edits are different: they intentionally carry the actor and
+      // route but no derived ball_event, so they must remain visible to the
+      // coach dashboard as an unresolved HIT.
+      if (!semantic && !isManualContact) continue
+      const actorTrackId = semantic?.actor?.track_id ?? event.actors[0]?.track_id ?? null
       if (actorTrackId !== track.track_id) continue
       const actor = actorForTrack(event.actors, track.track_id)
       const path = replay.analysis.paths.find(
@@ -203,10 +210,17 @@ export function collectCoachActionEvents(
       )
       const routeStart = path ? routePosition(path.start_court_positions, track.track_id) : null
       const routeEnd = path ? routePosition(path.end_court_positions, track.track_id) : null
-      const semanticOutcome =
-        semantic.result === 'success' ? 'won' : semantic.result === 'failure' ? 'lost' : null
+      const semanticOutcome = semantic
+        ? semantic.result === 'success'
+          ? 'won'
+          : semantic.result === 'failure'
+            ? 'lost'
+            : null
+        : null
       const id = `${track.analysis_run_id}:${event.key_point_id}:${track.track_id}`
-      const ballType = coachBallType(replay.analysis.contact_events, event)
+      const ballType = semantic
+        ? coachBallType(replay.analysis.contact_events, event)
+        : { key: 'hit' as const, label: COACH_BALL_TYPE_LABELS.hit }
       records.set(id, {
         id,
         rallyId: track.rally_id,
@@ -218,7 +232,7 @@ export function collectCoachActionEvents(
         actionKey: ballType.key,
         actionLabel: ballType.label,
         actionConfidence: null,
-        resultKey: semantic.result,
+        resultKey: semantic?.result ?? null,
         routeStart: routeStart?.court_pos ?? actor?.court_pos ?? null,
         routeEnd: routeEnd?.court_pos ?? null,
         courtSide,

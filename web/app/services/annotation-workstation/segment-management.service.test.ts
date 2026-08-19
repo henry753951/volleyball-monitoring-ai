@@ -60,6 +60,7 @@ function setup(
     currentDraft: () => true,
     sideSwapEffectiveOrdinal: () => 5,
     sideSwapTarget: () => options.sideSwapTarget ?? null,
+    displayOrdinalFor: () => 106,
     selectedRallyId: () => 'rally-1',
     selectedSubmissionId: () => options.selectedSubmissionId ?? null,
     clipSelected: () => true,
@@ -237,6 +238,32 @@ describe('segment management service', () => {
     const result = await context.actions.execute('segment.start-next-set', 'right')
     expect(result.status).toBe('blocked')
     expect(context.core.startNextSet).not.toHaveBeenCalled()
+    context.service.dispose()
+  })
+
+  it('uses the set id rather than a stale projected display number for winner actions', async () => {
+    const context = setup({
+      currentSet: { id: 'set-4', set_number: 4 },
+      sideSwapTarget: {
+        displaySetNumber: 1,
+        effectiveFromRallyOrdinal: 106,
+        expectedLeftTeamId: 'left',
+        expectedRightTeamId: 'right',
+        isDraft: false,
+        label: '第 106 回合起',
+        rallyId: 'rally-1',
+        setId: 'set-4',
+      },
+    })
+
+    const result = await context.actions.execute('segment.start-next-set', 'right')
+    expect(result.status).toBe('executed')
+    await context.confirmation.confirm()
+    expect(context.core.startNextSet).toHaveBeenCalledWith({
+      effectiveFromRallyId: 'rally-1',
+      matchId: 'match-1',
+      winningTeamId: 'right',
+    })
     context.service.dispose()
   })
 
