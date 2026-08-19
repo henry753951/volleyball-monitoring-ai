@@ -18,7 +18,103 @@ interface DvrPlaybackOptions {
   onError?: (error: Error) => void
 }
 
-const ATTACH_TIMEOUT_MS = 12_000
+const LIVE_ATTACH_TIMEOUT_MS = 12_000
+const ARCHIVE_MANIFEST_TIMEOUT_MS = 45_000
+const ARCHIVE_ATTACH_TIMEOUT_MS = 150_000
+
+// hls.js 1.6 uses the policy objects below. The legacy fragLoadingTimeOut
+// fields are still supplied to keep older hls.js builds compatible, but they
+// do not override fragLoadPolicy on current builds. Archive fragments are
+// served from a bounded, authenticated object route and can legitimately wait
+// for MinIO/disk before the first byte arrives; a short TTFB policy turns that
+// normal storage queue into a cascade of duplicate retries.
+const LIVE_FRAGMENT_LOAD_POLICY = {
+  default: {
+    maxTimeToFirstByteMs: LIVE_ATTACH_TIMEOUT_MS,
+    maxLoadTimeMs: 30_000,
+    timeoutRetry: {
+      maxNumRetry: 3,
+      retryDelayMs: 500,
+      maxRetryDelayMs: 2_000,
+      backoff: 'linear' as const,
+    },
+    errorRetry: {
+      maxNumRetry: 6,
+      retryDelayMs: 1_000,
+      maxRetryDelayMs: 8_000,
+      backoff: 'linear' as const,
+    },
+  },
+}
+
+const ARCHIVE_FRAGMENT_LOAD_POLICY = {
+  default: {
+    maxTimeToFirstByteMs: 45_000,
+    maxLoadTimeMs: 120_000,
+    timeoutRetry: {
+      maxNumRetry: 2,
+      retryDelayMs: 1_000,
+      maxRetryDelayMs: 5_000,
+      backoff: 'linear' as const,
+    },
+    errorRetry: {
+      maxNumRetry: 5,
+      retryDelayMs: 1_000,
+      maxRetryDelayMs: 8_000,
+      backoff: 'linear' as const,
+    },
+  },
+}
+
+const LIVE_PLAYLIST_LOAD_POLICY = {
+  default: {
+    maxTimeToFirstByteMs: LIVE_ATTACH_TIMEOUT_MS,
+    maxLoadTimeMs: LIVE_ATTACH_TIMEOUT_MS,
+    timeoutRetry: {
+      maxNumRetry: 2,
+      retryDelayMs: 500,
+      maxRetryDelayMs: 2_000,
+      backoff: 'linear' as const,
+    },
+    errorRetry: {
+      maxNumRetry: 3,
+      retryDelayMs: 1_000,
+      maxRetryDelayMs: 4_000,
+      backoff: 'linear' as const,
+    },
+  },
+}
+
+const ARCHIVE_PLAYLIST_LOAD_POLICY = {
+  default: {
+    maxTimeToFirstByteMs: ARCHIVE_MANIFEST_TIMEOUT_MS,
+    maxLoadTimeMs: ARCHIVE_MANIFEST_TIMEOUT_MS,
+    timeoutRetry: {
+      maxNumRetry: 2,
+      retryDelayMs: 1_000,
+      maxRetryDelayMs: 5_000,
+      backoff: 'linear' as const,
+    },
+    errorRetry: {
+      maxNumRetry: 4,
+      retryDelayMs: 1_000,
+      maxRetryDelayMs: 8_000,
+      backoff: 'linear' as const,
+    },
+  },
+}
+
+export function playbackAttachTimeoutMs(mode: PlaybackWindowDescriptor['mode']): number {
+  return mode === 'live' ? LIVE_ATTACH_TIMEOUT_MS : ARCHIVE_ATTACH_TIMEOUT_MS
+}
+
+export function playbackManifestTimeoutMs(mode: PlaybackWindowDescriptor['mode']): number {
+  return mode === 'live' ? LIVE_ATTACH_TIMEOUT_MS : ARCHIVE_MANIFEST_TIMEOUT_MS
+}
+
+export function hlsFragmentLoadPolicy(mode: PlaybackWindowDescriptor['mode']) {
+  return mode === 'live' ? LIVE_FRAGMENT_LOAD_POLICY : ARCHIVE_FRAGMENT_LOAD_POLICY
+}
 
 function timeoutError(stage: string) {
   return new Error(`HLS ${stage} timed out`)
@@ -60,10 +156,22 @@ export function createDvrPlaybackService(
       if (currentGeneration !== generation) return
       if (HlsRuntime.isSupported()) {
         const startPosition = boundedPlayerMediaSeconds(descriptor.target_player_media_time_us)
+        const attachTimeoutMs = playbackAttachTimeoutMs(descriptor.mode)
+        const manifestTimeoutMs = playbackManifestTimeoutMs(descriptor.mode)
+        const fragmentLoadPolicy = hlsFragmentLoadPolicy(descriptor.mode)
+        const playlistLoadPolicy =
+          descriptor.mode === 'live' ? LIVE_PLAYLIST_LOAD_POLICY : ARCHIVE_PLAYLIST_LOAD_POLICY
         // hls.js owns playlist reload, retry, eviction and fragment scheduling.
         // attachMedia creates the long-lived MediaSource/ManagedMediaSource blob.
         const nextHls = new HlsRuntime({
           autoStartLoad: false,
+          fragLoadPolicy: fragmentLoadPolicy,
+          manifestLoadPolicy: playlistLoadPolicy,
+          playlistLoadPolicy,
+          fragLoadingMaxRetryTimeout: attachTimeoutMs,
+          fragLoadingTimeOut: attachTimeoutMs,
+          manifestLoadingMaxRetryTimeout: manifestTimeoutMs,
+          manifestLoadingTimeOut: manifestTimeoutMs,
           maxBufferSize: toValue(profile).maxBufferBytes,
           maxBufferLength: toValue(profile).forwardBufferSeconds,
           maxMaxBufferLength: toValue(profile).forwardBufferSeconds,
@@ -119,7 +227,10 @@ export function createDvrPlaybackService(
         nextHls.attachMedia(element)
         nextHls.loadSource(descriptor.manifest_url)
         await new Promise<void>((resolve, reject) => {
-          const timer = setTimeout(() => finish(timeoutError('manifest load')), ATTACH_TIMEOUT_MS)
+          // The manifest can be delayed by the same storage/DB pressure as a
+          // fragment. Keep the overall attach deadline bounded while allowing
+          // hls.js to apply its manifest retry policy.
+          const timer = setTimeout(() => finish(timeoutError('manifest load')), attachTimeoutMs)
           const onReady = () => finish()
           const onError = (_event: unknown, data: { details: string; fatal: boolean }) => {
             if (data.fatal) finish(new Error(data.details || 'HLS manifest failed'))
@@ -136,7 +247,10 @@ export function createDvrPlaybackService(
         })
         if (currentGeneration !== generation) return
         const firstFragment = new Promise<void>((resolve, reject) => {
-          const timer = setTimeout(() => finish(timeoutError('first fragment')), ATTACH_TIMEOUT_MS)
+          const timer = setTimeout(
+            () => finish(timeoutError('first fragment')),
+            playbackAttachTimeoutMs(descriptor.mode),
+          )
           const onReady = () => {
             if (mediaTimeRangeContains(element.buffered, startPosition)) finish()
           }
@@ -164,7 +278,7 @@ export function createDvrPlaybackService(
         await new Promise<void>((resolve, reject) => {
           const timer = setTimeout(
             () => finish(timeoutError('native manifest load')),
-            ATTACH_TIMEOUT_MS,
+            playbackAttachTimeoutMs(descriptor.mode),
           )
           const onReady = () => finish()
           const onError = () => finish(new Error('native HLS failed to load'))

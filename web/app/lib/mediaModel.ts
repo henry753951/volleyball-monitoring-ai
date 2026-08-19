@@ -68,6 +68,54 @@ export class MediaApiError extends Error {
     this.details = details
   }
 }
+
+/**
+ * Transport and readiness failures are safe to retry without changing the
+ * authoritative cursor. Domain failures such as gaps, permission errors, or
+ * missing samples must still surface to the workstation.
+ */
+export function isTransientMediaError(error: unknown) {
+  if (!error) return false
+  if (error instanceof TypeError) return true
+  if (typeof error !== 'object') return false
+
+  const cause = error as {
+    code?: unknown
+    status?: unknown
+    name?: unknown
+    message?: unknown
+  }
+  if (
+    ['MEDIA_NOT_READY', 'CURSOR_NOT_READY', 'TIMEOUT', 'TIMEOUT_ERROR', 'NETWORK_ERROR'].includes(
+      String(cause.code ?? ''),
+    )
+  )
+    return true
+
+  if ([408, 425, 429, 500, 502, 503, 504].includes(Number(cause.status))) return true
+  if (cause.name === 'AbortError') return true
+  return /failed to fetch|network|timeout|timed out|connection|load failed/i.test(
+    String(cause.message ?? ''),
+  )
+}
+
+/**
+ * A stale/invalid window can be reported as MEDIA_NOT_READY when the server
+ * cannot validate its segment or sample-index mapping. Those failures are
+ * recoverable by recreating the bounded window; a generic MEDIA_NOT_READY
+ * (for example while an ingest segment is still being published) is not.
+ */
+export function isRecoverablePlaybackWindowError(error: unknown) {
+  if (!error || typeof error !== 'object') return false
+  const cause = error as { code?: unknown; message?: unknown }
+  const code = String(cause.code ?? '')
+  if (['NOT_FOUND', 'WINDOW_EXPIRED', 'MAPPING_STALE'].includes(code)) return true
+  return (
+    code === 'MEDIA_NOT_READY' &&
+    /playback window|sample index|mapping/i.test(String(cause.message ?? ''))
+  )
+}
+
 export function classifyMediaError(error: Pick<MediaApiError, 'code'>): MediaErrorClassification {
   switch (error.code) {
     case 'WINDOW_EXPIRED':

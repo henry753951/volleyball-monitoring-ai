@@ -20,6 +20,7 @@ export function createWorkstationPreferencesService(options: {
   const settingsPage = ref<WorkstationSettingsPage>('root')
   const initialOverlayPreferences = readOverlayPreferences()
   const overlayEnabled = ref(initialOverlayPreferences.enabled)
+  const analysisDownloadsEnabled = ref(initialOverlayPreferences.analysisDownloadsEnabled)
   const overlayLayers = ref({ ...initialOverlayPreferences.layers })
   const clipPolicySaving = ref(false)
   const clipPolicyError = ref<string | null>(null)
@@ -27,6 +28,7 @@ export function createWorkstationPreferencesService(options: {
   function restore() {
     const preferences = readOverlayPreferences()
     overlayEnabled.value = preferences.enabled
+    analysisDownloadsEnabled.value = preferences.analysisDownloadsEnabled
     overlayLayers.value = { ...preferences.layers }
   }
 
@@ -41,13 +43,27 @@ export function createWorkstationPreferencesService(options: {
 
   function setOverlayEnabled(enabled: boolean) {
     overlayEnabled.value = enabled
-    writeOverlayPreferences({ enabled, layers: { ...overlayLayers.value } })
+    writeOverlayPreferences({
+      enabled,
+      analysisDownloadsEnabled: analysisDownloadsEnabled.value,
+      layers: { ...overlayLayers.value },
+    })
+  }
+
+  function setAnalysisDownloadsEnabled(enabled: boolean) {
+    analysisDownloadsEnabled.value = enabled
+    writeOverlayPreferences({
+      enabled: overlayEnabled.value,
+      analysisDownloadsEnabled: enabled,
+      layers: { ...overlayLayers.value },
+    })
   }
 
   function setOverlayLayer(key: OverlayLayerKey, enabled: boolean) {
     overlayLayers.value[key] = enabled
     writeOverlayPreferences({
       enabled: overlayEnabled.value,
+      analysisDownloadsEnabled: analysisDownloadsEnabled.value,
       layers: { ...overlayLayers.value },
     })
   }
@@ -78,12 +94,14 @@ export function createWorkstationPreferencesService(options: {
     settingsOpen: readonly(settingsOpen),
     settingsPage: readonly(settingsPage),
     overlayEnabled: readonly(overlayEnabled),
+    analysisDownloadsEnabled: readonly(analysisDownloadsEnabled),
     overlayLayers: readonly(overlayLayers),
     clipPolicySaving: readonly(clipPolicySaving),
     clipPolicyError: readonly(clipPolicyError),
     open,
     close,
     setOverlayEnabled,
+    setAnalysisDownloadsEnabled,
     setOverlayLayer,
     updateClipPolicy,
     restore,

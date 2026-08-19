@@ -57,7 +57,12 @@ interface ValidatedConfig {
 }
 
 const DEFAULT_MAX_OBJECT_BYTES = 128 * 1024 * 1024
-const DEFAULT_OPERATION_TIMEOUT_MS = 15_000
+// A DVR media object can be a finalized physical recording extent rather than
+// a tiny live part.  The timeout is an acquisition/inactivity deadline, not a
+// whole-object transfer deadline; keep it long enough for a slow viewer to
+// receive the first bytes and for MinIO to make progress without buffering the
+// object in the Node heap.
+const DEFAULT_OPERATION_TIMEOUT_MS = 60_000
 const MAX_CONFIGURED_OBJECT_BYTES = 1024 * 1024 * 1024
 const MAX_OPERATION_TIMEOUT_MS = 300_000
 const SHA256 = /^[0-9a-f]{64}$/i

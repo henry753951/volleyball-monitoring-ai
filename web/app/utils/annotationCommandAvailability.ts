@@ -85,18 +85,24 @@ function overlapsSegment(
 }
 
 export function boundaryCommandAvailability(input: BoundaryCommandAvailabilityInput) {
-  if (!input.canMark || !input.cursorCaptureTimeUs) {
+  const isActiveLocalSegment =
+    input.state === 'OPEN' &&
+    !input.activeSubmissionId &&
+    Boolean(input.startBoundaryCaptureTimeUs) &&
+    !input.endBoundaryCaptureTimeUs
+
+  // Ending an already-owned OPEN draft only needs the current canonical
+  // visual playhead. A paused player can briefly mark its browser cursor as
+  // stale while the window is refreshing; do not turn that transport blip
+  // into a false "not in a legal segment" lock. The server still performs
+  // the authoritative overlap and cursor validation.
+  if (!input.cursorCaptureTimeUs) {
     return { enabled: false, reason: '播放游標尚未確認' }
   }
 
   // OPEN with START and no END consumes Z as END. Once that draft has an END,
   // Z may start another non-overlapping draft; the existing READY draft stays
   // durable and can be selected and submitted later.
-  const isActiveLocalSegment =
-    input.state === 'OPEN' &&
-    !input.activeSubmissionId &&
-    Boolean(input.startBoundaryCaptureTimeUs) &&
-    !input.endBoundaryCaptureTimeUs
   if (isActiveLocalSegment) {
     const startCaptureTimeUs = input.startBoundaryCaptureTimeUs
     if (!startCaptureTimeUs) return { enabled: false, reason: '目前片段缺少開始邊界' }
@@ -112,6 +118,10 @@ export function boundaryCommandAvailability(input: BoundaryCommandAvailabilityIn
       return { enabled: false, reason: '片段結束位置會與其他片段重疊' }
     }
     return { enabled: true, reason: '再次按 Z，以目前畫面作為片段結束' }
+  }
+
+  if (!input.canMark) {
+    return { enabled: false, reason: '播放游標尚未確認' }
   }
 
   if (input.state === 'OPEN' && !input.startBoundaryCaptureTimeUs) {

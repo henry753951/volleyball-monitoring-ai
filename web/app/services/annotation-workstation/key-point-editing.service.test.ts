@@ -23,6 +23,7 @@ function snapshot() {
 function setup() {
   const roomSnapshot = shallowRef(snapshot())
   const edit = vi.fn().mockResolvedValue(undefined)
+  const feedback = createWorkstationFeedbackService()
   const frameStep = vi
     .fn()
     .mockImplementation(
@@ -43,6 +44,13 @@ function setup() {
       },
     )
   const resolve = vi.fn().mockResolvedValue({ capture_time_us: '1040000' })
+  const dvrCreate = vi.fn().mockResolvedValue({
+    playback_window_id: 'window-2',
+    mapping_version: 2,
+    window_capture_start_us: '0',
+    window_capture_end_us: '5000000',
+    presentation_origin_capture_us: '0',
+  })
   const room = {
     snapshot: roomSnapshot,
     edit,
@@ -58,9 +66,9 @@ function setup() {
   let selectedKeyPointId: string | null = 'point-1'
   const service = createKeyPointEditingService({
     room: room as never,
-    dvr: { create: vi.fn(), resolve } as never,
+    dvr: { create: dvrCreate, resolve } as never,
     media: { frameStep } as never,
-    feedback: createWorkstationFeedbackService(),
+    feedback,
     selectedCapture: () => ({ id: 'capture-1' }),
     descriptor: () =>
       ({
@@ -89,7 +97,7 @@ function setup() {
     prepareAuthoritativeSeek: vi.fn(),
     clearGestureOwner: vi.fn(),
   })
-  return { service, room, overlay, frameStep }
+  return { service, room, overlay, frameStep, dvrCreate, feedback }
 }
 
 afterEach(() => {
@@ -232,6 +240,73 @@ describe('key-point editing service', () => {
       2,
       expect.objectContaining({ capture_frame_index: '26', count: 1 }),
     )
+    context.service.dispose()
+  })
+
+  it('recreates the playback window when a nudge hits an expired mapping', async () => {
+    vi.useFakeTimers()
+    const context = setup()
+    context.frameStep.mockRejectedValueOnce({
+      code: 'WINDOW_EXPIRED',
+      message: 'Playback window expired',
+    })
+
+    context.service.nudge('next', 1, 'keyboard')
+    await vi.runAllTimersAsync()
+
+    expect(context.dvrCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        capture_session_id: 'capture-1',
+        target_capture_time_us: '1000000',
+      }),
+    )
+    expect(context.frameStep).toHaveBeenCalledTimes(2)
+    expect(context.room.edit).toHaveBeenCalledWith(
+      'MOVE_KEY_POINT',
+      expect.objectContaining({ keyPointId: 'point-1' }),
+    )
+    context.service.dispose()
+  })
+
+  it('recreates the playback window when mapping invalid is reported as not ready', async () => {
+    vi.useFakeTimers()
+    const context = setup()
+    context.frameStep.mockRejectedValueOnce({
+      code: 'MEDIA_NOT_READY',
+      message: 'Playback window mapping is invalid',
+    })
+
+    context.service.nudge('next', 1, 'keyboard')
+    await vi.runAllTimersAsync()
+
+    expect(context.dvrCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        capture_session_id: 'capture-1',
+        target_capture_time_us: '1000000',
+      }),
+    )
+    expect(context.frameStep).toHaveBeenCalledTimes(2)
+    expect(context.room.edit).toHaveBeenCalledWith(
+      'MOVE_KEY_POINT',
+      expect.objectContaining({ keyPointId: 'point-1' }),
+    )
+    context.service.dispose()
+  })
+
+  it('retries transient media failures without surfacing an error when recovery succeeds', async () => {
+    vi.useFakeTimers()
+    const context = setup()
+    context.frameStep.mockRejectedValueOnce(new TypeError('Failed to fetch'))
+
+    context.service.nudge('next')
+    await vi.runAllTimersAsync()
+
+    expect(context.frameStep).toHaveBeenCalledTimes(2)
+    expect(context.room.edit).toHaveBeenCalledWith(
+      'MOVE_KEY_POINT',
+      expect.objectContaining({ keyPointId: 'point-1' }),
+    )
+    expect(context.feedback.messages.value).toHaveLength(0)
     context.service.dispose()
   })
 })

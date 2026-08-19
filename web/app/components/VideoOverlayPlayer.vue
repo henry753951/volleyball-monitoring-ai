@@ -36,6 +36,7 @@ const props = withDefaults(
     controls?: boolean
     toggleOnClick?: boolean
     analysisRunId?: string | null
+    analysisDataEnabled?: boolean
     overlayFrame?: number
     overlayCaptureTimeUs?: string | null
     overlayClipStartCaptureTimeUs?: string | null
@@ -62,6 +63,7 @@ const props = withDefaults(
     liveSource: null,
     toggleOnClick: false,
     analysisRunId: null,
+    analysisDataEnabled: true,
     overlayFrame: -1,
     overlayCaptureTimeUs: null,
     overlayClipStartCaptureTimeUs: null,
@@ -204,7 +206,7 @@ const resolvedOverlayFrame = ref(props.overlayFrame)
 const overlay = useAnalysisFrameChunks(
   () => props.analysisRunId ?? null,
   resolvedOverlayFrame,
-  () => props.overlayMode !== 'off',
+  () => props.analysisDataEnabled && props.overlayMode !== 'off',
 )
 watch(
   [

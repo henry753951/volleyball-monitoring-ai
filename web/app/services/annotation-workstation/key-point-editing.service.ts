@@ -6,7 +6,11 @@ import type {
 } from '@volleyball-monitoring/contracts'
 import { readonly, shallowRef } from 'vue'
 import type { MediaClient } from '~/lib/mediaClient'
-import type { PlaybackCursorInput } from '~/lib/mediaModel'
+import {
+  isRecoverablePlaybackWindowError,
+  isTransientMediaError,
+  type PlaybackCursorInput,
+} from '~/lib/mediaModel'
 import { clipRangeOverlaps, paddedClipRange } from '~/lib/dvrTimeline'
 import type { createAnnotationRoomService } from './annotation-room.service'
 import type { createAuthoritativeDvrWindowService } from './authoritative-dvr-window.service'
@@ -316,6 +320,50 @@ export function createKeyPointEditingService(options: KeyPointEditingServiceOpti
     }
   }
 
+  function playbackWindowNeedsRefresh(
+    descriptor: PlaybackWindowDescriptor | null,
+    captureTimeUs: string,
+  ) {
+    if (!descriptor) return true
+    const expiresAt = Date.parse(descriptor.expires_at)
+    const expired = Number.isFinite(expiresAt) && expiresAt <= Date.now()
+    const targetUs = BigInt(captureTimeUs)
+    return (
+      expired ||
+      targetUs < BigInt(descriptor.window_capture_start_us) ||
+      targetUs >= BigInt(descriptor.window_capture_end_us)
+    )
+  }
+
+  function isTransientNudgeError(cause: unknown) {
+    return isRecoverablePlaybackWindowError(cause) || isTransientMediaError(cause)
+  }
+
+  const transientRetryDelaysMs = [120, 350, 900, 1_600] as const
+
+  async function retryTransient<T>(operation: () => Promise<T>) {
+    for (let attempt = 0; ; attempt += 1) {
+      try {
+        return await operation()
+      } catch (cause) {
+        const delayMs = transientRetryDelaysMs[attempt]
+        if (!isTransientNudgeError(cause) || delayMs === undefined) throw cause
+        await new Promise<void>(resolve => setTimeout(resolve, delayMs))
+      }
+    }
+  }
+
+  async function createNudgeWindow(captureId: string, targetCaptureTimeUs: string) {
+    return retryTransient(() =>
+      options.dvr.create({
+        schema_version: '1.0.0',
+        capture_session_id: captureId,
+        mode: 'archive',
+        target_capture_time_us: targetCaptureTimeUs,
+      }),
+    )
+  }
+
   async function performNudge(direction: 'previous' | 'next', count: number) {
     const keyPointId = nudgeTargetId
     const point = options.room.snapshot.value?.snapshot.key_points.find(
@@ -324,28 +372,40 @@ export function createKeyPointEditingService(options: KeyPointEditingServiceOpti
     const capture = options.selectedCapture()
     if (!point || !capture || !options.editable()) throw new Error('目前擊球點已無法編輯')
     let descriptor = options.descriptor()
-    if (
-      !descriptor ||
-      BigInt(point.capture_time_us) < BigInt(descriptor.window_capture_start_us) ||
-      BigInt(point.capture_time_us) >= BigInt(descriptor.window_capture_end_us)
-    ) {
-      descriptor = await options.dvr.create({
-        schema_version: '1.0.0',
-        capture_session_id: capture.id,
-        mode: 'archive',
-        target_capture_time_us: point.capture_time_us,
-      })
-    }
+    if (playbackWindowNeedsRefresh(descriptor, point.capture_time_us))
+      descriptor = await createNudgeWindow(capture.id, point.capture_time_us)
     if (!descriptor) throw new Error('無法建立擊球點微調視窗')
+    let currentDescriptor: PlaybackWindowDescriptor = descriptor
     const requestFrameIndex = nudgeRequestFrameIndex ?? BigInt(point.capture_frame_index)
-    const frame = await options.media.frameStep({
-      schema_version: '1.1.0',
-      capture_session_id: capture.id,
-      playback_window_id: descriptor.playback_window_id,
-      mapping_version: descriptor.mapping_version,
-      capture_frame_index: requestFrameIndex.toString(),
-      direction,
-      count,
+    let frame
+    let windowRecoveryCount = 0
+    frame = await retryTransient(async () => {
+      try {
+        return await options.media.frameStep({
+          schema_version: '1.1.0',
+          capture_session_id: capture.id,
+          playback_window_id: currentDescriptor.playback_window_id,
+          mapping_version: currentDescriptor.mapping_version,
+          capture_frame_index: requestFrameIndex.toString(),
+          direction,
+          count,
+        })
+      } catch (cause) {
+        if (!isRecoverablePlaybackWindowError(cause) || windowRecoveryCount >= 2) throw cause
+        windowRecoveryCount += 1
+        const recreated = await createNudgeWindow(capture.id, point.capture_time_us)
+        if (!recreated) throw new Error('無法重新建立擊球點微調視窗')
+        currentDescriptor = recreated
+        return options.media.frameStep({
+          schema_version: '1.1.0',
+          capture_session_id: capture.id,
+          playback_window_id: currentDescriptor.playback_window_id,
+          mapping_version: currentDescriptor.mapping_version,
+          capture_frame_index: requestFrameIndex.toString(),
+          direction,
+          count,
+        })
+      }
     })
     nudgeRequestFrameIndex = BigInt(frame.capture_frame_index)
     const cursor: PlaybackCursorInput = {
@@ -360,7 +420,7 @@ export function createKeyPointEditingService(options: KeyPointEditingServiceOpti
     }
     options.setObservedCursor(cursor)
     options.setCursorReady()
-    const resolved = await options.dvr.resolve(cursor)
+    const resolved = await retryTransient(() => options.dvr.resolve(cursor))
     if (!resolved) throw new Error('伺服器無法解析微調畫格')
     if (wouldOverlap(point.key_point_id, resolved.capture_time_us))
       throw new Error('移動後的片段範圍會與其他片段重疊')
@@ -381,7 +441,16 @@ export function createKeyPointEditingService(options: KeyPointEditingServiceOpti
     apply: frame => {
       options.overlay()?.seekCanonicalFrame(frame)
     },
-    onError: cause => notifyError(cause, '擊球點微調失敗'),
+    onError: cause => {
+      if (isTransientNudgeError(cause)) {
+        options.feedback.notify({
+          level: 'warning',
+          title: '網路不穩，這次精調尚未完成；請保持連線後再試',
+        })
+        return
+      }
+      notifyError(cause, '擊球點微調失敗')
+    },
     onSettled: () => {
       if (nudgeTargetId) clearPreview(nudgeTargetId)
       nudgeTargetId = null

@@ -1,7 +1,12 @@
 import { ref } from 'vue'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { PlaybackWindowDescriptor } from '../lib/mediaModel'
-import { createDvrPlaybackService } from '../services/annotation-workstation/dvr-playback.service'
+import {
+  createDvrPlaybackService,
+  hlsFragmentLoadPolicy,
+  playbackManifestTimeoutMs,
+  playbackAttachTimeoutMs,
+} from '../services/annotation-workstation/dvr-playback.service'
 import { MEDIA_BUFFER_PROFILES } from '../utils/mediaPlaybackPreferences'
 import { boundedPlayerMediaSeconds } from '../utils/playerMediaTime'
 import { requiresPlaybackPipelineReplacement } from './useDvrPlayback'
@@ -29,7 +34,10 @@ class FakeHls {
   readonly startLoad = vi.fn(() => queueMicrotask(() => this.emit(FakeHls.Events.FRAG_BUFFERED)))
   private readonly listeners = new Map<string, Set<(...arguments_: never[]) => void>>()
 
-  constructor() {
+  readonly config: Record<string, unknown>
+
+  constructor(config: Record<string, unknown> = {}) {
+    this.config = config
     hlsInstances.push(this)
   }
 
@@ -84,6 +92,36 @@ describe('bounded player media time', () => {
 })
 
 describe('rolling HLS attachment', () => {
+  it('allows slow archive extents more time than live parts', () => {
+    expect(playbackAttachTimeoutMs('live')).toBe(12_000)
+    expect(playbackAttachTimeoutMs('archive')).toBe(150_000)
+    expect(playbackManifestTimeoutMs('live')).toBe(12_000)
+    expect(playbackManifestTimeoutMs('archive')).toBe(45_000)
+  })
+
+  it('configures hls.js 1.6 load policies instead of only deprecated timeout fields', async () => {
+    const element = {
+      buffered: { length: 1, start: () => 0, end: () => 120 },
+      canPlayType: () => '',
+      currentTime: 0,
+      ended: false,
+      load: vi.fn(),
+      pause: vi.fn(),
+      paused: true,
+      removeAttribute: vi.fn(),
+    } as unknown as HTMLVideoElement
+    const service = createDvrPlaybackService(ref(element), MEDIA_BUFFER_PROFILES.balanced)
+
+    await service.attach(descriptor(1))
+
+    const config = hlsInstances[0]!.config
+    expect(config.fragLoadPolicy).toEqual(hlsFragmentLoadPolicy('archive'))
+    expect(config.playlistLoadPolicy).toEqual(
+      expect.objectContaining({ default: expect.objectContaining({ maxLoadTimeMs: 45_000 }) }),
+    )
+    expect(config.fragLoadingTimeOut).toBe(150_000)
+  })
+
   it('keeps one MSE pipeline for mapping revisions of the same window', () => {
     expect(
       requiresPlaybackPipelineReplacement(

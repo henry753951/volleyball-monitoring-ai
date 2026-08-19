@@ -37,6 +37,7 @@ const props = defineProps<{
   annotation?: AnnotationRallySnapshot | null
   editable?: boolean
   selectedKeyPointId?: string | null
+  selectedPointEditorMode?: 'follow' | 'pinned'
   maskSelected?: boolean
   softLocks?: Record<string, string[]>
   remoteCursors?: Array<{
@@ -451,7 +452,9 @@ const selectedCurrentPoint = computed(() =>
 )
 const selectedPointEditorLeft = computed(() => {
   const point = selectedCurrentPoint.value
-  if (!point || !isVisible(point.captureTimeUs)) return null
+  if (!point) return null
+  if (props.selectedPointEditorMode === 'pinned') return 0
+  if (!isVisible(point.captureTimeUs)) return null
   // Keep the editor anchored to the actual point. The surface allows it to
   // overflow so a point near either edge does not appear to jump and stick to
   // an artificial 14%/86% boundary.
@@ -1189,6 +1192,7 @@ defineExpose({ focusCursor, focusRange, resetView })
         <div
           v-if="selectedPointEditorLeft !== null"
           class="selected-point-editor-anchor"
+          :class="{ pinned: selectedPointEditorMode === 'pinned' }"
           :style="{ left: `${selectedPointEditorLeft}%` }"
           @click.stop
           @pointerdown.stop
@@ -1755,6 +1759,10 @@ defineExpose({ focusCursor, focusRange, resetView })
   top: 100px;
   transform: translateX(-50%);
   pointer-events: auto;
+}
+.selected-point-editor-anchor.pinned {
+  left: 0 !important;
+  transform: none;
 }
 .analysis-rail:hover {
   border-color: #71808d;

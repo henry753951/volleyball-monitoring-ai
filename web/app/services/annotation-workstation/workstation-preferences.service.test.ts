@@ -19,6 +19,21 @@ describe('workstation preferences service', () => {
     expect(restored.overlayEnabled.value).toBe(false)
   })
 
+  it('persists the AI analysis download switch independently', () => {
+    const options = {
+      matchId: 'match-1',
+      core: { updateMatchClipPolicy: vi.fn() } as never,
+      feedback: createWorkstationFeedbackService(),
+      refreshCoach: vi.fn(),
+    }
+    const first = createWorkstationPreferencesService(options)
+    first.setAnalysisDownloadsEnabled(false)
+    const restored = createWorkstationPreferencesService(options)
+
+    expect(restored.analysisDownloadsEnabled.value).toBe(false)
+    expect(restored.overlayEnabled.value).toBe(true)
+  })
+
   it('updates the match clip policy once and exposes pending/error state', async () => {
     const updatedMatch = { id: 'match-1' }
     const onMatchUpdated = vi.fn()

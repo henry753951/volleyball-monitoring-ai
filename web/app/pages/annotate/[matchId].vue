@@ -158,6 +158,7 @@ const workstationPreferences = createWorkstationPreferencesService({
   },
 })
 const annotationOverlayEnabled = workstationPreferences.overlayEnabled
+const analysisDownloadsEnabled = workstationPreferences.analysisDownloadsEnabled
 const annotationOverlayLayers = workstationPreferences.overlayLayers
 const keyPointEditing = createKeyPointEditingService({
   room: annotation,
@@ -238,6 +239,7 @@ const timelineDock = useTemplateRef<{
   focusCursor: (captureTimeUs: string) => void
   resetView: () => void
 }>('timelineDock')
+const keyPointEditorPositionMode = ref<'follow' | 'pinned'>('follow')
 const workstationSelection = createWorkstationSelectionService({
   localDraftRallyId,
   cursorRallyId,
@@ -306,15 +308,12 @@ const canMark = computed(() => {
   if (omeDirectPlaybackActive.value)
     return omeCanonicalTimeValidated.value && cursorStatus.value === 'ready'
   // The browser cursor is enough to submit an annotation. The server resolves
-  // that cursor authoritatively when the command arrives; waiting for the
-  // separate background anchor request made a legal paused frame look disabled.
-  return (
-    !frameQueuePending.value &&
-    !frameQueueRunning.value &&
-    dvr.status.value === 'ready' &&
-    !dvr.busy.value &&
-    legacyCursorMatchesWindow.value
-  )
+  // that cursor authoritatively when the command arrives. Do not couple the
+  // marking buttons to background window refreshes or frame-step requests:
+  // those can be busy while the visible, paused cursor is still a valid target.
+  // The server remains the final authority and will reject an actually stale
+  // playback cursor with a recoverable annotation error.
+  return legacyCursorMatchesWindow.value || annotationCommandCursor.value?.cursor_status === 'ready'
 })
 const commandReady = computed(() => !annotation.outboxNeedsConfirmation.value)
 const draftMutationReady = computed(
@@ -1387,6 +1386,42 @@ const visualPlayhead = computed(() => {
   const end = BigInt(window.window_capture_end_us)
   return (projected < start ? start : projected > end ? end : projected).toString()
 })
+// A paused VOD frame can remain visually stable while the browser cursor
+// briefly reports stale/seeking during a window refresh. Reuse the current
+// window mapping and canonical visual playhead for commands in that narrow
+// state; the server still resolves and validates the cursor.
+const annotationCommandCursor = computed<PlaybackCursorInput | null>(() => {
+  const cursor = observedCursor.value
+  const currentDescriptor = descriptor.value
+  const targetCaptureTimeUs = visualPlayhead.value
+  if (
+    omeDirectPlaybackActive.value ||
+    !cursor ||
+    cursor.schema_version !== '1.0.0' ||
+    !currentDescriptor ||
+    cursor.playback_window_id !== currentDescriptor.playback_window_id ||
+    cursor.mapping_version !== currentDescriptor.mapping_version ||
+    !targetCaptureTimeUs
+  )
+    return cursor
+  try {
+    const target = BigInt(targetCaptureTimeUs)
+    const windowStart = BigInt(currentDescriptor.window_capture_start_us)
+    const windowEnd = BigInt(currentDescriptor.window_capture_end_us)
+    if (target < windowStart || target > windowEnd) return cursor
+    const playerMediaTimeUs = target - BigInt(currentDescriptor.presentation_origin_capture_us)
+    if (playerMediaTimeUs < 0n) return cursor
+    return {
+      ...cursor,
+      player_media_time_us: playerMediaTimeUs.toString(),
+      observation_source: 'current_time_fallback',
+      presented_frames: null,
+      cursor_status: 'ready',
+    }
+  } catch {
+    return cursor
+  }
+})
 const navigableKeyPoints = computed(() => {
   const currentRallyId = displayAnnotation.value?.rally_id ?? null
   const activeSubmissionId = displayAnnotation.value?.snapshot.active_submission_id
@@ -1489,7 +1524,7 @@ const annotationActions = createAnnotationActionService({
   authoritativeFrameIndex: computed(() => authoritativeAnchor.value?.capture_frame_index ?? null),
   selectedKeyPointId,
   displayAnnotation,
-  observedCursor,
+  observedCursor: annotationCommandCursor,
   clipPreRollUs,
   clipPostRollUs,
   protectedSegments: protectedSegmentRanges,
@@ -3098,6 +3133,7 @@ onBeforeUnmount(() => {
                 (inspectorTab !== 'mapping' && inspectorTab !== 'analysis')
               "
               :analysis-run-id="annotationOverlayEnabled ? editorOverlayAnalysisRunId : null"
+              :analysis-data-enabled="annotationOverlayEnabled && analysisDownloadsEnabled"
               :overlay-capture-time-us="visualPlayhead"
               :overlay-clip-start-capture-time-us="editorOverlayClipStart"
               :overlay-interactive="
@@ -3317,6 +3353,7 @@ onBeforeUnmount(() => {
         :annotation="displayAnnotation"
         :editable="editableDraftState && draftMutationReady"
         :selected-key-point-id="selectedKeyPointId"
+        :selected-point-editor-mode="keyPointEditorPositionMode"
         :mask-selected="timelineCurrentMaskSelected"
         :mask-range="currentMaskRange"
         :current-mask-status="currentMaskStatus"
@@ -3338,6 +3375,8 @@ onBeforeUnmount(() => {
             :selected-ordinal="selectedKeyPoint.sequence_index + 1"
             :selected-actor-id="selectedKeyPoint.ball_event_actor_roster_entry_id ?? null"
             :actor-options="ballEventActorOptions"
+            :position-mode="keyPointEditorPositionMode"
+            @update:position-mode="keyPointEditorPositionMode = $event"
           />
         </template>
       </DvrTimelineDock>

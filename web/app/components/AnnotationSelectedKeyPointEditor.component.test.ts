@@ -97,4 +97,14 @@ describe('AnnotationSelectedKeyPointEditor', () => {
       serve_style: 'STANDING',
     })
   })
+
+  it('lets the operator pin the editor instead of following the selected point', async () => {
+    const { wrapper } = mountEditor()
+    await wrapper
+      .findAll('button')
+      .find(button => button.attributes('title') === '固定在時間軸下方')
+      ?.trigger('click')
+
+    expect(wrapper.emitted('update:positionMode')).toEqual([['pinned']])
+  })
 })

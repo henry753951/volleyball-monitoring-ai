@@ -1,5 +1,7 @@
 import {
   classifyMediaError,
+  isRecoverablePlaybackWindowError,
+  isTransientMediaError,
   type CanonicalFrameAnchor,
   type MediaApiError,
   type PlaybackCursorInput,
@@ -161,6 +163,8 @@ export function createAuthoritativeDvrWindowService(client: MediaClient) {
     const inputFactory = typeof countOrFactory === 'function' ? countOrFactory : maybeInputFactory!
     if (!current.value || !anchor.value) return null
     let attempt = 0
+    let transientRetryAttempt = 0
+    const transientRetryDelaysMs = [120, 350, 900] as const
     while (attempt++ < 2) {
       const id = begin()
       const sourceAnchor: ResolvedMediaAnchor | CanonicalFrameAnchor | null = anchor.value
@@ -178,12 +182,26 @@ export function createAuthoritativeDvrWindowService(client: MediaClient) {
         if (!valid(id)) return null
         anchor.value = value
         status.value = 'ready'
+        error.value = null
         busy.value = false
         return value
       } catch (cause) {
         if (!valid(id)) return null
         const mediaError = cause as MediaApiError
-        const classification = classifyMediaError(mediaError)
+        const transientDelayMs = transientRetryDelaysMs[transientRetryAttempt]
+        if (isTransientMediaError(cause) && transientDelayMs !== undefined) {
+          transientRetryAttempt += 1
+          attempt -= 1
+          status.value = 'recovering'
+          error.value = null
+          busy.value = false
+          await new Promise<void>(resolve => setTimeout(resolve, transientDelayMs))
+          if (!valid(id)) return null
+          continue
+        }
+        const classification = isRecoverablePlaybackWindowError(mediaError)
+          ? 'recreate_window'
+          : classifyMediaError(mediaError)
         if (
           attempt >= 2 ||
           (classification !== 'recenter_retry' && classification !== 'recreate_window')
@@ -197,6 +215,7 @@ export function createAuthoritativeDvrWindowService(client: MediaClient) {
           return null
         }
         status.value = 'recovering'
+        error.value = null
         busy.value = false
         const target =
           mediaError.details &&
