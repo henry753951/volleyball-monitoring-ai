@@ -12,9 +12,9 @@ b395c52a1ad69331d58e5d8b5be82f34bcd337996b1c81fa6ef77c05ea1cb8cf  ./.github/work
 f22760823f753cd2a7c3506d2ce452272684294de8749a9e75cde35b6fff65d1  ./.oxfmtrc.json
 3877de021c19f9c73b7e885f6f71ee388bfefc82e7c01c9db33b8dcee058b4e6  ./.oxlintrc.json
 89bca2bb5b1d934901dfb58af0bc8ddd248710746043c55e2dc4bd36053d4629  ./.release-please-config.json
-4e10bcea9d8b727feb651f34a95c3b062e9725c32434385c9b1b0fd6cdd848c9  ./.release-please-manifest.json
+0583a460742379aebd6260139d4782522ead01fb2b4b95603a4259884bab9ac5  ./.release-please-manifest.json
 b39c86e9cc0def9a192cabdab0205c75f904b0770ce1db62f3320a67b59661ab  ./AGENTS.md
-c7c3ad653d62e2083ceb69cdd4f2ed40370253454d7cd483d8848187d9896cc0  ./CHANGELOG.md
+c63796fe613b1c72cc2724ecbafffda2e70e16170e08642683d3ae23f14e29a7  ./CHANGELOG.md
 7d8bce16c46787a57e6ec210e592fde913fef00f1fa4719828acebbf382940ac  ./CODEX_SOL_PROMPT.txt
 2a24c9293ee8102e1f876a99ca9c69fa27b3d4258dc15fa08e1b0d1bff31cd02  ./DELIVERY_MANIFEST.md
 45d518b12d3ece5b2000b9c8ab60b6088e1172863e98b68ddd5e83246c151f09  ./README.md
@@ -836,7 +836,7 @@ cd223367ea1d5f731e73a2b292e0cffc05c46bee5099ccf6475865bbffd7b759  ./worker/src/r
 d626bd62d4e744e53324a4084ee1fe51fa47bcfa26f06bb12ff5153ad44a68d5  ./worker/src/roles/highlight-export-worker.ts
 4791df925d60c43b3e4740ba3d3e5e3b118900efc4f9e4e0c9680ac855a49888  ./worker/src/roles/identity-preview-worker.ts
 ba726d175f69cc4a95968b49daca3d534f4abe1205afbe012556669bb029768d  ./worker/src/roles/jersey-suggestion-worker.ts
-429098f7664ecd7367a61507a9cc6179710335b1829773f256d0afaf4373b4e5  ./worker/src/roles/media-indexer.ts
+d88f840e2c7e9df8737fddb160fb7466a80b13c045cb188d6de4ada2cd4ed078  ./worker/src/roles/media-indexer.ts
 156a0252f44c02372cb6df55d33e1b1c62319eb70c4a36f2762b76777b64b1d9  ./worker/src/roles/outbox-publisher.ts
 c3a3cfe8c76f3bb5412e96e67e1f55c024376826c68f0433d03035cdd0c4374b  ./worker/src/roles/playback-packager.ts
 586884934a4c2de76dd0d1c8613fc06e1aa036c35d9feb06f39b6614d9c366df  ./worker/src/roles/provider-analysis-materializer.ts
@@ -867,7 +867,7 @@ ae486e8d367a97e37256bd0d74446b65d699d137284798ae32c77250be40d851  ./worker/tests
 b8be05aa2e1ef1f4d34c573dab7a88a809b576ccc8a743fed9178838066b0ad5  ./worker/tests/ingest-handler.test.ts
 0d9c4b0bcc02ebf9f937a6da4a60b4a0a2bed23d84a174a760bd6489ff50fc96  ./worker/tests/ingest.test.ts
 50c92f6053445e2e63e82c74c3906d2d4c378665aeac104ad8286afe00253c2e  ./worker/tests/lifecycle.test.ts
-b2019562126c58d8c9b101d99a979e13aabea09082c0cbb47f8b0a333b755e69  ./worker/tests/media-indexer.test.ts
+641cf6c9d35ea48576d960d14917b9e0499dc01a7aedaedaec84a4997cafbf57  ./worker/tests/media-indexer.test.ts
 5c0fb448757fc09d33fce0dc6d93ebe679286dccf468b7a97b615e1061392009  ./worker/tests/media-resolver.test.ts
 44dbd5ef5b7e1d7c1fa34bf3d3418edabe8d1de17d324d107a9d565fe8c772d9  ./worker/tests/minio-object-store.test.ts
 3a0834657661a7d504a8309e1d44535f0826713c693bbadb8c1a121fc6d1db67  ./worker/tests/ome-live-presentation.test.ts

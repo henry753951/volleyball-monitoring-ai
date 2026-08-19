@@ -244,6 +244,20 @@ export async function quarantineBlockedCaptureJobs(
   return queued.length
 }
 
+export async function quarantineFailedIngestGroups(boss: QuarantineBoss): Promise<number> {
+  const jobs = await boss.findJobs<MediaIngestEnvelope>(MEDIA_INGEST_QUEUE)
+  const failedCaptureIds = new Set(
+    jobs
+      .filter(job => job.state === 'failed' && job.singletonKey)
+      .map(job => job.singletonKey as string),
+  )
+  let cancelled = 0
+  for (const captureSessionId of failedCaptureIds) {
+    cancelled += await quarantineBlockedCaptureJobs(boss, captureSessionId)
+  }
+  return cancelled
+}
+
 function failureFromDeadLetter(value: unknown): PermanentMediaIngestFailure | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null
   const data = value as Record<string, unknown>
@@ -386,15 +400,17 @@ export function createPgBossMediaRuntime(
             await quarantineBlockedCaptureJobs(boss, captureSessionId)
           },
         )
+        await quarantineFailedIngestGroups(boss)
         await assignQueuedIngestGroups(boss)
 
         const workOptions = {
           batchSize: 1,
-          // key_strict_fifo serializes each capture key in PostgreSQL. Multiple
-          // local workers may therefore drain independent captures in parallel
-          // without reordering segments within a capture.
+          // Keep one active job per capture group on this worker so a capture's
+          // segments stay FIFO; localConcurrency still lets independent groups
+          // drain in parallel. The media role is a single worker deployment, so
+          // this avoids the global group limit starving unrelated captures.
           localConcurrency: LOCAL_INGEST_CONCURRENCY,
-          groupConcurrency: LOCAL_INGEST_CONCURRENCY,
+          localGroupConcurrency: 1,
           includeMetadata: true,
           orderByCreatedOn: true,
           heartbeatRefreshSeconds: 20,
