@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.11.1](https://github.com/henry753951/volleyball-monitoring-ai/compare/v1.11.0...v1.11.1) (2026-08-20)
+
+
+### Bug Fixes
+
+* **worker:** resume live sources after shutdown ([295c52b](https://github.com/henry753951/volleyball-monitoring-ai/commit/295c52b8d925ce145a78754b2530ec99b085d85b))
+* **worker:** resume live sources after shutdown ([4ac1de3](https://github.com/henry753951/volleyball-monitoring-ai/commit/4ac1de37ef9da4dc00e2b93eebba57c0cd9f4f68))
+
 ## [1.11.0](https://github.com/henry753951/volleyball-monitoring-ai/compare/v1.10.6...v1.11.0) (2026-08-20)
 
 
