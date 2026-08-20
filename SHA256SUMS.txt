@@ -240,7 +240,7 @@ f1f6a836d5fbbda8ded86da2d911408668d36f9b82acb6a44f1bd8d0c372ca8b  ./packages/con
 db855965fb2e18f28c0e1eae6eee4a8ea15156a5ecbbf5241f56b659ce1d2edb  ./packages/contracts/media/playback-window-request.schema.json
 89f83ad747e85d8ee224229b40c76c12f22d2c573dfc4faa4dc2df58c759b103  ./packages/contracts/media/resolved-media-anchor.schema.json
 8d6a380ce7758b03b32a399f2d1bd2e8c7fabe02390e86d66159be5192eac643  ./packages/contracts/openapi/ai-provider.yaml
-0ff4341f1b23d78b3191bda76903977c87e49b41d98ccdb309cf2d5c423c187c  ./packages/contracts/openapi/central-rest.yaml
+164860c9c478e61cdcb854131556b036741f90d761865f250ec597645914ac69  ./packages/contracts/openapi/central-rest.yaml
 3b2ed9707f80fcd34b9fc8b1c243c0dfb8eaa63d10d335568d4ecabb046d3b45  ./packages/contracts/package.json
 d0e036a73b300e00558f9dcf63f17121418f159a1d5cb9d3792620325866f7bd  ./packages/contracts/src/ai-provider-realtime.ts
 eb324292f665793301a24920876dd3e21e1647c05fd190f1e4e30341145347cb  ./packages/contracts/src/analysis-data-flatbuffers.ts
@@ -513,7 +513,7 @@ d7cc2126a4e17ff0c2f3396b6a9b6559936557186f7f5066d97f21e43cadd7f3  ./server/tests
 772d0996ad9aa5f57b60040ba69dce25a442e221a14973c5883fcb898f89eb25  ./server/tests/match-administration.test.ts
 00b3957e93d587360fbf421969318ec9bebd79286ee28d6297c7ad1d72485477  ./server/tests/media-cursor.integration.test.ts
 ee59818fca1cb0a934cf7dcfd8e90d3e8639b1daf82330d482e77c9bff951d13  ./server/tests/media-cursor.unit.test.ts
-dabc8785d1882832811d11e527c6144728c723a909c6b1cb2455ef1ebc55dc55  ./server/tests/media-playback.integration.test.ts
+34cc1d884ceaaadbb782701e392330c8c012f891b849600ce3ace5804401d822  ./server/tests/media-playback.integration.test.ts
 4b479f531539512d59c44fefd8c7639a9f61045c43a82e375cf88e4dcdaa1eae  ./server/tests/media-playback.unit.test.ts
 852abc2cc0e9affd2184dc3af39428c43d01e8d20b3e9f0499ef6dd307edd4c1  ./server/tests/media-sources.unit.test.ts
 2fb5e93379e0aa73e909929e12a781ba92507a63a7b865ea4d576740261aacc3  ./server/tests/media-timeline-projection.test.ts
