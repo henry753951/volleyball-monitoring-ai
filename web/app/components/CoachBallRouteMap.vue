@@ -8,13 +8,11 @@ import { computed, ref, useId } from 'vue'
 import { actionColor, type CoachPlayerActionEvent } from '~/utils/coachPlayerActions'
 
 type DisplayMode = 'routes' | 'landings'
-type SideScope = 'team' | 'player'
 type TeamTone = 'blue' | 'red'
 
 export interface CoachRouteMapSideLabel {
   teamShortName: string
   tone?: TeamTone
-  scope: SideScope | null
 }
 
 type CoachRouteMapSideLabels = {
@@ -23,22 +21,20 @@ type CoachRouteMapSideLabels = {
 }
 
 const DEFAULT_SIDE_LABELS: CoachRouteMapSideLabels = {
-  left: { teamShortName: '—', scope: null },
-  right: { teamShortName: '—', scope: null },
-}
-const SCOPE_LABELS: Record<SideScope, string> = {
-  team: '[隊伍方]',
-  player: '[選手方]',
+  left: { teamShortName: '—' },
+  right: { teamShortName: '—' },
 }
 
 const props = defineProps<{
   events: CoachPlayerActionEvent[]
   label: string
   sideLabels?: CoachRouteMapSideLabels
-  selectedSide?: 'left' | 'right' | null
   selectedEventId?: string | null
 }>()
-const emit = defineEmits<{ select: [event: CoachPlayerActionEvent] }>()
+const emit = defineEmits<{
+  select: [event: CoachPlayerActionEvent]
+  focus: [event: CoachPlayerActionEvent | null]
+}>()
 
 const displayMode = ref<DisplayMode>('routes')
 const hoveredEventId = ref<string | null>(null)
@@ -104,6 +100,7 @@ function openEvent(event: CoachPlayerActionEvent) {
 
 function setHoveredEvent(event: CoachPlayerActionEvent | null) {
   hoveredEventId.value = event?.id ?? null
+  emit('focus', event)
 }
 
 function isActive(eventId: string) {
@@ -214,31 +211,6 @@ function isHeatSpotActive(eventIds: string[]) {
             <line x1="60" y1="1" x2="60" y2="89" />
             <line x1="120" y1="1" x2="120" y2="89" />
           </g>
-          <g class="court-side-label" aria-hidden="true">
-            <text
-              v-if="sideLabels.left.scope"
-              x="45"
-              y="84"
-              :class="[
-                'court-side-scope',
-                sideLabels.left.tone ? `team-tone-${sideLabels.left.tone}` : null,
-              ]"
-            >
-              {{ SCOPE_LABELS[sideLabels.left.scope] }}
-            </text>
-            <text
-              v-if="sideLabels.right.scope"
-              x="135"
-              y="84"
-              :class="[
-                'court-side-scope',
-                sideLabels.right.tone ? `team-tone-${sideLabels.right.tone}` : null,
-              ]"
-            >
-              {{ SCOPE_LABELS[sideLabels.right.scope] }}
-            </text>
-          </g>
-
           <g v-if="displayMode === 'routes'" class="route-layer" :clip-path="courtClipPath">
             <g
               v-for="(event, index) in routeEvents"
@@ -254,6 +226,8 @@ function isHeatSpotActive(eventIds: string[]) {
               @pointerenter="setHoveredEvent(event)"
               @pointerleave="setHoveredEvent(null)"
               @pointerdown="setHoveredEvent(event)"
+              @pointerup="setHoveredEvent(null)"
+              @pointercancel="setHoveredEvent(null)"
             >
               <path
                 class="route-path-flow"
@@ -289,6 +263,8 @@ function isHeatSpotActive(eventIds: string[]) {
                 tabindex="0"
                 :aria-label="`總回合 ${event.rallyOrdinal} ${event.actionLabel}，開啟短回放`"
                 @click="openEvent(event)"
+                @focus="setHoveredEvent(event)"
+                @blur="setHoveredEvent(null)"
                 @keydown.enter.space.prevent="openEvent(event)"
               />
             </g>
@@ -324,7 +300,11 @@ function isHeatSpotActive(eventIds: string[]) {
               @pointerenter="setHoveredEvent(event)"
               @pointerleave="setHoveredEvent(null)"
               @pointerdown="setHoveredEvent(event)"
+              @pointerup="setHoveredEvent(null)"
+              @pointercancel="setHoveredEvent(null)"
               @click="openEvent(event)"
+              @focus="setHoveredEvent(event)"
+              @blur="setHoveredEvent(null)"
               @keydown.enter.space.prevent="openEvent(event)"
             />
           </g>
@@ -484,24 +464,11 @@ function isHeatSpotActive(eventIds: string[]) {
 .court-side-name--right {
   text-anchor: end;
 }
-.court-side-name.team-tone-blue,
-.court-side-scope.team-tone-blue {
+.court-side-name.team-tone-blue {
   fill: #4da3ff;
 }
-.court-side-name.team-tone-red,
-.court-side-scope.team-tone-red {
+.court-side-name.team-tone-red {
   fill: #ff7180;
-}
-.court-side-label {
-  pointer-events: none;
-}
-.court-side-scope {
-  fill: #e8f6fa;
-  font-size: 3.8px;
-  font-weight: 760;
-  letter-spacing: 0.3px;
-  opacity: 0.82;
-  text-anchor: middle;
 }
 .route-line,
 .landing-point {

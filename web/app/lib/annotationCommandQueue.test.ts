@@ -102,11 +102,8 @@ const snapshot: AnnotationRallySnapshot = {
 }
 
 describe('shouldAdoptInspectedAnnotationSnapshot', () => {
-  it('keeps another client moving OPEN draft separate from the operational draft', () => {
-    expect(shouldAdoptInspectedAnnotationSnapshot(snapshot, rally)).toBe(true)
-    expect(
-      shouldAdoptInspectedAnnotationSnapshot(snapshot, '00000000-0000-4000-8000-000000000099'),
-    ).toBe(false)
+  it('adopts an explicitly selected peer OPEN draft as the local edit target', () => {
+    expect(shouldAdoptInspectedAnnotationSnapshot(snapshot)).toBe(true)
   })
 
   it('adopts an explicitly inspected READY draft so it remains editable before submission', () => {
@@ -126,15 +123,20 @@ describe('shouldAdoptInspectedAnnotationSnapshot', () => {
         timing_precision: 'frame_exact',
       },
     ]
-    expect(
-      shouldAdoptInspectedAnnotationSnapshot(ready, '00000000-0000-4000-8000-000000000099'),
-    ).toBe(true)
+    expect(shouldAdoptInspectedAnnotationSnapshot(ready)).toBe(true)
   })
 
   it('adopts correction drafts through their active submission lineage', () => {
     const correction = structuredClone(snapshot)
     correction.snapshot.active_submission_id = '00000000-0000-4000-8000-000000000088'
-    expect(shouldAdoptInspectedAnnotationSnapshot(correction, null)).toBe(true)
+    expect(shouldAdoptInspectedAnnotationSnapshot(correction)).toBe(true)
+  })
+
+  it('does not turn immutable history into an edit target', () => {
+    const submitted = structuredClone(snapshot)
+    submitted.snapshot.annotation_status = 'submitted'
+    expect(shouldAdoptInspectedAnnotationSnapshot(submitted)).toBe(false)
+    expect(shouldAdoptInspectedAnnotationSnapshot(null)).toBe(false)
   })
 })
 
@@ -155,11 +157,12 @@ describe('annotation optimistic command queue', () => {
     ).toBe(true)
   })
 
-  it('keeps an explicitly viewed peer draft read-only', () => {
+  it('keeps origin ownership as recovery metadata instead of an editability gate', () => {
     expect(annotationDraftOwnedByClient(snapshot, rally)).toBe(true)
     expect(annotationDraftOwnedByClient(snapshot, '00000000-0000-4000-8000-000000000099')).toBe(
       false,
     )
+    expect(shouldAdoptInspectedAnnotationSnapshot(snapshot)).toBe(true)
   })
 
   it('projects v3 Z presses as start/end boundaries without creating key points', () => {

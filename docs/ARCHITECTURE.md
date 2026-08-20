@@ -62,10 +62,13 @@ documented in
 ### Annotation to analysis
 
 1. Web resolves a bounded playback window and sends revisioned annotation commands over the annotation socket.
-2. Server resolves canonical media anchors and updates the client-owned draft transactionally.
+2. Server resolves canonical media anchors and updates the explicitly selected shared draft transactionally; local cursor, selection, and outbox state remain client-local.
 3. Enter creates an immutable `RallySubmission`.
 4. Durable jobs create clips and send provider work.
 5. Provider results bind to the immutable submission and become available to replay/analytics once complete.
+
+Annotation selection and mutation do not own the media-source lifecycle. They cannot stop, complete,
+restart, or delete a live capture; recording continues independently through the media ingest path.
 
 ### Media ingest
 

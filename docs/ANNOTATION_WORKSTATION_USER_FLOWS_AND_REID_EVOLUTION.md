@@ -195,7 +195,7 @@ must not change these behaviors without an explicit ADR and product-owner approv
 | `ANNO-004` | Another user, browser, tab, presence update, or room snapshot must never change this tab's active Z state, cursor, selected key point, or pending command owner.        |
 | `ANNO-005` | Commands enter a per-tab durable outbox before transmission and retry the same command/idempotency key after reconnect; refresh is not a required recovery action.      |
 | `ANNO-006` | A real revision conflict performs bounded refetch/rebase; converged or obsolete work clears automatically instead of blocking later input forever.                      |
-| `ANNO-007` | A peer draft is visible but read-only unless explicitly transferred through a future product flow.                                                                      |
+| `ANNO-007` | An authorized annotator may explicitly select and edit a peer `OPEN／READY` draft; passive broadcasts still cannot change this tab's active draft or control state.     |
 | `ANNO-008` | Outcome commands change rally metadata only; they neither end the range nor create or terminalize a contact.                                                            |
 | `NAV-001`  | One keydown gesture owns either player navigation or selected-key-point movement until keyup, blur, or visibility loss.                                                 |
 | `NAV-002`  | Held Left/Right uses local visual progress plus bounded rolling canonical requests; it must not freeze until key release or jump once from stale state.                 |
@@ -378,8 +378,8 @@ Important distinctions:
 4. Delete removes only an editable manual point. START/END boundaries are not contact points.
 5. Soft-lock presence shows who else is editing a point but is advisory; revision/CAS remains the
    conflict authority.
-6. Selecting a peer's draft is read-only. X and edit commands may target only a draft owned by this
-   device session or an explicitly editable correction draft.
+6. Explicitly selecting a peer's `OPEN／READY` draft makes it this tab's editable target. X and edit
+   commands use that Rally's current revision while cursor, point selection and outbox stay local.
 
 ### Known rule drift to resolve
 

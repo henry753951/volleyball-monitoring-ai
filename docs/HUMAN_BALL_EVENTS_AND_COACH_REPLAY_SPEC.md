@@ -190,9 +190,9 @@ draft 與 immutable submission 都允許 result 為 null。null 表示操作者�
 
 ### 5.1 開啟工作站與恢復草稿
 
-1. 分頁建立自己的 client-owned session。
-2. 載入同 capture session 的本地 cursor、viewport、OPEN／READY draft 與 outbox。
-3. 伺服器／其他使用者只提供已提交資料與 peer awareness，不得移動本分頁 cursor 或改變本分頁 active draft。
+1. 分頁建立自己的 client-local control session。
+2. 載入同 capture session 的本地 cursor、viewport、remembered `OPEN／READY` draft 與 outbox。
+3. 獲授權標註者可明確選取並編輯他人的 `OPEN／READY`；伺服器 broadcast／其他使用者仍不得移動本分頁 cursor、selection 或自行改變本分頁 active draft。
 4. reconnect 後以 idempotency key 重送未確認命令；有限次 refetch／rebase 後恢復。
 5. 不可因網路斷線把 UI 永久卡在「目前狀態不能執行」。
 

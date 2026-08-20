@@ -77,9 +77,14 @@ const primaryLabel = computed(() => {
   if (running.value) return '正在製作精采回放'
   return '輸出精采回放'
 })
+function friendlyExportError(value: { code?: string; message?: string } | null | undefined) {
+  if (value?.code === 'CLIP_SOURCE_MISSING' || value?.code === 'HIGHLIGHT_SOURCE_MISSING')
+    return '部分回放來源已不存在，請先重新產生片段後再輸出。'
+  if (value?.code === 'CLIP_UNAVAILABLE') return '部分片段已更新，請重新整理後再輸出。'
+  return value?.message || '影片輸出失敗，請再試一次。'
+}
 const supportingCopy = computed(() => {
-  if (failed.value)
-    return error.value || job.value?.error?.message || '影片輸出失敗，點一下重新嘗試'
+  if (failed.value) return error.value || friendlyExportError(job.value?.error)
   if (props.loading) return '正在確認回放片段'
   if (restoring.value) return '正在尋找已輸出的資料版本'
   if (!props.events.length) return '目前篩選沒有球種事件'
@@ -100,13 +105,11 @@ onMounted(() => void restoreExisting())
 watch([requestSignature, () => props.loading], () => void restoreExisting())
 
 async function readResponse(response: Response) {
-  const body = (await response.json().catch(() => null)) as ExportJob | { code?: string } | null
-  if (!response.ok)
-    throw new Error(
-      body && 'code' in body && body.code === 'CLIP_UNAVAILABLE'
-        ? '部分片段已更新，請重新整理後再輸出。'
-        : '無法建立精采回放，請稍後再試。',
-    )
+  const body = (await response.json().catch(() => null)) as
+    | ExportJob
+    | { code?: string; message?: string }
+    | null
+  if (!response.ok) throw new Error(friendlyExportError(body && 'code' in body ? body : null))
   return body as ExportJob
 }
 
@@ -194,8 +197,7 @@ async function startExport() {
     )
     job.value = await readResponse(response)
     if (job.value.status !== 'completed') await poll(job.value.id, controller.signal)
-    if (job.value?.status === 'failed')
-      error.value = job.value.error?.message || '影片輸出失敗，請再試一次。'
+    if (job.value?.status === 'failed') error.value = friendlyExportError(job.value.error)
   } catch (cause) {
     if (!(cause instanceof DOMException && cause.name === 'AbortError'))
       error.value = cause instanceof Error ? cause.message : '影片輸出失敗，請再試一次。'
@@ -276,16 +278,16 @@ async function startExport() {
   text-align: left;
   text-decoration: none;
   overflow: hidden;
-  box-shadow: 0 5px 14px rgb(19 37 53 / 18%);
   transition:
     background 140ms ease,
-    transform 140ms ease,
-    box-shadow 140ms ease;
+    transform 100ms ease-out;
+  touch-action: manipulation;
 }
 .highlight-export__primary:hover:not(:disabled) {
   background: #0f3f6e;
-  box-shadow: 0 7px 18px rgb(15 63 110 / 24%);
-  transform: translateY(-1px);
+}
+.highlight-export__primary:active:not(:disabled) {
+  transform: scale(0.985);
 }
 .highlight-export__primary[data-tone='error'] {
   background: #3d252c;

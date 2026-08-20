@@ -37,14 +37,14 @@ describe('CoachBallRouteMap', () => {
     expect(wrapper.text()).toContain('1 條完整球路 · 1 個落點')
   })
 
-  it('labels the selected subject side separately from the opposing team side', () => {
+  it('labels only the canonical teams assigned to each court side', () => {
     const wrapper = mount(CoachBallRouteMap, {
       props: {
         events,
         label: '殺球',
         sideLabels: {
-          left: { teamShortName: 'IRI', scope: null },
-          right: { teamShortName: 'PAK', scope: 'player' },
+          left: { teamShortName: 'IRI' },
+          right: { teamShortName: 'PAK' },
         },
       },
     })
@@ -52,8 +52,8 @@ describe('CoachBallRouteMap', () => {
     expect(wrapper.findAll('.court-side-name')).toHaveLength(2)
     expect(wrapper.text()).toContain('IRI')
     expect(wrapper.text()).toContain('PAK')
-    expect(wrapper.findAll('.court-side-scope')).toHaveLength(1)
-    expect(wrapper.text()).toContain('[選手方]')
+    expect(wrapper.findAll('.court-side-scope')).toHaveLength(0)
+    expect(wrapper.text()).not.toContain('[選手方]')
     expect(wrapper.text()).not.toContain('[隊伍方]')
   })
 
@@ -82,7 +82,6 @@ describe('CoachBallRouteMap', () => {
       props: {
         events: events.map(event => ({ ...event, courtSide: 'right' as const })),
         label: '殺球',
-        selectedSide: 'left',
       },
     })
 
@@ -92,5 +91,15 @@ describe('CoachBallRouteMap', () => {
     await wrapper.get('button:nth-of-type(2)').trigger('click')
 
     expect(Number(wrapper.find('.landing-point').attributes('cx'))).toBeCloseTo(187.2)
+  })
+
+  it('reports transient route focus for a linked timeline without changing coordinates', async () => {
+    const wrapper = mount(CoachBallRouteMap, { props: { events, label: '殺球' } })
+
+    await wrapper.get('.route-line').trigger('pointerenter')
+    await wrapper.get('.route-line').trigger('pointerleave')
+
+    expect(wrapper.emitted('focus')).toEqual([[events[0]], [null]])
+    expect(Number(wrapper.find('.route-start').attributes('cx'))).toBeCloseTo(-10.8)
   })
 })

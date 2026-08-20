@@ -69,6 +69,22 @@ function storageClient() {
   })
 }
 
+function isMissingObjectError(error: unknown) {
+  if (!error || typeof error !== 'object') return false
+  const code = 'code' in error ? String(error.code) : ''
+  return code === 'NoSuchKey' || code === 'NotFound' || code === 'NoSuchObject'
+}
+
+async function storedObjectExists(client: Client, bucket: string, objectKey: string) {
+  try {
+    await client.statObject(bucket, objectKey)
+    return true
+  } catch (error) {
+    if (isMissingObjectError(error)) return false
+    throw error
+  }
+}
+
 function responseDocument(
   matchId: string,
   job: {
@@ -201,6 +217,27 @@ export const coachHighlightExportRoutes: FastifyPluginAsync = async app => {
       }
 
       const payload = { ...parsed.data, events: normalizedEvents }
+      const storage = storageClient()
+      const availability = await Promise.all(
+        normalizedEvents.map(async event => ({
+          eventId: event.event_id,
+          available: await storedObjectExists(
+            storage,
+            event.source_asset.bucket,
+            event.source_asset.object_key,
+          ),
+        })),
+      )
+      const missingEventIds = availability
+        .filter(result => !result.available)
+        .map(result => result.eventId)
+      if (missingEventIds.length)
+        return reply.status(409).send({
+          code: 'CLIP_SOURCE_MISSING',
+          event_ids: missingEventIds,
+          message: `${missingEventIds.length} 個回放來源已不存在，請先重新產生片段。`,
+        })
+
       const idempotencyKey = createHash('sha256')
         .update(`${identity.userId}\n${JSON.stringify(payload)}`)
         .digest('hex')

@@ -346,18 +346,10 @@ export function createAnnotationRoomService(annotationWsUrl: MaybeRefOrGetter<st
     const generation = ++rallySelectionGeneration
     const next = await requestSnapshot(rallyId)
     if (generation !== rallySelectionGeneration) return null
-    // OPEN still belongs to the client that is placing its moving END boundary.
-    // READY has a fixed boundary and is shared durable work: explicitly selecting
-    // it makes it this tab's edit target without sharing cursor/selection state.
-    const current = viewSnapshot.value
-    const protectsLocalOpen = Boolean(
-      current &&
-      current.rally_id !== rallyId &&
-      current.snapshot.annotation_status === 'open' &&
-      annotationDraftOwnedByClient(current, rememberedRallyId()),
-    )
-    if (!protectsLocalOpen && shouldAdoptInspectedAnnotationSnapshot(next, rememberedRallyId()))
-      acceptSnapshot(next, { remember: next?.snapshot.annotation_status === 'ready' })
+    // A deliberate timeline selection is local editing intent. Remember both
+    // OPEN and READY targets so commands and reconnects stay on the selected
+    // draft; passive broadcasts still cannot activate another Rally.
+    if (shouldAdoptInspectedAnnotationSnapshot(next)) acceptSnapshot(next, { remember: true })
     return next
   }
 
