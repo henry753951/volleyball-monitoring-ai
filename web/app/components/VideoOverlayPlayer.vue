@@ -119,6 +119,7 @@ const emit = defineEmits<{
     },
   ]
   error: [Error]
+  overlayError: [Error]
   toggle: []
   ballPosition: [position: { x: number; y: number }]
   playerBbox: [selection: { trackId: number; frameBBox: OverlayFrameBBox }]
@@ -260,7 +261,7 @@ watch(cursor, value => {
   if (value && !liveSourceRef.value) emit('cursor', value)
 })
 watch(overlay.error, value => {
-  if (value) emit('error', value)
+  if (value) emit('overlayError', value)
 })
 
 let sourceGeneration = 0

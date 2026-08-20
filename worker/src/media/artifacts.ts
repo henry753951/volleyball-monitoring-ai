@@ -31,6 +31,15 @@ export type MediaArtifact = ArtifactMetadata & {
 export type ArtifactSourceBytes = {
   initBytes: Uint8Array
   mediaBytes: Uint8Array
+  /**
+   * Decode-independent fMP4 fragments inside mediaBytes. Offsets are relative
+   * to the media object (not the original recording file). Keeping these
+   * ranges lets HLS request a short GOP without creating one object per GOP.
+   */
+  mediaFragments?: readonly {
+    byteOffset: bigint
+    byteLength: bigint
+  }[]
 }
 
 export type ArtifactPlan = {

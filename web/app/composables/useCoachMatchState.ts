@@ -4,7 +4,7 @@ import { createCoachDomainClient, type CoachMatchState } from '~/lib/coachDomain
 
 export function useCoachMatchState(
   matchId: MaybeRefOrGetter<string>,
-  options: { refreshIntervalMs?: number } = {},
+  options: { refreshIntervalMs?: number; profile?: 'full' | 'annotation' } = {},
 ) {
   const data = shallowRef<CoachMatchState | null>(null)
   const pending = ref(true)
@@ -14,23 +14,24 @@ export function useCoachMatchState(
   let interval: ReturnType<typeof setInterval> | undefined
   let invalidationTimer: ReturnType<typeof setTimeout> | undefined
   let refreshPromise: Promise<void> | null = null
-  let refreshRequested = false
+  let invalidationRefreshRequested = false
 
   async function runRefreshLoop() {
     refreshing.value = true
     try {
       do {
-        refreshRequested = false
+        invalidationRefreshRequested = false
         try {
           data.value = await createCoachDomainClient(createGraphQLTransport('/graphql')).matchState(
             toValue(matchId),
+            options.profile,
           )
           error.value = null
           lastUpdatedAt.value = new Date()
         } catch (cause) {
           error.value = cause instanceof Error ? cause : new Error('無法同步教練面板')
         }
-      } while (refreshRequested)
+      } while (invalidationRefreshRequested)
     } finally {
       pending.value = false
       refreshing.value = false
@@ -39,19 +40,30 @@ export function useCoachMatchState(
   }
 
   function refresh() {
-    if (refreshPromise) {
-      refreshRequested = true
-      return refreshPromise
-    }
+    // Ordinary polling/manual refreshes are interchangeable. Reusing the
+    // in-flight request prevents bursts of callers from serializing another
+    // full match-state response behind it.
+    if (refreshPromise) return refreshPromise
     refreshPromise = runRefreshLoop()
     return refreshPromise
+  }
+
+  function refreshAfterInvalidation() {
+    // A structural mutation can land after the current request started. Keep
+    // exactly one trailing refresh for those events, while ordinary callers
+    // remain fully coalesced.
+    if (refreshPromise) {
+      invalidationRefreshRequested = true
+      return refreshPromise
+    }
+    return refresh()
   }
 
   function handleInvalidation(event: Event) {
     const detail = (event as CustomEvent<{ match_id?: string }>).detail
     if (detail?.match_id !== toValue(matchId)) return
     if (invalidationTimer) clearTimeout(invalidationTimer)
-    invalidationTimer = setTimeout(() => void refresh(), 40)
+    invalidationTimer = setTimeout(() => void refreshAfterInvalidation(), 40)
   }
 
   onMounted(() => {

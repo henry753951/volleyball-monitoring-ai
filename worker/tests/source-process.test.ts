@@ -18,6 +18,7 @@ import {
   recordingExtentFilename,
   recordingExtentSeconds,
   reachedExpectedMediaEnd,
+  rtmpSourceRemainedOffline,
   segmentListTiming,
   shouldRetryYoutubeVodWithFallback,
   type MediaSourceProcessOptions,
@@ -59,6 +60,12 @@ const youtubeOptions: MediaSourceProcessOptions = {
 }
 
 describe('media source process', () => {
+  it('rechecks the RTMP publisher after recording files become quiescent', async () => {
+    await expect(rtmpSourceRemainedOffline(async () => true, 'capture')).resolves.toBe(false)
+    await expect(rtmpSourceRemainedOffline(async () => false, 'capture')).resolves.toBe(true)
+    await expect(rtmpSourceRemainedOffline(undefined, 'capture')).resolves.toBe(true)
+  })
+
   it('waits for an external RTMP source without spawning a relay process', async () => {
     const root = await mkdtemp(join(tmpdir(), 'vollyai-rtmp-source-'))
     temporaryPaths.push(root)

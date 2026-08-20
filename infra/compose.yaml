@@ -26,7 +26,7 @@ services:
 
   youtube-browser:
     profiles: [app]
-    image: lscr.io/linuxserver/chromium:latest
+    image: lscr.io/linuxserver/chromium@sha256:348379fe0ff2a8d96d1085c568936730f7ae60b8d354fc728848164298fe18c8
     environment:
       PUID: 1000
       PGID: 1000
@@ -184,7 +184,7 @@ services:
       MEDIA_RECORDING_ROOT: /recordings
       MINIO_READ_TIMEOUT_MS: ${MINIO_READ_TIMEOUT_MS:-60000}
       OME_API_ACCESS_TOKEN: ${OME_API_ACCESS_TOKEN:?OME_API_ACCESS_TOKEN is required}
-      OME_RTMP_PUBLIC_URL: ${OME_RTMP_PUBLIC_URL:-rtmp://rtmp-volley-ai.hsulab.net:2035/app}
+      OME_RTMP_PUBLIC_URL: ${OME_RTMP_PUBLIC_URL:-rtmp://rtmp-volley-ai.hsulab.net:1935/app}
       OME_API_URL: http://ovenmediaengine:8081
     volumes:
       - ${MEDIA_IMPORT_HOST_PATH:-${DEV_DATA_ROOT:-../.data/runtime}/media-imports}:/var/lib/volleyball/media-imports
@@ -253,7 +253,7 @@ services:
       MEDIA_INDEXER_ACTIVE_POLL_INTERVAL_MS: ${MEDIA_INDEXER_ACTIVE_POLL_INTERVAL_MS:-500}
       MEDIA_INDEXER_SCAN_INTERVAL_MS: ${MEDIA_INDEXER_SCAN_INTERVAL_MS:-30000}
       MEDIA_RECORDING_EXTENT_SECONDS: ${MEDIA_RECORDING_EXTENT_SECONDS:-60}
-      LIVE_ARCHIVE_BACKEND: ${LIVE_ARCHIVE_BACKEND:-media_extent}
+      LIVE_ARCHIVE_BACKEND: ${LIVE_ARCHIVE_BACKEND:-dual_projection}
       MEDIA_SPOOL_DIR: /var/lib/volleyball/media-spool
       MEDIA_SOURCE_WORK_ROOT: /var/lib/volleyball/media-imports/.work
       OME_API_ACCESS_TOKEN: ${OME_API_ACCESS_TOKEN:?OME_API_ACCESS_TOKEN is required}

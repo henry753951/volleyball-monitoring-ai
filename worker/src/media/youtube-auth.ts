@@ -70,11 +70,19 @@ export async function readYoutubeAuthSnapshot(
   const root = profilePath(spec)
   if (!root) return { revision: null, profileUpdatedAt: null, lastReadAt: null }
   const files = (
-    await Promise.all([
-      fileFingerprint(join(root, 'Local State')),
-      fileFingerprint(join(root, 'Default', 'Cookies')),
-      fileFingerprint(join(root, 'Default', 'Network', 'Cookies')),
-    ])
+    await Promise.all(
+      [
+        join(root, 'Local State'),
+        join(root, 'Default', 'Cookies'),
+        join(root, 'Default', 'Cookies-wal'),
+        join(root, 'Default', 'Cookies-shm'),
+        join(root, 'Default', 'Cookies-journal'),
+        join(root, 'Default', 'Network', 'Cookies'),
+        join(root, 'Default', 'Network', 'Cookies-wal'),
+        join(root, 'Default', 'Network', 'Cookies-shm'),
+        join(root, 'Default', 'Network', 'Cookies-journal'),
+      ].map(fileFingerprint),
+    )
   ).filter((value): value is NonNullable<typeof value> => value !== null)
   if (files.length === 0) return { revision: null, profileUpdatedAt: null, lastReadAt: null }
   const latest = Math.max(...files.map(file => file.mtimeMs))

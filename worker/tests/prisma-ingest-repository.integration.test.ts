@@ -42,6 +42,7 @@ const profile = {
 
 let db: (typeof import('@volleyball-monitoring/db'))['db']
 let repository: ReturnType<typeof createPrismaIngestRepository>
+let extentOnlyRepository: ReturnType<typeof createPrismaIngestRepository>
 let createdDatabase = false
 
 function digest(value: string): string {
@@ -222,6 +223,16 @@ beforeAll(async () => {
       timestampToleranceUs: 5n,
     },
   })
+  extentOnlyRepository = createPrismaIngestRepository(db, {
+    liveArchiveBackend: 'media_extent',
+    maxTransactionAttempts: 5,
+    now: () => fixedReadyAt,
+    plannerConfig: {
+      canonicalSessionOriginUs: canonicalOriginUs,
+      canonicalFrameOrigin,
+      timestampToleranceUs: 5n,
+    },
+  })
 }, 120_000)
 
 afterAll(async () => {
@@ -303,6 +314,28 @@ describe('Prisma finalized media ingest repository', () => {
       frameCount: 3n,
     })
     expect(await forbiddenCounts()).toEqual(beforeForbidden)
+  })
+
+  it('keeps legacy rows idempotent when a replay discovers fragment projection metadata', async () => {
+    const { captureSessionId } = await createSession()
+    const legacyInput = reservationInput(captureSessionId, 'legacy-fragment-replay')
+    const reserved = await repository.reserveUploading(legacyInput)
+    const replay = await repository.reserveUploading({
+      ...legacyInput,
+      playbackFragments: [
+        {
+          byteOffset: 0n,
+          byteLength: 1_024n,
+          durationUs: reserved.plan.segment.durationUs,
+        },
+      ],
+    })
+
+    expect(replay.disposition).toBe('RESUMED')
+    expect(replay.reference).toEqual(reserved.reference)
+    await expect(
+      db.dvrSegment.findUniqueOrThrow({ where: { id: reserved.reference.dvrSegmentId } }),
+    ).resolves.toMatchObject({ playbackFragments: null, playbackSequenceStart: 0n })
   })
 
   it('keeps the packaged program profile stable when a source epoch changes time base', async () => {
@@ -625,7 +658,7 @@ describe('Prisma finalized media ingest repository', () => {
       localPath: 'live/20260818120000_0.mp4',
       finalizedAt: new Date('2026-08-18T12:01:00.000Z'),
     }
-    const reservation = await repository.reserveUploading(
+    const reservation = await extentOnlyRepository.reserveUploading(
       reservationInput(captureSessionId, 'extent-only-live', { extent: extentPublication }),
     )
     expect(reservation.reference.mediaExtentId).toBeTruthy()
@@ -644,12 +677,12 @@ describe('Prisma finalized media ingest repository', () => {
     ).resolves.toEqual([0, 0])
 
     const artifactExpectations = expectations(reservation)
-    await repository.recordArtifactExpectations({
+    await extentOnlyRepository.recordArtifactExpectations({
       reservation: reservation.reference,
       artifacts: artifactExpectations,
       sampleIndexDocument: serializeSampleIndex(reservation.sampleIndex),
     })
-    const published = await repository.publishReady({
+    const published = await extentOnlyRepository.publishReady({
       reservation: reservation.reference,
       verifiedArtifacts: artifactExpectations,
       extent: extentPublication,

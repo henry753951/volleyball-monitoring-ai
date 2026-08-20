@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { assertFinalizedRecording, type FinalizedRecording } from './finalized-recording'
 import type { ArtifactSource, ArtifactSourceBytes } from './ingest'
+import { scanStoredMediaFragments } from './playback-fragment-index'
 
 export type Fmp4ArtifactSourceErrorCode =
   | 'INVALID_CONFIG'
@@ -337,6 +338,7 @@ async function splitFragmentedMp4(
   let mediaStarted = false
   let awaitingMdat = false
   let fragmentCount = 0
+  let fragmentStartOffset: bigint | null = null
 
   while (position < fileSize) {
     const box = await readBoxHeader(handle, position, fileSize, guard)
@@ -408,7 +410,12 @@ async function splitFragmentedMp4(
         }
         awaitingMdat = false
         fragmentCount += 1
+        if (fragmentStartOffset === null) {
+          throw new Fmp4ArtifactSourceError('INVALID_LAYOUT', 'media fragment start is missing')
+        }
+        fragmentStartOffset = null
       } else if (box.type === 'moof') {
+        fragmentStartOffset = mediaBytes
         awaitingMdat = true
       } else if (box.type === 'mdat') {
         throw new Fmp4ArtifactSourceError('INVALID_LAYOUT', 'mdat must follow a moof box')
@@ -441,9 +448,24 @@ async function splitFragmentedMp4(
   if (initBytes === 0n || mediaBytes === 0n) {
     throw new Fmp4ArtifactSourceError('INVALID_LAYOUT', 'fragmented MP4 outputs must be non-empty')
   }
+  const initOutput = Buffer.concat(initChunks, Number(initBytes))
+  const mediaOutput = Buffer.concat(mediaChunks, Number(mediaBytes))
+  let independentlyDecodableFragments:
+    | readonly {
+        byteOffset: bigint
+        byteLength: bigint
+      }[]
+    | undefined
+  try {
+    independentlyDecodableFragments = scanStoredMediaFragments(mediaOutput, initOutput)
+  } catch {
+    // Projection is an optimization only. If track/sample flags do not prove
+    // that every range starts on a video sync sample, publish the whole extent.
+  }
   return {
-    initBytes: Buffer.concat(initChunks, Number(initBytes)),
-    mediaBytes: Buffer.concat(mediaChunks, Number(mediaBytes)),
+    initBytes: initOutput,
+    mediaBytes: mediaOutput,
+    ...(independentlyDecodableFragments ? { mediaFragments: independentlyDecodableFragments } : {}),
   }
 }
 

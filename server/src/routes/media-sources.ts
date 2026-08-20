@@ -126,7 +126,7 @@ export function mediaSourceRoutes(dependencies: MediaSourceRouteDependencies): F
   const failCapture = dependencies.failCaptureStartup ?? failCaptureStartup
   const scheduleWork = dependencies.scheduleWork ?? scheduleMediaSourceWork
   const publicRtmpBase = rtmpPublicBase(
-    dependencies.rtmpPublicUrl ?? process.env.OME_RTMP_PUBLIC_URL ?? 'rtmp://localhost:2035/app',
+    dependencies.rtmpPublicUrl ?? process.env.OME_RTMP_PUBLIC_URL ?? 'rtmp://localhost:1935/app',
   )
   return async app => {
     const retrySource = async (
@@ -489,10 +489,13 @@ export function mediaSourceRoutes(dependencies: MediaSourceRouteDependencies): F
           message: 'RTMP 來源已建立，但媒體處理程序無法啟動；場次已保留，可稍後重試。',
         })
       }
-      return reply.status(202).send({
-        ...capturePayload(capture),
-        rtmp: rtmpCredentials(streamKey, publicRtmpBase),
-      })
+      return reply
+        .header('cache-control', 'no-store')
+        .status(202)
+        .send({
+          ...capturePayload(capture),
+          rtmp: rtmpCredentials(streamKey, publicRtmpBase),
+        })
     })
 
     app.get('/api/v1/media-sources/rtmp/:capture_session_id', async (request, reply) => {
@@ -523,7 +526,7 @@ export function mediaSourceRoutes(dependencies: MediaSourceRouteDependencies): F
         },
       })
       if (!capture) return reply.status(404).send({ code: 'NOT_FOUND' })
-      return reply.send({
+      return reply.header('cache-control', 'no-store').send({
         capture_session_id: capture.id,
         rtmp: rtmpCredentials(capture.ingestPath, publicRtmpBase),
       })

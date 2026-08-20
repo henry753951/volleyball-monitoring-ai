@@ -23,7 +23,38 @@ afterEach(() => {
 })
 
 describe('useCoachMatchState refresh coalescing', () => {
-  it('runs one final refresh when an invalidation arrives during an active request', async () => {
+  it('fully coalesces ordinary refreshes behind an active request', async () => {
+    const first = deferred<unknown>()
+    matchStateRequest.mockReturnValueOnce(first.promise)
+
+    let state!: ReturnType<typeof useCoachMatchState>
+    const wrapper = mount(
+      defineComponent({
+        setup() {
+          state = useCoachMatchState(ref('match-1'), {
+            refreshIntervalMs: 0,
+            profile: 'annotation',
+          })
+          return () => h('div')
+        },
+      }),
+    )
+
+    expect(matchStateRequest).toHaveBeenCalledTimes(1)
+    expect(matchStateRequest).toHaveBeenCalledWith('match-1', 'annotation')
+    const coalesced = state.refresh()
+    first.resolve({ match: { id: 'stale' } })
+    await coalesced
+    await flushPromises()
+
+    expect(matchStateRequest).toHaveBeenCalledTimes(1)
+    expect(state.data.value).toEqual({ match: { id: 'stale' } })
+    expect(state.refreshing.value).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('runs one trailing refresh when a structural invalidation arrives in flight', async () => {
+    vi.useFakeTimers()
     const first = deferred<unknown>()
     matchStateRequest
       .mockReturnValueOnce(first.promise)
@@ -33,21 +64,28 @@ describe('useCoachMatchState refresh coalescing', () => {
     const wrapper = mount(
       defineComponent({
         setup() {
-          state = useCoachMatchState(ref('match-1'), { refreshIntervalMs: 0 })
+          state = useCoachMatchState(ref('match-1'), {
+            refreshIntervalMs: 0,
+            profile: 'annotation',
+          })
           return () => h('div')
         },
       }),
     )
 
-    expect(matchStateRequest).toHaveBeenCalledTimes(1)
-    const coalesced = state.refresh()
+    window.dispatchEvent(
+      new CustomEvent('vollyai:match-state-invalidated', {
+        detail: { match_id: 'match-1' },
+      }),
+    )
+    await vi.advanceTimersByTimeAsync(40)
     first.resolve({ match: { id: 'stale' } })
-    await coalesced
     await flushPromises()
 
     expect(matchStateRequest).toHaveBeenCalledTimes(2)
     expect(state.data.value).toEqual({ match: { id: 'new' } })
     expect(state.refreshing.value).toBe(false)
     wrapper.unmount()
+    vi.useRealTimers()
   })
 })

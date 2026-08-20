@@ -88,6 +88,10 @@ export interface PlaybackManifestSegment {
   discontinuity: number
   initFingerprint: string
   sequenceNumber: bigint
+  byteRange?: {
+    offset: bigint
+    length: bigint
+  }
 }
 
 export interface RollingPlaybackSegment {
@@ -475,6 +479,14 @@ export function formatManifest(
     if (!validSha256(segment.initFingerprint)) {
       throw new MediaHttpError(409, 'MEDIA_NOT_READY', 'Initialization media is unavailable')
     }
+    if (
+      segment.byteRange &&
+      (segment.byteRange.offset < 0n ||
+        segment.byteRange.length <= 0n ||
+        segment.byteRange.offset + segment.byteRange.length > 9_223_372_036_854_775_807n)
+    ) {
+      throw new MediaHttpError(409, 'MEDIA_NOT_READY', 'Playback byte range is invalid')
+    }
     const startsDiscontinuity =
       previousDiscontinuity !== null && segment.discontinuity !== previousDiscontinuity
     if (startsDiscontinuity) {
@@ -489,6 +501,9 @@ export function formatManifest(
     }
     lines.push(
       `#EXTINF:${formatDurationUs(segment.durationUs)},`,
+      ...(segment.byteRange
+        ? [`#EXT-X-BYTERANGE:${segment.byteRange.length}@${segment.byteRange.offset}`]
+        : []),
       `${base}/${playbackResourceToken('media', segment.id)}`,
     )
     previousDiscontinuity = segment.discontinuity

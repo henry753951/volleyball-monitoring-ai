@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  captureTimeInTimelineRanges,
   liveMediaBackend,
   omeLiveManifestUrl,
   omePlayerSecondsForCaptureTime,
@@ -80,5 +81,15 @@ describe('OME live playback configuration', () => {
         '120000000',
       ),
     ).toEqual([{ startUs: '1000000', endUs: '120000000', discontinuity: 0 }])
+  })
+
+  it('distinguishes a finalized archive position from an unavailable gap', () => {
+    const ranges = [
+      { startUs: '1000000', endUs: '60000000' },
+      { startUs: '90000000', endUs: '120000000' },
+    ]
+    expect(captureTimeInTimelineRanges('59999999', ranges)).toBe(true)
+    expect(captureTimeInTimelineRanges('60000000', ranges)).toBe(false)
+    expect(captureTimeInTimelineRanges('90000000', ranges)).toBe(true)
   })
 })

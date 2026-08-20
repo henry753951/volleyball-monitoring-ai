@@ -144,6 +144,7 @@ describe('FinalizedFileArtifactSource', () => {
     expect(result.mediaBytes).toEqual(
       Buffer.concat([styp, sidx, moof, mdat, emsg, secondMoof, secondMdat]),
     )
+    expect(result.mediaFragments).toBeUndefined()
   })
 
   it('remuxes an OME-style progressive MP4 before splitting artifacts', async () => {

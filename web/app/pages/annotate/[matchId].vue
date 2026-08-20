@@ -89,6 +89,7 @@ import { mergeRallyProcessingUpdate } from '~/services/annotation-workstation/pr
 import { ballEventRepairNotice } from '~/utils/annotationBallEventRepairNotice'
 import { captureTimeForIdentityTrackFrame } from '~/utils/identityTrackNavigation'
 import {
+  captureTimeInTimelineRanges,
   liveMediaBackend,
   omeLiveManifestUrl,
   projectOmeLiveTimelineRanges,
@@ -138,6 +139,8 @@ const omePlaybackFailed = ref(false)
 const omeObservedCaptureTimeUs = ref<string | null>(null)
 const omeAtLiveEdge = ref(false)
 const omeDirectPlaybackActive = ref(false)
+const omeArchivePlaybackActive = ref(false)
+const omeSeekLiveOnReady = ref(false)
 const omeCanonicalTimeValidated = ref(false)
 const authoritativeAnchor = computed(() => dvr.anchor.value)
 const observedCursor = shallowRef<PlaybackCursorInput | null>(null)
@@ -148,7 +151,10 @@ const workstationActions = createWorkstationActionManager({ feedback: workstatio
 const workstationConfirmation = createWorkstationConfirmationService({
   feedback: workstationFeedback,
 })
-const coach = useCoachMatchState(matchId, { refreshIntervalMs: 0 })
+const coach = useCoachMatchState(matchId, {
+  refreshIntervalMs: 0,
+  profile: 'annotation',
+})
 const workstationPreferences = createWorkstationPreferencesService({
   matchId,
   core,
@@ -437,6 +443,8 @@ const notifiedProcessingFailures = new Set<string>()
 let processingFailureWatchReady = false
 let timelineRefreshTimer: ReturnType<typeof setTimeout> | null = null
 let timelinePollDelayMs = 1_000
+let lastCoachProcessingReconciliationAt = 0
+const COACH_PROCESSING_RECONCILIATION_MS = 30_000
 let captureRefreshInFlight = false
 let cursorResolveTimer: ReturnType<typeof setTimeout> | null = null
 let seekPreviewTimer: ReturnType<typeof setTimeout> | null = null
@@ -1344,7 +1352,7 @@ const liveCapture = computed(() => playbackMode.value === 'active_live')
 const configuredLiveMediaBackend = computed(() =>
   liveMediaBackend(runtimeConfig.public.liveMediaBackend),
 )
-const omeLiveSource = computed<OmeLivePlaybackSource | null>(() => {
+const omeLiveSourceCandidate = computed<OmeLivePlaybackSource | null>(() => {
   const capture = selectedCapture.value
   if (
     configuredLiveMediaBackend.value !== 'ome_experiment' ||
@@ -1364,6 +1372,10 @@ const omeLiveSource = computed<OmeLivePlaybackSource | null>(() => {
     })),
   }
 })
+const omeLiveSource = computed<OmeLivePlaybackSource | null>(() =>
+  omeArchivePlaybackActive.value ? null : omeLiveSourceCandidate.value,
+)
+const omeDirectPlaybackAvailable = computed(() => Boolean(omeLiveSourceCandidate.value))
 watch(
   omeLiveSource,
   source => {
@@ -1650,13 +1662,24 @@ async function runTimelineRefreshCycle() {
   maintainPlaybackWindow()
   const captureActive = captureNeedsPolling(selectedCapture.value?.status)
   const processingActive = hasActiveRallyProcessing(coach.data.value?.match.rallies)
+  const now = Date.now()
+  const reconcileCoach =
+    processingActive &&
+    now - lastCoachProcessingReconciliationAt >= COACH_PROCESSING_RECONCILIATION_MS
   const capturePromise = captureActive
     ? refreshSelectedCapture()
     : Promise.resolve<CapturePollOutcome>('skipped')
-  const coachPromise = processingActive
+  if (reconcileCoach) lastCoachProcessingReconciliationAt = now
+  // Processing progress arrives through the annotation WebSocket. This slow
+  // reconciliation catches a missed event without downloading the full coach
+  // dashboard state on every timeline poll.
+  const coachPromise = reconcileCoach
     ? Promise.resolve(coach.refresh()).then(
         () => false,
-        () => true,
+        () => {
+          lastCoachProcessingReconciliationAt = 0
+          return true
+        },
       )
     : Promise.resolve(false)
   const [captureOutcome, coachFailed] = await Promise.all([capturePromise, coachPromise])
@@ -1878,9 +1901,29 @@ async function seekTimeline(targetCaptureTimeUs: string) {
   }
   markPlaybackBuffering(false, target)
   if (omeDirectPlaybackActive.value) {
-    clearPlaybackBuffering()
-    if (optimisticSeekCaptureTimeUs.value === target) clearOptimisticSeekTarget()
-    mediaError.value = '目前位置不在 OME DVR 可用範圍內'
+    const durableRanges = selectedCapture.value?.timeline?.availableRanges ?? []
+    if (!captureTimeInTimelineRanges(target, durableRanges)) {
+      clearPlaybackBuffering()
+      if (optimisticSeekCaptureTimeUs.value === target) clearOptimisticSeekTarget()
+      mediaError.value = '目前位置尚未完成永久錄影，且已不在 OME DVR 範圍內'
+      return
+    }
+    // OME DVR is the low-latency tier. Once the requested position leaves its
+    // seekable range, switch to the finalized recording while keeping the same
+    // canonical capture time. The operator returns to OME explicitly via LIVE.
+    omeArchivePlaybackActive.value = true
+    omeAtLiveEdge.value = false
+    omeCanonicalTimeValidated.value = false
+    omeObservedCaptureTimeUs.value = null
+    const created = await createWindow(target, 'archive', true)
+    if (!created) {
+      // Archive is a fallback tier. A transient window error must not disable
+      // the still-usable OME source; the reactive source watcher will reattach
+      // at the canonical live position when this flag is rolled back.
+      omeArchivePlaybackActive.value = false
+      clearPlaybackBuffering()
+      if (optimisticSeekCaptureTimeUs.value === target) clearOptimisticSeekTarget()
+    }
     return
   }
   const created = await createWindow(target, undefined, true)
@@ -2075,12 +2118,10 @@ function handleVideoWaiting() {
   const element = video.value
   const shouldResume = Boolean(element && !element.paused && !element.ended)
   markPlaybackBuffering(shouldResume)
-  // Keep the element unpaused long enough for continuation policy to choose
-  // recover-buffer vs extend-window. recoverPlayback() then pauses it before
-  // any old buffered range can continue playing.
+  // Playback services own the pause/startLoad/resume sequence. Pausing again
+  // here races their play() call and produces the observed half-second stall.
   maintainPlaybackWindow()
   if (omeDirectPlaybackActive.value) overlayPlayer.value?.recoverPlayback()
-  if (shouldResume && element && !element.paused) element.pause()
 }
 function detachVideoState(element: HTMLVideoElement | null) {
   element?.removeEventListener('play', updatePlaybackState)
@@ -2214,8 +2255,8 @@ function maintainPlaybackWindow() {
   }
   continuationRequestedAt = performance.now()
   if (decision === 'recover-buffer') {
-    overlayPlayer.value?.recoverPlayback()
-    if (!element.paused) element.pause()
+    const recovered = overlayPlayer.value?.recoverPlayback() ?? false
+    if (!recovered && !element.paused) element.pause()
     schedulePlaybackContinuation(650)
     return
   }
@@ -2286,6 +2327,10 @@ function handleVideoReady(element: HTMLVideoElement) {
     element.addEventListener('ended', maintainPlaybackWindow)
   }
   element.playbackRate = playbackRate.value
+  if (omeDirectPlaybackActive.value && omeSeekLiveOnReady.value) {
+    omeSeekLiveOnReady.value = false
+    overlayPlayer.value?.seekLiveEdge()
+  }
   const transition = gapTransition
   if (
     transition?.targetWindowId &&
@@ -2303,7 +2348,23 @@ function handleVideoCanPlay() {
 function handlePlaybackError(error: Error) {
   gapTransition = null
   clearPlaybackBuffering()
+  if (omeArchivePlaybackActive.value && omeDirectPlaybackAvailable.value) {
+    omeArchivePlaybackActive.value = false
+    omeSeekLiveOnReady.value = true
+    omeCanonicalTimeValidated.value = false
+    omeObservedCaptureTimeUs.value = null
+    toast.warning('永久錄影暫時無法載入，已返回即時畫面', {
+      description: error.message,
+    })
+    mediaError.value = null
+    return
+  }
   mediaError.value = error.message
+}
+function handleOverlayError(error: Error) {
+  toast.warning('AI 分析圖層暫時無法載入', {
+    description: error.message,
+  })
 }
 function handleOmePlaybackError(error: Error) {
   gapTransition = null
@@ -2317,6 +2378,8 @@ function handleOmePlaybackError(error: Error) {
     if (failedCaptureId && selectedCaptureId.value === failedCaptureId && liveCapture.value) {
       mediaError.value = null
       omePlaybackFailed.value = false
+      omeArchivePlaybackActive.value = false
+      omeSeekLiveOnReady.value = false
     }
   }, 15_000)
   toast.warning('OME 即時播放無法載入，已回退舊播放路徑', {
@@ -2774,6 +2837,8 @@ watch(
       if (omePlaybackRetryTimer) clearTimeout(omePlaybackRetryTimer)
       omePlaybackRetryTimer = null
       omePlaybackFailed.value = false
+      omeArchivePlaybackActive.value = false
+      omeSeekLiveOnReady.value = false
       omeAtLiveEdge.value = false
       omeObservedCaptureTimeUs.value = null
       playbackHasStarted = false
@@ -2966,7 +3031,7 @@ const transportActions = createTransportActionService({
     ),
   ),
   frameMovePending: computed(() => Boolean(pendingTimelineMove.value)),
-  liveAvailable: computed(() => Boolean(liveTarget.value || omeDirectPlaybackActive.value)),
+  liveAvailable: computed(() => Boolean(liveTarget.value || omeDirectPlaybackAvailable.value)),
   correctionCreateEnabled: computed(
     () => Boolean(selectedSubmittedRally.value) && !selectedCorrectionDraft.value,
   ),
@@ -2991,7 +3056,13 @@ const transportActions = createTransportActionService({
   togglePlayback: () => dispatchMediaAction('play_pause'),
   stepFrame: (direction, count = 1, input = 'button') => queueFrameStep(direction, count, input),
   goLive: () => {
-    if (omeDirectPlaybackActive.value) {
+    if (omeDirectPlaybackAvailable.value) {
+      if (omeArchivePlaybackActive.value) {
+        mediaError.value = null
+        omeSeekLiveOnReady.value = true
+        omeArchivePlaybackActive.value = false
+        return
+      }
       overlayPlayer.value?.seekLiveEdge()
       return
     }
@@ -3202,6 +3273,7 @@ onBeforeUnmount(() => {
               @track-select="handleOverlayTrack"
               @toggle="workstationActions.execute('media.toggle-playback')"
               @error="handlePlaybackError"
+              @overlay-error="handleOverlayError"
             />
             <div
               v-if="playbackBuffering"
@@ -3242,7 +3314,7 @@ onBeforeUnmount(() => {
               <EyeOff v-else :size="14" />
               <span>Overlay</span>
             </button>
-            <div v-if="!descriptor" class="stage-empty">
+            <div v-if="!descriptor && !omeLiveSource" class="stage-empty">
               <strong>{{ mediaEmptyLabel }}</strong
               ><button
                 v-if="defaultPlaybackTarget"
@@ -3324,7 +3396,7 @@ onBeforeUnmount(() => {
             ? omeAtLiveEdge
             : playbackMode === 'active_live' && descriptor?.mode === 'live'
         "
-        :live-available="Boolean(liveTarget || omeDirectPlaybackActive)"
+        :live-available="Boolean(liveTarget || omeDirectPlaybackAvailable)"
         :terminal-label="playbackMode === 'ended_live' ? 'END' : null"
         :context-title="activeContextTitle"
         :context-hits="activeContextHits"

@@ -281,8 +281,10 @@ export function createOmeLivePlaybackService(
   const recover = () => {
     const element = video.value
     if (!element || !activeSource.value || !hls) return false
-    if (!element.paused && !element.ended) element.pause()
+    const resumePlayback = !element.paused && !element.ended
+    if (resumePlayback) element.pause()
     hls.startLoad(element.currentTime > 0 ? element.currentTime : -1)
+    if (resumePlayback) void element.play().catch(() => undefined)
     return true
   }
 

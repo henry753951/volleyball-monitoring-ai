@@ -115,7 +115,7 @@ export interface CoachRally {
       id: string
       status: string
       version: string
-      summary: unknown
+      summary?: unknown
       identity_mapping_completed: boolean
       coverage_start_capture_time_us: string | null
       coverage_end_capture_time_us: string | null
@@ -424,14 +424,14 @@ export interface CoachMatchAnalytics {
     outcome: 'won' | 'lost' | 'unknown'
   }>
 }
-const COACH_MATCH_STATE = `query CoachMatchState($matchId: ID!) { coachMatchState(matchId: $matchId) }`
-
 export function createCoachDomainClient(transport: GraphQLTransport) {
   return {
-    async matchState(matchId: string) {
+    async matchState(matchId: string, profile?: 'full' | 'annotation') {
       const result = await transport.request<{ coachMatchState: CoachMatchState | null }>(
-        COACH_MATCH_STATE,
-        { matchId },
+        `query CoachMatchState($matchId: ID!, $profile: String) {
+          coachMatchState(matchId: $matchId, profile: $profile)
+        }`,
+        { matchId, profile: profile ?? null },
       )
       return result.coachMatchState
     },
