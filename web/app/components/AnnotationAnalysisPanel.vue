@@ -17,6 +17,7 @@ import {
   UserRoundCheck,
 } from 'lucide-vue-next'
 import { computed, ref } from 'vue'
+import { formatTimelinePosition } from '~/lib/dvrTimeline'
 import { useAnnotationWorkstationService } from '~/services/annotation-workstation/annotation-workstation.service'
 import type { WorkstationActionId } from '~/services/annotation-workstation/workstation-action.service'
 
@@ -27,9 +28,12 @@ export interface AnalysisHitListItem {
   keyPointId: string
   sequenceIndex: number
   frameIndex: number
+  captureTimeUs: string | null
   actorTrackId: number | null
   actorLabel: string
   actorSource: 'auto' | 'manual' | 'none' | 'pending' | 'failed'
+  semanticLabel: string | null
+  pathLabel: string | null
   ballLabel: string
   anchorSource: 'human' | 'ai' | 'manual'
   anchorConfidence: number | null
@@ -44,6 +48,8 @@ export interface RemovedAnalysisHitListItem {
 
 const props = defineProps<{
   frameIndex: number
+  timelineOriginCaptureTimeUs: string | null
+  clipStartCaptureTimeUs: string | null
   ballOverride: 'position' | 'missing' | null
   ballPosition: { x: number; y: number } | null
   selectedTrackAction: string | null
@@ -84,6 +90,13 @@ const ballStateLabel = computed(() =>
 const playerStateLabel = computed(() =>
   selectedTrackId.value === null ? '尚未選取' : `Track ${selectedTrackId.value}`,
 )
+
+function hitTimeLabel(hit: AnalysisHitListItem) {
+  if (!hit.captureTimeUs) return `Frame ${hit.frameIndex}`
+  const matchTime = formatTimelinePosition(hit.captureTimeUs, props.timelineOriginCaptureTimeUs)
+  const clipTime = formatTimelinePosition(hit.captureTimeUs, props.clipStartCaptureTimeUs)
+  return `場次 ${matchTime} · 片段 +${clipTime} · F${hit.frameIndex}`
+}
 
 function changePage(next: AnalysisPanelPage) {
   if (next === page.value) return
@@ -271,6 +284,7 @@ function execute(actionId: WorkstationActionId, payload?: unknown) {
                       <i>{{ hit.sequenceIndex + 1 }}</i>
                       <span
                         ><strong>{{ hit.actorLabel }}</strong
+                        ><b v-if="hit.semanticLabel" class="hit-semantic">{{ hit.semanticLabel }}</b
                         ><small
                           >{{
                             hit.anchorSource === 'ai'
@@ -278,9 +292,11 @@ function execute(actionId: WorkstationActionId, payload?: unknown) {
                               : hit.anchorSource === 'manual'
                                 ? '人工新增擊球點'
                                 : '人工 X 碰撞'
-                          }}{{ hit.timeAdjusted ? ' · 已微調' : '' }} · Frame {{ hit.frameIndex }} ·
+                          }}{{ hit.timeAdjusted ? ' · 已微調' : '' }} · {{ hitTimeLabel(hit) }} ·
                           {{ hit.ballLabel }}</small
-                        ></span
+                        ><small v-if="hit.pathLabel" class="hit-path">{{
+                          hit.pathLabel
+                        }}</small></span
                       >
                       <em :class="hit.actorSource">{{
                         hit.actorSource === 'manual'
@@ -627,12 +643,25 @@ function execute(actionId: WorkstationActionId, payload?: unknown) {
 .hit-main strong {
   font-size: 0.67rem;
 }
+.hit-semantic {
+  width: fit-content;
+  padding: 2px 5px;
+  border: 1px solid #34566f;
+  border-radius: 4px;
+  background: #182b3a;
+  color: #9ed8ff;
+  font-size: 0.56rem;
+  font-weight: 750;
+}
 .hit-main small {
   color: #8f99a3;
   font:
     500 0.55rem 'Cascadia Mono',
     Consolas,
     monospace;
+}
+.hit-main .hit-path {
+  color: #77d6a0;
 }
 .hit-main em {
   padding: 2px 5px;

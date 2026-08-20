@@ -534,8 +534,8 @@ b7983f31cf486e0ea1f7c29c7336d6cca8d96319ff1ce83f2f1c0a0bc0bb3d65  ./server/tscon
 ec3ea382e97a2b05b70b0dd3a7d7d1cd435492647700352f08c63223afa8a63a  ./web/README.md
 80b2b71e126483e3c712ebb4aa5354095444d98e09bb942125a35cdfdf659efd  ./web/app/app.vue
 fd14837db4ffc74ab9cff56237421670489c4e24f622cb315c7d8e6d38e7f438  ./web/app/assets/css/main.css
-00aeb6f8227c2761bd4ae0b9519b2d8a59595d6d803959e7252c56e60e97769c  ./web/app/components/AnnotationAnalysisPanel.component.test.ts
-093f42e2bf391ba4f8ce62476ff47e218d4437f5cf57b1478eaac46f9763388a  ./web/app/components/AnnotationAnalysisPanel.vue
+d2f9eadabbe6b308837d1ab4cc7d51df8e3b77e568abd0f42d728a32cba1187c  ./web/app/components/AnnotationAnalysisPanel.component.test.ts
+36ca471bc716dd62aa67abb56e556205c2f7166230301dcf0fad8f7480f17478  ./web/app/components/AnnotationAnalysisPanel.vue
 d0195a8a1308641e58df14d7f374e94d8779560036353a1eaa439cff3dc32e81  ./web/app/components/AnnotationAnalysisToolbox.vue
 b9f20cf62141d41a44787e268fcc856923c98d241267e929ac6f1348b69677fa  ./web/app/components/AnnotationCommandStrip.test.ts
 9503c12905a51b5782037a7d53061d1fbd81c0ddf7551d260131c209990ba3fb  ./web/app/components/AnnotationCommandStrip.vue
@@ -681,7 +681,7 @@ d414d774f9b4f8b5a49be463ee8de0bcf284e3b84d96cb54d270d4be558038e9  ./web/app/lib/
 ea6147e9664833abf6ae1dc8bcffbdded5c976a7dd2b9b4a680dcc3a7c9c8df4  ./web/app/lib/rosterPromptImport.test.ts
 4e07c8e910ce029b61dcbe1110e7be3538b6ef9598340fc8468d33efe5760d7b  ./web/app/lib/rosterPromptImport.ts
 440fc13e62d9078c3a3742f76760e310c7d5d8534d7c1164eb585146c7748ef4  ./web/app/middleware/auth.global.ts
-710b81d3f41218a70212d4ed06cd3b96baeff6cf797230736cb58412eac3a253  ./web/app/pages/annotate/[matchId].vue
+3636018e11c564a1c521a388f9acb649bb51bfe1577ecb44b8bbdcf59c8a60fb  ./web/app/pages/annotate/[matchId].vue
 fe032879a11926928cb20d115e0ddc281d030023d7ebed03c97a24ee2ee877bf  ./web/app/pages/control/index.vue
 e1721fc17046f4b9ff9b7359f7c6884e3319a788a8b022d31d6a00a4e805cb06  ./web/app/pages/control/jobs.vue
 ffda57a925b659c33ea87ab67aedd169120195cf27497ab8eceaf14dd7e56ba3  ./web/app/pages/index.vue
@@ -739,6 +739,8 @@ ca7527003724b933e67091027e569d5a082d5d196a0f0661b68f426ce55fafb9  ./web/app/serv
 f1af020f41fd8131b315a76cdeea5fbf19188139edd2d6f3541f5db6d6296184  ./web/app/services/annotation-workstation/workstation-selection.service.ts
 f0233d078e63a9721e9ef342d10c86d6bb2895cccfe9b915210cfdffd59e53eb  ./web/app/types/hls-light.d.ts
 e47460595aa692b72e993f831527f5a6a5a9046a19a1a03d43a2a25843d35d8e  ./web/app/types/identityAssignment.ts
+3b17c74927b033d87e2551dedd41ee7dd39f3a3ae6fa04bba2e765d5b2364bd1  ./web/app/utils/analysisContactPresentation.test.ts
+a17c3ea414c2db7a910e386bd02316716ffe49b008e2c8cdb5f6a529d347f8c3  ./web/app/utils/analysisContactPresentation.ts
 d22a14497729598baa464b27572854763250d379efb44f427658df5c1fe22aa4  ./web/app/utils/annotationBallEventPresentation.test.ts
 78b79524bafbb5263496d394adfa80220094771dd4b6a6f98b5590f20823f0d4  ./web/app/utils/annotationBallEventPresentation.ts
 097e33691539e5833e4c9de0c372e433684a97e32eba8ac7f74aba0b86733b0c  ./web/app/utils/annotationBallEventRepairNotice.test.ts
@@ -751,6 +753,8 @@ c9231bf41046a8a9b5ac5bdc4b9ac0f88de3fe7ac064a21169b6aefcecfcc50e  ./web/app/util
 1131ac21bf2c48bacdcbd8374c897823148ab31c01d5f7d7f0e4afd3b32eecf7  ./web/app/utils/annotationOutcome.ts
 20caf2b7d687c1457d3f1890ae34ce51d2afb5a2cbd2d14e9d909a2601d2186d  ./web/app/utils/annotationPolling.test.ts
 838a214d6f27e1a8b256a50c481f4e130d8cd86f93e141eac16bb0aee96a6534  ./web/app/utils/annotationPolling.ts
+7606a7bcf309d778cade35dc2418668a26dd1299eddf7942d6b2f4bffa487c8a  ./web/app/utils/annotationRouteSelection.test.ts
+faa873c602bdc2782d7fe9536141a5ad1054d70520cf76bf1b43a462e234d549  ./web/app/utils/annotationRouteSelection.ts
 f4b34d16a8a9f00b4a9d48109bd5e49872b8f7fe3aa392a36fec7f4ca75d5971  ./web/app/utils/authBoundary.test.ts
 9228dbaaa10445c562ad615c8786d0a1a301f8cd6d4c794910453b7344f38872  ./web/app/utils/authBoundary.ts
 dfa6443d315d265256d9b68f2612eb69084211435c2f0d80df401f2c5394d237  ./web/app/utils/coachEventReplay.test.ts

@@ -10,9 +10,12 @@ const hits = [
     keyPointId: 'hit-1',
     sequenceIndex: 0,
     frameIndex: 189,
+    captureTimeUs: '1126000000',
     actorTrackId: 5,
     actorLabel: 'Track 5',
     actorSource: 'auto' as const,
+    semanticLabel: 'IRI · 舉球',
+    pathLabel: 'IRI 隊內球路：舉球 → 攻擊',
     ballLabel: 'AI 球點',
     anchorSource: 'ai' as const,
     anchorConfidence: 0.86,
@@ -22,9 +25,12 @@ const hits = [
     keyPointId: 'hit-2',
     sequenceIndex: 1,
     frameIndex: 249,
+    captureTimeUs: '1127000000',
     actorTrackId: null,
     actorLabel: '沒人打',
     actorSource: 'none' as const,
+    semanticLabel: null,
+    pathLabel: null,
     ballLabel: '人工球點',
     anchorSource: 'human' as const,
     anchorConfidence: null,
@@ -34,6 +40,8 @@ const hits = [
 
 const baseProps = {
   frameIndex: 179,
+  timelineOriginCaptureTimeUs: '1000000000',
+  clipStartCaptureTimeUs: '1120000000',
   ballOverride: null,
   ballPosition: null,
   selectedTrackAction: null,
@@ -118,6 +126,9 @@ describe('AnnotationAnalysisPanel', () => {
     const { wrapper, execute } = mountPanel({ page: 'hits' })
 
     expect(wrapper.text()).toContain('AI 擊球建議 86%')
+    expect(wrapper.text()).toContain('場次 02:06.000 · 片段 +00:06.000 · F189')
+    expect(wrapper.text()).toContain('IRI · 舉球')
+    expect(wrapper.text()).toContain('IRI 隊內球路：舉球 → 攻擊')
     await wrapper.get('button[title="往後一格"]').trigger('click')
     expect(execute).toHaveBeenCalledWith('analysis.adjust-contact-time', {
       keyPointId: 'hit-1',
