@@ -282,11 +282,15 @@ export async function getCoachMatchAnalytics(
           id: true,
           ordinal: true,
           createdAt: true,
+          scoreResolutionState: true,
+          scoringCourtSide: true,
+          scoringTeamId: true,
           set: { select: { setNumber: true } },
           activeSubmission: {
             select: {
               id: true,
               scoreResolutionState: true,
+              scoringCourtSide: true,
               scoringTeamId: true,
               leftTeamId: true,
               rightTeamId: true,
@@ -363,8 +367,9 @@ export async function getCoachMatchAnalytics(
       startCaptureTimeUs: rallyStartTimeUs(rally),
       createdAt: rally.createdAt,
       submitted: true,
-      scoreResolutionState: rally.submission.scoreResolutionState,
-      scoringTeamId: rally.submission.scoringTeamId,
+      scoreResolutionState: rally.scoreResolutionState ?? rally.submission.scoreResolutionState,
+      scoringCourtSide: rally.scoringCourtSide ?? rally.submission.scoringCourtSide,
+      scoringTeamId: rally.scoringTeamId ?? rally.submission.scoringTeamId,
       baseLeftTeamId: rally.submission.leftTeamId,
       baseRightTeamId: rally.submission.rightTeamId,
     })),
@@ -732,9 +737,13 @@ export async function getCoachMatchAnalytics(
   }
   const associationQuality = quality(events.map(event => event.associationState.toLowerCase()))
   const eventQualityFlags = quality(events.flatMap(event => event.qualityFlags))
-  const resolvedRallies = rallies.filter(
-    rally => rally.submission.scoreResolutionState === 'RESOLVED',
-  )
+  const scoringTeamIdForRally = (rallyId: string) =>
+    matchProjection.segmentById.get(rallyId)?.scoringTeamId ?? null
+  const scoreResolutionForRally = (rally: (typeof rallies)[number]) =>
+    scoringTeamIdForRally(rally.id)
+      ? 'resolved'
+      : (rally.scoreResolutionState ?? rally.submission.scoreResolutionState).toLowerCase()
+  const resolvedRallies = rallies.filter(rally => scoringTeamIdForRally(rally.id) !== null)
   const unknownRallies = rallies.length - resolvedRallies.length
   const courtSamples = events.reduce(
     (sum, event) =>
@@ -839,7 +848,9 @@ export async function getCoachMatchAnalytics(
       ]),
     },
     teams: teams.map(team => {
-      const won = resolvedRallies.filter(rally => rally.submission.scoringTeamId === team.id).length
+      const won = resolvedRallies.filter(
+        rally => scoringTeamIdForRally(rally.id) === team.id,
+      ).length
       return {
         ...team,
         wins: won,
@@ -853,14 +864,12 @@ export async function getCoachMatchAnalytics(
       return {
         set_number: setNumber,
         rally_count: items.length,
-        resolved_count: items.filter(rally => rally.submission.scoreResolutionState === 'RESOLVED')
-          .length,
-        unknown_count: items.filter(rally => rally.submission.scoreResolutionState !== 'RESOLVED')
-          .length,
+        resolved_count: items.filter(rally => scoringTeamIdForRally(rally.id) !== null).length,
+        unknown_count: items.filter(rally => scoringTeamIdForRally(rally.id) === null).length,
         team_points: Object.fromEntries(
           teams.map(team => [
             team.id,
-            items.filter(rally => rally.submission.scoringTeamId === team.id).length,
+            items.filter(rally => scoringTeamIdForRally(rally.id) === team.id).length,
           ]),
         ),
       }
@@ -876,8 +885,8 @@ export async function getCoachMatchAnalytics(
         id: rally.id,
         set_number: setNumberForRally(rally.id),
         ordinal: displayRallyOrdinalById.get(rally.id) ?? rally.ordinal,
-        score_resolution: rally.submission.scoreResolutionState.toLowerCase(),
-        scoring_team_id: rally.submission.scoringTeamId,
+        score_resolution: scoreResolutionForRally(rally),
+        scoring_team_id: scoringTeamIdForRally(rally.id),
         contact_count:
           humanBallEvents.filter(event => event.rallyId === rally.id).length ||
           events.filter(event => event.rallyId === rally.id).length,

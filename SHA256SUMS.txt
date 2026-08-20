@@ -12,9 +12,9 @@ b395c52a1ad69331d58e5d8b5be82f34bcd337996b1c81fa6ef77c05ea1cb8cf  ./.github/work
 f22760823f753cd2a7c3506d2ce452272684294de8749a9e75cde35b6fff65d1  ./.oxfmtrc.json
 3877de021c19f9c73b7e885f6f71ee388bfefc82e7c01c9db33b8dcee058b4e6  ./.oxlintrc.json
 89bca2bb5b1d934901dfb58af0bc8ddd248710746043c55e2dc4bd36053d4629  ./.release-please-config.json
-dee8fc4e709d078134a75b4a6d6e5386baf3655bc073b6afbf3395cb1b093053  ./.release-please-manifest.json
+2dd1665b6b5a773cd555b5ea5dd5cc685ac5e72ae8b66b6db9fc4b94d7f99d5f  ./.release-please-manifest.json
 b39c86e9cc0def9a192cabdab0205c75f904b0770ce1db62f3320a67b59661ab  ./AGENTS.md
-7e525aeb8b2d68cd74659073bd2bcba68b5c2208f1337de4ab9b9255c211a3c4  ./CHANGELOG.md
+29eea0096a78e1c950b61f41f3328b2e8d7869a1fbc84f051e047771b4888827  ./CHANGELOG.md
 7d8bce16c46787a57e6ec210e592fde913fef00f1fa4719828acebbf382940ac  ./CODEX_SOL_PROMPT.txt
 2a24c9293ee8102e1f876a99ca9c69fa27b3d4258dc15fa08e1b0d1bff31cd02  ./DELIVERY_MANIFEST.md
 45d518b12d3ece5b2000b9c8ab60b6088e1172863e98b68ddd5e83246c151f09  ./README.md
@@ -466,7 +466,7 @@ bc904311a335399c0f74c91ff02c5cd963b65817c37b5101e5cb2de53ed3f482  ./server/src/s
 46ade9235a91cf2f9cf5e748e9d9a0a0a6e35b7e53e5e8aab822f12f9041aef9  ./server/src/services/annotation-snapshot.ts
 90ada71a5598d163c3d0230cba00987e4cf1bb391fae1a0518a8ee2180725983  ./server/src/services/canonical-match-projection.ts
 fbc6d5d8d9cb99af507f5915b9ecd17b0413519abab4f1ad78da78b72d5a1fb3  ./server/src/services/capture-processing.ts
-47818b41c4129f8ab02210c55b9b0bc6d5a3e889f96f5253515e8b72ead6c7b2  ./server/src/services/coach-analytics.ts
+541dd5fbafc06eda78315b094831f32f419847f4c3eb7edfda46515d2851aac5  ./server/src/services/coach-analytics.ts
 7ed724eb46712c0bc10aaa7dbb95915b93ccf41ef3cc0fe913596efb2fcb26b9  ./server/src/services/coach-dashboard.ts
 44ab06be6877081499192cdba252f31b5b3ec1519dbdf56000230db71d6a2b62  ./server/src/services/coach-replay.ts
 97f6b21d152ccca8a2a42c0d59ceb5115993801bb1a391b5cb7a4446148d8715  ./server/src/services/core-domain.ts
@@ -502,7 +502,7 @@ d1200dd557e08188c87a867980ead67bc85f7866c5b014ff08dd820027ddb5ea  ./server/tests
 7f961f4f607d3d3091c0ffc386347b3e5afaf91f314465ae27d3ded386be5a5a  ./server/tests/canonical-match-projection.test.ts
 7ecf057e1fcbf04385ebecaf6b996f00eee3751b6794970e49b7e7800b55cf2a  ./server/tests/capture-processing.integration.test.ts
 e1eecdd39240ae7680aa875e8376c86ce2e54c51691cc9b475f1fd7468482cd7  ./server/tests/clip-timing-coverage.test.ts
-5babdf0c5e613d7ae39f7223356b2cd944ad344d8902a8a591a0671649101df2  ./server/tests/coach-analytics-identity.test.ts
+58bebe8f21af8715a4fd6965700d87eaeddec39426211aab9e7ee3e9d108ca66  ./server/tests/coach-analytics-identity.test.ts
 dd8d7413ac56e330cf594cd65b2a585e706d1c38f6d1d76d8c23830e73be872d  ./server/tests/coach-analytics-reid-pending.test.ts
 d2e18ca77154f4b1aa417939a9922b34aa8439805def35950223923d8426bd57  ./server/tests/coach-dashboard.test.ts
 81676d734a24df5440f6b1307127de8d5bf153bb95d2fb880ad433f6735bf0bb  ./server/tests/coach-replay-effective.test.ts

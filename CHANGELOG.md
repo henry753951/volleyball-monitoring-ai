@@ -1,5 +1,26 @@
 # Changelog
 
+## [1.11.1](https://github.com/henry753951/volleyball-monitoring-ai/compare/v1.11.0...v1.11.1) (2026-08-20)
+
+
+### Bug Fixes
+
+* **worker:** resume live sources after shutdown ([295c52b](https://github.com/henry753951/volleyball-monitoring-ai/commit/295c52b8d925ce145a78754b2530ec99b085d85b))
+* **worker:** resume live sources after shutdown ([4ac1de3](https://github.com/henry753951/volleyball-monitoring-ai/commit/4ac1de37ef9da4dc00e2b93eebba57c0cd9f4f68))
+
+## [1.11.0](https://github.com/henry753951/volleyball-monitoring-ai/compare/v1.10.6...v1.11.0) (2026-08-20)
+
+
+### Features
+
+* integrate annotation analytics, VOD resilience, and release changes ([9f862c3](https://github.com/henry753951/volleyball-monitoring-ai/commit/9f862c3a2b7c0ddb742bce6fdafce608285d038d))
+
+
+### Bug Fixes
+
+* **coach:** use canonical rally scoring ([9cd296b](https://github.com/henry753951/volleyball-monitoring-ai/commit/9cd296b9f45cec618fda1186b337493bb884a6f1))
+* **coach:** use canonical rally scoring ([db46723](https://github.com/henry753951/volleyball-monitoring-ai/commit/db467236ea125a031232cbd7266f77cba526fa02))
+
 ## [1.10.6](https://github.com/henry753951/volleyball-monitoring-ai/compare/v1.10.5...v1.10.6) (2026-08-20)
 
 
