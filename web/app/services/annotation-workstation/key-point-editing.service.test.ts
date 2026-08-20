@@ -59,6 +59,7 @@ function setup() {
   }
   const overlay = {
     seekCanonicalFrame: vi.fn(() => true),
+    seekCaptureTimeInWindow: vi.fn(() => true),
     seekCaptureTimeIfBuffered: vi.fn(() => true),
     previewPlayerMediaTime: vi.fn(() => true),
   }
@@ -185,6 +186,22 @@ describe('key-point editing service', () => {
       },
     })
     expect(service.pendingMove.value).toBeNull()
+    service.dispose()
+  })
+
+  it('reuses the active playback window when the target was evicted from the MSE buffer', async () => {
+    vi.useFakeTimers()
+    const { service, overlay, dvrCreate } = setup()
+    overlay.seekCaptureTimeIfBuffered.mockReturnValue(false)
+
+    await service.move('point-1', '1250000')
+
+    expect(overlay.seekCaptureTimeInWindow).toHaveBeenCalledWith('1250000')
+    expect(service.pendingMove.value).toEqual({
+      keyPointId: 'point-1',
+      playbackWindowId: 'window-1',
+    })
+    expect(dvrCreate).not.toHaveBeenCalled()
     service.dispose()
   })
 

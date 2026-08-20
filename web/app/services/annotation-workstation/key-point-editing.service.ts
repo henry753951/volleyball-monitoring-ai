@@ -27,6 +27,7 @@ interface KeyPointVideoPort {
 
 interface KeyPointOverlayPort {
   seekCanonicalFrame: (anchor: CanonicalFrameAnchor) => boolean
+  seekCaptureTimeInWindow?: (targetCaptureTimeUs: string) => boolean
   seekCaptureTimeIfBuffered: (targetCaptureTimeUs: string) => boolean
   previewPlayerMediaTime?: (targetPlayerSeconds: number) => boolean
 }
@@ -217,7 +218,12 @@ export function createKeyPointEditingService(options: KeyPointEditingServiceOpti
     try {
       options.prepareAuthoritativeSeek()
       const descriptor = options.descriptor()
-      if (descriptor && options.overlay()?.seekCaptureTimeIfBuffered(targetCaptureTimeUs)) {
+      const overlay = options.overlay()
+      if (
+        descriptor &&
+        (overlay?.seekCaptureTimeIfBuffered(targetCaptureTimeUs) ||
+          overlay?.seekCaptureTimeInWindow?.(targetCaptureTimeUs))
+      ) {
         pendingMove.value = {
           keyPointId,
           playbackWindowId: descriptor.playback_window_id,

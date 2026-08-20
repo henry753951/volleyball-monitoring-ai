@@ -375,6 +375,10 @@ const displayAnalysisSegments = computed(() =>
     props.selectedSegmentId,
   ).map(segment => ({ segment, range: analysisRange(segment) })),
 )
+const visibleDisplaySegments = computed(() => displaySegments.value.filter(segmentVisible))
+const visibleDisplayAnalysisSegments = computed(() =>
+  displayAnalysisSegments.value.filter(item => segmentVisible(item.range)),
+)
 type TimelinePointItem = {
   id: string
   rallyId: string | null
@@ -447,6 +451,9 @@ const timelinePointItems = computed<TimelinePointItem[]>(() => {
     return difference < 0n ? -1 : difference > 0n ? 1 : left.id.localeCompare(right.id)
   })
 })
+const visibleTimelinePointItems = computed(() =>
+  timelinePointItems.value.filter(point => isVisible(point.captureTimeUs)),
+)
 const selectedCurrentPoint = computed(() =>
   timelinePointItems.value.find(point => point.current && point.id === props.selectedKeyPointId),
 )
@@ -1040,8 +1047,7 @@ defineExpose({ focusCursor, focusRange, resetView })
       <span class="lane-label">片段</span>
       <div class="lane-content" @click="timelineSelection.clear()">
         <button
-          v-for="segment in displaySegments"
-          v-show="segmentVisible(segment)"
+          v-for="segment in visibleDisplaySegments"
           :key="segment.id"
           data-timeline-interactive
           type="button"
@@ -1118,8 +1124,7 @@ defineExpose({ focusCursor, focusRange, resetView })
           <small>{{ currentMaskStateLabel }}</small>
         </button>
         <button
-          v-for="item in displayAnalysisSegments"
-          v-show="segmentVisible(item.range)"
+          v-for="item in visibleDisplayAnalysisSegments"
           :key="`${item.segment.id}:analysis`"
           data-timeline-interactive
           type="button"
@@ -1142,8 +1147,7 @@ defineExpose({ focusCursor, focusRange, resetView })
           />
         </button>
         <button
-          v-for="point in timelinePointItems"
-          v-show="isVisible(point.captureTimeUs)"
+          v-for="point in visibleTimelinePointItems"
           :key="`${point.rallyId ?? 'current'}:${point.id}`"
           data-timeline-interactive
           type="button"
