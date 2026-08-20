@@ -748,8 +748,14 @@ async function probeYoutube(
   return JSON.parse(result.stdout.toString('utf8')) as YoutubeMetadata
 }
 
-function youtubePlayerClient(extractorArgs: string): string | null {
-  const match = extractorArgs.match(/(?:^|,)player_client=([^,]+)/)
+export function youtubePlayerClient(extractorArgs: string): string | null {
+  const youtubeArgs =
+    extractorArgs
+      .split(';')
+      .map(value => value.trim())
+      .find(value => value.startsWith('youtube:'))
+      ?.slice('youtube:'.length) ?? extractorArgs
+  const match = youtubeArgs.match(/(?:^|,)player_client=([^,;]+)/)
   return match?.[1] ?? null
 }
 
