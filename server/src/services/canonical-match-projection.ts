@@ -315,8 +315,14 @@ export function projectCanonicalMatch(input: {
     }
   })
 
-  const hasOpenRawSet = input.sets.some(set => !set.winningTeamId)
-  if (sets.length > 1 && sets.at(-1)?.rallyIds.length === 0 && !hasOpenRawSet) sets.pop()
+  const highestWinnerRawSetNumber = input.sets.reduce(
+    (highest, set) => (set.winningTeamId ? Math.max(highest, set.setNumber) : highest),
+    0,
+  )
+  const hasTrailingOpenRawSet = input.sets.some(
+    set => !set.winningTeamId && set.setNumber > highestWinnerRawSetNumber,
+  )
+  if (sets.length > 1 && sets.at(-1)?.rallyIds.length === 0 && !hasTrailingOpenRawSet) sets.pop()
 
   return {
     orderedSegmentIds: ordered.map(segment => segment.id),
