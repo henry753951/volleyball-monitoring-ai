@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.12.0](https://github.com/henry753951/volleyball-monitoring-ai/compare/v1.11.1...v1.12.0) (2026-08-20)
+
+
+### Features
+
+* integrate coach replay and media workflows ([d5211a3](https://github.com/henry753951/volleyball-monitoring-ai/commit/d5211a3eb639c506becc7f5e904f1c76a45cf49a))
+* integrate coach replay and media workflows ([1ba5deb](https://github.com/henry753951/volleyball-monitoring-ai/commit/1ba5deb0f1b3ebdd0d3b806f347a26dde0822d08))
+
+
+### Maintenance
+
+* refresh checksums ([d27d0da](https://github.com/henry753951/volleyball-monitoring-ai/commit/d27d0dace4d2fc9d212cf3eb03f9795caf7b0c39))
+
 ## [1.11.1](https://github.com/henry753951/volleyball-monitoring-ai/compare/v1.11.0...v1.11.1) (2026-08-20)
 
 
