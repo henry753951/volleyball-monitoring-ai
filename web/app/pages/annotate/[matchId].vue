@@ -45,6 +45,12 @@ import {
   type CanonicalMediaRange,
 } from '~/utils/mediaBuffer'
 import { estimateFrameDurationSeconds } from '~/utils/framePreviewCalibration'
+import { requestMediaPause, requestMediaPlay } from '~/utils/mediaPlaybackIntent'
+import {
+  createPresentedFrameBaseline,
+  projectedPresentedFrameIndex,
+  type PresentedFrameBaseline,
+} from '~/utils/presentedFrameIndex'
 import {
   captureNeedsPolling,
   hasActiveRallyProcessing,
@@ -88,6 +94,12 @@ import { mergeRallyProcessingUpdate } from '~/services/annotation-workstation/pr
 import { ballEventRepairNotice } from '~/utils/annotationBallEventRepairNotice'
 import { captureTimeForIdentityTrackFrame } from '~/utils/identityTrackNavigation'
 import {
+  resolveAnnotationRouteAnalysisPage,
+  resolveAnnotationRouteInspector,
+  resolveAnnotationRouteRally,
+} from '~/utils/annotationRouteSelection'
+import { analysisContactSemantic, analysisPathLabel } from '~/utils/analysisContactPresentation'
+import {
   captureTimeInTimelineRanges,
   liveMediaBackend,
   omeLiveManifestUrl,
@@ -119,6 +131,7 @@ const overlayPlayer = ref<{
       'playback_window_id' | 'mapping_version' | 'player_media_time_us'
     >,
   ) => boolean
+  seekCaptureTimeInWindow: (targetCaptureTimeUs: string) => boolean
   seekCaptureTimeIfBuffered: (targetCaptureTimeUs: string) => boolean
   previewCaptureTimeIfBuffered: (targetCaptureTimeUs: string) => boolean
   previewPlayerMediaTime: (targetPlayerSeconds: number) => boolean
@@ -393,10 +406,12 @@ const matchInspector = useTemplateRef<{ closePlacement: () => void }>('matchInsp
 const inspectorTab = ref<'match' | 'mapping' | 'analysis'>('match')
 const pinnedRallyId = workstationSelection.explicitRallyId
 const currentOverlayFrame = ref(-1)
-const displayFrameIndex = computed(() =>
-  currentOverlayFrame.value >= 0
-    ? String(currentOverlayFrame.value)
-    : (authoritativeAnchor.value?.capture_frame_index ?? '—'),
+const presentedFrameBaseline = shallowRef<PresentedFrameBaseline | null>(null)
+const displayFrameIndex = computed(
+  () =>
+    projectedPresentedFrameIndex(presentedFrameBaseline.value, observedCursor.value) ??
+    authoritativeAnchor.value?.capture_frame_index ??
+    '—',
 )
 const overlayVideoSize = shallowRef<{
   width: number
@@ -1087,8 +1102,12 @@ const contactTimeCorrections = computed<Record<string, number>>(() =>
 function effectiveContactFrame(keyPointId: string, fallbackFrame: number) {
   return analysisReview.contactTimeCorrections.value.get(keyPointId) ?? fallbackFrame
 }
-const analysisHitItems = computed(() =>
-  [
+const analysisHitItems = computed(() => {
+  const eventById = new Map(overlayEvents.value.map(event => [event.key_point_id, event]))
+  const pathByStartId = new Map(
+    (overlayReplay.value?.analysis?.paths ?? []).map(path => [path.start_key_point_id, path]),
+  )
+  return [
     ...overlayEvents.value
       .filter(event => !analysisReview.contactEdits.value.get(event.key_point_id)?.deleted)
       .map(event => {
@@ -1120,10 +1139,12 @@ const analysisHitItems = computed(() =>
                 )
               : ((event.actors[0] ?? event.candidates[0])?.track_id ?? null)
         const exactBall = analysisReview.ballCorrections.value.get(String(frameIndex))
+        const semantic = analysisContactSemantic(event, overlayTeamLabels.value)
         return {
           keyPointId: event.key_point_id,
           sequenceIndex: event.sequence_index,
           frameIndex,
+          captureTimeUs: overlayPlayer.value?.overlayFrameCaptureTime(frameIndex) ?? null,
           anchorSource:
             event.anchor_origin === 'ai_detected' ? ('ai' as const) : ('human' as const),
           anchorConfidence: event.detection_confidence ?? null,
@@ -1146,6 +1167,12 @@ const analysisHitItems = computed(() =>
               : projection?.status === 'failed'
                 ? ('failed' as const)
                 : ('auto' as const),
+          semanticLabel: semantic ? `${semantic.teamLabel} · ${semantic.typeLabel}` : null,
+          pathLabel: analysisPathLabel(
+            pathByStartId.get(event.key_point_id),
+            eventById,
+            overlayTeamLabels.value,
+          ),
           ballLabel:
             exactBall?.state === 'position'
               ? '人工球點'
@@ -1162,25 +1189,31 @@ const analysisHitItems = computed(() =>
       }),
     ...[...analysisReview.contactEdits.value.values()]
       .filter(edit => !edit.base_key_point_id && !edit.deleted)
-      .map(edit => ({
-        keyPointId: edit.contact_id,
-        sequenceIndex: 0,
-        frameIndex: effectiveContactFrame(edit.contact_id, Number(edit.frame_index)),
-        anchorSource: 'manual' as const,
-        anchorConfidence: null,
-        timeAdjusted: analysisReview.contactTimeCorrections.value.has(edit.contact_id),
-        actorTrackId: edit.track_id,
-        actorLabel:
-          edit.track_id === null
-            ? '尚未指派'
-            : (overlayIdentityLabels.value[edit.track_id] ?? `Track ${edit.track_id}`),
-        actorSource: edit.track_id === null ? ('none' as const) : ('manual' as const),
-        ballLabel: '人工新增',
-      })),
+      .map(edit => {
+        const frameIndex = effectiveContactFrame(edit.contact_id, Number(edit.frame_index))
+        return {
+          keyPointId: edit.contact_id,
+          sequenceIndex: 0,
+          frameIndex,
+          captureTimeUs: overlayPlayer.value?.overlayFrameCaptureTime(frameIndex) ?? null,
+          anchorSource: 'manual' as const,
+          anchorConfidence: null,
+          timeAdjusted: analysisReview.contactTimeCorrections.value.has(edit.contact_id),
+          actorTrackId: edit.track_id,
+          actorLabel:
+            edit.track_id === null
+              ? '尚未指派'
+              : (overlayIdentityLabels.value[edit.track_id] ?? `Track ${edit.track_id}`),
+          actorSource: edit.track_id === null ? ('none' as const) : ('manual' as const),
+          semanticLabel: null,
+          pathLabel: null,
+          ballLabel: '人工新增',
+        }
+      }),
   ]
     .sort((left, right) => left.frameIndex - right.frameIndex)
-    .map((hit, sequenceIndex) => ({ ...hit, sequenceIndex })),
-)
+    .map((hit, sequenceIndex) => ({ ...hit, sequenceIndex }))
+})
 const removedAnalysisHitItems = computed(() =>
   [...analysisReview.contactEdits.value.values()]
     .filter(edit => edit.deleted)
@@ -1246,6 +1279,30 @@ const identityAssignment = createIdentityAssignmentControllerService(
 )
 const analysisRevisionMode = analysisRevision.revisionMode
 const analysisPanelPage = analysisRevision.panelPage
+let appliedRouteSelectionKey = ''
+watch(
+  [() => route.query.rally, () => route.query.panel, () => route.query.analysis, submittedRallies],
+  async ([rallyQuery, panelQuery, analysisQuery, rallies]) => {
+    const rally = resolveAnnotationRouteRally(rallyQuery, rallies)
+    if (!rally) return
+
+    const routeSelectionKey = `${rally.id}:${String(panelQuery ?? '')}:${String(analysisQuery ?? '')}`
+    if (routeSelectionKey === appliedRouteSelectionKey) return
+    appliedRouteSelectionKey = routeSelectionKey
+
+    if (pinnedRallyId.value !== rally.id) timelineSelection.selectRally(rally)
+
+    const requestedInspector = resolveAnnotationRouteInspector(panelQuery)
+    if (requestedInspector) inspectorTab.value = requestedInspector
+
+    const requestedAnalysisPage = resolveAnnotationRouteAnalysisPage(analysisQuery)
+    if (requestedInspector === 'analysis' && requestedAnalysisPage) {
+      await nextTick()
+      analysisPanelPage.value = requestedAnalysisPage
+    }
+  },
+  { immediate: true, flush: 'post' },
+)
 const ballRelabelEnabled = analysisRevision.ballRelabelEnabled
 const bboxRelabelEnabled = analysisRevision.bboxRelabelEnabled
 const actorAssignmentMode = analysisRevision.actorAssignmentMode
@@ -1305,9 +1362,9 @@ watch(inspectorTab, tab => {
 
 const displayedTimelineSegments = computed(() => {
   const rallyId = selectedRallyId.value
-  if (!analysisRevisionMode.value || !rallyId) return timelineSegments.value
+  if (!editorSelectedAnalysisRunId.value || !rallyId) return timelineSegments.value
   const points = analysisHitItems.value.flatMap(hit => {
-    const captureTimeUs = overlayPlayer.value?.overlayFrameCaptureTime(hit.frameIndex) ?? null
+    const captureTimeUs = hit.captureTimeUs
     return captureTimeUs
       ? [
           {
@@ -1703,8 +1760,10 @@ async function resolveLatestCursor() {
   lastCursorResolveAt = performance.now()
   try {
     const resolved = await dvr.resolve(cursor)
-    if (resolved)
+    if (resolved) {
       lastResolvedCursorKey = `${cursor.playback_window_id}:${cursor.mapping_version}:${cursor.seek_generation}:${cursor.player_media_time_us}`
+      presentedFrameBaseline.value = createPresentedFrameBaseline(resolved, cursor)
+    }
     if (await keyPointEditing.completeResolvedMove(cursor, resolved)) return
   } catch (error) {
     mediaError.value = error instanceof Error ? error.message : '游標解析失敗'
@@ -1824,7 +1883,7 @@ async function createWindow(
     safeTarget &&
     current.capture_session_id === selectedCapture.value?.id &&
     current.mode === mode &&
-    Date.parse(current.expires_at) > Date.now() + 30_000 &&
+    Date.parse(current.expires_at) > Date.now() &&
     BigInt(safeTarget) >= BigInt(current.window_capture_start_us) &&
     BigInt(safeTarget) < BigInt(current.window_capture_end_us)
   ) {
@@ -1834,6 +1893,7 @@ async function createWindow(
       video.value.currentTime =
         Number(BigInt(safeTarget) - BigInt(current.presentation_origin_capture_us)) / 1_000_000
     }
+    maintainPlaybackWindow()
     return current
   }
   if (windowCreatePromise && safeTarget === windowCreateTarget && mode === windowCreateMode)
@@ -1878,7 +1938,7 @@ async function seekTimeline(targetCaptureTimeUs: string) {
   gapTransition = null
   seekPreviewActive.value = false
   if (seekPreviewTimer) clearTimeout(seekPreviewTimer)
-  if (video.value && !video.value.paused) video.value.pause()
+  if (video.value && !video.value.paused) requestMediaPause(video.value)
   prepareAuthoritativeSeek()
   keyPointEditing.navigation.cancel()
   seekPreviewTimer = null
@@ -1892,6 +1952,7 @@ async function seekTimeline(targetCaptureTimeUs: string) {
     // playback window, so no later ready event is guaranteed to clear a stale
     // loading gate from an earlier wait/seek.
     clearPlaybackBuffering()
+    maintainPlaybackWindow()
     return
   }
   markPlaybackBuffering(false, target)
@@ -1919,6 +1980,13 @@ async function seekTimeline(targetCaptureTimeUs: string) {
       clearPlaybackBuffering()
       if (optimisticSeekCaptureTimeUs.value === target) clearOptimisticSeekTarget()
     }
+    return
+  }
+  if (overlayPlayer.value?.seekCaptureTimeInWindow(target)) {
+    // The target is still listed by the active bounded manifest even though
+    // Chromium has evicted its decoded/MSE bytes. Let hls.js fetch that range
+    // into the existing MediaSource instead of destroying the whole pipeline.
+    maintainPlaybackWindow()
     return
   }
   const created = await createWindow(target, undefined, true)
@@ -2052,7 +2120,7 @@ function updatePlaybackState() {
   if (playing.value && playbackBuffering.value) {
     // Do not allow a manual play click or a browser auto-resume to bypass the
     // buffer gate and continue an old range while the requested range loads.
-    video.value?.pause()
+    if (video.value) requestMediaPause(video.value)
     playing.value = false
     return
   }
@@ -2095,7 +2163,7 @@ function finishPlaybackBufferingIfReady() {
   const shouldResume = resumeAfterBuffering
   clearPlaybackBuffering()
   if (shouldResume && !element.ended)
-    void element.play().catch(error => {
+    void requestMediaPlay(element).catch(error => {
       mediaError.value = error instanceof Error ? error.message : '載入後無法繼續播放'
     })
 }
@@ -2171,7 +2239,7 @@ async function continueAcrossGap(input: {
   }
   gapTransition = transition
   markPlaybackBuffering(transition.resumePlayback, input.targetCaptureTimeUs)
-  if (transition.resumePlayback) input.element.pause()
+  if (transition.resumePlayback) requestMediaPause(input.element)
   prepareAuthoritativeSeek()
   captureTarget.value = input.targetCaptureTimeUs
   mediaError.value = null
@@ -2251,7 +2319,7 @@ function maintainPlaybackWindow() {
   continuationRequestedAt = performance.now()
   if (decision === 'recover-buffer') {
     const recovered = overlayPlayer.value?.recoverPlayback() ?? false
-    if (!recovered && !element.paused) element.pause()
+    if (!recovered && !element.paused) requestMediaPause(element)
     schedulePlaybackContinuation(650)
     return
   }
@@ -2430,10 +2498,10 @@ function dispatchMediaAction(
   if (!element) return
   if (action === 'play_pause') {
     if (element.paused)
-      void element.play().catch(error => {
+      void requestMediaPlay(element).catch(error => {
         mediaError.value = error instanceof Error ? error.message : '播放器無法開始播放'
       })
-    else element.pause()
+    else requestMediaPause(element)
   }
   if (action === 'mute') element.muted = !element.muted
   if (action === 'frame_previous' || action === 'frame_next')
@@ -2548,7 +2616,7 @@ function previewFrameStep(delta: number) {
   const element = video.value
   const window = descriptor.value
   if (!element || !window) return
-  if (!element.paused) element.pause()
+  if (!element.paused) requestMediaPause(element)
   if (estimatedFrameSeconds === null) return
   const windowKey = `${window.playback_window_id}:${window.mapping_version}`
   if (framePreviewWindowKey !== windowKey) {
@@ -3368,6 +3436,8 @@ onBeforeUnmount(() => {
           <template #analysis>
             <AnnotationAnalysisPanel
               :frame-index="analysisOverlayActive ? currentOverlayFrame : -1"
+              :timeline-origin-capture-time-us="timeline?.captureStartTimeUs ?? null"
+              :clip-start-capture-time-us="editorOverlayClipStart"
               :ball-override="currentBallOverride?.state ?? null"
               :ball-position="currentBallPosition"
               :selected-track-action="selectedOverlayAction"

@@ -14,6 +14,7 @@ import {
 } from '../lib/omeLivePlayback'
 import { captureTimeToPlayerSeconds, isCaptureTimeWithinWindow } from '../utils/playbackWindow'
 import { boundedPlayerMediaSeconds } from '../utils/playerMediaTime'
+import { requestMediaPause, requestMediaPlay } from '../utils/mediaPlaybackIntent'
 import {
   mediaTimeRangeContains,
   mediaTimeRangesToCaptureRanges,
@@ -349,7 +350,7 @@ const attachDescriptor = async (descriptor: PlaybackWindowDescriptor | null) => 
     refreshCursor()
     emit('ready', element)
     publishBufferState()
-    if (shouldResume) await element.play().catch(() => undefined)
+    if (shouldResume) await requestMediaPlay(element).catch(() => undefined)
     if (replacingPipeline) await waitForPresentedFrame(element)
     if (generation === sourceGeneration && replacingPipeline) retainedPreview.value = null
   } catch (error) {
@@ -409,22 +410,32 @@ function seekCaptureTimeIfBuffered(targetCaptureTimeUs: string) {
     refreshCursor()
     return true
   }
+  return seekArchiveCaptureTimeInWindow(targetCaptureTimeUs, true)
+}
+function seekArchiveCaptureTimeInWindow(targetCaptureTimeUs: string, requireBuffered: boolean) {
+  const element = video.value
   const descriptor = playback.activeWindow.value
   const target = BigInt(targetCaptureTimeUs)
+  const expiresAt = descriptor ? Date.parse(descriptor.expires_at) : Number.NaN
   if (
     !descriptor ||
     !element ||
-    Date.parse(descriptor.expires_at) <= Date.now() + 30_000 ||
+    (Number.isFinite(expiresAt) && expiresAt <= Date.now()) ||
     !isCaptureTimeWithinWindow(target, descriptor)
   )
     return false
   const targetPlayerSeconds = captureTimeToPlayerSeconds(target, descriptor)
-  if (!mediaTimeRangeContains(element.buffered, targetPlayerSeconds)) return false
+  if (requireBuffered && !mediaTimeRangeContains(element.buffered, targetPlayerSeconds))
+    return false
   previewGeneration += 1
   retainedPreview.value = null
   element.currentTime = targetPlayerSeconds
   refreshCursor()
   return true
+}
+function seekCaptureTimeInWindow(targetCaptureTimeUs: string) {
+  if (liveSourceRef.value) return seekCaptureTimeIfBuffered(targetCaptureTimeUs)
+  return seekArchiveCaptureTimeInWindow(targetCaptureTimeUs, false)
 }
 function previewCaptureTimeIfBuffered(targetCaptureTimeUs: string) {
   return seekCaptureTimeIfBuffered(targetCaptureTimeUs)
@@ -435,7 +446,7 @@ function previewPlayerMediaTime(targetPlayerSeconds: number) {
   previewGeneration += 1
   pendingCanonicalFrame = null
   retainedPreview.value = null
-  if (!element.paused) element.pause()
+  if (!element.paused) requestMediaPause(element)
   element.currentTime = boundedPlayerMediaSeconds(
     String(Math.round(targetPlayerSeconds * 1_000_000)),
   )
@@ -552,6 +563,7 @@ defineExpose({
   recoverPlayback,
   seekCanonicalFrame,
   refreshCursor,
+  seekCaptureTimeInWindow,
   seekCaptureTimeIfBuffered,
   seekLiveEdge,
   seekOverlayFrameIfBuffered,

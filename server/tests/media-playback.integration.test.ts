@@ -577,7 +577,6 @@ describe('Phase 2A playback-window HTTP', () => {
     })
     const windowId = String(created.json().playback_window_id)
     const manifest = await app.inject({
-      headers: authHeaders('operator'),
       method: 'GET',
       url: `/api/v1/media/playback-windows/${windowId}/manifest.m3u8`,
     })
@@ -590,20 +589,20 @@ describe('Phase 2A playback-window HTTP', () => {
 
     streamReads.length = 0
     const init = await app.inject({
-      headers: authHeaders('operator'),
       method: 'GET',
       url: `/api/v1/media/playback-windows/${windowId}/segments/init-${ids.segment1}`,
     })
     const media = await app.inject({
-      headers: authHeaders('operator'),
       method: 'GET',
       url: `/api/v1/media/playback-windows/${windowId}/segments/media-${ids.segment2}`,
     })
     expect(init.statusCode).toBe(200)
     expect(init.headers['accept-ranges']).toBe('bytes')
+    expect(init.headers['cache-control']).toBe('public, max-age=60, s-maxage=60, immutable')
     expect(init.headers['content-length']).toBe('10')
     expect(init.rawPayload).toEqual(Buffer.from('init-bytes'))
     expect(media.statusCode).toBe(200)
+    expect(media.headers['cache-control']).toBe('public, max-age=60, s-maxage=60, immutable')
     expect(media.rawPayload).toEqual(Buffer.from('media-two'))
 
     const mediaEtag = `"${sha256(Buffer.from('media-two'))}"`
@@ -676,7 +675,7 @@ describe('Phase 2A playback-window HTTP', () => {
     ])
   })
 
-  it('enforces anonymous, outsider, admin, missing and expired access', async () => {
+  it('keeps window creation private while allowing public reads', async () => {
     const created = await app.inject({
       headers: authHeaders('operator'),
       method: 'POST',
@@ -691,7 +690,7 @@ describe('Phase 2A playback-window HTTP', () => {
           url: `/api/v1/media/playback-windows/${windowId}`,
         })
       ).statusCode,
-    ).toBe(401)
+    ).toBe(200)
     expect(
       (
         await app.inject({
@@ -700,7 +699,7 @@ describe('Phase 2A playback-window HTTP', () => {
           url: `/api/v1/media/playback-windows/${windowId}`,
         })
       ).statusCode,
-    ).toBe(404)
+    ).toBe(200)
     expect(
       (
         await app.inject({

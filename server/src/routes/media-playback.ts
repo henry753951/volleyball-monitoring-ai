@@ -420,6 +420,13 @@ async function visibleWindow(id: string, identity: MediaIdentity) {
   })
 }
 
+async function publicWindow(id: string) {
+  return db.playbackWindow.findFirst({
+    include: { dvrProgram: true },
+    where: { id },
+  })
+}
+
 async function visibleWindowWithSegments(id: string, identity: MediaIdentity) {
   return db.playbackWindow.findFirst({
     include: {
@@ -438,6 +445,27 @@ async function visibleWindowWithSegments(id: string, identity: MediaIdentity) {
       },
     },
     where: visibleWindowWhere(id, identity),
+  })
+}
+
+async function publicWindowWithSegments(id: string) {
+  return db.playbackWindow.findFirst({
+    include: {
+      dvrProgram: true,
+      segments: {
+        include: {
+          dvrSegment: {
+            include: {
+              captureEpoch: { select: { sequenceIndex: true } },
+              initAsset: true,
+              mediaAsset: true,
+            },
+          },
+        },
+        orderBy: { sequenceIndex: 'asc' },
+      },
+    },
+    where: { id },
   })
 }
 
@@ -847,7 +875,7 @@ async function extendPlaybackWindow(
   })
 }
 
-async function selectedWindowAsset(windowId: string, token: string, identity: MediaIdentity) {
+async function publicWindowAsset(windowId: string, token: string) {
   const resource = parsePlaybackResourceToken(token)
   const mapping = await db.playbackWindowSegment.findFirst({
     select: {
@@ -864,15 +892,6 @@ async function selectedWindowAsset(windowId: string, token: string, identity: Me
     where: {
       dvrSegmentId: resource.dvrSegmentId,
       playbackWindowId: windowId,
-      ...(identity.role === UserRole.ADMIN
-        ? {}
-        : {
-            playbackWindow: {
-              captureSession: {
-                match: { members: { some: { userId: identity.id } } },
-              },
-            },
-          }),
     },
   })
   if (!mapping) {
@@ -920,9 +939,8 @@ export const mediaPlaybackRoutes =
       '/api/v1/media/playback-windows/:windowId',
       async (request, reply) => {
         try {
-          const identity = await authenticate(request, deps.authenticate)
           const id = parseUuid(request.params.windowId, 'Playback window')
-          const window = await visibleWindow(id, identity)
+          const window = await publicWindow(id)
           if (!window) {
             throw new MediaHttpError(404, 'NOT_FOUND', 'Playback window not found')
           }
@@ -957,9 +975,8 @@ export const mediaPlaybackRoutes =
       '/api/v1/media/playback-windows/:windowId/manifest.m3u8',
       async (request, reply) => {
         try {
-          const identity = await authenticate(request, deps.authenticate)
           const id = parseUuid(request.params.windowId, 'Playback window')
-          const window = await visibleWindowWithSegments(id, identity)
+          const window = await publicWindowWithSegments(id)
           if (!window) {
             throw new MediaHttpError(404, 'NOT_FOUND', 'Playback window not found')
           }
@@ -985,19 +1002,17 @@ export const mediaPlaybackRoutes =
       '/api/v1/media/playback-windows/:windowId/segments/:segmentId',
       async (request, reply) => {
         try {
-          const identity = await authenticate(request, deps.authenticate)
           const id = parseUuid(request.params.windowId, 'Playback window')
-          const { asset, expiresAt } = await selectedWindowAsset(
-            id,
-            request.params.segmentId,
-            identity,
-          )
+          const { asset, expiresAt } = await publicWindowAsset(id, request.params.segmentId)
           assertWindowActive({ expiresAt }, now())
 
           const etag = `"${asset.sha256}"`
           reply
             .header('accept-ranges', 'bytes')
-            .header('cache-control', 'private, max-age=300, immutable')
+            // Segment bytes are content-addressed by the asset SHA and never
+            // mutate. Playback-window URLs are intentionally public capability
+            // URLs; Cloudflare may reuse these immutable bytes for other viewers.
+            .header('cache-control', 'public, max-age=60, s-maxage=60, immutable')
             .header('etag', etag)
           if (etagMatches(headerValue(request, 'if-none-match'), etag)) {
             return reply.code(304).send()

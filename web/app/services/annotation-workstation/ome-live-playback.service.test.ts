@@ -175,6 +175,9 @@ describe('OME live playback pipeline', () => {
 
   it('resumes playback after replacing a failed live pipeline', async () => {
     const element = videoElement({ paused: false })
+    vi.mocked(element.load).mockImplementation(() => {
+      Object.defineProperty(element, 'paused', { configurable: true, value: true })
+    })
     const service = createOmeLivePlaybackService(ref(element), MEDIA_BUFFER_PROFILES.balanced)
 
     await service.attach(source())

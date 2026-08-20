@@ -231,6 +231,12 @@ Verify the resolver's verbose output contains `yt_dlp_ejs`, the selected Deno ru
 `bgutil:http-1.3.1 (external)`. Keep the cookie Secret available for authenticated-content or
 explicit recovery, but do not pass it to public VOD by default.
 
+For the public Iran vs Pakistan VOD tested on 2026-08-17, passing supplied browser cookies caused
+Googlevideo range seeks to return HTTP 403. If the primary `mweb` probe fails, verify the fallback
+with `YOUTUBE_EXTRACTOR_ARGS=youtube:player_client=android_vr` and without `YOUTUBE_COOKIES_FILE`.
+Keep the cookie Secret available for authentication failures, but enable it only after a seek probe
+succeeds.
+
 An unreleased worker hotfix may be pinned on the node through
 `/etc/volleyai/worker-image-override`. The automatic updater honors this immutable digest while still
 updating the other components. Remove that file only after the published release contains the

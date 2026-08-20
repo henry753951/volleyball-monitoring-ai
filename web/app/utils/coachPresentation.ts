@@ -67,7 +67,8 @@ export function teamTracks(analytics: CoachMatchAnalytics, teamId: string) {
   return analytics.tracks.filter(
     track =>
       (track.roster_entry_id !== null && rosterIds.has(track.roster_entry_id)) ||
-      track.gid_team_id === teamId,
+      track.gid_team_id === teamId ||
+      track.team_id === teamId,
   )
 }
 
@@ -81,13 +82,36 @@ export function teamParticipation(analytics: CoachMatchAnalytics, teamId: string
   )
   const rallies = new Set(
     (analytics.action_events ?? [])
-      .filter(event => event.roster_entry_id !== null && rosterIds.has(event.roster_entry_id))
+      .filter(
+        event =>
+          event.team_id === teamId ||
+          (event.roster_entry_id !== null && rosterIds.has(event.roster_entry_id)),
+      )
       .map(event => event.rally_id),
   )
   return rallies.size
 }
 
 export function teamContactCount(analytics: CoachMatchAnalytics, teamId: string) {
+  if (analytics.action_events !== undefined) {
+    const rosterIds = new Set(
+      analytics.players
+        .filter(player => player.team_id === teamId)
+        .map(player => player.roster_entry_id),
+    )
+    const projectedEvents = analytics.action_events.filter(
+      event =>
+        event.team_id === teamId ||
+        ((event.team_id === null || event.team_id === undefined) &&
+          event.roster_entry_id !== null &&
+          rosterIds.has(event.roster_entry_id)),
+    )
+    if (
+      projectedEvents.length ||
+      analytics.action_events.some(event => event.team_id !== null && event.team_id !== undefined)
+    )
+      return projectedEvents.length
+  }
   return analytics.players
     .filter(player => player.team_id === teamId)
     .reduce((sum, player) => sum + player.contact_count, 0)

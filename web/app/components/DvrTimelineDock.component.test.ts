@@ -645,6 +645,52 @@ describe('DvrTimelineDock mounted interactions', () => {
     await w.setProps({ playhead: '30000000' })
     expect(w.find('.buffer-status').attributes('aria-valuenow')).toBe('30000000')
   })
+  it('does not mount offscreen rally masks and key points into the hot timeline DOM', () => {
+    const distantTimeline = {
+      captureSessionId: 's',
+      captureStartTimeUs: '0',
+      liveEdgeCaptureTimeUs: null,
+      sourceEndCaptureTimeUs: '40000000',
+      ingestFrontierCaptureTimeUs: '40000000',
+      availabilityComplete: true,
+      timelineVersion: '1',
+      gapRanges: [],
+      availableRanges: [{ startUs: '0', endUs: '40000000', discontinuity: 0 }],
+    }
+    const distantSegment = {
+      id: 'offscreen-rally',
+      label: '離開可視範圍的回合',
+      startCaptureTimeUs: '30000000',
+      endCaptureTimeUs: '35000000',
+      status: 'analyzed' as const,
+      points: [
+        {
+          id: 'offscreen-point',
+          markerKind: 'contact',
+          isTerminal: false,
+          captureTimeUs: '32000000',
+        },
+      ],
+    }
+    const w = mount(DvrTimelineDock, {
+      props: {
+        timeline: distantTimeline,
+        playhead: '1000000',
+        segments: [distantSegment],
+        restoredView: {
+          captureSessionId: 's',
+          startCaptureTimeUs: '0',
+          endCaptureTimeUs: '5000000',
+          scale: 1,
+        },
+      },
+    })
+
+    expect(w.find('.timeline-mask.historical').exists()).toBe(false)
+    expect(
+      w.findAll('.keypoint-dot').some(point => point.attributes('aria-label')?.includes('離開')),
+    ).toBe(false)
+  })
   it('selects and seeks an editable key-point marker', async () => {
     const w = mount(DvrTimelineDock, {
       props: {

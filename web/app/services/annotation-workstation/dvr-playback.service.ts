@@ -5,6 +5,7 @@ import { captureTimeToPlayerSeconds, isCaptureTimeWithinWindow } from '~/utils/p
 import { boundedPlayerMediaSeconds } from '~/utils/playerMediaTime'
 import type { MediaBufferProfile } from '~/utils/mediaPlaybackPreferences'
 import { mediaTimeRangeContains } from '~/utils/mediaBuffer'
+import { requestMediaPause, requestMediaPlay } from '~/utils/mediaPlaybackIntent'
 
 export function requiresPlaybackPipelineReplacement(
   current: Pick<PlaybackWindowDescriptor, 'playback_window_id'> | null,
@@ -208,17 +209,17 @@ export function createDvrPlaybackService(
           if (fatalRecoveries < 2 && data.type === HlsRuntime.ErrorTypes.NETWORK_ERROR) {
             fatalRecoveries += 1
             const resumePlayback = !element.paused && !element.ended
-            if (resumePlayback) element.pause()
+            if (resumePlayback) requestMediaPause(element)
             nextHls.startLoad(Math.max(0, element.currentTime))
-            if (resumePlayback) void element.play().catch(() => undefined)
+            if (resumePlayback) void requestMediaPlay(element).catch(() => undefined)
             return
           }
           if (fatalRecoveries < 2 && data.type === HlsRuntime.ErrorTypes.MEDIA_ERROR) {
             fatalRecoveries += 1
             const resumePlayback = !element.paused && !element.ended
-            if (resumePlayback) element.pause()
+            if (resumePlayback) requestMediaPause(element)
             nextHls.recoverMediaError()
-            if (resumePlayback) void element.play().catch(() => undefined)
+            if (resumePlayback) void requestMediaPlay(element).catch(() => undefined)
             return
           }
           options.onError?.(new Error(data.details || 'HLS playback failed'))
@@ -322,9 +323,9 @@ export function createDvrPlaybackService(
     // looks for the requested range. Otherwise hls.js/browser gap handling can
     // continue from a different buffered range and desynchronise the cursor.
     const resumePlayback = !element.paused && !element.ended
-    if (resumePlayback) element.pause()
+    if (resumePlayback) requestMediaPause(element)
     hls.startLoad(Math.max(0, element.currentTime))
-    if (resumePlayback) void element.play().catch(() => undefined)
+    if (resumePlayback) void requestMediaPlay(element).catch(() => undefined)
     return true
   }
 
@@ -345,9 +346,10 @@ export function createDvrPlaybackService(
     createWindow: (targetCaptureTimeUs: string) => Promise<PlaybackWindowDescriptor>,
   ) => {
     const current = activeWindow.value
-    const expiresSoon = current ? Date.parse(current.expires_at) <= Date.now() + 30_000 : true
+    const expiresAt = current ? Date.parse(current.expires_at) : Number.NaN
+    const expired = current ? Number.isFinite(expiresAt) && expiresAt <= Date.now() : true
 
-    if (!current || expiresSoon || !isCaptureTimeWithinWindow(captureTimeUs, current)) {
+    if (!current || expired || !isCaptureTimeWithinWindow(captureTimeUs, current)) {
       await attach(await createWindow(captureTimeUs.toString()))
       return
     }

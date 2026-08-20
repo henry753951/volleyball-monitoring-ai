@@ -2,6 +2,7 @@ import type Hls from 'hls.js'
 import { ref, shallowRef, toValue, type MaybeRefOrGetter, type Ref } from 'vue'
 import type { OmeLivePlaybackSource } from '~/lib/omeLivePlayback'
 import type { MediaBufferProfile } from '~/utils/mediaPlaybackPreferences'
+import { requestMediaPause, requestMediaPlay } from '~/utils/mediaPlaybackIntent'
 
 interface OmeLivePlaybackOptions {
   attachRetryWindowMs?: number
@@ -160,13 +161,13 @@ export function createOmeLivePlaybackService(
               if (!data.fatal) return
               if (fatalRecoveries < 2 && data.type === HlsRuntime.ErrorTypes.NETWORK_ERROR) {
                 fatalRecoveries += 1
-                if (!element.paused && !element.ended) element.pause()
+                if (!element.paused && !element.ended) requestMediaPause(element)
                 attemptHls.startLoad(-1)
                 return
               }
               if (fatalRecoveries < 2 && data.type === HlsRuntime.ErrorTypes.MEDIA_ERROR) {
                 fatalRecoveries += 1
-                if (!element.paused && !element.ended) element.pause()
+                if (!element.paused && !element.ended) requestMediaPause(element)
                 attemptHls.recoverMediaError()
                 return
               }
@@ -264,7 +265,7 @@ export function createOmeLivePlaybackService(
 
       if (currentGeneration === generation) {
         activeSource.value = source
-        if (shouldResume) await element.play().catch(() => undefined)
+        if (shouldResume) await requestMediaPlay(element).catch(() => undefined)
       }
     } catch (error) {
       if (currentGeneration === generation) {
@@ -282,9 +283,9 @@ export function createOmeLivePlaybackService(
     const element = video.value
     if (!element || !activeSource.value || !hls) return false
     const resumePlayback = !element.paused && !element.ended
-    if (resumePlayback) element.pause()
+    if (resumePlayback) requestMediaPause(element)
     hls.startLoad(element.currentTime > 0 ? element.currentTime : -1)
-    if (resumePlayback) void element.play().catch(() => undefined)
+    if (resumePlayback) void requestMediaPlay(element).catch(() => undefined)
     return true
   }
 
