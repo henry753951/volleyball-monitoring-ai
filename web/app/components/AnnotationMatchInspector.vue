@@ -3,8 +3,7 @@ import { ArrowLeftRight, Check, CircleHelp, Pencil, Trash2, Trophy } from 'lucid
 import { computed, ref } from 'vue'
 import type { CoachDraft, CoachRally, CoachTeam } from '~/lib/coachDomain'
 import { annotationOutcomeLabel } from '~/utils/annotationOutcome'
-import { deriveCoachDisplayOrdinals, segmentStartCaptureTimeUs } from '~/utils/rallyDisplayOrder'
-import { deriveSetDisplayProjection } from '~/utils/setDisplayProjection'
+import { segmentStartCaptureTimeUs } from '~/utils/rallyDisplayOrder'
 import { useAnnotationWorkstationService } from '~/services/annotation-workstation/annotation-workstation.service'
 
 type SegmentListItem =
@@ -43,6 +42,7 @@ const props = defineProps<{
     id: string
     set_number: number
     winning_team_id: string | null
+    winning_rally_id: string | null
     status?: string
   }>
   rallyOrdinal: number | string
@@ -106,14 +106,7 @@ function compareSegmentCaptureOrder(left: SegmentListItem, right: SegmentListIte
   if (left.ordinal !== right.ordinal) return left.ordinal - right.ordinal
   return left.id.localeCompare(right.id)
 }
-const setDisplayProjection = computed(() => deriveSetDisplayProjection(props.setResults ?? []))
-function effectiveSetNumberFor(rawSetNumber: number) {
-  return setDisplayProjection.value.rawToEffective.get(rawSetNumber) ?? rawSetNumber
-}
-const displayOrdinals = computed(() =>
-  deriveCoachDisplayOrdinals(props.drafts, props.rallies, effectiveSetNumberFor),
-)
-const displayedSetNumber = computed(() => effectiveSetNumberFor(props.setNumber))
+const displayedSetNumber = computed(() => props.setNumber)
 const segmentItems = computed<SegmentListItem[]>(() => {
   const itemsById = new Map<string, SegmentListItem>()
   for (const rally of props.rallies) {
@@ -121,10 +114,10 @@ const segmentItems = computed<SegmentListItem[]>(() => {
     itemsById.set(rally.id, {
       id: rally.id,
       kind: 'rally' as const,
-      ordinal: displayOrdinals.value.get(rally.id) ?? 1,
+      ordinal: rally.display_ordinal,
       rally,
       setNumber,
-      effectiveSetNumber: effectiveSetNumberFor(setNumber),
+      effectiveSetNumber: setNumber,
       startCaptureTimeUs: segmentStartCaptureTimeUs(rally.submission),
     })
   }
@@ -134,9 +127,9 @@ const segmentItems = computed<SegmentListItem[]>(() => {
       draft,
       id: draft.id,
       kind: 'draft' as const,
-      ordinal: displayOrdinals.value.get(draft.id) ?? 1,
+      ordinal: draft.display_ordinal,
       setNumber,
-      effectiveSetNumber: effectiveSetNumberFor(setNumber),
+      effectiveSetNumber: setNumber,
       startCaptureTimeUs: segmentStartCaptureTimeUs(draft),
     })
   }
@@ -177,32 +170,13 @@ const sideSwapBoundaryIds = computed(() => {
   }
   return boundaryIds
 })
-function segmentScoringTeamId(item: SegmentListItem) {
-  const sides = segmentSideIds(item)
-  if (!sides.left || !sides.right) return null
-  if (item.id === props.displayedRallyId && props.displayedOutcomeSide) {
-    return props.displayedOutcomeSide === 'left' ? sides.left : sides.right
-  }
-  const source = item.kind === 'draft' ? item.draft : item.rally.submission
-  if (source.score_resolution !== 'resolved') return null
-  if (source.scoring_team_id === sides.left || source.scoring_team_id === sides.right)
-    return source.scoring_team_id
-  if (source.scoring_court_side === 'left') return sides.left
-  if (source.scoring_court_side === 'right') return sides.right
-  return null
-}
 const segmentScores = computed(() => {
-  const teamScoresBySet = new Map<number, Map<string, number>>()
   const scores = new Map<string, { left: number; right: number }>()
   for (const item of sortedSegmentItems.value) {
-    const sides = segmentSideIds(item)
-    const teamScores = teamScoresBySet.get(item.effectiveSetNumber) ?? new Map<string, number>()
-    const scoringTeamId = segmentScoringTeamId(item)
-    if (scoringTeamId) teamScores.set(scoringTeamId, (teamScores.get(scoringTeamId) ?? 0) + 1)
-    teamScoresBySet.set(item.effectiveSetNumber, teamScores)
+    const source = item.kind === 'draft' ? item.draft : item.rally
     scores.set(item.id, {
-      left: sides.left ? (teamScores.get(sides.left) ?? 0) : 0,
-      right: sides.right ? (teamScores.get(sides.right) ?? 0) : 0,
+      left: source.left_score_after ?? 0,
+      right: source.right_score_after ?? 0,
     })
   }
   return scores
@@ -237,10 +211,9 @@ const actionRightTeam = computed(
 const winningTeamBySet = computed(
   () =>
     new Map(
-      [...setDisplayProjection.value.winnerByEffective].map(([setNumber, winner]) => [
-        setNumber,
-        winner.teamId,
-      ]),
+      (props.setResults ?? [])
+        .filter(set => Boolean(set.winning_team_id))
+        .map(set => [set.set_number, set.winning_team_id] as const),
     ),
 )
 function winningTeamLabel(setNumber: number) {
@@ -269,10 +242,12 @@ const groups = computed(() => {
       number,
       rightScore: latestScore.right,
       setId:
-        setDisplayProjection.value.winnerByEffective.get(number)?.setId ??
+        props.setResults?.find(set => set.set_number === number)?.id ??
         (setItems[0]?.kind === 'draft'
           ? setItems[0].draft.set_id
           : (setItems[0]?.rally.set_id ?? null)),
+      winningRallyId:
+        props.setResults?.find(set => set.set_number === number)?.winning_rally_id ?? null,
     }
   })
 })
@@ -567,7 +542,9 @@ defineExpose({
               </div>
             </template>
             <div
-              v-if="winningTeamLabel(group.number)"
+              v-if="
+                winningTeamLabel(group.number) && group.winningRallyId === group.items.at(-1)?.id
+              "
               class="set-result-marker"
               role="status"
               :aria-label="`第 ${group.number} 局 ${winningTeamLabel(group.number)} 勝`"

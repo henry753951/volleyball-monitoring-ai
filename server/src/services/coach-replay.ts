@@ -1,10 +1,7 @@
 import type { PrismaClient } from '@volleyball-monitoring/db'
 import type { Prisma } from '@volleyball-monitoring/db/client'
 import { JobStatus, UserRole } from '@volleyball-monitoring/db/client'
-import {
-  deriveRallyDisplayOrdinals,
-  segmentStartCaptureTimeUs,
-} from '../domain/rally-display-order.js'
+import { loadCanonicalMatchProjection } from './canonical-match-projection.js'
 import { resolveEffectiveContactFrame } from './effective-contact-frame.js'
 
 const replayClipSelect = {
@@ -640,62 +637,33 @@ export async function getCoachRallyReplay(
   })
   const submission = rally?.activeSubmission
   if (!rally || !submission) return null
-  const displayRows =
-    typeof (database.rally as unknown as { findMany?: unknown }).findMany === 'function'
-      ? await database.rally.findMany({
-          where: { activeSubmissionId: { not: null }, matchId: rally.matchId, voidedAt: null },
-          select: {
-            id: true,
-            displaySetNumber: true,
-            boundaries: {
-              where: { kind: 'START' },
-              select: { captureTimeUs: true, kind: true },
-            },
-            keyPoints: {
-              where: { deletedAt: null },
-              select: { captureTimeUs: true, markerKind: true },
-            },
-            activeSubmission: {
-              select: {
-                boundaries: {
-                  where: { kind: 'START' },
-                  select: { captureTimeUs: true, kind: true },
-                },
-                keyPoints: {
-                  select: { captureTimeUs: true, markerKind: true },
-                },
-              },
-            },
-          },
-        })
-      : []
-  const displayOrdinal = deriveRallyDisplayOrdinals(
-    displayRows.map(row => ({
-      displaySetNumber: row.displaySetNumber,
-      id: row.id,
-      startCaptureTimeUs:
-        segmentStartCaptureTimeUs(row) ?? segmentStartCaptureTimeUs(row.activeSubmission ?? {}),
-    })),
-  ).get(rally.id)
-  const effectiveLeftTeam = rally.sideAssignmentReversed
+  const matchProjection = await loadCanonicalMatchProjection(database, rally.matchId)
+  const projection = matchProjection.segmentById.get(rally.id)
+  const teamById = new Map(
+    [
+      submission.leftTeam,
+      submission.rightTeam,
+      rally.sideAssignment?.leftTeam,
+      rally.sideAssignment?.rightTeam,
+      submission.scoringTeam,
+    ].flatMap(team => (team ? [[team.id, team] as const] : [])),
+  )
+  const fallbackLeftTeam = rally.sideAssignmentReversed
     ? submission.rightTeam
     : (rally.sideAssignment?.leftTeam ?? submission.leftTeam)
-  const effectiveRightTeam = rally.sideAssignmentReversed
+  const fallbackRightTeam = rally.sideAssignmentReversed
     ? submission.leftTeam
     : (rally.sideAssignment?.rightTeam ?? submission.rightTeam)
-  const scoringTeamId = rally.scoringTeamId ?? submission.scoringTeam?.id ?? null
+  const effectiveLeftTeam = teamById.get(projection?.leftTeamId ?? '') ?? fallbackLeftTeam
+  const effectiveRightTeam = teamById.get(projection?.rightTeamId ?? '') ?? fallbackRightTeam
+  const scoringTeamId = projection?.scoringTeamId ?? null
   const effectiveScoringTeam =
     scoringTeamId === effectiveLeftTeam.id
       ? effectiveLeftTeam
       : scoringTeamId === effectiveRightTeam.id
         ? effectiveRightTeam
         : submission.scoringTeam
-  const effectiveScoringCourtSide =
-    scoringTeamId === effectiveLeftTeam.id
-      ? 'left'
-      : scoringTeamId === effectiveRightTeam.id
-        ? 'right'
-        : (submission.scoringCourtSide?.toLowerCase() ?? null)
+  const effectiveScoringCourtSide = projection?.scoringCourtSide ?? null
   const activeAnalysis = submission.analysisRuns[0] ?? null
   const clip = activeAnalysis
     ? (submission.clipJobs[0] ?? null)
@@ -722,11 +690,11 @@ export async function getCoachRallyReplay(
     rally: {
       id: rally.id,
       match_id: rally.matchId,
-      ordinal: rally.ordinal,
-      display_ordinal: displayOrdinal ?? rally.ordinal,
-      display_set_number: rally.displaySetNumber,
+      ordinal: projection?.ordinal ?? rally.ordinal,
+      display_ordinal: projection?.ordinal ?? rally.ordinal,
+      display_set_number: projection?.setNumber ?? rally.displaySetNumber,
       processing_status: rally.processingStatus.toLowerCase(),
-      set: { id: rally.set.id, number: rally.set.setNumber },
+      set: { id: rally.set.id, number: projection?.setNumber ?? rally.set.setNumber },
       outcome: {
         score_resolution: submission.scoreResolutionState.toLowerCase(),
         scoring_court_side: effectiveScoringCourtSide,

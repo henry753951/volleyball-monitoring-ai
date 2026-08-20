@@ -1,13 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import {
-  deriveRallyDisplayOrdinals,
-  segmentStartCaptureTimeUs,
-} from '../src/domain/rally-display-order.js'
-import {
-  deriveEffectiveSetNumberMap,
-  deriveEffectiveSetRows,
-  selectDisplayAnalysis,
-} from '../src/services/coach-dashboard.js'
+import { segmentStartCaptureTimeUs } from '../src/domain/rally-display-order.js'
+import { selectDisplayAnalysis } from '../src/services/coach-dashboard.js'
 import { resolveEffectiveContactFrame } from '../src/services/effective-contact-frame.js'
 
 describe('coach dashboard analysis failover', () => {
@@ -76,56 +69,5 @@ describe('derived rally display order', () => {
         keyPoints: [{ captureTimeUs: 1_000_000n, markerKind: 'SERVICE' }],
       }),
     ).toBe(5_000_000n)
-  })
-
-  it('numbers each set by capture order and closes gaps without persisted ordinals', () => {
-    const ordinals = deriveRallyDisplayOrdinals([
-      { id: 'later', displaySetNumber: 1, startCaptureTimeUs: 9_000_000n },
-      { id: 'only-in-set-two', displaySetNumber: 2, startCaptureTimeUs: 2_000_000n },
-      { id: 'earlier', displaySetNumber: 1, startCaptureTimeUs: 3_000_000n },
-    ])
-    expect(Object.fromEntries(ordinals)).toEqual({
-      earlier: 1,
-      later: 2,
-      'only-in-set-two': 1,
-    })
-  })
-})
-
-describe('effective set projection', () => {
-  it('merges raw sets after their winner markers are cleared', () => {
-    const projection = deriveEffectiveSetNumberMap([
-      { setNumber: 1, status: 'FINISHED', winningTeamId: null },
-      { setNumber: 2, status: 'FINISHED', winningTeamId: null },
-      { setNumber: 3, status: 'FINISHED', winningTeamId: null },
-      { setNumber: 4, status: 'LIVE', winningTeamId: null },
-    ])
-
-    expect(Object.fromEntries(projection)).toEqual({ 1: 1, 2: 1, 3: 1, 4: 1 })
-  })
-
-  it('starts the next logical set only after a durable winner marker', () => {
-    const projection = deriveEffectiveSetNumberMap([
-      { setNumber: 1, status: 'FINISHED', winningTeamId: 'team-a' },
-      { setNumber: 2, status: 'FINISHED', winningTeamId: null },
-      { setNumber: 3, status: 'LIVE', winningTeamId: null },
-    ])
-
-    expect(Object.fromEntries(projection)).toEqual({ 1: 1, 2: 2, 3: 2 })
-  })
-
-  it('returns one visible row when historical winner markers were cleared', () => {
-    const rows = deriveEffectiveSetRows([
-      { setNumber: 1, status: 'FINISHED', winningTeamId: null, id: 'set-1' },
-      { setNumber: 2, status: 'FINISHED', winningTeamId: null, id: 'set-2' },
-      { setNumber: 3, status: 'LIVE', winningTeamId: null, id: 'set-3' },
-    ])
-
-    expect(rows).toEqual([
-      {
-        setNumber: 1,
-        row: { setNumber: 3, status: 'LIVE', winningTeamId: null, id: 'set-3' },
-      },
-    ])
   })
 })

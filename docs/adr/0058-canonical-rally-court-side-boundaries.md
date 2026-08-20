@@ -21,33 +21,39 @@ to whatever display ordinal that rally happened to have when the operator clicke
 - A user court-side swap targets an existing rally. `SwapCourtSidesInput` adds the optional,
   backwards-compatible `effectiveFromRallyId`; current web clients always send it together with the
   legacy set ID and ordinal as a stale-selection guard.
-- The server resolves all non-voided rallies in the match by authoritative START capture time and
-  toggles the selected rally plus the complete canonical suffix. Raw ordinals never choose the
-  affected media suffix.
-- Existing `CourtSideAssignment` ranges remain the base assignment and backwards-compatible setup
-  history. `Rally.sideAssignmentReversed` materializes the effective orientation needed to preserve
-  earlier rallies and toggle the canonical suffix, even when old raw ordinals are interleaved.
-- `Rally.scoringCourtSide` remains the human left/right result. The server rematerializes
-  `Rally.scoringTeamId` from that result and the effective rally sides. Immutable submission
-  snapshots, PTS, boundaries, key points, clips, and AI data are not changed.
-- The newest raw assignment is aligned to the final effective rally orientation so newly created
-  rallies and the next set inherit the current court sides.
+- `CourtSideSwapMarker` stores one absolute left/right boundary anchored to the selected rally ID.
+  It never stores a display ordinal and never rewrites a suffix of `Rally` rows.
+- The server resolves all non-voided rallies by authoritative START capture time and applies the
+  newest reached marker until another marker is reached. Repeating the action on the same rally
+  removes that marker.
+- Existing `CourtSideAssignment` and `Rally.sideAssignmentReversed` values remain migration input
+  only when a match has no reached marker. Product reads do not expose their historical row count as
+  court-side events.
+- `Rally.scoringTeamId` is the point winner identity. The canonical projection maps that identity to
+  the current left/right court side; changing sides never changes who won a previously marked point.
+  Immutable submission snapshots, PTS, boundaries, key points, clips, and AI data are not changed.
+- Newly created rallies inherit the latest marker reached by their START capture time, so a worker or
+  browser refresh cannot silently revert the current court orientation.
 - The annotation UI renders a swap marker only when adjacent canonical rallies actually change
   effective side order, including a change at a logical-set boundary.
 - `MatchSet.winningRallyId` stores the stable rally that ended the set. Backfilling an earlier rally
   can renumber the visible list without detaching or moving the winner marker. Clearing a winner
   clears both `winningTeamId` and `winningRallyId`, but never deletes or rewrites rally annotations.
+- Backend read models use `canonical-match-projection` as the sole source of displayed set number,
+  rally number, score, winner marker, and left/right teams. Annotation, coach, replay, analytics, and
+  generic Match GraphQL consumers render those values instead of recomputing them independently.
 
 ## Compatibility
 
 Older clients that omit `effectiveFromRallyId` are accepted only when the supplied raw set and
-ordinal resolve to an existing rally. The legacy future-ordinal path remains available for setup
-compatibility but does not define canonical media ordering. New clients must send the rally ID.
+ordinal resolve to an existing rally. A future ordinal that has no rally is rejected because it
+cannot provide a stable product event anchor. New clients must send the rally ID.
 
 ## Required verification
 
-- Scrambled raw ordinals with monotonic START PTS produce one suffix transition.
+- Scrambled raw ordinals with monotonic START PTS produce one marker transition.
 - A later swap creates one later transition without moving or duplicating the first boundary.
 - Stale rally IDs or side snapshots fail without partial updates.
 - Coach and annotation projections agree on effective teams and scoring-team identity.
 - Set-winner creation and removal persist and clear the stable rally anchor atomically.
+- Inserting an earlier rally changes display numbering but not winner/swap marker identity.

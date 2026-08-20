@@ -3,11 +3,8 @@ import { RosterPosition, UserRole } from '@volleyball-monitoring/db/client'
 import type { Match, MatchSet, Prisma, Team, MatchStatus } from '@volleyball-monitoring/db/client'
 import type { AuthenticatedUser } from '../graphql/context.js'
 import { domainError } from '../graphql/errors.js'
-import {
-  deriveGlobalRallyDisplayOrdinals,
-  deriveRallyDisplayOrdinals,
-  segmentStartCaptureTimeUs,
-} from '../domain/rally-display-order.js'
+import { segmentStartCaptureTimeUs } from '../domain/rally-display-order.js'
+import { projectCanonicalMatch } from './canonical-match-projection.js'
 
 const UUID = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i
 
@@ -358,42 +355,31 @@ export async function startNextSet(
       },
     })
     if (!match) domainError('Match team not found', 'NOT_FOUND')
-    const current = await tx.matchSet.findFirst({
-      orderBy: [{ setNumber: 'desc' }, { id: 'desc' }],
-      where: { matchId, status: { in: ['LIVE', 'PLANNED'] } },
-      include: { sideAssignments: { orderBy: { effectiveFromRallyOrdinal: 'desc' }, take: 1 } },
-    })
-    if (!current) domainError('Current set not found', 'NOT_FOUND')
-    const assignment = current.sideAssignments[0]
-    if (!assignment)
-      domainError('Current set has no court-side assignment', 'INTERNAL_SERVER_ERROR')
-    if (effectiveFromRallyId) {
-      // A removed winner is a logical merge, not a physical rollback. Older
-      // raw MatchSet rows can therefore be FINISHED without a winner while
-      // their rallies are still displayed as one current set. Resolve the
-      // whole winner-less raw range before applying the new boundary.
-      const previousWinner = await tx.matchSet.findFirst({
-        orderBy: [{ setNumber: 'desc' }, { id: 'desc' }],
-        where: { matchId, winningTeamId: { not: null } },
-        select: { setNumber: true },
-      })
-      const logicalSetStart = (previousWinner?.setNumber ?? 0) + 1
-      const logicalSetRows = await tx.matchSet.findMany({
+    const [rawSets, placementRows, courtSideBoundaries] = await Promise.all([
+      tx.matchSet.findMany({
         orderBy: [{ setNumber: 'asc' }, { id: 'asc' }],
-        where: {
-          matchId,
-          setNumber: { gte: logicalSetStart, lte: current.setNumber },
+        where: { matchId },
+        include: {
+          sideAssignments: {
+            orderBy: [{ effectiveFromRallyOrdinal: 'desc' }, { id: 'desc' }],
+            take: 1,
+          },
         },
-        select: { id: true },
-      })
-      const placementRows = await tx.rally.findMany({
-        where: {
-          matchId,
-          setId: { in: logicalSetRows.map(row => row.id) },
-          voidedAt: null,
-        },
+      }),
+      tx.rally.findMany({
+        orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+        where: { matchId, voidedAt: null },
         select: {
           id: true,
+          ordinal: true,
+          createdAt: true,
+          scoreResolutionState: true,
+          scoringCourtSide: true,
+          scoringTeamId: true,
+          setId: true,
+          set: { select: { setNumber: true } },
+          sideAssignmentReversed: true,
+          sideAssignment: { select: { leftTeamId: true, rightTeamId: true } },
           boundaries: {
             where: { kind: 'START' },
             select: { captureTimeUs: true, kind: true },
@@ -404,6 +390,12 @@ export async function startNextSet(
           },
           activeSubmission: {
             select: {
+              scoreResolutionState: true,
+              scoringCourtSide: true,
+              scoringTeamId: true,
+              leftTeamId: true,
+              rightTeamId: true,
+              sideAssignmentReversed: true,
               boundaries: {
                 where: { kind: 'START' },
                 select: { captureTimeUs: true, kind: true },
@@ -414,51 +406,95 @@ export async function startNextSet(
             },
           },
         },
-      })
-      const displayOrdinals = deriveRallyDisplayOrdinals(
-        placementRows.map(row => ({
-          displaySetNumber: current.setNumber,
-          id: row.id,
-          startCaptureTimeUs:
-            segmentStartCaptureTimeUs(row) ?? segmentStartCaptureTimeUs(row.activeSubmission ?? {}),
-        })),
-      )
-      const boundaryOrdinal = displayOrdinals.get(effectiveFromRallyId)
-      if (!boundaryOrdinal)
-        domainError(
-          '選取回合不在目前局；請先選取目前局的回合。若勝局標錯，可直接刪除該勝局結果。',
-          'BAD_USER_INPUT',
-        )
-      const suffixIds = placementRows
-        .filter(row => (displayOrdinals.get(row.id) ?? 0) > boundaryOrdinal)
-        .map(row => row.id)
-      if (suffixIds.length) {
-        await tx.rally.updateMany({
-          data: { displaySetNumber: current.setNumber + 1 },
-          where: { id: { in: suffixIds } },
-        })
-      }
+      }),
+      tx.courtSideSwapMarker.findMany({
+        where: { matchId },
+        select: {
+          id: true,
+          effectiveRallyId: true,
+          leftTeamId: true,
+          rightTeamId: true,
+        },
+      }),
+    ])
+    const projection = projectCanonicalMatch({
+      sets: rawSets,
+      courtSideBoundaries,
+      segments: placementRows.map(row => ({
+        id: row.id,
+        rawSetNumber: row.set.setNumber,
+        rawOrdinal: row.ordinal,
+        startCaptureTimeUs:
+          segmentStartCaptureTimeUs(row) ?? segmentStartCaptureTimeUs(row.activeSubmission ?? {}),
+        createdAt: row.createdAt,
+        submitted: Boolean(row.activeSubmission),
+        scoreResolutionState:
+          row.activeSubmission?.scoreResolutionState ?? row.scoreResolutionState,
+        scoringCourtSide: row.scoringCourtSide ?? row.activeSubmission?.scoringCourtSide ?? null,
+        scoringTeamId: row.scoringTeamId ?? row.activeSubmission?.scoringTeamId ?? null,
+        baseLeftTeamId: row.sideAssignment?.leftTeamId ?? row.activeSubmission?.leftTeamId ?? null,
+        baseRightTeamId:
+          row.sideAssignment?.rightTeamId ?? row.activeSubmission?.rightTeamId ?? null,
+        sideAssignmentReversed: row.sideAssignment
+          ? row.sideAssignmentReversed
+          : (row.activeSubmission?.sideAssignmentReversed ?? false),
+      })),
+    })
+    const winnerRallyId = effectiveFromRallyId ?? projection.orderedSegmentIds.at(-1) ?? null
+    const winnerRally = winnerRallyId ? placementRows.find(row => row.id === winnerRallyId) : null
+    const winnerProjection = winnerRallyId ? projection.segmentById.get(winnerRallyId) : null
+    if (!winnerRally || !winnerProjection) domainError('請先選取本局最後一個回合', 'BAD_USER_INPUT')
+    if (winnerProjection.endsSet) {
+      if (winnerProjection.winningTeamId !== winningTeamId)
+        domainError('這個回合已經有不同的勝局結果；請先刪除原勝局標記', 'BAD_USER_INPUT')
     }
+    if (winnerProjection.scoringTeamId && winnerProjection.scoringTeamId !== winningTeamId)
+      domainError('最後一回合的得分方與勝局隊伍不同，請先修正回合得分', 'BAD_USER_INPUT')
+
+    const markerSet = rawSets.find(set => set.id === winnerRally.setId)
+    if (!markerSet) domainError('Selected rally set not found', 'NOT_FOUND')
+    if (markerSet.winningRallyId && markerSet.winningRallyId !== winnerRally.id)
+      domainError('這個資料列已有另一個勝局標記；請先刪除原勝局標記', 'BAD_USER_INPUT')
     await tx.matchSet.update({
       data: {
         endedAt: new Date(),
         status: 'FINISHED',
-        winningRallyId: effectiveFromRallyId,
+        winningRallyId: winnerRally.id,
         winningTeamId,
       },
-      where: { id: current.id },
+      where: { id: markerSet.id },
     })
-    const next = await tx.matchSet.create({
-      data: { matchId, setNumber: current.setNumber + 1, status: 'LIVE', startedAt: new Date() },
-    })
-    await tx.courtSideAssignment.create({
-      data: {
-        effectiveFromRallyOrdinal: 1,
-        leftTeamId: assignment.leftTeamId,
-        rightTeamId: assignment.rightTeamId,
-        setId: next.id,
-      },
-    })
+    const nextExisting = rawSets.find(
+      set => set.setNumber > markerSet.setNumber && !set.winningTeamId,
+    )
+    const next = nextExisting
+      ? await tx.matchSet.update({
+          data: { status: 'LIVE', startedAt: nextExisting.startedAt ?? new Date() },
+          where: { id: nextExisting.id },
+        })
+      : await tx.matchSet.create({
+          data: {
+            matchId,
+            setNumber: Math.max(...rawSets.map(set => set.setNumber), 0) + 1,
+            status: 'LIVE',
+            startedAt: new Date(),
+          },
+        })
+    const nextAssignment = nextExisting?.sideAssignments[0]
+    if (!nextAssignment) {
+      const leftTeamId = winnerProjection.leftTeamId
+      const rightTeamId = winnerProjection.rightTeamId
+      if (!leftTeamId || !rightTeamId)
+        domainError('Winner rally has no court-side assignment', 'INTERNAL_SERVER_ERROR')
+      await tx.courtSideAssignment.create({
+        data: {
+          effectiveFromRallyOrdinal: 1,
+          leftTeamId,
+          rightTeamId,
+          setId: next.id,
+        },
+      })
+    }
     return next
   })
 }
@@ -498,7 +534,12 @@ export async function reopenLastSet(
     // A winner is an independent result marker. Clearing it must never
     // rewrite set placement or remove any rally, point, or annotation data.
     return tx.matchSet.update({
-      data: { winningRallyId: null, winningTeamId: null },
+      data: {
+        endedAt: null,
+        status: 'LIVE',
+        winningRallyId: null,
+        winningTeamId: null,
+      },
       where: { id: winnerMarker.id },
     })
   })
@@ -630,367 +671,124 @@ export async function swapCourtSides(
       )::text AS locked
     `
 
-    const assignments = await tx.courtSideAssignment.findMany({
-      orderBy: { effectiveFromRallyOrdinal: 'asc' },
-      where: { setId },
-    })
-    const target = assignments.find(
-      assignment =>
-        assignment.effectiveFromRallyOrdinal <= input.effectiveFromRallyOrdinal &&
-        (assignment.effectiveToRallyOrdinal === null ||
-          assignment.effectiveToRallyOrdinal >= input.effectiveFromRallyOrdinal),
-    )
-    const current = assignments.find(assignment => assignment.effectiveToRallyOrdinal === null)
-    if (!target || !current) {
-      domainError('Set has no current court-side assignment', 'INTERNAL_SERVER_ERROR')
-    }
-
-    const projectionRows = await tx.rally.findMany({
-      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
-      select: {
-        activeSubmission: {
-          select: {
-            boundaries: {
-              where: { kind: 'START' },
-              select: { captureTimeUs: true, kind: true },
-            },
-            keyPoints: {
-              select: { captureTimeUs: true, markerKind: true },
+    const [sets, projectionRows, courtSideBoundaries] = await Promise.all([
+      tx.matchSet.findMany({
+        where: { matchId: matchSet.matchId },
+        select: {
+          id: true,
+          setNumber: true,
+          status: true,
+          winningTeamId: true,
+          winningRallyId: true,
+        },
+      }),
+      tx.rally.findMany({
+        orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+        where: { matchId: matchSet.matchId, voidedAt: null },
+        select: {
+          id: true,
+          ordinal: true,
+          createdAt: true,
+          scoreResolutionState: true,
+          scoringCourtSide: true,
+          scoringTeamId: true,
+          setId: true,
+          set: { select: { setNumber: true } },
+          sideAssignmentReversed: true,
+          sideAssignment: { select: { leftTeamId: true, rightTeamId: true } },
+          boundaries: {
+            where: { kind: 'START' },
+            select: { captureTimeUs: true, kind: true },
+          },
+          keyPoints: {
+            where: { deletedAt: null },
+            select: { captureTimeUs: true, markerKind: true },
+          },
+          activeSubmission: {
+            select: {
+              scoreResolutionState: true,
+              scoringCourtSide: true,
+              scoringTeamId: true,
+              leftTeamId: true,
+              rightTeamId: true,
+              boundaries: {
+                where: { kind: 'START' },
+                select: { captureTimeUs: true, kind: true },
+              },
+              keyPoints: { select: { captureTimeUs: true, markerKind: true } },
             },
           },
         },
-        boundaries: {
-          where: { kind: 'START' },
-          select: { captureTimeUs: true, kind: true },
+      }),
+      tx.courtSideSwapMarker.findMany({
+        where: { matchId: matchSet.matchId },
+        select: {
+          id: true,
+          effectiveRallyId: true,
+          leftTeamId: true,
+          rightTeamId: true,
         },
-        createdAt: true,
-        displaySetNumber: true,
-        id: true,
-        keyPoints: {
-          where: { deletedAt: null },
-          select: { captureTimeUs: true, markerKind: true },
-        },
-        ordinal: true,
-        scoreResolutionState: true,
-        scoringCourtSide: true,
-        scoringTeamId: true,
-        setId: true,
-        sideAssignment: {
-          select: { id: true, leftTeamId: true, rightTeamId: true },
-        },
-        sideAssignmentId: true,
-        sideAssignmentReversed: true,
-      },
-      where: { matchId: matchSet.matchId, voidedAt: null },
-    })
+      }),
+    ])
     const selectedRally = effectiveFromRallyId
-      ? projectionRows.find(
-          rally =>
-            rally.id === effectiveFromRallyId &&
-            rally.setId === setId &&
-            rally.ordinal === input.effectiveFromRallyOrdinal,
-        )
+      ? projectionRows.find(rally => rally.id === effectiveFromRallyId)
       : projectionRows.find(
           rally => rally.setId === setId && rally.ordinal === input.effectiveFromRallyOrdinal,
         )
-    if (effectiveFromRallyId && !selectedRally) {
-      domainError('選取回合已變更；請重新整理後再換場', 'BAD_USER_INPUT')
+    if (!selectedRally) {
+      domainError('選取回合已不存在；請重新整理後再換場', 'BAD_USER_INPUT')
     }
 
-    const effectiveTeams = (
-      assignment: { leftTeamId: string; rightTeamId: string },
-      reversed: boolean,
-    ) =>
-      reversed
-        ? { leftTeamId: assignment.rightTeamId, rightTeamId: assignment.leftTeamId }
-        : { leftTeamId: assignment.leftTeamId, rightTeamId: assignment.rightTeamId }
-    const selectedSides = selectedRally
-      ? effectiveTeams(selectedRally.sideAssignment, selectedRally.sideAssignmentReversed)
-      : { leftTeamId: target.leftTeamId, rightTeamId: target.rightTeamId }
+    const projection = projectCanonicalMatch({
+      sets,
+      courtSideBoundaries,
+      segments: projectionRows.map(rally => ({
+        id: rally.id,
+        rawSetNumber: rally.set.setNumber,
+        rawOrdinal: rally.ordinal,
+        startCaptureTimeUs:
+          segmentStartCaptureTimeUs(rally) ??
+          segmentStartCaptureTimeUs(rally.activeSubmission ?? {}),
+        createdAt: rally.createdAt,
+        submitted: Boolean(rally.activeSubmission),
+        scoreResolutionState:
+          rally.scoreResolutionState ?? rally.activeSubmission?.scoreResolutionState ?? null,
+        scoringCourtSide:
+          rally.scoringCourtSide ?? rally.activeSubmission?.scoringCourtSide ?? null,
+        scoringTeamId: rally.scoringTeamId ?? rally.activeSubmission?.scoringTeamId ?? null,
+        baseLeftTeamId:
+          rally.sideAssignment?.leftTeamId ?? rally.activeSubmission?.leftTeamId ?? null,
+        baseRightTeamId:
+          rally.sideAssignment?.rightTeamId ?? rally.activeSubmission?.rightTeamId ?? null,
+        sideAssignmentReversed: rally.sideAssignmentReversed,
+      })),
+    })
+    const selectedProjection = projection.segmentById.get(selectedRally.id)
+    if (!selectedProjection?.leftTeamId || !selectedProjection.rightTeamId) {
+      domainError('選取回合沒有可用的場地資訊', 'BAD_USER_INPUT')
+    }
     if (
-      selectedSides.leftTeamId !== expectedLeftTeamId ||
-      selectedSides.rightTeamId !== expectedRightTeamId
+      selectedProjection.leftTeamId !== expectedLeftTeamId ||
+      selectedProjection.rightTeamId !== expectedRightTeamId
     ) {
       domainError('Court-side assignment changed; refresh before swapping again', 'BAD_USER_INPUT')
     }
 
-    let desiredSidesByRallyId: Map<string, { leftTeamId: string; rightTeamId: string }> | null =
-      null
-    if (selectedRally) {
-      const displayOrdinals = deriveGlobalRallyDisplayOrdinals(
-        projectionRows.map(row => ({
-          displaySetNumber: row.displaySetNumber,
-          id: row.id,
-          startCaptureTimeUs:
-            segmentStartCaptureTimeUs(row) ?? segmentStartCaptureTimeUs(row.activeSubmission ?? {}),
-        })),
-      )
-      const boundaryOrdinal = displayOrdinals.get(selectedRally.id)
-      if (!boundaryOrdinal) {
-        domainError('選取回合沒有可用的影片順序', 'BAD_USER_INPUT')
-      }
-      desiredSidesByRallyId = new Map(
-        projectionRows.map(row => {
-          const currentSides = effectiveTeams(row.sideAssignment, row.sideAssignmentReversed)
-          return [
-            row.id,
-            (displayOrdinals.get(row.id) ?? 0) >= boundaryOrdinal
-              ? {
-                  leftTeamId: currentSides.rightTeamId,
-                  rightTeamId: currentSides.leftTeamId,
-                }
-              : currentSides,
-          ]
-        }),
-      )
-    }
-
-    const affectedRallies = await tx.rally.findMany({
-      select: {
-        id: true,
-        ordinal: true,
-        scoreResolutionState: true,
-        scoringCourtSide: true,
-        sideAssignmentReversed: true,
-      },
-      where: { setId, ordinal: { gte: input.effectiveFromRallyOrdinal }, voidedAt: null },
-    })
-
-    const assignmentFor = <T extends (typeof assignments)[number]>(
-      rows: readonly T[],
-      ordinal: number,
-    ) =>
-      rows.find(
-        assignment =>
-          assignment.effectiveFromRallyOrdinal <= ordinal &&
-          (assignment.effectiveToRallyOrdinal === null ||
-            assignment.effectiveToRallyOrdinal >= ordinal),
-      )
-    const scoringTeamFor = (
-      assignment: (typeof assignments)[number] | undefined,
-      reversed: boolean,
-      scoringCourtSide: 'LEFT' | 'RIGHT' | null,
-    ) => {
-      if (!assignment || !scoringCourtSide) return null
-      const teams = effectiveTeams(assignment, reversed)
-      return scoringCourtSide === 'LEFT' ? teams.leftTeamId : teams.rightTeamId
-    }
-
-    const assignmentAtTarget = assignments.find(
-      assignment => assignment.effectiveFromRallyOrdinal === input.effectiveFromRallyOrdinal,
+    const existingMarker = courtSideBoundaries.find(
+      marker => marker.effectiveRallyId === selectedRally.id,
     )
-    if (assignmentAtTarget) {
-      for (const assignment of assignments.filter(
-        entry => entry.effectiveFromRallyOrdinal >= input.effectiveFromRallyOrdinal,
-      )) {
-        await tx.courtSideAssignment.update({
-          data: { leftTeamId: assignment.rightTeamId, rightTeamId: assignment.leftTeamId },
-          where: { id: assignment.id },
-        })
-      }
+    if (existingMarker) {
+      await tx.courtSideSwapMarker.delete({ where: { id: existingMarker.id } })
     } else {
-      await tx.courtSideAssignment.update({
-        data: { effectiveToRallyOrdinal: input.effectiveFromRallyOrdinal - 1 },
-        where: { id: target.id },
-      })
-      await tx.courtSideAssignment.create({
+      await tx.courtSideSwapMarker.create({
         data: {
-          effectiveFromRallyOrdinal: input.effectiveFromRallyOrdinal,
-          effectiveToRallyOrdinal: target.effectiveToRallyOrdinal,
-          leftTeamId: target.rightTeamId,
-          rightTeamId: target.leftTeamId,
-          setId,
-        },
-      })
-      for (const assignment of assignments.filter(
-        entry => entry.effectiveFromRallyOrdinal > input.effectiveFromRallyOrdinal,
-      )) {
-        await tx.courtSideAssignment.update({
-          data: { leftTeamId: assignment.rightTeamId, rightTeamId: assignment.leftTeamId },
-          where: { id: assignment.id },
-        })
-      }
-    }
-
-    const nextAssignments = await tx.courtSideAssignment.findMany({
-      orderBy: { effectiveFromRallyOrdinal: 'asc' },
-      where: { setId },
-    })
-    const nextCurrent = nextAssignments.find(
-      assignment => assignment.effectiveToRallyOrdinal === null,
-    )
-    if (!nextCurrent) {
-      domainError('Set has no current court-side assignment', 'INTERNAL_SERVER_ERROR')
-    }
-
-    if (selectedRally && desiredSidesByRallyId) {
-      const orderedRallyIds = deriveGlobalRallyDisplayOrdinals(
-        projectionRows.map(row => ({
-          displaySetNumber: row.displaySetNumber,
-          id: row.id,
-          startCaptureTimeUs:
-            segmentStartCaptureTimeUs(row) ?? segmentStartCaptureTimeUs(row.activeSubmission ?? {}),
-        })),
-      )
-      const lastRally = [...projectionRows].sort(
-        (left, right) => (orderedRallyIds.get(right.id) ?? 0) - (orderedRallyIds.get(left.id) ?? 0),
-      )[0]
-      const futureSides = lastRally ? desiredSidesByRallyId.get(lastRally.id) : null
-      const latestSet = await tx.matchSet.findFirst({
-        orderBy: [{ setNumber: 'desc' }, { id: 'desc' }],
-        where: { matchId: matchSet.matchId },
-        include: {
-          sideAssignments: {
-            orderBy: [{ effectiveFromRallyOrdinal: 'desc' }, { id: 'desc' }],
-            take: 1,
-          },
-        },
-      })
-      const futureAssignment = latestSet?.sideAssignments[0]
-      if (futureSides && futureAssignment) {
-        const sameTeams =
-          (futureAssignment.leftTeamId === futureSides.leftTeamId &&
-            futureAssignment.rightTeamId === futureSides.rightTeamId) ||
-          (futureAssignment.leftTeamId === futureSides.rightTeamId &&
-            futureAssignment.rightTeamId === futureSides.leftTeamId)
-        if (!sameTeams) {
-          domainError('Future court-side assignment has different teams', 'INTERNAL_SERVER_ERROR')
-        }
-        await tx.courtSideAssignment.update({
-          data: {
-            leftTeamId: futureSides.leftTeamId,
-            rightTeamId: futureSides.rightTeamId,
-          },
-          where: { id: futureAssignment.id },
-        })
-      }
-
-      const materializedAssignments = await tx.courtSideAssignment.findMany({
-        where: { set: { matchId: matchSet.matchId } },
-      })
-      const assignmentById = new Map(
-        materializedAssignments.map(assignment => [assignment.id, assignment]),
-      )
-      for (const rally of projectionRows) {
-        const desiredSides = desiredSidesByRallyId.get(rally.id)
-        const assignment = assignmentById.get(rally.sideAssignmentId)
-        if (!desiredSides || !assignment) {
-          domainError('Rally has no materializable court-side assignment', 'INTERNAL_SERVER_ERROR')
-        }
-        const reversed =
-          assignment.leftTeamId === desiredSides.leftTeamId &&
-          assignment.rightTeamId === desiredSides.rightTeamId
-            ? false
-            : assignment.leftTeamId === desiredSides.rightTeamId &&
-                assignment.rightTeamId === desiredSides.leftTeamId
-              ? true
-              : null
-        if (reversed === null) {
-          domainError('Rally court-side assignment has different teams', 'INTERNAL_SERVER_ERROR')
-        }
-        const scoringTeamId =
-          rally.scoreResolutionState === 'RESOLVED' && rally.scoringCourtSide
-            ? rally.scoringCourtSide === 'LEFT'
-              ? desiredSides.leftTeamId
-              : desiredSides.rightTeamId
-            : null
-        if (reversed !== rally.sideAssignmentReversed || scoringTeamId !== rally.scoringTeamId) {
-          await tx.rally.update({
-            data: { scoringTeamId, sideAssignmentReversed: reversed },
-            where: { id: rally.id },
-          })
-        }
-      }
-
-      const scoreRows = await tx.rally.findMany({
-        select: { scoringTeamId: true, setId: true },
-        where: {
-          activeSubmissionId: { not: null },
           matchId: matchSet.matchId,
-          scoreResolutionState: 'RESOLVED',
-          voidedAt: null,
+          effectiveRallyId: selectedRally.id,
+          leftTeamId: selectedProjection.rightTeamId,
+          rightTeamId: selectedProjection.leftTeamId,
+          createdByUserId: actor.id,
         },
       })
-      const scoresBySet = new Map<string, Map<string, number>>()
-      for (const row of scoreRows) {
-        if (!row.scoringTeamId) continue
-        const teamScores = scoresBySet.get(row.setId) ?? new Map<string, number>()
-        teamScores.set(row.scoringTeamId, (teamScores.get(row.scoringTeamId) ?? 0) + 1)
-        scoresBySet.set(row.setId, teamScores)
-      }
-      const rawSets = await tx.matchSet.findMany({
-        where: { matchId: matchSet.matchId },
-        include: {
-          sideAssignments: {
-            orderBy: [{ effectiveFromRallyOrdinal: 'desc' }, { id: 'desc' }],
-            take: 1,
-          },
-        },
-      })
-      for (const rawSet of rawSets) {
-        const assignment = rawSet.sideAssignments[0]
-        if (!assignment) continue
-        const teamScores = scoresBySet.get(rawSet.id) ?? new Map<string, number>()
-        await tx.matchSet.update({
-          data: {
-            leftScore: teamScores.get(assignment.leftTeamId) ?? 0,
-            rightScore: teamScores.get(assignment.rightTeamId) ?? 0,
-            scoreRevision: { increment: 1 },
-          },
-          where: { id: rawSet.id },
-        })
-      }
-      return tx.matchSet.findUniqueOrThrow({ where: { id: matchSet.id } })
-    }
-
-    const scoreByTeam = new Map<string, number>([
-      [current.leftTeamId, matchSet.leftScore],
-      [current.rightTeamId, matchSet.rightScore],
-    ])
-    for (const rally of affectedRallies) {
-      const beforeAssignment = assignmentFor(assignments, rally.ordinal)
-      const afterAssignment = assignmentFor(nextAssignments, rally.ordinal)
-      if (!afterAssignment) {
-        domainError('Rally has no court-side assignment at its ordinal', 'INTERNAL_SERVER_ERROR')
-      }
-      const beforeScoringTeam = scoringTeamFor(
-        beforeAssignment,
-        rally.sideAssignmentReversed,
-        rally.scoringCourtSide,
-      )
-      const afterScoringTeam = scoringTeamFor(
-        afterAssignment,
-        rally.sideAssignmentReversed,
-        rally.scoringCourtSide,
-      )
-      if (
-        rally.scoreResolutionState === 'RESOLVED' &&
-        beforeScoringTeam &&
-        afterScoringTeam &&
-        beforeScoringTeam !== afterScoringTeam
-      ) {
-        scoreByTeam.set(beforeScoringTeam, (scoreByTeam.get(beforeScoringTeam) ?? 0) - 1)
-        scoreByTeam.set(afterScoringTeam, (scoreByTeam.get(afterScoringTeam) ?? 0) + 1)
-      }
-      await tx.rally.update({
-        data: {
-          scoringTeamId: afterScoringTeam,
-          sideAssignmentId: afterAssignment.id,
-        },
-        where: { id: rally.id },
-      })
-    }
-
-    const changed = await tx.matchSet.updateMany({
-      data: {
-        leftScore: scoreByTeam.get(nextCurrent.leftTeamId) ?? 0,
-        rightScore: scoreByTeam.get(nextCurrent.rightTeamId) ?? 0,
-        scoreRevision: { increment: 1 },
-      },
-      where: { id: matchSet.id, scoreRevision: matchSet.scoreRevision },
-    })
-    if (changed.count !== 1) {
-      domainError('Set score changed while swapping court sides', 'BAD_USER_INPUT')
     }
     return tx.matchSet.findUniqueOrThrow({ where: { id: matchSet.id } })
   })

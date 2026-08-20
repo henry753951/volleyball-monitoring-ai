@@ -338,6 +338,7 @@ model User {
   reidJerseySuggestionRuns     ReidJerseySuggestionRun[]      @relation("ReidJerseySuggestionRequestedBy")
   appliedReidJerseySuggestions ReidJerseySuggestion[]         @relation("ReidJerseySuggestionAppliedBy")
   requestedHighlightExports    CoachHighlightExportJob[]      @relation("CoachHighlightRequestedBy")
+  createdCourtSideSwapMarkers  CourtSideSwapMarker[]          @relation("CourtSideSwapMarkerCreatedBy")
 }
 
 model MatchMember {
@@ -390,6 +391,7 @@ model Match {
   reidAssignmentRevisions ReidAssignmentRevision[]
   reidGidBindingRevisions ReidGidRosterBindingRevision[]
   highlightExports        CoachHighlightExportJob[]
+  courtSideSwapMarkers    CourtSideSwapMarker[]
 
   @@index([deletionRequestedAt])
 }
@@ -414,6 +416,8 @@ model Team {
   reidPersonClusters   ReidPersonCluster[]
   reidBankSnapshots    ReidBankSnapshot[]
   reidIdentityRepairs  ReidIdentityCorrection[]
+  courtSideSwapLeft    CourtSideSwapMarker[]    @relation("CourtSideSwapLeftTeam")
+  courtSideSwapRight   CourtSideSwapMarker[]    @relation("CourtSideSwapRightTeam")
 }
 
 model MatchTeam {
@@ -504,6 +508,23 @@ model CourtSideAssignment {
   submissions               RallySubmission[]
 
   @@unique([setId, effectiveFromRallyOrdinal])
+}
+
+model CourtSideSwapMarker {
+  id               String   @id @default(uuid()) @db.Uuid
+  matchId          String   @db.Uuid
+  effectiveRallyId String   @unique @db.Uuid
+  leftTeamId       String   @db.Uuid
+  rightTeamId      String   @db.Uuid
+  createdByUserId  String   @db.Uuid
+  createdAt        DateTime @default(now())
+  match            Match    @relation(fields: [matchId], references: [id], onDelete: Cascade)
+  effectiveRally   Rally    @relation("CourtSideSwapEffectiveRally", fields: [effectiveRallyId], references: [id], onDelete: Cascade)
+  leftTeam         Team     @relation("CourtSideSwapLeftTeam", fields: [leftTeamId], references: [id], onDelete: Restrict)
+  rightTeam        Team     @relation("CourtSideSwapRightTeam", fields: [rightTeamId], references: [id], onDelete: Restrict)
+  createdBy        User     @relation("CourtSideSwapMarkerCreatedBy", fields: [createdByUserId], references: [id], onDelete: Restrict)
+
+  @@index([matchId, createdAt, id])
 }
 
 model CaptureSession {
@@ -838,6 +859,7 @@ model Rally {
   boundaries                RallyBoundary[]
   operations                AnnotationOperation[]
   submissions               RallySubmission[]     @relation("RallySubmissions")
+  courtSideSwapMarker       CourtSideSwapMarker?  @relation("CourtSideSwapEffectiveRally")
 
   @@unique([setId, ordinal])
   @@index([matchId, displaySetNumber, displayOrdinal])

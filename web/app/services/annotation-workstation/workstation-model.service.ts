@@ -5,8 +5,6 @@ import { isSupersededSourceSubmission } from '~/lib/annotationKeyPointNavigation
 import type { CoachMatchState, CoachRally, CoachTeam } from '~/lib/coachDomain'
 import type { CaptureTimeline, Match } from '~/lib/coreDomain'
 import { annotationOutcomeLabel } from '~/utils/annotationOutcome'
-import { deriveCoachDisplayOrdinals } from '~/utils/rallyDisplayOrder'
-import { deriveSetDisplayProjection } from '~/utils/setDisplayProjection'
 import type { TimelineSelectionItem } from '~/utils/timelineSelection'
 
 type WorkstationState = 'IDLE' | 'OPEN' | 'READY' | 'SUBMITTED' | 'VOIDED'
@@ -93,19 +91,11 @@ export function createAnnotationWorkstationModelService(
   const visibleSubmittedRallies = computed(() =>
     submittedRallies.value.filter(rally => !draftRallyIds.value.has(rally.id)),
   )
-  const setDisplayProjection = computed(() =>
-    deriveSetDisplayProjection(options.coachData.value?.match.sets ?? []),
-  )
-  const effectiveSetNumberFor = (rawSetNumber: number) =>
-    setDisplayProjection.value.rawToEffective.get(rawSetNumber) ?? rawSetNumber
-  const displayOrdinals = computed(() =>
-    deriveCoachDisplayOrdinals(
-      annotationDrafts.value,
-      submittedRallies.value,
-      effectiveSetNumberFor,
-    ),
-  )
-  const displayOrdinalFor = (rallyId: string) => displayOrdinals.value.get(rallyId) ?? 1
+  const effectiveSetNumberFor = (setNumber: number) => setNumber
+  const displayOrdinalFor = (rallyId: string) =>
+    annotationDrafts.value.find(rally => rally.id === rallyId)?.display_ordinal ??
+    submittedRallies.value.find(rally => rally.id === rallyId)?.display_ordinal ??
+    1
   const completedRallies = computed(() =>
     submittedRallies.value.filter(rally => rally.submission.analysis?.status === 'completed'),
   )

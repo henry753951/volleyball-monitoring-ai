@@ -7,7 +7,7 @@ import {
   ReidIdentityLedgerError,
   swapVersionedGidRosterBindings,
 } from './reid-identity-ledger.js'
-import { deriveEffectiveSetNumberMap } from './set-display-projection.js'
+import { projectCanonicalMatch } from './canonical-match-projection.js'
 
 const quality = (entries: Iterable<string>) => {
   const counts: Record<string, number> = {}
@@ -214,9 +214,24 @@ export async function getCoachMatchAnalytics(
       identityRevision: true,
       sets: {
         orderBy: { setNumber: 'asc' },
-        select: { setNumber: true, status: true, winningTeamId: true },
+        select: {
+          id: true,
+          setNumber: true,
+          status: true,
+          winningTeamId: true,
+          winningRallyId: true,
+        },
       },
       matchTeams: { select: { team: { select: { id: true, name: true, shortName: true } } } },
+      courtSideSwapMarkers: {
+        orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+        select: {
+          id: true,
+          effectiveRallyId: true,
+          leftTeamId: true,
+          rightTeamId: true,
+        },
+      },
       rosterEntries: {
         where: { active: true },
         orderBy: [{ teamId: 'asc' }, { jerseyNumber: 'asc' }],
@@ -288,39 +303,45 @@ export async function getCoachMatchAnalytics(
     },
   })
   if (!match) return null
-  const effectiveSetNumberByRawSetNumber = deriveEffectiveSetNumberMap(match.sets)
-  const effectiveSetNumberFor = (rawSetNumber: number) =>
-    effectiveSetNumberByRawSetNumber.get(rawSetNumber) ?? rawSetNumber
   const teams = match.matchTeams.map(entry => entry.team)
   const rallies = match.rallies.flatMap(rally =>
     rally.activeSubmission ? [{ ...rally, submission: rally.activeSubmission }] : [],
   )
   const rallyStartTimeUs = (rally: (typeof rallies)[number]) => {
-    const startBoundary = rally.submission.boundaries.find(
+    const startBoundary = (rally.submission.boundaries ?? []).find(
       boundary => boundary.kind.toUpperCase() === 'START',
     )
     if (startBoundary) return startBoundary.captureTimeUs
-    const servicePoint = rally.submission.keyPoints.find(
+    const servicePoint = (rally.submission.keyPoints ?? []).find(
       point => point.markerKind.toUpperCase() === 'SERVICE',
     )
     if (servicePoint) return servicePoint.captureTimeUs
-    return rally.submission.keyPoints.reduce<bigint | null>(
+    return (rally.submission.keyPoints ?? []).reduce<bigint | null>(
       (earliest, point) =>
         earliest === null || point.captureTimeUs < earliest ? point.captureTimeUs : earliest,
       null,
     )
   }
-  const orderedRallies = [...rallies].sort((left, right) => {
-    const leftTime = rallyStartTimeUs(left)
-    const rightTime = rallyStartTimeUs(right)
-    if (leftTime !== null && rightTime !== null && leftTime !== rightTime)
-      return leftTime < rightTime ? -1 : 1
-    if (leftTime !== null && rightTime === null) return -1
-    if (leftTime === null && rightTime !== null) return 1
-    return left.createdAt.getTime() - right.createdAt.getTime() || left.id.localeCompare(right.id)
+  const matchProjection = projectCanonicalMatch({
+    sets: match.sets,
+    courtSideBoundaries: match.courtSideSwapMarkers ?? [],
+    segments: rallies.map(rally => ({
+      id: rally.id,
+      rawSetNumber: rally.set.setNumber,
+      rawOrdinal: rally.ordinal,
+      startCaptureTimeUs: rallyStartTimeUs(rally),
+      createdAt: rally.createdAt,
+      submitted: true,
+      scoreResolutionState: rally.submission.scoreResolutionState,
+      scoringTeamId: rally.submission.scoringTeamId,
+      baseLeftTeamId: rally.submission.leftTeamId,
+      baseRightTeamId: rally.submission.rightTeamId,
+    })),
   })
+  const setNumberForRally = (rallyId: string) =>
+    matchProjection.segmentById.get(rallyId)?.setNumber ?? 1
   const displayRallyOrdinalById = new Map(
-    orderedRallies.map((rally, index) => [rally.id, index + 1]),
+    [...matchProjection.segmentById].map(([id, projection]) => [id, projection.ordinal]),
   )
   const analyzed = rallies.flatMap(rally => {
     const activeRun = rally.submission.analysisRuns[0] ?? null
@@ -493,7 +514,7 @@ export async function getCoachMatchAnalytics(
       return (rally.submission.ballEvents ?? []).map(event => ({
         ...event,
         rallyId: rally.id,
-        setNumber: effectiveSetNumberFor(rally.set.setNumber),
+        setNumber: setNumberForRally(rally.id),
         submission: rally.submission,
       }))
     return effectiveEvents.map((sourceEvent, index) => {
@@ -516,7 +537,7 @@ export async function getCoachMatchAnalytics(
           captureTimeUs: sourceEvent.frameIndex,
         },
         rallyId: rally.id,
-        setNumber: effectiveSetNumberFor(rally.set.setNumber),
+        setNumber: setNumberForRally(rally.id),
         submission: rally.submission,
       }
     })
@@ -547,7 +568,7 @@ export async function getCoachMatchAnalytics(
           analysis_run_id: entry.run.id,
           track_id: track.trackId,
           rally_id: entry.rally.id,
-          set_number: effectiveSetNumberFor(entry.rally.set.setNumber),
+          set_number: setNumberForRally(entry.rally.id),
           rally_ordinal: displayRallyOrdinalById.get(entry.rally.id) ?? entry.rally.ordinal,
         })
     }
@@ -596,7 +617,7 @@ export async function getCoachMatchAnalytics(
     return {
       id: `ball:${event.rallyId}:${event.ordinal}`,
       rally_id: event.rallyId,
-      set_number: effectiveSetNumberFor(event.setNumber),
+      set_number: setNumberForRally(event.rallyId),
       rally_ordinal: rally ? (displayRallyOrdinalById.get(rally.id) ?? rally.ordinal) : 0,
       analysis_run_id: analysis?.run.id ?? null,
       track_id: trackId,
@@ -660,7 +681,7 @@ export async function getCoachMatchAnalytics(
         x: flip ? 1 - position.courtX : position.courtX,
         y: flip ? 1 - position.courtY : position.courtY,
         rally_id: event.rallyId,
-        set_number: effectiveSetNumberFor(event.setNumber),
+        set_number: setNumberForRally(event.rallyId),
         action: category,
       })
       playerHeatmaps.set(rosterId, samples)
@@ -784,28 +805,23 @@ export async function getCoachMatchAnalytics(
         sample_count: resolvedRallies.length,
       }
     }),
-    sets: [...new Set(rallies.map(rally => effectiveSetNumberFor(rally.set.setNumber)))].map(
-      setNumber => {
-        const items = rallies.filter(
-          rally => effectiveSetNumberFor(rally.set.setNumber) === setNumber,
-        )
-        return {
-          set_number: setNumber,
-          rally_count: items.length,
-          resolved_count: items.filter(
-            rally => rally.submission.scoreResolutionState === 'RESOLVED',
-          ).length,
-          unknown_count: items.filter(rally => rally.submission.scoreResolutionState !== 'RESOLVED')
-            .length,
-          team_points: Object.fromEntries(
-            teams.map(team => [
-              team.id,
-              items.filter(rally => rally.submission.scoringTeamId === team.id).length,
-            ]),
-          ),
-        }
-      },
-    ),
+    sets: [...new Set(rallies.map(rally => setNumberForRally(rally.id)))].map(setNumber => {
+      const items = rallies.filter(rally => setNumberForRally(rally.id) === setNumber)
+      return {
+        set_number: setNumber,
+        rally_count: items.length,
+        resolved_count: items.filter(rally => rally.submission.scoreResolutionState === 'RESOLVED')
+          .length,
+        unknown_count: items.filter(rally => rally.submission.scoreResolutionState !== 'RESOLVED')
+          .length,
+        team_points: Object.fromEntries(
+          teams.map(team => [
+            team.id,
+            items.filter(rally => rally.submission.scoringTeamId === team.id).length,
+          ]),
+        ),
+      }
+    }),
     rallies: [...rallies]
       .sort(
         (left, right) =>
@@ -815,7 +831,7 @@ export async function getCoachMatchAnalytics(
       )
       .map(rally => ({
         id: rally.id,
-        set_number: effectiveSetNumberFor(rally.set.setNumber),
+        set_number: setNumberForRally(rally.id),
         ordinal: displayRallyOrdinalById.get(rally.id) ?? rally.ordinal,
         score_resolution: rally.submission.scoreResolutionState.toLowerCase(),
         scoring_team_id: rally.submission.scoringTeamId,
@@ -849,7 +865,7 @@ export async function getCoachMatchAnalytics(
         return {
           analysis_run_id: entry.run.id,
           rally_id: entry.rally.id,
-          set_number: effectiveSetNumberFor(entry.rally.set.setNumber),
+          set_number: setNumberForRally(entry.rally.id),
           rally_ordinal: displayRallyOrdinalById.get(entry.rally.id) ?? entry.rally.ordinal,
           track_id: track.trackId,
           court_side: track.courtSide.toLowerCase(),

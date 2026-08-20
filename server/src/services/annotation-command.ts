@@ -552,6 +552,50 @@ async function acceptService(
         rejected(command, 'ANNOTATION_NOT_READY', 'Court-side assignment is not ready'),
       )
     }
+    const activeCourtSideMarker = (
+      await tx.courtSideSwapMarker.findMany({
+        where: { matchId: room.matchId },
+        select: {
+          leftTeamId: true,
+          rightTeamId: true,
+          effectiveRally: {
+            select: {
+              boundaries: {
+                where: { kind: 'START' },
+                orderBy: [{ captureTimeUs: 'asc' }, { id: 'asc' }],
+                take: 1,
+                select: { captureTimeUs: true },
+              },
+            },
+          },
+        },
+      })
+    )
+      .flatMap(marker => {
+        const markerTimeUs = marker.effectiveRally.boundaries[0]?.captureTimeUs
+        return markerTimeUs !== undefined && markerTimeUs <= captureTimeUs
+          ? [{ ...marker, markerTimeUs }]
+          : []
+      })
+      .sort((left, right) => (left.markerTimeUs > right.markerTimeUs ? -1 : 1))[0]
+    const desiredLeftTeamId = activeCourtSideMarker?.leftTeamId ?? assignment.leftTeamId
+    const desiredRightTeamId = activeCourtSideMarker?.rightTeamId ?? assignment.rightTeamId
+    const sideAssignmentReversed =
+      assignment.leftTeamId === desiredLeftTeamId && assignment.rightTeamId === desiredRightTeamId
+        ? false
+        : assignment.leftTeamId === desiredRightTeamId &&
+            assignment.rightTeamId === desiredLeftTeamId
+          ? true
+          : null
+    if (sideAssignmentReversed === null) {
+      return persistRejection(
+        tx,
+        command,
+        identity,
+        hash,
+        rejected(command, 'ANNOTATION_NOT_READY', 'Court-side marker teams do not match this set'),
+      )
+    }
     const anchorId = randomUUID()
     await tx.rally.create({
       data: {
@@ -565,7 +609,7 @@ async function acceptService(
         displaySetNumber: set.setNumber,
         setId: set.id,
         sideAssignmentId: assignment.id,
-        sideAssignmentReversed: false,
+        sideAssignmentReversed,
         scoreResolutionState: command.kind === 'START_RALLY' ? 'PENDING' : 'UNKNOWN',
       },
     })
