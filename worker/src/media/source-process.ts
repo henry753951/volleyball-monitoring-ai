@@ -892,11 +892,22 @@ export function nextLiveRelayFailureCount(
   return currentRecordingCount > previousRecordingCount ? 0 : previousFailures + 1
 }
 
-async function stableRecordingCount(root: string, signal: AbortSignal): Promise<number> {
+async function stableRecordingCount(root: string, signal: AbortSignal): Promise<number>
+async function stableRecordingCount(
+  root: string,
+  signal: AbortSignal,
+  sourceRemainedOffline: () => Promise<boolean>,
+): Promise<number | null>
+async function stableRecordingCount(
+  root: string,
+  signal: AbortSignal,
+  sourceRemainedOffline?: () => Promise<boolean>,
+): Promise<number | null> {
   let previous = ''
   let stable = 0
   const deadline = Date.now() + 30_000
   while (Date.now() < deadline) {
+    if (sourceRemainedOffline && !(await sourceRemainedOffline())) return null
     const files = (await readdir(root, { withFileTypes: true }).catch(() => [])).filter(
       entry => entry.isFile() && entry.name.endsWith('.mp4'),
     )
@@ -960,8 +971,10 @@ async function waitForRtmpRecording(
     if (sawSource && !online) {
       offlineSince ??= Date.now()
       if (Date.now() - offlineSince >= RTMP_SOURCE_OFFLINE_GRACE_MS) {
-        const expectedSegments = await stableRecordingCount(directory, signal)
-        if (!(await rtmpSourceRemainedOffline(options.sourceOnline, work.captureSessionId))) {
+        const expectedSegments = await stableRecordingCount(directory, signal, () =>
+          rtmpSourceRemainedOffline(options.sourceOnline, work.captureSessionId),
+        )
+        if (expectedSegments === null) {
           await writeSourceRestartMarker(options.recordingRoot, work.ingestPath)
           offlineSince = null
           continue

@@ -2348,6 +2348,17 @@ function handleVideoCanPlay() {
 function handlePlaybackError(error: Error) {
   gapTransition = null
   clearPlaybackBuffering()
+  if (omeArchivePlaybackActive.value && omeDirectPlaybackAvailable.value) {
+    omeArchivePlaybackActive.value = false
+    omeSeekLiveOnReady.value = true
+    omeCanonicalTimeValidated.value = false
+    omeObservedCaptureTimeUs.value = null
+    toast.warning('永久錄影暫時無法載入，已返回即時畫面', {
+      description: error.message,
+    })
+    mediaError.value = null
+    return
+  }
   mediaError.value = error.message
 }
 function handleOmePlaybackError(error: Error) {

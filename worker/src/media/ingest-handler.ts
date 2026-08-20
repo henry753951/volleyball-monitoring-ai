@@ -163,25 +163,14 @@ export function projectPlaybackFragmentRanges(
 ): readonly PlaybackFragmentProjection[] | undefined {
   if (ranges.length === 0 || samples.length === 0 || mediaByteLength <= 0n) return undefined
   const keyframeIndexes = samples.flatMap((sample, index) => (sample.keyframe ? [index] : []))
-  if (keyframeIndexes[0] !== 0 || ranges.length < keyframeIndexes.length) return undefined
-
-  // FFmpeg can emit a tiny trailing moof/mdat when the final audio samples
-  // outlive the last video GOP. It has no corresponding video keyframe and
-  // belongs to the final logical HLS fragment.
-  const logicalRanges = ranges.slice(0, keyframeIndexes.length).map(range => ({ ...range }))
-  if (ranges.length > logicalRanges.length) {
-    const final = logicalRanges.at(-1)!
-    let end = final.byteOffset + final.byteLength
-    for (const trailing of ranges.slice(logicalRanges.length)) {
-      if (trailing.byteOffset !== end) return undefined
-      end += trailing.byteLength
-    }
-    final.byteLength = end - final.byteOffset
-  }
+  // The MP4 scanner already folds audio-only tails into the preceding video
+  // fragment. Any disagreement between independent video fragments and
+  // ffprobe keyframes is ambiguous and must fall back to the whole extent.
+  if (keyframeIndexes[0] !== 0 || ranges.length !== keyframeIndexes.length) return undefined
 
   const originPts = samples[0]!.sourcePts
   const endPts = samples.at(-1)!.sourcePts + samples.at(-1)!.durationPts
-  const projected = logicalRanges.map((range, index) => {
+  const projected = ranges.map((range, index) => {
     const startPts = samples[keyframeIndexes[index]!]!.sourcePts
     const nextIndex = keyframeIndexes[index + 1]
     const fragmentEndPts = nextIndex === undefined ? endPts : samples[nextIndex]!.sourcePts

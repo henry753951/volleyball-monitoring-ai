@@ -71,7 +71,7 @@ it('projects short fMP4 byte ranges onto keyframe-aligned durations', () => {
     { byteOffset: 600n, byteLength: 600n, durationUs: 2_000n },
   ])
 })
-it('folds a contiguous trailing audio fragment into the final video GOP', () => {
+it('rejects extra ranges after the scanner has grouped audio tails by video GOP', () => {
   expect(
     projectPlaybackFragmentRanges(
       [
@@ -88,10 +88,7 @@ it('folds a contiguous trailing audio fragment into the final video GOP', () => 
       ],
       { num: 1n, den: 1n },
     ),
-  ).toEqual([
-    { byteOffset: 0n, byteLength: 100n, durationUs: 2_000_000n },
-    { byteOffset: 100n, byteLength: 128n, durationUs: 2_000_000n },
-  ])
+  ).toBeUndefined()
 })
 it('rejects malformed adjacent PTS before deriving duration', () => {
   expect(() =>
