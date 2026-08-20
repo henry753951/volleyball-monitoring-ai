@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.10.4](https://github.com/henry753951/volleyball-monitoring-ai/compare/v1.10.3...v1.10.4) (2026-08-20)
+
+
+### Bug Fixes
+
+* **annotation:** unify match scoring and court transitions ([35bbf95](https://github.com/henry753951/volleyball-monitoring-ai/commit/35bbf95b65cc22b6abd80c86596264e19f6d5a51))
+* **annotation:** unify match scoring and court transitions ([7ab60f7](https://github.com/henry753951/volleyball-monitoring-ai/commit/7ab60f760f41f8f22bd214a412f3ba120cecfa93))
+
 ## [1.10.3](https://github.com/henry753951/volleyball-monitoring-ai/compare/v1.10.2...v1.10.3) (2026-08-20)
 
 
