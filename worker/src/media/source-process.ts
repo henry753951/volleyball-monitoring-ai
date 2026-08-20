@@ -922,6 +922,13 @@ async function stableRecordingCount(root: string, signal: AbortSignal): Promise<
   )
 }
 
+export async function rtmpSourceRemainedOffline(
+  sourceOnline: MediaSourceProcessOptions['sourceOnline'],
+  captureSessionId: string,
+): Promise<boolean> {
+  return sourceOnline ? !(await sourceOnline(captureSessionId)) : true
+}
+
 async function waitForRtmpRecording(
   work: ClaimedMediaSourceWork,
   options: MediaSourceProcessOptions,
@@ -954,6 +961,11 @@ async function waitForRtmpRecording(
       offlineSince ??= Date.now()
       if (Date.now() - offlineSince >= RTMP_SOURCE_OFFLINE_GRACE_MS) {
         const expectedSegments = await stableRecordingCount(directory, signal)
+        if (!(await rtmpSourceRemainedOffline(options.sourceOnline, work.captureSessionId))) {
+          await writeSourceRestartMarker(options.recordingRoot, work.ingestPath)
+          offlineSince = null
+          continue
+        }
         return { expectedSegments, sourceDurationUs: null, sourceKind: 'rtmp' }
       }
     }

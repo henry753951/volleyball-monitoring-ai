@@ -316,6 +316,28 @@ describe('Prisma finalized media ingest repository', () => {
     expect(await forbiddenCounts()).toEqual(beforeForbidden)
   })
 
+  it('keeps legacy rows idempotent when a replay discovers fragment projection metadata', async () => {
+    const { captureSessionId } = await createSession()
+    const legacyInput = reservationInput(captureSessionId, 'legacy-fragment-replay')
+    const reserved = await repository.reserveUploading(legacyInput)
+    const replay = await repository.reserveUploading({
+      ...legacyInput,
+      playbackFragments: [
+        {
+          byteOffset: 0n,
+          byteLength: 1_024n,
+          durationUs: reserved.plan.segment.durationUs,
+        },
+      ],
+    })
+
+    expect(replay.disposition).toBe('RESUMED')
+    expect(replay.reference).toEqual(reserved.reference)
+    await expect(
+      db.dvrSegment.findUniqueOrThrow({ where: { id: reserved.reference.dvrSegmentId } }),
+    ).resolves.toMatchObject({ playbackFragments: null, playbackSequenceStart: 0n })
+  })
+
   it('keeps the packaged program profile stable when a source epoch changes time base', async () => {
     const { captureSessionId } = await createSession()
     const firstInput = reservationInput(captureSessionId, 'time-base-first')

@@ -1917,6 +1917,10 @@ async function seekTimeline(targetCaptureTimeUs: string) {
     omeObservedCaptureTimeUs.value = null
     const created = await createWindow(target, 'archive', true)
     if (!created) {
+      // Archive is a fallback tier. A transient window error must not disable
+      // the still-usable OME source; the reactive source watcher will reattach
+      // at the canonical live position when this flag is rolled back.
+      omeArchivePlaybackActive.value = false
       clearPlaybackBuffering()
       if (optimisticSeekCaptureTimeUs.value === target) clearOptimisticSeekTarget()
     }

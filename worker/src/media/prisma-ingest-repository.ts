@@ -365,6 +365,11 @@ function matchesPlaybackFragments(
   persisted: Prisma.JsonValue | null,
   fragments: readonly IngestPlaybackFragment[] | undefined,
 ): boolean {
+  // Rows created before playback fragment projection deliberately keep the
+  // whole extent as their immutable playback contract. Re-observing the same
+  // artifact after rollout must remain idempotent; backfill upgrades legacy
+  // rows atomically after the capture is terminal.
+  if (persisted === null) return true
   if (fragments === undefined) return persisted === null
   return JSON.stringify(persisted) === JSON.stringify(playbackFragmentsJson(fragments))
 }
@@ -955,7 +960,10 @@ function assertExtentMatchesPlan(
   }
 }
 
-async function advisoryLock(tx: Tx, captureSessionId: string): Promise<void> {
+export async function acquireMediaIngestLock(
+  tx: Prisma.TransactionClient,
+  captureSessionId: string,
+): Promise<void> {
   await tx.$queryRaw<Array<{ locked: string | null }>>`
     SELECT pg_advisory_xact_lock(
       hashtextextended(
@@ -1418,7 +1426,7 @@ export class PrismaIngestRepository {
   ): Promise<FinalizedSegmentReservation> {
     const requestedArtifacts = validateReservationInput(input)
     return this.#transaction(async tx => {
-      await advisoryLock(tx, input.captureSessionId)
+      await acquireMediaIngestLock(tx, input.captureSessionId)
       const session = await tx.captureSession.findUnique({
         where: { id: input.captureSessionId },
       })
@@ -1828,7 +1836,7 @@ export class PrismaIngestRepository {
     validateReference(input.reservation)
     const expected = artifactMap(input.artifacts, true)
     await this.#transaction(async tx => {
-      await advisoryLock(tx, input.reservation.captureSessionId)
+      await acquireMediaIngestLock(tx, input.reservation.captureSessionId)
       if (input.reservation.mediaExtentId) {
         return this.#recordExtentArtifactExpectations(tx, input, expected)
       }
@@ -2086,7 +2094,7 @@ export class PrismaIngestRepository {
     if (input.extent) validateExtentPublication(input.extent)
     const verified = artifactMap(input.verifiedArtifacts, true)
     return this.#transaction(async tx => {
-      await advisoryLock(tx, input.reservation.captureSessionId)
+      await acquireMediaIngestLock(tx, input.reservation.captureSessionId)
       if (input.reservation.mediaExtentId) {
         return this.#publishExtentReady(tx, input, verified)
       }

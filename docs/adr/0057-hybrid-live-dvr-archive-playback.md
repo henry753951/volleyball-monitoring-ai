@@ -34,6 +34,13 @@ backward compatibility. The annotation workstation requests `annotation`, which 
 analysis `summary` and `contact_points` while retaining rally boundaries, key points, processing,
 coverage, and capability metadata.
 
+An extent may expose short `EXT-X-BYTERANGE` entries only when its fMP4 initialization metadata,
+video track ID, `tfhd`/`trun` sample flags, and moof layout prove that every range begins with an
+independent video sync sample. Audio-only tails are folded into the preceding video range. Any
+ambiguous layout remains one whole, playable extent. Legacy projections are upgraded only for
+terminal captures, one program at a time, under the same advisory lock used by ingest and in one
+serializable transaction.
+
 ## Consequences
 
 - Near-Live browsers continue to receive video bytes directly from OME.
@@ -43,6 +50,8 @@ coverage, and capability metadata.
 - Canonical PTS/capture-time mapping remains shared across OME and archive playback.
 - The temporary dual projection creates one coarse playback row per extent, not one row every two
   seconds. A future extent-native archive player can remove this compatibility projection.
+- Byte-range projection is fail-closed: transfer optimization is never allowed to weaken decoder or
+  timeline correctness, and legacy rows remain replay-idempotent before backfill.
 - ADR 0053 remains the preferred pure extent authority where bounded DVR history is sufficient. This
   ADR supersedes that deployment choice only where arbitrary finalized Live history is required.
 - Coach and analytics clients remain on the full GraphQL projection; only annotation traffic is
