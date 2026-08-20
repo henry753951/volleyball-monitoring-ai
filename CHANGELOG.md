@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.10.6](https://github.com/henry753951/volleyball-monitoring-ai/compare/v1.10.5...v1.10.6) (2026-08-20)
+
+
+### Bug Fixes
+
+* **annotation:** hide legacy empty match sets ([b3f162f](https://github.com/henry753951/volleyball-monitoring-ai/commit/b3f162f5c2930b8442462cfe84a5aba7646dc478))
+* **annotation:** hide legacy empty match sets ([52c7c53](https://github.com/henry753951/volleyball-monitoring-ai/commit/52c7c53d357f7de228927c522c8c5f7a3606885f))
+
 ## [1.10.5](https://github.com/henry753951/volleyball-monitoring-ai/compare/v1.10.4...v1.10.5) (2026-08-20)
 
 
