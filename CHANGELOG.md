@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.9.4](https://github.com/henry753951/volleyball-monitoring-ai/compare/v1.9.3...v1.9.4) (2026-08-20)
+
+
+### Bug Fixes
+
+* **coach:** unify canonical rally projections ([80aa8c4](https://github.com/henry753951/volleyball-monitoring-ai/commit/80aa8c4d3212f408a2409ebdc4a1a821d06d2f48))
+* **coach:** unify canonical rally projections ([45214e6](https://github.com/henry753951/volleyball-monitoring-ai/commit/45214e61abdb905b7b20434d681a7feb8d860218))
+
 ## [1.9.3](https://github.com/henry753951/volleyball-monitoring-ai/compare/v1.9.2...v1.9.3) (2026-08-19)
 
 
