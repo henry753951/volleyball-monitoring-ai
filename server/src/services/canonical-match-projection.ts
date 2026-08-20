@@ -228,8 +228,13 @@ export function projectCanonicalMatch(input: {
         leftTeamId: courtSideBoundary.leftTeamId,
         rightTeamId: courtSideBoundary.rightTeamId,
       }
+    } else if (activeCourtSides === null) {
+      // Legacy rally rows may each carry a different side assignment. Treat only
+      // the first rally as the baseline; after that, explicit rally-anchored
+      // boundaries are the sole authority allowed to change court sides.
+      activeCourtSides = effectiveSides(segment)
     }
-    const sides = activeCourtSides ?? effectiveSides(segment)
+    const sides = activeCourtSides
     const scoring = scoringProjection(segment, sides)
     const leftScoreBefore = scoreFor(previewTeamScores, sides.leftTeamId)
     const rightScoreBefore = scoreFor(previewTeamScores, sides.rightTeamId)

@@ -463,7 +463,7 @@ a24fb72947ebbdaed8f430f0f66c3bbf5b52c8dbd7242f3a8ebdc4b337cf484f  ./server/src/r
 2f394d4695e25dbbdef20290628bf6be00c09b41191bdcacc89adc56acbb61e7  ./server/src/services/analysis-review.ts
 bc904311a335399c0f74c91ff02c5cd963b65817c37b5101e5cb2de53ed3f482  ./server/src/services/annotation-command.ts
 46ade9235a91cf2f9cf5e748e9d9a0a0a6e35b7e53e5e8aab822f12f9041aef9  ./server/src/services/annotation-snapshot.ts
-1e7fd8c98327a4a0f4240542a5291b23463d41554c88b4a371d6da8cc76f61ad  ./server/src/services/canonical-match-projection.ts
+56855edddf37ba11706569d90667e9fb0cc4f090355672336d3bff49c2ae623d  ./server/src/services/canonical-match-projection.ts
 fbc6d5d8d9cb99af507f5915b9ecd17b0413519abab4f1ad78da78b72d5a1fb3  ./server/src/services/capture-processing.ts
 6390765e3ef8f9d9f7967cc351aa45abfe24319ad6d725fb88e12ac7abb92c63  ./server/src/services/coach-analytics.ts
 7ed724eb46712c0bc10aaa7dbb95915b93ccf41ef3cc0fe913596efb2fcb26b9  ./server/src/services/coach-dashboard.ts
@@ -498,7 +498,7 @@ f2540bf5fea4d8e34fc60a64449f487e37f1ad4468f9a780398c1065d768e576  ./server/tests
 ee3555395004e2e019ef67e78a3102d4ac62346c10ba6c67727e70edc63b76eb  ./server/tests/annotation-transport.test.ts
 49f9a7d3d828cde6960756cdb1976978dab20b08230ea4308397be6c96fc3059  ./server/tests/auth.unit.test.ts
 d1200dd557e08188c87a867980ead67bc85f7866c5b014ff08dd820027ddb5ea  ./server/tests/ball-event-submission-validation.test.ts
-bb11a54cca893193fc0a5ebc3d897c7e9c53fb605d9b0243bfce08a6ad1a494a  ./server/tests/canonical-match-projection.test.ts
+586413123bbf33cc680496a5275487d9b81a8222a034a24b551fbc1a33d17636  ./server/tests/canonical-match-projection.test.ts
 7ecf057e1fcbf04385ebecaf6b996f00eee3751b6794970e49b7e7800b55cf2a  ./server/tests/capture-processing.integration.test.ts
 e1eecdd39240ae7680aa875e8376c86ce2e54c51691cc9b475f1fd7468482cd7  ./server/tests/clip-timing-coverage.test.ts
 60098e89d88a090720b5f2c04fb8de4f10d0e11fc43dd0788d81d14a611c3806  ./server/tests/coach-analytics-identity.test.ts

@@ -37,6 +37,14 @@ describe('projectCanonicalMatch', () => {
         },
         { id: 'set-legacy-5', setNumber: 5, winningTeamId: null, winningRallyId: null },
       ],
+      courtSideBoundaries: [
+        {
+          id: 'set-2-court-sides',
+          effectiveRallyId: 'next-set-1',
+          leftTeamId: IRI,
+          rightTeamId: PAK,
+        },
+      ],
       segments: [
         rally('rally-1', 100, PAK, { rawSetNumber: 4 }),
         rally('inserted-before-winner', 150, IRI, { rawSetNumber: 5 }),
@@ -139,6 +147,38 @@ describe('projectCanonicalMatch', () => {
     expect(projection.segmentById.get('rally-4')).toMatchObject({
       leftTeamId: PAK,
       rightTeamId: IRI,
+    })
+  })
+
+  it('keeps the initial court sides until an explicit boundary overrides legacy rows', () => {
+    const projection = projectCanonicalMatch({
+      sets: [{ id: 'set-1', setNumber: 1, winningTeamId: null, winningRallyId: null }],
+      courtSideBoundaries: [
+        {
+          id: 'official-set-2-sides',
+          effectiveRallyId: 'rally-3',
+          leftTeamId: IRI,
+          rightTeamId: PAK,
+        },
+      ],
+      segments: [
+        rally('rally-1', 100, PAK),
+        rally('legacy-row-that-used-to-look-swapped', 200, IRI, { reversed: true }),
+        rally('rally-3', 300, IRI),
+      ],
+    })
+
+    expect(projection.segmentById.get('rally-1')).toMatchObject({
+      leftTeamId: PAK,
+      rightTeamId: IRI,
+    })
+    expect(projection.segmentById.get('legacy-row-that-used-to-look-swapped')).toMatchObject({
+      leftTeamId: PAK,
+      rightTeamId: IRI,
+    })
+    expect(projection.segmentById.get('rally-3')).toMatchObject({
+      leftTeamId: IRI,
+      rightTeamId: PAK,
     })
   })
 })
