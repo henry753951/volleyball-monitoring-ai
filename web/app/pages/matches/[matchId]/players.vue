@@ -8,12 +8,7 @@ import {
   type CoachPlayerActionEvent,
 } from '~/utils/coachPlayerActions'
 import type { CoachRouteMapSideLabel } from '~/components/CoachBallRouteMap.vue'
-import {
-  playerContactShare,
-  playerParticipation,
-  teamParticipation,
-  teamTracks,
-} from '~/utils/coachPresentation'
+import { playerContactShare, teamTracks } from '~/utils/coachPresentation'
 import { provideIdentityAssignmentService } from '~/composables/useIdentityAssignmentService'
 
 type ViewMode = 'players' | 'tracks' | 'teams'
@@ -83,20 +78,10 @@ const selectedTeamPlayers = computed(
 const selectedTeamTracks = computed(() =>
   analytics.value && selectedTeam.value ? teamTracks(analytics.value, selectedTeam.value.id) : [],
 )
-const selectedTeamParticipation = computed(() =>
-  analytics.value && selectedTeam.value
-    ? teamParticipation(analytics.value, selectedTeam.value.id)
-    : 0,
-)
 const selectedTeamWinRate = computed(() => {
   const team = selectedTeam.value
   return team?.sample_count ? team.wins / team.sample_count : null
 })
-const selectedParticipation = computed(() =>
-  analytics.value && selectedPlayer.value
-    ? playerParticipation(analytics.value, selectedPlayer.value.roster_entry_id)
-    : [],
-)
 const selectedShare = computed(() =>
   analytics.value && selectedPlayer.value
     ? playerContactShare(analytics.value, selectedPlayer.value.roster_entry_id)
@@ -544,9 +529,7 @@ function teamActionCounts(teamId: string) {
                     :key="item.key"
                     :style="{ '--action-color': actionColor(item.key) }"
                     >{{ item.label }} {{ item.count }}</i
-                  ><small v-if="!teamActionCounts(team.id).length"
-                    >{{ teamParticipation(analytics, team.id) }} 回合</small
-                  >
+                  ><small v-if="!teamActionCounts(team.id).length">尚無球種</small>
                 </span>
               </button>
             </section>
@@ -646,9 +629,9 @@ function teamActionCounts(teamId: string) {
                   >
                 </div>
                 <div>
-                  <dt>參與回合</dt>
-                  <dd>{{ selectedParticipation.length }}</dd>
-                  <small>具有此球員軌跡的回合</small>
+                  <dt>出現回合</dt>
+                  <dd>{{ selectedPlayer.rally_count }}</dd>
+                  <small>由已綁定球員的人工球種事件計算</small>
                 </div>
                 <div>
                   <dt>場次識別覆蓋</dt>
@@ -704,11 +687,6 @@ function teamActionCounts(teamId: string) {
                   <dt>球種</dt>
                   <dd>{{ actionOptions.length }}</dd>
                   <small>隊伍所有人工球種分類</small>
-                </div>
-                <div>
-                  <dt>參與回合</dt>
-                  <dd>{{ selectedTeamParticipation }}</dd>
-                  <small>含已辨識的匿名人物 ID</small>
                 </div>
                 <div>
                   <dt>已確認勝率</dt>
@@ -827,10 +805,7 @@ function teamActionCounts(teamId: string) {
                     <i :style="{ background: actionColor(event.actionKey) }" />
                     <div class="action-record__identity">
                       <strong>{{ event.actionLabel }}</strong
-                      ><span
-                        >第 {{ event.setNumber }} 局 · 回合 {{ event.rallyOrdinal }} · ID
-                        {{ event.trackId }}</span
-                      >
+                      ><span>總回合 {{ event.rallyOrdinal }} · ID {{ event.trackId }}</span>
                     </div>
                     <time>{{ formatActionTime(event.anchorTimeUs) }}</time>
                     <span class="action-record__outcome" :data-outcome="event.outcome">{{
@@ -856,34 +831,6 @@ function teamActionCounts(teamId: string) {
                 }}</span>
               </div>
             </section>
-          </section>
-
-          <section v-if="viewMode === 'players'" class="participation-list">
-            <header>
-              <div>
-                <h2>參與回合</h2>
-                <p>由已完成分析與人物綁定即時彙整</p>
-              </div>
-              <span>{{ selectedParticipation.length }} 回合</span>
-            </header>
-            <div v-if="selectedParticipation.length">
-              <NuxtLink
-                v-for="track in selectedParticipation"
-                :key="track.rally_id"
-                :to="`/matches/${matchId}/replay/${track.rally_id}`"
-              >
-                <div>
-                  <strong>第 {{ track.set_number }} 局 · 回合 {{ track.rally_ordinal }}</strong
-                  ><span
-                    >ID {{ track.track_id }} · frame {{ track.first_frame_index }}–{{
-                      track.last_frame_index
-                    }}</span
-                  >
-                </div>
-                <ChevronRight :size="18" />
-              </NuxtLink>
-            </div>
-            <p v-else>目前沒有已綁定到這位球員的分析軌跡。</p>
           </section>
 
           <section v-if="viewMode === 'teams' && selectedTeam" class="team-roster-summary">
@@ -926,6 +873,7 @@ function teamActionCounts(teamId: string) {
       <main v-else class="players-state">尚無可分析資料。</main>
     </div>
     <CoachEventReplayDialog
+      :match-id="matchId"
       :open="selectedActionEvent !== null"
       :event="selectedActionEvent"
       :replay="selectedActionReplay"
@@ -1592,8 +1540,7 @@ function teamActionCounts(teamId: string) {
 .action-records {
   padding-top: 26px;
 }
-.action-records > header,
-.participation-list > header {
+.action-records > header {
   display: flex;
   align-items: end;
   justify-content: space-between;
@@ -1602,19 +1549,16 @@ function teamActionCounts(teamId: string) {
   padding: 0 var(--detail-gutter) 10px;
   border-bottom: 1px solid #dfe4e8;
 }
-.action-records h2,
-.participation-list h2 {
+.action-records h2 {
   margin: 0;
   font-size: 0.86rem;
 }
-.action-records header p,
-.participation-list header p {
+.action-records header p {
   margin: 3px 0 0;
   color: #79828c;
   font-size: 0.61rem;
 }
-.action-records header > span,
-.participation-list header > span {
+.action-records header > span {
   color: #707a85;
   font-size: 0.63rem;
 }
@@ -1702,40 +1646,6 @@ function teamActionCounts(teamId: string) {
 }
 .action-records__empty span {
   font-size: 0.6rem;
-}
-.participation-list {
-  margin-top: 36px;
-}
-.participation-list > div a {
-  min-height: 58px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 14px;
-  border-bottom: 1px solid #e4e7eb;
-  color: inherit;
-  text-decoration: none;
-}
-.participation-list > div a:hover {
-  background: #f2f5f8;
-}
-.participation-list > div a > div {
-  display: grid;
-  gap: 3px;
-}
-.participation-list > div strong {
-  font-size: 0.71rem;
-}
-.participation-list > div span {
-  color: #7c858f;
-  font-size: 0.58rem;
-  font-variant-numeric: tabular-nums;
-}
-.participation-list > p {
-  margin: 0;
-  padding: 22px 0;
-  color: #7b848f;
-  font-size: 0.68rem;
 }
 .players-loading {
   height: 100%;
@@ -1977,7 +1887,6 @@ function teamActionCounts(teamId: string) {
   background: #0b67c2;
 }
 .action-records > header,
-.participation-list > header,
 .team-roster-summary > header {
   display: flex;
   align-items: end;
@@ -1988,20 +1897,17 @@ function teamActionCounts(teamId: string) {
   border-bottom: 1px solid #dfe4e8;
 }
 .action-records h2,
-.participation-list h2,
 .team-roster-summary h2 {
   margin: 0;
   font-size: 0.86rem;
 }
 .action-records header p,
-.participation-list header p,
 .team-roster-summary header p {
   margin: 3px 0 0;
   color: #79828c;
   font-size: 0.61rem;
 }
 .action-records header > span,
-.participation-list header > span,
 .team-roster-summary header > span {
   color: #707a85;
   font-size: 0.63rem;

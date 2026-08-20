@@ -1,7 +1,7 @@
 import type { PrismaClient } from '@volleyball-monitoring/db'
 import { AnnotationStatus, UserRole } from '@volleyball-monitoring/db/client'
 import {
-  deriveRallyDisplayOrdinals,
+  deriveGlobalRallyDisplayOrdinals,
   segmentStartCaptureTimeUs,
 } from '../domain/rally-display-order.js'
 import {
@@ -12,10 +12,11 @@ import {
 } from '../media/clip-timing-coverage.js'
 import type { MediaObjectReader } from '../media/playback-domain.js'
 import { resolveEffectiveContactFrame } from './effective-contact-frame.js'
-import { deriveEffectiveSetNumberMap } from './set-display-projection.js'
+import { deriveEffectiveSetNumberMap, deriveEffectiveSetRows } from './set-display-projection.js'
 
 export {
   deriveEffectiveSetNumberMap,
+  deriveEffectiveSetRows,
   type SetDisplayProjectionInput,
 } from './set-display-projection.js'
 
@@ -344,7 +345,9 @@ export async function getCoachMatchState(
       startCaptureTimeUs: segmentStartCaptureTimeUs(draft),
     })
   }
-  const displayOrdinalByRallyId = deriveRallyDisplayOrdinals([...displayOrderByRallyId.values()])
+  const displayOrdinalByRallyId = deriveGlobalRallyDisplayOrdinals([
+    ...displayOrderByRallyId.values(),
+  ])
   const displayResultBySubmissionId = new Map(
     match.rallies.flatMap(rally => {
       const submission = rally.activeSubmission
@@ -443,8 +446,6 @@ export async function getCoachMatchState(
   >()
   for (const rally of [...match.rallies].sort(
     (left, right) =>
-      effectiveSetNumberFor(left.displaySetNumber) -
-        effectiveSetNumberFor(right.displaySetNumber) ||
       (displayOrdinalByRallyId.get(left.id) ?? 1) - (displayOrdinalByRallyId.get(right.id) ?? 1) ||
       left.id.localeCompare(right.id),
   )) {
@@ -480,6 +481,7 @@ export async function getCoachMatchState(
       right: assignment ? (teamScores.get(assignment.rightTeamId) ?? 0) : 0,
     }
   }
+  const visibleSets = deriveEffectiveSetRows(match.sets)
   return {
     schema_version: '1.0.0',
     match: {
@@ -489,9 +491,9 @@ export async function getCoachMatchState(
       clip_pre_roll_us: match.clipPreRollUs.toString(),
       clip_post_roll_us: match.clipPostRollUs.toString(),
       teams: match.matchTeams.map(entry => entry.team),
-      sets: match.sets.map(set => ({
+      sets: visibleSets.map(({ row: set, setNumber }) => ({
         id: set.id,
-        set_number: set.setNumber,
+        set_number: setNumber,
         status: set.status.toLowerCase(),
         left_score: dynamicSetScore(set).left,
         right_score: dynamicSetScore(set).right,
@@ -522,9 +524,9 @@ export async function getCoachMatchState(
               : ((draft.scoringCourtSide?.toLowerCase() as 'left' | 'right' | undefined) ?? null)
         return {
           id: draft.id,
-          ordinal: draft.ordinal,
+          ordinal: displayOrdinalByRallyId.get(draft.id) ?? draft.ordinal,
           display_ordinal: displayOrdinalByRallyId.get(draft.id) ?? 1,
-          display_set_number: draft.displaySetNumber,
+          display_set_number: effectiveSetNumberFor(draft.displaySetNumber),
           annotation_revision: draft.annotationRevision.toString(),
           annotation_status: draft.annotationStatus.toLowerCase(),
           active_submission_id: draft.activeSubmissionId,
@@ -536,7 +538,7 @@ export async function getCoachMatchState(
           left_team_id: sides.leftTeamId,
           right_team_id: sides.rightTeamId,
           set_id: draft.set.id,
-          set_number: draft.set.setNumber,
+          set_number: effectiveSetNumberFor(draft.set.setNumber),
           key_points: draft.keyPoints.map(point => ({
             id: point.id,
             sequence_index: point.sequenceIndex,
@@ -566,15 +568,15 @@ export async function getCoachMatchState(
               return [
                 {
                   id: rally.id,
-                  ordinal: rally.ordinal,
+                  ordinal: displayOrdinalByRallyId.get(rally.id) ?? rally.ordinal,
                   display_ordinal: displayOrdinalByRallyId.get(rally.id) ?? 1,
-                  display_set_number: rally.displaySetNumber,
+                  display_set_number: effectiveSetNumberFor(rally.displaySetNumber),
                   annotation_revision: rally.annotationRevision.toString(),
                   processing_status: rally.processingStatus.toLowerCase(),
                   scoring_court_side: projection.scoringCourtSide,
                   scoring_team_id: projection.scoringTeamId,
                   set_id: rally.set.id,
-                  set_number: rally.set.setNumber,
+                  set_number: effectiveSetNumberFor(rally.set.setNumber),
                   left_score_after: runningScoreByRallyId.get(rally.id)?.left ?? 0,
                   right_score_after: runningScoreByRallyId.get(rally.id)?.right ?? 0,
                   winner_side: runningScoreByRallyId.get(rally.id)?.winnerSide ?? null,

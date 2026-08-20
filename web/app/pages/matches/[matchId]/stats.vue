@@ -205,11 +205,12 @@ function metricDependencies(metric: CoachMetric) {
           </header>
           <div class="rally-list">
             <NuxtLink v-for="rally in analytics.rallies" :key="rally.id" :to="rally.replay_url">
-              <span>第 {{ rally.set_number }} 局</span><strong>回合 {{ rally.ordinal }}</strong
+              <span>總回合 {{ rally.ordinal }}</span
+              ><strong>{{ rally.contact_count }} 次擊球</strong
               ><b :class="{ unknown: rally.score_resolution !== 'resolved' }">{{
                 rally.score_resolution === 'resolved' ? teamName(rally.scoring_team_id) : '結果未知'
               }}</b
-              ><small>{{ rally.contact_count }} 次擊球</small><ArrowUpRight :size="16" />
+              ><small>前往回放</small><ArrowUpRight :size="16" />
             </NuxtLink>
           </div>
         </section>

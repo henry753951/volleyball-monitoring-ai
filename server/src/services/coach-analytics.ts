@@ -235,6 +235,7 @@ export async function getCoachMatchAnalytics(
         select: {
           id: true,
           ordinal: true,
+          createdAt: true,
           set: { select: { setNumber: true } },
           activeSubmission: {
             select: {
@@ -244,6 +245,14 @@ export async function getCoachMatchAnalytics(
               leftTeamId: true,
               rightTeamId: true,
               analysisSourceRunId: true,
+              boundaries: {
+                orderBy: { kind: 'asc' },
+                select: { kind: true, captureTimeUs: true },
+              },
+              keyPoints: {
+                orderBy: { sequenceIndex: 'asc' },
+                select: { markerKind: true, captureTimeUs: true },
+              },
               ballEvents: {
                 orderBy: { ordinal: 'asc' },
                 select: {
@@ -285,6 +294,33 @@ export async function getCoachMatchAnalytics(
   const teams = match.matchTeams.map(entry => entry.team)
   const rallies = match.rallies.flatMap(rally =>
     rally.activeSubmission ? [{ ...rally, submission: rally.activeSubmission }] : [],
+  )
+  const rallyStartTimeUs = (rally: (typeof rallies)[number]) => {
+    const startBoundary = rally.submission.boundaries.find(
+      boundary => boundary.kind.toUpperCase() === 'START',
+    )
+    if (startBoundary) return startBoundary.captureTimeUs
+    const servicePoint = rally.submission.keyPoints.find(
+      point => point.markerKind.toUpperCase() === 'SERVICE',
+    )
+    if (servicePoint) return servicePoint.captureTimeUs
+    return rally.submission.keyPoints.reduce<bigint | null>(
+      (earliest, point) =>
+        earliest === null || point.captureTimeUs < earliest ? point.captureTimeUs : earliest,
+      null,
+    )
+  }
+  const orderedRallies = [...rallies].sort((left, right) => {
+    const leftTime = rallyStartTimeUs(left)
+    const rightTime = rallyStartTimeUs(right)
+    if (leftTime !== null && rightTime !== null && leftTime !== rightTime)
+      return leftTime < rightTime ? -1 : 1
+    if (leftTime !== null && rightTime === null) return -1
+    if (leftTime === null && rightTime !== null) return 1
+    return left.createdAt.getTime() - right.createdAt.getTime() || left.id.localeCompare(right.id)
+  })
+  const displayRallyOrdinalById = new Map(
+    orderedRallies.map((rally, index) => [rally.id, index + 1]),
   )
   const analyzed = rallies.flatMap(rally => {
     const activeRun = rally.submission.analysisRuns[0] ?? null
@@ -512,7 +548,7 @@ export async function getCoachMatchAnalytics(
           track_id: track.trackId,
           rally_id: entry.rally.id,
           set_number: effectiveSetNumberFor(entry.rally.set.setNumber),
-          rally_ordinal: entry.rally.ordinal,
+          rally_ordinal: displayRallyOrdinalById.get(entry.rally.id) ?? entry.rally.ordinal,
         })
     }
   const rallyById = new Map(rallies.map(rally => [rally.id, rally]))
@@ -561,7 +597,7 @@ export async function getCoachMatchAnalytics(
       id: `ball:${event.rallyId}:${event.ordinal}`,
       rally_id: event.rallyId,
       set_number: effectiveSetNumberFor(event.setNumber),
-      rally_ordinal: rally?.ordinal ?? 0,
+      rally_ordinal: rally ? (displayRallyOrdinalById.get(rally.id) ?? rally.ordinal) : 0,
       analysis_run_id: analysis?.run.id ?? null,
       track_id: trackId,
       roster_entry_id: rosterEntryId,
@@ -770,17 +806,24 @@ export async function getCoachMatchAnalytics(
         }
       },
     ),
-    rallies: rallies.map(rally => ({
-      id: rally.id,
-      set_number: effectiveSetNumberFor(rally.set.setNumber),
-      ordinal: rally.ordinal,
-      score_resolution: rally.submission.scoreResolutionState.toLowerCase(),
-      scoring_team_id: rally.submission.scoringTeamId,
-      contact_count:
-        humanBallEvents.filter(event => event.rallyId === rally.id).length ||
-        events.filter(event => event.rallyId === rally.id).length,
-      replay_url: `/matches/${match.id}/replay/${rally.id}`,
-    })),
+    rallies: [...rallies]
+      .sort(
+        (left, right) =>
+          (displayRallyOrdinalById.get(left.id) ?? left.ordinal) -
+            (displayRallyOrdinalById.get(right.id) ?? right.ordinal) ||
+          left.id.localeCompare(right.id),
+      )
+      .map(rally => ({
+        id: rally.id,
+        set_number: effectiveSetNumberFor(rally.set.setNumber),
+        ordinal: displayRallyOrdinalById.get(rally.id) ?? rally.ordinal,
+        score_resolution: rally.submission.scoreResolutionState.toLowerCase(),
+        scoring_team_id: rally.submission.scoringTeamId,
+        contact_count:
+          humanBallEvents.filter(event => event.rallyId === rally.id).length ||
+          events.filter(event => event.rallyId === rally.id).length,
+        replay_url: `/matches/${match.id}/replay/${rally.id}`,
+      })),
     players: match.rosterEntries.map(entry => ({
       roster_entry_id: entry.id,
       team_id: entry.teamId,
@@ -807,7 +850,7 @@ export async function getCoachMatchAnalytics(
           analysis_run_id: entry.run.id,
           rally_id: entry.rally.id,
           set_number: effectiveSetNumberFor(entry.rally.set.setNumber),
-          rally_ordinal: entry.rally.ordinal,
+          rally_ordinal: displayRallyOrdinalById.get(entry.rally.id) ?? entry.rally.ordinal,
           track_id: track.trackId,
           court_side: track.courtSide.toLowerCase(),
           first_frame_index: track.firstFrame.toString(),

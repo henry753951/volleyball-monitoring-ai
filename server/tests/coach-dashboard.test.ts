@@ -5,6 +5,7 @@ import {
 } from '../src/domain/rally-display-order.js'
 import {
   deriveEffectiveSetNumberMap,
+  deriveEffectiveSetRows,
   selectDisplayAnalysis,
 } from '../src/services/coach-dashboard.js'
 import { resolveEffectiveContactFrame } from '../src/services/effective-contact-frame.js'
@@ -111,5 +112,20 @@ describe('effective set projection', () => {
     ])
 
     expect(Object.fromEntries(projection)).toEqual({ 1: 1, 2: 2, 3: 2 })
+  })
+
+  it('returns one visible row when historical winner markers were cleared', () => {
+    const rows = deriveEffectiveSetRows([
+      { setNumber: 1, status: 'FINISHED', winningTeamId: null, id: 'set-1' },
+      { setNumber: 2, status: 'FINISHED', winningTeamId: null, id: 'set-2' },
+      { setNumber: 3, status: 'LIVE', winningTeamId: null, id: 'set-3' },
+    ])
+
+    expect(rows).toEqual([
+      {
+        setNumber: 1,
+        row: { setNumber: 3, status: 'LIVE', winningTeamId: null, id: 'set-3' },
+      },
+    ])
   })
 })

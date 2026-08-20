@@ -4,7 +4,7 @@ import {
   Route as RouteIcon,
   Target as TargetIcon,
 } from 'lucide-vue-next'
-import { computed, ref } from 'vue'
+import { computed, ref, useId } from 'vue'
 import {
   actionColor,
   type CoachCourtSide,
@@ -45,11 +45,46 @@ const props = defineProps<{
 const emit = defineEmits<{ select: [event: CoachPlayerActionEvent] }>()
 
 const displayMode = ref<DisplayMode>('routes')
+const hoveredEventId = ref<string | null>(null)
+const mapId = useId()
+const courtClipId = `${mapId}-court-clip`
+const landingHeatId = `${mapId}-landing-heat`
+const routeShadowId = `${mapId}-route-shadow`
+const routeArrowId = `${mapId}-route-arrow`
+const courtClipPath = `url(#${courtClipId})`
+const routeArrowUrl = `url(#${routeArrowId})`
+const landingHeatUrl = `url(#${landingHeatId})`
 const sideLabels = computed(() => props.sideLabels ?? DEFAULT_SIDE_LABELS)
 const routeEvents = computed(() =>
   props.events.filter(event => event.routeStart !== null && event.routeEnd !== null),
 )
 const landingEvents = computed(() => props.events.filter(event => event.routeEnd !== null))
+// A press/hover is a transient focus over the list selection. When it ends,
+// the explicit list selection becomes active again.
+const activeEventId = computed(() => hoveredEventId.value ?? props.selectedEventId)
+
+const landingHeatSpots = computed(() => {
+  const groups = new Map<string, { x: number; y: number; weight: number; eventIds: string[] }>()
+  for (const event of landingEvents.value) {
+    const x = courtX(event.routeEnd!.x, eventSide(event))
+    const y = courtY(event.routeEnd!.y)
+    const bucketX = Math.round(x / 7) * 7
+    const bucketY = Math.round(y / 7) * 7
+    const key = `${bucketX}:${bucketY}`
+    const group = groups.get(key)
+    if (group) {
+      group.weight += 1
+      group.eventIds.push(event.id)
+    } else {
+      groups.set(key, { x, y, weight: 1, eventIds: [event.id] })
+    }
+  }
+  return [...groups.values()].map((spot, index) => ({
+    ...spot,
+    id: `${mapId}-heat-${index}`,
+    radius: Math.min(24, 10 + Math.sqrt(spot.weight) * 4),
+  }))
+})
 
 const courtX = (value: number, side: CoachCourtSide | null | undefined = props.selectedSide) =>
   (side === 'right' ? 1 - value : value) * 180
@@ -75,6 +110,18 @@ function routeCurve(event: CoachPlayerActionEvent, index: number) {
 
 function openEvent(event: CoachPlayerActionEvent) {
   emit('select', event)
+}
+
+function setHoveredEvent(event: CoachPlayerActionEvent | null) {
+  hoveredEventId.value = event?.id ?? null
+}
+
+function isActive(eventId: string) {
+  return !activeEventId.value || activeEventId.value === eventId
+}
+
+function isHeatSpotActive(eventIds: string[]) {
+  return !activeEventId.value || eventIds.includes(activeEventId.value)
 }
 </script>
 
@@ -114,12 +161,15 @@ function openEvent(event: CoachPlayerActionEvent) {
       >
         <svg viewBox="-18 -14 216 118" role="img" :aria-label="`${label}球路與落點熱區`">
           <defs>
-            <radialGradient id="landing-heat" cx="50%" cy="50%" r="50%">
+            <clipPath :id="courtClipId">
+              <rect x="0" y="0" width="180" height="90" rx="3" />
+            </clipPath>
+            <radialGradient :id="landingHeatId" cx="50%" cy="50%" r="50%">
               <stop offset="0" stop-color="#ff4d2e" stop-opacity=".86" />
               <stop offset=".42" stop-color="#ff8a36" stop-opacity=".42" />
               <stop offset="1" stop-color="#ffbf69" stop-opacity="0" />
             </radialGradient>
-            <filter id="route-shadow" x="-50%" y="-50%" width="200%" height="200%">
+            <filter :id="routeShadowId" x="-50%" y="-50%" width="200%" height="200%">
               <feDropShadow
                 dx="0"
                 dy="1.2"
@@ -129,7 +179,7 @@ function openEvent(event: CoachPlayerActionEvent) {
               />
             </filter>
             <marker
-              id="route-arrow"
+              :id="routeArrowId"
               viewBox="0 0 7 7"
               ref-x="6.2"
               ref-y="3.5"
@@ -199,23 +249,26 @@ function openEvent(event: CoachPlayerActionEvent) {
             </text>
           </g>
 
-          <g v-if="displayMode === 'routes'" class="route-layer">
+          <g v-if="displayMode === 'routes'" class="route-layer" :clip-path="courtClipPath">
             <g
               v-for="(event, index) in routeEvents"
               :key="event.id"
               :class="[
                 'route-line',
                 {
-                  selected: !props.selectedEventId || props.selectedEventId === event.id,
-                  faded: props.selectedEventId && props.selectedEventId !== event.id,
+                  selected: isActive(event.id),
+                  faded: !isActive(event.id),
                 },
               ]"
               :style="{ '--route-color': actionColor(event.actionKey) }"
+              @pointerenter="setHoveredEvent(event)"
+              @pointerleave="setHoveredEvent(null)"
+              @pointerdown="setHoveredEvent(event)"
             >
               <path
                 class="route-path-flow"
                 :d="routeCurve(event, index)"
-                marker-end="url(#route-arrow)"
+                :marker-end="routeArrowUrl"
                 @click="openEvent(event)"
               />
               <circle
@@ -244,24 +297,22 @@ function openEvent(event: CoachPlayerActionEvent) {
                 :d="routeCurve(event, index)"
                 role="button"
                 tabindex="0"
-                :aria-label="`第 ${event.setNumber} 局回合 ${event.rallyOrdinal} ${event.actionLabel}，開啟短回放`"
+                :aria-label="`總回合 ${event.rallyOrdinal} ${event.actionLabel}，開啟短回放`"
                 @click="openEvent(event)"
                 @keydown.enter.space.prevent="openEvent(event)"
               />
             </g>
           </g>
 
-          <g v-else class="landing-layer">
+          <g v-else class="landing-layer" :clip-path="courtClipPath">
             <circle
-              v-for="event in landingEvents"
-              :key="`heat:${event.id}`"
-              :class="[
-                'landing-heat',
-                { faded: props.selectedEventId && props.selectedEventId !== event.id },
-              ]"
-              :cx="courtX(event.routeEnd!.x, eventSide(event))"
-              :cy="courtY(event.routeEnd!.y)"
-              r="17"
+              v-for="spot in landingHeatSpots"
+              :key="spot.id"
+              :class="['landing-heat', { faded: !isHeatSpotActive(spot.eventIds) }]"
+              :cx="spot.x"
+              :cy="spot.y"
+              :r="spot.radius"
+              :style="{ fill: landingHeatUrl }"
             />
             <circle
               v-for="event in landingEvents"
@@ -269,17 +320,20 @@ function openEvent(event: CoachPlayerActionEvent) {
               :class="[
                 'landing-point',
                 {
-                  selected: !props.selectedEventId || props.selectedEventId === event.id,
-                  faded: props.selectedEventId && props.selectedEventId !== event.id,
+                  selected: isActive(event.id),
+                  faded: !isActive(event.id),
                 },
               ]"
               role="button"
               tabindex="0"
-              :aria-label="`第 ${event.setNumber} 局回合 ${event.rallyOrdinal} ${event.actionLabel}落點，開啟短回放`"
+              :aria-label="`總回合 ${event.rallyOrdinal} ${event.actionLabel}落點，開啟短回放`"
               :style="{ '--route-color': actionColor(event.actionKey) }"
               :cx="courtX(event.routeEnd!.x, eventSide(event))"
               :cy="courtY(event.routeEnd!.y)"
               r="2.3"
+              @pointerenter="setHoveredEvent(event)"
+              @pointerleave="setHoveredEvent(null)"
+              @pointerdown="setHoveredEvent(event)"
               @click="openEvent(event)"
               @keydown.enter.space.prevent="openEvent(event)"
             />
@@ -302,7 +356,7 @@ function openEvent(event: CoachPlayerActionEvent) {
     <footer class="route-map__legend">
       <span><i class="legend-start" />起點</span>
       <span><i class="legend-end" />終點／落點</span>
-      <span>流動虛線由起點前往箭頭；場外座標會保留。</span>
+      <span>流動虛線由起點前往箭頭；場外座標只在場內顯示。</span>
     </footer>
   </article>
 </template>
@@ -402,8 +456,8 @@ function openEvent(event: CoachPlayerActionEvent) {
 .route-map__canvas svg {
   width: 100%;
   max-height: 390px;
-  overflow: visible;
-  filter: url(#route-shadow);
+  overflow: hidden;
+  filter: drop-shadow(0 1.2px 1.3px rgb(2 7 11 / 60%));
 }
 .court-apron {
   fill: #17232c;
@@ -425,6 +479,7 @@ function openEvent(event: CoachPlayerActionEvent) {
 .court-stage {
   width: 100%;
   display: block;
+  overflow: hidden;
 }
 .court-side-names {
   fill: #a8c0ca;
@@ -473,7 +528,7 @@ function openEvent(event: CoachPlayerActionEvent) {
   fill: none;
   stroke: var(--route-color);
   stroke-linecap: round;
-  stroke-width: 2.5;
+  stroke-width: 1.35;
   stroke-dasharray: 1.4 10;
   opacity: 0.92;
   transition:
@@ -492,7 +547,7 @@ function openEvent(event: CoachPlayerActionEvent) {
     filter 160ms ease-out;
 }
 .route-line.selected .route-path-flow {
-  stroke-width: 3.8;
+  stroke-width: 2.2;
   opacity: 1;
 }
 .landing-point.selected {
@@ -504,7 +559,7 @@ function openEvent(event: CoachPlayerActionEvent) {
 }
 .route-line:hover .route-path-flow,
 .route-line:focus-within .route-path-flow {
-  stroke-width: 3;
+  stroke-width: 2.2;
   opacity: 1;
 }
 .route-arrow {
@@ -527,13 +582,25 @@ function openEvent(event: CoachPlayerActionEvent) {
   opacity: 0.9;
 }
 .landing-heat {
-  fill: url(#landing-heat);
   mix-blend-mode: screen;
+  opacity: 0.56;
+  transition:
+    opacity 160ms ease-out,
+    filter 160ms ease-out;
 }
 .landing-point {
   fill: var(--route-color);
+  stroke: transparent;
+  stroke-width: 0;
+  opacity: 0.62;
+  transition:
+    opacity 160ms ease-out,
+    r 160ms ease-out;
+}
+.landing-point.selected {
+  opacity: 1;
   stroke: #fff;
-  stroke-width: 0.8;
+  stroke-width: 0.7;
 }
 .route-map__empty {
   position: absolute;

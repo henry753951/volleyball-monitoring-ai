@@ -403,7 +403,7 @@ d1be5213767a4088232f5c1378f73b86cdd781efde8bf370a2c9eb9921131014  ./server/src/d
 ad8bb87a764c67b2d144a7ff8b478c57b49b29414a2b5354d8c7c2a92c497552  ./server/src/domain/annotation/room.ts
 eb8895f173ec8f89e65be447ec412a9ee81d272acd191c7435c55fba71ab5050  ./server/src/domain/annotation/submission-geometry-reuse.ts
 6681e08bba86693baca23c14b2064181be67b55be57f5d26146fd1948f982a19  ./server/src/domain/annotation/submission.ts
-d0678952df521278efc4610e2b332545361005dd115cf4fec713b0740ccb8c33  ./server/src/domain/rally-display-order.ts
+4037ff20d9484289a3cc4eca330f48a29017f7e7d2c4b15d8cf339a80445c238  ./server/src/domain/rally-display-order.ts
 c30599d3d77fd0cc3ec1fd173b3cbb4d7c778dce32543f7d812b51bb4b602f73  ./server/src/graphql/README.md
 ffaeaad62060d4dedd49984911e6567a47c7ef8718e1988658bc93b9361e6e93  ./server/src/graphql/annotation-mutations.ts
 06d936aa732b8eb226ea8c55118d567abe73b1c4306fe48287fbc708f18f2001  ./server/src/graphql/annotation-queries.ts
@@ -418,7 +418,7 @@ a199297c373619cc504f2acc5d5d19cbbe861550d895b5a5fda9659b9b4887f5  ./server/src/g
 869dfa2e95072a97ce3743fc2f5bfbaeffba52641b7367ebba4f2e00d2fac3e1  ./server/src/graphql/mutations.ts
 95406a6d3870cb15568567a54aebf04d91a468957b38f984e981217dcc14cd4e  ./server/src/graphql/queries.ts
 daf55fad91c822857be170cd3d76c6a9170e2ae6df3e9524f6640818f43f310f  ./server/src/graphql/schema.ts
-119bf1c8d1f330c5d8bb2eb48305d226272777138e5bffe24cdf09b1b9cfc502  ./server/src/graphql/types.ts
+7db9d2d3bbc6775ac2699822cb00a03f4b13e423686af47218941d608a7374c2  ./server/src/graphql/types.ts
 ea136aaa6ba07c90b6058404e8e75532dd97cef5078c0c63ea26f7d3b207e642  ./server/src/health/readiness.ts
 cc7eb19bb6363a140a0fc81e97868dd986a18fd7b2fcf3ecf824c5e39f5d9246  ./server/src/index.ts
 3e66f3f7eaa2cc0ed051739c2d0347dd7499accd54d8be51453dca6ed379d4ac  ./server/src/media/analysis-dataset.ts
@@ -459,8 +459,8 @@ a24fb72947ebbdaed8f430f0f66c3bbf5b52c8dbd7242f3a8ebdc4b337cf484f  ./server/src/r
 1673f25f3047c88ce83eff14e5bd6e05bb83da700ba504e6cf8c4b90479e23d6  ./server/src/services/annotation-command.ts
 46ade9235a91cf2f9cf5e748e9d9a0a0a6e35b7e53e5e8aab822f12f9041aef9  ./server/src/services/annotation-snapshot.ts
 fbc6d5d8d9cb99af507f5915b9ecd17b0413519abab4f1ad78da78b72d5a1fb3  ./server/src/services/capture-processing.ts
-5ab7c7ddab93a5ce27e0971e39e7d5d8ce2dd9b278ca1df32bdf5369025c7b53  ./server/src/services/coach-analytics.ts
-9d92fc97f0688166c68eaeb2f3e46d20f075666b346bdc8004e7ca40e8be7a88  ./server/src/services/coach-dashboard.ts
+fac9cc7f776300108e69911dfcd33b4ac71c64993720c606a214940a2201eda1  ./server/src/services/coach-analytics.ts
+61493b7a45b76fe35791875e658cbad2ccdd9424c8ee539fede0bc8dbc37fce9  ./server/src/services/coach-dashboard.ts
 e1abb715be66a38d29161f592db6e72e817158c43aa8e51f18ab421f8f58a5f6  ./server/src/services/coach-replay.ts
 f8f7344bbc4f77eb5731e4b51eb5d3b7eda767c7ae4cce44ffec09baebeaf8d6  ./server/src/services/core-domain.ts
 9d0aa531c137cd421dd6a0a98643474e6296ffbd96bc4fce9bc300e92e182c0d  ./server/src/services/correction-draft.ts
@@ -468,6 +468,7 @@ f8f7344bbc4f77eb5731e4b51eb5d3b7eda767c7ae4cce44ffec09baebeaf8d6  ./server/src/s
 71765f8b7c5cfa77ba9f694ddd9923cae4b6ab7b2a50bb84e80693a40f17480e  ./server/src/services/effective-contact-frame.ts
 7709f26dd0c310f5f645ad875b3261f31ea2da19a17f0e10ed101723ca144800  ./server/src/services/match-administration.ts
 6b7479ad485856f1192ff4e866b9372b9b3912058f74da1125ad5cd3586469c0  ./server/src/services/match-cleanup-coordinator.ts
+904f3872769e4fef349aa0626de08275abbbe368619ef9d1d2b339dcdb1ddf66  ./server/src/services/match-set-projection.ts
 c160208635fbeb92a922da8d08d138d6f2394bd1d46825bcba5847ef3681d28e  ./server/src/services/media-timeline-projection.ts
 007e431d3e55c73db99fbb58badd23fdd3b39a69104ffab91f077744c8d1bb18  ./server/src/services/media-timeline.ts
 de75ad15a3c0fc9e95aebad72d15a60d4bea41bf217b143a2b5331c512d1e47a  ./server/src/services/processing-rally-cancellation.ts
@@ -478,7 +479,7 @@ b3dfdd7e6ec10f5f0647b3283acc82bd7c3e1879e9cf1a68d97866b2d2da6bec  ./server/src/s
 8810692b150e6b699f6cffddba4540cec8568d6625ab01713efd540d2127b33b  ./server/src/services/reid-feature-rebuild.ts
 ae50456b5bb2dbeb1fe3d5b7c23cd5b2f1f941c56f3164cc040413a27b4a775e  ./server/src/services/reid-identity-ledger.ts
 91ce64ad74bd79747f567f8d734e5b8de34f4bcabe8ffa828b43fd666e3516b0  ./server/src/services/reid-jersey-suggestions.ts
-113161e204efcd7f1d06fdcdf5928f672553b558a1ed306fff2d13a4bdaa154d  ./server/src/services/set-display-projection.ts
+f0f8b2405104f5ee84957f65a53013b79c194476697434f82338309cac41ed5c  ./server/src/services/set-display-projection.ts
 9fd0fd115316d99f84975413ae7ef984c3bcdd4b2e4d26e44a8c6794c620ab97  ./server/tests/ai-progress.test.ts
 6e68f75a748d995da54df87c261649ef5bc49665facca234c150b12d45e3d0f2  ./server/tests/ai-worker-access.test.ts
 8dc15db2c9c27a94bd99ba9c2a1ba28e19578153ba04ab796180f93ab74fda54  ./server/tests/analysis-dataset.test.ts
@@ -496,7 +497,7 @@ d1200dd557e08188c87a867980ead67bc85f7866c5b014ff08dd820027ddb5ea  ./server/tests
 e1eecdd39240ae7680aa875e8376c86ce2e54c51691cc9b475f1fd7468482cd7  ./server/tests/clip-timing-coverage.test.ts
 d696df1ede4bae213891e118302ab09d6c4c79bbd451afff8fe9aaf928004dd7  ./server/tests/coach-analytics-identity.test.ts
 dd8d7413ac56e330cf594cd65b2a585e706d1c38f6d1d76d8c23830e73be872d  ./server/tests/coach-analytics-reid-pending.test.ts
-21a3527d0735e1106800b4a2cc9e2b5cfd71e7355d739687fdcf6877d774cc22  ./server/tests/coach-dashboard.test.ts
+b1473d77d6fa628b1b7be7b057cf7c553cbce4ffe25047da7a20610975a8293d  ./server/tests/coach-dashboard.test.ts
 f626df2ed4342698e53ec24d8514c2ac016bc0a871b6028b8f058fcfd99a055f  ./server/tests/coach-replay-effective.test.ts
 ccd68892c43f362aa492bd3e54241bd0c15df33408f85fc1562eab35eae700f3  ./server/tests/core-domain.integration.test.ts
 e3e36f10d5f720b767c57462d131167b3d9e07493441e69b816a67ef5c80630c  ./server/tests/effective-contact-actor.test.ts
@@ -555,9 +556,9 @@ da8771b444ef1a9f2fc7b5ee68fb4597514e98cc2394d4a0fb4f3cb71c042e2e  ./web/app/comp
 f549bda3ae6f2a2475812c61afad7ec7e6d0a866112e341b499e1d8289bab779  ./web/app/components/CaptureControlDialog.vue
 e58e564652b1e81206444c0f426239a09641f5ec95de64255a7f7fb46cedd350  ./web/app/components/ClipDownloadDialog.component.test.ts
 e8a1ef7506d1db6e108e48db64e5b1b16416be2fab034b8ff326624e360d7634  ./web/app/components/ClipDownloadDialog.vue
-28018e3901182d1837a23f06f3d2ab32910a13d0324c107c2b63222fe0e58b64  ./web/app/components/CoachBallRouteMap.component.test.ts
-64e8ced65897b2aab11a867c07b88fa19a09832b161173bd01c7144e78aac814  ./web/app/components/CoachBallRouteMap.vue
-adc9d5969a72e07778d90008b87d46278d33b0e6eca0f20fd606a6bd17ee396c  ./web/app/components/CoachEventReplayDialog.vue
+a80a841740884cfdc347183906f3531f0c0bbafe8e7db7001f42743716c5618e  ./web/app/components/CoachBallRouteMap.component.test.ts
+93c60216cb8146af1b6bdd765a1b3273c34a27e88ca90330b4c40092ac314569  ./web/app/components/CoachBallRouteMap.vue
+bd61dcce80c420ea6947f74188ed44ce2a583dd311c713d6e2f47ce8522b40a0  ./web/app/components/CoachEventReplayDialog.vue
 cbfb6f44d91e7d47965647dee2ef8347533d05ad10014631d1dfd3dcb1c792a9  ./web/app/components/CoachHighlightExport.vue
 51fab1de62997d579da78a7e0f7ff73580eb4c661e2fdadd699292590db45fd2  ./web/app/components/CoachTrackIdentityEditor.vue
 ba3109f41a696d3e7ba6c2fabcad2800edfc17c6798a833b843fcdb6a25e7a8f  ./web/app/components/ConfirmActionDialog.vue
@@ -686,10 +687,10 @@ ffda57a925b659c33ea87ab67aedd169120195cf27497ab8eceaf14dd7e56ba3  ./web/app/page
 69a0f7dd20a08ee17460b15c5d24c93b9150a59017c75e8ecc1b419f0a7cb9f3  ./web/app/pages/matches/[matchId]/history.vue
 2764816feabb4428ce23f4d9dd2a199a18256b9758a3ac95a4da67c8099f0f83  ./web/app/pages/matches/[matchId]/live.vue
 69a0f7dd20a08ee17460b15c5d24c93b9150a59017c75e8ecc1b419f0a7cb9f3  ./web/app/pages/matches/[matchId]/paths.vue
-766d2cc2a483d0b6355ca7e2160bc2307f2c23ce16c79d54bf4c7854c2faeadd  ./web/app/pages/matches/[matchId]/players.vue
+3a853211c659f5d28cba4baf36341a51c5dfdcb7c366a1799cec02661345162a  ./web/app/pages/matches/[matchId]/players.vue
 7a4705fcc23f050218b15132d0e7f6be0904977396072a74beed0162fd6822a6  ./web/app/pages/matches/[matchId]/rallies.vue
 1605dc9158ee7b05acf2d261aa2dbd59d670b829b9b5d92ce398cf06cb3d9582  ./web/app/pages/matches/[matchId]/replay/[rallyId].vue
-293cbe12ac6b3af5f46b1d9a9ce9624f8dc165d90c2da546d5002ef544a28608  ./web/app/pages/matches/[matchId]/stats.vue
+763df57541cc7126a3bbc5621f1e0270c4623b5fecd34cc526b91d90a4a5779a  ./web/app/pages/matches/[matchId]/stats.vue
 370f04b3ada7ea5cd87586310fdd983e9cddcc64548a305a625171a205b55a55  ./web/app/pages/matches/new.vue
 cf27a5861e4e2018ab54699e5ee30c394cafddbe3072c7a4490dff04db8f618f  ./web/app/pages/settings.vue
 b4faef41868e822a1f2e7edae45c854e40f9376da20ba8994dcc29d75223e5f8  ./web/app/services/annotation-workstation/analysis-frame-chunks.service.ts
@@ -759,7 +760,7 @@ a721e1dc62ca9b6275a528b66ae489ea74e20d862043a6a2bef25799f7f7b6b4  ./web/app/util
 c6a74a13d008eb443fe477eb7e7722681e4924bd1491590072251da19c97f5bb  ./web/app/utils/coachPlayerActions.test.ts
 ca5426193180535528532a5f063742fc2d803b44c4a1807176c317b34e37bebf  ./web/app/utils/coachPlayerActions.ts
 7d28a8da4b559a29535e71c47631761428a318596e55a8b535b538cf8e4dc332  ./web/app/utils/coachPresentation.test.ts
-a243ce601ce3018b8d741c65bf0238ad310ca00128b4ee25241e877b8f24ee78  ./web/app/utils/coachPresentation.ts
+c0fbdc8605e8299dd24816628d6b7efd2555205a76d5d4d251679fb74e07c7a2  ./web/app/utils/coachPresentation.ts
 01e0755d9dd2853e8305a77c7409a517ef0aaa201bfe3ba4b4c9b365a1e90796  ./web/app/utils/frameNavigationGestureRouter.test.ts
 806fc215df3397ada36e42ff5d5686ebe595b2d18a29ea9e60e8cef2e6a04fe7  ./web/app/utils/frameNavigationGestureRouter.ts
 5ca9fd718f3ac008fb2108b6c6c9eb33f132c95983cc8e9632506e1540f2fbad  ./web/app/utils/framePreviewCalibration.test.ts

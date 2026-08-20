@@ -37,6 +37,7 @@ import {
   type RallyDeleteReceipt,
   type RallyPlacementResult,
 } from '../services/rally-administration.js'
+import { projectMatchSets } from '../services/match-set-projection.js'
 
 interface Health {
   service: string
@@ -182,11 +183,16 @@ MatchSetType.implement({
     setNumber: t.exposeInt('setNumber'),
     sideAssignments: t.field({
       type: [CourtSideAssignmentType],
-      resolve: matchSet =>
-        db.courtSideAssignment.findMany({
+      resolve: matchSet => {
+        const projected = matchSet as MatchSet & {
+          projectedSideAssignments?: CourtSideAssignment[]
+        }
+        if (projected.projectedSideAssignments) return projected.projectedSideAssignments
+        return db.courtSideAssignment.findMany({
           orderBy: [{ effectiveFromRallyOrdinal: 'asc' }, { id: 'asc' }],
           where: { setId: matchSet.id },
-        }),
+        })
+      },
     }),
     status: t.field({ type: SetStatusType, resolve: matchSet => matchSet.status }),
   }),
@@ -285,11 +291,7 @@ MatchType.implement({
     }),
     sets: t.field({
       type: [MatchSetType],
-      resolve: match =>
-        db.matchSet.findMany({
-          orderBy: [{ setNumber: 'asc' }, { id: 'asc' }],
-          where: { matchId: match.id },
-        }),
+      resolve: match => projectMatchSets(db, match.id),
     }),
     status: t.field({ type: MatchStatusType, resolve: match => match.status }),
     teams: t.field({ type: [TeamType], resolve: match => teamsForMatch(match.id) }),
