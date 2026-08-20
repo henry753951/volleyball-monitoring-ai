@@ -147,6 +147,7 @@ export interface MatchDeleteReceipt {
 
 export interface SwapCourtSidesInput {
   setId: string
+  effectiveFromRallyId?: string | null
   effectiveFromRallyOrdinal: number
   expectedLeftTeamId: string
   expectedRightTeamId: string

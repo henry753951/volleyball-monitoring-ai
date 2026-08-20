@@ -319,6 +319,7 @@ describe('segment management service', () => {
 
   it('uses a selected rally as the suffix-swap target', async () => {
     const target: SideSwapTarget = {
+      rallyId: 'rally-12',
       effectiveFromRallyOrdinal: 12,
       expectedLeftTeamId: 'team-a',
       expectedRightTeamId: 'team-b',
@@ -332,6 +333,7 @@ describe('segment management service', () => {
     await context.confirmation.confirm()
 
     expect(context.core.swapCourtSides).toHaveBeenCalledWith({
+      effectiveFromRallyId: target.rallyId,
       effectiveFromRallyOrdinal: target.effectiveFromRallyOrdinal,
       expectedLeftTeamId: target.expectedLeftTeamId,
       expectedRightTeamId: target.expectedRightTeamId,

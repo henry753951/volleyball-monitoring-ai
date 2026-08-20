@@ -46,6 +46,7 @@ CreateMatchSetupInputType.implement({
 export const SwapCourtSidesInputType = builder.inputRef<SwapCourtSidesInput>('SwapCourtSidesInput')
 SwapCourtSidesInputType.implement({
   fields: t => ({
+    effectiveFromRallyId: t.id(),
     effectiveFromRallyOrdinal: t.int({ required: true }),
     expectedLeftTeamId: t.id({ required: true }),
     expectedRightTeamId: t.id({ required: true }),

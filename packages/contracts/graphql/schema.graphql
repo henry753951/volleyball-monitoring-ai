@@ -299,6 +299,7 @@ input StartNextSetInput {
 }
 
 input SwapCourtSidesInput {
+  effectiveFromRallyId: ID
   effectiveFromRallyOrdinal: Int!
   expectedLeftTeamId: ID!
   expectedRightTeamId: ID!

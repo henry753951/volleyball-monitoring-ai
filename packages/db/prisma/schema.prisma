@@ -472,14 +472,16 @@ model MatchSet {
   rightScore      Int                   @default(0)
   scoreRevision   Int                   @default(0)
   winningTeamId   String?               @db.Uuid
+  winningRallyId  String?               @unique @db.Uuid
   startedAt       DateTime?
   endedAt         DateTime?
   createdAt       DateTime              @default(now())
   updatedAt       DateTime              @updatedAt
   match           Match                 @relation(fields: [matchId], references: [id], onDelete: Cascade)
   winningTeam     Team?                 @relation("SetWinningTeam", fields: [winningTeamId], references: [id], onDelete: Restrict)
+  winningRally    Rally?                @relation("SetWinningRally", fields: [winningRallyId], references: [id], onDelete: SetNull)
   sideAssignments CourtSideAssignment[]
-  rallies         Rally[]
+  rallies         Rally[]               @relation("MatchSetRallies")
   pointAwards     PointAward[]
   scoreLedger     ScoreLedgerEntry[]
 
@@ -825,7 +827,8 @@ model Rally {
   updatedAt                 DateTime              @updatedAt
   voidedAt                  DateTime?
   match                     Match                 @relation(fields: [matchId], references: [id], onDelete: Cascade)
-  set                       MatchSet              @relation(fields: [setId], references: [id], onDelete: Restrict)
+  set                       MatchSet              @relation("MatchSetRallies", fields: [setId], references: [id], onDelete: Restrict)
+  wonSet                    MatchSet?             @relation("SetWinningRally")
   program                   DvrProgram            @relation(fields: [dvrProgramId], references: [id], onDelete: Restrict)
   sideAssignment            CourtSideAssignment   @relation(fields: [sideAssignmentId], references: [id], onDelete: Restrict)
   scoringTeam               Team?                 @relation("RallyScoringTeam", fields: [scoringTeamId], references: [id], onDelete: Restrict)
