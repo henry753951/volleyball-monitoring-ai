@@ -3,8 +3,11 @@ import type { PrismaClient } from '@volleyball-monitoring/db'
 import { JobStatus } from '@volleyball-monitoring/db/client'
 import { describe, expect, it, vi } from 'vitest'
 import {
-  providerStorageEndpoint,
   providerCapabilityMatchesJob,
+  providerDatabaseWorkKinds,
+  providerMatchScope,
+  providerMatchScopeWhere,
+  providerStorageEndpoint,
   recoverExpiredProviderJobs,
 } from '../src/realtime/provider-work-ws.js'
 
@@ -20,6 +23,30 @@ const capability: ProviderWorkCapability = {
 }
 
 describe('Provider Work v2 scheduling', () => {
+  it('limits candidate queries to the work kinds declared by the provider', () => {
+    expect(
+      providerDatabaseWorkKinds({
+        schema_version: '3.0.0',
+        provider_name: 'analysis-only',
+        provider_build_id: 'analysis-only/test',
+        work_capabilities: [capability, { ...capability }],
+      }),
+    ).toEqual(['ANALYSIS'])
+  })
+
+  it('scopes an opt-in provider connection to one match', () => {
+    const matchId = '1322399f-91fa-42c8-92b2-683067101f3b'
+    expect(providerMatchScope(`/api/v2/ai/providers/ws?match_id=${matchId}`)).toBe(matchId)
+    expect(providerMatchScopeWhere(matchId)).toEqual({
+      requestPayload: { path: ['match_id'], equals: matchId },
+    })
+    expect(providerMatchScope('/api/v2/ai/providers/ws')).toBeNull()
+    expect(providerMatchScopeWhere(null)).toEqual({})
+    expect(() => providerMatchScope('/api/v2/ai/providers/ws?match_id=not-a-uuid')).toThrow(
+      'Provider match_id scope must be a UUID',
+    )
+  })
+
   it('uses the provider-reachable endpoint before the browser-facing public endpoint', () => {
     expect(
       providerStorageEndpoint({

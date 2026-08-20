@@ -28,6 +28,15 @@ export interface CoachPlayerActionEvent {
   outcome: CoachActionOutcome
 }
 
+export interface CoachRouteSummary {
+  eventCount: number
+  eligiblePathCount: number
+  completePathCount: number
+  missingCoordinateCount: number
+  terminalEventCount: number
+  coverage: number | null
+}
+
 export type CoachBallType = 'hit' | 'spike' | 'serve' | 'serve_receive'
 
 const COACH_BALL_TYPE_LABELS: Record<CoachBallType, string> = {
@@ -146,6 +155,40 @@ export function actionColor(key: string) {
   let hash = 0
   for (const character of key) hash = ((hash << 5) - hash + character.charCodeAt(0)) | 0
   return ACTION_COLORS[Math.abs(hash) % ACTION_COLORS.length]!
+}
+
+export function summarizeCoachActionRoutes(
+  events: readonly Pick<
+    CoachPlayerActionEvent,
+    'rallyId' | 'anchorTimeUs' | 'routeStart' | 'routeEnd'
+  >[],
+  allEventAnchors: readonly Pick<CoachPlayerActionEvent, 'rallyId' | 'anchorTimeUs'>[] = events,
+): CoachRouteSummary {
+  const lastAnchorByRally = new Map<string, bigint>()
+  for (const event of allEventAnchors.length ? allEventAnchors : events) {
+    if (!/^\d+$/.test(event.anchorTimeUs)) continue
+    const anchor = BigInt(event.anchorTimeUs)
+    const current = lastAnchorByRally.get(event.rallyId)
+    if (current === undefined || anchor > current) lastAnchorByRally.set(event.rallyId, anchor)
+  }
+  const eligible = events.filter(event => {
+    const lastAnchor = lastAnchorByRally.get(event.rallyId)
+    return lastAnchor === undefined || !/^\d+$/.test(event.anchorTimeUs)
+      ? true
+      : BigInt(event.anchorTimeUs) < lastAnchor
+  })
+  const completePathCount = eligible.filter(
+    event => event.routeStart !== null && event.routeEnd !== null,
+  ).length
+  const eligiblePathCount = eligible.length
+  return {
+    eventCount: events.length,
+    eligiblePathCount,
+    completePathCount,
+    missingCoordinateCount: eligiblePathCount - completePathCount,
+    terminalEventCount: events.length - eligiblePathCount,
+    coverage: eligiblePathCount ? completePathCount / eligiblePathCount : null,
+  }
 }
 
 export function replayStartSeconds(anchorTimeUs: string, leadSeconds = 3) {

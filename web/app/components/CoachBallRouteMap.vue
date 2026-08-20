@@ -5,11 +5,7 @@ import {
   Target as TargetIcon,
 } from 'lucide-vue-next'
 import { computed, ref, useId } from 'vue'
-import {
-  actionColor,
-  type CoachCourtSide,
-  type CoachPlayerActionEvent,
-} from '~/utils/coachPlayerActions'
+import { actionColor, type CoachPlayerActionEvent } from '~/utils/coachPlayerActions'
 
 type DisplayMode = 'routes' | 'landings'
 type SideScope = 'team' | 'player'
@@ -66,7 +62,7 @@ const activeEventId = computed(() => hoveredEventId.value ?? props.selectedEvent
 const landingHeatSpots = computed(() => {
   const groups = new Map<string, { x: number; y: number; weight: number; eventIds: string[] }>()
   for (const event of landingEvents.value) {
-    const x = courtX(event.routeEnd!.x, eventSide(event))
+    const x = courtX(event.routeEnd!.x)
     const y = courtY(event.routeEnd!.y)
     const bucketX = Math.round(x / 7) * 7
     const bucketY = Math.round(y / 7) * 7
@@ -86,20 +82,14 @@ const landingHeatSpots = computed(() => {
   }))
 })
 
-const courtX = (value: number, side: CoachCourtSide | null | undefined = props.selectedSide) =>
-  (side === 'right' ? 1 - value : value) * 180
+const courtX = (value: number) => value * 180
 const courtY = (value: number) => (1 - value) * 90
-
-function eventSide(event: CoachPlayerActionEvent) {
-  return event.courtSide ?? props.selectedSide
-}
 
 function routeCurve(event: CoachPlayerActionEvent, index: number) {
   if (!event.routeStart || !event.routeEnd) return ''
-  const side = eventSide(event)
-  const startX = courtX(event.routeStart.x, side)
+  const startX = courtX(event.routeStart.x)
   const startY = courtY(event.routeStart.y)
-  const endX = courtX(event.routeEnd.x, side)
+  const endX = courtX(event.routeEnd.x)
   const endY = courtY(event.routeEnd.y)
   const distance = Math.max(1, Math.hypot(endX - startX, endY - startY))
   const bend = Math.min(12, Math.max(3, distance * 0.12)) * (index % 2 ? -1 : 1)
@@ -274,21 +264,21 @@ function isHeatSpotActive(eventIds: string[]) {
               <circle
                 v-if="event.routeStart"
                 class="route-start"
-                :cx="courtX(event.routeStart.x, eventSide(event))"
+                :cx="courtX(event.routeStart.x)"
                 :cy="courtY(event.routeStart.y)"
                 r="2.8"
               />
               <circle
                 v-if="event.routeEnd"
                 class="route-end-ring"
-                :cx="courtX(event.routeEnd.x, eventSide(event))"
+                :cx="courtX(event.routeEnd.x)"
                 :cy="courtY(event.routeEnd.y)"
                 r="4.2"
               />
               <circle
                 v-if="event.routeEnd"
                 class="route-end"
-                :cx="courtX(event.routeEnd.x, eventSide(event))"
+                :cx="courtX(event.routeEnd.x)"
                 :cy="courtY(event.routeEnd.y)"
                 r="2.2"
               />
@@ -328,7 +318,7 @@ function isHeatSpotActive(eventIds: string[]) {
               tabindex="0"
               :aria-label="`總回合 ${event.rallyOrdinal} ${event.actionLabel}落點，開啟短回放`"
               :style="{ '--route-color': actionColor(event.actionKey) }"
-              :cx="courtX(event.routeEnd!.x, eventSide(event))"
+              :cx="courtX(event.routeEnd!.x)"
               :cy="courtY(event.routeEnd!.y)"
               r="2.3"
               @pointerenter="setHoveredEvent(event)"

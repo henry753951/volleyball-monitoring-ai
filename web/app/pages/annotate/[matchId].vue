@@ -88,6 +88,12 @@ import { mergeRallyProcessingUpdate } from '~/services/annotation-workstation/pr
 import { ballEventRepairNotice } from '~/utils/annotationBallEventRepairNotice'
 import { captureTimeForIdentityTrackFrame } from '~/utils/identityTrackNavigation'
 import {
+  resolveAnnotationRouteAnalysisPage,
+  resolveAnnotationRouteInspector,
+  resolveAnnotationRouteRally,
+} from '~/utils/annotationRouteSelection'
+import { analysisContactSemantic, analysisPathLabel } from '~/utils/analysisContactPresentation'
+import {
   captureTimeInTimelineRanges,
   liveMediaBackend,
   omeLiveManifestUrl,
@@ -1087,8 +1093,12 @@ const contactTimeCorrections = computed<Record<string, number>>(() =>
 function effectiveContactFrame(keyPointId: string, fallbackFrame: number) {
   return analysisReview.contactTimeCorrections.value.get(keyPointId) ?? fallbackFrame
 }
-const analysisHitItems = computed(() =>
-  [
+const analysisHitItems = computed(() => {
+  const eventById = new Map(overlayEvents.value.map(event => [event.key_point_id, event]))
+  const pathByStartId = new Map(
+    (overlayReplay.value?.analysis?.paths ?? []).map(path => [path.start_key_point_id, path]),
+  )
+  return [
     ...overlayEvents.value
       .filter(event => !analysisReview.contactEdits.value.get(event.key_point_id)?.deleted)
       .map(event => {
@@ -1120,10 +1130,12 @@ const analysisHitItems = computed(() =>
                 )
               : ((event.actors[0] ?? event.candidates[0])?.track_id ?? null)
         const exactBall = analysisReview.ballCorrections.value.get(String(frameIndex))
+        const semantic = analysisContactSemantic(event, overlayTeamLabels.value)
         return {
           keyPointId: event.key_point_id,
           sequenceIndex: event.sequence_index,
           frameIndex,
+          captureTimeUs: overlayPlayer.value?.overlayFrameCaptureTime(frameIndex) ?? null,
           anchorSource:
             event.anchor_origin === 'ai_detected' ? ('ai' as const) : ('human' as const),
           anchorConfidence: event.detection_confidence ?? null,
@@ -1146,6 +1158,12 @@ const analysisHitItems = computed(() =>
               : projection?.status === 'failed'
                 ? ('failed' as const)
                 : ('auto' as const),
+          semanticLabel: semantic ? `${semantic.teamLabel} · ${semantic.typeLabel}` : null,
+          pathLabel: analysisPathLabel(
+            pathByStartId.get(event.key_point_id),
+            eventById,
+            overlayTeamLabels.value,
+          ),
           ballLabel:
             exactBall?.state === 'position'
               ? '人工球點'
@@ -1162,25 +1180,31 @@ const analysisHitItems = computed(() =>
       }),
     ...[...analysisReview.contactEdits.value.values()]
       .filter(edit => !edit.base_key_point_id && !edit.deleted)
-      .map(edit => ({
-        keyPointId: edit.contact_id,
-        sequenceIndex: 0,
-        frameIndex: effectiveContactFrame(edit.contact_id, Number(edit.frame_index)),
-        anchorSource: 'manual' as const,
-        anchorConfidence: null,
-        timeAdjusted: analysisReview.contactTimeCorrections.value.has(edit.contact_id),
-        actorTrackId: edit.track_id,
-        actorLabel:
-          edit.track_id === null
-            ? '尚未指派'
-            : (overlayIdentityLabels.value[edit.track_id] ?? `Track ${edit.track_id}`),
-        actorSource: edit.track_id === null ? ('none' as const) : ('manual' as const),
-        ballLabel: '人工新增',
-      })),
+      .map(edit => {
+        const frameIndex = effectiveContactFrame(edit.contact_id, Number(edit.frame_index))
+        return {
+          keyPointId: edit.contact_id,
+          sequenceIndex: 0,
+          frameIndex,
+          captureTimeUs: overlayPlayer.value?.overlayFrameCaptureTime(frameIndex) ?? null,
+          anchorSource: 'manual' as const,
+          anchorConfidence: null,
+          timeAdjusted: analysisReview.contactTimeCorrections.value.has(edit.contact_id),
+          actorTrackId: edit.track_id,
+          actorLabel:
+            edit.track_id === null
+              ? '尚未指派'
+              : (overlayIdentityLabels.value[edit.track_id] ?? `Track ${edit.track_id}`),
+          actorSource: edit.track_id === null ? ('none' as const) : ('manual' as const),
+          semanticLabel: null,
+          pathLabel: null,
+          ballLabel: '人工新增',
+        }
+      }),
   ]
     .sort((left, right) => left.frameIndex - right.frameIndex)
-    .map((hit, sequenceIndex) => ({ ...hit, sequenceIndex })),
-)
+    .map((hit, sequenceIndex) => ({ ...hit, sequenceIndex }))
+})
 const removedAnalysisHitItems = computed(() =>
   [...analysisReview.contactEdits.value.values()]
     .filter(edit => edit.deleted)
@@ -1246,6 +1270,30 @@ const identityAssignment = createIdentityAssignmentControllerService(
 )
 const analysisRevisionMode = analysisRevision.revisionMode
 const analysisPanelPage = analysisRevision.panelPage
+let appliedRouteSelectionKey = ''
+watch(
+  [() => route.query.rally, () => route.query.panel, () => route.query.analysis, submittedRallies],
+  async ([rallyQuery, panelQuery, analysisQuery, rallies]) => {
+    const rally = resolveAnnotationRouteRally(rallyQuery, rallies)
+    if (!rally) return
+
+    const routeSelectionKey = `${rally.id}:${String(panelQuery ?? '')}:${String(analysisQuery ?? '')}`
+    if (routeSelectionKey === appliedRouteSelectionKey) return
+    appliedRouteSelectionKey = routeSelectionKey
+
+    if (pinnedRallyId.value !== rally.id) timelineSelection.selectRally(rally)
+
+    const requestedInspector = resolveAnnotationRouteInspector(panelQuery)
+    if (requestedInspector) inspectorTab.value = requestedInspector
+
+    const requestedAnalysisPage = resolveAnnotationRouteAnalysisPage(analysisQuery)
+    if (requestedInspector === 'analysis' && requestedAnalysisPage) {
+      await nextTick()
+      analysisPanelPage.value = requestedAnalysisPage
+    }
+  },
+  { immediate: true, flush: 'post' },
+)
 const ballRelabelEnabled = analysisRevision.ballRelabelEnabled
 const bboxRelabelEnabled = analysisRevision.bboxRelabelEnabled
 const actorAssignmentMode = analysisRevision.actorAssignmentMode
@@ -1305,9 +1353,9 @@ watch(inspectorTab, tab => {
 
 const displayedTimelineSegments = computed(() => {
   const rallyId = selectedRallyId.value
-  if (!analysisRevisionMode.value || !rallyId) return timelineSegments.value
+  if (!editorSelectedAnalysisRunId.value || !rallyId) return timelineSegments.value
   const points = analysisHitItems.value.flatMap(hit => {
-    const captureTimeUs = overlayPlayer.value?.overlayFrameCaptureTime(hit.frameIndex) ?? null
+    const captureTimeUs = hit.captureTimeUs
     return captureTimeUs
       ? [
           {
@@ -3368,6 +3416,8 @@ onBeforeUnmount(() => {
           <template #analysis>
             <AnnotationAnalysisPanel
               :frame-index="analysisOverlayActive ? currentOverlayFrame : -1"
+              :timeline-origin-capture-time-us="timeline?.captureStartTimeUs ?? null"
+              :clip-start-capture-time-us="editorOverlayClipStart"
               :ball-override="currentBallOverride?.state ?? null"
               :ball-position="currentBallPosition"
               :selected-track-action="selectedOverlayAction"
