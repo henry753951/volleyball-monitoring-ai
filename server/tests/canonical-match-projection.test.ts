@@ -181,4 +181,36 @@ describe('projectCanonicalMatch', () => {
       rightTeamId: PAK,
     })
   })
+
+  it('does not expose a phantom trailing set from legacy open rows before winner rows', () => {
+    const projection = projectCanonicalMatch({
+      sets: [
+        { id: 'legacy-open-1', setNumber: 1, winningTeamId: null },
+        { id: 'legacy-open-2', setNumber: 2, winningTeamId: null },
+        { id: 'winner-1', setNumber: 3, winningTeamId: IRI, winningRallyId: 'rally-1' },
+        { id: 'winner-2', setNumber: 4, winningTeamId: PAK, winningRallyId: 'rally-2' },
+      ],
+      segments: [rally('rally-1', 100, IRI), rally('rally-2', 200, PAK)],
+    })
+
+    expect(projection.sets).toHaveLength(2)
+    expect(projection.sets.map(set => set.winningTeamId)).toEqual([IRI, PAK])
+  })
+
+  it('keeps an explicitly created trailing open set after the last winner', () => {
+    const projection = projectCanonicalMatch({
+      sets: [
+        { id: 'winner-1', setNumber: 1, winningTeamId: IRI, winningRallyId: 'rally-1' },
+        { id: 'open-2', setNumber: 2, winningTeamId: null },
+      ],
+      segments: [rally('rally-1', 100, IRI)],
+    })
+
+    expect(projection.sets).toHaveLength(2)
+    expect(projection.sets[1]).toMatchObject({
+      setNumber: 2,
+      rallyIds: [],
+      winningTeamId: null,
+    })
+  })
 })
