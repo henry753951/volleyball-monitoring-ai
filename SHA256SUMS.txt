@@ -23,12 +23,12 @@ b39c86e9cc0def9a192cabdab0205c75f904b0770ce1db62f3320a67b59661ab  ./AGENTS.md
 2988420fcb9c328781de283d1c28318cf5296453480b32e9c1df82dae42c55c7  ./WORKER_DEFINITIONS.md
 4bcbf4180bb311ba99812dd9ec026c5d448304a3ca2bcf9ca5f69a8e62605ae9  ./bun.lock
 8b74c55d8a5b3cb19a3895bceac26f25beadb50a911d93cde8adf129ecc68bf0  ./bunfig.toml
-c9a12d0a9f0f2a50a56abb479a9d254b28a5882011f820cfab40bcd17623c1ff  ./docs/ANNOTATION_INTERACTION_LOCK_MATRIX.md
+f9ee8accf726e01caedca2efd419a5a3198567a22ac916bb9a36f054a61b60bb  ./docs/ANNOTATION_INTERACTION_LOCK_MATRIX.md
 225e0d466097c8ed6cec8d6e0912cf274833f2be6faf4fb9186d8750ff1c1d2a  ./docs/ANNOTATION_UI_MARKING_TUTORIAL.md
-565ccbd6fc24b6af2e1c1462bfab6e0429bd65d5224233d635efa4a68487629c  ./docs/ANNOTATION_WORKSTATION_USER_FLOWS_AND_REID_EVOLUTION.md
-de8470c37662d002eb281c31edc592cd8d22a2df5a09ab681838a6b79ffd8cf6  ./docs/ARCHITECTURE.md
+fff039b5a2936de169da89a02657c99c36d7e0d1f9a6b87b5c1934d042fb7c54  ./docs/ANNOTATION_WORKSTATION_USER_FLOWS_AND_REID_EVOLUTION.md
+f88b20d408712b160c39883129457fe3a82dfb322343e117a058258670851c0c  ./docs/ARCHITECTURE.md
 5064ad78918aef6e8801cfdbe99056a87ffaa8d4629baa3e439e2441060bebed  ./docs/DEVELOPMENT.md
-34ecb7efd5ad308eecc226224d37f6e112f93008eaed95331a2ddaf7d2281f7f  ./docs/HUMAN_BALL_EVENTS_AND_COACH_REPLAY_SPEC.md
+07ee0f8835f7018fb1c9144bff896639ee01141337ff67faf97c76df2d17de92  ./docs/HUMAN_BALL_EVENTS_AND_COACH_REPLAY_SPEC.md
 8203b610a4f1b0ac35db3ca876d389df20e7114cee82a7c6b2bacc2152b88e2c  ./docs/IMPLEMENTATION_AUDIT.md
 b0d997bd9ff5575954248179175d3ec628c7dea1cf982038d59c88717ca8690c  ./docs/K3S_SINGLE_NODE_DEPLOYMENT_RUNBOOK.md
 e6c02ed30df0282dc72794bb100e206781a59343aaa404f1723f7140321d49f0  ./docs/LUNA_WORKER_SETUP_PROMPT.md
@@ -78,7 +78,7 @@ a862cebd6fd4aba1baa4b326837599e31616e33f524b5e0f1da1efe509fd0f4d  ./docs/adr/003
 12630329aa0f3680502aff99c399fbbbf4c7f55573c9e4a0c51ff273f4d5a4fb  ./docs/adr/0033-match-scoped-reid-identity-bank.md
 3b6c6713402ef3a4d932aed2918ddae7c4504d5e3eca0c7e16fbddc0bd3a83ff  ./docs/adr/0034-analysis-data-v1-hard-cut.md
 1ef263e22ee21123faaf3782190e870055af0293124e7fa676cc5325133797f4  ./docs/adr/0035-fixed-roster-nested-part-adaptation.md
-25e076a6eb9ae49969c7b0d5122d392f8815c6d0c10a56bb31d67b923bfbb540  ./docs/adr/0036-client-owned-annotation-drafts.md
+0daed7b819e3b107b6bfdc1817709a32f242f3d4ab9ae0319a3cfb3ae40ef14f  ./docs/adr/0036-client-owned-annotation-drafts.md
 9fcf6517d15affbeb12ceb2608329d96fe2a05c2c9bfcee77d819ce85604a8dd  ./docs/adr/0037-versioned-reid-evidence-and-provider-work.md
 bd98b6f98147a574f148efd205d8adecb66b6273323f3d43364e734b051fa38b  ./docs/adr/0038-human-ball-events-and-keypoint-normalization.md
 6dd7b39e96f724b326bd041e5e418b4cbf2d91a205a6609c7bfeac207a2d1990  ./docs/adr/0039-reid-hard-cut-and-reprocessing.md
@@ -454,7 +454,7 @@ acc167a11aa503485781d5fe61797eb02387964ccfba63d4a3771bed45ca2a66  ./server/src/r
 4b4b60d64ce5d48a7d709cc1f69c82d635cf9d2c827190505c128bc9e880b54e  ./server/src/routes/analysis-media.ts
 a1f90a781c2050e0184114dbf4844495dec3ed18b51f2e24662bb2b91ed7787f  ./server/src/routes/analysis-review.ts
 023e3cdb191bbc1059849911fae0f43c29db1a50329c2844903248b69b0a4f88  ./server/src/routes/auth.ts
-af6f72a17464a57d4e19838d4c9cce13b015babb1993790cbd00c267e5033d28  ./server/src/routes/coach-highlight-exports.ts
+3dc7e45cf6a5888d81dca478d86255c1d6d12aa77258e410f1643cc1dd848a68  ./server/src/routes/coach-highlight-exports.ts
 645d9014be651a5985e3a41440ffd7df12aad648d65dd0bc1d5021159fff5bcb  ./server/src/routes/media-playback.ts
 6af5ae8c8a9ee3654fa2b2523ae59f6a4a21fbe7ee7aed0fed14ad7c990d484e  ./server/src/routes/media-sources.ts
 a24fb72947ebbdaed8f430f0f66c3bbf5b52c8dbd7242f3a8ebdc4b337cf484f  ./server/src/routes/operations.ts
@@ -534,7 +534,7 @@ e0be22452769991a6b1ca215dc1a2498a19b00b4b31aadf7c1886c008e4e4f03  ./server/tests
 b7983f31cf486e0ea1f7c29c7336d6cca8d96319ff1ce83f2f1c0a0bc0bb3d65  ./server/tsconfig.json
 31e0dc4f866210bba1c6428f30a6c105a1db8f6330c008584c5a0292456988ce  ./server/tsconfig.test.json
 4fee5b9211b7dbf9472edf1a58e8536efec57ffbf9bb74f2f698f8a7cfb7bf54  ./tsconfig.base.json
-2c627dc443587955df056be2b87090b4cbb40810b1dd7329b3f368640233331d  ./web/AGENTS.md
+7438fd4a92f17d1e35e1cbe170afb7847c315bcb8ab35faf856f601d37af1a19  ./web/AGENTS.md
 08f1bc8e5935053f25089f496dee5d471fa2be1ca6f255b893b3d683be7aa018  ./web/DESIGN.md
 9c3163c7c0aa3cbe89b1e8b8cef93dffedee5387764de990595bb125ede43453  ./web/PRODUCT.md
 ec3ea382e97a2b05b70b0dd3a7d7d1cd435492647700352f08c63223afa8a63a  ./web/README.md
@@ -564,10 +564,10 @@ da8771b444ef1a9f2fc7b5ee68fb4597514e98cc2394d4a0fb4f3cb71c042e2e  ./web/app/comp
 2ac3f37cce09a9ca2619d6d4a8cb647a3a5f34195f6232d7fa5198b1cee24197  ./web/app/components/CaptureControlDialog.vue
 e58e564652b1e81206444c0f426239a09641f5ec95de64255a7f7fb46cedd350  ./web/app/components/ClipDownloadDialog.component.test.ts
 e8a1ef7506d1db6e108e48db64e5b1b16416be2fab034b8ff326624e360d7634  ./web/app/components/ClipDownloadDialog.vue
-dd74ae85453ad11941c68f14f59e53e3d5bcb54f52b4e9a906f1b6dcc3311b94  ./web/app/components/CoachBallRouteMap.component.test.ts
-c1f9390b318b96fb08815d68896a3fb2c80d61c42d9c6c15eb9c470ab3676fda  ./web/app/components/CoachBallRouteMap.vue
-af7a58d086f2b8270f1bdd42593eb81555a97496287f1643deaac2522fd33aa5  ./web/app/components/CoachEventReplayDialog.vue
-cbfb6f44d91e7d47965647dee2ef8347533d05ad10014631d1dfd3dcb1c792a9  ./web/app/components/CoachHighlightExport.vue
+b5d2a6748197409902b1ed1787fe78eedba3dc3c5d92bebb3dce94643feace90  ./web/app/components/CoachBallRouteMap.component.test.ts
+fe949f3fd97b08060aedc88ada6794d76c9391baf5987237009e9faba774e785  ./web/app/components/CoachBallRouteMap.vue
+2a744020c454725bdaa4b4b4aa9f7469ff9695eb76daa80418f9108eb83a7f8a  ./web/app/components/CoachEventReplayDialog.vue
+d757f9f0bccc0268c6087fc180eefff79d2adc8f5ff8b64e00328af5cb53031f  ./web/app/components/CoachHighlightExport.vue
 51fab1de62997d579da78a7e0f7ff73580eb4c661e2fdadd699292590db45fd2  ./web/app/components/CoachTrackIdentityEditor.vue
 ba3109f41a696d3e7ba6c2fabcad2800edfc17c6798a833b843fcdb6a25e7a8f  ./web/app/components/ConfirmActionDialog.vue
 26aa3fbfc0a71ea9cb59e8f1d4b2711a7855d7a42ad1ba3f178bb750bbf36ab1  ./web/app/components/CourtPathView.component.test.ts
@@ -598,7 +598,7 @@ b5c339c4475d959048391d498665fccd44471a77c90c0cefb0b233fbf4082573  ./web/app/comp
 70d532b2e962507f9d98554e7a7e9ab5afafc9b03709c144b1a57c4c099c2526  ./web/app/components/control/MediaDvrMonitorDialog.vue
 3d5992e955e8c434bb5fa99245be6c6a18d9cb0bb4d9292bd668e1964e9d8b70  ./web/app/components/control/StorageMeter.component.test.ts
 5934bc8e3c916252084c98ec3931e6597dc5b1753295b0d288957acaee23e5f8  ./web/app/components/control/StorageMeter.vue
-278aed5b3677a03effd7c6d08ed87408de19af46ca92ecc8023a6470b8673ab0  ./web/app/components/ui/AnimatedModal.vue
+8dab65dce2a44875429481076c1d260ae70547d16067814c1b506bb3f32953a9  ./web/app/components/ui/AnimatedModal.vue
 d91b17aa0ebd462adf4a33cc20b2c4998a5b2025acbe643b30ed80018320e932  ./web/app/components/ui/Button.vue
 6f630ea28e3df09c3522fd52b09ead4e5b8637cc6f1629907709230a8a15256f  ./web/app/components/ui/HoverCard.vue
 19ee22517d72f1bc426d07b2a92b37e837eddd3fe1eaee10aefa851b9adc0ac4  ./web/app/components/ui/Kbd.vue
@@ -650,8 +650,8 @@ d0efd072e39bb5c7979ccf95061f62811d565883764dce352e07e2a2cb3aebf2  ./web/app/layo
 9b39be80be6a7eecfe9f55636b7af652aa439c9d327bb3a146d0f1157570c36c  ./web/app/layouts/coach.vue
 819755c227a4cede2fa227df211b5f36f19f5b8f060af789aaebeba3f6712241  ./web/app/layouts/control.vue
 0893c688a5540d650c31d30f9b0fa3d4e090c6f8c7e7002c9b4841e4721a5fa9  ./web/app/layouts/default.vue
-fb540b6d562eb4983ad5a6a097afc38cd9b03106a60d310e3221b939322e7594  ./web/app/lib/annotationCommandQueue.test.ts
-d6ff7d006c6abcdd0aa18d4fe4727d0a913127afd969f6198b5b69e6468d4044  ./web/app/lib/annotationCommandQueue.ts
+544a178d265fd37b8683f2de7ca9638219b5929f31d21ac675b9ee31e409baaf  ./web/app/lib/annotationCommandQueue.test.ts
+89dd6f3e3d035bd2bfc95aaf8672847b36347c11aca9c6026f1164d13d89e9bb  ./web/app/lib/annotationCommandQueue.ts
 7bfa4e557a1b51fc77afc81ee7b7575a1c4d03acb1e3fd241fe145e0789732ce  ./web/app/lib/annotationKeyPointNavigation.test.ts
 9070a2870a56712822c7a762f4bf736ee5ef6dfe11e2487a57ad1fc76a813863  ./web/app/lib/annotationKeyPointNavigation.ts
 6c0fce41697521e1a4585f6f27ab5ffe2f0c4c01b295a71ab34654b8ccbb0506  ./web/app/lib/annotationOutbox.test.ts
@@ -695,7 +695,7 @@ ffda57a925b659c33ea87ab67aedd169120195cf27497ab8eceaf14dd7e56ba3  ./web/app/page
 69a0f7dd20a08ee17460b15c5d24c93b9150a59017c75e8ecc1b419f0a7cb9f3  ./web/app/pages/matches/[matchId]/history.vue
 6bc7e2bd0d10649e516eb38b03320c3341ef2cbd3629a6400882d09005fabe97  ./web/app/pages/matches/[matchId]/live.vue
 69a0f7dd20a08ee17460b15c5d24c93b9150a59017c75e8ecc1b419f0a7cb9f3  ./web/app/pages/matches/[matchId]/paths.vue
-4cec423f1b26e281773095d9e70e610184a7bd1251f0f30a4ab440f2192a62b3  ./web/app/pages/matches/[matchId]/players.vue
+2ef6a5f52d0e96e581dc96ad74b7d22cfcd8baf40e6f82ad904e0713d5c88236  ./web/app/pages/matches/[matchId]/players.vue
 d91f5d2e6cadb76eab47ffd311ea76c23f0a875b8a852a3c29260faf9acc2de4  ./web/app/pages/matches/[matchId]/rallies.vue
 692fefe7674aedb5950fc26b7526f6ee98a5b00579fc8126b0f15228df2dc2b6  ./web/app/pages/matches/[matchId]/replay/[rallyId].vue
 763df57541cc7126a3bbc5621f1e0270c4623b5fecd34cc526b91d90a4a5779a  ./web/app/pages/matches/[matchId]/stats.vue
@@ -709,7 +709,7 @@ e864b095df938517e286db68dbbd2ef78e909d0a41c5a523966dfa91f2765eb9  ./web/app/serv
 1075611327def633927c2607a7eae4ea7d8b20e303a23e35c1625108709e2cdf  ./web/app/services/annotation-workstation/annotation-action.service.ts
 a805f8d40361c36055b372dd86b03fa84b79cdb7024fb29812e609f28c8c1e22  ./web/app/services/annotation-workstation/annotation-command.service.test.ts
 13a7fb35e7082f0b27d50680e7c8d536582c69f1b1d7bf4cf2ca4f12e39581c3  ./web/app/services/annotation-workstation/annotation-command.service.ts
-e7f586aac2c96a4e2bcfccf3c7667022478cc6384490348bc75e5013f2db40bf  ./web/app/services/annotation-workstation/annotation-room.service.ts
+0df8efb4f1c422fa0dc0097692a95cb7493eef87d05a8cec4e7c1c9b7211cd7a  ./web/app/services/annotation-workstation/annotation-room.service.ts
 3dc9a08aff409f5fbfb3ce7279ee626f7d5e254dc82886ae5541129db95fcb29  ./web/app/services/annotation-workstation/annotation-workstation.service.test.ts
 394e7504ec0084dffd438c84bd8eccc60745063284e083a438bd331e8329e5ab  ./web/app/services/annotation-workstation/annotation-workstation.service.ts
 04e134d540032967d9427fac393cb0f4f9b4a9d64dfbb5ae53c206a37cea2ca4  ./web/app/services/annotation-workstation/authoritative-dvr-window.service.ts
@@ -845,8 +845,8 @@ dbd9e6afd7ffb847d202880dbaaa25ed777699d178efeb56e997f78a6753408b  ./worker/src/m
 704a6ec9d1f3ad7a9a169d4c4570abca0df3722785cdc42b252d17005cc1016f  ./worker/src/media/resolvers.ts
 d30a3fbe0a87e67a9216875d286f5b691d39baf13863416fb3f4d3bcb28c35b2  ./worker/src/media/runtime-config.ts
 8f0a7c3f8c163da69d5c7be0980cadfedbc6515477416fe2f0a4cc7e8f3c4f3d  ./worker/src/media/sample-index.ts
-3196f7539e70bea8ae98b2a2b5647063d6089325fc50d36029869f202ec6b2fc  ./worker/src/media/source-process.ts
-5f123b9ae6aba746b4a4bbd2afea2e1c790dfc8ad9583b431d524bd8202595c7  ./worker/src/media/source-runtime.ts
+c87f2001d32e0796548a2dd6c7635fa3965b3857dfab72fc8e7f3e8cfeb96dac  ./worker/src/media/source-process.ts
+584c58c133a08428e7e4eaa1bf71899ea440ac84252d77452ffcf27f4a8a1c8e  ./worker/src/media/source-runtime.ts
 35845355b62d5de1dd0feed57d13ca53bf82415226620de338f1f6277906ba88  ./worker/src/media/source-work.ts
 e0055e5de69b1a90ddf83147a4379f8aaad8a9e0442e094795147b961f19ed37  ./worker/src/media/tiered-media-object-store.ts
 3567fec0ad0c070098bd5ee6185587e422593e6facde4f7a4a2b3f4bb9f84b8d  ./worker/src/media/youtube-auth.ts
@@ -855,7 +855,7 @@ e0055e5de69b1a90ddf83147a4379f8aaad8a9e0442e094795147b961f19ed37  ./worker/src/m
 ecaa48a41bbfc78ced7bf23b05161c8a18aed5a7ed70b36fb57338eb01d7d406  ./worker/src/roles/analysis-ingest.ts
 d2af17f9310161c121b2773ecbe80b772ac17ea749d421532d56c38d57a4ffdb  ./worker/src/roles/clip-worker.ts
 cd223367ea1d5f731e73a2b292e0cffc05c46bee5099ccf6475865bbffd7b759  ./worker/src/roles/contact-association-worker.ts
-d626bd62d4e744e53324a4084ee1fe51fa47bcfa26f06bb12ff5153ad44a68d5  ./worker/src/roles/highlight-export-worker.ts
+06036023d297872f5e63a61b6c508ca664cd3c145eafc11e39e62eb577fb5b90  ./worker/src/roles/highlight-export-worker.ts
 4791df925d60c43b3e4740ba3d3e5e3b118900efc4f9e4e0c9680ac855a49888  ./worker/src/roles/identity-preview-worker.ts
 ba726d175f69cc4a95968b49daca3d534f4abe1205afbe012556669bb029768d  ./worker/src/roles/jersey-suggestion-worker.ts
 d88f840e2c7e9df8737fddb160fb7466a80b13c045cb188d6de4ada2cd4ed078  ./worker/src/roles/media-indexer.ts
@@ -883,7 +883,7 @@ b24bb9a301efe62aeb0454e812097d015f83e0469fc5ce5072d2ed44f2907927  ./worker/tests
 e6379cb543cb8144720a38e746ef131a054b604ef9225723eb5d30eeb523da1e  ./worker/tests/finalized-recording.test.ts
 5cfa06705e0bb11b232918fc076a8efd8db2abcac8e29ed30c86786c53363f0d  ./worker/tests/fixtures/ffprobe-vfr.json
 a5160d3a892ccc7b9ca7c0dad66ef726c31f0a3e8b876682f33a0a62c140c95b  ./worker/tests/fmp4-artifact-source.test.ts
-ae486e8d367a97e37256bd0d74446b65d699d137284798ae32c77250be40d851  ./worker/tests/highlight-export-worker.test.ts
+21e105cba2b91d798faf6e6f87396cac024c92dcec6def9790142de3d2862fcf  ./worker/tests/highlight-export-worker.test.ts
 083a5c8aee8766ce16169d565ac5631b9adb9d4abe3df235aed3a6d6b506d9d4  ./worker/tests/identity-preview-worker.test.ts
 0ae801e348bd9502e99983be60ff978845de5454c11fd47697d64927d3a59c5c  ./worker/tests/indexer-runtime.test.ts
 2be74788f9c65b4adba90c70614dd4db69522c141c3ff4a8220a7f5afae8252c  ./worker/tests/ingest-handler.test.ts
@@ -908,6 +908,7 @@ b6bfa38a3a17208e0dd392366184a369cff62ba41cc5271a90b1195a30019da5  ./worker/tests
 71294ae25a9fe9530a17e039c7a11e64359f0be841dae963c5433f41e5c79c99  ./worker/tests/resolvers.test.ts
 17d706ad7805027bfc4dfc7eed1d68726fa9f328ab62d217a72f6a77f42cd4d0  ./worker/tests/runtime-health.test.ts
 a6ce1a8b2ee336417c151587ac46647e53a3c173d6a90a4e1c4b13db994f3d1a  ./worker/tests/source-process.test.ts
+6d4adaa3634e0c573a282def24669ea1bdcaa53590feed18baa572675529511a  ./worker/tests/source-runtime.test.ts
 874f3358339702b24d6316137491ef442e6eb91add9dce7285f2b9511b993e4d  ./worker/tests/source-spool-cleanup.test.ts
 a543e3a9502114060cf01e2c0033e0e933640329117abeaa712be7c2ab995e32  ./worker/tests/source-work.test.ts
 ccbee74b054bcf5797d688a953f79e25e9a06475a9d7e5ab667ac71d651f0036  ./worker/tests/tiered-media-object-store.test.ts
