@@ -43,6 +43,75 @@ describe('coach identity projections', () => {
     ).toBe(false)
   })
 
+  it('uses the canonical rally outcome for team and set scoring', async () => {
+    const findMatch = vi.fn().mockResolvedValue({
+      id: 'match-score',
+      title: 'Score fixture',
+      identityRevision: 0n,
+      matchTeams: [
+        { team: { id: 'team-left', name: 'Left', shortName: 'L' } },
+        { team: { id: 'team-right', name: 'Right', shortName: 'R' } },
+      ],
+      sets: [
+        { id: 'set-1', setNumber: 1, status: 'LIVE', winningTeamId: null, winningRallyId: null },
+      ],
+      courtSideSwapMarkers: [],
+      rosterEntries: [],
+      rallies: [
+        {
+          id: 'rally-1',
+          ordinal: 1,
+          createdAt: new Date('2026-08-20T00:00:00Z'),
+          scoreResolutionState: 'RESOLVED',
+          scoringCourtSide: 'RIGHT',
+          scoringTeamId: 'team-right',
+          set: { setNumber: 1 },
+          activeSubmission: {
+            id: 'submission-1',
+            scoreResolutionState: 'RESOLVED',
+            scoringCourtSide: 'LEFT',
+            scoringTeamId: 'team-left',
+            leftTeamId: 'team-left',
+            rightTeamId: 'team-right',
+            boundaries: [{ kind: 'START', captureTimeUs: 1_000n }],
+            keyPoints: [],
+            ballEvents: [],
+            clipJobs: [],
+            analysisRuns: [],
+            analysisSourceRun: null,
+          },
+        },
+      ],
+    })
+    const database = { match: { findFirst: findMatch } } as unknown as PrismaClient
+
+    const analytics = await getCoachMatchAnalytics(database, {
+      matchId: 'match-score',
+      userId: 'coach-1',
+      role: UserRole.COACH,
+    })
+
+    expect(analytics?.sets).toEqual([
+      {
+        set_number: 1,
+        rally_count: 1,
+        resolved_count: 1,
+        unknown_count: 0,
+        team_points: { 'team-left': 0, 'team-right': 1 },
+      },
+    ])
+    expect(analytics?.rallies[0]).toMatchObject({
+      score_resolution: 'resolved',
+      scoring_team_id: 'team-right',
+    })
+    expect(analytics?.teams).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: 'team-left', wins: 0 }),
+        expect.objectContaining({ id: 'team-right', wins: 1 }),
+      ]),
+    )
+  })
+
   it('attributes a human ball event through the latest pose-first actor projection', async () => {
     const findMatch = vi.fn().mockResolvedValue({
       id: 'match-1',
