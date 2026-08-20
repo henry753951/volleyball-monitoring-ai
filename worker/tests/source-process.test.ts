@@ -24,6 +24,7 @@ import {
   type MediaSourceProcessOptions,
   vodCompletionToleranceUs,
   youtubePlayerClient,
+  youtubeLiveFfmpegCommand,
 } from '../src/media/source-process.js'
 
 const execFileAsync = promisify(execFile)
@@ -61,6 +62,17 @@ const youtubeOptions: MediaSourceProcessOptions = {
 }
 
 describe('media source process', () => {
+  it('uses a dedicated stable FFmpeg binary for YouTube live relay', () => {
+    expect(
+      youtubeLiveFfmpegCommand({
+        ffmpegCommand: '/usr/local/bin/ffmpeg',
+        youtubeLiveFfmpegCommand: '/usr/bin/ffmpeg',
+      }),
+    ).toBe('/usr/bin/ffmpeg')
+    expect(youtubeLiveFfmpegCommand({ ffmpegCommand: '/custom/ffmpeg' })).toBe('/custom/ffmpeg')
+    expect(youtubeLiveFfmpegCommand({})).toBe('ffmpeg')
+  })
+
   it('reports the configured YouTube player client in resolver diagnostics', () => {
     expect(youtubePlayerClient('youtube:player_client=mweb')).toBe('mweb')
     expect(youtubePlayerClient('youtube:foo=bar,player_client=web_embedded')).toBe('web_embedded')

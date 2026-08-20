@@ -16,6 +16,7 @@ export type MediaSourceProcessOptions = {
   youtubeVodUseCookies?: boolean
   youtubeExtractorArgs: string
   youtubeFormat: string
+  youtubeLiveFfmpegCommand?: string
   youtubeLiveExtractorArgs?: string
   youtubeLiveMaxConsecutiveFailures?: number
   youtubePotProviderUrl?: string
@@ -400,6 +401,12 @@ export function buildMediaInputArgs(
     '-i',
     input.url,
   ]
+}
+
+export function youtubeLiveFfmpegCommand(
+  options: Pick<MediaSourceProcessOptions, 'ffmpegCommand' | 'youtubeLiveFfmpegCommand'>,
+): string {
+  return options.youtubeLiveFfmpegCommand ?? options.ffmpegCommand ?? 'ffmpeg'
 }
 
 export function vodCompletionToleranceUs(segmentDurationUs = MEDIA_SEGMENT_DURATION_US): bigint {
@@ -1236,7 +1243,7 @@ export function createMediaSourceProcess(options: MediaSourceProcessOptions) {
       let relayError: unknown = null
       try {
         await runProcess(
-          options.ffmpegCommand ?? 'ffmpeg',
+          youtubeLiveFfmpegCommand(options),
           args,
           signal,
           2 * 1024 * 1024,
