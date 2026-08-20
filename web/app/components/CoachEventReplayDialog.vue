@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Pause, Play, RotateCcw } from 'lucide-vue-next'
+import { ArrowUpRight, Pause, Play, RotateCcw } from 'lucide-vue-next'
 import type { CoachRallyReplay } from '~/lib/coachDomain'
 import {
   actionColor,
@@ -11,6 +11,7 @@ import { coachEventReplayMediaUrl, coachEventReplayWindow } from '~/utils/coachE
 type ReplayClip = NonNullable<CoachRallyReplay['clip']>
 
 const props = defineProps<{
+  matchId: string
   open: boolean
   event: CoachPlayerActionEvent | null
   replay: { readonly clip: Readonly<ReplayClip> | null } | null
@@ -48,7 +49,13 @@ const dialogTitle = computed(() =>
 const dialogDescription = computed(() => {
   const event = props.event
   if (!event) return ''
-  return `第 ${event.setNumber} 局 · 回合 ${event.rallyOrdinal} · ID ${event.trackId} · ${formatActionTime(event.anchorTimeUs)}`
+  return `總回合 ${event.rallyOrdinal} · ID ${event.trackId} · ${formatActionTime(event.anchorTimeUs)}`
+})
+const rallyReplayUrl = computed(() => {
+  const event = props.event
+  return event
+    ? `/matches/${props.matchId}/replay/${event.rallyId}?event_us=${event.anchorTimeUs}`
+    : '#'
 })
 
 function relativeClock(value: number) {
@@ -149,31 +156,45 @@ watch(
     @close="emit('close')"
   >
     <div class="event-replay" :style="{ '--event-color': actionColor(event?.actionKey ?? 'hit') }">
-      <div v-if="event && clip" class="event-replay__stage">
-        <video
-          ref="video"
-          :key="`${clip.id}:${event.id}`"
-          :src="mediaUrl"
-          playsinline
-          preload="metadata"
-          :aria-label="`${event.actionLabel}短回放`"
-          @click="togglePlayback"
-          @loadedmetadata="handleLoadedMetadata"
-          @timeupdate="updatePlayback"
-          @play="updatePlayback"
-          @pause="updatePlayback"
-          @ended="resetPlayback"
-        />
-        <button
-          v-if="!playing"
-          type="button"
-          class="event-replay__center-play"
-          aria-label="播放短回放"
-          @click="togglePlayback"
-        >
-          <Play :size="28" fill="currentColor" />
-        </button>
-        <span class="event-replay__type">{{ event.actionLabel }}</span>
+      <div v-if="event && clip" class="event-replay__content">
+        <div class="event-replay__stage">
+          <video
+            ref="video"
+            :key="`${clip.id}:${event.id}`"
+            :src="mediaUrl"
+            playsinline
+            preload="metadata"
+            :aria-label="`${event.actionLabel}短回放`"
+            @click="togglePlayback"
+            @loadedmetadata="handleLoadedMetadata"
+            @timeupdate="updatePlayback"
+            @play="updatePlayback"
+            @pause="updatePlayback"
+            @ended="resetPlayback"
+          />
+          <button
+            v-if="!playing"
+            type="button"
+            class="event-replay__center-play"
+            aria-label="播放短回放"
+            @click="togglePlayback"
+          >
+            <Play :size="28" fill="currentColor" />
+          </button>
+          <span class="event-replay__type">{{ event.actionLabel }}</span>
+        </div>
+        <aside class="event-replay__court">
+          <CoachBallRouteMap
+            :events="[event]"
+            :label="`${event.actionLabel}球路`"
+            :selected-event-id="event.id"
+            @select="() => undefined"
+          />
+          <NuxtLink class="event-replay__rally-link" :to="rallyReplayUrl" @click="emit('close')">
+            前往總回合 {{ event.rallyOrdinal }}
+            <ArrowUpRight :size="16" />
+          </NuxtLink>
+        </aside>
       </div>
 
       <div v-if="event && clip" class="event-replay__controls">
@@ -234,6 +255,12 @@ watch(
   background: #05080b;
   color: #f6f8fa;
 }
+.event-replay__content {
+  min-width: 0;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(260px, 34%);
+}
 .event-replay__stage {
   position: relative;
   min-height: min(58dvh, 560px);
@@ -241,6 +268,38 @@ watch(
   place-items: center;
   overflow: hidden;
   background: #000;
+}
+.event-replay__court {
+  min-width: 0;
+  min-height: 0;
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto;
+  overflow: hidden;
+  background: #111a22;
+}
+.event-replay__court :deep(.route-map) {
+  height: 100%;
+  border-radius: 0;
+}
+.event-replay__court :deep(.route-map__canvas) {
+  min-height: 0;
+}
+.event-replay__rally-link {
+  min-height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border-top: 1px solid #ffffff12;
+  background: #0c1218;
+  color: #9dccff;
+  font-size: 0.68rem;
+  font-weight: 760;
+  text-decoration: none;
+}
+.event-replay__rally-link:hover {
+  background: #16222d;
+  color: #fff;
 }
 .event-replay__stage video {
   width: 100%;
@@ -397,6 +456,12 @@ watch(
   line-height: 1.5;
 }
 @media (max-width: 720px) {
+  .event-replay__content {
+    grid-template-columns: 1fr;
+  }
+  .event-replay__court {
+    max-height: 310px;
+  }
   .event-replay__controls {
     grid-template-columns: 42px 42px minmax(0, 1fr);
   }

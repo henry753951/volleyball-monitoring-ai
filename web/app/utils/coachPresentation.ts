@@ -72,7 +72,18 @@ export function teamTracks(analytics: CoachMatchAnalytics, teamId: string) {
 }
 
 export function teamParticipation(analytics: CoachMatchAnalytics, teamId: string) {
-  const rallies = new Set(teamTracks(analytics, teamId).map(track => track.rally_id))
+  if (analytics.action_events === undefined)
+    return new Set(teamTracks(analytics, teamId).map(track => track.rally_id)).size
+  const rosterIds = new Set(
+    analytics.players
+      .filter(player => player.team_id === teamId)
+      .map(player => player.roster_entry_id),
+  )
+  const rallies = new Set(
+    (analytics.action_events ?? [])
+      .filter(event => event.roster_entry_id !== null && rosterIds.has(event.roster_entry_id))
+      .map(event => event.rally_id),
+  )
   return rallies.size
 }
 

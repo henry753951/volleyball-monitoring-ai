@@ -29,7 +29,9 @@ describe('CoachBallRouteMap', () => {
 
     expect(wrapper.findAll('.route-line')).toHaveLength(1)
     expect(wrapper.findAll('.route-path-base')).toHaveLength(0)
-    expect(wrapper.find('.route-path-flow').attributes('marker-end')).toBe('url(#route-arrow)')
+    expect(wrapper.find('.route-path-flow').attributes('marker-end')).toMatch(
+      /^url\(#.+-route-arrow\)$/,
+    )
     expect(Number(wrapper.find('.route-start').attributes('cx'))).toBeCloseTo(-10.8)
     expect(Number(wrapper.find('.route-end').attributes('cx'))).toBeCloseTo(187.2)
     expect(wrapper.text()).toContain('1 條完整球路 · 1 個落點')

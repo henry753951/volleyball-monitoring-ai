@@ -52,3 +52,18 @@ export function deriveRallyDisplayOrdinals(
   }
   return result
 }
+
+/**
+ * The persisted ordinal is not a stable display value after a winner marker
+ * is removed. Use one capture-ordered sequence for the whole match instead of
+ * restarting at one for every historical set row.
+ */
+export function deriveGlobalRallyDisplayOrdinals(
+  candidates: ReadonlyArray<RallyDisplayOrderCandidate>,
+): Map<string, number> {
+  const result = new Map<string, number>()
+  ;[...candidates].sort(compareRallyCaptureOrder).forEach((candidate, index) => {
+    result.set(candidate.id, index + 1)
+  })
+  return result
+}
