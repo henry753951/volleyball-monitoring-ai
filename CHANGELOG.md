@@ -1,5 +1,25 @@
 # Changelog
 
+## [1.10.0](https://github.com/henry753951/volleyball-monitoring-ai/compare/v1.9.4...v1.10.0) (2026-08-20)
+
+
+### Features
+
+* **media:** harden live and archive playback ([a56e705](https://github.com/henry753951/volleyball-monitoring-ai/commit/a56e705a9b6b631a574e94982f4d581dd473436c))
+* **media:** harden live and archive playback ([56d84f4](https://github.com/henry753951/volleyball-monitoring-ai/commit/56d84f4f8e43c0d477a79ace31fcdf6606d5d116))
+
+
+### Bug Fixes
+
+* **media:** close playback recovery races ([ef0a890](https://github.com/henry753951/volleyball-monitoring-ai/commit/ef0a8905c2341f487b6521a6b4056ac00b01b9ae))
+* **media:** make fragment rollout fail closed ([f36d7af](https://github.com/henry753951/volleyball-monitoring-ai/commit/f36d7aff3ff44ee4fa78f053fe71ca393718c687))
+* **media:** separate overlay and source failures ([07cb907](https://github.com/henry753951/volleyball-monitoring-ai/commit/07cb907702a9e833d87c7b0ccfc439c879a511d8))
+
+
+### Maintenance
+
+* refresh release checksums ([8306b93](https://github.com/henry753951/volleyball-monitoring-ai/commit/8306b93ff5579e723eeaeefb293dcde8c42f73af))
+
 ## [1.9.4](https://github.com/henry753951/volleyball-monitoring-ai/compare/v1.9.3...v1.9.4) (2026-08-20)
 
 
