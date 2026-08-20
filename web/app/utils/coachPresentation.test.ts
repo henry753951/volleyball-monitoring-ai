@@ -55,6 +55,15 @@ const analytics = {
     {
       roster_entry_id: null,
       gid_team_id: 'team-a',
+      team_id: null,
+      rally_id: 'rally-4',
+      set_number: 2,
+      rally_ordinal: 3,
+    },
+    {
+      roster_entry_id: null,
+      gid_team_id: null,
+      team_id: 'team-a',
       rally_id: 'rally-4',
       set_number: 2,
       rally_ordinal: 3,
@@ -107,8 +116,35 @@ describe('coach presentation values', () => {
   })
 
   it('includes roster and anonymous global identities in a team view', () => {
-    expect(teamTracks(analytics, 'team-a')).toHaveLength(4)
+    expect(teamTracks(analytics, 'team-a')).toHaveLength(5)
     expect(teamParticipation(analytics, 'team-a')).toBe(3)
     expect(teamContactCount(analytics, 'team-a')).toBe(6)
+  })
+
+  it('counts anonymous AI actions by their projected team', () => {
+    const projected = {
+      ...analytics,
+      action_events: [
+        { rally_id: 'rally-1', team_id: 'team-a', roster_entry_id: null },
+        { rally_id: 'rally-1', team_id: 'team-a', roster_entry_id: null },
+        { rally_id: 'rally-2', team_id: 'team-b', roster_entry_id: null },
+      ],
+    } as CoachMatchAnalytics
+
+    expect(teamParticipation(projected, 'team-a')).toBe(1)
+    expect(teamContactCount(projected, 'team-a')).toBe(2)
+  })
+
+  it('keeps roster-based team counts compatible when team projection is absent', () => {
+    const legacy = {
+      ...analytics,
+      action_events: [
+        { rally_id: 'rally-1', roster_entry_id: 'player-a' },
+        { rally_id: 'rally-2', roster_entry_id: 'player-b' },
+      ],
+    } as CoachMatchAnalytics
+
+    expect(teamParticipation(legacy, 'team-a')).toBe(1)
+    expect(teamContactCount(legacy, 'team-a')).toBe(1)
   })
 })

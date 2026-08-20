@@ -77,7 +77,7 @@ describe('CoachBallRouteMap', () => {
     expect(wrapper.find('.route-map__canvas').attributes('data-mode')).toBe('landings')
   })
 
-  it('mirrors route and landing coordinates per event side', async () => {
+  it('preserves canonical route and landing coordinates for either event side', async () => {
     const wrapper = mount(CoachBallRouteMap, {
       props: {
         events: events.map(event => ({ ...event, courtSide: 'right' as const })),
@@ -86,11 +86,11 @@ describe('CoachBallRouteMap', () => {
       },
     })
 
-    expect(Number(wrapper.find('.route-start').attributes('cx'))).toBeCloseTo(190.8)
-    expect(Number(wrapper.find('.route-end').attributes('cx'))).toBeCloseTo(-7.2)
+    expect(Number(wrapper.find('.route-start').attributes('cx'))).toBeCloseTo(-10.8)
+    expect(Number(wrapper.find('.route-end').attributes('cx'))).toBeCloseTo(187.2)
 
     await wrapper.get('button:nth-of-type(2)').trigger('click')
 
-    expect(Number(wrapper.find('.landing-point').attributes('cx'))).toBeCloseTo(-7.2)
+    expect(Number(wrapper.find('.landing-point').attributes('cx'))).toBeCloseTo(187.2)
   })
 })

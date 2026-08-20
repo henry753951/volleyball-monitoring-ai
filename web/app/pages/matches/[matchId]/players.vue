@@ -3,7 +3,6 @@ import { BarChart3, ChevronRight, CircleAlert, UserRoundSearch } from 'lucide-vu
 import { rosterPositionLabel } from '~/lib/rosterPositions'
 import {
   actionColor,
-  actionOutcomeRate,
   formatActionTime,
   type CoachPlayerActionEvent,
 } from '~/utils/coachPlayerActions'
@@ -126,10 +125,14 @@ const selectedEventRosterEntryIds = computed(() => {
     return selectedTeam.value ? selectedTeamPlayers.value.map(player => player.roster_entry_id) : []
   return []
 })
+const selectedEventTeamIds = computed(() =>
+  viewMode.value === 'teams' && selectedTeam.value ? [selectedTeam.value.id] : [],
+)
 const eventState = useCoachTrackEvents(
   selectedTracks,
   () => analytics.value?.action_events ?? [],
   selectedEventRosterEntryIds,
+  selectedEventTeamIds,
 )
 const selectedReplay = computed(() =>
   selectedLocalTrack.value
@@ -217,10 +220,7 @@ const routeMapSideLabels = computed<{
     }
   }
 
-  const rawLabels = { left: labelForSide('left'), right: labelForSide('right') }
-  return selectedSubjectSide.value === 'right'
-    ? { left: rawLabels.right, right: rawLabels.left }
-    : rawLabels
+  return { left: labelForSide('left'), right: labelForSide('right') }
 })
 const actionOptions = computed(() => {
   const byKey = new Map<string, { key: string; label: string; count: number }>()
@@ -232,7 +232,7 @@ const actionOptions = computed(() => {
       count: (current?.count ?? 0) + 1,
     })
   }
-  const order = ['hit', 'spike', 'serve', 'serve_receive']
+  const order = ['receive', 'set', 'spike', 'serve', 'serve_receive', 'hit']
   return [...byKey.values()].sort(
     (left, right) => order.indexOf(left.key) - order.indexOf(right.key),
   )
@@ -246,14 +246,16 @@ watch(filteredEvents, value => {
   if (selectedActionEvent.value && !value.some(event => event.id === selectedActionEvent.value?.id))
     selectedActionEvent.value = null
 })
-const outcomeSummary = computed(() => actionOutcomeRate(filteredEvents.value))
 const selectedRouteCount = computed(
   () =>
     filteredEvents.value.filter(event => event.routeStart !== null && event.routeEnd !== null)
       .length,
 )
-const selectedLandingCount = computed(
-  () => filteredEvents.value.filter(event => event.routeEnd !== null).length,
+const selectedMissingRouteCount = computed(
+  () => filteredEvents.value.length - selectedRouteCount.value,
+)
+const selectedRouteCoverage = computed(() =>
+  filteredEvents.value.length ? selectedRouteCount.value / filteredEvents.value.length : null,
 )
 const selectedActionLabel = computed(() =>
   selectedActionKey.value === 'all'
@@ -261,6 +263,7 @@ const selectedActionLabel = computed(() =>
     : (actionOptions.value.find(option => option.key === selectedActionKey.value)?.label ??
       '所選球種'),
 )
+const selectedRouteMapLabel = computed(() => `${selectedActionLabel.value} · 僅顯示有座標`)
 const highlightSubjectLabel = computed(() => {
   if (viewMode.value === 'players' && selectedPlayer.value)
     return `#${selectedPlayer.value.jersey_number} ${selectedPlayer.value.name}`
@@ -390,12 +393,15 @@ function openActionReplay(event: CoachPlayerActionEvent) {
 const BALL_TYPE_LABELS: Record<string, string> = {
   serve: '發',
   receive: '接',
+  serve_receive: '接發',
+  set: '舉',
   spike: '殺',
+  hit: '擊',
   contact: '擊',
 }
 
 function compactActionCounts(counts: Record<string, number>) {
-  return ['serve', 'receive', 'spike', 'contact']
+  return ['receive', 'set', 'spike', 'serve', 'serve_receive', 'hit', 'contact']
     .map(key => ({ key, label: BALL_TYPE_LABELS[key]!, count: counts[key] ?? 0 }))
     .filter(item => item.count > 0)
 }
@@ -406,6 +412,25 @@ function actionCount(counts: Record<string, number>) {
 
 function teamActionCounts(teamId: string) {
   const counts: Record<string, number> = {}
+  if (analytics.value?.action_events !== undefined) {
+    const rosterIds = new Set(
+      analytics.value.players
+        .filter(player => player.team_id === teamId)
+        .map(player => player.roster_entry_id),
+    )
+    let hasProjectedTeam = false
+    for (const event of analytics.value.action_events) {
+      if (event.team_id !== null && event.team_id !== undefined) hasProjectedTeam = true
+      if (
+        event.team_id === teamId ||
+        ((event.team_id === null || event.team_id === undefined) &&
+          event.roster_entry_id !== null &&
+          rosterIds.has(event.roster_entry_id))
+      )
+        counts[event.action_key] = (counts[event.action_key] ?? 0) + 1
+    }
+    if (hasProjectedTeam || Object.keys(counts).length) return compactActionCounts(counts)
+  }
   for (const player of analytics.value?.players.filter(item => item.team_id === teamId) ?? [])
     for (const [key, count] of Object.entries(player.action_counts))
       counts[key] = (counts[key] ?? 0) + count
@@ -471,9 +496,7 @@ function teamActionCounts(teamId: string) {
                     :key="item.key"
                     :style="{ '--action-color': actionColor(item.key) }"
                     >{{ item.label }} {{ item.count }}</i
-                  ><small v-if="!compactActionCounts(player.action_counts).length"
-                    >尚無人工球種</small
-                  >
+                  ><small v-if="!compactActionCounts(player.action_counts).length">尚無球種</small>
                 </span>
               </button>
             </section>
@@ -631,7 +654,7 @@ function teamActionCounts(teamId: string) {
                 <div>
                   <dt>出現回合</dt>
                   <dd>{{ selectedPlayer.rally_count }}</dd>
-                  <small>由已綁定球員的人工球種事件計算</small>
+                  <small>由已綁定球員的 AI／人工球種事件計算</small>
                 </div>
                 <div>
                   <dt>場次識別覆蓋</dt>
@@ -643,7 +666,7 @@ function teamActionCounts(teamId: string) {
               </template>
               <template v-else-if="viewMode === 'tracks' && selectedLocalTrack">
                 <div>
-                  <dt>人工球種事件</dt>
+                  <dt>分析球種事件</dt>
                   <dd>{{ eventState.events.value.length }}</dd>
                   <small>此片段 ID 關聯的人工標記</small>
                 </div>
@@ -679,14 +702,14 @@ function teamActionCounts(teamId: string) {
               </template>
               <template v-else-if="selectedTeam">
                 <div>
-                  <dt>人工球種</dt>
+                  <dt>分析球種</dt>
                   <dd>{{ eventState.events.value.length }}</dd>
                   <small>含未分配片段 ID 的分析事件</small>
                 </div>
                 <div>
                   <dt>球種</dt>
                   <dd>{{ actionOptions.length }}</dd>
-                  <small>隊伍所有人工球種分類</small>
+                  <small>隊伍所有 AI／人工球種分類</small>
                 </div>
                 <div>
                   <dt>已確認勝率</dt>
@@ -719,7 +742,7 @@ function teamActionCounts(teamId: string) {
             <header class="action-toolbar">
               <div class="action-heading">
                 <h2>球路與落點</h2>
-                <p>依 HIT、殺球、發球與接發篩選，查看方向、落點與短回放</p>
+                <p>篩選數量包含只有時間與球種的事件；虛擬球場只畫有完整起訖座標者</p>
               </div>
               <div class="action-filters" aria-label="球種篩選">
                 <button
@@ -745,22 +768,26 @@ function teamActionCounts(teamId: string) {
             <div class="action-overview">
               <aside class="action-rate" aria-label="球路資料摘要">
                 <div class="action-rate__primary">
-                  <span>人工結果成功率</span>
+                  <span>球路座標覆蓋</span>
                   <strong>{{
-                    outcomeSummary.rate === null
+                    selectedRouteCoverage === null
                       ? '—'
-                      : `${(outcomeSummary.rate * 100).toFixed(1)}%`
+                      : `${(selectedRouteCoverage * 100).toFixed(1)}%`
                   }}</strong>
-                  <p>{{ outcomeSummary.won }} / {{ outcomeSummary.resolved }} 個已判定事件</p>
+                  <p>{{ selectedRouteCount }} / {{ filteredEvents.length }} 筆事件可畫球路</p>
                 </div>
                 <dl>
+                  <div>
+                    <dt>球種事件</dt>
+                    <dd>{{ filteredEvents.length }}</dd>
+                  </div>
                   <div>
                     <dt>完整球路</dt>
                     <dd>{{ selectedRouteCount }}</dd>
                   </div>
                   <div>
-                    <dt>有效落點</dt>
-                    <dd>{{ selectedLandingCount }}</dd>
+                    <dt>缺少座標</dt>
+                    <dd>{{ selectedMissingRouteCount }}</dd>
                   </div>
                 </dl>
                 <CoachHighlightExport
@@ -774,7 +801,7 @@ function teamActionCounts(teamId: string) {
               </aside>
               <CoachBallRouteMap
                 :events="filteredEvents"
-                :label="selectedActionLabel"
+                :label="selectedRouteMapLabel"
                 :side-labels="routeMapSideLabels"
                 :selected-side="selectedSubjectSide"
                 :selected-event-id="selectedActionEvent?.id ?? null"
@@ -788,7 +815,7 @@ function teamActionCounts(teamId: string) {
                   <h2>球種時間軸</h2>
                   <p>點選紀錄會在目前頁面播放事件前 3 秒至後 2 秒</p>
                 </div>
-                <span>{{ filteredEvents.length }} 筆</span>
+                <span>{{ filteredEvents.length }} 筆事件 · {{ selectedRouteCount }} 筆有球路</span>
               </header>
               <UiScrollArea v-if="filteredEvents.length" class="action-records__scroll">
                 <div class="action-records__list">
@@ -827,7 +854,7 @@ function teamActionCounts(teamId: string) {
                   eventState.error.value ? '球種紀錄載入失敗' : '目前沒有符合的球種紀錄'
                 }}</strong
                 ><span>{{
-                  eventState.error.value?.message ?? '尚未有人工作出球種標記，不顯示模型推測資料。'
+                  eventState.error.value?.message ?? '目前沒有可用的 AI 或人工球種事件。'
                 }}</span>
               </div>
             </section>
@@ -1508,7 +1535,7 @@ function teamActionCounts(teamId: string) {
 }
 .action-rate dl {
   display: grid;
-  grid-template-columns: repeat(2, 1fr);
+  grid-template-columns: repeat(3, 1fr);
   gap: 20px;
   margin: 0;
   padding: 0 22px;

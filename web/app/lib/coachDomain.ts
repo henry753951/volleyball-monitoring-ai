@@ -381,6 +381,7 @@ export interface CoachMatchAnalytics {
     set_number: number
     rally_ordinal: number
     court_side: string
+    team_id?: string | null
     first_frame_index: string
     last_frame_index: string
     observed_frame_ranges?: Array<{ start: string; end: string }> | null
@@ -413,6 +414,7 @@ export interface CoachMatchAnalytics {
     analysis_run_id: string | null
     track_id: number | null
     roster_entry_id: string | null
+    team_id?: string | null
     anchor_time_us: string
     action_key: string
     action_label: string

@@ -4,9 +4,24 @@ import { describe, expect, it, vi } from 'vitest'
 import {
   getCoachMatchAnalytics,
   observedFrameRangesOverlap,
+  providerContactSemantic,
 } from '../src/services/coach-analytics.js'
 
 describe('coach identity projections', () => {
+  it('reads imported pass, set, and spike semantics with their court side', () => {
+    expect(providerContactSemantic({ group_activity_label: 'l_set' })).toEqual({
+      phase: 'set',
+      courtSide: 'left',
+      actionKey: 'set',
+    })
+    expect(providerContactSemantic({ phase: 'pass', court_side: 'right' })).toEqual({
+      phase: 'pass',
+      courtSide: 'right',
+      actionKey: 'receive',
+    })
+    expect(providerContactSemantic({ group_activity_label: 'unknown' })).toBeNull()
+  })
+
   it('only treats exact observed frame presence as a local-id conflict', () => {
     expect(
       observedFrameRangesOverlap(
@@ -117,6 +132,7 @@ describe('coach identity projections', () => {
                   {
                     keyPointId: 'contact-1',
                     sequenceIndex: 0,
+                    detectionEvidence: { group_activity_label: 'l_set' },
                     anchorFrameIndex: 0n,
                     resolvedFrameIndex: null,
                     associationState: 'AMBIGUOUS',
@@ -148,10 +164,16 @@ describe('coach identity projections', () => {
       heatmap_samples: [{ x: 0.25, y: 0.75, action: 'serve' }],
     })
     expect(analytics?.tracks[0]).toMatchObject({
+      team_id: 'team-left',
       gid_id: 'cluster-7',
       gid_slot_index: null,
       roster_entry_id: 'roster-7',
       identity_source: 'manual',
+    })
+    expect(analytics?.action_events[0]).toMatchObject({
+      team_id: 'team-left',
+      court_side: 'left',
+      action_key: 'set',
     })
   })
 })

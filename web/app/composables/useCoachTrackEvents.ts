@@ -17,6 +17,7 @@ export function useCoachTrackEvents(
   tracks: MaybeRefOrGetter<CoachMatchAnalytics['tracks']>,
   canonicalEvents: MaybeRefOrGetter<CanonicalActionEvent[]> = () => [],
   selectedRosterEntryIds: MaybeRefOrGetter<string[]> = () => [],
+  selectedTeamIds: MaybeRefOrGetter<string[]> = () => [],
 ) {
   const client = createCoachDomainClient(createGraphQLTransport('/graphql'))
   const replayCache = shallowReactive(new Map<string, CoachRallyReplay | null>())
@@ -27,23 +28,32 @@ export function useCoachTrackEvents(
   const scopedCanonicalEvents = computed(() => {
     const selectedTracks = toValue(tracks)
     const rosterEntryIds = new Set(toValue(selectedRosterEntryIds))
+    const teamIds = new Set(toValue(selectedTeamIds))
     const trackRosterEntryIds = new Set(
       selectedTracks
         .map(track => track.roster_entry_id)
         .filter((rosterEntryId): rosterEntryId is string => rosterEntryId !== null),
     )
-    return toValue(canonicalEvents).filter(event =>
-      rosterEntryIds.size || trackRosterEntryIds.size
-        ? event.roster_entry_id !== null &&
+    return toValue(canonicalEvents).filter(event => {
+      if (teamIds.size)
+        return typeof event.team_id === 'string'
+          ? teamIds.has(event.team_id)
+          : event.roster_entry_id !== null &&
+              (rosterEntryIds.has(event.roster_entry_id) ||
+                trackRosterEntryIds.has(event.roster_entry_id))
+      if (rosterEntryIds.size || trackRosterEntryIds.size)
+        return (
+          event.roster_entry_id !== null &&
           (rosterEntryIds.has(event.roster_entry_id) ||
             trackRosterEntryIds.has(event.roster_entry_id))
-        : selectedTracks.some(
-            track =>
-              event.analysis_run_id !== null &&
-              event.analysis_run_id === track.analysis_run_id &&
-              event.track_id === track.track_id,
-          ),
-    )
+        )
+      return selectedTracks.some(
+        track =>
+          event.analysis_run_id !== null &&
+          event.analysis_run_id === track.analysis_run_id &&
+          event.track_id === track.track_id,
+      )
+    })
   })
 
   const events = computed<CoachPlayerActionEvent[]>(() => {

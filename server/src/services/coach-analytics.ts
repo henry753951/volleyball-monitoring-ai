@@ -84,6 +84,36 @@ function observedFrameRangesForOutput(metadata: unknown) {
   )
 }
 
+export function providerContactSemantic(value: unknown) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+  const evidence = value as Record<string, unknown>
+  const groupLabel =
+    typeof evidence.group_activity_label === 'string'
+      ? evidence.group_activity_label.toLowerCase()
+      : ''
+  const groupMatch = groupLabel.match(/^([lr])_(pass|set|spike)$/)
+  const phaseValue =
+    typeof evidence.phase === 'string' ? evidence.phase.toLowerCase() : groupMatch?.[2]
+  const sideValue =
+    typeof evidence.court_side === 'string'
+      ? evidence.court_side.toLowerCase()
+      : groupMatch?.[1] === 'l'
+        ? 'left'
+        : groupMatch?.[1] === 'r'
+          ? 'right'
+          : null
+  if (
+    (phaseValue !== 'pass' && phaseValue !== 'set' && phaseValue !== 'spike') ||
+    (sideValue !== 'left' && sideValue !== 'right')
+  )
+    return null
+  return {
+    phase: phaseValue,
+    courtSide: sideValue,
+    actionKey: phaseValue === 'pass' ? 'receive' : phaseValue,
+  } as const
+}
+
 const coachAnalysisRunSelect = {
   id: true,
   analysisVersion: true,
@@ -170,6 +200,7 @@ const coachAnalysisRunSelect = {
     select: {
       keyPointId: true,
       sequenceIndex: true,
+      detectionEvidence: true,
       anchorFrameIndex: true,
       resolvedFrameIndex: true,
       anchorTimeUs: true,
@@ -453,6 +484,7 @@ export async function getCoachMatchAnalytics(
         return {
           keyPointId: edit.contactId,
           sequenceIndex: null,
+          detectionEvidence: null,
           anchorFrameIndex: edit.frameIndex,
           resolvedFrameIndex: edit.frameIndex,
           frameIndex: edit.frameIndex,
@@ -574,6 +606,7 @@ export async function getCoachMatchAnalytics(
         ? (trackAssignments.get(`${analysis.run.id}:${inferredTrackId}`) ?? null)
         : null)
     const trackId = sourceEvent?.actors[0]?.trackId ?? null
+    const providerSemantic = providerContactSemantic(sourceEvent?.detectionEvidence)
     const submissionKeyPointId = event.submissionKeyPointId ?? null
     const path = analysis?.run.segments.find(segment =>
       [sourceEvent?.keyPointId, submissionKeyPointId].includes(segment.startKeyPointId),
@@ -590,7 +623,21 @@ export async function getCoachMatchAnalytics(
           trackId,
         )
       : null
-    const actionKey = event.kind.toLowerCase() === 'contact' ? 'hit' : event.kind.toLowerCase()
+    const actionKey =
+      providerSemantic?.actionKey ??
+      (event.kind.toLowerCase() === 'contact' ? 'hit' : event.kind.toLowerCase())
+    const courtSide =
+      analysis && trackId !== null
+        ? (analysis.run.tracks.find(track => track.trackId === trackId)?.courtSide.toLowerCase() ??
+          providerSemantic?.courtSide ??
+          null)
+        : (providerSemantic?.courtSide ?? null)
+    const teamId =
+      courtSide === 'left'
+        ? (rally?.submission.leftTeamId ?? null)
+        : courtSide === 'right'
+          ? (rally?.submission.rightTeamId ?? null)
+          : null
     const sourceAnchorTimeUs =
       sourceEvent && 'anchorTimeUs' in sourceEvent ? sourceEvent.anchorTimeUs : null
     return {
@@ -601,6 +648,7 @@ export async function getCoachMatchAnalytics(
       analysis_run_id: analysis?.run.id ?? null,
       track_id: trackId,
       roster_entry_id: rosterEntryId,
+      team_id: teamId,
       anchor_time_us:
         sourceAnchorTimeUs?.toString() ?? event.submissionKeyPoint.captureTimeUs.toString(),
       action_key: actionKey,
@@ -609,12 +657,7 @@ export async function getCoachMatchAnalytics(
       result_key: event.result?.toLowerCase() ?? null,
       route_start: startPosition ? { x: startPosition.courtX, y: startPosition.courtY } : null,
       route_end: endPosition ? { x: endPosition.courtX, y: endPosition.courtY } : null,
-      court_side:
-        analysis && trackId !== null
-          ? (analysis.run.tracks
-              .find(track => track.trackId === trackId)
-              ?.courtSide.toLowerCase() ?? null)
-          : null,
+      court_side: courtSide,
       outcome: event.result === 'SUCCESS' ? 'won' : event.result === 'FAILURE' ? 'lost' : 'unknown',
     }
   })
@@ -852,6 +895,12 @@ export async function getCoachMatchAnalytics(
           set_number: effectiveSetNumberFor(entry.rally.set.setNumber),
           rally_ordinal: displayRallyOrdinalById.get(entry.rally.id) ?? entry.rally.ordinal,
           track_id: track.trackId,
+          team_id:
+            track.courtSide === 'LEFT'
+              ? entry.rally.submission.leftTeamId
+              : track.courtSide === 'RIGHT'
+                ? entry.rally.submission.rightTeamId
+                : null,
           court_side: track.courtSide.toLowerCase(),
           first_frame_index: track.firstFrame.toString(),
           last_frame_index: track.lastFrame.toString(),
