@@ -1293,6 +1293,7 @@ export function createMediaSourceProcess(options: MediaSourceProcessOptions) {
       }
       await new Promise(resolvePromise => setTimeout(resolvePromise, 1_000))
     }
+    if (signal.aborted) throw abortError()
     const directory = safeChild(options.recordingRoot, work.ingestPath)
     const count = await stableRecordingCount(directory, signal)
     return { expectedSegments: count, sourceDurationUs: null, sourceKind: 'youtube_live' }

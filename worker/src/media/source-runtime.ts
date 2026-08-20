@@ -361,23 +361,19 @@ export class MediaSourceRuntime {
     }
     try {
       const completion = await this.options.run(work, observer, active.controller.signal)
+      // A runner may return a normal completion after its child process has
+      // already observed SIGTERM (for example, while a pod is being replaced).
+      // Never turn that worker shutdown into a clean capture completion. The
+      // next worker must reclaim the durable work and resume the live relay.
+      if (active.controller.signal.aborted) {
+        await this.#handleAbort(active, state)
+        return
+      }
       active.phase = 'draining'
       await this.#complete(work, completion)
     } catch (error) {
       if (active.controller.signal.aborted) {
-        if (active.stopRequested) {
-          const expectedSegments = await countMediaSourceRecordings(
-            this.options.recordingRoot,
-            work.ingestPath,
-          )
-          await this.#complete(work, {
-            expectedSegments,
-            sourceDurationUs: state.classification?.sourceDurationUs ?? null,
-            sourceKind: state.classification?.sourceKind ?? work.sourceKind,
-          })
-        } else {
-          await retryMediaSourceWork(this.options.database, work.id, 'WORKER_STOPPED', 0)
-        }
+        await this.#handleAbort(active, state)
         return
       }
       const code = errorCode(error)
@@ -392,6 +388,28 @@ export class MediaSourceRuntime {
         await failMediaSourceWork(this.options.database, work.id, code)
       }
     }
+  }
+
+  async #handleAbort(
+    active: ActiveSource,
+    state: { classification: Pick<SourceCompletion, 'sourceDurationUs' | 'sourceKind'> | null },
+  ): Promise<void> {
+    if (!active.stopRequested) {
+      await retryMediaSourceWork(this.options.database, active.work.id, 'WORKER_STOPPED', 0)
+      this.options.log?.(
+        `media-source worker shutdown capture=${active.work.captureSessionId} retry=true`,
+      )
+      return
+    }
+    const expectedSegments = await countMediaSourceRecordings(
+      this.options.recordingRoot,
+      active.work.ingestPath,
+    )
+    await this.#complete(active.work, {
+      expectedSegments,
+      sourceDurationUs: state.classification?.sourceDurationUs ?? null,
+      sourceKind: state.classification?.sourceKind ?? active.work.sourceKind,
+    })
   }
 
   async #complete(work: ClaimedMediaSourceWork, completion: SourceCompletion): Promise<void> {

@@ -845,8 +845,8 @@ dbd9e6afd7ffb847d202880dbaaa25ed777699d178efeb56e997f78a6753408b  ./worker/src/m
 704a6ec9d1f3ad7a9a169d4c4570abca0df3722785cdc42b252d17005cc1016f  ./worker/src/media/resolvers.ts
 d30a3fbe0a87e67a9216875d286f5b691d39baf13863416fb3f4d3bcb28c35b2  ./worker/src/media/runtime-config.ts
 8f0a7c3f8c163da69d5c7be0980cadfedbc6515477416fe2f0a4cc7e8f3c4f3d  ./worker/src/media/sample-index.ts
-3196f7539e70bea8ae98b2a2b5647063d6089325fc50d36029869f202ec6b2fc  ./worker/src/media/source-process.ts
-5f123b9ae6aba746b4a4bbd2afea2e1c790dfc8ad9583b431d524bd8202595c7  ./worker/src/media/source-runtime.ts
+c87f2001d32e0796548a2dd6c7635fa3965b3857dfab72fc8e7f3e8cfeb96dac  ./worker/src/media/source-process.ts
+584c58c133a08428e7e4eaa1bf71899ea440ac84252d77452ffcf27f4a8a1c8e  ./worker/src/media/source-runtime.ts
 35845355b62d5de1dd0feed57d13ca53bf82415226620de338f1f6277906ba88  ./worker/src/media/source-work.ts
 e0055e5de69b1a90ddf83147a4379f8aaad8a9e0442e094795147b961f19ed37  ./worker/src/media/tiered-media-object-store.ts
 3567fec0ad0c070098bd5ee6185587e422593e6facde4f7a4a2b3f4bb9f84b8d  ./worker/src/media/youtube-auth.ts
@@ -908,6 +908,7 @@ b6bfa38a3a17208e0dd392366184a369cff62ba41cc5271a90b1195a30019da5  ./worker/tests
 71294ae25a9fe9530a17e039c7a11e64359f0be841dae963c5433f41e5c79c99  ./worker/tests/resolvers.test.ts
 17d706ad7805027bfc4dfc7eed1d68726fa9f328ab62d217a72f6a77f42cd4d0  ./worker/tests/runtime-health.test.ts
 a6ce1a8b2ee336417c151587ac46647e53a3c173d6a90a4e1c4b13db994f3d1a  ./worker/tests/source-process.test.ts
+6d4adaa3634e0c573a282def24669ea1bdcaa53590feed18baa572675529511a  ./worker/tests/source-runtime.test.ts
 874f3358339702b24d6316137491ef442e6eb91add9dce7285f2b9511b993e4d  ./worker/tests/source-spool-cleanup.test.ts
 a543e3a9502114060cf01e2c0033e0e933640329117abeaa712be7c2ab995e32  ./worker/tests/source-work.test.ts
 ccbee74b054bcf5797d688a953f79e25e9a06475a9d7e5ab667ac71d651f0036  ./worker/tests/tiered-media-object-store.test.ts
