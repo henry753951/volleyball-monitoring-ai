@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.10.5](https://github.com/henry753951/volleyball-monitoring-ai/compare/v1.10.4...v1.10.5) (2026-08-20)
+
+
+### Bug Fixes
+
+* **annotation:** persist initial court-side baseline ([3d29842](https://github.com/henry753951/volleyball-monitoring-ai/commit/3d298423f73bfb662783ac3a38e868f9339b54ba))
+* **annotation:** persist initial court-side baseline ([d0f313d](https://github.com/henry753951/volleyball-monitoring-ai/commit/d0f313dcea4529016c3371807d426af3e59fcc1b))
+
 ## [1.10.4](https://github.com/henry753951/volleyball-monitoring-ai/compare/v1.10.3...v1.10.4) (2026-08-20)
 
 
