@@ -997,7 +997,12 @@ export const mediaPlaybackRoutes =
           const etag = `"${asset.sha256}"`
           reply
             .header('accept-ranges', 'bytes')
-            .header('cache-control', 'private, max-age=300, immutable')
+            // Segment bytes are content-addressed by the asset SHA and never
+            // mutate. Keep them in the authenticated browser's private HTTP
+            // cache so MSE eviction or a backward seek does not immediately
+            // turn into another object-storage read. `private` intentionally
+            // keeps shared CDNs from bypassing playback-window authorization.
+            .header('cache-control', 'private, max-age=86400, immutable')
             .header('etag', etag)
           if (etagMatches(headerValue(request, 'if-none-match'), etag)) {
             return reply.code(304).send()

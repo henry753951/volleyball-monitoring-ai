@@ -46,6 +46,12 @@ import {
   type CanonicalMediaRange,
 } from '~/utils/mediaBuffer'
 import { estimateFrameDurationSeconds } from '~/utils/framePreviewCalibration'
+import { requestMediaPause, requestMediaPlay } from '~/utils/mediaPlaybackIntent'
+import {
+  createPresentedFrameBaseline,
+  projectedPresentedFrameIndex,
+  type PresentedFrameBaseline,
+} from '~/utils/presentedFrameIndex'
 import {
   captureNeedsPolling,
   hasActiveRallyProcessing,
@@ -120,6 +126,7 @@ const overlayPlayer = ref<{
       'playback_window_id' | 'mapping_version' | 'player_media_time_us'
     >,
   ) => boolean
+  seekCaptureTimeInWindow: (targetCaptureTimeUs: string) => boolean
   seekCaptureTimeIfBuffered: (targetCaptureTimeUs: string) => boolean
   previewCaptureTimeIfBuffered: (targetCaptureTimeUs: string) => boolean
   previewPlayerMediaTime: (targetPlayerSeconds: number) => boolean
@@ -394,10 +401,12 @@ const matchInspector = useTemplateRef<{ closePlacement: () => void }>('matchInsp
 const inspectorTab = ref<'match' | 'mapping' | 'analysis'>('match')
 const pinnedRallyId = workstationSelection.explicitRallyId
 const currentOverlayFrame = ref(-1)
-const displayFrameIndex = computed(() =>
-  currentOverlayFrame.value >= 0
-    ? String(currentOverlayFrame.value)
-    : (authoritativeAnchor.value?.capture_frame_index ?? '—'),
+const presentedFrameBaseline = shallowRef<PresentedFrameBaseline | null>(null)
+const displayFrameIndex = computed(
+  () =>
+    projectedPresentedFrameIndex(presentedFrameBaseline.value, observedCursor.value) ??
+    authoritativeAnchor.value?.capture_frame_index ??
+    '—',
 )
 const overlayVideoSize = shallowRef<{
   width: number
@@ -1708,8 +1717,10 @@ async function resolveLatestCursor() {
   lastCursorResolveAt = performance.now()
   try {
     const resolved = await dvr.resolve(cursor)
-    if (resolved)
+    if (resolved) {
       lastResolvedCursorKey = `${cursor.playback_window_id}:${cursor.mapping_version}:${cursor.seek_generation}:${cursor.player_media_time_us}`
+      presentedFrameBaseline.value = createPresentedFrameBaseline(resolved, cursor)
+    }
     if (await keyPointEditing.completeResolvedMove(cursor, resolved)) return
   } catch (error) {
     mediaError.value = error instanceof Error ? error.message : '游標解析失敗'
@@ -1829,7 +1840,7 @@ async function createWindow(
     safeTarget &&
     current.capture_session_id === selectedCapture.value?.id &&
     current.mode === mode &&
-    Date.parse(current.expires_at) > Date.now() + 30_000 &&
+    Date.parse(current.expires_at) > Date.now() &&
     BigInt(safeTarget) >= BigInt(current.window_capture_start_us) &&
     BigInt(safeTarget) < BigInt(current.window_capture_end_us)
   ) {
@@ -1839,6 +1850,7 @@ async function createWindow(
       video.value.currentTime =
         Number(BigInt(safeTarget) - BigInt(current.presentation_origin_capture_us)) / 1_000_000
     }
+    maintainPlaybackWindow()
     return current
   }
   if (windowCreatePromise && safeTarget === windowCreateTarget && mode === windowCreateMode)
@@ -1883,7 +1895,7 @@ async function seekTimeline(targetCaptureTimeUs: string) {
   gapTransition = null
   seekPreviewActive.value = false
   if (seekPreviewTimer) clearTimeout(seekPreviewTimer)
-  if (video.value && !video.value.paused) video.value.pause()
+  if (video.value && !video.value.paused) requestMediaPause(video.value)
   prepareAuthoritativeSeek()
   keyPointEditing.navigation.cancel()
   seekPreviewTimer = null
@@ -1897,6 +1909,7 @@ async function seekTimeline(targetCaptureTimeUs: string) {
     // playback window, so no later ready event is guaranteed to clear a stale
     // loading gate from an earlier wait/seek.
     clearPlaybackBuffering()
+    maintainPlaybackWindow()
     return
   }
   markPlaybackBuffering(false, target)
@@ -1924,6 +1937,13 @@ async function seekTimeline(targetCaptureTimeUs: string) {
       clearPlaybackBuffering()
       if (optimisticSeekCaptureTimeUs.value === target) clearOptimisticSeekTarget()
     }
+    return
+  }
+  if (overlayPlayer.value?.seekCaptureTimeInWindow(target)) {
+    // The target is still listed by the active bounded manifest even though
+    // Chromium has evicted its decoded/MSE bytes. Let hls.js fetch that range
+    // into the existing MediaSource instead of destroying the whole pipeline.
+    maintainPlaybackWindow()
     return
   }
   const created = await createWindow(target, undefined, true)
@@ -2057,7 +2077,7 @@ function updatePlaybackState() {
   if (playing.value && playbackBuffering.value) {
     // Do not allow a manual play click or a browser auto-resume to bypass the
     // buffer gate and continue an old range while the requested range loads.
-    video.value?.pause()
+    if (video.value) requestMediaPause(video.value)
     playing.value = false
     return
   }
@@ -2100,7 +2120,7 @@ function finishPlaybackBufferingIfReady() {
   const shouldResume = resumeAfterBuffering
   clearPlaybackBuffering()
   if (shouldResume && !element.ended)
-    void element.play().catch(error => {
+    void requestMediaPlay(element).catch(error => {
       mediaError.value = error instanceof Error ? error.message : '載入後無法繼續播放'
     })
 }
@@ -2176,7 +2196,7 @@ async function continueAcrossGap(input: {
   }
   gapTransition = transition
   markPlaybackBuffering(transition.resumePlayback, input.targetCaptureTimeUs)
-  if (transition.resumePlayback) input.element.pause()
+  if (transition.resumePlayback) requestMediaPause(input.element)
   prepareAuthoritativeSeek()
   captureTarget.value = input.targetCaptureTimeUs
   mediaError.value = null
@@ -2256,7 +2276,7 @@ function maintainPlaybackWindow() {
   continuationRequestedAt = performance.now()
   if (decision === 'recover-buffer') {
     const recovered = overlayPlayer.value?.recoverPlayback() ?? false
-    if (!recovered && !element.paused) element.pause()
+    if (!recovered && !element.paused) requestMediaPause(element)
     schedulePlaybackContinuation(650)
     return
   }
@@ -2435,10 +2455,10 @@ function dispatchMediaAction(
   if (!element) return
   if (action === 'play_pause') {
     if (element.paused)
-      void element.play().catch(error => {
+      void requestMediaPlay(element).catch(error => {
         mediaError.value = error instanceof Error ? error.message : '播放器無法開始播放'
       })
-    else element.pause()
+    else requestMediaPause(element)
   }
   if (action === 'mute') element.muted = !element.muted
   if (action === 'frame_previous' || action === 'frame_next')
@@ -2553,7 +2573,7 @@ function previewFrameStep(delta: number) {
   const element = video.value
   const window = descriptor.value
   if (!element || !window) return
-  if (!element.paused) element.pause()
+  if (!element.paused) requestMediaPause(element)
   if (estimatedFrameSeconds === null) return
   const windowKey = `${window.playback_window_id}:${window.mapping_version}`
   if (framePreviewWindowKey !== windowKey) {

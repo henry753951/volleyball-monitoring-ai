@@ -6,6 +6,7 @@ import Fastify, { type FastifyReply, type FastifyRequest } from 'fastify'
 import { createYoga } from 'graphql-yoga'
 import Redis from 'ioredis'
 import { createGraphQLContext } from './graphql/context.js'
+import { registerResponseCompression } from './http/response-compression.js'
 import { configureAnnotationGraphQL } from './graphql/annotation-mutations.js'
 import { schema } from './graphql/schema.js'
 import { evaluateReadiness, type ReadinessProbe } from './health/readiness.js'
@@ -165,6 +166,7 @@ const readinessProbes: ReadinessProbe[] = [
   },
 ]
 
+await registerResponseCompression(app)
 await app.register(cors, {
   origin: process.env.WEB_ORIGIN ?? true,
   credentials: true,

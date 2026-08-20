@@ -144,6 +144,7 @@ const objectBytes = new Map<string, Uint8Array>()
 const reads: MediaObjectReadRequest[] = []
 let db: typeof databaseClient
 let repository: SampleIndexRepositoryType
+let repositoryModule: typeof import('../src/media/sample-index-repository.js')
 let SampleIndexRepositoryErrorClass: typeof SampleIndexRepositoryError
 let createdDatabase = false
 let expectedRowCounts: readonly number[]
@@ -505,16 +506,16 @@ beforeAll(async () => {
     windowsHide: true,
   })
   const dbModule = await import('@volleyball-monitoring/db')
-  const repositoryModule = await import('../src/media/sample-index-repository.js')
+  repositoryModule = await import('../src/media/sample-index-repository.js')
   db = dbModule.db
   SampleIndexRepositoryErrorClass = repositoryModule.SampleIndexRepositoryError
   await seedFixture()
-  repository = repositoryModule.createSampleIndexRepository(db, inMemoryReader)
   expectedRowCounts = await rowCounts()
 }, 120_000)
 
 beforeEach(async () => {
   await resetFixture()
+  repository = repositoryModule.createSampleIndexRepository(db, inMemoryReader)
 })
 
 afterEach(async () => {
@@ -580,6 +581,20 @@ describe('persisted sample index repository', () => {
       },
     ])
     expect(await rowCounts()).toEqual(countsBefore)
+  })
+
+  it('coalesces concurrent immutable sample-index reads and reuses parsed documents', async () => {
+    const [first, second] = await Promise.all([
+      repository.loadOrderedSegments([ids.segment1, ids.segment2]),
+      repository.loadOrderedSegments([ids.segment1, ids.segment2]),
+    ])
+
+    expect(reads).toHaveLength(2)
+    expect(second).toEqual(first)
+
+    const third = await repository.loadOrderedSegments([ids.segment1, ids.segment2])
+    expect(reads).toHaveLength(2)
+    expect(third).toEqual(first)
   })
 
   it.each([

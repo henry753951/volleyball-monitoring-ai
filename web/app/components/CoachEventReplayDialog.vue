@@ -7,6 +7,7 @@ import {
   type CoachPlayerActionEvent,
 } from '~/utils/coachPlayerActions'
 import { coachEventReplayMediaUrl, coachEventReplayWindow } from '~/utils/coachEventReplay'
+import { requestMediaPause, requestMediaPlay } from '~/utils/mediaPlaybackIntent'
 
 type ReplayClip = NonNullable<CoachRallyReplay['clip']>
 
@@ -67,7 +68,7 @@ function relativeClock(value: number) {
 function resetPlayback() {
   const element = video.value
   if (!element) return
-  element.pause()
+  requestMediaPause(element)
   if (element.readyState >= HTMLMediaElement.HAVE_METADATA) {
     element.currentTime = windowStart.value
     currentTime.value = windowStart.value
@@ -86,7 +87,7 @@ async function autoplayPlayback() {
   )
     element.currentTime = windowStart.value
   try {
-    await element.play()
+    await requestMediaPlay(element)
   } catch {
     // Browsers may block autoplay; the visible play control remains available.
   }
@@ -102,7 +103,7 @@ function updatePlayback() {
   const element = video.value
   if (!element) return
   if (element.currentTime >= windowEnd.value - 0.025) {
-    element.pause()
+    requestMediaPause(element)
     element.currentTime = windowEnd.value
   }
   currentTime.value = element.currentTime
@@ -113,13 +114,13 @@ async function togglePlayback() {
   const element = video.value
   if (!element) return
   if (!element.paused) {
-    element.pause()
+    requestMediaPause(element)
     updatePlayback()
     return
   }
   if (element.currentTime >= windowEnd.value - 0.025) element.currentTime = windowStart.value
   try {
-    await element.play()
+    await requestMediaPlay(element)
   } catch {
     // Safari may defer playback until the next direct tap; the control remains available.
   }

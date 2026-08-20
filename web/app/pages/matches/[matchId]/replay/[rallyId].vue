@@ -24,6 +24,7 @@ import { resolveFrameFromRate, resolveFrameFromTimeline } from '~/utils/overlayF
 import { replayBallEventLabel } from '~/utils/replayBallEventPresentation'
 import { readOverlayPreferences, writeOverlayPreferences } from '~/utils/overlayPreferences'
 import { resolveVideoContentRect } from '~/utils/volleyballOverlayRenderer'
+import { requestMediaPause, requestMediaPlay } from '~/utils/mediaPlaybackIntent'
 
 type OverlayMode = 'off' | 'tracking' | 'coach' | 'tactical'
 type TeamTone = 'blue' | 'red'
@@ -326,8 +327,8 @@ function scheduleVideoFrameCallback(element: HTMLVideoElement) {
 function togglePlayback() {
   const element = video.value
   if (!element) return
-  if (element.paused) void element.play()
-  else element.pause()
+  if (element.paused) void requestMediaPlay(element)
+  else requestMediaPause(element)
 }
 
 function handleReplayKeydown(event: KeyboardEvent) {
@@ -408,7 +409,7 @@ function eventTeamLabel(event: ReplayContactEvent) {
 
 function seekEvent(event: ReplayContactEvent) {
   seekSeconds(replayStartSeconds(event.anchor_time_us, 3))
-  if (video.value) void video.value.play()
+  if (video.value) void requestMediaPlay(video.value)
 }
 
 function eventActorLabel(event: ReplayContactEvent) {

@@ -58,7 +58,10 @@ class FakeHls {
 
 vi.mock('hls.js/light', () => ({ default: FakeHls }))
 
-function descriptor(mappingVersion: number): PlaybackWindowDescriptor {
+function descriptor(
+  mappingVersion: number,
+  overrides: Partial<PlaybackWindowDescriptor> = {},
+): PlaybackWindowDescriptor {
   return {
     schema_version: '1.0.0',
     playback_window_id: 'window-a',
@@ -76,6 +79,7 @@ function descriptor(mappingVersion: number): PlaybackWindowDescriptor {
     live_edge_capture_time_us: null,
     has_more_before: false,
     has_more_after: true,
+    ...overrides,
   }
 }
 
@@ -164,9 +168,44 @@ describe('rolling HLS attachment', () => {
     expect(hls.startLoad).not.toHaveBeenCalled()
   })
 
+  it('seeks inside an active window without replacing a pipeline whose lease is nearly due', async () => {
+    const element = {
+      buffered: { length: 1, start: () => 0, end: () => 120 },
+      canPlayType: () => '',
+      currentTime: 0,
+      ended: false,
+      load: vi.fn(),
+      pause: vi.fn(),
+      paused: true,
+      removeAttribute: vi.fn(),
+    } as unknown as HTMLVideoElement
+    const service = createDvrPlaybackService(ref(element), MEDIA_BUFFER_PROFILES.balanced)
+    const expiring = descriptor(1, {
+      expires_at: new Date(Date.now() + 10_000).toISOString(),
+    })
+
+    await service.attach(expiring)
+    const hls = hlsInstances[0]!
+    const createWindow = vi.fn()
+    hls.destroy.mockClear()
+    element.load = vi.fn()
+
+    await service.seekCaptureTime(12_000_000n, createWindow)
+
+    expect(element.currentTime).toBe(12)
+    expect(createWindow).not.toHaveBeenCalled()
+    expect(hls.destroy).not.toHaveBeenCalled()
+    expect(element.load).not.toHaveBeenCalled()
+  })
+
   it('pauses the current media before recovering an exhausted buffer', async () => {
-    const pause = vi.fn()
-    const play = vi.fn().mockResolvedValue(undefined)
+    let paused = false
+    const pause = vi.fn(() => {
+      paused = true
+    })
+    const play = vi.fn(async () => {
+      paused = false
+    })
     const element = {
       buffered: { length: 1, start: () => 0, end: () => 120 },
       canPlayType: () => '',
@@ -174,7 +213,9 @@ describe('rolling HLS attachment', () => {
       ended: false,
       load: vi.fn(),
       pause,
-      paused: false,
+      get paused() {
+        return paused
+      },
       play,
       removeAttribute: vi.fn(),
     } as unknown as HTMLVideoElement

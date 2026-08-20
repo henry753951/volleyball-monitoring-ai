@@ -14,6 +14,7 @@ import {
 } from './playback-domain.js'
 
 export const MAX_SAMPLE_INDEX_SEGMENT_IDS = 128
+export const MAX_CACHED_SAMPLE_INDEXES = 128
 
 export type SampleIndexRepositoryErrorCode =
   | 'INVALID_REQUEST'
@@ -485,11 +486,92 @@ function validateOrderedExtents(rows: readonly ExtentRow[]): void {
   }
 }
 
+function sampleIndexCacheKey(
+  kind: 'extent' | 'segment',
+  id: string,
+  sha256: string,
+  epoch: {
+    captureFrameOrigin: bigint
+    captureTimeOriginUs: bigint
+    id: string
+    sourcePtsOrigin: bigint
+    sourceTimeBaseDen: number
+    sourceTimeBaseNum: number
+  },
+): string {
+  return [
+    kind,
+    id,
+    sha256.toLowerCase(),
+    epoch.id,
+    epoch.sourcePtsOrigin.toString(),
+    epoch.captureTimeOriginUs.toString(),
+    epoch.captureFrameOrigin.toString(),
+    epoch.sourceTimeBaseNum.toString(),
+    epoch.sourceTimeBaseDen.toString(),
+  ].join(':')
+}
+
 export class SampleIndexRepository {
+  private readonly sampleIndexCache = new Map<string, Promise<SampleIndex>>()
+
   constructor(
     private readonly database: PrismaClient,
     private readonly objectReader: MediaObjectReader,
   ) {}
+
+  private cachedSampleIndex(key: string, load: () => Promise<SampleIndex>): Promise<SampleIndex> {
+    const cached = this.sampleIndexCache.get(key)
+    if (cached) {
+      this.sampleIndexCache.delete(key)
+      this.sampleIndexCache.set(key, cached)
+      return cached
+    }
+
+    let pending: Promise<SampleIndex>
+    pending = load().catch((error: unknown) => {
+      if (this.sampleIndexCache.get(key) === pending) this.sampleIndexCache.delete(key)
+      throw error
+    })
+    this.sampleIndexCache.set(key, pending)
+
+    while (this.sampleIndexCache.size > MAX_CACHED_SAMPLE_INDEXES) {
+      const oldestKey = this.sampleIndexCache.keys().next().value
+      if (oldestKey === undefined) break
+      this.sampleIndexCache.delete(oldestKey)
+    }
+    return pending
+  }
+
+  private loadSegmentIndex(row: SegmentRow): Promise<SampleIndex> {
+    const readRequest = sampleIndexReadRequest(row)
+    const key = sampleIndexCacheKey('segment', row.id, readRequest.expectedSha256, row.captureEpoch)
+    return this.cachedSampleIndex(key, async () => {
+      let bytes: Uint8Array
+      try {
+        bytes = await this.objectReader(readRequest)
+      } catch {
+        repositoryFailure('OBJECT_READ_FAILED', 'Sample index object could not be read')
+      }
+      return parseDocument(row, decodeDocument(bytes))
+    })
+  }
+
+  private loadExtentIndex(row: ExtentRow): Promise<SampleIndex> {
+    const readRequest = extentSampleIndexReadRequest(row)
+    if (!row.captureEpoch)
+      repositoryFailure('INVALID_SEGMENT_METADATA', 'Extent epoch is unavailable')
+    const key = sampleIndexCacheKey('extent', row.id, readRequest.expectedSha256, row.captureEpoch)
+    return this.cachedSampleIndex(key, async () => {
+      let bytes: Uint8Array
+      try {
+        bytes = await this.objectReader(readRequest)
+      } catch {
+        repositoryFailure('OBJECT_READ_FAILED', 'Extent sample index object could not be read')
+      }
+      return parseExtentDocument(row, decodeDocument(bytes))
+    })
+  }
 
   async loadOrderedSegments(segmentIds: readonly string[]): Promise<readonly IndexedSegment[]> {
     const normalizedIds = validateSegmentIds(segmentIds)
@@ -504,14 +586,7 @@ export class SampleIndexRepository {
 
     const segments: IndexedSegment[] = []
     for (const row of ordered) {
-      const readRequest = sampleIndexReadRequest(row)
-      let bytes: Uint8Array
-      try {
-        bytes = await this.objectReader(readRequest)
-      } catch {
-        repositoryFailure('OBJECT_READ_FAILED', 'Sample index object could not be read')
-      }
-      const index = parseDocument(row, decodeDocument(bytes))
+      const index = await this.loadSegmentIndex(row)
       validateIndexAgainstSegment(row, index)
       segments.push({
         discontinuity: row.discontinuitySequence,
@@ -537,14 +612,7 @@ export class SampleIndexRepository {
 
     const extents: IndexedSegment[] = []
     for (const row of ordered) {
-      const request = extentSampleIndexReadRequest(row)
-      let bytes: Uint8Array
-      try {
-        bytes = await this.objectReader(request)
-      } catch {
-        repositoryFailure('OBJECT_READ_FAILED', 'Extent sample index object could not be read')
-      }
-      const index = parseExtentDocument(row, decodeDocument(bytes))
+      const index = await this.loadExtentIndex(row)
       validateIndexAgainstExtent(row, index)
       extents.push({ index, segmentId: row.id })
     }

@@ -604,6 +604,7 @@ describe('Phase 2A playback-window HTTP', () => {
     expect(init.headers['content-length']).toBe('10')
     expect(init.rawPayload).toEqual(Buffer.from('init-bytes'))
     expect(media.statusCode).toBe(200)
+    expect(media.headers['cache-control']).toBe('private, max-age=86400, immutable')
     expect(media.rawPayload).toEqual(Buffer.from('media-two'))
 
     const mediaEtag = `"${sha256(Buffer.from('media-two'))}"`
