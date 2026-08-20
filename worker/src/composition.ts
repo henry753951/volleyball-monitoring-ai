@@ -187,6 +187,7 @@ export async function createMediaComposition() {
         : {}),
       youtubeExtractorArgs: config.YOUTUBE_EXTRACTOR_ARGS,
       youtubeFormat: config.YOUTUBE_FORMAT,
+      youtubeLiveFfmpegCommand: config.YOUTUBE_LIVE_FFMPEG_COMMAND,
       youtubeLiveExtractorArgs: config.YOUTUBE_LIVE_EXTRACTOR_ARGS,
       youtubeLiveMaxConsecutiveFailures: config.YOUTUBE_LIVE_MAX_CONSECUTIVE_FAILURES,
       ...(config.YOUTUBE_POT_PROVIDER_URL

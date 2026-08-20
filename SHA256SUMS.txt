@@ -4,7 +4,7 @@ a60955c8ffbec8a3999078369e0e57af39528b53f1bbbcb2593d25d2add1ea05  ./.codex/agent
 301580df4adbbcc2e9ff480855e7675ea4ee84c41844976ea258371cdade2b36  ./.codex/config.toml
 e7a6df94ed9f318be53b29c5b7da58c0b45f6446357bed618b7de96fc2bdd156  ./.dockerignore
 8e1c9a78d4dedcde12bb3cd6279ce83942819d1cd178f1d9d731ef3a62606ac7  ./.editorconfig
-a98cee83ab96e2a7fa13cbbdefb62e51113281aee9e3c2013cf8124d79a79fa2  ./.env.example
+96b2a972af973009447a82ac10ecf5b0001516ecb8b0902393002ecae4a678d7  ./.env.example
 6a9ebfdcf42bb25ff6dadf3fa8abac16b386ee7e412f3fcd91562628b79633de  ./.gitattributes
 cd39db1f3bda461a8e630df37cd329861e58ce3ab115c84dd5a3d2cb5086116b  ./.github/workflows/ci.yml
 b395c52a1ad69331d58e5d8b5be82f34bcd337996b1c81fa6ef77c05ea1cb8cf  ./.github/workflows/release.yml
@@ -813,7 +813,7 @@ a450dd947a7ca22cef3a6ebc5709f53f330011f46dd0a014d28012b85e521bf1  ./web/vitest.c
 164310b5dd83a1d620e4bed87d848dbec20b110975f6690cb4644d4cae6f50e5  ./worker/AGENTS.md
 2db69a4b2de34d306c9ffa0e6aa165acbcb12d187078364caa268dd6869c48b9  ./worker/README.md
 6bdc7b7262797ca6b98a1a2e4113c018b366903fd8bf83ce6407e0b5ee92bfad  ./worker/package.json
-5c590e824b7bb4d249129d57e69e16514ede02362c48023b54ddaa3b5b36e2ff  ./worker/src/composition.ts
+7bd6fc170bc58031a4989c527690d10a45ffe1997070ab2a16006f72af98e582  ./worker/src/composition.ts
 2101739a08a3538ae93bbcb25a64f27538c07fc41c1eb7762849b1732901462f  ./worker/src/index.ts
 bdb83690f22acbaaeba3142d41157b9f1acb6624b5cbfdf776630ce393d396c9  ./worker/src/lifecycle.ts
 e48638e01acd92b8e369faa6d60033b46adf59dc3cb4d1c802f8006c2e64fb0a  ./worker/src/media/artifacts.ts
@@ -832,9 +832,9 @@ bd56281c6e57b7a89189826b20cef0c7e0eda72be286b1c8101ccb3e7c3fe590  ./worker/src/m
 dbd9e6afd7ffb847d202880dbaaa25ed777699d178efeb56e997f78a6753408b  ./worker/src/media/prisma-ingest-repository.ts
 50dbd5bf417004ec502f3725f3971878bbd2bad3ffc597d28a0e6f5106d1aae3  ./worker/src/media/resolver.ts
 704a6ec9d1f3ad7a9a169d4c4570abca0df3722785cdc42b252d17005cc1016f  ./worker/src/media/resolvers.ts
-ce39a79562320a2bd681bc5ee32088b7011ed43a368afc13d646c3f452d65a9e  ./worker/src/media/runtime-config.ts
+d30a3fbe0a87e67a9216875d286f5b691d39baf13863416fb3f4d3bcb28c35b2  ./worker/src/media/runtime-config.ts
 8f0a7c3f8c163da69d5c7be0980cadfedbc6515477416fe2f0a4cc7e8f3c4f3d  ./worker/src/media/sample-index.ts
-15c3c8f1b22c2568cf1c48be549b1aaa6b5caf4b5413c3e860de33d8dfd9ba17  ./worker/src/media/source-process.ts
+e72bce57b4fcddba94b3d178da735ed3984a0dbfa7e2e2dccd048b11cc711e2a  ./worker/src/media/source-process.ts
 5f123b9ae6aba746b4a4bbd2afea2e1c790dfc8ad9583b431d524bd8202595c7  ./worker/src/media/source-runtime.ts
 35845355b62d5de1dd0feed57d13ca53bf82415226620de338f1f6277906ba88  ./worker/src/media/source-work.ts
 e0055e5de69b1a90ddf83147a4379f8aaad8a9e0442e094795147b961f19ed37  ./worker/src/media/tiered-media-object-store.ts
@@ -896,7 +896,7 @@ b6bfa38a3a17208e0dd392366184a369cff62ba41cc5271a90b1195a30019da5  ./worker/tests
 67829669a62b9df50a6fddb656d7022cbdb29f4cc819f51425b4e67662dcbb78  ./worker/tests/reid-feature-worker.test.ts
 71294ae25a9fe9530a17e039c7a11e64359f0be841dae963c5433f41e5c79c99  ./worker/tests/resolvers.test.ts
 17d706ad7805027bfc4dfc7eed1d68726fa9f328ab62d217a72f6a77f42cd4d0  ./worker/tests/runtime-health.test.ts
-b600fa13bd791c0beec2c20d79f954c95878a15a431940b6daac5d253d6a6967  ./worker/tests/source-process.test.ts
+a6ce1a8b2ee336417c151587ac46647e53a3c173d6a90a4e1c4b13db994f3d1a  ./worker/tests/source-process.test.ts
 874f3358339702b24d6316137491ef442e6eb91add9dce7285f2b9511b993e4d  ./worker/tests/source-spool-cleanup.test.ts
 a543e3a9502114060cf01e2c0033e0e933640329117abeaa712be7c2ab995e32  ./worker/tests/source-work.test.ts
 ccbee74b054bcf5797d688a953f79e25e9a06475a9d7e5ab667ac71d651f0036  ./worker/tests/tiered-media-object-store.test.ts

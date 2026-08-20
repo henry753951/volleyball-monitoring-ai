@@ -41,6 +41,7 @@ const MediaIndexerEnvironment = z.object({
   ),
   YOUTUBE_EXTRACTOR_ARGS: z.string().min(1).default('youtube:player_client=mweb'),
   YOUTUBE_FORMAT: z.string().min(1).default(YOUTUBE_PROBE_FORMAT),
+  YOUTUBE_LIVE_FFMPEG_COMMAND: z.string().min(1).default('/usr/bin/ffmpeg'),
   YOUTUBE_LIVE_EXTRACTOR_ARGS: z.string().min(1).default('youtube:player_client=mweb'),
   YOUTUBE_LIVE_MAX_CONSECUTIVE_FAILURES: z.coerce.number().int().min(1).max(100).default(5),
   YOUTUBE_POT_PROVIDER_URL: z.preprocess(
