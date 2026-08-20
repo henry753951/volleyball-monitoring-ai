@@ -16,7 +16,7 @@ withDefaults(
     open: boolean
     title: string
     description?: string
-    width?: 'compact' | 'default' | 'wide'
+    width?: 'compact' | 'default' | 'wide' | 'full'
     height?: 'auto' | 'medium' | 'tall'
     closeLabel?: string
     headerLayout?: 'default' | 'navigation'
@@ -105,6 +105,10 @@ function handleOpenChange(open: boolean) {
 }
 .animated-modal--wide {
   width: min(1040px, calc(100vw - 32px));
+}
+.animated-modal--full {
+  width: min(1480px, calc(100vw - 40px));
+  max-height: min(92dvh, 940px);
 }
 .animated-modal--height-medium {
   height: min(68dvh, 620px);

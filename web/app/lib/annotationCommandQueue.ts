@@ -39,21 +39,12 @@ export function annotationDraftOwnedByClient(
 }
 
 /**
- * OPEN is a client-local boundary workflow: inspecting another client's moving
- * draft must never replace this tab's operational draft. READY has a fixed END
- * boundary, so an operator explicitly selecting that unsubmitted draft may
- * continue its durable point/outcome/submission work from this tab.
+ * Explicit selection is editing intent. Any authorized OPEN or READY draft can
+ * become this tab's edit target; passive room broadcasts use the separate
+ * shouldAcceptAnnotationBroadcast guard and must never change that target.
  */
-export function shouldAdoptInspectedAnnotationSnapshot(
-  snapshot: AnnotationRallySnapshot | null,
-  rememberedRallyId: string | null,
-) {
-  if (!snapshot || !['open', 'ready'].includes(snapshot.snapshot.annotation_status)) return false
-  return (
-    snapshot.snapshot.annotation_status === 'ready' ||
-    snapshot.snapshot.active_submission_id != null ||
-    snapshot.rally_id === rememberedRallyId
-  )
+export function shouldAdoptInspectedAnnotationSnapshot(snapshot: AnnotationRallySnapshot | null) {
+  return Boolean(snapshot && ['open', 'ready'].includes(snapshot.snapshot.annotation_status))
 }
 
 export function rebaseQueuedAnnotationCommand(

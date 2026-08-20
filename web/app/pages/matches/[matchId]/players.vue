@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { BarChart3, ChevronRight, CircleAlert, UserRoundSearch } from 'lucide-vue-next'
+import { BarChart3, ChevronLeft, ChevronRight, CircleAlert, UserRoundSearch } from 'lucide-vue-next'
 import { rosterPositionLabel } from '~/lib/rosterPositions'
 import {
   actionColor,
+  actionDisplayLabel,
   formatActionTime,
   summarizeCoachActionRoutes,
   type CoachPlayerActionEvent,
@@ -28,8 +29,10 @@ const viewTabs = [
 const selectedPlayerId = ref<string | null>(null)
 const selectedTrackKey = ref<string | null>(null)
 const selectedTeamId = ref<string | null>(null)
+const selectedSetNumber = ref<number | null>(null)
 const selectedActionKey = ref('all')
 const selectedActionEvent = shallowRef<CoachPlayerActionEvent | null>(null)
+const focusedActionEvent = shallowRef<CoachPlayerActionEvent | null>(null)
 const detailScrollArea = ref<{ $el?: HTMLElement } | null>(null)
 const detailOverviewSentinel = ref<HTMLElement | null>(null)
 const detailOverviewStuck = ref(false)
@@ -56,6 +59,25 @@ watchEffect(onCleanup => {
 const orderedPlayers = computed(() =>
   (analytics.value?.teams ?? []).flatMap(team => playersForTeam(team.id)),
 )
+const availableSetNumbers = computed(() => {
+  const values = new Set<number>()
+  for (const set of analytics.value?.sets ?? []) values.add(set.set_number)
+  for (const rally of analytics.value?.rallies ?? []) values.add(rally.set_number)
+  for (const event of analytics.value?.action_events ?? []) values.add(event.set_number)
+  return [...values].sort((left, right) => left - right)
+})
+const selectedSet = computed(
+  () => analytics.value?.sets.find(set => set.set_number === selectedSetNumber.value) ?? null,
+)
+const legacyUnpartitionedSet = computed(() => {
+  if (availableSetNumbers.value.length !== 1 || !selectedSet.value || !analytics.value) return false
+  return analytics.value.teams.some(team => (selectedSet.value?.team_points[team.id] ?? 0) > 50)
+})
+const setScopedCanonicalEvents = computed(() =>
+  (analytics.value?.action_events ?? []).filter(
+    event => selectedSetNumber.value === null || event.set_number === selectedSetNumber.value,
+  ),
+)
 
 const selectedPlayer = computed(
   () =>
@@ -76,26 +98,68 @@ const selectedTeamPlayers = computed(
   () => analytics.value?.players.filter(player => player.team_id === selectedTeam.value?.id) ?? [],
 )
 const selectedTeamTracks = computed(() =>
-  analytics.value && selectedTeam.value ? teamTracks(analytics.value, selectedTeam.value.id) : [],
+  analytics.value && selectedTeam.value
+    ? teamTracks(analytics.value, selectedTeam.value.id).filter(
+        track => selectedSetNumber.value === null || track.set_number === selectedSetNumber.value,
+      )
+    : [],
 )
-const selectedTeamWinRate = computed(() => {
-  const team = selectedTeam.value
-  return team?.sample_count ? team.wins / team.sample_count : null
+const selectedTeamSetEvents = computed(() => {
+  if (!selectedTeam.value || !analytics.value) return []
+  const rosterIds = new Set(
+    analytics.value.players
+      .filter(player => player.team_id === selectedTeam.value?.id)
+      .map(player => player.roster_entry_id),
+  )
+  return setScopedCanonicalEvents.value.filter(
+    event =>
+      event.team_id === selectedTeam.value?.id ||
+      (event.team_id === null &&
+        event.roster_entry_id !== null &&
+        rosterIds.has(event.roster_entry_id)),
+  )
 })
-const selectedShare = computed(() =>
-  analytics.value && selectedPlayer.value
-    ? playerContactShare(analytics.value, selectedPlayer.value.roster_entry_id)
-    : 0,
-)
+const selectedTeamSetOutcome = computed(() => ({
+  wins: selectedTeamSetEvents.value.filter(event => event.outcome === 'won').length,
+  losses: selectedTeamSetEvents.value.filter(event => event.outcome === 'lost').length,
+  unknown: selectedTeamSetEvents.value.filter(event => event.outcome === 'unknown').length,
+}))
+const selectedTeamWinRate = computed(() => {
+  const outcome = selectedTeamSetOutcome.value
+  const sampleCount = outcome.wins + outcome.losses + outcome.unknown
+  return sampleCount ? outcome.wins / sampleCount : null
+})
+const selectedShare = computed(() => {
+  if (!selectedPlayer.value) return 0
+  const identifiedEvents = setScopedCanonicalEvents.value.filter(
+    event => event.roster_entry_id !== null,
+  )
+  if (!identifiedEvents.length)
+    return analytics.value
+      ? playerContactShare(analytics.value, selectedPlayer.value.roster_entry_id)
+      : 0
+  return (
+    identifiedEvents.filter(
+      event => event.roster_entry_id === selectedPlayer.value?.roster_entry_id,
+    ).length / identifiedEvents.length
+  )
+})
 const identityCoverage = computed(() => analytics.value?.metrics.identity_coverage?.value ?? 0)
+const recognizedSetEventCount = computed(
+  () => setScopedCanonicalEvents.value.filter(event => event.roster_entry_id !== null).length,
+)
 const localTracks = computed(() =>
-  [...(analytics.value?.tracks ?? [])].sort(
-    (left, right) =>
-      Number(Boolean(left.roster_entry_id)) - Number(Boolean(right.roster_entry_id)) ||
-      right.set_number - left.set_number ||
-      right.rally_ordinal - left.rally_ordinal ||
-      left.track_id - right.track_id,
-  ),
+  (analytics.value?.tracks ?? [])
+    .filter(
+      track => selectedSetNumber.value === null || track.set_number === selectedSetNumber.value,
+    )
+    .sort(
+      (left, right) =>
+        Number(Boolean(left.roster_entry_id)) - Number(Boolean(right.roster_entry_id)) ||
+        right.set_number - left.set_number ||
+        right.rally_ordinal - left.rally_ordinal ||
+        left.track_id - right.track_id,
+    ),
 )
 const selectedLocalTrack = computed(
   () =>
@@ -113,7 +177,9 @@ const selectedTracks = computed(() => {
   if (viewMode.value === 'players')
     return (
       analytics.value?.tracks.filter(
-        track => track.roster_entry_id === selectedPlayer.value?.roster_entry_id,
+        track =>
+          track.roster_entry_id === selectedPlayer.value?.roster_entry_id &&
+          (selectedSetNumber.value === null || track.set_number === selectedSetNumber.value),
       ) ?? []
     )
   if (viewMode.value === 'teams') return selectedTeamTracks.value
@@ -131,7 +197,7 @@ const selectedEventTeamIds = computed(() =>
 )
 const eventState = useCoachTrackEvents(
   selectedTracks,
-  () => analytics.value?.action_events ?? [],
+  setScopedCanonicalEvents,
   selectedEventRosterEntryIds,
   selectedEventTeamIds,
 )
@@ -150,41 +216,9 @@ const selectedLocalTeamId = computed(() => {
       ? replay.rally.right_team.id
       : null
 })
-const selectedSideReplay = computed(() => {
-  for (const track of selectedTracks.value) {
-    const replay = eventState.replays.get(track.rally_id)
-    if (replay) return replay
-  }
-  for (const event of eventState.events.value) {
-    const replay = eventState.replays.get(event.rallyId)
-    if (replay) return replay
-  }
-  return null
-})
-const selectedSubjectSide = computed<'left' | 'right' | null>(() => {
-  for (const track of selectedTracks.value) {
-    const directSide = track.court_side
-    if (directSide === 'left' || directSide === 'right') return directSide
-
-    const replay = eventState.replays.get(track.rally_id)
-    const replaySide = replay?.analysis?.tracks.find(
-      item => item.track_id === track.track_id,
-    )?.court_side
-    if (replaySide === 'left' || replaySide === 'right') return replaySide
-  }
-  const canonicalSide = eventState.events.value.find(
-    event => event.courtSide === 'left' || event.courtSide === 'right',
-  )?.courtSide
-  if (canonicalSide === 'left' || canonicalSide === 'right') return canonicalSide
-  return null
-})
 const selectedSubjectTeamId = computed(() => {
   if (viewMode.value === 'players') return selectedPlayerTeam.value?.id ?? null
   if (viewMode.value === 'teams') return selectedTeam.value?.id ?? null
-
-  const replay = selectedSideReplay.value
-  if (selectedSubjectSide.value === 'left' && replay) return replay.rally.left_team.id
-  if (selectedSubjectSide.value === 'right' && replay) return replay.rally.right_team.id
   return selectedMappedPlayer.value?.team_id ?? null
 })
 const selectedOverviewTeamId = computed(() =>
@@ -198,26 +232,20 @@ const routeMapSideLabels = computed<{
   left: CoachRouteMapSideLabel
   right: CoachRouteMapSideLabel
 }>(() => {
-  const replay = selectedSideReplay.value
-  const subjectSide = selectedSubjectSide.value
-  const subjectScope = viewMode.value === 'teams' ? 'team' : 'player'
-  const subjectTeamId = selectedSubjectTeamId.value
-  const subjectTeam = analytics.value?.teams.find(team => team.id === subjectTeamId) ?? null
-  const opponentTeam = analytics.value?.teams.find(team => team.id !== subjectTeamId) ?? null
-
-  function teamForSide(side: 'left' | 'right') {
-    const replayTeam = side === 'left' ? replay?.rally.left_team : replay?.rally.right_team
-    if (side === subjectSide) return subjectTeam ?? replayTeam
-    if (replayTeam && replayTeam.id !== subjectTeamId) return replayTeam
-    return opponentTeam ?? replayTeam
-  }
+  const focusEvent = focusedActionEvent.value ?? selectedActionEvent.value
+  const fallbackEvent = [...eventState.events.value]
+    .reverse()
+    .find(event => Boolean(eventState.replays.get(event.rallyId)))
+  const replay =
+    eventState.replays.get(focusEvent?.rallyId ?? '') ??
+    eventState.replays.get(fallbackEvent?.rallyId ?? '') ??
+    null
 
   function labelForSide(side: 'left' | 'right'): CoachRouteMapSideLabel {
-    const team = teamForSide(side)
+    const team = side === 'left' ? replay?.rally.left_team : replay?.rally.right_team
     return {
       teamShortName: team?.shortName || team?.name || '—',
       tone: teamTone(team?.id),
-      scope: subjectSide === side ? subjectScope : null,
     }
   }
 
@@ -243,6 +271,35 @@ const filteredEvents = computed(() =>
     ? eventState.events.value
     : eventState.events.value.filter(event => event.actionKey === selectedActionKey.value),
 )
+const activeActionEventId = computed(
+  () => focusedActionEvent.value?.id ?? selectedActionEvent.value?.id ?? null,
+)
+const selectedRallyEvents = computed(() => {
+  const rallyId = selectedActionEvent.value?.rallyId
+  if (!rallyId) return []
+  return setScopedCanonicalEvents.value
+    .filter(event => event.rally_id === rallyId)
+    .map<CoachPlayerActionEvent>(event => ({
+      id: event.id,
+      rallyId: event.rally_id,
+      setNumber: event.set_number,
+      rallyOrdinal: event.rally_ordinal,
+      analysisRunId: event.analysis_run_id ?? 'human-ball-event',
+      trackId: event.track_id ?? -1,
+      anchorTimeUs: event.anchor_time_us,
+      actionKey: event.action_key,
+      actionLabel: event.action_key === 'hit' ? 'HIT' : actionDisplayLabel(event.action_key),
+      actionConfidence: event.action_confidence,
+      resultKey:
+        event.result_key === 'success' || event.result_key === 'failure' ? event.result_key : null,
+      routeStart: event.route_start,
+      routeEnd: event.route_end,
+      courtSide:
+        event.court_side === 'left' || event.court_side === 'right' ? event.court_side : null,
+      outcome: event.outcome,
+    }))
+    .sort((left, right) => Number(BigInt(left.anchorTimeUs) - BigInt(right.anchorTimeUs)))
+})
 watch(filteredEvents, value => {
   if (selectedActionEvent.value && !value.some(event => event.id === selectedActionEvent.value?.id))
     selectedActionEvent.value = null
@@ -307,6 +364,11 @@ watch(
       const first = value?.tracks.find(track => !track.roster_entry_id) ?? value?.tracks[0]
       selectedTrackKey.value = first ? trackKey(first) : null
     }
+    if (
+      selectedSetNumber.value === null ||
+      !availableSetNumbers.value.includes(selectedSetNumber.value)
+    )
+      selectedSetNumber.value = availableSetNumbers.value.at(-1) ?? null
   },
   { immediate: true },
 )
@@ -316,6 +378,13 @@ watch([viewMode, actionOptions], () => {
     !actionOptions.value.some(option => option.key === selectedActionKey.value)
   )
     selectedActionKey.value = 'all'
+})
+watch(selectedSetNumber, () => {
+  selectedActionKey.value = 'all'
+  selectedActionEvent.value = null
+  focusedActionEvent.value = null
+  const first = localTracks.value.find(track => !track.roster_entry_id) ?? localTracks.value[0]
+  selectedTrackKey.value = first ? trackKey(first) : null
 })
 
 function trackKey(track: { analysis_run_id: string; track_id: number }) {
@@ -386,7 +455,37 @@ function refreshAfterIdentityChange() {
 
 function openActionReplay(event: CoachPlayerActionEvent) {
   selectedActionEvent.value = event
+  focusedActionEvent.value = null
   void eventState.loadReplay(event.rallyId)
+}
+
+function focusActionEvent(event: CoachPlayerActionEvent | null) {
+  focusedActionEvent.value = event
+  if (event) void eventState.loadReplay(event.rallyId)
+}
+
+function setEventCount(setNumber: number) {
+  return (analytics.value?.action_events ?? []).filter(event => event.set_number === setNumber)
+    .length
+}
+
+function setTeamScore(setNumber: number, teamId: string) {
+  return analytics.value?.sets.find(set => set.set_number === setNumber)?.team_points[teamId] ?? 0
+}
+
+function playerEvents(playerId: string) {
+  return setScopedCanonicalEvents.value.filter(event => event.roster_entry_id === playerId)
+}
+
+function playerSetActionCounts(playerId: string) {
+  const counts: Record<string, number> = {}
+  for (const event of playerEvents(playerId))
+    counts[event.action_key] = (counts[event.action_key] ?? 0) + 1
+  return counts
+}
+
+function playerSetRallyCount(playerId: string) {
+  return new Set(playerEvents(playerId).map(event => event.rally_id)).size
 }
 
 const BALL_TYPE_LABELS: Record<string, string> = {
@@ -418,7 +517,7 @@ function teamActionCounts(teamId: string) {
         .map(player => player.roster_entry_id),
     )
     let hasProjectedTeam = false
-    for (const event of analytics.value.action_events) {
+    for (const event of setScopedCanonicalEvents.value) {
       if (event.team_id !== null && event.team_id !== undefined) hasProjectedTeam = true
       if (
         event.team_id === teamId ||
@@ -428,7 +527,8 @@ function teamActionCounts(teamId: string) {
       )
         counts[event.action_key] = (counts[event.action_key] ?? 0) + 1
     }
-    if (hasProjectedTeam || Object.keys(counts).length) return compactActionCounts(counts)
+    if (hasProjectedTeam || Object.keys(counts).length || selectedSetNumber.value !== null)
+      return compactActionCounts(counts)
   }
   for (const player of analytics.value?.players.filter(item => item.team_id === teamId) ?? [])
     for (const [key, count] of Object.entries(player.action_counts))
@@ -446,6 +546,39 @@ function teamActionCounts(teamId: string) {
       ><button type="button" @click="analyticsState.refresh">重試</button>
     </div>
     <div v-else-if="analytics" class="players-layout">
+      <nav class="set-switcher" aria-label="局數切換">
+        <div class="set-switcher__tabs" role="tablist" aria-label="選擇局數">
+          <button
+            v-for="setNumber in availableSetNumbers"
+            :key="setNumber"
+            type="button"
+            role="tab"
+            :aria-selected="selectedSetNumber === setNumber"
+            :class="{ active: selectedSetNumber === setNumber }"
+            @click="selectedSetNumber = setNumber"
+          >
+            <span>{{ legacyUnpartitionedSet ? '未分局資料' : `第 ${setNumber} 局` }}</span>
+            <b v-if="analytics.teams.length >= 2 && !legacyUnpartitionedSet">
+              {{ setTeamScore(setNumber, analytics.teams[0]!.id) }}
+              <i>:</i>
+              {{ setTeamScore(setNumber, analytics.teams[1]!.id) }}
+            </b>
+            <small>{{ setEventCount(setNumber) }} 球</small>
+          </button>
+        </div>
+        <div v-if="selectedSet" class="set-switcher__summary" aria-live="polite">
+          <span v-if="legacyUnpartitionedSet" class="set-switcher__legacy"
+            >舊場次未記錄局界，保留原始資料</span
+          >
+          <template v-else>
+            <strong>{{ selectedSet.rally_count }}</strong>
+            <span>回合</span>
+            <i aria-hidden="true" />
+            <strong>{{ selectedSet.resolved_count }}</strong>
+            <span>已判定</span>
+          </template>
+        </div>
+      </nav>
       <aside class="entity-list" aria-label="分析對象">
         <header>
           <UiTabs
@@ -486,16 +619,23 @@ function teamActionCounts(teamId: string) {
                   <small>{{ rosterPositionLabel(player.position) }}</small>
                 </span>
                 <span class="entity-total">
-                  <b>{{ actionCount(player.action_counts) }}</b>
+                  <b>{{ actionCount(playerSetActionCounts(player.roster_entry_id)) }}</b>
                   <small>球路</small>
                 </span>
                 <span class="entity-actions" aria-label="球種摘要">
                   <i
-                    v-for="item in compactActionCounts(player.action_counts)"
+                    v-for="item in compactActionCounts(
+                      playerSetActionCounts(player.roster_entry_id),
+                    )"
                     :key="item.key"
                     :style="{ '--action-color': actionColor(item.key) }"
                     >{{ item.label }} {{ item.count }}</i
-                  ><small v-if="!compactActionCounts(player.action_counts).length">尚無球種</small>
+                  ><small
+                    v-if="
+                      !compactActionCounts(playerSetActionCounts(player.roster_entry_id)).length
+                    "
+                    >本局尚無球種</small
+                  >
                 </span>
               </button>
             </section>
@@ -637,22 +777,17 @@ function teamActionCounts(teamId: string) {
               <template v-if="viewMode === 'players' && selectedPlayer">
                 <div>
                   <dt>分析擊球</dt>
-                  <dd>{{ selectedPlayer.contact_count }}</dd>
-                  <small>已綁定到此球員的事件</small>
+                  <dd>{{ playerEvents(selectedPlayer.roster_entry_id).length }}</dd>
+                  <small>本局已綁定到此球員的事件</small>
                 </div>
                 <div>
                   <dt>佔已辨識擊球</dt>
                   <dd>{{ (selectedShare * 100).toFixed(1) }}%</dd>
-                  <small
-                    >{{
-                      analytics.players.reduce((sum, player) => sum + player.contact_count, 0)
-                    }}
-                    個已辨識事件</small
-                  >
+                  <small>{{ recognizedSetEventCount }} 個本局已辨識事件</small>
                 </div>
                 <div>
                   <dt>出現回合</dt>
-                  <dd>{{ selectedPlayer.rally_count }}</dd>
+                  <dd>{{ playerSetRallyCount(selectedPlayer.roster_entry_id) }}</dd>
                   <small>由已綁定球員的 AI／人工球種事件計算</small>
                 </div>
                 <div>
@@ -720,8 +855,8 @@ function teamActionCounts(teamId: string) {
                     }}
                   </dd>
                   <small
-                    >{{ selectedTeam.wins }} 勝 · {{ selectedTeam.losses }} 負 ·
-                    {{ selectedTeam.unknown }} 未知</small
+                    >{{ selectedTeamSetOutcome.wins }} 勝 · {{ selectedTeamSetOutcome.losses }} 負 ·
+                    {{ selectedTeamSetOutcome.unknown }} 未知</small
                   >
                 </div>
               </template>
@@ -809,9 +944,9 @@ function teamActionCounts(teamId: string) {
                 :events="filteredEvents"
                 :label="selectedRouteMapLabel"
                 :side-labels="routeMapSideLabels"
-                :selected-side="selectedSubjectSide"
-                :selected-event-id="selectedActionEvent?.id ?? null"
+                :selected-event-id="activeActionEventId"
                 @select="openActionReplay"
+                @focus="focusActionEvent"
               />
             </div>
 
@@ -833,15 +968,25 @@ function teamActionCounts(teamId: string) {
                     :key="event.id"
                     type="button"
                     :class="{
-                      'is-selected': selectedActionEvent?.id === event.id,
-                      'is-faded': selectedActionEvent && selectedActionEvent.id !== event.id,
+                      'is-selected': activeActionEventId === event.id,
+                      'is-faded': activeActionEventId && activeActionEventId !== event.id,
                     }"
+                    @pointerenter="focusActionEvent(event)"
+                    @pointerleave="focusActionEvent(null)"
+                    @pointerdown="focusActionEvent(event)"
+                    @pointerup="focusActionEvent(null)"
+                    @pointercancel="focusActionEvent(null)"
+                    @focus="focusActionEvent(event)"
+                    @blur="focusActionEvent(null)"
                     @click="openActionReplay(event)"
                   >
                     <i :style="{ background: actionColor(event.actionKey) }" />
                     <div class="action-record__identity">
                       <strong>{{ event.actionLabel }}</strong
-                      ><span>總回合 {{ event.rallyOrdinal }} · ID {{ event.trackId }}</span>
+                      ><span
+                        >第 {{ event.setNumber }} 局 · 回合 {{ event.rallyOrdinal }} · ID
+                        {{ event.trackId }}</span
+                      >
                     </div>
                     <time>{{ formatActionTime(event.anchorTimeUs) }}</time>
                     <span class="action-record__outcome" :data-outcome="event.outcome">{{
@@ -880,7 +1025,9 @@ function teamActionCounts(teamId: string) {
             <div v-if="selectedTeamPlayers.length" class="team-roster-summary__rows">
               <button
                 v-for="player in [...selectedTeamPlayers].sort(
-                  (left, right) => right.contact_count - left.contact_count,
+                  (left, right) =>
+                    playerEvents(right.roster_entry_id).length -
+                    playerEvents(left.roster_entry_id).length,
                 )"
                 :key="player.roster_entry_id"
                 type="button"
@@ -892,11 +1039,11 @@ function teamActionCounts(teamId: string) {
                   <small>{{ rosterPositionLabel(player.position) }}</small>
                 </span>
                 <span class="team-player-metric">
-                  <b>{{ player.contact_count }}</b>
+                  <b>{{ playerEvents(player.roster_entry_id).length }}</b>
                   <small>球路</small>
                 </span>
                 <span class="team-player-metric">
-                  <b>{{ player.rally_count }}</b>
+                  <b>{{ playerSetRallyCount(player.roster_entry_id) }}</b>
                   <small>回合</small>
                 </span>
                 <ChevronRight :size="17" />
@@ -912,9 +1059,12 @@ function teamActionCounts(teamId: string) {
       :match-id="matchId"
       :open="selectedActionEvent !== null"
       :event="selectedActionEvent"
+      :events="selectedRallyEvents"
       :replay="selectedActionReplay"
+      :side-labels="routeMapSideLabels"
       :loading="selectedActionReplayLoading"
       @close="selectedActionEvent = null"
+      @select="openActionReplay"
     />
   </section>
 </template>
@@ -926,45 +1076,205 @@ function teamActionCounts(teamId: string) {
   overflow: hidden;
 }
 .players-layout {
+  --entity-rail-width: clamp(272px, 25vw, 316px);
+
   height: 100%;
   min-height: 0;
   display: grid;
-  grid-template-columns: clamp(272px, 25vw, 316px) minmax(0, 1fr);
+  grid-template-columns: var(--entity-rail-width) minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr);
   overflow: hidden;
-  border-block: 1px solid #e0e5e9;
-  background: #fbfcfd;
+  background: #f4f6f8;
+}
+.set-switcher {
+  min-width: 0;
+  min-height: 64px;
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  padding: 6px 16px;
+  background: linear-gradient(105deg, #edf6ff 0%, #f7fbff 42%, #fff 78%);
+  box-shadow: 0 1px 0 #e6eaee;
+  z-index: 10;
+}
+.set-switcher__tabs {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  overflow-x: auto;
+  padding: 0;
+  overscroll-behavior-inline: contain;
+  scroll-snap-type: x proximity;
+  scrollbar-width: none;
+}
+.set-switcher__tabs::-webkit-scrollbar {
+  display: none;
+}
+.set-switcher__tabs button {
+  min-width: 116px;
+  min-height: 50px;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  grid-template-rows: auto auto;
+  align-content: center;
+  gap: 4px 9px;
+  padding: 7px 14px;
+  border: 0;
+  border-radius: 12px;
+  background: rgb(255 255 255 / 48%);
+  color: #586876;
+  scroll-snap-align: start;
+  text-align: left;
+  touch-action: manipulation;
+  transition:
+    background-color 140ms ease,
+    color 140ms ease,
+    transform 100ms ease-out;
+}
+.set-switcher__tabs button:hover {
+  background: rgb(255 255 255 / 78%);
+  color: #22384d;
+}
+.set-switcher__tabs button.active {
+  background: linear-gradient(135deg, #dceeff, #edf7ff);
+  color: #0a5fae;
+}
+.set-switcher__tabs button:active {
+  transform: scale(0.98);
+}
+.set-switcher__tabs button:focus-visible {
+  outline: 2px solid #0875dd;
+  outline-offset: 2px;
+}
+.set-switcher__tabs span {
+  font-size: 0.7rem;
+  font-weight: 780;
+}
+.set-switcher__tabs b {
+  color: #23384c;
+  font-size: 0.74rem;
+  font-variant-numeric: tabular-nums;
+}
+.set-switcher__tabs b i {
+  padding-inline: 2px;
+  color: #95a3af;
+  font-style: normal;
+  font-weight: 500;
+}
+.set-switcher__tabs small {
+  grid-column: 1 / -1;
+  color: #82909c;
+  font-size: 0.53rem;
+  font-variant-numeric: tabular-nums;
+}
+.set-switcher__summary {
+  display: grid;
+  grid-template-columns: auto auto 1px auto auto;
+  align-items: baseline;
+  gap: 5px;
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: rgb(255 255 255 / 64%);
+  align-content: center;
+  color: #758391;
+}
+.set-switcher__summary strong {
+  color: #203347;
+  font-size: 0.76rem;
+  font-variant-numeric: tabular-nums;
+}
+.set-switcher__summary span {
+  font-size: 0.55rem;
+  white-space: nowrap;
+}
+.set-switcher__summary .set-switcher__legacy {
+  grid-column: 1 / -1;
+  color: #875513;
+  font-weight: 680;
+}
+.set-switcher__summary i {
+  width: 1px;
+  height: 18px;
+  align-self: center;
+  margin-inline: 5px;
+  background: #d6dee6;
 }
 .entity-list {
   min-height: 0;
   display: grid;
   grid-template-rows: 52px minmax(0, 1fr);
   overflow: hidden;
-  border-right: 1px solid #dfe4e8;
-  background: #f3f6f9;
+  box-shadow: inset -1px 0 #e3e7eb;
+  background: linear-gradient(180deg, #eef6fd 0, #f4f6f8 150px);
 }
 .entity-list > header {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 40px;
   align-items: center;
   gap: 8px;
-  padding: 8px 12px;
-  border-bottom: 1px solid #dce3ea;
-  background: #f8fafc;
+  padding: 6px 10px;
+  background: rgb(238 246 253 / 88%);
 }
 .entity-list > header > a {
-  width: 36px;
-  height: 36px;
+  width: 40px;
+  height: 40px;
   display: grid;
   place-items: center;
   border-radius: 9px;
   color: #69737e;
 }
 .entity-list > header > a:hover {
-  background: #e2e7ec;
+  background: rgb(8 117 221 / 8%);
   color: #0670df;
 }
 .entity-mode {
   min-width: 0;
-  flex: 1;
+}
+.entity-mode :deep(.ui-tabs__list) {
+  gap: 4px;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+.entity-mode :deep(.ui-tabs__trigger) {
+  position: relative;
+  min-height: 40px;
+  border-radius: 8px;
+  background: transparent;
+  box-shadow: none;
+  color: #657586;
+  transition:
+    background-color 140ms ease,
+    color 140ms ease,
+    transform 100ms ease-out;
+}
+.entity-mode :deep(.ui-tabs__trigger:hover) {
+  background: rgb(255 255 255 / 55%);
+  color: #2d4358;
+}
+.entity-mode :deep(.ui-tabs__trigger[data-state='active']) {
+  background: transparent;
+  box-shadow: none;
+  color: #075fb6;
+  font-weight: 760;
+}
+.entity-mode :deep(.ui-tabs__trigger[data-state='active']::after) {
+  position: absolute;
+  right: 12px;
+  bottom: 2px;
+  left: 12px;
+  height: 2px;
+  border-radius: 2px;
+  background: #0875dd;
+  content: '';
+}
+.entity-mode :deep(.ui-tabs__trigger:active) {
+  transform: scale(0.97);
 }
 .entity-list__scroll,
 .entity-detail-scroll {
@@ -983,9 +1293,9 @@ function teamActionCounts(teamId: string) {
   align-items: end;
   justify-content: space-between;
   gap: 10px;
-  margin: 0 10px 0 0;
-  padding: 12px 14px 7px;
-  background: rgba(243, 246, 249, 0.94);
+  margin: 0;
+  padding: 12px 16px 7px;
+  background: rgba(244, 246, 248, 0.94);
   color: #5d6977;
   font-size: 0.68rem;
   font-weight: 760;
@@ -999,20 +1309,22 @@ function teamActionCounts(teamId: string) {
   font-variant-numeric: tabular-nums;
 }
 .entity-list__group > button {
-  width: 100%;
+  width: calc(100% - 16px);
   min-height: 55px;
   display: grid;
   grid-template-columns: 62px minmax(0, 1fr) auto;
   align-items: center;
   gap: 8px;
-  padding: 0 18px 0 14px;
+  margin-inline: 8px;
+  padding: 0 14px;
   border: 0;
+  border-radius: 10px;
   background: transparent;
   color: #20242a;
   text-align: left;
 }
 .entity-list__group > button:hover {
-  background: #e5eaf0;
+  background: #e9edf1;
 }
 .entity-list__group > button:focus-visible,
 .entity-list > header > a:focus-visible {
@@ -1020,9 +1332,9 @@ function teamActionCounts(teamId: string) {
   outline-offset: -2px;
 }
 .entity-list__group > button.active {
-  background: #fff;
+  background: #e6f0fa;
   color: #075fbe;
-  box-shadow: inset 3px 0 #0670df;
+  box-shadow: none;
 }
 .entity-list__group.team-tone-blue > h2 {
   color: #0b5fae;
@@ -1032,11 +1344,12 @@ function teamActionCounts(teamId: string) {
 }
 .entity-list__group > button.team-tone-blue.active {
   color: #075fbe;
-  box-shadow: inset 3px 0 #0875dd;
+  box-shadow: none;
 }
 .entity-list__group > button.team-tone-red.active {
   color: #b42f42;
-  box-shadow: inset 3px 0 #d44859;
+  background: #faeaed;
+  box-shadow: none;
 }
 .entity-list__group > button > span {
   font-size: 0.67rem;
@@ -1062,13 +1375,22 @@ function teamActionCounts(teamId: string) {
   font-weight: 650 !important;
 }
 .entity-actions i {
-  padding-left: 5px;
-  border-left: 2px solid var(--action-color);
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   color: #64707b;
   font-size: 0.53rem;
   font-style: normal;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
+}
+.entity-actions i::before {
+  width: 5px;
+  height: 5px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: var(--action-color);
+  content: '';
 }
 .entity-actions small {
   color: #858d97;
@@ -1080,19 +1402,22 @@ function teamActionCounts(teamId: string) {
   grid-template-columns: 46px minmax(0, 1fr) auto !important;
   grid-template-rows: auto auto;
   gap: 4px 9px !important;
-  margin: 2px 10px 2px 0;
-  padding: 10px 14px 10px 10px !important;
-  border-radius: 0 12px 12px 0;
+  margin: 3px 8px !important;
+  padding: 10px 12px !important;
+  border-radius: 11px !important;
+  touch-action: manipulation;
+  transition:
+    background-color 140ms ease,
+    transform 100ms ease-out;
 }
 .entity-player-row.active {
-  box-shadow:
-    inset 3px 0 #0875dd,
-    0 6px 18px rgb(37 54 72 / 9%) !important;
+  box-shadow: none !important;
 }
 .entity-player-row.team-tone-red.active {
-  box-shadow:
-    inset 3px 0 #d44859,
-    0 6px 18px rgb(117 31 47 / 11%) !important;
+  box-shadow: none !important;
+}
+.entity-player-row:active {
+  transform: scale(0.985);
 }
 .entity-jersey {
   width: 38px;
@@ -1101,20 +1426,18 @@ function teamActionCounts(teamId: string) {
   grid-row: 1 / 3;
   place-items: center;
   align-self: center;
-  border: 1px solid #d7e0e8;
-  border-radius: 12px;
-  background: #e7edf2;
+  border: 0;
+  border-radius: 10px;
+  background: #e5eaf0;
   color: #4b5b6b;
   font-size: 0.72rem !important;
   font-weight: 800 !important;
 }
 .entity-player-row.active .entity-jersey {
-  border-color: #0875dd;
   background: #0875dd;
   color: #fff;
 }
 .entity-player-row.team-tone-red.active .entity-jersey {
-  border-color: #d44859;
   background: #d44859;
 }
 .entity-player-copy {
@@ -1166,7 +1489,7 @@ function teamActionCounts(teamId: string) {
   min-width: 0;
   min-height: 100%;
   padding: 0 var(--detail-gutter) 48px;
-  background: #fff;
+  background: #fcfcfd;
   box-sizing: border-box;
 }
 .entity-overview-sentinel {
@@ -1187,10 +1510,9 @@ function teamActionCounts(teamId: string) {
   grid-template-columns: minmax(360px, 1.15fr) minmax(0, 2fr);
   align-items: stretch;
   margin-inline: calc(var(--detail-gutter) * -1);
-  padding: 24px var(--detail-gutter) 22px;
-  border-bottom: 1px solid #dce5ed;
-  background: radial-gradient(circle at 8% 0%, #e8f2fc 0, transparent 36%), #f8fafc;
-  box-shadow: 0 0 0 transparent;
+  padding: 22px var(--detail-gutter) 20px;
+  background: #fff;
+  box-shadow: 0 1px 0 #edf0f3;
   isolation: isolate;
   transition:
     grid-template-columns 220ms var(--entity-overview-ease),
@@ -1200,10 +1522,10 @@ function teamActionCounts(teamId: string) {
     box-shadow 220ms var(--entity-overview-ease);
 }
 .entity-overview.team-tone-blue {
-  background: radial-gradient(circle at 8% 0%, #dceeff 0, transparent 36%), #f8fafc;
+  background: linear-gradient(108deg, #dcefff 0%, #eff7ff 43%, #fff 82%);
 }
 .entity-overview.team-tone-red {
-  background: radial-gradient(circle at 8% 0%, #ffe6e9 0, transparent 36%), #fffafb;
+  background: linear-gradient(108deg, #ffe3e8 0%, #fff2f4 43%, #fff 82%);
 }
 .entity-title {
   display: flex;
@@ -1244,8 +1566,8 @@ function teamActionCounts(teamId: string) {
   justify-content: center;
   gap: 1px;
   padding: 0 5px;
-  border: 1px solid #d8e2eb;
-  border-radius: 12px;
+  border: 0;
+  border-radius: 11px;
   background: #edf2f6;
   box-shadow: none;
   color: #34485c;
@@ -1268,12 +1590,10 @@ function teamActionCounts(teamId: string) {
   opacity: 0.68;
 }
 .entity-badge.player.team-tone-blue {
-  border-color: #c6dcf2;
   background: #e8f3ff;
   color: #0b5ea9;
 }
 .entity-badge.player.team-tone-red {
-  border-color: #f0cbd1;
   background: #ffedf0;
   color: #ae3044;
 }
@@ -1295,12 +1615,10 @@ function teamActionCounts(teamId: string) {
   font-weight: 780;
 }
 .entity-badge.team.team-tone-blue {
-  border-color: #c6dcf2;
   background: #e8f3ff;
   color: #0b5ea9;
 }
 .entity-badge.team.team-tone-red {
-  border-color: #f0cbd1;
   background: #ffedf0;
   color: #ae3044;
 }
@@ -1330,15 +1648,15 @@ function teamActionCounts(teamId: string) {
   flex: 0 0 auto;
   border-radius: 50%;
   background: #0875dd;
-  box-shadow: 0 0 0 3px #0875dd1c;
+  box-shadow: none;
 }
 .entity-team-mark.team-tone-blue {
   background: #0875dd;
-  box-shadow: 0 0 0 3px #0875dd1c;
+  box-shadow: none;
 }
 .entity-team-mark.team-tone-red {
   background: #d44859;
-  box-shadow: 0 0 0 3px #d448591c;
+  box-shadow: none;
 }
 .entity-title__separator {
   color: #a2afbc;
@@ -1367,10 +1685,9 @@ function teamActionCounts(teamId: string) {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
   align-items: center;
-  gap: 0;
+  gap: 8px;
   margin: 0;
-  padding-left: 26px;
-  border-left: 1px solid #dce5ed;
+  padding-left: 24px;
   transition:
     grid-template-columns 220ms var(--entity-overview-ease),
     padding 220ms var(--entity-overview-ease),
@@ -1378,8 +1695,9 @@ function teamActionCounts(teamId: string) {
 }
 .entity-measures > div {
   min-width: 0;
-  padding: 6px clamp(8px, 1.2vw, 18px);
-  border-right: 1px solid #e1e8ef;
+  padding: 10px clamp(9px, 1.1vw, 16px);
+  border-radius: 10px;
+  background: #f4f6f8;
   transition:
     padding 220ms var(--entity-overview-ease),
     border-color 180ms ease;
@@ -1423,7 +1741,7 @@ function teamActionCounts(teamId: string) {
   gap: 14px;
   margin-inline: calc(var(--detail-gutter) * -1);
   padding: 0 var(--detail-gutter);
-  border-bottom: 1px solid #dfe4e8;
+  box-shadow: 0 1px 0 #edf0f3;
 }
 .action-heading {
   display: grid;
@@ -1448,6 +1766,8 @@ function teamActionCounts(teamId: string) {
   max-width: 100%;
   overflow-x: auto;
   gap: 20px;
+  overscroll-behavior-inline: contain;
+  scroll-snap-type: x proximity;
   scrollbar-width: none;
 }
 .action-filters::-webkit-scrollbar {
@@ -1455,7 +1775,7 @@ function teamActionCounts(teamId: string) {
 }
 .action-filters button {
   position: relative;
-  min-height: 40px;
+  min-height: 44px;
   display: inline-flex;
   flex: 0 0 auto;
   align-items: center;
@@ -1466,6 +1786,8 @@ function teamActionCounts(teamId: string) {
   color: #68727c;
   font-size: 0.66rem;
   font-weight: 700;
+  scroll-snap-align: start;
+  touch-action: manipulation;
 }
 .action-filters button:hover {
   color: #202a34;
@@ -1502,7 +1824,6 @@ function teamActionCounts(teamId: string) {
   gap: 12px;
   margin-inline: calc(var(--detail-gutter) * -1);
   padding: 16px var(--detail-gutter) 26px;
-  border-bottom: 1px solid #dfe4e8;
 }
 .action-rate {
   min-height: 76px;
@@ -1512,9 +1833,9 @@ function teamActionCounts(teamId: string) {
   align-items: center;
   gap: 18px;
   padding: 12px 16px;
-  border: 1px solid #dfe5ea;
-  border-radius: 14px;
-  background: #f4f7f9;
+  border: 0;
+  border-radius: 12px;
+  background: #f2f5f7;
 }
 .action-rate__primary {
   min-width: 0;
@@ -1548,7 +1869,7 @@ function teamActionCounts(teamId: string) {
   gap: 20px;
   margin: 0;
   padding: 0 22px;
-  border-inline: 1px solid #dce2e7;
+  border-inline: 0;
 }
 .action-rate dl > div {
   display: grid;
@@ -1583,7 +1904,7 @@ function teamActionCounts(teamId: string) {
   gap: 16px;
   margin-inline: calc(var(--detail-gutter) * -1);
   padding: 0 var(--detail-gutter) 10px;
-  border-bottom: 1px solid #dfe4e8;
+  box-shadow: 0 1px 0 #edf0f3;
 }
 .action-records h2 {
   margin: 0;
@@ -1718,7 +2039,10 @@ function teamActionCounts(teamId: string) {
 }
 @media (max-width: 980px) {
   .players-layout {
-    grid-template-columns: 260px minmax(0, 1fr);
+    --entity-rail-width: 260px;
+  }
+  .set-switcher__summary {
+    display: none;
   }
   .action-rate {
     grid-template-columns: minmax(165px, 0.8fr) auto;
@@ -1727,8 +2051,7 @@ function teamActionCounts(teamId: string) {
   .action-rate > :deep(.highlight-export) {
     grid-column: 1 / -1;
     max-width: none;
-    padding-top: 10px;
-    border-top: 1px solid #dce2e7;
+    padding-top: 2px;
   }
   .entity-overview {
     grid-template-columns: minmax(180px, 0.65fr) minmax(0, 2fr);
@@ -1753,6 +2076,16 @@ function teamActionCounts(teamId: string) {
   }
 }
 @media (max-width: 1360px) {
+  .action-rate {
+    grid-template-columns: minmax(165px, 0.8fr) auto;
+    gap: 14px;
+  }
+  .action-rate > :deep(.highlight-export) {
+    grid-column: 1 / -1;
+    max-width: none;
+  }
+}
+@media (max-width: 1120px) {
   .entity-overview {
     grid-template-columns: 1fr;
     gap: 18px;
@@ -1763,13 +2096,12 @@ function teamActionCounts(teamId: string) {
   .entity-measures {
     padding-top: 14px;
     padding-left: 0;
-    border-top: 1px solid #dce5ed;
     border-left: 0;
   }
 }
 @media (max-width: 760px) {
   .players-layout {
-    grid-template-columns: 220px minmax(0, 1fr);
+    --entity-rail-width: 220px;
   }
   .entity-detail {
     --detail-gutter: 22px;
@@ -1783,15 +2115,13 @@ function teamActionCounts(teamId: string) {
     padding-right: 0;
   }
   .entity-measures {
-    border-top: 1px solid #dfe4e8;
     border-left: 0;
   }
   .entity-measures > div:nth-child(3) {
     border-left: 0;
-    border-top: 1px solid #e1e5e9;
   }
   .entity-measures > div:nth-child(4) {
-    border-top: 1px solid #e1e5e9;
+    border-top: 0;
   }
   .action-toolbar {
     align-items: flex-start;
@@ -1813,8 +2143,15 @@ function teamActionCounts(teamId: string) {
   align-items: center;
   gap: 0;
   padding-block: 7px;
-  border-bottom-color: transparent;
-  box-shadow: 0 5px 18px rgb(23 35 51 / 14%);
+  background: rgb(255 255 255 / 88%);
+  box-shadow: 0 10px 30px rgb(23 35 51 / 9%);
+  backdrop-filter: blur(18px) saturate(150%);
+}
+.entity-overview.is-stuck.team-tone-blue {
+  background: rgb(238 247 255 / 90%);
+}
+.entity-overview.is-stuck.team-tone-red {
+  background: rgb(255 241 243 / 90%);
 }
 .entity-overview.is-stuck .entity-title {
   padding-right: 16px;
@@ -1866,16 +2203,19 @@ function teamActionCounts(teamId: string) {
 }
 .entity-overview.is-stuck .entity-measures {
   grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
   padding: 0 0 0 12px;
   border-top: 0;
-  border-left: 1px solid #dce5ed;
+  border-left: 0;
 }
 .entity-overview.is-stuck .entity-measures > div,
 .entity-overview.is-stuck .entity-measures > div:nth-child(3),
 .entity-overview.is-stuck .entity-measures > div:nth-child(4) {
   padding: 2px clamp(6px, 1vw, 12px);
   border-top: 0;
-  border-right: 1px solid #e1e8ef;
+  border-right: 0;
+  border-radius: 8px;
+  background: #f3f5f7;
 }
 .entity-overview.is-stuck .entity-measures > div:last-child {
   border-right: 0;
@@ -1890,6 +2230,48 @@ function teamActionCounts(teamId: string) {
 .entity-overview.is-stuck .entity-measures dd.mapping-state {
   margin: 3px 0 0;
   font-size: clamp(0.95rem, 1.55vw, 1.18rem);
+}
+@media (pointer: coarse) {
+  .set-switcher__tabs button {
+    min-height: 56px;
+  }
+  .entity-list {
+    grid-template-rows: 58px minmax(0, 1fr);
+  }
+  .entity-list > header > a {
+    width: 44px;
+    height: 44px;
+  }
+  .entity-mode :deep(.ui-tabs__trigger) {
+    min-height: 42px;
+    padding-inline: 14px;
+  }
+  .entity-list__group > button {
+    min-height: 64px;
+  }
+  .entity-player-row {
+    min-height: 82px !important;
+  }
+  .action-filters button {
+    min-height: 48px;
+  }
+  .action-records__list button {
+    min-height: 64px;
+  }
+  .set-switcher__tabs button,
+  .entity-list__group > button,
+  .entity-list > header > a,
+  .action-filters button,
+  .action-records__list button {
+    -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
+  }
+}
+@media (prefers-reduced-transparency: reduce) {
+  .entity-overview.is-stuck {
+    background: #fff;
+    backdrop-filter: none;
+  }
 }
 @media (prefers-reduced-motion: reduce) {
   .players-loading {

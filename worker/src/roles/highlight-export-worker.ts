@@ -184,13 +184,30 @@ async function claimJob(database: PrismaClient) {
   })
 }
 
+export function highlightFailure(error: unknown) {
+  const storageCode =
+    error && typeof error === 'object' && 'code' in error ? String(error.code) : null
+  const sourceMissing =
+    storageCode === 'NoSuchKey' || storageCode === 'NotFound' || storageCode === 'NoSuchObject'
+  return {
+    sourceMissing,
+    code: sourceMissing ? 'HIGHLIGHT_SOURCE_MISSING' : 'HIGHLIGHT_EXPORT_FAILED',
+    message: sourceMissing
+      ? '回放來源影片已不存在，請先重新產生片段後再輸出。'
+      : error instanceof Error
+        ? error.message.slice(0, 500)
+        : 'highlight export failed',
+  }
+}
+
 async function retryOrFail(database: PrismaClient, jobId: string, error: unknown) {
   const current = await database.coachHighlightExportJob.findUnique({
     where: { id: jobId },
     select: { attemptCount: true, maxAttempts: true },
   })
   if (!current) return
-  const terminal = current.attemptCount >= current.maxAttempts
+  const failure = highlightFailure(error)
+  const terminal = failure.sourceMissing || current.attemptCount >= current.maxAttempts
   await database.coachHighlightExportJob.update({
     where: { id: jobId },
     data: {
@@ -198,9 +215,8 @@ async function retryOrFail(database: PrismaClient, jobId: string, error: unknown
       progress: 0,
       leasedUntil: null,
       availableAt: new Date(Date.now() + RETRY_BASE_MS * 2 ** current.attemptCount),
-      errorCode: 'HIGHLIGHT_EXPORT_FAILED',
-      errorMessage:
-        error instanceof Error ? error.message.slice(0, 500) : 'highlight export failed',
+      errorCode: failure.code,
+      errorMessage: failure.message,
     },
   })
 }
