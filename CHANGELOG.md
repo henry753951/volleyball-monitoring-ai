@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.10.2](https://github.com/henry753951/volleyball-monitoring-ai/compare/v1.10.1...v1.10.2) (2026-08-20)
+
+
+### Bug Fixes
+
+* **worker:** use stable FFmpeg for YouTube live ([42571d8](https://github.com/henry753951/volleyball-monitoring-ai/commit/42571d824d7496a5e5cbc7469c041828bfd68f7b))
+* **worker:** use stable FFmpeg for YouTube live ([3b5a375](https://github.com/henry753951/volleyball-monitoring-ai/commit/3b5a37571462519a6e3a0fac85c5305c20d91a47))
+
 ## [1.10.1](https://github.com/henry753951/volleyball-monitoring-ai/compare/v1.10.0...v1.10.1) (2026-08-20)
 
 
