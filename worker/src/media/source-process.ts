@@ -469,7 +469,11 @@ async function segmentInputs(
   let published = resume.segmentIndex
   const startPublished = published
   let publishedCaptureTimeUs = resume.captureTimeUs
-  const seekSeconds = Number(resume.captureTimeUs) / 1_000_000
+  // Keep the base checkpoint immutable for this ffmpeg invocation. The runtime
+  // observer updates the shared work object after every durable segment; using
+  // that mutable value below would repeatedly add each relative segment end.
+  const resumeCaptureTimeUs = resume.captureTimeUs
+  const seekSeconds = Number(resumeCaptureTimeUs) / 1_000_000
   const extentSeconds = recordingExtentSeconds(options)
   const videoCodec =
     codec === 'h264' || codec.startsWith('avc')
@@ -533,8 +537,8 @@ async function segmentInputs(
     const source = join(segments, name)
     const metadata = await stat(source).catch(() => null)
     if (!metadata?.isFile() || metadata.size <= 0) return false
-    const absoluteStartUs = resume.captureTimeUs + timing.startUs
-    const absoluteEndUs = resume.captureTimeUs + timing.endUs
+    const absoluteStartUs = resumeCaptureTimeUs + timing.startUs
+    const absoluteEndUs = resumeCaptureTimeUs + timing.endUs
     const targetName = recordingExtentFilename(work.segmentBaseAt, absoluteStartUs)
     const target = join(destination, targetName)
     const targetMetadata = await stat(target).catch(() => null)

@@ -30,7 +30,7 @@ de8470c37662d002eb281c31edc592cd8d22a2df5a09ab681838a6b79ffd8cf6  ./docs/ARCHITE
 5064ad78918aef6e8801cfdbe99056a87ffaa8d4629baa3e439e2441060bebed  ./docs/DEVELOPMENT.md
 34ecb7efd5ad308eecc226224d37f6e112f93008eaed95331a2ddaf7d2281f7f  ./docs/HUMAN_BALL_EVENTS_AND_COACH_REPLAY_SPEC.md
 8203b610a4f1b0ac35db3ca876d389df20e7114cee82a7c6b2bacc2152b88e2c  ./docs/IMPLEMENTATION_AUDIT.md
-c2cd33e83b0cca2bd26cfb9600e8045d964f705d1636846fc8a7f8c656a31ffe  ./docs/K3S_SINGLE_NODE_DEPLOYMENT_RUNBOOK.md
+b0d997bd9ff5575954248179175d3ec628c7dea1cf982038d59c88717ca8690c  ./docs/K3S_SINGLE_NODE_DEPLOYMENT_RUNBOOK.md
 e6c02ed30df0282dc72794bb100e206781a59343aaa404f1723f7140321d49f0  ./docs/LUNA_WORKER_SETUP_PROMPT.md
 f9b9ad5995fb3a64625e2b6137ef80be10aca326f3798315836730e4c3f875d8  ./docs/MAIN_AGENT_PROMPT.md
 56a5070a04306d0e1f8fcf7b010bb161709cc732bc6babd9e6b89efe490fd0b8  ./docs/MASTER_IMPLEMENTATION_SPEC.md
@@ -835,7 +835,7 @@ dbd9e6afd7ffb847d202880dbaaa25ed777699d178efeb56e997f78a6753408b  ./worker/src/m
 704a6ec9d1f3ad7a9a169d4c4570abca0df3722785cdc42b252d17005cc1016f  ./worker/src/media/resolvers.ts
 d30a3fbe0a87e67a9216875d286f5b691d39baf13863416fb3f4d3bcb28c35b2  ./worker/src/media/runtime-config.ts
 8f0a7c3f8c163da69d5c7be0980cadfedbc6515477416fe2f0a4cc7e8f3c4f3d  ./worker/src/media/sample-index.ts
-e72bce57b4fcddba94b3d178da735ed3984a0dbfa7e2e2dccd048b11cc711e2a  ./worker/src/media/source-process.ts
+3196f7539e70bea8ae98b2a2b5647063d6089325fc50d36029869f202ec6b2fc  ./worker/src/media/source-process.ts
 5f123b9ae6aba746b4a4bbd2afea2e1c790dfc8ad9583b431d524bd8202595c7  ./worker/src/media/source-runtime.ts
 35845355b62d5de1dd0feed57d13ca53bf82415226620de338f1f6277906ba88  ./worker/src/media/source-work.ts
 e0055e5de69b1a90ddf83147a4379f8aaad8a9e0442e094795147b961f19ed37  ./worker/src/media/tiered-media-object-store.ts
