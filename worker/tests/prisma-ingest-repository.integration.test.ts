@@ -42,6 +42,7 @@ const profile = {
 
 let db: (typeof import('@volleyball-monitoring/db'))['db']
 let repository: ReturnType<typeof createPrismaIngestRepository>
+let extentOnlyRepository: ReturnType<typeof createPrismaIngestRepository>
 let createdDatabase = false
 
 function digest(value: string): string {
@@ -214,6 +215,16 @@ beforeAll(async () => {
   })
   db = (await import('@volleyball-monitoring/db')).db
   repository = createPrismaIngestRepository(db, {
+    maxTransactionAttempts: 5,
+    now: () => fixedReadyAt,
+    plannerConfig: {
+      canonicalSessionOriginUs: canonicalOriginUs,
+      canonicalFrameOrigin,
+      timestampToleranceUs: 5n,
+    },
+  })
+  extentOnlyRepository = createPrismaIngestRepository(db, {
+    liveArchiveBackend: 'media_extent',
     maxTransactionAttempts: 5,
     now: () => fixedReadyAt,
     plannerConfig: {
@@ -625,7 +636,7 @@ describe('Prisma finalized media ingest repository', () => {
       localPath: 'live/20260818120000_0.mp4',
       finalizedAt: new Date('2026-08-18T12:01:00.000Z'),
     }
-    const reservation = await repository.reserveUploading(
+    const reservation = await extentOnlyRepository.reserveUploading(
       reservationInput(captureSessionId, 'extent-only-live', { extent: extentPublication }),
     )
     expect(reservation.reference.mediaExtentId).toBeTruthy()
@@ -644,12 +655,12 @@ describe('Prisma finalized media ingest repository', () => {
     ).resolves.toEqual([0, 0])
 
     const artifactExpectations = expectations(reservation)
-    await repository.recordArtifactExpectations({
+    await extentOnlyRepository.recordArtifactExpectations({
       reservation: reservation.reference,
       artifacts: artifactExpectations,
       sampleIndexDocument: serializeSampleIndex(reservation.sampleIndex),
     })
-    const published = await repository.publishReady({
+    const published = await extentOnlyRepository.publishReady({
       reservation: reservation.reference,
       verifiedArtifacts: artifactExpectations,
       extent: extentPublication,

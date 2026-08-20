@@ -1,4 +1,4 @@
-import type { FfprobeFrame, Rational } from '@volleyball-monitoring/media'
+import { rescalePtsToUs, type FfprobeFrame, type Rational } from '@volleyball-monitoring/media'
 import {
   INTERNAL_MEDIA_SCHEMA_VERSION,
   buildArtifactPlan,
@@ -60,6 +60,12 @@ export type HandlerDeps = {
 }
 
 type FinalizedMediaProbeErrorCode = 'NO_VIDEO_SAMPLES' | 'INVALID_SAMPLE_TIMING'
+
+export type PlaybackFragmentProjection = {
+  byteOffset: bigint
+  byteLength: bigint
+  durationUs: bigint
+}
 
 function deterministicProbeError(
   code: FinalizedMediaProbeErrorCode,
@@ -129,6 +135,79 @@ export function probeSamples(frames: readonly FfprobeFrame[], streamEndPtsExclus
   })
 }
 
+/**
+ * Pair fMP4 moof/mdat byte ranges with video GOP timing. A mismatched layout
+ * remains playable as one physical extent; it is never published as a corrupt
+ * byte-range playlist.
+ */
+export function projectPlaybackFragments(
+  source: ArtifactSourceBytes,
+  samples: readonly ReturnType<typeof probeSamples>[number][],
+  timeBase: Rational,
+): readonly PlaybackFragmentProjection[] | undefined {
+  const ranges = source.mediaFragments
+  if (!ranges?.length || samples.length === 0) return undefined
+  return projectPlaybackFragmentRanges(
+    ranges,
+    BigInt(source.mediaBytes.byteLength),
+    samples,
+    timeBase,
+  )
+}
+
+export function projectPlaybackFragmentRanges(
+  ranges: readonly { byteOffset: bigint; byteLength: bigint }[],
+  mediaByteLength: bigint,
+  samples: readonly { sourcePts: bigint; durationPts: bigint; keyframe: boolean }[],
+  timeBase: Rational,
+): readonly PlaybackFragmentProjection[] | undefined {
+  if (ranges.length === 0 || samples.length === 0 || mediaByteLength <= 0n) return undefined
+  const keyframeIndexes = samples.flatMap((sample, index) => (sample.keyframe ? [index] : []))
+  if (keyframeIndexes[0] !== 0 || ranges.length < keyframeIndexes.length) return undefined
+
+  // FFmpeg can emit a tiny trailing moof/mdat when the final audio samples
+  // outlive the last video GOP. It has no corresponding video keyframe and
+  // belongs to the final logical HLS fragment.
+  const logicalRanges = ranges.slice(0, keyframeIndexes.length).map(range => ({ ...range }))
+  if (ranges.length > logicalRanges.length) {
+    const final = logicalRanges.at(-1)!
+    let end = final.byteOffset + final.byteLength
+    for (const trailing of ranges.slice(logicalRanges.length)) {
+      if (trailing.byteOffset !== end) return undefined
+      end += trailing.byteLength
+    }
+    final.byteLength = end - final.byteOffset
+  }
+
+  const originPts = samples[0]!.sourcePts
+  const endPts = samples.at(-1)!.sourcePts + samples.at(-1)!.durationPts
+  const projected = logicalRanges.map((range, index) => {
+    const startPts = samples[keyframeIndexes[index]!]!.sourcePts
+    const nextIndex = keyframeIndexes[index + 1]
+    const fragmentEndPts = nextIndex === undefined ? endPts : samples[nextIndex]!.sourcePts
+    return {
+      byteOffset: range.byteOffset,
+      byteLength: range.byteLength,
+      durationUs:
+        rescalePtsToUs(fragmentEndPts - originPts, timeBase) -
+        rescalePtsToUs(startPts - originPts, timeBase),
+    }
+  })
+  let previousEnd = 0n
+  for (const fragment of projected) {
+    if (
+      fragment.byteOffset < previousEnd ||
+      fragment.byteLength <= 0n ||
+      fragment.byteOffset + fragment.byteLength > mediaByteLength ||
+      fragment.durationUs <= 0n
+    ) {
+      return undefined
+    }
+    previousEnd = fragment.byteOffset + fragment.byteLength
+  }
+  return projected
+}
+
 function artifactReservation(
   bucket: string,
   captureSessionId: string,
@@ -181,6 +260,7 @@ export async function ingestEnvelope(
   const probeResult = await probe(recording.trustedPath, signal ? { signal } : {})
   const samples = probeSamples(probeResult.frames, probeResult.streamEndPtsExclusive)
   const source = await deps.source.read(recording, signal ? { signal } : {})
+  const playbackFragments = projectPlaybackFragments(source, samples, probeResult.timeBase)
 
   const ingestKey = idempotencyKey(recording, sourceContentSha256(source))
   const reservations = (['init', 'media', 'sample-index'] as const).map(kind =>
@@ -200,6 +280,7 @@ export async function ingestEnvelope(
     sourceOrder: BigInt(envelope.sourceOrder),
     timeBase: probeResult.timeBase,
     samples,
+    ...(playbackFragments ? { playbackFragments } : {}),
     sourceRestart: envelope.sourceRestart,
     timestampDiscontinuity: envelope.timestampDiscontinuity,
     ...(envelope.explicitGapBeforeUs === null

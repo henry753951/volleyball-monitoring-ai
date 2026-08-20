@@ -17,6 +17,7 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 const SHA256 = /^[0-9a-f]{64}$/
 const INT32_MAX = 2_147_483_647
 const INT64_MAX = 9_223_372_036_854_775_807n
+const MAX_PLAYBACK_FRAGMENTS = 4_096
 const LOCK_DOMAIN = 'volleyball-media-ingest-v1'
 const INTERNAL_SCHEMA_VERSION = '1.0.0' as const
 const OME_PROVISIONAL_EPOCH_REASON = 'OME_RECORDING_EXTENT_PROVISIONAL'
@@ -58,6 +59,12 @@ export type DvrProgramProfile = {
   timeBaseDen: number
 }
 
+export type IngestPlaybackFragment = {
+  byteOffset: bigint
+  byteLength: bigint
+  durationUs: bigint
+}
+
 export type FinalizedSegmentReservationInput = {
   captureSessionId: string
   idempotencyKey: string
@@ -68,6 +75,7 @@ export type FinalizedSegmentReservationInput = {
   /** Authoritative source PTS unit for this epoch; reconnects may change it. */
   timeBase: Rational
   samples: IncrementalFinalizedIndexedSegment['samples']
+  playbackFragments?: readonly IngestPlaybackFragment[]
   sourceRestart: boolean
   timestampDiscontinuity: boolean
   explicitGapBeforeUs?: bigint
@@ -170,7 +178,7 @@ export type PrismaIngestRepositoryOptions = {
   plannerConfig?: Partial<CaptureEpochPlannerConfig>
   maxTransactionAttempts?: number
   now?: () => Date
-  liveArchiveBackend?: 'legacy' | 'media_extent'
+  liveArchiveBackend?: 'legacy' | 'media_extent' | 'dual_projection'
 }
 
 type Tx = Prisma.TransactionClient
@@ -311,7 +319,72 @@ function validateReservationInput(input: FinalizedSegmentReservationInput) {
     fail('INVALID_INPUT')
   }
   if (input.extent) validateExtentPublication(input.extent)
+  validatePlaybackFragments(input.playbackFragments)
   return artifactMap(input.artifacts, false)
+}
+
+function validatePlaybackFragments(
+  fragments: readonly IngestPlaybackFragment[] | undefined,
+  expectedDurationUs?: bigint,
+): void {
+  if (fragments === undefined) return
+  if (fragments.length === 0 || fragments.length > MAX_PLAYBACK_FRAGMENTS) fail('INVALID_INPUT')
+  let previousEnd = 0n
+  let durationUs = 0n
+  for (const fragment of fragments) {
+    if (
+      fragment.byteOffset < previousEnd ||
+      fragment.byteOffset > INT64_MAX ||
+      fragment.byteLength <= 0n ||
+      fragment.byteLength > INT64_MAX ||
+      fragment.byteOffset + fragment.byteLength > INT64_MAX ||
+      fragment.durationUs <= 0n ||
+      fragment.durationUs > INT64_MAX
+    ) {
+      fail('INVALID_INPUT')
+    }
+    previousEnd = fragment.byteOffset + fragment.byteLength
+    durationUs += fragment.durationUs
+    if (durationUs > INT64_MAX) fail('INVALID_INPUT')
+  }
+  if (expectedDurationUs !== undefined && durationUs !== expectedDurationUs) fail('INVALID_INPUT')
+}
+
+function playbackFragmentsJson(
+  fragments: readonly IngestPlaybackFragment[] | undefined,
+): Prisma.InputJsonValue | undefined {
+  if (!fragments) return undefined
+  return fragments.map(fragment => ({
+    byte_offset: fragment.byteOffset.toString(),
+    byte_length: fragment.byteLength.toString(),
+    duration_us: fragment.durationUs.toString(),
+  }))
+}
+
+function matchesPlaybackFragments(
+  persisted: Prisma.JsonValue | null,
+  fragments: readonly IngestPlaybackFragment[] | undefined,
+): boolean {
+  if (fragments === undefined) return persisted === null
+  return JSON.stringify(persisted) === JSON.stringify(playbackFragmentsJson(fragments))
+}
+
+function persistedPlaybackFragmentCount(value: Prisma.JsonValue | null): bigint {
+  return Array.isArray(value) && value.length > 0 ? BigInt(value.length) : 1n
+}
+
+function expectedPlaybackSequenceStart(
+  predecessor: {
+    sequenceNumber: bigint
+    playbackSequenceStart: bigint | null
+    playbackFragments: Prisma.JsonValue | null
+  } | null,
+): bigint {
+  if (!predecessor) return 0n
+  const start = predecessor.playbackSequenceStart ?? predecessor.sequenceNumber
+  const next = start + persistedPlaybackFragmentCount(predecessor.playbackFragments)
+  if (next < 0n || next > INT64_MAX) fail('TIMELINE_CONFLICT')
+  return next
 }
 
 function validateReference(reference: IngestReservationReference): void {
@@ -1052,7 +1125,7 @@ export class PrismaIngestRepository {
   readonly #plannerConfig: CaptureEpochPlannerConfig
   readonly #maxTransactionAttempts: number
   readonly #now: () => Date
-  readonly #liveArchiveBackend: 'legacy' | 'media_extent'
+  readonly #liveArchiveBackend: 'legacy' | 'media_extent' | 'dual_projection'
 
   constructor(client: PrismaClient, options: PrismaIngestRepositoryOptions = {}) {
     const plannerConfig = {
@@ -1075,7 +1148,7 @@ export class PrismaIngestRepository {
     this.#plannerConfig = plannerConfig
     this.#maxTransactionAttempts = attempts
     this.#now = options.now ?? (() => new Date())
-    this.#liveArchiveBackend = options.liveArchiveBackend ?? 'media_extent'
+    this.#liveArchiveBackend = options.liveArchiveBackend ?? 'dual_projection'
   }
 
   async #transaction<T>(operation: (tx: Tx) => Promise<T>): Promise<T> {
@@ -1421,6 +1494,16 @@ export class PrismaIngestRepository {
           predecessor ? buildHead(predecessor) : null,
           this.#plannerConfig,
         )
+        validatePlaybackFragments(input.playbackFragments, plan.segment.durationUs)
+        if (!matchesPlaybackFragments(replay.playbackFragments, input.playbackFragments)) {
+          return fail('RESERVATION_CONFLICT')
+        }
+        if (
+          replay.playbackSequenceStart !== null &&
+          replay.playbackSequenceStart !== expectedPlaybackSequenceStart(predecessor)
+        ) {
+          return fail('RESERVATION_CONFLICT')
+        }
         assertSegmentMatchesPlan(replay, plan, expectedSequence)
         const assets = segmentAssets(replay)
         const allReady =
@@ -1482,6 +1565,7 @@ export class PrismaIngestRepository {
         return fail('TIMELINE_CONFLICT')
       }
       const currentHead = lastSegment ? buildHead(lastSegment) : null
+      const playbackSequenceStart = expectedPlaybackSequenceStart(lastSegment)
       const currentEpoch = await tx.captureEpoch.findFirst({
         orderBy: { sequenceIndex: 'desc' },
         where: { captureSessionId: input.captureSessionId },
@@ -1508,6 +1592,7 @@ export class PrismaIngestRepository {
         ? { ...input, newEpochId: currentEpoch!.id }
         : input
       const plan = planFrom(planningInput, currentHead, this.#plannerConfig)
+      validatePlaybackFragments(input.playbackFragments, plan.segment.durationUs)
       let epochId: string
       if (plan.epoch.disposition === 'CREATE_NEXT') {
         if (provisionalEpochMatchesHead) {
@@ -1587,6 +1672,12 @@ export class PrismaIngestRepository {
           frameCount: plan.segment.frameCount,
           durationUs: plan.segment.durationUs,
           isGap: false,
+          playbackSequenceStart,
+          ...(input.playbackFragments
+            ? {
+                playbackFragments: playbackFragmentsJson(input.playbackFragments)!,
+              }
+            : {}),
           initAssetId: createdAssets.init.id,
           mediaAssetId: createdAssets.media.id,
           sampleIndexAssetId: createdAssets['sample-index'].id,

@@ -470,18 +470,21 @@ function manifestEntries(window: VisibleWindowWithSegments) {
     throw new MediaHttpError(409, 'MEDIA_NOT_READY', 'Playback window has no media')
   }
   let previousEndUs: bigint | null = null
+  let expectedPlaybackSequence: bigint | null = null
   const firstMappingIndex = mappings[0]!.sequenceIndex
-  const entries = mappings.map((mapping, index) => {
+  const entries = mappings.flatMap((mapping, index) => {
     if (mapping.sequenceIndex !== firstMappingIndex + index) {
       throw new MediaHttpError(409, 'MEDIA_NOT_READY', 'Playback mapping order is invalid')
     }
     const segment = mapping.dvrSegment
+    const initAsset = segment.initAsset
+    const mediaAsset = segment.mediaAsset
     if (
       segment.isGap ||
       segment.readyAt === null ||
       segment.durationUs !== segment.captureEndUs - segment.captureStartUs ||
-      !assetMetadataReady(segment.initAsset, 'video/mp4', 'DVR_INIT') ||
-      !assetMetadataReady(segment.mediaAsset, 'video/mp4', 'DVR_SEGMENT') ||
+      !assetMetadataReady(initAsset, 'video/mp4', 'DVR_INIT') ||
+      !assetMetadataReady(mediaAsset, 'video/mp4', 'DVR_SEGMENT') ||
       segment.initAssetId === null
     ) {
       throw new MediaHttpError(409, 'MEDIA_NOT_READY', 'Playback media is not ready')
@@ -490,8 +493,26 @@ function manifestEntries(window: VisibleWindowWithSegments) {
       throw new MediaHttpError(409, 'MEDIA_NOT_READY', 'Playback mapping crosses a capture gap')
     }
     previousEndUs = segment.captureEndUs
-    return {
-      durationUs: segment.durationUs,
+    const rawFragments = segment.playbackFragments
+    const hasStablePlaybackSequence = typeof segment.playbackSequenceStart === 'bigint'
+    const fragments = Array.isArray(rawFragments)
+      ? parsePlaybackFragments(rawFragments, segment.durationUs, mediaAsset.byteLength)
+      : null
+    const sequenceStart =
+      segment.playbackSequenceStart ?? expectedPlaybackSequence ?? segment.sequenceNumber
+    if (
+      hasStablePlaybackSequence &&
+      expectedPlaybackSequence !== null &&
+      sequenceStart !== expectedPlaybackSequence
+    ) {
+      throw new MediaHttpError(409, 'MEDIA_NOT_READY', 'Playback sequence is not continuous')
+    }
+    const logicalFragments = fragments ?? [
+      { durationUs: segment.durationUs, byteOffset: null, byteLength: null },
+    ]
+    expectedPlaybackSequence = sequenceStart + BigInt(logicalFragments.length)
+    return logicalFragments.map((fragment, fragmentIndex) => ({
+      durationUs: fragment.durationUs,
       // Canonical capture continuity deliberately permits a pure PTS reset
       // without opening a gap. MSE/HLS does not: fMP4 decode timestamps from a
       // new capture epoch need an EXT-X-DISCONTINUITY so hls.js assigns the
@@ -506,9 +527,12 @@ function manifestEntries(window: VisibleWindowWithSegments) {
       // even when the fMP4 initialization bytes are identical. Use the
       // content fingerprint for playlist identity so hls.js does not fetch
       // the same init object before every media fragment.
-      initFingerprint: segment.initAsset.sha256,
-      sequenceNumber: segment.sequenceNumber,
-    }
+      initFingerprint: initAsset.sha256,
+      sequenceNumber: sequenceStart + BigInt(fragmentIndex),
+      ...(fragment.byteOffset === null || fragment.byteLength === null
+        ? {}
+        : { byteRange: { offset: fragment.byteOffset, length: fragment.byteLength } }),
+    }))
   })
   const first = mappings[0]!.dvrSegment
   const last = mappings.at(-1)!.dvrSegment
@@ -516,6 +540,44 @@ function manifestEntries(window: VisibleWindowWithSegments) {
     throw new MediaHttpError(409, 'MEDIA_NOT_READY', 'Playback mapping bounds are invalid')
   }
   return entries
+}
+
+function parsePlaybackFragments(value: unknown, durationUs: bigint, mediaBytes: bigint) {
+  if (!Array.isArray(value) || value.length === 0 || value.length > 4_096) {
+    throw new MediaHttpError(409, 'MEDIA_NOT_READY', 'Playback fragments are invalid')
+  }
+  let previousEnd = 0n
+  let projectedDurationUs = 0n
+  const fragments = value.map(fragment => {
+    if (typeof fragment !== 'object' || fragment === null || Array.isArray(fragment)) {
+      throw new MediaHttpError(409, 'MEDIA_NOT_READY', 'Playback fragment is invalid')
+    }
+    const record = fragment as Record<string, unknown>
+    if (
+      typeof record.byte_offset !== 'string' ||
+      typeof record.byte_length !== 'string' ||
+      typeof record.duration_us !== 'string' ||
+      !/^\d+$/.test(record.byte_offset) ||
+      !/^[1-9]\d*$/.test(record.byte_length) ||
+      !/^[1-9]\d*$/.test(record.duration_us)
+    ) {
+      throw new MediaHttpError(409, 'MEDIA_NOT_READY', 'Playback fragment is invalid')
+    }
+    const byteOffset = BigInt(record.byte_offset)
+    const byteLength = BigInt(record.byte_length)
+    const fragmentDurationUs = BigInt(record.duration_us)
+    const end = byteOffset + byteLength
+    if (byteOffset < previousEnd || end > mediaBytes) {
+      throw new MediaHttpError(409, 'MEDIA_NOT_READY', 'Playback fragment range is invalid')
+    }
+    previousEnd = end
+    projectedDurationUs += fragmentDurationUs
+    return { byteOffset, byteLength, durationUs: fragmentDurationUs }
+  })
+  if (projectedDurationUs !== durationUs) {
+    throw new MediaHttpError(409, 'MEDIA_NOT_READY', 'Playback fragment timing is invalid')
+  }
+  return fragments
 }
 
 async function descriptorForWindow(window: VisibleWindow) {
@@ -907,11 +969,12 @@ export const mediaPlaybackRoutes =
           const terminal =
             window.dvrProgram.status === 'FINISHED' &&
             window.captureEndUs >= window.dvrProgram.liveEdgeUs
+          const manifest = formatManifest(window.id, manifestEntries(window), { endList: terminal })
           return reply
             .type('application/vnd.apple.mpegurl')
             .header('cache-control', 'no-store, must-revalidate')
             .header('x-playback-mapping-version', String(window.mappingVersion))
-            .send(formatManifest(window.id, manifestEntries(window), { endList: terminal }))
+            .send(manifest)
         } catch (error) {
           return sendMediaError(request, reply, error)
         }

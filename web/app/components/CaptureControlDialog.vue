@@ -265,6 +265,16 @@ async function clearSource(capture: CaptureSession) {
                 >
               </div></label
             >
+            <label class="rtmp-credentials__full"
+              ><span>完整推流網址</span>
+              <div>
+                <code>{{ rtmpCredentials.publish_url }}</code
+                ><UiButton variant="ghost" size="sm" @click="copy(rtmpCredentials.publish_url)"
+                  >複製</UiButton
+                >
+              </div>
+              <small>支援單一網址的編碼器可直接貼上這一欄。</small></label
+            >
           </div>
           <div
             v-for="capture in failedCaptures"

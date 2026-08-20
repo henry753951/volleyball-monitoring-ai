@@ -118,7 +118,7 @@ describe('match media source routes', () => {
         }),
         database: {} as PrismaClient,
         importRoot: 'C:/tmp/vollyai-media-source-test',
-        rtmpPublicUrl: 'rtmp://encoder.example:2035/app',
+        rtmpPublicUrl: 'rtmp://encoder.example:1935/app',
         scheduleWork,
         startCapture: createCapture as unknown as typeof startCapture,
       }),
@@ -133,9 +133,10 @@ describe('match media source routes', () => {
       const body = response.json() as {
         rtmp: { publish_url: string; rtmp_url: string; stream_key: string }
       }
-      expect(body.rtmp.rtmp_url).toBe('rtmp://encoder.example:2035/app')
+      expect(response.headers['cache-control']).toBe('no-store')
+      expect(body.rtmp.rtmp_url).toBe('rtmp://encoder.example:1935/app')
       expect(body.rtmp.publish_url).toBe(
-        `rtmp://encoder.example:2035/app/${encodeURIComponent(body.rtmp.stream_key)}`,
+        `rtmp://encoder.example:1935/app/${encodeURIComponent(body.rtmp.stream_key)}`,
       )
       expect(body.rtmp.stream_key).toMatch(/^[A-Za-z0-9_-]{32}$/)
       expect(createCapture).toHaveBeenCalledWith(

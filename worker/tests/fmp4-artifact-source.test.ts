@@ -127,6 +127,7 @@ describe('FinalizedFileArtifactSource', () => {
     await expect(split(bytes)).resolves.toEqual({
       initBytes: Buffer.concat([ftyp, free, moov]),
       mediaBytes: Buffer.concat([moof, mdat]),
+      mediaFragments: [{ byteOffset: 0n, byteLength: BigInt(moof.byteLength + mdat.byteLength) }],
     })
   })
 
@@ -144,6 +145,18 @@ describe('FinalizedFileArtifactSource', () => {
     expect(result.mediaBytes).toEqual(
       Buffer.concat([styp, sidx, moof, mdat, emsg, secondMoof, secondMdat]),
     )
+    expect(result.mediaFragments).toEqual([
+      {
+        byteOffset: BigInt(styp.byteLength + sidx.byteLength),
+        byteLength: BigInt(moof.byteLength + mdat.byteLength),
+      },
+      {
+        byteOffset: BigInt(
+          styp.byteLength + sidx.byteLength + moof.byteLength + mdat.byteLength + emsg.byteLength,
+        ),
+        byteLength: BigInt(secondMoof.byteLength + secondMdat.byteLength),
+      },
+    ])
   })
 
   it('remuxes an OME-style progressive MP4 before splitting artifacts', async () => {

@@ -337,6 +337,8 @@ async function splitFragmentedMp4(
   let mediaStarted = false
   let awaitingMdat = false
   let fragmentCount = 0
+  let fragmentStartOffset: bigint | null = null
+  const mediaFragments: { byteOffset: bigint; byteLength: bigint }[] = []
 
   while (position < fileSize) {
     const box = await readBoxHeader(handle, position, fileSize, guard)
@@ -408,7 +410,16 @@ async function splitFragmentedMp4(
         }
         awaitingMdat = false
         fragmentCount += 1
+        if (fragmentStartOffset === null) {
+          throw new Fmp4ArtifactSourceError('INVALID_LAYOUT', 'media fragment start is missing')
+        }
+        mediaFragments.push({
+          byteOffset: fragmentStartOffset,
+          byteLength: mediaBytes + BigInt(box.size) - fragmentStartOffset,
+        })
+        fragmentStartOffset = null
       } else if (box.type === 'moof') {
+        fragmentStartOffset = mediaBytes
         awaitingMdat = true
       } else if (box.type === 'mdat') {
         throw new Fmp4ArtifactSourceError('INVALID_LAYOUT', 'mdat must follow a moof box')
@@ -444,6 +455,7 @@ async function splitFragmentedMp4(
   return {
     initBytes: Buffer.concat(initChunks, Number(initBytes)),
     mediaBytes: Buffer.concat(mediaChunks, Number(mediaBytes)),
+    mediaFragments,
   }
 }
 

@@ -692,6 +692,8 @@ model DvrSegment {
   frameCount             BigInt
   durationUs             BigInt
   isGap                  Boolean                 @default(false)
+  playbackFragments      Json?
+  playbackSequenceStart  BigInt?
   initAssetId            String?                 @db.Uuid
   mediaAssetId           String?                 @db.Uuid
   sampleIndexAssetId     String?                 @db.Uuid

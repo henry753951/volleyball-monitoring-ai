@@ -19,6 +19,14 @@ export interface OmeLiveTimelineRange {
   discontinuity: number
 }
 
+export function captureTimeInTimelineRanges(
+  captureTimeUs: string,
+  ranges: readonly Pick<OmeLiveTimelineRange, 'startUs' | 'endUs'>[],
+): boolean {
+  const target = BigInt(captureTimeUs)
+  return ranges.some(range => target >= BigInt(range.startUs) && target < BigInt(range.endUs))
+}
+
 export function projectOmeLiveTimelineRanges(
   durableRanges: readonly OmeLiveTimelineRange[],
   seekableRanges: readonly { startCaptureTimeUs: string; endCaptureTimeUs: string }[],

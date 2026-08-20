@@ -116,7 +116,12 @@ function frameCoverage(
 
 export async function getCoachMatchState(
   database: PrismaClient,
-  input: { matchId: string; userId: string; role: UserRole },
+  input: {
+    matchId: string
+    userId: string
+    role: UserRole
+    profile?: 'full' | 'annotation'
+  },
   dependencies: CoachDashboardDependencies = {},
 ) {
   const match = await database.match.findFirst({
@@ -373,40 +378,51 @@ export async function getCoachMatchState(
   )
   const coverageByAnalysisId = new Map<string, CaptureCoverage | null>()
   const timelineByAnalysisId = new Map<string, ClipFrameTimeline>()
-  const coverageTasks = match.rallies.flatMap(rally => {
-    const submission = rally.activeSubmission
-    const displayResult = submission ? displayResultBySubmissionId.get(submission.id) : null
-    const analysis = displayResult?.analysis
-    const clip = displayResult?.clip
-    if (!analysis) return []
-    const firstFrame = analysis.tracks.reduce<bigint | null>(
-      (value, track) => (value === null || track.firstFrame < value ? track.firstFrame : value),
-      null,
-    )
-    const lastFrame = analysis.tracks.reduce<bigint | null>(
-      (value, track) => (value === null || track.lastFrame > value ? track.lastFrame : value),
-      null,
-    )
-    return [
-      async () => {
-        if (!clip?.timingManifest || !dependencies.timingManifestReader) {
-          coverageByAnalysisId.set(analysis.id, null)
-          return
-        }
-        try {
-          const timeline = await readClipFrameTimeline(
-            dependencies.timingManifestReader,
-            clip.timingManifest,
-            timingManifestIdentity(clip.id, clip.idempotencyKey, clip.timingManifest.objectKey),
+  const coverageTasks =
+    input.profile === 'annotation'
+      ? []
+      : match.rallies.flatMap(rally => {
+          const submission = rally.activeSubmission
+          const displayResult = submission ? displayResultBySubmissionId.get(submission.id) : null
+          const analysis = displayResult?.analysis
+          const clip = displayResult?.clip
+          if (!analysis) return []
+          const firstFrame = analysis.tracks.reduce<bigint | null>(
+            (value, track) =>
+              value === null || track.firstFrame < value ? track.firstFrame : value,
+            null,
           )
-          timelineByAnalysisId.set(analysis.id, timeline)
-          coverageByAnalysisId.set(analysis.id, frameCoverage(timeline, firstFrame, lastFrame))
-        } catch {
-          coverageByAnalysisId.set(analysis.id, null)
-        }
-      },
-    ]
-  })
+          const lastFrame = analysis.tracks.reduce<bigint | null>(
+            (value, track) => (value === null || track.lastFrame > value ? track.lastFrame : value),
+            null,
+          )
+          return [
+            async () => {
+              if (!clip?.timingManifest || !dependencies.timingManifestReader) {
+                coverageByAnalysisId.set(analysis.id, null)
+                return
+              }
+              try {
+                const timeline = await readClipFrameTimeline(
+                  dependencies.timingManifestReader,
+                  clip.timingManifest,
+                  timingManifestIdentity(
+                    clip.id,
+                    clip.idempotencyKey,
+                    clip.timingManifest.objectKey,
+                  ),
+                )
+                timelineByAnalysisId.set(analysis.id, timeline)
+                coverageByAnalysisId.set(
+                  analysis.id,
+                  frameCoverage(timeline, firstFrame, lastFrame),
+                )
+              } catch {
+                coverageByAnalysisId.set(analysis.id, null)
+              }
+            },
+          ]
+        })
   for (let offset = 0; offset < coverageTasks.length; offset += 8) {
     await Promise.all(coverageTasks.slice(offset, offset + 8).map(task => task()))
   }
@@ -790,7 +806,9 @@ export async function getCoachMatchState(
                             id: analysis.id,
                             status: analysis.status.toLowerCase(),
                             version: analysis.analysisVersion,
-                            summary: analysis.summary,
+                            ...(input.profile === 'annotation'
+                              ? {}
+                              : { summary: analysis.summary }),
                             identity_mapping_completed: Boolean(
                               analysis.identityMappingCompletedAt,
                             ),
@@ -800,26 +818,31 @@ export async function getCoachMatchState(
                             track_count: analysis._count.tracks,
                             ball_path_count: analysis._count.segments,
                             contact_count: effectiveContacts.length,
-                            contact_points: effectiveContacts.flatMap(contact => {
-                              if (
-                                !frameTimeline ||
-                                contact.frameIndex < 0n ||
-                                contact.frameIndex >= BigInt(frameTimeline.captureTimeUs.length)
-                              )
-                                return []
-                              return [
-                                {
-                                  id: contact.id,
-                                  capture_time_us:
-                                    frameTimeline.captureTimeUs[
-                                      Number(contact.frameIndex)
-                                    ]!.toString(),
-                                  frame_index: contact.frameIndex.toString(),
-                                  source: contact.source,
-                                  confidence: contact.confidence,
-                                },
-                              ]
-                            }),
+                            ...(input.profile === 'annotation'
+                              ? {}
+                              : {
+                                  contact_points: effectiveContacts.flatMap(contact => {
+                                    if (
+                                      !frameTimeline ||
+                                      contact.frameIndex < 0n ||
+                                      contact.frameIndex >=
+                                        BigInt(frameTimeline.captureTimeUs.length)
+                                    )
+                                      return []
+                                    return [
+                                      {
+                                        id: contact.id,
+                                        capture_time_us:
+                                          frameTimeline.captureTimeUs[
+                                            Number(contact.frameIndex)
+                                          ]!.toString(),
+                                        frame_index: contact.frameIndex.toString(),
+                                        source: contact.source,
+                                        confidence: contact.confidence,
+                                      },
+                                    ]
+                                  }),
+                                }),
                             capabilities,
                           }
                         })()

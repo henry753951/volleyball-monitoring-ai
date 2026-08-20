@@ -281,6 +281,37 @@ describe('playback manifest and wire views', () => {
     expect(manifest).toContain(`/segments/init-${ids.second}`)
   })
 
+  it('emits short byte-range fragments without duplicating the physical media object', () => {
+    const manifest = formatManifest(
+      ids.window,
+      [
+        {
+          discontinuity: 0,
+          durationUs: 2_000_000n,
+          id: ids.first,
+          initFingerprint: initFingerprints.a,
+          sequenceNumber: 100n,
+          byteRange: { offset: 512n, length: 800_000n },
+        },
+        {
+          discontinuity: 0,
+          durationUs: 2_000_000n,
+          id: ids.first,
+          initFingerprint: initFingerprints.a,
+          sequenceNumber: 101n,
+          byteRange: { offset: 800_512n, length: 780_000n },
+        },
+      ],
+      { endList: false },
+    )
+
+    expect(manifest).toContain('#EXT-X-TARGETDURATION:2')
+    expect(manifest).toContain('#EXT-X-MEDIA-SEQUENCE:100')
+    expect(manifest).toContain('#EXT-X-BYTERANGE:800000@512')
+    expect(manifest).toContain('#EXT-X-BYTERANGE:780000@800512')
+    expect(manifest.match(new RegExp(`/segments/media-${ids.first}`, 'g'))).toHaveLength(2)
+  })
+
   it('preserves the absolute discontinuity sequence after a rolling prefix is dropped', () => {
     const manifest = formatManifest(
       ids.window,

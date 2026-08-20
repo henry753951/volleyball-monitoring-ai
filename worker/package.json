@@ -7,6 +7,7 @@
     "dev": "bun --watch src/index.ts",
     "dev:media": "bun --watch src/role-entry.ts media",
     "dev:workflow": "bun --watch src/role-entry.ts workflow",
+    "backfill:playback-fragments": "bun src/playback-fragment-backfill.ts",
     "build": "tsc -p tsconfig.json",
     "start": "bun dist/index.js",
     "lint": "oxlint .",

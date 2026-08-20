@@ -5,14 +5,22 @@ import { requireIdentity } from './errors.js'
 
 builder.queryField('coachMatchState', t =>
   t.field({
-    args: { matchId: t.arg.id({ required: true }) },
+    args: {
+      matchId: t.arg.id({ required: true }),
+      profile: t.arg.string(),
+    },
     nullable: true,
     type: 'JSON',
     resolve: (_root, args, context) => {
       const identity = requireIdentity(context)
       return getCoachMatchState(
         db,
-        { matchId: args.matchId, userId: identity.id, role: identity.role },
+        {
+          matchId: args.matchId,
+          userId: identity.id,
+          role: identity.role,
+          profile: args.profile === 'annotation' ? 'annotation' : 'full',
+        },
         context.timingManifestReader ? { timingManifestReader: context.timingManifestReader } : {},
       )
     },

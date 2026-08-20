@@ -43,6 +43,7 @@ const VOD_COMPLETION_MIN_TOLERANCE_US = 5_000_000n
 const YOUTUBE_PREFLIGHT_RANGE_BYTES = 64 * 1024
 const LIVE_RELAY_PROGRESS_TIMEOUT_MS = 20_000
 const RTMP_SOURCE_POLL_MS = 500
+const RTMP_SOURCE_OFFLINE_GRACE_MS = 15_000
 const LOCAL_CHECKPOINT_FILE = '.source-checkpoint-v1.json'
 const LOCAL_PENDING_CHECKPOINT_FILE = '.source-checkpoint-v1.pending.json'
 
@@ -931,6 +932,7 @@ async function waitForRtmpRecording(
   await mkdir(directory, { recursive: true })
   let sawSource = false
   let classified = false
+  let offlineSince: number | null = null
   while (!signal.aborted) {
     const recordingCount = await countMediaSourceRecordings(options.recordingRoot, work.ingestPath)
     const hasOnlineProbe = Boolean(options.sourceOnline)
@@ -938,6 +940,10 @@ async function waitForRtmpRecording(
       ? await options.sourceOnline(work.captureSessionId)
       : recordingCount > 0
     if (online || (!hasOnlineProbe && recordingCount > 0)) {
+      if (offlineSince !== null) {
+        await writeSourceRestartMarker(options.recordingRoot, work.ingestPath)
+      }
+      offlineSince = null
       sawSource = true
       if (!classified) {
         await observer.classified({ sourceDurationUs: null, sourceKind: 'rtmp' })
@@ -945,8 +951,11 @@ async function waitForRtmpRecording(
       }
     }
     if (sawSource && !online) {
-      const expectedSegments = await stableRecordingCount(directory, signal)
-      return { expectedSegments, sourceDurationUs: null, sourceKind: 'rtmp' }
+      offlineSince ??= Date.now()
+      if (Date.now() - offlineSince >= RTMP_SOURCE_OFFLINE_GRACE_MS) {
+        const expectedSegments = await stableRecordingCount(directory, signal)
+        return { expectedSegments, sourceDurationUs: null, sourceKind: 'rtmp' }
+      }
     }
     await new Promise(resolvePromise => setTimeout(resolvePromise, RTMP_SOURCE_POLL_MS))
   }
@@ -1190,6 +1199,7 @@ export function createMediaSourceProcess(options: MediaSourceProcessOptions) {
         'flv',
         `${options.ingestBaseUrl.replace(/\/+$/, '')}/${work.ingestPath}`,
       )
+      let relayError: unknown = null
       try {
         await runProcess(
           options.ffmpegCommand ?? 'ffmpeg',
@@ -1200,28 +1210,43 @@ export function createMediaSourceProcess(options: MediaSourceProcessOptions) {
         )
       } catch (error) {
         if (signal.aborted) break
-        const currentRecordingCount = await countMediaSourceRecordings(
-          options.recordingRoot,
-          work.ingestPath,
-        )
-        consecutiveFailures = nextLiveRelayFailureCount(
-          consecutiveFailures,
-          recordingCount,
-          currentRecordingCount,
-        )
-        recordingCount = currentRecordingCount
-        const code = error instanceof MediaSourceProcessError ? error.code : 'MEDIA_COMMAND_FAILED'
-        await observer.retrying?.(code)
-        await writeSourceRestartMarker(options.recordingRoot, work.ingestPath)
-        if (consecutiveFailures >= maxConsecutiveFailures) {
-          throw new MediaSourceProcessError(
-            'YOUTUBE_LIVE_RELAY_STALLED',
-            `YouTube live relay made no recording progress after ${consecutiveFailures} consecutive failures`,
-          )
-        }
-        await new Promise(resolvePromise => setTimeout(resolvePromise, 1_000))
+        relayError = error
       }
-      if (!signal.aborted) metadata = (await resolveYoutube('live')).metadata
+      if (signal.aborted) break
+
+      // A zero exit code is not proof that a live source ended. Signed GVS
+      // URLs can terminate cleanly at EOF while the YouTube broadcast remains
+      // live. Resolve again with the current browser cookies before deciding
+      // whether this relay generation completed or must restart.
+      const refreshed = await resolveYoutube('live')
+      metadata = refreshed.metadata
+      if (!youtubeIsLive(metadata)) break
+
+      const currentRecordingCount = await countMediaSourceRecordings(
+        options.recordingRoot,
+        work.ingestPath,
+      )
+      consecutiveFailures = nextLiveRelayFailureCount(
+        consecutiveFailures,
+        recordingCount,
+        currentRecordingCount,
+      )
+      recordingCount = currentRecordingCount
+      const code =
+        relayError instanceof MediaSourceProcessError
+          ? relayError.code
+          : relayError
+            ? 'MEDIA_COMMAND_FAILED'
+            : 'YOUTUBE_LIVE_EARLY_EOF'
+      await observer.retrying?.(code)
+      await writeSourceRestartMarker(options.recordingRoot, work.ingestPath)
+      if (consecutiveFailures >= maxConsecutiveFailures) {
+        throw new MediaSourceProcessError(
+          'YOUTUBE_LIVE_RELAY_STALLED',
+          `YouTube live relay made no recording progress after ${consecutiveFailures} consecutive failures`,
+        )
+      }
+      await new Promise(resolvePromise => setTimeout(resolvePromise, 1_000))
     }
     const directory = safeChild(options.recordingRoot, work.ingestPath)
     const count = await stableRecordingCount(directory, signal)

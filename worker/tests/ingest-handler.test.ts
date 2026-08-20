@@ -7,7 +7,13 @@ import {
   type FfprobeFrame,
 } from '@volleyball-monitoring/media'
 import { afterEach, describe, expect, it } from 'vitest'
-import { ingestEnvelope, probeSamples, type HandlerDeps } from '../src/media/ingest-handler.js'
+import {
+  ingestEnvelope,
+  probeSamples,
+  projectPlaybackFragmentRanges,
+  projectPlaybackFragments,
+  type HandlerDeps,
+} from '../src/media/ingest-handler.js'
 import { createEnvelope } from '../src/media/indexer-runtime.js'
 import type {
   FinalizedSegmentReservation,
@@ -34,6 +40,57 @@ it('derives quantized RTMP durations from adjacent PTS', () => {
     3060n,
     2970n,
     3000n,
+  ])
+})
+
+it('projects short fMP4 byte ranges onto keyframe-aligned durations', () => {
+  const samples = probeSamples(
+    [
+      { media_type: 'video', pts: '0', pkt_duration: '1', key_frame: 1 },
+      { media_type: 'video', pts: '1', pkt_duration: '1', key_frame: 0 },
+      { media_type: 'video', pts: '2', pkt_duration: '1', key_frame: 1 },
+      { media_type: 'video', pts: '3', pkt_duration: '1', key_frame: 0 },
+    ],
+    4n,
+  )
+  expect(
+    projectPlaybackFragments(
+      {
+        initBytes: Buffer.from('init'),
+        mediaBytes: Buffer.alloc(1_200),
+        mediaFragments: [
+          { byteOffset: 100n, byteLength: 500n },
+          { byteOffset: 600n, byteLength: 600n },
+        ],
+      },
+      samples,
+      { num: 1n, den: 1_000n },
+    ),
+  ).toEqual([
+    { byteOffset: 100n, byteLength: 500n, durationUs: 2_000n },
+    { byteOffset: 600n, byteLength: 600n, durationUs: 2_000n },
+  ])
+})
+it('folds a contiguous trailing audio fragment into the final video GOP', () => {
+  expect(
+    projectPlaybackFragmentRanges(
+      [
+        { byteOffset: 0n, byteLength: 100n },
+        { byteOffset: 100n, byteLength: 120n },
+        { byteOffset: 220n, byteLength: 8n },
+      ],
+      228n,
+      [
+        { sourcePts: 0n, durationPts: 1n, keyframe: true },
+        { sourcePts: 1n, durationPts: 1n, keyframe: false },
+        { sourcePts: 2n, durationPts: 1n, keyframe: true },
+        { sourcePts: 3n, durationPts: 1n, keyframe: false },
+      ],
+      { num: 1n, den: 1n },
+    ),
+  ).toEqual([
+    { byteOffset: 0n, byteLength: 100n, durationUs: 2_000_000n },
+    { byteOffset: 100n, byteLength: 128n, durationUs: 2_000_000n },
   ])
 })
 it('rejects malformed adjacent PTS before deriving duration', () => {
