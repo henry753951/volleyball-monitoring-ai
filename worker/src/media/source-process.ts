@@ -922,7 +922,10 @@ async function stableRecordingCount(
       .sort()
       .join('|')
     stable = snapshot && snapshot === previous ? stable + 1 : 0
-    if (stable >= 3) return files.length
+    if (stable >= 3) {
+      if (sourceRemainedOffline && !(await sourceRemainedOffline())) return null
+      return files.length
+    }
     previous = snapshot
     if (signal.aborted && stable >= 1) return files.length
     await new Promise(resolvePromise => setTimeout(resolvePromise, 1_000))

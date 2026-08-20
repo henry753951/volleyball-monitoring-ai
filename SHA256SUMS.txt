@@ -577,7 +577,7 @@ d1f423bdf39311f859bdbad531462c87c959f6a3d27f5496dc8a75fcde320858  ./web/app/comp
 659967c62b06f93420a954862c905308d3b1ae5dca5bdd0ef578f02e5dcd65b2  ./web/app/components/PwaInstallBanner.vue
 53ca7e4d8276dd37db7a5fa678f99c0d1d02ba4cc8b7fb7e00324f578094e5e2  ./web/app/components/RosterEditorDialog.vue
 aa67a11a5a3828537100a1d9707bcd7c88a1275d587f37fb5b500e4abe6a7ba6  ./web/app/components/TeamSetupCard.vue
-7bf5e5d373bbc0b34394cc43df02d6a8b2d0aea7e669134745c340a7a9f4eca4  ./web/app/components/VideoOverlayPlayer.vue
+d6c2eab2246668a4ed0f1281f2c41436fac5944a051c9c90626598e47fddb172  ./web/app/components/VideoOverlayPlayer.vue
 1037196bef1c004ba35d388b9900831b70410ef68c25625f47460ac2dfac1e54  ./web/app/components/VolleyballOverlayCanvas.component.test.ts
 9df10f41b64c7d6da4f81a26a3b1fe06415efe59296d8f7af74ce4313a78e42e  ./web/app/components/VolleyballOverlayCanvas.vue
 96769c60b8cfe8b81ee7a4b1b5ee8024b0a31c2753ed7e9a5880637e34805be5  ./web/app/components/WsPingBadge.vue
@@ -681,7 +681,7 @@ d414d774f9b4f8b5a49be463ee8de0bcf284e3b84d96cb54d270d4be558038e9  ./web/app/lib/
 ea6147e9664833abf6ae1dc8bcffbdded5c976a7dd2b9b4a680dcc3a7c9c8df4  ./web/app/lib/rosterPromptImport.test.ts
 4e07c8e910ce029b61dcbe1110e7be3538b6ef9598340fc8468d33efe5760d7b  ./web/app/lib/rosterPromptImport.ts
 440fc13e62d9078c3a3742f76760e310c7d5d8534d7c1164eb585146c7748ef4  ./web/app/middleware/auth.global.ts
-3833576014cb774dcd30d1f5afaa7c8a30a45b0c79240f72480b6d498e570b68  ./web/app/pages/annotate/[matchId].vue
+710b81d3f41218a70212d4ed06cd3b96baeff6cf797230736cb58412eac3a253  ./web/app/pages/annotate/[matchId].vue
 fe032879a11926928cb20d115e0ddc281d030023d7ebed03c97a24ee2ee877bf  ./web/app/pages/control/index.vue
 e1721fc17046f4b9ff9b7359f7c6884e3319a788a8b022d31d6a00a4e805cb06  ./web/app/pages/control/jobs.vue
 ffda57a925b659c33ea87ab67aedd169120195cf27497ab8eceaf14dd7e56ba3  ./web/app/pages/index.vue
@@ -834,7 +834,7 @@ dbd9e6afd7ffb847d202880dbaaa25ed777699d178efeb56e997f78a6753408b  ./worker/src/m
 704a6ec9d1f3ad7a9a169d4c4570abca0df3722785cdc42b252d17005cc1016f  ./worker/src/media/resolvers.ts
 ce39a79562320a2bd681bc5ee32088b7011ed43a368afc13d646c3f452d65a9e  ./worker/src/media/runtime-config.ts
 8f0a7c3f8c163da69d5c7be0980cadfedbc6515477416fe2f0a4cc7e8f3c4f3d  ./worker/src/media/sample-index.ts
-6239065320d15cff7b3c50cae583412b48be26b7d566d7079af812eb2cac0e94  ./worker/src/media/source-process.ts
+9727a75e7ac7974c54b5068f4cbfa3ed3c805e63be3a910d73c9b33f86e3367c  ./worker/src/media/source-process.ts
 5f123b9ae6aba746b4a4bbd2afea2e1c790dfc8ad9583b431d524bd8202595c7  ./worker/src/media/source-runtime.ts
 35845355b62d5de1dd0feed57d13ca53bf82415226620de338f1f6277906ba88  ./worker/src/media/source-work.ts
 e0055e5de69b1a90ddf83147a4379f8aaad8a9e0442e094795147b961f19ed37  ./worker/src/media/tiered-media-object-store.ts

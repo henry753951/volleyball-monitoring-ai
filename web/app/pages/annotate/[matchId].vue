@@ -2361,6 +2361,11 @@ function handlePlaybackError(error: Error) {
   }
   mediaError.value = error.message
 }
+function handleOverlayError(error: Error) {
+  toast.warning('AI 分析圖層暫時無法載入', {
+    description: error.message,
+  })
+}
 function handleOmePlaybackError(error: Error) {
   gapTransition = null
   clearPlaybackBuffering()
@@ -3268,6 +3273,7 @@ onBeforeUnmount(() => {
               @track-select="handleOverlayTrack"
               @toggle="workstationActions.execute('media.toggle-playback')"
               @error="handlePlaybackError"
+              @overlay-error="handleOverlayError"
             />
             <div
               v-if="playbackBuffering"
