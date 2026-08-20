@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.10.3](https://github.com/henry753951/volleyball-monitoring-ai/compare/v1.10.2...v1.10.3) (2026-08-20)
+
+
+### Bug Fixes
+
+* **annotation:** anchor set and court transitions to rallies ([#142](https://github.com/henry753951/volleyball-monitoring-ai/issues/142)) ([a111a4e](https://github.com/henry753951/volleyball-monitoring-ai/commit/a111a4ebb1053929f4cd98f04dfbc0df5cf5e6c0))
+
 ## [1.10.2](https://github.com/henry753951/volleyball-monitoring-ai/compare/v1.10.1...v1.10.2) (2026-08-20)
 
 
