@@ -31,6 +31,7 @@ const tickMs = 1_000
 const heartbeatIntervalSeconds = 10
 const heartbeatTimeoutMs = heartbeatIntervalSeconds * 3 * 1_000
 const artifactUrlLifetimeSeconds = 15 * 60
+const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   value !== null && typeof value === 'object' && !Array.isArray(value)
@@ -76,6 +77,21 @@ function createMinioSigner() {
 
 function databaseWorkKind(value: ContractProviderWorkKind) {
   return ProviderWorkKind[value]
+}
+
+export function providerDatabaseWorkKinds(capabilities: ProviderWorkCapabilities) {
+  return [...new Set(capabilities.work_capabilities.map(item => databaseWorkKind(item.work_kind)))]
+}
+
+export function providerMatchScope(requestUrl: string) {
+  const matchId = new URL(requestUrl, 'http://provider.local').searchParams.get('match_id')
+  if (matchId === null) return null
+  if (!uuidPattern.test(matchId)) throw new TypeError('Provider match_id scope must be a UUID')
+  return matchId
+}
+
+export function providerMatchScopeWhere(matchId: string | null): Prisma.ProviderJobWhereInput {
+  return matchId ? { requestPayload: { path: ['match_id'], equals: matchId } } : {}
 }
 
 function capabilityFor(
@@ -191,6 +207,13 @@ export const providerWorkWebSocketRoutes =
     ).replace(/\/+$/, '')
 
     app.get('/api/v2/ai/providers/ws', { websocket: true }, (socket, request) => {
+      let scopedMatchId: string | null
+      try {
+        scopedMatchId = providerMatchScope(request.url)
+      } catch {
+        socket.close(1008, 'invalid match_id scope')
+        return
+      }
       const presentedToken = bearer(request.headers.authorization) ?? undefined
       const pending: RawData[] = []
       let handleMessage: ((raw: RawData) => void) | null = null
@@ -322,8 +345,11 @@ export const providerWorkWebSocketRoutes =
             _count: { _all: true },
           })
           const counts = new Map(activeCounts.map(item => [item.workKind, item._count._all]))
+          const supportedWorkKinds = providerDatabaseWorkKinds(capabilities)
           const candidates = await database.providerJob.findMany({
             where: {
+              workKind: { in: supportedWorkKinds },
+              ...providerMatchScopeWhere(scopedMatchId),
               status: JobStatus.QUEUED,
               providerInstanceId: null,
               availableAt: { lte: new Date() },

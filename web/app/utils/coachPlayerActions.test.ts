@@ -9,6 +9,7 @@ import {
   collectCoachActionEvents,
   replayEventUrl,
   replayStartSeconds,
+  summarizeCoachActionRoutes,
 } from './coachPlayerActions'
 
 describe('coachPlayerActions', () => {
@@ -26,6 +27,44 @@ describe('coachPlayerActions', () => {
     expect(replayEventUrl('match-1', { rallyId: 'rally-1', anchorTimeUs: '12300000' })).toBe(
       '/matches/match-1/replay/rally-1?event_us=12300000',
     )
+  })
+
+  it('excludes each rally final contact from route coverage instead of calling it missing', () => {
+    const selected = [
+      {
+        rallyId: 'rally-1',
+        anchorTimeUs: '10',
+        routeStart: { x: 0.1, y: 0.2 },
+        routeEnd: { x: 0.3, y: 0.4 },
+      },
+      {
+        rallyId: 'rally-1',
+        anchorTimeUs: '20',
+        routeStart: null,
+        routeEnd: null,
+      },
+      {
+        rallyId: 'rally-2',
+        anchorTimeUs: '5',
+        routeStart: null,
+        routeEnd: null,
+      },
+    ]
+    const allAnchors = [
+      { rallyId: 'rally-1', anchorTimeUs: '10' },
+      { rallyId: 'rally-1', anchorTimeUs: '20' },
+      { rallyId: 'rally-2', anchorTimeUs: '5' },
+      { rallyId: 'rally-2', anchorTimeUs: '9' },
+    ]
+
+    expect(summarizeCoachActionRoutes(selected, allAnchors)).toEqual({
+      eventCount: 3,
+      eligiblePathCount: 2,
+      completePathCount: 1,
+      missingCoordinateCount: 1,
+      terminalEventCount: 1,
+      coverage: 0.5,
+    })
   })
 
   it('groups coach ball types into the four human-facing categories', () => {

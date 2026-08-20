@@ -4,6 +4,7 @@ import { rosterPositionLabel } from '~/lib/rosterPositions'
 import {
   actionColor,
   formatActionTime,
+  summarizeCoachActionRoutes,
   type CoachPlayerActionEvent,
 } from '~/utils/coachPlayerActions'
 import type { CoachRouteMapSideLabel } from '~/components/CoachBallRouteMap.vue'
@@ -246,16 +247,14 @@ watch(filteredEvents, value => {
   if (selectedActionEvent.value && !value.some(event => event.id === selectedActionEvent.value?.id))
     selectedActionEvent.value = null
 })
-const selectedRouteCount = computed(
-  () =>
-    filteredEvents.value.filter(event => event.routeStart !== null && event.routeEnd !== null)
-      .length,
+const allActionEventAnchors = computed(() =>
+  (analytics.value?.action_events ?? []).map(event => ({
+    rallyId: event.rally_id,
+    anchorTimeUs: event.anchor_time_us,
+  })),
 )
-const selectedMissingRouteCount = computed(
-  () => filteredEvents.value.length - selectedRouteCount.value,
-)
-const selectedRouteCoverage = computed(() =>
-  filteredEvents.value.length ? selectedRouteCount.value / filteredEvents.value.length : null,
+const selectedRouteSummary = computed(() =>
+  summarizeCoachActionRoutes(filteredEvents.value, allActionEventAnchors.value),
 )
 const selectedActionLabel = computed(() =>
   selectedActionKey.value === 'all'
@@ -742,7 +741,7 @@ function teamActionCounts(teamId: string) {
             <header class="action-toolbar">
               <div class="action-heading">
                 <h2>球路與落點</h2>
-                <p>篩選數量包含只有時間與球種的事件；虛擬球場只畫有完整起訖座標者</p>
+                <p>球種事件與相鄰球路分開計數；每回合最後一擊沒有下一擊可連線</p>
               </div>
               <div class="action-filters" aria-label="球種篩選">
                 <button
@@ -770,11 +769,14 @@ function teamActionCounts(teamId: string) {
                 <div class="action-rate__primary">
                   <span>球路座標覆蓋</span>
                   <strong>{{
-                    selectedRouteCoverage === null
+                    selectedRouteSummary.coverage === null
                       ? '—'
-                      : `${(selectedRouteCoverage * 100).toFixed(1)}%`
+                      : `${(selectedRouteSummary.coverage * 100).toFixed(1)}%`
                   }}</strong>
-                  <p>{{ selectedRouteCount }} / {{ filteredEvents.length }} 筆事件可畫球路</p>
+                  <p>
+                    {{ selectedRouteSummary.completePathCount }} /
+                    {{ selectedRouteSummary.eligiblePathCount }} 條相鄰球路具完整座標
+                  </p>
                 </div>
                 <dl>
                   <div>
@@ -783,11 +785,15 @@ function teamActionCounts(teamId: string) {
                   </div>
                   <div>
                     <dt>完整球路</dt>
-                    <dd>{{ selectedRouteCount }}</dd>
+                    <dd>{{ selectedRouteSummary.completePathCount }}</dd>
                   </div>
                   <div>
                     <dt>缺少座標</dt>
-                    <dd>{{ selectedMissingRouteCount }}</dd>
+                    <dd>{{ selectedRouteSummary.missingCoordinateCount }}</dd>
+                  </div>
+                  <div>
+                    <dt>無下一擊</dt>
+                    <dd>{{ selectedRouteSummary.terminalEventCount }}</dd>
                   </div>
                 </dl>
                 <CoachHighlightExport
@@ -815,7 +821,10 @@ function teamActionCounts(teamId: string) {
                   <h2>球種時間軸</h2>
                   <p>點選紀錄會在目前頁面播放事件前 3 秒至後 2 秒</p>
                 </div>
-                <span>{{ filteredEvents.length }} 筆事件 · {{ selectedRouteCount }} 筆有球路</span>
+                <span
+                  >{{ filteredEvents.length }} 筆事件 ·
+                  {{ selectedRouteSummary.completePathCount }} 條完整球路</span
+                >
               </header>
               <UiScrollArea v-if="filteredEvents.length" class="action-records__scroll">
                 <div class="action-records__list">
@@ -1535,7 +1544,7 @@ function teamActionCounts(teamId: string) {
 }
 .action-rate dl {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(4, 1fr);
   gap: 20px;
   margin: 0;
   padding: 0 22px;
