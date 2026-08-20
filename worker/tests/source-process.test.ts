@@ -23,6 +23,7 @@ import {
   shouldRetryYoutubeVodWithFallback,
   type MediaSourceProcessOptions,
   vodCompletionToleranceUs,
+  youtubePlayerClient,
 } from '../src/media/source-process.js'
 
 const execFileAsync = promisify(execFile)
@@ -60,6 +61,17 @@ const youtubeOptions: MediaSourceProcessOptions = {
 }
 
 describe('media source process', () => {
+  it('reports the configured YouTube player client in resolver diagnostics', () => {
+    expect(youtubePlayerClient('youtube:player_client=mweb')).toBe('mweb')
+    expect(youtubePlayerClient('youtube:foo=bar,player_client=web_embedded')).toBe('web_embedded')
+    expect(
+      youtubePlayerClient(
+        'youtube:player_client=visionos;youtubepot-bgutilhttp:base_url=http://provider:4416',
+      ),
+    ).toBe('visionos')
+    expect(youtubePlayerClient('youtube:foo=bar')).toBeNull()
+  })
+
   it('rechecks the RTMP publisher after recording files become quiescent', async () => {
     await expect(rtmpSourceRemainedOffline(async () => true, 'capture')).resolves.toBe(false)
     await expect(rtmpSourceRemainedOffline(async () => false, 'capture')).resolves.toBe(true)
