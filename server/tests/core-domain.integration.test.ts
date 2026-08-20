@@ -1109,6 +1109,181 @@ describe('match setup, visibility, and court-side history', () => {
     })
   })
 
+  it('toggles one canonical capture-time suffix even when raw rally ordinals are scrambled', async () => {
+    const fixtureMatchId = randomUUID()
+    const fixtureSetId = randomUUID()
+    const fixtureAssignmentId = randomUUID()
+    const fixtureCaptureId = randomUUID()
+    const fixtureEpochId = randomUUID()
+    const fixtureProgramId = randomUUID()
+    const fixtureDeviceId = randomUUID()
+    await db.match.create({
+      data: {
+        id: fixtureMatchId,
+        title: 'Canonical court-side suffix fixture',
+        members: { create: { role: 'OPERATOR', userId: operatorUser.id } },
+        matchTeams: {
+          create: [{ teamId: leftTeamId }, { teamId: rightTeamId }],
+        },
+      },
+    })
+    await db.matchSet.create({
+      data: { id: fixtureSetId, matchId: fixtureMatchId, setNumber: 1, status: 'LIVE' },
+    })
+    await db.courtSideAssignment.create({
+      data: {
+        effectiveFromRallyOrdinal: 1,
+        id: fixtureAssignmentId,
+        leftTeamId,
+        rightTeamId,
+        setId: fixtureSetId,
+      },
+    })
+    await db.captureSession.create({
+      data: {
+        id: fixtureCaptureId,
+        ingestPath: `/fixture/${fixtureCaptureId}`,
+        matchId: fixtureMatchId,
+        sourceKind: 'fixture',
+      },
+    })
+    await db.captureEpoch.create({
+      data: {
+        captureFrameOrigin: 0n,
+        captureSessionId: fixtureCaptureId,
+        captureTimeOriginUs: 0n,
+        id: fixtureEpochId,
+        sequenceIndex: 0,
+        sourcePtsOrigin: 0n,
+        sourceTimeBaseDen: 30,
+        sourceTimeBaseNum: 1,
+        startedAtCaptureUs: 0n,
+      },
+    })
+    await db.dvrProgram.create({
+      data: {
+        captureSessionId: fixtureCaptureId,
+        fpsDen: 1,
+        fpsNum: 30,
+        id: fixtureProgramId,
+        timeBaseDen: 30,
+        timeBaseNum: 1,
+      },
+    })
+    await db.deviceSession.create({
+      data: { id: fixtureDeviceId, userId: operatorUser.id },
+    })
+
+    const canonicalRows = await Promise.all(
+      [
+        { ordinal: 3, startUs: 1_000_000n },
+        { ordinal: 1, startUs: 2_000_000n },
+        { ordinal: 4, startUs: 3_000_000n },
+        { ordinal: 2, startUs: 4_000_000n },
+      ].map(async ({ ordinal, startUs }) => {
+        const rally = await db.rally.create({
+          data: {
+            annotationStatus: 'READY',
+            dvrProgramId: fixtureProgramId,
+            matchId: fixtureMatchId,
+            ordinal,
+            scoreResolutionState: 'RESOLVED',
+            scoringCourtSide: 'LEFT',
+            scoringTeamId: leftTeamId,
+            setId: fixtureSetId,
+            sideAssignmentId: fixtureAssignmentId,
+          },
+        })
+        await db.rallyBoundary.create({
+          data: {
+            captureEpochId: fixtureEpochId,
+            captureFrameIndex: startUs / 33_333n,
+            captureTimeUs: startUs,
+            createdByUserId: operatorUser.id,
+            deviceSessionId: fixtureDeviceId,
+            kind: 'START',
+            originalPlaybackCursor: {},
+            rallyId: rally.id,
+            sourcePts: startUs / 33_333n,
+            timingPrecision: 'FRAME_EXACT',
+            updatedByUserId: operatorUser.id,
+          },
+        })
+        return rally
+      }),
+    )
+
+    const firstSwap = await execute(swapMutation, contextFor(operatorUser), {
+      input: {
+        effectiveFromRallyId: canonicalRows[1]!.id,
+        effectiveFromRallyOrdinal: canonicalRows[1]!.ordinal,
+        expectedLeftTeamId: leftTeamId,
+        expectedRightTeamId: rightTeamId,
+        setId: fixtureSetId,
+      },
+    })
+    expect(firstSwap.errors).toBeUndefined()
+
+    const effectiveOrder = async () =>
+      Promise.all(
+        canonicalRows.map(async row => {
+          const rally = await db.rally.findUniqueOrThrow({
+            where: { id: row.id },
+            include: { sideAssignment: true },
+          })
+          return rally.sideAssignmentReversed
+            ? [rally.sideAssignment.rightTeamId, rally.sideAssignment.leftTeamId]
+            : [rally.sideAssignment.leftTeamId, rally.sideAssignment.rightTeamId]
+        }),
+      )
+    await expect(effectiveOrder()).resolves.toEqual([
+      [leftTeamId, rightTeamId],
+      [rightTeamId, leftTeamId],
+      [rightTeamId, leftTeamId],
+      [rightTeamId, leftTeamId],
+    ])
+
+    const secondSwap = await execute(swapMutation, contextFor(operatorUser), {
+      input: {
+        effectiveFromRallyId: canonicalRows[3]!.id,
+        effectiveFromRallyOrdinal: canonicalRows[3]!.ordinal,
+        expectedLeftTeamId: rightTeamId,
+        expectedRightTeamId: leftTeamId,
+        setId: fixtureSetId,
+      },
+    })
+    expect(secondSwap.errors).toBeUndefined()
+    await expect(effectiveOrder()).resolves.toEqual([
+      [leftTeamId, rightTeamId],
+      [rightTeamId, leftTeamId],
+      [rightTeamId, leftTeamId],
+      [leftTeamId, rightTeamId],
+    ])
+
+    const nextSet = await execute(startNextSetMutation, contextFor(operatorUser), {
+      input: {
+        effectiveFromRallyId: canonicalRows[2]!.id,
+        matchId: fixtureMatchId,
+        winningTeamId: leftTeamId,
+      },
+    })
+    expect(nextSet.errors).toBeUndefined()
+    await expect(
+      db.matchSet.findUniqueOrThrow({ where: { id: fixtureSetId } }),
+    ).resolves.toMatchObject({
+      winningRallyId: canonicalRows[2]!.id,
+      winningTeamId: leftTeamId,
+    })
+
+    const reopened = await execute(reopenLastSetMutation, contextFor(operatorUser), {
+      input: { matchId: fixtureMatchId, setId: fixtureSetId },
+    })
+    expect(reopened.errors).toBeUndefined()
+    await expect(
+      db.matchSet.findUniqueOrThrow({ where: { id: fixtureSetId } }),
+    ).resolves.toMatchObject({ winningRallyId: null, winningTeamId: null })
+  })
+
   it('edits one team roster while preserving existing entry IDs for identity history', async () => {
     const result = await execute(updateRosterMutation, contextFor(operatorUser), {
       input: {

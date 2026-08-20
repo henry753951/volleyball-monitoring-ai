@@ -166,15 +166,14 @@ function segmentSideIds(item: SegmentListItem) {
   }
 }
 const sideSwapBoundaryIds = computed(() => {
-  const previousSideOrderBySet = new Map<number, string>()
   const boundaryIds = new Set<string>()
+  let previousSideOrder: string | null = null
   for (const item of sortedSegmentItems.value) {
     const sides = segmentSideIds(item)
     if (!sides.left || !sides.right) continue
     const sideOrder = `${sides.left}:${sides.right}`
-    const previousSideOrder = previousSideOrderBySet.get(item.effectiveSetNumber)
     if (previousSideOrder && previousSideOrder !== sideOrder) boundaryIds.add(item.id)
-    previousSideOrderBySet.set(item.effectiveSetNumber, sideOrder)
+    previousSideOrder = sideOrder
   }
   return boundaryIds
 })

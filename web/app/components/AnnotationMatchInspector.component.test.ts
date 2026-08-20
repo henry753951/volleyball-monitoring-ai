@@ -282,7 +282,14 @@ describe('AnnotationMatchInspector outcomes', () => {
         },
       })
 
-    const rally = (id: string, rawSet: number, ordinal: number, time: string) => ({
+    const rally = (
+      id: string,
+      rawSet: number,
+      ordinal: number,
+      time: string,
+      leftTeamId = 'left',
+      rightTeamId = 'right',
+    ) => ({
       id,
       ordinal,
       display_ordinal: ordinal,
@@ -305,8 +312,8 @@ describe('AnnotationMatchInspector outcomes', () => {
         scoring_team_id: null,
         side_assignment_id: `assignment-${rawSet}`,
         side_assignment_reversed: false,
-        left_team_id: 'left',
-        right_team_id: 'right',
+        left_team_id: leftTeamId,
+        right_team_id: rightTeamId,
         contact_count: 0,
         boundaries: [{ kind: 'start', capture_time_us: time, capture_frame_index: '0' }],
         key_points: [],
@@ -317,7 +324,7 @@ describe('AnnotationMatchInspector outcomes', () => {
     })
 
     const wrapper = mountInspector([
-      rally('late', 1, 2, '2000'),
+      rally('late', 1, 2, '2000', 'right', 'left'),
       rally('orphan-first', 3, 1, '1000'),
     ])
 
@@ -326,5 +333,8 @@ describe('AnnotationMatchInspector outcomes', () => {
       expect.stringContaining('回合 2'),
     ])
     expect(wrapper.findAll('.segment-main')[0]!.text()).toContain('回合 1')
+    expect(wrapper.findAll('.side-swap-marker').map(marker => marker.text())).toEqual([
+      '第 2 回合起換場左側 PUR · 右側 TPE',
+    ])
   })
 })

@@ -320,6 +320,7 @@ export function createSegmentManagementService(options: SegmentManagementService
     sideSwapPending.value = true
     try {
       await options.core.swapCourtSides({
+        effectiveFromRallyId: target.rallyId,
         effectiveFromRallyOrdinal: target.effectiveFromRallyOrdinal,
         expectedLeftTeamId: target.expectedLeftTeamId,
         expectedRightTeamId: target.expectedRightTeamId,
@@ -356,6 +357,7 @@ export function createSegmentManagementService(options: SegmentManagementService
   function requestRallySideSwap(rally: CoachRally) {
     if (sideSwapLocked.value || !options.editReady()) return
     const target: SideSwapTarget = {
+      rallyId: rally.id,
       effectiveFromRallyOrdinal: rally.ordinal,
       expectedLeftTeamId: rally.submission.left_team_id,
       expectedRightTeamId: rally.submission.right_team_id,
