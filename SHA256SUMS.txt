@@ -12,9 +12,9 @@ b395c52a1ad69331d58e5d8b5be82f34bcd337996b1c81fa6ef77c05ea1cb8cf  ./.github/work
 f22760823f753cd2a7c3506d2ce452272684294de8749a9e75cde35b6fff65d1  ./.oxfmtrc.json
 3877de021c19f9c73b7e885f6f71ee388bfefc82e7c01c9db33b8dcee058b4e6  ./.oxlintrc.json
 89bca2bb5b1d934901dfb58af0bc8ddd248710746043c55e2dc4bd36053d4629  ./.release-please-config.json
-dee8fc4e709d078134a75b4a6d6e5386baf3655bc073b6afbf3395cb1b093053  ./.release-please-manifest.json
+84afc8cd65f53ff303d8de8b2e7301ba12e1bf0abfc04cbedb4f469b4c42717a  ./.release-please-manifest.json
 b39c86e9cc0def9a192cabdab0205c75f904b0770ce1db62f3320a67b59661ab  ./AGENTS.md
-7e525aeb8b2d68cd74659073bd2bcba68b5c2208f1337de4ab9b9255c211a3c4  ./CHANGELOG.md
+ea65cb5bf6d32bc7c0b91dc2f8227a3ae50240fc76eb05ea8c39d01148d63bbe  ./CHANGELOG.md
 7d8bce16c46787a57e6ec210e592fde913fef00f1fa4719828acebbf382940ac  ./CODEX_SOL_PROMPT.txt
 2a24c9293ee8102e1f876a99ca9c69fa27b3d4258dc15fa08e1b0d1bff31cd02  ./DELIVERY_MANIFEST.md
 45d518b12d3ece5b2000b9c8ab60b6088e1172863e98b68ddd5e83246c151f09  ./README.md
