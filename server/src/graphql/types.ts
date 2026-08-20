@@ -20,7 +20,7 @@ import type {
   Rally,
   Team,
 } from '@volleyball-monitoring/db/client'
-import type { AuthenticatedUser } from './context.js'
+import type { AuthenticatedUser, GraphQLContext } from './context.js'
 import { builder } from './builder.js'
 import { domainError } from './errors.js'
 import {
@@ -33,10 +33,13 @@ import {
 import type { ProcessingStateView } from '../services/capture-processing.js'
 import type { MatchDeleteReceipt } from '../services/match-administration.js'
 import {
-  getDerivedRallyDisplayOrdinal,
   type RallyDeleteReceipt,
   type RallyPlacementResult,
 } from '../services/rally-administration.js'
+import {
+  loadCanonicalMatchProjection,
+  type CanonicalMatchProjection,
+} from '../services/canonical-match-projection.js'
 import { projectMatchSets } from '../services/match-set-projection.js'
 
 interface Health {
@@ -199,6 +202,23 @@ MatchSetType.implement({
 })
 
 export const RallyType = builder.objectRef<Rally>('Rally')
+const matchProjectionByRequest = new WeakMap<
+  GraphQLContext,
+  Map<string, Promise<CanonicalMatchProjection>>
+>()
+function projectionForRally(rally: Rally, context: GraphQLContext) {
+  let projections = matchProjectionByRequest.get(context)
+  if (!projections) {
+    projections = new Map()
+    matchProjectionByRequest.set(context, projections)
+  }
+  let matchProjection = projections.get(rally.matchId)
+  if (!matchProjection) {
+    matchProjection = loadCanonicalMatchProjection(db, rally.matchId)
+    projections.set(rally.matchId, matchProjection)
+  }
+  return matchProjection.then(projection => projection.segmentById.get(rally.id) ?? null)
+}
 RallyType.implement({
   fields: t => ({
     activeSubmissionId: t.exposeID('activeSubmissionId', { nullable: true }),
@@ -208,9 +228,13 @@ RallyType.implement({
       resolve: rally => rally.annotationStatus,
     }),
     displayOrdinal: t.int({
-      resolve: rally => getDerivedRallyDisplayOrdinal(db, rally.matchId, rally.id),
+      resolve: async (rally, _args, context) =>
+        (await projectionForRally(rally, context))?.ordinal ?? rally.displayOrdinal,
     }),
-    displaySetNumber: t.exposeInt('displaySetNumber'),
+    displaySetNumber: t.int({
+      resolve: async (rally, _args, context) =>
+        (await projectionForRally(rally, context))?.setNumber ?? rally.displaySetNumber,
+    }),
     id: t.exposeID('id'),
     matchId: t.exposeID('matchId'),
     processingStatus: t.field({

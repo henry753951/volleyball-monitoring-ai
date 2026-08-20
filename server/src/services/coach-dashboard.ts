@@ -1,9 +1,6 @@
 import type { PrismaClient } from '@volleyball-monitoring/db'
 import { AnnotationStatus, UserRole } from '@volleyball-monitoring/db/client'
-import {
-  deriveGlobalRallyDisplayOrdinals,
-  segmentStartCaptureTimeUs,
-} from '../domain/rally-display-order.js'
+import { segmentStartCaptureTimeUs } from '../domain/rally-display-order.js'
 import {
   readClipFrameTimeline,
   timingManifestIdentity,
@@ -12,13 +9,7 @@ import {
 } from '../media/clip-timing-coverage.js'
 import type { MediaObjectReader } from '../media/playback-domain.js'
 import { resolveEffectiveContactFrame } from './effective-contact-frame.js'
-import { deriveEffectiveSetNumberMap, deriveEffectiveSetRows } from './set-display-projection.js'
-
-export {
-  deriveEffectiveSetNumberMap,
-  deriveEffectiveSetRows,
-  type SetDisplayProjectionInput,
-} from './set-display-projection.js'
+import { projectCanonicalMatch } from './canonical-match-projection.js'
 
 interface CoachDashboardDependencies {
   timingManifestReader?: MediaObjectReader
@@ -146,6 +137,7 @@ export async function getCoachMatchState(
           rightScore: true,
           scoreRevision: true,
           winningTeamId: true,
+          winningRallyId: true,
           sideAssignments: {
             where: { effectiveToRallyOrdinal: null },
             orderBy: { effectiveFromRallyOrdinal: 'desc' },
@@ -157,6 +149,15 @@ export async function getCoachMatchState(
       captureSessions: {
         orderBy: { createdAt: 'desc' },
         select: { id: true, sourceKind: true, sourceLabel: true, status: true, health: true },
+      },
+      courtSideSwapMarkers: {
+        orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+        select: {
+          id: true,
+          effectiveRallyId: true,
+          leftTeamId: true,
+          rightTeamId: true,
+        },
       },
       rallies: {
         where: { activeSubmissionId: { not: null }, voidedAt: null },
@@ -321,38 +322,52 @@ export async function getCoachMatchState(
       },
     },
   })
-  const effectiveSetNumberByRawSetNumber = deriveEffectiveSetNumberMap(match.sets)
-  const effectiveSetNumberFor = (displaySetNumber: number) =>
-    effectiveSetNumberByRawSetNumber.get(displaySetNumber) ?? displaySetNumber
-  // The set is persisted because it is an editorial decision. The ordinal is
-  // a view over capture order and must never depend on a stale database value.
-  // A correction draft replaces the same rally's submitted geometry while it
-  // is editable, so it intentionally wins the de-duplication below.
-  const displayOrderByRallyId = new Map(
-    match.rallies.flatMap(rally => {
-      if (!rally.activeSubmission) return []
-      return [
-        [
-          rally.id,
-          {
-            displaySetNumber: effectiveSetNumberFor(rally.displaySetNumber),
-            id: rally.id,
-            startCaptureTimeUs: segmentStartCaptureTimeUs(rally.activeSubmission),
-          },
-        ] as const,
-      ]
-    }),
-  )
-  for (const draft of drafts) {
-    displayOrderByRallyId.set(draft.id, {
-      displaySetNumber: effectiveSetNumberFor(draft.displaySetNumber),
+  const submittedSegments = match.rallies.flatMap(rally => {
+    const submission = rally.activeSubmission
+    if (!submission) return []
+    return [
+      {
+        id: rally.id,
+        rawSetNumber: rally.set.setNumber,
+        rawOrdinal: rally.ordinal,
+        startCaptureTimeUs: segmentStartCaptureTimeUs(submission),
+        submitted: true,
+        scoreResolutionState: submission.scoreResolutionState,
+        scoringCourtSide: rally.scoringCourtSide ?? submission.scoringCourtSide,
+        scoringTeamId: rally.scoringTeamId ?? submission.scoringTeamId,
+        baseLeftTeamId: rally.sideAssignment?.leftTeamId ?? submission.leftTeamId,
+        baseRightTeamId: rally.sideAssignment?.rightTeamId ?? submission.rightTeamId,
+        sideAssignmentReversed: rally.sideAssignment
+          ? rally.sideAssignmentReversed
+          : submission.sideAssignmentReversed,
+      },
+    ]
+  })
+  const operatorSegmentById = new Map(submittedSegments.map(segment => [segment.id, segment]))
+  for (const draft of drafts)
+    operatorSegmentById.set(draft.id, {
       id: draft.id,
+      rawSetNumber: draft.set.setNumber,
+      rawOrdinal: draft.ordinal,
       startCaptureTimeUs: segmentStartCaptureTimeUs(draft),
+      submitted: false,
+      scoreResolutionState: draft.scoreResolutionState,
+      scoringCourtSide: draft.scoringCourtSide,
+      scoringTeamId: draft.scoringTeamId,
+      baseLeftTeamId: draft.sideAssignment.leftTeamId,
+      baseRightTeamId: draft.sideAssignment.rightTeamId,
+      sideAssignmentReversed: draft.sideAssignmentReversed,
     })
-  }
-  const displayOrdinalByRallyId = deriveGlobalRallyDisplayOrdinals([
-    ...displayOrderByRallyId.values(),
-  ])
+  const officialProjection = projectCanonicalMatch({
+    sets: match.sets,
+    segments: submittedSegments,
+    courtSideBoundaries: match.courtSideSwapMarkers,
+  })
+  const operatorProjection = projectCanonicalMatch({
+    sets: match.sets,
+    segments: [...operatorSegmentById.values()],
+    courtSideBoundaries: match.courtSideSwapMarkers,
+  })
   const displayResultBySubmissionId = new Map(
     match.rallies.flatMap(rally => {
       const submission = rally.activeSubmission
@@ -426,78 +441,8 @@ export async function getCoachMatchState(
   for (let offset = 0; offset < coverageTasks.length; offset += 8) {
     await Promise.all(coverageTasks.slice(offset, offset + 8).map(task => task()))
   }
-  const effectiveSides = (
-    assignment: { leftTeamId: string; rightTeamId: string },
-    reversed: boolean,
-  ) =>
-    reversed
-      ? { leftTeamId: assignment.rightTeamId, rightTeamId: assignment.leftTeamId }
-      : { leftTeamId: assignment.leftTeamId, rightTeamId: assignment.rightTeamId }
-  const rallyProjection = (rally: (typeof match.rallies)[number]) => {
-    const submission = rally.activeSubmission
-    const sides = rally.sideAssignment
-      ? effectiveSides(rally.sideAssignment, rally.sideAssignmentReversed)
-      : {
-          leftTeamId: submission?.leftTeamId ?? '',
-          rightTeamId: submission?.rightTeamId ?? '',
-        }
-    const scoringTeamId = rally.scoringTeamId ?? submission?.scoringTeamId ?? null
-    const scoringCourtSide =
-      scoringTeamId === sides.leftTeamId
-        ? ('left' as const)
-        : scoringTeamId === sides.rightTeamId
-          ? ('right' as const)
-          : ((rally.scoringCourtSide?.toLowerCase() as 'left' | 'right' | undefined) ?? null)
-    return {
-      leftTeamId: sides.leftTeamId,
-      rightTeamId: sides.rightTeamId,
-      scoringCourtSide,
-      scoringTeamId,
-    }
-  }
-  const scoreByDisplaySet = new Map<number, Map<string, number>>()
-  const runningScoreByRallyId = new Map<
-    string,
-    { left: number; right: number; winnerSide: 'left' | 'right' | null }
-  >()
-  for (const rally of [...match.rallies].sort(
-    (left, right) =>
-      (displayOrdinalByRallyId.get(left.id) ?? 1) - (displayOrdinalByRallyId.get(right.id) ?? 1) ||
-      left.id.localeCompare(right.id),
-  )) {
-    const effectiveSetNumber = effectiveSetNumberFor(rally.displaySetNumber)
-    const teamScore = scoreByDisplaySet.get(effectiveSetNumber) ?? new Map<string, number>()
-    const submission = rally.activeSubmission
-    const projection = rallyProjection(rally)
-    const scoringTeamId = projection.scoringTeamId
-    const winnerSide =
-      scoringTeamId && submission
-        ? scoringTeamId === projection.leftTeamId
-          ? ('left' as const)
-          : scoringTeamId === projection.rightTeamId
-            ? ('right' as const)
-            : null
-        : null
-    if (submission?.scoreResolutionState === 'RESOLVED' && scoringTeamId) {
-      teamScore.set(scoringTeamId, (teamScore.get(scoringTeamId) ?? 0) + 1)
-    }
-    scoreByDisplaySet.set(effectiveSetNumber, teamScore)
-    runningScoreByRallyId.set(rally.id, {
-      left: submission ? (teamScore.get(projection.leftTeamId) ?? 0) : 0,
-      right: submission ? (teamScore.get(projection.rightTeamId) ?? 0) : 0,
-      winnerSide,
-    })
-  }
-  const dynamicSetScore = (set: (typeof match.sets)[number]) => {
-    const teamScores =
-      scoreByDisplaySet.get(effectiveSetNumberFor(set.setNumber)) ?? new Map<string, number>()
-    const assignment = set.sideAssignments[0]
-    return {
-      left: assignment ? (teamScores.get(assignment.leftTeamId) ?? 0) : 0,
-      right: assignment ? (teamScores.get(assignment.rightTeamId) ?? 0) : 0,
-    }
-  }
-  const visibleSets = deriveEffectiveSetRows(match.sets)
+  const setById = new Map(match.sets.map(set => [set.id, set]))
+  const openSetRows = match.sets.filter(set => !set.winningTeamId)
   return {
     schema_version: '1.0.0',
     match: {
@@ -507,22 +452,33 @@ export async function getCoachMatchState(
       clip_pre_roll_us: match.clipPreRollUs.toString(),
       clip_post_roll_us: match.clipPostRollUs.toString(),
       teams: match.matchTeams.map(entry => entry.team),
-      sets: visibleSets.map(({ row: set, setNumber }) => ({
-        id: set.id,
-        set_number: setNumber,
-        status: set.status.toLowerCase(),
-        left_score: dynamicSetScore(set).left,
-        right_score: dynamicSetScore(set).right,
-        score_revision: set.scoreRevision,
-        winning_team_id: set.winningTeamId,
-        side_assignment: set.sideAssignments[0]
-          ? {
-              id: set.sideAssignments[0].id,
-              left_team_id: set.sideAssignments[0].leftTeamId,
-              right_team_id: set.sideAssignments[0].rightTeamId,
-            }
-          : null,
-      })),
+      sets: officialProjection.sets.map(projectedSet => {
+        const lastRallyId = projectedSet.rallyIds.at(-1)
+        const lastRally = lastRallyId ? match.rallies.find(rally => rally.id === lastRallyId) : null
+        const set =
+          (projectedSet.winnerSetId ? setById.get(projectedSet.winnerSetId) : null) ??
+          (lastRally ? setById.get(lastRally.set.id) : null) ??
+          openSetRows.at(-1) ??
+          match.sets.at(-1)!
+        const assignment = set.sideAssignments[0]
+        return {
+          id: set.id,
+          set_number: projectedSet.setNumber,
+          status: projectedSet.winningTeamId ? 'finished' : set.status.toLowerCase(),
+          left_score: projectedSet.leftScore,
+          right_score: projectedSet.rightScore,
+          score_revision: set.scoreRevision,
+          winning_team_id: projectedSet.winningTeamId,
+          winning_rally_id: projectedSet.winningRallyId,
+          side_assignment: assignment
+            ? {
+                id: assignment.id,
+                left_team_id: projectedSet.leftTeamId ?? assignment.leftTeamId,
+                right_team_id: projectedSet.rightTeamId ?? assignment.rightTeamId,
+              }
+            : null,
+        }
+      }),
       captures: match.captureSessions.map(capture => ({
         id: capture.id,
         source_kind: capture.sourceKind.toLowerCase(),
@@ -531,30 +487,27 @@ export async function getCoachMatchState(
         health: capture.health.toLowerCase(),
       })),
       drafts: drafts.map(draft => {
-        const sides = effectiveSides(draft.sideAssignment, draft.sideAssignmentReversed)
-        const scoringCourtSide =
-          draft.scoringTeamId === sides.leftTeamId
-            ? ('left' as const)
-            : draft.scoringTeamId === sides.rightTeamId
-              ? ('right' as const)
-              : ((draft.scoringCourtSide?.toLowerCase() as 'left' | 'right' | undefined) ?? null)
+        const projection = operatorProjection.segmentById.get(draft.id)
         return {
           id: draft.id,
-          ordinal: displayOrdinalByRallyId.get(draft.id) ?? draft.ordinal,
-          display_ordinal: displayOrdinalByRallyId.get(draft.id) ?? 1,
-          display_set_number: effectiveSetNumberFor(draft.displaySetNumber),
+          ordinal: projection?.ordinal ?? draft.ordinal,
+          display_ordinal: projection?.ordinal ?? 1,
+          display_set_number: projection?.setNumber ?? 1,
           annotation_revision: draft.annotationRevision.toString(),
           annotation_status: draft.annotationStatus.toLowerCase(),
           active_submission_id: draft.activeSubmissionId,
           score_resolution: draft.scoreResolutionState.toLowerCase(),
-          scoring_court_side: scoringCourtSide,
-          scoring_team_id: draft.scoringTeamId,
+          scoring_court_side: projection?.scoringCourtSide ?? null,
+          scoring_team_id: projection?.scoringTeamId ?? null,
           side_assignment_id: draft.sideAssignmentId,
           side_assignment_reversed: draft.sideAssignmentReversed,
-          left_team_id: sides.leftTeamId,
-          right_team_id: sides.rightTeamId,
+          left_team_id: projection?.leftTeamId ?? draft.sideAssignment.leftTeamId,
+          right_team_id: projection?.rightTeamId ?? draft.sideAssignment.rightTeamId,
+          left_score_after: projection?.leftScoreAfter ?? 0,
+          right_score_after: projection?.rightScoreAfter ?? 0,
+          winner_side: projection?.winnerSide ?? null,
           set_id: draft.set.id,
-          set_number: effectiveSetNumberFor(draft.set.setNumber),
+          set_number: projection?.setNumber ?? 1,
           key_points: draft.keyPoints.map(point => ({
             id: point.id,
             sequence_index: point.sequenceIndex,
@@ -580,33 +533,33 @@ export async function getCoachMatchState(
       rallies: match.rallies.flatMap(rally =>
         rally.activeSubmission
           ? (() => {
-              const projection = rallyProjection(rally)
+              const projection = officialProjection.segmentById.get(rally.id)
               return [
                 {
                   id: rally.id,
-                  ordinal: displayOrdinalByRallyId.get(rally.id) ?? rally.ordinal,
-                  display_ordinal: displayOrdinalByRallyId.get(rally.id) ?? 1,
-                  display_set_number: effectiveSetNumberFor(rally.displaySetNumber),
+                  ordinal: operatorProjection.segmentById.get(rally.id)?.ordinal ?? rally.ordinal,
+                  display_ordinal: operatorProjection.segmentById.get(rally.id)?.ordinal ?? 1,
+                  display_set_number: projection?.setNumber ?? 1,
                   annotation_revision: rally.annotationRevision.toString(),
                   processing_status: rally.processingStatus.toLowerCase(),
-                  scoring_court_side: projection.scoringCourtSide,
-                  scoring_team_id: projection.scoringTeamId,
+                  scoring_court_side: projection?.scoringCourtSide ?? null,
+                  scoring_team_id: projection?.scoringTeamId ?? null,
                   set_id: rally.set.id,
-                  set_number: effectiveSetNumberFor(rally.set.setNumber),
-                  left_score_after: runningScoreByRallyId.get(rally.id)?.left ?? 0,
-                  right_score_after: runningScoreByRallyId.get(rally.id)?.right ?? 0,
-                  winner_side: runningScoreByRallyId.get(rally.id)?.winnerSide ?? null,
+                  set_number: projection?.setNumber ?? 1,
+                  left_score_after: projection?.officialLeftScoreAfter ?? 0,
+                  right_score_after: projection?.officialRightScoreAfter ?? 0,
+                  winner_side: projection?.winnerSide ?? null,
                   submission: {
                     id: rally.activeSubmission.id,
                     supersedes_submission_id: rally.activeSubmission.supersedesSubmissionId,
                     submitted_at: rally.activeSubmission.submittedAt.toISOString(),
                     score_resolution: rally.activeSubmission.scoreResolutionState.toLowerCase(),
-                    scoring_court_side: projection.scoringCourtSide,
-                    scoring_team_id: projection.scoringTeamId,
+                    scoring_court_side: projection?.scoringCourtSide ?? null,
+                    scoring_team_id: projection?.scoringTeamId ?? null,
                     side_assignment_id: rally.sideAssignmentId,
                     side_assignment_reversed: rally.sideAssignmentReversed,
-                    left_team_id: projection.leftTeamId,
-                    right_team_id: projection.rightTeamId,
+                    left_team_id: projection?.leftTeamId ?? rally.activeSubmission.leftTeamId,
+                    right_team_id: projection?.rightTeamId ?? rally.activeSubmission.rightTeamId,
                     contact_count: rally.activeSubmission.keyPoints.filter(
                       point => point.markerKind === 'CONTACT',
                     ).length,

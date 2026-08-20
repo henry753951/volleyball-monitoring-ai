@@ -22,6 +22,7 @@ export interface CoachSet {
   right_score: number
   score_revision: number
   winning_team_id: string | null
+  winning_rally_id: string | null
   side_assignment: CoachSideAssignment | null
 }
 export interface CoachCapture {
@@ -46,6 +47,9 @@ export interface CoachDraft {
   side_assignment_reversed?: boolean
   left_team_id?: string
   right_team_id?: string
+  left_score_after?: number
+  right_score_after?: number
+  winner_side?: 'left' | 'right' | null
   set_id: string
   set_number: number
   key_points: Array<{

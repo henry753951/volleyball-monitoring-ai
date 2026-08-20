@@ -38,7 +38,6 @@ import {
 } from '~/lib/dvrTimeline'
 import { useAnnotationWorkstationViewState } from '~/composables/useAnnotationWorkstationViewState'
 import { capturePlaybackMode, clampLiveEdgeTarget } from '~/lib/mediaTimeline'
-import { deriveSetDisplayProjection } from '~/utils/setDisplayProjection'
 import { decidePlaybackContinuation, nextPlayableRangeAfter } from '~/lib/playbackContinuation'
 import {
   bufferedSecondsAhead,
@@ -692,11 +691,7 @@ const selectedSideRightTeam = computed(
     coach.data.value?.match.teams.find(team => team.id === selectedSideRightTeamId.value) ??
     rightTeam.value,
 )
-const effectiveSetProjection = computed(() =>
-  deriveSetDisplayProjection(coach.data.value?.match.sets ?? []),
-)
-const effectiveSetNumberFor = (rawSetNumber: number) =>
-  effectiveSetProjection.value.rawToEffective.get(rawSetNumber) ?? rawSetNumber
+const effectiveSetNumberFor = (setNumber: number) => setNumber
 const currentEffectiveSetNumber = computed(() =>
   currentSet.value ? effectiveSetNumberFor(currentSet.value.set_number) : null,
 )

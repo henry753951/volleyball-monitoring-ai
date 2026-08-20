@@ -51,7 +51,45 @@ describe('coach replay effective contact projection', () => {
         supersedes: null,
       },
     })
-    const database = { rally: { findFirst } } as unknown as PrismaClient
+    const database = {
+      matchSet: {
+        findMany: vi.fn().mockResolvedValue([
+          {
+            id: 'set-1',
+            setNumber: 1,
+            status: 'LIVE',
+            winningTeamId: null,
+            winningRallyId: null,
+          },
+        ]),
+      },
+      courtSideSwapMarker: { findMany: vi.fn().mockResolvedValue([]) },
+      rally: {
+        findFirst,
+        findMany: vi.fn().mockResolvedValue([
+          {
+            id: 'rally-1',
+            ordinal: 1,
+            createdAt: new Date('2026-08-14T00:00:00Z'),
+            scoreResolutionState: 'PENDING',
+            scoringCourtSide: null,
+            scoringTeamId: null,
+            sideAssignmentReversed: false,
+            sideAssignment: { leftTeamId: 'left', rightTeamId: 'right' },
+            set: { setNumber: 1 },
+            activeSubmission: {
+              scoreResolutionState: 'PENDING',
+              scoringCourtSide: null,
+              scoringTeamId: null,
+              leftTeamId: 'left',
+              rightTeamId: 'right',
+              boundaries: [{ kind: 'START', captureTimeUs: 0n }],
+              keyPoints: [],
+            },
+          },
+        ]),
+      },
+    } as unknown as PrismaClient
 
     const replay = await getCoachRallyReplay(database, {
       rallyId: 'rally-1',

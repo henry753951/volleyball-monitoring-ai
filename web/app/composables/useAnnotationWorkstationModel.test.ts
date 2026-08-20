@@ -603,11 +603,11 @@ describe('useAnnotationWorkstationModel timeline layers', () => {
     expect(model.activeContextState.value).toBe('待重新分析')
   })
 
-  it('derives visible rally numbers from capture order when stored values are stale', () => {
-    const staleState = structuredClone(coachState)
-    staleState.match.rallies[0]!.display_ordinal = 8
+  it('uses the backend canonical rally number without recalculating it in the browser', () => {
+    const canonicalState = structuredClone(coachState)
+    canonicalState.match.rallies[0]!.display_ordinal = 8
     const model = useAnnotationWorkstationModel({
-      coachData: ref(staleState),
+      coachData: ref(canonicalState),
       match: ref<Match | null>(null),
       timeline: computed<CaptureTimeline | null>(() => null),
       displayAnnotation: computed(() => snapshot),
@@ -619,10 +619,10 @@ describe('useAnnotationWorkstationModel timeline layers', () => {
       cursorRallyId: ref('rally'),
     })
 
-    expect(model.timelineSegments.value[0]?.label).toBe('第 1 局 · 回合 1')
-    expect(model.currentMaskLabel.value).toBe('第 1 局 · 回合 1')
-    expect(model.activeContextTitle.value).toBe('第 1 局 · 回合 1')
-    expect(model.displayRallyOrdinal.value).toBe(1)
+    expect(model.timelineSegments.value[0]?.label).toBe('第 1 局 · 回合 8')
+    expect(model.currentMaskLabel.value).toBe('第 1 局 · 回合 8')
+    expect(model.activeContextTitle.value).toBe('第 1 局 · 回合 8')
+    expect(model.displayRallyOrdinal.value).toBe(8)
   })
 
   it('ignores a stale correction draft after realtime submit acknowledgement', () => {

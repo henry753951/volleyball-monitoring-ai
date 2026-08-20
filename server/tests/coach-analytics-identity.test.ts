@@ -34,6 +34,10 @@ describe('coach identity projections', () => {
       title: 'Fixture',
       identityRevision: 2n,
       matchTeams: [],
+      sets: [
+        { id: 'set-1', setNumber: 1, status: 'LIVE', winningTeamId: null, winningRallyId: null },
+      ],
+      courtSideSwapMarkers: [],
       rosterEntries: [
         {
           id: 'roster-7',
@@ -55,6 +59,8 @@ describe('coach identity projections', () => {
             scoringTeamId: null,
             leftTeamId: 'team-left',
             rightTeamId: 'team-right',
+            boundaries: [{ kind: 'START', captureTimeUs: 1_000n }],
+            keyPoints: [],
             ballEvents: [
               {
                 ordinal: 1,

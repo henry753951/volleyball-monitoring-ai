@@ -61,7 +61,7 @@ describe('AnnotationMatchInspector outcomes', () => {
           {
             id: 'draft',
             ordinal: 2,
-            display_ordinal: 99,
+            display_ordinal: 2,
             display_set_number: 1,
             annotation_revision: '2',
             annotation_status: 'ready',
@@ -72,6 +72,9 @@ describe('AnnotationMatchInspector outcomes', () => {
             side_assignment_id: 'assignment-swapped',
             left_team_id: 'right',
             right_team_id: 'left',
+            left_score_after: 1,
+            right_score_after: 1,
+            winner_side: 'left',
             set_id: 'set',
             set_number: 1,
             boundaries: [{ kind: 'start', capture_time_us: '2000000', capture_frame_index: '120' }],
@@ -149,7 +152,9 @@ describe('AnnotationMatchInspector outcomes', () => {
         rightTeamId: 'right',
         selectedRallyId: 'draft',
         setNumber: 1,
-        setResults: [{ id: 'set', set_number: 1, winning_team_id: 'right' }],
+        setResults: [
+          { id: 'set', set_number: 1, winning_team_id: 'right', winning_rally_id: 'draft' },
+        ],
         setNumbers: [1],
         tab: 'match',
         teams,
@@ -175,7 +180,15 @@ describe('AnnotationMatchInspector outcomes', () => {
     await wrapper.get('.row-action-danger').trigger('click')
     expect(requestDelete).toHaveBeenCalledWith('draft', null)
     await wrapper.setProps({
-      setResults: [{ id: 'set', set_number: 1, winning_team_id: 'right', status: 'live' }],
+      setResults: [
+        {
+          id: 'set',
+          set_number: 1,
+          winning_team_id: 'right',
+          winning_rally_id: null,
+          status: 'live',
+        },
+      ],
     })
     expect(wrapper.find('.set-result-marker').exists()).toBe(false)
     expect(wrapper.findAll('.segment-side-order').map(row => row.text())).toEqual([
@@ -219,7 +232,7 @@ describe('AnnotationMatchInspector outcomes', () => {
     })
   })
 
-  it('orders merged raw sets by capture time instead of raw set number', async () => {
+  it('renders the canonical set and ordinal projection returned by the backend', async () => {
     const timeline = { selectHistorical: vi.fn(), selectRally: vi.fn() }
     const mountInspector = (rallies: any[]) =>
       mount(AnnotationMatchInspector, {
@@ -274,8 +287,8 @@ describe('AnnotationMatchInspector outcomes', () => {
           setNumber: 1,
           setNumbers: [1, 2, 3],
           setResults: [
-            { id: 'set-1', set_number: 1, winning_team_id: null },
-            { id: 'set-3', set_number: 3, winning_team_id: null },
+            { id: 'set-1', set_number: 1, winning_team_id: null, winning_rally_id: null },
+            { id: 'set-3', set_number: 3, winning_team_id: null, winning_rally_id: null },
           ],
           tab: 'match',
           teams,
@@ -323,10 +336,13 @@ describe('AnnotationMatchInspector outcomes', () => {
       },
     })
 
-    const wrapper = mountInspector([
-      rally('late', 1, 2, '2000', 'right', 'left'),
-      rally('orphan-first', 3, 1, '1000'),
-    ])
+    const late = rally('late', 1, 2, '2000', 'right', 'left')
+    const orphanFirst = rally('orphan-first', 3, 1, '1000')
+    late.display_set_number = 1
+    late.display_ordinal = 2
+    orphanFirst.display_set_number = 1
+    orphanFirst.display_ordinal = 1
+    const wrapper = mountInspector([late, orphanFirst])
 
     expect(wrapper.findAll('.segment-main').map(row => row.text())).toEqual([
       expect.stringContaining('回合 1'),

@@ -1,12 +1,10 @@
 import type { PrismaClient } from '@volleyball-monitoring/db'
 import { JobStatus, Prisma, UserRole } from '@volleyball-monitoring/db/client'
-import {
-  deriveRallyDisplayOrdinals,
-  segmentStartCaptureTimeUs,
-} from '../domain/rally-display-order.js'
+import { segmentStartCaptureTimeUs } from '../domain/rally-display-order.js'
 import type { AuthenticatedUser } from '../graphql/context.js'
 import { domainError } from '../graphql/errors.js'
 import type { MediaObjectLocation, MediaObjectRemover } from '../media/media-object-remover.js'
+import { projectCanonicalMatch } from './canonical-match-projection.js'
 
 const EDIT_ROLES = new Set<UserRole>([UserRole.ADMIN, UserRole.OPERATOR, UserRole.ANNOTATOR])
 const ACTIVE_JOB_STATUSES = ['QUEUED', 'RUNNING'] as const
@@ -42,11 +40,10 @@ export interface RallyAdministrationDependencies {
   ) => void
 }
 
-type RallyPlacementReader = Pick<PrismaClient, 'rally'>
+type RallyPlacementReader = Pick<PrismaClient, 'courtSideSwapMarker' | 'matchSet' | 'rally'>
 
 type RallyPlacementRow = {
   id: string
-  displaySetNumber: number
   boundaries: Array<{ captureTimeUs: bigint; kind: string }>
   keyPoints: Array<{ captureTimeUs: bigint; markerKind: string }>
   activeSubmission: null | {
@@ -201,50 +198,97 @@ async function authorizeRally(database: PrismaClient, actor: AuthenticatedUser, 
   return rally
 }
 
+async function getDerivedRallyDisplayPlacement(
+  database: RallyPlacementReader,
+  matchId: string,
+  rallyId: string,
+) {
+  const [sets, rallies, courtSideBoundaries] = await Promise.all([
+    database.matchSet.findMany({
+      where: { matchId },
+      select: {
+        id: true,
+        setNumber: true,
+        status: true,
+        winningTeamId: true,
+        winningRallyId: true,
+      },
+    }),
+    database.rally.findMany({
+      where: { matchId, voidedAt: null },
+      select: {
+        id: true,
+        ordinal: true,
+        createdAt: true,
+        set: { select: { setNumber: true } },
+        boundaries: {
+          where: { kind: 'START' },
+          orderBy: [{ captureTimeUs: 'asc' }, { id: 'asc' }],
+          take: 1,
+          select: { captureTimeUs: true, kind: true },
+        },
+        keyPoints: {
+          where: { deletedAt: null },
+          orderBy: [{ captureTimeUs: 'asc' }, { captureFrameIndex: 'asc' }, { id: 'asc' }],
+          select: { captureTimeUs: true, markerKind: true },
+        },
+        activeSubmission: {
+          select: {
+            boundaries: {
+              where: { kind: 'START' },
+              orderBy: [{ captureTimeUs: 'asc' }, { id: 'asc' }],
+              take: 1,
+              select: { captureTimeUs: true, kind: true },
+            },
+            keyPoints: {
+              orderBy: [{ captureTimeUs: 'asc' }, { captureFrameIndex: 'asc' }, { id: 'asc' }],
+              select: { captureTimeUs: true, markerKind: true },
+            },
+          },
+        },
+      },
+    }),
+    database.courtSideSwapMarker.findMany({
+      where: { matchId },
+      select: {
+        id: true,
+        effectiveRallyId: true,
+        leftTeamId: true,
+        rightTeamId: true,
+      },
+    }),
+  ])
+  const projection = projectCanonicalMatch({
+    sets,
+    courtSideBoundaries,
+    segments: (
+      rallies as Array<
+        RallyPlacementRow & {
+          ordinal: number
+          createdAt: Date
+          set: { setNumber: number }
+        }
+      >
+    ).map(rally => ({
+      id: rally.id,
+      rawSetNumber: rally.set.setNumber,
+      rawOrdinal: rally.ordinal,
+      startCaptureTimeUs:
+        segmentStartCaptureTimeUs(rally) ?? segmentStartCaptureTimeUs(rally.activeSubmission ?? {}),
+      createdAt: rally.createdAt,
+      submitted: Boolean(rally.activeSubmission),
+    })),
+  })
+  const segment = projection.segmentById.get(rallyId)
+  return { displayOrdinal: segment?.ordinal ?? 1, displaySetNumber: segment?.setNumber ?? 1 }
+}
+
 export async function getDerivedRallyDisplayOrdinal(
   database: RallyPlacementReader,
   matchId: string,
   rallyId: string,
 ): Promise<number> {
-  const rallies = (await database.rally.findMany({
-    where: { matchId, voidedAt: null },
-    select: {
-      id: true,
-      displaySetNumber: true,
-      boundaries: {
-        where: { kind: 'START' },
-        orderBy: [{ captureTimeUs: 'asc' }, { id: 'asc' }],
-        take: 1,
-        select: { captureTimeUs: true, kind: true },
-      },
-      keyPoints: {
-        where: { deletedAt: null },
-        orderBy: [{ captureTimeUs: 'asc' }, { captureFrameIndex: 'asc' }, { id: 'asc' }],
-        select: { captureTimeUs: true, markerKind: true },
-      },
-      activeSubmission: {
-        select: {
-          boundaries: {
-            where: { kind: 'START' },
-            orderBy: [{ captureTimeUs: 'asc' }, { id: 'asc' }],
-            take: 1,
-            select: { captureTimeUs: true, kind: true },
-          },
-          keyPoints: {
-            orderBy: [{ captureTimeUs: 'asc' }, { captureFrameIndex: 'asc' }, { id: 'asc' }],
-            select: { captureTimeUs: true, markerKind: true },
-          },
-        },
-      },
-    },
-  })) as RallyPlacementRow[]
-  const candidates = rallies.map(rally => ({
-    displaySetNumber: rally.displaySetNumber,
-    id: rally.id,
-    startCaptureTimeUs:
-      segmentStartCaptureTimeUs(rally) ?? segmentStartCaptureTimeUs(rally.activeSubmission ?? {}),
-  }))
-  return deriveRallyDisplayOrdinals(candidates).get(rallyId) ?? 1
+  return (await getDerivedRallyDisplayPlacement(database, matchId, rallyId)).displayOrdinal
 }
 
 export async function updateRallyDisplayPlacement(
@@ -271,12 +315,12 @@ export async function updateRallyDisplayPlacement(
       if (!setExists) domainError('The selected set does not exist', 'BAD_USER_INPUT')
       const updated = await tx.rally.update({
         data: { displaySetNumber: input.setNumber },
-        select: { displaySetNumber: true, id: true, matchId: true },
+        select: { id: true, matchId: true },
         where: { id: rallyId },
       })
+      const placement = await getDerivedRallyDisplayPlacement(tx, authorized.matchId, rallyId)
       return {
-        displayOrdinal: await getDerivedRallyDisplayOrdinal(tx, authorized.matchId, rallyId),
-        displaySetNumber: updated.displaySetNumber,
+        ...placement,
         matchId: updated.matchId,
         rallyId: updated.id,
       }

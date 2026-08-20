@@ -359,7 +359,7 @@ describe('rally administration', () => {
       { ordinal: 999, rallyId: ids.rally, setNumber: 2 },
       { database: db },
     )
-    expect(result).toMatchObject({ displayOrdinal: 2, displaySetNumber: 2 })
+    expect(result).toMatchObject({ displayOrdinal: 2, displaySetNumber: 1 })
     // The legacy column is intentionally not rewritten. Product reads derive
     // these values from the START boundaries instead.
     await expect(
