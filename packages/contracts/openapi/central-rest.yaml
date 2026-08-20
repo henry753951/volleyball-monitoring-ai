@@ -35,6 +35,7 @@ paths:
   /api/v1/media/playback-windows/{windowId}:
     get:
       summary: Get a bounded playback descriptor
+      security: []
       parameters: [{ $ref: '#/components/parameters/WindowId' }]
       responses:
         '200':
@@ -51,6 +52,7 @@ paths:
   /api/v1/media/playback-windows/{windowId}/manifest.m3u8:
     get:
       summary: Serve the bounded HLS manifest
+      security: []
       parameters: [{ $ref: '#/components/parameters/WindowId' }]
       responses:
         '200': { description: HLS playlist, content: { application/vnd.apple.mpegurl: {} } }
@@ -60,7 +62,8 @@ paths:
         '410': { $ref: '#/components/responses/WindowExpired' }
   /api/v1/media/playback-windows/{windowId}/segments/{segmentId}:
     get:
-      summary: Serve an authorized media segment
+      summary: Serve a public immutable media segment
+      security: []
       parameters:
         - { $ref: '#/components/parameters/WindowId' }
         - { name: segmentId, in: path, required: true, schema: { type: string } }
@@ -73,6 +76,7 @@ paths:
   /api/v1/media/playback-windows/{windowId}/media.mp4:
     get:
       summary: Serve bounded progressive media
+      security: []
       parameters: [{ $ref: '#/components/parameters/WindowId' }]
       responses:
         '200': { description: MP4 media, content: { video/mp4: {} } }
