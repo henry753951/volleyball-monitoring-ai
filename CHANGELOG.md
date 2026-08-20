@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.10.1](https://github.com/henry753951/volleyball-monitoring-ai/compare/v1.10.0...v1.10.1) (2026-08-20)
+
+
+### Bug Fixes
+
+* **worker:** report YouTube fallback player client ([40ed5ed](https://github.com/henry753951/volleyball-monitoring-ai/commit/40ed5edc8ac9909d741bac8ad82cd2c4ea68de65))
+* **worker:** report YouTube fallback player client ([a4e6162](https://github.com/henry753951/volleyball-monitoring-ai/commit/a4e6162e62ca5ea83910f832bda30c9b47f645c4))
+
 ## [1.10.0](https://github.com/henry753951/volleyball-monitoring-ai/compare/v1.9.4...v1.10.0) (2026-08-20)
 
 
