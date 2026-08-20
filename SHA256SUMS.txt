@@ -721,7 +721,7 @@ d12f8af41a41fbdfec6a5f650299dc0aeea0f64c50237c8e90d809223e683cbb  ./web/app/serv
 d6959eda603a493d5403f8e934df0568fb89d92da746159f0ddde0fc8fcd956e  ./web/app/services/annotation-workstation/identity-assignment.service.ts
 bea853de8a33534b909c1e3523f34ee4a1dd81d15e2cb1d5f97da69aa1ae9fef  ./web/app/services/annotation-workstation/key-point-editing.service.test.ts
 4f0b0f1dac9324dae633f87d0831facc5b02d2a60a80af62e78d38a99c5d6639  ./web/app/services/annotation-workstation/key-point-editing.service.ts
-e6f272d0c80ffac400de361b8408d6bc0b64e0bdc4dc4601d50a8db8c2eb8709  ./web/app/services/annotation-workstation/ome-live-playback.service.test.ts
+8457c193e0a1f50fc9f54f4532670b20e03bc7c794e2b4493ed88d8e24c5795f  ./web/app/services/annotation-workstation/ome-live-playback.service.test.ts
 ed08a87b6187aa365cf6f2ca32b2eb2125223ceefb8a99779ef712a851e29b7c  ./web/app/services/annotation-workstation/ome-live-playback.service.ts
 59f2b84939543415f6dd025e26118d0a2e01480d4735005b377fbe460303f7a6  ./web/app/services/annotation-workstation/processing-state.service.test.ts
 39495eeec85f5f3114dbb22629439c7235bd38b511b784afe99784533443a342  ./web/app/services/annotation-workstation/processing-state.service.ts
