@@ -298,6 +298,79 @@ describe('coach replay effective contact projection', () => {
     })
   })
 
+  it('projects a manually corrected track as the selected ball-event player', () => {
+    const analysis = {
+      tracks: [
+        {
+          trackId: 7,
+          identityAssignments: [
+            {
+              rosterEntry: {
+                id: 'roster-new',
+                jerseyNumber: '7',
+                displayNameSnapshot: 'New Player',
+                player: null,
+              },
+            },
+          ],
+        },
+      ],
+      contactActorCorrections: [{ keyPointId: 'contact-1', trackId: 7 }],
+      contactTimeCorrections: [],
+      contactAssociationJobs: [],
+      contactEdits: [],
+      contactEvents: [
+        {
+          keyPointId: 'contact-1',
+          sourceKeyPointId: null,
+          anchorOrigin: 'human_anchor',
+          detectionConfidence: null,
+          detectionEvidence: null,
+          sequenceIndex: 0,
+          markerKind: 'CONTACT',
+          isTerminal: false,
+          anchorFrameIndex: 10n,
+          resolvedFrameIndex: 10n,
+          anchorTimeUs: 1_000n,
+          associationState: 'AMBIGUOUS',
+          ballState: 'OBSERVED',
+          ballFrameIndex: 10n,
+          ballFrameX: 100,
+          ballFrameY: 200,
+          qualityFlags: [],
+          actors: [],
+          candidates: [],
+          representativePositions: [],
+        },
+      ],
+    } as unknown as Parameters<typeof projectEffectiveReplayEvents>[0]
+    const semantics = [
+      {
+        submissionKeyPointId: 'contact-1',
+        ordinal: 1,
+        kind: 'SERVE',
+        result: 'SUCCESS',
+        semanticSource: 'HUMAN',
+        actorRosterEntryId: 'roster-old',
+        actorRosterEntry: {
+          id: 'roster-old',
+          jerseyNumber: '1',
+          displayNameSnapshot: 'Old Player',
+          player: null,
+        },
+      },
+    ] as unknown as Parameters<typeof projectEffectiveReplayEvents>[1]
+
+    const [event] = projectEffectiveReplayEvents(analysis, semantics)
+
+    expect(event?.wire.ball_event?.actor).toMatchObject({
+      roster_entry_id: 'roster-new',
+      jersey_number: '7',
+      name: 'New Player',
+      track_id: 7,
+    })
+  })
+
   it('keeps keypoint player ownership ahead of pose association and resolves it through ReID', () => {
     const analysis = {
       tracks: [

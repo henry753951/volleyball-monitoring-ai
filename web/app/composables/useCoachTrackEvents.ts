@@ -95,8 +95,8 @@ export function useCoachTrackEvents(
     )
   })
 
-  async function loadReplay(rallyId: string) {
-    if (replayCache.has(rallyId)) return replayCache.get(rallyId) ?? null
+  async function loadReplay(rallyId: string, options: { force?: boolean } = {}) {
+    if (!options.force && replayCache.has(rallyId)) return replayCache.get(rallyId) ?? null
     if (loadingRallyIds.has(rallyId)) return null
     loadingRallyIds.add(rallyId)
     pending.value = true

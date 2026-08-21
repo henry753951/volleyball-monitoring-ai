@@ -282,13 +282,25 @@ export function projectEffectiveReplayEvents(
 ) {
   const reidTracklets = analysis.reidEvidenceSets?.[0]?.tracklets ?? []
   const rosterEntryTrackIds = new Map<string, number>()
+  const rosterEntryByTrackId = new Map<
+    number,
+    {
+      id: string
+      jerseyNumber: string
+      displayNameSnapshot: string | null
+      player: { name: string } | null
+    }
+  >()
   for (const track of analysis.tracks ?? []) {
     const tracklet = reidTracklets.find(item => item.canonicalTrackId === track.trackId)
-    const rosterEntryId =
-      tracklet?.activeProjection?.assignmentRevision?.rosterEntry?.id ??
-      track.identityAssignments[0]?.rosterEntry?.id ??
+    const rosterEntry =
+      tracklet?.activeProjection?.assignmentRevision?.rosterEntry ??
+      track.identityAssignments[0]?.rosterEntry ??
       null
-    if (rosterEntryId) rosterEntryTrackIds.set(rosterEntryId, track.trackId)
+    if (rosterEntry) {
+      rosterEntryTrackIds.set(rosterEntry.id, track.trackId)
+      rosterEntryByTrackId.set(track.trackId, rosterEntry)
+    }
   }
   const timeByPoint = new Map(
     analysis.contactTimeCorrections.map(correction => [
@@ -329,6 +341,10 @@ export function projectEffectiveReplayEvents(
       const effectiveFrame = submissionFrame ?? resolveEffectiveContactFrame(event, timeByPoint)
       const correctedTrackId = actorByPoint.get(event.keyPointId)
       const hasActorCorrection = actorByPoint.has(event.keyPointId)
+      const correctedRosterEntry =
+        correctedTrackId === null || correctedTrackId === undefined
+          ? null
+          : rosterEntryByTrackId.get(correctedTrackId)
       const associationJob =
         (semantic ? latestAssociationByPoint.get(semantic.submissionKeyPointId) : undefined) ??
         latestAssociationByPoint.get(event.keyPointId)
@@ -341,6 +357,11 @@ export function projectEffectiveReplayEvents(
       // replay. Never replace it with a pose/bbox association merely because
       // that association has a higher confidence or was created later.
       const hasExplicitKeypointOwner = hasActorCorrection || Boolean(semantic?.actorRosterEntryId)
+      const effectiveActorRosterEntry = hasActorCorrection
+        ? correctedTrackId === null || correctedTrackId === undefined
+          ? null
+          : (correctedRosterEntry ?? semantic?.actorRosterEntry ?? null)
+        : (semantic?.actorRosterEntry ?? null)
       const effectiveTrackId = hasActorCorrection
         ? correctedTrackId
         : semantic?.actorRosterEntryId
@@ -425,14 +446,14 @@ export function projectEffectiveReplayEvents(
                 result: semantic.result?.toLowerCase() ?? null,
                 serve_style: semantic.serveStyle?.toLowerCase() ?? null,
                 semantic_source: semantic.semanticSource.toLowerCase(),
-                actor: semantic.actorRosterEntry
+                actor: effectiveActorRosterEntry
                   ? {
-                      roster_entry_id: semantic.actorRosterEntry.id,
-                      jersey_number: semantic.actorRosterEntry.jerseyNumber,
+                      roster_entry_id: effectiveActorRosterEntry.id,
+                      jersey_number: effectiveActorRosterEntry.jerseyNumber,
                       name:
-                        semantic.actorRosterEntry.displayNameSnapshot ??
-                        semantic.actorRosterEntry.player?.name ??
-                        `#${semantic.actorRosterEntry.jerseyNumber}`,
+                        effectiveActorRosterEntry.displayNameSnapshot ??
+                        effectiveActorRosterEntry.player?.name ??
+                        `#${effectiveActorRosterEntry.jerseyNumber}`,
                       track_id: effectiveTrackId,
                     }
                   : null,
