@@ -221,6 +221,17 @@ const selectedSubjectTeamId = computed(() => {
   if (viewMode.value === 'teams') return selectedTeam.value?.id ?? null
   return selectedMappedPlayer.value?.team_id ?? null
 })
+const routeMapSubjectSide = computed<'left' | 'right' | null>(() => {
+  const activeEvent = focusedActionEvent.value ?? selectedActionEvent.value
+  if (activeEvent?.courtSide) return activeEvent.courtSide
+
+  const selectedSides = new Set(
+    selectedTracks.value
+      .map(track => (typeof track.court_side === 'string' ? track.court_side.toLowerCase() : null))
+      .filter((side): side is 'left' | 'right' => side === 'left' || side === 'right'),
+  )
+  return selectedSides.size === 1 ? [...selectedSides][0]! : null
+})
 const selectedOverviewTeamId = computed(() =>
   viewMode.value === 'players'
     ? selectedPlayerTeam.value?.id
@@ -240,11 +251,63 @@ const routeMapSideLabels = computed<{
     eventState.replays.get(focusEvent?.rallyId ?? '') ??
     eventState.replays.get(fallbackEvent?.rallyId ?? '') ??
     null
+  const teamById = new Map((analytics.value?.teams ?? []).map(team => [team.id, team]))
+  const teamIdBySide = new Map<'left' | 'right', string>()
+
+  // Canonical action events carry the authoritative team-to-side projection.
+  // Use it immediately so the map is labelled before an optional replay query
+  // resolves, then let the replay below replace it with the exact rally view.
+  const canonicalEvents = [...(analytics.value?.action_events ?? [])]
+    .filter(
+      event => selectedSetNumber.value === null || event.set_number === selectedSetNumber.value,
+    )
+    .sort((left, right) => {
+      const leftAnchor = /^\d+$/.test(left.anchor_time_us) ? BigInt(left.anchor_time_us) : null
+      const rightAnchor = /^\d+$/.test(right.anchor_time_us) ? BigInt(right.anchor_time_us) : null
+      if (leftAnchor !== null && rightAnchor !== null) {
+        if (leftAnchor !== rightAnchor) return leftAnchor > rightAnchor ? -1 : 1
+      } else if (leftAnchor !== null) return -1
+      else if (rightAnchor !== null) return 1
+      return right.rally_ordinal - left.rally_ordinal
+    })
+  for (const event of canonicalEvents) {
+    const side =
+      event.court_side === 'left' || event.court_side === 'right' ? event.court_side : null
+    if (side && event.team_id && !teamIdBySide.has(side)) teamIdBySide.set(side, event.team_id)
+  }
+
+  for (const track of selectedTracks.value) {
+    const side = typeof track.court_side === 'string' ? track.court_side.toLowerCase() : null
+    if ((side === 'left' || side === 'right') && track.team_id && !teamIdBySide.has(side))
+      teamIdBySide.set(side, track.team_id)
+  }
+
+  if (focusEvent) {
+    const canonical = canonicalEvents.find(event => event.id === focusEvent.id)
+    const side = focusEvent.courtSide
+    if (side && canonical?.team_id) teamIdBySide.set(side, canonical.team_id)
+  }
+
+  if (replay) {
+    teamIdBySide.set('left', replay.rally.left_team.id)
+    teamIdBySide.set('right', replay.rally.right_team.id)
+  }
+
+  // Most analytics rows identify the actor's side only. If that gives us one
+  // team, the other side is unambiguous for a two-team match.
+  if (teamIdBySide.size === 1 && teamById.size === 2) {
+    const knownTeamId = [...teamIdBySide.values()][0]
+    const otherTeam = [...teamById.values()].find(team => team.id !== knownTeamId)
+    const missingSide = teamIdBySide.has('left') ? 'right' : 'left'
+    if (otherTeam) teamIdBySide.set(missingSide, otherTeam.id)
+  }
 
   function labelForSide(side: 'left' | 'right'): CoachRouteMapSideLabel {
-    const team = side === 'left' ? replay?.rally.left_team : replay?.rally.right_team
+    const replayTeam = side === 'left' ? replay?.rally.left_team : replay?.rally.right_team
+    const team = replayTeam ?? teamById.get(teamIdBySide.get(side) ?? '')
     return {
-      teamShortName: team?.shortName || team?.name || '—',
+      teamShortName: team?.shortName || team?.name || (side === 'left' ? '左側' : '右側'),
+      teamName: team?.name,
       tone: teamTone(team?.id),
     }
   }
@@ -944,6 +1007,8 @@ function teamActionCounts(teamId: string) {
                 :events="filteredEvents"
                 :label="selectedRouteMapLabel"
                 :side-labels="routeMapSideLabels"
+                :subject-label="highlightSubjectLabel"
+                :subject-side="routeMapSubjectSide"
                 :selected-event-id="activeActionEventId"
                 @select="openActionReplay"
                 @focus="focusActionEvent"

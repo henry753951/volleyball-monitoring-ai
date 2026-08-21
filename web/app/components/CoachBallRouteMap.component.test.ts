@@ -28,6 +28,8 @@ describe('CoachBallRouteMap', () => {
     const wrapper = mount(CoachBallRouteMap, { props: { events, label: '殺球' } })
 
     expect(wrapper.findAll('.route-line')).toHaveLength(1)
+    expect(wrapper.findAll('.route-marker')).toHaveLength(1)
+    expect(wrapper.findAll('.route-marker-label')).toHaveLength(0)
     expect(wrapper.findAll('.route-path-base')).toHaveLength(0)
     expect(wrapper.find('.route-path-flow').attributes('marker-end')).toMatch(
       /^url\(#.+-route-arrow\)$/,
@@ -35,6 +37,14 @@ describe('CoachBallRouteMap', () => {
     expect(Number(wrapper.find('.route-start').attributes('cx'))).toBeCloseTo(-10.8)
     expect(Number(wrapper.find('.route-end').attributes('cx'))).toBeCloseTo(187.2)
     expect(wrapper.text()).toContain('1 條完整球路 · 1 個落點')
+  })
+
+  it('keeps readable side fallbacks while rally metadata is still loading', () => {
+    const wrapper = mount(CoachBallRouteMap, { props: { events, label: '殺球' } })
+
+    expect(wrapper.text()).toContain('左側')
+    expect(wrapper.text()).toContain('右側')
+    expect(wrapper.text()).not.toContain('—')
   })
 
   it('labels only the canonical teams assigned to each court side', () => {
