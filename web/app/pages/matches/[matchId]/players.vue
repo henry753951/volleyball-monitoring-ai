@@ -334,6 +334,19 @@ const filteredEvents = computed(() =>
     ? eventState.events.value
     : eventState.events.value.filter(event => event.actionKey === selectedActionKey.value),
 )
+const selectedActionOutcome = computed(() => {
+  const wins = filteredEvents.value.filter(event => event.outcome === 'won').length
+  const losses = filteredEvents.value.filter(event => event.outcome === 'lost').length
+  const unknown = filteredEvents.value.length - wins - losses
+  const resolved = wins + losses
+  return {
+    wins,
+    losses,
+    unknown,
+    resolved,
+    rate: resolved ? wins / resolved : null,
+  }
+})
 const activeActionEventId = computed(
   () => focusedActionEvent.value?.id ?? selectedActionEvent.value?.id ?? null,
 )
@@ -965,18 +978,28 @@ function teamActionCounts(teamId: string) {
             <div class="action-overview">
               <aside class="action-rate" aria-label="球路資料摘要">
                 <div class="action-rate__primary">
-                  <span>球路座標覆蓋</span>
+                  <span>成功率</span>
                   <strong>{{
-                    selectedRouteSummary.coverage === null
+                    selectedActionOutcome.rate === null
                       ? '—'
-                      : `${(selectedRouteSummary.coverage * 100).toFixed(1)}%`
+                      : `${(selectedActionOutcome.rate * 100).toFixed(1)}%`
                   }}</strong>
                   <p>
-                    {{ selectedRouteSummary.completePathCount }} /
-                    {{ selectedRouteSummary.eligiblePathCount }} 條相鄰球路具完整座標
+                    {{ selectedActionOutcome.wins }} 勝 · {{ selectedActionOutcome.losses }} 負 ·
+                    {{ selectedActionOutcome.unknown }} 未判定
                   </p>
                 </div>
                 <dl>
+                  <div>
+                    <dt>座標覆蓋</dt>
+                    <dd>
+                      {{
+                        selectedRouteSummary.coverage === null
+                          ? '—'
+                          : `${(selectedRouteSummary.coverage * 100).toFixed(1)}%`
+                      }}
+                    </dd>
+                  </div>
                   <div>
                     <dt>球種事件</dt>
                     <dd>{{ filteredEvents.length }}</dd>
@@ -1930,7 +1953,7 @@ function teamActionCounts(teamId: string) {
 }
 .action-rate dl {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 20px;
   margin: 0;
   padding: 0 22px;
@@ -1952,6 +1975,10 @@ function teamActionCounts(teamId: string) {
   font-size: 1.2rem;
   font-weight: 760;
   font-variant-numeric: tabular-nums;
+}
+.action-rate dl > div:first-child dd {
+  color: #0b67c2;
+  font-size: 1.3rem;
 }
 .action-rate > :deep(.highlight-export) {
   width: 100%;
@@ -2113,6 +2140,10 @@ function teamActionCounts(teamId: string) {
     grid-template-columns: minmax(165px, 0.8fr) auto;
     gap: 14px;
   }
+  .action-rate dl {
+    gap: 12px;
+    padding-inline: 12px;
+  }
   .action-rate > :deep(.highlight-export) {
     grid-column: 1 / -1;
     max-width: none;
@@ -2191,6 +2222,11 @@ function teamActionCounts(teamId: string) {
   .action-toolbar {
     align-items: flex-start;
     flex-direction: column;
+  }
+  .action-rate dl {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 12px;
+    padding-inline: 0;
   }
   .action-filters {
     justify-content: flex-start;

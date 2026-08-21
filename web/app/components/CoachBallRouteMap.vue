@@ -113,6 +113,21 @@ function isActive(eventId: string) {
 function isHeatSpotActive(eventIds: string[]) {
   return !activeEventId.value || eventIds.includes(activeEventId.value)
 }
+
+function outcomeLabel(event: CoachPlayerActionEvent) {
+  return event.outcome === 'won' ? '成功' : event.outcome === 'lost' ? '失敗' : '未判定'
+}
+
+function outcomeMarkPath(event: CoachPlayerActionEvent) {
+  if (!event.routeEnd) return ''
+  const x = courtX(event.routeEnd.x)
+  const y = courtY(event.routeEnd.y)
+  if (event.outcome === 'lost')
+    return `M ${x - 1.35} ${y - 1.35} L ${x + 1.35} ${y + 1.35} M ${x + 1.35} ${y - 1.35} L ${x - 1.35} ${y + 1.35}`
+  if (event.outcome === 'won')
+    return `M ${x - 1.6} ${y} L ${x - 0.45} ${y + 1.2} L ${x + 1.8} ${y - 1.45}`
+  return ''
+}
 </script>
 
 <template>
@@ -227,6 +242,7 @@ function isHeatSpotActive(eventIds: string[]) {
               :key="event.id"
               :class="[
                 'route-line',
+                `route-outcome-${event.outcome}`,
                 {
                   selected: isActive(event.id),
                   faded: !isActive(event.id),
@@ -250,7 +266,7 @@ function isHeatSpotActive(eventIds: string[]) {
                 :d="routeCurve(event, index)"
                 role="button"
                 tabindex="0"
-                :aria-label="`總回合 ${event.rallyOrdinal} ${event.actionLabel}，開啟短回放`"
+                :aria-label="`總回合 ${event.rallyOrdinal} ${event.actionLabel}，${outcomeLabel(event)}，開啟短回放`"
                 @click="openEvent(event)"
                 @focus="setHoveredEvent(event)"
                 @blur="setHoveredEvent(null)"
@@ -264,6 +280,7 @@ function isHeatSpotActive(eventIds: string[]) {
               :key="`markers:${event.id}`"
               :class="[
                 'route-marker',
+                `route-outcome-${event.outcome}`,
                 {
                   selected: isActive(event.id),
                   faded: !isActive(event.id),
@@ -313,6 +330,18 @@ function isHeatSpotActive(eventIds: string[]) {
                 >
                   落
                 </text>
+                <path
+                  v-if="event.outcome === 'won' || event.outcome === 'lost'"
+                  class="route-outcome-glyph"
+                  :d="outcomeMarkPath(event)"
+                />
+                <circle
+                  v-else
+                  class="route-outcome-dot"
+                  :cx="courtX(event.routeEnd.x)"
+                  :cy="courtY(event.routeEnd.y)"
+                  r="0.8"
+                />
               </g>
             </g>
           </g>
@@ -339,7 +368,7 @@ function isHeatSpotActive(eventIds: string[]) {
               ]"
               role="button"
               tabindex="0"
-              :aria-label="`總回合 ${event.rallyOrdinal} ${event.actionLabel}落點，開啟短回放`"
+              :aria-label="`總回合 ${event.rallyOrdinal} ${event.actionLabel}落點，${outcomeLabel(event)}，開啟短回放`"
               :style="{ '--route-color': actionColor(event.actionKey) }"
               :cx="courtX(event.routeEnd!.x)"
               :cy="courtY(event.routeEnd!.y)"
@@ -373,6 +402,9 @@ function isHeatSpotActive(eventIds: string[]) {
     <footer class="route-map__legend">
       <span><i class="legend-start" />起點</span>
       <span><i class="legend-end" />終點／落點</span>
+      <span><i class="legend-status legend-status--won">✓</i>成功</span>
+      <span><i class="legend-status legend-status--lost">×</i>失敗</span>
+      <span><i class="legend-status legend-status--unknown">·</i>未判定</span>
       <span>虛線由起點前往箭頭；箭頭方向就是球路方向。</span>
     </footer>
   </article>
@@ -587,13 +619,34 @@ function isHeatSpotActive(eventIds: string[]) {
 }
 .route-end-ring {
   fill: #0d151c;
-  stroke: #ff7b72;
+  stroke: var(--outcome-color, #ffb454);
   stroke-width: 1.45;
 }
 .route-end {
-  fill: #ff7b72;
+  fill: var(--outcome-color, #ffb454);
   stroke: #fff;
   stroke-width: 0.5;
+}
+.route-outcome-won {
+  --outcome-color: #42d98a;
+}
+.route-outcome-lost {
+  --outcome-color: #ff6f70;
+}
+.route-outcome-unknown {
+  --outcome-color: #ffb454;
+}
+.route-outcome-glyph {
+  fill: none;
+  stroke: #fff;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 0.9;
+  vector-effect: non-scaling-stroke;
+}
+.route-outcome-dot {
+  fill: #fff;
+  opacity: 0.92;
 }
 .route-marker-label {
   fill: #f7fafc;
@@ -733,6 +786,29 @@ function isHeatSpotActive(eventIds: string[]) {
   height: 8px;
   display: inline-block;
   border-radius: 50%;
+}
+.route-map__legend .legend-status {
+  width: 14px;
+  height: 14px;
+  display: inline-grid;
+  place-items: center;
+  border-radius: 50%;
+  font-size: 0.7rem;
+  font-style: normal;
+  font-weight: 800;
+  line-height: 1;
+}
+.legend-status--won {
+  background: #d9f8e7;
+  color: #168554;
+}
+.legend-status--lost {
+  background: #ffe1e1;
+  color: #c63f47;
+}
+.legend-status--unknown {
+  background: #fff0d5;
+  color: #a46716;
 }
 .legend-start {
   border: 2px solid #69b7ff;

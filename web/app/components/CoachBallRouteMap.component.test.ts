@@ -67,6 +67,17 @@ describe('CoachBallRouteMap', () => {
     expect(wrapper.text()).not.toContain('[隊伍方]')
   })
 
+  it('marks a failed route at its landing point', () => {
+    const failedEvent = { ...events[0]!, outcome: 'lost' as const }
+    const wrapper = mount(CoachBallRouteMap, {
+      props: { events: [failedEvent], label: '殺球' },
+    })
+
+    expect(wrapper.find('.route-outcome-lost').exists()).toBe(true)
+    expect(wrapper.find('.route-outcome-glyph').attributes('d')).toContain('L')
+    expect(wrapper.get('.route-hit-target').attributes('aria-label')).toContain('失敗')
+  })
+
   it('opens the short replay from the route without navigating away', async () => {
     const wrapper = mount(CoachBallRouteMap, { props: { events, label: '殺球' } })
 
