@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.12.1](https://github.com/henry753951/volleyball-monitoring-ai/compare/v1.12.0...v1.12.1) (2026-08-21)
+
+
+### Bug Fixes
+
+* **coach:** restore route markers and team labels ([e4974fd](https://github.com/henry753951/volleyball-monitoring-ai/commit/e4974fd7951102f0611f4dc1d095063538dcdb13))
+* **coach:** restore route markers and team labels ([1f9e11c](https://github.com/henry753951/volleyball-monitoring-ai/commit/1f9e11c5c37c885becf8437f7754a911a9bd477a))
+* **coach:** restore success rate and route outcomes ([f6f4f15](https://github.com/henry753951/volleyball-monitoring-ai/commit/f6f4f15789f997207262d6dd9913edd7996cf7ca))
+
+
+### Maintenance
+
+* refresh checksums ([bed9978](https://github.com/henry753951/volleyball-monitoring-ai/commit/bed9978a068dd8e66b9cb3240231a875600f0ad1))
+
 ## [1.12.0](https://github.com/henry753951/volleyball-monitoring-ai/compare/v1.11.1...v1.12.0) (2026-08-20)
 
 
