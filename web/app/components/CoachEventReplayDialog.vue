@@ -1,7 +1,19 @@
 <script setup lang="ts">
-import { ArrowUpRight, ChevronLeft, ChevronRight, Pause, Play, RotateCcw } from 'lucide-vue-next'
+import {
+  ArrowUpRight,
+  Check,
+  ChevronLeft,
+  ChevronRight,
+  ChevronDown,
+  Pause,
+  Play,
+  RotateCcw,
+  UserRoundCheck,
+} from 'lucide-vue-next'
+import type { DeepReadonly } from 'vue'
 import type { CoachRouteMapSideLabel } from '~/components/CoachBallRouteMap.vue'
 import type { CoachRallyReplay } from '~/lib/coachDomain'
+import type { RosterPosition } from '~/lib/coreDomain'
 import {
   actionColor,
   formatActionTime,
@@ -10,18 +22,36 @@ import {
 import { coachEventReplayMediaUrl, coachEventReplayWindow } from '~/utils/coachEventReplay'
 import { requestMediaPause, requestMediaPlay } from '~/utils/mediaPlaybackIntent'
 
-type ReplayClip = NonNullable<CoachRallyReplay['clip']>
+export type CoachReplayActorOption = {
+  id: string
+  label: string
+  teamId: string
+  teamLabel: string
+  jerseyNumber: string
+  playerName: string
+  position: RosterPosition
+  disabled?: boolean
+  disabledReason?: string
+}
 
 const props = defineProps<{
   matchId: string
   open: boolean
   event: CoachPlayerActionEvent | null
   events?: CoachPlayerActionEvent[]
-  replay: { readonly clip: Readonly<ReplayClip> | null } | null
+  replay: DeepReadonly<CoachRallyReplay> | null
   sideLabels?: { left: CoachRouteMapSideLabel; right: CoachRouteMapSideLabel }
   loading?: boolean
+  actorOptions?: ReadonlyArray<CoachReplayActorOption>
+  selectedActorId?: string | null
+  actorCorrectionPending?: boolean
+  actorCorrectionError?: string | null
 }>()
-const emit = defineEmits<{ close: []; select: [event: CoachPlayerActionEvent] }>()
+const emit = defineEmits<{
+  close: []
+  select: [event: CoachPlayerActionEvent]
+  'correct-actor': [actorRosterEntryId: string | null]
+}>()
 
 const video = useTemplateRef<HTMLVideoElement>('video')
 const playing = ref(false)
@@ -42,8 +72,24 @@ const canSelectNext = computed(
 )
 
 const clip = computed(() => props.replay?.clip ?? null)
+const clipEventTimeUs = computed(() => {
+  const event = props.event
+  const replay = props.replay
+  if (!event || !replay) return '0'
+  const contact = replay.analysis?.contact_events.find(
+    candidate => candidate.anchor_time_us === event.anchorTimeUs,
+  )
+  const sourceIds = new Set(
+    [contact?.key_point_id, contact?.source_key_point_id].filter((id): id is string => Boolean(id)),
+  )
+  return (
+    replay.submission.key_points.find(
+      keyPoint => sourceIds.has(keyPoint.id) && keyPoint.clip_time_us !== null,
+    )?.clip_time_us ?? event.anchorTimeUs
+  )
+})
 const replayWindow = computed(() =>
-  coachEventReplayWindow(props.event?.anchorTimeUs ?? '0', clip.value?.duration_us),
+  coachEventReplayWindow(clipEventTimeUs.value, clip.value?.duration_us),
 )
 const eventSeconds = computed(() => replayWindow.value.eventSeconds)
 const windowStart = computed(() => replayWindow.value.startSeconds)
@@ -67,7 +113,7 @@ const dialogTitle = computed(() =>
 const dialogDescription = computed(() => {
   const event = props.event
   if (!event) return ''
-  return `第 ${event.setNumber} 局 · 回合 ${event.rallyOrdinal} · ID ${event.trackId} · ${formatActionTime(event.anchorTimeUs)}`
+  return `第 ${event.setNumber} 局 · 回合 ${event.rallyOrdinal}`
 })
 const rallyReplayUrl = computed(() => {
   const event = props.event
@@ -163,9 +209,65 @@ function selectRelative(offset: -1 | 1) {
   if (target) emit('select', target)
 }
 
+const actorTeamId = ref('')
+const actorOpen = ref(false)
+const actorTeamTabs = computed(() => {
+  const seen = new Set<string>()
+  return (props.actorOptions ?? []).reduce<Array<{ value: string; label: string; count: number }>>(
+    (tabs, option) => {
+      if (seen.has(option.teamId)) return tabs
+      seen.add(option.teamId)
+      tabs.push({
+        value: option.teamId,
+        label: option.teamLabel,
+        count: (props.actorOptions ?? []).filter(candidate => candidate.teamId === option.teamId)
+          .length,
+      })
+      return tabs
+    },
+    [],
+  )
+})
+const visibleActorOptions = computed(() => {
+  const options = actorTeamId.value
+    ? (props.actorOptions ?? []).filter(option => option.teamId === actorTeamId.value)
+    : [...(props.actorOptions ?? [])]
+  return [...options].sort(
+    (left, right) =>
+      Number.parseInt(left.jerseyNumber, 10) - Number.parseInt(right.jerseyNumber, 10) ||
+      left.playerName.localeCompare(right.playerName, undefined, { sensitivity: 'base' }),
+  )
+})
+watch(
+  actorTeamTabs,
+  tabs => {
+    if (!tabs.some(tab => tab.value === actorTeamId.value)) actorTeamId.value = tabs[0]?.value ?? ''
+  },
+  { immediate: true },
+)
+
+function setActorOpen(open: boolean) {
+  actorOpen.value = open
+  if (!open) return
+  actorTeamId.value =
+    (props.actorOptions ?? []).find(option => option.id === props.selectedActorId)?.teamId ??
+    actorTeamTabs.value[0]?.value ??
+    ''
+}
+
+function positionLabel(position: RosterPosition) {
+  return position === 'UNSPECIFIED' ? '—' : position
+}
+
+function selectActor(actorRosterEntryId: string | null) {
+  emit('correct-actor', actorRosterEntryId)
+  actorOpen.value = false
+}
+
 watch(
   () => [props.open, props.event?.id, mediaUrl.value] as const,
   async ([open]) => {
+    actorOpen.value = false
     if (!open) return
     mediaFailed.value = false
     await nextTick()
@@ -229,7 +331,82 @@ watch(
           <section class="event-replay__balls" aria-label="本回合球種時間軸">
             <header>
               <span><strong>本回合球種</strong><small>依擊球時間排序</small></span>
-              <b>{{ activeEventIndex + 1 }} / {{ rallyEvents.length }}</b>
+              <div class="event-replay__balls-meta">
+                <b>{{ activeEventIndex + 1 }} / {{ rallyEvents.length }}</b>
+                <UiPopover
+                  :open="actorOpen"
+                  side="bottom"
+                  align="end"
+                  content-class="coach-replay-actor-popover"
+                  aria-label="修改擊球球員"
+                  @update:open="setActorOpen"
+                >
+                  <template #trigger>
+                    <UiButton
+                      variant="secondary"
+                      class="event-replay__actor-trigger"
+                      :disabled="actorCorrectionPending"
+                      :title="actorCorrectionError ?? '修改這球的球員歸屬'"
+                    >
+                      <UserRoundCheck :size="14" />
+                      <span>球員錯誤?</span>
+                      <ChevronDown :size="12" />
+                    </UiButton>
+                  </template>
+                  <div class="event-replay__actor-options">
+                    <strong>擊球球員</strong>
+                    <button
+                      type="button"
+                      class="event-replay__actor-clear"
+                      :aria-pressed="selectedActorId === null"
+                      :disabled="actorCorrectionPending"
+                      @click="selectActor(null)"
+                    >
+                      <span>未指定／使用 Pose 關聯</span>
+                      <Check v-if="selectedActorId === null" :size="14" />
+                    </button>
+                    <UiTabs
+                      v-if="actorTeamTabs.length"
+                      v-model="actorTeamId"
+                      class="event-replay__actor-tabs"
+                      :options="actorTeamTabs"
+                      aria-label="選擇球隊"
+                    />
+                    <UiScrollArea class="event-replay__actor-scroll">
+                      <div class="event-replay__actor-list">
+                        <button
+                          v-for="option in visibleActorOptions"
+                          :key="option.id"
+                          type="button"
+                          class="event-replay__actor-option"
+                          :class="{ unavailable: option.disabled }"
+                          :aria-pressed="selectedActorId === option.id"
+                          :disabled="option.disabled || actorCorrectionPending"
+                          :title="option.disabledReason"
+                          @click="selectActor(option.id)"
+                        >
+                          <span>
+                            <b>#{{ option.jerseyNumber }}</b>
+                            <strong>{{ option.playerName }}</strong>
+                            <small>{{ positionLabel(option.position) }}</small>
+                          </span>
+                          <Check v-if="selectedActorId === option.id" :size="14" />
+                        </button>
+                        <span v-if="!visibleActorOptions.length" class="event-replay__actor-empty"
+                          >目前沒有可選球員</span
+                        >
+                      </div>
+                    </UiScrollArea>
+                    <small
+                      v-if="actorCorrectionError"
+                      class="event-replay__actor-error"
+                      role="alert"
+                    >
+                      {{ actorCorrectionError }}
+                    </small>
+                  </div>
+                </UiPopover>
+              </div>
             </header>
             <div class="event-replay__ball-nav">
               <button
@@ -382,6 +559,11 @@ watch(
   justify-content: space-between;
   gap: 10px;
 }
+.event-replay__balls-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
 .event-replay__balls > header > span {
   display: grid;
   gap: 2px;
@@ -398,6 +580,28 @@ watch(
   color: #9dccff;
   font-size: 0.6rem;
   font-variant-numeric: tabular-nums;
+}
+.event-replay__actor-trigger {
+  min-height: 36px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding-inline: 9px;
+  border: 1px solid #385268;
+  border-radius: 8px;
+  background: #182a38;
+  color: #c5e3fa;
+  font-size: 0.59rem;
+  font-weight: 760;
+}
+.event-replay__actor-trigger:hover:not(:disabled) {
+  border-color: #6eafe0;
+  background: #203d52;
+  color: #fff;
+}
+.event-replay__actor-trigger:disabled {
+  cursor: wait;
+  opacity: 0.52;
 }
 .event-replay__ball-nav {
   display: grid;
@@ -486,6 +690,109 @@ watch(
 .event-replay__ball-list button:focus-visible {
   outline: 2px solid #72b7ff;
   outline-offset: 2px;
+}
+:global(.coach-replay-actor-popover) {
+  width: min(320px, calc(100vw - 32px));
+  display: grid;
+  gap: 7px;
+  padding: 10px;
+}
+:global(.event-replay__actor-options > strong) {
+  padding-bottom: 2px;
+  color: #f5f8fa;
+  font-size: 0.72rem;
+}
+:global(.event-replay__actor-clear),
+:global(.event-replay__actor-option) {
+  width: 100%;
+  min-height: 42px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 7px 9px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: #d8e0e6;
+  font-size: 0.63rem;
+  text-align: left;
+}
+:global(.event-replay__actor-clear) {
+  border-color: #35434e;
+  background: #202b34;
+}
+:global(.event-replay__actor-clear:hover),
+:global(.event-replay__actor-option:hover:not(:disabled)),
+:global(.event-replay__actor-option[aria-pressed='true']) {
+  border-color: #4d7089;
+  background: #223846;
+  color: #fff;
+}
+:global(.event-replay__actor-option:disabled) {
+  cursor: not-allowed;
+  opacity: 0.42;
+}
+:global(.event-replay__actor-option > span) {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  overflow: hidden;
+}
+:global(.event-replay__actor-option b) {
+  flex: none;
+  color: #a8d2ef;
+  font-variant-numeric: tabular-nums;
+}
+:global(.event-replay__actor-option strong) {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+:global(.event-replay__actor-option small) {
+  flex: none;
+  padding: 2px 5px;
+  border: 1px solid #3c5868;
+  border-radius: 4px;
+  color: #afd2e6;
+  font-size: 0.5rem;
+  font-weight: 800;
+}
+:global(.event-replay__actor-tabs) {
+  width: 100%;
+  overflow-x: auto;
+}
+:global(.event-replay__actor-tabs .ui-tabs__list) {
+  width: 100%;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  background: #151d24;
+}
+:global(.event-replay__actor-tabs .ui-tabs__trigger) {
+  min-height: 36px;
+  justify-content: center;
+  padding-inline: 7px;
+}
+:global(.event-replay__actor-scroll) {
+  height: min(320px, 46vh);
+  min-height: 0;
+}
+:global(.event-replay__actor-list) {
+  display: grid;
+  gap: 3px;
+  padding-right: 3px;
+}
+:global(.event-replay__actor-empty) {
+  padding: 18px 8px;
+  color: #8f9aa4;
+  font-size: 0.64rem;
+  text-align: center;
+}
+:global(.event-replay__actor-error) {
+  color: #ff9b9b;
+  font-size: 0.59rem;
+  line-height: 1.45;
 }
 .event-replay__rally-link {
   min-height: 48px;

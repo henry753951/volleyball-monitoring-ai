@@ -14,6 +14,7 @@ export interface CoachRouteMapSideLabel {
   teamShortName: string
   teamName?: string
   tone?: TeamTone
+  subjectRole?: 'player' | 'team'
 }
 
 type CoachRouteMapSideLabels = {
@@ -214,6 +215,9 @@ function outcomeMarkPath(event: CoachPlayerActionEvent) {
               ]"
             >
               {{ sideLabels.left.teamShortName }}
+              <tspan v-if="sideLabels.left.subjectRole" class="court-side-role">
+                [{{ sideLabels.left.subjectRole === 'player' ? '選手側' : '隊伍側' }}]
+              </tspan>
             </text>
             <text
               x="179"
@@ -226,6 +230,9 @@ function outcomeMarkPath(event: CoachPlayerActionEvent) {
               ]"
             >
               {{ sideLabels.right.teamShortName }}
+              <tspan v-if="sideLabels.right.subjectRole" class="court-side-role">
+                [{{ sideLabels.right.subjectRole === 'player' ? '選手側' : '隊伍側' }}]
+              </tspan>
             </text>
           </g>
           <rect class="court-apron" x="-12" y="-8" width="204" height="106" rx="8" />
@@ -585,6 +592,12 @@ function outcomeMarkPath(event: CoachPlayerActionEvent) {
 }
 .court-side-name.team-tone-red {
   fill: #ff7180;
+}
+.court-side-role {
+  fill: #dbe9f1;
+  font-size: 3.6px;
+  font-weight: 680;
+  letter-spacing: 0.1px;
 }
 .route-line,
 .landing-point {

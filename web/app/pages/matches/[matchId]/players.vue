@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { BarChart3, ChevronLeft, ChevronRight, CircleAlert, UserRoundSearch } from 'lucide-vue-next'
 import { rosterPositionLabel } from '~/lib/rosterPositions'
+import type { RosterPosition } from '~/lib/coreDomain'
 import {
   actionColor,
   actionDisplayLabel,
@@ -33,6 +34,9 @@ const selectedSetNumber = ref<number | null>(null)
 const selectedActionKey = ref('all')
 const selectedActionEvent = shallowRef<CoachPlayerActionEvent | null>(null)
 const focusedActionEvent = shallowRef<CoachPlayerActionEvent | null>(null)
+const actionActorOverrides = shallowRef(new Map<string, string | null>())
+const actorCorrectionPending = ref(false)
+const actorCorrectionError = ref<string | null>(null)
 const detailScrollArea = ref<{ $el?: HTMLElement } | null>(null)
 const detailOverviewSentinel = ref<HTMLElement | null>(null)
 const detailOverviewStuck = ref(false)
@@ -201,6 +205,11 @@ const eventState = useCoachTrackEvents(
   selectedEventRosterEntryIds,
   selectedEventTeamIds,
 )
+const selectedAnalysisReviewRunId = computed(() => {
+  const id = selectedActionEvent.value?.analysisRunId ?? null
+  return id && id !== 'human-ball-event' ? id : null
+})
+const selectedAnalysisReview = useAnalysisReview(selectedAnalysisReviewRunId)
 const selectedReplay = computed(() =>
   selectedLocalTrack.value
     ? (eventState.replays.get(selectedLocalTrack.value.rally_id) ?? null)
@@ -239,6 +248,11 @@ const selectedOverviewTeamId = computed(() =>
       ? selectedTeam.value?.id
       : selectedSubjectTeamId.value,
 )
+const routeMapSubjectRole = computed<'player' | 'team' | null>(() => {
+  if (viewMode.value === 'teams') return 'team'
+  if (viewMode.value === 'players' || selectedMappedPlayer.value) return 'player'
+  return null
+})
 const routeMapSideLabels = computed<{
   left: CoachRouteMapSideLabel
   right: CoachRouteMapSideLabel
@@ -309,6 +323,10 @@ const routeMapSideLabels = computed<{
       teamShortName: team?.shortName || team?.name || (side === 'left' ? '左側' : '右側'),
       teamName: team?.name,
       tone: teamTone(team?.id),
+      subjectRole:
+        routeMapSubjectRole.value && routeMapSubjectSide.value === side
+          ? routeMapSubjectRole.value
+          : undefined,
     }
   }
 
@@ -376,9 +394,12 @@ const selectedRallyEvents = computed(() => {
     }))
     .sort((left, right) => Number(BigInt(left.anchorTimeUs) - BigInt(right.anchorTimeUs)))
 })
-watch(filteredEvents, value => {
-  if (selectedActionEvent.value && !value.some(event => event.id === selectedActionEvent.value?.id))
-    selectedActionEvent.value = null
+// The replay dialog can navigate through every contact in the rally, including
+// events outside the page's current action filter. Do not close it when that
+// list changes; only a deliberate subject/view change should dismiss it.
+watch([viewMode, selectedPlayerId, selectedTrackKey, selectedTeamId], () => {
+  selectedActionEvent.value = null
+  focusedActionEvent.value = null
 })
 const allActionEventAnchors = computed(() =>
   (analytics.value?.action_events ?? []).map(event => ({
@@ -415,6 +436,131 @@ const selectedActionReplay = computed(() =>
 const selectedActionReplayLoading = computed(() =>
   selectedActionEvent.value ? eventState.isReplayLoading(selectedActionEvent.value.rallyId) : false,
 )
+type CoachActorOption = {
+  id: string
+  label: string
+  teamId: string
+  teamLabel: string
+  jerseyNumber: string
+  playerName: string
+  position: RosterPosition
+  disabled?: boolean
+  disabledReason?: string
+}
+const actorOptions = computed<CoachActorOption[]>(() =>
+  (analytics.value?.players ?? []).map(player => ({
+    id: player.roster_entry_id,
+    label: `#${player.jersey_number} ${player.name}`,
+    teamId: player.team_id,
+    teamLabel:
+      analytics.value?.teams.find(team => team.id === player.team_id)?.shortName ?? '未分隊',
+    jerseyNumber: player.jersey_number,
+    playerName: player.name,
+    position: player.position,
+  })),
+)
+
+function replayContactForEvent(
+  event: CoachPlayerActionEvent | null,
+  replay: NonNullable<typeof selectedActionReplay.value>,
+) {
+  const contacts = replay.analysis?.contact_events ?? []
+  if (!event || !contacts.length) return null
+  const exact = contacts.find(contact => contact.anchor_time_us === event.anchorTimeUs)
+  if (exact) return exact
+  const target = BigInt(event.anchorTimeUs)
+  return contacts.reduce((closest, contact) => {
+    if (!closest) return contact
+    const closestDistance =
+      BigInt(closest.anchor_time_us) > target
+        ? BigInt(closest.anchor_time_us) - target
+        : target - BigInt(closest.anchor_time_us)
+    const distance =
+      BigInt(contact.anchor_time_us) > target
+        ? BigInt(contact.anchor_time_us) - target
+        : target - BigInt(contact.anchor_time_us)
+    return distance < closestDistance ? contact : closest
+  }, contacts[0] ?? null)
+}
+
+const selectedActionContact = computed(() =>
+  selectedActionEvent.value && selectedActionReplay.value
+    ? replayContactForEvent(selectedActionEvent.value, selectedActionReplay.value)
+    : null,
+)
+const selectedActionActorId = computed(() => {
+  const eventId = selectedActionEvent.value?.id
+  if (!eventId) return null
+  if (actionActorOverrides.value.has(eventId))
+    return actionActorOverrides.value.get(eventId) ?? null
+  return selectedActionContact.value?.ball_event?.actor?.roster_entry_id ?? null
+})
+const selectedActionActorOptions = computed(() => {
+  const replay = selectedActionReplay.value
+  const contact = selectedActionContact.value
+  if (!replay?.analysis || !contact) return actorOptions.value
+  const frame = BigInt(contact.resolved_frame_index ?? contact.anchor_frame_index)
+  const available = new Set(
+    replay.analysis.tracks
+      .filter(
+        track =>
+          BigInt(track.first_frame_index) <= frame && BigInt(track.last_frame_index) >= frame,
+      )
+      .map(track => track.identity?.roster_entry_id)
+      .filter((id): id is string => Boolean(id)),
+  )
+  return actorOptions.value.map(option => ({
+    ...option,
+    disabled: !available.has(option.id),
+    disabledReason: available.has(option.id) ? undefined : '此回合目前沒有可用的人物軌跡',
+  }))
+})
+
+function trackForActor(
+  replay: NonNullable<typeof selectedActionReplay.value>,
+  contact: NonNullable<typeof selectedActionContact.value>,
+  actorRosterEntryId: string,
+) {
+  const frame = BigInt(contact.resolved_frame_index ?? contact.anchor_frame_index)
+  return replay.analysis?.tracks.find(
+    track =>
+      track.identity?.roster_entry_id === actorRosterEntryId &&
+      BigInt(track.first_frame_index) <= frame &&
+      BigInt(track.last_frame_index) >= frame,
+  )
+}
+
+async function correctActionActor(actorRosterEntryId: string | null) {
+  const event = selectedActionEvent.value
+  const replay = selectedActionReplay.value
+  const contact = selectedActionContact.value
+  if (!event || !replay || !contact) return
+  if (!selectedAnalysisReviewRunId.value) {
+    actorCorrectionError.value = '這筆球路沒有可編輯的分析版本，請回標記端修正'
+    return
+  }
+  actorCorrectionPending.value = true
+  actorCorrectionError.value = null
+  try {
+    if (actorRosterEntryId === null)
+      selectedAnalysisReview.clearContactActorOverride(contact.key_point_id)
+    else {
+      const track = trackForActor(replay, contact, actorRosterEntryId)
+      if (!track) throw new Error('這名球員在目前擊球畫格沒有可用軌跡')
+      selectedAnalysisReview.setContactActor(contact.key_point_id, track.track_id)
+    }
+    await selectedAnalysisReview.applyChanges()
+    actionActorOverrides.value = new Map(actionActorOverrides.value).set(
+      event.id,
+      actorRosterEntryId,
+    )
+    await eventState.loadReplay(event.rallyId, { force: true })
+  } catch (cause) {
+    actorCorrectionError.value = cause instanceof Error ? cause.message : '球員關聯更新失敗'
+  } finally {
+    actorCorrectionPending.value = false
+  }
+}
 const analyticsErrorMessage = computed(() => {
   const message = analyticsState.error.value?.message
   if (!message) return ''
@@ -1030,7 +1176,6 @@ function teamActionCounts(teamId: string) {
                 :events="filteredEvents"
                 :label="selectedRouteMapLabel"
                 :side-labels="routeMapSideLabels"
-                :subject-label="highlightSubjectLabel"
                 :subject-side="routeMapSubjectSide"
                 :selected-event-id="activeActionEventId"
                 @select="openActionReplay"
@@ -1151,8 +1296,13 @@ function teamActionCounts(teamId: string) {
       :replay="selectedActionReplay"
       :side-labels="routeMapSideLabels"
       :loading="selectedActionReplayLoading"
+      :actor-options="selectedActionActorOptions"
+      :selected-actor-id="selectedActionActorId"
+      :actor-correction-pending="actorCorrectionPending"
+      :actor-correction-error="actorCorrectionError"
       @close="selectedActionEvent = null"
       @select="openActionReplay"
+      @correct-actor="correctActionActor"
     />
   </section>
 </template>

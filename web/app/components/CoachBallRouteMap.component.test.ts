@@ -67,6 +67,26 @@ describe('CoachBallRouteMap', () => {
     expect(wrapper.text()).not.toContain('[隊伍方]')
   })
 
+  it('shows the current selection role beside the owning court side', () => {
+    const wrapper = mount(CoachBallRouteMap, {
+      props: {
+        events,
+        label: '殺球',
+        subjectSide: 'left',
+        sideLabels: {
+          left: { teamShortName: 'IRI', subjectRole: 'player' },
+          right: { teamShortName: 'ALG' },
+        },
+      },
+    })
+
+    expect(wrapper.get('.court-side-name--left').text().replace(/\s+/g, ' ')).toContain(
+      'IRI [選手側]',
+    )
+    expect(wrapper.text()).toContain('ALG')
+    expect(wrapper.get('.court-side-name--right').text()).not.toContain('選手側')
+  })
+
   it('marks a failed route at its landing point', () => {
     const failedEvent = { ...events[0]!, outcome: 'lost' as const }
     const wrapper = mount(CoachBallRouteMap, {
