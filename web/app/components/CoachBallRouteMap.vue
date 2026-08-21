@@ -12,6 +12,7 @@ type TeamTone = 'blue' | 'red'
 
 export interface CoachRouteMapSideLabel {
   teamShortName: string
+  teamName?: string
   tone?: TeamTone
 }
 
@@ -21,14 +22,16 @@ type CoachRouteMapSideLabels = {
 }
 
 const DEFAULT_SIDE_LABELS: CoachRouteMapSideLabels = {
-  left: { teamShortName: '—' },
-  right: { teamShortName: '—' },
+  left: { teamShortName: '左側' },
+  right: { teamShortName: '右側' },
 }
 
 const props = defineProps<{
   events: CoachPlayerActionEvent[]
   label: string
   sideLabels?: CoachRouteMapSideLabels
+  subjectLabel?: string
+  subjectSide?: 'left' | 'right' | null
   selectedEventId?: string | null
 }>()
 const emit = defineEmits<{
@@ -110,16 +113,36 @@ function isActive(eventId: string) {
 function isHeatSpotActive(eventIds: string[]) {
   return !activeEventId.value || eventIds.includes(activeEventId.value)
 }
+
+function outcomeLabel(event: CoachPlayerActionEvent) {
+  return event.outcome === 'won' ? '成功' : event.outcome === 'lost' ? '失敗' : '未判定'
+}
+
+function outcomeMarkPath(event: CoachPlayerActionEvent) {
+  if (!event.routeEnd) return ''
+  const x = courtX(event.routeEnd.x)
+  const y = courtY(event.routeEnd.y)
+  if (event.outcome === 'lost')
+    return `M ${x - 1.35} ${y - 1.35} L ${x + 1.35} ${y + 1.35} M ${x + 1.35} ${y - 1.35} L ${x - 1.35} ${y + 1.35}`
+  if (event.outcome === 'won')
+    return `M ${x - 1.6} ${y} L ${x - 0.45} ${y + 1.2} L ${x + 1.8} ${y - 1.45}`
+  return ''
+}
 </script>
 
 <template>
   <article class="route-map">
     <header class="route-map__header">
-      <div>
+      <div class="route-map__title">
         <span class="route-map__icon"><MapPinnedIcon :size="17" /></span>
-        <span>
+        <span class="route-map__title-copy">
           <strong>{{ label }}</strong>
           <small>{{ routeEvents.length }} 條完整球路 · {{ landingEvents.length }} 個落點</small>
+          <span v-if="subjectLabel" class="route-map__subject">
+            <span class="route-map__subject-dot" aria-hidden="true" />
+            <span class="route-map__subject-value">分析對象：{{ subjectLabel }}</span>
+            <b v-if="subjectSide"> · {{ subjectSide === 'left' ? '左側' : '右側' }}</b>
+          </span>
         </span>
       </div>
       <div class="route-map__modes" aria-label="球路顯示模式">
@@ -183,6 +206,7 @@ function isHeatSpotActive(eventIds: string[]) {
             <text
               x="1"
               y="-10"
+              :title="sideLabels.left.teamName || sideLabels.left.teamShortName"
               :class="[
                 'court-side-name',
                 'court-side-name--left',
@@ -194,6 +218,7 @@ function isHeatSpotActive(eventIds: string[]) {
             <text
               x="179"
               y="-10"
+              :title="sideLabels.right.teamName || sideLabels.right.teamShortName"
               :class="[
                 'court-side-name',
                 'court-side-name--right',
@@ -217,6 +242,7 @@ function isHeatSpotActive(eventIds: string[]) {
               :key="event.id"
               :class="[
                 'route-line',
+                `route-outcome-${event.outcome}`,
                 {
                   selected: isActive(event.id),
                   faded: !isActive(event.id),
@@ -235,38 +261,88 @@ function isHeatSpotActive(eventIds: string[]) {
                 :marker-end="routeArrowUrl"
                 @click="openEvent(event)"
               />
-              <circle
-                v-if="event.routeStart"
-                class="route-start"
-                :cx="courtX(event.routeStart.x)"
-                :cy="courtY(event.routeStart.y)"
-                r="2.8"
-              />
-              <circle
-                v-if="event.routeEnd"
-                class="route-end-ring"
-                :cx="courtX(event.routeEnd.x)"
-                :cy="courtY(event.routeEnd.y)"
-                r="4.2"
-              />
-              <circle
-                v-if="event.routeEnd"
-                class="route-end"
-                :cx="courtX(event.routeEnd.x)"
-                :cy="courtY(event.routeEnd.y)"
-                r="2.2"
-              />
               <path
                 class="route-hit-target"
                 :d="routeCurve(event, index)"
                 role="button"
                 tabindex="0"
-                :aria-label="`總回合 ${event.rallyOrdinal} ${event.actionLabel}，開啟短回放`"
+                :aria-label="`總回合 ${event.rallyOrdinal} ${event.actionLabel}，${outcomeLabel(event)}，開啟短回放`"
                 @click="openEvent(event)"
                 @focus="setHoveredEvent(event)"
                 @blur="setHoveredEvent(null)"
                 @keydown.enter.space.prevent="openEvent(event)"
               />
+            </g>
+          </g>
+          <g v-if="displayMode === 'routes'" class="route-marker-layer" aria-hidden="true">
+            <g
+              v-for="event in routeEvents"
+              :key="`markers:${event.id}`"
+              :class="[
+                'route-marker',
+                `route-outcome-${event.outcome}`,
+                {
+                  selected: isActive(event.id),
+                  faded: !isActive(event.id),
+                },
+              ]"
+            >
+              <g v-if="event.routeStart" class="route-start-marker">
+                <circle
+                  class="route-start"
+                  :cx="courtX(event.routeStart.x)"
+                  :cy="courtY(event.routeStart.y)"
+                  r="4.8"
+                />
+                <circle
+                  class="route-start-core"
+                  :cx="courtX(event.routeStart.x)"
+                  :cy="courtY(event.routeStart.y)"
+                  r="2.1"
+                />
+                <text
+                  v-if="activeEventId && isActive(event.id)"
+                  class="route-marker-label"
+                  :x="courtX(event.routeStart.x)"
+                  :y="courtY(event.routeStart.y) - 6"
+                >
+                  起
+                </text>
+              </g>
+              <g v-if="event.routeEnd" class="route-end-marker">
+                <circle
+                  class="route-end-ring"
+                  :cx="courtX(event.routeEnd.x)"
+                  :cy="courtY(event.routeEnd.y)"
+                  r="5"
+                />
+                <circle
+                  class="route-end"
+                  :cx="courtX(event.routeEnd.x)"
+                  :cy="courtY(event.routeEnd.y)"
+                  r="2.2"
+                />
+                <text
+                  v-if="activeEventId && isActive(event.id)"
+                  class="route-marker-label route-marker-label--end"
+                  :x="courtX(event.routeEnd.x)"
+                  :y="courtY(event.routeEnd.y) + 9"
+                >
+                  落
+                </text>
+                <path
+                  v-if="event.outcome === 'won' || event.outcome === 'lost'"
+                  class="route-outcome-glyph"
+                  :d="outcomeMarkPath(event)"
+                />
+                <circle
+                  v-else
+                  class="route-outcome-dot"
+                  :cx="courtX(event.routeEnd.x)"
+                  :cy="courtY(event.routeEnd.y)"
+                  r="0.8"
+                />
+              </g>
             </g>
           </g>
 
@@ -292,7 +368,7 @@ function isHeatSpotActive(eventIds: string[]) {
               ]"
               role="button"
               tabindex="0"
-              :aria-label="`總回合 ${event.rallyOrdinal} ${event.actionLabel}落點，開啟短回放`"
+              :aria-label="`總回合 ${event.rallyOrdinal} ${event.actionLabel}落點，${outcomeLabel(event)}，開啟短回放`"
               :style="{ '--route-color': actionColor(event.actionKey) }"
               :cx="courtX(event.routeEnd!.x)"
               :cy="courtY(event.routeEnd!.y)"
@@ -326,7 +402,10 @@ function isHeatSpotActive(eventIds: string[]) {
     <footer class="route-map__legend">
       <span><i class="legend-start" />起點</span>
       <span><i class="legend-end" />終點／落點</span>
-      <span>流動虛線由起點前往箭頭；場外座標只在場內顯示。</span>
+      <span><i class="legend-status legend-status--won">✓</i>成功</span>
+      <span><i class="legend-status legend-status--lost">×</i>失敗</span>
+      <span><i class="legend-status legend-status--unknown">·</i>未判定</span>
+      <span>虛線由起點前往箭頭；箭頭方向就是球路方向。</span>
     </footer>
   </article>
 </template>
@@ -354,6 +433,11 @@ function isHeatSpotActive(eventIds: string[]) {
   align-items: center;
   gap: 10px;
 }
+.route-map__title-copy {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
 .route-map__header > div:first-child > span:last-child {
   min-width: 0;
   display: grid;
@@ -370,6 +454,34 @@ function isHeatSpotActive(eventIds: string[]) {
   color: #8e9ba6;
   font-size: 0.59rem;
   font-variant-numeric: tabular-nums;
+}
+.route-map__subject {
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  overflow: hidden;
+  color: #b8c7d3;
+  font-size: 0.57rem;
+  line-height: 1.2;
+}
+.route-map__subject-dot {
+  width: 5px;
+  height: 5px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: #72b7ff;
+}
+.route-map__subject-value {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.route-map__subject b {
+  flex: 0 0 auto;
+  color: #ecf4f9;
+  font-weight: 720;
 }
 .route-map__icon {
   width: 34px;
@@ -453,10 +565,14 @@ function isHeatSpotActive(eventIds: string[]) {
 }
 .court-side-names {
   fill: #a8c0ca;
-  font-size: 4.3px;
+  font-size: 4.8px;
   font-weight: 780;
   letter-spacing: 0.45px;
   opacity: 0.9;
+  paint-order: stroke;
+  stroke: #0d151c;
+  stroke-linejoin: round;
+  stroke-width: 1.4px;
 }
 .court-side-name--left {
   text-anchor: start;
@@ -474,6 +590,76 @@ function isHeatSpotActive(eventIds: string[]) {
 .landing-point {
   cursor: pointer;
   outline: none;
+}
+.route-marker-layer {
+  pointer-events: none;
+}
+.route-marker {
+  opacity: 1;
+  transition: opacity 160ms ease-out;
+}
+.route-marker.faded {
+  opacity: 0.18;
+}
+.route-start,
+.route-start-core,
+.route-end-ring,
+.route-end {
+  vector-effect: non-scaling-stroke;
+}
+.route-start {
+  fill: #0d151c;
+  stroke: #72b7ff;
+  stroke-width: 1.25;
+}
+.route-start-core {
+  fill: #f7fafc;
+  stroke: #72b7ff;
+  stroke-width: 0.55;
+}
+.route-end-ring {
+  fill: #0d151c;
+  stroke: var(--outcome-color, #ffb454);
+  stroke-width: 1.45;
+}
+.route-end {
+  fill: var(--outcome-color, #ffb454);
+  stroke: #fff;
+  stroke-width: 0.5;
+}
+.route-outcome-won {
+  --outcome-color: #42d98a;
+}
+.route-outcome-lost {
+  --outcome-color: #ff6f70;
+}
+.route-outcome-unknown {
+  --outcome-color: #ffb454;
+}
+.route-outcome-glyph {
+  fill: none;
+  stroke: #fff;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 0.9;
+  vector-effect: non-scaling-stroke;
+}
+.route-outcome-dot {
+  fill: #fff;
+  opacity: 0.92;
+}
+.route-marker-label {
+  fill: #f7fafc;
+  font-size: 3.4px;
+  font-weight: 800;
+  paint-order: stroke;
+  stroke: #0d151c;
+  stroke-linejoin: round;
+  stroke-width: 1.15px;
+  text-anchor: middle;
+}
+.route-marker-label--end {
+  fill: #ffb4ab;
 }
 .route-hit-target {
   fill: none;
@@ -526,17 +712,6 @@ function isHeatSpotActive(eventIds: string[]) {
   fill: var(--route-color);
   stroke: #0d151c;
   stroke-width: 1;
-}
-.route-line .route-start {
-  fill: #f7fafc;
-  stroke: var(--route-color);
-  stroke-width: 1.4;
-}
-.route-line .route-end-ring {
-  fill: none;
-  stroke: var(--route-color);
-  stroke-width: 1.25;
-  opacity: 0.9;
 }
 .landing-heat {
   mix-blend-mode: screen;
@@ -611,6 +786,29 @@ function isHeatSpotActive(eventIds: string[]) {
   height: 8px;
   display: inline-block;
   border-radius: 50%;
+}
+.route-map__legend .legend-status {
+  width: 14px;
+  height: 14px;
+  display: inline-grid;
+  place-items: center;
+  border-radius: 50%;
+  font-size: 0.7rem;
+  font-style: normal;
+  font-weight: 800;
+  line-height: 1;
+}
+.legend-status--won {
+  background: #d9f8e7;
+  color: #168554;
+}
+.legend-status--lost {
+  background: #ffe1e1;
+  color: #c63f47;
+}
+.legend-status--unknown {
+  background: #fff0d5;
+  color: #a46716;
 }
 .legend-start {
   border: 2px solid #69b7ff;

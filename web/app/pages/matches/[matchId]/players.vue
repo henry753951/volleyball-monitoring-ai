@@ -221,6 +221,17 @@ const selectedSubjectTeamId = computed(() => {
   if (viewMode.value === 'teams') return selectedTeam.value?.id ?? null
   return selectedMappedPlayer.value?.team_id ?? null
 })
+const routeMapSubjectSide = computed<'left' | 'right' | null>(() => {
+  const activeEvent = focusedActionEvent.value ?? selectedActionEvent.value
+  if (activeEvent?.courtSide) return activeEvent.courtSide
+
+  const selectedSides = new Set(
+    selectedTracks.value
+      .map(track => (typeof track.court_side === 'string' ? track.court_side.toLowerCase() : null))
+      .filter((side): side is 'left' | 'right' => side === 'left' || side === 'right'),
+  )
+  return selectedSides.size === 1 ? [...selectedSides][0]! : null
+})
 const selectedOverviewTeamId = computed(() =>
   viewMode.value === 'players'
     ? selectedPlayerTeam.value?.id
@@ -240,11 +251,63 @@ const routeMapSideLabels = computed<{
     eventState.replays.get(focusEvent?.rallyId ?? '') ??
     eventState.replays.get(fallbackEvent?.rallyId ?? '') ??
     null
+  const teamById = new Map((analytics.value?.teams ?? []).map(team => [team.id, team]))
+  const teamIdBySide = new Map<'left' | 'right', string>()
+
+  // Canonical action events carry the authoritative team-to-side projection.
+  // Use it immediately so the map is labelled before an optional replay query
+  // resolves, then let the replay below replace it with the exact rally view.
+  const canonicalEvents = [...(analytics.value?.action_events ?? [])]
+    .filter(
+      event => selectedSetNumber.value === null || event.set_number === selectedSetNumber.value,
+    )
+    .sort((left, right) => {
+      const leftAnchor = /^\d+$/.test(left.anchor_time_us) ? BigInt(left.anchor_time_us) : null
+      const rightAnchor = /^\d+$/.test(right.anchor_time_us) ? BigInt(right.anchor_time_us) : null
+      if (leftAnchor !== null && rightAnchor !== null) {
+        if (leftAnchor !== rightAnchor) return leftAnchor > rightAnchor ? -1 : 1
+      } else if (leftAnchor !== null) return -1
+      else if (rightAnchor !== null) return 1
+      return right.rally_ordinal - left.rally_ordinal
+    })
+  for (const event of canonicalEvents) {
+    const side =
+      event.court_side === 'left' || event.court_side === 'right' ? event.court_side : null
+    if (side && event.team_id && !teamIdBySide.has(side)) teamIdBySide.set(side, event.team_id)
+  }
+
+  for (const track of selectedTracks.value) {
+    const side = typeof track.court_side === 'string' ? track.court_side.toLowerCase() : null
+    if ((side === 'left' || side === 'right') && track.team_id && !teamIdBySide.has(side))
+      teamIdBySide.set(side, track.team_id)
+  }
+
+  if (focusEvent) {
+    const canonical = canonicalEvents.find(event => event.id === focusEvent.id)
+    const side = focusEvent.courtSide
+    if (side && canonical?.team_id) teamIdBySide.set(side, canonical.team_id)
+  }
+
+  if (replay) {
+    teamIdBySide.set('left', replay.rally.left_team.id)
+    teamIdBySide.set('right', replay.rally.right_team.id)
+  }
+
+  // Most analytics rows identify the actor's side only. If that gives us one
+  // team, the other side is unambiguous for a two-team match.
+  if (teamIdBySide.size === 1 && teamById.size === 2) {
+    const knownTeamId = [...teamIdBySide.values()][0]
+    const otherTeam = [...teamById.values()].find(team => team.id !== knownTeamId)
+    const missingSide = teamIdBySide.has('left') ? 'right' : 'left'
+    if (otherTeam) teamIdBySide.set(missingSide, otherTeam.id)
+  }
 
   function labelForSide(side: 'left' | 'right'): CoachRouteMapSideLabel {
-    const team = side === 'left' ? replay?.rally.left_team : replay?.rally.right_team
+    const replayTeam = side === 'left' ? replay?.rally.left_team : replay?.rally.right_team
+    const team = replayTeam ?? teamById.get(teamIdBySide.get(side) ?? '')
     return {
-      teamShortName: team?.shortName || team?.name || '—',
+      teamShortName: team?.shortName || team?.name || (side === 'left' ? '左側' : '右側'),
+      teamName: team?.name,
       tone: teamTone(team?.id),
     }
   }
@@ -271,6 +334,19 @@ const filteredEvents = computed(() =>
     ? eventState.events.value
     : eventState.events.value.filter(event => event.actionKey === selectedActionKey.value),
 )
+const selectedActionOutcome = computed(() => {
+  const wins = filteredEvents.value.filter(event => event.outcome === 'won').length
+  const losses = filteredEvents.value.filter(event => event.outcome === 'lost').length
+  const unknown = filteredEvents.value.length - wins - losses
+  const resolved = wins + losses
+  return {
+    wins,
+    losses,
+    unknown,
+    resolved,
+    rate: resolved ? wins / resolved : null,
+  }
+})
 const activeActionEventId = computed(
   () => focusedActionEvent.value?.id ?? selectedActionEvent.value?.id ?? null,
 )
@@ -902,18 +978,28 @@ function teamActionCounts(teamId: string) {
             <div class="action-overview">
               <aside class="action-rate" aria-label="球路資料摘要">
                 <div class="action-rate__primary">
-                  <span>球路座標覆蓋</span>
+                  <span>成功率</span>
                   <strong>{{
-                    selectedRouteSummary.coverage === null
+                    selectedActionOutcome.rate === null
                       ? '—'
-                      : `${(selectedRouteSummary.coverage * 100).toFixed(1)}%`
+                      : `${(selectedActionOutcome.rate * 100).toFixed(1)}%`
                   }}</strong>
                   <p>
-                    {{ selectedRouteSummary.completePathCount }} /
-                    {{ selectedRouteSummary.eligiblePathCount }} 條相鄰球路具完整座標
+                    {{ selectedActionOutcome.wins }} 勝 · {{ selectedActionOutcome.losses }} 負 ·
+                    {{ selectedActionOutcome.unknown }} 未判定
                   </p>
                 </div>
                 <dl>
+                  <div>
+                    <dt>座標覆蓋</dt>
+                    <dd>
+                      {{
+                        selectedRouteSummary.coverage === null
+                          ? '—'
+                          : `${(selectedRouteSummary.coverage * 100).toFixed(1)}%`
+                      }}
+                    </dd>
+                  </div>
                   <div>
                     <dt>球種事件</dt>
                     <dd>{{ filteredEvents.length }}</dd>
@@ -944,6 +1030,8 @@ function teamActionCounts(teamId: string) {
                 :events="filteredEvents"
                 :label="selectedRouteMapLabel"
                 :side-labels="routeMapSideLabels"
+                :subject-label="highlightSubjectLabel"
+                :subject-side="routeMapSubjectSide"
                 :selected-event-id="activeActionEventId"
                 @select="openActionReplay"
                 @focus="focusActionEvent"
@@ -1865,7 +1953,7 @@ function teamActionCounts(teamId: string) {
 }
 .action-rate dl {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 20px;
   margin: 0;
   padding: 0 22px;
@@ -1887,6 +1975,10 @@ function teamActionCounts(teamId: string) {
   font-size: 1.2rem;
   font-weight: 760;
   font-variant-numeric: tabular-nums;
+}
+.action-rate dl > div:first-child dd {
+  color: #0b67c2;
+  font-size: 1.3rem;
 }
 .action-rate > :deep(.highlight-export) {
   width: 100%;
@@ -2048,6 +2140,10 @@ function teamActionCounts(teamId: string) {
     grid-template-columns: minmax(165px, 0.8fr) auto;
     gap: 14px;
   }
+  .action-rate dl {
+    gap: 12px;
+    padding-inline: 12px;
+  }
   .action-rate > :deep(.highlight-export) {
     grid-column: 1 / -1;
     max-width: none;
@@ -2126,6 +2222,11 @@ function teamActionCounts(teamId: string) {
   .action-toolbar {
     align-items: flex-start;
     flex-direction: column;
+  }
+  .action-rate dl {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 12px;
+    padding-inline: 0;
   }
   .action-filters {
     justify-content: flex-start;

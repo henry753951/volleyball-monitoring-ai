@@ -564,8 +564,8 @@ da8771b444ef1a9f2fc7b5ee68fb4597514e98cc2394d4a0fb4f3cb71c042e2e  ./web/app/comp
 2ac3f37cce09a9ca2619d6d4a8cb647a3a5f34195f6232d7fa5198b1cee24197  ./web/app/components/CaptureControlDialog.vue
 e58e564652b1e81206444c0f426239a09641f5ec95de64255a7f7fb46cedd350  ./web/app/components/ClipDownloadDialog.component.test.ts
 e8a1ef7506d1db6e108e48db64e5b1b16416be2fab034b8ff326624e360d7634  ./web/app/components/ClipDownloadDialog.vue
-b5d2a6748197409902b1ed1787fe78eedba3dc3c5d92bebb3dce94643feace90  ./web/app/components/CoachBallRouteMap.component.test.ts
-fe949f3fd97b08060aedc88ada6794d76c9391baf5987237009e9faba774e785  ./web/app/components/CoachBallRouteMap.vue
+814b2baca16dae54c1dff58548e1036f34e239cc23e8c76be7aa42e1804f772b  ./web/app/components/CoachBallRouteMap.component.test.ts
+ee5957fc9ab5904c0120096d593c981fec3d229424cfe419636136d8671bd31c  ./web/app/components/CoachBallRouteMap.vue
 2a744020c454725bdaa4b4b4aa9f7469ff9695eb76daa80418f9108eb83a7f8a  ./web/app/components/CoachEventReplayDialog.vue
 d757f9f0bccc0268c6087fc180eefff79d2adc8f5ff8b64e00328af5cb53031f  ./web/app/components/CoachHighlightExport.vue
 51fab1de62997d579da78a7e0f7ff73580eb4c661e2fdadd699292590db45fd2  ./web/app/components/CoachTrackIdentityEditor.vue
@@ -695,7 +695,7 @@ ffda57a925b659c33ea87ab67aedd169120195cf27497ab8eceaf14dd7e56ba3  ./web/app/page
 69a0f7dd20a08ee17460b15c5d24c93b9150a59017c75e8ecc1b419f0a7cb9f3  ./web/app/pages/matches/[matchId]/history.vue
 6bc7e2bd0d10649e516eb38b03320c3341ef2cbd3629a6400882d09005fabe97  ./web/app/pages/matches/[matchId]/live.vue
 69a0f7dd20a08ee17460b15c5d24c93b9150a59017c75e8ecc1b419f0a7cb9f3  ./web/app/pages/matches/[matchId]/paths.vue
-2ef6a5f52d0e96e581dc96ad74b7d22cfcd8baf40e6f82ad904e0713d5c88236  ./web/app/pages/matches/[matchId]/players.vue
+09bd335d5c5a21c2332d7ad12b27158c3960de53e4dc93538a2b90f261c019b1  ./web/app/pages/matches/[matchId]/players.vue
 d91f5d2e6cadb76eab47ffd311ea76c23f0a875b8a852a3c29260faf9acc2de4  ./web/app/pages/matches/[matchId]/rallies.vue
 692fefe7674aedb5950fc26b7526f6ee98a5b00579fc8126b0f15228df2dc2b6  ./web/app/pages/matches/[matchId]/replay/[rallyId].vue
 763df57541cc7126a3bbc5621f1e0270c4623b5fecd34cc526b91d90a4a5779a  ./web/app/pages/matches/[matchId]/stats.vue
