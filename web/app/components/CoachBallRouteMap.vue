@@ -5,6 +5,7 @@ import {
   Target as TargetIcon,
 } from 'lucide-vue-next'
 import { computed, ref, useId } from 'vue'
+import { projectCanonicalCourtPoint } from '~/utils/coachCourtProjection'
 import { actionColor, type CoachPlayerActionEvent } from '~/utils/coachPlayerActions'
 
 type DisplayMode = 'routes' | 'landings'
@@ -82,8 +83,9 @@ const landingHeatSpots = computed(() => {
   }))
 })
 
-const courtX = (value: number) => value * 180
-const courtY = (value: number) => (1 - value) * 90
+const courtPoint = (point: { x: number; y: number }) => projectCanonicalCourtPoint(point, 180, 90)
+const courtX = (value: number) => courtPoint({ x: value, y: 0 }).x
+const courtY = (value: number) => courtPoint({ x: 0, y: value }).y
 
 function routeCurve(event: CoachPlayerActionEvent, index: number) {
   if (!event.routeStart || !event.routeEnd) return ''

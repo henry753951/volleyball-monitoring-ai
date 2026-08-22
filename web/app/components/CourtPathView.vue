@@ -3,6 +3,7 @@ import { ANALYSIS_PLAYER_FLAG, type AnalysisFrameChunk } from '@volleyball-monit
 import { computed } from 'vue'
 import type { ReplayContactEvent, ReplayPath } from '~/lib/coachDomain'
 import type { RosterPosition } from '~/lib/coreDomain'
+import { projectCanonicalCourtPoint } from '~/utils/coachCourtProjection'
 import { actionColor, coachBallType } from '~/utils/coachPlayerActions'
 import { overlayTrackIdentityLabel } from '~/utils/volleyballOverlayRenderer'
 
@@ -132,8 +133,7 @@ const focusedTrackId = computed(
     null,
 )
 
-const x = (value: number) => value * 100
-const y = (value: number) => (1 - value) * 200
+const courtPoint = (point: { x: number; y: number }) => projectCanonicalCourtPoint(point, 200, 100)
 const isFocused = (pathIndex: number) => pathIndex === focusedPathIndex.value
 const pathOpacity = (pathIndex: number) =>
   isFocused(pathIndex)
@@ -141,10 +141,12 @@ const pathOpacity = (pathIndex: number) =>
     : Math.max(0.16, 0.58 - Math.abs(pathIndex - focusedPathIndex.value) * 0.1)
 
 function curve(line: CurveLine) {
-  const startX = x(line.start.court_pos.y)
-  const startY = y(line.start.court_pos.x)
-  const endX = x(line.end.court_pos.y)
-  const endY = y(line.end.court_pos.x)
+  const start = courtPoint(line.start.court_pos)
+  const end = courtPoint(line.end.court_pos)
+  const startX = start.x
+  const startY = start.y
+  const endX = end.x
+  const endY = end.y
   const dx = endX - startX
   const dy = endY - startY
   const length = Math.max(1, Math.hypot(dx, dy))
@@ -218,7 +220,8 @@ const currentPlayers = computed(() => {
       continue
     const hitter = focusedTrackId.value === trackId
     if (!props.showOtherPlayers && !hitter) continue
-    players.push({ trackId, x: x(position.y), y: y(position.x), hitter })
+    const displayPoint = courtPoint(position)
+    players.push({ trackId, x: displayPoint.x, y: displayPoint.y, hitter })
   }
   return players
 })
@@ -301,10 +304,15 @@ const focusedDuration = computed(() => {
         >
       </div>
     </div>
-    <span class="court-team court-team--far" :class="`team-tone-${teamTones.right ?? 'red'}`">{{
-      rightTeam
-    }}</span>
-    <svg viewBox="-18 -20 136 240" role="img" aria-label="2D 球場同步球路">
+    <div class="court-side-labels" aria-label="球場左右側隊伍">
+      <span class="court-team court-team--left" :class="`team-tone-${teamTones.left ?? 'blue'}`">{{
+        leftTeam
+      }}</span>
+      <span class="court-team court-team--right" :class="`team-tone-${teamTones.right ?? 'red'}`">{{
+        rightTeam
+      }}</span>
+    </div>
+    <svg viewBox="-18 -18 236 136" role="img" aria-label="2D 球場同步球路">
       <defs>
         <linearGradient id="court-floor" x1="0" y1="0" x2="0" y2="1">
           <stop stop-color="#20303a" />
@@ -319,14 +327,14 @@ const focusedDuration = computed(() => {
           <feDropShadow dx="0" dy="1.3" stdDeviation="1.4" flood-color="#000" flood-opacity=".6" />
         </filter>
       </defs>
-      <rect x="0" y="0" width="100" height="200" rx="4" fill="url(#court-floor)" />
+      <rect x="0" y="0" width="200" height="100" rx="4" fill="url(#court-floor)" />
       <g class="court-lines" fill="none" stroke="#e7edf2" stroke-width="1.15" opacity=".66">
-        <rect x="2" y="2" width="96" height="196" />
-        <line class="court-net" x1="2" y1="100" x2="98" y2="100" stroke="#fff" stroke-width="2.6" />
-        <line x1="2" y1="66.67" x2="98" y2="66.67" opacity=".42" />
-        <line x1="2" y1="133.33" x2="98" y2="133.33" opacity=".42" />
+        <rect x="2" y="2" width="196" height="96" />
+        <line class="court-net" x1="100" y1="2" x2="100" y2="98" stroke="#fff" stroke-width="2.6" />
+        <line x1="66.67" y1="2" x2="66.67" y2="98" opacity=".42" />
+        <line x1="133.33" y1="2" x2="133.33" y2="98" opacity=".42" />
       </g>
-      <text x="50" y="96" text-anchor="middle" fill="#ffffff70" font-size="4" letter-spacing=".7">
+      <text x="100" y="48" text-anchor="middle" fill="#ffffff70" font-size="4" letter-spacing=".7">
         NET
       </text>
 
@@ -377,14 +385,14 @@ const focusedDuration = computed(() => {
         <path class="court-path__hit-target" :d="curvePath(line)" aria-hidden="true" />
         <circle
           class="court-path__start"
-          :cx="x(line.start.court_pos.y)"
-          :cy="y(line.start.court_pos.x)"
+          :cx="courtPoint(line.start.court_pos).x"
+          :cy="courtPoint(line.start.court_pos).y"
           r="2.5"
         />
         <circle
           class="court-path__end"
-          :cx="x(line.end.court_pos.y)"
-          :cy="y(line.end.court_pos.x)"
+          :cx="courtPoint(line.end.court_pos).x"
+          :cy="courtPoint(line.end.court_pos).y"
           r="2.7"
         />
         <g
@@ -394,7 +402,7 @@ const focusedDuration = computed(() => {
           <g
             v-if="showEndpointLabel(line.start.track_id)"
             :class="['court-endpoint-label', `team-tone-${teamToneForTrack(line.start.track_id)}`]"
-            :transform="`translate(${x(line.start.court_pos.y)} ${y(line.start.court_pos.x) - 8})`"
+            :transform="`translate(${courtPoint(line.start.court_pos).x} ${courtPoint(line.start.court_pos).y - 8})`"
           >
             <rect
               :x="-labelWidth(trackLabel(line.start.track_id)) / 2"
@@ -408,7 +416,7 @@ const focusedDuration = computed(() => {
           <g
             v-if="showEndpointLabel(line.end.track_id)"
             :class="['court-endpoint-label', `team-tone-${teamToneForTrack(line.end.track_id)}`]"
-            :transform="`translate(${x(line.end.court_pos.y)} ${y(line.end.court_pos.x) + 12})`"
+            :transform="`translate(${courtPoint(line.end.court_pos).x} ${courtPoint(line.end.court_pos).y + 12})`"
           >
             <rect
               :x="-labelWidth(trackLabel(line.end.track_id)) / 2"
@@ -433,9 +441,6 @@ const focusedDuration = computed(() => {
         />
       </g>
     </svg>
-    <span class="court-team court-team--near" :class="`team-tone-${teamTones.left ?? 'blue'}`">{{
-      leftTeam
-    }}</span>
     <p v-if="!lines.length">尚無可顯示的球路資料</p>
   </div>
 </template>
@@ -445,7 +450,7 @@ const focusedDuration = computed(() => {
   position: relative;
   min-height: 0;
   display: grid;
-  grid-template-rows: 32px 17px minmax(0, 1fr) 17px;
+  grid-template-rows: 32px 20px minmax(0, 1fr);
   justify-items: center;
   overflow: hidden;
   border: 0;
@@ -453,6 +458,20 @@ const focusedDuration = computed(() => {
   background: #0b1218;
   color: #e6ebef;
   box-shadow: none;
+}
+.court-side-labels {
+  z-index: 1;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 0 14px;
+  box-sizing: border-box;
+}
+.court-team--right {
+  justify-content: flex-end;
+  text-align: right;
 }
 .court-view::before {
   position: absolute;

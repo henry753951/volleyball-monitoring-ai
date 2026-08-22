@@ -564,14 +564,14 @@ da8771b444ef1a9f2fc7b5ee68fb4597514e98cc2394d4a0fb4f3cb71c042e2e  ./web/app/comp
 2ac3f37cce09a9ca2619d6d4a8cb647a3a5f34195f6232d7fa5198b1cee24197  ./web/app/components/CaptureControlDialog.vue
 e58e564652b1e81206444c0f426239a09641f5ec95de64255a7f7fb46cedd350  ./web/app/components/ClipDownloadDialog.component.test.ts
 e8a1ef7506d1db6e108e48db64e5b1b16416be2fab034b8ff326624e360d7634  ./web/app/components/ClipDownloadDialog.vue
-aca164e2648eed6431fbed22b5e8c28d4358282ae74d8e47638d4e03a77f34d8  ./web/app/components/CoachBallRouteMap.component.test.ts
-555025fdff2f1ca3940376e805a26c2ebdde525900f6334676c68aa507948748  ./web/app/components/CoachBallRouteMap.vue
+3802f925aed2886a2235edc9d187387f5adfe30a431e77e83651c8a9543678c9  ./web/app/components/CoachBallRouteMap.component.test.ts
+e44dc247525893c6471243aeabf3d23621c81753f30ab4f35906976800c90632  ./web/app/components/CoachBallRouteMap.vue
 45128eb6e201e9822ac1e579494149515cb0ec91adac36bb4d32ffaa12e780d9  ./web/app/components/CoachEventReplayDialog.vue
 d757f9f0bccc0268c6087fc180eefff79d2adc8f5ff8b64e00328af5cb53031f  ./web/app/components/CoachHighlightExport.vue
 51fab1de62997d579da78a7e0f7ff73580eb4c661e2fdadd699292590db45fd2  ./web/app/components/CoachTrackIdentityEditor.vue
 ba3109f41a696d3e7ba6c2fabcad2800edfc17c6798a833b843fcdb6a25e7a8f  ./web/app/components/ConfirmActionDialog.vue
-26aa3fbfc0a71ea9cb59e8f1d4b2711a7855d7a42ad1ba3f178bb750bbf36ab1  ./web/app/components/CourtPathView.component.test.ts
-8c99bffd942a404daf89bd4418c2f6c55e9d2e3a6b59b8043e25fd7bb7685a1b  ./web/app/components/CourtPathView.vue
+12652a2e699b87fbeefcdd8e4a570d711aa88710f638c22419bdba92cfc37fcc  ./web/app/components/CourtPathView.component.test.ts
+0217e82f211031a116d3705288f72da0395aa2ec57f89298cb280b8d8ab08386  ./web/app/components/CourtPathView.vue
 6e88ec91533a667e74b5517e705eda2f2cbe3d8a763decb553dbb40c4bc7a283  ./web/app/components/DvrTimelineDock.component.test.ts
 bc918147fb8c0e58aaab12d291d007d08899c6ff9ae4ec4e612e36dd8f9bbd85  ./web/app/components/DvrTimelineDock.test.ts
 06761fd43d876634ab1cda272902a3e2813b209448c10633f6942a9c66d2f328  ./web/app/components/DvrTimelineDock.vue
@@ -763,6 +763,8 @@ c9231bf41046a8a9b5ac5bdc4b9ac0f88de3fe7ac064a21169b6aefcecfcc50e  ./web/app/util
 faa873c602bdc2782d7fe9536141a5ad1054d70520cf76bf1b43a462e234d549  ./web/app/utils/annotationRouteSelection.ts
 f4b34d16a8a9f00b4a9d48109bd5e49872b8f7fe3aa392a36fec7f4ca75d5971  ./web/app/utils/authBoundary.test.ts
 9228dbaaa10445c562ad615c8786d0a1a301f8cd6d4c794910453b7344f38872  ./web/app/utils/authBoundary.ts
+0b7f03ff3ae5f03585074e99893c8a9043d9331d257334d226efac67a06d605b  ./web/app/utils/coachCourtProjection.test.ts
+1126bf59c61f38812da962ec348ae2aac8324dc331d891acba45173418aa282b  ./web/app/utils/coachCourtProjection.ts
 dfa6443d315d265256d9b68f2612eb69084211435c2f0d80df401f2c5394d237  ./web/app/utils/coachEventReplay.test.ts
 e383191e37886535a59d45862c396d9e7a917f9c0c3ca174969b2c7ca49e0305  ./web/app/utils/coachEventReplay.ts
 a721e1dc62ca9b6275a528b66ae489ea74e20d862043a6a2bef25799f7f7b6b4  ./web/app/utils/coachHighlightFingerprint.test.ts
