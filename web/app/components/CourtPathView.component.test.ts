@@ -138,8 +138,10 @@ describe('CourtPathView', () => {
     const hitTargets = wrapper.findAll('.court-path__hit-target')
     expect(hitTargets).toHaveLength(curves.length)
     expect(hitTargets[0]!.attributes('d')).toBe(curves[0]!.attributes('d'))
-    expect(wrapper.findAll('.court-team')[0]!.classes()).toContain('team-tone-red')
-    expect(wrapper.findAll('.court-team')[1]!.classes()).toContain('team-tone-blue')
+    expect(wrapper.findAll('.court-team')[0]!.classes()).toContain('team-tone-blue')
+    expect(wrapper.findAll('.court-team')[1]!.classes()).toContain('team-tone-red')
+    expect(Number(wrapper.find('.court-path__start').attributes('cx'))).toBeCloseTo(-12)
+    expect(Number(wrapper.find('.court-path__start').attributes('cy'))).toBeCloseTo(24)
 
     await hitTargets[0]!.trigger('click')
     expect(wrapper.emitted('seek')?.[0]).toEqual(['301'])
@@ -161,8 +163,8 @@ describe('CourtPathView', () => {
     })
 
     const startBall = wrapper.findAll('.flight-ball circle').at(-1)!
-    expect(Number(startBall.attributes('cx'))).toBeCloseTo(24)
-    expect(Number(startBall.attributes('cy'))).toBeCloseTo(212)
+    expect(Number(startBall.attributes('cx'))).toBeCloseTo(-12)
+    expect(Number(startBall.attributes('cy'))).toBeCloseTo(24)
     expect(wrapper.text()).toContain('#8')
     expect(wrapper.find('marker').exists()).toBe(false)
 
