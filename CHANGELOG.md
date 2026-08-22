@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.12.3](https://github.com/henry753951/volleyball-monitoring-ai/compare/v1.12.2...v1.12.3) (2026-08-22)
+
+
+### Bug Fixes
+
+* **coach:** align court routes with video orientation ([#161](https://github.com/henry753951/volleyball-monitoring-ai/issues/161)) ([722ff12](https://github.com/henry753951/volleyball-monitoring-ai/commit/722ff129f048eedc81af1befe4267e85a0081eb2))
+
 ## [1.12.2](https://github.com/henry753951/volleyball-monitoring-ai/compare/v1.12.1...v1.12.2) (2026-08-21)
 
 
