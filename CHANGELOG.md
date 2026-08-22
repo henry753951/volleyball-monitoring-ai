@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.12.2](https://github.com/henry753951/volleyball-monitoring-ai/compare/v1.12.1...v1.12.2) (2026-08-21)
+
+
+### Bug Fixes
+
+* stabilize coach replay actor correction and media windows ([#159](https://github.com/henry753951/volleyball-monitoring-ai/issues/159)) ([a89fb15](https://github.com/henry753951/volleyball-monitoring-ai/commit/a89fb155c141576a1640423196844798837418fb))
+
 ## [1.12.1](https://github.com/henry753951/volleyball-monitoring-ai/compare/v1.12.0...v1.12.1) (2026-08-21)
 
 
